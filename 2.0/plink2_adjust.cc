@@ -34,11 +34,13 @@ void InitAdjust(AdjustInfo* adjust_info_ptr, AdjustFileInfo* adjust_file_info_pt
   adjust_file_info_ptr->id_field = nullptr;
   adjust_file_info_ptr->ref_field = nullptr;
   adjust_file_info_ptr->alt_field = nullptr;
+  adjust_file_info_ptr->a1_field = nullptr;
   adjust_file_info_ptr->test_field = nullptr;
   adjust_file_info_ptr->p_field = nullptr;
 }
 
 void CleanupAdjust(AdjustFileInfo* adjust_file_info_ptr) {
+  free_cond(adjust_file_info_ptr->a1_field);
   free_cond(adjust_file_info_ptr->alt_field);
   free_cond(adjust_file_info_ptr->chr_field);
   if (adjust_file_info_ptr->fname) {
@@ -55,6 +57,7 @@ typedef struct AdjAssocResultStruct {
   double ln_pval;
   double chisq;  // do we really need this?...
   uint32_t variant_uidx;
+  uint32_t allele_idx;
 #ifdef __cplusplus
   bool operator<(const struct AdjAssocResultStruct& rhs) const {
     return ln_pval < rhs.ln_pval;
@@ -77,7 +80,7 @@ static inline void adjust_print_ln(const char* output_min_p_str, double ln_pval,
 }
 
 // Now based around ln_pvals, to allow useful comparisons < 5e-324.
-PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char* const* chr_ids, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AdjustInfo* adjust_info_ptr, const double* ln_pvals, const double* chisqs, uint32_t orig_variant_ct, uint32_t max_allele_slen, double ln_pfilter, double output_min_ln, uint32_t skip_gc, uint32_t max_thread_ct, char* outname, char* outname_end) {
+PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char* const* chr_ids, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_include, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* const* loaded_a1, const AdjustInfo* adjust_info_ptr, const double* ln_pvals, const double* chisqs, uintptr_t orig_allele_ct, uint32_t max_allele_slen, double ln_pfilter, double output_min_ln, uint32_t skip_gc, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -85,53 +88,118 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
   PreinitCstream(&css);
   {
     AdjAssocResult* sortbuf;
-    if (BIGSTACK_ALLOC_X(AdjAssocResult, orig_variant_ct, &sortbuf)) {
+    if (BIGSTACK_ALLOC_X(AdjAssocResult, orig_allele_ct, &sortbuf)) {
       goto Multcomp_ret_NOMEM;
     }
-    uint32_t valid_variant_ct = 0;
-    if (chisqs) {
-      uint32_t variant_uidx = 0;
-      if (ln_pvals) {
-        for (uint32_t vidx = 0; vidx < orig_variant_ct; ++vidx, ++variant_uidx) {
-          MovU32To1Bit(variant_include, &variant_uidx);
-          const double cur_chisq = chisqs[vidx];
-          if (cur_chisq >= 0.0) {
-            sortbuf[valid_variant_ct].chisq = cur_chisq;
-            sortbuf[valid_variant_ct].ln_pval = ln_pvals[vidx];
-            sortbuf[valid_variant_ct].variant_uidx = variant_uidx;
-            ++valid_variant_ct;
+    uintptr_t valid_allele_ct = 0;
+    uintptr_t allele_uidx = 0;
+    if (!allele_idx_offsets) {
+      if (chisqs) {
+        if (ln_pvals) {
+          for (uintptr_t aidx = 0; aidx < orig_allele_ct; ++aidx, ++allele_uidx) {
+            MovWTo1Bit(allele_include, &allele_uidx);
+            const double cur_chisq = chisqs[aidx];
+            if (cur_chisq >= 0.0) {
+              sortbuf[valid_allele_ct].chisq = cur_chisq;
+              sortbuf[valid_allele_ct].ln_pval = ln_pvals[aidx];
+              sortbuf[valid_allele_ct].variant_uidx = allele_uidx / 2;
+              sortbuf[valid_allele_ct].allele_idx = allele_uidx % 2;
+              ++valid_allele_ct;
+            }
+          }
+        } else {
+          for (uintptr_t aidx = 0; aidx < orig_allele_ct; ++aidx, ++allele_uidx) {
+            MovWTo1Bit(allele_include, &allele_uidx);
+            const double cur_chisq = chisqs[aidx];
+            if (cur_chisq >= 0.0) {
+              sortbuf[valid_allele_ct].chisq = cur_chisq;
+              sortbuf[valid_allele_ct].ln_pval = ChisqToLnP(cur_chisq, 1);
+              sortbuf[valid_allele_ct].variant_uidx = allele_uidx / 2;
+              sortbuf[valid_allele_ct].allele_idx = allele_uidx % 2;
+              ++valid_allele_ct;
+            }
           }
         }
       } else {
-        for (uint32_t vidx = 0; vidx < orig_variant_ct; ++vidx, ++variant_uidx) {
-          MovU32To1Bit(variant_include, &variant_uidx);
-          const double cur_chisq = chisqs[vidx];
-          if (cur_chisq >= 0.0) {
-            sortbuf[valid_variant_ct].chisq = cur_chisq;
-            sortbuf[valid_variant_ct].ln_pval = ChisqToLnP(cur_chisq, 1);
-            sortbuf[valid_variant_ct].variant_uidx = variant_uidx;
-            ++valid_variant_ct;
+        for (uintptr_t aidx = 0; aidx < orig_allele_ct; ++aidx, ++allele_uidx) {
+          MovWTo1Bit(allele_include, &allele_uidx);
+          const double cur_ln_pval = ln_pvals[aidx];
+          if (cur_ln_pval <= 0.0) {
+            sortbuf[valid_allele_ct].chisq = LnPToChisq(cur_ln_pval);
+            sortbuf[valid_allele_ct].ln_pval = cur_ln_pval;
+            sortbuf[valid_allele_ct].variant_uidx = allele_uidx / 2;
+            sortbuf[valid_allele_ct].allele_idx = allele_uidx % 2;
+            ++valid_allele_ct;
           }
         }
       }
     } else {
-      uint32_t variant_uidx = 0;
-      for (uint32_t vidx = 0; vidx < orig_variant_ct; ++vidx, ++variant_uidx) {
-        MovU32To1Bit(variant_include, &variant_uidx);
-        const double cur_ln_pval = ln_pvals[vidx];
-        if (cur_ln_pval <= 0.0) {
-          sortbuf[valid_variant_ct].chisq = LnPToChisq(cur_ln_pval);
-          sortbuf[valid_variant_ct].ln_pval = cur_ln_pval;
-          sortbuf[valid_variant_ct].variant_uidx = variant_uidx;
-          ++valid_variant_ct;
+      uint32_t variant_uidx = AdvTo1Bit(variant_include, 0);
+      uintptr_t allele_idx_offset_start = allele_idx_offsets[variant_uidx];
+      uintptr_t allele_idx_offset_end = allele_idx_offsets[variant_uidx + 1];
+      if (chisqs) {
+        if (ln_pvals) {
+          for (uintptr_t aidx = 0; aidx < orig_allele_ct; ++aidx, ++allele_uidx) {
+            MovWTo1Bit(allele_include, &allele_uidx);
+            if (allele_uidx >= allele_idx_offset_end) {
+              ++variant_uidx;
+              MovU32To1Bit(variant_include, &variant_uidx);
+              allele_idx_offset_start = allele_idx_offsets[variant_uidx];
+              allele_idx_offset_end = allele_idx_offsets[variant_uidx + 1];
+            }
+            const double cur_chisq = chisqs[aidx];
+            if (cur_chisq >= 0.0) {
+              sortbuf[valid_allele_ct].chisq = cur_chisq;
+              sortbuf[valid_allele_ct].ln_pval = ln_pvals[aidx];
+              sortbuf[valid_allele_ct].variant_uidx = variant_uidx;
+              sortbuf[valid_allele_ct].allele_idx = allele_uidx - allele_idx_offset_start;
+              ++valid_allele_ct;
+            }
+          }
+        } else {
+          for (uintptr_t aidx = 0; aidx < orig_allele_ct; ++aidx, ++allele_uidx) {
+            MovWTo1Bit(allele_include, &allele_uidx);
+            if (allele_uidx >= allele_idx_offset_end) {
+              ++variant_uidx;
+              MovU32To1Bit(variant_include, &variant_uidx);
+              allele_idx_offset_start = allele_idx_offsets[variant_uidx];
+              allele_idx_offset_end = allele_idx_offsets[variant_uidx + 1];
+            }
+            const double cur_chisq = chisqs[aidx];
+            if (cur_chisq >= 0.0) {
+              sortbuf[valid_allele_ct].chisq = cur_chisq;
+              sortbuf[valid_allele_ct].ln_pval = ChisqToLnP(cur_chisq, 1);
+              sortbuf[valid_allele_ct].variant_uidx = variant_uidx;
+              sortbuf[valid_allele_ct].allele_idx = allele_uidx - allele_idx_offset_start;
+              ++valid_allele_ct;
+            }
+          }
+        }
+      } else {
+        for (uintptr_t aidx = 0; aidx < orig_allele_ct; ++aidx, ++allele_uidx) {
+          MovWTo1Bit(allele_include, &allele_uidx);
+          if (allele_uidx >= allele_idx_offset_end) {
+            ++variant_uidx;
+            MovU32To1Bit(variant_include, &variant_uidx);
+            allele_idx_offset_start = allele_idx_offsets[variant_uidx];
+            allele_idx_offset_end = allele_idx_offsets[variant_uidx + 1];
+          }
+          const double cur_ln_pval = ln_pvals[aidx];
+          if (cur_ln_pval <= 0.0) {
+            sortbuf[valid_allele_ct].chisq = LnPToChisq(cur_ln_pval);
+            sortbuf[valid_allele_ct].ln_pval = cur_ln_pval;
+            sortbuf[valid_allele_ct].variant_uidx = variant_uidx;
+            sortbuf[valid_allele_ct].allele_idx = allele_uidx - allele_idx_offset_start;
+            ++valid_allele_ct;
+          }
         }
       }
     }
-    if (!valid_variant_ct) {
+    if (!valid_allele_ct) {
       logputs("Zero valid tests; --adjust skipped.\n");
       goto Multcomp_ret_1;
     }
-    BigstackShrinkTop(sortbuf, valid_variant_ct * sizeof(AdjAssocResult));
+    BigstackShrinkTop(sortbuf, valid_allele_ct * sizeof(AdjAssocResult));
 
     const uintptr_t overflow_buf_size = kCompressStreamBlock + 2 * kMaxIdSlen + 512 + 2 * max_allele_slen;
     const AdjustFlags flags = adjust_info_ptr->flags;
@@ -163,6 +231,10 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     const uint32_t alt_col = flags & kfAdjustColAlt;
     if (alt_col) {
       cswritep = strcpya(cswritep, "ALT\t");
+    }
+    const uint32_t a1_col = (flags & kfAdjustColA1) && (loaded_a1 || cip);
+    if (a1_col) {
+      cswritep = strcpya(cswritep, "A1\t");
     }
     const uint32_t is_neglog10 = flags & kfAdjustLog10;
     const uint32_t unadj_col = flags & kfAdjustColUnadj;
@@ -223,7 +295,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     }
     double* ln_pv_by = nullptr;
     if (flags & kfAdjustColFdrby) {
-      if (bigstack_alloc_d(valid_variant_ct, &ln_pv_by)) {
+      if (bigstack_alloc_d(valid_allele_ct, &ln_pv_by)) {
         goto Multcomp_ret_NOMEM;
       }
       if (is_neglog10) {
@@ -237,23 +309,23 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     double* ln_pv_bh;
     double* ln_pv_gc;
     double* unadj_sorted_ln_pvals;
-    if (bigstack_alloc_d(valid_variant_ct, &ln_pv_bh) ||
-        bigstack_alloc_d(valid_variant_ct, &ln_pv_gc) ||
-        bigstack_alloc_d(valid_variant_ct, &unadj_sorted_ln_pvals)) {
+    if (bigstack_alloc_d(valid_allele_ct, &ln_pv_bh) ||
+        bigstack_alloc_d(valid_allele_ct, &ln_pv_gc) ||
+        bigstack_alloc_d(valid_allele_ct, &unadj_sorted_ln_pvals)) {
       goto Multcomp_ret_NOMEM;
     }
 
-    STD_SORT(valid_variant_ct, double_cmp, sortbuf);
+    STD_SORT(valid_allele_ct, double_cmp, sortbuf);
 
     double lambda_recip = 1.0;
     if (!skip_gc) {
       if (adjust_info_ptr->lambda != 0.0) {
         lambda_recip = 1.0 / adjust_info_ptr->lambda;
       } else {
-        const uint32_t valid_variant_ct_d2 = valid_variant_ct / 2;
-        double lambda = sortbuf[valid_variant_ct_d2].chisq;
-        if (!(valid_variant_ct % 2)) {
-          lambda = (lambda + sortbuf[valid_variant_ct_d2 - 1].chisq) * 0.5;
+        const uintptr_t valid_allele_ct_d2 = valid_allele_ct / 2;
+        double lambda = sortbuf[valid_allele_ct_d2].chisq;
+        if (!(valid_allele_ct % 2)) {
+          lambda = (lambda + sortbuf[valid_allele_ct_d2 - 1].chisq) * 0.5;
         }
         lambda = lambda / 0.456;
         if (lambda < 1.0) {
@@ -264,43 +336,43 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
       }
     }
     double* sorted_ln_pvals = unadj_sorted_ln_pvals;
-    for (uint32_t vidx = 0; vidx < valid_variant_ct; ++vidx) {
-      ln_pv_gc[vidx] = ChisqToLnP(sortbuf[vidx].chisq * lambda_recip, 1);
-      unadj_sorted_ln_pvals[vidx] = sortbuf[vidx].ln_pval;
+    for (uintptr_t aidx = 0; aidx < valid_allele_ct; ++aidx) {
+      ln_pv_gc[aidx] = ChisqToLnP(sortbuf[aidx].chisq * lambda_recip, 1);
+      unadj_sorted_ln_pvals[aidx] = sortbuf[aidx].ln_pval;
     }
     if ((flags & kfAdjustGc) && (!skip_gc)) {
       sorted_ln_pvals = ln_pv_gc;
     }
 
-    const uint32_t valid_variant_ct_m1 = valid_variant_ct - 1;
-    const double valid_variant_ctd = u31tod(valid_variant_ct);
-    const double ln_valid_variant_ct = log(valid_variant_ctd);
-    double bh_ln_pval_min = sorted_ln_pvals[valid_variant_ct_m1];
-    ln_pv_bh[valid_variant_ct_m1] = bh_ln_pval_min;
+    const uint32_t valid_allele_ct_m1 = valid_allele_ct - 1;
+    const double valid_allele_ctd = swtod(valid_allele_ct);
+    const double ln_valid_allele_ct = log(valid_allele_ctd);
+    double bh_ln_pval_min = sorted_ln_pvals[valid_allele_ct_m1];
+    ln_pv_bh[valid_allele_ct_m1] = bh_ln_pval_min;
     double harmonic_sum = 1.0;
-    for (uint32_t vidx = valid_variant_ct_m1; vidx; --vidx) {
-      const double harmonic_term = valid_variant_ctd / u31tod(vidx);
+    for (uint32_t aidx = valid_allele_ct_m1; aidx; --aidx) {
+      const double harmonic_term = valid_allele_ctd / u31tod(aidx);
       harmonic_sum += harmonic_term;
-      const double bh_ln_pval = sorted_ln_pvals[vidx - 1] + log(harmonic_term);
+      const double bh_ln_pval = sorted_ln_pvals[aidx - 1] + log(harmonic_term);
       if (bh_ln_pval_min > bh_ln_pval) {
         bh_ln_pval_min = bh_ln_pval;
       }
-      ln_pv_bh[vidx - 1] = bh_ln_pval_min;
+      ln_pv_bh[aidx - 1] = bh_ln_pval_min;
     }
 
     if (ln_pv_by) {
       const double ln_harmonic_sum = log(harmonic_sum);
-      double by_ln_pval_min = sorted_ln_pvals[valid_variant_ct_m1] - ln_valid_variant_ct + ln_harmonic_sum;
+      double by_ln_pval_min = sorted_ln_pvals[valid_allele_ct_m1] - ln_valid_allele_ct + ln_harmonic_sum;
       if (by_ln_pval_min > 0.0) {
         by_ln_pval_min = 0.0;
       }
-      ln_pv_by[valid_variant_ct_m1] = by_ln_pval_min;
-      for (uint32_t vidx = valid_variant_ct_m1; vidx; --vidx) {
-        const double by_ln_pval = sorted_ln_pvals[vidx - 1] - log(u31tod(vidx)) + ln_harmonic_sum;
+      ln_pv_by[valid_allele_ct_m1] = by_ln_pval_min;
+      for (uint32_t aidx = valid_allele_ct_m1; aidx; --aidx) {
+        const double by_ln_pval = sorted_ln_pvals[aidx - 1] - log(u31tod(aidx)) + ln_harmonic_sum;
         if (by_ln_pval_min > by_ln_pval) {
           by_ln_pval_min = by_ln_pval;
         }
-        ln_pv_by[vidx - 1] = by_ln_pval_min;
+        ln_pv_by[aidx - 1] = by_ln_pval_min;
       }
     }
 
@@ -316,17 +388,17 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
       strcpy(output_min_p_buf, "2147483647");
       output_min_p_slen = 10;
     }
-    const double valid_variant_ct_recip = 1.0 / valid_variant_ctd;
+    const double valid_allele_ct_recip = 1.0 / valid_allele_ctd;
     double ln_pv_sidak_sd = -DBL_MAX;
     double ln_pv_holm = -DBL_MAX;
     uint32_t cur_allele_ct = 2;
-    uint32_t vidx = 0;
-    for (; vidx < valid_variant_ct; ++vidx) {
-      double ln_pval = sorted_ln_pvals[vidx];
+    uint32_t aidx = 0;
+    for (; aidx < valid_allele_ct; ++aidx) {
+      double ln_pval = sorted_ln_pvals[aidx];
       if (ln_pval > ln_pfilter) {
         break;
       }
-      const uint32_t variant_uidx = sortbuf[vidx].variant_uidx;
+      const uint32_t variant_uidx = sortbuf[aidx].variant_uidx;
       if (chr_col) {
         if (cip) {
           cswritep = chrtoa(cip, GetVariantChr(cip, variant_uidx), cswritep);
@@ -363,22 +435,34 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
         }
         --cswritep;
       }
+      if (a1_col) {
+        *cswritep++ = '\t';
+        const char* cur_allele;
+        if (loaded_a1) {
+          // --adjust-file hack
+          cur_allele = loaded_a1[variant_uidx];
+        } else {
+          cur_allele = cur_alleles[sortbuf[aidx].allele_idx];
+        }
+        cswritep = strcpya(cswritep, cur_allele);
+      }
       if (unadj_col) {
-        adjust_print_ln(output_min_p_buf, unadj_sorted_ln_pvals[vidx], output_min_ln, output_min_p_slen, is_neglog10, &cswritep);
+        adjust_print_ln(output_min_p_buf, unadj_sorted_ln_pvals[aidx], output_min_ln, output_min_p_slen, is_neglog10, &cswritep);
       }
       if (gc_col) {
-        adjust_print_ln(output_min_p_buf, ln_pv_gc[vidx], output_min_ln, output_min_p_slen, is_neglog10, &cswritep);
+        adjust_print_ln(output_min_p_buf, ln_pv_gc[aidx], output_min_ln, output_min_p_slen, is_neglog10, &cswritep);
       }
+      const double aidx_d = swtod(aidx);
       if (qq_col) {
         *cswritep++ = '\t';
-        double qq_val = (u31tod(vidx) + 0.5) * valid_variant_ct_recip;
+        double qq_val = (aidx_d + 0.5) * valid_allele_ct_recip;
         if (is_neglog10) {
           qq_val = -log10(qq_val);
         }
         cswritep = dtoa_g(qq_val, cswritep);
       }
       if (bonf_col) {
-        double bonf_ln_pval = ln_pval + ln_valid_variant_ct;
+        double bonf_ln_pval = ln_pval + ln_valid_allele_ct;
         if (bonf_ln_pval > 0.0) {
           bonf_ln_pval = 0.0;
         }
@@ -386,7 +470,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
       }
       if (holm_col) {
         if (ln_pv_holm < 0.0) {
-          const double ln_pv_holm_new = ln_pval + log(u31tod(valid_variant_ct - vidx));
+          const double ln_pv_holm_new = ln_pval + log(u31tod(valid_allele_ct - aidx));
           if (ln_pv_holm_new > 0.0) {
             ln_pv_holm = 0.0;
           } else if (ln_pv_holm < ln_pv_holm_new) {
@@ -406,9 +490,9 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
           const double pval = exp(ln_pval);
           double pv_sidak_ss;
           if (ln_pval >= -7 * kLn2) {
-            pv_sidak_ss = 1 - pow(1 - pval, valid_variant_ctd);
+            pv_sidak_ss = 1 - pow(1 - pval, valid_allele_ctd);
           } else {
-            pv_sidak_ss = 1 - exp(valid_variant_ctd * log1p(-pval));
+            pv_sidak_ss = 1 - exp(valid_allele_ctd * log1p(-pval));
           }
           ln_pv_sidak_ss = log(pv_sidak_ss);
         } else {
@@ -417,7 +501,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
           // if p <= 2^{-90},
           //   log(1-p) is -p
           //   1 - e^{-cp} is cp
-          ln_pv_sidak_ss = ln_pval + ln_valid_variant_ct;
+          ln_pv_sidak_ss = ln_pval + ln_valid_allele_ct;
         }
         adjust_print_ln(output_min_p_buf, ln_pv_sidak_ss, output_min_ln, output_min_p_slen, is_neglog10, &cswritep);
       }
@@ -427,14 +511,14 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
           const double pval = exp(ln_pval);
           double pv_sidak_sd_new;
           if (ln_pval >= -7 * kLn2) {
-            pv_sidak_sd_new = 1 - pow(1 - pval, valid_variant_ctd - u31tod(vidx));
+            pv_sidak_sd_new = 1 - pow(1 - pval, valid_allele_ctd - aidx_d);
           } else {
-            const double cur_exp = valid_variant_ctd - u31tod(vidx);
+            const double cur_exp = valid_allele_ctd - aidx_d;
             pv_sidak_sd_new = 1 - exp(cur_exp * log1p(-pval));
           }
           ln_pv_sidak_sd_new = log(pv_sidak_sd_new);
         } else {
-          ln_pv_sidak_sd_new = ln_pval + log(valid_variant_ctd - u31tod(vidx));
+          ln_pv_sidak_sd_new = ln_pval + log(valid_allele_ctd - aidx_d);
         }
         if (ln_pv_sidak_sd < ln_pv_sidak_sd_new) {
           ln_pv_sidak_sd = ln_pv_sidak_sd_new;
@@ -442,10 +526,10 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
         adjust_print_ln(output_min_p_buf, ln_pv_sidak_sd, output_min_ln, output_min_p_slen, is_neglog10, &cswritep);
       }
       if (fdrbh_col) {
-        adjust_print_ln(output_min_p_buf, ln_pv_bh[vidx], output_min_ln, output_min_p_slen, is_neglog10, &cswritep);
+        adjust_print_ln(output_min_p_buf, ln_pv_bh[aidx], output_min_ln, output_min_p_slen, is_neglog10, &cswritep);
       }
       if (ln_pv_by) {
-        adjust_print_ln(output_min_p_buf, ln_pv_by[vidx], output_min_ln, output_min_p_slen, is_neglog10, &cswritep);
+        adjust_print_ln(output_min_p_buf, ln_pv_by[aidx], output_min_ln, output_min_p_slen, is_neglog10, &cswritep);
       }
       AppendBinaryEoln(&cswritep);
       if (Cswrite(&css, &cswritep)) {
@@ -455,8 +539,8 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     if (CswriteCloseNull(&css, cswritep)) {
       goto Multcomp_ret_WRITE_FAIL;
     }
-    // don't use valid_variant_ct due to --pfilter
-    logprintfww("--adjust%s values (%u variant%s) written to %s .\n", cip? "" : "-file", vidx, (vidx == 1)? "" : "s", outname);
+    // don't use valid_allele_ct due to --pfilter
+    logprintfww("--adjust%s values (%" PRIuPTR " test%s) written to %s .\n", cip? "" : "-file", aidx, (aidx == 1)? "" : "s", outname);
   }
   while (0) {
   Multcomp_ret_NOMEM:
@@ -514,13 +598,15 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     // [2] = ID (required)
     // [3] = REF
     // [4] = ALT
-    // [5] = TEST (always scan)
-    // [6] = P (required)
-    const char* col_search_order[7];
+    // [5] = A1
+    // [6] = TEST (always scan)
+    // [7] = P (required)
+    const char* col_search_order[8];
     const uint32_t need_chr = (flags & kfAdjustColChrom);
     const uint32_t need_pos = (flags & kfAdjustColPos);
     const uint32_t need_ref = (flags & kfAdjustColRef);
     const uint32_t need_alt = (flags & (kfAdjustColAlt1 | kfAdjustColAlt));
+    uint32_t check_a1 = (flags & kfAdjustColA1);
     const uint32_t alt_comma_truncate = (need_alt == kfAdjustColAlt1);
     if (need_alt == (kfAdjustColAlt1 | kfAdjustColAlt)) {
       // Could theoretically support this later (allocate allele_idx_offsets
@@ -535,16 +621,17 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     col_search_order[1] = need_pos? (afip->pos_field? afip->pos_field : "POS\0BP\0") : "";
     col_search_order[2] = afip->id_field? afip->id_field : "ID\0SNP\0";
     col_search_order[3] = need_ref? (afip->ref_field? afip->ref_field : "REF\0A2\0") : "";
-    col_search_order[4] = need_alt? (afip->alt_field? afip->alt_field : "ALT\0ALT1\0A1\0") : "";
-    col_search_order[5] = afip->test_field? afip->test_field : "TEST\0";
+    col_search_order[4] = need_alt? (afip->alt_field? afip->alt_field : "ALT\0ALT1\0") : "";
+    col_search_order[5] = check_a1? (afip->a1_field? afip->a1_field : "A1") : "";
+    col_search_order[6] = afip->test_field? afip->test_field : "TEST\0";
     const uint32_t input_log10 = (flags & kfAdjustInputLog10);
-    col_search_order[6] = afip->p_field? afip->p_field : (input_log10? "LOG10_P\0LOG10_UNADJ\0P\0UNADJ\0" : "P\0UNADJ\0");
+    col_search_order[7] = afip->p_field? afip->p_field : (input_log10? "LOG10_P\0LOG10_UNADJ\0P\0UNADJ\0" : "P\0UNADJ\0");
 
-    uint32_t col_skips[7];
-    uint32_t col_types[7];
+    uint32_t col_skips[8];
+    uint32_t col_types[8];
     uint32_t relevant_col_ct;
     uint32_t found_type_bitset;
-    reterr = SearchHeaderLine(linebuf_first_token, col_search_order, "adjust-file", 7, &relevant_col_ct, &found_type_bitset, col_skips, col_types);
+    reterr = SearchHeaderLine(linebuf_first_token, col_search_order, "adjust-file", 8, &relevant_col_ct, &found_type_bitset, col_skips, col_types);
     if (reterr) {
       goto AdjustFile_ret_1;
     }
@@ -562,12 +649,12 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       uint32_t relevant_col_idx = 0;
       while (1) {
         test_col_idx += col_skips[relevant_col_idx];
-        if (col_types[relevant_col_idx] == 5) {
+        if (col_types[relevant_col_idx] == 6) {
           break;
         }
         ++relevant_col_idx;
       }
-    } else if (found_type_bitset & 0x20) {
+    } else if (found_type_bitset & 0x40) {
       snprintf(g_logbuf, kLogbufSize, "Error: TEST column present in %s, but no test= parameter was provided to --adjust-file.\n", in_fname);
       goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
     }
@@ -587,8 +674,12 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       snprintf(g_logbuf, kLogbufSize, "Error: No ALT column in %s.\n", in_fname);
       goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
     }
+    if (check_a1 && (!(found_type_bitset & 0x20))) {
+      snprintf(g_logbuf, kLogbufSize, "Warning: No A1 column in %s. Omitting from output.\n", in_fname);
+      check_a1 = 0;
+    }
 
-    uintptr_t variant_ct = 0;
+    uintptr_t entry_ct = 0;
     while (1) {
       reterr = RlsNextNonemptyLstripK(&adjust_rls, &line_idx, &line_iter);
       if (reterr) {
@@ -599,7 +690,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
         goto AdjustFile_ret_READ_RLSTREAM;
       }
       if (test_name) {
-        // Don't count different-test variants.
+        // Don't count different-test entries.
         line_iter = NextTokenMult0(line_iter, test_col_idx);
         if (!line_iter) {
           goto AdjustFile_ret_MISSING_TOKENS;
@@ -611,11 +702,12 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
           continue;
         }
       }
-      ++variant_ct;
+      ++entry_ct;
     }
 #ifdef __LP64__
-    if (variant_ct > 0xffffffffU) {
-      logerrputs("Error: Too many variants for --adjust-file.\n");
+    // probably want to permit this later
+    if (entry_ct > 0xffffffffU) {
+      logerrputs("Error: Too many entries for --adjust-file.\n");
       goto AdjustFile_ret_INCONSISTENT_INPUT;
     }
 #endif
@@ -632,15 +724,25 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     } while (strequal_k_unsafe(line_iter, "##"));
     linebuf_first_token = line_iter;
 
-    const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
+    const uintptr_t entry_ctl = BitCtToWordCt(entry_ct);
+    const uintptr_t entry_ctl2 = QuaterCtToWordCt(entry_ct);
     uintptr_t* variant_include_dummy;
-    if (bigstack_alloc_w(variant_ctl, &variant_include_dummy)) {
+    uintptr_t* allele_include_dummy;
+    if (bigstack_alloc_w(entry_ctl, &variant_include_dummy) ||
+        bigstack_alloc_w(entry_ctl2, &allele_include_dummy)) {
       goto AdjustFile_ret_NOMEM;
     }
-    SetAllBits(variant_ct, variant_include_dummy);
+    SetAllBits(entry_ct, variant_include_dummy);
+    for (uintptr_t ulii = 0; ulii < entry_ct / kBitsPerWordD2; ++ulii) {
+      allele_include_dummy[ulii] = kMaskAAAA;
+    }
+    const uint32_t remainder = entry_ct % kBitsPerWordD2;
+    if (remainder) {
+      allele_include_dummy[entry_ct / kBitsPerWordD2] = kMaskAAAA >> (2 * (kBitsPerWordD2 - remainder));
+    }
     char** chr_ids;
     if (need_chr) {
-      if (bigstack_alloc_cp(variant_ct, &chr_ids)) {
+      if (bigstack_alloc_cp(entry_ct, &chr_ids)) {
         goto AdjustFile_ret_NOMEM;
       }
     } else {
@@ -648,7 +750,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     }
     uint32_t* variant_bps;
     if (need_pos) {
-      if (bigstack_alloc_u32(variant_ct, &variant_bps)) {
+      if (bigstack_alloc_u32(entry_ct, &variant_bps)) {
         goto AdjustFile_ret_NOMEM;
       }
     } else {
@@ -656,17 +758,25 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     }
     char** variant_ids;
     double* ln_pvals;
-    if (bigstack_alloc_cp(variant_ct, &variant_ids) ||
-        bigstack_alloc_d(variant_ct, &ln_pvals)) {
+    if (bigstack_alloc_cp(entry_ct, &variant_ids) ||
+        bigstack_alloc_d(entry_ct, &ln_pvals)) {
       goto AdjustFile_ret_NOMEM;
     }
     char** allele_storage;
     if (need_ref || need_alt) {
-      if (bigstack_alloc_cp(variant_ct * 2, &allele_storage)) {
+      if (bigstack_alloc_cp(entry_ct * 2, &allele_storage)) {
         goto AdjustFile_ret_NOMEM;
       }
     } else {
       allele_storage = nullptr;
+    }
+    char** a1_storage;
+    if (check_a1) {
+      if (bigstack_alloc_cp(entry_ct, &a1_storage)) {
+        goto AdjustFile_ret_NOMEM;
+      }
+    } else {
+      a1_storage = nullptr;
     }
     unsigned char* tmp_alloc_base = g_bigstack_base;
     unsigned char* tmp_alloc_end = g_bigstack_end;
@@ -680,14 +790,14 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       if (IsEolnKns(*line_iter)) {
         continue;
       }
-      const char* token_ptrs[7];
-      uint32_t token_slens[7];
+      const char* token_ptrs[8];
+      uint32_t token_slens[8];
       line_iter = TokenLexK0(line_iter, col_types, col_skips, relevant_col_ct, token_ptrs, token_slens);
       if (!line_iter) {
         goto AdjustFile_ret_MISSING_TOKENS;
       }
       if (test_name) {
-        if ((token_slens[5] != test_name_slen) || memcmp(token_ptrs[5], test_name, test_name_slen)) {
+        if ((token_slens[6] != test_name_slen) || memcmp(token_ptrs[6], test_name, test_name_slen)) {
           continue;
         }
       }
@@ -738,13 +848,22 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
         memcpyx(tmp_alloc_base, alt_str, cur_slen, '\0');
         tmp_alloc_base = &(tmp_alloc_base[cur_slen + 1]);
       }
-      const char* pval_str = token_ptrs[6];
+      if (check_a1) {
+        const uint32_t cur_slen = token_slens[5];
+        if (cur_slen >= S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base)) {
+          goto AdjustFile_ret_NOMEM;
+        }
+        a1_storage[variant_idx] = R_CAST(char*, tmp_alloc_base);
+        memcpyx(tmp_alloc_base, token_ptrs[5], cur_slen, '\0');
+        tmp_alloc_base = &(tmp_alloc_base[cur_slen + 1]);
+      }
+      const char* pval_str = token_ptrs[7];
       double ln_pval;
       if (!input_log10) {
         if (!ScanadvLn(pval_str, &ln_pval)) {
           uint32_t cur_slen;
         AdjustFile_alphabetic_pval:
-          cur_slen = token_slens[6];
+          cur_slen = token_slens[7];
           if (IsNanStr(pval_str, cur_slen)) {
             ln_pval = kLnPvalError;
           } else if (strequal_k(pval_str, "INF", cur_slen) ||
@@ -762,16 +881,16 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
           goto AdjustFile_alphabetic_pval;
         }
         ln_pval = neglog10_pval * (-kLn10);
-      }
-      if (ln_pval > 0.0) {
-        goto AdjustFile_ret_INVALID_PVAL;
+        if (ln_pval > 0.0) {
+          goto AdjustFile_ret_INVALID_PVAL;
+        }
       }
       ln_pvals[variant_idx] = ln_pval;
       ++variant_idx;
     }
     BigstackEndReset(bigstack_end_mark);
     BigstackBaseSet(tmp_alloc_base);
-    reterr = Multcomp(variant_include_dummy, nullptr, TO_CONSTCPCONSTP(chr_ids), variant_bps, TO_CONSTCPCONSTP(variant_ids), nullptr, TO_CONSTCPCONSTP(allele_storage), &(afip->base), ln_pvals, nullptr, variant_ct, max_allele_slen, ln_pfilter, output_min_ln, 0, max_thread_ct, outname, outname_end);
+    reterr = Multcomp(variant_include_dummy, nullptr, TO_CONSTCPCONSTP(chr_ids), variant_bps, TO_CONSTCPCONSTP(variant_ids), allele_include_dummy, nullptr, TO_CONSTCPCONSTP(allele_storage), a1_storage, &(afip->base), ln_pvals, nullptr, entry_ct, max_allele_slen, ln_pfilter, output_min_ln, 0, max_thread_ct, outname, outname_end);
     if (reterr) {
       goto AdjustFile_ret_1;
     }

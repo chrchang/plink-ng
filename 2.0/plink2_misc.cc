@@ -1539,7 +1539,7 @@ PglErr InitHistogramFromFileOrCommalist(const char* binstr, uint32_t is_fname, d
   return reterr;
 }
 
-PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uint64_t* founder_allele_dosages, const double* mach_r2_vals, const char* ref_binstr, const char* alt1_binstr, uint32_t variant_ct, uint32_t max_alt_allele_ct, uint32_t max_allele_slen, FreqRptFlags freq_rpt_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end) {
+PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uint64_t* founder_allele_dosages, const double* mach_r2_vals, const char* ref_binstr, const char* alt1_binstr, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, FreqRptFlags freq_rpt_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -1555,7 +1555,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
     }
     if (!(freq_rpt_flags & kfAlleleFreqBinsOnly)) {
       const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
-      const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + max_alt_allele_ct * (24 * k1LU) + 2 * max_allele_slen;
+      const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + max_allele_ct * (24 * k1LU) + 2 * max_allele_slen;
       const uint32_t output_zst = freq_rpt_flags & kfAlleleFreqZs;
       if (output_zst) {
         snprintf(&(outname_end[6 + counts]), kMaxOutfnameExtBlen - 7, ".zst");
@@ -1965,7 +1965,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
     uintptr_t* genovec = nullptr;
     uintptr_t* sex_male_interleaved_vec = nullptr;
     uint32_t* sex_male_cumulative_popcounts = nullptr;
-    const uint32_t more_counts_needed = (simple_pgrp->fi.max_alt_allele_ct > 1) && (geno_counts_flags & (kfGenoCountsColRefalt1 | kfGenoCountsColRefalt | kfGenoCountsColHomalt1 | kfGenoCountsColAltxy | kfGenoCountsColXy | kfGenoCountsColHapalt1 | kfGenoCountsColHapalt | kfGenoCountsColHap | kfGenoCountsColNumeq));
+    const uint32_t more_counts_needed = (simple_pgrp->fi.max_allele_ct > 2) && (geno_counts_flags & (kfGenoCountsColRefalt1 | kfGenoCountsColRefalt | kfGenoCountsColHomalt1 | kfGenoCountsColAltxy | kfGenoCountsColXy | kfGenoCountsColHapalt1 | kfGenoCountsColHapalt | kfGenoCountsColHap | kfGenoCountsColNumeq));
     if (more_counts_needed) {
       if (bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &sample_include_interleaved_vec) ||
           bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
@@ -1981,7 +1981,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
       // currently clear in front of every chromosome
       // PgrClearLdCache(simple_pgrp);
     }
-    const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + simple_pgrp->fi.max_alt_allele_ct * (24 * k1LU) + 2 * max_allele_slen;
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + simple_pgrp->fi.max_allele_ct * (24 * k1LU) + 2 * max_allele_slen;
     const uint32_t output_zst = geno_counts_flags & kfGenoCountsZs;
     OutnameZstSet(".gcount", output_zst, outname_end);
     reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);

@@ -28,7 +28,7 @@ FLAGSET_DEF_START()
   kfGlm0,
   kfGlmZs = (1 << 0),
 
-  kfGlmA0Ref = (1 << 1),
+  kfGlmOmitRef = (1 << 1),
 
   // mutually exclusive
   kfGlmSex = (1 << 2),
@@ -62,7 +62,7 @@ FLAGSET_DEF_START()
   kfGlmColRef = (1 << 2),
   kfGlmColAlt1 = (1 << 3),
   kfGlmColAlt = (1 << 4),
-  kfGlmColA0 = (1 << 5),
+  kfGlmColAx = (1 << 5),
   kfGlmColA1count = (1 << 6),
   kfGlmColTotallele = (1 << 7),
   kfGlmColA1countcc = (1 << 8),

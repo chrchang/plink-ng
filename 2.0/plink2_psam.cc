@@ -808,6 +808,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     reterr = kPglRetMalformedInput;
     break;
   LoadPsam_ret_INCOMPATIBLE_PHENOSTRS:
+    // todo: include phenotype name in this error message?
     logerrprintfww("Error: Incompatible phenotype values in %s. (Case/control and quantitative phenotypes must be entirely numeric/\"NA\", and categorical phenotypes must be entirely non-numeric.)\n", psamname);
     reterr = kPglRetMalformedInput;
     break;

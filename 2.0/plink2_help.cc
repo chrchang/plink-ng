@@ -769,7 +769,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    List all variants which pass your filters/inclusion thresholds.\n\n"
                );
     HelpPrint("glm\tlinear\tlogistic\tassoc", &help_ctrl, 1,
-"  --glm <zs> <a0-ref> <sex | no-x-sex> <log10>\n"
+"  --glm <zs> <omit-ref> <sex | no-x-sex> <log10>\n"
 "        <genotypic | hethom | dominant | recessive> <interaction> <hide-covar>\n"
 "        <intercept> <firth-fallback | firth> <cols=[col set descriptor]>\n"
 "        <local-covar=[f]> <local-pvar=[f]> <local-psam=[f]>\n"
@@ -778,12 +778,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    Basic association analysis on quantitative and/or case/control phenotypes.\n"
 "    For each variant, a linear (for quantitative traits) or logistic (for\n"
 "    case/control) regression is run with the phenotype as the dependent\n"
-"    variable, and A1 dosage and a constant-1 column as predictors.\n"
-"    * By default, the A0 allele is the one with the highest frequency (this can\n"
-"      be controlled with --read-freq); and for multiallelic variants, A1 is\n"
-"      defined as \"everything except A0\".  To force A0 to always be the ref\n"
-"      allele, use the 'a0-ref' modifier.  (When performing interaction testing,\n"
-"      this tends to cause the multicollinearity check to fail for\n"
+"    variable, and nonmajor allele dosage(s) and a constant-1 column as\n"
+"    predictors.\n"
+"    * There is usually an additive effect line for every nonmajor allele, and\n"
+"      no such line for the major allele.  To omit REF alleles instead of major\n"
+"      alleles, add the 'omit-ref' modifier.  (When performing interaction\n"
+"      testing, this tends to cause the multicollinearity check to fail for\n"
 "      low-ref-frequency variants.)\n"
 "    * By default, sex (male = 1, female = 2; note that this is a change from\n"
 "      PLINK 1.x) is automatically added as a predictor for X chromosome\n"
@@ -846,8 +846,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      ref: Reference allele.\n"
 "      alt1: Alternate allele 1.\n"
 "      alt: All alternate alleles, comma-separated.\n"
-"      a0: Allele not counted in regression genotype column.\n"
 "      (A1 is always present, and positioned here.)\n"
+"      ax: Non-A1 alleles, comma-separated.\n"
 "      a1count: A1 allele count (can be decimal with dosage data).\n"
 "      totallele: Allele observation count (can be higher than --freq value, due\n"
 "                 to inclusion of het haploids and chrX model).\n"
@@ -940,6 +940,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      ref: Reference allele.\n"
 "      alt1: Alternate allele 1.\n"
 "      alt: All alternate alleles, comma-separated.\n"
+"      a1: Tested allele.  (Omitted if missing from input file.)\n"
 "      unadj: Unadjusted p-value.\n"
 "      gc: Devlin & Roeder (1999) genomic control corrected p-value (additive\n"
 "          models only).\n"
@@ -950,7 +951,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      sidaksd: Sidak step-down adjusted p-value.\n"
 "      fdrbh: Benjamini & Hochberg (1995) step-up false discovery control.\n"
 "      fdrby: Benjamini & Yekutieli (2001) step-up false discovery control.\n"
-"    Default set is chrom,unadj,gc,bonf,holm,sidakss,sidaksd,fdrbh,fdrby.\n"
+"    Default set is chrom,a1,unadj,gc,bonf,holm,sidakss,sidaksd,fdrbh,fdrby.\n"
                );
     // todo: reimplement most/all of PLINK 1.x's other automatic checks (het
     // haploids, missing sex, etc. with corresponding output files) and have a
@@ -1603,12 +1604,13 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("adjust\tadjust-file\tlambda", &help_ctrl, 0,
 "  --lambda                   : Set genomic control lambda for --adjust{-file}.\n"
                );
-    HelpPrint("adjust-file", &help_ctrl, 0,
+    HelpPrint("adjust-chr-field\tadjust-pos-field\tadjust-id-field\tadjust-ref-field\tadjust-alt-field\tadjust-a1-field\tadjust-test-field\tadjust-p-field\tadjust-file", &help_ctrl, 0,
 "  --adjust-chr-field [n...]  : Set --adjust-file input field names.  When\n"
 "  --adjust-pos-field [n...]    multiple parameters are given to these flags,\n"
 "  --adjust-id-field [n...]     earlier names take precedence over later ones.\n"
 "  --adjust-ref-field [n...]\n"
 "  --adjust-alt-field [n...]\n"
+"  --adjust-a1-field [n...]\n"
 "  --adjust-test-field [n...]\n"
 "  --adjust-p-field [n...]\n"
                );

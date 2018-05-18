@@ -61,7 +61,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (15 May 2018)";
+  " (17 May 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -324,7 +324,7 @@ uint32_t DecentAlleleFreqsAreNeeded(Command1Flags command_flags1, ScoreFlags sco
 // not actually needed for e.g. --hardy, --hwe, etc. if no multiallelic
 // variants are retained, but let's keep this simpler for now
 uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, GlmFlags glm_flags) {
-  return (command_flags1 & (kfCommand1LdPrune | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Ld)) || ((command_flags1 & kfCommand1Glm) && (!(glm_flags & kfGlmA0Ref)));
+  return (command_flags1 & (kfCommand1LdPrune | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Ld)) || ((command_flags1 & kfCommand1Glm) && (!(glm_flags & kfGlmOmitRef)));
 }
 
 // only needs to cover cases not captured by DecentAlleleFreqsAreNeeded() or
@@ -1646,7 +1646,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           const uint32_t maf_succ = (pcp->misc_flags / kfMiscMafSucc) & 1;
           ComputeAlleleFreqs(variant_include, allele_idx_offsets, nonfounders? allele_dosages : founder_allele_dosages, variant_ct, maf_succ, allele_freqs);
           if (pcp->read_freq_fname) {
-            reterr = ReadAlleleFreqs(variant_include, variant_ids, allele_idx_offsets, allele_storage, pcp->read_freq_fname, raw_variant_ct, variant_ct, pgfi.max_alt_allele_ct, max_variant_id_slen, max_allele_slen, maf_succ, pcp->max_thread_ct, allele_freqs);
+            reterr = ReadAlleleFreqs(variant_include, variant_ids, allele_idx_offsets, allele_storage, pcp->read_freq_fname, raw_variant_ct, variant_ct, pgfi.max_allele_ct, max_variant_id_slen, max_allele_slen, maf_succ, pcp->max_thread_ct, allele_freqs);
             if (reterr) {
               goto Plink2Core_ret_1;
             }
@@ -1659,7 +1659,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
 
         if (pcp->command_flags1 & kfCommand1AlleleFreq) {
-          reterr = WriteAlleleFreqs(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonfounders? allele_dosages : founder_allele_dosages, mach_r2_vals, pcp->freq_ref_binstr, pcp->freq_alt1_binstr, variant_ct, pgfi.max_alt_allele_ct, max_allele_slen, pcp->freq_rpt_flags, pcp->max_thread_ct, nonfounders, outname, outname_end);
+          reterr = WriteAlleleFreqs(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonfounders? allele_dosages : founder_allele_dosages, mach_r2_vals, pcp->freq_ref_binstr, pcp->freq_alt1_binstr, variant_ct, pgfi.max_allele_ct, max_allele_slen, pcp->freq_rpt_flags, pcp->max_thread_ct, nonfounders, outname, outname_end);
           if (reterr) {
             goto Plink2Core_ret_1;
           }
@@ -1791,7 +1791,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               }
             }
             if (pcp->command_flags1 & kfCommand1Hardy) {
-              // todo: multiallelic support;;;
+              // todo: multiallelic support
               reterr = HardyReport(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, hwe_geno_cts, hwe_x_male_geno_cts, hwe_x_nosex_geno_cts, hwe_x_pvals, variant_ct, hwe_x_ct, max_allele_slen, pcp->output_min_ln, pcp->hardy_flags, pcp->max_thread_ct, nonfounders, outname, outname_end);
               if (reterr) {
                 goto Plink2Core_ret_1;
@@ -3166,7 +3166,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --adjust cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0unadj\0gc\0qq\0bonf\0holm\0sidakss\0sidaksd\0fdrbh\0fdrby\0", "adjust", kfAdjustColChrom, kfAdjustColDefault, 1, &pc.adjust_info.flags);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0a1\tunadj\0gc\0qq\0bonf\0holm\0sidakss\0sidaksd\0fdrbh\0fdrby\0", "adjust", kfAdjustColChrom, kfAdjustColDefault, 1, &pc.adjust_info.flags);
               if (reterr) {
                 goto main_ret_1;
               }
@@ -3200,7 +3200,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --adjust-file cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0unadj\0gc\0qq\0bonf\0holm\0sidakss\0sidaksd\0fdrbh\0fdrby\0", "adjust-file", kfAdjustColChrom, kfAdjustColDefault, 1, &adjust_file_info.base.flags);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0a1\0unadj\0gc\0qq\0bonf\0holm\0sidakss\0sidaksd\0fdrbh\0fdrby\0", "adjust-file", kfAdjustColChrom, kfAdjustColDefault, 1, &adjust_file_info.base.flags);
               if (reterr) {
                 goto main_ret_1;
               }
@@ -3232,6 +3232,14 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &adjust_file_info.alt_field);
+          if (reterr) {
+            goto main_ret_1;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "djust-a1-field")) {
+          if (EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &adjust_file_info.a1_field);
           if (reterr) {
             goto main_ret_1;
           }
@@ -4484,8 +4492,9 @@ int main(int argc, char** argv) {
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmZs;
-            } else if (strequal_k(cur_modif, "a0-ref", cur_modif_slen)) {
-              pc.glm_info.flags |= kfGlmA0Ref;
+            } else if (strequal_k(cur_modif, "omit-ref", cur_modif_slen) ||
+                       strequal_k(cur_modif, "a0-ref", cur_modif_slen)) {
+              pc.glm_info.flags |= kfGlmOmitRef;
             } else if (strequal_k(cur_modif, "sex", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmSex;
             } else if (strequal_k(cur_modif, "no-x-sex", cur_modif_slen)) {
@@ -4522,7 +4531,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --glm cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0a0\0a1count\0totallele\0a1countcc\0totallelecc\0gcountcc\0a1freq\0a1freqcc\0machr2\0firth\0test\0nobs\0beta\0orbeta\0se\0ci\0tz\0p\0", flagname_p, kfGlmColChrom, kfGlmColDefault, 1, &pc.glm_info.cols);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0ax\0a1count\0totallele\0a1countcc\0totallelecc\0gcountcc\0a1freq\0a1freqcc\0machr2\0firth\0test\0nobs\0beta\0orbeta\0se\0ci\0tz\0p\0", flagname_p, kfGlmColChrom, kfGlmColDefault, 1, &pc.glm_info.cols);
               if (reterr) {
                 goto main_ret_1;
               }
@@ -5316,6 +5325,13 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else if (strequal_k_unsafe(flagname_p2, "eep-allele-order")) {
+          if ((pc.command_flags1 & kfCommand1Glm) && (!(pc.glm_info.flags & kfGlmOmitRef))) {
+            // update (17 May 2018): Best to error out instead of ignore if
+            // this is used with --linear/--logistic/--glm without 'omit-ref',
+            // since in that case the user probably wants to add 'omit-ref'.
+            logerrputs("Error: To make --glm always test ALT alleles, you must use --glm's 'omit-ref'\nmodifier, not --keep-allele-order.  (--keep-allele-order no longer has any\neffect, since plink2 always keeps track of REF/ALT alleles; but --glm defaults\nto testing minor instead of ALT alleles, since this can be necessary for\navoiding multicollinearity.)\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
           logputs("Note: --keep-allele-order no longer has any effect.\n");
           goto main_param_zero;
         } else {

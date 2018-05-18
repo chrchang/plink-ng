@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1004
+#define PGENLIB_INTERNAL_VERNUM 1005
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -743,8 +743,8 @@ struct PgenFileInfoStruct {
   // reference alleles are assumed to be correct.
   PgenGlobalFlags gflags;
 
-  uint32_t max_alt_allele_ct;
-  uint32_t max_dosage_alt_allele_ct;
+  uint32_t max_allele_ct;
+  // uint32_t max_dosage_allele_ct;  // might need this later
 
   // * nullptr if using mmap
   // * if using per-variant fread(), this is non-null during Pgen_file_info
@@ -887,34 +887,34 @@ HEADER_INLINE uint32_t VrtypeDosage(uint32_t vrtype) {
 }
 
 static_assert(kPglMaxAltAlleleCt <= 254, "GetAux1xAlleleEntryByteCt() needs to be updated.");
-HEADER_INLINE uintptr_t GetAux1aAlleleEntryByteCt(uint32_t alt_allele_ct, uint32_t ct_01) {
-  assert(alt_allele_ct >= 2);
-  if (alt_allele_ct == 2) {
+HEADER_INLINE uintptr_t GetAux1aAlleleEntryByteCt(uint32_t allele_ct, uint32_t ct_01) {
+  assert(allele_ct >= 3);
+  if (allele_ct == 3) {
     return 0;
   }
-  if (alt_allele_ct == 3) {
+  if (allele_ct == 4) {
     return DivUp(ct_01, 8);
   }
-  if (alt_allele_ct <= 5) {
+  if (allele_ct <= 6) {
     return DivUp(ct_01, 4);
   }
-  if (alt_allele_ct <= 17) {
+  if (allele_ct <= 18) {
     return DivUp(ct_01, 2);
   }
   return ct_01;
 }
 
-HEADER_INLINE uintptr_t GetAux1bAlleleEntryByteCt(uint32_t alt_allele_ct, uint32_t ct_10) {
-  assert(alt_allele_ct >= 2);
-  if (alt_allele_ct == 2) {
+HEADER_INLINE uintptr_t GetAux1bAlleleEntryByteCt(uint32_t allele_ct, uint32_t ct_10) {
+  assert(allele_ct >= 3);
+  if (allele_ct == 3) {
     return DivUp(ct_10, 1);
   }
-  if (alt_allele_ct < 5) {
+  if (allele_ct < 6) {
     return DivUp(ct_10, 4);
   }
-  // one byte per entry for alt_allele_ct <= 16, two bytes for 16..255
-  return ((alt_allele_ct >= 17) + 1) * ct_10;
-  // todo: alt_allele_ct > 256
+  // one byte per entry for allele_ct <= 17, two bytes for 18..256
+  return ((allele_ct >= 18) + 1) * ct_10;
+  // todo: allele_ct > 257
 }
 
 // PgenFileInfo initialization is split into two phases, to decouple
@@ -943,8 +943,8 @@ HEADER_INLINE uintptr_t GetAux1bAlleleEntryByteCt(uint32_t alt_allele_ct, uint32
 // Phase 2: Initialize most pointers in the PgenReader struct to appropriate
 //   positions in first_alloc.  For modes 0x10-0x11, load pgfi.var_fpos and
 //   pgfi.vrtypes, load/validate pgfi.allele_idx_offsets and pgfi.nonref_flags
-//   if appropriate, and initialize pgfi.gflags, pgfi.max_alt_allele_ct, and
-//   pgfi.max_dosage_alt_allele_ct.
+//   if appropriate, and initialize pgfi.gflags, pgfi.max_allele_ct, and
+//   pgfi.max_dosage_allele_ct.
 //
 // Finally, if block-fread mode is being used, pgfi.block_base must be
 //   initialized to point to a memory large enough to handle the largest

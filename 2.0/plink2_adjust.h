@@ -36,16 +36,17 @@ FLAGSET_DEF_START()
   kfAdjustColRef = (1 << 6),
   kfAdjustColAlt1 = (1 << 7),
   kfAdjustColAlt = (1 << 8),
-  kfAdjustColUnadj = (1 << 9),
-  kfAdjustColGc = (1 << 10),
-  kfAdjustColQq = (1 << 11),
-  kfAdjustColBonf = (1 << 12),
-  kfAdjustColHolm = (1 << 13),
-  kfAdjustColSidakss = (1 << 14),
-  kfAdjustColSidaksd = (1 << 15),
-  kfAdjustColFdrbh = (1 << 16),
-  kfAdjustColFdrby = (1 << 17),
-  kfAdjustColDefault = (kfAdjustColChrom | kfAdjustColUnadj | kfAdjustColGc | kfAdjustColBonf | kfAdjustColHolm | kfAdjustColSidakss | kfAdjustColSidaksd | kfAdjustColFdrbh | kfAdjustColFdrby),
+  kfAdjustColA1 = (1 << 9),
+  kfAdjustColUnadj = (1 << 10),
+  kfAdjustColGc = (1 << 11),
+  kfAdjustColQq = (1 << 12),
+  kfAdjustColBonf = (1 << 13),
+  kfAdjustColHolm = (1 << 14),
+  kfAdjustColSidakss = (1 << 15),
+  kfAdjustColSidaksd = (1 << 16),
+  kfAdjustColFdrbh = (1 << 17),
+  kfAdjustColFdrby = (1 << 18),
+  kfAdjustColDefault = (kfAdjustColChrom | kfAdjustColA1 | kfAdjustColUnadj | kfAdjustColGc | kfAdjustColBonf | kfAdjustColHolm | kfAdjustColSidakss | kfAdjustColSidaksd | kfAdjustColFdrbh | kfAdjustColFdrby),
   kfAdjustColAll = ((kfAdjustColFdrby * 2) - kfAdjustColChrom)
 FLAGSET_DEF_END(AdjustFlags);
 
@@ -64,6 +65,7 @@ typedef struct AdjustFileInfoStruct {
   char* id_field;
   char* ref_field;
   char* alt_field;
+  char* a1_field;
   char* test_field;
   char* p_field;
   char* chisq_field;
@@ -73,7 +75,7 @@ void InitAdjust(AdjustInfo* adjust_info_ptr, AdjustFileInfo* adjust_file_info_pt
 
 void CleanupAdjust(AdjustFileInfo* adjust_file_info_ptr);
 
-PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char* const* chr_ids, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AdjustInfo* adjust_info_ptr, const double* ln_pvals, const double* chisqs, uint32_t orig_variant_ct, uint32_t max_allele_slen, double ln_pfilter, double output_min_ln, uint32_t skip_gc, uint32_t max_thread_ct, char* outname, char* outname_end);
+PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char* const* chr_ids, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_include, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* const* loaded_a1, const AdjustInfo* adjust_info_ptr, const double* ln_pvals, const double* chisqs, uintptr_t orig_allele_ct, uint32_t max_allele_slen, double ln_pfilter, double output_min_ln, uint32_t skip_gc, uint32_t max_thread_ct, char* outname, char* outname_end);
 
 PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, char* outname, char* outname_end);
 

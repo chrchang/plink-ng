@@ -3896,7 +3896,9 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
     }
     const uint32_t hard_call_halfdist = kDosage4th - hard_call_thresh;
     const uint32_t sample_ctl2_m1 = sample_ctl2 - 1;
-    const uintptr_t line_ct = line_idx - 1;
+    // bugfix (17 May 2018): no longer appropriate to subtract 1 from final
+    // line_idx to get line_ct
+    const uintptr_t line_ct = line_idx;
     uint32_t vidx = 0;
     for (line_idx = 1; line_idx <= line_ct; ++line_idx) {
       if (RlsNextLstrip(&gen_rls, &line_iter)) {
@@ -8874,7 +8876,9 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     BigstackReset(writebuf);
     // We always read to eof, so error shouldn't be possible here.
     RewindRLstreamRaw(&dosage_rls, &line_iter);
-    const uintptr_t line_ct = line_idx - 1;
+    // bugfix (17 May 2018): no longer appropriate to subtract 1 from final
+    // line_idx to get line_ct
+    const uintptr_t line_ct = line_idx;
     line_idx = 0;
     if (!(flags & kfPlink1DosageNoheader)) {
       // skip header line again

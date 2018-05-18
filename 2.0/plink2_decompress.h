@@ -355,6 +355,7 @@ HEADER_INLINE PglErr RlsNextLstripK(ReadLineStream* rlsp, const char** consume_i
   return RlsNextLstrip(rlsp, K_CAST(char**, consume_iterp));
 }
 
+// these do not update line_idx on eof.
 PglErr RlsNextNonemptyLstrip(ReadLineStream* rlsp, uintptr_t* line_idx_ptr, char** consume_iterp);
 
 HEADER_INLINE PglErr RlsNextNonemptyLstripK(ReadLineStream* rlsp, uintptr_t* line_idx_ptr, const char** consume_iterp) {

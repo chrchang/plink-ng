@@ -237,6 +237,10 @@ HEADER_INLINE double u31tod(uint32_t uii) {
   return S_CAST(double, ii);
 }
 
+HEADER_INLINE double swtod(intptr_t lii) {
+  return S_CAST(double, lii);
+}
+
 HEADER_INLINE double u63tod(uint64_t ullii) {
   const int64_t llii = ullii;
   assert(llii >= 0);

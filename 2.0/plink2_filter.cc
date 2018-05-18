@@ -1395,7 +1395,7 @@ FLAGSET_DEF_START()
   kfReadFreqColsetHapAlt1Ct = (1 << kfReadFreqColHapAlt1Ct)
 FLAGSET_DEF_END(ReadFreqColFlags);
 
-PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* read_freq_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_alt_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t maf_succ, uint32_t max_thread_ct, double* allele_freqs) {
+PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* read_freq_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t maf_succ, uint32_t max_thread_ct, double* allele_freqs) {
   // support PLINK 1.9 --freq/--freqx, and 2.0 --freq/--geno-counts.
   // GCTA-format no longer supported since it inhibits the allele consistency
   // check.
@@ -1412,7 +1412,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
     uintptr_t* already_seen;
     if (bigstack_calloc_d(kMaxReadFreqAlleles, &cur_allele_freqs) ||
         bigstack_alloc_w(BitCtToWordCt(kMaxReadFreqAlleles), &matched_loaded_alleles) ||
-        bigstack_alloc_w(BitCtToWordCt(max_alt_allele_ct + 1), &matched_internal_alleles) ||
+        bigstack_alloc_w(BitCtToWordCt(max_allele_ct), &matched_internal_alleles) ||
         bigstack_alloc_u32(kMaxReadFreqAlleles, &loaded_to_internal_allele_idx) ||
         bigstack_calloc_w(BitCtToWordCt(raw_variant_ct), &already_seen)) {
       goto ReadAlleleFreqs_ret_NOMEM;
@@ -2612,7 +2612,7 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
     STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
     pthread_t* threads;
     uint32_t read_block_size;
-    if (PgenMtLoadInit(variant_include, raw_sample_ct, raw_variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_alloc_cacheline_ct, 0, pgfip, &calc_thread_ct, &g_genovecs, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &read_block_size, main_loadbufs, &threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
+    if (PgenMtLoadInit(variant_include, raw_sample_ct, raw_variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_alloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, &g_genovecs, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
       goto LoadSampleMissingCts_ret_NOMEM;
     }
     const uintptr_t acc1_alloc = acc1_alloc_cacheline_ct * kCacheline;

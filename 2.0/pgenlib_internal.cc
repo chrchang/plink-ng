@@ -1610,7 +1610,7 @@ uint32_t CountPgfiAllocCachelinesRequired(uint32_t raw_variant_ct) {
   return cachelines_required;
 }
 
-uint32_t CountPgrAllocCachelinesRequired(uint32_t raw_sample_ct, PgenGlobalFlags gflags, uint32_t max_alt_allele_ct, uint32_t fread_buf_byte_ct) {
+uint32_t CountPgrAllocCachelinesRequired(uint32_t raw_sample_ct, PgenGlobalFlags gflags, uint32_t max_allele_ct, uint32_t fread_buf_byte_ct) {
   // workspace_vec: always needed, 2 bits per entry, up to raw_sample_ct
   // entries
   const uint32_t genovec_cacheline_req = QuaterCtToCachelineCt(raw_sample_ct);
@@ -1649,14 +1649,14 @@ uint32_t CountPgrAllocCachelinesRequired(uint32_t raw_sample_ct, PgenGlobalFlags
       cachelines_required += 1 + (max_difflist_entry_ct_base / kInt32PerCacheline);
     }
   }
-  if (max_alt_allele_ct > 1) {
+  if (max_allele_ct > 2) {
     // workspace_aux1x_present, workspace_raw_genovec
     cachelines_required += bitvec_cacheline_req + genovec_cacheline_req;
   }
   if (gflags & kfPgenGlobalHardcallPhasePresent) {
     // workspace_all_hets, possibly ldbase_all_hets, ldbase_raw_genovec
     cachelines_required += bitvec_cacheline_req * (1 + ld_compression_present);
-    if (ld_compression_present && (max_alt_allele_ct > 1)) {
+    if (ld_compression_present && (max_allele_ct > 2)) {
       cachelines_required += genovec_cacheline_req;
     }
   }
@@ -1668,13 +1668,13 @@ uint32_t CountPgrAllocCachelinesRequired(uint32_t raw_sample_ct, PgenGlobalFlags
       // aux track #7: bitarray tracking which dosage entries are phased
       cachelines_required += bitvec_cacheline_req;
 
-      // phased aux tracks #4,8: max_alt_allele_ct * 2 bytes per sample
+      // phased aux tracks #4,8: 2 bytes per sample
       // There may be overflow risk here in the future.
       // (commented out since caller always provides this buffer for now)
-      // cachelines_required += DivUp(max_alt_allele_ct * 2 * k1LU * raw_sample_ct, kCacheline);
+      // cachelines_required += DivUp(2 * k1LU * raw_sample_ct, kCacheline);
     }
-    // unphased aux track #4: max_alt_allele_ct * 2 bytes per sample
-    // cachelines_required += DivUp(max_alt_allele_ct * 2 * k1LU * raw_sample_ct, kCacheline);
+    // unphased aux track #4: 2 bytes per sample
+    // cachelines_required += DivUp(2 * k1LU * raw_sample_ct, kCacheline);
   }
   return cachelines_required;
 }
@@ -1686,8 +1686,8 @@ PglErr PgfiInitPhase1(const char* fname, uint32_t raw_variant_ct, uint32_t raw_s
   pgfip->allele_idx_offsets = nullptr;
   pgfip->nonref_flags = nullptr;
 
-  pgfip->max_alt_allele_ct = 1;
-  pgfip->max_dosage_alt_allele_ct = 0;
+  pgfip->max_allele_ct = 2;
+  // pgfip->max_dosage_allele_ct = 0;
 
   pgfip->block_base = nullptr;
   // this should force overflow when value is uninitialized.
@@ -2150,7 +2150,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
 #endif
   }
   uint32_t cur_vblock_variant_ct = kPglVblockSize;
-  uint32_t max_alt_allele_ct = 1;
+  uint32_t max_allele_ct = 2;
   while (1) {
     if (vblock_idx >= vblock_ct_m1) {
       if (vblock_idx > vblock_ct_m1) {
@@ -2173,7 +2173,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
         }
 #endif
         pgfip->var_fpos[vidx_end] = cur_fpos;
-        pgfip->max_alt_allele_ct = max_alt_allele_ct;
+        pgfip->max_allele_ct = max_allele_ct;
         // if difflist/LD might be present, scan for them in a way that's
         // likely to terminate quickly
         PgenGlobalFlags new_gflags = kfPgenGlobal0;
@@ -2233,7 +2233,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
           assert(vrtype_and_fpos_storage < 10);
           max_vrec_width = QuaterCtToByteCt(raw_sample_ct) + (vrtype_and_fpos_storage * 12) - 93;
         }
-        *pgr_alloc_cacheline_ct_ptr = CountPgrAllocCachelinesRequired(raw_sample_ct, new_gflags, max_alt_allele_ct, (shared_ff && (!use_blockload))? max_vrec_width : 0);
+        *pgr_alloc_cacheline_ct_ptr = CountPgrAllocCachelinesRequired(raw_sample_ct, new_gflags, max_allele_ct, (shared_ff && (!use_blockload))? max_vrec_width : 0);
         *max_vrec_width_ptr = max_vrec_width;
         return kPglRetSuccess;
       }
@@ -2451,23 +2451,23 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
       if (allele_cts_already_loaded) {
         for (uint32_t cur_vblock_vidx = 0; cur_vblock_vidx < cur_vblock_variant_ct; ++cur_vblock_vidx) {
           uintptr_t cur_allele_idx_offset = allele_idx_offsets_iter[cur_vblock_vidx];
-          uint32_t cur_alt_allele_ct = fread_ptr[cur_vblock_vidx];
-          if ((cur_allele_idx_offset - prev_allele_idx_offset) != (cur_alt_allele_ct + 1)) {
+          uint32_t cur_allele_ct = fread_ptr[cur_vblock_vidx] + 1;
+          if ((cur_allele_idx_offset - prev_allele_idx_offset) != cur_allele_ct) {
             snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Loaded allele_idx_offsets do not match values in .pgen file.\n");
             return kPglRetInconsistentInput;
           }
           prev_allele_idx_offset = cur_allele_idx_offset;
-          if (cur_alt_allele_ct > max_alt_allele_ct) {
-            max_alt_allele_ct = cur_alt_allele_ct;
+          if (cur_allele_ct > max_allele_ct) {
+            max_allele_ct = cur_allele_ct;
           }
         }
       } else {
         for (uint32_t cur_vblock_vidx = 0; cur_vblock_vidx < cur_vblock_variant_ct; ++cur_vblock_vidx) {
-          uint32_t cur_alt_allele_ct = fread_ptr[cur_vblock_vidx];
-          prev_allele_idx_offset += cur_alt_allele_ct + 1;
+          uint32_t cur_allele_ct = fread_ptr[cur_vblock_vidx] + 1;
+          prev_allele_idx_offset += cur_allele_ct;
           allele_idx_offsets_iter[cur_vblock_vidx] = prev_allele_idx_offset;
-          if (cur_alt_allele_ct > max_alt_allele_ct) {
-            max_alt_allele_ct = cur_alt_allele_ct;
+          if (cur_allele_ct > max_allele_ct) {
+            max_allele_ct = cur_allele_ct;
           }
         }
       }
@@ -2770,8 +2770,8 @@ PglErr PgrInit(const char* fname, uint32_t max_vrec_width, PgenFileInfo* pgfip, 
     pgrp->workspace_raregeno_tmp_loadbuf = nullptr;
     pgrp->workspace_difflist_sample_ids_tmp = nullptr;
   }
-  const uint32_t max_alt_allele_ct = pgrp->fi.max_alt_allele_ct;
-  if (max_alt_allele_ct > 1) {
+  const uint32_t max_allele_ct = pgrp->fi.max_allele_ct;
+  if (max_allele_ct > 2) {
     pgrp->workspace_aux1x_present = R_CAST(uintptr_t*, pgr_alloc_iter);
     pgr_alloc_iter = &(pgr_alloc_iter[bitvec_bytes_req]);
     pgrp->workspace_raw_genovec = R_CAST(uintptr_t*, pgr_alloc_iter);
@@ -2790,7 +2790,7 @@ PglErr PgrInit(const char* fname, uint32_t max_vrec_width, PgenFileInfo* pgfip, 
     pgrp->workspace_all_hets = R_CAST(uintptr_t*, pgr_alloc_iter);
     pgr_alloc_iter = &(pgr_alloc_iter[bitvec_bytes_req]);
     if (ld_compression_present) {
-      if (max_alt_allele_ct > 1) {
+      if (max_allele_ct > 2) {
         pgrp->ldbase_raw_genovec = R_CAST(uintptr_t*, pgr_alloc_iter);
         pgr_alloc_iter = &(pgr_alloc_iter[genovec_bytes_req]);
       }
@@ -5581,7 +5581,7 @@ PglErr ParseAndSaveDeltalistAsBitarr(const unsigned char* fread_end, uint32_t ra
   }
 }
 
-PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_end, const uintptr_t* __restrict sample_include, uint32_t sample_ct, uint32_t vidx, uint32_t alt_allele_ct, PgenReader* pgrp, uint32_t* __restrict dosage_ct_ptr, uintptr_t* __restrict dphase_present, int16_t* dphase_delta, uint32_t* __restrict dphase_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_main) {
+PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_end, const uintptr_t* __restrict sample_include, uint32_t sample_ct, uint32_t vidx, uint32_t allele_ct, PgenReader* pgrp, uint32_t* __restrict dosage_ct_ptr, uintptr_t* __restrict dphase_present, int16_t* dphase_delta, uint32_t* __restrict dphase_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_main) {
   // Side effect: may use pgrp->workspace_dosage_present and
   // pgrp->workspace_dphase_present
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
@@ -5654,7 +5654,7 @@ PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_
     }
   }
   if (!dphase_ct) {
-    if (alt_allele_ct == 1) {
+    if (allele_ct == 2) {
       if (!is_unconditional_dosage) {
         if (dosage_ct == raw_dosage_ct) {
           memcpy(dosage_main_write_iter, dosage_main_read_iter, dosage_ct * sizeof(int16_t));
@@ -5709,7 +5709,7 @@ PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_
     }
   } else {
     // phased dosage
-    if (alt_allele_ct == 1) {
+    if (allele_ct == 2) {
       if (!is_unconditional_dosage) {
         if (dphase_ct == raw_dphase_ct) {
           memcpy(dosage_main_write_iter, dosage_main_read_iter, dosage_ct * sizeof(int16_t));
@@ -5819,8 +5819,8 @@ PglErr PgrGetD(const uintptr_t* __restrict sample_include, const uint32_t* __res
     return reterr;
   }
   const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
-  const uint32_t alt_allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx] - 1) : 1;
-  return ParseDosage16(fread_ptr, fread_end, sample_include, sample_ct, vidx, alt_allele_ct, pgrp, dosage_ct_ptr, nullptr, nullptr, nullptr, dosage_present, dosage_main);
+  const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
+  return ParseDosage16(fread_ptr, fread_end, sample_include, sample_ct, vidx, allele_ct, pgrp, dosage_ct_ptr, nullptr, nullptr, nullptr, dosage_present, dosage_main);
 }
 
 PglErr PgrGet1D(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr) {
@@ -6011,8 +6011,8 @@ PglErr GetRefNonrefGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample
   // todo: phased dosage
 #ifndef NDEBUG
   const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
-  const uint32_t alt_allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx] - 1) : 1;
-  assert(alt_allele_ct == 1);
+  const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
+  assert(allele_ct == 2);
 #endif
   uint64_t alt1_dosage = 0;
   uint64_t alt1_dosage_sq_sum = 0;
@@ -6160,8 +6160,8 @@ PglErr PgrGetDp(const uintptr_t* __restrict sample_include, const uint32_t* __re
     return reterr;
   }
   const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
-  const uint32_t alt_allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx] - 1) : 1;
-  return ParseDosage16(fread_ptr, fread_end, sample_include, sample_ct, vidx, alt_allele_ct, pgrp, dosage_ct_ptr, dphase_present, dphase_delta, dphase_ct_ptr, dosage_present, dosage_main);
+  const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
+  return ParseDosage16(fread_ptr, fread_end, sample_include, sample_ct, vidx, allele_ct, pgrp, dosage_ct_ptr, dphase_present, dphase_delta, dphase_ct_ptr, dosage_present, dosage_main);
 }
 
 PglErr PgrGetInv1Dp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr, uintptr_t* __restrict dphase_present, int16_t* dphase_delta, uint32_t* dphase_ct_ptr) {
@@ -6318,7 +6318,7 @@ PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgrp, u
   loadbuf_iter = &(loadbuf_iter[raw_sample_ctaw]);
   uint16_t* dosage_main = R_CAST(uint16_t*, loadbuf_iter);
   const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
-  const uint32_t alt_allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx] - 1) : 1;
+  const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
   const uintptr_t dosage_main_aligned_wordct = kWordsPerVec * DivUp(raw_sample_ct, (kBytesPerVec / sizeof(int16_t)));
   loadbuf_iter = &(loadbuf_iter[dosage_main_aligned_wordct]);
   uintptr_t* dphase_present = nullptr;
@@ -6330,7 +6330,7 @@ PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgrp, u
     loadbuf_iter = &(loadbuf_iter[dosage_main_aligned_wordct]);
   }
   *loadbuf_iter_ptr = loadbuf_iter;
-  return ParseDosage16(fread_ptr, fread_end, nullptr, raw_sample_ct, vidx, alt_allele_ct, pgrp, nullptr, dphase_present, dphase_delta, nullptr, dosage_present, dosage_main);
+  return ParseDosage16(fread_ptr, fread_end, nullptr, raw_sample_ct, vidx, allele_ct, pgrp, nullptr, dphase_present, dphase_delta, nullptr, dosage_present, dosage_main);
 }
 
 

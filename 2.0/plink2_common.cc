@@ -1961,7 +1961,100 @@ PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const ch
 }
 
 
-PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t bytes_avail, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, PgenFileInfo* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** phasepresent_ptr, uintptr_t*** phaseinfo_ptr, uintptr_t*** dosage_present_ptr, Dosage*** dosage_mains_ptr, uintptr_t*** dphase_present_ptr, SDosage*** dphase_delta_ptr, uint32_t* read_block_size_ptr, STD_ARRAY_REF(unsigned char*, 2) main_loadbufs, pthread_t** threads_ptr, PgenReader*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr) {
+/*
+uintptr_t GetMaxAlleleBlockSize(const uintptr_t* __restrict variant_include, const uintptr_t* __restrict allele_idx_offsets, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t read_block_size) {
+  uintptr_t max_allele_block_size = 2 * read_block_size;
+  if (!allele_idx_offsets) {
+    return max_allele_block_size;
+  }
+  uint32_t variant_idx = 0;
+  uint32_t variant_uidx_end = 0;
+  while (1) {
+    uint32_t variant_uidx = variant_uidx_end;
+    variant_uidx_end += read_block_size;
+    if (variant_uidx_end > raw_variant_ct) {
+      variant_uidx_end = raw_variant_ct;
+      read_block_size = raw_variant_ct - variant_uidx;
+    }
+    uint32_t cur_variant_ct = PopcountBitRange(variant_include, variant_uidx, variant_uidx_end);
+    if (cur_variant_ct) {
+      const uint32_t omitted_variant_ct = read_block_size - cur_variant_ct;
+      const uintptr_t block_size_ubound = allele_idx_offsets[variant_uidx_end] - allele_idx_offsets[variant_uidx] - (2 * omitted_variant_ct);
+      variant_idx += cur_variant_ct;
+      if (block_size_ubound > max_allele_block_size) {
+        // subtract at beginning of each variant_include bitblock, add at end.
+        uintptr_t cur_allele_block_size = 0;
+        do {
+          const uint32_t cur_bitblock_start = AdvTo1Bit(variant_include, variant_uidx);
+          // deliberate underflow
+          cur_allele_block_size -= allele_idx_offsets[cur_bitblock_start];
+          if (variant_uidx_end - cur_bitblock_start == cur_variant_ct) {
+            cur_allele_block_size += allele_idx_offsets[variant_uidx_end];
+            break;
+          }
+          variant_uidx = AdvTo0Bit(variant_include, cur_bitblock_start);
+          cur_allele_block_size += allele_idx_offsets[variant_uidx];
+          cur_variant_ct -= variant_uidx - cur_bitblock_start;
+        } while (cur_variant_ct);
+        if (cur_allele_block_size > max_allele_block_size) {
+          max_allele_block_size = cur_allele_block_size;
+        }
+      }
+      if (variant_idx == variant_ct) {
+        return max_allele_block_size;
+      }
+    }
+  }
+}
+*/
+
+uintptr_t GetMaxAltAlleleBlockSize(const uintptr_t* __restrict variant_include, const uintptr_t* __restrict allele_idx_offsets, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t read_block_size) {
+  uintptr_t max_alt_allele_block_size = read_block_size;
+  if (!allele_idx_offsets) {
+    return max_alt_allele_block_size;
+  }
+  uint32_t variant_idx = 0;
+  uint32_t variant_uidx_end = 0;
+  while (1) {
+    uint32_t variant_uidx = variant_uidx_end;
+    variant_uidx_end += read_block_size;
+    if (variant_uidx_end > raw_variant_ct) {
+      variant_uidx_end = raw_variant_ct;
+      read_block_size = raw_variant_ct - variant_uidx;
+    }
+    uint32_t cur_variant_ct = PopcountBitRange(variant_include, variant_uidx, variant_uidx_end);
+    if (cur_variant_ct) {
+      const uint32_t omitted_variant_ct = read_block_size - cur_variant_ct;
+      const uintptr_t cur_ubound = allele_idx_offsets[variant_uidx_end] - allele_idx_offsets[variant_uidx] - omitted_variant_ct - read_block_size;
+      variant_idx += cur_variant_ct;
+      if (cur_ubound > max_alt_allele_block_size) {
+        // subtract at beginning of each variant_include bitblock, add at end.
+        // deliberate underflow
+        uintptr_t cur_alt_allele_block_size = -cur_variant_ct;
+        do {
+          const uint32_t cur_bitblock_start = AdvTo1Bit(variant_include, variant_uidx);
+          // deliberate underflow
+          cur_alt_allele_block_size -= allele_idx_offsets[cur_bitblock_start];
+          if (variant_uidx_end - cur_bitblock_start == cur_variant_ct) {
+            cur_alt_allele_block_size += allele_idx_offsets[variant_uidx_end];
+            break;
+          }
+          variant_uidx = AdvTo0Bit(variant_include, cur_bitblock_start);
+          cur_alt_allele_block_size += allele_idx_offsets[variant_uidx];
+          cur_variant_ct -= variant_uidx - cur_bitblock_start;
+        } while (cur_variant_ct);
+        if (cur_alt_allele_block_size > max_alt_allele_block_size) {
+          max_alt_allele_block_size = cur_alt_allele_block_size;
+        }
+      }
+      if (variant_idx == variant_ct) {
+        return max_alt_allele_block_size;
+      }
+    }
+  }
+}
+
+PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t bytes_avail, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, uintptr_t per_alt_allele_xalloc_byte_ct, PgenFileInfo* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** phasepresent_ptr, uintptr_t*** phaseinfo_ptr, uintptr_t*** dosage_present_ptr, Dosage*** dosage_mains_ptr, uintptr_t*** dphase_present_ptr, SDosage*** dphase_delta_ptr, uint32_t* read_block_size_ptr, uintptr_t* max_alt_allele_block_size_ptr, STD_ARRAY_REF(unsigned char*, 2) main_loadbufs, pthread_t** threads_ptr, PgenReader*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr) {
   uintptr_t cachelines_avail = bytes_avail / kCacheline;
   uint32_t read_block_size = kPglVblockSize;
   uint64_t multiread_cacheline_ct;
@@ -1996,6 +2089,14 @@ PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint
   pgfip->block_base = main_loadbufs[0];
   *read_block_size_ptr = read_block_size;
   cachelines_avail -= 2 * (multiread_cacheline_ct + (S_CAST(uint64_t, per_variant_xalloc_byte_ct) * read_block_size) / kCacheline);
+  if (per_alt_allele_xalloc_byte_ct) {
+    const uintptr_t max_alt_allele_block_size = GetMaxAltAlleleBlockSize(variant_include, pgfip->allele_idx_offsets, pgfip->raw_variant_ct, variant_ct, read_block_size);
+
+    cachelines_avail -= DivUpU64(S_CAST(uint64_t, per_alt_allele_xalloc_byte_ct) * read_block_size, kCacheline);
+    // we assume it's unnecessary to return this if
+    // per_alt_allele_xalloc_byte_ct is zero
+    *max_alt_allele_block_size_ptr = max_alt_allele_block_size;
+  }
   // reduce calc_thread_ct if necessary
   uint32_t calc_thread_ct = *calc_thread_ct_ptr;
   if (calc_thread_ct > read_block_size) {
