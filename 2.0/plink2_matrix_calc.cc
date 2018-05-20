@@ -169,9 +169,10 @@ PglErr KinshipPruneDestructive(uintptr_t* kinship_table, uintptr_t* sample_inclu
     uintptr_t* sample_include_collapsed_nz;
     uintptr_t* sample_remove_collapsed;
     uint32_t* vertex_degree;
-    if (bigstack_calloc_w(orig_sample_ctl, &sample_include_collapsed_nz) ||
-        bigstack_calloc_w(orig_sample_ctl, &sample_remove_collapsed) ||
-        bigstack_alloc_u32(orig_sample_ct, &vertex_degree)) {
+    if (unlikely(
+          bigstack_calloc_w(orig_sample_ctl, &sample_include_collapsed_nz) ||
+          bigstack_calloc_w(orig_sample_ctl, &sample_remove_collapsed) ||
+          bigstack_alloc_u32(orig_sample_ct, &vertex_degree))) {
       goto KinshipPruneDestructive_ret_NOMEM;
     }
     // 1. count the number of constraints for each remaining sample
@@ -287,8 +288,9 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
     const uint32_t orig_sample_ctl = BitCtToWordCt(sample_ct);
     uintptr_t* kinship_table;
     uint32_t* sample_uidx_to_king_uidx;
-    if (bigstack_calloc_w(sample_ct * orig_sample_ctl, &kinship_table) ||
-        bigstack_alloc_u32(raw_sample_ct, &sample_uidx_to_king_uidx)) {
+    if (unlikely(
+          bigstack_calloc_w(sample_ct * orig_sample_ctl, &kinship_table) ||
+          bigstack_alloc_u32(raw_sample_ct, &sample_uidx_to_king_uidx))) {
       goto KingCutoffBatch_ret_NOMEM;
     }
 
@@ -300,14 +302,14 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
     }
     ++line_idx;
     reterr = RlsNextLstrip(&rls, &line_iter);
-    if (reterr) {
+    if (unlikely(reterr)) {
       if (reterr == kPglRetEof) {
         logerrputs("Error: Empty --king-cutoff ID file.\n");
         goto KingCutoffBatch_ret_MALFORMED_INPUT;
       }
       goto KingCutoffBatch_ret_READ_RLSTREAM;
     }
-    if (IsEolnKns(*line_iter)) {
+    if (unlikely(IsEolnKns(*line_iter))) {
       goto KingCutoffBatch_ret_MISSING_TOKENS;
     }
     const char* linebuf_first_token = line_iter;
@@ -317,11 +319,11 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
     char* sorted_xidbox;
     uintptr_t max_xid_blen;
     reterr = SortedXidboxInitAlloc(sample_include, siip, sample_ct, 0, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
-    if (reterr) {
+    if (unlikely(reterr)) {
       goto KingCutoffBatch_ret_1;
     }
     char* idbuf;
-    if (bigstack_alloc_c(max_xid_blen, &idbuf)) {
+    if (unlikely(bigstack_alloc_c(max_xid_blen, &idbuf))) {
       goto KingCutoffBatch_ret_NOMEM;
     }
     SetAllU32Arr(raw_sample_ct, sample_uidx_to_king_uidx);
@@ -329,7 +331,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
       const char* linebuf_iter = linebuf_first_token;
       uint32_t sample_uidx;
       if (!SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx, idbuf)) {
-        if (sample_uidx_to_king_uidx[sample_uidx] != UINT32_MAX) {
+        if (unlikely(sample_uidx_to_king_uidx[sample_uidx] != UINT32_MAX)) {
           char* first_tab = AdvToDelim(idbuf, '\t');
           char* second_tab = strchr(&(first_tab[1]), '\t');
           *first_tab = ' ';
@@ -341,7 +343,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
         }
         sample_uidx_to_king_uidx[sample_uidx] = line_idx - 1;
       } else {
-        if (!linebuf_iter) {
+        if (unlikely(!linebuf_iter)) {
           goto KingCutoffBatch_ret_MISSING_TOKENS;
         }
       }
@@ -350,13 +352,13 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
       ++line_idx;
       reterr = RlsNextLstrip(&rls, &line_iter);
       if (reterr) {
-        if (reterr == kPglRetEof) {
+        if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
           break;
         }
         goto KingCutoffBatch_ret_READ_RLSTREAM;
       }
-      if (IsEolnKns(*line_iter)) {
+      if (unlikely(IsEolnKns(*line_iter))) {
         goto KingCutoffBatch_ret_MISSING_TOKENS;
       }
     }
@@ -366,8 +368,9 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
     CleanupRLstream(&rls);
     uintptr_t* king_include;
     uint32_t* king_uidx_to_sample_idx;
-    if (bigstack_calloc_w(BitCtToWordCt(king_id_ct), &king_include) ||
-        bigstack_alloc_u32(king_id_ct, &king_uidx_to_sample_idx)) {
+    if (unlikely(
+          bigstack_calloc_w(BitCtToWordCt(king_id_ct), &king_include) ||
+          bigstack_alloc_u32(king_id_ct, &king_uidx_to_sample_idx))) {
       goto KingCutoffBatch_ret_NOMEM;
     }
     uint32_t sample_uidx = 0;
@@ -380,10 +383,10 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
       }
     }
     snprintf(fprefix_end, 9, ".king.bin");
-    if (fopen_checked(king_cutoff_fprefix, FOPEN_RB, &binfile)) {
+    if (unlikely(fopen_checked(king_cutoff_fprefix, FOPEN_RB, &binfile))) {
       goto KingCutoffBatch_ret_OPEN_FAIL;
     }
-    if (fseeko(binfile, 0, SEEK_END)) {
+    if (unlikely(fseeko(binfile, 0, SEEK_END))) {
       goto KingCutoffBatch_ret_READ_FAIL;
     }
     const uint64_t fsize = ftello(binfile);
@@ -402,7 +405,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
       // fread limit
       assert(king_id_ct <= ((kMaxBytesPerIO / sizeof(double)) + 1));
       double* king_drow;
-      if (bigstack_alloc_d(king_id_ct - 1, &king_drow)) {
+      if (unlikely(bigstack_alloc_d(king_id_ct - 1, &king_drow))) {
         goto KingCutoffBatch_ret_NOMEM;
       }
       for (uint32_t king_idx = 1; king_uidx < king_id_ct; ++king_idx, ++king_uidx) {
@@ -411,11 +414,11 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
           if (king_uidx == king_id_ct) {
             break;
           }
-          if (fseeko(binfile, S_CAST(uint64_t, king_uidx) * (king_uidx - 1) * (sizeof(double) / 2), SEEK_SET)) {
+          if (unlikely(fseeko(binfile, S_CAST(uint64_t, king_uidx) * (king_uidx - 1) * (sizeof(double) / 2), SEEK_SET))) {
             goto KingCutoffBatch_ret_READ_FAIL;
           }
         }
-        if (!fread_unlocked(king_drow, king_uidx * sizeof(double), 1, binfile)) {
+        if (unlikely(!fread_unlocked(king_drow, king_uidx * sizeof(double), 1, binfile))) {
           goto KingCutoffBatch_ret_READ_FAIL;
         }
         const uintptr_t sample_idx = king_uidx_to_sample_idx[king_uidx];
@@ -434,14 +437,14 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
         }
       }
     } else {
-      if (fsize != (fsize_double_expected / 2)) {
+      if (unlikely(fsize != (fsize_double_expected / 2))) {
         logerrprintfww("Error: Invalid --king-cutoff .bin file size (expected %" PRIu64 " or %" PRIu64 " bytes).\n", fsize_double_expected / 2, fsize_double_expected);
         goto KingCutoffBatch_ret_MALFORMED_INPUT;
       }
       assert(king_id_ct <= ((0x7ffff000 / sizeof(float)) + 1));
       const float king_cutoff_f = S_CAST(float, king_cutoff);
       float* king_frow;
-      if (bigstack_alloc_f(king_id_ct - 1, &king_frow)) {
+      if (unlikely(bigstack_alloc_f(king_id_ct - 1, &king_frow))) {
         goto KingCutoffBatch_ret_NOMEM;
       }
       for (uint32_t king_idx = 1; king_uidx < king_id_ct; ++king_idx, ++king_uidx) {
@@ -450,11 +453,11 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
           if (king_uidx == king_id_ct) {
             break;
           }
-          if (fseeko(binfile, S_CAST(uint64_t, king_uidx) * (king_uidx - 1) * (sizeof(float) / 2), SEEK_SET)) {
+          if (unlikely(fseeko(binfile, S_CAST(uint64_t, king_uidx) * (king_uidx - 1) * (sizeof(float) / 2), SEEK_SET))) {
             goto KingCutoffBatch_ret_READ_FAIL;
           }
         }
-        if (!fread_unlocked(king_frow, king_uidx * sizeof(float), 1, binfile)) {
+        if (unlikely(!fread_unlocked(king_frow, king_uidx * sizeof(float), 1, binfile))) {
           goto KingCutoffBatch_ret_READ_FAIL;
         }
         const uintptr_t sample_idx = king_uidx_to_sample_idx[king_uidx];
@@ -475,7 +478,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
     }
     logprintf("--king-cutoff: %" PRIuPTR " constraint%s loaded.\n", constraint_ct, (constraint_ct == 1)? "" : "s");
     BigstackReset(sample_uidx_to_king_uidx);
-    if (KinshipPruneDestructive(kinship_table, sample_include, sample_ct_ptr)) {
+    if (unlikely(KinshipPruneDestructive(kinship_table, sample_include, sample_ct_ptr))) {
       goto KingCutoffBatch_ret_NOMEM;
     }
   }
@@ -907,23 +910,23 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
   {
     const KingFlags matrix_shape = king_flags & kfKingMatrixShapemask;
     const char* flagname = matrix_shape? "--make-king" : ((king_flags & kfKingColAll)? "--make-king-table" : "--king-cutoff");
-    if (IsSet(cip->haploid_mask, 0)) {
+    if (unlikely(IsSet(cip->haploid_mask, 0))) {
       logerrprintf("Error: %s cannot be used on haploid genomes.\n", flagname);
       goto CalcKing_ret_INCONSISTENT_INPUT;
     }
     reterr = ConditionalAllocateNonAutosomalVariants(cip, "KING-robust calculation", raw_variant_ct, &variant_include, &variant_ct);
-    if (reterr) {
+    if (unlikely(reterr)) {
       goto CalcKing_ret_1;
     }
     uint32_t sample_ct = *sample_ct_ptr;
-    if (sample_ct < 2) {
+    if (unlikely(sample_ct < 2)) {
       logerrprintf("Error: %s requires at least 2 samples.\n", flagname);
       goto CalcKing_ret_INCONSISTENT_INPUT;
     }
 #ifdef __LP64__
     // there's also a UINT32_MAX / kKingMultiplexWords limit, but that's not
     // relevant for now
-    if (sample_ct > 134000000) {
+    if (unlikely(sample_ct > 134000000)) {
       // for text output, 134m * 16 is just below kMaxLongLine
       logerrprintf("Error: %s does not support > 134000000 samples.\n", flagname);
       reterr = kPglRetNotYetSupported;
@@ -939,14 +942,15 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
     }
     // possible todo: allow this to change between passes
     ts.calc_thread_ct = calc_thread_ct;
-    if (bigstack_alloc_u32(calc_thread_ct + 1, &g_thread_start) ||
-        bigstack_alloc_thread(calc_thread_ct, &ts.threads)) {
+    if (unlikely(
+          bigstack_alloc_u32(calc_thread_ct + 1, &g_thread_start) ||
+          bigstack_alloc_thread(calc_thread_ct, &ts.threads))) {
       goto CalcKing_ret_NOMEM;
     }
     const uintptr_t sample_ctl = BitCtToWordCt(sample_ct);
     uintptr_t* kinship_table = nullptr;
     if (king_cutoff != -1) {
-      if (bigstack_calloc_w(sample_ct * sample_ctl, &kinship_table)) {
+      if (unlikely(bigstack_calloc_w(sample_ct * sample_ctl, &kinship_table))) {
         goto CalcKing_ret_NOMEM;
       }
     }
@@ -965,16 +969,17 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
     uintptr_t* splitbuf_hom;
     uintptr_t* splitbuf_ref2het;
     VecW* vecaligned_buf;
-    if (bigstack_alloc_w(raw_sample_ctl, &cur_sample_include) ||
-        bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
-        bigstack_alloc_w(sample_ctaw2, &loadbuf) ||
-        bigstack_alloc_w(kPglBitTransposeBatch * sample_ctaw, &splitbuf_hom) ||
-        bigstack_alloc_w(kPglBitTransposeBatch * sample_ctaw, &splitbuf_ref2het) ||
-        bigstack_alloc_w(king_bufsizew, &(g_smaj_hom[0])) ||
-        bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[0])) ||
-        bigstack_alloc_w(king_bufsizew, &(g_smaj_hom[1])) ||
-        bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[1])) ||
-        BIGSTACK_ALLOC_X(VecW, kPglBitTransposeBufvecs, &vecaligned_buf)) {
+    if (unlikely(
+          bigstack_alloc_w(raw_sample_ctl, &cur_sample_include) ||
+          bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+          bigstack_alloc_w(sample_ctaw2, &loadbuf) ||
+          bigstack_alloc_w(kPglBitTransposeBatch * sample_ctaw, &splitbuf_hom) ||
+          bigstack_alloc_w(kPglBitTransposeBatch * sample_ctaw, &splitbuf_ref2het) ||
+          bigstack_alloc_w(king_bufsizew, &(g_smaj_hom[0])) ||
+          bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[0])) ||
+          bigstack_alloc_w(king_bufsizew, &(g_smaj_hom[1])) ||
+          bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[1])) ||
+          BIGSTACK_ALLOC_X(VecW, kPglBitTransposeBufvecs, &vecaligned_buf))) {
       goto CalcKing_ret_NOMEM;
     }
 
@@ -988,14 +993,14 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
         // won't be >2gb since sample_ct <= 134m
         const uint32_t overflow_buf_size = kCompressStreamBlock + 16 * sample_ct;
         reterr = InitCstreamAlloc(outname, 0, king_flags & kfKingMatrixZs, max_thread_ct, overflow_buf_size, &css, &cswritep);
-        if (reterr) {
+        if (unlikely(reterr)) {
           goto CalcKing_ret_1;
         }
       } else {
-        if (fopen_checked(outname, FOPEN_WB, &outfile)) {
+        if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
           goto CalcKing_ret_OPEN_FAIL;
         }
-        if (bigstack_alloc_uc(sample_ct * 4 * (2 - ((king_flags / kfKingMatrixBin4) & 1)), &numbuf)) {
+        if (unlikely(bigstack_alloc_uc(sample_ct * 4 * (2 - ((king_flags / kfKingMatrixBin4) & 1)), &numbuf))) {
           goto CalcKing_ret_OPEN_FAIL;
         }
       }
@@ -1008,7 +1013,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
       const uint32_t overflow_buf_size = kCompressStreamBlock + kMaxMediumLine;
       SetKingTableFname(king_flags, parallel_idx, parallel_tot, outname_end);
       reterr = InitCstreamAlloc(outname, 0, king_flags & kfKingTableZs, max_thread_ct, overflow_buf_size, &csst, &cswritetp);
-      if (reterr) {
+      if (unlikely(reterr)) {
         goto CalcKing_ret_1;
       }
 
@@ -1017,17 +1022,17 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
       if (!parallel_idx) {
         cswritetp = AppendKingTableHeader(king_flags, king_col_fid, king_col_sid, cswritetp);
       }
-      if (CollapsedSampleFmtidInitAlloc(sample_include, siip, grand_row_end_idx, king_col_fid, king_col_sid, &collapsed_sample_fmtids, &max_sample_fmtid_blen)) {
+      if (unlikely(CollapsedSampleFmtidInitAlloc(sample_include, siip, grand_row_end_idx, king_col_fid, king_col_sid, &collapsed_sample_fmtids, &max_sample_fmtid_blen))) {
         goto CalcKing_ret_NOMEM;
       }
     }
     uint64_t king_table_filter_ct = 0;
     const uintptr_t cells_avail = bigstack_left() / (sizeof(int32_t) * homhom_needed_p4);
     const uint32_t pass_ct = CountTrianglePasses(grand_row_start_idx, grand_row_end_idx, 1, cells_avail);
-    if (!pass_ct) {
+    if (unlikely(!pass_ct)) {
       goto CalcKing_ret_NOMEM;
     }
-    if ((pass_ct > 1) && (king_flags & kfKingMatrixSq)) {
+    if (unlikely((pass_ct > 1) && (king_flags & kfKingMatrixSq))) {
       logerrputs("Insufficient memory for --make-king square output.  Try square0 or triangle\nshape instead.\n");
       goto CalcKing_ret_NOMEM;
     }
@@ -1133,7 +1138,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
             // improvement we'd get in return is microscopic.  So we stick to
             // REF/ALT allele counts instead.
             reterr = PgrGet(cur_sample_include, sample_include_cumulative_popcounts, row_end_idx, variant_uidx, simple_pgrp, loadbuf);
-            if (reterr) {
+            if (unlikely(reterr)) {
               goto CalcKing_ret_PGR_FAIL;
             }
             SetTrailingQuaters(row_end_idx, loadbuf);
@@ -1188,7 +1193,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
         }
         // this update must occur after JoinThreads3z() call
         ts.is_last_block = (variants_completed + cur_block_size == variant_ct);
-        if (SpawnThreads3z(variants_completed, &ts)) {
+        if (unlikely(SpawnThreads3z(variants_completed, &ts))) {
           goto CalcKing_ret_THREAD_CREATE_FAIL;
         }
         printf("\r%s pass %u/%u: %u variants complete.", flagname, pass_idx_p1, pass_ct, variants_completed);
@@ -1260,7 +1265,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
                 ++cswritep;
               }
               DecrAppendBinaryEoln(&cswritep);
-              if (Cswrite(&css, &cswritep)) {
+              if (unlikely(Cswrite(&css, &cswritep))) {
                 goto CalcKing_ret_WRITE_FAIL;
               }
             }
@@ -1303,7 +1308,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
                 } else {
                   row_byte_ct = sample_idx1 * sizeof(float);
                 }
-                if (fwrite_checked(write_row, row_byte_ct, outfile)) {
+                if (unlikely(fwrite_checked(write_row, row_byte_ct, outfile))) {
                   goto CalcKing_ret_WRITE_FAIL;
                 }
               }
@@ -1335,7 +1340,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
                 } else {
                   row_byte_ct = sample_idx1 * sizeof(double);
                 }
-                if (fwrite_checked(write_row, row_byte_ct, outfile)) {
+                if (unlikely(fwrite_checked(write_row, row_byte_ct, outfile))) {
                   goto CalcKing_ret_WRITE_FAIL;
                 }
               }
@@ -1425,7 +1430,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
                 ++cswritetp;
               }
               DecrAppendBinaryEoln(&cswritetp);
-              if (Cswrite(&csst, &cswritetp)) {
+              if (unlikely(Cswrite(&csst, &cswritetp))) {
                 goto CalcKing_ret_WRITE_FAIL;
               }
             }
@@ -1456,11 +1461,11 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
     // end-of-loop operations
     if (matrix_shape) {
       if (!(king_flags & (kfKingMatrixBin | kfKingMatrixBin4))) {
-        if (CswriteCloseNull(&css, cswritep)) {
+        if (unlikely(CswriteCloseNull(&css, cswritep))) {
           goto CalcKing_ret_WRITE_FAIL;
         }
       } else {
-        if (fclose_null(&outfile)) {
+        if (unlikely(fclose_null(&outfile))) {
           goto CalcKing_ret_WRITE_FAIL;
         }
       }
@@ -1477,12 +1482,12 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
       WordWrapB(0);
       logputsb();
       reterr = WriteSampleIds(sample_include, siip, outname, sample_ct);
-      if (reterr) {
+      if (unlikely(reterr)) {
         goto CalcKing_ret_1;
       }
     }
     if (king_flags & kfKingColAll) {
-      if (CswriteCloseNull(&csst, cswritetp)) {
+      if (unlikely(CswriteCloseNull(&csst, cswritetp))) {
         goto CalcKing_ret_WRITE_FAIL;
       }
       SetKingTableFname(king_flags, parallel_idx, parallel_tot, outname_end);
@@ -1496,7 +1501,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
         WordWrapB(0);
         logputsb();
         reterr = WriteSampleIds(sample_include, siip, outname, sample_ct);
-        if (reterr) {
+        if (unlikely(reterr)) {
           goto CalcKing_ret_1;
         }
       } else {
@@ -1513,7 +1518,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
     if (kinship_table) {
       BigstackReset(sample_include_cumulative_popcounts);
       *sample_ct_ptr = sample_ct;
-      if (KinshipPruneDestructive(kinship_table, sample_include, sample_ct_ptr)) {
+      if (unlikely(KinshipPruneDestructive(kinship_table, sample_include, sample_ct_ptr))) {
         goto CalcKing_ret_NOMEM;
       }
     }
@@ -1831,7 +1836,7 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, u
     while (1) {
       reterr = RlsNextNonemptyLstrip(rlsp, &line_idx, &line_iter);
       if (reterr) {
-        if (reterr == kPglRetEof) {
+        if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
           // use line_iter = nullptr to mark EOF
           line_iter = nullptr;
@@ -1842,27 +1847,27 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, u
       const char* linebuf_iter = line_iter;
       uint32_t sample_uidx1;
       if (SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx1, idbuf)) {
-        if (!linebuf_iter) {
+        if (unlikely(!linebuf_iter)) {
           goto KingTableSubsetLoad_ret_MISSING_TOKENS;
         }
         continue;
       }
       linebuf_iter = FirstNonTspace(linebuf_iter);
       if (skip_sid) {
-        if (IsEolnKns(*linebuf_iter)) {
+        if (unlikely(IsEolnKns(*linebuf_iter))) {
           goto KingTableSubsetLoad_ret_MISSING_TOKENS;
         }
         linebuf_iter = FirstNonTspace(CurTokenEnd(linebuf_iter));
       }
       uint32_t sample_uidx2;
       if (SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx2, idbuf)) {
-        if (!linebuf_iter) {
+        if (unlikely(!linebuf_iter)) {
           goto KingTableSubsetLoad_ret_MISSING_TOKENS;
         }
         line_iter = K_CAST(char*, linebuf_iter);
         continue;
       }
-      if (sample_uidx1 == sample_uidx2) {
+      if (unlikely(sample_uidx1 == sample_uidx2)) {
         // could technically be due to unloaded SID, so use inconsistent-input
         // error code
         snprintf(g_logbuf, kLogbufSize, "Error: Identical sample IDs on line %" PRIuPTR " of --king-table-subset file.\n", line_idx);
@@ -1871,7 +1876,7 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, u
       if (king_table_subset_thresh != -DBL_MAX) {
         linebuf_iter = FirstNonTspace(linebuf_iter);
         linebuf_iter = NextTokenMult0(linebuf_iter, kinship_skip);
-        if (!linebuf_iter) {
+        if (unlikely(!linebuf_iter)) {
           goto KingTableSubsetLoad_ret_MISSING_TOKENS;
         }
         double cur_kinship;
@@ -1927,12 +1932,12 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
   PreinitCstream(&css);
   InitThreads3z(&ts);
   {
-    if (IsSet(cip->haploid_mask, 0)) {
+    if (unlikely(IsSet(cip->haploid_mask, 0))) {
       logerrputs("Error: --make-king-table cannot be used on haploid genomes.\n");
       goto CalcKingTableSubset_ret_INCONSISTENT_INPUT;
     }
     reterr = ConditionalAllocateNonAutosomalVariants(cip, "--make-king-table", raw_variant_ct, &variant_include, &variant_ct);
-    if (reterr) {
+    if (unlikely(reterr)) {
       goto CalcKingTableSubset_ret_1;
     }
     // 1. Write output header line if necessary.
@@ -1966,25 +1971,26 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     uintptr_t* splitbuf_ref2het;
     VecW* vecaligned_buf;
     // ok if allocations are a bit oversized
-    if (bigstack_alloc_w(raw_sample_ctl, &cur_sample_include) ||
-        bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
-        bigstack_alloc_w(sample_ctaw2, &loadbuf) ||
-        bigstack_alloc_w(kPglBitTransposeBatch * sample_ctaw, &splitbuf_hom) ||
-        bigstack_alloc_w(kPglBitTransposeBatch * sample_ctaw, &splitbuf_ref2het) ||
-        bigstack_alloc_w(king_bufsizew, &(g_smaj_hom[0])) ||
-        bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[0])) ||
-        bigstack_alloc_w(king_bufsizew, &(g_smaj_hom[1])) ||
-        bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[1])) ||
-        BIGSTACK_ALLOC_X(VecW, kPglBitTransposeBufvecs, &vecaligned_buf)) {
+    if (unlikely(
+          bigstack_alloc_w(raw_sample_ctl, &cur_sample_include) ||
+          bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+          bigstack_alloc_w(sample_ctaw2, &loadbuf) ||
+          bigstack_alloc_w(kPglBitTransposeBatch * sample_ctaw, &splitbuf_hom) ||
+          bigstack_alloc_w(kPglBitTransposeBatch * sample_ctaw, &splitbuf_ref2het) ||
+          bigstack_alloc_w(king_bufsizew, &(g_smaj_hom[0])) ||
+          bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[0])) ||
+          bigstack_alloc_w(king_bufsizew, &(g_smaj_hom[1])) ||
+          bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[1])) ||
+          BIGSTACK_ALLOC_X(VecW, kPglBitTransposeBufvecs, &vecaligned_buf))) {
       goto CalcKingTableSubset_ret_NOMEM;
     }
     SetKingTableFname(king_flags, parallel_idx, parallel_tot, outname_end);
     uint32_t fname_slen;
 #ifdef _WIN32
     fname_slen = GetFullPathName(subset_fname, kPglFnamesize, g_textbuf, nullptr);
-    if ((!fname_slen) || (fname_slen > kPglFnamesize))
+    if (unlikely((!fname_slen) || (fname_slen > kPglFnamesize)))
 #else
-    if (!realpath(subset_fname, g_textbuf))
+    if (unlikely(!realpath(subset_fname, g_textbuf)))
 #endif
     {
       logerrprintfww(kErrprintfFopen, subset_fname);
@@ -1995,7 +2001,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       fname_slen = strlen(subset_fname);
       memcpy(g_textbuf, subset_fname, fname_slen);
       memcpy(&(g_textbuf[fname_slen]), "~", 2);
-      if (rename(subset_fname, g_textbuf)) {
+      if (unlikely(rename(subset_fname, g_textbuf))) {
         logerrputs("Error: Failed to append '~' to --king-table-subset input filename.\n");
         goto CalcKingTableSubset_ret_OPEN_FAIL;
       }
@@ -2003,13 +2009,13 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     } else {
       reterr = gzopen_read_checked(subset_fname, &rls.gz_infile);
     }
-    if (reterr) {
+    if (unlikely(reterr)) {
       goto CalcKingTableSubset_ret_1;
     }
 
     // Safe to "write" the header line now, if necessary.
     reterr = InitCstreamAlloc(outname, 0, king_flags & kfKingTableZs, max_thread_ct, kMaxMediumLine + kCompressStreamBlock, &css, &cswritep);
-    if (reterr) {
+    if (unlikely(reterr)) {
       goto CalcKingTableSubset_ret_1;
     }
     const uint32_t king_col_fid = FidColIsRequired(siip, king_flags / kfKingColMaybefid);
@@ -2019,7 +2025,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     }
     const uintptr_t max_sample_fmtid_blen = GetMaxSampleFmtidBlen(siip, king_col_fid, king_col_sid);
     char* collapsed_sample_fmtids;
-    if (bigstack_alloc_c(max_sample_fmtid_blen * orig_sample_ct, &collapsed_sample_fmtids)) {
+    if (unlikely(bigstack_alloc_c(max_sample_fmtid_blen * orig_sample_ct, &collapsed_sample_fmtids))) {
       goto CalcKingTableSubset_ret_NOMEM;
     }
     uint32_t calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
@@ -2032,13 +2038,14 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     // possible todo: allow this to change between passes
     ts.calc_thread_ct = calc_thread_ct;
     // could eventually have 64-bit g_thread_start?
-    if (bigstack_alloc_u32(calc_thread_ct + 1, &g_thread_start) ||
-        bigstack_alloc_thread(calc_thread_ct, &ts.threads)) {
+    if (unlikely(
+          bigstack_alloc_u32(calc_thread_ct + 1, &g_thread_start) ||
+          bigstack_alloc_thread(calc_thread_ct, &ts.threads))) {
       goto CalcKingTableSubset_ret_NOMEM;
     }
 
     char* line_iter;
-    if (InitRLstreamEx(0, kRLstreamBlenFast, kRLstreamBlenFast, &rls, &line_iter)) {
+    if (unlikely(InitRLstreamEx(0, kRLstreamBlenFast, kRLstreamBlenFast, &rls, &line_iter))) {
       if (reterr == kPglRetEof) {
         logerrputs("Error: Empty --king-table-subset file.\n");
         goto CalcKingTableSubset_ret_MALFORMED_INPUT;
@@ -2046,7 +2053,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       goto CalcKingTableSubset_ret_READ_RLSTREAM;
     }
     line_iter = FirstNonTspace(line_iter);
-    if (IsEolnKns(*line_iter)) {
+    if (unlikely(IsEolnKns(*line_iter))) {
       goto CalcKingTableSubset_ret_INVALID_HEADER;
     }
     const char* linebuf_iter = line_iter;
@@ -2059,13 +2066,13 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       token_end = CurTokenEnd(linebuf_iter);
       token_slen = token_end - linebuf_iter;
     } else {
-      if (*linebuf_iter != '#') {
+      if (unlikely(*linebuf_iter != '#')) {
         goto CalcKingTableSubset_ret_INVALID_HEADER;
       }
       ++linebuf_iter;
       --token_slen;
     }
-    if (!strequal_k(linebuf_iter, "ID1", token_slen)) {
+    if (unlikely(!strequal_k(linebuf_iter, "ID1", token_slen))) {
       goto CalcKingTableSubset_ret_INVALID_HEADER;
     }
     linebuf_iter = FirstNonTspace(token_end);
@@ -2084,14 +2091,14 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       token_slen = token_end - linebuf_iter;
     }
     if (fid_present) {
-      if (!strequal_k(linebuf_iter, "FID2", token_slen)) {
+      if (unlikely(!strequal_k(linebuf_iter, "FID2", token_slen))) {
         goto CalcKingTableSubset_ret_INVALID_HEADER;
       }
       linebuf_iter = FirstNonTspace(token_end);
       token_end = CurTokenEnd(linebuf_iter);
       token_slen = token_end - linebuf_iter;
     }
-    if (!strequal_k(linebuf_iter, "ID2", token_slen)) {
+    if (unlikely(!strequal_k(linebuf_iter, "ID2", token_slen))) {
       goto CalcKingTableSubset_ret_INVALID_HEADER;
     }
     if (xid_mode == kfXidModeFidIidSid) {
@@ -2099,7 +2106,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       linebuf_iter = FirstNonTspace(token_end);
       token_end = CurTokenEnd(linebuf_iter);
       token_slen = token_end - linebuf_iter;
-      if (!strequal_k(linebuf_iter, "SID2", token_slen)) {
+      if (unlikely(!strequal_k(linebuf_iter, "SID2", token_slen))) {
         goto CalcKingTableSubset_ret_INVALID_HEADER;
       }
     }
@@ -2110,7 +2117,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
         linebuf_iter = FirstNonTspace(token_end);
         token_end = CurTokenEnd(linebuf_iter);
         token_slen = token_end - linebuf_iter;
-        if (!token_slen) {
+        if (unlikely(!token_slen)) {
           logerrputs("Error: No kinship-coefficient column in --king-table-subset file.\n");
           goto CalcKingTableSubset_ret_INCONSISTENT_INPUT;
         }
@@ -2125,11 +2132,11 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     char* sorted_xidbox;
     uintptr_t max_xid_blen;
     reterr = SortedXidboxInitAlloc(orig_sample_include, siip, orig_sample_ct, 0, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
-    if (reterr) {
+    if (unlikely(reterr)) {
       goto CalcKingTableSubset_ret_1;
     }
     char* idbuf;
-    if (bigstack_alloc_c(max_xid_blen, &idbuf)) {
+    if (unlikely(bigstack_alloc_c(max_xid_blen, &idbuf))) {
       goto CalcKingTableSubset_ret_NOMEM;
     }
 
@@ -2137,7 +2144,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     const uint32_t homhom_needed_p4 = g_homhom_needed + 4;
     // if homhom_needed, 8 + 20 bytes per pair, otherwise 8 + 16
     uintptr_t pair_buf_capacity = bigstack_left();
-    if (pair_buf_capacity < 2 * kCacheline) {
+    if (unlikely(pair_buf_capacity < 2 * kCacheline)) {
       goto CalcKingTableSubset_ret_NOMEM;
     }
     // adverse rounding
@@ -2152,7 +2159,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     fputs("Scanning --king-table-subset file...", stdout);
     fflush(stdout);
     reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, (parallel_tot != 1), 0, pair_buf_capacity, &rls, &line_iter, &pair_idx, g_loaded_sample_idx_pairs, idbuf);
-    if (reterr) {
+    if (unlikely(reterr)) {
       goto CalcKingTableSubset_ret_1;
     }
     uint64_t pair_idx_global_start = 0;
@@ -2163,7 +2170,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       pair_idx_global_stop = ((parallel_idx + 1) * parallel_pair_ct) / parallel_tot;
       if (pair_idx > pair_buf_capacity) {
         // may as well document possible overflow
-        if (parallel_pair_ct > ((~0LLU) / kParallelMax)) {
+        if (unlikely(parallel_pair_ct > ((~0LLU) / kParallelMax))) {
           logerrputs("Error: Too many --king-table-subset sample pairs for this " PROG_NAME_STR " build.\n");
           reterr = kPglRetNotYetSupported;
           goto CalcKingTableSubset_ret_1;
@@ -2171,11 +2178,11 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
         if (pair_idx_global_stop > pair_buf_capacity) {
           // large --parallel job
           reterr = RewindRLstreamRaw(&rls, &line_iter);
-          if (reterr) {
+          if (unlikely(reterr)) {
             goto CalcKingTableSubset_ret_READ_RLSTREAM;
           }
           reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &rls, &line_iter, &pair_idx, g_loaded_sample_idx_pairs, idbuf);
-          if (reterr) {
+          if (unlikely(reterr)) {
             goto CalcKingTableSubset_ret_1;
           }
         } else {
@@ -2255,7 +2262,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
           for (uint32_t uii = 0; uii < variant_batch_size; ++uii, ++variant_uidx) {
             MovU32To1Bit(variant_include, &variant_uidx);
             reterr = PgrGet(cur_sample_include, sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, simple_pgrp, loadbuf);
-            if (reterr) {
+            if (unlikely(reterr)) {
               goto CalcKingTableSubset_ret_PGR_FAIL;
             }
             SetTrailingQuaters(cur_sample_ct, loadbuf);
@@ -2310,7 +2317,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
         }
         // this update must occur after JoinThreads3z() call
         ts.is_last_block = (variants_completed + cur_block_size == variant_ct);
-        if (SpawnThreads3z(variants_completed, &ts)) {
+        if (unlikely(SpawnThreads3z(variants_completed, &ts))) {
           goto CalcKingTableSubset_ret_THREAD_CREATE_FAIL;
         }
         printf("\r--make-king-table pass %" PRIuPTR ": %u variants complete.", pass_idx, variants_completed);
@@ -2390,7 +2397,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
           ++cswritep;
         }
         DecrAppendBinaryEoln(&cswritep);
-        if (Cswrite(&css, &cswritep)) {
+        if (unlikely(Cswrite(&css, &cswritep))) {
           goto CalcKingTableSubset_ret_WRITE_FAIL;
         }
       }
@@ -2405,12 +2412,12 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       fputs("Scanning --king-table-subset file...", stdout);
       fflush(stdout);
       reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, 0, pair_idx_cur_start, MINV(pair_idx_global_stop, pair_idx_cur_start + pair_buf_capacity), &rls, &line_iter, &pair_idx, g_loaded_sample_idx_pairs, idbuf);
-      if (reterr) {
+      if (unlikely(reterr)) {
         goto CalcKingTableSubset_ret_1;
       }
       ++pass_idx;
     }
-    if (CswriteCloseNull(&css, cswritep)) {
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
       goto CalcKingTableSubset_ret_WRITE_FAIL;
     }
     logprintfww("Results written to %s .\n", outname);
@@ -2503,7 +2510,8 @@ PglErr ExpandCenteredVarmaj(const uintptr_t* genovec, const uintptr_t* dosage_pr
     if (variance < kSmallEpsilon) {
       STD_ARRAY_DECL(uint32_t, 4, genocounts);
       GenovecCountFreqsUnsafe(genovec, sample_ct, genocounts);
-      if (dosage_ct || genocounts[1] || genocounts[2]) {
+      // remove unlikely() if any caller ever handles this case gracefully
+      if (unlikely(dosage_ct || genocounts[1] || genocounts[2])) {
         return kPglRetInconsistentInput;
       }
       ZeroDArr(sample_ct, normed_dosages);
@@ -2529,7 +2537,7 @@ PglErr ExpandCenteredVarmaj(const uintptr_t* genovec, const uintptr_t* dosage_pr
 PglErr LoadCenteredVarmaj(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t variance_standardize, uint32_t is_haploid, uint32_t sample_ct, uint32_t variant_uidx, AlleleCode maj_allele_idx, double maj_freq, PgenReader* simple_pgrp, uint32_t* missing_presentp, double* normed_dosages, uintptr_t* genovec_buf, uintptr_t* dosage_present_buf, Dosage* dosage_main_buf) {
   uint32_t dosage_ct;
   PglErr reterr = PgrGetInv1D(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, maj_allele_idx, simple_pgrp, genovec_buf, dosage_present_buf, dosage_main_buf, &dosage_ct);
-  if (reterr) {
+  if (unlikely(reterr)) {
     // don't print malformed-.pgen error message here for now, since we may
     // want to put this in a multithreaded loop?
     return reterr;
@@ -2760,7 +2768,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
         for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
           MovU32To1Bit(variant_include, &variant_uidx);
           reterr = PgrGetMissingnessD(sample_include, sample_include_cumulative_popcounts, row_end_idx, variant_uidx, simple_pgrp, nullptr, missing_vmaj_iter, nullptr, genovec_buf);
-          if (reterr) {
+          if (unlikely(reterr)) {
             if (reterr == kPglRetMalformedInput) {
               logputs("\n");
               logerrputs("Error: Malformed .pgen file.\n");
@@ -2823,7 +2831,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
       ts.is_last_block = (cur_variant_idx_start + cur_batch_size == variant_ct);
       g_cur_batch_size = cur_batch_size;
       ts.thread_func_ptr = CalcDblMissingThread;
-      if (SpawnThreads3z(cur_variant_idx_start, &ts)) {
+      if (unlikely(SpawnThreads3z(cur_variant_idx_start, &ts))) {
         goto CalcMissingMatrix_ret_THREAD_CREATE_FAIL;
       }
       cur_variant_idx_start += cur_batch_size;
@@ -2861,10 +2869,6 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
   PreinitCstream(&css);
   InitThreads3z(&ts);
   {
-    if (sample_ct < 2) {
-      logerrputs("Error: GRM construction requires at least two samples.\n");
-      goto CalcGrm_ret_INCONSISTENT_INPUT;
-    }
     assert(variant_ct);
 #if defined(__APPLE__) || defined(USE_MTBLAS)
     uint32_t calc_thread_ct = 1;
@@ -2878,6 +2882,10 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     }
 #endif
     ts.calc_thread_ct = calc_thread_ct;
+    if (unlikely(sample_ct < 2)) {
+      logerrputs("Error: GRM construction requires at least two samples.\n");
+      goto CalcGrm_ret_INCONSISTENT_INPUT;
+    }
     const uintptr_t* sample_include = orig_sample_include;
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     uint32_t row_start_idx = 0;
@@ -2887,7 +2895,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       // note that grm should be allocated on bottom if no --parallel, since it
       // may continue to be used after function exit.  So we allocate this on
       // top.
-      if (bigstack_end_alloc_u32(calc_thread_ct + 1, &thread_start)) {
+      if (unlikely(bigstack_end_alloc_u32(calc_thread_ct + 1, &thread_start))) {
         goto CalcGrm_ret_NOMEM;
       }
       // slightly different from plink 1.9 since we don't bother to treat the
@@ -2907,7 +2915,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         // If we're computing part 0, we never need to load the last 4 samples;
         // if part 1, we don't need the last two; etc.
         uintptr_t* new_sample_include;
-        if (bigstack_alloc_w(raw_sample_ctl, &new_sample_include)) {
+        if (unlikely(bigstack_alloc_w(raw_sample_ctl, &new_sample_include))) {
           goto CalcGrm_ret_NOMEM;
         }
         const uint32_t sample_uidx_end = 1 + IdxToUidxBasic(orig_sample_include, row_end_idx - 1);
@@ -2918,7 +2926,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     }
     g_thread_start = thread_start;
     double* grm;
-    if (bigstack_calloc_d((row_end_idx - row_start_idx) * row_end_idx, &grm)) {
+    if (unlikely(bigstack_calloc_d((row_end_idx - row_start_idx) * row_end_idx, &grm))) {
       goto CalcGrm_ret_NOMEM;
     }
     g_pca_sample_ct = row_end_idx;
@@ -2929,32 +2937,35 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     uintptr_t* genovec_buf;
     uintptr_t* dosage_present_buf;
     Dosage* dosage_main_buf;
-    if (bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
-        bigstack_alloc_thread(calc_thread_ct, &ts.threads) ||
-        bigstack_alloc_w(row_end_idxl2, &genovec_buf) ||
-        bigstack_alloc_w(row_end_idxl, &dosage_present_buf) ||
-        bigstack_alloc_dosage(row_end_idx, &dosage_main_buf)) {
+    if (unlikely(
+          bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+          bigstack_alloc_thread(calc_thread_ct, &ts.threads) ||
+          bigstack_alloc_w(row_end_idxl2, &genovec_buf) ||
+          bigstack_alloc_w(row_end_idxl, &dosage_present_buf) ||
+          bigstack_alloc_dosage(row_end_idx, &dosage_main_buf))) {
       goto CalcGrm_ret_NOMEM;
     }
     FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
     reterr = ConditionalAllocateNonAutosomalVariants(cip, "GRM construction", raw_variant_ct, &variant_include, &variant_ct);
-    if (reterr) {
+    if (unlikely(reterr)) {
       goto CalcGrm_ret_1;
     }
-    if (bigstack_alloc_d(row_end_idx * kGrmVariantBlockSize, &g_normed_dosage_vmaj_bufs[0]) ||
-        bigstack_alloc_d(row_end_idx * kGrmVariantBlockSize, &g_normed_dosage_vmaj_bufs[1])) {
+    if (unlikely(
+          bigstack_alloc_d(row_end_idx * kGrmVariantBlockSize, &g_normed_dosage_vmaj_bufs[0]) ||
+          bigstack_alloc_d(row_end_idx * kGrmVariantBlockSize, &g_normed_dosage_vmaj_bufs[1]))) {
       goto CalcGrm_ret_NOMEM;
     }
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     uintptr_t* variant_include_has_missing = nullptr;
     if (!(grm_flags & kfGrmMeanimpute)) {
-      if (bigstack_calloc_w(raw_variant_ctl, &variant_include_has_missing)) {
+      if (unlikely(bigstack_calloc_w(raw_variant_ctl, &variant_include_has_missing))) {
         goto CalcGrm_ret_NOMEM;
       }
     }
     if (thread_start) {
-      if (bigstack_alloc_d(row_end_idx * kGrmVariantBlockSize, &g_normed_dosage_smaj_bufs[0]) ||
-          bigstack_alloc_d(row_end_idx * kGrmVariantBlockSize, &g_normed_dosage_smaj_bufs[1])) {
+      if (unlikely(
+            bigstack_alloc_d(row_end_idx * kGrmVariantBlockSize, &g_normed_dosage_smaj_bufs[0]) ||
+            bigstack_alloc_d(row_end_idx * kGrmVariantBlockSize, &g_normed_dosage_smaj_bufs[1]))) {
         goto CalcGrm_ret_NOMEM;
       }
     }
@@ -3005,7 +3016,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             allele_idx_base -= variant_uidx;
           }
           reterr = LoadCenteredVarmaj(sample_include, sample_include_cumulative_popcounts, variance_standardize, is_haploid, row_end_idx, variant_uidx, maj_allele_idx, GetAlleleFreq(&(allele_freqs[allele_idx_base]), maj_allele_idx, cur_allele_ct), simple_pgrp, variant_include_has_missing? (&missing_present) : nullptr, normed_vmaj_iter, genovec_buf, dosage_present_buf, dosage_main_buf);
-          if (reterr) {
+          if (unlikely(reterr)) {
             if (reterr == kPglRetInconsistentInput) {
               logputs("\n");
               logerrputs("Error: Zero-MAF variant is not actually monomorphic.  (This is possible when\ne.g. MAF is estimated from founders, but the minor allele was only observed in\nnonfounders.  In any case, you should be using e.g. --maf to filter out all\nvery-low-MAF variants, since the relationship matrix distance formula does not\nhandle them well.)\n");
@@ -3049,7 +3060,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           ts.thread_func_ptr = CalcGrmThread;
         }
       }
-      if (SpawnThreads3z(cur_variant_idx_start, &ts)) {
+      if (unlikely(SpawnThreads3z(cur_variant_idx_start, &ts))) {
         goto CalcGrm_ret_THREAD_CREATE_FAIL;
       }
       cur_variant_idx_start += cur_batch_size;
@@ -3069,7 +3080,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       if (variant_ct_with_missing) {
         logputs("Correcting for missingness... ");
         reterr = CalcMissingMatrix(sample_include, sample_include_cumulative_popcounts, variant_include_has_missing, sample_ct, variant_ct_with_missing, parallel_idx, parallel_tot, row_start_idx, row_end_idx, max_thread_ct, simple_pgrp, &missing_cts, &missing_dbl_exclude_cts);
-        if (reterr) {
+        if (unlikely(reterr)) {
           goto CalcGrm_ret_1;
         }
       }
@@ -3114,7 +3125,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             outname_end2 = u32toa(parallel_idx + 1, outname_end2);
           }
           *outname_end2 = '\0';
-          if (fopen_checked(outname, FOPEN_WB, &outfile)) {
+          if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
             goto CalcGrm_ret_OPEN_FAIL;
           }
           double* write_double_buf = nullptr;
@@ -3122,7 +3133,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             write_double_buf = R_CAST(double*, g_textbuf);
             ZeroDArr(kTextbufMainSize / sizeof(double), write_double_buf);
           } else if (matrix_shape == kfGrmMatrixSq) {
-            if (bigstack_alloc_d(row_end_idx - row_start_idx - 1, &write_double_buf)) {
+            if (unlikely(bigstack_alloc_d(row_end_idx - row_start_idx - 1, &write_double_buf))) {
               goto CalcGrm_ret_NOMEM;
             }
           }
@@ -3130,7 +3141,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           while (1) {
             const double* grm_row = &(grm[(row_idx - row_start_idx) * row_end_idx]);
             ++row_idx;
-            if (fwrite_checked(grm_row, row_idx * sizeof(double), outfile)) {
+            if (unlikely(fwrite_checked(grm_row, row_idx * sizeof(double), outfile))) {
               goto CalcGrm_ret_WRITE_FAIL;
             }
             if (row_idx == row_end_idx) {
@@ -3139,13 +3150,13 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             if (matrix_shape == kfGrmMatrixSq0) {
               uintptr_t zbytes_to_dump = (sample_ct - row_idx) * sizeof(double);
               while (zbytes_to_dump >= kTextbufMainSize) {
-                if (fwrite_checked(write_double_buf, kTextbufMainSize, outfile)) {
+                if (unlikely(fwrite_checked(write_double_buf, kTextbufMainSize, outfile))) {
                   goto CalcGrm_ret_WRITE_FAIL;
                 }
                 zbytes_to_dump -= kTextbufMainSize;
               }
               if (zbytes_to_dump) {
-                if (fwrite_checked(write_double_buf, zbytes_to_dump, outfile)) {
+                if (unlikely(fwrite_checked(write_double_buf, zbytes_to_dump, outfile))) {
                   goto CalcGrm_ret_WRITE_FAIL;
                 }
               }
@@ -3155,12 +3166,12 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               for (uintptr_t row_idx2 = row_idx; row_idx2 < sample_ct; ++row_idx2) {
                 *write_double_iter++ = grm_col[(row_idx2 - row_start_idx) * sample_ct];
               }
-              if (fwrite_checked(write_double_buf, (sample_ct - row_idx) * sizeof(double), outfile)) {
+              if (unlikely(fwrite_checked(write_double_buf, (sample_ct - row_idx) * sizeof(double), outfile))) {
                 goto CalcGrm_ret_WRITE_FAIL;
               }
             }
           }
-          if (fclose_null(&outfile)) {
+          if (unlikely(fclose_null(&outfile))) {
             goto CalcGrm_ret_WRITE_FAIL;
           }
         } else if (grm_flags & kfGrmMatrixBin4) {
@@ -3171,11 +3182,11 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             outname_end2 = u32toa(parallel_idx + 1, outname_end2);
           }
           *outname_end2 = '\0';
-          if (fopen_checked(outname, FOPEN_WB, &outfile)) {
+          if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
             goto CalcGrm_ret_OPEN_FAIL;
           }
           float* write_float_buf;
-          if (bigstack_alloc_f(row_end_idx, &write_float_buf)) {
+          if (unlikely(bigstack_alloc_f(row_end_idx, &write_float_buf))) {
             goto CalcGrm_ret_NOMEM;
           }
           uintptr_t row_idx = row_start_idx;
@@ -3195,11 +3206,11 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
                 *write_float_iter++ = S_CAST(float, grm_col[(row_idx2 - row_start_idx) * sample_ct]);
               }
             }
-            if (fwrite_checked(write_float_buf, sizeof(float) * S_CAST(uintptr_t, write_float_iter - write_float_buf), outfile)) {
+            if (unlikely(fwrite_checked(write_float_buf, sizeof(float) * S_CAST(uintptr_t, write_float_iter - write_float_buf), outfile))) {
               goto CalcGrm_ret_WRITE_FAIL;
             }
           } while (row_idx < row_end_idx);
-          if (fclose_null(&outfile)) {
+          if (unlikely(fclose_null(&outfile))) {
             goto CalcGrm_ret_WRITE_FAIL;
           }
         } else {
@@ -3214,7 +3225,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           }
           *outname_end2 = '\0';
           reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, kCompressStreamBlock + 16 * row_end_idx, &css, &cswritep);
-          if (reterr) {
+          if (unlikely(reterr)) {
             goto CalcGrm_ret_1;
           }
           uintptr_t row_idx = row_start_idx;
@@ -3248,11 +3259,11 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               }
             }
             DecrAppendBinaryEoln(&cswritep);
-            if (Cswrite(&css, &cswritep)) {
+            if (unlikely(Cswrite(&css, &cswritep))) {
               goto CalcGrm_ret_WRITE_FAIL;
             }
           } while (row_idx < row_end_idx);
-          if (CswriteCloseNull(&css, cswritep)) {
+          if (unlikely(CswriteCloseNull(&css, cswritep))) {
             goto CalcGrm_ret_WRITE_FAIL;
           }
         }
@@ -3268,7 +3279,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         if (grm_flags & kfGrmBin) {
           // --make-grm-bin
           float* write_float_buf;
-          if (bigstack_alloc_f(row_end_idx, &write_float_buf)) {
+          if (unlikely(bigstack_alloc_f(row_end_idx, &write_float_buf))) {
             goto CalcGrm_ret_NOMEM;
           }
           char* outname_end2 = strcpya(outname_end, ".grm.bin");
@@ -3277,7 +3288,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             outname_end2 = u32toa(parallel_idx + 1, outname_end2);
           }
           *outname_end2 = '\0';
-          if (fopen_checked(outname, FOPEN_WB, &outfile)) {
+          if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
             goto CalcGrm_ret_OPEN_FAIL;
           }
           fputs("--make-grm-bin: Writing...", stdout);
@@ -3287,11 +3298,11 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             for (uint32_t col_idx = 0; col_idx <= row_idx; ++col_idx) {
               write_float_buf[col_idx] = S_CAST(float, *grm_iter++);
             }
-            if (fwrite_checked(write_float_buf, (row_idx + 1) * sizeof(float), outfile)) {
+            if (unlikely(fwrite_checked(write_float_buf, (row_idx + 1) * sizeof(float), outfile))) {
               goto CalcGrm_ret_WRITE_FAIL;
             }
           }
-          if (fclose_null(&outfile)) {
+          if (unlikely(fclose_null(&outfile))) {
             goto CalcGrm_ret_WRITE_FAIL;
           }
 
@@ -3301,7 +3312,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             outname_end2 = u32toa(parallel_idx + 1, outname_end2);
           }
           *outname_end2 = '\0';
-          if (fopen_checked(outname, FOPEN_WB, &outfile)) {
+          if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
             goto CalcGrm_ret_OPEN_FAIL;
           }
           if (!missing_cts) {
@@ -3314,13 +3325,13 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             }
             const uintptr_t full_write_ct = tot_cells / (kTextbufMainSize / sizeof(float));
             for (uintptr_t ulii = 0; ulii < full_write_ct; ++ulii) {
-              if (fwrite_checked(write_float_buf, kTextbufMainSize, outfile)) {
+              if (unlikely(fwrite_checked(write_float_buf, kTextbufMainSize, outfile))) {
                 goto CalcGrm_ret_WRITE_FAIL;
               }
             }
             const uintptr_t remainder = tot_cells % (kTextbufMainSize / sizeof(float));
             if (remainder) {
-              if (fwrite_checked(write_float_buf, remainder * sizeof(float), outfile)) {
+              if (unlikely(fwrite_checked(write_float_buf, remainder * sizeof(float), outfile))) {
                 goto CalcGrm_ret_WRITE_FAIL;
               }
             }
@@ -3334,12 +3345,12 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
                 }
                 write_float_buf[col_idx] = u31tof(cur_obs_ct);
               }
-              if (fwrite_checked(write_float_buf, (row_idx + 1) * sizeof(float), outfile)) {
+              if (unlikely(fwrite_checked(write_float_buf, (row_idx + 1) * sizeof(float), outfile))) {
                 goto CalcGrm_ret_WRITE_FAIL;
               }
             }
           }
-          if (fclose_null(&outfile)) {
+          if (unlikely(fclose_null(&outfile))) {
             goto CalcGrm_ret_WRITE_FAIL;
           }
           putc_unlocked('\r', stdout);
@@ -3373,7 +3384,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           }
           *outname_end2 = '\0';
           reterr = InitCstreamAlloc(outname, 0, !(grm_flags & kfGrmListNoGz), max_thread_ct, kCompressStreamBlock + kMaxMediumLine, &css, &cswritep);
-          if (reterr) {
+          if (unlikely(reterr)) {
             goto CalcGrm_ret_1;
           }
           fputs("--make-grm-list: Writing...", stdout);
@@ -3399,12 +3410,12 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               *cswritep++ = '\t';
               cswritep = dtoa_g(*grm_iter++, cswritep);
               AppendBinaryEoln(&cswritep);
-              if (Cswrite(&css, &cswritep)) {
+              if (unlikely(Cswrite(&css, &cswritep))) {
                 goto CalcGrm_ret_WRITE_FAIL;
               }
             }
           }
-          if (CswriteCloseNull(&css, cswritep)) {
+          if (unlikely(CswriteCloseNull(&css, cswritep))) {
             goto CalcGrm_ret_WRITE_FAIL;
           }
           putc_unlocked('\r', stdout);
@@ -3426,7 +3437,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         }
         snprintf(&(outname_end[4]), kMaxOutfnameExtBlen - 4, ".id");
         reterr = WriteSampleIdsOverride(orig_sample_include, siip, outname, sample_ct, id_print_flags);
-        if (reterr) {
+        if (unlikely(reterr)) {
           goto CalcGrm_ret_1;
         }
         log_write_iter = strcpya(log_write_iter, " , and IDs to ");
@@ -3526,7 +3537,7 @@ THREAD_FUNC_DECL CalcPcaXtxaThread(void* arg) {
         // instead of setting is_haploid here, we just divide eigenvalues by 2
         // at the end if necessary
         PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, 0, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
-        if (reterr) {
+        if (unlikely(reterr)) {
           g_error_ret = reterr;
           break;
         }
@@ -3577,7 +3588,7 @@ THREAD_FUNC_DECL CalcPcaXaThread(void* arg) {
       double* yy_iter = yy_buf;
       for (uint32_t uii = 0; uii < cur_thread_batch_size; ++uii) {
         PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, 0, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
-        if (reterr) {
+        if (unlikely(reterr)) {
           g_error_ret = reterr;
           break;
         }
@@ -3627,7 +3638,7 @@ THREAD_FUNC_DECL CalcPcaXtbThread(void* arg) {
       double* yy_iter = yy_buf;
       for (uint32_t uii = 0; uii < cur_thread_batch_size; ++uii) {
         PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, 0, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
-        if (reterr) {
+        if (unlikely(reterr)) {
           g_error_ret = reterr;
           break;
         }
@@ -3680,7 +3691,7 @@ THREAD_FUNC_DECL CalcPcaVarWtsThread(void* arg) {
       double* yy_iter = yy_buf;
       for (uint32_t uii = 0; uii < cur_thread_batch_size; ++uii) {
         PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, is_haploid, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
-        if (reterr) {
+        if (unlikely(reterr)) {
           g_error_ret = reterr;
           break;
         }
@@ -3723,7 +3734,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     const uint32_t write_sid = SidColIsRequired(sids, pca_flags / kfPcaScolMaybesid);
     const uint32_t is_approx = (pca_flags / kfPcaApprox) & 1;
     reterr = ConditionalAllocateNonAutosomalVariants(cip, is_approx? "PCA approximation" : "PCA", raw_variant_ct, &variant_include, &variant_ct);
-    if (reterr) {
+    if (unlikely(reterr)) {
       goto CalcPca_ret_1;
     }
 #ifdef __APPLE__
@@ -3747,7 +3758,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         pc_ct = variant_ct;
         snprintf(g_logbuf, kLogbufSize, "Warning: calculating %u PCs, since there are only %u autosomal variants.\n", pc_ct, pc_ct);
       }
-      if (pc_ct < 2) {
+      if (unlikely(pc_ct < 2)) {
         logerrputs("Error: Too few samples or autosomal variants for PCA.\n");
         goto CalcPca_ret_INCONSISTENT_INPUT;
       }
@@ -3765,14 +3776,15 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     char* chr_buf = nullptr;
     uintptr_t overflow_buf_size = 3 * kMaxMediumLine;
     if (var_wts) {
-      if (bigstack_alloc_d(pc_ct, &cur_var_wts) ||
-          bigstack_alloc_d(pc_ct, &eigval_inv_sqrts)) {
+      if (unlikely(
+            bigstack_alloc_d(pc_ct, &cur_var_wts) ||
+            bigstack_alloc_d(pc_ct, &eigval_inv_sqrts))) {
         goto CalcPca_ret_NOMEM;
       }
       uint32_t max_chr_blen = 0;
       if (chr_col) {
         max_chr_blen = GetMaxChrSlen(cip) + 1;
-        if (bigstack_alloc_c(max_chr_blen, &chr_buf)) {
+        if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
           goto CalcPca_ret_NOMEM;
         }
       }
@@ -3793,10 +3805,11 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     const uint32_t pca_sample_ctaw = BitCtToAlignedWordCt(pca_sample_ct);
     uint32_t* pca_sample_include_cumulative_popcounts;
     double* eigvals;
-    if (bigstack_alloc_u32(raw_sample_ctl, &pca_sample_include_cumulative_popcounts) ||
-        bigstack_alloc_d(pc_ct, &eigvals) ||
-        bigstack_alloc_thread(calc_thread_ct, &ts.threads) ||
-        bigstack_alloc_dp(calc_thread_ct, &g_yy_bufs)) {
+    if (unlikely(
+          bigstack_alloc_u32(raw_sample_ctl, &pca_sample_include_cumulative_popcounts) ||
+          bigstack_alloc_d(pc_ct, &eigvals) ||
+          bigstack_alloc_thread(calc_thread_ct, &ts.threads) ||
+          bigstack_alloc_dp(calc_thread_ct, &g_yy_bufs))) {
       goto CalcPca_ret_NOMEM;
     }
     FillCumulativePopcounts(pca_sample_include, raw_sample_ctl, pca_sample_include_cumulative_popcounts);
@@ -3822,7 +3835,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       const uintptr_t pc_ct_x2 = pc_ct * 2;
       const uintptr_t qq_col_ct = (pc_ct + 1) * pc_ct_x2;
 #ifndef LAPACK_ILP64
-      if ((variant_ct * S_CAST(uint64_t, qq_col_ct)) > 0x7effffff) {
+      if (unlikely((variant_ct * S_CAST(uint64_t, qq_col_ct)) > 0x7effffff)) {
         logerrputs("Error: --pca approx problem instance too large for this " PROG_NAME_STR " build.  If this\nis really the computation you want, use a " PROG_NAME_STR " build with large-matrix\nsupport.\n");
         goto CalcPca_ret_INCONSISTENT_INPUT;
       }
@@ -3834,7 +3847,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
 #ifdef LAPACK_ILP64
       GetSvdRectLwork(MAXV(pca_sample_ct, variant_ct), qq_col_ct, &svd_rect_lwork);
 #else
-      if (GetSvdRectLwork(MAXV(pca_sample_ct, variant_ct), qq_col_ct, &svd_rect_lwork)) {
+      if (unlikely(GetSvdRectLwork(MAXV(pca_sample_ct, variant_ct), qq_col_ct, &svd_rect_lwork))) {
         logerrputs("Error: --pca approx problem instance too large for this " PROG_NAME_STR " build.  If this\nis really the computation you want, use a " PROG_NAME_STR " build with large-matrix\nsupport.\n");
         goto CalcPca_ret_INCONSISTENT_INPUT;
       }
@@ -3848,12 +3861,13 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       unsigned char* svd_rect_wkspace;
       double* ss;
       double* g1;
-      if (bigstack_alloc_d(qq_col_ct, &ss) ||
-          bigstack_alloc_d(variant_ct * qq_col_ct, &qq) ||
-          bigstack_alloc_dp(calc_thread_ct, &g_y_transpose_bufs) ||
-          bigstack_alloc_dp(calc_thread_ct, &g_g2_bb_part_bufs) ||
-          bigstack_alloc_uc(svd_rect_wkspace_size, &svd_rect_wkspace) ||
-          bigstack_alloc_d(g_size, &g1)) {
+      if (unlikely(
+            bigstack_alloc_d(qq_col_ct, &ss) ||
+            bigstack_alloc_d(variant_ct * qq_col_ct, &qq) ||
+            bigstack_alloc_dp(calc_thread_ct, &g_y_transpose_bufs) ||
+            bigstack_alloc_dp(calc_thread_ct, &g_g2_bb_part_bufs) ||
+            bigstack_alloc_uc(svd_rect_wkspace_size, &svd_rect_wkspace) ||
+            bigstack_alloc_d(g_size, &g1))) {
         goto CalcPca_ret_NOMEM;
       }
       const uintptr_t genovecs_alloc = RoundUpPow2(pca_sample_ctaw2 * kPcaVariantBlockSize * sizeof(intptr_t), kCacheline);
@@ -3868,7 +3882,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
 
       const uintptr_t bigstack_avail = bigstack_left();
       if (per_thread_alloc * calc_thread_ct > bigstack_avail) {
-        if (bigstack_avail < per_thread_alloc) {
+        if (unlikely(bigstack_avail < per_thread_alloc)) {
           goto CalcPca_ret_NOMEM;
         }
         calc_thread_ct = bigstack_avail / per_thread_alloc;
@@ -3934,7 +3948,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
               const uint32_t maj_allele_idx = maj_alleles[variant_uidx];
               uint32_t dosage_ct;
               reterr = PgrGetInv1D(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx, maj_allele_idx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
-              if (reterr) {
+              if (unlikely(reterr)) {
                 if (reterr == kPglRetMalformedInput) {
                   logputs("\n");
                   logerrputs("Error: Malformed .pgen file.\n");
@@ -3961,7 +3975,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           if (cur_variant_idx_start) {
             JoinThreads3z(&ts);
             reterr = g_error_ret;
-            if (reterr) {
+            if (unlikely(reterr)) {
               logputs("\n");
               logerrputs("Error: Zero-MAF variant is not actually monomorphic.  (This is possible when\ne.g. MAF is estimated from founders, but the minor allele was only observed in\nnonfounders.  In any case, you should be using e.g. --maf to filter out all\nvery-low-MAF variants, since the relationship matrix distance formula does not\nhandle them well.)\n");
               goto CalcPca_ret_1;
@@ -3979,7 +3993,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           }
           ts.is_last_block = (cur_variant_idx_start + cur_batch_size == variant_ct);
           g_cur_batch_size = cur_batch_size;
-          if (SpawnThreads3z(cur_variant_idx_start, &ts)) {
+          if (unlikely(SpawnThreads3z(cur_variant_idx_start, &ts))) {
             goto CalcPca_ret_THREAD_CREATE_FAIL;
           }
           cur_variant_idx_start += cur_batch_size;
@@ -4009,7 +4023,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       fflush(stdout);
       BLAS_SET_NUM_THREADS(max_thread_ct);
       IntErr svd_rect_err = SvdRect(variant_ct, qq_col_ct, svd_rect_lwork, qq, ss, svd_rect_wkspace);
-      if (svd_rect_err) {
+      if (unlikely(svd_rect_err)) {
         logputs("\n");
         snprintf(g_logbuf, kLogbufSize, "Error: Failed to compute SVD of Krylov matrix (DGESVD info=%d).\n", S_CAST(int32_t, svd_rect_err));
         goto CalcPca_ret_INCONSISTENT_INPUT_2;
@@ -4047,7 +4061,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             const uint32_t maj_allele_idx = maj_alleles[variant_uidx];
             uint32_t dosage_ct;
             reterr = PgrGetInv1D(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx, maj_allele_idx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
-            if (reterr) {
+            if (unlikely(reterr)) {
               goto CalcPca_ret_READ_FAIL;
             }
             ZeroTrailingQuaters(pca_sample_ct, genovec_iter);
@@ -4068,7 +4082,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         }
         if (cur_variant_idx_start) {
           JoinThreads3z(&ts);
-          if (g_error_ret) {
+          if (unlikely(g_error_ret)) {
             // this error *didn't* happen on an earlier pass, so assign blame
             // to I/O instead
             goto CalcPca_ret_READ_FAIL;
@@ -4080,7 +4094,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         ts.is_last_block = (cur_variant_idx_start + cur_batch_size == variant_ct);
         g_cur_batch_size = cur_batch_size;
         ts.thread_func_ptr = CalcPcaXtbThread;
-        if (SpawnThreads3z(cur_variant_idx_start, &ts)) {
+        if (unlikely(SpawnThreads3z(cur_variant_idx_start, &ts))) {
           goto CalcPca_ret_THREAD_CREATE_FAIL;
         }
         cur_variant_idx_start += cur_batch_size;
@@ -4095,7 +4109,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       }
       BLAS_SET_NUM_THREADS(max_thread_ct);
       svd_rect_err = SvdRect(pca_sample_ct, qq_col_ct, svd_rect_lwork, bb, ss, svd_rect_wkspace);
-      if (svd_rect_err) {
+      if (unlikely(svd_rect_err)) {
         logputs("\n");
         snprintf(g_logbuf, kLogbufSize, "Error: Failed to compute SVD of final matrix (DGESVD info=%d).\n", S_CAST(int32_t, svd_rect_err));
         goto CalcPca_ret_INCONSISTENT_INPUT_2;
@@ -4119,7 +4133,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       __CLPK_integer lwork;
       __CLPK_integer liwork;
       uintptr_t wkspace_byte_ct;
-      if (GetExtractEigvecsLworks(pca_sample_ct, pc_ct, &lwork, &liwork, &wkspace_byte_ct)) {
+      if (unlikely(GetExtractEigvecsLworks(pca_sample_ct, pc_ct, &lwork, &liwork, &wkspace_byte_ct))) {
         goto CalcPca_ret_NOMEM;
       }
       const uintptr_t eigvecs_smaj_alloc = pc_ct * pca_sample_ct * sizeof(double);
@@ -4128,13 +4142,15 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       }
       double* reverse_eigvecs_pcmaj;
       unsigned char* extract_eigvecs_wkspace;
-      if (bigstack_alloc_d(pc_ct * pca_sample_ct, &reverse_eigvecs_pcmaj) ||
-          bigstack_alloc_uc(wkspace_byte_ct, &extract_eigvecs_wkspace)) {
+      if (unlikely(
+            bigstack_alloc_d(pc_ct * pca_sample_ct, &reverse_eigvecs_pcmaj) ||
+            bigstack_alloc_uc(wkspace_byte_ct, &extract_eigvecs_wkspace))) {
         goto CalcPca_ret_NOMEM;
       }
       logprintf("Extracting eigenvalue%s and eigenvector%s... ", (pc_ct == 1)? "" : "s", (pc_ct == 1)? "" : "s");
       fflush(stdout);
       BLAS_SET_NUM_THREADS(max_thread_ct);
+      // not putting unlikely() here for now.
       if (ExtractEigvecs(pca_sample_ct, pc_ct, lwork, liwork, grm, eigvals, reverse_eigvecs_pcmaj, extract_eigvecs_wkspace)) {
         logerrputs("Error: Failed to extract eigenvector(s) from GRM.\n");
         goto CalcPca_ret_INCONSISTENT_INPUT;
@@ -4143,7 +4159,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       logputs("done.\n");
       eigvecs_smaj = R_CAST(double*, extract_eigvecs_wkspace);
       BigstackShrinkTop(eigvecs_smaj, eigvecs_smaj_alloc);
-      if (bigstack_alloc_c(writebuf_alloc, &writebuf)) {
+      if (unlikely(bigstack_alloc_c(writebuf_alloc, &writebuf))) {
         goto CalcPca_ret_NOMEM;
       }
 
@@ -4178,7 +4194,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       const uint32_t output_zst = (pca_flags / kfPcaVarZs) & 1;
       OutnameZstSet(".eigenvec.var", output_zst, outname_end);
       reterr = InitCstream(outname, 0, output_zst, max_thread_ct, overflow_buf_size, writebuf, R_CAST(unsigned char*, &(writebuf[overflow_buf_size])), &css);
-      if (reterr) {
+      if (unlikely(reterr)) {
         goto CalcPca_ret_1;
       }
       cswritep = writebuf;
@@ -4258,7 +4274,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         const uintptr_t yy_alloc = RoundUpPow2(kPcaVariantBlockSize * pca_sample_ct * sizeof(double), kCacheline);
         const uintptr_t per_thread_alloc = 2 * (genovecs_alloc + dosage_cts_alloc + dosage_presents_alloc + dosage_main_alloc + cur_maj_freqs_alloc) + yy_alloc + var_wts_part_alloc;
         if (per_thread_alloc * calc_thread_ct > arena_avail) {
-          if (arena_avail < per_thread_alloc) {
+          if (unlikely(arena_avail < per_thread_alloc)) {
             goto CalcPca_ret_NOMEM;
           }
           calc_thread_ct = arena_avail / per_thread_alloc;
@@ -4311,7 +4327,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             const uint32_t maj_allele_idx = maj_alleles[variant_uidx_load];
             uint32_t dosage_ct;
             reterr = PgrGetInv1D(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx_load, maj_allele_idx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
-            if (reterr) {
+            if (unlikely(reterr)) {
               goto CalcPca_ret_READ_FAIL;
             }
             ZeroTrailingQuaters(pca_sample_ct, genovec_iter);
@@ -4332,7 +4348,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         }
         if (cur_variant_idx_start) {
           JoinThreads3z(&ts);
-          if (g_error_ret) {
+          if (unlikely(g_error_ret)) {
             goto CalcPca_ret_READ_FAIL;
           }
         }
@@ -4340,7 +4356,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           g_cur_batch_size = cur_batch_size;
           ts.is_last_block = (cur_variant_idx_start + cur_batch_size == variant_ct);
           ts.thread_func_ptr = CalcPcaVarWtsThread;
-          if (SpawnThreads3z(cur_variant_idx_start, &ts)) {
+          if (unlikely(SpawnThreads3z(cur_variant_idx_start, &ts))) {
             goto CalcPca_ret_THREAD_CREATE_FAIL;
           }
         }
@@ -4386,7 +4402,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             if (alt_col) {
               *cswritep++ = '\t';
               for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct; ++allele_idx) {
-                if (Cswrite(&css, &cswritep)) {
+                if (unlikely(Cswrite(&css, &cswritep))) {
                   goto CalcPca_ret_WRITE_FAIL;
                 }
                 cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
@@ -4395,7 +4411,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             }
             const uint32_t maj_allele_idx = maj_alleles[variant_uidx];
             if (maj_col) {
-              if (Cswrite(&css, &cswritep)) {
+              if (unlikely(Cswrite(&css, &cswritep))) {
                 goto CalcPca_ret_WRITE_FAIL;
               }
               *cswritep++ = '\t';
@@ -4407,7 +4423,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
                 if (allele_idx == maj_allele_idx) {
                   continue;
                 }
-                if (Cswrite(&css, &cswritep)) {
+                if (unlikely(Cswrite(&css, &cswritep))) {
                   goto CalcPca_ret_WRITE_FAIL;
                 }
                 cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
@@ -4421,7 +4437,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
               cswritep = dtoa_g((*var_wts_iter++) * eigval_inv_sqrts[pc_idx], cswritep);
             }
             AppendBinaryEoln(&cswritep);
-            if (Cswrite(&css, &cswritep)) {
+            if (unlikely(Cswrite(&css, &cswritep))) {
               // bugfix (15 Dec 2017): prevent buffer overflow when ALT, MAJ,
               // and NONMAJ columns all missing.
               goto CalcPca_ret_WRITE_FAIL;
@@ -4434,14 +4450,14 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         cur_variant_idx_start += cur_batch_size;
         prev_batch_size = cur_batch_size;
       }
-      if (CswriteCloseNull(&css, cswritep)) {
+      if (unlikely(CswriteCloseNull(&css, cswritep))) {
         goto CalcPca_ret_WRITE_FAIL;
       }
       logprintfww("--pca%s: Variant weights written to %s .\n", is_approx? " approx" : "", outname);
     }
 
     snprintf(outname_end, kMaxOutfnameExtBlen, ".eigenvec");
-    if (fopen_checked(outname, FOPEN_WB, &outfile)) {
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
       goto CalcPca_ret_OPEN_FAIL;
     }
     char* write_iter = writebuf;
@@ -4484,16 +4500,16 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         write_iter = dtoa_g(*sample_wts_iter++, write_iter);
       }
       AppendBinaryEoln(&write_iter);
-      if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
+      if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
         goto CalcPca_ret_WRITE_FAIL;
       }
     }
-    if (fclose_flush_null(writebuf_flush, write_iter, &outfile)) {
+    if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
       goto CalcPca_ret_WRITE_FAIL;
     }
 
     snprintf(outname_end, kMaxOutfnameExtBlen, ".eigenval");
-    if (fopen_checked(outname, FOPEN_WB, &outfile)) {
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
       goto CalcPca_ret_OPEN_FAIL;
     }
     write_iter = writebuf;
@@ -4501,7 +4517,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       write_iter = dtoa_g(eigvals[pc_idx], write_iter);
       AppendBinaryEoln(&write_iter);
     }
-    if (fclose_flush_null(writebuf_flush, write_iter, &outfile)) {
+    if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
       goto CalcPca_ret_WRITE_FAIL;
     }
     *outname_end = '\0';
@@ -4630,7 +4646,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         uint32_t x_end = cip->chr_fo_vidx_start[x_chr_fo_idx + 1];
         if (!AllBitsAreZero(variant_include, x_start, x_end)) {
           uintptr_t* variant_include_no_x;
-          if (bigstack_alloc_w(raw_variant_ctl, &variant_include_no_x)) {
+          if (unlikely(bigstack_alloc_w(raw_variant_ctl, &variant_include_no_x))) {
             goto ScoreReport_ret_NOMEM;
           }
           memcpy(variant_include_no_x, variant_include, raw_variant_ctl * sizeof(intptr_t));
@@ -4646,13 +4662,13 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     const ScoreFlags score_flags = score_info_ptr->flags;
     char* line_iter;
     reterr = SizeAndInitRLstreamRaw(score_info_ptr->input_fname, bigstack_left() / 8, &score_rls, &line_iter);
-    if (reterr) {
+    if (unlikely(reterr)) {
       goto ScoreReport_ret_1;
     }
     uint32_t nonempty_lines_to_skip_p1 = 1 + ((score_flags / kfScoreHeaderIgnore) & 1);
     for (uint32_t uii = 0; uii < nonempty_lines_to_skip_p1; ++uii) {
       reterr = RlsNextNonemptyLstrip(&score_rls, &line_idx, &line_iter);
-      if (reterr) {
+      if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
           logerrputs("Error: Empty --score file.\n");
           goto ScoreReport_ret_MALFORMED_INPUT;
@@ -4664,20 +4680,20 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     uint32_t last_col_idx = CountTokens(linebuf_first_token);
     const uint32_t varid_col_idx = score_info_ptr->varid_col_p1 - 1;
     const uint32_t allele_col_idx = score_info_ptr->allele_col_p1 - 1;
-    if (MAXV(varid_col_idx, allele_col_idx) >= last_col_idx) {
+    if (unlikely(MAXV(varid_col_idx, allele_col_idx) >= last_col_idx)) {
       goto ScoreReport_ret_MISSING_TOKENS;
     }
     uint32_t* score_col_idx_deltas = nullptr;
     uintptr_t score_col_ct = 1;
     if (!score_info_ptr->input_col_idx_range_list.name_ct) {
-      if (allele_col_idx == last_col_idx) {
+      if (unlikely(allele_col_idx == last_col_idx)) {
         goto ScoreReport_ret_MISSING_TOKENS;
       }
-      if (bigstack_alloc_u32(1, &score_col_idx_deltas)) {
+      if (unlikely(bigstack_alloc_u32(1, &score_col_idx_deltas))) {
         goto ScoreReport_ret_NOMEM;
       }
       // catch corner case
-      if (allele_col_idx + 1 == varid_col_idx) {
+      if (unlikely(allele_col_idx + 1 == varid_col_idx)) {
         logerrputs("Error: --score variant ID column index matches a coefficient column index.\n");
         goto ScoreReport_ret_INVALID_CMDLINE;
       }
@@ -4685,22 +4701,22 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     } else {
       const uint32_t last_col_idxl = BitCtToWordCt(last_col_idx);
       uintptr_t* score_col_bitarr;
-      if (bigstack_end_calloc_w(last_col_idxl, &score_col_bitarr)) {
+      if (unlikely(bigstack_end_calloc_w(last_col_idxl, &score_col_bitarr))) {
         goto ScoreReport_ret_NOMEM;
       }
-      if (NumericRangeListToBitarr(&(score_info_ptr->input_col_idx_range_list), last_col_idx, 1, 0, score_col_bitarr)) {
+      if (unlikely(NumericRangeListToBitarr(&(score_info_ptr->input_col_idx_range_list), last_col_idx, 1, 0, score_col_bitarr))) {
         goto ScoreReport_ret_MISSING_TOKENS;
       }
-      if (IsSet(score_col_bitarr, varid_col_idx)) {
+      if (unlikely(IsSet(score_col_bitarr, varid_col_idx))) {
         logerrputs("Error: --score variant ID column index matches a coefficient column index.\n");
         goto ScoreReport_ret_INVALID_CMDLINE;
       }
-      if (IsSet(score_col_bitarr, allele_col_idx)) {
+      if (unlikely(IsSet(score_col_bitarr, allele_col_idx))) {
         logerrputs("Error: --score allele column index matches a coefficient column index.\n");
         goto ScoreReport_ret_INVALID_CMDLINE;
       }
       score_col_ct = PopcountWords(score_col_bitarr, last_col_idxl);
-      if (bigstack_alloc_u32(score_col_ct, &score_col_idx_deltas)) {
+      if (unlikely(bigstack_alloc_u32(score_col_ct, &score_col_idx_deltas))) {
         goto ScoreReport_ret_NOMEM;
       }
       uint32_t col_uidx = 0;
@@ -4715,7 +4731,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       BigstackEndReset(bigstack_end_mark);
     }
     char** score_col_names;
-    if (bigstack_alloc_cp(score_col_ct, &score_col_names)) {
+    if (unlikely(bigstack_alloc_cp(score_col_ct, &score_col_names))) {
       goto ScoreReport_ret_NOMEM;
     }
     char* write_iter = R_CAST(char*, g_bigstack_base);
@@ -4771,24 +4787,25 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     uint64_t* dosage_incrs;
     uintptr_t* already_seen;
     char* overflow_buf = nullptr;
-    if (bigstack_alloc_thread(1, &ts.threads) ||
-        bigstack_alloc_d((kScoreVariantBlockSize * k1LU) * sample_ct, &(g_dosages_vmaj[0])) ||
-        bigstack_alloc_d((kScoreVariantBlockSize * k1LU) * sample_ct, &(g_dosages_vmaj[1])) ||
-        bigstack_alloc_d(kScoreVariantBlockSize * score_col_ct, &(g_score_coefs_cmaj[0])) ||
-        bigstack_alloc_d(kScoreVariantBlockSize * score_col_ct, &(g_score_coefs_cmaj[1])) ||
-        bigstack_calloc_d(score_col_ct * sample_ct, &g_final_scores_cmaj) ||
-        // bugfix (4 Nov 2017): need raw_sample_ctl here, not sample_ctl
-        bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
-        bigstack_alloc_w(sample_ctl, &sex_nonmale_collapsed) ||
-        bigstack_alloc_w(sample_ctl2, &genovec_buf) ||
-        bigstack_alloc_w(sample_ctl, &dosage_present_buf) ||
-        bigstack_alloc_dosage(sample_ct, &dosage_main_buf) ||
-        bigstack_alloc_w(45 * acc1_vec_ct * kWordsPerVec, &missing_acc1) ||
-        bigstack_alloc_w(45 * acc1_vec_ct * kWordsPerVec, &missing_male_acc1) ||
-        bigstack_calloc_u64(sample_ct, &dosage_sums) ||
-        bigstack_calloc_u64(sample_ct, &dosage_incrs) ||
-        bigstack_calloc_w(raw_variant_ctl, &already_seen) ||
-        bigstack_alloc_c(overflow_buf_alloc, &overflow_buf)) {
+    if (unlikely(
+          bigstack_alloc_thread(1, &ts.threads) ||
+          bigstack_alloc_d((kScoreVariantBlockSize * k1LU) * sample_ct, &(g_dosages_vmaj[0])) ||
+          bigstack_alloc_d((kScoreVariantBlockSize * k1LU) * sample_ct, &(g_dosages_vmaj[1])) ||
+          bigstack_alloc_d(kScoreVariantBlockSize * score_col_ct, &(g_score_coefs_cmaj[0])) ||
+          bigstack_alloc_d(kScoreVariantBlockSize * score_col_ct, &(g_score_coefs_cmaj[1])) ||
+          bigstack_calloc_d(score_col_ct * sample_ct, &g_final_scores_cmaj) ||
+          // bugfix (4 Nov 2017): need raw_sample_ctl here, not sample_ctl
+          bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+          bigstack_alloc_w(sample_ctl, &sex_nonmale_collapsed) ||
+          bigstack_alloc_w(sample_ctl2, &genovec_buf) ||
+          bigstack_alloc_w(sample_ctl, &dosage_present_buf) ||
+          bigstack_alloc_dosage(sample_ct, &dosage_main_buf) ||
+          bigstack_alloc_w(45 * acc1_vec_ct * kWordsPerVec, &missing_acc1) ||
+          bigstack_alloc_w(45 * acc1_vec_ct * kWordsPerVec, &missing_male_acc1) ||
+          bigstack_calloc_u64(sample_ct, &dosage_sums) ||
+          bigstack_calloc_u64(sample_ct, &dosage_incrs) ||
+          bigstack_calloc_w(raw_variant_ctl, &already_seen) ||
+          bigstack_alloc_c(overflow_buf_alloc, &overflow_buf))) {
       goto ScoreReport_ret_NOMEM;
     }
     uintptr_t* missing_diploid_acc4 = &(missing_acc1[acc1_vec_ct * kWordsPerVec]);
@@ -4811,7 +4828,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     uint32_t* variant_id_htable = nullptr;
     uint32_t variant_id_htable_size;
     reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size);
-    if (reterr) {
+    if (unlikely(reterr)) {
       goto ScoreReport_ret_1;
     }
 
@@ -4820,7 +4837,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       const uint32_t output_zst = (score_flags / kfScoreListVariantsZs) & 1;
       OutnameZstSet(".sscore.vars", output_zst, outname_end);
       reterr = InitCstream(outname, 0, output_zst, max_thread_ct, overflow_buf_size, overflow_buf, R_CAST(unsigned char*, &(overflow_buf[overflow_buf_size])), &css);
-      if (reterr) {
+      if (unlikely(reterr)) {
         goto ScoreReport_ret_1;
       }
       cswritep = overflow_buf;
@@ -4860,20 +4877,20 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       if (!IsEolnKns(*linebuf_first_token)) {
         // varid_col_idx and allele_col_idx will almost always be very small
         char* variant_id_start = NextTokenMult0(linebuf_first_token, varid_col_idx);
-        if (!variant_id_start) {
+        if (unlikely(!variant_id_start)) {
           goto ScoreReport_ret_MISSING_TOKENS;
         }
         char* variant_id_token_end = CurTokenEnd(variant_id_start);
         const uint32_t variant_id_slen = variant_id_token_end - variant_id_start;
         uint32_t variant_uidx = VariantIdDupflagHtableFind(variant_id_start, variant_ids, variant_id_htable, variant_id_slen, variant_id_htable_size, max_variant_id_slen);
         if (!(variant_uidx >> 31)) {
-          if (IsSet(already_seen, variant_uidx)) {
+          if (unlikely(IsSet(already_seen, variant_uidx))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Variant ID '%s' appears multiple times in --score file.\n", variant_ids[variant_uidx]);
             goto ScoreReport_ret_MALFORMED_INPUT_WW;
           }
           SetBit(variant_uidx, already_seen);
           char* allele_start = NextTokenMult0(linebuf_first_token, allele_col_idx);
-          if (!allele_start) {
+          if (unlikely(!allele_start)) {
             goto ScoreReport_ret_MISSING_TOKENS;
           }
           uintptr_t allele_idx_offset_base;
@@ -4899,7 +4916,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             // okay, the variant and allele are in our dataset.  Load it.
             uint32_t dosage_ct;
             reterr = PgrGet1D(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, cur_allele_idx, simple_pgrp, genovec_buf, dosage_present_buf, dosage_main_buf, &dosage_ct);
-            if (reterr) {
+            if (unlikely(reterr)) {
               if (reterr == kPglRetMalformedInput) {
                 logputs("\n");
                 logerrputs("Error: Malformed .pgen file.\n");
@@ -4908,12 +4925,12 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             }
             const uint32_t chr_idx = GetVariantChr(cip, variant_uidx);
             uint32_t is_nonx_haploid = IsSet(cip->haploid_mask, chr_idx);
-            if (domrec && is_nonx_haploid) {
+            if (unlikely(domrec && is_nonx_haploid)) {
               logerrputs("Error: --score 'dominant' and 'recessive' modifiers cannot be used with haploid\nchromosomes.\n");
               goto ScoreReport_ret_INCONSISTENT_INPUT;
             }
             uint32_t is_relevant_x = (chr_idx == x_code);
-            if (variance_standardize && (is_relevant_x || (chr_idx == mt_code))) {
+            if (unlikely(variance_standardize && (is_relevant_x || (chr_idx == mt_code)))) {
               logerrputs("Error: --score 'variance-standardize' cannot be used with chrX or MT.\n");
               goto ScoreReport_ret_INCONSISTENT_INPUT;
             }
@@ -5023,7 +5040,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
                   ZeroTrailingQuaters(sample_ct, genovec_buf);
                   STD_ARRAY_DECL(uint32_t, 4, genocounts);
                   GenovecCountFreqsUnsafe(genovec_buf, sample_ct, genocounts);
-                  if (dosage_ct || genocounts[1] || genocounts[2]) {
+                  if (unlikely(dosage_ct || genocounts[1] || genocounts[2])) {
                     snprintf(g_logbuf, kLogbufSize, "Error: --score variance-standardize failure for ID '%s': estimated allele frequency is zero, but not all dosages are zero. (This is possible when e.g. allele frequencies are estimated from founders, but the allele is only observed in nonfounders.)\n", variant_ids[variant_uidx]);
                     goto ScoreReport_ret_INCONSISTENT_INPUT_WW;
                   }
@@ -5104,7 +5121,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
               read_iter = NextTokenMult0(read_iter, score_col_idx_deltas[score_col_idx]);
               double raw_coef;
               const char* token_end = ScanadvDouble(read_iter, &raw_coef);
-              if (!token_end) {
+              if (unlikely(!token_end)) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --score file has an invalid coefficient.\n", line_idx);
                 goto ScoreReport_ret_MALFORMED_INPUT_2;
               }
@@ -5115,7 +5132,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             if (list_variants) {
               cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
               AppendBinaryEoln(&cswritep);
-              if (Cswrite(&css, &cswritep)) {
+              if (unlikely(Cswrite(&css, &cswritep))) {
                 goto ScoreReport_ret_WRITE_FAIL;
               }
             }
@@ -5139,7 +5156,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
               } else {
                 ts.thread_func_ptr = CalcScoreThread;
               }
-              if (SpawnThreads3z(is_not_first_block, &ts)) {
+              if (unlikely(SpawnThreads3z(is_not_first_block, &ts))) {
                 goto ScoreReport_ret_THREAD_CREATE_FAIL;
               }
               cur_dosages_vmaj_iter = g_dosages_vmaj[parity];
@@ -5150,7 +5167,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             ++missing_allele_code_ct;
           }
         } else {
-          if (variant_uidx != UINT32_MAX) {
+          if (unlikely(variant_uidx != UINT32_MAX)) {
             snprintf(g_logbuf, kLogbufSize, "Error: --score variant ID '%s' appears multiple times in main dataset.\n", variant_ids[variant_uidx & 0x7fffffff]);
             goto ScoreReport_ret_INCONSISTENT_INPUT_WW;
           }
@@ -5160,7 +5177,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       ++line_idx;
       reterr = RlsNextLstrip(&score_rls, &line_iter);
       if (reterr) {
-        if (reterr == kPglRetEof) {
+        if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
           break;
         }
@@ -5194,7 +5211,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       } else {
         ts.thread_func_ptr = CalcScoreThread;
       }
-    } else if (!valid_variant_ct) {
+    } else if (unlikely(!valid_variant_ct)) {
       logerrputs("Error: No valid variants in --score file.\n");
       goto ScoreReport_ret_MALFORMED_INPUT;
     } else {
@@ -5210,7 +5227,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         }
       }
     }
-    if (SpawnThreads3z(is_not_first_block, &ts)) {
+    if (unlikely(SpawnThreads3z(is_not_first_block, &ts))) {
       goto ScoreReport_ret_THREAD_CREATE_FAIL;
     }
     JoinThreads3z(&ts);
@@ -5222,7 +5239,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     }
     logprintf("--score: %u variant%s processed.\n", valid_variant_ct, (valid_variant_ct == 1)? "" : "s");
     if (list_variants) {
-      if (CswriteCloseNull(&css, cswritep)) {
+      if (unlikely(CswriteCloseNull(&css, cswritep))) {
         goto ScoreReport_ret_WRITE_FAIL;
       }
       cswritep = nullptr;
@@ -5232,7 +5249,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     const uint32_t output_zst = (score_flags / kfScoreZs) & 1;
     OutnameZstSet(".sscore", output_zst, outname_end);
     reterr = InitCstream(outname, 0, output_zst, max_thread_ct, overflow_buf_size, overflow_buf, R_CAST(unsigned char*, &(overflow_buf[overflow_buf_size])), &css);
-    if (reterr) {
+    if (unlikely(reterr)) {
       goto ScoreReport_ret_1;
     }
     cswritep = overflow_buf;
@@ -5259,7 +5276,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
         *cswritep++ = '\t';
         cswritep = strcpya(cswritep, &(pheno_names[pheno_idx * max_pheno_name_blen]));
-        if (Cswrite(&css, &cswritep)) {
+        if (unlikely(Cswrite(&css, &cswritep))) {
           goto ScoreReport_ret_WRITE_FAIL;
         }
       }
@@ -5283,7 +5300,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         *cswritep++ = '\t';
         cswritep = strcpya(cswritep, score_col_names[score_col_idx]);
         cswritep = strcpya(cswritep, "_AVG");
-        if (Cswrite(&css, &cswritep)) {
+        if (unlikely(Cswrite(&css, &cswritep))) {
           goto ScoreReport_ret_WRITE_FAIL;
         }
       }
@@ -5293,7 +5310,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         *cswritep++ = '\t';
         cswritep = strcpya(cswritep, score_col_names[score_col_idx]);
         cswritep = strcpya(cswritep, "_SUM");
-        if (Cswrite(&css, &cswritep)) {
+        if (unlikely(Cswrite(&css, &cswritep))) {
           goto ScoreReport_ret_WRITE_FAIL;
         }
       }
@@ -5337,7 +5354,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
           } else {
             // category index guaranteed to be zero for missing values
             cswritep = strcpya(cswritep, cur_pheno_col->category_names[cur_pheno_col->data.cat[sample_uidx]]);
-            if (Cswrite(&css, &cswritep)) {
+            if (unlikely(Cswrite(&css, &cswritep))) {
               goto ScoreReport_ret_WRITE_FAIL;
             }
           }
@@ -5379,11 +5396,11 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         }
       }
       AppendBinaryEoln(&cswritep);
-      if (Cswrite(&css, &cswritep)) {
+      if (unlikely(Cswrite(&css, &cswritep))) {
         goto ScoreReport_ret_WRITE_FAIL;
       }
     }
-    if (CswriteCloseNull(&css, cswritep)) {
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
       goto ScoreReport_ret_WRITE_FAIL;
     }
     logprintfww("--score: Results written to %s .\n", outname);

@@ -44,8 +44,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
   help_ctrl.all_match_arr = nullptr;
   help_ctrl.argv = nullptr;
   if (param_ct) {
-    if (pgl_malloc(param_ct * sizeof(int32_t), &help_ctrl.param_slens) ||
-        pgl_malloc(param_ctl * 3 * sizeof(intptr_t), &help_ctrl.all_match_arr)) {
+    if (unlikely(
+          pgl_malloc(param_ct * sizeof(int32_t), &help_ctrl.param_slens) ||
+          pgl_malloc(param_ctl * 3 * sizeof(intptr_t), &help_ctrl.all_match_arr))) {
       goto DispHelp_ret_NOMEM;
     }
     leading_dashes = 0;
@@ -56,7 +57,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
       }
     }
     if (leading_dashes) {
-      if (pgl_malloc(param_ct * sizeof(intptr_t), &new_argv)) {
+      if (unlikely(pgl_malloc(param_ct * sizeof(intptr_t), &new_argv))) {
         goto DispHelp_ret_NOMEM;
       }
       for (arg_uidx = 0; arg_uidx < param_ct; arg_uidx++) {

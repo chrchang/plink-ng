@@ -410,7 +410,8 @@ HEADER_INLINE uint32_t GetXidColCt(XidMode xid_mode) {
 // sample_xid_map allocated on bottom, to play well with --indiv-sort
 PglErr SortedXidboxInitAlloc(const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t sample_ct, uint32_t allow_dups, XidMode xid_mode, uint32_t use_nsort, char** sorted_xidbox_ptr, uint32_t** xid_map_ptr, uintptr_t* max_xid_blen_ptr);
 
-// returns slen for ID, or 0 on parse failure.
+// returns slen for ID, or 0 on guaranteed mismatch (longer than max_xid_blen)
+// or parse failure (*readpp set to nullptr in latter case).
 uint32_t XidRead(uintptr_t max_xid_blen, uint32_t comma_delim, XidMode xid_mode, const char** read_pp, char* __restrict idbuf);
 
 // returns 1 on missing token *or* if the sample ID is not present.  cases can
@@ -578,7 +579,7 @@ void FinalizeChrset(MiscFlags misc_flags, ChrInfo* cip);
 
 HEADER_INLINE PglErr InitChrInfoHuman(ChrInfo* cip) {
   // convenience wrapper
-  if (InitChrInfo(cip)) {
+  if (unlikely(InitChrInfo(cip))) {
     return kPglRetNomem;
   }
   FinalizeChrset(kfMisc0, cip);
@@ -785,7 +786,7 @@ void FillSubsetChrFoVidxStart(const uintptr_t* variant_include, const ChrInfo* c
 
 HEADER_INLINE BoolErr AllocAndFillSubsetChrFoVidxStart(const uintptr_t* variant_include, const ChrInfo* cip, uint32_t** subset_chr_fo_vidx_start_ptr) {
   const uint32_t chr_ct = cip->chr_ct;
-  if (bigstack_alloc_u32(chr_ct + 1, subset_chr_fo_vidx_start_ptr)) {
+  if (unlikely(bigstack_alloc_u32(chr_ct + 1, subset_chr_fo_vidx_start_ptr))) {
     return 1;
   }
   FillSubsetChrFoVidxStart(variant_include, cip, *subset_chr_fo_vidx_start_ptr);

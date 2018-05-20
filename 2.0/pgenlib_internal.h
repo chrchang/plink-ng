@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1005
+#define PGENLIB_INTERNAL_VERNUM 1006
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -1281,7 +1281,7 @@ void PwcAppendBiallelicGenovec(const uintptr_t* __restrict genovec, PgenWriterCo
 BoolErr SpgwFlush(STPgenWriter* spgwp);
 
 HEADER_INLINE PglErr SpgwAppendBiallelicGenovec(const uintptr_t* __restrict genovec, STPgenWriter* spgwp) {
-  if (SpgwFlush(spgwp)) {
+  if (unlikely(SpgwFlush(spgwp))) {
     return kPglRetWriteFail;
   }
   PwcAppendBiallelicGenovec(genovec, &(spgwp->pwc));
@@ -1296,7 +1296,7 @@ HEADER_INLINE PglErr SpgwAppendBiallelicGenovec(const uintptr_t* __restrict geno
 void PwcAppendBiallelicDifflistLimited(const uintptr_t* __restrict raregeno, const uint32_t* __restrict difflist_sample_ids, uint32_t difflist_common_geno, uint32_t difflist_len, PgenWriterCommon* pwcp);
 
 HEADER_INLINE PglErr SpgwAppendBiallelicDifflistLimited(const uintptr_t* __restrict raregeno, const uint32_t* __restrict difflist_sample_ids, uint32_t difflist_common_geno, uint32_t difflist_len, STPgenWriter* spgwp) {
-  if (SpgwFlush(spgwp)) {
+  if (unlikely(SpgwFlush(spgwp))) {
     return kPglRetWriteFail;
   }
   PwcAppendBiallelicDifflistLimited(raregeno, difflist_sample_ids, difflist_common_geno, difflist_len, &(spgwp->pwc));
@@ -1318,10 +1318,10 @@ HEADER_INLINE PglErr SpgwAppendBiallelicDifflistLimited(const uintptr_t* __restr
 BoolErr PwcAppendMultiallelicSparse(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t patch_01_ct, uint32_t patch_10_ct, PgenWriterCommon* pwcp);
 
 HEADER_INLINE PglErr SpgwAppendMultiallelicSparse(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t patch_01_ct, uint32_t patch_10_ct, STPgenWriter* spgwp) {
-  if (SpgwFlush(spgwp)) {
+  if (unlikely(SpgwFlush(spgwp))) {
     return kPglRetWriteFail;
   }
-  if (PwcAppendMultiallelicSparse(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, patch_01_ct, patch_10_ct, &(spgwp->pwc))) {
+  if (unlikely(PwcAppendMultiallelicSparse(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, patch_01_ct, patch_10_ct, &(spgwp->pwc)))) {
     return kPglRetVarRecordTooLarge;
   }
   return kPglRetSuccess;
@@ -1341,7 +1341,7 @@ void PwcAppendBiallelicGenovecHphase(const uintptr_t* __restrict genovec, const 
 // ok for trailing bits of phaseinfo to not be zeroed out, NOT currently ok for
 //   phasepresent
 HEADER_INLINE PglErr SpgwAppendBiallelicGenovecHphase(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, STPgenWriter* spgwp) {
-  if (SpgwFlush(spgwp)) {
+  if (unlikely(SpgwFlush(spgwp))) {
     return kPglRetWriteFail;
   }
   PwcAppendBiallelicGenovecHphase(genovec, phasepresent, phaseinfo, &(spgwp->pwc));
@@ -1351,10 +1351,10 @@ HEADER_INLINE PglErr SpgwAppendBiallelicGenovecHphase(const uintptr_t* __restric
 BoolErr PwcAppendMultiallelicGenovecHphase(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, uint32_t patch_01_ct, uint32_t patch_10_ct, PgenWriterCommon* pwcp);
 
 HEADER_INLINE PglErr SpgwAppendMultiallelicGenovecHphase(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, uint32_t patch_01_ct, uint32_t patch_10_ct, STPgenWriter* spgwp) {
-  if (SpgwFlush(spgwp)) {
+  if (unlikely(SpgwFlush(spgwp))) {
     return kPglRetWriteFail;
   }
-  if (PwcAppendMultiallelicGenovecHphase(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, phasepresent, phaseinfo, patch_01_ct, patch_10_ct, &(spgwp->pwc))) {
+  if (unlikely(PwcAppendMultiallelicGenovecHphase(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, phasepresent, phaseinfo, patch_01_ct, patch_10_ct, &(spgwp->pwc)))) {
     return kPglRetVarRecordTooLarge;
   }
   return kPglRetSuccess;
@@ -1366,10 +1366,10 @@ HEADER_INLINE PglErr SpgwAppendMultiallelicGenovecHphase(const uintptr_t* __rest
 BoolErr PwcAppendBiallelicGenovecDosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_main, uint32_t dosage_ct, PgenWriterCommon* pwcp);
 
 HEADER_INLINE PglErr SpgwAppendBiallelicGenovecDosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_main, uint32_t dosage_ct, STPgenWriter* spgwp) {
-  if (SpgwFlush(spgwp)) {
+  if (unlikely(SpgwFlush(spgwp))) {
     return kPglRetWriteFail;
   }
-  if (PwcAppendBiallelicGenovecDosage16(genovec, dosage_present, dosage_main, dosage_ct, &(spgwp->pwc))) {
+  if (unlikely(PwcAppendBiallelicGenovecDosage16(genovec, dosage_present, dosage_main, dosage_ct, &(spgwp->pwc)))) {
     return kPglRetVarRecordTooLarge;
   }
   return kPglRetSuccess;
@@ -1378,10 +1378,10 @@ HEADER_INLINE PglErr SpgwAppendBiallelicGenovecDosage16(const uintptr_t* __restr
 BoolErr PwcAppendBiallelicGenovecHphaseDosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_main, uint32_t dosage_ct, PgenWriterCommon* pwcp);
 
 HEADER_INLINE PglErr SpgwAppendBiallelicGenovecHphaseDosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_main, uint32_t dosage_ct, STPgenWriter* spgwp) {
-  if (SpgwFlush(spgwp)) {
+  if (unlikely(SpgwFlush(spgwp))) {
     return kPglRetWriteFail;
   }
-  if (PwcAppendBiallelicGenovecHphaseDosage16(genovec, phasepresent, phaseinfo, dosage_present, dosage_main, dosage_ct, &(spgwp->pwc))) {
+  if (unlikely(PwcAppendBiallelicGenovecHphaseDosage16(genovec, phasepresent, phaseinfo, dosage_present, dosage_main, dosage_ct, &(spgwp->pwc)))) {
     return kPglRetVarRecordTooLarge;
   }
   return kPglRetSuccess;
@@ -1393,10 +1393,10 @@ HEADER_INLINE PglErr SpgwAppendBiallelicGenovecHphaseDosage16(const uintptr_t* _
 BoolErr PwcAppendBiallelicGenovecDphase16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uintptr_t* __restrict dphase_present, const uint16_t* dosage_main, const int16_t* dphase_delta, uint32_t dosage_ct, uint32_t dphase_ct, PgenWriterCommon* pwcp);
 
 HEADER_INLINE PglErr SpgwAppendBiallelicGenovecDphase16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uintptr_t* dphase_present, const uint16_t* dosage_main, const int16_t* dphase_delta, uint32_t dosage_ct, uint32_t dphase_ct, STPgenWriter* spgwp) {
-  if (SpgwFlush(spgwp)) {
+  if (unlikely(SpgwFlush(spgwp))) {
     return kPglRetWriteFail;
   }
-  if (PwcAppendBiallelicGenovecDphase16(genovec, phasepresent, phaseinfo, dosage_present, dphase_present, dosage_main, dphase_delta, dosage_ct, dphase_ct, &(spgwp->pwc))) {
+  if (unlikely(PwcAppendBiallelicGenovecDphase16(genovec, phasepresent, phaseinfo, dosage_present, dphase_present, dosage_main, dphase_delta, dosage_ct, dphase_ct, &(spgwp->pwc)))) {
     return kPglRetVarRecordTooLarge;
   }
   return kPglRetSuccess;

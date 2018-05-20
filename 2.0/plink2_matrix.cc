@@ -424,6 +424,7 @@ BoolErr InvertMatrix(int32_t dim, double* matrix, MatrixInvertBuf1* dbl_1d_buf, 
   // w -> dbl_1d_buf
   // v -> dbl_2d_buf
   const double eps = 1e-24;
+  // not unlikely(), matrix inversion failure can be common
   if (!SvdcmpC(dim, matrix, dbl_1d_buf, dbl_2d_buf)) {
     return 1;
   }
@@ -1058,11 +1059,11 @@ BoolErr GetSvdRectLwork(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer* lw
   __CLPK_integer info;
   dgesvd_(&jobu, &jobvt, &tmp_m, &tmp_n, nullptr, &tmp_m, nullptr, nullptr, &tmp_m, nullptr, &tmp_m, &wkspace_size_d, &wkspace_size, &info);
 #  ifdef LAPACK_ILP64
-  if (info) {
+  if (unlikely(info)) {
     return 1;
   }
 #  else
-  if (info || (wkspace_size_d > 2147483640.0)) {
+  if (unlikely(info || (wkspace_size_d > 2147483640.0))) {
     return 1;
   }
 #  endif
@@ -1098,11 +1099,11 @@ BoolErr GetExtractEigvecsLworks(uint32_t dim, uint32_t pc_ct, __CLPK_integer* lw
   __CLPK_integer info;
   dsyevr_(&jobz, &range, &uplo, &tmp_n, nullptr, &tmp_n, nullptr, nullptr, &il, &iu, &abstol, nullptr, nullptr, nullptr, &tmp_n, nullptr, &lwork_d, &lwork_dummy, &liwork, &lwork_dummy, &info);
 #ifdef LAPACK_ILP64
-  if (info) {
+  if (unlikely(info)) {
     return 1;
   }
 #else
-  if (info || (lwork_d > 2147483640.0)) {
+  if (unlikely(info || (lwork_d > 2147483640.0))) {
     return 1;
   }
 #endif

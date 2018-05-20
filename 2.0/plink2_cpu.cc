@@ -77,6 +77,8 @@ static inline uint64_t read_xcr(uint32_t index) {
 
 extern int RealMain(int argc, char** argv);
 
+#  define unlikely(expr) __builtin_expect(!!(expr), 0)
+
 int main(int argc, char** argv) {
   uint32_t dummy1, dummy2, dummy3, dummy4;
   uint32_t max_function;
@@ -87,7 +89,7 @@ int main(int argc, char** argv) {
 
   /* Get maximum supported function  */
   cpuid(0, 0, &max_function, &dummy2, &dummy3, &dummy4);
-  if (max_function < 1) {
+  if (unlikely(max_function < 1)) {
     // er, is this possible given that the 64-bit build executes at all?  well,
     // leave it in for now.
     goto CpuCheck_ret_SSE42_FAIL;
@@ -97,24 +99,25 @@ int main(int argc, char** argv) {
   cpuid(1, 0, &dummy1, &dummy2, &features_2, &dummy4);
 
   // bit 20 = SSE4.2
-  if (!(features_2 & 0x100000)) {
+  if (unlikely(!(features_2 & 0x100000))) {
     goto CpuCheck_ret_SSE42_FAIL;
   }
 
 #  ifdef CPU_CHECK_AVX2
   // os_saves_ymm_regs must be true for AVX2
-  if ((!(features_2 & 0x8000000)) ||
-      ((read_xcr(0) & 0x6) != 0x6)) {
+  if (unlikely(
+        (!(features_2 & 0x8000000)) ||
+        ((read_xcr(0) & 0x6) != 0x6))) {
     goto CpuCheck_ret_AVX2_FAIL;
   }
-  if (max_function < 7) {
+  if (unlikely(max_function < 7)) {
     goto CpuCheck_ret_AVX2_FAIL;
   }
   cpuid(7, 0, &dummy1, &features_3, &features_4, &dummy4);
   // bit 3 = BMI
   // bit 5 = AVX2
   // bit 8 = BMI2
-  if ((features_3 & 0x128) != 0x128) {
+  if (unlikely((features_3 & 0x128) != 0x128)) {
     goto CpuCheck_ret_AVX2_FAIL;
   }
 #  endif

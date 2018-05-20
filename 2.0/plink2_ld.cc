@@ -901,7 +901,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
   PglErr reterr = kPglRetSuccess;
   {
     const uint32_t founder_nonmale_ct = founder_ct - founder_male_ct;
-    if (founder_nonmale_ct * 2 + founder_male_ct > 0x7fffffffU) {
+    if (unlikely(founder_nonmale_ct * 2 + founder_male_ct > 0x7fffffffU)) {
       // may as well document this
       logerrputs("Error: --indep-pairwise does not support >= 2^30 founders.\n");
       goto IndepPairwise_ret_NOT_YET_SUPPORTED;
@@ -933,25 +933,26 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     uint32_t* thread_last_tvidx;
     uint32_t* thread_last_uidx;
     pthread_t* threads = nullptr;
-    if (bigstack_alloc_w(QuaterCtToWordCt(raw_sample_ct), &tmp_genovec) ||
-        bigstack_calloc_u32(calc_thread_ct, &g_tvidx_end) ||
-        bigstack_calloc_u32(calc_thread_ct, &thread_last_subcontig) ||
-        bigstack_calloc_u32(calc_thread_ct, &thread_subcontig_start_tvidx) ||
-        bigstack_calloc_u32(calc_thread_ct, &thread_last_tvidx) ||
-        bigstack_calloc_u32(calc_thread_ct, &thread_last_uidx) ||
-        bigstack_alloc_wp(calc_thread_ct, &g_genobufs) ||
-        bigstack_alloc_wp(calc_thread_ct, &g_occupied_window_slots) ||
-        bigstack_alloc_wp(calc_thread_ct, &g_cur_window_removed) ||
-        bigstack_alloc_dp(calc_thread_ct, &g_cur_maj_freqs) ||
-        bigstack_alloc_wp(calc_thread_ct, &g_removed_variants_write) ||
-        BIGSTACK_ALLOC_X(VariantAggs*, calc_thread_ct, &g_vaggs) ||
-        BIGSTACK_ALLOC_X(VariantAggs*, calc_thread_ct, &g_nonmale_vaggs) ||
-        bigstack_alloc_u32p(calc_thread_ct, &g_winpos_to_slot_idx) ||
-        bigstack_alloc_u32p(calc_thread_ct, &g_tvidxs) ||
-        bigstack_alloc_u32p(calc_thread_ct, &g_first_unchecked_tvidx) ||
-        bigstack_alloc_wp(calc_thread_ct, &(g_raw_tgenovecs[0])) ||
-        bigstack_alloc_wp(calc_thread_ct, &(g_raw_tgenovecs[1])) ||
-        bigstack_alloc_thread(calc_thread_ct, &threads)) {
+    if (unlikely(
+          bigstack_alloc_w(QuaterCtToWordCt(raw_sample_ct), &tmp_genovec) ||
+          bigstack_calloc_u32(calc_thread_ct, &g_tvidx_end) ||
+          bigstack_calloc_u32(calc_thread_ct, &thread_last_subcontig) ||
+          bigstack_calloc_u32(calc_thread_ct, &thread_subcontig_start_tvidx) ||
+          bigstack_calloc_u32(calc_thread_ct, &thread_last_tvidx) ||
+          bigstack_calloc_u32(calc_thread_ct, &thread_last_uidx) ||
+          bigstack_alloc_wp(calc_thread_ct, &g_genobufs) ||
+          bigstack_alloc_wp(calc_thread_ct, &g_occupied_window_slots) ||
+          bigstack_alloc_wp(calc_thread_ct, &g_cur_window_removed) ||
+          bigstack_alloc_dp(calc_thread_ct, &g_cur_maj_freqs) ||
+          bigstack_alloc_wp(calc_thread_ct, &g_removed_variants_write) ||
+          BIGSTACK_ALLOC_X(VariantAggs*, calc_thread_ct, &g_vaggs) ||
+          BIGSTACK_ALLOC_X(VariantAggs*, calc_thread_ct, &g_nonmale_vaggs) ||
+          bigstack_alloc_u32p(calc_thread_ct, &g_winpos_to_slot_idx) ||
+          bigstack_alloc_u32p(calc_thread_ct, &g_tvidxs) ||
+          bigstack_alloc_u32p(calc_thread_ct, &g_first_unchecked_tvidx) ||
+          bigstack_alloc_wp(calc_thread_ct, &(g_raw_tgenovecs[0])) ||
+          bigstack_alloc_wp(calc_thread_ct, &(g_raw_tgenovecs[1])) ||
+          bigstack_alloc_thread(calc_thread_ct, &threads))) {
       goto IndepPairwise_ret_NOMEM;
     }
     for (uint32_t subcontig_idx = 0; subcontig_idx < subcontig_ct; ++subcontig_idx) {
@@ -982,7 +983,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     // round down
     uintptr_t bigstack_avail_per_thread = RoundDownPow2(bigstack_left() / calc_thread_ct, kCacheline);
     // may as well require capacity for >= 256 variants per thread per pass
-    if (bigstack_avail_per_thread <= thread_alloc_base + 2 * 256 * raw_tgenovec_single_variant_word_ct * sizeof(intptr_t)) {
+    if (unlikely(bigstack_avail_per_thread <= thread_alloc_base + 2 * 256 * raw_tgenovec_single_variant_word_ct * sizeof(intptr_t))) {
       goto IndepPairwise_ret_NOMEM;
     }
     bigstack_avail_per_thread -= thread_alloc_base;
@@ -1132,7 +1133,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
                 }
               }
             }
-            if (reterr) {
+            if (unlikely(reterr)) {
               if (cur_tvidx_start) {
                 JoinThreads2z(calc_thread_ct, 0, threads);
                 g_cur_batch_size = 0;
@@ -1165,7 +1166,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
         }
       }
       is_last_batch = (cur_tvidx_start + tvidx_batch_size >= max_load);
-      if (SpawnThreads2z(IndepPairwiseThread, calc_thread_ct, is_last_batch, threads)) {
+      if (unlikely(SpawnThreads2z(IndepPairwiseThread, calc_thread_ct, is_last_batch, threads))) {
         goto IndepPairwise_ret_THREAD_CREATE_FAIL;
       }
       parity = 1 - parity;
@@ -1508,7 +1509,7 @@ PglErr LdPruneWrite(const uintptr_t* variant_include, const uintptr_t* removed_v
     fputs("Writing...", stdout);
     fflush(stdout);
     snprintf(outname_end, kMaxOutfnameExtBlen, ".prune.in");
-    if (fopen_checked(outname, FOPEN_WB, &outfile)) {
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
       goto LdPruneWrite_ret_OPEN_FAIL;
     }
     char* write_iter = g_textbuf;
@@ -1521,16 +1522,16 @@ PglErr LdPruneWrite(const uintptr_t* variant_include, const uintptr_t* removed_v
       }
       write_iter = strcpya(write_iter, variant_ids[variant_uidx]);
       AppendBinaryEoln(&write_iter);
-      if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
+      if (unlikely(fwrite_ck(textbuf_flush, outfile, &write_iter))) {
         goto LdPruneWrite_ret_WRITE_FAIL;
       }
     }
-    if (fclose_flush_null(textbuf_flush, write_iter, &outfile)) {
+    if (unlikely(fclose_flush_null(textbuf_flush, write_iter, &outfile))) {
       goto LdPruneWrite_ret_WRITE_FAIL;
     }
 
     snprintf(&(outname_end[7]), kMaxOutfnameExtBlen - 7, "out");
-    if (fopen_checked(outname, FOPEN_WB, &outfile)) {
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
       goto LdPruneWrite_ret_OPEN_FAIL;
     }
     write_iter = g_textbuf;
@@ -1542,11 +1543,11 @@ PglErr LdPruneWrite(const uintptr_t* variant_include, const uintptr_t* removed_v
       }
       write_iter = strcpya(write_iter, variant_ids[variant_uidx]);
       AppendBinaryEoln(&write_iter);
-      if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
+      if (unlikely(fwrite_ck(textbuf_flush, outfile, &write_iter))) {
         goto LdPruneWrite_ret_WRITE_FAIL;
       }
     }
-    if (fclose_flush_null(textbuf_flush, write_iter, &outfile)) {
+    if (unlikely(fclose_flush_null(textbuf_flush, write_iter, &outfile))) {
       goto LdPruneWrite_ret_WRITE_FAIL;
     }
     *outname_end = '\0';
@@ -1592,7 +1593,7 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     const uintptr_t* variant_include;
     if (skipped_variant_ct) {
       uintptr_t* new_variant_include;
-      if (bigstack_alloc_w(raw_variant_ctl, &new_variant_include)) {
+      if (unlikely(bigstack_alloc_w(raw_variant_ctl, &new_variant_include))) {
         goto LdPrune_ret_NOMEM;
       }
       memcpy(new_variant_include, orig_variant_include, raw_variant_ctl * sizeof(intptr_t));
@@ -1644,18 +1645,19 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     uintptr_t* founder_male_collapsed;
     uintptr_t* removed_variants_collapsed;
     uint32_t* subcontig_thread_assignments;
-    if (bigstack_alloc_u32(raw_sample_ctl, &founder_info_cumulative_popcounts) ||
-        bigstack_alloc_w(founder_ctl, &founder_nonmale_collapsed) ||
-        bigstack_alloc_w(founder_ctl, &founder_male_collapsed) ||
-        bigstack_calloc_w(variant_ctl, &removed_variants_collapsed) ||
-        bigstack_alloc_u32(subcontig_ct, &subcontig_thread_assignments)) {
+    if (unlikely(
+          bigstack_alloc_u32(raw_sample_ctl, &founder_info_cumulative_popcounts) ||
+          bigstack_alloc_w(founder_ctl, &founder_nonmale_collapsed) ||
+          bigstack_alloc_w(founder_ctl, &founder_male_collapsed) ||
+          bigstack_calloc_w(variant_ctl, &removed_variants_collapsed) ||
+          bigstack_alloc_u32(subcontig_ct, &subcontig_thread_assignments))) {
       goto LdPrune_ret_NOMEM;
     }
     FillCumulativePopcounts(founder_info, raw_sample_ctl, founder_info_cumulative_popcounts);
     CopyBitarrSubset(sex_male, founder_info, founder_ct, founder_male_collapsed);
     AlignedBitarrInvertCopy(founder_male_collapsed, founder_ct, founder_nonmale_collapsed);
     uint32_t* subcontig_weights;
-    if (bigstack_end_alloc_u32(subcontig_ct, &subcontig_weights)) {
+    if (unlikely(bigstack_end_alloc_u32(subcontig_ct, &subcontig_weights))) {
       goto LdPrune_ret_NOMEM;
     }
 
@@ -1681,7 +1683,7 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
       uintptr_t per_thread_alloc = RoundUpPow2(window_max * entire_variant_buf_word_ct * sizeof(intptr_t), kCacheline) + 2 * RoundUpPow2((1 + window_max / kBitsPerWord) * sizeof(intptr_t), kCacheline) + RoundUpPow2(window_max * sizeof(double), kCacheline) + 2 * RoundUpPow2(window_max * (3 * sizeof(int32_t)), kCacheline) + 3 * RoundUpPow2(window_max * sizeof(int32_t), kCacheline);
       uintptr_t bigstack_left2 = bigstack_left();
       if (per_thread_alloc * max_thread_ct > bigstack_left2) {
-        if (per_thread_alloc > bigstack_left2) {
+        if (unlikely(per_thread_alloc > bigstack_left2)) {
           goto LdPrune_ret_NOMEM;
         }
         max_thread_ct = bigstack_left2 / per_thread_alloc;
@@ -1695,7 +1697,7 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
       // printf("%u %u %u\n", subcontig_info[3 * subcontig_idx], subcontig_info[3 * subcontig_idx + 1], subcontig_info[3 * subcontig_idx + 2]);
     }
     uint32_t max_load = 0;
-    if (LoadBalance(subcontig_weights, subcontig_ct, &max_thread_ct, subcontig_thread_assignments, &max_load)) {
+    if (unlikely(LoadBalance(subcontig_weights, subcontig_ct, &max_thread_ct, subcontig_thread_assignments, &max_load))) {
       goto LdPrune_ret_NOMEM;
     }
     BigstackEndReset(bigstack_end_mark);
@@ -1705,15 +1707,15 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     } else {
       reterr = IndepPairwise(variant_include, cip, variant_bps, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, founder_info_cumulative_popcounts, founder_nonmale_collapsed, founder_male_collapsed, ldip, subcontig_info, subcontig_thread_assignments, raw_sample_ct, founder_ct, founder_male_ct, subcontig_ct, window_max, max_thread_ct, max_load, simple_pgrp, removed_variants_collapsed);
     }
-    if (reterr) {
+    if (unlikely(reterr)) {
       goto LdPrune_ret_1;
     }
     const uint32_t removed_ct = PopcountWords(removed_variants_collapsed, variant_ctl);
     logprintf("%u/%u variants removed.\n", removed_ct, variant_ct);
     reterr = LdPruneWrite(variant_include, removed_variants_collapsed, variant_ids, variant_ct, outname, outname_end);
-    if (reterr) {
-      goto LdPrune_ret_1;
-    }
+    // if (unlikely(reterr)) {
+    //   goto LdPrune_ret_1;
+    // }
   }
   while (0) {
   LdPrune_ret_NOMEM:
@@ -2822,10 +2824,10 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
       const char* cur_varid = ld_console_varids[var_idx];
       int32_t ii = GetVariantUidxWithoutHtable(cur_varid, variant_ids, variant_include, variant_ct);
-      if (ii == -1) {
+      if (unlikely(ii == -1)) {
         snprintf(g_logbuf, kLogbufSize, "Error: --ld variant '%s' does not appear in dataset.\n", cur_varid);
         goto LdConsole_ret_INCONSISTENT_INPUT_WW;
-      } else if (ii == -2) {
+      } else if (unlikely(ii == -2)) {
         snprintf(g_logbuf, kLogbufSize, "Error: --ld variant '%s' appears multiple times in dataset.\n", cur_varid);
         goto LdConsole_ret_INCONSISTENT_INPUT_WW;
       }
@@ -2848,7 +2850,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     if (y_ct) {
       // only keep male founders
       uintptr_t* founder_info_tmp;
-      if (bigstack_alloc_w(raw_sample_ctl, &founder_info_tmp)) {
+      if (unlikely(bigstack_alloc_w(raw_sample_ctl, &founder_info_tmp))) {
         goto LdConsole_ret_NOMEM;
       }
       BitvecAndCopy(founder_info, sex_male, raw_sample_ctl, founder_info_tmp);
@@ -2894,8 +2896,9 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     uintptr_t* sex_male_collapsed_interleaved = nullptr;
     uint32_t x_male_ct = 0;
     if (x_present) {
-      if (bigstack_alloc_w(founder_ctaw, &sex_male_collapsed) ||
-          bigstack_alloc_w(founder_ctaw, &sex_male_collapsed_interleaved)) {
+      if (unlikely(
+            bigstack_alloc_w(founder_ctaw, &sex_male_collapsed) ||
+            bigstack_alloc_w(founder_ctaw, &sex_male_collapsed_interleaved))) {
         goto LdConsole_ret_NOMEM;
       }
       CopyBitarrSubset(sex_male, founder_info, founder_ct, sex_male_collapsed);
@@ -2924,7 +2927,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       // context.)
 
       reterr = PgrGetInv1Dp(founder_info, founder_info_cumulative_popcounts, founder_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, cur_genovec, cur_phasepresent, cur_phaseinfo, &(phasepresent_cts[var_idx]), cur_dosage_present, cur_dosage_main, &(dosage_cts[var_idx]), cur_dphase_present, cur_dphase_delta, &(dphase_cts[var_idx]));
-      if (reterr) {
+      if (unlikely(reterr)) {
         if (reterr == kPglRetMalformedInput) {
           logputs("\n");
           logerrputs("Error: Malformed .pgen file.\n");
@@ -2982,12 +2985,13 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       uintptr_t* one_bitvecs[2];
       uintptr_t* two_bitvecs[2];
       uintptr_t* nm_bitvecs[2];
-      if (bigstack_alloc_w(founder_ctaw, &one_bitvecs[0]) ||
-          bigstack_alloc_w(founder_ctaw, &two_bitvecs[0]) ||
-          bigstack_alloc_w(founder_ctaw, &nm_bitvecs[0]) ||
-          bigstack_alloc_w(founder_ctaw, &one_bitvecs[1]) ||
-          bigstack_alloc_w(founder_ctaw, &two_bitvecs[1]) ||
-          bigstack_alloc_w(founder_ctaw, &nm_bitvecs[1])) {
+      if (unlikely(
+            bigstack_alloc_w(founder_ctaw, &one_bitvecs[0]) ||
+            bigstack_alloc_w(founder_ctaw, &two_bitvecs[0]) ||
+            bigstack_alloc_w(founder_ctaw, &nm_bitvecs[0]) ||
+            bigstack_alloc_w(founder_ctaw, &one_bitvecs[1]) ||
+            bigstack_alloc_w(founder_ctaw, &two_bitvecs[1]) ||
+            bigstack_alloc_w(founder_ctaw, &nm_bitvecs[1]))) {
         goto LdConsole_ret_NOMEM;
       }
       uint32_t nmaj_cts[2];
@@ -3001,7 +3005,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       uint32_t known_dotprod;
       uint32_t unknown_hethet_ct;
       valid_obs_ct = HardcallPhasedR2Stats(one_bitvecs[0], two_bitvecs[0], nm_bitvecs[0], one_bitvecs[1], two_bitvecs[1], nm_bitvecs[1], founder_ct, nm_cts[0], nm_cts[1], nmaj_cts, &known_dotprod, &unknown_hethet_ct);
-      if (!valid_obs_ct) {
+      if (unlikely(!valid_obs_ct)) {
         goto LdConsole_ret_NO_VALID_OBSERVATIONS;
       }
       hethet_present = (unknown_hethet_ct != 0);
@@ -3053,12 +3057,13 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       Dosage* dosage_uhets[2];
       uintptr_t* nm_bitvecs[2];
       // founder_ct automatically rounded up as necessary
-      if (bigstack_alloc_dosage(founder_ct, &dosage_vecs[0]) ||
-          bigstack_alloc_dosage(founder_ct, &dosage_vecs[1]) ||
-          bigstack_alloc_dosage(founder_ct, &dosage_uhets[0]) ||
-          bigstack_alloc_dosage(founder_ct, &dosage_uhets[1]) ||
-          bigstack_alloc_w(founder_ctl, &nm_bitvecs[0]) ||
-          bigstack_alloc_w(founder_ctl, &nm_bitvecs[1])) {
+      if (unlikely(
+            bigstack_alloc_dosage(founder_ct, &dosage_vecs[0]) ||
+            bigstack_alloc_dosage(founder_ct, &dosage_vecs[1]) ||
+            bigstack_alloc_dosage(founder_ct, &dosage_uhets[0]) ||
+            bigstack_alloc_dosage(founder_ct, &dosage_uhets[1]) ||
+            bigstack_alloc_w(founder_ctl, &nm_bitvecs[0]) ||
+            bigstack_alloc_w(founder_ctl, &nm_bitvecs[1]))) {
         goto LdConsole_ret_NOMEM;
       }
       uint64_t nmaj_dosages[2];
@@ -3076,8 +3081,9 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       main_dphase_deltas[0] = nullptr;
       main_dphase_deltas[1] = nullptr;
       if (use_phase) {
-        if (bigstack_alloc_dphase(founder_ct, &main_dphase_deltas[0]) ||
-            bigstack_alloc_dphase(founder_ct, &main_dphase_deltas[1])) {
+        if (unlikely(
+              bigstack_alloc_dphase(founder_ct, &main_dphase_deltas[0]) ||
+              bigstack_alloc_dphase(founder_ct, &main_dphase_deltas[1]))) {
           goto LdConsole_ret_NOMEM;
         }
         for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
@@ -3110,7 +3116,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       const uint64_t orig_nmaj_dosage1 = nmaj_dosages[1];
       uint64_t dosageprod;
       valid_obs_ct = DosagePhasedR2Prod(dosage_vecs[0], nm_bitvecs[0], dosage_vecs[1], nm_bitvecs[1], founder_ct, nm_cts[0], nm_cts[1], nmaj_dosages, &dosageprod);
-      if (!valid_obs_ct) {
+      if (unlikely(!valid_obs_ct)) {
         goto LdConsole_ret_NO_VALID_OBSERVATIONS;
       }
       uint64_t uhethet_dosageprod = 0;
@@ -3127,7 +3133,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       unknown_hethet_d = S_CAST(int64_t, uhethet_dosageprod) * kRecipDosageMidSq;
       if (x_male_ct) {
         Dosage* x_male_dosage_invmask;
-        if (bigstack_alloc_dosage(founder_ct, &x_male_dosage_invmask)) {
+        if (unlikely(bigstack_alloc_dosage(founder_ct, &x_male_dosage_invmask))) {
           goto LdConsole_ret_NOMEM;
         }
         SetAllDosageArr(founder_dosagev_ct * kDosagePerVec, x_male_dosage_invmask);
@@ -3379,7 +3385,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         if (x_present) {
           x_nosex_ct = founder_ct - PopcountWordsIntersect(founder_info, sex_nm, raw_sample_ctl);
           if (x_nosex_ct) {
-            if (bigstack_alloc_w(founder_ctl, &nosex_collapsed)) {
+            if (unlikely(bigstack_alloc_w(founder_ctl, &nosex_collapsed))) {
               goto LdConsole_ret_NOMEM;
             }
             CopyBitarrSubset(sex_nm, founder_info, founder_ct, nosex_collapsed);

@@ -54,7 +54,7 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
         ++line_idx;
         reterr = RlsPostlfNext(rlsp, &line_iter);
         if (reterr) {
-          if (reterr == kPglRetEof) {
+          if (likely(reterr == kPglRetEof)) {
             reterr = kPglRetSuccess;
             break;
           }
@@ -68,14 +68,14 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
         char* first_token_end = CurTokenEnd(linebuf_first_token);
         char* cur_set_id = NextTokenMult(first_token_end, 3);
         char* last_token = cur_set_id;
-        if (NoMoreTokensKns(last_token)) {
+        if (unlikely(NoMoreTokensKns(last_token))) {
           snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, file_descrip);
           goto LoadIbed_ret_MALFORMED_INPUT_2;
         }
         const uint32_t chr_name_slen = first_token_end - linebuf_first_token;
         *first_token_end = '\0';
         const uint32_t cur_chr_code = GetChrCode(linebuf_first_token, cip, chr_name_slen);
-        if (IsI32Neg(cur_chr_code)) {
+        if (unlikely(IsI32Neg(cur_chr_code))) {
           snprintf(g_logbuf, kLogbufSize, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
           goto LoadIbed_ret_MALFORMED_INPUT_2;
         }
@@ -104,7 +104,7 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
           max_set_id_blen = set_id_blen;
         }
         LlStr* ll_tmp;
-        if (bigstack_end_alloc_llstr(set_id_blen, &ll_tmp)) {
+        if (unlikely(bigstack_end_alloc_llstr(set_id_blen, &ll_tmp))) {
           goto LoadIbed_ret_NOMEM;
         }
         ll_tmp->next = make_set_ll;
@@ -123,8 +123,8 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
       }
       if (!set_ct) {
         if (fail_on_no_sets) {
-          if (variant_bps) {
-            if (!allow_no_variants) {
+          if (likely(variant_bps)) {
+            if (unlikely(!allow_no_variants)) {
               // okay, this is a kludge
               logerrputs("Error: All variants excluded by --gene{-all}, since no sets were defined from\n--make-set file.\n");
               reterr = kPglRetMalformedInput;
@@ -146,13 +146,14 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
       }
       // c_prefix is 0 or 2
       max_set_id_blen += c_prefix;
-      if (max_set_id_blen > kMaxIdBlen) {
+      if (unlikely(max_set_id_blen > kMaxIdBlen)) {
         logerrputs("Error: Set IDs are limited to " MAX_ID_SLEN_STR " characters.\n");
         goto LoadIbed_ret_MALFORMED_INPUT;
       }
       const char** strptr_arr;
-      if (bigstack_alloc_c(set_ct * max_set_id_blen, set_names_ptr) ||
-          bigstack_alloc_kcp(set_ct, &strptr_arr)) {
+      if (unlikely(
+            bigstack_alloc_c(set_ct * max_set_id_blen, set_names_ptr) ||
+            bigstack_alloc_kcp(set_ct, &strptr_arr))) {
         goto LoadIbed_ret_NOMEM;
       }
       set_names = *set_names_ptr;
@@ -174,7 +175,7 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
       set_ct = 1;
     }
     MakeSetRange** make_set_range_arr = S_CAST(MakeSetRange**, bigstack_end_alloc(set_ct * sizeof(intptr_t)));
-    if (!make_set_range_arr) {
+    if (unlikely(!make_set_range_arr)) {
       goto LoadIbed_ret_NOMEM;
     }
     ZeroPtrArr(set_ct, make_set_range_arr);
@@ -188,7 +189,7 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
       ++line_idx;
       reterr = RlsPostlfNext(rlsp, &line_iter);
       if (reterr) {
-        if (reterr == kPglRetEof) {
+        if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
           break;
         }
@@ -201,14 +202,14 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
       char* linebuf_first_token = line_iter;
       char* first_token_end = CurTokenEnd(linebuf_first_token);
       char* last_token = NextTokenMult(first_token_end, 2 + track_set_names);
-      if (NoMoreTokensKns(last_token)) {
+      if (unlikely(NoMoreTokensKns(last_token))) {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, file_descrip);
         goto LoadIbed_ret_MALFORMED_INPUT_2;
       }
       const uint32_t chr_name_slen = first_token_end - linebuf_first_token;
       *first_token_end = '\0';
       const uint32_t cur_chr_code = GetChrCode(linebuf_first_token, cip, chr_name_slen);
-      if (IsI32Neg(cur_chr_code)) {
+      if (unlikely(IsI32Neg(cur_chr_code))) {
         snprintf(g_logbuf, kLogbufSize, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
         goto LoadIbed_ret_MALFORMED_INPUT_2;
       }
@@ -231,18 +232,18 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
       }
       const char* linebuf_iter = FirstNonTspace(&(first_token_end[1]));
       uint32_t range_first;
-      if (ScanmovUintDefcap(&linebuf_iter, &range_first)) {
+      if (unlikely(ScanmovUintDefcap(&linebuf_iter, &range_first))) {
         snprintf(g_logbuf, kLogbufSize, "Error: Invalid range start position on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
         goto LoadIbed_ret_MALFORMED_INPUT_2;
       }
       range_first += ibed0;
       linebuf_iter = NextToken(linebuf_iter);
       uint32_t range_last;
-      if (ScanmovUintDefcap(&linebuf_iter, &range_last)) {
+      if (unlikely(ScanmovUintDefcap(&linebuf_iter, &range_last))) {
         snprintf(g_logbuf, kLogbufSize, "Error: Invalid range end position on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
         goto LoadIbed_ret_MALFORMED_INPUT_2;
       }
-      if (range_last < range_first) {
+      if (unlikely(range_last < range_first)) {
         snprintf(g_logbuf, kLogbufSize, "Error: Range end position smaller than range start on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
         WordWrapB(0);
         goto LoadIbed_ret_MALFORMED_INPUT_2;
@@ -276,7 +277,7 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
         range_last = CountSortedSmallerU32(&(variant_bps[chr_start]), chr_end - chr_start, range_last + 1);
         if (range_last > range_first) {
           MakeSetRange* msr_tmp = S_CAST(MakeSetRange*, bigstack_end_alloc(sizeof(MakeSetRange)));
-          if (!msr_tmp) {
+          if (unlikely(!msr_tmp)) {
             goto LoadIbed_ret_NOMEM;
           }
           msr_tmp->next = make_set_range_arr[cur_set_idx];
@@ -289,7 +290,7 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
         }
       } else {
         MakeSetRange* msr_tmp = S_CAST(MakeSetRange*, bigstack_end_alloc(sizeof(MakeSetRange)));
-        if (!msr_tmp) {
+        if (unlikely(!msr_tmp)) {
           goto LoadIbed_ret_NOMEM;
         }
         msr_tmp->next = make_set_range_arr[cur_set_idx];
@@ -313,7 +314,7 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
       }
     }
     if (range_sort_buf_ptr) {
-      if (bigstack_end_alloc_u64(max_set_range_ct, range_sort_buf_ptr)) {
+      if (unlikely(bigstack_end_alloc_u64(max_set_range_ct, range_sort_buf_ptr))) {
         goto LoadIbed_ret_NOMEM;
       }
     }
@@ -357,7 +358,7 @@ PglErr ExtractExcludeRange(const char* fnames, const ChrInfo* cip, const uint32_
     const uintptr_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     uintptr_t* variant_include_mask = nullptr;
     if (!do_exclude) {
-      if (bigstack_calloc_w(raw_variant_ctl, &variant_include_mask)) {
+      if (unlikely(bigstack_calloc_w(raw_variant_ctl, &variant_include_mask))) {
         goto ExtractExcludeRange_ret_NOMEM;
       }
     }
@@ -371,12 +372,12 @@ PglErr ExtractExcludeRange(const char* fnames, const ChrInfo* cip, const uint32_
         // previous file always read to eof, so no need to call
         // RLstreamErrPrint().
       }
-      if (reterr) {
+      if (unlikely(reterr)) {
         goto ExtractExcludeRange_ret_1;
       }
       MakeSetRange** range_arr = nullptr;
       reterr = LoadIbed(cip, variant_bps, nullptr, do_exclude? (ibed0? "--exclude ibed0 file" : "--exclude ibed1 file") : (ibed0? "--extract ibed0 file" : "--extract ibed1 file"), ibed0, 0, 0, 0, 0, 1, 0, 0, &rls, &line_iter, nullptr, nullptr, nullptr, nullptr, &range_arr);
-      if (reterr) {
+      if (unlikely(reterr)) {
         goto ExtractExcludeRange_ret_1;
       }
       MakeSetRange* msr_tmp = range_arr[0];

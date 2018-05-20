@@ -25,6 +25,10 @@ namespace plink2 {
 // elements, but demultiplexing was relatively expensive.  now we allocate
 // size-64k pos[], allele_idxs[], ids[], cms[], etc. blocks, and just memcpy
 // those chunks at the end.  (cms[] is lazy-initialized.)
+//
+// probable todo: try making this more parallel.  could e.g. repeatedly peek at
+// end of ReadLineStream buffer, count # of '\n's, and divvy them up between
+// worker threads.
 CONSTI32(kLoadPvarBlockSize, 65536);
 static_assert(!(kLoadPvarBlockSize & (kLoadPvarBlockSize - 1)), "kLoadPvarBlockSize must be a power of 2.");
 static_assert(kLoadPvarBlockSize >= (kMaxMediumLine / 8), "kLoadPvarBlockSize cannot be smaller than kMaxMediumLine / 8.");
@@ -58,17 +62,17 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
     }
     if (StrStartsWithUnsafe(chrset_iter, "haploidAutosomeCt=")) {
       uint32_t explicit_haploid_ct;
-      if (ScanPosintCapped(&(chrset_iter[strlen("haploidAutosomeCt=")]), kMaxChrTextnum, &explicit_haploid_ct)) {
+      if (unlikely(ScanPosintCapped(&(chrset_iter[strlen("haploidAutosomeCt=")]), kMaxChrTextnum, &explicit_haploid_ct))) {
         snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s has an invalid ##chrSet haploid count (max %u).\n", line_idx, file_descrip, kMaxChrTextnum);
         goto ReadChrsetHeaderLine_ret_MALFORMED_INPUT_WW;
       }
       // could verify that X, Y, etc. are not present?
       if (cmdline_autosome_ct) {
-        if (!cmdline_haploid) {
+        if (unlikely(!cmdline_haploid)) {
           snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s specifies a haploid genome, while a diploid genome was specified on the command line.\n", line_idx, file_descrip);
           goto ReadChrsetHeaderLine_ret_INCONSISTENT_INPUT_WW;
         }
-        if (explicit_haploid_ct != cmdline_autosome_ct) {
+        if (unlikely(explicit_haploid_ct != cmdline_autosome_ct)) {
           snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s specifies %u autosome%s, while the command line specified %u.\n", line_idx, file_descrip, explicit_haploid_ct, (explicit_haploid_ct == 1)? "" : "s", cmdline_autosome_ct);
           goto ReadChrsetHeaderLine_ret_INCONSISTENT_INPUT_WW;
         }
@@ -76,19 +80,19 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
       cip->autosome_ct = explicit_haploid_ct;
       SetAllBits(explicit_haploid_ct + 1, cip->haploid_mask);
     } else {
-      if (!StrStartsWithUnsafe(chrset_iter, "autosomePairCt=")) {
+      if (unlikely(!StrStartsWithUnsafe(chrset_iter, "autosomePairCt="))) {
         snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s does not have expected ##chrSet format.\n", line_idx, file_descrip);
         goto ReadChrsetHeaderLine_ret_MALFORMED_INPUT_WW;
       }
       chrset_iter = &(chrset_iter[strlen("autosomePairCt=")]);
       uint32_t explicit_autosome_ct;
-      if (ScanmovPosintCapped(kMaxChrTextnum, &chrset_iter, &explicit_autosome_ct)) {
+      if (unlikely(ScanmovPosintCapped(kMaxChrTextnum, &chrset_iter, &explicit_autosome_ct))) {
         snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s has an invalid ##chrSet autosome count (max %u).\n", line_idx, file_descrip, kMaxChrTextnum);
         goto ReadChrsetHeaderLine_ret_MALFORMED_INPUT_WW;
       }
       cip->autosome_ct = explicit_autosome_ct;
       if (*chrset_iter != '>') {
-        if (*chrset_iter != ',') {
+        if (unlikely(*chrset_iter != ',')) {
           snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s does not have expected ##chrSet format.\n", line_idx, file_descrip);
           goto ReadChrsetHeaderLine_ret_MALFORMED_INPUT_WW;
         }
@@ -136,11 +140,11 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
         }
       }
       if (cmdline_autosome_ct) {
-        if (cmdline_haploid) {
+        if (unlikely(cmdline_haploid)) {
           snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s specifies a diploid genome, while a haploid genome was specified on the command line.\n", line_idx, file_descrip);
           goto ReadChrsetHeaderLine_ret_INCONSISTENT_INPUT_WW;
         }
-        if (explicit_autosome_ct != cmdline_autosome_ct) {
+        if (unlikely(explicit_autosome_ct != cmdline_autosome_ct)) {
           snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s specifies %u autosome%s, while the command line specified %u.\n", line_idx, file_descrip, explicit_autosome_ct, (explicit_autosome_ct == 1)? "" : "s", cmdline_autosome_ct);
           goto ReadChrsetHeaderLine_ret_INCONSISTENT_INPUT_WW;
         }
@@ -148,7 +152,7 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
           // it's okay if the command line doesn't explicitly exclude e.g. chrX
           // while for whatever reason it is excluded from ##chrSet; but the
           // reverse can create problems
-          if (IsI32Neg(cmdline_xymt_codes[xymt_idx]) && (!IsI32Neg(cip->xymt_codes[xymt_idx]))) {
+          if (unlikely(IsI32Neg(cmdline_xymt_codes[xymt_idx]) && (!IsI32Neg(cip->xymt_codes[xymt_idx])))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s specifies a chromosome set including %s, while the command line excludes it.\n", line_idx, file_descrip, g_xymt_log_names[xymt_idx]);
             goto ReadChrsetHeaderLine_ret_INCONSISTENT_INPUT_WW;
           }
@@ -279,7 +283,7 @@ PglErr InfoExistInit(const unsigned char* arena_end, const char* require_info_fl
   uintptr_t prekeys_blen = 0;
   do {
     const char* key_end_or_invalid = strchrnul2(read_iter, ';', '=');
-    if (*key_end_or_invalid) {
+    if (unlikely(*key_end_or_invalid)) {
       if (*key_end_or_invalid == ';') {
         logerrprintfww("Error: Invalid --%s key '%s' (semicolon prohibited).\n", flagname_p, read_iter);
       } else {
@@ -294,7 +298,7 @@ PglErr InfoExistInit(const unsigned char* arena_end, const char* require_info_fl
   const uint32_t key_ct = prekeys_blen - S_CAST(uintptr_t, read_iter - require_info_flattened);
   const uintptr_t bytes_used = offsetof(InfoExist, key_slens) + key_ct * sizeof(int32_t) + prekeys_blen;
   const uintptr_t cur_alloc = RoundUpPow2(bytes_used, kCacheline);
-  if (S_CAST(uintptr_t, arena_end - (*arena_base_ptr)) < cur_alloc) {
+  if (unlikely(S_CAST(uintptr_t, arena_end - (*arena_base_ptr)) < cur_alloc)) {
     return kPglRetNomem;
   }
   *existpp = R_CAST(InfoExist*, *arena_base_ptr);
@@ -404,7 +408,7 @@ typedef struct {
 PglErr InfoFilterInit(const unsigned char* arena_end, const CmpExpr* filter_exprp, const char* flagname_p, unsigned char** arena_base_ptr, InfoFilter* filterp) {
   const char* pheno_name = filter_exprp->pheno_name;
   const char* pheno_name_end_or_invalid = strchrnul3(pheno_name, ';', '=', ',');
-  if (*pheno_name_end_or_invalid) {
+  if (unlikely(*pheno_name_end_or_invalid)) {
     if (*pheno_name_end_or_invalid == ';') {
       logerrprintfww("Error: Invalid --%s key '%s' (semicolon prohibited).\n", flagname_p, pheno_name);
     } else if (*pheno_name_end_or_invalid == '=') {
@@ -416,7 +420,7 @@ PglErr InfoFilterInit(const unsigned char* arena_end, const CmpExpr* filter_expr
   }
   uint32_t key_slen = pheno_name_end_or_invalid - pheno_name;
   const uintptr_t cur_alloc = RoundUpPow2(3 + key_slen, kCacheline);
-  if (S_CAST(uintptr_t, arena_end - (*arena_base_ptr)) < cur_alloc) {
+  if (unlikely(S_CAST(uintptr_t, arena_end - (*arena_base_ptr)) < cur_alloc)) {
     return kPglRetNomem;
   }
   filterp->prekey = R_CAST(char*, *arena_base_ptr);
@@ -440,13 +444,13 @@ PglErr InfoFilterInit(const unsigned char* arena_end, const CmpExpr* filter_expr
   if (val_num_end && (!val_num_end[0])) {
     return kPglRetSuccess;
   }
-  if ((binary_op != kCmpOperatorNoteq) && (binary_op != kCmpOperatorEq)) {
+  if (unlikely((binary_op != kCmpOperatorNoteq) && (binary_op != kCmpOperatorEq))) {
     logerrprintfww("Error: Invalid --%s value '%s' (finite number expected).\n", flagname_p, val_str);
     return kPglRetInvalidCmdline;
   }
   filterp->val_str = val_str;
   const char* val_str_end_or_invalid = strchrnul2(val_str, ';', '=');
-  if (*val_str_end_or_invalid) {
+  if (unlikely(*val_str_end_or_invalid)) {
     if (*val_str_end_or_invalid == ';') {
       logerrprintfww("Error: Invalid --%s value '%s' (semicolon prohibited).\n", flagname_p, val_str);
     } else {
@@ -510,16 +514,16 @@ PglErr SplitPar(const uint32_t* variant_bps, UnsortedVar vpos_sortstatus, uint32
   }
   const uint32_t par1_code = cip->xymt_codes[kChrOffsetPAR1];
   const uint32_t par2_code = cip->xymt_codes[kChrOffsetPAR2];
-  if (IsI32Neg(par2_code)) {
+  if (unlikely(IsI32Neg(par2_code))) {
     // may want to remove this restriction later
     logerrputs("Error: --split-par cannot currently be used with a custom chromosome set.\n");
     return kPglRetInvalidCmdline;
   }
-  if (IsSet(loaded_chr_mask, par1_code) || IsSet(loaded_chr_mask, par2_code)) {
+  if (unlikely(IsSet(loaded_chr_mask, par1_code) || IsSet(loaded_chr_mask, par2_code))) {
     logerrputs("Error: --split-par cannot be used on a dataset which already contains a PAR1 or\nPAR2 region.\n");
     return kPglRetInvalidCmdline;
   }
-  if (vpos_sortstatus & kfUnsortedVarBp) {
+  if (unlikely(vpos_sortstatus & kfUnsortedVarBp)) {
     logerrputs("Error: --split-par cannot be used with an unsorted .bim/.pvar file.\n");
     return kPglRetInvalidCmdline;
   }
@@ -618,7 +622,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
   PreinitRLstream(&pvar_rls);
   {
     uintptr_t linebuf_size;
-    if (StandardizeLinebufSize(bigstack_left() / 4, kLoadPvarBlockSize * 2 * sizeof(intptr_t), &linebuf_size)) {
+    if (unlikely(StandardizeLinebufSize(bigstack_left() / 4, kLoadPvarBlockSize * 2 * sizeof(intptr_t), &linebuf_size))) {
       goto LoadPvar_ret_NOMEM;
     }
     unsigned char* rlstream_start = &(bigstack_mark[linebuf_size]);
@@ -631,7 +635,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       calc_thread_ct = 1;
     }
     reterr = RlsOpenMaybeBgzf(pvarname, calc_thread_ct, &pvar_rls);
-    if (reterr) {
+    if (unlikely(reterr)) {
       if (reterr == kPglRetOpenFail) {
         logerrprintfww(kErrprintfFopen, pvarname);
       }
@@ -639,7 +643,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     }
     char* line_iter;
     reterr = InitRLstreamEx(0, kMaxLongLine, linebuf_size, &pvar_rls, &line_iter);
-    if (reterr) {
+    if (unlikely(reterr)) {
       goto LoadPvar_ret_1;
     }
     unsigned char* tmp_alloc_base = g_bigstack_base;
@@ -655,7 +659,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       ++line_idx;
       reterr = RlsNextLstrip(&pvar_rls, &line_iter);
       if (reterr) {
-        if (reterr == kPglRetEof) {
+        if (likely(reterr == kPglRetEof)) {
           linebuf_first_token = &(line_iter[-1]);
           assert(linebuf_first_token[0] == '\n');
           reterr = kPglRetSuccess;
@@ -674,7 +678,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         break;
       }
       if (StrStartsWithUnsafe(linebuf_first_token, "##INFO=<ID=PR,Number=")) {
-        if (info_pr_present || info_pr_nonflag_present) {
+        if (unlikely(info_pr_present || info_pr_nonflag_present)) {
           snprintf(g_logbuf, kLogbufSize, "Error: Duplicate INFO:PR header line in %s.\n", pvarname);
           goto LoadPvar_ret_MALFORMED_INPUT_WW;
         }
@@ -687,14 +691,14 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         info_nonpr_present = 1;
       }
       if (StrStartsWithUnsafe(linebuf_first_token, "##chrSet=<")) {
-        if (chrset_present) {
+        if (unlikely(chrset_present)) {
           snprintf(g_logbuf, kLogbufSize, "Error: Multiple ##chrSet header lines in %s.\n", pvarname);
           goto LoadPvar_ret_MALFORMED_INPUT_WW;
         }
         chrset_present = 1;
         const uint32_t cmdline_chrset = (cip->chrset_source == kChrsetSourceCmdline) && (!(misc_flags & kfMiscChrOverrideFile));
         reterr = ReadChrsetHeaderLine(&(linebuf_first_token[strlen("##chrSet=<")]), pvarname, misc_flags, line_idx, cip);
-        if (reterr) {
+        if (unlikely(reterr)) {
           goto LoadPvar_ret_1;
         }
         if (!cmdline_chrset) {
@@ -717,7 +721,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           if (linebuf_first_token[line_slen - 1] == '\r') {
             --line_slen;
           }
-          if (S_CAST(uintptr_t, R_CAST(char*, rlstream_start) - xheader_end) < line_slen + 2) {
+          if (unlikely(S_CAST(uintptr_t, R_CAST(char*, rlstream_start) - xheader_end) < line_slen + 2)) {
             goto LoadPvar_ret_NOMEM;
           }
           xheader_end = memcpya(xheader_end, linebuf_first_token, line_slen);
@@ -822,7 +826,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           continue;
         }
         const uint32_t cur_col_type_shifted = 1 << cur_col_type;
-        if (found_header_bitset & cur_col_type_shifted) {
+        if (unlikely(found_header_bitset & cur_col_type_shifted)) {
           // known token, so no overflow danger
           char* write_iter = strcpya(g_logbuf, "Error: Duplicate column header '");
           write_iter = memcpyl3a(write_iter, linebuf_iter);
@@ -837,7 +841,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         col_skips[relevant_postchr_col_ct] = col_idx;
         col_types[relevant_postchr_col_ct++] = cur_col_type;
       }
-      if ((found_header_bitset & 0x0f) != 0x0f) {
+      if (unlikely((found_header_bitset & 0x0f) != 0x0f)) {
         snprintf(g_logbuf, kLogbufSize, "Error: Missing column header(s) on line %" PRIuPTR " of %s. (POS, ID, REF, and ALT are required.)\n", line_idx, pvarname);
         goto LoadPvar_ret_MALFORMED_INPUT_WW;
       }
@@ -857,7 +861,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       // "secretly" optional for the standard plink 1.9 standard .bim loader).
       // If the line has exactly 5 columns, assume CM is omitted.
       const char* linebuf_iter = NextTokenMult(linebuf_first_token, 4);
-      if (!linebuf_iter) {
+      if (unlikely(!linebuf_iter)) {
         goto LoadPvar_ret_MISSING_TOKENS;
       }
       linebuf_iter = NextToken(linebuf_iter);
@@ -911,14 +915,14 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     InfoExist* info_existp = nullptr;
     if (require_info_flattened) {
       reterr = InfoExistInit(tmp_alloc_end, require_info_flattened, "require-info", &tmp_alloc_base, &info_existp);
-      if (reterr) {
+      if (unlikely(reterr)) {
         goto LoadPvar_ret_1;
       }
     }
     InfoExist* info_nonexistp = nullptr;
     if (require_no_info_flattened) {
       reterr = InfoExistInit(tmp_alloc_end, require_no_info_flattened, "require-no-info", &tmp_alloc_base, &info_nonexistp);
-      if (reterr) {
+      if (unlikely(reterr)) {
         goto LoadPvar_ret_1;
       }
     }
@@ -929,7 +933,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       // missing or doesn't match type expectation
       // (same for --require-info)
       reterr = InfoFilterInit(tmp_alloc_end, extract_if_info_exprp, "extract-if-info", &tmp_alloc_base, &info_keep);
-      if (reterr) {
+      if (unlikely(reterr)) {
         goto LoadPvar_ret_1;
       }
     }
@@ -937,12 +941,12 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     info_remove.prekey = nullptr;
     if (exclude_if_info_exprp->pheno_name) {
       reterr = InfoFilterInit(tmp_alloc_end, exclude_if_info_exprp, "exclude-if-info", &tmp_alloc_base, &info_remove);
-      if (reterr) {
+      if (unlikely(reterr)) {
         goto LoadPvar_ret_1;
       }
     }
     if (!info_col_present) {
-      if (info_keep.prekey) {
+      if (unlikely(info_keep.prekey)) {
         logerrputs("Error: --extract-if-info used on a variant file with no INFO column.\n");
         goto LoadPvar_ret_INCONSISTENT_INPUT;
       }
@@ -956,7 +960,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     uintptr_t max_fexcept_blen = 2;
     char* sorted_fexcepts = nullptr;
     if (var_filter_exceptions_flattened) {
-      if (MultistrToStrboxDedupArenaAlloc(tmp_alloc_end, var_filter_exceptions_flattened, &tmp_alloc_base, &sorted_fexcepts, &fexcept_ct, &max_fexcept_blen)) {
+      if (unlikely(MultistrToStrboxDedupArenaAlloc(tmp_alloc_end, var_filter_exceptions_flattened, &tmp_alloc_base, &sorted_fexcepts, &fexcept_ct, &max_fexcept_blen))) {
         goto LoadPvar_ret_NOMEM;
       }
     }
@@ -972,7 +976,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     uint32_t missing_varid_match_slen = 0;
     STD_ARRAY_FILL0(insert_slens);
     if (varid_template) {
-      if (S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) < kMaxIdSlen) {
+      if (unlikely(S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) < kMaxIdSlen)) {
         goto LoadPvar_ret_NOMEM;
       }
       chr_output_name_buf = R_CAST(char*, tmp_alloc_base);
@@ -1072,14 +1076,24 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
 #ifdef __LP64__
         // maximum prime < 2^32 is 4294967291; quadratic hashing guarantee
         // breaks down past that divided by 2.
-        if (raw_variant_ct == 0x7ffffffd) {
+        if (unlikely(raw_variant_ct == 0x7ffffffd)) {
           logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend other\nsoftware, such as PLINK/SEQ, for very deep studies of small numbers of genomes.\n");
           goto LoadPvar_ret_MALFORMED_INPUT;
         }
 #endif
         const uint32_t variant_idx_lowbits = raw_variant_ct % kLoadPvarBlockSize;
         if (!variant_idx_lowbits) {
-          if ((S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) <= kLoadPvarBlockSize * (sizeof(int32_t) + 2 * sizeof(intptr_t) + at_least_one_nzero_cm * sizeof(double)) + is_split_chr * sizeof(ChrIdx) + (1 + info_pr_present) * (kLoadPvarBlockSize / CHAR_BIT) + (load_qual_col? ((kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(float)) : 0) + (load_filter_col? (2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)) : 0)) || (allele_storage_iter >= allele_storage_limit)) {
+          if (unlikely(
+                (S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) <=
+                  kLoadPvarBlockSize *
+                    (sizeof(int32_t) +
+                     2 * sizeof(intptr_t) +
+                     at_least_one_nzero_cm * sizeof(double)) +
+                  is_split_chr * sizeof(ChrIdx) +
+                  (1 + info_pr_present) * (kLoadPvarBlockSize / CHAR_BIT) +
+                  (load_qual_col? ((kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(float)) : 0) +
+                  (load_filter_col? (2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)) : 0)) ||
+                (allele_storage_iter >= allele_storage_limit))) {
             goto LoadPvar_ret_NOMEM;
           }
           cur_bps = R_CAST(uint32_t*, tmp_alloc_base);
@@ -1119,12 +1133,12 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         }
         char* linebuf_iter = CurTokenEnd(linebuf_first_token);
         // #CHROM
-        if (*linebuf_iter == '\n') {
+        if (unlikely(*linebuf_iter == '\n')) {
           goto LoadPvar_ret_MISSING_TOKENS;
         }
         uint32_t cur_chr_code;
         reterr = GetOrAddChrCodeDestructive(".pvar file", line_idx, allow_extra_chrs, linebuf_first_token, linebuf_iter, cip, &cur_chr_code);
-        if (reterr) {
+        if (unlikely(reterr)) {
           goto LoadPvar_ret_1;
         }
         if (merge_par) {
@@ -1141,11 +1155,11 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           prev_chr_code = cur_chr_code;
           if (!is_split_chr) {
             if (IsSet(loaded_chr_mask, cur_chr_code)) {
-              if (!split_chr_ok) {
+              if (unlikely(!split_chr_ok)) {
                 snprintf(g_logbuf, kLogbufSize, "Error: %s has a split chromosome. Use --make-pgen + --sort-vars to remedy this.\n", pvarname);
                 goto LoadPvar_ret_MALFORMED_INPUT_WW;
               }
-              if (S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) < kLoadPvarBlockSize * sizeof(ChrIdx)) {
+              if (unlikely(S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) < kLoadPvarBlockSize * sizeof(ChrIdx))) {
                 goto LoadPvar_ret_NOMEM;
               }
               cur_chr_idxs = R_CAST(ChrIdx*, tmp_alloc_base);
@@ -1184,7 +1198,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         uint32_t token_slens[8];
         if (IsSet(chr_mask, cur_chr_code) || info_pr_present) {
           linebuf_iter = TokenLex(linebuf_iter, col_types, col_skips, relevant_postchr_col_ct, token_ptrs, token_slens);
-          if (!linebuf_iter) {
+          if (unlikely(!linebuf_iter)) {
             goto LoadPvar_ret_MISSING_TOKENS;
           }
           // It is possible for the info_token[info_slen] assignment below to
@@ -1237,7 +1251,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           }
           // POS
           int32_t cur_bp;
-          if (ScanIntAbsDefcap(token_ptrs[0], &cur_bp)) {
+          if (unlikely(ScanIntAbsDefcap(token_ptrs[0], &cur_bp))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, pvarname);
             goto LoadPvar_ret_MALFORMED_INPUT_WW;
           }
@@ -1251,7 +1265,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
             const char* qual_token = token_ptrs[4];
             if ((qual_token[0] != '.') || (qual_token[1] > ' ')) {
               float cur_qual;
-              if (ScanFloat(qual_token, &cur_qual)) {
+              if (unlikely(ScanFloat(qual_token, &cur_qual))) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid QUAL value on line %" PRIuPTR " of %s.\n", line_idx, pvarname);
                 goto LoadPvar_ret_MALFORMED_INPUT_WW;
               }
@@ -1336,7 +1350,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
                     max_filter_slen = filter_slen;
                   }
                   tmp_alloc_end -= filter_slen + 1;
-                  if (tmp_alloc_end < tmp_alloc_base) {
+                  if (unlikely(tmp_alloc_end < tmp_alloc_base)) {
                     goto LoadPvar_ret_NOMEM;
                   }
                   cur_filter_storage[variant_idx_lowbits] = R_CAST(char*, tmp_alloc_end);
@@ -1362,7 +1376,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           if ((!varid_template) || (missing_varid_match_slen && ((token_slens[1] != missing_varid_match_slen) || memcmp(token_ptrs[1], missing_varid_match, missing_varid_match_slen)))) {
             id_slen = token_slens[1];
             tmp_alloc_end -= id_slen + 1;
-            if (tmp_alloc_end < tmp_alloc_base) {
+            if (unlikely(tmp_alloc_end < tmp_alloc_base)) {
               goto LoadPvar_ret_NOMEM;
             }
             memcpyx(tmp_alloc_end, token_ptrs[1], id_slen, '\0');
@@ -1417,7 +1431,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
             id_slen = varid_template_base_len + insert_slens[1] + insert_slens[2] + insert_slens[3];
             if (new_variant_id_overflow_missing && cur_overflow) {
               tmp_alloc_end -= missing_varid_blen;
-              if (tmp_alloc_end < tmp_alloc_base) {
+              if (unlikely(tmp_alloc_end < tmp_alloc_base)) {
                 goto LoadPvar_ret_NOMEM;
               }
               memcpy(tmp_alloc_end, missing_varid_match, missing_varid_blen);
@@ -1425,7 +1439,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
               cur_overflow = 1;
             } else {
               tmp_alloc_end -= id_slen + 1;
-              if (tmp_alloc_end < tmp_alloc_base) {
+              if (unlikely(tmp_alloc_end < tmp_alloc_base)) {
                 goto LoadPvar_ret_NOMEM;
               }
               char* id_iter = R_CAST(char*, tmp_alloc_end);
@@ -1462,7 +1476,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
             *allele_storage_iter = &(g_one_char_strs[2 * ctou32(geno_char)]);
           } else {
             tmp_alloc_end -= ref_slen + 1;
-            if (tmp_alloc_end < tmp_alloc_base) {
+            if (unlikely(tmp_alloc_end < tmp_alloc_base)) {
               goto LoadPvar_ret_NOMEM;
             }
             memcpyx(tmp_alloc_end, ref_allele, ref_slen, '\0');
@@ -1476,7 +1490,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           // ALT
           if (alt_allele_iter) {
             do {
-              if (allele_storage_iter >= allele_storage_limit) {
+              if (unlikely(allele_storage_iter >= allele_storage_limit)) {
                 goto LoadPvar_ret_NOMEM;
               }
               const uint32_t cur_allele_slen = alt_allele_iter - linebuf_iter;
@@ -1487,11 +1501,11 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
                 }
                 *allele_storage_iter = &(g_one_char_strs[2 * ctou32(geno_char)]);
               } else {
-                if (!cur_allele_slen) {
+                if (unlikely(!cur_allele_slen)) {
                   goto LoadPvar_ret_EMPTY_ALLELE_CODE;
                 }
                 tmp_alloc_end -= cur_allele_slen + 1;
-                if (tmp_alloc_end < tmp_alloc_base) {
+                if (unlikely(tmp_alloc_end < tmp_alloc_base)) {
                   goto LoadPvar_ret_NOMEM;
                 }
                 memcpyx(tmp_alloc_end, linebuf_iter, cur_allele_slen, '\0');
@@ -1505,7 +1519,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
               linebuf_iter = &(alt_allele_iter[1]);
               alt_allele_iter = S_CAST(char*, memchr(linebuf_iter, ',', remaining_alt_char_ct));
             } while (alt_allele_iter);
-            if (!remaining_alt_char_ct) {
+            if (unlikely(!remaining_alt_char_ct)) {
               goto LoadPvar_ret_EMPTY_ALLELE_CODE;
             }
           }
@@ -1517,7 +1531,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
             *allele_storage_iter = &(g_one_char_strs[2 * ctou32(geno_char)]);
           } else {
             tmp_alloc_end -= remaining_alt_char_ct + 1;
-            if (tmp_alloc_end < tmp_alloc_base) {
+            if (unlikely(tmp_alloc_end < tmp_alloc_base)) {
               goto LoadPvar_ret_NOMEM;
             }
             memcpyx(tmp_alloc_end, linebuf_iter, remaining_alt_char_ct, '\0');
@@ -1533,7 +1547,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
             const char* cm_token = token_ptrs[7];
             if ((cm_token[0] != '0') || (cm_token[1] > ' ')) {
               double cur_cm;
-              if (!ScanadvDouble(cm_token, &cur_cm)) {
+              if (unlikely(!ScanadvDouble(cm_token, &cur_cm))) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid centimorgan position on line %" PRIuPTR " of %s.\n", line_idx, pvarname);
                 goto LoadPvar_ret_MALFORMED_INPUT_WW;
               }
@@ -1544,7 +1558,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
               }
               if (cur_cm != 0.0) {
                 if (!at_least_one_nzero_cm) {
-                  if (S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) < kLoadPvarBlockSize * sizeof(double)) {
+                  if (unlikely(S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) < kLoadPvarBlockSize * sizeof(double))) {
                     goto LoadPvar_ret_NOMEM;
                   }
                   if (cur_chr_idxs) {
@@ -1567,7 +1581,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           }
         } else {
           token_ptrs[3] = NextTokenMult(linebuf_iter, alt_col_idx);
-          if (!token_ptrs[3]) {
+          if (unlikely(!token_ptrs[3])) {
             goto LoadPvar_ret_MISSING_TOKENS;
           }
           {
@@ -1589,7 +1603,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
             if (!linebuf_iter) {
               break;
             }
-            if (allele_storage_iter >= allele_storage_limit) {
+            if (unlikely(allele_storage_iter >= allele_storage_limit)) {
               goto LoadPvar_ret_NOMEM;
             }
             ++linebuf_iter;
@@ -1604,19 +1618,19 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       ++line_idx;
       reterr = RlsPostlfNext(&pvar_rls, &line_iter);
       if (reterr) {
-        if (reterr == kPglRetEof) {
+        if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
           break;
         }
         goto LoadPvar_ret_READ_RLSTREAM;
       }
       linebuf_first_token = FirstNonTspace(line_iter);
-      if (linebuf_first_token[0] == '#') {
+      if (unlikely(linebuf_first_token[0] == '#')) {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and if a #CHROM header line is present it must denote the end of the header block.)\n", line_idx, pvarname);
         goto LoadPvar_ret_MALFORMED_INPUT_WW;
       }
     }
-    if (max_variant_id_slen > kMaxIdSlen) {
+    if (unlikely(max_variant_id_slen > kMaxIdSlen)) {
       logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
       goto LoadPvar_ret_MALFORMED_INPUT;
     }
@@ -1626,7 +1640,10 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         if (max_variant_id_slen < missing_varid_blen - 1) {
           max_variant_id_slen = missing_varid_blen - 1;
         }
-      } else if (misc_flags & kfMiscNewVarIdOverflowTruncate) {
+      } else if (likely(misc_flags & kfMiscNewVarIdOverflowTruncate)) {
+        // this is less likely in practice than the error branch, but let's
+        // keep our usage of likely()/unlikely() as easy to interpret as
+        // possible.
         logerrprintf("Warning: %" PRIuPTR " allele code%s truncated by --set-%s-var-ids.\n", new_variant_id_allele_len_overflow, (new_variant_id_allele_len_overflow == 1)? "" : "s", missing_varid_match_slen? "missing" : "all");
       } else {
         logerrprintfww("Error: %" PRIuPTR " allele code%s too long for --set-%s-var-ids. Use '--new-id-max-allele-len [len] missing' to set the IDs of all variants with an allele code longer than the given length to '.' (and then process those variants with another script, if necessary).\n", new_variant_id_allele_len_overflow, (new_variant_id_allele_len_overflow == 1)? "" : "s", missing_varid_match_slen? "missing" : "all");
@@ -1647,16 +1664,18 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     // todo: determine whether we want variant_include to be guaranteed to be
     // terminated by a zero bit
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
-    if (bigstack_alloc_w(raw_variant_ctl, variant_include_ptr) ||
-        bigstack_alloc_u32(raw_variant_ct, variant_bps_ptr) ||
-        bigstack_alloc_cp(raw_variant_ct, variant_ids_ptr)) {
+    if (unlikely(
+          bigstack_alloc_w(raw_variant_ctl, variant_include_ptr) ||
+          bigstack_alloc_u32(raw_variant_ct, variant_bps_ptr) ||
+          bigstack_alloc_cp(raw_variant_ct, variant_ids_ptr))) {
       goto LoadPvar_ret_NOMEM;
     }
     uintptr_t* qual_present = nullptr;
     float* quals = nullptr;
     if (load_qual_col > 1) {
-      if (bigstack_alloc_w(raw_variant_ctl, qual_present_ptr) ||
-          bigstack_alloc_f(raw_variant_ct, quals_ptr)) {
+      if (unlikely(
+            bigstack_alloc_w(raw_variant_ctl, qual_present_ptr) ||
+            bigstack_alloc_f(raw_variant_ct, quals_ptr))) {
         goto LoadPvar_ret_NOMEM;
       }
       qual_present = *qual_present_ptr;
@@ -1666,15 +1685,16 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     uintptr_t* filter_npass = nullptr;
     char** filter_storage = nullptr;
     if (load_filter_col > 1) {
-      if (bigstack_alloc_w(raw_variant_ctl, filter_present_ptr) ||
-          bigstack_alloc_w(raw_variant_ctl, filter_npass_ptr)) {
+      if (unlikely(
+            bigstack_alloc_w(raw_variant_ctl, filter_present_ptr) ||
+            bigstack_alloc_w(raw_variant_ctl, filter_npass_ptr))) {
         goto LoadPvar_ret_NOMEM;
       }
       filter_present = *filter_present_ptr;
       filter_npass = *filter_npass_ptr;
       if (at_least_one_npass_filter) {
         // possible todo: store this in a sparse manner
-        if (bigstack_alloc_cp(raw_variant_ct, filter_storage_ptr)) {
+        if (unlikely(bigstack_alloc_cp(raw_variant_ct, filter_storage_ptr))) {
           goto LoadPvar_ret_NOMEM;
         }
         filter_storage = *filter_storage_ptr;
@@ -1682,7 +1702,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     }
     uintptr_t* nonref_flags = nullptr;
     if (info_pr_present) {
-      if (bigstack_alloc_w(raw_variant_ctl, nonref_flags_ptr)) {
+      if (unlikely(bigstack_alloc_w(raw_variant_ctl, nonref_flags_ptr))) {
         goto LoadPvar_ret_NOMEM;
       }
       nonref_flags = *nonref_flags_ptr;
@@ -1772,7 +1792,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     }
     const uintptr_t read_iter_stride_base = kLoadPvarBlockSize * (sizeof(int32_t) + 2 * sizeof(intptr_t)) + (kLoadPvarBlockSize / CHAR_BIT) + (load_qual_col > 1) * ((kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(float)) + (load_filter_col > 1) * (2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)) + info_pr_present * (kLoadPvarBlockSize / CHAR_BIT);
     if (allele_idx_end > 2 * S_CAST(uintptr_t, raw_variant_ct)) {
-      if (bigstack_alloc_w(raw_variant_ct + 1, allele_idx_offsets_ptr)) {
+      if (unlikely(bigstack_alloc_w(raw_variant_ct + 1, allele_idx_offsets_ptr))) {
         goto LoadPvar_ret_NOMEM;
       }
       allele_idx_offsets = *allele_idx_offsets_ptr;
@@ -1785,7 +1805,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       allele_idx_offsets[raw_variant_ct] = allele_idx_end;
     }
     if (at_least_one_nzero_cm) {
-      if (bigstack_alloc_d(raw_variant_ct, variant_cms_ptr)) {
+      if (unlikely(bigstack_alloc_d(raw_variant_ct, variant_cms_ptr))) {
         goto LoadPvar_ret_NOMEM;
       }
       double* variant_cms = *variant_cms_ptr;
@@ -1809,14 +1829,14 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           ClearBit(x_code, chr_mask);
         }
         reterr = SplitPar(variant_bps, *vpos_sortstatus_ptr, splitpar_bound1, splitpar_bound2, variant_include, loaded_chr_mask, cip, &chrs_encountered_m1, &exclude_ct);
-        if (reterr) {
+        if (unlikely(reterr)) {
           goto LoadPvar_ret_1;
         }
       }
       cip->chr_ct = chrs_encountered_m1 + 1;
     } else {
       ChrIdx* chr_idxs;
-      if (BIGSTACK_ALLOC_X(ChrIdx, raw_variant_ct, &chr_idxs)) {
+      if (unlikely(BIGSTACK_ALLOC_X(ChrIdx, raw_variant_ct, &chr_idxs))) {
         goto LoadPvar_ret_NOMEM;
       }
       *chr_idxs_ptr = chr_idxs;

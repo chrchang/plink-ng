@@ -26,7 +26,7 @@ uintptr_t g_failed_alloc_attempt_size = 0;
 #if (__GNUC__ <= 4) && (__GNUC_MINOR__ < 7) && !defined(__APPLE__)
 BoolErr pgl_malloc(uintptr_t size, void* pp) {
   *S_CAST(unsigned char**, pp) = S_CAST(unsigned char*, malloc(size));
-  if (*S_CAST(unsigned char**, pp)) {
+  if (likely(*S_CAST(unsigned char**, pp))) {
     return 0;
   }
   g_failed_alloc_attempt_size = size;
@@ -40,7 +40,7 @@ BoolErr fwrite_checked(const void* buf, uintptr_t len, FILE* outfile) {
     // typical disk block size is 4kb, so 0x7ffff000 is the largest sensible
     // write size
     // bugfix (9 Mar 2018): forgot a 'not' here...
-    if (!fwrite_unlocked(buf, kMaxBytesPerIO, 1, outfile)) {
+    if (unlikely(!fwrite_unlocked(buf, kMaxBytesPerIO, 1, outfile))) {
       return 1;
     }
     buf = &(S_CAST(const unsigned char*, buf)[kMaxBytesPerIO]);
@@ -74,7 +74,7 @@ IntErr fread_checked2(void* buf, uintptr_t len, FILE* infile, uintptr_t* bytes_r
 BoolErr fread_checked(void* buf, uintptr_t len, FILE* infile) {
   while (len > kMaxBytesPerIO) {
     const uintptr_t cur_bytes_read = fread_unlocked(buf, 1, kMaxBytesPerIO, infile);
-    if (cur_bytes_read != kMaxBytesPerIO) {
+    if (unlikely(cur_bytes_read != kMaxBytesPerIO)) {
       return 1;
     }
     buf = &(S_CAST(unsigned char*, buf)[kMaxBytesPerIO]);
@@ -97,13 +97,13 @@ static inline BoolErr ScanUintCappedFinish(const char* str_iter, uint64_t cap, u
     const uint64_t cur_digit2 = ctou64(*str_iter++) - 48;
     if (cur_digit2 >= 10) {
       val = val * 10 + cur_digit;
-      if (val > cap) {
+      if (unlikely(val > cap)) {
         return 1;
       }
       break;
     }
     val = val * 100 + cur_digit * 10 + cur_digit2;
-    if (val > cap) {
+    if (unlikely(val > cap)) {
       return 1;
     }
   }
@@ -117,23 +117,29 @@ BoolErr ScanPosintCapped(const char* str_iter, uint64_t cap, uint32_t* valp) {
   *valp = ctou32(*str_iter++) - 48;
   if (*valp >= 10) {
     // permit leading '+' (ascii 43), but not '++' or '+-'
-    if (*valp != 0xfffffffbU) {
+    // reasonable to use unlikely() here since these functions aren't used for
+    // numeric vs. non-numeric classification anyway due to erroring out on
+    // overflow
+    if (unlikely(*valp != 0xfffffffbU)) {
       return 1;
     }
     *valp = ctou32(*str_iter++) - 48;
-    if (*valp >= 10) {
+    if (unlikely(*valp >= 10)) {
       return 1;
     }
   }
   while (!(*valp)) {
     *valp = ctou32(*str_iter++) - 48;
-    if ((*valp) >= 10) {
+    if (unlikely((*valp) >= 10)) {
       return 1;
     }
   }
   return ScanUintCappedFinish(str_iter, cap, valp);
 }
 
+// Note that NumericRangeListToBitarr() can call this in an ignore-overflow
+// mode.  If similar logic ever goes into an inner loop, remove all unlikely()
+// annotations in this function and its children.
 BoolErr ScanUintCapped(const char* str_iter, uint64_t cap, uint32_t* valp) {
   // Reads an integer in [0, cap].  Assumes first character is nonspace.
   assert(ctou32(str_iter[0]) > 32);
@@ -141,7 +147,7 @@ BoolErr ScanUintCapped(const char* str_iter, uint64_t cap, uint32_t* valp) {
   if (val >= 10) {
     if (val != 0xfffffffbU) {
       // '-' has ascii code 45, so unsigned 45 - 48 = 0xfffffffdU
-      if ((val != 0xfffffffdU) || (*str_iter != '0')) {
+      if (unlikely((val != 0xfffffffdU) || (*str_iter != '0'))) {
         return 1;
       }
       // accept "-0", "-00", etc.
@@ -151,7 +157,7 @@ BoolErr ScanUintCapped(const char* str_iter, uint64_t cap, uint32_t* valp) {
     }
     // accept leading '+'
     val = ctou32(*str_iter++) - 48;
-    if (val >= 10) {
+    if (unlikely(val >= 10)) {
       return 1;
     }
   }
@@ -171,11 +177,11 @@ BoolErr ScanIntAbsBounded(const char* str_iter, uint64_t bound, int32_t* valp) {
       return 1;
     }
     *valp = ctou32(*str_iter++) - 48;
-    if (ctou32(*valp) >= 10) {
+    if (unlikely(ctou32(*valp) >= 10)) {
       return 1;
     }
   }
-  if (ScanUintCappedFinish(str_iter, bound, R_CAST(uint32_t*, valp))) {
+  if (unlikely(ScanUintCappedFinish(str_iter, bound, R_CAST(uint32_t*, valp)))) {
     return 1;
   }
   *valp *= sign;
@@ -187,17 +193,17 @@ BoolErr ScanPosintCapped32(const char* str_iter, uint32_t cap_div_10, uint32_t c
   assert(ctou32(str_iter[0]) > 32);
   uint32_t val = ctou32(*str_iter++) - 48;
   if (val >= 10) {
-    if (val != 0xfffffffbU) {
+    if (unlikely(val != 0xfffffffbU)) {
       return 1;
     }
     val = ctou32(*str_iter++) - 48;
-    if (val >= 10) {
+    if (unlikely(val >= 10)) {
       return 1;
     }
   }
   while (!val) {
     val = ctou32(*str_iter++) - 48;
-    if (val >= 10) {
+    if (unlikely(val >= 10)) {
       return 1;
     }
   }
@@ -208,7 +214,7 @@ BoolErr ScanPosintCapped32(const char* str_iter, uint32_t cap_div_10, uint32_t c
       return 0;
     }
     // avoid integer overflow in middle of computation
-    if ((val >= cap_div_10) && ((val > cap_div_10) || (cur_digit > cap_mod_10))) {
+    if (unlikely((val >= cap_div_10) && ((val > cap_div_10) || (cur_digit > cap_mod_10)))) {
       return 1;
     }
     val = val * 10 + cur_digit;
@@ -221,7 +227,7 @@ BoolErr ScanUintCapped32(const char* str_iter, uint32_t cap_div_10, uint32_t cap
   uint32_t val = ctou32(*str_iter++) - 48;
   if (val >= 10) {
     if (val != 0xfffffffbU) {
-      if ((val != 0xfffffffdU) || (*str_iter != '0')) {
+      if (unlikely((val != 0xfffffffdU) || (*str_iter != '0'))) {
         return 1;
       }
       while (*(++str_iter) == '0');
@@ -229,7 +235,7 @@ BoolErr ScanUintCapped32(const char* str_iter, uint32_t cap_div_10, uint32_t cap
       return (ctou32(*str_iter) - 48) < 10;
     }
     val = ctou32(*str_iter++) - 48;
-    if (val >= 10) {
+    if (unlikely(val >= 10)) {
       return 1;
     }
   }
@@ -239,7 +245,7 @@ BoolErr ScanUintCapped32(const char* str_iter, uint32_t cap_div_10, uint32_t cap
       *valp = val;
       return 0;
     }
-    if ((val >= cap_div_10) && ((val > cap_div_10) || (cur_digit > cap_mod_10))) {
+    if (unlikely((val >= cap_div_10) && ((val > cap_div_10) || (cur_digit > cap_mod_10)))) {
       return 1;
     }
     val = val * 10 + cur_digit;
@@ -258,7 +264,7 @@ BoolErr ScanIntAbsBounded32(const char* str_iter, uint32_t bound_div_10, uint32_
       return 1;
     }
     val = ctou32(*str_iter++) - 48;
-    if (val >= 10) {
+    if (unlikely(val >= 10)) {
       return 1;
     }
   }
@@ -268,7 +274,7 @@ BoolErr ScanIntAbsBounded32(const char* str_iter, uint32_t bound_div_10, uint32_
       *valp = sign * S_CAST(int32_t, val);
       return 0;
     }
-    if ((val >= bound_div_10) && ((val > bound_div_10) || (cur_digit > bound_mod_10))) {
+    if (unlikely((val >= bound_div_10) && ((val > bound_div_10) || (cur_digit > bound_mod_10)))) {
       return 1;
     }
     val = val * 10 + cur_digit;
@@ -281,7 +287,7 @@ BoolErr aligned_malloc(uintptr_t size, uintptr_t alignment, void* aligned_pp) {
   assert(alignment);
   assert(!(alignment % kBytesPerWord));
   uintptr_t malloc_addr;
-  if (pgl_malloc(size + alignment, &malloc_addr)) {
+  if (unlikely(pgl_malloc(size + alignment, &malloc_addr))) {
     return 1;
   }
   assert(!(malloc_addr % kBytesPerWord));

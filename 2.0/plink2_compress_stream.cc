@@ -28,7 +28,7 @@ PglErr InitCstreamNoop(const char* out_fname, uint32_t do_append, char* overflow
   css_ptr->cctx = nullptr;
   // can't use fopen_checked since we need to be able to append
   css_ptr->outfile = fopen(out_fname, do_append? FOPEN_AB : FOPEN_WB);
-  if (!css_ptr->outfile) {
+  if (unlikely(!css_ptr->outfile)) {
     logputs("\n");
     logerrprintfww(kErrprintfFopen, out_fname);
     return kPglRetOpenFail;
@@ -40,20 +40,20 @@ PglErr InitCstreamNoop(const char* out_fname, uint32_t do_append, char* overflow
 PglErr InitCstreamZstd(const char* out_fname, uint32_t do_append, __maybe_unused uint32_t thread_ct, uintptr_t overflow_buf_size, char* overflow_buf, unsigned char* compress_wkspace, CompressStreamState* css_ptr) {
   css_ptr->outfile = nullptr;
   css_ptr->cctx = ZSTD_createCCtx();
-  if (!css_ptr->cctx) {
+  if (unlikely(!css_ptr->cctx)) {
     return kPglRetNomem;
   }
   __maybe_unused size_t retval = ZSTD_CCtx_setParameter(css_ptr->cctx, ZSTD_p_compressionLevel, g_zst_level);
   assert(!ZSTD_isError(retval));
 #ifdef ZSTD_MULTITHREAD
   retval = ZSTD_CCtx_setParameter(css_ptr->cctx, ZSTD_p_nbWorkers, thread_ct);
-  if (ZSTD_isError(retval)) {
+  if (unlikely(ZSTD_isError(retval))) {
     ZSTD_freeCCtx(css_ptr->cctx);
     return kPglRetNomem;
   }
 #endif
   css_ptr->outfile = fopen(out_fname, do_append? FOPEN_AB : FOPEN_WB);
-  if (!css_ptr->outfile) {
+  if (unlikely(!css_ptr->outfile)) {
     logputs("\n");
     logerrprintfww(kErrprintfFopen, out_fname);
     ZSTD_freeCCtx(css_ptr->cctx);  // might return an error later?
@@ -76,12 +76,12 @@ PglErr InitCstream(const char* out_fname, uint32_t do_append, uint32_t output_zs
 
 PglErr InitCstreamAlloc(const char* out_fname, uint32_t do_append, uint32_t output_zst, uint32_t thread_ct, uintptr_t overflow_buf_size, CompressStreamState* css_ptr, char** cswritepp) {
   char* overflow_buf;
-  if (bigstack_alloc_c(overflow_buf_size, &overflow_buf)) {
+  if (unlikely(bigstack_alloc_c(overflow_buf_size, &overflow_buf))) {
     return kPglRetNomem;
   }
   unsigned char* compress_wkspace = nullptr;
   if (output_zst) {
-    if (bigstack_alloc_uc(CstreamWkspaceReq(overflow_buf_size), &compress_wkspace)) {
+    if (unlikely(bigstack_alloc_uc(CstreamWkspaceReq(overflow_buf_size), &compress_wkspace))) {
       return kPglRetNomem;
     }
   }
@@ -93,7 +93,7 @@ PglErr InitCstreamAlloc(const char* out_fname, uint32_t do_append, uint32_t outp
 BoolErr ForceUncompressedCswrite(CompressStreamState* css_ptr, char** writep_ptr) {
   char* writep = *writep_ptr;
   if (css_ptr->overflow_buf != writep) {
-    if (!fwrite_unlocked(css_ptr->overflow_buf, writep - css_ptr->overflow_buf, 1, css_ptr->outfile)) {
+    if (unlikely(!fwrite_unlocked(css_ptr->overflow_buf, writep - css_ptr->overflow_buf, 1, css_ptr->outfile))) {
       return 1;
     }
     *writep_ptr = css_ptr->overflow_buf;
@@ -110,12 +110,12 @@ BoolErr ForceCompressedCswrite(CompressStreamState* css_ptr, char** writep_ptr) 
     while (1) {
       // todo: conditionally support seekable files
       size_t retval = ZSTD_compress_generic(css_ptr->cctx, &css_ptr->output, &input, ZSTD_e_continue);
-      if (ZSTD_isError(retval)) {
+      if (unlikely(ZSTD_isError(retval))) {
         // is this actually possible?  well, play it safe for now
         return 1;
       }
       if (css_ptr->output.pos >= kCompressStreamBlock) {
-        if (!fwrite_unlocked(css_ptr->output.dst, css_ptr->output.pos, 1, css_ptr->outfile)) {
+        if (unlikely(!fwrite_unlocked(css_ptr->output.dst, css_ptr->output.pos, 1, css_ptr->outfile))) {
           return 1;
         }
         css_ptr->output.pos = 0;
@@ -138,7 +138,7 @@ BoolErr CsputsStd(const char* readp, uint32_t byte_ct, CompressStreamState* css_
   if (IsUncompressedCstream(css_ptr)) {
     while (byte_ct > cur_write_space) {
       memcpy(writep, readp, cur_write_space);
-      if (!fwrite_unlocked(overflow_buf, 2 * kCompressStreamBlock, 1, css_ptr->outfile)) {
+      if (unlikely(!fwrite_unlocked(overflow_buf, 2 * kCompressStreamBlock, 1, css_ptr->outfile))) {
         return 1;
       }
       writep = overflow_buf;
@@ -153,11 +153,11 @@ BoolErr CsputsStd(const char* readp, uint32_t byte_ct, CompressStreamState* css_
       while (1) {
         // todo: conditionally support seekable files
         size_t retval = ZSTD_compress_generic(css_ptr->cctx, &css_ptr->output, &input, ZSTD_e_continue);
-        if (ZSTD_isError(retval)) {
+        if (unlikely(ZSTD_isError(retval))) {
           return 1;
         }
         if (css_ptr->output.pos >= kCompressStreamBlock) {
-          if (!fwrite_unlocked(css_ptr->output.dst, css_ptr->output.pos, 1, css_ptr->outfile)) {
+          if (unlikely(!fwrite_unlocked(css_ptr->output.dst, css_ptr->output.pos, 1, css_ptr->outfile))) {
             return 1;
           }
           css_ptr->output.pos = 0;
@@ -194,12 +194,12 @@ BoolErr CompressedCswriteCloseNull(CompressStreamState* css_ptr, char* writep) {
   BoolErr reterr = 0;
   while (1) {
     size_t retval = ZSTD_compress_generic(css_ptr->cctx, &css_ptr->output, &input, ZSTD_e_end);
-    if (ZSTD_isError(retval)) {
+    if (unlikely(ZSTD_isError(retval))) {
       reterr = 1;
       break;
     }
     if (css_ptr->output.pos) {
-      if (!fwrite_unlocked(css_ptr->output.dst, css_ptr->output.pos, 1, css_ptr->outfile)) {
+      if (unlikely(!fwrite_unlocked(css_ptr->output.dst, css_ptr->output.pos, 1, css_ptr->outfile))) {
         reterr = 1;
       }
       css_ptr->output.pos = 0;

@@ -89,7 +89,7 @@
 #endif
 
 // 10000 * major + 100 * minor + patch
-// Exception to CONSTI31, since we want the preprocessor to have access
+// Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
 #define PLINK2_BASE_VERNUM 307
 
@@ -220,6 +220,16 @@ namespace plink2 {
 #endif
 
 #define __maybe_unused __attribute__((unused))
+
+// Rule of thumb: Use these macros if, and only if, the condition would always
+// trigger exit-from-program.  As a side effect, this makes it more
+// straightforward, if still tedious, to make global changes to error-handling
+// strategy (always dump backtrace and exit immediately?), though provision
+// must still be made for sometimes-error-sometimes-not return paths which
+// don't get an unlikely annotation.
+// (speaking of which, it's probably time to install a SIGSEGV handler...)
+#define likely(expr) __builtin_expect(!!(expr), 1)
+#define unlikely(expr) __builtin_expect(!!(expr), 0)
 
 #ifdef __cplusplus
 #  define K_CAST(type, val) (const_cast<type>(val))
@@ -579,6 +589,18 @@ HEADER_INLINE uint32_t bsrw(unsigned long ulii) {
 // so it's exempt from having "Pgl" in the name.  Also, the few string literals
 // here are of the FOPEN_WB sort, which have similar usage patterns to e.g.
 // PRIuPTR which shouldn't be renamed, so those remain all-caps.
+//
+// (Update, May 2018: CONSTU31 was renamed to CONSTI32 and changed to type
+// int32_t, to prevent C vs. C++ differences.  This almost never makes a
+// difference, since when int32_t and uint32_t are mixed in the same
+// expression, the former gets converted to unsigned.  However, unpleasant
+// surprises are occasionally possible when mixing these constants with
+// uint16_t or unsigned char values, since then the unsigned values are
+// promoted to int32_t.  Also, this essentially forces use of -Wno-sign-compare
+// when using gcc 4.4.
+//
+// Biggest thing to watch out for is mixing of Halfword with these constants in
+// 32-bit builds.  Dosage and MovemaskUint are also relevant.)
 #ifdef __cplusplus
 #  define CONSTI32(name, expr) const int32_t name = (expr)
 #else
@@ -1251,7 +1273,7 @@ BoolErr pgl_malloc(uintptr_t size, void* pp);
 // the right thing.
 HEADER_INLINE BoolErr pgl_malloc(uintptr_t size, void* pp) {
   *S_CAST(unsigned char**, pp) = S_CAST(unsigned char*, malloc(size));
-  if (*S_CAST(unsigned char**, pp)) {
+  if (likely(*S_CAST(unsigned char**, pp))) {
     return 0;
   }
   g_failed_alloc_attempt_size = size;

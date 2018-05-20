@@ -317,7 +317,7 @@ BoolErr CollapsedSampleFmtidInitAlloc(const uintptr_t* sample_include, const Sam
   const uintptr_t max_sample_fmtid_blen = GetMaxSampleFmtidBlen(siip, include_fid, include_sid);
   *max_sample_fmtid_blen_ptr = max_sample_fmtid_blen;
   // might add sample_fmtid_map later
-  if (bigstack_alloc_c(max_sample_fmtid_blen * sample_ct, collapsed_sample_fmtids_ptr)) {
+  if (unlikely(bigstack_alloc_c(max_sample_fmtid_blen * sample_ct, collapsed_sample_fmtids_ptr))) {
     return 1;
   }
   CollapsedSampleFmtidInit(sample_include, siip, sample_ct, include_fid, include_sid, max_sample_fmtid_blen, *collapsed_sample_fmtids_ptr);
@@ -365,12 +365,12 @@ PglErr AugidInitAlloc(const uintptr_t* sample_include, const SampleIdInfo* siip,
   *max_sample_augid_blen_ptr = max_sample_augid_blen;
   uint32_t* sample_augid_map = nullptr;
   if (sample_augid_map_ptr) {
-    if (bigstack_alloc_u32(sample_ct, sample_augid_map_ptr)) {
+    if (unlikely(bigstack_alloc_u32(sample_ct, sample_augid_map_ptr))) {
       return kPglRetNomem;
     }
     sample_augid_map = *sample_augid_map_ptr;
   }
-  if (bigstack_alloc_c(max_sample_augid_blen * sample_ct, sample_augids_ptr)) {
+  if (unlikely(bigstack_alloc_c(max_sample_augid_blen * sample_ct, sample_augids_ptr))) {
     return kPglRetNomem;
   }
   char* sample_augids_iter = *sample_augids_ptr;
@@ -398,15 +398,15 @@ PglErr SortedXidboxInitAlloc(const uintptr_t* sample_include, const SampleIdInfo
     return CopySortStrboxSubset(sample_include, siip->sample_ids, sample_ct, siip->max_sample_id_blen, allow_dups, 0, use_nsort, sorted_xidbox_ptr, xid_map_ptr);
   }
   // three fields
-  if (AugidInitAlloc(sample_include, siip, sample_ct, xid_map_ptr, sorted_xidbox_ptr, max_xid_blen_ptr)) {
+  if (unlikely(AugidInitAlloc(sample_include, siip, sample_ct, xid_map_ptr, sorted_xidbox_ptr, max_xid_blen_ptr))) {
     return kPglRetNomem;
   }
-  if (SortStrboxIndexed(sample_ct, *max_xid_blen_ptr, use_nsort, *sorted_xidbox_ptr, *xid_map_ptr)) {
+  if (unlikely(SortStrboxIndexed(sample_ct, *max_xid_blen_ptr, use_nsort, *sorted_xidbox_ptr, *xid_map_ptr))) {
     return kPglRetNomem;
   }
   if (!allow_dups) {
     char* dup_id = ScanForDuplicateIds(*sorted_xidbox_ptr, sample_ct, *max_xid_blen_ptr);
-    if (dup_id) {
+    if (unlikely(dup_id)) {
       char* tab_iter = AdvToDelim(dup_id, '\t');
       *tab_iter = ' ';
       tab_iter = AdvToDelim(&(tab_iter[1]), '\t');
@@ -428,10 +428,10 @@ uint32_t XidRead(uintptr_t max_xid_blen, uint32_t comma_delim, XidMode xid_mode,
   // *read_pp is now set to point to the end of the last parsed token instead
   // of the beginning of the next; this is another change from plink 1.9.
   //
-  // Returns 0 on missing token *or* if the sample ID is not present; cases can
-  // be distinguished by checking whether *read_pp == nullptr.  Otherwise,
-  // returns slen of the parsed ID saved to idbuf.  (idbuf is not
-  // null-terminated.)
+  // Returns 0 on missing token *or* guaranteed sample ID mismatch (longer than
+  // max_xid_blen); cases can be distinguished by checking whether *read_pp ==
+  // nullptr.  Otherwise, returns slen of the parsed ID saved to idbuf.  (idbuf
+  // is not null-terminated.)
   //
   // Alpha 2 behavior change: If there's no FID column, it's now set to 0
   // instead of the IID value.
@@ -447,7 +447,7 @@ uint32_t XidRead(uintptr_t max_xid_blen, uint32_t comma_delim, XidMode xid_mode,
     unsigned char ucc = *token_iter;
     while (ucc != ',') {
       if (ucc < 32) {
-        if (!(xid_mode & kfXidModeFlagOneTokenOk)) {
+        if (unlikely(!(xid_mode & kfXidModeFlagOneTokenOk))) {
           *read_pp = nullptr;
           return 0;
         }
@@ -500,7 +500,7 @@ uint32_t XidRead(uintptr_t max_xid_blen, uint32_t comma_delim, XidMode xid_mode,
       slen_fid = token_iter - first_token_start;
       token_iter = FirstNonTspace(token_iter);
       if (IsEolnKns(*token_iter)) {
-        if (!(xid_mode & kfXidModeFlagOneTokenOk)) {
+        if (unlikely(!(xid_mode & kfXidModeFlagOneTokenOk))) {
           *read_pp = nullptr;
           return 0;
         }
@@ -517,7 +517,7 @@ uint32_t XidRead(uintptr_t max_xid_blen, uint32_t comma_delim, XidMode xid_mode,
     // token_iter now points to space/eoln at end of IID
     if (xid_mode & kfXidModeFlagSid) {
       token_iter = FirstNonTspace(token_iter);
-      if (IsEolnKns(*token_iter)) {
+      if (unlikely(IsEolnKns(*token_iter))) {
         *read_pp = nullptr;
         return 0;
       }
@@ -571,6 +571,7 @@ PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, cha
   do {
     ++line_idx;
     PglErr reterr = RlsNext(rlsp, &line_iter);
+    // eof may be ok
     if (reterr) {
       return reterr;
     }
@@ -590,7 +591,7 @@ PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, cha
       xid_mode = kfXidModeFlagNeverFid;
     } else {
       linebuf_iter = FirstNonTspace(linebuf_iter);
-      if (!tokequal_k(linebuf_iter, "IID")) {
+      if (unlikely(!tokequal_k(linebuf_iter, "IID"))) {
         logerrprintf("Error: No IID column on line %" PRIuPTR " of --%s file.\n", line_idx, flag_name);
         return kPglRetMalformedInput;
       }
@@ -615,7 +616,8 @@ PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, cha
 
 PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, XidHeaderFlags xid_header_flags, uintptr_t linebuf_size, char** line_iterp, uintptr_t* line_idx_ptr, char** linebuf_first_token_ptr, ReadLineStream* rlsp, XidMode* xid_mode_ptr) {
   PglErr reterr = InitRLstreamRaw(fname, linebuf_size, rlsp, line_iterp);
-  if (reterr) {
+  // remove unlikely() if any caller treats eof as ok
+  if (unlikely(reterr)) {
     return reterr;
   }
   return LoadXidHeader(flag_name, xid_header_flags, line_iterp, line_idx_ptr, linebuf_first_token_ptr, rlsp, xid_mode_ptr);
@@ -639,7 +641,7 @@ PglErr InitChrInfo(ChrInfo* cip) {
   // needed for proper cleanup
   cip->name_ct = 0;
   cip->incl_excl_name_stack = nullptr;
-  if (vecaligned_malloc(vecs_required * kBytesPerVec, &(cip->chr_mask))) {
+  if (unlikely(vecaligned_malloc(vecs_required * kBytesPerVec, &(cip->chr_mask)))) {
     return kPglRetNomem;
   }
   uintptr_t* alloc_iter = &(cip->chr_mask[BitCtToVecCt(kChrRawEnd) * kWordsPerVec]);
@@ -800,7 +802,7 @@ PglErr FinalizeChrInfo(ChrInfo* cip) {
     final_vecs_required += chr_code_end_wordvec_ct + Int32CtToVecCt(kChrHtableSize);
   }
   uintptr_t* new_alloc;
-  if (vecaligned_malloc(final_vecs_required * kBytesPerVec, &new_alloc)) {
+  if (unlikely(vecaligned_malloc(final_vecs_required * kBytesPerVec, &new_alloc))) {
     return kPglRetNomem;
   }
   uintptr_t* old_alloc = cip->chr_mask;
@@ -1112,21 +1114,21 @@ PglErr TryToAddChrName(const char* chr_name, const char* file_descrip, uintptr_t
   // etc.), or a rejected xymt.
   // requires chr_name to be null-terminated
   // assumes chr_idx currently has the return value of GetChrCode()
-  if ((!allow_extra_chrs) || ((*chr_idx_ptr) == UINT32_MAXM1)) {
+  if (unlikely((!allow_extra_chrs) || ((*chr_idx_ptr) == UINT32_MAXM1))) {
     ChrError(chr_name, file_descrip, cip, line_idx, *chr_idx_ptr);
     return kPglRetMalformedInput;
   }
 
   // quasi-bugfix: remove redundant hash table check
 
-  if (chr_name[0] == '#') {
+  if (unlikely(chr_name[0] == '#')) {
     // redundant with some of the comment-skipping loaders, but this isn't
     // performance-critical
     logputs("\n");
     logerrputs("Error: Chromosome/contig names may not begin with '#'.\n");
     return kPglRetMalformedInput;
   }
-  if (name_slen > kMaxIdSlen) {
+  if (unlikely(name_slen > kMaxIdSlen)) {
     logputs("\n");
     if (line_idx) {
       logerrprintfww("Error: Line %" PRIuPTR " of %s has an excessively long chromosome/contig name. (The " PROG_NAME_STR " limit is " MAX_ID_SLEN_STR " characters.)\n", line_idx, file_descrip);
@@ -1138,7 +1140,7 @@ PglErr TryToAddChrName(const char* chr_name, const char* file_descrip, uintptr_t
   const uint32_t max_code_p1 = cip->max_code + 1;
   const uint32_t name_ct = cip->name_ct;
   const uint32_t chr_code_end = max_code_p1 + name_ct;
-  if (chr_code_end == kMaxContigs) {
+  if (unlikely(chr_code_end == kMaxContigs)) {
     logputs("\n");
     logerrputs("Error: Too many distinct nonstandard chromosome/contig names.\n");
     return kPglRetMalformedInput;
@@ -1148,7 +1150,7 @@ PglErr TryToAddChrName(const char* chr_name, const char* file_descrip, uintptr_t
     SetAllU32Arr(kChrHtableSize, cip->nonstd_id_htable);
   }
   char* new_nonstd_name;
-  if (pgl_malloc(name_slen + 1, &new_nonstd_name)) {
+  if (unlikely(pgl_malloc(name_slen + 1, &new_nonstd_name))) {
     return kPglRetNomem;
   }
   LlStr* name_stack_ptr = cip->incl_excl_name_stack;
@@ -1621,14 +1623,15 @@ PglErr ConditionalAllocateNonAutosomalVariants(const ChrInfo* cip, const char* c
   }
   logprintf("Excluding %u variant%s on non-autosomes from %s.\n", non_autosomal_variant_ct, (non_autosomal_variant_ct == 1)? "" : "s", calc_descrip);
   *variant_ct_ptr -= non_autosomal_variant_ct;
-  if (!(*variant_ct_ptr)) {
-    // this may not always be an error condition
+  if (unlikely(!(*variant_ct_ptr))) {
+    // this may not always be an error condition, probably add a flag later to
+    // control printing of this error message, etc.
     logerrprintf("Error: No variants remaining for %s.\n", calc_descrip);
     return kPglRetInconsistentInput;
   }
   const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
   uintptr_t* working_variant_include;
-  if (bigstack_alloc_w(raw_variant_ctl, &working_variant_include)) {
+  if (unlikely(bigstack_alloc_w(raw_variant_ctl, &working_variant_include))) {
     return kPglRetNomem;
   }
   memcpy(working_variant_include, *variant_include_ptr, raw_variant_ctl * sizeof(intptr_t));
@@ -1886,7 +1889,7 @@ PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const ch
     uint32_t re_len = 0;
     while (1) {
       const char* range_start;
-      if (ParseNextRange(argvk, param_ct, range_delim, &cur_param_idx, &cur_arg_ptr, &range_start, &rs_len, &range_end, &re_len)) {
+      if (unlikely(ParseNextRange(argvk, param_ct, range_delim, &cur_param_idx, &cur_arg_ptr, &range_start, &rs_len, &range_end, &re_len))) {
         snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s parameter '%s'.\n", flagname_p, argvk[cur_param_idx]);
         goto ParseChrRanges_ret_INVALID_CMDLINE_WWA;
       }
@@ -1901,14 +1904,14 @@ PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const ch
       memcpyx(token_buf, range_start, rs_len, '\0');
       uint32_t chr_code_start = GetChrCodeRaw(token_buf);
       if (IsI32Neg(chr_code_start)) {
-        if (!allow_extra_chrs) {
+        if (unlikely(!allow_extra_chrs)) {
           snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s chromosome code '%s'.\n", flagname_p, token_buf);
           goto ParseChrRanges_ret_INVALID_CMDLINE_WWA;
         }
-        if (range_end) {
+        if (unlikely(range_end)) {
           goto ParseChrRanges_ret_INVALID_CMDLINE_NONSTD;
         }
-        if (PushLlStr(token_buf, &(cip->incl_excl_name_stack))) {
+        if (unlikely(PushLlStr(token_buf, &(cip->incl_excl_name_stack)))) {
           goto ParseChrRanges_ret_NOMEM;
         }
       } else {
@@ -1918,19 +1921,19 @@ PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const ch
         if (range_end) {
           memcpyx(token_buf, range_end, re_len, '\0');
           uint32_t chr_code_end = GetChrCodeRaw(token_buf);
-          if (IsI32Neg(chr_code_end)) {
+          if (unlikely(IsI32Neg(chr_code_end))) {
             if (!allow_extra_chrs) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s chromosome code '%s'.\n", flagname_p, range_end);
               goto ParseChrRanges_ret_INVALID_CMDLINE_WWA;
             }
             goto ParseChrRanges_ret_INVALID_CMDLINE_NONSTD;
           }
-          if (chr_code_end >= kMaxContigs) {
+          if (unlikely(chr_code_end >= kMaxContigs)) {
             // prohibit stuff like "--chr par1-par2", "--chr x-y", "--chr x-26"
             snprintf(g_logbuf, kLogbufSize, "Error: --%s chromosome code '%s' cannot be the end of a range.\n", flagname_p, range_end);
             goto ParseChrRanges_ret_INVALID_CMDLINE_WWA;
           }
-          if (chr_code_end <= chr_code_start) {
+          if (unlikely(chr_code_end <= chr_code_start)) {
             snprintf(g_logbuf, kLogbufSize, "Error: --%s chromosome code '%s' is not greater than '%s'.\n", flagname_p, range_end, range_start);
             goto ParseChrRanges_ret_INVALID_CMDLINE_WWA;
           }
@@ -2189,7 +2192,7 @@ PglErr WriteSampleIdsOverride(const uintptr_t* sample_include, const SampleIdInf
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
   {
-    if (fopen_checked(outname, FOPEN_WB, &outfile)) {
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
       goto WriteSampleIdsOverride_ret_OPEN_FAIL;
     }
     const char* sample_ids = siip->sample_ids;
@@ -2228,11 +2231,11 @@ PglErr WriteSampleIdsOverride(const uintptr_t* sample_include, const SampleIdInf
         write_iter = strcpya(write_iter, &(sids[sample_uidx * max_sid_blen]));
       }
       AppendBinaryEoln(&write_iter);
-      if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
+      if (unlikely(fwrite_ck(textbuf_flush, outfile, &write_iter))) {
         goto WriteSampleIdsOverride_ret_WRITE_FAIL;
       }
     }
-    if (fclose_flush_null(textbuf_flush, write_iter, &outfile)) {
+    if (unlikely(fclose_flush_null(textbuf_flush, write_iter, &outfile))) {
       goto WriteSampleIdsOverride_ret_WRITE_FAIL;
     }
   }

@@ -58,7 +58,7 @@ uint32_t g_stderr_written_to = 0;
 void logputs_silent(const char* str) {
   if (!g_debug_on) {
     fputs(str, g_logfile);
-    if (ferror_unlocked(g_logfile)) {
+    if (unlikely(ferror_unlocked(g_logfile))) {
       putchar('\n');
       fflush(stdout);
       fprintf(stderr, "Warning: Logging failure on:\n%s\nFurther logging will not be attempted in this run.\n", str);
@@ -70,7 +70,7 @@ void logputs_silent(const char* str) {
       fputs(str, stderr);
     } else {
       fputs(str, g_logfile);
-      if (ferror_unlocked(g_logfile)) {
+      if (unlikely(ferror_unlocked(g_logfile))) {
         putchar('\n');
         fflush(stdout);
         fprintf(stderr, "Error: Debug logging failure.  Dumping to stderr:\n%s", str);
@@ -109,7 +109,7 @@ void logerrputsb() {
 
 BoolErr fopen_checked(const char* fname, const char* mode, FILE** target_ptr) {
   *target_ptr = fopen(fname, mode);
-  if (!(*target_ptr)) {
+  if (unlikely(!(*target_ptr))) {
     logputs("\n");
     logerrprintfww(kErrprintfFopen, fname);
     return 1;
@@ -127,7 +127,7 @@ BoolErr fwrite_flush2(char* buf_flush, FILE* outfile, char** write_iter_ptr) {
 BoolErr fclose_flush_null(char* buf_flush, char* write_iter, FILE** outfile_ptr) {
   char* buf = &(buf_flush[-S_CAST(int32_t, kMaxMediumLine)]);
   if (write_iter != buf) {
-    if (fwrite_checked(buf, write_iter - buf, *outfile_ptr)) {
+    if (unlikely(fwrite_checked(buf, write_iter - buf, *outfile_ptr))) {
       return 1;
     }
   }
@@ -251,7 +251,7 @@ BoolErr SortStrboxIndexed(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use
   unsigned char* bigstack_mark = g_bigstack_base;
   const uintptr_t wkspace_entry_blen = GetStrboxsortWentryBlen(max_str_blen);
   unsigned char* sort_wkspace;
-  if (bigstack_alloc_uc(str_ct * wkspace_entry_blen, &sort_wkspace)) {
+  if (unlikely(bigstack_alloc_uc(str_ct * wkspace_entry_blen, &sort_wkspace))) {
     return 1;
   }
   SortStrboxIndexed2(str_ct, max_str_blen, use_nsort, strbox, id_map, sort_wkspace);
@@ -366,7 +366,7 @@ uint32_t GetParamCt(const char* const* argvk, uint32_t argc, uint32_t flag_idx) 
 }
 
 BoolErr EnforceParamCtRange(const char* flag_name, uint32_t param_ct, uint32_t min_ct, uint32_t max_ct) {
-  if (param_ct > max_ct) {
+  if (unlikely(param_ct > max_ct)) {
     if (max_ct > min_ct) {
       snprintf(g_logbuf, kLogbufSize, "Error: %s accepts at most %u parameter%s.\n", flag_name, max_ct, (max_ct == 1)? "" : "s");
     } else {
@@ -374,7 +374,7 @@ BoolErr EnforceParamCtRange(const char* flag_name, uint32_t param_ct, uint32_t m
     }
     return 1;
   }
-  if (param_ct >= min_ct) {
+  if (likely(param_ct >= min_ct)) {
     return 0;
   }
   if (min_ct == 1) {
@@ -395,7 +395,7 @@ PglErr SortCmdlineFlags(uint32_t max_flag_blen, uint32_t flag_ct, char* flag_buf
   // Okay for flag_buf to contain entries with spaces (plink 1.9's alias
   // resolution takes advantage of this).
   assert(flag_ct);  // this must be skipped if there are no flags at all
-  if (SortStrboxIndexedMalloc(flag_ct, max_flag_blen, flag_buf, flag_map)) {
+  if (unlikely(SortStrboxIndexedMalloc(flag_ct, max_flag_blen, flag_buf, flag_map))) {
     return kPglRetNomem;
   }
   uint32_t prev_flag_len = strlen_se(flag_buf);
@@ -403,7 +403,7 @@ PglErr SortCmdlineFlags(uint32_t max_flag_blen, uint32_t flag_ct, char* flag_buf
   for (uint32_t cur_flag_idx = 1; cur_flag_idx < flag_ct; ++cur_flag_idx) {
     char* cur_flag_ptr = &(prev_flag_ptr[max_flag_blen]);
     const uint32_t cur_flag_len = strlen_se(cur_flag_ptr);
-    if ((prev_flag_len == cur_flag_len) && (!memcmp(prev_flag_ptr, cur_flag_ptr, cur_flag_len))) {
+    if (unlikely((prev_flag_len == cur_flag_len) && (!memcmp(prev_flag_ptr, cur_flag_ptr, cur_flag_len)))) {
       cur_flag_ptr[cur_flag_len] = '\0';  // just in case of aliases
       fflush(stdout);
       fprintf(stderr, "Error: Duplicate --%s flag.\n", cur_flag_ptr);
@@ -419,7 +419,7 @@ PglErr SortCmdlineFlags(uint32_t max_flag_blen, uint32_t flag_ct, char* flag_buf
 PglErr InitLogfile(uint32_t always_stderr, char* outname, char* outname_end) {
   snprintf(outname_end, kMaxOutfnameExtBlen, ".log");
   g_logfile = fopen(outname, "w");
-  if (!g_logfile) {
+  if (unlikely(!g_logfile)) {
     fflush(stdout);
     fprintf(stderr, "Error: Failed to open %s for logging.\n", outname);
     // g_stderr_written_to = 1;
@@ -442,7 +442,7 @@ BoolErr CleanupLogfile(uint32_t print_end_time) {
     if (!g_log_failed) {
       logputs_silent("\n");
       logputs_silent(g_logbuf);
-      if (fclose(g_logfile)) {
+      if (unlikely(fclose(g_logfile))) {
         fflush(stdout);
         fputs("Error: Failed to finish writing to log.\n", stderr);
         ret_boolerr = 1;
@@ -498,9 +498,13 @@ uintptr_t GetDefaultAllocMib() {
 PglErr InitBigstack(uintptr_t malloc_size_mib, uintptr_t* malloc_mib_final_ptr, unsigned char** bigstack_ua_ptr) {
   // guarantee contiguous malloc space outside of main workspace
   unsigned char* bubble;
-  if (pgl_malloc(kNonBigstackMin, &bubble)) {
+
+  // this is pointless with overcommit on, may want to conditionally compile
+  // this out, and/or conditionally skip this
+  if (unlikely(pgl_malloc(kNonBigstackMin, &bubble))) {
     return kPglRetNomem;
   }
+
   assert(malloc_size_mib >= kBigstackMinMib);
 #ifndef __LP64__
   assert(malloc_size_mib <= 2047);
@@ -515,7 +519,7 @@ PglErr InitBigstack(uintptr_t malloc_size_mib, uintptr_t* malloc_mib_final_ptr, 
       malloc_size_mib = kBigstackMinMib;
     }
     bigstack_ua = S_CAST(unsigned char*, malloc(malloc_size_mib * 1048576 * sizeof(char)));
-    if ((!bigstack_ua) && (malloc_size_mib == kBigstackMinMib)) {
+    if (unlikely((!bigstack_ua) && (malloc_size_mib == kBigstackMinMib))) {
       // switch to "goto cleanup" pattern if any more exit points are needed
       g_failed_alloc_attempt_size = kBigstackMinMib * 1048576;
       free(bubble);
@@ -558,7 +562,7 @@ PglErr InitBigstack(uintptr_t malloc_size_mib, uintptr_t* malloc_mib_final_ptr, 
 
 BoolErr bigstack_calloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr) {
   *uc_arr_ptr = S_CAST(unsigned char*, bigstack_alloc(ct));
-  if (!(*uc_arr_ptr)) {
+  if (unlikely(!(*uc_arr_ptr))) {
     return 1;
   }
   memset(*uc_arr_ptr, 0, ct);
@@ -567,7 +571,7 @@ BoolErr bigstack_calloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr) {
 
 BoolErr bigstack_calloc_d(uintptr_t ct, double** d_arr_ptr) {
   *d_arr_ptr = S_CAST(double*, bigstack_alloc(ct * sizeof(double)));
-  if (!(*d_arr_ptr)) {
+  if (unlikely(!(*d_arr_ptr))) {
     return 1;
   }
   ZeroDArr(ct, *d_arr_ptr);
@@ -576,7 +580,7 @@ BoolErr bigstack_calloc_d(uintptr_t ct, double** d_arr_ptr) {
 
 BoolErr bigstack_calloc_f(uintptr_t ct, float** f_arr_ptr) {
   *f_arr_ptr = S_CAST(float*, bigstack_alloc(ct * sizeof(float)));
-  if (!(*f_arr_ptr)) {
+  if (unlikely(!(*f_arr_ptr))) {
     return 1;
   }
   ZeroFArr(ct, *f_arr_ptr);
@@ -585,7 +589,7 @@ BoolErr bigstack_calloc_f(uintptr_t ct, float** f_arr_ptr) {
 
 BoolErr bigstack_calloc_u16(uintptr_t ct, uint16_t** u16_arr_ptr) {
   *u16_arr_ptr = S_CAST(uint16_t*, bigstack_alloc(ct * sizeof(int16_t)));
-  if (!(*u16_arr_ptr)) {
+  if (unlikely(!(*u16_arr_ptr))) {
     return 1;
   }
   memset(*u16_arr_ptr, 0, ct * sizeof(int16_t));
@@ -594,7 +598,7 @@ BoolErr bigstack_calloc_u16(uintptr_t ct, uint16_t** u16_arr_ptr) {
 
 BoolErr bigstack_calloc_u32(uintptr_t ct, uint32_t** u32_arr_ptr) {
   *u32_arr_ptr = S_CAST(uint32_t*, bigstack_alloc(ct * sizeof(int32_t)));
-  if (!(*u32_arr_ptr)) {
+  if (unlikely(!(*u32_arr_ptr))) {
     return 1;
   }
   ZeroU32Arr(ct, *u32_arr_ptr);
@@ -603,7 +607,7 @@ BoolErr bigstack_calloc_u32(uintptr_t ct, uint32_t** u32_arr_ptr) {
 
 BoolErr bigstack_calloc_w(uintptr_t ct, uintptr_t** w_arr_ptr) {
   *w_arr_ptr = S_CAST(uintptr_t*, bigstack_alloc(ct * sizeof(intptr_t)));
-  if (!(*w_arr_ptr)) {
+  if (unlikely(!(*w_arr_ptr))) {
     return 1;
   }
   ZeroWArr(ct, *w_arr_ptr);
@@ -612,7 +616,7 @@ BoolErr bigstack_calloc_w(uintptr_t ct, uintptr_t** w_arr_ptr) {
 
 BoolErr bigstack_calloc_u64(uintptr_t ct, uint64_t** u64_arr_ptr) {
   *u64_arr_ptr = S_CAST(uint64_t*, bigstack_alloc(ct * sizeof(int64_t)));
-  if (!(*u64_arr_ptr)) {
+  if (unlikely(!(*u64_arr_ptr))) {
     return 1;
   }
   ZeroU64Arr(ct, *u64_arr_ptr);
@@ -621,7 +625,7 @@ BoolErr bigstack_calloc_u64(uintptr_t ct, uint64_t** u64_arr_ptr) {
 
 BoolErr bigstack_end_calloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr) {
   *uc_arr_ptr = S_CAST(unsigned char*, bigstack_end_alloc(ct));
-  if (!(*uc_arr_ptr)) {
+  if (unlikely(!(*uc_arr_ptr))) {
     return 1;
   }
   memset(*uc_arr_ptr, 0, ct);
@@ -630,7 +634,7 @@ BoolErr bigstack_end_calloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr) {
 
 BoolErr bigstack_end_calloc_d(uintptr_t ct, double** d_arr_ptr) {
   *d_arr_ptr = S_CAST(double*, bigstack_end_alloc(ct * sizeof(double)));
-  if (!(*d_arr_ptr)) {
+  if (unlikely(!(*d_arr_ptr))) {
     return 1;
   }
   ZeroDArr(ct, *d_arr_ptr);
@@ -639,7 +643,7 @@ BoolErr bigstack_end_calloc_d(uintptr_t ct, double** d_arr_ptr) {
 
 BoolErr bigstack_end_calloc_f(uintptr_t ct, float** f_arr_ptr) {
   *f_arr_ptr = S_CAST(float*, bigstack_end_alloc(ct * sizeof(float)));
-  if (!(*f_arr_ptr)) {
+  if (unlikely(!(*f_arr_ptr))) {
     return 1;
   }
   ZeroFArr(ct, *f_arr_ptr);
@@ -648,7 +652,7 @@ BoolErr bigstack_end_calloc_f(uintptr_t ct, float** f_arr_ptr) {
 
 BoolErr bigstack_end_calloc_u32(uintptr_t ct, uint32_t** u32_arr_ptr) {
   *u32_arr_ptr = S_CAST(uint32_t*, bigstack_end_alloc(ct * sizeof(int32_t)));
-  if (!(*u32_arr_ptr)) {
+  if (unlikely(!(*u32_arr_ptr))) {
     return 1;
   }
   ZeroU32Arr(ct, *u32_arr_ptr);
@@ -657,7 +661,7 @@ BoolErr bigstack_end_calloc_u32(uintptr_t ct, uint32_t** u32_arr_ptr) {
 
 BoolErr bigstack_end_calloc_w(uintptr_t ct, uintptr_t** w_arr_ptr) {
   *w_arr_ptr = S_CAST(uintptr_t*, bigstack_end_alloc(ct * sizeof(intptr_t)));
-  if (!(*w_arr_ptr)) {
+  if (unlikely(!(*w_arr_ptr))) {
     return 1;
   }
   ZeroWArr(ct, *w_arr_ptr);
@@ -666,7 +670,7 @@ BoolErr bigstack_end_calloc_w(uintptr_t ct, uintptr_t** w_arr_ptr) {
 
 BoolErr bigstack_end_calloc_u64(uintptr_t ct, uint64_t** u64_arr_ptr) {
   *u64_arr_ptr = S_CAST(uint64_t*, bigstack_end_alloc(ct * sizeof(int64_t)));
-  if (!(*u64_arr_ptr)) {
+  if (unlikely(!(*u64_arr_ptr))) {
     return 1;
   }
   ZeroU64Arr(ct, *u64_arr_ptr);
@@ -677,7 +681,7 @@ BoolErr bigstack_end_calloc_u64(uintptr_t ct, uint64_t** u64_arr_ptr) {
 BoolErr PushLlStr(const char* str, LlStr** ll_stack_ptr) {
   uintptr_t blen = strlen(str) + 1;
   LlStr* new_llstr;
-  if (pgl_malloc(sizeof(LlStr) + blen, &new_llstr)) {
+  if (unlikely(pgl_malloc(sizeof(LlStr) + blen, &new_llstr))) {
     return 1;
   }
   new_llstr->next = *ll_stack_ptr;
@@ -708,7 +712,7 @@ BoolErr CountAndMeasureMultistrReverseAlloc(const char* multistr, uintptr_t max_
   uintptr_t max_blen = *max_blen_ptr;
   const char** strptr_arr_iter = *strptr_arrp;
   do {
-    if (++ct > max_str_ct) {
+    if (unlikely(++ct > max_str_ct)) {
       return 1;
     }
     const uintptr_t blen = strlen(multistr) + 1;
@@ -728,11 +732,11 @@ BoolErr MultistrToStrboxDedupArenaAlloc(unsigned char* arena_top, const char* mu
   const char** strptr_arr = R_CAST(const char**, arena_top);
   uintptr_t max_str_blen = 0;
   uint32_t str_ct;
-  if (CountAndMeasureMultistrReverseAlloc(multistr, (arena_top - (*arena_bottom_ptr)) / sizeof(intptr_t), &str_ct, &max_str_blen, &strptr_arr)) {
+  if (unlikely(CountAndMeasureMultistrReverseAlloc(multistr, (arena_top - (*arena_bottom_ptr)) / sizeof(intptr_t), &str_ct, &max_str_blen, &strptr_arr))) {
     return 1;
   }
   const uintptr_t strbox_byte_ct = RoundUpPow2(str_ct * max_str_blen, kCacheline);
-  if ((R_CAST(uintptr_t, strptr_arr) - R_CAST(uintptr_t, *arena_bottom_ptr)) < strbox_byte_ct) {
+  if (unlikely((R_CAST(uintptr_t, strptr_arr) - R_CAST(uintptr_t, *arena_bottom_ptr)) < strbox_byte_ct)) {
     return 1;
   }
   StrptrArrSort(str_ct, strptr_arr);
@@ -1293,12 +1297,12 @@ BoolErr HtableGoodSizeAlloc(uint32_t item_ct, uintptr_t bytes_avail, uint32_t** 
   bytes_avail &= (~(kCacheline - k1LU));
   uint32_t htable_size = GetHtableFastSize(item_ct);
   if (htable_size > bytes_avail / sizeof(int32_t)) {
-    if (!bytes_avail) {
+    if (unlikely(!bytes_avail)) {
       return 1;
     }
     htable_size = bytes_avail / sizeof(int32_t);
     // htable_size = leqprime((bytes_avail / sizeof(int32_t)) - 1);
-    if (htable_size < item_ct * 2) {
+    if (unlikely(htable_size < item_ct * 2)) {
       return 1;
     }
   }
@@ -1478,7 +1482,8 @@ PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, cons
   // include excluded markers/samples in the list.
   // Assumes sorted_strbox and id_map have been allocated; use the
   // CopySortStrboxSubset() wrapper if they haven't been.
-  // Note that this DOES still perform a "stack" allocation.
+  // Note that this DOES still perform a "stack" allocation; 'Noalloc' just
+  // means that sorted_strbox/id_map must already be allocated.
   if (!str_ct) {
     return kPglRetSuccess;
   }
@@ -1489,7 +1494,7 @@ PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, cons
     if (max_str_blen <= 60) {
       uintptr_t wkspace_entry_blen = (max_str_blen > 36)? sizeof(Strbuf60Ui) : sizeof(Strbuf36Ui);
       char* sort_wkspace;
-      if (bigstack_alloc_c(str_ct * wkspace_entry_blen, &sort_wkspace)) {
+      if (unlikely(bigstack_alloc_c(str_ct * wkspace_entry_blen, &sort_wkspace))) {
         goto CopySortStrboxSubsetNoalloc_ret_NOMEM;
       }
       uint32_t str_uidx = 0;
@@ -1514,7 +1519,7 @@ PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, cons
     } else {
 #endif
       StrSortIndexedDeref* sort_wkspace;
-      if (BIGSTACK_ALLOC_X(StrSortIndexedDeref, str_ct, &sort_wkspace)) {
+      if (unlikely(BIGSTACK_ALLOC_X(StrSortIndexedDeref, str_ct, &sort_wkspace))) {
         goto CopySortStrboxSubsetNoalloc_ret_NOMEM;
       }
       uint32_t str_uidx = 0;
@@ -1528,13 +1533,13 @@ PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, cons
         }
       }
       if (!use_nsort) {
-        STD_SORT(str_ct, strcmp_deref, sort_wkspace);
+        STD_SORT_PAR_UNSEQ(str_ct, strcmp_deref, sort_wkspace);
       } else {
 #ifdef __cplusplus
         StrNsortIndexedDeref* wkspace_alias = R_CAST(StrNsortIndexedDeref*, sort_wkspace);
-        std::sort(wkspace_alias, &(wkspace_alias[str_ct]));
+        STD_SORT_PAR_UNSEQ(str_ct, nullptr, wkspace_alias);
 #else
-        STD_SORT(str_ct, strcmp_natural_deref, sort_wkspace);
+        STD_SORT_PAR_UNSEQ(str_ct, strcmp_natural_deref, sort_wkspace);
 #endif
       }
       for (uintptr_t str_idx = 0; str_idx < str_ct; ++str_idx) {
@@ -1546,7 +1551,7 @@ PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, cons
 #endif
     if (!allow_dups) {
       char* dup_id = ScanForDuplicateIds(sorted_strbox, str_ct, max_str_blen);
-      if (dup_id) {
+      if (unlikely(dup_id)) {
         char* tptr = dup_id;
         while (1) {
           tptr = strchr(tptr, '\t');
@@ -1574,8 +1579,9 @@ PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, cons
 
 PglErr CopySortStrboxSubset(const uintptr_t* __restrict subset_mask, const char* __restrict orig_strbox, uintptr_t str_ct, uintptr_t max_str_blen, uint32_t allow_dups, uint32_t collapse_idxs, uint32_t use_nsort, char** sorted_strbox_ptr, uint32_t** id_map_ptr) {
   // id_map on bottom because --indiv-sort frees *sorted_strbox_ptr
-  if (bigstack_alloc_u32(str_ct, id_map_ptr) ||
-      bigstack_alloc_c(str_ct * max_str_blen, sorted_strbox_ptr)) {
+  if (unlikely(
+        bigstack_alloc_u32(str_ct, id_map_ptr) ||
+        bigstack_alloc_c(str_ct * max_str_blen, sorted_strbox_ptr))) {
     return kPglRetNomem;
   }
   return CopySortStrboxSubsetNoalloc(subset_mask, orig_strbox, str_ct, max_str_blen, allow_dups, collapse_idxs, use_nsort, *sorted_strbox_ptr, *id_map_ptr);
@@ -1604,19 +1610,19 @@ BoolErr NumericRangeListToBitarr(const RangeList* range_list_ptr, uint32_t bitar
   for (uint32_t name_idx = 0; name_idx < name_ct; ++name_idx) {
     uint32_t idx1;
     if (ScanUintCapped(&(names[name_idx * name_max_blen]), idx_max, &idx1)) {
-      if (ignore_overflow) {
+      if (likely(ignore_overflow)) {
         continue;
       }
       return 1;
     }
-    if (idx1 < offset) {
+    if (unlikely(idx1 < offset)) {
       return 1;
     }
     if (starts_range[name_idx]) {
       ++name_idx;
       uint32_t idx2;
       if (ScanUintCapped(&(names[name_idx * name_max_blen]), idx_max, &idx2)) {
-        if (!ignore_overflow) {
+        if (unlikely(!ignore_overflow)) {
           return 1;
         }
         idx2 = idx_max - 1;
@@ -1645,13 +1651,13 @@ PglErr StringRangeListToBitarr(const char* header_line, const RangeList* range_l
       const char* token_end = CommaOrTspaceTokenEnd(header_line_iter, comma_delim);
       uint32_t cmdline_pos;
       if (!SortedIdboxFind(header_line_iter, sorted_ids, id_map, token_end - header_line_iter, max_id_blen, name_ct, &cmdline_pos)) {
-        if (seen_idxs[cmdline_pos] != -1) {
+        if (unlikely(seen_idxs[cmdline_pos] != -1)) {
           snprintf(g_logbuf, kLogbufSize, "Error: Duplicate --%s token in %s.\n", range_list_flag, file_descrip);
           goto StringRangeListToBitarr_ret_MALFORMED_INPUT_2;
         }
         seen_idxs[cmdline_pos] = item_idx;
         if (cmdline_pos && range_list_ptr->starts_range[cmdline_pos - 1]) {
-          if (seen_idxs[cmdline_pos - 1] == -1) {
+          if (unlikely(seen_idxs[cmdline_pos - 1] == -1)) {
             logpreprintfww("Error: Second element of --%s range appears before first element in %s.\n", range_list_flag, file_descrip);
             goto StringRangeListToBitarr_ret_INVALID_CMDLINE_2;
           }
@@ -1670,7 +1676,7 @@ PglErr StringRangeListToBitarr(const char* header_line, const RangeList* range_l
       }
     }
     for (uint32_t cmdline_pos = 0; cmdline_pos < name_ct; ++cmdline_pos) {
-      if (seen_idxs[cmdline_pos] == -1) {
+      if (unlikely(seen_idxs[cmdline_pos] == -1)) {
         goto StringRangeListToBitarr_ret_INVALID_CMDLINE_3;
       }
     }
@@ -1698,13 +1704,14 @@ PglErr StringRangeListToBitarrAlloc(const char* header_line, const RangeList* ra
   int32_t* seen_idxs;
   char* sorted_ids;
   uint32_t* id_map;
-  if (bigstack_calloc_w(token_ctl, bitarr_ptr) ||
-      bigstack_alloc_i32(name_ct, &seen_idxs)) {
+  if (unlikely(
+        bigstack_calloc_w(token_ctl, bitarr_ptr) ||
+        bigstack_alloc_i32(name_ct, &seen_idxs))) {
     return kPglRetNomem;
   }
   // kludge to use CopySortStrboxSubset()
   SetAllBits(name_ct, R_CAST(uintptr_t*, seen_idxs));
-  if (CopySortStrboxSubset(R_CAST(uintptr_t*, seen_idxs), range_list_ptr->names, name_ct, range_list_ptr->name_max_blen, 0, 0, 0, &sorted_ids, &id_map)) {
+  if (unlikely(CopySortStrboxSubset(R_CAST(uintptr_t*, seen_idxs), range_list_ptr->names, name_ct, range_list_ptr->name_max_blen, 0, 0, 0, &sorted_ids, &id_map))) {
     return kPglRetNomem;
   }
   SetAllI32Arr(name_ct, seen_idxs);
@@ -2217,7 +2224,7 @@ BoolErr ParseNextRange(const char* const* argvk, uint32_t param_ct, char range_d
       cur_arg_ptr = argvk[cur_param_idx];
       cc = *cur_arg_ptr;
     }
-    if (cc == range_delim) {
+    if (unlikely(cc == range_delim)) {
       return 1;
     }
     if (cc != ',') {
@@ -2238,18 +2245,18 @@ BoolErr ParseNextRange(const char* const* argvk, uint32_t param_ct, char range_d
   } while (cc != range_delim);
   *rs_len_ptr = cur_arg_ptr - (*range_start_ptr);
   cc = *(++cur_arg_ptr);
-  if (((*rs_len_ptr) > kMaxIdSlen) || (!cc) || (cc == ',') || (cc == range_delim)) {
+  if (unlikely(((*rs_len_ptr) > kMaxIdSlen) || (!cc) || (cc == ',') || (cc == range_delim))) {
     return 1;
   }
   *range_end_ptr = cur_arg_ptr;
   do {
     cc = *(++cur_arg_ptr);
-    if (cc == range_delim) {
+    if (unlikely(cc == range_delim)) {
       return 1;
     }
   } while (cc && (cc != ','));
   *re_len_ptr = cur_arg_ptr - (*range_end_ptr);
-  if ((*re_len_ptr) > kMaxIdSlen) {
+  if (unlikely((*re_len_ptr) > kMaxIdSlen)) {
     return 1;
   }
   *cur_arg_pptr = cur_arg_ptr;
@@ -2273,7 +2280,7 @@ PglErr ParseNameRanges(const char* const* argvk, const char* errstr_append, uint
   if (param_ct) {
     cur_arg_ptr = argvk[1];
     while (1) {
-      if (ParseNextRange(argvk, param_ct, range_delim, &cur_param_idx, &cur_arg_ptr, &range_start, &rs_len, &range_end, &re_len)) {
+      if (unlikely(ParseNextRange(argvk, param_ct, range_delim, &cur_param_idx, &cur_arg_ptr, &range_start, &rs_len, &range_end, &re_len))) {
         logerrprintfww("Error: Invalid %s parameter '%s'.\n", argvk[0], argvk[cur_param_idx]);
         logerrputs(errstr_append);
         return kPglRetInvalidCmdline;
@@ -2293,13 +2300,13 @@ PglErr ParseNameRanges(const char* const* argvk, const char* errstr_append, uint
       }
     }
   }
-  if (!name_ct) {
+  if (unlikely(!name_ct)) {
     logerrprintf("Error: %s requires at least one value.\n%s", argvk[0], errstr_append);
     return kPglRetInvalidCmdline;
   }
   range_list_ptr->name_max_blen = ++name_max_blen;
   range_list_ptr->name_ct = name_ct;
-  if (pgl_malloc(name_ct * (S_CAST(uintptr_t, name_max_blen) + 1), &range_list_ptr->names)) {
+  if (unlikely(pgl_malloc(name_ct * (S_CAST(uintptr_t, name_max_blen) + 1), &range_list_ptr->names))) {
     return kPglRetNomem;
   }
   range_list_ptr->starts_range = R_CAST(unsigned char*, &(range_list_ptr->names[name_ct * S_CAST(uintptr_t, name_max_blen)]));
@@ -2317,19 +2324,19 @@ PglErr ParseNameRanges(const char* const* argvk, const char* errstr_append, uint
           cur_name_str = &(range_list_ptr->names[cur_param_idx * S_CAST(uintptr_t, name_max_blen)]);
           const char* dup_check = cur_name_str;  // actually a numeric check
           do {
-            if (IsNotDigit(*dup_check)) {
+            if (unlikely(IsNotDigit(*dup_check))) {
               logerrprintfww("Error: Invalid %s parameter '%s'.\n", argvk[0], cur_name_str);
               return kPglRetInvalidCmdline;
             }
           } while (*(++dup_check));
-          if (ScanPosintDefcap(cur_name_str, &cur_val)) {
+          if (unlikely(ScanPosintDefcap(cur_name_str, &cur_val))) {
             logerrprintfww("Error: Invalid %s parameter '%s'.\n", argvk[0], cur_name_str);
             return kPglRetInvalidCmdline;
           }
           if (range_list_ptr->starts_range[cur_param_idx]) {
             last_val = cur_val;
           } else {
-            if (cur_val <= last_val) {
+            if (unlikely(cur_val <= last_val)) {
               logerrprintfww("Error: Invalid %s range '%s-%s'.\n", argvk[0], &(range_list_ptr->names[(cur_param_idx - 1) * name_max_blen]), cur_name_str);
               return kPglRetInvalidCmdline;
             }
@@ -2342,7 +2349,7 @@ PglErr ParseNameRanges(const char* const* argvk, const char* errstr_append, uint
     memcpyx(cur_name_str, range_start, rs_len, 0);
     const char* dup_check = range_list_ptr->names;
     while (dup_check < cur_name_str) {
-      if (!memcmp(dup_check, cur_name_str, rs_len + 1)) {
+      if (unlikely(!memcmp(dup_check, cur_name_str, rs_len + 1))) {
         logerrprintfww("Error: Duplicate %s parameter '%s'.\n", argvk[0], cur_name_str);
         return kPglRetInvalidCmdline;
       }
@@ -2354,7 +2361,7 @@ PglErr ParseNameRanges(const char* const* argvk, const char* errstr_append, uint
       memcpyx(cur_name_str, range_end, re_len, 0);
       dup_check = range_list_ptr->names;
       while (dup_check < cur_name_str) {
-        if (!memcmp(dup_check, cur_name_str, rs_len + 1)) {
+        if (unlikely(!memcmp(dup_check, cur_name_str, rs_len + 1))) {
           logerrprintfww("Error: Duplicate %s parameter '%s'.\n", argvk[0], cur_name_str);
           return kPglRetInvalidCmdline;
         }
@@ -2466,12 +2473,12 @@ BoolErr SpawnThreads(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthread_t* t
   for (ulii = 1; ulii < ct; ++ulii) {
 #ifdef _WIN32
     threads[ulii - 1] = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStack, start_routine, R_CAST(void*, ulii), 0, nullptr));
-    if (!threads[ulii - 1]) {
+    if (unlikely(!threads[ulii - 1])) {
       JoinThreads(ulii, threads);
       return 1;
     }
 #else
-    if (pthread_create(&(threads[ulii - 1]), &g_smallstack_thread_attr, start_routine, R_CAST(void*, ulii))) {
+    if (unlikely(pthread_create(&(threads[ulii - 1]), &g_smallstack_thread_attr, start_routine, R_CAST(void*, ulii)))) {
       JoinThreads(ulii, threads);
       return 1;
     }
@@ -2606,7 +2613,7 @@ BoolErr SpawnThreads2z(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, uint32_t i
     }
     for (uintptr_t ulii = 0; ulii < ct; ++ulii) {
       threads[ulii] = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStack, start_routine, R_CAST(void*, ulii), 0, nullptr));
-      if (!threads[ulii]) {
+      if (unlikely(!threads[ulii])) {
         if (ulii) {
           JoinThreads2z(ulii, is_last_block, threads);
           if (!is_last_block) {
@@ -2642,13 +2649,14 @@ BoolErr SpawnThreads2z(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, uint32_t i
   if (!g_thread_mutex_initialized) {
     g_thread_spawn_ct = 0;  // tidx 0 may need to know modulus
     g_thread_mutex_initialized = 1;
-    if (pthread_mutex_init(&g_thread_sync_mutex, nullptr) ||
-        pthread_cond_init(&g_thread_cur_block_done_condvar, nullptr) ||
-        pthread_cond_init(&g_thread_start_next_condvar, nullptr)) {
+    if (unlikely(
+          pthread_mutex_init(&g_thread_sync_mutex, nullptr) ||
+          pthread_cond_init(&g_thread_cur_block_done_condvar, nullptr) ||
+          pthread_cond_init(&g_thread_start_next_condvar, nullptr))) {
       return 1;
     }
     for (uintptr_t ulii = 0; ulii < ct; ++ulii) {
-      if (pthread_create(&(threads[ulii]), &g_smallstack_thread_attr, start_routine, R_CAST(void*, ulii))) {
+      if (unlikely(pthread_create(&(threads[ulii]), &g_smallstack_thread_attr, start_routine, R_CAST(void*, ulii)))) {
         if (ulii) {
           if (is_last_block) {
             JoinThreads2z(ulii, 1, threads);
@@ -2761,7 +2769,7 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
         thread_ct = 1;
       }
     }
-    if (bigstack_end_alloc_u32(item_ct, &g_item_id_hashes)) {
+    if (unlikely(bigstack_end_alloc_u32(item_ct, &g_item_id_hashes))) {
       goto PopulateIdHtableMt_ret_NOMEM;
     }
     g_subset_mask = subset_mask;
@@ -2782,7 +2790,7 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
         item_idx = item_idx_new;
       }
     }
-    if (SpawnThreads(CalcIdHashThread, thread_ct, threads)) {
+    if (unlikely(SpawnThreads(CalcIdHashThread, thread_ct, threads))) {
       goto PopulateIdHtableMt_ret_THREAD_CREATE_FAIL;
     }
     CalcIdHashThread(R_CAST(void*, 0));
@@ -2830,7 +2838,7 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
         max_extra_alloc_m4 = 0xfffffffaU;
       } else {
 #endif
-        if (cur_bigstack_left < 4 * sizeof(int32_t)) {
+        if (unlikely(cur_bigstack_left < 4 * sizeof(int32_t))) {
           goto PopulateIdHtableMt_ret_NOMEM;
         }
         max_extra_alloc_m4 = (cur_bigstack_left / sizeof(int32_t)) - 4;
@@ -2860,7 +2868,7 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
               prev_uidx = cur_htable_entry;
             }
             if (!strcmp(sptr, item_ids[prev_uidx])) {
-              if (extra_alloc > max_extra_alloc_m4) {
+              if (unlikely(extra_alloc > max_extra_alloc_m4)) {
                 goto PopulateIdHtableMt_ret_NOMEM;
               }
               // point to linked list entry instead
@@ -3243,34 +3251,34 @@ PglErr Rerun(const char* ver_str, const char* ver_str2, const char* prog_name_st
       snprintf(write_iter, kMaxOutfnameExtBlen, ".log");
     }
     rerunfile = fopen(rerun_fname, FOPEN_RB);
-    if (!rerunfile) {
+    if (unlikely(!rerunfile)) {
       goto Rerun_ret_OPEN_FAIL;
     }
     char* textbuf = g_textbuf;
     textbuf[kMaxMediumLine - 1] = ' ';
-    if (!fgets(textbuf, kMaxMediumLine, rerunfile)) {
+    if (unlikely(!fgets(textbuf, kMaxMediumLine, rerunfile))) {
       fputs(ver_str, stdout);
       fputs(ver_str2, stdout);
       fputs("Error: Empty log file for --rerun.\n", stderr);
       goto Rerun_ret_MALFORMED_INPUT;
     }
-    if (!textbuf[kMaxMediumLine - 1]) {
+    if (unlikely(!textbuf[kMaxMediumLine - 1])) {
       goto Rerun_ret_LONG_LINE;
     }
-    if (!fgets(textbuf, kMaxMediumLine, rerunfile)) {
+    if (unlikely(!fgets(textbuf, kMaxMediumLine, rerunfile))) {
       fputs(ver_str, stdout);
       fputs(ver_str2, stdout);
       fputs("Error: Only one line in --rerun log file.\n", stderr);
       goto Rerun_ret_MALFORMED_INPUT;
     }
     ++line_idx;
-    if (!textbuf[kMaxMediumLine - 1]) {
+    if (unlikely(!textbuf[kMaxMediumLine - 1])) {
       goto Rerun_ret_LONG_LINE;
     }
     // don't bother supporting "xx arguments: --aa bb --cc --dd" format
     while ((!StrStartsWithUnsafe(textbuf, "Options in effect:")) || (textbuf[strlen("Options in effect:")] >= ' ')) {
       ++line_idx;
-      if (!fgets(textbuf, kMaxMediumLine, rerunfile)) {
+      if (unlikely(!fgets(textbuf, kMaxMediumLine, rerunfile))) {
         fputs(ver_str, stdout);
         fputs(ver_str2, stdout);
         fputs("Error: Invalid log file for --rerun.\n", stderr);
@@ -3291,7 +3299,7 @@ PglErr Rerun(const char* ver_str, const char* ver_str2, const char* prog_name_st
         break;
       }
       ++line_idx;
-      if (!all_args_write_iter[kMaxMediumLine - 1]) {
+      if (unlikely(!all_args_write_iter[kMaxMediumLine - 1])) {
         goto Rerun_ret_LONG_LINE;
       }
       char* arg_iter = FirstNonTspace(all_args_write_iter);
@@ -3306,7 +3314,7 @@ PglErr Rerun(const char* ver_str, const char* ver_str2, const char* prog_name_st
         arg_iter = FirstNonTspace(token_end);
       } while (!IsEolnKns(*arg_iter));
       all_args_write_iter = token_end;
-      if (all_args_write_iter >= textbuf_limit) {
+      if (unlikely(all_args_write_iter >= textbuf_limit)) {
         fputs(ver_str, stdout);
         fputs(ver_str2, stdout);
         fputs("Error: --rerun argument sequence too long.\n", stderr);
@@ -3316,7 +3324,7 @@ PglErr Rerun(const char* ver_str, const char* ver_str2, const char* prog_name_st
     fclose_null(&rerunfile);
     const uint32_t line_byte_ct = 1 + S_CAST(uintptr_t, all_args_write_iter - textbuf);
     char* rerun_buf;
-    if (pgl_malloc(line_byte_ct, &rerun_buf)) {
+    if (unlikely(pgl_malloc(line_byte_ct, &rerun_buf))) {
       goto Rerun_ret_NOMEM;
     }
     *rerun_buf_ptr = rerun_buf;
@@ -3330,7 +3338,7 @@ PglErr Rerun(const char* ver_str, const char* ver_str2, const char* prog_name_st
     uint32_t loaded_arg_idx = 0;
     uint32_t duplicate_arg_ct = 0;
     do {
-      if (NoMoreTokensKns(arg_iter)) {
+      if (unlikely(NoMoreTokensKns(arg_iter))) {
         fputs(ver_str, stdout);
         fputs(ver_str2, stdout);
         fputs("Error: Line 2 of --rerun log file has fewer tokens than expected.\n", stderr);
@@ -3369,7 +3377,7 @@ PglErr Rerun(const char* ver_str, const char* ver_str2, const char* prog_name_st
         arg_iter = NextToken(arg_iter);
       }
     } while (loaded_arg_idx < loaded_arg_ct);
-    if (pgl_malloc((argc + loaded_arg_ct - duplicate_arg_ct - rerun_parameter_present - 1 - first_arg_idx) * sizeof(intptr_t), &subst_argv2)) {
+    if (unlikely(pgl_malloc((argc + loaded_arg_ct - duplicate_arg_ct - rerun_parameter_present - 1 - first_arg_idx) * sizeof(intptr_t), &subst_argv2))) {
       goto Rerun_ret_NOMEM;
     }
     uint32_t new_arg_idx = rerun_argv_pos - first_arg_idx;
@@ -3434,7 +3442,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
     for (uint32_t arg_idx = 1; arg_idx < S_CAST(uint32_t, argc); ++arg_idx) {
       if ((!strcmp("-script", argvk[arg_idx])) || (!strcmp("--script", argvk[arg_idx]))) {
         const uint32_t param_ct = GetParamCt(argvk, argc, arg_idx);
-        if (EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1)) {
+        if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
           fputs(g_logbuf, stderr);
@@ -3442,7 +3450,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
           goto CmdlineParsePhase1_ret_INVALID_CMDLINE;
         }
         for (uint32_t arg_idx2 = arg_idx + 2; arg_idx2 < S_CAST(uint32_t, argc); ++arg_idx2) {
-          if ((!strcmp("-script", argvk[arg_idx2])) || (!strcmp("--script", argvk[arg_idx2]))) {
+          if (unlikely((!strcmp("-script", argvk[arg_idx2])) || (!strcmp("--script", argvk[arg_idx2])))) {
             fputs(ver_str, stdout);
             fputs(ver_str2, stdout);
             fputs("Error: Multiple --script flags.  Merge the files into one.\n", stderr);
@@ -3452,20 +3460,20 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
         }
         // logging not yet active, so don't use fopen_checked()
         scriptfile = fopen(argvk[arg_idx + 1], FOPEN_RB);
-        if (!scriptfile) {
+        if (unlikely(!scriptfile)) {
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
           fprintf(stderr, kErrprintfFopen, argvk[arg_idx + 1]);
           goto CmdlineParsePhase1_ret_OPEN_FAIL;
         }
-        if (fseeko(scriptfile, 0, SEEK_END)) {
+        if (unlikely(fseeko(scriptfile, 0, SEEK_END))) {
           goto CmdlineParsePhase1_ret_READ_FAIL;
         }
         int64_t fsize = ftello(scriptfile);
-        if (fsize < 0) {
+        if (unlikely(fsize < 0)) {
           goto CmdlineParsePhase1_ret_READ_FAIL;
         }
-        if (fsize > 0x7ffffffe) {
+        if (unlikely(fsize > 0x7ffffffe)) {
           // could actually happen if user enters parameters in the wrong
           // order, so may as well catch it and print a somewhat informative
           // error message
@@ -3476,11 +3484,11 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
         }
         rewind(scriptfile);
         const uint32_t fsize_ui = fsize;
-        if (pgl_malloc(fsize_ui + 1, &pcmp->script_buf)) {
+        if (unlikely(pgl_malloc(fsize_ui + 1, &pcmp->script_buf))) {
           goto CmdlineParsePhase1_ret_NOMEM;
         }
         char* script_buf = pcmp->script_buf;
-        if (!fread_unlocked(script_buf, fsize_ui, 1, scriptfile)) {
+        if (unlikely(!fread_unlocked(script_buf, fsize_ui, 1, scriptfile))) {
           goto CmdlineParsePhase1_ret_READ_FAIL;
         }
         script_buf[fsize_ui] = '\0';
@@ -3501,7 +3509,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
             char_code = ctou32(*script_buf_iter++);
           } while (char_code > 32);
         } while (char_code);
-        if (script_buf_iter != (&(script_buf[fsize_ui + 1]))) {
+        if (unlikely(script_buf_iter != (&(script_buf[fsize_ui + 1])))) {
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
           fputs("Error: Null byte in --script file.\n", stderr);
@@ -3509,7 +3517,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
         }
         // probable todo: detect duplicate flags in the same manner as --rerun
         const uint32_t new_param_ct = num_script_params + argc - 3;
-        if (pgl_malloc(new_param_ct * sizeof(intptr_t), &subst_argv)) {
+        if (unlikely(pgl_malloc(new_param_ct * sizeof(intptr_t), &subst_argv))) {
           goto CmdlineParsePhase1_ret_NOMEM;
         }
         pcmp->subst_argv = subst_argv;
@@ -3535,7 +3543,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
     for (uint32_t arg_idx = first_arg_idx; arg_idx < S_CAST(uint32_t, argc); ++arg_idx) {
       if ((!strcmp("-rerun", argvk[arg_idx])) || (!strcmp("--rerun", argvk[arg_idx]))) {
         const uint32_t param_ct = GetParamCt(argvk, argc, arg_idx);
-        if (EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1)) {
+        if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
           fputs(g_logbuf, stderr);
@@ -3543,7 +3551,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
           goto CmdlineParsePhase1_ret_INVALID_CMDLINE;
         }
         for (uint32_t arg_idx2 = arg_idx + param_ct + 1; arg_idx2 < S_CAST(uint32_t, argc); ++arg_idx2) {
-          if ((!strcmp("-rerun", argvk[arg_idx2])) || (!strcmp("--rerun", argvk[arg_idx2]))) {
+          if (unlikely((!strcmp("-rerun", argvk[arg_idx2])) || (!strcmp("--rerun", argvk[arg_idx2])))) {
             fputs(ver_str, stdout);
             fputs(ver_str2, stdout);
             fputs("Error: Duplicate --rerun flag.\n", stderr);
@@ -3551,7 +3559,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
           }
         }
         reterr = Rerun(ver_str, ver_str2, prog_name_str, arg_idx, param_ct, &argc, &first_arg_idx, argv_ptr, &pcmp->subst_argv, &pcmp->rerun_buf);
-        if (reterr) {
+        if (unlikely(reterr)) {
           goto CmdlineParsePhase1_ret_1;
         }
         *argc_ptr = argc;
@@ -3560,7 +3568,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
         break;
       }
     }
-    if ((first_arg_idx < S_CAST(uint32_t, argc)) && (!IsCmdlineFlag(argvk[first_arg_idx]))) {
+    if (unlikely((first_arg_idx < S_CAST(uint32_t, argc)) && (!IsCmdlineFlag(argvk[first_arg_idx])))) {
       fputs("Error: First parameter must be a flag.\n", stderr);
       fputs(errstr_append, stderr);
       goto CmdlineParsePhase1_ret_INVALID_CMDLINE;
@@ -3581,7 +3589,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
             // make "plink [valid flags/parameters] --help" work, and skip the
             // parameters
             const char** help_argv;
-            if (pgl_malloc(flag_ct * sizeof(intptr_t), &help_argv)) {
+            if (unlikely(pgl_malloc(flag_ct * sizeof(intptr_t), &help_argv))) {
               goto CmdlineParsePhase1_ret_NOMEM2;
             }
             uint32_t arg_idx2 = 0;
@@ -3616,7 +3624,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
         } else if (!strcmp("silent", flagname_p)) {
           silent_present = 1;
         }
-        if (strlen(flagname_p) >= max_flag_blen) {
+        if (unlikely(strlen(flagname_p) >= max_flag_blen)) {
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
           // shouldn't be possible for this to overflow the buffer...
@@ -3636,7 +3644,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
       goto CmdlineParsePhase1_ret_1;
     }
     if (silent_present) {
-      if (!freopen("/dev/null", "w", stdout)) {
+      if (unlikely(!freopen("/dev/null", "w", stdout))) {
         fputs("Warning: --silent failed.", stderr);
         g_stderr_written_to = 1;
       }
@@ -3688,7 +3696,7 @@ PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const 
     char* flag_buf = pcmp->flag_buf;
     uint32_t* flag_map = pcmp->flag_map;
     reterr = SortCmdlineFlags(max_flag_blen, flag_ct, flag_buf, flag_map);
-    if (reterr) {
+    if (unlikely(reterr)) {
       if (reterr == kPglRetNomem) {
         goto CmdlineParsePhase2_ret_NOMEM_NOLOG;
       }
@@ -3700,12 +3708,12 @@ PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const 
       if (!memcmp_out_result) {
         const uint32_t arg_idx = flag_map[cur_flag_idx];
         const uint32_t param_ct = GetParamCt(argvk, argc, arg_idx);
-        if (EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1)) {
+        if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
           fputs(g_logbuf, stderr);
           fputs(errstr_append, stderr);
           goto CmdlineParsePhase2_ret_INVALID_CMDLINE;
         }
-        if (strlen(argvk[arg_idx + 1]) > (kPglFnamesize - kMaxOutfnameExtBlen)) {
+        if (unlikely(strlen(argvk[arg_idx + 1]) > (kPglFnamesize - kMaxOutfnameExtBlen))) {
           fflush(stdout);
           fputs("Error: --out parameter too long.\n", stderr);
           goto CmdlineParsePhase2_ret_OPEN_FAIL;
@@ -3718,7 +3726,7 @@ PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const 
         break;
       }
     }
-    if (InitLogfile(0, outname, (*outname_end_ptr)? (*outname_end_ptr) : &(outname[prog_name_str_slen]))) {
+    if (unlikely(InitLogfile(0, outname, (*outname_end_ptr)? (*outname_end_ptr) : &(outname[prog_name_str_slen])))) {
       goto CmdlineParsePhase2_ret_OPEN_FAIL;
     }
     logputs_silent(ver_str);
@@ -3747,7 +3755,7 @@ PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const 
       logputs_silent(g_textbuf);
     }
     logputs_silent("\nWorking directory: ");
-    if (!getcwd(g_textbuf, kPglFnamesize)) {
+    if (unlikely(!getcwd(g_textbuf, kPglFnamesize))) {
       goto CmdlineParsePhase2_ret_READ_FAIL;
     }
     logputs_silent(g_textbuf);
@@ -3849,11 +3857,11 @@ PglErr CmdlineParsePhase3(uintptr_t max_default_mib, uintptr_t malloc_size_mib, 
     }
     logputsb();
     uintptr_t malloc_mib_final;
-    if (InitBigstack(malloc_size_mib, &malloc_mib_final, bigstack_ua_ptr)) {
+    if (unlikely(InitBigstack(malloc_size_mib, &malloc_mib_final, bigstack_ua_ptr))) {
       goto CmdlineParsePhase3_ret_NOMEM;
     }
     if (malloc_size_mib != malloc_mib_final) {
-      if (memory_require) {
+      if (unlikely(memory_require)) {
         goto CmdlineParsePhase3_ret_NOMEM;
       }
       logprintf("Allocated %" PRIuPTR " MiB successfully, after larger attempt(s) failed.\n", malloc_mib_final);
@@ -3902,7 +3910,8 @@ const char* ParseNextBinaryOp(const char* expr_str, uint32_t expr_slen, const ch
   const char* next_gt = S_CAST(const char*, memchr(expr_str, '>', expr_slen));
   if (!next_eq) {
     if (!next_lt) {
-      if (!next_gt) {
+      // may want to remove unlikely() later
+      if (unlikely(!next_gt)) {
         return nullptr;
       }
       *op_start_ptr = next_gt;
@@ -3979,7 +3988,7 @@ PglErr ValidateAndAllocCmpExpr(const char* const* sources, const char* flag_name
   // down LoadPvar() too much in the no-INFO-filter case.
   PglErr reterr = kPglRetSuccess;
   {
-    if ((param_ct != 1) && (param_ct != 3)) {
+    if (unlikely((param_ct != 1) && (param_ct != 3))) {
       goto ValidateAndAllocCmpExpr_ret_INVALID_EXPR_GENERIC;
     }
     const char* pheno_name_start = sources[0];
@@ -4000,7 +4009,7 @@ PglErr ValidateAndAllocCmpExpr(const char* const* sources, const char* flag_name
       }
       const char* op_start;
       const char* op_end = ParseNextBinaryOp(op_str, op_slen, &op_start, &cmp_expr_ptr->binary_op);
-      if ((!op_end) || (*op_end) || (op_start != op_str)) {
+      if (unlikely((!op_end) || (*op_end) || (op_start != op_str))) {
         goto ValidateAndAllocCmpExpr_ret_INVALID_EXPR_GENERIC;
       }
       pheno_val_start = sources[2];
@@ -4010,7 +4019,7 @@ PglErr ValidateAndAllocCmpExpr(const char* const* sources, const char* flag_name
       uint32_t expr_slen = strlen(pheno_name_start);
       const char* op_start;
       pheno_val_start = ParseNextBinaryOp(pheno_name_start, expr_slen, &op_start, &cmp_expr_ptr->binary_op);
-      if ((!pheno_val_start) || (!(*pheno_val_start)) || (op_start == pheno_name_start)) {
+      if (unlikely((!pheno_val_start) || (!(*pheno_val_start)) || (op_start == pheno_name_start))) {
         goto ValidateAndAllocCmpExpr_ret_INVALID_EXPR_GENERIC;
       }
       pheno_name_slen = op_start - pheno_name_start;
@@ -4024,7 +4033,7 @@ PglErr ValidateAndAllocCmpExpr(const char* const* sources, const char* flag_name
       // To prevent --rerun from breaking, if there's a space after the
       // operator, there must be a space before the operator as well, etc.
       if (*pheno_val_start == ' ') {
-        if (pheno_name_start[pheno_name_slen - 1] != ' ') {
+        if (unlikely(pheno_name_start[pheno_name_slen - 1] != ' ')) {
           goto ValidateAndAllocCmpExpr_ret_INVALID_EXPR_GENERIC;
         }
         do {
@@ -4032,21 +4041,21 @@ PglErr ValidateAndAllocCmpExpr(const char* const* sources, const char* flag_name
         } while (*pheno_val_start == ' ');
         do {
           --pheno_name_slen;
-          if (!pheno_name_slen) {
+          if (unlikely(!pheno_name_slen)) {
             goto ValidateAndAllocCmpExpr_ret_INVALID_EXPR_GENERIC;
           }
         } while (pheno_name_start[pheno_name_slen - 1] == ' ');
       }
       pheno_val_slen = expr_slen - S_CAST(uintptr_t, pheno_val_start - pheno_name_start);
     }
-    if (memchr(pheno_name_start, ' ', pheno_name_slen) || memchr(pheno_val_start, ' ', pheno_val_slen)) {
+    if (unlikely(memchr(pheno_name_start, ' ', pheno_name_slen) || memchr(pheno_val_start, ' ', pheno_val_slen))) {
       goto ValidateAndAllocCmpExpr_ret_INVALID_EXPR_GENERIC;
     }
-    if ((pheno_name_slen > kMaxIdSlen) || (pheno_val_slen > kMaxIdSlen)) {
+    if (unlikely((pheno_name_slen > kMaxIdSlen) || (pheno_val_slen > kMaxIdSlen))) {
       logerrprintf("Error: ID too long in %s expression.\n", flag_name);
       goto ValidateAndAllocCmpExpr_ret_INVALID_CMDLINE;
     }
-    if ((cmp_expr_ptr->binary_op != kCmpOperatorNoteq) && (cmp_expr_ptr->binary_op != kCmpOperatorEq)) {
+    if (unlikely((cmp_expr_ptr->binary_op != kCmpOperatorNoteq) && (cmp_expr_ptr->binary_op != kCmpOperatorEq))) {
       double dxx;
       if (!ScanadvDouble(pheno_val_start, &dxx)) {
         logerrprintfww("Error: Invalid %s value '%s' (finite number expected).\n", flag_name, pheno_val_start);
@@ -4054,7 +4063,7 @@ PglErr ValidateAndAllocCmpExpr(const char* const* sources, const char* flag_name
       }
     }
     char* new_pheno_name_buf;
-    if (pgl_malloc(2 + pheno_name_slen + pheno_val_slen, &new_pheno_name_buf)) {
+    if (unlikely(pgl_malloc(2 + pheno_name_slen + pheno_val_slen, &new_pheno_name_buf))) {
       goto ValidateAndAllocCmpExpr_ret_NOMEM;
     }
     memcpyx(new_pheno_name_buf, pheno_name_start, pheno_name_slen, '\0');
@@ -4093,10 +4102,11 @@ PglErr SearchHeaderLine(const char* header_line_iter, const char* const* search_
     uint32_t* id_map;
     uint32_t* priority_vals;
     uint64_t* cols_and_types;
-    if (bigstack_alloc_c(search_term_ct * max_blen, &merged_strbox) ||
-        bigstack_alloc_u32(search_term_ct, &id_map) ||
-        bigstack_alloc_u32(search_col_ct, &priority_vals) ||
-        bigstack_alloc_u64(search_col_ct, &cols_and_types)) {
+    if (unlikely(
+          bigstack_alloc_c(search_term_ct * max_blen, &merged_strbox) ||
+          bigstack_alloc_u32(search_term_ct, &id_map) ||
+          bigstack_alloc_u32(search_col_ct, &priority_vals) ||
+          bigstack_alloc_u64(search_col_ct, &cols_and_types))) {
       goto SearchHeaderLine_ret_NOMEM;
     }
     uint32_t search_term_idx = 0;
@@ -4115,7 +4125,7 @@ PglErr SearchHeaderLine(const char* header_line_iter, const char* const* search_
     SortStrboxIndexed(search_term_ct, max_blen, 0, merged_strbox, id_map);
     assert(search_term_ct);
     const char* duplicate_search_term = ScanForDuplicateIds(merged_strbox, search_term_ct, max_blen);
-    if (duplicate_search_term) {
+    if (unlikely(duplicate_search_term)) {
       logerrprintfww("Error: Duplicate term '%s' in --%s column search order.\n", duplicate_search_term, flagname_p);
       goto SearchHeaderLine_ret_INVALID_CMDLINE;
     }
@@ -4132,7 +4142,7 @@ PglErr SearchHeaderLine(const char* header_line_iter, const char* const* search_
         const uint32_t search_col_idx = cur_map_idx & 31;
         const uint32_t priority_idx = cur_map_idx >> 5;
         if (priority_vals[search_col_idx] >= priority_idx) {
-          if (priority_vals[search_col_idx] == priority_idx) {
+          if (unlikely(priority_vals[search_col_idx] == priority_idx)) {
             logerrprintfww("Error: Duplicate column header '%s' in --%s file.\n", &(merged_strbox[max_blen * cur_map_idx]), flagname_p);
             goto SearchHeaderLine_ret_MALFORMED_INPUT;
           }
@@ -4210,7 +4220,7 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
     } while (*supported_ids_iter);
     // max_id_blen + 4 extra bytes at the end, to support a "maybe" search
     // (yes, this can also be precomputed)
-    if (pgl_malloc((max_id_blen + 4) * (id_ct + 1), &id_map)) {
+    if (unlikely(pgl_malloc((max_id_blen + 4) * (id_ct + 1), &id_map))) {
       goto ParseColDescriptor_ret_NOMEM;
     }
     char* sorted_ids = R_CAST(char*, &(id_map[id_ct]));
@@ -4221,7 +4231,7 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
       id_map[id_idx] = id_idx;
       supported_ids_iter = &(supported_ids_iter[blen]);
     }
-    if (SortStrboxIndexedMalloc(id_ct, max_id_blen, sorted_ids, id_map)) {
+    if (unlikely(SortStrboxIndexedMalloc(id_ct, max_id_blen, sorted_ids, id_map))) {
       goto ParseColDescriptor_ret_NOMEM;
     }
     uint32_t result = *S_CAST(uint32_t*, result_ptr);
@@ -4235,7 +4245,7 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
         const char* tok_end = strchrnul(id_start, ',');
         const uint32_t slen = tok_end - id_start;
         int32_t alpha_idx = bsearch_str(id_start, sorted_ids, slen, max_id_blen, id_ct);
-        if (alpha_idx == -1) {
+        if (unlikely(alpha_idx == -1)) {
           char* write_iter = strcpya(g_logbuf, "Error: Unrecognized ID '");
           write_iter = memcpya(write_iter, id_start, slen);
           write_iter = strcpya(write_iter, "' in --");
@@ -4266,7 +4276,7 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
           break;
         }
         col_descriptor_iter = &(tok_end[1]);
-        if ((col_descriptor_iter[0] != '+') && (col_descriptor_iter[0] != '-')) {
+        if (unlikely((col_descriptor_iter[0] != '+') && (col_descriptor_iter[0] != '-'))) {
           goto ParseColDescriptor_ret_MIXED_SIGN;
         }
       }
@@ -4275,7 +4285,7 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
         const char* tok_end = strchrnul(col_descriptor_iter, ',');
         const uint32_t slen = tok_end - col_descriptor_iter;
         const int32_t alpha_idx = bsearch_str(col_descriptor_iter, sorted_ids, slen, max_id_blen, id_ct);
-        if (alpha_idx == -1) {
+        if (unlikely(alpha_idx == -1)) {
           char* write_iter = strcpya(g_logbuf, "Error: Unrecognized ID '");
           write_iter = memcpya(write_iter, col_descriptor_iter, slen);
           write_iter = strcpya(write_iter, "' in --");
@@ -4289,12 +4299,12 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
           break;
         }
         col_descriptor_iter = &(tok_end[1]);
-        if ((col_descriptor_iter[0] == '+') || (col_descriptor_iter[0] == '-')) {
+        if (unlikely((col_descriptor_iter[0] == '+') || (col_descriptor_iter[0] == '-'))) {
           goto ParseColDescriptor_ret_MIXED_SIGN;
         }
       }
     }
-    if (prohibit_empty && (!(result & (first_col_shifted * (UINT32_MAX >> (32 - id_ct)))))) {
+    if (unlikely(prohibit_empty && (!(result & (first_col_shifted * (UINT32_MAX >> (32 - id_ct))))))) {
       char* write_iter = strcpya(g_logbuf, "Error: All columns excluded by --");
       write_iter = strcpya(write_iter, cur_flag_name);
       snprintf(write_iter, kLogbufSize - 128, " column set descriptor.\n");

@@ -35,7 +35,7 @@ double RandNormal(sfmt_t* sfmtp, double* secondval_ptr) {
 sfmt_t** g_sfmtp_arr;
 
 BoolErr InitAllocSfmtpArr(uint32_t thread_ct, uint32_t use_main_sfmt_as_element_zero) {
-  if (BIGSTACK_ALLOC_X(sfmt_t*, thread_ct, &g_sfmtp_arr)) {
+  if (unlikely(BIGSTACK_ALLOC_X(sfmt_t*, thread_ct, &g_sfmtp_arr))) {
     return 1;
   }
   if (use_main_sfmt_as_element_zero) {
@@ -44,7 +44,7 @@ BoolErr InitAllocSfmtpArr(uint32_t thread_ct, uint32_t use_main_sfmt_as_element_
   if (thread_ct > use_main_sfmt_as_element_zero) {
     uint32_t uibuf[4];
     for (uint32_t tidx = use_main_sfmt_as_element_zero; tidx < thread_ct; ++tidx) {
-      if (BIGSTACK_ALLOC_X(sfmt_t, 1, &(g_sfmtp_arr[tidx]))) {
+      if (unlikely(BIGSTACK_ALLOC_X(sfmt_t, 1, &(g_sfmtp_arr[tidx])))) {
         return 1;
       }
       for (uint32_t uii = 0; uii < 4; ++uii) {
@@ -86,14 +86,15 @@ PglErr FillGaussianDArr(uintptr_t entry_pair_ct, uint32_t thread_ct, double* dar
       thread_ct = max_useful_thread_ct;
     }
     pthread_t* threads;
-    if (InitAllocSfmtpArr(thread_ct, 1) ||
-        bigstack_alloc_thread(thread_ct, &threads)) {
+    if (unlikely(
+          InitAllocSfmtpArr(thread_ct, 1) ||
+          bigstack_alloc_thread(thread_ct, &threads))) {
       goto FillGaussianDArr_ret_NOMEM;
     }
     g_darray = darray;
     g_entry_pair_ct = entry_pair_ct;
     g_calc_thread_ct = thread_ct;
-    if (SpawnThreads(FillGaussianDArrThread, thread_ct, threads)) {
+    if (unlikely(SpawnThreads(FillGaussianDArrThread, thread_ct, threads))) {
       goto FillGaussianDArr_ret_THREAD_CREATE_FAIL;
     }
     FillGaussianDArrThread(S_CAST(void*, 0));
@@ -137,12 +138,12 @@ PglErr RandomizeBigstack(uint32_t thread_ct) {
     if (thread_ct > 16) {
       thread_ct = 16;
     }
-    if (InitAllocSfmtpArr(thread_ct, 1)) {
+    if (unlikely(InitAllocSfmtpArr(thread_ct, 1))) {
       goto RandomizeBigstack_ret_NOMEM;
     }
     g_calc_thread_ct = thread_ct;
     pthread_t threads[16];
-    if (SpawnThreads(RandomizeBigstackThread, thread_ct, threads)) {
+    if (unlikely(SpawnThreads(RandomizeBigstackThread, thread_ct, threads))) {
       goto RandomizeBigstack_ret_THREAD_CREATE_FAIL;
     }
     RandomizeBigstackThread(S_CAST(void*, 0));

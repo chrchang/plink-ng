@@ -183,7 +183,7 @@ HEADER_INLINE BoolErr StandardizeLinebufSize(uintptr_t unstandardized_byte_ct, u
     *linebuf_sizep = kMaxLongLine;
     return 0;
   }
-  if (unstandardized_byte_ct < RoundUpPow2(MAXV(kRLstreamBlenLowerBound, required_byte_ct), kCacheline)) {
+  if (unlikely(unstandardized_byte_ct < RoundUpPow2(MAXV(kRLstreamBlenLowerBound, required_byte_ct), kCacheline))) {
     return 1;
   }
   *linebuf_sizep = RoundDownPow2(unstandardized_byte_ct, kCacheline);
@@ -194,7 +194,7 @@ HEADER_INLINE BoolErr StandardizeLinebufSize(uintptr_t unstandardized_byte_ct, u
 HEADER_INLINE BoolErr StandardizeLinebufSizemax(uintptr_t required_byte_ct, uintptr_t* linebuf_sizep) {
   const uintptr_t extra_alloc_byte_ct = RoundUpPow2(sizeof(ReadLineStreamSync) + 1, kCacheline) + kDecompressChunkSize;
   uintptr_t linebuf_size = bigstack_left();
-  if (linebuf_size < extra_alloc_byte_ct) {
+  if (unlikely(linebuf_size < extra_alloc_byte_ct)) {
     return 1;
   }
   linebuf_size -= extra_alloc_byte_ct;
@@ -202,7 +202,7 @@ HEADER_INLINE BoolErr StandardizeLinebufSizemax(uintptr_t required_byte_ct, uint
     *linebuf_sizep = kMaxLongLine;
     return 0;
   }
-  if (linebuf_size < RoundUpPow2(MAXV(kRLstreamBlenLowerBound, required_byte_ct), kCacheline)) {
+  if (unlikely(linebuf_size < RoundUpPow2(MAXV(kRLstreamBlenLowerBound, required_byte_ct), kCacheline))) {
     return 1;
   }
   *linebuf_sizep = RoundDownPow2(linebuf_size, kCacheline);
@@ -255,7 +255,7 @@ PglErr InitRLstreamEx(uint32_t alloc_at_end, uint32_t enforced_max_line_blen, ui
 
 HEADER_INLINE PglErr InitRLstreamRaw(const char* fname, uint32_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp) {
   PglErr reterr = gzopen_read_checked(fname, &rlsp->gz_infile);
-  if (reterr) {
+  if (unlikely(reterr)) {
     return reterr;
   }
   return InitRLstreamEx(0, kMaxLongLine, max_line_blen, rlsp, consume_iterp);
@@ -263,7 +263,7 @@ HEADER_INLINE PglErr InitRLstreamRaw(const char* fname, uint32_t max_line_blen, 
 
 HEADER_INLINE PglErr InitRLstreamEndallocRaw(const char* fname, uint32_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp) {
   PglErr reterr = gzopen_read_checked(fname, &rlsp->gz_infile);
-  if (reterr) {
+  if (unlikely(reterr)) {
     return reterr;
   }
   return InitRLstreamEx(1, kMaxLongLine, max_line_blen, rlsp, consume_iterp);
@@ -271,7 +271,7 @@ HEADER_INLINE PglErr InitRLstreamEndallocRaw(const char* fname, uint32_t max_lin
 
 HEADER_INLINE PglErr InitRLstreamFastsizeRaw(const char* fname, ReadLineStream* rlsp, char** consume_iterp) {
   PglErr reterr = gzopen_read_checked(fname, &rlsp->gz_infile);
-  if (reterr) {
+  if (unlikely(reterr)) {
     return reterr;
   }
   return InitRLstreamEx(0, kRLstreamBlenFast, kRLstreamBlenFast, rlsp, consume_iterp);
@@ -286,7 +286,7 @@ HEADER_INLINE PglErr SizeAndInitRLstreamRaw(const char* fname, uintptr_t unstand
   // potentially-long-line buffer size" from "load/decompression block size
   // which generally has good performance".)
   uintptr_t linebuf_size;
-  if (StandardizeLinebufSize(unstandardized_byte_ct, kMaxMediumLine + 1, &linebuf_size)) {
+  if (unlikely(StandardizeLinebufSize(unstandardized_byte_ct, kMaxMediumLine + 1, &linebuf_size))) {
     return kPglRetNomem;
   }
   return InitRLstreamRaw(fname, linebuf_size, rlsp, consume_iterp);
@@ -301,7 +301,7 @@ HEADER_INLINE PglErr SizeAndInitRLstreamRawK(const char* fname, uintptr_t unstan
 // When we want to enforce a tighter lower bound than kMaxMediumLine + 1.
 HEADER_INLINE PglErr LboundedSizeAndInitRLstreamRaw(const char* fname, uintptr_t unstandardized_byte_ct, uintptr_t required_byte_ct, ReadLineStream* rlsp, char** consume_iterp) {
   uintptr_t linebuf_size;
-  if (StandardizeLinebufSize(unstandardized_byte_ct, required_byte_ct, &linebuf_size)) {
+  if (unlikely(StandardizeLinebufSize(unstandardized_byte_ct, required_byte_ct, &linebuf_size))) {
     return kPglRetNomem;
   }
   return InitRLstreamRaw(fname, linebuf_size, rlsp, consume_iterp);
@@ -309,7 +309,7 @@ HEADER_INLINE PglErr LboundedSizeAndInitRLstreamRaw(const char* fname, uintptr_t
 
 HEADER_INLINE PglErr SizemaxAndInitRLstreamRaw(const char* fname, ReadLineStream* rlsp, char** consume_iterp) {
   uintptr_t linebuf_size;
-  if (StandardizeLinebufSizemax(kMaxMediumLine + 1, &linebuf_size)) {
+  if (unlikely(StandardizeLinebufSizemax(kMaxMediumLine + 1, &linebuf_size))) {
     return kPglRetNomem;
   }
   return InitRLstreamRaw(fname, linebuf_size, rlsp, consume_iterp);
@@ -317,7 +317,7 @@ HEADER_INLINE PglErr SizemaxAndInitRLstreamRaw(const char* fname, ReadLineStream
 
 HEADER_INLINE PglErr LboundedSizemaxAndInitRLstreamRaw(const char* fname, uintptr_t required_byte_ct, ReadLineStream* rlsp, char** consume_iterp) {
   uintptr_t linebuf_size;
-  if (StandardizeLinebufSizemax(required_byte_ct, &linebuf_size)) {
+  if (unlikely(StandardizeLinebufSizemax(required_byte_ct, &linebuf_size))) {
     return kPglRetNomem;
   }
   return InitRLstreamRaw(fname, linebuf_size, rlsp, consume_iterp);
@@ -344,6 +344,7 @@ HEADER_INLINE PglErr RlsNext(ReadLineStream* rlsp, char** consume_iterp) {
 HEADER_INLINE PglErr RlsNextLstrip(ReadLineStream* rlsp, char** consume_iterp) {
   *consume_iterp = AdvPastDelim(*consume_iterp, '\n');
   PglErr reterr = RlsPostlfNext(rlsp, consume_iterp);
+  // not unlikely() due to eof
   if (reterr) {
     return reterr;
   }
@@ -412,6 +413,7 @@ HEADER_INLINE PglErr ReadNextLineFromRLstream(ReadLineStream* rlsp, char** consu
   *consume_iterp = &((*line_lastp)[1]);
   if (*consume_iterp == rlsp->consume_stop) {
     PglErr reterr = AdvanceRLstream(rlsp, consume_iterp);
+    // not unlikely() due to eof
     if (reterr) {
       return reterr;
     }

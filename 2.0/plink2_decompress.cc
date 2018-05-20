@@ -23,12 +23,12 @@ namespace plink2 {
 
 PglErr gzopen_read_checked(const char* fname, gzFile* gzf_ptr) {
   *gzf_ptr = gzopen(fname, FOPEN_RB);
-  if (!(*gzf_ptr)) {
+  if (unlikely(!(*gzf_ptr))) {
     logputs("\n");
     logerrprintfww(kErrprintfFopen, fname);
     return kPglRetOpenFail;
   }
-  if (gzbuffer(*gzf_ptr, 131072)) {
+  if (unlikely(gzbuffer(*gzf_ptr, 131072))) {
     return kPglRetNomem;
   }
   return kPglRetSuccess;
@@ -36,19 +36,19 @@ PglErr gzopen_read_checked(const char* fname, gzFile* gzf_ptr) {
 
 PglErr GzopenAndSkipFirstLines(const char* fname, uint32_t lines_to_skip, uintptr_t loadbuf_size, char* loadbuf, gzFile* gzf_ptr) {
   PglErr reterr = gzopen_read_checked(fname, gzf_ptr);
-  if (reterr) {
+  if (unlikely(reterr)) {
     return reterr;
   }
   loadbuf[loadbuf_size - 1] = ' ';
   for (uint32_t line_idx = 1; line_idx <= lines_to_skip; ++line_idx) {
-    if (!gzgets(*gzf_ptr, loadbuf, loadbuf_size)) {
+    if (unlikely(!gzgets(*gzf_ptr, loadbuf, loadbuf_size))) {
       if (gzeof(*gzf_ptr)) {
         logerrprintfww("Error: Fewer lines than expected in %s.\n", fname);
         return kPglRetInconsistentInput;
       }
       return kPglRetReadFail;
     }
-    if (!loadbuf[loadbuf_size - 1]) {
+    if (unlikely(!loadbuf[loadbuf_size - 1])) {
       if ((loadbuf_size == kMaxMediumLine) || (loadbuf_size == kMaxLongLine)) {
         logerrprintfww("Error: Line %u of %s is pathologically long.\n", line_idx, fname);
         return kPglRetMalformedInput;
@@ -66,7 +66,7 @@ void PreinitGzTokenStream(GzTokenStream* gtsp) {
 
 PglErr InitGzTokenStream(const char* fname, GzTokenStream* gtsp, char* buf_start) {
   PglErr reterr = gzopen_read_checked(fname, &(gtsp->gz_infile));
-  if (reterr) {
+  if (unlikely(reterr)) {
     return reterr;
   }
   gtsp->buf_start = buf_start;
@@ -95,7 +95,7 @@ char* AdvanceGzTokenStream(GzTokenStream* gtsp, uint32_t* token_slen_ptr) {
         gtsp->read_iter = &(token_end[1]);
         return token_start;
       }
-      if (token_slen > kMaxMediumLine) {
+      if (unlikely(token_slen > kMaxMediumLine)) {
         *token_slen_ptr = UINT32_MAX;
         return nullptr;
       }
@@ -107,7 +107,7 @@ char* AdvanceGzTokenStream(GzTokenStream* gtsp, uint32_t* token_slen_ptr) {
     }
     char* load_start = &(gtsp->buf_start[kMaxMediumLine]);
     const int32_t bufsize = gzread(gtsp->gz_infile, load_start, kMaxMediumLine);
-    if (bufsize < 0) {
+    if (unlikely(bufsize < 0)) {
       *token_slen_ptr = UINT32_MAXM1;
       return nullptr;
     }
@@ -116,7 +116,7 @@ char* AdvanceGzTokenStream(GzTokenStream* gtsp, uint32_t* token_slen_ptr) {
     buf_end[1] = '0';
     gtsp->buf_end = buf_end;
     if (!bufsize) {
-      if (!gzeof(gtsp->gz_infile)) {
+      if (unlikely(!gzeof(gtsp->gz_infile))) {
         *token_slen_ptr = UINT32_MAXM1;
         return nullptr;
       }
@@ -158,13 +158,13 @@ void PreinitRLstream(ReadLineStream* rlsp) {
 PglErr IsBgzf(const char* fname, uint32_t* is_bgzf_ptr) {
   // This takes the place of htslib check_header().
   FILE* infile = fopen(fname, FOPEN_RB);
-  if (!infile) {
+  if (unlikely(!infile)) {
     // Note that this does not print an error message (since it may be called
     // by a worker thread).
     return kPglRetOpenFail;
   }
   unsigned char buf[16];
-  if (!fread_unlocked(buf, 16, 1, infile)) {
+  if (unlikely(!fread_unlocked(buf, 16, 1, infile))) {
     fclose(infile);
     return kPglRetReadFail;
   }
@@ -213,7 +213,7 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
       uintptr_t read_attempt_size = read_stop - read_head;
       if (!read_attempt_size) {
         const uint32_t memmove_required = (read_stop == buf_end);
-        if ((cur_block_start == buf) && memmove_required) {
+        if (unlikely((cur_block_start == buf) && memmove_required)) {
           goto ReadLineStreamThread_LONG_LINE;
         }
         // We cannot continue reading forward.  Cases:
@@ -312,7 +312,7 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
       int32_t bytes_read;
       if (bgz_infile) {
         bytes_read = bgzf_read(bgz_infile, read_head, read_attempt_size);
-        if (bytes_read == -1) {
+        if (unlikely(bytes_read == -1)) {
           goto ReadLineStreamThread_READ_FAIL;
         }
       } else {
@@ -321,7 +321,7 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
       char* cur_read_end = &(read_head[S_CAST(uint32_t, bytes_read)]);
       if (bytes_read < S_CAST(int32_t, S_CAST(uint32_t, read_attempt_size))) {
         if (!bgz_infile) {
-          if (!gzeof(gz_infile)) {
+          if (unlikely(!gzeof(gz_infile))) {
             goto ReadLineStreamThread_READ_FAIL;
           }
         }
@@ -338,7 +338,7 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
       char* last_lf = Memrchr(read_head, '\n', read_attempt_size);
       if (last_lf) {
         if (S_CAST(uintptr_t, last_lf - cur_block_start) >= enforced_max_line_blen) {
-          if (!memchr(read_head, '\n', &(cur_block_start[enforced_max_line_blen]) - read_head)) {
+          if (unlikely(!memchr(read_head, '\n', &(cur_block_start[enforced_max_line_blen]) - read_head))) {
             goto ReadLineStreamThread_LONG_LINE;
           }
         }
@@ -484,11 +484,11 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
     assert(interrupt == kRlsInterruptRetarget);
     if (!new_fname) {
       if (bgz_infile) {
-        if (bgzf_seek(bgz_infile, 0, SEEK_SET)) {
+        if (unlikely(bgzf_seek(bgz_infile, 0, SEEK_SET))) {
           goto ReadLineStreamThread_READ_FAIL;
         }
       } else {
-        if (gzrewind(gz_infile)) {
+        if (unlikely(gzrewind(gz_infile))) {
           goto ReadLineStreamThread_READ_FAIL;
         }
       }
@@ -506,18 +506,18 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
 
       uint32_t new_file_is_bgzf;
       reterr = IsBgzf(new_fname, &new_file_is_bgzf);
-      if (reterr) {
+      if (unlikely(reterr)) {
         goto ReadLineStreamThread_OPEN_OR_READ_FAIL;
       }
       if (new_file_is_bgzf) {
         bgz_infile = bgzf_open(new_fname, "r");
         context->bgz_infile = bgz_infile;
-        if (!bgz_infile) {
+        if (unlikely(!bgz_infile)) {
           goto ReadLineStreamThread_OPEN_FAIL;
         }
 #ifndef _WIN32
         if (context->bgzf_decompress_thread_ct > 1) {
-          if (bgzf_mt(bgz_infile, context->bgzf_decompress_thread_ct, 128)) {
+          if (unlikely(bgzf_mt(bgz_infile, context->bgzf_decompress_thread_ct, 128))) {
             goto ReadLineStreamThread_NOMEM;
           }
         }
@@ -527,10 +527,10 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
         // threads may write to g_logbuf simultaneously.
         gz_infile = gzopen(new_fname, FOPEN_RB);
         context->gz_infile = gz_infile;
-        if (!gz_infile) {
+        if (unlikely(!gz_infile)) {
           goto ReadLineStreamThread_OPEN_FAIL;
         }
-        if (gzbuffer(gz_infile, 131072)) {
+        if (unlikely(gzbuffer(gz_infile, 131072))) {
           // is this actually possible?
           goto ReadLineStreamThread_NOMEM;
         }
@@ -559,13 +559,13 @@ PglErr RlsOpenMaybeBgzf(const char* fname, __maybe_unused uint32_t calc_thread_c
   }
   if (file_is_bgzf) {
     rlsp->bgz_infile = bgzf_open(fname, "r");
-    if (!rlsp->bgz_infile) {
+    if (unlikely(!rlsp->bgz_infile)) {
       return kPglRetOpenFail;
     }
 #ifndef _WIN32
     if (calc_thread_ct > 1) {
       // note that the third parameter is now irrelevant
-      if (bgzf_mt(rlsp->bgz_infile, calc_thread_ct, 128)) {
+      if (unlikely(bgzf_mt(rlsp->bgz_infile, calc_thread_ct, 128))) {
         return kPglRetNomem;
       }
     }
@@ -575,10 +575,10 @@ PglErr RlsOpenMaybeBgzf(const char* fname, __maybe_unused uint32_t calc_thread_c
     rlsp->bgzf_decompress_thread_ct = calc_thread_ct;
   } else {
     rlsp->gz_infile = gzopen(fname, FOPEN_RB);
-    if (!rlsp->gz_infile) {
+    if (unlikely(!rlsp->gz_infile)) {
       return kPglRetOpenFail;
     }
-    if (gzbuffer(rlsp->gz_infile, 131072)) {
+    if (unlikely(gzbuffer(rlsp->gz_infile, 131072))) {
       return kPglRetNomem;
     }
   }
@@ -595,7 +595,7 @@ PglErr InitRLstreamEx(uint32_t alloc_at_end, uint32_t enforced_max_line_blen, ui
     const uintptr_t sync_byte_ct = RoundUpPow2(sizeof(ReadLineStreamSync) + 1, kCacheline);
     const uintptr_t buf_byte_ct = RoundUpPow2(max_line_blen + kDecompressChunkSize, kCacheline);
     const uintptr_t tot_byte_ct = sync_byte_ct + buf_byte_ct;
-    if (RoundDownPow2(bigstack_left(), kCacheline) < tot_byte_ct) {
+    if (unlikely(RoundDownPow2(bigstack_left(), kCacheline) < tot_byte_ct)) {
       goto InitRLstreamEx_ret_NOMEM;
     }
     ReadLineStreamSync* syncp;
@@ -624,38 +624,38 @@ PglErr InitRLstreamEx(uint32_t alloc_at_end, uint32_t enforced_max_line_blen, ui
     InitializeCriticalSection(&syncp->critical_section);
 
     rlsp->reader_progress_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-    if (!rlsp->reader_progress_event) {
+    if (unlikely(!rlsp->reader_progress_event)) {
       DeleteCriticalSection(&syncp->critical_section);
       goto InitRLstreamEx_ret_THREAD_CREATE_FAIL;
     }
     rlsp->consumer_progress_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-    if (!rlsp->consumer_progress_event) {
+    if (unlikely(!rlsp->consumer_progress_event)) {
       DeleteCriticalSection(&syncp->critical_section);
       CloseHandle(rlsp->reader_progress_event);
       goto InitRLstreamEx_ret_THREAD_CREATE_FAIL;
     }
     rlsp->read_thread = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStack, ReadLineStreamThread, rlsp, 0, nullptr));
-    if (!rlsp->read_thread) {
+    if (unlikely(!rlsp->read_thread)) {
       DeleteCriticalSection(&syncp->critical_section);
       CloseHandle(rlsp->consumer_progress_event);
       CloseHandle(rlsp->reader_progress_event);
       goto InitRLstreamEx_ret_THREAD_CREATE_FAIL;
     }
 #else
-    if (pthread_mutex_init(&syncp->sync_mutex, nullptr)) {
+    if (unlikely(pthread_mutex_init(&syncp->sync_mutex, nullptr))) {
       goto InitRLstreamEx_ret_THREAD_CREATE_FAIL;
     }
     rlsp->sync_init_state = 1;
-    if (pthread_cond_init(&syncp->reader_progress_condvar, nullptr)) {
+    if (unlikely(pthread_cond_init(&syncp->reader_progress_condvar, nullptr))) {
       goto InitRLstreamEx_ret_THREAD_CREATE_FAIL;
     }
     rlsp->sync_init_state = 2;
     syncp->consumer_progress_state = 0;
-    if (pthread_cond_init(&syncp->consumer_progress_condvar, nullptr)) {
+    if (unlikely(pthread_cond_init(&syncp->consumer_progress_condvar, nullptr))) {
       goto InitRLstreamEx_ret_THREAD_CREATE_FAIL;
     }
     rlsp->sync_init_state = 3;
-    if (pthread_create(&rlsp->read_thread, &g_smallstack_thread_attr, ReadLineStreamThread, rlsp)) {
+    if (unlikely(pthread_create(&rlsp->read_thread, &g_smallstack_thread_attr, ReadLineStreamThread, rlsp))) {
       goto InitRLstreamEx_ret_THREAD_CREATE_FAIL;
     }
     rlsp->sync_init_state = 4;
@@ -682,7 +682,7 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
   while (1) {
     EnterCriticalSection(critical_sectionp);
     const PglErr reterr = syncp->reterr;
-    if ((reterr != kPglRetSuccess) && (reterr != kPglRetEof)) {
+    if (unlikely((reterr != kPglRetSuccess) && (reterr != kPglRetEof))) {
       LeaveCriticalSection(critical_sectionp);
       // No need to set consumer_progress event here, just let the cleanup
       // routine take care of that.
@@ -740,7 +740,7 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
   pthread_mutex_lock(sync_mutexp);
   while (1) {
     const PglErr reterr = syncp->reterr;
-    if ((reterr != kPglRetSuccess) && (reterr != kPglRetEof)) {
+    if (unlikely((reterr != kPglRetSuccess) && (reterr != kPglRetEof))) {
       pthread_mutex_unlock(sync_mutexp);
       return reterr;
     }
@@ -807,6 +807,7 @@ PglErr RlsNextNonemptyLstrip(ReadLineStream* rlsp, uintptr_t* line_idx_ptr, char
     ++line_idx;
     consume_iter = AdvPastDelim(consume_iter, '\n');
     PglErr reterr = RlsPostlfNext(rlsp, &consume_iter);
+    // not unlikely() due to eof
     if (reterr) {
       return reterr;
     }
@@ -855,6 +856,7 @@ PglErr RlsSkipNz(uintptr_t skip_ct, ReadLineStream* rlsp, char** consume_iterp) 
     skip_ct -= cur_lf_ct;
     consume_iter = rlsp->consume_stop;
     PglErr reterr = AdvanceRLstream(rlsp, &consume_iter);
+    // not unlikely() due to eof
     if (reterr) {
       return reterr;
     }
@@ -886,7 +888,7 @@ PglErr RetargetRLstreamRaw(const char* new_fname, ReadLineStream* rlsp, char** c
   EnterCriticalSection(critical_sectionp);
   const PglErr reterr = syncp->reterr;
   if (reterr != kPglRetSuccess) {
-    if (reterr != kPglRetEof) {
+    if (unlikely(reterr != kPglRetEof)) {
       LeaveCriticalSection(critical_sectionp);
       return reterr;
     }
@@ -916,7 +918,7 @@ PglErr RetargetRLstreamRaw(const char* new_fname, ReadLineStream* rlsp, char** c
   pthread_mutex_lock(sync_mutexp);
   const PglErr reterr = syncp->reterr;
   if (reterr != kPglRetSuccess) {
-    if (reterr != kPglRetEof) {
+    if (unlikely(reterr != kPglRetEof)) {
       pthread_mutex_unlock(sync_mutexp);
       return reterr;
     }
@@ -978,11 +980,11 @@ PglErr CleanupRLstream(ReadLineStream* rlsp) {
   }
 #endif
   if (rlsp->gz_infile) {
-    if (gzclose_null(&rlsp->gz_infile)) {
+    if (unlikely(gzclose_null(&rlsp->gz_infile))) {
       reterr = kPglRetReadFail;
     }
   } else if (rlsp->bgz_infile) {
-    if (bgzf_close(rlsp->bgz_infile)) {
+    if (unlikely(bgzf_close(rlsp->bgz_infile))) {
       reterr = kPglRetReadFail;
     }
     rlsp->bgz_infile = nullptr;

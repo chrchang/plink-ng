@@ -28,6 +28,9 @@
 
 #ifdef __cplusplus
 #  include <algorithm>
+#  if __cplusplus >= 201703L
+#    include <execution>
+#  endif
 #  ifdef _WIN32
     // Windows C++11 <algorithm> resets these values :(
 #    undef PRIu64
@@ -67,8 +70,18 @@
 
 #ifdef __cplusplus
 #  define STD_SORT(ct, fallback_cmp, arr) std::sort(&((arr)[0]), (&((arr)[ct])))
+#  if __cplusplus >= 201703L
+// this should only be used for arrays of length >= variant_ct or sample_ct
+// (sample_ct is cutting it close).
+// macro should still be used in e.g. non-__cplusplus blocks, so that we have
+// the option of falling back on a hand-coded parallel sort.
+#    define STD_SORT_PAR_UNSEQ(ct, fallback_cmp, arr) std::sort(std::par_unseq, &((arr)[0]), (&((arr)[ct])))
+#  else
+#    define STD_SORT_PAR_UNSEQ(ct, fallback_cmp, arr) std::sort(&((arr)[0]), (&((arr)[ct])))
+#  endif
 #else
 #  define STD_SORT(ct, fallback_cmp, arr) qsort((arr), (ct), sizeof(*(arr)), (fallback_cmp))
+#  define STD_SORT_PAR_UNSEQ(ct, fallback_cmp, arr) qsort((arr), (ct), sizeof(*(arr)), (fallback_cmp))
 #endif
 
 #ifdef __cplusplus
@@ -648,12 +661,14 @@ HEADER_INLINE char* ScanadvDouble(char* str_iter, double* valp) {
 }
 #endif
 
+// remove unlikely() if any caller ever tries to reparse the string as
+// something else in error case (this is a valid ScanadvDouble() use case)
 HEADER_INLINE BoolErr ScanFloat(const char* ss, float* valp) {
   double dxx;
-  if (!ScanadvDouble(ss, &dxx)) {
+  if (unlikely(!ScanadvDouble(ss, &dxx))) {
     return 1;
   }
-  if (fabs(dxx) > 3.4028235677973362e38) {
+  if (unlikely(fabs(dxx) > 3.4028235677973362e38)) {
     return 1;
   }
   *valp = S_CAST(float, dxx);

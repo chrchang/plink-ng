@@ -88,7 +88,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
   PreinitCstream(&css);
   {
     AdjAssocResult* sortbuf;
-    if (BIGSTACK_ALLOC_X(AdjAssocResult, orig_allele_ct, &sortbuf)) {
+    if (unlikely(BIGSTACK_ALLOC_X(AdjAssocResult, orig_allele_ct, &sortbuf))) {
       goto Multcomp_ret_NOMEM;
     }
     uintptr_t valid_allele_ct = 0;
@@ -206,7 +206,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     const uint32_t output_zst = flags & kfAdjustZs;
     OutnameZstSet(".adjusted", output_zst, outname_end);
     reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
-    if (reterr) {
+    if (unlikely(reterr)) {
       goto Multcomp_ret_1;
     }
     *cswritep++ = '#';
@@ -295,7 +295,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     }
     double* ln_pv_by = nullptr;
     if (flags & kfAdjustColFdrby) {
-      if (bigstack_alloc_d(valid_allele_ct, &ln_pv_by)) {
+      if (unlikely(bigstack_alloc_d(valid_allele_ct, &ln_pv_by))) {
         goto Multcomp_ret_NOMEM;
       }
       if (is_neglog10) {
@@ -309,13 +309,15 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     double* ln_pv_bh;
     double* ln_pv_gc;
     double* unadj_sorted_ln_pvals;
-    if (bigstack_alloc_d(valid_allele_ct, &ln_pv_bh) ||
-        bigstack_alloc_d(valid_allele_ct, &ln_pv_gc) ||
-        bigstack_alloc_d(valid_allele_ct, &unadj_sorted_ln_pvals)) {
+    if (unlikely(
+          bigstack_alloc_d(valid_allele_ct, &ln_pv_bh) ||
+          bigstack_alloc_d(valid_allele_ct, &ln_pv_gc) ||
+          bigstack_alloc_d(valid_allele_ct, &unadj_sorted_ln_pvals))) {
       goto Multcomp_ret_NOMEM;
     }
 
-    STD_SORT(valid_allele_ct, double_cmp, sortbuf);
+    STD_SORT_PAR_UNSEQ(valid_allele_ct, double_cmp, sortbuf);
+    ;;;
 
     double lambda_recip = 1.0;
     if (!skip_gc) {
@@ -428,7 +430,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
       if (alt_col) {
         *cswritep++ = '\t';
         for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct; ++allele_idx) {
-          if (Cswrite(&css, &cswritep)) {
+          if (unlikely(Cswrite(&css, &cswritep))) {
             goto Multcomp_ret_WRITE_FAIL;
           }
           cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
@@ -532,11 +534,11 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
         adjust_print_ln(output_min_p_buf, ln_pv_by[aidx], output_min_ln, output_min_p_slen, is_neglog10, &cswritep);
       }
       AppendBinaryEoln(&cswritep);
-      if (Cswrite(&css, &cswritep)) {
+      if (unlikely(Cswrite(&css, &cswritep))) {
         goto Multcomp_ret_WRITE_FAIL;
       }
     }
-    if (CswriteCloseNull(&css, cswritep)) {
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
       goto Multcomp_ret_WRITE_FAIL;
     }
     // don't use valid_allele_ct due to --pfilter
@@ -572,14 +574,14 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     // (some overlap with LoadPvar(), though that's one-pass.)
     const char* line_iter;
     reterr = SizeAndInitRLstreamRawK(in_fname, bigstack_left() / 4, &adjust_rls, &line_iter);
-    if (reterr) {
+    if (unlikely(reterr)) {
       goto AdjustFile_ret_1;
     }
 
     do {
       ++line_idx;
       reterr = RlsNextLstripK(&adjust_rls, &line_iter);
-      if (reterr) {
+      if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", in_fname);
           goto AdjustFile_ret_MALFORMED_INPUT_WW;
@@ -608,7 +610,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     const uint32_t need_alt = (flags & (kfAdjustColAlt1 | kfAdjustColAlt));
     uint32_t check_a1 = (flags & kfAdjustColA1);
     const uint32_t alt_comma_truncate = (need_alt == kfAdjustColAlt1);
-    if (need_alt == (kfAdjustColAlt1 | kfAdjustColAlt)) {
+    if (unlikely(need_alt == (kfAdjustColAlt1 | kfAdjustColAlt))) {
       // Could theoretically support this later (allocate allele_idx_offsets
       // and count # of multiallelic variants in first pass, etc.), but
       // unlikely to be relevant.
@@ -632,10 +634,10 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     uint32_t relevant_col_ct;
     uint32_t found_type_bitset;
     reterr = SearchHeaderLine(linebuf_first_token, col_search_order, "adjust-file", 8, &relevant_col_ct, &found_type_bitset, col_skips, col_types);
-    if (reterr) {
+    if (unlikely(reterr)) {
       goto AdjustFile_ret_1;
     }
-    if ((found_type_bitset & 0x44) != 0x44) {
+    if (unlikely((found_type_bitset & 0x44) != 0x44)) {
       logerrputs("Error: --adjust-file requires ID and P columns.\n");
       goto AdjustFile_ret_INCONSISTENT_INPUT;
     }
@@ -654,27 +656,27 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
         }
         ++relevant_col_idx;
       }
-    } else if (found_type_bitset & 0x40) {
+    } else if (unlikely(found_type_bitset & 0x40)) {
       snprintf(g_logbuf, kLogbufSize, "Error: TEST column present in %s, but no test= parameter was provided to --adjust-file.\n", in_fname);
       goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
     }
-    if (need_chr && (!(found_type_bitset & 0x1))) {
+    if (unlikely(need_chr && (!(found_type_bitset & 0x1)))) {
       snprintf(g_logbuf, kLogbufSize, "Error: No chromosome column in %s.\n", in_fname);
       goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
     }
-    if (need_pos && (!(found_type_bitset & 0x2))) {
+    if (unlikely(need_pos && (!(found_type_bitset & 0x2)))) {
       snprintf(g_logbuf, kLogbufSize, "Error: No bp coordinate column in %s.\n", in_fname);
       goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
     }
-    if (need_ref && (!(found_type_bitset & 0x8))) {
+    if (unlikely(need_ref && (!(found_type_bitset & 0x8)))) {
       snprintf(g_logbuf, kLogbufSize, "Error: No REF column in %s.\n", in_fname);
       goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
     }
-    if (need_alt && (!(found_type_bitset & 0x10))) {
+    if (unlikely(need_alt && (!(found_type_bitset & 0x10)))) {
       snprintf(g_logbuf, kLogbufSize, "Error: No ALT column in %s.\n", in_fname);
       goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
     }
-    if (check_a1 && (!(found_type_bitset & 0x20))) {
+    if (unlikely(check_a1 && (!(found_type_bitset & 0x20)))) {
       snprintf(g_logbuf, kLogbufSize, "Warning: No A1 column in %s. Omitting from output.\n", in_fname);
       check_a1 = 0;
     }
@@ -683,7 +685,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     while (1) {
       reterr = RlsNextNonemptyLstripK(&adjust_rls, &line_idx, &line_iter);
       if (reterr) {
-        if (reterr == kPglRetEof) {
+        if (likely(reterr == kPglRetEof)) {
           // reterr = kPglRetSuccess;
           break;
         }
@@ -692,7 +694,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       if (test_name) {
         // Don't count different-test entries.
         line_iter = NextTokenMult0(line_iter, test_col_idx);
-        if (!line_iter) {
+        if (unlikely(!line_iter)) {
           goto AdjustFile_ret_MISSING_TOKENS;
         }
         const char* test_name_start = line_iter;
@@ -705,7 +707,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       ++entry_ct;
     }
 #ifdef __LP64__
-    // probably want to permit this later
+    // probably want to permit this soon
     if (entry_ct > 0xffffffffU) {
       logerrputs("Error: Too many entries for --adjust-file.\n");
       goto AdjustFile_ret_INCONSISTENT_INPUT;
@@ -718,7 +720,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     do {
       ++line_idx;
       reterr = RlsNextLstripK(&adjust_rls, &line_iter);
-      if (reterr) {
+      if (unlikely(reterr)) {
         goto AdjustFile_ret_READ_FAIL;
       }
     } while (strequal_k_unsafe(line_iter, "##"));
@@ -728,8 +730,9 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     const uintptr_t entry_ctl2 = QuaterCtToWordCt(entry_ct);
     uintptr_t* variant_include_dummy;
     uintptr_t* allele_include_dummy;
-    if (bigstack_alloc_w(entry_ctl, &variant_include_dummy) ||
-        bigstack_alloc_w(entry_ctl2, &allele_include_dummy)) {
+    if (unlikely(
+          bigstack_alloc_w(entry_ctl, &variant_include_dummy) ||
+          bigstack_alloc_w(entry_ctl2, &allele_include_dummy))) {
       goto AdjustFile_ret_NOMEM;
     }
     SetAllBits(entry_ct, variant_include_dummy);
@@ -742,7 +745,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     }
     char** chr_ids;
     if (need_chr) {
-      if (bigstack_alloc_cp(entry_ct, &chr_ids)) {
+      if (unlikely(bigstack_alloc_cp(entry_ct, &chr_ids))) {
         goto AdjustFile_ret_NOMEM;
       }
     } else {
@@ -750,7 +753,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     }
     uint32_t* variant_bps;
     if (need_pos) {
-      if (bigstack_alloc_u32(entry_ct, &variant_bps)) {
+      if (unlikely(bigstack_alloc_u32(entry_ct, &variant_bps))) {
         goto AdjustFile_ret_NOMEM;
       }
     } else {
@@ -758,13 +761,14 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     }
     char** variant_ids;
     double* ln_pvals;
-    if (bigstack_alloc_cp(entry_ct, &variant_ids) ||
-        bigstack_alloc_d(entry_ct, &ln_pvals)) {
+    if (unlikely(
+          bigstack_alloc_cp(entry_ct, &variant_ids) ||
+          bigstack_alloc_d(entry_ct, &ln_pvals))) {
       goto AdjustFile_ret_NOMEM;
     }
     char** allele_storage;
     if (need_ref || need_alt) {
-      if (bigstack_alloc_cp(entry_ct * 2, &allele_storage)) {
+      if (unlikely(bigstack_alloc_cp(entry_ct * 2, &allele_storage))) {
         goto AdjustFile_ret_NOMEM;
       }
     } else {
@@ -772,7 +776,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     }
     char** a1_storage;
     if (check_a1) {
-      if (bigstack_alloc_cp(entry_ct, &a1_storage)) {
+      if (unlikely(bigstack_alloc_cp(entry_ct, &a1_storage))) {
         goto AdjustFile_ret_NOMEM;
       }
     } else {
@@ -784,7 +788,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     uintptr_t variant_idx = 0;
     while (line_idx < line_ct) {
       ++line_idx;
-      if (RlsNextLstripK(&adjust_rls, &line_iter)) {
+      if (unlikely(RlsNextLstripK(&adjust_rls, &line_iter))) {
         goto AdjustFile_ret_READ_FAIL;
       }
       if (IsEolnKns(*line_iter)) {
@@ -793,7 +797,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       const char* token_ptrs[8];
       uint32_t token_slens[8];
       line_iter = TokenLexK0(line_iter, col_types, col_skips, relevant_col_ct, token_ptrs, token_slens);
-      if (!line_iter) {
+      if (unlikely(!line_iter)) {
         goto AdjustFile_ret_MISSING_TOKENS;
       }
       if (test_name) {
@@ -803,7 +807,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       }
       if (chr_ids) {
         const uint32_t cur_slen = token_slens[0];
-        if (cur_slen >= S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base)) {
+        if (unlikely(cur_slen >= S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base))) {
           goto AdjustFile_ret_NOMEM;
         }
         chr_ids[variant_idx] = R_CAST(char*, tmp_alloc_base);
@@ -811,13 +815,13 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
         tmp_alloc_base = &(tmp_alloc_base[cur_slen + 1]);
       }
       if (variant_bps) {
-        if (ScanUintDefcap(token_ptrs[1], &(variant_bps[variant_idx]))) {
+        if (unlikely(ScanUintDefcap(token_ptrs[1], &(variant_bps[variant_idx])))) {
           snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, in_fname);
           goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
         }
       }
       const uint32_t id_slen = token_slens[2];
-      if (id_slen >= S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base)) {
+      if (unlikely(id_slen >= S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base))) {
         goto AdjustFile_ret_NOMEM;
       }
       variant_ids[variant_idx] = R_CAST(char*, tmp_alloc_base);
@@ -825,7 +829,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       tmp_alloc_base = &(tmp_alloc_base[id_slen + 1]);
       if (need_ref) {
         const uint32_t cur_slen = token_slens[3];
-        if (cur_slen >= S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base)) {
+        if (unlikely(cur_slen >= S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base))) {
           goto AdjustFile_ret_NOMEM;
         }
         allele_storage[2 * variant_idx] = R_CAST(char*, tmp_alloc_base);
@@ -841,7 +845,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
             cur_slen = alt_comma - alt_str;
           }
         }
-        if (cur_slen >= S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base)) {
+        if (unlikely(cur_slen >= S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base))) {
           goto AdjustFile_ret_NOMEM;
         }
         allele_storage[2 * variant_idx + 1] = R_CAST(char*, tmp_alloc_base);
@@ -850,7 +854,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       }
       if (check_a1) {
         const uint32_t cur_slen = token_slens[5];
-        if (cur_slen >= S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base)) {
+        if (unlikely(cur_slen >= S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base))) {
           goto AdjustFile_ret_NOMEM;
         }
         a1_storage[variant_idx] = R_CAST(char*, tmp_alloc_base);
@@ -866,8 +870,9 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
           cur_slen = token_slens[7];
           if (IsNanStr(pval_str, cur_slen)) {
             ln_pval = kLnPvalError;
-          } else if (strequal_k(pval_str, "INF", cur_slen) ||
-                     (input_log10 && strequal_k(pval_str, "inf", cur_slen))) {
+          } else if (likely(
+                       strequal_k(pval_str, "INF", cur_slen) ||
+                       (input_log10 && strequal_k(pval_str, "inf", cur_slen)))) {
             // From plink 1.x, could be anything smaller than log(5e-324).
             // Just fill with log(5e-324) for now.
             ln_pval = kLnDenormalMin;
@@ -881,7 +886,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
           goto AdjustFile_alphabetic_pval;
         }
         ln_pval = neglog10_pval * (-kLn10);
-        if (ln_pval > 0.0) {
+        if (unlikely(ln_pval > 0.0)) {
           goto AdjustFile_ret_INVALID_PVAL;
         }
       }
@@ -890,8 +895,8 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     }
     BigstackEndReset(bigstack_end_mark);
     BigstackBaseSet(tmp_alloc_base);
-    reterr = Multcomp(variant_include_dummy, nullptr, TO_CONSTCPCONSTP(chr_ids), variant_bps, TO_CONSTCPCONSTP(variant_ids), allele_include_dummy, nullptr, TO_CONSTCPCONSTP(allele_storage), a1_storage, &(afip->base), ln_pvals, nullptr, entry_ct, max_allele_slen, ln_pfilter, output_min_ln, 0, max_thread_ct, outname, outname_end);
-    if (reterr) {
+    reterr = Multcomp(variant_include_dummy, nullptr, TO_CONSTCPCONSTP(chr_ids), variant_bps, TO_CONSTCPCONSTP(variant_ids), allele_include_dummy, nullptr, TO_CONSTCPCONSTP(allele_storage), TO_CONSTCPCONSTP(a1_storage), &(afip->base), ln_pvals, nullptr, entry_ct, max_allele_slen, ln_pfilter, output_min_ln, 0, max_thread_ct, outname, outname_end);
+    if (unlikely(reterr)) {
       goto AdjustFile_ret_1;
     }
   }

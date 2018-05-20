@@ -492,9 +492,13 @@ HEADER_INLINE void* bigstack_alloc_raw_rd(uintptr_t size) {
 }
 
 // Basic 64-byte-aligned allocation at bottom of stack.
+// Note that --make-pgen switches gracefully to a less memory-hungry algorithm
+// when it encounters an allocation failure with its default algorithm.  Since
+// it can only happen once, unlikely() is still justified, but keep an eye on
+// this.
 HEADER_INLINE void* bigstack_alloc(uintptr_t size) {
   size = RoundUpPow2(size, kCacheline);
-  if (bigstack_left() < size) {
+  if (unlikely(bigstack_left() < size)) {
     g_failed_alloc_attempt_size = size;
     return nullptr;
   }
@@ -956,7 +960,7 @@ HEADER_INLINE void* arena_end_alloc_raw(uintptr_t size, unsigned char** arena_to
 
 HEADER_INLINE void* arena_end_alloc(unsigned char* arena_bottom, uintptr_t size, unsigned char** arena_top_ptr) {
   size = RoundUpPow2(size, kEndAllocAlign);
-  if (S_CAST(uintptr_t, (*arena_top_ptr) - arena_bottom) < size) {
+  if (unlikely(S_CAST(uintptr_t, (*arena_top_ptr) - arena_bottom) < size)) {
     g_failed_alloc_attempt_size = size;
     return nullptr;
   }

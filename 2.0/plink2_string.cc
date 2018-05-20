@@ -465,13 +465,13 @@ void SortStrboxIndexed2Fallback(uintptr_t str_ct, uintptr_t max_str_blen, uint32
     wkspace_alias[str_idx].orig_idx = id_map[str_idx];
   }
   if (!use_nsort) {
-    STD_SORT(str_ct, strcmp_deref, wkspace_alias);
+    STD_SORT_PAR_UNSEQ(str_ct, strcmp_deref, wkspace_alias);
   } else {
 #ifdef __cplusplus
     StrNsortIndexedDeref* wkspace_alias2 = R_CAST(StrNsortIndexedDeref*, wkspace_alias);
-    std::sort(wkspace_alias2, &(wkspace_alias2[str_ct]));
+    STD_SORT_PAR_UNSEQ(str_ct, nullptr, wkspace_alias2);
 #else
-    STD_SORT(str_ct, strcmp_natural_deref, wkspace_alias);
+    STD_SORT_PAR_UNSEQ(str_ct, strcmp_natural_deref, wkspace_alias);
 #endif
   }
   for (uintptr_t str_idx = 0; str_idx < str_ct; ++str_idx) {
@@ -543,9 +543,9 @@ static_assert(sizeof(WordCmp64b) == 64, "WordCmp64b does not have the expected s
 void SortStrbox40bFinish(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, Strbuf36Ui* filled_wkspace, char* sorted_strbox, uint32_t* id_map) {
   if (!use_nsort) {
     WordCmp40b* wkspace_alias = R_CAST(WordCmp40b*, filled_wkspace);
-    std::sort(wkspace_alias, &(wkspace_alias[str_ct]));
+    STD_SORT_PAR_UNSEQ(str_ct, nullptr, wkspace_alias);
   } else {
-    std::sort(filled_wkspace, &(filled_wkspace[str_ct]));
+    STD_SORT_PAR_UNSEQ(str_ct, nullptr, filled_wkspace);
   }
   for (uintptr_t str_idx = 0; str_idx < str_ct; ++str_idx) {
     strcpy(&(sorted_strbox[str_idx * max_str_blen]), filled_wkspace[str_idx].strbuf);
@@ -556,9 +556,9 @@ void SortStrbox40bFinish(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_
 void SortStrbox64bFinish(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, Strbuf60Ui* filled_wkspace, char* sorted_strbox, uint32_t* id_map) {
   if (!use_nsort) {
     WordCmp64b* wkspace_alias = R_CAST(WordCmp64b*, filled_wkspace);
-    std::sort(wkspace_alias, &(wkspace_alias[str_ct]));
+    STD_SORT_PAR_UNSEQ(str_ct, nullptr, wkspace_alias);
   } else {
-    std::sort(filled_wkspace, &(filled_wkspace[str_ct]));
+    STD_SORT_PAR_UNSEQ(str_ct, nullptr, filled_wkspace);
   }
   for (uintptr_t str_idx = 0; str_idx < str_ct; ++str_idx) {
     strcpy(&(sorted_strbox[str_idx * max_str_blen]), filled_wkspace[str_idx].strbuf);
@@ -599,7 +599,7 @@ BoolErr SortStrboxIndexedMalloc(uintptr_t str_ct, uintptr_t max_str_blen, char* 
   }
   const uintptr_t wkspace_entry_blen = GetStrboxsortWentryBlen(max_str_blen);
   unsigned char* sort_wkspace;
-  if (pgl_malloc(str_ct * wkspace_entry_blen, &sort_wkspace)) {
+  if (unlikely(pgl_malloc(str_ct * wkspace_entry_blen, &sort_wkspace))) {
     return 1;
   }
   SortStrboxIndexed2(str_ct, max_str_blen, 0, strbox, id_map, sort_wkspace);
@@ -631,13 +631,13 @@ uint32_t CopyAndDedupSortedStrptrsToStrbox(const char* const* sorted_strptrs, ui
 
 void StrptrArrSortMain(uintptr_t str_ct, uint32_t use_nsort, StrSortIndexedDeref* wkspace_alias) {
   if (!use_nsort) {
-    STD_SORT(str_ct, strcmp_deref, wkspace_alias);
+    STD_SORT_PAR_UNSEQ(str_ct, strcmp_deref, wkspace_alias);
   } else {
 #ifdef __cplusplus
     StrNsortIndexedDeref* wkspace_alias2 = R_CAST(StrNsortIndexedDeref*, wkspace_alias);
-    std::sort(wkspace_alias2, &(wkspace_alias2[str_ct]));
+    STD_SORT_PAR_UNSEQ(str_ct, nullptr, wkspace_alias2);
 #else
-    STD_SORT(str_ct, strcmp_natural_deref, wkspace_alias);
+    STD_SORT_PAR_UNSEQ(str_ct, strcmp_natural_deref, wkspace_alias);
 #endif
   }
 }
@@ -803,22 +803,22 @@ BoolErr ScanPosintptr(const char* str_iter, uintptr_t* valp) {
   uintptr_t val = ctow(*str_iter++) - 48;
   if (val >= 10) {
 #ifdef __LP64__
-    if (val != 0xfffffffffffffffbLLU) {
+    if (unlikely(val != 0xfffffffffffffffbLLU)) {
       return 1;
     }
 #else
-    if (val != 0xfffffffbU) {
+    if (unlikely(val != 0xfffffffbU)) {
       return 1;
     }
 #endif
     val = ctow(*str_iter++) - 48;
-    if (val >= 10) {
+    if (unlikely(val >= 10)) {
       return 1;
     }
   }
   while (!val) {
     val = ctow(*str_iter++) - 48;
-    if (val >= 10) {
+    if (unlikely(val >= 10)) {
       return 1;
     }
   }
@@ -836,7 +836,7 @@ BoolErr ScanPosintptr(const char* str_iter, uintptr_t* valp) {
     }
     const uintptr_t cur_digit2 = ctow(*str_iter++) - 48;
     if (str_iter == str_limit) {
-      if ((cur_digit2 < 10) || ((val >= (~k0LU) / 10) && ((val > (~k0LU) / 10) || (cur_digit > (~k0LU) % 10)))) {
+      if (unlikely((cur_digit2 < 10) || ((val >= (~k0LU) / 10) && ((val > (~k0LU) / 10) || (cur_digit > (~k0LU) % 10))))) {
         return 1;
       }
       *valp = val * 10 + cur_digit;
@@ -864,13 +864,13 @@ static inline BoolErr ScanmovUintCappedFinish(uint64_t cap, const char** str_ite
     const uint64_t cur_digit2 = ctou64(*str_iter++) - 48;
     if (cur_digit2 >= 10) {
       val = val * 10 + cur_digit;
-      if (val > cap) {
+      if (unlikely(val > cap)) {
         return 1;
       }
       break;
     }
     val = val * 100 + cur_digit * 10 + cur_digit2;
-    if (val > cap) {
+    if (unlikely(val > cap)) {
       return 1;
     }
   }
@@ -883,17 +883,17 @@ BoolErr ScanmovPosintCapped(uint64_t cap, const char** str_iterp, uint32_t* valp
   const char* str_iter = *str_iterp;
   *valp = ctou32(*str_iter++) - 48;
   if (*valp >= 10) {
-    if (*valp != 0xfffffffbU) {
+    if (unlikely(*valp != 0xfffffffbU)) {
       return 1;
     }
     *valp = ctou32(*str_iter++) - 48;
-    if (*valp >= 10) {
+    if (unlikely(*valp >= 10)) {
       return 1;
     }
   }
   while (!(*valp)) {
     *valp = ctou32(*str_iter++) - 48;
-    if ((*valp) >= 10) {
+    if (unlikely((*valp) >= 10)) {
       return 1;
     }
   }
@@ -907,7 +907,7 @@ BoolErr ScanmovUintCapped(uint64_t cap, const char** str_iterp, uint32_t* valp) 
   if (*valp >= 10) {
     if (*valp != 0xfffffffbU) {
       // '-' has ascii code 45, so unsigned 45 - 48 = 0xfffffffdU
-      if ((*valp != 0xfffffffdU) || (*str_iter != '0')) {
+      if (unlikely((*valp != 0xfffffffdU) || (*str_iter != '0'))) {
         return 1;
       }
       // accept "-0", "-00", etc.
@@ -918,7 +918,7 @@ BoolErr ScanmovUintCapped(uint64_t cap, const char** str_iterp, uint32_t* valp) 
     }
     // accept leading '+'
     *valp = ctou32(*str_iter++) - 48;
-    if (*valp >= 10) {
+    if (unlikely(*valp >= 10)) {
       return 1;
     }
   }
@@ -930,17 +930,17 @@ BoolErr ScanmovPosintCapped32(uint32_t cap_div_10, uint32_t cap_mod_10, const ch
   const char* str_iter = *str_iterp;
   uint32_t val = ctou32(*str_iter++) - 48;
   if (val >= 10) {
-    if (val != 0xfffffffbU) {
+    if (unlikely(val != 0xfffffffbU)) {
       return 1;
     }
     val = ctou32(*str_iter++) - 48;
-    if (val >= 10) {
+    if (unlikely(val >= 10)) {
       return 1;
     }
   }
   while (!val) {
     val = ctou32(*str_iter++);
-    if (val >= 10) {
+    if (unlikely(val >= 10)) {
       return 1;
     }
   }
@@ -951,7 +951,7 @@ BoolErr ScanmovPosintCapped32(uint32_t cap_div_10, uint32_t cap_mod_10, const ch
       *str_iterp = &(str_iter[-1]);
       return 0;
     }
-    if ((val >= cap_div_10) && ((val > cap_div_10) || (cur_digit > cap_mod_10))) {
+    if (unlikely((val >= cap_div_10) && ((val > cap_div_10) || (cur_digit > cap_mod_10)))) {
       return 1;
     }
     val = val * 10 + cur_digit;
@@ -963,7 +963,7 @@ BoolErr ScanmovUintCapped32(uint32_t cap_div_10, uint32_t cap_mod_10, const char
   uint32_t val = ctou32(*str_iter++) - 48;
   if (val >= 10) {
     if (val != 0xfffffffbU) {
-      if ((val != 0xfffffffd) || (*str_iter != '0')) {
+      if (unlikely((val != 0xfffffffd) || (*str_iter != '0'))) {
         return 1;
       }
       while (*(++str_iter) == '0');
@@ -972,7 +972,7 @@ BoolErr ScanmovUintCapped32(uint32_t cap_div_10, uint32_t cap_mod_10, const char
       return (ctou32(*str_iter) - 48) < 10;
     }
     val = ctou32(*str_iter++) - 48;
-    if (val >= 10) {
+    if (unlikely(val >= 10)) {
       return 1;
     }
   }
@@ -983,7 +983,7 @@ BoolErr ScanmovUintCapped32(uint32_t cap_div_10, uint32_t cap_mod_10, const char
       *str_iterp = &(str_iter[-1]);
       return 0;
     }
-    if ((val >= cap_div_10) && ((val > cap_div_10) || (cur_digit > cap_mod_10))) {
+    if (unlikely((val >= cap_div_10) && ((val > cap_div_10) || (cur_digit > cap_mod_10)))) {
       return 1;
     }
     val = val * 10 + cur_digit;
