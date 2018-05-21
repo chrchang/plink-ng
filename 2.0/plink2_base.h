@@ -227,7 +227,6 @@ namespace plink2 {
 // strategy (always dump backtrace and exit immediately?), though provision
 // must still be made for sometimes-error-sometimes-not return paths which
 // don't get an unlikely annotation.
-// (speaking of which, it's probably time to install a SIGSEGV handler...)
 #define likely(expr) __builtin_expect(!!(expr), 1)
 #define unlikely(expr) __builtin_expect(!!(expr), 0)
 

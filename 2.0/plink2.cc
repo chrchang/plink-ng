@@ -61,7 +61,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (20 May 2018)";
+  " (21 May 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -155,7 +155,8 @@ FLAGSET64_DEF_START()
   kfCommand1Score = (1 << 15),
   kfCommand1WriteCovar = (1 << 16),
   kfCommand1WriteSamples = (1 << 17),
-  kfCommand1Ld = (1 << 18)
+  kfCommand1Ld = (1 << 18),
+  kfCommand1PgenInfo = (1 << 19)
 FLAGSET64_DEF_END(Command1Flags);
 
 // this is a hybrid, only kfSortFileSid is actually a flag
@@ -167,6 +168,82 @@ FLAGSET_DEF_START()
   kfSortFile = (1 << 3),
   kfSortFileSid = (1 << 4)
 FLAGSET_DEF_END(SortFlags);
+
+void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenHeaderCtrl header_ctrl) {
+  logerrprintfww("--pgen-info on %s:\n", pgenname);
+  logerrprintf("  Variants: %u\n", pgfip->raw_variant_ct);
+  logerrprintf("  Samples: %u\n", pgfip->raw_sample_ct);
+  const uint32_t nonref_flags_status = header_ctrl >> 6;
+  if (!nonref_flags_status) {
+    logerrputs("  REF allele reliability unknown\n");
+  } else if (nonref_flags_status == 1) {
+    logerrputs("  REF alleles are all known\n");
+  } else if (nonref_flags_status == 2) {
+    logerrputs("  REF alleles are all provisional\n");
+  } else {
+    // could report exact counts of each
+    logerrputs("  REF alleles are a mix of known and provisional\n");
+  }
+  logerrprintf("  Maximum allele count for a single variant: %u\n", pgfip->max_allele_ct);
+  if (pgfip->gflags & kfPgenGlobalHardcallPhasePresent) {
+    logerrputs("  Phased hardcalls present\n");
+  } else {
+    logerrputs("  No phased hardcalls present\n");
+  }
+  if (pgfip->gflags & kfPgenGlobalDosagePresent) {
+    if (pgfip->gflags & kfPgenGlobalDosagePhasePresent) {
+      logerrputs("  Explicitly phased dosages present\n");
+    } else {
+      logerrputs("  Dosage present, none explicitly phased\n");
+    }
+  } else {
+    logerrputs("  No dosages present\n");
+  }
+}
+
+PglErr PgenInfoStandalone(const char* pgenname) {
+  PgenFileInfo pgfi;
+  PglErr reterr = kPglRetSuccess;
+  PreinitPgfi(&pgfi);
+  {
+    PgenHeaderCtrl header_ctrl;
+    uintptr_t cur_alloc_cacheline_ct;
+    reterr = PgfiInitPhase1(pgenname, UINT32_MAX, UINT32_MAX, 0, &header_ctrl, &pgfi, &cur_alloc_cacheline_ct, g_logbuf);
+    if (unlikely(reterr)) {
+      if ((reterr == kPglRetSampleMajorBed) || (reterr == kPglRetImproperFunctionCall)) {
+        logerrputs("Warning: Skipping --pgen-info since a .bed file was provided.\n");
+        reterr = kPglRetSuccess;
+      } else {
+        logerrputsb();
+      }
+      goto PgenInfoStandalone_ret_1;
+    }
+    const uint32_t raw_variant_ct = pgfi.raw_variant_ct;
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    unsigned char* pgfi_alloc;
+    if (unlikely(
+          bigstack_alloc_uc(cur_alloc_cacheline_ct * kCacheline, &pgfi_alloc) ||
+          bigstack_alloc_w(raw_variant_ct + 1, &pgfi.allele_idx_offsets) ||
+          bigstack_alloc_w(raw_variant_ctl, &pgfi.nonref_flags))) {
+      reterr = kPglRetNomem;
+      goto PgenInfoStandalone_ret_1;
+    }
+    uintptr_t pgr_alloc_cacheline_ct = 0;
+    uint32_t max_vrec_width;
+    reterr = PgfiInitPhase2(header_ctrl, 0, 0, 1, 0, raw_variant_ct, &max_vrec_width, &pgfi, pgfi_alloc, &pgr_alloc_cacheline_ct, g_logbuf);
+    if (reterr) {
+      logerrputsb();
+      goto PgenInfoStandalone_ret_1;
+    }
+    PgenInfoPrint(pgenname, &pgfi, header_ctrl);
+  }
+ PgenInfoStandalone_ret_1:
+  if (CleanupPgfi(&pgfi) && (!reterr)) {
+    reterr = kPglRetReadFail;
+  }
+  // no BigstackReset() needed?
+  return reterr;
+}
 
 typedef struct Plink2CmdlineStruct {
 #if __cplusplus >= 201103L
@@ -823,6 +900,17 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
         goto Plink2Core_ret_1;
       }
+      if (pcp->command_flags1 & kfCommand1PgenInfo) {
+        if (pgfi.const_vrtype == kPglVrtypePlink1) {
+          logerrputs("Warning: Skipping --pgen-info since a .bed file was provided.\n");
+        } else {
+          PgenInfoPrint(pgenname, &pgfi, header_ctrl);
+        }
+        // no early exit possible for now, since we always call
+        // PgenInfoStandalone() in that case
+        // this will change after --pmerge is implemented, since --pmerge will
+        // come earlier in order of operations
+      }
       if (pcp->misc_flags & kfMiscRealRefAlleles) {
         if (unlikely(nonref_flags && (!AllBitsAreOne(nonref_flags, raw_variant_ct)))) {
           // technically a lie, it's okay if a .bed is first converted to .pgen
@@ -873,7 +961,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             goto Plink2Core_ret_1;
           }
           logputs("done.\n");
-          if (!(pcp->command_flags1 & (~kfCommand1Validate))) {
+          if (!(pcp->command_flags1 & (~(kfCommand1Validate | kfCommand1PgenInfo)))) {
             goto Plink2Core_ret_1;
           }
         }
@@ -1452,7 +1540,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_1;
         }
         logprintfww("--write-samples: Sample IDs written to %s .\n", outname);
-        if (!(pcp->command_flags1 & (~kfCommand1WriteSamples))) {
+        if (!(pcp->command_flags1 & (~(kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo)))) {
           goto Plink2Core_early_complete;
         }
       }
@@ -1638,7 +1726,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             // multithreading in that case.
             const uint32_t is_dosage = (pcp->misc_flags / kfMiscGenotypingRateDosage) & 1;
             ReportGenotypingRate(variant_include, cip, is_dosage? variant_missing_dosage_cts : variant_missing_hc_cts, raw_sample_ct, sample_ct, male_ct, variant_ct, is_dosage);
-            if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1WriteSamples)))) {
+            if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo)))) {
               goto Plink2Core_early_complete;
             }
           }
@@ -1664,7 +1752,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
-          if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1WriteSamples)))) {
+          if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo)))) {
             goto Plink2Core_early_complete;
           }
         }
@@ -1673,7 +1761,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
-          if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1WriteSamples)))) {
+          if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo)))) {
             goto Plink2Core_early_complete;
           }
         }
@@ -1683,7 +1771,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
-          if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1MissingReport | kfCommand1WriteSamples)))) {
+          if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1MissingReport | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo)))) {
             goto Plink2Core_early_complete;
           }
         }
@@ -1797,7 +1885,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               if (unlikely(reterr)) {
                 goto Plink2Core_ret_1;
               }
-              if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1MissingReport | kfCommand1Hardy | kfCommand1WriteSamples)))) {
+              if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1MissingReport | kfCommand1Hardy | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo)))) {
                 goto Plink2Core_early_complete;
               }
             }
@@ -6887,6 +6975,10 @@ int main(int argc, char** argv) {
           }
           pc.command_flags1 |= kfCommand1Pca;
           pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "gen-info")) {
+          pc.command_flags1 |= kfCommand1PgenInfo;
+          pc.dependency_flags |= kfFilterAllReq;
+          goto main_param_zero;
         } else if (likely(strequal_k_unsafe(flagname_p2, "heno-quantile-normalize"))) {
           if (param_ct) {
             reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.quantnorm_flattened);
@@ -8162,8 +8254,15 @@ int main(int argc, char** argv) {
       }
     }
 
-    if (0) {
-      // nonstandard cases (CNV, etc.) here
+    // nonstandard cases (CNV, etc.) here
+    if (pc.command_flags1 == kfCommand1PgenInfo) {
+      // special case: don't require .psam/.pvar file
+      // strictly speaking, .bed dimensions can be reported without knowing
+      // variant count, but don't support that for now
+      if (unlikely(!(load_params & kfLoadParamsPgen))) {
+        logerrputs("Error: --pgen-info requires a .pgen file.\n");
+      }
+      reterr = PgenInfoStandalone(pgenname);
     } else {
       if (unlikely(pc.dependency_flags && (!pc.command_flags1))) {
         logerrputs("Error: Basic file conversions do not support regular filter or transform\noperations.  Rerun your command with --make-bed/--make-{b}pgen.\n");

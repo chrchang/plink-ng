@@ -961,6 +961,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --genotyping-rate <dosage>\n"
 "    Report genotyping rate in log (this was automatic in PLINK 1.x).\n\n"
                );
+    HelpPrint("pgen-info", &help_ctrl, 1,
+"  --pgen-info\n"
+"    Reports basic information about a .pgen file.\n\n"
+               );
     HelpPrint("validate", &help_ctrl, 1,
 "  --validate\n"
 "    Validates all variant records in a .pgen file.\n\n"

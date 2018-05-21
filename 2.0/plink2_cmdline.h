@@ -1320,19 +1320,42 @@ HEADER_INLINE uintptr_t PopcountWordsNzbase(const uintptr_t* bitvec, uintptr_t s
 
 uintptr_t PopcountBitRange(const uintptr_t* bitvec, uintptr_t start_idx, uintptr_t end_idx);
 
-// possible todo: check if movemask is better in AVX2 case
-HEADER_INLINE uint32_t IntersectionIsEmpty(const uintptr_t* bitarr1, const uintptr_t* bitarr2, uint32_t word_ct) {
-  for (uint32_t widx = 0; widx < word_ct; ++widx) {
-    if (bitarr1[widx] & bitarr2[widx]) {
+HEADER_INLINE uint32_t IntersectionIsEmpty(const uintptr_t* bitvec1, const uintptr_t* bitvec2, uintptr_t word_ct) {
+#ifdef USE_SSE42
+  const uintptr_t fullvec_ct = word_ct / kWordsPerVec;
+#  ifdef USE_AVX2
+  const __m256i* bitvvec1 = R_CAST(const __m256i*, bitvec1);
+  const __m256i* bitvvec2 = R_CAST(const __m256i*, bitvec2);
+  for (uintptr_t vidx = 0; vidx < fullvec_ct; ++vidx) {
+    if (!_mm256_testz_si256(bitvvec1[vidx], bitvvec2[vidx])) {
+      return 0;
+    }
+  }
+#  else
+  const __m128i* bitvvec1 = R_CAST(const __m128i*, bitvec1);
+  const __m128i* bitvvec2 = R_CAST(const __m128i*, bitvec2);
+  for (uintptr_t vidx = 0; vidx < fullvec_ct; ++vidx) {
+    if (!_mm_testz_si128(bitvvec1[vidx], bitvvec2[vidx])) {
+      return 0;
+    }
+  }
+#  endif
+  word_ct = word_ct & (kWordsPerVec - 1);
+  bitvec1 = R_CAST(const uintptr_t*, &(bitvvec1[fullvec_ct]));
+  bitvec2 = R_CAST(const uintptr_t*, &(bitvvec2[fullvec_ct]));
+#endif
+  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
+    if (bitvec1[widx] & bitvec2[widx]) {
       return 0;
     }
   }
   return 1;
 }
 
-HEADER_INLINE uint32_t UnionIsFull(const uintptr_t* bitarr1, const uintptr_t* bitarr2, uint32_t bit_ct) {
-  const uint32_t fullword_ct = bit_ct / kBitsPerWord;
-  for (uint32_t widx = 0; widx < fullword_ct; ++widx) {
+// could use testz here, but it's more awkward
+HEADER_INLINE uint32_t UnionIsFull(const uintptr_t* bitarr1, const uintptr_t* bitarr2, uintptr_t bit_ct) {
+  const uintptr_t fullword_ct = bit_ct / kBitsPerWord;
+  for (uintptr_t widx = 0; widx < fullword_ct; ++widx) {
     if ((bitarr1[widx] | bitarr2[widx]) != ~k0LU) {
       return 0;
     }
