@@ -396,10 +396,11 @@ FLAGSET_DEF_START()
   kfPgenGlobal0,
   kfPgenGlobalLdCompressionPresent = (1 << 0),
   kfPgenGlobalDifflistOrLdPresent = (1 << 1),
-  kfPgenGlobalHardcallPhasePresent = (1 << 2),
-  kfPgenGlobalDosagePresent = (1 << 3),
-  kfPgenGlobalDosagePhasePresent = (1 << 4),
-  kfPgenGlobalAllNonref = (1 << 5)
+  kfPgenGlobalMultiallelicHardcallPresent = (1 << 2),
+  kfPgenGlobalHardcallPhasePresent = (1 << 3),
+  kfPgenGlobalDosagePresent = (1 << 4),
+  kfPgenGlobalDosagePhasePresent = (1 << 5),
+  kfPgenGlobalAllNonref = (1 << 6)
 FLAGSET_DEF_END(PgenGlobalFlags);
 
 FLAGSET_DEF_START()

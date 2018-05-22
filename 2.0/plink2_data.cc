@@ -1298,24 +1298,6 @@ static uint32_t g_founder_male_ct = 0;
 static uint32_t g_founder_nosex_ct = 0;
 static uint32_t g_first_hap_uidx = 0;
 
-// just store the beginning of each vblock for now
-// (may want to store record lengths later)
-static uintptr_t** g_loadbuf_thread_starts[2] = {nullptr, nullptr};
-
-// phase, dosage
-static unsigned char* g_loaded_vrtypes[2] = {nullptr, nullptr};
-
-static uintptr_t** g_thread_write_genovecs = nullptr;
-static uintptr_t** g_thread_write_phasepresents = nullptr;
-static uintptr_t** g_thread_write_phaseinfos = nullptr;
-static uintptr_t** g_thread_all_hets = nullptr;
-static uintptr_t** g_thread_write_dosagepresents = nullptr;
-static Dosage** g_thread_write_dosagevals = nullptr;
-static uintptr_t** g_thread_write_dphasepresents = nullptr;
-static SDosage** g_thread_write_dphasedeltas = nullptr;
-static uint32_t** g_thread_cumulative_popcount_bufs = nullptr;
-static PgenWriterCommon** g_pwcs = nullptr;
-
 THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
   const uintptr_t tidx = R_CAST(uintptr_t, arg);
   PgenReader* pgrp = g_pgr_ptrs[tidx];
@@ -2162,6 +2144,54 @@ uint32_t ApplyHardCallThreshPhased(const uintptr_t* dosage_present, const Dosage
   return dphase_ct;
 }
 
+uintptr_t InitWriteAlleleIdxOffsets(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uint32_t* new_variant_idx_to_old, uint32_t variant_ct, uintptr_t* new_allele_idx_offsets) {
+  uintptr_t cur_offset = 0;
+  if (allele_presents) {
+    uint32_t ref_allele_idx = 0;
+    uint32_t variant_uidx = UINT32_MAX;  // deliberate overflow
+    for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx) {
+      if (new_variant_idx_to_old) {
+        variant_uidx = new_variant_idx_to_old[variant_idx];
+      } else {
+        ++variant_uidx;
+        MovU32To1Bit(variant_include, &variant_uidx);
+      }
+      new_allele_idx_offsets[variant_idx] = cur_offset;
+      const uintptr_t old_offset_start = allele_idx_offsets[variant_uidx];
+      const uintptr_t old_offset_end = allele_idx_offsets[variant_uidx + 1];
+      uint32_t cur_allele_ct = old_offset_end - old_offset_start;
+      if (cur_allele_ct > 2) {
+        cur_allele_ct = PopcountBitRange(allele_presents, old_offset_start, old_offset_end);
+        if (refalt1_select) {
+          ref_allele_idx = refalt1_select[variant_uidx][0];
+        }
+        if (!IsSet(allele_presents, old_offset_start + ref_allele_idx)) {
+          ++cur_allele_ct;
+        }
+        if (cur_allele_ct < 2) {
+          cur_allele_ct = 2;
+        }
+      }
+      cur_offset += cur_allele_ct;
+    }
+  } else if (!new_variant_idx_to_old) {
+    uint32_t variant_uidx = 0;
+    for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
+      MovU32To1Bit(variant_include, &variant_uidx);
+      new_allele_idx_offsets[variant_idx] = cur_offset;
+      cur_offset += allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
+    }
+  } else {
+    for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx) {
+      const uint32_t variant_uidx = new_variant_idx_to_old[variant_idx];
+      new_allele_idx_offsets[variant_idx] = cur_offset;
+      cur_offset += allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
+    }
+  }
+  return cur_offset;
+}
+
+
 FLAGSET_DEF_START()
   kfPlink2Write0,
   kfPlink2WriteSetHhMissing = (1 << 0),
@@ -2315,9 +2345,34 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* arg) {
 
 // more multithread globals
 
+// just store the beginning of each vblock for now
+// (may want to store record lengths later)
+static uintptr_t** g_loadbuf_thread_starts[2] = {nullptr, nullptr};
+
 // combine existing chr_mask/xymt_codes/haploid_mask/chr_idx_to_foidx with new
 // collapsed chromosome boundary table
 static uint32_t* g_write_chr_fo_vidx_start = nullptr;
+
+// phase, dosage
+static unsigned char* g_loaded_vrtypes[2] = {nullptr, nullptr};
+
+static AlleleCode* g_loaded_allele_cts[2] = {nullptr, nullptr};
+static uintptr_t* g_loaded_allele_presents[2] = {nullptr, nullptr};
+
+static uintptr_t** g_thread_write_genovecs = nullptr;
+static uintptr_t** g_thread_write_patch_01_sets = nullptr;
+static AlleleCode** g_thread_write_patch_01_vals = nullptr;
+static uintptr_t** g_thread_write_patch_10_sets = nullptr;
+static AlleleCode** g_thread_write_patch_10_vals = nullptr;
+static uintptr_t** g_thread_write_phasepresents = nullptr;
+static uintptr_t** g_thread_write_phaseinfos = nullptr;
+static uintptr_t** g_thread_all_hets = nullptr;
+static uintptr_t** g_thread_write_dosagepresents = nullptr;
+static Dosage** g_thread_write_dosagevals = nullptr;
+static uintptr_t** g_thread_write_dphasepresents = nullptr;
+static SDosage** g_thread_write_dphasedeltas = nullptr;
+static uint32_t** g_thread_cumulative_popcount_bufs = nullptr;
+static PgenWriterCommon** g_pwcs = nullptr;
 
 static STPgenWriter* g_spgwp = nullptr;
 
@@ -2327,6 +2382,7 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
   const uint32_t* old_sample_idx_to_new = g_old_sample_idx_to_new;
   const ChrInfo* cip = g_cip;
   const uint32_t* write_chr_fo_vidx_start = g_write_chr_fo_vidx_start;
+  __maybe_unused const uintptr_t* write_allele_idx_offsets = g_allele_idx_offsets;
   const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select_iter) = g_refalt1_select;
   const uintptr_t* sample_include = g_sample_include;
 
@@ -2370,6 +2426,18 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
     write_genovec = g_thread_write_genovecs[tidx];
     write_genovec[sample_ctl2 - 1] = 0;
   }
+  /*
+  uintptr_t* write_patch_01_sets = nullptr;
+  AlleleCode* write_patch_01_vals = nullptr;
+  uintptr_t* write_patch_10_sets = nullptr;
+  AlleleCode* write_patch_10_vals = nullptr;
+  if (g_thread_write_patch_01_sets) {
+    write_patch_01_sets = g_thread_write_patch_01_sets[tidx];
+    write_patch_01_vals = g_thread_write_patch_01_vals[tidx];
+    write_patch_10_sets = g_thread_write_patch_10_sets[tidx];
+    write_patch_10_vals = g_thread_write_patch_10_vals[tidx];
+  }
+  */
   uintptr_t* write_phasepresent = nullptr;
   uintptr_t* write_phaseinfo = nullptr;
   uintptr_t* all_hets = nullptr;
@@ -2399,6 +2467,7 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
     }
   }
   uint32_t variant_idx_offset = 0;
+  __maybe_unused uint32_t cur_allele_ct = 2;
   uint32_t parity = 0;
   while (1) {
     const uint32_t is_last_block = g_is_last_thread_block;
@@ -2434,15 +2503,18 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
       //   main thread will probably compute split mapping in advance (bitarray
       //   with filtered-and-split variant indices, set bit = unsplit variant
       //   or last variant in a split group)?  same pre-split variant can be
-      //   loaded multiple times.
+      //   loaded multiple times.  This may not need to be restricted to
+      //   MakePgenRobust().
       // biallelic -> multiallelic merge:
       //   could require no multiallelic variants in remainder of dataset?
       //   if handled with pgenlib, PgfiMultiread,
       //   PgfiMultireadGetCachelineReq, and PgrGetRaw would need to be
       //   extended to take a merge-info parameter.  +both will be tricky...
       //   probably not worth it.
-      //   compute merge pattern before main loop.;;;
+      //   compute merge pattern in MakePgenRobust() before main loop instead.
+      //   main thread also performs the actual merge.
       // both should require sorted .pvar.
+      // neither should require any handling in this function.
       if (1) {
         // biallelic
         uintptr_t* cur_genovec_end = &(loadbuf_iter[raw_sample_ctaw2]);
@@ -2716,7 +2788,7 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
         loadbuf_iter = cur_genovec_end;
       } else {
         // todo: multiallelic write
-        // (some trim-alts logic here)
+        // need to perform trim-alts erasure here
       }
     }
     if (is_last_block) {
@@ -2803,7 +2875,7 @@ PgenGlobalFlags GflagsVfilter(const uintptr_t* variant_include, const unsigned c
 // (Note that MakePlink2NoVsort() currently requires enough memory for 64k * 2
 // variants per output thread, due to LD compression.  This is faster in the
 // common case, but once you have 150k+ samples with dosage data...)
-PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uint32_t* new_variant_idx_to_old, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, MakePlink2Flags make_plink2_flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uint32_t* new_variant_idx_to_old, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, MakePlink2Flags make_plink2_flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   // variant_uidx_new_to_old[] can be nullptr
 
   // caller responsible for initializing g_cip (may need to be different from
@@ -2832,7 +2904,6 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
     g_raw_sample_ct = raw_sample_ct;
     g_sample_ct = sample_ct;
     g_error_ret = kPglRetSuccess;
-    const uint32_t* new_variant_idx_to_old_iter = new_variant_idx_to_old;
     if ((make_plink2_flags & kfMakeBed) || ((make_plink2_flags & (kfMakePgen | (kfMakePgenFormatBase * 3))) == (kfMakePgen | kfMakePgenFormatBase))) {
       // g_calc_thread_ct = 1;
       logerrputs("Error: Fixed-width .bed/.pgen output doesn't support sorting yet.  Generate a\nregular sorted .pgen first, and then reformat it.\n");
@@ -2842,38 +2913,15 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       const uint32_t input_biallelic = (!allele_idx_offsets);
       const uintptr_t* write_allele_idx_offsets = nullptr;
       if (!input_biallelic) {
-        if ((variant_ct < raw_variant_ct) || new_variant_idx_to_old_iter) {
+        if ((variant_ct < raw_variant_ct) || new_variant_idx_to_old) {
           uintptr_t* new_allele_idx_offsets;
           if (unlikely(bigstack_alloc_w(variant_ct + 1, &new_allele_idx_offsets))) {
             goto MakePgenRobust_ret_NOMEM;
           }
-          uintptr_t cur_offset = 0;
-          // todo: separate trim-alts case
-          // probably have bitarray of length
-          // allele_idx_offsets[raw_variant_ct] bits, where set bits correspond
-          // to alleles with nonzero dosage.  construct this in Plink2Core()
-          // and free ;;;
-          if (!new_variant_idx_to_old_iter) {
-            uint32_t variant_uidx = 0;
-            for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-              MovU32To1Bit(variant_include, &variant_uidx);
-              new_allele_idx_offsets[variant_idx] = cur_offset;
-              cur_offset += allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
-            }
-          } else {
-            for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx) {
-              const uint32_t variant_uidx = *new_variant_idx_to_old_iter++;
-              new_allele_idx_offsets[variant_idx] = cur_offset;
-              cur_offset += allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
-            }
-            new_variant_idx_to_old_iter = new_variant_idx_to_old;
-          }
-          if (cur_offset != 2 * variant_ct) {
-            new_allele_idx_offsets[variant_ct] = cur_offset;
+          const uintptr_t final_offset = InitWriteAlleleIdxOffsets(variant_include, allele_idx_offsets, allele_presents, refalt1_select, new_variant_idx_to_old, variant_ct, new_allele_idx_offsets);
+          if (final_offset != 2 * variant_ct) {
+            new_allele_idx_offsets[variant_ct] = final_offset;
             write_allele_idx_offsets = new_allele_idx_offsets;
-            logputs("Error: Multiallelic .pgen write is not yet supported.\n");
-            reterr = kPglRetNotYetSupported;
-            goto MakePgenRobust_ret_1;
           } else {
             BigstackReset(new_allele_idx_offsets);
           }
@@ -2881,7 +2929,8 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
           write_allele_idx_offsets = allele_idx_offsets;
         }
       }
-      if ((variant_ct == raw_variant_ct) || new_variant_idx_to_old_iter) {
+      g_allele_idx_offsets = write_allele_idx_offsets;
+      if ((variant_ct == raw_variant_ct) || new_variant_idx_to_old) {
         g_write_chr_fo_vidx_start = g_cip->chr_fo_vidx_start;
       } else {
         if (unlikely(AllocAndFillSubsetChrFoVidxStart(variant_include, g_cip, &g_write_chr_fo_vidx_start))) {
@@ -2983,6 +3032,16 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
         g_thread_write_genovecs = nullptr;
       }
       const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+      g_thread_write_patch_01_sets = nullptr;
+      g_thread_write_patch_01_vals = nullptr;
+      g_thread_write_patch_10_sets = nullptr;
+      g_thread_write_patch_10_vals = nullptr;
+      if (write_allele_idx_offsets) {
+        // todo: allocate g_thread_write_{01,10}_{sets,vals} here
+        logputs("Error: Multiallelic .pgen write is under development.\n");
+        reterr = kPglRetNotYetSupported;
+        goto MakePgenRobust_ret_1;
+      }
       g_thread_write_phasepresents = nullptr;
       g_thread_all_hets = nullptr;
       if (read_or_write_hphase_present) {
@@ -3043,7 +3102,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
           }
           g_refalt1_select = tmp_refalt1_select;
         } else {
-          assert(!new_variant_idx_to_old_iter);
+          assert(!new_variant_idx_to_old);
         }
       }
 
@@ -3076,7 +3135,6 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
           load_variant_vec_ct += WordCtToVecCt(dosageraw_word_ct) * (1 + read_dphase_present);
         }
       }
-      // todo: multiallelic variants
 
       uintptr_t bytes_left = bigstack_left();
       if (unlikely(bytes_left < 7 * kCacheline)) {
@@ -3094,6 +3152,16 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       uintptr_t* main_loadbufs[2];
       main_loadbufs[0] = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(load_variant_vec_ct * kBytesPerVec * write_block_size));
       main_loadbufs[1] = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(load_variant_vec_ct * kBytesPerVec * write_block_size));
+      if (write_allele_idx_offsets) {
+        // todo
+        if (allele_presents) {
+        }
+      } else {
+        g_loaded_allele_cts[0] = nullptr;
+        g_loaded_allele_cts[1] = nullptr;
+        g_loaded_allele_presents[0] = nullptr;
+        g_loaded_allele_presents[1] = nullptr;
+      }
       if (loaded_vrtypes_needed) {
         g_loaded_vrtypes[0] = S_CAST(unsigned char*, bigstack_alloc_raw_rd(write_block_size));
         g_loaded_vrtypes[1] = S_CAST(unsigned char*, bigstack_alloc_raw_rd(write_block_size));
@@ -3114,6 +3182,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       // 4. Join thread
       // 5. Increment n by 1
       // 6. Goto step 2 unless eof
+      const uint32_t* new_variant_idx_to_old_iter = new_variant_idx_to_old;
       const uint32_t batch_ct_m1 = (variant_ct - 1) / write_block_size;
       uint32_t pct = 0;
       uint32_t parity = 0;
@@ -3475,20 +3544,10 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
           if (bigstack_alloc_w(variant_ct + 1, &new_allele_idx_offsets)) {
             goto MakePlink2NoVsort_fallback;
           }
-          uintptr_t cur_offset = 0;
-          uint32_t variant_uidx = 0;
-          // todo: separate trim-alts case
-          for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-            MovU32To1Bit(variant_include, &variant_uidx);
-            new_allele_idx_offsets[variant_idx] = cur_offset;
-            cur_offset += allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
-          }
-          if (cur_offset != 2 * variant_ct) {
-            new_allele_idx_offsets[variant_ct] = cur_offset;
+          const uintptr_t final_offset = InitWriteAlleleIdxOffsets(variant_include, allele_idx_offsets, allele_presents, refalt1_select, nullptr, variant_ct, new_allele_idx_offsets);
+          if (final_offset != 2 * variant_ct) {
+            new_allele_idx_offsets[variant_ct] = final_offset;
             write_allele_idx_offsets = new_allele_idx_offsets;
-            logputs("Error: Multiallelic .pgen write is not yet supported.\n");
-            reterr = kPglRetNotYetSupported;
-            goto MakePlink2NoVsort_ret_1;
           } else {
             BigstackReset(new_allele_idx_offsets);
           }
@@ -3496,6 +3555,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
           write_allele_idx_offsets = allele_idx_offsets;
         }
       }
+      g_allele_idx_offsets = write_allele_idx_offsets;
       if (variant_ct == raw_variant_ct) {
         g_write_chr_fo_vidx_start = cip->chr_fo_vidx_start;
       } else {
@@ -3666,8 +3726,19 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
         if (input_biallelic) {
           other_per_thread_cacheline_ct += QuaterCtToCachelineCt(sample_ct);
         } else {
+          // todo: increase this for patch_01_set, patch_01_vals, etc.
           other_per_thread_cacheline_ct += DivUp(2 * sample_ct * sizeof(AlleleCode), kCacheline);
         }
+      }
+      g_thread_write_patch_01_sets = nullptr;
+      g_thread_write_patch_01_vals = nullptr;
+      g_thread_write_patch_10_sets = nullptr;
+      g_thread_write_patch_10_vals = nullptr;
+      if (write_allele_idx_offsets) {
+        // todo: allocate g_thread_write_{01,10}_{sets,vals} here
+        logputs("Error: Multiallelic .pgen write is under development.\n");
+        reterr = kPglRetNotYetSupported;
+        goto MakePlink2NoVsort_ret_1;
       }
       g_thread_write_phasepresents = nullptr;
       g_thread_all_hets = nullptr;
@@ -3723,6 +3794,16 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
       uintptr_t* main_loadbufs[2];
       main_loadbufs[0] = S_CAST(uintptr_t*, bigstack_alloc_raw(load_vblock_cacheline_ct * calc_thread_ct * kCacheline));
       main_loadbufs[1] = S_CAST(uintptr_t*, bigstack_alloc_raw(load_vblock_cacheline_ct * calc_thread_ct * kCacheline));
+      if (write_allele_idx_offsets) {
+        // todo
+        if (allele_presents) {
+        }
+      } else {
+        g_loaded_allele_cts[0] = nullptr;
+        g_loaded_allele_cts[1] = nullptr;
+        g_loaded_allele_presents[0] = nullptr;
+        g_loaded_allele_presents[1] = nullptr;
+      }
       if (read_or_write_hphase_present || read_or_write_dosage_present) {
         if (read_or_write_hphase_present || read_dosage_present) {
           g_loaded_vrtypes[0] = S_CAST(unsigned char*, bigstack_alloc_raw(kPglVblockSize * calc_thread_ct));
@@ -3875,7 +3956,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
       // g_failed_alloc_attempt_size = 0;
       mpgwp = nullptr;
       BigstackReset(bigstack_mark2);
-      reterr = MakePgenRobust(sample_include, new_sample_idx_to_old, variant_include, allele_idx_offsets, refalt1_select, nullptr, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, hard_call_thresh, dosage_erase_thresh, make_plink2_flags, simple_pgrp, outname, outname_end);
+      reterr = MakePgenRobust(sample_include, new_sample_idx_to_old, variant_include, allele_idx_offsets, allele_presents, refalt1_select, nullptr, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, hard_call_thresh, dosage_erase_thresh, make_plink2_flags, simple_pgrp, outname, outname_end);
       if (unlikely(reterr)) {
         goto MakePlink2NoVsort_ret_1;
       }
@@ -4769,7 +4850,7 @@ PglErr MakePlink2Vsort(const char* xheader, const uintptr_t* sample_include, con
         g_plink2_write_flags |= kfPlink2WriteSetMixedMtMissing;
       }
       g_cip = &write_chr_info;
-      reterr = MakePgenRobust(sample_include, new_sample_idx_to_old, variant_include, allele_idx_offsets, refalt1_select, new_variant_idx_to_old, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, hard_call_thresh, dosage_erase_thresh, make_plink2_flags, simple_pgrp, outname, outname_end);
+      reterr = MakePgenRobust(sample_include, new_sample_idx_to_old, variant_include, allele_idx_offsets, allele_presents, refalt1_select, new_variant_idx_to_old, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, hard_call_thresh, dosage_erase_thresh, make_plink2_flags, simple_pgrp, outname, outname_end);
       if (unlikely(reterr)) {
         goto MakePlink2Vsort_ret_1;
       }

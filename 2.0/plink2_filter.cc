@@ -3197,8 +3197,7 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
     line_iter = AdvToDelim(line_iter, '\n');
     while (1) {
       ++line_idx;
-      // line is mutated, so might not be safe to use
-      // RlsNext()
+      // line is mutated, so might not be safe to use RlsNext()
       ++line_iter;
       reterr = RlsPostlfNext(&rls, &line_iter);
       if (reterr) {

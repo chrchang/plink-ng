@@ -82,9 +82,9 @@ static const char ver_str2[] =
 static const char errstr_append[] = "For more info, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
 
 #ifndef NOLAPACK
-static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --ld, --make-king, --king-cutoff, --write-samples,\n--write-snplist, --make-grm-list, --pca, --glm, --adjust-file, --score,\n--genotyping-rate, --validate, and --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --ld, --make-king, --king-cutoff, --write-samples,\n--write-snplist, --make-grm-list, --pca, --glm, --adjust-file, --score,\n--genotyping-rate, --pgen-info, --validate, and --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
 #else
-static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --ld, --make-king, --king-cutoff, --write-samples,\n--write-snplist, --make-grm-list, --glm, --adjust-file, --score,\n--genotyping-rate, --validate, and --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --ld, --make-king, --king-cutoff, --write-samples,\n--write-snplist, --make-grm-list, --glm, --adjust-file, --score,\n--genotyping-rate, --pgen-info, --validate, and --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
 #endif
 
 // covar-variance-standardize + terminating null
@@ -169,13 +169,13 @@ FLAGSET_DEF_START()
   kfSortFileSid = (1 << 4)
 FLAGSET_DEF_END(SortFlags);
 
-void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenHeaderCtrl header_ctrl) {
+void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenHeaderCtrl header_ctrl, uint32_t max_allele_ct) {
   logerrprintfww("--pgen-info on %s:\n", pgenname);
   logerrprintf("  Variants: %u\n", pgfip->raw_variant_ct);
   logerrprintf("  Samples: %u\n", pgfip->raw_sample_ct);
   const uint32_t nonref_flags_status = header_ctrl >> 6;
   if (!nonref_flags_status) {
-    logerrputs("  REF allele reliability unknown\n");
+    logerrputs("  REF allele known/provisional status not stored in .pgen\n");
   } else if (nonref_flags_status == 1) {
     logerrputs("  REF alleles are all known\n");
   } else if (nonref_flags_status == 2) {
@@ -184,7 +184,15 @@ void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenHeaderCt
     // could report exact counts of each
     logerrputs("  REF alleles are a mix of known and provisional\n");
   }
-  logerrprintf("  Maximum allele count for a single variant: %u\n", pgfip->max_allele_ct);
+  if (max_allele_ct >= UINT32_MAXM1) {
+    if (max_allele_ct == UINT32_MAX) {
+      logerrputs("  Maximum allele count for a single variant: >2, not explicitly stored\n");
+    } else {
+      logerrputs("  Maximum allele count for a single variant: not explicitly stored\n");
+    }
+  } else {
+    logerrprintf("  Maximum allele count for a single variant: %u\n", max_allele_ct);
+  }
   if (pgfip->gflags & kfPgenGlobalHardcallPhasePresent) {
     logerrputs("  Phased hardcalls present\n");
   } else {
@@ -235,7 +243,13 @@ PglErr PgenInfoStandalone(const char* pgenname) {
       logerrputsb();
       goto PgenInfoStandalone_ret_1;
     }
-    PgenInfoPrint(pgenname, &pgfi, header_ctrl);
+    uint32_t max_allele_ct = 2;
+    if (pgfi.gflags & kfPgenGlobalMultiallelicHardcallPresent) {
+      max_allele_ct = UINT32_MAX;
+    } else if (pgfi.gflags & kfPgenGlobalDosagePresent) {
+      max_allele_ct = UINT32_MAXM1;
+    }
+    PgenInfoPrint(pgenname, &pgfi, header_ctrl, max_allele_ct);
   }
  PgenInfoStandalone_ret_1:
   if (CleanupPgfi(&pgfi) && (!reterr)) {
@@ -900,17 +914,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
         goto Plink2Core_ret_1;
       }
-      if (pcp->command_flags1 & kfCommand1PgenInfo) {
-        if (pgfi.const_vrtype == kPglVrtypePlink1) {
-          logerrputs("Warning: Skipping --pgen-info since a .bed file was provided.\n");
-        } else {
-          PgenInfoPrint(pgenname, &pgfi, header_ctrl);
-        }
-        // no early exit possible for now, since we always call
-        // PgenInfoStandalone() in that case
-        // this will change after --pmerge is implemented, since --pmerge will
-        // come earlier in order of operations
-      }
       if (pcp->misc_flags & kfMiscRealRefAlleles) {
         if (unlikely(nonref_flags && (!AllBitsAreOne(nonref_flags, raw_variant_ct)))) {
           // technically a lie, it's okay if a .bed is first converted to .pgen
@@ -948,6 +951,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_1;
         }
         pgfi.shared_ff = shared_ff_copy;
+        // todo: make this execute after --pmerge
         if (pcp->command_flags1 & kfCommand1Validate) {
           logprintfww5("Validating %s... ", pgenname);
           fflush(stdout);
@@ -961,12 +965,23 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             goto Plink2Core_ret_1;
           }
           logputs("done.\n");
-          if (!(pcp->command_flags1 & (~(kfCommand1Validate | kfCommand1PgenInfo)))) {
+          if (pcp->command_flags1 == kfCommand1Validate) {
             goto Plink2Core_ret_1;
           }
         }
       }
       // any functions using blockload must perform its own PgrInit(), etc.
+      if (pcp->command_flags1 & kfCommand1PgenInfo) {
+        if (pgfi.const_vrtype == kPglVrtypePlink1) {
+          logerrputs("Warning: Skipping --pgen-info since a .bed file was provided.\n");
+        } else {
+          PgenInfoPrint(pgenname, &pgfi, header_ctrl, pgfi.max_allele_ct);
+        }
+        if (!(pcp->command_flags1 & (~(kfCommand1Validate | kfCommand1PgenInfo)))) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
     } else {
       // bugfix (10-11 Feb 2018): these variables may still be accessed
       pgfi.gflags = S_CAST(PgenGlobalFlags, ((info_flags / kfInfoPrNonrefDefault) & 1) * kfPgenGlobalAllNonref);
@@ -2115,8 +2130,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (unlikely(bigstack_end_alloc_w(refalt1_word_ct, &refalt1_select_ul))) {
             goto Plink2Core_ret_NOMEM;
           }
-          const uintptr_t alt_allele_vals = k1LU << (8 * sizeof(AlleleCode));
-          const uintptr_t fill_word = ((~k0LU) / ((alt_allele_vals - 1) * (alt_allele_vals + 1))) * alt_allele_vals;
+          const uintptr_t allele_code_range_size = k1LU << (8 * sizeof(AlleleCode));
+          const uintptr_t fill_word = ((~k0LU) / ((allele_code_range_size - 1) * (allele_code_range_size + 1))) * allele_code_range_size;
           for (uintptr_t widx = 0; widx < refalt1_word_ct; ++widx) {
             refalt1_select_ul[widx] = fill_word;
           }
@@ -2182,8 +2197,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
                   continue;
                 }
                 const uint64_t* cur_allele_dosages = &(main_allele_dosages[allele_idx_offsets? allele_idx_offsets[variant_uidx] : (2 * variant_uidx)]);
-                const uint32_t alt_ct_p1 = allele_idx_offsets? (allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx]) : 2;
-                if (alt_ct_p1 == 2) {
+                const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx]) : 2;
+                if (allele_ct == 2) {
                   // optimize common case: only make one assignment
                   if (cur_allele_dosages[1] > cur_allele_dosages[0]) {
                     R_CAST(DoubleAlleleCode*, refalt1_select)[variant_uidx] = 1;
@@ -2196,7 +2211,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
                   uint32_t new_alt1_idx = 1 - new_ref_idx;
                   uint64_t ref_dosage = cur_allele_dosages[new_ref_idx];
                   uint64_t alt1_dosage = cur_allele_dosages[new_alt1_idx];
-                  for (uint32_t alt_idx = 2; alt_idx < alt_ct_p1; ++alt_idx) {
+                  for (uint32_t alt_idx = 2; alt_idx < allele_ct; ++alt_idx) {
                     const uint64_t cur_alt_dosage = cur_allele_dosages[alt_idx];
                     if (cur_alt_dosage > alt1_dosage) {
                       if (cur_alt_dosage > ref_dosage) {
@@ -8255,12 +8270,11 @@ int main(int argc, char** argv) {
     }
 
     // nonstandard cases (CNV, etc.) here
-    if (pc.command_flags1 == kfCommand1PgenInfo) {
+    if ((pc.command_flags1 == kfCommand1PgenInfo) && (load_params != kfLoadParamsPfileAll) && (!xload)) {
       // special case: don't require .psam/.pvar file
-      // strictly speaking, .bed dimensions can be reported without knowing
-      // variant count, but don't support that for now
       if (unlikely(!(load_params & kfLoadParamsPgen))) {
         logerrputs("Error: --pgen-info requires a .pgen file.\n");
+        goto main_ret_INVALID_CMDLINE;
       }
       reterr = PgenInfoStandalone(pgenname);
     } else {
