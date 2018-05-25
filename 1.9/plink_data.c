@@ -15021,8 +15021,8 @@ int32_t report_non_biallelics(char* outname, char* outname_end, Ll_str* non_bial
   return retval;
 }
 
-void merge_alleles_update_str(char* marker_allele_ptr, char** allele_ptrs, uint32_t* distinct_allele_ct_ptr) {
-  uint32_t distinct_allele_ct = *distinct_allele_ct_ptr;
+void merge_alleles_update_str(char* marker_allele_ptr, char** allele_ptrs, uint32_t* distinct_allele_ctp) {
+  uint32_t distinct_allele_ct = *distinct_allele_ctp;
   uint32_t allele_idx = 0;
   if ((marker_allele_ptr == g_missing_geno_ptr) || (distinct_allele_ct == 3)) {
     return;
@@ -15033,35 +15033,37 @@ void merge_alleles_update_str(char* marker_allele_ptr, char** allele_ptrs, uint3
     }
     allele_idx++;
   }
-  *distinct_allele_ct_ptr = distinct_allele_ct + 1;
+  *distinct_allele_ctp = distinct_allele_ct + 1;
   if (distinct_allele_ct == 2) {
     return;
   }
   allele_ptrs[distinct_allele_ct] = marker_allele_ptr;
 }
 
-uint32_t merge_alleles(char** marker_allele_ptrs, uint32_t marker_uidx, uint32_t marker_uidx2) {
-  uint32_t distinct_allele_ct = 0;
-  char* allele_ptrs[2];
-  allele_ptrs[0] = nullptr;
-  allele_ptrs[1] = nullptr;
+uint32_t merge_equal_pos_alleles(char** marker_allele_ptrs, uint32_t marker_uidx, uint32_t* distinct_allele_ctp, char** allele_ptrs) {
   // reverse order so --keep-allele-order works
-  merge_alleles_update_str(marker_allele_ptrs[2 * marker_uidx + 1], allele_ptrs, &distinct_allele_ct);
-  merge_alleles_update_str(marker_allele_ptrs[2 * marker_uidx], allele_ptrs, &distinct_allele_ct);
-  merge_alleles_update_str(marker_allele_ptrs[2 * marker_uidx2 + 1], allele_ptrs, &distinct_allele_ct);
-  merge_alleles_update_str(marker_allele_ptrs[2 * marker_uidx2], allele_ptrs, &distinct_allele_ct);
-  if (distinct_allele_ct > 2) {
+  merge_alleles_update_str(marker_allele_ptrs[2 * marker_uidx + 1], allele_ptrs, distinct_allele_ctp);
+  merge_alleles_update_str(marker_allele_ptrs[2 * marker_uidx], allele_ptrs, distinct_allele_ctp);
+  if (*distinct_allele_ctp > 2) {
     return 1;
   }
-  if (allele_ptrs[0]) {
-    // todo: test if this write is inefficient enough that we want to guard it
-    // with an if statement
-    marker_allele_ptrs[2 * marker_uidx + 1] = allele_ptrs[0];
-    if (allele_ptrs[1]) {
-      marker_allele_ptrs[2 * marker_uidx] = allele_ptrs[1];
+  return 0;
+}
+
+void save_equal_pos_alleles(const int64_t* ll_buf, uint32_t presort_idx, uint32_t presort_idx_stop, char** equal_pos_allele_ptrs, char** marker_allele_ptrs) {
+  if (!equal_pos_allele_ptrs[1]) {
+    equal_pos_allele_ptrs[1] = (char*)g_missing_geno_ptr;
+    if (!equal_pos_allele_ptrs[0]) {
+      equal_pos_allele_ptrs[0] = (char*)g_missing_geno_ptr;
     }
   }
-  return 0;
+  for (; presort_idx < presort_idx_stop; ++presort_idx) {
+    const uint32_t cur_marker_uidx = (uint32_t)ll_buf[presort_idx];
+    // needed to work properly with merge_equal_pos_alleles() reversal.  (do we
+    // really need this?)
+    marker_allele_ptrs[cur_marker_uidx * 2 + 1] = equal_pos_allele_ptrs[0];
+    marker_allele_ptrs[cur_marker_uidx * 2] = equal_pos_allele_ptrs[1];
+  }
 }
 
 static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_map, double* marker_cms, double* marker_cms_tmp, uint32_t* pos_buf, int64_t* ll_buf, uint32_t* chrom_start, uint32_t* chrom_id, uint32_t chrom_ct, uint32_t* dedup_marker_ct_ptr, uint32_t merge_equal_pos, char** marker_allele_ptrs, Chrom_info* chrom_info_ptr) {
@@ -15081,6 +15083,10 @@ static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t 
   uint32_t read_pos = 0;
   uint32_t write_pos = 0; // may be lower than read_pos due to dups
   uint32_t position_warning_ct = 0;
+  char* equal_pos_allele_ptrs[2];
+  equal_pos_allele_ptrs[0] = nullptr;
+  equal_pos_allele_ptrs[1] = nullptr;
+  uint32_t equal_pos_allele_ct = 0;
   uint32_t chrom_idx;
   uint32_t chrom_read_end_idx;
   int64_t llxx;
@@ -15096,6 +15102,7 @@ static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t 
       continue;
     }
     unplaced = (unplaced == 0) || (chrom_info_ptr->zero_extra_chroms && (unplaced > chrom_info_ptr->max_code));
+    const uint32_t cur_merge_equal_pos = merge_equal_pos && (!unplaced);
     chrom_read_end_idx = chrom_start[chrom_idx + 1];
     // ll_buf has base-pair positions in high 32 bits, and pre-sort indices in
     // low 32 bits.
@@ -15104,33 +15111,58 @@ static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t 
     prev_bp = (uint32_t)(((uint64_t)llxx) >> 32);
     pos_buf[write_pos] = prev_bp;
     marker_map[(uint32_t)llxx] = write_pos++;
+    uint32_t equal_pos_bp = 0xffffffffU;  // force initial mismatch
+    uint32_t equal_pos_presort_idx_start = 0;
     for (; read_pos < chrom_read_end_idx; read_pos++) {
       llxx = ll_buf[read_pos];
       presort_idx = (uint32_t)llxx;
       cur_bp = (uint32_t)(llxx >> 32);
-      // do not merge chr 0 (unplaced).
-      if ((prev_bp == cur_bp) && (!unplaced)) {
-	if (merge_equal_pos && merge_alleles(marker_allele_ptrs, ((uint32_t)ll_buf[read_pos - 1]), presort_idx)) {
-	  LOGERRPRINTFWW("Error: --merge-equal-pos failure.  Variants '%s' and '%s' have the same position, but do not share the same alleles.\n", &(marker_ids[max_marker_id_len * presort_idx]), &(marker_ids[max_marker_id_len * ((uint32_t)ll_buf[read_pos - 1])]));
-	  return 1;
-	}
-	LOGPREPRINTFWW("Warning: Variants '%s' and '%s' have the same position.\n", &(marker_ids[max_marker_id_len * presort_idx]), &(marker_ids[max_marker_id_len * ((uint32_t)ll_buf[read_pos - 1])]));
-	if (position_warning_ct < 3) {
-	  logerrprintb();
-	} else {
-	  logstr(g_logbuf);
-	}
-	position_warning_ct++;
-	if (merge_equal_pos) {
+      // don't care about position conflicts on chr 0 (unplaced).
+      if (cur_merge_equal_pos) {
+        // bugfix (25 May 2018): previous merge_alleles() usage was broken for
+        // multiple reasons
+        if (prev_bp == cur_bp) {
+          if (equal_pos_bp != prev_bp) {
+            equal_pos_presort_idx_start = read_pos - 1;
+            equal_pos_bp = prev_bp;
+            equal_pos_allele_ptrs[0] = nullptr;
+            equal_pos_allele_ptrs[1] = nullptr;
+            equal_pos_allele_ct = 0;
+            if (merge_equal_pos_alleles(marker_allele_ptrs, (uint32_t)ll_buf[equal_pos_presort_idx_start], &equal_pos_allele_ct, equal_pos_allele_ptrs)) {
+              LOGERRPRINTFWW("Error: --merge-equal-pos failure: inconsistent alleles at %s:%u.\n", "?", cur_bp);
+              return 1;
+            }
+          }
+          if (merge_equal_pos_alleles(marker_allele_ptrs, presort_idx, &equal_pos_allele_ct, equal_pos_allele_ptrs)) {
+            LOGERRPRINTFWW("Error: --merge-equal-pos failure: inconsistent alleles at %s:%u.\n", "?", cur_bp);
+            return 1;
+          }
 	  marker_map[presort_idx] = write_pos - 1;
 	  continue;
-	}
+        } else {
+          if (equal_pos_bp == prev_bp) {
+            save_equal_pos_alleles(ll_buf, equal_pos_presort_idx_start, read_pos, equal_pos_allele_ptrs, marker_allele_ptrs);
+          }
+          prev_bp = cur_bp;
+        }
+      } else if ((prev_bp == cur_bp) && (!unplaced)) {
+        // shouldn't print warning in --merge-equal-pos case
+        LOGPREPRINTFWW("Warning: Variants '%s' and '%s' have the same position.\n", &(marker_ids[max_marker_id_len * presort_idx]), &(marker_ids[max_marker_id_len * ((uint32_t)ll_buf[read_pos - 1])]));
+        if (position_warning_ct < 3) {
+          logerrprintb();
+        } else {
+          logstr(g_logbuf);
+        }
+        position_warning_ct++;
       } else {
-	prev_bp = cur_bp;
+        prev_bp = cur_bp;
       }
       marker_map[presort_idx] = write_pos;
       marker_cms[write_pos] = marker_cms_tmp[presort_idx];
       pos_buf[write_pos++] = cur_bp;
+    }
+    if (equal_pos_bp == prev_bp) {
+      save_equal_pos_alleles(ll_buf, equal_pos_presort_idx_start, read_pos, equal_pos_allele_ptrs, marker_allele_ptrs);
     }
     read_pos = chrom_start[chrom_idx + 1];
     chrom_start[chrom_idx + 1] = write_pos;
