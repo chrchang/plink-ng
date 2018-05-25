@@ -15050,19 +15050,20 @@ uint32_t merge_equal_pos_alleles(char** marker_allele_ptrs, uint32_t marker_uidx
   return 0;
 }
 
-void save_equal_pos_alleles(const int64_t* ll_buf, uint32_t presort_idx, uint32_t presort_idx_stop, char** equal_pos_allele_ptrs, char** marker_allele_ptrs) {
-  if (!equal_pos_allele_ptrs[1]) {
-    equal_pos_allele_ptrs[1] = (char*)g_missing_geno_ptr;
-    if (!equal_pos_allele_ptrs[0]) {
-      equal_pos_allele_ptrs[0] = (char*)g_missing_geno_ptr;
-    }
-  }
-  for (; presort_idx < presort_idx_stop; ++presort_idx) {
-    const uint32_t cur_marker_uidx = (uint32_t)ll_buf[presort_idx];
-    // needed to work properly with merge_equal_pos_alleles() reversal.  (do we
-    // really need this?)
-    marker_allele_ptrs[cur_marker_uidx * 2 + 1] = equal_pos_allele_ptrs[0];
-    marker_allele_ptrs[cur_marker_uidx * 2] = equal_pos_allele_ptrs[1];
+void save_equal_pos_alleles(const int64_t* ll_buf, uint32_t read_pos, uint32_t read_pos_stop, char** equal_pos_allele_ptrs, char** marker_allele_ptrs) {
+  const uint32_t canonical_marker_uidx = (uint32_t)ll_buf[read_pos];
+  // (do we really need the reversal in merge_equal_pos_alleles()?)
+  marker_allele_ptrs[canonical_marker_uidx * 2] = equal_pos_allele_ptrs[1]? equal_pos_allele_ptrs[1] : ((char*)g_missing_geno_ptr);
+  marker_allele_ptrs[canonical_marker_uidx * 2 + 1] = equal_pos_allele_ptrs[0]? equal_pos_allele_ptrs[0] : ((char*)g_missing_geno_ptr);
+  ++read_pos;
+  for (; read_pos < read_pos_stop; ++read_pos) {
+    const uint32_t cur_marker_uidx = (uint32_t)ll_buf[read_pos];
+    // DIRTY HACK (25 May 2018): save (nullptr, canonical_marker_uidx) tuple,
+    // and have merge_main() look up the canonical marker_uidx in this case.
+    // something like this is necessary for mixed .bed/.ped merge +
+    // --merge-equal-pos to work properly.
+    marker_allele_ptrs[cur_marker_uidx * 2] = nullptr;
+    marker_allele_ptrs[cur_marker_uidx * 2 + 1] = (char*)((uintptr_t)canonical_marker_uidx);
   }
 }
 
@@ -15112,7 +15113,7 @@ static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t 
     pos_buf[write_pos] = prev_bp;
     marker_map[(uint32_t)llxx] = write_pos++;
     uint32_t equal_pos_bp = 0xffffffffU;  // force initial mismatch
-    uint32_t equal_pos_presort_idx_start = 0;
+    uint32_t equal_pos_read_start = 0;
     for (; read_pos < chrom_read_end_idx; read_pos++) {
       llxx = ll_buf[read_pos];
       presort_idx = (uint32_t)llxx;
@@ -15123,12 +15124,12 @@ static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t 
         // multiple reasons
         if (prev_bp == cur_bp) {
           if (equal_pos_bp != prev_bp) {
-            equal_pos_presort_idx_start = read_pos - 1;
+            equal_pos_read_start = read_pos - 1;
             equal_pos_bp = prev_bp;
             equal_pos_allele_ptrs[0] = nullptr;
             equal_pos_allele_ptrs[1] = nullptr;
             equal_pos_allele_ct = 0;
-            if (merge_equal_pos_alleles(marker_allele_ptrs, (uint32_t)ll_buf[equal_pos_presort_idx_start], &equal_pos_allele_ct, equal_pos_allele_ptrs)) {
+            if (merge_equal_pos_alleles(marker_allele_ptrs, (uint32_t)ll_buf[equal_pos_read_start], &equal_pos_allele_ct, equal_pos_allele_ptrs)) {
               LOGERRPRINTFWW("Error: --merge-equal-pos failure: inconsistent alleles at %s:%u.\n", "?", cur_bp);
               return 1;
             }
@@ -15141,7 +15142,7 @@ static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t 
 	  continue;
         } else {
           if (equal_pos_bp == prev_bp) {
-            save_equal_pos_alleles(ll_buf, equal_pos_presort_idx_start, read_pos, equal_pos_allele_ptrs, marker_allele_ptrs);
+            save_equal_pos_alleles(ll_buf, equal_pos_read_start, read_pos, equal_pos_allele_ptrs, marker_allele_ptrs);
           }
           prev_bp = cur_bp;
         }
@@ -15162,7 +15163,7 @@ static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t 
       pos_buf[write_pos++] = cur_bp;
     }
     if (equal_pos_bp == prev_bp) {
-      save_equal_pos_alleles(ll_buf, equal_pos_presort_idx_start, read_pos, equal_pos_allele_ptrs, marker_allele_ptrs);
+      save_equal_pos_alleles(ll_buf, equal_pos_read_start, read_pos, equal_pos_allele_ptrs, marker_allele_ptrs);
     }
     read_pos = chrom_start[chrom_idx + 1];
     chrom_start[chrom_idx + 1] = write_pos;
@@ -15399,8 +15400,16 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
       bufptr2[alen1] = '\0';
       alen2 = strlen_se(bufptr3);
       bufptr3[alen2] = '\0';
-      bufptr4 = marker_allele_ptrs[((uint32_t)ii) * 2];
-      bufptr5 = marker_allele_ptrs[((uint32_t)ii) * 2 + 1];
+      uint32_t canonical_ascii_uidx = (uint32_t)ii;
+      bufptr4 = marker_allele_ptrs[canonical_ascii_uidx * 2];
+      bufptr5 = marker_allele_ptrs[canonical_ascii_uidx * 2 + 1];
+      if (!bufptr4) {
+        // --merge-equal-pos non-canonical index.  Retrieve the canonical
+        // index.
+        canonical_ascii_uidx = (uintptr_t)bufptr5;
+        bufptr4 = marker_allele_ptrs[canonical_ascii_uidx * 2];
+        bufptr5 = marker_allele_ptrs[canonical_ascii_uidx * 2 + 1];
+      }
 
       last_marker_in_idx = marker_in_idx;
       if (!cur_sample_ct) {
@@ -15563,7 +15572,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 		if (!umm) {
 		  diff_discordant++;
 		}
-		if (merge_diff_print(outfile, idbuf, bufptr, &(sample_ids[ujj * max_sample_id_len]), ucc, ucc3, &(marker_allele_ptrs[((uint32_t)ii) * 2]))) {
+		if (merge_diff_print(outfile, idbuf, bufptr, &(sample_ids[ujj * max_sample_id_len]), ucc, ucc3, &(marker_allele_ptrs[canonical_ascii_uidx * 2]))) {
 		  goto merge_main_ret_WRITE_FAIL;
 		}
 	      }
@@ -15701,6 +15710,15 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	}
 	// actual relative position
 	marker_out_idx = marker_map[uii] - start_marker_idx;
+        // bugfix (25 May 2018): in --merge-equal-pos case, we need to update a
+        // single canonical marker_allele_ptrs[].  We now handle this by
+        // storing nullptr in [0] and the canonical index in [1] when the
+        // current index is non-canonical.
+        char** canonical_marker_allele_ptrs = &(marker_allele_ptrs[uii * 2]);
+        if (!canonical_marker_allele_ptrs[0]) {
+          const uint32_t canonical_ascii_uidx = (uintptr_t)canonical_marker_allele_ptrs[1];
+          canonical_marker_allele_ptrs = &(marker_allele_ptrs[canonical_ascii_uidx * 2]);
+        }
 
 	if ((*aptr1 == '0') && (alen1 == 1)) {
           if ((*aptr2 != '0') || (alen2 != 1)) {
@@ -15711,39 +15729,39 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	  goto merge_main_ret_HALF_MISSING;
 	} else {
 	  ucc2 = 0; // A2 count
-	  if (!strcmp(aptr1, marker_allele_ptrs[uii * 2 + 1])) {
+	  if (!strcmp(aptr1, canonical_marker_allele_ptrs[1])) {
 	    ucc2++;
-	  } else if (strcmp(aptr1, marker_allele_ptrs[uii * 2])) {
+	  } else if (strcmp(aptr1, canonical_marker_allele_ptrs[0])) {
 	    // new allele code
-	    if (marker_allele_ptrs[uii * 2 + 1] == missing_geno_ptr) {
+	    if (canonical_marker_allele_ptrs[1] == missing_geno_ptr) {
 	      // fill A2 first
 	      ucc2++;
-	      ukk = uii * 2 + 1;
-	    } else if (marker_allele_ptrs[uii * 2] == missing_geno_ptr) {
-	      ukk = uii * 2;
+	      ukk = 1;
+	    } else if (canonical_marker_allele_ptrs[0] == missing_geno_ptr) {
+	      ukk = 0;
 	    } else {
 	      goto merge_main_ret_NOT_BIALLELIC;
 	    }
-	    if (allele_set(aptr1, alen1, &(marker_allele_ptrs[ukk]))) {
+	    if (allele_set(aptr1, alen1, &(canonical_marker_allele_ptrs[ukk]))) {
 	      goto merge_main_ret_NOMEM;
 	    }
 	  }
-	  if (!strcmp(aptr2, marker_allele_ptrs[uii * 2 + 1])) {
+	  if (!strcmp(aptr2, canonical_marker_allele_ptrs[1])) {
 	    ucc2++;
-	  } else if (strcmp(aptr2, marker_allele_ptrs[uii * 2])) {
+	  } else if (strcmp(aptr2, canonical_marker_allele_ptrs[0])) {
 	    // put A2 check second since the only way A2 will be unset when A1
 	    // is set at this point is if it was specified that way in an
 	    // earlier binary file.
-	    if (marker_allele_ptrs[uii * 2] == missing_geno_ptr) {
-	      ukk = uii * 2;
-	    } else if (marker_allele_ptrs[uii * 2 + 1] == missing_geno_ptr) {
-              ukk = uii * 2 + 1;
+	    if (canonical_marker_allele_ptrs[0] == missing_geno_ptr) {
+	      ukk = 0;
+	    } else if (canonical_marker_allele_ptrs[1] == missing_geno_ptr) {
+              ukk = 1;
               // bugfix (14 Nov 2017): forgot to increment the A2 allele count!
               ++ucc2;
 	    } else {
 	      goto merge_main_ret_NOT_BIALLELIC;
 	    }
-	    if (allele_set(aptr2, alen2, &(marker_allele_ptrs[ukk]))) {
+	    if (allele_set(aptr2, alen2, &(canonical_marker_allele_ptrs[ukk]))) {
 	      goto merge_main_ret_NOMEM;
 	    }
 	  }
@@ -15804,7 +15822,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	      if (!umm) {
 		diff_discordant++;
 	      }
-	      if (merge_diff_print(outfile, idbuf, &(marker_ids[uii * max_marker_id_len]), &(sample_ids[((uint32_t)ii) * max_sample_id_len]), ucc2, ucc3, &(marker_allele_ptrs[uii * 2]))) {
+	      if (merge_diff_print(outfile, idbuf, &(marker_ids[uii * max_marker_id_len]), &(sample_ids[((uint32_t)ii) * max_sample_id_len]), ucc2, ucc3, canonical_marker_allele_ptrs)) {
 		goto merge_main_ret_WRITE_FAIL;
 	      }
 	    }
@@ -15818,7 +15836,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	      diff_not_both_genotyped++;
 	    } else if (ucc2 != ucc3) {
 	      diff_discordant++;
-	      if (merge_diff_print(outfile, idbuf, &(marker_ids[uii * max_marker_id_len]), &(sample_ids[((uint32_t)ii) * max_sample_id_len]), ucc2, ucc3, &(marker_allele_ptrs[uii * 2]))) {
+	      if (merge_diff_print(outfile, idbuf, &(marker_ids[uii * max_marker_id_len]), &(sample_ids[((uint32_t)ii) * max_sample_id_len]), ucc2, ucc3, canonical_marker_allele_ptrs)) {
 		goto merge_main_ret_WRITE_FAIL;
 	      }
 	    }
