@@ -11236,6 +11236,11 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
               c_star = a1_ctd - a_star;
               d_star = ctrl_ctd - a1_ctd + a_star;
 
+              // concordance fix (25 May 2018): print NA,NA instead of inf,0
+              if ((a_star == 0.0) || (b_star == 0.0) || (c_star == 0.0) || (d_star == 0.0)) {
+                goto cmh_assoc_bd_fail;
+              }
+
 	      // inverse variance
               dxx = 1.0 / a_star + 1.0 / b_star + 1.0 / c_star + 1.0 / d_star;
 

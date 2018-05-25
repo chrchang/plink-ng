@@ -120,7 +120,7 @@ def main():
         sys.exit(1)
     print '--bmerge/--make-bed test passed.'
 
-    subprocess.call('rm test2.bim', shell=True)
+    subprocess.call('rm -f test2.bim', shell=True)
     retval = subprocess.call('plink19 --bfile ' + bfile_names_cc[0] + ' --silent --bmerge ' + bfile_names_cc[1] + ' --max-maf 0.4999 --make-just-bim --out test2', shell=True)
     if not retval == 0:
         print 'Unexpected error in --make-just-bim test.'
@@ -131,7 +131,7 @@ def main():
         sys.exit(1)
     print '--make-just-bim test passed.'
 
-    subprocess.call('rm test2.fam', shell=True)
+    subprocess.call('rm -f test2.fam', shell=True)
     retval = subprocess.call('plink19 --bfile ' + bfile_names_cc[0] + ' --silent --bmerge ' + bfile_names_cc[1] + ' --make-just-fam --out test2', shell=True)
     if not retval == 0:
         print 'Unexpected error in --make-just-bim test.'
@@ -241,7 +241,7 @@ def main():
             print '--make-set/--set/--set-table/--write-set test failed.'
             sys.exit(1)
     print '--make-set/--set/--set-table/--write-set test passed.'
- 
+
     retval = subprocess.call('plink19 --bfile ' + bfile_names_cc[1] + ' --silent --recode --out test2', shell=True)
     if not retval == 0:
         print 'Unexpected error in --merge test.'
@@ -264,7 +264,7 @@ def main():
         sys.exit(1)
     print '--merge test passed.'
 
-    subprocess.call('rm merge_list.txt', shell=True)
+    subprocess.call('rm -f merge_list.txt', shell=True)
     retval = subprocess.call('echo ' + bfile_names_cc[0] + '.bed ' + bfile_names_cc[0] + '.bim ' + bfile_names_cc[0] + '.fam > merge_list.txt', shell=True)
     if not retval == 0:
         print 'Unexpected error in --merge-list test.'
@@ -289,7 +289,7 @@ def main():
     if not retval == 0:
         print '--merge-list test failed.'
         sys.exit(1)
-    subprocess.call('rm merge_list.txt', shell=True)
+    subprocess.call('rm -f merge_list.txt', shell=True)
     print '--merge-list test passed.'
 
     for bfn in bfile_names_cc:
@@ -391,7 +391,7 @@ def main():
     print '--data/--het/--recode oxford test passed.'
 
     for bfn in bfile_names_cc:
-        retval = subprocess.call('rm test1.bim.tmp', shell=True)
+        retval = subprocess.call('rm -f test1.bim.tmp', shell=True)
         retval = subprocess.call('cat ' + bfn + ".bim | sed 's/^1/23/' > test1.bim.tmp", shell=True)
         if not retval == 0:
             print 'Unexpected error in --check-sex/--impute-sex/--read-freq test.'
@@ -745,8 +745,8 @@ def main():
         if not retval == 0:
             print 'Unexpected error in --epistasis-summary-merge/--fast-epistasis/--parallel test.'
             sys.exit(1)
-        retval = subprocess.call('rm test2.epi.cc', shell=True)
-        retval = subprocess.call('rm test2.epi.cc.summary', shell=True)
+        retval = subprocess.call('rm -f test2.epi.cc', shell=True)
+        retval = subprocess.call('rm -f test2.epi.cc.summary', shell=True)
         retval = subprocess.call('cat test2.epi.cc.1 test2.epi.cc.2 > test2.epi.cc', shell=True)
         if not retval == 0:
             print 'Unexpected error in --epistasis-summary-merge/--fast-epistasis/--parallel test.'
@@ -791,10 +791,9 @@ def main():
             sys.exit(1)
     print '--score test passed.'
 
-
     print 'All tests passed.'
-    subprocess.call('rm test1.*', shell=True)
-    subprocess.call('rm test2.*', shell=True)
+    subprocess.call('rm -f test1.*', shell=True)
+    subprocess.call('rm -f test2.*', shell=True)
 
 
 if __name__ == '__main__':
