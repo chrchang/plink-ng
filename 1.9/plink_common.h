@@ -40,7 +40,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #define SPECIES_HUMAN 0
 #define SPECIES_COW 1
@@ -2265,6 +2265,10 @@ uint32_t allele_set(const char* newval, uint32_t allele_slen, char** allele_ptr)
 uint32_t allele_reset(const char* newval, uint32_t allele_slen, char** allele_ptr);
 
 void cleanup_allele_storage(uint32_t max_allele_slen, uintptr_t allele_storage_entry_ct, char** allele_storage);
+
+// needed by fixed --merge-equal-pos implementation, which takes more liberties
+// with allele_storage[]
+void cleanup_allele_storage2(uintptr_t allele_storage_entry_ct, char** allele_storage);
 
 // no need for this; code is simpler if we just create a copy of marker_exclude
 // with all non-autosomal loci removed

@@ -15050,11 +15050,19 @@ uint32_t merge_equal_pos_alleles(char** marker_allele_ptrs, uint32_t marker_uidx
   return 0;
 }
 
-void save_equal_pos_alleles(const int64_t* ll_buf, uint32_t read_pos, uint32_t read_pos_stop, char** equal_pos_allele_ptrs, char** marker_allele_ptrs) {
+uint32_t save_equal_pos_alleles(const int64_t* ll_buf, uint32_t read_pos, uint32_t read_pos_stop, char** equal_pos_allele_ptrs, char** marker_allele_ptrs) {
   const uint32_t canonical_marker_uidx = (uint32_t)ll_buf[read_pos];
   // (do we really need the reversal in merge_equal_pos_alleles()?)
-  marker_allele_ptrs[canonical_marker_uidx * 2] = equal_pos_allele_ptrs[1]? equal_pos_allele_ptrs[1] : ((char*)g_missing_geno_ptr);
-  marker_allele_ptrs[canonical_marker_uidx * 2 + 1] = equal_pos_allele_ptrs[0]? equal_pos_allele_ptrs[0] : ((char*)g_missing_geno_ptr);
+  // bugfix (26 May 2018): forgot about plink 1.9's allele memory management
+  // strategy.
+  const char* new_allele = equal_pos_allele_ptrs[1]? equal_pos_allele_ptrs[1] : g_missing_geno_ptr;
+  if (allele_reset(new_allele, strlen(new_allele), &(marker_allele_ptrs[canonical_marker_uidx * 2]))) {
+    return 1;
+  }
+  new_allele = equal_pos_allele_ptrs[0]? equal_pos_allele_ptrs[0] : g_missing_geno_ptr;
+  if (allele_reset(new_allele, strlen(new_allele), &(marker_allele_ptrs[canonical_marker_uidx * 2 + 1]))) {
+    return 1;
+  }
   ++read_pos;
   for (; read_pos < read_pos_stop; ++read_pos) {
     const uint32_t cur_marker_uidx = (uint32_t)ll_buf[read_pos];
@@ -15062,9 +15070,17 @@ void save_equal_pos_alleles(const int64_t* ll_buf, uint32_t read_pos, uint32_t r
     // and have merge_main() look up the canonical marker_uidx in this case.
     // something like this is necessary for mixed .bed/.ped merge +
     // --merge-equal-pos to work properly.
+    // bugfix (26 May 2018): need to free entries here by hand.
+    if (marker_allele_ptrs[cur_marker_uidx * 2][1]) {
+      free(marker_allele_ptrs[cur_marker_uidx * 2]);
+    }
     marker_allele_ptrs[cur_marker_uidx * 2] = nullptr;
+    if (marker_allele_ptrs[cur_marker_uidx * 2 + 1][1]) {
+      free(marker_allele_ptrs[cur_marker_uidx * 2 + 1]);
+    }
     marker_allele_ptrs[cur_marker_uidx * 2 + 1] = (char*)((uintptr_t)canonical_marker_uidx);
   }
+  return 0;
 }
 
 static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_map, double* marker_cms, double* marker_cms_tmp, uint32_t* pos_buf, int64_t* ll_buf, uint32_t* chrom_start, uint32_t* chrom_id, uint32_t chrom_ct, uint32_t* dedup_marker_ct_ptr, uint32_t merge_equal_pos, char** marker_allele_ptrs, Chrom_info* chrom_info_ptr) {
@@ -15142,7 +15158,9 @@ static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t 
 	  continue;
         } else {
           if (equal_pos_bp == prev_bp) {
-            save_equal_pos_alleles(ll_buf, equal_pos_read_start, read_pos, equal_pos_allele_ptrs, marker_allele_ptrs);
+            if (save_equal_pos_alleles(ll_buf, equal_pos_read_start, read_pos, equal_pos_allele_ptrs, marker_allele_ptrs)) {
+              return 1;
+            }
           }
           prev_bp = cur_bp;
         }
@@ -15163,7 +15181,9 @@ static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t 
       pos_buf[write_pos++] = cur_bp;
     }
     if (equal_pos_bp == prev_bp) {
-      save_equal_pos_alleles(ll_buf, equal_pos_read_start, read_pos, equal_pos_allele_ptrs, marker_allele_ptrs);
+      if (save_equal_pos_alleles(ll_buf, equal_pos_read_start, read_pos, equal_pos_allele_ptrs, marker_allele_ptrs)) {
+        return 1;
+      }
     }
     read_pos = chrom_start[chrom_idx + 1];
     chrom_start[chrom_idx + 1] = write_pos;
@@ -16698,7 +16718,11 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     break;
   }
  merge_datasets_ret_1:
-  cleanup_allele_storage(2, tot_marker_ct * 2, marker_allele_ptrs);
+  if (merge_equal_pos) {
+    cleanup_allele_storage2(tot_marker_ct * 2, marker_allele_ptrs);
+  } else {
+    cleanup_allele_storage(2, tot_marker_ct * 2, marker_allele_ptrs);
+  }
   fclose_cond(mergelistfile);
   fclose_cond(outfile);
   bigstack_double_reset(bigstack_mark, bigstack_end_mark);

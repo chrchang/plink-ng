@@ -4902,6 +4902,25 @@ void cleanup_allele_storage(uint32_t max_allele_slen, uintptr_t allele_storage_e
   }
 }
 
+void cleanup_allele_storage2(uintptr_t allele_storage_entry_ct, char** allele_storage) {
+  if (allele_storage) {
+    const uintptr_t one_char_strs_addr = (uintptr_t)g_one_char_strs;
+    for (uintptr_t idx = 0; idx < allele_storage_entry_ct;) {
+      char* cur_entry = allele_storage[idx];
+      if (!cur_entry) {
+        // --merge-equal-pos hacked entry
+        idx += 2;
+        continue;
+      }
+      // take advantage of unsigned wraparound
+      if ((((uintptr_t)cur_entry) - one_char_strs_addr) >= 512) {
+	free(cur_entry);
+      }
+      ++idx;
+    }
+  }
+}
+
 void refresh_chrom_info(const Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t* __restrict chrom_end_ptr, uint32_t* __restrict chrom_fo_idx_ptr, uint32_t* __restrict is_x_ptr, uint32_t* __restrict is_y_ptr, uint32_t* __restrict is_mt_ptr, uint32_t* __restrict is_haploid_ptr) {
   // assumes we are at the end of the chromosome denoted by chrom_fo_idx.  Ok
   // for chrom_fo_idx == 0xffffffffU.
