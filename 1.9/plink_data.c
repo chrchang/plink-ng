@@ -5116,6 +5116,8 @@ int32_t incr_text_allele_str(char* allele_name, uint32_t an_len, Ll_str* allele_
   // Ll_str.next is a pointer to a linked list entry storing the next 1+ allele
   // names.  Worst case, the linked list is of length 4 (beyond that we error
   // out).  Most of the time, it'll be length 0.
+  // Allele names are separated by tabs; \0 denotes the end of the allele name
+  // list.
   // This type of function will become more important when it's time to parse
   // .vcf files, etc.
   uint32_t allele_num = 0;
@@ -5145,30 +5147,29 @@ int32_t incr_text_allele_str(char* allele_name, uint32_t an_len, Ll_str* allele_
     if ((slen == an_len) && (!memcmp(cur_allele_name_start, allele_name, an_len))) {
       marker_allele_cts[allele_num] += 1;
       return 0;
+    }
+    allele_num++;
+    if (cur_allele_name_start[slen] == '\t') {
+      cur_allele_name_start = &(cur_allele_name_start[slen + 1]);
+    } else if (allele_list_start->next) {
+      allele_list_start = allele_list_start->next;
+      cur_allele_name_start = allele_list_start->ss;
     } else {
-      allele_num++;
-      if (cur_allele_name_start[slen] == '\t') {
-	cur_allele_name_start = &(cur_allele_name_start[slen + 1]);
-      } else if (allele_list_start->next) {
-	allele_list_start = allele_list_start->next;
-	cur_allele_name_start = allele_list_start->ss;
+      chars_left = ((0x7ffffff0 - sizeof(intptr_t)) - ((uintptr_t)(&(cur_allele_name_start[slen + 1]) - allele_list_start->ss))) & 15;
+      if (chars_left > an_len) {
+        cur_allele_name_start[slen] = '\t';
+        memcpyx(&(cur_allele_name_start[slen + 1]), allele_name, an_len, '\0');
       } else {
-	chars_left = ((0x7ffffff0 - sizeof(intptr_t)) - ((uintptr_t)(&(cur_allele_name_start[slen + 1]) - allele_list_start->ss))) & 15;
-	if (chars_left > an_len) {
-	  cur_allele_name_start[slen] = '\t';
-	  memcpyx(&(cur_allele_name_start[slen + 1]), allele_name, an_len, '\0');
-	} else {
-	  if (bigstack_end_alloc_llstr(an_len + 1, &ll_ptr)) {
-	    return RET_NOMEM;
-	  }
-	  allele_list_start->next = ll_ptr;
-	  ll_ptr->next = nullptr;
-	  cur_allele_name_start = ll_ptr->ss;
-	  memcpyx(cur_allele_name_start, allele_name, an_len, '\0');
-	}
-	marker_allele_cts[allele_num] = 1;
-	return 0;
+        if (bigstack_end_alloc_llstr(an_len + 1, &ll_ptr)) {
+          return RET_NOMEM;
+        }
+        allele_list_start->next = ll_ptr;
+        ll_ptr->next = nullptr;
+        cur_allele_name_start = ll_ptr->ss;
+        memcpyx(cur_allele_name_start, allele_name, an_len, '\0');
       }
+      marker_allele_cts[allele_num] = 1;
+      return 0;
     }
   }
   return RET_INVALID_FORMAT;
@@ -5443,22 +5444,17 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
     }
     if (marker_allele_cts[4 * marker_idx + 2]) {
       uii = marker_allele_cts[4 * marker_idx + 3];
-      if (map_is_unsorted) {
-        sprintf(g_logbuf, "Warning: Variant %u (post-sort/filter) %sallelic; setting rarest missing.\n", map_reverse[marker_idx] + 1, (uii? "quad" : "tri"));
-      } else {
-        sprintf(g_logbuf, "Warning: Variant %" PRIuPTR " %sallelic; setting rarest alleles missing.\n", marker_idx + 1, (uii? "quad" : "tri"));
-      }
+      // bugfix (28 May 2018): do NOT look up map_reverse[] in unsorted case
+      sprintf(g_logbuf, "Warning: Variant %" PRIuPTR "%s %sallelic; setting rarest missing.\n", marker_idx + 1, map_is_unsorted? " (post-sort)" : "", (uii? "quad" : "tri"));
       logerrprintb();
       get_top_two_ui(&(marker_allele_cts[4 * marker_idx]), uii? 4 : 3, &ulii, &uljj);
-      uii = map_is_unsorted? map_reverse[marker_idx] : marker_idx;
     } else {
       ulii = (marker_allele_cts[4 * marker_idx] < marker_allele_cts[4 * marker_idx + 1])? 1 : 0;
       uljj = ulii ^ 1;
-      uii = marker_idx;
     }
 
-    aptr1 = get_llstr((Ll_str*)(&(marker_alleles_tmp[uii])), uljj);
-    aptr2 = get_llstr((Ll_str*)(&(marker_alleles_tmp[uii])), ulii);
+    aptr1 = get_llstr((Ll_str*)(&(marker_alleles_tmp[marker_idx])), uljj);
+    aptr2 = get_llstr((Ll_str*)(&(marker_alleles_tmp[marker_idx])), ulii);
     if (!aptr1) {
       aptr1 = missing_geno_ptr;
     } else {
@@ -5708,7 +5704,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
     g_bigstack_base -= cur_slen_rdup;
     logprint("\n");
     if (retval != RET_NOMEM) {
-      LOGERRPRINTF("Error: More than 4 different alleles at variant %u%s.\n", uii + 1, map_is_unsorted? " (post-sort/filter)" : "");
+      LOGERRPRINTF("Error: More than 4 different alleles at variant %u%s.\n", uii + 1, map_is_unsorted? " (post-sort)" : "");
     }
     break;
   ped_to_bed_multichar_allele_ret_INVALID_FORMAT_4:
@@ -6107,11 +6103,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
 	}
 	if (marker_alleles[marker_idx * 4 + 2]) {
 	  cc = marker_alleles[marker_idx * 4 + 3];
-	  if (map_is_unsorted) {
-	    sprintf(g_logbuf, "Warning: Variant %u (post-sort/filter) %sallelic; setting rarest missing.\n", map_reverse[marker_idx] + 1, (cc? "quad" : "tri"));
-	  } else {
-	    sprintf(g_logbuf, "Warning: Variant %" PRIuPTR " %sallelic; setting rarest alleles missing.\n", marker_idx + 1, (cc? "quad" : "tri"));
-	  }
+          sprintf(g_logbuf, "Warning: Variant %" PRIuPTR "%s %sallelic; setting rarest alleles missing.\n", marker_idx + 1, map_is_unsorted? " (post-sort)" : "", (cc? "quad" : "tri"));
 	  logerrprintb();
 	  ujj = (cc? 4 : 3);
 	  // insertion sort
