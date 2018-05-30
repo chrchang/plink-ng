@@ -1182,7 +1182,6 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
     writebuf_alloc += kMaxMediumLine + (4 * k1LU) * sample_ct + kCacheline;
     const uint32_t sample_ctv = BitCtToVecCt(sample_ct);
     const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
-    const uint32_t sample_ctl2_m1 = sample_ctl2 - 1;
     char* writebuf;
     uintptr_t* sex_male_collapsed_interleaved;
     uintptr_t* genovec;
@@ -1198,34 +1197,33 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
     }
     // sex_male_collapsed had trailing bits zeroed out
     FillInterleavedMaskVec(sex_male_collapsed, sample_ctv, sex_male_collapsed_interleaved);
-    // assumes little-endian
-    // 3 = 1|0, not missing
-    // 4,6 = haploid/male-chrX
-    // no need for [7] since we first verify there are no missing calls, etc.
-    // user's responsibility to split off PARs
-    uint32_t genotext[7];
-    genotext[0] = 0x20302030;
-    genotext[1] = 0x20312030;
-    genotext[2] = 0x20312031;
-    genotext[3] = 0x20302031;
-    genotext[4] = 0x202d2030;
-    genotext[6] = 0x202d2031;
-#ifndef NDEBUG
-    genotext[5] = 0x21475542;  // "BUG!"
-#endif
-    uint32_t genotext2[112];
-    genotext2[0] = genotext[0];
-    genotext2[2] = 0x21475542;
-    genotext2[4] = genotext[2];
-    genotext2[6] = 0x21475542;
-    genotext2[34] = genotext[1];
-    genotext2[38] = genotext[3];
-    InitPhaseLookup4b(genotext2);
+    // these could also be compile-time constants
+    uint32_t genotext_haploid[32];
+    // this can be more efficient, but don't worry about it for now
+    genotext_haploid[0] = 0x202d2030;  // " 0 -"
+    genotext_haploid[2] = 0x21475542;  // "BUG!"
+    genotext_haploid[4] = 0x202d2031;
+    genotext_haploid[6] = 0x21475542;
+    InitLookup16x4bx2(genotext_haploid);
+    uint32_t genotext_diploid[112];
+    genotext_diploid[0] = 0x20302030;
+    genotext_diploid[2] = 0x21475542;
+    genotext_diploid[4] = 0x20312031;
+    genotext_diploid[6] = 0x21475542;
+    genotext_diploid[34] = 0x20312030;
+    genotext_diploid[38] = 0x20302031;
+    InitPhaseLookup4b(genotext_diploid);
+    uint32_t genotext_x[128];
+    genotext_x[0] = 0x20302030;
+    genotext_x[2] = 0x21475542;
+    genotext_x[4] = 0x20312031;
+    genotext_x[6] = 0x21475542;
+    genotext_x[32] = 0x202d2030;
+    genotext_x[34] = 0x20312030;
+    genotext_x[36] = 0x202d2031;
+    genotext_x[38] = 0x20302031;
+    InitPhaseXNohhLookup4b(genotext_x);
 
-    uint32_t* cur_genotext = &genotext[0];
-    if (is_haploid && (!is_x)) {
-      cur_genotext = &(genotext[4]);
-    }
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
     char* write_iter = writebuf;
     if (!(exportf_flags & kfExportfBgz)) {
@@ -1267,11 +1265,6 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
         chr_blen = chr_name_end - chr_buf;
         is_x = (chr_idx == x_code);
         is_haploid = IsSet(cip->haploid_mask, chr_idx);
-        if ((!is_haploid) || is_x) {
-          cur_genotext = &genotext[0];
-        } else {
-          cur_genotext = &(genotext[4]);
-        }
       }
       uint32_t phasepresent_ct;
       reterr = PgrGetP(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, phasepresent, phaseinfo, &phasepresent_ct);
@@ -1333,49 +1326,22 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
         }
         *write_iter++ = ' ';
       }
-      uint32_t* write_iter_u32_alias = R_CAST(uint32_t*, write_iter);
       if (!is_x) {
         if (!phasepresent_ct) {
-          GenoarrLookup16x4bx2(genovec, genotext2, sample_ct, write_iter_u32_alias);
+          GenoarrLookup16x4bx2(genovec, is_haploid? genotext_haploid : genotext_diploid, sample_ct, write_iter);
         } else {
           BitvecAnd(phasepresent, sample_ctl, phaseinfo);
-          PhaseLookup4b(genovec, phasepresent, phaseinfo, genotext2, sample_ct, write_iter_u32_alias);
+          PhaseLookup4b(genovec, phasepresent, phaseinfo, genotext_diploid, sample_ct, write_iter);
         }
-        write_iter_u32_alias = &(write_iter_u32_alias[sample_ct]);
       } else {
         if (!phasepresent_ct) {
-          // phaseinfo is NOT cleared in this case
-          ZeroWArr(sample_ctl, phaseinfo);
+          GenoarrSexLookup4b(genovec, sex_male_collapsed, genotext_x, sample_ct, write_iter);
         } else {
           BitvecAnd(phasepresent, sample_ctl, phaseinfo);
-        }
-        uint32_t inner_loop_last = kBitsPerWordD2 - 1;
-        uint32_t widx = 0;
-        while (1) {
-          if (widx >= sample_ctl2_m1) {
-            if (widx > sample_ctl2_m1) {
-              break;
-            }
-            inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
-          }
-          // can operate on genovec halfword + phaseinfo/male quarterwords
-          // instead, and pre-shuffle?  test this.
-          uintptr_t genovec_word = genovec[widx];
-          const uint32_t phaseinfo_halfword = R_CAST(Halfword*, phaseinfo)[widx];
-          const uint32_t male_halfword = R_CAST(const Halfword*, sex_male_collapsed)[widx];
-
-          for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
-            const uintptr_t cur_geno = genovec_word & 3;
-            if (cur_geno == 2) {
-              assert(!((phaseinfo_halfword >> sample_idx_lowbits) & 1));
-            }
-            *write_iter_u32_alias++ = cur_genotext[cur_geno + 2 * ((phaseinfo_halfword >> sample_idx_lowbits) & 1) + 4 * ((male_halfword >> sample_idx_lowbits) & 1)];
-            genovec_word >>= 2;
-          }
-          ++widx;
+          PhaseXNohhLookup4b(genovec, phasepresent, phaseinfo, sex_male_collapsed, genotext_x, sample_ct, write_iter);
         }
       }
-      write_iter = R_CAST(char*, write_iter_u32_alias);
+      write_iter = &(write_iter[sample_ct * 4]);
       DecrAppendBinaryEoln(&write_iter);
       if (unlikely(flexbwrite_ck(writebuf_flush, outfile, bgz_outfile, &write_iter))) {
         goto ExportOxHapslegend_ret_WRITE_FAIL;

@@ -1905,13 +1905,11 @@ void InitPhaseLookup4b(void* table56x4bx2) {
   }
 }
 
-/*
 // bits 0..3: two genotypes
-// bits 4..5: two phasepresent bits
-// bits 6..7: sex_male bits (ok to allow het haploid)
-// bits 1,2: phaseinfo xor
-void PhaseXLookup4b(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* sex_male, const void* table248x4bx2, uint32_t sample_ct, void* result) {
-  const uint64_t* table_alias = S_CAST(const uint64_t*, table248x4bx2);
+// bits 4..5: two (phasepresent | sex_male) bits
+// bits 1,3: unpacked phaseinfo xor
+void PhaseXNohhLookup4b(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* sex_male, const void* table64x4bx2, uint32_t sample_ct, void* result) {
+  const uint64_t* table_alias = S_CAST(const uint64_t*, table64x4bx2);
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
   const Halfword* phasepresent_alias = R_CAST(const Halfword*, phasepresent);
   const Halfword* phaseinfo_alias = R_CAST(const Halfword*, phaseinfo);
@@ -1919,58 +1917,45 @@ void PhaseXLookup4b(const uintptr_t* genoarr, const uintptr_t* phasepresent, con
   uint64_t* result_iter = S_CAST(uint64_t*, result);
   uint32_t widx = 0;
   uint32_t loop_len = kBitsPerWordD4;
-  uintptr_t geno_word = 0;
-  uintptr_t phasepresent_hw_shifted = 0;
-  uintptr_t phaseinfo_hw_shifted = 0;
-  uintptr_t sex_male_hw_shifted = 0;
+  uintptr_t geno_word_xored = 0;
+  uintptr_t male_or_phasepresent_hw_shifted = 0;
   while (1) {
     if (widx >= sample_ctl2_m1) {
       if (widx > sample_ctl2_m1) {
         if (sample_ct % 2) {
-          uintptr_t cur_idx = (geno_word & 3) | sex_male_hw_shifted;
-          // assume trailing bits of phasepresent/phaseinfo clear
-          // phaseinfo_hw_shifted not necessarily updated, so need if-statement
-          if (phasepresent_hw_shifted) {
-            cur_idx ^= phasepresent_hw_shifted | phaseinfo_hw_shifted;
-          }
+          uintptr_t cur_idx = (geno_word_xored & 3) | male_or_phasepresent_hw_shifted;
           memcpy(result_iter, &(table_alias[cur_idx]), 4);
         }
         return;
       }
       loop_len = ModNz(sample_ct, kBitsPerWordD2) / 2;
     }
-    geno_word = genoarr[widx];
-    sex_male_hw_shifted = sex_male_alias[widx];
-    sex_male_hw_shifted <<= 6;
-    phasepresent_hw_shifted = phasepresent_alias[widx];
-    if (!phasepresent_hw_shifted) {
+    geno_word_xored = genoarr[widx];
+    male_or_phasepresent_hw_shifted = sex_male_alias[widx];
+    const uintptr_t phasepresent_hw = phasepresent_alias[widx];
+    male_or_phasepresent_hw_shifted |= phasepresent_hw;
+    male_or_phasepresent_hw_shifted <<= 4;
+    if (!phasepresent_hw) {
       for (uint32_t uii = 0; uii < loop_len; ++uii) {
-        *result_iter++ = table_alias[(geno_word & 15) | (sex_male_hw_shifted & 192)];
-        geno_word >>= 4;
-        sex_male_hw_shifted >>= 2;
+        *result_iter++ = table_alias[(geno_word_xored & 15) | (male_or_phasepresent_hw_shifted & 48)];
+        geno_word_xored >>= 4;
+        male_or_phasepresent_hw_shifted >>= 2;
       }
     } else {
-      phasepresent_hw_shifted <<= 4;
-      phaseinfo_hw_shifted = phaseinfo_alias[widx];
-
-      // note that this must be on a separate line (or we have to static_cast)
-      phaseinfo_hw_shifted <<= 1;
-
+      geno_word_xored ^= UnpackHalfwordToWordShift1(phaseinfo_alias[widx]);
       for (uint32_t uii = 0; uii < loop_len; ++uii) {
-        const uintptr_t cur_idx = ((geno_word & 15) | (phasepresent_hw_shifted & 48) | (sex_male_hw_shifted & 192)) ^ (phaseinfo_hw_shifted & 6);
+        const uintptr_t cur_idx = (geno_word_xored & 15) | (male_or_phasepresent_hw_shifted & 48);
         *result_iter++ = table_alias[cur_idx];
-        geno_word >>= 4;
-        phasepresent_hw_shifted >>= 2;
-        phaseinfo_hw_shifted >>= 2;
-        sex_male_hw_shifted >>= 2;
+        geno_word_xored >>= 4;
+        male_or_phasepresent_hw_shifted >>= 2;
       }
     }
     ++widx;
   }
 }
 
-void InitPhaseXLookup4b(void* table248x4bx2) {
-  uint32_t* table_iter = S_CAST(uint32_t*, table56x4bx2);
+void InitPhaseXNohhLookup4b(void* table64x4bx2) {
+  uint32_t* table_iter = S_CAST(uint32_t*, table64x4bx2);
   uint32_t vals[4];
   vals[0] = table_iter[0];
   table_iter[1] = vals[0];
@@ -1989,41 +1974,67 @@ void InitPhaseXLookup4b(void* table248x4bx2) {
     }
   }
   // [16][0]..[31][1]: bit 4 is set
-  // low bits must be 01 or 11
-  const uint32_t val_phaseinfo0 = table_iter[2];
-  table_iter[3] = vals[0];
-  const uint32_t val_phaseinfo1 = table_iter[6];
-  table_iter[7] = vals[0];
-  table_iter = &(table_iter[8]);
+  uint32_t male_or_phasepresent_vals[4];
+  for (uint32_t low_idx = 0; low_idx < 4; ++low_idx) {
+    male_or_phasepresent_vals[low_idx] = *table_iter++;
+    *table_iter++ = vals[0];
+  }
   for (uint32_t high_idx = 1; high_idx < 4; ++high_idx) {
     const uint32_t cur_high = vals[high_idx];
-    table_iter[2] = val_phaseinfo0;
-    table_iter[3] = cur_high;
-    table_iter[6] = val_phaseinfo1;
-    table_iter[7] = cur_high;
-    table_iter = &(table_iter[8]);
+    for (uint32_t low_idx = 0; low_idx < 4; ++low_idx) {
+      *table_iter++ = male_or_phasepresent_vals[low_idx];
+      *table_iter++ = cur_high;
+    }
   }
-  // [32][0]..[39][1]: bit 5 set, bit 4 unset
-  // high bits must be 00 or 01
-  for (uint32_t high_idx = 0; high_idx < 2; ++high_idx) {
-    const uint32_t cur_high = high_idx? val_phaseinfo0 : val_phaseinfo1;
+  // [32][0]..[47][1]: bit 5 set, bit 4 unset
+  for (uint32_t high_idx = 0; high_idx < 4; ++high_idx) {
+    const uint32_t cur_high = male_or_phasepresent_vals[high_idx];
     for (uint32_t low_idx = 0; low_idx < 4; ++low_idx) {
       *table_iter++ = vals[low_idx];
       *table_iter++ = cur_high;
     }
   }
-  table_iter = &(table_iter[16]);
-  // [48][0]..[55][1]: bits 4 and 5 set
-  for (uint32_t high_idx = 0; high_idx < 2; ++high_idx) {
-    const uint32_t cur_high = high_idx? val_phaseinfo0 : val_phaseinfo1;
-    table_iter[2] = val_phaseinfo0;
-    table_iter[3] = cur_high;
-    table_iter[6] = val_phaseinfo1;
-    table_iter[7] = cur_high;
-    table_iter = &(table_iter[8]);
+  // [48][0]..[63][1]: bits 4 and 5 set
+  for (uint32_t high_idx = 0; high_idx < 4; ++high_idx) {
+    const uint32_t cur_high = male_or_phasepresent_vals[high_idx];
+    for (uint32_t low_idx = 0; low_idx < 4; ++low_idx) {
+      *table_iter++ = male_or_phasepresent_vals[low_idx];
+      *table_iter++ = cur_high;
+    }
   }
 }
-*/
+
+void GenoarrSexLookup4b(const uintptr_t* genoarr, const uintptr_t* sex_male, const void* table64x4bx2, uint32_t sample_ct, void* result) {
+  const uint64_t* table_alias = S_CAST(const uint64_t*, table64x4bx2);
+  const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
+  const Halfword* sex_male_alias = R_CAST(const Halfword*, sex_male);
+  uint64_t* result_iter = S_CAST(uint64_t*, result);
+  uint32_t widx = 0;
+  uint32_t loop_len = kBitsPerWordD4;
+  uintptr_t geno_word = 0;
+  uintptr_t male_hw_shifted = 0;
+  while (1) {
+    if (widx >= sample_ctl2_m1) {
+      if (widx > sample_ctl2_m1) {
+        if (sample_ct % 2) {
+          uintptr_t cur_idx = (geno_word & 3) | male_hw_shifted;
+          memcpy(result_iter, &(table_alias[cur_idx]), 4);
+        }
+        return;
+      }
+      loop_len = ModNz(sample_ct, kBitsPerWordD2) / 2;
+    }
+    geno_word = genoarr[widx];
+    male_hw_shifted = sex_male_alias[widx];
+    male_hw_shifted <<= 4;
+    for (uint32_t uii = 0; uii < loop_len; ++uii) {
+      *result_iter++ = table_alias[(geno_word & 15) | (male_hw_shifted & 48)];
+      geno_word >>= 4;
+      male_hw_shifted >>= 2;
+    }
+    ++widx;
+  }
+}
 
 
 void PreinitPgfi(PgenFileInfo* pgfip) {

@@ -430,12 +430,16 @@ void PhaseLookup4b(const uintptr_t* genoarr, const uintptr_t* phasepresent, cons
 // [0][0]..[3][0], [17][0], and [19][0] should contain the relevant values
 void InitPhaseLookup4b(void* table56x4bx2);
 
-/*
-void PhaseXLookup4b(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* sex_male, const void* table56x4bx2, uint32_t sample_ct, void* result);
+// het-haploid prohibited.  64-entry table suffices: we use the same bits for
+// phasepresent and sex_male since they can't be true simultaneously.
+// phaseinfo is xor'd with bits 1 and 3 instead of 1 and 2.
+void PhaseXNohhLookup4b(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* sex_male, const void* table64x4bx2, uint32_t sample_ct, void* result);
 
-// [0][0]..[3][0], [17][0], [19][0], and... uh...
-void InitPhaseXLookup4b(void* table248x4bx2);
-*/
+// [0][0]..[3][0], [16][0]..[19][0]
+void InitPhaseXNohhLookup4b(void* table64x4bx2);
+
+// uses same table as PhaseXNohhLookup
+void GenoarrSexLookup4b(const uintptr_t* genoarr, const uintptr_t* sex_male, const void* table64x4bx2, uint32_t sample_ct, void* result);
 
 // ----- end plink2_common subset -----
 
