@@ -785,6 +785,22 @@ static inline BoolErr flexbwrite_ck(char* buf_flush, FILE* outfile, BGZF* bgz_ou
   return flexbwrite_flush2(buf_flush, outfile, bgz_outfile, write_iter_ptr);
 }
 
+BoolErr flexbclose_flush_null(char* buf_flush, char* write_iter, FILE** outfilep, BGZF** bgz_outfilep) {
+  char* buf = &(buf_flush[-S_CAST(int32_t, kMaxMediumLine)]);
+  if (unlikely(flexbwrite_flush(buf, write_iter - buf, *outfilep, *bgz_outfilep))) {
+    return 1;
+  }
+  if (*bgz_outfilep) {
+    if (unlikely(bgzf_close(*bgz_outfilep))) {
+      *bgz_outfilep = nullptr;
+      return 1;
+    }
+    *bgz_outfilep = nullptr;
+    return 0;
+  }
+  return fclose_null(outfilep);
+}
+
 PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uint32_t sample_ct, uint32_t variant_ct, uint32_t max_allele_slen, __maybe_unused uint32_t max_thread_ct, ExportfFlags exportf_flags, PgenReader* simple_pgrp, char* outname, char* outname_end, uint32_t* sample_missing_geno_cts) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
@@ -1035,22 +1051,8 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
         next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
       }
     }
-    if (write_iter != writebuf) {
-      // this should be wrapped...
-      if (unlikely(flexbwrite_flush(writebuf, write_iter - writebuf, outfile, bgz_outfile))) {
-        goto ExportOxGen_ret_WRITE_FAIL;
-      }
-    }
-    if (bgz_outfile) {
-      if (unlikely(bgzf_close(bgz_outfile))) {
-        bgz_outfile = nullptr;
-        goto ExportOxGen_ret_WRITE_FAIL;
-      }
-      bgz_outfile = nullptr;
-    } else {
-      if (unlikely(fclose_null(&outfile))) {
-        goto ExportOxGen_ret_WRITE_FAIL;
-      }
+    if (flexbclose_flush_null(writebuf_flush, write_iter, &outfile, &bgz_outfile)) {
+      goto ExportOxGen_ret_WRITE_FAIL;
     }
     if (pct > 10) {
       putc_unlocked('\b', stdout);
@@ -1088,11 +1090,12 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
 #ifdef __arm__
 #  error "Unaligned accesses in ExportOxHapslegend()."
 #endif
-PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* sex_male_collapsed, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, ExportfFlags exportf_flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* sex_male_collapsed, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, __maybe_unused uint32_t max_thread_ct, ExportfFlags exportf_flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   assert(sample_ct);
   assert(variant_ct);
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
+  BGZF* bgz_outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
   {
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
@@ -1234,10 +1237,25 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
     }
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
     char* write_iter = writebuf;
-    // er, probably want to support bgzip...
-    snprintf(outname_end, kMaxOutfnameExtBlen, ".haps");
-    if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
-      goto ExportOxHapslegend_ret_OPEN_FAIL;
+    if (!(exportf_flags & kfExportfBgz)) {
+      snprintf(outname_end, kMaxOutfnameExtBlen, ".haps");
+      if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
+        goto ExportOxHapslegend_ret_OPEN_FAIL;
+      }
+    } else {
+      snprintf(outname_end, kMaxOutfnameExtBlen, ".haps.gz");
+      bgz_outfile = bgzf_open(outname, "w");
+      if (unlikely(!bgz_outfile)) {
+        goto ExportOxHapslegend_ret_OPEN_FAIL;
+      }
+#ifndef _WIN32
+      if (max_thread_ct > 1) {
+        const uint32_t compressor_thread_ct = max_thread_ct - (max_thread_ct > 4);
+        if (unlikely(bgzf_mt(bgz_outfile, MINV(128, compressor_thread_ct), 128))) {
+          goto ExportOxHapslegend_ret_NOMEM;
+        }
+      }
+#endif
     }
     logprintfww5("Writing %s ... ", outname);
     fputs("0%", stdout);
@@ -1366,7 +1384,7 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
       }
       write_iter = R_CAST(char*, write_iter_u32_alias);
       DecrAppendBinaryEoln(&write_iter);
-      if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
+      if (unlikely(flexbwrite_ck(writebuf_flush, outfile, bgz_outfile, &write_iter))) {
         goto ExportOxHapslegend_ret_WRITE_FAIL;
       }
       if (variant_idx >= next_print_variant_idx) {
@@ -1379,7 +1397,7 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
         next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
       }
     }
-    if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
+    if (flexbclose_flush_null(writebuf_flush, write_iter, &outfile, &bgz_outfile)) {
       goto ExportOxHapslegend_ret_WRITE_FAIL;
     }
     if (pct > 10) {
@@ -1408,6 +1426,9 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
     }
   }
   fclose_cond(outfile);
+  if (bgz_outfile) {
+    bgzf_close(bgz_outfile);
+  }
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -4881,21 +4902,8 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
       }
     }
-    if (write_iter != writebuf) {
-      if (unlikely(flexbwrite_flush(writebuf, write_iter - writebuf, outfile, bgz_outfile))) {
-        goto ExportVcf_ret_WRITE_FAIL;
-      }
-    }
-    if (bgz_outfile) {
-      if (unlikely(bgzf_close(bgz_outfile))) {
-        bgz_outfile = nullptr;
-        goto ExportVcf_ret_WRITE_FAIL;
-      }
-      bgz_outfile = nullptr;
-    } else {
-      if (unlikely(fclose_null(&outfile))) {
-        goto ExportVcf_ret_WRITE_FAIL;
-      }
+    if (flexbclose_flush_null(writebuf_flush, write_iter, &outfile, &bgz_outfile)) {
+      goto ExportVcf_ret_WRITE_FAIL;
     }
     if (pct > 10) {
       putc_unlocked('\b', stdout);
@@ -5522,7 +5530,7 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
     }
     if (flags & (kfExportfHaps | kfExportfHapsLegend)) {
       PgrClearLdCache(simple_pgrp);
-      reterr = ExportOxHapslegend(sample_include, sample_include_cumulative_popcounts, sex_male_collapsed, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, refalt1_select, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, flags, simple_pgrp, outname, outname_end);
+      reterr = ExportOxHapslegend(sample_include, sample_include_cumulative_popcounts, sex_male_collapsed, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, refalt1_select, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, max_thread_ct, flags, simple_pgrp, outname, outname_end);
       if (unlikely(reterr)) {
         goto Exportf_ret_1;
       }

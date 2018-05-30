@@ -446,6 +446,19 @@ HEADER_INLINE int32_t NoMoreTokensKns(const char* str) {
   return ((!str) || IsEolnKns(*str));
 }
 
+HEADER_INLINE CXXCONST_CP FirstNonChar(const char* str_iter, char cc) {
+  while (*str_iter == cc) {
+    ++str_iter;
+  }
+  return S_CAST(CXXCONST_CP, str_iter);
+}
+
+#ifdef __cplusplus
+HEADER_INLINE char* FirstNonChar(char* str_iter, char cc) {
+  return const_cast<char*>(FirstNonChar(const_cast<const char*>(str_iter), cc));
+}
+#endif
+
 HEADER_INLINE CXXCONST_CP FirstNonTspace(const char* str_iter) {
   while ((*str_iter == ' ') || (*str_iter == '\t')) {
     ++str_iter;

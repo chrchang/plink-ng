@@ -7544,7 +7544,7 @@ PglErr ScanHapsForHet(const char* loadbuf_iter, const char* hapsname, uint32_t s
 #ifdef __arm__
 #  error "Unaligned accesses in OxHapslegendToPgen()."
 #endif
-PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const char* samplename, const char* ox_single_chr_str, const char* ox_missing_code, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const char* samplename, const char* ox_single_chr_str, const char* ox_missing_code, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   uintptr_t line_idx_haps = 0;
@@ -7574,8 +7574,15 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     if (unlikely(StandardizeLinebufSize(bigstack_left() / 4, kMaxMediumLine + 1, &linebuf_size))) {
       goto OxHapslegendToPgen_ret_NOMEM;
     }
+    reterr = RlsOpenMaybeBgzf(hapsname, ClipU32(max_thread_ct - 1, 1, 4), &haps_rls);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetOpenFail) {
+        logerrprintfww("Error: Failed to open %s.\n", hapsname);
+      }
+      goto OxHapslegendToPgen_ret_1;
+    }
     char* haps_line_iter;
-    reterr = InitRLstreamRaw(hapsname, linebuf_size, &haps_rls, &haps_line_iter);
+    reterr = InitRLstreamEx(0, kMaxLongLine, linebuf_size, &haps_rls, &haps_line_iter);
     if (unlikely(reterr)) {
       goto OxHapslegendToPgen_ret_1;
     }
@@ -7872,6 +7879,79 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       if ((!is_haploid) && (ctou32(linebuf_iter[sample_ct * 4 - 1]) < 32)) {
         haps_line_iter = AdvToDelim(&(linebuf_iter[sample_ct * 4 - 1]), '\n');
         linebuf_iter[sample_ct * 4 - 1] = ' ';
+#ifdef __LP64__
+        const VecUs* linebuf_viter = R_CAST(const VecUs*, linebuf_iter);
+        const VecUs all0 = vecus_set1(0x2030);
+        const VecUs all1 = vecus_set1(0x2031);
+        const uint32_t fullword_ct = sample_ct / kBitsPerWordD2;
+        Halfword* phaseinfo_alias = R_CAST(Halfword*, phaseinfo);
+        for (; widx < fullword_ct; ++widx) {
+          uintptr_t geno_first = 0;
+          for (uint32_t uii = 0; uii < 2; ++uii) {
+            VecUs cur_chars = vecus_loadu(linebuf_viter);
+            ++linebuf_viter;
+            uintptr_t zero_mm = vecus_movemask(cur_chars == all0);
+            uintptr_t one_mm = vecus_movemask(cur_chars == all1);
+            cur_chars = vecus_loadu(linebuf_viter);
+            ++linebuf_viter;
+            zero_mm |= S_CAST(uintptr_t, vecus_movemask(cur_chars == all0)) << kBytesPerVec;
+            one_mm |= S_CAST(uintptr_t, vecus_movemask(cur_chars == all1)) << kBytesPerVec;
+#  ifndef USE_AVX2
+            cur_chars = vecus_loadu(linebuf_viter);
+            ++linebuf_viter;
+            zero_mm |= S_CAST(uintptr_t, vecus_movemask(cur_chars == all0)) << 32;
+            one_mm |= S_CAST(uintptr_t, vecus_movemask(cur_chars == all1)) << 32;
+            cur_chars = vecus_loadu(linebuf_viter);
+            ++linebuf_viter;
+            zero_mm |= S_CAST(uintptr_t, vecus_movemask(cur_chars == all0)) << 48;
+            one_mm |= S_CAST(uintptr_t, vecus_movemask(cur_chars == all1)) << 48;
+#  endif
+            if (unlikely(~(zero_mm | one_mm))) {
+              // todo: other error messages
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid token on line %" PRIuPTR " of %s.\n", line_idx_haps, hapsname);
+              goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
+            }
+#  ifdef USE_AVX2
+            geno_first |= _pext_u64(one_mm, kMask5555) << (uii * 32);
+#  else
+            geno_first |= S_CAST(uintptr_t, PackWordToHalfword(one_mm & kMask5555)) << (uii * 32);
+#  endif
+          }
+          const uintptr_t geno_second = (geno_first >> 1) & kMask5555;
+          geno_first &= kMask5555;
+          const uintptr_t geno_sum = geno_first + geno_second;
+          genovec[widx] = geno_sum;
+          genovec_word_or |= geno_sum;
+          uintptr_t phaseinfo_hw = geno_second & (~geno_first);
+          if (!prov_ref_allele_second) {
+            phaseinfo_hw = geno_first & (~geno_second);
+          }
+          phaseinfo_hw = PackWordToHalfword(phaseinfo_hw);
+          phaseinfo_alias[widx] = phaseinfo_hw;
+        }
+        const uint32_t remainder = sample_ct % kBitsPerWordD2;
+        if (remainder) {
+          const uint32_t* linebuf_alias32_iter = R_CAST(const uint32_t*, linebuf_viter);
+          uintptr_t genovec_word = 0;
+          Halfword phaseinfo_hw = 0;
+          for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < remainder; ++sample_idx_lowbits) {
+            uint32_t cur_hap_4char = *linebuf_alias32_iter++;
+            if (unlikely((cur_hap_4char & 0xfffefffeU) != 0x20302030)) {
+              // todo: other error messages
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid token on line %" PRIuPTR " of %s.\n", line_idx_haps, hapsname);
+              goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
+            }
+            const uint32_t new_geno = (cur_hap_4char + (cur_hap_4char >> 16)) & 3;
+            genovec_word |= new_geno << (2 * sample_idx_lowbits);
+            if (cur_hap_4char == phaseinfo_match_4char) {
+              phaseinfo_hw |= 1U << sample_idx_lowbits;
+            }
+          }
+          genovec[fullword_ct] = genovec_word;
+          genovec_word_or |= genovec_word;
+          phaseinfo_alias[fullword_ct] = phaseinfo_hw;
+        }
+#else  // !__LP64__
         const uint32_t* linebuf_alias32_iter = R_CAST(const uint32_t*, linebuf_iter);
         while (1) {
           if (widx >= sample_ctl2_m1) {
@@ -7908,6 +7988,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
           R_CAST(Halfword*, phaseinfo)[widx] = phaseinfo_hw;
           ++widx;
         }
+#endif  // !__LP64__
       } else {
         while (1) {
           if (widx >= sample_ctl2_m1) {
@@ -7922,16 +8003,19 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
             const uint32_t first_hap_char_code = ctou32(*linebuf_iter);
             const uint32_t first_hap_int = first_hap_char_code - 48;
             char* post_first_hap = &(linebuf_iter[1]);
-            if (unlikely((first_hap_int >= 2) || (ctou32(*post_first_hap) > 32))) {
-              if (first_hap_char_code <= 32) {
+            if (unlikely((first_hap_int >= 2) || (*post_first_hap != ' '))) {
+              if ((first_hap_char_code <= 32) || (ctou32(*post_first_hap) < 32)) {
                 goto OxHapslegendToPgen_ret_MISSING_TOKENS_HAPS;
               }
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid token on line %" PRIuPTR " of %s.\n", line_idx_haps, hapsname);
               goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
             }
-            char* second_hap = FirstNonTspace(post_first_hap);
+            char* second_hap = post_first_hap;
+            uint32_t second_hap_char_code;
+            do {
+              second_hap_char_code = ctou32(*(++second_hap));
+            } while (second_hap_char_code == 32);
             char* post_second_hap = &(second_hap[1]);
-            const uint32_t second_hap_char_code = ctou32(*second_hap);
             const uint32_t post_second_hap_char_code = ctou32(*post_second_hap);
             uint32_t second_hap_int = second_hap_char_code - 48;
             if ((second_hap_int >= 2) || (post_second_hap_char_code > 32)) {
@@ -7954,7 +8038,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
             if (first_hap_int + 2 * second_hap_int == phaseinfo_match) {
               phaseinfo_hw |= 1U << sample_idx_lowbits;
             }
-            linebuf_iter = FirstNonTspace(post_second_hap);
+            linebuf_iter = FirstNonChar(post_second_hap, ' ');
           }
           genovec[widx] = genovec_word;
           genovec_word_or |= genovec_word;
