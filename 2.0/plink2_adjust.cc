@@ -310,14 +310,13 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     double* ln_pv_gc;
     double* unadj_sorted_ln_pvals;
     if (unlikely(
-          bigstack_alloc_d(valid_allele_ct, &ln_pv_bh) ||
-          bigstack_alloc_d(valid_allele_ct, &ln_pv_gc) ||
-          bigstack_alloc_d(valid_allele_ct, &unadj_sorted_ln_pvals))) {
+            bigstack_alloc_d(valid_allele_ct, &ln_pv_bh) ||
+            bigstack_alloc_d(valid_allele_ct, &ln_pv_gc) ||
+            bigstack_alloc_d(valid_allele_ct, &unadj_sorted_ln_pvals))) {
       goto Multcomp_ret_NOMEM;
     }
 
     STD_SORT_PAR_UNSEQ(valid_allele_ct, double_cmp, sortbuf);
-    ;;;
 
     double lambda_recip = 1.0;
     if (!skip_gc) {
@@ -731,8 +730,8 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     uintptr_t* variant_include_dummy;
     uintptr_t* allele_include_dummy;
     if (unlikely(
-          bigstack_alloc_w(entry_ctl, &variant_include_dummy) ||
-          bigstack_alloc_w(entry_ctl2, &allele_include_dummy))) {
+            bigstack_alloc_w(entry_ctl, &variant_include_dummy) ||
+            bigstack_alloc_w(entry_ctl2, &allele_include_dummy))) {
       goto AdjustFile_ret_NOMEM;
     }
     SetAllBits(entry_ct, variant_include_dummy);
@@ -762,8 +761,8 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     char** variant_ids;
     double* ln_pvals;
     if (unlikely(
-          bigstack_alloc_cp(entry_ct, &variant_ids) ||
-          bigstack_alloc_d(entry_ct, &ln_pvals))) {
+            bigstack_alloc_cp(entry_ct, &variant_ids) ||
+            bigstack_alloc_d(entry_ct, &ln_pvals))) {
       goto AdjustFile_ret_NOMEM;
     }
     char** allele_storage;

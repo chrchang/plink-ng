@@ -46,7 +46,7 @@ void GenoarrToBytesMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int8_t* 
   }
 }
 
-// could have a size-16 lookup table in 64-bit builds, etc.
+// todo: use GenoarrLookup256x4bx4()
 static const int32_t kGenoToInt32[4] = {0, 1, 2, -9};
 
 void GenoarrToInt32sMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int32_t* geno_int32) {
@@ -70,6 +70,7 @@ void GenoarrToInt32sMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int32_t
   }
 }
 
+// todo: use GenoarrLookup16x8bx2()
 static const int64_t kGenoToInt64[4] = {0, 1, 2, -9};
 
 void GenoarrToInt64sMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int64_t* geno_int64) {
@@ -94,6 +95,7 @@ void GenoarrToInt64sMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int64_t
 }
 
 // missing = -9
+// todo: use GenoarrLookup16x8bx2()
 static const uint64_t kGenoToIntcodePair[4] = {0, 0x100000000LLU, 0x100000001LLU, 0xfffffff7fffffff7LLU};
 
 void GenoarrToAlleleCodes(const uintptr_t* genoarr, uint32_t sample_ct, int32_t* allele_codes) {
@@ -162,6 +164,7 @@ void GenoarrPhasedToAlleleCodes(const uintptr_t* genoarr, const uintptr_t* phase
 }
 
 // missing = -9
+// may want a double-lookup function for this
 static const int32_t kGenoToHap0Code[6] = {0, 0, 1, -9, 0, 1};
 static const int32_t kGenoToHap1Code[6] = {0, 1, 1, -9, 0, 0};
 
@@ -192,6 +195,7 @@ void GenoarrPhasedToHapCodes(const uintptr_t* genoarr, const uintptr_t* phaseinf
   }
 }
 
+// todo: use GenoarrLookup256x4bx4()
 static const float kGenoToFloat[4] = {0.0, 1.0, 2.0, -9.0};
 
 void Dosage16ToFloatsMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, float* geno_float) {
@@ -224,6 +228,7 @@ void Dosage16ToFloatsMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_pr
   }
 }
 
+// todo: use GenoarrLookup16x8bx2()
 static const double kGenoToDouble[4] = {0.0, 1.0, 2.0, -9.0};
 
 void Dosage16ToDoublesMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, double* geno_double) {

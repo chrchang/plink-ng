@@ -108,6 +108,22 @@ void logerrputsb() {
 }
 
 BoolErr fopen_checked(const char* fname, const char* mode, FILE** target_ptr) {
+  /*
+  if (!strcmp(mode, FOPEN_WB)) {
+    // The fopen call may take a long time to return when overwriting in mode
+    // "w" in some scenarios on some OSes (I've seen 15+ sec).  On the other
+    // hand, sometimes it returns immediately and then writing takes less time.
+    // Since it goes both ways, I won't second-guess the OSes for now, but
+    // retest this in the future.
+    if (access(fname, W_OK) != -1) {
+      if (unlikely(unlink(fname))) {
+        logputs("\n");
+        logerrprintfww(kErrprintfFopen, fname);
+        return 1;
+      }
+    }
+  }
+  */
   *target_ptr = fopen(fname, mode);
   if (unlikely(!(*target_ptr))) {
     logputs("\n");
@@ -1580,8 +1596,8 @@ PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, cons
 PglErr CopySortStrboxSubset(const uintptr_t* __restrict subset_mask, const char* __restrict orig_strbox, uintptr_t str_ct, uintptr_t max_str_blen, uint32_t allow_dups, uint32_t collapse_idxs, uint32_t use_nsort, char** sorted_strbox_ptr, uint32_t** id_map_ptr) {
   // id_map on bottom because --indiv-sort frees *sorted_strbox_ptr
   if (unlikely(
-        bigstack_alloc_u32(str_ct, id_map_ptr) ||
-        bigstack_alloc_c(str_ct * max_str_blen, sorted_strbox_ptr))) {
+          bigstack_alloc_u32(str_ct, id_map_ptr) ||
+          bigstack_alloc_c(str_ct * max_str_blen, sorted_strbox_ptr))) {
     return kPglRetNomem;
   }
   return CopySortStrboxSubsetNoalloc(subset_mask, orig_strbox, str_ct, max_str_blen, allow_dups, collapse_idxs, use_nsort, *sorted_strbox_ptr, *id_map_ptr);
@@ -1705,8 +1721,8 @@ PglErr StringRangeListToBitarrAlloc(const char* header_line, const RangeList* ra
   char* sorted_ids;
   uint32_t* id_map;
   if (unlikely(
-        bigstack_calloc_w(token_ctl, bitarr_ptr) ||
-        bigstack_alloc_i32(name_ct, &seen_idxs))) {
+          bigstack_calloc_w(token_ctl, bitarr_ptr) ||
+          bigstack_alloc_i32(name_ct, &seen_idxs))) {
     return kPglRetNomem;
   }
   // kludge to use CopySortStrboxSubset()
@@ -2650,9 +2666,9 @@ BoolErr SpawnThreads2z(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, uint32_t i
     g_thread_spawn_ct = 0;  // tidx 0 may need to know modulus
     g_thread_mutex_initialized = 1;
     if (unlikely(
-          pthread_mutex_init(&g_thread_sync_mutex, nullptr) ||
-          pthread_cond_init(&g_thread_cur_block_done_condvar, nullptr) ||
-          pthread_cond_init(&g_thread_start_next_condvar, nullptr))) {
+            pthread_mutex_init(&g_thread_sync_mutex, nullptr) ||
+            pthread_cond_init(&g_thread_cur_block_done_condvar, nullptr) ||
+            pthread_cond_init(&g_thread_start_next_condvar, nullptr))) {
       return 1;
     }
     for (uintptr_t ulii = 0; ulii < ct; ++ulii) {
@@ -4103,10 +4119,10 @@ PglErr SearchHeaderLine(const char* header_line_iter, const char* const* search_
     uint32_t* priority_vals;
     uint64_t* cols_and_types;
     if (unlikely(
-          bigstack_alloc_c(search_term_ct * max_blen, &merged_strbox) ||
-          bigstack_alloc_u32(search_term_ct, &id_map) ||
-          bigstack_alloc_u32(search_col_ct, &priority_vals) ||
-          bigstack_alloc_u64(search_col_ct, &cols_and_types))) {
+            bigstack_alloc_c(search_term_ct * max_blen, &merged_strbox) ||
+            bigstack_alloc_u32(search_term_ct, &id_map) ||
+            bigstack_alloc_u32(search_col_ct, &priority_vals) ||
+            bigstack_alloc_u64(search_col_ct, &cols_and_types))) {
       goto SearchHeaderLine_ret_NOMEM;
     }
     uint32_t search_term_idx = 0;

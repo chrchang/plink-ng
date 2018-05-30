@@ -150,6 +150,9 @@
 #      define USE_AVX2
 #    endif
 #  endif
+#  define ALIGNV16 __attribute__ ((aligned (16)))
+#else
+#  define ALIGNV16
 #endif
 
 // done with #includes, can start C++ namespace...
@@ -227,8 +230,10 @@ namespace plink2 {
 // strategy (always dump backtrace and exit immediately?), though provision
 // must still be made for sometimes-error-sometimes-not return paths which
 // don't get an unlikely annotation.
-#define likely(expr) __builtin_expect(!!(expr), 1)
-#define unlikely(expr) __builtin_expect(!!(expr), 0)
+#ifndef likely
+#  define likely(expr) __builtin_expect(!!(expr), 1)
+#  define unlikely(expr) __builtin_expect(!!(expr), 0)
+#endif
 
 #ifdef __cplusplus
 #  define K_CAST(type, val) (const_cast<type>(val))
@@ -457,9 +462,12 @@ typedef uint32_t BoolErr;
 #  define FOPEN_RB "r"
 #  define FOPEN_WB "w"
 #  define FOPEN_AB "a"
-#  if defined(__APPLE__) || defined(__FreeBSD__)
+#  if defined(__APPLE__) || defined(__FreeBSD__) || defined(NetBSD)
 #    define fread_unlocked fread
 #    define fwrite_unlocked fwrite
+#  endif
+#  if defined(NetBSD)
+#    define ferror_unlocked ferror
 #  endif
 #endif
 

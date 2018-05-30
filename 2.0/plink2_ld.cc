@@ -934,25 +934,25 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     uint32_t* thread_last_uidx;
     pthread_t* threads = nullptr;
     if (unlikely(
-          bigstack_alloc_w(QuaterCtToWordCt(raw_sample_ct), &tmp_genovec) ||
-          bigstack_calloc_u32(calc_thread_ct, &g_tvidx_end) ||
-          bigstack_calloc_u32(calc_thread_ct, &thread_last_subcontig) ||
-          bigstack_calloc_u32(calc_thread_ct, &thread_subcontig_start_tvidx) ||
-          bigstack_calloc_u32(calc_thread_ct, &thread_last_tvidx) ||
-          bigstack_calloc_u32(calc_thread_ct, &thread_last_uidx) ||
-          bigstack_alloc_wp(calc_thread_ct, &g_genobufs) ||
-          bigstack_alloc_wp(calc_thread_ct, &g_occupied_window_slots) ||
-          bigstack_alloc_wp(calc_thread_ct, &g_cur_window_removed) ||
-          bigstack_alloc_dp(calc_thread_ct, &g_cur_maj_freqs) ||
-          bigstack_alloc_wp(calc_thread_ct, &g_removed_variants_write) ||
-          BIGSTACK_ALLOC_X(VariantAggs*, calc_thread_ct, &g_vaggs) ||
-          BIGSTACK_ALLOC_X(VariantAggs*, calc_thread_ct, &g_nonmale_vaggs) ||
-          bigstack_alloc_u32p(calc_thread_ct, &g_winpos_to_slot_idx) ||
-          bigstack_alloc_u32p(calc_thread_ct, &g_tvidxs) ||
-          bigstack_alloc_u32p(calc_thread_ct, &g_first_unchecked_tvidx) ||
-          bigstack_alloc_wp(calc_thread_ct, &(g_raw_tgenovecs[0])) ||
-          bigstack_alloc_wp(calc_thread_ct, &(g_raw_tgenovecs[1])) ||
-          bigstack_alloc_thread(calc_thread_ct, &threads))) {
+            bigstack_alloc_w(QuaterCtToWordCt(raw_sample_ct), &tmp_genovec) ||
+            bigstack_calloc_u32(calc_thread_ct, &g_tvidx_end) ||
+            bigstack_calloc_u32(calc_thread_ct, &thread_last_subcontig) ||
+            bigstack_calloc_u32(calc_thread_ct, &thread_subcontig_start_tvidx) ||
+            bigstack_calloc_u32(calc_thread_ct, &thread_last_tvidx) ||
+            bigstack_calloc_u32(calc_thread_ct, &thread_last_uidx) ||
+            bigstack_alloc_wp(calc_thread_ct, &g_genobufs) ||
+            bigstack_alloc_wp(calc_thread_ct, &g_occupied_window_slots) ||
+            bigstack_alloc_wp(calc_thread_ct, &g_cur_window_removed) ||
+            bigstack_alloc_dp(calc_thread_ct, &g_cur_maj_freqs) ||
+            bigstack_alloc_wp(calc_thread_ct, &g_removed_variants_write) ||
+            BIGSTACK_ALLOC_X(VariantAggs*, calc_thread_ct, &g_vaggs) ||
+            BIGSTACK_ALLOC_X(VariantAggs*, calc_thread_ct, &g_nonmale_vaggs) ||
+            bigstack_alloc_u32p(calc_thread_ct, &g_winpos_to_slot_idx) ||
+            bigstack_alloc_u32p(calc_thread_ct, &g_tvidxs) ||
+            bigstack_alloc_u32p(calc_thread_ct, &g_first_unchecked_tvidx) ||
+            bigstack_alloc_wp(calc_thread_ct, &(g_raw_tgenovecs[0])) ||
+            bigstack_alloc_wp(calc_thread_ct, &(g_raw_tgenovecs[1])) ||
+            bigstack_alloc_thread(calc_thread_ct, &threads))) {
       goto IndepPairwise_ret_NOMEM;
     }
     for (uint32_t subcontig_idx = 0; subcontig_idx < subcontig_ct; ++subcontig_idx) {
@@ -1646,11 +1646,11 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     uintptr_t* removed_variants_collapsed;
     uint32_t* subcontig_thread_assignments;
     if (unlikely(
-          bigstack_alloc_u32(raw_sample_ctl, &founder_info_cumulative_popcounts) ||
-          bigstack_alloc_w(founder_ctl, &founder_nonmale_collapsed) ||
-          bigstack_alloc_w(founder_ctl, &founder_male_collapsed) ||
-          bigstack_calloc_w(variant_ctl, &removed_variants_collapsed) ||
-          bigstack_alloc_u32(subcontig_ct, &subcontig_thread_assignments))) {
+            bigstack_alloc_u32(raw_sample_ctl, &founder_info_cumulative_popcounts) ||
+            bigstack_alloc_w(founder_ctl, &founder_nonmale_collapsed) ||
+            bigstack_alloc_w(founder_ctl, &founder_male_collapsed) ||
+            bigstack_calloc_w(variant_ctl, &removed_variants_collapsed) ||
+            bigstack_alloc_u32(subcontig_ct, &subcontig_thread_assignments))) {
       goto LdPrune_ret_NOMEM;
     }
     FillCumulativePopcounts(founder_info, raw_sample_ctl, founder_info_cumulative_popcounts);
@@ -2897,8 +2897,8 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     uint32_t x_male_ct = 0;
     if (x_present) {
       if (unlikely(
-            bigstack_alloc_w(founder_ctaw, &sex_male_collapsed) ||
-            bigstack_alloc_w(founder_ctaw, &sex_male_collapsed_interleaved))) {
+              bigstack_alloc_w(founder_ctaw, &sex_male_collapsed) ||
+              bigstack_alloc_w(founder_ctaw, &sex_male_collapsed_interleaved))) {
         goto LdConsole_ret_NOMEM;
       }
       CopyBitarrSubset(sex_male, founder_info, founder_ct, sex_male_collapsed);
@@ -2986,12 +2986,12 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       uintptr_t* two_bitvecs[2];
       uintptr_t* nm_bitvecs[2];
       if (unlikely(
-            bigstack_alloc_w(founder_ctaw, &one_bitvecs[0]) ||
-            bigstack_alloc_w(founder_ctaw, &two_bitvecs[0]) ||
-            bigstack_alloc_w(founder_ctaw, &nm_bitvecs[0]) ||
-            bigstack_alloc_w(founder_ctaw, &one_bitvecs[1]) ||
-            bigstack_alloc_w(founder_ctaw, &two_bitvecs[1]) ||
-            bigstack_alloc_w(founder_ctaw, &nm_bitvecs[1]))) {
+              bigstack_alloc_w(founder_ctaw, &one_bitvecs[0]) ||
+              bigstack_alloc_w(founder_ctaw, &two_bitvecs[0]) ||
+              bigstack_alloc_w(founder_ctaw, &nm_bitvecs[0]) ||
+              bigstack_alloc_w(founder_ctaw, &one_bitvecs[1]) ||
+              bigstack_alloc_w(founder_ctaw, &two_bitvecs[1]) ||
+              bigstack_alloc_w(founder_ctaw, &nm_bitvecs[1]))) {
         goto LdConsole_ret_NOMEM;
       }
       uint32_t nmaj_cts[2];
@@ -3058,12 +3058,12 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       uintptr_t* nm_bitvecs[2];
       // founder_ct automatically rounded up as necessary
       if (unlikely(
-            bigstack_alloc_dosage(founder_ct, &dosage_vecs[0]) ||
-            bigstack_alloc_dosage(founder_ct, &dosage_vecs[1]) ||
-            bigstack_alloc_dosage(founder_ct, &dosage_uhets[0]) ||
-            bigstack_alloc_dosage(founder_ct, &dosage_uhets[1]) ||
-            bigstack_alloc_w(founder_ctl, &nm_bitvecs[0]) ||
-            bigstack_alloc_w(founder_ctl, &nm_bitvecs[1]))) {
+              bigstack_alloc_dosage(founder_ct, &dosage_vecs[0]) ||
+              bigstack_alloc_dosage(founder_ct, &dosage_vecs[1]) ||
+              bigstack_alloc_dosage(founder_ct, &dosage_uhets[0]) ||
+              bigstack_alloc_dosage(founder_ct, &dosage_uhets[1]) ||
+              bigstack_alloc_w(founder_ctl, &nm_bitvecs[0]) ||
+              bigstack_alloc_w(founder_ctl, &nm_bitvecs[1]))) {
         goto LdConsole_ret_NOMEM;
       }
       uint64_t nmaj_dosages[2];
@@ -3082,8 +3082,8 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       main_dphase_deltas[1] = nullptr;
       if (use_phase) {
         if (unlikely(
-              bigstack_alloc_dphase(founder_ct, &main_dphase_deltas[0]) ||
-              bigstack_alloc_dphase(founder_ct, &main_dphase_deltas[1]))) {
+                bigstack_alloc_dphase(founder_ct, &main_dphase_deltas[0]) ||
+                bigstack_alloc_dphase(founder_ct, &main_dphase_deltas[1]))) {
           goto LdConsole_ret_NOMEM;
         }
         for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {

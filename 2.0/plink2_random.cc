@@ -87,8 +87,8 @@ PglErr FillGaussianDArr(uintptr_t entry_pair_ct, uint32_t thread_ct, double* dar
     }
     pthread_t* threads;
     if (unlikely(
-          InitAllocSfmtpArr(thread_ct, 1) ||
-          bigstack_alloc_thread(thread_ct, &threads))) {
+            InitAllocSfmtpArr(thread_ct, 1) ||
+            bigstack_alloc_thread(thread_ct, &threads))) {
       goto FillGaussianDArr_ret_NOMEM;
     }
     g_darray = darray;

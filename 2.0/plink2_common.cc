@@ -75,42 +75,44 @@ char* dosagetoa(uint64_t dosage, char* start) {
   return start;
 }
 
-void PopulateDenseDosage(const uintptr_t* genovec, const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, Dosage* dense_dosage) {
-  // see also fill_cur_dosage_ints in plink2_matrix_calc
-  const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
-  STD_ARRAY_DECL(Dosage, 4, lookup_table);
-  lookup_table[0] = 0;
-  lookup_table[1] = kDosageMid;
-  lookup_table[2] = kDosageMax;
-  lookup_table[3] = kDosageMissing;
-  uint32_t loop_len = kBitsPerWordD2;
-  uint32_t widx = 0;
-  Dosage* dense_dosage_iter = dense_dosage;
-  while (1) {
-    if (widx >= sample_ctl2_m1) {
-      if (widx > sample_ctl2_m1) {
-        break;
-      }
-      loop_len = ModNz(sample_ct, kBitsPerWordD2);
-    }
-    uintptr_t cur_geno_word = genovec[widx];
-    for (uint32_t uii = 0; uii < loop_len; ++uii) {
-      const uintptr_t cur_geno = cur_geno_word & 3;
-      *dense_dosage_iter++ = lookup_table[cur_geno];
-      cur_geno_word >>= 2;
-    }
-    ++widx;
-  }
+#define HC_TO_DOSAGE4_2(f2, f3, f4) 0, f2, f3, f4, kDosageMid, f2, f3, f4, kDosageMax, f2, f3, f4, kDosageMissing, f2, f3, f4
+#define HC_TO_DOSAGE4_3(f3, f4) HC_TO_DOSAGE4_2(0, f3, f4), HC_TO_DOSAGE4_2(kDosageMid, f3, f4), HC_TO_DOSAGE4_2(kDosageMax, f3, f4), HC_TO_DOSAGE4_2(kDosageMissing, f3, f4)
+#define HC_TO_DOSAGE4_4(f4) HC_TO_DOSAGE4_3(0, f4), HC_TO_DOSAGE4_3(kDosageMid, f4), HC_TO_DOSAGE4_3(kDosageMax, f4), HC_TO_DOSAGE4_3(kDosageMissing, f4)
+
+static const uint16_t kHcToDosage[1024] = {HC_TO_DOSAGE4_4(0), HC_TO_DOSAGE4_4(kDosageMid), HC_TO_DOSAGE4_4(kDosageMax), HC_TO_DOSAGE4_4(kDosageMissing)};
+
+void PopulateDenseDosage(const uintptr_t* genoarr, const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, Dosage* dense_dosage) {
+  GenoarrLookup256x2bx4(genoarr, kHcToDosage, sample_ct, dense_dosage);
   // fill trailing bits with missing values so vector operations work
   const uint32_t trailing_entry_ct = (-sample_ct) % kDosagePerVec;
-  for (uint32_t uii = 0; uii < trailing_entry_ct; ++uii) {
-    dense_dosage_iter[uii] = kDosageMissing;
+  if (trailing_entry_ct) {
+    Dosage* dense_dosage_end = &(dense_dosage[sample_ct]);
+    for (uint32_t uii = 0; uii < trailing_entry_ct; ++uii) {
+      dense_dosage_end[uii] = kDosageMissing;
+    }
   }
-
   uint32_t sample_idx = 0;
   for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_idx) {
     MovU32To1Bit(dosage_present, &sample_idx);
     dense_dosage[sample_idx] = dosage_main[dosage_idx];
+  }
+}
+
+void PopulateRescaledDosage(const uintptr_t* genoarr, const uintptr_t* dosage_present, const Dosage* dosage_main, double slope, double intercept, double missing_val, uint32_t sample_ct, uint32_t dosage_ct, double* expanded_dosages) {
+  double lookup_vals[32] ALIGNV16;
+  lookup_vals[0] = intercept;
+  lookup_vals[2] = intercept + slope;
+  lookup_vals[4] = intercept + 2 * slope;
+  lookup_vals[6] = missing_val;
+  InitLookup16x8bx2(lookup_vals);
+  GenoarrLookup16x8bx2(genoarr, lookup_vals, sample_ct, expanded_dosages);
+  if (dosage_ct) {
+    slope *= kRecipDosageMid;
+    uint32_t sample_uidx = 0;
+    for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_uidx) {
+      MovU32To1Bit(dosage_present, &sample_uidx);
+      expanded_dosages[sample_uidx] = dosage_main[dosage_idx] * slope + intercept;
+    }
   }
 }
 

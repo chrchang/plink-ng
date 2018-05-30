@@ -61,7 +61,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (21 May 2018)";
+  " (29 May 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -230,9 +230,9 @@ PglErr PgenInfoStandalone(const char* pgenname) {
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     unsigned char* pgfi_alloc;
     if (unlikely(
-          bigstack_alloc_uc(cur_alloc_cacheline_ct * kCacheline, &pgfi_alloc) ||
-          bigstack_alloc_w(raw_variant_ct + 1, &pgfi.allele_idx_offsets) ||
-          bigstack_alloc_w(raw_variant_ctl, &pgfi.nonref_flags))) {
+            bigstack_alloc_uc(cur_alloc_cacheline_ct * kCacheline, &pgfi_alloc) ||
+            bigstack_alloc_w(raw_variant_ct + 1, &pgfi.allele_idx_offsets) ||
+            bigstack_alloc_w(raw_variant_ctl, &pgfi.nonref_flags))) {
       reterr = kPglRetNomem;
       goto PgenInfoStandalone_ret_1;
     }
@@ -244,7 +244,7 @@ PglErr PgenInfoStandalone(const char* pgenname) {
       goto PgenInfoStandalone_ret_1;
     }
     uint32_t max_allele_ct = 2;
-    if (pgfi.gflags & kfPgenGlobalMultiallelicHardcallPresent) {
+    if (pgfi.gflags & kfPgenGlobalMultiallelicHardcallFound) {
       max_allele_ct = UINT32_MAX;
     } else if (pgfi.gflags & kfPgenGlobalDosagePresent) {
       max_allele_ct = UINT32_MAXM1;
@@ -353,7 +353,9 @@ typedef struct Plink2CmdlineStruct {
   uint32_t keep_fcol_num;
 
   char* var_filter_exceptions_flattened;
-  char* varid_template;
+  char* varid_template_str;
+  char* varid_multi_template_str;
+  char* varid_multi_nonsnp_template_str;
   char* missing_varid_match;
   char* varid_from;
   char* varid_to;
@@ -770,7 +772,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     ChrIdx* chr_idxs = nullptr;  // split-chromosome case only
     if (pvarname[0]) {
       char** pvar_filter_storage_mutable = nullptr;
-      reterr = LoadPvar(pvarname, pcp->var_filter_exceptions_flattened, pcp->varid_template, pcp->missing_varid_match, pcp->require_info_flattened, pcp->require_no_info_flattened, &(pcp->extract_if_info_expr), &(pcp->exclude_if_info_expr), pcp->misc_flags, pcp->pvar_psam_flags, pcp->exportf_info.flags, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->dependency_flags & kfFilterNoSplitChr), pcp->max_thread_ct, cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids_mutable, &allele_idx_offsets, K_CAST(const char***, &allele_storage_mutable), &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage_mutable, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_slen, &xheader_blen, &info_flags, &max_filter_slen);
+      reterr = LoadPvar(pvarname, pcp->var_filter_exceptions_flattened, pcp->varid_template_str, pcp->varid_multi_template_str, pcp->varid_multi_nonsnp_template_str, pcp->missing_varid_match, pcp->require_info_flattened, pcp->require_no_info_flattened, &(pcp->extract_if_info_expr), &(pcp->exclude_if_info_expr), pcp->misc_flags, pcp->pvar_psam_flags, pcp->exportf_info.flags, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->dependency_flags & kfFilterNoSplitChr), pcp->max_thread_ct, cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids_mutable, &allele_idx_offsets, K_CAST(const char***, &allele_storage_mutable), &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage_mutable, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_slen, &xheader_blen, &info_flags, &max_filter_slen);
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
       }
@@ -914,6 +916,10 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
         goto Plink2Core_ret_1;
       }
+      if (unlikely((!allele_idx_offsets) && (pgfi.gflags & kfPgenGlobalMultiallelicHardcallFound))) {
+        logerrputs("Error: .pgen file contains multiallelic variants, while .pvar does not.\n");
+        goto Plink2Core_ret_INCONSISTENT_INPUT;
+      }
       if (pcp->misc_flags & kfMiscRealRefAlleles) {
         if (unlikely(nonref_flags && (!AllBitsAreOne(nonref_flags, raw_variant_ct)))) {
           // technically a lie, it's okay if a .bed is first converted to .pgen
@@ -953,9 +959,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         pgfi.shared_ff = shared_ff_copy;
         // todo: make this execute after --pmerge
         if (pcp->command_flags1 & kfCommand1Validate) {
+          uintptr_t* genovec_buf;
+          if (unlikely(bigstack_alloc_w(QuaterCtToWordCt(raw_sample_ct), &genovec_buf))) {
+            goto Plink2Core_ret_NOMEM;
+          }
           logprintfww5("Validating %s... ", pgenname);
           fflush(stdout);
-          reterr = PgrValidate(&simple_pgr, g_logbuf);
+          reterr = PgrValidate(&simple_pgr, genovec_buf, g_logbuf);
           if (unlikely(reterr)) {
             if (reterr != kPglRetReadFail) {
               logputs("\n");
@@ -968,6 +978,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (pcp->command_flags1 == kfCommand1Validate) {
             goto Plink2Core_ret_1;
           }
+          BigstackReset(genovec_buf);
         }
       }
       // any functions using blockload must perform its own PgrInit(), etc.
@@ -1266,8 +1277,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       const uint32_t smaj_missing_geno_report_requested = (pcp->command_flags1 & kfCommand1MissingReport) && (!(pcp->missing_rpt_flags & kfMissingRptVariantOnly));
       if ((pcp->mind_thresh < 1.0) || smaj_missing_geno_report_requested) {
         if (unlikely(
-              bigstack_alloc_u32(raw_sample_ct, &sample_missing_hc_cts) ||
-              bigstack_alloc_u32(raw_sample_ct, &sample_hethap_cts))) {
+                bigstack_alloc_u32(raw_sample_ct, &sample_missing_hc_cts) ||
+                bigstack_alloc_u32(raw_sample_ct, &sample_hethap_cts))) {
           goto Plink2Core_ret_NOMEM;
         }
         if (SampleMissingDosageCtsAreNeeded(pcp->misc_flags, smaj_missing_geno_report_requested, pcp->mind_thresh, pcp->missing_rpt_flags)) {
@@ -1477,11 +1488,11 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         goto Plink2Core_ret_INCONSISTENT_INPUT;
       }
       if (unlikely(
-            bigstack_alloc_w(raw_sample_ctl, &loop_cats_sample_include_backup) ||
-            bigstack_alloc_w(raw_sample_ctl, &loop_cats_founder_info_backup) ||
-            bigstack_alloc_w(raw_sample_ctl, &loop_cats_sex_nm_backup) ||
-            bigstack_alloc_w(raw_sample_ctl, &loop_cats_sex_male_backup) ||
-            bigstack_alloc_w(1 + (loop_cats_pheno_col->nonnull_category_ct / kBitsPerWord), &loop_cats_cat_include))) {
+              bigstack_alloc_w(raw_sample_ctl, &loop_cats_sample_include_backup) ||
+              bigstack_alloc_w(raw_sample_ctl, &loop_cats_founder_info_backup) ||
+              bigstack_alloc_w(raw_sample_ctl, &loop_cats_sex_nm_backup) ||
+              bigstack_alloc_w(raw_sample_ctl, &loop_cats_sex_male_backup) ||
+              bigstack_alloc_w(1 + (loop_cats_pheno_col->nonnull_category_ct / kBitsPerWord), &loop_cats_cat_include))) {
         goto Plink2Core_ret_NOMEM;
       }
       if (variant_ct != raw_variant_ct) {
@@ -2771,7 +2782,7 @@ int main(int argc, char** argv) {
   using namespace plink2;
 #endif
   // special case, since it may dump to stdout
-  if ((argc > 1) && ((!strcmp(argv[1], "--zst-decompress")) || (!strcmp(argv[1], "-zst-decompress")))) {
+  if ((argc > 1) && ((!strcmp(argv[1], "--zst-decompress")) || (!strcmp(argv[1], "-zst-decompress")) || (!strcmp(argv[1], "--zd")) || (!strcmp(argv[1], "-zd")))) {
     if (unlikely(argc == 2)) {
       fprintf(stderr, "Error: Missing %s parameter.\n", argv[1]);
       return S_CAST(uint32_t, kPglRetInvalidCmdline);
@@ -2808,7 +2819,9 @@ int main(int argc, char** argv) {
   pc.filter_flags = kfFilter0;
   pc.dependency_flags = kfFilter0;
   pc.var_filter_exceptions_flattened = nullptr;
-  pc.varid_template = nullptr;
+  pc.varid_template_str = nullptr;
+  pc.varid_multi_template_str = nullptr;
+  pc.varid_multi_nonsnp_template_str = nullptr;
   pc.missing_varid_match = nullptr;
   pc.varid_from = nullptr;
   pc.varid_to = nullptr;
@@ -2890,8 +2903,8 @@ int main(int argc, char** argv) {
       goto main_ret_NULL_CALC_0;
     }
     if (unlikely(
-          pgl_malloc(flag_ct * kMaxFlagBlen, &pcm.flag_buf) ||
-          pgl_malloc(flag_ct * sizeof(int32_t), &pcm.flag_map))) {
+            pgl_malloc(flag_ct * kMaxFlagBlen, &pcm.flag_buf) ||
+            pgl_malloc(flag_ct * sizeof(int32_t), &pcm.flag_map))) {
       goto main_ret_NOMEM_NOLOG2;
     }
 
@@ -4907,7 +4920,7 @@ int main(int argc, char** argv) {
             const char* cur_modif = argvk[arg_idx + 2];
             if (!strcmp(cur_modif, "ref-first")) {
               oxford_import_flags |= kfOxfordImportRefFirst;
-            } else if (likely((!strcmp(cur_modif, "ref-last")) && (!strcmp(cur_modif, "ref-second")))) {
+            } else if (likely((!strcmp(cur_modif, "ref-last")) || (!strcmp(cur_modif, "ref-second")))) {
               oxford_import_flags |= kfOxfordImportRefLast;
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --haps parameter '%s'.\n", cur_modif);
@@ -7258,7 +7271,7 @@ int main(int argc, char** argv) {
           pc.dependency_flags |= kfFilterPvarReq | kfFilterNoSplitChr;
         } else if (strequal_k_unsafe(flagname_p2, "et-all-var-ids") || strequal_k_unsafe(flagname_p2, "et-missing-var-ids")) {
           if (flagname_p2[3] == 'm') {
-            if (unlikely(pc.varid_template)) {
+            if (unlikely(pc.varid_template_str)) {
               logerrputs("Error: --set-missing-var-ids cannot be used with --set-all-var-ids.\n");
               goto main_ret_INVALID_CMDLINE;
             }
@@ -7270,7 +7283,7 @@ int main(int argc, char** argv) {
           if (unlikely(!VaridTemplateIsValid(argvk[arg_idx + 1], flagname_p))) {
             goto main_ret_INVALID_CMDLINE_A;
           }
-          reterr = CmdlineAllocString(argvk[arg_idx + 1], argvk[arg_idx], kMaxIdSlen, &pc.varid_template);
+          reterr = CmdlineAllocString(argvk[arg_idx + 1], argvk[arg_idx], kMaxIdSlen, &pc.varid_template_str);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -7940,6 +7953,22 @@ int main(int argc, char** argv) {
           }
           pc.pheno_transform_flags |= kfPhenoTransformVstdAll;
           pc.dependency_flags |= kfFilterPsamReq;
+        } else if (strequal_k_unsafe(flagname_p2, "ar-id-multi") ||
+                   strequal_k_unsafe(flagname_p2, "ar-id-multi-nonsnp")) {
+          if (unlikely(!pc.varid_template_str)) {
+            logerrputs("Error: --var-id-multi{-nonsnp} must be used with --set-missing-var-ids or\n--set-all-var-ids.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (unlikely(!VaridTemplateIsValid(argvk[arg_idx + 1], flagname_p))) {
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          reterr = CmdlineAllocString(argvk[arg_idx + 1], argvk[arg_idx], kMaxIdSlen, flagname_p2[11]? (&pc.varid_multi_nonsnp_template_str) : (&pc.varid_multi_template_str));
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
         } else if (likely(strequal_k_unsafe(flagname_p2, "alidate"))) {
           pc.command_flags1 |= kfCommand1Validate;
           pc.dependency_flags |= kfFilterAllReq;
@@ -8514,7 +8543,9 @@ int main(int argc, char** argv) {
   free_cond(pc.varid_to);
   free_cond(pc.varid_from);
   free_cond(pc.missing_varid_match);
-  free_cond(pc.varid_template);
+  free_cond(pc.varid_multi_nonsnp_template_str);
+  free_cond(pc.varid_multi_template_str);
+  free_cond(pc.varid_template_str);
   free_cond(pc.var_filter_exceptions_flattened);
   if (file_delete_list) {
     do {

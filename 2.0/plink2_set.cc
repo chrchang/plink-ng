@@ -152,8 +152,8 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
       }
       const char** strptr_arr;
       if (unlikely(
-            bigstack_alloc_c(set_ct * max_set_id_blen, set_names_ptr) ||
-            bigstack_alloc_kcp(set_ct, &strptr_arr))) {
+              bigstack_alloc_c(set_ct * max_set_id_blen, set_names_ptr) ||
+              bigstack_alloc_kcp(set_ct, &strptr_arr))) {
         goto LoadIbed_ret_NOMEM;
       }
       set_names = *set_names_ptr;

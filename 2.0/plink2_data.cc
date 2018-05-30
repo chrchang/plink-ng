@@ -260,8 +260,8 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
 
     uintptr_t* allele_include;
     if (unlikely(
-          bigstack_alloc_c(max_chr_blen, &chr_buf) ||
-          bigstack_alloc_w(BitCtToWordCt(kPglMaxAltAlleleCt), &allele_include))) {
+            bigstack_alloc_c(max_chr_blen, &chr_buf) ||
+            bigstack_alloc_w(BitCtToWordCt(kPglMaxAltAlleleCt), &allele_include))) {
       goto WritePvar_ret_NOMEM;
     }
     uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
@@ -1191,23 +1191,14 @@ void UnpackAndResortHphase(const uintptr_t* __restrict all_hets, const uintptr_t
 
 
 // these also work on dphaseraw
-void CopyDosage(const uintptr_t* __restrict dosageraw, uint32_t raw_sample_ct, uintptr_t* __restrict write_dosagepresent, Dosage* write_dosagevals, uint32_t* write_dosage_ct_ptr) {
-  const uint32_t raw_sample_ctaw = BitCtToAlignedWordCt(raw_sample_ct);
-  const uintptr_t* read_dosagepresent = dosageraw;
-  const Dosage* read_dosagevals = R_CAST(const Dosage*, &(dosageraw[raw_sample_ctaw]));
+void CopyDosage(const uintptr_t* __restrict read_dosagepresent, const Dosage* read_dosagevals, uint32_t raw_sample_ct, uint32_t dosage_ct, uintptr_t* __restrict write_dosagepresent, Dosage* write_dosagevals, uint32_t* write_dosage_ct_ptr) {
   const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
-  const uint32_t dosage_ct = PopcountWords(read_dosagepresent, raw_sample_ctl);
   *write_dosage_ct_ptr = dosage_ct;
   memcpy(write_dosagepresent, read_dosagepresent, raw_sample_ctl * sizeof(intptr_t));
   memcpy(write_dosagevals, read_dosagevals, dosage_ct * sizeof(Dosage));
 }
 
-void CopyDosageSubset(const uintptr_t* __restrict dosageraw, const uintptr_t* __restrict sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t* __restrict write_dosagepresent, Dosage* write_dosagevals, uint32_t* __restrict write_dosage_ct_ptr) {
-  const uint32_t raw_sample_ctaw = BitCtToAlignedWordCt(raw_sample_ct);
-  const uintptr_t* read_dosagepresent = dosageraw;
-  const Dosage* read_dosagevals = R_CAST(const Dosage*, &(dosageraw[raw_sample_ctaw]));
-  const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
-  const uint32_t read_dosage_ct = PopcountWords(read_dosagepresent, raw_sample_ctl);
+void CopyDosageSubset(const uintptr_t* __restrict read_dosagepresent, const Dosage* read_dosagevals, const uintptr_t* __restrict sample_include, uint32_t sample_ct, uint32_t read_dosage_ct, uintptr_t* __restrict write_dosagepresent, Dosage* write_dosagevals, uint32_t* __restrict write_dosage_ct_ptr) {
   CopyBitarrSubset(read_dosagepresent, sample_include, sample_ct, write_dosagepresent);
   uint32_t sample_uidx = 0;
   Dosage* write_dosagevals_iter = write_dosagevals;
@@ -1220,10 +1211,7 @@ void CopyDosageSubset(const uintptr_t* __restrict dosageraw, const uintptr_t* __
   *write_dosage_ct_ptr = write_dosagevals_iter - write_dosagevals;
 }
 
-void CopyAndResortDosage(const uintptr_t* __restrict dosageraw, const uint32_t* new_sample_idx_to_old, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t* __restrict write_dosagepresent, Dosage* write_dosagevals, uint32_t* write_dosage_ct_ptr, uint32_t* cumulative_popcount_buf) {
-  const uint32_t raw_sample_ctaw = BitCtToAlignedWordCt(raw_sample_ct);
-  const uintptr_t* read_dosagepresent = dosageraw;
-  const Dosage* read_dosagevals = R_CAST(const Dosage*, &(dosageraw[raw_sample_ctaw]));
+void CopyAndResortDosage(const uintptr_t* __restrict read_dosagepresent, const Dosage* read_dosagevals, const uint32_t* new_sample_idx_to_old, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t* __restrict write_dosagepresent, Dosage* write_dosagevals, uint32_t* write_dosage_ct_ptr, uint32_t* cumulative_popcount_buf) {
   const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
   FillCumulativePopcounts(read_dosagepresent, raw_sample_ctl, cumulative_popcount_buf);
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
@@ -1733,10 +1721,10 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     const uint32_t raw_sample_ctv = BitCtToVecCt(raw_sample_ct);
     if (unlikely(
-          bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &g_sample_include_interleaved_vec) ||
-          bigstack_alloc_u32(raw_sample_ctl, &g_sample_include_cumulative_popcounts) ||
-          bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &g_sex_male_interleaved_vec) ||
-          bigstack_alloc_u32(raw_sample_ctl, &g_sex_male_cumulative_popcounts))) {
+            bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &g_sample_include_interleaved_vec) ||
+            bigstack_alloc_u32(raw_sample_ctl, &g_sample_include_cumulative_popcounts) ||
+            bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &g_sex_male_interleaved_vec) ||
+            bigstack_alloc_u32(raw_sample_ctl, &g_sex_male_cumulative_popcounts))) {
       goto LoadAlleleAndGenoCounts_ret_NOMEM;
     }
     FillInterleavedMaskVec(g_sample_include, raw_sample_ctv, g_sample_include_interleaved_vec);
@@ -1765,8 +1753,8 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     uintptr_t* nosex_buf = nullptr;
     if (nosex_ct) {
       if (unlikely(
-            bigstack_end_alloc_w(raw_sample_ctl, &nosex_buf) ||
-            bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &g_nosex_interleaved_vec))) {
+              bigstack_end_alloc_w(raw_sample_ctl, &nosex_buf) ||
+              bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &g_nosex_interleaved_vec))) {
         goto LoadAlleleAndGenoCounts_ret_NOMEM;
       }
       for (uint32_t widx = 0; widx < raw_sample_ctl; ++widx) {
@@ -1799,11 +1787,11 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
       if (founder_ct) {
         g_founder_info = founder_info;
         if (unlikely(
-              bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &g_founder_info_interleaved_vec) ||
-              bigstack_alloc_u32(raw_sample_ctl, &g_founder_info_cumulative_popcounts) ||
-              bigstack_alloc_w(raw_sample_ctl, &g_founder_male) ||
-              bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &g_founder_male_interleaved_vec) ||
-              bigstack_alloc_u32(raw_sample_ctl, &g_founder_male_cumulative_popcounts))) {
+                bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &g_founder_info_interleaved_vec) ||
+                bigstack_alloc_u32(raw_sample_ctl, &g_founder_info_cumulative_popcounts) ||
+                bigstack_alloc_w(raw_sample_ctl, &g_founder_male) ||
+                bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &g_founder_male_interleaved_vec) ||
+                bigstack_alloc_u32(raw_sample_ctl, &g_founder_male_cumulative_popcounts))) {
           goto LoadAlleleAndGenoCounts_ret_NOMEM;
         }
         FillInterleavedMaskVec(founder_info, raw_sample_ctv, g_founder_info_interleaved_vec);
@@ -2280,21 +2268,24 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* arg) {
       // ALT allele.  Probably also want to support that here.)
       if (!hard_call_halfdist) {
         // if multiallelic:
-        //   if refalt1_select: probably create PgrGet2() for this
-        //   otherwise, if split: call PgrGet1()
-        //   otherwise, if erase-alt2+;;;
+        //   if split: call PgrGet1()
+        //   otherwise, if erase-alt2+: call PgrGet2()
+        //   otherwise, error out
         PglErr reterr = PgrGet(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec);
         if (reterr) {
           g_error_ret = reterr;
           break;
         }
       } else {
+        // this isn't fully implemented yet.
+
         // quasi-bugfix (4 Dec 2017): it's user-hostile to make
         // --hard-call-threshold not apply here.
         uint32_t dosage_ct;
         // if multiallelic:
-        //    if refalt1_select: call PgrGetMD(), rescale
-        //    otherwise, if split: call PgrGet1D()
+        //    if split: call PgrGet1D()
+        //    otherwise, if refalt1_select + erase-alt2+: call PgrGetMD(),
+        //      rescale
         //    otherwise, error out
         PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
         if (reterr) {
@@ -2376,6 +2367,14 @@ static PgenWriterCommon** g_pwcs = nullptr;
 
 static STPgenWriter* g_spgwp = nullptr;
 
+// One-thread-per-vblock is sensible for possibly-phased biallelic data, where
+// subsetting and LD-compression are a substantial fraction of processing time,
+// and memory requirements tend to be low enough that it's actually reasonable
+// for each thread job to comprise 64k variants.
+// Beyond that... the VCF/.pgen division of labor looks nice, but far too much
+// of the work is usually being done in the initial PgrGetRaw() call, so just
+// fall back on single-threaded invocation of the same function; only
+// difference is that the thread owns the writer object.
 THREAD_FUNC_DECL MakePgenThread(void* arg) {
   const uintptr_t tidx = R_CAST(uintptr_t, arg);
   const uint32_t* new_sample_idx_to_old = g_new_sample_idx_to_old;
@@ -2397,6 +2396,8 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
   const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
   const uint32_t sample_ctv2 = QuaterCtToVecCt(sample_ct);
   const uint32_t raw_sample_ctaw2 = QuaterCtToAlignedWordCt(raw_sample_ct);
+  const uint32_t raw_sample_ctaw = BitCtToAlignedWordCt(raw_sample_ct);
+  const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
   const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
   const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
@@ -2519,18 +2520,32 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
         // biallelic
         uintptr_t* cur_genovec_end = &(loadbuf_iter[raw_sample_ctaw2]);
         uintptr_t* cur_phaseraw = nullptr;
-        uintptr_t* cur_dosageraw = nullptr;
-        uintptr_t* cur_dphaseraw = nullptr;
+        uintptr_t* cur_dosagepresent = nullptr;
+        Dosage* cur_dosagevals = nullptr;
+        uintptr_t* cur_dphasepresent = nullptr;
+        SDosage* cur_dphasedelta = nullptr;
+        uint32_t read_dosage_ct = 0;
+        uint32_t read_dphase_ct = 0;
         if (is_hphase) {
           PgrDetectGenovecHets(loadbuf_iter, raw_sample_ct, all_hets);
           cur_phaseraw = cur_genovec_end;
           cur_genovec_end = &(cur_genovec_end[phaseraw_word_ct]);
         }
         if (is_dosage) {
-          cur_dosageraw = cur_genovec_end;
+          // this should have length dependent on dosage_ct
+          cur_dosagepresent = cur_genovec_end;
+          cur_dosagevals = R_CAST(Dosage*, &(cur_dosagepresent[raw_sample_ctaw]));
+          read_dosage_ct = PopcountWords(cur_dosagepresent, raw_sample_ctl);
+
+          // temporary
           cur_genovec_end = &(cur_genovec_end[dosageraw_word_ct]);
+
           if (is_dphase) {
-            cur_dphaseraw = cur_genovec_end;
+            cur_dphasepresent = cur_genovec_end;
+            cur_dphasedelta = R_CAST(SDosage*, &(cur_dphasepresent[raw_sample_ctaw]));
+            read_dphase_ct = PopcountWords(cur_dphasepresent, raw_sample_ctl);
+
+            // temporary
             cur_genovec_end = &(cur_genovec_end[dosageraw_word_ct]);
           }
         }
@@ -2542,10 +2557,10 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
             UnpackAndResortHphase(all_hets, cur_phaseraw, sample_include, old_sample_idx_to_new, raw_sample_ct, sample_ct, &cur_write_phasepresent, write_phaseinfo);
           }
           if (is_dosage) {
-            CopyAndResortDosage(cur_dosageraw, new_sample_idx_to_old, raw_sample_ct, sample_ct, write_dosagepresent, write_dosagevals, &write_dosage_ct, cumulative_popcount_buf);
+            CopyAndResortDosage(cur_dosagepresent, cur_dosagevals, new_sample_idx_to_old, raw_sample_ct, sample_ct, write_dosagepresent, write_dosagevals, &write_dosage_ct, cumulative_popcount_buf);
             if (is_dphase) {
               // structure is isomorphic to dosageraw
-              CopyAndResortDosage(cur_dphaseraw, new_sample_idx_to_old, raw_sample_ct, sample_ct, write_dphasepresent, R_CAST(Dosage*, write_dphasedeltas), &write_dphase_ct, cumulative_popcount_buf);
+              CopyAndResortDosage(cur_dphasepresent, R_CAST(Dosage*, cur_dphasedelta), new_sample_idx_to_old, raw_sample_ct, sample_ct, write_dphasepresent, R_CAST(Dosage*, write_dphasedeltas), &write_dphase_ct, cumulative_popcount_buf);
             }
           }
         } else if (sample_include) {
@@ -2554,9 +2569,9 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
             UnpackHphaseSubset(all_hets, cur_phaseraw, sample_include, raw_sample_ct, sample_ct, &cur_write_phasepresent, write_phaseinfo);
           }
           if (is_dosage) {
-            CopyDosageSubset(cur_dosageraw, sample_include, raw_sample_ct, sample_ct, write_dosagepresent, write_dosagevals, &write_dosage_ct);
+            CopyDosageSubset(cur_dosagepresent, cur_dosagevals, sample_include, sample_ct, read_dosage_ct, write_dosagepresent, write_dosagevals, &write_dosage_ct);
             if (is_dphase) {
-              CopyDosageSubset(cur_dphaseraw, sample_include, raw_sample_ct, sample_ct, write_dphasepresent, R_CAST(Dosage*, write_dphasedeltas), &write_dphase_ct);
+              CopyDosageSubset(cur_dphasepresent, R_CAST(Dosage*, cur_dphasedelta), sample_include, sample_ct, read_dphase_ct, write_dphasepresent, R_CAST(Dosage*, write_dphasedeltas), &write_dphase_ct);
             }
           }
         } else {
@@ -2565,9 +2580,9 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
             UnpackHphase(all_hets, cur_phaseraw, sample_ct, &cur_write_phasepresent, write_phaseinfo);
           }
           if (is_dosage) {
-            CopyDosage(cur_dosageraw, sample_ct, write_dosagepresent, write_dosagevals, &write_dosage_ct);
+            CopyDosage(cur_dosagepresent, cur_dosagevals, sample_ct, read_dosage_ct, write_dosagepresent, write_dosagevals, &write_dosage_ct);
             if (is_dphase) {
-              CopyDosage(cur_dphaseraw, sample_ct, write_dphasepresent, R_CAST(Dosage*, write_dphasedeltas), &write_dphase_ct);
+              CopyDosage(cur_dphasepresent, R_CAST(Dosage*, cur_dphasedelta), sample_ct, read_dphase_ct, write_dphasepresent, R_CAST(Dosage*, write_dphasedeltas), &write_dphase_ct);
             }
           }
         }
@@ -2999,9 +3014,9 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       }
       unsigned char* spgw_alloc;
       if (unlikely(
-            bigstack_alloc_wp(1, &(g_loadbuf_thread_starts[0])) ||
-            bigstack_alloc_wp(1, &(g_loadbuf_thread_starts[1])) ||
-            bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc))) {
+              bigstack_alloc_wp(1, &(g_loadbuf_thread_starts[0])) ||
+              bigstack_alloc_wp(1, &(g_loadbuf_thread_starts[1])) ||
+              bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc))) {
         goto MakePgenRobust_ret_NOMEM;
       }
       SpgwInitPhase2(max_vrec_len, g_spgwp, spgw_alloc);
@@ -3046,16 +3061,16 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       g_thread_all_hets = nullptr;
       if (read_or_write_hphase_present) {
         if (unlikely(
-              bigstack_alloc_wp(1, &g_thread_write_phasepresents) ||
-              bigstack_alloc_wp(1, &g_thread_write_phaseinfos) ||
-              bigstack_alloc_w(sample_ctl, &(g_thread_write_phasepresents[0])) ||
-              bigstack_alloc_w(sample_ctl, &(g_thread_write_phaseinfos[0])))) {
+                bigstack_alloc_wp(1, &g_thread_write_phasepresents) ||
+                bigstack_alloc_wp(1, &g_thread_write_phaseinfos) ||
+                bigstack_alloc_w(sample_ctl, &(g_thread_write_phasepresents[0])) ||
+                bigstack_alloc_w(sample_ctl, &(g_thread_write_phaseinfos[0])))) {
           goto MakePgenRobust_ret_NOMEM;
         }
         if (read_hphase_present) {
           if (unlikely(
-                bigstack_alloc_wp(1, &g_thread_all_hets) ||
-                bigstack_alloc_w(raw_sample_ctl, &(g_thread_all_hets[0])))) {
+                  bigstack_alloc_wp(1, &g_thread_all_hets) ||
+                  bigstack_alloc_w(raw_sample_ctl, &(g_thread_all_hets[0])))) {
             goto MakePgenRobust_ret_NOMEM;
           }
         }
@@ -3064,25 +3079,25 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       g_thread_write_dphasepresents = nullptr;
       if (read_or_write_dosage_present) {
         if (unlikely(
-              bigstack_alloc_wp(1, &g_thread_write_dosagepresents) ||
-              bigstack_alloc_dosagep(1, &g_thread_write_dosagevals) ||
-              bigstack_alloc_w(sample_ctl, &(g_thread_write_dosagepresents[0])) ||
-              bigstack_alloc_dosage(sample_ct, &(g_thread_write_dosagevals[0])))) {
+                bigstack_alloc_wp(1, &g_thread_write_dosagepresents) ||
+                bigstack_alloc_dosagep(1, &g_thread_write_dosagevals) ||
+                bigstack_alloc_w(sample_ctl, &(g_thread_write_dosagepresents[0])) ||
+                bigstack_alloc_dosage(sample_ct, &(g_thread_write_dosagevals[0])))) {
           goto MakePgenRobust_ret_NOMEM;
         }
         if (read_or_write_dphase_present) {
           if (unlikely(
-                bigstack_alloc_wp(1, &g_thread_write_dphasepresents) ||
-                bigstack_alloc_dphasep(1, &g_thread_write_dphasedeltas) ||
-                bigstack_alloc_w(sample_ctl, &(g_thread_write_dphasepresents[0])) ||
-                bigstack_alloc_dphase(sample_ct + RoundUpPow2(sample_ct, kCacheline / 2), &(g_thread_write_dphasedeltas[0])))) {
+                  bigstack_alloc_wp(1, &g_thread_write_dphasepresents) ||
+                  bigstack_alloc_dphasep(1, &g_thread_write_dphasedeltas) ||
+                  bigstack_alloc_w(sample_ctl, &(g_thread_write_dphasepresents[0])) ||
+                  bigstack_alloc_dphase(sample_ct + RoundUpPow2(sample_ct, kCacheline / 2), &(g_thread_write_dphasedeltas[0])))) {
             goto MakePgenRobust_ret_NOMEM;
           }
         }
         if (read_dosage_present && new_sample_idx_to_old) {
           if (unlikely(
-                bigstack_alloc_u32p(1, &g_thread_cumulative_popcount_bufs) ||
-                bigstack_alloc_u32(raw_sample_ctl, &(g_thread_cumulative_popcount_bufs[0])))) {
+                  bigstack_alloc_u32p(1, &g_thread_cumulative_popcount_bufs) ||
+                  bigstack_alloc_u32(raw_sample_ctl, &(g_thread_cumulative_popcount_bufs[0])))) {
             goto MakePgenRobust_ret_NOMEM;
           }
         }
@@ -3207,6 +3222,13 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
             } else {
               read_variant_uidx = *new_variant_idx_to_old_iter++;
             }
+            // todo: multiallelic merge/split
+            // split: load to buffer instead of loadbuf_iter, have function for
+            //        writing to loadbuf_iter given buffer contents, this
+            //        should work if split is 'interrupted' by batch boundary
+            //        in middle
+            // merge: track loadbuf_iter location at beginning of
+            //        same-position block;;;
             reterr = PgrGetRaw(read_variant_uidx, read_phase_dosage_gflags, simple_pgrp, &loadbuf_iter, cur_loaded_vrtypes? (&(cur_loaded_vrtypes[uii])) : nullptr);
             if (unlikely(reterr)) {
               if (reterr == kPglRetMalformedInput) {
@@ -3297,10 +3319,10 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
       const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
       uintptr_t* new_sex_male;
       if (unlikely(
-            bigstack_alloc_w(sample_ctv * kWordsPerVec, &new_sex_male) ||
-            bigstack_alloc_w(sample_ctv * kWordsPerVec, &g_sex_male_collapsed_interleaved) ||
-            bigstack_alloc_w(sample_ctv * kWordsPerVec, &g_sex_female_collapsed) ||
-            bigstack_alloc_w(sample_ctv * kWordsPerVec, &g_sex_female_collapsed_interleaved))) {
+              bigstack_alloc_w(sample_ctv * kWordsPerVec, &new_sex_male) ||
+              bigstack_alloc_w(sample_ctv * kWordsPerVec, &g_sex_male_collapsed_interleaved) ||
+              bigstack_alloc_w(sample_ctv * kWordsPerVec, &g_sex_female_collapsed) ||
+              bigstack_alloc_w(sample_ctv * kWordsPerVec, &g_sex_female_collapsed_interleaved))) {
         goto MakePlink2NoVsort_ret_NOMEM;
       }
       CopyBitarrSubset(sex_male, sample_include, sample_ct, new_sex_male);
@@ -3422,8 +3444,8 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
         goto MakePlink2NoVsort_ret_NOMEM;
       }
       if (unlikely(
-            bigstack_alloc_uc(sample_ct4 * read_block_size, &(g_writebufs[0])) ||
-            bigstack_alloc_uc(sample_ct4 * read_block_size, &(g_writebufs[1])))) {
+              bigstack_alloc_uc(sample_ct4 * read_block_size, &(g_writebufs[0])) ||
+              bigstack_alloc_uc(sample_ct4 * read_block_size, &(g_writebufs[1])))) {
         // shouldn't be possible for this to fail
         goto MakePlink2NoVsort_ret_NOMEM;
       }
@@ -4415,8 +4437,8 @@ PglErr WritePvarResorted(const char* outname, const char* xheader, const uintptr
 
     uintptr_t* allele_include;
     if (unlikely(
-          bigstack_alloc_c(max_chr_blen, &chr_buf) ||
-          bigstack_alloc_w(BitCtToWordCt(kPglMaxAltAlleleCt), &allele_include))) {
+            bigstack_alloc_c(max_chr_blen, &chr_buf) ||
+            bigstack_alloc_w(BitCtToWordCt(kPglMaxAltAlleleCt), &allele_include))) {
       goto WritePvarResorted_ret_NOMEM;
     }
     uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
@@ -4626,9 +4648,9 @@ PglErr MakePlink2Vsort(const char* xheader, const uintptr_t* sample_include, con
     const uint32_t chr_code_end = cip->max_code + 1 + cip->name_ct;
     uint32_t* chr_idx_to_size;
     if (unlikely(
-          bigstack_calloc_w(kChrMaskWords, &write_chr_info.chr_mask) ||
-          bigstack_alloc_u32(chr_code_end, &write_chr_info.chr_idx_to_foidx) ||
-          bigstack_end_calloc_u32(chr_code_end, &chr_idx_to_size))) {
+            bigstack_calloc_w(kChrMaskWords, &write_chr_info.chr_mask) ||
+            bigstack_alloc_u32(chr_code_end, &write_chr_info.chr_idx_to_foidx) ||
+            bigstack_end_calloc_u32(chr_code_end, &chr_idx_to_size))) {
       goto MakePlink2Vsort_ret_NOMEM;
     }
     SetAllU32Arr(chr_code_end, write_chr_info.chr_idx_to_foidx);
@@ -4667,8 +4689,8 @@ PglErr MakePlink2Vsort(const char* xheader, const uintptr_t* sample_include, con
     // pos_vidx_sort_buf has variant_bp in high bits, variant_uidx in low
     uint64_t* pos_vidx_sort_buf;
     if (unlikely(
-          bigstack_alloc_u32(variant_ct, &new_variant_idx_to_old) ||
-          bigstack_alloc_u64(variant_ct + 1, &pos_vidx_sort_buf))) {
+            bigstack_alloc_u32(variant_ct, &new_variant_idx_to_old) ||
+            bigstack_alloc_u64(variant_ct + 1, &pos_vidx_sort_buf))) {
       goto MakePlink2Vsort_ret_NOMEM;
     }
     pos_vidx_sort_buf[variant_ct] = ~0LLU;
@@ -4828,10 +4850,10 @@ PglErr MakePlink2Vsort(const char* xheader, const uintptr_t* sample_include, con
         const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
         uintptr_t* new_sex_male;
         if (unlikely(
-              bigstack_alloc_w(sample_ctv * kWordsPerVec, &new_sex_male) ||
-              bigstack_alloc_w(sample_ctv * kWordsPerVec, &g_sex_male_collapsed_interleaved) ||
-              bigstack_alloc_w(sample_ctv * kWordsPerVec, &g_sex_female_collapsed) ||
-              bigstack_alloc_w(sample_ctv * kWordsPerVec, &g_sex_female_collapsed_interleaved))) {
+                bigstack_alloc_w(sample_ctv * kWordsPerVec, &new_sex_male) ||
+                bigstack_alloc_w(sample_ctv * kWordsPerVec, &g_sex_male_collapsed_interleaved) ||
+                bigstack_alloc_w(sample_ctv * kWordsPerVec, &g_sex_female_collapsed) ||
+                bigstack_alloc_w(sample_ctv * kWordsPerVec, &g_sex_female_collapsed_interleaved))) {
           goto MakePlink2Vsort_ret_NOMEM;
         }
         CopyBitarrSubset(sex_male, sample_include, sample_ct, new_sex_male);
@@ -4878,9 +4900,9 @@ PglErr SampleSortFileMap(const uintptr_t* sample_include, const SampleIdInfo* si
     char* idbuf;
     uintptr_t* already_seen;
     if (unlikely(
-          bigstack_alloc_u32(raw_sample_ct, new_sample_idx_to_old_ptr) ||
-          bigstack_alloc_c(siip->max_sample_id_blen, &idbuf) ||
-          bigstack_calloc_w(BitCtToWordCt(raw_sample_ct), &already_seen))) {
+            bigstack_alloc_u32(raw_sample_ct, new_sample_idx_to_old_ptr) ||
+            bigstack_alloc_c(siip->max_sample_id_blen, &idbuf) ||
+            bigstack_calloc_w(BitCtToWordCt(raw_sample_ct), &already_seen))) {
       goto SampleSortFileMap_ret_NOMEM;
     }
 

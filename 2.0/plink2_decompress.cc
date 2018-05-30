@@ -15,6 +15,9 @@
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
 
+// temporary
+#include "htslib/htslib/hfile.h"
+
 #include "plink2_decompress.h"
 
 #ifdef __cplusplus
@@ -313,6 +316,7 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
       if (bgz_infile) {
         bytes_read = bgzf_read(bgz_infile, read_head, read_attempt_size);
         if (unlikely(bytes_read == -1)) {
+          DPrintf("bgzf_read() failure.  bgzf.errcode=%u  errno=%d\n", bgz_infile->errcode, bgz_infile->fp->has_errno);
           goto ReadLineStreamThread_READ_FAIL;
         }
       } else {

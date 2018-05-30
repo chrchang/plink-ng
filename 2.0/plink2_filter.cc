@@ -400,8 +400,8 @@ PglErr RandomThinCt(const char* flagname_p, const char* unitname, uint32_t thin_
     uintptr_t* perm_buf;
     uintptr_t* new_item_include;
     if (unlikely(
-          bigstack_alloc_w(BitCtToWordCt(orig_item_ct), &perm_buf) ||
-          bigstack_alloc_w(raw_item_ctl, &new_item_include))) {
+            bigstack_alloc_w(BitCtToWordCt(orig_item_ct), &perm_buf) ||
+            bigstack_alloc_w(raw_item_ctl, &new_item_include))) {
       goto RandomThinCt_ret_NOMEM;
     }
     // no actual interleaving here, but may as well use this function
@@ -452,8 +452,8 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
     if (families_only) {
       // only need to do this once
       if (unlikely(
-            bigstack_alloc_u32(orig_sample_ct, &xid_map) ||
-            bigstack_alloc_c(orig_sample_ct * max_xid_blen, &sorted_xidbox))) {
+              bigstack_alloc_u32(orig_sample_ct, &xid_map) ||
+              bigstack_alloc_c(orig_sample_ct * max_xid_blen, &sorted_xidbox))) {
         goto KeepOrRemove_ret_NOMEM;
       }
       uint32_t sample_uidx = 0;
@@ -632,8 +632,8 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
     uintptr_t* seen_xid_idxs;
     uintptr_t* keep_uidxs;
     if (unlikely(
-          bigstack_calloc_w(BitCtToWordCt(orig_sample_ct), &seen_xid_idxs) ||
-          bigstack_calloc_w(raw_sample_ctl, &keep_uidxs))) {
+            bigstack_calloc_w(BitCtToWordCt(orig_sample_ct), &seen_xid_idxs) ||
+            bigstack_calloc_w(raw_sample_ctl, &keep_uidxs))) {
       goto KeepFcol_ret_NOMEM;
     }
 
@@ -1076,8 +1076,8 @@ PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fn
     uintptr_t* affected_samples;
     uintptr_t* cat_include;
     if (unlikely(
-          bigstack_calloc_w(raw_sample_ctl, &affected_samples) ||
-          bigstack_alloc_w(cat_ctl, &cat_include))) {
+            bigstack_calloc_w(raw_sample_ctl, &affected_samples) ||
+            bigstack_alloc_w(cat_ctl, &cat_include))) {
       goto KeepRemoveCatsInternal_ret_NOMEM;
     }
     SetAllBits(cat_ct, cat_include);
@@ -1415,11 +1415,11 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
     uint32_t* loaded_to_internal_allele_idx;
     uintptr_t* already_seen;
     if (unlikely(
-          bigstack_calloc_d(kMaxReadFreqAlleles, &cur_allele_freqs) ||
-          bigstack_alloc_w(BitCtToWordCt(kMaxReadFreqAlleles), &matched_loaded_alleles) ||
-          bigstack_alloc_w(BitCtToWordCt(max_allele_ct), &matched_internal_alleles) ||
-          bigstack_alloc_u32(kMaxReadFreqAlleles, &loaded_to_internal_allele_idx) ||
-          bigstack_calloc_w(BitCtToWordCt(raw_variant_ct), &already_seen))) {
+            bigstack_calloc_d(kMaxReadFreqAlleles, &cur_allele_freqs) ||
+            bigstack_alloc_w(BitCtToWordCt(kMaxReadFreqAlleles), &matched_loaded_alleles) ||
+            bigstack_alloc_w(BitCtToWordCt(max_allele_ct), &matched_internal_alleles) ||
+            bigstack_alloc_u32(kMaxReadFreqAlleles, &loaded_to_internal_allele_idx) ||
+            bigstack_calloc_w(BitCtToWordCt(raw_variant_ct), &already_seen))) {
       goto ReadAlleleFreqs_ret_NOMEM;
     }
 
@@ -2611,8 +2611,8 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
       thread_alloc_cacheline_ct += acc1_alloc_cacheline_ct;
     }
     if (unlikely(
-          bigstack_alloc_wp(calc_thread_ct, &g_missing_hc_acc1) ||
-          bigstack_alloc_wp(calc_thread_ct, &g_hethap_acc1))) {
+            bigstack_alloc_wp(calc_thread_ct, &g_missing_hc_acc1) ||
+            bigstack_alloc_wp(calc_thread_ct, &g_hethap_acc1))) {
       goto LoadSampleMissingCts_ret_NOMEM;
     }
     STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
@@ -3615,8 +3615,8 @@ PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, 
     char* chr_name_buf;
     uintptr_t* chr_already_seen;
     if (unlikely(
-          bigstack_calloc_w(BitCtToWordCt(chr_ct), &chr_already_seen) ||
-          bigstack_alloc_c(kMaxIdBlen, &chr_name_buf))) {
+            bigstack_calloc_w(BitCtToWordCt(chr_ct), &chr_already_seen) ||
+            bigstack_alloc_c(kMaxIdBlen, &chr_name_buf))) {
       goto RefFromFa_ret_NOMEM;
     }
 

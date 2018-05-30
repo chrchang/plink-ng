@@ -45,8 +45,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
   help_ctrl.argv = nullptr;
   if (param_ct) {
     if (unlikely(
-          pgl_malloc(param_ct * sizeof(int32_t), &help_ctrl.param_slens) ||
-          pgl_malloc(param_ctl * 3 * sizeof(intptr_t), &help_ctrl.all_match_arr))) {
+            pgl_malloc(param_ct * sizeof(int32_t), &help_ctrl.param_slens) ||
+            pgl_malloc(param_ctl * 3 * sizeof(intptr_t), &help_ctrl.all_match_arr))) {
       goto DispHelp_ret_NOMEM;
     }
     leading_dashes = 0;
@@ -176,7 +176,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * When --legend is specified, it's assumed that the --haps file doesn't\n"
 "      contain header columns.\n"
 "    * On chrX, the second male column may contain dummy '-' entries.  (However,\n"
-"      PLINK currently cannot handle omitted male columns.)\n"
+"      PLINK 2 currently cannot handle omitted male columns.)\n"
 "    * If not used with --sample, new sample IDs are of the form 'per#/per#'.\n\n"
                );
     HelpPrint("map\timport-dosage\tdosage", &help_ctrl, 1,
@@ -300,8 +300,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      not currently supported.  'bcftools norm' (possibly on a single-sample\n"
 "      file) can be used for this.\n"
 "    * The 'erase-alt2+' modifier causes alt alleles past the first to be\n"
-"      removed; affected genotypes are set to missing.  This is applied after\n"
-"      'multiallelics=' merge.\n"
+"      removed; substantially affected genotypes/dosages (alt2+ dosage >= 0.5)\n"
+"      are set to missing, and slightly affected dosages are rescaled.  This is\n"
+"      applied after 'multiallelics=' merge.\n"
 "    * When the 'trim-alts', 'multiallelics=', and/or 'erase-...' modifier is\n"
 "      present, --make-bed/--make-{b}pgen cannot be combined with other\n"
 "      commands.  (They can be combined with other filters.)\n"
@@ -879,8 +880,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    read from column #i and allele codes are read from column #j, where i\n"
 "    defaults to 1 and j defaults to i+1.\n"
 "    * By default, a single column of input coefficients is read from column #k,\n"
-"      where k defaults to j+1.  (--score-number can be used to specify multiple\n"
-"      columns.)\n"
+"      where k defaults to j+1.  (--score-col-nums can be used to specify\n"
+"      multiple columns.)\n"
 "    * The 'header' modifier causes the first nonempty line of the input file to\n"
 "      be treated as an ignorable header line, while 'header-read' causes score\n"
 "      column header(s) to be read and included in the report.\n"
@@ -969,8 +970,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --validate\n"
 "    Validates all variant records in a .pgen file.\n\n"
                );
-    HelpPrint("zst-decompress", &help_ctrl, 1,
+    HelpPrint("zst-decompress\tzd", &help_ctrl, 1,
 "  --zst-decompress [.zst file] {output filename}\n"
+"    (alias: --zd)\n"
 "    Decompress a Zstd-compressed file.  If no output filename is specified, the\n"
 "    file is decompressed to standard output.\n"
 "    This cannot be used with any other flags, and does not cause a log file to\n"
@@ -1061,7 +1063,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                    P(1/1)=0.28}, a highly uncertain call that\n"
 "                                    is nevertheless treated as a hardcall under\n"
 "                                    '--hard-call-threshold 0.1'.  To make PLINK\n"
-"                                    treat a dosage as missing whenever the\n"
+"                                    2 treat a dosage as missing whenever the\n"
 "                                    largest probability is less than a\n"
 "                                    threshold, use --import-dosage-certainty.\n"
                );
@@ -1088,8 +1090,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                          line.  (.pvar/VCF output files automatically include\n"
 "                          ##chrSet when a nonhuman set is specified.)\n"
 "  --chr-override <file> : By default, if --chr-set/--autosome-num/--human/etc.\n"
-"                          conflict with an input file ##chrSet header line,\n"
-"                          PLINK will error out.  --chr-override with no\n"
+"                          conflicts with an input file ##chrSet header line,\n"
+"                          PLINK 2 will error out.  --chr-override with no\n"
 "                          parameter causes the command line to take precedence;\n"
 "                          '--chr-override file' defers to the file.\n"
                );
@@ -1469,7 +1471,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --merge-x               : Merge XY back with X.  This usually has to be\n"
 "                            combined with --sort-vars.\n"
                );
-    HelpPrint("set-all-var-ids\tset-missing-var-ids\tnew-id-max-allele-len\tmissing-var-code", &help_ctrl, 0,
+    HelpPrint("set-all-var-ids\tset-missing-var-ids\tvar-id-multi\tvar-id-multi-nonsnp\tnew-id-max-allele-len\tmissing-var-code", &help_ctrl, 0,
 "  --set-missing-var-ids [t]  : Given a template string with a '@' where the\n"
 "  --set-all-var-ids [t]        chromosome code should go and '#' where the bp\n"
 "                               coordinate belongs, --set-missing-var-ids\n"
@@ -1479,6 +1481,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                               You may also use '$r'/'$a' to refer to the\n"
 "                               ref and alt1 alleles, or '$1'/'$2' to refer to\n"
 "                               them in alphabetical order.\n"
+"  --var-id-multi [t]         : Specify alternative templates for multiallelic\n"
+"  --var-id-multi-nonsnp [t]    variants.  ('$a' and '$1'/'$2' should be avoided\n"
+"                               here, though they're technically still allowed.)\n"
 "  --new-id-max-allele-len [len] <error | missing | truncate> :\n"
 "    Specify maximum number of leading characters from allele codes to include\n"
 "    in new variant IDs, and behavior on longer codes (defaults 23, error).\n"

@@ -114,8 +114,8 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
         relevant_postfid_col_ct = pheno_ct_max + 5;
       }
       if (unlikely(
-            bigstack_alloc_u32(relevant_postfid_col_ct, &col_skips) ||
-            bigstack_alloc_u32(relevant_postfid_col_ct, &col_types))) {
+              bigstack_alloc_u32(relevant_postfid_col_ct, &col_skips) ||
+              bigstack_alloc_u32(relevant_postfid_col_ct, &col_types))) {
         goto LoadPsam_ret_NOMEM;
       }
       bigstack_mark2 = g_bigstack_base;
@@ -139,9 +139,9 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
         uintptr_t* dummy_bitarr;
         // don't bother freeing these before LoadPsam() is done
         if (unlikely(
-              bigstack_alloc_c(cmdline_pheno_name_ct * max_cmdline_pheno_id_blen, &cmdline_pheno_sorted_ids) ||
-              bigstack_alloc_u32(cmdline_pheno_name_ct, &cmdline_pheno_id_map) ||
-              bigstack_alloc_w(BitCtToWordCt(cmdline_pheno_name_ct), &dummy_bitarr))) {
+                bigstack_alloc_c(cmdline_pheno_name_ct * max_cmdline_pheno_id_blen, &cmdline_pheno_sorted_ids) ||
+                bigstack_alloc_u32(cmdline_pheno_name_ct, &cmdline_pheno_id_map) ||
+                bigstack_alloc_w(BitCtToWordCt(cmdline_pheno_name_ct), &dummy_bitarr))) {
           goto LoadPsam_ret_NOMEM;
         }
         SetAllBits(cmdline_pheno_name_ct, dummy_bitarr);
@@ -358,10 +358,10 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     uintptr_t* categorical_phenos;
     uintptr_t* quantitative_phenos;
     if (unlikely(
-          bigstack_alloc_kcp(col_type_end, &token_ptrs) ||
-          bigstack_alloc_u32(col_type_end, &token_slens) ||
-          bigstack_calloc_w(pheno_ctl, &categorical_phenos) ||
-          bigstack_calloc_w(pheno_ctl, &quantitative_phenos))) {
+            bigstack_alloc_kcp(col_type_end, &token_ptrs) ||
+            bigstack_alloc_u32(col_type_end, &token_slens) ||
+            bigstack_calloc_w(pheno_ctl, &categorical_phenos) ||
+            bigstack_calloc_w(pheno_ctl, &quantitative_phenos))) {
       goto LoadPsam_ret_NOMEM;
     }
     const char* missing_catname = g_missing_catname;
@@ -683,13 +683,13 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     g_bigstack_end = bigstack_end_mark;
     const uint32_t aligned_wct = BitCtToAlignedWordCt(raw_sample_ct);
     if (unlikely(
-          bigstack_end_alloc_c(raw_sample_ct * max_sample_id_blen, &(piip->sii.sample_ids)) ||
-          bigstack_end_alloc_c(raw_sample_ct * max_paternal_id_blen, &(piip->parental_id_info.paternal_ids)) ||
-          bigstack_end_alloc_c(raw_sample_ct * max_maternal_id_blen, &(piip->parental_id_info.maternal_ids)) ||
-          bigstack_end_alloc_w(raw_sample_ctl, sample_include_ptr) ||
-          bigstack_end_calloc_w(aligned_wct, founder_info_ptr) ||
-          bigstack_end_calloc_w(aligned_wct, sex_nm_ptr) ||
-          bigstack_end_calloc_w(aligned_wct, sex_male_ptr))) {
+            bigstack_end_alloc_c(raw_sample_ct * max_sample_id_blen, &(piip->sii.sample_ids)) ||
+            bigstack_end_alloc_c(raw_sample_ct * max_paternal_id_blen, &(piip->parental_id_info.paternal_ids)) ||
+            bigstack_end_alloc_c(raw_sample_ct * max_maternal_id_blen, &(piip->parental_id_info.maternal_ids)) ||
+            bigstack_end_alloc_w(raw_sample_ctl, sample_include_ptr) ||
+            bigstack_end_calloc_w(aligned_wct, founder_info_ptr) ||
+            bigstack_end_calloc_w(aligned_wct, sex_nm_ptr) ||
+            bigstack_end_calloc_w(aligned_wct, sex_male_ptr))) {
       goto LoadPsam_ret_NOMEM;
     }
     if (sids_present) {
@@ -947,8 +947,8 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         }
         new_pheno_ct = PopcountWords(bitarr, BitCtToWordCt(pheno_col_ct));
         if (unlikely(
-              bigstack_alloc_u32(new_pheno_ct, &col_types) ||
-              bigstack_alloc_u32(new_pheno_ct, &col_skips))) {
+                bigstack_alloc_u32(new_pheno_ct, &col_types) ||
+                bigstack_alloc_u32(new_pheno_ct, &col_skips))) {
           goto LoadPhenos_ret_NOMEM;
         }
         uint32_t col_uidx = 0;
@@ -963,8 +963,8 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         // usual case, load all phenotypes
         new_pheno_ct = pheno_col_ct;
         if (unlikely(
-              bigstack_alloc_u32(new_pheno_ct, &col_types) ||
-              bigstack_alloc_u32(new_pheno_ct, &col_skips))) {
+                bigstack_alloc_u32(new_pheno_ct, &col_types) ||
+                bigstack_alloc_u32(new_pheno_ct, &col_skips))) {
           goto LoadPhenos_ret_NOMEM;
         }
         for (uint32_t col_idx = 0; col_idx < pheno_col_ct; ++col_idx) {
@@ -1025,8 +1025,8 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         // this boilerplate may belong in its own function
         new_pheno_ct = PopcountWords(bitarr, BitCtToWordCt(col_ct));
         if (unlikely(
-              bigstack_alloc_u32(new_pheno_ct, &col_types) ||
-              bigstack_alloc_u32(new_pheno_ct, &col_skips))) {
+                bigstack_alloc_u32(new_pheno_ct, &col_types) ||
+                bigstack_alloc_u32(new_pheno_ct, &col_skips))) {
           goto LoadPhenos_ret_NOMEM;
         }
         uint32_t col_uidx = 0;
@@ -1041,8 +1041,8 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         new_pheno_ct = col_ct - 2;
         // bugfix (11 Mar 2018): forgot to initialize col_types here
         if (unlikely(
-              bigstack_alloc_u32(new_pheno_ct, &col_types) ||
-              bigstack_alloc_u32(new_pheno_ct, &col_skips))) {
+                bigstack_alloc_u32(new_pheno_ct, &col_types) ||
+                bigstack_alloc_u32(new_pheno_ct, &col_skips))) {
           goto LoadPhenos_ret_NOMEM;
         }
         for (uint32_t col_idx = 0; col_idx < new_pheno_ct; ++col_idx) {
@@ -1114,8 +1114,8 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
     char* id_buf;
     uintptr_t* already_seen;
     if (unlikely(
-          bigstack_alloc_c(max_sample_id_blen, &id_buf) ||
-          bigstack_calloc_w(raw_sample_ctl, &already_seen))) {
+            bigstack_alloc_c(max_sample_id_blen, &id_buf) ||
+            bigstack_calloc_w(raw_sample_ctl, &already_seen))) {
       goto LoadPhenos_ret_NOMEM;
     }
 
@@ -1133,10 +1133,10 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
     uintptr_t* categorical_phenos;
     uintptr_t* quantitative_phenos;
     if (unlikely(
-          bigstack_alloc_kcp(new_pheno_ct, &token_ptrs) ||
-          bigstack_alloc_u32(new_pheno_ct, &token_slens) ||
-          bigstack_calloc_w(new_pheno_ctl, &categorical_phenos) ||
-          bigstack_calloc_w(new_pheno_ctl, &quantitative_phenos))) {
+            bigstack_alloc_kcp(new_pheno_ct, &token_ptrs) ||
+            bigstack_alloc_u32(new_pheno_ct, &token_slens) ||
+            bigstack_calloc_w(new_pheno_ctl, &categorical_phenos) ||
+            bigstack_calloc_w(new_pheno_ctl, &quantitative_phenos))) {
       goto LoadPhenos_ret_NOMEM;
     }
     const char* missing_catname = g_missing_catname;

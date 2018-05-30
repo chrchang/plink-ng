@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1006
+#define PGENLIB_INTERNAL_VERNUM 1008
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -218,9 +218,9 @@ HEADER_INLINE unsigned char* Vint32Append(uint32_t uii, unsigned char* buf) {
   return buf;
 }
 
-// Returns 0x80000000U instead of UINT32_MAX so overflow check works properly
-// in 32-bit build.  Named "GetVint31" to make it more obvious that a 2^31
-// return value can't be legitimate.
+// Returns 0x80000000U on read-past-end instead of UINT32_MAX so overflow check
+// works properly in 32-bit build.  Named "GetVint31" to make it more obvious
+// that a 2^31 return value can't be legitimate.
 HEADER_INLINE uint32_t GetVint31(const unsigned char* buf_end, const unsigned char** buf_iterp) {
   if (buf_end > (*buf_iterp)) {
     uint32_t vint32 = *((*buf_iterp)++);
@@ -248,6 +248,7 @@ HEADER_INLINE uint32_t GetVint31(const unsigned char* buf_end, const unsigned ch
 // todo: check if this has enough of a speed advantage over GetVint31() to
 // justify using this in the main loops and catching SIGSEGV.  (seems to be no
 // more than 3%?)
+/*
 HEADER_INLINE uint32_t GetVint31Unsafe(const unsigned char** buf_iterp) {
   uint32_t vint32 = *(*buf_iterp)++;
   if (vint32 <= 127) {
@@ -263,6 +264,7 @@ HEADER_INLINE uint32_t GetVint31Unsafe(const unsigned char** buf_iterp) {
   }
   return 0x80000000U;
 }
+*/
 
 // Does not update buf_iter.
 HEADER_INLINE uint32_t PeekVint31(const unsigned char* buf_iter, const unsigned char* buf_end) {
@@ -312,6 +314,40 @@ HEADER_INLINE void FPutVint31(uint32_t uii, FILE* ff) {
   putc_unlocked(uii, ff);
 }
 */
+
+// Need this for sparse multiallelic dosage.
+HEADER_INLINE unsigned char* Vint64Append(uint64_t ullii, unsigned char* buf) {
+  while (ullii > 127) {
+    *buf++ = (ullii & 127) + 128;
+    ullii >>= 7;
+  }
+  *buf++ = ullii;
+  return buf;
+}
+
+// Returns 2^63 on read-past-end, and named GetVint63 to make it more obvious
+// that a 2^63 return value can't be legitimate.
+HEADER_INLINE uint64_t GetVint63(const unsigned char* buf_end, const unsigned char** buf_iterp) {
+  if (buf_end > (*buf_iterp)) {
+    uint64_t vint64 = *((*buf_iterp)++);
+    if (vint64 <= 127) {
+      return vint64;
+    }
+    vint64 &= 127;
+    uint32_t shift = 7;
+    while (buf_end > (*buf_iterp)) {
+      uint64_t ullii = *((*buf_iterp)++);
+      vint64 |= (ullii & 127) << shift;
+      if (ullii <= 127) {
+        return vint64;
+      }
+      shift += 7;
+      // currently don't check for shift >= 32 (that's what validate_vint31()
+      // is for).
+    }
+  }
+  return (1LLU << 63);
+}
 
 // main batch size
 CONSTI32(kPglQuaterTransposeBatch, kQuatersPerCacheline);
@@ -363,6 +399,38 @@ void SplitHomRef2hetUnsafeW(const uintptr_t* genoarr, uint32_t inword_ct, uintpt
 
 void SplitHomRef2het(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* __restrict hom_buf, uintptr_t* __restrict ref2het_buf);
 
+
+// These functions use 16- or 256-element lookup tables to apply functions of
+// the form
+//   f: {0,1,2,3} -> x
+// to genoarr, saving the output to result[].
+// 256-element tables result in a substantially faster inner loop, but they are
+// more expensive to set up and consume a non-negligible fractino of L1 cache,
+// they aren't always the right choice.
+// When lookup table rows are 16 bytes, they are assumed to be 16-byte aligned
+// in 64-bit builds.  result[] is not assumed to be aligned.
+void GenoarrLookup16x4bx2(const uintptr_t* genoarr, const void* table16x4bx2, uint32_t sample_ct, void* result);
+
+void GenoarrLookup256x2bx4(const uintptr_t* genoarr, const void* table256x2bx4, uint32_t sample_ct, void* result);
+
+void GenoarrLookup16x8bx2(const uintptr_t* genoarr, const void* table16x8bx2, uint32_t sample_ct, void* result);
+
+void GenoarrLookup256x4bx4(const uintptr_t* genoarr, const void* table256x4bx4, uint32_t sample_ct, void* result);
+
+// Lookup table initialization functions.  table[0][0], [1][0], [2][0], and
+// [3][0] must be initialized to f(0), f(1), f(2), and f(3) respectively.
+void InitLookup16x4bx2(void* table16x4bx2);
+
+void InitLookup16x8bx2(void* table16x8bx2);
+
+void InitLookup256x4bx4(void* table256x4bx4);
+
+void PhaseLookup4b(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const void* table56x4bx2, uint32_t sample_ct, void* result);
+
+// [0][0]..[3][0], [17][0], and [19][0] should contain the relevant values
+void InitPhaseLookup4b(void* table56x4bx2);
+
+
 // ----- end plink2_common subset -----
 
 // other configuration-ish values
@@ -396,7 +464,10 @@ FLAGSET_DEF_START()
   kfPgenGlobal0,
   kfPgenGlobalLdCompressionPresent = (1 << 0),
   kfPgenGlobalDifflistOrLdPresent = (1 << 1),
-  kfPgenGlobalMultiallelicHardcallPresent = (1 << 2),
+
+  // set opportunistically for now; may still be present if unset.
+  kfPgenGlobalMultiallelicHardcallFound = (1 << 2),
+
   kfPgenGlobalHardcallPhasePresent = (1 << 3),
   kfPgenGlobalDosagePresent = (1 << 4),
   kfPgenGlobalDosagePhasePresent = (1 << 5),
@@ -408,8 +479,8 @@ FLAGSET_DEF_START()
   kfPgrLdcacheQuater = (1 << 0),
   kfPgrLdcacheDifflist = (1 << 1),
   kfPgrLdcacheRawQuater = (1 << 2),
-  kfPgrLdcacheAllHets = (1 << 3),
-  kfPgrLdcacheRefalt1Genocounts = (1 << 4)
+  // may also want RawDifflist
+  kfPgrLdcacheBasicGenocounts = (1 << 3)
 FLAGSET_DEF_END(PgrLdcacheFlags);
 
 // difflist/LD compression should never involve more than
@@ -446,7 +517,7 @@ CONSTI32(kPglMaxDeltalistLenDivisor, 9);
 // 3. If not plink1-format,
 //    a. 4-byte # of variants; call this M.
 //    b. 4-byte # of samples, call this N.
-//    c. Additional 1-byte header "control" value (PgenHeaderCtrl).  May be
+//    c. Additional 1-byte header 'control' value (PgenHeaderCtrl).  May be
 //       extended in the future.
 //       bits 0-3: Indicates vrtype and variant record length storage widths.
 //         If bit 3 is unset, bits 0-1 store (vrec_len_byte_ct - 1), while bit
@@ -457,15 +528,14 @@ CONSTI32(kPglMaxDeltalistLenDivisor, 9);
 //         samples).  The following encodings are currently defined:
 //         1000: No difflist/LD/onebit compression, 2 bit
 //               (vrec_len - ceil(sample_ct / 4))) value.  vrtype is zero if
-//               the entry is zero, and 8 (multiallelic) if the record has 1-3
-//               extra bytes.  Designed for single-sample files sharing a
-//               single .bim-like file (note that if they don't share a .bim,
+//               the entry is zero, and 8 (multiallelic-hardcall) if the record
+//               has 1-3 extra bytes.  Designed for single-sample files sharing
+//               a single .bim-like file (note that if they don't share a .bim,
 //               .bim size will dominate).
 //         1001: No difflist/LD/onebit compression, 4 bit
 //               (vrec_len - ceil(sample_ct / 4)) value.  vrtype is zero if the
 //               entry is zero, and 8 if the record has 1-15 extra bytes.
-//       bits 4-5: alt allele count storage (00 = unstored, 01-11 = bytes per
-//                 count)
+//       bits 4-5: allele count storage (00 = unstored, 01-11 = bytes per ct)
 //       bits 6-7: nonref flags info (00 = unstored, 01 = all ref/alt, 10 =
 //                 never ref/alt, 11 = explicitly stored)
 //       Bits 0-5 do not apply to the fixed-length modes (currently 0x02-0x04)
@@ -670,6 +740,11 @@ struct PgenFileInfoStruct {
   //          Since each nonzero dosage value requires 16 bits, and
   //          delta-encoding of a dense list adds less than 9 bits per entry,
   //          there isn't much point in supporting a dense bitarray mode here.
+  //          To keep memory requirements sane for biobank-scale datasets when
+  //          the number of alt alleles is very large, each sample is
+  //          prohibited from having more than 255 nonzero allele dosages (this
+  //          makes no difference when sizeof(AlleleCode) == 1, but it may
+  //          matter later).
   //        - track #6 contains the rarealt nonzero dosage values.
   //        Note that this and the other dosage modes are in ADDITION to
   //        hardcalls.  This increases filesize by up to 12.5%, but makes the
@@ -788,6 +863,7 @@ struct PgenReaderStruct {
 
   // these should be treated as private after initial allocation.
   // not currently guaranteed to have trailing zeroes.
+  uintptr_t* ldbase_raw_genovec;  // now allocated even with no LD compression
   uintptr_t* ldbase_genovec;
   uintptr_t* ldbase_raregeno;
 
@@ -795,14 +871,15 @@ struct PgenReaderStruct {
   // must be set to sample_ct.
   uint32_t* ldbase_difflist_sample_ids;
 
-  uintptr_t* ldbase_raw_genovec;
-  uintptr_t* ldbase_all_hets;
-
   // common genotype can be looked up from vrtypes[]
 
-  STD_ARRAY_DECL(uint32_t, 4, ldbase_refalt1_genocounts);
+  STD_ARRAY_DECL(uint32_t, 4, ldbase_basic_genocounts);
 
-  uintptr_t* workspace_vec;  // must hold raw_sample_ct entries
+  // now only allocated if multiallelic variants, phase, and/or dosage present
+  // most commonly used for unsubsetted genovec; all_hets can be computed from
+  // this and patch_10_{set,vals}, and then aux2 can be interpreted.
+  // can also be used for other purposes after we're done processing aux2.
+  uintptr_t* workspace_vec;
 
   // currently must hold (raw_sample_ct / kPglMaxDifflistLenDivisor)
   // entries; may need to double the sizes later
@@ -813,11 +890,10 @@ struct PgenReaderStruct {
 
   // must hold (raw_sample_ct / kPglMaxDifflistLenDivisor) entries
   uintptr_t* workspace_raregeno_tmp_loadbuf;
-  uint32_t* workspace_difflist_sample_ids_tmp;
 
   uintptr_t* workspace_aux1x_present;
-  uintptr_t* workspace_raw_genovec;  // may not need this
   uintptr_t* workspace_all_hets;
+  uintptr_t* workspace_subset;  // currently used for hphase decoding
 
   uintptr_t* workspace_dosage_present;
   uintptr_t* workspace_dphase_present;
@@ -867,7 +943,7 @@ HEADER_INLINE uint32_t VrtypeLdCompressed(uint32_t vrtype) {
 
 // Only checks for rarealt-containing hardcall.  Multiallelic dosage may still
 // be present when this returns zero.
-HEADER_INLINE uint32_t VrtypeMultiallelic(uint32_t vrtype) {
+HEADER_INLINE uint32_t VrtypeMultiallelicHc(uint32_t vrtype) {
   return (vrtype & 8);
 }
 
@@ -1047,8 +1123,25 @@ void PgrDifflistToGenovecUnsafe(const uintptr_t* __restrict raregeno, const uint
 //   GetInv1() should be called on major alleles and Get1() should be called on
 //   minor ones.
 // * PgrGetM() is the multiallelic loader which doesn't collapse multiple
-//   alleles into one.  Exact functional form TBD, but probably fills a
-//   length-[2 * sample_ct] array of AlleleCode with max/max = missing.
+//   alleles into one.  This will probably retrieve a sparse form identical to
+//   what PwcAppendMultiallelicSparse takes.
+//   Multiallelic-dosage read functions (PgrReadRaw() included) will probably
+//   fill a 3-part data structure of the following form:
+//   1. Bitarray indicating which samples have at least one rarealt dosage.
+//   2. unsigned char array where, if bits a, b, and c are the only set ones in
+//      the first array, the first three elements of the second array are
+//      rarealt dosage counts (1..255) for those three samples.  (Could also
+//      put those in positions [a], [b], and [c], but that produces worse
+//      memory access locality, and it makes sense to treat multiallelic
+//      dosages as fundamentally sparse.)
+//   3. Let R := MINV(255, allele_ct - 2).
+//      a. Length-(sample_ct x R) array of AlleleCodes.
+//      b. Length-(sample_ct x R) array of uint16_t dosage (or int16_t dphase)
+//         values.
+//      Again we use the sparse representation, with payload values packed at
+//      the beginning.
+//   (--indiv-sort algorithm: initialize an array of uintptr_ts of length
+//   sample_ct where [k] has that sample's start index in the payload arrays.)
 // * PgrGetDifflistOrGenovec() opportunistically returns the sparse genotype
 //   representation ('difflist'), for functions capable of taking advantage of
 //   it.  I don't plan to use this in plink2 before at least 2019, but the
@@ -1082,9 +1175,9 @@ PglErr PgrGetDifflistOrGenovec(const uintptr_t* __restrict sample_include, const
 // iterating from the first variant.  (Which can almost never be assumed in
 // plink2 since variant_include[] may not include the first variant.)
 HEADER_INLINE void PgrClearLdCache(PgenReader* pgrp) {
-  pgrp->ldbase_stypes &= kfPgrLdcacheRawQuater | kfPgrLdcacheAllHets;
+  pgrp->ldbase_stypes &= kfPgrLdcacheRawQuater;
 
-  // bugfix, ld_load_necessary() was otherwise claiming that reload wasn't
+  // bugfix, LdLoadNecessary() was otherwise claiming that reload wasn't
   // necessary in certain cases
   pgrp->ldbase_vidx = 0x80000000U;
 }
@@ -1131,6 +1224,7 @@ HEADER_INLINE void PgrDetectGenovecHets(const uintptr_t* __restrict genovec, uin
   ZeroTrailingBits(raw_sample_ct, all_hets);
 }
 
+// cannot assume phaseinfo bit is clear when phasepresent is clear.
 PglErr PgrGetP(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr);
 
 // if dosage_present and dosage_main are nullptr, dosage data is ignored
@@ -1151,10 +1245,10 @@ PglErr PgrGetDp(const uintptr_t* __restrict sample_include, const uint32_t* __re
 PglErr PgrGetInv1Dp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr, uintptr_t* __restrict dphase_present, int16_t* dphase_delta, uint32_t* dphase_ct_ptr);
 
 // interface used by --make-pgen, just performs basic LD/difflist decompression
-// (still needs merge-supporting multiallelic extension)
+// to maximize parallelism
 PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgrp, uintptr_t** loadbuf_iter_ptr, unsigned char* loaded_vrtype_ptr);
 
-PglErr PgrValidate(PgenReader* pgrp, char* errstr_buf);
+PglErr PgrValidate(PgenReader* pgrp, uintptr_t* genovec_buf, char* errstr_buf);
 
 // missingness bit is set iff hardcall is not present (even if dosage info *is*
 // present)

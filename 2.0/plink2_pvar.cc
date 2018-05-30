@@ -16,6 +16,7 @@
 
 
 #include "plink2_data.h"
+#include "plink2_pvar.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -177,33 +178,35 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
   return reterr;
 }
 
-void VaridTemplateInit(const char* varid_template, uint32_t* template_insert_ct_ptr, uint32_t* template_base_len_ptr, uint32_t* alleles_needed_ptr, STD_ARRAY_REF(const char*, 5) varid_template_segs, STD_ARRAY_REF(uint32_t, 5) varid_template_seg_lens, STD_ARRAY_REF(uint32_t, 4) varid_template_types) {
+void VaridTemplateInit(const char* varid_template_str, const char* missing_id_match, char* chr_output_name_buf, uint32_t new_id_max_allele_slen, uint32_t overflow_substitute_blen, VaridTemplate* vtp) {
   // template string was previously validated
   // varid_template is only input, everything else is output values
-  const char* varid_template_iter = varid_template;
+  const char* varid_template_str_iter = varid_template_str;
   uint32_t template_insert_ct = 0;
   uint32_t template_base_len = 0;
-  unsigned char ucc = *varid_template_iter;
+  unsigned char ucc = *varid_template_str_iter;
   uint32_t alleles_needed = 0;  // bit 0 = ref, bit 1 = alt, bit 2 = ascii sort
-  varid_template_segs[0] = varid_template_iter;
+  vtp->chr_output_name_buf = chr_output_name_buf;
+  vtp->segs[0] = varid_template_str_iter;
+  vtp->chr_slen = 0;
   do {
     if (ucc <= '@') {
       uint32_t seg_len;
       uint32_t insert_type;
       if (ucc == '@') {
-        seg_len = varid_template_iter - varid_template_segs[template_insert_ct];
+        seg_len = varid_template_str_iter - vtp->segs[template_insert_ct];
         insert_type = 0;
         goto VaridTemplateInit_match;
       }
       if (ucc == '#') {
-        seg_len = varid_template_iter - varid_template_segs[template_insert_ct];
+        seg_len = varid_template_str_iter - vtp->segs[template_insert_ct];
         insert_type = 1;
         goto VaridTemplateInit_match;
       }
       if (ucc == '$') {
-        seg_len = varid_template_iter - varid_template_segs[template_insert_ct];
+        seg_len = varid_template_str_iter - vtp->segs[template_insert_ct];
         {
-          const uint32_t uii = ctou32(*(++varid_template_iter));
+          const uint32_t uii = ctou32(*(++varid_template_str_iter));
           if (uii <= '2') {
             alleles_needed += 2;  // this happens twice
             insert_type = uii - 48;  // '1' -> type 2, '2' -> type 3
@@ -215,19 +218,118 @@ void VaridTemplateInit(const char* varid_template, uint32_t* template_insert_ct_
           ++insert_type;
         }
       VaridTemplateInit_match:
-        varid_template_seg_lens[template_insert_ct] = seg_len;
+        vtp->seg_lens[template_insert_ct] = seg_len;
         template_base_len += seg_len;
-        varid_template_types[template_insert_ct++] = insert_type;
-        varid_template_segs[template_insert_ct] = &(varid_template_iter[1]);
+        vtp->insert_types[template_insert_ct++] = insert_type;
+        vtp->segs[template_insert_ct] = &(varid_template_str_iter[1]);
       }
     }
-    ucc = *(++varid_template_iter);
+    ucc = *(++varid_template_str_iter);
   } while (ucc);
-  const uint32_t seg_len = varid_template_iter - varid_template_segs[template_insert_ct];
-  varid_template_seg_lens[template_insert_ct] = seg_len;
-  *template_insert_ct_ptr = template_insert_ct;
-  *template_base_len_ptr = template_base_len + seg_len;
-  *alleles_needed_ptr = alleles_needed;
+  const uint32_t seg_len = varid_template_str_iter - vtp->segs[template_insert_ct];
+  vtp->seg_lens[template_insert_ct] = seg_len;
+  vtp->insert_ct = template_insert_ct;
+  vtp->base_len = template_base_len + seg_len;
+  vtp->alleles_needed = alleles_needed;
+  vtp->new_id_max_allele_slen = new_id_max_allele_slen;
+  vtp->overflow_substitute_blen = overflow_substitute_blen;
+  vtp->missing_id_match = missing_id_match;
+}
+
+// alt1_end currently allowed to be nullptr in biallelic case
+BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* vtp, const char* const* token_ptrs, const uint32_t* token_slens, const char* alt1_start, const char* alt1_end, uint32_t cur_bp, uint32_t alt_token_slen, unsigned char** tmp_alloc_endp, uintptr_t* new_id_allele_len_overflowp, uint32_t* id_slen_ptr) {
+  uint32_t insert_slens[4];
+  const uint32_t alleles_needed = vtp->alleles_needed;
+  const uint32_t new_id_max_allele_slen = vtp->new_id_max_allele_slen;
+  uint32_t id_slen = UintSlen(cur_bp);
+  insert_slens[0] = vtp->chr_slen;
+  insert_slens[1] = id_slen;
+  id_slen += vtp->base_len;
+  uint32_t ref_slen = 0;
+  uint32_t cur_overflow = 0;
+  const char* tmp_allele_ptrs[2];
+  if (alleles_needed & 1) {
+    ref_slen = token_slens[2];
+    if (ref_slen > new_id_max_allele_slen) {
+      ref_slen = new_id_max_allele_slen;
+      cur_overflow = 1;
+    }
+    insert_slens[2] = ref_slen;
+    id_slen += ref_slen;
+    tmp_allele_ptrs[0] = token_ptrs[2];
+  }
+  if (alleles_needed > 1) {
+    uint32_t alt1_slen;
+    if (!alt1_end) {
+      alt1_slen = alt_token_slen;
+    } else {
+      alt1_slen = alt1_end - alt1_start;
+    }
+    if (alt1_slen > new_id_max_allele_slen) {
+      alt1_slen = new_id_max_allele_slen;
+      ++cur_overflow;
+    }
+    id_slen += alt1_slen;
+    if (alleles_needed <= 3) {
+    VaridTemplateApply_keep_allele_ascii_order:
+      insert_slens[3] = alt1_slen;
+      tmp_allele_ptrs[1] = alt1_start;
+    } else {
+      uint32_t smaller_slen = alt1_slen;
+      const int32_t ref_slen_geq = (ref_slen >= alt1_slen);
+      if (!ref_slen_geq) {
+        smaller_slen = ref_slen;
+      }
+      int32_t memcmp_result = memcmp(token_ptrs[2], alt1_start, smaller_slen);
+      if (!memcmp_result) {
+        memcmp_result = ref_slen_geq;
+      }
+      if (memcmp_result <= 0) {
+        goto VaridTemplateApply_keep_allele_ascii_order;
+      }
+      insert_slens[3] = ref_slen;
+      tmp_allele_ptrs[1] = tmp_allele_ptrs[0];
+      insert_slens[2] = alt1_slen;
+      tmp_allele_ptrs[0] = alt1_start;
+    }
+  }
+  const uint32_t overflow_substitute_blen = vtp->overflow_substitute_blen;
+  if (overflow_substitute_blen && cur_overflow) {
+    // er, do we really want to make a separate allocation here?  see if we can
+    // remove this.
+    *tmp_alloc_endp -= overflow_substitute_blen;
+    if (unlikely((*tmp_alloc_endp) < tmp_alloc_base)) {
+      return 1;
+    }
+    memcpy(*tmp_alloc_endp, vtp->missing_id_match, overflow_substitute_blen);
+    id_slen = 0;
+    cur_overflow = 1;
+  } else {
+    *tmp_alloc_endp -= id_slen + 1;
+    if (unlikely((*tmp_alloc_endp) < tmp_alloc_base)) {
+      return 1;
+    }
+    char* id_iter = R_CAST(char*, *tmp_alloc_endp);
+    const uint32_t insert_ct = vtp->insert_ct;
+    char* insert_ptrs[4];
+    insert_ptrs[0] = nullptr;  // maybe-uninitialized warning
+    for (uint32_t insert_idx = 0; insert_idx < insert_ct; ++insert_idx) {
+      id_iter = memcpya(id_iter, vtp->segs[insert_idx], vtp->seg_lens[insert_idx]);
+      const uint32_t cur_insert_type = vtp->insert_types[insert_idx];
+      insert_ptrs[cur_insert_type] = id_iter;
+      id_iter = &(id_iter[insert_slens[cur_insert_type]]);
+    }
+    memcpyx(id_iter,  vtp->segs[insert_ct], vtp->seg_lens[insert_ct], '\0');
+
+    memcpy(insert_ptrs[0], vtp->chr_output_name_buf, insert_slens[0]);
+    u32toa(cur_bp, insert_ptrs[1]);
+    for (uint32_t insert_type_idx = 2; insert_type_idx < insert_ct; ++insert_type_idx) {
+      memcpy(insert_ptrs[insert_type_idx], tmp_allele_ptrs[insert_type_idx - 2], insert_slens[insert_type_idx]);
+    }
+  }
+  *id_slen_ptr = id_slen;
+  *new_id_allele_len_overflowp += cur_overflow;
+  return 0;
 }
 
 void BackfillChrIdxs(const ChrInfo* cip, uint32_t chrs_encountered_m1, uint32_t offset, uint32_t end_vidx, ChrIdx* chr_idxs) {
@@ -585,7 +687,7 @@ PglErr SplitPar(const uint32_t* variant_bps, UnsortedVar vpos_sortstatus, uint32
 }
 
 static_assert((!(kMaxIdSlen % kCacheline)), "LoadPvar() must be updated.");
-PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattened, const char* varid_template, const char* missing_varid_match, const char* require_info_flattened, const char* require_no_info_flattened, const CmpExpr* extract_if_info_exprp, const CmpExpr* exclude_if_info_exprp, MiscFlags misc_flags, PvarPsamFlags pvar_psam_flags, ExportfFlags exportf_flags, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, uint32_t max_thread_ct, ChrInfo* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, UnsortedVar* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** allele_idx_offsets_ptr, const char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, ChrIdx** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, InfoFlags* info_flags_ptr, uint32_t* max_filter_slen_ptr) {
+PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattened, const char* varid_template_str, const char* varid_multi_template_str, const char* varid_multi_nonsnp_template_str, const char* missing_varid_match, const char* require_info_flattened, const char* require_no_info_flattened, const CmpExpr* extract_if_info_exprp, const CmpExpr* exclude_if_info_exprp, MiscFlags misc_flags, PvarPsamFlags pvar_psam_flags, ExportfFlags exportf_flags, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, uint32_t max_thread_ct, ChrInfo* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, UnsortedVar* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** allele_idx_offsets_ptr, const char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, ChrIdx** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, InfoFlags* info_flags_ptr, uint32_t* max_filter_slen_ptr) {
   // chr_info, max_variant_id_slen, and info_reload_slen are in/out; just
   // outparameters after them.  (Due to its large size in some VCFs, INFO is
   // not kept in memory for now.  This has a speed penalty, of course; maybe
@@ -964,19 +1066,15 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         goto LoadPvar_ret_NOMEM;
       }
     }
+    const uint32_t new_variant_id_overflow_missing = (misc_flags / kfMiscNewVarIdOverflowMissing) & 1;
     char* chr_output_name_buf = nullptr;
-    STD_ARRAY_DECL(const char*, 5, varid_template_segs);
-    STD_ARRAY_DECL(uint32_t, 4, insert_slens);
-    STD_ARRAY_DECL(uint32_t, 5, varid_template_seg_lens);
-    STD_ARRAY_DECL(uint32_t, 4, varid_template_insert_types);
-    uint32_t varid_template_insert_ct = 0;
-    uint32_t varid_template_base_len = 0;
-    uint32_t varid_alleles_needed = 0;
+    VaridTemplate* varid_templatep = nullptr;
+    VaridTemplate* varid_multi_templatep = nullptr;
+    VaridTemplate* varid_multi_nonsnp_templatep = nullptr;
     uint32_t missing_varid_blen = 0;
     uint32_t missing_varid_match_slen = 0;
-    STD_ARRAY_FILL0(insert_slens);
-    if (varid_template) {
-      if (unlikely(S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) < kMaxIdSlen)) {
+    if (varid_template_str) {
+      if (unlikely(S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) < kMaxIdSlen + 3 * RoundUpPow2(sizeof(VaridTemplate), kCacheline))) {
         goto LoadPvar_ret_NOMEM;
       }
       chr_output_name_buf = R_CAST(char*, tmp_alloc_base);
@@ -989,7 +1087,20 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         missing_varid_match_slen = missing_varid_blen;
       }
       ++missing_varid_blen;
-      VaridTemplateInit(varid_template, &varid_template_insert_ct, &varid_template_base_len, &varid_alleles_needed, varid_template_segs, varid_template_seg_lens, varid_template_insert_types);
+      varid_templatep = R_CAST(VaridTemplate*, tmp_alloc_base);
+      tmp_alloc_base = &(tmp_alloc_base[RoundUpPow2(sizeof(VaridTemplate), kCacheline)]);
+      const uint32_t overflow_substitute_blen = new_variant_id_overflow_missing? missing_varid_blen : 0;
+      VaridTemplateInit(varid_template_str, missing_varid_match, chr_output_name_buf, new_variant_id_max_allele_slen, overflow_substitute_blen, varid_templatep);
+      if (varid_multi_template_str) {
+        varid_multi_templatep = R_CAST(VaridTemplate*, tmp_alloc_base);
+        tmp_alloc_base = &(tmp_alloc_base[RoundUpPow2(sizeof(VaridTemplate), kCacheline)]);
+        VaridTemplateInit(varid_multi_template_str, missing_varid_match, chr_output_name_buf, new_variant_id_max_allele_slen, overflow_substitute_blen, varid_multi_templatep);
+      }
+      if (varid_multi_nonsnp_template_str) {
+        varid_multi_nonsnp_templatep = R_CAST(VaridTemplate*, tmp_alloc_base);
+        tmp_alloc_base = &(tmp_alloc_base[RoundUpPow2(sizeof(VaridTemplate), kCacheline)]);
+        VaridTemplateInit(varid_multi_nonsnp_template_str, missing_varid_match, chr_output_name_buf, new_variant_id_max_allele_slen, overflow_substitute_blen, varid_multi_nonsnp_templatep);
+      }
     }
 
     // prevent later return-array allocations from overlapping with temporary
@@ -1061,7 +1172,6 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     // is error-prone.
     uint32_t at_least_one_npass_filter = 0;
     uint32_t at_least_one_nzero_cm = 0;
-    const uint32_t new_variant_id_overflow_missing = (misc_flags / kfMiscNewVarIdOverflowMissing) & 1;
     uintptr_t new_variant_id_allele_len_overflow = 0;
     double* cur_cms = nullptr;
     uint32_t cms_start_block = UINT32_MAX;
@@ -1084,16 +1194,16 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         const uint32_t variant_idx_lowbits = raw_variant_ct % kLoadPvarBlockSize;
         if (!variant_idx_lowbits) {
           if (unlikely(
-                (S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) <=
-                  kLoadPvarBlockSize *
-                    (sizeof(int32_t) +
-                     2 * sizeof(intptr_t) +
-                     at_least_one_nzero_cm * sizeof(double)) +
-                  is_split_chr * sizeof(ChrIdx) +
-                  (1 + info_pr_present) * (kLoadPvarBlockSize / CHAR_BIT) +
-                  (load_qual_col? ((kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(float)) : 0) +
-                  (load_filter_col? (2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)) : 0)) ||
-                (allele_storage_iter >= allele_storage_limit))) {
+                  (S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) <=
+                    kLoadPvarBlockSize *
+                      (sizeof(int32_t) +
+                       2 * sizeof(intptr_t) +
+                       at_least_one_nzero_cm * sizeof(double)) +
+                    is_split_chr * sizeof(ChrIdx) +
+                    (1 + info_pr_present) * (kLoadPvarBlockSize / CHAR_BIT) +
+                    (load_qual_col? ((kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(float)) : 0) +
+                    (load_filter_col? (2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)) : 0)) ||
+                  (allele_storage_iter >= allele_storage_limit))) {
             goto LoadPvar_ret_NOMEM;
           }
           cur_bps = R_CAST(uint32_t*, tmp_alloc_base);
@@ -1181,10 +1291,11 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           }
           SetBit(cur_chr_code, loaded_chr_mask);
           if (chr_output_name_buf) {
-            varid_template_base_len -= insert_slens[0];
             char* chr_name_end = chrtoa(cip, cur_chr_code, chr_output_name_buf);
-            insert_slens[0] = chr_name_end - chr_output_name_buf;
-            varid_template_base_len += insert_slens[0];
+            const uint32_t chr_slen = chr_name_end - chr_output_name_buf;
+            const int32_t chr_slen_delta = chr_slen - varid_templatep->chr_slen;
+            varid_templatep->chr_slen = chr_slen;
+            varid_templatep->base_len += chr_slen_delta;
           }
         }
         *linebuf_iter = '\t';
@@ -1371,9 +1482,10 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           }
           cur_bps[variant_idx_lowbits] = cur_bp;
           last_bp = cur_bp;
+          const uint32_t ref_slen = token_slens[2];
           char* alt_allele_iter = S_CAST(char*, memchr(linebuf_iter, ',', remaining_alt_char_ct));
           uint32_t id_slen;
-          if ((!varid_template) || (missing_varid_match_slen && ((token_slens[1] != missing_varid_match_slen) || memcmp(token_ptrs[1], missing_varid_match, missing_varid_match_slen)))) {
+          if ((!varid_templatep) || (missing_varid_match_slen && ((token_slens[1] != missing_varid_match_slen) || memcmp(token_ptrs[1], missing_varid_match, missing_varid_match_slen)))) {
             id_slen = token_slens[1];
             tmp_alloc_end -= id_slen + 1;
             if (unlikely(tmp_alloc_end < tmp_alloc_base)) {
@@ -1381,84 +1493,30 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
             }
             memcpyx(tmp_alloc_end, token_ptrs[1], id_slen, '\0');
           } else {
-            insert_slens[1] = UintSlen(cur_bp);
-            uint32_t ref_slen = 0;
-            uint32_t cur_overflow = 0;
-            char* tmp_allele_ptrs[2];
-            if (varid_alleles_needed & 1) {
-              ref_slen = token_slens[2];
-              if (ref_slen > new_variant_id_max_allele_slen) {
-                ref_slen = new_variant_id_max_allele_slen;
-                cur_overflow = 1;
+            VaridTemplate* cur_varid_templatep = varid_templatep;
+            if (alt_allele_iter && (varid_multi_templatep || varid_multi_nonsnp_templatep)) {
+              if (varid_multi_templatep) {
+                cur_varid_templatep = varid_multi_templatep;
               }
-              insert_slens[2] = ref_slen;
-              tmp_allele_ptrs[0] = token_ptrs[2];
-            }
-            if (varid_alleles_needed > 1) {
-              uint32_t alt1_slen;
-              if (!alt_allele_iter) {
-                alt1_slen = remaining_alt_char_ct;
-              } else {
-                alt1_slen = alt_allele_iter - linebuf_iter;
-              }
-              if (alt1_slen > new_variant_id_max_allele_slen) {
-                alt1_slen = new_variant_id_max_allele_slen;
-                ++cur_overflow;
-              }
-              if (varid_alleles_needed <= 3) {
-              LoadPvar_keep_allele_ascii_order:
-                insert_slens[3] = alt1_slen;
-                tmp_allele_ptrs[1] = linebuf_iter;
-              } else {
-                uint32_t smaller_slen = alt1_slen;
-                const int32_t ref_slen_geq = (ref_slen >= alt1_slen);
-                if (!ref_slen_geq) {
-                  smaller_slen = ref_slen;
+              if (varid_multi_nonsnp_templatep) {
+                uint32_t multichar_found = (ref_slen > 1) || (S_CAST(uintptr_t, alt_allele_iter - linebuf_iter) > 1) || (!(remaining_alt_char_ct % 2));
+                if (!multichar_found) {
+                  for (uint32_t uii = 2; uii < remaining_alt_char_ct; uii += 2) {
+                    if (alt_allele_iter[uii] != ',') {
+                      multichar_found = 1;
+                      break;
+                    }
+                  }
                 }
-                int32_t memcmp_result = memcmp(token_ptrs[2], linebuf_iter, smaller_slen);
-                if (!memcmp_result) {
-                  memcmp_result = ref_slen_geq;
+                if (multichar_found) {
+                  cur_varid_templatep = varid_multi_nonsnp_templatep;
                 }
-                if (memcmp_result <= 0) {
-                  goto LoadPvar_keep_allele_ascii_order;
-                }
-                insert_slens[3] = ref_slen;
-                tmp_allele_ptrs[1] = tmp_allele_ptrs[0];
-                insert_slens[2] = alt1_slen;
-                tmp_allele_ptrs[0] = linebuf_iter;
               }
             }
-            id_slen = varid_template_base_len + insert_slens[1] + insert_slens[2] + insert_slens[3];
-            if (new_variant_id_overflow_missing && cur_overflow) {
-              tmp_alloc_end -= missing_varid_blen;
-              if (unlikely(tmp_alloc_end < tmp_alloc_base)) {
-                goto LoadPvar_ret_NOMEM;
-              }
-              memcpy(tmp_alloc_end, missing_varid_match, missing_varid_blen);
-              id_slen = 0;
-              cur_overflow = 1;
-            } else {
-              tmp_alloc_end -= id_slen + 1;
-              if (unlikely(tmp_alloc_end < tmp_alloc_base)) {
-                goto LoadPvar_ret_NOMEM;
-              }
-              char* id_iter = R_CAST(char*, tmp_alloc_end);
-              char* insert_ptrs[4];
-              for (uint32_t insert_idx = 0; insert_idx < varid_template_insert_ct; ++insert_idx) {
-                id_iter = memcpya(id_iter, varid_template_segs[insert_idx], varid_template_seg_lens[insert_idx]);
-                const uint32_t cur_insert_type = varid_template_insert_types[insert_idx];
-                insert_ptrs[cur_insert_type] = id_iter;
-                id_iter = &(id_iter[insert_slens[cur_insert_type]]);
-              }
-              memcpyx(id_iter, varid_template_segs[varid_template_insert_ct], varid_template_seg_lens[varid_template_insert_ct], '\0');
-
-              memcpy(insert_ptrs[0], chr_output_name_buf, insert_slens[0]);
-              u32toa(cur_bp, insert_ptrs[1]);
-              for (uint32_t insert_type_idx = 2; insert_type_idx < varid_template_insert_ct; ++insert_type_idx) {
-                memcpy(insert_ptrs[insert_type_idx], tmp_allele_ptrs[insert_type_idx - 2], insert_slens[insert_type_idx]);
-              }
+            // todo: select which of up to 3 templates to apply
+            if (unlikely(VaridTemplateApply(tmp_alloc_base, cur_varid_templatep, TO_CONSTCPCONSTP(token_ptrs), token_slens, linebuf_iter, alt_allele_iter, cur_bp, remaining_alt_char_ct, &tmp_alloc_end, &new_variant_id_allele_len_overflow, &id_slen))) {
+              goto LoadPvar_ret_NOMEM;
             }
-            new_variant_id_allele_len_overflow += cur_overflow;
           }
           if (id_slen > max_variant_id_slen) {
             max_variant_id_slen = id_slen;
@@ -1467,7 +1525,6 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
 
           // REF
           const char* ref_allele = token_ptrs[2];
-          const uint32_t ref_slen = token_slens[2];
           if (ref_slen == 1) {
             char geno_char = ref_allele[0];
             if (geno_char == input_missing_geno_char) {
@@ -1665,17 +1722,17 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     // terminated by a zero bit
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     if (unlikely(
-          bigstack_alloc_w(raw_variant_ctl, variant_include_ptr) ||
-          bigstack_alloc_u32(raw_variant_ct, variant_bps_ptr) ||
-          bigstack_alloc_cp(raw_variant_ct, variant_ids_ptr))) {
+            bigstack_alloc_w(raw_variant_ctl, variant_include_ptr) ||
+            bigstack_alloc_u32(raw_variant_ct, variant_bps_ptr) ||
+            bigstack_alloc_cp(raw_variant_ct, variant_ids_ptr))) {
       goto LoadPvar_ret_NOMEM;
     }
     uintptr_t* qual_present = nullptr;
     float* quals = nullptr;
     if (load_qual_col > 1) {
       if (unlikely(
-            bigstack_alloc_w(raw_variant_ctl, qual_present_ptr) ||
-            bigstack_alloc_f(raw_variant_ct, quals_ptr))) {
+              bigstack_alloc_w(raw_variant_ctl, qual_present_ptr) ||
+              bigstack_alloc_f(raw_variant_ct, quals_ptr))) {
         goto LoadPvar_ret_NOMEM;
       }
       qual_present = *qual_present_ptr;
@@ -1686,8 +1743,8 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     char** filter_storage = nullptr;
     if (load_filter_col > 1) {
       if (unlikely(
-            bigstack_alloc_w(raw_variant_ctl, filter_present_ptr) ||
-            bigstack_alloc_w(raw_variant_ctl, filter_npass_ptr))) {
+              bigstack_alloc_w(raw_variant_ctl, filter_present_ptr) ||
+              bigstack_alloc_w(raw_variant_ctl, filter_npass_ptr))) {
         goto LoadPvar_ret_NOMEM;
       }
       filter_present = *filter_present_ptr;

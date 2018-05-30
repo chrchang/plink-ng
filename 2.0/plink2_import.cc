@@ -2331,6 +2331,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       reterr = RlsOpenMaybeBgzf(vcfname, decompress_thread_ct, &vcf_rls);
       if (unlikely(reterr)) {
         if (reterr == kPglRetOpenFail) {
+          DPrintf("Stream reopen failure.\n");
           goto VcfToPgen_ret_READ_FAIL;
         }
         goto VcfToPgen_ret_1;
@@ -2341,6 +2342,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     }
     reterr = InitRLstreamEx(1, kMaxLongLine, MAXV(max_line_blen, kRLstreamBlenFast), &vcf_rls, &line_iter);
     if (unlikely(reterr)) {
+      DPrintf("Stream reinitialization failure.\n");
       goto VcfToPgen_ret_1;
     }
 
@@ -2351,6 +2353,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     line_idx = 0;
     while (1) {
       if (unlikely(RlsNext(&vcf_rls, &line_iter))) {
+        DPrintf("Stream header read failure.\n");
         goto VcfToPgen_ret_READ_FAIL;
       }
       if (++line_idx == header_line_ct) {
@@ -2519,11 +2522,11 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
 
       if (unlikely(
-            bigstack_alloc_thread(calc_thread_ct, &ts.threads) ||
-            bigstack_alloc_ucp(calc_thread_ct, &g_thread_wkspaces) ||
-            bigstack_alloc_u32(calc_thread_ct + 1, &(g_thread_bidxs[0])) ||
-            bigstack_alloc_u32(calc_thread_ct + 1, &(g_thread_bidxs[1])) ||
-            bigstack_alloc_w(calc_thread_ct, &g_err_line_idxs))) {
+              bigstack_alloc_thread(calc_thread_ct, &ts.threads) ||
+              bigstack_alloc_ucp(calc_thread_ct, &g_thread_wkspaces) ||
+              bigstack_alloc_u32(calc_thread_ct + 1, &(g_thread_bidxs[0])) ||
+              bigstack_alloc_u32(calc_thread_ct + 1, &(g_thread_bidxs[1])) ||
+              bigstack_alloc_w(calc_thread_ct, &g_err_line_idxs))) {
         goto VcfToPgen_ret_NOMEM;
       }
       g_vcf_parse_errs = S_CAST(VcfParseErr*, bigstack_alloc_raw_rd(calc_thread_ct * sizeof(VcfParseErr)));
@@ -2661,6 +2664,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         VcfToPgen_load_start:
           ++line_idx;
           if (unlikely(RlsNext(&vcf_rls, &line_iter))) {
+            DPrintf("Stream body read failure.\n");
             goto VcfToPgen_ret_READ_FAIL;
           }
 
@@ -3192,8 +3196,8 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     uintptr_t* col_is_categorical;
     uintptr_t* col_is_qt;
     if (unlikely(
-          bigstack_calloc_w(col_ctl, &col_is_categorical) ||
-	  bigstack_calloc_w(col_ctl, &col_is_qt))) {
+            bigstack_calloc_w(col_ctl, &col_is_categorical) ||
+            bigstack_calloc_w(col_ctl, &col_is_qt))) {
       goto OxSampleToPsam_ret_NOMEM;
     }
     uint32_t at_least_one_binary_pheno = 0;
@@ -3882,8 +3886,8 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
     uintptr_t* dosage_present;
     // if we weren't using bigstack_alloc, this would need to be sample_ctaw2
     if (unlikely(
-          bigstack_alloc_w(sample_ctl2, &genovec) ||
-          bigstack_alloc_w(sample_ctl, &dosage_present))) {
+            bigstack_alloc_w(sample_ctl2, &genovec) ||
+            bigstack_alloc_w(sample_ctl, &dosage_present))) {
       goto OxGenToPgen_ret_NOMEM;
     }
     Dosage* dosage_main = nullptr;
@@ -5567,13 +5571,13 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         uint32_t sample_id_block_byte_ct;
         uint32_t sample_id_block_entry_ct;
         if (unlikely(
-              (!fread_unlocked(&sample_id_block_byte_ct, 4, 1, bgenfile)) ||
-              (!fread_unlocked(&sample_id_block_entry_ct, 4, 1, bgenfile)))) {
+                (!fread_unlocked(&sample_id_block_byte_ct, 4, 1, bgenfile)) ||
+                (!fread_unlocked(&sample_id_block_entry_ct, 4, 1, bgenfile)))) {
           goto OxBgenToPgen_ret_READ_FAIL;
         }
         if (unlikely(
-              (S_CAST(uint64_t, sample_id_block_byte_ct) + initial_uints[1] > initial_uints[0]) ||
-              (sample_id_block_entry_ct != sample_ct))) {
+                (S_CAST(uint64_t, sample_id_block_byte_ct) + initial_uints[1] > initial_uints[0]) ||
+                (sample_id_block_entry_ct != sample_ct))) {
           logerrputs("Error: Invalid .bgen header.\n");
           goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
@@ -5590,14 +5594,14 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       uint32_t sample_id_block_byte_ct;
       uint32_t sample_id_block_entry_ct;
       if (unlikely(
-            (!fread_unlocked(&sample_id_block_byte_ct, 4, 1, bgenfile)) ||
-            (!fread_unlocked(&sample_id_block_entry_ct, 4, 1, bgenfile)))) {
+              (!fread_unlocked(&sample_id_block_byte_ct, 4, 1, bgenfile)) ||
+              (!fread_unlocked(&sample_id_block_entry_ct, 4, 1, bgenfile)))) {
         goto OxBgenToPgen_ret_READ_FAIL;
       }
       if (unlikely(
-            (sample_id_block_byte_ct < 8) ||
-            (S_CAST(uint64_t, sample_id_block_byte_ct) + initial_uints[1] > initial_uints[0]) ||
-            (sample_id_block_entry_ct != sample_ct))) {
+              (sample_id_block_byte_ct < 8) ||
+              (S_CAST(uint64_t, sample_id_block_byte_ct) + initial_uints[1] > initial_uints[0]) ||
+              (sample_id_block_entry_ct != sample_ct))) {
         logerrputs("Error: Invalid .bgen header.\n");
         goto OxBgenToPgen_ret_MALFORMED_INPUT;
       }
@@ -5868,8 +5872,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         calc_thread_ct = raw_variant_ct;
       }
       if (unlikely(
-            bigstack_alloc_thread(calc_thread_ct, &ts.threads) ||
-            bigstack_alloc_u16p(calc_thread_ct, &g_bgen_geno_bufs))) {
+              bigstack_alloc_thread(calc_thread_ct, &ts.threads) ||
+              bigstack_alloc_u16p(calc_thread_ct, &g_bgen_geno_bufs))) {
         goto OxBgenToPgen_ret_NOMEM;
       }
       const uint32_t sample_ct_x3 = sample_ct * 3;
@@ -5907,18 +5911,18 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       }
       unsigned char* compressed_geno_bufs[2];
       if (unlikely(
-            bigstack_alloc_uc(bgen_geno_max_byte_ct * main_block_size, &(compressed_geno_bufs[0])) ||
-            bigstack_alloc_uc(bgen_geno_max_byte_ct * main_block_size, &(compressed_geno_bufs[1])) ||
-            bigstack_alloc_ucp(main_block_size, &(g_compressed_geno_starts[0])) ||
-            bigstack_alloc_ucp(main_block_size, &(g_compressed_geno_starts[1])) ||
-            bigstack_alloc_w(sample_ctaw2 * main_block_size, &(g_write_genovecs[0])) ||
-            bigstack_alloc_w(sample_ctaw2 * main_block_size, &(g_write_genovecs[1])) ||
-            bigstack_alloc_u32(main_block_size, &(g_write_dosage_cts[0])) ||
-            bigstack_alloc_u32(main_block_size, &(g_write_dosage_cts[1])) ||
-            bigstack_alloc_w(sample_ctaw * main_block_size, &(g_write_dosage_presents[0])) ||
-            bigstack_alloc_w(sample_ctaw * main_block_size, &(g_write_dosage_presents[1])) ||
-            bigstack_alloc_dosage(sample_ct * main_block_size, &(g_write_dosage_mains[0])) ||
-            bigstack_alloc_dosage(sample_ct * main_block_size, &(g_write_dosage_mains[1])))) {
+              bigstack_alloc_uc(bgen_geno_max_byte_ct * main_block_size, &(compressed_geno_bufs[0])) ||
+              bigstack_alloc_uc(bgen_geno_max_byte_ct * main_block_size, &(compressed_geno_bufs[1])) ||
+              bigstack_alloc_ucp(main_block_size, &(g_compressed_geno_starts[0])) ||
+              bigstack_alloc_ucp(main_block_size, &(g_compressed_geno_starts[1])) ||
+              bigstack_alloc_w(sample_ctaw2 * main_block_size, &(g_write_genovecs[0])) ||
+              bigstack_alloc_w(sample_ctaw2 * main_block_size, &(g_write_genovecs[1])) ||
+              bigstack_alloc_u32(main_block_size, &(g_write_dosage_cts[0])) ||
+              bigstack_alloc_u32(main_block_size, &(g_write_dosage_cts[1])) ||
+              bigstack_alloc_w(sample_ctaw * main_block_size, &(g_write_dosage_presents[0])) ||
+              bigstack_alloc_w(sample_ctaw * main_block_size, &(g_write_dosage_presents[1])) ||
+              bigstack_alloc_dosage(sample_ct * main_block_size, &(g_write_dosage_mains[0])) ||
+              bigstack_alloc_dosage(sample_ct * main_block_size, &(g_write_dosage_mains[1])))) {
         // this should be impossible
         assert(0);
         goto OxBgenToPgen_ret_NOMEM;
@@ -6259,16 +6263,16 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             uint32_t cur_bp;
             uint32_t a1_slen;
             if (unlikely(
-                  (!fread_unlocked(&cur_bp, 4, 1, bgenfile)) ||
-                  (!fread_unlocked(&a1_slen, 4, 1, bgenfile)))) {
+                    (!fread_unlocked(&cur_bp, 4, 1, bgenfile)) ||
+                    (!fread_unlocked(&a1_slen, 4, 1, bgenfile)))) {
               goto OxBgenToPgen_ret_READ_FAIL;
             }
             if (skip) {
               uint32_t a2_slen;
               if (unlikely(
-                    fseeko(bgenfile, a1_slen, SEEK_CUR) ||
-                    (!fread_unlocked(&a2_slen, 4, 1, bgenfile)) ||
-                    fseeko(bgenfile, a2_slen, SEEK_CUR))) {
+                      fseeko(bgenfile, a1_slen, SEEK_CUR) ||
+                      (!fread_unlocked(&a2_slen, 4, 1, bgenfile)) ||
+                      fseeko(bgenfile, a2_slen, SEEK_CUR))) {
                 goto OxBgenToPgen_ret_READ_FAIL;
               }
               if (compression_mode) {
@@ -6477,16 +6481,16 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       // probably want to change this to use Gparse...
       uintptr_t main_block_size = 65536;
       if (unlikely(
-            bigstack_alloc_u16(main_block_size, &(g_bgen_allele_cts[0])) ||
-            bigstack_alloc_u16(main_block_size, &(g_bgen_allele_cts[1])) ||
-            bigstack_alloc_ucp(main_block_size + 1, &(g_compressed_geno_starts[0])) ||
-            bigstack_alloc_ucp(main_block_size + 1, &(g_compressed_geno_starts[1])))) {
+              bigstack_alloc_u16(main_block_size, &(g_bgen_allele_cts[0])) ||
+              bigstack_alloc_u16(main_block_size, &(g_bgen_allele_cts[1])) ||
+              bigstack_alloc_ucp(main_block_size + 1, &(g_compressed_geno_starts[0])) ||
+              bigstack_alloc_ucp(main_block_size + 1, &(g_compressed_geno_starts[1])))) {
         goto OxBgenToPgen_ret_NOMEM;
       }
       if (compression_mode) {
         if (unlikely(
-              bigstack_alloc_u32(main_block_size, &(g_uncompressed_genodata_byte_cts[0])) ||
-              bigstack_alloc_u32(main_block_size, &(g_uncompressed_genodata_byte_cts[1])))) {
+                bigstack_alloc_u32(main_block_size, &(g_uncompressed_genodata_byte_cts[0])) ||
+                bigstack_alloc_u32(main_block_size, &(g_uncompressed_genodata_byte_cts[1])))) {
           goto OxBgenToPgen_ret_NOMEM;
         }
       } else {
@@ -6701,8 +6705,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         uint32_t cur_bp;
         uint32_t cur_allele_ct = 0;
         if (unlikely(
-              (!fread_unlocked(&cur_bp, 4, 1, bgenfile)) ||
-              (!fread_unlocked(&cur_allele_ct, 2, 1, bgenfile)))) {
+                (!fread_unlocked(&cur_bp, 4, 1, bgenfile)) ||
+                (!fread_unlocked(&cur_allele_ct, 2, 1, bgenfile)))) {
           goto OxBgenToPgen_ret_READ_FAIL;
         }
         if (unlikely(cur_allele_ct < 2)) {
@@ -6725,15 +6729,15 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           for (uint32_t allele_idx = 0; allele_idx < cur_allele_ct; ++allele_idx) {
             uint32_t cur_allele_slen;
             if (unlikely(
-                  (!fread_unlocked(&cur_allele_slen, 4, 1, bgenfile)) ||
-                  fseeko(bgenfile, cur_allele_slen, SEEK_CUR))) {
+                    (!fread_unlocked(&cur_allele_slen, 4, 1, bgenfile)) ||
+                    fseeko(bgenfile, cur_allele_slen, SEEK_CUR))) {
               goto OxBgenToPgen_ret_READ_FAIL;
             }
           }
           uint32_t genodata_byte_ct;
           if (unlikely(
-                (!fread_unlocked(&genodata_byte_ct, 4, 1, bgenfile)) ||
-                fseeko(bgenfile, genodata_byte_ct, SEEK_CUR))) {
+                  (!fread_unlocked(&genodata_byte_ct, 4, 1, bgenfile)) ||
+                  fseeko(bgenfile, genodata_byte_ct, SEEK_CUR))) {
             goto OxBgenToPgen_ret_READ_FAIL;
           }
           continue;
@@ -7120,8 +7124,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       g_gparse[1] = S_CAST(GparseRecord*, bigstack_alloc_raw_rd(main_block_size * sizeof(GparseRecord)));
       cachelines_avail = bigstack_left() / (kCacheline * 2);
       if (unlikely(
-            bigstack_alloc_uc(cachelines_avail * kCacheline, &(compressed_geno_bufs[0])) ||
-            bigstack_alloc_uc(cachelines_avail * kCacheline, &(compressed_geno_bufs[1])))) {
+              bigstack_alloc_uc(cachelines_avail * kCacheline, &(compressed_geno_bufs[0])) ||
+              bigstack_alloc_uc(cachelines_avail * kCacheline, &(compressed_geno_bufs[1])))) {
         assert(0);
         goto OxBgenToPgen_ret_NOMEM;
       }
@@ -7819,8 +7823,8 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     uintptr_t* genovec;
     uintptr_t* phaseinfo;
     if (unlikely(
-          bigstack_alloc_w(sample_ctl2, &genovec) ||
-          bigstack_alloc_w(sample_ctl, &phaseinfo))) {
+            bigstack_alloc_w(sample_ctl2, &genovec) ||
+            bigstack_alloc_w(sample_ctl, &phaseinfo))) {
       goto OxHapslegendToPgen_ret_NOMEM;
     }
 
@@ -8232,9 +8236,9 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
     CleanupRLstream(&map_rls);
 
     if (unlikely(
-          bigstack_alloc_u16(variant_ct, variant_chr_codes_ptr) ||
-          bigstack_alloc_u32(variant_ct, variant_bps_ptr) ||
-          bigstack_alloc_cp(variant_ct, variant_ids_ptr))) {
+            bigstack_alloc_u16(variant_ct, variant_chr_codes_ptr) ||
+            bigstack_alloc_u32(variant_ct, variant_bps_ptr) ||
+            bigstack_alloc_cp(variant_ct, variant_ids_ptr))) {
       goto LoadMap_ret_NOMEM;
     }
     uint16_t* variant_chr_codes = *variant_chr_codes_ptr;
@@ -8366,8 +8370,8 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
       uint32_t* htable_tmp;
       char* idbuf;
       if (unlikely(
-            bigstack_end_alloc_u32(tmp_htable_size, &htable_tmp) ||
-            bigstack_end_alloc_c(pii.sii.max_sample_id_blen, &idbuf))) {
+              bigstack_end_alloc_u32(tmp_htable_size, &htable_tmp) ||
+              bigstack_end_alloc_c(pii.sii.max_sample_id_blen, &idbuf))) {
         goto Plink1DosageToPgen_ret_NOMEM;
       }
       const uint32_t duplicate_idx = PopulateStrboxHtable(pii.sii.sample_ids, raw_sample_ct, pii.sii.max_sample_id_blen, tmp_htable_size, htable_tmp);
@@ -8928,8 +8932,8 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     uintptr_t* genovec;
     uintptr_t* dosage_present;
     if (unlikely(
-          bigstack_alloc_w(sample_ctl2, &genovec) ||
-          bigstack_alloc_w(sample_ctl, &dosage_present))) {
+            bigstack_alloc_w(sample_ctl2, &genovec) ||
+            bigstack_alloc_w(sample_ctl, &dosage_present))) {
       goto Plink1DosageToPgen_ret_NOMEM;
     }
     Dosage* dosage_main = nullptr;
@@ -9568,14 +9572,14 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
     g_calc_thread_ct = calc_thread_ct;
     g_sample_ct = sample_ct;
     if (unlikely(
-          bigstack_alloc_w(sample_ctaw2 * main_block_size, &(g_write_genovecs[0])) ||
-          bigstack_alloc_w(sample_ctaw2 * main_block_size, &(g_write_genovecs[1])) ||
-          bigstack_alloc_u32(main_block_size, &(g_write_dosage_cts[0])) ||
-          bigstack_alloc_u32(main_block_size, &(g_write_dosage_cts[1])) ||
-          bigstack_alloc_w(sample_ctaw * main_block_size, &(g_write_dosage_presents[0])) ||
-          bigstack_alloc_w(sample_ctaw * main_block_size, &(g_write_dosage_presents[1])) ||
-          bigstack_alloc_dosage(sample_ct * main_block_size, &(g_write_dosage_mains[0])) ||
-          bigstack_alloc_dosage(sample_ct * main_block_size, &(g_write_dosage_mains[1])))) {
+            bigstack_alloc_w(sample_ctaw2 * main_block_size, &(g_write_genovecs[0])) ||
+            bigstack_alloc_w(sample_ctaw2 * main_block_size, &(g_write_genovecs[1])) ||
+            bigstack_alloc_u32(main_block_size, &(g_write_dosage_cts[0])) ||
+            bigstack_alloc_u32(main_block_size, &(g_write_dosage_cts[1])) ||
+            bigstack_alloc_w(sample_ctaw * main_block_size, &(g_write_dosage_presents[0])) ||
+            bigstack_alloc_w(sample_ctaw * main_block_size, &(g_write_dosage_presents[1])) ||
+            bigstack_alloc_dosage(sample_ct * main_block_size, &(g_write_dosage_mains[0])) ||
+            bigstack_alloc_dosage(sample_ct * main_block_size, &(g_write_dosage_mains[1])))) {
       // this should be impossible
       assert(0);
       goto GenerateDummy_ret_NOMEM;
@@ -9799,9 +9803,9 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, uintptr_t variant_ct, uintp
     mpgwp->pgen_outfile = nullptr;
     pthread_t* threads;
     if (unlikely(
-          bigstack_alloc_thread(calc_thread_ct, &threads) ||
-          bigstack_alloc_vp(calc_thread_ct, &g_thread_vecaligned_bufs) ||
-          bigstack_alloc_wp(calc_thread_ct, &g_thread_write_genovecs))) {
+            bigstack_alloc_thread(calc_thread_ct, &threads) ||
+            bigstack_alloc_vp(calc_thread_ct, &g_thread_vecaligned_bufs) ||
+            bigstack_alloc_wp(calc_thread_ct, &g_thread_write_genovecs))) {
       goto Plink1SampleMajorToPgen_ret_NOMEM;
     }
     g_pwcs = &(mpgwp->pwcs[0]);

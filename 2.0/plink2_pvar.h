@@ -61,6 +61,27 @@ namespace plink2 {
 
 PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, MiscFlags misc_flags, uintptr_t line_idx, ChrInfo* cip);
 
+typedef struct VaridTemplateStruct {
+  const char* missing_id_match;
+  char* chr_output_name_buf;
+  STD_ARRAY_DECL(const char*, 5, segs);
+  STD_ARRAY_DECL(uint32_t, 5, seg_lens);
+  STD_ARRAY_DECL(uint32_t, 4, insert_types);
+  uint32_t insert_ct;
+  uint32_t base_len;
+  uint32_t chr_slen;
+  uint32_t alleles_needed;
+
+  // next two values (and the first two) are common between templates
+  uint32_t new_id_max_allele_slen;
+  uint32_t overflow_substitute_blen;  // only nonzero if overflow -> missing
+} VaridTemplate;
+
+void VaridTemplateInit(const char* varid_template_str, const char* missing_id_match, char* chr_output_name_buf, uint32_t new_id_max_allele_slen, uint32_t overflow_substitute_blen, VaridTemplate* vtp);
+
+// alt1_end currently allowed to be nullptr in biallelic case
+BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* vtp, const char* const* token_ptrs, const uint32_t* token_slens, const char* alt1_start, const char* alt1_end, uint32_t cur_bp, uint32_t alt_token_slen, unsigned char** tmp_alloc_endp, uintptr_t* new_id_allele_len_overflowp, uint32_t* id_slen_ptr);
+
 // assumes info_token[-1] is safe to read
 // may set info_token[info_slen] to \0, since it needs to use strstr()
 // (todo: try memmem()... except it isn't available on 32-bit mingw?)
@@ -68,7 +89,7 @@ char* PrInInfoToken(uint32_t info_slen, char* info_token);
 
 // cip, max_variant_id_slen, and info_reload are in/out parameters.
 // Chromosome filtering is performed if cip requests it.
-PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattened, const char* varid_template, const char* missing_varid_match, const char* require_info_flattened, const char* require_no_info_flattened, const CmpExpr* extract_if_info_exprp, const CmpExpr* exclude_if_info_exprp, MiscFlags misc_flags, PvarPsamFlags pvar_psam_flags, ExportfFlags exportf_flags, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, uint32_t max_thread_ct, ChrInfo* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, UnsortedVar* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** allele_idx_offsets_ptr, const char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, ChrIdx** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, InfoFlags* info_flags_ptr, uint32_t* max_filter_slen_ptr);
+PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattened, const char* varid_template_str, const char* varid_multi_template_str, const char* varid_multi_nonsnp_template_str, const char* missing_varid_match, const char* require_info_flattened, const char* require_no_info_flattened, const CmpExpr* extract_if_info_exprp, const CmpExpr* exclude_if_info_exprp, MiscFlags misc_flags, PvarPsamFlags pvar_psam_flags, ExportfFlags exportf_flags, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, uint32_t max_thread_ct, ChrInfo* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, UnsortedVar* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** allele_idx_offsets_ptr, const char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, ChrIdx** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, InfoFlags* info_flags_ptr, uint32_t* max_filter_slen_ptr);
 
 #ifdef __cplusplus
 }  // namespace plink2
