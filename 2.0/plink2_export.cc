@@ -1205,20 +1205,11 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
     // user's responsibility to split off PARs
     uint32_t genotext[7];
     genotext[0] = 0x20302030;
+    genotext[1] = 0x20312030;
     genotext[2] = 0x20312031;
+    genotext[3] = 0x20302031;
     genotext[4] = 0x202d2030;
     genotext[6] = 0x202d2031;
-    /*
-    if (ref_allele_last) {
-      genotext[1] = 0x20302031;
-      genotext[3] = 0x20312030;
-    } else {
-      genotext[1] = 0x20312030;
-      genotext[3] = 0x20302031;
-    }
-    */
-    genotext[1] = 0x20312030;
-    genotext[3] = 0x20302031;
 #ifndef NDEBUG
     genotext[5] = 0x21475542;  // "BUG!"
 #endif
@@ -1355,6 +1346,8 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
         if (!phasepresent_ct) {
           // phaseinfo is NOT cleared in this case
           ZeroWArr(sample_ctl, phaseinfo);
+        } else {
+          BitvecAnd(phasepresent, sample_ctl, phaseinfo);
         }
         uint32_t inner_loop_last = kBitsPerWordD2 - 1;
         uint32_t widx = 0;

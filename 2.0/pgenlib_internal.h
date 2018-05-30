@@ -430,6 +430,12 @@ void PhaseLookup4b(const uintptr_t* genoarr, const uintptr_t* phasepresent, cons
 // [0][0]..[3][0], [17][0], and [19][0] should contain the relevant values
 void InitPhaseLookup4b(void* table56x4bx2);
 
+/*
+void PhaseXLookup4b(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* sex_male, const void* table56x4bx2, uint32_t sample_ct, void* result);
+
+// [0][0]..[3][0], [17][0], [19][0], and... uh...
+void InitPhaseXLookup4b(void* table248x4bx2);
+*/
 
 // ----- end plink2_common subset -----
 
