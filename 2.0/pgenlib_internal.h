@@ -222,21 +222,21 @@ HEADER_INLINE unsigned char* Vint32Append(uint32_t uii, unsigned char* buf) {
 // works properly in 32-bit build.  Named "GetVint31" to make it more obvious
 // that a 2^31 return value can't be legitimate.
 HEADER_INLINE uint32_t GetVint31(const unsigned char* buf_end, const unsigned char** buf_iterp) {
-  if (buf_end > (*buf_iterp)) {
+  if (likely(buf_end > (*buf_iterp))) {
     uint32_t vint32 = *((*buf_iterp)++);
     if (vint32 <= 127) {
       return vint32;
     }
     vint32 &= 127;
     uint32_t shift = 7;
-    while (buf_end > (*buf_iterp)) {
+    while (likely(buf_end > (*buf_iterp))) {
       uint32_t uii = *((*buf_iterp)++);
       vint32 |= (uii & 127) << shift;
       if (uii <= 127) {
         return vint32;
       }
       shift += 7;
-      // currently don't check for shift >= 32 (that's what validate_vint31()
+      // currently don't check for shift >= 32 (that's what ValidateVint31()
       // is for).
     }
   }
@@ -268,14 +268,14 @@ HEADER_INLINE uint32_t GetVint31Unsafe(const unsigned char** buf_iterp) {
 
 // Does not update buf_iter.
 HEADER_INLINE uint32_t PeekVint31(const unsigned char* buf_iter, const unsigned char* buf_end) {
-  if (buf_end > buf_iter) {
+  if (likely(buf_end > buf_iter)) {
     uint32_t vint32 = *buf_iter++;
     if (vint32 <= 127) {
       return vint32;
     }
     vint32 &= 127;
     uint32_t shift = 7;
-    while (buf_end > buf_iter) {
+    while (likely(buf_end > buf_iter)) {
       uint32_t uii = *buf_iter++;
       vint32 |= (uii & 127) << shift;
       if (uii <= 127) {
@@ -328,22 +328,22 @@ HEADER_INLINE unsigned char* Vint64Append(uint64_t ullii, unsigned char* buf) {
 // Returns 2^63 on read-past-end, and named GetVint63 to make it more obvious
 // that a 2^63 return value can't be legitimate.
 HEADER_INLINE uint64_t GetVint63(const unsigned char* buf_end, const unsigned char** buf_iterp) {
-  if (buf_end > (*buf_iterp)) {
+  if (likely(buf_end > (*buf_iterp))) {
     uint64_t vint64 = *((*buf_iterp)++);
     if (vint64 <= 127) {
       return vint64;
     }
     vint64 &= 127;
     uint32_t shift = 7;
-    while (buf_end > (*buf_iterp)) {
+    while (likely(buf_end > (*buf_iterp))) {
       uint64_t ullii = *((*buf_iterp)++);
       vint64 |= (ullii & 127) << shift;
       if (ullii <= 127) {
         return vint64;
       }
       shift += 7;
-      // currently don't check for shift >= 32 (that's what validate_vint31()
-      // is for).
+      // currently don't check for shift >= 64 (that's what ValidateVint63()
+      // will be for).
     }
   }
   return (1LLU << 63);
@@ -1420,6 +1420,8 @@ HEADER_INLINE PglErr SpgwAppendBiallelicDifflistLimited(const uintptr_t* __restr
 // 2. generic dense: takes a length-2n array of AlleleCode allele codes.
 //    Assumes [2k] <= [2k+1] for each k.  Instead of providing direct API
 //    functions for this, we just provide a dense -> sparse helper function.
+//
+// All arrays should be vector-aligned.
 BoolErr PwcAppendMultiallelicSparse(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t patch_01_ct, uint32_t patch_10_ct, PgenWriterCommon* pwcp);
 
 HEADER_INLINE PglErr SpgwAppendMultiallelicSparse(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t patch_01_ct, uint32_t patch_10_ct, STPgenWriter* spgwp) {

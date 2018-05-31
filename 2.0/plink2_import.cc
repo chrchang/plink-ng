@@ -8341,10 +8341,10 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
     *variant_ct_ptr = variant_ct;
     const uint32_t full_block_ct = variant_ct / kLoadMapBlockSize;
     bigstack_mark = g_bigstack_base;
+    unsigned char* read_iter = g_bigstack_end;  // bugfix (30 May 2018)
     BigstackEndSet(tmp_alloc_end);
     bigstack_end_mark = g_bigstack_end;
 
-    unsigned char* read_iter = tmp_alloc_base;
     for (uint32_t block_idx = 0; block_idx < full_block_ct; ++block_idx) {
       memcpy(&(variant_chr_codes[block_idx * kLoadMapBlockSize]), read_iter, kLoadMapBlockSize * sizeof(int16_t));
       read_iter = &(read_iter[kLoadMapBlockSize * sizeof(int16_t)]);

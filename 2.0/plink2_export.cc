@@ -4515,6 +4515,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         uint32_t phasepresent_hw = 0;
         if ((!dosage_ct) && (!ds_force)) {
           if (!is_haploid) {
+            // can't just use PhaseLookup4b(), thanks to prev_phased_halfword
             uint32_t* write_iter_u32_alias = R_CAST(uint32_t*, write_iter);
             while (1) {
               if (widx >= sample_ctl2_m1) {

@@ -1308,7 +1308,8 @@ uintptr_t PopcountBytes(const unsigned char* bitarr, uintptr_t byte_ct) {
 }
 
 uintptr_t PopcountBytesMasked(const unsigned char* bitarr, const uintptr_t* mask_arr, uintptr_t byte_ct) {
-  // could detect aligned case, but that shouldn't happen often enough?
+  // todo: in AVX2 and SSE2 cases, main loop should just use
+  // PopcountWordsIntersect() logic with unaligned loads.
   const uintptr_t word_ct = byte_ct / kBytesPerWord;
 #ifdef USE_SSE42
   const uintptr_t* bitarr_alias = R_CAST(const uintptr_t*, bitarr);
