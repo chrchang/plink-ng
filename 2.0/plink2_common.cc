@@ -211,6 +211,7 @@ void SetHetMissingKeepdosage(uintptr_t word_ct, uintptr_t* __restrict genovec, u
   }
   Halfword* dosagepresent_alias = R_CAST(Halfword*, dosagepresent);
   uint32_t new_dosage_ct = 0;
+  // todo: try vectorizing this loop
   for (uintptr_t widx = 0; widx < word_ct; ++widx) {
     const uintptr_t geno_word = genovec[widx];
     const uintptr_t dosagepresent_word = UnpackHalfwordToWord(dosagepresent_alias[widx]);
@@ -248,6 +249,7 @@ void SetHetMissingKeepdosage(uintptr_t word_ct, uintptr_t* __restrict genovec, u
   } while (widx);
 }
 
+// todo: try vectorizing this
 void GenoarrToNonmissing(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* nonmissing_bitarr) {
   const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
   const uintptr_t* genoarr_iter = genoarr;
@@ -270,6 +272,7 @@ void GenoarrToNonmissing(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t
   }
 }
 
+// todo: try vectorizing this
 uint32_t GenoarrCountMissingInvsubsetUnsafe(const uintptr_t* genoarr, const uintptr_t* exclude_mask, uint32_t sample_ct) {
   const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
   const uintptr_t* genoarr_iter = genoarr;
@@ -1490,6 +1493,7 @@ void SetMaleHetMissingKeepdosage(const uintptr_t* __restrict sex_male, const uin
   const Halfword* sex_male_alias = R_CAST(const Halfword*, sex_male);
   Halfword* dosagepresent_alias = R_CAST(Halfword*, dosagepresent);
   uint32_t new_dosage_ct = 0;
+  // todo: try vectorizing this loop
   for (uintptr_t widx = 0; widx < word_ct; ++widx) {
     const uintptr_t geno_word = genovec[widx];
     const uintptr_t male_nodosage_word = UnpackHalfwordToWord(sex_male_alias[widx] & (~dosagepresent_alias[widx]));
@@ -1532,6 +1536,8 @@ void SetMaleHetMissingKeepdosage(const uintptr_t* __restrict sex_male, const uin
 // bits of genovec are zero.
 //
 // Similar to PgrDetectGenovecHetsUnsafe().
+//
+// todo: try vectorizing this
 void MaskGenovecHetsUnsafe(const uintptr_t* __restrict genovec, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr) {
   Halfword* bitarr_alias = R_CAST(Halfword*, bitarr);
   for (uint32_t widx = 0; widx < raw_sample_ctl2; ++widx) {

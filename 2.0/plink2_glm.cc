@@ -7148,8 +7148,14 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           assert(!covar_ct);
           continue;
         }
-        if (sample_ct < 10 * biallelic_predictor_ct) {
-          logerrprintfww("Warning: --glm remaining sample count is less than 10x predictor count for case/control phenotype '%s'.\n", cur_pheno_name);
+        // quasi-bugfix (4 Jun 2018): "one in ten" rule of thumb applies to
+        // minimum of case and control counts, not total sample count
+        if (MINV(case_ct, sample_ct - case_ct) < 10 * biallelic_predictor_ct) {
+          if (case_ct * 2 < sample_ct) {
+            logerrprintfww("Warning: --glm remaining case count is less than 10x predictor count for phenotype '%s'.\n", cur_pheno_name);
+          } else {
+            logerrprintfww("Warning: --glm remaining control count is less than 10x predictor count for phenotype '%s'.\n", cur_pheno_name);
+          }
         }
       } else {
         // verify phenotype is still nonconstant

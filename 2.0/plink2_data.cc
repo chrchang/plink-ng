@@ -1992,7 +1992,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
 #ifdef __LP64__
       const uintptr_t vec_ct = DivUp(raw_allele_ct, kBytesPerVec);
       VecUc* bytearr_alias = R_CAST(VecUc*, g_allele_presents_bytearr);
-      MovemaskUint* allele_presents_alias = R_CAST(MovemaskUint*, allele_presents);
+      Vec8Uint* allele_presents_alias = R_CAST(Vec8Uint*, allele_presents);
       for (uintptr_t vec_idx = 0; vec_idx < vec_ct; ++vec_idx) {
         allele_presents_alias[vec_idx] = vecuc_movemask(bytearr_alias[vec_idx]);
       }

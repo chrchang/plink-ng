@@ -177,9 +177,8 @@ void GenovecCountFreqsUnsafe(const uintptr_t* genovec, uint32_t sample_ct, STD_A
 void GenovecCountSubsetFreqs(const uintptr_t* __restrict genovec, const uintptr_t* __restrict sample_include_interleaved_vec, uint32_t raw_sample_ct, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts);
 
 // slower GenovecCountSubsetFreqs() which does not require
-// sample_include_interleaved_vec to be precomputed (and incidentally doesn't
-// require vector alignment)
-void GenoarrCountSubsetFreqs2(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts);
+// sample_include_interleaved_vec to be precomputed
+void GenovecCountSubsetFreqs2(const uintptr_t* __restrict genovec, const uintptr_t* __restrict sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts);
 
 void GenoarrCountSubsetIntersectFreqs(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict subset1, const uintptr_t* __restrict subset2, uint32_t raw_sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts);
 
@@ -355,26 +354,28 @@ CONSTI32(kPglQuaterTransposeBatch, kQuatersPerCacheline);
 // word width of each matrix row
 CONSTI32(kPglQuaterTransposeWords, kWordsPerCacheline);
 
-#ifdef USE_AVX2
-CONSTI32(kPglQuaterTransposeBufbytes, kPglQuaterTransposeBatch);
+#ifdef USE_SSE42
+CONSTI32(kPglQuaterTransposeBufbytes, (kPglQuaterTransposeBatch * kPglQuaterTransposeBatch) / 4);
 
-void TransposeQuaterblockAvx2(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, void* __restrict buf0);
-#else
+void TransposeQuaterblockShuffle(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, void* __restrict buf0);
+#else  // !USE_SSE42
 CONSTI32(kPglQuaterTransposeBufbytes, (kPglQuaterTransposeBatch * kPglQuaterTransposeBatch) / 2);
 
-void TransposeQuaterblockNoAvx2(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1);
+void TransposeQuaterblockNoshuffle(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1);
 #endif
 CONSTI32(kPglQuaterTransposeBufwords, kPglQuaterTransposeBufbytes / kBytesPerWord);
-// up to 256x256; vecaligned_buf must have size 32k (256 bytes in AVX2 case)
-// write_iter must be allocated up to at least
-//   RoundUpPow2(write_batch_size, 2) rows
+
+// up to 256x256; vecaligned_buf must have size 16k (shuffle) or 32k
+// (noshuffle)
+// important: write_iter must be allocated up to at least
+//   RoundUpPow2(write_batch_size, 4) rows
 
 HEADER_INLINE void TransposeQuaterblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecW* vecaligned_buf) {
-#ifdef USE_AVX2
+#ifdef USE_SSE42
   // assert(!(write_ul_stride % 2));
-  TransposeQuaterblockAvx2(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, vecaligned_buf);
+  TransposeQuaterblockShuffle(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, vecaligned_buf);
 #else
-  TransposeQuaterblockNoAvx2(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, R_CAST(unsigned char*, vecaligned_buf), &(R_CAST(unsigned char*, vecaligned_buf)[kPglQuaterTransposeBufbytes / 2]));
+  TransposeQuaterblockNoshuffle(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, R_CAST(unsigned char*, vecaligned_buf), &(R_CAST(unsigned char*, vecaligned_buf)[kPglQuaterTransposeBufbytes / 2]));
 #endif
 }
 

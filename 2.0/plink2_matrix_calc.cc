@@ -4779,6 +4779,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       goto ScoreReport_ret_1;
     }
 
+    const uint32_t ignore_dup_ids = (score_flags / kfScoreIgnoreDupIds) & 1;
     const uint32_t list_variants = (score_flags / kfScoreListVariants) & 1;
     if (list_variants) {
       const uint32_t output_zst = (score_flags / kfScoreListVariantsZs) & 1;
@@ -4814,6 +4815,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     int32_t male_allele_ct_delta = 0;
     uint32_t valid_variant_ct = 0;
     uintptr_t missing_var_id_ct = 0;
+    uintptr_t duplicated_var_id_ct = 0;
     uintptr_t missing_allele_code_ct = 0;
 #ifdef USE_MTBLAS
     const uint32_t matrix_multiply_thread_ct = (max_thread_ct > 1)? (max_thread_ct - 1) : 1;
@@ -4831,6 +4833,8 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         const uint32_t variant_id_slen = variant_id_token_end - variant_id_start;
         uint32_t variant_uidx = VariantIdDupflagHtableFind(variant_id_start, variant_ids, variant_id_htable, variant_id_slen, variant_id_htable_size, max_variant_id_slen);
         if (!(variant_uidx >> 31)) {
+          // possible todo: Add a multiallelic mode which supports a different
+          // score for each allele (must be on consecutive input lines).
           if (unlikely(IsSet(already_seen, variant_uidx))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Variant ID '%s' appears multiple times in --score file.\n", variant_ids[variant_uidx]);
             goto ScoreReport_ret_MALFORMED_INPUT_WW;
@@ -5114,11 +5118,14 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             ++missing_allele_code_ct;
           }
         } else {
-          if (unlikely(variant_uidx != UINT32_MAX)) {
-            snprintf(g_logbuf, kLogbufSize, "Error: --score variant ID '%s' appears multiple times in main dataset.\n", variant_ids[variant_uidx & 0x7fffffff]);
-            goto ScoreReport_ret_INCONSISTENT_INPUT_WW;
-          }
           ++missing_var_id_ct;
+          if (variant_uidx != UINT32_MAX) {
+            if (unlikely(!ignore_dup_ids)) {
+              snprintf(g_logbuf, kLogbufSize, "Error: --score variant ID '%s' appears multiple times in main dataset.\n", variant_ids[variant_uidx & 0x7fffffff]);
+              goto ScoreReport_ret_INCONSISTENT_INPUT_WW;
+            }
+            ++duplicated_var_id_ct;
+          }
         }
       }
       ++line_idx;
@@ -5138,7 +5145,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     VcountIncr8To32(missing_haploid_acc8, acc8_vec_ct, missing_haploid_acc32);
     const uint32_t is_not_first_block = (ts.thread_func_ptr != nullptr);
     putc_unlocked('\r', stdout);
-    if (missing_var_id_ct || missing_allele_code_ct) {
+    if (missing_var_id_ct || missing_allele_code_ct || duplicated_var_id_ct) {
       if (!missing_var_id_ct) {
         snprintf(g_logbuf, kLogbufSize, "Warning: %" PRIuPTR " --score file entr%s.\n", missing_allele_code_ct, (missing_allele_code_ct == 1)? "y was skipped due to a mismatching allele code" : "ies were skipped due to mismatching allele codes");
       } else if (!missing_allele_code_ct) {
@@ -5148,6 +5155,9 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       }
       WordWrapB(0);
       logerrputsb();
+      if (duplicated_var_id_ct) {
+        logerrprintfww(g_logbuf, kLogbufSize, "Warning: %" PRIuPTR " --score file entr%s appear multiple times in the main dataset.\n", duplicated_var_id_ct, (duplicated_var_id_ct == 1)? "y was skipped since its variant ID" : "ies were skipped since their variant IDs");
+      }
       if (!list_variants) {
         logerrputs("(Add the 'list-variants' modifier to see which variants were actually used for\nscoring.)\n");
       }

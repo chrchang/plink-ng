@@ -23,6 +23,48 @@ namespace plink2 {
 
 uintptr_t g_failed_alloc_attempt_size = 0;
 
+#if defined(__LP64__) && !defined(USE_AVX2)
+// No alignment assumptions.
+void Pack32bTo16bMask(const void* words, uintptr_t ct_32b, void* dest) {
+  // This is also competitive in the AVX2 case, but never quite beats the
+  // simple loop.  (We'd want to enable a similar function for Ryzen,
+  // processing one 32-byte vector instead of two 16-byte vectors at a time in
+  // the main loop since _mm256_packus_epi16() doesn't do what we want.)
+  const VecW m1 = VCONST_W(kMask5555);
+#  ifdef USE_SSE42
+  const VecW swap12 = vecw_setr8(
+      0, 1, 4, 5, 2, 3, 6, 7,
+      8, 9, 12, 13, 10, 11, 14, 15);
+#  else
+  const VecW m2 = VCONST_W(kMask3333);
+#  endif
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW m8 = VCONST_W(kMask00FF);
+  const VecW* words_valias = R_CAST(const VecW*, words);
+  __m128i* dest_alias = R_CAST(__m128i*, dest);
+  for (uintptr_t vidx = 0; vidx < ct_32b; ++vidx) {
+    VecW vec_lo = vecw_loadu(&(words_valias[2 * vidx])) & m1;
+    VecW vec_hi = vecw_loadu(&(words_valias[2 * vidx + 1])) & m1;
+#  ifdef USE_SSE42
+    // this right-shift-3 + shuffle shortcut saves two operations.
+    vec_lo = (vec_lo | vecw_srli(vec_lo, 3)) & m4;
+    vec_hi = (vec_hi | vecw_srli(vec_hi, 3)) & m4;
+    vec_lo = vecw_shuffle8(swap12, vec_lo);
+    vec_hi = vecw_shuffle8(swap12, vec_hi);
+#  else
+    vec_lo = (vec_lo | vecw_srli(vec_lo, 1)) & m2;
+    vec_hi = (vec_hi | vecw_srli(vec_hi, 1)) & m2;
+    vec_lo = (vec_lo | vecw_srli(vec_lo, 2)) & m4;
+    vec_hi = (vec_hi | vecw_srli(vec_hi, 2)) & m4;
+#  endif
+    vec_lo = (vec_lo | vecw_srli(vec_lo, 4)) & m8;
+    vec_hi = (vec_hi | vecw_srli(vec_hi, 4)) & m8;
+    const __m128i vec_packed = _mm_packus_epi16(R_CAST(__m128i, vec_lo), R_CAST(__m128i, vec_hi));
+    _mm_storeu_si128(&(dest_alias[vidx]), vec_packed);
+  }
+}
+#endif
+
 #if (__GNUC__ <= 4) && (__GNUC_MINOR__ < 7) && !defined(__APPLE__)
 BoolErr pgl_malloc(uintptr_t size, void* pp) {
   *S_CAST(unsigned char**, pp) = S_CAST(unsigned char*, malloc(size));
@@ -1404,9 +1446,9 @@ void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stri
   const uint32_t block_ct = DivUp(write_batch_size, CHAR_BIT);
   // fold the first 6 shuffles into the initial ingestion loop
   const uint32_t read_byte_stride = read_ul_stride * kBytesPerWord;
-  const uint32_t write_mmui_stride = kMovemaskUintPerWord * write_ul_stride;
+  const uint32_t write_v8ui_stride = kVec8UintPerWord * write_ul_stride;
   const uint32_t read_batch_rem = kBitsPerCacheline - read_batch_size;
-  MovemaskUint* target_iter0 = R_CAST(MovemaskUint*, write_iter);
+  Vec8Uint* target_iter0 = R_CAST(Vec8Uint*, write_iter);
   const uint32_t full_block_ct = write_batch_size / 8;
   const uint32_t loop_vec_ct = 4 * DivUp(read_batch_size, kBytesPerVec * 4);
   for (uint32_t block_idx = 0; block_idx < block_ct; ++block_idx) {
@@ -1428,7 +1470,7 @@ void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stri
         loader = vecw_slli(loader, remainder_from8);
         uint32_t write_idx_lowbits = remainder_m1;
         while (1) {
-          target_iter0[write_mmui_stride * write_idx_lowbits] = vecw_movemask(loader);
+          target_iter0[write_v8ui_stride * write_idx_lowbits] = vecw_movemask(loader);
           if (!write_idx_lowbits) {
             break;
           }
@@ -1440,13 +1482,13 @@ void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stri
       break;
     }
 
-    MovemaskUint* target_iter1 = &(target_iter0[write_mmui_stride]);
-    MovemaskUint* target_iter2 = &(target_iter1[write_mmui_stride]);
-    MovemaskUint* target_iter3 = &(target_iter2[write_mmui_stride]);
-    MovemaskUint* target_iter4 = &(target_iter3[write_mmui_stride]);
-    MovemaskUint* target_iter5 = &(target_iter4[write_mmui_stride]);
-    MovemaskUint* target_iter6 = &(target_iter5[write_mmui_stride]);
-    MovemaskUint* target_iter7 = &(target_iter6[write_mmui_stride]);
+    Vec8Uint* target_iter1 = &(target_iter0[write_v8ui_stride]);
+    Vec8Uint* target_iter2 = &(target_iter1[write_v8ui_stride]);
+    Vec8Uint* target_iter3 = &(target_iter2[write_v8ui_stride]);
+    Vec8Uint* target_iter4 = &(target_iter3[write_v8ui_stride]);
+    Vec8Uint* target_iter5 = &(target_iter4[write_v8ui_stride]);
+    Vec8Uint* target_iter6 = &(target_iter5[write_v8ui_stride]);
+    Vec8Uint* target_iter7 = &(target_iter6[write_v8ui_stride]);
     for (uint32_t vec_idx = 0; vec_idx < loop_vec_ct; ++vec_idx) {
       VecW loader = source_iter[vec_idx];
       target_iter7[vec_idx] = vecw_movemask(loader);
@@ -1465,7 +1507,7 @@ void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stri
       loader = vecw_slli(loader, 1);
       target_iter0[vec_idx] = vecw_movemask(loader);
     }
-    target_iter0 = &(target_iter7[write_mmui_stride]);
+    target_iter0 = &(target_iter7[write_v8ui_stride]);
   }
 }
 #else  // !__LP64__

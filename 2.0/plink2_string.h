@@ -818,7 +818,7 @@ HEADER_INLINE CXXCONST_CP AdvToNthDelimChecked(const char* str_iter, const char*
   const uint32_t leading_mask = UINT32_MAX << leading_byte_ct;
   delimiter_bytes &= leading_mask;
   while (1) {
-    const uint32_t cur_delim_ct = PopcountMovemaskUint(delimiter_bytes);
+    const uint32_t cur_delim_ct = PopcountVec8Uint(delimiter_bytes);
     if (cur_delim_ct >= ct) {
       delimiter_bytes = ClearBottomSetBits(ct - 1, delimiter_bytes);
       const uint32_t byte_offset_in_vec = ctzu32(delimiter_bytes);
@@ -850,7 +850,7 @@ HEADER_INLINE CXXCONST_CP AdvToNthDelim(const char* str_iter, uint32_t ct, char 
   const uint32_t leading_mask = UINT32_MAX << leading_byte_ct;
   delimiter_bytes &= leading_mask;
   while (1) {
-    const uint32_t cur_delim_ct = PopcountMovemaskUint(delimiter_bytes);
+    const uint32_t cur_delim_ct = PopcountVec8Uint(delimiter_bytes);
     if (cur_delim_ct >= ct) {
       delimiter_bytes = ClearBottomSetBits(ct - 1, delimiter_bytes);
       const uint32_t byte_offset_in_vec = ctzu32(delimiter_bytes);

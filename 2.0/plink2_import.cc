@@ -4712,7 +4712,7 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
               for (; vec_idx < full_vec_ct; ++vec_idx) {
                 const VecUc cur_vec = vecuc_loadu(&(probs_start[vec_idx * kBytesPerVec]));
                 const VecUc safe_bytes = (cur_vec == vec0) | (cur_vec == vecmax);
-                if (vecuc_movemask(safe_bytes) != kMovemaskUintMax) {
+                if (vecuc_movemask(safe_bytes) != kVec8UintMax) {
                   break;
                 }
               }
@@ -4722,13 +4722,13 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
               const uint32_t full_vec_ct = sample_ct / (kBytesPerVec / 4);
               // If all uint16s are equal to 0 or numer_mask, all calls in this
               // block must be hardcall/missing.
-              const VecUs vec0 = vecus_setzero();
-              const VecUs vecmax = vecus_set1(numer_mask);
+              const VecU16 vec0 = vecu16_setzero();
+              const VecU16 vecmax = vecu16_set1(numer_mask);
               uint32_t vec_idx = 0;
               for (; vec_idx < full_vec_ct; ++vec_idx) {
-                const VecUs cur_vec = vecus_loadu(&(probs_start[vec_idx * kBytesPerVec]));
-                const VecUs safe_u16s = (cur_vec == vec0) | (cur_vec == vecmax);
-                if (vecus_movemask(safe_u16s) != kMovemaskUintMax) {
+                const VecU16 cur_vec = vecu16_loadu(&(probs_start[vec_idx * kBytesPerVec]));
+                const VecU16 safe_u16s = (cur_vec == vec0) | (cur_vec == vecmax);
+                if (vecu16_movemask(safe_u16s) != kVec8UintMax) {
                   break;
                 }
               }
@@ -7880,31 +7880,31 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         haps_line_iter = AdvToDelim(&(linebuf_iter[sample_ct * 4 - 1]), '\n');
         linebuf_iter[sample_ct * 4 - 1] = ' ';
 #ifdef __LP64__
-        const VecUs* linebuf_viter = R_CAST(const VecUs*, linebuf_iter);
-        const VecUs all0 = vecus_set1(0x2030);
-        const VecUs all1 = vecus_set1(0x2031);
+        const VecU16* linebuf_viter = R_CAST(const VecU16*, linebuf_iter);
+        const VecU16 all0 = vecu16_set1(0x2030);
+        const VecU16 all1 = vecu16_set1(0x2031);
         const uint32_t fullword_ct = sample_ct / kBitsPerWordD2;
         Halfword* phaseinfo_alias = R_CAST(Halfword*, phaseinfo);
         for (; widx < fullword_ct; ++widx) {
           uintptr_t geno_first = 0;
           for (uint32_t uii = 0; uii < 2; ++uii) {
-            VecUs cur_chars = vecus_loadu(linebuf_viter);
+            VecU16 cur_chars = vecu16_loadu(linebuf_viter);
             ++linebuf_viter;
-            uintptr_t zero_mm = vecus_movemask(cur_chars == all0);
-            uintptr_t one_mm = vecus_movemask(cur_chars == all1);
-            cur_chars = vecus_loadu(linebuf_viter);
+            uintptr_t zero_mm = vecu16_movemask(cur_chars == all0);
+            uintptr_t one_mm = vecu16_movemask(cur_chars == all1);
+            cur_chars = vecu16_loadu(linebuf_viter);
             ++linebuf_viter;
-            zero_mm |= S_CAST(uintptr_t, vecus_movemask(cur_chars == all0)) << kBytesPerVec;
-            one_mm |= S_CAST(uintptr_t, vecus_movemask(cur_chars == all1)) << kBytesPerVec;
+            zero_mm |= S_CAST(uintptr_t, vecu16_movemask(cur_chars == all0)) << kBytesPerVec;
+            one_mm |= S_CAST(uintptr_t, vecu16_movemask(cur_chars == all1)) << kBytesPerVec;
 #  ifndef USE_AVX2
-            cur_chars = vecus_loadu(linebuf_viter);
+            cur_chars = vecu16_loadu(linebuf_viter);
             ++linebuf_viter;
-            zero_mm |= S_CAST(uintptr_t, vecus_movemask(cur_chars == all0)) << 32;
-            one_mm |= S_CAST(uintptr_t, vecus_movemask(cur_chars == all1)) << 32;
-            cur_chars = vecus_loadu(linebuf_viter);
+            zero_mm |= S_CAST(uintptr_t, vecu16_movemask(cur_chars == all0)) << 32;
+            one_mm |= S_CAST(uintptr_t, vecu16_movemask(cur_chars == all1)) << 32;
+            cur_chars = vecu16_loadu(linebuf_viter);
             ++linebuf_viter;
-            zero_mm |= S_CAST(uintptr_t, vecus_movemask(cur_chars == all0)) << 48;
-            one_mm |= S_CAST(uintptr_t, vecus_movemask(cur_chars == all1)) << 48;
+            zero_mm |= S_CAST(uintptr_t, vecu16_movemask(cur_chars == all0)) << 48;
+            one_mm |= S_CAST(uintptr_t, vecu16_movemask(cur_chars == all1)) << 48;
 #  endif
             if (unlikely(~(zero_mm | one_mm))) {
               // todo: other error messages

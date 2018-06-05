@@ -3407,7 +3407,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
             assert(!male_genocounts[1]);
             if (x_nosex_ct) {
               STD_ARRAY_DECL(uint32_t, 4, nosex_genocounts);
-              GenoarrCountSubsetFreqs2(cur_genovec, nosex_collapsed, founder_ct, x_nosex_ct, nosex_genocounts);
+              GenovecCountSubsetFreqs2(cur_genovec, nosex_collapsed, founder_ct, x_nosex_ct, nosex_genocounts);
               genocounts[0] -= nosex_genocounts[0];
               genocounts[1] -= nosex_genocounts[1];
               genocounts[2] -= nosex_genocounts[2];

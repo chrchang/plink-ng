@@ -1546,8 +1546,8 @@ CXXCONST_CP NextTokenMultFar(const char* str_iter, uint32_t ct) {
   while (1) {
     // The number of 0->1 + 1->0 bit transitions in x is
     //   popcount(x ^ (x << 1)).
-    uint32_t cur_transitions = S_CAST(MovemaskUint, delimiter_bytes ^ (delimiter_bytes << 1) ^ prev_delim_highbit);
-    uint32_t cur_transition_ct = PopcountMovemaskUint(cur_transitions);
+    uint32_t cur_transitions = S_CAST(Vec8Uint, delimiter_bytes ^ (delimiter_bytes << 1) ^ prev_delim_highbit);
+    uint32_t cur_transition_ct = PopcountVec8Uint(cur_transitions);
     if (cur_transition_ct >= transition_bits_to_skip_p1) {
       cur_transitions = ClearBottomSetBits(transition_bits_to_skip_p1 - 1, cur_transitions);
       uint32_t byte_offset_in_vec = ctzu32(cur_transitions);
@@ -1599,8 +1599,8 @@ const char* TokenLexK0(const char* str_iter, const uint32_t* col_types, const ui
   while (1) {
     // The number of 0->1 + 1->0 bit transitions in x is
     //   popcount(x ^ (x << 1)).
-    uint32_t cur_transitions = S_CAST(MovemaskUint, delimiter_bytes ^ (delimiter_bytes << 1) ^ prev_delim_highbit);
-    uint32_t cur_transition_ct = PopcountMovemaskUint(cur_transitions);
+    uint32_t cur_transitions = S_CAST(Vec8Uint, delimiter_bytes ^ (delimiter_bytes << 1) ^ prev_delim_highbit);
+    uint32_t cur_transition_ct = PopcountVec8Uint(cur_transitions);
     while (cur_transition_ct >= transition_bits_to_skip_p1) {
       cur_transitions = ClearBottomSetBits(transition_bits_to_skip_p1 - 1, cur_transitions);
       uint32_t byte_offset_in_vec = ctzu32(cur_transitions);
@@ -1622,7 +1622,7 @@ const char* TokenLexK0(const char* str_iter, const uint32_t* col_types, const ui
           ++str_viter;
           cur_vvec = *str_viter;
           VecUc postspace_vec = (vvec_all_space < cur_vvec);
-          cur_transitions = S_CAST(MovemaskUint, ~vecuc_movemask(postspace_vec));
+          cur_transitions = S_CAST(Vec8Uint, ~vecuc_movemask(postspace_vec));
         }
         byte_offset_in_vec = ctzu32(cur_transitions);
         const char* token_end = &(R_CAST(const char*, str_viter)[byte_offset_in_vec]);
@@ -1643,8 +1643,8 @@ const char* TokenLexK0(const char* str_iter, const uint32_t* col_types, const ui
           delimiter_bytes = vecuc_movemask(tabspace_vvec);
           terminating_bytes = vecuc_movemask(prespace_vvec) & (~delimiter_bytes);
         } while (!delimiter_bytes);
-        cur_transitions = S_CAST(MovemaskUint, delimiter_bytes ^ (delimiter_bytes << 1));
-        cur_transition_ct = PopcountMovemaskUint(cur_transitions);
+        cur_transitions = S_CAST(Vec8Uint, delimiter_bytes ^ (delimiter_bytes << 1));
+        cur_transition_ct = PopcountVec8Uint(cur_transitions);
       } else {
         cur_transitions &= cur_transitions - 1;
       }

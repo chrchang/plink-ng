@@ -607,7 +607,7 @@ HEADER_INLINE uint32_t bsrw(unsigned long ulii) {
 // when using gcc 4.4.
 //
 // Biggest thing to watch out for is mixing of Halfword with these constants in
-// 32-bit builds.  Dosage and MovemaskUint are also relevant.)
+// 32-bit builds.  Dosage and Vec8Uint are also relevant.)
 #ifdef __cplusplus
 #  define CONSTI32(name, expr) const int32_t name = (expr)
 #else
@@ -641,19 +641,19 @@ CONSTI32(kBytesPerVec, 32);
 
 // bleah, have to define these here, vector_size doesn't see enum values
 typedef uintptr_t VecW __attribute__ ((vector_size (32)));
-typedef uint32_t VecUi __attribute__ ((vector_size (32)));
-typedef int32_t VecI __attribute__ ((vector_size (32)));
-typedef unsigned short VecUs __attribute__ ((vector_size (32)));
-typedef short VecS __attribute__ ((vector_size (32)));
+typedef uint32_t VecU32 __attribute__ ((vector_size (32)));
+typedef int32_t VecI32 __attribute__ ((vector_size (32)));
+typedef unsigned short VecU16 __attribute__ ((vector_size (32)));
+typedef short VecI16 __attribute__ ((vector_size (32)));
 typedef char VecC __attribute__ ((vector_size (32)));
 typedef unsigned char VecUc __attribute__ ((vector_size (32)));
 #  else
 CONSTI32(kBytesPerVec, 16);
 typedef uintptr_t VecW __attribute__ ((vector_size (16)));
-typedef uint32_t VecUi __attribute ((vector_size (16)));
-typedef int32_t VecI __attribute ((vector_size (16)));
-typedef unsigned short VecUs __attribute__ ((vector_size (16)));
-typedef short VecS __attribute__ ((vector_size (16)));
+typedef uint32_t VecU32 __attribute ((vector_size (16)));
+typedef int32_t VecI32 __attribute ((vector_size (16)));
+typedef unsigned short VecU16 __attribute__ ((vector_size (16)));
+typedef short VecI16 __attribute__ ((vector_size (16)));
 typedef char VecC __attribute__ ((vector_size (16)));
 typedef unsigned char VecUc __attribute__ ((vector_size (16)));
 #  endif
@@ -675,12 +675,16 @@ HEADER_INLINE VecW vecw_setzero() {
   return R_CAST(VecW, _mm256_setzero_si256());
 }
 
-HEADER_INLINE VecUi vecui_setzero() {
-  return R_CAST(VecUi, _mm256_setzero_si256());
+HEADER_INLINE VecU32 vecu32_setzero() {
+  return R_CAST(VecU32, _mm256_setzero_si256());
 }
 
-HEADER_INLINE VecUs vecus_setzero() {
-  return R_CAST(VecUs, _mm256_setzero_si256());
+HEADER_INLINE VecU16 vecu16_setzero() {
+  return R_CAST(VecU16, _mm256_setzero_si256());
+}
+
+HEADER_INLINE VecI16 veci16_setzero() {
+  return R_CAST(VecI16, _mm256_setzero_si256());
 }
 
 HEADER_INLINE VecUc vecuc_setzero() {
@@ -701,20 +705,20 @@ HEADER_INLINE VecW vecw_slli(VecW vv, uint32_t ct) {
   return R_CAST(VecW, _mm256_slli_epi64(R_CAST(__m256i, vv), ct));
 }
 
-HEADER_INLINE VecUi vecui_set1(uint32_t uii) {
-  return R_CAST(VecUi, _mm256_set1_epi32(uii));
+HEADER_INLINE VecU32 vecu32_set1(uint32_t uii) {
+  return R_CAST(VecU32, _mm256_set1_epi32(uii));
 }
 
-HEADER_INLINE VecI veci_set1(int32_t ii) {
-  return R_CAST(VecI, _mm256_set1_epi32(ii));
+HEADER_INLINE VecI32 veci32_set1(int32_t ii) {
+  return R_CAST(VecI32, _mm256_set1_epi32(ii));
 }
 
-HEADER_INLINE VecUs vecus_set1(unsigned short usi) {
-  return R_CAST(VecUs, _mm256_set1_epi16(usi));
+HEADER_INLINE VecU16 vecu16_set1(unsigned short usi) {
+  return R_CAST(VecU16, _mm256_set1_epi16(usi));
 }
 
-HEADER_INLINE VecS vecs_set1(short si) {
-  return R_CAST(VecS, _mm256_set1_epi16(si));
+HEADER_INLINE VecI16 veci16_set1(short si) {
+  return R_CAST(VecI16, _mm256_set1_epi16(si));
 }
 
 HEADER_INLINE VecUc vecuc_set1(unsigned char ucc) {
@@ -729,11 +733,11 @@ HEADER_INLINE uint32_t vecw_movemask(VecW vv) {
   return _mm256_movemask_epi8(R_CAST(__m256i, vv));
 }
 
-HEADER_INLINE uint32_t vecui_movemask(VecUi vv) {
+HEADER_INLINE uint32_t vecu32_movemask(VecU32 vv) {
   return _mm256_movemask_epi8(R_CAST(__m256i, vv));
 }
 
-HEADER_INLINE uint32_t vecus_movemask(VecUs vv) {
+HEADER_INLINE uint32_t vecu16_movemask(VecU16 vv) {
   return _mm256_movemask_epi8(R_CAST(__m256i, vv));
 }
 
@@ -745,45 +749,71 @@ HEADER_INLINE uint32_t vecuc_movemask(VecUc vv) {
   return _mm256_movemask_epi8(R_CAST(__m256i, vv));
 }
 
-#define kMovemaskUintMax UINT32_MAX
-
-typedef uint32_t MovemaskUint;
-typedef uint64_t MovemaskUint2;
-
-HEADER_INLINE VecUi vecui_loadu(const void* mem_addr) {
-  return R_CAST(VecUi, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
+// Repeats elements in second lane in AVX2 case.
+HEADER_INLINE VecW vecw_setr8(char e15, char e14, char e13, char e12, char e11, char e10, char e9, char e8, char e7, char e6, char e5, char e4, char e3, char e2, char e1, char e0) {
+  return R_CAST(VecW, _mm256_setr_epi8(e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0, e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
 }
 
-HEADER_INLINE VecI veci_loadu(const void* mem_addr) {
-  return R_CAST(VecI, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
+// Discards last 16 arguments in SSE2/SSE4.2 case.
+HEADER_INLINE VecW vecw_setr8x(char e31, char e30, char e29, char e28, char e27, char e26, char e25, char e24, char e23, char e22, char e21, char e20, char e19, char e18, char e17, char e16, char e15, char e14, char e13, char e12, char e11, char e10, char e9, char e8, char e7, char e6, char e5, char e4, char e3, char e2, char e1, char e0) {
+  return R_CAST(VecW, _mm256_setr_epi8(e31, e30, e29, e28, e27, e26, e25, e24, e23, e22, e21, e20, e19, e18, e17, e16, e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
 }
 
-HEADER_INLINE VecUs vecus_loadu(const void* mem_addr) {
-  return R_CAST(VecUs, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
+HEADER_INLINE VecW vecw_unpacklo8(VecW evens, VecW odds) {
+  return R_CAST(VecW, _mm256_unpacklo_epi8(R_CAST(__m256i, evens), R_CAST(__m256i, odds)));
 }
 
-HEADER_INLINE VecS vecs_loadu(const void* mem_addr) {
-  return R_CAST(VecS, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
+HEADER_INLINE VecW vecw_unpackhi8(VecW evens, VecW odds) {
+  return R_CAST(VecW, _mm256_unpackhi_epi8(R_CAST(__m256i, evens), R_CAST(__m256i, odds)));
+}
+
+HEADER_INLINE VecW vecw_shuffle8(VecW table, VecW indexes) {
+  return R_CAST(VecW, _mm256_shuffle_epi8(R_CAST(__m256i, table), R_CAST(__m256i, indexes)));
+}
+
+#define kVec8UintMax UINT32_MAX
+
+typedef uint32_t Vec8Uint;
+typedef uint64_t Vec4Uint;
+
+HEADER_INLINE VecW vecw_loadu(const void* mem_addr) {
+  return R_CAST(VecW, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
+}
+
+HEADER_INLINE VecU32 vecu32_loadu(const void* mem_addr) {
+  return R_CAST(VecU32, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
+}
+
+HEADER_INLINE VecI32 veci32_loadu(const void* mem_addr) {
+  return R_CAST(VecI32, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
+}
+
+HEADER_INLINE VecU16 vecu16_loadu(const void* mem_addr) {
+  return R_CAST(VecU16, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
+}
+
+HEADER_INLINE VecI16 veci16_loadu(const void* mem_addr) {
+  return R_CAST(VecI16, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
 }
 
 HEADER_INLINE VecUc vecuc_loadu(const void* mem_addr) {
   return R_CAST(VecUc, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
 }
 
-HEADER_INLINE void veci_storeu(void* mem_addr, VecI vv) {
+HEADER_INLINE void veci32_storeu(void* mem_addr, VecI32 vv) {
   _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), R_CAST(__m256i, vv));
 }
 
-HEADER_INLINE void vecs_storeu(void* mem_addr, VecS vv) {
+HEADER_INLINE void veci16_storeu(void* mem_addr, VecI16 vv) {
   _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), R_CAST(__m256i, vv));
 }
 
-HEADER_INLINE VecI veci_max(VecI v1, VecI v2) {
-  return R_CAST(VecI, _mm256_max_epi32(R_CAST(__m256i, v1), R_CAST(__m256i, v2)));
+HEADER_INLINE VecI32 veci32_max(VecI32 v1, VecI32 v2) {
+  return R_CAST(VecI32, _mm256_max_epi32(R_CAST(__m256i, v1), R_CAST(__m256i, v2)));
 }
 
-HEADER_INLINE VecS vecs_max(VecS v1, VecS v2) {
-  return R_CAST(VecS, _mm256_max_epi16(R_CAST(__m256i, v1), R_CAST(__m256i, v2)));
+HEADER_INLINE VecI16 veci16_max(VecI16 v1, VecI16 v2) {
+  return R_CAST(VecI16, _mm256_max_epi16(R_CAST(__m256i, v1), R_CAST(__m256i, v2)));
 }
 
 #  else
@@ -796,12 +826,16 @@ HEADER_INLINE VecW vecw_setzero() {
   return R_CAST(VecW, _mm_setzero_si128());
 }
 
-HEADER_INLINE VecUi vecui_setzero() {
-  return R_CAST(VecUi, _mm_setzero_si128());
+HEADER_INLINE VecU32 vecu32_setzero() {
+  return R_CAST(VecU32, _mm_setzero_si128());
 }
 
-HEADER_INLINE VecUs vecus_setzero() {
-  return R_CAST(VecUs, _mm_setzero_si128());
+HEADER_INLINE VecU16 vecu16_setzero() {
+  return R_CAST(VecU16, _mm_setzero_si128());
+}
+
+HEADER_INLINE VecI16 veci16_setzero() {
+  return R_CAST(VecI16, _mm_setzero_si128());
 }
 
 HEADER_INLINE VecUc vecuc_setzero() {
@@ -820,20 +854,20 @@ HEADER_INLINE VecW vecw_slli(VecW vv, uint32_t ct) {
   return R_CAST(VecW, _mm_slli_epi64(R_CAST(__m128i, vv), ct));
 }
 
-HEADER_INLINE VecUi vecui_set1(uint32_t uii) {
-  return R_CAST(VecUi, _mm_set1_epi32(uii));
+HEADER_INLINE VecU32 vecu32_set1(uint32_t uii) {
+  return R_CAST(VecU32, _mm_set1_epi32(uii));
 }
 
-HEADER_INLINE VecI veci_set1(int32_t ii) {
-  return R_CAST(VecI, _mm_set1_epi32(ii));
+HEADER_INLINE VecI32 veci32_set1(int32_t ii) {
+  return R_CAST(VecI32, _mm_set1_epi32(ii));
 }
 
-HEADER_INLINE VecUs vecus_set1(unsigned short usi) {
-  return R_CAST(VecUs, _mm_set1_epi16(usi));
+HEADER_INLINE VecU16 vecu16_set1(unsigned short usi) {
+  return R_CAST(VecU16, _mm_set1_epi16(usi));
 }
 
-HEADER_INLINE VecI vecs_set1(short si) {
-  return R_CAST(VecI, _mm_set1_epi16(si));
+HEADER_INLINE VecI32 veci16_set1(short si) {
+  return R_CAST(VecI32, _mm_set1_epi16(si));
 }
 
 HEADER_INLINE VecUc vecuc_set1(unsigned char ucc) {
@@ -848,11 +882,11 @@ HEADER_INLINE uint32_t vecw_movemask(VecW vv) {
   return _mm_movemask_epi8(R_CAST(__m128i, vv));
 }
 
-HEADER_INLINE uint32_t vecui_movemask(VecUi vv) {
+HEADER_INLINE uint32_t vecu32_movemask(VecU32 vv) {
   return _mm_movemask_epi8(R_CAST(__m128i, vv));
 }
 
-HEADER_INLINE uint32_t vecus_movemask(VecUs vv) {
+HEADER_INLINE uint32_t vecu16_movemask(VecU16 vv) {
   return _mm_movemask_epi8(R_CAST(__m128i, vv));
 }
 
@@ -864,54 +898,92 @@ HEADER_INLINE uint32_t vecuc_movemask(VecUc vv) {
   return _mm_movemask_epi8(R_CAST(__m128i, vv));
 }
 
-CONSTI32(kMovemaskUintMax, 65535);
+CONSTI32(kVec8UintMax, 65535);
 
-// #define kMovemaskUintMax 65535
+// #define kVec8UintMax 65535
 
-typedef uint16_t MovemaskUint;
-typedef uint32_t MovemaskUint2;
+typedef uint16_t Vec8Uint;
+typedef uint32_t Vec4Uint;
 
-HEADER_INLINE VecUi vecui_loadu(const void* mem_addr) {
-  return R_CAST(VecUi, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
+HEADER_INLINE VecW vecw_loadu(const void* mem_addr) {
+  return R_CAST(VecW, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
 }
 
-HEADER_INLINE VecI veci_loadu(const void* mem_addr) {
-  return R_CAST(VecI, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
+HEADER_INLINE VecU32 vecu32_loadu(const void* mem_addr) {
+  return R_CAST(VecU32, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
 }
 
-HEADER_INLINE VecUs vecus_loadu(const void* mem_addr) {
-  return R_CAST(VecUs, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
+HEADER_INLINE VecI32 veci32_loadu(const void* mem_addr) {
+  return R_CAST(VecI32, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
 }
 
-HEADER_INLINE VecS vecs_loadu(const void* mem_addr) {
-  return R_CAST(VecS, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
+HEADER_INLINE VecU16 vecu16_loadu(const void* mem_addr) {
+  return R_CAST(VecU16, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
+}
+
+HEADER_INLINE VecI16 veci16_loadu(const void* mem_addr) {
+  return R_CAST(VecI16, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
 }
 
 HEADER_INLINE VecUc vecuc_loadu(const void* mem_addr) {
   return R_CAST(VecUc, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
 }
 
-HEADER_INLINE void veci_storeu(void* mem_addr, VecI vv) {
+HEADER_INLINE void veci32_storeu(void* mem_addr, VecI32 vv) {
   _mm_storeu_si128(S_CAST(__m128i*, mem_addr), R_CAST(__m128i, vv));
 }
 
-HEADER_INLINE void vecs_storeu(void* mem_addr, VecS vv) {
+HEADER_INLINE void veci16_storeu(void* mem_addr, VecI16 vv) {
   _mm_storeu_si128(S_CAST(__m128i*, mem_addr), R_CAST(__m128i, vv));
+}
+
+// Repeats arguments in AVX2 case.
+HEADER_INLINE VecW vecw_setr8(char e15, char e14, char e13, char e12, char e11, char e10, char e9, char e8, char e7, char e6, char e5, char e4, char e3, char e2, char e1, char e0) {
+  return R_CAST(VecW, _mm_setr_epi8(e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
+}
+
+// Discards last 16 arguments in SSE2/SSE4.2 case.
+HEADER_INLINE VecW vecw_setr8x(
+    char e31, char e30, char e29, char e28,
+    char e27, char e26, char e25, char e24,
+    char e23, char e22, char e21, char e20,
+    char e19, char e18, char e17, char e16,
+    __maybe_unused char e15, __maybe_unused char e14,
+    __maybe_unused char e13, __maybe_unused char e12,
+    __maybe_unused char e11, __maybe_unused char e10,
+    __maybe_unused char e9, __maybe_unused char e8,
+    __maybe_unused char e7, __maybe_unused char e6,
+    __maybe_unused char e5, __maybe_unused char e4,
+    __maybe_unused char e3, __maybe_unused char e2,
+    __maybe_unused char e1, __maybe_unused char e0) {
+  return R_CAST(VecW, _mm_setr_epi8(e31, e30, e29, e28, e27, e26, e25, e24, e23, e22, e21, e20, e19, e18, e17, e16));
+}
+
+HEADER_INLINE VecW vecw_unpacklo8(VecW evens, VecW odds) {
+  return R_CAST(VecW, _mm_unpacklo_epi8(R_CAST(__m128i, evens), R_CAST(__m128i, odds)));
+}
+
+HEADER_INLINE VecW vecw_unpackhi8(VecW evens, VecW odds) {
+  return R_CAST(VecW, _mm_unpackhi_epi8(R_CAST(__m128i, evens), R_CAST(__m128i, odds)));
 }
 
 #    ifdef USE_SSE42
-HEADER_INLINE VecI veci_max(VecI v1, VecI v2) {
-  return R_CAST(VecI, _mm_max_epi32(R_CAST(__m128i, v1), R_CAST(__m128i, v2)));
+HEADER_INLINE VecI32 veci32_max(VecI32 v1, VecI32 v2) {
+  return R_CAST(VecI32, _mm_max_epi32(R_CAST(__m128i, v1), R_CAST(__m128i, v2)));
+}
+
+HEADER_INLINE VecW vecw_shuffle8(VecW table, VecW indexes) {
+  return R_CAST(VecW, _mm_shuffle_epi8(R_CAST(__m128i, table), R_CAST(__m128i, indexes)));
 }
 #    endif
 
-HEADER_INLINE VecS vecs_max(VecS v1, VecS v2) {
-  return R_CAST(VecS, _mm_max_epi16(R_CAST(__m128i, v1), R_CAST(__m128i, v2)));
+HEADER_INLINE VecI16 veci16_max(VecI16 v1, VecI16 v2) {
+  return R_CAST(VecI16, _mm_max_epi16(R_CAST(__m128i, v1), R_CAST(__m128i, v2)));
 }
 
 #  endif
 
-CONSTI32(kMovemaskUintPerWord, sizeof(intptr_t) / sizeof(MovemaskUint));
+CONSTI32(kVec8UintPerWord, sizeof(intptr_t) / sizeof(Vec8Uint));
 
 #  ifdef FVEC_32
 
@@ -952,7 +1024,7 @@ typedef uint8_t Quarterword;
 
 typedef uintptr_t VecW;
 typedef float VecF;
-// VecS and VecC aren't worth the trouble of scaling down to 32-bit
+// VecI16 and VecC aren't worth the trouble of scaling down to 32-bit
 
 #  define VCONST_W(xx) (xx)
 
@@ -966,6 +1038,10 @@ HEADER_INLINE VecW vecw_srli(VecW vv, uint32_t ct) {
 
 HEADER_INLINE VecW vecw_slli(VecW vv, uint32_t ct) {
   return vv << ct;
+}
+
+HEADER_INLINE VecW vecw_loadu(const void* mem_addr) {
+  return *S_CAST(VecW*, mem_addr);
 }
 #endif
 
@@ -1153,16 +1229,16 @@ HEADER_INLINE uintptr_t UnpackHalfwordToWordShift1(uintptr_t hw) {
   return _pdep_u64(hw, kMaskAAAA);
 }
 
-HEADER_INLINE MovemaskUint2 UnpackMovemaskUintToUint2(MovemaskUint hw) {
+HEADER_INLINE Vec4Uint UnpackVec8UintToVec4(Vec8Uint hw) {
   return _pdep_u64(hw, kMask5555);
 }
 
 HEADER_INLINE Halfword PackWordToHalfword(uintptr_t ww) {
-  // Assumes only even bits of ww can be set.
+  // odd bits of ww can be set in this case
   return _pext_u64(ww, kMask5555);
 }
 
-HEADER_INLINE MovemaskUint PackMovemaskUint2ToUint(MovemaskUint2 ww) {
+HEADER_INLINE Vec8Uint PackVec4UintToVec8(Vec4Uint ww) {
   return _pext_u64(ww, kMask5555);
 }
 #else  // !USE_AVX2
@@ -1192,21 +1268,48 @@ HEADER_INLINE Halfword PackWordToHalfword(uintptr_t ww) {
 }
 
 #  ifdef __LP64__
-HEADER_INLINE MovemaskUint2 UnpackMovemaskUintToUint2(MovemaskUint hw) {
+HEADER_INLINE Vec4Uint UnpackVec8UintToVec4(Vec8Uint hw) {
   hw = (hw | (hw << 8)) & 0x00ff00ffU;
   hw = (hw | (hw << 4)) & 0x0f0f0f0fU;
   hw = (hw | (hw << 2)) & 0x33333333U;
   return (hw | (hw << 1)) & 0x55555555U;
 }
 
-HEADER_INLINE MovemaskUint PackMovemaskUint2ToUint(MovemaskUint2 ww) {
+HEADER_INLINE Vec8Uint PackVec4UintToVec8(Vec4Uint ww) {
   ww = (ww | (ww >> 1)) & kMask3333;
   ww = (ww | (ww >> 2)) & kMask0F0F;
   ww = (ww | (ww >> 4)) & kMask00FF;
-  return S_CAST(MovemaskUint, ww | (ww >> 8));
+  return S_CAST(Vec8Uint, ww | (ww >> 8));
 }
 #  endif
 #endif  // !USE_AVX2
+
+#if defined(__LP64__) && !defined(USE_AVX2)
+// may also want a version which doesn't always apply kMask5555
+void Pack32bTo16bMask(const void* words, uintptr_t ct_32b, void* dest);
+
+HEADER_INLINE void PackWordsToHalfwordsMask(const uintptr_t* words, uintptr_t word_ct, Halfword* dest) {
+  uintptr_t widx = 0;
+  if (word_ct >= (32 / kBytesPerWord)) {
+    const uintptr_t ct_32b = word_ct / (32 / kBytesPerWord);
+    Pack32bTo16bMask(words, ct_32b, dest);
+    widx = ct_32b * (32 / kBytesPerWord);
+  }
+  for (; widx < word_ct; ++widx) {
+    dest[widx] = PackWordToHalfword(words[widx] & kMask5555);
+  }
+}
+#else
+HEADER_INLINE void PackWordsToHalfwordsMask(const uintptr_t* words, uintptr_t word_ct, Halfword* dest) {
+  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
+#  ifdef USE_AVX2
+    dest[widx] = _pext_u64(words[widx], kMask5555);
+#  else
+    dest[widx] = PackWordToHalfword(words[widx] & kMask5555);
+#  endif
+  }
+}
+#endif
 
 // alignment must be a power of 2
 // tried splitting out RoundDownPow2U32() and RoundUpPow2U32() functions, no
@@ -1574,11 +1677,11 @@ HEADER_INLINE uint32_t Popcount4Words(uintptr_t val0, uintptr_t val1, uintptr_t 
 
 #ifdef __LP64__
 #  ifdef USE_SSE42
-HEADER_INLINE uint32_t PopcountMovemaskUint(uint32_t val) {
+HEADER_INLINE uint32_t PopcountVec8Uint(uint32_t val) {
   return __builtin_popcount(val);
 }
 #  else
-HEADER_INLINE uint32_t PopcountMovemaskUint(uint32_t val) {
+HEADER_INLINE uint32_t PopcountVec8Uint(uint32_t val) {
   // May as well exploit the fact that only the low 15 bits may be set.
   val = val - ((val >> 1) & 0x5555);
   val = (val & 0x3333) + ((val >> 2) & 0x3333);
@@ -1628,6 +1731,12 @@ HEADER_INLINE uint32_t VecIsAligned(const void* ptr) {
 
 #ifdef USE_AVX2
 // 'Csa' = carry, save, add
+// If bb, cc, and *lp are bitvectors, this returns the carry bitvector and sets
+// *lp to contain the low-order bits of the sums.  I.e. for each position:
+//   if none of bb, cc, and *lp are set, *lp bit is zero and carry bit is zero
+//   if exactly 1 is set, *lp bit becomes one and carry bit is zero
+//   if exactly 2 are set, *lp bit becomes zero and carry bit is one
+//   if all 3 are set, *lp bit becomes one and carry bit is one
 HEADER_INLINE VecW Csa256(VecW bb, VecW cc, VecW* lp) {
   const VecW aa = *lp;
   const VecW uu = aa ^ bb;
@@ -1636,35 +1745,27 @@ HEADER_INLINE VecW Csa256(VecW bb, VecW cc, VecW* lp) {
 }
 
 HEADER_INLINE VecW PopcountVecAvx2(VecW vv) {
-  const __m256i vi = R_CAST(__m256i, vv);
-  __m256i lookup1 = _mm256_setr_epi8(
-                                     4, 5, 5, 6, 5, 6, 6, 7,
-                                     5, 6, 6, 7, 6, 7, 7, 8,
-                                     4, 5, 5, 6, 5, 6, 6, 7,
-                                     5, 6, 6, 7, 6, 7, 7, 8
-                                     );
+  const VecW lookup1 = vecw_setr8(4, 5, 5, 6, 5, 6, 6, 7,
+                                  5, 6, 6, 7, 6, 7, 7, 8);
+  const VecW lookup2 = vecw_setr8(4, 3, 3, 2, 3, 2, 2, 1,
+                                  3, 2, 2, 1, 2, 1, 1, 0);
 
-  __m256i lookup2 = _mm256_setr_epi8(
-                                     4, 3, 3, 2, 3, 2, 2, 1,
-                                     3, 2, 2, 1, 2, 1, 1, 0,
-                                     4, 3, 3, 2, 3, 2, 2, 1,
-                                     3, 2, 2, 1, 2, 1, 1, 0
-                                     );
-
-  __m256i low_mask = _mm256_set1_epi8(0x0f);
-  __m256i lo = _mm256_and_si256(vi, low_mask);
-  __m256i hi = _mm256_and_si256(_mm256_srli_epi16(vi, 4), low_mask);
-  __m256i popcnt1 = _mm256_shuffle_epi8(lookup1, lo);
-  __m256i popcnt2 = _mm256_shuffle_epi8(lookup2, hi);
-
-  return R_CAST(VecW, _mm256_sad_epu8(popcnt1, popcnt2));
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW lo = vv & m4;
+  const VecW hi = vecw_srli(vv, 4) & m4;
+  const VecW popcnt1 = vecw_shuffle8(lookup1, lo);
+  const VecW popcnt2 = vecw_shuffle8(lookup2, hi);
+  return R_CAST(VecW, _mm256_sad_epu8(R_CAST(__m256i, popcnt1), R_CAST(__m256i, popcnt2)));
 }
 
 HEADER_INLINE uint64_t Hsum64(VecW vv) {
   UniVec vu;
   vu.vw = vv;
   return vu.w[0] + vu.w[1] + vu.w[2] + vu.w[3];
-  // return _mm256_extract_epi64((__m256i)vv, 0) + _mm256_extract_epi64((__m256i)vv, 1) + _mm256_extract_epi64((__m256i)vv, 2) + _mm256_extract_epi64((__m256i)vv, 3);
+  // _mm256_extract_epi64() only worth it if we don't need to extract all the
+  // values.
+  // (also, I wouldn't be surprised if the compiler recognized the pattern
+  // above)
 }
 
 // assumes vec_ct is a multiple of 16
@@ -2037,6 +2138,21 @@ HEADER_INLINE void ZeroTrailingWords(uint32_t word_ct, uintptr_t* bitvec) {
 HEADER_INLINE void ZeroTrailingWords(__maybe_unused uint32_t word_ct, __maybe_unused uintptr_t* bitvec) {
 }
 #endif
+
+// analogous to memset()
+HEADER_INLINE void vecset(void* target_vec, uintptr_t ww, uintptr_t vec_ct) {
+  VecW* target_vec_iter = S_CAST(VecW*, target_vec);
+#ifdef __LP64__
+  const VecW payload = VCONST_W(ww);
+  for (uintptr_t vec_idx = 0; vec_idx < vec_ct; ++vec_idx) {
+    *target_vec_iter++ = payload;
+  }
+#else
+  for (uintptr_t vec_idx = 0; vec_idx < vec_ct; ++vec_idx) {
+    *target_vec_iter++ = ww;
+  }
+#endif
+}
 
 HEADER_INLINE uintptr_t ClearBottomSetBits(uint32_t ct, uintptr_t ulii) {
 #ifdef USE_AVX2

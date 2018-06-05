@@ -346,6 +346,7 @@ void Copy10Subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __res
 // add an AVX2 specialization here.
 // ...unless something like the interleaved_vec strategy is used?  hmm.  should
 // test this on basic frequency counter.
+/*
 void Count2FreqVec3(const VecW* geno_vvec, uint32_t vec_ct, uint32_t* __restrict alt1_plus_bothset_ctp, uint32_t* __restrict bothset_ctp) {
   assert(!(vec_ct % 3));
   // Increments bothset_ct by the number of 0b11 in the current block, and
@@ -424,6 +425,7 @@ void Count2FreqVec3(const VecW* geno_vvec, uint32_t vec_ct, uint32_t* __restrict
     alt1_plus_bothset_ct += UniVecHsum16(acc_alt1_plus_bothset);
   }
 }
+*/
 
 void Count3FreqVec6(const VecW* geno_vvec, uint32_t vec_ct, uint32_t* __restrict even_ctp, uint32_t* __restrict odd_ctp, uint32_t* __restrict bothset_ctp) {
   assert(!(vec_ct % 6));
@@ -519,6 +521,7 @@ void Count3FreqVec6(const VecW* geno_vvec, uint32_t vec_ct, uint32_t* __restrict
   }
 }
 
+// geno_vvec now allowed to be unaligned.
 void CountSubset3FreqVec6(const VecW* __restrict geno_vvec, const VecW* __restrict interleaved_mask_vvec, uint32_t vec_ct, uint32_t* __restrict even_ctp, uint32_t* __restrict odd_ctp, uint32_t* __restrict bothset_ctp) {
   assert(!(vec_ct % 6));
   // Sets even_ct to the number of set low bits in the current block, odd_ct to
@@ -555,14 +558,16 @@ void CountSubset3FreqVec6(const VecW* __restrict geno_vvec, const VecW* __restri
     }
     do {
       VecW interleaved_mask_vword = *interleaved_mask_vvec_iter++;
-      VecW cur_geno_vword = *geno_vvec_iter++;
+      VecW cur_geno_vword = vecw_loadu(geno_vvec_iter);
+      ++geno_vvec_iter;
       VecW cur_mask = interleaved_mask_vword & m1;
       VecW odd1 = cur_mask & vecw_srli(cur_geno_vword, 1);
       VecW even1 = cur_mask & cur_geno_vword;
       VecW bothset1 = odd1 & cur_geno_vword;
 
       cur_mask = vecw_srli(interleaved_mask_vword, 1) & m1;
-      cur_geno_vword = *geno_vvec_iter++;
+      cur_geno_vword = vecw_loadu(geno_vvec_iter);
+      ++geno_vvec_iter;
       VecW cur_geno_vword_high_masked = cur_mask & vecw_srli(cur_geno_vword, 1);
       even1 = even1 + (cur_mask & cur_geno_vword);
       odd1 = odd1 + cur_geno_vword_high_masked;
@@ -570,7 +575,8 @@ void CountSubset3FreqVec6(const VecW* __restrict geno_vvec, const VecW* __restri
 
       interleaved_mask_vword = *interleaved_mask_vvec_iter++;
       cur_mask = interleaved_mask_vword & m1;
-      cur_geno_vword = *geno_vvec_iter++;
+      cur_geno_vword = vecw_loadu(geno_vvec_iter);
+      ++geno_vvec_iter;
       cur_geno_vword_high_masked = cur_mask & vecw_srli(cur_geno_vword, 1);
       even1 = even1 + (cur_mask & cur_geno_vword);
       odd1 = odd1 + cur_geno_vword_high_masked;
@@ -581,21 +587,24 @@ void CountSubset3FreqVec6(const VecW* __restrict geno_vvec, const VecW* __restri
       bothset1 = (bothset1 & m2) + (vecw_srli(bothset1, 2) & m2);
 
       cur_mask = vecw_srli(interleaved_mask_vword, 1) & m1;
-      cur_geno_vword = *geno_vvec_iter++;
+      cur_geno_vword = vecw_loadu(geno_vvec_iter);
+      ++geno_vvec_iter;
       VecW odd2 = cur_mask & vecw_srli(cur_geno_vword, 1);
       VecW even2 = cur_mask & cur_geno_vword;
       VecW bothset2 = odd2 & cur_geno_vword;
 
       interleaved_mask_vword = *interleaved_mask_vvec_iter++;
       cur_mask = interleaved_mask_vword & m1;
-      cur_geno_vword = *geno_vvec_iter++;
+      cur_geno_vword = vecw_loadu(geno_vvec_iter);
+      ++geno_vvec_iter;
       cur_geno_vword_high_masked = cur_mask & vecw_srli(cur_geno_vword, 1);
       even2 = even2 + (cur_mask & cur_geno_vword);
       odd2 = odd2 + cur_geno_vword_high_masked;
       bothset2 = bothset2 + (cur_geno_vword_high_masked & cur_geno_vword);
 
       cur_mask = vecw_srli(interleaved_mask_vword, 1) & m1;
-      cur_geno_vword = *geno_vvec_iter++;
+      cur_geno_vword = vecw_loadu(geno_vvec_iter);
+      ++geno_vvec_iter;
       cur_geno_vword_high_masked = cur_mask & vecw_srli(cur_geno_vword, 1);
       even2 = even2 + (cur_mask & cur_geno_vword);
       odd2 = odd2 + cur_geno_vword_high_masked;
@@ -667,107 +676,55 @@ uint32_t Count01Vec6(const VecW* geno_vvec, uint32_t vec_ct) {
   }
 }
 
-// (Also, it may be worthwhile to add a compilation option which generates AVX2
-// instructions but mostly avoids _pdep_u64() and _pext_u64(); apparently even
-// the latest AMD processors have poor implementations of those two
-// operations?)
 void FillInterleavedMaskVec(const uintptr_t* __restrict subset_mask, uint32_t base_vec_ct, uintptr_t* interleaved_mask_vec) {
-#ifdef USE_SSE42
+#ifdef __LP64__
   // This is a cousin of github.com/KWillets/simd_interleave , which was
   // written in response to
   //   https://lemire.me/blog/2018/01/09/how-fast-can-you-bit-interleave-32-bit-integers-simd-edition/
-  // This takes ~40% less time than the previous implementation, and also has
-  // the advantage of avoiding the _pdep_u64() and _pext_u64() which are
-  // very poorly supported by AMD processors as of 2018.
-#  ifdef USE_AVX2
-  const __m256i low_nibble_gatherer = _mm256_setr_epi8(
-      0, -1, 1, -1, 2, -1, 3, -1,
-      4, -1, 5, -1, 6, -1, 7, -1,
-      0, -1, 1, -1, 2, -1, 3, -1,
-      4, -1, 5, -1, 6, -1, 7, -1);
-  const __m256i high_nibble_gatherer = _mm256_setr_epi8(
-      8, -1, 9, -1, 10, -1, 11, -1,
-      12, -1, 13, -1, 14, -1, 15, -1,
-      8, -1, 9, -1, 10, -1, 11, -1,
-      12, -1, 13, -1, 14, -1, 15, -1);
-  const __m256i vmask0f0f = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
-  const __m256i lookup0 = _mm256_setr_epi8(
-      0, 1, 4, 5, 16, 17, 20, 21,
-      64, 65, 68, 69, 80, 81, 84, 85,
+  // AVX2 implementation takes ~40% less time than before, and SSE4.2 takes
+  // ~65% less.  This also avoids the Ryzen-screwing _pdep_u64()/_pext_u64()
+  // operations.
+  const VecW m4 = VCONST_W(kMask0F0F);
+#  ifdef USE_SSE42
+  const VecW lookup0 = vecw_setr8(
       0, 1, 4, 5, 16, 17, 20, 21,
       64, 65, 68, 69, 80, 81, 84, 85);
-  const __m256i lookup1 = _mm256_slli_epi64(lookup0, 1);
-  const __m256i* subset_mask_viter = R_CAST(const __m256i*, subset_mask);
-  __m256i* interleaved_mask_viter = R_CAST(__m256i*, interleaved_mask_vec);
-  for (uint32_t vec_idx = 0; vec_idx < base_vec_ct; ++vec_idx) {
-    // I'll assume the compiler can handle this register allocation job.
-    const __m256i cur_vec = *subset_mask_viter++;
-
-    // This is the critical lane-crossing operation.
-    //   0xd8: {0, 2, 1, 3}
-    const __m256i cur_vec_crossed = _mm256_permute4x64_epi64(cur_vec, 0xd8);
-
-    const __m256i vec_low = _mm256_shuffle_epi8(cur_vec_crossed, low_nibble_gatherer);
-    const __m256i vec_high = _mm256_shuffle_epi8(cur_vec_crossed, high_nibble_gatherer);
-
-    const __m256i vec_low_nibbles = _mm256_and_si256(_mm256_or_si256(vec_low, _mm256_slli_epi64(vec_low, 4)), vmask0f0f);
-    const __m256i vec_high_nibbles = _mm256_and_si256(_mm256_or_si256(vec_high, _mm256_slli_epi64(vec_high, 4)), vmask0f0f);
-
-    const __m256i vec_low_spread = _mm256_shuffle_epi8(lookup0, vec_low_nibbles);
-    const __m256i vec_high_spread = _mm256_shuffle_epi8(lookup1, vec_high_nibbles);
-    *interleaved_mask_viter++ = _mm256_or_si256(vec_low_spread, vec_high_spread);
-  }
+  const VecW lookup1 = vecw_slli(lookup0, 1);
 #  else
-  // In the SSE4.2 case, we interleave 64-bit instead of 128-bit integers.
-  // This is ~3 times as fast as the previous version.
-  const __m128i lookup0 = _mm_setr_epi8(0, 1, 4, 5, 16, 17, 20, 21,
-                                        64, 65, 68, 69, 80, 81, 84, 85);
-  const __m128i lookup1 = _mm_slli_epi64(lookup0, 1);
-  const __m128i low_nibble_gatherer = _mm_setr_epi8(0, -1, 1, -1, 2, -1, 3, -1,
-                                                    4, -1, 5, -1, 6, -1, 7, -1);
-  const __m128i high_nibble_gatherer = _mm_setr_epi8(8, -1, 9, -1, 10, -1, 11, -1,
-                                                     12, -1, 13, -1, 14, -1, 15, -1);
-  const __m128i vmask0f0f = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
-  const __m128i* subset_mask_viter = R_CAST(const __m128i*, subset_mask);
-  __m128i* interleaved_mask_viter = R_CAST(__m128i*, interleaved_mask_vec);
-  for (uint32_t vec_idx = 0; vec_idx < base_vec_ct; ++vec_idx) {
-    const __m128i cur_vec = *subset_mask_viter++;
-    const __m128i cur_vec_low = _mm_shuffle_epi8(cur_vec, low_nibble_gatherer);
-    const __m128i cur_vec_high = _mm_shuffle_epi8(cur_vec, high_nibble_gatherer);
-    const __m128i vec_low_nibbles = _mm_and_si128(_mm_or_si128(cur_vec_low, _mm_slli_epi64(cur_vec_low, 4)), vmask0f0f);
-    const __m128i vec_high_nibbles = _mm_and_si128(_mm_or_si128(cur_vec_high, _mm_slli_epi64(cur_vec_high, 4)), vmask0f0f);
-
-    const __m128i vec_low_spread = _mm_shuffle_epi8(lookup0, vec_low_nibbles);
-    const __m128i vec_high_spread = _mm_shuffle_epi8(lookup1, vec_high_nibbles);
-    *interleaved_mask_viter++ = _mm_or_si128(vec_low_spread, vec_high_spread);
-  }
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m2 = VCONST_W(kMask3333);
 #  endif
-#else  // !USE_SSE42
-#  ifdef __LP64__
-  // _mm_shuffle_epi8() unavailable.
-  const uintptr_t* subset_mask_iter = subset_mask;
-  uintptr_t* interleaved_mask_vec_iter = interleaved_mask_vec;
-  for (uint32_t vec_idx = 0; vec_idx < base_vec_ct; ++vec_idx) {
-    // 0 64 1 65 2 66 ...
-    const uintptr_t orig_word1 = *subset_mask_iter++;
-    const uintptr_t orig_word2 = *subset_mask_iter++;
-    for (uint32_t widx = 0; widx < 2; ++widx) {
-      uintptr_t ww_even;
-      uintptr_t ww_odd;
-      // todo: check if there's a better way to organize this loop
-      if (!widx) {
-        ww_even = S_CAST(uint32_t, orig_word1);
-        ww_odd = S_CAST(uint32_t, orig_word2);
-      } else {
-        ww_even = orig_word1 >> 32;
-        ww_odd = orig_word2 >> 32;
-      }
-      ww_even = UnpackHalfwordToWord(ww_even);
-      ww_odd = UnpackHalfwordToWord(ww_odd);
-      *interleaved_mask_vec_iter++ = ww_even | (ww_odd << 1);
-    }
+  const VecW* subset_mask_valias = R_CAST(const VecW*, subset_mask);
+  VecW* interleaved_mask_valias = R_CAST(VecW*, interleaved_mask_vec);
+
+  for (uint32_t vidx = 0; vidx < base_vec_ct; ++vidx) {
+    // I'll assume the compiler can handle this register allocation job.
+    VecW cur_vec = subset_mask_valias[vidx];
+
+#  ifdef USE_AVX2
+    // This is the critical lane-crossing operation.  May wrap this (in a way
+    // that reduces to a null-op in the SSE4.2 case?), but let's first see how
+    // often we use it, and in what ways.
+    //   0xd8: {0, 2, 1, 3}
+    cur_vec = R_CAST(VecW, _mm256_permute4x64_epi64(R_CAST(__m256i, cur_vec), 0xd8));
+#  endif
+    const VecW vec_even = cur_vec & m4;
+    const VecW vec_odd = vecw_srli(cur_vec, 4) & m4;
+    VecW vec_lo = vecw_unpacklo8(vec_even, vec_odd);
+    VecW vec_hi = vecw_unpackhi8(vec_even, vec_odd);
+#  ifdef USE_SSE42
+    vec_lo = vecw_shuffle8(lookup0, vec_lo);
+    vec_hi = vecw_shuffle8(lookup1, vec_hi);
+#  else
+    vec_lo = (vec_lo | vecw_slli(vec_lo, 2)) & m2;
+    vec_hi = (vec_hi | vecw_slli(vec_hi, 2)) & m2;
+    vec_lo = (vec_lo | vecw_slli(vec_lo, 1)) & m1;
+    vec_hi = (vec_hi | vecw_slli(vec_hi, 1)) & m1;
+    vec_hi = vecw_slli(vec_hi, 1);
+#  endif
+    interleaved_mask_valias[vidx] = vec_lo | vec_hi;
   }
-#  else  // !__LP64__
+#else  // !__LP64__
   for (uint32_t widx = 0; widx < base_vec_ct; ++widx) {
     const uintptr_t orig_word = subset_mask[widx];
     uintptr_t ww_even = S_CAST(uint16_t, orig_word);
@@ -776,10 +733,10 @@ void FillInterleavedMaskVec(const uintptr_t* __restrict subset_mask, uint32_t ba
     ww_odd = UnpackHalfwordToWord(ww_odd);
     interleaved_mask_vec[widx] = ww_even | (ww_odd << 1);
   }
-#  endif
 #endif
 }
 
+/*
 void GenovecAlleleCtsUnsafe(const uintptr_t* genovec, uint32_t sample_ct, uint32_t* __restrict allele_cts, uint32_t* __restrict bothset_ctp) {
   // assumes trailing bits of last genovec word are zeroed out.
   // sets allele_cts[0] to the number of observed ref alleles, and
@@ -801,6 +758,7 @@ void GenovecAlleleCtsUnsafe(const uintptr_t* genovec, uint32_t sample_ct, uint32
   allele_cts[1] = alt1_ct;
   *bothset_ctp = bothset_ct;
 }
+*/
 
 void GenovecCountFreqsUnsafe(const uintptr_t* genovec, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts) {
   // fills genocounts[0] with the number of 00s, genocounts[1] with the number
@@ -837,7 +795,6 @@ void GenovecCountSubsetFreqs(const uintptr_t* __restrict genovec, const uintptr_
   uint32_t bothset_ct;
 #ifdef __LP64__
   uint32_t vec_idx = raw_sample_ctv2 - (raw_sample_ctv2 % 6);
-  assert(VecIsAligned(genovec));
   CountSubset3FreqVec6(R_CAST(const VecW*, genovec), R_CAST(const VecW*, sample_include_interleaved_vec), vec_idx, &even_ct, &odd_ct, &bothset_ct);
   const uintptr_t* genovec_iter = &(genovec[kWordsPerVec * vec_idx]);
   const uintptr_t* interleaved_mask_iter = &(sample_include_interleaved_vec[(kWordsPerVec / 2) * vec_idx]);
@@ -1020,20 +977,21 @@ void GenoarrCountFreqs(const unsigned char* genoarr, uint32_t sample_ct, STD_ARR
 #endif
 void GenoarrCountSubsetFreqs(const unsigned char* genoarr, const uintptr_t* __restrict sample_include_interleaved_vec, uint32_t raw_sample_ct, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts) {
   // does not read past the end of genoarr
-  // todo: vectorize with unaligned loads
-  const uintptr_t* genoarr_iter = R_CAST(const uintptr_t*, genoarr);
-  const uintptr_t* interleaved_mask_iter = sample_include_interleaved_vec;
   const uint32_t raw_sample_ctv2 = QuaterCtToVecCt(raw_sample_ct);
-  uint32_t even_ct = 0;
-  uint32_t odd_ct = 0;
-  uint32_t bothset_ct = 0;
+  uint32_t even_ct;
+  uint32_t odd_ct;
+  uint32_t bothset_ct;
+  uint32_t vec_idx = raw_sample_ctv2 - (raw_sample_ctv2 % 6);
+  CountSubset3FreqVec6(R_CAST(const VecW*, genoarr), R_CAST(const VecW*, sample_include_interleaved_vec), vec_idx, &even_ct, &odd_ct, &bothset_ct);
+  const uintptr_t* genoarr_iter = &(R_CAST(const uintptr_t*, genoarr)[kWordsPerVec * vec_idx]);
+  const uintptr_t* interleaved_mask_iter = &(sample_include_interleaved_vec[(kWordsPerVec / 2) * vec_idx]);
 #ifdef USE_AVX2
   const uint32_t halfvec_idx_trail = (raw_sample_ct + 3) / (kBitsPerVec / 4);
   uintptr_t mask_base1 = 0;
   uintptr_t mask_base2 = 0;
   uintptr_t mask_base3 = 0;
   uintptr_t mask_base4 = 0;
-  for (uint32_t vec_idx = 0; vec_idx < raw_sample_ctv2; ++vec_idx) {
+  for (; vec_idx < raw_sample_ctv2; ++vec_idx) {
     uintptr_t mask_word1;
     uintptr_t mask_word2;
     uintptr_t mask_word3;
@@ -1089,7 +1047,7 @@ void GenoarrCountSubsetFreqs(const unsigned char* genoarr, const uintptr_t* __re
 #  ifdef __LP64__
   uintptr_t mask_base1 = 0;
   uintptr_t mask_base2 = 0;
-  for (uint32_t vec_idx = 0; vec_idx < raw_sample_ctv2; ++vec_idx) {
+  for (; vec_idx < raw_sample_ctv2; ++vec_idx) {
     uintptr_t mask_word1;
     uintptr_t mask_word2;
     if (!(vec_idx % 2)) {
@@ -1130,16 +1088,16 @@ void GenoarrCountSubsetFreqs(const unsigned char* genoarr, const uintptr_t* __re
   }
 #  else  // not __LP64__
   uintptr_t mask_base = 0;
-  for (uint32_t word_idx = 0; word_idx < raw_sample_ctv2; ++word_idx) {
+  for (; vec_idx < raw_sample_ctv2; ++vec_idx) {
     uintptr_t mask_word;
-    if (!(word_idx % 2)) {
+    if (!(vec_idx % 2)) {
       mask_base = *interleaved_mask_iter++;
       mask_word = mask_base & kMask5555;
     } else {
       mask_word = (mask_base >> 1) & kMask5555;
     }
     uintptr_t cur_geno_word;
-    if (word_idx < vec_idx_trail) {
+    if (vec_idx < vec_idx_trail) {
       cur_geno_word = *genoarr_iter++;
     } else {
       const uint32_t remaining_byte_ct = QuaterCtToByteCt(raw_sample_ct) % kBytesPerVec;
@@ -1158,8 +1116,8 @@ void GenoarrCountSubsetFreqs(const unsigned char* genoarr, const uintptr_t* __re
   genocounts[3] = bothset_ct;
 }
 
-void GenoarrCountSubsetFreqs2(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts) {
-  // slower GenoarrCountSubsetFreqs() which does not require
+void GenovecCountSubsetFreqs2(const uintptr_t* __restrict genovec, const uintptr_t* __restrict sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts) {
+  // slower GenovecCountSubsetFreqs() which does not require
   // sample_include_interleaved_vec to be precomputed.
   // {raw_}sample_ct == 0 ok.
   const uint32_t raw_sample_ctl2 = QuaterCtToWordCt(raw_sample_ct);
@@ -1168,15 +1126,14 @@ void GenoarrCountSubsetFreqs2(const uintptr_t* __restrict genoarr, const uintptr
   uint32_t odd_ct = 0;
   uint32_t bothset_ct = 0;
   for (uint32_t widx = 0; widx < fullword_ct; ++widx) {
-    // todo: vectorize this loop with unaligned loads from genoarr, and (in
-    // SSE4.2 and AVX2 cases) _mm{256}_shuffle_epi8()-based dynamic unpacking
-    // of sample_include
+    // possible todo: try vectorizing this loop in SSE4.2+ high-sample-ct case
+    // with shuffle-based dynamic unpacking of sample_include?
     const uintptr_t mask_word = sample_include[widx];
     if (mask_word) {
-      uintptr_t geno_word = genoarr[2 * widx];
+      uintptr_t geno_word = genovec[2 * widx];
       uintptr_t geno_even = PackWordToHalfword(geno_word & kMask5555);
       uintptr_t geno_odd = PackWordToHalfword((geno_word >> 1) & kMask5555);
-      geno_word = genoarr[2 * widx + 1];
+      geno_word = genovec[2 * widx + 1];
       geno_even |= S_CAST(uintptr_t, PackWordToHalfword(geno_word & kMask5555)) << kBitsPerWordD2;
       geno_odd |= S_CAST(uintptr_t, PackWordToHalfword((geno_word >> 1) & kMask5555)) << kBitsPerWordD2;
       const uintptr_t geno_even_masked = geno_even & mask_word;
@@ -1188,7 +1145,7 @@ void GenoarrCountSubsetFreqs2(const uintptr_t* __restrict genoarr, const uintptr
   if (raw_sample_ctl2 % 2) {
     const uintptr_t mask_hw = sample_include[fullword_ct];
     if (mask_hw) {
-      const uintptr_t geno_word = genoarr[2 * fullword_ct];
+      const uintptr_t geno_word = genovec[2 * fullword_ct];
       // todo: benchmark main loop unpack vs. pack
       const uintptr_t mask_word = UnpackHalfwordToWord(mask_hw);
       const uintptr_t geno_word_shifted = geno_word >> 1;
@@ -1213,7 +1170,7 @@ void GenoarrCountSubsetIntersectFreqs(const uintptr_t* __restrict genoarr, const
   uint32_t odd_ct = 0;
   uint32_t bothset_ct = 0;
   for (uint32_t widx = 0; widx < fullword_ct; ++widx) {
-    // todo: vectorize this loop with unaligned loads from genoarr
+    // hmm, there may be little point to vectorizing this
     const uintptr_t mask_word = subset1[widx] & subset2[widx];
     if (mask_word) {
       uintptr_t geno_word = genoarr[2 * widx];
@@ -1249,7 +1206,7 @@ void GenoarrCountSubsetIntersectFreqs(const uintptr_t* __restrict genoarr, const
 }
 
 void GenovecCountFreqs(const uintptr_t* genovec, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts) {
-  // ok to read trailing genovec bytes, but must mask them out
+  // this masks out trailing genovec bits
   const uint32_t sample_ct_remainder = sample_ct % kBitsPerWordD2;
   GenovecCountFreqsUnsafe(genovec, sample_ct - sample_ct_remainder, genocounts);
   if (sample_ct_remainder) {
@@ -1337,88 +1294,91 @@ void DifflistCountSubsetFreqs(const uintptr_t* __restrict sample_include, const 
 
 
 static_assert(kPglQuaterTransposeBatch == S_CAST(uint32_t, kQuatersPerCacheline), "TransposeQuaterblock() needs to be updated.");
-#ifdef USE_AVX2
-void TransposeQuaterblockAvx2(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, void* __restrict buf0) {
-  // buf must be vector-aligned and have size 16k
-  const uint32_t block_ct = QuaterCtToByteCt(write_batch_size);
+#ifdef USE_SSE42
+void TransposeQuaterblockShuffle(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, void* __restrict buf0) {
+  // buf0 must be vector-aligned and have size 16k
+  // tried using previous AVX2 small-buffer approach, but that was a bit worse.
+  // previous movemask-based AVX2 implementation has been retired despite lower
+  // workspace requirement, since performance was indistinguishable on my Mac
+  // and it's almost certainly worse on Ryzen
+  const uint32_t initial_read_byte_ct = QuaterCtToByteCt(write_batch_size);
   // fold the first 6 shuffles into the initial ingestion loop
+  const unsigned char* initial_read_iter = R_CAST(const unsigned char*, read_iter);
+  const unsigned char* initial_read_end = &(initial_read_iter[initial_read_byte_ct]);
+  unsigned char* initial_target_iter = S_CAST(unsigned char*, buf0);
   const uint32_t read_byte_stride = read_ul_stride * kBytesPerWord;
-  const uint32_t write_ul_ct = QuaterCtToWordCt(read_batch_size);
-  const uint32_t read_batch_rem = write_ul_ct * 32 - read_batch_size;
-  uintptr_t* target_iter0 = write_iter;
-  const uint32_t full_block_ct = write_batch_size / 4;
-  // Tried _pext_u64() too, that was slightly worse.
-  // Tried _mm256_i32gather_epi32(), didn't help.
-  // But seems to be fine to just process 4 write-rows at a time.
-  for (uint32_t block_idx = 0; block_idx < block_ct; ++block_idx) {
-    const unsigned char* read_iter_tmp = R_CAST(const unsigned char*, read_iter);
-    read_iter_tmp = &(read_iter_tmp[block_idx]);
-    unsigned char* initial_target_iter = S_CAST(unsigned char*, buf0);
+  const uint32_t read_batch_rem = kQuatersPerCacheline - read_batch_size;
+  for (; initial_read_iter < initial_read_end; ++initial_read_iter) {
+    const unsigned char* read_iter_tmp = initial_read_iter;
     for (uint32_t ujj = 0; ujj < read_batch_size; ++ujj) {
       *initial_target_iter++ = *read_iter_tmp;
       read_iter_tmp = &(read_iter_tmp[read_byte_stride]);
     }
-    memset(initial_target_iter, 0, read_batch_rem);
-    const VecW* source_iter = S_CAST(VecW*, buf0);
-    if (block_idx == full_block_ct) {
-      const uint32_t remainder = write_batch_size % 4;
-      const uint32_t initial_lshift = 2 * (4 - remainder);
-      for (uint32_t widx = 0; widx < write_ul_ct; ++widx) {
-        VecW loader = *source_iter++;
-        loader = vecw_slli(loader, initial_lshift);
-        uint32_t write_idx_lowbits = remainder - 1;
-        while (1) {
-          const uintptr_t uint_hi = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          const uintptr_t uint_lo = vecw_movemask(loader);
-          target_iter0[write_ul_stride * write_idx_lowbits] = _pdep_u64(uint_hi, kMaskAAAA) | _pdep_u64(uint_lo, kMask5555);
-          if (!write_idx_lowbits) {
-            break;
-          }
-          loader = vecw_slli(loader, 1);
-          --write_idx_lowbits;
-        }
-        ++target_iter0;
-      }
-      break;
-    }
+    initial_target_iter = memsetua(initial_target_iter, 0, read_batch_rem);
+  }
 
-    uintptr_t* target_iter1 = &(target_iter0[write_ul_stride]);
-    uintptr_t* target_iter2 = &(target_iter1[write_ul_stride]);
-    uintptr_t* target_iter3 = &(target_iter2[write_ul_stride]);
-    for (uint32_t widx = 0; widx < write_ul_ct; ++widx) {
-      VecW loader = source_iter[widx];
-      uintptr_t uint_hi = vecw_movemask(loader);
-      loader = vecw_slli(loader, 1);
-      uintptr_t uint_lo = vecw_movemask(loader);
-      target_iter3[widx] = _pdep_u64(uint_hi, kMaskAAAA) | _pdep_u64(uint_lo, kMask5555);
-      loader = vecw_slli(loader, 1);
-      uint_hi = vecw_movemask(loader);
-      loader = vecw_slli(loader, 1);
-      uint_lo = vecw_movemask(loader);
-      target_iter2[widx] = _pdep_u64(uint_hi, kMaskAAAA) | _pdep_u64(uint_lo, kMask5555);
-      loader = vecw_slli(loader, 1);
-      uint_hi = vecw_movemask(loader);
-      loader = vecw_slli(loader, 1);
-      uint_lo = vecw_movemask(loader);
-      target_iter1[widx] = _pdep_u64(uint_hi, kMaskAAAA) | _pdep_u64(uint_lo, kMask5555);
-      loader = vecw_slli(loader, 1);
-      uint_hi = vecw_movemask(loader);
-      loader = vecw_slli(loader, 1);
-      uint_lo = vecw_movemask(loader);
-      target_iter0[widx] = _pdep_u64(uint_hi, kMaskAAAA) | _pdep_u64(uint_lo, kMask5555);
+  // go directly from 8 -> 2
+  const VecW* source_iter = S_CAST(VecW*, buf0);
+  const VecW m03 = VCONST_W(kMask0303);
+  const VecW gather_four = vecw_setr8(0, 4, 8, 12, -1, -1, -1, -1,
+                                      -1, -1, -1, -1, -1, -1, -1, -1);
+  const uint32_t write_u32_stride = write_ul_stride * 2;
+  const uint32_t vec_ct = DivUp(read_batch_size, kBytesPerVec);
+  uint32_t* target_iter0 = R_CAST(uint32_t*, write_iter);
+  // coincidentally, this also needs to run DivUp(write_batch_size, 4) times
+  for (uint32_t uii = 0; uii < initial_read_byte_ct; ++uii) {
+    uint32_t* target_iter1 = &(target_iter0[write_u32_stride]);
+    uint32_t* target_iter2 = &(target_iter1[write_u32_stride]);
+    uint32_t* target_iter3 = &(target_iter2[write_u32_stride]);
+    for (uint32_t vidx = 0; vidx < vec_ct; ++vidx) {
+      const VecW loader = source_iter[vidx];
+      VecW target0 = loader & m03;
+      VecW target1 = vecw_srli(loader, 2) & m03;
+      VecW target2 = vecw_srli(loader, 4) & m03;
+      VecW target3 = vecw_srli(loader, 6) & m03;
+      target0 = target0 | vecw_srli(target0, 12);
+      target1 = target1 | vecw_srli(target1, 12);
+      target2 = target2 | vecw_srli(target2, 12);
+      target3 = target3 | vecw_srli(target3, 12);
+      target0 = target0 | vecw_srli(target0, 6);
+      target1 = target1 | vecw_srli(target1, 6);
+      target2 = target2 | vecw_srli(target2, 6);
+      target3 = target3 | vecw_srli(target3, 6);
+      target0 = vecw_shuffle8(target0, gather_four);
+      target1 = vecw_shuffle8(target1, gather_four);
+      target2 = vecw_shuffle8(target2, gather_four);
+      target3 = vecw_shuffle8(target3, gather_four);
+#  ifdef USE_AVX2
+      target_iter0[2 * vidx] = _mm256_extract_epi32(R_CAST(__m256i, target0), 0);
+      target_iter0[2 * vidx + 1] = _mm256_extract_epi32(R_CAST(__m256i, target0), 4);
+      target_iter1[2 * vidx] = _mm256_extract_epi32(R_CAST(__m256i, target1), 0);
+      target_iter1[2 * vidx + 1] = _mm256_extract_epi32(R_CAST(__m256i, target1), 4);
+      target_iter2[2 * vidx] = _mm256_extract_epi32(R_CAST(__m256i, target2), 0);
+      target_iter2[2 * vidx + 1] = _mm256_extract_epi32(R_CAST(__m256i, target2), 4);
+      target_iter3[2 * vidx] = _mm256_extract_epi32(R_CAST(__m256i, target3), 0);
+      target_iter3[2 * vidx + 1] = _mm256_extract_epi32(R_CAST(__m256i, target3), 4);
+#  else
+      target_iter0[vidx] = _mm_extract_epi32(R_CAST(__m128i, target0), 0);
+      target_iter1[vidx] = _mm_extract_epi32(R_CAST(__m128i, target1), 0);
+      target_iter2[vidx] = _mm_extract_epi32(R_CAST(__m128i, target2), 0);
+      target_iter3[vidx] = _mm_extract_epi32(R_CAST(__m128i, target3), 0);
+#  endif
+      // could also process 2 vectors at a time and use _mm_extract_epi64();
+      // I suspect we run out of registers, though.
+      // In AVX2 case, we'd also need to save the int32s from the second lane.
     }
-    target_iter0 = &(target_iter3[write_ul_stride]);
+    source_iter = &(source_iter[kPglQuaterTransposeBatch / kBytesPerVec]);
+    target_iter0 = &(target_iter3[write_u32_stride]);
   }
 }
-#else  // !USE_AVX2
+#else  // !USE_SSE42
 #  ifdef __LP64__
 static_assert(kWordsPerVec == 2, "TransposeQuaterblock() needs to be updated.");
 #  else
 static_assert(kWordsPerVec == 1, "TransposeQuaterblock() needs to be updated.");
 #  endif
-void TransposeQuaterblockNoAvx2(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1) {
-  // buf must be vector-aligned and have size 32k
+void TransposeQuaterblockNoshuffle(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1) {
+  // buf0 and buf1 must each be vector-aligned and have size 16k
   // defining them as unsigned char* might prevent a strict-aliasing issue?
   // (might need to go through greater contortions to actually be safe?)
   const uint32_t initial_read_byte_ct = QuaterCtToByteCt(write_batch_size);
@@ -1456,8 +1416,10 @@ void TransposeQuaterblockNoAvx2(const uintptr_t* read_iter, uint32_t read_ul_str
       const VecW loader = *source_iter++;
       VecW target0 = loader & m4;
       VecW target1 = (vecw_srli(loader, 4)) & m4;
-      target0 = (target0 | (vecw_srli(target0, 4))) & m8;
-      target1 = (target1 | (vecw_srli(target1, 4))) & m8;
+      target0 = (target0 | (vecw_srli(target0, 4)));
+      target1 = (target1 | (vecw_srli(target1, 4)));
+      target0 = target0 & m8;
+      target1 = target1 & m8;
       target0 = (target0 | (vecw_srli(target0, 8))) & m16;
       target1 = (target1 | (vecw_srli(target1, 8))) & m16;
       UniVec target0u;
@@ -1504,14 +1466,15 @@ void TransposeQuaterblockNoAvx2(const uintptr_t* read_iter, uint32_t read_ul_str
     uintptr_t* target_iter1 = &(target_iter0[write_ul_stride]);
     for (uint32_t ujj = 0; ujj < write_word_ct; ++ujj) {
 #  ifdef __LP64__
-      // in AVX2 case, use write_dword_ct instead of write_word_ct, etc.
       const VecW loader = *source_iter++;
       VecW target0 = loader & m2;
       VecW target1 = (vecw_srli(loader, 2)) & m2;
       target0 = (target0 | (vecw_srli(target0, 2))) & m4;
       target1 = (target1 | (vecw_srli(target1, 2))) & m4;
-      target0 = (target0 | (vecw_srli(target0, 4))) & m8;
-      target1 = (target1 | (vecw_srli(target1, 4))) & m8;
+      target0 = (target0 | (vecw_srli(target0, 4)));
+      target1 = (target1 | (vecw_srli(target1, 4)));
+      target0 = target0 & m8;
+      target1 = target1 & m8;
       target0 = (target0 | (vecw_srli(target0, 8))) & m16;
       target1 = (target1 | (vecw_srli(target1, 8))) & m16;
       UniVec target0u;
@@ -1551,37 +1514,17 @@ void TransposeQuaterblockNoAvx2(const uintptr_t* read_iter, uint32_t read_ul_str
     target_iter0 = &(target_iter1[write_ul_stride]);
   }
 }
-#endif  // !USE_AVX2
+#endif  // !USE_SSE42
 
 void BiallelicDosage16Invert(uint32_t dosage_ct, uint16_t* dosage_main) {
   // replace each x with (32768 - x).
-  // uses vector operations, but does not require dosage_main to be
-  // vec-aligned.
-  const VecW subvec = VCONST_W(32768 * kMask0001);
-  const uint32_t lead_usi_ct = ((-R_CAST(uintptr_t, dosage_main)) % kBytesPerVec) / sizeof(int16_t);
-  if (dosage_ct >= lead_usi_ct) {
-    for (uint32_t uii = 0; uii < lead_usi_ct; ++uii) {
-      *dosage_main = 32768 - (*dosage_main);
-      ++dosage_main;
-    }
-    dosage_ct -= lead_usi_ct;
-    const uint32_t vec_ct = dosage_ct / (kBytesPerVec / sizeof(int16_t));
-    VecW* dosage_main_iter = R_CAST(VecW*, dosage_main);
-    for (uint32_t vec_idx = 0; vec_idx < vec_ct; ++vec_idx) {
-      const VecW cur_vec = *dosage_main_iter;
-      *dosage_main_iter++ = subvec - cur_vec;
-    }
-    dosage_main = &(dosage_main[vec_ct * (kBytesPerVec / sizeof(int16_t))]);
-    dosage_ct -= vec_ct * (kBytesPerVec / sizeof(int16_t));
-  }
+  // compiler is smart enough to vectorize this.
   for (uint32_t uii = 0; uii < dosage_ct; ++uii) {
     dosage_main[uii] = 32768 - dosage_main[uii];
   }
 }
 
 void BiallelicDphase16Invert(uint32_t dphase_ct, int16_t* dphase_delta) {
-  // todo: vectorize this (or maybe compiler is smart enough to do it
-  // automatically?)
   for (uint32_t uii = 0; uii < dphase_ct; ++uii) {
     dphase_delta[uii] = -dphase_delta[uii];
   }
@@ -1665,6 +1608,7 @@ void GenoarrLookup16x4bx2(const uintptr_t* genoarr, const void* table16x4bx2, ui
   }
 }
 
+// this is important for genovec -> AlleleCode expansion
 void GenoarrLookup256x2bx4(const uintptr_t* genoarr, const void* table256x2bx4, uint32_t sample_ct, void* __restrict result) {
   const uint64_t* table_alias = S_CAST(const uint64_t*, table256x2bx4);
   const unsigned char* genoarr_alias = R_CAST(const unsigned char*, genoarr);
@@ -3055,22 +2999,22 @@ uint32_t GetLdbaseVidx(const unsigned char* vrtypes, uint32_t cur_vidx) {
   const VecW* vrtypes_valias = R_CAST(const VecW*, vrtypes);
   const uint32_t cur_vidx_orig_remainder = cur_vidx % kBytesPerVec;
   uint32_t vidx_vec_idx = cur_vidx / kBytesPerVec;
-  MovemaskUint mmui = 0;
+  Vec8Uint v8ui = 0;
   if (cur_vidx_orig_remainder) {
     const VecW cur_vvec = vrtypes_valias[vidx_vec_idx];
     // non-ld: ((bit 2) OR (NOT bit 1))
     const VecW cur_vvec_bit2 = vecw_slli(cur_vvec, 5);
     const VecW inv_cur_vvec_bit1 = ~vecw_slli(cur_vvec, 6);
-    mmui = vecw_movemask(cur_vvec_bit2 | inv_cur_vvec_bit1);
-    mmui = bzhi(mmui, cur_vidx_orig_remainder);
+    v8ui = vecw_movemask(cur_vvec_bit2 | inv_cur_vvec_bit1);
+    v8ui = bzhi(v8ui, cur_vidx_orig_remainder);
   }
-  while (!mmui) {
+  while (!v8ui) {
     const VecW cur_vvec = vrtypes_valias[--vidx_vec_idx];
     const VecW cur_vvec_bit2 = vecw_slli(cur_vvec, 5);
     const VecW inv_cur_vvec_bit1 = ~vecw_slli(cur_vvec, 6);
-    mmui = vecw_movemask(cur_vvec_bit2 | inv_cur_vvec_bit1);
+    v8ui = vecw_movemask(cur_vvec_bit2 | inv_cur_vvec_bit1);
   }
-  return (vidx_vec_idx * kBytesPerVec) + bsru32(mmui);
+  return (vidx_vec_idx * kBytesPerVec) + bsru32(v8ui);
 #else
   const uintptr_t* vrtypes_walias = R_CAST(const uintptr_t*, vrtypes);
   const uint32_t cur_vidx_orig_remainder = cur_vidx % kBytesPerWord;
@@ -3681,7 +3625,7 @@ void PgrDifflistToGenovecUnsafe(const uintptr_t* __restrict raregeno, const uint
   const uint32_t vec_ct = QuaterCtToVecCt(sample_ct);
   // could just memset up to word boundary; this should be a bit more
   // vector-instruction-friendly, though?
-  memset(genovec, S_CAST(unsigned int, difflist_common_geno * 0x55), vec_ct * kBytesPerVec);
+  vecset(genovec, difflist_common_geno * kMask5555, vec_ct);
   const uintptr_t* raregeno_incr = raregeno;
   uint32_t difflist_idx = 0;
   uint32_t difflist_idx_stop = 0;
@@ -3730,7 +3674,7 @@ void PrunedDifflistToGenovecSubsetUnsafe(const uintptr_t* __restrict sample_incl
   // entries are valid.  Ok for trailing bits of raregeno to be nonzero.  Does
   // not zero out trailing bits of genovec.
   const uint32_t vec_ct = QuaterCtToVecCt(sample_ct);
-  memset(genovec, difflist_common_geno * 0x55, vec_ct * kBytesPerVec);
+  vecset(genovec, difflist_common_geno * kMask5555, vec_ct);
   if (!difflist_len) {
     return;
   }
@@ -3882,12 +3826,57 @@ PglErr ParseOnebitUnsafe(const unsigned char* fread_end, const unsigned char** f
   const uintptr_t common2_code = *((*fread_pp)++);
   const uintptr_t word_base = (common2_code / 4) * kMask5555;
   const uintptr_t common_code_delta = common2_code & 3;
+  uint32_t genovec_widx = 0;
+#if defined(__LP64__) && !defined(USE_AVX2)
+  // this is slower in AVX2 case
+  const uint32_t read_hw_ct = raw_sample_ct / kBitsPerWordD2;
+  if (read_hw_ct >= 2 * kWordsPerVec) {
+    const uint32_t read_vec_ct = raw_sample_ct / kBitsPerVec;
+    const VecW* fread_valias = R_CAST(const VecW*, *fread_pp);
+    const VecW m4 = VCONST_W(kMask0F0F);
+#  ifdef USE_SSE42
+    // 0, 1, 4, 5, 16, 17, 20, 21, 64, 65, 68, 69, 80, 81, 84, 85 if the codes
+    // are 0 and 1
+    const VecW lookup = {word_base + common_code_delta * 0x1514111005040100LLU,
+                         word_base + common_code_delta * 0x5554515045444140LLU};
+#  else
+    const VecW m1 = VCONST_W(kMask5555);
+    const VecW m2 = VCONST_W(kMask3333);
+    const VecW vec_base = VCONST_W(word_base);
+    const VecW vec_delta = VCONST_W(common_code_delta * kMask5555);
+#  endif
+    VecW* genovec_valias = R_CAST(VecW*, genovec);
+    for (uint32_t vidx = 0; vidx < read_vec_ct; ++vidx) {
+      const VecW cur_vec = vecw_loadu(&(fread_valias[vidx]));
+      const VecW vec_even = cur_vec & m4;
+      const VecW vec_odd = vecw_srli(cur_vec, 4) & m4;
+      VecW vec_lo = vecw_unpacklo8(vec_even, vec_odd);
+      VecW vec_hi = vecw_unpackhi8(vec_even, vec_odd);
+#  ifdef USE_SSE42
+      vec_lo = vecw_shuffle8(lookup, vec_lo);
+      vec_hi = vecw_shuffle8(lookup, vec_hi);
+#  else
+      // unpack bytes, then use as mask for vec_add.
+      vec_lo = (vec_lo | vecw_slli(vec_lo, 2)) & m2;
+      vec_hi = (vec_hi | vecw_slli(vec_hi, 2)) & m2;
+      vec_lo = (vec_lo | vecw_slli(vec_lo, 1)) & m1;
+      vec_hi = (vec_hi | vecw_slli(vec_hi, 1)) & m1;
+      vec_lo = vec_lo | vecw_slli(vec_lo, 1);
+      vec_hi = vec_hi | vecw_slli(vec_hi, 1);
+      vec_lo = vec_base + (vec_delta & vec_lo);
+      vec_hi = vec_base + (vec_delta & vec_hi);
+#  endif
+      genovec_valias[2 * vidx] = vec_lo;
+      genovec_valias[2 * vidx + 1] = vec_hi;
+    }
+    genovec_widx = read_vec_ct * (2 * kWordsPerVec);
+  }
+#endif
   const uint32_t genovec_widx_trail = (raw_sample_ct + 7) / kBitsPerWordD2;
   const uint32_t genovec_widx_end = QuaterCtToWordCt(raw_sample_ct);
-  uint32_t genovec_widx = 0;
-#ifdef __arm__
-#  error "Unaligned accesses in ParseOnebitUnsafe()."
-#endif
+#  ifdef __arm__
+#    error "Unaligned accesses in ParseOnebitUnsafe()."
+#  endif
   const Halfword* fread_alias = R_CAST(const Halfword*, *fread_pp);
   while (1) {
     uintptr_t ww;
@@ -3906,9 +3895,10 @@ PglErr ParseOnebitUnsafe(const unsigned char* fread_end, const unsigned char** f
     // 32-bit:
     //   *genovec_iter++ = word_base + (ww & kMask5555) * common_code_delta;
     //   *genovec_iter++ = word_base + ((ww >> 1) & kMask5555) * common_code_delta;
-    // (scrapped for now since the time savings don't seem to be worth the
-    // extra end-of-vector corner cases, apparently the extra operations here
-    // are sufficiently cheap, or even negative-cost in AVX2 case)
+    // (scrapped since the time savings don't seem to be worth the extra
+    // end-of-vector corner cases, apparently the extra operations here are
+    // sufficiently cheap, or even negative-cost in AVX2 case)
+
     ww = UnpackHalfwordToWord(ww);
     genovec[genovec_widx++] = word_base + ww * common_code_delta;
   }
@@ -3959,7 +3949,7 @@ PglErr ParseNonLdGenovecSubsetUnsafe(const unsigned char* fread_end, const uintp
   // This memset is frequently the limiting operation.  Probably not worth
   // worrying about before 2019 or so, but it suggests that the
   // DifflistOrGenovec interface shouldn't be abandoned.
-  memset(genovec, vrtype_low2 * 0x55, vec_ct * kBytesPerVec);
+  vecset(genovec, vrtype_low2 * kMask5555, vec_ct);
   return ParseAndApplyDifflistSubset(fread_end, sample_include, sample_include_cumulative_popcounts, sample_ct, fread_pp, pgrp, genovec);
 }
 
@@ -4153,7 +4143,7 @@ PglErr LdLoadAndCopyRawGenovec(uint32_t subsetting_required, uint32_t vidx, Pgen
       reterr = Parse1or2bitGenovecUnsafe(fread_end, vrtype, &fread_ptr, pgrp, raw_genovec);
     } else {
       const uint32_t vrtype_low2 = vrtype & 3;
-      memset(raw_genovec, vrtype_low2 * 0x55, genovec_byte_ct);
+      vecset(raw_genovec, vrtype_low2 * kMask5555, DivUp(genovec_byte_ct, kBytesPerVec));
       reterr = ParseAndApplyDifflist(fread_end, &fread_ptr, pgrp, raw_genovec);
     }
     memcpy(dest, raw_genovec, genovec_byte_ct);
@@ -4207,7 +4197,7 @@ PglErr ReadRawGenovec(uint32_t subsetting_required, uint32_t vidx, PgenReader* p
   } else {
     const uint32_t vrtype_low2 = vrtype & 3;
     const uint32_t vec_ct = QuaterCtToVecCt(raw_sample_ct);
-    memset(raw_genovec, vrtype_low2 * 0x55, vec_ct * kBytesPerVec);
+    vecset(raw_genovec, vrtype_low2 * kMask5555, vec_ct);
     reterr = ParseAndApplyDifflist(fread_end, fread_pp, pgrp, raw_genovec);
   }
   if (vrtype == kPglVrtypePlink1) {
@@ -4773,6 +4763,7 @@ PglErr CountparseOnebitSubset(const unsigned char* fread_end, const uintptr_t* _
     uint32_t remaining_deltas_in_subgroup = kBitsPerWordD2 - 1;
     if (subgroup_idx >= subgroup_idx_last) {
       if (subgroup_idx > subgroup_idx_last) {
+        // avoid read-after-write dependency?
         genocounts[geno_code_low] = sample_ct - high_geno_ct - genocounts[0] - genocounts[1] - genocounts[2] - genocounts[3];
         genocounts[geno_code_high] = high_geno_ct;
         return kPglRetSuccess;
@@ -4920,11 +4911,7 @@ PglErr GetBasicGenotypeCounts(const uintptr_t* __restrict sample_include, const 
       GenovecCountFreqs(R_CAST(const uintptr_t*, fread_ptr), raw_sample_ct, genocounts);
     }
   } else {
-    if (fread_ptr_unaligned) {
-      GenoarrCountSubsetFreqs(fread_ptr, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
-    } else {
-      GenovecCountSubsetFreqs(R_CAST(const uintptr_t*, fread_ptr), sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
-    }
+    GenoarrCountSubsetFreqs(fread_ptr, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
   }
   if (vrtype == kPglVrtypePlink1) {
     // [3] -> [0]
@@ -5853,7 +5840,6 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
     }
   }
 
-  // todo: phased dosage
 #ifndef NDEBUG
   const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
   const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
@@ -5945,7 +5931,7 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
         }
       }
       dosage_ct = raw_dosage_ct;
-      GenoarrCountSubsetFreqs2(tmp_genovec, raw_dosage_present, raw_sample_ct, raw_dosage_ct, replaced_genocounts);
+      GenovecCountSubsetFreqs2(tmp_genovec, raw_dosage_present, raw_sample_ct, raw_dosage_ct, replaced_genocounts);
     }
   }
   const uint32_t replaced_ct = replaced_genocounts[0] + replaced_genocounts[1] + replaced_genocounts[2];
@@ -6607,7 +6593,7 @@ BoolErr ValidateGeno(const unsigned char* fread_end, uint32_t vidx, PgenReader* 
   } else {
     const uint32_t vrtype_low2 = vrtype & 3;
     const uint32_t vec_ct = QuaterCtToVecCt(sample_ct);
-    memset(genovec, vrtype_low2 * 0x55, vec_ct * kBytesPerVec);
+    vecset(genovec, vrtype_low2 * kMask5555, vec_ct);
     if (unlikely(ValidateAndApplyDifflist(fread_end, 0, fread_pp, pgrp, genovec))) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid genotype difflist for (0-based) variant #%u.\n", vidx);
       return 1;
@@ -7830,10 +7816,7 @@ uint32_t SaveOnebit(const uintptr_t* __restrict genovec, uint32_t common2_code, 
 #  error "Unaligned accesses in SaveOnebit()."
 #endif
   Halfword* fwrite_bufp_alias_halfword = R_CAST(Halfword*, &(fwrite_bufp_start[1]));
-  for (uint32_t widx = 0; widx < word_read_ct; ++widx) {
-    const uintptr_t cur_buf_word = genovec_buf[widx] & kMask5555;
-    fwrite_bufp_alias_halfword[widx] = PackWordToHalfword(cur_buf_word);
-  }
+  PackWordsToHalfwordsMask(genovec_buf, word_read_ct, fwrite_bufp_alias_halfword);
   const uint32_t onebit_block_len = (sample_ct + 15) / CHAR_BIT;
   unsigned char* fwrite_bufp = Vint32Append(onebit_difflist_len, &(fwrite_bufp_start[onebit_block_len]));
   // the rest is almost identical to SaveLdDifflist()
@@ -8456,8 +8439,10 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
               // 2. bitwise or with right-shift-6
               // 3. bitwise or with right-shift-12
               // 4. _mm{256}_shuffle_epi8() gather from bytes 0, 4, 8, ...
-              // 5. unaligned write, don't move write pointer forward all the
-              //    way, copy [16..19] back to [4..7] in AVX2 case
+              // SSE4.2:
+              // 5. store result of _mm_extract_epi32(, 0)
+              // AVX2:
+              // 5. store results of _mm256_extract_epi32(, 0) and (, 4)
               cur_word |= S_CAST(uintptr_t, patch_01_vals_iter[uii] - 2) << (2 * uii);
             }
             write_alias[widx] = cur_word;
@@ -8480,7 +8465,9 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
             for (uint32_t uii = 0; uii < loop_len; ++uii) {
               // todo: replace this with parallel-subtract, followed by bitwise
               // or with right-shift-4, followed by _mm{256}_shuffle_epi8()
-              // gather from even bytes, followed by unaligned write
+              // gather from even bytes, followed by _mm{256}_extract_epi64()
+              // (or _mm256_permute4x64_epi64() followed by
+              // _mm256_extracti128_si256()?  test this.)
               // Or in non-SSE4.2 case, use end of PackWordToHalfword logic.
               cur_word |= S_CAST(uintptr_t, patch_01_vals_iter[uii] - 2) << (4 * uii);
             }
@@ -8636,6 +8623,9 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
       const AlleleCode* patch_10_vals_end = &(patch_10_vals[patch_10_ct * 2]);
       uintptr_t* genovec_hets = nullptr;
       uint32_t het_ct = genovec_het_ct;
+      // todo: try inverting this loop, at least in 64-bit case.  perform
+      // movemask-based scan for heterozygous patch_10_vals entries, then
+      // advance widx/detect_10 as needed.
       for (uint32_t widx = 0; widx < sample_ctl2; ++widx) {
         uintptr_t detect_10 = genovec[widx];
         detect_10 = (~detect_10) & (detect_10 >> 1) & kMask5555;
@@ -8649,6 +8639,8 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
                 memcpy(genovec_hets, genovec, sample_ctl2 * sizeof(intptr_t));
               }
               const uint32_t sample_idx_lowbits_x2 = ctzw(detect_10);
+
+              // clear high bit, set low bit
               genovec_hets[widx] ^= (3 * k1LU) << sample_idx_lowbits_x2;
               ++het_ct;
             }
@@ -8713,6 +8705,14 @@ void PglMultiallelicDenseToSparse(const AlleleCode* __restrict wide_codes, uint3
     uint32_t patch_01_hw = 0;
     uint32_t patch_10_hw = 0;
     for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < loop_len; ++sample_idx_lowbits) {
+      // todo: try making this movemask-based in 64-bit case
+      // parallel checks for equality-to-255, equality-to-0, inequality-to-1
+      // rarealts are inequality-to-1 and (not 0 or 255); can use ctzu32() and
+      // &= x - 1 to iterate
+      // hom-ref iff double-equality to 0
+      // het-ref iff low equality-to-0 bit set, high clear
+      // missing iff equality-to-255 (better be double)
+      // altx-alty otherwise
       const AlleleCode first_code = *wide_codes_iter++;
       const AlleleCode second_code = *wide_codes_iter++;
       uintptr_t cur_geno;

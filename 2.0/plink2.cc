@@ -61,10 +61,10 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (30 May 2018)";
+  " (5 Jun 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -7401,7 +7401,7 @@ int main(int argc, char** argv) {
           }
           pc.filter_flags |= kfFilterPvarReq | kfFilterSnpsOnly;
         } else if (strequal_k_unsafe(flagname_p2, "core")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 11))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 12))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.score_info.input_fname);
@@ -7434,6 +7434,8 @@ int main(int argc, char** argv) {
               pc.score_info.flags |= kfScoreSe;
             } else if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.score_info.flags |= kfScoreZs;
+            } else if (strequal_k(cur_modif, "ignore-dup-ids", cur_modif_slen)) {
+              pc.score_info.flags |= kfScoreIgnoreDupIds;
             } else if (strequal_k(cur_modif, "list-variants", cur_modif_slen)) {
               pc.score_info.flags |= kfScoreListVariants;
             } else if (strequal_k(cur_modif, "list-variants-zs", cur_modif_slen)) {

@@ -1986,6 +1986,7 @@ uint32_t NoFemaleMissing(const uintptr_t* genovec, const uintptr_t* dosage_prese
     }
   }
   const Halfword* sex_female_alias = R_CAST(const Halfword*, sex_female);
+  // todo: try vectorizing this loop
   for (uint32_t widx = 0; widx < sample_ctl2; ++widx) {
     const uintptr_t geno_word = genovec[widx];
     const uintptr_t cur_female_01 = UnpackHalfwordToWord(sex_female_alias[widx]);
