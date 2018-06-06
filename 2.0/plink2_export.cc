@@ -1937,7 +1937,7 @@ unsigned char* FillBgen13PloidyAndMissingness(const uintptr_t* genovec, const ui
       uint64_t cur_missing8 = cur_geno8 & (cur_geno8 >> 1);
 #ifdef USE_AVX2
       // 0,2,4,6...14 -> 7,15,23,...,63
-      // todo: try inverse-movemask
+      // todo: try inverse-movespreadmask
       cur_missing8 = _pext_u64(cur_missing8 & 0x5555, 8 * kMask1111);
 #else
       // 0,2,4,6,8,10,12,14 -> 0,2,4,6,32,34,36,38

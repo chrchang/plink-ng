@@ -771,7 +771,7 @@ HEADER_INLINE VecW vecw_shuffle8(VecW table, VecW indexes) {
   return R_CAST(VecW, _mm256_shuffle_epi8(R_CAST(__m256i, table), R_CAST(__m256i, indexes)));
 }
 
-#define kVec8UintMax UINT32_MAX
+#    define kVec8UintMax UINT32_MAX
 
 typedef uint32_t Vec8Uint;
 typedef uint64_t Vec4Uint;
@@ -900,7 +900,7 @@ HEADER_INLINE uint32_t vecuc_movemask(VecUc vv) {
 
 CONSTI32(kVec8UintMax, 65535);
 
-// #define kVec8UintMax 65535
+// #    define kVec8UintMax 65535
 
 typedef uint16_t Vec8Uint;
 typedef uint32_t Vec4Uint;
@@ -1041,7 +1041,7 @@ HEADER_INLINE VecW vecw_slli(VecW vv, uint32_t ct) {
 }
 
 HEADER_INLINE VecW vecw_loadu(const void* mem_addr) {
-  return *S_CAST(VecW*, mem_addr);
+  return *S_CAST(const VecW*, mem_addr);
 }
 #endif
 
@@ -1241,6 +1241,28 @@ HEADER_INLINE Halfword PackWordToHalfword(uintptr_t ww) {
 HEADER_INLINE Vec8Uint PackVec4UintToVec8(Vec4Uint ww) {
   return _pext_u64(ww, kMask5555);
 }
+
+// See https://stackoverflow.com/questions/21622212/how-to-perform-the-inverse-of-mm256-movemask-epi8-vpmovmskb .
+HEADER_INLINE __m256i InverseMovemaskFF(Vec8Uint mask) {
+  __m256i vmask = _mm256_set1_epi32(mask);
+  const __m256i byte_gather = _mm256_setr_epi64x(0, kMask0101, 2 * kMask0101, 3 * kMask0101);
+  vmask = _mm256_shuffle_epi8(vmask, byte_gather);
+  const __m256i bit_mask = _mm256_set1_epi64x(0x7fbfdfeff7fbfdfeLL);
+  vmask = _mm256_or_si256(vmask, bit_mask);
+  return _mm256_cmpeq_epi8(vmask, _mm256_set1_epi64x(-1));
+}
+
+// If we're only interested in the even bits of mask.  No need to mask out odd
+// bits before calling.
+HEADER_INLINE __m256i InverseMovespreadmaskFF(Vec4Uint mask) {
+  __m256i vmask = _mm256_set1_epi64x(mask);
+  const __m256i byte_gather = _mm256_setr_epi32(0, 0x01010101, 0x02020202, 0x03030303, 0x04040404, 0x05050505, 0x06060606, 0x07070707);
+  vmask = _mm256_shuffle_epi8(vmask, byte_gather);
+  const __m256i bit_mask = _mm256_set1_epi32(0xbfeffbfeU);
+  vmask = _mm256_or_si256(vmask, bit_mask);
+  return _mm256_cmpeq_epi8(vmask, _mm256_set1_epi64x(-1));
+}
+
 #else  // !USE_AVX2
 HEADER_INLINE uintptr_t UnpackHalfwordToWord(uintptr_t hw) {
 #  ifdef __LP64__
@@ -1281,6 +1303,27 @@ HEADER_INLINE Vec8Uint PackVec4UintToVec8(Vec4Uint ww) {
   ww = (ww | (ww >> 4)) & kMask00FF;
   return S_CAST(Vec8Uint, ww | (ww >> 8));
 }
+
+#    ifdef USE_SSE42
+HEADER_INLINE __m128i InverseMovemaskFF(Vec8Uint mask) {
+  __m128i vmask = _mm_set1_epi16(mask);
+  const __m128i byte_gather = _mm_setr_epi32(0, 0, 0x01010101, 0x01010101);
+  vmask = _mm_shuffle_epi8(vmask, byte_gather);
+  const __m128i bit_mask = _mm_set1_epi64x(0x7fbfdfeff7fbfdfeLL);
+  vmask = _mm_or_si128(vmask, bit_mask);
+  return _mm_cmpeq_epi8(vmask, _mm_set1_epi64x(-1));
+}
+
+HEADER_INLINE __m128i InverseMovespreadmaskFF(Vec4Uint mask) {
+  __m128i vmask = _mm_set1_epi32(mask);
+  const __m128i byte_gather = _mm_setr_epi32(0, 0x01010101, 0x02020202, 0x03030303);
+  vmask = _mm_shuffle_epi8(vmask, byte_gather);
+  const __m128i bit_mask = _mm_set1_epi32(0xbfeffbfeU);
+  vmask = _mm_or_si128(vmask, bit_mask);
+  return _mm_cmpeq_epi8(vmask, _mm_set1_epi64x(-1));
+}
+#    endif
+
 #  endif
 #endif  // !USE_AVX2
 

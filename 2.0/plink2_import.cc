@@ -824,7 +824,7 @@ typedef struct VcfImportContextBaseStruct {
   uint32_t gt_present;
   STD_ARRAY_DECL(uint32_t, 2, qual_field_skips);
   STD_ARRAY_DECL(int32_t, 2, qual_line_thresholds);
-  uint32_t qual_field_ct;
+  uint32_t qual_field_ct;  // must be set to zero if no qual fields
 } VcfImportBaseContext;
 
 typedef struct VcfImportContext {
@@ -2010,6 +2010,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       goto VcfToPgen_ret_INCONSISTENT_INPUT;
     }
     vic.vibc.sample_ct = sample_ct;
+    // bugfix (5 Jun 2018): must initialize qual_field_ct to zero
+    vic.vibc.qual_field_ct = 0;
 
     uint32_t variant_ct = 0;
     uintptr_t max_variant_ct = bigstack_left() / sizeof(intptr_t);
@@ -2231,6 +2233,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         if (format_gq_or_dp_relevant) {
           STD_ARRAY_DECL(uint32_t, 2, qual_field_idxs);
           uint32_t qual_field_ct = VcfQualScanInit1(linebuf_iter, format_end, vcf_min_gq, vcf_min_dp, qual_field_idxs);
+          // bugfix (5 Jun 2018): must initialize qual_field_ct to zero
+          vic.vibc.qual_field_ct = 0;
           if (qual_field_ct) {
             vic.vibc.qual_field_ct = VcfQualScanInit2(qual_field_idxs, g_qual_thresholds, vic.vibc.qual_field_skips, vic.vibc.qual_line_thresholds);
           }
