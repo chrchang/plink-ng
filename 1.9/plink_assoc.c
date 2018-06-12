@@ -2379,16 +2379,16 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
       gpui = &(precomp_ui[4 * precomp_width * marker_bidx]);
       success_2start = perm_2success_ct[marker_idx];
       success_2incr = 0;
+      if (orig_pvals[marker_idx] == -9) {
+        perm_adapt_stop[marker_idx] = 1;
+        perm_attempt_ct[marker_idx] = next_adapt_check;
+        perm_2success_ct[marker_idx] = next_adapt_check;
+        continue;
+      }
       if (model_fisher) {
 	stat_high = orig_pvals[marker_idx] * (1.0 + EPSILON);
 	stat_low = orig_pvals[marker_idx] * (1.0 - EPSILON);
       } else {
-	if (orig_pvals[marker_idx] == -9) {
-	  perm_adapt_stop[marker_idx] = 1;
-	  perm_attempt_ct[marker_idx] = next_adapt_check;
-	  perm_2success_ct[marker_idx] = next_adapt_check;
-	  continue;
-	}
 	stat_high = orig_chisq[marker_idx] + EPSILON;
 	stat_low = orig_chisq[marker_idx] - EPSILON;
       }
@@ -2582,19 +2582,19 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
       msa_ptr = &(mperm_save_all[marker_idx * perm_vec_ct]);
     }
     for (; marker_bidx < marker_bceil; marker_bidx++) {
+      if (orig_pvals[marker_idx] == -9) {
+        if (msa_ptr) {
+          for (pidx = 0; pidx < perm_vec_ct; pidx++) {
+            *msa_ptr++ = -9;
+          }
+        }
+        perm_2success_ct[marker_idx++] += perm_vec_ct;
+        continue;
+      }
       if (model_fisher) {
 	stat_high = orig_pvals[marker_idx] * (1.0 + EPSILON);
 	stat_low = orig_pvals[marker_idx] * (1.0 - EPSILON);
       } else {
-	if (g_orig_pvals[marker_idx] == -9) {
-	  if (msa_ptr) {
-	    for (pidx = 0; pidx < perm_vec_ct; pidx++) {
-	      *msa_ptr++ = -9;
-	    }
-	  }
-	  perm_2success_ct[marker_idx++] += perm_vec_ct;
-	  continue;
-	}
 	stat_high = orig_chisq[marker_idx] + EPSILON;
 	stat_low = orig_chisq[marker_idx] - EPSILON;
       }
@@ -3767,19 +3767,19 @@ THREAD_RET_TYPE model_adapt_domrec_thread(void* arg) {
     for (; marker_bidx < marker_bceil; marker_bidx++) {
       marker_idx = g_adapt_m_table[marker_bidx];
       if (model_fisher) {
-	if (orig_pvals[marker_idx] == -9) {
-	  perm_adapt_stop[marker_idx] = 1;
-	  perm_attempt_ct[marker_idx] = 0;
-	  continue;
-	}
+        if (orig_pvals[marker_idx] == -9) {
+          perm_adapt_stop[marker_idx] = 1;
+          perm_attempt_ct[marker_idx] = 0;
+          continue;
+        }
 	stat_high = orig_pvals[marker_idx] * (1.0 + EPSILON);
 	stat_low = orig_pvals[marker_idx] * (1.0 - EPSILON);
       } else {
-	if (orig_chisq[marker_idx] == -9) {
-	  perm_adapt_stop[marker_idx] = 1;
-	  perm_attempt_ct[marker_idx] = 0;
-	  continue;
-	}
+        if (orig_chisq[marker_idx] == -9) {
+          perm_adapt_stop[marker_idx] = 1;
+          perm_attempt_ct[marker_idx] = 0;
+          continue;
+        }
 	stat_high = orig_chisq[marker_idx] + EPSILON;
 	stat_low = orig_chisq[marker_idx] - EPSILON;
       }
@@ -4652,19 +4652,19 @@ THREAD_RET_TYPE model_adapt_gen_thread(void* arg) {
     for (; marker_bidx < marker_bceil; marker_bidx++) {
       marker_idx = g_adapt_m_table[marker_bidx];
       if (model_fisher) {
-	if (orig_pvals[marker_idx] == -9) {
-	  perm_adapt_stop[marker_idx] = 1;
-	  perm_attempt_ct[marker_idx] = 0;
-	  continue;
-	}
+        if (orig_pvals[marker_idx] == -9) {
+          perm_adapt_stop[marker_idx] = 1;
+          perm_attempt_ct[marker_idx] = 0;
+          continue;
+        }
 	stat_high = orig_pvals[marker_idx] * (1.0 + EPSILON);
 	stat_low = orig_pvals[marker_idx] * (1.0 - EPSILON);
       } else {
-	if (orig_chisq[marker_idx] == -9) {
-	  perm_adapt_stop[marker_idx] = 1;
-	  perm_attempt_ct[marker_idx] = 0;
-	  continue;
-	}
+        if (orig_chisq[marker_idx] == -9) {
+          perm_adapt_stop[marker_idx] = 1;
+          perm_attempt_ct[marker_idx] = 0;
+          continue;
+        }
 	stat_high = orig_chisq[marker_idx] + EPSILON;
 	stat_low = orig_chisq[marker_idx] - EPSILON;
       }
@@ -5001,6 +5001,11 @@ THREAD_RET_TYPE model_adapt_best_thread(void* arg) {
     for (; marker_bidx < marker_bceil; marker_bidx++) {
       marker_idx = g_adapt_m_table[marker_bidx];
       if (model_fisher) {
+        if (orig_pvals[marker_idx] == -9) {
+	  perm_adapt_stop[marker_idx] = 1;
+	  perm_attempt_ct[marker_idx] = 0;
+	  continue;
+        }
 	stat_high = orig_pvals[marker_idx] * (1.0 + EPSILON);
 	stat_low = orig_pvals[marker_idx] * (1.0 - EPSILON);
       } else {
@@ -5263,6 +5268,10 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
     }
     for (; marker_bidx < marker_bceil; marker_bidx++) {
       if (model_fisher) {
+	if (orig_pvals[marker_idx] == -9) {
+	  marker_idx++;
+	  continue;
+	}
 	stat_high = orig_pvals[marker_idx] * (1.0 + EPSILON);
 	stat_low = orig_pvals[marker_idx] * (1.0 - EPSILON);
 	default_best_stat = 1;
@@ -6751,24 +6760,34 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	  du1 = ujj;
 	  du2 = uii;
 	  if (model_fisher) {
-	    pval = fisher22(uii, ujj, ukk, umm, fisher_midp);
+            // bugfix (12 Jun 2018): If MAF is zero, test should not be
+            // considered valid for --adjust or permutation testing purposes.
+            // plink 1.07 got this right, but in a wrong way: it considered
+            // *all* Fisher's-exact-test p-values of 1 to be invalid tests.  So
+            // we don't generally want to match its output (even before
+            // considering the problems with its fisher22 routine).
+            if ((umm + ujj) && (ukk + uii)) {
+              pval = fisher22(uii, ujj, ukk, umm, fisher_midp);
+            } else {
+              pval = -9;
+            }
 	    *orig_pvals_ptr = pval;
 	  } else {
-	    if ((!umm) && (!ujj)) {
-	      *orig_pvals_ptr = -9;
-	      pval = -1;
-	      dxx = 0;
-	      if (fill_orig_chisq) {
-		orig_chisq[marker_idx + marker_bidx] = -9;
-	      }
-	    } else {
+	    if ((umm + ujj) && (ukk + uii)) {
 	      dxx = chi22_eval(ukk, ukk + umm, uii + ukk, uii + ujj + ukk + umm);
 	      pval = chiprob_p(dxx, 1);
 	      *orig_pvals_ptr = pval;
 	      if (fill_orig_chisq) {
 		orig_chisq[marker_idx + marker_bidx] = dxx;
 	      }
-	    }
+	    } else {
+	      *orig_pvals_ptr = -9;
+	      pval = -1;
+	      dxx = 0;
+	      if (fill_orig_chisq) {
+		orig_chisq[marker_idx + marker_bidx] = -9;
+	      }
+            }
 	  }
 	  *ooptr = (da1 * du2) / (du1 * da2);
 	  if ((pfilter == 2.0) || ((pval <= pfilter) && (pval >= 0.0))) {
@@ -6803,7 +6822,11 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	    wptr = fw_strcpy(4, a2ptr, &(wptr[1]));
 	    *wptr++ = ' ';
 	    if (model_fisher) {
-	      wptr = dtoa_g_wxp4(MAXV(pval, output_min_p), 12, wptr);
+              if (pval == -9) {
+                wptr = memcpya(wptr, "           1", 12);
+              } else {
+                wptr = dtoa_g_wxp4(MAXV(pval, output_min_p), 12, wptr);
+              }
 	    } else {
 	      if (pval > -1) {
 		wptr = dtoa_g_wxp4x(dxx, 12, ' ', wptr);
@@ -10165,6 +10188,9 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
     }
     uii = popcount_longs_intersect(missing_bitfield, cur_pheno_c_collapsed, cur_sample_ctl);
     ujj = missing_ct - uii;
+    // todo: we don't want to treat MAF-0 as a valid test.  check plink 1.07
+    // behavior; if it treats MAF-0 as valid here, leave this code unchanged
+    // but definitely change plink 2.0 implementation.
     pval = fisher22(uii, ujj, cur_case_ct - uii, cur_ctrl_ct - ujj, midp);
     *dptr++ = pval;
     if (!(pval <= pfilter)) {
