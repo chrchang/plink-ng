@@ -10188,9 +10188,6 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
     }
     uii = popcount_longs_intersect(missing_bitfield, cur_pheno_c_collapsed, cur_sample_ctl);
     ujj = missing_ct - uii;
-    // todo: we don't want to treat MAF-0 as a valid test.  check plink 1.07
-    // behavior; if it treats MAF-0 as valid here, leave this code unchanged
-    // but definitely change plink 2.0 implementation.
     pval = fisher22(uii, ujj, cur_case_ct - uii, cur_ctrl_ct - ujj, midp);
     *dptr++ = pval;
     if (!(pval <= pfilter)) {
