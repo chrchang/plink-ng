@@ -607,7 +607,7 @@ HEADER_INLINE uint32_t bsrw(unsigned long ulii) {
 // when using gcc 4.4.
 //
 // Biggest thing to watch out for is mixing of Halfword with these constants in
-// 32-bit builds.  Dosage and Vec8Uint are also relevant.)
+// 32-bit builds.  Dosage and Vec8thUint are also relevant.)
 #ifdef __cplusplus
 #  define CONSTI32(name, expr) const int32_t name = (expr)
 #else
@@ -771,10 +771,10 @@ HEADER_INLINE VecW vecw_shuffle8(VecW table, VecW indexes) {
   return R_CAST(VecW, _mm256_shuffle_epi8(R_CAST(__m256i, table), R_CAST(__m256i, indexes)));
 }
 
-#    define kVec8UintMax UINT32_MAX
+#    define kVec8thUintMax UINT32_MAX
 
-typedef uint32_t Vec8Uint;
-typedef uint64_t Vec4Uint;
+typedef uint32_t Vec8thUint;
+typedef uint64_t Vec4thUint;
 
 HEADER_INLINE VecW vecw_loadu(const void* mem_addr) {
   return R_CAST(VecW, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
@@ -898,12 +898,12 @@ HEADER_INLINE uint32_t vecuc_movemask(VecUc vv) {
   return _mm_movemask_epi8(R_CAST(__m128i, vv));
 }
 
-CONSTI32(kVec8UintMax, 65535);
+CONSTI32(kVec8thUintMax, 65535);
 
-// #    define kVec8UintMax 65535
+// #    define kVec8thUintMax 65535
 
-typedef uint16_t Vec8Uint;
-typedef uint32_t Vec4Uint;
+typedef uint16_t Vec8thUint;
+typedef uint32_t Vec4thUint;
 
 HEADER_INLINE VecW vecw_loadu(const void* mem_addr) {
   return R_CAST(VecW, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
@@ -983,7 +983,7 @@ HEADER_INLINE VecI16 veci16_max(VecI16 v1, VecI16 v2) {
 
 #  endif
 
-CONSTI32(kVec8UintPerWord, sizeof(intptr_t) / sizeof(Vec8Uint));
+CONSTI32(kVec8thUintPerWord, sizeof(intptr_t) / sizeof(Vec8thUint));
 
 #  ifdef FVEC_32
 
@@ -1229,7 +1229,7 @@ HEADER_INLINE uintptr_t UnpackHalfwordToWordShift1(uintptr_t hw) {
   return _pdep_u64(hw, kMaskAAAA);
 }
 
-HEADER_INLINE Vec4Uint UnpackVec8UintToVec4(Vec8Uint hw) {
+HEADER_INLINE Vec4thUint UnpackVec8thUintTo4th(Vec8thUint hw) {
   return _pdep_u64(hw, kMask5555);
 }
 
@@ -1238,12 +1238,12 @@ HEADER_INLINE Halfword PackWordToHalfword(uintptr_t ww) {
   return _pext_u64(ww, kMask5555);
 }
 
-HEADER_INLINE Vec8Uint PackVec4UintToVec8(Vec4Uint ww) {
+HEADER_INLINE Vec8thUint PackVec4thUintTo8th(Vec4thUint ww) {
   return _pext_u64(ww, kMask5555);
 }
 
 // See https://stackoverflow.com/questions/21622212/how-to-perform-the-inverse-of-mm256-movemask-epi8-vpmovmskb .
-HEADER_INLINE __m256i InverseMovemaskFF(Vec8Uint mask) {
+HEADER_INLINE __m256i InverseMovemaskFF(Vec8thUint mask) {
   __m256i vmask = _mm256_set1_epi32(mask);
   const __m256i byte_gather = _mm256_setr_epi64x(0, kMask0101, 2 * kMask0101, 3 * kMask0101);
   vmask = _mm256_shuffle_epi8(vmask, byte_gather);
@@ -1254,7 +1254,7 @@ HEADER_INLINE __m256i InverseMovemaskFF(Vec8Uint mask) {
 
 // If we're only interested in the even bits of mask.  No need to mask out odd
 // bits before calling.
-HEADER_INLINE __m256i InverseMovespreadmaskFF(Vec4Uint mask) {
+HEADER_INLINE __m256i InverseMovespreadmaskFF(Vec4thUint mask) {
   __m256i vmask = _mm256_set1_epi64x(mask);
   const __m256i byte_gather = _mm256_setr_epi32(0, 0x01010101, 0x02020202, 0x03030303, 0x04040404, 0x05050505, 0x06060606, 0x07070707);
   vmask = _mm256_shuffle_epi8(vmask, byte_gather);
@@ -1290,22 +1290,22 @@ HEADER_INLINE Halfword PackWordToHalfword(uintptr_t ww) {
 }
 
 #  ifdef __LP64__
-HEADER_INLINE Vec4Uint UnpackVec8UintToVec4(Vec8Uint hw) {
+HEADER_INLINE Vec4thUint UnpackVec8thUintTo4th(Vec8thUint hw) {
   hw = (hw | (hw << 8)) & 0x00ff00ffU;
   hw = (hw | (hw << 4)) & 0x0f0f0f0fU;
   hw = (hw | (hw << 2)) & 0x33333333U;
   return (hw | (hw << 1)) & 0x55555555U;
 }
 
-HEADER_INLINE Vec8Uint PackVec4UintToVec8(Vec4Uint ww) {
+HEADER_INLINE Vec8thUint PackVec4thUintTo8th(Vec4thUint ww) {
   ww = (ww | (ww >> 1)) & kMask3333;
   ww = (ww | (ww >> 2)) & kMask0F0F;
   ww = (ww | (ww >> 4)) & kMask00FF;
-  return S_CAST(Vec8Uint, ww | (ww >> 8));
+  return S_CAST(Vec8thUint, ww | (ww >> 8));
 }
 
 #    ifdef USE_SSE42
-HEADER_INLINE __m128i InverseMovemaskFF(Vec8Uint mask) {
+HEADER_INLINE __m128i InverseMovemaskFF(Vec8thUint mask) {
   __m128i vmask = _mm_set1_epi16(mask);
   const __m128i byte_gather = _mm_setr_epi32(0, 0, 0x01010101, 0x01010101);
   vmask = _mm_shuffle_epi8(vmask, byte_gather);
@@ -1314,7 +1314,7 @@ HEADER_INLINE __m128i InverseMovemaskFF(Vec8Uint mask) {
   return _mm_cmpeq_epi8(vmask, _mm_set1_epi64x(-1));
 }
 
-HEADER_INLINE __m128i InverseMovespreadmaskFF(Vec4Uint mask) {
+HEADER_INLINE __m128i InverseMovespreadmaskFF(Vec4thUint mask) {
   __m128i vmask = _mm_set1_epi32(mask);
   const __m128i byte_gather = _mm_setr_epi32(0, 0x01010101, 0x02020202, 0x03030303);
   vmask = _mm_shuffle_epi8(vmask, byte_gather);
@@ -1532,21 +1532,6 @@ HEADER_INLINE unsigned char* memsetua(void* target, unsigned char val, uintptr_t
   return &(S_CAST(unsigned char*, target)[ct]);
 }
 
-HEADER_INLINE char* memcpya(void* __restrict target, const void* __restrict source, uintptr_t ct) {
-  memcpy(target, source, ct);
-  return &(S_CAST(char*, target)[ct]);
-}
-
-HEADER_INLINE unsigned char* memcpyua(void* __restrict target, const void* __restrict source, uintptr_t ct) {
-  memcpy(target, source, ct);
-  return &(S_CAST(unsigned char*, target)[ct]);
-}
-
-HEADER_INLINE void AppendU32(uint32_t uii, unsigned char** targetp) {
-  memcpy(*targetp, &uii, sizeof(int32_t));
-  *targetp += sizeof(int32_t);
-}
-
 HEADER_CINLINE uintptr_t BitCtToVecCt(uintptr_t val) {
   return DivUp(val, kBitsPerVec);
 }
@@ -1720,11 +1705,11 @@ HEADER_INLINE uint32_t Popcount4Words(uintptr_t val0, uintptr_t val1, uintptr_t 
 
 #ifdef __LP64__
 #  ifdef USE_SSE42
-HEADER_INLINE uint32_t PopcountVec8Uint(uint32_t val) {
+HEADER_INLINE uint32_t PopcountVec8thUint(uint32_t val) {
   return __builtin_popcount(val);
 }
 #  else
-HEADER_INLINE uint32_t PopcountVec8Uint(uint32_t val) {
+HEADER_INLINE uint32_t PopcountVec8thUint(uint32_t val) {
   // May as well exploit the fact that only the low 15 bits may be set.
   val = val - ((val >> 1) & 0x5555);
   val = (val & 0x3333) + ((val >> 2) & 0x3333);
@@ -1864,29 +1849,29 @@ HEADER_INLINE uintptr_t PopcountWords(const uintptr_t* bitvec, uintptr_t word_ct
 // ct must be less than sizeof(intptr_t).  ct == 0 handled correctly, albeit
 // inefficiently.
 HEADER_INLINE uintptr_t ProperSubwordLoad(const void* bytearr, uint32_t ct) {
-  const unsigned char* bytearr_iter = S_CAST(const unsigned char*, bytearr);
-  bytearr_iter = &(bytearr_iter[ct]);
-  uintptr_t cur_word = 0;
-  if (ct & 1) {
-    cur_word = *(--bytearr_iter);
-  }
+  const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
 #ifdef __LP64__
-  if (ct & 2) {
-    cur_word <<= 16;
-    bytearr_iter = &(bytearr_iter[-2]);
-    cur_word |= *R_CAST(const uint16_t*, bytearr_iter);
-  }
-  if (ct & 4) {
-    cur_word <<= 32;
-    cur_word |= *S_CAST(const uint32_t*, bytearr);
-  }
-#else
-  if (ct & 2) {
-    cur_word <<= 16;
-    cur_word |= *S_CAST(const uint16_t*, bytearr);
+  if (ct >= 4) {
+    const uint32_t remainder = ct - 4;
+    bytearr_uc = &(bytearr_uc[remainder]);
+    uintptr_t cur_word = *R_CAST(const uint32_t*, bytearr_uc);
+    if (remainder) {
+      cur_word <<= remainder * CHAR_BIT;
+      cur_word |= *S_CAST(const uint32_t*, bytearr);
+    }
+    return cur_word;
   }
 #endif
-  return cur_word;
+  if (ct >= 2) {
+    const uint32_t remainder = ct & 1;
+    uintptr_t cur_word = *R_CAST(const uint16_t*, &(bytearr_uc[remainder]));
+    if (remainder) {
+      cur_word <<= 8;
+      cur_word |= bytearr_uc[0];
+    }
+    return cur_word;
+  }
+  return ct? bytearr_uc[0] : 0;
 }
 
 HEADER_INLINE uintptr_t SubwordLoad(const void* bytearr, uint32_t ct) {
@@ -1916,24 +1901,26 @@ HEADER_INLINE uint32_t SubU32Load(const void* bytearr, uint32_t ct) {
 // tried making this non-inline, loop took more than 50% longer
 HEADER_INLINE void ProperSubwordStore(uintptr_t cur_word, uint32_t byte_ct, void* target) {
   unsigned char* target_iter = S_CAST(unsigned char*, target);
+#ifdef __LP64__
+  if (byte_ct >= 4) {
+    *R_CAST(uint32_t*, target_iter) = cur_word;
+    if (byte_ct == 4) {
+      return;
+    }
+    const uint32_t remainder = byte_ct - 4;
+    target_iter = &(target_iter[remainder]);
+    cur_word >>= remainder * CHAR_BIT;
+    *R_CAST(uint32_t*, target_iter) = cur_word;
+    return;
+  }
+#endif
   if (byte_ct & 1) {
     *target_iter++ = cur_word;
     cur_word >>= 8;
   }
-#ifdef __LP64__
-  if (byte_ct & 2) {
-    *R_CAST(uint16_t*, target_iter) = cur_word;
-    cur_word >>= 16;
-    target_iter = &(target_iter[2]);
-  }
-  if (byte_ct & 4) {
-    *R_CAST(uint32_t*, target_iter) = S_CAST(uint32_t, cur_word);
-  }
-#else
   if (byte_ct & 2) {
     *R_CAST(uint16_t*, target_iter) = cur_word;
   }
-#endif
 }
 
 HEADER_INLINE void ProperSubwordStoreMov(uintptr_t cur_word, uint32_t byte_ct, unsigned char** targetp) {
@@ -2074,6 +2061,375 @@ HEADER_INLINE void vecaligned_free_cond(void* aligned_ptr) {
 #endif
 
 
+#ifdef __LP64__
+int32_t memequal(const void* m1, const void* m2, uintptr_t byte_ct);
+#else
+HEADER_INLINE int32_t memequal(const void* m1, const void* m2, uintptr_t ct) {
+  return !memcmp(m1, m2, ct);
+}
+#endif
+
+HEADER_INLINE char* memcpya(void* __restrict target, const void* __restrict source, uintptr_t ct) {
+  memcpy(target, source, ct);
+  return &(S_CAST(char*, target)[ct]);
+}
+
+HEADER_INLINE unsigned char* memcpyua(void* __restrict target, const void* __restrict source, uintptr_t ct) {
+  memcpy(target, source, ct);
+  return &(S_CAST(unsigned char*, target)[ct]);
+}
+
+HEADER_INLINE void AppendU32(uint32_t uii, unsigned char** targetp) {
+  memcpy(*targetp, &uii, sizeof(int32_t));
+  *targetp += sizeof(int32_t);
+}
+
+// Tried beating memcpy for usually-small strings not known to have length <=
+// 8, gave up.
+
+#if defined(__LP64__) && defined(__cplusplus)
+// See https://stackoverflow.com/questions/9510514/integer-range-based-template-specialisation .
+
+template <bool> struct TRange;
+
+// This makes MemequalKImpl<byte_ct> expand to
+// MemequalKImpl<byte_ct, TRange<true> >.
+// If a later single-parameter template defines the same thing, that takes
+// precedence.
+template <uint32_t N, typename = TRange<true> > struct MemequalKImpl {
+  static int32_t MemequalK(const void* m1, const void* m2) {
+    return memequal(m1, m2, N);
+  }
+};
+
+template <> struct MemequalKImpl<1> {
+  static int32_t MemequalK(const void* m1, const void* m2) {
+    const unsigned char* m1_uc = S_CAST(const unsigned char*, m1);
+    const unsigned char* m2_uc = S_CAST(const unsigned char*, m2);
+    return (m1_uc[0] == m2_uc[0]);
+  }
+};
+
+template <> struct MemequalKImpl<2> {
+  static int32_t MemequalK(const void* m1, const void* m2) {
+    return ((*R_CAST(const uint16_t*, m1)) == (*R_CAST(const uint16_t*, m2)));
+  }
+};
+
+template <> struct MemequalKImpl<3> {
+  static int32_t MemequalK(const void* m1, const void* m2) {
+    const unsigned char* m1_uc = S_CAST(const unsigned char*, m1);
+    const unsigned char* m2_uc = S_CAST(const unsigned char*, m2);
+    return
+      ((*R_CAST(const uint16_t*, m1)) == (*R_CAST(const uint16_t*, m2))) &&
+      (m1_uc[2] == m2_uc[2]);
+  }
+};
+
+template <> struct MemequalKImpl<4> {
+  static int32_t MemequalK(const void* m1, const void* m2) {
+    return ((*R_CAST(const uint32_t*, m1)) == (*R_CAST(const uint32_t*, m2)));
+  }
+};
+
+template <uint32_t N> struct MemequalKImpl<N, TRange<(5 <= N) && (N <= 7)> > {
+  static int32_t MemequalK(const void* m1, const void* m2) {
+    const unsigned char* m1_uc = S_CAST(const unsigned char*, m1);
+    const unsigned char* m2_uc = S_CAST(const unsigned char*, m2);
+    return
+      ((*R_CAST(const uint32_t*, m1)) == (*R_CAST(const uint32_t*, m2))) &&
+      ((*R_CAST(const uint32_t*, &(m1_uc[N - 4]))) == (*R_CAST(const uint32_t*, &(m2_uc[N - 4]))));
+  }
+};
+
+template <> struct MemequalKImpl<8> {
+  static int32_t MemequalK(const void* m1, const void* m2) {
+    return ((*R_CAST(const uint64_t*, m1)) == (*R_CAST(const uint64_t*, m2)));
+  }
+};
+
+template <uint32_t N> struct MemequalKImpl<N, TRange<(9 <= N) && (N <= 15)> > {
+  static int32_t MemequalK(const void* m1, const void* m2) {
+    const unsigned char* m1_uc = S_CAST(const unsigned char*, m1);
+    const unsigned char* m2_uc = S_CAST(const unsigned char*, m2);
+    return
+      ((*R_CAST(const uint64_t*, m1)) == (*R_CAST(const uint64_t*, m2))) &&
+      ((*R_CAST(const uint64_t*, &(m1_uc[N - 8]))) == (*R_CAST(const uint64_t*, &(m2_uc[N - 8]))));
+  }
+};
+
+template <> struct MemequalKImpl<16> {
+  static int32_t MemequalK(const void* m1, const void* m2) {
+    const __m128i v1 = _mm_loadu_si128(S_CAST(const __m128i*, m1));
+    const __m128i v2 = _mm_loadu_si128(S_CAST(const __m128i*, m2));
+    return (_mm_movemask_epi8(_mm_cmpeq_epi8(v1, v2)) == 65535);
+  }
+};
+
+template <uint32_t N> struct MemequalKImpl<N, TRange<(17 <= N) && (N <= 24)> > {
+  static int32_t MemequalK(const void* m1, const void* m2) {
+    const unsigned char* m1_uc = S_CAST(const unsigned char*, m1);
+    const unsigned char* m2_uc = S_CAST(const unsigned char*, m2);
+    const __m128i v1 = _mm_loadu_si128(S_CAST(const __m128i*, m1));
+    const __m128i v2 = _mm_loadu_si128(S_CAST(const __m128i*, m2));
+    return
+      (_mm_movemask_epi8(_mm_cmpeq_epi8(v1, v2)) == 65535) &&
+      ((*R_CAST(const uint64_t*, &(m1_uc[N - 8]))) == (*R_CAST(const uint64_t*, &(m2_uc[N - 8]))));
+  }
+};
+
+template <uint32_t N> struct MemequalKImpl<N, TRange<(25 <= N) && (N <= 31)> > {
+  static int32_t MemequalK(const void* m1, const void* m2) {
+    __m128i v1 = _mm_loadu_si128(S_CAST(const __m128i*, m1));
+    __m128i v2 = _mm_loadu_si128(S_CAST(const __m128i*, m2));
+    if (_mm_movemask_epi8(_mm_cmpeq_epi8(v1, v2)) != 65535) {
+      return 0;
+    }
+    const unsigned char* m1_uc = S_CAST(const unsigned char*, m1);
+    const unsigned char* m2_uc = S_CAST(const unsigned char*, m2);
+    v1 = _mm_loadu_si128(R_CAST(const __m128i*, &(m1_uc[N - 16])));
+    v2 = _mm_loadu_si128(R_CAST(const __m128i*, &(m2_uc[N - 16])));
+    return (_mm_movemask_epi8(_mm_cmpeq_epi8(v1, v2)) == 65535);
+  }
+};
+
+#  define memequal_k(m1, m2, byte_ct) MemequalKImpl<byte_ct>::MemequalK(m1, m2)
+
+template <uint32_t N, typename = TRange<true> > struct MemcpyKImpl {
+  static void MemcpyK(void* __restrict dst, const void* __restrict src) {
+    memcpy(dst, src, N);
+  }
+};
+
+// Patch a bunch of cases where we know OS X/clang sometimes generates
+// suboptimal code.  (Since this code is shamelessly x86-specific, we don't
+// worry about the formal undefinedness of unaligned pointer dereferences
+// here.)
+template <> struct MemcpyKImpl<2> {
+  static void MemcpyK(void* __restrict dst, const void* __restrict src) {
+    *S_CAST(uint16_t*, dst) = *S_CAST(const uint16_t*, src);
+  }
+};
+
+template <> struct MemcpyKImpl<3> {
+  static void MemcpyK(void* __restrict dst, const void* __restrict src) {
+    unsigned char* dst_uc = S_CAST(unsigned char*, dst);
+    const unsigned char* src_uc = S_CAST(const unsigned char*, src);
+    *S_CAST(uint16_t*, dst) = *S_CAST(const uint16_t*, src);
+    dst_uc[2] = src_uc[2];
+  }
+};
+
+template <> struct MemcpyKImpl<5> {
+  static void MemcpyK(void* __restrict dst, const void* __restrict src) {
+    unsigned char* dst_uc = S_CAST(unsigned char*, dst);
+    const unsigned char* src_uc = S_CAST(const unsigned char*, src);
+    *S_CAST(uint32_t*, dst) = *S_CAST(const uint32_t*, src);
+    dst_uc[4] = src_uc[4];
+  }
+};
+
+template <> struct MemcpyKImpl<6> {
+  static void MemcpyK(void* __restrict dst, const void* __restrict src) {
+    uint16_t* dst_u16 = S_CAST(uint16_t*, dst);
+    const uint16_t* src_u16 = S_CAST(const uint16_t*, src);
+    *S_CAST(uint32_t*, dst) = *S_CAST(const uint32_t*, src);
+    dst_u16[2] = src_u16[2];
+  }
+};
+
+template <> struct MemcpyKImpl<7> {
+  static void MemcpyK(void* __restrict dst, const void* __restrict src) {
+    unsigned char* dst_uc = S_CAST(unsigned char*, dst);
+    const unsigned char* src_uc = S_CAST(const unsigned char*, src);
+    *S_CAST(uint32_t*, dst) = *S_CAST(const uint32_t*, src);
+    *R_CAST(uint32_t*, &(dst_uc[3])) = *R_CAST(const uint32_t*, &(src_uc[3]));
+  }
+};
+
+template <> struct MemcpyKImpl<9> {
+  static void MemcpyK(void* __restrict dst, const void* __restrict src) {
+    unsigned char* dst_uc = S_CAST(unsigned char*, dst);
+    const unsigned char* src_uc = S_CAST(const unsigned char*, src);
+    *S_CAST(uint64_t*, dst) = *S_CAST(const uint64_t*, src);
+    dst_uc[8] = src_uc[8];
+  }
+};
+
+template <> struct MemcpyKImpl<10> {
+  static void MemcpyK(void* __restrict dst, const void* __restrict src) {
+    uint16_t* dst_u16 = S_CAST(uint16_t*, dst);
+    const uint16_t* src_u16 = S_CAST(const uint16_t*, src);
+    *S_CAST(uint64_t*, dst) = *S_CAST(const uint64_t*, src);
+    dst_u16[4] = src_u16[4];
+  }
+};
+
+template <uint32_t N> struct MemcpyKImpl<N, TRange<(11 <= N) && (N <= 12)> > {
+  static void MemcpyK(void* __restrict dst, const void* __restrict src) {
+    unsigned char* dst_uc = S_CAST(unsigned char*, dst);
+    const unsigned char* src_uc = S_CAST(const unsigned char*, src);
+    *S_CAST(uint64_t*, dst) = *S_CAST(const uint64_t*, src);
+    *R_CAST(uint32_t*, &(dst_uc[N - 4])) = *R_CAST(const uint32_t*, &(src_uc[N - 4]));
+  }
+};
+
+template <uint32_t N> struct MemcpyKImpl<N, TRange<(13 <= N) && (N <= 15)> > {
+  static void MemcpyK(void* __restrict dst, const void* __restrict src) {
+    unsigned char* dst_uc = S_CAST(unsigned char*, dst);
+    const unsigned char* src_uc = S_CAST(const unsigned char*, src);
+    *S_CAST(uint64_t*, dst) = *S_CAST(const uint64_t*, src);
+    *R_CAST(uint64_t*, &(dst_uc[N - 8])) = *R_CAST(const uint64_t*, &(src_uc[N - 8]));
+  }
+};
+
+template <> struct MemcpyKImpl<17> {
+  static void MemcpyK(void* __restrict dst, const void* __restrict src) {
+    unsigned char* dst_uc = S_CAST(unsigned char*, dst);
+    const unsigned char* src_uc = S_CAST(const unsigned char*, src);
+    const __m128i vv = _mm_loadu_si128(S_CAST(const __m128i*, src));
+    _mm_storeu_si128(S_CAST(__m128i*, dst), vv);
+    dst_uc[16] = src_uc[16];
+  }
+};
+
+template <> struct MemcpyKImpl<18> {
+  static void MemcpyK(void* __restrict dst, const void* __restrict src) {
+    uint16_t* dst_u16 = S_CAST(uint16_t*, dst);
+    const uint16_t* src_u16 = S_CAST(const uint16_t*, src);
+    const __m128i vv = _mm_loadu_si128(S_CAST(const __m128i*, src));
+    _mm_storeu_si128(S_CAST(__m128i*, dst), vv);
+    dst_u16[8] = src_u16[8];
+  }
+};
+
+template <uint32_t N> struct MemcpyKImpl<N, TRange<(19 <= N) && (N <= 20)> > {
+  static void MemcpyK(void* __restrict dst, const void* __restrict src) {
+    unsigned char* dst_uc = S_CAST(unsigned char*, dst);
+    const unsigned char* src_uc = S_CAST(const unsigned char*, src);
+    const __m128i vv = _mm_loadu_si128(S_CAST(const __m128i*, src));
+    _mm_storeu_si128(S_CAST(__m128i*, dst), vv);
+    *R_CAST(uint32_t*, &(dst_uc[N - 4])) = *R_CAST(const uint32_t*, &(src_uc[N - 4]));
+  }
+};
+
+template <uint32_t N> struct MemcpyKImpl<N, TRange<(21 <= N) && (N <= 24)> > {
+  static void MemcpyK(void* __restrict dst, const void* __restrict src) {
+    unsigned char* dst_uc = S_CAST(unsigned char*, dst);
+    const unsigned char* src_uc = S_CAST(const unsigned char*, src);
+    const __m128i vv = _mm_loadu_si128(S_CAST(const __m128i*, src));
+    _mm_storeu_si128(S_CAST(__m128i*, dst), vv);
+    *R_CAST(uint64_t*, &(dst_uc[N - 8])) = *R_CAST(const uint64_t*, &(src_uc[N - 8]));
+  }
+};
+
+template <uint32_t N> struct MemcpyKImpl<N, TRange<(25 <= N) && (N <= 31)> > {
+  static void MemcpyK(void* __restrict dst, const void* __restrict src) {
+    unsigned char* dst_uc = S_CAST(unsigned char*, dst);
+    const unsigned char* src_uc = S_CAST(const unsigned char*, src);
+    const __m128i v1 = _mm_loadu_si128(S_CAST(const __m128i*, src));
+    const __m128i v2 = _mm_loadu_si128(R_CAST(const __m128i*, &(src_uc[N - 16])));
+    _mm_storeu_si128(S_CAST(__m128i*, dst), v1);
+    _mm_storeu_si128(R_CAST(__m128i*, &(dst_uc[N - 16])), v2);
+  }
+};
+
+// Note that there's no difference between memcpy() and memcpy_k() for common
+// 'well-behaved' sizes like 1, 4, and 8, and 16.  It's the funny numbers in
+// between, which often arise with constant strings, which this template is
+// targeting.
+#  define memcpy_k(dst, src, ct) MemcpyKImpl<ct>::MemcpyK(dst, src)
+
+template <uint32_t N> char* MemcpyaK(void* __restrict dst, const void* __restrict src) {
+  MemcpyKImpl<N>::MemcpyK(dst, src);
+  char* dst_c = S_CAST(char*, dst);
+  return &(dst_c[N]);
+}
+
+#  define memcpya_k(dst, src, ct) MemcpyaK<ct>(dst, src)
+#  define memcpyua_k(dst, src, ct) R_CAST(unsigned char*, MemcpyaK<ct>(dst, src))
+
+template <uint32_t N> struct MemcpyoKImpl {
+  static void MemcpyoK(void* __restrict dst, const void* __restrict src) {
+    MemcpyKImpl<N>::MemcpyK(dst, src);
+  }
+};
+
+template <> struct MemcpyoKImpl<3> {
+  static void MemcpyoK(void* __restrict dst, const void* __restrict src) {
+    *S_CAST(uint32_t*, dst) = *S_CAST(const uint32_t*, src);
+  }
+};
+
+template <> struct MemcpyoKImpl<7> {
+  static void MemcpyoK(void* __restrict dst, const void* __restrict src) {
+    *S_CAST(uint64_t*, dst) = *S_CAST(const uint64_t*, src);
+  }
+};
+
+template <> struct MemcpyoKImpl<15> {
+  static void MemcpyoK(void* __restrict dst, const void* __restrict src) {
+    const __m128i vv = _mm_loadu_si128(S_CAST(const __m128i*, src));
+    _mm_storeu_si128(S_CAST(__m128i*, dst), vv);
+  }
+};
+
+// interestingly, __m256i copy does not seem to be better in 31 byte case
+
+#  define memcpyo_k(dst, src, ct) MemcpyoKImpl<ct>::MemcpyoK(dst, src)
+
+template <uint32_t N> char* MemcpyaoK(void* __restrict dst, const void* __restrict src) {
+  MemcpyoKImpl<N>::MemcpyoK(dst, src);
+  char* dst_c = S_CAST(char*, dst);
+  return &(dst_c[N]);
+}
+
+#  define memcpyao_k(dst, src, ct) MemcpyaoK<ct>(dst, src)
+#  define memcpyuao_k(dst, src, ct) R_CAST(unsigned char*, MemcpyaoK<ct>(dst, src))
+
+#  else  // !(defined(__LP64__) && defined(__cplusplus))
+
+HEADER_INLINE int32_t memequal_k(const void* m1, const void* m2, uintptr_t ct) {
+  return !memcmp(m1, m2, ct);
+}
+
+HEADER_INLINE void memcpy_k(void* __restrict dst, const void* __restrict src, uintptr_t ct) {
+  memcpy(dst, src, ct);
+}
+
+HEADER_INLINE char* memcpya_k(void* __restrict dst, const void* __restrict src, uintptr_t ct) {
+  return memcpya(dst, src, ct);
+}
+
+HEADER_INLINE unsigned char* memcpyua_k(void* __restrict dst, const void* __restrict src, uintptr_t ct) {
+  return memcpyua(dst, src, ct);
+}
+
+HEADER_INLINE void memcpyo_k(void* __restrict dst, const void* __restrict src, uintptr_t ct) {
+  memcpy(dst, src, ct);
+}
+
+HEADER_INLINE char* memcpyao_k(void* __restrict dst, const void* __restrict src, uintptr_t ct) {
+  return memcpya(dst, src, ct);
+}
+
+HEADER_INLINE unsigned char* memcpyuao_k(void* __restrict dst, const void* __restrict src, uintptr_t ct) {
+  return memcpyua(dst, src, ct);
+}
+
+#endif
+
+#ifdef __LP64__
+// This is also better than the June 2018 OS X/clang stock implementation,
+// especially for small values of ct.
+int32_t Memcmp(const void* m1, const void* m2, uintptr_t ct);
+#else
+HEADER_INLINE int32_t Memcmp(const void* m1, const void* m2, uintptr_t ct) {
+  return memcmp(m1, m2, ct);
+}
+#endif
+
+
 // now compiling with gcc >= 4.4 (or clang equivalent) on all platforms, so
 // safe to use memset everywhere
 HEADER_INLINE void ZeroU32Arr(uintptr_t entry_ct, uint32_t* u32arr) {
@@ -2137,6 +2493,9 @@ HEADER_INLINE void NextNonmissingUnsafeCk32(const uintptr_t* __restrict genoarr,
 
 // tried _bzhi_u64() in AVX2 case, it was actually worse on my Mac (more
 // opaque to compiler?)
+// todo: check gcc behavior since it may be different: see
+// https://gcc.gnu.org/bugzilla/show_bug.cgi?id=82298 .
+//
 // This is undefined if idx == kBitsPerWord.
 HEADER_INLINE uintptr_t bzhi(uintptr_t ww, uint32_t idx) {
   return ww & ((k1LU << idx) - k1LU);
@@ -2147,8 +2506,9 @@ HEADER_INLINE uintptr_t bzhi_max(uintptr_t ww, uint32_t idx) {
   return ww & ((~k0LU) >> (kBitsPerWord - idx));
 }
 
-// Don't bother defining blsr(), compiler will automatically use the
-// instruction under -mbmi and regular code is more readable.
+// Don't bother defining blsr(), compiler should automatically use the
+// instruction under -mbmi and regular code is more readable?  (again, should
+// verify this is true for gcc)
 
 // Equivalent to popcount_bit_idx(subset_mask, 0, raw_idx).
 HEADER_INLINE uint32_t RawToSubsettedPos(const uintptr_t* subset_mask, const uint32_t* subset_cumulative_popcounts, uint32_t raw_idx) {

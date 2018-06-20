@@ -171,7 +171,7 @@ PglErr IsBgzf(const char* fname, uint32_t* is_bgzf_ptr) {
     fclose(infile);
     return kPglRetReadFail;
   }
-  *is_bgzf_ptr = (!memcmp(buf, "\37\213\10", 3)) && ((buf[3] & 4) != 0) && (!memcmp(&(buf[10]), "\6\0BC\2", 6));
+  *is_bgzf_ptr = memequal_k(buf, "\37\213\10", 3) && ((buf[3] & 4) != 0) && memequal_k(&(buf[10]), "\6\0BC\2", 6);
   fclose(infile);
   return kPglRetSuccess;
 }
@@ -840,14 +840,14 @@ PglErr RlsSkipNz(uintptr_t skip_ct, ReadLineStream* rlsp, char** consume_iterp) 
     lf_bytes &= leading_mask;
     uint32_t cur_lf_ct;
     for (; consume_viter != consume_vstop; ++consume_viter) {
-      cur_lf_ct = PopcountVec8Uint(lf_bytes);
+      cur_lf_ct = PopcountVec8thUint(lf_bytes);
       if (cur_lf_ct >= skip_ct) {
         goto SkipNextLineInRLstreamRaw_finish;
       }
       skip_ct -= cur_lf_ct;
     }
     lf_bytes &= (1U << (ending_addr % kBytesPerVec)) - 1;
-    cur_lf_ct = PopcountVec8Uint(lf_bytes);
+    cur_lf_ct = PopcountVec8thUint(lf_bytes);
     if (cur_lf_ct > skip_ct) {
     SkipNextLineInRLstreamRaw_finish:
       lf_bytes = ClearBottomSetBits(skip_ct, cur_lf_ct);

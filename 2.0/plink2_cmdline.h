@@ -385,6 +385,10 @@ double DestructiveMedianD(uintptr_t len, double* unsorted_arr);
 
 
 // This makes a temporary g_bigstack allocation.
+// Must be safe to read up to (kBytesPerWord - 1) bytes past end of strbox.
+// Results may technically vary between runs when duplicate elements are
+// present; it's assumed that this doesn't matter because all duplicates will
+// be handled in the same manner.
 BoolErr SortStrboxIndexed(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, char* strbox, uint32_t* id_map);
 
 
@@ -1190,9 +1194,12 @@ int32_t GetVariantUidxWithoutHtable(const char* idstr, const char* const* varian
 // followed by a for loop
 
 
-// tried to replace this with a faster hash function, but turns out it's hard
+// Tried to replace this with a faster hash function, but turns out it's hard
 // to meaningfully beat (and multithreading parts of hash table construction
 // solved most of the initialization time issue, anyway)
+// Probable todo: revisit this.  e.g.
+//   https://aras-p.info/blog/2016/08/02/Hash-Functions-all-the-way-down/
+// implies that xxHash-32 should be faster.
 // eventually want this to be a constexpr?  seems painful to make that work,
 // though.
 uint32_t MurmurHash3U32(const void* key, uint32_t len);
@@ -1257,7 +1264,8 @@ uint32_t VariantIdDupHtableFind(const char* idbuf, const char* const* variant_id
 
 
 // This still perform a temporary bigstack allocation; 'noalloc' here just
-// means that sorted_strbox and id_map must be allocated in advance.
+// means that sorted_strbox and id_map must be allocated in advance.  (Overread
+// must be safe.)
 PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, const char* __restrict orig_strbox, uintptr_t str_ct, uintptr_t max_str_blen, uint32_t allow_dups, uint32_t collapse_idxs, uint32_t use_nsort, char* __restrict sorted_strbox, uint32_t* __restrict id_map);
 
 PglErr CopySortStrboxSubset(const uintptr_t* __restrict subset_mask, const char* __restrict orig_strbox, uintptr_t str_ct, uintptr_t max_str_blen, uint32_t allow_dups, uint32_t collapse_idxs, uint32_t use_nsort, char** sorted_strbox_ptr, uint32_t** id_map_ptr);

@@ -271,14 +271,121 @@ uint32_t UintSlen(uint32_t num) {
 }
 #endif
 
-/*
-int32_t strcmp_se(const char* s_read, const char* s_const, uint32_t s_const_slen) {
-  return memcmp(s_read, s_const, s_const_slen) || (!IsSpaceOrEoln(s_read[s_const_slen]));
+uintptr_t FirstUnequal4(const char* s1, const char* s2, uintptr_t slen) {
+  // See memequal() in plink2_base.
+#ifdef __LP64__
+  if (slen < kBytesPerVec) {
+    if (slen < kBytesPerWord) {
+      uint32_t xor_result = (*R_CAST(const uint32_t*, s1)) ^ (*R_CAST(const uint32_t*, s2));
+      if (xor_result) {
+        return ctzu32(xor_result) / CHAR_BIT;
+      }
+      if (slen > 4) {
+        const uintptr_t final_offset = slen - 4;
+        xor_result = (*R_CAST(const uint32_t*, &(s1[final_offset]))) ^ (*R_CAST(const uint32_t*, &(s2[final_offset])));
+        if (xor_result) {
+          return final_offset + ctzu32(xor_result) / CHAR_BIT;
+        }
+      }
+      return slen;
+    }
+    const uintptr_t* s1_alias = R_CAST(const uintptr_t*, s1);
+    const uintptr_t* s2_alias = R_CAST(const uintptr_t*, s2);
+    const uintptr_t word_ct = slen / kBytesPerWord;
+    for (uint32_t widx = 0; widx < word_ct; ++widx) {
+      const uintptr_t xor_result = s1_alias[widx] ^ s2_alias[widx];
+      if (xor_result) {
+        return widx * kBytesPerWord + ctzw(xor_result) / CHAR_BIT;
+      }
+    }
+    if (slen % kBytesPerWord) {
+      const uintptr_t final_offset = slen - kBytesPerWord;
+      const uintptr_t xor_result = (*R_CAST(const uintptr_t*, &(s1[final_offset]))) ^ (*R_CAST(const uintptr_t*, &(s2[final_offset])));
+      if (xor_result) {
+        return final_offset + ctzw(xor_result) / CHAR_BIT;
+      }
+    }
+    return slen;
+  }
+  const VecUc* s1_alias = R_CAST(const VecUc*, s1);
+  const VecUc* s2_alias = R_CAST(const VecUc*, s2);
+  const uintptr_t vec_ct = slen / kBytesPerVec;
+  for (uintptr_t vidx = 0; vidx < vec_ct; ++vidx) {
+    const VecUc v1 = vecuc_loadu(&(s1_alias[vidx]));
+    const VecUc v2 = vecuc_loadu(&(s2_alias[vidx]));
+    const uint32_t eq_result = vecw_movemask(v1 == v2);
+    if (eq_result != kVec8thUintMax) {
+      return vidx * kBytesPerVec + ctzu32(~eq_result);
+    }
+  }
+  if (slen % kBytesPerVec) {
+    const uintptr_t final_offset = slen - kBytesPerVec;
+    const VecW v1 = vecw_loadu(&(s1[final_offset]));
+    const VecW v2 = vecw_loadu(&(s2[final_offset]));
+    const uint32_t eq_result = vecw_movemask(v1 == v2);
+    if (eq_result != kVec8thUintMax) {
+      return final_offset + ctzu32(~eq_result);
+    }
+  }
+#else
+  const uintptr_t* s1_alias = R_CAST(const uintptr_t*, s1);
+  const uintptr_t* s2_alias = R_CAST(const uintptr_t*, s2);
+  const uintptr_t word_ct = slen / kBytesPerWord;
+  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
+    const uintptr_t xor_result = s1_alias[widx] ^ s2_alias[widx];
+    if (xor_result) {
+      return widx * kBytesPerWord + ctzw(xor_result) / CHAR_BIT;
+    }
+  }
+  if (slen % kBytesPerWord) {
+    const uintptr_t final_offset = slen - kBytesPerWord;
+    const uintptr_t xor_result = (*R_CAST(const uintptr_t*, &(s1[final_offset]))) ^ (*R_CAST(const uintptr_t*, &(s2[final_offset])));
+    if (xor_result) {
+      return final_offset + ctzw(xor_result) / CHAR_BIT;
+    }
+  }
+#endif
+  return slen;
 }
-*/
+
+// May read (kBytesPerWord - 1) bytes past the end of each string.
+// This can be quite a bit faster than stock strcmp on x86 for sorting, though
+// benchmarking is necessary in general (compiler may perform its own strcmp
+// optimizations).
+int32_t strcmp_overread(const char* s1, const char* s2) {
+  const uintptr_t* s1_alias = R_CAST(const uintptr_t*, s1);
+  const uintptr_t* s2_alias = R_CAST(const uintptr_t*, s2);
+  uintptr_t widx = 0;
+  while (1) {
+    const uintptr_t w1 = s1_alias[widx];
+    const uintptr_t zcheck = (w1 - kMask0101) & (~w1) & (0x80 * kMask0101);
+    const uintptr_t w2 = s2_alias[widx];
+    uintptr_t xor_word = w1 ^ w2;
+    uint32_t lshift;
+    if (zcheck) {
+      // Mask out bytes past the known null.
+      const uintptr_t mask = zcheck ^ (zcheck - 1);
+      xor_word &= mask;
+      if (!xor_word) {
+        return 0;
+      }
+      goto strcmp_overread_finish;
+    }
+    if (xor_word) {
+    strcmp_overread_finish:
+      lshift = (kBitsPerWord - 8) - (ctzw(xor_word) & (kBitsPerWord - 8));
+      return ((w1 << lshift) < (w2 << lshift))? -1 : 1;
+    }
+    ++widx;
+  }
+}
 
 int32_t strcmp_casted(const void* s1, const void* s2) {
   return strcmp(S_CAST(const char*, s1), S_CAST(const char*, s2));
+}
+
+int32_t strcmp_overread_casted(const void* s1, const void* s2) {
+  return strcmp_overread(S_CAST(const char*, s1), S_CAST(const char*, s2));
 }
 
 // PLINK 2's natural sort uses the following logic:
@@ -432,18 +539,22 @@ int32_t strcmp_deref(const void* s1, const void* s2) {
   return strcmp(*S_CAST(const char* const*, s1), *S_CAST(const char* const*, s2));
 }
 
+int32_t strcmp_overread_deref(const void* s1, const void* s2) {
+  return strcmp_overread(*S_CAST(const char* const*, s1), *S_CAST(const char* const*, s2));
+}
+
 int32_t strcmp_natural_deref(const void* s1, const void* s2) {
   return strcmp_natural_uncasted(*S_CAST(const char* const*, s1), *S_CAST(const char* const*, s2));
 }
 
 #ifdef __cplusplus
-static_assert(sizeof(Strbuf36Ui) == 40, "Strbuf36Ui is not laid out as expected.");
-static_assert(offsetof(Strbuf36Ui, orig_idx) == 36, "Strbuf36Ui is not laid out as expected.");
+static_assert(sizeof(Strbuf28Ui) == 32, "Strbuf28Ui is not laid out as expected.");
+static_assert(offsetof(Strbuf28Ui, orig_idx) == 28, "Strbuf28Ui is not laid out as expected.");
 static_assert(sizeof(Strbuf60Ui) == 64, "Strbuf60Ui is not laid out as expected.");
 static_assert(offsetof(Strbuf60Ui, orig_idx) == 60, "Strbuf60Ui is not laid out as expected.");
 uintptr_t GetStrboxsortWentryBlen(uintptr_t max_str_blen) {
-  if (max_str_blen <= 36) {
-    return sizeof(Strbuf36Ui);
+  if (max_str_blen <= 28) {
+    return sizeof(Strbuf28Ui);
   }
   if (max_str_blen <= 60) {
     return sizeof(Strbuf60Ui);
@@ -456,16 +567,17 @@ uintptr_t GetStrboxsortWentryBlen(uintptr_t max_str_blen) {
 }
 #endif
 
-// assumed that sort_wkspace has size >= str_ct *
-// max(sizeof(StrSortIndexedDeref), max_str_blen)
+// Assumed that sort_wkspace has size >= str_ct *
+// max(sizeof(StrSortIndexedDeref), max_str_blen).
+// Must be ok to overread.
 void SortStrboxIndexed2Fallback(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, char* strbox, uint32_t* id_map, void* sort_wkspace) {
-  StrSortIndexedDeref* wkspace_alias = S_CAST(StrSortIndexedDeref*, sort_wkspace);
+  StrSortIndexedDerefOverread* wkspace_alias = S_CAST(StrSortIndexedDerefOverread*, sort_wkspace);
   for (uintptr_t str_idx = 0; str_idx < str_ct; ++str_idx) {
     wkspace_alias[str_idx].strptr = &(strbox[str_idx * max_str_blen]);
     wkspace_alias[str_idx].orig_idx = id_map[str_idx];
   }
   if (!use_nsort) {
-    STD_SORT_PAR_UNSEQ(str_ct, strcmp_deref, wkspace_alias);
+    STD_SORT_PAR_UNSEQ(str_ct, strcmp_overread_deref, wkspace_alias);
   } else {
 #ifdef __cplusplus
     StrNsortIndexedDeref* wkspace_alias2 = R_CAST(StrNsortIndexedDeref*, wkspace_alias);
@@ -502,23 +614,22 @@ void SortStrboxIndexed2Fallback(uintptr_t str_ct, uintptr_t max_str_blen, uint32
 }
 
 #ifdef __cplusplus
-typedef struct WordCmp40bStruct {
-  uintptr_t words[40 / kBytesPerWord];
-  bool operator<(const struct WordCmp40bStruct& rhs) const {
+typedef struct WordCmp32bStruct {
+  uintptr_t words[32 / kBytesPerWord];
+  bool operator<(const struct WordCmp32bStruct& rhs) const {
     uint32_t idx = 0;
     do {
       const uintptr_t cur_word = words[idx];
       const uintptr_t rhs_word = rhs.words[idx];
-      if (cur_word != rhs_word) {
-        // could pre-reverse the strings?
-        const uintptr_t xor_word = cur_word ^ rhs_word;
+      const uintptr_t xor_word = cur_word ^ rhs_word;
+      if (xor_word) {
         const uint32_t lshift = (kBitsPerWord - 8) - (ctzw(xor_word) & (kBitsPerWord - 8));
         return (cur_word << lshift) < (rhs_word << lshift);
       }
-    } while (++idx < (40 / kBytesPerWord));
+    } while (++idx < (32 / kBytesPerWord));
     return false;
   }
-} WordCmp40b;
+} WordCmp32b;
 
 typedef struct WordCmp64bStruct {
   uintptr_t words[64 / kBytesPerWord];
@@ -527,8 +638,8 @@ typedef struct WordCmp64bStruct {
     do {
       const uintptr_t cur_word = words[idx];
       const uintptr_t rhs_word = rhs.words[idx];
-      if (cur_word != rhs_word) {
-        const uintptr_t xor_word = cur_word ^ rhs_word;
+      const uintptr_t xor_word = cur_word ^ rhs_word;
+      if (xor_word) {
         const uint32_t lshift = (kBitsPerWord - 8) - (ctzw(xor_word) & (kBitsPerWord - 8));
         return (cur_word << lshift) < (rhs_word << lshift);
       }
@@ -537,12 +648,12 @@ typedef struct WordCmp64bStruct {
   }
 } WordCmp64b;
 
-static_assert(sizeof(WordCmp40b) == 40, "WordCmp40b does not have the expected size.");
+static_assert(sizeof(WordCmp32b) == 32, "WordCmp32b does not have the expected size.");
 static_assert(sizeof(WordCmp64b) == 64, "WordCmp64b does not have the expected size.");
 
-void SortStrbox40bFinish(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, Strbuf36Ui* filled_wkspace, char* sorted_strbox, uint32_t* id_map) {
+void SortStrbox32bFinish(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, Strbuf28Ui* filled_wkspace, char* sorted_strbox, uint32_t* id_map) {
   if (!use_nsort) {
-    WordCmp40b* wkspace_alias = R_CAST(WordCmp40b*, filled_wkspace);
+    WordCmp32b* wkspace_alias = R_CAST(WordCmp32b*, filled_wkspace);
     STD_SORT_PAR_UNSEQ(str_ct, nullptr, wkspace_alias);
   } else {
     STD_SORT_PAR_UNSEQ(str_ct, nullptr, filled_wkspace);
@@ -569,14 +680,14 @@ void SortStrbox64bFinish(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_
 // Normally use SortStrboxIndexed(), but this version is necessary before
 // g_bigstack has been allocated.
 void SortStrboxIndexed2(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, char* strbox, uint32_t* id_map, void* sort_wkspace) {
-  if (max_str_blen <= 36) {
-    Strbuf36Ui* wkspace_alias = S_CAST(Strbuf36Ui*, sort_wkspace);
+  if (max_str_blen <= 28) {
+    Strbuf28Ui* wkspace_alias = S_CAST(Strbuf28Ui*, sort_wkspace);
     for (uintptr_t str_idx = 0; str_idx < str_ct; ++str_idx) {
       const char* cur_str = &(strbox[str_idx * max_str_blen]);
       strcpy(wkspace_alias[str_idx].strbuf, cur_str);
       wkspace_alias[str_idx].orig_idx = id_map[str_idx];
     }
-    SortStrbox40bFinish(str_ct, max_str_blen, use_nsort, wkspace_alias, strbox, id_map);
+    SortStrbox32bFinish(str_ct, max_str_blen, use_nsort, wkspace_alias, strbox, id_map);
     return;
   }
   if (max_str_blen <= 60) {
@@ -593,6 +704,7 @@ void SortStrboxIndexed2(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_n
 }
 #endif  // __cplusplus
 
+// Must be ok to overread.
 BoolErr SortStrboxIndexedMalloc(uintptr_t str_ct, uintptr_t max_str_blen, char* strbox, uint32_t* id_map) {
   if (str_ct < 2) {
     return 0;
@@ -619,7 +731,7 @@ uint32_t CopyAndDedupSortedStrptrsToStrbox(const char* const* sorted_strptrs, ui
   do {
     const char* cur_str = *sorted_strptrs_iter++;
     const uint32_t cur_slen = strlen(cur_str);
-    if ((cur_slen != prev_slen) || memcmp(cur_str, prev_str, prev_slen)) {
+    if ((cur_slen != prev_slen) || (!memequal(cur_str, prev_str, prev_slen))) {
       memcpy(&(strbox[write_idx * max_str_blen]), cur_str, cur_slen + 1);
       ++write_idx;
       prev_str = cur_str;
@@ -629,9 +741,18 @@ uint32_t CopyAndDedupSortedStrptrsToStrbox(const char* const* sorted_strptrs, ui
 }
 
 
-void StrptrArrSortMain(uintptr_t str_ct, uint32_t use_nsort, StrSortIndexedDeref* wkspace_alias) {
+void StrptrArrSortMain(uintptr_t str_ct, uint32_t overread_ok, uint32_t use_nsort, StrSortIndexedDeref* wkspace_alias) {
   if (!use_nsort) {
-    STD_SORT_PAR_UNSEQ(str_ct, strcmp_deref, wkspace_alias);
+    if (overread_ok) {
+#ifdef __cplusplus
+      StrSortIndexedDerefOverread* wkspace_alias2 = R_CAST(StrSortIndexedDerefOverread*, wkspace_alias);
+      STD_SORT_PAR_UNSEQ(str_ct, nullptr, wkspace_alias2);
+#else
+      STD_SORT_PAR_UNSEQ(str_ct, strcmp_overread_deref, wkspace_alias);
+#endif
+    } else {
+      STD_SORT_PAR_UNSEQ(str_ct, strcmp_deref, wkspace_alias);
+    }
   } else {
 #ifdef __cplusplus
     StrNsortIndexedDeref* wkspace_alias2 = R_CAST(StrNsortIndexedDeref*, wkspace_alias);
@@ -1546,8 +1667,8 @@ CXXCONST_CP NextTokenMultFar(const char* str_iter, uint32_t ct) {
   while (1) {
     // The number of 0->1 + 1->0 bit transitions in x is
     //   popcount(x ^ (x << 1)).
-    uint32_t cur_transitions = S_CAST(Vec8Uint, delimiter_bytes ^ (delimiter_bytes << 1) ^ prev_delim_highbit);
-    uint32_t cur_transition_ct = PopcountVec8Uint(cur_transitions);
+    uint32_t cur_transitions = S_CAST(Vec8thUint, delimiter_bytes ^ (delimiter_bytes << 1) ^ prev_delim_highbit);
+    uint32_t cur_transition_ct = PopcountVec8thUint(cur_transitions);
     if (cur_transition_ct >= transition_bits_to_skip_p1) {
       cur_transitions = ClearBottomSetBits(transition_bits_to_skip_p1 - 1, cur_transitions);
       uint32_t byte_offset_in_vec = ctzu32(cur_transitions);
@@ -1599,8 +1720,8 @@ const char* TokenLexK0(const char* str_iter, const uint32_t* col_types, const ui
   while (1) {
     // The number of 0->1 + 1->0 bit transitions in x is
     //   popcount(x ^ (x << 1)).
-    uint32_t cur_transitions = S_CAST(Vec8Uint, delimiter_bytes ^ (delimiter_bytes << 1) ^ prev_delim_highbit);
-    uint32_t cur_transition_ct = PopcountVec8Uint(cur_transitions);
+    uint32_t cur_transitions = S_CAST(Vec8thUint, delimiter_bytes ^ (delimiter_bytes << 1) ^ prev_delim_highbit);
+    uint32_t cur_transition_ct = PopcountVec8thUint(cur_transitions);
     while (cur_transition_ct >= transition_bits_to_skip_p1) {
       cur_transitions = ClearBottomSetBits(transition_bits_to_skip_p1 - 1, cur_transitions);
       uint32_t byte_offset_in_vec = ctzu32(cur_transitions);
@@ -1622,7 +1743,7 @@ const char* TokenLexK0(const char* str_iter, const uint32_t* col_types, const ui
           ++str_viter;
           cur_vvec = *str_viter;
           VecUc postspace_vec = (vvec_all_space < cur_vvec);
-          cur_transitions = S_CAST(Vec8Uint, ~vecuc_movemask(postspace_vec));
+          cur_transitions = S_CAST(Vec8thUint, ~vecuc_movemask(postspace_vec));
         }
         byte_offset_in_vec = ctzu32(cur_transitions);
         const char* token_end = &(R_CAST(const char*, str_viter)[byte_offset_in_vec]);
@@ -1643,8 +1764,8 @@ const char* TokenLexK0(const char* str_iter, const uint32_t* col_types, const ui
           delimiter_bytes = vecuc_movemask(tabspace_vvec);
           terminating_bytes = vecuc_movemask(prespace_vvec) & (~delimiter_bytes);
         } while (!delimiter_bytes);
-        cur_transitions = S_CAST(Vec8Uint, delimiter_bytes ^ (delimiter_bytes << 1));
-        cur_transition_ct = PopcountVec8Uint(cur_transitions);
+        cur_transitions = S_CAST(Vec8thUint, delimiter_bytes ^ (delimiter_bytes << 1));
+        cur_transition_ct = PopcountVec8thUint(cur_transitions);
       } else {
         cur_transitions &= cur_transitions - 1;
       }
@@ -1835,26 +1956,26 @@ char* u32toa(uint32_t uii, char* start) {
   if (uii < 1000000000) {
     *start++ = '0' + quotient;
   } else {
-    start = memcpya(start, &(kDigitPair[quotient]), 2);
+    start = memcpya_k(start, &(kDigitPair[quotient]), 2);
   }
   uii -= quotient * 100000000;
  u32toa_just8:
   quotient = uii / 1000000;
-  start = memcpya(start, &(kDigitPair[quotient]), 2);
+  start = memcpya_k(start, &(kDigitPair[quotient]), 2);
  u32toa_6left:
   uii -= quotient * 1000000;
  u32toa_just6:
   quotient = uii / 10000;
-  start = memcpya(start, &(kDigitPair[quotient]), 2);
+  start = memcpya_k(start, &(kDigitPair[quotient]), 2);
  u32toa_4left:
   uii -= quotient * 10000;
  u32toa_just4:
   quotient = uii / 100;
-  start = memcpya(start, &(kDigitPair[quotient]), 2);
+  start = memcpya_k(start, &(kDigitPair[quotient]), 2);
  u32toa_2left:
   uii -= quotient * 100;
  u32toa_just2:
-  return memcpya(start, &(kDigitPair[uii]), 2);
+  return memcpya_k(start, &(kDigitPair[uii]), 2);
 }
 
 char* i32toa(int32_t ii, char* start) {
@@ -1871,8 +1992,8 @@ char* uitoa_z4(uint32_t uii, char* start) {
   uint32_t quotient = uii / 100;
   assert(quotient < 100);
   uii -= 100 * quotient;
-  start = memcpya(start, &(kDigitPair[quotient]), 2);
-  return memcpya(start, &(kDigitPair[uii]), 2);
+  start = memcpya_k(start, &(kDigitPair[quotient]), 2);
+  return memcpya_k(start, &(kDigitPair[uii]), 2);
 }
 
 char* u32toa_z5(uint32_t uii, char* start) {
@@ -1883,13 +2004,13 @@ char* u32toa_z5(uint32_t uii, char* start) {
 
 char* uitoa_z6(uint32_t uii, char* start) {
   uint32_t quotient = uii / 10000;
-  start = memcpya(start, &(kDigitPair[quotient]), 2);
+  start = memcpya_k(start, &(kDigitPair[quotient]), 2);
   return uitoa_z4(uii - 10000 * quotient, start);
 }
 
 char* uitoa_z8(uint32_t uii, char* start) {
   uint32_t quotient = uii / 1000000;
-  start = memcpya(start, &(kDigitPair[quotient]), 2);
+  start = memcpya_k(start, &(kDigitPair[quotient]), 2);
   return uitoa_z6(uii - 1000000 * quotient, start);
 }
 
@@ -1921,11 +2042,11 @@ char* i64toa(int64_t llii, char* start) {
 
 char* u32toa_trunc4(uint32_t uii, char* start) {
   uint32_t quotient = uii / 100;
-  memcpy(start, &(kDigitPair[quotient]), 2);
+  memcpy_k(start, &(kDigitPair[quotient]), 2);
   uii -= 100 * quotient;
   if (uii) {
     start += 2;
-    memcpy(start, &(kDigitPair[uii]), 2);
+    memcpy_k(start, &(kDigitPair[uii]), 2);
   }
   if (start[1] != '0') {
     return &(start[2]);
@@ -1935,16 +2056,16 @@ char* u32toa_trunc4(uint32_t uii, char* start) {
 
 static inline char* uitoa_trunc6(uint32_t uii, char* start) {
   uint32_t quotient = uii / 10000;
-  memcpy(start, &(kDigitPair[quotient]), 2);
+  memcpy_k(start, &(kDigitPair[quotient]), 2);
   uii -= 10000 * quotient;
   if (uii) {
     quotient = uii / 100;
     start += 2;
-    memcpy(start, &(kDigitPair[quotient]), 2);
+    memcpy_k(start, &(kDigitPair[quotient]), 2);
     uii -= 100 * quotient;
     if (uii) {
       start += 2;
-      memcpy(start, &(kDigitPair[uii]), 2);
+      memcpy_k(start, &(kDigitPair[uii]), 2);
     }
   }
   if (start[1] != '0') {
@@ -1955,21 +2076,21 @@ static inline char* uitoa_trunc6(uint32_t uii, char* start) {
 
 static inline char* uitoa_trunc8(uint32_t uii, char* start) {
   uint32_t quotient = uii / 1000000;
-  memcpy(start, &(kDigitPair[quotient]), 2);
+  memcpy_k(start, &(kDigitPair[quotient]), 2);
   uii -= 1000000 * quotient;
   if (uii) {
     quotient = uii / 10000;
     start += 2;
-    memcpy(start, &(kDigitPair[quotient]), 2);
+    memcpy_k(start, &(kDigitPair[quotient]), 2);
     uii -= 10000 * quotient;
     if (uii) {
       quotient = uii / 100;
       start += 2;
-      memcpy(start, &(kDigitPair[quotient]), 2);
+      memcpy_k(start, &(kDigitPair[quotient]), 2);
       uii -= 100 * quotient;
       if (uii) {
         start += 2;
-        memcpy(start, &(kDigitPair[uii]), 2);
+        memcpy_k(start, &(kDigitPair[uii]), 2);
       }
     }
   }
@@ -1985,12 +2106,12 @@ static inline char* rtoa_p5(uint32_t remainder, char* start) {
   }
   *start++ = '.';
   uint32_t quotient = remainder / 1000;
-  memcpy(start, &(kDigitPair[quotient]), 2);
+  memcpy_k(start, &(kDigitPair[quotient]), 2);
   remainder -= 1000 * quotient;
   if (remainder) {
     quotient = remainder / 10;
     start += 2;
-    memcpy(start, &(kDigitPair[quotient]), 2);
+    memcpy_k(start, &(kDigitPair[quotient]), 2);
     remainder -= 10 * quotient;
     if (remainder) {
       start[2] = '0' + remainder;
@@ -2015,17 +2136,17 @@ static inline char* qrtoa_1p7(uint32_t quotient, uint32_t remainder, char* start
   }
   *start++ = '.';
   quotient = remainder / 100000;
-  memcpy(start, &(kDigitPair[quotient]), 2);
+  memcpy_k(start, &(kDigitPair[quotient]), 2);
   remainder -= 100000 * quotient;
   if (remainder) {
     quotient = remainder / 1000;
     start += 2;
-    memcpy(start, &(kDigitPair[quotient]), 2);
+    memcpy_k(start, &(kDigitPair[quotient]), 2);
     remainder -= 1000 * quotient;
     if (remainder) {
       quotient = remainder / 10;
       start += 2;
-      memcpy(start, &(kDigitPair[quotient]), 2);
+      memcpy_k(start, &(kDigitPair[quotient]), 2);
       remainder -= 10 * quotient;
       if (remainder) {
         start[2] = '0' + remainder;
@@ -2127,18 +2248,18 @@ char* dtoa_so6(double dxx, char* start) {
       return qrtoa_1p5(quotient, remainder, start);
     }
     BankerRoundD4(dxx, kBankerRound8, &quotient, &remainder);
-    start = memcpya(start, &(kDigitPair[quotient]), 2);
+    start = memcpya_k(start, &(kDigitPair[quotient]), 2);
     if (!remainder) {
       return start;
     }
     *start++ = '.';
     quotient = remainder / 100;
-    memcpy(start, &(kDigitPair[quotient]), 2);
+    memcpy_k(start, &(kDigitPair[quotient]), 2);
     remainder -= 100 * quotient;
     if (remainder) {
       start += 2;
     dtoa_so6_pretail:
-      memcpy(start, &(kDigitPair[remainder]), 2);
+      memcpy_k(start, &(kDigitPair[remainder]), 2);
     }
   dtoa_so6_tail:
     if (start[1] != '0') {
@@ -2152,13 +2273,13 @@ char* dtoa_so6(double dxx, char* start) {
       quotient = uii / 100;
       *start++ = '0' + quotient;
       quotient = uii - 100 * quotient;
-      start = memcpya(start, &(kDigitPair[quotient]), 2);
+      start = memcpya_k(start, &(kDigitPair[quotient]), 2);
       if (!remainder) {
         return start;
       }
       *start++ = '.';
       quotient = remainder / 10;
-      memcpy(start, &(kDigitPair[quotient]), 2);
+      memcpy_k(start, &(kDigitPair[quotient]), 2);
       remainder -= quotient * 10;
       if (!remainder) {
         goto dtoa_so6_tail;
@@ -2168,9 +2289,9 @@ char* dtoa_so6(double dxx, char* start) {
     }
     BankerRoundD2(dxx, kBankerRound8, &uii, &remainder);
     quotient = uii / 100;
-    start = memcpya(start, &(kDigitPair[quotient]), 2);
+    start = memcpya_k(start, &(kDigitPair[quotient]), 2);
     quotient = uii - (100 * quotient);
-    start = memcpya(start, &(kDigitPair[quotient]), 2);
+    start = memcpya_k(start, &(kDigitPair[quotient]), 2);
     if (!remainder) {
       return start;
     }
@@ -2185,9 +2306,9 @@ char* dtoa_so6(double dxx, char* start) {
   *start = '0' + quotient;
   uii -= 10000 * quotient;
   quotient = uii / 100;
-  start = memcpya(&(start[1]), &(kDigitPair[quotient]), 2);
+  start = memcpya_k(&(start[1]), &(kDigitPair[quotient]), 2);
   uii = uii - 100 * quotient;
-  start = memcpya(start, &(kDigitPair[uii]), 2);
+  start = memcpya_k(start, &(kDigitPair[uii]), 2);
   if (!remainder) {
     return start;
   }
@@ -2207,24 +2328,24 @@ char* dtoa_so8(double dxx, char* start) {
       return qrtoa_1p7(quotient, remainder, start);
     }
     BankerRoundD6(dxx, kBankerRound6, &quotient, &remainder);
-    start = memcpya(start, &(kDigitPair[quotient]), 2);
+    start = memcpya_k(start, &(kDigitPair[quotient]), 2);
     if (!remainder) {
       return start;
     }
     *start++ = '.';
     quotient = remainder / 10000;
-    memcpy(start, &(kDigitPair[quotient]), 2);
+    memcpy_k(start, &(kDigitPair[quotient]), 2);
     remainder -= 10000 * quotient;
     if (remainder) {
       start += 2;
     dtoa_so8_pretail4:
       quotient = remainder / 100;
-      memcpy(start, &(kDigitPair[quotient]), 2);
+      memcpy_k(start, &(kDigitPair[quotient]), 2);
       remainder -= 100 * quotient;
       if (remainder) {
         start += 2;
       dtoa_so8_pretail2:
-        memcpy(start, &(kDigitPair[remainder]), 2);
+        memcpy_k(start, &(kDigitPair[remainder]), 2);
       }
     }
   dtoa_so8_tail:
@@ -2239,13 +2360,13 @@ char* dtoa_so8(double dxx, char* start) {
       quotient = uii / 100;
       *start++ = '0' + quotient;
       quotient = uii - 100 * quotient;
-      start = memcpya(start, &(kDigitPair[quotient]), 2);
+      start = memcpya_k(start, &(kDigitPair[quotient]), 2);
       if (!remainder) {
         return start;
       }
       *start++ = '.';
       quotient = remainder / 1000;
-      memcpy(start, &(kDigitPair[quotient]), 2);
+      memcpy_k(start, &(kDigitPair[quotient]), 2);
       remainder -= quotient * 1000;
       if (!remainder) {
         goto dtoa_so8_tail;
@@ -2253,7 +2374,7 @@ char* dtoa_so8(double dxx, char* start) {
       start += 2;
     dtoa_so8_pretail3:
       quotient = remainder / 10;
-      memcpy(start, &(kDigitPair[quotient]), 2);
+      memcpy_k(start, &(kDigitPair[quotient]), 2);
       remainder -= quotient * 10;
       if (!remainder) {
         goto dtoa_so8_tail;
@@ -2263,9 +2384,9 @@ char* dtoa_so8(double dxx, char* start) {
     }
     BankerRoundD4(dxx, kBankerRound6, &uii, &remainder);
     quotient = uii / 100;
-    start = memcpya(start, &(kDigitPair[quotient]), 2);
+    start = memcpya_k(start, &(kDigitPair[quotient]), 2);
     quotient = uii - (100 * quotient);
-    start = memcpya(start, &(kDigitPair[quotient]), 2);
+    start = memcpya_k(start, &(kDigitPair[quotient]), 2);
     if (!remainder) {
       return start;
     }
@@ -2279,9 +2400,9 @@ char* dtoa_so8(double dxx, char* start) {
       *start = '0' + quotient;
       uii -= 10000 * quotient;
       quotient = uii / 100;
-      start = memcpya(&(start[1]), &(kDigitPair[quotient]), 2);
+      start = memcpya_k(&(start[1]), &(kDigitPair[quotient]), 2);
       uii -= 100 * quotient;
-      start = memcpya(start, &(kDigitPair[uii]), 2);
+      start = memcpya_k(start, &(kDigitPair[uii]), 2);
       if (!remainder) {
         return start;
       }
@@ -2290,12 +2411,12 @@ char* dtoa_so8(double dxx, char* start) {
     }
     BankerRoundD2(dxx, kBankerRound6, &uii, &remainder);
     quotient = uii / 10000;
-    start = memcpya(start, &(kDigitPair[quotient]), 2);
+    start = memcpya_k(start, &(kDigitPair[quotient]), 2);
     uii -= 10000 * quotient;
     quotient = uii / 100;
-    start = memcpya(start, &(kDigitPair[quotient]), 2);
+    start = memcpya_k(start, &(kDigitPair[quotient]), 2);
     uii -= 100 * quotient;
-    start = memcpya(start, &(kDigitPair[uii]), 2);
+    start = memcpya_k(start, &(kDigitPair[uii]), 2);
     if (!remainder) {
       return start;
     }
@@ -2310,12 +2431,12 @@ char* dtoa_so8(double dxx, char* start) {
   *start = '0' + quotient;
   uii -= 1000000 * quotient;
   quotient = uii / 10000;
-  start = memcpya(&(start[1]), &(kDigitPair[quotient]), 2);
+  start = memcpya_k(&(start[1]), &(kDigitPair[quotient]), 2);
   uii -= 10000 * quotient;
   quotient = uii / 100;
-  start = memcpya(start, &(kDigitPair[quotient]), 2);
+  start = memcpya_k(start, &(kDigitPair[quotient]), 2);
   uii -= 100 * quotient;
-  start = memcpya(start, &(kDigitPair[uii]), 2);
+  start = memcpya_k(start, &(kDigitPair[uii]), 2);
   if (!remainder) {
     return start;
   }
@@ -2329,7 +2450,7 @@ char* dtoa_g(double dxx, char* start) {
   uint32_t quotient;
   uint32_t remainder;
   if (dxx != dxx) {
-    return memcpyl3a(start, "nan");
+    return strcpya_k(start, "nan");
   }
   if (dxx < 0) {
     *start++ = '-';
@@ -2381,20 +2502,20 @@ char* dtoa_g(double dxx, char* start) {
       ++xp10;
     }
     BankerRoundD5(dxx, kBankerRound8, &quotient, &remainder);
-    start = memcpya(qrtoa_1p5(quotient, remainder, start), "e-", 2);
+    start = memcpya_k(qrtoa_1p5(quotient, remainder, start), "e-", 2);
     if (xp10 >= 100) {
       quotient = xp10 / 100;
       *start++ = '0' + quotient;
       xp10 -= 100 * quotient;
     }
-    return memcpya(start, &(kDigitPair[xp10]), 2);
+    return memcpya_k(start, &(kDigitPair[xp10]), 2);
   }
   if (dxx >= 999999.49999999) {
     // 6 sig fig exponential notation, large
     if (dxx >= 9.9999949999999e15) {
       if (dxx >= 9.9999949999999e127) {
         if (dxx > DBL_MAX) {
-          return memcpyl3a(start, "inf");
+          return strcpya_k(start, "inf");
         }
         if (dxx >= 9.9999949999999e255) {
           dxx *= 1.0e-256;
@@ -2434,22 +2555,22 @@ char* dtoa_g(double dxx, char* start) {
       xp10++;
     }
     BankerRoundD5(dxx, kBankerRound8, &quotient, &remainder);
-    start = memcpya(qrtoa_1p5(quotient, remainder, start), "e+", 2);
+    start = memcpya_k(qrtoa_1p5(quotient, remainder, start), "e+", 2);
     if (xp10 >= 100) {
       quotient = xp10 / 100;
       *start++ = '0' + quotient;
       xp10 -= 100 * quotient;
     }
-    return memcpya(start, &(kDigitPair[xp10]), 2);
+    return memcpya_k(start, &(kDigitPair[xp10]), 2);
   }
   if (dxx >= 0.99999949999999) {
     return dtoa_so6(dxx, start);
   }
   // 6 sig fig decimal, no less than ~0.0001
-  start = memcpya(start, "0.", 2);
+  start = memcpya_k(start, "0.", 2);
   if (dxx < 9.9999949999999e-3) {
     dxx *= 100;
-    start = memcpya(start, "00", 2);
+    start = memcpya_k(start, "00", 2);
   }
   if (dxx < 9.9999949999999e-2) {
     dxx *= 10;
@@ -2465,7 +2586,7 @@ char* dtoa_g_p8(double dxx, char* start) {
   uint32_t quotient;
   uint32_t remainder;
   if (dxx != dxx) {
-    return memcpyl3a(start, "nan");
+    return strcpya_k(start, "nan");
   }
   if (dxx < 0) {
     *wpos++ = '-';
@@ -2522,13 +2643,13 @@ char* dtoa_g_p8(double dxx, char* start) {
     if (xp10 >= 100) {
       start = memcpya(start, wbuf, remainder);
       quotient = xp10 / 100;
-      start = memcpyax(start, "e-", 2, '0' + quotient);
+      start = memcpyax_k(start, "e-", 2, '0' + quotient);
       xp10 -= 100 * quotient;
     } else {
       start = memcpya(start, wbuf, remainder);
-      start = memcpya(start, "e-", 2);
+      start = memcpya_k(start, "e-", 2);
     }
-    return memcpya(start, &(kDigitPair[xp10]), 2);
+    return memcpya_k(start, &(kDigitPair[xp10]), 2);
   }
   if (dxx >= 99999999.499999) {
     // 8 sig fig exponential notation, large
@@ -2583,22 +2704,22 @@ char* dtoa_g_p8(double dxx, char* start) {
     if (xp10 >= 100) {
       start = memcpya(start, wbuf, remainder);
       quotient = xp10 / 100;
-      start = memcpyax(start, "e+", 2, '0' + quotient);
+      start = memcpyax_k(start, "e+", 2, '0' + quotient);
       xp10 -= 100 * quotient;
     } else {
       start = memcpya(start, wbuf, remainder);
-      start = memcpya(start, "e+", 2);
+      start = memcpya_k(start, "e+", 2);
     }
-    return memcpya(start, &(kDigitPair[xp10]), 2);
+    return memcpya_k(start, &(kDigitPair[xp10]), 2);
   }
   if (dxx >= 0.99999999499999) {
     wpos = dtoa_so8(dxx, wpos);
   } else {
     // 8 sig fig decimal, no less than ~0.0001
-    wpos = memcpya(wpos, "0.", 2);
+    wpos = memcpya_k(wpos, "0.", 2);
     if (dxx < 9.9999999499999e-3) {
       dxx *= 100;
-      wpos = memcpya(wpos, "00", 2);
+      wpos = memcpya_k(wpos, "00", 2);
     }
     if (dxx < 9.9999999499999e-2) {
       dxx *= 10;
@@ -2641,7 +2762,7 @@ char* dtoa_f_probp6_clipped(double dxx, char* start) {
 /*
 char* dtoa_f_p5_clipped(double dxx, char* start) {
   if (dxx != dxx) {
-    return memcpyl3a(start, "nan");
+    return strcpya_k(start, "nan");
   }
   if (dxx < 0.0) {
     // note that "-0" will be printed for very small negative numbers; do we
@@ -2675,7 +2796,7 @@ char* dtoa_f_p5_clipped(double dxx, char* start) {
   }
 #endif
   if (dxx == INFINITY) {
-    return memcpyl3a(start, "inf");
+    return strcpya_k(start, "inf");
   }
   // just punt larger numbers to glibc for now, this isn't a bottleneck
   start += sprintf(start, "%.5f", dxx);
@@ -2701,10 +2822,10 @@ char* lntoa_g(double ln_val, char* start) {
     }
     double dxx = exp(ln_val);
     // 6 sig fig decimal, no less than ~0.0001
-    start = memcpya(start, "0.", 2);
+    start = memcpya_k(start, "0.", 2);
     if (dxx < 9.9999949999999e-3) {
       dxx *= 100;
-      start = memcpya(start, "00", 2);
+      start = memcpya_k(start, "00", 2);
     }
     if (dxx < 9.9999949999999e-2) {
       dxx *= 10;
@@ -2734,7 +2855,7 @@ char* lntoa_g(double ln_val, char* start) {
   uint32_t quotient;
   uint32_t remainder;
   BankerRoundD5(mantissa, kBankerRound8, &quotient, &remainder);
-  start = memcpya(qrtoa_1p5(quotient, remainder, start), "e-", 2);
+  start = memcpya_k(qrtoa_1p5(quotient, remainder, start), "e-", 2);
   if (xp10 < 10) {
     *start++ = '0';
   }
@@ -2748,7 +2869,7 @@ char* lntoa_g(double ln_val, char* start) {
 CXXCONST_CP ScanForDuplicateIds(const char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_blen) {
   --id_ct;
   for (uintptr_t id_idx = 0; id_idx < id_ct; ++id_idx) {
-    if (!strcmp(&(sorted_ids[id_idx * max_id_blen]), &(sorted_ids[(id_idx + 1) * max_id_blen]))) {
+    if (strequal_overread(&(sorted_ids[id_idx * max_id_blen]), &(sorted_ids[(id_idx + 1) * max_id_blen]))) {
       return S_CAST(CXXCONST_CP, &(sorted_ids[id_idx * max_id_blen]));
     }
   }
@@ -2768,27 +2889,28 @@ uint32_t CollapseDuplicateIds(uintptr_t id_ct, uintptr_t max_id_blen, char* sort
   if (id_starts) {
     id_starts[0] = 0;
     for (; read_idx < id_ct; ++read_idx) {
-      if (!strcmp(&(sorted_ids[(read_idx - 1) * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]))) {
+      if (strequal_overread(&(sorted_ids[(read_idx - 1) * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]))) {
         break;
       }
       id_starts[read_idx] = read_idx;
     }
     write_idx = read_idx;
     while (++read_idx < id_ct) {
-      if (strcmp(&(sorted_ids[(write_idx - 1) * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]))) {
+      // this loop can probably be improved with string-length tracking...
+      if (!strequal_overread(&(sorted_ids[(write_idx - 1) * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]))) {
         strcpy(&(sorted_ids[write_idx * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]));
         id_starts[write_idx++] = read_idx;
       }
     }
   } else {
     for (; read_idx < id_ct; ++read_idx) {
-      if (!strcmp(&(sorted_ids[(read_idx - 1) * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]))) {
+      if (strequal_overread(&(sorted_ids[(read_idx - 1) * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]))) {
         break;
       }
     }
     write_idx = read_idx;
     while (++read_idx < id_ct) {
-      if (strcmp(&(sorted_ids[(write_idx - 1) * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]))) {
+      if (!strequal_overread(&(sorted_ids[(write_idx - 1) * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]))) {
         strcpy(&(sorted_ids[write_idx * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]));
         ++write_idx;
       }
@@ -2806,7 +2928,7 @@ int32_t bsearch_str(const char* idbuf, const char* sorted_strbox, uintptr_t cur_
   uintptr_t start_idx = 0;
   while (start_idx < end_idx) {
     const uintptr_t mid_idx = (start_idx + end_idx) / 2;
-    const int32_t ii = memcmp(idbuf, &(sorted_strbox[mid_idx * max_id_blen]), cur_id_slen);
+    const int32_t ii = Memcmp(idbuf, &(sorted_strbox[mid_idx * max_id_blen]), cur_id_slen);
     if (ii > 0) {
       start_idx = mid_idx + 1;
     } else if ((ii < 0) || sorted_strbox[mid_idx * max_id_blen + cur_id_slen]) {
@@ -2844,7 +2966,7 @@ uintptr_t bsearch_str_lb(const char* idbuf, const char* sorted_strbox, uintptr_t
   uintptr_t start_idx = 0;
   while (start_idx < end_idx) {
     const uintptr_t mid_idx = (start_idx + end_idx) / 2;
-    if (memcmp(idbuf, &(sorted_strbox[mid_idx * max_id_blen]), cur_id_slen) > 0) {
+    if (Memcmp(idbuf, &(sorted_strbox[mid_idx * max_id_blen]), cur_id_slen) > 0) {
       start_idx = mid_idx + 1;
     } else {
       end_idx = mid_idx;
@@ -2857,7 +2979,7 @@ uintptr_t FwdsearchStrLb(const char* idbuf, const char* sorted_strbox, uintptr_t
   uintptr_t next_incr = 1;
   uintptr_t start_idx = cur_idx;
   while (cur_idx < end_idx) {
-    if (memcmp(idbuf, &(sorted_strbox[cur_idx * max_id_blen]), cur_id_slen) <= 0) {
+    if (Memcmp(idbuf, &(sorted_strbox[cur_idx * max_id_blen]), cur_id_slen) <= 0) {
       end_idx = cur_idx;
       break;
     }
@@ -2867,7 +2989,7 @@ uintptr_t FwdsearchStrLb(const char* idbuf, const char* sorted_strbox, uintptr_t
   }
   while (start_idx < end_idx) {
     const uintptr_t mid_idx = (start_idx + end_idx) / 2;
-    if (memcmp(idbuf, &(sorted_strbox[mid_idx * max_id_blen]), cur_id_slen) > 0) {
+    if (Memcmp(idbuf, &(sorted_strbox[mid_idx * max_id_blen]), cur_id_slen) > 0) {
       start_idx = mid_idx + 1;
     } else {
       end_idx = mid_idx;

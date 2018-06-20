@@ -3220,28 +3220,28 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       const uint32_t cur_varid_slen = strlen(ld_console_varids[var_idx]);
       varid_slens[var_idx] = cur_varid_slen;
       char* write_iter = memcpya(g_logbuf, cur_varid, cur_varid_slen);
-      write_iter = strcpya(write_iter, " alleles:\n");
+      write_iter = strcpya_k(write_iter, " alleles:\n");
       *write_iter = '\0';
       WordWrapB(0);
       logputsb();
-      write_iter = strcpya(g_logbuf, "  MAJOR = ");
+      write_iter = strcpya_k(g_logbuf, "  MAJOR = ");
       const uint32_t maj_idx = maj_alleles[cur_variant_uidx];
       const char* maj_allele = cur_alleles[maj_idx];
       const uint32_t maj_slen = strlen(maj_allele);
       uint32_t slen_limit = 70;
       if (!maj_idx) {
-        write_iter = strcpya(write_iter, "REF = ");
+        write_iter = strcpya_k(write_iter, "REF = ");
         slen_limit -= 6;
       }
       if (maj_slen < slen_limit) {
         write_iter = memcpyax(write_iter, maj_allele, maj_slen, '\n');
       } else {
         write_iter = memcpya(write_iter, maj_allele, slen_limit - 3);
-        write_iter = strcpya(write_iter, "...\n");
+        write_iter = strcpya_k(write_iter, "...\n");
       }
       *write_iter = '\0';
       logputsb();
-      write_iter = strcpya(g_logbuf, "  MINOR = ");
+      write_iter = strcpya_k(g_logbuf, "  MINOR = ");
       uint32_t allele_idx = (maj_idx == 0)? 1 : 0;
       while (1) {
         const char* cur_allele = cur_alleles[allele_idx];
@@ -3252,7 +3252,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
             const uint32_t final_char_ct = S_CAST(uintptr_t, write_ellipsis_start - write_iter);
             memcpy(write_iter, cur_allele, final_char_ct);
           }
-          write_iter = memcpyl3a(write_ellipsis_start, "...");
+          write_iter = strcpya_k(write_ellipsis_start, "...");
           break;
         }
         write_iter = memcpya(write_iter, cur_allele, cur_slen);
@@ -3269,55 +3269,55 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       *write_iter = '\0';
       logputsb();
       if (maj_idx) {
-        write_iter = strcpya(g_logbuf, "  (REF = ");
+        write_iter = strcpya_k(g_logbuf, "  (REF = ");
         const char* ref_allele = cur_alleles[0];
         const uint32_t ref_slen = strlen(ref_allele);
         if (ref_slen < 70) {
           write_iter = memcpya(write_iter, ref_allele, ref_slen);
         } else {
           write_iter = memcpya(write_iter, ref_allele, 67);
-          write_iter = memcpyl3a(write_iter, "...");
+          write_iter = strcpya_k(write_iter, "...");
         }
-        memcpyl3(write_iter, ")\n");
+        memcpy_k(write_iter, ")\n\0", 4);
         logputsb();
       }
     }
     logputs("\n");
     char* write_iter = u32toa(valid_obs_ct, g_logbuf);
-    write_iter = strcpya(write_iter, " valid");
+    write_iter = strcpya_k(write_iter, " valid");
     if (y_ct) {
-      write_iter = strcpya(write_iter, " male");
+      write_iter = strcpya_k(write_iter, " male");
     }
-    write_iter = strcpya(write_iter, " sample");
+    write_iter = strcpya_k(write_iter, " sample");
     if (valid_obs_ct != 1) {
       *write_iter++ = 's';
     }
     if (valid_x_male_ct && (!y_ct)) {
-      write_iter = strcpya(write_iter, " (");
+      write_iter = strcpya_k(write_iter, " (");
       write_iter = u32toa(valid_x_male_ct, write_iter);
-      write_iter = strcpya(write_iter, " male)");
+      write_iter = strcpya_k(write_iter, " male)");
     }
     if ((!is_nonx_haploids[0]) && (!is_nonx_haploids[1])) {
-      write_iter = strcpya(write_iter, "; ");
+      write_iter = strcpya_k(write_iter, "; ");
       if (unknown_hethet_d == 0.0) {
         if (hethet_present) {
-          write_iter = strcpya(write_iter, "all phased");
+          write_iter = strcpya_k(write_iter, "all phased");
         } else {
-          write_iter = strcpya(write_iter, "no het pairs present");
+          write_iter = strcpya_k(write_iter, "no het pairs present");
         }
       } else {
         // print_dosage assumes kDosageMax rather than kDosageMid multiplier
         const uint64_t unknown_hethet_int_dosage = S_CAST(int64_t, unknown_hethet_d * kDosageMax);
         write_iter = dosagetoa(unknown_hethet_int_dosage, write_iter);
-        write_iter = strcpya(write_iter, " het pair");
+        write_iter = strcpya_k(write_iter, " het pair");
         if (unknown_hethet_int_dosage != kDosageMax) {
           *write_iter++ = 's';
         }
-        write_iter = strcpya(write_iter, " statistically phased");
+        write_iter = strcpya_k(write_iter, " statistically phased");
       }
     }
     assert(write_iter - g_logbuf < 78);
-    memcpyl3(write_iter, ".\n");
+    memcpy_k(write_iter, ".\n\0", 4);
     logputsb();
 
     uint32_t cubic_sol_ct = 0;
@@ -3436,17 +3436,17 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
 
     for (uint32_t sol_idx = first_relevant_sol_idx; sol_idx < cubic_sol_ct; ++sol_idx) {
       if (cubic_sol_ct - first_relevant_sol_idx > 1) {
-        write_iter = strcpya(g_logbuf, "Solution #");
+        write_iter = strcpya_k(g_logbuf, "Solution #");
         write_iter = u32toa(sol_idx + 1 - first_relevant_sol_idx, write_iter);
         if ((best_lnlike_mask >> sol_idx) & 1) {
-          write_iter = strcpya(write_iter, " (");
+          write_iter = strcpya_k(write_iter, " (");
           if (best_lnlike_mask & ((1 << sol_idx) - 1)) {
-            write_iter = strcpya(write_iter, "tied for ");
+            write_iter = strcpya_k(write_iter, "tied for ");
           }
-          write_iter = strcpya(write_iter, "best likelihood)");
+          write_iter = strcpya_k(write_iter, "best likelihood)");
         }
         assert(write_iter - g_logbuf < 78);
-        memcpyl3(write_iter, ":\n");
+        memcpy_k(write_iter, ":\n\0", 4);
         logputsb();
       }
       const double cur_sol_xx = cubic_sols[sol_idx];
@@ -3454,9 +3454,9 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       if (fabs(dd) < kSmallEpsilon) {
         dd = 0.0;
       }
-      write_iter = strcpya(g_logbuf, "  r^2 = ");
+      write_iter = strcpya_k(g_logbuf, "  r^2 = ");
       write_iter = dtoa_g(dd * dd / (freq_majx * freq_xmaj * freq_minx * freq_xmin), write_iter);
-      write_iter = strcpya(write_iter, "    D' = ");
+      write_iter = strcpya_k(write_iter, "    D' = ");
       double d_prime;
       if (dd >= 0.0) {
         d_prime = dd / MINV(freq_xmaj * freq_minx, freq_xmin * freq_majx);
@@ -3465,7 +3465,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       }
       write_iter = dtoa_g(d_prime, write_iter);
       assert(write_iter - g_logbuf < 79);
-      memcpy(write_iter, "\n", 2);
+      strcpy_k(write_iter, "\n");
       logputsb();
 
       logputs("\n");
@@ -3498,7 +3498,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         // formatting fix (1 Feb 2018): cap this at 24, not 50
         extra_initial_spaces = MINV(varid_slen0 - 26, 24);
       }
-      write_iter = strcpya(g_logbuf, "        Frequencies      :  ");
+      write_iter = strcpya_k(g_logbuf, "        Frequencies      :  ");
       // default center column index is 43 + extra_initial_spaces; we're
       //   currently at column 28
       // for length-1, we want to occupy just the center column index; for
@@ -3507,7 +3507,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       const uint32_t varid_slen1 = varid_slens[1];
       if (varid_slen1 > 51) {
         write_iter = memcpya(write_iter, ld_console_varids[1], 48);
-        write_iter = memcpyl3a(write_iter, "...");
+        write_iter = strcpya_k(write_iter, "...");
       } else {
         uint32_t offset_x2 = (16 + extra_initial_spaces) * 2;
         if (offset_x2 > varid_slen1) {
@@ -3519,10 +3519,10 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         }
         write_iter = memcpya(write_iter, ld_console_varids[1], varid_slen1);
       }
-      memcpy(write_iter, "\n", 2);
+      strcpy_k(write_iter, "\n");
       logputsb();
 
-      write_iter = strcpya(g_logbuf, "  (expectations under LE)");
+      write_iter = strcpya_k(g_logbuf, "  (expectations under LE)");
       write_iter = memseta(write_iter, 32, extra_initial_spaces + 10);
       snprintf(write_iter, 81 - 25 - 24 - 10, "MAJOR       MINOR\n");
       logputsb();
@@ -3531,19 +3531,19 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       snprintf(write_iter, 81 - 24 - 33, "----------  ----------\n");
       logputsb();
 
-      write_iter = strcpya(&(g_logbuf[27 + extra_initial_spaces]), "MAJOR  ");
+      write_iter = strcpya_k(&(g_logbuf[27 + extra_initial_spaces]), "MAJOR  ");
       write_iter = dtoa_f_probp6_spaced(freq_majmaj + cur_sol_xx, write_iter);
-      write_iter = strcpya(write_iter, "    ");
+      write_iter = strcpya_k(write_iter, "    ");
       const double cur_sol_xy = half_unphased_hethet_share - cur_sol_xx;
       write_iter = dtoa_f_probp6_clipped(freq_majmin + cur_sol_xy, write_iter);
-      memcpy(write_iter, "\n", 2);
+      strcpy_k(write_iter, "\n");
       logputsb();
 
-      write_iter = strcpya(&(g_logbuf[27 + extra_initial_spaces]), "      (");
+      write_iter = strcpya_k(&(g_logbuf[27 + extra_initial_spaces]), "      (");
       write_iter = dtoa_f_probp6_spaced(freq_xmaj * freq_majx, write_iter);
-      write_iter = strcpya(write_iter, ")  (");
+      write_iter = strcpya_k(write_iter, ")  (");
       write_iter = dtoa_f_probp6_clipped(freq_xmin * freq_majx, write_iter);
-      memcpyl3(write_iter, ")\n");
+      memcpy_k(write_iter, ")\n\0", 4);
       logputsb();
 
       write_iter = g_logbuf;
@@ -3551,22 +3551,22 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         write_iter = &(write_iter[26 - varid_slen0]);
       }
       write_iter = memcpya(write_iter, ld_console_varids[0], varid_slen0);
-      memcpy(write_iter, "\n", 2);
+      strcpy_k(write_iter, "\n");
       logputsb();
 
       write_iter = memseta(g_logbuf, 32, 27 + extra_initial_spaces);
-      write_iter = strcpya(write_iter, "MINOR  ");
+      write_iter = strcpya_k(write_iter, "MINOR  ");
       write_iter = dtoa_f_probp6_spaced(freq_minmaj + cur_sol_xy, write_iter);
-      write_iter = strcpya(write_iter, "    ");
+      write_iter = strcpya_k(write_iter, "    ");
       write_iter = dtoa_f_probp6_clipped(freq_minmin + cur_sol_xx, write_iter);
-      memcpy(write_iter, "\n", 2);
+      strcpy_k(write_iter, "\n");
       logputsb();
 
-      write_iter = strcpya(&(g_logbuf[27 + extra_initial_spaces]), "      (");
+      write_iter = strcpya_k(&(g_logbuf[27 + extra_initial_spaces]), "      (");
       write_iter = dtoa_f_probp6_spaced(freq_xmaj * freq_minx, write_iter);
-      write_iter = strcpya(write_iter, ")  (");
+      write_iter = strcpya_k(write_iter, ")  (");
       write_iter = dtoa_f_probp6_clipped(freq_xmin * freq_minx, write_iter);
-      memcpyl3(write_iter, ")\n");
+      memcpy_k(write_iter, ")\n\0", 4);
       logputsb();
 
       logputs("\n");

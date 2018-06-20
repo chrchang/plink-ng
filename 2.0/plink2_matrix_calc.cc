@@ -822,19 +822,19 @@ double ComputeKinship(const uint32_t* king_counts_entry) {
 // could also return pointer to end?
 void SetKingMatrixFname(KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, char* outname_end) {
   if (!(king_flags & (kfKingMatrixBin | kfKingMatrixBin4))) {
-    char* outname_end2 = strcpya(outname_end, ".king");
+    char* outname_end2 = strcpya_k(outname_end, ".king");
     const uint32_t output_zst = king_flags & kfKingMatrixZs;
     if (parallel_tot != 1) {
       *outname_end2++ = '.';
       outname_end2 = u32toa(parallel_idx + 1, outname_end2);
     }
     if (output_zst) {
-      outname_end2 = strcpya(outname_end2, ".zst");
+      outname_end2 = strcpya_k(outname_end2, ".zst");
     }
     *outname_end2 = '\0';
     return;
   }
-  char* outname_end2 = strcpya(outname_end, ".king.bin");
+  char* outname_end2 = strcpya_k(outname_end, ".king.bin");
   if (parallel_tot != 1) {
     *outname_end2++ = '.';
     outname_end2 = u32toa(parallel_idx + 1, outname_end2);
@@ -843,14 +843,14 @@ void SetKingMatrixFname(KingFlags king_flags, uint32_t parallel_idx, uint32_t pa
 }
 
 void SetKingTableFname(KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, char* outname_end) {
-  char* outname_end2 = strcpya(outname_end, ".kin0");
+  char* outname_end2 = strcpya_k(outname_end, ".kin0");
   const uint32_t output_zst = king_flags & kfKingTableZs;
   if (parallel_tot != 1) {
     *outname_end2++ = '.';
     outname_end2 = u32toa(parallel_idx + 1, outname_end2);
   }
   if (output_zst) {
-    outname_end2 = strcpya(outname_end2, ".zst");
+    outname_end2 = strcpya_k(outname_end2, ".zst");
   }
   *outname_end2 = '\0';
 }
@@ -859,35 +859,35 @@ char* AppendKingTableHeader(KingFlags king_flags, uint32_t king_col_fid, uint32_
   *cswritep++ = '#';
   if (king_flags & kfKingColId) {
     if (king_col_fid) {
-      cswritep = strcpya(cswritep, "FID1\t");
+      cswritep = strcpya_k(cswritep, "FID1\t");
     }
-    cswritep = strcpya(cswritep, "ID1\t");
+    cswritep = strcpya_k(cswritep, "ID1\t");
     if (king_col_sid) {
-      cswritep = strcpya(cswritep, "SID1\t");
+      cswritep = strcpya_k(cswritep, "SID1\t");
     }
     if (king_col_fid) {
       // bugfix (15 Feb 2018): yesterday's build had \n instead of \t here
-      cswritep = strcpya(cswritep, "FID2\t");
+      cswritep = strcpya_k(cswritep, "FID2\t");
     }
-    cswritep = strcpya(cswritep, "ID2\t");
+    cswritep = strcpya_k(cswritep, "ID2\t");
     if (king_col_sid) {
-      cswritep = strcpya(cswritep, "SID2\t");
+      cswritep = strcpya_k(cswritep, "SID2\t");
     }
   }
   if (king_flags & kfKingColNsnp) {
-    cswritep = strcpya(cswritep, "NSNP\t");
+    cswritep = strcpya_k(cswritep, "NSNP\t");
   }
   if (king_flags & kfKingColHethet) {
-    cswritep = strcpya(cswritep, "HETHET\t");
+    cswritep = strcpya_k(cswritep, "HETHET\t");
   }
   if (king_flags & kfKingColIbs0) {
-    cswritep = strcpya(cswritep, "IBS0\t");
+    cswritep = strcpya_k(cswritep, "IBS0\t");
   }
   if (king_flags & kfKingColIbs1) {
-    cswritep = strcpya(cswritep, "HET1_HOM2\tHET2_HOM1\t");
+    cswritep = strcpya_k(cswritep, "HET1_HOM2\tHET2_HOM1\t");
   }
   if (king_flags & kfKingColKinship) {
-    cswritep = strcpya(cswritep, "KINSHIP\t");
+    cswritep = strcpya_k(cswritep, "KINSHIP\t");
   }
   DecrAppendBinaryEoln(&cswritep);
   return cswritep;
@@ -1228,7 +1228,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
                 results_iter = &(results_iter[homhom_needed_p4]);
               }
               if (is_squarex) {
-                cswritep = memcpyl3a(cswritep, "0.5");
+                cswritep = strcpya_k(cswritep, "0.5");
                 if (is_square0) {
                   // (roughly same performance as creating a tab-zero constant
                   // buffer in advance)
@@ -1473,12 +1473,13 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
       // --make-king-table.
       SetKingMatrixFname(king_flags, parallel_idx, parallel_tot, outname_end);
 
-      char* write_iter = strcpya(g_logbuf, "Results written to ");
-      write_iter = strcpya(write_iter, outname);
-      write_iter = strcpya(write_iter, " and ");
-      snprintf(&(outname_end[5]), kMaxOutfnameExtBlen - 5, ".id");
-      write_iter = strcpya(write_iter, outname);
-      snprintf(write_iter, kLogbufSize - 2 * kPglFnamesize - 64, " .\n");
+      char* write_iter = strcpya_k(g_logbuf, "Results written to ");
+      const uint32_t outname_base_slen = S_CAST(uintptr_t, outname_end - outname);
+      write_iter = memcpya(write_iter, outname, outname_base_slen + strlen(outname_end));
+      write_iter = strcpya_k(write_iter, " and ");
+      strcpy_k(&(outname_end[5]), ".id");
+      write_iter = memcpya(write_iter, outname, outname_base_slen + 8);
+      strcpy_k(write_iter, " .\n");
       WordWrapB(0);
       logputsb();
       reterr = WriteSampleIds(sample_include, siip, outname, sample_ct);
@@ -1491,13 +1492,14 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
         goto CalcKing_ret_WRITE_FAIL;
       }
       SetKingTableFname(king_flags, parallel_idx, parallel_tot, outname_end);
-      char* write_iter = strcpya(g_logbuf, "Results written to ");
-      write_iter = strcpya(write_iter, outname);
+      char* write_iter = strcpya_k(g_logbuf, "Results written to ");
+      const uint32_t outname_base_slen = S_CAST(uintptr_t, outname_end - outname);
+      write_iter = memcpya(write_iter, outname, outname_base_slen + strlen(outname_end));
       if ((!parallel_idx) && (!(king_flags & kfKingColId))) {
-        write_iter = strcpya(write_iter, " and ");
-        strcpya(&(outname_end[5]), ".id");
-        write_iter = strcpya(write_iter, outname);
-        snprintf(write_iter, kLogbufSize - 2 * kPglFnamesize - 64, " .\n");
+        write_iter = strcpya_k(write_iter, " and ");
+        strcpy_k(&(outname_end[5]), ".id");
+        write_iter = memcpya(write_iter, outname, outname_base_slen + 8);
+        strcpy_k(write_iter, " .\n");
         WordWrapB(0);
         logputsb();
         reterr = WriteSampleIds(sample_include, siip, outname, sample_ct);
@@ -1505,7 +1507,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
           goto CalcKing_ret_1;
         }
       } else {
-        snprintf(write_iter, kLogbufSize - kPglFnamesize - 64, " .\n");
+        strcpy_k(write_iter, " .\n");
         WordWrapB(0);
         logputsb();
       }
@@ -2000,7 +2002,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       logerrputs("Warning: --king-table-subset input filename matches --make-king-table output\nfilename.  Appending '~' to input filename.\n");
       fname_slen = strlen(subset_fname);
       memcpy(g_textbuf, subset_fname, fname_slen);
-      memcpy(&(g_textbuf[fname_slen]), "~", 2);
+      strcpy_k(&(g_textbuf[fname_slen]), "~");
       if (unlikely(rename(subset_fname, g_textbuf))) {
         logerrputs("Error: Failed to append '~' to --king-table-subset input filename.\n");
         goto CalcKingTableSubset_ret_OPEN_FAIL;
@@ -3083,7 +3085,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         fputs("--make-rel: Writing...", stdout);
         fflush(stdout);
         if (grm_flags & kfGrmMatrixBin) {
-          char* outname_end2 = strcpya(outname_end, ".rel.bin");
+          char* outname_end2 = strcpya_k(outname_end, ".rel.bin");
           if (parallel_tot != 1) {
             *outname_end2++ = '.';
             outname_end2 = u32toa(parallel_idx + 1, outname_end2);
@@ -3140,7 +3142,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           }
         } else if (grm_flags & kfGrmMatrixBin4) {
           // downcode all entries to floats
-          char* outname_end2 = strcpya(outname_end, ".rel.bin");
+          char* outname_end2 = strcpya_k(outname_end, ".rel.bin");
           if (parallel_tot != 1) {
             *outname_end2++ = '.';
             outname_end2 = u32toa(parallel_idx + 1, outname_end2);
@@ -3178,14 +3180,14 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             goto CalcGrm_ret_WRITE_FAIL;
           }
         } else {
-          char* outname_end2 = strcpya(outname_end, ".rel");
+          char* outname_end2 = strcpya_k(outname_end, ".rel");
           if (parallel_tot != 1) {
             *outname_end2++ = '.';
             outname_end2 = u32toa(parallel_idx + 1, outname_end2);
           }
           const uint32_t output_zst = (grm_flags / kfGrmMatrixZs) & 1;
           if (output_zst) {
-            outname_end2 = strcpya(outname_end2, ".zst");
+            outname_end2 = strcpya_k(outname_end2, ".zst");
           }
           *outname_end2 = '\0';
           reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, kCompressStreamBlock + 16 * row_end_idx, &css, &cswritep);
@@ -3232,11 +3234,11 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           }
         }
         putc_unlocked('\r', stdout);
-        log_write_iter = strcpya(g_logbuf, "--make-rel: GRM ");
+        log_write_iter = strcpya_k(g_logbuf, "--make-rel: GRM ");
         if (parallel_tot != 1) {
-          log_write_iter = strcpya(log_write_iter, "component ");
+          log_write_iter = strcpya_k(log_write_iter, "component ");
         }
-        log_write_iter = strcpya(log_write_iter, "written to ");
+        log_write_iter = strcpya_k(log_write_iter, "written to ");
         log_write_iter = strcpya(log_write_iter, outname);
       } else {
         const uint32_t* missing_dbl_exclude_iter = missing_dbl_exclude_cts;
@@ -3246,7 +3248,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           if (unlikely(bigstack_alloc_f(row_end_idx, &write_float_buf))) {
             goto CalcGrm_ret_NOMEM;
           }
-          char* outname_end2 = strcpya(outname_end, ".grm.bin");
+          char* outname_end2 = strcpya_k(outname_end, ".grm.bin");
           if (parallel_tot != 1) {
             *outname_end2++ = '.';
             outname_end2 = u32toa(parallel_idx + 1, outname_end2);
@@ -3270,7 +3272,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             goto CalcGrm_ret_WRITE_FAIL;
           }
 
-          outname_end2 = strcpya(outname_end, ".grm.N.bin");
+          outname_end2 = strcpya_k(outname_end, ".grm.N.bin");
           if (parallel_tot != 1) {
             *outname_end2++ = '.';
             outname_end2 = u32toa(parallel_idx + 1, outname_end2);
@@ -3319,32 +3321,32 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           }
           putc_unlocked('\r', stdout);
           const uint32_t outname_copy_byte_ct = 5 + S_CAST(uintptr_t, outname_end - outname);
-          log_write_iter = strcpya(g_logbuf, "--make-grm-bin: GRM ");
+          log_write_iter = strcpya_k(g_logbuf, "--make-grm-bin: GRM ");
           if (parallel_tot != 1) {
-            log_write_iter = strcpya(log_write_iter, "component ");
+            log_write_iter = strcpya_k(log_write_iter, "component ");
           }
-          log_write_iter = strcpya(log_write_iter, "written to ");
+          log_write_iter = strcpya_k(log_write_iter, "written to ");
           log_write_iter = memcpya(log_write_iter, outname, outname_copy_byte_ct);
-          log_write_iter = memcpyl3a(log_write_iter, "bin");
+          log_write_iter = strcpya_k(log_write_iter, "bin");
           if (parallel_tot != 1) {
             *log_write_iter++ = '.';
             log_write_iter = u32toa(parallel_idx + 1, log_write_iter);
           }
-          log_write_iter = memcpyl3a(log_write_iter, " , ");
+          log_write_iter = strcpya_k(log_write_iter, " , ");
           if (parallel_idx) {
-            log_write_iter = strcpya(log_write_iter, "and ");
+            log_write_iter = strcpya_k(log_write_iter, "and ");
           }
-          log_write_iter = strcpya(log_write_iter, "observation counts to ");
+          log_write_iter = strcpya_k(log_write_iter, "observation counts to ");
           log_write_iter = memcpya(log_write_iter, outname, outname_end2 - outname);
         } else {
           // --make-grm-list
-          char* outname_end2 = strcpya(outname_end, ".grm");
+          char* outname_end2 = strcpya_k(outname_end, ".grm");
           if (parallel_tot != 1) {
             *outname_end2++ = '.';
             outname_end2 = u32toa(parallel_idx + 1, outname_end2);
           }
           if (grm_flags & kfGrmListZs) {
-            outname_end2 = strcpya(outname_end2, ".zst");
+            outname_end2 = strcpya_k(outname_end2, ".zst");
           }
           *outname_end2 = '\0';
           reterr = InitCstreamAlloc(outname, 0, !(grm_flags & kfGrmListNoGz), max_thread_ct, kCompressStreamBlock + kMaxMediumLine, &css, &cswritep);
@@ -3383,11 +3385,11 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             goto CalcGrm_ret_WRITE_FAIL;
           }
           putc_unlocked('\r', stdout);
-          log_write_iter = strcpya(g_logbuf, "--make-grm-list: GRM ");
+          log_write_iter = strcpya_k(g_logbuf, "--make-grm-list: GRM ");
           if (parallel_tot != 1) {
-            log_write_iter = strcpya(log_write_iter, "component ");
+            log_write_iter = strcpya_k(log_write_iter, "component ");
           }
-          log_write_iter = strcpya(log_write_iter, "written to ");
+          log_write_iter = strcpya_k(log_write_iter, "written to ");
           log_write_iter = strcpya(log_write_iter, outname);
         }
       }
@@ -3404,7 +3406,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         if (unlikely(reterr)) {
           goto CalcGrm_ret_1;
         }
-        log_write_iter = strcpya(log_write_iter, " , and IDs to ");
+        log_write_iter = strcpya_k(log_write_iter, " , and IDs to ");
         log_write_iter = strcpya(log_write_iter, outname);
       }
       snprintf(log_write_iter, kLogbufSize - 2 * kPglFnamesize - 256, " .\n");
@@ -4164,32 +4166,32 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       cswritep = writebuf;
       *cswritep++ = '#';
       if (chr_col) {
-        cswritep = strcpya(cswritep, "CHROM\t");
+        cswritep = strcpya_k(cswritep, "CHROM\t");
       }
       if (pca_flags & kfPcaVcolPos) {
-        cswritep = strcpya(cswritep, "POS\t");
+        cswritep = strcpya_k(cswritep, "POS\t");
       } else {
         variant_bps = nullptr;
       }
-      cswritep = strcpya(cswritep, "ID");
+      cswritep = strcpya_k(cswritep, "ID");
       if (ref_col) {
-        cswritep = strcpya(cswritep, "\tREF");
+        cswritep = strcpya_k(cswritep, "\tREF");
       }
       if (alt1_col) {
-        cswritep = strcpya(cswritep, "\tALT1");
+        cswritep = strcpya_k(cswritep, "\tALT1");
       }
       if (alt_col) {
-        cswritep = strcpya(cswritep, "\tALT");
+        cswritep = strcpya_k(cswritep, "\tALT");
       }
       if (maj_col) {
-        cswritep = strcpya(cswritep, "\tMAJ");
+        cswritep = strcpya_k(cswritep, "\tMAJ");
       }
       if (nonmaj_col) {
-        cswritep = strcpya(cswritep, "\tNONMAJ");
+        cswritep = strcpya_k(cswritep, "\tNONMAJ");
       }
       for (uint32_t pc_idx = 0; pc_idx < pc_ct;) {
         ++pc_idx;
-        cswritep = memcpyl3a(cswritep, "\tPC");
+        cswritep = strcpya_k(cswritep, "\tPC");
         cswritep = u32toa(pc_idx, cswritep);
       }
       AppendBinaryEoln(&cswritep);
@@ -4427,15 +4429,15 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     char* write_iter = writebuf;
     *write_iter++ = '#';
     if (write_fid) {
-      write_iter = strcpya(write_iter, "FID\t");
+      write_iter = strcpya_k(write_iter, "FID\t");
     }
-    write_iter = memcpyl3a(write_iter, "IID");
+    write_iter = strcpya_k(write_iter, "IID");
     if (write_sid) {
-      write_iter = strcpya(write_iter, "\tSID");
+      write_iter = strcpya_k(write_iter, "\tSID");
     }
     for (uint32_t pc_idx = 0; pc_idx < pc_ct;) {
       ++pc_idx;
-      write_iter = memcpyl3a(write_iter, "\tPC");
+      write_iter = strcpya_k(write_iter, "\tPC");
       write_iter = u32toa(pc_idx, write_iter);
     }
     AppendBinaryEoln(&write_iter);
@@ -4700,7 +4702,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     } else {
       for (uintptr_t score_col_idx = 0; score_col_idx < score_col_ct; ++score_col_idx) {
         score_col_names[score_col_idx] = write_iter;
-        write_iter = strcpya(write_iter, "SCORE");
+        write_iter = strcpya_k(write_iter, "SCORE");
         write_iter = u32toa_x(score_col_idx + 1, '\0', write_iter);
       }
     }
@@ -4854,12 +4856,11 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
           char* allele_end = CurTokenEnd(allele_start);
           char allele_end_char = *allele_end;
           *allele_end = '\0';
+          const uint32_t allele_blen = 1 + S_CAST(uintptr_t, allele_end - allele_start);
           const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
           uint32_t cur_allele_idx = 0;
           for (; cur_allele_idx < cur_allele_ct; ++cur_allele_idx) {
-            // for very long alleles, tokequal_k might read past the end of the
-            // workspace, so just use plain strcmp.
-            if (!strcmp(allele_start, cur_alleles[cur_allele_idx])) {
+            if (memequal(allele_start, cur_alleles[cur_allele_idx], allele_blen)) {
               break;
             }
           }
@@ -5223,11 +5224,11 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     }
     *cswritep++ = '#';
     if (write_fid) {
-      cswritep = strcpya(cswritep, "FID\t");
+      cswritep = strcpya_k(cswritep, "FID\t");
     }
-    cswritep = memcpyl3a(cswritep, "IID");
+    cswritep = strcpya_k(cswritep, "IID");
     if (write_sid) {
-      cswritep = strcpya(cswritep, "\tSID");
+      cswritep = strcpya_k(cswritep, "\tSID");
     }
     if (write_phenos) {
       for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
@@ -5238,25 +5239,25 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         }
       }
     } else if (write_empty_pheno) {
-      cswritep = strcpya(cswritep, "\tPHENO1");
+      cswritep = strcpya_k(cswritep, "\tPHENO1");
     }
     const uint32_t write_nmiss_allele = (score_flags / kfScoreColNmissAllele) & 1;
     if (write_nmiss_allele) {
-      cswritep = strcpya(cswritep, "\tNMISS_ALLELE_CT");
+      cswritep = strcpya_k(cswritep, "\tNMISS_ALLELE_CT");
     }
     const uint32_t write_denom = (score_flags / kfScoreColDenom) & 1;
     if (write_denom) {
-      cswritep = strcpya(cswritep, "\tDENOM");
+      cswritep = strcpya_k(cswritep, "\tDENOM");
     }
     const uint32_t write_dosage_sum = (score_flags / kfScoreColDosageSum) & 1;
     if (write_dosage_sum) {
-      cswritep = strcpya(cswritep, "\tNAMED_ALLELE_DOSAGE_SUM");
+      cswritep = strcpya_k(cswritep, "\tNAMED_ALLELE_DOSAGE_SUM");
     }
     if (write_score_avgs) {
       for (uint32_t score_col_idx = 0; score_col_idx < score_col_ct; ++score_col_idx) {
         *cswritep++ = '\t';
         cswritep = strcpya(cswritep, score_col_names[score_col_idx]);
-        cswritep = strcpya(cswritep, "_AVG");
+        cswritep = strcpya_k(cswritep, "_AVG");
         if (unlikely(Cswrite(&css, &cswritep))) {
           goto ScoreReport_ret_WRITE_FAIL;
         }
@@ -5266,7 +5267,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       for (uint32_t score_col_idx = 0; score_col_idx < score_col_ct; ++score_col_idx) {
         *cswritep++ = '\t';
         cswritep = strcpya(cswritep, score_col_names[score_col_idx]);
-        cswritep = strcpya(cswritep, "_SUM");
+        cswritep = strcpya_k(cswritep, "_SUM");
         if (unlikely(Cswrite(&css, &cswritep))) {
           goto ScoreReport_ret_WRITE_FAIL;
         }

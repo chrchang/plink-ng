@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1008
+#define PGENLIB_INTERNAL_VERNUM 1009
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -1164,6 +1164,10 @@ void PgrDifflistToGenovecUnsafe(const uintptr_t* __restrict raregeno, const uint
 // * D suffix = also returns dosage information.
 // * Dp suffix = also returns hardcall-phase, dosage and phased-dosage
 //   information.
+// * PgrGet2() and PgrGet2P() loads biallelic (possibly phased) hardcalls from
+//   a possibly-multiallelic variant.  Any hardcall where either allele is not
+//   one of the specified two alleles is set to missing.
+//   There is no dosage-supporting version of this because rescaling sucks.
 
 // This will normally extract only the genotype indexes corresponding to set
 // bits in sample_include.  Set sample_ct == raw_sample_ct if you don't want
@@ -1212,6 +1216,8 @@ PglErr PgrGet1(const uintptr_t* __restrict sample_include, const uint32_t* __res
 
 PglErr PgrGetInv1(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgrp, uintptr_t* __restrict allele_invcountvec);
 
+PglErr PgrGet2(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx0, uint32_t allele_idx1, PgenReader* pgrp, uintptr_t* __restrict genovec);
+
 // todo: add functions which directly support MAF-based queries.  Note that
 // when the difflist representation is used, we can disqualify some low-MAF
 // variants without actually loading the genotype data, since the size of the
@@ -1237,6 +1243,8 @@ HEADER_INLINE void PgrDetectGenovecHets(const uintptr_t* __restrict genovec, uin
 
 // cannot assume phaseinfo bit is clear when phasepresent is clear.
 PglErr PgrGetP(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr);
+
+PglErr PgrGet2P(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx0, uint32_t allele_idx1, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr);
 
 // if dosage_present and dosage_main are nullptr, dosage data is ignored
 PglErr PgrGetD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr);

@@ -298,7 +298,8 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
     if (!(*variant_ct_ptr)) {
       goto ExtractExcludeFlagNorange_ret_1;
     }
-    // possible todo: multithreaded read/htable lookup
+    // probable todo: multithreaded read/htable lookup, merge bitarrays at end
+    // (upgrade GzTokenStream first)
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     uintptr_t* already_seen;
     if (unlikely(bigstack_calloc_w(raw_variant_ctl, &already_seen))) {
@@ -689,7 +690,7 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
       do {
         ++postid_col_idx;
         const char* token_end = CurTokenEnd(linebuf_iter);
-        if ((S_CAST(uintptr_t, token_end - linebuf_iter) == col_name_slen) && (!memcmp(linebuf_iter, col_name, col_name_slen))) {
+        if ((S_CAST(uintptr_t, token_end - linebuf_iter) == col_name_slen) && memequal(linebuf_iter, col_name, col_name_slen)) {
           if (unlikely(already_found)) {
             snprintf(g_logbuf, kLogbufSize, "Error: Multiple columns in --keep-fcol file are named '%s'.\n", col_name);
             goto KeepFcol_ret_INCONSISTENT_INPUT_WW;
@@ -865,7 +866,7 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
     const PhenoCol* cur_pheno_col = nullptr;
     if (name_blen <= max_pheno_name_blen) {
       for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
-        if (!memcmp(cur_name, &(pheno_names[pheno_idx * max_pheno_name_blen]), name_blen)) {
+        if (memequal(cur_name, &(pheno_names[pheno_idx * max_pheno_name_blen]), name_blen)) {
           cur_pheno_col = &(pheno_cols[pheno_idx]);
           break;
         }
@@ -874,7 +875,7 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
     if (!cur_pheno_col) {
       if (name_blen <= max_covar_name_blen) {
         for (uint32_t covar_idx = 0; covar_idx < covar_ct; ++covar_idx) {
-          if (!memcmp(cur_name, &(covar_names[covar_idx * max_covar_name_blen]), name_blen)) {
+          if (memequal(cur_name, &(covar_names[covar_idx * max_covar_name_blen]), name_blen)) {
             cur_pheno_col = &(covar_cols[covar_idx]);
             break;
           }
@@ -1102,6 +1103,7 @@ PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fn
           break;
         }
         token_start[token_slen] = '\0';
+        // can't overread, category_names not in main workspace
         const uint32_t cur_cat_idx = IdHtableFind(token_start, category_names, cat_id_htable, token_slen, id_htable_size);
         if (cur_cat_idx == UINT32_MAX) {
           ++skip_ct;
@@ -1233,7 +1235,7 @@ PglErr KeepRemoveCats(const char* cats_fname, const char* cat_names_flattened, c
       uint32_t success = 0;
       if (name_blen <= max_pheno_name_blen) {
         for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
-          if (!memcmp(cat_phenoname, &(pheno_names[pheno_idx * max_pheno_name_blen]), name_blen)) {
+          if (memequal(cat_phenoname, &(pheno_names[pheno_idx * max_pheno_name_blen]), name_blen)) {
             const PhenoCol* cur_pheno_col = &(pheno_cols[pheno_idx]);
             if (unlikely(cur_pheno_col->type_code != kPhenoDtypeCat)) {
               snprintf(g_logbuf, kLogbufSize, "Error: '%s' is not a categorical phenotype.\n", cat_phenoname);
@@ -1250,7 +1252,7 @@ PglErr KeepRemoveCats(const char* cats_fname, const char* cat_names_flattened, c
       }
       if (name_blen <= max_covar_name_blen) {
         for (uint32_t covar_idx = 0; covar_idx < covar_ct; ++covar_idx) {
-          if (!memcmp(cat_phenoname, &(covar_names[covar_idx * max_covar_name_blen]), name_blen)) {
+          if (memequal(cat_phenoname, &(covar_names[covar_idx * max_covar_name_blen]), name_blen)) {
             const PhenoCol* cur_pheno_col = &(covar_cols[covar_idx]);
             if (unlikely(cur_pheno_col->type_code != kPhenoDtypeCat)) {
               snprintf(g_logbuf, kLogbufSize, "Error: '%s' is not a categorical covariate.\n", cat_phenoname);
@@ -1492,15 +1494,16 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           if (strequal_k(linebuf_iter, "ID", token_slen)) {
             cur_colidx = kfReadFreqColVarId;
           } else if (token_slen == 3) {
-            if (!memcmp(linebuf_iter, "REF", 3)) {
+            if (memequal_k(linebuf_iter, "REF", 3)) {
               cur_colidx = kfReadFreqColRefAllele;
-            } else if (!memcmp(linebuf_iter, "ALT", 3)) {
+            } else if (memequal_k(linebuf_iter, "ALT", 3)) {
               cur_colidx = kfReadFreqColAltAlleles;
               if (allele_list_just_alt1) {
                 header_cols &= ~kfReadFreqColsetAlt1Allele;
                 allele_list_just_alt1 = 0;
               }
-            } else if (!memcmp(linebuf_iter, "CTS", 3)) {
+              ;;;
+            } else if (memequal_k(linebuf_iter, "CTS", 3)) {
               goto ReadAlleleFreqs_freqmain_found1;
             }
           } else if (strequal_k(linebuf_iter, "ALT1", token_slen) && allele_list_just_alt1) {
@@ -1924,23 +1927,20 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
               matched_loaded_alleles[widx] = 0;
             }
             if (cur_loaded_allele_code_slen <= max_allele_slen) {
+              const uint32_t cur_blen = cur_loaded_allele_code_slen + 1;
               uint32_t internal_allele_idx = 0;
-              uint32_t unmatched_allele_idx = 0;
-              for (; unmatched_allele_idx < unmatched_allele_ct; ++unmatched_allele_idx, ++internal_allele_idx) {
+              for (uint32_t unmatched_allele_idx = 0; unmatched_allele_idx < unmatched_allele_ct; ++unmatched_allele_idx, ++internal_allele_idx) {
                 MovU32To0Bit(matched_internal_alleles, &internal_allele_idx);
-                if (!strcmp(cur_loaded_allele_code, cur_alleles[internal_allele_idx])) {
+                if (memequal(cur_loaded_allele_code, cur_alleles[internal_allele_idx], cur_blen)) {
+                  if (unlikely(IsSet(matched_internal_alleles, internal_allele_idx))) {
+                    snprintf(g_logbuf, kLogbufSize, "Error: Duplicate allele code on line %" PRIuPTR " of --read-freq file.\n", line_idx);
+                    goto ReadAlleleFreqs_ret_MALFORMED_INPUT_2;
+                  }
+                  SetBit(internal_allele_idx, matched_internal_alleles);
+                  SetBit(loaded_allele_ct, matched_loaded_alleles);
+                  loaded_to_internal_allele_idx[loaded_allele_ct] = internal_allele_idx;
                   break;
                 }
-              }
-              if (unmatched_allele_idx != unmatched_allele_ct) {
-                // success
-                if (unlikely(IsSet(matched_internal_alleles, internal_allele_idx))) {
-                  snprintf(g_logbuf, kLogbufSize, "Error: Duplicate allele code on line %" PRIuPTR " of --read-freq file.\n", line_idx);
-                  goto ReadAlleleFreqs_ret_MALFORMED_INPUT_2;
-                }
-                SetBit(internal_allele_idx, matched_internal_alleles);
-                SetBit(loaded_allele_ct, matched_loaded_alleles);
-                loaded_to_internal_allele_idx[loaded_allele_ct] = internal_allele_idx;
               }
             }
             ++loaded_allele_ct;
@@ -2226,18 +2226,19 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                       goto ReadAlleleFreqs_ret_INVALID_FREQS;
                     }
 
-                    // currently necessary for strcmp()
-                    *eq_ptr = '\0';
+                    // necessary for string comparison
+                    *eq_ptr++ = '\0';
 
+                    const uint32_t cur_blen = eq_ptr - alt_freq_iter;
                     uint32_t internal_allele_idx = 0;
                     // O(n^2), may want to replace with O(n log n)
                     for (; internal_allele_idx < cur_allele_ct; ++internal_allele_idx) {
-                      if (!strcmp(alt_freq_iter, cur_alleles[internal_allele_idx])) {
+                      if (memequal(alt_freq_iter, cur_alleles[internal_allele_idx], cur_blen)) {
                         if (unlikely(cur_allele_freqs[internal_allele_idx] != 0.0)) {
                           snprintf(g_logbuf, kLogbufSize, "Error: Duplicate entry on line %" PRIuPTR " of --read-freq file.\n", line_idx);
                           goto ReadAlleleFreqs_ret_MALFORMED_INPUT_2;
                         }
-                        alt_freq_iter = &(eq_ptr[1]);
+                        alt_freq_iter = eq_ptr;
                         double dxx;
                         const char* cur_freq_end = ScanadvDouble(alt_freq_iter, &dxx);
                         if (!cur_freq_end) {
@@ -3192,7 +3193,7 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
     uint32_t allele_mismatch_warning_ct = 0;
     uint32_t rotated_variant_ct = 0;
     uint32_t fillin_variant_ct = 0;
-    uint32_t max_allele_slen = *max_allele_slen_ptr;
+    uint32_t max_allele_blen = 1 + (*max_allele_slen_ptr);
     uint32_t cur_allele_ct = 2;
     line_iter = AdvToDelim(line_iter, '\n');
     while (1) {
@@ -3265,9 +3266,10 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
         cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
       }
       const char** cur_alleles = &(allele_storage[allele_idx_offset_base]);
+      const uint32_t allele_blen = allele_slen + 1;
       uint32_t allele_idx = 0;
       for (; allele_idx < cur_allele_ct; ++allele_idx) {
-        if (!strcmp(allele_start, cur_alleles[allele_idx])) {
+        if (memequal(allele_start, cur_alleles[allele_idx], allele_blen)) {
           break;
         }
       }
@@ -3282,12 +3284,12 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
         if (cur_allele_ct > 2) {
           // could happen millions of times, so micromanage this instead of
           // using logpreprintfww()
-          char* write_iter = strcpya(g_logbuf, "Warning: ");
+          char* write_iter = strcpya_k(g_logbuf, "Warning: ");
           // strlen("--ref-allele") == 12, strlen("--alt1-allele") == 13
           write_iter = memcpya(write_iter, flagstr, 12 + is_alt1);
-          write_iter = strcpya(write_iter, " mismatch for multiallelic variant '");
+          write_iter = strcpya_k(write_iter, " mismatch for multiallelic variant '");
           write_iter = strcpya(write_iter, variant_ids[variant_uidx]);
-          write_iter = memcpya(write_iter, "'.\n", 4);
+          strcpy_k(write_iter, "'.\n");
           if (allele_mismatch_warning_ct < 3) {
             logerrputsb();
           } else {
@@ -3304,11 +3306,11 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
           new_allele_ptr = &(cur_alleles[1 - orig_main_allele_idx]);
           const char* other_allele = *new_allele_ptr;
           if (!strequal_k_unsafe(other_allele, ".")) {
-            char* write_iter = strcpya(g_logbuf, "Warning: ");
+            char* write_iter = strcpya_k(g_logbuf, "Warning: ");
             write_iter = memcpya(write_iter, flagstr, 12 + is_alt1);
-            write_iter = strcpya(write_iter, " mismatch for biallelic variant '");
+            write_iter = strcpya_k(write_iter, " mismatch for biallelic variant '");
             write_iter = strcpya(write_iter, variant_ids[variant_uidx]);
-            write_iter = memcpya(write_iter, "'.\n", 4);
+            strcpy_k(write_iter, "'.\n");
             if (allele_mismatch_warning_ct < 3) {
               logerrputsb();
             } else {
@@ -3334,7 +3336,7 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
             ClearBit(variant_uidx, nonref_flags);
           }
         }
-        if (allele_slen == 1) {
+        if (allele_blen == 2) {
           *new_allele_ptr = &(g_one_char_strs[2 * ctou32(allele_start[0])]);
         } else {
           // No in-place-overwrite case here since
@@ -3342,13 +3344,12 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
           // 2. More importantly, when --loop-cats is used,
           //    allele_storage_backup[n] must point to the unaltered original
           //    string.
-          if (unlikely(S_CAST(uintptr_t, bigstack_end - main_bigstack_base) <= allele_slen)) {
+          if (unlikely(S_CAST(uintptr_t, bigstack_end - main_bigstack_base) < allele_blen)) {
             goto SetRefalt1FromFile_ret_NOMEM;
           }
-          if (allele_slen > max_allele_slen) {
-            max_allele_slen = allele_slen;
+          if (allele_blen > max_allele_blen) {
+            max_allele_blen = allele_blen;
           }
-          const uint32_t allele_blen = allele_slen + 1;
           bigstack_end -= allele_blen;
           memcpy(bigstack_end, allele_start, allele_blen);
           *new_allele_ptr = R_CAST(const char*, bigstack_end);
@@ -3435,6 +3436,8 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
     if (previously_seen && (!is_alt1)) {
       memcpy(previously_seen, already_seen, raw_variant_ctl * sizeof(intptr_t));
     }
+    // bugfix (19 Jun 2018): forgot to update max_allele_slen.
+    *max_allele_slen_ptr = max_allele_blen - 1;
   }
   while (0) {
   SetRefalt1FromFile_ret_NOMEM:
@@ -3477,14 +3480,14 @@ PglErr RefFromFaProcessContig(const uintptr_t* variant_include, const uint32_t* 
   if (variant_bps[variant_uidx_last] >= bp_end) {
     const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
     if (!force) {
-      char* write_iter = strcpya(g_logbuf, "Error: Contig '");
+      char* write_iter = strcpya_k(g_logbuf, "Error: Contig '");
       write_iter = chrtoa(cip, chr_idx, write_iter);
       snprintf(write_iter, kLogbufSize - kMaxIdSlen - 32, "' in --ref-from-fa file is too short; it is likely to be mismatched with your data. Add the 'force' modifier if this wasn't a mistake, and you just want to mark all reference alleles past the end as provisional.\n");
       WordWrapB(0);
       logerrputsb();
       return kPglRetInconsistentInput;
     } else {
-      char* write_iter = strcpya(g_logbuf, "Warning: Contig '");
+      char* write_iter = strcpya_k(g_logbuf, "Warning: Contig '");
       write_iter = chrtoa(cip, chr_idx, write_iter);
       snprintf(write_iter, kLogbufSize - kMaxIdSlen - 32, "' in --ref-from-fa file is too short; it is likely to be mismatched with your data.\n");
       WordWrapB(0);
@@ -3563,7 +3566,7 @@ PglErr RefFromFaProcessContig(const uintptr_t* variant_include, const uint32_t* 
       if (consistent_allele_idx) {
         if ((!IsSet(nonref_flags, variant_uidx)) && (!force)) {
           const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
-          char* write_iter = strcpya(g_logbuf, "Error: --ref-from-fa wants to change reference allele assignment at ");
+          char* write_iter = strcpya_k(g_logbuf, "Error: --ref-from-fa wants to change reference allele assignment at ");
           write_iter = chrtoa(cip, chr_idx, write_iter);
           *write_iter++ = ':';
           write_iter = u32toa(cur_bp, write_iter);
@@ -3582,7 +3585,7 @@ PglErr RefFromFaProcessContig(const uintptr_t* variant_include, const uint32_t* 
       // okay to have multiple matches, but not zero matches
       if (!force) {
         const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
-        char* write_iter = strcpya(g_logbuf, "Error: Reference allele at ");
+        char* write_iter = strcpya_k(g_logbuf, "Error: Reference allele at ");
         write_iter = chrtoa(cip, chr_idx, write_iter);
         *write_iter++ = ':';
         write_iter = u32toa(cur_bp, write_iter);

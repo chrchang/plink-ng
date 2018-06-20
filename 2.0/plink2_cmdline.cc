@@ -113,8 +113,10 @@ BoolErr fopen_checked(const char* fname, const char* mode, FILE** target_ptr) {
     // The fopen call may take a long time to return when overwriting in mode
     // "w" in some scenarios on some OSes (I've seen 15+ sec).  On the other
     // hand, sometimes it returns immediately and then writing takes less time.
-    // Since it goes both ways, I won't second-guess the OSes for now, but
-    // retest this in the future.
+    // Since it goes both ways, I won't second-guess the OSes for now;
+    // presumably they're trying to minimize average amortized time.  But it
+    // might be worth retesting in the future; perhaps some common plink
+    // workflows violate normally-reasonable OS assumptions.
     if (access(fname, W_OK) != -1) {
       if (unlikely(unlink(fname))) {
         logputs("\n");
@@ -260,6 +262,7 @@ double DestructiveMedianD(uintptr_t len, double* unsorted_arr) {
 #endif
 
 
+// Overread must be ok.
 BoolErr SortStrboxIndexed(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, char* strbox, uint32_t* id_map) {
   if (str_ct < 2) {
     return 0;
@@ -276,7 +279,7 @@ BoolErr SortStrboxIndexed(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use
 }
 
 /*
-BoolErr strptr_arr_indexed_sort(const char* const* unsorted_strptrs, uint32_t str_ct, uint32_t use_nsort, uint32_t* id_map) {
+BoolErr StrptrArrIndexedSort(const char* const* unsorted_strptrs, uint32_t str_ct, uint32_t overread_ok, uint32_t use_nsort, uint32_t* id_map) {
   if (str_ct < 2) {
     if (str_ct) {
       id_map[0] = 0;
@@ -291,7 +294,7 @@ BoolErr strptr_arr_indexed_sort(const char* const* unsorted_strptrs, uint32_t st
     wkspace_alias[str_idx].strptr = unsorted_strptrs[str_idx];
     wkspace_alias[str_idx].orig_idx = str_idx;
   }
-  StrptrArrSortMain(str_ct, use_nsort, wkspace_alias);
+  StrptrArrSortMain(str_ct, overread_ok, use_nsort, wkspace_alias);
   for (uint32_t str_idx = 0; str_idx < str_ct; ++str_idx) {
     id_map[str_idx] = wkspace_alias[str_idx].orig_idx;
   }
@@ -419,7 +422,7 @@ PglErr SortCmdlineFlags(uint32_t max_flag_blen, uint32_t flag_ct, char* flag_buf
   for (uint32_t cur_flag_idx = 1; cur_flag_idx < flag_ct; ++cur_flag_idx) {
     char* cur_flag_ptr = &(prev_flag_ptr[max_flag_blen]);
     const uint32_t cur_flag_len = strlen_se(cur_flag_ptr);
-    if (unlikely((prev_flag_len == cur_flag_len) && (!memcmp(prev_flag_ptr, cur_flag_ptr, cur_flag_len)))) {
+    if (unlikely((prev_flag_len == cur_flag_len) && memequal(prev_flag_ptr, cur_flag_ptr, cur_flag_len))) {
       cur_flag_ptr[cur_flag_len] = '\0';  // just in case of aliases
       fflush(stdout);
       fprintf(stderr, "Error: Duplicate --%s flag.\n", cur_flag_ptr);
@@ -446,7 +449,7 @@ PglErr InitLogfile(uint32_t always_stderr, char* outname, char* outname_end) {
 }
 
 BoolErr CleanupLogfile(uint32_t print_end_time) {
-  char* write_iter = strcpya(g_logbuf, "End time: ");
+  char* write_iter = strcpya_k(g_logbuf, "End time: ");
   time_t rawtime;
   time(&rawtime);
   write_iter = Stpcpy(write_iter, ctime(&rawtime));  // has trailing \n
@@ -545,8 +548,8 @@ PglErr InitBigstack(uintptr_t malloc_size_mib, uintptr_t* malloc_mib_final_ptr, 
   // force 64-byte align to make cache line sensitivity work
   unsigned char* bigstack_initial_base = R_CAST(unsigned char*, RoundUpPow2(R_CAST(uintptr_t, bigstack_ua), kCacheline));
   g_bigstack_base = bigstack_initial_base;
-  // last 512 bytes now reserved for g_one_char_strs
-  g_bigstack_end = &(bigstack_initial_base[RoundDownPow2(malloc_size_mib * 1048576 - 512 - S_CAST(uintptr_t, bigstack_initial_base - bigstack_ua), kCacheline)]);
+  // last 576 bytes now reserved for g_one_char_strs + overread buffer
+  g_bigstack_end = &(bigstack_initial_base[RoundDownPow2(malloc_size_mib * 1048576 - 576 - S_CAST(uintptr_t, bigstack_initial_base - bigstack_ua), kCacheline)]);
   free(bubble);
   uintptr_t* one_char_iter = R_CAST(uintptr_t*, g_bigstack_end);
 #ifdef __LP64__
@@ -755,6 +758,8 @@ BoolErr MultistrToStrboxDedupArenaAlloc(unsigned char* arena_top, const char* mu
   if (unlikely((R_CAST(uintptr_t, strptr_arr) - R_CAST(uintptr_t, *arena_bottom_ptr)) < strbox_byte_ct)) {
     return 1;
   }
+  // multistr can currently come from command line parser, which does not
+  // guarantee safe overread
   StrptrArrSort(str_ct, strptr_arr);
   *sorted_strbox_ptr = R_CAST(char*, *arena_bottom_ptr);
   str_ct = CopyAndDedupSortedStrptrsToStrbox(strptr_arr, str_ct, max_str_blen, *sorted_strbox_ptr);
@@ -1152,7 +1157,7 @@ int32_t GetVariantUidxWithoutHtable(const char* idstr, const char* const* varian
   int32_t retval = -1;
   for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
     MovU32To1Bit(variant_include, &variant_uidx);
-    if (!memcmp(idstr, variant_ids[variant_uidx], id_blen)) {
+    if (memequal(idstr, variant_ids[variant_uidx], id_blen)) {
       if (retval != -1) {
         // duplicate
         return -2;
@@ -1343,7 +1348,7 @@ uint32_t PopulateStrboxHtable(const char* strbox, uintptr_t str_ct, uintptr_t ma
         str_htable[hashval] = str_idx;
         break;
       }
-      if (!memcmp(strbox_iter, &(strbox[cur_htable_entry * max_str_blen]), slen + 1)) {
+      if (memequal(strbox_iter, &(strbox[cur_htable_entry * max_str_blen]), slen + 1)) {
         // guaranteed to be positive
         return str_idx;
       }
@@ -1383,7 +1388,7 @@ uint32_t populate_strbox_subset_htable(const uintptr_t* __restrict subset_mask, 
         str_htable[hashval] = str_uidx;
         break;
       }
-      if (!memcmp(cur_str, &(strbox[cur_htable_entry * max_str_blen]), slen + 1)) {
+      if (memequal(cur_str, &(strbox[cur_htable_entry * max_str_blen]), slen + 1)) {
         // guaranteed to be positive
         return str_uidx;
       }
@@ -1396,6 +1401,8 @@ uint32_t populate_strbox_subset_htable(const uintptr_t* __restrict subset_mask, 
 }
 */
 
+// probably want to create an overread version of this, but there aren't any
+// callers which can use it yet
 uint32_t IdHtableFind(const char* cur_id, const char* const* item_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size) {
   // returns UINT32_MAX on failure
   uint32_t hashval = Hashceil(cur_id, cur_id_slen, id_htable_size);
@@ -1417,7 +1424,7 @@ uint32_t StrboxHtableFind(const char* cur_id, const char* strbox, const uint32_t
   const uint32_t cur_id_blen = cur_id_slen + 1;
   while (1) {
     const uint32_t cur_htable_idval = id_htable[hashval];
-    if ((cur_htable_idval == UINT32_MAX) || (!memcmp(cur_id, &(strbox[cur_htable_idval * max_str_blen]), cur_id_blen))) {
+    if ((cur_htable_idval == UINT32_MAX) || memequal(cur_id, &(strbox[cur_htable_idval * max_str_blen]), cur_id_blen)) {
       return cur_htable_idval;
     }
     if (++hashval == id_htable_size) {
@@ -1431,7 +1438,7 @@ uint32_t VariantIdDupflagHtableFind(const char* idbuf, const char* const* varian
   // lists are not stored
   // idbuf does not need to be null-terminated (note that this is currently
   // achieved in a way that forces variant_ids[] entries to not be too close
-  // to the end of bigstack, otherwise memcmp behavior is potentially
+  // to the end of bigstack, otherwise memequal behavior is potentially
   // undefined)
   // returns UINT32_MAX on failure, value with bit 31 set on duplicate
   if (cur_id_slen > max_id_slen) {
@@ -1440,7 +1447,7 @@ uint32_t VariantIdDupflagHtableFind(const char* idbuf, const char* const* varian
   uint32_t hashval = Hashceil(idbuf, cur_id_slen, id_htable_size);
   while (1) {
     const uint32_t cur_htable_idval = id_htable[hashval];
-    if ((cur_htable_idval == UINT32_MAX) || ((!memcmp(idbuf, variant_ids[cur_htable_idval & 0x7fffffff], cur_id_slen)) && (!variant_ids[cur_htable_idval & 0x7fffffff][cur_id_slen]))) {
+    if ((cur_htable_idval == UINT32_MAX) || (memequal(idbuf, variant_ids[cur_htable_idval & 0x7fffffff], cur_id_slen) && (!variant_ids[cur_htable_idval & 0x7fffffff][cur_id_slen]))) {
       return cur_htable_idval;
     }
     if (++hashval == id_htable_size) {
@@ -1481,7 +1488,7 @@ uint32_t VariantIdDupHtableFind(const char* idbuf, const char* const* variant_id
       variant_uidx = cur_htable_idval;
     }
     const char* sptr = variant_ids[variant_uidx];
-    if ((!memcmp(idbuf, sptr, cur_id_slen)) && (!sptr[cur_id_slen])) {
+    if (memequal(idbuf, sptr, cur_id_slen) && (!sptr[cur_id_slen])) {
       *llidx_ptr = cur_llidx;
       return variant_uidx;
     }
@@ -1508,7 +1515,7 @@ PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, cons
   {
 #ifdef __cplusplus
     if (max_str_blen <= 60) {
-      uintptr_t wkspace_entry_blen = (max_str_blen > 36)? sizeof(Strbuf60Ui) : sizeof(Strbuf36Ui);
+      uintptr_t wkspace_entry_blen = (max_str_blen > 28)? sizeof(Strbuf60Ui) : sizeof(Strbuf28Ui);
       char* sort_wkspace;
       if (unlikely(bigstack_alloc_c(str_ct * wkspace_entry_blen, &sort_wkspace))) {
         goto CopySortStrboxSubsetNoalloc_ret_NOMEM;
@@ -1527,15 +1534,15 @@ PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, cons
         }
         sort_wkspace_iter = &(sort_wkspace_iter[sizeof(int32_t)]);
       }
-      if (wkspace_entry_blen == 40) {
-        SortStrbox40bFinish(str_ct, max_str_blen, use_nsort, R_CAST(Strbuf36Ui*, sort_wkspace), sorted_strbox, id_map);
+      if (wkspace_entry_blen == 32) {
+        SortStrbox32bFinish(str_ct, max_str_blen, use_nsort, R_CAST(Strbuf28Ui*, sort_wkspace), sorted_strbox, id_map);
       } else {
         SortStrbox64bFinish(str_ct, max_str_blen, use_nsort, R_CAST(Strbuf60Ui*, sort_wkspace), sorted_strbox, id_map);
       }
     } else {
 #endif
-      StrSortIndexedDeref* sort_wkspace;
-      if (unlikely(BIGSTACK_ALLOC_X(StrSortIndexedDeref, str_ct, &sort_wkspace))) {
+      StrSortIndexedDerefOverread* sort_wkspace;
+      if (unlikely(BIGSTACK_ALLOC_X(StrSortIndexedDerefOverread, str_ct, &sort_wkspace))) {
         goto CopySortStrboxSubsetNoalloc_ret_NOMEM;
       }
       uint32_t str_uidx = 0;
@@ -1549,7 +1556,7 @@ PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, cons
         }
       }
       if (!use_nsort) {
-        STD_SORT_PAR_UNSEQ(str_ct, strcmp_deref, sort_wkspace);
+        STD_SORT_PAR_UNSEQ(str_ct, strcmp_overread_deref, sort_wkspace);
       } else {
 #ifdef __cplusplus
         StrNsortIndexedDeref* wkspace_alias = R_CAST(StrNsortIndexedDeref*, sort_wkspace);
@@ -2362,10 +2369,10 @@ PglErr ParseNameRanges(const char* const* argvk, const char* errstr_append, uint
       }
       return kPglRetSuccess;
     }
-    memcpyx(cur_name_str, range_start, rs_len, 0);
+    memcpyx(cur_name_str, range_start, rs_len, '\0');
     const char* dup_check = range_list_ptr->names;
     while (dup_check < cur_name_str) {
-      if (unlikely(!memcmp(dup_check, cur_name_str, rs_len + 1))) {
+      if (unlikely(memequal(dup_check, cur_name_str, rs_len + 1))) {
         logerrprintfww("Error: Duplicate %s parameter '%s'.\n", argvk[0], cur_name_str);
         return kPglRetInvalidCmdline;
       }
@@ -2374,10 +2381,10 @@ PglErr ParseNameRanges(const char* const* argvk, const char* errstr_append, uint
     cur_name_str = &(cur_name_str[name_max_blen]);
     if (range_end) {
       *cur_name_starts_range++ = 1;
-      memcpyx(cur_name_str, range_end, re_len, 0);
+      memcpyx(cur_name_str, range_end, re_len, '\0');
       dup_check = range_list_ptr->names;
       while (dup_check < cur_name_str) {
-        if (unlikely(!memcmp(dup_check, cur_name_str, rs_len + 1))) {
+        if (unlikely(memequal(dup_check, cur_name_str, rs_len + 1))) {
           logerrprintfww("Error: Duplicate %s parameter '%s'.\n", argvk[0], cur_name_str);
           return kPglRetInvalidCmdline;
         }
@@ -2826,9 +2833,8 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
         } else {
           const char* sptr = item_ids[item_uidx];
           while (1) {
-            // could also use memcmp, guaranteed to be safe due to where
-            // variant IDs are allocated
-            if (!strcmp(sptr, item_ids[cur_htable_entry & 0x7fffffff])) {
+            // guaranteed to be safe due to where variant IDs are allocated
+            if (strequal_overread(sptr, item_ids[cur_htable_entry & 0x7fffffff])) {
               if (!(cur_htable_entry >> 31)) {
                 id_htable[hashval] |= 0x80000000U;
               }
@@ -2883,7 +2889,7 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
             } else {
               prev_uidx = cur_htable_entry;
             }
-            if (!strcmp(sptr, item_ids[prev_uidx])) {
+            if (strequal_overread(sptr, item_ids[prev_uidx])) {
               if (unlikely(extra_alloc > max_extra_alloc_m4)) {
                 goto PopulateIdHtableMt_ret_NOMEM;
               }
@@ -2961,73 +2967,70 @@ PglErr AllocAndPopulateIdHtableMt(const uintptr_t* subset_mask, const char* cons
 
 
 uint32_t Edit1Match(const char* s1, const char* s2, uint32_t len1, uint32_t len2) {
-  // permit one difference of the following forms:
+  // Permit one difference of the following forms (Damerau-Levenshtein distance
+  // 1):
   // - inserted/deleted character
   // - replaced character
   // - adjacent pair of swapped characters
-  uint32_t diff_found = 0;
-  uint32_t pos = 0;
-  if (len1 == len2) {
-    while (pos < len1) {
-      if (s1[pos] != s2[pos]) {
-        if (diff_found) {
-          if ((diff_found == 2) || (s1[pos] != s2[pos - 1]) || (s1[pos - 1] != s2[pos])) {
-            return 0;
-          }
-        }
-        ++diff_found;
-      }
-      ++pos;
-    }
-  } else if (len1 == len2 - 1) {
-    do {
-      if (s1[pos - diff_found] != s2[pos]) {
-        if (diff_found) {
-          return 0;
-        }
-        ++diff_found;
-      }
-      ++pos;
-    } while (pos < len2);
-  } else if (len1 == len2 + 1) {
-    do {
-      if (s1[pos] != s2[pos - diff_found]) {
-        if (diff_found) {
-          return 0;
-        }
-        ++diff_found;
-      }
-      ++pos;
-    } while (pos < len1);
-  } else {
+  // Returns 1 on approximate match, 0 on nonmatch.
+  // With only one difference allowed, it is unnecessary to use a
+  // fully-powered quadratic-time DP algorithm; instead, given the lengths of
+  // the two strings, we select the appropriate linear-time loop.
+  if (abs_i32(len1 - len2) > 1) {
     return 0;
   }
-  return 1;
+  uintptr_t mismatch_pos = FirstUnequal(s1, s2, len1);
+  if (mismatch_pos == len1) {
+    return 0;
+  }
+  if (len1 != len2) {
+    // At least one mismatch guaranteed.
+    if (len1 < len2) {
+      return memequal(&(s1[mismatch_pos]), &(s2[mismatch_pos + 1]), len1 - mismatch_pos);
+    }
+    return memequal(&(s1[mismatch_pos + 1]), &(s2[mismatch_pos]), len2 - mismatch_pos);
+  }
+  // Strings are equal length, and we have at least one mismatch.
+  // Two ways to still have an approximate match:
+  // 1. Remainder of strings are equal.
+  // 2. Next character also differs, but due to transposition.  Remainder of
+  //    strings are equal.
+  if (s1[mismatch_pos + 1] != s2[mismatch_pos + 1]) {
+    if ((s1[mismatch_pos] != s2[mismatch_pos + 1]) || (s1[mismatch_pos + 1] != s2[mismatch_pos])) {
+      return 0;
+    }
+    ++mismatch_pos;
+  }
+  const uintptr_t post_mismatch_pos = mismatch_pos + 1;
+  return memequal(&(s1[post_mismatch_pos]), &(s2[post_mismatch_pos]), len1 - post_mismatch_pos);
 }
 
 CONSTI32(kMaxEqualHelpParams, 64);
 
 void HelpPrint(const char* cur_params, HelpCtrl* help_ctrl_ptr, uint32_t postprint_newline, const char* payload) {
   if (help_ctrl_ptr->param_ct) {
-    strcpy(g_textbuf, cur_params);
-    uint32_t cur_param_ct = 1;
-    char* cur_param_start[kMaxEqualHelpParams];
-    cur_param_start[0] = g_textbuf;
-    char* textbuf_iter = strchr(g_textbuf, '\t');
-    while (textbuf_iter) {
-      *textbuf_iter++ = '\0';
-      cur_param_start[cur_param_ct++] = textbuf_iter;
-      textbuf_iter = strchr(textbuf_iter, '\t');
+    const char* params_iter = cur_params;
+    uint32_t cur_param_ct = 0;
+    const char* cur_param_starts[kMaxEqualHelpParams];
+    uint32_t cur_param_slens[kMaxEqualHelpParams];
+    while (*params_iter) {
+      cur_param_starts[cur_param_ct] = params_iter;
+      const uint32_t cur_slen = strlen(params_iter);
+      cur_param_slens[cur_param_ct++] = cur_slen;
+      params_iter = &(params_iter[cur_slen + 1]);
     }
     if (help_ctrl_ptr->iters_left) {
       const uint32_t orig_unmatched_ct = help_ctrl_ptr->unmatched_ct;
-      if (help_ctrl_ptr->unmatched_ct) {
+      if (orig_unmatched_ct) {
         uint32_t arg_uidx = 0;
         if (help_ctrl_ptr->iters_left == 2) {
+          // First pass: only exact matches.
           for (uint32_t arg_idx = 0; arg_idx < orig_unmatched_ct; ++arg_idx, ++arg_uidx) {
             arg_uidx = AdvTo0Bit(help_ctrl_ptr->all_match_arr, arg_uidx);
+            const char* cur_arg = help_ctrl_ptr->argv[arg_uidx];
+            const uint32_t cur_arg_slen = help_ctrl_ptr->param_slens[arg_uidx];
             for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
-              if (!strcmp(cur_param_start[cur_param_idx], help_ctrl_ptr->argv[arg_uidx])) {
+              if ((cur_arg_slen == cur_param_slens[cur_param_idx]) && memequal(cur_arg, cur_param_starts[cur_param_idx], cur_arg_slen)) {
                 SetBit(arg_uidx, help_ctrl_ptr->perfect_match_arr);
                 SetBit(arg_uidx, help_ctrl_ptr->prefix_match_arr);
                 SetBit(arg_uidx, help_ctrl_ptr->all_match_arr);
@@ -3037,16 +3040,14 @@ void HelpPrint(const char* cur_params, HelpCtrl* help_ctrl_ptr, uint32_t postpri
             }
           }
         } else {
-          uint32_t cur_param_slens[kMaxEqualHelpParams];
-          for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
-            cur_param_slens[cur_param_idx] = strlen(cur_param_start[cur_param_idx]);
-          }
+          // Second pass: Prefix matches.
           for (uint32_t arg_idx = 0; arg_idx < orig_unmatched_ct; ++arg_idx, ++arg_uidx) {
             arg_uidx = AdvTo0Bit(help_ctrl_ptr->all_match_arr, arg_uidx);
-            const uint32_t slen = help_ctrl_ptr->param_slens[arg_uidx];
+            const char* cur_arg = help_ctrl_ptr->argv[arg_uidx];
+            const uint32_t cur_arg_slen = help_ctrl_ptr->param_slens[arg_uidx];
             for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
-              if (cur_param_slens[cur_param_idx] > slen) {
-                if (!memcmp(help_ctrl_ptr->argv[arg_uidx], cur_param_start[cur_param_idx], slen)) {
+              if (cur_param_slens[cur_param_idx] > cur_arg_slen) {
+                if (memequal(cur_arg, cur_param_starts[cur_param_idx], cur_arg_slen)) {
                   SetBit(arg_uidx, help_ctrl_ptr->prefix_match_arr);
                   SetBit(arg_uidx, help_ctrl_ptr->all_match_arr);
                   help_ctrl_ptr->unmatched_ct -= 1;
@@ -3058,26 +3059,27 @@ void HelpPrint(const char* cur_params, HelpCtrl* help_ctrl_ptr, uint32_t postpri
         }
       }
     } else {
-      uint32_t cur_param_slens[kMaxEqualHelpParams];
-      for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
-        cur_param_slens[cur_param_idx] = strlen(cur_param_start[cur_param_idx]);
-      }
       uint32_t print_this = 0;
       for (uint32_t arg_uidx = 0; arg_uidx < help_ctrl_ptr->param_ct; ++arg_uidx) {
         if (IsSet(help_ctrl_ptr->prefix_match_arr, arg_uidx)) {
+          // Current user-provided help argument has at least one prefix
+          // match...
           if (!print_this) {
+            const char* cur_arg = help_ctrl_ptr->argv[arg_uidx];
+            const uint32_t cur_arg_slen = help_ctrl_ptr->param_slens[arg_uidx];
             if (IsSet(help_ctrl_ptr->perfect_match_arr, arg_uidx)) {
+              // ...and at least one exact match.  So we only care about an
+              // exact match.
               for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
-                if (!strcmp(cur_param_start[cur_param_idx], help_ctrl_ptr->argv[arg_uidx])) {
+                if ((cur_arg_slen == cur_param_slens[cur_param_idx]) && memequal(cur_arg, cur_param_starts[cur_param_idx], cur_arg_slen)) {
                   print_this = 1;
                   break;
                 }
               }
             } else {
-              const uint32_t slen = help_ctrl_ptr->param_slens[arg_uidx];
               for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
-                if (cur_param_slens[cur_param_idx] > slen) {
-                  if (!memcmp(help_ctrl_ptr->argv[arg_uidx], cur_param_start[cur_param_idx], slen)) {
+                if (cur_param_slens[cur_param_idx] > cur_arg_slen) {
+                  if (memequal(cur_arg, cur_param_starts[cur_param_idx], cur_arg_slen)) {
                     print_this = 1;
                     break;
                   }
@@ -3086,8 +3088,11 @@ void HelpPrint(const char* cur_params, HelpCtrl* help_ctrl_ptr, uint32_t postpri
             }
           }
         } else {
+          // Current user-provided help argument does not have an exact or
+          // prefix match.  Print current help text if it's within
+          // Damerau-Levenshtein distance 1 of any index term.
           for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
-            if (Edit1Match(cur_param_start[cur_param_idx], help_ctrl_ptr->argv[arg_uidx], cur_param_slens[cur_param_idx], help_ctrl_ptr->param_slens[arg_uidx])) {
+            if (Edit1Match(cur_param_starts[cur_param_idx], help_ctrl_ptr->argv[arg_uidx], cur_param_slens[cur_param_idx], help_ctrl_ptr->param_slens[arg_uidx])) {
               print_this = 1;
               if (!IsSet(help_ctrl_ptr->all_match_arr, arg_uidx)) {
                 SetBit(arg_uidx, help_ctrl_ptr->all_match_arr);
@@ -3118,7 +3123,7 @@ void HelpPrint(const char* cur_params, HelpCtrl* help_ctrl_ptr, uint32_t postpri
             payload_iter = &(payload_iter[2]);
             line_slen -= 2;
           }
-          memcpyx(g_textbuf, payload_iter, line_slen, 0);
+          memcpyx(g_textbuf, payload_iter, line_slen, '\0');
           fputs(g_textbuf, stdout);
           payload_iter = line_end;
         } while (payload_iter < payload_end);
@@ -3368,7 +3373,7 @@ PglErr Rerun(const char* ver_str, const char* ver_str2, const char* prog_name_st
           const char* later_flagname_p = IsCmdlineFlagStart(argv[cmdline_arg_idx]);
           if (later_flagname_p) {
             const uint32_t slen2 = strlen(later_flagname_p);
-            if ((slen == slen2) && (!memcmp(flagname_p, later_flagname_p, slen))) {
+            if ((slen == slen2) && memequal(flagname_p, later_flagname_p, slen)) {
               cmdline_arg_idx = UINT32_MAX;
               break;
             }
@@ -3595,7 +3600,8 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
     for (uint32_t arg_idx = first_arg_idx; arg_idx < S_CAST(uint32_t, argc); ++arg_idx) {
       const char* flagname_p = IsCmdlineFlagStart(argvk[arg_idx]);
       if (flagname_p) {
-        if (!strcmp("help", flagname_p)) {
+        const uint32_t flagname_p_slen = strlen(flagname_p);
+        if (strequal_k(flagname_p, "help", flagname_p_slen)) {
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
           if ((!first_arg_idx) || (arg_idx != 1) || subst_argv) {
@@ -3623,7 +3629,8 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
           }
           goto CmdlineParsePhase1_ret_1;
         }
-        if ((!strcmp("h", flagname_p)) || (!strcmp("?", flagname_p))) {
+        if (strequal_k(flagname_p, "h", flagname_p_slen) ||
+            strequal_k(flagname_p, "?", flagname_p_slen)) {
           // these just act like the no-parameter case
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
@@ -3635,12 +3642,11 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
           reterr = kPglRetHelp;
           goto CmdlineParsePhase1_ret_1;
         }
-        if (!strcmp("version", flagname_p)) {
+        if (strequal_k(flagname_p, "version", flagname_p_slen)) {
           version_present = 1;
-        } else if (!strcmp("silent", flagname_p)) {
+        } else if (strequal_k(flagname_p, "silent", flagname_p_slen)) {
           silent_present = 1;
-        }
-        if (unlikely(strlen(flagname_p) >= max_flag_blen)) {
+        } else if (unlikely(flagname_p_slen >= max_flag_blen)) {
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
           // shouldn't be possible for this to overflow the buffer...
@@ -3720,7 +3726,7 @@ PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const 
     }
 
     for (uint32_t cur_flag_idx = 0; cur_flag_idx < flag_ct; ++cur_flag_idx) {
-      const int32_t memcmp_out_result = memcmp("out", &(flag_buf[cur_flag_idx * max_flag_blen]), 4);
+      const int32_t memcmp_out_result = Memcmp("out", &(flag_buf[cur_flag_idx * max_flag_blen]), 4);
       if (!memcmp_out_result) {
         const uint32_t arg_idx = flag_map[cur_flag_idx];
         const uint32_t param_ct = GetParamCt(argvk, argc, arg_idx);
@@ -4236,7 +4242,7 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
     } while (*supported_ids_iter);
     // max_id_blen + 4 extra bytes at the end, to support a "maybe" search
     // (yes, this can also be precomputed)
-    if (unlikely(pgl_malloc((max_id_blen + 4) * (id_ct + 1), &id_map))) {
+    if (unlikely(pgl_malloc((max_id_blen + 4) * (id_ct + 1) + 1, &id_map))) {
       goto ParseColDescriptor_ret_NOMEM;
     }
     char* sorted_ids = R_CAST(char*, &(id_map[id_ct]));
@@ -4255,16 +4261,16 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
     if ((col_descriptor_iter[0] == '+') || (col_descriptor_iter[0] == '-')) {
       result |= default_cols_mask;
       char* maybebuf = &(sorted_ids[max_id_blen * id_ct]);
-      memcpy(maybebuf, "maybe", 5);
+      memcpy_k(maybebuf, "maybe", 5);
       while (1) {
         const char* id_start = &(col_descriptor_iter[1]);
         const char* tok_end = strchrnul(id_start, ',');
         const uint32_t slen = tok_end - id_start;
         int32_t alpha_idx = bsearch_str(id_start, sorted_ids, slen, max_id_blen, id_ct);
         if (unlikely(alpha_idx == -1)) {
-          char* write_iter = strcpya(g_logbuf, "Error: Unrecognized ID '");
+          char* write_iter = strcpya_k(g_logbuf, "Error: Unrecognized ID '");
           write_iter = memcpya(write_iter, id_start, slen);
-          write_iter = strcpya(write_iter, "' in --");
+          write_iter = strcpya_k(write_iter, "' in --");
           write_iter = strcpya(write_iter, cur_flag_name);
           snprintf(write_iter, kLogbufSize - kMaxIdSlen - 128, " column set descriptor.\n");
           goto ParseColDescriptor_ret_INVALID_CMDLINE_WW;
@@ -4302,9 +4308,9 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
         const uint32_t slen = tok_end - col_descriptor_iter;
         const int32_t alpha_idx = bsearch_str(col_descriptor_iter, sorted_ids, slen, max_id_blen, id_ct);
         if (unlikely(alpha_idx == -1)) {
-          char* write_iter = strcpya(g_logbuf, "Error: Unrecognized ID '");
+          char* write_iter = strcpya_k(g_logbuf, "Error: Unrecognized ID '");
           write_iter = memcpya(write_iter, col_descriptor_iter, slen);
-          write_iter = strcpya(write_iter, "' in --");
+          write_iter = strcpya_k(write_iter, "' in --");
           write_iter = strcpya(write_iter, cur_flag_name);
           snprintf(write_iter, kLogbufSize - kMaxIdSlen - 128, " column set descriptor.\n");
           goto ParseColDescriptor_ret_INVALID_CMDLINE_WW;
@@ -4321,7 +4327,7 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
       }
     }
     if (unlikely(prohibit_empty && (!(result & (first_col_shifted * (UINT32_MAX >> (32 - id_ct))))))) {
-      char* write_iter = strcpya(g_logbuf, "Error: All columns excluded by --");
+      char* write_iter = strcpya_k(g_logbuf, "Error: All columns excluded by --");
       write_iter = strcpya(write_iter, cur_flag_name);
       snprintf(write_iter, kLogbufSize - 128, " column set descriptor.\n");
       goto ParseColDescriptor_ret_INVALID_CMDLINE_WW;

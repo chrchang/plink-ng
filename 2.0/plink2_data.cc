@@ -24,8 +24,11 @@ namespace plink2 {
 #endif
 
 PglErr WriteMapOrBim(const char* outname, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const double* variant_cms, uint32_t variant_ct, uint32_t max_allele_slen, char delim, uint32_t output_zst, uint32_t thread_ct) {
-  // set max_allele_slen to zero for .map
-  // allele_presents must be nullptr unless we're trimming alt alleles
+  // - Normally generates a .bim file.  Set max_allele_slen to zero to generate
+  //   a .map.
+  // - allele_presents must be nullptr unless we're trimming alt alleles.
+  // - Errors out when writing .bim if any remaining variant is multiallelic
+  //   and refalt1_select is nullptr.
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -73,7 +76,21 @@ PglErr WriteMapOrBim(const char* outname, const uintptr_t* variant_include, cons
       cswritep = u32toa(variant_bps[variant_uidx], cswritep);
       if (max_allele_slen) {
         *cswritep++ = delim;
-        const uintptr_t allele_idx_offset_base = allele_idx_offsets? allele_idx_offsets[variant_uidx] : (variant_uidx * 2);
+        uintptr_t allele_idx_offset_base = variant_uidx * 2;
+        if (allele_idx_offsets) {
+          allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+          if (!refalt1_select) {
+            const uintptr_t allele_idx_offset_end = allele_idx_offsets[variant_uidx + 1];
+            if (allele_idx_offset_end != allele_idx_offset_base + 2) {
+              // not actually unlikely at this point, but simplest to stay
+              // consistent
+              if (unlikely((!allele_presents) || (!AllBitsAreZero(allele_presents, 2 + allele_idx_offset_base, allele_idx_offset_end)))) {
+                logerrprintfww("Error: %s cannot contain multiallelic variants.\n", outname);
+                goto WriteMapOrBim_ret_INCONSISTENT_INPUT;
+              }
+            }
+          }
+        }
         const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
         // note that VCF ref allele corresponds to A2, not A1
         if (!refalt1_select) {
@@ -109,6 +126,9 @@ PglErr WriteMapOrBim(const char* outname, const uintptr_t* variant_include, cons
     reterr = kPglRetNomem;
     break;
   WriteMapOrBim_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  WriteMapOrBim_ret_INCONSISTENT_INPUT:
     reterr = kPglRetWriteFail;
     break;
   }
@@ -173,7 +193,7 @@ void PvarInfoWrite(uint32_t info_pr_flag_present, uint32_t is_pr, char* info_tok
         write_iter[-1] = 'P';
         *write_iter++ = 'R';
       } else {
-        write_iter = memcpyl3a(write_iter, ";PR");
+        write_iter = strcpya_k(write_iter, ";PR");
       }
     }
   } else {
@@ -213,30 +233,30 @@ PglErr PvarInfoReloadAndWrite(uint32_t info_pr_flag_present, uint32_t info_col_i
 }
 
 void AppendChrsetLine(const ChrInfo* cip, char** write_iter_ptr) {
-  char* write_iter = strcpya(*write_iter_ptr, "##chrSet=<");
+  char* write_iter = strcpya_k(*write_iter_ptr, "##chrSet=<");
   if (!(cip->haploid_mask[0] & 1)) {
-    write_iter = strcpya(write_iter, "autosomePairCt=");
+    write_iter = strcpya_k(write_iter, "autosomePairCt=");
     write_iter = u32toa(cip->autosome_ct, write_iter);
     if (!IsI32Neg(cip->xymt_codes[kChrOffsetX])) {
-      write_iter = strcpya(write_iter, ",X");
+      write_iter = strcpya_k(write_iter, ",X");
     }
     if (!IsI32Neg(cip->xymt_codes[kChrOffsetY])) {
-      write_iter = strcpya(write_iter, ",Y");
+      write_iter = strcpya_k(write_iter, ",Y");
     }
     if (!IsI32Neg(cip->xymt_codes[kChrOffsetXY])) {
-      write_iter = strcpya(write_iter, ",XY");
+      write_iter = strcpya_k(write_iter, ",XY");
     }
     if (!IsI32Neg(cip->xymt_codes[kChrOffsetMT])) {
-      write_iter = strcpya(write_iter, ",M");
+      write_iter = strcpya_k(write_iter, ",M");
     }
     if (!IsI32Neg(cip->xymt_codes[kChrOffsetPAR1])) {
-      write_iter = strcpya(write_iter, ",PAR1");
+      write_iter = strcpya_k(write_iter, ",PAR1");
     }
     if (!IsI32Neg(cip->xymt_codes[kChrOffsetPAR2])) {
-      write_iter = strcpya(write_iter, ",PAR2");
+      write_iter = strcpya_k(write_iter, ",PAR2");
     }
   } else {
-    write_iter = strcpya(write_iter, "haploidAutosomeCt=");
+    write_iter = strcpya_k(write_iter, "haploidAutosomeCt=");
     write_iter = u32toa(cip->autosome_ct, write_iter);
   }
   *write_iter++ = '>';
@@ -300,7 +320,7 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
         goto WritePvar_ret_WRITE_FAIL;
       }
       if (write_info_pr && (!info_pr_flag_present)) {
-        cswritep = strcpya(cswritep, "##INFO=<ID=PR,Number=0,Type=Flag,Description=\"Provisional reference allele, may not be based on real reference genome\">" EOLN_STR);
+        cswritep = strcpya_k(cswritep, "##INFO=<ID=PR,Number=0,Type=Flag,Description=\"Provisional reference allele, may not be based on real reference genome\">" EOLN_STR);
       }
     }
     // bugfix (30 Jul 2017): may be necessary to reload INFO when no ## lines
@@ -314,7 +334,7 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
     if (cip->chrset_source) {
       AppendChrsetLine(cip, &cswritep);
     }
-    cswritep = strcpya(cswritep, "#CHROM\tPOS\tID\tREF\tALT");
+    cswritep = strcpya_k(cswritep, "#CHROM\tPOS\tID\tREF\tALT");
 
     uint32_t write_qual = 0;
     if (pvar_psam_flags & kfPvarColQual) {
@@ -328,7 +348,7 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
       }
     }
     if (write_qual) {
-      cswritep = strcpya(cswritep, "\tQUAL");
+      cswritep = strcpya_k(cswritep, "\tQUAL");
     }
 
     uint32_t write_filter = 0;
@@ -343,11 +363,11 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
       }
     }
     if (write_filter) {
-      cswritep = strcpya(cswritep, "\tFILTER");
+      cswritep = strcpya_k(cswritep, "\tFILTER");
     }
 
     if (write_info) {
-      cswritep = strcpya(cswritep, "\tINFO");
+      cswritep = strcpya_k(cswritep, "\tINFO");
     }
 
     uint32_t write_cm = 0;
@@ -369,7 +389,7 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
       }
     }
     if (write_cm) {
-      cswritep = memcpyl3a(cswritep, "\tCM");
+      cswritep = strcpya_k(cswritep, "\tCM");
     }
     AppendBinaryEoln(&cswritep);
 
@@ -457,7 +477,7 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
         if ((!filter_present) || (!IsSet(filter_present, variant_uidx))) {
           *cswritep++ = '.';
         } else if (!IsSet(filter_npass, variant_uidx)) {
-          cswritep = strcpya(cswritep, "PASS");
+          cswritep = strcpya_k(cswritep, "PASS");
         } else {
           cswritep = strcpya(cswritep, filter_storage[variant_uidx]);
         }
@@ -473,7 +493,7 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
           }
         } else {
           if (is_pr) {
-            cswritep = strcpya(cswritep, "PR");
+            cswritep = strcpya_k(cswritep, "PR");
           } else {
             *cswritep++ = '.';
           }
@@ -612,7 +632,7 @@ uint32_t DataFidColIsRequired(const uintptr_t* sample_include, const SampleIdInf
   uint32_t sample_uidx = 0;
   for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
     MovU32To1Bit(sample_include, &sample_uidx);
-    if (memcmp(&(sample_ids[sample_uidx * max_sample_id_blen]), "0\t", 2)) {
+    if (!memequal_k(&(sample_ids[sample_uidx * max_sample_id_blen]), "0\t", 2)) {
       return 1;
     }
   }
@@ -628,7 +648,7 @@ uint32_t DataSidColIsRequired(const uintptr_t* sample_include, const char* sids,
     uint32_t sample_uidx = 0;
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
       MovU32To1Bit(sample_include, &sample_uidx);
-      if (memcmp(&(sids[sample_uidx * max_sid_blen]), "0", 2)) {
+      if (!memequal_k(&(sids[sample_uidx * max_sid_blen]), "0", 2)) {
         return 1;
       }
     }
@@ -705,17 +725,17 @@ PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const Ped
     char* write_iter = g_textbuf;
     *write_iter++ = '#';
     if (write_fid) {
-      write_iter = strcpya(write_iter, "FID\t");
+      write_iter = strcpya_k(write_iter, "FID\t");
     }
-    write_iter = memcpyl3a(write_iter, "IID");
+    write_iter = strcpya_k(write_iter, "IID");
     if (write_sid) {
-      write_iter = strcpya(write_iter, "\tSID");
+      write_iter = strcpya_k(write_iter, "\tSID");
     }
     if (write_parents) {
-      write_iter = strcpya(write_iter, "\tPAT\tMAT");
+      write_iter = strcpya_k(write_iter, "\tPAT\tMAT");
     }
     if (write_sex) {
-      write_iter = strcpya(write_iter, "\tSEX");
+      write_iter = strcpya_k(write_iter, "\tSEX");
     }
     if (write_phenos) {
       for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
@@ -803,7 +823,7 @@ PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const Ped
         }
       }
     } else if (write_empty_pheno) {
-      write_iter = strcpya(write_iter, "\tPHENO1");
+      write_iter = strcpya_k(write_iter, "\tPHENO1");
     }
     AppendBinaryEoln(&write_iter);
 
@@ -846,7 +866,7 @@ PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const Ped
           // as --covar input
           // (can't do this for .fam export, though: not worth the
           // compatibility issues)
-          write_iter = strcpya(write_iter, "NA");
+          write_iter = strcpya_k(write_iter, "NA");
         }
       }
       if (write_phenos) {
@@ -1992,7 +2012,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
 #ifdef __LP64__
       const uintptr_t vec_ct = DivUp(raw_allele_ct, kBytesPerVec);
       VecUc* bytearr_alias = R_CAST(VecUc*, g_allele_presents_bytearr);
-      Vec8Uint* allele_presents_alias = R_CAST(Vec8Uint*, allele_presents);
+      Vec8thUint* allele_presents_alias = R_CAST(Vec8thUint*, allele_presents);
       for (uintptr_t vec_idx = 0; vec_idx < vec_ct; ++vec_idx) {
         allele_presents_alias[vec_idx] = vecuc_movemask(bytearr_alias[vec_idx]);
       }
@@ -4135,7 +4155,8 @@ BoolErr SortChr(const ChrInfo* cip, const uint32_t* chr_idx_to_size, uint32_t us
       }
     }
     assert(str_idx == new_nonstd_ct);
-    StrptrArrSortMain(new_nonstd_ct, use_nsort, nonstd_sort_buf);
+    // nonstd_names are not allocated in main workspace, so can't overread.
+    StrptrArrSortMain(new_nonstd_ct, 0, use_nsort, nonstd_sort_buf);
     uint32_t new_chr_fo_idx = std_sortbuf_len;
     for (str_idx = 0; str_idx < new_nonstd_ct; ++str_idx, ++new_chr_fo_idx) {
       const uint32_t chr_idx = nonstd_sort_buf[str_idx].orig_idx;
@@ -4371,7 +4392,7 @@ PglErr WritePvarResortedInterval(const ChrInfo* write_cip, const uint32_t* varia
         if (!IsSet(filter_present, variant_uidx)) {
           *cswritep++ = '.';
         } else if (!IsSet(filter_npass, variant_uidx)) {
-          cswritep = strcpya(cswritep, "PASS");
+          cswritep = strcpya_k(cswritep, "PASS");
         } else {
           cswritep = strcpya(cswritep, filter_storage[variant_uidx]);
         }
@@ -4384,7 +4405,7 @@ PglErr WritePvarResortedInterval(const ChrInfo* write_cip, const uint32_t* varia
           PvarInfoWrite(info_pr_flag_present, is_pr, pvar_info_strs[variant_idx - variant_idx_start], &cswritep);
         } else {
           if (is_pr) {
-            cswritep = strcpya(cswritep, "PR");
+            cswritep = strcpya_k(cswritep, "PR");
           } else {
             *cswritep++ = '.';
           }
@@ -4475,13 +4496,13 @@ PglErr WritePvarResorted(const char* outname, const char* xheader, const uintptr
         goto WritePvarResorted_ret_WRITE_FAIL;
       }
       if (write_info_pr && (!info_pr_flag_present)) {
-        cswritep = strcpya(cswritep, "##INFO=<ID=PR,Number=0,Type=Flag,Description=\"Provisional reference allele, may not be based on real reference genome\">" EOLN_STR);
+        cswritep = strcpya_k(cswritep, "##INFO=<ID=PR,Number=0,Type=Flag,Description=\"Provisional reference allele, may not be based on real reference genome\">" EOLN_STR);
       }
     }
     if (write_cip->chrset_source) {
       AppendChrsetLine(write_cip, &cswritep);
     }
-    cswritep = strcpya(cswritep, "#CHROM\tPOS\tID\tREF\tALT");
+    cswritep = strcpya_k(cswritep, "#CHROM\tPOS\tID\tREF\tALT");
 
     uint32_t write_qual = 0;
     if (pvar_psam_flags & kfPvarColQual) {
@@ -4495,7 +4516,7 @@ PglErr WritePvarResorted(const char* outname, const char* xheader, const uintptr
       }
     }
     if (write_qual) {
-      cswritep = strcpya(cswritep, "\tQUAL");
+      cswritep = strcpya_k(cswritep, "\tQUAL");
     }
 
     uint32_t write_filter = 0;
@@ -4510,11 +4531,11 @@ PglErr WritePvarResorted(const char* outname, const char* xheader, const uintptr
       }
     }
     if (write_filter) {
-      cswritep = strcpya(cswritep, "\tFILTER");
+      cswritep = strcpya_k(cswritep, "\tFILTER");
     }
 
     if (write_info) {
-      cswritep = strcpya(cswritep, "\tINFO");
+      cswritep = strcpya_k(cswritep, "\tINFO");
     }
 
     uint32_t write_cm = 0;
@@ -4536,7 +4557,7 @@ PglErr WritePvarResorted(const char* outname, const char* xheader, const uintptr
       }
     }
     if (write_cm) {
-      cswritep = memcpyl3a(cswritep, "\tCM");
+      cswritep = strcpya_k(cswritep, "\tCM");
     }
     AppendBinaryEoln(&cswritep);
 
@@ -4768,7 +4789,7 @@ PglErr MakePlink2Vsort(const char* xheader, const uintptr_t* sample_include, con
             cur_entry = pos_vidx_sort_chr2[++equal_pos_ct];
             cur_pos = cur_entry >> 32;
           } while (cur_pos == prev_pos);
-          StrptrArrSortMain(equal_pos_ct, use_nsort, same_pos_sort_buf);
+          StrptrArrSortMain(equal_pos_ct, 1, use_nsort, same_pos_sort_buf);
           for (uint32_t equal_pos_idx = 0; equal_pos_idx < equal_pos_ct; ++equal_pos_idx) {
             *new_variant_idx_to_old_iter++ = same_pos_sort_buf[equal_pos_idx].orig_idx;
           }

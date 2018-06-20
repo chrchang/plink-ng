@@ -249,19 +249,97 @@ HEADER_INLINE uint32_t IntSlen(int32_t num) {
   return UintSlen((S_CAST(uint32_t, num) ^ neg_sign_bit) - neg_sign_bit) - neg_sign_bit;
 }
 
+// memcpya(), memseta() defined in plink2_base.h
+
+HEADER_INLINE char* memcpyax(void* __restrict dst, const void* __restrict src, uint32_t ct, char extra_char) {
+  memcpy(dst, src, ct);
+  S_CAST(char*, dst)[ct] = extra_char;
+  return &(S_CAST(char*, dst)[ct + 1]);
+}
+
+HEADER_INLINE void memcpyx(void* __restrict dst, const void* __restrict src, uint32_t ct, char extra_char) {
+  memcpy(dst, src, ct);
+  S_CAST(char*, dst)[ct] = extra_char;
+}
+
+HEADER_INLINE char* strcpya(char* __restrict dst, const void* __restrict src) {
+  const uintptr_t slen = strlen(S_CAST(const char*, src));
+  return memcpya(dst, src, slen);
+}
+
+HEADER_INLINE char* strcpyax(char* __restrict dst, const void* __restrict src, char extra_char) {
+  const uintptr_t slen = strlen(S_CAST(const char*, src));
+  memcpy(dst, src, slen);
+  dst[slen] = extra_char;
+  return &(dst[slen + 1]);
+}
+
+// MinGW support for stpcpy is a mess, so I'll use a capitalized name to route
+// around the problem.
+#if defined(_GNU_SOURCE) || defined(__APPLE__) || (_POSIX_C_SOURCE >= 200809L)
+HEADER_INLINE char* Stpcpy(char* __restrict dst, const char* __restrict src) {
+  return stpcpy(dst, src);
+}
+#else
+HEADER_INLINE char* Stpcpy(char* __restrict dst, const char* __restrict src) {
+  uintptr_t slen = strlen(src);
+  memcpy(dst, src, slen + 1);
+  return &(dst[slen]);
+}
+#endif
+
+#if defined(__LP64__) && (__cplusplus >= 201103L)
+template <uint32_t N> char* MemcpyaxK(void* __restrict dst, const void* __restrict src, char extra_char) {
+  memcpyo_k(dst, src, N);
+  S_CAST(char*, dst)[N] = extra_char;
+  return &(S_CAST(char*, dst)[N + 1]);
+}
+
+#  define memcpyax_k(dst, src, ct, extra_char) MemcpyaxK<ct>(dst, src, extra_char)
+
+template <uint32_t N> int32_t StrequalK(const char* s1, const char* k_s2, uint32_t s1_slen) {
+  return (s1_slen == N) && memequal_k(s1, k_s2, N);
+};
+
+constexpr uint32_t CompileTimeSlen(const char* k_str) {
+  return k_str[0]? (1 + CompileTimeSlen(&(k_str[1]))) : 0;
+}
+
+// can also use sizeof(k_s2) - 1, but that's less safe
+#  define strequal_k(s1, k_s2, s1_slen) StrequalK<CompileTimeSlen(k_s2)>(s1, k_s2, s1_slen)
+
+#  define strequal_k_unsafe(s1, k_s2) memequal_k(s1, k_s2, 1 + CompileTimeSlen(k_s2))
+
+#  define strcpy_k(dst, src) MemcpyKImpl<CompileTimeSlen(src) + 1>::MemcpyK(dst, src);
+
+#  define strcpya_k(dst, src) MemcpyaoK<CompileTimeSlen(src)>(dst, src);
+#else  // !(defined(__LP64__) && (__cplusplus >= 201103L))
+HEADER_INLINE char* memcpyax_k(void* __restrict dst, const void* __restrict src, uint32_t ct, char extra_char) {
+  return memcpyax(dst, src, ct, extra_char);
+}
+
 HEADER_INLINE int32_t strequal_k(const char* s1, const char* k_s2, uint32_t s1_slen) {
   // any sane compiler should compute s2_slen at compile-time if k_s2 is a
   // constant string
   const uint32_t s2_slen = strlen(k_s2);
-  return (s1_slen == s2_slen) && (!memcmp(s1, k_s2, s2_slen));
+  return (s1_slen == s2_slen) && memequal(s1, k_s2, s2_slen);
 }
 
 // Can use this when it's always safe to read first (1 + strlen(k_s2)) bytes of
 // s1.
 HEADER_INLINE int32_t strequal_k_unsafe(const char* s1, const char* k_s2) {
   const uint32_t s2_blen = 1 + strlen(k_s2);
-  return !memcmp(s1, k_s2, s2_blen);
+  return memequal(s1, k_s2, s2_blen);
 }
+
+HEADER_INLINE void strcpy_k(char* __restrict dst, const void* __restrict src) {
+  strcpy(dst, S_CAST(const char*, src));
+}
+
+HEADER_INLINE char* strcpya_k(char* __restrict dst, const void* __restrict src) {
+  return strcpya(dst, src);
+}
+#endif
 
 HEADER_INLINE int32_t IsSpaceOrEoln(unsigned char ucc) {
   return (ucc <= 32);
@@ -273,34 +351,75 @@ HEADER_INLINE int32_t IsSpaceOrEoln(unsigned char ucc) {
 // s_read[strlen(s_const)] isn't a token-ender.
 HEADER_INLINE int32_t tokequal_k(const char* s_read, const char* s_const) {
   const uint32_t s_const_slen = strlen(s_const);
-  return (!memcmp(s_read, s_const, s_const_slen)) && IsSpaceOrEoln(s_read[s_const_slen]);
+  return memequal(s_read, s_const, s_const_slen) && IsSpaceOrEoln(s_read[s_const_slen]);
 }
 
 // s_prefix must be strictly contained.
 HEADER_INLINE int32_t StrStartsWith(const char* s_read, const char* s_prefix_const, uint32_t s_read_slen) {
   const uint32_t s_const_slen = strlen(s_prefix_const);
-  return (s_read_slen > s_const_slen) && (!memcmp(s_read, s_prefix_const, s_const_slen));
+  return (s_read_slen > s_const_slen) && memequal(s_read, s_prefix_const, s_const_slen);
 }
 
 // permits s_read and s_prefix to be equal.
 HEADER_INLINE int32_t StrStartsWith0(const char* s_read, const char* s_prefix_const, uint32_t s_read_slen) {
   const uint32_t s_const_slen = strlen(s_prefix_const);
-  return (s_read_slen >= s_const_slen) && (!memcmp(s_read, s_prefix_const, s_const_slen));
+  return (s_read_slen >= s_const_slen) && memequal(s_read, s_prefix_const, s_const_slen);
 }
 
 // Can use this when it's always safe to read first strlen(s_prefix_const)
 // bytes of s_read.
 HEADER_INLINE int32_t StrStartsWithUnsafe(const char* s_read, const char* s_prefix_const) {
   const uint32_t s_const_slen = strlen(s_prefix_const);
-  return !memcmp(s_read, s_prefix_const, s_const_slen);
+  return memequal(s_read, s_prefix_const, s_const_slen);
 }
 
 // s_suffix must be strictly contained.
 HEADER_INLINE int32_t StrEndsWith(const char* s_read, const char* s_suffix_const, uint32_t s_read_slen) {
   const uint32_t s_const_slen = strlen(s_suffix_const);
-  return (s_read_slen > s_const_slen) && (!memcmp(&(s_read[s_read_slen - s_const_slen]), s_suffix_const, s_const_slen));
+  return (s_read_slen > s_const_slen) && memequal(&(s_read[s_read_slen - s_const_slen]), s_suffix_const, s_const_slen);
 }
 
+// These are likely to be revised to take const void* parameters, and moved to
+// plink2_base.
+// This requires len >= 4.
+uintptr_t FirstUnequal4(const char* s1, const char* s2, uintptr_t slen);
+
+HEADER_INLINE uintptr_t FirstUnequal(const char* s1, const char* s2, uintptr_t slen) {
+  // Returns position of first mismatch, or slen if none was found.
+  if (slen >= 4) {
+    return FirstUnequal4(s1, s2, slen);
+  }
+  for (uintptr_t pos = 0; pos < slen; ++pos) {
+    if (s1[pos] != s2[pos]) {
+      return pos;
+    }
+  }
+  return slen;
+}
+
+// May read (kBytesPerWord - 1) bytes past the end of each string.
+HEADER_INLINE int32_t strequal_overread(const char* s1, const char* s2) {
+  const uintptr_t* s1_alias = R_CAST(const uintptr_t*, s1);
+  const uintptr_t* s2_alias = R_CAST(const uintptr_t*, s2);
+  uintptr_t widx = 0;
+  while (1) {
+    const uintptr_t w1 = s1_alias[widx];
+    const uintptr_t zcheck = (w1 - kMask0101) & (~w1) & (0x80 * kMask0101);
+    const uintptr_t w2 = s2_alias[widx];
+    const uintptr_t xor_word = w1 ^ w2;
+    if (zcheck) {
+      // Mask out bytes past the known null.
+      const uintptr_t mask = zcheck ^ (zcheck - 1);
+      return (xor_word & mask)? 0 : 1;
+    }
+    if (xor_word) {
+      return 0;
+    }
+    ++widx;
+  }
+}
+
+int32_t strcmp_overread(const char* s1, const char* s2);
 
 // Support for sorting arrays of strings, represented either as an array of
 // const char*s, or a single [# of strings] x [max byte width] array of chars
@@ -309,22 +428,29 @@ HEADER_INLINE int32_t StrEndsWith(const char* s_read, const char* s_suffix_const
 // char*s and sort that when the max byte width is large.
 int32_t strcmp_casted(const void* s1, const void* s2);
 
+int32_t strcmp_overread_casted(const void* s1, const void* s2);
+
+
 int32_t strcmp_natural(const void* s1, const void* s2);
+
 
 int32_t strcmp_deref(const void* s1, const void* s2);
 
+int32_t strcmp_overread_deref(const void* s1, const void* s2);
+
 int32_t strcmp_natural_deref(const void* s1, const void* s2);
+
 
 int32_t strcmp_natural_uncasted(const char* s1, const char* s2);
 
 #ifdef __cplusplus
-typedef struct Strbuf36UiStruct {
-  char strbuf[36];
+typedef struct Strbuf28UiStruct {
+  char strbuf[28];
   uint32_t orig_idx;
-  bool operator<(const struct Strbuf36UiStruct& rhs) const {
+  bool operator<(const struct Strbuf28UiStruct& rhs) const {
     return (strcmp_natural_uncasted(strbuf, rhs.strbuf) < 0);
   }
-} Strbuf36Ui;
+} Strbuf28Ui;
 
 typedef struct Strbuf60UiStruct {
   char strbuf[60];
@@ -340,10 +466,56 @@ uintptr_t GetStrboxsortWentryBlen(uintptr_t max_str_blen);
 #ifdef __cplusplus
 typedef struct StrSortDerefStruct {
   const char* strptr;
+
   bool operator<(const struct StrSortDerefStruct& rhs) const {
     return (strcmp(strptr, rhs.strptr) < 0);
   }
 } StrSortDeref;
+
+HEADER_INLINE bool strcmp_overread_lt(const char* s1, const char* s2) {
+  const uintptr_t* s1_alias = R_CAST(const uintptr_t*, s1);
+  const uintptr_t* s2_alias = R_CAST(const uintptr_t*, s2);
+  uintptr_t widx = 0;
+  while (1) {
+    const uintptr_t w1 = s1_alias[widx];
+    const uintptr_t zcheck = (w1 - kMask0101) & (~w1) & (0x80 * kMask0101);
+    const uintptr_t w2 = s2_alias[widx];
+    uintptr_t xor_word = w1 ^ w2;
+    if (zcheck) {
+      // Mask out bytes past the known null.
+      // Note that we can't safely include the garbage bytes past the null in
+      // the comparison even if they aren't being changed, because they may be
+      // uninitialized, and if they're also past a page boundary the OS may
+      // return different values for consecutive queries on the same address!
+      // See e.g. "CppCon 2016: Nicholas Ormrod 'The strange details of
+      // std::string at Facebook'"
+      // (https://www.youtube.com/watch?v=kPR8h4-qZdk ) starting at ~22:15.
+      const uintptr_t mask = zcheck ^ (zcheck - 1);
+      xor_word &= mask;
+      if (!xor_word) {
+        return false;
+      }
+      goto strcmp_overread_lt_finish;
+    }
+    if (xor_word) {
+    strcmp_overread_lt_finish:
+      const uint32_t lshift = (kBitsPerWord - 8) - (ctzw(xor_word) & (kBitsPerWord - 8));
+      return ((w1 << lshift) < (w2 << lshift));
+    }
+    ++widx;
+  }
+}
+
+typedef struct StrSortDerefOverreadStruct {
+  // Must be safe to read up to (kBytesPerWord - 1) bytes past the end of these
+  // strings.  Enough of a speed advantage to be worth using whenever possible,
+  // though.
+  const char* strptr;
+
+  bool operator<(const struct StrSortDerefOverreadStruct& rhs) const {
+    return strcmp_overread_lt(strptr, rhs.strptr);
+  }
+} StrSortDerefOverread;
 
 typedef struct StrNsortDerefStruct {
   const char* strptr;
@@ -364,26 +536,36 @@ HEADER_INLINE void StrptrArrSort(uintptr_t ct, const char** strptr_arr) {
   std::sort(R_CAST(StrSortDeref*, strptr_arr), &(R_CAST(StrSortDeref*, strptr_arr)[ct]));
 }
 
+HEADER_INLINE void StrptrArrSortOverread(uintptr_t ct, const char** strptr_arr) {
+  std::sort(R_CAST(StrSortDerefOverread*, strptr_arr), &(R_CAST(StrSortDerefOverread*, strptr_arr)[ct]));
+}
+
 HEADER_INLINE void StrptrArrNsort(uintptr_t ct, const char** strptr_arr) {
   std::sort(R_CAST(StrNsortDeref*, strptr_arr), &(R_CAST(StrNsortDeref*, strptr_arr)[ct]));
 }
 
 // need to expose these for plink2_cmdline bigstack-allocating
 // SortStrboxIndexed()'s use
-void SortStrbox40bFinish(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, Strbuf36Ui* filled_wkspace, char* sorted_strbox, uint32_t* id_map);
+void SortStrbox32bFinish(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, Strbuf28Ui* filled_wkspace, char* sorted_strbox, uint32_t* id_map);
 
 void SortStrbox64bFinish(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, Strbuf60Ui* filled_wkspace, char* sorted_strbox, uint32_t* id_map);
 
+// Must be ok to overread.
 void SortStrboxIndexed2(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, char* strbox, uint32_t* id_map, void* sort_wkspace);
 #else  // !__cplusplus
 HEADER_INLINE void StrptrArrSort(uintptr_t ct, const char** strptr_arr) {
   qsort(strptr_arr, ct, sizeof(intptr_t), strcmp_deref);
 }
 
+HEADER_INLINE void StrptrArrSortOverread(uintptr_t ct, const char** strptr_arr) {
+  qsort(strptr_arr, ct, sizeof(intptr_t), strcmp_overread_deref);
+}
+
 HEADER_INLINE void StrptrArrNsort(uintptr_t ct, const char** strptr_arr) {
   qsort(strptr_arr, ct, sizeof(intptr_t), strcmp_natural_deref);
 }
 
+// Must be ok to overread.
 void SortStrboxIndexed2Fallback(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, char* strbox, uint32_t* id_map, void* sort_wkspace);
 
 HEADER_INLINE void SortStrboxIndexed2(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, char* strbox, uint32_t* id_map, void* sort_wkspace) {
@@ -392,6 +574,7 @@ HEADER_INLINE void SortStrboxIndexed2(uintptr_t str_ct, uintptr_t max_str_blen, 
 #endif
 
 // Uses malloc instead of bigstack.
+// Must be ok to overread strbox.
 BoolErr SortStrboxIndexedMalloc(uintptr_t str_ct, uintptr_t max_str_blen, char* strbox, uint32_t* id_map);
 
 // Returns dedup'd strbox entry count.
@@ -409,7 +592,20 @@ typedef struct StrSortIndexedDerefStruct {
 #endif
 } StrSortIndexedDeref;
 
-void StrptrArrSortMain(uintptr_t str_ct, uint32_t use_nsort, StrSortIndexedDeref* wkspace_alias);
+typedef struct StrSortIndexedDerefOverreadStruct {
+  // must be safe to read up to (kBytesPerWord - 1) bytes past the end of these
+  // strings.
+  const char* strptr;
+
+  uint32_t orig_idx;
+#ifdef __cplusplus
+  bool operator<(const struct StrSortIndexedDerefOverreadStruct& rhs) const {
+    return strcmp_overread_lt(strptr, rhs.strptr);
+  }
+#endif
+} StrSortIndexedDerefOverread;
+
+void StrptrArrSortMain(uintptr_t str_ct, uint32_t overread_ok, uint32_t use_nsort, StrSortIndexedDeref* wkspace_alias);
 
 
 HEADER_INLINE int32_t IsLetter(unsigned char ucc) {
@@ -696,74 +892,24 @@ HEADER_INLINE char* ScanadvLn(char* str_iter, double* ln_ptr) {
 }
 #endif
 
-// memcpya(), memseta() defined in plink2_base.h
-
-HEADER_INLINE char* memcpyax(void* __restrict target, const void* __restrict source, uint32_t ct, char extra_char) {
-  memcpy(target, source, ct);
-  S_CAST(char*, target)[ct] = extra_char;
-  return &(S_CAST(char*, target)[ct + 1]);
-}
-
-HEADER_INLINE void memcpyx(void* __restrict target, const void* __restrict source, uint32_t ct, char extra_char) {
-  memcpy(target, source, ct);
-  S_CAST(char*, target)[ct] = extra_char;
-}
-
-HEADER_INLINE void memcpyl3(void* __restrict target, const void* __restrict source) {
-  // when it's safe to clobber the fourth character, this is faster
-  *S_CAST(uint32_t*, target) = *S_CAST(const uint32_t*, source);
-}
-
-HEADER_INLINE char* memcpyl3a(void* __restrict target, const void* __restrict source) {
-  memcpyl3(target, source);
-  return &(S_CAST(char*, target)[3]);
-}
-
-HEADER_INLINE char* strcpya(char* __restrict target, const void* __restrict source) {
-  uintptr_t slen = strlen(S_CAST(const char*, source));
-  memcpy(target, source, slen);
-  return &(target[slen]);
-}
-
-HEADER_INLINE char* strcpyax(char* __restrict target, const void* __restrict source, char extra_char) {
-  uintptr_t slen = strlen(S_CAST(const char*, source));
-  memcpy(target, source, slen);
-  target[slen] = extra_char;
-  return &(target[slen + 1]);
-}
-
-// MinGW support for stpcpy is a mess, so I'll use a capitalized name to route
-// around the problem.
-#if defined(_GNU_SOURCE) || defined(__APPLE__) || (_POSIX_C_SOURCE >= 200809L)
-HEADER_INLINE char* Stpcpy(char* __restrict target, const char* __restrict source) {
-  return stpcpy(target, source);
-}
-#else
-HEADER_INLINE char* Stpcpy(char* __restrict target, const char* __restrict source) {
-  uintptr_t slen = strlen(source);
-  memcpy(target, source, slen + 1);
-  return &(target[slen]);
-}
-#endif
-
-HEADER_INLINE void AppendBinaryEoln(char** target_ptr) {
+HEADER_INLINE void AppendBinaryEoln(char** dst_ptr) {
 #ifdef _WIN32
-  (*target_ptr)[0] = '\r';
-  (*target_ptr)[1] = '\n';
-  *target_ptr += 2;
+  (*dst_ptr)[0] = '\r';
+  (*dst_ptr)[1] = '\n';
+  *dst_ptr += 2;
 #else
-  **target_ptr = '\n';
-  *target_ptr += 1;
+  **dst_ptr = '\n';
+  *dst_ptr += 1;
 #endif
 }
 
-HEADER_INLINE void DecrAppendBinaryEoln(char** target_ptr) {
+HEADER_INLINE void DecrAppendBinaryEoln(char** dst_ptr) {
 #ifdef _WIN32
-  (*target_ptr)[-1] = '\r';
-  (*target_ptr)[0] = '\n';
-  *target_ptr += 1;
+  (*dst_ptr)[-1] = '\r';
+  (*dst_ptr)[0] = '\n';
+  *dst_ptr += 1;
 #else
-  (*target_ptr)[-1] = '\n';
+  (*dst_ptr)[-1] = '\n';
 #endif
 }
 
@@ -818,7 +964,7 @@ HEADER_INLINE CXXCONST_CP AdvToNthDelimChecked(const char* str_iter, const char*
   const uint32_t leading_mask = UINT32_MAX << leading_byte_ct;
   delimiter_bytes &= leading_mask;
   while (1) {
-    const uint32_t cur_delim_ct = PopcountVec8Uint(delimiter_bytes);
+    const uint32_t cur_delim_ct = PopcountVec8thUint(delimiter_bytes);
     if (cur_delim_ct >= ct) {
       delimiter_bytes = ClearBottomSetBits(ct - 1, delimiter_bytes);
       const uint32_t byte_offset_in_vec = ctzu32(delimiter_bytes);
@@ -850,7 +996,7 @@ HEADER_INLINE CXXCONST_CP AdvToNthDelim(const char* str_iter, uint32_t ct, char 
   const uint32_t leading_mask = UINT32_MAX << leading_byte_ct;
   delimiter_bytes &= leading_mask;
   while (1) {
-    const uint32_t cur_delim_ct = PopcountVec8Uint(delimiter_bytes);
+    const uint32_t cur_delim_ct = PopcountVec8thUint(delimiter_bytes);
     if (cur_delim_ct >= ct) {
       delimiter_bytes = ClearBottomSetBits(ct - 1, delimiter_bytes);
       const uint32_t byte_offset_in_vec = ctzu32(delimiter_bytes);
@@ -1067,19 +1213,6 @@ uint32_t CountTokens(const char* str_iter);
 
 // uint32_t CommaOrSpaceCountTokens(const char* str_iter, uint32_t comma_delim);
 
-HEADER_INLINE char* fw_strcpyn(const char* source, uint32_t min_width, uint32_t source_len, char* dest) {
-  // right-justified strcpy with known source length
-  if (source_len < min_width) {
-    memcpy(memseta(dest, ' ', min_width - source_len), source, source_len);
-    return &(dest[min_width]);
-  }
-  return memcpya(dest, source, source_len);
-}
-
-HEADER_INLINE char* fw_strcpy(const char* source, uint32_t min_width, char* dest) {
-  return fw_strcpyn(source, min_width, strlen(source), dest);
-}
-
 // empty multistr ok
 uint32_t CountAndMeasureMultistr(const char* multistr, uintptr_t* max_blen_ptr);
 
@@ -1165,6 +1298,7 @@ HEADER_INLINE char* u32toa_x(uint32_t uii, char extra_char, char* start) {
 }
 
 
+// overread must be ok.
 CXXCONST_CP ScanForDuplicateIds(const char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_blen);
 
 #ifdef __cplusplus
@@ -1176,6 +1310,7 @@ HEADER_INLINE char* ScanForDuplicateIds(char* sorted_ids, uintptr_t id_ct, uintp
 // Collapses array of sorted IDs to remove duplicates, and writes pre-collapse
 // positions to id_starts (so e.g. duplication count of any sample ID can be
 // determined via subtraction) if it isn't nullptr.
+// Overread must be ok.
 // Returns id_ct of collapsed array.
 uint32_t CollapseDuplicateIds(uintptr_t id_ct, uintptr_t max_id_blen, char* sorted_ids, uint32_t* id_starts);
 

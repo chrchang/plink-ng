@@ -61,10 +61,10 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (5 Jun 2018)";
+  " (18 Jun 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -401,6 +401,7 @@ typedef struct Plink2CmdlineStruct {
   char* keep_fcol_name;
   TwoColParams* ref_allele_flag;
   TwoColParams* alt1_allele_flag;
+  TwoColParams* update_map_flag;
   TwoColParams* update_name_flag;
 } Plink2Cmdline;
 
@@ -718,7 +719,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       if ((pii.sii.flags & kfSampleIdFidPresent) && ((pii.sii.flags & kfSampleIdNoIdHeaderIidOnly) || (pcp->grm_flags & kfGrmNoIdHeaderIidOnly))) {
         for (uint32_t sample_idx = 0; sample_idx < raw_sample_ct; ++sample_idx) {
           const char* cur_sample_id = &(pii.sii.sample_ids[sample_idx * pii.sii.max_sample_id_blen]);
-          if (unlikely(memcmp(cur_sample_id, "0\t", 2))) {
+          if (unlikely(!memequal_k(cur_sample_id, "0\t", 2))) {
             logerrputs("Error: 'iid-only' modifier can only be used when FIDs are missing or all-0.\n");
             goto Plink2Core_ret_INCONSISTENT_INPUT;
           }
@@ -868,7 +869,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         // failing (don't bother supporting plink 0.99 files any more)
         if (likely(reterr == kPglRetSampleMajorBed)) {
           char* pgenname_end = memcpya(pgenname, outname, outname_end - outname);
-          pgenname_end = strcpya(pgenname_end, ".pgen");
+          pgenname_end = strcpya_k(pgenname_end, ".pgen");
           const uint32_t no_vmaj_ext = (pcp->command_flags1 & kfCommand1MakePlink2) && (!pcp->filter_flags) && ((make_plink2_flags & (kfMakePgen | (kfMakePgenFormatBase * 3))) == kfMakePgen);
           if (no_vmaj_ext) {
             *pgenname_end = '\0';
@@ -1067,7 +1068,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     // Otherwise, it may be very advantageous to apply the position-based
     // filters before constructing the variant ID hash table.  So we split this
     // into two cases.
-    const uint32_t full_variant_id_htable_needed = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct || pcp->update_name_flag);
+    const uint32_t full_variant_id_htable_needed = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct || pcp->update_map_flag || pcp->update_name_flag);
     if (!full_variant_id_htable_needed) {
       reterr = ApplyVariantBpFilters(pcp->extract_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, variant_include, &variant_ct);
       if (unlikely(reterr)) {
@@ -1127,33 +1128,41 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
-      if (pcp->update_name_flag && variant_ct) {
-        reterr = UpdateVarNames(variant_include, variant_id_htable, pcp->update_name_flag, raw_variant_ct, variant_id_htable_size, variant_ids_mutable, &max_variant_id_slen);
-        if (unlikely(reterr)) {
-          goto Plink2Core_ret_1;
+      if (variant_ct) {
+        if (pcp->update_map_flag) {
+          reterr = UpdateVarBps(cip, TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, pcp->update_map_flag, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, variant_include, variant_bps, &variant_ct, &vpos_sortstatus);
+          if (unlikely(reterr)) {
+            goto Plink2Core_ret_1;
+          }
+        } else if (pcp->update_name_flag) {
+          reterr = UpdateVarNames(variant_include, variant_id_htable, pcp->update_name_flag, raw_variant_ct, variant_id_htable_size, variant_ids_mutable, &max_variant_id_slen);
+          if (unlikely(reterr)) {
+            goto Plink2Core_ret_1;
+          }
+          if ((pcp->extract_fnames && (!(pcp->filter_flags & (kfFilterExtractIbed0 | kfFilterExtractIbed1)))) || (pcp->exclude_fnames && (!(pcp->filter_flags & (kfFilterExcludeIbed0 | kfFilterExcludeIbed1))))) {
+            // Must reconstruct the hash table in this case.
+            BigstackReset(bigstack_mark);
+            reterr = AllocAndPopulateIdHtableMt(variant_include, TO_CONSTCPCONSTP(variant_ids_mutable), variant_ct, pcp->max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size);
+            if (unlikely(reterr)) {
+              goto Plink2Core_ret_1;
+            }
+          }
         }
-        if ((pcp->extract_fnames && (!(pcp->filter_flags & (kfFilterExtractIbed0 | kfFilterExtractIbed1)))) || (pcp->exclude_fnames && (!(pcp->filter_flags & (kfFilterExcludeIbed0 | kfFilterExcludeIbed1))))) {
-          // Must reconstruct the hash table in this case.
-          BigstackReset(bigstack_mark);
-          reterr = AllocAndPopulateIdHtableMt(variant_include, TO_CONSTCPCONSTP(variant_ids_mutable), variant_ct, pcp->max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size);
+
+        if (pcp->extract_fnames && (!(pcp->filter_flags & (kfFilterExtractIbed0 | kfFilterExtractIbed1)))) {
+          reterr = ExtractExcludeFlagNorange(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, pcp->extract_fnames, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, 0, variant_include, &variant_ct);
+          if (unlikely(reterr)) {
+            goto Plink2Core_ret_1;
+          }
+        }
+        if (pcp->exclude_fnames && (!(pcp->filter_flags & (kfFilterExcludeIbed0 | kfFilterExcludeIbed1)))) {
+          reterr = ExtractExcludeFlagNorange(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, pcp->exclude_fnames, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, 1, variant_include, &variant_ct);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
         }
       }
 
-      if (pcp->extract_fnames && (!(pcp->filter_flags & (kfFilterExtractIbed0 | kfFilterExtractIbed1)))) {
-        reterr = ExtractExcludeFlagNorange(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, pcp->extract_fnames, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, 0, variant_include, &variant_ct);
-        if (unlikely(reterr)) {
-          goto Plink2Core_ret_1;
-        }
-      }
-      if (pcp->exclude_fnames && (!(pcp->filter_flags & (kfFilterExcludeIbed0 | kfFilterExcludeIbed1)))) {
-        reterr = ExtractExcludeFlagNorange(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, pcp->exclude_fnames, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, 1, variant_include, &variant_ct);
-        if (unlikely(reterr)) {
-          goto Plink2Core_ret_1;
-        }
-      }
       BigstackReset(bigstack_mark);
       if (full_variant_id_htable_needed) {
         reterr = ApplyVariantBpFilters(pcp->extract_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, variant_include, &variant_ct);
@@ -1449,7 +1458,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       if (name_blen <= max_pheno_name_blen) {
         // this boilerplate may belong in its own function
         for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
-          if (!memcmp(loop_cats_phenoname, &(pheno_names[pheno_idx * max_pheno_name_blen]), name_blen)) {
+          if (memequal(loop_cats_phenoname, &(pheno_names[pheno_idx * max_pheno_name_blen]), name_blen)) {
             PhenoCol* cur_pheno_col = &(pheno_cols[pheno_idx]);
             if (unlikely(cur_pheno_col->type_code != kPhenoDtypeCat)) {
               logerrprintfww("Error: '%s' is not a categorical phenotype.\n", loop_cats_phenoname);
@@ -1467,7 +1476,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
       if ((!loop_cats_pheno_col) && (name_blen <= max_covar_name_blen)) {
         for (uint32_t covar_idx = 0; covar_idx < covar_ct; ++covar_idx) {
-          if (!memcmp(loop_cats_phenoname, &(covar_names[covar_idx * max_covar_name_blen]), name_blen)) {
+          if (memequal(loop_cats_phenoname, &(covar_names[covar_idx * max_covar_name_blen]), name_blen)) {
             PhenoCol* cur_covar_col = &(covar_cols[covar_idx]);
             if (unlikely(cur_covar_col->type_code != kPhenoDtypeCat)) {
               logerrprintfww("Error: '%s' is not a categorical covariate.\n", loop_cats_phenoname);
@@ -2612,22 +2621,28 @@ void GetExportfTargets(const char* const* argvk, uint32_t param_ct, ExportfFlags
       }
       break;
     case 'b':
-      if (!strcmp(cur_modif2, "eagle")) {
-        cur_format = kfExportfBeagle;
-      } else if (!strcmp(cur_modif2, "eagle-nomap")) {
-        cur_format = kfExportfBeagleNomap;
-      } else if ((!strcmp(cur_modif2, "gen-1.1")) || (!strcmp(cur_modif2, "gen_1.1"))) {
-        cur_format = kfExportfBgen11;
-      } else if ((!strcmp(cur_modif2, "gen-1.2")) || (!strcmp(cur_modif2, "gen_1.2"))) {
-        cur_format = kfExportfBgen12;
-      } else if ((!strcmp(cur_modif2, "gen-1.3")) || (!strcmp(cur_modif2, "gen_1.3"))) {
-        cur_format = kfExportfBgen13;
-      } else if (!strcmp(cur_modif2, "imbam")) {
-        cur_format = kfExportfBimbam;
-      } else if (!strcmp(cur_modif2, "imbam-1chr")) {
-        cur_format = kfExportfBimbam1chr;
+      {
+        const uint32_t cur_modif2_slen = strlen(cur_modif2);
+        if (strequal_k(cur_modif2, "eagle", cur_modif2_slen)) {
+          cur_format = kfExportfBeagle;
+        } else if (strequal_k(cur_modif2, "eagle-nomap", cur_modif2_slen)) {
+          cur_format = kfExportfBeagleNomap;
+        } else if (strequal_k(cur_modif2, "gen-1.1", cur_modif2_slen) ||
+                   strequal_k(cur_modif2, "gen_1.1", cur_modif2_slen)) {
+          cur_format = kfExportfBgen11;
+        } else if (strequal_k(cur_modif2, "gen-1.2", cur_modif2_slen) ||
+                   strequal_k(cur_modif2, "gen_1.2", cur_modif2_slen)) {
+          cur_format = kfExportfBgen12;
+        } else if (strequal_k(cur_modif2, "gen-1.3", cur_modif2_slen) ||
+                   strequal_k(cur_modif2, "gen_1.3", cur_modif2_slen)) {
+          cur_format = kfExportfBgen13;
+        } else if (strequal_k(cur_modif2, "imbam", cur_modif2_slen)) {
+          cur_format = kfExportfBimbam;
+        } else if (strequal_k(cur_modif2, "imbam-1chr", cur_modif2_slen)) {
+          cur_format = kfExportfBimbam1chr;
+        }
+        break;
       }
-      break;
     case 'c':
       if (!strcmp(cur_modif2, "ompound-genotypes")) {
         cur_format = kfExportfCompound;
@@ -2664,14 +2679,17 @@ void GetExportfTargets(const char* const* argvk, uint32_t param_ct, ExportfFlags
       }
       break;
     case 'l':
-      if (!strcmp(cur_modif2, "gen")) {
-        cur_format = kfExportfLgen;
-      } else if (!strcmp(cur_modif2, "gen-ref")) {
-        cur_format = kfExportfLgenRef;
-      } else if (!strcmp(cur_modif2, "ist")) {
-        cur_format = kfExportfList;
+      {
+        const uint32_t cur_modif2_slen = strlen(cur_modif2);
+        if (strequal_k(cur_modif2, "gen", cur_modif2_slen)) {
+          cur_format = kfExportfLgen;
+        } else if (strequal_k(cur_modif2, "gen-ref", cur_modif2_slen)) {
+          cur_format = kfExportfLgenRef;
+        } else if (strequal_k(cur_modif2, "ist", cur_modif2_slen)) {
+          cur_format = kfExportfList;
+        }
+        break;
       }
-      break;
     case 'o':
       if (!strcmp(cur_modif2, "xford")) {
         cur_format = kfExportfOxGen;
@@ -2782,22 +2800,29 @@ int main(int argc, char** argv) {
   using namespace plink2;
 #endif
   // special case, since it may dump to stdout
-  if ((argc > 1) && ((!strcmp(argv[1], "--zst-decompress")) || (!strcmp(argv[1], "-zst-decompress")) || (!strcmp(argv[1], "--zd")) || (!strcmp(argv[1], "-zd")))) {
-    if (unlikely(argc == 2)) {
-      fprintf(stderr, "Error: Missing %s parameter.\n", argv[1]);
-      return S_CAST(uint32_t, kPglRetInvalidCmdline);
-    }
-    for (int ii = 2; ii < argc; ++ii) {
-      if (unlikely(IsCmdlineFlag(argv[S_CAST(uint32_t, ii)]))) {
-        fprintf(stderr, "Error: %s cannot be used with other flags.\n", argv[1]);
+  if (argc > 1) {
+    const char* argv1 = argv[1];
+    const uint32_t argv1_slen = strlen(argv1);
+    if (strequal_k(argv1, "--zst-decompress", argv1_slen) ||
+        strequal_k(argv1, "-zst-decompress", argv1_slen) ||
+        strequal_k(argv1, "--zd", argv1_slen) ||
+        strequal_k(argv1, "-zd", argv1_slen)) {
+      if (unlikely(argc == 2)) {
+        fprintf(stderr, "Error: Missing %s parameter.\n", argv[1]);
         return S_CAST(uint32_t, kPglRetInvalidCmdline);
       }
+      for (int ii = 2; ii < argc; ++ii) {
+        if (unlikely(IsCmdlineFlag(argv[S_CAST(uint32_t, ii)]))) {
+          fprintf(stderr, "Error: %s cannot be used with other flags.\n", argv[1]);
+          return S_CAST(uint32_t, kPglRetInvalidCmdline);
+        }
+      }
+      if (unlikely(argc > 4)) {
+        fprintf(stderr, "Error: %s accepts at most 2 parameters.\n", argv[1]);
+        return S_CAST(uint32_t, kPglRetInvalidCmdline);
+      }
+      return S_CAST(uint32_t, ZstDecompress(argv[2], (argc == 4)? argv[3] : nullptr));
     }
-    if (unlikely(argc > 4)) {
-      fprintf(stderr, "Error: %s accepts at most 2 parameters.\n", argv[1]);
-      return S_CAST(uint32_t, kPglRetInvalidCmdline);
-    }
-    return S_CAST(uint32_t, ZstDecompress(argv[2], (argc == 4)? argv[3] : nullptr));
   }
 
   unsigned char* bigstack_ua = nullptr;
@@ -2867,6 +2892,7 @@ int main(int argc, char** argv) {
   pc.keep_fcol_name = nullptr;
   pc.ref_allele_flag = nullptr;
   pc.alt1_allele_flag = nullptr;
+  pc.update_map_flag = nullptr;
   pc.update_name_flag = nullptr;
   InitRangeList(&pc.snps_range_list);
   InitRangeList(&pc.exclude_snps_range_list);
@@ -2902,8 +2928,9 @@ int main(int argc, char** argv) {
     if (!flag_ct) {
       goto main_ret_NULL_CALC_0;
     }
+    // + (kBytesPerWord - 1) to support overread during sort
     if (unlikely(
-            pgl_malloc(flag_ct * kMaxFlagBlen, &pcm.flag_buf) ||
+            pgl_malloc(flag_ct * kMaxFlagBlen + kBytesPerWord - 1, &pcm.flag_buf) ||
             pgl_malloc(flag_ct * sizeof(int32_t), &pcm.flag_map))) {
       goto main_ret_NOMEM_NOLOG2;
     }
@@ -3104,7 +3131,7 @@ int main(int argc, char** argv) {
       }
     }
     char outname[kPglFnamesize];
-    memcpy(outname, "plink2", 6);
+    memcpy_k(outname, "plink2", 6);
     char* outname_end = nullptr;
     int32_t known_procs;
     reterr = CmdlineParsePhase2(ver_str, errstr_append, argvk, 6, kMaxFlagBlen, argc, flag_ct, &pcm, outname, &outname_end, &known_procs, &pc.max_thread_ct);
@@ -3643,13 +3670,14 @@ int main(int argc, char** argv) {
           }
           for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
-            if (!strcmp(cur_modif, "snpid-chr")) {
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "snpid-chr", cur_modif_slen)) {
               oxford_import_flags |= kfOxfordImportBgenSnpIdChr;
-            } else if (!strcmp(cur_modif, "ref-first")) {
+            } else if (strequal_k(cur_modif, "ref-first", cur_modif_slen)) {
               oxford_import_flags |= kfOxfordImportRefFirst;
-            } else if (!strcmp(cur_modif, "ref-last")) {
+            } else if (strequal_k(cur_modif, "ref-last", cur_modif_slen)) {
               oxford_import_flags |= kfOxfordImportRefLast;
-            } else if (likely(!strcmp(cur_modif, "ref-second"))) {
+            } else if (likely(strequal_k(cur_modif, "ref-second", cur_modif_slen))) {
               logerrputs("Warning: --bgen 'ref-second' modifier is deprecated.  Use 'ref-last' instead.\n");
               oxford_import_flags |= kfOxfordImportRefLast;
             } else {
@@ -3866,15 +3894,16 @@ int main(int argc, char** argv) {
             SetBit(autosome_ct + 2, chr_info.haploid_mask);
             for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
               cur_modif = argvk[arg_idx + param_idx];
-              if (!strcmp(cur_modif, "no-x")) {
+              const uint32_t cur_modif_slen = strlen(cur_modif);
+              if (strequal_k(cur_modif, "no-x", cur_modif_slen)) {
                 chr_info.xymt_codes[0] = UINT32_MAXM1;
                 ClearBit(autosome_ct + 1, chr_info.haploid_mask);
-              } else if (!strcmp(cur_modif, "no-y")) {
+              } else if (strequal_k(cur_modif, "no-y", cur_modif_slen)) {
                 chr_info.xymt_codes[1] = UINT32_MAXM1;
                 ClearBit(autosome_ct + 2, chr_info.haploid_mask);
-              } else if (!strcmp(cur_modif, "no-xy")) {
+              } else if (strequal_k(cur_modif, "no-xy", cur_modif_slen)) {
                 chr_info.xymt_codes[2] = UINT32_MAXM1;
-              } else if (likely(!strcmp(cur_modif, "no-mt"))) {
+              } else if (likely(strequal_k(cur_modif, "no-mt", cur_modif_slen))) {
                 chr_info.xymt_codes[3] = UINT32_MAXM1;
                 ClearBit(autosome_ct + 4, chr_info.haploid_mask);
               } else {
@@ -3942,11 +3971,13 @@ int main(int argc, char** argv) {
           uint32_t is_gzs = 0;
           for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
-            if (!strcmp(cur_modif, "ref-first")) {
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "ref-first", cur_modif_slen)) {
               oxford_import_flags |= kfOxfordImportRefFirst;
-            } else if ((!strcmp(cur_modif, "ref-last")) || (!strcmp(cur_modif, "ref-second"))) {
+            } else if (strequal_k(cur_modif, "ref-last", cur_modif_slen) ||
+                       strequal_k(cur_modif, "ref-second", cur_modif_slen)) {
               oxford_import_flags |= kfOxfordImportRefLast;
-            } else if (likely(!strcmp(cur_modif, "gzs"))) {
+            } else if (likely(strequal_k(cur_modif, "gzs", cur_modif_slen))) {
               if (unlikely(xload & kfXloadOxBgen)) {
                 // may as well permit e.g. --data ref-first + --bgen
                 logerrputs("Error: --data 'gzs' modifier cannot be used with .bgen input.\n");
@@ -4084,14 +4115,14 @@ int main(int argc, char** argv) {
           const uint32_t cur_modif_slen = strlen(cur_modif);
           uint32_t is_ibed = 0;
           if (cur_modif_slen == 5) {
-            if (!memcmp(cur_modif, "ibed0", 5)) {
+            if (memequal_k(cur_modif, "ibed0", 5)) {
               if (unlikely(param_ct == 1)) {
                 logerrputs("Error: '--extract ibed0' requires at least one filename.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.filter_flags |= kfFilterExtractIbed0 | kfFilterNoSplitChr;
               is_ibed = 1;
-            } else if ((!memcmp(cur_modif, "ibed1", 5)) || (!memcmp(cur_modif, "range", 5))) {
+            } else if (memequal_k(cur_modif, "ibed1", 5) || memequal_k(cur_modif, "range", 5)) {
               if (unlikely(param_ct == 1)) {
                 logerrputs("Error: '--extract ibed1' requires at least one filename.\n");
                 goto main_ret_INVALID_CMDLINE_A;
@@ -4113,14 +4144,14 @@ int main(int argc, char** argv) {
           const uint32_t cur_modif_slen = strlen(cur_modif);
           uint32_t is_ibed = 0;
           if (cur_modif_slen == 5) {
-            if (!memcmp(cur_modif, "ibed0", 5)) {
+            if (memequal_k(cur_modif, "ibed0", 5)) {
               if (unlikely(param_ct == 1)) {
                 logerrputs("Error: '--exclude ibed0' requires at least one filename.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.filter_flags |= kfFilterExcludeIbed0 | kfFilterNoSplitChr;
               is_ibed = 1;
-            } else if ((!memcmp(cur_modif, "ibed1", 5)) || (!memcmp(cur_modif, "range", 5))) {
+            } else if (memequal_k(cur_modif, "ibed1", 5) || memequal_k(cur_modif, "range", 5)) {
               if (unlikely(param_ct == 1)) {
                 logerrputs("Error: '--exclude ibed1' requires at least one filename.\n");
                 goto main_ret_INVALID_CMDLINE_A;
@@ -4214,15 +4245,16 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE;
               }
               const char* vcf_dosage_start = &(cur_modif[strlen("vcf-dosage=")]);
-              if (!strcmp(vcf_dosage_start, "GP")) {
+              const uint32_t vcf_dosage_start_slen = strlen(vcf_dosage_start);
+              if (strequal_k(vcf_dosage_start, "GP", vcf_dosage_start_slen)) {
                 pc.exportf_info.vcf_mode = kVcfExportGp;
-              } else if (!strcmp(vcf_dosage_start, "DS")) {
+              } else if (strequal_k(vcf_dosage_start, "DS", vcf_dosage_start_slen)) {
                 pc.exportf_info.vcf_mode = kVcfExportDs;
-              } else if (!strcmp(vcf_dosage_start, "DS-force")) {
+              } else if (strequal_k(vcf_dosage_start, "DS-force", vcf_dosage_start_slen)) {
                 pc.exportf_info.vcf_mode = kVcfExportDsForce;
-              } else if (!strcmp(vcf_dosage_start, "HDS")) {
+              } else if (strequal_k(vcf_dosage_start, "HDS", vcf_dosage_start_slen)) {
                 pc.exportf_info.vcf_mode = kVcfExportHds;
-              } else if (likely(!strcmp(vcf_dosage_start, "HDS-force"))) {
+              } else if (likely(strequal_k(vcf_dosage_start, "HDS-force", vcf_dosage_start_slen))) {
                 pc.exportf_info.vcf_mode = kVcfExportHdsForce;
               } else {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --export vcf-dosage= parameter '%s'.\n", vcf_dosage_start);
@@ -4768,9 +4800,12 @@ int main(int argc, char** argv) {
           }
           if (param_ct == 2) {
             const char* cur_modif = argvk[arg_idx + 2];
-            if (!strcmp(cur_modif, "ref-first")) {
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "ref-first", cur_modif_slen)) {
               oxford_import_flags |= kfOxfordImportRefFirst;
-            } else if (likely((!strcmp(cur_modif, "ref-last")) || (!strcmp(cur_modif, "ref-second")))) {
+            } else if (likely(
+                strequal_k(cur_modif, "ref-last", cur_modif_slen) ||
+                strequal_k(cur_modif, "ref-second", cur_modif_slen))) {
               oxford_import_flags |= kfOxfordImportRefLast;
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --gen parameter '%s'.\n", cur_modif);
@@ -4918,9 +4953,12 @@ int main(int argc, char** argv) {
           }
           if (param_ct == 2) {
             const char* cur_modif = argvk[arg_idx + 2];
-            if (!strcmp(cur_modif, "ref-first")) {
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "ref-first", cur_modif_slen)) {
               oxford_import_flags |= kfOxfordImportRefFirst;
-            } else if (likely((!strcmp(cur_modif, "ref-last")) || (!strcmp(cur_modif, "ref-second")))) {
+            } else if (likely(
+                strequal_k(cur_modif, "ref-last", cur_modif_slen) ||
+                strequal_k(cur_modif, "ref-second", cur_modif_slen))) {
               oxford_import_flags |= kfOxfordImportRefLast;
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --haps parameter '%s'.\n", cur_modif);
@@ -4945,18 +4983,23 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* indiv_sort_mode_str = argvk[arg_idx + 1];
-          const char first_char_upcase_match = indiv_sort_mode_str[0] & 0xdf;
-          const uint32_t is_short_name = (indiv_sort_mode_str[1] == '\0');
-          if ((is_short_name && (indiv_sort_mode_str[0] == '0')) || (!strcmp(indiv_sort_mode_str, "none")))  {
+          const char* mode_str = argvk[arg_idx + 1];
+          const char first_char_upcase_match = mode_str[0] & 0xdf;
+          const uint32_t mode_slen = strlen(mode_str);
+          if (strequal_k(mode_str, "0", mode_slen) ||
+              strequal_k(mode_str, "none", mode_slen)) {
             pc.sample_sort_flags = kfSortNone;
-          } else if ((is_short_name && (first_char_upcase_match == 'N')) || (!strcmp(indiv_sort_mode_str, "natural"))) {
+          } else if (((mode_slen == 1) && (first_char_upcase_match == 'N')) ||
+                     strequal_k(mode_str, "natural", mode_slen)) {
             pc.sample_sort_flags = kfSortNatural;
-          } else if ((is_short_name && (first_char_upcase_match == 'A')) || (!strcmp(indiv_sort_mode_str, "ascii"))) {
+          } else if (((mode_slen == 1) && (first_char_upcase_match == 'A')) ||
+                     strequal_k(mode_str, "ascii", mode_slen)) {
             pc.sample_sort_flags = kfSortAscii;
-          } else if (likely((is_short_name && ((indiv_sort_mode_str[0] & 0xdf) == 'F')) || (!strcmp(indiv_sort_mode_str, "file")))) {
+          } else if (likely(
+              ((mode_slen == 1) && (first_char_upcase_match == 'F')) ||
+              strequal_k(mode_str, "file", mode_slen))) {
             if (unlikely(param_ct == 1)) {
-              snprintf(g_logbuf, kLogbufSize, "Error: Missing '--indiv-sort %s' filename.\n", indiv_sort_mode_str);
+              snprintf(g_logbuf, kLogbufSize, "Error: Missing '--indiv-sort %s' filename.\n", mode_str);
               goto main_ret_INVALID_CMDLINE_2A;
             }
             pc.sample_sort_flags = kfSortFile;
@@ -4972,11 +5015,11 @@ int main(int argc, char** argv) {
               goto main_ret_1;
             }
           } else {
-            snprintf(g_logbuf, kLogbufSize, "Error: '%s' is not a valid mode for --indiv-sort.\n", indiv_sort_mode_str);
+            snprintf(g_logbuf, kLogbufSize, "Error: '%s' is not a valid mode for --indiv-sort.\n", mode_str);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           if (unlikely((param_ct > 1) && (!(pc.sample_sort_flags & kfSortFile)))) {
-            snprintf(g_logbuf, kLogbufSize, "Error: '--indiv-sort %s' does not accept additional parameters.\n", indiv_sort_mode_str);
+            snprintf(g_logbuf, kLogbufSize, "Error: '--indiv-sort %s' does not accept additional parameters.\n", mode_str);
             goto main_ret_INVALID_CMDLINE_2A;
           }
         } else if (strequal_k_unsafe(flagname_p2, "d-delim")) {
@@ -5593,31 +5636,33 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE;
               }
               const char* mode_start = (cur_modif[1] == '=')? (&(cur_modif[strlen("m=")])) : (&(cur_modif[strlen("multiallelics=")]));
-              if (!strcmp(mode_start, "-")) {
+              const uint32_t mode_slen = cur_modif_slen - S_CAST(uintptr_t, mode_start - cur_modif);
+              if (strequal_k(mode_start, "-", mode_slen)) {
                 make_plink2_flags |= kfMakePlink2MSplitAll;
-              } else if (!strcmp(mode_start, "-snps")) {
+              } else if (strequal_k(mode_start, "-snps", mode_slen)) {
                 make_plink2_flags |= kfMakePlink2MSplitSnps;
-              } else if ((!strcmp(mode_start, "+")) || (!strcmp(mode_start, "+both"))) {
+              } else if (strequal_k(mode_start, "+", mode_slen) ||
+                         strequal_k(mode_start, "+both", mode_slen)) {
                 make_plink2_flags |= kfMakePlink2MMergeBoth;
-              } else if (!strcmp(mode_start, "+snps")) {
+              } else if (strequal_k(mode_start, "+snps", mode_slen)) {
                 make_plink2_flags |= kfMakePlink2MMergeSnps;
-              } else if (likely(!strcmp(mode_start, "+any"))) {
+              } else if (likely(strequal_k(mode_start, "+any", mode_slen))) {
                 make_plink2_flags |= kfMakePlink2MMergeAny;
               } else {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-bed multiallelics= mode '%s'.\n", mode_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
             } else {
-              char* write_iter = strcpya(g_logbuf, "Error: Invalid --make-bed parameter '");
+              char* write_iter = strcpya_k(g_logbuf, "Error: Invalid --make-bed parameter '");
               write_iter = memcpya(write_iter, cur_modif, cur_modif_slen);
-              write_iter = strcpya(write_iter, "'.");
+              write_iter = strcpya_k(write_iter, "'.");
               if ((param_idx == 1) && (!outname_end)) {
                 // the missing --out mistake is so common--I must have made it
                 // over a hundred times by now--that a custom error message is
                 // worthwhile.
-                write_iter = strcpya(write_iter, " (Did you forget '--out'?)");
+                write_iter = strcpya_k(write_iter, " (Did you forget '--out'?)");
               }
-              write_iter = strcpya(write_iter, "\n");
+              *write_iter++ = '\n';
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -5663,16 +5708,19 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --make-bpgen multiallelics= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
+              // er, some of this belongs in its own function...
               const char* mode_start = (cur_modif[1] == '=')? (&(cur_modif[strlen("m=")])) : (&(cur_modif[strlen("multiallelics=")]));
-              if (!strcmp(mode_start, "-")) {
+              const uint32_t mode_slen = cur_modif_slen - S_CAST(uintptr_t, mode_start - cur_modif);
+              if (strequal_k(mode_start, "-", mode_slen)) {
                 make_plink2_flags |= kfMakePlink2MSplitAll;
-              } else if (!strcmp(mode_start, "-snps")) {
+              } else if (strequal_k(mode_start, "-snps", mode_slen)) {
                 make_plink2_flags |= kfMakePlink2MSplitSnps;
-              } else if ((!strcmp(mode_start, "+")) || (!strcmp(mode_start, "+both"))) {
+              } else if (strequal_k(mode_start, "+", mode_slen) ||
+                         strequal_k(mode_start, "+both", mode_slen)) {
                 make_plink2_flags |= kfMakePlink2MMergeBoth;
-              } else if (!strcmp(mode_start, "+snps")) {
+              } else if (strequal_k(mode_start, "+snps", mode_slen)) {
                 make_plink2_flags |= kfMakePlink2MMergeSnps;
-              } else if (likely(!strcmp(mode_start, "+any"))) {
+              } else if (likely(strequal_k(mode_start, "+any", mode_slen))) {
                 make_plink2_flags |= kfMakePlink2MMergeAny;
               } else {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-bpgen multiallelics= mode '%s'.\n", mode_start);
@@ -5754,15 +5802,17 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE;
               }
               const char* mode_start = (cur_modif[1] == '=')? (&(cur_modif[2])) : (&(cur_modif[14]));
-              if (!strcmp(mode_start, "-")) {
+              const uint32_t mode_slen = cur_modif_slen - S_CAST(uintptr_t, mode_start - cur_modif);
+              if (strequal_k(mode_start, "-", mode_slen)) {
                 make_plink2_flags |= kfMakePlink2MSplitAll;
-              } else if (!strcmp(mode_start, "-snps")) {
+              } else if (strequal_k(mode_start, "-snps", mode_slen)) {
                 make_plink2_flags |= kfMakePlink2MSplitSnps;
-              } else if ((!strcmp(mode_start, "+")) || (!strcmp(mode_start, "+both"))) {
+              } else if (strequal_k(mode_start, "+", mode_slen) ||
+                         strequal_k(mode_start, "+both", mode_slen)) {
                 make_plink2_flags |= kfMakePlink2MMergeBoth;
-              } else if (!strcmp(mode_start, "+snps")) {
+              } else if (strequal_k(mode_start, "+snps", mode_slen)) {
                 make_plink2_flags |= kfMakePlink2MMergeSnps;
-              } else if (likely(!strcmp(mode_start, "+any"))) {
+              } else if (likely(strequal_k(mode_start, "+any", mode_slen))) {
                 make_plink2_flags |= kfMakePlink2MMergeAny;
               } else {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-pgen multiallelics= mode '%s'.\n", mode_start);
@@ -5911,43 +5961,44 @@ int main(int argc, char** argv) {
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
-            if (!strcmp(cur_modif, "zs")) {
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               if (unlikely(pc.king_flags & kfKingMatrixEncodemask)) {
                 logerrputs("Error: Multiple --make-king encoding modifiers.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.king_flags |= kfKingMatrixZs;
-            } else if (!strcmp(cur_modif, "bin")) {
+            } else if (strequal_k(cur_modif, "bin", cur_modif_slen)) {
               if (unlikely(pc.king_flags & kfKingMatrixEncodemask)) {
                 logerrputs("Error: Multiple --make-king encoding modifiers.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.king_flags |= kfKingMatrixBin;
-            } else if (!strcmp(cur_modif, "bin4")) {
+            } else if (strequal_k(cur_modif, "bin4", cur_modif_slen)) {
               if (unlikely(pc.king_flags & kfKingMatrixEncodemask)) {
                 logerrputs("Error: Multiple --make-king encoding modifiers.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.king_flags |= kfKingMatrixBin4;
-            } else if (!strcmp(cur_modif, "square")) {
+            } else if (strequal_k(cur_modif, "square", cur_modif_slen)) {
               if (unlikely(pc.king_flags & kfKingMatrixShapemask)) {
                 logerrputs("Error: Multiple --make-king shape modifiers.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.king_flags |= kfKingMatrixSq;
-            } else if (!strcmp(cur_modif, "square0")) {
+            } else if (strequal_k(cur_modif, "square0", cur_modif_slen)) {
               if (unlikely(pc.king_flags & kfKingMatrixShapemask)) {
                 logerrputs("Error: Multiple --make-king shape modifiers.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.king_flags |= kfKingMatrixSq0;
-            } else if (likely(!strcmp(cur_modif, "triangle"))) {
+            } else if (likely(strequal_k(cur_modif, "triangle", cur_modif_slen))) {
               if (unlikely(pc.king_flags & kfKingMatrixShapemask)) {
                 logerrputs("Error: Multiple --make-king shape modifiers.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.king_flags |= kfKingMatrixTri;
-            } else if (!strcmp(cur_modif, "no-idheader")) {
+            } else if (strequal_k(cur_modif, "no-idheader", cur_modif_slen)) {
               logerrputs("Error: --make-king 'no-idheader' modifier retired.  Use --no-id-header instead.\n");
               goto main_ret_INVALID_CMDLINE_A;
             } else {
@@ -6352,13 +6403,15 @@ int main(int argc, char** argv) {
           pc.grm_flags |= kfGrmNoIdHeader | kfGrmBin;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
-            if (!strcmp(cur_modif, "cov")) {
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "cov", cur_modif_slen)) {
               pc.grm_flags |= kfGrmCov;
-            } else if (!strcmp(cur_modif, "meanimpute")) {
+            } else if (strequal_k(cur_modif, "meanimpute", cur_modif_slen)) {
               pc.grm_flags |= kfGrmMeanimpute;
-            } else if ((!strcmp(cur_modif, "id-header")) || (!strcmp(cur_modif, "idheader"))) {
+            } else if (strequal_k(cur_modif, "id-header", cur_modif_slen) ||
+                       strequal_k(cur_modif, "idheader", cur_modif_slen)) {
               pc.grm_flags &= ~kfGrmNoIdHeader;
-            } else if (likely(!strcmp(cur_modif, "iid-only"))) {
+            } else if (likely(strequal_k(cur_modif, "iid-only", cur_modif_slen))) {
               pc.grm_flags |= kfGrmNoIdHeaderIidOnly;
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-grm-bin parameter '%s'.\n", cur_modif);
@@ -6387,27 +6440,29 @@ int main(int argc, char** argv) {
           pc.grm_flags |= kfGrmNoIdHeader;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
-            if (!strcmp(cur_modif, "cov")) {
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "cov", cur_modif_slen)) {
               pc.grm_flags |= kfGrmCov;
-            } else if (!strcmp(cur_modif, "meanimpute")) {
+            } else if (strequal_k(cur_modif, "meanimpute", cur_modif_slen)) {
               pc.grm_flags |= kfGrmMeanimpute;
-            } else if (!strcmp(cur_modif, "no-gz")) {
+            } else if (strequal_k(cur_modif, "no-gz", cur_modif_slen)) {
               if (unlikely(compress_stream_type)) {
                 logerrputs("Error: Multiple --make-grm-list compression type modifiers.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               compress_stream_type = 1;
               pc.grm_flags |= kfGrmListNoGz;
-            } else if (!strcmp(cur_modif, "zs")) {
+            } else if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               if (unlikely(compress_stream_type)) {
                 logerrputs("Error: Multiple --make-grm-list compression type modifiers.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               compress_stream_type = 2;
               pc.grm_flags |= kfGrmListZs;
-            } else if ((!strcmp(cur_modif, "id-header")) || (!strcmp(cur_modif, "idheader"))) {
+            } else if (strequal_k(cur_modif, "id-header", cur_modif_slen) ||
+                       strequal_k(cur_modif, "idheader", cur_modif_slen)) {
               pc.grm_flags &= ~kfGrmNoIdHeader;
-            } else if (likely(!strcmp(cur_modif, "iid-only"))) {
+            } else if (likely(strequal_k(cur_modif, "iid-only", cur_modif_slen))) {
               pc.grm_flags |= kfGrmNoIdHeaderIidOnly;
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-grm-list parameter '%s'.\n", cur_modif);
@@ -6441,44 +6496,45 @@ int main(int argc, char** argv) {
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
-            if (!strcmp(cur_modif, "cov")) {
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "cov", cur_modif_slen)) {
               pc.grm_flags |= kfGrmCov;
-            } else if (!strcmp(cur_modif, "meanimpute")) {
+            } else if (strequal_k(cur_modif, "meanimpute", cur_modif_slen)) {
               pc.grm_flags |= kfGrmMeanimpute;
-            } else if (!strcmp(cur_modif, "zs")) {
+            } else if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               if (unlikely(pc.grm_flags & kfGrmMatrixEncodemask)) {
                 logerrputs("Error: Multiple --make-rel encoding modifiers.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.grm_flags |= kfGrmMatrixZs;
-            } else if (unlikely(!strcmp(cur_modif, "no-idheader"))) {
+            } else if (unlikely(strequal_k(cur_modif, "no-idheader", cur_modif_slen))) {
               logerrputs("Error: --make-rel 'no-idheader' modifier retired.  Use --no-id-header instead.\n");
               goto main_ret_INVALID_CMDLINE_A;
-            } else if (!strcmp(cur_modif, "bin")) {
+            } else if (strequal_k(cur_modif, "bin", cur_modif_slen)) {
               if (unlikely(pc.grm_flags & kfGrmMatrixEncodemask)) {
                 logerrputs("Error: Multiple --make-rel encoding modifiers.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.grm_flags |= kfGrmMatrixBin;
-            } else if (!strcmp(cur_modif, "bin4")) {
+            } else if (strequal_k(cur_modif, "bin4", cur_modif_slen)) {
               if (unlikely(pc.grm_flags & kfGrmMatrixEncodemask)) {
                 logerrputs("Error: Multiple --make-rel encoding modifiers.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.grm_flags |= kfGrmMatrixBin4;
-            } else if (!strcmp(cur_modif, "square")) {
+            } else if (strequal_k(cur_modif, "square", cur_modif_slen)) {
               if (unlikely(pc.grm_flags & kfGrmMatrixShapemask)) {
                 logerrputs("Error: Multiple --make-rel shape modifiers.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.grm_flags |= kfGrmMatrixSq;
-            } else if (!strcmp(cur_modif, "square0")) {
+            } else if (strequal_k(cur_modif, "square0", cur_modif_slen)) {
               if (unlikely(pc.grm_flags & kfGrmMatrixShapemask)) {
                 logerrputs("Error: Multiple --make-rel shape modifiers.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.grm_flags |= kfGrmMatrixSq0;
-            } else if (likely(!strcmp(cur_modif, "triangle"))) {
+            } else if (likely(strequal_k(cur_modif, "triangle", cur_modif_slen))) {
               if (unlikely(pc.grm_flags & kfGrmMatrixShapemask)) {
                 logerrputs("Error: Multiple --make-rel shape modifiers.\n");
                 goto main_ret_INVALID_CMDLINE_A;
@@ -6632,11 +6688,12 @@ int main(int argc, char** argv) {
           }
           if (param_ct == 2) {
             cur_modif = argvk[arg_idx + 2];
-            if (!strcmp(cur_modif, "missing")) {
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "missing", cur_modif_slen)) {
               pc.misc_flags |= kfMiscNewVarIdOverflowMissing;
-            } else if (!strcmp(cur_modif, "truncate")) {
+            } else if (strequal_k(cur_modif, "truncate", cur_modif_slen)) {
               pc.misc_flags |= kfMiscNewVarIdOverflowTruncate;
-            } else if (unlikely(strcmp(cur_modif, "error"))) {
+            } else if (unlikely(!strequal_k(cur_modif, "error", cur_modif_slen))) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --new-id-max-allele-len parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
@@ -6665,19 +6722,20 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* mt_code = argvk[arg_idx + 1];
-          if (!strcmp(mt_code, "M")) {
+          const uint32_t code_slen = strlen(mt_code);
+          if (strequal_k(mt_code, "M", code_slen)) {
             chr_info.output_encoding = kfChrOutputM;
-          } else if (!strcmp(mt_code, "MT")) {
+          } else if (strequal_k(mt_code, "MT", code_slen)) {
             chr_info.output_encoding = kfChrOutputMT;
-          } else if (!strcmp(mt_code, "0M")) {
+          } else if (strequal_k(mt_code, "0M", code_slen)) {
             chr_info.output_encoding = kfChrOutput0M;
-          } else if (!strcmp(mt_code, "chr26")) {
+          } else if (strequal_k(mt_code, "chr26", code_slen)) {
             chr_info.output_encoding = kfChrOutputPrefix;
-          } else if (!strcmp(mt_code, "chrM")) {
+          } else if (strequal_k(mt_code, "chrM", code_slen)) {
             chr_info.output_encoding = kfChrOutputPrefix | kfChrOutputM;
-          } else if (!strcmp(mt_code, "chrMT")) {
+          } else if (strequal_k(mt_code, "chrMT", code_slen)) {
             chr_info.output_encoding = kfChrOutputPrefix | kfChrOutputMT;
-          } else if (likely(!strcmp(mt_code, "26"))) {
+          } else if (likely(strequal_k(mt_code, "26", code_slen))) {
             chr_info.output_encoding = kfChrOutput0;
           } else {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --output-chr parameter '%s'.\n", mt_code);
@@ -7245,13 +7303,17 @@ int main(int argc, char** argv) {
           }
           if (param_ct == 1) {
             const char* build_code = argvk[arg_idx + 1];
-            if ((!strcmp(build_code, "b38")) || (!strcmp(build_code, "hg38"))) {
+            const uint32_t code_slen = strlen(build_code);
+            if (strequal_k(build_code, "b38", code_slen) ||
+                strequal_k(build_code, "hg38", code_slen)) {
               pc.splitpar_bound1 = 2781479;
               pc.splitpar_bound2 = 155701383;
-            } else if ((!strcmp(build_code, "b37")) || (!strcmp(build_code, "hg19"))) {
+            } else if (strequal_k(build_code, "b37", code_slen) ||
+                       strequal_k(build_code, "hg19", code_slen)) {
               pc.splitpar_bound1 = 2699520;
               pc.splitpar_bound2 = 154931044;
-            } else if (likely((!strcmp(build_code, "b36")) || (!strcmp(build_code, "hg18")))) {
+            } else if (likely(strequal_k(build_code, "b36", code_slen) ||
+                              strequal_k(build_code, "hg18", code_slen))) {
               pc.splitpar_bound1 = 2709521;
               pc.splitpar_bound2 = 154584237;
             } else {
@@ -7559,15 +7621,18 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct) {
-            const char* sort_vars_mode_str = argvk[arg_idx + 1];
-            const char first_char_upcase_match = sort_vars_mode_str[0] & 0xdf;
-            const uint32_t is_short_name = (sort_vars_mode_str[1] == '\0');
-            if ((is_short_name && (first_char_upcase_match == 'N')) || (!strcmp(sort_vars_mode_str, "natural"))) {
+            const char* mode_str = argvk[arg_idx + 1];
+            const char first_char_upcase_match = mode_str[0] & 0xdf;
+            const uint32_t mode_slen = strlen(mode_str);
+            if (((mode_slen == 1) && (first_char_upcase_match == 'N')) ||
+                strequal_k(mode_str, "natural", mode_slen)) {
               pc.sort_vars_flags = kfSortNatural;
-            } else if (likely((is_short_name && (first_char_upcase_match == 'A')) || (!strcmp(sort_vars_mode_str, "ascii")))) {
+            } else if (likely(
+                ((mode_slen == 1) && (first_char_upcase_match == 'A')) ||
+                strequal_k(mode_str, "ascii", mode_slen))) {
               pc.sort_vars_flags = kfSortAscii;
             } else {
-              snprintf(g_logbuf, kLogbufSize, "Error: '%s' is not a valid mode for --sort-vars.\n", sort_vars_mode_str);
+              snprintf(g_logbuf, kLogbufSize, "Error: '%s' is not a valid mode for --sort-vars.\n", mode_str);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           } else {
@@ -7777,7 +7842,20 @@ int main(int argc, char** argv) {
             }
           }
           pc.dependency_flags |= kfFilterPsamReq;
+        } else if (strequal_k_unsafe(flagname_p2, "pdate-map")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 4))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = Alloc2col(&(argvk[arg_idx + 1]), flagname_p, param_ct, &pc.update_map_flag);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          pc.dependency_flags |= kfFilterPvarReq;
         } else if (likely(strequal_k_unsafe(flagname_p2, "pdate-name"))) {
+          if (pc.update_map_flag) {
+            logerrputs("Error: --update-name cannot be used with --update-map.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 4))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -7903,19 +7981,24 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* half_call_mode_str = argvk[arg_idx + 1];
-          const char first_char_upcase_match = half_call_mode_str[0] & 0xdf;
-          const uint32_t is_short_name = (half_call_mode_str[1] == '\0');
-          if ((is_short_name && (first_char_upcase_match == 'H')) || (!strcmp(half_call_mode_str, "haploid"))) {
+          const char* mode_str = argvk[arg_idx + 1];
+          const char first_char_upcase_match = mode_str[0] & 0xdf;
+          const uint32_t mode_slen = strlen(mode_str);
+          if (((mode_slen == 1) && (first_char_upcase_match == 'H')) ||
+              strequal_k(mode_str, "haploid", mode_slen)) {
             vcf_half_call = kVcfHalfCallHaploid;
-          } else if ((is_short_name && (first_char_upcase_match == 'M')) || (!strcmp(half_call_mode_str, "missing"))) {
+          } else if (((mode_slen == 1) && (first_char_upcase_match == 'M')) ||
+                     strequal_k(mode_str, "missing", mode_slen)) {
             vcf_half_call = kVcfHalfCallMissing;
-          } else if ((is_short_name && (first_char_upcase_match == 'E')) || (!strcmp(half_call_mode_str, "error"))) {
+          } else if (((mode_slen == 1) && (first_char_upcase_match == 'E')) ||
+                     strequal_k(mode_str, "error", mode_slen)) {
             vcf_half_call = kVcfHalfCallError;
-          } else if (likely((is_short_name && (first_char_upcase_match == 'R')) || (!strcmp(half_call_mode_str, "reference")))) {
+          } else if (likely(
+              ((mode_slen == 1) && (first_char_upcase_match == 'R')) ||
+              strequal_k(mode_str, "reference", mode_slen))) {
             vcf_half_call = kVcfHalfCallError;
           } else {
-            snprintf(g_logbuf, kLogbufSize, "Error: '%s' is not a valid mode for --vcf-half-call.\n", half_call_mode_str);
+            snprintf(g_logbuf, kLogbufSize, "Error: '%s' is not a valid mode for --vcf-half-call.\n", mode_str);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else if (strequal_k_unsafe(flagname_p2, "cf-require-gt")) {
@@ -8500,6 +8583,7 @@ int main(int argc, char** argv) {
   CleanupAdjust(&adjust_file_info);
   free_cond(king_cutoff_fprefix);
   free_cond(pc.update_name_flag);
+  free_cond(pc.update_map_flag);
   free_cond(pc.alt1_allele_flag);
   free_cond(pc.ref_allele_flag);
   free_cond(pc.keep_fcol_name);

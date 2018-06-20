@@ -1438,6 +1438,174 @@ void UidxsToIdxs(const uintptr_t* subset_mask, const uint32_t* subset_cumulative
   }
 }
 
+#ifdef __LP64__
+int32_t memequal(const void* m1, const void* m2, uintptr_t byte_ct) {
+  const unsigned char* m1_uc = S_CAST(const unsigned char*, m1);
+  const unsigned char* m2_uc = S_CAST(const unsigned char*, m2);
+  if (byte_ct < 16 + (kBytesPerVec / 2)) {
+    if (byte_ct < kBytesPerWord) {
+      if (byte_ct < 4) {
+        if (byte_ct < 2) {
+          return (!byte_ct) || (m1_uc[0] == m2_uc[0]);
+        }
+        if ((*S_CAST(const uint16_t*, m1)) != (*S_CAST(const uint16_t*, m2))) {
+          return 0;
+        }
+        if ((byte_ct == 3) && (m1_uc[2] != m2_uc[2])) {
+          return 0;
+        }
+        return 1;
+      }
+      if ((*R_CAST(const uint32_t*, m1_uc)) != (*R_CAST(const uint32_t*, m2_uc))) {
+        return 0;
+      }
+      if (byte_ct > 4) {
+        const uintptr_t final_offset = byte_ct - 4;
+        if ((*R_CAST(const uint32_t*, &(m1_uc[final_offset]))) != (*R_CAST(const uint32_t*, &(m2_uc[final_offset])))) {
+          return 0;
+        }
+      }
+      return 1;
+    }
+    const uintptr_t* m1_alias = R_CAST(const uintptr_t*, m1_uc);
+    const uintptr_t* m2_alias = R_CAST(const uintptr_t*, m2_uc);
+    const uintptr_t word_ct = byte_ct / kBytesPerWord;
+    for (uint32_t widx = 0; widx < word_ct; ++widx) {
+      if (m1_alias[widx] != m2_alias[widx]) {
+        return 0;
+      }
+    }
+    if (byte_ct % kBytesPerWord) {
+      const uintptr_t final_offset = byte_ct - kBytesPerWord;
+      if ((*R_CAST(const uintptr_t*, &(m1_uc[final_offset]))) != (*R_CAST(const uintptr_t*, &(m2_uc[final_offset])))) {
+        return 0;
+      }
+    }
+    return 1;
+  }
+  // Don't use VecW since _mm_cmpeq_epi64() not defined until SSE4.1.
+  const VecUc* m1_alias = S_CAST(const VecUc*, m1);
+  const VecUc* m2_alias = S_CAST(const VecUc*, m2);
+  const uintptr_t vec_ct = byte_ct / kBytesPerVec;
+  for (uintptr_t vidx = 0; vidx < vec_ct; ++vidx) {
+    // tried unrolling this, doesn't make a difference
+    const VecUc v1 = vecuc_loadu(&(m1_alias[vidx]));
+    const VecUc v2 = vecuc_loadu(&(m2_alias[vidx]));
+    if (vecuc_movemask(v1 == v2) != kVec8thUintMax) {
+      return 0;
+    }
+  }
+  if (byte_ct % kBytesPerVec) {
+    // put this last instead of first, for better behavior when inputs are
+    // aligned
+    const uintptr_t final_offset = byte_ct - kBytesPerVec;
+    const VecUc v1 = vecuc_loadu(&(m1_uc[final_offset]));
+    const VecUc v2 = vecuc_loadu(&(m2_uc[final_offset]));
+    if (vecuc_movemask(v1 == v2) != kVec8thUintMax) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+// clang/gcc memcmp is not that well-optimized for the short strings we usually
+// compare.
+int32_t Memcmp(const void* m1, const void* m2, uintptr_t byte_ct) {
+  const unsigned char* m1_uc = S_CAST(const unsigned char*, m1);
+  const unsigned char* m2_uc = S_CAST(const unsigned char*, m2);
+  // tried larger crossover threshold, doesn't help
+  if (byte_ct < kBytesPerVec) {
+    if (byte_ct < kBytesPerWord) {
+      if (byte_ct < 4) {
+        for (uintptr_t pos = 0; pos < byte_ct; ++pos) {
+          const unsigned char ucc1 = m1_uc[pos];
+          const unsigned char ucc2 = m2_uc[pos];
+          if (ucc1 != ucc2) {
+            return (ucc1 < ucc2)? -1 : 1;
+          }
+        }
+        return 0;
+      }
+      uint32_t m1_u32 = *S_CAST(const uint32_t*, m1);
+      uint32_t m2_u32 = *S_CAST(const uint32_t*, m2);
+      uint32_t xor_u32 = m1_u32 ^ m2_u32;
+      if (xor_u32) {
+        const uint32_t diff_pos = ctzu32(xor_u32) / CHAR_BIT;
+        return (m1_uc[diff_pos] < m2_uc[diff_pos])? -1 : 1;
+      }
+      if (byte_ct > 4) {
+        const uintptr_t final_offset = byte_ct - 4;
+        m1_u32 = *R_CAST(const uint32_t*, &(m1_uc[final_offset]));
+        m2_u32 = *R_CAST(const uint32_t*, &(m2_uc[final_offset]));
+        xor_u32 = m1_u32 ^ m2_u32;
+        if (xor_u32) {
+          const uintptr_t diff_pos = final_offset + ctzu32(xor_u32) / CHAR_BIT;
+          return (m1_uc[diff_pos] < m2_uc[diff_pos])? -1 : 1;
+        }
+      }
+      return 0;
+    }
+    const uintptr_t* m1_alias = R_CAST(const uintptr_t*, m1_uc);
+    const uintptr_t* m2_alias = R_CAST(const uintptr_t*, m2_uc);
+#  ifdef USE_AVX2
+    const uintptr_t word_ct = byte_ct / kBytesPerWord;
+    for (uint32_t widx = 0; widx < word_ct; ++widx) {
+      uintptr_t m1_word = m1_alias[widx];
+      uintptr_t m2_word = m2_alias[widx];
+      const uintptr_t xor_word = m1_word ^ m2_word;
+      if (xor_word) {
+        const uintptr_t diff_pos = widx * kBytesPerWord + ctzw(xor_word) / CHAR_BIT;
+        return (m1_uc[diff_pos] < m2_uc[diff_pos])? -1 : 1;
+      }
+    }
+#  else
+    {
+      uintptr_t m1_word = m1_alias[0];
+      uintptr_t m2_word = m2_alias[0];
+      const uintptr_t xor_word = m1_word ^ m2_word;
+      if (xor_word) {
+        const uintptr_t diff_pos = ctzw(xor_word) / CHAR_BIT;
+        return (m1_uc[diff_pos] < m2_uc[diff_pos])? -1 : 1;
+      }
+    }
+#  endif
+    if (byte_ct % kBytesPerWord) {
+      const uintptr_t final_offset = byte_ct - kBytesPerWord;
+      uintptr_t m1_word = *R_CAST(const uintptr_t*, &(m1_uc[final_offset]));
+      uintptr_t m2_word = *R_CAST(const uintptr_t*, &(m2_uc[final_offset]));
+      const uintptr_t xor_word = m1_word ^ m2_word;
+      if (xor_word) {
+        const uintptr_t diff_pos = final_offset + ctzw(xor_word) / CHAR_BIT;
+        return (m1_uc[diff_pos] < m2_uc[diff_pos])? -1 : 1;
+      }
+    }
+    return 0;
+  }
+  const VecUc* m1_alias = S_CAST(const VecUc*, m1);
+  const VecUc* m2_alias = S_CAST(const VecUc*, m2);
+  const uintptr_t vec_ct = byte_ct / kBytesPerVec;
+  for (uintptr_t vidx = 0; vidx < vec_ct; ++vidx) {
+    const VecUc v1 = vecuc_loadu(&(m1_alias[vidx]));
+    const VecUc v2 = vecuc_loadu(&(m2_alias[vidx]));
+    const uint32_t movemask_result = vecuc_movemask(v1 == v2);
+    if (movemask_result != kVec8thUintMax) {
+      const uintptr_t diff_pos = vidx * kBytesPerVec + ctzu32(~movemask_result);
+      return (m1_uc[diff_pos] < m2_uc[diff_pos])? -1 : 1;
+    }
+  }
+  if (byte_ct % kBytesPerVec) {
+    const uintptr_t final_offset = byte_ct - kBytesPerVec;
+    const VecUc v1 = vecuc_loadu(&(m1_uc[final_offset]));
+    const VecUc v2 = vecuc_loadu(&(m2_uc[final_offset]));
+    const uint32_t movemask_result = vecuc_movemask(v1 == v2);
+    if (movemask_result != kVec8thUintMax) {
+      const uintptr_t diff_pos = final_offset + ctzu32(~movemask_result);
+      return (m1_uc[diff_pos] < m2_uc[diff_pos])? -1 : 1;
+    }
+  }
+  return 0;
+}
+#endif
 
 static_assert(kPglBitTransposeBatch == S_CAST(uint32_t, kBitsPerCacheline), "TransposeBitblockInternal() needs to be updated.");
 #ifdef __LP64__
@@ -1446,9 +1614,9 @@ void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stri
   const uint32_t block_ct = DivUp(write_batch_size, CHAR_BIT);
   // fold the first 6 shuffles into the initial ingestion loop
   const uint32_t read_byte_stride = read_ul_stride * kBytesPerWord;
-  const uint32_t write_v8ui_stride = kVec8UintPerWord * write_ul_stride;
+  const uint32_t write_v8ui_stride = kVec8thUintPerWord * write_ul_stride;
   const uint32_t read_batch_rem = kBitsPerCacheline - read_batch_size;
-  Vec8Uint* target_iter0 = R_CAST(Vec8Uint*, write_iter);
+  Vec8thUint* target_iter0 = R_CAST(Vec8thUint*, write_iter);
   const uint32_t full_block_ct = write_batch_size / 8;
   const uint32_t loop_vec_ct = 4 * DivUp(read_batch_size, kBytesPerVec * 4);
   for (uint32_t block_idx = 0; block_idx < block_ct; ++block_idx) {
@@ -1482,13 +1650,13 @@ void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stri
       break;
     }
 
-    Vec8Uint* target_iter1 = &(target_iter0[write_v8ui_stride]);
-    Vec8Uint* target_iter2 = &(target_iter1[write_v8ui_stride]);
-    Vec8Uint* target_iter3 = &(target_iter2[write_v8ui_stride]);
-    Vec8Uint* target_iter4 = &(target_iter3[write_v8ui_stride]);
-    Vec8Uint* target_iter5 = &(target_iter4[write_v8ui_stride]);
-    Vec8Uint* target_iter6 = &(target_iter5[write_v8ui_stride]);
-    Vec8Uint* target_iter7 = &(target_iter6[write_v8ui_stride]);
+    Vec8thUint* target_iter1 = &(target_iter0[write_v8ui_stride]);
+    Vec8thUint* target_iter2 = &(target_iter1[write_v8ui_stride]);
+    Vec8thUint* target_iter3 = &(target_iter2[write_v8ui_stride]);
+    Vec8thUint* target_iter4 = &(target_iter3[write_v8ui_stride]);
+    Vec8thUint* target_iter5 = &(target_iter4[write_v8ui_stride]);
+    Vec8thUint* target_iter6 = &(target_iter5[write_v8ui_stride]);
+    Vec8thUint* target_iter7 = &(target_iter6[write_v8ui_stride]);
     for (uint32_t vec_idx = 0; vec_idx < loop_vec_ct; ++vec_idx) {
       VecW loader = source_iter[vec_idx];
       target_iter7[vec_idx] = vecw_movemask(loader);

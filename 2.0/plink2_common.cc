@@ -69,7 +69,7 @@ char* dosagetoa(uint64_t dosage, char* start) {
   *start++ = '0' + first_decimal_place;
   const uint32_t last_two_digits = three_decimal_places - first_decimal_place * 100;
   if (last_two_digits) {
-    memcpy(start, &(kDigitPair[last_two_digits]), 2);
+    memcpy_k(start, &(kDigitPair[last_two_digits]), 2);
     return &(start[1 + (start[1] != '0')]);
   }
   return start;
@@ -309,7 +309,7 @@ void CollapsedSampleFmtidInit(const uintptr_t* sample_include, const SampleIdInf
       if (sids) {
         strcpy(write_iter, &(sids[sample_uidx * max_sid_blen]));
       } else {
-        memcpy(write_iter, "0", 2);
+        strcpy_k(write_iter, "0");
       }
     } else {
       *write_iter = '\0';
@@ -386,7 +386,7 @@ PglErr AugidInitAlloc(const uintptr_t* sample_include, const SampleIdInfo* siip,
     if (sids) {
       strcpy(write_iter, &(sids[sample_uidx * max_sid_blen]));
     } else {
-      memcpy(write_iter, "0", 2);
+      strcpy_k(write_iter, "0");
     }
     sample_augids_iter = &(sample_augids_iter[max_sample_augid_blen]);
     if (sample_augid_map) {
@@ -872,9 +872,8 @@ char* ChrNameStd(const ChrInfo* cip, uint32_t chr_idx, char* buf) {
     // include the pseudoautosomal regions in e.g. ADMIXTURE, we render them
     // them as 25 (in the human case) when "--output-chr 26" is specified.
     if (output_encoding) {
-      memcpyl3(buf, "PAR");
-      buf[3] = '0' + (chr_idx - cip->max_numeric_code);
-      return &(buf[4]);
+      const uint32_t parx = 'P' + ('A' << 8) + ('R' << 16) + ('0' << 24) + ((chr_idx - cip->max_numeric_code) << 24);
+      return memcpya(buf, &parx, 4);
     }
     return u32toa(cip->autosome_ct + (kChrOffsetXY + 1), buf);
   }
@@ -882,9 +881,9 @@ char* ChrNameStd(const ChrInfo* cip, uint32_t chr_idx, char* buf) {
     if (output_encoding == kfChrOutput0M) {
       // force two chars
       if (chr_idx <= cip->autosome_ct) {
-        buf = memcpya(buf, &(kDigitPair[chr_idx]), 2);
+        buf = memcpya_k(buf, &(kDigitPair[chr_idx]), 2);
       } else if (chr_idx == cip->xymt_codes[kChrOffsetY]) {
-        buf = strcpya(buf, "XY");
+        buf = strcpya_k(buf, "XY");
       } else {
         *buf++ = '0';
         if (chr_idx == cip->xymt_codes[kChrOffsetX]) {
@@ -896,7 +895,7 @@ char* ChrNameStd(const ChrInfo* cip, uint32_t chr_idx, char* buf) {
       }
       return buf;
     }
-    buf = memcpyl3a(buf, "chr");
+    buf = strcpya_k(buf, "chr");
   }
   if ((!(output_encoding & (kfChrOutputM | kfChrOutputMT))) || (chr_idx <= cip->autosome_ct)) {
     return u32toa(chr_idx, buf);
@@ -906,7 +905,7 @@ char* ChrNameStd(const ChrInfo* cip, uint32_t chr_idx, char* buf) {
   } else if (chr_idx == cip->xymt_codes[kChrOffsetY]) {
     *buf++ = 'Y';
   } else if (chr_idx == cip->xymt_codes[kChrOffsetXY]) {
-    buf = strcpya(buf, "XY");
+    buf = strcpya_k(buf, "XY");
   } else {
     *buf++ = 'M';
     if (output_encoding & kfChrOutputMT) {
@@ -1073,6 +1072,7 @@ uint32_t GetChrCode(const char* chr_name, const ChrInfo* cip, uint32_t name_slen
     return UINT32_MAX;
   }
   // note that IdHtableFind returns UINT32_MAX if name not found
+  // can't overread, nonstd_names not in main workspace
   return IdHtableFind(chr_name, cip->nonstd_names, cip->nonstd_id_htable, name_slen, kChrHtableSize);
 }
 
@@ -2212,15 +2212,15 @@ PglErr WriteSampleIdsOverride(const uintptr_t* sample_include, const SampleIdInf
     if (!(override_flags & kfSampleIdNoIdHeader)) {
       *write_iter++ = '#';
       if (override_flags & kfSampleIdFidPresent) {
-        write_iter = strcpya(write_iter, "FID\t");
+        write_iter = strcpya_k(write_iter, "FID\t");
       } else {
         // every single row starts with "0\t", so this causes only IIDs to be
         // reported
         sample_ids = &(sample_ids[2]);
       }
-      write_iter = memcpyl3a(write_iter, "IID");
+      write_iter = strcpya_k(write_iter, "IID");
       if (sids) {
-        write_iter = strcpya(write_iter, "\tSID");
+        write_iter = strcpya_k(write_iter, "\tSID");
       }
       AppendBinaryEoln(&write_iter);
     } else {
@@ -2262,9 +2262,9 @@ PglErr WriteSampleIdsOverride(const uintptr_t* sample_include, const SampleIdInf
 uint32_t RealpathIdentical(const char* outname, const char* read_realpath, char* write_realpath_buf) {
 #ifdef _WIN32
   const uint32_t fname_slen = GetFullPathName(outname, kPglFnamesize, write_realpath_buf, nullptr);
-  return (fname_slen && (fname_slen <= kPglFnamesize) && (!strcmp(read_realpath, write_realpath_buf)));
+  return (fname_slen && (fname_slen <= kPglFnamesize) && memequal(read_realpath, write_realpath_buf, fname_slen + 1));
 #else
-  return (realpath(outname, write_realpath_buf) && (!strcmp(read_realpath, write_realpath_buf)));
+  return (realpath(outname, write_realpath_buf) && strequal_overread(read_realpath, write_realpath_buf));
 #endif
 }
 

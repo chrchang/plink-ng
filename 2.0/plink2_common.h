@@ -911,6 +911,7 @@ HEADER_INLINE PglErr WriteSampleIds(const uintptr_t* sample_include, const Sampl
   return WriteSampleIdsOverride(sample_include, siip, outname, sample_ct, siip->flags);
 }
 
+// read_realpath must be a buffer of size >= kPglFnamesize bytes
 uint32_t RealpathIdentical(const char* outname, const char* read_realpath, char* write_realpath_buf);
 
 
@@ -919,7 +920,7 @@ HEADER_INLINE void OutnameZstSet(const char* ext, uint32_t output_zst, char* out
   assert(ext_slen < kMaxOutfnameExtBlen - 4);
   memcpy(outname_end, ext, ext_slen + 1);
   if (output_zst) {
-    memcpy(&(outname_end[ext_slen]), ".zst", 5);
+    strcpy_k(&(outname_end[ext_slen]), ".zst");
   }
 }
 

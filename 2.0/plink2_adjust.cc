@@ -212,86 +212,86 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     *cswritep++ = '#';
     const uint32_t chr_col = flags & kfAdjustColChrom;
     if (chr_col) {
-      cswritep = strcpya(cswritep, "CHROM\t");
+      cswritep = strcpya_k(cswritep, "CHROM\t");
     }
     if (flags & kfAdjustColPos) {
-      cswritep = strcpya(cswritep, "POS\t");
+      cswritep = strcpya_k(cswritep, "POS\t");
     } else {
       variant_bps = nullptr;
     }
-    cswritep = memcpyl3a(cswritep, "ID\t");
+    cswritep = strcpya_k(cswritep, "ID\t");
     const uint32_t ref_col = flags & kfAdjustColRef;
     if (ref_col) {
-      cswritep = strcpya(cswritep, "REF\t");
+      cswritep = strcpya_k(cswritep, "REF\t");
     }
     const uint32_t alt1_col = flags & kfAdjustColAlt1;
     if (alt1_col) {
-      cswritep = strcpya(cswritep, "ALT1\t");
+      cswritep = strcpya_k(cswritep, "ALT1\t");
     }
     const uint32_t alt_col = flags & kfAdjustColAlt;
     if (alt_col) {
-      cswritep = strcpya(cswritep, "ALT\t");
+      cswritep = strcpya_k(cswritep, "ALT\t");
     }
     const uint32_t a1_col = (flags & kfAdjustColA1) && (loaded_a1 || cip);
     if (a1_col) {
-      cswritep = strcpya(cswritep, "A1\t");
+      cswritep = strcpya_k(cswritep, "A1\t");
     }
     const uint32_t is_neglog10 = flags & kfAdjustLog10;
     const uint32_t unadj_col = flags & kfAdjustColUnadj;
     if (unadj_col) {
       if (is_neglog10) {
-        cswritep = strcpya(cswritep, "LOG10_");
+        cswritep = strcpya_k(cswritep, "LOG10_");
       }
-      cswritep = strcpya(cswritep, "UNADJ\t");
+      cswritep = strcpya_k(cswritep, "UNADJ\t");
     }
     const uint32_t gc_col = (flags & kfAdjustColGc) && (!skip_gc);
     if (gc_col) {
       if (is_neglog10) {
-        cswritep = strcpya(cswritep, "LOG10_");
+        cswritep = strcpya_k(cswritep, "LOG10_");
       }
-      cswritep = memcpyl3a(cswritep, "GC\t");
+      cswritep = strcpya_k(cswritep, "GC\t");
     }
     const uint32_t qq_col = flags & kfAdjustColQq;
     if (qq_col) {
       if (is_neglog10) {
-        cswritep = strcpya(cswritep, "LOG10_");
+        cswritep = strcpya_k(cswritep, "LOG10_");
       }
-      cswritep = memcpyl3a(cswritep, "QQ\t");
+      cswritep = strcpya_k(cswritep, "QQ\t");
     }
     const uint32_t bonf_col = flags & kfAdjustColBonf;
     if (bonf_col) {
       if (is_neglog10) {
-        cswritep = strcpya(cswritep, "LOG10_");
+        cswritep = strcpya_k(cswritep, "LOG10_");
       }
-      cswritep = strcpya(cswritep, "BONF\t");
+      cswritep = strcpya_k(cswritep, "BONF\t");
     }
     const uint32_t holm_col = flags & kfAdjustColHolm;
     if (holm_col) {
       if (is_neglog10) {
-        cswritep = strcpya(cswritep, "LOG10_");
+        cswritep = strcpya_k(cswritep, "LOG10_");
       }
-      cswritep = strcpya(cswritep, "HOLM\t");
+      cswritep = strcpya_k(cswritep, "HOLM\t");
     }
     const uint32_t sidakss_col = flags & kfAdjustColSidakss;
     if (sidakss_col) {
       if (is_neglog10) {
-        cswritep = strcpya(cswritep, "LOG10_");
+        cswritep = strcpya_k(cswritep, "LOG10_");
       }
-      cswritep = strcpya(cswritep, "SIDAK_SS\t");
+      cswritep = strcpya_k(cswritep, "SIDAK_SS\t");
     }
     const uint32_t sidaksd_col = flags & kfAdjustColSidaksd;
     if (sidaksd_col) {
       if (is_neglog10) {
-        cswritep = strcpya(cswritep, "LOG10_");
+        cswritep = strcpya_k(cswritep, "LOG10_");
       }
-      cswritep = strcpya(cswritep, "SIDAK_SD\t");
+      cswritep = strcpya_k(cswritep, "SIDAK_SD\t");
     }
     const uint32_t fdrbh_col = flags & kfAdjustColFdrbh;
     if (fdrbh_col) {
       if (is_neglog10) {
-        cswritep = strcpya(cswritep, "LOG10_");
+        cswritep = strcpya_k(cswritep, "LOG10_");
       }
-      cswritep = strcpya(cswritep, "FDR_BH\t");
+      cswritep = strcpya_k(cswritep, "FDR_BH\t");
     }
     double* ln_pv_by = nullptr;
     if (flags & kfAdjustColFdrby) {
@@ -299,9 +299,9 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
         goto Multcomp_ret_NOMEM;
       }
       if (is_neglog10) {
-        cswritep = strcpya(cswritep, "LOG10_");
+        cswritep = strcpya_k(cswritep, "LOG10_");
       }
-      cswritep = strcpya(cswritep, "FDR_BY\t");
+      cswritep = strcpya_k(cswritep, "FDR_BY\t");
     }
     DecrAppendBinaryEoln(&cswritep);
 
@@ -386,7 +386,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
       // -log10(p) output ignores --output-min-p now.
       // instead, set to maximum int32 to distinguish from plink 1.x's
       // much-less-extreme 'inf'.
-      strcpy(output_min_p_buf, "2147483647");
+      strcpy_k(output_min_p_buf, "2147483647");
       output_min_p_slen = 10;
     }
     const double valid_allele_ct_recip = 1.0 / valid_allele_ctd;
@@ -699,7 +699,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
         const char* test_name_start = line_iter;
         const uint32_t cur_test_slen = strlen_se(line_iter);
         line_iter = &(line_iter[cur_test_slen]);
-        if ((cur_test_slen != test_name_slen) || memcmp(test_name_start, test_name, test_name_slen)) {
+        if ((cur_test_slen != test_name_slen) || (!memequal(test_name_start, test_name, test_name_slen))) {
           continue;
         }
       }
@@ -800,7 +800,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
         goto AdjustFile_ret_MISSING_TOKENS;
       }
       if (test_name) {
-        if ((token_slens[6] != test_name_slen) || memcmp(token_ptrs[6], test_name, test_name_slen)) {
+        if ((token_slens[6] != test_name_slen) || (!memequal(token_ptrs[6], test_name, test_name_slen))) {
           continue;
         }
       }

@@ -1622,7 +1622,7 @@ void GenoarrLookup256x2bx4(const uintptr_t* genoarr, const void* table256x2bx4, 
     uint16_t* result_last = R_CAST(uint16_t*, &(result_alias[full_byte_ct]));
     uintptr_t geno_byte = genoarr_alias[full_byte_ct];
     for (uint32_t uii = 0; uii < remainder; ++uii) {
-      memcpy(&(result_last[uii]), &(table_alias[geno_byte & 3]), 2);
+      memcpy_k(&(result_last[uii]), &(table_alias[geno_byte & 3]), 2);
       geno_byte >>= 2;
     }
   }
@@ -2209,7 +2209,7 @@ PglErr PgfiInitPhase1(const char* fname, uint32_t raw_variant_ct, uint32_t raw_s
     snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid raw_sample_ct function parameter.\n");
     return kPglRetImproperFunctionCall;
   }
-  if (unlikely(memcmp(fread_ptr, "l\x1b", 2))) {
+  if (unlikely(!memequal_k(fread_ptr, "l\x1b", 2))) {
     snprintf(errstr_buf, kPglErrstrBufBlen, "Error: %s is not a .pgen file (first two bytes don't match the magic number).\n", fname);
     return kPglRetMalformedInput;
   }
@@ -2437,7 +2437,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
         return kPglRetSuccess;
       }
       if (nonref_flags_stored) {
-        if (unlikely(memcmp(nonref_flags_iter, fread_ptr, nonref_flags_byte_ct))) {
+        if (unlikely(!memequal(nonref_flags_iter, fread_ptr, nonref_flags_byte_ct))) {
           snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Loaded nonref_flags do not match values in .pgen file.\n");
           return kPglRetInconsistentInput;
         }
@@ -2503,7 +2503,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
         return kPglRetReadFail;
       }
       if (nonref_flags_already_loaded) {
-        if (unlikely(memcmp(nonref_flags_iter, loadbuf, cur_byte_ct))) {
+        if (unlikely(!memequal(nonref_flags_iter, loadbuf, cur_byte_ct))) {
           snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Loaded nonref_flags do not match values in .pgen file.\n");
           return kPglRetInconsistentInput;
         }
@@ -2866,7 +2866,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
         for (uint32_t cur_vblock_vidx = 0; cur_vblock_vidx < cur_vblock_variant_ct; ++cur_vblock_vidx) {
           var_fpos_iter[cur_vblock_vidx] = cur_fpos;
           uint16_t cur_vrec_len;
-          memcpy(&cur_vrec_len, &(fread_ptr[cur_vblock_vidx * 2]), 2);
+          memcpy_k(&cur_vrec_len, &(fread_ptr[cur_vblock_vidx * 2]), 2);
           cur_fpos += cur_vrec_len;
           if (cur_vrec_len > max_vrec_width) {
             // todo: check whether we're better off just assuming 2^16 - 1
@@ -2965,7 +2965,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
 #ifndef NO_MMAP
       if (!shared_ff) {
         if (nonref_flags_already_loaded) {
-          if (unlikely(memcmp(nonref_flags_iter, fread_ptr, cur_byte_ct))) {
+          if (unlikely(!memequal(nonref_flags_iter, fread_ptr, cur_byte_ct))) {
             snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Loaded nonref_flags do not match values in .pgen file.\n");
             return kPglRetInconsistentInput;
           }
@@ -2981,7 +2981,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
           return kPglRetReadFail;
         }
         if (nonref_flags_already_loaded) {
-          if (unlikely(memcmp(nonref_flags_iter, loadbuf, cur_byte_ct))) {
+          if (unlikely(!memequal(nonref_flags_iter, loadbuf, cur_byte_ct))) {
             snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Loaded nonref_flags do not match values in .pgen file.\n");
             return kPglRetInconsistentInput;
           }
@@ -2999,7 +2999,7 @@ uint32_t GetLdbaseVidx(const unsigned char* vrtypes, uint32_t cur_vidx) {
   const VecW* vrtypes_valias = R_CAST(const VecW*, vrtypes);
   const uint32_t cur_vidx_orig_remainder = cur_vidx % kBytesPerVec;
   uint32_t vidx_vec_idx = cur_vidx / kBytesPerVec;
-  Vec8Uint v8ui = 0;
+  Vec8thUint v8ui = 0;
   if (cur_vidx_orig_remainder) {
     const VecW cur_vvec = vrtypes_valias[vidx_vec_idx];
     // non-ld: ((bit 2) OR (NOT bit 1))
@@ -5217,6 +5217,32 @@ PglErr PgrGetInv1(const uintptr_t* __restrict sample_include, const uint32_t* __
   return kPglRetSuccess;
 }
 
+PglErr PgrGet2(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx0, uint32_t allele_idx1, PgenReader* pgrp, uintptr_t* __restrict genovec) {
+  if (!sample_ct) {
+    return kPglRetSuccess;
+  }
+  const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
+  if (allele_idx0 + allele_idx1 == 1) {
+    const uint32_t multiallelic_hc_present = VrtypeMultiallelicHc(vrtype);
+    const unsigned char* fread_ptr;
+    const unsigned char* fread_end;
+    PglErr reterr = ReadGenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, multiallelic_hc_present? (&fread_ptr) : nullptr, &fread_end, genovec);
+    if (unlikely(reterr)) {
+      return reterr;
+    }
+    if (allele_idx0) {
+      GenovecInvertUnsafe(sample_ct, genovec);
+    }
+    if (!multiallelic_hc_present) {
+      return kPglRetSuccess;
+    }
+    // todo: erase all hardcalls including a rarealt
+  }
+  fputs("multiallelic variants not yet supported by PgrGet2()\n", stderr);
+  exit(S_CAST(int32_t, kPglRetNotYetSupported));
+  return kPglRetSuccess;
+}
+
 void DetectGenovecHetsHw(const uintptr_t*__restrict genovec, uint32_t raw_sample_ctl2, Halfword* all_hets_hw) {
   // requires trailing bits of genovec to be zeroed out.  does not update last
   // all_hets[] halfword if raw_sample_ctl2 is odd.
@@ -5365,6 +5391,37 @@ PglErr PgrGetP(const uintptr_t* __restrict sample_include, const uint32_t* __res
     return kPglRetSuccess;
   }
   return ReadGenovecHphaseSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, nullptr, nullptr, genovec, phasepresent, phaseinfo, phasepresent_ct_ptr);
+}
+
+PglErr PgrGet2P(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx0, uint32_t allele_idx1, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr) {
+  assert(vidx < pgrp->fi.raw_variant_ct);
+  if (!sample_ct) {
+    *phasepresent_ct_ptr = 0;
+    return kPglRetSuccess;
+  }
+  const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
+  if (allele_idx0 + allele_idx1 == 1) {
+    const uint32_t multiallelic_hc_present = VrtypeMultiallelicHc(vrtype);
+    const unsigned char* fread_ptr;
+    const unsigned char* fread_end;
+    PglErr reterr = ReadGenovecHphaseSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, multiallelic_hc_present? (&fread_ptr) : nullptr, &fread_end, genovec, phasepresent, phaseinfo, phasepresent_ct_ptr);
+    if (unlikely(reterr)) {
+      return reterr;
+    }
+    if (allele_idx0) {
+      GenovecInvertUnsafe(sample_ct, genovec);
+      if (*phasepresent_ct_ptr) {
+        BitvecInvert(BitCtToWordCt(sample_ct), phaseinfo);
+      }
+    }
+    if (!multiallelic_hc_present) {
+      return kPglRetSuccess;
+    }
+    // todo: erase all hardcalls including a rarealt
+  }
+  fputs("multiallelic variants not yet supported by PgrGet2P()\n", stderr);
+  exit(S_CAST(int32_t, kPglRetNotYetSupported));
+  return kPglRetSuccess;
 }
 
 

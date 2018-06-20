@@ -164,17 +164,17 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
         const uint32_t token_slen = token_end - linebuf_iter;
         if (token_slen == 3) {
           uint32_t cur_col_type = UINT32_MAX;
-          if (!memcmp(linebuf_iter, "IID", 3)) {
+          if (memequal_k(linebuf_iter, "IID", 3)) {
             cur_col_type = 0;
-          } else if (!memcmp(linebuf_iter, "SID", 3)) {
+          } else if (memequal_k(linebuf_iter, "SID", 3)) {
             cur_col_type = 1;
-          } else if (!memcmp(linebuf_iter, "PAT", 3)) {
+          } else if (memequal_k(linebuf_iter, "PAT", 3)) {
             cur_col_type = 2;
-          } else if (!memcmp(linebuf_iter, "MAT", 3)) {
+          } else if (memequal_k(linebuf_iter, "MAT", 3)) {
             cur_col_type = 3;
-          } else if (!memcmp(linebuf_iter, "SEX", 3)) {
+          } else if (memequal_k(linebuf_iter, "SEX", 3)) {
             cur_col_type = 4;
-          } else if (unlikely(!memcmp(linebuf_iter, "FID", 3))) {
+          } else if (unlikely(memequal_k(linebuf_iter, "FID", 3))) {
             snprintf(g_logbuf, kLogbufSize, "Error: 'FID' column header on line %" PRIuPTR " of %s is not at the beginning.\n", line_idx, psamname);
             goto LoadPsam_ret_MALFORMED_INPUT_WW;
           }
@@ -182,13 +182,13 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
             const uint32_t cur_col_type_shifted = 1 << cur_col_type;
             if (unlikely(psam_cols_mask & cur_col_type_shifted)) {
               // known token, so no overflow danger
-              char* write_iter = strcpya(g_logbuf, "Error: Duplicate column header '");
-              write_iter = memcpyl3a(write_iter, linebuf_iter);
-              write_iter = strcpya(write_iter, "' on line ");
+              char* write_iter = strcpya_k(g_logbuf, "Error: Duplicate column header '");
+              write_iter = memcpya_k(write_iter, linebuf_iter, 4);
+              write_iter = strcpya_k(write_iter, "' on line ");
               write_iter = wtoa(line_idx, write_iter);
-              write_iter = strcpya(write_iter, " of ");
+              write_iter = strcpya_k(write_iter, " of ");
               write_iter = strcpya(write_iter, psamname);
-              memcpyl3(write_iter, ".\n");
+              memcpy_k(write_iter, ".\n\0", 4);
               goto LoadPsam_ret_MALFORMED_INPUT_WW;
             }
             psam_cols_mask |= cur_col_type_shifted;
@@ -293,7 +293,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
         col_types[rpf_col_idx] = 5;
         LlStr* ll_str_new = S_CAST(LlStr*, bigstack_alloc_raw_rd(7 + sizeof(LlStr)));
         ll_str_new->next = pheno_names_reverse_ll;
-        memcpy(ll_str_new->str, "PHENO1", 7);
+        strcpy_k(ll_str_new->str, "PHENO1");
         max_pheno_name_blen = 7;
         pheno_names_reverse_ll = ll_str_new;
       }
@@ -551,7 +551,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
                 }
                 // safe since we guarantee kMaxIdSlen spare bytes at the end
                 // of bigstack
-                if ((!memcmp(cur_entry->str, cur_phenostr, slen)) && (!cur_entry->str[slen])) {
+                if (memequal(cur_entry->str, cur_phenostr, slen) && (!cur_entry->str[slen])) {
                   htable_idx = cur_entry->cat_idx;
                   break;
                 }
@@ -873,7 +873,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         }
         goto LoadPhenos_ret_READ_RLSTREAM;
       }
-    } while (IsEolnKns(*line_iter) || ((line_iter[0] == '#') && (((line_iter[1] != 'F') && (line_iter[1] != 'I')) || memcmp(&(line_iter[2]), "ID", 2) || ((ctou32(line_iter[4]) > ' ') && (line_iter[4] != ',')))));
+    } while (IsEolnKns(*line_iter) || ((line_iter[0] == '#') && (((line_iter[1] != 'F') && (line_iter[1] != 'I')) || (!memequal_k(&(line_iter[2]), "ID", 2)) || ((ctou32(line_iter[4]) > ' ') && (line_iter[4] != ',')))));
     const char* linebuf_first_token = line_iter;
     if (linebuf_first_token[0] == '#') {
       ++linebuf_first_token;
@@ -888,7 +888,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
     uint32_t new_pheno_ct;
     uint32_t final_pheno_ct;
     uintptr_t final_pheno_names_byte_ct;
-    if (((linebuf_first_token[0] == 'F') || (xid_mode != kfXidModeFidIid)) && (!memcmp(&(linebuf_first_token[1]), "ID", 2)) && ((ctou32(linebuf_first_token[3]) <= 32) || (linebuf_first_token[3] == ','))) {
+    if (((linebuf_first_token[0] == 'F') || (xid_mode != kfXidModeFidIid)) && memequal_k(&(linebuf_first_token[1]), "ID", 2) && ((ctou32(linebuf_first_token[3]) <= 32) || (linebuf_first_token[3] == ','))) {
       // treat this as a header line
       // autodetect CSV vs. space/tab-delimited
       // (note that we don't permit CSVs without header lines)
@@ -984,7 +984,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         const char* token_end = CommaOrTspaceTokenEnd(linebuf_iter, comma_delim);
         const uint32_t name_slen = token_end - linebuf_iter;
         if (unlikely(IsReservedPhenoName(linebuf_iter, name_slen))) {
-          char* write_iter = strcpya(g_logbuf, "Error: '");
+          char* write_iter = strcpya_k(g_logbuf, "Error: '");
           // length verified to be <= kMaxIdSlen
           write_iter = memcpya(write_iter, linebuf_iter, name_slen);
           snprintf(write_iter, kLogbufSize - kMaxIdSlen - 16, "' cannot be used as a phenotype/covariate name.\n");
@@ -1063,7 +1063,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
       }
       const char* default_prefix = (affection_01 == 2)? "COVAR" : "PHENO";
       for (uint32_t pheno_idx = old_pheno_ct; pheno_idx < final_pheno_ct;) {
-        char* write_iter = memcpya(&(pheno_names[pheno_idx * max_pheno_name_blen]), default_prefix, 5);
+        char* write_iter = memcpya_k(&(pheno_names[pheno_idx * max_pheno_name_blen]), default_prefix, 5);
         ++pheno_idx;  // 1-based default names, not 0-based
         write_iter = u32toa(pheno_idx, write_iter);
         *write_iter = '\0';
@@ -1268,7 +1268,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
                   }
                   // safe since hash table entries are in the middle of
                   // bigstack
-                  if ((!memcmp(cur_entry->str, cur_phenostr, slen)) && (!cur_entry->str[slen])) {
+                  if (memequal(cur_entry->str, cur_phenostr, slen) && (!cur_entry->str[slen])) {
                     htable_idx = cur_entry->cat_idx;
                     break;
                   }

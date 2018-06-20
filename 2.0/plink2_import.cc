@@ -301,7 +301,7 @@ typedef struct ImportSampleIdContextStruct {
 void InitImportSampleIdContext(const char* const_fid, ImportFlags import_flags, char id_delim, ImportSampleIdContext* isicp) {
   isicp->const_fid = nullptr;
   isicp->const_fid_slen = 0;
-  if (const_fid && memcmp(const_fid, "0", 2)) {
+  if (const_fid && (!memequal_k(const_fid, "0", 2))) {
     isicp->const_fid_slen = strlen(const_fid);
     isicp->const_fid = const_fid;
   }
@@ -366,7 +366,7 @@ PglErr ImportSampleId(const char* input_id_iter, const char* input_id_end, const
             goto ImportSampleId_ret_INCONSISTENT_INPUT;
           }
           if (isicp->two_part_null_fid) {
-            write_iter = strcpya(write_iter, "0\t");
+            write_iter = strcpya_k(write_iter, "0\t");
           }
         }
       }
@@ -386,7 +386,7 @@ PglErr ImportSampleId(const char* input_id_iter, const char* input_id_end, const
         *write_iter++ = '\t';
         write_iter = memcpya(write_iter, third_part_start, third_part_slen);
       } else if (isicp->two_part_null_sid) {
-        write_iter = strcpya(write_iter, "\t0");
+        write_iter = strcpya_k(write_iter, "\t0");
       }
     } else {
       const uint32_t token_slen = input_id_end - input_id_iter;
@@ -563,17 +563,17 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Im
       char* textbuf_flush = &(write_iter[kMaxMediumLine]);
       *write_iter++ = '#';
       if (write_fid) {
-        write_iter = strcpya(write_iter, "FID\t");
+        write_iter = strcpya_k(write_iter, "FID\t");
       }
-      write_iter = memcpyl3a(write_iter, "IID");
+      write_iter = strcpya_k(write_iter, "IID");
       if (write_sid) {
-        write_iter = strcpya(write_iter, "\tSID");
+        write_iter = strcpya_k(write_iter, "\tSID");
         if (write_fid || isic.omit_fid_0) {
           isic.two_part_null_fid = isic.id_delim_sid;
           isic.two_part_null_sid = 1 - isic.id_delim_sid;
         }
       }
-      write_iter = strcpya(write_iter, "\tSEX");
+      write_iter = strcpya_k(write_iter, "\tSEX");
       AppendBinaryEoln(&write_iter);
       while (ctou32(sample_line_iter[0]) >= ' ') {
         ++sample_ct;
@@ -585,7 +585,7 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Im
         // PAT/MAT/PHENO1 not required in .psam file
         // SEX now included, so that --vcf + --out has the same effect as --vcf
         // + --make-pgen + --out
-        write_iter = memcpyl3a(write_iter, "\tNA");
+        write_iter = strcpya_k(write_iter, "\tNA");
         AppendBinaryEoln(&write_iter);
         if (unlikely(fwrite_ck(textbuf_flush, outfile, &write_iter))) {
           goto VcfSampleLine_ret_WRITE_FAIL;
@@ -653,7 +653,7 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Im
           if (unlikely(reterr)) {
             goto VcfSampleLine_ret_1;
           }
-          if (unlikely(memcmp(sample_line_iid_start, psam_iid_start, sample_line_iid_slen) || (ctou32(psam_iid_start[sample_line_iid_slen]) > 32))) {
+          if (unlikely(!memequal(sample_line_iid_start, psam_iid_start, sample_line_iid_slen) || (ctou32(psam_iid_start[sample_line_iid_slen]) > 32))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Mismatched IDs between --%ccf file and %s.\n", flag_char, preexisting_psamname);
             goto VcfSampleLine_ret_INCONSISTENT_INPUT_WW;
           }
@@ -759,7 +759,7 @@ uint32_t GetVcfFormatPosition(const char* __restrict needle, const char* format_
   uint32_t field_idx = 0;
   while (1) {
     const char* token_end = AdvToDelimOrEnd(token_start, format_end, ':');
-    if ((S_CAST(uintptr_t, token_end - token_start) == needle_slen) && (!memcmp(token_start, needle, needle_slen))) {
+    if ((S_CAST(uintptr_t, token_end - token_start) == needle_slen) && memequal(token_start, needle, needle_slen)) {
       return field_idx;
     }
     if (token_end == format_end) {
@@ -1857,7 +1857,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       }
       // don't tolerate leading spaces
       if (unlikely(*line_iter != '#')) {
-        if ((line_idx == 1) && (!memcmp(line_iter, "BCF", 3))) {
+        if ((line_idx == 1) && memequal_k(line_iter, "BCF", 3)) {
           // this is more informative than "missing header line"...
           if (line_iter[3] == 2) {
             snprintf(g_logbuf, kLogbufSize, "Error: %s appears to be a BCF2 file. Try --bcf instead of --vcf.\n", vcfname);
@@ -1934,13 +1934,13 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         format_dp_relevant = 1;
       } else if (dosage_import_field && StrStartsWithUnsafe(&(linebuf_iter[2]), "FORMAT=<ID=")) {
         // strlen("##FORMAT=<ID=") == 13
-        if ((!memcmp(&(linebuf_iter[13]), dosage_import_field, dosage_import_field_slen)) && (linebuf_iter[13 + dosage_import_field_slen] == ',')) {
+        if (memequal(&(linebuf_iter[13]), dosage_import_field, dosage_import_field_slen) && (linebuf_iter[13 + dosage_import_field_slen] == ',')) {
           if (unlikely(format_dosage_relevant)) {
             logerrprintfww("Error: Duplicate FORMAT:%s header line in --vcf file.\n", dosage_import_field);
             goto VcfToPgen_ret_MALFORMED_INPUT_WW;
           }
           format_dosage_relevant = 1;
-        } else if (format_hds_search && (!memcmp(&(linebuf_iter[13]), "HDS,", 4))) {
+        } else if (format_hds_search && memequal_k(&(linebuf_iter[13]), "HDS,", 4)) {
           if (unlikely(format_hds_search == 2)) {
             logerrputs("Error: Duplicate FORMAT:HDS header line in --vcf file.\n");
             goto VcfToPgen_ret_MALFORMED_INPUT;
@@ -2167,7 +2167,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           goto VcfToPgen_ret_MISSING_TOKENS;
         }
         linebuf_iter = &(info_end[1]);
-        vic.vibc.gt_present = (!memcmp(linebuf_iter, "GT", 2)) && ((linebuf_iter[2] == ':') || (linebuf_iter[2] == '\t'));
+        vic.vibc.gt_present = memequal_k(linebuf_iter, "GT", 2) && ((linebuf_iter[2] == ':') || (linebuf_iter[2] == '\t'));
         if (require_gt && (!vic.vibc.gt_present)) {
           ++variant_skip_ct;
           line_iter = linebuf_iter;
@@ -2429,9 +2429,9 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     if (cip->chrset_source) {
       AppendChrsetLine(cip, &write_iter);
     }
-    write_iter = strcpya(write_iter, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER");
+    write_iter = strcpya_k(write_iter, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER");
     if (info_nonpr_present) {
-      write_iter = strcpya(write_iter, "\tINFO");
+      write_iter = strcpya_k(write_iter, "\tINFO");
     }
     AppendBinaryEoln(&write_iter);
     if (unlikely(fwrite_checked(g_textbuf, write_iter - g_textbuf, pvarfile))) {
@@ -2683,6 +2683,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
             // skip hash table lookup if we know we aren't skipping the variant
             if (variant_skip_ct) {
               *chr_code_end = '\0';
+              // can't overread, nonstd_names not in main workspace
               const uint32_t chr_code = IdHtableFind(line_iter, TO_CONSTCPCONSTP(cip->nonstd_names), cip->nonstd_id_htable, chr_code_end - line_iter, kChrHtableSize);
               if ((chr_code == UINT32_MAX) || (!IsSet(cip->chr_mask, chr_code))) {
                 line_iter = chr_code_end;
@@ -2714,7 +2715,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           if (sample_ct) {
             info_end = AdvToDelim(&(filter_end[1]), '\t');
             format_start = &(info_end[1]);
-            vic.vibc.gt_present = (!memcmp(format_start, "GT", 2)) && ((format_start[2] == ':') || (format_start[2] == '\t'));
+            vic.vibc.gt_present = memequal_k(format_start, "GT", 2) && ((format_start[2] == ':') || (format_start[2] == '\t'));
             if (require_gt && (!vic.vibc.gt_present)) {
               line_iter = format_start;
               goto VcfToPgen_load_start;
@@ -2872,28 +2873,28 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       SpgwFinish(&spgw);
     }
     putc_unlocked('\r', stdout);
-    write_iter = strcpya(g_logbuf, "--vcf: ");
+    write_iter = strcpya_k(g_logbuf, "--vcf: ");
     const uint32_t outname_base_slen = outname_end - outname;
     if (sample_ct) {
       write_iter = memcpya(write_iter, outname, outname_base_slen + 5);
-      write_iter = memcpyl3a(write_iter, " + ");
+      write_iter = strcpya_k(write_iter, " + ");
     } else {
       *pgen_generated_ptr = 0;
     }
     write_iter = memcpya(write_iter, outname, outname_base_slen);
-    write_iter = strcpya(write_iter, ".pvar");
+    write_iter = strcpya_k(write_iter, ".pvar");
     if (sample_ct && (!preexisting_psamname)) {
-      write_iter = memcpyl3a(write_iter, " + ");
+      write_iter = strcpya_k(write_iter, " + ");
       write_iter = memcpya(write_iter, outname, outname_base_slen);
-      write_iter = strcpya(write_iter, ".psam");
+      write_iter = strcpya_k(write_iter, ".psam");
     } else {
       *psam_generated_ptr = 0;
     }
-    write_iter = strcpya(write_iter, " written");
+    write_iter = strcpya_k(write_iter, " written");
     if (!sample_ct) {
-      write_iter = strcpya(write_iter, " (no samples present)");
+      write_iter = strcpya_k(write_iter, " (no samples present)");
     }
-    memcpyl3a(write_iter, ".\n");
+    strcpya_k(write_iter, ".\n");
     WordWrapB(0);
     logputsb();
   }
@@ -3001,7 +3002,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
       memcpy(output_missing_pheno, g_output_missing_pheno, omp_slen);
     } else {
       // use "NA" since that's always safe
-      memcpy(output_missing_pheno, "NA", 2);
+      memcpy_k(output_missing_pheno, "NA", 2);
     }
     const char* missing_catname = g_missing_catname;
     uint32_t missing_catname_slen = strlen(missing_catname);
@@ -3033,7 +3034,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
       if (unlikely(bigstack_alloc_c(3, &sorted_mc))) {
         goto OxSampleToPsam_ret_NOMEM;
       }
-      memcpy(sorted_mc, "NA", 3);
+      strcpy_k(sorted_mc, "NA");
       mc_ct = 1;
       max_mc_blen = 3;
     } else {
@@ -3069,7 +3070,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
           memcpyx(&(sorted_mc[mc_idx * max_mc_blen]), missing_code_iter, token_slen, '\0');
           missing_code_iter = token_end;
         }
-        qsort(sorted_mc, mc_ct, max_mc_blen, strcmp_casted);
+        qsort(sorted_mc, mc_ct, max_mc_blen, strcmp_overread_casted);
       }
     }
 
@@ -3146,9 +3147,9 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     char* write_iter = writebuf;
     *write_iter++ = '#';
     if (write_fid) {
-      write_iter = strcpya(write_iter, "FID\t");
+      write_iter = strcpya_k(write_iter, "FID\t");
     }
-    write_iter = strcpya(write_iter, "IID\tSEX");
+    write_iter = strcpya_k(write_iter, "IID\tSEX");
 
     // 0 = not present, otherwise zero-based index (this is fine since first
     //     column has to be FID)
@@ -3359,7 +3360,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
         goto OxSampleToPsam_ret_WRITE_FAIL;
       }
       char* cur_writebuf_start = writebuf;
-      write_iter = memcpyl3a(writebuf, "\tNA");
+      write_iter = strcpya_k(writebuf, "\tNA");
       for (uint32_t col_idx = 3; col_idx < col_ct; ++col_idx) {
         linebuf_iter = FirstNonTspace(token_end);
         if (unlikely(IsEolnKns(*linebuf_iter))) {
@@ -3666,7 +3667,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
     if (cip->chrset_source) {
       AppendChrsetLine(cip, &write_iter);
     }
-    write_iter = strcpya(write_iter, "#CHROM\tPOS\tID\tREF\tALT" EOLN_STR);
+    write_iter = strcpya_k(write_iter, "#CHROM\tPOS\tID\tREF\tALT" EOLN_STR);
 
     // Explicit 32768 instead of kDosageMax since this is driven by the BGEN
     // 1.1 format, not plink2's dosage representation.
@@ -4045,12 +4046,12 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
     }
     SpgwFinish(&spgw);
     putc_unlocked('\r', stdout);
-    write_iter = strcpya(g_logbuf, "--data/--gen: ");
+    write_iter = strcpya_k(g_logbuf, "--data/--gen: ");
     const uint32_t outname_base_slen = outname_end - outname;
     write_iter = memcpya(write_iter, outname, outname_base_slen + 5);
-    write_iter = memcpyl3a(write_iter, " + ");
+    write_iter = strcpya_k(write_iter, " + ");
     write_iter = memcpya(write_iter, outname, outname_base_slen);
-    write_iter = strcpya(write_iter, ".pvar");
+    write_iter = strcpya_k(write_iter, ".pvar");
     snprintf(write_iter, kLogbufSize - 2 * kPglFnamesize - 64, " written.\n");
     WordWrapB(0);
     logputsb();
@@ -4716,7 +4717,7 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
               for (; vec_idx < full_vec_ct; ++vec_idx) {
                 const VecUc cur_vec = vecuc_loadu(&(probs_start[vec_idx * kBytesPerVec]));
                 const VecUc safe_bytes = (cur_vec == vec0) | (cur_vec == vecmax);
-                if (vecuc_movemask(safe_bytes) != kVec8UintMax) {
+                if (vecuc_movemask(safe_bytes) != kVec8thUintMax) {
                   break;
                 }
               }
@@ -4732,7 +4733,7 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
               for (; vec_idx < full_vec_ct; ++vec_idx) {
                 const VecU16 cur_vec = vecu16_loadu(&(probs_start[vec_idx * kBytesPerVec]));
                 const VecU16 safe_u16s = (cur_vec == vec0) | (cur_vec == vecmax);
-                if (vecu16_movemask(safe_u16s) != kVec8UintMax) {
+                if (vecu16_movemask(safe_u16s) != kVec8thUintMax) {
                   break;
                 }
               }
@@ -5077,7 +5078,7 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
         }
         /*
         uint16_t stored_allele_ct;
-        memcpy(&stored_allele_ct, &(cur_uncompressed_geno[4]), sizeof(int16_t));
+        memcpy_k(&stored_allele_ct, &(cur_uncompressed_geno[4]), sizeof(int16_t));
         if (unlikely(stored_allele_ct != cur_allele_ct)) {
           goto Bgen13GenoToPgenThread_malformed;
         }
@@ -5626,7 +5627,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       char* sample_id_block_iter = sample_id_block_main;
       for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
         uint16_t input_id_slen;
-        memcpy(&input_id_slen, sample_id_block_iter, sizeof(int16_t));
+        memcpy_k(&input_id_slen, sample_id_block_iter, sizeof(int16_t));
 
         // need to check this to avoid read-past-the-end indeterminate
         // behavior
@@ -5667,7 +5668,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         uint32_t sample_idx = 0;
         while (1) {
           uint16_t input_id_slen;
-          memcpy(&input_id_slen, sample_id_block_iter, sizeof(int16_t));
+          memcpy_k(&input_id_slen, sample_id_block_iter, sizeof(int16_t));
           char* sample_id_iter = &(sample_id_block_iter[2]);
           // previously verified that this is in-bounds
           char* sample_id_end = &(sample_id_iter[input_id_slen]);
@@ -5689,7 +5690,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
               sample_id_block_iter = sample_id_end;
               while (++sample_idx != sample_ct) {
                 uint16_t new_input_id_slen;
-                memcpy(&new_input_id_slen, sample_id_block_iter, sizeof(int16_t));
+                memcpy_k(&new_input_id_slen, sample_id_block_iter, sizeof(int16_t));
                 sample_id_iter = &(sample_id_block_iter[2]);
                 // We actually need to error out on new_input_id_slen < 2, but
                 // that'll happen in the next loop.
@@ -5722,24 +5723,24 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       char* write_iter = textbuf;
       *write_iter++ = '#';
       if (write_fid) {
-        write_iter = strcpya(write_iter, "FID\t");
+        write_iter = strcpya_k(write_iter, "FID\t");
       }
-      write_iter = memcpyl3a(write_iter, "IID");
+      write_iter = strcpya_k(write_iter, "IID");
       if (write_sid) {
-        write_iter = strcpya(write_iter, "\tSID");
+        write_iter = strcpya_k(write_iter, "\tSID");
       }
-      write_iter = strcpya(write_iter, "\tSEX");
+      write_iter = strcpya_k(write_iter, "\tSEX");
       AppendBinaryEoln(&write_iter);
       char* textbuf_flush = &(textbuf[kMaxMediumLine]);
       sample_id_block_iter = sample_id_block_main;
       for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
         uint16_t input_id_slen;
-        memcpy(&input_id_slen, sample_id_block_iter, sizeof(int16_t));
+        memcpy_k(&input_id_slen, sample_id_block_iter, sizeof(int16_t));
         char* sample_id_start = &(sample_id_block_iter[2]);
         char* sample_id_end = &(sample_id_start[input_id_slen]);
         reterr = ImportSampleId(sample_id_start, sample_id_end, &isic, &write_iter);
         // SEX
-        write_iter = memcpyl3a(write_iter, "\tNA");
+        write_iter = strcpya_k(write_iter, "\tNA");
         AppendBinaryEoln(&write_iter);
         if (write_iter >= textbuf_flush) {
           if (unlikely(fwrite_checked(textbuf, write_iter - textbuf, psamfile))) {
@@ -5809,7 +5810,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     if (cip->chrset_source) {
       AppendChrsetLine(cip, &write_iter);
     }
-    write_iter = strcpya(write_iter, "#CHROM\tPOS\tID\tREF\tALT" EOLN_STR);
+    write_iter = strcpya_k(write_iter, "#CHROM\tPOS\tID\tREF\tALT" EOLN_STR);
 
     const uint32_t snpid_chr = (oxford_import_flags & kfOxfordImportBgenSnpIdChr);
 
@@ -6000,7 +6001,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
               goto OxBgenToPgen_ret_READ_FAIL;
             }
             if (strequal_k(R_CAST(char*, loadbuf), "NA", chr_name_slen)) {
-              memcpy(loadbuf, "0", 2);
+              memcpy_k(loadbuf, "0", 2);
               chr_name_slen = 1;
             } else {
               loadbuf[chr_name_slen] = '\0';
@@ -6245,7 +6246,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
                   goto OxBgenToPgen_ret_READ_FAIL;
                 }
                 if (strequal_k(chr_name_start, "NA", chr_name_slen)) {
-                  memcpy(chr_name_start, "0", 2);
+                  strcpy_k(chr_name_start, "0");
                   chr_name_slen = 1;
                 } else {
                   chr_name_start[chr_name_slen] = '\0';
@@ -6685,7 +6686,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
               goto OxBgenToPgen_ret_READ_FAIL;
             }
             if (strequal_k(chr_name_start, "NA", chr_name_slen)) {
-              memcpy(chr_name_start, "0", 2);
+              strcpy_k(chr_name_start, "0");
               chr_name_slen = 1;
             } else {
               chr_name_start[chr_name_slen] = '\0';
@@ -7247,7 +7248,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
                   goto OxBgenToPgen_ret_READ_FAIL;
                 }
                 if (strequal_k(R_CAST(char*, loadbuf), "NA", chr_name_slen)) {
-                  memcpy(loadbuf, "0", 2);
+                  memcpy_k(loadbuf, "0", 2);
                   chr_name_slen = 1;
                 } else {
                   loadbuf[chr_name_slen] = '\0';
@@ -7362,15 +7363,15 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
 
     SpgwFinish(&spgw);
     putc_unlocked('\r', stdout);
-    write_iter = strcpya(g_logbuf, "--bgen: ");
+    write_iter = strcpya_k(g_logbuf, "--bgen: ");
     const uint32_t outname_base_slen = outname_end - outname;
     write_iter = memcpya(write_iter, outname, outname_base_slen + 5);
-    write_iter = memcpyl3a(write_iter, " + ");
+    write_iter = strcpya_k(write_iter, " + ");
     write_iter = memcpya(write_iter, outname, outname_base_slen);
-    write_iter = strcpya(write_iter, ".pvar");
-    write_iter = strcpya(write_iter, " written");
+    write_iter = strcpya_k(write_iter, ".pvar");
+    write_iter = strcpya_k(write_iter, " written");
     if (!dosage_is_present) {
-      write_iter = strcpya(write_iter, " (only unphased hardcalls)");
+      write_iter = strcpya_k(write_iter, " (only unphased hardcalls)");
     }
     snprintf(write_iter, kLogbufSize - 2 * kPglFnamesize - 64, ".\n");
     WordWrapB(0);
@@ -7597,7 +7598,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
       goto OxHapslegendToPgen_ret_OPEN_FAIL;
     }
-    char* write_iter = strcpya(writebuf, "#CHROM\tPOS\tID\tREF\tALT" EOLN_STR);
+    char* write_iter = strcpya_k(writebuf, "#CHROM\tPOS\tID\tREF\tALT" EOLN_STR);
     reterr = RlsNextNonemptyLstrip(&haps_rls, &line_idx_haps, &haps_line_iter);
     if (unlikely(reterr)) {
       if (reterr == kPglRetEof) {
@@ -7793,11 +7794,11 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
         goto OxHapslegendToPgen_ret_OPEN_FAIL;
       }
-      write_iter = strcpya(writebuf, "#IID\tSEX" EOLN_STR);
+      write_iter = strcpya_k(writebuf, "#IID\tSEX" EOLN_STR);
       for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
-        write_iter = memcpyl3a(write_iter, "per");
+        write_iter = strcpya_k(write_iter, "per");
         write_iter = u32toa(sample_idx, write_iter);
-        write_iter = strcpya(write_iter, "\tNA" EOLN_STR);
+        write_iter = strcpya_k(write_iter, "\tNA" EOLN_STR);
         if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
           goto OxHapslegendToPgen_ret_WRITE_FAIL;
         }
@@ -8071,17 +8072,17 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     }
     SpgwFinish(&spgw);
     putc_unlocked('\r', stdout);
-    write_iter = strcpya(g_logbuf, "--haps");
+    write_iter = strcpya_k(g_logbuf, "--haps");
     if (legendname[0]) {
-      write_iter = strcpya(write_iter, " + --legend");
+      write_iter = strcpya_k(write_iter, " + --legend");
     }
-    write_iter = strcpya(write_iter, ": ");
+    write_iter = strcpya_k(write_iter, ": ");
     const uint32_t outname_base_slen = outname_end - outname;
     write_iter = memcpya(write_iter, outname, outname_base_slen + 5);
-    write_iter = memcpyl3a(write_iter, " + ");
+    write_iter = strcpya_k(write_iter, " + ");
     if (!sfile_sample_ct) {
       write_iter = memcpya(write_iter, outname, outname_base_slen);
-      write_iter = strcpya(write_iter, ".psam + ");
+      write_iter = strcpya_k(write_iter, ".psam + ");
     }
     write_iter = memcpya(write_iter, outname, outname_base_slen);
     snprintf(write_iter, kLogbufSize - 3 * kPglFnamesize - 64, ".pvar written.\n");
@@ -8560,18 +8561,18 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     *write_iter++ = '#';
     const uint32_t write_fid = DataFidColIsRequired(sample_include, &pii.sii, sample_ct, 1);
     if (write_fid) {
-      write_iter = strcpya(write_iter, "FID\t");
+      write_iter = strcpya_k(write_iter, "FID\t");
     }
-    write_iter = memcpyl3a(write_iter, "IID");
+    write_iter = strcpya_k(write_iter, "IID");
     const uint32_t write_sid = DataSidColIsRequired(sample_include, pii.sii.sids, sample_ct, pii.sii.max_sid_blen, 1);
     if (write_sid) {
-      write_iter = strcpya(write_iter, "\tSID");
+      write_iter = strcpya_k(write_iter, "\tSID");
     }
     const uint32_t write_parents = DataParentalColsAreRequired(sample_include, &pii, sample_ct, 1);
     if (write_parents) {
-      write_iter = strcpya(write_iter, "\tPAT\tMAT");
+      write_iter = strcpya_k(write_iter, "\tPAT\tMAT");
     }
-    write_iter = strcpya(write_iter, "\tSEX");
+    write_iter = strcpya_k(write_iter, "\tSEX");
     for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
       *write_iter++ = '\t';
       write_iter = strcpya(write_iter, &(pheno_names[pheno_idx * max_pheno_name_blen]));
@@ -8586,7 +8587,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
       omp_slen = strlen(g_output_missing_pheno);
       memcpy(output_missing_pheno, g_output_missing_pheno, omp_slen);
     } else {
-      memcpy(output_missing_pheno, "NA", 2);
+      memcpy_k(output_missing_pheno, "NA", 2);
     }
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
       const uint32_t sample_uidx = dosage_sample_idx_to_fam_uidx[sample_idx];
@@ -8608,7 +8609,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
       if (IsSet(sex_nm, sample_uidx)) {
         *write_iter++ = '2' - IsSet(sex_male, sample_uidx);
       } else {
-        write_iter = strcpya(write_iter, "NA");
+        write_iter = strcpya_k(write_iter, "NA");
       }
       for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
         if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
@@ -8741,9 +8742,9 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
       goto Plink1DosageToPgen_ret_OPEN_FAIL;
     }
-    write_iter = strcpya(writebuf, "#CHROM\tPOS\tID\tREF\tALT");
+    write_iter = strcpya_k(writebuf, "#CHROM\tPOS\tID\tREF\tALT");
     if (variant_cms) {
-      write_iter = memcpyl3a(write_iter, "\tCM");
+      write_iter = strcpya_k(write_iter, "\tCM");
     }
     AppendBinaryEoln(&write_iter);
     // types:
@@ -9189,14 +9190,14 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     } while (line_idx < line_ct);
     SpgwFinish(&spgw);
     putc_unlocked('\r', stdout);
-    write_iter = strcpya(g_logbuf, "--import-dosage: ");
+    write_iter = strcpya_k(g_logbuf, "--import-dosage: ");
     const uint32_t outname_base_slen = outname_end - outname;
     write_iter = memcpya(write_iter, outname, outname_base_slen + 5);
-    write_iter = memcpyl3a(write_iter, " + ");
+    write_iter = strcpya_k(write_iter, " + ");
     write_iter = memcpya(write_iter, outname, outname_base_slen);
-    write_iter = strcpya(write_iter, ".pvar + ");
+    write_iter = strcpya_k(write_iter, ".pvar + ");
     write_iter = memcpya(write_iter, outname, outname_base_slen);
-    write_iter = strcpya(write_iter, ".psam written.\n");
+    write_iter = strcpya_k(write_iter, ".psam written.\n");
     WordWrapB(0);
     logputsb();
   }
@@ -9413,15 +9414,15 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
     uint16_t alleles[13];
     uint32_t four_alleles = 0;
     if (flags & kfGenDummyAcgt) {
-      memcpy(alleles, "\tA\tC\tA\tG\tA\tT\tC\tG\tC\tT\tG\tT\tA", 26);
+      memcpy_k(alleles, "\tA\tC\tA\tG\tA\tT\tC\tG\tC\tT\tG\tT\tA", 26);
       four_alleles = 1;
     } else if (flags & kfGenDummy1234) {
-      memcpy(alleles, "\t1\t2\t1\t3\t1\t4\t2\t3\t2\t4\t3\t4\t1", 26);
+      memcpy_k(alleles, "\t1\t2\t1\t3\t1\t4\t2\t3\t2\t4\t3\t4\t1", 26);
       four_alleles = 1;
     } else if (flags & kfGenDummy12) {
-      memcpy(alleles, "\t1\t2\t1", 6);
+      memcpy_k(alleles, "\t1\t2\t1", 6);
     } else {
-      memcpy(alleles, "\tA\tB\tA", 6);
+      memcpy_k(alleles, "\tA\tB\tA", 6);
     }
     char* textbuf = g_textbuf;
     char* textbuf_flush = &(textbuf[kMaxMediumLine]);
@@ -9429,7 +9430,7 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
     if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
       goto GenerateDummy_ret_OPEN_FAIL;
     }
-    char* write_iter = strcpya(textbuf, "#CHROM\tPOS\tID\tREF\tALT");
+    char* write_iter = strcpya_k(textbuf, "#CHROM\tPOS\tID\tREF\tALT");
     AppendBinaryEoln(&write_iter);
     if (four_alleles) {
       uint32_t urand = 0;
@@ -9447,7 +9448,7 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
         urand = quotient;
         write_iter = memcpya(write_iter, chr1_name_buf, chr1_name_blen);
         write_iter = u32toa(variant_idx, write_iter);
-        write_iter = strcpya(write_iter, "\tsnp");
+        write_iter = strcpya_k(write_iter, "\tsnp");
         write_iter = u32toa(variant_idx, write_iter);
         write_iter = memcpya(write_iter, &(alleles[remainder]), 4);
         AppendBinaryEoln(&write_iter);
@@ -9465,7 +9466,7 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
         urand >>= 1;
         write_iter = memcpya(write_iter, chr1_name_buf, chr1_name_blen);
         write_iter = u32toa(variant_idx, write_iter);
-        write_iter = strcpya(write_iter, "\tsnp");
+        write_iter = strcpya_k(write_iter, "\tsnp");
         write_iter = u32toa(variant_idx, write_iter);
         write_iter = memcpya(write_iter, &(alleles[remainder]), 4);
         AppendBinaryEoln(&write_iter);
@@ -9494,12 +9495,12 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
       memcpy(output_missing_pheno, g_output_missing_pheno, omp_slen);
     } else {
       // use "NA" since that's always safe
-      memcpy(output_missing_pheno, "NA", 2);
+      memcpy_k(output_missing_pheno, "NA", 2);
     }
     // Alpha 2 change: no more FID column
-    write_iter = strcpya(writebuf, "#IID\tSEX");
+    write_iter = strcpya_k(writebuf, "#IID\tSEX");
     for (uint32_t pheno_idx_p1 = 1; pheno_idx_p1 <= pheno_ct; ++pheno_idx_p1) {
-      write_iter = strcpya(write_iter, "\tPHENO");
+      write_iter = strcpya_k(write_iter, "\tPHENO");
       write_iter = u32toa(pheno_idx_p1, write_iter);
     }
     AppendBinaryEoln(&write_iter);
@@ -9512,10 +9513,10 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
         if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
           goto GenerateDummy_ret_WRITE_FAIL;
         }
-        write_iter = memcpyl3a(write_iter, "per");
+        write_iter = strcpya_k(write_iter, "per");
         write_iter = u32toa(sample_idx, write_iter);
         // could add option to add some males/unknown gender
-        write_iter = strcpya(write_iter, "\t2");
+        write_iter = strcpya_k(write_iter, "\t2");
         for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
           *write_iter++ = '\t';
           if (pheno_m_check && (sfmt_genrand_uint32(&g_sfmt) <= pheno_m32)) {
@@ -9541,9 +9542,9 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
           goto GenerateDummy_ret_WRITE_FAIL;
         }
         // bugfix (9 Mar 2018): forgot to remove FID column here
-        write_iter = memcpyl3a(write_iter, "per");
+        write_iter = strcpya_k(write_iter, "per");
         write_iter = u32toa(sample_idx, write_iter);
-        write_iter = strcpya(write_iter, "\t2");
+        write_iter = strcpya_k(write_iter, "\t2");
         for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
           *write_iter++ = '\t';
           if (pheno_m_check && (sfmt_genrand_uint32(&g_sfmt) <= pheno_m32)) {

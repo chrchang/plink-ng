@@ -280,7 +280,7 @@ BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* v
       if (!ref_slen_geq) {
         smaller_slen = ref_slen;
       }
-      int32_t memcmp_result = memcmp(token_ptrs[2], alt1_start, smaller_slen);
+      int32_t memcmp_result = Memcmp(token_ptrs[2], alt1_start, smaller_slen);
       if (!memcmp_result) {
         memcmp_result = ref_slen_geq;
       }
@@ -319,7 +319,7 @@ BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* v
       insert_ptrs[cur_insert_type] = id_iter;
       id_iter = &(id_iter[insert_slens[cur_insert_type]]);
     }
-    memcpyx(id_iter,  vtp->segs[insert_ct], vtp->seg_lens[insert_ct], '\0');
+    memcpyx(id_iter, vtp->segs[insert_ct], vtp->seg_lens[insert_ct], '\0');
 
     memcpy(insert_ptrs[0], vtp->chr_output_name_buf, insert_slens[0]);
     u32toa(cur_bp, insert_ptrs[1]);
@@ -354,10 +354,10 @@ void BackfillChrIdxs(const ChrInfo* cip, uint32_t chrs_encountered_m1, uint32_t 
 }
 
 char* PrInInfoToken(uint32_t info_slen, char* info_token) {
-  if ((!memcmp(info_token, "PR", 2)) && ((info_slen == 2) || (info_token[2] == ';'))) {
+  if (memequal_k(info_token, "PR", 2) && ((info_slen == 2) || (info_token[2] == ';'))) {
     return info_token;
   }
-  if (!memcmp(&(info_token[S_CAST(int32_t, info_slen) - 3]), ";PR", 3)) {
+  if (memequal_k(&(info_token[S_CAST(int32_t, info_slen) - 3]), ";PR", 3)) {
     return &(info_token[info_slen - 2]);
   }
   info_token[info_slen] = '\0';
@@ -429,7 +429,7 @@ uint32_t InfoExistCheck(const char* info_token, const InfoExist* existp) {
     const char* possible_hit;
     // similar logic to hardcoded PR, except key can also be followed by '=',
     // and if it is there can't be a lone '.' after the equals
-    if (!memcmp(info_token, &(prekeys_iter[1]), key_slen)) {
+    if (memequal(info_token, &(prekeys_iter[1]), key_slen)) {
       possible_hit = &(info_token[key_slen]);
     } else {
       possible_hit = strstr(info_token, prekeys_iter);
@@ -468,7 +468,7 @@ uint32_t InfoNonexistCheck(const char* info_token, const InfoExist* nonexistp) {
   for (uint32_t kidx = 0; kidx < key_ct; ++kidx, prekeys_iter = &(prekeys_iter[key_slen + 2])) {
     key_slen = key_slens[kidx];
     const char* possible_hit;
-    if (!memcmp(info_token, &(prekeys_iter[1]), key_slen)) {
+    if (memequal(info_token, &(prekeys_iter[1]), key_slen)) {
       possible_hit = &(info_token[key_slen]);
     } else {
       possible_hit = strstr(info_token, prekeys_iter);
@@ -529,7 +529,7 @@ PglErr InfoFilterInit(const unsigned char* arena_end, const CmpExpr* filter_expr
   (*arena_base_ptr) += cur_alloc;
   filterp->prekey[0] = ';';
   char* key_iter = memcpya(&(filterp->prekey[1]), pheno_name, key_slen);
-  memcpy(key_iter, "=", 2);
+  strcpy_k(key_iter, "=");
   ++key_slen;
   filterp->key_slen = key_slen;
   filterp->val_str = nullptr;
@@ -571,7 +571,7 @@ uint32_t InfoConditionSatisfied(const char* info_token, const InfoFilter* filter
   const char* possible_hit;
   // search for "[key]=" at start or ";[key]=" later; key_slen includes the
   //   trailing =
-  if (!memcmp(info_token, &(prekey[1]), key_slen)) {
+  if (memequal(info_token, &(prekey[1]), key_slen)) {
     possible_hit = &(info_token[key_slen]);
   } else {
     possible_hit = strstr(info_token, prekey);
@@ -582,7 +582,7 @@ uint32_t InfoConditionSatisfied(const char* info_token, const InfoFilter* filter
   }
   if (filterp->val_str) {
     const uint32_t val_slen = filterp->val_slen;
-    const uint32_t mismatch = (memcmp(possible_hit, filterp->val_str, val_slen) || (possible_hit[val_slen] && (possible_hit[val_slen] != ';')));
+    const uint32_t mismatch = ((!memequal(possible_hit, filterp->val_str, val_slen)) || (possible_hit[val_slen] && (possible_hit[val_slen] != ';')));
     return mismatch ^ (binary_op != kCmpOperatorNoteq);
   }
   double dxx;
@@ -881,20 +881,20 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         uint32_t cur_col_type;
         if (token_slen <= 3) {
           if (token_slen == 3) {
-            if (!memcmp(linebuf_iter, "POS", 3)) {
+            if (memequal_k(linebuf_iter, "POS", 3)) {
               cur_col_type = 0;
-            } else if (!memcmp(linebuf_iter, "REF", 3)) {
+            } else if (memequal_k(linebuf_iter, "REF", 3)) {
               cur_col_type = 2;
-            } else if (!memcmp(linebuf_iter, "ALT", 3)) {
+            } else if (memequal_k(linebuf_iter, "ALT", 3)) {
               cur_col_type = 3;
               alt_col_idx = col_idx;
             } else {
               continue;
             }
           } else if (token_slen == 2) {
-            if (!memcmp(linebuf_iter, "ID", 2)) {
+            if (memequal_k(linebuf_iter, "ID", 2)) {
               cur_col_type = 1;
-            } else if (!memcmp(linebuf_iter, "CM", 2)) {
+            } else if (memequal_k(linebuf_iter, "CM", 2)) {
               cur_col_type = 7;
               cm_col_present = 1;
             } else {
@@ -913,13 +913,13 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           cur_col_type = 6;
           info_col_present = 1;
         } else if (token_slen == 6) {
-          if (!memcmp(linebuf_iter, "FILTER", 6)) {
+          if (memequal_k(linebuf_iter, "FILTER", 6)) {
             load_filter_col = 2 * ((pvar_psam_flags & (kfPvarColMaybefilter | kfPvarColFilter)) || (exportf_flags & kfExportfVcf)) + ((misc_flags / kfMiscExcludePvarFilterFail) & 1);
             if (!load_filter_col) {
               continue;
             }
             cur_col_type = 5;
-          } else if (!memcmp(linebuf_iter, "FORMAT", 6)) {
+          } else if (memequal_k(linebuf_iter, "FORMAT", 6)) {
             break;
           } else {
             continue;
@@ -930,13 +930,13 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         const uint32_t cur_col_type_shifted = 1 << cur_col_type;
         if (unlikely(found_header_bitset & cur_col_type_shifted)) {
           // known token, so no overflow danger
-          char* write_iter = strcpya(g_logbuf, "Error: Duplicate column header '");
-          write_iter = memcpyl3a(write_iter, linebuf_iter);
-          write_iter = strcpya(write_iter, "' on line ");
+          char* write_iter = strcpya_k(g_logbuf, "Error: Duplicate column header '");
+          write_iter = strcpya(write_iter, linebuf_iter);
+          write_iter = strcpya_k(write_iter, "' on line ");
           write_iter = wtoa(line_idx, write_iter);
-          write_iter = strcpya(write_iter, " of ");
+          write_iter = strcpya_k(write_iter, " of ");
           write_iter = strcpya(write_iter, pvarname);
-          memcpyl3(write_iter, ".\n");
+          memcpy_k(write_iter, ".\n\0", 4);
           goto LoadPvar_ret_MALFORMED_INPUT_WW;
         }
         found_header_bitset |= cur_col_type_shifted;
@@ -1327,7 +1327,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
               // always load all nonref_flags entries so (i) --ref-from-fa +
               // --make-just-pvar works and (ii) they can be compared against
               // the .pgen.
-              if (((!memcmp(info_token, "PR", 2)) && ((info_slen == 2) || (info_token[2] == ';'))) || (!memcmp(&(info_token[S_CAST(int32_t, info_slen) - 3]), ";PR", 3))) {
+              if ((memequal_k(info_token, "PR", 2) && ((info_slen == 2) || (info_token[2] == ';'))) || memequal_k(&(info_token[S_CAST(int32_t, info_slen) - 3]), ";PR", 3)) {
                 SetBit(variant_idx_lowbits, cur_nonref_flags);
               } else {
                 const char* first_info_end = strchr(info_token, ';');
@@ -1485,7 +1485,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           const uint32_t ref_slen = token_slens[2];
           char* alt_allele_iter = S_CAST(char*, memchr(linebuf_iter, ',', remaining_alt_char_ct));
           uint32_t id_slen;
-          if ((!varid_templatep) || (missing_varid_match_slen && ((token_slens[1] != missing_varid_match_slen) || memcmp(token_ptrs[1], missing_varid_match, missing_varid_match_slen)))) {
+          if ((!varid_templatep) || (missing_varid_match_slen && ((token_slens[1] != missing_varid_match_slen) || (!memequal(token_ptrs[1], missing_varid_match, missing_varid_match_slen))))) {
             id_slen = token_slens[1];
             tmp_alloc_end -= id_slen + 1;
             if (unlikely(tmp_alloc_end < tmp_alloc_base)) {

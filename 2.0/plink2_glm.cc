@@ -348,13 +348,13 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
         if (unlikely(found_header_bitset & cur_col_type_shifted)) {
           // Known column type, so length is limited and we don't have to worry
           // about buffer overflow.
-          char* write_iter = strcpya(g_logbuf, "Error: Duplicate column header '");
+          char* write_iter = strcpya_k(g_logbuf, "Error: Duplicate column header '");
           write_iter = memcpya(write_iter, linebuf_iter, token_end - linebuf_iter);
-          write_iter = strcpya(write_iter, "' on line ");
+          write_iter = strcpya_k(write_iter, "' on line ");
           write_iter = wtoa(line_idx, write_iter);
-          write_iter = strcpya(write_iter, " of ");
+          write_iter = strcpya_k(write_iter, " of ");
           write_iter = strcpya(write_iter, local_pvar_fname);
-          memcpyl3(write_iter, ".\n");
+          memcpy_k(write_iter, ".\n\0", 4);
           goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
         }
         found_header_bitset |= cur_col_type_shifted;
@@ -485,11 +485,13 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
             // in a different order in the main dataset and the local-pvar
             // file, one will be skipped.  (probably want to add a warning in
             // this case.)
+            const uint32_t variant_id_slen = token_slens[1];
             char* cur_variant_id = token_ptrs[1];
-            cur_variant_id[token_slens[1]] = '\0';
+            cur_variant_id[variant_id_slen] = '\0';
+            const uint32_t variant_id_blen = variant_id_slen + 1;
             do {
               const char* loaded_variant_id = variant_ids[prev_variant_uidx];
-              if (!strcmp(cur_variant_id, loaded_variant_id)) {
+              if (memequal(cur_variant_id, loaded_variant_id, variant_id_blen)) {
                 if (unlikely(IsSet(new_variant_include, prev_variant_uidx))) {
                   snprintf(g_logbuf, kLogbufSize, "Error: Duplicate ID (with duplicate CHROM/POS) '%s' in %s.\n", cur_variant_id, local_pvar_fname);
                   goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
@@ -1417,7 +1419,7 @@ BoolErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* c
           return 1;
         }
         char* new_covar_name_write = memcpyax(new_covar_name_alloc, covar_name_base, covar_name_base_slen, '=');
-        memcpyx(new_covar_name_write, catname, catname_slen, '\0');
+        memcpy(new_covar_name_write, catname, catname_slen + 1);
         *cur_covar_names_iter++ = R_CAST(const char*, new_covar_name_alloc);
 
         uint32_t sample_uidx = first_sample_uidx;
@@ -3732,12 +3734,12 @@ BoolErr AllocAndInitReportedTestNames(const uintptr_t* parameter_subset, const c
     const char** cur_test_names = *cur_test_names_ptr;
     uint32_t write_idx = 0;
     if (include_intercept) {
-      char* iter_next = memcpya(test_name_buf_iter, "INTERCEPT", 10);
+      char* iter_next = memcpya_k(test_name_buf_iter, "INTERCEPT", 10);
       cur_test_names[write_idx++] = test_name_buf_iter;
       test_name_buf_iter = iter_next;
     }
     if (include_main_effect) {
-      char* iter_next = memcpyax(test_name_buf_iter, main_effect, 3, '\0');
+      char* iter_next = memcpyax_k(test_name_buf_iter, main_effect, 3, '\0');
       cur_test_names[write_idx++] = test_name_buf_iter;
       test_name_buf_iter = iter_next;
     }
@@ -3788,12 +3790,12 @@ BoolErr AllocAndInitReportedTestNames(const uintptr_t* parameter_subset, const c
   const char** cur_test_names = *cur_test_names_ptr;
   uint32_t write_idx = 0;
   if (include_intercept) {
-    char* iter_next = memcpya(test_name_buf_iter, "INTERCEPT", 10);
+    char* iter_next = memcpya_k(test_name_buf_iter, "INTERCEPT", 10);
     cur_test_names[write_idx++] = test_name_buf_iter;
     test_name_buf_iter = iter_next;
   }
   if (include_main_effect) {
-    char* iter_next = memcpyax(test_name_buf_iter, main_effect, 3, '\0');
+    char* iter_next = memcpyax_k(test_name_buf_iter, main_effect, 3, '\0');
     cur_test_names[write_idx++] = test_name_buf_iter;
     test_name_buf_iter = iter_next;
   }
@@ -4253,91 +4255,91 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     const uint32_t p_col = glm_cols & kfGlmColP;
     *cswritep++ = '#';
     if (chr_col) {
-      cswritep = strcpya(cswritep, "CHROM\t");
+      cswritep = strcpya_k(cswritep, "CHROM\t");
     }
     if (variant_bps) {
-      cswritep = strcpya(cswritep, "POS\t");
+      cswritep = strcpya_k(cswritep, "POS\t");
     }
-    cswritep = strcpya(cswritep, "ID");
+    cswritep = strcpya_k(cswritep, "ID");
     if (ref_col) {
-      cswritep = strcpya(cswritep, "\tREF");
+      cswritep = strcpya_k(cswritep, "\tREF");
     }
     if (alt1_col) {
-      cswritep = strcpya(cswritep, "\tALT1");
+      cswritep = strcpya_k(cswritep, "\tALT1");
     }
     if (alt_col) {
-      cswritep = strcpya(cswritep, "\tALT");
+      cswritep = strcpya_k(cswritep, "\tALT");
     }
-    cswritep = memcpyl3a(cswritep, "\tA1");
+    cswritep = strcpya_k(cswritep, "\tA1");
     if (ax_col) {
-      cswritep = memcpyl3a(cswritep, "\tAX");
+      cswritep = strcpya_k(cswritep, "\tAX");
     }
     if (a1_ct_col) {
-      cswritep = strcpya(cswritep, "\tA1_CT");
+      cswritep = strcpya_k(cswritep, "\tA1_CT");
     }
     if (tot_allele_col) {
-      cswritep = strcpya(cswritep, "\tALLELE_CT");
+      cswritep = strcpya_k(cswritep, "\tALLELE_CT");
     }
     if (a1_ct_cc_col) {
-      cswritep = strcpya(cswritep, "\tA1_CASE_CT\tA1_CTRL_CT");
+      cswritep = strcpya_k(cswritep, "\tA1_CASE_CT\tA1_CTRL_CT");
     }
     if (tot_allele_cc_col) {
-      cswritep = strcpya(cswritep, "\tCASE_ALLELE_CT\tCTRL_ALLELE_CT");
+      cswritep = strcpya_k(cswritep, "\tCASE_ALLELE_CT\tCTRL_ALLELE_CT");
     }
     if (gcount_cc_col) {
-      cswritep = strcpya(cswritep, "\tCASE_NON_A1_CT\tCASE_HET_A1_CT\tCASE_HOM_A1_CT\tCTRL_NON_A1_CT\tCTRL_HET_A1_CT\tCTRL_HOM_A1_CT");
+      cswritep = strcpya_k(cswritep, "\tCASE_NON_A1_CT\tCASE_HET_A1_CT\tCASE_HOM_A1_CT\tCTRL_NON_A1_CT\tCTRL_HET_A1_CT\tCTRL_HOM_A1_CT");
     }
     if (a1_freq_col) {
-      cswritep = strcpya(cswritep, "\tA1_FREQ");
+      cswritep = strcpya_k(cswritep, "\tA1_FREQ");
     }
     if (a1_freq_cc_col) {
-      cswritep = strcpya(cswritep, "\tA1_CASE_FREQ\tA1_CTRL_FREQ");
+      cswritep = strcpya_k(cswritep, "\tA1_CASE_FREQ\tA1_CTRL_FREQ");
     }
     if (mach_r2_col) {
-      cswritep = strcpya(cswritep, "\tMACH_R2");
+      cswritep = strcpya_k(cswritep, "\tMACH_R2");
     }
     if (firth_yn_col) {
-      cswritep = strcpya(cswritep, "\tFIRTH?");
+      cswritep = strcpya_k(cswritep, "\tFIRTH?");
     }
     if (test_col) {
-      cswritep = strcpya(cswritep, "\tTEST");
+      cswritep = strcpya_k(cswritep, "\tTEST");
     }
     if (nobs_col) {
-      cswritep = strcpya(cswritep, "\tOBS_CT");
+      cswritep = strcpya_k(cswritep, "\tOBS_CT");
     }
     if (orbeta_col) {
       if (report_beta_instead_of_odds_ratio) {
-        cswritep = strcpya(cswritep, "\tBETA");
+        cswritep = strcpya_k(cswritep, "\tBETA");
       } else {
-        cswritep = strcpya(cswritep, "\tOR");
+        cswritep = strcpya_k(cswritep, "\tOR");
       }
     }
     if (se_col) {
-      cswritep = strcpya(cswritep, "\tSE");
+      cswritep = strcpya_k(cswritep, "\tSE");
     }
     double ci_zt = 0.0;
     if (ci_col) {
-      cswritep = strcpya(cswritep, "\tL");
+      cswritep = strcpya_k(cswritep, "\tL");
       cswritep = dtoa_g(ci_size * 100, cswritep);
-      cswritep = strcpya(cswritep, "\tU");
+      cswritep = strcpya_k(cswritep, "\tU");
       cswritep = dtoa_g(ci_size * 100, cswritep);
       ci_zt = QuantileToZscore((ci_size + 1.0) * 0.5);
     }
     if (z_col) {
       if (!constraint_ct) {
-        cswritep = strcpya(cswritep, "\tZ_STAT");
+        cswritep = strcpya_k(cswritep, "\tZ_STAT");
       } else {
         // chisq for joint tests.  may switch to F-statistic (just divide by
         // df; the annoying part there is porting a function to convert that to
         // a p-value).
-        cswritep = strcpya(cswritep, "\tZ_OR_CHISQ_STAT");
+        cswritep = strcpya_k(cswritep, "\tZ_OR_CHISQ_STAT");
       }
     }
     if (p_col) {
       if (report_neglog10p) {
-        cswritep = strcpya(cswritep, "\tLOG10_P");
+        cswritep = strcpya_k(cswritep, "\tLOG10_P");
       } else {
-        cswritep = strcpya(cswritep, "\tP");
+        cswritep = strcpya_k(cswritep, "\tP");
       }
     }
     AppendBinaryEoln(&cswritep);
@@ -4639,7 +4641,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                   if (!suppress_mach_r2) {
                     cswritep = dtoa_g(auxp->mach_r2, cswritep);
                   } else {
-                    cswritep = strcpya(cswritep, "NA");
+                    cswritep = strcpya_k(cswritep, "NA");
                   }
                 }
                 if (firth_yn_col) {
@@ -4653,7 +4655,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                     cswritep = strcpya(cswritep, cur_test_names[test_idx]);
                   } else {
                     // always use basic dosage for untested alleles
-                    cswritep = memcpyl3a(cswritep, "ADD");
+                    cswritep = strcpya_k(cswritep, "ADD");
                     if (!beta_se_multiallelic_fused) {
                       // extra alt allele covariate.
                       uint32_t test_xallele_idx = test_idx - cur_biallelic_reported_test_ct;
@@ -4669,9 +4671,9 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                         test_xallele_idx = test_xallele_idx + (test_xallele_idx >= omitted_allele_idx);
                       }
                       if (!test_xallele_idx) {
-                        cswritep = strcpya(cswritep, "_REF");
+                        cswritep = strcpya_k(cswritep, "_REF");
                       } else {
-                        cswritep = strcpya(cswritep, "_ALT");
+                        cswritep = strcpya_k(cswritep, "_ALT");
                         cswritep = u32toa(test_xallele_idx, cswritep);
                       }
                     }
@@ -4695,7 +4697,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                     if (allele_is_valid) {
                       cswritep = dtoa_g(report_beta_instead_of_odds_ratio? beta : exp(beta), cswritep);
                     } else {
-                      cswritep = strcpya(cswritep, "NA");
+                      cswritep = strcpya_k(cswritep, "NA");
                     }
                   }
                   if (se_col) {
@@ -4703,7 +4705,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                     if (allele_is_valid) {
                       cswritep = dtoa_g(se, cswritep);
                     } else {
-                      cswritep = strcpya(cswritep, "NA");
+                      cswritep = strcpya_k(cswritep, "NA");
                     }
                   }
                   if (ci_col) {
@@ -4720,7 +4722,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                         cswritep = dtoa_g(exp(beta + ci_halfwidth), cswritep);
                       }
                     } else {
-                      cswritep = strcpya(cswritep, "NA\tNA");
+                      cswritep = strcpya_k(cswritep, "NA\tNA");
                     }
                   }
                   if (z_col) {
@@ -4728,27 +4730,27 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                     if (allele_is_valid) {
                       cswritep = dtoa_g(permstat, cswritep);
                     } else {
-                      cswritep = strcpya(cswritep, "NA");
+                      cswritep = strcpya_k(cswritep, "NA");
                     }
                   }
                 } else {
                   // joint test: use (currently approximate) F-test instead of
                   // Wald test
                   if (orbeta_col) {
-                    cswritep = memcpyl3a(cswritep, "\tNA");
+                    cswritep = strcpya_k(cswritep, "\tNA");
                   }
                   if (se_col) {
-                    cswritep = memcpyl3a(cswritep, "\tNA");
+                    cswritep = strcpya_k(cswritep, "\tNA");
                   }
                   if (ci_col) {
-                    cswritep = strcpya(cswritep, "\tNA\tNA");
+                    cswritep = strcpya_k(cswritep, "\tNA\tNA");
                   }
                   if (z_col) {
                     *cswritep++ = '\t';
                     if (allele_is_valid) {
                       cswritep = dtoa_g(primary_se, cswritep);
                     } else {
-                      cswritep = strcpya(cswritep, "NA");
+                      cswritep = strcpya_k(cswritep, "NA");
                     }
                   }
                   // could avoid recomputing
@@ -4768,7 +4770,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                       cswritep = lntoa_g(reported_ln, cswritep);
                     }
                   } else {
-                    cswritep = strcpya(cswritep, "NA");
+                    cswritep = strcpya_k(cswritep, "NA");
                   }
                 }
                 AppendBinaryEoln(&cswritep);
@@ -5858,72 +5860,72 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     const uint32_t p_col = glm_cols & kfGlmColP;
     *cswritep++ = '#';
     if (chr_col) {
-      cswritep = strcpya(cswritep, "CHROM\t");
+      cswritep = strcpya_k(cswritep, "CHROM\t");
     }
     if (variant_bps) {
-      cswritep = strcpya(cswritep, "POS\t");
+      cswritep = strcpya_k(cswritep, "POS\t");
     }
-    cswritep = strcpya(cswritep, "ID");
+    cswritep = strcpya_k(cswritep, "ID");
     if (ref_col) {
-      cswritep = strcpya(cswritep, "\tREF");
+      cswritep = strcpya_k(cswritep, "\tREF");
     }
     if (alt1_col) {
-      cswritep = strcpya(cswritep, "\tALT1");
+      cswritep = strcpya_k(cswritep, "\tALT1");
     }
     if (alt_col) {
-      cswritep = strcpya(cswritep, "\tALT");
+      cswritep = strcpya_k(cswritep, "\tALT");
     }
-    cswritep = memcpyl3a(cswritep, "\tA1");
+    cswritep = strcpya_k(cswritep, "\tA1");
     if (ax_col) {
-      cswritep = memcpyl3a(cswritep, "\tAX");
+      cswritep = strcpya_k(cswritep, "\tAX");
     }
     if (a1_ct_col) {
-      cswritep = strcpya(cswritep, "\tA1_CT");
+      cswritep = strcpya_k(cswritep, "\tA1_CT");
     }
     if (tot_allele_col) {
-      cswritep = strcpya(cswritep, "\tALLELE_CT");
+      cswritep = strcpya_k(cswritep, "\tALLELE_CT");
     }
     if (a1_freq_col) {
-      cswritep = strcpya(cswritep, "\tA1_FREQ");
+      cswritep = strcpya_k(cswritep, "\tA1_FREQ");
     }
     if (mach_r2_col) {
-      cswritep = strcpya(cswritep, "\tMACH_R2");
+      cswritep = strcpya_k(cswritep, "\tMACH_R2");
     }
     if (test_col) {
-      cswritep = strcpya(cswritep, "\tTEST");
+      cswritep = strcpya_k(cswritep, "\tTEST");
     }
     if (nobs_col) {
-      cswritep = strcpya(cswritep, "\tOBS_CT");
+      cswritep = strcpya_k(cswritep, "\tOBS_CT");
     }
     if (beta_col) {
-      cswritep = strcpya(cswritep, "\tBETA");
+      cswritep = strcpya_k(cswritep, "\tBETA");
     }
     if (se_col) {
-      cswritep = strcpya(cswritep, "\tSE");
+      cswritep = strcpya_k(cswritep, "\tSE");
     }
     double ci_zt = 0.0;
     if (ci_col) {
-      cswritep = strcpya(cswritep, "\tL");
+      cswritep = strcpya_k(cswritep, "\tL");
       cswritep = dtoa_g(ci_size * 100, cswritep);
-      cswritep = strcpya(cswritep, "\tU");
+      cswritep = strcpya_k(cswritep, "\tU");
       cswritep = dtoa_g(ci_size * 100, cswritep);
       ci_zt = QuantileToZscore((ci_size + 1.0) * 0.5);
     }
     if (t_col) {
       if (!constraint_ct) {
-        cswritep = strcpya(cswritep, "\tT_STAT");
+        cswritep = strcpya_k(cswritep, "\tT_STAT");
       } else {
         // chisq for joint tests.  may switch to F-statistic (just divide by
         // df; the hard part there is porting a function to convert that to a
         // p-value)
-        cswritep = strcpya(cswritep, "\tT_OR_CHISQ_STAT");
+        cswritep = strcpya_k(cswritep, "\tT_OR_CHISQ_STAT");
       }
     }
     if (p_col) {
       if (report_neglog10p) {
-        cswritep = strcpya(cswritep, "\tLOG10_P");
+        cswritep = strcpya_k(cswritep, "\tLOG10_P");
       } else {
-        cswritep = strcpya(cswritep, "\tP");
+        cswritep = strcpya_k(cswritep, "\tP");
       }
     }
     AppendBinaryEoln(&cswritep);
@@ -6196,7 +6198,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                   if (!suppress_mach_r2) {
                     cswritep = dtoa_g(auxp->mach_r2, cswritep);
                   } else {
-                    cswritep = strcpya(cswritep, "NA");
+                    cswritep = strcpya_k(cswritep, "NA");
                   }
                 }
                 if (test_col) {
@@ -6205,7 +6207,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                     cswritep = strcpya(cswritep, cur_test_names[test_idx]);
                   } else {
                     // always use basic dosage for untested alleles
-                    cswritep = memcpyl3a(cswritep, "ADD");
+                    cswritep = strcpya_k(cswritep, "ADD");
                     if (!beta_se_multiallelic_fused) {
                       // extra alt allele covariate.
                       uint32_t test_xallele_idx = test_idx - cur_biallelic_reported_test_ct;
@@ -6217,9 +6219,9 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                         test_xallele_idx = test_xallele_idx + (test_xallele_idx >= omitted_allele_idx);
                       }
                       if (!test_xallele_idx) {
-                        cswritep = strcpya(cswritep, "_REF");
+                        cswritep = strcpya_k(cswritep, "_REF");
                       } else {
-                        cswritep = strcpya(cswritep, "_ALT");
+                        cswritep = strcpya_k(cswritep, "_ALT");
                         cswritep = u32toa(test_xallele_idx, cswritep);
                       }
                     }
@@ -6243,7 +6245,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                     if (allele_is_valid) {
                       cswritep = dtoa_g(beta, cswritep);
                     } else {
-                      cswritep = strcpya(cswritep, "NA");
+                      cswritep = strcpya_k(cswritep, "NA");
                     }
                   }
                   if (se_col) {
@@ -6251,7 +6253,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                     if (allele_is_valid) {
                       cswritep = dtoa_g(se, cswritep);
                     } else {
-                      cswritep = strcpya(cswritep, "NA");
+                      cswritep = strcpya_k(cswritep, "NA");
                     }
                   }
                   if (ci_col) {
@@ -6262,7 +6264,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                       *cswritep++ = '\t';
                       cswritep = dtoa_g(beta + ci_halfwidth, cswritep);
                     } else {
-                      cswritep = strcpya(cswritep, "NA\tNA");
+                      cswritep = strcpya_k(cswritep, "NA\tNA");
                     }
                   }
                   if (t_col) {
@@ -6270,27 +6272,27 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                     if (allele_is_valid) {
                       cswritep = dtoa_g(tstat, cswritep);
                     } else {
-                      cswritep = strcpya(cswritep, "NA");
+                      cswritep = strcpya_k(cswritep, "NA");
                     }
                   }
                 } else {
                   // joint test: use (currently approximate) F-test instead of
                   // T test
                   if (beta_col) {
-                    cswritep = memcpyl3a(cswritep, "\tNA");
+                    cswritep = strcpya_k(cswritep, "\tNA");
                   }
                   if (se_col) {
-                    cswritep = memcpyl3a(cswritep, "\tNA");
+                    cswritep = strcpya_k(cswritep, "\tNA");
                   }
                   if (ci_col) {
-                    cswritep = strcpya(cswritep, "\tNA\tNA");
+                    cswritep = strcpya_k(cswritep, "\tNA\tNA");
                   }
                   if (t_col) {
                     *cswritep++ = '\t';
                     if (allele_is_valid) {
                       cswritep = dtoa_g(primary_se, cswritep);
                     } else {
-                      cswritep = strcpya(cswritep, "NA");
+                      cswritep = strcpya_k(cswritep, "NA");
                     }
                   }
                   // could avoid recomputing
@@ -6309,7 +6311,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                       cswritep = lntoa_g(reported_ln, cswritep);
                     }
                   } else {
-                    cswritep = strcpya(cswritep, "NA");
+                    cswritep = strcpya_k(cswritep, "NA");
                   }
                 }
                 AppendBinaryEoln(&cswritep);
@@ -6810,7 +6812,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       //   --condition{-list} covar names
       char* covar_names_write_iter = new_covar_names;
       for (uint32_t local_covar_idx = 0; local_covar_idx < local_covar_ct; ++local_covar_idx) {
-        memcpy(covar_names_write_iter, "LOCAL", 5);
+        memcpy_k(covar_names_write_iter, "LOCAL", 5);
         char* name_end = u32toa(local_covar_idx + 1, &(covar_names_write_iter[5]));
         *name_end = '\0';
         new_covar_cols[local_covar_idx].type_code = kPhenoDtypeOther;
@@ -6842,7 +6844,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         new_sex_col->data.qt = sex_covar_vals;
         new_sex_col->type_code = kPhenoDtypeQt;
         new_sex_col->nonnull_category_ct = 0;
-        memcpy(covar_names_write_iter, "SEX", 4);
+        strcpy_k(covar_names_write_iter, "SEX");
       }
       covar_cols = new_covar_cols;
       covar_names = new_covar_names;
@@ -7543,15 +7545,15 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         g_pheno_f = pheno_f;
         g_covars_cmaj_f = covars_cmaj_f;
         if (is_always_firth) {
-          outname_end2 = strcpya(outname_end2, ".glm.firth");
+          outname_end2 = strcpya_k(outname_end2, ".glm.firth");
         } else if (is_sometimes_firth) {
-          outname_end2 = strcpya(outname_end2, ".glm.logistic.hybrid");
+          outname_end2 = strcpya_k(outname_end2, ".glm.logistic.hybrid");
         } else {
-          outname_end2 = strcpya(outname_end2, ".glm.logistic");
+          outname_end2 = strcpya_k(outname_end2, ".glm.logistic");
         }
       } else {
         g_covars_cmaj_d = covars_cmaj_d;
-        outname_end2 = strcpya(outname_end2, ".glm.linear");
+        outname_end2 = strcpya_k(outname_end2, ".glm.linear");
       }
       // write IDs
       snprintf(outname_end2, 22, ".id");

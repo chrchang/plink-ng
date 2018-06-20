@@ -89,7 +89,7 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
           }
         }
         // when there are repeats, they are likely to be next to each other
-        if (make_set_ll && (!strcmp(make_set_ll->str, last_token))) {
+        if (make_set_ll && strequal_overread(make_set_ll->str, last_token)) {
           goto LoadIbed_LINE_ITER_ALREADY_ADVANCED_1;
         }
         uint32_t set_id_blen = set_id_slen + 1;
@@ -165,7 +165,7 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
       set_ct = CopyAndDedupSortedStrptrsToStrbox(strptr_arr, set_ct, max_set_id_blen, &(set_names[c_prefix]));
       if (c_prefix) {
         for (uintptr_t set_idx = 0; set_idx < set_ct; ++set_idx) {
-          memcpy(&(set_names[set_idx * max_set_id_blen]), "C_", 2);
+          memcpy_k(&(set_names[set_idx * max_set_id_blen]), "C_", 2);
         }
       }
       BigstackShrinkTop(set_names, set_ct * max_set_id_blen);
@@ -262,7 +262,7 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
         last_token[last_token_slen] = '\0';
         if (c_prefix) {
           last_token = &(last_token[-2]);
-          memcpy(last_token, "C_", 2);
+          memcpy_k(last_token, "C_", 2);
         } else if (!variant_bps) {
           last_token = &(last_token[-S_CAST(int32_t, kMaxChrCodeDigits)]);
           u32toa_z5(cur_chr_code, last_token);

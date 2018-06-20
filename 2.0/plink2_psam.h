@@ -74,7 +74,7 @@ HEADER_INLINE BoolErr IsReservedPhenoName(const char* pheno_name, uint32_t pheno
   }
   // tolerate "SEX" column in phenotype/covariate files; just impose some
   // restrictions on it when writing .psam files.
-  return (!memcmp(pheno_name, "FID", 3)) || (!memcmp(pheno_name, "IID", 3)) || (!memcmp(pheno_name, "SID", 3)) || (!memcmp(pheno_name, "PAT", 3)) || (!memcmp(pheno_name, "MAT", 3));
+  return memequal_k(pheno_name, "FID", 3) || memequal_k(pheno_name, "IID", 3) || memequal_k(pheno_name, "SID", 3) || memequal_k(pheno_name, "PAT", 3) || memequal_k(pheno_name, "MAT", 3);
 }
 
 // also for loading covariates.  set affection_01 to 2 to prohibit case/control

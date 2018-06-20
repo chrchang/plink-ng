@@ -34,6 +34,177 @@ void CleanupUpdateSex(UpdateSexInfo* update_sex_info_ptr) {
   free_cond(update_sex_info_ptr->fname);
 }
 
+PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const uint32_t* variant_id_htable, const TwoColParams* params, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t htable_size, uintptr_t* variant_include, uint32_t* __restrict variant_bps, uint32_t* __restrict variant_ct_ptr, UnsortedVar* vpos_sortstatusp) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  ReadLineStream rls;
+  PreinitRLstream(&rls);
+  {
+    uintptr_t* already_seen;
+    if (unlikely(
+            bigstack_calloc_w(BitCtToWordCt(raw_variant_ct), &already_seen))) {
+      goto UpdateVarBps_ret_NOMEM;
+    }
+    // This could be pointed at a file containing allele codes, so don't limit
+    // line length to minimum value.
+    const char* line_iter;
+    reterr = SizeAndInitRLstreamRawK(params->fname, bigstack_left() / 4, &rls, &line_iter);
+    if (unlikely(reterr)) {
+      goto UpdateVarBps_ret_1;
+    }
+    reterr = RlsSkipK(params->skip_ct, &rls, &line_iter);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetEof) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Fewer lines than expected in %s.\n", params->fname);
+        goto UpdateVarBps_ret_INCONSISTENT_INPUT_WW;
+      }
+      goto UpdateVarBps_ret_READ_RLSTREAM;
+    }
+    line_idx = params->skip_ct;
+    // ok, this should be a parameter instead...
+    const uint32_t* htable_dup_base = &(variant_id_htable[RoundUpPow2(htable_size, kInt32PerCacheline)]);
+    const uint32_t colid_first = (params->colid < params->colx);
+    uint32_t variant_ct = *variant_ct_ptr;
+    uint32_t colmin;
+    uint32_t coldiff;
+    if (colid_first) {
+      colmin = params->colid - 1;
+      coldiff = params->colx - params->colid;
+    } else {
+      colmin = params->colx - 1;
+      coldiff = params->colid - params->colx;
+    }
+    const char skipchar = params->skipchar;
+    uintptr_t miss_ct = 0;
+    uint32_t hit_ct = 0;
+    while (1) {
+      ++line_idx;
+      reterr = RlsNextLstripK(&rls, &line_iter);
+      if (reterr) {
+        if (likely(reterr == kPglRetEof)) {
+          reterr = kPglRetSuccess;
+          break;
+        }
+        goto UpdateVarBps_ret_READ_RLSTREAM;
+      }
+      const char* linebuf_first_token = line_iter;
+      char cc = *linebuf_first_token;
+      if (IsEolnKns(cc) || (cc == skipchar)) {
+        continue;
+      }
+      const char* colid_ptr;
+      const char* colbp_ptr;
+      if (colid_first) {
+        colid_ptr = NextTokenMult0(linebuf_first_token, colmin);
+        colbp_ptr = NextTokenMult(colid_ptr, coldiff);
+        if (unlikely(!colbp_ptr)) {
+          goto UpdateVarBps_ret_MISSING_TOKENS;
+        }
+      } else {
+        colbp_ptr = NextTokenMult0(linebuf_first_token, colmin);
+        colid_ptr = NextTokenMult(colbp_ptr, coldiff);
+        if (unlikely(!colid_ptr)) {
+          goto UpdateVarBps_ret_MISSING_TOKENS;
+        }
+      }
+      const uint32_t varid_slen = strlen_se(colid_ptr);
+      uint32_t cur_llidx;
+      uint32_t variant_uidx = VariantIdDupHtableFind(colid_ptr, variant_ids, variant_id_htable, htable_dup_base, varid_slen, htable_size, max_variant_id_slen, &cur_llidx);
+      if (variant_uidx == UINT32_MAX) {
+        ++miss_ct;
+        continue;
+      }
+      const char* cur_var_id = variant_ids[variant_uidx];
+      if (unlikely(cur_llidx != UINT32_MAX)) {
+        // we could check if some copies have been filtered out after hash
+        // table construction?
+        snprintf(g_logbuf, kLogbufSize, "Error: --update-map variant ID '%s' appears multiple times in dataset.\n", cur_var_id);
+        goto UpdateVarBps_ret_INCONSISTENT_INPUT_WW;
+      }
+      if (unlikely(IsSet(already_seen, variant_uidx))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Variant ID '%s' appears multiple times in --update-map file.\n", cur_var_id);
+        goto UpdateVarBps_ret_INCONSISTENT_INPUT_WW;
+      }
+      SetBit(variant_uidx, already_seen);
+      if (!IsSet(variant_include, variant_uidx)) {
+        continue;
+      }
+      int32_t bp_coord;
+      if (ScanIntAbsDefcap(colbp_ptr, &bp_coord)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of --update-map file.\n", line_idx);
+        goto UpdateVarBps_ret_MALFORMED_INPUT;
+      }
+      if (bp_coord < 0) {
+        ClearBit(variant_uidx, variant_include);
+        --variant_ct;
+      } else {
+        variant_bps[variant_uidx] = bp_coord;
+      }
+      ++hit_ct;
+    }
+    if (miss_ct) {
+      snprintf(g_logbuf, kLogbufSize, "--update-map: %u value%s updated, %" PRIuPTR " variant ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+    } else {
+      snprintf(g_logbuf, kLogbufSize, "--update-map: %u value%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
+    }
+    logputsb();
+
+    UnsortedVar vpos_sortstatus = (*vpos_sortstatusp) & (~kfUnsortedVarBp);
+    if (!(vpos_sortstatus & kfUnsortedVarSplitChr)) {
+      uint32_t chr_fo_idx = UINT32_MAX;
+      uint32_t chr_end = 0;
+      uint32_t last_bp = 0;
+      uint32_t variant_uidx = 0;
+      for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
+        MovU32To1Bit(variant_include, &variant_uidx);
+        if (variant_uidx >= chr_end) {
+          do {
+            ++chr_fo_idx;
+            chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+          } while (variant_uidx >= chr_end);
+          last_bp = 0;
+        }
+        const uint32_t cur_bp = variant_bps[variant_uidx];
+        if (last_bp > cur_bp) {
+          vpos_sortstatus |= kfUnsortedVarBp;
+          if (!((*vpos_sortstatusp) & kfUnsortedVarBp)) {
+            logerrputs("Warning: Base-pair positions are now unsorted!\n");
+          }
+          break;
+        }
+        last_bp = cur_bp;
+      }
+      if (((*vpos_sortstatusp) & kfUnsortedVarBp) && (!(vpos_sortstatus & kfUnsortedVarBp))) {
+        logputs("Base-pair positions are now sorted.\n");
+      }
+      *vpos_sortstatusp = vpos_sortstatus;
+    }
+  }
+  while (0) {
+  UpdateVarBps_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  UpdateVarBps_ret_READ_RLSTREAM:
+    RLstreamErrPrint("--update-map file", &rls, &reterr);
+    break;
+  UpdateVarBps_ret_MISSING_TOKENS:
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --update-map file has fewer tokens than expected.\n", line_idx);
+  UpdateVarBps_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetInconsistentInput;
+    break;
+  UpdateVarBps_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+ UpdateVarBps_ret_1:
+  CleanupRLstream(&rls);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_id_htable, const TwoColParams* params, uint32_t raw_variant_ct, uint32_t htable_size, char** variant_ids, uint32_t* max_variant_id_slen_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
@@ -217,7 +388,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
     if (old_pheno_names && (catpheno_name_blen <= old_max_pheno_name_blen)) {
       new_max_pheno_name_blen = old_max_pheno_name_blen;
       for (uint32_t pheno_idx = 0; pheno_idx < old_pheno_ct; ++pheno_idx) {
-        if (unlikely(!memcmp(catpheno_name, &(old_pheno_names[pheno_idx * old_max_pheno_name_blen]), catpheno_name_blen))) {
+        if (unlikely(memequal(catpheno_name, &(old_pheno_names[pheno_idx * old_max_pheno_name_blen]), catpheno_name_blen))) {
           snprintf(g_logbuf, kLogbufSize, "Error: Cannot create a new categorical phenotype named '%s', since another phenotype of the same name already exists.\n", catpheno_name);
           goto Plink1ClusterImport_ret_INCONSISTENT_INPUT_WW;
         }
@@ -385,7 +556,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
             cat_htable[hashval] = cur_htable_entry;
             break;
           }
-          if (!memcmp(main_token_start, cur_cat_names[cur_htable_entry], main_token_blen)) {
+          if (memequal(main_token_start, cur_cat_names[cur_htable_entry], main_token_blen)) {
             break;
           }
           if (++hashval == cat_htable_size) {
@@ -497,7 +668,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
         uint32_t family_missing_catname_hval = Hashceil(family_missing_catname, family_missing_catname_slen, cat_htable_size);
         if (cat_htable[family_missing_catname_hval] == UINT32_MAX) {
           cat_htable[family_missing_catname_hval] = UINT32_MAXM1;
-        } else if ((missing_catname_slen != family_missing_catname_slen) || memcmp(family_missing_catname, missing_catname, missing_catname_slen)) {
+        } else if ((missing_catname_slen != family_missing_catname_slen) || (!memequal(family_missing_catname, missing_catname, missing_catname_slen))) {
           if (++family_missing_catname_hval == cat_htable_size) {
             family_missing_catname_hval = 0;
           }
@@ -525,20 +696,20 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
               cat_idxs[sample_uidx] = ++nonnull_cat_ct;
               break;
             } else if (cur_htable_entry == UINT32_MAXM1) {
-              if ((slen == family_missing_catname_slen) && (!memcmp(cur_fid, family_missing_catname, family_missing_catname_slen))) {
+              if ((slen == family_missing_catname_slen) && memequal(cur_fid, family_missing_catname, family_missing_catname_slen)) {
                 ClearBit(sample_uidx, cat_nm);
                 cat_idxs[sample_uidx] = 0;
                 break;
               }
             } else {
-              if ((slen == missing_catname_slen) && (!memcmp(cur_fid, missing_catname, missing_catname_slen))) {
+              if ((slen == missing_catname_slen) && memequal(cur_fid, missing_catname, missing_catname_slen)) {
                 ClearBit(sample_uidx, cat_nm);
                 cat_idxs[sample_uidx] = 0;
                 break;
               }
             }
           } else {
-            if (!memcmp(cur_fid, &(sample_ids[cur_htable_entry * max_sample_id_blen]), blen)) {
+            if (memequal(cur_fid, &(sample_ids[cur_htable_entry * max_sample_id_blen]), blen)) {
               cat_idxs[sample_uidx] = cat_idxs[cur_htable_entry];
               break;
             }
@@ -1578,42 +1749,42 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
         goto WriteAlleleFreqs_ret_NOMEM;
       }
       if (chr_col) {
-        cswritep = strcpya(cswritep, "CHROM\t");
+        cswritep = strcpya_k(cswritep, "CHROM\t");
       }
       if (freq_rpt_flags & kfAlleleFreqColPos) {
-        cswritep = strcpya(cswritep, "POS\t");
+        cswritep = strcpya_k(cswritep, "POS\t");
       } else {
         variant_bps = nullptr;
       }
-      cswritep = strcpya(cswritep, "ID");
+      cswritep = strcpya_k(cswritep, "ID");
       const uint32_t ref_col = freq_rpt_flags & kfAlleleFreqColRef;
       if (ref_col) {
-        cswritep = strcpya(cswritep, "\tREF");
+        cswritep = strcpya_k(cswritep, "\tREF");
       }
       const uint32_t alt1_col = freq_rpt_flags & kfAlleleFreqColAlt1;
       if (alt1_col) {
-        cswritep = strcpya(cswritep, "\tALT1");
+        cswritep = strcpya_k(cswritep, "\tALT1");
       }
       const uint32_t alt_col = freq_rpt_flags & kfAlleleFreqColAlt;
       if (alt_col) {
-        cswritep = strcpya(cswritep, "\tALT");
+        cswritep = strcpya_k(cswritep, "\tALT");
       }
       const uint32_t reffreq_col = freq_rpt_flags & kfAlleleFreqColReffreq;
       if (reffreq_col) {
-        cswritep = strcpya(cswritep, "\tREF_");
+        cswritep = strcpya_k(cswritep, "\tREF_");
         if (counts) {
-          cswritep = strcpya(cswritep, "CT");
+          cswritep = strcpya_k(cswritep, "CT");
         } else {
-          cswritep = strcpya(cswritep, "FREQ");
+          cswritep = strcpya_k(cswritep, "FREQ");
         }
       }
       const uint32_t alt1freq_col = freq_rpt_flags & kfAlleleFreqColAlt1freq;
       if (alt1freq_col) {
-        cswritep = strcpya(cswritep, "\tALT1_");
+        cswritep = strcpya_k(cswritep, "\tALT1_");
         if (counts) {
-          cswritep = strcpya(cswritep, "CT");
+          cswritep = strcpya_k(cswritep, "CT");
         } else {
-          cswritep = strcpya(cswritep, "FREQ");
+          cswritep = strcpya_k(cswritep, "FREQ");
         }
       }
       const uint32_t freq_col = freq_rpt_flags & (kfAlleleFreqColFreq | kfAlleleFreqColAltfreq);
@@ -1624,24 +1795,24 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
       if (freq_col || eq_col) {
         *cswritep++ = '\t';
         if (commalist_exclude_ref) {
-          cswritep = strcpya(cswritep, "ALT_");
+          cswritep = strcpya_k(cswritep, "ALT_");
         }
         if (eq_num) {
-          cswritep = strcpya(cswritep, "NUM_");
+          cswritep = strcpya_k(cswritep, "NUM_");
         }
         if (counts) {
-          cswritep = memcpyl3a(cswritep, "CTS");
+          cswritep = strcpya_k(cswritep, "CTS");
         } else {
-          cswritep = strcpya(cswritep, "FREQS");
+          cswritep = strcpya_k(cswritep, "FREQS");
         }
       }
       const uint32_t mach_r2_col = freq_rpt_flags & kfAlleleFreqColMachR2;
       if (mach_r2_col) {
-        cswritep = strcpya(cswritep, "\tMACH_R2");
+        cswritep = strcpya_k(cswritep, "\tMACH_R2");
       }
       const uint32_t nobs_col = freq_rpt_flags & kfAlleleFreqColNobs;
       if (nobs_col) {
-        cswritep = strcpya(cswritep, "\tOBS_CT");
+        cswritep = strcpya_k(cswritep, "\tOBS_CT");
       }
       AppendBinaryEoln(&cswritep);
 
@@ -1781,7 +1952,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
           if (!suppress_mach_r2) {
             cswritep = dtoa_g(mach_r2_vals[variant_uidx], cswritep);
           } else {
-            cswritep = strcpya(cswritep, "NA");
+            cswritep = strcpya_k(cswritep, "NA");
           }
         }
         if (nobs_col) {
@@ -1879,9 +2050,9 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
         }
         char* outname_end2 = &(outname_end[6 + counts]);
         if (!is_alt1) {
-          outname_end2 = strcpya(outname_end2, ".ref");
+          outname_end2 = strcpya_k(outname_end2, ".ref");
         } else {
-          outname_end2 = strcpya(outname_end2, ".alt1");
+          outname_end2 = strcpya_k(outname_end2, ".alt1");
         }
         snprintf(outname_end2, kMaxOutfnameExtBlen - 12, ".bins");
         if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
@@ -1889,7 +2060,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
         }
         char* textbuf = g_textbuf;
         char* textbuf_flush = &(textbuf[kMaxMediumLine]);
-        char* write_iter = strcpya(textbuf, "#BIN_START\tOBS_CT" EOLN_STR);
+        char* write_iter = strcpya_k(textbuf, "#BIN_START\tOBS_CT" EOLN_STR);
         const uint32_t cur_boundary_ct = is_alt1? alt1_boundary_ct : ref_boundary_ct;
         if (!counts) {
           const double* cur_freq_bounds = is_alt1? alt1_freq_bounds : ref_freq_bounds;
@@ -1999,79 +2170,79 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
 
     // includes trailing tab
     if (chr_col) {
-      cswritep = strcpya(cswritep, "CHROM\t");
+      cswritep = strcpya_k(cswritep, "CHROM\t");
     }
     if (geno_counts_flags & kfGenoCountsColPos) {
-      cswritep = strcpya(cswritep, "POS\t");
+      cswritep = strcpya_k(cswritep, "POS\t");
     } else {
       variant_bps = nullptr;
     }
-    cswritep = strcpya(cswritep, "ID");
+    cswritep = strcpya_k(cswritep, "ID");
     const uint32_t ref_col = geno_counts_flags & kfGenoCountsColRef;
     if (ref_col) {
-      cswritep = strcpya(cswritep, "\tREF");
+      cswritep = strcpya_k(cswritep, "\tREF");
     }
     const uint32_t alt1_col = geno_counts_flags & kfGenoCountsColAlt1;
     if (alt1_col) {
-      cswritep = strcpya(cswritep, "\tALT1");
+      cswritep = strcpya_k(cswritep, "\tALT1");
     }
     const uint32_t alt_col = geno_counts_flags & kfGenoCountsColAlt;
     if (alt_col) {
-      cswritep = strcpya(cswritep, "\tALT");
+      cswritep = strcpya_k(cswritep, "\tALT");
     }
     const uint32_t homref_col = geno_counts_flags & kfGenoCountsColHomref;
     if (homref_col) {
-      cswritep = strcpya(cswritep, "\tHOM_REF_CT");
+      cswritep = strcpya_k(cswritep, "\tHOM_REF_CT");
     }
     const uint32_t refalt1_col = geno_counts_flags & kfGenoCountsColRefalt1;
     if (refalt1_col) {
-      cswritep = strcpya(cswritep, "\tHET_REF_ALT1_CT");
+      cswritep = strcpya_k(cswritep, "\tHET_REF_ALT1_CT");
     }
     const uint32_t refalt_col = geno_counts_flags & kfGenoCountsColRefalt;
     if (refalt_col) {
-      cswritep = strcpya(cswritep, "\tHET_REF_ALT_CTS");
+      cswritep = strcpya_k(cswritep, "\tHET_REF_ALT_CTS");
     }
     const uint32_t homalt1_col = geno_counts_flags & kfGenoCountsColHomalt1;
     if (homalt1_col) {
-      cswritep = strcpya(cswritep, "\tHOM_ALT1_CT");
+      cswritep = strcpya_k(cswritep, "\tHOM_ALT1_CT");
     }
     const uint32_t xy_col = geno_counts_flags & (kfGenoCountsColAltxy | kfGenoCountsColXy);
     const uint32_t xy_col_altonly = (geno_counts_flags / kfGenoCountsColAltxy) & 1;
     if (xy_col) {
       *cswritep++ = '\t';
       if (xy_col_altonly) {
-        cswritep = strcpya(cswritep, "NONREF_");
+        cswritep = strcpya_k(cswritep, "NONREF_");
       }
-      cswritep = strcpya(cswritep, "DIPLOID_GENO_CTS");
+      cswritep = strcpya_k(cswritep, "DIPLOID_GENO_CTS");
     }
     const uint32_t hapref_col = geno_counts_flags & kfGenoCountsColHapref;
     if (hapref_col) {
-      cswritep = strcpya(cswritep, "\tHAP_REF_CT");
+      cswritep = strcpya_k(cswritep, "\tHAP_REF_CT");
     }
     const uint32_t hapalt1_col = geno_counts_flags & kfGenoCountsColHapalt1;
     if (hapalt1_col) {
-      cswritep = strcpya(cswritep, "\tHAP_ALT1_CT");
+      cswritep = strcpya_k(cswritep, "\tHAP_ALT1_CT");
     }
     const uint32_t hap_col = geno_counts_flags & (kfGenoCountsColHapalt | kfGenoCountsColHap);
     const uint32_t hap_col_altonly = (geno_counts_flags / kfGenoCountsColHapalt) & 1;
     if (hap_col) {
       if (hap_col_altonly) {
-        cswritep = strcpya(cswritep, "\tHAP_ALT_CTS");
+        cswritep = strcpya_k(cswritep, "\tHAP_ALT_CTS");
       } else {
-        cswritep = strcpya(cswritep, "\tHAP_CTS");
+        cswritep = strcpya_k(cswritep, "\tHAP_CTS");
       }
     }
     const uint32_t numeq_col = geno_counts_flags & kfGenoCountsColNumeq;
     if (numeq_col) {
-      cswritep = strcpya(cswritep, "\tGENO_NUM_CTS");
+      cswritep = strcpya_k(cswritep, "\tGENO_NUM_CTS");
     }
     const uint32_t missing_col = geno_counts_flags & kfGenoCountsColMissing;
     if (missing_col) {
-      cswritep = strcpya(cswritep, "\tMISSING_CT");
+      cswritep = strcpya_k(cswritep, "\tMISSING_CT");
     }
     const uint32_t nobs_col = geno_counts_flags & kfGenoCountsColNobs;
     if (nobs_col) {
-      cswritep = strcpya(cswritep, "\tOBS_CT");
+      cswritep = strcpya_k(cswritep, "\tOBS_CT");
     }
     AppendBinaryEoln(&cswritep);
 
@@ -2227,23 +2398,23 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
         if (numeq_col) {
           *cswritep++ = '\t';
           if (homref_ct) {
-            cswritep = strcpya(cswritep, "0/0=");
+            cswritep = strcpya_k(cswritep, "0/0=");
             cswritep = u32toa_x(homref_ct, ',', cswritep);
           }
           if (het_ct) {
-            cswritep = strcpya(cswritep, "0/1=");
+            cswritep = strcpya_k(cswritep, "0/1=");
             cswritep = u32toa_x(het_ct, ',', cswritep);
           }
           if (homalt1_ct) {
-            cswritep = strcpya(cswritep, "1/1=");
+            cswritep = strcpya_k(cswritep, "1/1=");
             cswritep = u32toa_x(homalt1_ct, ',', cswritep);
           }
           if (hapref_ct) {
-            cswritep = strcpya(cswritep, "0=");
+            cswritep = strcpya_k(cswritep, "0=");
             cswritep = u32toa_x(hapref_ct, ',', cswritep);
           }
           if (hapalt1_ct) {
-            cswritep = strcpya(cswritep, "1=");
+            cswritep = strcpya_k(cswritep, "1=");
             cswritep = u32toa_x(hapalt1_ct, ',', cswritep);
           }
           if (missing_ct != nobs_base) {
@@ -2316,20 +2487,20 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
       *cswritep++ = '#';
       const uint32_t scol_fid = FidColIsRequired(siip, missing_rpt_flags / kfMissingRptScolMaybefid);
       if (scol_fid) {
-        cswritep = strcpya(cswritep, "FID\t");
+        cswritep = strcpya_k(cswritep, "FID\t");
       }
-      cswritep = memcpyl3a(cswritep, "IID");
+      cswritep = strcpya_k(cswritep, "IID");
       const char* sample_ids = siip->sample_ids;
       const char* sids = siip->sids;
       const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
       const uintptr_t max_sid_blen = siip->max_sid_blen;
       const uint32_t scol_sid = SidColIsRequired(sids, missing_rpt_flags / kfMissingRptScolMaybesid);
       if (scol_sid) {
-        cswritep = strcpya(cswritep, "\tSID");
+        cswritep = strcpya_k(cswritep, "\tSID");
       }
       const uint32_t scol_empty_pheno = (missing_rpt_flags & kfMissingRptScolMisspheno1) && (!pheno_ct);
       if (scol_empty_pheno) {
-        cswritep = strcpya(cswritep, "\tMISS_PHENO1");
+        cswritep = strcpya_k(cswritep, "\tMISS_PHENO1");
       }
       const uint32_t scol_phenos = (missing_rpt_flags & (kfMissingRptScolMisspheno1 | kfMissingRptScolMissphenos)) && pheno_ct;
       if (scol_phenos) {
@@ -2346,35 +2517,35 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
       }
       const uint32_t scol_nmiss_dosage = (missing_rpt_flags / kfMissingRptScolNmissDosage) & 1;
       if (scol_nmiss_dosage) {
-        cswritep = strcpya(cswritep, "\tMISSING_DOSAGE_CT");
+        cswritep = strcpya_k(cswritep, "\tMISSING_DOSAGE_CT");
       }
       const uint32_t scol_nmiss = (missing_rpt_flags / kfMissingRptScolNmiss) & 1;
       if (scol_nmiss) {
-        cswritep = strcpya(cswritep, "\tMISSING_CT");
+        cswritep = strcpya_k(cswritep, "\tMISSING_CT");
       }
       const uint32_t scol_nmiss_hh = (missing_rpt_flags / kfMissingRptScolNmissHh) & 1;
       if (scol_nmiss_hh) {
-        cswritep = strcpya(cswritep, "\tMISSING_AND_HETHAP_CT");
+        cswritep = strcpya_k(cswritep, "\tMISSING_AND_HETHAP_CT");
       }
       const uint32_t scol_hethap = (missing_rpt_flags / kfMissingRptScolHethap) & 1;
       if (scol_hethap) {
-        cswritep = strcpya(cswritep, "\tHETHAP_CT");
+        cswritep = strcpya_k(cswritep, "\tHETHAP_CT");
       }
       const uint32_t scol_nobs = (missing_rpt_flags / kfMissingRptScolNobs) & 1;
       if (scol_nobs) {
-        cswritep = strcpya(cswritep, "\tOBS_CT");
+        cswritep = strcpya_k(cswritep, "\tOBS_CT");
       }
       const uint32_t scol_fmiss_dosage = (missing_rpt_flags / kfMissingRptScolFmissDosage) & 1;
       if (scol_fmiss_dosage) {
-        cswritep = strcpya(cswritep, "\tF_MISS_DOSAGE");
+        cswritep = strcpya_k(cswritep, "\tF_MISS_DOSAGE");
       }
       const uint32_t scol_fmiss = (missing_rpt_flags / kfMissingRptScolFmiss) & 1;
       if (scol_fmiss) {
-        cswritep = strcpya(cswritep, "\tF_MISS");
+        cswritep = strcpya_k(cswritep, "\tF_MISS");
       }
       const uint32_t scol_fmiss_hh = (missing_rpt_flags / kfMissingRptScolFmissHh) & 1;
       if (scol_fmiss_hh) {
-        cswritep = strcpya(cswritep, "\tF_MISS_AND_HETHAP");
+        cswritep = strcpya_k(cswritep, "\tF_MISS_AND_HETHAP");
       }
       AppendBinaryEoln(&cswritep);
       uint32_t variant_ct_y = 0;
@@ -2423,7 +2594,7 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
           }
         } else {
           if (scol_empty_pheno) {
-            cswritep = strcpya(cswritep, "\tY");
+            cswritep = strcpya_k(cswritep, "\tY");
           }
           if (unlikely(Cswrite(&css, &cswritep))) {
             goto WriteMissingnessReports_ret_WRITE_FAIL;
@@ -2487,61 +2658,61 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
       const uint32_t chr_col = missing_rpt_flags & kfMissingRptVcolChrom;
 
       if (chr_col) {
-        cswritep = strcpya(cswritep, "CHROM\t");
+        cswritep = strcpya_k(cswritep, "CHROM\t");
       }
       if (missing_rpt_flags & kfMissingRptVcolPos) {
-        cswritep = strcpya(cswritep, "POS\t");
+        cswritep = strcpya_k(cswritep, "POS\t");
       } else {
         variant_bps = nullptr;
       }
-      cswritep = strcpya(cswritep, "ID");
+      cswritep = strcpya_k(cswritep, "ID");
       const uint32_t ref_col = missing_rpt_flags & kfMissingRptVcolRef;
       if (ref_col) {
-        cswritep = strcpya(cswritep, "\tREF");
+        cswritep = strcpya_k(cswritep, "\tREF");
       }
       const uint32_t alt1_col = missing_rpt_flags & kfMissingRptVcolAlt1;
       if (alt1_col) {
-        cswritep = strcpya(cswritep, "\tALT1");
+        cswritep = strcpya_k(cswritep, "\tALT1");
       }
       const uint32_t alt_col = missing_rpt_flags & kfMissingRptVcolAlt;
       if (alt_col) {
-        cswritep = strcpya(cswritep, "\tALT");
+        cswritep = strcpya_k(cswritep, "\tALT");
       }
       const uint32_t nmiss_dosage_col = missing_rpt_flags & kfMissingRptVcolNmissDosage;
       if (nmiss_dosage_col) {
-        cswritep = strcpya(cswritep, "\tMISSING_DOSAGE_CT");
+        cswritep = strcpya_k(cswritep, "\tMISSING_DOSAGE_CT");
       }
       const uint32_t nmiss_col = (missing_rpt_flags / kfMissingRptVcolNmiss) & 1;
       if (nmiss_col) {
-        cswritep = strcpya(cswritep, "\tMISSING_CT");
+        cswritep = strcpya_k(cswritep, "\tMISSING_CT");
       }
       const uint32_t nmiss_hh_col = (missing_rpt_flags / kfMissingRptVcolNmissHh) & 1;
       if (nmiss_hh_col) {
-        cswritep = strcpya(cswritep, "\tMISSING_AND_HETHAP_CT");
+        cswritep = strcpya_k(cswritep, "\tMISSING_AND_HETHAP_CT");
       }
       const uint32_t hethap_col = (missing_rpt_flags / kfMissingRptVcolHethap) & 1;
       if (hethap_col) {
-        cswritep = strcpya(cswritep, "\tHETHAP_CT");
+        cswritep = strcpya_k(cswritep, "\tHETHAP_CT");
       }
       const uint32_t nobs_col = (missing_rpt_flags / kfMissingRptVcolNobs) & 1;
       if (nobs_col) {
-        cswritep = strcpya(cswritep, "\tOBS_CT");
+        cswritep = strcpya_k(cswritep, "\tOBS_CT");
       }
       const uint32_t fmiss_dosage_col = missing_rpt_flags & kfMissingRptVcolFmissDosage;
       if (fmiss_dosage_col) {
-        cswritep = strcpya(cswritep, "\tF_MISS_DOSAGE");
+        cswritep = strcpya_k(cswritep, "\tF_MISS_DOSAGE");
       }
       const uint32_t fmiss_col = (missing_rpt_flags / kfMissingRptVcolFmiss) & 1;
       if (fmiss_col) {
-        cswritep = strcpya(cswritep, "\tF_MISS");
+        cswritep = strcpya_k(cswritep, "\tF_MISS");
       }
       const uint32_t fmiss_hh_col = (missing_rpt_flags / kfMissingRptVcolFmissHh) & 1;
       if (fmiss_hh_col) {
-        cswritep = strcpya(cswritep, "\tF_MISS_AND_HETHAP");
+        cswritep = strcpya_k(cswritep, "\tF_MISS_AND_HETHAP");
       }
       const uint32_t fhethap_col = (missing_rpt_flags / kfMissingRptVcolFhethap) & 1;
       if (fhethap_col) {
-        cswritep = strcpya(cswritep, "\tF_HETHAP");
+        cswritep = strcpya_k(cswritep, "\tF_HETHAP");
       }
       AppendBinaryEoln(&cswritep);
       char nobs_str[16];
@@ -3002,41 +3173,41 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
         if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
           goto HardyReport_ret_NOMEM;
         }
-        cswritep = strcpya(cswritep, "CHROM\t");
+        cswritep = strcpya_k(cswritep, "CHROM\t");
       }
       if (hardy_flags & kfHardyColPos) {
-        cswritep = strcpya(cswritep, "POS\t");
+        cswritep = strcpya_k(cswritep, "POS\t");
       } else {
         variant_bps = nullptr;
       }
-      cswritep = strcpya(cswritep, "ID");
+      cswritep = strcpya_k(cswritep, "ID");
       if (ref_col) {
-        cswritep = strcpya(cswritep, "\tREF");
+        cswritep = strcpya_k(cswritep, "\tREF");
       }
       if (alt1_col) {
-        cswritep = strcpya(cswritep, "\tALT1");
+        cswritep = strcpya_k(cswritep, "\tALT1");
       }
       if (alt_col) {
-        cswritep = strcpya(cswritep, "\tALT");
+        cswritep = strcpya_k(cswritep, "\tALT");
       }
-      cswritep = memcpyl3a(cswritep, "\tA1");
+      cswritep = strcpya_k(cswritep, "\tA1");
       if (ax_col) {
-        cswritep = strcpya(cswritep, "\tAX");
+        cswritep = strcpya_k(cswritep, "\tAX");
       }
       if (gcounts) {
         if (gcount_1col) {
-          cswritep = strcpya(cswritep, "\tGCOUNTS");
+          cswritep = strcpya_k(cswritep, "\tGCOUNTS");
         } else {
-          cswritep = strcpya(cswritep, "\tHOM_A1_CT\tHET_A1_CT\tTWO_AX_CT");
+          cswritep = strcpya_k(cswritep, "\tHOM_A1_CT\tHET_A1_CT\tTWO_AX_CT");
         }
       }
       if (hetfreq_cols) {
-        cswritep = strcpya(cswritep, "\tO(HET_MAJ)\tE(HET_MAJ)");
+        cswritep = strcpya_k(cswritep, "\tO(HET_MAJ)\tE(HET_MAJ)");
       }
       if (p_col) {
         *cswritep++ = '\t';
         if (midp) {
-          cswritep = strcpya(cswritep, "MIDP");
+          cswritep = strcpya_k(cswritep, "MIDP");
         } else {
           *cswritep++ = 'P';
         }
@@ -3193,49 +3364,49 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
       uint32_t x_name_blen = 0;
       const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
       if (chr_col) {
-        cswritep = strcpya(cswritep, "CHROM\t");
+        cswritep = strcpya_k(cswritep, "CHROM\t");
         char* write_iter = chrtoa(cip, x_code, x_name_buf);
         *write_iter++ = '\t';
         x_name_blen = write_iter - x_name_buf;
       }
       if (hardy_flags & kfHardyColPos) {
-        cswritep = strcpya(cswritep, "POS\t");
+        cswritep = strcpya_k(cswritep, "POS\t");
       } else {
         variant_bps = nullptr;
       }
-      cswritep = strcpya(cswritep, "ID");
+      cswritep = strcpya_k(cswritep, "ID");
       if (ref_col) {
-        cswritep = strcpya(cswritep, "\tREF");
+        cswritep = strcpya_k(cswritep, "\tREF");
       }
       if (alt1_col) {
-        cswritep = strcpya(cswritep, "\tALT1");
+        cswritep = strcpya_k(cswritep, "\tALT1");
       }
       if (alt_col) {
-        cswritep = strcpya(cswritep, "\tALT");
+        cswritep = strcpya_k(cswritep, "\tALT");
       }
-      cswritep = memcpyl3a(cswritep, "\tA1");
+      cswritep = strcpya_k(cswritep, "\tA1");
       if (ax_col) {
-        cswritep = strcpya(cswritep, "\tAX");
+        cswritep = strcpya_k(cswritep, "\tAX");
       }
       if (gcounts) {
         if (gcount_1col) {
-          cswritep = strcpya(cswritep, "\tGCOUNTS");
+          cswritep = strcpya_k(cswritep, "\tGCOUNTS");
         } else {
-          cswritep = strcpya(cswritep, "\tFEMALE_HOM_A1_CT\tFEMALE_HET_A1_CT\tFEMALE_TWO_AX_CT\tMALE_A1_CT\tMALE_AX_CT");
+          cswritep = strcpya_k(cswritep, "\tFEMALE_HOM_A1_CT\tFEMALE_HET_A1_CT\tFEMALE_TWO_AX_CT\tMALE_A1_CT\tMALE_AX_CT");
         }
       }
       if (hetfreq_cols) {
-        cswritep = strcpya(cswritep, "\tO(FEMALE_HET_A1)\tE(FEMALE_HET_A1)");
+        cswritep = strcpya_k(cswritep, "\tO(FEMALE_HET_A1)\tE(FEMALE_HET_A1)");
       }
       const uint32_t sexaf_cols = hardy_flags & kfHardyColSexaf;
       if (sexaf_cols) {
-        cswritep = strcpya(cswritep, "\tFEMALE_A1_FREQ\tMALE_A1_FREQ");
+        cswritep = strcpya_k(cswritep, "\tFEMALE_A1_FREQ\tMALE_A1_FREQ");
       }
       const uint32_t femalep_col = hardy_flags & kfHardyColFemalep;
       if (femalep_col) {
-        cswritep = strcpya(cswritep, "\tFEMALE_ONLY_");
+        cswritep = strcpya_k(cswritep, "\tFEMALE_ONLY_");
         if (midp) {
-          cswritep = strcpya(cswritep, "MIDP");
+          cswritep = strcpya_k(cswritep, "MIDP");
         } else {
           *cswritep++ = 'P';
         }
@@ -3243,7 +3414,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
       if (p_col) {
         *cswritep++ = '\t';
         if (midp) {
-          cswritep = strcpya(cswritep, "MIDP");
+          cswritep = strcpya_k(cswritep, "MIDP");
         } else {
           *cswritep++ = 'P';
         }
@@ -3466,17 +3637,17 @@ PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
     char* write_iter = textbuf;
     *write_iter++ = '#';
     if (write_fid) {
-      write_iter = strcpya(write_iter, "FID\t");
+      write_iter = strcpya_k(write_iter, "FID\t");
     }
-    write_iter = memcpyl3a(write_iter, "IID");
+    write_iter = strcpya_k(write_iter, "IID");
     if (write_sid) {
-      write_iter = strcpya(write_iter, "\tSID");
+      write_iter = strcpya_k(write_iter, "\tSID");
     }
     if (write_parents) {
-      write_iter = strcpya(write_iter, "\tPAT\tMAT");
+      write_iter = strcpya_k(write_iter, "\tPAT\tMAT");
     }
     if (write_sex) {
-      write_iter = strcpya(write_iter, "\tSEX");
+      write_iter = strcpya_k(write_iter, "\tSEX");
     }
     if (write_phenos || write_empty_pheno || write_sex) {
       // verify that no names are duplicated
@@ -3528,7 +3699,7 @@ PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
                   goto WriteCovar_ret_INCONSISTENT_INPUT;
                 }
               } else {
-                if (unlikely(!memcmp(pheno_name_iter, &(covar_names[cur_htable_idval * max_covar_name_blen]), cur_pheno_name_blen))) {
+                if (unlikely(memequal(pheno_name_iter, &(covar_names[cur_htable_idval * max_covar_name_blen]), cur_pheno_name_blen))) {
                   logerrputs("Error: .cov file cannot have a phenotype and a covariate with the same name.\n");
                   goto WriteCovar_ret_INCONSISTENT_INPUT;
                 }
@@ -3564,7 +3735,7 @@ PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
             }
           }
         }
-        write_iter = strcpya(write_iter, "\tPHENO1");
+        write_iter = strcpya_k(write_iter, "\tPHENO1");
       }
     }
     for (uint32_t covar_idx = 0; covar_idx < covar_ct; ++covar_idx) {
@@ -3617,7 +3788,7 @@ PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
           // as --covar input
           // (can't do this for .fam export, though: not worth the
           // compatibility issues)
-          write_iter = strcpya(write_iter, "NA");
+          write_iter = strcpya_k(write_iter, "NA");
         }
       }
       if (write_phenos) {
