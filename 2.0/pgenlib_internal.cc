@@ -1758,7 +1758,8 @@ void InitLookup16x8bx2(void* table16x8bx2) {
   table_iter[7] = vals[0];
   table_iter = &(table_iter[8]);
   for (uint32_t high_idx = 1; high_idx < 4; ++high_idx) {
-    const uint32_t cur_high = vals[high_idx];
+    // bugfix (20 Jun 2018): cur_high needs to be a uint64_t, not a uint32_t
+    const uint64_t cur_high = vals[high_idx];
     for (uint32_t low_idx = 0; low_idx < 4; ++low_idx) {
       *table_iter++ = vals[low_idx];
       *table_iter++ = cur_high;

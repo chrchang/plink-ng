@@ -2511,6 +2511,7 @@ PglErr LoadCenteredVarmaj(const uintptr_t* sample_include, const uint32_t* sampl
   ZeroTrailingQuaters(sample_ct, genovec_buf);
   if (missing_presentp) {
     // missing_present assumed to be initialized to 0
+    // this should probably be a library function...
     const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
     if (!dosage_ct) {
       for (uint32_t widx = 0; widx < sample_ctl2; ++widx) {
