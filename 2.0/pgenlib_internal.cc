@@ -7100,6 +7100,7 @@ PglErr PgrValidate(PgenReader* pgrp, uintptr_t* genovec_buf, char* errstr_buf) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: File read failure.\n");
       return kPglRetReadFail;
     }
+    const unsigned char* fread_ptr_start = fread_ptr;
     if (unlikely(ValidateGeno(fread_end, vidx, pgrp, &fread_ptr, genovec_buf, errstr_buf))) {
       return kPglRetMalformedInput;
     }
@@ -7131,7 +7132,7 @@ PglErr PgrValidate(PgenReader* pgrp, uintptr_t* genovec_buf, char* errstr_buf) {
     if (unlikely(fread_ptr != fread_end)) {
       // possible todo: tolerate this at the end of a vblock.
       assert(fread_ptr < fread_end);
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Extra byte(s) in (0-based) variant record #%u.\n", vidx);
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Extra byte(s) in (0-based) variant record #%u. (record type = %u; expected length = %" PRIuPTR ", actual = %" PRIuPTR ")\n", vidx, vrtype, S_CAST(uintptr_t, fread_ptr - fread_ptr_start), S_CAST(uintptr_t, fread_end - fread_ptr_start));
       return kPglRetMalformedInput;
     }
   }
