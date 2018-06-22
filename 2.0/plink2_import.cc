@@ -1017,7 +1017,7 @@ ENUM_U31_DEF_START()
   kVcfParseInvalidDosage,
 ENUM_U31_DEF_END(VcfParseErr);
 
-VcfParseErr VcfScanBiallelicHdsLine(const VcfImportContext* vicp, const char* format_end, uintptr_t* phase_or_dosage_found_ptr, char** line_iter_ptr) {
+VcfParseErr VcfScanBiallelicHdsLine(const VcfImportContext* vicp, const char* format_end, uint32_t* phase_or_dosage_found_ptr, char** line_iter_ptr) {
   // DS+HDS
   // only need to find phase *or* dosage
   const uint32_t sample_ct = vicp->vibc.sample_ct;
@@ -1664,7 +1664,6 @@ THREAD_FUNC_DECL VcfGenoToPgenThread(void* arg) {
           vic.vibc.qual_field_ct = qual_field_ct;
           vic.dosage_field_idx = grp->metadata.read_vcf.dosage_field_idx;
           vic.hds_field_idx = grp->metadata.read_vcf.hds_field_idx;
-
           if ((vic.hds_field_idx == UINT32_MAX) && (vic.dosage_field_idx == UINT32_MAX)) {
             if (!(gparse_flags & kfGparseHphase)) {
               if (cur_allele_ct == 2) {
@@ -2047,7 +2046,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     uint32_t max_alt_ct = 1;
     uint32_t max_allele_slen = 1;
     uint32_t max_qualfilterinfo_slen = 6;
-    uintptr_t phase_or_dosage_found = 0;
+    uint32_t phase_or_dosage_found = 0;
 
     // temporary kludge
     uint32_t multiallelic_skip_ct = 0;
@@ -2441,7 +2440,10 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
     PgenGlobalFlags phase_dosage_gflags = kfPgenGlobal0;
     GparseFlags gparse_flags = kfGparse0;  // yeah, this is a bit redundant
-    if (phase_or_dosage_found) {
+    // bugfix (22 Jun 2018): if dosage= was specified, we need to reserve
+    // phasepresent/dosage_present buffers for each variant even when we know
+    // they'll be irrelevant, since they're needed during conversion.
+    if (phase_or_dosage_found || format_hds_search || format_dosage_relevant) {
       if ((!format_hds_search) && (!format_dosage_relevant)) {
         phase_dosage_gflags = kfPgenGlobalHardcallPhasePresent;
         gparse_flags = kfGparseHphase;
@@ -2798,15 +2800,15 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
             if (format_gq_or_dp_relevant) {
               vic.vibc.qual_field_ct = VcfQualScanInit1(format_start, linebuf_iter, vcf_min_gq, vcf_min_dp, vic.vibc.qual_field_skips);
             }
-            if (format_dosage_relevant) {
-              vic.dosage_field_idx = GetVcfFormatPosition(dosage_import_field, format_start, linebuf_iter, dosage_import_field_slen);
-            }
-            if (format_hds_search) {
-              vic.hds_field_idx = GetVcfFormatPosition("HDS", format_start, linebuf_iter, 3);
-            }
-            if (!phase_or_dosage_found) {
+            if ((!phase_or_dosage_found) && (!format_dosage_relevant) && (!format_hds_search)) {
               gparse_flags = kfGparse0;
             } else {
+              if (format_dosage_relevant) {
+                vic.dosage_field_idx = GetVcfFormatPosition(dosage_import_field, format_start, linebuf_iter, dosage_import_field_slen);
+              }
+              if (format_hds_search) {
+                vic.hds_field_idx = GetVcfFormatPosition("HDS", format_start, linebuf_iter, 3);
+              }
               gparse_flags = ((vic.dosage_field_idx != UINT32_MAX) || (vic.hds_field_idx != UINT32_MAX))? (kfGparseHphase | kfGparseDosage | kfGparseDphase) : kfGparseHphase;
             }
             line_iter = AdvToDelim(linebuf_iter, '\n');
@@ -2894,7 +2896,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     if (!sample_ct) {
       write_iter = strcpya_k(write_iter, " (no samples present)");
     }
-    strcpya_k(write_iter, ".\n");
+    strcpy_k(write_iter, ".\n");
     WordWrapB(0);
     logputsb();
   }
@@ -9197,7 +9199,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     write_iter = memcpya(write_iter, outname, outname_base_slen);
     write_iter = strcpya_k(write_iter, ".pvar + ");
     write_iter = memcpya(write_iter, outname, outname_base_slen);
-    write_iter = strcpya_k(write_iter, ".psam written.\n");
+    strcpy_k(write_iter, ".psam written.\n");
     WordWrapB(0);
     logputsb();
   }

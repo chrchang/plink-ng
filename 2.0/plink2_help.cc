@@ -1693,7 +1693,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       needed to reproduce some randomized runs.\n"
                );
     HelpPrint("output-min-p\0", &help_ctrl, 0,
-"  --output-min-p [p] : Specify minimum p-value to write to reports.  (5e-324\n"
+"  --output-min-p [p] : Specify minimum p-value to write to reports.  (2.23e-308\n"
 "                       is useful for preventing underflow in some programs.)\n"
                );
     HelpPrint("debug\0randmem\0", &help_ctrl, 0,

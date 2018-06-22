@@ -1291,15 +1291,6 @@ PglErr StringRangeListToBitarr(const char* header_line, const RangeList* range_l
 PglErr StringRangeListToBitarrAlloc(const char* header_line, const RangeList* range_list_ptr, const char* __restrict range_list_flag, const char* __restrict file_descrip, uint32_t token_ct, uint32_t fixed_len, uint32_t comma_delim, uintptr_t** bitarr_ptr);
 
 
-HEADER_INLINE uint32_t IsRealnum(double dxx) {
-  return (dxx == dxx) && (dxx != S_CAST(double, INFINITY)) && (dxx != S_CAST(double, -INFINITY));
-}
-
-HEADER_INLINE uint32_t IsRealnumF(float fxx) {
-  return (fxx == fxx) && (fxx != S_CAST(float, INFINITY)) && (fxx != S_CAST(float, -INFINITY));
-}
-
-
 #ifdef __LP64__
 HEADER_INLINE uintptr_t PopcountWordsNzbase(const uintptr_t* bitvec, uintptr_t start_idx, uintptr_t end_idx) {
   uintptr_t prefix_ct = 0;

@@ -31,7 +31,12 @@
 #include <time.h>  // time()
 #include <unistd.h>  // unlink()
 
+#ifdef __APPLE__
+#  include <fenv.h>  // fesetenv()
+#endif
+
 #include "plink2_help.h"
+
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -61,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (20 Jun 2018)";
+  " (22 Jun 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -2798,6 +2803,14 @@ int main(int argc, char** argv) {
 #endif
 #ifdef __cplusplus
   using namespace plink2;
+#endif
+
+#ifdef __APPLE__
+  fesetenv(FE_DFL_DISABLE_SSE_DENORMS_ENV);
+#else
+#  ifdef __LP64__
+  _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
+#  endif
 #endif
   // special case, since it may dump to stdout
   if (argc > 1) {

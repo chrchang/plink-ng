@@ -1029,7 +1029,7 @@ double betai_slow(double aa, double bb, double xx) {
 
 double TstatToP(double tt, double df) {
   // must be thread-safe, so dcdflib won't cut it.
-  if (!IsRealnum(tt)) {
+  if (!isfinite(tt)) {
     return -9;
   }
   return betai_slow(df * 0.5, 0.5, df / (df + tt * tt));

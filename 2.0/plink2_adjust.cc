@@ -79,7 +79,7 @@ static inline void adjust_print_ln(const char* output_min_p_str, double ln_pval,
   }
 }
 
-// Now based around ln_pvals, to allow useful comparisons < 5e-324.
+// Now based around ln_pvals, to allow useful comparisons < 2.23e-308.
 PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char* const* chr_ids, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_include, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* const* loaded_a1, const AdjustInfo* adjust_info_ptr, const double* ln_pvals, const double* chisqs, uintptr_t orig_allele_ct, uint32_t max_allele_slen, double ln_pfilter, double output_min_ln, uint32_t skip_gc, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
@@ -873,8 +873,8 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
                        strequal_k(pval_str, "INF", cur_slen) ||
                        (input_log10 && strequal_k(pval_str, "inf", cur_slen)))) {
             // From plink 1.x, could be anything smaller than log(5e-324).
-            // Just fill with log(5e-324) for now.
-            ln_pval = kLnDenormalMin;
+            // Just fill with log(2.23e-308) for now.
+            ln_pval = kLnNormalMin;
           } else {
             goto AdjustFile_ret_INVALID_PVAL;
           }

@@ -1254,7 +1254,7 @@ char* dtoa_g_p8(double dxx, char* start);
 
 static const double kLn10 = 2.3025850929940457;
 static const double kRecipLn10 = 0.43429448190325176;
-static const double kLnDenormalMin = -744.4400719213812;
+static const double kLnNormalMin = -708.3964185322641;
 
 // Currently assumes ln_val <= 0.0.
 char* lntoa_g(double ln_val, char* start);

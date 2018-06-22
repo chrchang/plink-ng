@@ -3114,7 +3114,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
     const uint32_t chr_code_endl = BitCtToWordCt(chr_code_end);
     const uintptr_t overflow_buf_size = RoundUpPow2(kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + 2 * max_allele_slen, kCacheline);
     const uint32_t output_zst = hardy_flags & kfHardyZs;
-    const double output_min_p = (output_min_ln < kLnDenormalMin)? 0 : exp(output_min_ln);
+    const double output_min_p = (output_min_ln < kLnNormalMin)? 0 : exp(output_min_ln);
     uintptr_t overflow_buf_alloc = overflow_buf_size;
     if (output_zst) {
       overflow_buf_alloc += CstreamWkspaceReq(overflow_buf_size);
