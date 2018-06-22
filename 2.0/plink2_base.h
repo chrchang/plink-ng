@@ -91,7 +91,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 307
+#define PLINK2_BASE_VERNUM 308
 
 
 #define _FILE_OFFSET_BITS 64
@@ -320,6 +320,7 @@ typedef enum
   kPglRetVarRecordTooLarge,
   kPglRetUnsupportedInstructions,
   kPglRetSampleMajorBed = 32,
+  kPglRetInternalError = 60,
   kPglRetWarningErrcode = 61,
   kPglRetImproperFunctionCall = 62,
   kPglRetNotYetSupported = 63,
@@ -374,6 +375,7 @@ const PglErr kPglRetVarRecordTooLarge = PglErr::ec::kPglRetVarRecordTooLarge;
 const PglErr kPglRetUnsupportedInstructions = PglErr::ec::kPglRetUnsupportedInstructions;
 const PglErr kPglRetSampleMajorBed = PglErr::ec::kPglRetSampleMajorBed;
 const PglErr kPglRetWarningErrcode = PglErr::ec::kPglRetWarningErrcode;
+const PglErr kPglRetInternalError = PglErr::ec::kPglRetInternalError;
 const PglErr kPglRetImproperFunctionCall = PglErr::ec::kPglRetImproperFunctionCall;
 const PglErr kPglRetNotYetSupported = PglErr::ec::kPglRetNotYetSupported;
 const PglErr kPglRetLongLine = PglErr::ec::kPglRetLongLine;
