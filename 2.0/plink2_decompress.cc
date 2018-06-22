@@ -176,9 +176,9 @@ PglErr IsBgzf(const char* fname, uint32_t* is_bgzf_ptr) {
   return kPglRetSuccess;
 }
 
-// This type of code is especially bug-prone.  Goal is to get it right, and
-// fast enough to be a major win over gzgets()... and then not worry about it
-// again for years.
+// This type of code is especially bug-prone (ESR would call it a "defect
+// attractor").  Goal is to get it right, and fast enough to be a major win
+// over gzgets()... and then not worry about it again for years.
 THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
   ReadLineStream* context = R_CAST(ReadLineStream*, arg);
   ReadLineStreamSync* syncp = context->syncp;

@@ -23,7 +23,7 @@
 
 #include "plink2_base.h"
 
-#include <math.h>  // fabs()
+#include <math.h>  // fabs(), isfinite()
 #include <stddef.h>  // offsetof()
 
 #ifdef __cplusplus
@@ -339,6 +339,17 @@ HEADER_INLINE void strcpy_k(char* __restrict dst, const void* __restrict src) {
 HEADER_INLINE char* strcpya_k(char* __restrict dst, const void* __restrict src) {
   return strcpya(dst, src);
 }
+#endif
+
+// todo: check Windows
+#if defined(__cplusplus) && !defined(__APPLE__)
+#  if __cplusplus >= 201103L
+#    define isfinite std::isfinite
+#  else
+HEADER_INLINE bool isfinite(double dxx) {
+  return (dxx == dxx) && (dxx != INFINITY) && (dxx != -INFINITY);
+}
+#  endif
 #endif
 
 HEADER_INLINE int32_t IsSpaceOrEoln(unsigned char ucc) {
@@ -1416,7 +1427,6 @@ HEADER_INLINE char* Memrchr(char* str_start, char needle, uintptr_t slen) {
   return const_cast<char*>(Memrchr(const_cast<const char*>(str_start), needle, slen));
 }
 #endif
-
 
 #ifdef __cplusplus
 }  // namespace plink2
