@@ -87,12 +87,12 @@ void PopulateDenseDosage(const uintptr_t* genoarr, const uintptr_t* dosage_prese
   const uint32_t trailing_entry_ct = (-sample_ct) % kDosagePerVec;
   if (trailing_entry_ct) {
     Dosage* dense_dosage_end = &(dense_dosage[sample_ct]);
-    for (uint32_t uii = 0; uii < trailing_entry_ct; ++uii) {
+    for (uint32_t uii = 0; uii != trailing_entry_ct; ++uii) {
       dense_dosage_end[uii] = kDosageMissing;
     }
   }
   uint32_t sample_idx = 0;
-  for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_idx) {
+  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx, ++sample_idx) {
     MovU32To1Bit(dosage_present, &sample_idx);
     dense_dosage[sample_idx] = dosage_main[dosage_idx];
   }
@@ -109,7 +109,7 @@ void PopulateRescaledDosage(const uintptr_t* genoarr, const uintptr_t* dosage_pr
   if (dosage_ct) {
     slope *= kRecipDosageMid;
     uint32_t sample_uidx = 0;
-    for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_uidx) {
+    for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx, ++sample_uidx) {
       MovU32To1Bit(dosage_present, &sample_uidx);
       expanded_dosages[sample_uidx] = dosage_main[dosage_idx] * slope + intercept;
     }
@@ -163,7 +163,7 @@ void SetHetMissing(uintptr_t word_ct, uintptr_t* genovec) {
     genovec[word_ct - 1] = geno_word | ((geno_word & kMask5555) << 1);
   }
 #else
-  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
+  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
     const uintptr_t geno_word = genovec[widx];
     genovec[widx] = geno_word | ((geno_word & kMask5555) << 1);
   }
@@ -174,8 +174,7 @@ void SetHetMissingCleardosage(uintptr_t word_ct, uintptr_t* __restrict genovec, 
   const uint32_t orig_write_dosage_ct = *write_dosage_ct_ptr;
   if (orig_write_dosage_ct) {
     uint32_t sample_uidx = 0;
-    uint32_t dosage_read_idx = 0;
-    for (; dosage_read_idx < orig_write_dosage_ct; ++dosage_read_idx, ++sample_uidx) {
+    for (uint32_t dosage_read_idx = 0; dosage_read_idx != orig_write_dosage_ct; ++dosage_read_idx, ++sample_uidx) {
       MovU32To1Bit(dosagepresent, &sample_uidx);
       if (GetQuaterarrEntry(genovec, sample_uidx) == 1) {
         ClearBit(sample_uidx, dosagepresent);
@@ -212,7 +211,7 @@ void SetHetMissingKeepdosage(uintptr_t word_ct, uintptr_t* __restrict genovec, u
   Halfword* dosagepresent_alias = R_CAST(Halfword*, dosagepresent);
   uint32_t new_dosage_ct = 0;
   // todo: try vectorizing this loop
-  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
+  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
     const uintptr_t geno_word = genovec[widx];
     const uintptr_t dosagepresent_word = UnpackHalfwordToWord(dosagepresent_alias[widx]);
     const uintptr_t geno_hets = geno_word & (~(geno_word >> 1)) & kMask5555;
@@ -254,7 +253,7 @@ void GenoarrToNonmissing(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t
   const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
   const uintptr_t* genoarr_iter = genoarr;
   Halfword* nonmissing_bitarr_iter = R_CAST(Halfword*, nonmissing_bitarr);
-  for (uint32_t widx = 0; widx < sample_ctl2; ++widx) {
+  for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
     uintptr_t ww = ~(*genoarr_iter++);
     ww = (ww | (ww >> 1)) & kMask5555;
     *nonmissing_bitarr_iter++ = PackWordToHalfword(ww);
@@ -278,7 +277,7 @@ uint32_t GenoarrCountMissingInvsubsetUnsafe(const uintptr_t* genoarr, const uint
   const uintptr_t* genoarr_iter = genoarr;
   const Halfword* exclude_alias_iter = R_CAST(const Halfword*, exclude_mask);
   uint32_t missing_ct = 0;
-  for (uint32_t widx = 0; widx < sample_ctl2; ++widx) {
+  for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
     uintptr_t ww = *genoarr_iter++;
     ww = ww & (ww >> 1);
     const uint32_t include_mask = ~(*exclude_alias_iter++);
@@ -297,7 +296,7 @@ void CollapsedSampleFmtidInit(const uintptr_t* sample_include, const SampleIdInf
     max_sid_blen = sids? siip->max_sid_blen : 2;
   }
   uint32_t sample_uidx = 0;
-  for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
     MovU32To1Bit(sample_include, &sample_uidx);
     const char* cur_sample_id = &(sample_ids[sample_uidx * max_sample_id_blen]);
     if (!include_fid) {
@@ -330,6 +329,7 @@ BoolErr CollapsedSampleFmtidInitAlloc(const uintptr_t* sample_include, const Sam
 }
 
 uint32_t GetMajIdxMulti(const double* cur_allele_freqs, uint32_t cur_allele_ct) {
+  assert(cur_allele_ct > 2);
   double max_freq = cur_allele_freqs[1];
   if (max_freq >= 0.5) {
     return 1;
@@ -342,7 +342,7 @@ uint32_t GetMajIdxMulti(const double* cur_allele_freqs, uint32_t cur_allele_ct) 
   }
   tot_nonlast_freq += max_freq;
   const uint32_t cur_allele_ct_m1 = cur_allele_ct - 1;
-  for (uint32_t allele_idx = 2; allele_idx < cur_allele_ct_m1; ++allele_idx) {
+  for (uint32_t allele_idx = 2; allele_idx != cur_allele_ct_m1; ++allele_idx) {
     const double cur_freq = cur_allele_freqs[allele_idx];
     if (cur_freq > max_freq) {
       maj_allele_idx = allele_idx;
@@ -380,7 +380,7 @@ PglErr AugidInitAlloc(const uintptr_t* sample_include, const SampleIdInfo* siip,
   }
   char* sample_augids_iter = *sample_augids_ptr;
   uint32_t sample_uidx = 0;
-  for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
     MovU32To1Bit(sample_include, &sample_uidx);
     char* write_iter = strcpyax(sample_augids_iter, &(sample_ids[sample_uidx * max_sample_id_blen]), '\t');
     if (sids) {
@@ -676,7 +676,7 @@ PglErr InitChrInfo(ChrInfo* cip) {
   cip->is_include_stack = 0;
   cip->chrset_source = kChrsetSourceDefault;
   cip->autosome_ct = 22;
-  for (uint32_t xymt_idx = 0; xymt_idx < kChrOffsetCt; ++xymt_idx) {
+  for (uint32_t xymt_idx = 0; xymt_idx != kChrOffsetCt; ++xymt_idx) {
     cip->xymt_codes[xymt_idx] = 23 + xymt_idx;
   }
   // Now includes MT again, as of alpha 2.
@@ -730,7 +730,7 @@ void FinalizeChrset(MiscFlags misc_flags, ChrInfo* cip) {
   } else if (AllWordsAreZero(chr_mask, kChrExcludeWords) && (!cip->is_include_stack)) {
     // init_default_chr_mask()
     SetAllBits(cip->autosome_ct + 1, chr_mask);
-    for (uint32_t xymt_idx = 0; xymt_idx < kChrOffsetCt; ++xymt_idx) {
+    for (uint32_t xymt_idx = 0; xymt_idx != kChrOffsetCt; ++xymt_idx) {
       const uint32_t cur_chr_code = cip->xymt_codes[xymt_idx];
       if (!IsI32Neg(cur_chr_code)) {
         SetBit(cur_chr_code, chr_mask);
@@ -759,7 +759,7 @@ void FinalizeChrset(MiscFlags misc_flags, ChrInfo* cip) {
   uintptr_t last_chr_exclude_word = chr_exclude[kChrExcludeWords - 1];
   uint32_t xymt_exclude = last_chr_exclude_word >> (kBitsPerWord - kChrOffsetCt);
   last_chr_exclude_word = bzhi(last_chr_exclude_word, kBitsPerWord - kChrOffsetCt);
-  for (uint32_t widx = 0; widx < kChrExcludeWords - 1; ++widx) {
+  for (uint32_t widx = 0; widx != kChrExcludeWords - 1; ++widx) {
     chr_mask[widx] &= ~chr_exclude[widx];
   }
   chr_mask[kChrExcludeWords - 1] &= ~last_chr_exclude_word;
@@ -781,7 +781,7 @@ void ForgetExtraChrNames(uint32_t reinitialize, ChrInfo* cip) {
   if (name_ct) {
     const char** nonstd_names = cip->nonstd_names;
     const uint32_t chr_idx_end = cip->max_code + 1 + name_ct;
-    for (uint32_t chr_idx = cip->max_code + 1; chr_idx < chr_idx_end; ++chr_idx) {
+    for (uint32_t chr_idx = cip->max_code + 1; chr_idx != chr_idx_end; ++chr_idx) {
       free_const(nonstd_names[chr_idx]);
       nonstd_names[chr_idx] = nullptr;
     }
@@ -942,7 +942,7 @@ uint32_t GetMaxChrSlen(const ChrInfo* cip) {
   const uint32_t chr_ct = cip->chr_ct;
   const uint32_t max_code = cip->max_code;
   uint32_t max_chr_slen = 3 + kMaxChrTextnum;
-  for (uint32_t chr_fo_idx = 0; chr_fo_idx < chr_ct; ++chr_fo_idx) {
+  for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
     const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
     if (!IsSet(cip->chr_mask, chr_idx)) {
       continue;
@@ -962,7 +962,7 @@ uint32_t IsHaploidChrPresent(const ChrInfo* cip) {
   const uintptr_t* haploid_mask = cip->haploid_mask;
   // since we don't load haploid vs. diploid info from ##contig header lines,
   // this is sufficient
-  for (uint32_t widx = 0; widx < kChrExcludeWords; ++widx) {
+  for (uint32_t widx = 0; widx != kChrExcludeWords; ++widx) {
     if (chr_mask[widx] & haploid_mask[widx]) {
       return 1;
     }
@@ -1265,7 +1265,7 @@ uintptr_t count_11_longs(const uintptr_t* genovec, uintptr_t word_ct) {
     word_ct = remainder;
     genovec = &(genovec[main_block_word_ct]);
   }
-  for (uintptr_t trailing_word_idx = 0; trailing_word_idx < word_ct; ++trailing_word_idx) {
+  for (uintptr_t trailing_word_idx = 0; trailing_word_idx != word_ct; ++trailing_word_idx) {
     const uintptr_t cur_geno_word = genovec[trailing_word_idx];
     tot += Popcount01Word(cur_geno_word & (cur_geno_word >> 1) & kMask5555);
   }
@@ -1278,7 +1278,7 @@ void InterleavedMaskZero(const uintptr_t* __restrict interleaved_mask, uintptr_t
   const VecW m1 = VCONST_W(kMask5555);
   const VecW* interleaved_mask_iter = R_CAST(const VecW*, interleaved_mask);
   VecW* genovvec_iter = R_CAST(VecW*, genovec);
-  for (uintptr_t twovec_idx = 0; twovec_idx < twovec_ct; ++twovec_idx) {
+  for (uintptr_t twovec_idx = 0; twovec_idx != twovec_ct; ++twovec_idx) {
     const VecW mask_vvec = *interleaved_mask_iter++;
     VecW mask_first = mask_vvec & m1;
     mask_first = mask_first | vecw_slli(mask_first, 1);
@@ -1297,7 +1297,7 @@ void InterleavedMaskZero(const uintptr_t* __restrict interleaved_mask, uintptr_t
 #else
   const uintptr_t* interleaved_mask_iter = interleaved_mask;
   uintptr_t* genovec_iter = genovec;
-  for (uintptr_t twovec_idx = 0; twovec_idx < twovec_ct; ++twovec_idx) {
+  for (uintptr_t twovec_idx = 0; twovec_idx != twovec_ct; ++twovec_idx) {
     const uintptr_t mask_word = *interleaved_mask_iter++;
     *genovec_iter &= (mask_word & kMask5555) * 3;
     ++genovec_iter;
@@ -1317,7 +1317,7 @@ void InterleavedSetMissing(const uintptr_t* __restrict interleaved_set, uintptr_
   const VecW m1 = VCONST_W(kMask5555);
   const VecW* interleaved_set_iter = R_CAST(const VecW*, interleaved_set);
   VecW* genovvec_iter = R_CAST(VecW*, genovec);
-  for (uintptr_t twovec_idx = 0; twovec_idx < twovec_ct; ++twovec_idx) {
+  for (uintptr_t twovec_idx = 0; twovec_idx != twovec_ct; ++twovec_idx) {
     const VecW set_vvec = *interleaved_set_iter++;
     VecW set_first = set_vvec & m1;
     set_first = set_first | vecw_slli(set_first, 1);
@@ -1336,7 +1336,7 @@ void InterleavedSetMissing(const uintptr_t* __restrict interleaved_set, uintptr_
 #else
   const uintptr_t* interleaved_set_iter = interleaved_set;
   uintptr_t* genovec_iter = genovec;
-  for (uintptr_t twovec_idx = 0; twovec_idx < twovec_ct; ++twovec_idx) {
+  for (uintptr_t twovec_idx = 0; twovec_idx != twovec_ct; ++twovec_idx) {
     const uintptr_t set_word = *interleaved_set_iter++;
     *genovec_iter |= (set_word & kMask5555) * 3;
     ++genovec_iter;
@@ -1354,8 +1354,7 @@ void InterleavedSetMissingCleardosage(const uintptr_t* __restrict orig_set, cons
   const uint32_t orig_write_dosage_ct = *write_dosage_ct_ptr;
   if (orig_write_dosage_ct) {
     uint32_t sample_uidx = 0;
-    uint32_t dosage_read_idx = 0;
-    for (; dosage_read_idx < orig_write_dosage_ct; ++dosage_read_idx, ++sample_uidx) {
+    for (uint32_t dosage_read_idx = 0; dosage_read_idx != orig_write_dosage_ct; ++dosage_read_idx, ++sample_uidx) {
       MovU32To1Bit(dosagepresent, &sample_uidx);
       if (IsSet(orig_set, sample_uidx)) {
         ClearBit(sample_uidx, dosagepresent);
@@ -1386,7 +1385,7 @@ void SetMaleHetMissing(const uintptr_t* __restrict sex_male_interleaved, uint32_
   const VecW m1 = VCONST_W(kMask5555);
   const VecW* sex_male_interleaved_iter = R_CAST(const VecW*, sex_male_interleaved);
   VecW* genovvec_iter = R_CAST(VecW*, genovec);
-  for (uint32_t twovec_idx = 0; twovec_idx < twovec_ct; ++twovec_idx) {
+  for (uint32_t twovec_idx = 0; twovec_idx != twovec_ct; ++twovec_idx) {
     const VecW sex_male_vvec = *sex_male_interleaved_iter++;
     // we wish to bitwise-or with (sex_male_quatervec_01 & genovec) << 1
     const VecW sex_male_first = sex_male_vvec & m1;
@@ -1408,7 +1407,7 @@ void SetMaleHetMissing(const uintptr_t* __restrict sex_male_interleaved, uint32_
 #else
   const uintptr_t* sex_male_interleaved_iter = sex_male_interleaved;
   uintptr_t* genovec_iter = genovec;
-  for (uint32_t twovec_idx = 0; twovec_idx < twovec_ct; ++twovec_idx) {
+  for (uint32_t twovec_idx = 0; twovec_idx != twovec_ct; ++twovec_idx) {
     const uintptr_t sex_male_word = *sex_male_interleaved_iter++;
     uintptr_t cur_geno_word = *genovec_iter;
     *genovec_iter++ = cur_geno_word | ((sex_male_word & kMask5555 & cur_geno_word) << 1);
@@ -1426,7 +1425,7 @@ void SetMaleHetMissing(const uintptr_t* __restrict sex_male_interleaved, uint32_
 void EraseMaleHetDosages(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main) {
   const uint32_t orig_write_dosage_ct = *write_dosage_ct_ptr;
   uint32_t sample_uidx = 0;
-  for (uint32_t dosage_read_idx = 0; dosage_read_idx < orig_write_dosage_ct; ++dosage_read_idx, ++sample_uidx) {
+  for (uint32_t dosage_read_idx = 0; dosage_read_idx != orig_write_dosage_ct; ++dosage_read_idx, ++sample_uidx) {
     MovU32To1Bit(dosagepresent, &sample_uidx);
     if (IsSet(sex_male, sample_uidx) && (GetQuaterarrEntry(genovec, sample_uidx) == 1)) {
       ClearBit(sample_uidx, dosagepresent);
@@ -1452,7 +1451,7 @@ void EraseMaleHetDosages(const uintptr_t* __restrict sex_male, const uintptr_t* 
 void EraseMaleDphases(const uintptr_t* __restrict sex_male, uint32_t* __restrict write_dphase_ct_ptr, uintptr_t* __restrict dphasepresent, SDosage* dphase_delta) {
   const uint32_t orig_write_dphase_ct = *write_dphase_ct_ptr;
   uint32_t sample_uidx = 0;
-  for (uint32_t dphase_read_idx = 0; dphase_read_idx < orig_write_dphase_ct; ++dphase_read_idx, ++sample_uidx) {
+  for (uint32_t dphase_read_idx = 0; dphase_read_idx != orig_write_dphase_ct; ++dphase_read_idx, ++sample_uidx) {
     MovU32To1Bit(dphasepresent, &sample_uidx);
     if (IsSet(sex_male, sample_uidx)) {
       ClearBit(sample_uidx, dphasepresent);
@@ -1494,7 +1493,7 @@ void SetMaleHetMissingKeepdosage(const uintptr_t* __restrict sex_male, const uin
   Halfword* dosagepresent_alias = R_CAST(Halfword*, dosagepresent);
   uint32_t new_dosage_ct = 0;
   // todo: try vectorizing this loop
-  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
+  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
     const uintptr_t geno_word = genovec[widx];
     const uintptr_t male_nodosage_word = UnpackHalfwordToWord(sex_male_alias[widx] & (~dosagepresent_alias[widx]));
     const uintptr_t geno_hets = geno_word & (~(geno_word >> 1)) & kMask5555;
@@ -1540,7 +1539,7 @@ void SetMaleHetMissingKeepdosage(const uintptr_t* __restrict sex_male, const uin
 // todo: try vectorizing this
 void MaskGenovecHetsUnsafe(const uintptr_t* __restrict genovec, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr) {
   Halfword* bitarr_alias = R_CAST(Halfword*, bitarr);
-  for (uint32_t widx = 0; widx < raw_sample_ctl2; ++widx) {
+  for (uint32_t widx = 0; widx != raw_sample_ctl2; ++widx) {
     const uintptr_t cur_word = genovec[widx];
     uintptr_t ww = (~(cur_word >> 1)) & cur_word & kMask5555;  // low 1, high 0
     bitarr_alias[widx] &= PackWordToHalfword(ww);
@@ -1561,7 +1560,7 @@ uint32_t chr_window_max(const uintptr_t* variant_include, const ChrInfo* cip, co
   uint32_t window_idx_first = 0;
   uint32_t window_uidx_first = variant_uidx;
   uint32_t window_bp_first = variant_bp[variant_uidx];
-  for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_uidx, ++variant_idx) {
+  for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_uidx, ++variant_idx) {
     MovU32To1Bit(variant_include, &variant_uidx);
     uint32_t variant_bp_thresh = variant_bp[variant_uidx];
     if (variant_bp_thresh < bp_max) {
@@ -1730,7 +1729,7 @@ void cleanup_allele_storage(uint32_t max_allele_slen, uintptr_t allele_storage_e
   if (allele_storage && (max_allele_slen > 1)) {
     const uintptr_t bigstack_end_addr = (uintptr_t)g_bigstack_end;
     const uintptr_t maxdiff = ((uintptr_t)(&(g_one_char_strs[512]))) - bigstack_end_addr;
-    for (uintptr_t idx = 0; idx < allele_storage_entry_ct; ++idx) {
+    for (uintptr_t idx = 0; idx != allele_storage_entry_ct; ++idx) {
       const char* cur_entry = allele_storage[idx];
       assert(cur_entry);
       // take advantage of unsigned wraparound
@@ -1812,7 +1811,7 @@ uint32_t IsCategoricalPhenostrNocsv(const char* phenostr_iter) {
 }
 
 uint32_t FirstCcOrQtPhenoIdx(const PhenoCol* pheno_cols, uint32_t pheno_ct) {
-  for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
+  for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
     if (pheno_cols[pheno_idx].type_code < kPhenoDtypeCat) {
       return pheno_idx;
     }
@@ -1828,7 +1827,7 @@ uint32_t IsConstCovar(const PhenoCol* covar_col, const uintptr_t* sample_include
   if (covar_col->type_code == kPhenoDtypeQt) {
     const double* covar_vals = covar_col->data.qt;
     const double first_covar_val = covar_vals[sample_uidx];
-    for (uint32_t sample_idx = 1; sample_idx < sample_ct; ++sample_idx) {
+    for (uint32_t sample_idx = 1; sample_idx != sample_ct; ++sample_idx) {
       ++sample_uidx;
       MovU32To1Bit(sample_include, &sample_uidx);
       if (covar_vals[sample_uidx] != first_covar_val) {
@@ -1840,7 +1839,7 @@ uint32_t IsConstCovar(const PhenoCol* covar_col, const uintptr_t* sample_include
   assert(covar_col->type_code == kPhenoDtypeCat);
   const uint32_t* covar_cats = covar_col->data.cat;
   const uint32_t first_covar_cat = covar_cats[sample_uidx];
-  for (uint32_t sample_idx = 1; sample_idx < sample_ct; ++sample_idx) {
+  for (uint32_t sample_idx = 1; sample_idx != sample_ct; ++sample_idx) {
     ++sample_uidx;
     MovU32To1Bit(sample_include, &sample_uidx);
     if (covar_cats[sample_uidx] != first_covar_cat) {
@@ -1857,7 +1856,7 @@ uint32_t IdentifyRemainingCats(const uintptr_t* sample_include, const PhenoCol* 
   const uint32_t word_ct = 1 + (nonnull_cat_ct / kBitsPerWord);
   ZeroWArr(word_ct, observed_cat_bitarr);
   uint32_t sample_uidx = 0;
-  for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
     MovU32To1Bit(sample_include, &sample_uidx);
     SetBit(covar_cats[sample_uidx], observed_cat_bitarr);
   }
@@ -1868,7 +1867,7 @@ uint32_t GetCatSamples(const uintptr_t* sample_include_base, const PhenoCol* cat
   ZeroWArr(raw_sample_ctl, cur_cat_samples);
   const uint32_t* cat_vals = cat_pheno_col->data.cat;
   uint32_t sample_uidx = 0;
-  for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
     MovU32To1Bit(sample_include_base, &sample_uidx);
     if (cat_vals[sample_uidx] == cat_uidx) {
       SetBit(sample_uidx, cur_cat_samples);
@@ -1879,7 +1878,7 @@ uint32_t GetCatSamples(const uintptr_t* sample_include_base, const PhenoCol* cat
 
 void CleanupPhenoCols(uint32_t pheno_ct, PhenoCol* pheno_cols) {
   if (pheno_cols) {
-    for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
+    for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
       vecaligned_free_cond(pheno_cols[pheno_idx].nonmiss);
     }
     free(pheno_cols);
@@ -2152,7 +2151,7 @@ PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint
   *pgr_pps = S_CAST(PgenReader**, bigstack_alloc_raw(array_of_ptrs_alloc));
   *threads_ptr = S_CAST(pthread_t*, bigstack_alloc_raw(array_of_ptrs_alloc));
   *read_variant_uidx_starts_ptr = S_CAST(uint32_t*, bigstack_alloc_raw_rd(calc_thread_ct * sizeof(int32_t)));
-  for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
+  for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
     (*pgr_pps)[tidx] = S_CAST(PgenReader*, bigstack_alloc_raw(pgr_struct_alloc));
     // PreinitPgr(g_pgr_ptrs[tidx]);
     unsigned char* pgr_alloc = S_CAST(unsigned char*, bigstack_alloc_raw(pgr_alloc_cacheline_ct * kCacheline));
@@ -2177,7 +2176,7 @@ PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint
     const uintptr_t genovec_alloc = sample_ctcl2 * kCacheline;
     const uintptr_t bitarray_alloc = sample_ctcl * kCacheline;
     const uintptr_t dosage_main_alloc = dosage_main_cl * kCacheline;
-    for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
+    for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
       (*genovecs_ptr)[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(genovec_alloc));
       if (phasepresent_ptr) {
         (*phasepresent_ptr)[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(bitarray_alloc));
@@ -2231,7 +2230,7 @@ PglErr WriteSampleIdsOverride(const uintptr_t* sample_include, const SampleIdInf
       sids = nullptr;
     }
     uintptr_t sample_uidx = 0;
-    for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
       MovWTo1Bit(sample_include, &sample_uidx);
       write_iter = strcpya(write_iter, &(sample_ids[sample_uidx * max_sample_id_blen]));
       if (sids) {

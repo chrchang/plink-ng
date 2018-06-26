@@ -53,12 +53,12 @@ void CleanupGlm(GlmInfo* glm_info_ptr) {
 BoolErr LinearHypothesisChisqF(const float* coef, const float* constraints_con_major, const float* cov_matrix, uint32_t constraint_ct, uint32_t predictor_ct, uint32_t cov_stride, double* chisq_ptr, float* tmphxs_buf, float* h_transpose_buf, float* inner_buf, double* half_inverted_buf, MatrixInvertBuf1* mi_buf, double* dbl_2d_buf, float* outer_buf) {
   const float* constraints_con_major_iter = constraints_con_major;
   if (predictor_ct > kDotprodFThresh) {
-    for (uint32_t constraint_idx = 0; constraint_idx < constraint_ct; constraint_idx++) {
+    for (uint32_t constraint_idx = 0; constraint_idx != constraint_ct; constraint_idx++) {
       outer_buf[constraint_idx] = DotprodF(constraints_con_major_iter, coef, predictor_ct);
       constraints_con_major_iter = &(constraints_con_major_iter[predictor_ct]);
     }
   } else {
-    for (uint32_t constraint_idx = 0; constraint_idx < constraint_ct; constraint_idx++) {
+    for (uint32_t constraint_idx = 0; constraint_idx != constraint_ct; constraint_idx++) {
       outer_buf[constraint_idx] = DotprodFShort(constraints_con_major_iter, coef, predictor_ct);
       constraints_con_major_iter = &(constraints_con_major_iter[predictor_ct]);
     }
@@ -76,12 +76,12 @@ BoolErr LinearHypothesisChisqF(const float* coef, const float* constraints_con_m
   double result = 0.0;
   const float* inner_iter = inner_buf;
   if (constraint_ct > kDotprodFThresh) {
-    for (uint32_t constraint_idx = 0; constraint_idx < constraint_ct; ++constraint_idx) {
+    for (uint32_t constraint_idx = 0; constraint_idx != constraint_ct; ++constraint_idx) {
       result += S_CAST(double, DotprodF(inner_iter, outer_buf, constraint_ct) * outer_buf[constraint_idx]);
       inner_iter = &(inner_iter[constraint_ct]);
     }
   } else {
-    for (uint32_t constraint_idx = 0; constraint_idx < constraint_ct; ++constraint_idx) {
+    for (uint32_t constraint_idx = 0; constraint_idx != constraint_ct; ++constraint_idx) {
       result += S_CAST(double, DotprodFShort(inner_iter, outer_buf, constraint_ct) * outer_buf[constraint_idx]);
       inner_iter = &(inner_iter[constraint_ct]);
     }
@@ -107,12 +107,12 @@ BoolErr LinearHypothesisChisq(const double* coef, const double* constraints_con_
   // the more general interface later.
   const double* constraints_con_major_iter = constraints_con_major;
   if (predictor_ct > kDotprodDThresh) {
-    for (uintptr_t constraint_idx = 0; constraint_idx < constraint_ct; constraint_idx++) {
+    for (uintptr_t constraint_idx = 0; constraint_idx != constraint_ct; constraint_idx++) {
       outer_buf[constraint_idx] = DotprodD(constraints_con_major_iter, coef, predictor_ct);
       constraints_con_major_iter = &(constraints_con_major_iter[predictor_ct]);
     }
   } else {
-    for (uintptr_t constraint_idx = 0; constraint_idx < constraint_ct; constraint_idx++) {
+    for (uintptr_t constraint_idx = 0; constraint_idx != constraint_ct; constraint_idx++) {
       outer_buf[constraint_idx] = DotprodDShort(constraints_con_major_iter, coef, predictor_ct);
       constraints_con_major_iter = &(constraints_con_major_iter[predictor_ct]);
     }
@@ -130,12 +130,12 @@ BoolErr LinearHypothesisChisq(const double* coef, const double* constraints_con_
   double result = 0.0;
   const double* inner_iter = inner_buf;
   if (constraint_ct > kDotprodDThresh) {
-    for (uintptr_t constraint_idx = 0; constraint_idx < constraint_ct; ++constraint_idx) {
+    for (uintptr_t constraint_idx = 0; constraint_idx != constraint_ct; ++constraint_idx) {
       result += DotprodD(inner_iter, outer_buf, constraint_ct) * outer_buf[constraint_idx];
       inner_iter = &(inner_iter[constraint_ct]);
     }
   } else {
-    for (uintptr_t constraint_idx = 0; constraint_idx < constraint_ct; ++constraint_idx) {
+    for (uintptr_t constraint_idx = 0; constraint_idx != constraint_ct; ++constraint_idx) {
       result += DotprodDShort(inner_iter, outer_buf, constraint_ct) * outer_buf[constraint_idx];
       inner_iter = &(inner_iter[constraint_ct]);
     }
@@ -718,7 +718,7 @@ BoolErr CheckForAndHandleSeparatedCovar(const uintptr_t* pheno_cc, const PhenoCo
       case_max = -DBL_MAX;
     }
     uint32_t sample_uidx = first_sample_uidx + 1;
-    for (uint32_t sample_idx = 1; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+    for (uint32_t sample_idx = 1; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
       MovU32To1Bit(cur_sample_include, &sample_uidx);
       cur_covar_val = covar_vals[sample_uidx];
       if (IsSet(pheno_cc, sample_uidx)) {
@@ -754,7 +754,7 @@ BoolErr CheckForAndHandleSeparatedCovar(const uintptr_t* pheno_cc, const PhenoCo
     // quasi-separated
     const double covar_val_keep = (case_min == ctrl_max)? case_min : case_max;
     sample_uidx = first_sample_uidx;
-    for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
       MovU32To1Bit(cur_sample_include, &sample_uidx);
       if (covar_vals[sample_uidx] != covar_val_keep) {
         ClearBit(sample_uidx, cur_sample_include);
@@ -773,7 +773,7 @@ BoolErr CheckForAndHandleSeparatedCovar(const uintptr_t* pheno_cc, const PhenoCo
   // If some do and some do not, we have quasi-complete separation, and must
   // remove samples in the all-case and all-control categories.
   uint32_t sample_uidx = first_sample_uidx;
-  for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
     MovU32To1Bit(cur_sample_include, &sample_uidx);
     const uint32_t cur_cat_idx = covar_cats[sample_uidx];
     // Odd bits represent presence of a case, even bits represent presence of a
@@ -783,7 +783,7 @@ BoolErr CheckForAndHandleSeparatedCovar(const uintptr_t* pheno_cc, const PhenoCo
   }
   uint32_t case_and_ctrl_cat_ct = 0;
   uint32_t pheno_by_cat_ct = 0;
-  for (uint32_t widx = 0; widx < cur_word_ct; ++widx) {
+  for (uint32_t widx = 0; widx != cur_word_ct; ++widx) {
     const uintptr_t cur_word = cat_covar_wkspace[widx];
     case_and_ctrl_cat_ct += Popcount01Word(cur_word & (cur_word >> 1) & kMask5555);
     pheno_by_cat_ct += PopcountWord(cur_word);
@@ -799,12 +799,12 @@ BoolErr CheckForAndHandleSeparatedCovar(const uintptr_t* pheno_cc, const PhenoCo
   // more than one category contains both cases and controls (so we don't need
   // to remove the categorical covariate), but at least one does not, so we
   // still have to prune some samples.
-  for (uint32_t widx = 0; widx < cur_word_ct; ++widx) {
+  for (uint32_t widx = 0; widx != cur_word_ct; ++widx) {
     const uintptr_t cur_word = cat_covar_wkspace[widx];
     cat_covar_wkspace[widx] = cur_word & (cur_word >> 1) & kMask5555;
   }
   sample_uidx = first_sample_uidx;
-  for (uint32_t sample_idx = 0; sample_uidx < sample_ct; ++sample_idx, ++sample_uidx) {
+  for (uint32_t sample_idx = 0; sample_uidx != sample_ct; ++sample_idx, ++sample_uidx) {
     MovU32To1Bit(cur_sample_include, &sample_uidx);
     if (!IsSet(cat_covar_wkspace, covar_cats[sample_uidx] * 2)) {
       ClearBit(sample_uidx, cur_sample_include);
@@ -840,7 +840,7 @@ BoolErr GlmDetermineCovars(const uintptr_t* pheno_cc, const uintptr_t* initial_c
     //    present, then provisionally remove the covariates which are constant
     //    over that set in linear case, or produce separation in logistic case
     uint32_t covar_uidx = 0;
-    for (uint32_t covar_idx = 0; covar_idx < initial_covar_ct; ++covar_idx, ++covar_uidx) {
+    for (uint32_t covar_idx = 0; covar_idx != initial_covar_ct; ++covar_idx, ++covar_uidx) {
       MovU32To1Bit(covar_include, &covar_uidx);
       if (covar_cols[covar_uidx].nonmiss) {
         BitvecAnd(covar_cols[covar_uidx].nonmiss, raw_sample_ctl, cur_sample_include);
@@ -848,7 +848,7 @@ BoolErr GlmDetermineCovars(const uintptr_t* pheno_cc, const uintptr_t* initial_c
     }
     uint32_t prev_sample_ct = PopcountWords(cur_sample_include, raw_sample_ctl);
     covar_uidx = 0;
-    for (uint32_t covar_idx = 0; covar_idx < initial_covar_ct; ++covar_idx, ++covar_uidx) {
+    for (uint32_t covar_idx = 0; covar_idx != initial_covar_ct; ++covar_idx, ++covar_uidx) {
       MovU32To1Bit(initial_covar_include, &covar_uidx);
       if ((covar_cols[covar_uidx].type_code != kPhenoDtypeOther) && IsConstCovar(&(covar_cols[covar_uidx]), cur_sample_include, prev_sample_ct)) {
         ClearBit(covar_uidx, covar_include);
@@ -865,7 +865,7 @@ BoolErr GlmDetermineCovars(const uintptr_t* pheno_cc, const uintptr_t* initial_c
       //    pre-split into n-1 0/1 indicator variables.
       memcpy(cur_sample_include, sample_include_backup, raw_sample_ctl * sizeof(intptr_t));
       covar_uidx = 0;
-      for (uint32_t covar_idx = 0; covar_idx < covar_ct; ++covar_idx, ++covar_uidx) {
+      for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx, ++covar_uidx) {
         MovU32To1Bit(covar_include, &covar_uidx);
         if (covar_cols[covar_uidx].nonmiss) {
           BitvecAnd(covar_cols[covar_uidx].nonmiss, raw_sample_ctl, cur_sample_include);
@@ -875,7 +875,7 @@ BoolErr GlmDetermineCovars(const uintptr_t* pheno_cc, const uintptr_t* initial_c
       if (new_sample_ct > prev_sample_ct) {
         prev_sample_ct = new_sample_ct;
         covar_uidx = 0;
-        for (uint32_t covar_idx = 0; covar_idx < initial_covar_ct; ++covar_idx, ++covar_uidx) {
+        for (uint32_t covar_idx = 0; covar_idx != initial_covar_ct; ++covar_idx, ++covar_uidx) {
           MovU32To1Bit(initial_covar_include, &covar_uidx);
           if (!IsSet(covar_include, covar_uidx)) {
             const PhenoCol* cur_covar_col = &(covar_cols[covar_uidx]);
@@ -919,7 +919,7 @@ BoolErr GlmDetermineCovars(const uintptr_t* pheno_cc, const uintptr_t* initial_c
         prev_sample_ct = sample_ct;
         covar_uidx = 0;
         extra_cat_ct = 0;
-        for (uint32_t covar_idx = 0; covar_idx < covar_ct; ++covar_idx, ++covar_uidx) {
+        for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx, ++covar_uidx) {
           MovU32To1Bit(covar_include, &covar_uidx);
           const PhenoCol* cur_covar_col = &(covar_cols[covar_uidx]);
           if (cur_covar_col->type_code == kPhenoDtypeOther) {
@@ -948,6 +948,8 @@ BoolErr GlmDetermineCovars(const uintptr_t* pheno_cc, const uintptr_t* initial_c
             } else {
               sample_uidx_remove = UINT32_MAX;
             }
+            // todo: document whether sample_idx guaranteed to be <= sample_ct
+            // if this code is revisited
             for (; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
               MovU32To1Bit(cur_sample_include, &sample_uidx);
               if (pheno_vals[sample_uidx] != common_pheno_val) {
@@ -977,7 +979,7 @@ BoolErr GlmDetermineCovars(const uintptr_t* pheno_cc, const uintptr_t* initial_c
             const uint32_t* pheno_vals = cur_covar_col->data.cat;
             MovU32To1Bit(cur_sample_include, &first_sample_uidx);
             uint32_t sample_uidx = first_sample_uidx;
-            for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+            for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
               MovU32To1Bit(cur_sample_include, &sample_uidx);
               const uint32_t cur_cat_idx = pheno_vals[sample_uidx];
               if (!IsSet(cat_two_or_more_obs, cur_cat_idx)) {
@@ -989,7 +991,7 @@ BoolErr GlmDetermineCovars(const uintptr_t* pheno_cc, const uintptr_t* initial_c
                 }
               }
             }
-            for (uint32_t widx = 0; widx < cur_cat_ctl; ++widx) {
+            for (uint32_t widx = 0; widx != cur_cat_ctl; ++widx) {
               uintptr_t cur_word = cat_one_obs[widx] & (~cat_two_or_more_obs[widx]);
               if (cur_word) {
                 const uint32_t* cat_first_sample_uidxs_iter = &(cat_first_sample_uidxs[widx * kBitsPerWord]);
@@ -1030,7 +1032,7 @@ BoolErr GlmDetermineCovars(const uintptr_t* pheno_cc, const uintptr_t* initial_c
         do {
           prev_sample_ct = sample_ct;
           covar_uidx = 0;
-          for (uint32_t covar_idx = 0; covar_idx < covar_ct; ++covar_idx, ++covar_uidx) {
+          for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx, ++covar_uidx) {
             MovU32To1Bit(covar_include, &covar_uidx);
             if (CheckForAndHandleSeparatedCovar(pheno_cc, covar_cols, raw_sample_ctl, covar_uidx, cur_sample_include, covar_include, &sample_ct, cat_covar_wkspace)) {
               *separation_warning_ptr = 1;
@@ -1044,7 +1046,7 @@ BoolErr GlmDetermineCovars(const uintptr_t* pheno_cc, const uintptr_t* initial_c
       // now count extra categories
       covar_uidx = 0;
       extra_cat_ct = 0;
-      for (uint32_t covar_idx = 0; covar_idx < covar_ct; ++covar_idx, ++covar_uidx) {
+      for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx, ++covar_uidx) {
         MovU32To1Bit(covar_include, &covar_uidx);
         const PhenoCol* cur_covar_col = &(covar_cols[covar_uidx]);
         if (cur_covar_col->type_code == kPhenoDtypeCat) {
@@ -1088,7 +1090,7 @@ void CollapseParameterSubset(const uintptr_t* covar_include, const uintptr_t* ra
   // intercept, additive, domdev
   new_parameter_subset[0] = raw_parameter_subset[0] & (3 + 4 * domdev_present);
   uint32_t covar_uidx = 0;
-  for (uint32_t covar_idx = 0; covar_idx < covar_ct; ++covar_idx, ++covar_uidx) {
+  for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx, ++covar_uidx) {
     MovU32To1Bit(covar_include, &covar_uidx);
     if (IsSet(raw_parameter_subset, first_covar_pred_idx + covar_uidx)) {
       SetBit(first_covar_pred_idx + covar_idx, new_parameter_subset);
@@ -1138,7 +1140,7 @@ BoolErr CheckMaxCorrAndVif(const double* predictor_dotprods, uint32_t first_pred
   const double sample_ct_recip = 1.0 / u31tod(sample_ct);
   const double sample_ct_m1_d = u31tod(sample_ct - 1);
   const double sample_ct_m1_recip = 1.0 / sample_ct_m1_d;
-  for (uintptr_t pred_idx1 = 0; pred_idx1 < relevant_predictor_ct; ++pred_idx1) {
+  for (uintptr_t pred_idx1 = 0; pred_idx1 != relevant_predictor_ct; ++pred_idx1) {
     double* sample_corr_row = &(inverse_corr_buf[pred_idx1 * relevant_predictor_ct]);
     const uintptr_t input_pred_idx1 = pred_idx1 + first_predictor_idx;
     const double* predictor_dotprods_row = &(predictor_dotprods[input_pred_idx1 * predictor_ct]);
@@ -1149,15 +1151,15 @@ BoolErr CheckMaxCorrAndVif(const double* predictor_dotprods, uint32_t first_pred
     }
   }
   // now use dbl_2d_buf to store inverse-sqrts, to get to correlation matrix
-  for (uintptr_t pred_idx = 0; pred_idx < relevant_predictor_ct; ++pred_idx) {
+  for (uintptr_t pred_idx = 0; pred_idx != relevant_predictor_ct; ++pred_idx) {
     dbl_2d_buf[pred_idx] = 1.0 / sqrt(inverse_corr_buf[pred_idx * relevant_predictor_ct_p1]);
   }
   // invert_symmdef_matrix only cares about bottom left of inverse_corr_buf[]
-  for (uintptr_t pred_idx1 = 1; pred_idx1 < relevant_predictor_ct; ++pred_idx1) {
+  for (uintptr_t pred_idx1 = 1; pred_idx1 != relevant_predictor_ct; ++pred_idx1) {
     const double inverse_stdev1 = dbl_2d_buf[pred_idx1];
     double* corr_row_iter = &(inverse_corr_buf[pred_idx1 * relevant_predictor_ct]);
     const double* inverse_stdev2_iter = dbl_2d_buf;
-    for (uintptr_t pred_idx2 = 0; pred_idx2 < pred_idx1; ++pred_idx2) {
+    for (uintptr_t pred_idx2 = 0; pred_idx2 != pred_idx1; ++pred_idx2) {
       const double cur_corr = (*corr_row_iter) * inverse_stdev1 * (*inverse_stdev2_iter++);
       // bugfix (14 Sep 2017): need to take absolute value here
       if (fabs(cur_corr) > max_corr) {
@@ -1170,7 +1172,7 @@ BoolErr CheckMaxCorrAndVif(const double* predictor_dotprods, uint32_t first_pred
       *corr_row_iter++ = cur_corr;
     }
   }
-  for (uintptr_t pred_idx = 0; pred_idx < relevant_predictor_ct; ++pred_idx) {
+  for (uintptr_t pred_idx = 0; pred_idx != relevant_predictor_ct; ++pred_idx) {
     inverse_corr_buf[pred_idx * relevant_predictor_ct_p1] = 1.0;
   }
   if (corr_buf) {
@@ -1183,7 +1185,7 @@ BoolErr CheckMaxCorrAndVif(const double* predictor_dotprods, uint32_t first_pred
     return 1;
   }
   // VIFs = diagonal elements of inverse correlation matrix
-  for (uintptr_t pred_idx = 0; pred_idx < relevant_predictor_ct; ++pred_idx) {
+  for (uintptr_t pred_idx = 0; pred_idx != relevant_predictor_ct; ++pred_idx) {
     if (inverse_corr_buf[pred_idx * relevant_predictor_ct_p1] > vif_thresh) {
       vif_corr_check_result_ptr->errcode = kVifCorrCheckVifFail;
       vif_corr_check_result_ptr->covar_idx1 = pred_idx;
@@ -1222,16 +1224,18 @@ BoolErr CheckMaxCorrAndVifNm(const double* predictor_dotprods, const double* cor
     const double covar1_mean_adj = predictor_dotprods[predictor_ct] * sample_ct_recip;
     semicomputed_corr_matrix[0] = (predictor_dotprods[predictor_ct + 1] - covar1_mean_adj * predictor_dotprods[predictor_ct]) * sample_ct_m1_recip;
   }
-  for (uintptr_t pred_idx1 = 1; pred_idx1 < relevant_predictor_ct; ++pred_idx1) {
+  for (uintptr_t pred_idx1 = 1; pred_idx1 != relevant_predictor_ct; ++pred_idx1) {
     double* sample_corr_row = &(semicomputed_corr_matrix[pred_idx1 * relevant_predictor_ct]);
     const uintptr_t input_pred_idx1 = pred_idx1 + 1;
     const double* predictor_dotprods_row = &(predictor_dotprods[input_pred_idx1 * predictor_ct]);
     const double covar1_mean_adj = predictor_dotprods_row[0] * sample_ct_recip;
     uintptr_t pred_idx2 = 0;
-    for (; pred_idx2 < geno_pred_ct; ++pred_idx2) {
+    for (; pred_idx2 != geno_pred_ct; ++pred_idx2) {
       const uintptr_t input_pred_idx2 = pred_idx2 + 1;
       sample_corr_row[pred_idx2] = (predictor_dotprods[input_pred_idx2 * predictor_ct + input_pred_idx1] - covar1_mean_adj * predictor_dotprods[input_pred_idx2 * predictor_ct]) * sample_ct_m1_recip;
     }
+    // document whether pred_idx2 guaranteed to be <= input_pred_idx1 if this
+    // code is revisited
     for (; pred_idx2 < input_pred_idx1; ++pred_idx2) {
       const uintptr_t input_pred_idx2 = pred_idx2 + 1;
       sample_corr_row[pred_idx2] = (predictor_dotprods_row[input_pred_idx2] - covar1_mean_adj * predictor_dotprods[input_pred_idx2 * predictor_ct]) * sample_ct_m1_recip;
@@ -1243,7 +1247,7 @@ BoolErr CheckMaxCorrAndVifNm(const double* predictor_dotprods, const double* cor
   double inverse_stdev1 = semicomputed_inv_corr_sqrts[0];
   const double* nongeno_inverse_stdevs = &(semicomputed_inv_corr_sqrts[geno_pred_ct]);
   const double* corr_col = &(semicomputed_corr_matrix[geno_pred_ct * relevant_predictor_ct]);
-  for (uintptr_t nongeno_pred_idx = 0; nongeno_pred_idx < nongeno_pred_ct; ++nongeno_pred_idx) {
+  for (uintptr_t nongeno_pred_idx = 0; nongeno_pred_idx != nongeno_pred_ct; ++nongeno_pred_idx) {
     const double inverse_stdev2 = nongeno_inverse_stdevs[nongeno_pred_idx];
     const double cur_corr = inverse_stdev1 * inverse_stdev2 * corr_col[nongeno_pred_idx * relevant_predictor_ct];
     if (fabs(cur_corr) > max_corr) {
@@ -1259,7 +1263,7 @@ BoolErr CheckMaxCorrAndVifNm(const double* predictor_dotprods, const double* cor
     inverse_stdev1 = 1.0 / sqrt(semicomputed_corr_matrix[relevant_predictor_ct_p1]);
     corr_col = &(semicomputed_corr_matrix[geno_pred_ct * relevant_predictor_ct + 1]);
     double* corr_row2 = &(corr_row_buf[nongeno_pred_ct]);
-    for (uintptr_t nongeno_pred_idx = 0; nongeno_pred_idx < nongeno_pred_ct; ++nongeno_pred_idx) {
+    for (uintptr_t nongeno_pred_idx = 0; nongeno_pred_idx != nongeno_pred_ct; ++nongeno_pred_idx) {
       const double inverse_stdev2 = nongeno_inverse_stdevs[nongeno_pred_idx];
       const double cur_corr = inverse_stdev1 * inverse_stdev2 * corr_col[nongeno_pred_idx * relevant_predictor_ct];
       if (fabs(cur_corr) > max_corr) {
@@ -1278,7 +1282,7 @@ BoolErr CheckMaxCorrAndVifNm(const double* predictor_dotprods, const double* cor
     }
   }
   // VIFs = diagonal elements of inverse correlation matrix
-  for (uintptr_t pred_idx = 0; pred_idx < relevant_predictor_ct; ++pred_idx) {
+  for (uintptr_t pred_idx = 0; pred_idx != relevant_predictor_ct; ++pred_idx) {
     if (inverse_corr_diag[pred_idx] > vif_thresh) {
       return 1;
     }
@@ -1302,10 +1306,10 @@ BoolErr CheckMaxCorrAndVifNm(const double* predictor_dotprods, const double* cor
 // inconsistent if we stick to single-precision.
 BoolErr CheckMaxCorrAndVifF(const float* predictors_pmaj, uint32_t predictor_ct, uint32_t sample_ct, uint32_t sample_stride, double max_corr, double vif_thresh, float* predictor_dotprod_buf, double* dbl_2d_buf, double* inverse_corr_buf, MatrixInvertBuf1* inv_1d_buf) {
   MultiplySelfTransposeStridedF(predictors_pmaj, predictor_ct, sample_ct, sample_stride, predictor_dotprod_buf);
-  for (uintptr_t pred_idx = 0; pred_idx < predictor_ct; ++pred_idx) {
+  for (uintptr_t pred_idx = 0; pred_idx != predictor_ct; ++pred_idx) {
     const float* predictor_row = &(predictors_pmaj[pred_idx * sample_stride]);
     double row_sum = 0.0;
-    for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
       row_sum += S_CAST(double, predictor_row[sample_idx]);
     }
     dbl_2d_buf[pred_idx] = row_sum;
@@ -1314,7 +1318,7 @@ BoolErr CheckMaxCorrAndVifF(const float* predictors_pmaj, uint32_t predictor_ct,
   const double sample_ct_recip = 1.0 / u31tod(sample_ct);
   const double sample_ct_m1_d = u31tod(sample_ct - 1);
   const double sample_ct_m1_recip = 1.0 / sample_ct_m1_d;
-  for (uint32_t pred_idx1 = 0; pred_idx1 < predictor_ct; ++pred_idx1) {
+  for (uint32_t pred_idx1 = 0; pred_idx1 != predictor_ct; ++pred_idx1) {
     double* sample_corr_row = &(inverse_corr_buf[pred_idx1 * predictor_ct]);
     const float* predictor_dotprod_row = &(predictor_dotprod_buf[pred_idx1 * predictor_ct]);
     const double covar1_mean_adj = dbl_2d_buf[pred_idx1] * sample_ct_recip;
@@ -1323,15 +1327,15 @@ BoolErr CheckMaxCorrAndVifF(const float* predictors_pmaj, uint32_t predictor_ct,
     }
   }
   // now use dbl_2d_buf to store inverse-sqrts, to get to correlation matrix
-  for (uint32_t pred_idx = 0; pred_idx < predictor_ct; ++pred_idx) {
+  for (uint32_t pred_idx = 0; pred_idx != predictor_ct; ++pred_idx) {
     dbl_2d_buf[pred_idx] = 1.0 / sqrt(inverse_corr_buf[pred_idx * predictor_ct_p1]);
   }
   // invert_symmdef_matrix only cares about bottom left of inverse_corr_buf[]
-  for (uint32_t pred_idx1 = 1; pred_idx1 < predictor_ct; ++pred_idx1) {
+  for (uint32_t pred_idx1 = 1; pred_idx1 != predictor_ct; ++pred_idx1) {
     const double inverse_stdev1 = dbl_2d_buf[pred_idx1];
     double* corr_row_iter = &(inverse_corr_buf[pred_idx1 * predictor_ct]);
     const double* inverse_stdev2_iter = dbl_2d_buf;
-    for (uintptr_t pred_idx2 = 0; pred_idx2 < pred_idx1; ++pred_idx2) {
+    for (uintptr_t pred_idx2 = 0; pred_idx2 != pred_idx1; ++pred_idx2) {
       const double cur_corr = (*corr_row_iter) * inverse_stdev1 * (*inverse_stdev2_iter++);
       if (fabs(cur_corr) > max_corr) {
         return 1;
@@ -1339,7 +1343,7 @@ BoolErr CheckMaxCorrAndVifF(const float* predictors_pmaj, uint32_t predictor_ct,
       *corr_row_iter++ = cur_corr;
     }
   }
-  for (uint32_t pred_idx = 0; pred_idx < predictor_ct; ++pred_idx) {
+  for (uint32_t pred_idx = 0; pred_idx != predictor_ct; ++pred_idx) {
     inverse_corr_buf[pred_idx * predictor_ct_p1] = 1.0;
   }
   if (InvertSymmdefMatrixChecked(predictor_ct, inverse_corr_buf, inv_1d_buf, dbl_2d_buf)) {
@@ -1347,7 +1351,7 @@ BoolErr CheckMaxCorrAndVifF(const float* predictors_pmaj, uint32_t predictor_ct,
   }
 
   // VIFs = diagonal elements of inverse correlation matrix
-  for (uint32_t pred_idx = 0; pred_idx < predictor_ct; ++pred_idx) {
+  for (uint32_t pred_idx = 0; pred_idx != predictor_ct; ++pred_idx) {
     if (inverse_corr_buf[pred_idx * predictor_ct_p1] > vif_thresh) {
       return 1;
     }
@@ -1359,7 +1363,7 @@ BoolErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* c
   vif_corr_check_result_ptr->errcode = kVifCorrCheckOk;
   if (covar_ct == local_covar_ct) {
     // bugfix (5 Mar 2018): need to copy local-covar names
-    for (uintptr_t local_covar_read_idx = 0; local_covar_read_idx < covar_ct; ++local_covar_read_idx) {
+    for (uintptr_t local_covar_read_idx = 0; local_covar_read_idx != covar_ct; ++local_covar_read_idx) {
       cur_covar_names[local_covar_read_idx] = &(covar_names[local_covar_read_idx * max_covar_name_blen]);
     }
     return 0;
@@ -1382,7 +1386,7 @@ BoolErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* c
   const char** cur_covar_names_iter = cur_covar_names;
   double* covar_write_iter = covars_cmaj;
   double* sum_iter = dbl_2d_buf;
-  for (uintptr_t covar_read_idx = 0; covar_read_idx < covar_ct; ++covar_read_idx, ++covar_read_uidx) {
+  for (uintptr_t covar_read_idx = 0; covar_read_idx != covar_ct; ++covar_read_idx, ++covar_read_uidx) {
     MovU32To1Bit(covar_include, &covar_read_uidx);
     const PhenoCol* cur_covar_col = &(covar_cols[covar_read_uidx]);
     const char* covar_name_base = &(covar_names[covar_read_uidx * max_covar_name_blen]);
@@ -1394,7 +1398,7 @@ BoolErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* c
       const double* covar_vals = cur_covar_col->data.qt;
       uint32_t sample_uidx = first_sample_uidx;
       double covar_sum = 0.0;
-      for (uintptr_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+      for (uintptr_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
         MovU32To1Bit(sample_include, &sample_uidx);
         const double cur_covar_val = covar_vals[sample_uidx];
         covar_sum += cur_covar_val;
@@ -1409,7 +1413,7 @@ BoolErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* c
       const uint32_t covar_name_base_slen = strlen(covar_name_base);
       uint32_t cat_uidx = 1;
       // this is equivalent to "--split-cat-pheno omit-last covar-01"
-      for (uint32_t cat_idx = 1; cat_idx < remaining_cat_ct; ++cat_idx, ++cat_uidx) {
+      for (uint32_t cat_idx = 1; cat_idx != remaining_cat_ct; ++cat_idx, ++cat_uidx) {
         MovU32To1Bit(cat_covar_wkspace, &cat_uidx);
 
         const char* catname = cur_category_names[cat_uidx];
@@ -1424,7 +1428,7 @@ BoolErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* c
 
         uint32_t sample_uidx = first_sample_uidx;
         uint32_t cur_cat_obs_ct = 0;
-        for (uintptr_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+        for (uintptr_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
           MovU32To1Bit(sample_include, &sample_uidx);
           const uint32_t cur_sample_is_in_cat = (covar_vals[sample_uidx] == cat_uidx);
           cur_cat_obs_ct += cur_sample_is_in_cat;
@@ -1460,10 +1464,10 @@ BoolErr InitNmPrecomp(const double* pheno_d, const double* covars_cmaj, const do
   double* xtx_image = nm_precomp->xtx_image;
   ZeroDArr(stride * stride, xtx_image);
   xtx_image[0] = u31tod(sample_ct);
-  for (uintptr_t covar_idx = 0; covar_idx < new_covar_ct; ++covar_idx) {
+  for (uintptr_t covar_idx = 0; covar_idx != new_covar_ct; ++covar_idx) {
     const double* cur_covar = &(covars_cmaj[covar_idx * sample_ct]);
     double dxx = 0.0;
-    for (uint32_t uii = 0; uii < sample_ct; ++uii) {
+    for (uint32_t uii = 0; uii != sample_ct; ++uii) {
       dxx += cur_covar[uii];
     }
     double* xtx_image_row = &(xtx_image[(covar_idx + 1 + xtx_state) * stride]);
@@ -1472,7 +1476,7 @@ BoolErr InitNmPrecomp(const double* pheno_d, const double* covars_cmaj, const do
   }
   if (pheno_d) {
     double dxx = 0.0;
-    for (uint32_t uii = 0; uii < sample_ct; ++uii) {
+    for (uint32_t uii = 0; uii != sample_ct; ++uii) {
       dxx += pheno_d[uii];
     }
     nm_precomp->xt_y_image[0] = dxx;
@@ -1483,7 +1487,7 @@ BoolErr InitNmPrecomp(const double* pheno_d, const double* covars_cmaj, const do
     double* covarx_dotprod_inv = nm_precomp->covarx_dotprod_inv;
     covarx_dotprod_inv[0] = xtx_image[0];
     const uintptr_t new_covar_ct_p1 = new_covar_ct + 1;
-    for (uintptr_t row_idx = 1; row_idx < new_covar_ct_p1; ++row_idx) {
+    for (uintptr_t row_idx = 1; row_idx != new_covar_ct_p1; ++row_idx) {
       covarx_dotprod_inv[row_idx * new_covar_ct_p1] = xtx_image[(row_idx + xtx_state) * stride];
       memcpy(&(covarx_dotprod_inv[row_idx * new_covar_ct_p1 + 1]), &(covar_dotprod[(row_idx - 1) * new_covar_ct]), row_idx * sizeof(double));
     }
@@ -1500,7 +1504,7 @@ BoolErr InitNmPrecomp(const double* pheno_d, const double* covars_cmaj, const do
   double* corr_image = nm_precomp->corr_image;
   // also store uninverted correlation matrix
   ZeroDArr(stride * stride, corr_image);
-  for (uintptr_t orig_row_idx = 0; orig_row_idx < new_covar_ct; ++orig_row_idx) {
+  for (uintptr_t orig_row_idx = 0; orig_row_idx != new_covar_ct; ++orig_row_idx) {
     memcpy(&(corr_image[(orig_row_idx + xtx_state) * stride + xtx_state]), &(corr_buf[orig_row_idx * new_covar_ct]), (orig_row_idx + 1) * sizeof(double));
   }
   // and store inverse-sqrts after the correlation matrix
@@ -1557,7 +1561,7 @@ BoolErr GlmAllocFillAndTestPhenoCovarsQt(const uintptr_t* sample_include, const 
   }
   double* pheno_d_iter = *pheno_d_ptr;
   uint32_t sample_uidx = 0;
-  for (uintptr_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+  for (uintptr_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
     MovU32To1Bit(sample_include, &sample_uidx);
     *pheno_d_iter++ = pheno_qt[sample_uidx];
   }
@@ -1627,7 +1631,7 @@ BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const 
   uintptr_t* pheno_cc_collapsed = *pheno_cc_collapsed_ptr;
   CopyBitarrSubset(pheno_cc, sample_include, sample_ct, pheno_cc_collapsed);
   float* pheno_f_iter = *pheno_f_ptr;
-  for (uintptr_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
+  for (uintptr_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
     // can use the bitvector equivalent of GenoarrLookup...(), but this isn't
     // in a critical loop so I'll postpone writing those functions for now
     *pheno_f_iter++ = kSmallFloats[IsSet(pheno_cc_collapsed, sample_idx)];
@@ -1639,8 +1643,8 @@ BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const 
   }
   double* covar_read_iter = covars_cmaj_d;
   float* covar_write_iter = *covars_cmaj_f_ptr;
-  for (uintptr_t covar_idx = 0; covar_idx < new_nonlocal_covar_ct; ++covar_idx) {
-    for (uintptr_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
+  for (uintptr_t covar_idx = 0; covar_idx != new_nonlocal_covar_ct; ++covar_idx) {
+    for (uintptr_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
       *covar_write_iter++ = S_CAST(float, *covar_read_iter++);
     }
     ZeroFArr(sample_remv, covar_write_iter);
@@ -1685,7 +1689,7 @@ uint32_t GenoarrToFloatsRemoveMissing(const uintptr_t* genoarr, uint32_t sample_
       subgroup_len = ModNz(sample_ct, kBitsPerWordD2);
     }
     uintptr_t geno_word = genoarr[widx];
-    for (uint32_t uii = 0; uii < subgroup_len; ++uii) {
+    for (uint32_t uii = 0; uii != subgroup_len; ++uii) {
       const uintptr_t cur_geno = geno_word & 3;
       if (cur_geno < 3) {
         *floatbuf_iter++ = kSmallFloats[cur_geno];
@@ -2294,20 +2298,20 @@ static inline void LogisticSse(uint32_t nn, float* vect) {
   // plink2's compilation settings)????!!!!!!!
   // Unless the author is outright mistaken, this suggests that use of the f
   // suffix should be considered a bug ~100% of the time.
-  for (uint32_t uii = 0; uii < nn; ++uii) {
+  for (uint32_t uii = 0; uii != nn; ++uii) {
     vect[uii] = S_CAST(float, 1.0) / (1 + expf(-vect[uii]));
   }
 }
 
 static inline void ComputeVAndPMinusY(const float* yy, uint32_t nn, float* pp, float* vv) {
-  for (uint32_t uii = 0; uii < nn; ++uii) {
+  for (uint32_t uii = 0; uii != nn; ++uii) {
     vv[uii] = pp[uii] * (S_CAST(float, 1.0) - pp[uii]);
     pp[uii] -= yy[uii];
   }
 }
 
 static inline void ComputeV(const float* pp, uint32_t nn, float* vv) {
-  for (uint32_t uii = 0; uii < nn; ++uii) {
+  for (uint32_t uii = 0; uii != nn; ++uii) {
     vv[uii] = pp[uii] * (S_CAST(float, 1.0) - pp[uii]);
   }
 }
@@ -2319,7 +2323,7 @@ static inline void MultMatrixDxnVectN(const float* mm, const float* vect, uint32
 
 static inline float TripleProduct(const float* v1, const float* v2, const float* v3, uint32_t nn) {
   float fxx = 0.0;
-  for (uint32_t uii = 0; uii < nn; ++uii) {
+  for (uint32_t uii = 0; uii != nn; ++uii) {
     fxx += (*v1++) * (*v2++) * (*v3++);
   }
   return fxx;
@@ -2329,7 +2333,7 @@ static inline void ComputeTwoDiagTripleProduct(const float* aa, const float* bb,
   float raa = 0.0;
   float rab = 0.0;
   float rbb = 0.0;
-  for (uint32_t uii = 0; uii < nn; ++uii) {
+  for (uint32_t uii = 0; uii != nn; ++uii) {
     const float fxx = (*aa++);
     const float fyy = (*bb++);
     float fzz = (*vv++);
@@ -2347,7 +2351,7 @@ static inline void ComputeThreeTripleProduct(const float* bb, const float* a1, c
   float r1 = 0.0;
   float r2 = 0.0;
   float r3 = 0.0;
-  for (uint32_t uii = 0; uii < nn; ++uii) {
+  for (uint32_t uii = 0; uii != nn; ++uii) {
     const float fxx = (*bb++) * (*vv++);
     r1 += (*a1++) * fxx;
     r2 += (*a2++) * fxx;
@@ -2362,7 +2366,7 @@ static inline void ComputeTwoPlusOneTripleProduct(const float* bb, const float* 
   float r1 = 0.0;
   float r2 = 0.0;
   float r3 = 0.0;
-  for (uint32_t uii = 0; uii < nn; ++uii) {
+  for (uint32_t uii = 0; uii != nn; ++uii) {
     const float fxx = (*bb++);
     const float fyy = fxx * (*vv++);
     r1 += fxx * fyy;
@@ -2377,7 +2381,7 @@ static inline void ComputeTwoPlusOneTripleProduct(const float* bb, const float* 
 double ComputeLoglik(const float* yy, const float* pp, uint32_t sample_ct) {
   // possible todo: look for a high-precision way to accelerate this.
   double loglik = 0.0;
-  for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
     const double new_pi = S_CAST(double, pp[sample_idx]);
     loglik += (yy[sample_idx] != S_CAST(float, 0.0))? log(new_pi) : log(1.0 - new_pi);
   }
@@ -2399,7 +2403,7 @@ void ComputeHessian(const float* mm, const float* vv, uint32_t col_ct, uint32_t 
       const float* mm_cur = &(mm[row_idx * col_ctav]);
       ComputeTwoDiagTripleProduct(mm_cur, &(mm_cur[col_ctav]), vv, col_ct, &(dest[row_idx * row_ctavp1]), &(dest[(row_idx + 1) * row_ctavp1 - 1]), &(dest[(row_idx + 1) * row_ctavp1]));
       ComputeTwoPlusOneTripleProduct(&(mm_cur[2 * col_ctav]), &(mm_cur[col_ctav]), mm_cur, vv, col_ct, &(dest[(row_idx + 2) * row_ctavp1]), &(dest[(row_idx + 2) * row_ctavp1 - 1]), &(dest[(row_idx + 2) * row_ctavp1 - 2]));
-      for (uint32_t row_idx2 = row_idx + 3; row_idx2 < row_ct; row_idx2++) {
+      for (uint32_t row_idx2 = row_idx + 3; row_idx2 != row_ct; ++row_idx2) {
         ComputeThreeTripleProduct(&(mm[row_idx2 * col_ctav]), mm_cur, &(mm_cur[col_ctav]), &(mm_cur[2 * col_ctav]), vv, col_ct, &(dest[row_idx2 * row_ctav + row_idx]), &(dest[row_idx2 * row_ctav + row_idx + 1]), &(dest[row_idx2 * row_ctav + row_idx + 2]));
       }
     }
@@ -2419,10 +2423,10 @@ void ComputeHessian(const float* mm, const float* vv, uint32_t col_ct, uint32_t 
 void CholeskyDecomposition(const float* aa, uint32_t predictor_ct, float* ll) {
   const uintptr_t predictor_ctav = RoundUpPow2(predictor_ct, kFloatPerFVec);
   const uintptr_t predictor_ctavp1 = predictor_ctav + 1;
-  for (uint32_t row_idx = 0; row_idx < predictor_ct; ++row_idx) {
+  for (uint32_t row_idx = 0; row_idx != predictor_ct; ++row_idx) {
     float fxx = aa[row_idx * predictor_ctavp1];
     float* ll_row_iter = &(ll[row_idx * predictor_ctav]);
-    for (uint32_t col_idx = 0; col_idx < row_idx; ++col_idx) {
+    for (uint32_t col_idx = 0; col_idx != row_idx; ++col_idx) {
       const float fyy = (*ll_row_iter++);
       fxx -= fyy * fyy;
     }
@@ -2434,11 +2438,11 @@ void CholeskyDecomposition(const float* aa, uint32_t predictor_ct, float* ll) {
     }
     ll[row_idx * predictor_ctavp1] = fyy;
     fyy = S_CAST(float, 1.0) / fyy;  // now 1.0 / L[j][j]
-    for (uint32_t row_idx2 = row_idx + 1; row_idx2 < predictor_ct; ++row_idx2) {
+    for (uint32_t row_idx2 = row_idx + 1; row_idx2 != predictor_ct; ++row_idx2) {
       float fxx2 = aa[row_idx2 * predictor_ctav + row_idx];
       float* ll_row_iter2 = &(ll[row_idx * predictor_ctav]);
       float* ll_row_iter3 = &(ll[row_idx2 * predictor_ctav]);
-      for (uint32_t col_idx = 0; col_idx < row_idx; ++col_idx) {
+      for (uint32_t col_idx = 0; col_idx != row_idx; ++col_idx) {
         fxx2 -= (*ll_row_iter2++) * (*ll_row_iter3++);
       }
       ll[row_idx2 * predictor_ctav + row_idx] = fxx2 * fyy;
@@ -2452,11 +2456,11 @@ void SolveLinearSystem(const float* ll, const float* yy, uint32_t predictor_ct, 
   // might want to use this in NOLAPACK case only, since we can now produce
   // 32-bit Linux builds with statically linked LAPACK
   const uintptr_t predictor_ctav = RoundUpPow2(predictor_ct, kFloatPerFVec);
-  for (uint32_t row_idx = 0; row_idx < predictor_ct; ++row_idx) {
+  for (uint32_t row_idx = 0; row_idx != predictor_ct; ++row_idx) {
     float fxx = yy[row_idx];
     const float* ll_row_iter = &(ll[row_idx * predictor_ctav]);
     float* xx_iter = xx;
-    for (uint32_t col_idx = 0; col_idx < row_idx; ++col_idx) {
+    for (uint32_t col_idx = 0; col_idx != row_idx; ++col_idx) {
       fxx -= (*ll_row_iter++) * (*xx_iter++);
     }
     *xx_iter = fxx / (*ll_row_iter);
@@ -2541,7 +2545,7 @@ BoolErr LogisticRegression(const float* yy, const float* xx, uint32_t sample_ct,
     SolveLinearSystem(ll, grad, predictor_ct, dcoef);
 
     float delta_coef = 0.0;
-    for (uint32_t pred_idx = 0; pred_idx < predictor_ct; pred_idx++) {
+    for (uint32_t pred_idx = 0; pred_idx != predictor_ct; ++pred_idx) {
       const float cur_dcoef = dcoef[pred_idx];
       delta_coef += fabsf(cur_dcoef);
       coef[pred_idx] -= cur_dcoef;
@@ -2578,7 +2582,7 @@ void FirthComputeWeights(const float* yy, const float* xx, const float* pp, cons
     VecF dotprods = vecf_setzero();
     const float* xx_row = &(xx[sample_offset]);
     const float* tmpnxk_row = &(tmpnxk[sample_offset]);
-    for (uint32_t pred_uidx = 0; pred_uidx < predictor_ct; ++pred_uidx) {
+    for (uint32_t pred_uidx = 0; pred_uidx != predictor_ct; ++pred_uidx) {
       const VecF cur_xx = *R_CAST(const VecF*, &(xx_row[pred_uidx * sample_ctav]));
       const VecF cur_tmpnxk = *R_CAST(const VecF*, &(tmpnxk_row[pred_uidx * sample_ctav]));
       dotprods = dotprods + cur_xx * cur_tmpnxk;
@@ -2597,11 +2601,11 @@ void FirthComputeWeights(const float* yy, const float* xx, const float* pp, cons
 }
 #else
 void FirthComputeWeights(const float* yy, const float* xx, const float* pp, const float* vv, const float* tmpnxk, uint32_t predictor_ct, uint32_t sample_ct, uint32_t sample_ctav, float* ww) {
-  for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
     float dotprod = 0.0;
     const float* xx_row = &(xx[sample_idx]);
     const float* tmpnxk_row = &(tmpnxk[sample_idx]);
-    for (uint32_t pred_uidx = 0; pred_uidx < predictor_ct; ++pred_uidx) {
+    for (uint32_t pred_uidx = 0; pred_uidx != predictor_ct; ++pred_uidx) {
       dotprod += xx_row[pred_uidx * sample_ctav] * tmpnxk_row[pred_uidx * sample_ctav];
     }
     const float cur_weight = vv[sample_idx];
@@ -2712,7 +2716,7 @@ BoolErr FirthRegression(const float* yy, const float* xx, uint32_t sample_ct, ui
     // categorical optimization possible here
     MultMatrixDxnVectN(xx, ww, sample_ct, predictor_ct, grad);
     float grad_max = 0.0;
-    for (uint32_t pred_uidx = 0; pred_uidx < predictor_ct; ++pred_uidx) {
+    for (uint32_t pred_uidx = 0; pred_uidx != predictor_ct; ++pred_uidx) {
       const float abs_grad_cur = fabsf(grad[pred_uidx]);
       if (abs_grad_cur > grad_max) {
         grad_max = abs_grad_cur;
@@ -2723,7 +2727,7 @@ BoolErr FirthRegression(const float* yy, const float* xx, uint32_t sample_ct, ui
     MultMatrixDxnVectN(hh, grad, predictor_ct, predictor_ct, dcoef);
 
     float dcoef_max = 0.0;
-    for (uint32_t pred_uidx = 0; pred_uidx < predictor_ct; ++pred_uidx) {
+    for (uint32_t pred_uidx = 0; pred_uidx != predictor_ct; ++pred_uidx) {
       const float abs_dcoef_cur = fabsf(dcoef[pred_uidx]);
       if (abs_dcoef_cur > dcoef_max) {
         dcoef_max = abs_dcoef_cur;
@@ -2732,12 +2736,12 @@ BoolErr FirthRegression(const float* yy, const float* xx, uint32_t sample_ct, ui
     const float maxstep = 5.0;
     if (dcoef_max > maxstep) {
       const float scaling_factor = maxstep / dcoef_max;
-      for (uint32_t pred_uidx = 0; pred_uidx < predictor_ct; ++pred_uidx) {
+      for (uint32_t pred_uidx = 0; pred_uidx != predictor_ct; ++pred_uidx) {
         dcoef[pred_uidx] *= scaling_factor;
       }
       dcoef_max = maxstep;
     }
-    for (uint32_t pred_uidx = 0; pred_uidx < predictor_ct; ++pred_uidx) {
+    for (uint32_t pred_uidx = 0; pred_uidx != predictor_ct; ++pred_uidx) {
       coef[pred_uidx] += dcoef[pred_uidx];
     }
     const uint32_t delta_and_grad_converged = (dcoef_max <= xconv) && (grad_max < gconv);
@@ -2786,7 +2790,7 @@ BoolErr FirthRegression(const float* yy, const float* xx, uint32_t sample_ct, ui
         }
       }
       const float multiplier = exp2f(-u31tof(halfstep_idx));
-      for (uint32_t pred_uidx = 0; pred_uidx < predictor_ct; ++pred_uidx) {
+      for (uint32_t pred_uidx = 0; pred_uidx != predictor_ct; ++pred_uidx) {
         coef[pred_uidx] -= dcoef[pred_uidx] * multiplier;
       }
       ++halfstep_idx;
@@ -3226,7 +3230,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
       uint32_t prev_nm = 0;
 
       STD_ARRAY_DECL(uint32_t, 4, genocounts);
-      for (; variant_bidx < cur_variant_bidx_end; ++variant_bidx, ++variant_uidx) {
+      for (; variant_bidx != cur_variant_bidx_end; ++variant_bidx, ++variant_uidx) {
         MovU32To1Bit(variant_include, &variant_uidx);
         {
           // todo: get cur_extra_allele_ct and multiallelic dosage instead
@@ -3263,7 +3267,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
             // gcountcc
             STD_ARRAY_REF(uint32_t, 6) cur_geno_hardcall_cts = block_aux_iter->geno_hardcall_cts;
             GenovecCountSubsetFreqs(genovec, cur_gcount_case_interleaved_vec, cur_sample_ct, cur_case_ct, R_CAST(STD_ARRAY_REF(uint32_t, 4), cur_geno_hardcall_cts));
-            for (uint32_t geno_hardcall_idx = 0; geno_hardcall_idx < 3; ++geno_hardcall_idx) {
+            for (uint32_t geno_hardcall_idx = 0; geno_hardcall_idx != 3; ++geno_hardcall_idx) {
               cur_geno_hardcall_cts[3 + geno_hardcall_idx] = genocounts[geno_hardcall_idx] - cur_geno_hardcall_cts[geno_hardcall_idx];
             }
           }
@@ -3277,7 +3281,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
           if (prev_nm) {
             nm_predictors_pmaj_iter = &(nm_predictors_pmaj_iter[nm_sample_ctav]);
           } else {
-            for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx) {
+            for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
               *nm_predictors_pmaj_iter++ = 1.0;
             }
             ZeroFArr(nm_sample_ct_rem, nm_predictors_pmaj_iter);
@@ -3295,7 +3299,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
             GenoarrToFloats(genovec, nm_sample_ct, nm_predictors_pmaj_iter);
             if (dosage_ct) {
               uint32_t sample_idx = 0;
-              for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_idx) {
+              for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx, ++sample_idx) {
                 MovU32To1Bit(dosage_present, &sample_idx);
                 // 32768 -> 2, 16384 -> 1, 0 -> 0
                 nm_predictors_pmaj_iter[sample_idx] = kRecipDosageMidf * u31tof(dosage_main[dosage_idx]);
@@ -3307,7 +3311,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
             } else {
               uint32_t sample_midx = 0;
               uint32_t dosage_idx = 0;
-              for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx, ++sample_midx) {
+              for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx, ++sample_midx) {
                 MovU32To1Bit(sample_nm, &sample_midx);
                 float cur_val;
                 if (IsSet(dosage_present, sample_midx)) {
@@ -3338,7 +3342,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
               block_aux_iter->case_allele_obs_ct = nm_case_ct;
               // everything is on 0..1 scale, not 0..2
               dosage_ceil = 1.0;
-              for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx) {
+              for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
                 genotype_vals[sample_idx] *= S_CAST(float, 0.5);
               }
             }
@@ -3350,7 +3354,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
             if (is_xchr_model_1) {
               // special case: multiply male values by 0.5
               uint32_t sample_idx = 0;
-              for (uint32_t male_idx = 0; male_idx < nm_male_ct; ++male_idx, ++sample_idx) {
+              for (uint32_t male_idx = 0; male_idx != nm_male_ct; ++male_idx, ++sample_idx) {
                 MovU32To1Bit(male_nm, &sample_idx);
                 genotype_vals[sample_idx] *= S_CAST(float, 0.5);
               }
@@ -3363,7 +3367,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
           // genotype_vals restricted to [0, 2], so naive variance computation
           // is stable
           double dosage_ssq = 0.0;
-          for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx) {
+          for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
             const double cur_genotype_val = S_CAST(double, genotype_vals[sample_idx]);
             dosage_sum += cur_genotype_val;
             dosage_ssq += cur_genotype_val * cur_genotype_val;
@@ -3402,7 +3406,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
           } else if (joint_genotypic || joint_hethom) {
             // in hethom case, do this before clobbering genotype data
             domdev_vals = nm_predictors_pmaj_iter;
-            for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx) {
+            for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
               float cur_genotype_val = genotype_vals[sample_idx];
               if (cur_genotype_val > S_CAST(float, 1.0)) {
                 cur_genotype_val = S_CAST(float, 2.0) - cur_genotype_val;
@@ -3415,7 +3419,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
           // todo: apply dominant/recessive transformation to all genotype
           // columns in multiallelic case
           if (model_dominant) {
-            for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx) {
+            for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
               const float cur_genotype_val = genotype_vals[sample_idx];
               // 0..1..1
               if (cur_genotype_val > S_CAST(float, 1.0)) {
@@ -3423,7 +3427,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
               }
             }
           } else if (model_recessive || joint_hethom) {
-            for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx) {
+            for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
               const float cur_genotype_val = genotype_vals[sample_idx];
               // 0..0..1
               if (cur_genotype_val < S_CAST(float, 1.0)) {
@@ -3438,7 +3442,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
           if (missing_ct || (!prev_nm)) {
             // fill phenotype
             uint32_t sample_midx = 0;
-            for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx, ++sample_midx) {
+            for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx, ++sample_midx) {
               MovU32To1Bit(sample_nm, &sample_midx);
               nm_pheno_buf[sample_idx] = cur_pheno[sample_midx];
             }
@@ -3448,7 +3452,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
             ZeroFArr(nm_sample_ct_rem, &(nm_pheno_buf[nm_sample_ct]));
 
             // fill covariates
-            for (uint32_t covar_idx = 0; covar_idx < cur_covar_ct; ++covar_idx, ++parameter_uidx) {
+            for (uint32_t covar_idx = 0; covar_idx != cur_covar_ct; ++covar_idx, ++parameter_uidx) {
               // strictly speaking, we don't need cur_covars_cmaj to be
               // vector-aligned
               if (cur_parameter_subset && (!IsSet(cur_parameter_subset, parameter_uidx))) {
@@ -3461,7 +3465,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
                 cur_covar_col = &(cur_covars_cmaj[(covar_idx - local_covar_ct) * sample_ctav]);
               }
               sample_midx = 0;
-              for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx, ++sample_midx) {
+              for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx, ++sample_midx) {
                 MovU32To1Bit(sample_nm, &sample_midx);
                 *nm_predictors_pmaj_iter++ = cur_covar_col[sample_midx];
               }
@@ -3479,7 +3483,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
           }
           // fill interaction terms
           if (add_interactions) {
-            for (uint32_t covar_idx = 0; covar_idx < cur_covar_ct; ++covar_idx) {
+            for (uint32_t covar_idx = 0; covar_idx != cur_covar_ct; ++covar_idx) {
               const float* cur_covar_col;
               if (covar_idx < local_covar_ct) {
                 cur_covar_col = &(local_covars_iter[covar_idx * max_sample_ct]);
@@ -3488,7 +3492,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
               }
               if ((!cur_parameter_subset) || IsSet(cur_parameter_subset, parameter_uidx)) {
                 uint32_t sample_midx = 0;
-                for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx, ++sample_midx) {
+                for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx, ++sample_midx) {
                   MovU32To1Bit(sample_nm, &sample_midx);
                   *nm_predictors_pmaj_iter++ = genotype_vals[sample_idx] * cur_covar_col[sample_midx];
                 }
@@ -3498,7 +3502,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
               if (domdev_present) {
                 if ((!cur_parameter_subset) || IsSet(cur_parameter_subset, parameter_uidx)) {
                   uint32_t sample_midx = 0;
-                  for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx, ++sample_midx) {
+                  for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx, ++sample_midx) {
                     MovU32To1Bit(sample_nm, &sample_midx);
                     *nm_predictors_pmaj_iter++ = domdev_vals[sample_idx] * cur_covar_col[sample_midx];
                   }
@@ -3517,13 +3521,13 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
             }
             if (cur_predictor_ct > start_pred_idx) {
               ColMajorFvectorMatrixMultiplyStrided(&(nm_predictors_pmaj_buf[nm_sample_ctav]), &(nm_predictors_pmaj_buf[start_pred_idx * nm_sample_ctav]), nm_sample_ct, nm_sample_ctav, cur_predictor_ct - start_pred_idx, &(predictor_dotprod_buf[start_pred_idx]));
-              for (uint32_t uii = start_pred_idx; uii < cur_predictor_ct; ++uii) {
+              for (uint32_t uii = start_pred_idx; uii != cur_predictor_ct; ++uii) {
                 semicomputed_biallelic_xtx[cur_predictor_ct + uii] = S_CAST(double, predictor_dotprod_buf[uii]);
               }
             }
             if (domdev_present) {
               ColMajorFvectorMatrixMultiplyStrided(&(nm_predictors_pmaj_buf[2 * nm_sample_ctav]), nm_predictors_pmaj_buf, nm_sample_ct, nm_sample_ctav, cur_predictor_ct, predictor_dotprod_buf);
-              for (uint32_t uii = 0; uii < cur_predictor_ct; ++uii) {
+              for (uint32_t uii = 0; uii != cur_predictor_ct; ++uii) {
                 semicomputed_biallelic_xtx[2 * cur_predictor_ct + uii] = S_CAST(double, predictor_dotprod_buf[uii]);
               }
               semicomputed_biallelic_xtx[cur_predictor_ct + 2] = semicomputed_biallelic_xtx[2 * cur_predictor_ct + 1];
@@ -3565,7 +3569,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
             }
             // unlike FirthRegression(), hh_return isn't inverted yet, do that
             // here
-            for (uint32_t pred_uidx = 0; pred_uidx < cur_predictor_ct; ++pred_uidx) {
+            for (uint32_t pred_uidx = 0; pred_uidx != cur_predictor_ct; ++pred_uidx) {
               float* hh_inv_row = &(hh_return[pred_uidx * cur_predictor_ctav]);
               // ZeroFArr(cur_predictor_ct, gradient_buf);
               // gradient_buf[pred_uidx] = 1.0;
@@ -3577,9 +3581,9 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
               ZeroFArr(pred_uidx, hh_inv_row);
 
               float fxx = 1.0;
-              for (uint32_t row_idx = pred_uidx; row_idx < cur_predictor_ct; ++row_idx) {
+              for (uint32_t row_idx = pred_uidx; row_idx != cur_predictor_ct; ++row_idx) {
                 const float* ll_row = &(cholesky_decomp_return[row_idx * cur_predictor_ctav]);
-                for (uint32_t col_idx = pred_uidx; col_idx < row_idx; ++col_idx) {
+                for (uint32_t col_idx = pred_uidx; col_idx != row_idx; ++col_idx) {
                   fxx -= ll_row[col_idx] * hh_inv_row[col_idx];
                 }
                 hh_inv_row[row_idx] = fxx / ll_row[row_idx];
@@ -3601,7 +3605,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
             }
           }
           // validParameters() check
-          for (uint32_t pred_uidx = 1; pred_uidx < cur_predictor_ct; ++pred_uidx) {
+          for (uint32_t pred_uidx = 1; pred_uidx != cur_predictor_ct; ++pred_uidx) {
             const float hh_inv_diag_element = hh_return[pred_uidx * cur_predictor_ctavp1];
             if ((hh_inv_diag_element < S_CAST(float, 1e-20)) || (!isfinite(hh_inv_diag_element))) {
               goto GlmLogisticThread_skip_variant;
@@ -3610,18 +3614,18 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
             sample_variance_buf[pred_uidx] = sqrtf(hh_inv_diag_element);
           }
           sample_variance_buf[0] = sqrtf(hh_return[0]);
-          for (uint32_t pred_uidx = 1; pred_uidx < cur_predictor_ct; ++pred_uidx) {
+          for (uint32_t pred_uidx = 1; pred_uidx != cur_predictor_ct; ++pred_uidx) {
             const float cur_hh_inv_diag_sqrt = S_CAST(float, 0.99999) * sample_variance_buf[pred_uidx];
             const float* hh_inv_row_iter = &(hh_return[pred_uidx * cur_predictor_ctav]);
             const float* hh_inv_diag_sqrts_iter = sample_variance_buf;
-            for (uint32_t pred_uidx2 = 0; pred_uidx2 < pred_uidx; ++pred_uidx2) {
+            for (uint32_t pred_uidx2 = 0; pred_uidx2 != pred_uidx; ++pred_uidx2) {
               if ((*hh_inv_row_iter++) > cur_hh_inv_diag_sqrt * (*hh_inv_diag_sqrts_iter++)) {
                 goto GlmLogisticThread_skip_variant;
               }
             }
           }
           double* beta_se_iter2 = beta_se_iter;
-          for (uint32_t pred_uidx = reported_pred_uidx_start; pred_uidx < reported_pred_uidx_biallelic_end; ++pred_uidx) {
+          for (uint32_t pred_uidx = reported_pred_uidx_start; pred_uidx != reported_pred_uidx_biallelic_end; ++pred_uidx) {
             *beta_se_iter2++ = S_CAST(double, coef_return[pred_uidx]);
             *beta_se_iter2++ = S_CAST(double, sample_variance_buf[pred_uidx]);
           }
@@ -3639,7 +3643,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
             // next test may have different alt allele count
             cur_constraints_con_major[cur_predictor_ct + 2] = 0.0;
           }
-          for (uint32_t extra_allele_idx = 0; extra_allele_idx < cur_extra_allele_ct; ++extra_allele_idx) {
+          for (uint32_t extra_allele_idx = 0; extra_allele_idx != cur_extra_allele_ct; ++extra_allele_idx) {
             // possible todo: in hide-covar + domdev/tests/interactions case,
             // don't need to save these
             *beta_se_iter2++ = S_CAST(double, coef_return[cur_biallelic_predictor_ct + extra_allele_idx]);
@@ -3768,7 +3772,7 @@ BoolErr AllocAndInitReportedTestNames(const uintptr_t* parameter_subset, const c
   if (add_interactions) {
     // don't bother optimizing this for parameter_subset case for now
     uintptr_t covar_name_total_blen = covar_ct;
-    for (uint32_t covar_idx = 0; covar_idx < covar_ct; ++covar_idx) {
+    for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
       covar_name_total_blen += strlen(covar_names[covar_idx]);
     }
     // ADDx[covar name], etc.
@@ -3805,7 +3809,7 @@ BoolErr AllocAndInitReportedTestNames(const uintptr_t* parameter_subset, const c
     test_name_buf_iter = iter_next;
   }
   uint32_t pred_uidx = 2 + domdev_present;
-  for (uint32_t covar_idx = 0; covar_idx < covar_ct; ++covar_idx, ++pred_uidx) {
+  for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx, ++pred_uidx) {
     if (parameter_subset && (!IsSet(parameter_subset, pred_uidx))) {
       continue;
     }
@@ -3813,7 +3817,7 @@ BoolErr AllocAndInitReportedTestNames(const uintptr_t* parameter_subset, const c
     cur_test_names[write_idx++] = covar_names[covar_idx];
   }
   if (add_interactions) {
-    for (uint32_t covar_idx = 0; covar_idx < covar_ct; ++covar_idx) {
+    for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
       const char* cur_covar_name = covar_names[covar_idx];
       if ((!parameter_subset) || IsSet(parameter_subset, pred_uidx)) {
         char* iter_next = memcpya(test_name_buf_iter, main_effect, 4);
@@ -3891,7 +3895,7 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
     }
     const uint32_t new_local_xy = is_x + 2 * is_y;
     if (new_local_xy != *local_xy_ptr) {
-      for (uint32_t uii = 0; uii < local_sample_ct; ++uii) {
+      for (uint32_t uii = 0; uii != local_sample_ct; ++uii) {
         const uint32_t cur_uidx = local_sample_uidx_order[uii];
         uint32_t cur_idx = UINT32_MAX;
         if ((cur_uidx != UINT32_MAX) && IsSet(cur_sample_include, cur_uidx)) {
@@ -3901,7 +3905,7 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
       }
       *local_xy_ptr = new_local_xy;
     }
-    for (; variant_bidx < cur_variant_bidx_end; ++variant_bidx, ++variant_uidx) {
+    for (; variant_bidx != cur_variant_bidx_end; ++variant_bidx, ++variant_uidx) {
       MovU32To1Bit(variant_include, &variant_uidx);
       if (!IsSet(local_variant_include, local_line_idx)) {
         uint32_t local_line_idx_target_m1 = AdvTo1Bit(local_variant_include, local_line_idx);
@@ -3930,7 +3934,7 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
       }
       const char* linebuf_iter = local_covar_line_iter;
       uint32_t sample_idx = 0;
-      for (uint32_t local_sample_idx = 0; sample_idx < cur_sample_ct; ++local_sample_idx) {
+      for (uint32_t local_sample_idx = 0; sample_idx != cur_sample_ct; ++local_sample_idx) {
         const uint32_t cur_sample_idx = local_sample_idx_order[local_sample_idx];
         if (cur_sample_idx == UINT32_MAX) {
           linebuf_iter = NextTokenMult(linebuf_iter, tokens_per_sample);
@@ -3961,7 +3965,7 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
         } else {
           if (local_covars_vcmaj_f_iter) {
             float* local_covars_f_iter2 = &(local_covars_vcmaj_f_iter[cur_sample_idx]);
-            for (uint32_t covar_idx = 0; covar_idx < local_covar_ct; ++covar_idx) {
+            for (uint32_t covar_idx = 0; covar_idx != local_covar_ct; ++covar_idx) {
               double dxx;
               linebuf_iter = ScanadvDouble(linebuf_iter, &dxx);
               if (unlikely((!linebuf_iter) || (fabs(dxx) > 3.4028235677973362e38))) {
@@ -3975,7 +3979,7 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
             }
           } else {
             double* local_covars_d_iter2 = &(local_covars_vcmaj_d_iter[cur_sample_idx]);
-            for (uint32_t covar_idx = 0; covar_idx < local_covar_ct; ++covar_idx) {
+            for (uint32_t covar_idx = 0; covar_idx != local_covar_ct; ++covar_idx) {
               double dxx;
               linebuf_iter = ScanadvDouble(linebuf_iter, &dxx);
               if (unlikely(!linebuf_iter)) {
@@ -4050,7 +4054,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
       if (unlikely(bigstack_alloc_u32(local_sample_ct, &local_sample_idx_order))) {
         goto GlmLogistic_ret_NOMEM;
       }
-      for (uint32_t uii = 0; uii < local_sample_ct; ++uii) {
+      for (uint32_t uii = 0; uii != local_sample_ct; ++uii) {
         const uint32_t cur_uidx = local_sample_uidx_order[uii];
         uint32_t cur_idx = UINT32_MAX;
         if ((cur_uidx != UINT32_MAX) && IsSet(g_sample_include, cur_uidx)) {
@@ -4200,7 +4204,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     LogisticAuxResult* logistic_block_aux_bufs[2];
     double* block_beta_se_bufs[2];
 
-    for (uint32_t uii = 0; uii < 2; ++uii) {
+    for (uint32_t uii = 0; uii != 2; ++uii) {
       if (unlikely(BIGSTACK_ALLOC_X(LogisticAuxResult, max_alt_allele_block_size, &(logistic_block_aux_bufs[uii])))) {
         goto GlmLogistic_ret_NOMEM;
       }
@@ -4229,7 +4233,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
       logerrputs("Warning: --glm logistic regression is unreliable on more than ~2 million\nsamples, since it uses single-precision arithmetic.\n");
     }
     g_workspace_bufs = S_CAST(unsigned char**, bigstack_alloc_raw_rd(calc_thread_ct * sizeof(intptr_t)));
-    for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
+    for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
       g_workspace_bufs[tidx] = S_CAST(unsigned char*, bigstack_alloc_raw(workspace_alloc));
     }
 
@@ -4421,7 +4425,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
         g_cur_block_variant_ct = cur_block_variant_ct;
         const uint32_t uidx_start = read_block_idx * read_block_size;
         ComputeUidxStartPartition(variant_include, cur_block_variant_ct, calc_thread_ct, uidx_start, g_read_variant_uidx_starts);
-        for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
+        for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
           g_pgr_ptrs[tidx]->fi.block_base = pgfip->block_base;
           g_pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
         }
@@ -4439,7 +4443,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
         const double* beta_se_iter = block_beta_se_bufs[parity];
         const LogisticAuxResult* cur_block_aux = logistic_block_aux_bufs[parity];
         uintptr_t allele_bidx = 0;
-        for (uint32_t variant_bidx = 0; variant_bidx < prev_block_variant_ct; ++variant_bidx, ++write_variant_uidx) {
+        for (uint32_t variant_bidx = 0; variant_bidx != prev_block_variant_ct; ++variant_bidx, ++write_variant_uidx) {
           MovU32To1Bit(variant_include, &write_variant_uidx);
           if (write_variant_uidx >= chr_end) {
             do {
@@ -4485,7 +4489,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
           const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
           uint32_t variant_is_valid = 0;
           uint32_t a1_allele_idx = 0;
-          for (uint32_t nonomitted_allele_idx = 0; nonomitted_allele_idx < cur_allele_ct_m1; ++nonomitted_allele_idx, ++a1_allele_idx) {
+          for (uint32_t nonomitted_allele_idx = 0; nonomitted_allele_idx != cur_allele_ct_m1; ++nonomitted_allele_idx, ++a1_allele_idx) {
             if (beta_se_multiallelic_fused) {
               if (!nonomitted_allele_idx) {
                 primary_reported_test_idx = include_intercept;
@@ -4550,7 +4554,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
               }
               // possible todo: make number-to-string operations, strlen(),
               // etc. happen only once per variant.
-              for (uint32_t allele_test_idx = 0; allele_test_idx < inner_reported_test_ct; ++allele_test_idx) {
+              for (uint32_t allele_test_idx = 0; allele_test_idx != inner_reported_test_ct; ++allele_test_idx) {
                 uint32_t test_idx = allele_test_idx;
                 if (beta_se_multiallelic_fused && nonomitted_allele_idx) {
                   if (!allele_test_idx) {
@@ -4576,7 +4580,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                 }
                 if (alt_col) {
                   *cswritep++ = '\t';
-                  for (uint32_t tmp_allele_idx = 1; tmp_allele_idx < cur_allele_ct; ++tmp_allele_idx) {
+                  for (uint32_t tmp_allele_idx = 1; tmp_allele_idx != cur_allele_ct; ++tmp_allele_idx) {
                     if (unlikely(Cswrite(&css, &cswritep))) {
                       goto GlmLogistic_ret_WRITE_FAIL;
                     }
@@ -4589,7 +4593,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                 cswritep = strcpya(cswritep, cur_alleles[a1_allele_idx]);
                 if (ax_col) {
                   *cswritep++ = '\t';
-                  for (uint32_t tmp_allele_idx = 0; tmp_allele_idx < cur_allele_ct; ++tmp_allele_idx) {
+                  for (uint32_t tmp_allele_idx = 0; tmp_allele_idx != cur_allele_ct; ++tmp_allele_idx) {
                     if (tmp_allele_idx == a1_allele_idx) {
                       continue;
                     }
@@ -4621,7 +4625,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                 }
                 if (gcount_cc_col) {
                   STD_ARRAY_KREF(uint32_t, 6) cur_geno_hardcall_cts = auxp->geno_hardcall_cts;
-                  for (uint32_t uii = 0; uii < 6; ++uii) {
+                  for (uint32_t uii = 0; uii != 6; ++uii) {
                     *cswritep++ = '\t';
                     cswritep = u32toa(cur_geno_hardcall_cts[uii], cswritep);
                   }
@@ -4887,7 +4891,7 @@ uint32_t GenoarrToDoublesRemoveMissing(const uintptr_t* genoarr, uint32_t sample
       subgroup_len = ModNz(sample_ct, kBitsPerWordD2);
     }
     uintptr_t geno_word = genoarr[widx];
-    for (uint32_t uii = 0; uii < subgroup_len; ++uii) {
+    for (uint32_t uii = 0; uii != subgroup_len; ++uii) {
       const uintptr_t cur_geno = geno_word & 3;
       if (cur_geno < 3) {
         // *doublebuf_iter++ = u31tod(cur_geno);
@@ -5156,7 +5160,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
       uint32_t prev_nm = 0;
 
       STD_ARRAY_DECL(uint32_t, 4, genocounts);
-      for (; variant_bidx < cur_variant_bidx_end; ++variant_bidx, ++variant_uidx) {
+      for (; variant_bidx != cur_variant_bidx_end; ++variant_bidx, ++variant_uidx) {
         MovU32To1Bit(variant_include, &variant_uidx);
         {
           // todo: get cur_extra_allele_ct and multiallelic dosage instead
@@ -5193,7 +5197,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
           if (prev_nm) {
             nm_predictors_pmaj_iter = &(nm_predictors_pmaj_iter[nm_sample_ct]);
           } else {
-            for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx) {
+            for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
               *nm_predictors_pmaj_iter++ = 1.0;
             }
           }
@@ -5227,7 +5231,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
               GenoarrToDoubles(genovec, nm_sample_ct, nm_predictors_pmaj_iter);
               if (dosage_ct) {
                 uint32_t sample_idx = 0;
-                for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_idx) {
+                for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx, ++sample_idx) {
                   MovU32To1Bit(dosage_present, &sample_idx);
                   // 32768 -> 2, 16384 -> 1, 0 -> 0
                   nm_predictors_pmaj_iter[sample_idx] = kRecipDosageMid * u31tod(dosage_main[dosage_idx]);
@@ -5236,7 +5240,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
             }
           } else {
             uint32_t sample_midx = 0;
-            for (uint32_t missing_idx = 0; missing_idx < missing_ct; ++missing_idx, ++sample_midx) {
+            for (uint32_t missing_idx = 0; missing_idx != missing_ct; ++missing_idx, ++sample_midx) {
               MovU32To0Bit(sample_nm, &sample_midx);
               cur_pheno_ssq -= cur_pheno[sample_midx] * cur_pheno[sample_midx];
             }
@@ -5245,7 +5249,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
             } else {
               sample_midx = 0;
               uint32_t dosage_idx = 0;
-              for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx, ++sample_midx) {
+              for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx, ++sample_midx) {
                 MovU32To1Bit(sample_nm, &sample_midx);
                 double cur_val;
                 if (IsSet(dosage_present, sample_midx)) {
@@ -5271,7 +5275,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
               // everything is on 0..1 scale, not 0..2
               dosage_ceil = 1.0;
               if (!sparse_optimization) {
-                for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx) {
+                for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
                   genotype_vals[sample_idx] *= 0.5;
                 }
               }
@@ -5283,7 +5287,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
             if (is_xchr_model_1) {
               // special case: multiply male values by 0.5
               uint32_t sample_idx = 0;
-              for (uint32_t male_idx = 0; male_idx < nm_male_ct; ++male_idx, ++sample_idx) {
+              for (uint32_t male_idx = 0; male_idx != nm_male_ct; ++male_idx, ++sample_idx) {
                 MovU32To1Bit(male_nm, &sample_idx);
                 genotype_vals[sample_idx] *= 0.5;
               }
@@ -5300,7 +5304,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
               dosage_ssq *= 0.25;
             }
           } else {
-            for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx) {
+            for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
               const double cur_genotype_val = genotype_vals[sample_idx];
               dosage_sum += cur_genotype_val;
               dosage_ssq += cur_genotype_val * cur_genotype_val;
@@ -5329,7 +5333,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
             } else if (joint_genotypic || joint_hethom) {
               // in hethom case, do this before clobbering genotype data
               domdev_vals = nm_predictors_pmaj_iter;
-              for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx) {
+              for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
                 double cur_genotype_val = genotype_vals[sample_idx];
                 if (cur_genotype_val > 1.0) {
                   cur_genotype_val = 2.0 - cur_genotype_val;
@@ -5341,7 +5345,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
             // todo: apply dominant/recessive transformation to all genotype
             // columns in multiallelic case
             if (model_dominant) {
-              for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx) {
+              for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
                 const double cur_genotype_val = genotype_vals[sample_idx];
                 // 0..1..1
                 if (cur_genotype_val > 1.0) {
@@ -5349,7 +5353,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
                 }
               }
             } else if (model_recessive || joint_hethom) {
-              for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx) {
+              for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
                 const double cur_genotype_val = genotype_vals[sample_idx];
                 // 0..0..1
                 if (cur_genotype_val < 1.0) {
@@ -5364,13 +5368,13 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
             if (missing_ct || (!prev_nm)) {
               // fill phenotype
               uint32_t sample_midx = 0;
-              for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx, ++sample_midx) {
+              for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx, ++sample_midx) {
                 MovU32To1Bit(sample_nm, &sample_midx);
                 nm_pheno_buf[sample_idx] = cur_pheno[sample_midx];
               }
 
               // fill covariates
-              for (uint32_t covar_idx = 0; covar_idx < cur_covar_ct; ++covar_idx, ++parameter_uidx) {
+              for (uint32_t covar_idx = 0; covar_idx != cur_covar_ct; ++covar_idx, ++parameter_uidx) {
                 // strictly speaking, we don't need cur_covars_cmaj to be
                 // vector-aligned
                 if (cur_parameter_subset && (!IsSet(cur_parameter_subset, parameter_uidx))) {
@@ -5383,7 +5387,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
                   cur_covar_col = &(cur_covars_cmaj[(covar_idx - local_covar_ct) * cur_sample_ct]);
                 }
                 sample_midx = 0;
-                for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx, ++sample_midx) {
+                for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx, ++sample_midx) {
                   MovU32To1Bit(sample_nm, &sample_midx);
                   *nm_predictors_pmaj_iter++ = cur_covar_col[sample_midx];
                 }
@@ -5400,7 +5404,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
             }
             // fill interaction terms
             if (add_interactions) {
-              for (uint32_t covar_idx = 0; covar_idx < cur_covar_ct; ++covar_idx) {
+              for (uint32_t covar_idx = 0; covar_idx != cur_covar_ct; ++covar_idx) {
                 const double* cur_covar_col;
                 if (covar_idx < local_covar_ct) {
                   cur_covar_col = &(local_covars_iter[covar_idx * max_sample_ct]);
@@ -5409,7 +5413,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
                 }
                 if ((!cur_parameter_subset) || IsSet(cur_parameter_subset, parameter_uidx)) {
                   uint32_t sample_midx = 0;
-                  for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx, ++sample_midx) {
+                  for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx, ++sample_midx) {
                     MovU32To1Bit(sample_nm, &sample_midx);
                     *nm_predictors_pmaj_iter++ = genotype_vals[sample_idx] * cur_covar_col[sample_midx];
                   }
@@ -5418,7 +5422,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
                 if (domdev_present) {
                   if ((!cur_parameter_subset) || IsSet(cur_parameter_subset, parameter_uidx)) {
                     uint32_t sample_midx = 0;
-                    for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx, ++sample_midx) {
+                    for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx, ++sample_midx) {
                       MovU32To1Bit(sample_nm, &sample_midx);
                       *nm_predictors_pmaj_iter++ = domdev_vals[sample_idx] * cur_covar_col[sample_midx];
                     }
@@ -5442,7 +5446,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
               double domdev_geno_prod = 0.0;
               double* geno_dotprod_row = &(xtx_inv[cur_predictor_ct]);
               double* domdev_dotprod_row = &(xtx_inv[2 * cur_predictor_ct]);
-              for (uint32_t widx = 0; widx < sample_ctl2; ++widx) {
+              for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
                 uintptr_t geno_word = genovec[widx];
                 if (geno_word) {
                   const uint32_t sample_idx_base = widx * kBitsPerWordD2;
@@ -5455,7 +5459,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
                     const double geno_d = geno_d_lookup[lowest_set_bit & 1];
                     const double cur_pheno_val = nm_pheno_buf[sample_idx];
                     geno_pheno_prod += geno_d * cur_pheno_val;
-                    for (uintptr_t pred_idx = domdev_present + 2; pred_idx < cur_predictor_ct; ++pred_idx) {
+                    for (uintptr_t pred_idx = domdev_present + 2; pred_idx != cur_predictor_ct; ++pred_idx) {
                       geno_dotprod_row[pred_idx] += geno_d * nm_predictors_pmaj_buf[pred_idx * nm_sample_ct + sample_idx];
                     }
                     // can have a separate categorical loop here
@@ -5464,7 +5468,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
                       // domdev = 1
                       domdev_pheno_prod += cur_pheno_val;
                       domdev_geno_prod += geno_d;
-                      for (uintptr_t pred_idx = 3; pred_idx < cur_predictor_ct; ++pred_idx) {
+                      for (uintptr_t pred_idx = 3; pred_idx != cur_predictor_ct; ++pred_idx) {
                         domdev_dotprod_row[pred_idx] += nm_predictors_pmaj_buf[pred_idx * nm_sample_ct + sample_idx];
                       }
                       // categorical optimization possible here
@@ -5529,7 +5533,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
             // major categorical optimization possible here
             MultiplySelfTranspose(nm_predictors_pmaj_buf, cur_predictor_ct, nm_sample_ct, xtx_inv);
 
-            for (uint32_t pred_idx = 1; pred_idx < cur_predictor_ct; ++pred_idx) {
+            for (uint32_t pred_idx = 1; pred_idx != cur_predictor_ct; ++pred_idx) {
               dbl_2d_buf[pred_idx] = xtx_inv[pred_idx * cur_predictor_ct];
             }
             VifCorrErr vif_corr_check_result;
@@ -5546,10 +5550,10 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
           // possible todo: improve numerical stability of this computation in
           // non-mean-centered phenotype case
           const double sigma = (cur_pheno_ssq - DotprodxD(xt_y, fitted_coefs, cur_predictor_ct)) / u31tod(nm_sample_ct - cur_predictor_ct);
-          for (uint32_t uii = 0; uii < cur_predictor_ct; ++uii) {
+          for (uint32_t uii = 0; uii != cur_predictor_ct; ++uii) {
             double* s_iter = &(xtx_inv[uii * cur_predictor_ct]);
 #ifdef NOLAPACK
-            for (uint32_t ujj = 0; ujj < cur_predictor_ct; ++ujj) {
+            for (uint32_t ujj = 0; ujj != cur_predictor_ct; ++ujj) {
               s_iter[ujj] *= sigma;
             }
 #else
@@ -5559,7 +5563,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
 #endif
           }
           // validParameters() check
-          for (uint32_t pred_uidx = 1; pred_uidx < cur_predictor_ct; ++pred_uidx) {
+          for (uint32_t pred_uidx = 1; pred_uidx != cur_predictor_ct; ++pred_uidx) {
             const double xtx_inv_diag_element = xtx_inv[pred_uidx * (cur_predictor_ct + 1)];
             if (xtx_inv_diag_element < 1e-20) {
               goto GlmLinearThread_skip_variant;
@@ -5568,17 +5572,17 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
             dbl_2d_buf[pred_uidx] = sqrt(xtx_inv_diag_element);
           }
           dbl_2d_buf[0] = sqrt(xtx_inv[0]);
-          for (uint32_t pred_uidx = 1; pred_uidx < cur_predictor_ct; ++pred_uidx) {
+          for (uint32_t pred_uidx = 1; pred_uidx != cur_predictor_ct; ++pred_uidx) {
             const double cur_xtx_inv_diag_sqrt = 0.99999 * dbl_2d_buf[pred_uidx];
             const double* xtx_inv_row = &(xtx_inv[pred_uidx * cur_predictor_ct]);
-            for (uint32_t pred_uidx2 = 0; pred_uidx2 < pred_uidx; ++pred_uidx2) {
+            for (uint32_t pred_uidx2 = 0; pred_uidx2 != pred_uidx; ++pred_uidx2) {
               if (xtx_inv_row[pred_uidx2] > cur_xtx_inv_diag_sqrt * dbl_2d_buf[pred_uidx2]) {
                 goto GlmLinearThread_skip_variant;
               }
             }
           }
           double* beta_se_iter2 = beta_se_iter;
-          for (uint32_t pred_uidx = reported_pred_uidx_start; pred_uidx < reported_pred_uidx_biallelic_end; ++pred_uidx) {
+          for (uint32_t pred_uidx = reported_pred_uidx_start; pred_uidx != reported_pred_uidx_biallelic_end; ++pred_uidx) {
             *beta_se_iter2++ = fitted_coefs[pred_uidx];
             *beta_se_iter2++ = dbl_2d_buf[pred_uidx];
           }
@@ -5587,7 +5591,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
             *beta_se_iter2++ = 0.0;
             *beta_se_iter2++ = -9.0;
           }
-          for (uint32_t extra_allele_idx = 0; extra_allele_idx < cur_extra_allele_ct; ++extra_allele_idx) {
+          for (uint32_t extra_allele_idx = 0; extra_allele_idx != cur_extra_allele_ct; ++extra_allele_idx) {
             // possible todo: in hide-covar + domdev/tests/interactions case,
             // don't need to save these
             beta_se_iter2[2 * extra_allele_idx] = S_CAST(double, fitted_coefs[cur_biallelic_predictor_ct + extra_allele_idx]);
@@ -5671,7 +5675,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
       if (unlikely(bigstack_alloc_u32(local_sample_ct, &local_sample_idx_order))) {
         goto GlmLinear_ret_NOMEM;
       }
-      for (uint32_t uii = 0; uii < local_sample_ct; ++uii) {
+      for (uint32_t uii = 0; uii != local_sample_ct; ++uii) {
         const uint32_t cur_uidx = local_sample_uidx_order[uii];
         uint32_t cur_idx = UINT32_MAX;
         if ((cur_uidx != UINT32_MAX) && IsSet(g_sample_include, cur_uidx)) {
@@ -5816,7 +5820,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     LinearAuxResult* linear_block_aux_bufs[2];
     double* block_beta_se_bufs[2];
 
-    for (uint32_t uii = 0; uii < 2; ++uii) {
+    for (uint32_t uii = 0; uii != 2; ++uii) {
       if (unlikely(BIGSTACK_ALLOC_X(LinearAuxResult, max_alt_allele_block_size, &(linear_block_aux_bufs[uii])))) {
         goto GlmLinear_ret_NOMEM;
       }
@@ -5840,7 +5844,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     }
 
     g_workspace_bufs = S_CAST(unsigned char**, bigstack_alloc_raw_rd(calc_thread_ct * sizeof(intptr_t)));
-    for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
+    for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
       g_workspace_bufs[tidx] = S_CAST(unsigned char*, bigstack_alloc_raw(workspace_alloc));
     }
 
@@ -6008,7 +6012,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
         g_cur_block_variant_ct = cur_block_variant_ct;
         const uint32_t uidx_start = read_block_idx * read_block_size;
         ComputeUidxStartPartition(variant_include, cur_block_variant_ct, calc_thread_ct, uidx_start, g_read_variant_uidx_starts);
-        for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
+        for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
           g_pgr_ptrs[tidx]->fi.block_base = pgfip->block_base;
           g_pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
         }
@@ -6026,7 +6030,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
         const double* beta_se_iter = block_beta_se_bufs[parity];
         const LinearAuxResult* cur_block_aux = linear_block_aux_bufs[parity];
         uintptr_t allele_bidx = 0;
-        for (uint32_t variant_bidx = 0; variant_bidx < prev_block_variant_ct; ++variant_bidx, ++write_variant_uidx) {
+        for (uint32_t variant_bidx = 0; variant_bidx != prev_block_variant_ct; ++variant_bidx, ++write_variant_uidx) {
           MovU32To1Bit(variant_include, &write_variant_uidx);
           if (write_variant_uidx >= chr_end) {
             do {
@@ -6073,7 +6077,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
           const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
           uint32_t variant_is_valid = 0;
           uint32_t a1_allele_idx = 0;
-          for (uint32_t nonomitted_allele_idx = 0; nonomitted_allele_idx < cur_allele_ct_m1; ++nonomitted_allele_idx, ++a1_allele_idx) {
+          for (uint32_t nonomitted_allele_idx = 0; nonomitted_allele_idx != cur_allele_ct_m1; ++nonomitted_allele_idx, ++a1_allele_idx) {
             if (beta_se_multiallelic_fused) {
               if (!nonomitted_allele_idx) {
                 primary_reported_test_idx = include_intercept;
@@ -6132,7 +6136,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
               }
               // possible todo: make number-to-string operations, strlen(),
               // etc. happen only once per variant.
-              for (uint32_t allele_test_idx = 0; allele_test_idx < inner_reported_test_ct; ++allele_test_idx) {
+              for (uint32_t allele_test_idx = 0; allele_test_idx != inner_reported_test_ct; ++allele_test_idx) {
                 uint32_t test_idx = allele_test_idx;
                 if (beta_se_multiallelic_fused && nonomitted_allele_idx) {
                   if (!allele_test_idx) {
@@ -6158,7 +6162,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                 }
                 if (alt_col) {
                   *cswritep++ = '\t';
-                  for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct; ++allele_idx) {
+                  for (uint32_t allele_idx = 1; allele_idx != cur_allele_ct; ++allele_idx) {
                     if (unlikely(Cswrite(&css, &cswritep))) {
                       goto GlmLinear_ret_WRITE_FAIL;
                     }
@@ -6170,7 +6174,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                 cswritep = strcpya(cswritep, cur_alleles[a1_allele_idx]);
                 if (ax_col) {
                   *cswritep++ = '\t';
-                  for (uint32_t allele_idx = 0; allele_idx < cur_allele_ct; ++allele_idx) {
+                  for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct; ++allele_idx) {
                     if (allele_idx == a1_allele_idx) {
                       continue;
                     }
@@ -6502,7 +6506,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       uintptr_t* variant_include_nohap = nullptr;
       const uint32_t chr_ct = cip->chr_ct;
       uint32_t removed_variant_ct = 0;
-      for (uint32_t chr_fo_idx = 0; chr_fo_idx < chr_ct; ++chr_fo_idx) {
+      for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
         const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
         if (IsSet(cip->haploid_mask, chr_idx)) {
           const uint32_t variant_uidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
@@ -6712,7 +6716,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             goto GlmMain_ret_NOMEM;
           }
           PgrClearLdCache(simple_pgrp);
-          for (uint32_t condition_idx = 0; condition_idx < condition_ct; ++condition_idx) {
+          for (uint32_t condition_idx = 0; condition_idx != condition_ct; ++condition_idx) {
             const uint32_t cur_variant_uidx = condition_uidxs[condition_idx];
             uint32_t dosage_ct;
             reterr = PgrGetD(nullptr, nullptr, raw_sample_ct, cur_variant_uidx, simple_pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
@@ -6746,20 +6750,20 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             GenoarrToDoubles(genovec, raw_sample_ct, cur_covar_vals);
             if (dosage_ct) {
               uint32_t sample_uidx = 0;
-              for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_uidx) {
+              for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx, ++sample_uidx) {
                 MovU32To1Bit(dosage_present, &sample_uidx);
                 cur_covar_vals[sample_uidx] = kRecipDosageMid * u31tod(dosage_main[dosage_idx]);
               }
               BitvecOr(dosage_present, raw_sample_ctl, cur_nonmiss);
             }
             if (glm_flags & kfGlmConditionDominant) {
-              for (uint32_t sample_uidx = 0; sample_uidx < raw_sample_ct; ++sample_uidx) {
+              for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
                 if (cur_covar_vals[sample_uidx] > 1.0) {
                   cur_covar_vals[sample_uidx] = 1.0;
                 }
               }
             } else if (glm_flags & kfGlmConditionRecessive) {
-              for (uint32_t sample_uidx = 0; sample_uidx < raw_sample_ct; ++sample_uidx) {
+              for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
                 double dxx = cur_covar_vals[sample_uidx];
                 if (dxx <= 1.0) {
                   dxx = 0;
@@ -6780,7 +6784,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
                     goto GlmMain_ret_INCONSISTENT_INPUT;
                   }
                   uint32_t sample_uidx = 0;
-                  for (uint32_t male_idx = 0; male_idx < male_ct; ++male_idx, ++sample_uidx) {
+                  for (uint32_t male_idx = 0; male_idx != male_ct; ++male_idx, ++sample_uidx) {
                     MovU32To1Bit(sex_male, &sample_uidx);
                     cur_covar_vals[sample_uidx] *= 0.5;
                   }
@@ -6790,7 +6794,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
                   logerrputs("Error: --condition{-list} 'dominant'/'recessive' cannot be used with haploid\nvariants.\n");
                   goto GlmMain_ret_INCONSISTENT_INPUT;
                 }
-                for (uint32_t sample_uidx = 0; sample_uidx < raw_sample_ct; ++sample_uidx) {
+                for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
                   cur_covar_vals[sample_uidx] *= 0.5;
                 }
               }
@@ -6811,7 +6815,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       // bugfix (11 May 2017): local covar names come before, not after,
       //   --condition{-list} covar names
       char* covar_names_write_iter = new_covar_names;
-      for (uint32_t local_covar_idx = 0; local_covar_idx < local_covar_ct; ++local_covar_idx) {
+      for (uint32_t local_covar_idx = 0; local_covar_idx != local_covar_ct; ++local_covar_idx) {
         memcpy_k(covar_names_write_iter, "LOCAL", 5);
         char* name_end = u32toa(local_covar_idx + 1, &(covar_names_write_iter[5]));
         *name_end = '\0';
@@ -6820,7 +6824,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         covar_names_write_iter = &(covar_names_write_iter[new_max_covar_name_blen]);
       }
       covar_names_write_iter = &(covar_names_write_iter[condition_ct * new_max_covar_name_blen]);
-      for (uint32_t old_covar_idx = 0; old_covar_idx < orig_covar_ct; ++old_covar_idx) {
+      for (uint32_t old_covar_idx = 0; old_covar_idx != orig_covar_ct; ++old_covar_idx) {
         strcpy(covar_names_write_iter, covar_names_read_iter);
         covar_names_read_iter = &(covar_names_read_iter[max_covar_name_blen]);
         covar_names_write_iter = &(covar_names_write_iter[new_max_covar_name_blen]);
@@ -6832,7 +6836,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           goto GlmMain_ret_NOMEM;
         }
         uint32_t sample_uidx = 0;
-        for (uint32_t sample_idx = 0; sample_idx < orig_sample_ct; ++sample_idx, ++sample_uidx) {
+        for (uint32_t sample_idx = 0; sample_idx != orig_sample_ct; ++sample_idx, ++sample_uidx) {
           MovU32To1Bit(sex_nm, &sample_uidx);
           // 1/2 instead of 1/0 coding; user shouldn't have to worry about
           // signs changing when they use --sex instead of using the sex column
@@ -6863,7 +6867,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         goto GlmMain_ret_NOMEM;
       }
       ZeroWArr(raw_covar_ctl, initial_covar_include);
-      for (uint32_t covar_uidx = 0; covar_uidx < raw_covar_ct; ++covar_uidx) {
+      for (uint32_t covar_uidx = 0; covar_uidx != raw_covar_ct; ++covar_uidx) {
         const PhenoCol* cur_covar_col = &(covar_cols[covar_uidx]);
         if (cur_covar_col->type_code != kPhenoDtypeOther) {
           if (!IsConstCovar(cur_covar_col, orig_sample_include, orig_sample_ct)) {
@@ -6978,7 +6982,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       }
       const uint32_t removed_covar_ct = raw_covar_ct - nonconst_covar_ct;
       uint32_t covar_uidx = 0;
-      for (uint32_t removed_covar_idx = 0; removed_covar_idx < removed_covar_ct; ++removed_covar_idx, ++covar_uidx) {
+      for (uint32_t removed_covar_idx = 0; removed_covar_idx != removed_covar_ct; ++removed_covar_idx, ++covar_uidx) {
         MovU32To0Bit(initial_covar_include, &covar_uidx);
         ClearBit(first_covar_pred_uidx + covar_uidx, raw_parameter_subset);
         if (first_interaction_pred_uidx) {
@@ -6992,7 +6996,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       // if any loaded nonconstant covariates aren't referenced in
       // raw_parameter_subset, remove them from initial_covar_include
       covar_uidx = 0;
-      for (uint32_t nonconst_covar_idx = 0; nonconst_covar_idx < nonconst_covar_ct; ++nonconst_covar_idx, ++covar_uidx) {
+      for (uint32_t nonconst_covar_idx = 0; nonconst_covar_idx != nonconst_covar_ct; ++nonconst_covar_idx, ++covar_uidx) {
         MovU32To1Bit(initial_covar_include, &covar_uidx);
         uint32_t cur_covar_is_referenced = IsSet(raw_parameter_subset, first_covar_pred_uidx + covar_uidx);
         if (add_interactions) {
@@ -7075,7 +7079,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     }
 
     unsigned char* bigstack_mark2 = g_bigstack_base;
-    for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
+    for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
       const PhenoCol* cur_pheno_col = &(pheno_cols[pheno_idx]);
       const PhenoDtype dtype_code = cur_pheno_col->type_code;
       const char* cur_pheno_name = &(pheno_names[pheno_idx * max_pheno_name_blen]);
@@ -7109,9 +7113,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       uint32_t separation_warning = 0;
       BigstackDoubleReset(bigstack_mark2, bigstack_end_mark);
       /*
-      for (uint32_t uii = 0; uii < raw_covar_ct; ++uii) {
+      for (uint32_t uii = 0; uii != raw_covar_ct; ++uii) {
         const PhenoCol* cur_covar_col = &(covar_cols[uii]);
-        for (uint32_t sample_uidx = 0; sample_uidx < raw_sample_ct; ++sample_uidx) {
+        for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
           printf("%g ", cur_covar_col->data.qt[sample_uidx]);
         }
         printf("\n\n");
@@ -7168,7 +7172,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       }
       if (covar_ct < initial_nonx_covar_ct) {
         uint32_t covar_uidx = 0;
-        for (uint32_t covar_idx = 0; covar_idx < initial_nonx_covar_ct; ++covar_idx, ++covar_uidx) {
+        for (uint32_t covar_idx = 0; covar_idx != initial_nonx_covar_ct; ++covar_idx, ++covar_uidx) {
           MovU32To1Bit(initial_covar_include, &covar_uidx);
           if (!IsSet(covar_include, covar_uidx)) {
             logerrprintfww("Warning: %sot including covariate '%s' in --glm regression on phenotype '%s'.\n", cur_sample_include_x_buf? (cur_sample_include_y_buf? "Outside of chrX, n" : "Outside of chrX and chrY, n") : (cur_sample_include_y_buf? "Outside of chrY, n" : "N"), &(covar_names[covar_uidx * max_covar_name_blen]), cur_pheno_name);
@@ -7233,7 +7237,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             }
             if (sample_ct_x && (covar_ct_x < initial_nonx_covar_ct + 1)) {
               uint32_t covar_uidx = 0;
-              for (uint32_t covar_idx = 0; covar_idx < covar_ct_x; ++covar_idx, ++covar_uidx) {
+              for (uint32_t covar_idx = 0; covar_idx != covar_ct_x; ++covar_idx, ++covar_uidx) {
                 MovU32To1Bit(initial_covar_include, &covar_uidx);
                 if (!IsSet(covar_include_x, covar_uidx)) {
                   logerrprintfww("Warning: On chrX, not including covariate '%s' in --glm regression on phenotype '%s'.\n", &(covar_names[covar_uidx * max_covar_name_blen]), cur_pheno_name);
@@ -7295,7 +7299,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             }
             if (sample_ct_y && (covar_ct_y < initial_y_covar_ct)) {
               uint32_t covar_uidx = 0;
-              for (uint32_t covar_idx = 0; covar_idx < covar_ct_y; ++covar_idx, ++covar_uidx) {
+              for (uint32_t covar_idx = 0; covar_idx != covar_ct_y; ++covar_idx, ++covar_uidx) {
                 MovU32To1Bit(initial_covar_include, &covar_uidx);
                 if (!IsSet(covar_include_y, covar_uidx)) {
                   logerrprintfww("Warning: On chrY, not including covariate '%s' in --glm regression on phenotype '%s'.\n", &(covar_names[covar_uidx * max_covar_name_blen]), cur_pheno_name);

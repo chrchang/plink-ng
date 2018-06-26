@@ -356,7 +356,7 @@ HEADER_INLINE double GetNonmajFreq(const double* cur_allele_freqs, uint32_t cur_
   double tot_nonlast_freq = cur_allele_freqs[0];
   double max_freq = tot_nonlast_freq;
   const uint32_t cur_allele_ct_m1 = cur_allele_ct - 1;
-  for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct_m1; ++allele_idx) {
+  for (uint32_t allele_idx = 1; allele_idx != cur_allele_ct_m1; ++allele_idx) {
     const double cur_alt_freq = cur_allele_freqs[allele_idx];
     tot_nonlast_freq += cur_alt_freq;
     if (cur_alt_freq > max_freq) {
@@ -373,7 +373,7 @@ HEADER_INLINE double GetAlleleFreq(const double* cur_allele_freqs, uint32_t alle
     return cur_allele_freqs[allele_idx];
   }
   double last_freq = 1.0 - cur_allele_freqs[0];
-  for (uint32_t tmp_allele_idx = 1; tmp_allele_idx < cur_allele_ct_m1; ++tmp_allele_idx) {
+  for (uint32_t tmp_allele_idx = 1; tmp_allele_idx != cur_allele_ct_m1; ++tmp_allele_idx) {
     last_freq -= cur_allele_freqs[tmp_allele_idx];
   }
   return MAXV(last_freq, 0.0);
@@ -722,7 +722,7 @@ HEADER_INLINE void VcountIncr2To4(const uintptr_t* acc2, uint32_t acc2_vec_ct, u
   const VecW m2 = VCONST_W(kMask3333);
   const VecW* acc2v_iter = R_CAST(const VecW*, acc2);
   VecW* acc4v_iter = R_CAST(VecW*, acc4);
-  for (uint32_t vidx = 0; vidx < acc2_vec_ct; ++vidx) {
+  for (uint32_t vidx = 0; vidx != acc2_vec_ct; ++vidx) {
     VecW loader = *acc2v_iter++;
     *acc4v_iter = (*acc4v_iter) + (loader & m2);
     ++acc4v_iter;
@@ -736,7 +736,7 @@ HEADER_INLINE void Vcount0Incr2To4(uint32_t acc2_vec_ct, uintptr_t* acc2, uintpt
   const VecW m2 = VCONST_W(kMask3333);
   VecW* acc2v_iter = R_CAST(VecW*, acc2);
   VecW* acc4v_iter = R_CAST(VecW*, acc4);
-  for (uint32_t vidx = 0; vidx < acc2_vec_ct; ++vidx) {
+  for (uint32_t vidx = 0; vidx != acc2_vec_ct; ++vidx) {
     VecW loader = *acc2v_iter;
     *acc2v_iter++ = vecw_setzero();
     *acc4v_iter = (*acc4v_iter) + (loader & m2);

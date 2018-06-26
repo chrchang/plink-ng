@@ -157,14 +157,14 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
         goto LoadIbed_ret_NOMEM;
       }
       set_names = *set_names_ptr;
-      for (uintptr_t set_idx = 0; set_idx < set_ct; ++set_idx) {
+      for (uintptr_t set_idx = 0; set_idx != set_ct; ++set_idx) {
         strptr_arr[set_idx] = make_set_ll->str;
         make_set_ll = make_set_ll->next;
       }
       StrptrArrNsort(set_ct, strptr_arr);
       set_ct = CopyAndDedupSortedStrptrsToStrbox(strptr_arr, set_ct, max_set_id_blen, &(set_names[c_prefix]));
       if (c_prefix) {
-        for (uintptr_t set_idx = 0; set_idx < set_ct; ++set_idx) {
+        for (uintptr_t set_idx = 0; set_idx != set_ct; ++set_idx) {
           memcpy_k(&(set_names[set_idx * max_set_id_blen]), "C_", 2);
         }
       }
@@ -302,7 +302,7 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
     }
     // allocate buffer for sorting ranges later
     uint32_t max_set_range_ct = 0;
-    for (uint32_t set_idx = 0; set_idx < set_ct; ++set_idx) {
+    for (uint32_t set_idx = 0; set_idx != set_ct; ++set_idx) {
       uint32_t cur_set_range_ct = 0;
       MakeSetRange* msr_tmp = make_set_range_arr[set_idx];
       while (msr_tmp) {

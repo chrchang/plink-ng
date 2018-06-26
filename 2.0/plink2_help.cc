@@ -50,7 +50,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
       goto DispHelp_ret_NOMEM;
     }
     leading_dashes = 0;
-    for (arg_uidx = 0; arg_uidx < param_ct; arg_uidx++) {
+    for (arg_uidx = 0; arg_uidx != param_ct; ++arg_uidx) {
       if (argvk[arg_uidx][0] == '-') {
         leading_dashes = 1;
         break;
@@ -60,7 +60,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
       if (unlikely(pgl_malloc(param_ct * sizeof(intptr_t), &new_argv))) {
         goto DispHelp_ret_NOMEM;
       }
-      for (arg_uidx = 0; arg_uidx < param_ct; arg_uidx++) {
+      for (arg_uidx = 0; arg_uidx != param_ct; ++arg_uidx) {
         if (argvk[arg_uidx][0] == '-') {
           if (argvk[arg_uidx][1] == '-') {
             new_argv[arg_uidx] = &(argvk[arg_uidx][2]);
@@ -75,7 +75,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     } else {
       help_ctrl.argv = argvk;
     }
-    for (arg_idx = 0; arg_idx < param_ct; arg_idx++) {
+    for (arg_idx = 0; arg_idx != param_ct; ++arg_idx) {
       help_ctrl.param_slens[arg_idx] = strlen(help_ctrl.argv[arg_idx]);
     }
     ZeroWArr(param_ctl * 3, help_ctrl.all_match_arr);

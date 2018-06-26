@@ -43,11 +43,11 @@ BoolErr InitAllocSfmtpArr(uint32_t thread_ct, uint32_t use_main_sfmt_as_element_
   }
   if (thread_ct > use_main_sfmt_as_element_zero) {
     uint32_t uibuf[4];
-    for (uint32_t tidx = use_main_sfmt_as_element_zero; tidx < thread_ct; ++tidx) {
+    for (uint32_t tidx = use_main_sfmt_as_element_zero; tidx != thread_ct; ++tidx) {
       if (unlikely(BIGSTACK_ALLOC_X(sfmt_t, 1, &(g_sfmtp_arr[tidx])))) {
         return 1;
       }
-      for (uint32_t uii = 0; uii < 4; ++uii) {
+      for (uint32_t uii = 0; uii != 4; ++uii) {
         uibuf[uii] = sfmt_genrand_uint32(&g_sfmt);
       }
       sfmt_init_by_array(g_sfmtp_arr[tidx], uibuf, 4);
@@ -69,7 +69,7 @@ THREAD_FUNC_DECL FillGaussianDArrThread(void* arg) {
   uintptr_t idx_start = (tidx * entry_pair_ct) / calc_thread_ct;
   uintptr_t idx_ct = (((tidx + 1) * entry_pair_ct) / calc_thread_ct) - idx_start;
   double* darray_iter = &(g_darray[idx_start * 2]);
-  for (uintptr_t ulii = 0; ulii < idx_ct; ++ulii) {
+  for (uintptr_t ulii = 0; ulii != idx_ct; ++ulii) {
     double dxx;
     *darray_iter++ = RandNormal(sfmtp, &dxx);
     *darray_iter++ = dxx;
@@ -125,7 +125,7 @@ THREAD_FUNC_DECL RandomizeBigstackThread(void* arg) {
     end_idx = RoundDownPow2(end_idx, kInt64PerCacheline);
   }
   sfmt_t* sfmtp = g_sfmtp_arr[tidx];
-  for (uintptr_t ulii = start_idx; ulii < end_idx; ++ulii) {
+  for (uintptr_t ulii = start_idx; ulii != end_idx; ++ulii) {
     bigstack_int64[ulii] = sfmt_genrand_uint64(sfmtp);
   }
   THREAD_RETURN;
@@ -181,12 +181,12 @@ void GeneratePerm1Interleaved(uint32_t tot_bit_ct, uint32_t set_bit_ct, uintptr_
   // it just might be worth optimizing that division...
   DivisionMagicNums(tot_quotient, &totq_magic, &totq_preshift, &totq_postshift, &totq_incr);
   if (set_bit_ct * 2 < tot_bit_ct) {
-    for (uintptr_t widx = 0; widx < tot_bit_ctl; ++widx) {
+    for (uintptr_t widx = 0; widx != tot_bit_ctl; ++widx) {
       ZeroWArr(perm_ct, &(perm_buf[perm_start_idx + (widx * perm_end_idx)]));
     }
-    for (uintptr_t perm_idx = perm_start_idx; perm_idx < perm_end_idx; ++perm_idx) {
+    for (uintptr_t perm_idx = perm_start_idx; perm_idx != perm_end_idx; ++perm_idx) {
       uintptr_t* pbptr = &(perm_buf[perm_idx]);
-      for (uint32_t num_set = 0; num_set < set_bit_ct; ++num_set) {
+      for (uint32_t num_set = 0; num_set != set_bit_ct; ++num_set) {
         uintptr_t widx;
         uintptr_t shifted_bit;
 	do {
@@ -204,14 +204,14 @@ void GeneratePerm1Interleaved(uint32_t tot_bit_ct, uint32_t set_bit_ct, uintptr_
       }
     }
   } else {
-    for (uintptr_t widx = 0; widx < tot_bit_ctl; ++widx) {
+    for (uintptr_t widx = 0; widx != tot_bit_ctl; ++widx) {
       SetAllWArr(perm_ct, &(perm_buf[perm_start_idx + (widx * perm_end_idx)]));
     }
     // "set" has reversed meaning here
     set_bit_ct = tot_bit_ct - set_bit_ct;
-    for (uintptr_t perm_idx = perm_start_idx; perm_idx < perm_end_idx; ++perm_idx) {
+    for (uintptr_t perm_idx = perm_start_idx; perm_idx != perm_end_idx; ++perm_idx) {
       uintptr_t* pbptr = &(perm_buf[perm_idx]);
-      for (uint32_t num_set = 0; num_set < set_bit_ct; num_set++) {
+      for (uint32_t num_set = 0; num_set != set_bit_ct; ++num_set) {
         uintptr_t widx;
         uintptr_t shifted_bit;
 	do {
@@ -231,7 +231,7 @@ void GeneratePerm1Interleaved(uint32_t tot_bit_ct, uint32_t set_bit_ct, uintptr_
     if (remaining_bit_ct) {
       const uintptr_t final_mask = (~k0LU) >> (kBitsPerWord - remaining_bit_ct);
       uintptr_t* pbptr = &(perm_buf[(tot_bit_ctl - 1) * perm_end_idx + perm_start_idx]);
-      for (uintptr_t perm_idx = perm_start_idx; perm_idx < perm_end_idx; ++perm_idx) {
+      for (uintptr_t perm_idx = perm_start_idx; perm_idx != perm_end_idx; ++perm_idx) {
 	*pbptr &= final_mask;
 	pbptr++;
       }

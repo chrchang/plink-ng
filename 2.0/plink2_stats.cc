@@ -138,7 +138,7 @@ double finite_gamma_q(uint32_t aa, double xx, double* p_derivative) {
   }
   double sum = ee;
   double term = sum;
-  for (uint32_t nn = 1; nn < aa; ++nn) {
+  for (uint32_t nn = 1; nn != aa; ++nn) {
     term /= u31tod(nn);
     term *= xx;
     sum += term;
@@ -291,7 +291,7 @@ double lanczos_sum_expg_scaled_recip(double zz) {
     zz = 1 / zz;
     s1 = kLanczosSumExpgNumer[0];
     s2 = kLanczosSumExpgDenom[0];
-    for (uint32_t uii = 1; uii < 6; ++uii) {
+    for (uint32_t uii = 1; uii != 6; ++uii) {
       s1 *= zz;
       s2 *= zz;
       s1 += kLanczosSumExpgNumer[uii];
@@ -566,7 +566,7 @@ double finite_gamma_q_ln(uint32_t aa, double xx) {
   // no overflow or underflow danger for main term thanks to bounds
   double sum = 1.0;
   double term = 1.0;
-  for (uint32_t nn = 1; nn < aa; ++nn) {
+  for (uint32_t nn = 1; nn != aa; ++nn) {
     term /= u31tod(nn);
     term *= xx;
     sum += term;
@@ -2168,7 +2168,7 @@ double HweXchrP(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, i
   const double orig_row_prob = tailp + centerp;
   n1 += male1;
   n2 += male2;
-  for (uint32_t male1_decreasing = 0; male1_decreasing < 2; ++male1_decreasing) {
+  for (uint32_t male1_decreasing = 0; male1_decreasing != 2; ++male1_decreasing) {
     double cur_male1 = male1;
     double cur_male2 = male2;
     double row_prob = orig_row_prob;
@@ -2192,7 +2192,7 @@ double HweXchrP(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, i
         iter_ct = male2;
       }
     }
-    for (uint32_t iter_idx = 0; iter_idx < iter_ct; ++iter_idx) {
+    for (uint32_t iter_idx = 0; iter_idx != iter_ct; ++iter_idx) {
       if (male1_decreasing) {
         const double old_male1 = cur_male1;
         const double old_female2 = n2 - cur_male2;

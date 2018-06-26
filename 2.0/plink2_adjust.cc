@@ -96,7 +96,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     if (!allele_idx_offsets) {
       if (chisqs) {
         if (ln_pvals) {
-          for (uintptr_t aidx = 0; aidx < orig_allele_ct; ++aidx, ++allele_uidx) {
+          for (uintptr_t aidx = 0; aidx != orig_allele_ct; ++aidx, ++allele_uidx) {
             MovWTo1Bit(allele_include, &allele_uidx);
             const double cur_chisq = chisqs[aidx];
             if (cur_chisq >= 0.0) {
@@ -108,7 +108,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
             }
           }
         } else {
-          for (uintptr_t aidx = 0; aidx < orig_allele_ct; ++aidx, ++allele_uidx) {
+          for (uintptr_t aidx = 0; aidx != orig_allele_ct; ++aidx, ++allele_uidx) {
             MovWTo1Bit(allele_include, &allele_uidx);
             const double cur_chisq = chisqs[aidx];
             if (cur_chisq >= 0.0) {
@@ -121,7 +121,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
           }
         }
       } else {
-        for (uintptr_t aidx = 0; aidx < orig_allele_ct; ++aidx, ++allele_uidx) {
+        for (uintptr_t aidx = 0; aidx != orig_allele_ct; ++aidx, ++allele_uidx) {
           MovWTo1Bit(allele_include, &allele_uidx);
           const double cur_ln_pval = ln_pvals[aidx];
           if (cur_ln_pval <= 0.0) {
@@ -139,7 +139,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
       uintptr_t allele_idx_offset_end = allele_idx_offsets[variant_uidx + 1];
       if (chisqs) {
         if (ln_pvals) {
-          for (uintptr_t aidx = 0; aidx < orig_allele_ct; ++aidx, ++allele_uidx) {
+          for (uintptr_t aidx = 0; aidx != orig_allele_ct; ++aidx, ++allele_uidx) {
             MovWTo1Bit(allele_include, &allele_uidx);
             if (allele_uidx >= allele_idx_offset_end) {
               ++variant_uidx;
@@ -157,7 +157,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
             }
           }
         } else {
-          for (uintptr_t aidx = 0; aidx < orig_allele_ct; ++aidx, ++allele_uidx) {
+          for (uintptr_t aidx = 0; aidx != orig_allele_ct; ++aidx, ++allele_uidx) {
             MovWTo1Bit(allele_include, &allele_uidx);
             if (allele_uidx >= allele_idx_offset_end) {
               ++variant_uidx;
@@ -176,7 +176,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
           }
         }
       } else {
-        for (uintptr_t aidx = 0; aidx < orig_allele_ct; ++aidx, ++allele_uidx) {
+        for (uintptr_t aidx = 0; aidx != orig_allele_ct; ++aidx, ++allele_uidx) {
           MovWTo1Bit(allele_include, &allele_uidx);
           if (allele_uidx >= allele_idx_offset_end) {
             ++variant_uidx;
@@ -337,7 +337,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
       }
     }
     double* sorted_ln_pvals = unadj_sorted_ln_pvals;
-    for (uintptr_t aidx = 0; aidx < valid_allele_ct; ++aidx) {
+    for (uintptr_t aidx = 0; aidx != valid_allele_ct; ++aidx) {
       ln_pv_gc[aidx] = ChisqToLnP(sortbuf[aidx].chisq * lambda_recip, 1);
       unadj_sorted_ln_pvals[aidx] = sortbuf[aidx].ln_pval;
     }
@@ -428,7 +428,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
       }
       if (alt_col) {
         *cswritep++ = '\t';
-        for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct; ++allele_idx) {
+        for (uint32_t allele_idx = 1; allele_idx != cur_allele_ct; ++allele_idx) {
           if (unlikely(Cswrite(&css, &cswritep))) {
             goto Multcomp_ret_WRITE_FAIL;
           }
@@ -735,7 +735,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       goto AdjustFile_ret_NOMEM;
     }
     SetAllBits(entry_ct, variant_include_dummy);
-    for (uintptr_t ulii = 0; ulii < entry_ct / kBitsPerWordD2; ++ulii) {
+    for (uintptr_t ulii = 0; ulii != entry_ct / kBitsPerWordD2; ++ulii) {
       allele_include_dummy[ulii] = kMaskAAAA;
     }
     const uint32_t remainder = entry_ct % kBitsPerWordD2;

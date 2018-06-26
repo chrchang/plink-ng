@@ -166,7 +166,7 @@ void ReflectFmatrix0(uint32_t dim, uint32_t stride, float* matrix);
 
 HEADER_INLINE double DotprodDShort(const double* vec1, const double* vec2, uint32_t ct) {
   double dotprod = 0.0;
-  for (uint32_t uii = 0; uii < ct; ++uii) {
+  for (uint32_t uii = 0; uii != ct; ++uii) {
     dotprod += vec1[uii] * vec2[uii];
   }
   return dotprod;
@@ -174,7 +174,7 @@ HEADER_INLINE double DotprodDShort(const double* vec1, const double* vec2, uint3
 
 HEADER_INLINE float DotprodFShort(const float* vec1, const float* vec2, uint32_t ct) {
   float dotprod = 0.0;
-  for (uint32_t uii = 0; uii < ct; ++uii) {
+  for (uint32_t uii = 0; uii != ct; ++uii) {
     dotprod += vec1[uii] * vec2[uii];
   }
   return dotprod;
@@ -229,7 +229,7 @@ HEADER_INLINE BoolErr InvertSymmdefFmatrixFirstHalf(int32_t dim, uint32_t stride
 HEADER_INLINE double HalfInvertedDet(__maybe_unused const double* half_inverted_iter, __maybe_unused const MatrixInvertBuf1* dbl_1d_buf, uint32_t dim) {
   // singular values in dbl_1d_buf
   double det_u = dbl_1d_buf[0];
-  for (uint32_t uii = 1; uii < dim; ++uii) {
+  for (uint32_t uii = 1; uii != dim; ++uii) {
     det_u *= dbl_1d_buf[uii];
   }
   return fabs(det_u);
@@ -297,7 +297,7 @@ BoolErr InvertSymmdefFmatrixFirstHalf(__CLPK_integer dim, uint32_t stride, float
 HEADER_INLINE double HalfInvertedDet(__maybe_unused const double* half_inverted_iter, __maybe_unused const MatrixInvertBuf1* int_1d_buf, uint32_t dim) {
   uint32_t dim_p1 = dim + 1;
   double det_u = *half_inverted_iter;
-  for (uint32_t uii = 1; uii < dim; ++uii) {
+  for (uint32_t uii = 1; uii != dim; ++uii) {
     half_inverted_iter = &(half_inverted_iter[dim_p1]);
     det_u *= (*half_inverted_iter);
   }
@@ -307,7 +307,7 @@ HEADER_INLINE double HalfInvertedDet(__maybe_unused const double* half_inverted_
 HEADER_INLINE double HalfSymmInvertedDet(__maybe_unused const double* half_inverted_iter, __maybe_unused const MatrixInvertBuf1* int_1d_buf, uint32_t dim) {
   uint32_t dim_p1 = dim + 1;
   double sqrt_det_u = *half_inverted_iter;
-  for (uint32_t uii = 1; uii < dim; ++uii) {
+  for (uint32_t uii = 1; uii != dim; ++uii) {
     half_inverted_iter = &(half_inverted_iter[dim_p1]);
     sqrt_det_u *= (*half_inverted_iter);
   }
@@ -429,7 +429,7 @@ HEADER_INLINE BoolErr LinearRegressionInv(const double* pheno_d, double* predict
 
 // just for debugging
 HEADER_INLINE void PrintSymmMatrix(const double* matrix, uint32_t dim) {
-  for (uint32_t uii = 0; uii < dim; ++uii) {
+  for (uint32_t uii = 0; uii != dim; ++uii) {
     for (uint32_t ujj = 0; ujj <= uii; ++ujj) {
       printf("%g ", matrix[uii * dim + ujj]);
     }
@@ -438,7 +438,7 @@ HEADER_INLINE void PrintSymmMatrix(const double* matrix, uint32_t dim) {
 }
 
 HEADER_INLINE void PrintSymmFmatrix(const float* matrix, uint32_t dim) {
-  for (uint32_t uii = 0; uii < dim; ++uii) {
+  for (uint32_t uii = 0; uii != dim; ++uii) {
     for (uint32_t ujj = 0; ujj <= uii; ++ujj) {
       printf("%g ", S_CAST(double, matrix[uii * dim + ujj]));
     }
@@ -447,8 +447,8 @@ HEADER_INLINE void PrintSymmFmatrix(const float* matrix, uint32_t dim) {
 }
 
 HEADER_INLINE void PrintMatrix(const double* matrix, uint32_t dim) {
-  for (uint32_t uii = 0; uii < dim; ++uii) {
-    for (uint32_t ujj = 0; ujj < dim; ++ujj) {
+  for (uint32_t uii = 0; uii != dim; ++uii) {
+    for (uint32_t ujj = 0; ujj != dim; ++ujj) {
       printf("%g ", matrix[uii * dim + ujj]);
     }
     printf("\n");

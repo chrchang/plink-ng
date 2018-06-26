@@ -669,9 +669,9 @@ template <class T> BoolErr BigstackAllocX(uintptr_t ct, T** x_arr_ptr) {
 // todo: define all BigstackAlloc functions in terms of ArenaAlloc; then these
 // can be namespaced, and we only need ARENA_ALLOC_X and ARENA_ALLOC_STD_ARRAY
 // macros
-#  define BIGSTACK_ALLOC_X(tt, ct, pp) BigstackAllocX<tt>((ct), (pp))
+#  define BIGSTACK_ALLOC_X(tt, ct, pp) plink2::BigstackAllocX<tt>((ct), (pp))
 
-#  define BIGSTACK_ALLOC_STD_ARRAY(tt, arr_size, len, pp) BigstackAllocX<std::array<tt, arr_size>>((len), (pp))
+#  define BIGSTACK_ALLOC_STD_ARRAY(tt, arr_size, len, pp) plink2::BigstackAllocX<std::array<tt, arr_size>>((len), (pp))
 
 #else
 
@@ -1063,26 +1063,26 @@ HEADER_INLINE void ZeroI32Arr(uintptr_t entry_ct, int32_t* i32arr) {
 }
 
 HEADER_INLINE void SetAllI32Arr(uintptr_t entry_ct, int32_t* i32arr) {
-  for (uintptr_t ulii = 0; ulii < entry_ct; ulii++) {
+  for (uintptr_t ulii = 0; ulii != entry_ct; ulii++) {
     *i32arr++ = -1;
   }
 }
 
 // todo: verify the compiler properly optimizes this for 64-bit
 HEADER_INLINE void SetAllU32Arr(uintptr_t entry_ct, uint32_t* u32arr) {
-  for (uintptr_t ulii = 0; ulii < entry_ct; ulii++) {
+  for (uintptr_t ulii = 0; ulii != entry_ct; ulii++) {
     *u32arr++ = ~0U;
   }
 }
 
 HEADER_INLINE void ZeroFArr(uintptr_t entry_ct, float* farr) {
-  for (uintptr_t ulii = 0; ulii < entry_ct; ulii++) {
+  for (uintptr_t ulii = 0; ulii != entry_ct; ulii++) {
     *farr++ = 0.0;
   }
 }
 
 HEADER_INLINE void ZeroDArr(uintptr_t entry_ct, double* darr) {
-  for (uintptr_t ulii = 0; ulii < entry_ct; ulii++) {
+  for (uintptr_t ulii = 0; ulii != entry_ct; ulii++) {
     *darr++ = 0.0;
   }
 }
@@ -1094,7 +1094,7 @@ HEADER_INLINE void ZeroPtrArr(uintptr_t entry_ct, void* pp) {
 
 HEADER_INLINE void ZeromovFArr(uintptr_t entry_ct, float** farr_ptr) {
   float* farr = *farr_ptr;
-  for (uintptr_t ulii = 0; ulii < entry_ct; ulii++) {
+  for (uintptr_t ulii = 0; ulii != entry_ct; ulii++) {
     *farr++ = 0.0;
   }
   *farr_ptr = farr;
@@ -1129,14 +1129,11 @@ uintptr_t AdvBoundedTo0Bit(const uintptr_t* bitarr, uintptr_t loc, uintptr_t cei
 // floor permitted to be -1, though not smaller than that.
 int32_t FindLast1BitBeforeBounded(const uintptr_t* bitarr, uint32_t loc, int32_t floor);
 
-// todo: compare to AVX2 movemask
+// This can be made a tiny bit faster than memequal() in isolation, but the
+// difference is almost certainly too small to justify additional i-cache
+// pressure.
 HEADER_INLINE uint32_t wordsequal(const uintptr_t* word_arr1, const uintptr_t* word_arr2, uintptr_t word_ct) {
-  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
-    if (word_arr1[widx] ^ word_arr2[widx]) {
-      return 0;
-    }
-  }
-  return 1;
+  return memequal(word_arr1, word_arr2, word_ct * kBytesPerWord);
 }
 
 
@@ -1184,7 +1181,7 @@ int32_t GetVariantUidxWithoutHtable(const char* idstr, const char* const* varian
 
 // copy_subset() doesn't exist since a loop of the form
 //   uint32_t uidx = 0;
-//   for (uint32_t idx = 0; idx < subset_size; ++idx, ++uidx) {
+//   for (uint32_t idx = 0; idx != subset_size; ++idx, ++uidx) {
 //     MovU32To1Bit(subset_mask, &uidx);
 //     *target_iter++ = source_arr[uidx];
 //   }
@@ -1325,7 +1322,7 @@ HEADER_INLINE uint32_t IntersectionIsEmpty(const uintptr_t* bitvec1, const uintp
 #  ifdef USE_AVX2
   const __m256i* bitvvec1 = R_CAST(const __m256i*, bitvec1);
   const __m256i* bitvvec2 = R_CAST(const __m256i*, bitvec2);
-  for (uintptr_t vidx = 0; vidx < fullvec_ct; ++vidx) {
+  for (uintptr_t vidx = 0; vidx != fullvec_ct; ++vidx) {
     if (!_mm256_testz_si256(bitvvec1[vidx], bitvvec2[vidx])) {
       return 0;
     }
@@ -1333,7 +1330,7 @@ HEADER_INLINE uint32_t IntersectionIsEmpty(const uintptr_t* bitvec1, const uintp
 #  else
   const __m128i* bitvvec1 = R_CAST(const __m128i*, bitvec1);
   const __m128i* bitvvec2 = R_CAST(const __m128i*, bitvec2);
-  for (uintptr_t vidx = 0; vidx < fullvec_ct; ++vidx) {
+  for (uintptr_t vidx = 0; vidx != fullvec_ct; ++vidx) {
     if (!_mm_testz_si128(bitvvec1[vidx], bitvvec2[vidx])) {
       return 0;
     }
@@ -1343,7 +1340,7 @@ HEADER_INLINE uint32_t IntersectionIsEmpty(const uintptr_t* bitvec1, const uintp
   bitvec1 = R_CAST(const uintptr_t*, &(bitvvec1[fullvec_ct]));
   bitvec2 = R_CAST(const uintptr_t*, &(bitvvec2[fullvec_ct]));
 #endif
-  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
+  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
     if (bitvec1[widx] & bitvec2[widx]) {
       return 0;
     }
@@ -1354,7 +1351,7 @@ HEADER_INLINE uint32_t IntersectionIsEmpty(const uintptr_t* bitvec1, const uintp
 // could use testz here, but it's more awkward
 HEADER_INLINE uint32_t UnionIsFull(const uintptr_t* bitarr1, const uintptr_t* bitarr2, uintptr_t bit_ct) {
   const uintptr_t fullword_ct = bit_ct / kBitsPerWord;
-  for (uintptr_t widx = 0; widx < fullword_ct; ++widx) {
+  for (uintptr_t widx = 0; widx != fullword_ct; ++widx) {
     if ((bitarr1[widx] | bitarr2[widx]) != ~k0LU) {
       return 0;
     }
@@ -1432,7 +1429,7 @@ HEADER_INLINE void VcountIncr1To4(const uintptr_t* acc1, uint32_t acc1_vec_ct, u
   const VecW m1x4 = VCONST_W(kMask1111);
   const VecW* acc1v_iter = R_CAST(const VecW*, acc1);
   VecW* acc4v_iter = R_CAST(VecW*, acc4);
-  for (uint32_t vidx = 0; vidx < acc1_vec_ct; ++vidx) {
+  for (uint32_t vidx = 0; vidx != acc1_vec_ct; ++vidx) {
     VecW loader = *acc1v_iter++;
     *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
     ++acc4v_iter;
@@ -1452,7 +1449,7 @@ HEADER_INLINE void Vcount0Incr1To4(uint32_t acc1_vec_ct, uintptr_t* acc1, uintpt
   const VecW m1x4 = VCONST_W(kMask1111);
   VecW* acc1v_iter = R_CAST(VecW*, acc1);
   VecW* acc4v_iter = R_CAST(VecW*, acc4);
-  for (uint32_t vidx = 0; vidx < acc1_vec_ct; ++vidx) {
+  for (uint32_t vidx = 0; vidx != acc1_vec_ct; ++vidx) {
     VecW loader = *acc1v_iter;
     *acc1v_iter++ = vecw_setzero();
     *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
@@ -1475,7 +1472,7 @@ HEADER_INLINE void VcountIncr4To8(const uintptr_t* acc4, uint32_t acc4_vec_ct, u
   const VecW m4 = VCONST_W(kMask0F0F);
   const VecW* acc4v_iter = R_CAST(const VecW*, acc4);
   VecW* acc8v_iter = R_CAST(VecW*, acc8);
-  for (uint32_t vidx = 0; vidx < acc4_vec_ct; ++vidx) {
+  for (uint32_t vidx = 0; vidx != acc4_vec_ct; ++vidx) {
     VecW loader = *acc4v_iter++;
     *acc8v_iter = (*acc8v_iter) + (loader & m4);
     ++acc8v_iter;
@@ -1489,7 +1486,7 @@ HEADER_INLINE void Vcount0Incr4To8(uint32_t acc4_vec_ct, uintptr_t* acc4, uintpt
   const VecW m4 = VCONST_W(kMask0F0F);
   VecW* acc4v_iter = R_CAST(VecW*, acc4);
   VecW* acc8v_iter = R_CAST(VecW*, acc8);
-  for (uint32_t vidx = 0; vidx < acc4_vec_ct; ++vidx) {
+  for (uint32_t vidx = 0; vidx != acc4_vec_ct; ++vidx) {
     VecW loader = *acc4v_iter;
     *acc4v_iter++ = vecw_setzero();
     *acc8v_iter = (*acc8v_iter) + (loader & m4);
@@ -1504,7 +1501,7 @@ HEADER_INLINE void VcountIncr8To32(const uintptr_t* acc8, uint32_t acc8_vec_ct, 
   const VecW m8x32 = VCONST_W(kMask000000FF);
   const VecW* acc8v_iter = R_CAST(const VecW*, acc8);
   VecW* acc32v_iter = R_CAST(VecW*, acc32);
-  for (uint32_t vidx = 0; vidx < acc8_vec_ct; ++vidx) {
+  for (uint32_t vidx = 0; vidx != acc8_vec_ct; ++vidx) {
     VecW loader = *acc8v_iter++;
     *acc32v_iter = (*acc32v_iter) + (loader & m8x32);
     ++acc32v_iter;
@@ -1524,7 +1521,7 @@ HEADER_INLINE void Vcount0Incr8To32(uint32_t acc8_vec_ct, uintptr_t* acc8, uintp
   const VecW m8x32 = VCONST_W(kMask000000FF);
   VecW* acc8v_iter = R_CAST(VecW*, acc8);
   VecW* acc32v_iter = R_CAST(VecW*, acc32);
-  for (uint32_t vidx = 0; vidx < acc8_vec_ct; ++vidx) {
+  for (uint32_t vidx = 0; vidx != acc8_vec_ct; ++vidx) {
     VecW loader = *acc8v_iter;
     *acc8v_iter++ = vecw_setzero();
     *acc32v_iter = (*acc32v_iter) + (loader & m8x32);

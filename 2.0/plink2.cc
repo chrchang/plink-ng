@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (22 Jun 2018)";
+  " (25 Jun 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -437,7 +437,7 @@ uint32_t GetFirstHaploidUidx(const ChrInfo* cip, UnsortedVar vpos_sortstatus) {
   // returns 0x7fffffff if no X/haploid chromosomes present
   if (!(vpos_sortstatus & kfUnsortedVarSplitChr)) {
     const uint32_t chr_ct = cip->chr_ct;
-    for (uint32_t chr_fo_idx = 0; chr_fo_idx < chr_ct; ++chr_fo_idx) {
+    for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
       const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
       if (IsSet(cip->haploid_mask, chr_idx)) {
         return cip->chr_fo_vidx_start[chr_fo_idx];
@@ -510,7 +510,7 @@ void ReportGenotypingRate(const uintptr_t* variant_include, const ChrInfo* cip, 
   uint32_t y_thresh = y_start;
   uint32_t variant_uidx = 0;
   uint32_t is_y = 0;
-  for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
+  for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
     MovU32To1Bit(variant_include, &variant_uidx);
     if (variant_uidx >= y_thresh) {
       if (is_y) {
@@ -722,7 +722,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
       // todo: move this check after --update-ids once that's implemented.
       if ((pii.sii.flags & kfSampleIdFidPresent) && ((pii.sii.flags & kfSampleIdNoIdHeaderIidOnly) || (pcp->grm_flags & kfGrmNoIdHeaderIidOnly))) {
-        for (uint32_t sample_idx = 0; sample_idx < raw_sample_ct; ++sample_idx) {
+        for (uint32_t sample_idx = 0; sample_idx != raw_sample_ct; ++sample_idx) {
           const char* cur_sample_id = &(pii.sii.sample_ids[sample_idx * pii.sii.max_sample_id_blen]);
           if (unlikely(!memequal_k(cur_sample_id, "0\t", 2))) {
             logerrputs("Error: 'iid-only' modifier can only be used when FIDs are missing or all-0.\n");
@@ -1037,7 +1037,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       } else {
         uint32_t cc_ct = 0;
         uint32_t qt_ct = 0;
-        for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
+        for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
           const PhenoDtype cur_type_code = pheno_cols[pheno_idx].type_code;
           if (pheno_cols[pheno_idx].type_code == kPhenoDtypeCc) {
             ++cc_ct;
@@ -1251,7 +1251,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
       if (pcp->filter_flags & (kfFilterExclFemales | kfFilterExclMales | kfFilterExclNosex)) {
         if (pcp->filter_flags & kfFilterExclFemales) {
-          for (uint32_t widx = 0; widx < raw_sample_ctl; ++widx) {
+          for (uint32_t widx = 0; widx != raw_sample_ctl; ++widx) {
             sample_include[widx] &= (~sex_nm[widx]) | sex_male[widx];
           }
         }
@@ -1462,7 +1462,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       const uintptr_t name_blen = 1 + strlen(loop_cats_phenoname);
       if (name_blen <= max_pheno_name_blen) {
         // this boilerplate may belong in its own function
-        for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
+        for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
           if (memequal(loop_cats_phenoname, &(pheno_names[pheno_idx * max_pheno_name_blen]), name_blen)) {
             PhenoCol* cur_pheno_col = &(pheno_cols[pheno_idx]);
             if (unlikely(cur_pheno_col->type_code != kPhenoDtypeCat)) {
@@ -1471,7 +1471,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             }
             loop_cats_pheno_col = cur_pheno_col;
             --pheno_ct;
-            for (uint32_t pheno_idx2 = pheno_idx; pheno_idx2 < pheno_ct; ++pheno_idx2) {
+            for (uint32_t pheno_idx2 = pheno_idx; pheno_idx2 != pheno_ct; ++pheno_idx2) {
               memcpy(&(pheno_cols[pheno_idx2]), &(pheno_cols[pheno_idx2 + 1]), sizeof(PhenoCol));
               memcpy(&(pheno_names[pheno_idx2 * max_pheno_name_blen]), &(pheno_names[(pheno_idx2 + 1) * max_pheno_name_blen]), max_pheno_name_blen);
             }
@@ -1480,7 +1480,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
       if ((!loop_cats_pheno_col) && (name_blen <= max_covar_name_blen)) {
-        for (uint32_t covar_idx = 0; covar_idx < covar_ct; ++covar_idx) {
+        for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
           if (memequal(loop_cats_phenoname, &(covar_names[covar_idx * max_covar_name_blen]), name_blen)) {
             PhenoCol* cur_covar_col = &(covar_cols[covar_idx]);
             if (unlikely(cur_covar_col->type_code != kPhenoDtypeCat)) {
@@ -1489,7 +1489,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             }
             loop_cats_pheno_col = cur_covar_col;
             --covar_ct;
-            for (uint32_t covar_idx2 = covar_idx; covar_idx2 < covar_ct; ++covar_idx2) {
+            for (uint32_t covar_idx2 = covar_idx; covar_idx2 != covar_ct; ++covar_idx2) {
               memcpy(&(covar_cols[covar_idx2]), &(covar_cols[covar_idx2 + 1]), sizeof(PhenoCol));
               memcpy(&(covar_names[covar_idx2 * max_covar_name_blen]), &(covar_names[(covar_idx2 + 1) * max_covar_name_blen]), max_covar_name_blen);
             }
@@ -1858,7 +1858,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               uint32_t chr_fo_idx = 0;
               uint32_t chr_end = 0;
               uint32_t variant_uidx = 0;
-              for (uint32_t variant_idx = 0; variant_idx < autosomal_variant_ct; ++variant_idx, ++variant_uidx) {
+              for (uint32_t variant_idx = 0; variant_idx != autosomal_variant_ct; ++variant_idx, ++variant_uidx) {
                 MovU32To1Bit(variant_include, &variant_uidx);
                 if (variant_uidx >= chr_end) {
                   uint32_t chr_idx;
@@ -1876,7 +1876,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               }
               if (hwe_x_ct) {
                 variant_uidx = x_start;
-                for (uint32_t variant_idx = 0; variant_idx < hwe_x_ct; ++variant_idx, ++variant_uidx) {
+                for (uint32_t variant_idx = 0; variant_idx != hwe_x_ct; ++variant_idx, ++variant_uidx) {
                   MovU32To1Bit(variant_include, &variant_uidx);
                   const uint32_t cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
                   if (cur_allele_ct > 2) {
@@ -2157,7 +2157,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
           const uintptr_t allele_code_range_size = k1LU << (8 * sizeof(AlleleCode));
           const uintptr_t fill_word = ((~k0LU) / ((allele_code_range_size - 1) * (allele_code_range_size + 1))) * allele_code_range_size;
-          for (uintptr_t widx = 0; widx < refalt1_word_ct; ++widx) {
+          for (uintptr_t widx = 0; widx != refalt1_word_ct; ++widx) {
             refalt1_select_ul[widx] = fill_word;
           }
           refalt1_select = R_CAST(STD_ARRAY_PTR_TYPE(AlleleCode, 2), refalt1_select_ul);
@@ -2216,7 +2216,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               logerrputs("Warning: --maj-ref has no effect, since no provisional reference alleles are\npresent.  (Did you forget to add the 'force' modifier?)\n");
             } else {
               uint32_t variant_uidx = 0;
-              for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
+              for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
                 MovU32To1Bit(variant_include, &variant_uidx);
                 if (skip_real_ref && IsSet(nonref_flags, variant_uidx)) {
                   continue;
@@ -2236,7 +2236,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
                   uint32_t new_alt1_idx = 1 - new_ref_idx;
                   uint64_t ref_dosage = cur_allele_dosages[new_ref_idx];
                   uint64_t alt1_dosage = cur_allele_dosages[new_alt1_idx];
-                  for (uint32_t alt_idx = 2; alt_idx < allele_ct; ++alt_idx) {
+                  for (uint32_t alt_idx = 2; alt_idx != allele_ct; ++alt_idx) {
                     const uint64_t cur_alt_dosage = cur_allele_dosages[alt_idx];
                     if (cur_alt_dosage > alt1_dosage) {
                       if (cur_alt_dosage > ref_dosage) {
@@ -2542,7 +2542,7 @@ PglErr Alloc2col(const char* const* sources, const char* flagname_p, uint32_t pa
 
 PglErr AllocAndFlattenCommaDelim(const char* const* sources, uint32_t param_ct, char** flattened_buf_ptr) {
   uint32_t tot_blen = 1;
-  for (uint32_t param_idx = 0; param_idx < param_ct; ++param_idx) {
+  for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
     const char* cur_param_iter = sources[param_idx];
     while (1) {
       while (*cur_param_iter == ',') {
@@ -2562,7 +2562,7 @@ PglErr AllocAndFlattenCommaDelim(const char* const* sources, uint32_t param_ct, 
     return kPglRetNomem;
   }
   *flattened_buf_ptr = write_iter;
-  for (uint32_t param_idx = 0; param_idx < param_ct; ++param_idx) {
+  for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
     const char* cur_param_iter = sources[param_idx];
     while (1) {
       while (*cur_param_iter == ',') {
@@ -2824,7 +2824,7 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Error: Missing %s parameter.\n", argv[1]);
         return S_CAST(uint32_t, kPglRetInvalidCmdline);
       }
-      for (int ii = 2; ii < argc; ++ii) {
+      for (int ii = 2; ii != argc; ++ii) {
         if (unlikely(IsCmdlineFlag(argv[S_CAST(uint32_t, ii)]))) {
           fprintf(stderr, "Error: %s cannot be used with other flags.\n", argv[1]);
           return S_CAST(uint32_t, kPglRetInvalidCmdline);
@@ -2953,7 +2953,7 @@ int main(int argc, char** argv) {
 
     char* flagname_write_iter = pcm.flag_buf;
     uint32_t cur_flag_idx = 0;
-    for (arg_idx = first_arg_idx; arg_idx < S_CAST(uint32_t, argc); ++arg_idx) {
+    for (arg_idx = first_arg_idx; arg_idx != S_CAST(uint32_t, argc); ++arg_idx) {
       flagname_p = IsCmdlineFlagStart(argvk[arg_idx]);
       if (flagname_p) {
         const uint32_t flag_slen = strlen(flagname_p);
@@ -3530,7 +3530,7 @@ int main(int argc, char** argv) {
           chr_info.autosome_ct = autosome_ct;
           // assumes first code is X
           chr_info.xymt_codes[0] = autosome_ct + 1;
-          for (uint32_t xymt_idx = 1; xymt_idx < kChrOffsetCt; ++xymt_idx) {
+          for (uint32_t xymt_idx = 1; xymt_idx != kChrOffsetCt; ++xymt_idx) {
             // bugfix: this needs to be UINT32_MAXM1, not UINT32_MAX, for
             // GetChrCode() to work properly
             chr_info.xymt_codes[xymt_idx] = UINT32_MAXM1;
@@ -3889,7 +3889,7 @@ int main(int argc, char** argv) {
             }
             const uint32_t autosome_ct = -signed_autosome_ct;
             chr_info.autosome_ct = autosome_ct;
-            for (uint32_t xymt_idx = 0; xymt_idx < kChrOffsetCt; ++xymt_idx) {
+            for (uint32_t xymt_idx = 0; xymt_idx != kChrOffsetCt; ++xymt_idx) {
               chr_info.xymt_codes[xymt_idx] = UINT32_MAXM1;
             }
             SetAllBits(autosome_ct + 1, chr_info.haploid_mask);
@@ -3897,10 +3897,10 @@ int main(int argc, char** argv) {
             const uint32_t autosome_ct = signed_autosome_ct;
             chr_info.autosome_ct = autosome_ct;
             // assumes first four codes are x, y, xy, mt
-            for (uint32_t xymt_idx = 0; xymt_idx < 4; ++xymt_idx) {
+            for (uint32_t xymt_idx = 0; xymt_idx != 4; ++xymt_idx) {
               chr_info.xymt_codes[xymt_idx] = autosome_ct + 1 + xymt_idx;
             }
-            for (uint32_t xymt_idx = 4; xymt_idx < kChrOffsetCt; ++xymt_idx) {
+            for (uint32_t xymt_idx = 4; xymt_idx != kChrOffsetCt; ++xymt_idx) {
               chr_info.xymt_codes[xymt_idx] = UINT32_MAXM1;
             }
             SetBit(autosome_ct + 1, chr_info.haploid_mask);
@@ -5572,7 +5572,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 4))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          for (uint32_t uii = 0; uii < 2; ++uii) {
+          for (uint32_t uii = 0; uii != 2; ++uii) {
             reterr = CmdlineAllocString(argvk[arg_idx + uii + 1], argvk[arg_idx], kMaxIdSlen, &(pc.ld_info.ld_console_varids[uii]));
             if (unlikely(reterr)) {
               goto main_ret_1;
@@ -7532,7 +7532,7 @@ int main(int argc, char** argv) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --score parameter '%s'.\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
-              for (uint32_t uii = 0; uii < numeric_param_ct; ++uii) {
+              for (uint32_t uii = 0; uii != numeric_param_ct; ++uii) {
                 if (unlikely(score_cols[uii] == score_cols[numeric_param_ct])) {
                   logerrputs("Error: Identical --score column indexes.\n");
                   goto main_ret_INVALID_CMDLINE_A;

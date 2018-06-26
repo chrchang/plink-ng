@@ -172,9 +172,9 @@ namespace plink2 {
 void ReflectMatrix(uint32_t dim, double* matrix) {
   const uintptr_t dim_p1l = dim + 1;
   double* write_row = matrix;
-  for (uint32_t row_idx = 0; row_idx < dim; ++row_idx) {
+  for (uint32_t row_idx = 0; row_idx != dim; ++row_idx) {
     double* read_col_iter = &(matrix[dim_p1l * row_idx + dim]);
-    for (uint32_t col_idx = row_idx + 1; col_idx < dim; ++col_idx) {
+    for (uint32_t col_idx = row_idx + 1; col_idx != dim; ++col_idx) {
       write_row[col_idx] = *read_col_iter;
       read_col_iter = &(read_col_iter[dim]);
     }
@@ -185,9 +185,9 @@ void ReflectMatrix(uint32_t dim, double* matrix) {
 void ReflectFmatrix(uint32_t dim, uint32_t stride, float* matrix) {
   const uintptr_t stride_p1l = stride + 1;
   float* write_row = matrix;
-  for (uint32_t row_idx = 0; row_idx < dim; ++row_idx) {
+  for (uint32_t row_idx = 0; row_idx != dim; ++row_idx) {
     float* read_col_iter = &(matrix[stride_p1l * row_idx + stride]);
-    for (uint32_t col_idx = row_idx + 1; col_idx < dim; ++col_idx) {
+    for (uint32_t col_idx = row_idx + 1; col_idx != dim; ++col_idx) {
       write_row[col_idx] = *read_col_iter;
       read_col_iter = &(read_col_iter[stride]);
     }
@@ -198,9 +198,9 @@ void ReflectFmatrix(uint32_t dim, uint32_t stride, float* matrix) {
 void ReflectFmatrix0(uint32_t dim, uint32_t stride, float* matrix) {
   const uintptr_t stride_p1l = stride + 1;
   float* write_row = matrix;
-  for (uint32_t row_idx = 0; row_idx < dim; ++row_idx) {
+  for (uint32_t row_idx = 0; row_idx != dim; ++row_idx) {
     float* read_col_iter = &(matrix[stride_p1l * row_idx + stride]);
-    for (uint32_t col_idx = row_idx + 1; col_idx < dim; ++col_idx) {
+    for (uint32_t col_idx = row_idx + 1; col_idx != dim; ++col_idx) {
       write_row[col_idx] = *read_col_iter;
       read_col_iter = &(read_col_iter[stride]);
     }
@@ -243,14 +243,14 @@ uint32_t SvdcmpC(int32_t m, double* a, double* w, double* v) {
   double temp;
 
   g=scale=anorm=0.0;
-  for (i=0;i<n;i++) {
+  for (i=0;i!=n;++i) {
     l=i+2;
     rv1[i]=scale*g;
     g=s=scale=0.0;
     if (i < m) {
-      for (k=i;k<m;k++) scale += fabs(a[k * m + i]);
+      for (k=i;k!=m;++k) scale += fabs(a[k * m + i]);
       if (scale != 0.0) {
-        for (k=i;k<m;k++) {
+        for (k=i;k!=m;++k) {
           a[k * m + i] /= scale;
           s += a[k * m + i]*a[k * m + i];
         }
@@ -258,20 +258,20 @@ uint32_t SvdcmpC(int32_t m, double* a, double* w, double* v) {
         g = -MultiplyBySgn(sqrt(s),f);
         h=f*g-s;
         a[i * m + i]=f-g;
-        for (j=l-1;j<n;j++) {
-          for (s=0.0,k=i;k<m;k++) s += a[k * m + i]*a[k * m + j];
+        for (j=l-1;j!=n;++j) {
+          for (s=0.0,k=i;k!=m;++k) s += a[k * m + i]*a[k * m + j];
           f=s/h;
-          for (k=i;k<m;k++) a[k * m + j] += f*a[k * m + i];
+          for (k=i;k!=m;++k) a[k * m + j] += f*a[k * m + i];
         }
-        for (k=i;k<m;k++) a[k * m + i] *= scale;
+        for (k=i;k!=m;++k) a[k * m + i] *= scale;
       }
     }
     w[i]=scale *g;
     g=s=scale=0.0;
     if (i+1 <= m && i+1 != n) {
-      for (k=l-1;k<n;k++) scale += fabs(a[i * m + k]);
+      for (k=l-1;k!=n;++k) scale += fabs(a[i * m + k]);
       if (scale != 0.0) {
-        for (k=l-1;k<n;k++) {
+        for (k=l-1;k!=n;++k) {
           a[i * m + k] /= scale;
           s += a[i * m + k]*a[i * m + k];
         }
@@ -279,12 +279,12 @@ uint32_t SvdcmpC(int32_t m, double* a, double* w, double* v) {
         g = -MultiplyBySgn(sqrt(s),f);
         h=f*g-s;
         a[i * m + l-1]=f-g;
-        for (k=l-1;k<n;k++) rv1[k]=a[i * m + k]/h;
-        for (j=l-1;j<m;j++) {
-          for (s=0.0,k=l-1;k<n;k++) s += a[j * m + k]*a[i * m + k];
-          for (k=l-1;k<n;k++) a[j * m + k] += s*rv1[k];
+        for (k=l-1;k!=n;++k) rv1[k]=a[i * m + k]/h;
+        for (j=l-1;j!=m;++j) {
+          for (s=0.0,k=l-1;k!=n;++k) s += a[j * m + k]*a[i * m + k];
+          for (k=l-1;k!=n;++k) a[j * m + k] += s*rv1[k];
         }
-        for (k=l-1;k<n;k++) a[i * m + k] *= scale;
+        for (k=l-1;k!=n;++k) a[i * m + k] *= scale;
       }
     }
     anorm=MAXV(anorm,(fabs(w[i])+fabs(rv1[i])));
@@ -292,14 +292,14 @@ uint32_t SvdcmpC(int32_t m, double* a, double* w, double* v) {
   for (i=n-1;i>=0;i--) {
     if (i < n-1) {
       if (g != 0.0) {
-        for (j=l;j<n;j++)
+        for (j=l;j!=n;++j)
           v[j * m + i]=(a[i * m + j]/a[i * m + l])/g;
-        for (j=l;j<n;j++) {
-          for (s=0.0,k=l;k<n;k++) s += a[i * m + k]*v[k * m + j];
-          for (k=l;k<n;k++) v[k * m + j] += s*v[k * m + i];
+        for (j=l;j!=n;++j) {
+          for (s=0.0,k=l;k!=n;++k) s += a[i * m + k]*v[k * m + j];
+          for (k=l;k!=n;++k) v[k * m + j] += s*v[k * m + i];
         }
       }
-      for (j=l;j<n;j++) v[i * m + j]=v[j * m + i]=0.0;
+      for (j=l;j!=n;++j) v[i * m + j]=v[j * m + i]=0.0;
     }
     v[i * m + i]=1.0;
     g=rv1[i];
@@ -308,20 +308,20 @@ uint32_t SvdcmpC(int32_t m, double* a, double* w, double* v) {
   for (i=MINV(m,n)-1;i>=0;i--) {
     l=i+1;
     g=w[i];
-    for (j=l;j<n;j++) a[i * m + j]=0.0;
+    for (j=l;j!=n;++j) a[i * m + j]=0.0;
     if (g != 0.0) {
       g=1.0/g;
-      for (j=l;j<n;j++) {
-        for (s=0.0,k=l;k<m;k++) s += a[k * m + i]*a[k * m + j];
+      for (j=l;j!=n;++j) {
+        for (s=0.0,k=l;k<m;++k) s += a[k * m + i]*a[k * m + j];
         f=(s/a[i * m + i])*g;
-        for (k=i;k<m;k++) a[k * m + j] += f*a[k * m + i];
+        for (k=i;k!=m;++k) a[k * m + j] += f*a[k * m + i];
       }
-      for (j=i;j<m;j++) a[j * m + i] *= g;
-    } else for (j=i;j<m;j++) a[j * m + i]=0.0;
+      for (j=i;j!=m;++j) a[j * m + i] *= g;
+    } else for (j=i;j!=m;++j) a[j * m + i]=0.0;
     ++a[i * m + i];
   }
   for (k=n-1;k>=0;k--) {
-    for (its=0;its<30;its++) {
+    for (its=0;its!=30;++its) {
       flag=1;
       for (l=k;l>=0;l--) {
         nm=l-1;
@@ -336,7 +336,7 @@ uint32_t SvdcmpC(int32_t m, double* a, double* w, double* v) {
       if (flag) {
         c=0.0;
         s=1.0;
-        for (i=l;i<k+1;i++) {
+        for (i=l;i!=k+1;++i) {
           f=s*rv1[i];
           rv1[i]=c*rv1[i];
           temp = fabs(f)+anorm;
@@ -347,7 +347,7 @@ uint32_t SvdcmpC(int32_t m, double* a, double* w, double* v) {
           h=1.0/h;
           c=g*h;
           s = -f*h;
-          for (j=0;j<m;j++) {
+          for (j=0;j!=m;++j) {
             y=a[j * m + nm];
             z=a[j * m + i];
             a[j * m + nm]=y*c+z*s;
@@ -359,7 +359,7 @@ uint32_t SvdcmpC(int32_t m, double* a, double* w, double* v) {
       if (l == k) {
         if (z < 0.0) {
           w[k] = -z;
-          for (j=0;j<n;j++) v[j * m + k] = -v[j * m + k];
+          for (j=0;j!=n;++j) v[j * m + k] = -v[j * m + k];
         }
         break;
       }
@@ -388,7 +388,7 @@ uint32_t SvdcmpC(int32_t m, double* a, double* w, double* v) {
         g=g*c-x*s;
         h=y*s;
         y *= c;
-        for (jj=0;jj<n;jj++) {
+        for (jj=0;jj!=n;++jj) {
           x=v[jj * m + j];
           z=v[jj * m + i];
           v[jj * m + j]=x*c+z*s;
@@ -403,7 +403,7 @@ uint32_t SvdcmpC(int32_t m, double* a, double* w, double* v) {
         }
         f=c*g+s*y;
         x=c*y-s*g;
-        for (jj=0;jj<m;jj++) {
+        for (jj=0;jj!=m;++jj) {
           y=a[jj * m + j];
           z=a[jj * m + i];
           a[jj * m + j]=y*c+z*s;
@@ -420,6 +420,7 @@ uint32_t SvdcmpC(int32_t m, double* a, double* w, double* v) {
 
 BoolErr InvertMatrix(int32_t dim, double* matrix, MatrixInvertBuf1* dbl_1d_buf, double* dbl_2d_buf) {
   // C port of PLINK stats.cpp's svd_inverse() function.
+  assert(dim > 0);
 
   // w -> dbl_1d_buf
   // v -> dbl_2d_buf
@@ -432,36 +433,36 @@ BoolErr InvertMatrix(int32_t dim, double* matrix, MatrixInvertBuf1* dbl_1d_buf, 
   // Look for singular values
   double wmax = 0;
   int32_t i;
-  for (i=0; i<dim; i++) {
+  for (i=0; i!=dim; ++i) {
     wmax = dbl_1d_buf[i] > wmax ? dbl_1d_buf[i] : wmax;
   }
   double wmin = wmax * eps;
-  for (i=0; i<dim; i++) {
+  for (i=0; i!=dim; ++i) {
     dbl_1d_buf[i] = dbl_1d_buf[i] < wmin ? 0 : (1 / dbl_1d_buf[i]);
   }
 
   int32_t j;
-  for (i=0; i<dim; i++) {
-    for (j=0; j<dim; j++) {
+  for (i=0; i!=dim; ++i) {
+    for (j=0; j!=dim; ++j) {
       matrix[i * dim + j] = matrix[i * dim + j] * dbl_1d_buf[j];
     }
   }
 
   int32_t k;
   // [nxn].[t(v)]
-  for (i=0; i<dim; i++) {
+  for (i=0; i!=dim; ++i) {
     ZeroDArr(dim, dbl_1d_buf);
-    for (j=0; j<dim; j++) {
-      for (k=0; k<dim; k++) {
+    for (j=0; j!=dim; ++j) {
+      for (k=0; k!=dim; ++k) {
         dbl_1d_buf[j] += matrix[i * dim + k] * dbl_2d_buf[j * dim + k];
       }
     }
-    for (j = 0; j < dim; j++) {
+    for (j = 0; j != dim; ++j) {
       matrix[i * dim + j] = dbl_1d_buf[j];
     }
   }
-  for (i=1; i<dim; ++i) {
-    for(j=0; j<i; ++j) {
+  for (i=1; i!=dim; ++i) {
+    for(j=0; j!=i; ++j) {
       const double tmp = matrix[i * dim + j];
       matrix[i * dim + j] = matrix[j * dim + i];
       matrix[j * dim + i] = tmp;
@@ -473,8 +474,8 @@ BoolErr InvertMatrix(int32_t dim, double* matrix, MatrixInvertBuf1* dbl_1d_buf, 
 BoolErr InvertFmatrixFirstHalf(int32_t dim, uint32_t stride, const float* matrix, double* half_inverted, MatrixInvertBuf1* dbl_1d_buf, double* dbl_2d_buf) {
   const float* read_row = matrix;
   double* write_row = half_inverted;
-  for (uint32_t row_idx = 0; row_idx < (uint32_t)dim; ++row_idx) {
-    for (uint32_t col_idx = 0; col_idx < (uint32_t)dim; ++col_idx) {
+  for (uint32_t row_idx = 0; row_idx != (uint32_t)dim; ++row_idx) {
+    for (uint32_t col_idx = 0; col_idx != (uint32_t)dim; ++col_idx) {
       write_row[col_idx] = (double)read_row[col_idx];
     }
     read_row = &(read_row[stride]);
@@ -486,40 +487,41 @@ BoolErr InvertFmatrixFirstHalf(int32_t dim, uint32_t stride, const float* matrix
 
 void InvertFmatrixSecondHalf(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, MatrixInvertBuf1* dbl_1d_buf, double* dbl_2d_buf) {
   // Look for singular values
+  assert(dim > 0);
   const double eps = 1e-24;
   double wmax = 0;
   int32_t i;
-  for (i=0; i<dim; i++) {
+  for (i=0; i!=dim; ++i) {
     wmax = dbl_1d_buf[i] > wmax ? dbl_1d_buf[i] : wmax;
   }
   double wmin = wmax * eps;
-  for (i=0; i<dim; i++) {
+  for (i=0; i!=dim; ++i) {
     dbl_1d_buf[i] = dbl_1d_buf[i] < wmin ? 0 : (1 / dbl_1d_buf[i]);
   }
 
   int32_t j;
-  for (i=0; i<dim; i++) {
-    for (j=0; j<dim; j++) {
+  for (i=0; i!=dim; ++i) {
+    for (j=0; j!=dim; ++j) {
       half_inverted[i * dim + j] = half_inverted[i * dim + j] * dbl_1d_buf[j];
     }
   }
 
   int32_t k;
   // [nxn].[t(v)]
-  for (i=0; i<dim; i++) {
+  for (i=0; i!=dim; ++i) {
     ZeroDArr(dim, dbl_1d_buf);
-    for (j=0; j<dim; j++) {
-      for (k=0; k<dim; k++) {
+    for (j=0; j!=dim; ++j) {
+      for (k=0; k!=dim; ++k) {
         dbl_1d_buf[j] += half_inverted[i * dim + k] * dbl_2d_buf[j * dim + k];
       }
     }
-    for (j = 0; j < dim; j++) {
+    for (j = 0; j != dim; ++j) {
       half_inverted[i * dim + j] = dbl_1d_buf[j];
     }
   }
   inverted_result[0] = S_CAST(float, half_inverted[0]);
-  for (i=1; i<dim; ++i) {
-    for(j=0; j<i; ++j) {
+  for (i=1; i!=dim; ++i) {
+    for(j=0; j!=i; ++j) {
       inverted_result[i * stride + j] = S_CAST(float, half_inverted[j * dim + i]);
       inverted_result[j * stride + i] = S_CAST(float, half_inverted[i * dim + j]);
     }
@@ -600,9 +602,9 @@ BoolErr InvertSymmdefMatrixChecked(__CLPK_integer dim, double* matrix, MatrixInv
 BoolErr InvertFmatrixFirstHalf(__CLPK_integer dim, uint32_t stride, const float* matrix, double* half_inverted, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf) {
   const float* read_row = matrix;
   double* write_row = half_inverted;
-  for (uint32_t row_idx = 0; row_idx < S_CAST(uint32_t, dim); ++row_idx) {
+  for (uint32_t row_idx = 0; row_idx != S_CAST(uint32_t, dim); ++row_idx) {
     // could use _mm256_cvtps_pd() here
-    for (uint32_t col_idx = 0; col_idx < S_CAST(uint32_t, dim); ++col_idx) {
+    for (uint32_t col_idx = 0; col_idx != S_CAST(uint32_t, dim); ++col_idx) {
       write_row[col_idx] = S_CAST(double, read_row[col_idx]);
     }
     read_row = &(read_row[stride]);
@@ -624,7 +626,7 @@ BoolErr InvertFmatrixFirstHalf(__CLPK_integer dim, uint32_t stride, const float*
 BoolErr InvertSymmdefFmatrixFirstHalf(__CLPK_integer dim, uint32_t stride, float* matrix, double* half_inverted, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf) {
   const float* read_row = matrix;
   double* write_row = half_inverted;
-  for (uint32_t row_idx = 0; row_idx < S_CAST(uint32_t, dim); ++row_idx) {
+  for (uint32_t row_idx = 0; row_idx != S_CAST(uint32_t, dim); ++row_idx) {
     // could use _mm256_cvtps_pd() here
     for (uint32_t col_idx = 0; col_idx <= row_idx; ++col_idx) {
       write_row[col_idx] = S_CAST(double, read_row[col_idx]);
@@ -652,9 +654,9 @@ void InvertFmatrixSecondHalf(__CLPK_integer dim, uint32_t stride, double* half_i
   dgetri_(&dim, half_inverted, &dim, int_1d_buf, dbl_2d_buf, &lwork, &info);
   const double* read_row = half_inverted;
   float* write_row = inverted_result;
-  for (uint32_t row_idx = 0; row_idx < S_CAST(uint32_t, dim); ++row_idx) {
+  for (uint32_t row_idx = 0; row_idx != S_CAST(uint32_t, dim); ++row_idx) {
     // could use _mm256_cvtpd_ps() here
-    for (uint32_t col_idx = 0; col_idx < S_CAST(uint32_t, dim); ++col_idx) {
+    for (uint32_t col_idx = 0; col_idx != S_CAST(uint32_t, dim); ++col_idx) {
       write_row[col_idx] = S_CAST(float, read_row[col_idx]);
     }
     read_row = &(read_row[S_CAST(uint32_t, dim)]);
@@ -668,7 +670,7 @@ void InvertSymmdefFmatrixSecondHalf(__CLPK_integer dim, uint32_t stride, double*
   dpotri_(&uplo, &dim, half_inverted, &dim, &info);
   const double* read_row = half_inverted;
   float* write_row = inverted_result;
-  for (uint32_t row_idx = 0; row_idx < S_CAST(uint32_t, dim); ++row_idx) {
+  for (uint32_t row_idx = 0; row_idx != S_CAST(uint32_t, dim); ++row_idx) {
     // could use _mm256_cvtpd_ps() here
     for (uint32_t col_idx = 0; col_idx <= row_idx; ++col_idx) {
       write_row[col_idx] = S_CAST(float, read_row[col_idx]);
@@ -685,11 +687,11 @@ void ColMajorMatrixMultiply(const double* inmatrix1, const double* inmatrix2, __
   const uintptr_t col2_ct_l = col2_ct;
   const uintptr_t common_ct_l = common_ct;
   // not optimized
-  for (uintptr_t col_idx = 0; col_idx < col2_ct_l; ++col_idx) {
-    for (uintptr_t row_idx = 0; row_idx < row1_ct_l; ++row_idx) {
+  for (uintptr_t col_idx = 0; col_idx != col2_ct_l; ++col_idx) {
+    for (uintptr_t row_idx = 0; row_idx != row1_ct_l; ++row_idx) {
       double cur_dotprod = 0.0;
       const double* dptr = &(inmatrix2[col_idx * common_ct]);
-      for (uintptr_t com_idx = 0; com_idx < common_ct_l; ++com_idx) {
+      for (uintptr_t com_idx = 0; com_idx != common_ct_l; ++com_idx) {
         cur_dotprod += (*dptr++) * inmatrix1[com_idx * row1_ct_l + row_idx];
       }
       *outmatrix++ = cur_dotprod;
@@ -715,7 +717,7 @@ void ColMajorMatrixMultiply(const double* inmatrix1, const double* inmatrix2, __
     cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, row1_ct, col2_ct, common_ct, 1.0, inmatrix1, row1_ct, inmatrix2, common_ct, 0.0, outmatrix, row1_ct);
     return;
   }
-  for (__CLPK_integer col_idx = 0; col_idx < col2_ct; ++col_idx) {
+  for (__CLPK_integer col_idx = 0; col_idx != col2_ct; ++col_idx) {
     cblas_dgemv(CblasColMajor, CblasNoTrans, row1_ct, common_ct, 1.0, inmatrix1, row1_ct, inmatrix2, 1, 0.0, outmatrix, 1);
     inmatrix2 = &(inmatrix2[(uint32_t)common_ct]);
     outmatrix = &(outmatrix[(uint32_t)row1_ct]);
@@ -735,12 +737,12 @@ void ColMajorMatrixMultiplyStridedAddassign(const double* inmatrix1, const doubl
   const uintptr_t col2_ct_l = col2_ct;
   const uintptr_t common_ct_l = common_ct;
   // not optimized, no beta == 0 special case
-  for (uintptr_t col_idx = 0; col_idx < col2_ct_l; ++col_idx) {
+  for (uintptr_t col_idx = 0; col_idx != col2_ct_l; ++col_idx) {
     double* outmatrix_row_iter = &(outmatrix[col_idx * stride3]);
-    for (uintptr_t row_idx = 0; row_idx < row1_ct_l; ++row_idx) {
+    for (uintptr_t row_idx = 0; row_idx != row1_ct_l; ++row_idx) {
       double cur_entry = 0.0;
       const double* col2_iter = &(inmatrix2[col_idx * stride2]);
-      for (uintptr_t com_idx = 0; com_idx < common_ct_l; com_idx++) {
+      for (uintptr_t com_idx = 0; com_idx != common_ct_l; com_idx++) {
         cur_entry += (*col2_iter++) * inmatrix1[com_idx * stride1 + row_idx];
       }
       *outmatrix_row_iter = (*outmatrix_row_iter) * beta + cur_entry;
@@ -763,10 +765,10 @@ void ColMajorVectorMatrixMultiplyStrided(const double* in_dvec1, const double* i
   const uintptr_t col2_ct_l = col2_ct;
   const uintptr_t common_ct_l = common_ct;
   const uintptr_t stride_l = stride2;
-  for (uintptr_t col_idx = 0; col_idx < col2_ct_l; ++col_idx) {
+  for (uintptr_t col_idx = 0; col_idx != col2_ct_l; ++col_idx) {
     double dxx = 0.0;
     const double* cur_col = &(inmatrix2[col_idx * stride_l]);
-    for (uintptr_t row_idx = 0; row_idx < common_ct_l; ++row_idx) {
+    for (uintptr_t row_idx = 0; row_idx != common_ct_l; ++row_idx) {
       dxx += in_dvec1[row_idx] * cur_col[row_idx];
     }
     out_dvec[col_idx] = dxx;
@@ -791,12 +793,12 @@ void ColMajorFmatrixMultiplyStrided(const float* inmatrix1, const float* inmatri
   const uintptr_t col2_ct_l = col2_ct;
   const uintptr_t common_ct_l = common_ct;
   // not optimized
-  for (uintptr_t col_idx = 0; col_idx < col2_ct_l; ++col_idx) {
+  for (uintptr_t col_idx = 0; col_idx != col2_ct_l; ++col_idx) {
     float* outmatrix_row_iter = &(outmatrix[col_idx * stride3]);
-    for (uintptr_t row_idx = 0; row_idx < row1_ct_l; ++row_idx) {
+    for (uintptr_t row_idx = 0; row_idx != row1_ct_l; ++row_idx) {
       float cur_entry = 0.0;
       const float* col2_iter = &(inmatrix2[col_idx * stride2]);
-      for (uintptr_t com_idx = 0; com_idx < common_ct_l; com_idx++) {
+      for (uintptr_t com_idx = 0; com_idx != common_ct_l; com_idx++) {
         cur_entry += (*col2_iter++) * inmatrix1[com_idx * stride1 + row_idx];
       }
       *outmatrix_row_iter++ = cur_entry;
@@ -820,10 +822,10 @@ void ColMajorFmatrixVectorMultiplyStrided(const float* inmatrix1, const float* i
   const uintptr_t row1_ct_l = row1_ct;
   const uintptr_t common_ct_l = common_ct;
   const uintptr_t stride_l = stride1;
-  for (uintptr_t common_idx = 0; common_idx < common_ct_l; ++common_idx) {
+  for (uintptr_t common_idx = 0; common_idx != common_ct_l; ++common_idx) {
     const float fxx = in_fvec2[common_idx];
     const float* col_iter = &(inmatrix1[common_idx * stride_l]);
-    for (uintptr_t row1_idx = 0; row1_idx < row1_ct_l; ++row1_idx) {
+    for (uintptr_t row1_idx = 0; row1_idx != row1_ct_l; ++row1_idx) {
       out_fvec[row1_idx] += (*col_iter++) * fxx;
     }
   }
@@ -845,10 +847,10 @@ void ColMajorFvectorMatrixMultiplyStrided(const float* in_fvec1, const float* in
   const uintptr_t col2_ct_l = col2_ct;
   const uintptr_t common_ct_l = common_ct;
   const uintptr_t stride_l = stride2;
-  for (uintptr_t col_idx = 0; col_idx < col2_ct_l; ++col_idx) {
+  for (uintptr_t col_idx = 0; col_idx != col2_ct_l; ++col_idx) {
     float fxx = 0.0;
     const float* cur_col = &(inmatrix2[col_idx * stride_l]);
-    for (uintptr_t row_idx = 0; row_idx < common_ct_l; ++row_idx) {
+    for (uintptr_t row_idx = 0; row_idx != common_ct_l; ++row_idx) {
       fxx += in_fvec1[row_idx] * cur_col[row_idx];
     }
     out_fvec[col_idx] = fxx;
@@ -868,9 +870,9 @@ void ColMajorFvectorMatrixMultiplyStrided(const float* in_fvec1, const float* in
 
 // Briefly experimented with trying to speed this up, didn't make any progress.
 void MatrixTransposeCopy(const double* old_matrix, uint32_t old_maj, uint32_t new_maj, double* new_matrix_iter) {
-  for (uint32_t new_maj_idx = 0; new_maj_idx < new_maj; ++new_maj_idx) {
+  for (uint32_t new_maj_idx = 0; new_maj_idx != new_maj; ++new_maj_idx) {
     const double* old_matrix_col_iter = &(old_matrix[new_maj_idx]);
-    for (uint32_t old_maj_idx = 0; old_maj_idx < old_maj; ++old_maj_idx) {
+    for (uint32_t old_maj_idx = 0; old_maj_idx != old_maj; ++old_maj_idx) {
       *new_matrix_iter++ = *old_matrix_col_iter;
       old_matrix_col_iter = &(old_matrix_col_iter[new_maj]);
     }
@@ -881,9 +883,9 @@ void FmatrixTransposeCopy(const float* old_matrix, uint32_t old_maj, uint32_t ne
   // new_maj = in-memory stride of old_matrix rows
   // new_maj_max = actual number of rows in new_matrix
   // (distinction is necessary for SSE alignment)
-  for (uint32_t new_maj_idx = 0; new_maj_idx < new_maj_max; ++new_maj_idx) {
+  for (uint32_t new_maj_idx = 0; new_maj_idx != new_maj_max; ++new_maj_idx) {
     const float* old_matrix_col_iter = &(old_matrix[new_maj_idx]);
-    for (uint32_t old_maj_idx = 0; old_maj_idx < old_maj; ++old_maj_idx) {
+    for (uint32_t old_maj_idx = 0; old_maj_idx != old_maj; ++old_maj_idx) {
       *new_matrix_iter++ = *old_matrix_col_iter;
       old_matrix_col_iter = &(old_matrix_col_iter[new_maj]);
     }
@@ -912,10 +914,11 @@ BoolErr qr_square_factor_float(const float* input_matrix, uint32_t dim, uintptr_
   // only returns Q and, optionally, the product of R's diagonal entries (which
   // should be the determinant of the original matrix).
   // tau_buf should have space for dim entries
+  assert(dim > 0);
   if (dim == stride) {
     memcpy(qq, input_matrix, dim * ((uintptr_t)dim) * sizeof(float));
   } else {
-    for (uintptr_t col_idx = 0; col_idx < dim; ++col_idx) {
+    for (uintptr_t col_idx = 0; col_idx != dim; ++col_idx) {
       memcpy(&(qq[col_idx * dim]), &(input_matrix[col_idx * stride]), dim * sizeof(float));
     }
   }
@@ -928,7 +931,7 @@ BoolErr qr_square_factor_float(const float* input_matrix, uint32_t dim, uintptr_
   if (r_determinant_ptr) {
     const uintptr_t dimp1 = dim + 1;
     float prod = qq[0];
-    for (uintptr_t col_idx = 1; col_idx < dim; ++col_idx) {
+    for (uintptr_t col_idx = 1; col_idx != dim; ++col_idx) {
       prod *= qq[col_idx * dimp1];
     }
     *r_determinant_ptr = prod;
@@ -945,7 +948,7 @@ BoolErr qr_square_factor_float(const float* input_matrix, uint32_t dim, uintptr_
 // ONLY UPDATES LOWER TRIANGLE OF result[].
 void MultiplySelfTranspose(const double* input_matrix, uint32_t dim, uint32_t col_ct, double* result) {
 #ifdef NOLAPACK
-  for (uintptr_t row1_idx = 0; row1_idx < dim; ++row1_idx) {
+  for (uintptr_t row1_idx = 0; row1_idx != dim; ++row1_idx) {
     const double* pred_row1 = &(input_matrix[row1_idx * col_ct]);
     double* result_row = &(result[row1_idx * dim]);
     for (uintptr_t row2_idx = 0; row2_idx <= row1_idx; ++row2_idx) {
@@ -975,7 +978,7 @@ void MultiplySelfTranspose(const double* input_matrix, uint32_t dim, uint32_t co
   }
   // this actually seems to be faster than dsyrk for small dim (at least on OS
   // X), but that might change in the future so I won't "optimize" dispatch
-  for (uintptr_t row1_idx = 0; row1_idx < dim; ++row1_idx) {
+  for (uintptr_t row1_idx = 0; row1_idx != dim; ++row1_idx) {
     const double* pred_row1 = &(input_matrix[row1_idx * col_ct]);
     double* result_row = &(result[row1_idx * dim]);
     for (uintptr_t row2_idx = 0; row2_idx <= row1_idx; ++row2_idx) {
@@ -991,7 +994,7 @@ void MultiplySelfTranspose(const double* input_matrix, uint32_t dim, uint32_t co
 
 void MultiplySelfTransposeStridedF(const float* input_matrix, uint32_t dim, uint32_t col_ct, uint32_t stride, float* result) {
 #ifdef NOLAPACK
-  for (uintptr_t row1_idx = 0; row1_idx < dim; ++row1_idx) {
+  for (uintptr_t row1_idx = 0; row1_idx != dim; ++row1_idx) {
     const float* pred_row1 = &(input_matrix[row1_idx * stride]);
     float* result_row = &(result[row1_idx * dim]);
     for (uintptr_t row2_idx = 0; row2_idx <= row1_idx; ++row2_idx) {
@@ -1020,13 +1023,13 @@ void TransposeMultiplySelfIncr(double* input_part, uint32_t dim, uint32_t partia
   // friends do not let friends use this implementation
   const uintptr_t dim_l = dim;
   const uintptr_t row_ct_l = partial_row_ct;
-  for (uintptr_t idx1 = 0; idx1 < dim_l; ++idx1) {
+  for (uintptr_t idx1 = 0; idx1 != dim_l; ++idx1) {
     const double* col1 = &(input_part[idx1]);
     double* write_iter = &(result[idx1 * dim_l]);
     for (uintptr_t idx2 = 0; idx2 <= idx1; ++idx2) {
       double cur_dotprod = *write_iter;
       const double* col2 = &(input_part[idx2]);
-      for (uintptr_t row_idx = 0; row_idx < row_ct_l; ++row_idx) {
+      for (uintptr_t row_idx = 0; row_idx != row_ct_l; ++row_idx) {
         cur_dotprod += col1[row_idx * dim_l] * col2[row_idx * dim_l];
       }
       *write_iter = cur_dotprod;
@@ -1139,7 +1142,7 @@ BoolErr invert_rank1_symm_start(const double* a_inv, const double* bb, __CLPK_in
 #ifdef NOLAPACK
   const uintptr_t orig_dim_l = orig_dim;
   const double* a_inv_iter = a_inv;
-  for (uintptr_t ulii = 0; ulii < orig_dim_l; ++ulii) {
+  for (uintptr_t ulii = 0; ulii != orig_dim_l; ++ulii) {
     ainv_b[ulii] = DotprodD(bb, a_inv_iter, orig_dim_l);
     a_inv_iter = &(a_inv_iter[orig_dim_l]);
   }
@@ -1174,7 +1177,7 @@ BoolErr InvertRank1Symm(const double* a_inv, const double* bb, __CLPK_integer or
   uintptr_t orig_row_idx = 0;
   const double* a_inv_row = a_inv;
   double* outmatrix_row = outmatrix;
-  for (; orig_row_idx < insert_idx; ++orig_row_idx) {
+  for (; orig_row_idx != insert_idx; ++orig_row_idx) {
     const double ainv_b_div_k = k_recip * ainv_b_buf[orig_row_idx];
     for (uintptr_t col_idx = 0; col_idx <= orig_row_idx; ++col_idx) {
       outmatrix_row[col_idx] = a_inv_row[col_idx] + ainv_b_div_k * ainv_b_buf[col_idx];
@@ -1182,14 +1185,14 @@ BoolErr InvertRank1Symm(const double* a_inv, const double* bb, __CLPK_integer or
     a_inv_row = &(a_inv_row[orig_dim_l]);
     outmatrix_row = &(outmatrix_row[final_dim]);
   }
-  for (uintptr_t col_idx = 0; col_idx < insert_idx; ++col_idx) {
+  for (uintptr_t col_idx = 0; col_idx != insert_idx; ++col_idx) {
     outmatrix_row[col_idx] = -k_recip * ainv_b_buf[col_idx];
   }
   outmatrix_row[insert_idx] = k_recip;
-  for (; orig_row_idx < orig_dim_l; ++orig_row_idx) {
+  for (; orig_row_idx != orig_dim_l; ++orig_row_idx) {
     outmatrix_row = &(outmatrix_row[final_dim]);
     const double ainv_b_div_k = k_recip * ainv_b_buf[orig_row_idx];
-    for (uintptr_t col_idx = 0; col_idx < insert_idx; ++col_idx) {
+    for (uintptr_t col_idx = 0; col_idx != insert_idx; ++col_idx) {
       outmatrix_row[col_idx] = a_inv_row[col_idx] + ainv_b_div_k * ainv_b_buf[col_idx];
     }
     outmatrix_row[insert_idx] = -ainv_b_div_k;
@@ -1209,7 +1212,7 @@ BoolErr InvertRank1SymmDiag(const double* a_inv, const double* bb, __CLPK_intege
   }
   const uintptr_t orig_dim_l = orig_dim;
   const uintptr_t orig_dim_p1 = orig_dim_l + 1;
-  for (uintptr_t ulii = 0; ulii < orig_dim_l; ++ulii) {
+  for (uintptr_t ulii = 0; ulii != orig_dim_l; ++ulii) {
     const double dxx = ainv_b_buf[ulii];
     outdiag[ulii] = a_inv[ulii * orig_dim_p1] + k_recip * dxx * dxx;
   }
@@ -1246,7 +1249,7 @@ BoolErr InvertRank2SymmStart(const double* a_inv, const double* bb, __CLPK_integ
   const double schur11 = d22 * det_recip;
   const double schur12 = -d12 * det_recip;
   const double schur22 = d11 * det_recip;
-  for (uintptr_t col_idx = 0; col_idx < orig_dim_l; ++col_idx) {
+  for (uintptr_t col_idx = 0; col_idx != orig_dim_l; ++col_idx) {
     const double b_ainv_1 = b_ainv[col_idx];
     const double b_ainv_2 = b_ainv[col_idx + orig_dim_l];
     s_b_ainv[col_idx] = schur11 * b_ainv_1 + schur12 * b_ainv_2;
@@ -1274,7 +1277,7 @@ BoolErr InvertRank2Symm(const double* a_inv, const double* bb, __CLPK_integer or
   const double* b_ainv_row2 = &(b_ainv_buf[orig_dim_l]);
   const double* s_b_ainv_row2 = &(s_b_ainv_buf[orig_dim_l]);
   double* outmatrix_row = outmatrix;
-  for (; orig_row_idx < insert_idx; ++orig_row_idx) {
+  for (; orig_row_idx != insert_idx; ++orig_row_idx) {
     const double b_ainv_1 = b_ainv_buf[orig_row_idx];
     const double b_ainv_2 = b_ainv_row2[orig_row_idx];
     for (uintptr_t col_idx = 0; col_idx <= orig_row_idx; ++col_idx) {
@@ -1283,21 +1286,21 @@ BoolErr InvertRank2Symm(const double* a_inv, const double* bb, __CLPK_integer or
     a_inv_row = &(a_inv_row[orig_dim_l]);
     outmatrix_row = &(outmatrix_row[final_dim]);
   }
-  for (uintptr_t col_idx = 0; col_idx < insert_idx; ++col_idx) {
+  for (uintptr_t col_idx = 0; col_idx != insert_idx; ++col_idx) {
     outmatrix_row[col_idx] = -s_b_ainv_buf[col_idx];
   }
   outmatrix_row[insert_idx] = schur11;
   outmatrix_row = &(outmatrix_row[final_dim]);
-  for (uintptr_t col_idx = 0; col_idx < insert_idx; ++col_idx) {
+  for (uintptr_t col_idx = 0; col_idx != insert_idx; ++col_idx) {
     outmatrix_row[col_idx] = -s_b_ainv_row2[col_idx];
   }
   outmatrix_row[insert_idx] = schur12;
   outmatrix_row[insert_idx + 1] = schur22;
-  for (; orig_row_idx < orig_dim_l; ++orig_row_idx) {
+  for (; orig_row_idx != orig_dim_l; ++orig_row_idx) {
     outmatrix_row = &(outmatrix_row[final_dim]);
     const double b_ainv_1 = b_ainv_buf[orig_row_idx];
     const double b_ainv_2 = b_ainv_row2[orig_row_idx];
-    for (uintptr_t col_idx = 0; col_idx < insert_idx; ++col_idx) {
+    for (uintptr_t col_idx = 0; col_idx != insert_idx; ++col_idx) {
       outmatrix_row[col_idx] = a_inv_row[col_idx] + b_ainv_1 * s_b_ainv_buf[col_idx] + b_ainv_2 * s_b_ainv_row2[col_idx];
     }
     outmatrix_row[insert_idx] = -s_b_ainv_buf[orig_row_idx];
@@ -1322,7 +1325,7 @@ BoolErr InvertRank2SymmDiag(const double* a_inv, const double* bb, __CLPK_intege
   const uintptr_t orig_dim_p1 = orig_dim_l + 1;
   const double* b_ainv_row2 = &(b_ainv_buf[orig_dim_l]);
   const double* s_b_ainv_row2 = &(s_b_ainv_buf[orig_dim_l]);
-  for (uintptr_t ulii = 0; ulii < orig_dim_l; ++ulii) {
+  for (uintptr_t ulii = 0; ulii != orig_dim_l; ++ulii) {
     outdiag[ulii] = a_inv[ulii * orig_dim_p1] + b_ainv_buf[ulii] * s_b_ainv_buf[ulii] + b_ainv_row2[ulii] * s_b_ainv_row2[ulii];
   }
   outdiag[orig_dim_l] = schur11;

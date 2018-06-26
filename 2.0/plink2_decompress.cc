@@ -868,7 +868,7 @@ PglErr RlsSkipNz(uintptr_t skip_ct, ReadLineStream* rlsp, char** consume_iterp) 
 #else
   char* consume_iter = *consume_iterp;
   char* consume_stop = rlsp->consume_stop;
-  for (uintptr_t ulii = 0; ulii < skip_ct; ++ulii) {
+  for (uintptr_t ulii = 0; ulii != skip_ct; ++ulii) {
     consume_iter = AdvPastDelim(consume_iter, '\n');
     if (consume_iter == consume_stop) {
       PglErr reterr = AdvanceRLstream(rlsp, &consume_iter);

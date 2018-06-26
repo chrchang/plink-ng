@@ -1340,13 +1340,13 @@ HEADER_INLINE void PackWordsToHalfwordsMask(const uintptr_t* words, uintptr_t wo
     Pack32bTo16bMask(words, ct_32b, dest);
     widx = ct_32b * (32 / kBytesPerWord);
   }
-  for (; widx < word_ct; ++widx) {
+  for (; widx != word_ct; ++widx) {
     dest[widx] = PackWordToHalfword(words[widx] & kMask5555);
   }
 }
 #else
 HEADER_INLINE void PackWordsToHalfwordsMask(const uintptr_t* words, uintptr_t word_ct, Halfword* dest) {
-  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
+  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
 #  ifdef USE_AVX2
     dest[widx] = _pext_u64(words[widx], kMask5555);
 #  else
@@ -1643,7 +1643,7 @@ HEADER_INLINE uint32_t AllWordsAreZero(const uintptr_t* word_arr, uintptr_t word
 
 HEADER_INLINE uint32_t AllBitsAreOne(const uintptr_t* bitarr, uintptr_t bit_ct) {
   const uintptr_t fullword_ct = bit_ct / kBitsPerWord;
-  for (uintptr_t widx = 0; widx < fullword_ct; ++widx) {
+  for (uintptr_t widx = 0; widx != fullword_ct; ++widx) {
     if (~(bitarr[widx])) {
       return 0;
     }
@@ -1817,7 +1817,7 @@ HEADER_INLINE uintptr_t PopcountWords(const uintptr_t* bitvec, uintptr_t word_ct
   }
   // todo: check if libpopcnt manual-4x-unroll makes a difference on any test
   // machine (I'd prefer to trust the compiler to take care of that...)
-  for (uintptr_t trailing_word_idx = 0; trailing_word_idx < word_ct; ++trailing_word_idx) {
+  for (uintptr_t trailing_word_idx = 0; trailing_word_idx != word_ct; ++trailing_word_idx) {
     tot += PopcountWord(bitvec[trailing_word_idx]);
   }
   return tot;
@@ -1838,7 +1838,7 @@ HEADER_INLINE uintptr_t PopcountWords(const uintptr_t* bitvec, uintptr_t word_ct
     bitvec = &(bitvec[main_block_word_ct]);
   }
 #  endif
-  for (uintptr_t trailing_word_idx = 0; trailing_word_idx < word_ct; ++trailing_word_idx) {
+  for (uintptr_t trailing_word_idx = 0; trailing_word_idx != word_ct; ++trailing_word_idx) {
     tot += PopcountWord(bitvec[trailing_word_idx]);
   }
   return tot;
@@ -2066,8 +2066,8 @@ HEADER_INLINE void vecaligned_free_cond(void* aligned_ptr) {
 #ifdef __LP64__
 int32_t memequal(const void* m1, const void* m2, uintptr_t byte_ct);
 #else
-HEADER_INLINE int32_t memequal(const void* m1, const void* m2, uintptr_t ct) {
-  return !memcmp(m1, m2, ct);
+HEADER_INLINE int32_t memequal(const void* m1, const void* m2, uintptr_t byte_ct) {
+  return !memcmp(m1, m2, byte_ct);
 }
 #endif
 
@@ -2195,7 +2195,7 @@ template <uint32_t N> struct MemequalKImpl<N, TRange<(25 <= N) && (N <= 31)> > {
   }
 };
 
-#  define memequal_k(m1, m2, byte_ct) MemequalKImpl<byte_ct>::MemequalK(m1, m2)
+#  define memequal_k(m1, m2, byte_ct) plink2::MemequalKImpl<byte_ct>::MemequalK(m1, m2)
 
 template <uint32_t N, typename = TRange<true> > struct MemcpyKImpl {
   static void MemcpyK(void* __restrict dst, const void* __restrict src) {
@@ -2340,7 +2340,7 @@ template <uint32_t N> struct MemcpyKImpl<N, TRange<(25 <= N) && (N <= 31)> > {
 // 'well-behaved' sizes like 1, 4, and 8, and 16.  It's the funny numbers in
 // between, which often arise with constant strings, which this template is
 // targeting.
-#  define memcpy_k(dst, src, ct) MemcpyKImpl<ct>::MemcpyK(dst, src)
+#  define memcpy_k(dst, src, ct) plink2::MemcpyKImpl<ct>::MemcpyK(dst, src)
 
 template <uint32_t N> char* MemcpyaK(void* __restrict dst, const void* __restrict src) {
   MemcpyKImpl<N>::MemcpyK(dst, src);
@@ -2348,8 +2348,8 @@ template <uint32_t N> char* MemcpyaK(void* __restrict dst, const void* __restric
   return &(dst_c[N]);
 }
 
-#  define memcpya_k(dst, src, ct) MemcpyaK<ct>(dst, src)
-#  define memcpyua_k(dst, src, ct) R_CAST(unsigned char*, MemcpyaK<ct>(dst, src))
+#  define memcpya_k(dst, src, ct) plink2::MemcpyaK<ct>(dst, src)
+#  define memcpyua_k(dst, src, ct) R_CAST(unsigned char*, plink2::MemcpyaK<ct>(dst, src))
 
 template <uint32_t N> struct MemcpyoKImpl {
   static void MemcpyoK(void* __restrict dst, const void* __restrict src) {
@@ -2378,7 +2378,7 @@ template <> struct MemcpyoKImpl<15> {
 
 // interestingly, __m256i copy does not seem to be better in 31 byte case
 
-#  define memcpyo_k(dst, src, ct) MemcpyoKImpl<ct>::MemcpyoK(dst, src)
+#  define memcpyo_k(dst, src, ct) plink2::MemcpyoKImpl<ct>::MemcpyoK(dst, src)
 
 template <uint32_t N> char* MemcpyaoK(void* __restrict dst, const void* __restrict src) {
   MemcpyoKImpl<N>::MemcpyoK(dst, src);
@@ -2386,8 +2386,8 @@ template <uint32_t N> char* MemcpyaoK(void* __restrict dst, const void* __restri
   return &(dst_c[N]);
 }
 
-#  define memcpyao_k(dst, src, ct) MemcpyaoK<ct>(dst, src)
-#  define memcpyuao_k(dst, src, ct) R_CAST(unsigned char*, MemcpyaoK<ct>(dst, src))
+#  define memcpyao_k(dst, src, ct) plink2::MemcpyaoK<ct>(dst, src)
+#  define memcpyuao_k(dst, src, ct) R_CAST(unsigned char*, plink2::MemcpyaoK<ct>(dst, src))
 
 #  else  // !(defined(__LP64__) && defined(__cplusplus))
 
@@ -2449,7 +2449,7 @@ HEADER_INLINE void ZeroU64Arr(uintptr_t entry_ct, uint64_t* u64arr) {
 
 HEADER_INLINE void SetAllWArr(uintptr_t entry_ct, uintptr_t* warr) {
   // todo: test this against memset(, 255, ) and manually vectorized loop
-  for (uintptr_t idx = 0; idx < entry_ct; ++idx) {
+  for (uintptr_t idx = 0; idx != entry_ct; ++idx) {
     warr[idx] = ~k0LU;
   }
 }
@@ -2545,15 +2545,17 @@ HEADER_INLINE void ZeroTrailingWords(__maybe_unused uint32_t word_ct, __maybe_un
 #endif
 
 // analogous to memset()
+// todo: test this, this may actually generate worse code than memset when both
+// are applicable
 HEADER_INLINE void vecset(void* target_vec, uintptr_t ww, uintptr_t vec_ct) {
   VecW* target_vec_iter = S_CAST(VecW*, target_vec);
 #ifdef __LP64__
   const VecW payload = VCONST_W(ww);
-  for (uintptr_t vec_idx = 0; vec_idx < vec_ct; ++vec_idx) {
+  for (uintptr_t vec_idx = 0; vec_idx != vec_ct; ++vec_idx) {
     *target_vec_iter++ = payload;
   }
 #else
-  for (uintptr_t vec_idx = 0; vec_idx < vec_ct; ++vec_idx) {
+  for (uintptr_t vec_idx = 0; vec_idx != vec_ct; ++vec_idx) {
     *target_vec_iter++ = ww;
   }
 #endif
@@ -2563,7 +2565,7 @@ HEADER_INLINE uintptr_t ClearBottomSetBits(uint32_t ct, uintptr_t ulii) {
 #ifdef USE_AVX2
   return _pdep_u64((~k0LU) << ct, ulii);
 #else
-  for (uint32_t uii = 0; uii < ct; ++uii) {
+  for (uint32_t uii = 0; uii != ct; ++uii) {
     ulii &= ulii - 1;
   }
   return ulii;

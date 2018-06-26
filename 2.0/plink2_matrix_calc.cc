@@ -81,7 +81,7 @@ void TriangleFill(uint32_t ct, uint32_t piece_ct, uint32_t parallel_idx, uint32_
   target_arr[piece_ct] = ubound;
   cur_prod_x2 = S_CAST(int64_t, lbound) * (lbound + modif);
   const int64_t ct_tr = (S_CAST(int64_t, ubound) * (ubound + modif) - cur_prod_x2) / piece_ct;
-  for (uint32_t piece_idx = 1; piece_idx < piece_ct; ++piece_idx) {
+  for (uint32_t piece_idx = 1; piece_idx != piece_ct; ++piece_idx) {
     cur_prod_x2 += ct_tr;
     lbound = TriangleDivide(cur_prod_x2, modif);
     uii = (lbound - S_CAST(int32_t, start)) & align_m1;
@@ -148,7 +148,7 @@ void TriangleLoadBalance(uint32_t piece_ct, uintptr_t start_idx, uintptr_t end_i
   const uint64_t end_tri = S_CAST(uint64_t, end_idx) * (end_idx + 1);
   uint64_t cur_target = S_CAST(uint64_t, start_idx) * (start_idx + 1);
   const uint64_t std_size = (end_tri - cur_target) / piece_ct;
-  for (uint32_t piece_idx = 1; piece_idx < piece_ct; ++piece_idx) {
+  for (uint32_t piece_idx = 1; piece_idx != piece_ct; ++piece_idx) {
     // don't use cur_target = start_tri + (piece_idx * delta_tri) / piece_ct
     // because of potential overflow
     cur_target += std_size;
@@ -177,13 +177,13 @@ PglErr KinshipPruneDestructive(uintptr_t* kinship_table, uintptr_t* sample_inclu
     }
     // 1. count the number of constraints for each remaining sample
     uint32_t degree_1_vertex_ct = 0;
-    for (uint32_t sample_idx = 0; sample_idx < orig_sample_ct; ++sample_idx) {
+    for (uint32_t sample_idx = 0; sample_idx != orig_sample_ct; ++sample_idx) {
       const uintptr_t woffset = sample_idx * orig_sample_ctl;
       const uintptr_t* read_iter1 = &(kinship_table[woffset]);
       // don't currently guarantee vector-alignment of kinship_table rows, so
       // can't use PopcountWords().  (change this?)
       uint32_t cur_degree = 0;
-      for (uint32_t widx = 0; widx < orig_sample_ctl; ++widx) {
+      for (uint32_t widx = 0; widx != orig_sample_ctl; ++widx) {
         const uintptr_t cur_word = *read_iter1++;
         cur_degree += PopcountWord(cur_word);
       }
@@ -219,7 +219,7 @@ PglErr KinshipPruneDestructive(uintptr_t* kinship_table, uintptr_t* sample_inclu
         uint32_t sample_uidx = AdvTo1Bit(sample_include_collapsed_nz, 0);
         cur_degree = vertex_degree[sample_uidx];
         prune_uidx = sample_uidx;
-        for (uint32_t sample_idx = 1; sample_idx < cur_sample_nz_ct; ++sample_idx) {
+        for (uint32_t sample_idx = 1; sample_idx != cur_sample_nz_ct; ++sample_idx) {
           // sparse
           sample_uidx = AdvTo1Bit(sample_include_collapsed_nz, sample_uidx + 1);
           const uint32_t new_degree = vertex_degree[sample_uidx];
@@ -234,7 +234,7 @@ PglErr KinshipPruneDestructive(uintptr_t* kinship_table, uintptr_t* sample_inclu
       const uintptr_t kinship_col_mask = ~(k1LU << (prune_uidx % kBitsPerWord));
       uintptr_t* cur_kinship_row = &(kinship_table[prune_uidx * orig_sample_ctl]);
       uint32_t sample_uidx = 0;
-      for (uint32_t partner_idx = 0; partner_idx < cur_degree; ++partner_idx, ++sample_uidx) {
+      for (uint32_t partner_idx = 0; partner_idx != cur_degree; ++partner_idx, ++sample_uidx) {
         // sparse
         sample_uidx = AdvTo1Bit(cur_kinship_row, sample_uidx);
         const uint32_t new_degree = vertex_degree[sample_uidx] - 1;
@@ -259,7 +259,7 @@ PglErr KinshipPruneDestructive(uintptr_t* kinship_table, uintptr_t* sample_inclu
     }
     uint32_t sample_ct = orig_sample_ct;
     uint32_t sample_uidx = 0;
-    for (uint32_t sample_idx = 0; sample_idx < orig_sample_ct; ++sample_idx, ++sample_uidx) {
+    for (uint32_t sample_idx = 0; sample_idx != orig_sample_ct; ++sample_idx, ++sample_uidx) {
       MovU32To1Bit(sample_include, &sample_uidx);
       if (IsSet(sample_remove_collapsed, sample_idx)) {
         ClearBit(sample_uidx, sample_include);
@@ -374,7 +374,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
       goto KingCutoffBatch_ret_NOMEM;
     }
     uint32_t sample_uidx = 0;
-    for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
       MovU32To1Bit(sample_include, &sample_uidx);
       const uint32_t king_uidx = sample_uidx_to_king_uidx[sample_uidx];
       if (king_uidx != UINT32_MAX) {
@@ -408,7 +408,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
       if (unlikely(bigstack_alloc_d(king_id_ct - 1, &king_drow))) {
         goto KingCutoffBatch_ret_NOMEM;
       }
-      for (uint32_t king_idx = 1; king_uidx < king_id_ct; ++king_idx, ++king_uidx) {
+      for (uint32_t king_idx = 1; king_uidx != king_id_ct; ++king_idx, ++king_uidx) {
         if (!IsSet(king_include, king_uidx)) {
           king_uidx = AdvBoundedTo1Bit(king_include, king_uidx + 1, king_id_ct);
           if (king_uidx == king_id_ct) {
@@ -426,7 +426,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
         uintptr_t* kinship_table_col = &(kinship_table[sample_idx / kBitsPerWord]);
         const uintptr_t kinship_new_bit = k1LU << (sample_idx % kBitsPerWord);
         uint32_t king_uidx2 = first_king_uidx;
-        for (uint32_t king_idx2 = 0; king_idx2 < king_idx; ++king_idx2, ++king_uidx2) {
+        for (uint32_t king_idx2 = 0; king_idx2 != king_idx; ++king_idx2, ++king_uidx2) {
           MovU32To1Bit(king_include, &king_uidx2);
           if (king_drow[king_uidx2] > king_cutoff) {
             const uintptr_t sample_idx2 = king_uidx_to_sample_idx[king_uidx2];
@@ -447,7 +447,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
       if (unlikely(bigstack_alloc_f(king_id_ct - 1, &king_frow))) {
         goto KingCutoffBatch_ret_NOMEM;
       }
-      for (uint32_t king_idx = 1; king_uidx < king_id_ct; ++king_idx, ++king_uidx) {
+      for (uint32_t king_idx = 1; king_uidx != king_id_ct; ++king_idx, ++king_uidx) {
         if (!IsSet(king_include, king_uidx)) {
           king_uidx = AdvBoundedTo1Bit(king_include, king_uidx + 1, king_id_ct);
           if (king_uidx == king_id_ct) {
@@ -465,7 +465,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
         uintptr_t* kinship_table_col = &(kinship_table[sample_idx / kBitsPerWord]);
         const uintptr_t kinship_new_bit = k1LU << (sample_idx % kBitsPerWord);
         uint32_t king_uidx2 = first_king_uidx;
-        for (uint32_t king_idx2 = 0; king_idx2 < king_idx; ++king_idx2, ++king_uidx2) {
+        for (uint32_t king_idx2 = 0; king_idx2 != king_idx; ++king_idx2, ++king_uidx2) {
           MovU32To1Bit(king_include, &king_uidx2);
           if (king_frow[king_uidx2] > king_cutoff_f) {
             const uintptr_t sample_idx2 = king_uidx_to_sample_idx[king_uidx2];
@@ -526,7 +526,7 @@ CONSTI32(kKingMultiplexWords, kKingMultiplex / kBitsPerWord);
 void IncrKing(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t start_idx, uint32_t end_idx, uint32_t* king_counts_iter) {
   // Tried adding another level of blocking, but couldn't get it to make a
   // difference.
-  for (uint32_t second_idx = start_idx; second_idx < end_idx; ++second_idx) {
+  for (uint32_t second_idx = start_idx; second_idx != end_idx; ++second_idx) {
     // technically overflows for huge sample_ct
     const uint32_t second_offset = second_idx * kKingMultiplexWords;
     const uintptr_t* second_hom = &(smaj_hom[second_offset]);
@@ -538,7 +538,7 @@ void IncrKing(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t
       uint32_t acc_hethet = 0;
       uint32_t acc_het2hom1 = 0;
       uint32_t acc_het1hom2 = 0;
-      for (uint32_t widx = 0; widx < kKingMultiplexWords; ++widx) {
+      for (uint32_t widx = 0; widx != kKingMultiplexWords; ++widx) {
         const uintptr_t hom1 = first_hom_iter[widx];
         const uintptr_t hom2 = second_hom[widx];
         const uintptr_t ref2het1 = first_ref2het_iter[widx];
@@ -563,7 +563,7 @@ void IncrKing(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t
 }
 
 void IncrKingHomhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t start_idx, uint32_t end_idx, uint32_t* king_counts_iter) {
-  for (uint32_t second_idx = start_idx; second_idx < end_idx; ++second_idx) {
+  for (uint32_t second_idx = start_idx; second_idx != end_idx; ++second_idx) {
     // technically overflows for huge sample_ct
     const uint32_t second_offset = second_idx * kKingMultiplexWords;
     const uintptr_t* second_hom = &(smaj_hom[second_offset]);
@@ -576,7 +576,7 @@ void IncrKingHomhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, ui
       uint32_t acc_hethet = 0;
       uint32_t acc_het2hom1 = 0;
       uint32_t acc_het1hom2 = 0;
-      for (uint32_t widx = 0; widx < kKingMultiplexWords; ++widx) {
+      for (uint32_t widx = 0; widx != kKingMultiplexWords; ++widx) {
         const uintptr_t hom1 = first_hom_iter[widx];
         const uintptr_t hom2 = second_hom[widx];
         const uintptr_t ref2het1 = first_ref2het_iter[widx];
@@ -616,7 +616,7 @@ void IncrKing(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t
   const VecW m1 = VCONST_W(kMask5555);
   const VecW m2 = VCONST_W(kMask3333);
   const VecW m4 = VCONST_W(kMask0F0F);
-  for (uint32_t second_idx = start_idx; second_idx < end_idx; ++second_idx) {
+  for (uint32_t second_idx = start_idx; second_idx != end_idx; ++second_idx) {
     // technically overflows for huge sample_ct
     const uint32_t second_offset = second_idx * kKingMultiplexWords;
     const VecW* second_hom = R_CAST(const VecW*, &(smaj_hom[second_offset]));
@@ -652,7 +652,7 @@ void IncrKing(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t
         agg_het2hom1 = (agg_het2hom1 & m2) + (vecw_srli(agg_het2hom1, 2) & m2);
         agg_het1hom2 = (agg_het1hom2 & m2) + (vecw_srli(agg_het1hom2, 2) & m2);
 
-        for (uint32_t offset = 1; offset < 3; ++offset) {
+        for (uint32_t offset = 1; offset != 3; ++offset) {
           hom1 = first_hom_iter[vec_idx + offset];
           hom2 = second_hom[vec_idx + offset];
           ref2het1 = first_ref2het_iter[vec_idx + offset];
@@ -697,7 +697,7 @@ void IncrKingHomhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, ui
   const VecW m1 = VCONST_W(kMask5555);
   const VecW m2 = VCONST_W(kMask3333);
   const VecW m4 = VCONST_W(kMask0F0F);
-  for (uint32_t second_idx = start_idx; second_idx < end_idx; ++second_idx) {
+  for (uint32_t second_idx = start_idx; second_idx != end_idx; ++second_idx) {
     // technically overflows for huge sample_ct
     const uint32_t second_offset = second_idx * kKingMultiplexWords;
     const VecW* second_hom = R_CAST(const VecW*, &(smaj_hom[second_offset]));
@@ -738,7 +738,7 @@ void IncrKingHomhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, ui
         agg_het2hom1 = (agg_het2hom1 & m2) + (vecw_srli(agg_het2hom1, 2) & m2);
         agg_het1hom2 = (agg_het1hom2 & m2) + (vecw_srli(agg_het1hom2, 2) & m2);
 
-        for (uint32_t offset = 1; offset < 3; ++offset) {
+        for (uint32_t offset = 1; offset != 3; ++offset) {
           hom1 = first_hom_iter[vec_idx + offset];
           hom2 = second_hom[vec_idx + offset];
           ref2het1 = first_ref2het_iter[vec_idx + offset];
@@ -1126,7 +1126,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
           }
           uintptr_t* hom_iter = splitbuf_hom;
           uintptr_t* ref2het_iter = splitbuf_ref2het;
-          for (uint32_t uii = 0; uii < variant_batch_size; ++uii, ++variant_uidx) {
+          for (uint32_t uii = 0; uii != variant_batch_size; ++uii, ++variant_uidx) {
             MovU32To1Bit(variant_include, &variant_uidx);
             // Model does not cleanly generalize to multiallelic variants
             // (unless there's something I overlooked, which is quite
@@ -1178,7 +1178,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
           uintptr_t* write_hom_iter = &(cur_smaj_hom[cur_block_sizew]);
           uintptr_t* write_ref2het_iter = &(cur_smaj_ref2het[cur_block_sizew]);
           const uint32_t write_word_ct = kKingMultiplexWords - cur_block_sizew;
-          for (uint32_t sample_idx = 0; sample_idx < row_end_idx; ++sample_idx) {
+          for (uint32_t sample_idx = 0; sample_idx != row_end_idx; ++sample_idx) {
             ZeroWArr(write_word_ct, write_hom_iter);
             ZeroWArr(write_word_ct, write_ref2het_iter);
             write_hom_iter = &(write_hom_iter[kKingMultiplexWords]);
@@ -1216,7 +1216,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
               // dump "empty" first row
               sample_idx1 = 0;
             }
-            for (; sample_idx1 < row_end_idx; ++sample_idx1) {
+            for (; sample_idx1 != row_end_idx; ++sample_idx1) {
               for (uint32_t sample_idx2 = 0; sample_idx2 < sample_idx1; ++sample_idx2) {
                 const double kinship_coeff = ComputeKinship(results_iter);
                 if (kinship_table && (kinship_coeff > king_cutoff)) {
@@ -1240,7 +1240,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
 #  error "Unaligned accesses in CalcKing()."
 #endif
                   uintptr_t* writep_alias = R_CAST(uintptr_t*, cswritep);
-                  for (uintptr_t widx = 0; widx < wct; ++widx) {
+                  for (uintptr_t widx = 0; widx != wct; ++widx) {
                     *writep_alias++ = tabzero_word;
                   }
                   cswritep = &(cswritep[zcount * 2]);
@@ -1256,7 +1256,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
                   // sample_idx1 = 1: [1] 2 4 7 11...
                   // sample_idx1 = 2: [3] 5 8 12...
                   // sample_idx1 = 3: [6] 9 13...
-                  for (uint32_t sample_idx2 = sample_idx1 + 1; sample_idx2 < sample_ct; ++sample_idx2) {
+                  for (uint32_t sample_idx2 = sample_idx1 + 1; sample_idx2 != sample_ct; ++sample_idx2) {
                     *cswritep++ = '\t';
                     cswritep = dtoa_g(ComputeKinship(results_iter2), cswritep);
                     results_iter2 = &(results_iter2[sample_idx2 * homhom_needed_p4]);
@@ -1283,8 +1283,8 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
             if (king_flags & kfKingMatrixBin4) {
               float* write_row = R_CAST(float*, numbuf);
               uintptr_t row_byte_ct = sample_ct * sizeof(float);
-              for (; sample_idx1 < row_end_idx; ++sample_idx1) {
-                for (uint32_t sample_idx2 = 0; sample_idx2 < sample_idx1; ++sample_idx2) {
+              for (; sample_idx1 != row_end_idx; ++sample_idx1) {
+                for (uint32_t sample_idx2 = 0; sample_idx2 != sample_idx1; ++sample_idx2) {
                   const double kinship_coeff = ComputeKinship(results_iter);
                   if (kinship_table && (kinship_coeff > king_cutoff)) {
                     SetBit(sample_idx2, &(kinship_table[sample_idx1 * sample_ctl]));
@@ -1300,7 +1300,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
                     ZeroFArr(sample_ct - right_fill_idx, &(write_row[right_fill_idx]));
                   } else {
                     const uint32_t* results_iter2 = &(results_iter[sample_idx1 * homhom_needed_p4]);
-                    for (uint32_t sample_idx2 = sample_idx1 + 1; sample_idx2 < sample_ct; ++sample_idx2) {
+                    for (uint32_t sample_idx2 = sample_idx1 + 1; sample_idx2 != sample_ct; ++sample_idx2) {
                       write_row[sample_idx2] = S_CAST(float, ComputeKinship(results_iter2));
                       results_iter2 = &(results_iter2[sample_idx2 * homhom_needed_p4]);
                     }
@@ -1315,8 +1315,8 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
             } else {
               double* write_row = R_CAST(double*, numbuf);
               uintptr_t row_byte_ct = sample_ct * sizeof(double);
-              for (; sample_idx1 < row_end_idx; ++sample_idx1) {
-                for (uint32_t sample_idx2 = 0; sample_idx2 < sample_idx1; ++sample_idx2) {
+              for (; sample_idx1 != row_end_idx; ++sample_idx1) {
+                for (uint32_t sample_idx2 = 0; sample_idx2 != sample_idx1; ++sample_idx2) {
                   const double kinship_coeff = ComputeKinship(results_iter);
                   if (kinship_table && (kinship_coeff > king_cutoff)) {
                     SetBit(sample_idx2, &(kinship_table[sample_idx1 * sample_ctl]));
@@ -1332,7 +1332,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
                     ZeroDArr(sample_ct - right_fill_idx, &(write_row[right_fill_idx]));
                   } else {
                     const uint32_t* results_iter2 = &(results_iter[sample_idx1 * homhom_needed_p4]);
-                    for (uint32_t sample_idx2 = sample_idx1 + 1; sample_idx2 < sample_ct; ++sample_idx2) {
+                    for (uint32_t sample_idx2 = sample_idx1 + 1; sample_idx2 != sample_ct; ++sample_idx2) {
                       write_row[sample_idx2] = ComputeKinship(results_iter2);
                       results_iter2 = &(results_iter2[sample_idx2 * homhom_needed_p4]);
                     }
@@ -1363,10 +1363,10 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
           const uint32_t report_counts = king_flags & kfKingCounts;
           uint32_t* results_iter = g_king_counts;
           double nonmiss_recip = 0.0;
-          for (uint32_t sample_idx1 = row_start_idx; sample_idx1 < row_end_idx; ++sample_idx1) {
+          for (uint32_t sample_idx1 = row_start_idx; sample_idx1 != row_end_idx; ++sample_idx1) {
             const char* sample_fmtid1 = &(collapsed_sample_fmtids[max_sample_fmtid_blen * sample_idx1]);
             uint32_t sample_fmtid1_len = strlen(sample_fmtid1);
-            for (uint32_t sample_idx2 = 0; sample_idx2 < sample_idx1; ++sample_idx2, results_iter = &(results_iter[homhom_needed_p4])) {
+            for (uint32_t sample_idx2 = 0; sample_idx2 != sample_idx1; ++sample_idx2, results_iter = &(results_iter[homhom_needed_p4])) {
               const uint32_t ibs0_ct = results_iter[0];
               const uint32_t hethet_ct = results_iter[1];
               const uint32_t het2hom1_ct = results_iter[2];
@@ -1444,8 +1444,8 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
         printf("\r%s pass %u/%u: Condensing...                \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b", flagname, pass_idx_p1, pass_ct);
         fflush(stdout);
         uint32_t* results_iter = g_king_counts;
-        for (uint32_t sample_idx1 = row_start_idx; sample_idx1 < row_end_idx; ++sample_idx1) {
-          for (uint32_t sample_idx2 = 0; sample_idx2 < sample_idx1; ++sample_idx2) {
+        for (uint32_t sample_idx1 = row_start_idx; sample_idx1 != row_end_idx; ++sample_idx1) {
+          for (uint32_t sample_idx2 = 0; sample_idx2 != sample_idx1; ++sample_idx2) {
             const double kinship_coeff = ComputeKinship(results_iter);
             if (kinship_coeff > king_cutoff) {
               SetBit(sample_idx2, &(kinship_table[sample_idx1 * sample_ctl]));
@@ -1573,7 +1573,7 @@ void IncrKingSubset(const uint32_t* loaded_sample_idx_pairs, const uintptr_t* sm
     uint32_t acc_hethet = 0;
     uint32_t acc_het2hom1 = 0;
     uint32_t acc_het1hom2 = 0;
-    for (uint32_t widx = 0; widx < kKingMultiplexWords; ++widx) {
+    for (uint32_t widx = 0; widx != kKingMultiplexWords; ++widx) {
       const uintptr_t hom1 = first_hom[widx];
       const uintptr_t hom2 = second_hom[widx];
       const uintptr_t ref2het1 = first_ref2het[widx];
@@ -1610,7 +1610,7 @@ void IncrKingSubsetHomhom(const uint32_t* loaded_sample_idx_pairs, const uintptr
     uint32_t acc_hethet = 0;
     uint32_t acc_het2hom1 = 0;
     uint32_t acc_het1hom2 = 0;
-    for (uint32_t widx = 0; widx < kKingMultiplexWords; ++widx) {
+    for (uint32_t widx = 0; widx != kKingMultiplexWords; ++widx) {
       const uintptr_t hom1 = first_hom[widx];
       const uintptr_t hom2 = second_hom[widx];
       const uintptr_t ref2het1 = first_ref2het[widx];
@@ -1675,7 +1675,7 @@ void IncrKingSubset(const uint32_t* loaded_sample_idx_pairs, const uintptr_t* sm
       agg_het2hom1 = (agg_het2hom1 & m2) + (vecw_srli(agg_het2hom1, 2) & m2);
       agg_het1hom2 = (agg_het1hom2 & m2) + (vecw_srli(agg_het1hom2, 2) & m2);
 
-      for (uint32_t offset = 1; offset < 3; ++offset) {
+      for (uint32_t offset = 1; offset != 3; ++offset) {
         hom1 = first_hom[vec_idx + offset];
         hom2 = second_hom[vec_idx + offset];
         ref2het1 = first_ref2het[vec_idx + offset];
@@ -1760,7 +1760,7 @@ void IncrKingSubsetHomhom(const uint32_t* loaded_sample_idx_pairs, const uintptr
       agg_het2hom1 = (agg_het2hom1 & m2) + (vecw_srli(agg_het2hom1, 2) & m2);
       agg_het1hom2 = (agg_het1hom2 & m2) + (vecw_srli(agg_het1hom2, 2) & m2);
 
-      for (uint32_t offset = 1; offset < 3; ++offset) {
+      for (uint32_t offset = 1; offset != 3; ++offset) {
         hom1 = first_hom[vec_idx + offset];
         hom2 = second_hom[vec_idx + offset];
         ref2het1 = first_ref2het[vec_idx + offset];
@@ -2207,7 +2207,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       ZeroWArr(raw_sample_ctl, cur_sample_include);
       const uintptr_t cur_pair_ct = pair_idx - pair_idx_cur_start;
       const uintptr_t cur_pair_ct_x2 = 2 * cur_pair_ct;
-      for (uintptr_t ulii = 0; ulii < cur_pair_ct_x2; ++ulii) {
+      for (uintptr_t ulii = 0; ulii != cur_pair_ct_x2; ++ulii) {
         SetBit(g_loaded_sample_idx_pairs[ulii], cur_sample_include);
       }
       FillCumulativePopcounts(cur_sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
@@ -2215,7 +2215,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       const uint32_t cur_sample_ctaw = BitCtToAlignedWordCt(cur_sample_ct);
       const uint32_t cur_sample_ctaw2 = QuaterCtToAlignedWordCt(cur_sample_ct);
       if (cur_sample_ct != raw_sample_ct) {
-        for (uintptr_t ulii = 0; ulii < cur_pair_ct_x2; ++ulii) {
+        for (uintptr_t ulii = 0; ulii != cur_pair_ct_x2; ++ulii) {
           g_loaded_sample_idx_pairs[ulii] = RawToSubsettedPos(cur_sample_include, sample_include_cumulative_popcounts, g_loaded_sample_idx_pairs[ulii]);
         }
       }
@@ -2261,7 +2261,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
           }
           uintptr_t* hom_iter = splitbuf_hom;
           uintptr_t* ref2het_iter = splitbuf_ref2het;
-          for (uint32_t uii = 0; uii < variant_batch_size; ++uii, ++variant_uidx) {
+          for (uint32_t uii = 0; uii != variant_batch_size; ++uii, ++variant_uidx) {
             MovU32To1Bit(variant_include, &variant_uidx);
             reterr = PgrGet(cur_sample_include, sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, simple_pgrp, loadbuf);
             if (unlikely(reterr)) {
@@ -2304,7 +2304,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
           uintptr_t* write_hom_iter = &(cur_smaj_hom[cur_block_sizew]);
           uintptr_t* write_ref2het_iter = &(cur_smaj_ref2het[cur_block_sizew]);
           const uint32_t write_word_ct = kKingMultiplexWords - cur_block_sizew;
-          for (uint32_t sample_idx = 0; sample_idx < cur_sample_ct; ++sample_idx) {
+          for (uint32_t sample_idx = 0; sample_idx != cur_sample_ct; ++sample_idx) {
             ZeroWArr(write_word_ct, write_hom_iter);
             ZeroWArr(write_word_ct, write_ref2het_iter);
             write_hom_iter = &(write_hom_iter[kKingMultiplexWords]);
@@ -2340,7 +2340,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       const uint32_t report_counts = king_flags & kfKingCounts;
       uint32_t* results_iter = g_king_counts;
       double nonmiss_recip = 0.0;
-      for (uintptr_t cur_pair_idx = 0; cur_pair_idx < cur_pair_ct; ++cur_pair_idx, results_iter = &(results_iter[homhom_needed_p4])) {
+      for (uintptr_t cur_pair_idx = 0; cur_pair_idx != cur_pair_ct; ++cur_pair_idx, results_iter = &(results_iter[homhom_needed_p4])) {
         const uint32_t ibs0_ct = results_iter[0];
         const uint32_t hethet_ct = results_iter[1];
         const uint32_t het2hom1_ct = results_iter[2];
@@ -2514,7 +2514,7 @@ PglErr LoadCenteredVarmaj(const uintptr_t* sample_include, const uint32_t* sampl
     // this should probably be a library function...
     const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
     if (!dosage_ct) {
-      for (uint32_t widx = 0; widx < sample_ctl2; ++widx) {
+      for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
         const uintptr_t genovec_word = genovec_buf[widx];
         if (genovec_word & (genovec_word >> 1) & kMask5555) {
           *missing_presentp = 1;
@@ -2523,7 +2523,7 @@ PglErr LoadCenteredVarmaj(const uintptr_t* sample_include, const uint32_t* sampl
       }
     } else {
       Halfword* dosage_present_alias = R_CAST(Halfword*, dosage_present_buf);
-      for (uint32_t widx = 0; widx < sample_ctl2; ++widx) {
+      for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
         const uintptr_t genovec_word = genovec_buf[widx];
         const uintptr_t ulii = genovec_word & (genovec_word >> 1) & kMask5555;
         if (ulii) {
@@ -2643,7 +2643,7 @@ THREAD_FUNC_DECL CalcDblMissingThread(void* arg) {
 #endif
         // (sample_idx - 1) underflow ok
         uint32_t* write_base = &(missing_dbl_exclude_cts[((S_CAST(uint64_t, sample_idx) * (sample_idx - 1)) / 2) - dbl_exclude_offset]);
-        for (uint32_t uii = 0; uii < prev_missing_nz_ct; ++uii, ++sample_idx2) {
+        for (uint32_t uii = 0; uii != prev_missing_nz_ct; ++uii, ++sample_idx2) {
           MovU32To1Bit(missing_nz, &sample_idx2);
           const uintptr_t* cur_missing_smaj_base = &(missing_smaj[sample_idx2 * kDblMissingBlockWordCt]);
           const uintptr_t cur_and0 = cur_word0 & cur_missing_smaj_base[0];
@@ -2732,7 +2732,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
           ZeroWArr((kDblMissingBlockSize - cur_batch_size) * row_end_idxaw, &(missing_vmaj[cur_batch_size * row_end_idxaw]));
         }
         uintptr_t* missing_vmaj_iter = missing_vmaj;
-        for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
+        for (uint32_t variant_idx = cur_variant_idx_start; variant_idx != cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
           MovU32To1Bit(variant_include, &variant_uidx);
           reterr = PgrGetMissingnessD(sample_include, sample_include_cumulative_popcounts, row_end_idx, variant_uidx, simple_pgrp, nullptr, missing_vmaj_iter, nullptr, genovec_buf);
           if (unlikely(reterr)) {
@@ -2761,7 +2761,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
         }
         uintptr_t* cur_missing_nz = g_missing_nz[parity];
         ZeroWArr(row_end_idxl, cur_missing_nz);
-        for (uint32_t sample_idx = 0; sample_idx < row_end_idx; ++sample_idx) {
+        for (uint32_t sample_idx = 0; sample_idx != row_end_idx; ++sample_idx) {
           const uintptr_t cur_word0 = *cur_missing_smaj_iter++;
           const uintptr_t cur_word1 = *cur_missing_smaj_iter++;
 #ifdef __LP64__
@@ -2970,7 +2970,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           cur_variant_idx_end = variant_ct;
         }
         double* normed_vmaj_iter = g_normed_dosage_vmaj_bufs[parity];
-        for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
+        for (uint32_t variant_idx = cur_variant_idx_start; variant_idx != cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
           MovU32To1Bit(variant_include, &variant_uidx);
           const uint32_t maj_allele_idx = maj_alleles[variant_uidx];
           uint32_t missing_present = 0;
@@ -3055,17 +3055,17 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     if (missing_cts) {
       // could parallelize this loop if it ever matters
       const uint32_t* missing_dbl_exclude_iter = missing_dbl_exclude_cts;
-      for (uintptr_t row_idx = row_start_idx; row_idx < row_end_idx; ++row_idx) {
+      for (uintptr_t row_idx = row_start_idx; row_idx != row_end_idx; ++row_idx) {
         const uint32_t variant_ct_base = variant_ct - missing_cts[row_idx];
         double* grm_iter = &(grm[(row_idx - row_start_idx) * row_end_idx]);
-        for (uint32_t col_idx = 0; col_idx < row_idx; ++col_idx) {
+        for (uint32_t col_idx = 0; col_idx != row_idx; ++col_idx) {
           *grm_iter++ /= u31tod(variant_ct_base - missing_cts[col_idx] + (*missing_dbl_exclude_iter++));
         }
         *grm_iter++ /= u31tod(variant_ct_base);
       }
     } else {
       const double variant_ct_recip = 1.0 / u31tod(variant_ct);
-      for (uintptr_t row_idx = row_start_idx; row_idx < row_end_idx; ++row_idx) {
+      for (uintptr_t row_idx = row_start_idx; row_idx != row_end_idx; ++row_idx) {
         double* grm_iter = &(grm[(row_idx - row_start_idx) * row_end_idx]);
         for (uint32_t col_idx = 0; col_idx <= row_idx; ++col_idx) {
           *grm_iter++ *= variant_ct_recip;
@@ -3130,7 +3130,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             } else if (matrix_shape == kfGrmMatrixSq) {
               double* write_double_iter = write_double_buf;
               const double* grm_col = &(grm[row_idx - 1]);
-              for (uintptr_t row_idx2 = row_idx; row_idx2 < sample_ct; ++row_idx2) {
+              for (uintptr_t row_idx2 = row_idx; row_idx2 != sample_ct; ++row_idx2) {
                 *write_double_iter++ = grm_col[(row_idx2 - row_start_idx) * sample_ct];
               }
               if (unlikely(fwrite_checked(write_double_buf, (sample_ct - row_idx) * sizeof(double), outfile))) {
@@ -3169,7 +3169,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               write_float_iter = &(write_float_buf[sample_ct]);
             } else if (matrix_shape == kfGrmMatrixSq) {
               const double* grm_col = &(grm[row_idx - 1]);
-              for (uintptr_t row_idx2 = row_idx; row_idx2 < sample_ct; ++row_idx2) {
+              for (uintptr_t row_idx2 = row_idx; row_idx2 != sample_ct; ++row_idx2) {
                 *write_float_iter++ = S_CAST(float, grm_col[(row_idx2 - row_start_idx) * sample_ct]);
               }
             }
@@ -3199,7 +3199,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           do {
             const double* grm_iter = &(grm[(row_idx - row_start_idx) * row_end_idx]);
             ++row_idx;
-            for (uint32_t col_idx = 0; col_idx < row_idx; ++col_idx) {
+            for (uint32_t col_idx = 0; col_idx != row_idx; ++col_idx) {
               cswritep = dtoa_g(*grm_iter++, cswritep);
               *cswritep++ = '\t';
             }
@@ -3214,13 +3214,13 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
 #  error "Unaligned accesses in CalcGrm()."
 #endif
               uintptr_t* writep_alias = R_CAST(uintptr_t*, cswritep);
-              for (uintptr_t widx = 0; widx < wct; ++widx) {
+              for (uintptr_t widx = 0; widx != wct; ++widx) {
                 *writep_alias++ = zerotab_word;
               }
               cswritep = &(cswritep[zcount * 2]);
             } else if (matrix_shape == kfGrmMatrixSq) {
               const double* grm_col = &(grm[row_idx - 1]);
-              for (uintptr_t row_idx2 = row_idx; row_idx2 < sample_ct; ++row_idx2) {
+              for (uintptr_t row_idx2 = row_idx; row_idx2 != sample_ct; ++row_idx2) {
                 cswritep = dtoa_g(grm_col[(row_idx2 - row_start_idx) * sample_ct], cswritep);
                 *cswritep++ = '\t';
               }
@@ -3260,7 +3260,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           }
           fputs("--make-grm-bin: Writing...", stdout);
           fflush(stdout);
-          for (uintptr_t row_idx = row_start_idx; row_idx < row_end_idx; ++row_idx) {
+          for (uintptr_t row_idx = row_start_idx; row_idx != row_end_idx; ++row_idx) {
             const double* grm_iter = &(grm[(row_idx - row_start_idx) * row_end_idx]);
             for (uint32_t col_idx = 0; col_idx <= row_idx; ++col_idx) {
               write_float_buf[col_idx] = S_CAST(float, *grm_iter++);
@@ -3287,11 +3287,11 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             const uintptr_t tot_cells = (S_CAST(uint64_t, row_end_idx) * (row_end_idx - 1) - S_CAST(uint64_t, row_start_idx) * (row_start_idx - 1)) / 2;
             const float variant_ctf = u31tof(variant_ct);
             write_float_buf = R_CAST(float*, g_textbuf);
-            for (uint32_t uii = 0; uii < (kTextbufMainSize / sizeof(float)); ++uii) {
+            for (uint32_t uii = 0; uii != (kTextbufMainSize / sizeof(float)); ++uii) {
               write_float_buf[uii] = variant_ctf;
             }
             const uintptr_t full_write_ct = tot_cells / (kTextbufMainSize / sizeof(float));
-            for (uintptr_t ulii = 0; ulii < full_write_ct; ++ulii) {
+            for (uintptr_t ulii = 0; ulii != full_write_ct; ++ulii) {
               if (unlikely(fwrite_checked(write_float_buf, kTextbufMainSize, outfile))) {
                 goto CalcGrm_ret_WRITE_FAIL;
               }
@@ -3303,7 +3303,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               }
             }
           } else {
-            for (uintptr_t row_idx = row_start_idx; row_idx < row_end_idx; ++row_idx) {
+            for (uintptr_t row_idx = row_start_idx; row_idx != row_end_idx; ++row_idx) {
               const uint32_t variant_ct_base = variant_ct - missing_cts[row_idx];
               for (uint32_t col_idx = 0; col_idx <= row_idx; ++col_idx) {
                 uint32_t cur_obs_ct = variant_ct_base;
@@ -3356,7 +3356,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           }
           fputs("--make-grm-list: Writing...", stdout);
           fflush(stdout);
-          for (uintptr_t row_idx = row_start_idx; row_idx < row_end_idx; ++row_idx) {
+          for (uintptr_t row_idx = row_start_idx; row_idx != row_end_idx; ++row_idx) {
             uint32_t variant_ct_base = variant_ct;
             if (missing_cts) {
               variant_ct_base -= missing_cts[row_idx];
@@ -3500,7 +3500,7 @@ THREAD_FUNC_DECL CalcPcaXtxaThread(void* arg) {
       const Dosage* dosage_main_iter = &(g_dosage_mains[parity][vidx_offset * pca_sample_ct]);
       const double* cur_maj_freqs_iter = &(g_cur_maj_freqs[parity][vidx_offset]);
       double* yy_iter = yy_buf;
-      for (uint32_t uii = 0; uii < cur_thread_batch_size; ++uii) {
+      for (uint32_t uii = 0; uii != cur_thread_batch_size; ++uii) {
         // instead of setting is_haploid here, we just divide eigenvalues by 2
         // at the end if necessary
         PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, 0, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
@@ -3553,7 +3553,7 @@ THREAD_FUNC_DECL CalcPcaXaThread(void* arg) {
       const Dosage* dosage_main_iter = &(g_dosage_mains[parity][vidx_offset * pca_sample_ct]);
       const double* cur_maj_freqs_iter = &(g_cur_maj_freqs[parity][vidx_offset]);
       double* yy_iter = yy_buf;
-      for (uint32_t uii = 0; uii < cur_thread_batch_size; ++uii) {
+      for (uint32_t uii = 0; uii != cur_thread_batch_size; ++uii) {
         PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, 0, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
         if (unlikely(reterr)) {
           g_error_ret = reterr;
@@ -3603,7 +3603,7 @@ THREAD_FUNC_DECL CalcPcaXtbThread(void* arg) {
       const Dosage* dosage_main_iter = &(g_dosage_mains[parity][vidx_offset * pca_sample_ct]);
       const double* cur_maj_freqs_iter = &(g_cur_maj_freqs[parity][vidx_offset]);
       double* yy_iter = yy_buf;
-      for (uint32_t uii = 0; uii < cur_thread_batch_size; ++uii) {
+      for (uint32_t uii = 0; uii != cur_thread_batch_size; ++uii) {
         PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, 0, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
         if (unlikely(reterr)) {
           g_error_ret = reterr;
@@ -3656,7 +3656,7 @@ THREAD_FUNC_DECL CalcPcaVarWtsThread(void* arg) {
       const Dosage* dosage_main_iter = &(g_dosage_mains[parity][vidx_offset * pca_sample_ct]);
       const double* cur_maj_freqs_iter = &(g_cur_maj_freqs[parity][vidx_offset]);
       double* yy_iter = yy_buf;
-      for (uint32_t uii = 0; uii < cur_thread_batch_size; ++uii) {
+      for (uint32_t uii = 0; uii != cur_thread_batch_size; ++uii) {
         PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, is_haploid, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
         if (unlikely(reterr)) {
           g_error_ret = reterr;
@@ -3854,14 +3854,14 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         }
         calc_thread_ct = bigstack_avail / per_thread_alloc;
       }
-      for (uint32_t parity = 0; parity < 2; ++parity) {
+      for (uint32_t parity = 0; parity != 2; ++parity) {
         g_genovecs[parity] = S_CAST(uintptr_t*, bigstack_alloc_raw(genovecs_alloc * calc_thread_ct));
         g_dosage_cts[parity] = S_CAST(uint32_t*, bigstack_alloc_raw(dosage_cts_alloc * calc_thread_ct));
         g_dosage_presents[parity] = S_CAST(uintptr_t*, bigstack_alloc_raw(dosage_presents_alloc * calc_thread_ct));
         g_dosage_mains[parity] = S_CAST(Dosage*, bigstack_alloc_raw(dosage_main_alloc * calc_thread_ct));
         g_cur_maj_freqs[parity] = S_CAST(double*, bigstack_alloc_raw(cur_maj_freqs_alloc * calc_thread_ct));
       }
-      for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
+      for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
         g_yy_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(yy_alloc));
         g_y_transpose_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(yy_alloc));
         g_g2_bb_part_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(g2_bb_part_alloc));
@@ -3877,7 +3877,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       PgrClearLdCache(simple_pgrp);
       for (uint32_t iter_idx = 0; iter_idx <= pc_ct; ++iter_idx) {
         // kjg_fpca_XTXA(), kjg_fpca_XA()
-        for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
+        for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
           ZeroDArr(g_size, g_g2_bb_part_bufs[tidx]);
         }
         double* qq_iter = &(qq[iter_idx * pc_ct_x2]);  // offset on first row
@@ -3910,7 +3910,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             uintptr_t* dosage_present_iter = g_dosage_presents[parity];
             Dosage* dosage_main_iter = g_dosage_mains[parity];
             double* maj_freqs_write_iter = g_cur_maj_freqs[parity];
-            for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
+            for (uint32_t variant_idx = cur_variant_idx_start; variant_idx != cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
               MovU32To1Bit(variant_include, &variant_uidx);
               const uint32_t maj_allele_idx = maj_alleles[variant_uidx];
               uint32_t dosage_ct;
@@ -3968,13 +3968,13 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         }
         if (iter_idx < pc_ct) {
           memcpy(g1, g_g2_bb_part_bufs[0], g_size * sizeof(double));
-          for (uint32_t tidx = 1; tidx < calc_thread_ct; ++tidx) {
+          for (uint32_t tidx = 1; tidx != calc_thread_ct; ++tidx) {
             const double* cur_g2_part = g_g2_bb_part_bufs[tidx];
-            for (uintptr_t ulii = 0; ulii < g_size; ++ulii) {
+            for (uintptr_t ulii = 0; ulii != g_size; ++ulii) {
               g1[ulii] += cur_g2_part[ulii];
             }
           }
-          for (uintptr_t ulii = 0; ulii < g_size; ++ulii) {
+          for (uintptr_t ulii = 0; ulii != g_size; ++ulii) {
             g1[ulii] *= variant_ct_recip;
           }
         }
@@ -4000,7 +4000,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       fflush(stdout);
 
       // kjg_fpca_XTB()
-      for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
+      for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
         ZeroDArr(b_size, g_g2_bb_part_bufs[tidx]);
       }
       uint32_t parity = 0;
@@ -4023,7 +4023,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           uintptr_t* dosage_present_iter = g_dosage_presents[parity];
           Dosage* dosage_main_iter = g_dosage_mains[parity];
           double* maj_freqs_write_iter = g_cur_maj_freqs[parity];
-          for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
+          for (uint32_t variant_idx = cur_variant_idx_start; variant_idx != cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
             MovU32To1Bit(variant_include, &variant_uidx);
             const uint32_t maj_allele_idx = maj_alleles[variant_uidx];
             uint32_t dosage_ct;
@@ -4068,9 +4068,9 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         parity = 1 - parity;
       }
       double* bb = g_g2_bb_part_bufs[0];
-      for (uint32_t tidx = 1; tidx < calc_thread_ct; ++tidx) {
+      for (uint32_t tidx = 1; tidx != calc_thread_ct; ++tidx) {
         const double* cur_bb_part = g_g2_bb_part_bufs[tidx];
-        for (uintptr_t ulii = 0; ulii < b_size; ++ulii) {
+        for (uintptr_t ulii = 0; ulii != b_size; ++ulii) {
           bb[ulii] += cur_bb_part[ulii];
         }
       }
@@ -4084,17 +4084,18 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       BLAS_SET_NUM_THREADS(1);
       logputs("done.\n");
       eigvecs_smaj = g1;
-      for (uint32_t sample_idx = 0; sample_idx < pca_sample_ct; ++sample_idx) {
+      for (uint32_t sample_idx = 0; sample_idx != pca_sample_ct; ++sample_idx) {
         memcpy(&(eigvecs_smaj[sample_idx * S_CAST(uintptr_t, pc_ct)]), &(bb[sample_idx * qq_col_ct]), pc_ct * sizeof(double));
       }
-      for (uint32_t pc_idx = 0; pc_idx < pc_ct; ++pc_idx) {
+      for (uint32_t pc_idx = 0; pc_idx != pc_ct; ++pc_idx) {
         eigvals[pc_idx] = ss[pc_idx] * ss[pc_idx] * variant_ct_recip;
       }
       writebuf = R_CAST(char*, svd_rect_wkspace);
-      if (g_is_haploid) {
-        for (uint32_t pc_idx = 0; pc_idx < pc_ct; ++pc_idx) {
-          eigvals[pc_idx] *= 0.5;
-        }
+      // bugfix (25 Jun 2018): eigvals[] computation was missing a divide-by-2
+      // somewhere, in both diploid and haploid cases.
+      const double eigvals_rescale = g_is_haploid? 0.25 : 0.5;
+      for (uint32_t pc_idx = 0; pc_idx != pc_ct; ++pc_idx) {
+        eigvals[pc_idx] *= eigvals_rescale;
       }
     } else {
       __CLPK_integer lwork;
@@ -4134,13 +4135,13 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       // transpose eigenvectors to sample-major
       const uint32_t pc_ct_m1 = pc_ct - 1;
       const uint32_t pc_ct_div2 = pc_ct / 2;
-      for (uint32_t pc_idx = 0; pc_idx < pc_ct_div2; ++pc_idx) {
+      for (uint32_t pc_idx = 0; pc_idx != pc_ct_div2; ++pc_idx) {
         double tmp_eigval = eigvals[pc_idx];
         eigvals[pc_idx] = eigvals[pc_ct_m1 - pc_idx];
         eigvals[pc_ct_m1 - pc_idx] = tmp_eigval;
       }
       double* eigvecs_smaj_iter = eigvecs_smaj;
-      for (uint32_t sample_idx = 0; sample_idx < pca_sample_ct; ++sample_idx) {
+      for (uint32_t sample_idx = 0; sample_idx != pca_sample_ct; ++sample_idx) {
         uintptr_t pc_inv_idx = pc_ct;
         const double* reverse_eigvecs_col = &(reverse_eigvecs_pcmaj[sample_idx]);
         do {
@@ -4154,7 +4155,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
 
     if (var_wts) {
       g_g1 = eigvecs_smaj;
-      for (uint32_t pc_idx = 0; pc_idx < pc_ct; ++pc_idx) {
+      for (uint32_t pc_idx = 0; pc_idx != pc_ct; ++pc_idx) {
         eigval_inv_sqrts[pc_idx] = 1.0 / sqrt(eigvals[pc_idx]);
       }
 
@@ -4190,7 +4191,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       if (nonmaj_col) {
         cswritep = strcpya_k(cswritep, "\tNONMAJ");
       }
-      for (uint32_t pc_idx = 0; pc_idx < pc_ct;) {
+      for (uint32_t pc_idx = 0; pc_idx != pc_ct;) {
         ++pc_idx;
         cswritep = strcpya_k(cswritep, "\tPC");
         cswritep = u32toa(pc_idx, cswritep);
@@ -4247,14 +4248,14 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           calc_thread_ct = arena_avail / per_thread_alloc;
         }
         ts.calc_thread_ct = calc_thread_ct;
-        for (uint32_t parity = 0; parity < 2; ++parity) {
+        for (uint32_t parity = 0; parity != 2; ++parity) {
           g_genovecs[parity] = S_CAST(uintptr_t*, arena_alloc_raw(genovecs_alloc * calc_thread_ct, &arena_bottom));
           g_dosage_cts[parity] = S_CAST(uint32_t*, arena_alloc_raw(dosage_cts_alloc * calc_thread_ct, &arena_bottom));
           g_dosage_presents[parity] = S_CAST(uintptr_t*, arena_alloc_raw(dosage_presents_alloc * calc_thread_ct, &arena_bottom));
           g_dosage_mains[parity] = S_CAST(Dosage*, arena_alloc_raw(dosage_main_alloc * calc_thread_ct, &arena_bottom));
           g_cur_maj_freqs[parity] = S_CAST(double*, arena_alloc_raw(cur_maj_freqs_alloc * calc_thread_ct, &arena_bottom));
         }
-        for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
+        for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
           g_yy_bufs[tidx] = S_CAST(double*, arena_alloc_raw(yy_alloc, &arena_bottom));
         }
         var_wts_part_size = (MINV(variant_ct, calc_thread_ct * kPcaVariantBlockSize)) * S_CAST(uintptr_t, pc_ct);
@@ -4289,7 +4290,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           uintptr_t* dosage_present_iter = g_dosage_presents[parity];
           Dosage* dosage_main_iter = g_dosage_mains[parity];
           double* maj_freqs_write_iter = g_cur_maj_freqs[parity];
-          for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx_load, ++variant_idx) {
+          for (uint32_t variant_idx = cur_variant_idx_start; variant_idx != cur_variant_idx_end; ++variant_uidx_load, ++variant_idx) {
             MovU32To1Bit(variant_include, &variant_uidx_load);
             const uint32_t maj_allele_idx = maj_alleles[variant_uidx_load];
             uint32_t dosage_ct;
@@ -4332,7 +4333,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           // write *previous* block results
           const double* var_wts_iter = &(qq[parity * var_wts_part_size]);
           // (todo: update projection here)
-          for (uint32_t vidx = cur_variant_idx_start - prev_batch_size; vidx < cur_variant_idx_start; ++vidx, ++variant_uidx) {
+          for (uint32_t vidx = cur_variant_idx_start - prev_batch_size; vidx != cur_variant_idx_start; ++vidx, ++variant_uidx) {
             MovU32To1Bit(variant_include, &variant_uidx);
             if (chr_col) {
               // ok to skip this logic if chr_col not printed
@@ -4368,7 +4369,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             }
             if (alt_col) {
               *cswritep++ = '\t';
-              for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct; ++allele_idx) {
+              for (uint32_t allele_idx = 1; allele_idx != cur_allele_ct; ++allele_idx) {
                 if (unlikely(Cswrite(&css, &cswritep))) {
                   goto CalcPca_ret_WRITE_FAIL;
                 }
@@ -4386,7 +4387,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             }
             if (nonmaj_col) {
               *cswritep++ = '\t';
-              for (uint32_t allele_idx = 0; allele_idx < cur_allele_ct; ++allele_idx) {
+              for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct; ++allele_idx) {
                 if (allele_idx == maj_allele_idx) {
                   continue;
                 }
@@ -4397,7 +4398,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
               }
               --cswritep;
             }
-            for (uint32_t pc_idx = 0; pc_idx < pc_ct; ++pc_idx) {
+            for (uint32_t pc_idx = 0; pc_idx != pc_ct; ++pc_idx) {
               *cswritep++ = '\t';
               // could avoid these multiplications by premultiplying the
               // sample weight matrix
@@ -4436,7 +4437,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     if (write_sid) {
       write_iter = strcpya_k(write_iter, "\tSID");
     }
-    for (uint32_t pc_idx = 0; pc_idx < pc_ct;) {
+    for (uint32_t pc_idx = 0; pc_idx != pc_ct;) {
       ++pc_idx;
       write_iter = strcpya_k(write_iter, "\tPC");
       write_iter = u32toa(pc_idx, write_iter);
@@ -4444,7 +4445,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     AppendBinaryEoln(&write_iter);
     const uint32_t sample_ct = pca_sample_ct;
     uint32_t sample_uidx = 0;
-    for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
       MovU32To1Bit(sample_include, &sample_uidx);
       const char* cur_sample_id = &(sample_ids[max_sample_id_blen * sample_uidx]);
       if (!write_fid) {
@@ -4462,7 +4463,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       double* sample_wts_iter = &(eigvecs_smaj[sample_idx * pc_ct]);
       // todo: read from proj_sample_wts instead when pca_sample_include bit
       // not set
-      for (uint32_t pc_idx = 0; pc_idx < pc_ct; ++pc_idx) {
+      for (uint32_t pc_idx = 0; pc_idx != pc_ct; ++pc_idx) {
         *write_iter++ = '\t';
         write_iter = dtoa_g(*sample_wts_iter++, write_iter);
       }
@@ -4480,7 +4481,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       goto CalcPca_ret_OPEN_FAIL;
     }
     write_iter = writebuf;
-    for (uint32_t pc_idx = 0; pc_idx < pc_ct; ++pc_idx) {
+    for (uint32_t pc_idx = 0; pc_idx != pc_ct; ++pc_idx) {
       write_iter = dtoa_g(eigvals[pc_idx], write_iter);
       AppendBinaryEoln(&write_iter);
     }
@@ -4539,7 +4540,7 @@ void FillCurDosageInts(const uintptr_t* genovec_buf, const uintptr_t* dosage_pre
   InitLookup16x8bx2(lookup_table);
   GenoarrLookup16x8bx2(genovec_buf, lookup_table, sample_ct, cur_dosage_ints);
   uint32_t sample_idx = 0;
-  for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_idx) {
+  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx, ++sample_idx) {
     MovU32To1Bit(dosage_present, &sample_idx);
     cur_dosage_ints[sample_idx] = dosage_main_buf[dosage_idx] * is_diploid_p1;
   }
@@ -4616,7 +4617,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       goto ScoreReport_ret_1;
     }
     uint32_t nonempty_lines_to_skip_p1 = 1 + ((score_flags / kfScoreHeaderIgnore) & 1);
-    for (uint32_t uii = 0; uii < nonempty_lines_to_skip_p1; ++uii) {
+    for (uint32_t uii = 0; uii != nonempty_lines_to_skip_p1; ++uii) {
       reterr = RlsNextNonemptyLstrip(&score_rls, &line_idx, &line_iter);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
@@ -4670,7 +4671,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         goto ScoreReport_ret_NOMEM;
       }
       uint32_t col_uidx = 0;
-      for (uintptr_t score_col_idx = 0; score_col_idx < score_col_ct; ++score_col_idx, ++col_uidx) {
+      for (uintptr_t score_col_idx = 0; score_col_idx != score_col_ct; ++score_col_idx, ++col_uidx) {
         MovU32To1Bit(score_col_bitarr, &col_uidx);
         score_col_idx_deltas[score_col_idx] = col_uidx;
       }
@@ -4689,7 +4690,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     // of available workspace.
     if (score_flags & kfScoreHeaderRead) {
       char* read_iter = linebuf_first_token;
-      for (uintptr_t score_col_idx = 0; score_col_idx < score_col_ct; ++score_col_idx) {
+      for (uintptr_t score_col_idx = 0; score_col_idx != score_col_ct; ++score_col_idx) {
         read_iter = NextTokenMult0(read_iter, score_col_idx_deltas[score_col_idx]);
         score_col_names[score_col_idx] = write_iter;
         char* token_end = CurTokenEnd(read_iter);
@@ -4701,7 +4702,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       line_iter = AdvToDelim(read_iter, '\n');
       linebuf_first_token = line_iter;
     } else {
-      for (uintptr_t score_col_idx = 0; score_col_idx < score_col_ct; ++score_col_idx) {
+      for (uintptr_t score_col_idx = 0; score_col_idx != score_col_ct; ++score_col_idx) {
         score_col_names[score_col_idx] = write_iter;
         write_iter = strcpya_k(write_iter, "SCORE");
         write_iter = u32toa_x(score_col_idx + 1, '\0', write_iter);
@@ -4860,7 +4861,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
           const uint32_t allele_blen = 1 + S_CAST(uintptr_t, allele_end - allele_start);
           const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
           uint32_t cur_allele_idx = 0;
-          for (; cur_allele_idx < cur_allele_ct; ++cur_allele_idx) {
+          for (; cur_allele_idx != cur_allele_ct; ++cur_allele_idx) {
             if (memequal(allele_start, cur_alleles[cur_allele_idx], allele_blen)) {
               break;
             }
@@ -4903,7 +4904,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             if (is_nonx_haploid) {
               if (is_y) {
                 uint32_t sample_idx = 0;
-                for (uint32_t nonmale_idx = 0; nonmale_idx < nonmale_ct; ++nonmale_idx, ++sample_idx) {
+                for (uint32_t nonmale_idx = 0; nonmale_idx != nonmale_ct; ++nonmale_idx, ++sample_idx) {
                   MovU32To1Bit(sex_nonmale_collapsed, &sample_idx);
                   dosage_incrs[sample_idx] = 0;
                 }
@@ -4929,7 +4930,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             } else {
               if (is_relevant_x) {
                 uint32_t sample_idx = 0;
-                for (uint32_t male_idx = 0; male_idx < male_ct; ++male_idx, ++sample_idx) {
+                for (uint32_t male_idx = 0; male_idx != male_ct; ++male_idx, ++sample_idx) {
                   MovU32To0Bit(sex_nonmale_collapsed, &sample_idx);
                   dosage_incrs[sample_idx] /= 2;
                 }
@@ -4963,13 +4964,13 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
                 ploidy_d = 2.0;
               } else {
                 if (model_dominant) {
-                  for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
+                  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
                     if (dosage_incrs[sample_idx] > kDosageMax) {
                       dosage_incrs[sample_idx] = kDosageMax;
                     }
                   }
                 } else {
-                  for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
+                  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
                     uint64_t cur_dosage_incr = dosage_incrs[sample_idx];
                     if (cur_dosage_incr <= kDosageMax) {
                       cur_dosage_incr = 0;
@@ -4982,7 +4983,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
                 ploidy_d = 1.0;
               }
             }
-            for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
+            for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
               dosage_sums[sample_idx] += dosage_incrs[sample_idx];
             }
             const double cur_allele_freq = GetAlleleFreq(&(allele_freqs[allele_idx_offset_base - variant_uidx]), cur_allele_idx, cur_allele_ct);
@@ -5020,7 +5021,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
                 ZeroDArr(sample_ct, cur_dosages_vmaj_iter);
                 if (!no_meanimpute) {
                   const uint32_t male_missing_ct = PopcountWords(missing_male_acc1, sample_ctl);
-                  for (uint32_t male_missing_idx = 0; male_missing_idx < male_missing_ct; ++male_missing_idx, ++sample_idx) {
+                  for (uint32_t male_missing_idx = 0; male_missing_idx != male_missing_ct; ++male_missing_idx, ++sample_idx) {
                     MovU32To1Bit(missing_male_acc1, &sample_idx);
                     cur_dosages_vmaj_iter[sample_idx] = missing_effect;
                   }
@@ -5030,7 +5031,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
                     BitvecAndCopy(missing_acc1, sex_nonmale_collapsed, sample_ctl, missing_male_acc1);
                     missing_effect *= 2;
                     const uint32_t nonmale_missing_ct = PopcountWords(missing_male_acc1, sample_ctl);
-                    for (uint32_t nonmale_missing_idx = 0; nonmale_missing_idx < nonmale_missing_ct; ++nonmale_missing_idx, ++sample_idx) {
+                    for (uint32_t nonmale_missing_idx = 0; nonmale_missing_idx != nonmale_missing_ct; ++nonmale_missing_idx, ++sample_idx) {
                       MovU32To1Bit(missing_male_acc1, &sample_idx);
                       cur_dosages_vmaj_iter[sample_idx] = missing_effect;
                     }
@@ -5038,14 +5039,14 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
                 }
               } else {
                 missing_effect *= ploidy_d;
-                for (uint32_t missing_idx = 0; missing_idx < missing_ct; ++missing_idx, ++sample_idx) {
+                for (uint32_t missing_idx = 0; missing_idx != missing_ct; ++missing_idx, ++sample_idx) {
                   MovU32To1Bit(missing_acc1, &sample_idx);
                   cur_dosages_vmaj_iter[sample_idx] = missing_effect;
                 }
               }
             }
             uint32_t sample_idx = 0;
-            for (uint32_t nm_sample_idx = 0; nm_sample_idx < nm_sample_ct; ++nm_sample_idx, ++sample_idx) {
+            for (uint32_t nm_sample_idx = 0; nm_sample_idx != nm_sample_ct; ++nm_sample_idx, ++sample_idx) {
               MovU32To0Bit(missing_acc1, &sample_idx);
               cur_dosages_vmaj_iter[sample_idx] = u63tod(dosage_incrs[sample_idx]) * geno_slope + geno_intercept;
             }
@@ -5061,7 +5062,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
               //   1. we square the genotypes and the standard errors before
               //      matrix multiplication, and
               //   2. we take the square root of the sums at the end.
-              for (sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
+              for (sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
                 cur_dosages_vmaj_iter[sample_idx] *= cur_dosages_vmaj_iter[sample_idx];
               }
             }
@@ -5070,7 +5071,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             *allele_end = allele_end_char;
             double* cur_score_coefs_iter = &(cur_score_coefs_cmaj[block_vidx]);
             const char* read_iter = linebuf_first_token;
-            for (uint32_t score_col_idx = 0; score_col_idx < score_col_ct; ++score_col_idx) {
+            for (uint32_t score_col_idx = 0; score_col_idx != score_col_ct; ++score_col_idx) {
               read_iter = NextTokenMult0(read_iter, score_col_idx_deltas[score_col_idx]);
               double raw_coef;
               const char* token_end = ScanadvDouble(read_iter, &raw_coef);
@@ -5097,7 +5098,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             ++block_vidx;
             if (block_vidx == kScoreVariantBlockSize) {
               if (se_mode) {
-                for (uintptr_t ulii = 0; ulii < kScoreVariantBlockSize * score_col_ct; ++ulii) {
+                for (uintptr_t ulii = 0; ulii != kScoreVariantBlockSize * score_col_ct; ++ulii) {
                   cur_score_coefs_cmaj[ulii] *= cur_score_coefs_cmaj[ulii];
                 }
               }
@@ -5179,9 +5180,9 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     ts.is_last_block = 1;
     g_cur_batch_size = block_vidx;
     if (se_mode) {
-      for (uintptr_t score_col_idx = 0; score_col_idx < score_col_ct; ++score_col_idx) {
+      for (uintptr_t score_col_idx = 0; score_col_idx != score_col_ct; ++score_col_idx) {
         double* cur_score_coefs_row = &(cur_score_coefs_cmaj[score_col_idx * kScoreVariantBlockSize]);
-        for (uint32_t uii = 0; uii < block_vidx; ++uii) {
+        for (uint32_t uii = 0; uii != block_vidx; ++uii) {
           cur_score_coefs_row[uii] *= cur_score_coefs_row[uii];
         }
       }
@@ -5192,7 +5193,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     JoinThreads3z(&ts);
     if (se_mode) {
       // sample_ct * score_col_ct
-      for (uintptr_t ulii = 0; ulii < sample_ct * score_col_ct; ++ulii) {
+      for (uintptr_t ulii = 0; ulii != sample_ct * score_col_ct; ++ulii) {
         g_final_scores_cmaj[ulii] = sqrt(g_final_scores_cmaj[ulii]);
       }
     }
@@ -5232,7 +5233,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       cswritep = strcpya_k(cswritep, "\tSID");
     }
     if (write_phenos) {
-      for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
+      for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
         *cswritep++ = '\t';
         cswritep = strcpya(cswritep, &(pheno_names[pheno_idx * max_pheno_name_blen]));
         if (unlikely(Cswrite(&css, &cswritep))) {
@@ -5255,7 +5256,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       cswritep = strcpya_k(cswritep, "\tNAMED_ALLELE_DOSAGE_SUM");
     }
     if (write_score_avgs) {
-      for (uint32_t score_col_idx = 0; score_col_idx < score_col_ct; ++score_col_idx) {
+      for (uint32_t score_col_idx = 0; score_col_idx != score_col_ct; ++score_col_idx) {
         *cswritep++ = '\t';
         cswritep = strcpya(cswritep, score_col_names[score_col_idx]);
         cswritep = strcpya_k(cswritep, "_AVG");
@@ -5265,7 +5266,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       }
     }
     if (write_score_sums) {
-      for (uint32_t score_col_idx = 0; score_col_idx < score_col_ct; ++score_col_idx) {
+      for (uint32_t score_col_idx = 0; score_col_idx != score_col_ct; ++score_col_idx) {
         *cswritep++ = '\t';
         cswritep = strcpya(cswritep, score_col_names[score_col_idx]);
         cswritep = strcpya_k(cswritep, "_SUM");
@@ -5281,7 +5282,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     const uint32_t omp_slen = strlen(output_missing_pheno);
 
     uint32_t sample_uidx = 0;
-    for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
       MovU32To1Bit(sample_include, &sample_uidx);
       const char* cur_sample_id = &(sample_ids[sample_uidx * max_sample_id_blen]);
       if (!write_fid) {
@@ -5298,7 +5299,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       }
       if (write_phenos) {
         // er, this probably belongs in its own function
-        for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
+        for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
           const PhenoCol* cur_pheno_col = &(pheno_cols[pheno_idx]);
           const PhenoDtype type_code = cur_pheno_col->type_code;
           *cswritep++ = '\t';
@@ -5343,13 +5344,13 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       const double* final_score_col = &(g_final_scores_cmaj[sample_idx]);
       if (write_score_avgs) {
         const double denom_recip = 1.0 / S_CAST(double, denom);
-        for (uint32_t score_col_idx = 0; score_col_idx < score_col_ct; ++score_col_idx) {
+        for (uint32_t score_col_idx = 0; score_col_idx != score_col_ct; ++score_col_idx) {
           *cswritep++ = '\t';
           cswritep = dtoa_g(final_score_col[score_col_idx * sample_ct] * denom_recip, cswritep);
         }
       }
       if (write_score_sums) {
-        for (uint32_t score_col_idx = 0; score_col_idx < score_col_ct; ++score_col_idx) {
+        for (uint32_t score_col_idx = 0; score_col_idx != score_col_ct; ++score_col_idx) {
           *cswritep++ = '\t';
           cswritep = dtoa_g(final_score_col[score_col_idx * sample_ct], cswritep);
         }

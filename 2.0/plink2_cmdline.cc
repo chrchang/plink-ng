@@ -290,12 +290,12 @@ BoolErr StrptrArrIndexedSort(const char* const* unsorted_strptrs, uint32_t str_c
     return 1;
   }
   StrSortIndexedDeref* wkspace_alias = (StrSortIndexedDeref*)g_bigstack_base;
-  for (uint32_t str_idx = 0; str_idx < str_ct; ++str_idx) {
+  for (uint32_t str_idx = 0; str_idx != str_ct; ++str_idx) {
     wkspace_alias[str_idx].strptr = unsorted_strptrs[str_idx];
     wkspace_alias[str_idx].orig_idx = str_idx;
   }
   StrptrArrSortMain(str_ct, overread_ok, use_nsort, wkspace_alias);
-  for (uint32_t str_idx = 0; str_idx < str_ct; ++str_idx) {
+  for (uint32_t str_idx = 0; str_idx != str_ct; ++str_idx) {
     id_map[str_idx] = wkspace_alias[str_idx].orig_idx;
   }
   BigstackReset(wkspace_alias);
@@ -419,7 +419,7 @@ PglErr SortCmdlineFlags(uint32_t max_flag_blen, uint32_t flag_ct, char* flag_buf
   }
   uint32_t prev_flag_len = strlen_se(flag_buf);
   char* prev_flag_ptr = flag_buf;
-  for (uint32_t cur_flag_idx = 1; cur_flag_idx < flag_ct; ++cur_flag_idx) {
+  for (uint32_t cur_flag_idx = 1; cur_flag_idx != flag_ct; ++cur_flag_idx) {
     char* cur_flag_ptr = &(prev_flag_ptr[max_flag_blen]);
     const uint32_t cur_flag_len = strlen_se(cur_flag_ptr);
     if (unlikely((prev_flag_len == cur_flag_len) && memequal(prev_flag_ptr, cur_flag_ptr, cur_flag_len))) {
@@ -555,13 +555,13 @@ PglErr InitBigstack(uintptr_t malloc_size_mib, uintptr_t* malloc_mib_final_ptr, 
 #ifdef __LP64__
   // assumes little-endian
   uintptr_t cur_word = 0x3000200010000LLU;
-  for (uint32_t uii = 0; uii < 64; ++uii) {
+  for (uint32_t uii = 0; uii != 64; ++uii) {
     *one_char_iter++ = cur_word;
     cur_word += 0x4000400040004LLU;
   }
 #else
   uintptr_t cur_word = 0x10000;
-  for (uint32_t uii = 0; uii < 128; ++uii) {
+  for (uint32_t uii = 0; uii != 128; ++uii) {
     *one_char_iter++ = cur_word;
     cur_word += 0x20002;
   }
@@ -910,7 +910,7 @@ void BitvecAndCopy(const uintptr_t* __restrict source1_bitvec, const uintptr_t* 
   const VecW* source1_bitvvec = R_CAST(const VecW*, source1_bitvec);
   const VecW* source2_bitvvec = R_CAST(const VecW*, source2_bitvec);
   const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
-  for (uintptr_t ulii = 0; ulii < full_vec_ct; ++ulii) {
+  for (uintptr_t ulii = 0; ulii != full_vec_ct; ++ulii) {
     target_bitvvec[ulii] = source1_bitvvec[ulii] & source2_bitvvec[ulii];
   }
 #  ifdef USE_AVX2
@@ -924,7 +924,7 @@ void BitvecAndCopy(const uintptr_t* __restrict source1_bitvec, const uintptr_t* 
     target_bitvec[word_ct - 1] = source1_bitvec[word_ct - 1] & source2_bitvec[word_ct - 1];
   }
 #else
-  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
+  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
     target_bitvec[widx] = source1_bitvec[widx] & source2_bitvec[widx];
   }
 #endif
@@ -937,7 +937,7 @@ void BitvecAndNotCopy(const uintptr_t* __restrict source_bitvec, const uintptr_t
   const VecW* source_bitvvec = R_CAST(const VecW*, source_bitvec);
   const VecW* exclude_bitvvec = R_CAST(const VecW*, exclude_bitvec);
   const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
-  for (uintptr_t ulii = 0; ulii < full_vec_ct; ++ulii) {
+  for (uintptr_t ulii = 0; ulii != full_vec_ct; ++ulii) {
     target_bitvvec[ulii] = source_bitvvec[ulii] & (~exclude_bitvvec[ulii]);
   }
 #  ifdef USE_AVX2
@@ -951,7 +951,7 @@ void BitvecAndNotCopy(const uintptr_t* __restrict source_bitvec, const uintptr_t
     target_bitvec[word_ct - 1] = source_bitvec[word_ct - 1] & (~exclude_bitvec[word_ct - 1]);
   }
 #else
-  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
+  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
     target_bitvec[widx] = source_bitvec[widx] & (~exclude_bitvec[widx]);
   }
 #endif
@@ -987,7 +987,7 @@ void BitvecOr(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr
     main_bitvec[word_ct - 1] |= arg_bitvec[word_ct - 1];
   }
 #else
-  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
+  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
     main_bitvec[widx] |= arg_bitvec[widx];
   }
 #endif
@@ -1023,7 +1023,7 @@ void BitvecInvertCopy(const uintptr_t* __restrict source_bitvec, uintptr_t word_
     target_bitvec[word_ct - 1] = ~source_bitvec[word_ct - 1];
   }
 #else
-  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
+  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
     target_bitvec[widx] = ~source_bitvec[widx];
   }
 #endif
@@ -1060,7 +1060,7 @@ void BitvecXor(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintpt
     main_bitvec[word_ct - 1] ^= arg_bitvec[word_ct - 1];
   }
 #else
-  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
+  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
     main_bitvec[widx] ^= arg_bitvec[widx];
   }
 #endif
@@ -1105,7 +1105,7 @@ void BitvecAndNot2(const uintptr_t* __restrict include_bitvec, uintptr_t word_ct
     main_bitvec[word_ct - 1] = (~main_bitvec[word_ct - 1]) & include_bitvec[word_ct - 1];
   }
 #else
-  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
+  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
     main_bitvec[widx] = (~main_bitvec[widx]) & include_bitvec[widx];
   }
 #endif
@@ -1143,7 +1143,7 @@ void BitvecOrNot(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uint
     main_bitvec[word_ct - 1] |= ~arg_bitvec[word_ct - 1];
   }
 #else
-  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
+  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
     main_bitvec[widx] |= ~arg_bitvec[widx];
   }
 #endif
@@ -1155,7 +1155,7 @@ int32_t GetVariantUidxWithoutHtable(const char* idstr, const char* const* varian
   const uint32_t id_blen = strlen(idstr) + 1;
   uint32_t variant_uidx = 0;
   int32_t retval = -1;
-  for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
+  for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
     MovU32To1Bit(variant_include, &variant_uidx);
     if (memequal(idstr, variant_ids[variant_uidx], id_blen)) {
       if (retval != -1) {
@@ -1336,7 +1336,7 @@ uint32_t PopulateStrboxHtable(const char* strbox, uintptr_t str_ct, uintptr_t ma
   // may want subset_mask parameter later
   SetAllU32Arr(str_htable_size, str_htable);
   const char* strbox_iter = strbox;
-  for (uintptr_t str_idx = 0; str_idx < str_ct; ++str_idx) {
+  for (uintptr_t str_idx = 0; str_idx != str_ct; ++str_idx) {
     const uint32_t slen = strlen(strbox_iter);
     uint32_t hashval = Hashceil(strbox_iter, slen, str_htable_size);
     // previously used quadratic probing, but turns out that that isn't
@@ -1377,7 +1377,7 @@ uint32_t populate_strbox_subset_htable(const uintptr_t* __restrict subset_mask, 
   // may want subset_mask parameter later
   SetAllU32Arr(str_htable_size, str_htable);
   uintptr_t str_uidx = 0;
-  for (uintptr_t str_idx = 0; str_idx < str_ct; ++str_idx, ++str_uidx) {
+  for (uintptr_t str_idx = 0; str_idx != str_ct; ++str_idx, ++str_uidx) {
     MovWTo1Bit(subset_mask, &str_uidx);
     const char* cur_str = &(strbox[str_uidx * max_str_blen]);
     const uint32_t slen = strlen(cur_str);
@@ -1523,7 +1523,7 @@ PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, cons
       uint32_t str_uidx = 0;
       const uint32_t wkspace_entry_blen_m4 = wkspace_entry_blen - 4;
       char* sort_wkspace_iter = sort_wkspace;
-      for (uint32_t str_idx = 0; str_idx < str_ct; ++str_idx, ++str_uidx) {
+      for (uint32_t str_idx = 0; str_idx != str_ct; ++str_idx, ++str_uidx) {
         MovU32To1Bit(subset_mask, &str_uidx);
         strcpy(sort_wkspace_iter, &(orig_strbox[str_uidx * max_str_blen]));
         sort_wkspace_iter = &(sort_wkspace_iter[wkspace_entry_blen_m4]);
@@ -1546,7 +1546,7 @@ PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, cons
         goto CopySortStrboxSubsetNoalloc_ret_NOMEM;
       }
       uint32_t str_uidx = 0;
-      for (uint32_t str_idx = 0; str_idx < str_ct; ++str_idx, ++str_uidx) {
+      for (uint32_t str_idx = 0; str_idx != str_ct; ++str_idx, ++str_uidx) {
         MovU32To1Bit(subset_mask, &str_uidx);
         sort_wkspace[str_idx].strptr = &(orig_strbox[str_uidx * max_str_blen]);
         if (collapse_idxs) {
@@ -1565,7 +1565,7 @@ PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, cons
         STD_SORT_PAR_UNSEQ(str_ct, strcmp_natural_deref, sort_wkspace);
 #endif
       }
-      for (uintptr_t str_idx = 0; str_idx < str_ct; ++str_idx) {
+      for (uintptr_t str_idx = 0; str_idx != str_ct; ++str_idx) {
         strcpy(&(sorted_strbox[str_idx * max_str_blen]), sort_wkspace[str_idx].strptr);
         id_map[str_idx] = sort_wkspace[str_idx].orig_idx;
       }
@@ -1630,7 +1630,7 @@ BoolErr NumericRangeListToBitarr(const RangeList* range_list_ptr, uint32_t bitar
   const uint32_t name_ct = range_list_ptr->name_ct;
   const uint32_t name_max_blen = range_list_ptr->name_max_blen;
   const uint32_t idx_max = bitarr_size + offset;
-  for (uint32_t name_idx = 0; name_idx < name_ct; ++name_idx) {
+  for (uint32_t name_idx = 0; name_idx != name_ct; ++name_idx) {
     uint32_t idx1;
     if (ScanUintCapped(&(names[name_idx * name_max_blen]), idx_max, &idx1)) {
       if (likely(ignore_overflow)) {
@@ -1698,7 +1698,7 @@ PglErr StringRangeListToBitarr(const char* header_line, const RangeList* range_l
         header_line_iter = FirstNonTspace(&(token_end[1]));
       }
     }
-    for (uint32_t cmdline_pos = 0; cmdline_pos < name_ct; ++cmdline_pos) {
+    for (uint32_t cmdline_pos = 0; cmdline_pos != name_ct; ++cmdline_pos) {
       if (unlikely(seen_idxs[cmdline_pos] == -1)) {
         goto StringRangeListToBitarr_ret_INVALID_CMDLINE_3;
       }
@@ -1877,7 +1877,7 @@ void PopcountWordsIntersect3val(const uintptr_t* __restrict bitvec1, const uintp
   uint32_t ct1 = 0;
   uint32_t ct2 = 0;
   uint32_t ct3 = 0;
-  for (uint32_t widx = 0; widx < word_ct; ++widx) {
+  for (uint32_t widx = 0; widx != word_ct; ++widx) {
     const uintptr_t word1 = bitvec1[widx];
     const uintptr_t word2 = bitvec2[widx];
     ct1 += PopcountWord(word1);
@@ -1976,7 +1976,7 @@ void PopcountWordsIntersect3val(const uintptr_t* __restrict bitvec1, const uintp
   bitvec1 = &(bitvec1[words_consumed]);
   bitvec2 = &(bitvec2[words_consumed]);
   const uint32_t remainder = word_ct - words_consumed;
-  for (uint32_t widx = 0; widx < remainder; ++widx) {
+  for (uint32_t widx = 0; widx != remainder; ++widx) {
     const uintptr_t word1 = bitvec1[widx];
     const uintptr_t word2 = bitvec2[widx];
     ct1 += PopcountWord(word1);
@@ -2002,7 +2002,7 @@ uint32_t AllBitsAreZero(const uintptr_t* bitarr, uintptr_t start_idx, uintptr_t 
       return 0;
     }
   }
-  for (; start_idxl < end_idxl; ++start_idxl) {
+  for (; start_idxl != end_idxl; ++start_idxl) {
     if (bitarr[start_idxl]) {
       return 0;
     }
@@ -2043,7 +2043,7 @@ void CopyBitarrRange(const uintptr_t* __restrict src_bitarr, uintptr_t src_start
     } else {
       const uint32_t src_lshift = kBitsPerWord - src_rshift;
       cur_src_word = *src_bitarr_iter;
-      for (uintptr_t widx = 0; widx < fullword_ct; ++widx) {
+      for (uintptr_t widx = 0; widx != fullword_ct; ++widx) {
         const uintptr_t next_src_word = *(++src_bitarr_iter);
         *target_bitarr_iter++ = (cur_src_word >> src_rshift) | (next_src_word << src_lshift);
         cur_src_word = next_src_word;
@@ -2147,7 +2147,7 @@ void ComputeUidxStartPartition(const uintptr_t* variant_include, uint64_t varian
   uint32_t cur_variant_uidx_start = AdvTo1Bit(variant_include, first_variant_uidx);
   uint32_t cur_variant_idx_start = 0;
   variant_uidx_starts[0] = cur_variant_uidx_start;
-  for (uint32_t tidx = 1; tidx < thread_ct; ++tidx) {
+  for (uint32_t tidx = 1; tidx != thread_ct; ++tidx) {
     const uint32_t new_variant_idx_start = (tidx * variant_ct) / thread_ct;
     if (new_variant_idx_start != cur_variant_idx_start) {
       cur_variant_uidx_start = FindNth1BitFrom(variant_include, cur_variant_uidx_start + 1, new_variant_idx_start - cur_variant_idx_start);
@@ -2200,7 +2200,7 @@ void ComputePartitionAligned(const uintptr_t* variant_include, uint32_t orig_thr
     cur_variant_idx += first_block_variant_ct;
     variant_uidx_starts[1] = cur_variant_uidx_start;
     vidx_starts[1] = cur_variant_idx;
-    for (uint32_t tidx = 2; tidx < thread_ct; ++tidx) {
+    for (uint32_t tidx = 2; tidx != thread_ct; ++tidx) {
       cur_variant_uidx_start = FindNth1BitFrom(variant_include, cur_variant_uidx_start + 1, central_variant_ct);
       cur_variant_idx += central_variant_ct;
       // bugfix (14 Nov 2017): this decrement was in the wrong place
@@ -2214,10 +2214,10 @@ void ComputePartitionAligned(const uintptr_t* variant_include, uint32_t orig_thr
   if (thread_ct < orig_thread_ct) {
     uint32_t last_vidx_ct = variant_idx_end - vidx_starts[thread_ct - 1];
     cur_variant_uidx_start = FindNth1BitFrom(variant_include, cur_variant_uidx_start + 1, last_vidx_ct);
-    for (uint32_t tidx = thread_ct; tidx < orig_thread_ct; ++tidx) {
+    for (uint32_t tidx = thread_ct; tidx != orig_thread_ct; ++tidx) {
       variant_uidx_starts[tidx] = cur_variant_uidx_start;
     }
-    for (uint32_t tidx = thread_ct; tidx < orig_thread_ct; ++tidx) {
+    for (uint32_t tidx = thread_ct; tidx != orig_thread_ct; ++tidx) {
       vidx_starts[tidx] = variant_idx_end;
     }
   }
@@ -2343,7 +2343,7 @@ PglErr ParseNameRanges(const char* const* argvk, const char* errstr_append, uint
     if (!range_start) {
       if (require_posint) {
         last_val = 0;
-        for (cur_param_idx = 0; cur_param_idx < name_ct; ++cur_param_idx) {
+        for (cur_param_idx = 0; cur_param_idx != name_ct; ++cur_param_idx) {
           cur_name_str = &(range_list_ptr->names[cur_param_idx * S_CAST(uintptr_t, name_max_blen)]);
           const char* dup_check = cur_name_str;  // actually a numeric check
           do {
@@ -2473,12 +2473,12 @@ void JoinThreads(uint32_t ctp1, pthread_t* threads) {
   }
 #ifdef _WIN32
   WaitForMultipleObjects(ctp1, threads, 1, INFINITE);
-  for (uint32_t uii = 0; uii < ctp1; ++uii) {
+  for (uint32_t uii = 0; uii != ctp1; ++uii) {
     // fix handle leak?
     CloseHandle(threads[uii]);
   }
 #else
-  for (uint32_t uii = 0; uii < ctp1; ++uii) {
+  for (uint32_t uii = 0; uii != ctp1; ++uii) {
     pthread_join(threads[uii], nullptr);
   }
 #endif
@@ -2489,11 +2489,7 @@ pthread_attr_t g_smallstack_thread_attr;
 #endif
 
 BoolErr SpawnThreads(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthread_t* threads) {
-  uintptr_t ulii;
-  if (ct == 1) {
-    return 0;
-  }
-  for (ulii = 1; ulii < ct; ++ulii) {
+  for (uintptr_t ulii = 1; ulii != ct; ++ulii) {
 #ifdef _WIN32
     threads[ulii - 1] = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStack, start_routine, R_CAST(void*, ulii), 0, nullptr));
     if (unlikely(!threads[ulii - 1])) {
@@ -2588,7 +2584,7 @@ void JoinThreads2z(uint32_t ct, uint32_t is_last_block, pthread_t* threads) {
     WaitForMultipleObjects(ct, g_thread_cur_block_done_events, 1, INFINITE);
   } else {
     WaitForMultipleObjects(ct, threads, 1, INFINITE);
-    for (uint32_t uii = 0; uii < ct; ++uii) {
+    for (uint32_t uii = 0; uii != ct; ++uii) {
       // fix handle leak?
       CloseHandle(threads[uii]);
 
@@ -2605,7 +2601,7 @@ void JoinThreads2z(uint32_t ct, uint32_t is_last_block, pthread_t* threads) {
     }
     // keep mutex until next block loaded
   } else {
-    for (uint32_t uii = 0; uii < ct; ++uii) {
+    for (uint32_t uii = 0; uii != ct; ++uii) {
       pthread_join(threads[uii], nullptr);
     }
     // slightly inefficient if there are multiple multithreaded commands being
@@ -2630,27 +2626,27 @@ BoolErr SpawnThreads2z(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, uint32_t i
   if (!g_thread_mutex_initialized) {
     g_thread_spawn_ct = 0;
     g_thread_mutex_initialized = 1;
-    for (uintptr_t ulii = 0; ulii < ct; ++ulii) {
+    for (uintptr_t ulii = 0; ulii != ct; ++ulii) {
       g_thread_start_next_event[ulii] = CreateEvent(nullptr, FALSE, FALSE, nullptr);
       g_thread_cur_block_done_events[ulii] = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     }
-    for (uintptr_t ulii = 0; ulii < ct; ++ulii) {
+    for (uintptr_t ulii = 0; ulii != ct; ++ulii) {
       threads[ulii] = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStack, start_routine, R_CAST(void*, ulii), 0, nullptr));
       if (unlikely(!threads[ulii])) {
         if (ulii) {
           JoinThreads2z(ulii, is_last_block, threads);
           if (!is_last_block) {
-            for (uintptr_t uljj = 0; uljj < ulii; ++uljj) {
+            for (uintptr_t uljj = 0; uljj != ulii; ++uljj) {
               TerminateThread(threads[uljj], 0);
             }
             // fix handle leak?
-            for (uintptr_t uljj = 0; uljj < ulii; ++uljj) {
+            for (uintptr_t uljj = 0; uljj != ulii; ++uljj) {
               CloseHandle(threads[uljj]);
             }
           }
         }
         if ((!is_last_block) || (!ulii)) {
-          for (uint32_t uii = 0; uii < ct; ++uii) {
+          for (uint32_t uii = 0; uii != ct; ++uii) {
             CloseHandle(g_thread_start_next_event[uii]);
             CloseHandle(g_thread_cur_block_done_events[uii]);
           }
@@ -2660,8 +2656,8 @@ BoolErr SpawnThreads2z(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, uint32_t i
       }
     }
   } else {
-    g_thread_spawn_ct++;
-    for (uintptr_t ulii = 0; ulii < ct; ++ulii) {
+    ++g_thread_spawn_ct;
+    for (uintptr_t ulii = 0; ulii != ct; ++ulii) {
       SetEvent(g_thread_start_next_event[ulii]);
     }
   }
@@ -2678,7 +2674,7 @@ BoolErr SpawnThreads2z(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, uint32_t i
             pthread_cond_init(&g_thread_start_next_condvar, nullptr))) {
       return 1;
     }
-    for (uintptr_t ulii = 0; ulii < ct; ++ulii) {
+    for (uintptr_t ulii = 0; ulii != ct; ++ulii) {
       if (unlikely(pthread_create(&(threads[ulii]), &g_smallstack_thread_attr, start_routine, R_CAST(void*, ulii)))) {
         if (ulii) {
           if (is_last_block) {
@@ -2697,7 +2693,7 @@ BoolErr SpawnThreads2z(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, uint32_t i
             // pthread_create() failure cleanly
             // (in contrast, error_cleanup_threads2z is relevant when an input
             // .pgen is malformed, which could happen a lot)
-            for (uintptr_t uljj = 0; uljj < ulii; ++uljj) {
+            for (uintptr_t uljj = 0; uljj != ulii; ++uljj) {
               pthread_cancel(threads[uljj]);
             }
           }
@@ -2759,7 +2755,7 @@ THREAD_FUNC_DECL CalcIdHashThread(void* arg) {
   const uint32_t item_ct = g_item_ct;
   const uint32_t item_idx_end = (item_ct * (S_CAST(uint64_t, tidx) + 1)) / calc_thread_ct;
   uint32_t item_uidx = g_item_uidx_starts[tidx];
-  for (uint32_t item_idx = (item_ct * S_CAST(uint64_t, tidx)) / calc_thread_ct; item_idx < item_idx_end; ++item_idx, ++item_uidx) {
+  for (uint32_t item_idx = (item_ct * S_CAST(uint64_t, tidx)) / calc_thread_ct; item_idx != item_idx_end; ++item_idx, ++item_uidx) {
     MovU32To1Bit(subset_mask, &item_uidx);
     const char* sptr = item_ids[item_uidx];
     const uint32_t slen = strlen(sptr);
@@ -2806,7 +2802,7 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
       uint32_t item_uidx = AdvTo1Bit(subset_mask, 0);
       uint32_t item_idx = 0;
       g_item_uidx_starts[0] = item_uidx;
-      for (uintptr_t tidx = 1; tidx < thread_ct; ++tidx) {
+      for (uintptr_t tidx = 1; tidx != thread_ct; ++tidx) {
         const uint32_t item_idx_new = (item_ct * S_CAST(uint64_t, tidx)) / thread_ct;
         item_uidx = FindNth1BitFrom(subset_mask, item_uidx + 1, item_idx_new - item_idx);
         g_item_uidx_starts[tidx] = item_uidx;
@@ -2824,7 +2820,7 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
     // substantially smaller bottleneck than hash value computation.
     uint32_t item_uidx = 0;
     if (!store_all_dups) {
-      for (uint32_t item_idx = 0; item_idx < item_ct; ++item_uidx, ++item_idx) {
+      for (uint32_t item_idx = 0; item_idx != item_ct; ++item_uidx, ++item_idx) {
         MovU32To1Bit(subset_mask, &item_uidx);
         uint32_t hashval = g_item_id_hashes[item_idx];
         uint32_t cur_htable_entry = id_htable[hashval];
@@ -2872,7 +2868,7 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
       // needs to be synced with ExtractExcludeFlagNorange()
       // multithread this?
       uint32_t* htable_dup_base = R_CAST(uint32_t*, g_bigstack_base);
-      for (uint32_t item_idx = 0; item_idx < item_ct; ++item_uidx, ++item_idx) {
+      for (uint32_t item_idx = 0; item_idx != item_ct; ++item_uidx, ++item_idx) {
         MovU32To1Bit(subset_mask, &item_uidx);
         uint32_t hashval = g_item_id_hashes[item_idx];
         uint32_t cur_htable_entry = id_htable[hashval];
@@ -3025,11 +3021,11 @@ void HelpPrint(const char* cur_params, HelpCtrl* help_ctrl_ptr, uint32_t postpri
         uint32_t arg_uidx = 0;
         if (help_ctrl_ptr->iters_left == 2) {
           // First pass: only exact matches.
-          for (uint32_t arg_idx = 0; arg_idx < orig_unmatched_ct; ++arg_idx, ++arg_uidx) {
+          for (uint32_t arg_idx = 0; arg_idx != orig_unmatched_ct; ++arg_idx, ++arg_uidx) {
             arg_uidx = AdvTo0Bit(help_ctrl_ptr->all_match_arr, arg_uidx);
             const char* cur_arg = help_ctrl_ptr->argv[arg_uidx];
             const uint32_t cur_arg_slen = help_ctrl_ptr->param_slens[arg_uidx];
-            for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
+            for (uint32_t cur_param_idx = 0; cur_param_idx != cur_param_ct; ++cur_param_idx) {
               if ((cur_arg_slen == cur_param_slens[cur_param_idx]) && memequal(cur_arg, cur_param_starts[cur_param_idx], cur_arg_slen)) {
                 SetBit(arg_uidx, help_ctrl_ptr->perfect_match_arr);
                 SetBit(arg_uidx, help_ctrl_ptr->prefix_match_arr);
@@ -3041,11 +3037,11 @@ void HelpPrint(const char* cur_params, HelpCtrl* help_ctrl_ptr, uint32_t postpri
           }
         } else {
           // Second pass: Prefix matches.
-          for (uint32_t arg_idx = 0; arg_idx < orig_unmatched_ct; ++arg_idx, ++arg_uidx) {
+          for (uint32_t arg_idx = 0; arg_idx != orig_unmatched_ct; ++arg_idx, ++arg_uidx) {
             arg_uidx = AdvTo0Bit(help_ctrl_ptr->all_match_arr, arg_uidx);
             const char* cur_arg = help_ctrl_ptr->argv[arg_uidx];
             const uint32_t cur_arg_slen = help_ctrl_ptr->param_slens[arg_uidx];
-            for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
+            for (uint32_t cur_param_idx = 0; cur_param_idx != cur_param_ct; ++cur_param_idx) {
               if (cur_param_slens[cur_param_idx] > cur_arg_slen) {
                 if (memequal(cur_arg, cur_param_starts[cur_param_idx], cur_arg_slen)) {
                   SetBit(arg_uidx, help_ctrl_ptr->prefix_match_arr);
@@ -3060,7 +3056,7 @@ void HelpPrint(const char* cur_params, HelpCtrl* help_ctrl_ptr, uint32_t postpri
       }
     } else {
       uint32_t print_this = 0;
-      for (uint32_t arg_uidx = 0; arg_uidx < help_ctrl_ptr->param_ct; ++arg_uidx) {
+      for (uint32_t arg_uidx = 0; arg_uidx != help_ctrl_ptr->param_ct; ++arg_uidx) {
         if (IsSet(help_ctrl_ptr->prefix_match_arr, arg_uidx)) {
           // Current user-provided help argument has at least one prefix
           // match...
@@ -3070,14 +3066,14 @@ void HelpPrint(const char* cur_params, HelpCtrl* help_ctrl_ptr, uint32_t postpri
             if (IsSet(help_ctrl_ptr->perfect_match_arr, arg_uidx)) {
               // ...and at least one exact match.  So we only care about an
               // exact match.
-              for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
+              for (uint32_t cur_param_idx = 0; cur_param_idx != cur_param_ct; ++cur_param_idx) {
                 if ((cur_arg_slen == cur_param_slens[cur_param_idx]) && memequal(cur_arg, cur_param_starts[cur_param_idx], cur_arg_slen)) {
                   print_this = 1;
                   break;
                 }
               }
             } else {
-              for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
+              for (uint32_t cur_param_idx = 0; cur_param_idx != cur_param_ct; ++cur_param_idx) {
                 if (cur_param_slens[cur_param_idx] > cur_arg_slen) {
                   if (memequal(cur_arg, cur_param_starts[cur_param_idx], cur_arg_slen)) {
                     print_this = 1;
@@ -3091,7 +3087,7 @@ void HelpPrint(const char* cur_params, HelpCtrl* help_ctrl_ptr, uint32_t postpri
           // Current user-provided help argument does not have an exact or
           // prefix match.  Print current help text if it's within
           // Damerau-Levenshtein distance 1 of any index term.
-          for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
+          for (uint32_t cur_param_idx = 0; cur_param_idx != cur_param_ct; ++cur_param_idx) {
             if (Edit1Match(cur_param_starts[cur_param_idx], help_ctrl_ptr->argv[arg_uidx], cur_param_slens[cur_param_idx], help_ctrl_ptr->param_slens[arg_uidx])) {
               print_this = 1;
               if (!IsSet(help_ctrl_ptr->all_match_arr, arg_uidx)) {
@@ -3236,7 +3232,7 @@ PglErr AllocFname(const char* source, const char* flagname_p, uint32_t extra_siz
 
 PglErr AllocAndFlatten(const char* const* sources, uint32_t param_ct, uint32_t max_blen, char** flattened_buf_ptr) {
   uintptr_t tot_blen = 1;
-  for (uint32_t param_idx = 0; param_idx < param_ct; ++param_idx) {
+  for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
     const uint32_t cur_blen = 1 + strlen(sources[param_idx]);
     if (cur_blen > max_blen) {
       return kPglRetInvalidCmdline;
@@ -3248,7 +3244,7 @@ PglErr AllocAndFlatten(const char* const* sources, uint32_t param_ct, uint32_t m
     return kPglRetNomem;
   }
   *flattened_buf_ptr = buf_iter;
-  for (uint32_t param_idx = 0; param_idx < param_ct; ++param_idx) {
+  for (uint32_t param_idx = 0; param_idx != param_ct; ++param_idx) {
     buf_iter = strcpyax(buf_iter, sources[param_idx], '\0');
   }
   *buf_iter = '\0';
@@ -3369,7 +3365,7 @@ PglErr Rerun(const char* ver_str, const char* ver_str2, const char* prog_name_st
       if (flagname_p) {
         const uint32_t slen = strlen_se(flagname_p);
         uint32_t cmdline_arg_idx = first_arg_idx;
-        for (; cmdline_arg_idx < argc; cmdline_arg_idx++) {
+        for (; cmdline_arg_idx != argc; ++cmdline_arg_idx) {
           const char* later_flagname_p = IsCmdlineFlagStart(argv[cmdline_arg_idx]);
           if (later_flagname_p) {
             const uint32_t slen2 = strlen(later_flagname_p);
@@ -3404,7 +3400,7 @@ PglErr Rerun(const char* ver_str, const char* ver_str2, const char* prog_name_st
     uint32_t new_arg_idx = rerun_argv_pos - first_arg_idx;
     memcpy(subst_argv2, &(argv[first_arg_idx]), new_arg_idx * sizeof(intptr_t));
     char* arg_nullterminate_iter = rerun_first_token;
-    for (loaded_arg_idx = 0; loaded_arg_idx < loaded_arg_ct; ++loaded_arg_idx) {
+    for (loaded_arg_idx = 0; loaded_arg_idx != loaded_arg_ct; ++loaded_arg_idx) {
       arg_nullterminate_iter = FirstNonTspace(arg_nullterminate_iter);
       char* token_end = CurTokenEnd(arg_nullterminate_iter);
       if (textbuf[loaded_arg_idx]) {
@@ -3460,7 +3456,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
     const char* const* argvk = TO_CONSTCPCONSTP(*argv_ptr);
     char** subst_argv = nullptr;
     uint32_t first_arg_idx = 1;
-    for (uint32_t arg_idx = 1; arg_idx < S_CAST(uint32_t, argc); ++arg_idx) {
+    for (uint32_t arg_idx = 1; arg_idx != S_CAST(uint32_t, argc); ++arg_idx) {
       if ((!strcmp("-script", argvk[arg_idx])) || (!strcmp("--script", argvk[arg_idx]))) {
         const uint32_t param_ct = GetParamCt(argvk, argc, arg_idx);
         if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -3470,7 +3466,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
           fputs(errstr_append, stderr);
           goto CmdlineParsePhase1_ret_INVALID_CMDLINE;
         }
-        for (uint32_t arg_idx2 = arg_idx + 2; arg_idx2 < S_CAST(uint32_t, argc); ++arg_idx2) {
+        for (uint32_t arg_idx2 = arg_idx + 2; arg_idx2 != S_CAST(uint32_t, argc); ++arg_idx2) {
           if (unlikely((!strcmp("-script", argvk[arg_idx2])) || (!strcmp("--script", argvk[arg_idx2])))) {
             fputs(ver_str, stdout);
             fputs(ver_str2, stdout);
@@ -3545,7 +3541,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
         memcpy(subst_argv, &(argvk[1]), arg_idx * sizeof(intptr_t));
         const uint32_t load_param_idx_end = arg_idx + num_script_params;
         script_buf_iter = &(script_buf[-1]);
-        for (uint32_t param_idx = arg_idx; param_idx < load_param_idx_end; ++param_idx) {
+        for (uint32_t param_idx = arg_idx; param_idx != load_param_idx_end; ++param_idx) {
           while (ctou32(*(++script_buf_iter)) <= 32);
           subst_argv[param_idx] = script_buf_iter;
           while (ctou32(*(++script_buf_iter)) > 32);
@@ -3561,7 +3557,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
         break;
       }
     }
-    for (uint32_t arg_idx = first_arg_idx; arg_idx < S_CAST(uint32_t, argc); ++arg_idx) {
+    for (uint32_t arg_idx = first_arg_idx; arg_idx != S_CAST(uint32_t, argc); ++arg_idx) {
       if ((!strcmp("-rerun", argvk[arg_idx])) || (!strcmp("--rerun", argvk[arg_idx]))) {
         const uint32_t param_ct = GetParamCt(argvk, argc, arg_idx);
         if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
@@ -3571,7 +3567,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
           fputs(errstr_append, stderr);
           goto CmdlineParsePhase1_ret_INVALID_CMDLINE;
         }
-        for (uint32_t arg_idx2 = arg_idx + param_ct + 1; arg_idx2 < S_CAST(uint32_t, argc); ++arg_idx2) {
+        for (uint32_t arg_idx2 = arg_idx + param_ct + 1; arg_idx2 != S_CAST(uint32_t, argc); ++arg_idx2) {
           if (unlikely((!strcmp("-rerun", argvk[arg_idx2])) || (!strcmp("--rerun", argvk[arg_idx2])))) {
             fputs(ver_str, stdout);
             fputs(ver_str2, stdout);
@@ -3597,7 +3593,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
     uint32_t flag_ct = 0;
     uint32_t version_present = 0;
     uint32_t silent_present = 0;
-    for (uint32_t arg_idx = first_arg_idx; arg_idx < S_CAST(uint32_t, argc); ++arg_idx) {
+    for (uint32_t arg_idx = first_arg_idx; arg_idx != S_CAST(uint32_t, argc); ++arg_idx) {
       const char* flagname_p = IsCmdlineFlagStart(argvk[arg_idx]);
       if (flagname_p) {
         const uint32_t flagname_p_slen = strlen(flagname_p);
@@ -3615,7 +3611,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
               goto CmdlineParsePhase1_ret_NOMEM2;
             }
             uint32_t arg_idx2 = 0;
-            for (uint32_t flag_idx = 0; flag_idx < flag_ct; ++flag_idx) {
+            for (uint32_t flag_idx = 0; flag_idx != flag_ct; ++flag_idx) {
               while (!IsCmdlineFlagStart(argvk[++arg_idx2]));
               help_argv[flag_idx] = argvk[arg_idx2];
             }
@@ -3725,7 +3721,7 @@ PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const 
       goto CmdlineParsePhase2_ret_1;
     }
 
-    for (uint32_t cur_flag_idx = 0; cur_flag_idx < flag_ct; ++cur_flag_idx) {
+    for (uint32_t cur_flag_idx = 0; cur_flag_idx != flag_ct; ++cur_flag_idx) {
       const int32_t memcmp_out_result = Memcmp("out", &(flag_buf[cur_flag_idx * max_flag_blen]), 4);
       if (!memcmp_out_result) {
         const uint32_t arg_idx = flag_map[cur_flag_idx];
@@ -3754,7 +3750,7 @@ PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const 
     logputs_silent(ver_str);
     logputs_silent("\n");
     logputs("Options in effect:\n");
-    for (uint32_t cur_flag_idx = 0; cur_flag_idx < flag_ct; ++cur_flag_idx) {
+    for (uint32_t cur_flag_idx = 0; cur_flag_idx != flag_ct; ++cur_flag_idx) {
       logputs("  --");
       logputs(&(flag_buf[cur_flag_idx * max_flag_blen]));
       uint32_t arg_idx = flag_map[cur_flag_idx] + 1;
@@ -4115,7 +4111,7 @@ PglErr SearchHeaderLine(const char* header_line_iter, const char* const* search_
   {
     uint32_t search_term_ct = 0;
     uintptr_t max_blen = 0;
-    for (uint32_t search_col_idx = 0; search_col_idx < search_col_ct; ++search_col_idx) {
+    for (uint32_t search_col_idx = 0; search_col_idx != search_col_ct; ++search_col_idx) {
       const uint32_t cur_search_term_ct = CountAndMeasureMultistr(search_multistrs[search_col_idx], &max_blen);
       assert(cur_search_term_ct <= (1 << 26));
       search_term_ct += cur_search_term_ct;
@@ -4132,7 +4128,7 @@ PglErr SearchHeaderLine(const char* header_line_iter, const char* const* search_
       goto SearchHeaderLine_ret_NOMEM;
     }
     uint32_t search_term_idx = 0;
-    for (uint32_t search_col_idx = 0; search_col_idx < search_col_ct; ++search_col_idx) {
+    for (uint32_t search_col_idx = 0; search_col_idx != search_col_ct; ++search_col_idx) {
       const char* multistr_iter = search_multistrs[search_col_idx];
       uint32_t priority_idx = 0;  // 0 = highest priority
       while (*multistr_iter) {
@@ -4179,7 +4175,7 @@ PglErr SearchHeaderLine(const char* header_line_iter, const char* const* search_
       ++col_idx;
     }
     uint32_t found_type_bitset = 0;
-    for (uint32_t search_col_idx = 0; search_col_idx < search_col_ct; ++search_col_idx) {
+    for (uint32_t search_col_idx = 0; search_col_idx != search_col_ct; ++search_col_idx) {
       if (priority_vals[search_col_idx] != UINT32_MAX) {
         found_type_bitset |= 1U << search_col_idx;
       }
@@ -4192,7 +4188,7 @@ PglErr SearchHeaderLine(const char* header_line_iter, const char* const* search_
       uint32_t prev_col_idx = cols_and_types[0] >> 32;
       col_skips[0] = prev_col_idx;
       col_types[0] = S_CAST(uint32_t, cols_and_types[0]);
-      for (uint32_t found_col_idx = 1; found_col_idx < found_col_ct; ++found_col_idx) {
+      for (uint32_t found_col_idx = 1; found_col_idx != found_col_ct; ++found_col_idx) {
         const uint64_t cur_col_and_type = cols_and_types[found_col_idx];
         const uint32_t cur_col_idx = cur_col_and_type >> 32;
         col_skips[found_col_idx] = cur_col_idx - prev_col_idx;
@@ -4247,7 +4243,7 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
     }
     char* sorted_ids = R_CAST(char*, &(id_map[id_ct]));
     supported_ids_iter = supported_ids;
-    for (uint32_t id_idx = 0; id_idx < id_ct; ++id_idx) {
+    for (uint32_t id_idx = 0; id_idx != id_ct; ++id_idx) {
       const uint32_t blen = strlen(supported_ids_iter) + 1;
       memcpy(&(sorted_ids[id_idx * max_id_blen]), supported_ids_iter, blen);
       id_map[id_idx] = id_idx;

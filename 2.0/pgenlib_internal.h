@@ -88,7 +88,7 @@ typedef uint16_t DoubleAlleleCode;
 static_assert(sizeof(DoubleAlleleCode) == 2 * sizeof(AlleleCode), "Inconsistent AlleleCode and DoubleAlleleCode definitions.");
 // Set this to 65534 if AlleleCode is uint16_t, 2^24 - 1 if uint32_t.
 CONSTI32(kPglMaxAltAlleleCt, 254);
-#define kMissingAlleleCode S_CAST(AlleleCode, -1)
+#define kMissingAlleleCode S_CAST(plink2::AlleleCode, -1)
 CONSTI32(kAlleleCodesPerVec, kBytesPerVec / sizeof(AlleleCode));
 
 // more verbose than (val + 3) / 4, but may as well make semantic meaning
@@ -254,7 +254,7 @@ HEADER_INLINE uint32_t GetVint31Unsafe(const unsigned char** buf_iterp) {
     return vint32;
   }
   vint32 &= 127;
-  for (uint32_t shift = 7; shift < 32; shift += 7) {
+  for (uint32_t shift = 7; shift != 35; shift += 7) {
     uint32_t uii = *(*buf_iterp)++;
     vint32 |= (uii & 127) << shift;
     if (uii <= 127) {
@@ -294,7 +294,7 @@ HEADER_INLINE uint32_t FGetVint31(FILE* ff) {
     return vint32;
   }
   vint32 &= 127;
-  for (uint32_t shift = 7; shift < 32; shift += 7) {
+  for (uint32_t shift = 7; shift != 35; shift += 7) {
     uint32_t uii = getc_unlocked(ff);
     vint32 |= (uii & 127) << shift;
     if (uii <= 127) {

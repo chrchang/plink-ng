@@ -292,7 +292,7 @@ uintptr_t FirstUnequal4(const char* s1, const char* s2, uintptr_t slen) {
     const uintptr_t* s1_alias = R_CAST(const uintptr_t*, s1);
     const uintptr_t* s2_alias = R_CAST(const uintptr_t*, s2);
     const uintptr_t word_ct = slen / kBytesPerWord;
-    for (uint32_t widx = 0; widx < word_ct; ++widx) {
+    for (uint32_t widx = 0; widx != word_ct; ++widx) {
       const uintptr_t xor_result = s1_alias[widx] ^ s2_alias[widx];
       if (xor_result) {
         return widx * kBytesPerWord + ctzw(xor_result) / CHAR_BIT;
@@ -310,7 +310,7 @@ uintptr_t FirstUnequal4(const char* s1, const char* s2, uintptr_t slen) {
   const VecUc* s1_alias = R_CAST(const VecUc*, s1);
   const VecUc* s2_alias = R_CAST(const VecUc*, s2);
   const uintptr_t vec_ct = slen / kBytesPerVec;
-  for (uintptr_t vidx = 0; vidx < vec_ct; ++vidx) {
+  for (uintptr_t vidx = 0; vidx != vec_ct; ++vidx) {
     const VecUc v1 = vecuc_loadu(&(s1_alias[vidx]));
     const VecUc v2 = vecuc_loadu(&(s2_alias[vidx]));
     const uint32_t eq_result = vecw_movemask(v1 == v2);
@@ -327,11 +327,11 @@ uintptr_t FirstUnequal4(const char* s1, const char* s2, uintptr_t slen) {
       return final_offset + ctzu32(~eq_result);
     }
   }
-#else
+#else  // !__LP64__
   const uintptr_t* s1_alias = R_CAST(const uintptr_t*, s1);
   const uintptr_t* s2_alias = R_CAST(const uintptr_t*, s2);
   const uintptr_t word_ct = slen / kBytesPerWord;
-  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
+  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
     const uintptr_t xor_result = s1_alias[widx] ^ s2_alias[widx];
     if (xor_result) {
       return widx * kBytesPerWord + ctzw(xor_result) / CHAR_BIT;
@@ -357,24 +357,26 @@ int32_t strcmp_overread(const char* s1, const char* s2) {
   const uintptr_t* s2_alias = R_CAST(const uintptr_t*, s2);
   uintptr_t widx = 0;
   while (1) {
-    const uintptr_t w1 = s1_alias[widx];
+    uintptr_t w1 = s1_alias[widx];
     const uintptr_t zcheck = (w1 - kMask0101) & (~w1) & (0x80 * kMask0101);
-    const uintptr_t w2 = s2_alias[widx];
-    uintptr_t xor_word = w1 ^ w2;
-    uint32_t lshift;
+    uintptr_t w2 = s2_alias[widx];
     if (zcheck) {
       // Mask out bytes past the known null.
       const uintptr_t mask = zcheck ^ (zcheck - 1);
-      xor_word &= mask;
-      if (!xor_word) {
+      w1 &= mask;
+      w2 &= mask;
+      if (w1 == w2) {
         return 0;
       }
       goto strcmp_overread_finish;
     }
-    if (xor_word) {
+    if (w1 != w2) {
     strcmp_overread_finish:
-      lshift = (kBitsPerWord - 8) - (ctzw(xor_word) & (kBitsPerWord - 8));
-      return ((w1 << lshift) < (w2 << lshift))? -1 : 1;
+#ifdef __LP64__
+      return __builtin_bswap64(w1) < __builtin_bswap64(w2);
+#else
+      return __builtin_bswap32(w1) < __builtin_bswap32(w2);
+#endif
     }
     ++widx;
   }
@@ -572,7 +574,7 @@ uintptr_t GetStrboxsortWentryBlen(uintptr_t max_str_blen) {
 // Must be ok to overread.
 void SortStrboxIndexed2Fallback(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, char* strbox, uint32_t* id_map, void* sort_wkspace) {
   StrSortIndexedDerefOverread* wkspace_alias = S_CAST(StrSortIndexedDerefOverread*, sort_wkspace);
-  for (uintptr_t str_idx = 0; str_idx < str_ct; ++str_idx) {
+  for (uintptr_t str_idx = 0; str_idx != str_ct; ++str_idx) {
     wkspace_alias[str_idx].strptr = &(strbox[str_idx * max_str_blen]);
     wkspace_alias[str_idx].orig_idx = id_map[str_idx];
   }
@@ -586,14 +588,14 @@ void SortStrboxIndexed2Fallback(uintptr_t str_ct, uintptr_t max_str_blen, uint32
     STD_SORT_PAR_UNSEQ(str_ct, strcmp_natural_deref, wkspace_alias);
 #endif
   }
-  for (uintptr_t str_idx = 0; str_idx < str_ct; ++str_idx) {
+  for (uintptr_t str_idx = 0; str_idx != str_ct; ++str_idx) {
     id_map[str_idx] = wkspace_alias[str_idx].orig_idx;
   }
 #ifndef __cplusplus
   if (max_str_blen < sizeof(StrSortIndexedDeref)) {
     // actually better to use non-deref sort here, but just get this working
     // properly for now
-    for (uint32_t new_idx = 0; new_idx < str_ct; ++new_idx) {
+    for (uint32_t new_idx = 0; new_idx != str_ct; ++new_idx) {
       const char* strptr = wkspace_alias[new_idx].strptr;
       // todo: check whether memcpy(., ., max_str_blen) tends to be better
       strcpy(&(R_CAST(char*, wkspace_alias)[new_idx * max_str_blen]), strptr);
@@ -621,10 +623,12 @@ typedef struct WordCmp32bStruct {
     do {
       const uintptr_t cur_word = words[idx];
       const uintptr_t rhs_word = rhs.words[idx];
-      const uintptr_t xor_word = cur_word ^ rhs_word;
-      if (xor_word) {
-        const uint32_t lshift = (kBitsPerWord - 8) - (ctzw(xor_word) & (kBitsPerWord - 8));
-        return (cur_word << lshift) < (rhs_word << lshift);
+      if (cur_word != rhs_word) {
+#  ifdef __LP64__
+        return __builtin_bswap64(cur_word) < __builtin_bswap64(rhs_word);
+#  else
+        return __builtin_bswap32(cur_word) < __builtin_bswap32(rhs_word);
+#  endif
       }
     } while (++idx < (32 / kBytesPerWord));
     return false;
@@ -638,10 +642,12 @@ typedef struct WordCmp64bStruct {
     do {
       const uintptr_t cur_word = words[idx];
       const uintptr_t rhs_word = rhs.words[idx];
-      const uintptr_t xor_word = cur_word ^ rhs_word;
-      if (xor_word) {
-        const uint32_t lshift = (kBitsPerWord - 8) - (ctzw(xor_word) & (kBitsPerWord - 8));
-        return (cur_word << lshift) < (rhs_word << lshift);
+      if (cur_word != rhs_word) {
+#  ifdef __LP64__
+        return __builtin_bswap64(cur_word) < __builtin_bswap64(rhs_word);
+#  else
+        return __builtin_bswap32(cur_word) < __builtin_bswap32(rhs_word);
+#  endif
       }
     } while (++idx < (64 / kBytesPerWord));
     return false;
@@ -658,7 +664,7 @@ void SortStrbox32bFinish(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_
   } else {
     STD_SORT_PAR_UNSEQ(str_ct, nullptr, filled_wkspace);
   }
-  for (uintptr_t str_idx = 0; str_idx < str_ct; ++str_idx) {
+  for (uintptr_t str_idx = 0; str_idx != str_ct; ++str_idx) {
     strcpy(&(sorted_strbox[str_idx * max_str_blen]), filled_wkspace[str_idx].strbuf);
     id_map[str_idx] = filled_wkspace[str_idx].orig_idx;
   }
@@ -671,7 +677,7 @@ void SortStrbox64bFinish(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_
   } else {
     STD_SORT_PAR_UNSEQ(str_ct, nullptr, filled_wkspace);
   }
-  for (uintptr_t str_idx = 0; str_idx < str_ct; ++str_idx) {
+  for (uintptr_t str_idx = 0; str_idx != str_ct; ++str_idx) {
     strcpy(&(sorted_strbox[str_idx * max_str_blen]), filled_wkspace[str_idx].strbuf);
     id_map[str_idx] = filled_wkspace[str_idx].orig_idx;
   }
@@ -682,7 +688,7 @@ void SortStrbox64bFinish(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_
 void SortStrboxIndexed2(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, char* strbox, uint32_t* id_map, void* sort_wkspace) {
   if (max_str_blen <= 28) {
     Strbuf28Ui* wkspace_alias = S_CAST(Strbuf28Ui*, sort_wkspace);
-    for (uintptr_t str_idx = 0; str_idx < str_ct; ++str_idx) {
+    for (uintptr_t str_idx = 0; str_idx != str_ct; ++str_idx) {
       const char* cur_str = &(strbox[str_idx * max_str_blen]);
       strcpy(wkspace_alias[str_idx].strbuf, cur_str);
       wkspace_alias[str_idx].orig_idx = id_map[str_idx];
@@ -692,7 +698,7 @@ void SortStrboxIndexed2(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_n
   }
   if (max_str_blen <= 60) {
     Strbuf60Ui* wkspace_alias = S_CAST(Strbuf60Ui*, sort_wkspace);
-    for (uintptr_t str_idx = 0; str_idx < str_ct; ++str_idx) {
+    for (uintptr_t str_idx = 0; str_idx != str_ct; ++str_idx) {
       const char* cur_str = &(strbox[str_idx * max_str_blen]);
       strcpy(wkspace_alias[str_idx].strbuf, cur_str);
       wkspace_alias[str_idx].orig_idx = id_map[str_idx];
@@ -802,7 +808,7 @@ CXXCONST_CP FirstPrecharFar(const char* str_iter, uint32_t char_code) {
 */
 
 uint32_t MatchUpperCounted(const char* str, const char* fixed_str, uint32_t ct) {
-  for (uint32_t uii = 0; uii < ct; ++uii) {
+  for (uint32_t uii = 0; uii != ct; ++uii) {
     if ((ctou32(str[uii]) & 0xdf) != ctou32(fixed_str[uii])) {
       return 0;
     }
@@ -847,7 +853,7 @@ static const char kToUpper[256] = {
 };
 
 uint32_t strcaseequal(const char* str1, const char* str2, uint32_t ct) {
-  for (uint32_t uii = 0; uii < ct; ++uii) {
+  for (uint32_t uii = 0; uii != ct; ++uii) {
     if (kToUpper[ctou32(str1[uii])] != kToUpper[ctou32(str2[uii])]) {
       return 0;
     }
@@ -871,7 +877,7 @@ void str_toupper(char* str_iter) {
 }
 
 void buf_toupper(uint32_t slen, char* strbuf) {
-  for (uint32_t pos = 0; pos < slen; ++pos) {
+  for (uint32_t pos = 0; pos != slen; ++pos) {
     const uint32_t uii = (unsigned char)(strbuf[pos]);
     if (((uint32_t)(uii - 97)) < 26) {
       strbuf[pos] = uii - 32;
@@ -893,7 +899,7 @@ void strcpy_toupper(char* target, const char* source) {
 }
 
 char* memcpya_toupper(char* __restrict target, const char* __restrict source, uint32_t slen) {
-  for (uint32_t pos = 0; pos < slen; ++pos) {
+  for (uint32_t pos = 0; pos != slen; ++pos) {
     uint32_t uii = ctou32(source[pos]);
     if ((uii - 97) < 26) {
       uii -= 32;
@@ -1623,7 +1629,7 @@ void GetTopTwoUi(const uint32_t* __restrict uint_arr, uintptr_t uia_size, uintpt
   uint32_t second_val = uint_arr[second_idx];
   uintptr_t cur_idx;
   uintptr_t cur_val;
-  for (cur_idx = 2; cur_idx < uia_size; ++cur_idx) {
+  for (cur_idx = 2; cur_idx != uia_size; ++cur_idx) {
     cur_val = uint_arr[cur_idx];
     if (cur_val > second_val) {
       if (cur_val > top_val) {
@@ -1823,7 +1829,7 @@ CXXCONST_CP NextCsvMult(const char* str_iter, uint32_t ct) {
 #ifdef USE_AVX2
 const char* CsvLexK(const char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, const char** token_ptrs, uint32_t* token_slens) {
   // Temporary; optimize later.
-  for (uint32_t relevant_col_idx = 0; relevant_col_idx < relevant_col_ct; ++relevant_col_idx) {
+  for (uint32_t relevant_col_idx = 0; relevant_col_idx != relevant_col_ct; ++relevant_col_idx) {
     const uint32_t cur_col_type = col_types[relevant_col_idx];
     str_iter = NextCsvMult(str_iter, col_skips[relevant_col_idx]);
     if (!str_iter) {
@@ -2801,7 +2807,7 @@ char* dtoa_f_p5_clipped(double dxx, char* start) {
   // just punt larger numbers to glibc for now, this isn't a bottleneck
   start += sprintf(start, "%.5f", dxx);
   // .5f doesn't strip trailing zeroes, do that manually
-  for (uint32_t uii = 0; uii < 5; ++uii) {
+  for (uint32_t uii = 0; uii != 5; ++uii) {
     if (start[-1] != '0') {
       return start;
     }
@@ -2868,7 +2874,7 @@ char* lntoa_g(double ln_val, char* start) {
 
 CXXCONST_CP ScanForDuplicateIds(const char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_blen) {
   --id_ct;
-  for (uintptr_t id_idx = 0; id_idx < id_ct; ++id_idx) {
+  for (uintptr_t id_idx = 0; id_idx != id_ct; ++id_idx) {
     if (strequal_overread(&(sorted_ids[id_idx * max_id_blen]), &(sorted_ids[(id_idx + 1) * max_id_blen]))) {
       return S_CAST(CXXCONST_CP, &(sorted_ids[id_idx * max_id_blen]));
     }
@@ -2888,7 +2894,7 @@ uint32_t CollapseDuplicateIds(uintptr_t id_ct, uintptr_t max_id_blen, char* sort
   uintptr_t write_idx;
   if (id_starts) {
     id_starts[0] = 0;
-    for (; read_idx < id_ct; ++read_idx) {
+    for (; read_idx != id_ct; ++read_idx) {
       if (strequal_overread(&(sorted_ids[(read_idx - 1) * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]))) {
         break;
       }
@@ -2903,7 +2909,7 @@ uint32_t CollapseDuplicateIds(uintptr_t id_ct, uintptr_t max_id_blen, char* sort
       }
     }
   } else {
-    for (; read_idx < id_ct; ++read_idx) {
+    for (; read_idx != id_ct; ++read_idx) {
       if (strequal_overread(&(sorted_ids[(read_idx - 1) * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]))) {
         break;
       }
@@ -3029,7 +3035,7 @@ CXXCONST_CP Memrchr(const char* str_start, char needle, uintptr_t slen) {
     }
   }
   const uintptr_t main_loop_iter_ct = (R_CAST(uintptr_t, str_rev_viter) - R_CAST(uintptr_t, str_start)) / (2 * kBytesPerVec);
-  for (uintptr_t ulii = 0; ulii < main_loop_iter_ct; ++ulii) {
+  for (uintptr_t ulii = 0; ulii != main_loop_iter_ct; ++ulii) {
     // For long lines, looping over two vectors at a time is most efficient on
     // my Mac (also tried 1 and 4).
     --str_rev_viter;

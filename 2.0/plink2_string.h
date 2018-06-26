@@ -295,7 +295,7 @@ template <uint32_t N> char* MemcpyaxK(void* __restrict dst, const void* __restri
   return &(S_CAST(char*, dst)[N + 1]);
 }
 
-#  define memcpyax_k(dst, src, ct, extra_char) MemcpyaxK<ct>(dst, src, extra_char)
+#  define memcpyax_k(dst, src, ct, extra_char) plink2::MemcpyaxK<ct>(dst, src, extra_char)
 
 template <uint32_t N> int32_t StrequalK(const char* s1, const char* k_s2, uint32_t s1_slen) {
   return (s1_slen == N) && memequal_k(s1, k_s2, N);
@@ -306,13 +306,13 @@ constexpr uint32_t CompileTimeSlen(const char* k_str) {
 }
 
 // can also use sizeof(k_s2) - 1, but that's less safe
-#  define strequal_k(s1, k_s2, s1_slen) StrequalK<CompileTimeSlen(k_s2)>(s1, k_s2, s1_slen)
+#  define strequal_k(s1, k_s2, s1_slen) plink2::StrequalK<plink2::CompileTimeSlen(k_s2)>(s1, k_s2, s1_slen)
 
-#  define strequal_k_unsafe(s1, k_s2) memequal_k(s1, k_s2, 1 + CompileTimeSlen(k_s2))
+#  define strequal_k_unsafe(s1, k_s2) memequal_k(s1, k_s2, 1 + plink2::CompileTimeSlen(k_s2))
 
-#  define strcpy_k(dst, src) MemcpyKImpl<CompileTimeSlen(src) + 1>::MemcpyK(dst, src);
+#  define strcpy_k(dst, src) plink2::MemcpyKImpl<plink2::CompileTimeSlen(src) + 1>::MemcpyK(dst, src);
 
-#  define strcpya_k(dst, src) MemcpyaoK<CompileTimeSlen(src)>(dst, src);
+#  define strcpya_k(dst, src) plink2::MemcpyaoK<plink2::CompileTimeSlen(src)>(dst, src);
 #else  // !(defined(__LP64__) && (__cplusplus >= 201103L))
 HEADER_INLINE char* memcpyax_k(void* __restrict dst, const void* __restrict src, uint32_t ct, char extra_char) {
   return memcpyax(dst, src, ct, extra_char);
@@ -341,7 +341,6 @@ HEADER_INLINE char* strcpya_k(char* __restrict dst, const void* __restrict src) 
 }
 #endif
 
-// todo: check Windows
 #if defined(__cplusplus) && !defined(__APPLE__)
 #  if __cplusplus >= 201103L
 #    define isfinite std::isfinite
@@ -402,7 +401,7 @@ HEADER_INLINE uintptr_t FirstUnequal(const char* s1, const char* s2, uintptr_t s
   if (slen >= 4) {
     return FirstUnequal4(s1, s2, slen);
   }
-  for (uintptr_t pos = 0; pos < slen; ++pos) {
+  for (uintptr_t pos = 0; pos != slen; ++pos) {
     if (s1[pos] != s2[pos]) {
       return pos;
     }
@@ -490,10 +489,9 @@ HEADER_INLINE bool strcmp_overread_lt(const char* s1, const char* s2) {
   const uintptr_t* s2_alias = R_CAST(const uintptr_t*, s2);
   uintptr_t widx = 0;
   while (1) {
-    const uintptr_t w1 = s1_alias[widx];
+    uintptr_t w1 = s1_alias[widx];
     const uintptr_t zcheck = (w1 - kMask0101) & (~w1) & (0x80 * kMask0101);
-    const uintptr_t w2 = s2_alias[widx];
-    uintptr_t xor_word = w1 ^ w2;
+    uintptr_t w2 = s2_alias[widx];
     if (zcheck) {
       // Mask out bytes past the known null.
       // Note that we can't safely include the garbage bytes past the null in
@@ -504,16 +502,20 @@ HEADER_INLINE bool strcmp_overread_lt(const char* s1, const char* s2) {
       // std::string at Facebook'"
       // (https://www.youtube.com/watch?v=kPR8h4-qZdk ) starting at ~22:15.
       const uintptr_t mask = zcheck ^ (zcheck - 1);
-      xor_word &= mask;
-      if (!xor_word) {
+      w1 &= mask;
+      w2 &= mask;
+      if (w1 == w2) {
         return false;
       }
       goto strcmp_overread_lt_finish;
     }
-    if (xor_word) {
+    if (w1 != w2) {
     strcmp_overread_lt_finish:
-      const uint32_t lshift = (kBitsPerWord - 8) - (ctzw(xor_word) & (kBitsPerWord - 8));
-      return ((w1 << lshift) < (w2 << lshift));
+#  ifdef __LP64__
+      return __builtin_bswap64(w1) < __builtin_bswap64(w2);
+#  else
+      return __builtin_bswap32(w1) < __builtin_bswap32(w2);
+#  endif
     }
     ++widx;
   }
@@ -1145,7 +1147,7 @@ HEADER_INLINE const char* TokenLexK(const char* str_iter, const uint32_t* col_ty
 // returns nullptr on missing token, otherwise returns pointer to end of last
 //   lexed token
 HEADER_INLINE const char* TokenLexK(const char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, const char** token_ptrs, uint32_t* token_slens) {
-  for (uint32_t relevant_col_idx = 0; relevant_col_idx < relevant_col_ct; ++relevant_col_idx) {
+  for (uint32_t relevant_col_idx = 0; relevant_col_idx != relevant_col_ct; ++relevant_col_idx) {
     const uint32_t cur_col_type = col_types[relevant_col_idx];
     str_iter = NextTokenMult(str_iter, col_skips[relevant_col_idx]);
     if (!str_iter) {
@@ -1206,7 +1208,7 @@ HEADER_INLINE char* CommaOrTspaceNextTokenMult(char* str_iter, uint32_t ct, uint
 const char* CsvLexK(const char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, const char** token_ptrs, uint32_t* token_slens);
 #else
 HEADER_INLINE const char* CsvLexK(const char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, const char** token_ptrs, uint32_t* token_slens) {
-  for (uint32_t relevant_col_idx = 0; relevant_col_idx < relevant_col_ct; ++relevant_col_idx) {
+  for (uint32_t relevant_col_idx = 0; relevant_col_idx != relevant_col_ct; ++relevant_col_idx) {
     const uint32_t cur_col_type = col_types[relevant_col_idx];
     str_iter = NextCsvMult(str_iter, col_skips[relevant_col_idx]);
     if (!str_iter) {

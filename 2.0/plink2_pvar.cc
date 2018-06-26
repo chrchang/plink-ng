@@ -58,7 +58,7 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
       }
       ZeroWArr(kChrMaskWords, cip->haploid_mask);
     }
-    for (uint32_t uii = 0; uii < kChrOffsetCt; ++uii) {
+    for (uint32_t uii = 0; uii != kChrOffsetCt; ++uii) {
       cip->xymt_codes[uii] = UINT32_MAXM1;
     }
     if (StrStartsWithUnsafe(chrset_iter, "haploidAutosomeCt=")) {
@@ -149,7 +149,7 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
           snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s specifies %u autosome%s, while the command line specified %u.\n", line_idx, file_descrip, explicit_autosome_ct, (explicit_autosome_ct == 1)? "" : "s", cmdline_autosome_ct);
           goto ReadChrsetHeaderLine_ret_INCONSISTENT_INPUT_WW;
         }
-        for (uint32_t xymt_idx = 0; xymt_idx < kChrOffsetPAR1; ++xymt_idx) {
+        for (uint32_t xymt_idx = 0; xymt_idx != kChrOffsetPAR1; ++xymt_idx) {
           // it's okay if the command line doesn't explicitly exclude e.g. chrX
           // while for whatever reason it is excluded from ##chrSet; but the
           // reverse can create problems
@@ -313,7 +313,7 @@ BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* v
     const uint32_t insert_ct = vtp->insert_ct;
     char* insert_ptrs[4];
     insert_ptrs[0] = nullptr;  // maybe-uninitialized warning
-    for (uint32_t insert_idx = 0; insert_idx < insert_ct; ++insert_idx) {
+    for (uint32_t insert_idx = 0; insert_idx != insert_ct; ++insert_idx) {
       id_iter = memcpya(id_iter, vtp->segs[insert_idx], vtp->seg_lens[insert_idx]);
       const uint32_t cur_insert_type = vtp->insert_types[insert_idx];
       insert_ptrs[cur_insert_type] = id_iter;
@@ -323,7 +323,8 @@ BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* v
 
     memcpy(insert_ptrs[0], vtp->chr_output_name_buf, insert_slens[0]);
     u32toa(cur_bp, insert_ptrs[1]);
-    for (uint32_t insert_type_idx = 2; insert_type_idx < insert_ct; ++insert_type_idx) {
+    // insert_ct currently guaranteed to be >= 2 since @ and # required
+    for (uint32_t insert_type_idx = 2; insert_type_idx != insert_ct; ++insert_type_idx) {
       memcpy(insert_ptrs[insert_type_idx], tmp_allele_ptrs[insert_type_idx - 2], insert_slens[insert_type_idx]);
     }
   }
@@ -342,7 +343,7 @@ void BackfillChrIdxs(const ChrInfo* cip, uint32_t chrs_encountered_m1, uint32_t 
     ChrIdx* chr_idxs_write_base = &(chr_idxs[start_vidx - offset]);
     const uint32_t vidx_ct = end_vidx - start_vidx;
     const ChrIdx cur_chr_idx = cip->chr_file_order[chr_fo_idx];
-    for (uint32_t uii = 0; uii < vidx_ct; ++uii) {
+    for (uint32_t uii = 0; uii != vidx_ct; ++uii) {
       chr_idxs_write_base[uii] = cur_chr_idx;
     }
     if (start_vidx == offset) {
@@ -409,7 +410,7 @@ PglErr InfoExistInit(const unsigned char* arena_end, const char* require_info_fl
   (*existpp)->key_ct = key_ct;
   read_iter = require_info_flattened;
   char* write_iter = (*existpp)->prekeys;
-  for (uint32_t kidx = 0; kidx < key_ct; ++kidx) {
+  for (uint32_t kidx = 0; kidx != key_ct; ++kidx) {
     *write_iter++ = ';';
     const uintptr_t slen = strlen(read_iter);
     (*existpp)->key_slens[kidx] = slen;
@@ -424,7 +425,7 @@ uint32_t InfoExistCheck(const char* info_token, const InfoExist* existp) {
   const uint32_t key_ct = existp->key_ct;
   const char* prekeys_iter = existp->prekeys;
   const uint32_t* key_slens = existp->key_slens;
-  for (uint32_t kidx = 0; kidx < key_ct; ++kidx) {
+  for (uint32_t kidx = 0; kidx != key_ct; ++kidx) {
     const uint32_t key_slen = key_slens[kidx];
     const char* possible_hit;
     // similar logic to hardcoded PR, except key can also be followed by '=',
@@ -465,7 +466,7 @@ uint32_t InfoNonexistCheck(const char* info_token, const InfoExist* nonexistp) {
   const char* prekeys_iter = nonexistp->prekeys;
   const uint32_t* key_slens = nonexistp->key_slens;
   uint32_t key_slen = 0;
-  for (uint32_t kidx = 0; kidx < key_ct; ++kidx, prekeys_iter = &(prekeys_iter[key_slen + 2])) {
+  for (uint32_t kidx = 0; kidx != key_ct; ++kidx, prekeys_iter = &(prekeys_iter[key_slen + 2])) {
     key_slen = key_slens[kidx];
     const char* possible_hit;
     if (memequal(info_token, &(prekeys_iter[1]), key_slen)) {
@@ -644,7 +645,7 @@ PglErr SplitPar(const uint32_t* variant_bps, UnsortedVar vpos_sortstatus, uint32
   *chrs_encountered_m1_ptr += 2;
   const uint32_t chrs_encountered_m1 = *chrs_encountered_m1_ptr;
   cip->chr_fo_vidx_start[chrs_encountered_m1 + 1] = cip->chr_fo_vidx_start[chrs_encountered_m1 - 1];
-  for (uint32_t chr_fo_idx = chrs_encountered_m1 - 2; chr_fo_idx > orig_xchr_fo_idx; --chr_fo_idx) {
+  for (uint32_t chr_fo_idx = chrs_encountered_m1 - 2; chr_fo_idx != orig_xchr_fo_idx; --chr_fo_idx) {
     cip->chr_fo_vidx_start[chr_fo_idx + 2] = cip->chr_fo_vidx_start[chr_fo_idx];
     const uint32_t cur_chr_idx = cip->chr_file_order[chr_fo_idx];
     cip->chr_file_order[chr_fo_idx + 2] = cur_chr_idx;
@@ -1404,7 +1405,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
               goto LoadPvar_skip_variant;
             }
             const uint32_t extra_alt_ct = remaining_alt_char_ct / 2;
-            for (uint32_t uii = 0; uii < extra_alt_ct; ++uii) {
+            for (uint32_t uii = 0; uii != extra_alt_ct; ++uii) {
               // no need to check for empty allele code here, that'll be
               // caught later
               if (linebuf_iter[2 * uii + 1] != ',') {
@@ -1778,7 +1779,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     uint32_t* variant_bps = *variant_bps_ptr;
     char** variant_ids = *variant_ids_ptr;
     uintptr_t* variant_include = *variant_include_ptr;
-    for (uint32_t block_idx = 0; block_idx < full_block_ct; ++block_idx) {
+    for (uint32_t block_idx = 0; block_idx != full_block_ct; ++block_idx) {
       memcpy(&(variant_bps[block_idx * kLoadPvarBlockSize]), read_iter, kLoadPvarBlockSize * sizeof(int32_t));
       // skip over allele_idx_offsets
       read_iter = &(read_iter[kLoadPvarBlockSize * (sizeof(int32_t) + sizeof(intptr_t))]);
@@ -1854,7 +1855,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       }
       allele_idx_offsets = *allele_idx_offsets_ptr;
       uintptr_t* allele_idx_read_iter = R_CAST(uintptr_t*, &(g_bigstack_end[kLoadPvarBlockSize * sizeof(int32_t)]));
-      for (uint32_t block_idx = 0; block_idx < full_block_ct; ++block_idx) {
+      for (uint32_t block_idx = 0; block_idx != full_block_ct; ++block_idx) {
         memcpy(&(allele_idx_offsets[block_idx * kLoadPvarBlockSize]), allele_idx_read_iter, kLoadPvarBlockSize * sizeof(intptr_t));
         allele_idx_read_iter = R_CAST(uintptr_t*, R_CAST(uintptr_t, allele_idx_read_iter) + read_iter_stride_base + (block_idx >= cms_start_block) * kLoadPvarBlockSize * sizeof(double) + (block_idx >= chr_idxs_start_block) * kLoadPvarBlockSize * sizeof(ChrIdx));
       }
@@ -1871,7 +1872,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       if (cms_start_block > chr_idxs_start_block) {
         cms_read_iter = R_CAST(double*, R_CAST(uintptr_t, cms_read_iter) + kLoadPvarBlockSize * sizeof(ChrIdx) * (cms_start_block - chr_idxs_start_block));
       }
-      for (uint32_t block_idx = cms_start_block; block_idx < full_block_ct; ++block_idx) {
+      for (uint32_t block_idx = cms_start_block; block_idx != full_block_ct; ++block_idx) {
         memcpy(&(variant_cms[block_idx * kLoadPvarBlockSize]), cms_read_iter, kLoadPvarBlockSize * sizeof(double));
         cms_read_iter = R_CAST(double*, R_CAST(uintptr_t, cms_read_iter) + read_iter_stride_base + kLoadPvarBlockSize * sizeof(double) + (block_idx >= chr_idxs_start_block) * kLoadPvarBlockSize * sizeof(ChrIdx));
       }
@@ -1909,7 +1910,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       if (chr_idxs_start_block >= cms_start_block) {
         chr_idxs_read_iter = R_CAST(ChrIdx*, R_CAST(uintptr_t, chr_idxs_read_iter) + kLoadPvarBlockSize * sizeof(double) * (chr_idxs_start_block + 1 - cms_start_block));
       }
-      for (uint32_t block_idx = chr_idxs_start_block; block_idx < full_block_ct;) {
+      for (uint32_t block_idx = chr_idxs_start_block; block_idx != full_block_ct;) {
         memcpy(&(chr_idxs[block_idx * kLoadPvarBlockSize]), chr_idxs_read_iter, kLoadPvarBlockSize * sizeof(ChrIdx));
         ++block_idx;
         chr_idxs_read_iter = R_CAST(ChrIdx*, R_CAST(uintptr_t, chr_idxs_read_iter) + read_iter_stride_base + kLoadPvarBlockSize * sizeof(ChrIdx) + (block_idx >= cms_start_block) * kLoadPvarBlockSize * sizeof(double));

@@ -97,7 +97,7 @@ int32_t DotprodWords(const uintptr_t* __restrict hom1, const uintptr_t* __restri
     widx = block_ct * (4 * kWordsPerVec);
   }
   uint32_t tot_neg = 0;
-  for (; widx < word_ct; ++widx) {
+  for (; widx != word_ct; ++widx) {
     const uintptr_t hom_word = hom1[widx] & hom2[widx];
     const uintptr_t xor_word = ref2het1[widx] ^ ref2het2[widx];
     tot_both += PopcountWord(hom_word);
@@ -181,7 +181,7 @@ void SumSsqWords(const uintptr_t* hom1, const uintptr_t* ref2het1, const uintptr
     SumSsqAvx2(R_CAST(const VecW*, hom1), R_CAST(const VecW*, ref2het1), R_CAST(const VecW*, hom2), R_CAST(const VecW*, ref2het2), block_ct * 8, &ssq2, &plus2);
     widx = block_ct * (8 * kWordsPerVec);
   }
-  for (; widx < word_ct; ++widx) {
+  for (; widx != word_ct; ++widx) {
     const uintptr_t ssq2_word = (hom1[widx] | ref2het1[widx]) & hom2[widx];
     ssq2 += PopcountWord(ssq2_word);
     plus2 += PopcountWord(ssq2_word & ref2het2[widx]);
@@ -263,7 +263,7 @@ int32_t DotprodWords(const uintptr_t* __restrict hom1, const uintptr_t* __restri
     widx = block_ct * (3 * kWordsPerVec);
   }
   uint32_t tot_neg = 0;
-  for (; widx < word_ct; ++widx) {
+  for (; widx != word_ct; ++widx) {
     const uintptr_t hom_word = hom1[widx] & hom2[widx];
     const uintptr_t xor_word = ref2het1[widx] ^ ref2het2[widx];
     tot_both += PopcountWord(hom_word);
@@ -351,7 +351,7 @@ void SumSsqWords(const uintptr_t* hom1, const uintptr_t* ref2het1, const uintptr
     widx = block_ct * (3 * kWordsPerVec);
   }
 #endif
-  for (; widx < word_ct; ++widx) {
+  for (; widx != word_ct; ++widx) {
     const uintptr_t ssq2_word = (hom1[widx] | ref2het1[widx]) & hom2[widx];
     ssq2 += PopcountWord(ssq2_word);
     plus2 += PopcountWord(ssq2_word & ref2het2[widx]);
@@ -467,7 +467,7 @@ void SumSsqNmWords(const uintptr_t* hom1, const uintptr_t* ref2het1, const uintp
     widx = block_ct * (3 * kWordsPerVec);
   }
 #endif
-  for (; widx < word_ct; ++widx) {
+  for (; widx != word_ct; ++widx) {
     const uintptr_t nm1_word = hom1[widx] | ref2het1[widx];
     const uintptr_t hom2_word = hom2[widx];
     const uintptr_t ref2het2_word = ref2het2[widx];
@@ -567,7 +567,7 @@ void LdPruneNextWindow(const uintptr_t* __restrict variant_include, const uint32
   }
   const uint32_t cur_window_size = *cur_window_size_ptr;
   uint32_t winpos_write = 0;
-  for (uint32_t winpos_read = 0; winpos_read < cur_window_size; ++winpos_read) {
+  for (uint32_t winpos_read = 0; winpos_read != cur_window_size; ++winpos_read) {
     const uint32_t slot_idx = winpos_to_slot_idx[winpos_read];
     if (IsSet(cur_window_removed, winpos_read) || (tvidxs[slot_idx] < next_window_start_tvidx)) {
       ClearBit(slot_idx, occupied_window_slots);
@@ -955,7 +955,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
             bigstack_alloc_thread(calc_thread_ct, &threads))) {
       goto IndepPairwise_ret_NOMEM;
     }
-    for (uint32_t subcontig_idx = 0; subcontig_idx < subcontig_ct; ++subcontig_idx) {
+    for (uint32_t subcontig_idx = 0; subcontig_idx != subcontig_ct; ++subcontig_idx) {
       const uint32_t cur_thread_idx = subcontig_thread_assignments[subcontig_idx];
       g_tvidx_end[cur_thread_idx] += subcontig_info[3 * subcontig_idx];
     }
@@ -996,7 +996,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     if (2 * tvidx_batch_size * raw_tgenovec_single_variant_word_ct * sizeof(intptr_t) > bigstack_avail_per_thread) {
       tvidx_batch_size = bigstack_avail_per_thread / RoundUpPow2(raw_tgenovec_single_variant_word_ct * 2 * sizeof(intptr_t), kCacheline);
     }
-    for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
+    for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
       g_genobufs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(genobuf_alloc));
       g_occupied_window_slots[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(occupied_window_slots_alloc));
       ZeroWArr(window_maxl, g_occupied_window_slots[tidx]);
@@ -1065,7 +1065,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
         uintptr_t** cur_raw_tgenovecs = g_raw_tgenovecs[parity];
         const uint32_t cur_tvidx_end = cur_tvidx_start + tvidx_batch_size;
         uint32_t is_x_or_y = 0;
-        for (uint32_t subcontig_idx = 0; subcontig_idx < subcontig_ct; ++subcontig_idx) {
+        for (uint32_t subcontig_idx = 0; subcontig_idx != subcontig_ct; ++subcontig_idx) {
           const uint32_t cur_thread_idx = subcontig_thread_assignments[subcontig_idx];
           if (thread_last_subcontig[cur_thread_idx] > subcontig_idx) {
             continue;
@@ -1101,6 +1101,8 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
             PgrClearLdCache(simple_pgrp);
           }
           uintptr_t* cur_thread_raw_tgenovec = cur_raw_tgenovecs[cur_thread_idx];
+          // todo: document whether tvidx_offset is guaranteed to be <=
+          // tvidx_offset_end if this code is revisited.
           for (uintptr_t tvidx_offset = cur_tvidx - cur_tvidx_start; tvidx_offset < tvidx_offset_end; ++tvidx_offset, ++variant_uidx) {
             MovU32To1Bit(variant_include, &variant_uidx);
             uintptr_t* cur_raw_tgenovec = &(cur_thread_raw_tgenovec[tvidx_offset * raw_tgenovec_single_variant_word_ct]);
@@ -1173,7 +1175,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
       cur_tvidx_start += tvidx_batch_size;
     }
     ZeroU32Arr(calc_thread_ct, thread_subcontig_start_tvidx);
-    for (uint32_t subcontig_idx = 0; subcontig_idx < subcontig_ct; ++subcontig_idx) {
+    for (uint32_t subcontig_idx = 0; subcontig_idx != subcontig_ct; ++subcontig_idx) {
       const uint32_t cur_thread_idx = subcontig_thread_assignments[subcontig_idx];
       const uintptr_t* cur_removed_variants = g_removed_variants_write[cur_thread_idx];
       const uint32_t subcontig_len = subcontig_info[3 * subcontig_idx];
@@ -1219,7 +1221,7 @@ PglErr LdPruneSubcontigSplitAll(const uintptr_t* variant_include, const ChrInfo*
   uint32_t variant_idx = 0;
   if (variant_bps) {
     window_max = 1;
-    for (uint32_t chr_fo_idx = 0; chr_fo_idx < chr_ct; ++chr_fo_idx) {
+    for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
       const uint32_t chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
       uint32_t variant_uidx = AdvBoundedTo1Bit(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], chr_end);
       const uint32_t chr_variant_ct = PopcountBitRange(variant_include, variant_uidx, chr_end);
@@ -1278,7 +1280,7 @@ PglErr LdPruneSubcontigSplitAll(const uintptr_t* variant_include, const ChrInfo*
       variant_idx = variant_idx_end;
     }
   } else {
-    for (uint32_t chr_fo_idx = 0; chr_fo_idx < chr_ct; ++chr_fo_idx) {
+    for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
       const uint32_t chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
       const uint32_t first_variant_uidx = AdvBoundedTo1Bit(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], chr_end);
       const uint32_t chr_variant_ct = PopcountBitRange(variant_include, first_variant_uidx, chr_end);
@@ -1387,7 +1389,7 @@ PglErr LoadBalance(const uint32_t* task_weights, uint32_t task_ct, uint32_t* thr
     ZeroU32Arr(task_ct, thread_assignments);
     // replace this with an acc_uint32 call?
     uint32_t max_load = task_weights[0];
-    for (uint32_t task_idx = 1; task_idx < task_ct; ++task_idx) {
+    for (uint32_t task_idx = 1; task_idx != task_ct; ++task_idx) {
       max_load += task_weights[task_idx];
     }
     *max_load_ptr = max_load;
@@ -1403,7 +1405,7 @@ PglErr LoadBalance(const uint32_t* task_weights, uint32_t task_ct, uint32_t* thr
   minheap64_preroot[0] = 0;
   uint64_t* minheap64 = &(minheap64_preroot[1]);
   uint32_t total_weight = 0;
-  for (uintptr_t task_idx = 0; task_idx < task_ct; ++task_idx) {
+  for (uintptr_t task_idx = 0; task_idx != task_ct; ++task_idx) {
     const uintptr_t cur_weight = task_weights[task_idx];
     total_weight += cur_weight;
     sorted_tagged_weights[task_idx] = (S_CAST(uint64_t, cur_weight) << 32) + task_idx;
@@ -1423,7 +1425,7 @@ PglErr LoadBalance(const uint32_t* task_weights, uint32_t task_ct, uint32_t* thr
     initial_max_load = 1 + (total_weight - 1) / orig_thread_ct;
   }
 
-  for (uintptr_t thread_idx = 1; thread_idx < thread_ct; ++thread_idx) {
+  for (uintptr_t thread_idx = 1; thread_idx != thread_ct; ++thread_idx) {
     minheap64[thread_idx - 1] = thread_ct - thread_idx;
   }
   minheap64[thread_ct - 1] = largest_tagged_weight & 0xffffffff00000000LLU;
@@ -1459,7 +1461,7 @@ PglErr LoadBalance(const uint32_t* task_weights, uint32_t task_ct, uint32_t* thr
     } else if (thread_ct < orig_thread_ct) {
       const uint64_t new_entry = cur_tagged_weight + thread_ct;
       const uintptr_t insert_pt = CountSortedSmallerU64(minheap64, thread_ct, new_entry);
-      for (uintptr_t thread_idx = thread_ct; thread_idx > insert_pt; --thread_idx) {
+      for (uintptr_t thread_idx = thread_ct; thread_idx != insert_pt; --thread_idx) {
         minheap64[thread_idx] = minheap64[thread_idx - 1];
       }
       minheap64[insert_pt] = new_entry;
@@ -1467,7 +1469,7 @@ PglErr LoadBalance(const uint32_t* task_weights, uint32_t task_ct, uint32_t* thr
     } else {
       // move lowest entry to end of list, shift everything else down
       const uint64_t new_entry = minheap64[0] + cur_tagged_weight;
-      for (uint32_t thread_idx = 1; thread_idx < thread_ct; ++thread_idx) {
+      for (uint32_t thread_idx = 1; thread_idx != thread_ct; ++thread_idx) {
         minheap64[thread_idx - 1] = minheap64[thread_idx];
       }
       minheap64[thread_ct - 1] = new_entry;
@@ -1515,7 +1517,7 @@ PglErr LdPruneWrite(const uintptr_t* variant_include, const uintptr_t* removed_v
     char* write_iter = g_textbuf;
     char* textbuf_flush = &(write_iter[kMaxMediumLine]);
     uint32_t variant_uidx = 0;
-    for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
       MovU32To1Bit(variant_include, &variant_uidx);
       if (IsSet(removed_variants_collapsed, variant_idx)) {
         continue;
@@ -1536,7 +1538,7 @@ PglErr LdPruneWrite(const uintptr_t* variant_include, const uintptr_t* removed_v
     }
     write_iter = g_textbuf;
     variant_uidx = 0;
-    for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
       MovU32To1Bit(variant_include, &variant_uidx);
       if (!IsSet(removed_variants_collapsed, variant_idx)) {
         continue;
@@ -1583,7 +1585,7 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     }
     const uint32_t chr_code_end = cip->max_code + 1 + cip->name_ct;
     if (cip->zero_extra_chrs) {
-      for (uint32_t chr_idx = cip->max_code + 1; chr_idx < chr_code_end; ++chr_idx) {
+      for (uint32_t chr_idx = cip->max_code + 1; chr_idx != chr_code_end; ++chr_idx) {
         if (IsSet(cip->chr_mask, chr_idx)) {
           skipped_variant_ct += CountChrVariantsUnsafe(orig_variant_include, cip, cip->chr_idx_to_foidx[chr_idx]);
         }
@@ -1603,7 +1605,7 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
         ClearBitsNz(start_uidx, cip->chr_fo_vidx_start[chr_fo_idx + 1], new_variant_include);
       }
       if (cip->zero_extra_chrs) {
-        for (uint32_t chr_idx = cip->max_code + 1; chr_idx < chr_code_end; ++chr_idx) {
+        for (uint32_t chr_idx = cip->max_code + 1; chr_idx != chr_code_end; ++chr_idx) {
           const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[chr_idx];
           const uint32_t start_uidx = cip->chr_fo_vidx_start[chr_fo_idx];
           ClearBitsNz(start_uidx, cip->chr_fo_vidx_start[chr_fo_idx + 1], new_variant_include);
@@ -1691,7 +1693,7 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     }
 
 
-    for (uint32_t subcontig_idx = 0; subcontig_idx < subcontig_ct; ++subcontig_idx) {
+    for (uint32_t subcontig_idx = 0; subcontig_idx != subcontig_ct; ++subcontig_idx) {
       // todo: adjust chrX weights upward, and chrY downward
       subcontig_weights[subcontig_idx] = subcontig_info[3 * subcontig_idx];
       // printf("%u %u %u\n", subcontig_info[3 * subcontig_idx], subcontig_info[3 * subcontig_idx + 1], subcontig_info[3 * subcontig_idx + 2]);
@@ -1736,7 +1738,7 @@ void GenoarrSplit12Nm(const uintptr_t* __restrict genoarr, uint32_t sample_ct, u
   Halfword* one_bitarr_alias = R_CAST(Halfword*, one_bitarr);
   Halfword* two_bitarr_alias = R_CAST(Halfword*, two_bitarr);
   Halfword* nm_bitarr_alias = R_CAST(Halfword*, nm_bitarr);
-  for (uint32_t widx = 0; widx < sample_ctl2; ++widx) {
+  for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
     const uintptr_t cur_geno_word = genoarr[widx];
     const uint32_t low_halfword = PackWordToHalfword(cur_geno_word & kMask5555);
     const uint32_t high_halfword = PackWordToHalfword((cur_geno_word >> 1) & kMask5555);
@@ -1815,7 +1817,7 @@ uint32_t GenoBitvecSum(const uintptr_t* one_bitvec, const uintptr_t* two_bitvec,
     one_bitvec = &(one_bitvec[main_block_word_ct]);
     two_bitvec = &(two_bitvec[main_block_word_ct]);
   }
-  for (uint32_t trailing_word_idx = 0; trailing_word_idx < word_ct; ++trailing_word_idx) {
+  for (uint32_t trailing_word_idx = 0; trailing_word_idx != word_ct; ++trailing_word_idx) {
     tot += PopcountWord(one_bitvec[trailing_word_idx]) + 2 * PopcountWord(two_bitvec[trailing_word_idx]);
   }
 #endif
@@ -1878,7 +1880,7 @@ uint32_t GenoBitvecSumSubset(const uintptr_t* subset_mask, const uintptr_t* one_
     one_bitvec = &(one_bitvec[main_block_word_ct]);
     two_bitvec = &(two_bitvec[main_block_word_ct]);
   }
-  for (uint32_t trailing_word_idx = 0; trailing_word_idx < word_ct; ++trailing_word_idx) {
+  for (uint32_t trailing_word_idx = 0; trailing_word_idx != word_ct; ++trailing_word_idx) {
     const uintptr_t subset_word = subset_mask[trailing_word_idx];
     tot += PopcountWord(subset_word & one_bitvec[trailing_word_idx]) + 2 * PopcountWord(subset_word & two_bitvec[trailing_word_idx]);
   }
@@ -1981,7 +1983,7 @@ void GenoBitvecPhasedDotprod(const uintptr_t* one_bitvec0, const uintptr_t* two_
     one_bitvec1 = &(one_bitvec1[main_block_word_ct]);
     two_bitvec1 = &(two_bitvec1[main_block_word_ct]);
   }
-  for (uint32_t trailing_word_idx = 0; trailing_word_idx < word_ct; ++trailing_word_idx) {
+  for (uint32_t trailing_word_idx = 0; trailing_word_idx != word_ct; ++trailing_word_idx) {
     const uintptr_t one_word0 = one_bitvec0[trailing_word_idx];
     const uintptr_t two_word0 = two_bitvec0[trailing_word_idx];
     const uintptr_t one_word1 = one_bitvec1[trailing_word_idx];
@@ -2110,7 +2112,7 @@ void HardcallPhasedR2Refine(const uintptr_t* phasepresent0, const uintptr_t* pha
     phasepresent1 = &(phasepresent1[main_block_word_ct]);
     phaseinfo1 = &(phaseinfo1[main_block_word_ct]);
   }
-  for (uint32_t trailing_word_idx = 0; trailing_word_idx < word_ct; ++trailing_word_idx) {
+  for (uint32_t trailing_word_idx = 0; trailing_word_idx != word_ct; ++trailing_word_idx) {
     const uintptr_t mask = phasepresent0[trailing_word_idx] & phasepresent1[trailing_word_idx];
     const uintptr_t xor_word = phaseinfo0[trailing_word_idx] ^ phaseinfo1[trailing_word_idx];
     hethet_decr += PopcountWord(mask);
@@ -2175,7 +2177,7 @@ void FillDosageUhet(const Dosage* dosage_vec, uint32_t dosagev_ct, Dosage* dosag
 
   // subtract from 0, cmp_epi16 to produce mask, add 32768
   __m256i* dosage_uhet_iter = R_CAST(__m256i*, dosage_uhet);
-  for (uint32_t vec_idx = 0; vec_idx < dosagev_ct; ++vec_idx) {
+  for (uint32_t vec_idx = 0; vec_idx != dosagev_ct; ++vec_idx) {
     __m256i dosagev = *dosage_vvec_iter++;
 
     __m256i cur_mask = _mm256_cmpeq_epi16(dosagev, all1);
@@ -2416,7 +2418,7 @@ void FillDosageUhet(const Dosage* dosage_vec, uint32_t dosagev_ct, Dosage* dosag
 
   // subtract from 0, _mm_cmplt_epi16 to produce mask, add 32768
   __m128i* dosage_uhet_iter = R_CAST(__m128i*, dosage_uhet);
-  for (uint32_t vec_idx = 0; vec_idx < dosagev_ct; ++vec_idx) {
+  for (uint32_t vec_idx = 0; vec_idx != dosagev_ct; ++vec_idx) {
     __m128i dosagev = *dosage_vvec_iter++;
 
     __m128i cur_mask = _mm_cmpeq_epi16(dosagev, all1);
@@ -2636,7 +2638,7 @@ int64_t DosageSignedDotprod(const SDosage* dphase_delta0, const SDosage* dphase_
 #else  // !__LP64__
 void FillDosageUhet(const Dosage* dosage_vec, uint32_t dosagev_ct, Dosage* dosage_uhet) {
   const uint32_t sample_cta2 = dosagev_ct * 2;
-  for (uint32_t sample_idx = 0; sample_idx < sample_cta2; ++sample_idx) {
+  for (uint32_t sample_idx = 0; sample_idx != sample_cta2; ++sample_idx) {
     const uint32_t cur_dosage = dosage_vec[sample_idx];
     uint32_t cur_hetval = cur_dosage;
     if (cur_hetval > 16384) {
@@ -2653,7 +2655,7 @@ void FillDosageUhet(const Dosage* dosage_vec, uint32_t dosagev_ct, Dosage* dosag
 uint64_t DenseDosageSum(const Dosage* dosage_vec, uint32_t vec_ct) {
   const uint32_t sample_cta2 = vec_ct * 2;
   uint64_t sum = 0;
-  for (uint32_t sample_idx = 0; sample_idx < sample_cta2; ++sample_idx) {
+  for (uint32_t sample_idx = 0; sample_idx != sample_cta2; ++sample_idx) {
     const uint32_t cur_dosage = dosage_vec[sample_idx];
     if (cur_dosage != kDosageMissing) {
       sum += cur_dosage;
@@ -2665,7 +2667,7 @@ uint64_t DenseDosageSum(const Dosage* dosage_vec, uint32_t vec_ct) {
 uint64_t DenseDosageSumSubset(const Dosage* dosage_vec, const Dosage* dosage_mask_vec, uint32_t vec_ct) {
   const uint32_t sample_cta2 = vec_ct * 2;
   uint64_t sum = 0;
-  for (uint32_t sample_idx = 0; sample_idx < sample_cta2; ++sample_idx) {
+  for (uint32_t sample_idx = 0; sample_idx != sample_cta2; ++sample_idx) {
     const uint32_t cur_dosage = dosage_vec[sample_idx];
     const uint32_t other_dosage = dosage_mask_vec[sample_idx];
     if ((cur_dosage != kDosageMissing) && (other_dosage != kDosageMissing)) {
@@ -2678,7 +2680,7 @@ uint64_t DenseDosageSumSubset(const Dosage* dosage_vec, const Dosage* dosage_mas
 uint64_t DosageUnsignedDotprod(const Dosage* dosage_vec0, const Dosage* dosage_vec1, uint32_t vec_ct) {
   const uint32_t sample_cta2 = vec_ct * 2;
   uint64_t dotprod = 0;
-  for (uint32_t sample_idx = 0; sample_idx < sample_cta2; ++sample_idx) {
+  for (uint32_t sample_idx = 0; sample_idx != sample_cta2; ++sample_idx) {
     const uint32_t cur_dosage0 = dosage_vec0[sample_idx];
     const uint32_t cur_dosage1 = dosage_vec1[sample_idx];
     if ((cur_dosage0 != kDosageMissing) && (cur_dosage1 != kDosageMissing)) {
@@ -2691,7 +2693,7 @@ uint64_t DosageUnsignedDotprod(const Dosage* dosage_vec0, const Dosage* dosage_v
 uint64_t DosageUnsignedNomissDotprod(const Dosage* dosage_vec0, const Dosage* dosage_vec1, uint32_t vec_ct) {
   const uint32_t sample_cta2 = vec_ct * 2;
   uint64_t dotprod = 0;
-  for (uint32_t sample_idx = 0; sample_idx < sample_cta2; ++sample_idx) {
+  for (uint32_t sample_idx = 0; sample_idx != sample_cta2; ++sample_idx) {
     const uint32_t cur_dosage0 = dosage_vec0[sample_idx];
     const uint32_t cur_dosage1 = dosage_vec1[sample_idx];
     dotprod += cur_dosage0 * cur_dosage1;
@@ -2702,7 +2704,7 @@ uint64_t DosageUnsignedNomissDotprod(const Dosage* dosage_vec0, const Dosage* do
 int64_t DosageSignedDotprod(const SDosage* dphase_delta0, const SDosage* dphase_delta1, uint32_t vec_ct) {
   const uint32_t sample_cta2 = vec_ct * 2;
   int64_t dotprod = 0;
-  for (uint32_t sample_idx = 0; sample_idx < sample_cta2; ++sample_idx) {
+  for (uint32_t sample_idx = 0; sample_idx != sample_cta2; ++sample_idx) {
     const int32_t cur_diff0 = dphase_delta0[sample_idx];
     const int32_t cur_diff1 = dphase_delta1[sample_idx];
     dotprod += cur_diff0 * cur_diff1;
@@ -2713,7 +2715,7 @@ int64_t DosageSignedDotprod(const SDosage* dphase_delta0, const SDosage* dphase_
 
 void DosagePhaseinfoPatch(const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dosage_vec, const uintptr_t* dphase_present, uint32_t sample_ct, Dosage* dosage_uhet, SDosage* dphase_delta) {
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
-  for (uint32_t widx = 0; widx < sample_ctl; ++widx) {
+  for (uint32_t widx = 0; widx != sample_ctl; ++widx) {
     uintptr_t phasepresent_nodphase_word = phasepresent[widx] & (~dphase_present[widx]);
     if (phasepresent_nodphase_word) {
       const uintptr_t phaseinfo_word = phaseinfo[widx];
@@ -2821,7 +2823,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     uint32_t is_xs[2];
     uint32_t is_nonx_haploids[2];
     uint32_t y_ct = 0;
-    for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
+    for (uint32_t var_idx = 0; var_idx != 2; ++var_idx) {
       const char* cur_varid = ld_console_varids[var_idx];
       int32_t ii = GetVariantUidxWithoutHtable(cur_varid, variant_ids, variant_include, variant_ct);
       if (unlikely(ii == -1)) {
@@ -2912,7 +2914,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     PgrClearLdCache(simple_pgrp);
     uint32_t dosage_cts[2];
     uint32_t dphase_cts[2];
-    for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
+    for (uint32_t var_idx = 0; var_idx != 2; ++var_idx) {
       const uint32_t variant_uidx = var_uidxs[var_idx];
       uintptr_t* cur_genovec = genovecs[var_idx];
       uintptr_t* cur_phasepresent = phasepresents[var_idx];
@@ -2996,7 +2998,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       }
       uint32_t nmaj_cts[2];
       uint32_t nm_cts[2];  // ugh.
-      for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
+      for (uint32_t var_idx = 0; var_idx != 2; ++var_idx) {
         GenoarrSplit12Nm(genovecs[var_idx], founder_ct, one_bitvecs[var_idx], two_bitvecs[var_idx], nm_bitvecs[var_idx]);
         nmaj_cts[var_idx] = GenoBitvecSum(one_bitvecs[var_idx], two_bitvecs[var_idx], founder_ctl);
         nm_cts[var_idx] = PopcountWords(nm_bitvecs[var_idx], founder_ctl);
@@ -3068,7 +3070,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       }
       uint64_t nmaj_dosages[2];
       uint32_t nm_cts[2];
-      for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
+      for (uint32_t var_idx = 0; var_idx != 2; ++var_idx) {
         PopulateDenseDosage(genovecs[var_idx], dosage_presents[var_idx], dosage_mains[var_idx], founder_ct, dosage_cts[var_idx], dosage_vecs[var_idx]);
         nmaj_dosages[var_idx] = DenseDosageSum(dosage_vecs[var_idx], founder_dosagev_ct);
         FillDosageUhet(dosage_vecs[var_idx], founder_dosagev_ct, dosage_uhets[var_idx]);
@@ -3086,7 +3088,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
                 bigstack_alloc_dphase(founder_ct, &main_dphase_deltas[1]))) {
           goto LdConsole_ret_NOMEM;
         }
-        for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
+        for (uint32_t var_idx = 0; var_idx != 2; ++var_idx) {
           // this should probably be a PopulateDenseDphase() function in
           // plink2_common
           ZeroDphaseArr(founder_dosagev_ct * kDosagePerVec, main_dphase_deltas[var_idx]);
@@ -3098,7 +3100,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
           const uint32_t cur_dphase_ct = dphase_cts[var_idx];
           if (cur_dphase_ct) {
             uint32_t sample_uidx = 0;
-            for (uint32_t dphase_idx = 0; dphase_idx < cur_dphase_ct; ++dphase_idx, ++sample_uidx) {
+            for (uint32_t dphase_idx = 0; dphase_idx != cur_dphase_ct; ++dphase_idx, ++sample_uidx) {
               MovU32To1Bit(cur_dphase_present, &sample_uidx);
               const uint32_t dosage_int = cur_dosage_vec[sample_uidx];
               const int32_t dphase_delta_val = read_dphase_delta[dphase_idx];
@@ -3138,7 +3140,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         }
         SetAllDosageArr(founder_dosagev_ct * kDosagePerVec, x_male_dosage_invmask);
         uint32_t sample_midx = 0;
-        for (uint32_t uii = 0; uii < x_male_ct; ++uii, ++sample_midx) {
+        for (uint32_t uii = 0; uii != x_male_ct; ++uii, ++sample_midx) {
           MovU32To1Bit(sex_male_collapsed, &sample_midx);
           x_male_dosage_invmask[sample_midx] = 0;
         }
@@ -3207,7 +3209,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     char* write_poststop = &(g_logbuf[80]);
     uint32_t varid_slens[2];
     uint32_t cur_allele_ct = 2;
-    for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
+    for (uint32_t var_idx = 0; var_idx != 2; ++var_idx) {
       const uint32_t cur_variant_uidx = var_uidxs[var_idx];
       uintptr_t allele_idx_offset_base = cur_variant_uidx * 2;
       if (allele_idx_offsets) {
@@ -3326,8 +3328,6 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     STD_ARRAY_DECL(double, 3, cubic_sols);
     if (half_unphased_hethet_share != 0.0) {
       // detect degenerate cases to avoid e-17 ugliness
-      // possible todo: when there are multiple solutions, mark the EM solution
-      //   in some manner
       if ((freq_majmaj * freq_minmin != 0.0) || (freq_majmin * freq_minmaj != 0.0)) {
         // (f11 + x)(f22 + x)(K - x) = x(f12 + K - x)(f21 + K - x)
         // (x - K)(x + f11)(x + f22) + x(x - K - f12)(x - K - f21) = 0
@@ -3341,6 +3341,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
           if (cubic_sols[cubic_sol_ct - 1] > half_unphased_hethet_share - kSmallishEpsilon) {
             cubic_sols[cubic_sol_ct - 1] = half_unphased_hethet_share;
           }
+          // todo: document why this is safe (or fix if it isn't)
           while (cubic_sols[first_relevant_sol_idx] < -kSmallishEpsilon) {
             ++first_relevant_sol_idx;
           }
@@ -3394,7 +3395,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         }
         // Unlike plink 1.9, we don't restrict these HWE computations to the
         // nonmissing intersection.
-        for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
+        for (uint32_t var_idx = 0; var_idx != 2; ++var_idx) {
           const uintptr_t* cur_genovec = genovecs[var_idx];
           STD_ARRAY_DECL(uint32_t, 4, genocounts);
           GenovecCountFreqsUnsafe(cur_genovec, founder_ct, genocounts);

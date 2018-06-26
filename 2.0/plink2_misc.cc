@@ -156,7 +156,7 @@ PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const ui
       uint32_t chr_end = 0;
       uint32_t last_bp = 0;
       uint32_t variant_uidx = 0;
-      for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
         MovU32To1Bit(variant_include, &variant_uidx);
         if (variant_uidx >= chr_end) {
           do {
@@ -387,7 +387,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
     uintptr_t new_max_pheno_name_blen;
     if (old_pheno_names && (catpheno_name_blen <= old_max_pheno_name_blen)) {
       new_max_pheno_name_blen = old_max_pheno_name_blen;
-      for (uint32_t pheno_idx = 0; pheno_idx < old_pheno_ct; ++pheno_idx) {
+      for (uint32_t pheno_idx = 0; pheno_idx != old_pheno_ct; ++pheno_idx) {
         if (unlikely(memequal(catpheno_name, &(old_pheno_names[pheno_idx * old_max_pheno_name_blen]), catpheno_name_blen))) {
           snprintf(g_logbuf, kLogbufSize, "Error: Cannot create a new categorical phenotype named '%s', since another phenotype of the same name already exists.\n", catpheno_name);
           goto Plink1ClusterImport_ret_INCONSISTENT_INPUT_WW;
@@ -405,7 +405,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
     if (old_pheno_names && (old_max_pheno_name_blen == new_max_pheno_name_blen)) {
       memcpy(pheno_names, old_pheno_names, old_pheno_ct * new_max_pheno_name_blen);
     } else {
-      for (uint32_t pheno_idx = 0; pheno_idx < old_pheno_ct; ++pheno_idx) {
+      for (uint32_t pheno_idx = 0; pheno_idx != old_pheno_ct; ++pheno_idx) {
         strcpy(&(pheno_names[pheno_idx * new_max_pheno_name_blen]), &(old_pheno_names[pheno_idx * old_max_pheno_name_blen]));
       }
     }
@@ -574,7 +574,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
           ++duplicate_ct;
         } else {
           SetBit(lb_idx, already_seen);
-          for (; lb_idx < ub_idx; ++lb_idx) {
+          for (; lb_idx != ub_idx; ++lb_idx) {
             sorted_cat_idxs[lb_idx] = cur_htable_entry;
           }
         }
@@ -620,7 +620,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
       new_pheno_cols[old_pheno_ct].data.cat = cat_idxs;
       catdata_iter = &(catdata_iter[data_vec_ct * kWordsPerVec]);
 
-      for (uint32_t sorted_sample_idx = 0; sorted_sample_idx < sample_ct; ++sorted_sample_idx) {
+      for (uint32_t sorted_sample_idx = 0; sorted_sample_idx != sample_ct; ++sorted_sample_idx) {
         const uint32_t cur_sample_uidx = id_map[sorted_sample_idx];
         uint32_t cur_cat_idx = sorted_cat_idxs[sorted_sample_idx];
         if (cur_cat_idx > sample_ct) {
@@ -637,7 +637,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
       *cur_name_ptrs++ = missing_catname;
       char* name_storage_iter = R_CAST(char*, &(catdata_iter[catname_vec_ct * kWordsPerVec]));
       cat_name_iter = cat_name_write_start;
-      for (uint32_t uii = 0; uii < nonnull_cat_ct; ++uii) {
+      for (uint32_t uii = 0; uii != nonnull_cat_ct; ++uii) {
         char* cur_name_start = name_storage_iter;
         if (prepend_c) {
           *name_storage_iter++ = 'C';
@@ -679,7 +679,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
       uint32_t* cat_idx_m1_to_first_sample_uidx = R_CAST(uint32_t*, g_bigstack_base);
       uint32_t sample_uidx = 0;
       uint32_t nonnull_cat_ct = 0;
-      for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
         MovU32To1Bit(sample_include, &sample_uidx);
         const char* cur_fid = &(sample_ids[sample_uidx * max_sample_id_blen]);
         const char* cur_fid_end = AdvToDelim(cur_fid, '\t');
@@ -727,7 +727,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
       double dxx;
       const uint32_t prepend_c = (ScanadvDouble(&(sample_ids[cat_idx_m1_to_first_sample_uidx[0] * max_sample_id_blen]), &dxx) != nullptr);
       if (prepend_c) {
-        for (uint32_t uii = 1; uii < nonnull_cat_ct; ++uii) {
+        for (uint32_t uii = 1; uii != nonnull_cat_ct; ++uii) {
           if (unlikely(!ScanadvDouble(&(sample_ids[cat_idx_m1_to_first_sample_uidx[uii] * max_sample_id_blen]), &dxx))) {
             logerrputs("Error: Either all non-null --family FIDs must be numeric, or none can be.\n");
             goto Plink1ClusterImport_ret_INCONSISTENT_INPUT;
@@ -736,7 +736,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
         logputs("Note: Prepending 'C' to all --family category names.\n");
         total_catname_blen += nonnull_cat_ct;
       } else {
-        for (uint32_t uii = 1; uii < nonnull_cat_ct; ++uii) {
+        for (uint32_t uii = 1; uii != nonnull_cat_ct; ++uii) {
           if (unlikely(ScanadvDouble(&(sample_ids[cat_idx_m1_to_first_sample_uidx[uii] * max_sample_id_blen]), &dxx))) {
             logerrputs("Error: Either all non-null --family FIDs must be numeric, or none can be.\n");
             goto Plink1ClusterImport_ret_INCONSISTENT_INPUT;
@@ -762,7 +762,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
       new_pheno_cols[old_pheno_ct].category_names = cur_name_ptrs;
       *cur_name_ptrs++ = missing_catname;
       char* name_storage_iter = R_CAST(char*, &(catdata_iter[catname_vec_ct * kWordsPerVec]));
-      for (uint32_t uii = 0; uii < nonnull_cat_ct; ++uii) {
+      for (uint32_t uii = 0; uii != nonnull_cat_ct; ++uii) {
         char* cur_name_start = name_storage_iter;
         if (prepend_c) {
           *name_storage_iter++ = 'C';
@@ -1023,7 +1023,7 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
     const uint32_t omit_last = (pheno_transform_flags / kfPhenoTransformSplitCatOmitLast) & 1;
     uint32_t qt_12 = 0;
     uint32_t at_least_one_cat_pheno_processed = 0;
-    for (uint32_t is_covar = 0; is_covar < 2; ++is_covar) {
+    for (uint32_t is_covar = 0; is_covar != 2; ++is_covar) {
       PhenoCol** xpheno_cols_ptr;
       char** xpheno_names_ptr;
       uint32_t* xpheno_ct_ptr;
@@ -1057,7 +1057,7 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
         goto SplitCatPheno_ret_NOMEM;
       }
       if (!split_cat_phenonames_flattened) {
-        for (uint32_t pheno_idx = 0; pheno_idx < old_pheno_ct; ++pheno_idx) {
+        for (uint32_t pheno_idx = 0; pheno_idx != old_pheno_ct; ++pheno_idx) {
           const PhenoCol* cur_pheno_col = &(old_pheno_cols[pheno_idx]);
           if (cur_pheno_col->type_code == kPhenoDtypeCat) {
             if (unlikely(strchr(&(old_pheno_names[pheno_idx * old_max_pheno_name_blen]), '='))) {
@@ -1112,7 +1112,7 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
       uintptr_t create_pheno_ct = 0;
       uint32_t split_pheno_uidx = 0;
       uint32_t max_cat_uidx_p1 = 0;
-      for (uint32_t split_pheno_idx = 0; split_pheno_idx < split_pheno_ct; ++split_pheno_idx, ++split_pheno_uidx) {
+      for (uint32_t split_pheno_idx = 0; split_pheno_idx != split_pheno_ct; ++split_pheno_idx, ++split_pheno_uidx) {
         MovU32To1Bit(phenos_to_split, &split_pheno_uidx);
         const PhenoCol* cur_pheno_col = &(old_pheno_cols[split_pheno_uidx]);
         BitvecAndCopy(sample_include, cur_pheno_col->nonmiss, raw_sample_ctl, sample_include_intersect);
@@ -1131,7 +1131,7 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
           const uintptr_t blen_base = strlen(&(old_pheno_names[split_pheno_uidx * old_max_pheno_name_blen])) + 2;
           const char* const* cat_names = cur_pheno_col->category_names;
           uint32_t cat_uidx = 0;
-          for (uint32_t cat_idx = 0; cat_idx < cur_observed_cat_ct; ++cat_idx, ++cat_uidx) {
+          for (uint32_t cat_idx = 0; cat_idx != cur_observed_cat_ct; ++cat_idx, ++cat_uidx) {
             MovU32To1Bit(cur_observed_cats, &cat_uidx);
             const char* cur_cat_name = cat_names[cat_uidx];
             const uint32_t cur_slen = strlen(cur_cat_name);
@@ -1198,7 +1198,7 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
       *xpheno_ct_ptr = new_pheno_ct;
       *max_xpheno_name_blen_ptr = new_max_pheno_name_blen;
       uint32_t pheno_read_idx = 0;
-      for (uint32_t pheno_write_idx = 0; pheno_write_idx < copy_pheno_ct; ++pheno_write_idx, ++pheno_read_idx) {
+      for (uint32_t pheno_write_idx = 0; pheno_write_idx != copy_pheno_ct; ++pheno_write_idx, ++pheno_read_idx) {
         MovU32To0Bit(phenos_to_split, &pheno_read_idx);
 
         // manually move this data
@@ -1207,14 +1207,14 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
 
         strcpy(&(new_pheno_names[pheno_write_idx * new_max_pheno_name_blen]), &(old_pheno_names[pheno_read_idx * old_max_pheno_name_blen]));
       }
-      for (uint32_t pheno_write_idx = copy_pheno_ct; pheno_write_idx < new_pheno_ct; ++pheno_write_idx) {
+      for (uint32_t pheno_write_idx = copy_pheno_ct; pheno_write_idx != new_pheno_ct; ++pheno_write_idx) {
         new_pheno_cols[pheno_write_idx].nonmiss = nullptr;
       }
 
       const uintptr_t new_pheno_bytes_req = (raw_sample_ctaw + new_data_word_ct) * sizeof(intptr_t);
       uint32_t pheno_write_idx = copy_pheno_ct;
       pheno_read_idx = 0;
-      for (uint32_t split_pheno_idx = 0; split_pheno_idx < split_pheno_ct; ++split_pheno_idx, ++pheno_read_idx) {
+      for (uint32_t split_pheno_idx = 0; split_pheno_idx != split_pheno_ct; ++split_pheno_idx, ++pheno_read_idx) {
         MovU32To1Bit(phenos_to_split, &pheno_read_idx);
         const uint32_t cur_pheno_write_ct = observed_cat_cts[split_pheno_idx];
         if (!cur_pheno_write_ct) {
@@ -1227,7 +1227,7 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
         const uint32_t old_pheno_name_slen = strlen(old_pheno_name);
         const char* const* old_cat_names = old_pheno_col->category_names;
         uint32_t orig_cat_idx = 1;
-        for (uint32_t uii = 0; uii < cur_pheno_write_ct; ++uii, ++orig_cat_idx, ++pheno_write_idx) {
+        for (uint32_t uii = 0; uii != cur_pheno_write_ct; ++uii, ++orig_cat_idx, ++pheno_write_idx) {
           MovU32To1Bit(cur_observed_cats, &orig_cat_idx);
           uintptr_t* new_pheno_data_iter;
           if (unlikely(vecaligned_malloc(new_pheno_bytes_req, &new_pheno_data_iter))) {
@@ -1252,7 +1252,7 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
             double* pheno_qt = R_CAST(double*, new_pheno_data_iter);
             pheno_write_col->data.qt = pheno_qt;
             if (qt_12) {
-              for (uint32_t ujj = 0; ujj < raw_sample_ct; ++ujj) {
+              for (uint32_t ujj = 0; ujj != raw_sample_ct; ++ujj) {
                 pheno_qt[ujj] = 1.0;
               }
             } else {
@@ -1269,14 +1269,14 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
         const uint32_t* cur_cats = old_pheno_col->data.cat;
         uint32_t sample_uidx = 0;
         if (!is_covar) {
-          for (uint32_t sample_idx = 0; sample_idx < cur_nmiss_ct; ++sample_idx, ++sample_uidx) {
+          for (uint32_t sample_idx = 0; sample_idx != cur_nmiss_ct; ++sample_idx, ++sample_uidx) {
             MovU32To1Bit(sample_include_intersect, &sample_uidx);
             SetBit(sample_uidx, write_data_ptrs[cur_cats[sample_uidx]]);
           }
         } else {
           double** write_qt_ptrs = R_CAST(double**, write_data_ptrs);
           const double write_val = u31tod(1 + qt_12);
-          for (uint32_t sample_idx = 0; sample_idx < cur_nmiss_ct; ++sample_idx, ++sample_uidx) {
+          for (uint32_t sample_idx = 0; sample_idx != cur_nmiss_ct; ++sample_idx, ++sample_uidx) {
             MovU32To1Bit(sample_include_intersect, &sample_uidx);
             write_qt_ptrs[cur_cats[sample_uidx]][sample_uidx] = write_val;
           }
@@ -1285,7 +1285,7 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
 
       // if any preexisting phenotype names contain a single copy of the '='
       // character, verify that we didn't create any duplicate IDs
-      for (uint32_t pheno_idx = 0; pheno_idx < copy_pheno_ct; ++pheno_idx) {
+      for (uint32_t pheno_idx = 0; pheno_idx != copy_pheno_ct; ++pheno_idx) {
         const char* first_eq = strchr(&(new_pheno_names[pheno_idx * new_max_pheno_name_blen]), '=');
         if (first_eq && (!strchr(&(first_eq[1]), '='))) {
           uint32_t* id_htable;
@@ -1359,7 +1359,7 @@ PglErr PhenoVarianceStandardize(const char* vstd_flattened, const uintptr_t* sam
       goto PhenoVarianceStandardize_ret_NOMEM;
     }
     if (!vstd_flattened) {
-      for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
+      for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
         const PhenoCol* cur_pheno_col = &(pheno_cols[pheno_idx]);
         if (cur_pheno_col->type_code == kPhenoDtypeQt) {
           SetBit(pheno_idx, phenos_to_transform);
@@ -1399,7 +1399,7 @@ PglErr PhenoVarianceStandardize(const char* vstd_flattened, const uintptr_t* sam
     }
     const uint32_t raw_sample_ctaw = BitCtToAlignedWordCt(raw_sample_ct);
     uint32_t pheno_uidx = 0;
-    for (uint32_t pheno_transform_idx = 0; pheno_transform_idx < pheno_transform_ct; ++pheno_transform_idx, ++pheno_uidx) {
+    for (uint32_t pheno_transform_idx = 0; pheno_transform_idx != pheno_transform_ct; ++pheno_transform_idx, ++pheno_uidx) {
       MovU32To1Bit(phenos_to_transform, &pheno_uidx);
       PhenoCol* cur_pheno_col = &(pheno_cols[pheno_uidx]);
       uintptr_t* pheno_nm = cur_pheno_col->nonmiss;
@@ -1419,7 +1419,7 @@ PglErr PhenoVarianceStandardize(const char* vstd_flattened, const uintptr_t* sam
       uint32_t sample_uidx = first_sample_uidx;
       shifted_pheno_qt[sample_uidx] = 0.0;
       const double pheno_shift = pheno_qt[sample_uidx++];
-      for (uint32_t sample_idx = 1; sample_idx < cur_sample_ct; ++sample_idx, ++sample_uidx) {
+      for (uint32_t sample_idx = 1; sample_idx != cur_sample_ct; ++sample_idx, ++sample_uidx) {
         MovU32To1Bit(pheno_nm, &sample_uidx);
         const double cur_shifted_pheno_val = pheno_qt[sample_uidx] - pheno_shift;
         shifted_pheno_sum += cur_shifted_pheno_val;
@@ -1435,7 +1435,7 @@ PglErr PhenoVarianceStandardize(const char* vstd_flattened, const uintptr_t* sam
       }
       const double cur_stdev_recip = sqrt(u31tod(cur_sample_ct - 1) / variance_numer);
       sample_uidx = first_sample_uidx;
-      for (uint32_t sample_idx = 0; sample_idx < cur_sample_ct; ++sample_idx, ++sample_uidx) {
+      for (uint32_t sample_idx = 0; sample_idx != cur_sample_ct; ++sample_idx, ++sample_uidx) {
         MovU32To1Bit(pheno_nm, &sample_uidx);
         pheno_qt[sample_uidx] = (shifted_pheno_qt[sample_uidx] - cur_shifted_mean) * cur_stdev_recip;
       }
@@ -1485,7 +1485,7 @@ PglErr PhenoQuantileNormalize(const char* quantnorm_flattened, const uintptr_t* 
       goto PhenoQuantileNormalize_ret_NOMEM;
     }
     if (!quantnorm_flattened) {
-      for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
+      for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
         const PhenoCol* cur_pheno_col = &(pheno_cols[pheno_idx]);
         if (cur_pheno_col->type_code == kPhenoDtypeQt) {
           SetBit(pheno_idx, phenos_to_transform);
@@ -1525,7 +1525,7 @@ PglErr PhenoQuantileNormalize(const char* quantnorm_flattened, const uintptr_t* 
     }
     const uint32_t raw_sample_ctaw = BitCtToAlignedWordCt(raw_sample_ct);
     uint32_t pheno_uidx = 0;
-    for (uint32_t pheno_transform_idx = 0; pheno_transform_idx < pheno_transform_ct; ++pheno_transform_idx, ++pheno_uidx) {
+    for (uint32_t pheno_transform_idx = 0; pheno_transform_idx != pheno_transform_ct; ++pheno_transform_idx, ++pheno_uidx) {
       MovU32To1Bit(phenos_to_transform, &pheno_uidx);
       PhenoCol* cur_pheno_col = &(pheno_cols[pheno_uidx]);
       uintptr_t* pheno_nm = cur_pheno_col->nonmiss;
@@ -1536,7 +1536,7 @@ PglErr PhenoQuantileNormalize(const char* quantnorm_flattened, const uintptr_t* 
       }
       double* pheno_qt = cur_pheno_col->data.qt;
       uint32_t sample_uidx = 0;
-      for (uint32_t sample_idx = 0; sample_idx < cur_sample_ct; ++sample_idx, ++sample_uidx) {
+      for (uint32_t sample_idx = 0; sample_idx != cur_sample_ct; ++sample_idx, ++sample_uidx) {
         // bugfix (1 Sep 2017): this needs to iterate over pheno_nm, not
         // sample_include
         MovU32To1Bit(pheno_nm, &sample_uidx);
@@ -1545,16 +1545,16 @@ PglErr PhenoQuantileNormalize(const char* quantnorm_flattened, const uintptr_t* 
       }
       STD_SORT_PAR_UNSEQ(cur_sample_ct, double_cmp, tagged_raw_pheno_vals);
       const double sample_ct_x2_recip = 1.0 / S_CAST(double, 2 * cur_sample_ct);
-      for (uint32_t sample_idx_start = 0; sample_idx_start < cur_sample_ct;) {
+      for (uint32_t sample_idx_start = 0; sample_idx_start != cur_sample_ct;) {
         const double cur_raw_pheno = tagged_raw_pheno_vals[sample_idx_start].dxx;
         uint32_t sample_idx_end = sample_idx_start + 1;
-        for (; sample_idx_end < cur_sample_ct; ++sample_idx_end) {
+        for (; sample_idx_end != cur_sample_ct; ++sample_idx_end) {
           if (tagged_raw_pheno_vals[sample_idx_end].dxx != cur_raw_pheno) {
             break;
           }
         }
         const double cur_zscore = QuantileToZscore(S_CAST(double, sample_idx_start + sample_idx_end) * sample_ct_x2_recip);
-        for (; sample_idx_start < sample_idx_end; ++sample_idx_start) {
+        for (; sample_idx_start != sample_idx_end; ++sample_idx_start) {
           pheno_qt[tagged_raw_pheno_vals[sample_idx_start].uii] = cur_zscore;
         }
       }
@@ -1828,7 +1828,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
       uint32_t cur_allele_ct = 2;
       printf("--freq%s%s: 0%%", output_zst? " zs" : "", counts? " counts" : "");
       fflush(stdout);
-      for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
         MovU32To1Bit(variant_include, &variant_uidx);
         if (variant_uidx >= chr_end) {
           do {
@@ -1864,7 +1864,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
         }
         if (alt_col) {
           *cswritep++ = '\t';
-          for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct; ++allele_idx) {
+          for (uint32_t allele_idx = 1; allele_idx != cur_allele_ct; ++allele_idx) {
             if (unlikely(Cswrite(&css, &cswritep))) {
               goto WriteAlleleFreqs_ret_WRITE_FAIL;
             }
@@ -1874,7 +1874,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
         }
         const uint64_t* cur_allele_dosages = &(founder_allele_dosages[allele_idx_offset_base]);
         uint64_t tot_allele_dosage = cur_allele_dosages[0];
-        for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct; ++allele_idx) {
+        for (uint32_t allele_idx = 1; allele_idx != cur_allele_ct; ++allele_idx) {
           tot_allele_dosage += cur_allele_dosages[allele_idx];
         }
         double tot_allele_dosage_recip = 0.0;
@@ -1901,7 +1901,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
         }
         if (freq_col) {
           *cswritep++ = '\t';
-          for (uint32_t allele_idx = commalist_exclude_ref; allele_idx < cur_allele_ct; ++allele_idx) {
+          for (uint32_t allele_idx = commalist_exclude_ref; allele_idx != cur_allele_ct; ++allele_idx) {
             const uint64_t cur_allele_dosage = cur_allele_dosages[allele_idx];
             if (counts) {
               cswritep = dosagetoa(cur_allele_dosage, cswritep);
@@ -1914,7 +1914,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
         } else if (eq_col) {
           *cswritep++ = '\t';
           uint32_t at_least_one_entry = 0;
-          for (uint32_t allele_idx = commalist_exclude_ref; allele_idx < cur_allele_ct; ++allele_idx) {
+          for (uint32_t allele_idx = commalist_exclude_ref; allele_idx != cur_allele_ct; ++allele_idx) {
             const uint64_t cur_allele_dosage = cur_allele_dosages[allele_idx];
             if (eq_includez || cur_allele_dosage) {
               if (eq_num) {
@@ -2005,7 +2005,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
       uint32_t variant_uidx = 0;
       if (!counts) {
         uint32_t cur_allele_ct = 2;
-        for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
+        for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
           MovU32To1Bit(variant_include, &variant_uidx);
           uintptr_t allele_idx_offset_base = variant_uidx * 2;
           if (allele_idx_offsets) {
@@ -2016,7 +2016,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
           const uint64_t ref_allele_dosage = cur_allele_dosages[0];
           const uint64_t alt1_allele_dosage = cur_allele_dosages[1];
           uint64_t tot_allele_dosage = ref_allele_dosage + alt1_allele_dosage;
-          for (uint32_t allele_idx = 2; allele_idx < cur_allele_ct; ++allele_idx) {
+          for (uint32_t allele_idx = 2; allele_idx != cur_allele_ct; ++allele_idx) {
             tot_allele_dosage += cur_allele_dosages[allele_idx];
           }
           const double tot_allele_dosage_recip = 1.0 / u63tod(tot_allele_dosage);
@@ -2028,7 +2028,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
           }
         }
       } else {
-        for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
+        for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
           MovU32To1Bit(variant_include, &variant_uidx);
           uintptr_t allele_idx_offset_base = variant_uidx * 2;
           if (allele_idx_offsets) {
@@ -2043,7 +2043,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
           }
         }
       }
-      for (uint32_t is_alt1 = 0; is_alt1 < 2; ++is_alt1) {
+      for (uint32_t is_alt1 = 0; is_alt1 != 2; ++is_alt1) {
         const uint32_t* cur_histogram = is_alt1? alt1_histogram : ref_histogram;
         if (!cur_histogram) {
           continue;
@@ -2266,7 +2266,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
     printf("--geno-counts%s: 0%%", output_zst? " zs" : "");
     fflush(stdout);
     uint32_t cur_allele_ct = 2;
-    for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
       MovU32To1Bit(variant_include, &variant_uidx);
       if (variant_uidx >= chr_end) {
         do {
@@ -2317,7 +2317,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
       }
       if (alt_col) {
         *cswritep++ = '\t';
-        for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct; ++allele_idx) {
+        for (uint32_t allele_idx = 1; allele_idx != cur_allele_ct; ++allele_idx) {
           if (unlikely(Cswrite(&css, &cswritep))) {
             goto WriteGenoCounts_ret_WRITE_FAIL;
           }
@@ -2507,7 +2507,7 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
         if (!(missing_rpt_flags & kfMissingRptScolMissphenos)) {
           pheno_ct = 1;
         }
-        for (uintptr_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
+        for (uintptr_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
           *cswritep++ = '\t';
           cswritep = strcpya(cswritep, &(pheno_names[pheno_idx * max_pheno_name_blen]));
           if (unlikely(Cswrite(&css, &cswritep))) {
@@ -2568,7 +2568,7 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
       nobs_slens[1] = write_iter - nobs_strs[1];
       variant_ct_recips[1] = 1.0 / u31tod(variant_ct);
       uintptr_t sample_uidx = 0;
-      for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
         MovWTo1Bit(sample_include, &sample_uidx);
         const char* cur_sample_id = &(sample_ids[sample_uidx * max_sample_id_blen]);
         if (!scol_fid) {
@@ -2584,7 +2584,7 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
           }
         }
         if (scol_phenos) {
-          for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
+          for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
             *cswritep++ = '\t';
             // 'Y' - 'N' == 11
             *cswritep++ = 'Y' - 11 * IsSet(pheno_cols[pheno_idx].nonmiss, sample_uidx);
@@ -2732,7 +2732,7 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
       uint32_t cur_allele_ct = 2;
       uint32_t cur_missing_hc_ct = 0;
       uint32_t cur_hethap_ct = 0;
-      for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
         MovU32To1Bit(variant_include, &variant_uidx);
         if (variant_uidx >= chr_end) {
           do {
@@ -2775,7 +2775,7 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
         }
         if (alt_col) {
           *cswritep++ = '\t';
-          for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct; ++allele_idx) {
+          for (uint32_t allele_idx = 1; allele_idx != cur_allele_ct; ++allele_idx) {
             if (unlikely(Cswrite(&css, &cswritep))) {
               goto WriteMissingnessReports_ret_WRITE_FAIL;
             }
@@ -2883,7 +2883,7 @@ PglErr HardyMultiallelic(__maybe_unused const uintptr_t* founder_info, __maybe_u
     uint32_t variant_uidx = 0;
     PgrClearLdCache(simple_pgrp);
     if (hwe_multiallelic_flags & 2) {
-      for (uint32_t variant_idx = 0; variant_idx < autosomal_variant_ct; ++variant_idx, ++variant_uidx) {
+      for (uint32_t variant_idx = 0; variant_idx != autosomal_variant_ct; ++variant_idx, ++variant_uidx) {
         MovU32To1Bit(variant_include, &variant_uidx);
         if (variant_uidx >= chr_end) {
           uint32_t chr_idx;
@@ -3013,7 +3013,7 @@ THREAD_FUNC_DECL ComputeHweXPvalsThread(void* arg) {
   }
   uint32_t male_maj_ct = 0;
   uint32_t male_nonmaj_ct = 0;
-  for (; variant_idx < variant_idx_end; ++variant_idx, ++variant_uidx) {
+  for (; variant_idx != variant_idx_end; ++variant_idx, ++variant_uidx) {
     MovU32To1Bit(variant_include, &variant_uidx);
     STD_ARRAY_KREF(uint32_t, 3) cur_raw_geno_cts = founder_raw_geno_cts[variant_uidx];
     uint32_t female_hommaj_ct = cur_raw_geno_cts[0];
@@ -3135,7 +3135,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
     const uint32_t chr_skip_ct = PopcountWords(chr_skips, chr_code_endl);
     uint32_t variant_skip_ct = 0;
     uint32_t chr_uidx = 0;
-    for (uint32_t chr_skip_idx = 0; chr_skip_idx < chr_skip_ct; ++chr_skip_idx, ++chr_uidx) {
+    for (uint32_t chr_skip_idx = 0; chr_skip_idx != chr_skip_ct; ++chr_skip_idx, ++chr_uidx) {
       MovU32To1Bit(chr_skips, &chr_uidx);
       if (IsSet(cip->chr_mask, chr_uidx)) {
         const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[chr_uidx];
@@ -3222,7 +3222,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
       printf("--hardy%s%s: 0%%", output_zst? " zs" : "", midp? " midp" : "");
       fflush(stdout);
       uint32_t cur_allele_ct = 2;
-      for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
         MovU32To1Bit(variant_include, &variant_uidx);
         // bugfix (15 May 2018): this needs to happen even if we aren't
         // printing #CHROM column
@@ -3247,7 +3247,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
         }
         const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
         const uint32_t print_allele_ct = ((cur_allele_ct == 2) && (!redundant))? 1 : cur_allele_ct;
-        for (uint32_t a1_idx = 0; a1_idx < print_allele_ct; ++a1_idx) {
+        for (uint32_t a1_idx = 0; a1_idx != print_allele_ct; ++a1_idx) {
           if (chr_col) {
             cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
           }
@@ -3265,7 +3265,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
           }
           if (alt_col) {
             *cswritep++ = '\t';
-            for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct; ++allele_idx) {
+            for (uint32_t allele_idx = 1; allele_idx != cur_allele_ct; ++allele_idx) {
               if (unlikely(Cswrite(&css, &cswritep))) {
                 goto HardyReport_ret_WRITE_FAIL;
               }
@@ -3277,7 +3277,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
           cswritep = strcpya(cswritep, cur_alleles[a1_idx]);
           if (ax_col) {
             *cswritep++ = '\t';
-            for (uint32_t allele_idx = 0; allele_idx < cur_allele_ct; ++allele_idx) {
+            for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct; ++allele_idx) {
               if (allele_idx == a1_idx) {
                 continue;
               }
@@ -3428,7 +3428,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
       uint32_t cur_allele_ct = 2;
       uint32_t male_a1_ct = 0;
       uint32_t male_ax_ct = 0;
-      for (uint32_t variant_idx = 0; variant_idx < hwe_x_ct; ++variant_idx, ++variant_uidx) {
+      for (uint32_t variant_idx = 0; variant_idx != hwe_x_ct; ++variant_idx, ++variant_uidx) {
         MovU32To1Bit(variant_include, &variant_uidx);
         uintptr_t allele_idx_offset_base = variant_uidx * 2;
         if (allele_idx_offsets) {
@@ -3437,7 +3437,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
         }
         const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
         const uint32_t print_allele_ct = ((cur_allele_ct == 2) && (!redundant))? 1 : cur_allele_ct;
-        for (uint32_t a1_idx = 0; a1_idx < print_allele_ct; ++a1_idx) {
+        for (uint32_t a1_idx = 0; a1_idx != print_allele_ct; ++a1_idx) {
           cswritep = memcpya(cswritep, x_name_buf, x_name_blen);
           if (variant_bps) {
             cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
@@ -3453,7 +3453,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
           }
           if (alt_col) {
             *cswritep++ = '\t';
-            for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct; ++allele_idx) {
+            for (uint32_t allele_idx = 1; allele_idx != cur_allele_ct; ++allele_idx) {
               if (unlikely(Cswrite(&css, &cswritep))) {
                 goto HardyReport_ret_WRITE_FAIL;
               }
@@ -3465,7 +3465,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
           cswritep = strcpya(cswritep, cur_alleles[a1_idx]);
           if (ax_col) {
             *cswritep++ = '\t';
-            for (uint32_t allele_idx = 0; allele_idx < cur_allele_ct; ++allele_idx) {
+            for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct; ++allele_idx) {
               if (allele_idx == a1_idx) {
                 continue;
               }
@@ -3577,7 +3577,7 @@ PglErr WriteSnplist(const uintptr_t* variant_include, const char* const* variant
       goto WriteSnplist_ret_1;
     }
     uint32_t variant_uidx = 0;
-    for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
       MovU32To1Bit(variant_include, &variant_uidx);
       cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
       AppendBinaryEoln(&cswritep);
@@ -3682,7 +3682,7 @@ PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
       }
       if (write_phenos) {
         const char* pheno_name_iter = pheno_names;
-        for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
+        for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
           *write_iter++ = '\t';
           const uint32_t cur_pheno_name_slen = strlen(pheno_name_iter);
           if (cur_pheno_name_slen < max_xcovar_name_blen) {
@@ -3738,7 +3738,7 @@ PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
         write_iter = strcpya_k(write_iter, "\tPHENO1");
       }
     }
-    for (uint32_t covar_idx = 0; covar_idx < covar_ct; ++covar_idx) {
+    for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
       *write_iter++ = '\t';
       const char* cur_covar_name = &(covar_names[covar_idx * max_covar_name_blen]);
       const uint32_t cur_covar_name_slen = strlen(cur_covar_name);
@@ -3753,7 +3753,7 @@ PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
     uint32_t sample_uidx2 = 0;
     // not really necessary to make sample_uidx increment dependent on
     // new_sample_idx_to_old == nullptr
-    for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
       if (!new_sample_idx_to_old) {
         MovWTo1Bit(sample_include, &sample_uidx);
       } else {
@@ -3792,7 +3792,7 @@ PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
         }
       }
       if (write_phenos) {
-        for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
+        for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
           *write_iter++ = '\t';
           write_iter = AppendPhenoStr(&(pheno_cols[pheno_idx]), output_missing_pheno, omp_slen, sample_uidx, write_iter);
           if (unlikely(fwrite_ck(textbuf_flush, outfile, &write_iter))) {
@@ -3808,7 +3808,7 @@ PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
           goto WriteCovar_ret_WRITE_FAIL;
         }
       }
-      for (uint32_t covar_idx = 0; covar_idx < covar_ct; ++covar_idx) {
+      for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
         *write_iter++ = '\t';
         write_iter = AppendPhenoStr(&(covar_cols[covar_idx]), output_missing_pheno, omp_slen, sample_uidx, write_iter);
         if (unlikely(fwrite_ck(textbuf_flush, outfile, &write_iter))) {
