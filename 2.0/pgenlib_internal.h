@@ -88,7 +88,11 @@ typedef uint16_t DoubleAlleleCode;
 static_assert(sizeof(DoubleAlleleCode) == 2 * sizeof(AlleleCode), "Inconsistent AlleleCode and DoubleAlleleCode definitions.");
 // Set this to 65534 if AlleleCode is uint16_t, 2^24 - 1 if uint32_t.
 CONSTI32(kPglMaxAltAlleleCt, 254);
-#define kMissingAlleleCode S_CAST(plink2::AlleleCode, -1)
+#ifdef __cplusplus
+#  define kMissingAlleleCode S_CAST(plink2::AlleleCode, -1)
+#else
+#  define kMissingAlleleCode S_CAST(AlleleCode, -1)
+#endif
 CONSTI32(kAlleleCodesPerVec, kBytesPerVec / sizeof(AlleleCode));
 
 // more verbose than (val + 3) / 4, but may as well make semantic meaning

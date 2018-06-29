@@ -724,11 +724,14 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
   ReadLineStream pvar_rls;
   PreinitRLstream(&pvar_rls);
   {
+    const uintptr_t quarter_left = RoundDownPow2(bigstack_left() / 4, kCacheline);
     uintptr_t linebuf_size;
-    if (unlikely(StandardizeLinebufSize(bigstack_left() / 4, kLoadPvarBlockSize * 2 * sizeof(intptr_t), &linebuf_size))) {
+    if (unlikely(StandardizeLinebufSize(quarter_left, kLoadPvarBlockSize * 2 * sizeof(intptr_t), &linebuf_size))) {
       goto LoadPvar_ret_NOMEM;
     }
-    unsigned char* rlstream_start = &(bigstack_mark[linebuf_size]);
+    // bugfix (29 Jun 2018): don't cap allele_storage space at 2 GB, otherwise
+    // we're limited to 134M variants
+    unsigned char* rlstream_start = &(bigstack_mark[quarter_left]);
     g_bigstack_base = rlstream_start;
     uint32_t calc_thread_ct = max_thread_ct - 1;
     // 3 still seems best on a heavily multicore Linux test machine

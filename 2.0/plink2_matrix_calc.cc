@@ -4811,6 +4811,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     double* cur_score_coefs_cmaj = g_score_coefs_cmaj[0];
     double geno_slope = kRecipDosageMax;
     double geno_intercept = 0.0;
+    double cur_allele_freq = 0.0;
     uint32_t variant_ct_rem15 = 15;
     uint32_t variant_ct_rem255d15 = 17;
     uint32_t variant_hap_ct_rem15 = 15;
@@ -4986,7 +4987,9 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
               dosage_sums[sample_idx] += dosage_incrs[sample_idx];
             }
-            const double cur_allele_freq = GetAlleleFreq(&(allele_freqs[allele_idx_offset_base - variant_uidx]), cur_allele_idx, cur_allele_ct);
+            if (allele_freqs) {
+              cur_allele_freq = GetAlleleFreq(&(allele_freqs[allele_idx_offset_base - variant_uidx]), cur_allele_idx, cur_allele_ct);
+            }
             if (center) {
               if (variance_standardize) {
                 const double variance = ploidy_d * cur_allele_freq * (1.0 - cur_allele_freq);

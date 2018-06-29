@@ -1673,8 +1673,8 @@ HEADER_CINLINE uint32_t PopcountWord(uintptr_t val) {
 }
 #else
 HEADER_CINLINE2 uint32_t PopcountWord(uintptr_t val) {
-  // Sadly, this was still faster than the clang implementation of the
-  // intrinsic as of 2016.
+  // Sadly, this was still faster than the LLVM implementation of the intrinsic
+  // as of 2016.
   return QuatersumWord(val - ((val >> 1) & kMask5555));
 }
 #endif
@@ -2203,7 +2203,7 @@ template <uint32_t N, typename = TRange<true> > struct MemcpyKImpl {
   }
 };
 
-// Patch a bunch of cases where we know OS X/clang sometimes generates
+// Patch a bunch of cases where we know OS X/LLVM sometimes generates
 // suboptimal code.  (Since this code is shamelessly x86-specific, we don't
 // worry about the formal undefinedness of unaligned pointer dereferences
 // here.)
@@ -2422,7 +2422,7 @@ HEADER_INLINE unsigned char* memcpyuao_k(void* __restrict dst, const void* __res
 #endif
 
 #ifdef __LP64__
-// This is also better than the June 2018 OS X/clang stock implementation,
+// This is also better than the June 2018 OS X/LLVM stock implementation,
 // especially for small values of ct.
 int32_t Memcmp(const void* m1, const void* m2, uintptr_t ct);
 #else

@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (25 Jun 2018)";
+  " (29 Jun 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -429,7 +429,7 @@ uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, GlmFlags glm_flags) {
 // only needs to cover cases not captured by DecentAlleleFreqsAreNeeded() or
 // MajAllelesAreNeeded()
 uint32_t IndecentAlleleFreqsAreNeeded(Command1Flags command_flags1, double min_maf, double max_maf) {
-  return (command_flags1 & (kfCommand1AlleleFreq | kfCommand1Score)) || (min_maf != 0.0) || (max_maf != 1.0);
+  return (command_flags1 & kfCommand1AlleleFreq) || (min_maf != 0.0) || (max_maf != 1.0);
 }
 
 

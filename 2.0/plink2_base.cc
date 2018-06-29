@@ -1580,8 +1580,8 @@ int32_t Memcmp(const void* m1, const void* m2, uintptr_t byte_ct) {
   const VecUc* m1_alias = S_CAST(const VecUc*, m1);
   const VecUc* m2_alias = S_CAST(const VecUc*, m2);
   const uintptr_t fullvec_ct = byte_ct / kBytesPerVec;
-  // uh, clang -O2 optimizes this better when comparison is != instead of <?
-  // ugh, time to change all of the for loops...
+  // uh, clang/LLVM -O2 optimizes this better when comparison is != instead of
+  // <?  ugh, time to change all of the for loops...
   // (and yes, both -O3 configurations generate worse code here)
   // at least for loop is better than do-while loop even when 1 iteration is
   // guaranteed...
