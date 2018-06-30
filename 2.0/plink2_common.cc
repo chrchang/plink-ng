@@ -255,8 +255,8 @@ void GenoarrToNonmissing(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t
   Halfword* nonmissing_bitarr_iter = R_CAST(Halfword*, nonmissing_bitarr);
   for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
     uintptr_t ww = ~(*genoarr_iter++);
-    ww = (ww | (ww >> 1)) & kMask5555;
-    *nonmissing_bitarr_iter++ = PackWordToHalfword(ww);
+    ww = ww | (ww >> 1);
+    *nonmissing_bitarr_iter++ = PackWordToHalfwordMask5555(ww);
   }
   // zero trailing bits up to word boundary, in a way that doesn't create
   // aliasing issues
@@ -1541,8 +1541,8 @@ void MaskGenovecHetsUnsafe(const uintptr_t* __restrict genovec, uint32_t raw_sam
   Halfword* bitarr_alias = R_CAST(Halfword*, bitarr);
   for (uint32_t widx = 0; widx != raw_sample_ctl2; ++widx) {
     const uintptr_t cur_word = genovec[widx];
-    uintptr_t ww = (~(cur_word >> 1)) & cur_word & kMask5555;  // low 1, high 0
-    bitarr_alias[widx] &= PackWordToHalfword(ww);
+    uintptr_t ww = (~(cur_word >> 1)) & cur_word;  // low 1, high 0
+    bitarr_alias[widx] &= PackWordToHalfwordMask5555(ww);
   }
 }
 

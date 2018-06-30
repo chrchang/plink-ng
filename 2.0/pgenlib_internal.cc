@@ -1131,11 +1131,11 @@ void GenovecCountSubsetFreqs2(const uintptr_t* __restrict genovec, const uintptr
     const uintptr_t mask_word = sample_include[widx];
     if (mask_word) {
       uintptr_t geno_word = genovec[2 * widx];
-      uintptr_t geno_even = PackWordToHalfword(geno_word & kMask5555);
-      uintptr_t geno_odd = PackWordToHalfword((geno_word >> 1) & kMask5555);
+      uintptr_t geno_even = PackWordToHalfwordMask5555(geno_word);
+      uintptr_t geno_odd = PackWordToHalfwordMask5555(geno_word >> 1);
       geno_word = genovec[2 * widx + 1];
-      geno_even |= S_CAST(uintptr_t, PackWordToHalfword(geno_word & kMask5555)) << kBitsPerWordD2;
-      geno_odd |= S_CAST(uintptr_t, PackWordToHalfword((geno_word >> 1) & kMask5555)) << kBitsPerWordD2;
+      geno_even |= S_CAST(uintptr_t, PackWordToHalfwordMask5555(geno_word)) << kBitsPerWordD2;
+      geno_odd |= S_CAST(uintptr_t, PackWordToHalfwordMask5555(geno_word >> 1)) << kBitsPerWordD2;
       const uintptr_t geno_even_masked = geno_even & mask_word;
       even_ct += PopcountWord(geno_even_masked);
       odd_ct += PopcountWord(geno_odd & mask_word);
@@ -1174,11 +1174,11 @@ void GenoarrCountSubsetIntersectFreqs(const uintptr_t* __restrict genoarr, const
     const uintptr_t mask_word = subset1[widx] & subset2[widx];
     if (mask_word) {
       uintptr_t geno_word = genoarr[2 * widx];
-      uintptr_t geno_even = PackWordToHalfword(geno_word & kMask5555);
-      uintptr_t geno_odd = PackWordToHalfword((geno_word >> 1) & kMask5555);
+      uintptr_t geno_even = PackWordToHalfwordMask5555(geno_word);
+      uintptr_t geno_odd = PackWordToHalfwordMask5555(geno_word >> 1);
       geno_word = genoarr[2 * widx + 1];
-      geno_even |= S_CAST(uintptr_t, PackWordToHalfword(geno_word & kMask5555)) << kBitsPerWordD2;
-      geno_odd |= S_CAST(uintptr_t, PackWordToHalfword((geno_word >> 1) & kMask5555)) << kBitsPerWordD2;
+      geno_even |= S_CAST(uintptr_t, PackWordToHalfwordMask5555(geno_word)) << kBitsPerWordD2;
+      geno_odd |= S_CAST(uintptr_t, PackWordToHalfwordMask5555(geno_word >> 1)) << kBitsPerWordD2;
       const uintptr_t geno_even_masked = geno_even & mask_word;
       subset_intersect_ct += PopcountWord(mask_word);
       even_ct += PopcountWord(geno_even_masked);
@@ -1535,7 +1535,7 @@ void GenovecToMissingnessUnsafe(const uintptr_t* __restrict genovec, uint32_t sa
   Halfword* missingness_alias = R_CAST(Halfword*, missingness);
   for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
     const uintptr_t cur_geno_word = genovec[widx];
-    missingness_alias[widx] = PackWordToHalfword(cur_geno_word & (cur_geno_word >> 1) & kMask5555);
+    missingness_alias[widx] = PackWordToHalfwordMask5555(cur_geno_word & (cur_geno_word >> 1));
   }
   if (sample_ctl2 % 2) {
     missingness_alias[sample_ctl2] = 0;
@@ -1547,7 +1547,7 @@ void GenovecToNonmissingnessUnsafe(const uintptr_t* __restrict genovec, uint32_t
   Halfword* nonmissingness_alias = R_CAST(Halfword*, nonmissingness);
   for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
     const uintptr_t cur_geno_word = genovec[widx];
-    nonmissingness_alias[widx] = PackWordToHalfword((~(cur_geno_word & (cur_geno_word >> 1))) & kMask5555);
+    nonmissingness_alias[widx] = PackWordToHalfwordMask5555(~(cur_geno_word & (cur_geno_word >> 1)));
   }
 }
 
@@ -1556,8 +1556,8 @@ void SplitHomRef2hetUnsafeW(const uintptr_t* genoarr, uint32_t inword_ct, uintpt
   Halfword* ref2het_alias = R_CAST(Halfword*, ref2het_buf);
   for (uint32_t widx = 0; widx != inword_ct; ++widx) {
     const uintptr_t geno_word = genoarr[widx];
-    hom_alias[widx] = PackWordToHalfword(kMask5555 & (~geno_word));
-    ref2het_alias[widx] = PackWordToHalfword(kMask5555 & (~(geno_word >> 1)));
+    hom_alias[widx] = PackWordToHalfwordMask5555(~geno_word);
+    ref2het_alias[widx] = PackWordToHalfwordMask5555(~(geno_word >> 1));
   }
 }
 
@@ -1567,12 +1567,12 @@ void SplitHomRef2het(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* __
   const uint32_t remainder = sample_ct % kBitsPerWord;
   if (remainder) {
     uintptr_t geno_word = genoarr[full_outword_ct * 2];
-    uintptr_t hom_word = PackWordToHalfword(kMask5555 & (~geno_word));
-    uintptr_t ref2het_word = PackWordToHalfword(kMask5555 & (~(geno_word >> 1)));
+    uintptr_t hom_word = PackWordToHalfwordMask5555(~geno_word);
+    uintptr_t ref2het_word = PackWordToHalfwordMask5555(~(geno_word >> 1));
     if (remainder > kBitsPerWordD2) {
       geno_word = genoarr[full_outword_ct * 2 + 1];
-      hom_word |= S_CAST(uintptr_t, PackWordToHalfword(kMask5555 & (~geno_word))) << kBitsPerWordD2;
-      ref2het_word |= S_CAST(uintptr_t, PackWordToHalfword(kMask5555 & (~(geno_word >> 1)))) << kBitsPerWordD2;
+      hom_word |= S_CAST(uintptr_t, PackWordToHalfwordMask5555(~geno_word)) << kBitsPerWordD2;
+      ref2het_word |= S_CAST(uintptr_t, PackWordToHalfwordMask5555(~(geno_word >> 1))) << kBitsPerWordD2;
     }
     const uintptr_t cur_mask = (k1LU << remainder) - 1;
     hom_buf[full_outword_ct] = hom_word & cur_mask;
@@ -5251,8 +5251,8 @@ void DetectGenovecHetsHw(const uintptr_t*__restrict genovec, uint32_t raw_sample
   // all_hets[] halfword if raw_sample_ctl2 is odd.
   for (uint32_t widx = 0; widx != raw_sample_ctl2; ++widx) {
     const uintptr_t cur_word = genovec[widx];
-    uintptr_t ww = (~(cur_word >> 1)) & cur_word & kMask5555;  // low 1, high 0
-    all_hets_hw[widx] = PackWordToHalfword(ww);
+    uintptr_t ww = (~(cur_word >> 1)) & cur_word;  // low 1, high 0
+    all_hets_hw[widx] = PackWordToHalfwordMask5555(ww);
   }
 }
 

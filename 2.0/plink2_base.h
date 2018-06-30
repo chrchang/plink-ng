@@ -1236,7 +1236,10 @@ HEADER_INLINE Vec4thUint UnpackVec8thUintTo4th(Vec8thUint hw) {
 }
 
 HEADER_INLINE Halfword PackWordToHalfword(uintptr_t ww) {
-  // odd bits of ww can be set in this case
+  return _pext_u64(ww, kMask5555);
+}
+
+HEADER_INLINE Halfword PackWordToHalfwordMask5555(uintptr_t ww) {
   return _pext_u64(ww, kMask5555);
 }
 
@@ -1282,6 +1285,17 @@ HEADER_INLINE uintptr_t UnpackHalfwordToWordShift1(uintptr_t hw) {
 
 HEADER_INLINE Halfword PackWordToHalfword(uintptr_t ww) {
   // assumes only even bits of ww can be set
+  ww = (ww | (ww >> 1)) & kMask3333;
+  ww = (ww | (ww >> 2)) & kMask0F0F;
+  ww = (ww | (ww >> 4)) & kMask00FF;
+#  ifdef __LP64__
+  ww = (ww | (ww >> 8)) & kMask0000FFFF;
+#  endif
+  return S_CAST(Halfword, ww | (ww >> kBitsPerWordD4));
+}
+
+HEADER_INLINE Halfword PackWordToHalfwordMask5555(uintptr_t ww) {
+  ww = ww & kMask5555;
   ww = (ww | (ww >> 1)) & kMask3333;
   ww = (ww | (ww >> 2)) & kMask0F0F;
   ww = (ww | (ww >> 4)) & kMask00FF;
@@ -1341,17 +1355,13 @@ HEADER_INLINE void PackWordsToHalfwordsMask(const uintptr_t* words, uintptr_t wo
     widx = ct_32b * (32 / kBytesPerWord);
   }
   for (; widx != word_ct; ++widx) {
-    dest[widx] = PackWordToHalfword(words[widx] & kMask5555);
+    dest[widx] = PackWordToHalfwordMask5555(words[widx]);
   }
 }
 #else
 HEADER_INLINE void PackWordsToHalfwordsMask(const uintptr_t* words, uintptr_t word_ct, Halfword* dest) {
   for (uintptr_t widx = 0; widx != word_ct; ++widx) {
-#  ifdef USE_AVX2
-    dest[widx] = _pext_u64(words[widx], kMask5555);
-#  else
-    dest[widx] = PackWordToHalfword(words[widx] & kMask5555);
-#  endif
+    dest[widx] = PackWordToHalfwordMask5555(words[widx]);
   }
 }
 #endif
@@ -2079,6 +2089,11 @@ HEADER_INLINE char* memcpya(void* __restrict target, const void* __restrict sour
 HEADER_INLINE unsigned char* memcpyua(void* __restrict target, const void* __restrict source, uintptr_t ct) {
   memcpy(target, source, ct);
   return &(S_CAST(unsigned char*, target)[ct]);
+}
+
+HEADER_INLINE void AppendU16(uint32_t usii, unsigned char** targetp) {
+  memcpy(*targetp, &usii, sizeof(int16_t));
+  *targetp += sizeof(int16_t);
 }
 
 HEADER_INLINE void AppendU32(uint32_t uii, unsigned char** targetp) {

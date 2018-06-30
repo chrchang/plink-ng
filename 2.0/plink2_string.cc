@@ -372,10 +372,12 @@ int32_t strcmp_overread(const char* s1, const char* s2) {
     }
     if (w1 != w2) {
     strcmp_overread_finish:
+      // bugfix (30 Jun 2018): forgot to adhere to strcmp instead of std::sort
+      // interface
 #ifdef __LP64__
-      return __builtin_bswap64(w1) < __builtin_bswap64(w2);
+      return (__builtin_bswap64(w1) < __builtin_bswap64(w2))? -1 : 1;
 #else
-      return __builtin_bswap32(w1) < __builtin_bswap32(w2);
+      return (__builtin_bswap32(w1) < __builtin_bswap32(w2))? -1 : 1;
 #endif
     }
     ++widx;

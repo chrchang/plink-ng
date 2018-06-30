@@ -6726,7 +6726,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               }
               goto GlmMain_ret_1;
             }
-            // alpha 2 update: default to major allele, respect a0-ref
+            // alpha 2 update: default to major allele, respect omit-ref
             if (g_omitted_alleles && g_omitted_alleles[cur_variant_uidx]) {
               GenovecInvertUnsafe(raw_sample_ct, genovec);
               if (dosage_ct) {

@@ -1740,8 +1740,8 @@ void GenoarrSplit12Nm(const uintptr_t* __restrict genoarr, uint32_t sample_ct, u
   Halfword* nm_bitarr_alias = R_CAST(Halfword*, nm_bitarr);
   for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
     const uintptr_t cur_geno_word = genoarr[widx];
-    const uint32_t low_halfword = PackWordToHalfword(cur_geno_word & kMask5555);
-    const uint32_t high_halfword = PackWordToHalfword((cur_geno_word >> 1) & kMask5555);
+    const uint32_t low_halfword = PackWordToHalfwordMask5555(cur_geno_word);
+    const uint32_t high_halfword = PackWordToHalfwordMask5555(cur_geno_word >> 1);
     one_bitarr_alias[widx] = low_halfword & (~high_halfword);
     two_bitarr_alias[widx] = high_halfword & (~low_halfword);
     nm_bitarr_alias[widx] = ~(low_halfword & high_halfword);

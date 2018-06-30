@@ -3216,6 +3216,9 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
           memcpyx(&(sorted_mc[mc_idx * max_mc_blen]), missing_code_iter, token_slen, '\0');
           missing_code_iter = token_end;
         }
+        // this was temporarily broken in June 2018 due to first
+        // strcmp_overread() implementation returning 0 instead of -1 on
+        // less-than
         qsort(sorted_mc, mc_ct, max_mc_blen, strcmp_overread_casted);
       }
     }
@@ -8062,11 +8065,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid token on line %" PRIuPTR " of %s.\n", line_idx_haps, hapsname);
               goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
             }
-#  ifdef USE_AVX2
-            geno_first |= _pext_u64(one_mm, kMask5555) << (uii * 32);
-#  else
-            geno_first |= S_CAST(uintptr_t, PackWordToHalfword(one_mm & kMask5555)) << (uii * 32);
-#  endif
+            geno_first |= S_CAST(uintptr_t, PackWordToHalfwordMask5555(one_mm)) << (uii * 32);
           }
           const uintptr_t geno_second = (geno_first >> 1) & kMask5555;
           geno_first &= kMask5555;
