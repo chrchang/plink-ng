@@ -91,7 +91,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 308
+#define PLINK2_BASE_VERNUM 400
 
 
 #define _FILE_OFFSET_BITS 64
@@ -1243,6 +1243,10 @@ HEADER_INLINE Halfword PackWordToHalfwordMask5555(uintptr_t ww) {
   return _pext_u64(ww, kMask5555);
 }
 
+HEADER_INLINE Halfword PackWordToHalfwordMaskAAAA(uintptr_t ww) {
+  return _pext_u64(ww, kMaskAAAA);
+}
+
 HEADER_INLINE Vec8thUint PackVec4thUintTo8th(Vec4thUint ww) {
   return _pext_u64(ww, kMask5555);
 }
@@ -1296,6 +1300,17 @@ HEADER_INLINE Halfword PackWordToHalfword(uintptr_t ww) {
 
 HEADER_INLINE Halfword PackWordToHalfwordMask5555(uintptr_t ww) {
   ww = ww & kMask5555;
+  ww = (ww | (ww >> 1)) & kMask3333;
+  ww = (ww | (ww >> 2)) & kMask0F0F;
+  ww = (ww | (ww >> 4)) & kMask00FF;
+#  ifdef __LP64__
+  ww = (ww | (ww >> 8)) & kMask0000FFFF;
+#  endif
+  return S_CAST(Halfword, ww | (ww >> kBitsPerWordD4));
+}
+
+HEADER_INLINE Halfword PackWordToHalfwordMaskAAAA(uintptr_t ww) {
+  ww = (ww >> 1) & kMask5555;
   ww = (ww | (ww >> 1)) & kMask3333;
   ww = (ww | (ww >> 2)) & kMask0F0F;
   ww = (ww | (ww >> 4)) & kMask00FF;
@@ -2497,6 +2512,49 @@ HEADER_INLINE void MovU32To0Bit(const uintptr_t* __restrict bitarr, uint32_t* __
   if (IsSet(bitarr, *loc_ptr)) {
     *loc_ptr = AdvTo0Bit(bitarr, *loc_ptr);
   }
+}
+
+/*
+HEADER_INLINE uintptr_t BitInnerIter1(uintptr_t uidx_base, uintptr_t* cur_bitsp, uintptr_t* cur_uidx_stopp) {
+  const uintptr_t cur_bits = *cur_bitsp;
+  const uint32_t uidx_start_lowbits = ctzw(*cur_bitsp);
+  // Key idea is to iterate over sub-blocks of set bits in a single word, in
+  // essentially the same manner as non-AVX2 CopyBitarrSubset() was doing.
+  // This particular expression 'finds' the end of the current sub-block.
+  const uintptr_t cur_bits_lfill_p1 = (cur_bits | (cur_bits - 1)) + 1;
+  *cur_bitsp = cur_bits & cur_bits_lfill_p1;
+  uint32_t uidx_stop_lowbits = kBitsPerWord;
+  if (cur_bits_lfill_p1) {
+    uidx_stop_lowbits = ctzw(cur_bits_lfill_p1);
+  }
+  *cur_uidx_stopp = uidx_base + uidx_stop_lowbits;
+  return uidx_base + uidx_start_lowbits;
+}
+*/
+
+HEADER_INLINE uintptr_t BitIter1(const uintptr_t* bitarr, uintptr_t* uidx_basep, uintptr_t* cur_bitsp) {
+  uintptr_t cur_bits = *cur_bitsp;
+  if (!cur_bits) {
+    uintptr_t widx = (*uidx_basep) / kBitsPerWord;
+    do {
+      cur_bits = bitarr[++widx];
+    } while (!cur_bits);
+    *uidx_basep = widx * kBitsPerWord;
+  }
+  *cur_bitsp = cur_bits & (cur_bits - 1);
+  return (*uidx_basep) + ctzw(cur_bits);
+}
+
+// Returns lowbits instead of the full index.
+HEADER_INLINE uint32_t BitIter1x(const uintptr_t* bitarr, uintptr_t* widxp, uintptr_t* cur_bitsp) {
+  uintptr_t cur_bits = *cur_bitsp;
+  if (!cur_bits) {
+    do {
+      cur_bits = bitarr[++(*widxp)];
+    } while (!cur_bits);
+  }
+  *cur_bitsp = cur_bits & (cur_bits - 1);
+  return ctzw(cur_bits);
 }
 
 // todo: test this against extracting a nonmissing bitarr first

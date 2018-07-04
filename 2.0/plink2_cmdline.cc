@@ -1153,17 +1153,27 @@ void BitvecOrNot(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uint
 
 int32_t GetVariantUidxWithoutHtable(const char* idstr, const char* const* variant_ids, const uintptr_t* variant_include, uint32_t variant_ct) {
   const uint32_t id_blen = strlen(idstr) + 1;
-  uint32_t variant_uidx = 0;
+  uintptr_t widx = ~k0LU;
   int32_t retval = -1;
-  for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
-    MovU32To1Bit(variant_include, &variant_uidx);
-    if (memequal(idstr, variant_ids[variant_uidx], id_blen)) {
-      if (retval != -1) {
-        // duplicate
-        return -2;
+  for (uint32_t variant_idx = 0; variant_idx != variant_ct; ) {
+    uintptr_t variant_include_bits;
+    do {
+      variant_include_bits = variant_include[++widx];
+    } while (!variant_include_bits);
+    const uintptr_t variant_uidx_base = widx * kBitsPerWord;
+    const char* const* cur_variant_ids = &(variant_ids[variant_uidx_base]);
+    variant_idx += PopcountWord(variant_include_bits);
+    do {
+      const uint32_t uidx_lowbits = ctzw(variant_include_bits);
+      if (memequal(idstr, cur_variant_ids[uidx_lowbits], id_blen)) {
+        if (retval != -1) {
+          // duplicate
+          return -2;
+        }
+        retval = S_CAST(int32_t, uidx_lowbits + variant_uidx_base);
       }
-      retval = S_CAST(int32_t, variant_uidx);
-    }
+      variant_include_bits &= variant_include_bits - 1;
+    } while (variant_include_bits);
   }
   return retval;
 }
@@ -1520,11 +1530,12 @@ PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, cons
       if (unlikely(bigstack_alloc_c(str_ct * wkspace_entry_blen, &sort_wkspace))) {
         goto CopySortStrboxSubsetNoalloc_ret_NOMEM;
       }
-      uint32_t str_uidx = 0;
       const uint32_t wkspace_entry_blen_m4 = wkspace_entry_blen - 4;
       char* sort_wkspace_iter = sort_wkspace;
-      for (uint32_t str_idx = 0; str_idx != str_ct; ++str_idx, ++str_uidx) {
-        MovU32To1Bit(subset_mask, &str_uidx);
+      uintptr_t str_uidx_base = 0;
+      uintptr_t subset_mask_bits = subset_mask[0];
+      for (uint32_t str_idx = 0; str_idx != str_ct; ++str_idx) {
+        const uint32_t str_uidx = BitIter1(subset_mask, &str_uidx_base, &subset_mask_bits);
         strcpy(sort_wkspace_iter, &(orig_strbox[str_uidx * max_str_blen]));
         sort_wkspace_iter = &(sort_wkspace_iter[wkspace_entry_blen_m4]);
         if (collapse_idxs) {

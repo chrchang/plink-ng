@@ -945,26 +945,19 @@ void CopyBitarrSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* _
     uintptr_t cur_masked_input_word = raw_bitarr[read_widx] & cur_mask_word;
     const uint32_t cur_mask_popcount = PopcountWord(cur_mask_word);
     uintptr_t subsetted_input_word = 0;
-    if (cur_masked_input_word) {
-      const uintptr_t cur_inv_mask = ~cur_mask_word;
-      do {
-        const uint32_t read_uidx_nz_start_lowbits = ctzw(cur_masked_input_word);
-        const uintptr_t cur_inv_mask_shifted = cur_inv_mask >> read_uidx_nz_start_lowbits;
-        if (!cur_inv_mask_shifted) {
-          subsetted_input_word |= cur_masked_input_word >> (kBitsPerWord - cur_mask_popcount);
-          break;
-        }
-        const uint32_t cur_read_end = ctzw(cur_inv_mask_shifted) + read_uidx_nz_start_lowbits;
-        // this seems to optimize better than (k1LU << cur_read_end) - k1LU
-        // todo: check if/when that's true elsewhere
-        const uintptr_t lowmask = (~k0LU) >> (kBitsPerWord - cur_read_end);
-        const uintptr_t bits_to_copy = cur_masked_input_word & lowmask;
-        cur_masked_input_word -= bits_to_copy;
-        // todo: check if a less-popcounty implementation should be used in
-        // non-SSE4.2 case
-        const uint32_t cur_write_end = PopcountWord(cur_mask_word & lowmask);
-        subsetted_input_word |= bits_to_copy >> (cur_read_end - cur_write_end);
-      } while (cur_masked_input_word);
+    while (cur_masked_input_word) {
+      const uintptr_t mask_word_high = (cur_mask_word | (cur_masked_input_word ^ (cur_masked_input_word - 1))) + 1;
+      if (!mask_word_high) {
+        subsetted_input_word |= cur_masked_input_word >> (kBitsPerWord - cur_mask_popcount);
+        break;
+      }
+      const uint32_t cur_read_end = ctzw(mask_word_high);
+      const uintptr_t bits_to_copy = cur_masked_input_word & (~mask_word_high);
+      cur_masked_input_word ^= bits_to_copy;
+      // todo: check if a less-popcounty implementation should be used in
+      // non-SSE4.2 case
+      const uint32_t cur_write_end = PopcountWord(cur_mask_word & (~mask_word_high));
+      subsetted_input_word |= bits_to_copy >> (cur_read_end - cur_write_end);
     }
     cur_output_word |= subsetted_input_word << write_idx_lowbits;
     const uint32_t new_write_idx_lowbits = write_idx_lowbits + cur_mask_popcount;
@@ -1043,7 +1036,8 @@ void ExpandBytearr(const void* __restrict compact_bitarr, const uintptr_t* __res
   uint32_t compact_widx = 0;
   uint32_t compact_idx_lowbits = read_start_bit;
   uint32_t loop_len = kBitsPerWord;
-  uint32_t write_uidx = 0;
+  uintptr_t write_widx = 0;
+  uintptr_t expand_mask_bits = expand_mask[0];
   while (1) {
     uintptr_t compact_word;
     if (compact_widx >= compact_widx_last) {
@@ -1059,12 +1053,12 @@ void ExpandBytearr(const void* __restrict compact_bitarr, const uintptr_t* __res
 #endif
       compact_word = compact_bitarr_alias[compact_widx];
     }
-    for (; compact_idx_lowbits != loop_len; ++compact_idx_lowbits, ++write_uidx) {
-      write_uidx = AdvTo1Bit(expand_mask, write_uidx);
+    for (; compact_idx_lowbits != loop_len; ++compact_idx_lowbits) {
+      const uint32_t write_uidx_lowbits = BitIter1x(expand_mask, &write_widx, &expand_mask_bits);
       // bugfix: can't just use (compact_word & 1) and compact_word >>= 1,
       // since we may skip the first bit on the first loop iteration
       if ((compact_word >> compact_idx_lowbits) & 1) {
-        SetBit(write_uidx, target);
+        target[write_widx] |= k1LU << write_uidx_lowbits;
       }
     }
     compact_idx_lowbits = 0;
@@ -1156,7 +1150,8 @@ void ExpandBytearrNested(const void* __restrict compact_bitarr, const uintptr_t*
   uint32_t compact_widx = 0;
   // can allow compact_idx_lowbits to be initialized to nonzero
   uint32_t loop_len = kBitsPerWord;
-  uint32_t write_uidx = 0;
+  uintptr_t write_widx = 0;
+  uintptr_t top_expand_mask_bits = top_expand_mask[0];
   while (1) {
     uintptr_t compact_word;
     if (compact_widx >= compact_widx_last) {
@@ -1172,13 +1167,12 @@ void ExpandBytearrNested(const void* __restrict compact_bitarr, const uintptr_t*
 #endif
       compact_word = compact_bitarr_alias[compact_widx];
     }
-    for (uint32_t compact_idx_lowbits = 0; compact_idx_lowbits != loop_len; ++mid_idx, ++write_uidx) {
-      write_uidx = AdvTo1Bit(top_expand_mask, write_uidx);
+    for (uint32_t compact_idx_lowbits = 0; compact_idx_lowbits != loop_len; ++mid_idx) {
+      const uint32_t write_uidx_lowbits = BitIter1x(top_expand_mask, &write_widx, &top_expand_mask_bits);
       if (IsSet(mid_bitarr, mid_idx)) {
-        const uintptr_t new_bit = k1LU << (write_uidx % kBitsPerWord);
-        const uint32_t sample_widx = write_uidx / kBitsPerWord;
-        mid_target[sample_widx] |= new_bit;
-        compact_target[sample_widx] |= new_bit * (compact_word & 1);
+        const uintptr_t new_bit = k1LU << write_uidx_lowbits;
+        mid_target[write_widx] |= new_bit;
+        compact_target[write_widx] |= new_bit * (compact_word & 1);
         compact_word >>= 1;
         ++compact_idx_lowbits;
       }
@@ -1472,11 +1466,20 @@ int32_t memequal(const void* m1, const void* m2, uintptr_t byte_ct) {
     }
     const uintptr_t* m1_alias = R_CAST(const uintptr_t*, m1_uc);
     const uintptr_t* m2_alias = R_CAST(const uintptr_t*, m2_uc);
-    const uintptr_t word_ct = byte_ct / kBytesPerWord;
-    for (uint32_t widx = 0; widx != word_ct; ++widx) {
-      if (m1_alias[widx] != m2_alias[widx]) {
+    if (m1_alias[0] != m2_alias[0]) {
+      return 0;
+    }
+    if (byte_ct >= 16) {
+      if (m1_alias[1] != m2_alias[1]) {
         return 0;
       }
+#  ifdef USE_AVX2
+      if (byte_ct >= 24) {
+        if (m1_alias[2] != m2_alias[2]) {
+          return 0;
+        }
+      }
+#  endif
     }
     if (byte_ct % kBytesPerWord) {
       const uintptr_t final_offset = byte_ct - kBytesPerWord;

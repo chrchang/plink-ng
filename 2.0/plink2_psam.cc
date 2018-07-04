@@ -377,15 +377,24 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
           logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 2 samples.\n");
           goto LoadPsam_ret_MALFORMED_INPUT;
         }
-        line_iter = TokenLexK0(linebuf_first_token, col_types, col_skips, relevant_postfid_col_ct, token_ptrs, token_slens);
-        if (unlikely(!line_iter)) {
-          goto LoadPsam_ret_MISSING_TOKENS;
+        const char* iid_ptr;
+        uint32_t iid_slen;
+        if (relevant_postfid_col_ct) {
+          // bugfix (3 Jul 2018): didn't handle no-other-columns case correctly
+          line_iter = TokenLexK0(linebuf_first_token, col_types, col_skips, relevant_postfid_col_ct, token_ptrs, token_slens);
+          if (unlikely(!line_iter)) {
+            goto LoadPsam_ret_MISSING_TOKENS;
+          }
+          iid_ptr = token_ptrs[0];
+          iid_slen = token_slens[0];
+        } else {
+          iid_ptr = linebuf_first_token;
+          iid_slen = CurTokenEnd(linebuf_first_token) - linebuf_first_token;
         }
         uint32_t fid_slen = 2;
         if (fid_present) {
           fid_slen = CurTokenEnd(linebuf_first_token) - linebuf_first_token;
         }
-        const uint32_t iid_slen = token_slens[0];
         const uint32_t sid_slen = sids_present? token_slens[1] : 0;
         const uint32_t paternal_id_slen = paternal_ids_present? token_slens[2] : 1;
         const uint32_t maternal_id_slen = maternal_ids_present? token_slens[3] : 1;
@@ -451,11 +460,11 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
         }
         *ss_iter++ = '\t';
         psam_info_reverse_ll = new_psam_info;
-        if (unlikely((iid_slen == 1) && (token_ptrs[0][0] == '0'))) {
+        if (unlikely((iid_slen == 1) && (iid_ptr[0] == '0'))) {
           snprintf(g_logbuf, kLogbufSize, "Error: Invalid IID '0' on line %" PRIuPTR " of %s.\n", line_idx, psamname);
           goto LoadPsam_ret_MALFORMED_INPUT_WW;
         }
-        ss_iter = memcpya(ss_iter, token_ptrs[0], iid_slen);
+        ss_iter = memcpya(ss_iter, iid_ptr, iid_slen);
         const uint32_t sample_id_slen = ss_iter - sample_id_storage;
         if (sample_id_slen >= max_sample_id_blen) {
           max_sample_id_blen = sample_id_slen + 1;
