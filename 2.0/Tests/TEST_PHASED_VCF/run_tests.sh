@@ -68,4 +68,4 @@ python pca_compare.py -1 plink1_pca -2 plink2_pca -t 0.000002
 
 # note that this run depends on the random seed.
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pca 5 approx var-wts --out plink2_pca_approx
-python pca_compare.py -1 plink1_pca -2 plink2_pca_approx -t 0.05
+python pca_compare.py -1 plink1_pca -2 plink2_pca_approx -t 0.1
