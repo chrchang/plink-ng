@@ -708,6 +708,7 @@ HEADER_INLINE CXXCONST_CP FirstPrechar(const char* str_iter, uint32_t char_code)
 
 /*
 #ifdef __LP64__
+// Requires char_code <= 128.
 CXXCONST_CP FirstPrecharFar(const char* str_iter, uint32_t char_code);
 #else
 HEADER_INLINE CXXCONST_CP FirstPrecharFar(const char* str_iter, uint32_t char_code) {

@@ -258,11 +258,12 @@ PglErr KinshipPruneDestructive(uintptr_t* kinship_table, uintptr_t* sample_inclu
       --cur_sample_nz_ct;
     }
     uint32_t sample_ct = orig_sample_ct;
-    uint32_t sample_uidx = 0;
-    for (uint32_t sample_idx = 0; sample_idx != orig_sample_ct; ++sample_idx, ++sample_uidx) {
-      MovU32To1Bit(sample_include, &sample_uidx);
+    uintptr_t sample_widx = 0;
+    uintptr_t cur_bits = sample_include[0];
+    for (uint32_t sample_idx = 0; sample_idx != orig_sample_ct; ++sample_idx) {
+      const uintptr_t lowbit = BitIter1y(sample_include, &sample_widx, &cur_bits);
       if (IsSet(sample_remove_collapsed, sample_idx)) {
-        ClearBit(sample_uidx, sample_include);
+        sample_include[sample_widx] ^= lowbit;
         --sample_ct;
       }
     }
@@ -373,9 +374,10 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
             bigstack_alloc_u32(king_id_ct, &king_uidx_to_sample_idx))) {
       goto KingCutoffBatch_ret_NOMEM;
     }
-    uint32_t sample_uidx = 0;
-    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
-      MovU32To1Bit(sample_include, &sample_uidx);
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t sample_include_bits = sample_include[0];
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
       const uint32_t king_uidx = sample_uidx_to_king_uidx[sample_uidx];
       if (king_uidx != UINT32_MAX) {
         SetBit(king_uidx, king_include);
@@ -425,9 +427,11 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
         uintptr_t* kinship_table_row = &(kinship_table[sample_idx * orig_sample_ctl]);
         uintptr_t* kinship_table_col = &(kinship_table[sample_idx / kBitsPerWord]);
         const uintptr_t kinship_new_bit = k1LU << (sample_idx % kBitsPerWord);
-        uint32_t king_uidx2 = first_king_uidx;
-        for (uint32_t king_idx2 = 0; king_idx2 != king_idx; ++king_idx2, ++king_uidx2) {
-          MovU32To1Bit(king_include, &king_uidx2);
+        uintptr_t king_uidx2_base;
+        uintptr_t king_include_bits;
+        BitIter1Start(king_include, first_king_uidx, &king_uidx2_base, &king_include_bits);
+        for (uint32_t king_idx2 = 0; king_idx2 != king_idx; ++king_idx2) {
+          const uintptr_t king_uidx2 = BitIter1(king_include, &king_uidx2_base, &king_include_bits);
           if (king_drow[king_uidx2] > king_cutoff) {
             const uintptr_t sample_idx2 = king_uidx_to_sample_idx[king_uidx2];
             SetBit(sample_idx2, kinship_table_row);
@@ -464,9 +468,11 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
         uintptr_t* kinship_table_row = &(kinship_table[sample_idx * orig_sample_ctl]);
         uintptr_t* kinship_table_col = &(kinship_table[sample_idx / kBitsPerWord]);
         const uintptr_t kinship_new_bit = k1LU << (sample_idx % kBitsPerWord);
-        uint32_t king_uidx2 = first_king_uidx;
-        for (uint32_t king_idx2 = 0; king_idx2 != king_idx; ++king_idx2, ++king_uidx2) {
-          MovU32To1Bit(king_include, &king_uidx2);
+        uintptr_t king_uidx2_base;
+        uintptr_t king_include_bits;
+        BitIter1Start(king_include, first_king_uidx, &king_uidx2_base, &king_include_bits);
+        for (uint32_t king_idx2 = 0; king_idx2 != king_idx; ++king_idx2) {
+          const uintptr_t king_uidx2 = BitIter1(king_include, &king_uidx2_base, &king_include_bits);
           if (king_frow[king_uidx2] > king_cutoff_f) {
             const uintptr_t sample_idx2 = king_uidx_to_sample_idx[king_uidx2];
             SetBit(sample_idx2, kinship_table_row);
@@ -1069,7 +1075,8 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
       if (pass_idx_p1 != 1) {
         ReinitThreads3z(&ts);
       }
-      uint32_t variant_uidx = 0;
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_bits = variant_include[0];
       uint32_t variants_completed = 0;
       uint32_t parity = 0;
       const uint32_t sample_batch_ct_m1 = (row_end_idx - 1) / kPglBitTransposeBatch;
@@ -1126,8 +1133,8 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
           }
           uintptr_t* hom_iter = splitbuf_hom;
           uintptr_t* ref2het_iter = splitbuf_ref2het;
-          for (uint32_t uii = 0; uii != variant_batch_size; ++uii, ++variant_uidx) {
-            MovU32To1Bit(variant_include, &variant_uidx);
+          for (uint32_t uii = 0; uii != variant_batch_size; ++uii) {
+            const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
             // Model does not cleanly generalize to multiallelic variants
             // (unless there's something I overlooked, which is quite
             // possible).
@@ -2227,7 +2234,8 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       if (pass_idx != 1) {
         ReinitThreads3z(&ts);
       }
-      uint32_t variant_uidx = 0;
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_bits = variant_include[0];
       uint32_t variants_completed = 0;
       uint32_t parity = 0;
       const uint32_t sample_batch_ct_m1 = (cur_sample_ct - 1) / kPglBitTransposeBatch;
@@ -2261,8 +2269,8 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
           }
           uintptr_t* hom_iter = splitbuf_hom;
           uintptr_t* ref2het_iter = splitbuf_ref2het;
-          for (uint32_t uii = 0; uii != variant_batch_size; ++uii, ++variant_uidx) {
-            MovU32To1Bit(variant_include, &variant_uidx);
+          for (uint32_t uii = 0; uii != variant_batch_size; ++uii) {
+            const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
             reterr = PgrGet(cur_sample_include, sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, simple_pgrp, loadbuf);
             if (unlikely(reterr)) {
               goto CalcKingTableSubset_ret_PGR_FAIL;
@@ -2631,7 +2639,6 @@ THREAD_FUNC_DECL CalcDblMissingThread(void* arg) {
         }
       }
       while (sample_idx < row_end_idx) {
-        uint32_t sample_idx2 = first_idx;
         // todo: compare this explicit unroll with ordinary iteration over a
         // cur_words[] array
         // todo: try 1 word at a time, and 30 words at a time
@@ -2641,10 +2648,13 @@ THREAD_FUNC_DECL CalcDblMissingThread(void* arg) {
         const uintptr_t cur_word2 = missing_smaj[sample_idx * kDblMissingBlockWordCt + 2];
         const uintptr_t cur_word3 = missing_smaj[sample_idx * kDblMissingBlockWordCt + 3];
 #endif
+        uintptr_t sample_idx2_base;
+        uintptr_t cur_bits;
+        BitIter1Start(missing_nz, first_idx, &sample_idx2_base, &cur_bits);
         // (sample_idx - 1) underflow ok
         uint32_t* write_base = &(missing_dbl_exclude_cts[((S_CAST(uint64_t, sample_idx) * (sample_idx - 1)) / 2) - dbl_exclude_offset]);
-        for (uint32_t uii = 0; uii != prev_missing_nz_ct; ++uii, ++sample_idx2) {
-          MovU32To1Bit(missing_nz, &sample_idx2);
+        for (uint32_t uii = 0; uii != prev_missing_nz_ct; ++uii) {
+          const uint32_t sample_idx2 = BitIter1(missing_nz, &sample_idx2_base, &cur_bits);
           const uintptr_t* cur_missing_smaj_base = &(missing_smaj[sample_idx2 * kDblMissingBlockWordCt]);
           const uintptr_t cur_and0 = cur_word0 & cur_missing_smaj_base[0];
           const uintptr_t cur_and1 = cur_word1 & cur_missing_smaj_base[1];
@@ -2711,9 +2721,10 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
     assert(g_thread_start[calc_thread_ct] == row_end_idx);
     const uint32_t sample_transpose_batch_ct_m1 = (row_end_idx - 1) / kPglBitTransposeBatch;
 
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
     uint32_t parity = 0;
     uint32_t cur_variant_idx_start = 0;
-    uint32_t variant_uidx = 0;
     uint32_t pct = 0;
     uint32_t next_print_variant_idx = variant_ct / 100;
     // caller's responsibility to print this
@@ -2732,8 +2743,8 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
           ZeroWArr((kDblMissingBlockSize - cur_batch_size) * row_end_idxaw, &(missing_vmaj[cur_batch_size * row_end_idxaw]));
         }
         uintptr_t* missing_vmaj_iter = missing_vmaj;
-        for (uint32_t variant_idx = cur_variant_idx_start; variant_idx != cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
-          MovU32To1Bit(variant_include, &variant_uidx);
+        for (uint32_t variant_idx = cur_variant_idx_start; variant_idx != cur_variant_idx_end; ++variant_idx) {
+          const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
           reterr = PgrGetMissingnessD(sample_include, sample_include_cumulative_popcounts, row_end_idx, variant_uidx, simple_pgrp, nullptr, missing_vmaj_iter, nullptr, genovec_buf);
           if (unlikely(reterr)) {
             if (reterr == kPglRetMalformedInput) {
@@ -2950,9 +2961,10 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     // 6. Goto step 2 unless eof
     const uint32_t variance_standardize = !(grm_flags & kfGrmCov);
     const uint32_t is_haploid = cip->haploid_mask[0] & 1;
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
     uint32_t parity = 0;
     uint32_t cur_variant_idx_start = 0;
-    uint32_t variant_uidx = 0;
     uint32_t cur_allele_ct = 2;
     uint32_t pct = 0;
     uint32_t next_print_variant_idx = variant_ct / 100;
@@ -2970,8 +2982,8 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           cur_variant_idx_end = variant_ct;
         }
         double* normed_vmaj_iter = g_normed_dosage_vmaj_bufs[parity];
-        for (uint32_t variant_idx = cur_variant_idx_start; variant_idx != cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
-          MovU32To1Bit(variant_include, &variant_uidx);
+        for (uint32_t variant_idx = cur_variant_idx_start; variant_idx != cur_variant_idx_end; ++variant_idx) {
+          const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
           const uint32_t maj_allele_idx = maj_alleles[variant_uidx];
           uint32_t missing_present = 0;
           uintptr_t allele_idx_base;
@@ -3893,9 +3905,10 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         // 6. Goto step 2 unless eof
         //
         // 7. Assemble next g1 by summing g2_parts
+        uintptr_t variant_uidx_base = 0;
+        uintptr_t cur_bits = variant_include[0];
         uint32_t parity = 0;
         uint32_t cur_variant_idx_start = 0;
-        uint32_t variant_uidx = 0;
         while (1) {
           uint32_t cur_batch_size = 0;
           if (!ts.is_last_block) {
@@ -3910,8 +3923,8 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             uintptr_t* dosage_present_iter = g_dosage_presents[parity];
             Dosage* dosage_main_iter = g_dosage_mains[parity];
             double* maj_freqs_write_iter = g_cur_maj_freqs[parity];
-            for (uint32_t variant_idx = cur_variant_idx_start; variant_idx != cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
-              MovU32To1Bit(variant_include, &variant_uidx);
+            for (uint32_t variant_idx = cur_variant_idx_start; variant_idx != cur_variant_idx_end; ++variant_idx) {
+              const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
               const uint32_t maj_allele_idx = maj_alleles[variant_uidx];
               uint32_t dosage_ct;
               reterr = PgrGetInv1D(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx, maj_allele_idx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
@@ -4003,9 +4016,10 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
         ZeroDArr(b_size, g_g2_bb_part_bufs[tidx]);
       }
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_bits = variant_include[0];
       uint32_t parity = 0;
       uint32_t cur_variant_idx_start = 0;
-      uint32_t variant_uidx = 0;
       ReinitThreads3z(&ts);
       g_qq = qq;
       while (1) {
@@ -4023,8 +4037,8 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           uintptr_t* dosage_present_iter = g_dosage_presents[parity];
           Dosage* dosage_main_iter = g_dosage_mains[parity];
           double* maj_freqs_write_iter = g_cur_maj_freqs[parity];
-          for (uint32_t variant_idx = cur_variant_idx_start; variant_idx != cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
-            MovU32To1Bit(variant_include, &variant_uidx);
+          for (uint32_t variant_idx = cur_variant_idx_start; variant_idx != cur_variant_idx_end; ++variant_idx) {
+            const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
             const uint32_t maj_allele_idx = maj_alleles[variant_uidx];
             uint32_t dosage_ct;
             reterr = PgrGetInv1D(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx, maj_allele_idx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
@@ -4269,8 +4283,10 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
 #endif
       }
       uint32_t prev_batch_size = 0;
-      uint32_t variant_uidx = AdvTo1Bit(variant_include, 0);
-      uint32_t variant_uidx_load = variant_uidx;
+      uintptr_t variant_uidx_load_base = 0;
+      uintptr_t load_bits = variant_include[0];
+      uintptr_t variant_uidx_write_base = 0;
+      uintptr_t write_bits = variant_include[0];
       uint32_t parity = 0;
       ReinitThreads3z(&ts);
       uint32_t chr_fo_idx = UINT32_MAX;
@@ -4290,8 +4306,8 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           uintptr_t* dosage_present_iter = g_dosage_presents[parity];
           Dosage* dosage_main_iter = g_dosage_mains[parity];
           double* maj_freqs_write_iter = g_cur_maj_freqs[parity];
-          for (uint32_t variant_idx = cur_variant_idx_start; variant_idx != cur_variant_idx_end; ++variant_uidx_load, ++variant_idx) {
-            MovU32To1Bit(variant_include, &variant_uidx_load);
+          for (uint32_t variant_idx = cur_variant_idx_start; variant_idx != cur_variant_idx_end; ++variant_idx) {
+            const uintptr_t variant_uidx_load = BitIter1(variant_include, &variant_uidx_load_base, &load_bits);
             const uint32_t maj_allele_idx = maj_alleles[variant_uidx_load];
             uint32_t dosage_ct;
             reterr = PgrGetInv1D(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx_load, maj_allele_idx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
@@ -4333,15 +4349,15 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           // write *previous* block results
           const double* var_wts_iter = &(qq[parity * var_wts_part_size]);
           // (todo: update projection here)
-          for (uint32_t vidx = cur_variant_idx_start - prev_batch_size; vidx != cur_variant_idx_start; ++vidx, ++variant_uidx) {
-            MovU32To1Bit(variant_include, &variant_uidx);
+          for (uint32_t vidx = cur_variant_idx_start - prev_batch_size; vidx != cur_variant_idx_start; ++vidx) {
+            const uint32_t variant_uidx_write = BitIter1(variant_include, &variant_uidx_write_base, &write_bits);
             if (chr_col) {
               // ok to skip this logic if chr_col not printed
-              if (variant_uidx >= chr_end) {
+              if (variant_uidx_write >= chr_end) {
                 do {
                   ++chr_fo_idx;
                   chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-                } while (variant_uidx >= chr_end);
+                } while (variant_uidx_write >= chr_end);
                 const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
                 char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
                 *chr_name_end = '\t';
@@ -4350,13 +4366,13 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
               cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
             }
             if (variant_bps) {
-              cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
+              cswritep = u32toa_x(variant_bps[variant_uidx_write], '\t', cswritep);
             }
-            cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
-            uintptr_t allele_idx_offset_base = variant_uidx * 2;
+            cswritep = strcpya(cswritep, variant_ids[variant_uidx_write]);
+            uintptr_t allele_idx_offset_base = variant_uidx_write * 2;
             if (allele_idx_offsets) {
-              allele_idx_offset_base = allele_idx_offsets[variant_uidx];
-              cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+              allele_idx_offset_base = allele_idx_offsets[variant_uidx_write];
+              cur_allele_ct = allele_idx_offsets[variant_uidx_write + 1] - allele_idx_offset_base;
             }
             const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
             if (ref_col) {
@@ -4377,7 +4393,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
               }
               --cswritep;
             }
-            const uint32_t maj_allele_idx = maj_alleles[variant_uidx];
+            const uint32_t maj_allele_idx = maj_alleles[variant_uidx_write];
             if (maj_col) {
               if (unlikely(Cswrite(&css, &cswritep))) {
                 goto CalcPca_ret_WRITE_FAIL;
@@ -4444,9 +4460,10 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     }
     AppendBinaryEoln(&write_iter);
     const uint32_t sample_ct = pca_sample_ct;
-    uint32_t sample_uidx = 0;
-    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
-      MovU32To1Bit(sample_include, &sample_uidx);
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t sample_include_bits = sample_include[0];
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
       const char* cur_sample_id = &(sample_ids[max_sample_id_blen * sample_uidx]);
       if (!write_fid) {
         cur_sample_id = AdvPastDelim(cur_sample_id, '\t');
@@ -4539,9 +4556,10 @@ void FillCurDosageInts(const uintptr_t* genovec_buf, const uintptr_t* dosage_pre
   lookup_table[6] = 0;
   InitLookup16x8bx2(lookup_table);
   GenoarrLookup16x8bx2(genovec_buf, lookup_table, sample_ct, cur_dosage_ints);
-  uint32_t sample_idx = 0;
-  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx, ++sample_idx) {
-    MovU32To1Bit(dosage_present, &sample_idx);
+  uintptr_t sample_idx_base = 0;
+  uintptr_t cur_bits = dosage_present[0];
+  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+    const uintptr_t sample_idx = BitIter1(dosage_present, &sample_idx_base, &cur_bits);
     cur_dosage_ints[sample_idx] = dosage_main_buf[dosage_idx] * is_diploid_p1;
   }
 }
@@ -4670,9 +4688,10 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       if (unlikely(bigstack_alloc_u32(score_col_ct, &score_col_idx_deltas))) {
         goto ScoreReport_ret_NOMEM;
       }
-      uint32_t col_uidx = 0;
-      for (uintptr_t score_col_idx = 0; score_col_idx != score_col_ct; ++score_col_idx, ++col_uidx) {
-        MovU32To1Bit(score_col_bitarr, &col_uidx);
+      uintptr_t col_uidx_base = 0;
+      uintptr_t score_col_bitarr_bits = score_col_bitarr[0];
+      for (uintptr_t score_col_idx = 0; score_col_idx != score_col_ct; ++score_col_idx) {
+        const uint32_t col_uidx = BitIter1(score_col_bitarr, &col_uidx_base, &score_col_bitarr_bits);
         score_col_idx_deltas[score_col_idx] = col_uidx;
       }
       // now convert to deltas
@@ -4904,9 +4923,10 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             double ploidy_d;
             if (is_nonx_haploid) {
               if (is_y) {
-                uint32_t sample_idx = 0;
-                for (uint32_t nonmale_idx = 0; nonmale_idx != nonmale_ct; ++nonmale_idx, ++sample_idx) {
-                  MovU32To1Bit(sex_nonmale_collapsed, &sample_idx);
+                uintptr_t sample_idx_base = 0;
+                uintptr_t sex_nonmale_collapsed_bits = sex_nonmale_collapsed[0];
+                for (uint32_t nonmale_idx = 0; nonmale_idx != nonmale_ct; ++nonmale_idx) {
+                  const uintptr_t sample_idx = BitIter1(sex_nonmale_collapsed, &sample_idx_base, &sex_nonmale_collapsed_bits);
                   dosage_incrs[sample_idx] = 0;
                 }
                 ++male_allele_ct_delta;
@@ -4930,9 +4950,10 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
               ploidy_d = 1.0;
             } else {
               if (is_relevant_x) {
-                uint32_t sample_idx = 0;
-                for (uint32_t male_idx = 0; male_idx != male_ct; ++male_idx, ++sample_idx) {
-                  MovU32To0Bit(sex_nonmale_collapsed, &sample_idx);
+                uintptr_t sample_idx_base = 0;
+                uintptr_t sex_nonmale_collapsed_inv_bits = ~sex_nonmale_collapsed[0];
+                for (uint32_t male_idx = 0; male_idx != male_ct; ++male_idx) {
+                  const uintptr_t sample_idx = BitIter0(sex_nonmale_collapsed, &sample_idx_base, &sex_nonmale_collapsed_inv_bits);
                   dosage_incrs[sample_idx] /= 2;
                 }
                 BitvecAndNotCopy(missing_acc1, sex_nonmale_collapsed, sample_ctl, missing_male_acc1);
@@ -5019,13 +5040,14 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
               if (!no_meanimpute) {
                 missing_effect = kDosageMax * cur_allele_freq * geno_slope;
               }
-              uint32_t sample_idx = 0;
+              uintptr_t sample_idx_base = 0;
               if (is_y || is_relevant_x) {
                 ZeroDArr(sample_ct, cur_dosages_vmaj_iter);
                 if (!no_meanimpute) {
                   const uint32_t male_missing_ct = PopcountWords(missing_male_acc1, sample_ctl);
-                  for (uint32_t male_missing_idx = 0; male_missing_idx != male_missing_ct; ++male_missing_idx, ++sample_idx) {
-                    MovU32To1Bit(missing_male_acc1, &sample_idx);
+                  uintptr_t missing_male_acc1_bits = missing_male_acc1[0];
+                  for (uint32_t male_missing_idx = 0; male_missing_idx != male_missing_ct; ++male_missing_idx) {
+                    const uintptr_t sample_idx = BitIter1(missing_male_acc1, &sample_idx_base, &missing_male_acc1_bits);
                     cur_dosages_vmaj_iter[sample_idx] = missing_effect;
                   }
                   if (is_relevant_x) {
@@ -5033,24 +5055,29 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
                     // use buffer for nonmales
                     BitvecAndCopy(missing_acc1, sex_nonmale_collapsed, sample_ctl, missing_male_acc1);
                     missing_effect *= 2;
+                    // bugfix (8 Jul 2018): need to reset sample_idx
+                    sample_idx_base = 0;
+                    missing_male_acc1_bits = missing_male_acc1[0];
                     const uint32_t nonmale_missing_ct = PopcountWords(missing_male_acc1, sample_ctl);
-                    for (uint32_t nonmale_missing_idx = 0; nonmale_missing_idx != nonmale_missing_ct; ++nonmale_missing_idx, ++sample_idx) {
-                      MovU32To1Bit(missing_male_acc1, &sample_idx);
+                    for (uint32_t nonmale_missing_idx = 0; nonmale_missing_idx != nonmale_missing_ct; ++nonmale_missing_idx) {
+                      const uintptr_t sample_idx = BitIter1(missing_male_acc1, &sample_idx_base, &missing_male_acc1_bits);
                       cur_dosages_vmaj_iter[sample_idx] = missing_effect;
                     }
                   }
                 }
               } else {
                 missing_effect *= ploidy_d;
-                for (uint32_t missing_idx = 0; missing_idx != missing_ct; ++missing_idx, ++sample_idx) {
-                  MovU32To1Bit(missing_acc1, &sample_idx);
+                uintptr_t missing_acc1_bits = missing_acc1[0];
+                for (uint32_t missing_idx = 0; missing_idx != missing_ct; ++missing_idx) {
+                  const uintptr_t sample_idx = BitIter1(missing_acc1, &sample_idx_base, &missing_acc1_bits);
                   cur_dosages_vmaj_iter[sample_idx] = missing_effect;
                 }
               }
             }
-            uint32_t sample_idx = 0;
-            for (uint32_t nm_sample_idx = 0; nm_sample_idx != nm_sample_ct; ++nm_sample_idx, ++sample_idx) {
-              MovU32To0Bit(missing_acc1, &sample_idx);
+            uintptr_t sample_idx_base = 0;
+            uintptr_t missing_acc1_inv_bits = ~missing_acc1[0];
+            for (uint32_t nm_sample_idx = 0; nm_sample_idx != nm_sample_ct; ++nm_sample_idx) {
+              const uintptr_t sample_idx = BitIter0(missing_acc1, &sample_idx_base, &missing_acc1_inv_bits);
               cur_dosages_vmaj_iter[sample_idx] = u63tod(dosage_incrs[sample_idx]) * geno_slope + geno_intercept;
             }
             if (se_mode) {
@@ -5065,7 +5092,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
               //   1. we square the genotypes and the standard errors before
               //      matrix multiplication, and
               //   2. we take the square root of the sums at the end.
-              for (sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+              for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
                 cur_dosages_vmaj_iter[sample_idx] *= cur_dosages_vmaj_iter[sample_idx];
               }
             }
@@ -5284,9 +5311,10 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     const char* output_missing_pheno = g_output_missing_pheno;
     const uint32_t omp_slen = strlen(output_missing_pheno);
 
-    uint32_t sample_uidx = 0;
-    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
-      MovU32To1Bit(sample_include, &sample_uidx);
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t sample_include_bits = sample_include[0];
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
       const char* cur_sample_id = &(sample_ids[sample_uidx * max_sample_id_blen]);
       if (!write_fid) {
         cur_sample_id = AdvPastDelim(cur_sample_id, '\t');

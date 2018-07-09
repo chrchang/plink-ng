@@ -48,14 +48,15 @@ PglErr WriteMapOrBim(const char* outname, const uintptr_t* variant_include, cons
     }
 
     const char output_missing_geno_char = *g_output_missing_geno_ptr;
-    uint32_t variant_uidx = 0;
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
     uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t chr_end = 0;
     uint32_t chr_buf_blen = 0;
     // possible todo: multiallelic-split support here?  or we could put that
     // code elsewhere
-    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
-      MovU32To1Bit(variant_include, &variant_uidx);
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
       if (variant_uidx >= chr_end) {
         do {
           ++chr_fo_idx;
@@ -278,10 +279,8 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
     // includes trailing tab
     char* chr_buf;
 
-    uintptr_t* allele_include;
     if (unlikely(
-            bigstack_alloc_c(max_chr_blen, &chr_buf) ||
-            bigstack_alloc_w(BitCtToWordCt(kPglMaxAltAlleleCt), &allele_include))) {
+                 bigstack_alloc_c(max_chr_blen, &chr_buf))) {
       goto WritePvar_ret_NOMEM;
     }
     uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
@@ -363,9 +362,10 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
         // nonzero_cm_present check was performed
         write_cm = 1;
       } else {
-        uint32_t variant_uidx = 0;
-        for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
-          MovU32To1Bit(variant_include, &variant_uidx);
+        uintptr_t variant_uidx_base = 0;
+        uintptr_t cur_bits = variant_include[0];
+        for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+          const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
           if (variant_cms[variant_uidx] != 0.0) {
             write_cm = 1;
             break;
@@ -380,15 +380,16 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
 
     const char output_missing_geno_char = *g_output_missing_geno_ptr;
     uint32_t rls_variant_uidx = 0;
-    uint32_t variant_uidx = 0;
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
     uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t chr_end = 0;
     uint32_t chr_buf_blen = 0;
     uint32_t ref_allele_idx = 0;
     uint32_t alt1_allele_idx = 1;
     uint32_t cur_allele_ct = 2;
-    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
-      MovU32To1Bit(variant_include, &variant_uidx);
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
       if (variant_uidx >= chr_end) {
         do {
           ++chr_fo_idx;
@@ -423,26 +424,19 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
         goto WritePvar_ret_WRITE_FAIL;
       }
       if (cur_allele_ct > 2) {
-        SetAllBits(cur_allele_ct, allele_include);
-        ClearBit(ref_allele_idx, allele_include);
-        ClearBit(alt1_allele_idx, allele_include);
-        uint32_t cur_allele_uidx = UINT32_MAX;  // deliberate overflow
-        uint32_t allele_idx = 2;
-        while (1) {
-          ++cur_allele_uidx;
-          MovU32To1Bit(allele_include, &cur_allele_uidx);
-          if (allele_presents && (!IsSet(allele_presents, allele_idx_offset_base + cur_allele_uidx))) {
+        for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct; ++allele_idx) {
+          if ((allele_idx == ref_allele_idx) || (allele_idx == alt1_allele_idx) || (allele_presents && (!IsSet(allele_presents, allele_idx_offset_base + allele_idx)))) {
             continue;
           }
           if (alt_allele_written) {
             *cswritep++ = ',';
           }
           alt_allele_written = 1;
-          cswritep = strcpya(cswritep, cur_alleles[cur_allele_uidx]);
+          cswritep = strcpya(cswritep, cur_alleles[allele_idx]);
           if (unlikely(Cswrite(&css, &cswritep))) {
             goto WritePvar_ret_WRITE_FAIL;
           }
-        } while (++allele_idx < cur_allele_ct);
+        }
       }
       if (!alt_allele_written) {
         *cswritep++ = output_missing_geno_char;
@@ -549,15 +543,17 @@ PglErr WriteFam(const char* outname, const uintptr_t* sample_include, const Pedi
     const uintptr_t max_sample_id_blen = piip->sii.max_sample_id_blen;
     const uintptr_t max_paternal_id_blen = piip->parental_id_info.max_paternal_id_blen;
     const uintptr_t max_maternal_id_blen = piip->parental_id_info.max_maternal_id_blen;
-    uintptr_t sample_uidx = 0;
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t cur_bits = sample_include[0];
     uint32_t sample_uidx2 = 0;
     char* write_iter = g_textbuf;
     char* textbuf_flush = &(write_iter[kMaxMediumLine]);
     // not really necessary to make sample_uidx increment dependent on
     // new_sample_idx_to_old == nullptr
-    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      uintptr_t sample_uidx;
       if (!new_sample_idx_to_old) {
-        MovWTo1Bit(sample_include, &sample_uidx);
+        sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
       } else {
         do {
           sample_uidx = new_sample_idx_to_old[sample_uidx2++];
@@ -614,9 +610,10 @@ uint32_t DataFidColIsRequired(const uintptr_t* sample_include, const SampleIdInf
   }
   const char* sample_ids = siip->sample_ids;
   const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
-  uint32_t sample_uidx = 0;
-  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
-    MovU32To1Bit(sample_include, &sample_uidx);
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = sample_include[0];
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
     if (!memequal_k(&(sample_ids[sample_uidx * max_sample_id_blen]), "0\t", 2)) {
       return 1;
     }
@@ -630,9 +627,10 @@ uint32_t DataSidColIsRequired(const uintptr_t* sample_include, const char* sids,
     return 1;
   }
   if (sids && (maybe_modifier & 1)) {
-    uint32_t sample_uidx = 0;
-    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
-      MovU32To1Bit(sample_include, &sample_uidx);
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t cur_bits = sample_include[0];
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
       if (!memequal_k(&(sids[sample_uidx * max_sid_blen]), "0", 2)) {
         return 1;
       }
@@ -652,9 +650,10 @@ uint32_t DataParentalColsAreRequired(const uintptr_t* sample_include, const Pedi
   const char* maternal_ids = piip->parental_id_info.maternal_ids;
   const uintptr_t max_paternal_id_blen = piip->parental_id_info.max_paternal_id_blen;
   const uintptr_t max_maternal_id_blen = piip->parental_id_info.max_maternal_id_blen;
-  uint32_t sample_uidx = 0;
-  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
-    MovU32To1Bit(sample_include, &sample_uidx);
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = sample_include[0];
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
     if ((!strequal_k_unsafe(&(paternal_ids[sample_uidx * max_paternal_id_blen]), "0")) || (!strequal_k_unsafe(&(maternal_ids[sample_uidx * max_maternal_id_blen]), "0"))) {
       return 1;
     }
@@ -739,11 +738,12 @@ PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const Ped
           if (sex_col->type_code != kPhenoDtypeCc) {
             // could bitwise-and sample_include and pheno_nm before the loop
             const uintptr_t* pheno_nm = sex_col->nonmiss;
-            uint32_t sample_uidx = 0;
+            uintptr_t sample_uidx_base = 0;
+            uintptr_t cur_bits = sample_include[0];
             if (sex_col->type_code == kPhenoDtypeQt) {
               const double* pheno_vals = sex_col->data.qt;
-              for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
-                MovU32To1Bit(sample_include, &sample_uidx);
+              for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+                const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
                 if (IsSet(pheno_nm, sample_uidx)) {
                   const double dxx = pheno_vals[sample_uidx];
                   // tolerate '-9' and '0' as missing values, and anything in
@@ -787,8 +787,8 @@ PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const Ped
                 }
                 if (S_CAST(uint32_t, (male_cat_idx1 != 0) + (male_cat_idx2 != 0) + (female_cat_idx1 != 0) + (female_cat_idx2 != 0)) < nonnull_cat_ct) {
                   const uint32_t* pheno_vals = sex_col->data.cat;
-                  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
-                    MovU32To1Bit(sample_include, &sample_uidx);
+                  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+                    const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
                     if (IsSet(pheno_nm, sample_uidx)) {
                       const uint32_t cur_cat_idx = pheno_vals[sample_uidx];
                       if (unlikely((cur_cat_idx != male_cat_idx1) && (cur_cat_idx != female_cat_idx1) && (cur_cat_idx != male_cat_idx2) && (cur_cat_idx != female_cat_idx2))) {
@@ -812,13 +812,15 @@ PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const Ped
     }
     AppendBinaryEoln(&write_iter);
 
-    uintptr_t sample_uidx = 0;
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t cur_bits = sample_include[0];
     uint32_t sample_uidx2 = 0;
     // not really necessary to make sample_uidx increment dependent on
     // new_sample_idx_to_old == nullptr
-    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      uintptr_t sample_uidx;
       if (!new_sample_idx_to_old) {
-        MovWTo1Bit(sample_include, &sample_uidx);
+        sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
       } else {
         do {
           sample_uidx = new_sample_idx_to_old[sample_uidx2++];
@@ -1205,11 +1207,12 @@ void CopyDosage(const uintptr_t* __restrict read_dosagepresent, const Dosage* re
 
 void CopyDosageSubset(const uintptr_t* __restrict read_dosagepresent, const Dosage* read_dosagevals, const uintptr_t* __restrict sample_include, uint32_t sample_ct, uint32_t read_dosage_ct, uintptr_t* __restrict write_dosagepresent, Dosage* write_dosagevals, uint32_t* __restrict write_dosage_ct_ptr) {
   CopyBitarrSubset(read_dosagepresent, sample_include, sample_ct, write_dosagepresent);
-  uint32_t sample_uidx = 0;
   Dosage* write_dosagevals_iter = write_dosagevals;
-  for (uint32_t read_dosage_idx = 0; read_dosage_idx != read_dosage_ct; ++read_dosage_idx, ++sample_uidx) {
-    MovU32To1Bit(read_dosagepresent, &sample_uidx);
-    if (IsSet(sample_include, sample_uidx)) {
+  uintptr_t sample_widx = 0;
+  uintptr_t cur_bits = read_dosagepresent[0];
+  for (uint32_t read_dosage_idx = 0; read_dosage_idx != read_dosage_ct; ++read_dosage_idx) {
+    const uintptr_t lowbit = BitIter1y(read_dosagepresent, &sample_widx, &cur_bits);
+    if (sample_include[sample_widx] & lowbit) {
       *write_dosagevals_iter++ = read_dosagevals[read_dosage_idx];
     }
   }
@@ -1348,15 +1351,17 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
     uint32_t dosage_ct = 0;
     while (1) {
       uint32_t cur_idx = (tidx * cur_block_write_ct) / calc_thread_ct;
-      uint32_t variant_uidx = g_read_variant_uidx_starts[tidx];
+      uintptr_t variant_uidx_base;
+      uintptr_t variant_include_bits;
+      BitIter1Start(variant_include, g_read_variant_uidx_starts[tidx], &variant_uidx_base, &variant_include_bits);
       uint32_t chr_end = 0;
       uint32_t is_x_or_y = 0;
       PglErr reterr = kPglRetSuccess;
 
       STD_ARRAY_DECL(uint32_t, 4, genocounts);
       STD_ARRAY_DECL(uint32_t, 4, sex_specific_genocounts);
-      for (; cur_idx != cur_idx_end; ++cur_idx, ++variant_uidx) {
-        MovU32To1Bit(variant_include, &variant_uidx);
+      for (; cur_idx != cur_idx_end; ++cur_idx) {
+        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
         if (variant_uidx >= chr_end) {
           const uint32_t chr_fo_idx = GetVariantChrFoIdx(cip, variant_uidx);
           const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
@@ -1488,10 +1493,12 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
               uint64_t alt1_dosage_sq_sum = 0;
               uint32_t additional_dosage_ct = 0;
               if (dosage_is_relevant) {
+                uintptr_t sample_widx = 0;
+                uintptr_t dosage_present_bits = dosage_present[0];
                 uint32_t sample_uidx = 0;
-                for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx, ++sample_uidx) {
-                  MovU32To1Bit(dosage_present, &sample_uidx);
-                  if (IsSet(sample_include, sample_uidx)) {
+                for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+                  const uintptr_t lowbit = BitIter1y(dosage_present, &sample_widx, &dosage_present_bits);
+                  if (sample_include[sample_widx] & lowbit) {
                     const uintptr_t cur_dosage_val = dosage_main[dosage_idx];
                     alt1_dosage += cur_dosage_val;
                     alt1_dosage_sq_sum += cur_dosage_val * cur_dosage_val;
@@ -1559,13 +1566,14 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
               }
             }
             if (allele_dosages) {
-              uint32_t sample_uidx = 0;
               uintptr_t alt1_ct = 4 * genocounts[2] + 2 * genocounts[1] - 2 * sex_specific_genocounts[2] - hethap_ct;  // nonmales count twice
               uint64_t alt1_dosage = 0;  // in 32768ths, nonmales count twice
               uint32_t additional_dosage_ct = 0;  // missing hardcalls only; nonmales count twice
+              uintptr_t sample_uidx_base = 0;
+              uintptr_t dosage_present_bits = dosage_present[0];
               if (sample_ct == raw_sample_ct) {
-                for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx, ++sample_uidx) {
-                  MovU32To1Bit(dosage_present, &sample_uidx);
+                for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+                  const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &dosage_present_bits);
                   const uintptr_t cur_dosage_val = dosage_main[dosage_idx];
                   const uintptr_t sex_multiplier = 2 - IsSet(sex_male, sample_uidx);
                   alt1_dosage += cur_dosage_val * sex_multiplier;
@@ -1581,8 +1589,8 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
                   }
                 }
               } else {
-                for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx, ++sample_uidx) {
-                  MovU32To1Bit(dosage_present, &sample_uidx);
+                for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+                  const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &dosage_present_bits);
                   if (IsSet(sample_include, sample_uidx)) {
                     const uintptr_t cur_dosage_val = dosage_main[dosage_idx];
                     const uintptr_t sex_multiplier = 2 - IsSet(sex_male, sample_uidx);
@@ -2033,12 +2041,13 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
 }
 
 void ApplyHardCallThresh(const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t dosage_ct, uint32_t hard_call_halfdist, uintptr_t* genovec) {
-  uint32_t sample_uidx = 0;
-  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx, ++sample_uidx) {
-    MovU32To1Bit(dosage_present, &sample_uidx);
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = dosage_present[0];
+  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+    const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &cur_bits);
     const uint32_t dosage_int = dosage_main[dosage_idx];
     const uint32_t halfdist = BiallelicDosageHalfdist(dosage_int);
-    const uint32_t widx = sample_uidx / kBitsPerWordD2;
+    const uintptr_t widx = sample_uidx / kBitsPerWordD2;
     uintptr_t prev_geno_word = genovec[widx];
     const uint32_t shift = (sample_uidx % kBitsPerWordD2) * 2;
     uintptr_t new_geno;
@@ -2072,12 +2081,13 @@ uint32_t ApplyHardCallThreshPhased(const uintptr_t* dosage_present, const Dosage
   // Some extraneous phaseinfo bits may be set on return.
   const SDosage* dphase_read_iter = dphase_delta;
   SDosage* dphase_write_iter = tmp_dphase_delta;
-  uint32_t sample_uidx = 0;
-  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx, ++sample_uidx) {
-    MovU32To1Bit(dosage_present, &sample_uidx);
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = dosage_present[0];
+  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+    const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &cur_bits);
     const uint32_t dosage_int = dosage_main[dosage_idx];
     const uint32_t halfdist = BiallelicDosageHalfdist(dosage_int);
-    const uint32_t widx = sample_uidx / kBitsPerWordD2;
+    const uintptr_t widx = sample_uidx / kBitsPerWordD2;
     uintptr_t prev_geno_word = genovec[widx];
     const uint32_t shift = (sample_uidx % kBitsPerWordD2) * 2;
     uintptr_t new_geno;
@@ -2135,13 +2145,17 @@ uintptr_t InitWriteAlleleIdxOffsets(const uintptr_t* variant_include, const uint
   uintptr_t cur_offset = 0;
   if (allele_presents) {
     uint32_t ref_allele_idx = 0;
-    uint32_t variant_uidx = UINT32_MAX;  // deliberate overflow
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = 0;
+    if (!new_variant_idx_to_old) {
+      cur_bits = variant_include[0];
+    }
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      uint32_t variant_uidx;
       if (new_variant_idx_to_old) {
         variant_uidx = new_variant_idx_to_old[variant_idx];
       } else {
-        ++variant_uidx;
-        MovU32To1Bit(variant_include, &variant_uidx);
+        variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
       }
       new_allele_idx_offsets[variant_idx] = cur_offset;
       const uintptr_t old_offset_start = allele_idx_offsets[variant_uidx];
@@ -2162,9 +2176,10 @@ uintptr_t InitWriteAlleleIdxOffsets(const uintptr_t* variant_include, const uint
       cur_offset += cur_allele_ct;
     }
   } else if (!new_variant_idx_to_old) {
-    uint32_t variant_uidx = 0;
-    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
-      MovU32To1Bit(variant_include, &variant_uidx);
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
       new_allele_idx_offsets[variant_idx] = cur_offset;
       cur_offset += allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
     }
@@ -2235,14 +2250,16 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* arg) {
     uint32_t write_idx = (tidx * cur_block_write_ct) / calc_thread_ct;
     const uint32_t write_idx_end = ((tidx + 1) * cur_block_write_ct) / calc_thread_ct;
     unsigned char* writebuf_iter = &(g_writebufs[parity][write_idx * sample_ct4]);
-    uint32_t variant_uidx = g_read_variant_uidx_starts[tidx];
+    uintptr_t variant_uidx_base;
+    uintptr_t cur_bits;
+    BitIter1Start(variant_include, g_read_variant_uidx_starts[tidx], &variant_uidx_base, &cur_bits);
     uint32_t chr_end = 0;
     uint32_t is_x = 0;
     uint32_t is_y = 0;
     uint32_t is_haploid_nonmt = 0;
     uint32_t is_mt = 0;
-    for (; write_idx != write_idx_end; ++write_idx, ++variant_uidx) {
-      MovU32To1Bit(variant_include, &variant_uidx);
+    for (; write_idx != write_idx_end; ++write_idx) {
+      const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
       if (variant_uidx >= chr_end) {
         const uint32_t chr_fo_idx = GetVariantChrFoIdx(cip, variant_uidx);
         const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
@@ -2626,34 +2643,33 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
                 ZeroWArr(sample_ctl, write_phasepresent);
               }
               uint32_t dosage_read_idx = 0;
-              uint32_t sample_uidx = 0;
+              uintptr_t sample_widx = 0;
+              uintptr_t cur_bits = write_dosagepresent[0];
               uint32_t dosage_write_idx;
               if (!write_dphase_ct) {
                 // If hardcall-phase and dosage present, threshold/2 applies
                 // thanks to implicit dosage-phase value
                 // const uint32_t dosage_erase_halfdist2 = (dosage_erase_halfdist + kDosage4th + 1) / 2;
                 const uint32_t halfdist_extra = (kDosage4th + 1 - dosage_erase_halfdist) / 2;
-                for (; dosage_read_idx != write_dosage_ct; ++dosage_read_idx, ++sample_uidx) {
-                  MovU32To1Bit(write_dosagepresent, &sample_uidx);
+                for (; dosage_read_idx != write_dosage_ct; ++dosage_read_idx) {
+                  const uint32_t sample_uidx_lowbits = BitIter1x(write_dosagepresent, &sample_widx, &cur_bits);
                   const uint32_t dosage_int = write_dosagevals[dosage_read_idx];
                   const uint32_t halfdist = BiallelicDosageHalfdist(dosage_int);
-                  if (halfdist >= dosage_erase_halfdist + IsSet(write_phasepresent, sample_uidx) * halfdist_extra) {
-                    ClearBit(sample_uidx, write_dosagepresent);
-                    ++sample_uidx;
+                  if (halfdist >= dosage_erase_halfdist + ((write_phasepresent[sample_widx] >> sample_uidx_lowbits) & 1) * halfdist_extra) {
+                    write_dosagepresent[sample_widx] ^= k1LU << sample_uidx_lowbits;
                     break;
                   }
                 }
                 dosage_write_idx = dosage_read_idx;
                 while (++dosage_read_idx < write_dosage_ct) {
-                  MovU32To1Bit(write_dosagepresent, &sample_uidx);
+                  const uint32_t sample_uidx_lowbits = BitIter1x(write_dosagepresent, &sample_widx, &cur_bits);
                   const uint32_t dosage_int = write_dosagevals[dosage_read_idx];
                   const uint32_t halfdist = BiallelicDosageHalfdist(dosage_int);
-                  if (halfdist < dosage_erase_halfdist + IsSet(write_phasepresent, sample_uidx) * halfdist_extra) {
+                  if (halfdist < dosage_erase_halfdist + ((write_phasepresent[sample_widx] >> sample_uidx_lowbits) & 1) * halfdist_extra) {
                     write_dosagevals[dosage_write_idx++] = dosage_int;
                   } else {
-                    ClearBit(sample_uidx, write_dosagepresent);
+                    write_dosagepresent[sample_widx] ^= k1LU << sample_uidx_lowbits;
                   }
-                  ++sample_uidx;
                 }
               } else {
                 // Only erase dosage if both sides are less than threshold/2
@@ -2661,14 +2677,15 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
                 const uint32_t halfdist_extra = (kDosage4th + 1 - dosage_erase_halfdist) / 2;
                 const uint32_t dosage_erase_halfdist2 = dosage_erase_halfdist + halfdist_extra;
                 uint32_t dphase_read_idx = 0;
-                for (; dosage_read_idx != write_dosage_ct; ++dosage_read_idx, ++sample_uidx) {
-                  MovU32To1Bit(write_dosagepresent, &sample_uidx);
+                uintptr_t lowbit = 0;
+                for (; dosage_read_idx != write_dosage_ct; ++dosage_read_idx) {
+                  lowbit = BitIter1y(write_dosagepresent, &sample_widx, &cur_bits);
                   const uint32_t dosage_int = write_dosagevals[dosage_read_idx];
-                  if (!IsSet(write_dphasepresent, sample_uidx)) {
+                  if (!(write_dphasepresent[sample_widx] & lowbit)) {
                     // necessary for this to be separate to handle odd
                     // dosage_int, missing phase case correctly
                     const uint32_t halfdist = BiallelicDosageHalfdist(dosage_int);
-                    if (halfdist >= dosage_erase_halfdist + IsSet(write_phasepresent, sample_uidx) * halfdist_extra) {
+                    if (halfdist >= dosage_erase_halfdist + ((write_phasepresent[sample_widx] & lowbit) != 0) * halfdist_extra) {
                       break;
                     }
                   } else {
@@ -2683,21 +2700,20 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
                 dosage_write_idx = dosage_read_idx;
                 if (dosage_read_idx < write_dosage_ct) {
                   uint32_t dphase_write_idx = dphase_read_idx;
-                  if (IsSet(write_dphasepresent, sample_uidx)) {
+                  if (write_dphasepresent[sample_widx] & lowbit) {
                     --dphase_write_idx;
-                    ClearBit(sample_uidx, write_dphasepresent);
+                    write_dphasepresent[sample_widx] ^= lowbit;
                   }
-                  ClearBit(sample_uidx, write_dosagepresent);
-                  ++sample_uidx;
+                  write_dosagepresent[sample_widx] ^= lowbit;
                   while (++dosage_read_idx < write_dosage_ct) {
-                    MovU32To1Bit(write_dosagepresent, &sample_uidx);
+                    lowbit = BitIter1y(write_dosagepresent, &sample_widx, &cur_bits);
                     const uint32_t dosage_int = write_dosagevals[dosage_read_idx];
-                    if (!IsSet(write_dphasepresent, sample_uidx)) {
+                    if (!(write_dphasepresent[sample_widx] & lowbit)) {
                       const uint32_t halfdist = BiallelicDosageHalfdist(dosage_int);
-                      if (halfdist < dosage_erase_halfdist + IsSet(write_phasepresent, sample_uidx) * halfdist_extra) {
+                      if (halfdist < dosage_erase_halfdist + ((write_phasepresent[sample_widx] & lowbit) != 0) * halfdist_extra) {
                         write_dosagevals[dosage_write_idx++] = dosage_int;
                       } else {
-                        ClearBit(sample_uidx, write_dosagepresent);
+                        write_dosagepresent[sample_widx] ^= lowbit;
                       }
                     } else {
                       const int32_t dphase_delta = write_dphasedeltas[dphase_read_idx++];
@@ -2707,11 +2723,10 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
                         write_dosagevals[dosage_write_idx++] = dosage_int;
                         write_dphasedeltas[dphase_write_idx++] = dphase_delta;
                       } else {
-                        ClearBit(sample_uidx, write_dosagepresent);
-                        ClearBit(sample_uidx, write_dphasepresent);
+                        write_dosagepresent[sample_widx] ^= lowbit;
+                        write_dphasepresent[sample_widx] ^= lowbit;
                       }
                     }
-                    ++sample_uidx;
                   }
                   write_dphase_ct = dphase_write_idx;
                 }
@@ -3109,9 +3124,10 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
           if (unlikely(BIGSTACK_ALLOC_STD_ARRAY(AlleleCode, 2, variant_ct, &tmp_refalt1_select))) {
             goto MakePgenRobust_ret_NOMEM;
           }
-          uint32_t variant_uidx = 0;
-          for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
-            MovU32To1Bit(variant_include, &variant_uidx);
+          uintptr_t variant_uidx_base = 0;
+          uintptr_t cur_bits = variant_include[0];
+          for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+            const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
             STD_ARRAY_COPY(refalt1_select[variant_uidx], 2, tmp_refalt1_select[variant_idx]);
           }
           g_refalt1_select = tmp_refalt1_select;
@@ -3203,7 +3219,8 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       uint32_t read_batch_idx = 0;
       uint32_t cur_batch_size = write_block_size;
       uint32_t next_print_variant_idx = variant_ct / 100;
-      uint32_t read_variant_uidx = UINT32_MAX;  // deliberate overflow
+      uintptr_t read_variant_uidx_base = 0;
+      uintptr_t cur_bits = variant_include[0];
       PgrClearLdCache(simple_pgrp);
       while (1) {
         if (!ts.is_last_block) {
@@ -3215,9 +3232,9 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
           unsigned char* cur_loaded_vrtypes = g_loaded_vrtypes[parity];
           g_loadbuf_thread_starts[parity][0] = loadbuf_iter;
           for (uint32_t uii = 0; uii != cur_batch_size; ++uii) {
+            uint32_t read_variant_uidx;
             if (!new_variant_idx_to_old_iter) {
-              ++read_variant_uidx;
-              MovU32To1Bit(variant_include, &read_variant_uidx);
+              read_variant_uidx = BitIter1(variant_include, &read_variant_uidx_base, &cur_bits);
             } else {
               read_variant_uidx = *new_variant_idx_to_old_iter++;
             }
@@ -3700,9 +3717,10 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
         if (BIGSTACK_ALLOC_STD_ARRAY(AlleleCode, 2, variant_ct, &tmp_refalt1_select)) {
           goto MakePlink2NoVsort_fallback;
         }
-        uint32_t variant_uidx = 0;
-        for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
-          MovU32To1Bit(variant_include, &variant_uidx);
+        uintptr_t variant_uidx_base = 0;
+        uintptr_t cur_bits = variant_include[0];
+        for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+          const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
           STD_ARRAY_COPY(refalt1_select[variant_uidx], 2, tmp_refalt1_select[variant_idx]);
         }
         g_refalt1_select = tmp_refalt1_select;
@@ -3903,7 +3921,8 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
       uint32_t write_idx_end = 0;
       uint32_t cur_batch_size = kPglVblockSize * calc_thread_ct;
       uint32_t next_print_variant_idx = variant_ct / 100;
-      uint32_t read_variant_uidx = AdvTo1Bit(variant_include, 0);
+      uintptr_t read_variant_uidx_base = 0;
+      uintptr_t cur_bits = variant_include[0];
       PgrClearLdCache(simple_pgrp);
       while (1) {
         if (read_batch_idx) {
@@ -3921,11 +3940,11 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
           uintptr_t* cur_loadbuf = main_loadbufs[parity];
           uintptr_t* loadbuf_iter = cur_loadbuf;
           unsigned char* cur_loaded_vrtypes = g_loaded_vrtypes[parity];
-          for (uint32_t uii = 0; uii != cur_batch_size; ++uii, ++read_variant_uidx) {
+          for (uint32_t uii = 0; uii != cur_batch_size; ++uii) {
             if (!(uii % kPglVblockSize)) {
               g_loadbuf_thread_starts[parity][uii / kPglVblockSize] = loadbuf_iter;
             }
-            MovU32To1Bit(variant_include, &read_variant_uidx);
+            const uintptr_t read_variant_uidx = BitIter1(variant_include, &read_variant_uidx_base, &cur_bits);
             reterr = PgrGetRaw(read_variant_uidx, read_phase_dosage_gflags, simple_pgrp, &loadbuf_iter, cur_loaded_vrtypes? (&(cur_loaded_vrtypes[uii])) : nullptr);
             if (unlikely(reterr)) {
               if (reterr == kPglRetMalformedInput) {
@@ -4286,7 +4305,7 @@ PglErr PvarInfoReloadInterval(const uint32_t* old_variant_uidx_to_new, uint32_t 
 }
 
 // could be BoolErr
-PglErr WritePvarResortedInterval(const ChrInfo* write_cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* qual_present, const float* quals, const uintptr_t* filter_present, const uintptr_t* filter_npass, const char* const* filter_storage, const uintptr_t* nonref_flags, const double* variant_cms, const uint32_t* new_variant_idx_to_old, uint32_t variant_idx_start, uint32_t variant_idx_end, uint32_t info_pr_flag_present, uint32_t write_qual, uint32_t write_filter, uint32_t write_info, uint32_t all_nonref, uint32_t write_cm, char** pvar_info_strs, CompressStreamState* cssp, char** cswritepp, uint32_t* chr_fo_idxp, uint32_t* chr_endp, uint32_t* chr_buf_blenp, char* chr_buf, uintptr_t* allele_include) {
+PglErr WritePvarResortedInterval(const ChrInfo* write_cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* qual_present, const float* quals, const uintptr_t* filter_present, const uintptr_t* filter_npass, const char* const* filter_storage, const uintptr_t* nonref_flags, const double* variant_cms, const uint32_t* new_variant_idx_to_old, uint32_t variant_idx_start, uint32_t variant_idx_end, uint32_t info_pr_flag_present, uint32_t write_qual, uint32_t write_filter, uint32_t write_info, uint32_t all_nonref, uint32_t write_cm, char** pvar_info_strs, CompressStreamState* cssp, char** cswritepp, uint32_t* chr_fo_idxp, uint32_t* chr_endp, uint32_t* chr_buf_blenp, char* chr_buf) {
   char* cswritep = *cswritepp;
   uint32_t chr_fo_idx = *chr_fo_idxp;
   uint32_t chr_end = *chr_endp;
@@ -4332,26 +4351,19 @@ PglErr WritePvarResortedInterval(const ChrInfo* write_cip, const uint32_t* varia
         goto WritePvarResortedInterval_ret_WRITE_FAIL;
       }
       if (cur_allele_ct > 2) {
-        SetAllBits(cur_allele_ct, allele_include);
-        ClearBit(ref_allele_idx, allele_include);
-        ClearBit(alt1_allele_idx, allele_include);
-        uint32_t cur_allele_uidx = UINT32_MAX;
-        uint32_t allele_idx = 2;
-        do {
-          ++cur_allele_uidx;
-          MovU32To1Bit(allele_include, &cur_allele_uidx);
-          if (allele_presents && (!IsSet(allele_presents, allele_idx_offset_base + cur_allele_uidx))) {
+        for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct; ++allele_idx) {
+          if ((allele_idx == ref_allele_idx) || (allele_idx == alt1_allele_idx) || (allele_presents && (!IsSet(allele_presents, allele_idx_offset_base + allele_idx)))) {
             continue;
           }
           if (alt_allele_written) {
             *cswritep++ = ',';
           }
           alt_allele_written = 1;
-          cswritep = strcpya(cswritep, cur_alleles[cur_allele_uidx]);
+          cswritep = strcpya(cswritep, cur_alleles[allele_idx]);
           if (unlikely(Cswrite(cssp, &cswritep))) {
             goto WritePvarResortedInterval_ret_WRITE_FAIL;
           }
-        } while (++allele_idx < cur_allele_ct);
+        }
       }
       if (!alt_allele_written) {
         *cswritep++ = output_missing_geno_char;
@@ -4435,10 +4447,8 @@ PglErr WritePvarResorted(const char* outname, const char* xheader, const uintptr
     // includes trailing tab
     char* chr_buf;
 
-    uintptr_t* allele_include;
     if (unlikely(
-            bigstack_alloc_c(max_chr_blen, &chr_buf) ||
-            bigstack_alloc_w(BitCtToWordCt(kPglMaxAltAlleleCt), &allele_include))) {
+                 bigstack_alloc_c(max_chr_blen, &chr_buf))) {
       goto WritePvarResorted_ret_NOMEM;
     }
     uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
@@ -4510,9 +4520,10 @@ PglErr WritePvarResorted(const char* outname, const char* xheader, const uintptr
         // nonzero_cm_present check was performed
         write_cm = 1;
       } else {
-        uint32_t variant_uidx = 0;
-        for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
-          MovU32To1Bit(variant_include, &variant_uidx);
+        uintptr_t variant_uidx_base = 0;
+        uintptr_t cur_bits = variant_include[0];
+        for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+          const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
           if (variant_cms[variant_uidx] != 0.0) {
             write_cm = 1;
             break;
@@ -4567,7 +4578,7 @@ PglErr WritePvarResorted(const char* outname, const char* xheader, const uintptr
           goto WritePvarResorted_ret_1;
         }
       }
-      reterr = WritePvarResortedInterval(write_cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, qual_present, quals, filter_present, filter_npass, filter_storage, nonref_flags, variant_cms, new_variant_idx_to_old, variant_idx_start, variant_idx_end, info_pr_flag_present, write_qual, write_filter, write_info, all_nonref, write_cm, pvar_info_strs, &css, &cswritep, &chr_fo_idx, &chr_end, &chr_buf_blen, chr_buf, allele_include);
+      reterr = WritePvarResortedInterval(write_cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, qual_present, quals, filter_present, filter_npass, filter_storage, nonref_flags, variant_cms, new_variant_idx_to_old, variant_idx_start, variant_idx_end, info_pr_flag_present, write_qual, write_filter, write_info, all_nonref, write_cm, pvar_info_strs, &css, &cswritep, &chr_fo_idx, &chr_end, &chr_buf_blen, chr_buf);
       if (unlikely(reterr)) {
         goto WritePvarResorted_ret_1;
       }
@@ -4640,9 +4651,10 @@ PglErr MakePlink2Vsort(const char* xheader, const uintptr_t* sample_include, con
     }
     SetAllU32Arr(chr_code_end, write_chr_info.chr_idx_to_foidx);
     if (chr_idxs) {
-      uint32_t variant_uidx = 0;
-      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
-        MovU32To1Bit(variant_include, &variant_uidx);
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_base = variant_include[0];
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_base);
         chr_idx_to_size[chr_idxs[variant_uidx]] += 1;
       }
       for (uint32_t chr_idx = 0; chr_idx != chr_code_end; ++chr_idx) {
@@ -4689,9 +4701,10 @@ PglErr MakePlink2Vsort(const char* xheader, const uintptr_t* sample_include, con
         const uint32_t chr_idx = write_chr_info.chr_file_order[new_chr_fo_idx];
         next_write_vidxs[chr_idx] = write_chr_info.chr_fo_vidx_start[new_chr_fo_idx];
       }
-      uint32_t variant_uidx = 0;
-      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
-        MovU32To1Bit(variant_include, &variant_uidx);
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_bits = variant_include[0];
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+        const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
         const uint32_t chr_idx = chr_idxs[variant_uidx];
         const uint32_t write_vidx = next_write_vidxs[chr_idx];
         pos_vidx_sort_buf[write_vidx] = (S_CAST(uint64_t, variant_bps[variant_uidx]) << 32) | variant_uidx;
@@ -4701,11 +4714,12 @@ PglErr MakePlink2Vsort(const char* xheader, const uintptr_t* sample_include, con
     } else {
       uint32_t old_chr_fo_idx = UINT32_MAX;
       uint32_t chr_end = 0;
-      uint32_t variant_uidx = 0;
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_bits = variant_include[0];
       uint32_t chr_idx = 0;
       uint32_t write_vidx = 0;
-      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx, ++write_vidx) {
-        MovU32To1Bit(variant_include, &variant_uidx);
+      for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++write_vidx) {
+        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
         if (variant_uidx >= chr_end) {
           do {
             ++old_chr_fo_idx;

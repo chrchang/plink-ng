@@ -818,6 +818,14 @@ HEADER_INLINE VecI16 veci16_max(VecI16 v1, VecI16 v2) {
   return R_CAST(VecI16, _mm256_max_epi16(R_CAST(__m256i, v1), R_CAST(__m256i, v2)));
 }
 
+HEADER_INLINE VecW vecw_sad(VecW v1, VecW v2) {
+  return R_CAST(VecW, _mm256_sad_epu8(R_CAST(__m256i, v1), R_CAST(__m256i, v2)));
+}
+
+HEADER_INLINE VecUc vecuc_adds(VecUc v1, VecUc v2) {
+  return R_CAST(VecUc, _mm256_adds_epu8(R_CAST(__m256i, v1), R_CAST(__m256i, v2)));
+}
+
 #  else
 
 #    define VCONST_W(xx) {xx, xx}
@@ -983,7 +991,19 @@ HEADER_INLINE VecI16 veci16_max(VecI16 v1, VecI16 v2) {
   return R_CAST(VecI16, _mm_max_epi16(R_CAST(__m128i, v1), R_CAST(__m128i, v2)));
 }
 
-#  endif
+HEADER_INLINE VecW vecw_sad(VecW v1, VecW v2) {
+  return R_CAST(VecW, _mm_sad_epu8(R_CAST(__m128i, v1), R_CAST(__m128i, v2)));
+}
+
+HEADER_INLINE VecUc vecuc_adds(VecUc v1, VecUc v2) {
+  return R_CAST(VecUc, _mm_adds_epu8(R_CAST(__m128i, v1), R_CAST(__m128i, v2)));
+}
+
+#  endif  // !USE_AVX2
+
+HEADER_INLINE VecW vecw_bytesum(VecW src, VecW m0) {
+  return vecw_sad(src, m0);
+}
 
 CONSTI32(kVec8thUintPerWord, sizeof(intptr_t) / sizeof(Vec8thUint));
 
@@ -1002,7 +1022,7 @@ HEADER_INLINE VecF vecf_setzero() {
   return R_CAST(VecF, _mm256_setzero_ps());
 }
 
-#  else
+#  else  // !FVEC_32
 
 CONSTI32(kBytesPerFVec, 16);
 typedef float VecF __attribute__ ((vector_size (16)));
@@ -1013,7 +1033,7 @@ HEADER_INLINE VecF vecf_setzero() {
   return R_CAST(VecF, _mm_setzero_ps());
 }
 
-#  endif
+#  endif  // !FVEC_32
 
 #else  // not __LP64__
 CONSTI32(kBytesPerVec, 4);
@@ -1045,7 +1065,12 @@ HEADER_INLINE VecW vecw_slli(VecW vv, uint32_t ct) {
 HEADER_INLINE VecW vecw_loadu(const void* mem_addr) {
   return *S_CAST(const VecW*, mem_addr);
 }
-#endif
+
+HEADER_INLINE VecW vecw_bytesum(VecW src, __maybe_unused VecW m0) {
+  src = (src & 0x00ff00ff) + ((src >> 8) & 0x00ff00ff);
+  return (src + (src >> 16)) & 0xffff;
+}
+#endif  // !__LP64__
 
 // Unfortunately, we need to spell out S_CAST(uintptr_t, 0) instead of just
 // typing k0LU in C99.
@@ -1170,7 +1195,6 @@ template <class T, std::size_t N> void STD_ARRAY_FILL0(std::array<T, N>& arr) {
 typedef union {
   VecW vw;
 
-  // not actually 8 bytes in 32-bit builds, probably want to rename
   STD_ARRAY_DECL(uintptr_t, kWordsPerVec, w);
 
   STD_ARRAY_DECL(uint32_t, kInt32PerVec, u32);
@@ -1799,6 +1823,12 @@ HEADER_INLINE VecW Csa256(VecW bb, VecW cc, VecW* lp) {
   return (aa & bb) | (uu & cc);
 }
 
+HEADER_INLINE VecW CsaOne256(VecW bb, VecW* lp) {
+  const VecW aa = *lp;
+  *lp = aa ^ bb;
+  return aa & bb;
+}
+
 HEADER_INLINE VecW PopcountVecAvx2(VecW vv) {
   const VecW lookup1 = vecw_setr8(4, 5, 5, 6, 5, 6, 6, 7,
                                   5, 6, 6, 7, 6, 7, 7, 8);
@@ -1810,10 +1840,10 @@ HEADER_INLINE VecW PopcountVecAvx2(VecW vv) {
   const VecW hi = vecw_srli(vv, 4) & m4;
   const VecW popcnt1 = vecw_shuffle8(lookup1, lo);
   const VecW popcnt2 = vecw_shuffle8(lookup2, hi);
-  return R_CAST(VecW, _mm256_sad_epu8(R_CAST(__m256i, popcnt1), R_CAST(__m256i, popcnt2)));
+  return vecw_sad(popcnt1, popcnt2);
 }
 
-HEADER_INLINE uint64_t Hsum64(VecW vv) {
+HEADER_INLINE uintptr_t HsumW(VecW vv) {
   UniVec vu;
   vu.vw = vv;
   return vu.w[0] + vu.w[1] + vu.w[2] + vu.w[3];
@@ -1823,7 +1853,8 @@ HEADER_INLINE uint64_t Hsum64(VecW vv) {
   // above)
 }
 
-// assumes vec_ct is a multiple of 16
+// This no longer has any restrictions on vec_ct, though it isn't worth the
+// overhead for vec_ct < 16.
 uintptr_t PopcountVecsAvx2(const VecW* bit_vvec, uintptr_t vec_ct);
 
 HEADER_INLINE uintptr_t PopcountWords(const uintptr_t* bitvec, uintptr_t word_ct) {
@@ -1832,37 +1863,53 @@ HEADER_INLINE uintptr_t PopcountWords(const uintptr_t* bitvec, uintptr_t word_ct
   // The PopcountWordsNzbase() wrapper takes care of starting from a later
   // index.
   uintptr_t tot = 0;
-  if (word_ct >= (16 * kWordsPerVec)) {
+  if (word_ct >= 76) {
     assert(VecIsAligned(bitvec));
-    const uintptr_t remainder = word_ct % (16 * kWordsPerVec);
+    const uintptr_t remainder = word_ct % kWordsPerVec;
     const uintptr_t main_block_word_ct = word_ct - remainder;
     tot = PopcountVecsAvx2(R_CAST(const VecW*, bitvec), main_block_word_ct / kWordsPerVec);
-    word_ct = remainder;
     bitvec = &(bitvec[main_block_word_ct]);
+    word_ct = remainder;
   }
-  // todo: check if libpopcnt manual-4x-unroll makes a difference on any test
-  // machine (I'd prefer to trust the compiler to take care of that...)
-  for (uintptr_t trailing_word_idx = 0; trailing_word_idx != word_ct; ++trailing_word_idx) {
-    tot += PopcountWord(bitvec[trailing_word_idx]);
+  // note that recent clang versions automatically expand this to a
+  // full-service routine; takes ~50% longer than PopcountVecsAvx2 on >1kb
+  // arrays, but way better than the naive loop
+  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
+    tot += PopcountWord(bitvec[widx]);
   }
   return tot;
 }
 #else  // !USE_AVX2
+#  ifdef __LP64__
+HEADER_INLINE uintptr_t HsumW(VecW vv) {
+  UniVec vu;
+  vu.vw = vv;
+  return vu.w[0] + vu.w[1];
+}
+#  else
+HEADER_INLINE uintptr_t HsumW(VecW vv) {
+  return vv;
+}
+#  endif
+
 // assumes vec_ct is a multiple of 3
-uintptr_t PopcountVecsNoSse42(const VecW* bit_vvec, uintptr_t vec_ct);
+uintptr_t PopcountVecsNoAvx2(const VecW* bit_vvec, uintptr_t vec_ct);
 
 HEADER_INLINE uintptr_t PopcountWords(const uintptr_t* bitvec, uintptr_t word_ct) {
   uintptr_t tot = 0;
-#  ifndef USE_SSE42
+#ifndef USE_SSE42
   if (word_ct >= (3 * kWordsPerVec)) {
+    // This has an asymptotic ~10% advantage in the SSE4.2 case, but word_ct
+    // needs to be in the hundreds before the initial comparison even starts to
+    // pay for itself.
     assert(VecIsAligned(bitvec));
     const uintptr_t remainder = word_ct % (3 * kWordsPerVec);
     const uintptr_t main_block_word_ct = word_ct - remainder;
-    tot = PopcountVecsNoSse42(R_CAST(const VecW*, bitvec), main_block_word_ct / kWordsPerVec);
+    tot = PopcountVecsNoAvx2(R_CAST(const VecW*, bitvec), main_block_word_ct / kWordsPerVec);
     word_ct = remainder;
     bitvec = &(bitvec[main_block_word_ct]);
   }
-#  endif
+#endif
   for (uintptr_t trailing_word_idx = 0; trailing_word_idx != word_ct; ++trailing_word_idx) {
     tot += PopcountWord(bitvec[trailing_word_idx]);
   }
@@ -2502,18 +2549,6 @@ HEADER_INLINE void AssignBit(uintptr_t idx, uintptr_t newbit, uintptr_t* bitarr)
   *cur_word_ptr = ((*cur_word_ptr) & (~inv_mask)) | (inv_mask * newbit);
 }
 
-HEADER_INLINE void MovU32To1Bit(const uintptr_t* __restrict bitarr, uint32_t* __restrict loc_ptr) {
-  if (!IsSet(bitarr, *loc_ptr)) {
-    *loc_ptr = AdvTo1Bit(bitarr, *loc_ptr);
-  }
-}
-
-HEADER_INLINE void MovU32To0Bit(const uintptr_t* __restrict bitarr, uint32_t* __restrict loc_ptr) {
-  if (IsSet(bitarr, *loc_ptr)) {
-    *loc_ptr = AdvTo0Bit(bitarr, *loc_ptr);
-  }
-}
-
 /*
 HEADER_INLINE uintptr_t BitInnerIter1(uintptr_t uidx_base, uintptr_t* cur_bitsp, uintptr_t* cur_uidx_stopp) {
   const uintptr_t cur_bits = *cur_bitsp;
@@ -2545,7 +2580,7 @@ HEADER_INLINE uintptr_t BitIter1(const uintptr_t* bitarr, uintptr_t* uidx_basep,
   return (*uidx_basep) + ctzw(cur_bits);
 }
 
-// Returns lowbits instead of the full index.
+// Returns lowbit index instead of the full index.
 HEADER_INLINE uint32_t BitIter1x(const uintptr_t* bitarr, uintptr_t* widxp, uintptr_t* cur_bitsp) {
   uintptr_t cur_bits = *cur_bitsp;
   if (!cur_bits) {
@@ -2555,6 +2590,70 @@ HEADER_INLINE uint32_t BitIter1x(const uintptr_t* bitarr, uintptr_t* widxp, uint
   }
   *cur_bitsp = cur_bits & (cur_bits - 1);
   return ctzw(cur_bits);
+}
+
+// Returns isolated lowbit.
+HEADER_INLINE uintptr_t BitIter1y(const uintptr_t* bitarr, uintptr_t* widxp, uintptr_t* cur_bitsp) {
+  uintptr_t cur_bits = *cur_bitsp;
+  if (!cur_bits) {
+    do {
+      cur_bits = bitarr[++(*widxp)];
+    } while (!cur_bits);
+  }
+  const uintptr_t shifted_bit = cur_bits & (-cur_bits);
+  *cur_bitsp = cur_bits ^ shifted_bit;
+  return shifted_bit;
+}
+
+HEADER_INLINE void BitIter1Start(const uintptr_t* bitarr, uintptr_t restart_uidx, uintptr_t* uidx_basep, uintptr_t* cur_bitsp) {
+  const uintptr_t widx = restart_uidx / kBitsPerWord;
+  *cur_bitsp = bitarr[widx] & ((~k0LU) << (restart_uidx % kBitsPerWord));
+  *uidx_basep = widx * kBitsPerWord;
+}
+
+HEADER_INLINE uintptr_t BitIter1NoAdv(const uintptr_t* bitarr, uintptr_t* uidx_basep, uintptr_t* cur_bitsp) {
+  uintptr_t cur_bits = *cur_bitsp;
+  if (!cur_bits) {
+    uintptr_t widx = (*uidx_basep) / kBitsPerWord;
+    do {
+      cur_bits = bitarr[++widx];
+    } while (!cur_bits);
+    *uidx_basep = widx * kBitsPerWord;
+    *cur_bitsp = cur_bits;
+  }
+  return (*uidx_basep) + ctzw(cur_bits);
+}
+
+HEADER_INLINE uintptr_t BitIter0(const uintptr_t* bitarr, uintptr_t* uidx_basep, uintptr_t* cur_inv_bitsp) {
+  uintptr_t cur_inv_bits = *cur_inv_bitsp;
+  if (!cur_inv_bits) {
+    uintptr_t widx = (*uidx_basep) / kBitsPerWord;
+    do {
+      cur_inv_bits = ~bitarr[++widx];
+    } while (!cur_inv_bits);
+    *uidx_basep = widx * kBitsPerWord;
+  }
+  *cur_inv_bitsp = cur_inv_bits & (cur_inv_bits - 1);
+  return (*uidx_basep) + ctzw(cur_inv_bits);
+}
+
+HEADER_INLINE void BitIter0Start(const uintptr_t* bitarr, uintptr_t restart_uidx, uintptr_t* uidx_basep, uintptr_t* cur_inv_bitsp) {
+  const uintptr_t widx = restart_uidx / kBitsPerWord;
+  *cur_inv_bitsp = (~bitarr[widx]) & ((~k0LU) << (restart_uidx % kBitsPerWord));
+  *uidx_basep = widx * kBitsPerWord;
+}
+
+HEADER_INLINE uintptr_t BitIter0NoAdv(const uintptr_t* bitarr, uintptr_t* uidx_basep, uintptr_t* cur_inv_bitsp) {
+  uintptr_t cur_inv_bits = *cur_inv_bitsp;
+  if (!cur_inv_bits) {
+    uintptr_t widx = (*uidx_basep) / kBitsPerWord;
+    do {
+      cur_inv_bits = ~bitarr[++widx];
+    } while (!cur_inv_bits);
+    *uidx_basep = widx * kBitsPerWord;
+    *cur_inv_bitsp = cur_inv_bits;
+  }
+  return (*uidx_basep) + ctzw(cur_inv_bits);
 }
 
 // todo: test this against extracting a nonmissing bitarr first
@@ -2618,13 +2717,24 @@ HEADER_INLINE void ZeroTrailingWords(__maybe_unused uint32_t word_ct, __maybe_un
 #endif
 
 // analogous to memset()
-// todo: test this, this may actually generate worse code than memset when both
-// are applicable
+// this can be slightly slower if e.g. system supports AVX2 but non-AVX2 plink2
+// build is in use; fine to pay that price given the small-array advantage
 HEADER_INLINE void vecset(void* target_vec, uintptr_t ww, uintptr_t vec_ct) {
   VecW* target_vec_iter = S_CAST(VecW*, target_vec);
 #ifdef __LP64__
+  // manual unroll helps in smaller cases
   const VecW payload = VCONST_W(ww);
-  for (uintptr_t vec_idx = 0; vec_idx != vec_ct; ++vec_idx) {
+  if (vec_ct & 1) {
+    *target_vec_iter++ = payload;
+  }
+  if (vec_ct & 2) {
+    *target_vec_iter++ = payload;
+    *target_vec_iter++ = payload;
+  }
+  for (uintptr_t vec_idx = 3; vec_idx < vec_ct; vec_idx += 4) {
+    *target_vec_iter++ = payload;
+    *target_vec_iter++ = payload;
+    *target_vec_iter++ = payload;
     *target_vec_iter++ = payload;
   }
 #else

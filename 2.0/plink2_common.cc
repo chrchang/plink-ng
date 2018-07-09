@@ -91,9 +91,10 @@ void PopulateDenseDosage(const uintptr_t* genoarr, const uintptr_t* dosage_prese
       dense_dosage_end[uii] = kDosageMissing;
     }
   }
-  uint32_t sample_idx = 0;
-  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx, ++sample_idx) {
-    MovU32To1Bit(dosage_present, &sample_idx);
+  uintptr_t sample_idx_base = 0;
+  uintptr_t cur_bits = dosage_present[0];
+  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+    const uintptr_t sample_idx = BitIter1(dosage_present, &sample_idx_base, &cur_bits);
     dense_dosage[sample_idx] = dosage_main[dosage_idx];
   }
 }
@@ -108,9 +109,10 @@ void PopulateRescaledDosage(const uintptr_t* genoarr, const uintptr_t* dosage_pr
   GenoarrLookup16x8bx2(genoarr, lookup_vals, sample_ct, expanded_dosages);
   if (dosage_ct) {
     slope *= kRecipDosageMid;
-    uint32_t sample_uidx = 0;
-    for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx, ++sample_uidx) {
-      MovU32To1Bit(dosage_present, &sample_uidx);
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t cur_bits = dosage_present[0];
+    for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+      const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &cur_bits);
       expanded_dosages[sample_uidx] = dosage_main[dosage_idx] * slope + intercept;
     }
   }
@@ -173,9 +175,10 @@ void SetHetMissing(uintptr_t word_ct, uintptr_t* genovec) {
 void SetHetMissingCleardosage(uintptr_t word_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main) {
   const uint32_t orig_write_dosage_ct = *write_dosage_ct_ptr;
   if (orig_write_dosage_ct) {
-    uint32_t sample_uidx = 0;
-    for (uint32_t dosage_read_idx = 0; dosage_read_idx != orig_write_dosage_ct; ++dosage_read_idx, ++sample_uidx) {
-      MovU32To1Bit(dosagepresent, &sample_uidx);
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t cur_bits = dosagepresent[0];
+    for (uint32_t dosage_read_idx = 0; dosage_read_idx != orig_write_dosage_ct; ++dosage_read_idx) {
+      const uintptr_t sample_uidx = BitIter1(dosagepresent, &sample_uidx_base, &cur_bits);
       if (GetQuaterarrEntry(genovec, sample_uidx) == 1) {
         ClearBit(sample_uidx, dosagepresent);
         uint32_t dosage_write_idx = dosage_read_idx;
@@ -183,10 +186,9 @@ void SetHetMissingCleardosage(uintptr_t word_ct, uintptr_t* __restrict genovec, 
           if (++dosage_read_idx == orig_write_dosage_ct) {
             break;
           }
-          ++sample_uidx;
-          MovU32To1Bit(dosagepresent, &sample_uidx);
-          if (GetQuaterarrEntry(genovec, sample_uidx) == 1) {
-            ClearBit(sample_uidx, dosagepresent);
+          const uintptr_t sample_uidx2 = BitIter1(dosagepresent, &sample_uidx_base, &cur_bits);
+          if (GetQuaterarrEntry(genovec, sample_uidx2) == 1) {
+            ClearBit(sample_uidx2, dosagepresent);
           } else {
             dosage_main[dosage_write_idx++] = dosage_main[dosage_read_idx];
           }
@@ -295,9 +297,10 @@ void CollapsedSampleFmtidInit(const uintptr_t* sample_include, const SampleIdInf
   if (include_sid) {
     max_sid_blen = sids? siip->max_sid_blen : 2;
   }
-  uint32_t sample_uidx = 0;
-  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
-    MovU32To1Bit(sample_include, &sample_uidx);
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = sample_include[0];
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
     const char* cur_sample_id = &(sample_ids[sample_uidx * max_sample_id_blen]);
     if (!include_fid) {
       cur_sample_id = AdvPastDelim(cur_sample_id, '\t');
@@ -379,9 +382,10 @@ PglErr AugidInitAlloc(const uintptr_t* sample_include, const SampleIdInfo* siip,
     return kPglRetNomem;
   }
   char* sample_augids_iter = *sample_augids_ptr;
-  uint32_t sample_uidx = 0;
-  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
-    MovU32To1Bit(sample_include, &sample_uidx);
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = sample_include[0];
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
     char* write_iter = strcpyax(sample_augids_iter, &(sample_ids[sample_uidx * max_sample_id_blen]), '\t');
     if (sids) {
       strcpy(write_iter, &(sids[sample_uidx * max_sid_blen]));
@@ -1353,20 +1357,20 @@ void InterleavedSetMissing(const uintptr_t* __restrict interleaved_set, uintptr_
 void InterleavedSetMissingCleardosage(const uintptr_t* __restrict orig_set, const uintptr_t* __restrict interleaved_set, uintptr_t vec_ct, uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main) {
   const uint32_t orig_write_dosage_ct = *write_dosage_ct_ptr;
   if (orig_write_dosage_ct) {
-    uint32_t sample_uidx = 0;
-    for (uint32_t dosage_read_idx = 0; dosage_read_idx != orig_write_dosage_ct; ++dosage_read_idx, ++sample_uidx) {
-      MovU32To1Bit(dosagepresent, &sample_uidx);
-      if (IsSet(orig_set, sample_uidx)) {
-        ClearBit(sample_uidx, dosagepresent);
+    uintptr_t sample_widx = 0;
+    uintptr_t cur_bits = dosagepresent[0];
+    for (uint32_t dosage_read_idx = 0; dosage_read_idx != orig_write_dosage_ct; ++dosage_read_idx) {
+      const uintptr_t lowbit = BitIter1y(dosagepresent, &sample_widx, &cur_bits);
+      if (orig_set[sample_widx] & lowbit) {
+        dosagepresent[sample_widx] ^= lowbit;
         uint32_t dosage_write_idx = dosage_read_idx;
         while (1) {
           if (++dosage_read_idx == orig_write_dosage_ct) {
             break;
           }
-          ++sample_uidx;
-          MovU32To1Bit(dosagepresent, &sample_uidx);
-          if (IsSet(orig_set, sample_uidx)) {
-            ClearBit(sample_uidx, dosagepresent);
+          const uintptr_t lowbit2 = BitIter1y(dosagepresent, &sample_widx, &cur_bits);
+          if (orig_set[sample_widx] & lowbit2) {
+            dosagepresent[sample_widx] ^= lowbit2;
           } else {
             dosage_main[dosage_write_idx++] = dosage_main[dosage_read_idx];
           }
@@ -1424,9 +1428,10 @@ void SetMaleHetMissing(const uintptr_t* __restrict sex_male_interleaved, uint32_
 
 void EraseMaleHetDosages(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main) {
   const uint32_t orig_write_dosage_ct = *write_dosage_ct_ptr;
-  uint32_t sample_uidx = 0;
-  for (uint32_t dosage_read_idx = 0; dosage_read_idx != orig_write_dosage_ct; ++dosage_read_idx, ++sample_uidx) {
-    MovU32To1Bit(dosagepresent, &sample_uidx);
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = dosagepresent[0];
+  for (uint32_t dosage_read_idx = 0; dosage_read_idx != orig_write_dosage_ct; ++dosage_read_idx) {
+    const uintptr_t sample_uidx = BitIter1(dosagepresent, &sample_uidx_base, &cur_bits);
     if (IsSet(sex_male, sample_uidx) && (GetQuaterarrEntry(genovec, sample_uidx) == 1)) {
       ClearBit(sample_uidx, dosagepresent);
       uint32_t dosage_write_idx = dosage_read_idx;
@@ -1434,10 +1439,9 @@ void EraseMaleHetDosages(const uintptr_t* __restrict sex_male, const uintptr_t* 
         if (++dosage_read_idx == orig_write_dosage_ct) {
           break;
         }
-        ++sample_uidx;
-        MovU32To1Bit(dosagepresent, &sample_uidx);
-        if (IsSet(sex_male, sample_uidx) && (GetQuaterarrEntry(genovec, sample_uidx) == 1)) {
-          ClearBit(sample_uidx, dosagepresent);
+        const uintptr_t sample_uidx2 = BitIter1(dosagepresent, &sample_uidx_base, &cur_bits);
+        if (IsSet(sex_male, sample_uidx2) && (GetQuaterarrEntry(genovec, sample_uidx2) == 1)) {
+          ClearBit(sample_uidx2, dosagepresent);
         } else {
           dosage_main[dosage_write_idx++] = dosage_main[dosage_read_idx];
         }
@@ -1450,20 +1454,20 @@ void EraseMaleHetDosages(const uintptr_t* __restrict sex_male, const uintptr_t* 
 
 void EraseMaleDphases(const uintptr_t* __restrict sex_male, uint32_t* __restrict write_dphase_ct_ptr, uintptr_t* __restrict dphasepresent, SDosage* dphase_delta) {
   const uint32_t orig_write_dphase_ct = *write_dphase_ct_ptr;
-  uint32_t sample_uidx = 0;
-  for (uint32_t dphase_read_idx = 0; dphase_read_idx != orig_write_dphase_ct; ++dphase_read_idx, ++sample_uidx) {
-    MovU32To1Bit(dphasepresent, &sample_uidx);
-    if (IsSet(sex_male, sample_uidx)) {
-      ClearBit(sample_uidx, dphasepresent);
+  uintptr_t sample_widx = 0;
+  uintptr_t cur_bits = dphasepresent[0];
+  for (uint32_t dphase_read_idx = 0; dphase_read_idx != orig_write_dphase_ct; ++dphase_read_idx) {
+    const uintptr_t lowbit = BitIter1y(dphasepresent, &sample_widx, &cur_bits);
+    if (sex_male[sample_widx] & lowbit) {
+      dphasepresent[sample_widx] ^= lowbit;
       uint32_t dphase_write_idx = dphase_read_idx;
       while (1) {
         if (++dphase_read_idx == orig_write_dphase_ct) {
           break;
         }
-        ++sample_uidx;
-        MovU32To1Bit(dphasepresent, &sample_uidx);
-        if (IsSet(sex_male, sample_uidx)) {
-          ClearBit(sample_uidx, dphasepresent);
+        const uintptr_t lowbit2 = BitIter1y(dphasepresent, &sample_widx, &cur_bits);
+        if (sex_male[sample_widx] & lowbit2) {
+          dphasepresent[sample_widx] ^= lowbit2;
         } else {
           dphase_delta[dphase_write_idx++] = dphase_delta[dphase_read_idx];
         }
@@ -1823,13 +1827,14 @@ uint32_t IsConstCovar(const PhenoCol* covar_col, const uintptr_t* sample_include
   if (sample_ct < 2) {
     return 1;
   }
-  uint32_t sample_uidx = AdvTo1Bit(sample_include, 0);
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = sample_include[0];
+  const uintptr_t initial_sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
   if (covar_col->type_code == kPhenoDtypeQt) {
     const double* covar_vals = covar_col->data.qt;
-    const double first_covar_val = covar_vals[sample_uidx];
+    const double first_covar_val = covar_vals[initial_sample_uidx];
     for (uint32_t sample_idx = 1; sample_idx != sample_ct; ++sample_idx) {
-      ++sample_uidx;
-      MovU32To1Bit(sample_include, &sample_uidx);
+      const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
       if (covar_vals[sample_uidx] != first_covar_val) {
         return 0;
       }
@@ -1838,10 +1843,9 @@ uint32_t IsConstCovar(const PhenoCol* covar_col, const uintptr_t* sample_include
   }
   assert(covar_col->type_code == kPhenoDtypeCat);
   const uint32_t* covar_cats = covar_col->data.cat;
-  const uint32_t first_covar_cat = covar_cats[sample_uidx];
+  const uint32_t first_covar_cat = covar_cats[initial_sample_uidx];
   for (uint32_t sample_idx = 1; sample_idx != sample_ct; ++sample_idx) {
-    ++sample_uidx;
-    MovU32To1Bit(sample_include, &sample_uidx);
+    const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
     if (covar_cats[sample_uidx] != first_covar_cat) {
       return 0;
     }
@@ -1855,9 +1859,10 @@ uint32_t IdentifyRemainingCats(const uintptr_t* sample_include, const PhenoCol* 
   const uint32_t* covar_cats = covar_col->data.cat;
   const uint32_t word_ct = 1 + (nonnull_cat_ct / kBitsPerWord);
   ZeroWArr(word_ct, observed_cat_bitarr);
-  uint32_t sample_uidx = 0;
-  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
-    MovU32To1Bit(sample_include, &sample_uidx);
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = sample_include[0];
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
     SetBit(covar_cats[sample_uidx], observed_cat_bitarr);
   }
   return PopcountWords(observed_cat_bitarr, word_ct);
@@ -1866,9 +1871,10 @@ uint32_t IdentifyRemainingCats(const uintptr_t* sample_include, const PhenoCol* 
 uint32_t GetCatSamples(const uintptr_t* sample_include_base, const PhenoCol* cat_pheno_col, uint32_t raw_sample_ctl, uint32_t sample_ct, uint32_t cat_uidx, uintptr_t* cur_cat_samples) {
   ZeroWArr(raw_sample_ctl, cur_cat_samples);
   const uint32_t* cat_vals = cat_pheno_col->data.cat;
-  uint32_t sample_uidx = 0;
-  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
-    MovU32To1Bit(sample_include_base, &sample_uidx);
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = sample_include_base[0];
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    const uintptr_t sample_uidx = BitIter1(sample_include_base, &sample_uidx_base, &cur_bits);
     if (cat_vals[sample_uidx] == cat_uidx) {
       SetBit(sample_uidx, cur_cat_samples);
     }
@@ -2229,9 +2235,10 @@ PglErr WriteSampleIdsOverride(const uintptr_t* sample_include, const SampleIdInf
       }
       sids = nullptr;
     }
-    uintptr_t sample_uidx = 0;
-    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx, ++sample_uidx) {
-      MovWTo1Bit(sample_include, &sample_uidx);
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t cur_bits = sample_include[0];
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
       write_iter = strcpya(write_iter, &(sample_ids[sample_uidx * max_sample_id_blen]));
       if (sids) {
         *write_iter++ = '\t';

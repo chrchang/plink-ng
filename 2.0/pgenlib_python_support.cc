@@ -123,10 +123,11 @@ void GenoarrPhasedToAlleleCodes(const uintptr_t* genoarr, const uintptr_t* phase
   // phasebytes can be nullptr
   GenoarrToAlleleCodes(genoarr, sample_ct, allele_codes);
   uint64_t* allele_codes_alias64 = R_CAST(uint64_t*, allele_codes);
-  uint32_t sample_uidx = 0;
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = phasepresent[0];
   if (!phasebytes) {
-    for (uint32_t phased_idx = 0; phased_idx != phasepresent_ct; ++phased_idx, ++sample_uidx) {
-      MovU32To1Bit(phasepresent, &sample_uidx);
+    for (uint32_t phased_idx = 0; phased_idx != phasepresent_ct; ++phased_idx) {
+      const uintptr_t sample_uidx = BitIter1(phasepresent, &sample_uidx_base, &cur_bits);
       if (IsSet(phaseinfo, sample_uidx)) {
         // 1|0
         allele_codes_alias64[sample_uidx] = 1;
@@ -154,8 +155,8 @@ void GenoarrPhasedToAlleleCodes(const uintptr_t* genoarr, const uintptr_t* phase
     }
     write_walias[widx++] = qw;
   }
-  for (uint32_t phased_idx = 0; phased_idx != phasepresent_ct; ++phased_idx, ++sample_uidx) {
-    MovU32To1Bit(phasepresent, &sample_uidx);
+  for (uint32_t phased_idx = 0; phased_idx != phasepresent_ct; ++phased_idx) {
+    const uintptr_t sample_uidx = BitIter1(phasepresent, &sample_uidx_base, &cur_bits);
     phasebytes[sample_uidx] = 1;
     if (IsSet(phaseinfo, sample_uidx)) {
       allele_codes_alias64[sample_uidx] = 1;
@@ -219,9 +220,10 @@ void Dosage16ToFloatsMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_pr
   }
   if (dosage_ct) {
     const uint16_t* dosage_main_iter = dosage_main;
-    uint32_t sample_uidx = 0;
-    for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx, ++sample_uidx) {
-      MovU32To1Bit(dosage_present, &sample_uidx);
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t cur_bits = dosage_present[0];
+    for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+      const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &cur_bits);
       // multiply by 2^{-14}
       geno_float[sample_uidx] = S_CAST(float, *dosage_main_iter++) * S_CAST(float, 0.00006103515625);
     }
@@ -252,9 +254,10 @@ void Dosage16ToDoublesMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_p
   }
   if (dosage_ct) {
     const uint16_t* dosage_main_iter = dosage_main;
-    uint32_t sample_uidx = 0;
-    for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx, ++sample_uidx) {
-      MovU32To1Bit(dosage_present, &sample_uidx);
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t cur_bits = dosage_present[0];
+    for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+      const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &cur_bits);
       geno_double[sample_uidx] = S_CAST(double, *dosage_main_iter++) * 0.00006103515625;
     }
   }

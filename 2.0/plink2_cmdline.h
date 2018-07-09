@@ -1101,9 +1101,8 @@ HEADER_INLINE void ZeromovFArr(uintptr_t entry_ct, float** farr_ptr) {
 }
 
 
-// SetAllBits, IsSet, SetBit, ClearBit, AdvTo1Bit, AdvTo0Bit, MovU32To1Bit,
-// MovU32To0Bit, AdvBoundedTo1Bit, FindLast1BitBefore, AllWordsAreZero defined
-// in plink2_base.h
+// SetAllBits, IsSet, SetBit, ClearBit, AdvTo1Bit, AdvTo0Bit, AdvBoundedTo1Bit,
+// FindLast1BitBefore, AllWordsAreZero defined in plink2_base.h
 
 // Useful when we don't want to think about the signedness of a 32-bit int.
 HEADER_INLINE void SetBitI(int32_t loc, uintptr_t* bitarr) {
@@ -1117,12 +1116,6 @@ HEADER_INLINE void FlipBit(uintptr_t loc, uintptr_t* bitarr) {
 // "Nz" added to names to make it obvious these require positive len
 void FillBitsNz(uintptr_t start_idx, uintptr_t end_idx, uintptr_t* bitarr);
 void ClearBitsNz(uintptr_t start_idx, uintptr_t end_idx, uintptr_t* bitarr);
-
-HEADER_INLINE void MovWTo1Bit(const uintptr_t* __restrict bitarr, uintptr_t* __restrict loc_ptr) {
-  if (!IsSet(bitarr, *loc_ptr)) {
-    *loc_ptr = AdvTo1Bit(bitarr, *loc_ptr);
-  }
-}
 
 uintptr_t AdvBoundedTo0Bit(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil);
 
@@ -1180,9 +1173,10 @@ void BitvecAndNot2(const uintptr_t* __restrict include_bitvec, uintptr_t word_ct
 int32_t GetVariantUidxWithoutHtable(const char* idstr, const char* const* variant_ids, const uintptr_t* variant_include, uint32_t variant_ct);
 
 // copy_subset() doesn't exist since a loop of the form
-//   uint32_t uidx = 0;
-//   for (uint32_t idx = 0; idx != subset_size; ++idx, ++uidx) {
-//     MovU32To1Bit(subset_mask, &uidx);
+//   uintptr_t uidx_base = 0;
+//   uintptr_t cur_bits = subset_mask[0];
+//   for (uint32_t idx = 0; idx != subset_size; ++idx) {
+//     const uintptr_t uidx = BitIter1(subset_mask, &uidx_base, &cur_bits);
 //     *target_iter++ = source_arr[uidx];
 //   }
 // seems to compile better?

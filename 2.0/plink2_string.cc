@@ -789,10 +789,10 @@ uint32_t match_upper(const char* str_iter, const char* fixed_str) {
 CXXCONST_CP FirstPrecharFar(const char* str_iter, uint32_t char_code) {
   const uintptr_t starting_addr = R_CAST(uintptr_t, str_iter);
   const VecUc* str_viter = R_CAST(const VecUc*, RoundDownPow2(starting_addr, kBytesPerVec));
-  const VecUc vvec_all_char = vecuc_set1(char_code);
+  const VecUc vvec_add = vecuc_set1(128 - char_code);
   VecUc cur_vvec = *str_viter;
-  VecUc prechar_vvec = (cur_vvec < vvec_all_char);
-  uint32_t matching_bytes = vecuc_movemask(prechar_vvec);
+  VecUc non_prechar_vvec = vecuc_adds(cur_vvec, vvec_add);
+  uint32_t matching_bytes = ~vecuc_movemask(non_prechar_vvec);
   const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, str_viter);
   matching_bytes &= UINT32_MAX << leading_byte_ct;
   // This typically isn't *that* long-range, so the Memrchr()
@@ -800,8 +800,8 @@ CXXCONST_CP FirstPrecharFar(const char* str_iter, uint32_t char_code) {
   while (!matching_bytes) {
     ++str_viter;
     cur_vvec = *str_viter;
-    prechar_vvec = (cur_vvec < vvec_all_char);
-    matching_bytes = vecuc_movemask(prechar_vvec);
+    non_prechar_vvec = vecuc_adds(cur_vvec, vvec_add);
+    matching_bytes = ~vecuc_movemask(non_prechar_vvec);
   }
   const uint32_t byte_offset_in_vec = ctzu32(matching_bytes);
   return &(R_CAST(CXXCONST_CP, str_viter)[byte_offset_in_vec]);
@@ -1664,13 +1664,18 @@ CXXCONST_CP NextTokenMultFar(const char* str_iter, uint32_t ct) {
   VecUc tabspace_vvec = (cur_vvec == vvec_all_tab) | (cur_vvec == vvec_all_space);
   // Underlying intrinsics are _mm256_cmpeq_... and _mm256_cmpgt_...
   // So we don't really want to use <= or !=.
-  VecUc prespace_vvec = (cur_vvec < vvec_all_space);
+  // (Er, there's also an signed vs. unsigned comparison impedence mismatch:
+  // there is no unsigned version of _mm256_cmpgt_epi8.  So we don't really
+  // want to use gcc-vector-extension < at all here when we can use a mask to
+  // do the same job.)
+  const VecUc vvec_all96 = vecuc_set1(96);
+  VecUc post31_vvec = vecuc_adds(cur_vvec, vvec_all96);
   uint32_t delimiter_bytes = vecuc_movemask(tabspace_vvec);
-  uint32_t terminating_bytes = vecuc_movemask(prespace_vvec) & (~delimiter_bytes);
+  const uint32_t initial_nonterminating_bytes = vecuc_movemask(post31_vvec) | delimiter_bytes;
   const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, str_viter);
   uint32_t leading_mask = UINT32_MAX << leading_byte_ct;
   delimiter_bytes &= leading_mask;
-  terminating_bytes &= leading_mask;
+  uint32_t terminating_bytes = leading_mask & (~initial_nonterminating_bytes);
   uint32_t prev_delim_highbit = 0;
   while (1) {
     // The number of 0->1 + 1->0 bit transitions in x is
@@ -1693,9 +1698,9 @@ CXXCONST_CP NextTokenMultFar(const char* str_iter, uint32_t ct) {
     ++str_viter;
     cur_vvec = *str_viter;
     tabspace_vvec = (cur_vvec == vvec_all_tab) | (cur_vvec == vvec_all_space);
-    prespace_vvec = (cur_vvec < vvec_all_space);
+    post31_vvec = vecuc_adds(cur_vvec, vvec_all96);
     delimiter_bytes = vecuc_movemask(tabspace_vvec);
-    terminating_bytes = vecuc_movemask(prespace_vvec) & (~delimiter_bytes);
+    terminating_bytes = ~(vecuc_movemask(post31_vvec) | delimiter_bytes);
   }
 }
 
@@ -1709,15 +1714,14 @@ const char* TokenLexK0(const char* str_iter, const uint32_t* col_types, const ui
   const VecUc vvec_all_space = vecuc_set1(32);
   VecUc cur_vvec = *str_viter;
   VecUc tabspace_vvec = (cur_vvec == vvec_all_tab) | (cur_vvec == vvec_all_space);
-  // Underlying intrinsics are _mm256_cmpeq_... and _mm256_cmpgt_...
-  // So we don't really want to use <= or !=.
-  VecUc prespace_vvec = (cur_vvec < vvec_all_space);
+  const VecUc vvec_all96 = vecuc_set1(96);
+  VecUc post31_vvec = vecuc_adds(cur_vvec, vvec_all96);
   uint32_t delimiter_bytes = vecuc_movemask(tabspace_vvec);
-  uint32_t terminating_bytes = vecuc_movemask(prespace_vvec) & (~delimiter_bytes);
+  const uint32_t initial_nonterminating_bytes = vecuc_movemask(post31_vvec) | delimiter_bytes;
   const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, str_viter);
   uint32_t leading_mask = UINT32_MAX << leading_byte_ct;
   delimiter_bytes &= leading_mask;
-  terminating_bytes &= leading_mask;
+  uint32_t terminating_bytes = leading_mask & (~initial_nonterminating_bytes);
   uint32_t prev_delim_highbit = 0;
   if (!transition_bits_to_skip_p1) {
     // Special case: col_skips[0] can be zero.  When it is, str_iter must point
@@ -1745,13 +1749,17 @@ const char* TokenLexK0(const char* str_iter, const uint32_t* col_types, const ui
         // terminated by something other than tab/space.
         // cur_transitions is a misnomer here; we just need the bottom bit to
         // tell us where the token end is.
+
+        // 33..255 is a bit more annoying to check for efficiently than
+        // 32..255.
+        const VecUc vvec_all95 = vecuc_set1(95);
         cur_transitions &= cur_transitions - 1;
         cur_transitions |= terminating_bytes;
         while (!cur_transitions) {
           ++str_viter;
           cur_vvec = *str_viter;
-          VecUc postspace_vec = (vvec_all_space < cur_vvec);
-          cur_transitions = S_CAST(Vec8thUint, ~vecuc_movemask(postspace_vec));
+          const VecUc postspace_vvec = vecuc_adds(cur_vvec, vvec_all95);
+          cur_transitions = S_CAST(Vec8thUint, ~vecuc_movemask(postspace_vvec));
         }
         byte_offset_in_vec = ctzu32(cur_transitions);
         const char* token_end = &(R_CAST(const char*, str_viter)[byte_offset_in_vec]);
@@ -1768,9 +1776,9 @@ const char* TokenLexK0(const char* str_iter, const uint32_t* col_types, const ui
           ++str_viter;
           cur_vvec = *str_viter;
           tabspace_vvec = (cur_vvec == vvec_all_tab) | (cur_vvec == vvec_all_space);
-          prespace_vvec = (cur_vvec < vvec_all_space);
+          post31_vvec = vecuc_adds(cur_vvec, vvec_all96);
           delimiter_bytes = vecuc_movemask(tabspace_vvec);
-          terminating_bytes = vecuc_movemask(prespace_vvec) & (~delimiter_bytes);
+          terminating_bytes = ~(vecuc_movemask(post31_vvec) | delimiter_bytes);
         } while (!delimiter_bytes);
         cur_transitions = S_CAST(Vec8thUint, delimiter_bytes ^ (delimiter_bytes << 1));
         cur_transition_ct = PopcountVec8thUint(cur_transitions);
@@ -1791,9 +1799,9 @@ const char* TokenLexK0(const char* str_iter, const uint32_t* col_types, const ui
     ++str_viter;
     cur_vvec = *str_viter;
     tabspace_vvec = (cur_vvec == vvec_all_tab) | (cur_vvec == vvec_all_space);
-    prespace_vvec = (cur_vvec < vvec_all_space);
+    post31_vvec = vecuc_adds(cur_vvec, vvec_all96);
     delimiter_bytes = vecuc_movemask(tabspace_vvec);
-    terminating_bytes = vecuc_movemask(prespace_vvec) & (~delimiter_bytes);
+    terminating_bytes = ~(vecuc_movemask(post31_vvec) | delimiter_bytes);
   }
 }
 #endif  // USE_AVX2

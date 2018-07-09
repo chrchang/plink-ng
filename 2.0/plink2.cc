@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (3 Jul 2018)";
+  " (9 Jul 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -508,10 +508,11 @@ void ReportGenotypingRate(const uintptr_t* variant_include, const ChrInfo* cip, 
     variant_ct_y = PopcountBitRange(variant_include, y_start, y_end);
   }
   uint32_t y_thresh = y_start;
-  uint32_t variant_uidx = 0;
+  uintptr_t variant_uidx_base = 0;
+  uintptr_t cur_bits = variant_include[0];
   uint32_t is_y = 0;
-  for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
-    MovU32To1Bit(variant_include, &variant_uidx);
+  for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+    const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
     if (variant_uidx >= y_thresh) {
       if (is_y) {
         tot_y_missing = cur_tot_missing;
@@ -1533,8 +1534,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     unsigned char* bigstack_end_mark_varfilter = g_bigstack_end;
     while (1) {
       if (loop_cats_pheno_col) {
-        ++loop_cats_uidx;
-        MovU32To1Bit(loop_cats_cat_include, &loop_cats_uidx);
+        loop_cats_uidx = AdvTo1Bit(loop_cats_cat_include, loop_cats_uidx + 1);
         const char* catname = loop_cats_pheno_col->category_names[loop_cats_uidx];
         const uint32_t catname_slen = strlen(catname);
         if (unlikely(catname_slen + S_CAST(uintptr_t, loop_cats_outname_endp1_backup - outname) > (kPglFnamesize - kMaxOutfnameExtBlen))) {
@@ -1857,9 +1857,10 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               const uint32_t autosomal_variant_ct = variant_ct - hwe_x_ct - CountNonAutosomalVariants(variant_include, cip, !hwe_x_probs_needed, 1);
               uint32_t chr_fo_idx = 0;
               uint32_t chr_end = 0;
-              uint32_t variant_uidx = 0;
-              for (uint32_t variant_idx = 0; variant_idx != autosomal_variant_ct; ++variant_idx, ++variant_uidx) {
-                MovU32To1Bit(variant_include, &variant_uidx);
+              uintptr_t variant_uidx_base = 0;
+              uintptr_t cur_bits = variant_include[0];
+              for (uint32_t variant_idx = 0; variant_idx != autosomal_variant_ct; ++variant_idx) {
+                uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
                 if (variant_uidx >= chr_end) {
                   uint32_t chr_idx;
                   do {
@@ -1867,7 +1868,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
                     chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
                     chr_idx = cip->chr_file_order[chr_fo_idx];
                   } while ((variant_uidx >= chr_end) || IsSet(cip->haploid_mask, chr_idx));
-                  variant_uidx = AdvTo1Bit(variant_include, cip->chr_fo_vidx_start[chr_fo_idx]);
+                  BitIter1Start(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], &variant_uidx_base, &cur_bits);
+                  variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
                 }
                 const uint32_t cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
                 if (cur_allele_ct > 2) {
@@ -1875,9 +1877,9 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
                 }
               }
               if (hwe_x_ct) {
-                variant_uidx = x_start;
-                for (uint32_t variant_idx = 0; variant_idx != hwe_x_ct; ++variant_idx, ++variant_uidx) {
-                  MovU32To1Bit(variant_include, &variant_uidx);
+                BitIter1Start(variant_include, x_start, &variant_uidx_base, &cur_bits);
+                for (uint32_t variant_idx = 0; variant_idx != hwe_x_ct; ++variant_idx) {
+                  const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
                   const uint32_t cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
                   if (cur_allele_ct > 2) {
                     x_extra_allele_ct += cur_allele_ct - 1;
@@ -2215,9 +2217,10 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             if (skip_real_ref && (!nonref_flags)) {
               logerrputs("Warning: --maj-ref has no effect, since no provisional reference alleles are\npresent.  (Did you forget to add the 'force' modifier?)\n");
             } else {
-              uint32_t variant_uidx = 0;
-              for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
-                MovU32To1Bit(variant_include, &variant_uidx);
+              uintptr_t variant_uidx_base = 0;
+              uintptr_t cur_bits = variant_include[0];
+              for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+                const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
                 if (skip_real_ref && IsSet(nonref_flags, variant_uidx)) {
                   continue;
                 }

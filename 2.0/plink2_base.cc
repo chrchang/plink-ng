@@ -584,7 +584,9 @@ uintptr_t PopcountVecsAvx2(const VecW* bit_vvec, uintptr_t vec_ct) {
   VecW twos = vecw_setzero();
   VecW fours = vecw_setzero();
   VecW eights = vecw_setzero();
-  for (uintptr_t vec_idx = 0; vec_idx < vec_ct; vec_idx += 16) {
+  VecW prev_sad_result = vecw_setzero();
+  const uintptr_t vec_ct_a16 = RoundDownPow2(vec_ct, 16);
+  for (uintptr_t vec_idx = 0; vec_idx != vec_ct_a16; vec_idx += 16) {
     VecW twos_a = Csa256(bit_vvec[vec_idx + 0], bit_vvec[vec_idx + 1], &ones);
     VecW twos_b = Csa256(bit_vvec[vec_idx + 2], bit_vvec[vec_idx + 3], &ones);
     VecW fours_a = Csa256(twos_a, twos_b, &twos);
@@ -603,14 +605,67 @@ uintptr_t PopcountVecsAvx2(const VecW* bit_vvec, uintptr_t vec_ct) {
     fours_b = Csa256(twos_a, twos_b, &twos);
     const VecW eights_b = Csa256(fours_a, fours_b, &fours);
     const VecW sixteens = Csa256(eights_a, eights_b, &eights);
-    cnt = cnt + PopcountVecAvx2(sixteens);
+    cnt = cnt + prev_sad_result;
+    // work around high SAD latency
+    prev_sad_result = PopcountVecAvx2(sixteens);
   }
-  cnt = vecw_slli(cnt, 4);
+  bit_vvec = &(bit_vvec[vec_ct_a16]);
+  const uintptr_t remainder = vec_ct % 16;
+  cnt = cnt + prev_sad_result;
+  if (remainder < 12) {
+    cnt = vecw_slli(cnt, 4);
+    if (remainder) {
+      VecW popcnt1_acc = vecw_setzero();
+      VecW popcnt2_acc = vecw_setzero();
+      const VecW lookup1 = vecw_setr8(4, 5, 5, 6, 5, 6, 6, 7,
+                                      5, 6, 6, 7, 6, 7, 7, 8);
+      const VecW lookup2 = vecw_setr8(4, 3, 3, 2, 3, 2, 2, 1,
+                                      3, 2, 2, 1, 2, 1, 1, 0);
+
+      const VecW m4 = VCONST_W(kMask0F0F);
+      for (uintptr_t vec_idx = 0; vec_idx != remainder; ++vec_idx) {
+        const VecW vv = bit_vvec[vec_idx];
+        const VecW lo = vv & m4;
+        const VecW hi = vecw_srli(vv, 4) & m4;
+        popcnt1_acc = popcnt1_acc + vecw_shuffle8(lookup1, lo);
+        popcnt2_acc = popcnt2_acc + vecw_shuffle8(lookup2, hi);
+      }
+      cnt = cnt + vecw_sad(popcnt1_acc, popcnt2_acc);
+    }
+  } else {
+    VecW twos_a = Csa256(bit_vvec[0], bit_vvec[1], &ones);
+    VecW twos_b = Csa256(bit_vvec[2], bit_vvec[3], &ones);
+    VecW fours_a = Csa256(twos_a, twos_b, &twos);
+    twos_a = Csa256(bit_vvec[4], bit_vvec[5], &ones);
+    twos_b = Csa256(bit_vvec[6], bit_vvec[7], &ones);
+    VecW fours_b = Csa256(twos_a, twos_b, &twos);
+    const VecW eights_a = Csa256(fours_a, fours_b, &fours);
+    twos_a = Csa256(bit_vvec[8], bit_vvec[9], &ones);
+    twos_b = Csa256(bit_vvec[10], bit_vvec[11], &ones);
+    fours_a = Csa256(twos_a, twos_b, &twos);
+    twos_a = vecw_setzero();
+    if (remainder & 2) {
+      twos_a = Csa256(bit_vvec[12], bit_vvec[13], &ones);
+    }
+    twos_b = vecw_setzero();
+    if (remainder & 1) {
+      twos_b = CsaOne256(bit_vvec[remainder - 1], &ones);
+    }
+    fours_b = Csa256(twos_a, twos_b, &twos);
+    const VecW eights_b = Csa256(fours_a, fours_b, &fours);
+    const VecW sixteens = Csa256(eights_a, eights_b, &eights);
+    cnt = cnt + PopcountVecAvx2(sixteens);
+    cnt = vecw_slli(cnt, 4);
+  }
+  // Appears to be counterproductive to put multiple SAD instructions in
+  // flight.
+  // Compiler is smart enough that it's pointless to manually inline
+  // PopcountVecAvx2.  (Tried combining the 4 SAD calls into one, didn't help.)
   cnt = cnt + vecw_slli(PopcountVecAvx2(eights), 3);
   cnt = cnt + vecw_slli(PopcountVecAvx2(fours), 2);
   cnt = cnt + vecw_slli(PopcountVecAvx2(twos), 1);
   cnt = cnt + PopcountVecAvx2(ones);
-  return Hsum64(cnt);
+  return HsumW(cnt);
 }
 
 void ExpandBytearr(const void* __restrict compact_bitarr, const uintptr_t* __restrict expand_mask, uint32_t word_ct, uint32_t expand_size, uint32_t read_start_bit, uintptr_t* __restrict target) {
@@ -979,29 +1034,28 @@ void CopyBitarrSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* _
 }
 
 // Basic SSE2 implementation of Lauradoux/Walisch popcount.
-uintptr_t PopcountVecsNoSse42(const VecW* bit_vvec, uintptr_t vec_ct) {
+uintptr_t PopcountVecsNoAvx2(const VecW* bit_vvec, uintptr_t vec_ct) {
   // popcounts vptr[0..(vec_ct-1)].  Assumes vec_ct is a multiple of 3 (0 ok).
   assert(!(vec_ct % 3));
+  const VecW m0 = vecw_setzero();
   const VecW m1 = VCONST_W(kMask5555);
   const VecW m2 = VCONST_W(kMask3333);
   const VecW m4 = VCONST_W(kMask0F0F);
-  const VecW m8 = VCONST_W(kMask00FF);
   const VecW* bit_vvec_iter = bit_vvec;
-  uintptr_t tot = 0;
+  VecW prev_sad_result = vecw_setzero();
+  VecW acc = vecw_setzero();
+  uintptr_t cur_incr = 30;
   while (1) {
-    UniVec acc;
-    acc.vw = vecw_setzero();
-    const VecW* bit_vvec_stop;
     if (vec_ct < 30) {
       if (!vec_ct) {
-        return tot;
+        acc = acc + prev_sad_result;
+        return HsumW(acc);
       }
-      bit_vvec_stop = &(bit_vvec_iter[vec_ct]);
-      vec_ct = 0;
-    } else {
-      bit_vvec_stop = &(bit_vvec_iter[30]);
-      vec_ct -= 30;
+      cur_incr = vec_ct;
     }
+    VecW inner_acc = vecw_setzero();
+    const VecW* bit_vvec_stop = &(bit_vvec_iter[cur_incr]);
+    vec_ct -= cur_incr;
     do {
       VecW count1 = *bit_vvec_iter++;
       VecW count2 = *bit_vvec_iter++;
@@ -1021,10 +1075,15 @@ uintptr_t PopcountVecsNoSse42(const VecW* bit_vvec, uintptr_t vec_ct) {
       count1 = count1 + (count2 & m2) + (vecw_srli(count2, 2) & m2);
       // Accumulator stores sixteen 0-255 counts in parallel.
       // (32 in AVX2 case, 4 in 32-bit case)
-      acc.vw = acc.vw + (count1 & m4) + (vecw_srli(count1, 4) & m4);
+      inner_acc = inner_acc + (count1 & m4) + (vecw_srli(count1, 4) & m4);
     } while (bit_vvec_iter < bit_vvec_stop);
-    acc.vw = (acc.vw & m8) + (vecw_srli(acc.vw, 8) & m8);
-    tot += UniVecHsum16(acc);
+    // _mm_sad_epu8() has better throughput than the previous method of
+    // horizontal-summing the bytes in inner_acc, by enough to compensate for
+    // the loop length being reduced from 30 to 15 vectors, but it has high
+    // latency.  We work around that by waiting till the end of the next full
+    // loop iteration to actually use the SAD result.
+    acc = acc + prev_sad_result;
+    prev_sad_result = vecw_bytesum(inner_acc, m0);
   }
 }
 
@@ -1054,11 +1113,11 @@ void ExpandBytearr(const void* __restrict compact_bitarr, const uintptr_t* __res
       compact_word = compact_bitarr_alias[compact_widx];
     }
     for (; compact_idx_lowbits != loop_len; ++compact_idx_lowbits) {
-      const uint32_t write_uidx_lowbits = BitIter1x(expand_mask, &write_widx, &expand_mask_bits);
+      const uintptr_t lowbit = BitIter1y(expand_mask, &write_widx, &expand_mask_bits);
       // bugfix: can't just use (compact_word & 1) and compact_word >>= 1,
       // since we may skip the first bit on the first loop iteration
       if ((compact_word >> compact_idx_lowbits) & 1) {
-        target[write_widx] |= k1LU << write_uidx_lowbits;
+        target[write_widx] |= lowbit;
       }
     }
     compact_idx_lowbits = 0;
@@ -1168,11 +1227,10 @@ void ExpandBytearrNested(const void* __restrict compact_bitarr, const uintptr_t*
       compact_word = compact_bitarr_alias[compact_widx];
     }
     for (uint32_t compact_idx_lowbits = 0; compact_idx_lowbits != loop_len; ++mid_idx) {
-      const uint32_t write_uidx_lowbits = BitIter1x(top_expand_mask, &write_widx, &top_expand_mask_bits);
+      const uintptr_t lowbit = BitIter1y(top_expand_mask, &write_widx, &top_expand_mask_bits);
       if (IsSet(mid_bitarr, mid_idx)) {
-        const uintptr_t new_bit = k1LU << write_uidx_lowbits;
-        mid_target[write_widx] |= new_bit;
-        compact_target[write_widx] |= new_bit * (compact_word & 1);
+        mid_target[write_widx] |= lowbit;
+        compact_target[write_widx] |= lowbit * (compact_word & 1);
         compact_word >>= 1;
         ++compact_idx_lowbits;
       }
