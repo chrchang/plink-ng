@@ -373,11 +373,12 @@ void RandomThinProb(const char* flagname_p, const char* unitname, double thin_ke
     return;
   }
   const uint32_t uint32_thresh = S_CAST(uint32_t, thin_keep_prob * 4294967296.0 + 0.5);
-  uint32_t item_uidx = 0;
-  for (uint32_t item_idx = 0; item_idx != orig_item_ct; ++item_idx, ++item_uidx) {
-    MovU32To1Bit(item_include, &item_uidx);
+  uintptr_t item_widx = 0;
+  uintptr_t cur_bits = item_include[0];
+  for (uint32_t item_idx = 0; item_idx != orig_item_ct; ++item_idx) {
+    const uintptr_t lowbit = BitIter1y(item_include, &item_widx, &cur_bits);
     if (sfmt_genrand_uint32(&g_sfmt) >= uint32_thresh) {
-      ClearBit(item_uidx, item_include);
+      item_include[item_widx] ^= lowbit;
     }
   }
   const uint32_t new_item_ct = PopcountWords(item_include, BitCtToWordCt(raw_item_ct));
@@ -457,9 +458,10 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
               bigstack_alloc_c(orig_sample_ct * max_xid_blen, &sorted_xidbox))) {
         goto KeepOrRemove_ret_NOMEM;
       }
-      uint32_t sample_uidx = 0;
-      for (uint32_t sample_idx = 0; sample_idx != orig_sample_ct; ++sample_idx, ++sample_uidx) {
-        MovU32To1Bit(sample_include, &sample_uidx);
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t cur_bits = sample_include[0];
+      for (uint32_t sample_idx = 0; sample_idx != orig_sample_ct; ++sample_idx) {
+        const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
         const char* fidt_ptr = &(sample_ids[sample_uidx * max_sample_id_blen]);
         const char* fidt_end = AdvPastDelim(fidt_ptr, '\t');
         const uint32_t cur_fidt_slen = fidt_end - fidt_ptr;
@@ -916,51 +918,52 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
         binary_op = S_CAST(CmpBinaryOp, kCmpOperatorEq - S_CAST(uint32_t, binary_op));
       }
       const double* pheno_vals = cur_pheno_col->data.qt;
-      uint32_t sample_uidx = 0;
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t cur_bits = sample_include_intersect[0];
       switch (binary_op) {
         case kCmpOperatorNoteq:
-          for (uint32_t sample_idx = 0; sample_idx != sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-            MovU32To1Bit(sample_include_intersect, &sample_uidx);
+          for (uint32_t sample_idx = 0; sample_idx != sample_intersect_ct; ++sample_idx) {
+            const uintptr_t sample_uidx = BitIter1(sample_include_intersect, &sample_uidx_base, &cur_bits);
             if (pheno_vals[sample_uidx] == val) {
               ClearBit(sample_uidx, sample_include);
             }
           }
           break;
         case kCmpOperatorLe:
-          for (uint32_t sample_idx = 0; sample_idx != sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-            MovU32To1Bit(sample_include_intersect, &sample_uidx);
+          for (uint32_t sample_idx = 0; sample_idx != sample_intersect_ct; ++sample_idx) {
+            const uintptr_t sample_uidx = BitIter1(sample_include_intersect, &sample_uidx_base, &cur_bits);
             if (pheno_vals[sample_uidx] >= val) {
               ClearBit(sample_uidx, sample_include);
             }
           }
           break;
         case kCmpOperatorLeq:
-          for (uint32_t sample_idx = 0; sample_idx != sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-            MovU32To1Bit(sample_include_intersect, &sample_uidx);
+          for (uint32_t sample_idx = 0; sample_idx != sample_intersect_ct; ++sample_idx) {
+            const uintptr_t sample_uidx = BitIter1(sample_include_intersect, &sample_uidx_base, &cur_bits);
             if (pheno_vals[sample_uidx] > val) {
               ClearBit(sample_uidx, sample_include);
             }
           }
           break;
         case kCmpOperatorGe:
-          for (uint32_t sample_idx = 0; sample_idx != sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-            MovU32To1Bit(sample_include_intersect, &sample_uidx);
+          for (uint32_t sample_idx = 0; sample_idx != sample_intersect_ct; ++sample_idx) {
+            const uintptr_t sample_uidx = BitIter1(sample_include_intersect, &sample_uidx_base, &cur_bits);
             if (pheno_vals[sample_uidx] <= val) {
               ClearBit(sample_uidx, sample_include);
             }
           }
           break;
         case kCmpOperatorGeq:
-          for (uint32_t sample_idx = 0; sample_idx != sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-            MovU32To1Bit(sample_include_intersect, &sample_uidx);
+          for (uint32_t sample_idx = 0; sample_idx != sample_intersect_ct; ++sample_idx) {
+            const uintptr_t sample_uidx = BitIter1(sample_include_intersect, &sample_uidx_base, &cur_bits);
             if (pheno_vals[sample_uidx] < val) {
               ClearBit(sample_uidx, sample_include);
             }
           }
           break;
         case kCmpOperatorEq:
-          for (uint32_t sample_idx = 0; sample_idx != sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-            MovU32To1Bit(sample_include_intersect, &sample_uidx);
+          for (uint32_t sample_idx = 0; sample_idx != sample_intersect_ct; ++sample_idx) {
+            const uintptr_t sample_uidx = BitIter1(sample_include_intersect, &sample_uidx_base, &cur_bits);
             if (pheno_vals[sample_uidx] != val) {
               ClearBit(sample_uidx, sample_include);
             }
@@ -1020,17 +1023,18 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
           }
         } else {
           const uint32_t* cur_cats = cur_pheno_col->data.cat;
-          uint32_t sample_uidx = 0;
+          uintptr_t sample_uidx_base = 0;
+          uintptr_t cur_bits = sample_include_intersect[0];
           if (pheno_must_exist) {
-            for (uint32_t sample_idx = 0; sample_idx != sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-              MovU32To1Bit(sample_include_intersect, &sample_uidx);
+            for (uint32_t sample_idx = 0; sample_idx != sample_intersect_ct; ++sample_idx) {
+              const uintptr_t sample_uidx = BitIter1(sample_include_intersect, &sample_uidx_base, &cur_bits);
               if (cur_cats[sample_uidx] != cat_idx) {
                 ClearBit(sample_uidx, sample_include);
               }
             }
           } else {
-            for (uint32_t sample_idx = 0; sample_idx != sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-              MovU32To1Bit(sample_include_intersect, &sample_uidx);
+            for (uint32_t sample_idx = 0; sample_idx != sample_intersect_ct; ++sample_idx) {
+              const uintptr_t sample_uidx = BitIter1(sample_include_intersect, &sample_uidx_base, &cur_bits);
               if (cur_cats[sample_uidx] == cat_idx) {
                 ClearBit(sample_uidx, sample_include);
               }
@@ -1148,9 +1152,10 @@ PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fn
       logerrprintf("Warning: No matching --%s-cat-names category names.\n", is_remove? "remove-cats/--remove" : "keep-cats/--keep");
     } else {
       const uint32_t* cur_cats = cur_pheno_col->data.cat;
-      uint32_t sample_uidx = 0;
-      for (uint32_t sample_idx = 0; sample_idx != orig_sample_ct; ++sample_idx, ++sample_uidx) {
-        MovU32To1Bit(sample_include, &sample_uidx);
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t cur_bits = sample_include[0];
+      for (uint32_t sample_idx = 0; sample_idx != orig_sample_ct; ++sample_idx) {
+        const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
         const uint32_t cur_cat_idx = cur_cats[sample_uidx];
         if (IsSet(cat_include, cur_cat_idx)) {
           SetBit(sample_uidx, affected_samples);
@@ -1289,9 +1294,10 @@ void ComputeAlleleFreqs(const uintptr_t* variant_include, const uintptr_t* allel
   // ok for maj_alleles or allele_freqs to be nullptr
   // note that founder_allele_dosages is in 32768ths
   uint32_t cur_allele_ct = 2;
-  uint32_t variant_uidx = 0;
-  for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
-    MovU32To1Bit(variant_include, &variant_uidx);
+  uintptr_t variant_uidx_base = 0;
+  uintptr_t cur_bits = variant_include[0];
+  for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+    const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
     uintptr_t allele_idx_offset_base;
     if (!allele_idx_offsets) {
       allele_idx_offset_base = 2 * variant_uidx;
@@ -1928,9 +1934,10 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
             }
             if (cur_loaded_allele_code_slen <= max_allele_slen) {
               const uint32_t cur_blen = cur_loaded_allele_code_slen + 1;
-              uint32_t internal_allele_idx = 0;
-              for (uint32_t unmatched_allele_idx = 0; unmatched_allele_idx != unmatched_allele_ct; ++unmatched_allele_idx, ++internal_allele_idx) {
-                MovU32To0Bit(matched_internal_alleles, &internal_allele_idx);
+              uintptr_t internal_allele_idx_base = 0;
+              uintptr_t cur_inv_bits = ~matched_internal_alleles[0];
+              for (uint32_t unmatched_allele_idx = 0; unmatched_allele_idx != unmatched_allele_ct; ++unmatched_allele_idx) {
+                const uintptr_t internal_allele_idx = BitIter0(matched_internal_alleles, &internal_allele_idx_base, &cur_inv_bits);
                 if (memequal(cur_loaded_allele_code, cur_alleles[internal_allele_idx], cur_blen)) {
                   if (unlikely(IsSet(matched_internal_alleles, internal_allele_idx))) {
                     snprintf(g_logbuf, kLogbufSize, "Error: Duplicate allele code on line %" PRIuPTR " of --read-freq file.\n", line_idx);
@@ -2421,9 +2428,10 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
 
 void ComputeMajAlleles(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t variant_ct, AlleleCode* maj_alleles) {
   uint32_t cur_allele_ct = 2;
-  uint32_t variant_uidx = 0;
-  for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx, ++variant_uidx) {
-    MovU32To1Bit(variant_include, &variant_uidx);
+  uintptr_t variant_uidx_base = 0;
+  uintptr_t cur_bits = variant_include[0];
+  for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+    const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
     uintptr_t allele_idx_base;
     if (!allele_idx_offsets) {
       allele_idx_base = variant_uidx;
@@ -2499,13 +2507,15 @@ THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* arg) {
     const uint32_t is_last_block = g_is_last_thread_block;
     const uint32_t cur_block_size = g_cur_block_size;
     const uint32_t cur_idx_ct = (((tidx + 1) * cur_block_size) / calc_thread_ct) - ((tidx * cur_block_size) / calc_thread_ct);
-    uint32_t variant_uidx = g_read_variant_uidx_starts[tidx];
+    uintptr_t variant_uidx_base;
+    uintptr_t cur_bits;
+    BitIter1Start(variant_include, g_read_variant_uidx_starts[tidx], &variant_uidx_base, &cur_bits);
     uint32_t chr_end = 0;
     uintptr_t* cur_hets = nullptr;
     uint32_t is_diploid_x = 0;
     uint32_t is_y = 0;
-    for (uint32_t cur_idx = 0; cur_idx != cur_idx_ct; ++cur_idx, ++variant_uidx) {
-      MovU32To1Bit(variant_include, &variant_uidx);
+    for (uint32_t cur_idx = 0; cur_idx != cur_idx_ct; ++cur_idx) {
+      const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
       if (variant_uidx >= chr_end) {
         const uint32_t chr_fo_idx = GetVariantChrFoIdx(cip, variant_uidx);
         const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
@@ -2795,9 +2805,10 @@ PglErr MindFilter(const uint32_t* sample_missing_cts, const uint32_t* sample_het
     if (unlikely(bigstack_calloc_w(raw_sample_ctl, &newly_excluded))) {
       goto MindFilter_ret_NOMEM;
     }
-    uint32_t sample_uidx = 0;
-    for (uint32_t sample_idx = 0; sample_idx != orig_sample_ct; ++sample_idx, ++sample_uidx) {
-      MovU32To1Bit(sample_include, &sample_uidx);
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t cur_bits = sample_include[0];
+    for (uint32_t sample_idx = 0; sample_idx != orig_sample_ct; ++sample_idx) {
+      const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
       uint32_t cur_missing_geno_ct = sample_missing_cts[sample_uidx];
       if (sample_hethap_cts) {
         cur_missing_geno_ct += sample_hethap_cts[sample_uidx];
@@ -2839,7 +2850,6 @@ void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, 
   const uint32_t missing_max_ct_y = S_CAST(int32_t, geno_thresh * u31tod(male_ct));
   uint32_t cur_missing_max_ct = missing_max_ct_nony;
   uint32_t removed_ct = 0;
-  uint32_t variant_uidx = 0;
   uint32_t y_thresh = UINT32_MAX;
   uint32_t y_end = UINT32_MAX;
   uint32_t y_code;
@@ -2848,8 +2858,10 @@ void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, 
     y_thresh = cip->chr_fo_vidx_start[y_chr_fo_idx];
     y_end = cip->chr_fo_vidx_start[y_chr_fo_idx + 1];
   }
-  for (uint32_t variant_idx = 0; variant_idx != prefilter_variant_ct; ++variant_idx, ++variant_uidx) {
-    MovU32To1Bit(variant_include, &variant_uidx);
+  uintptr_t variant_uidx_base = 0;
+  uintptr_t cur_bits = variant_include[0];
+  for (uint32_t variant_idx = 0; variant_idx != prefilter_variant_ct; ++variant_idx) {
+    const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
     if (variant_uidx >= y_thresh) {
       if (variant_uidx < y_end) {
         y_thresh = y_end;
@@ -2892,7 +2904,6 @@ void EnforceHweThresh(const ChrInfo* cip, const STD_ARRAY_PTR_DECL(uint32_t, 3, 
   const uint32_t keep_fewhet = (misc_flags / kfMiscHweKeepFewhet) & 1;
   hwe_thresh *= 1 - kSmallEpsilon;
   uint32_t removed_ct = 0;
-  uint32_t variant_uidx = 0;
   uint32_t min_obs = UINT32_MAX;
   uint32_t max_obs = 0;
   uint32_t is_x = 0;
@@ -2900,8 +2911,10 @@ void EnforceHweThresh(const ChrInfo* cip, const STD_ARRAY_PTR_DECL(uint32_t, 3, 
   uint32_t male_alt_ct = 0;
   const double* hwe_x_pvals_iter = hwe_x_pvals;
   const double hwe_thresh_recip = (1 + 4 * kSmallEpsilon) / hwe_thresh;
-  for (uint32_t variant_idx = 0; variant_idx != prefilter_variant_ct; ++variant_idx, ++variant_uidx) {
-    MovU32To1Bit(variant_include, &variant_uidx);
+  uintptr_t variant_uidx_base = 0;
+  uintptr_t cur_bits = variant_include[0];
+  for (uint32_t variant_idx = 0; variant_idx != prefilter_variant_ct; ++variant_idx) {
+    uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
     if (variant_uidx >= x_thresh) {
       is_x = (variant_uidx < x_end);
       if (is_x) {
@@ -2910,7 +2923,8 @@ void EnforceHweThresh(const ChrInfo* cip, const STD_ARRAY_PTR_DECL(uint32_t, 3, 
         } else {
           is_x = 0;
           x_thresh = UINT32_MAX;
-          variant_uidx = AdvTo1Bit(variant_include, x_end);
+          BitIter1Start(variant_include, x_end, &variant_uidx_base, &cur_bits);
+          variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
         }
       } else {
         x_thresh = UINT32_MAX;
@@ -2993,7 +3007,6 @@ void EnforceHweThresh(const ChrInfo* cip, const STD_ARRAY_PTR_DECL(uint32_t, 3, 
 
 void EnforceMinorFreqConstraints(const uintptr_t* allele_idx_offsets, const uint64_t* founder_allele_dosages, const double* allele_freqs, double min_maf, double max_maf, uint64_t min_allele_dosage, uint64_t max_allele_dosage, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   const uint32_t prefilter_variant_ct = *variant_ct_ptr;
-  uint32_t variant_uidx = 0;
   uint32_t removed_ct = 0;
   if ((min_maf != 0.0) || (max_maf != 1.0)) {
     // defend against floating point error
@@ -3004,9 +3017,11 @@ void EnforceMinorFreqConstraints(const uintptr_t* allele_idx_offsets, const uint
   }
   const uint32_t dosage_filter = min_allele_dosage || (max_allele_dosage != (~0LLU));
 
+  uintptr_t variant_uidx_base = 0;
+  uintptr_t cur_bits = variant_include[0];
   uint32_t cur_allele_ct = 2;
-  for (uint32_t variant_idx = 0; variant_idx != prefilter_variant_ct; ++variant_idx, ++variant_uidx) {
-    MovU32To1Bit(variant_include, &variant_uidx);
+  for (uint32_t variant_idx = 0; variant_idx != prefilter_variant_ct; ++variant_idx) {
+    const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
     uintptr_t allele_idx_offset_base;
     if (!allele_idx_offsets) {
       allele_idx_offset_base = 2 * variant_uidx;
@@ -3054,7 +3069,6 @@ void EnforceMachR2Thresh(const ChrInfo* cip, const double* mach_r2_vals, double 
   mach_r2_min *= 1 - kSmallEpsilon;
   mach_r2_max *= 1 + kSmallEpsilon;
   uint32_t removed_ct = 0;
-  uint32_t variant_uidx = 0;
   uint32_t relevant_variant_ct = prefilter_variant_ct;
   // skip X, MT
   uint32_t x_code;
@@ -3067,17 +3081,25 @@ void EnforceMachR2Thresh(const ChrInfo* cip, const double* mach_r2_vals, double 
     const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[mt_code];
     relevant_variant_ct -= PopcountBitRange(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1]);
   }
+  uintptr_t variant_uidx_base = 0;
+  uintptr_t cur_bits = variant_include[0];
   uint32_t chr_fo_idx = UINT32_MAX;
   uint32_t chr_end = 0;
-  for (uint32_t variant_idx = 0; variant_idx != relevant_variant_ct; ++variant_idx, ++variant_uidx) {
-    MovU32To1Bit(variant_include, &variant_uidx);
-    while (variant_uidx >= chr_end) {
-      uint32_t chr_idx;
+  for (uint32_t variant_idx = 0; variant_idx != relevant_variant_ct; ++variant_idx) {
+    uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+    if (variant_uidx >= chr_end) {
       do {
-        chr_idx = cip->chr_file_order[++chr_fo_idx];
-      } while ((chr_idx != x_code) && (chr_idx != mt_code));
-      chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-      variant_uidx = AdvBoundedTo1Bit(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], chr_end);
+        uint32_t chr_idx;
+        do {
+          chr_idx = cip->chr_file_order[++chr_fo_idx];
+          // bugfix (9 Jul 2018): this boolean condition was reversed
+        } while ((chr_idx == x_code) || (chr_idx == mt_code));
+        chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+        variant_uidx = AdvBoundedTo1Bit(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], chr_end);
+      } while (variant_uidx >= chr_end);
+      const uint32_t variant_widx = variant_uidx / kBitsPerWord;
+      variant_uidx_base = variant_widx * kBitsPerWord;
+      cur_bits = variant_include[variant_widx] & ((~k1LU) << (variant_uidx % kBitsPerWord));
     }
     const double cur_mach_r2 = mach_r2_vals[variant_uidx];
     if ((cur_mach_r2 < mach_r2_min) || (cur_mach_r2 > mach_r2_max)) {
@@ -3091,13 +3113,14 @@ void EnforceMachR2Thresh(const ChrInfo* cip, const double* mach_r2_vals, double 
 
 void EnforceMinBpSpace(const ChrInfo* cip, const uint32_t* variant_bps, uint32_t min_bp_space, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   const uint32_t orig_variant_ct = *variant_ct_ptr;
-  uint32_t variant_uidx = 0;
+  uintptr_t variant_uidx_base = 0;
+  uintptr_t cur_bits = variant_include[0];
   uint32_t chr_fo_idx_p1 = 0;
   uint32_t chr_end = 0;
   uint32_t last_bp = 0;
   uint32_t removed_ct = 0;
-  for (uint32_t variant_idx = 0; variant_idx != orig_variant_ct; ++variant_idx, ++variant_uidx) {
-    MovU32To1Bit(variant_include, &variant_uidx);
+  for (uint32_t variant_idx = 0; variant_idx != orig_variant_ct; ++variant_idx) {
+    const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
     const uint32_t cur_bp = variant_bps[variant_uidx];
     if (variant_uidx >= chr_end) {
       do {
@@ -3475,7 +3498,10 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
 }
 
 PglErr RefFromFaProcessContig(const uintptr_t* variant_include, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const ChrInfo* cip, uint32_t force, uint32_t chr_fo_idx, uint32_t variant_uidx_last, char* seqbuf, char* seqbuf_end, STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uintptr_t* nonref_flags, uint32_t* changed_ct_ptr, uint32_t* validated_ct_ptr, uint32_t* downgraded_ct_ptr) {
-  uint32_t variant_uidx = AdvTo1Bit(variant_include, cip->chr_fo_vidx_start[chr_fo_idx]);
+  uintptr_t variant_uidx_base;
+  uintptr_t cur_bits;
+  BitIter1Start(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], &variant_uidx_base, &cur_bits);
+  uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
   const uint32_t bp_end = seqbuf_end - seqbuf;
   if (variant_bps[variant_uidx_last] >= bp_end) {
     const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
@@ -3603,8 +3629,7 @@ PglErr RefFromFaProcessContig(const uintptr_t* variant_include, const uint32_t* 
       *validated_ct_ptr = validated_ct;
       return kPglRetSuccess;
     }
-    ++variant_uidx;
-    MovU32To1Bit(variant_include, &variant_uidx);
+    variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
   }
 }
 

@@ -436,30 +436,25 @@ void Count3FreqVec6(const VecW* geno_vvec, uint32_t vec_ct, uint32_t* __restrict
   const VecW m2 = VCONST_W(kMask3333);
   const VecW m4 = VCONST_W(kMask0F0F);
   const VecW* geno_vvec_iter = geno_vvec;
-  uint32_t even_ct = 0;
-  uint32_t odd_ct = 0;
-  uint32_t bothset_ct = 0;
+  VecW acc_even = vecw_setzero();
+  VecW acc_odd = vecw_setzero();
+  VecW acc_bothset = vecw_setzero();
+  uintptr_t cur_incr = 60;
   while (1) {
-    UniVec acc_even;
-    UniVec acc_odd;
-    UniVec acc_bothset;
-    acc_even.vw = vecw_setzero();
-    acc_odd.vw = vecw_setzero();
-    acc_bothset.vw = vecw_setzero();
-    const VecW* geno_vvec_stop;
     if (vec_ct < 60) {
       if (!vec_ct) {
-        *even_ctp = even_ct;
-        *odd_ctp = odd_ct;
-        *bothset_ctp = bothset_ct;
+        *even_ctp = HsumW(acc_even);
+        *odd_ctp = HsumW(acc_odd);
+        *bothset_ctp = HsumW(acc_bothset);
         return;
       }
-      geno_vvec_stop = &(geno_vvec_iter[vec_ct]);
-      vec_ct = 0;
-    } else {
-      geno_vvec_stop = &(geno_vvec_iter[60]);
-      vec_ct -= 60;
+      cur_incr = vec_ct;
     }
+    VecW inner_acc_even = vecw_setzero();
+    VecW inner_acc_odd = vecw_setzero();
+    VecW inner_acc_bothset = vecw_setzero();
+    const VecW* geno_vvec_stop = &(geno_vvec_iter[cur_incr]);
+    vec_ct -= cur_incr;
     do {
       // hmm, this seems to have more linear dependence than I'd want, but the
       // reorderings I tried just made the code harder to read without helping,
@@ -507,17 +502,14 @@ void Count3FreqVec6(const VecW* geno_vvec, uint32_t vec_ct, uint32_t* __restrict
       bothset1 = bothset1 + (bothset2 & m2) + (vecw_srli(bothset2, 2) & m2);
       // these now contain 4-bit values from 0-12
 
-      acc_even.vw = acc_even.vw + (even1 & m4) + (vecw_srli(even1, 4) & m4);
-      acc_odd.vw = acc_odd.vw + (odd1 & m4) + (vecw_srli(odd1, 4) & m4);
-      acc_bothset.vw = acc_bothset.vw + (bothset1 & m4) + (vecw_srli(bothset1, 4) & m4);
+      inner_acc_even = inner_acc_even + (even1 & m4) + (vecw_srli(even1, 4) & m4);
+      inner_acc_odd = inner_acc_odd + (odd1 & m4) + (vecw_srli(odd1, 4) & m4);
+      inner_acc_bothset = inner_acc_bothset + (bothset1 & m4) + (vecw_srli(bothset1, 4) & m4);
     } while (geno_vvec_iter < geno_vvec_stop);
-    const VecW m8 = VCONST_W(kMask00FF);
-    acc_even.vw = (acc_even.vw & m8) + (vecw_srli(acc_even.vw, 8) & m8);
-    acc_odd.vw = (acc_odd.vw & m8) + (vecw_srli(acc_odd.vw, 8) & m8);
-    acc_bothset.vw = (acc_bothset.vw & m8) + (vecw_srli(acc_bothset.vw, 8) & m8);
-    even_ct += UniVecHsum16(acc_even);
-    odd_ct += UniVecHsum16(acc_odd);
-    bothset_ct += UniVecHsum16(acc_bothset);
+    const VecW m0 = vecw_setzero();
+    acc_even = acc_even + vecw_bytesum(inner_acc_even, m0);
+    acc_odd = acc_odd + vecw_bytesum(inner_acc_odd, m0);
+    acc_bothset = acc_bothset + vecw_bytesum(inner_acc_bothset, m0);
   }
 }
 
@@ -532,30 +524,25 @@ void CountSubset3FreqVec6(const VecW* __restrict geno_vvec, const VecW* __restri
   const VecW m4 = VCONST_W(kMask0F0F);
   const VecW* geno_vvec_iter = geno_vvec;
   const VecW* interleaved_mask_vvec_iter = interleaved_mask_vvec;
-  uint32_t even_ct = 0;
-  uint32_t odd_ct = 0;
-  uint32_t bothset_ct = 0;
+  VecW acc_even = vecw_setzero();
+  VecW acc_odd = vecw_setzero();
+  VecW acc_bothset = vecw_setzero();
+  uintptr_t cur_incr = 60;
   while (1) {
-    UniVec acc_even;
-    UniVec acc_odd;
-    UniVec acc_bothset;
-    acc_even.vw = vecw_setzero();
-    acc_odd.vw = vecw_setzero();
-    acc_bothset.vw = vecw_setzero();
-    const VecW* geno_vvec_stop;
     if (vec_ct < 60) {
       if (!vec_ct) {
-        *even_ctp = even_ct;
-        *odd_ctp = odd_ct;
-        *bothset_ctp = bothset_ct;
+        *even_ctp = HsumW(acc_even);
+        *odd_ctp = HsumW(acc_odd);
+        *bothset_ctp = HsumW(acc_bothset);
         return;
       }
-      geno_vvec_stop = &(geno_vvec_iter[vec_ct]);
-      vec_ct = 0;
-    } else {
-      geno_vvec_stop = &(geno_vvec_iter[60]);
-      vec_ct -= 60;
+      cur_incr = vec_ct;
     }
+    VecW inner_acc_even = vecw_setzero();
+    VecW inner_acc_odd = vecw_setzero();
+    VecW inner_acc_bothset = vecw_setzero();
+    const VecW* geno_vvec_stop = &(geno_vvec_iter[cur_incr]);
+    vec_ct -= cur_incr;
     do {
       VecW interleaved_mask_vword = *interleaved_mask_vvec_iter++;
       VecW cur_geno_vword = vecw_loadu(geno_vvec_iter);
@@ -615,42 +602,38 @@ void CountSubset3FreqVec6(const VecW* __restrict geno_vvec, const VecW* __restri
       bothset1 = bothset1 + (bothset2 & m2) + (vecw_srli(bothset2, 2) & m2);
       // these now contain 4-bit values from 0-12
 
-      acc_even.vw = acc_even.vw + (even1 & m4) + (vecw_srli(even1, 4) & m4);
-      acc_odd.vw = acc_odd.vw + (odd1 & m4) + (vecw_srli(odd1, 4) & m4);
-      acc_bothset.vw = acc_bothset.vw + (bothset1 & m4) + (vecw_srli(bothset1, 4) & m4);
+      inner_acc_even = inner_acc_even + (even1 & m4) + (vecw_srli(even1, 4) & m4);
+      inner_acc_odd = inner_acc_odd + (odd1 & m4) + (vecw_srli(odd1, 4) & m4);
+      inner_acc_bothset = inner_acc_bothset + (bothset1 & m4) + (vecw_srli(bothset1, 4) & m4);
     } while (geno_vvec_iter < geno_vvec_stop);
-    const VecW m8 = VCONST_W(kMask00FF);
-    acc_even.vw = (acc_even.vw & m8) + (vecw_srli(acc_even.vw, 8) & m8);
-    acc_odd.vw = (acc_odd.vw & m8) + (vecw_srli(acc_odd.vw, 8) & m8);
-    acc_bothset.vw = (acc_bothset.vw & m8) + (vecw_srli(acc_bothset.vw, 8) & m8);
-    even_ct += UniVecHsum16(acc_even);
-    odd_ct += UniVecHsum16(acc_odd);
-    bothset_ct += UniVecHsum16(acc_bothset);
+    const VecW m0 = vecw_setzero();
+    acc_even = acc_even + vecw_bytesum(inner_acc_even, m0);
+    acc_odd = acc_odd + vecw_bytesum(inner_acc_odd, m0);
+    acc_bothset = acc_bothset + vecw_bytesum(inner_acc_bothset, m0);
   }
 }
 
 uint32_t Count01Vec6(const VecW* geno_vvec, uint32_t vec_ct) {
   assert(!(vec_ct % 6));
+  const VecW m0 = vecw_setzero();
   const VecW m1 = VCONST_W(kMask5555);
   const VecW m2 = VCONST_W(kMask3333);
   const VecW m4 = VCONST_W(kMask0F0F);
-  const VecW m8 = VCONST_W(kMask00FF);
   const VecW* geno_vvec_iter = geno_vvec;
-  uint32_t tot = 0;
+  VecW prev_sad_result = vecw_setzero();
+  VecW acc = vecw_setzero();
+  uintptr_t cur_incr = 60;
   while (1) {
-    UniVec acc;
-    acc.vw = vecw_setzero();
-    const VecW* geno_vvec_stop;
     if (vec_ct < 60) {
       if (!vec_ct) {
-        return tot;
+        acc = acc + prev_sad_result;
+        return HsumW(acc);
       }
-      geno_vvec_stop = &(geno_vvec_iter[vec_ct]);
-      vec_ct = 0;
-    } else {
-      geno_vvec_stop = &(geno_vvec_iter[60]);
-      vec_ct -= 60;
+      cur_incr = vec_ct;
     }
+    VecW inner_acc = vecw_setzero();
+    const VecW* geno_vvec_stop = &(geno_vvec_iter[cur_incr]);
+    vec_ct -= cur_incr;
     do {
       VecW loader1 = *geno_vvec_iter++;
       VecW loader2 = *geno_vvec_iter++;
@@ -669,10 +652,10 @@ uint32_t Count01Vec6(const VecW* geno_vvec, uint32_t vec_ct) {
 
       count1 = (count1 & m2) + (vecw_srli(count1, 2) & m2);
       count1 = count1 + (count2 & m2) + (vecw_srli(count2, 2) & m2);
-      acc.vw = acc.vw + (count1 & m4) + (vecw_srli(count1, 4) & m4);
+      inner_acc = inner_acc + (count1 & m4) + (vecw_srli(count1, 4) & m4);
     } while (geno_vvec_iter < geno_vvec_stop);
-    acc.vw = (acc.vw & m8) + (vecw_srli(acc.vw, 8) & m8);
-    tot += UniVecHsum16(acc);
+    acc = acc + prev_sad_result;
+    prev_sad_result = vecw_bytesum(inner_acc, m0);
   }
 }
 
@@ -2810,7 +2793,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
         const uint32_t last_word_byte_ct = cur_vblock_variant_ct % kBytesPerWord;
         vrtypes_iter = &(vrtypes_iter[cur_vblock_variant_ct]);
         if (last_word_byte_ct) {
-          memset(vrtypes_iter, 0, kBytesPerWord - last_word_byte_ct);
+          ProperSubwordStore(0, kBytesPerWord - last_word_byte_ct, vrtypes_iter);
         } else {
           // must guarantee a trailing zero for is_ldbase check to work
           vrtypes_iter[0] = 0;
@@ -2837,7 +2820,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
         const uint32_t last_word_byte_ct = cur_vblock_variant_ct % kBytesPerWord;
         vrtypes_iter = &(vrtypes_iter[cur_vblock_variant_ct]);
         if (last_word_byte_ct) {
-          memset(vrtypes_iter, 0, kBytesPerWord - last_word_byte_ct);
+          ProperSubwordStore(0, kBytesPerWord - last_word_byte_ct, vrtypes_iter);
         } else {
           // must guarantee a trailing zero for is_ldbase check to work
           vrtypes_iter[0] = 0;
@@ -3122,7 +3105,7 @@ PglErr PgfiMultiread(const uintptr_t* variant_include, uint32_t variant_uidx_sta
   // we could permit 0, but that encourages lots of unnecessary thread wakeups
   assert(load_variant_ct);
   if (variant_include) {
-    MovU32To1Bit(variant_include, &variant_uidx_start);
+    variant_uidx_start = AdvTo1Bit(variant_include, variant_uidx_start);
   }
   assert(variant_uidx_start < pgfip->raw_variant_ct);
   uint64_t block_offset;
@@ -4565,21 +4548,100 @@ PglErr LdSubsetAdjustGenocounts(const unsigned char* fread_end, const uintptr_t*
   }
 }
 
-uint32_t BytesumArr(const void* bytearr, uint32_t byte_ct) {
+/*
+#ifdef __LP64__
+#  ifdef USE_AVX2
+const unsigned char kLeadMask[2 * kBytesPerVec] __attribute__ ((aligned (64))) =
+  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+   255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+   255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
+#  else
+const unsigned char kLeadMask[2 * kBytesPerVec] __attribute__ ((aligned (32))) =
+  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+   255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
+#  endif
+
+uintptr_t BytesumArr(const void* bytearr, uintptr_t byte_ct) {
+  uintptr_t tot = 0;
+  // empirical crossover point of ~32 for SSE2, ~52 for SSE4.2, ~80 for AVX2 on
+  // my Mac
+#  ifdef USE_SSE42
+  if (byte_ct <= 24 + (kBytesPerVec / 4) * 7) {
+    const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
+    for (uintptr_t ulii = 0; ulii != byte_ct; ++ulii) {
+      tot += bytearr_uc[ulii];
+    }
+    return tot;
+  }
+#  else
+  if (byte_ct <= 32) {
+    const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
+    for (uintptr_t ulii = 0; ulii != byte_ct; ++ulii) {
+      tot += bytearr_uc[ulii];
+    }
+    return tot;
+  }
+#  endif
+  uint32_t first_byte_offset = R_CAST(uintptr_t, bytearr) % kBytesPerVec;
+  const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
+  const VecW* bytearr_viter = R_CAST(const VecW*, &(bytearr_uc[-S_CAST(int32_t, first_byte_offset)]));
+  VecW cur_vec = *bytearr_viter++;
+  const uint32_t leading_byte_ct = kBytesPerVec - first_byte_offset;
+  VecW mask_vec = vecw_loadu(&(kLeadMask[leading_byte_ct]));
+  cur_vec = cur_vec & mask_vec;
+  byte_ct -= leading_byte_ct;
+  uintptr_t vec_ct = DivUp(byte_ct, kBytesPerVec);
+  byte_ct -= (vec_ct - 1) * kBytesPerVec;
+  const VecW m8 = VCONST_W(kMask00FF);
+  const VecW m16 = VCONST_W(kMask0000FFFF);
+  uintptr_t cur_incr = 256;
+  while (1) {
+    if (vec_ct < 256) {
+      cur_incr = vec_ct;
+    }
+    vec_ct -= cur_incr;
+    const VecW* bytearr_vstop = &(bytearr_viter[cur_incr]);
+    VecW even_acc = vecw_setzero();
+    VecW odd_acc = vecw_setzero();
+    while (bytearr_viter < bytearr_vstop) {
+      // todo: compare against simple SAD loop
+      even_acc = even_acc + (cur_vec & m8);
+      odd_acc = odd_acc + (vecw_srli(cur_vec, 8) & m8);
+      cur_vec = *bytearr_viter++;
+    }
+    if (cur_incr != 256) {
+      mask_vec = vecw_loadu(&(kLeadMask[kBytesPerVec - byte_ct]));
+      cur_vec = cur_vec & (~mask_vec);
+      even_acc = even_acc + (cur_vec & m8);
+      odd_acc = odd_acc + (vecw_srli(cur_vec, 8) & m8);
+      even_acc = (even_acc & m16) + (vecw_srli(even_acc, 16) & m16);
+      odd_acc = (odd_acc & m16) + (vecw_srli(odd_acc, 16) & m16);
+      UniVec acc;
+      acc.vw = even_acc + odd_acc;
+      tot += UniVecHsum32(acc);
+      return tot;
+    }
+    even_acc = (even_acc & m16) + (vecw_srli(even_acc, 16) & m16);
+    odd_acc = (odd_acc & m16) + (vecw_srli(odd_acc, 16) & m16);
+    UniVec acc;
+    acc.vw = even_acc + odd_acc;
+    tot += UniVecHsum32(acc);
+  }
+}
+#else
+uintptr_t BytesumArr(const void* bytearr, uintptr_t byte_ct) {
   // Assumes sum < 2^32.
-  // This is only slightly slower than SSE2 code, while tolerating an unaligned
-  // starting address.
-  // (Maybe it's time for a separate AVX2 implementation, though...)
-#ifdef __arm__
-#  error "Unaligned accesses in BytesumArr()."
-#endif
+#  ifdef __arm__
+#    error "Unaligned accesses in BytesumArr()."
+#  endif
   const uint32_t word_ct = byte_ct / kBytesPerWord;
   const uintptr_t* bytearr_alias_iter = S_CAST(const uintptr_t*, bytearr);
   const uint32_t wordblock_idx_trail = word_ct / 256;
   const uint32_t wordblock_idx_end = DivUp(word_ct, 256);
   uint32_t wordblock_idx = 0;
   uint32_t wordblock_len = 256;
-  uint32_t tot = 0;
+  uintptr_t tot = 0;
   while (1) {
     if (wordblock_idx >= wordblock_idx_trail) {
       if (wordblock_idx == wordblock_idx_end) {
@@ -4601,15 +4663,13 @@ uint32_t BytesumArr(const void* bytearr, uint32_t byte_ct) {
       acc_even += cur_word & kMask00FF;
       acc_odd += (cur_word >> 8) & kMask00FF;
     } while (bytearr_alias_iter < bytearr_alias_stop);
-    acc_even += acc_odd;
-#ifdef __LP64__
-    acc_even = (acc_even & kMask0000FFFF) + ((acc_even >> 16) & kMask0000FFFF);
-#endif
-    tot += S_CAST(Halfword, acc_even) + (acc_even >> kBitsPerWordD2);
+    acc_even = S_CAST(Halfword, acc_even) + (acc_even >> kBitsPerWordD2);
+    acc_odd = S_CAST(Halfword, acc_odd) + (acc_odd >> kBitsPerWordD2);
+    tot += acc_even + acc_odd;
   }
 }
+#endif
 
-/*
 PglErr SkipDifflistIds(const unsigned char* fread_end, const unsigned char* group_info, uint32_t difflist_len, uint32_t raw_sample_ct, const unsigned char** fread_pp) {
   assert(difflist_len);
   // fread_pp is a pure output parameter here
@@ -6017,8 +6077,8 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
       uintptr_t sample_widx = 0;
       uintptr_t dosage_present_bits = raw_dosage_present[0];
       for (uint32_t dosage_idx = 0; dosage_idx != raw_dosage_ct; ++dosage_idx) {
-        const uint32_t sample_uidx_lowbits = BitIter1x(raw_dosage_present, &sample_widx, &dosage_present_bits);
-        if (sample_include[sample_widx] & (k1LU << sample_uidx_lowbits)) {
+        const uintptr_t lowbit = BitIter1y(raw_dosage_present, &sample_widx, &dosage_present_bits);
+        if (sample_include[sample_widx] & lowbit) {
           const uintptr_t cur_dosage_val = dosage_main_iter[dosage_idx];
           alt1_dosage += cur_dosage_val;
           alt1_dosage_sq_sum += cur_dosage_val * cur_dosage_val;
@@ -7648,23 +7708,23 @@ void CountLdAndInvertedLdDiffs(const uintptr_t* __restrict ldbase_genovec, const
   const VecW m4 = VCONST_W(kMask0F0F);
   const VecW* ldbase_vvec_iter = R_CAST(const VecW*, ldbase_genovec);
   const VecW* geno_vvec_iter = R_CAST(const VecW*, genovec);
-  uint32_t full_vecs_left = 3 * (word_ct / (3 * kWordsPerVec));
-  UniVec acc_ld;
-  UniVec acc_ld_inv;
+  uintptr_t full_vecs_left = 3 * (word_ct / (3 * kWordsPerVec));
+  VecW acc_ld = vecw_setzero();
+  VecW acc_ld_inv = vecw_setzero();
+  uintptr_t cur_incr = 60;
   while (1) {
-    acc_ld.vw = vecw_setzero();
-    acc_ld_inv.vw = vecw_setzero();
-    const VecW* geno_vvec_stop;
     if (full_vecs_left < 60) {
       if (!full_vecs_left) {
+        ld_diff_ct = HsumW(acc_ld);
+        ld_inv_diff_ct = HsumW(acc_ld_inv);
         break;
       }
-      geno_vvec_stop = &(geno_vvec_iter[full_vecs_left]);
-      full_vecs_left = 0;
-    } else {
-      geno_vvec_stop = &(geno_vvec_iter[60]);
-      full_vecs_left -= 60;
+      cur_incr = full_vecs_left;
     }
+    VecW inner_acc_ld = vecw_setzero();
+    VecW inner_acc_ld_inv = vecw_setzero();
+    const VecW* geno_vvec_stop = &(geno_vvec_iter[cur_incr]);
+    full_vecs_left -= cur_incr;
     do {
       VecW loader_ldbase1 = *ldbase_vvec_iter++;
       VecW loader_geno1 = *geno_vvec_iter++;
@@ -7698,14 +7758,12 @@ void CountLdAndInvertedLdDiffs(const uintptr_t* __restrict ldbase_genovec, const
       count_ld = (count_ld & m2) + (vecw_srli(count_ld, 2) & m2);
       // now they have 32 4-bit values from 0-6
 
-      acc_ld_inv.vw = acc_ld_inv.vw + ((count_ld_inv + vecw_srli(count_ld_inv, 4)) & m4);
-      acc_ld.vw = acc_ld.vw + ((count_ld + vecw_srli(count_ld, 4)) & m4);
+      inner_acc_ld_inv = inner_acc_ld_inv + ((count_ld_inv + vecw_srli(count_ld_inv, 4)) & m4);
+      inner_acc_ld = inner_acc_ld + ((count_ld + vecw_srli(count_ld, 4)) & m4);
     } while (geno_vvec_iter < geno_vvec_stop);
-    const VecW m8 = VCONST_W(kMask00FF);
-    acc_ld_inv.vw = (acc_ld_inv.vw & m8) + (vecw_srli(acc_ld_inv.vw, 8) & m8);
-    acc_ld.vw = (acc_ld.vw & m8) + (vecw_srli(acc_ld.vw, 8) & m8);
-    ld_inv_diff_ct += UniVecHsum16(acc_ld_inv);
-    ld_diff_ct += UniVecHsum16(acc_ld);
+    const VecW m0 = vecw_setzero();
+    acc_ld_inv = acc_ld_inv + vecw_bytesum(inner_acc_ld_inv, m0);
+    acc_ld = acc_ld + vecw_bytesum(inner_acc_ld, m0);
   }
   const uintptr_t* ldbase_iter = R_CAST(const uintptr_t*, ldbase_vvec_iter);
   const uintptr_t* genovec_iter = R_CAST(const uintptr_t*, geno_vvec_iter);

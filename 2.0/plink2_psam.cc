@@ -960,10 +960,11 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
                 bigstack_alloc_u32(new_pheno_ct, &col_skips))) {
           goto LoadPhenos_ret_NOMEM;
         }
-        uint32_t col_uidx = 0;
+        uintptr_t col_uidx_base = 0;
+        uintptr_t cur_bits = bitarr[0];
         int32_t prev_col_uidx = -1;
-        for (uint32_t col_idx = 0; col_idx != new_pheno_ct; ++col_idx, ++col_uidx) {
-          MovU32To1Bit(bitarr, &col_uidx);
+        for (uint32_t col_idx = 0; col_idx != new_pheno_ct; ++col_idx) {
+          const uint32_t col_uidx = BitIter1(bitarr, &col_uidx_base, &cur_bits);
           col_types[col_idx] = col_idx;
           col_skips[col_idx] = col_uidx - prev_col_uidx;
           prev_col_uidx = col_uidx;
@@ -1038,10 +1039,11 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
                 bigstack_alloc_u32(new_pheno_ct, &col_skips))) {
           goto LoadPhenos_ret_NOMEM;
         }
-        uint32_t col_uidx = 0;
+        uintptr_t col_uidx_base = 0;
+        uintptr_t cur_bits = bitarr[0];
         int32_t prev_col_uidx = -1;
-        for (uint32_t col_idx = 0; col_idx != new_pheno_ct; ++col_idx, ++col_uidx) {
-          MovU32To1Bit(bitarr, &col_uidx);
+        for (uint32_t col_idx = 0; col_idx != new_pheno_ct; ++col_idx) {
+          const uint32_t col_uidx = BitIter1(bitarr, &col_uidx_base, &cur_bits);
           col_types[col_idx] = col_idx;
           col_skips[col_idx] = col_uidx - prev_col_uidx;
           prev_col_uidx = col_uidx;

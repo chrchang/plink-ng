@@ -3417,10 +3417,11 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
       }
 
       const uint32_t old_uncertain_col_ct = uncertain_col_ct;
+      uintptr_t col_uidx_base = 0;
+      uintptr_t col_keep_inv_bits = ~col_keep[0];
       uint32_t old_col_uidx = 0;
-      uint32_t col_uidx = 0;
-      for (uint32_t uncertain_col_idx = 0; uncertain_col_idx != old_uncertain_col_ct; ++uncertain_col_idx, ++col_uidx) {
-        MovU32To0Bit(col_keep, &col_uidx);
+      for (uint32_t uncertain_col_idx = 0; uncertain_col_idx != old_uncertain_col_ct; ++uncertain_col_idx) {
+        const uint32_t col_uidx = BitIter0(col_keep, &col_uidx_base, &col_keep_inv_bits);
         line_iter = NextTokenMult(line_iter, col_uidx - old_col_uidx);
         if (unlikely(!line_iter)) {
           goto OxSampleToPsam_ret_MISSING_TOKENS;

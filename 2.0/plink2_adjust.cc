@@ -92,12 +92,13 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
       goto Multcomp_ret_NOMEM;
     }
     uintptr_t valid_allele_ct = 0;
-    uintptr_t allele_uidx = 0;
+    uintptr_t allele_uidx_base = 0;
+    uintptr_t allele_include_bits = allele_include[0];
     if (!allele_idx_offsets) {
       if (chisqs) {
         if (ln_pvals) {
-          for (uintptr_t aidx = 0; aidx != orig_allele_ct; ++aidx, ++allele_uidx) {
-            MovWTo1Bit(allele_include, &allele_uidx);
+          for (uintptr_t aidx = 0; aidx != orig_allele_ct; ++aidx) {
+            const uintptr_t allele_uidx = BitIter1(allele_include, &allele_uidx_base, &allele_include_bits);
             const double cur_chisq = chisqs[aidx];
             if (cur_chisq >= 0.0) {
               sortbuf[valid_allele_ct].chisq = cur_chisq;
@@ -108,8 +109,8 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
             }
           }
         } else {
-          for (uintptr_t aidx = 0; aidx != orig_allele_ct; ++aidx, ++allele_uidx) {
-            MovWTo1Bit(allele_include, &allele_uidx);
+          for (uintptr_t aidx = 0; aidx != orig_allele_ct; ++aidx) {
+            const uintptr_t allele_uidx = BitIter1(allele_include, &allele_uidx_base, &allele_include_bits);
             const double cur_chisq = chisqs[aidx];
             if (cur_chisq >= 0.0) {
               sortbuf[valid_allele_ct].chisq = cur_chisq;
@@ -121,8 +122,8 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
           }
         }
       } else {
-        for (uintptr_t aidx = 0; aidx != orig_allele_ct; ++aidx, ++allele_uidx) {
-          MovWTo1Bit(allele_include, &allele_uidx);
+        for (uintptr_t aidx = 0; aidx != orig_allele_ct; ++aidx) {
+          const uintptr_t allele_uidx = BitIter1(allele_include, &allele_uidx_base, &allele_include_bits);
           const double cur_ln_pval = ln_pvals[aidx];
           if (cur_ln_pval <= 0.0) {
             sortbuf[valid_allele_ct].chisq = LnPToChisq(cur_ln_pval);
@@ -134,16 +135,17 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
         }
       }
     } else {
-      uint32_t variant_uidx = AdvTo1Bit(variant_include, 0);
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t variant_include_bits = variant_include[0];
+      uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
       uintptr_t allele_idx_offset_start = allele_idx_offsets[variant_uidx];
       uintptr_t allele_idx_offset_end = allele_idx_offsets[variant_uidx + 1];
       if (chisqs) {
         if (ln_pvals) {
-          for (uintptr_t aidx = 0; aidx != orig_allele_ct; ++aidx, ++allele_uidx) {
-            MovWTo1Bit(allele_include, &allele_uidx);
+          for (uintptr_t aidx = 0; aidx != orig_allele_ct; ++aidx) {
+            const uintptr_t allele_uidx = BitIter1(allele_include, &allele_uidx_base, &allele_include_bits);
             if (allele_uidx >= allele_idx_offset_end) {
-              ++variant_uidx;
-              MovU32To1Bit(variant_include, &variant_uidx);
+              variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
               allele_idx_offset_start = allele_idx_offsets[variant_uidx];
               allele_idx_offset_end = allele_idx_offsets[variant_uidx + 1];
             }
@@ -157,11 +159,10 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
             }
           }
         } else {
-          for (uintptr_t aidx = 0; aidx != orig_allele_ct; ++aidx, ++allele_uidx) {
-            MovWTo1Bit(allele_include, &allele_uidx);
+          for (uintptr_t aidx = 0; aidx != orig_allele_ct; ++aidx) {
+            const uintptr_t allele_uidx = BitIter1(allele_include, &allele_uidx_base, &allele_include_bits);
             if (allele_uidx >= allele_idx_offset_end) {
-              ++variant_uidx;
-              MovU32To1Bit(variant_include, &variant_uidx);
+              variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
               allele_idx_offset_start = allele_idx_offsets[variant_uidx];
               allele_idx_offset_end = allele_idx_offsets[variant_uidx + 1];
             }
@@ -176,11 +177,10 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
           }
         }
       } else {
-        for (uintptr_t aidx = 0; aidx != orig_allele_ct; ++aidx, ++allele_uidx) {
-          MovWTo1Bit(allele_include, &allele_uidx);
+        for (uintptr_t aidx = 0; aidx != orig_allele_ct; ++aidx) {
+          const uintptr_t allele_uidx = BitIter1(allele_include, &allele_uidx_base, &allele_include_bits);
           if (allele_uidx >= allele_idx_offset_end) {
-            ++variant_uidx;
-            MovU32To1Bit(variant_include, &variant_uidx);
+            variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
             allele_idx_offset_start = allele_idx_offsets[variant_uidx];
             allele_idx_offset_end = allele_idx_offsets[variant_uidx + 1];
           }

@@ -1556,9 +1556,10 @@ PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, cons
       if (unlikely(BIGSTACK_ALLOC_X(StrSortIndexedDerefOverread, str_ct, &sort_wkspace))) {
         goto CopySortStrboxSubsetNoalloc_ret_NOMEM;
       }
-      uint32_t str_uidx = 0;
-      for (uint32_t str_idx = 0; str_idx != str_ct; ++str_idx, ++str_uidx) {
-        MovU32To1Bit(subset_mask, &str_uidx);
+      uintptr_t str_uidx_base = 0;
+      uintptr_t cur_bits = subset_mask[0];
+      for (uint32_t str_idx = 0; str_idx != str_ct; ++str_idx) {
+        uintptr_t str_uidx = BitIter1(subset_mask, &str_uidx_base, &cur_bits);
         sort_wkspace[str_idx].strptr = &(orig_strbox[str_uidx * max_str_blen]);
         if (collapse_idxs) {
           sort_wkspace[str_idx].orig_idx = str_idx;
@@ -1810,7 +1811,7 @@ uintptr_t PopcountVecsAvx2Intersect(const VecW* __restrict vvec1_iter, const Vec
   cnt = cnt + vecw_slli(PopcountVecAvx2(fours), 2);
   cnt = cnt + vecw_slli(PopcountVecAvx2(twos), 1);
   cnt = cnt + PopcountVecAvx2(ones);
-  return Hsum64(cnt);
+  return HsumW(cnt);
 }
 
 uintptr_t PopcountWordsIntersect(const uintptr_t* __restrict bitvec1_iter, const uintptr_t* __restrict bitvec2_iter, uintptr_t word_ct) {
@@ -1831,25 +1832,24 @@ uintptr_t PopcountWordsIntersect(const uintptr_t* __restrict bitvec1_iter, const
 static inline uintptr_t PopcountVecsNoAvx2Intersect(const VecW* __restrict vvec1_iter, const VecW* __restrict vvec2_iter, uintptr_t vec_ct) {
   // popcounts vvec1 AND vvec2[0..(ct-1)].  ct is a multiple of 3.
   assert(!(vec_ct % 3));
+  const VecW m0 = vecw_setzero();
   const VecW m1 = VCONST_W(kMask5555);
   const VecW m2 = VCONST_W(kMask3333);
   const VecW m4 = VCONST_W(kMask0F0F);
-  const VecW m8 = VCONST_W(kMask00FF);
-  uintptr_t tot = 0;
+  VecW prev_sad_result = vecw_setzero();
+  VecW acc = vecw_setzero();
+  uintptr_t cur_incr = 30;
   while (1) {
-    UniVec acc;
-    acc.vw = vecw_setzero();
-    const VecW* vvec1_stop;
     if (vec_ct < 30) {
       if (!vec_ct) {
-        return tot;
+        acc = acc + prev_sad_result;
+        return HsumW(acc);
       }
-      vvec1_stop = &(vvec1_iter[vec_ct]);
-      vec_ct = 0;
-    } else {
-      vvec1_stop = &(vvec1_iter[30]);
-      vec_ct -= 30;
+      cur_incr = vec_ct;
     }
+    VecW inner_acc = vecw_setzero();
+    const VecW* vvec1_stop = &(vvec1_iter[cur_incr]);
+    vec_ct -= cur_incr;
     do {
       VecW count1 = (*vvec1_iter++) & (*vvec2_iter++);
       VecW count2 = (*vvec1_iter++) & (*vvec2_iter++);
@@ -1862,10 +1862,10 @@ static inline uintptr_t PopcountVecsNoAvx2Intersect(const VecW* __restrict vvec1
       count2 = count2 + half2;
       count1 = (count1 & m2) + (vecw_srli(count1, 2) & m2);
       count1 = count1 + (count2 & m2) + (vecw_srli(count2, 2) & m2);
-      acc.vw = acc.vw + (count1 & m4) + (vecw_srli(count1, 4) & m4);
+      inner_acc = inner_acc + (count1 & m4) + (vecw_srli(count1, 4) & m4);
     } while (vvec1_iter < vvec1_stop);
-    acc.vw = (acc.vw & m8) + (vecw_srli(acc.vw, 8) & m8);
-    tot += UniVecHsum16(acc);
+    acc = acc + prev_sad_result;
+    prev_sad_result = vecw_bytesum(inner_acc, m0);
   }
 }
 
@@ -1906,30 +1906,25 @@ static inline void PopcountVecsNoSse42Intersect3val(const VecW* __restrict vvec1
   const VecW m1 = VCONST_W(kMask5555);
   const VecW m2 = VCONST_W(kMask3333);
   const VecW m4 = VCONST_W(kMask0F0F);
-  uint32_t ct1 = 0;
-  uint32_t ct2 = 0;
-  uint32_t ct3 = 0;
+  VecW acc1 = vecw_setzero();
+  VecW acc2 = vecw_setzero();
+  VecW acc3 = vecw_setzero();
+  uintptr_t cur_incr = 30;
   while (1) {
-    UniVec acc1;
-    UniVec acc2;
-    UniVec acc3;
-    acc1.vw = vecw_setzero();
-    acc2.vw = vecw_setzero();
-    acc3.vw = vecw_setzero();
-    const VecW* vvec1_stop;
     if (vec_ct < 30) {
       if (!vec_ct) {
-        *popcount1_ptr = ct1;
-        *popcount2_ptr = ct2;
-        *popcount_intersect_ptr = ct3;
+        *popcount1_ptr = HsumW(acc1);
+        *popcount2_ptr = HsumW(acc2);
+        *popcount_intersect_ptr = HsumW(acc3);
         return;
       }
-      vvec1_stop = &(vvec1_iter[vec_ct]);
-      vec_ct = 0;
-    } else {
-      vvec1_stop = &(vvec1_iter[30]);
-      vec_ct -= 30;
+      cur_incr = vec_ct;
     }
+    VecW inner_acc1 = vecw_setzero();
+    VecW inner_acc2 = vecw_setzero();
+    VecW inner_acc3 = vecw_setzero();
+    const VecW* vvec1_stop = &(vvec1_iter[cur_incr]);
+    vec_ct -= cur_incr;
     do {
       VecW count1a = *vvec1_iter++;
       VecW count2a = *vvec2_iter++;
@@ -1963,17 +1958,15 @@ static inline void PopcountVecsNoSse42Intersect3val(const VecW* __restrict vvec1
       count1a = count1a + (count1b & m2) + (vecw_srli(count1b, 2) & m2);
       count2a = count2a + (count2b & m2) + (vecw_srli(count2b, 2) & m2);
       count3a = count3a + (count3b & m2) + (vecw_srli(count3b, 2) & m2);
-      acc1.vw = acc1.vw + (count1a & m4) + (vecw_srli(count1a, 4) & m4);
-      acc2.vw = acc2.vw + (count2a & m4) + (vecw_srli(count2a, 4) & m4);
-      acc3.vw = acc3.vw + (count3a & m4) + (vecw_srli(count3a, 4) & m4);
+      inner_acc1 = inner_acc1 + (count1a & m4) + (vecw_srli(count1a, 4) & m4);
+      inner_acc2 = inner_acc2 + (count2a & m4) + (vecw_srli(count2a, 4) & m4);
+      inner_acc3 = inner_acc3 + (count3a & m4) + (vecw_srli(count3a, 4) & m4);
     } while (vvec1_iter < vvec1_stop);
-    const VecW m8 = VCONST_W(kMask00FF);
-    acc1.vw = (acc1.vw & m8) + (vecw_srli(acc1.vw, 8) & m8);
-    acc2.vw = (acc2.vw & m8) + (vecw_srli(acc2.vw, 8) & m8);
-    acc3.vw = (acc3.vw & m8) + (vecw_srli(acc3.vw, 8) & m8);
-    ct1 += UniVecHsum16(acc1);
-    ct2 += UniVecHsum16(acc2);
-    ct3 += UniVecHsum16(acc3);
+    // too much register pressure to use prev_sad_result pattern?
+    const VecW m0 = vecw_setzero();
+    acc1 = acc1 + vecw_bytesum(inner_acc1, m0);
+    acc2 = acc2 + vecw_bytesum(inner_acc2, m0);
+    acc3 = acc3 + vecw_bytesum(inner_acc3, m0);
   }
 }
 
@@ -2115,7 +2108,7 @@ uintptr_t FindNth1BitFrom(const uintptr_t* bitvec, uintptr_t cur_pos, uintptr_t 
   vptr = R_CAST(const VecW*, bptr);
 #ifdef USE_AVX2
   while (forward_ct > kBitsPerWord * (16 * kWordsPerVec)) {
-    uljj = ((forward_ct - 1) / (kBitsPerWord * (16 * kWordsPerVec))) * 16;
+    uljj = (forward_ct - 1) / (kBitsPerWord * kWordsPerVec);
     ulkk = PopcountVecsAvx2(vptr, uljj);
     vptr = &(vptr[uljj]);
     forward_ct -= ulkk;
@@ -2123,8 +2116,8 @@ uintptr_t FindNth1BitFrom(const uintptr_t* bitvec, uintptr_t cur_pos, uintptr_t 
 #else
   while (forward_ct > kBitsPerWord * (3 * kWordsPerVec)) {
     uljj = ((forward_ct - 1) / (kBitsPerWord * (3 * kWordsPerVec))) * 3;
-    // yeah, yeah, this is suboptimal if we do have SSE4.2 and no AVX2
-    ulkk = PopcountVecsNoSse42(vptr, uljj);
+    // yeah, yeah, this is suboptimal if we have SSE4.2
+    ulkk = PopcountVecsNoAvx2(vptr, uljj);
     vptr = &(vptr[uljj]);
     forward_ct -= ulkk;
   }
@@ -2765,9 +2758,11 @@ THREAD_FUNC_DECL CalcIdHashThread(void* arg) {
 
   const uint32_t item_ct = g_item_ct;
   const uint32_t item_idx_end = (item_ct * (S_CAST(uint64_t, tidx) + 1)) / calc_thread_ct;
-  uint32_t item_uidx = g_item_uidx_starts[tidx];
-  for (uint32_t item_idx = (item_ct * S_CAST(uint64_t, tidx)) / calc_thread_ct; item_idx != item_idx_end; ++item_idx, ++item_uidx) {
-    MovU32To1Bit(subset_mask, &item_uidx);
+  uintptr_t cur_bits;
+  uintptr_t item_uidx_base;
+  BitIter1Start(subset_mask, g_item_uidx_starts[tidx], &item_uidx_base, &cur_bits);
+  for (uint32_t item_idx = (item_ct * S_CAST(uint64_t, tidx)) / calc_thread_ct; item_idx != item_idx_end; ++item_idx) {
+    const uintptr_t item_uidx = BitIter1(subset_mask, &item_uidx_base, &cur_bits);
     const char* sptr = item_ids[item_uidx];
     const uint32_t slen = strlen(sptr);
     item_id_hashes[item_idx] = Hashceil(sptr, slen, id_htable_size);
@@ -2829,10 +2824,11 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
     // multithreaded manner, but I'll postpone that for now since it's tricky
     // to make that work with duplicate ID handling, and it also is a
     // substantially smaller bottleneck than hash value computation.
-    uint32_t item_uidx = 0;
+    uintptr_t item_uidx_base = 0;
+    uintptr_t cur_bits = subset_mask[0];
     if (!store_all_dups) {
-      for (uint32_t item_idx = 0; item_idx != item_ct; ++item_uidx, ++item_idx) {
-        MovU32To1Bit(subset_mask, &item_uidx);
+      for (uint32_t item_idx = 0; item_idx != item_ct; ++item_idx) {
+        const uintptr_t item_uidx = BitIter1(subset_mask, &item_uidx_base, &cur_bits);
         uint32_t hashval = g_item_id_hashes[item_idx];
         uint32_t cur_htable_entry = id_htable[hashval];
         if (cur_htable_entry == UINT32_MAX) {
@@ -2879,8 +2875,8 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
       // needs to be synced with ExtractExcludeFlagNorange()
       // multithread this?
       uint32_t* htable_dup_base = R_CAST(uint32_t*, g_bigstack_base);
-      for (uint32_t item_idx = 0; item_idx != item_ct; ++item_uidx, ++item_idx) {
-        MovU32To1Bit(subset_mask, &item_uidx);
+      for (uint32_t item_idx = 0; item_idx != item_ct; ++item_idx) {
+        const uintptr_t item_uidx = BitIter1(subset_mask, &item_uidx_base, &cur_bits);
         uint32_t hashval = g_item_id_hashes[item_idx];
         uint32_t cur_htable_entry = id_htable[hashval];
         if (cur_htable_entry == UINT32_MAX) {
