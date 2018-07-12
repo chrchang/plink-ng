@@ -1569,37 +1569,41 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
               uintptr_t alt1_ct = 4 * genocounts[2] + 2 * genocounts[1] - 2 * sex_specific_genocounts[2] - hethap_ct;  // nonmales count twice
               uint64_t alt1_dosage = 0;  // in 32768ths, nonmales count twice
               uint32_t additional_dosage_ct = 0;  // missing hardcalls only; nonmales count twice
-              uintptr_t sample_uidx_base = 0;
-              uintptr_t dosage_present_bits = dosage_present[0];
-              if (sample_ct == raw_sample_ct) {
-                for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
-                  const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &dosage_present_bits);
-                  const uintptr_t cur_dosage_val = dosage_main[dosage_idx];
-                  const uintptr_t sex_multiplier = 2 - IsSet(sex_male, sample_uidx);
-                  alt1_dosage += cur_dosage_val * sex_multiplier;
-
-                  // could call GenoarrCountSubsetIntersectFreqs() twice
-                  // instead, but since we've already manually extracted the
-                  // sex bit it probably doesn't help?
-                  const uintptr_t hardcall_code = GetQuaterarrEntry(genovec, sample_uidx);
-                  if (hardcall_code != 3) {
-                    alt1_ct -= hardcall_code * sex_multiplier;
-                  } else {
-                    additional_dosage_ct += sex_multiplier;
-                  }
-                }
-              } else {
-                for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
-                  const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &dosage_present_bits);
-                  if (IsSet(sample_include, sample_uidx)) {
+              // bugfix (12 Jul 2018): dosage_present may be null if dosage_ct
+              // == 0
+              if (dosage_ct) {
+                uintptr_t sample_uidx_base = 0;
+                uintptr_t dosage_present_bits = dosage_present[0];
+                if (sample_ct == raw_sample_ct) {
+                  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+                    const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &dosage_present_bits);
                     const uintptr_t cur_dosage_val = dosage_main[dosage_idx];
                     const uintptr_t sex_multiplier = 2 - IsSet(sex_male, sample_uidx);
                     alt1_dosage += cur_dosage_val * sex_multiplier;
+
+                    // could call GenoarrCountSubsetIntersectFreqs() twice
+                    // instead, but since we've already manually extracted the
+                    // sex bit it probably doesn't help?
                     const uintptr_t hardcall_code = GetQuaterarrEntry(genovec, sample_uidx);
                     if (hardcall_code != 3) {
                       alt1_ct -= hardcall_code * sex_multiplier;
                     } else {
                       additional_dosage_ct += sex_multiplier;
+                    }
+                  }
+                } else {
+                  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+                    const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &dosage_present_bits);
+                    if (IsSet(sample_include, sample_uidx)) {
+                      const uintptr_t cur_dosage_val = dosage_main[dosage_idx];
+                      const uintptr_t sex_multiplier = 2 - IsSet(sex_male, sample_uidx);
+                      alt1_dosage += cur_dosage_val * sex_multiplier;
+                      const uintptr_t hardcall_code = GetQuaterarrEntry(genovec, sample_uidx);
+                      if (hardcall_code != 3) {
+                        alt1_ct -= hardcall_code * sex_multiplier;
+                      } else {
+                        additional_dosage_ct += sex_multiplier;
+                      }
                     }
                   }
                 }

@@ -4556,6 +4556,9 @@ void FillCurDosageInts(const uintptr_t* genovec_buf, const uintptr_t* dosage_pre
   lookup_table[6] = 0;
   InitLookup16x8bx2(lookup_table);
   GenoarrLookup16x8bx2(genovec_buf, lookup_table, sample_ct, cur_dosage_ints);
+  if (!dosage_ct) {
+    return;
+  }
   uintptr_t sample_idx_base = 0;
   uintptr_t cur_bits = dosage_present[0];
   for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {

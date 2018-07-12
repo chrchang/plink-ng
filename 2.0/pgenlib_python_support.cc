@@ -120,7 +120,7 @@ void GenoarrToAlleleCodes(const uintptr_t* genoarr, uint32_t sample_ct, int32_t*
 }
 
 void GenoarrPhasedToAlleleCodes(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, uint32_t sample_ct, uint32_t phasepresent_ct, unsigned char* phasebytes, int32_t* allele_codes) {
-  // phasebytes can be nullptr
+  // phasebytes can be nullptr, phasepresent cannot
   GenoarrToAlleleCodes(genoarr, sample_ct, allele_codes);
   uint64_t* allele_codes_alias64 = R_CAST(uint64_t*, allele_codes);
   uintptr_t sample_uidx_base = 0;

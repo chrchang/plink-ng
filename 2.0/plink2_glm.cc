@@ -7023,39 +7023,38 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       // raw_parameter_subset
       // note that, if appended sex covariate is present at all, it is always
       // nonconstant
-      uint32_t nonconst_covar_ct = 0;
       if (initial_covar_include) {
-        nonconst_covar_ct = PopcountWords(initial_covar_include, raw_covar_ctl);
-      }
-      const uint32_t removed_covar_ct = raw_covar_ct - nonconst_covar_ct;
-      uintptr_t covar_uidx_base = 0;
-      uintptr_t cur_inv_bits = ~initial_covar_include[0];
-      for (uint32_t removed_covar_idx = 0; removed_covar_idx != removed_covar_ct; ++removed_covar_idx) {
-        const uintptr_t covar_uidx = BitIter0(initial_covar_include, &covar_uidx_base, &cur_inv_bits);
-        ClearBit(first_covar_pred_uidx + covar_uidx, raw_parameter_subset);
-        if (first_interaction_pred_uidx) {
-          const uint32_t geno_interaction_uidx = first_interaction_pred_uidx + covar_uidx * domdev_present_p1;
-          ClearBit(geno_interaction_uidx, raw_parameter_subset);
-          if (domdev_present) {
-            ClearBit(geno_interaction_uidx + 1, raw_parameter_subset);
+        const uint32_t nonconst_covar_ct = PopcountWords(initial_covar_include, raw_covar_ctl);
+        const uint32_t removed_covar_ct = raw_covar_ct - nonconst_covar_ct;
+        uintptr_t covar_uidx_base = 0;
+        uintptr_t cur_inv_bits = ~initial_covar_include[0];
+        for (uint32_t removed_covar_idx = 0; removed_covar_idx != removed_covar_ct; ++removed_covar_idx) {
+          const uintptr_t covar_uidx = BitIter0(initial_covar_include, &covar_uidx_base, &cur_inv_bits);
+          ClearBit(first_covar_pred_uidx + covar_uidx, raw_parameter_subset);
+          if (first_interaction_pred_uidx) {
+            const uint32_t geno_interaction_uidx = first_interaction_pred_uidx + covar_uidx * domdev_present_p1;
+            ClearBit(geno_interaction_uidx, raw_parameter_subset);
+            if (domdev_present) {
+              ClearBit(geno_interaction_uidx + 1, raw_parameter_subset);
+            }
           }
         }
-      }
-      // if any loaded nonconstant covariates aren't referenced in
-      // raw_parameter_subset, remove them from initial_covar_include
-      covar_uidx_base = 0;
-      uintptr_t cur_bits = initial_covar_include[0];
-      for (uint32_t nonconst_covar_idx = 0; nonconst_covar_idx != nonconst_covar_ct; ++nonconst_covar_idx) {
-        const uintptr_t covar_uidx = BitIter1(initial_covar_include, &covar_uidx_base, &cur_bits);
-        uint32_t cur_covar_is_referenced = IsSet(raw_parameter_subset, first_covar_pred_uidx + covar_uidx);
-        if (add_interactions) {
-          cur_covar_is_referenced = cur_covar_is_referenced || IsSet(raw_parameter_subset, first_interaction_pred_uidx + covar_uidx * domdev_present_p1);
-          if (domdev_present) {
-            cur_covar_is_referenced = cur_covar_is_referenced || IsSet(raw_parameter_subset, first_interaction_pred_uidx + covar_uidx * 2 + 1);
+        // if any loaded nonconstant covariates aren't referenced in
+        // raw_parameter_subset, remove them from initial_covar_include
+        covar_uidx_base = 0;
+        uintptr_t cur_bits = initial_covar_include[0];
+        for (uint32_t nonconst_covar_idx = 0; nonconst_covar_idx != nonconst_covar_ct; ++nonconst_covar_idx) {
+          const uintptr_t covar_uidx = BitIter1(initial_covar_include, &covar_uidx_base, &cur_bits);
+          uint32_t cur_covar_is_referenced = IsSet(raw_parameter_subset, first_covar_pred_uidx + covar_uidx);
+          if (add_interactions) {
+            cur_covar_is_referenced = cur_covar_is_referenced || IsSet(raw_parameter_subset, first_interaction_pred_uidx + covar_uidx * domdev_present_p1);
+            if (domdev_present) {
+              cur_covar_is_referenced = cur_covar_is_referenced || IsSet(raw_parameter_subset, first_interaction_pred_uidx + covar_uidx * 2 + 1);
+            }
           }
-        }
-        if (!cur_covar_is_referenced) {
-          ClearBit(covar_uidx, initial_covar_include);
+          if (!cur_covar_is_referenced) {
+            ClearBit(covar_uidx, initial_covar_include);
+          }
         }
       }
       // if your regression doesn't involve genotype data, you should be using

@@ -4564,71 +4564,30 @@ const unsigned char kLeadMask[2 * kBytesPerVec] __attribute__ ((aligned (32))) =
 
 uintptr_t BytesumArr(const void* bytearr, uintptr_t byte_ct) {
   uintptr_t tot = 0;
-  // empirical crossover point of ~32 for SSE2, ~52 for SSE4.2, ~80 for AVX2 on
-  // my Mac
-#  ifdef USE_SSE42
-  if (byte_ct <= 24 + (kBytesPerVec / 4) * 7) {
+  if (byte_ct < kBytesPerVec) {
     const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
     for (uintptr_t ulii = 0; ulii != byte_ct; ++ulii) {
       tot += bytearr_uc[ulii];
     }
     return tot;
   }
-#  else
-  if (byte_ct <= 32) {
-    const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
-    for (uintptr_t ulii = 0; ulii != byte_ct; ++ulii) {
-      tot += bytearr_uc[ulii];
-    }
-    return tot;
+  const unsigned char* bytearr_uc_iter = S_CAST(const unsigned char*, bytearr);
+  const unsigned char* bytearr_uc_final = &(bytearr_uc_iter[byte_ct - kBytesPerVec]);
+  const VecW m0 = vecw_setzero();
+  VecW acc = vecw_setzero();
+  while (bytearr_uc_iter < bytearr_uc_final) {
+    const VecW cur_vec = vecw_loadu(bytearr_uc_iter);
+    acc = acc + vecw_sad(cur_vec, m0);
+    bytearr_uc_iter = &(bytearr_uc_iter[kBytesPerVec]);
   }
-#  endif
-  uint32_t first_byte_offset = R_CAST(uintptr_t, bytearr) % kBytesPerVec;
-  const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
-  const VecW* bytearr_viter = R_CAST(const VecW*, &(bytearr_uc[-S_CAST(int32_t, first_byte_offset)]));
-  VecW cur_vec = *bytearr_viter++;
-  const uint32_t leading_byte_ct = kBytesPerVec - first_byte_offset;
-  VecW mask_vec = vecw_loadu(&(kLeadMask[leading_byte_ct]));
+  VecW cur_vec = vecw_loadu(bytearr_uc_final);
+  const uintptr_t overlap_byte_ct = bytearr_uc_iter - bytearr_uc_final;
+  const VecW mask_vec = vecw_loadu(&(kLeadMask[kBytesPerVec - overlap_byte_ct]));
   cur_vec = cur_vec & mask_vec;
-  byte_ct -= leading_byte_ct;
-  uintptr_t vec_ct = DivUp(byte_ct, kBytesPerVec);
-  byte_ct -= (vec_ct - 1) * kBytesPerVec;
-  const VecW m8 = VCONST_W(kMask00FF);
-  const VecW m16 = VCONST_W(kMask0000FFFF);
-  uintptr_t cur_incr = 256;
-  while (1) {
-    if (vec_ct < 256) {
-      cur_incr = vec_ct;
-    }
-    vec_ct -= cur_incr;
-    const VecW* bytearr_vstop = &(bytearr_viter[cur_incr]);
-    VecW even_acc = vecw_setzero();
-    VecW odd_acc = vecw_setzero();
-    while (bytearr_viter < bytearr_vstop) {
-      // todo: compare against simple SAD loop
-      even_acc = even_acc + (cur_vec & m8);
-      odd_acc = odd_acc + (vecw_srli(cur_vec, 8) & m8);
-      cur_vec = *bytearr_viter++;
-    }
-    if (cur_incr != 256) {
-      mask_vec = vecw_loadu(&(kLeadMask[kBytesPerVec - byte_ct]));
-      cur_vec = cur_vec & (~mask_vec);
-      even_acc = even_acc + (cur_vec & m8);
-      odd_acc = odd_acc + (vecw_srli(cur_vec, 8) & m8);
-      even_acc = (even_acc & m16) + (vecw_srli(even_acc, 16) & m16);
-      odd_acc = (odd_acc & m16) + (vecw_srli(odd_acc, 16) & m16);
-      UniVec acc;
-      acc.vw = even_acc + odd_acc;
-      tot += UniVecHsum32(acc);
-      return tot;
-    }
-    even_acc = (even_acc & m16) + (vecw_srli(even_acc, 16) & m16);
-    odd_acc = (odd_acc & m16) + (vecw_srli(odd_acc, 16) & m16);
-    UniVec acc;
-    acc.vw = even_acc + odd_acc;
-    tot += UniVecHsum32(acc);
-  }
+  acc = acc + vecw_sad(cur_vec, m0);
+  return HsumW(acc);
 }
+
 #else
 uintptr_t BytesumArr(const void* bytearr, uintptr_t byte_ct) {
   // Assumes sum < 2^32.
@@ -6407,6 +6366,7 @@ PglErr PgrGetMissingnessDosage(const uintptr_t* __restrict sample_include, const
 */
 
 PglErr PgrGetMissingnessD(const uintptr_t* __restrict sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict missingness_hc, uintptr_t* __restrict missingness_dosage, uintptr_t* __restrict hets, uintptr_t* __restrict genovec_buf) {
+  // sample_include can't be null
   // either missingness_hc or missingness_dosage must be non-null
   assert(vidx < pgrp->fi.raw_variant_ct);
   if (!sample_ct) {

@@ -91,11 +91,13 @@ void PopulateDenseDosage(const uintptr_t* genoarr, const uintptr_t* dosage_prese
       dense_dosage_end[uii] = kDosageMissing;
     }
   }
-  uintptr_t sample_idx_base = 0;
-  uintptr_t cur_bits = dosage_present[0];
-  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
-    const uintptr_t sample_idx = BitIter1(dosage_present, &sample_idx_base, &cur_bits);
-    dense_dosage[sample_idx] = dosage_main[dosage_idx];
+  if (dosage_ct) {
+    uintptr_t sample_idx_base = 0;
+    uintptr_t cur_bits = dosage_present[0];
+    for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+      const uintptr_t sample_idx = BitIter1(dosage_present, &sample_idx_base, &cur_bits);
+      dense_dosage[sample_idx] = dosage_main[dosage_idx];
+    }
   }
 }
 
@@ -107,14 +109,15 @@ void PopulateRescaledDosage(const uintptr_t* genoarr, const uintptr_t* dosage_pr
   lookup_vals[6] = missing_val;
   InitLookup16x8bx2(lookup_vals);
   GenoarrLookup16x8bx2(genoarr, lookup_vals, sample_ct, expanded_dosages);
-  if (dosage_ct) {
-    slope *= kRecipDosageMid;
-    uintptr_t sample_uidx_base = 0;
-    uintptr_t cur_bits = dosage_present[0];
-    for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
-      const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &cur_bits);
-      expanded_dosages[sample_uidx] = dosage_main[dosage_idx] * slope + intercept;
-    }
+  if (!dosage_ct) {
+    return;
+  }
+  slope *= kRecipDosageMid;
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = dosage_present[0];
+  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+    const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &cur_bits);
+    expanded_dosages[sample_uidx] = dosage_main[dosage_idx] * slope + intercept;
   }
 }
 
@@ -1428,6 +1431,9 @@ void SetMaleHetMissing(const uintptr_t* __restrict sex_male_interleaved, uint32_
 
 void EraseMaleHetDosages(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main) {
   const uint32_t orig_write_dosage_ct = *write_dosage_ct_ptr;
+  if (!orig_write_dosage_ct) {
+    return;
+  }
   uintptr_t sample_uidx_base = 0;
   uintptr_t cur_bits = dosagepresent[0];
   for (uint32_t dosage_read_idx = 0; dosage_read_idx != orig_write_dosage_ct; ++dosage_read_idx) {
@@ -1454,6 +1460,9 @@ void EraseMaleHetDosages(const uintptr_t* __restrict sex_male, const uintptr_t* 
 
 void EraseMaleDphases(const uintptr_t* __restrict sex_male, uint32_t* __restrict write_dphase_ct_ptr, uintptr_t* __restrict dphasepresent, SDosage* dphase_delta) {
   const uint32_t orig_write_dphase_ct = *write_dphase_ct_ptr;
+  if (!orig_write_dphase_ct) {
+    return;
+  }
   uintptr_t sample_widx = 0;
   uintptr_t cur_bits = dphasepresent[0];
   for (uint32_t dphase_read_idx = 0; dphase_read_idx != orig_write_dphase_ct; ++dphase_read_idx) {
