@@ -1661,12 +1661,12 @@ PglErr ConditionalAllocateNonAutosomalVariants(const ChrInfo* cip, const char* c
     ClearBitsNz(cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1], working_variant_include);
   }
   uint32_t y_code;
-  if (XymtExists(cip, kChrOffsetX, &y_code)) {
+  if (XymtExists(cip, kChrOffsetY, &y_code)) {
     uint32_t chr_fo_idx = cip->chr_idx_to_foidx[y_code];
     ClearBitsNz(cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1], working_variant_include);
   }
   uint32_t mt_code;
-  if (XymtExists(cip, kChrOffsetX, &mt_code)) {
+  if (XymtExists(cip, kChrOffsetMT, &mt_code)) {
     uint32_t chr_fo_idx = cip->chr_idx_to_foidx[mt_code];
     ClearBitsNz(cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1], working_variant_include);
   }
