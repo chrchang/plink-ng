@@ -2455,12 +2455,15 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       if (calc_thread_ct + decompress_thread_ct > max_thread_ct) {
         calc_thread_ct = MAXV(1, max_thread_ct - decompress_thread_ct);
       }
+      DPrintf("Pass 2 calc_thread_ct: %u\n", calc_thread_ct);
     }
+    DPrintf("g_bigstack_end before stream reallocate: %lx\n", R_CAST(uintptr_t, g_bigstack_end));
     reterr = InitRLstreamEx(1, kMaxLongLine, MAXV(max_line_blen, kRLstreamBlenFast), &vcf_rls, &line_iter);
     if (unlikely(reterr)) {
       DPrintf("Stream reinitialization failure.\n");
       goto VcfToPgen_ret_1;
     }
+    DPrintf("g_bigstack_end after stream reallocate: %lx\n", R_CAST(uintptr_t, g_bigstack_end));
 
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
     if (unlikely(fopen_checked(outname, FOPEN_WB, &pvarfile))) {
@@ -2468,6 +2471,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     }
     line_idx = 0;
     while (1) {
+      // ok to ignore specific return value since this is second pass
       if (unlikely(RlsNext(&vcf_rls, &line_iter))) {
         DPrintf("Stream header read failure.\n");
         goto VcfToPgen_ret_READ_FAIL;
@@ -2605,6 +2609,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     if (unlikely(bigstack_alloc_c(2 * max_allele_slen + max_qualfilterinfo_slen + kMaxMediumLine + kMaxIdSlen + 32, &writebuf))) {
       goto VcfToPgen_ret_NOMEM;
     }
+    DPrintf("start of writebuf: %lx\n", R_CAST(uintptr_t, writebuf));
+    DPrintf("end of writebuf: %lx\n", R_CAST(uintptr_t, g_bigstack_base));
     write_iter = writebuf;
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
     if (max_alt_ct > 1) {
@@ -2676,6 +2682,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         }
         calc_thread_ct = cachelines_avail / thread_wkspace_cl_ct;
       }
+      DPrintf("start of thread_wkspaces: %lx\n", R_CAST(uintptr_t, g_bigstack_base));
       for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
         g_thread_wkspaces[tidx] = S_CAST(unsigned char*, bigstack_alloc_raw(thread_wkspace_cl_ct * kCacheline));
 #ifdef DEBUG_VCF_PARSE
@@ -2683,6 +2690,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
 #endif
         g_vcf_parse_errs[tidx] = kVcfParseOk;
       }
+      DPrintf("end of thread_wkspaces: %lx\n", R_CAST(uintptr_t, g_bigstack_base));
 
       // be pessimistic re: rounding
       cachelines_avail = (bigstack_left() / kCacheline) - 4;
@@ -2710,12 +2718,15 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       g_gparse[0] = S_CAST(GparseRecord*, bigstack_alloc_raw_rd(main_block_size * sizeof(GparseRecord)));
       g_gparse[1] = S_CAST(GparseRecord*, bigstack_alloc_raw_rd(main_block_size * sizeof(GparseRecord)));
       cachelines_avail = bigstack_left() / (kCacheline * 2);
+      DPrintf("start of geno_bufs: %lx\n", R_CAST(uintptr_t, g_bigstack_base));
       geno_bufs[0] = S_CAST(unsigned char*, bigstack_alloc_raw(cachelines_avail * kCacheline));
       geno_bufs[1] = S_CAST(unsigned char*, bigstack_alloc_raw(cachelines_avail * kCacheline));
+      DPrintf("end of geno_bufs: %lx\n", R_CAST(uintptr_t, g_bigstack_base));
       // This is only used for comparison purposes, so it is unnecessary to
       // round it down to a multiple of kBytesPerVec even though every actual
       // record will be vector-aligned.
       per_thread_byte_limit = (cachelines_avail * kCacheline) / calc_thread_ct;
+      DPrintf("per_thread_byte_limit: %lx\n", per_thread_byte_limit);
     }
 
     // Main workflow:
@@ -2795,8 +2806,12 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           }
         VcfToPgen_load_start:
           ++line_idx;
-          if (unlikely(RlsNext(&vcf_rls, &line_iter))) {
+          // In principle, it shouldn't be necessary to check the exact value
+          // of reterr, but we currently need this to investigate a bug.
+          reterr = RlsNext(&vcf_rls, &line_iter);
+          if (unlikely(reterr)) {
             DPrintf("Stream body read failure.\n");
+            DPrintf("reterr: %u  line_idx: %" PRIuPTR "  sample_ct: %u\n", (uint32_t)reterr, line_idx, sample_ct);
             goto VcfToPgen_ret_READ_FAIL;
           }
 

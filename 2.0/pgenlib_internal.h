@@ -150,9 +150,23 @@ HEADER_INLINE uintptr_t GetNibbleArrEntry(const uintptr_t* nibblearr, uint32_t i
 HEADER_INLINE uint32_t Popcount01Word(uintptr_t val) {
   return PopcountWord(val);
 }
+
+HEADER_INLINE uint32_t Popcount0001Word(uintptr_t val) {
+  return PopcountWord(val);
+}
 #else
 HEADER_INLINE uint32_t Popcount01Word(uintptr_t val) {
   return QuatersumWord(val);
+}
+
+HEADER_INLINE uint32_t Popcount0001Word(uintptr_t val) {
+#  ifdef __LP64__
+  // (val * kMask1111) >> 60 can barely overflow, sigh
+  const uintptr_t val0 = val & 1;
+  return (((val - val0) * kMask1111) >> 60) + val0;
+#  else
+  return (val * kMask1111) >> 28;
+#  endif
 }
 #endif
 
@@ -979,33 +993,33 @@ HEADER_INLINE uint32_t VrtypeDosage(uint32_t vrtype) {
 }
 
 static_assert(kPglMaxAltAlleleCt <= 254, "GetAux1xAlleleEntryByteCt() needs to be updated.");
-HEADER_INLINE uintptr_t GetAux1aAlleleEntryByteCt(uint32_t allele_ct, uint32_t ct_01) {
+HEADER_INLINE uintptr_t GetAux1aAlleleEntryByteCt(uint32_t allele_ct, uint32_t rarehet_ct) {
   assert(allele_ct >= 3);
   if (allele_ct == 3) {
     return 0;
   }
   if (allele_ct == 4) {
-    return DivUp(ct_01, 8);
+    return DivUp(rarehet_ct, 8);
   }
   if (allele_ct <= 6) {
-    return DivUp(ct_01, 4);
+    return DivUp(rarehet_ct, 4);
   }
   if (allele_ct <= 18) {
-    return DivUp(ct_01, 2);
+    return DivUp(rarehet_ct, 2);
   }
-  return ct_01;
+  return rarehet_ct;
 }
 
-HEADER_INLINE uintptr_t GetAux1bAlleleEntryByteCt(uint32_t allele_ct, uint32_t ct_10) {
+HEADER_INLINE uintptr_t GetAux1bAlleleEntryByteCt(uint32_t allele_ct, uint32_t rare10_ct) {
   assert(allele_ct >= 3);
   if (allele_ct == 3) {
-    return DivUp(ct_10, 1);
+    return DivUp(rare10_ct, 1);
   }
   if (allele_ct < 6) {
-    return DivUp(ct_10, 4);
+    return DivUp(rare10_ct, 4);
   }
   // one byte per entry for allele_ct <= 17, two bytes for 18..256
-  return ((allele_ct >= 18) + 1) * ct_10;
+  return ((allele_ct >= 18) + 1) * rare10_ct;
   // todo: allele_ct > 257
 }
 

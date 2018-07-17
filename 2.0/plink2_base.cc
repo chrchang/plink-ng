@@ -1864,6 +1864,175 @@ void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stri
 }
 #endif  // !__LP64__
 
+#ifdef __LP64__
+#  ifdef USE_AVX2
+const unsigned char kLeadMask[2 * kBytesPerVec] __attribute__ ((aligned (64))) =
+  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+   255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+   255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
+#  else
+const unsigned char kLeadMask[2 * kBytesPerVec] __attribute__ ((aligned (32))) =
+  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+   255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
+#  endif
+
+uintptr_t BytesumArr(const void* bytearr, uintptr_t byte_ct) {
+  uintptr_t tot = 0;
+  if (byte_ct < kBytesPerVec) {
+    const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
+    for (uintptr_t ulii = 0; ulii != byte_ct; ++ulii) {
+      tot += bytearr_uc[ulii];
+    }
+    return tot;
+  }
+  const unsigned char* bytearr_uc_iter = S_CAST(const unsigned char*, bytearr);
+  const unsigned char* bytearr_uc_final = &(bytearr_uc_iter[byte_ct - kBytesPerVec]);
+  const VecW m0 = vecw_setzero();
+  VecW acc = vecw_setzero();
+  while (bytearr_uc_iter < bytearr_uc_final) {
+    const VecW cur_vec = vecw_loadu(bytearr_uc_iter);
+    acc = acc + vecw_sad(cur_vec, m0);
+    bytearr_uc_iter = &(bytearr_uc_iter[kBytesPerVec]);
+  }
+  VecW cur_vec = vecw_loadu(bytearr_uc_final);
+  const uintptr_t overlap_byte_ct = bytearr_uc_iter - bytearr_uc_final;
+  const VecW mask_vec = vecw_loadu(&(kLeadMask[kBytesPerVec - overlap_byte_ct]));
+  cur_vec = cur_vec & mask_vec;
+  acc = acc + vecw_sad(cur_vec, m0);
+  return HsumW(acc);
+}
+
+#else  // !__LP64__
+uintptr_t BytesumArr(const void* bytearr, uintptr_t byte_ct) {
+  // Assumes sum < 2^32.
+#  ifdef __arm__
+#    error "Unaligned accesses in BytesumArr()."
+#  endif
+  const uint32_t word_ct = byte_ct / kBytesPerWord;
+  const uintptr_t* bytearr_alias_iter = S_CAST(const uintptr_t*, bytearr);
+  const uint32_t wordblock_idx_trail = word_ct / 256;
+  const uint32_t wordblock_idx_end = DivUp(word_ct, 256);
+  uint32_t wordblock_idx = 0;
+  uint32_t wordblock_len = 256;
+  uintptr_t tot = 0;
+  while (1) {
+    if (wordblock_idx >= wordblock_idx_trail) {
+      if (wordblock_idx == wordblock_idx_end) {
+        byte_ct = byte_ct % kBytesPerWord;
+        const unsigned char* bytearr_alias_iter2 = R_CAST(const unsigned char*, bytearr_alias_iter);
+        for (uint32_t uii = 0; uii != byte_ct; ++uii) {
+          tot += bytearr_alias_iter2[uii];
+        }
+        return tot;
+      }
+      wordblock_len = word_ct % 256;
+    }
+    ++wordblock_idx;
+    const uintptr_t* bytearr_alias_stop = &(bytearr_alias_iter[wordblock_len]);
+    uintptr_t acc_even = 0;
+    uintptr_t acc_odd = 0;
+    do {
+      uintptr_t cur_word = *bytearr_alias_iter++;
+      acc_even += cur_word & kMask00FF;
+      acc_odd += (cur_word >> 8) & kMask00FF;
+    } while (bytearr_alias_iter < bytearr_alias_stop);
+    acc_even = S_CAST(Halfword, acc_even) + (acc_even >> kBitsPerWordD2);
+    acc_odd = S_CAST(Halfword, acc_odd) + (acc_odd >> kBitsPerWordD2);
+    tot += acc_even + acc_odd;
+  }
+}
+#endif  // !__LP64__
+
+uintptr_t CountByte(const void* bytearr, unsigned char ucc, uintptr_t byte_ct) {
+#ifdef __LP64__
+  if (byte_ct < kBytesPerVec) {
+#endif
+    const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
+    uintptr_t tot = 0;
+    for (uintptr_t ulii = 0; ulii != byte_ct; ++ulii) {
+      tot += (bytearr_uc[ulii] == ucc);
+    }
+    return tot;
+#ifdef __LP64__
+  }
+  const unsigned char* bytearr_uc_iter = S_CAST(const unsigned char*, bytearr);
+  const VecW m0 = vecw_setzero();
+  const VecUc match_vvec = vecuc_set1(ucc);
+  VecUc acc = vecuc_setzero();
+  while (byte_ct > 255 * kBytesPerVec) {
+    VecUc inner_acc = vecuc_setzero();
+    for (uint32_t uii = 0; uii != 255; ++uii) {
+      const VecUc cur_vvec = vecuc_loadu(bytearr_uc_iter);
+      bytearr_uc_iter = &(bytearr_uc_iter[kBytesPerVec]);
+      inner_acc = inner_acc - (cur_vvec == match_vvec);
+    }
+    acc = acc + vecw_sad(R_CAST(VecW, inner_acc), m0);
+    byte_ct -= 255 * kBytesPerVec;
+  }
+  const unsigned char* bytearr_uc_final = &(bytearr_uc_iter[byte_ct - kBytesPerVec]);
+  VecUc inner_acc = vecuc_setzero();
+  while (bytearr_uc_iter < bytearr_uc_final) {
+    const VecUc cur_vvec = vecuc_loadu(bytearr_uc_iter);
+    bytearr_uc_iter = &(bytearr_uc_iter[kBytesPerVec]);
+    inner_acc = inner_acc - (cur_vvec == match_vvec);
+  }
+  VecUc cur_vvec = vecuc_loadu(bytearr_uc_final);
+  const uintptr_t overlap_byte_ct = bytearr_uc_iter - bytearr_uc_final;
+  const VecUc mask_vvec = vecuc_loadu(&(kLeadMask[kBytesPerVec - overlap_byte_ct]));
+  cur_vvec = (cur_vvec == match_vvec) & mask_vvec;
+  inner_acc = inner_acc - cur_vvec;
+  acc = acc + vecw_sad(R_CAST(VecW, inner_acc), m0);
+  return HsumW(acc);
+#endif  // __LP64__
+}
+
+uintptr_t CountU16(const void* u16arr, uint16_t usii, uintptr_t u16_ct) {
+#ifdef __LP64__
+  if (u16_ct < (kBytesPerVec / 2)) {
+#endif
+    const uint16_t* u16arr_alias = S_CAST(const uint16_t*, u16arr);
+    uintptr_t tot = 0;
+    for (uintptr_t ulii = 0; ulii != u16_ct; ++ulii) {
+      tot += (u16arr_alias[ulii] == usii);
+    }
+    return tot;
+#ifdef __LP64__
+  }
+  const uint16_t* u16arr_iter = S_CAST(const uint16_t*, u16arr);
+  const VecW m0 = vecw_setzero();
+  const VecU16 match_vvec = vecu16_set1(usii);
+  VecU16 acc = vecu16_setzero();
+  // can also use larger loop and a slightly different accumulation algorithm,
+  // but it should make practically no difference; lets keep these loops as
+  // similar as possible for now.
+  while (u16_ct > 255 * (kBytesPerVec / 2)) {
+    VecU16 inner_acc = vecu16_setzero();
+    for (uint32_t uii = 0; uii != 255; ++uii) {
+      const VecU16 cur_vvec = vecu16_loadu(u16arr_iter);
+      u16arr_iter = &(u16arr_iter[kBytesPerVec / 2]);
+      inner_acc = inner_acc - (cur_vvec == match_vvec);
+    }
+    acc = acc + vecw_sad(R_CAST(VecW, inner_acc), m0);
+    u16_ct -= 255 * (kBytesPerVec / 2);
+  }
+  const uint16_t* u16arr_final = &(u16arr_iter[u16_ct - (kBytesPerVec / 2)]);
+  VecU16 inner_acc = vecu16_setzero();
+  while (u16arr_iter < u16arr_final) {
+    const VecU16 cur_vvec = vecu16_loadu(u16arr_iter);
+    u16arr_iter = &(u16arr_iter[kBytesPerVec / 2]);
+    inner_acc = inner_acc - (cur_vvec == match_vvec);
+  }
+  VecU16 cur_vvec = vecu16_loadu(u16arr_final);
+  const uintptr_t overlap_u16_ct = u16arr_iter - u16arr_final;
+  const VecU16 mask_vvec = vecu16_loadu(&(kLeadMask[kBytesPerVec - 2 * overlap_u16_ct]));
+  cur_vvec = (cur_vvec == match_vvec) & mask_vvec;
+  inner_acc = inner_acc - cur_vvec;
+  acc = acc + vecw_sad(R_CAST(VecW, inner_acc), m0);
+  return HsumW(acc);
+#endif  // __LP64__
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

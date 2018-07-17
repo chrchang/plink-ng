@@ -671,6 +671,7 @@ typedef uint16_t Quarterword;
 #    define VCONST_W(xx) {xx, xx, xx, xx}
 #    define VCONST_S(xx) {xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx}
 #    define VCONST_C(xx) {xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx}
+#    define VCONST_UC VCONST_C
 
 // vv = VCONST_W(k0LU) doesn't work (only ok for initialization)
 HEADER_INLINE VecW vecw_setzero() {
@@ -705,6 +706,10 @@ HEADER_INLINE VecW vecw_srli(VecW vv, uint32_t ct) {
 
 HEADER_INLINE VecW vecw_slli(VecW vv, uint32_t ct) {
   return R_CAST(VecW, _mm256_slli_epi64(R_CAST(__m256i, vv), ct));
+}
+
+HEADER_INLINE VecW vecw_set1(uintptr_t ulii) {
+  return R_CAST(VecW, _mm256_set1_epi64x(ulii));
 }
 
 HEADER_INLINE VecU32 vecu32_set1(uint32_t uii) {
@@ -831,6 +836,7 @@ HEADER_INLINE VecUc vecuc_adds(VecUc v1, VecUc v2) {
 #    define VCONST_W(xx) {xx, xx}
 #    define VCONST_S(xx) {xx, xx, xx, xx, xx, xx, xx, xx}
 #    define VCONST_C(xx) {xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx}
+#    define VCONST_UC VCONST_C
 
 HEADER_INLINE VecW vecw_setzero() {
   return R_CAST(VecW, _mm_setzero_si128());
@@ -862,6 +868,10 @@ HEADER_INLINE VecW vecw_srli(VecW vv, uint32_t ct) {
 
 HEADER_INLINE VecW vecw_slli(VecW vv, uint32_t ct) {
   return R_CAST(VecW, _mm_slli_epi64(R_CAST(__m128i, vv), ct));
+}
+
+HEADER_INLINE VecW vecw_set1(uintptr_t ulii) {
+  return R_CAST(VecW, _mm_set1_epi64x(ulii));
 }
 
 HEADER_INLINE VecU32 vecu32_set1(uint32_t uii) {
@@ -1060,6 +1070,10 @@ HEADER_INLINE VecW vecw_srli(VecW vv, uint32_t ct) {
 
 HEADER_INLINE VecW vecw_slli(VecW vv, uint32_t ct) {
   return vv << ct;
+}
+
+HEADER_INLINE VecW vecw_set1(uintptr_t ulii) {
+  return ulii;
 }
 
 HEADER_INLINE VecW vecw_loadu(const void* mem_addr) {
@@ -2523,14 +2537,17 @@ HEADER_INLINE void ZeroU64Arr(uintptr_t entry_ct, uint64_t* u64arr) {
   memset(u64arr, 0, entry_ct * sizeof(int64_t));
 }
 
-
 HEADER_INLINE void SetAllWArr(uintptr_t entry_ct, uintptr_t* warr) {
-  // todo: test this against memset(, 255, ) and manually vectorized loop
+  // todo: test this against vecset()
   for (uintptr_t idx = 0; idx != entry_ct; ++idx) {
     warr[idx] = ~k0LU;
   }
 }
 
+// might rename this to IsSet01 (guaranteeing 0/1 return value), and change
+// IsSet() to bitarr[idx / kBitsPerWord] & (k1LU << (idx % kBitsPerWord)) since
+// I'd expect that to play better with out-of-order execution.  but need to
+// benchmark first.
 HEADER_INLINE uintptr_t IsSet(const uintptr_t* bitarr, uintptr_t idx) {
   return (bitarr[idx / kBitsPerWord] >> (idx % kBitsPerWord)) & 1;
 }
@@ -2583,10 +2600,8 @@ HEADER_INLINE uintptr_t BitIter1(const uintptr_t* bitarr, uintptr_t* uidx_basep,
 // Returns lowbit index instead of the full index.
 HEADER_INLINE uint32_t BitIter1x(const uintptr_t* bitarr, uintptr_t* widxp, uintptr_t* cur_bitsp) {
   uintptr_t cur_bits = *cur_bitsp;
-  if (!cur_bits) {
-    do {
-      cur_bits = bitarr[++(*widxp)];
-    } while (!cur_bits);
+  while (!cur_bits) {
+    cur_bits = bitarr[++(*widxp)];
   }
   *cur_bitsp = cur_bits & (cur_bits - 1);
   return ctzw(cur_bits);
@@ -2595,10 +2610,8 @@ HEADER_INLINE uint32_t BitIter1x(const uintptr_t* bitarr, uintptr_t* widxp, uint
 // Returns isolated lowbit.
 HEADER_INLINE uintptr_t BitIter1y(const uintptr_t* bitarr, uintptr_t* widxp, uintptr_t* cur_bitsp) {
   uintptr_t cur_bits = *cur_bitsp;
-  if (!cur_bits) {
-    do {
-      cur_bits = bitarr[++(*widxp)];
-    } while (!cur_bits);
+  while (!cur_bits) {
+    cur_bits = bitarr[++(*widxp)];
   }
   const uintptr_t shifted_bit = cur_bits & (-cur_bits);
   *cur_bitsp = cur_bits ^ shifted_bit;
@@ -2814,6 +2827,12 @@ HEADER_INLINE void TransposeBitblock(const uintptr_t* read_iter, uint32_t read_u
 
 CONSTI32(kPglBitTransposeBufwords, kPglBitTransposeBufbytes / kBytesPerWord);
 CONSTI32(kPglBitTransposeBufvecs, kPglBitTransposeBufbytes / kBytesPerVec);
+
+uintptr_t BytesumArr(const void* bytearr, uintptr_t byte_ct);
+
+uintptr_t CountByte(const void* bytearr, unsigned char ucc, uintptr_t byte_ct);
+
+uintptr_t CountU16(const void* u16arr, uint16_t usii, uintptr_t u16_ct);
 
 // Flagset conventions:
 // * Each 32-bit and 64-bit flagset has its own type, which is guaranteed to be

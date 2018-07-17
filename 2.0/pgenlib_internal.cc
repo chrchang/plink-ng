@@ -431,7 +431,6 @@ void Count3FreqVec6(const VecW* geno_vvec, uint32_t vec_ct, uint32_t* __restrict
   assert(!(vec_ct % 6));
   // Sets even_ct to the number of set low bits in the current block, odd_ct to
   // the number of set high bits, and bothset_ct by the number of 0b11s.
-  // Easy to adapt this to take a subset quatervec parameter.
   const VecW m1 = VCONST_W(kMask5555);
   const VecW m2 = VCONST_W(kMask3333);
   const VecW m4 = VCONST_W(kMask0F0F);
@@ -516,9 +515,9 @@ void Count3FreqVec6(const VecW* geno_vvec, uint32_t vec_ct, uint32_t* __restrict
 // geno_vvec now allowed to be unaligned.
 void CountSubset3FreqVec6(const VecW* __restrict geno_vvec, const VecW* __restrict interleaved_mask_vvec, uint32_t vec_ct, uint32_t* __restrict even_ctp, uint32_t* __restrict odd_ctp, uint32_t* __restrict bothset_ctp) {
   assert(!(vec_ct % 6));
-  // Sets even_ct to the number of set low bits in the current block, odd_ct to
-  // the number of set high bits, and bothset_ct by the number of 0b11s.
-  // Easy to adapt this to take a subset quatervec parameter.
+  // Sets even_ct to the number of set low bits in the current block after
+  // subsetting, odd_ct to the number of set high bits, and bothset_ct by the
+  // number of 0b11s.
   const VecW m1 = VCONST_W(kMask5555);
   const VecW m2 = VCONST_W(kMask3333);
   const VecW m4 = VCONST_W(kMask0F0F);
@@ -610,52 +609,6 @@ void CountSubset3FreqVec6(const VecW* __restrict geno_vvec, const VecW* __restri
     acc_even = acc_even + vecw_bytesum(inner_acc_even, m0);
     acc_odd = acc_odd + vecw_bytesum(inner_acc_odd, m0);
     acc_bothset = acc_bothset + vecw_bytesum(inner_acc_bothset, m0);
-  }
-}
-
-uint32_t Count01Vec6(const VecW* geno_vvec, uint32_t vec_ct) {
-  assert(!(vec_ct % 6));
-  const VecW m0 = vecw_setzero();
-  const VecW m1 = VCONST_W(kMask5555);
-  const VecW m2 = VCONST_W(kMask3333);
-  const VecW m4 = VCONST_W(kMask0F0F);
-  const VecW* geno_vvec_iter = geno_vvec;
-  VecW prev_sad_result = vecw_setzero();
-  VecW acc = vecw_setzero();
-  uintptr_t cur_incr = 60;
-  while (1) {
-    if (vec_ct < 60) {
-      if (!vec_ct) {
-        acc = acc + prev_sad_result;
-        return HsumW(acc);
-      }
-      cur_incr = vec_ct;
-    }
-    VecW inner_acc = vecw_setzero();
-    const VecW* geno_vvec_stop = &(geno_vvec_iter[cur_incr]);
-    vec_ct -= cur_incr;
-    do {
-      VecW loader1 = *geno_vvec_iter++;
-      VecW loader2 = *geno_vvec_iter++;
-      VecW count1 = ((~vecw_srli(loader1, 1)) & loader1) & m1;
-      VecW count2 = ((~vecw_srli(loader2, 1)) & loader2) & m1;
-
-      loader1 = *geno_vvec_iter++;
-      loader2 = *geno_vvec_iter++;
-      count1 = count1 + (((~vecw_srli(loader1, 1)) & loader1) & m1);
-      count2 = count2 + (((~vecw_srli(loader2, 1)) & loader2) & m1);
-
-      loader1 = *geno_vvec_iter++;
-      loader2 = *geno_vvec_iter++;
-      count1 = count1 + (((~vecw_srli(loader1, 1)) & loader1) & m1);
-      count2 = count2 + (((~vecw_srli(loader2, 1)) & loader2) & m1);
-
-      count1 = (count1 & m2) + (vecw_srli(count1, 2) & m2);
-      count1 = count1 + (count2 & m2) + (vecw_srli(count2, 2) & m2);
-      inner_acc = inner_acc + (count1 & m4) + (vecw_srli(count1, 4) & m4);
-    } while (geno_vvec_iter < geno_vvec_stop);
-    acc = acc + prev_sad_result;
-    prev_sad_result = vecw_bytesum(inner_acc, m0);
   }
 }
 
@@ -877,18 +830,6 @@ void GenovecCountSubsetFreqs(const uintptr_t* __restrict genovec, const uintptr_
   genocounts[1] = even_ct - bothset_ct;
   genocounts[2] = odd_ct - bothset_ct;
   genocounts[3] = bothset_ct;
-}
-
-uint32_t GenovecCount01Unsafe(const uintptr_t* genovec, uint32_t sample_ct) {
-  const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
-  uint32_t word_idx = sample_ctl2 - (sample_ctl2 % (6 * kWordsPerVec));
-  assert(VecIsAligned(genovec));
-  uint32_t tot = Count01Vec6(R_CAST(const VecW*, genovec), word_idx / kWordsPerVec);
-  for (; word_idx != sample_ctl2; ++word_idx) {
-    const uintptr_t cur_geno_word = genovec[word_idx];
-    tot += Popcount01Word(cur_geno_word & (~(cur_geno_word >> 1)) & kMask5555);
-  }
-  return tot;
 }
 
 #ifdef __arm__
@@ -2938,8 +2879,8 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
       } else {
         for (uint32_t cur_vblock_vidx = 0; cur_vblock_vidx != cur_vblock_variant_ct; ++cur_vblock_vidx) {
           const uint32_t cur_allele_ct = fread_ptr[cur_vblock_vidx];
-          prev_allele_idx_offset += cur_allele_ct;
           allele_idx_offsets_iter[cur_vblock_vidx] = prev_allele_idx_offset;
+          prev_allele_idx_offset += cur_allele_ct;
           if (cur_allele_ct > max_allele_ct) {
             max_allele_ct = cur_allele_ct;
           }
@@ -3502,7 +3443,7 @@ PglErr ParseLdAndMergeDifflistSubset(const unsigned char* fread_end, const uintp
   // process the current variant as a difflist.
   // * Assumes ldbase_difflist_sample_ids[ldbase_difflist_len]==sample_ct.
   // * Assumes sample_include == nullptr if no subsetting needed.  (Otherwise,
-  //   it'll still work, but performance will be slower.)
+  //   it'll still work, but performance will be worseslowerw.)
   // Trailing bits of merged_raregeno may not be zeroed out.
   // Caller is responsible for inverting ldbase_common_geno and merged_raregeno
   // afterward if necessary.
@@ -4011,6 +3952,7 @@ uint32_t LdLoadNecessary(uint32_t cur_vidx, PgenReader* pgrp) {
 // the same sample subset.  (Reload is occasionally needed if next variant is
 // multiallelic or phased, we only prevent that when convenient.)
 PglErr LdLoadAndCopyGenovecSubset(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* dest) {
+  const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
   if (LdLoadNecessary(vidx, pgrp)) {
     const uint32_t ldbase_vidx = pgrp->ldbase_vidx;
     const unsigned char* fread_ptr;
@@ -4020,14 +3962,13 @@ PglErr LdLoadAndCopyGenovecSubset(const uintptr_t* __restrict sample_include, co
     }
     const uint32_t vrtype = pgrp->fi.vrtypes[ldbase_vidx];
     PglErr reterr = ParseNonLdGenovecSubsetUnsafe(fread_end, sample_include, sample_include_cumulative_popcounts, sample_ct, vrtype, &fread_ptr, pgrp, dest);
-    pgrp->ldbase_stypes = VrtypeDifflist(vrtype)? kfPgrLdcacheQuater : (kfPgrLdcacheQuater | kfPgrLdcacheRawQuater);
+    pgrp->ldbase_stypes = ((sample_ct != raw_sample_ct) && (!VrtypeDifflist(vrtype)))? (kfPgrLdcacheQuater | kfPgrLdcacheRawQuater) : kfPgrLdcacheQuater;
     CopyQuaterarr(dest, sample_ct, pgrp->ldbase_genovec);
     return reterr;
   }
   if (pgrp->ldbase_stypes & kfPgrLdcacheQuater) {
     CopyQuaterarr(pgrp->ldbase_genovec, sample_ct, dest);
   } else {
-    const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
     if ((pgrp->ldbase_stypes & kfPgrLdcacheRawQuater) && (sample_ct == raw_sample_ct)) {
       CopyQuaterarr(pgrp->ldbase_raw_genovec, sample_ct, dest);
     } else if (pgrp->ldbase_stypes & kfPgrLdcacheDifflist) {
@@ -4548,87 +4489,6 @@ PglErr LdSubsetAdjustGenocounts(const unsigned char* fread_end, const uintptr_t*
   }
 }
 
-/*
-#ifdef __LP64__
-#  ifdef USE_AVX2
-const unsigned char kLeadMask[2 * kBytesPerVec] __attribute__ ((aligned (64))) =
-  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-   255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-   255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
-#  else
-const unsigned char kLeadMask[2 * kBytesPerVec] __attribute__ ((aligned (32))) =
-  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-   255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
-#  endif
-
-uintptr_t BytesumArr(const void* bytearr, uintptr_t byte_ct) {
-  uintptr_t tot = 0;
-  if (byte_ct < kBytesPerVec) {
-    const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
-    for (uintptr_t ulii = 0; ulii != byte_ct; ++ulii) {
-      tot += bytearr_uc[ulii];
-    }
-    return tot;
-  }
-  const unsigned char* bytearr_uc_iter = S_CAST(const unsigned char*, bytearr);
-  const unsigned char* bytearr_uc_final = &(bytearr_uc_iter[byte_ct - kBytesPerVec]);
-  const VecW m0 = vecw_setzero();
-  VecW acc = vecw_setzero();
-  while (bytearr_uc_iter < bytearr_uc_final) {
-    const VecW cur_vec = vecw_loadu(bytearr_uc_iter);
-    acc = acc + vecw_sad(cur_vec, m0);
-    bytearr_uc_iter = &(bytearr_uc_iter[kBytesPerVec]);
-  }
-  VecW cur_vec = vecw_loadu(bytearr_uc_final);
-  const uintptr_t overlap_byte_ct = bytearr_uc_iter - bytearr_uc_final;
-  const VecW mask_vec = vecw_loadu(&(kLeadMask[kBytesPerVec - overlap_byte_ct]));
-  cur_vec = cur_vec & mask_vec;
-  acc = acc + vecw_sad(cur_vec, m0);
-  return HsumW(acc);
-}
-
-#else
-uintptr_t BytesumArr(const void* bytearr, uintptr_t byte_ct) {
-  // Assumes sum < 2^32.
-#  ifdef __arm__
-#    error "Unaligned accesses in BytesumArr()."
-#  endif
-  const uint32_t word_ct = byte_ct / kBytesPerWord;
-  const uintptr_t* bytearr_alias_iter = S_CAST(const uintptr_t*, bytearr);
-  const uint32_t wordblock_idx_trail = word_ct / 256;
-  const uint32_t wordblock_idx_end = DivUp(word_ct, 256);
-  uint32_t wordblock_idx = 0;
-  uint32_t wordblock_len = 256;
-  uintptr_t tot = 0;
-  while (1) {
-    if (wordblock_idx >= wordblock_idx_trail) {
-      if (wordblock_idx == wordblock_idx_end) {
-        byte_ct = byte_ct % kBytesPerWord;
-        const unsigned char* bytearr_alias_iter2 = R_CAST(const unsigned char*, bytearr_alias_iter);
-        for (uint32_t uii = 0; uii != byte_ct; ++uii) {
-          tot += bytearr_alias_iter2[uii];
-        }
-        return tot;
-      }
-      wordblock_len = word_ct % 256;
-    }
-    ++wordblock_idx;
-    const uintptr_t* bytearr_alias_stop = &(bytearr_alias_iter[wordblock_len]);
-    uintptr_t acc_even = 0;
-    uintptr_t acc_odd = 0;
-    do {
-      uintptr_t cur_word = *bytearr_alias_iter++;
-      acc_even += cur_word & kMask00FF;
-      acc_odd += (cur_word >> 8) & kMask00FF;
-    } while (bytearr_alias_iter < bytearr_alias_stop);
-    acc_even = S_CAST(Halfword, acc_even) + (acc_even >> kBitsPerWordD2);
-    acc_odd = S_CAST(Halfword, acc_odd) + (acc_odd >> kBitsPerWordD2);
-    tot += acc_even + acc_odd;
-  }
-}
-#endif
-
 PglErr SkipDifflistIds(const unsigned char* fread_end, const unsigned char* group_info, uint32_t difflist_len, uint32_t raw_sample_ct, const unsigned char** fread_pp) {
   assert(difflist_len);
   // fread_pp is a pure output parameter here
@@ -4649,9 +4509,19 @@ PglErr SkipDifflistIds(const unsigned char* fread_end, const unsigned char* grou
   const uintptr_t* fread_alias = R_CAST(const uintptr_t*, &(extra_byte_cts[(group_ct - 1) * kPglDifflistGroupSize + extra_byte_tot + QuaterCtToByteCt(difflist_len)]));
   const uintptr_t* fread_alias_stop = R_CAST(const uintptr_t*, &(fread_end[-S_CAST(int32_t, kBytesPerWord)]));
   uint32_t remaining_id_ct = (difflist_len - 1) % kPglDifflistGroupSize;
+#ifdef __LP64__
+  while (remaining_id_ct >= kBytesPerVec) {
+    if (unlikely(fread_alias > fread_alias_stop)) {
+      return kPglRetMalformedInput;
+    }
+    const VecW vv = vecw_loadu(R_CAST(const VecW*, fread_alias));
+    fread_alias = &(fread_alias[kWordsPerVec]);
+    const uint32_t highbits = vecw_movemask(vv);
+    remaining_id_ct -= kBytesPerVec - PopcountVec8thUint(highbits);
+  }
+#endif
   while (remaining_id_ct >= kBytesPerWord) {
     // scan a word at a time, count number of high bits set
-    // todo: use movemask with unaligned loads?
     if (unlikely(fread_alias > fread_alias_stop)) {
       return kPglRetMalformedInput;
     }
@@ -4680,7 +4550,6 @@ PglErr SkipDifflistIds(const unsigned char* fread_end, const unsigned char* grou
   }
   return kPglRetMalformedInput;
 }
-*/
 
 PglErr CountparseDifflistSubset(const unsigned char* fread_end, const uintptr_t* __restrict sample_include, uint32_t common_geno, uint32_t raw_sample_ct, uint32_t sample_ct, const unsigned char** fread_pp, STD_ARRAY_REF(uint32_t, 4) genocounts, uintptr_t* __restrict raregeno_workspace) {
   const unsigned char* group_info_iter;
@@ -4861,8 +4730,8 @@ PglErr LdLoadGenovecSubsetIfNecessary(const uintptr_t* __restrict sample_include
 }
 
 PglErr GetBasicGenotypeCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, STD_ARRAY_REF(uint32_t, 4) genocounts) {
-  // genocounts[0] := ref/ref, genocounts[1] := ref/alt1,
-  // genocounts[2] := alt1/alt1, genocounts[3] := missing/other
+  // genocounts[0] := ref/ref, genocounts[1] := ref/altx,
+  // genocounts[2] := altx/alty, genocounts[3] := missing
   assert(vidx < pgrp->fi.raw_variant_ct);
   assert(sample_ct);
   const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
@@ -4966,43 +4835,1093 @@ PglErr PgrGetCounts(const uintptr_t* __restrict sample_include, const uintptr_t*
   return GetBasicGenotypeCounts(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, genocounts);
 }
 
-// Returns (subsetted) size.
-// Trailing bits of raw_genovec must be cleared.
-// Note that raw_01_ct cannot be subsetted.  Ok to set to UINT32_MAX to
-// lazy-evaluate, though; it frequently isn't needed.
-/*
-uint32_t CountAux1aUnsafe(const unsigned char* fread_end, const uintptr_t* __restrict sample_include, const uintptr_t* __restrict raw_genovec, uint32_t sample_ct, uint32_t raw_01_ct, const unsigned char** fread_pp) {
-  const uint32_t aux1a_mode = (**fread_pp) & 15;
-  (*fread_pp) += 1;
-  if (!aux1a_mode) {
-    // bitarray
-    if (raw_01_ct == UINT32_MAX) {
-      raw_01_ct = GenovecCount01Unsafe(raw_genovec, sample_ct);
+// Ok for quater_vvec to be unaligned.
+uint32_t CountQuaterVec6(const VecW* quater_vvec, uintptr_t quater_word, uint32_t vec_ct) {
+  assert(!(vec_ct % 6));
+  const VecW m0 = vecw_setzero();
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW xor_vvec = vecw_set1(quater_word);
+  const VecW* quater_vvec_iter = quater_vvec;
+  VecW prev_sad_result = vecw_setzero();
+  VecW acc = vecw_setzero();
+  uintptr_t cur_incr = 60;
+  while (1) {
+    if (vec_ct < 60) {
+      if (!vec_ct) {
+        acc = acc + prev_sad_result;
+        return HsumW(acc);
+      }
+      cur_incr = vec_ct;
     }
-    if (!sample_include) {
-      ;;;
-    } else {
-      ;;;
-    }
-  } else if () {
-  } else {
-    // no ref/altx at all
-    return 0;
+    VecW inner_acc = vecw_setzero();
+    const VecW* quater_vvec_stop = &(quater_vvec_iter[cur_incr]);
+    vec_ct -= cur_incr;
+    do {
+      VecW loader1 = vecw_loadu(quater_vvec_iter++) ^ xor_vvec;
+      VecW loader2 = vecw_loadu(quater_vvec_iter++) ^ xor_vvec;
+      VecW count1 = (~(vecw_srli(loader1, 1) | loader1)) & m1;
+      VecW count2 = (~(vecw_srli(loader2, 1) | loader2)) & m1;
+
+      loader1 = vecw_loadu(quater_vvec_iter++) ^ xor_vvec;
+      loader2 = vecw_loadu(quater_vvec_iter++) ^ xor_vvec;
+      count1 = count1 + ((~(vecw_srli(loader1, 1) | loader1)) & m1);
+      count2 = count2 + ((~(vecw_srli(loader2, 1) | loader2)) & m1);
+
+      loader1 = vecw_loadu(quater_vvec_iter++) ^ xor_vvec;
+      loader2 = vecw_loadu(quater_vvec_iter++) ^ xor_vvec;
+      count1 = count1 + ((~(vecw_srli(loader1, 1) & loader1)) & m1);
+      count2 = count2 + ((~(vecw_srli(loader2, 1) & loader2)) & m1);
+
+      count1 = (count1 & m2) + (vecw_srli(count1, 2) & m2);
+      count1 = count1 + (count2 & m2) + (vecw_srli(count2, 2) & m2);
+      inner_acc = inner_acc + (count1 & m4) + (vecw_srli(count1, 4) & m4);
+    } while (quater_vvec_iter < quater_vvec_stop);
+    acc = acc + prev_sad_result;
+    prev_sad_result = vecw_bytesum(inner_acc, m0);
   }
 }
 
-
-// Returns (subsetted) number of ref-altx hets, for given x>1.
-uint32_t CountAux1aMatch() {
+// Ok for quatervec to be unaligned.  Ok if unsafe to read trailing bytes of
+// quatervec.
+uint32_t CountQuater(const void* quaterarr, uintptr_t quater_word, uint32_t quater_ct) {
+  const uint32_t fullword_ct = quater_ct / kBitsPerWordD2;
+  uint32_t word_idx = fullword_ct - (fullword_ct % (6 * kWordsPerVec));
+  uint32_t tot = CountQuaterVec6(S_CAST(const VecW*, quaterarr), quater_word, word_idx / kWordsPerVec);
+  const uintptr_t* quatervec = S_CAST(const uintptr_t*, quaterarr);
+  for (; word_idx != fullword_ct; ++word_idx) {
+    const uintptr_t cur_word = quatervec[word_idx] ^ quater_word;
+    tot += Popcount01Word((~(cur_word | (cur_word >> 1))) & kMask5555);
+  }
+  const uint32_t trailing_quater_ct = quater_ct % kBitsPerWordD2;
+  if (trailing_quater_ct) {
+    const uint32_t trailing_byte_ct = DivUp(trailing_quater_ct, (CHAR_BIT / 2));
+    uintptr_t cur_word = SubwordLoad(&(quatervec[fullword_ct]), trailing_byte_ct) ^ quater_word;
+    cur_word = bzhi((~(cur_word | (cur_word >> 1))) & kMask5555, trailing_quater_ct * 2);
+    tot += Popcount01Word(cur_word);
+  }
+  return tot;
 }
 
-// Main return value is (subsetted) number of altx-alty hets, for given x>=1.
-// For x>1, number of hom-altx genotypes is also returned in outparameter.
-uint32_t CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sample_include, unsigned char aux1_first_byte, const unsigned char** fread_pp, uint32_t* hom_ct_ptr) {
+/*
+uint32_t CountQuaterSubsetVec6(const VecW* __restrict quater_vvec, const VecW* __restrict interleaved_mask_vvec, uintptr_t quater_word, uint32_t vec_ct) {
+  assert(!(vec_ct % 6));
+  const VecW m0 = vecw_setzero();
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW xor_vvec = vecw_set1(quater_word);
+  const VecW* quater_vvec_iter = quater_vvec;
+  const VecW* interleaved_mask_vvec_iter = interleaved_mask_vvec;
+  VecW prev_sad_result = vecw_setzero();
+  VecW acc = vecw_setzero();
+  uintptr_t cur_incr = 60;
+  while (1) {
+    if (vec_ct < 60) {
+      if (!vec_ct) {
+        acc = acc + prev_sad_result;
+        return HsumW(acc);
+      }
+      cur_incr = vec_ct;
+    }
+    VecW inner_acc = vecw_setzero();
+    const VecW* quater_vvec_stop = &(quater_vvec_iter[cur_incr]);
+    vec_ct -= cur_incr;
+    do {
+      VecW mask1 = *interleaved_mask_vvec_iter++;
+      VecW loader1 = vecw_loadu(quater_vvec_iter++) ^ xor_vvec;
+      VecW mask2 = vecw_srli(mask1, 1) & m1;
+      VecW loader2 = vecw_loadu(quater_vvec_iter++) ^ xor_vvec;
+      mask1 = mask1 & m1;
+      VecW count1 = (~(vecw_srli(loader1, 1) | loader1)) & mask1;
+      VecW count2 = (~(vecw_srli(loader2, 1) | loader2)) & mask2;
+
+      mask1 = *interleaved_mask_vvec_iter++;
+      loader1 = vecw_loadu(quater_vvec_iter++) ^ xor_vvec;
+      mask2 = vecw_srli(mask1, 1) & m1;
+      loader2 = vecw_loadu(quater_vvec_iter++) ^ xor_vvec;
+      mask1 = mask1 & m1;
+      count1 = count1 + ((~(vecw_srli(loader1, 1) | loader1)) & mask1);
+      count2 = count2 + ((~(vecw_srli(loader2, 1) | loader2)) & mask2);
+
+      mask1 = *interleaved_mask_vvec_iter++;
+      loader1 = vecw_loadu(quater_vvec_iter++) ^ xor_vvec;
+      mask2 = vecw_srli(mask2, 1) & m1;
+      loader2 = vecw_loadu(quater_vvec_iter++) ^ xor_vvec;
+      mask1 = mask1 & m1;
+      count1 = count1 + ((~(vecw_srli(loader1, 1) & loader1)) & mask1);
+      count2 = count2 + ((~(vecw_srli(loader2, 1) & loader2)) & mask2);
+
+      count1 = (count1 & m2) + (vecw_srli(count1, 2) & m2);
+      count1 = count1 + (count2 & m2) + (vecw_srli(count2, 2) & m2);
+      inner_acc = inner_acc + (count1 & m4) + (vecw_srli(count1, 4) & m4);
+    } while (quater_vvec_iter < quater_vvec_stop);
+    acc = acc + prev_sad_result;
+    prev_sad_result = vecw_bytesum(inner_acc, m0);
+  }
+}
+
+uint32_t CountQuaterSubset(const uintptr_t* __restrict quatervec, const uintptr_t* __restrict interleaved_vec, uintptr_t quater_word, uint32_t raw_quater_ct) {
+  // simplified GenovecCountSubsetFreqs()
+  const uint32_t raw_quater_ctv2 = QuaterCtToVecCt(raw_quater_ct);
+#ifdef __LP64__
+  uint32_t vec_idx = raw_quater_ctv2 - (raw_quater_ctv2 % 6);
+  uint32_t tot = CountQuaterSubsetVec6(R_CAST(const VecW*, quatervec), R_CAST(const VecW*, interleaved_vec), quater_word, vec_idx);
+  const uintptr_t* quatervec_iter = &(quatervec[kWordsPerVec * vec_idx]);
+  const uintptr_t* interleaved_mask_iter = &(interleaved_vec[(kWordsPerVec / 2) * vec_idx]);
+#  ifdef USE_AVX2
+  uintptr_t mask_base1 = 0;
+  uintptr_t mask_base2 = 0;
+  uintptr_t mask_base3 = 0;
+  uintptr_t mask_base4 = 0;
+  for (; vec_idx != raw_quater_ctv2; ++vec_idx) {
+    uintptr_t mask_word1;
+    uintptr_t mask_word2;
+    uintptr_t mask_word3;
+    uintptr_t mask_word4;
+    if (!(vec_idx % 2)) {
+      mask_base1 = *interleaved_mask_iter++;
+      mask_base2 = *interleaved_mask_iter++;
+      mask_base3 = *interleaved_mask_iter++;
+      mask_base4 = *interleaved_mask_iter++;
+      mask_word1 = mask_base1 & kMask5555;
+      mask_word2 = mask_base2 & kMask5555;
+      mask_word3 = mask_base3 & kMask5555;
+      mask_word4 = mask_base4 & kMask5555;
+    } else {
+      mask_word1 = (mask_base1 >> 1) & kMask5555;
+      mask_word2 = (mask_base2 >> 1) & kMask5555;
+      mask_word3 = (mask_base3 >> 1) & kMask5555;
+      mask_word4 = (mask_base4 >> 1) & kMask5555;
+    }
+    uint32_t uii = 0;
+    while (1) {
+      const uintptr_t cur_geno_word1 = (*quatervec_iter++) ^ quater_word;
+      const uintptr_t cur_geno_word2 = (*quatervec_iter++) ^ quater_word;
+      const uintptr_t masked1 = mask_word1 & (~(cur_geno_word1 | (cur_geno_word1 >> 1)));
+      const uintptr_t masked2 = mask_word2 & (~(cur_geno_word2 | (cur_geno_word2 >> 1)));
+      tot += PopcountWord((masked1 << 1) | masked2);
+      if (uii) {
+        break;
+      }
+      ++uii;
+      mask_word1 = mask_word3;
+      mask_word2 = mask_word4;
+    }
+  }
+#  else  // not USE_AVX2
+  uintptr_t mask_base1 = 0;
+  uintptr_t mask_base2 = 0;
+  for (; vec_idx != raw_quater_ctv2; ++vec_idx) {
+    uintptr_t mask_word1;
+    uintptr_t mask_word2;
+    if (!(vec_idx % 2)) {
+      mask_base1 = *interleaved_mask_iter++;
+      mask_base2 = *interleaved_mask_iter++;
+      mask_word1 = mask_base1 & kMask5555;
+      mask_word2 = mask_base2 & kMask5555;
+    } else {
+      mask_word1 = (mask_base1 >> 1) & kMask5555;
+      mask_word2 = (mask_base2 >> 1) & kMask5555;
+    }
+    const uintptr_t cur_geno_word1 = (*quatervec_iter++) ^ quater_word;
+    const uintptr_t cur_geno_word2 = (*quatervec_iter++) ^ quater_word;
+    const uintptr_t masked1 = mask_word1 & (~(cur_geno_word1 | (cur_geno_word1 >> 1)));
+    const uintptr_t masked2 = mask_word2 & (~(cur_geno_word2 | (cur_geno_word2 >> 1)));
+#    ifdef USE_SSE42
+    tot += PopcountWord((masked1 << 1) | masked2);
+#    else
+    tot += QuatersumWord(masked1 + masked2);
+#    endif
+  }
+#  endif  // not USE_AVX2
+#else  // not __LP64__
+  uint32_t word_idx = raw_quater_ctv2 - (raw_quater_ctv2 % 6);
+  uint32_t tot = CountQuaterSubsetVec6(R_CAST(const VecW*, quatervec), R_CAST(const VecW*, interleaved_vec), quater_word, word_idx);
+  const uintptr_t* interleaved_mask_iter = &(interleaved_vec[word_idx / 2]);
+  uintptr_t mask_base = 0;
+  for (; word_idx != raw_quater_ctv2; ++word_idx) {
+    uintptr_t mask_word;
+    if (!(word_idx % 2)) {
+      mask_base = *interleaved_mask_iter++;
+      mask_word = mask_base & kMask5555;
+    } else {
+      mask_word = (mask_base >> 1) & kMask5555;
+    }
+    const uintptr_t cur_geno_word = quatervec[word_idx] ^ quater_word;
+    const uintptr_t masked = mask_word & (~(cur_geno_word | (cur_geno_word >> 1)));
+    tot += Popcount01Word(masked);
+  }
+#endif
+  return tot;
+}
+*/
+
+// Ok for nibble_vvec to be unaligned.
+uint32_t CountNibbleVec(const VecW* nibble_vvec, uintptr_t nibble_word, uint32_t vec_ct) {
+  const VecW m0 = vecw_setzero();
+  const VecW alld15 = VCONST_W(kMask1111);
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW xor_vvec = vecw_set1(nibble_word);
+  const VecW* nibble_vvec_iter = nibble_vvec;
+  VecW prev_sad_result = vecw_setzero();
+  VecW acc = vecw_setzero();
+  uintptr_t cur_incr = 15;
+  while (1) {
+    if (vec_ct < 15) {
+      if (!vec_ct) {
+        acc = acc + prev_sad_result;
+        return HsumW(acc);
+      }
+      cur_incr = vec_ct;
+    }
+    VecW inner_acc = vecw_setzero();
+    const VecW* nibble_vvec_stop = &(nibble_vvec_iter[cur_incr]);
+    vec_ct -= cur_incr;
+    do {
+      VecW loader = vecw_loadu(nibble_vvec_iter++) ^ xor_vvec;
+      loader = vecw_srli(loader, 1) | loader;
+      loader = vecw_srli(loader, 2) | loader;
+      inner_acc = inner_acc + ((~loader) & alld15);
+    } while (nibble_vvec_iter < nibble_vvec_stop);
+    inner_acc = (inner_acc & m4) + (vecw_srli(inner_acc, 4) & m4);
+    acc = acc + prev_sad_result;
+    prev_sad_result = vecw_bytesum(inner_acc, m0);
+  }
+}
+
+uint32_t CountNibble(const void* nibblearr, uintptr_t nibble_word, uintptr_t nibble_ct) {
+  const uint32_t fullword_ct = nibble_ct / kBitsPerWordD4;
+  uint32_t tot = CountNibbleVec(S_CAST(const VecW*, nibblearr), nibble_word, fullword_ct / kWordsPerVec);
+  const uintptr_t* nibblevec = S_CAST(const uintptr_t*, nibblearr);
+#ifdef __LP64__
+  for (uint32_t word_idx = RoundDownPow2(fullword_ct, kWordsPerVec); word_idx != fullword_ct; ++word_idx) {
+    uintptr_t cur_word = nibblevec[word_idx] ^ nibble_word;
+    cur_word = cur_word | (cur_word >> 1);
+    cur_word = cur_word | (cur_word >> 2);
+    tot += Popcount0001Word((~cur_word) & kMask1111);
+  }
+#endif
+  const uint32_t trailing_nibble_ct = nibble_ct % kBitsPerWordD4;
+  if (trailing_nibble_ct) {
+    const uint32_t trailing_byte_ct = DivUp(trailing_nibble_ct, (CHAR_BIT / 4));
+    uintptr_t cur_word = SubwordLoad(&(nibblevec[fullword_ct]), trailing_byte_ct) ^ nibble_word;
+    cur_word = cur_word | (cur_word >> 1);
+    cur_word = cur_word | (cur_word >> 2);
+    cur_word = bzhi((~cur_word) & kMask1111, trailing_nibble_ct * 4);
+#if defined(USE_SSE42) || !defined(__LP64__)
+    tot += Popcount0001Word(cur_word);
+#else
+    // minor optimization, can't overflow
+    tot += (cur_word * kMask1111) >> 60;
+#endif
+  }
+  return tot;
+}
+
+// similar to ParseAndSaveDifflist()
+PglErr ParseAndSaveDeltalist(const unsigned char* fread_end, uint32_t raw_sample_ct, const unsigned char** fread_pp, uint32_t* __restrict deltalist, uint32_t* __restrict deltalist_len_ptr) {
+  const unsigned char* group_info_iter;
+  PglErr reterr = ParseDifflistHeader(fread_end, raw_sample_ct, fread_pp, nullptr, &group_info_iter, deltalist_len_ptr);
+  const uint32_t deltalist_len = *deltalist_len_ptr;
+  if (reterr || (!deltalist_len)) {
+    return reterr;
+  }
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(raw_sample_ct);
+  const uint32_t group_idx_last = (deltalist_len - 1) / kPglDifflistGroupSize;
+  uint32_t* deltalist_iter = deltalist;
+  uint32_t group_len_m1 = kPglDifflistGroupSize - 1;
+  uint32_t group_idx = 0;
+  while (1) {
+    if (group_idx >= group_idx_last) {
+      if (group_idx > group_idx_last) {
+        return kPglRetSuccess;
+      }
+      group_len_m1 &= deltalist_len - 1;
+    }
+    uintptr_t raw_sample_idx = SubU32Load(group_info_iter, sample_id_byte_ct);
+    group_info_iter = &(group_info_iter[sample_id_byte_ct]);
+    ++group_idx;
+    uint32_t raw_deltalist_idx_lowbits = 0;
+    while (1) {
+      // always check, otherwise we may scribble over arbitrary memory
+      if (unlikely(raw_sample_idx >= raw_sample_ct)) {
+        return kPglRetMalformedInput;
+      }
+      deltalist_iter[raw_deltalist_idx_lowbits] = raw_sample_idx;
+      if (raw_deltalist_idx_lowbits == group_len_m1) {
+        break;
+      }
+      ++raw_deltalist_idx_lowbits;
+      raw_sample_idx += GetVint31(fread_end, fread_pp);
+    }
+    deltalist_iter = &(deltalist_iter[group_len_m1 + 1]);
+  }
+}
+
+PglErr CountDeltalistIntersect(const unsigned char* fread_end, const uintptr_t* __restrict sample_include, uint32_t raw_sample_ct, const unsigned char** fread_pp, uint32_t* __restrict intersect_ctp, uint32_t* __restrict raw_deltalist_len_ptr) {
+  // Requires a PROPER subset.
+  const unsigned char* group_info_iter;
+  PglErr reterr = ParseDifflistHeader(fread_end, raw_sample_ct, fread_pp, nullptr, &group_info_iter, raw_deltalist_len_ptr);
+  const uint32_t raw_deltalist_len = *raw_deltalist_len_ptr;
+  if (reterr || (!raw_deltalist_len)) {
+    *intersect_ctp = 0;
+    return reterr;
+  }
+  const uint32_t group_idx_last = (raw_deltalist_len - 1) / kBitsPerWord;
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(raw_sample_ct);
+  uintptr_t intersect_ct = 0;
+
+  // technically doesn't need to be initialized, but I have principles
+  uintptr_t raw_sample_idx = 0;
+
+  uint32_t group_idx = 0;
+  uint32_t group_len_m1 = kBitsPerWord - 1;
+  while (1) {
+    if (group_idx >= group_idx_last) {
+      if (group_idx > group_idx_last) {
+        *intersect_ctp = intersect_ct;
+        return kPglRetSuccess;
+      }
+      group_len_m1 &= raw_deltalist_len - 1;
+    }
+    // We need to pull a raw sample index from the deltalist header every 64
+    // entries.
+#ifdef __LP64__
+    if (unlikely(raw_sample_idx >= raw_sample_ct)) {
+      return kPglRetMalformedInput;
+    }
+#endif
+    raw_sample_idx = SubU32Load(group_info_iter, sample_id_byte_ct);
+    group_info_iter = &(group_info_iter[sample_id_byte_ct]);
+    ++group_idx;
+    uint32_t raw_deltalist_idx_lowbits = 0;
+    while (1) {
+#ifndef __LP64__
+      if (unlikely(raw_sample_idx >= raw_sample_ct)) {
+        return kPglRetMalformedInput;
+      }
+#endif
+      intersect_ct += IsSet(sample_include, raw_sample_idx);
+      if (raw_deltalist_idx_lowbits == group_len_m1) {
+        break;
+      }
+      ++raw_deltalist_idx_lowbits;
+      raw_sample_idx += GetVint31(fread_end, fread_pp);
+    }
+  }
+}
+
+// Advances *fread_pp past aux1a, and sets *het_ctp to the number of ref-altx
+// hets where x == allele_idx in sample_include.  (If allele_idx == 1, *het_ctp
+// is raw_01_ct - [# of aux1a entries] when there's no subsetting.)
+// Note that raw_01_ct must be an un-subsetted count.
+// Ok for subsetted_01_ct to be uninitialized if not subsetting, or allele_idx
+// != 1.
+PglErr CountAux1a(const unsigned char* fread_end, const uintptr_t* __restrict sample_include, const uintptr_t* __restrict raw_genovec, uint32_t aux1_first_byte, uint32_t raw_sample_ct, uint32_t allele_ct, uint32_t allele_idx, uint32_t raw_01_ct, uint32_t subsetted_01_ct, const unsigned char** fread_pp, uint32_t* __restrict het_ctp, uint32_t* __restrict deltalist_workspace) {
+  const uint32_t aux1a_mode = aux1_first_byte & 15;
+  if (!aux1a_mode) {
+    // 01-collapsed bitarray
+    const uint32_t aux1a_byte_ct = DivUp(raw_01_ct, CHAR_BIT);
+    uint32_t rarehet_ct = PopcountBytes(*fread_pp, aux1a_byte_ct);
+    const uintptr_t* aux1a_include_alias = R_CAST(const uintptr_t*, *fread_pp);
+    (*fread_pp) += aux1a_byte_ct;
+    const unsigned char* aux1a_allele_codes = *fread_pp;
+    const uint32_t allele_code_byte_ct = GetAux1aAlleleEntryByteCt(allele_ct, rarehet_ct);
+    (*fread_pp) += allele_code_byte_ct;
+    if (!sample_include) {
+      if (allele_idx == 1) {
+        // safe to ignore allele codes
+        *het_ctp = raw_01_ct - rarehet_ct;
+      } else if (allele_ct < 5) {
+        if (allele_ct == 3) {
+          *het_ctp = rarehet_ct;
+        } else {
+          // need to count matches
+          const uint32_t alt3_ct = PopcountBytes(aux1a_allele_codes, allele_code_byte_ct);
+          if (allele_idx == 3) {
+            *het_ctp = alt3_ct;
+          } else {
+            *het_ctp = rarehet_ct - alt3_ct;
+          }
+        }
+      } else if (allele_ct < 19) {
+        if (allele_ct < 7) {
+          *het_ctp = CountQuater(aux1a_allele_codes, (allele_idx - 2) * kMask5555, rarehet_ct);
+        } else {
+          *het_ctp = CountNibble(aux1a_allele_codes, (allele_idx - 2) * kMask1111, rarehet_ct);
+        }
+      } else {
+        *het_ctp = CountByte(aux1a_allele_codes, allele_idx - 2, rarehet_ct);
+      }
+      return kPglRetSuccess;
+    }
+    const Halfword* sample_include_hw = R_CAST(const Halfword*, sample_include);
+    uintptr_t sample_hwidx = 0;
+    uintptr_t cur_raw_genovec_hets = raw_genovec[0];
+    cur_raw_genovec_hets = cur_raw_genovec_hets & (~(cur_raw_genovec_hets >> 1)) & kMask5555;
+    const uint32_t aux1a_word_ct_m1 = (aux1a_byte_ct - 1) / kBytesPerWord;
+    uint32_t subsetted_het_ct = 0;
+    uint32_t loop_len = kBitsPerWord;
+    uint32_t aux1a_widx = 0;
+    if ((allele_idx == 1) || (allele_ct == 3)) {
+      while (1) {
+        uintptr_t cur_aux1a_bits;
+        if (aux1a_widx >= aux1a_word_ct_m1) {
+          if (aux1a_widx > aux1a_word_ct_m1) {
+            *het_ctp = subsetted_het_ct;
+            return kPglRetSuccess;
+          }
+          cur_aux1a_bits = SubwordLoad(&(aux1a_include_alias[aux1a_word_ct_m1]), ModNz(aux1a_byte_ct, kBytesPerWord));
+          loop_len = ModNz(raw_01_ct, kBitsPerWord);
+        } else {
+          cur_aux1a_bits = aux1a_include_alias[aux1a_widx];
+        }
+        if (allele_idx == 1) {
+          cur_aux1a_bits = ~cur_aux1a_bits;
+        }
+        for (uint32_t uii = 0; uii != loop_len; ++uii) {
+          // Similar to BitIter1y(), but adapted to iterate over hets.
+          while (!cur_raw_genovec_hets) {
+            cur_raw_genovec_hets = raw_genovec[++sample_hwidx];
+            cur_raw_genovec_hets = cur_raw_genovec_hets & (~(cur_raw_genovec_hets >> 1)) & kMask5555;
+          }
+          if (cur_aux1a_bits & 1) {
+            // we have a ref/altx het.  count it iff it's in sample_include.
+            const uint32_t sample_uidx_lowbits = ctzw(cur_raw_genovec_hets) / 2;
+            subsetted_het_ct += (sample_include_hw[sample_hwidx] >> sample_uidx_lowbits) & 1;
+          }
+          cur_raw_genovec_hets = cur_raw_genovec_hets & (cur_raw_genovec_hets - 1);
+          cur_aux1a_bits = cur_aux1a_bits >> 1;
+        }
+        ++aux1a_widx;
+      }
+    }
+    const unsigned char allele_idx_m2 = allele_idx - 2;
+    uint32_t rarehet_idx = 0;
+    while (1) {
+      uintptr_t cur_aux1a_bits;
+      if (aux1a_widx >= aux1a_word_ct_m1) {
+        if (aux1a_widx > aux1a_word_ct_m1) {
+          *het_ctp = subsetted_het_ct;
+          return kPglRetSuccess;
+        }
+        cur_aux1a_bits = SubwordLoad(&(aux1a_include_alias[aux1a_word_ct_m1]), ModNz(aux1a_byte_ct, kBytesPerWord));
+        loop_len = ModNz(raw_01_ct, kBitsPerWord);
+      } else {
+        cur_aux1a_bits = aux1a_include_alias[aux1a_widx];
+      }
+      if (allele_ct < 7) {
+        if (allele_ct == 4) {
+          for (uint32_t uii = 0; uii != loop_len; ++uii) {
+            while (!cur_raw_genovec_hets) {
+              cur_raw_genovec_hets = raw_genovec[++sample_hwidx];
+              cur_raw_genovec_hets = cur_raw_genovec_hets & (~(cur_raw_genovec_hets >> 1)) & kMask5555;
+            }
+            if (cur_aux1a_bits & 1) {
+              // we have a ref/altx het.  count it iff x is correct and the
+              // sample is in sample_include.
+              if (((aux1a_allele_codes[rarehet_idx / 8] >> (rarehet_idx % 8)) & 1) == allele_idx_m2) {
+                const uint32_t sample_uidx_lowbits = ctzw(cur_raw_genovec_hets) / 2;
+                subsetted_het_ct += (sample_include_hw[sample_hwidx] >> sample_uidx_lowbits) & 1;
+              }
+              ++rarehet_idx;
+            }
+            cur_raw_genovec_hets = cur_raw_genovec_hets & (cur_raw_genovec_hets - 1);
+            cur_aux1a_bits = cur_aux1a_bits >> 1;
+          }
+        } else {
+          for (uint32_t uii = 0; uii != loop_len; ++uii) {
+            while (!cur_raw_genovec_hets) {
+              cur_raw_genovec_hets = raw_genovec[++sample_hwidx];
+              cur_raw_genovec_hets = cur_raw_genovec_hets & (~(cur_raw_genovec_hets >> 1)) & kMask5555;
+            }
+            if (cur_aux1a_bits & 1) {
+              // we have a ref/altx het.  count it iff x is correct and the
+              // sample is in sample_include.
+              if (((aux1a_allele_codes[rarehet_idx / 4] >> (rarehet_idx % 4)) & 3) == allele_idx_m2) {
+                const uint32_t sample_uidx_lowbits = ctzw(cur_raw_genovec_hets) / 2;
+                subsetted_het_ct += (sample_include_hw[sample_hwidx] >> sample_uidx_lowbits) & 1;
+              }
+              ++rarehet_idx;
+            }
+            cur_raw_genovec_hets = cur_raw_genovec_hets & (cur_raw_genovec_hets - 1);
+            cur_aux1a_bits = cur_aux1a_bits >> 1;
+          }
+        }
+      } else {
+        if (allele_ct < 19) {
+          for (uint32_t uii = 0; uii != loop_len; ++uii) {
+            while (!cur_raw_genovec_hets) {
+              cur_raw_genovec_hets = raw_genovec[++sample_hwidx];
+              cur_raw_genovec_hets = cur_raw_genovec_hets & (~(cur_raw_genovec_hets >> 1)) & kMask5555;
+            }
+            if (cur_aux1a_bits & 1) {
+              // we have a ref/altx het.  count it iff x is correct and the
+              // sample is in sample_include.
+              if (((aux1a_allele_codes[rarehet_idx / 2] >> (rarehet_idx % 2)) & 15) == allele_idx_m2) {
+                const uint32_t sample_uidx_lowbits = ctzw(cur_raw_genovec_hets) / 2;
+                subsetted_het_ct += (sample_include_hw[sample_hwidx] >> sample_uidx_lowbits) & 1;
+              }
+              ++rarehet_idx;
+            }
+            cur_raw_genovec_hets = cur_raw_genovec_hets & (cur_raw_genovec_hets - 1);
+            cur_aux1a_bits = cur_aux1a_bits >> 1;
+          }
+        } else {
+          for (uint32_t uii = 0; uii != loop_len; ++uii) {
+            while (!cur_raw_genovec_hets) {
+              cur_raw_genovec_hets = raw_genovec[++sample_hwidx];
+              cur_raw_genovec_hets = cur_raw_genovec_hets & (~(cur_raw_genovec_hets >> 1)) & kMask5555;
+            }
+            if (cur_aux1a_bits & 1) {
+              // we have a ref/altx het.  count it iff x is correct and the
+              // sample is in sample_include.
+              if (aux1a_allele_codes[rarehet_idx++] == allele_idx_m2) {
+                const uint32_t sample_uidx_lowbits = ctzw(cur_raw_genovec_hets) / 2;
+                subsetted_het_ct += (sample_include_hw[sample_hwidx] >> sample_uidx_lowbits) & 1;
+              }
+            }
+            cur_raw_genovec_hets = cur_raw_genovec_hets & (cur_raw_genovec_hets - 1);
+            cur_aux1a_bits = cur_aux1a_bits >> 1;
+          }
+        }
+      }
+      ++aux1a_widx;
+    }
+  } else if (aux1a_mode == 15) {
+    // no ref/altx at all
+    *het_ctp = 0;
+    return kPglRetSuccess;
+  }
+  // mode 1: difflist.
+  if (!sample_include) {
+    const unsigned char* group_info_iter;
+    uint32_t rarehet_ct;
+    PglErr reterr = ParseDifflistHeader(fread_end, raw_sample_ct, fread_pp, nullptr, &group_info_iter, &rarehet_ct);
+    // rarehet_ct == 0 should be impossible
+    if (reterr) {
+      return reterr;
+    }
+    reterr = SkipDifflistIds(fread_end, group_info_iter, rarehet_ct, raw_sample_ct, fread_pp);
+    const unsigned char* aux1a_allele_codes = *fread_pp;
+    if ((allele_idx == 1) || (allele_ct < 5)) {
+      if (allele_idx == 1) {
+        *het_ctp = raw_01_ct - rarehet_ct;
+        (*fread_pp) += GetAux1aAlleleEntryByteCt(allele_ct, rarehet_ct);
+      } else if (allele_ct == 3) {
+        *het_ctp = rarehet_ct;
+      } else {
+        const uint32_t allele_code_byte_ct = DivUp(rarehet_ct, 8);
+        const uint32_t alt3_ct = PopcountBytes(aux1a_allele_codes, allele_code_byte_ct);
+        (*fread_pp) += allele_code_byte_ct;
+        if (allele_idx == 2) {
+          *het_ctp = rarehet_ct - alt3_ct;
+        } else {
+          *het_ctp = alt3_ct;
+        }
+      }
+    } else {
+      const uint32_t allele_idx_m2 = allele_idx - 2;
+      if (allele_ct < 19) {
+        if (allele_ct < 7) {
+          *het_ctp = CountQuater(aux1a_allele_codes, allele_idx_m2 * kMask5555, rarehet_ct);
+          (*fread_pp) += DivUp(rarehet_ct, 4);
+        } else {
+          *het_ctp = CountNibble(aux1a_allele_codes, allele_idx_m2 * kMask1111, rarehet_ct);
+          (*fread_pp) += DivUp(rarehet_ct, 2);
+        }
+      } else {
+        *het_ctp = CountByte(aux1a_allele_codes, allele_idx_m2, rarehet_ct);
+        (*fread_pp) += rarehet_ct;
+      }
+    }
+    return reterr;
+  }
+  if ((allele_idx == 1) || (allele_ct == 3)) {
+    // Don't need to save deltalist contents in this case.
+    uint32_t subsetted_rarehet_ct;
+    uint32_t rarehet_ct;
+    PglErr reterr = CountDeltalistIntersect(fread_end, sample_include, raw_sample_ct, fread_pp, &subsetted_rarehet_ct, &rarehet_ct);
+    if (allele_idx == 1) {
+      *het_ctp = subsetted_01_ct - subsetted_rarehet_ct;
+      (*fread_pp) += GetAux1aAlleleEntryByteCt(allele_ct, rarehet_ct);
+    } else {
+      *het_ctp = subsetted_rarehet_ct;
+    }
+    return reterr;
+  }
+  // Save deltalist elements, iterate.
+  uint32_t rarehet_ct;
+  PglErr reterr = ParseAndSaveDeltalist(fread_end, raw_sample_ct, fread_pp, deltalist_workspace, &rarehet_ct);
+  if (reterr) {
+    return reterr;
+  }
+  const unsigned char* aux1a_allele_codes = *fread_pp;
+  const unsigned char allele_idx_m2 = allele_idx - 2;
+  uint32_t subsetted_hetx_ct = 0;
+  if (allele_ct < 7) {
+    if (allele_ct == 4) {
+      const unsigned char inv_allele_idx_m2 = 1 - allele_idx_m2;
+      (*fread_pp) += DivUp(rarehet_ct, 8);
+      for (uint32_t rarehet_idx = 0; rarehet_idx != rarehet_ct; ++rarehet_idx) {
+        const uint32_t sample_uidx = deltalist_workspace[rarehet_idx];
+        if (IsSet(sample_include, sample_uidx)) {
+          const unsigned char cur_code = (aux1a_allele_codes[rarehet_idx / 8] >> (rarehet_idx % 8)) & 1;
+          subsetted_hetx_ct += (cur_code ^ inv_allele_idx_m2);
+        }
+      }
+    } else {
+      (*fread_pp) += DivUp(rarehet_ct, 4);
+      for (uint32_t rarehet_idx = 0; rarehet_idx != rarehet_ct; ++rarehet_idx) {
+        const uint32_t sample_uidx = deltalist_workspace[rarehet_idx];
+        if (IsSet(sample_include, sample_uidx)) {
+          const unsigned char cur_code = (aux1a_allele_codes[rarehet_idx / 4] >> (rarehet_idx % 4)) & 3;
+          subsetted_hetx_ct += (cur_code == allele_idx_m2);
+        }
+      }
+    }
+    return kPglRetSuccess;
+  } else {
+    if (allele_ct < 19) {
+      (*fread_pp) += DivUp(rarehet_ct, 2);
+      for (uint32_t rarehet_idx = 0; rarehet_idx != rarehet_ct; ++rarehet_idx) {
+        const uint32_t sample_uidx = deltalist_workspace[rarehet_idx];
+        if (IsSet(sample_include, sample_uidx)) {
+          const unsigned char cur_code = (aux1a_allele_codes[rarehet_idx / 2] >> (rarehet_idx % 2)) & 15;
+          subsetted_hetx_ct += (cur_code == allele_idx_m2);
+        }
+      }
+    } else {
+      (*fread_pp) += rarehet_ct;
+      for (uint32_t rarehet_idx = 0; rarehet_idx != rarehet_ct; ++rarehet_idx) {
+        const uint32_t sample_uidx = deltalist_workspace[rarehet_idx];
+        if (IsSet(sample_include, sample_uidx)) {
+          const unsigned char cur_code = aux1a_allele_codes[rarehet_idx];
+          subsetted_hetx_ct += (cur_code == allele_idx_m2);
+        }
+      }
+    }
+  }
+  *het_ctp = subsetted_hetx_ct;
+  return kPglRetSuccess;
+}
+
+// Advances *fread_pp past aux1b; increments *het_ctp by the number of
+// altx-alty genotypes in aux1b and sample_include with one allele ==
+// allele_idx; and sets *hom_ctp to the number of such hom-allele_idx genotypes
+// present.  (For allele_idx == 1, *hom_ctp is equal to raw_10_ct -
+// [# of aux1b entries] when there's no subsetting.)
+// Trailing bits of raw_genovec must be cleared.
+// Ok for subsetted_10_ct to be uninitialized if not subsetting, or allele_idx
+// != 1.
+/*
+PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sample_include, const uintptr_t* __restrict raw_genovec, uint32_t aux1_first_byte, uint32_t raw_sample_ct, uint32_t allele_ct, uint32_t allele_idx, uint32_t raw_10_ct, uint32_t subsetted_10_ct, const unsigned char** fread_pp, uint32_t* __restrict het_ctp, uint32_t* __restrict hom_ctp, uint32_t* __restrict deltalist_workspace) {
+  const uint32_t aux1b_mode = aux1_first_byte >> 4;
+  if (!aux1b_mode) {
+    // 10-collapsed bitarray
+    const uint32_t aux1b_byte_ct = DivUp(raw_10_ct, CHAR_BIT);
+    uint32_t rarexy_ct = PopcountBytes(*fread_pp, aux1b_byte_ct);
+    const uintptr_t* aux1b_include_alias = R_CAST(const uintptr_t*, *fread_pp);
+    (*fread_pp) += aux1b_byte_ct;
+    const unsigned char* aux1b_allele_codes = *fread_pp;
+    const uint32_t allele_idx_m1 = allele_idx - 1;
+    if (!sample_include) {
+      uint32_t matching_hom_ct = 0;
+      uint32_t het_incr;
+      if (allele_ct < 6) {
+        if (allele_ct == 3) {
+          const uint32_t allele_code_byte_ct = DivUp(rarexy_ct, 8);
+          (*fread_pp) += allele_code_byte_ct;
+          matching_hom_ct = PopcountBytes(aux1b_allele_codes, allele_code_byte_ct);
+          het_incr = rarexy_ct - matching_hom_ct;
+          if (allele_idx == 1) {
+            matching_hom_ct = 0;
+          }
+        } else {
+          // 2+2 bits
+          (*fread_pp) += DivUp(rarexy_ct, 2);
+          het_incr = CountQuater(aux1b_allele_codes, allele_idx_m1 * kMask5555, rarexy_ct * 2);
+          if (allele_idx_m1) {
+            matching_hom_ct = CountNibble(aux1b_allele_codes, allele_idx_m1 * kMask5555, rarexy_ct);
+          }
+        }
+      } else {
+        if (allele_ct < 18) {
+          // 4+4 bits
+          (*fread_pp) += rarexy_ct;
+          het_incr = CountNibble(aux1b_allele_codes, allele_idx_m1 * kMask1111, rarexy_ct * 2);
+          if (allele_idx_m1) {
+            matching_hom_ct = CountByte(aux1b_allele_codes, allele_idx_m1 * 0x11, rarexy_ct);
+          }
+        } else {
+          // 8+8 bits
+          (*fread_pp) += rarexy_ct * 2;
+          het_incr = CountByte(aux1b_allele_codes, allele_idx_m1 * 0x11, rarexy_ct * 2);
+          if (allele_idx_m1) {
+            matching_hom_ct = CountU16(aux1b_allele_codes, allele_idx_m1 * 0x1111, rarexy_ct);
+          }
+        }
+      }
+      if (!allele_idx_m1) {
+        *hom_ctp = raw_10_ct - rarexy_ct;
+      } else {
+        het_incr -= 2 * matching_hom_ct;
+        *hom_ctp = matching_hom_ct;
+      }
+      *het_ctp += het_incr;
+      return kPglRetSuccess;
+    }
+    const Halfword* sample_include_hw = R_CAST(const Halfword*, sample_include);
+    uintptr_t sample_hwidx = 0;
+    uintptr_t cur_raw_genovec_hets = raw_genovec[0];
+    cur_raw_genovec_hets = cur_raw_genovec_hets & (~(cur_raw_genovec_hets >> 1)) & kMask5555;
+    const uint32_t aux1b_word_ct_m1 = (aux1b_byte_ct - 1) / kBytesPerWord;
+    uint32_t loop_len = kBitsPerWord;
+    uint32_t aux1b_widx = 0;
+    uint32_t rarexy_idx = 0;
+    unsigned char lookup_table[256];
+    if (allele_idx == 1) {
+      uint32_t subsetted_rarexy_ct = 0;
+      uint32_t het_incr = 0;
+      if (allele_ct > 3) {
+        if (allele_ct < 6) {
+          // use first 16 slots of lookup table
+          memset(lookup_table, 1, 4);
+          memset(&(lookup_table[4]), 0, 12);
+          lookup_table[4] = 1;
+          lookup_table[8] = 1;
+          lookup_table[12] = 1;
+        } else if (allele_ct < 18) {
+          memset(lookup_table, 1, 16);
+          memset(&(lookup_table[16]), 0, 240);
+          for (uint32_t uii = 16; uii < 256; uii += 16) {
+            lookup_table[uii] = 1;
+          }
+        }
+      }
+      while (1) {
+        uintptr_t cur_aux1b_bits;
+        if (aux1b_widx >= aux1b_word_ct_m1) {
+          if (aux1b_widx > aux1b_word_ct_m1) {
+            if (allele_ct == 3) {
+              het_incr = subsetted_rarexy_ct - het_incr;
+            }
+            *hom_ctp = subsetted_10_ct - het_incr;
+            *het_ctp += het_incr;
+            return kPglRetSuccess;
+          }
+          cur_aux1b_bits = SubwordLoad(&(aux1b_include_alias[aux1b_word_ct_m1]), ModNz(aux1b_byte_ct, kBytesPerWord));
+          loop_len = ModNz(raw_10_ct, kBitsPerWord);
+        } else {
+          cur_aux1b_bits = aux1b_include_alias[aux1b_widx];
+        }
+        if (allele_ct < 6) {
+          if (allele_ct == 3) {
+            for (uint32_t uii = 0; uii != loop_len; ++uii) {
+              while (!cur_raw_genovec_hets) {
+                cur_raw_genovec_hets = raw_genovec[++sample_hwidx];
+                cur_raw_genovec_hets = cur_raw_genovec_hets & (~(cur_raw_genovec_hets >> 1)) & kMask5555;
+              }
+              if (cur_aux1b_bits & 1) {
+                const uint32_t sample_uidx_lowbits = ctzw(cur_raw_genovec_hets) / 2;
+                if (sample_include_hw[sample_hwidx] & (1U << sample_uidx_lowbits)) {
+                  ++subsetted_rarexy_ct;
+                  // special case: track #(2/2) instead of #(1/2), correct this
+                  // at the end
+                  het_incr += (aux1b_allele_codes[rarexy_idx / 8] >> (rarexy_idx % 8)) & 1;
+                }
+                ++rarexy_idx;
+              }
+              cur_raw_genovec_hets = cur_raw_genovec_hets & (cur_raw_genovec_hets - 1);
+              cur_aux1b_bits = cur_aux1b_bits >> 1;
+            }
+          } else {
+            // 2+2 bits
+            for (uint32_t uii = 0; uii != loop_len; ++uii) {
+              while (!cur_raw_genovec_hets) {
+                cur_raw_genovec_hets = raw_genovec[++sample_hwidx];
+                cur_raw_genovec_hets = cur_raw_genovec_hets & (~(cur_raw_genovec_hets >> 1)) & kMask5555;
+              }
+              if (cur_aux1b_bits & 1) {
+                const uint32_t sample_uidx_lowbits = ctzw(cur_raw_genovec_hets) / 2;
+                if (sample_include_hw[sample_hwidx] & (1U << sample_uidx_lowbits)) {
+                  ++subsetted_rarexy_ct;
+                  const unsigned char cur_allele_code_pair = (aux1b_allele_codes[rarexy_idx / 2] >> (rarexy_idx % 2)) & 15;
+                  het_incr += lookup_table[cur_allele_code_pair];
+                }
+                ++rarexy_idx;
+              }
+              cur_raw_genovec_hets = cur_raw_genovec_hets & (cur_raw_genovec_hets - 1);
+              cur_aux1b_bits = cur_aux1b_bits >> 1;
+            }
+          }
+        } else {
+          if (allele_ct < 18) {
+            // 4+4 bits
+            for (uint32_t uii = 0; uii != loop_len; ++uii) {
+              while (!cur_raw_genovec_hets) {
+                cur_raw_genovec_hets = raw_genovec[++sample_hwidx];
+                cur_raw_genovec_hets = cur_raw_genovec_hets & (~(cur_raw_genovec_hets >> 1)) & kMask5555;
+              }
+              if (cur_aux1b_bits & 1) {
+                const uint32_t sample_uidx_lowbits = ctzw(cur_raw_genovec_hets) / 2;
+                if (sample_include_hw[sample_hwidx] & (1U << sample_uidx_lowbits)) {
+                  ++subsetted_rarexy_ct;
+                  const unsigned char cur_allele_code_pair = aux1b_allele_codes[rarexy_idx];
+                  het_incr += lookup_table[cur_allele_code_pair];
+                }
+                ++rarexy_idx;
+              }
+              cur_raw_genovec_hets = cur_raw_genovec_hets & (cur_raw_genovec_hets - 1);
+              cur_aux1b_bits = cur_aux1b_bits >> 1;
+            }
+          } else {
+            // 8+8 bits
+            for (uint32_t uii = 0; uii != loop_len; ++uii) {
+              while (!cur_raw_genovec_hets) {
+                cur_raw_genovec_hets = raw_genovec[++sample_hwidx];
+                cur_raw_genovec_hets = cur_raw_genovec_hets & (~(cur_raw_genovec_hets >> 1)) & kMask5555;
+              }
+              if (cur_aux1b_bits & 1) {
+                const uint32_t sample_uidx_lowbits = ctzw(cur_raw_genovec_hets) / 2;
+                if (sample_include_hw[sample_hwidx] & (1U << sample_uidx_lowbits)) {
+                  ++subsetted_rarexy_ct;
+                  // possible todo: check whether + is better (I'm guessing it
+                  // isn't, from a previous experience with epistasis/CASSI
+                  // code)
+                  het_incr += (!aux1b_allele_codes[2 * rarexy_idx]) || (!aux1b_allele_codes[2 * rarexy_idx + 1]);
+                }
+                ++rarexy_idx;
+              }
+              cur_raw_genovec_hets = cur_raw_genovec_hets & (cur_raw_genovec_hets - 1);
+              cur_aux1b_bits = cur_aux1b_bits >> 1;
+            }
+          }
+        }
+      }
+    }
+    unsigned char hom_match;
+    if (allele_ct > 3) {
+      if (allele_ct < 6) {
+        // use first 16 slots of lookup table
+        memset(lookup_table, 0, 16);
+        memset(&(lookup_table[4 * allele_idx_m1]), 1, 4);
+        for (uint32_t uii = allele_idx_m1; uii < 16; uii += 4) {
+          lookup_table[uii] = 1;
+        }
+        hom_match = ;
+      } else if (allele_ct < 18) {
+        memset(lookup_table, 0, 256);
+        memset(&(lookup_table[16 * allele_idx_m1]), 1, 16);
+        for (uint32_t uii = allele_idx_m1; uii < 256; uii += 16) {
+          lookup_table[uii] = 1;
+        }
+      }
+    }
+    uint32_t matching_hom_ct = 0;
+    uint32_t matching_het_or_hom_ct = 0;
+    while (1) {
+      uintptr_t cur_aux1b_bits;
+      if (aux1b_widx >= aux1b_word_ct_m1) {
+        if (aux1b_widx > aux1b_word_ct_m1) {
+          *hom_ctp = matching_hom_ct;
+          *het_ctp += matching_het_or_hom_ct - matching_hom_ct;
+          return kPglRetSuccess;
+        }
+        cur_aux1b_bits = SubwordLoad(&(aux1b_include_alias[aux1b_word_ct_m1]), ModNz(aux1b_byte_ct, kBytesPerWord));
+        loop_len = ModNz(raw_10_ct, kBitsPerWord);
+      } else {
+        cur_aux1b_bits = aux1b_include_alias[aux1b_widx];
+      }
+      if (allele_ct < 6) {
+        if (allele_ct == 3) {
+          for (uint32_t uii = 0; uii != loop_len; ++uii) {
+            while (!cur_raw_genovec_hets) {
+              cur_raw_genovec_hets = raw_genovec[++sample_hwidx];
+              cur_raw_genovec_hets = cur_raw_genovec_hets & (~(cur_raw_genovec_hets >> 1)) & kMask5555;
+            }
+            if (cur_aux1b_bits & 1) {
+              const uint32_t sample_uidx_lowbits = ctzw(cur_raw_genovec_hets) / 2;
+              if (sample_include_hw[sample_hwidx] & (1U << sample_uidx_lowbits)) {
+                ++matching_het_or_hom_ct;
+                matching_hom_ct += (aux1b_allele_codes[rarexy_idx / 8] >> (rarexy_idx % 8)) & 1;
+              }
+              ++rarexy_idx;
+            }
+            cur_raw_genovec_hets = cur_raw_genovec_hets & (cur_raw_genovec_hets - 1);
+            cur_aux1b_bits = cur_aux1b_bits >> 1;
+          }
+        } else {
+          // 2+2 bits
+          for (uint32_t uii = 0; uii != loop_len; ++uii) {
+            while (!cur_raw_genovec_hets) {
+              cur_raw_genovec_hets = raw_genovec[++sample_hwidx];
+              cur_raw_genovec_hets = cur_raw_genovec_hets & (~(cur_raw_genovec_hets >> 1)) & kMask5555;
+            }
+            if (cur_aux1b_bits & 1) {
+              // we have a ref/altx het.  count it iff x is correct and the
+              // sample is in sample_include.
+              const uint32_t sample_uidx_lowbits = ctzw(cur_raw_genovec_hets) / 2;
+              if (sample_include_hw[sample_hwidx] & (1U << sample_uidx_lowbits)) {
+                ;;;
+              }
+              if (((aux1b_allele_codes[rarexy_idx / 4] >> (rarexy_idx % 4)) & 3) == allele_idx_m2) {
+                const uint32_t sample_uidx_lowbits = ctzw(cur_raw_genovec_hets) / 2;
+                subsetted_het_ct += (sample_include_hw[sample_hwidx] >> sample_uidx_lowbits) & 1;
+              }
+              ++rarexy_idx;
+            }
+            cur_raw_genovec_hets = cur_raw_genovec_hets & (cur_raw_genovec_hets - 1);
+            cur_aux1b_bits = cur_aux1b_bits >> 1;
+          }
+        }
+      } else {
+        if (allele_ct < 18) {
+        } else {
+          for (uint32_t uii = 0; uii != loop_len; ++uii) {
+            while (!cur_raw_genovec_hets) {
+              cur_raw_genovec_hets = raw_genovec[++sample_hwidx];
+              cur_raw_genovec_hets = cur_raw_genovec_hets & (~(cur_raw_genovec_hets >> 1)) & kMask5555;
+            }
+            if (cur_aux1b_bits & 1) {
+              // we have a ref/altx het.  count it iff x is correct and the
+              // sample is in sample_include.
+              if (((aux1b_allele_codes[rarexy_idx / 2] >> (rarexy_idx % 2)) & 15) == allele_idx_m2) {
+                const uint32_t sample_uidx_lowbits = ctzw(cur_raw_genovec_hets) / 2;
+                subsetted_het_ct += (sample_include_hw[sample_hwidx] >> sample_uidx_lowbits) & 1;
+              }
+              ++rarexy_idx;
+            }
+            cur_raw_genovec_hets = cur_raw_genovec_hets & (cur_raw_genovec_hets - 1);
+            cur_aux1b_bits = cur_aux1b_bits >> 1;
+          }
+        }
+      }
+      ++aux1b_widx;
+    }
+  } else if (aux1b_mode == 15) {
+    // no ref/altx at all
+    *het_ctp = 0;
+    return kPglRetSuccess;
+  }
+  // mode 1: difflist.
+  if (!sample_include) {
+    const unsigned char* group_info_iter;
+    uint32_t rarexy_ct;
+    PglErr reterr = ParseDifflistHeader(fread_end, raw_sample_ct, fread_pp, nullptr, &group_info_iter, &rarexy_ct);
+    // rarexy_ct == 0 should be impossible
+    if (reterr) {
+      return reterr;
+    }
+    reterr = SkipDifflistIds(fread_end, group_info_iter, rarexy_ct, raw_sample_ct, fread_pp);
+    const unsigned char* aux1b_allele_codes = *fread_pp;
+    if ((allele_idx == 1) || (allele_ct < 5)) {
+      if (allele_idx == 1) {
+        *het_ctp = raw_10_ct - rarexy_ct;
+        (*fread_pp) += GetAux1bAlleleEntryByteCt(allele_ct, rarexy_ct);
+      } else if (allele_ct == 3) {
+        *het_ctp = rarexy_ct;
+      } else {
+        const uint32_t allele_code_byte_ct = DivUp(rarexy_ct, 8);
+        const uint32_t alt3_ct = PopcountBytes(aux1b_allele_codes, allele_code_byte_ct);
+        (*fread_pp) += allele_code_byte_ct;
+        if (allele_idx == 2) {
+          *het_ctp = rarexy_ct - alt3_ct;
+        } else {
+          *het_ctp = alt3_ct;
+        }
+      }
+    } else {
+      const uint32_t allele_idx_m2 = allele_idx - 2;
+      if (allele_ct < 19) {
+        if (allele_ct < 7) {
+          *het_ctp = CountQuater(aux1b_allele_codes, allele_idx_m2 * kMask5555, rarexy_ct);
+          (*fread_pp) += DivUp(rarexy_ct, 4);
+        } else {
+          *het_ctp = CountNibble(aux1b_allele_codes, allele_idx_m2 * kMask1111, rarexy_ct);
+          (*fread_pp) += DivUp(rarexy_ct, 2);
+        }
+      } else {
+        *het_ctp = CountByte(aux1b_allele_codes, allele_idx_m2, rarexy_ct);
+        (*fread_pp) += rarexy_ct;
+      }
+    }
+    return reterr;
+  }
+  if ((allele_idx == 1) || (allele_ct == 3)) {
+    // Don't need to save deltalist contents in this case.
+    uint32_t subsetted_rarexy_ct;
+    uint32_t rarexy_ct;
+    PglErr reterr = CountDeltalistIntersect(fread_end, sample_include, raw_sample_ct, fread_pp, &subsetted_rarexy_ct, &rarexy_ct);
+    if (allele_idx == 1) {
+      *het_ctp = subsetted_10_ct - subsetted_rarexy_ct;
+      (*fread_pp) += GetAux1bAlleleEntryByteCt(allele_ct, rarexy_ct);
+    } else {
+      *het_ctp = subsetted_rarexy_ct;
+    }
+    return reterr;
+  }
+  // Save deltalist elements, iterate.
+  uint32_t rarexy_ct;
+  PglErr reterr = ParseAndSaveDeltalist(fread_end, raw_sample_ct, fread_pp, deltalist_workspace, &rarexy_ct);
+  if (reterr) {
+    return reterr;
+  }
+  const unsigned char* aux1b_allele_codes = *fread_pp;
+  const unsigned char allele_idx_m2 = allele_idx - 2;
+  uint32_t subsetted_hetx_ct = 0;
+  if (allele_ct < 7) {
+    if (allele_ct == 4) {
+      const unsigned char inv_allele_idx_m2 = 1 - allele_idx_m2;
+      (*fread_pp) += DivUp(rarexy_ct, 8);
+      for (uint32_t rarexy_idx = 0; rarexy_idx != rarexy_ct; ++rarexy_idx) {
+        const uint32_t sample_uidx = deltalist_workspace[rarexy_idx];
+        if (IsSet(sample_include, sample_uidx)) {
+          const unsigned char cur_code = (aux1b_allele_codes[rarexy_idx / 8] >> (rarexy_idx % 8)) & 1;
+          subsetted_hetx_ct += (cur_code ^ inv_allele_idx_m2);
+        }
+      }
+    } else {
+      (*fread_pp) += DivUp(rarexy_ct, 4);
+      for (uint32_t rarexy_idx = 0; rarexy_idx != rarexy_ct; ++rarexy_idx) {
+        const uint32_t sample_uidx = deltalist_workspace[rarexy_idx];
+        if (IsSet(sample_include, sample_uidx)) {
+          const unsigned char cur_code = (aux1b_allele_codes[rarexy_idx / 4] >> (rarexy_idx % 4)) & 3;
+          subsetted_hetx_ct += (cur_code == allele_idx_m2);
+        }
+      }
+    }
+    return kPglRetSuccess;
+  } else {
+    if (allele_ct < 19) {
+      (*fread_pp) += DivUp(rarexy_ct, 2);
+      for (uint32_t rarexy_idx = 0; rarexy_idx != rarexy_ct; ++rarexy_idx) {
+        const uint32_t sample_uidx = deltalist_workspace[rarexy_idx];
+        if (IsSet(sample_include, sample_uidx)) {
+          const unsigned char cur_code = (aux1b_allele_codes[rarexy_idx / 2] >> (rarexy_idx % 2)) & 15;
+          subsetted_hetx_ct += (cur_code == allele_idx_m2);
+        }
+      }
+    } else {
+      (*fread_pp) += rarexy_ct;
+      for (uint32_t rarexy_idx = 0; rarexy_idx != rarexy_ct; ++rarexy_idx) {
+        const uint32_t sample_uidx = deltalist_workspace[rarexy_idx];
+        if (IsSet(sample_include, sample_uidx)) {
+          const unsigned char cur_code = aux1b_allele_codes[rarexy_idx];
+          subsetted_hetx_ct += (cur_code == allele_idx_m2);
+        }
+      }
+    }
+  }
+  *het_ctp = subsetted_hetx_ct;
+  return kPglRetSuccess;
 }
 */
 
 PglErr PgrGetInv1Counts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgrp, STD_ARRAY_REF(uint32_t, 4) genocounts) {
+  // May use workspace_vec and workspace_difflist_sample_ids.
   if (!sample_ct) {
     STD_ARRAY_REF_FILL0(4, genocounts);
     return kPglRetSuccess;
@@ -5032,33 +5951,32 @@ PglErr PgrGetInv1Counts(const uintptr_t* __restrict sample_include, const uintpt
   if (unlikely(reterr)) {
     return reterr;
   }
-  if (allele_idx == 1) {
-    if (cur_allele_ct == 2) {
-      return kPglRetSuccess;
-    }
-    // 1. Count (subsetted) size of patch_01_set, decrease genocounts[1] by
-    //    by that value, and increase genocounts[2] (since we're returning
-    //    inverted counts).
-    // 2. Each (in-subset) element of patch_10_set corresponds to a 0->2 or
-    //    0->1 transition.
-    fputs("multiallelic variants not yet supported by PgrGetInv1Counts()\n", stderr);
-    exit(S_CAST(int32_t, kPglRetNotYetSupported));
-    return kPglRetSuccess;
+  GenovecCountFreqsUnsafe(tmp_genovec, raw_sample_ct, genocounts);
+  const uint32_t raw_01_ct = genocounts[1];
+  const uint32_t raw_10_ct = genocounts[2];
+  uint32_t subsetted_01_ct = 0;
+  uint32_t subsetted_10_ct = 0;
+  if (subsetting_required && (allele_idx == 1)) {
+    GenovecCountSubsetFreqs(tmp_genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
+    subsetted_01_ct = genocounts[1];
+    subsetted_10_ct = genocounts[2];
   }
-  // 1. For each (in-subset) element of patch_01_set, increment het_ct iff
-  //    patch_01_vals matches.
-  // 2. For each (in-subset) element of patch_10_set, increment het_ct on
-  //    half-match and hom_ct on full match.
-  /*
+  const uint32_t aux1_first_byte = *fread_ptr++;
   uint32_t het_ct;
+  reterr = CountAux1a(fread_end, sample_include, tmp_genovec, aux1_first_byte, raw_sample_ct, cur_allele_ct, allele_idx, raw_01_ct, subsetted_01_ct, &fread_ptr, &het_ct, pgrp->workspace_difflist_sample_ids);
+  if (reterr) {
+    return reterr;
+  }
+  fputs("multiallelic variants not yet supported by PgrGetInv1Counts()\n", stderr);
+  exit(S_CAST(int32_t, kPglRetNotYetSupported));
+  /*
   uint32_t hom_ct;
+  reterr = CountAux1b();
   genocounts[0] = hom_ct;
   genocounts[1] = het_ct;
   genocounts[2] = sample_ct - genocounts[3] - hom_ct - het_ct;
   */
-  fputs("multiallelic variants not yet supported by PgrGetInv1Counts()\n", stderr);
-  exit(S_CAST(int32_t, kPglRetNotYetSupported));
-  return kPglRetSuccess;
+  return reterr;
 }
 
 PglErr PgrGet1(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgrp, uintptr_t* __restrict allele_countvec) {
@@ -5452,7 +6370,6 @@ PglErr PgrGet2P(const uintptr_t* __restrict sample_include, const uint32_t* __re
   exit(S_CAST(int32_t, kPglRetNotYetSupported));
   return kPglRetSuccess;
 }
-
 
 // similar to ParseAndSaveDifflist()
 PglErr ParseAndSaveDeltalistAsBitarr(const unsigned char* fread_end, uint32_t raw_sample_ct, const unsigned char** fread_pp, uintptr_t* deltalist_include, uint32_t* deltalist_len_ptr) {
@@ -5948,8 +6865,7 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
     if (!subsetting_required) {
       raw_het_ct = genocounts[1];
     } else {
-      ZeroTrailingQuaters(raw_sample_ct, tmp_genovec);
-      raw_het_ct = GenovecCount01Unsafe(tmp_genovec, raw_sample_ct);
+      raw_het_ct = CountQuater(tmp_genovec, kMask5555, raw_sample_ct);
     }
     // skip phase info
     // probably make this its own function...
