@@ -1959,7 +1959,7 @@ uintptr_t CountByte(const void* bytearr, unsigned char ucc, uintptr_t byte_ct) {
   const unsigned char* bytearr_uc_iter = S_CAST(const unsigned char*, bytearr);
   const VecW m0 = vecw_setzero();
   const VecUc match_vvec = vecuc_set1(ucc);
-  VecUc acc = vecuc_setzero();
+  VecW acc = vecw_setzero();
   while (byte_ct > 255 * kBytesPerVec) {
     VecUc inner_acc = vecuc_setzero();
     for (uint32_t uii = 0; uii != 255; ++uii) {
@@ -2002,7 +2002,7 @@ uintptr_t CountU16(const void* u16arr, uint16_t usii, uintptr_t u16_ct) {
   const uint16_t* u16arr_iter = S_CAST(const uint16_t*, u16arr);
   const VecW m0 = vecw_setzero();
   const VecU16 match_vvec = vecu16_set1(usii);
-  VecU16 acc = vecu16_setzero();
+  VecW acc = vecw_setzero();
   // can also use larger loop and a slightly different accumulation algorithm,
   // but it should make practically no difference; lets keep these loops as
   // similar as possible for now.

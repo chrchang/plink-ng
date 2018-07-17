@@ -5953,13 +5953,13 @@ PglErr PgrGetInv1Counts(const uintptr_t* __restrict sample_include, const uintpt
   }
   GenovecCountFreqsUnsafe(tmp_genovec, raw_sample_ct, genocounts);
   const uint32_t raw_01_ct = genocounts[1];
-  const uint32_t raw_10_ct = genocounts[2];
+  // const uint32_t raw_10_ct = genocounts[2];
   uint32_t subsetted_01_ct = 0;
-  uint32_t subsetted_10_ct = 0;
+  // uint32_t subsetted_10_ct = 0;
   if (subsetting_required && (allele_idx == 1)) {
     GenovecCountSubsetFreqs(tmp_genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
     subsetted_01_ct = genocounts[1];
-    subsetted_10_ct = genocounts[2];
+    // subsetted_10_ct = genocounts[2];
   }
   const uint32_t aux1_first_byte = *fread_ptr++;
   uint32_t het_ct;
