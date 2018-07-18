@@ -25,12 +25,15 @@ void set_init(Set_info* sip, Annot_info* aip) {
   sip->subset_fname = nullptr;
   sip->merged_set_name = nullptr;
   sip->genekeep_flattened = nullptr;
-  sip->ct = 0;
   sip->modifier = 0;
+  // bugfix (17 Jul 2018): make_set_border not zero-initialized
+  sip->make_set_border = 0;
   sip->set_r2 = 0.5;
   sip->set_p = 0.05;
   sip->set_test_lambda = 0.0;
   sip->set_max = 5;
+  sip->ct = 0;
+  // sip->names, sip->setdefs not accessed if ct == 0
   aip->fname = nullptr;
   aip->attrib_fname = nullptr;
   aip->ranges_fname = nullptr;
