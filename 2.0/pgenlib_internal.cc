@@ -908,7 +908,12 @@ void GenoarrCountSubsetFreqs(const unsigned char* genoarr, const uintptr_t* __re
   uint32_t vec_idx = raw_sample_ctv2 - (raw_sample_ctv2 % 6);
   CountSubset3FreqVec6(R_CAST(const VecW*, genoarr), R_CAST(const VecW*, sample_include_interleaved_vec), vec_idx, &even_ct, &odd_ct, &bothset_ct);
   const uintptr_t* genoarr_iter = &(R_CAST(const uintptr_t*, genoarr)[kWordsPerVec * vec_idx]);
-  const uintptr_t* interleaved_mask_iter = &(sample_include_interleaved_vec[(kWordsPerVec / 2) * vec_idx]);
+#ifdef __LP64__
+  const uintptr_t* interleaved_mask_iter = &(sample_include_interleaved_vec[vec_idx * (kWordsPerVec / 2)]);
+#else
+  // bugfix (19 Jul 2018): (kWordsPerVec / 2) doesn't work in 32-bit case
+  const uintptr_t* interleaved_mask_iter = &(sample_include_interleaved_vec[(vec_idx * kWordsPerVec) / 2]);
+#endif
 #ifdef USE_AVX2
   const uint32_t halfvec_idx_trail = (raw_sample_ct + 3) / (kBitsPerVec / 4);
   uintptr_t mask_base1 = 0;
@@ -5213,6 +5218,37 @@ PglErr CountDeltalistIntersect(const unsigned char* fread_end, const uintptr_t* 
   }
 }
 
+uint32_t CountAux1aDense(uint32_t allele_ct, uint32_t allele_idx, uint32_t raw_01_ct, uint32_t rarehet_ct, const unsigned char** fread_pp) {
+  const unsigned char* aux1a_allele_codes = *fread_pp;
+  if (allele_idx == 1) {
+    // safe to ignore allele codes
+    (*fread_pp) += GetAux1aAlleleEntryByteCt(allele_ct, rarehet_ct);
+    return raw_01_ct - rarehet_ct;
+  }
+  if (allele_ct < 5) {
+    if (allele_ct == 3) {
+      return rarehet_ct;
+    }
+    // need to count matches
+    const uint32_t allele_code_byte_ct = DivUp(rarehet_ct, 8);
+    const uint32_t alt3_ct = PopcountBytes(aux1a_allele_codes, allele_code_byte_ct);
+    if (allele_idx == 3) {
+      return alt3_ct;
+    }
+    return rarehet_ct - alt3_ct;
+  }
+  if (allele_ct < 19) {
+    if (allele_ct < 7) {
+      (*fread_pp) += DivUp(rarehet_ct, 4);
+      return CountQuater(aux1a_allele_codes, (allele_idx - 2) * kMask5555, rarehet_ct);
+    }
+    (*fread_pp) += DivUp(rarehet_ct, 2);
+    return CountNibble(aux1a_allele_codes, (allele_idx - 2) * kMask1111, rarehet_ct);
+  }
+  (*fread_pp) += rarehet_ct;
+  return CountByte(aux1a_allele_codes, allele_idx - 2, rarehet_ct);
+}
+
 // Advances *fread_pp past aux1a, and sets *het_ctp to the number of ref-altx
 // hets where x == allele_idx in sample_include.  (If allele_idx == 1, *het_ctp
 // is raw_01_ct - [# of aux1a entries] when there's no subsetting.)
@@ -5227,36 +5263,13 @@ PglErr CountAux1a(const unsigned char* fread_end, const uintptr_t* __restrict sa
     uint32_t rarehet_ct = PopcountBytes(*fread_pp, aux1a_byte_ct);
     const uintptr_t* aux1a_include_alias = R_CAST(const uintptr_t*, *fread_pp);
     (*fread_pp) += aux1a_byte_ct;
+    if (!sample_include) {
+      *het_ctp = CountAux1aDense(allele_ct, allele_idx, raw_01_ct, rarehet_ct, fread_pp);
+      return kPglRetSuccess;
+    }
     const unsigned char* aux1a_allele_codes = *fread_pp;
     const uint32_t allele_code_byte_ct = GetAux1aAlleleEntryByteCt(allele_ct, rarehet_ct);
     (*fread_pp) += allele_code_byte_ct;
-    if (!sample_include) {
-      if (allele_idx == 1) {
-        // safe to ignore allele codes
-        *het_ctp = raw_01_ct - rarehet_ct;
-      } else if (allele_ct < 5) {
-        if (allele_ct == 3) {
-          *het_ctp = rarehet_ct;
-        } else {
-          // need to count matches
-          const uint32_t alt3_ct = PopcountBytes(aux1a_allele_codes, allele_code_byte_ct);
-          if (allele_idx == 3) {
-            *het_ctp = alt3_ct;
-          } else {
-            *het_ctp = rarehet_ct - alt3_ct;
-          }
-        }
-      } else if (allele_ct < 19) {
-        if (allele_ct < 7) {
-          *het_ctp = CountQuater(aux1a_allele_codes, (allele_idx - 2) * kMask5555, rarehet_ct);
-        } else {
-          *het_ctp = CountNibble(aux1a_allele_codes, (allele_idx - 2) * kMask1111, rarehet_ct);
-        }
-      } else {
-        *het_ctp = CountByte(aux1a_allele_codes, allele_idx - 2, rarehet_ct);
-      }
-      return kPglRetSuccess;
-    }
     const Halfword* sample_include_hw = R_CAST(const Halfword*, sample_include);
     uintptr_t sample_hwidx = 0;
     uintptr_t cur_raw_genovec_hets = raw_genovec[0];
@@ -5340,7 +5353,7 @@ PglErr CountAux1a(const unsigned char* fread_end, const uintptr_t* __restrict sa
             if (cur_aux1a_bits & 1) {
               // we have a ref/altx het.  count it iff x is correct and the
               // sample is in sample_include.
-              if (((aux1a_allele_codes[rarehet_idx / 4] >> (rarehet_idx % 4)) & 3) == allele_idx_m2) {
+              if (((aux1a_allele_codes[rarehet_idx / 4] >> (2 * (rarehet_idx % 4))) & 3) == allele_idx_m2) {
                 const uint32_t sample_uidx_lowbits = ctzw(cur_raw_genovec_hets) / 2;
                 subsetted_het_ct += (sample_include_hw[sample_hwidx] >> sample_uidx_lowbits) & 1;
               }
@@ -5360,7 +5373,7 @@ PglErr CountAux1a(const unsigned char* fread_end, const uintptr_t* __restrict sa
             if (cur_aux1a_bits & 1) {
               // we have a ref/altx het.  count it iff x is correct and the
               // sample is in sample_include.
-              if (((aux1a_allele_codes[rarehet_idx / 2] >> (rarehet_idx % 2)) & 15) == allele_idx_m2) {
+              if (((aux1a_allele_codes[rarehet_idx / 2] >> (4 * (rarehet_idx % 2))) & 15) == allele_idx_m2) {
                 const uint32_t sample_uidx_lowbits = ctzw(cur_raw_genovec_hets) / 2;
                 subsetted_het_ct += (sample_include_hw[sample_hwidx] >> sample_uidx_lowbits) & 1;
               }
@@ -5405,38 +5418,7 @@ PglErr CountAux1a(const unsigned char* fread_end, const uintptr_t* __restrict sa
       return reterr;
     }
     reterr = SkipDifflistIds(fread_end, group_info_iter, rarehet_ct, raw_sample_ct, fread_pp);
-    const unsigned char* aux1a_allele_codes = *fread_pp;
-    if ((allele_idx == 1) || (allele_ct < 5)) {
-      if (allele_idx == 1) {
-        *het_ctp = raw_01_ct - rarehet_ct;
-        (*fread_pp) += GetAux1aAlleleEntryByteCt(allele_ct, rarehet_ct);
-      } else if (allele_ct == 3) {
-        *het_ctp = rarehet_ct;
-      } else {
-        const uint32_t allele_code_byte_ct = DivUp(rarehet_ct, 8);
-        const uint32_t alt3_ct = PopcountBytes(aux1a_allele_codes, allele_code_byte_ct);
-        (*fread_pp) += allele_code_byte_ct;
-        if (allele_idx == 2) {
-          *het_ctp = rarehet_ct - alt3_ct;
-        } else {
-          *het_ctp = alt3_ct;
-        }
-      }
-    } else {
-      const uint32_t allele_idx_m2 = allele_idx - 2;
-      if (allele_ct < 19) {
-        if (allele_ct < 7) {
-          *het_ctp = CountQuater(aux1a_allele_codes, allele_idx_m2 * kMask5555, rarehet_ct);
-          (*fread_pp) += DivUp(rarehet_ct, 4);
-        } else {
-          *het_ctp = CountNibble(aux1a_allele_codes, allele_idx_m2 * kMask1111, rarehet_ct);
-          (*fread_pp) += DivUp(rarehet_ct, 2);
-        }
-      } else {
-        *het_ctp = CountByte(aux1a_allele_codes, allele_idx_m2, rarehet_ct);
-        (*fread_pp) += rarehet_ct;
-      }
-    }
+    *het_ctp = CountAux1aDense(allele_ct, allele_idx, raw_01_ct, rarehet_ct, fread_pp);
     return reterr;
   }
   if ((allele_idx == 1) || (allele_ct == 3)) {
@@ -5477,19 +5459,18 @@ PglErr CountAux1a(const unsigned char* fread_end, const uintptr_t* __restrict sa
       for (uint32_t rarehet_idx = 0; rarehet_idx != rarehet_ct; ++rarehet_idx) {
         const uint32_t sample_uidx = deltalist_workspace[rarehet_idx];
         if (IsSet(sample_include, sample_uidx)) {
-          const unsigned char cur_code = (aux1a_allele_codes[rarehet_idx / 4] >> (rarehet_idx % 4)) & 3;
+          const unsigned char cur_code = (aux1a_allele_codes[rarehet_idx / 4] >> (2 * (rarehet_idx % 4))) & 3;
           subsetted_hetx_ct += (cur_code == allele_idx_m2);
         }
       }
     }
-    return kPglRetSuccess;
   } else {
     if (allele_ct < 19) {
       (*fread_pp) += DivUp(rarehet_ct, 2);
       for (uint32_t rarehet_idx = 0; rarehet_idx != rarehet_ct; ++rarehet_idx) {
         const uint32_t sample_uidx = deltalist_workspace[rarehet_idx];
         if (IsSet(sample_include, sample_uidx)) {
-          const unsigned char cur_code = (aux1a_allele_codes[rarehet_idx / 2] >> (rarehet_idx % 2)) & 15;
+          const unsigned char cur_code = (aux1a_allele_codes[rarehet_idx / 2] >> (4 * (rarehet_idx % 2))) & 15;
           subsetted_hetx_ct += (cur_code == allele_idx_m2);
         }
       }
@@ -5508,6 +5489,50 @@ PglErr CountAux1a(const unsigned char* fread_end, const uintptr_t* __restrict sa
   return kPglRetSuccess;
 }
 
+void CountAux1bDense(uint32_t allele_ct, uint32_t allele_idx_m1, uint32_t raw_10_ct, uint32_t rarexy_ct, const unsigned char** fread_pp, uint32_t* __restrict het_ctp, uint32_t* __restrict hom_ctp) {
+  const unsigned char* aux1b_allele_codes = *fread_pp;
+  uint32_t matching_hom_ct = 0;
+  uint32_t het_incr;
+  if (allele_ct < 6) {
+    if (allele_ct == 3) {
+      const uint32_t allele_code_byte_ct = DivUp(rarexy_ct, 8);
+      (*fread_pp) += allele_code_byte_ct;
+      matching_hom_ct = PopcountBytes(aux1b_allele_codes, allele_code_byte_ct);
+      het_incr = rarexy_ct - matching_hom_ct;
+    } else {
+      // 2+2 bits
+      (*fread_pp) += DivUp(rarexy_ct, 2);
+      het_incr = CountQuater(aux1b_allele_codes, allele_idx_m1 * kMask5555, rarexy_ct * 2);
+      if (allele_idx_m1) {
+        matching_hom_ct = CountNibble(aux1b_allele_codes, allele_idx_m1 * kMask5555, rarexy_ct);
+      }
+    }
+  } else {
+    if (allele_ct < 18) {
+      // 4+4 bits
+      (*fread_pp) += rarexy_ct;
+      het_incr = CountNibble(aux1b_allele_codes, allele_idx_m1 * kMask1111, rarexy_ct * 2);
+      if (allele_idx_m1) {
+        matching_hom_ct = CountByte(aux1b_allele_codes, allele_idx_m1 * 0x11, rarexy_ct);
+      }
+    } else {
+      // 8+8 bits
+      (*fread_pp) += rarexy_ct * 2;
+      het_incr = CountByte(aux1b_allele_codes, allele_idx_m1 * 0x11, rarexy_ct * 2);
+      if (allele_idx_m1) {
+        matching_hom_ct = CountU16(aux1b_allele_codes, allele_idx_m1 * 0x1111, rarexy_ct);
+      }
+    }
+  }
+  if (!allele_idx_m1) {
+    *hom_ctp = raw_10_ct - rarexy_ct;
+  } else {
+    het_incr -= 2 * matching_hom_ct;
+    *hom_ctp = matching_hom_ct;
+  }
+  *het_ctp += het_incr;
+}
+
 // Advances *fread_pp past aux1b; increments *het_ctp by the number of
 // altx-alty genotypes in aux1b and sample_include with one allele ==
 // allele_idx; and sets *hom_ctp to the number of such hom-allele_idx genotypes
@@ -5516,64 +5541,21 @@ PglErr CountAux1a(const unsigned char* fread_end, const uintptr_t* __restrict sa
 // Trailing bits of raw_genovec must be cleared.
 // Ok for subsetted_10_ct to be uninitialized if not subsetting, or allele_idx
 // != 1.
-/*
 PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sample_include, const uintptr_t* __restrict raw_genovec, uint32_t aux1_first_byte, uint32_t raw_sample_ct, uint32_t allele_ct, uint32_t allele_idx, uint32_t raw_10_ct, uint32_t subsetted_10_ct, const unsigned char** fread_pp, uint32_t* __restrict het_ctp, uint32_t* __restrict hom_ctp, uint32_t* __restrict deltalist_workspace) {
   const uint32_t aux1b_mode = aux1_first_byte >> 4;
+  const uint32_t allele_idx_m1 = allele_idx - 1;
   if (!aux1b_mode) {
     // 10-collapsed bitarray
     const uint32_t aux1b_byte_ct = DivUp(raw_10_ct, CHAR_BIT);
     uint32_t rarexy_ct = PopcountBytes(*fread_pp, aux1b_byte_ct);
     const uintptr_t* aux1b_include_alias = R_CAST(const uintptr_t*, *fread_pp);
     (*fread_pp) += aux1b_byte_ct;
-    const unsigned char* aux1b_allele_codes = *fread_pp;
-    const uint32_t allele_idx_m1 = allele_idx - 1;
     if (!sample_include) {
-      uint32_t matching_hom_ct = 0;
-      uint32_t het_incr;
-      if (allele_ct < 6) {
-        if (allele_ct == 3) {
-          const uint32_t allele_code_byte_ct = DivUp(rarexy_ct, 8);
-          (*fread_pp) += allele_code_byte_ct;
-          matching_hom_ct = PopcountBytes(aux1b_allele_codes, allele_code_byte_ct);
-          het_incr = rarexy_ct - matching_hom_ct;
-          if (allele_idx == 1) {
-            matching_hom_ct = 0;
-          }
-        } else {
-          // 2+2 bits
-          (*fread_pp) += DivUp(rarexy_ct, 2);
-          het_incr = CountQuater(aux1b_allele_codes, allele_idx_m1 * kMask5555, rarexy_ct * 2);
-          if (allele_idx_m1) {
-            matching_hom_ct = CountNibble(aux1b_allele_codes, allele_idx_m1 * kMask5555, rarexy_ct);
-          }
-        }
-      } else {
-        if (allele_ct < 18) {
-          // 4+4 bits
-          (*fread_pp) += rarexy_ct;
-          het_incr = CountNibble(aux1b_allele_codes, allele_idx_m1 * kMask1111, rarexy_ct * 2);
-          if (allele_idx_m1) {
-            matching_hom_ct = CountByte(aux1b_allele_codes, allele_idx_m1 * 0x11, rarexy_ct);
-          }
-        } else {
-          // 8+8 bits
-          (*fread_pp) += rarexy_ct * 2;
-          het_incr = CountByte(aux1b_allele_codes, allele_idx_m1 * 0x11, rarexy_ct * 2);
-          if (allele_idx_m1) {
-            matching_hom_ct = CountU16(aux1b_allele_codes, allele_idx_m1 * 0x1111, rarexy_ct);
-          }
-        }
-      }
-      if (!allele_idx_m1) {
-        *hom_ctp = raw_10_ct - rarexy_ct;
-      } else {
-        het_incr -= 2 * matching_hom_ct;
-        *hom_ctp = matching_hom_ct;
-      }
-      *het_ctp += het_incr;
+      CountAux1bDense(allele_ct, allele_idx_m1, raw_10_ct, rarexy_ct, fread_pp, het_ctp, hom_ctp);
       return kPglRetSuccess;
     }
     const Halfword* sample_include_hw = R_CAST(const Halfword*, sample_include);
+    const unsigned char* aux1b_allele_codes = *fread_pp;
     uintptr_t sample_hwidx = 0;
     uintptr_t cur_raw_genovec_hets = raw_genovec[0];
     cur_raw_genovec_hets = cur_raw_genovec_hets & (~(cur_raw_genovec_hets >> 1)) & kMask5555;
@@ -5582,7 +5564,7 @@ PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sa
     uint32_t aux1b_widx = 0;
     uint32_t rarexy_idx = 0;
     unsigned char lookup_table[256];
-    if (allele_idx == 1) {
+    if (!allele_idx_m1) {
       uint32_t subsetted_rarexy_ct = 0;
       uint32_t het_incr = 0;
       if (allele_ct > 3) {
@@ -5648,7 +5630,7 @@ PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sa
                 const uint32_t sample_uidx_lowbits = ctzw(cur_raw_genovec_hets) / 2;
                 if (sample_include_hw[sample_hwidx] & (1U << sample_uidx_lowbits)) {
                   ++subsetted_rarexy_ct;
-                  const unsigned char cur_allele_code_pair = (aux1b_allele_codes[rarexy_idx / 2] >> (rarexy_idx % 2)) & 15;
+                  const unsigned char cur_allele_code_pair = (aux1b_allele_codes[rarexy_idx / 2] >> (4 * (rarexy_idx % 2))) & 15;
                   het_incr += lookup_table[cur_allele_code_pair];
                 }
                 ++rarexy_idx;
@@ -5702,7 +5684,7 @@ PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sa
         }
       }
     }
-    unsigned char hom_match;
+    unsigned char hom_match = 0;
     if (allele_ct > 3) {
       if (allele_ct < 6) {
         // use first 16 slots of lookup table
@@ -5711,13 +5693,14 @@ PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sa
         for (uint32_t uii = allele_idx_m1; uii < 16; uii += 4) {
           lookup_table[uii] = 1;
         }
-        hom_match = ;
+        hom_match = allele_idx_m1 * 5;
       } else if (allele_ct < 18) {
         memset(lookup_table, 0, 256);
         memset(&(lookup_table[16 * allele_idx_m1]), 1, 16);
         for (uint32_t uii = allele_idx_m1; uii < 256; uii += 16) {
           lookup_table[uii] = 1;
         }
+        hom_match = allele_idx_m1 * 0x11;
       }
     }
     uint32_t matching_hom_ct = 0;
@@ -5761,15 +5744,11 @@ PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sa
               cur_raw_genovec_hets = cur_raw_genovec_hets & (~(cur_raw_genovec_hets >> 1)) & kMask5555;
             }
             if (cur_aux1b_bits & 1) {
-              // we have a ref/altx het.  count it iff x is correct and the
-              // sample is in sample_include.
               const uint32_t sample_uidx_lowbits = ctzw(cur_raw_genovec_hets) / 2;
               if (sample_include_hw[sample_hwidx] & (1U << sample_uidx_lowbits)) {
-                ;;;
-              }
-              if (((aux1b_allele_codes[rarexy_idx / 4] >> (rarexy_idx % 4)) & 3) == allele_idx_m2) {
-                const uint32_t sample_uidx_lowbits = ctzw(cur_raw_genovec_hets) / 2;
-                subsetted_het_ct += (sample_include_hw[sample_hwidx] >> sample_uidx_lowbits) & 1;
+                const unsigned char cur_allele_code_pair = (aux1b_allele_codes[rarexy_idx / 2] >> (4 * (rarexy_idx % 2))) & 15;
+                matching_het_or_hom_ct += lookup_table[cur_allele_code_pair];
+                matching_hom_ct += (cur_allele_code_pair == hom_match);
               }
               ++rarexy_idx;
             }
@@ -5779,18 +5758,38 @@ PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sa
         }
       } else {
         if (allele_ct < 18) {
-        } else {
+          // 4+4 bits
           for (uint32_t uii = 0; uii != loop_len; ++uii) {
             while (!cur_raw_genovec_hets) {
               cur_raw_genovec_hets = raw_genovec[++sample_hwidx];
               cur_raw_genovec_hets = cur_raw_genovec_hets & (~(cur_raw_genovec_hets >> 1)) & kMask5555;
             }
             if (cur_aux1b_bits & 1) {
-              // we have a ref/altx het.  count it iff x is correct and the
-              // sample is in sample_include.
-              if (((aux1b_allele_codes[rarexy_idx / 2] >> (rarexy_idx % 2)) & 15) == allele_idx_m2) {
-                const uint32_t sample_uidx_lowbits = ctzw(cur_raw_genovec_hets) / 2;
-                subsetted_het_ct += (sample_include_hw[sample_hwidx] >> sample_uidx_lowbits) & 1;
+              const uint32_t sample_uidx_lowbits = ctzw(cur_raw_genovec_hets) / 2;
+              if (sample_include_hw[sample_hwidx] & (1U << sample_uidx_lowbits)) {
+                const unsigned char cur_allele_code_pair = aux1b_allele_codes[rarexy_idx];
+                matching_het_or_hom_ct += lookup_table[cur_allele_code_pair];
+                matching_hom_ct += (cur_allele_code_pair == hom_match);
+              }
+              ++rarexy_idx;
+            }
+            cur_raw_genovec_hets = cur_raw_genovec_hets & (cur_raw_genovec_hets - 1);
+            cur_aux1b_bits = cur_aux1b_bits >> 1;
+          }
+        } else {
+          // 8+8 bits
+          for (uint32_t uii = 0; uii != loop_len; ++uii) {
+            while (!cur_raw_genovec_hets) {
+              cur_raw_genovec_hets = raw_genovec[++sample_hwidx];
+              cur_raw_genovec_hets = cur_raw_genovec_hets & (~(cur_raw_genovec_hets >> 1)) & kMask5555;
+            }
+            if (cur_aux1b_bits & 1) {
+              const uint32_t sample_uidx_lowbits = ctzw(cur_raw_genovec_hets) / 2;
+              if (sample_include_hw[sample_hwidx] & (1U << sample_uidx_lowbits)) {
+                const uint32_t match1 = (aux1b_allele_codes[2 * rarexy_idx] == allele_idx_m1);
+                const uint32_t match2 = (aux1b_allele_codes[2 * rarexy_idx + 1] == allele_idx_m1);
+                matching_het_or_hom_ct += match1 || match2;
+                matching_hom_ct += match1 && match2;
               }
               ++rarexy_idx;
             }
@@ -5803,7 +5802,7 @@ PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sa
     }
   } else if (aux1b_mode == 15) {
     // no ref/altx at all
-    *het_ctp = 0;
+    *hom_ctp = 0;
     return kPglRetSuccess;
   }
   // mode 1: difflist.
@@ -5816,51 +5815,7 @@ PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sa
       return reterr;
     }
     reterr = SkipDifflistIds(fread_end, group_info_iter, rarexy_ct, raw_sample_ct, fread_pp);
-    const unsigned char* aux1b_allele_codes = *fread_pp;
-    if ((allele_idx == 1) || (allele_ct < 5)) {
-      if (allele_idx == 1) {
-        *het_ctp = raw_10_ct - rarexy_ct;
-        (*fread_pp) += GetAux1bAlleleEntryByteCt(allele_ct, rarexy_ct);
-      } else if (allele_ct == 3) {
-        *het_ctp = rarexy_ct;
-      } else {
-        const uint32_t allele_code_byte_ct = DivUp(rarexy_ct, 8);
-        const uint32_t alt3_ct = PopcountBytes(aux1b_allele_codes, allele_code_byte_ct);
-        (*fread_pp) += allele_code_byte_ct;
-        if (allele_idx == 2) {
-          *het_ctp = rarexy_ct - alt3_ct;
-        } else {
-          *het_ctp = alt3_ct;
-        }
-      }
-    } else {
-      const uint32_t allele_idx_m2 = allele_idx - 2;
-      if (allele_ct < 19) {
-        if (allele_ct < 7) {
-          *het_ctp = CountQuater(aux1b_allele_codes, allele_idx_m2 * kMask5555, rarexy_ct);
-          (*fread_pp) += DivUp(rarexy_ct, 4);
-        } else {
-          *het_ctp = CountNibble(aux1b_allele_codes, allele_idx_m2 * kMask1111, rarexy_ct);
-          (*fread_pp) += DivUp(rarexy_ct, 2);
-        }
-      } else {
-        *het_ctp = CountByte(aux1b_allele_codes, allele_idx_m2, rarexy_ct);
-        (*fread_pp) += rarexy_ct;
-      }
-    }
-    return reterr;
-  }
-  if ((allele_idx == 1) || (allele_ct == 3)) {
-    // Don't need to save deltalist contents in this case.
-    uint32_t subsetted_rarexy_ct;
-    uint32_t rarexy_ct;
-    PglErr reterr = CountDeltalistIntersect(fread_end, sample_include, raw_sample_ct, fread_pp, &subsetted_rarexy_ct, &rarexy_ct);
-    if (allele_idx == 1) {
-      *het_ctp = subsetted_10_ct - subsetted_rarexy_ct;
-      (*fread_pp) += GetAux1bAlleleEntryByteCt(allele_ct, rarexy_ct);
-    } else {
-      *het_ctp = subsetted_rarexy_ct;
-    }
+    CountAux1bDense(allele_ct, allele_idx_m1, raw_10_ct, rarexy_ct, fread_pp, het_ctp, hom_ctp);
     return reterr;
   }
   // Save deltalist elements, iterate.
@@ -5870,55 +5825,137 @@ PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sa
     return reterr;
   }
   const unsigned char* aux1b_allele_codes = *fread_pp;
-  const unsigned char allele_idx_m2 = allele_idx - 2;
-  uint32_t subsetted_hetx_ct = 0;
-  if (allele_ct < 7) {
-    if (allele_ct == 4) {
-      const unsigned char inv_allele_idx_m2 = 1 - allele_idx_m2;
+  if (!allele_idx_m1) {
+    uint32_t subsetted_rarexy_ct = 0;
+    uint32_t het_incr;
+    if (allele_ct < 6) {
+      if (allele_ct == 3) {
+        (*fread_pp) += DivUp(rarexy_ct, 8);
+        uint32_t subsetted_homalt2_ct = 0;
+        for (uint32_t rarexy_idx = 0; rarexy_idx != rarexy_ct; ++rarexy_idx) {
+          const uint32_t sample_uidx = deltalist_workspace[rarexy_idx];
+          if (IsSet(sample_include, sample_uidx)) {
+            ++subsetted_rarexy_ct;
+            subsetted_homalt2_ct += (aux1b_allele_codes[rarexy_idx / 8] >> (rarexy_idx % 8)) & 1;
+          }
+        }
+        het_incr = subsetted_rarexy_ct - subsetted_homalt2_ct;
+      } else {
+        (*fread_pp) += DivUp(rarexy_ct, 2);
+        unsigned char lookup_table[16];
+        memset(lookup_table, 1, 4);
+        memset(&(lookup_table[4]), 0, 12);
+        lookup_table[4] = 1;
+        lookup_table[8] = 1;
+        lookup_table[12] = 1;
+        het_incr = 0;
+        for (uint32_t rarexy_idx = 0; rarexy_idx != rarexy_ct; ++rarexy_idx) {
+          const uint32_t sample_uidx = deltalist_workspace[rarexy_idx];
+          if (IsSet(sample_include, sample_uidx)) {
+            ++subsetted_rarexy_ct;
+            const unsigned char cur_allele_code_pair = (aux1b_allele_codes[rarexy_idx / 2] >> (4 * (rarexy_idx % 2))) & 15;
+            het_incr += lookup_table[cur_allele_code_pair];
+          }
+        }
+      }
+    } else {
+      het_incr = 0;
+      if (allele_ct < 18) {
+        (*fread_pp) += rarexy_ct;
+        unsigned char lookup_table[256];
+        memset(lookup_table, 1, 16);
+        memset(&(lookup_table[16]), 0, 240);
+        for (uint32_t uii = 16; uii < 256; uii += 16) {
+          lookup_table[uii] = 1;
+        }
+        for (uint32_t rarexy_idx = 0; rarexy_idx != rarexy_ct; ++rarexy_idx) {
+          const uint32_t sample_uidx = deltalist_workspace[rarexy_idx];
+          if (IsSet(sample_include, sample_uidx)) {
+            ++subsetted_rarexy_ct;
+            const unsigned char cur_allele_code_pair = aux1b_allele_codes[rarexy_idx];
+            het_incr += lookup_table[cur_allele_code_pair];
+          }
+        }
+      } else {
+        (*fread_pp) += 2 * rarexy_ct;
+        for (uint32_t rarexy_idx = 0; rarexy_idx != rarexy_ct; ++rarexy_idx) {
+          const uint32_t sample_uidx = deltalist_workspace[rarexy_idx];
+          if (IsSet(sample_include, sample_uidx)) {
+            ++subsetted_rarexy_ct;
+            het_incr += (!aux1b_allele_codes[2 * rarexy_idx]) || (!aux1b_allele_codes[2 * rarexy_idx + 1]);
+          }
+        }
+      }
+    }
+    *het_ctp += het_incr;
+    *hom_ctp = subsetted_10_ct - subsetted_rarexy_ct;
+    return kPglRetSuccess;
+  }
+  uint32_t matching_hom_ct = 0;
+  uint32_t matching_het_or_hom_ct = 0;
+  if (allele_ct < 6) {
+    if (allele_ct == 3) {
       (*fread_pp) += DivUp(rarexy_ct, 8);
       for (uint32_t rarexy_idx = 0; rarexy_idx != rarexy_ct; ++rarexy_idx) {
         const uint32_t sample_uidx = deltalist_workspace[rarexy_idx];
         if (IsSet(sample_include, sample_uidx)) {
-          const unsigned char cur_code = (aux1b_allele_codes[rarexy_idx / 8] >> (rarexy_idx % 8)) & 1;
-          subsetted_hetx_ct += (cur_code ^ inv_allele_idx_m2);
+          ++matching_het_or_hom_ct;
+          matching_hom_ct += (aux1b_allele_codes[rarexy_idx / 8] >> (rarexy_idx % 8)) & 1;
         }
       }
     } else {
-      (*fread_pp) += DivUp(rarexy_ct, 4);
+      (*fread_pp) += DivUp(rarexy_ct, 2);
+      unsigned char lookup_table[16];
+      memset(lookup_table, 0, 16);
+      memset(&(lookup_table[4 * allele_idx_m1]), 1, 4);
+      for (uint32_t uii = allele_idx_m1; uii < 16; uii += 4) {
+        lookup_table[uii] = 1;
+      }
+      const unsigned char hom_match = allele_idx_m1 * 5;
       for (uint32_t rarexy_idx = 0; rarexy_idx != rarexy_ct; ++rarexy_idx) {
         const uint32_t sample_uidx = deltalist_workspace[rarexy_idx];
         if (IsSet(sample_include, sample_uidx)) {
-          const unsigned char cur_code = (aux1b_allele_codes[rarexy_idx / 4] >> (rarexy_idx % 4)) & 3;
-          subsetted_hetx_ct += (cur_code == allele_idx_m2);
+          const unsigned char cur_allele_code_pair = (aux1b_allele_codes[rarexy_idx / 2] >> (4 * (rarexy_idx % 2))) & 15;
+          matching_het_or_hom_ct += lookup_table[cur_allele_code_pair];
+          matching_hom_ct += (cur_allele_code_pair == hom_match);
         }
       }
     }
-    return kPglRetSuccess;
   } else {
-    if (allele_ct < 19) {
-      (*fread_pp) += DivUp(rarexy_ct, 2);
+    if (allele_ct < 18) {
+      (*fread_pp) += rarexy_ct;
+      unsigned char lookup_table[256];
+      memset(lookup_table, 0, 256);
+      memset(&(lookup_table[16 * allele_idx_m1]), 1, 16);
+      for (uint32_t uii = allele_idx_m1; uii < 256; uii += 16) {
+        lookup_table[uii] = 1;
+      }
+      const unsigned char hom_match = allele_idx_m1 * 0x11;
       for (uint32_t rarexy_idx = 0; rarexy_idx != rarexy_ct; ++rarexy_idx) {
         const uint32_t sample_uidx = deltalist_workspace[rarexy_idx];
         if (IsSet(sample_include, sample_uidx)) {
-          const unsigned char cur_code = (aux1b_allele_codes[rarexy_idx / 2] >> (rarexy_idx % 2)) & 15;
-          subsetted_hetx_ct += (cur_code == allele_idx_m2);
+          const unsigned char cur_allele_code_pair = aux1b_allele_codes[rarexy_idx];
+          matching_het_or_hom_ct += lookup_table[cur_allele_code_pair];
+          matching_hom_ct += (cur_allele_code_pair == hom_match);
         }
       }
     } else {
-      (*fread_pp) += rarexy_ct;
+      (*fread_pp) += 2 * rarexy_ct;
       for (uint32_t rarexy_idx = 0; rarexy_idx != rarexy_ct; ++rarexy_idx) {
         const uint32_t sample_uidx = deltalist_workspace[rarexy_idx];
         if (IsSet(sample_include, sample_uidx)) {
-          const unsigned char cur_code = aux1b_allele_codes[rarexy_idx];
-          subsetted_hetx_ct += (cur_code == allele_idx_m2);
+          const uint32_t match1 = (aux1b_allele_codes[2 * rarexy_idx] == allele_idx_m1);
+          const uint32_t match2 = (aux1b_allele_codes[2 * rarexy_idx + 1] == allele_idx_m1);
+          matching_het_or_hom_ct += match1 || match2;
+          matching_hom_ct += match1 && match2;
         }
       }
     }
   }
-  *het_ctp = subsetted_hetx_ct;
+  *hom_ctp = matching_hom_ct;
+  *het_ctp += matching_het_or_hom_ct - matching_hom_ct;
   return kPglRetSuccess;
 }
-*/
 
 PglErr PgrGetInv1Counts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgrp, STD_ARRAY_REF(uint32_t, 4) genocounts) {
   // May use workspace_vec and workspace_difflist_sample_ids.
@@ -5953,13 +5990,13 @@ PglErr PgrGetInv1Counts(const uintptr_t* __restrict sample_include, const uintpt
   }
   GenovecCountFreqsUnsafe(tmp_genovec, raw_sample_ct, genocounts);
   const uint32_t raw_01_ct = genocounts[1];
-  // const uint32_t raw_10_ct = genocounts[2];
+  const uint32_t raw_10_ct = genocounts[2];
   uint32_t subsetted_01_ct = 0;
-  // uint32_t subsetted_10_ct = 0;
+  uint32_t subsetted_10_ct = 0;
   if (subsetting_required && (allele_idx == 1)) {
     GenovecCountSubsetFreqs(tmp_genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
     subsetted_01_ct = genocounts[1];
-    // subsetted_10_ct = genocounts[2];
+    subsetted_10_ct = genocounts[2];
   }
   const uint32_t aux1_first_byte = *fread_ptr++;
   uint32_t het_ct;
@@ -5967,15 +6004,11 @@ PglErr PgrGetInv1Counts(const uintptr_t* __restrict sample_include, const uintpt
   if (reterr) {
     return reterr;
   }
-  fputs("multiallelic variants not yet supported by PgrGetInv1Counts()\n", stderr);
-  exit(S_CAST(int32_t, kPglRetNotYetSupported));
-  /*
   uint32_t hom_ct;
-  reterr = CountAux1b();
+  reterr = CountAux1b(fread_end, sample_include, tmp_genovec, aux1_first_byte, raw_sample_ct, cur_allele_ct, allele_idx, raw_10_ct, subsetted_10_ct, &fread_ptr, &het_ct, &hom_ct, pgrp->workspace_difflist_sample_ids);
   genocounts[0] = hom_ct;
   genocounts[1] = het_ct;
   genocounts[2] = sample_ct - genocounts[3] - hom_ct - het_ct;
-  */
   return reterr;
 }
 

@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (16 Jul 2018)";
+  " (19 Jul 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -404,6 +404,7 @@ typedef struct Plink2CmdlineStruct {
   char* keep_fcol_fname;
   char* keep_fcol_flattened;
   char* keep_fcol_name;
+  char* update_alleles_fname;
   TwoColParams* ref_allele_flag;
   TwoColParams* alt1_allele_flag;
   TwoColParams* update_map_flag;
@@ -772,6 +773,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     const char* const* pvar_filter_storage = nullptr;
     uintptr_t* nonref_flags = nullptr;
     InfoFlags info_flags = kfInfo0;
+    // may want to track max_allele_ct here?
     uint32_t max_allele_slen = 0;
     uint32_t max_filter_slen = 0;
     UnsortedVar vpos_sortstatus = kfUnsortedVar0;
@@ -1074,7 +1076,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     // Otherwise, it may be very advantageous to apply the position-based
     // filters before constructing the variant ID hash table.  So we split this
     // into two cases.
-    const uint32_t full_variant_id_htable_needed = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct || pcp->update_map_flag || pcp->update_name_flag);
+    const uint32_t full_variant_id_htable_needed = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_fname);
     if (!full_variant_id_htable_needed) {
       reterr = ApplyVariantBpFilters(pcp->extract_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, variant_include, &variant_ct);
       if (unlikely(reterr)) {
@@ -1145,13 +1147,20 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
-          if ((pcp->extract_fnames && (!(pcp->filter_flags & (kfFilterExtractIbed0 | kfFilterExtractIbed1)))) || (pcp->exclude_fnames && (!(pcp->filter_flags & (kfFilterExcludeIbed0 | kfFilterExcludeIbed1))))) {
+          if ((pcp->extract_fnames && (!(pcp->filter_flags & (kfFilterExtractIbed0 | kfFilterExtractIbed1)))) || (pcp->exclude_fnames && (!(pcp->filter_flags & (kfFilterExcludeIbed0 | kfFilterExcludeIbed1)))) || pcp->update_alleles_fname) {
             // Must reconstruct the hash table in this case.
             BigstackReset(bigstack_mark);
             reterr = AllocAndPopulateIdHtableMt(variant_include, TO_CONSTCPCONSTP(variant_ids_mutable), variant_ct, pcp->max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size);
             if (unlikely(reterr)) {
               goto Plink2Core_ret_1;
             }
+          }
+        }
+
+        if (pcp->update_alleles_fname) {
+          reterr = UpdateVarAlleles(pcp->update_alleles_fname, variant_include, TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, allele_idx_offsets, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, allele_storage_mutable, &max_allele_slen, outname, outname_end);
+          if (unlikely(reterr)) {
+            goto Plink2Core_ret_1;
           }
         }
 
@@ -1176,7 +1185,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_1;
         }
       }
-      // todo: --update-alleles
 
       // todo: --attrib; although it isn't a "standard" file format, it can be
       // more convenient than forcing users to generate full-blown sites-only
@@ -2906,6 +2914,7 @@ int main(int argc, char** argv) {
   pc.keep_fcol_fname = nullptr;
   pc.keep_fcol_flattened = nullptr;
   pc.keep_fcol_name = nullptr;
+  pc.update_alleles_fname = nullptr;
   pc.ref_allele_flag = nullptr;
   pc.alt1_allele_flag = nullptr;
   pc.update_map_flag = nullptr;
@@ -7867,7 +7876,7 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.dependency_flags |= kfFilterPvarReq;
-        } else if (likely(strequal_k_unsafe(flagname_p2, "pdate-name"))) {
+        } else if (strequal_k_unsafe(flagname_p2, "pdate-name")) {
           if (pc.update_map_flag) {
             logerrputs("Error: --update-name cannot be used with --update-map.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -7876,6 +7885,15 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           reterr = Alloc2col(&(argvk[arg_idx + 1]), flagname_p, param_ct, &pc.update_name_flag);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          pc.dependency_flags |= kfFilterPvarReq;
+        } else if (likely(strequal_k_unsafe(flagname_p2, "pdate-alleles"))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.update_alleles_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -8602,6 +8620,7 @@ int main(int argc, char** argv) {
   free_cond(pc.update_map_flag);
   free_cond(pc.alt1_allele_flag);
   free_cond(pc.ref_allele_flag);
+  free_cond(pc.update_alleles_fname);
   free_cond(pc.keep_fcol_name);
   free_cond(pc.keep_fcol_flattened);
   free_cond(pc.keep_fcol_fname);

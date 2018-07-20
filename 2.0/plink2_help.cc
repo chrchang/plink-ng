@@ -1503,6 +1503,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --update-map  [f] {bpcol}  {IDcol}  {skip} : Update variant bp positions.\n"
 "  --update-name [f] {newcol} {oldcol} {skip} : Update variant IDs.\n"
                );
+    HelpPrint("update-alleles\0", &help_ctrl, 0,
+"  --update-alleles [fname] : Update variant allele codes.\n"
+              );
     HelpPrint("update-sex\0", &help_ctrl, 0,
 "  --update-sex [filename] <col-num=[n]> <male0> :\n"
 "    Update sex information.\n"

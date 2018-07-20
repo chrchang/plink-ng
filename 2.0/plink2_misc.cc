@@ -364,6 +364,274 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
   return reterr;
 }
 
+PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, const char* const* variant_ids, const uint32_t* variant_id_htable, const uintptr_t* allele_idx_offsets, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t htable_size, char** allele_storage_mutable, uint32_t* max_allele_slen_ptr, char* outname, char* outname_end) {
+  // probable todos:
+  // - add '3col' modifier to support three-column input file where second
+  //   column has comma-delimited old alleles and third column has
+  //   comma-delimited new alleles
+  // - add 'allow-absent' modifier to do partial-replace instead of writing to
+  //   .allele.no.snp when some old allele entries match loaded alleles and
+  //   some don't
+  // - add 'strict-missing' modifier to remove missing code -> remaining allele
+  //   behavior
+  unsigned char* bigstack_mark = g_bigstack_base;
+  uintptr_t line_idx = 0;
+  FILE* errfile = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  ReadLineStream rls;
+  PreinitRLstream(&rls);
+  {
+    uintptr_t* already_seen;
+    if (unlikely(bigstack_calloc_w(BitCtToWordCt(raw_variant_ct), &already_seen))) {
+      goto UpdateVarAlleles_ret_NOMEM;
+    }
+    const char* line_iter;
+    reterr = SizeAndInitRLstreamRawK(fname, bigstack_left() / 4, &rls, &line_iter);
+    if (unlikely(reterr)) {
+      goto UpdateVarAlleles_ret_1;
+    }
+    const uint32_t* htable_dup_base = &(variant_id_htable[RoundUpPow2(htable_size, kInt32PerCacheline)]);
+    const char* std_input_missing_geno = &(g_one_char_strs[92]);
+    const char input_missing_geno_char = *g_input_missing_geno_ptr;
+    unsigned char* tmp_alloc_base = g_bigstack_base;
+    unsigned char* tmp_alloc_end = g_bigstack_end;
+    uintptr_t hit_ct = 0;
+    uintptr_t miss_ct = 0;
+    uintptr_t err_ct = 0;
+    uint32_t max_allele_slen = *max_allele_slen_ptr;
+    uint32_t cur_allele_ct = 2;
+    while (1) {
+      ++line_idx;
+      reterr = RlsNextLstripK(&rls, &line_iter);
+      if (reterr) {
+        if (likely(reterr == kPglRetEof)) {
+          reterr = kPglRetSuccess;
+          break;
+        }
+        goto UpdateVarAlleles_ret_READ_RLSTREAM;
+      }
+      if (IsEolnKns(*line_iter)) {
+        continue;
+      }
+      const char* varid_start = line_iter;
+      const char* varid_end = CurTokenEnd(varid_start);
+      uint32_t cur_llidx;
+      uint32_t variant_uidx = VariantIdDupHtableFind(varid_start, variant_ids, variant_id_htable, htable_dup_base, varid_end - varid_start, htable_size, max_variant_id_slen, &cur_llidx);
+      if (variant_uidx == UINT32_MAX) {
+        line_iter = varid_end;
+        ++miss_ct;
+        continue;
+      }
+      const char* varid = variant_ids[variant_uidx];
+      if (unlikely(cur_llidx != UINT32_MAX)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: --update-alleles variant ID '%s' appears multiple times in dataset.\n", varid);
+        goto UpdateVarAlleles_ret_INCONSISTENT_INPUT_WW;
+      }
+      if (unlikely(IsSet(already_seen, variant_uidx))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Variant ID '%s' appears multiple times in --update-alleles file.\n", varid);
+        goto UpdateVarAlleles_ret_INCONSISTENT_INPUT_WW;
+      }
+      SetBit(variant_uidx, already_seen);
+      if (!IsSet(variant_include, variant_uidx)) {
+        line_iter = varid_end;
+        ++miss_ct;
+        continue;
+      }
+      // change these to arrays once new input format is supported
+      const char* old_allele1_start = FirstNonTspace(varid_end);
+      const char* old_allele1_end = FirstSpaceOrEoln(old_allele1_start);
+      const char* old_allele2_start = FirstNonTspace(old_allele1_end);
+      const char* old_allele2_end = FirstSpaceOrEoln(old_allele2_start);
+      const char* new_allele1_start = FirstNonTspace(old_allele2_end);
+      const char* new_allele1_end = FirstSpaceOrEoln(new_allele1_start);
+      const char* new_allele2_start = FirstNonTspace(new_allele1_end);
+      if (IsEolnKns(*new_allele2_start)) {
+        goto UpdateVarAlleles_ret_MISSING_TOKENS;
+      }
+      const char* new_allele2_end = FirstSpaceOrEoln(new_allele2_start);
+      line_iter = new_allele2_end;
+      const uint32_t old_slen1 = old_allele1_end - old_allele1_start;
+      const uint32_t old_slen2 = old_allele2_end - old_allele2_start;
+      // standardize missing allele codes before proceeding
+      if ((old_slen1 == 1) && (old_allele1_start[0] == input_missing_geno_char)) {
+        old_allele1_start = std_input_missing_geno;
+      }
+      if ((old_slen2 == 1) && (old_allele2_start[0] == input_missing_geno_char)) {
+        old_allele2_start = std_input_missing_geno;
+      }
+      if ((old_slen1 == old_slen2) && (!memcmp(old_allele1_start, old_allele2_start, old_slen1))) {
+        goto UpdateVarAlleles_ret_DUPLICATE_INPUT_ALLELE_CODE;
+      }
+      const uint32_t new_slen1 = new_allele1_end - new_allele1_start;
+      const uint32_t new_slen2 = new_allele2_end - new_allele2_start;
+      if ((new_slen1 == 1) && (new_allele1_start[0] == input_missing_geno_char)) {
+        new_allele1_start = std_input_missing_geno;
+      }
+      if ((new_slen2 == 1) && (new_allele2_start[0] == input_missing_geno_char)) {
+        new_allele2_start = std_input_missing_geno;
+      }
+      if ((new_slen1 == new_slen2) && (!memcmp(new_allele1_start, new_allele2_start, new_slen1))) {
+        goto UpdateVarAlleles_ret_DUPLICATE_INPUT_ALLELE_CODE;
+      }
+      if (memchr(new_allele1_start, ',', new_slen1) || memchr(new_allele2_start, ',', new_slen2)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Comma-containing new allele code on line %" PRIuPTR " of --update-alleles file.\n", line_idx);
+        goto UpdateVarAlleles_ret_MALFORMED_INPUT_WW;
+      }
+      uintptr_t allele_idx_offset_base = variant_uidx * 2;
+      if (allele_idx_offsets) {
+        allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+      }
+      char** cur_alleles = &(allele_storage_mutable[allele_idx_offset_base]);
+      uint32_t old_allele1_match = UINT32_MAX;
+      uint32_t old_allele2_match = UINT32_MAX;
+      for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct; ++allele_idx) {
+        const char* old_allele = cur_alleles[allele_idx];
+        if (memequal(old_allele1_start, old_allele, old_slen1) && (!old_allele[old_slen1])) {
+          if (old_allele1_match != UINT32_MAX) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Duplicate allele code in variant '%s'.\n", varid);
+            goto UpdateVarAlleles_ret_MALFORMED_INPUT_WW;
+          }
+          old_allele1_match = allele_idx;
+        } else if (memequal(old_allele2_start, old_allele, old_slen2) && (!old_allele[old_slen2])) {
+          if (old_allele2_match != UINT32_MAX) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Duplicate allele code in variant '%s'.\n", varid);
+            goto UpdateVarAlleles_ret_MALFORMED_INPUT_WW;
+          }
+          old_allele2_match = allele_idx;
+        }
+      }
+      if (old_allele1_match == UINT32_MAX) {
+        // Allow one missing allele code which doesn't match a loaded missing
+        // allele code when it doesn't introduce ambiguity.
+        // I.e. since we're only changing two alleles for now, the variant must
+        // be biallelic, and the other old_allele must match one of the loaded
+        // alleles.
+        if ((old_allele2_match == UINT32_MAX) || (cur_allele_ct != 2) || (old_slen1 != 1) || (old_allele1_start[0] != '.')) {
+        UpdateVarAlleles_errfile:
+          if (!err_ct) {
+            strcpy(outname_end, ".allele.no.snp");
+            if (fopen_checked(outname, FOPEN_WB, &errfile)) {
+              goto UpdateVarAlleles_ret_OPEN_FAIL;
+            }
+          }
+          // variant ID, expected allele 1, expected allele 2
+          // not optimized for now, could explicitly manage a write buffer if
+          // it ever matters
+          fputs(varid, errfile);
+          putc_unlocked('\t', errfile);
+          fwrite(old_allele1_start, old_slen1, 1, errfile);
+          putc_unlocked('\t', errfile);
+          fwrite(old_allele2_start, old_slen2, 1, errfile);
+#ifdef _WIN32
+          putc_unlocked('\r', errfile);
+#endif
+          if (unlikely(putc_checked('\n', errfile))) {
+            goto UpdateVarAlleles_ret_WRITE_FAIL;
+          }
+          ++err_ct;
+          continue;
+        }
+        old_allele1_match = 1 - old_allele2_match;
+      }
+      if (old_allele2_match == UINT32_MAX) {
+        if ((cur_allele_ct != 2) || (old_slen2 != 1) || (old_allele2_start[0] != '.')) {
+          goto UpdateVarAlleles_errfile;
+        }
+        old_allele2_match = 1 - old_allele1_match;
+      }
+      if (new_slen1 == 1) {
+        cur_alleles[old_allele1_match] = K_CAST(char*, &(g_one_char_strs[ctou32(new_allele1_start[0]) * 2]));
+      } else {
+        // reuse old storage if we can, allocate when we must
+        if (old_slen1 < new_slen1) {
+          if (S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) <= new_slen1) {
+            goto UpdateVarAlleles_ret_NOMEM;
+          }
+          tmp_alloc_end -= new_slen1 + 1;
+          cur_alleles[old_allele1_match] = R_CAST(char*, tmp_alloc_end);
+        }
+        memcpyx(cur_alleles[old_allele1_match], new_allele1_start, new_slen1, '\0');
+      }
+      if (new_slen2 == 1) {
+        cur_alleles[old_allele2_match] = K_CAST(char*, &(g_one_char_strs[ctou32(new_allele2_start[0]) * 2]));
+      } else {
+        if (old_slen2 < new_slen2) {
+          if (S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) <= new_slen2) {
+            goto UpdateVarAlleles_ret_NOMEM;
+          }
+          tmp_alloc_end -= new_slen2 + 1;
+          cur_alleles[old_allele2_match] = R_CAST(char*, tmp_alloc_end);
+        }
+        memcpyx(cur_alleles[old_allele2_match], new_allele2_start, new_slen2, '\0');
+      }
+      if (cur_allele_ct > 2) {
+        // verify we aren't creating a duplicate allele
+        // todo: create a tiny hash table instead (upfront), this will be
+        // especially important if we're updating more than two alleles
+        for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct; ++allele_idx) {
+          if ((allele_idx == old_allele1_match) || (allele_idx == old_allele2_match)) {
+            continue;
+          }
+          const char* cur_allele = cur_alleles[allele_idx];
+          if ((memequal(new_allele1_start, cur_allele, new_slen1) && (!cur_allele[new_slen1])) ||
+              (memequal(new_allele2_start, cur_allele, new_slen2) && (!cur_allele[new_slen2]))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Duplicate allele code in variant '%s'.\n", varid);
+            goto UpdateVarAlleles_ret_MALFORMED_INPUT_WW;
+          }
+        }
+      }
+      ++hit_ct;
+    }
+    *max_allele_slen_ptr = max_allele_slen;
+    if (miss_ct) {
+      snprintf(g_logbuf, kLogbufSize, "--update-alleles: %" PRIuPTR " variant%s updated, %" PRIuPTR " ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+    } else {
+      snprintf(g_logbuf, kLogbufSize, "--update-alleles: %" PRIuPTR " variant%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
+    }
+    logputsb();
+    if (err_ct) {
+      logprintfww("%" PRIuPTR " update failure%s logged to %s .\n", err_ct, (err_ct == 1)? "" : "s", outname);
+    }
+    BigstackEndSet(tmp_alloc_end);
+  }
+  while (0) {
+  UpdateVarAlleles_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  UpdateVarAlleles_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  UpdateVarAlleles_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  UpdateVarAlleles_ret_READ_RLSTREAM:
+    RLstreamErrPrint("--update-alleles file", &rls, &reterr);
+    break;
+  UpdateVarAlleles_ret_MISSING_TOKENS:
+    logerrprintfww("Error: Line %" PRIuPTR " of --update-alleles file has fewer tokens than expected.\n", line_idx);
+    reterr = kPglRetMalformedInput;
+    break;
+  UpdateVarAlleles_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetInconsistentInput;
+    break;
+  UpdateVarAlleles_ret_DUPLICATE_INPUT_ALLELE_CODE:
+    snprintf(g_logbuf, kLogbufSize, "Error: Duplicate allele code on line %" PRIuPTR " of --update-alleles file.\n", line_idx);
+  UpdateVarAlleles_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+ UpdateVarAlleles_ret_1:
+  fclose_cond(errfile);
+  CleanupRLstream(&rls);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, const char* family_missing_catname, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uint32_t mwithin_val, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;

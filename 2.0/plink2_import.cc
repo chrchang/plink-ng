@@ -2811,7 +2811,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           reterr = RlsNext(&vcf_rls, &line_iter);
           if (unlikely(reterr)) {
             DPrintf("Stream body read failure.\n");
-            DPrintf("reterr: %u  line_idx: %" PRIuPTR "  sample_ct: %u\n", (uint32_t)reterr, line_idx, sample_ct);
+            DPrintf("reterr: %u  line_idx: %" PRIuPTR "  sample_ct: %u\n", S_CAST(uint32_t, reterr), line_idx, sample_ct);
             goto VcfToPgen_ret_READ_FAIL;
           }
 

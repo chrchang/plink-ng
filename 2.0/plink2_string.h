@@ -683,6 +683,9 @@ HEADER_INLINE char* FirstNonTspace(char* str_iter) {
 }
 #endif
 
+// See also (93) on TAOCP vol 4a, pp. 153.  Todo: benchmark a
+// FirstPrecharUnsafe() function which uses that (unsafe because it reads up to
+// 7 characters past buffer end).
 HEADER_INLINE CXXCONST_CP FirstPrechar(const char* str_iter, uint32_t char_code) {
   while (ctou32(*str_iter) >= char_code) {
     ++str_iter;
