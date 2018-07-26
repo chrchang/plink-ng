@@ -323,17 +323,15 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       // [0] = POS
       // [1] = ID
       // don't care about the rest
-      uint32_t col_idx = 0;
       const char* token_end = &(linebuf_first_token[6]);
       uint32_t found_header_bitset = 0;
       uint32_t relevant_postchr_col_ct = 0;
       const char* linebuf_iter;
-      while (1) {
+      for (uint32_t col_idx = 1; ; ++col_idx) {
         linebuf_iter = FirstNonTspace(token_end);
         if (IsEolnKns(*linebuf_iter)) {
           break;
         }
-        ++col_idx;
         token_end = CurTokenEnd(linebuf_iter);
         const uint32_t token_slen = token_end - linebuf_iter;
         uint32_t cur_col_type;
@@ -789,7 +787,7 @@ BoolErr CheckForAndHandleSeparatedCovar(const uintptr_t* pheno_cc, const PhenoCo
   uint32_t pheno_by_cat_ct = 0;
   for (uint32_t widx = 0; widx != cur_word_ct; ++widx) {
     const uintptr_t cur_word = cat_covar_wkspace[widx];
-    case_and_ctrl_cat_ct += Popcount01Word(cur_word & (cur_word >> 1) & kMask5555);
+    case_and_ctrl_cat_ct += Popcount01Word(Word11(cur_word));
     pheno_by_cat_ct += PopcountWord(cur_word);
   }
   if (!case_and_ctrl_cat_ct) {
@@ -805,7 +803,7 @@ BoolErr CheckForAndHandleSeparatedCovar(const uintptr_t* pheno_cc, const PhenoCo
   // still have to prune some samples.
   for (uint32_t widx = 0; widx != cur_word_ct; ++widx) {
     const uintptr_t cur_word = cat_covar_wkspace[widx];
-    cat_covar_wkspace[widx] = cur_word & (cur_word >> 1) & kMask5555;
+    cat_covar_wkspace[widx] = Word11(cur_word);
   }
   BitIter1Start(cur_sample_include, first_sample_uidx, &sample_uidx_base, &cur_bits);
   // bugfix (7 Jul 2018): this needs to check sample_idx, not sample_uidx
@@ -1698,10 +1696,9 @@ static inline void GenoarrToFloats(const uintptr_t* genoarr, uint32_t sample_ct,
 uint32_t GenoarrToFloatsRemoveMissing(const uintptr_t* genoarr, uint32_t sample_ct, float* floatbuf) {
   assert(sample_ct);
   const uint32_t sample_ctl2m1 = (sample_ct - 1) / kBitsPerWordD2;
-  uint32_t widx = 0;
   uint32_t subgroup_len = kBitsPerWordD2;
   float* floatbuf_iter = floatbuf;
-  while (1) {
+  for (uint32_t widx = 0; ; ++widx) {
     if (widx >= sample_ctl2m1) {
       if (widx > sample_ctl2m1) {
         return S_CAST(uint32_t, floatbuf_iter - floatbuf);
@@ -1716,7 +1713,6 @@ uint32_t GenoarrToFloatsRemoveMissing(const uintptr_t* genoarr, uint32_t sample_
       }
       geno_word >>= 2;
     }
-    ++widx;
   }
 }
 
@@ -2485,7 +2481,7 @@ void SolveLinearSystem(const float* ll, const float* yy, uint32_t predictor_ct, 
     }
     *xx_iter = fxx / (*ll_row_iter);
   }
-  for (uint32_t col_idx = predictor_ct; col_idx;) {
+  for (uint32_t col_idx = predictor_ct; col_idx; ) {
     float fxx = xx[--col_idx];
     float* xx_iter = &(xx[predictor_ct - 1]);
     for (uint32_t row_idx = predictor_ct - 1; row_idx > col_idx; --row_idx) {
@@ -2521,13 +2517,10 @@ BoolErr LogisticRegression(const float* yy, const float* xx, uint32_t sample_ct,
   // Returns 0 on success, 1 on convergence failure.
   const uintptr_t sample_ctav = RoundUpPow2(sample_ct, kFloatPerFVec);
   const uintptr_t predictor_ctav = RoundUpPow2(predictor_ct, kFloatPerFVec);
-  uint32_t iteration = 0;
   float min_delta_coef = 1e9;
 
   ZeroFArr(predictor_ct * predictor_ctav, ll);
-  while (1) {
-    ++iteration;
-
+  for (uint32_t iteration = 0; ; ++iteration) {
     // P[i] = \sum_j X[i][j] * coef[j];
     ColMajorFmatrixVectorMultiplyStrided(xx, coef, sample_ct, sample_ctav, predictor_ct, pp);
     // Suppose categorical covariates are represented as
@@ -2576,11 +2569,11 @@ BoolErr LogisticRegression(const float* yy, const float* xx, uint32_t sample_ct,
     if (delta_coef != delta_coef) {
       return 1;
     }
-    if (iteration > 4) {
-      if (((delta_coef > S_CAST(float, 20.0)) && (delta_coef > 2 * min_delta_coef)) || ((iteration >= 8) && (fabsf(S_CAST(float, 1.0) - delta_coef) < S_CAST(float, 1e-3)))) {
+    if (iteration > 3) {
+      if (((delta_coef > S_CAST(float, 20.0)) && (delta_coef > 2 * min_delta_coef)) || ((iteration > 6) && (fabsf(S_CAST(float, 1.0) - delta_coef) < S_CAST(float, 1e-3)))) {
         return 1;
       }
-      if (iteration >= 15) {
+      if (iteration > 13) {
         return 0;
       }
     }
@@ -2701,7 +2694,6 @@ BoolErr FirthRegression(const float* yy, const float* xx, uint32_t sample_ct, ui
   // bugfix (4 Nov 2017): grad[] trailing elements must be zeroed out
   ZeroFArr(predictor_ctav - predictor_ct, &(grad[predictor_ct]));
 
-  uint32_t iter_idx = 0;
   // start with 80% of logistf convergence defaults (some reduction is
   // appropriate to be consistent with single-precision arithmetic); may tune
   // later.
@@ -2710,12 +2702,12 @@ BoolErr FirthRegression(const float* yy, const float* xx, uint32_t sample_ct, ui
   // conditions, it's probably pointless to continue with single-precision
   // arithmetic.  (possible todo: use a fully-double-precision routine to
   // finish the job when that happens.)
-  const uint32_t max_iter = 20;
+  const uint32_t max_iter_m1 = 19;
   const float gconv = S_CAST(float, 0.0001);
   const float xconv = S_CAST(float, 0.0001);
   const double lconv = 0.0001;
   uint32_t hs_bail = 0;
-  while (1) {
+  for (uint32_t iter_idx = 0; ; ++iter_idx) {
     InvertSymmdefFmatrixSecondHalf(predictor_ct, predictor_ctav, half_inverted_buf, hh, inv_1d_buf, dbl_2d_buf);
     if (is_last_iter) {
       return 0;
@@ -2817,8 +2809,7 @@ BoolErr FirthRegression(const float* yy, const float* xx, uint32_t sample_ct, ui
     }
     // printf("%.9g %.9g %g %g\n", loglik, loglik_old, dcoef_max, grad_max);
     const double loglik_change = loglik - loglik_old;
-    ++iter_idx;
-    is_last_iter = (iter_idx == max_iter) || ((fabs(loglik_change) <= lconv) && (delta_and_grad_converged || hs_bail));
+    is_last_iter = (iter_idx == max_iter_m1) || ((fabs(loglik_change) <= lconv) && (delta_and_grad_converged || hs_bail));
   }
 }
 
@@ -4409,7 +4400,6 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
 
     const char* const* cur_test_names = nullptr;
     uint32_t prev_block_variant_ct = 0;
-    uint32_t variant_idx = 0;
     uint32_t cur_read_block_size = read_block_size;
     uint32_t pct = 0;
     uint32_t next_print_variant_idx = variant_ct / 100;
@@ -4419,19 +4409,19 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     logprintfww5("--glm %s regression on phenotype '%s': ", is_always_firth? "Firth" : (is_sometimes_firth? "logistic-Firth hybrid" : "logistic"), cur_pheno_name);
     fputs("0%", stdout);
     fflush(stdout);
-    while (1) {
+    for (uint32_t variant_idx = 0; ; ) {
       uintptr_t cur_block_variant_ct = 0;
       if (!ts.is_last_block) {
-        while (read_block_idx < read_block_ct_m1) {
+        for (; ; ++read_block_idx) {
+          if (read_block_idx == read_block_ct_m1) {
+            cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
+            cur_block_variant_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), BitCtToWordCt(cur_read_block_size));
+            break;
+          }
           cur_block_variant_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), read_block_sizel);
           if (cur_block_variant_ct) {
             break;
           }
-          ++read_block_idx;
-        }
-        if (read_block_idx == read_block_ct_m1) {
-          cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
-          cur_block_variant_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), BitCtToWordCt(cur_read_block_size));
         }
         if (unlikely(PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, pgfip))) {
           goto GlmLogistic_ret_READ_FAIL;
@@ -4913,10 +4903,9 @@ static inline void GenoarrToDoubles(const uintptr_t* genoarr, uint32_t sample_ct
 uint32_t GenoarrToDoublesRemoveMissing(const uintptr_t* genoarr, uint32_t sample_ct, double* doublebuf) {
   assert(sample_ct);
   const uint32_t sample_ctl2m1 = (sample_ct - 1) / kBitsPerWordD2;
-  uint32_t widx = 0;
   uint32_t subgroup_len = kBitsPerWordD2;
   double* doublebuf_iter = doublebuf;
-  while (1) {
+  for (uint32_t widx = 0; ; ++widx) {
     if (widx >= sample_ctl2m1) {
       if (widx > sample_ctl2m1) {
         return doublebuf_iter - doublebuf;
@@ -4932,7 +4921,6 @@ uint32_t GenoarrToDoublesRemoveMissing(const uintptr_t* genoarr, uint32_t sample
       }
       geno_word >>= 2;
     }
-    ++widx;
   }
 }
 
@@ -6007,7 +5995,6 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
 
     const char* const* cur_test_names = nullptr;
     uint32_t prev_block_variant_ct = 0;
-    uint32_t variant_idx = 0;
     uint32_t cur_read_block_size = read_block_size;
     uint32_t pct = 0;
     uint32_t next_print_variant_idx = variant_ct / 100;
@@ -6017,19 +6004,19 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     logprintfww5("--glm linear regression on phenotype '%s': ", cur_pheno_name);
     fputs("0%", stdout);
     fflush(stdout);
-    while (1) {
+    for (uint32_t variant_idx = 0; ; ) {
       uintptr_t cur_block_variant_ct = 0;
       if (!ts.is_last_block) {
-        while (read_block_idx < read_block_ct_m1) {
+        for (; ; ++read_block_idx) {
+          if (read_block_idx == read_block_ct_m1) {
+            cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
+            cur_block_variant_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), BitCtToWordCt(cur_read_block_size));
+            break;
+          }
           cur_block_variant_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), read_block_sizel);
           if (cur_block_variant_ct) {
             break;
           }
-          ++read_block_idx;
-        }
-        if (read_block_idx == read_block_ct_m1) {
-          cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
-          cur_block_variant_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), BitCtToWordCt(cur_read_block_size));
         }
         if (unlikely(PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, pgfip))) {
           goto GlmLinear_ret_READ_FAIL;

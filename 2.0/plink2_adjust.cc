@@ -647,13 +647,11 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       test_name_slen = strlen(test_name);
       // this duplicates a bit of work done in SearchHeaderLine(), but not a
       // big deal
-      uint32_t relevant_col_idx = 0;
-      while (1) {
+      for (uint32_t relevant_col_idx = 0; ; ++relevant_col_idx) {
         test_col_idx += col_skips[relevant_col_idx];
         if (col_types[relevant_col_idx] == 6) {
           break;
         }
-        ++relevant_col_idx;
       }
     } else if (unlikely(found_type_bitset & 0x40)) {
       snprintf(g_logbuf, kLogbufSize, "Error: TEST column present in %s, but no test= parameter was provided to --adjust-file.\n", in_fname);

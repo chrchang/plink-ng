@@ -106,9 +106,7 @@ uint32_t CountTrianglePasses(uintptr_t start_idx, uintptr_t end_idx, uintptr_t i
   cells_avail *= 2;  // don't want to worry about /2 in triangular numbers
   const uint64_t end_tri = S_CAST(uint64_t, end_idx) * (end_idx + 1);
   uint64_t start_tri = S_CAST(uint64_t, start_idx) * (start_idx + 1);
-  uint32_t pass_ct = 0;
-  while (1) {
-    ++pass_ct;
+  for (uint32_t pass_ct = 1; ; ++pass_ct) {
     const uint64_t delta_tri = end_tri - start_tri;
     if (delta_tri <= cells_avail) {
       return pass_ct;
@@ -1108,7 +1106,6 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
         const uint32_t cur_block_size = MINV(variant_ct - variants_completed, kKingMultiplex);
         uintptr_t* cur_smaj_hom = g_smaj_hom[parity];
         uintptr_t* cur_smaj_ref2het = g_smaj_ref2het[parity];
-        uint32_t write_batch_idx = 0;
         // "block" = distance computation granularity, usually 1024 or 1536
         //           variants
         // "batch" = variant-major-to-sample-major transpose granularity,
@@ -1116,7 +1113,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
         uint32_t variant_batch_size = kPglBitTransposeBatch;
         uint32_t variant_batch_size_rounded_up = kPglBitTransposeBatch;
         const uint32_t write_batch_ct_m1 = (cur_block_size - 1) / kPglBitTransposeBatch;
-        while (1) {
+        for (uint32_t write_batch_idx = 0; ; ++write_batch_idx) {
           if (write_batch_idx >= write_batch_ct_m1) {
             if (write_batch_idx > write_batch_ct_m1) {
               break;
@@ -1156,9 +1153,8 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
           // uintptr_t* read_iter = loadbuf;
           uintptr_t* write_hom_iter = &(cur_smaj_hom[write_batch_idx * kPglBitTransposeWords]);
           uintptr_t* write_ref2het_iter = &(cur_smaj_ref2het[write_batch_idx * kPglBitTransposeWords]);
-          uint32_t sample_batch_idx = 0;
           uint32_t write_batch_size = kPglBitTransposeBatch;
-          while (1) {
+          for (uint32_t sample_batch_idx = 0; ; ++sample_batch_idx) {
             if (sample_batch_idx >= sample_batch_ct_m1) {
               if (sample_batch_idx > sample_batch_ct_m1) {
                 break;
@@ -1174,11 +1170,9 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
             // sample with garbage.
             TransposeBitblock(&(splitbuf_hom[sample_batch_idx * kPglBitTransposeWords]), row_end_idxaw, kKingMultiplexWords, variant_batch_size_rounded_up, write_batch_size, write_hom_iter, vecaligned_buf);
             TransposeBitblock(&(splitbuf_ref2het[sample_batch_idx * kPglBitTransposeWords]), row_end_idxaw, kKingMultiplexWords, variant_batch_size_rounded_up, write_batch_size, write_ref2het_iter, vecaligned_buf);
-            ++sample_batch_idx;
             write_hom_iter = &(write_hom_iter[kKingMultiplex * kPglBitTransposeWords]);
             write_ref2het_iter = &(write_ref2het_iter[kKingMultiplex * kPglBitTransposeWords]);
           }
-          ++write_batch_idx;
         }
         const uint32_t cur_block_sizew = BitCtToWordCt(cur_block_size);
         if (cur_block_sizew < kKingMultiplexWords) {
@@ -2244,7 +2238,6 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
         const uint32_t cur_block_size = MINV(variant_ct - variants_completed, kKingMultiplex);
         uintptr_t* cur_smaj_hom = g_smaj_hom[parity];
         uintptr_t* cur_smaj_ref2het = g_smaj_ref2het[parity];
-        uint32_t write_batch_idx = 0;
         // "block" = distance computation granularity, usually 1024 or 1536
         //           variants
         // "batch" = variant-major-to-sample-major transpose granularity,
@@ -2252,7 +2245,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
         uint32_t variant_batch_size = kPglBitTransposeBatch;
         uint32_t variant_batch_size_rounded_up = kPglBitTransposeBatch;
         const uint32_t write_batch_ct_m1 = (cur_block_size - 1) / kPglBitTransposeBatch;
-        while (1) {
+        for (uint32_t write_batch_idx = 0; ; ++write_batch_idx) {
           if (write_batch_idx >= write_batch_ct_m1) {
             if (write_batch_idx > write_batch_ct_m1) {
               break;
@@ -2283,9 +2276,8 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
           // uintptr_t* read_iter = loadbuf;
           uintptr_t* write_hom_iter = &(cur_smaj_hom[write_batch_idx * kPglBitTransposeWords]);
           uintptr_t* write_ref2het_iter = &(cur_smaj_ref2het[write_batch_idx * kPglBitTransposeWords]);
-          uint32_t sample_batch_idx = 0;
           uint32_t write_batch_size = kPglBitTransposeBatch;
-          while (1) {
+          for (uint32_t sample_batch_idx = 0; ; ++sample_batch_idx) {
             if (sample_batch_idx >= sample_batch_ct_m1) {
               if (sample_batch_idx > sample_batch_ct_m1) {
                 break;
@@ -2301,11 +2293,9 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
             // sample with garbage.
             TransposeBitblock(&(splitbuf_hom[sample_batch_idx * kPglBitTransposeWords]), cur_sample_ctaw, kKingMultiplexWords, variant_batch_size_rounded_up, write_batch_size, write_hom_iter, vecaligned_buf);
             TransposeBitblock(&(splitbuf_ref2het[sample_batch_idx * kPglBitTransposeWords]), cur_sample_ctaw, kKingMultiplexWords, variant_batch_size_rounded_up, write_batch_size, write_ref2het_iter, vecaligned_buf);
-            ++sample_batch_idx;
             write_hom_iter = &(write_hom_iter[kKingMultiplex * kPglBitTransposeWords]);
             write_ref2het_iter = &(write_ref2het_iter[kKingMultiplex * kPglBitTransposeWords]);
           }
-          ++write_batch_idx;
         }
         const uint32_t cur_block_sizew = BitCtToWordCt(cur_block_size);
         if (cur_block_sizew < kKingMultiplexWords) {
@@ -2485,7 +2475,7 @@ PglErr ExpandCenteredVarmaj(const uintptr_t* genovec, const uintptr_t* dosage_pr
       STD_ARRAY_DECL(uint32_t, 4, genocounts);
       GenovecCountFreqsUnsafe(genovec, sample_ct, genocounts);
       // remove unlikely() if any caller ever handles this case gracefully
-      if (unlikely(dosage_ct || genocounts[1] || genocounts[2])) {
+      if (unlikely(dosage_ct || (genocounts[0] && (genocounts[1] || genocounts[2])) || (genocounts[1] && genocounts[2]))) {
         return kPglRetInconsistentInput;
       }
       ZeroDArr(sample_ct, normed_dosages);
@@ -2523,8 +2513,8 @@ PglErr LoadCenteredVarmaj(const uintptr_t* sample_include, const uint32_t* sampl
     const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
     if (!dosage_ct) {
       for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
-        const uintptr_t genovec_word = genovec_buf[widx];
-        if (genovec_word & (genovec_word >> 1) & kMask5555) {
+        const uintptr_t detect_11 = Word11(genovec_buf[widx]);
+        if (detect_11) {
           *missing_presentp = 1;
           break;
         }
@@ -2532,10 +2522,9 @@ PglErr LoadCenteredVarmaj(const uintptr_t* sample_include, const uint32_t* sampl
     } else {
       Halfword* dosage_present_alias = R_CAST(Halfword*, dosage_present_buf);
       for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
-        const uintptr_t genovec_word = genovec_buf[widx];
-        const uintptr_t ulii = genovec_word & (genovec_word >> 1) & kMask5555;
-        if (ulii) {
-          if (PackWordToHalfword(ulii) & (~dosage_present_alias[widx])) {
+        const uintptr_t detect_11 = Word11(genovec_buf[widx]);
+        if (detect_11) {
+          if (PackWordToHalfword(detect_11) & (~dosage_present_alias[widx])) {
             *missing_presentp = 1;
             break;
           }
@@ -2724,7 +2713,6 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
     uint32_t parity = 0;
-    uint32_t cur_variant_idx_start = 0;
     uint32_t pct = 0;
     uint32_t next_print_variant_idx = variant_ct / 100;
     // caller's responsibility to print this
@@ -2732,7 +2720,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
     fputs("0%", stdout);
     fflush(stdout);
     PgrClearLdCache(simple_pgrp);
-    while (1) {
+    for (uint32_t cur_variant_idx_start = 0; ; ) {
       uint32_t cur_batch_size = 0;
       if (!ts.is_last_block) {
         cur_batch_size = kDblMissingBlockSize;
@@ -2756,9 +2744,8 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
           missing_vmaj_iter = &(missing_vmaj_iter[row_end_idxaw]);
         }
         uintptr_t* cur_missing_smaj_iter = g_missing_smaj[parity];
-        uint32_t sample_transpose_batch_idx = 0;
         uint32_t sample_batch_size = kPglBitTransposeBatch;
-        while (1) {
+        for (uint32_t sample_transpose_batch_idx = 0; ; ++sample_transpose_batch_idx) {
           if (sample_transpose_batch_idx >= sample_transpose_batch_ct_m1) {
             if (sample_transpose_batch_idx > sample_transpose_batch_ct_m1) {
               break;
@@ -2768,7 +2755,6 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
           // missing_smaj offset needs to be 64-bit if kDblMissingBlockWordCt
           // increases
           TransposeBitblock(&(missing_vmaj[sample_transpose_batch_idx * kPglBitTransposeWords]), row_end_idxaw, kDblMissingBlockWordCt, kDblMissingBlockSize, sample_batch_size, &(cur_missing_smaj_iter[sample_transpose_batch_idx * kPglBitTransposeBatch * kDblMissingBlockWordCt]), transpose_bitblock_wkspace);
-          ++sample_transpose_batch_idx;
         }
         uintptr_t* cur_missing_nz = g_missing_nz[parity];
         ZeroWArr(row_end_idxl, cur_missing_nz);
@@ -2964,7 +2950,6 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
     uint32_t parity = 0;
-    uint32_t cur_variant_idx_start = 0;
     uint32_t cur_allele_ct = 2;
     uint32_t pct = 0;
     uint32_t next_print_variant_idx = variant_ct / 100;
@@ -2972,7 +2957,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     fputs("0%", stdout);
     fflush(stdout);
     PgrClearLdCache(simple_pgrp);
-    while (1) {
+    for (uint32_t cur_variant_idx_start = 0; ; ) {
       uint32_t cur_batch_size = 0;
       if (!ts.is_last_block) {
         cur_batch_size = kGrmVariantBlockSize;
@@ -3116,8 +3101,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               goto CalcGrm_ret_NOMEM;
             }
           }
-          uintptr_t row_idx = row_start_idx;
-          while (1) {
+          for (uintptr_t row_idx = row_start_idx; ; ) {
             const double* grm_row = &(grm[(row_idx - row_start_idx) * row_end_idx]);
             ++row_idx;
             if (unlikely(fwrite_checked(grm_row, row_idx * sizeof(double), outfile))) {
@@ -3908,8 +3892,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         uintptr_t variant_uidx_base = 0;
         uintptr_t cur_bits = variant_include[0];
         uint32_t parity = 0;
-        uint32_t cur_variant_idx_start = 0;
-        while (1) {
+        for (uint32_t cur_variant_idx_start = 0; ; ) {
           uint32_t cur_batch_size = 0;
           if (!ts.is_last_block) {
             cur_batch_size = calc_thread_ct * kPcaVariantBlockSize;
@@ -4019,10 +4002,9 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       uintptr_t variant_uidx_base = 0;
       uintptr_t cur_bits = variant_include[0];
       uint32_t parity = 0;
-      uint32_t cur_variant_idx_start = 0;
       ReinitThreads3z(&ts);
       g_qq = qq;
-      while (1) {
+      for (uint32_t cur_variant_idx_start = 0; ; ) {
         uint32_t cur_batch_size = 0;
         if (!ts.is_last_block) {
           // probable todo: move this boilerplate in its own function
@@ -4205,8 +4187,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       if (nonmaj_col) {
         cswritep = strcpya_k(cswritep, "\tNONMAJ");
       }
-      for (uint32_t pc_idx = 0; pc_idx != pc_ct;) {
-        ++pc_idx;
+      for (uint32_t pc_idx = 1; pc_idx != pc_ct; ++pc_idx) {
         cswritep = strcpya_k(cswritep, "\tPC");
         cswritep = u32toa(pc_idx, cswritep);
       }
@@ -4223,7 +4204,6 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       // 7. Goto step 2 unless eof
       //
       // 8. Write results and update projection for last block
-      uint32_t cur_variant_idx_start = 0;
 #ifndef __APPLE__
       if (output_zst) {
         // compression is relatively expensive?
@@ -4292,7 +4272,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       uint32_t chr_fo_idx = UINT32_MAX;
       uint32_t chr_end = 0;
       uint32_t chr_buf_blen = 0;
-      while (1) {
+      for (uint32_t cur_variant_idx_start = 0; ; ) {
         uint32_t cur_batch_size = 0;
         if (!ts.is_last_block) {
           cur_batch_size = calc_thread_ct * kPcaVariantBlockSize;
@@ -4453,8 +4433,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     if (write_sid) {
       write_iter = strcpya_k(write_iter, "\tSID");
     }
-    for (uint32_t pc_idx = 0; pc_idx != pc_ct;) {
-      ++pc_idx;
+    for (uint32_t pc_idx = 1; pc_idx != pc_ct; ++pc_idx) {
       write_iter = strcpya_k(write_iter, "\tPC");
       write_iter = u32toa(pc_idx, write_iter);
     }
@@ -4920,7 +4899,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             ZeroTrailingQuaters(sample_ct, genovec_buf);
             GenovecToMissingnessUnsafe(genovec_buf, sample_ct, missing_acc1);
             if (dosage_ct) {
-              BitvecAndNot(dosage_present_buf, sample_ctl, missing_acc1);
+              BitvecInvmask(dosage_present_buf, sample_ctl, missing_acc1);
             }
             FillCurDosageInts(genovec_buf, dosage_present_buf, dosage_main_buf, sample_ct, dosage_ct, 2 - is_nonx_haploid, dosage_incrs);
             double ploidy_d;
@@ -4933,7 +4912,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
                   dosage_incrs[sample_idx] = 0;
                 }
                 ++male_allele_ct_delta;
-                BitvecAndNot(sex_nonmale_collapsed, sample_ctl, missing_acc1);
+                BitvecInvmask(sex_nonmale_collapsed, sample_ctl, missing_acc1);
               } else {
                 ++allele_ct_base;
               }
@@ -4959,7 +4938,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
                   const uintptr_t sample_idx = BitIter0(sex_nonmale_collapsed, &sample_idx_base, &sex_nonmale_collapsed_inv_bits);
                   dosage_incrs[sample_idx] /= 2;
                 }
-                BitvecAndNotCopy(missing_acc1, sex_nonmale_collapsed, sample_ctl, missing_male_acc1);
+                BitvecInvmaskCopy(missing_acc1, sex_nonmale_collapsed, sample_ctl, missing_male_acc1);
                 BitvecAnd(sex_nonmale_collapsed, sample_ctl, missing_acc1);
               }
               VcountIncr1To4(missing_acc1, acc1_vec_ct, missing_diploid_acc4);
@@ -5018,7 +4997,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
               if (variance_standardize) {
                 const double variance = ploidy_d * cur_allele_freq * (1.0 - cur_allele_freq);
                 if (variance < kSmallEpsilon) {
-                  ZeroTrailingQuaters(sample_ct, genovec_buf);
+                  // ZeroTrailingQuaters(sample_ct, genovec_buf);
                   STD_ARRAY_DECL(uint32_t, 4, genocounts);
                   GenovecCountFreqsUnsafe(genovec_buf, sample_ct, genocounts);
                   if (unlikely(dosage_ct || genocounts[1] || genocounts[2])) {

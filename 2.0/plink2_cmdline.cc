@@ -790,8 +790,7 @@ void DivisionMagicNums(uint32_t divisor, uint64_t* multp, uint32_t* __restrict p
   uint32_t down_multiplier = 0;
   uint32_t down_exponent = 0;
   uint32_t has_magic_down = 0;
-  uint32_t exponent;
-  for (exponent = 0; ; ++exponent) {
+  for (uint32_t exponent = 0; ; ++exponent) {
     if (remainder >= divisor - remainder) {
       quotient = quotient * 2 + 1;
       remainder = remainder * 2 - divisor;
@@ -800,6 +799,13 @@ void DivisionMagicNums(uint32_t divisor, uint64_t* multp, uint32_t* __restrict p
       remainder = remainder * 2;
     }
     if ((exponent >= ceil_log_2_d) || (divisor - remainder) <= (1U << exponent)) {
+      if (exponent < ceil_log_2_d) {
+        *multp = quotient + 1;
+        *pre_shiftp = 0;
+        *post_shiftp = 32 + exponent;
+        *incrp = 0;
+        return;
+      }
       break;
     }
     if ((!has_magic_down) && (remainder <= (1U << exponent))) {
@@ -807,13 +813,6 @@ void DivisionMagicNums(uint32_t divisor, uint64_t* multp, uint32_t* __restrict p
       down_multiplier = quotient;
       down_exponent = exponent;
     }
-  }
-  if (exponent < ceil_log_2_d) {
-    *multp = quotient + 1;
-    *pre_shiftp = 0;
-    *post_shiftp = 32 + exponent;
-    *incrp = 0;
-    return;
   }
   if (divisor & 1) {
     *multp = down_multiplier;
@@ -930,7 +929,7 @@ void BitvecAndCopy(const uintptr_t* __restrict source1_bitvec, const uintptr_t* 
 #endif
 }
 
-void BitvecAndNotCopy(const uintptr_t* __restrict source_bitvec, const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct, uintptr_t* target_bitvec) {
+void BitvecInvmaskCopy(const uintptr_t* __restrict source_bitvec, const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct, uintptr_t* target_bitvec) {
   // target_bitvec := source_bitvec AND (~exclude_bitvec)
 #ifdef __LP64__
   VecW* target_bitvvec = R_CAST(VecW*, target_bitvec);
@@ -953,42 +952,6 @@ void BitvecAndNotCopy(const uintptr_t* __restrict source_bitvec, const uintptr_t
 #else
   for (uintptr_t widx = 0; widx != word_ct; ++widx) {
     target_bitvec[widx] = source_bitvec[widx] & (~exclude_bitvec[widx]);
-  }
-#endif
-}
-
-void BitvecOr(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec) {
-  // main_bitvec := main_bitvec OR arg_bitvec
-#ifdef __LP64__
-  VecW* main_bitvvec_iter = R_CAST(VecW*, main_bitvec);
-  const VecW* arg_bitvvec_iter = R_CAST(const VecW*, arg_bitvec);
-  const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
-  if (full_vec_ct & 1) {
-    *main_bitvvec_iter++ |= (*arg_bitvvec_iter++);
-  }
-  if (full_vec_ct & 2) {
-    *main_bitvvec_iter++ |= (*arg_bitvvec_iter++);
-    *main_bitvvec_iter++ |= (*arg_bitvvec_iter++);
-  }
-  for (uintptr_t ulii = 3; ulii < full_vec_ct; ulii += 4) {
-    *main_bitvvec_iter++ |= (*arg_bitvvec_iter++);
-    *main_bitvvec_iter++ |= (*arg_bitvvec_iter++);
-    *main_bitvvec_iter++ |= (*arg_bitvvec_iter++);
-    *main_bitvvec_iter++ |= (*arg_bitvvec_iter++);
-  }
-#  ifdef USE_AVX2
-  if (word_ct & 2) {
-    const uintptr_t base_idx = full_vec_ct * kWordsPerVec;
-    main_bitvec[base_idx] |= arg_bitvec[base_idx];
-    main_bitvec[base_idx + 1] |= arg_bitvec[base_idx + 1];
-  }
-#  endif
-  if (word_ct & 1) {
-    main_bitvec[word_ct - 1] |= arg_bitvec[word_ct - 1];
-  }
-#else
-  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
-    main_bitvec[widx] |= arg_bitvec[widx];
   }
 #endif
 }
@@ -1067,7 +1030,7 @@ void BitvecXor(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintpt
 }
 */
 
-void BitvecAndNot2(const uintptr_t* __restrict include_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec) {
+void BitvecInvertAndMask(const uintptr_t* __restrict include_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec) {
   // main_bitvec := (~main_bitvec) AND include_bitvec
   // this corresponds _mm_andnot() operand order
 #ifdef __LP64__
@@ -1348,11 +1311,9 @@ uint32_t PopulateStrboxHtable(const char* strbox, uintptr_t str_ct, uintptr_t ma
   const char* strbox_iter = strbox;
   for (uintptr_t str_idx = 0; str_idx != str_ct; ++str_idx) {
     const uint32_t slen = strlen(strbox_iter);
-    uint32_t hashval = Hashceil(strbox_iter, slen, str_htable_size);
     // previously used quadratic probing, but turns out that that isn't
     // meaningfully better than linear probing.
-    // uint32_t next_incr = 1;
-    while (1) {
+    for (uint32_t hashval = Hashceil(strbox_iter, slen, str_htable_size); ; ) {
       const uint32_t cur_htable_entry = str_htable[hashval];
       if (cur_htable_entry == UINT32_MAX) {
         str_htable[hashval] = str_idx;
@@ -1365,16 +1326,6 @@ uint32_t PopulateStrboxHtable(const char* strbox, uintptr_t str_ct, uintptr_t ma
       if (++hashval == str_htable_size) {
         hashval = 0;
       }
-      /*
-      // defend against overflow
-      const uint32_t top_diff = str_htable_size - hashval;
-      if (top_diff > next_incr) {
-        hashval += next_incr;
-      } else {
-        hashval = next_incr - top_diff;
-      }
-      next_incr += 2;
-      */
     }
     strbox_iter = &(strbox_iter[max_str_blen]);
   }
@@ -1415,8 +1366,7 @@ uint32_t populate_strbox_subset_htable(const uintptr_t* __restrict subset_mask, 
 // callers which can use it yet
 uint32_t IdHtableFind(const char* cur_id, const char* const* item_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size) {
   // returns UINT32_MAX on failure
-  uint32_t hashval = Hashceil(cur_id, cur_id_slen, id_htable_size);
-  while (1) {
+  for (uint32_t hashval = Hashceil(cur_id, cur_id_slen, id_htable_size); ; ) {
     const uint32_t cur_htable_idval = id_htable[hashval];
     if ((cur_htable_idval == UINT32_MAX) || (!strcmp(cur_id, item_ids[cur_htable_idval]))) {
       return cur_htable_idval;
@@ -1430,9 +1380,8 @@ uint32_t IdHtableFind(const char* cur_id, const char* const* item_ids, const uin
 // assumes cur_id_slen < max_str_blen.
 // requires cur_id to be null-terminated.
 uint32_t StrboxHtableFind(const char* cur_id, const char* strbox, const uint32_t* id_htable, uintptr_t max_str_blen, uint32_t cur_id_slen, uint32_t id_htable_size) {
-  uint32_t hashval = Hashceil(cur_id, cur_id_slen, id_htable_size);
   const uint32_t cur_id_blen = cur_id_slen + 1;
-  while (1) {
+  for (uint32_t hashval = Hashceil(cur_id, cur_id_slen, id_htable_size); ; ) {
     const uint32_t cur_htable_idval = id_htable[hashval];
     if ((cur_htable_idval == UINT32_MAX) || memequal(cur_id, &(strbox[cur_htable_idval * max_str_blen]), cur_id_blen)) {
       return cur_htable_idval;
@@ -1454,8 +1403,7 @@ uint32_t VariantIdDupflagHtableFind(const char* idbuf, const char* const* varian
   if (cur_id_slen > max_id_slen) {
     return UINT32_MAX;
   }
-  uint32_t hashval = Hashceil(idbuf, cur_id_slen, id_htable_size);
-  while (1) {
+  for (uint32_t hashval = Hashceil(idbuf, cur_id_slen, id_htable_size); ; ) {
     const uint32_t cur_htable_idval = id_htable[hashval];
     if ((cur_htable_idval == UINT32_MAX) || (memequal(idbuf, variant_ids[cur_htable_idval & 0x7fffffff], cur_id_slen) && (!variant_ids[cur_htable_idval & 0x7fffffff][cur_id_slen]))) {
       return cur_htable_idval;
@@ -1479,8 +1427,7 @@ uint32_t VariantIdDupHtableFind(const char* idbuf, const char* const* variant_id
   if (cur_id_slen > max_id_slen) {
     return UINT32_MAX;
   }
-  uint32_t hashval = Hashceil(idbuf, cur_id_slen, id_htable_size);
-  while (1) {
+  for (uint32_t hashval = Hashceil(idbuf, cur_id_slen, id_htable_size); ; ) {
     const uint32_t cur_htable_idval = id_htable[hashval];
     const uint32_t cur_dup = cur_htable_idval >> 31;
     uint32_t cur_llidx;
@@ -1587,14 +1534,7 @@ PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, cons
     if (!allow_dups) {
       char* dup_id = ScanForDuplicateIds(sorted_strbox, str_ct, max_str_blen);
       if (unlikely(dup_id)) {
-        char* tptr = dup_id;
-        while (1) {
-          tptr = strchr(tptr, '\t');
-          if (!tptr) {
-            break;
-          }
-          *tptr++ = ' ';
-        }
+        TabsToSpaces(dup_id);
         logerrprintfww("Error: Duplicate ID '%s'.\n", dup_id);
         goto CopySortStrboxSubsetNoalloc_ret_MALFORMED_INPUT;
       }
@@ -1681,8 +1621,7 @@ PglErr StringRangeListToBitarr(const char* header_line, const RangeList* range_l
     const char* header_line_iter = header_line;
     const uintptr_t name_ct = range_list_ptr->name_ct;
     const uintptr_t max_id_blen = range_list_ptr->name_max_blen;
-    uint32_t item_idx = 0;
-    while (1) {
+    for (uint32_t item_idx = 0; ; ) {
       const char* token_end = CommaOrTspaceTokenEnd(header_line_iter, comma_delim);
       uint32_t cmdline_pos;
       if (!SortedIdboxFind(header_line_iter, sorted_ids, id_map, token_end - header_line_iter, max_id_blen, name_ct, &cmdline_pos)) {
@@ -1839,7 +1778,7 @@ static inline uintptr_t PopcountVecsNoAvx2Intersect(const VecW* __restrict vvec1
   VecW prev_sad_result = vecw_setzero();
   VecW acc = vecw_setzero();
   uintptr_t cur_incr = 30;
-  while (1) {
+  for (; ; vec_ct -= cur_incr) {
     if (vec_ct < 30) {
       if (!vec_ct) {
         acc = acc + prev_sad_result;
@@ -1849,7 +1788,6 @@ static inline uintptr_t PopcountVecsNoAvx2Intersect(const VecW* __restrict vvec1
     }
     VecW inner_acc = vecw_setzero();
     const VecW* vvec1_stop = &(vvec1_iter[cur_incr]);
-    vec_ct -= cur_incr;
     do {
       VecW count1 = (*vvec1_iter++) & (*vvec2_iter++);
       VecW count2 = (*vvec1_iter++) & (*vvec2_iter++);
@@ -1910,7 +1848,7 @@ static inline void PopcountVecsNoSse42Intersect3val(const VecW* __restrict vvec1
   VecW acc2 = vecw_setzero();
   VecW acc3 = vecw_setzero();
   uintptr_t cur_incr = 30;
-  while (1) {
+  for (; ; vec_ct -= cur_incr) {
     if (vec_ct < 30) {
       if (!vec_ct) {
         *popcount1_ptr = HsumW(acc1);
@@ -1924,7 +1862,6 @@ static inline void PopcountVecsNoSse42Intersect3val(const VecW* __restrict vvec1
     VecW inner_acc2 = vecw_setzero();
     VecW inner_acc3 = vecw_setzero();
     const VecW* vvec1_stop = &(vvec1_iter[cur_incr]);
-    vec_ct -= cur_incr;
     do {
       VecW count1a = *vvec1_iter++;
       VecW count2a = *vvec2_iter++;
@@ -2134,7 +2071,7 @@ uintptr_t FindNth1BitFrom(const uintptr_t* bitvec, uintptr_t cur_pos, uintptr_t 
     forward_ct -= ulkk;
   }
 #endif
-  while (1) {
+  for (; ; ++bptr) {
     uljj = *bptr;
     ulkk = PopcountWord(uljj);
     if (ulkk >= forward_ct) {
@@ -2142,7 +2079,6 @@ uintptr_t FindNth1BitFrom(const uintptr_t* bitvec, uintptr_t cur_pos, uintptr_t 
       goto JumpForwardSetUnsafe_finish;
     }
     forward_ct -= ulkk;
-    ++bptr;
   }
 }
 
@@ -2829,13 +2765,13 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
     if (!store_all_dups) {
       for (uint32_t item_idx = 0; item_idx != item_ct; ++item_idx) {
         const uintptr_t item_uidx = BitIter1(subset_mask, &item_uidx_base, &cur_bits);
-        uint32_t hashval = g_item_id_hashes[item_idx];
-        uint32_t cur_htable_entry = id_htable[hashval];
+        const uint32_t hashval_base = g_item_id_hashes[item_idx];
+        uint32_t cur_htable_entry = id_htable[hashval_base];
         if (cur_htable_entry == UINT32_MAX) {
-          id_htable[hashval] = item_uidx;
+          id_htable[hashval_base] = item_uidx;
         } else {
           const char* sptr = item_ids[item_uidx];
-          while (1) {
+          for (uint32_t hashval = hashval_base; ; ) {
             // guaranteed to be safe due to where variant IDs are allocated
             if (strequal_overread(sptr, item_ids[cur_htable_entry & 0x7fffffff])) {
               if (!(cur_htable_entry >> 31)) {
@@ -2877,13 +2813,13 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
       uint32_t* htable_dup_base = R_CAST(uint32_t*, g_bigstack_base);
       for (uint32_t item_idx = 0; item_idx != item_ct; ++item_idx) {
         const uintptr_t item_uidx = BitIter1(subset_mask, &item_uidx_base, &cur_bits);
-        uint32_t hashval = g_item_id_hashes[item_idx];
-        uint32_t cur_htable_entry = id_htable[hashval];
+        const uint32_t hashval_base = g_item_id_hashes[item_idx];
+        uint32_t cur_htable_entry = id_htable[hashval_base];
         if (cur_htable_entry == UINT32_MAX) {
-          id_htable[hashval] = item_uidx;
+          id_htable[hashval_base] = item_uidx;
         } else {
           const char* sptr = item_ids[item_uidx];
-          while (1) {
+          for (uint32_t hashval = hashval_base; ; ) {
             const uint32_t cur_dup = cur_htable_entry >> 31;
             uint32_t prev_uidx;
             if (cur_dup) {
@@ -4157,8 +4093,7 @@ PglErr SearchHeaderLine(const char* header_line_iter, const char* const* search_
 
     SetAllU32Arr(search_col_ct, priority_vals);
     SetAllU64Arr(search_col_ct, cols_and_types);
-    uint32_t col_idx = 0;
-    while (1) {
+    for (uintptr_t col_idx = 0; ; ++col_idx) {
       const char* token_end = CurTokenEnd(header_line_iter);
       const uint32_t token_slen = token_end - header_line_iter;
       int32_t ii = bsearch_str(header_line_iter, merged_strbox, token_slen, max_blen, search_term_ct);
@@ -4179,7 +4114,6 @@ PglErr SearchHeaderLine(const char* header_line_iter, const char* const* search_
       if (IsEolnKns(*header_line_iter)) {
         break;
       }
-      ++col_idx;
     }
     uint32_t found_type_bitset = 0;
     for (uint32_t search_col_idx = 0; search_col_idx != search_col_ct; ++search_col_idx) {

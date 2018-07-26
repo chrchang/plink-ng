@@ -954,9 +954,8 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
         const char* cur_fid = &(sample_ids[sample_uidx * max_sample_id_blen]);
         const char* cur_fid_end = AdvToDelim(cur_fid, '\t');
         const uint32_t slen = cur_fid_end - cur_fid;
-        uint32_t hashval = Hashceil(cur_fid, slen, cat_htable_size);
         const uint32_t blen = slen + 1;
-        while (1) {
+        for (uint32_t hashval = Hashceil(cur_fid, slen, cat_htable_size); ; ) {
           const uint32_t cur_htable_entry = cat_htable[hashval];
           if (cur_htable_entry >= 0xfffffffdU) {
             if (cur_htable_entry == UINT32_MAX) {
@@ -1216,7 +1215,7 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
             continue;
           }
           SetBit(sample_uidx, already_seen);
-          while (1) {
+          for (uint32_t xid_idx = xid_idx_start; ; ) {
             if (sexval) {
               SetBit(sample_uidx, sex_nm);
               if (sexval == 1) {
@@ -1229,10 +1228,10 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
               ClearBit(sample_uidx, sex_male);
             }
             ++hit_ct;
-            if (++xid_idx_start == xid_idx_end) {
+            if (++xid_idx == xid_idx_end) {
               break;
             }
-            sample_uidx = xid_map[xid_idx_start];
+            sample_uidx = xid_map[xid_idx];
           }
         } else if (unlikely(!linebuf_iter)) {
           goto UpdateSampleSexes_ret_MISSING_TOKENS;
@@ -1828,7 +1827,7 @@ PglErr PhenoQuantileNormalize(const char* quantnorm_flattened, const uintptr_t* 
       }
       STD_SORT_PAR_UNSEQ(cur_sample_ct, double_cmp, tagged_raw_pheno_vals);
       const double sample_ct_x2_recip = 1.0 / S_CAST(double, 2 * cur_sample_ct);
-      for (uint32_t sample_idx_start = 0; sample_idx_start != cur_sample_ct;) {
+      for (uint32_t sample_idx_start = 0; sample_idx_start != cur_sample_ct; ) {
         const double cur_raw_pheno = tagged_raw_pheno_vals[sample_idx_start].dxx;
         uint32_t sample_idx_end = sample_idx_start + 1;
         for (; sample_idx_end != cur_sample_ct; ++sample_idx_end) {
@@ -3957,8 +3956,7 @@ PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
       uint32_t max_xcovar_name_blen = max_covar_name_blen;
       if (write_sex) {
         // add "SEX"
-        uint32_t hashval = Hashceil("SEX", 3, covar_name_htable_size);
-        while (1) {
+        for (uint32_t hashval = Hashceil("SEX", 3, covar_name_htable_size); ; ) {
           const uint32_t cur_htable_entry = covar_name_htable[hashval];
           if (cur_htable_entry == UINT32_MAX) {
             covar_name_htable[hashval] = covar_ct;
@@ -3983,9 +3981,8 @@ PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
           const uint32_t cur_pheno_name_slen = strlen(pheno_name_iter);
           if (cur_pheno_name_slen < max_xcovar_name_blen) {
             const uint32_t cur_pheno_name_blen = cur_pheno_name_slen + 1;
-            uint32_t hashval = Hashceil(pheno_name_iter, cur_pheno_name_slen, covar_name_htable_size);
-            while (1) {
-              uint32_t cur_htable_idval = covar_name_htable[hashval];
+            for (uint32_t hashval = Hashceil(pheno_name_iter, cur_pheno_name_slen, covar_name_htable_size); ; ) {
+              const uint32_t cur_htable_idval = covar_name_htable[hashval];
               if (cur_htable_idval >= covar_ct) {
                 if (cur_htable_idval == UINT32_MAX) {
                   break;
@@ -4013,9 +4010,8 @@ PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
         }
       } else if (write_empty_pheno) {
         if (max_covar_name_blen > 6) {
-          uint32_t hashval = Hashceil("PHENO1", 6, covar_name_htable_size);
-          while (1) {
-            uint32_t cur_htable_idval = covar_name_htable[hashval];
+          for (uint32_t hashval = Hashceil("PHENO1", 6, covar_name_htable_size); ; ) {
+            const uint32_t cur_htable_idval = covar_name_htable[hashval];
             if (cur_htable_idval >= covar_ct) {
               if (cur_htable_idval == UINT32_MAX) {
                 break;

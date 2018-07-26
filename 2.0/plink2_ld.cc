@@ -200,7 +200,7 @@ static inline int32_t DotprodVecsNm(const VecW* __restrict hom1_iter, const VecW
   VecW acc_both = vecw_setzero();
   VecW acc_neg = vecw_setzero();
   uintptr_t cur_incr = 30;
-  while (1) {
+  for (; ; vec_ct -= cur_incr) {
     if (vec_ct < 30) {
       if (!vec_ct) {
         return HsumW(acc_both) - 2 * HsumW(acc_neg);
@@ -210,7 +210,6 @@ static inline int32_t DotprodVecsNm(const VecW* __restrict hom1_iter, const VecW
     VecW inner_acc_both = vecw_setzero();
     VecW inner_acc_neg = vecw_setzero();
     const VecW* hom1_stop = &(hom1_iter[cur_incr]);
-    vec_ct -= cur_incr;
     do {
       VecW count1_both = (*hom1_iter++) & (*hom2_iter++);
       VecW cur_xor = (*ref2het1_iter++) ^ (*ref2het2_iter++);
@@ -276,7 +275,7 @@ static inline void SumSsqVecs(const VecW* __restrict hom1_iter, const VecW* __re
   VecW acc_ssq2 = vecw_setzero();
   VecW acc_plus2 = vecw_setzero();
   uint32_t cur_incr = 30;
-  while (1) {
+  for (; ; vec_ct -= cur_incr) {
     if (vec_ct < 30) {
       if (!vec_ct) {
         *ssq2_ptr = HsumW(acc_ssq2);
@@ -287,7 +286,6 @@ static inline void SumSsqVecs(const VecW* __restrict hom1_iter, const VecW* __re
     }
     VecW inner_acc_ssq = vecw_setzero();
     VecW inner_acc_plus = vecw_setzero();
-    vec_ct -= cur_incr;
     for (uint32_t vec_idx = 0; vec_idx < cur_incr; vec_idx += 3) {
       VecW count1_ssq = (hom1_iter[vec_idx] | ref2het1_iter[vec_idx]) & hom2_iter[vec_idx];
       VecW count1_plus = count1_ssq & ref2het2_iter[vec_idx];
@@ -359,7 +357,7 @@ static inline void SumSsqNmVecs(const VecW* __restrict hom1_iter, const VecW* __
   VecW acc_ssq2 = vecw_setzero();
   VecW acc_plus2 = vecw_setzero();
   uint32_t cur_incr = 30;
-  while (1) {
+  for (; ; vec_ct -= cur_incr) {
     if (vec_ct < 30) {
       if (!vec_ct) {
         *nm_ptr = HsumW(acc_nm);
@@ -372,7 +370,6 @@ static inline void SumSsqNmVecs(const VecW* __restrict hom1_iter, const VecW* __
     VecW inner_acc_nm = vecw_setzero();
     VecW inner_acc_ssq = vecw_setzero();
     VecW inner_acc_plus = vecw_setzero();
-    vec_ct -= cur_incr;
     for (uint32_t vec_idx = 0; vec_idx < cur_incr; vec_idx += 3) {
       VecW nm1 = hom1_iter[vec_idx] | ref2het1_iter[vec_idx];
       VecW hom2 = hom2_iter[vec_idx];
@@ -1038,7 +1035,6 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     // 6. Goto step 2 unless eof
     //
     // 7. Assemble final results with CopyBitarrRange()
-    uint32_t cur_tvidx_start = 0;
     uint32_t is_last_batch = 0;
     uint32_t parity = 0;
     uint32_t pct = 0;
@@ -1046,7 +1042,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     logprintf("--indep-pairwise (%u compute thread%s): ", calc_thread_ct, (calc_thread_ct == 1)? "" : "s");
     fputs("0%", stdout);
     fflush(stdout);
-    while (1) {
+    for (uint32_t cur_tvidx_start = 0; ; cur_tvidx_start += tvidx_batch_size) {
       if (!is_last_batch) {
         PgrClearLdCache(simple_pgrp);
         uintptr_t** cur_raw_tgenovecs = g_raw_tgenovecs[parity];
@@ -1163,7 +1159,6 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
         goto IndepPairwise_ret_THREAD_CREATE_FAIL;
       }
       parity = 1 - parity;
-      cur_tvidx_start += tvidx_batch_size;
     }
     ZeroU32Arr(calc_thread_ct, thread_subcontig_start_tvidx);
     for (uint32_t subcontig_idx = 0; subcontig_idx != subcontig_ct; ++subcontig_idx) {
@@ -1352,7 +1347,7 @@ void Minheap64Insert(uint64_t new_entry, uint64_t* minheap64_preroot, uint32_t* 
   *heap_size_ptr = heap_size;
   uint32_t cur_pos = heap_size;
   while (1) {
-    uint32_t parent_pos = cur_pos / 2;
+    const uint32_t parent_pos = cur_pos / 2;
     const uint64_t parent_val = minheap64_preroot[parent_pos];
     if (new_entry >= parent_val) {
       minheap64_preroot[cur_pos] = new_entry;
@@ -1444,12 +1439,12 @@ PglErr LoadBalance(const uint32_t* task_weights, uint32_t task_ct, uint32_t* thr
     if (idxp1) {
       uintptr_t idx = idxp1 - 1;
       const uint64_t new_entry = minheap64[idx] + cur_tagged_weight;
-      while (1) {
+      for (; ; ++idx) {
         const uint64_t next_entry = minheap64[idx + 1];
         if (new_entry < next_entry) {
           break;
         }
-        minheap64[idx++] = next_entry;
+        minheap64[idx] = next_entry;
       }
       thread_assignments[task_idx] = S_CAST(uint32_t, new_entry);
       minheap64[idx] = new_entry;
@@ -1769,7 +1764,7 @@ uint32_t GenoBitvecSumMain(const VecW* one_vvec, const VecW* two_vvec, uint32_t 
   VecW prev_sad_result = vecw_setzero();
   VecW acc = vecw_setzero();
   uint32_t cur_incr = 15;
-  while (1) {
+  for (; ; vec_ct -= cur_incr) {
     if (vec_ct < 15) {
       if (!vec_ct) {
         acc = acc + prev_sad_result;
@@ -1779,7 +1774,6 @@ uint32_t GenoBitvecSumMain(const VecW* one_vvec, const VecW* two_vvec, uint32_t 
     }
     VecW inner_acc = vecw_setzero();
     const VecW* one_vvec_stop = &(one_vvec_iter[cur_incr]);
-    vec_ct -= cur_incr;
     do {
       VecW one_count = *one_vvec_iter++;
       VecW two_count = *two_vvec_iter++;
@@ -1832,7 +1826,7 @@ uint32_t GenoBitvecSumSubsetMain(const VecW* subset_vvec, const VecW* one_vvec, 
   VecW prev_sad_result = vecw_setzero();
   VecW acc = vecw_setzero();
   uint32_t cur_incr = 15;
-  while (1) {
+  for (; ; vec_ct -= cur_incr) {
     if (vec_ct < 15) {
       if (!vec_ct) {
         acc = acc + prev_sad_result;
@@ -1842,7 +1836,6 @@ uint32_t GenoBitvecSumSubsetMain(const VecW* subset_vvec, const VecW* one_vvec, 
     }
     VecW inner_acc = vecw_setzero();
     const VecW* subset_vvec_stop = &(subset_vvec_iter[cur_incr]);
-    vec_ct -= cur_incr;
     do {
       VecW maskv = *subset_vvec_iter++;
       VecW one_count = (*one_vvec_iter++) & maskv;
@@ -1911,7 +1904,7 @@ void GenoBitvecPhasedDotprodMain(const VecW* one_vvec0, const VecW* two_vvec0, c
   VecW acc_dotprod = vecw_setzero();
   VecW acc_hethet = vecw_setzero();
   uint32_t cur_incr = 15;
-  while (1) {
+  for (; ; vec_ct -= cur_incr) {
     if (vec_ct < 15) {
       if (!vec_ct) {
         *known_dotprod_ptr = HsumW(acc_dotprod);
@@ -1923,7 +1916,6 @@ void GenoBitvecPhasedDotprodMain(const VecW* one_vvec0, const VecW* two_vvec0, c
     VecW inner_acc_dotprod = vecw_setzero();
     VecW inner_acc_hethet = vecw_setzero();
     const VecW* one_vvec0_stop = &(one_vvec0_iter[cur_incr]);
-    vec_ct -= cur_incr;
     do {
       VecW one_vword0 = *one_vvec0_iter++;
       VecW two_vword0 = *two_vvec0_iter++;
@@ -2024,7 +2016,7 @@ void HardcallPhasedR2RefineMain(const VecW* phasepresent0_vvec, const VecW* phas
   VecW acc_hethet_decr = vecw_setzero();
   VecW acc_not_dotprod = vecw_setzero();  // like not_hotdog, but more useful
   uint32_t cur_incr = 30;
-  while (1) {
+  for (; ; vec_ct -= cur_incr) {
     if (vec_ct < 30) {
       if (!vec_ct) {
         *hethet_decr_ptr = HsumW(acc_hethet_decr);
@@ -2036,7 +2028,6 @@ void HardcallPhasedR2RefineMain(const VecW* phasepresent0_vvec, const VecW* phas
     VecW inner_acc_hethet_decr = vecw_setzero();
     VecW inner_acc_not_dotprod = vecw_setzero();
     const VecW* phasepresent0_vvec_stop = &(phasepresent0_vvec_iter[cur_incr]);
-    vec_ct -= cur_incr;
     do {
       // todo: benchmark against simpler one-vec-at-a-time loop
       VecW mask1 = (*phasepresent0_vvec_iter++) & (*phasepresent1_vvec_iter++);
@@ -2187,20 +2178,20 @@ uint64_t DenseDosageSum(const Dosage* dosage_vec, uint32_t vec_ct) {
   const __m256i m16 = {kMask0000FFFF, kMask0000FFFF, kMask0000FFFF, kMask0000FFFF};
   const __m256i all1 = _mm256_cmpeq_epi16(m16, m16);
   uint64_t sum = 0;
-  while (1) {
+  for (uint32_t vecs_left = vec_ct; ; ) {
     __m256i sumv = _mm256_setzero_si256();
     const __m256i* dosage_vvec_stop;
     // individual values in [0..32768]
     // 32768 * 8191 * 16 dosages per __m256i = just under 2^32
-    if (vec_ct < 8191) {
-      if (!vec_ct) {
+    if (vecs_left < 8191) {
+      if (!vecs_left) {
         return sum;
       }
-      dosage_vvec_stop = &(dosage_vvec_iter[vec_ct]);
-      vec_ct = 0;
+      dosage_vvec_stop = &(dosage_vvec_iter[vecs_left]);
+      vecs_left = 0;
     } else {
       dosage_vvec_stop = &(dosage_vvec_iter[8191]);
-      vec_ct -= 8191;
+      vecs_left -= 8191;
     }
     do {
       __m256i dosagev = *dosage_vvec_iter++;
@@ -2223,18 +2214,18 @@ uint64_t DenseDosageSumSubset(const Dosage* dosage_vec, const Dosage* dosage_mas
   const __m256i m16 = {kMask0000FFFF, kMask0000FFFF, kMask0000FFFF, kMask0000FFFF};
   const __m256i all1 = _mm256_cmpeq_epi16(m16, m16);
   uint64_t sum = 0;
-  while (1) {
+  for (uint32_t vecs_left = vec_ct; ; ) {
     __m256i sumv = _mm256_setzero_si256();
     const __m256i* dosage_vvec_stop;
-    if (vec_ct < 8191) {
-      if (!vec_ct) {
+    if (vecs_left < 8191) {
+      if (!vecs_left) {
         return sum;
       }
-      dosage_vvec_stop = &(dosage_vvec_iter[vec_ct]);
-      vec_ct = 0;
+      dosage_vvec_stop = &(dosage_vvec_iter[vecs_left]);
+      vecs_left = 0;
     } else {
       dosage_vvec_stop = &(dosage_vvec_iter[8191]);
-      vec_ct -= 8191;
+      vecs_left -= 8191;
     }
     do {
       __m256i invmask = *dosage_mask_vvec_iter++;
@@ -2259,19 +2250,19 @@ uint64_t DosageUnsignedDotprod(const Dosage* dosage_vec0, const Dosage* dosage_v
   const __m256i m16 = {kMask0000FFFF, kMask0000FFFF, kMask0000FFFF, kMask0000FFFF};
   const __m256i all1 = _mm256_cmpeq_epi16(m16, m16);
   uint64_t dotprod = 0;
-  while (1) {
+  for (uint32_t vecs_left = vec_ct; ; ) {
     __m256i dotprod_lo = _mm256_setzero_si256();
     __m256i dotprod_hi = _mm256_setzero_si256();
     const __m256i* dosage_vvec0_stop;
-    if (vec_ct < 4096) {
-      if (!vec_ct) {
+    if (vecs_left < 4096) {
+      if (!vecs_left) {
         return dotprod;
       }
-      dosage_vvec0_stop = &(dosage_vvec0_iter[vec_ct]);
-      vec_ct = 0;
+      dosage_vvec0_stop = &(dosage_vvec0_iter[vecs_left]);
+      vecs_left = 0;
     } else {
       dosage_vvec0_stop = &(dosage_vvec0_iter[4096]);
-      vec_ct -= 4096;
+      vecs_left -= 4096;
     }
     do {
       __m256i dosage0 = *dosage_vvec0_iter++;
@@ -2303,19 +2294,19 @@ uint64_t DosageUnsignedNomissDotprod(const Dosage* dosage_vec0, const Dosage* do
   const __m256i* dosage_vvec1_iter = R_CAST(const __m256i*, dosage_vec1);
   const __m256i m16 = {kMask0000FFFF, kMask0000FFFF, kMask0000FFFF, kMask0000FFFF};
   uint64_t dotprod = 0;
-  while (1) {
+  for (uint32_t vecs_left = vec_ct; ; ) {
     __m256i dotprod_lo = _mm256_setzero_si256();
     __m256i dotprod_hi = _mm256_setzero_si256();
     const __m256i* dosage_vvec0_stop;
-    if (vec_ct < 4096) {
-      if (!vec_ct) {
+    if (vecs_left < 4096) {
+      if (!vecs_left) {
         return dotprod;
       }
-      dosage_vvec0_stop = &(dosage_vvec0_iter[vec_ct]);
-      vec_ct = 0;
+      dosage_vvec0_stop = &(dosage_vvec0_iter[vecs_left]);
+      vecs_left = 0;
     } else {
       dosage_vvec0_stop = &(dosage_vvec0_iter[4096]);
-      vec_ct -= 4096;
+      vecs_left -= 4096;
     }
     do {
       __m256i dosage0 = *dosage_vvec0_iter++;
@@ -2342,21 +2333,20 @@ int64_t DosageSignedDotprod(const SDosage* dphase_delta0, const SDosage* dphase_
   const __m256i m16 = {kMask0000FFFF, kMask0000FFFF, kMask0000FFFF, kMask0000FFFF};
   const __m256i all_4096 = {0x1000100010001000LLU, 0x1000100010001000LLU, 0x1000100010001000LLU, 0x1000100010001000LLU};
   uint64_t dotprod = 0;
-  uint32_t vec_ct_rem = vec_ct;
-  while (1) {
+  for (uint32_t vecs_left = vec_ct; ; ) {
     __m256i dotprod_lo = _mm256_setzero_si256();
     __m256i dotprod_hi = _mm256_setzero_si256();
     const __m256i* dphase_delta0_stop;
-    if (vec_ct_rem < 4096) {
-      if (!vec_ct_rem) {
+    if (vecs_left < 4096) {
+      if (!vecs_left) {
         // this cancels out the shift-hi16-by-4096 below
         return S_CAST(int64_t, dotprod) - (0x10000000LLU * kDosagePerVec) * vec_ct;
       }
-      dphase_delta0_stop = &(dphase_delta0_iter[vec_ct_rem]);
-      vec_ct_rem = 0;
+      dphase_delta0_stop = &(dphase_delta0_iter[vecs_left]);
+      vecs_left = 0;
     } else {
       dphase_delta0_stop = &(dphase_delta0_iter[4096]);
-      vec_ct_rem -= 4096;
+      vecs_left -= 4096;
     }
     do {
       __m256i dosage0 = *dphase_delta0_iter++;
@@ -2428,20 +2418,20 @@ uint64_t DenseDosageSum(const Dosage* dosage_vec, uint32_t vec_ct) {
   const __m128i m16 = {kMask0000FFFF, kMask0000FFFF};
   const __m128i all1 = _mm_cmpeq_epi16(m16, m16);
   uint64_t sum = 0;
-  while (1) {
+  for (uint32_t vecs_left = vec_ct; ; ) {
     __m128i sumv = _mm_setzero_si128();
     const __m128i* dosage_vvec_stop;
     // individual values in [0..32768]
     // 32768 * 16383 * 8 dosages per __m128i = just under 2^32
-    if (vec_ct < 16383) {
-      if (!vec_ct) {
+    if (vecs_left < 16383) {
+      if (!vecs_left) {
         return sum;
       }
-      dosage_vvec_stop = &(dosage_vvec_iter[vec_ct]);
-      vec_ct = 0;
+      dosage_vvec_stop = &(dosage_vvec_iter[vecs_left]);
+      vecs_left = 0;
     } else {
       dosage_vvec_stop = &(dosage_vvec_iter[16383]);
-      vec_ct -= 16383;
+      vecs_left -= 16383;
     }
     do {
       __m128i dosagev = *dosage_vvec_iter++;
@@ -2464,18 +2454,18 @@ uint64_t DenseDosageSumSubset(const Dosage* dosage_vec, const Dosage* dosage_mas
   const __m128i m16 = {kMask0000FFFF, kMask0000FFFF};
   const __m128i all1 = _mm_cmpeq_epi16(m16, m16);
   uint64_t sum = 0;
-  while (1) {
+  for (uint32_t vecs_left = vec_ct; ; ) {
     __m128i sumv = _mm_setzero_si128();
     const __m128i* dosage_vvec_stop;
-    if (vec_ct < 16383) {
-      if (!vec_ct) {
+    if (vecs_left < 16383) {
+      if (!vecs_left) {
         return sum;
       }
-      dosage_vvec_stop = &(dosage_vvec_iter[vec_ct]);
-      vec_ct = 0;
+      dosage_vvec_stop = &(dosage_vvec_iter[vecs_left]);
+      vecs_left = 0;
     } else {
       dosage_vvec_stop = &(dosage_vvec_iter[16383]);
-      vec_ct -= 16383;
+      vecs_left -= 16383;
     }
     do {
       __m128i invmask = *dosage_mask_vvec_iter++;
@@ -2500,19 +2490,19 @@ uint64_t DosageUnsignedDotprod(const Dosage* dosage_vec0, const Dosage* dosage_v
   const __m128i m16 = {kMask0000FFFF, kMask0000FFFF};
   const __m128i all1 = _mm_cmpeq_epi16(m16, m16);
   uint64_t dotprod = 0;
-  while (1) {
+  for (uint32_t vecs_left = vec_ct; ; ) {
     __m128i dotprod_lo = _mm_setzero_si128();
     __m128i dotprod_hi = _mm_setzero_si128();
     const __m128i* dosage_vvec0_stop;
-    if (vec_ct < 8192) {
-      if (!vec_ct) {
+    if (vecs_left < 8192) {
+      if (!vecs_left) {
         return dotprod;
       }
-      dosage_vvec0_stop = &(dosage_vvec0_iter[vec_ct]);
-      vec_ct = 0;
+      dosage_vvec0_stop = &(dosage_vvec0_iter[vecs_left]);
+      vecs_left = 0;
     } else {
       dosage_vvec0_stop = &(dosage_vvec0_iter[8192]);
-      vec_ct -= 8192;
+      vecs_left -= 8192;
     }
     do {
       __m128i dosage0 = *dosage_vvec0_iter++;
@@ -2542,19 +2532,19 @@ uint64_t DosageUnsignedNomissDotprod(const Dosage* dosage_vec0, const Dosage* do
   const __m128i* dosage_vvec1_iter = R_CAST(const __m128i*, dosage_vec1);
   const __m128i m16 = {kMask0000FFFF, kMask0000FFFF};
   uint64_t dotprod = 0;
-  while (1) {
+  for (uint32_t vecs_left = vec_ct; ; ) {
     __m128i dotprod_lo = _mm_setzero_si128();
     __m128i dotprod_hi = _mm_setzero_si128();
     const __m128i* dosage_vvec0_stop;
-    if (vec_ct < 8192) {
-      if (!vec_ct) {
+    if (vecs_left < 8192) {
+      if (!vecs_left) {
         return dotprod;
       }
-      dosage_vvec0_stop = &(dosage_vvec0_iter[vec_ct]);
-      vec_ct = 0;
+      dosage_vvec0_stop = &(dosage_vvec0_iter[vecs_left]);
+      vecs_left = 0;
     } else {
       dosage_vvec0_stop = &(dosage_vvec0_iter[8192]);
-      vec_ct -= 8192;
+      vecs_left -= 8192;
     }
     do {
       __m128i dosage0 = *dosage_vvec0_iter++;
@@ -2581,21 +2571,20 @@ int64_t DosageSignedDotprod(const SDosage* dphase_delta0, const SDosage* dphase_
   const __m128i m16 = {kMask0000FFFF, kMask0000FFFF};
   const __m128i all_4096 = {0x1000100010001000LLU, 0x1000100010001000LLU};
   uint64_t dotprod = 0;
-  uint32_t vec_ct_rem = vec_ct;
-  while (1) {
+  for (uint32_t vecs_left = vec_ct; ; ) {
     __m128i dotprod_lo = _mm_setzero_si128();
     __m128i dotprod_hi = _mm_setzero_si128();
     const __m128i* dphase_delta0_stop;
-    if (vec_ct_rem < 8192) {
-      if (!vec_ct_rem) {
+    if (vecs_left < 8192) {
+      if (!vecs_left) {
         // this cancels out the shift-hi16-by-4096 below
         return S_CAST(int64_t, dotprod) - (0x10000000LLU * kDosagePerVec) * vec_ct;
       }
-      dphase_delta0_stop = &(dphase_delta0_iter[vec_ct_rem]);
-      vec_ct_rem = 0;
+      dphase_delta0_stop = &(dphase_delta0_iter[vecs_left]);
+      vecs_left = 0;
     } else {
       dphase_delta0_stop = &(dphase_delta0_iter[8192]);
-      vec_ct_rem -= 8192;
+      vecs_left -= 8192;
     }
     do {
       __m128i dosage0 = *dphase_delta0_iter++;
@@ -2711,7 +2700,6 @@ void DosagePhaseinfoPatch(const uintptr_t* phasepresent, const uintptr_t* phasei
         const uint32_t sample_idx_lowbits = ctzw(phasepresent_nodphase_word);
         const uint32_t sample_idx = sample_idx_offset + sample_idx_lowbits;
         // should compile to blsi
-        // todo: compare with (k1LU << sample_idx_lowbits)
         const uintptr_t shifted_bit = phasepresent_nodphase_word & (-phasepresent_nodphase_word);
         int32_t cur_diff = kDosageMid;
         if (dosage_present_word & shifted_bit) {
@@ -2934,7 +2922,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
           SetMaleHetMissing(sex_male_collapsed_interleaved, founder_ctv, cur_genovec);
         }
         if (phasepresent_cts[var_idx]) {
-          BitvecAndNot(sex_male_collapsed, founder_ctl, cur_phasepresent);
+          BitvecInvmask(sex_male_collapsed, founder_ctl, cur_phasepresent);
           phasepresent_cts[var_idx] = PopcountWords(cur_phasepresent, founder_ctl);
         }
         if (dphase_cts[var_idx]) {
@@ -3141,7 +3129,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         uint64_t x_male_dosageprod;
         valid_x_male_ct = DosagePhasedR2Prod(dosage_vecs[0], nm_bitvecs[0], dosage_vecs[1], nm_bitvecs[1], founder_ct, x_male_nm_ct0, nm_cts[1], x_male_nmaj_dosages, &x_male_dosageprod);
         if (!ignore_hethet) {
-          BitvecAndNot(R_CAST(uintptr_t*, x_male_dosage_invmask), founder_dosagev_ct * kWordsPerVec, R_CAST(uintptr_t*, dosage_uhets[0]));
+          BitvecInvmask(R_CAST(uintptr_t*, x_male_dosage_invmask), founder_dosagev_ct * kWordsPerVec, R_CAST(uintptr_t*, dosage_uhets[0]));
           const uint64_t invalid_uhethet_dosageprod = DosageUnsignedNomissDotprod(dosage_uhets[0], dosage_uhets[1], founder_dosagev_ct);
           unknown_hethet_d -= S_CAST(int64_t, invalid_uhethet_dosageprod) * kRecipDosageMidSq;
         }

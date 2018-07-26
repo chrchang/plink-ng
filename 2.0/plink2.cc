@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (19 Jul 2018)";
+  " (25 Jul 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -875,31 +875,30 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
         // detect and autoconvert plink 1 sample-major files, instead of
         // failing (don't bother supporting plink 0.99 files any more)
-        if (likely(reterr == kPglRetSampleMajorBed)) {
-          char* pgenname_end = memcpya(pgenname, outname, outname_end - outname);
-          pgenname_end = strcpya_k(pgenname_end, ".pgen");
-          const uint32_t no_vmaj_ext = (pcp->command_flags1 & kfCommand1MakePlink2) && (!pcp->filter_flags) && ((make_plink2_flags & (kfMakePgen | (kfMakePgenFormatBase * 3))) == kfMakePgen);
-          if (no_vmaj_ext) {
-            *pgenname_end = '\0';
-            make_plink2_flags &= ~kfMakePgen;
-            // no --make-just-pgen command, so we'll never entirely skip the
-            // make_plink2 operation
-          } else {
-            snprintf(pgenname_end, kMaxOutfnameExtBlen - 5, ".vmaj");
-          }
-          reterr = Plink1SampleMajorToPgen(pgenname, raw_variant_ct, raw_sample_ct, (pcp->misc_flags / kfMiscRealRefAlleles) & 1, pcp->max_thread_ct, pgfi.shared_ff);
-          if (likely(!reterr)) {
-            fclose(pgfi.shared_ff);
-            pgfi.shared_ff = nullptr;
-            continue;
-          }
-        } else {
+        if (unlikely(reterr != kPglRetSampleMajorBed)) {
           if (reterr != kPglRetReadFail) {
             WordWrapB(0);
             logerrputsb();
           }
+          goto Plink2Core_ret_1;
         }
-        goto Plink2Core_ret_1;
+        char* pgenname_end = memcpya(pgenname, outname, outname_end - outname);
+        pgenname_end = strcpya_k(pgenname_end, ".pgen");
+        const uint32_t no_vmaj_ext = (pcp->command_flags1 & kfCommand1MakePlink2) && (!pcp->filter_flags) && ((make_plink2_flags & (kfMakePgen | (kfMakePgenFormatBase * 3))) == kfMakePgen);
+        if (no_vmaj_ext) {
+          *pgenname_end = '\0';
+          make_plink2_flags &= ~kfMakePgen;
+          // no --make-just-pgen command, so we'll never entirely skip the
+          // make_plink2 operation
+        } else {
+          snprintf(pgenname_end, kMaxOutfnameExtBlen - 5, ".vmaj");
+        }
+        reterr = Plink1SampleMajorToPgen(pgenname, raw_variant_ct, raw_sample_ct, (pcp->misc_flags / kfMiscRealRefAlleles) & 1, pcp->max_thread_ct, pgfi.shared_ff);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+        fclose(pgfi.shared_ff);
+        pgfi.shared_ff = nullptr;
       }
       pgfi.allele_idx_offsets = allele_idx_offsets;
       unsigned char* pgfi_alloc;
@@ -1265,7 +1264,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
         }
         if (pcp->filter_flags & kfFilterExclMales) {
-          BitvecAndNot(sex_male, raw_sample_ctl, sample_include);
+          BitvecInvmask(sex_male, raw_sample_ctl, sample_include);
         }
         if (pcp->filter_flags & kfFilterExclNosex) {
           BitvecAnd(sex_nm, raw_sample_ctl, sample_include);
@@ -1280,7 +1279,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         if (keep_founders) {
           BitvecAnd(founder_info, raw_sample_ctl, sample_include);
         } else {
-          BitvecAndNot(founder_info, raw_sample_ctl, sample_include);
+          BitvecInvmask(founder_info, raw_sample_ctl, sample_include);
         }
         const uint32_t old_sample_ct = sample_ct;
         sample_ct = PopcountWords(sample_include, raw_sample_ctl);
@@ -1459,7 +1458,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     uint32_t loop_cats_sample_ct = 0;
     uint32_t loop_cats_variant_ct = variant_ct;
     uint32_t loop_cats_uidx = 0;
-    uint32_t loop_cats_idx = 0;
     uint32_t loop_cats_ct = 1;
     if (pcp->loop_cats_phenoname) {
       // 1. check phenotype names, verify it's a categorical pheno; fall back
@@ -1540,7 +1538,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     const uintptr_t raw_allele_ct = allele_idx_offsets? allele_idx_offsets[raw_variant_ct] : (2 * raw_variant_ct);
     unsigned char* bigstack_mark_varfilter = g_bigstack_base;
     unsigned char* bigstack_end_mark_varfilter = g_bigstack_end;
-    while (1) {
+    for (uint32_t loop_cats_idx = 0; loop_cats_idx != loop_cats_ct; ++loop_cats_idx) {
+      BigstackDoubleReset(bigstack_mark_varfilter, bigstack_end_mark_varfilter);
       if (loop_cats_pheno_col) {
         loop_cats_uidx = AdvTo1Bit(loop_cats_cat_include, loop_cats_uidx + 1);
         const char* catname = loop_cats_pheno_col->category_names[loop_cats_uidx];
@@ -1589,7 +1588,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
         logprintfww("--write-samples: Sample IDs written to %s .\n", outname);
         if (!(pcp->command_flags1 & (~(kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo)))) {
-          goto Plink2Core_early_complete;
+          continue;
         }
       }
 
@@ -1775,7 +1774,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             const uint32_t is_dosage = (pcp->misc_flags / kfMiscGenotypingRateDosage) & 1;
             ReportGenotypingRate(variant_include, cip, is_dosage? variant_missing_dosage_cts : variant_missing_hc_cts, raw_sample_ct, sample_ct, male_ct, variant_ct, is_dosage);
             if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo)))) {
-              goto Plink2Core_early_complete;
+              continue;
             }
           }
         }
@@ -1801,7 +1800,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             goto Plink2Core_ret_1;
           }
           if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo)))) {
-            goto Plink2Core_early_complete;
+            continue;
           }
         }
         if (pcp->command_flags1 & kfCommand1GenoCounts) {
@@ -1810,7 +1809,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             goto Plink2Core_ret_1;
           }
           if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo)))) {
-            goto Plink2Core_early_complete;
+            continue;
           }
         }
 
@@ -1820,7 +1819,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             goto Plink2Core_ret_1;
           }
           if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1MissingReport | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo)))) {
-            goto Plink2Core_early_complete;
+            continue;
           }
         }
 
@@ -1936,7 +1935,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
                 goto Plink2Core_ret_1;
               }
               if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1MissingReport | kfCommand1Hardy | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo)))) {
-                goto Plink2Core_early_complete;
+                continue;
               }
             }
             if (pcp->hwe_thresh != 1.0) {
@@ -2011,7 +2010,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
                 goto Plink2Core_ret_1;
               }
               snprintf(&(outname_end[13]), kMaxOutfnameExtBlen - 13, "out.id");
-              BitvecAndNot(sample_include, raw_sample_ctl, prev_sample_include);
+              BitvecInvmask(sample_include, raw_sample_ctl, prev_sample_include);
               const uint32_t removed_sample_ct = prev_sample_ct - sample_ct;
               reterr = WriteSampleIds(prev_sample_include, &pii.sii, outname, removed_sample_ct);
               if (unlikely(reterr)) {
@@ -2379,11 +2378,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_1;
         }
       }
-    Plink2Core_early_complete:
-      if (++loop_cats_idx == loop_cats_ct) {
-        break;
-      }
-      BigstackDoubleReset(bigstack_mark_varfilter, bigstack_end_mark_varfilter);
     }
   }
   while (0) {

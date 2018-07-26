@@ -184,11 +184,8 @@ void SetHetMissingCleardosage(uintptr_t word_ct, uintptr_t* __restrict genovec, 
       const uintptr_t sample_uidx = BitIter1(dosagepresent, &sample_uidx_base, &cur_bits);
       if (GetQuaterarrEntry(genovec, sample_uidx) == 1) {
         ClearBit(sample_uidx, dosagepresent);
-        uint32_t dosage_write_idx = dosage_read_idx;
-        while (1) {
-          if (++dosage_read_idx == orig_write_dosage_ct) {
-            break;
-          }
+        uint32_t dosage_write_idx = dosage_read_idx++;
+        for (; dosage_read_idx == orig_write_dosage_ct; ++dosage_read_idx) {
           const uintptr_t sample_uidx2 = BitIter1(dosagepresent, &sample_uidx_base, &cur_bits);
           if (GetQuaterarrEntry(genovec, sample_uidx2) == 1) {
             ClearBit(sample_uidx2, dosagepresent);
@@ -217,9 +214,8 @@ void SetHetMissingKeepdosage(uintptr_t word_ct, uintptr_t* __restrict genovec, u
   uint32_t new_dosage_ct = 0;
   // todo: try vectorizing this loop
   for (uintptr_t widx = 0; widx != word_ct; ++widx) {
-    const uintptr_t geno_word = genovec[widx];
+    const uintptr_t geno_hets = Word01(genovec[widx]);
     const uintptr_t dosagepresent_word = UnpackHalfwordToWord(dosagepresent_alias[widx]);
-    const uintptr_t geno_hets = geno_word & (~(geno_word >> 1)) & kMask5555;
     new_dosage_ct += Popcount01Word(geno_hets & (~dosagepresent_word));
   }
   if (!new_dosage_ct) {
@@ -234,7 +230,7 @@ void SetHetMissingKeepdosage(uintptr_t word_ct, uintptr_t* __restrict genovec, u
     --widx;
     const uintptr_t geno_word = genovec[widx];
     const uintptr_t dosagepresent_word = UnpackHalfwordToWord(dosagepresent_alias[widx]);
-    const uintptr_t geno_hets = geno_word & (~(geno_word >> 1)) & kMask5555;
+    const uintptr_t geno_hets = Word01(geno_word);
     uintptr_t new_dosagepresent_word = dosagepresent_word | geno_hets;
     if (new_dosagepresent_word) {
       dosagepresent_alias[widx] = PackWordToHalfword(new_dosagepresent_word);
@@ -1186,8 +1182,7 @@ PglErr TryToAddChrName(const char* chr_name, const char* file_descrip, uintptr_t
   *chr_idx_ptr = chr_code_end;
   cip->name_ct = name_ct + 1;
   uint32_t* id_htable = cip->nonstd_id_htable;
-  uint32_t hashval = Hashceil(chr_name, name_slen, kChrHtableSize);
-  while (1) {
+  for (uint32_t hashval = Hashceil(chr_name, name_slen, kChrHtableSize); ; ) {
     if (id_htable[hashval] == UINT32_MAX) {
       id_htable[hashval] = chr_code_end;
       return kPglRetSuccess;
@@ -1274,7 +1269,7 @@ uintptr_t count_11_longs(const uintptr_t* genovec, uintptr_t word_ct) {
   }
   for (uintptr_t trailing_word_idx = 0; trailing_word_idx != word_ct; ++trailing_word_idx) {
     const uintptr_t cur_geno_word = genovec[trailing_word_idx];
-    tot += Popcount01Word(cur_geno_word & (cur_geno_word >> 1) & kMask5555);
+    tot += Popcount01Word(Word11(cur_geno_word));
   }
 }
 */
@@ -1366,11 +1361,8 @@ void InterleavedSetMissingCleardosage(const uintptr_t* __restrict orig_set, cons
       const uintptr_t lowbit = BitIter1y(dosagepresent, &sample_widx, &cur_bits);
       if (orig_set[sample_widx] & lowbit) {
         dosagepresent[sample_widx] ^= lowbit;
-        uint32_t dosage_write_idx = dosage_read_idx;
-        while (1) {
-          if (++dosage_read_idx == orig_write_dosage_ct) {
-            break;
-          }
+        uint32_t dosage_write_idx = dosage_read_idx++;
+        for (; dosage_read_idx == orig_write_dosage_ct; ++dosage_read_idx) {
           const uintptr_t lowbit2 = BitIter1y(dosagepresent, &sample_widx, &cur_bits);
           if (orig_set[sample_widx] & lowbit2) {
             dosagepresent[sample_widx] ^= lowbit2;
@@ -1440,11 +1432,8 @@ void EraseMaleHetDosages(const uintptr_t* __restrict sex_male, const uintptr_t* 
     const uintptr_t sample_uidx = BitIter1(dosagepresent, &sample_uidx_base, &cur_bits);
     if (IsSet(sex_male, sample_uidx) && (GetQuaterarrEntry(genovec, sample_uidx) == 1)) {
       ClearBit(sample_uidx, dosagepresent);
-      uint32_t dosage_write_idx = dosage_read_idx;
-      while (1) {
-        if (++dosage_read_idx == orig_write_dosage_ct) {
-          break;
-        }
+      uint32_t dosage_write_idx = dosage_read_idx++;
+      for (; dosage_read_idx != orig_write_dosage_ct; ++dosage_read_idx) {
         const uintptr_t sample_uidx2 = BitIter1(dosagepresent, &sample_uidx_base, &cur_bits);
         if (IsSet(sex_male, sample_uidx2) && (GetQuaterarrEntry(genovec, sample_uidx2) == 1)) {
           ClearBit(sample_uidx2, dosagepresent);
@@ -1469,11 +1458,8 @@ void EraseMaleDphases(const uintptr_t* __restrict sex_male, uint32_t* __restrict
     const uintptr_t lowbit = BitIter1y(dphasepresent, &sample_widx, &cur_bits);
     if (sex_male[sample_widx] & lowbit) {
       dphasepresent[sample_widx] ^= lowbit;
-      uint32_t dphase_write_idx = dphase_read_idx;
-      while (1) {
-        if (++dphase_read_idx == orig_write_dphase_ct) {
-          break;
-        }
+      uint32_t dphase_write_idx = dphase_read_idx++;
+      for (; dphase_read_idx == orig_write_dphase_ct; ++dphase_read_idx) {
         const uintptr_t lowbit2 = BitIter1y(dphasepresent, &sample_widx, &cur_bits);
         if (sex_male[sample_widx] & lowbit2) {
           dphasepresent[sample_widx] ^= lowbit2;
@@ -1507,9 +1493,8 @@ void SetMaleHetMissingKeepdosage(const uintptr_t* __restrict sex_male, const uin
   uint32_t new_dosage_ct = 0;
   // todo: try vectorizing this loop
   for (uintptr_t widx = 0; widx != word_ct; ++widx) {
-    const uintptr_t geno_word = genovec[widx];
+    const uintptr_t geno_hets = Word01(genovec[widx]);
     const uintptr_t male_nodosage_word = UnpackHalfwordToWord(sex_male_alias[widx] & (~dosagepresent_alias[widx]));
-    const uintptr_t geno_hets = geno_word & (~(geno_word >> 1)) & kMask5555;
     new_dosage_ct += Popcount01Word(geno_hets & male_nodosage_word);
   }
   if (!new_dosage_ct) {
@@ -2039,8 +2024,7 @@ uintptr_t GetMaxAltAlleleBlockSize(const uintptr_t* __restrict variant_include, 
     return max_alt_allele_block_size;
   }
   uint32_t variant_idx = 0;
-  uint32_t variant_uidx_end = 0;
-  while (1) {
+  for (uint32_t variant_uidx_end = 0; ; ) {
     uint32_t variant_uidx = variant_uidx_end;
     variant_uidx_end += read_block_size;
     if (variant_uidx_end > raw_variant_ct) {
@@ -2083,7 +2067,7 @@ PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint
   uintptr_t cachelines_avail = bytes_avail / kCacheline;
   uint32_t read_block_size = kPglVblockSize;
   uint64_t multiread_cacheline_ct;
-  while (1) {
+  for (; ; read_block_size /= 2) {
     multiread_cacheline_ct = PgfiMultireadGetCachelineReq(variant_include, pgfip, variant_ct, read_block_size);
     // limit each raw load buffer to 1/4 of remaining workspace
     // if there's an additional per-variant allocation, put it in the same bin
@@ -2102,7 +2086,6 @@ PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint
       return kPglRetNomem;
     }
 #endif
-    read_block_size /= 2;
   }
 #ifndef __LP64__
   if (multiread_cacheline_ct > (kMaxBytesPerIO / kCacheline)) {

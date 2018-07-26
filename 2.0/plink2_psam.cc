@@ -127,7 +127,6 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
         psam_cols_mask = 1;
         fid_present = 0;
       }
-      uint32_t col_idx = 0;
       uint32_t in_interval = 0;
       char* cmdline_pheno_sorted_ids = nullptr;
       uint32_t* cmdline_pheno_id_map = nullptr;
@@ -154,12 +153,11 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
       const char* token_end = &(linebuf_first_token[4]);
       unsigned char* ll_alloc_base = g_bigstack_base;
       const char* linebuf_iter;
-      while (1) {
+      for (uint32_t col_idx = 1; ; ++col_idx) {
         linebuf_iter = FirstNonTspace(token_end);
         if (IsEolnKns(*linebuf_iter)) {
           break;
         }
-        ++col_idx;
         token_end = CurTokenEnd(linebuf_iter);
         const uint32_t token_slen = token_end - linebuf_iter;
         if (token_slen == 3) {
@@ -307,7 +305,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
         goto LoadPsam_ret_NOMEM;
       }
       *pheno_names_ptr = pheno_names;
-      for (uint32_t pheno_idx = pheno_ct; pheno_idx;) {
+      for (uint32_t pheno_idx = pheno_ct; pheno_idx; ) {
         --pheno_idx;
         strcpy(&(pheno_names[pheno_idx * max_pheno_name_blen]), pheno_names_reverse_ll->str);
         pheno_names_reverse_ll = pheno_names_reverse_ll->next;
@@ -537,8 +535,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
                 hashval -= kCatHtableSize;
               }
               uintptr_t htable_idx = 0;
-              CatnameLl2** cur_entry_ptr = &(catname_htable[hashval]);
-              while (1) {
+              for (CatnameLl2** cur_entry_ptr = &(catname_htable[hashval]); ; ) {
                 CatnameLl2* cur_entry = *cur_entry_ptr;
                 if (!cur_entry) {
                   const uint32_t entry_byte_ct = RoundUpPow2(offsetof(CatnameLl2, str) + slen + 1, sizeof(intptr_t));
@@ -1073,7 +1070,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         goto LoadPhenos_ret_NOMEM;
       }
       const char* default_prefix = (affection_01 == 2)? "COVAR" : "PHENO";
-      for (uint32_t pheno_idx = old_pheno_ct; pheno_idx != final_pheno_ct;) {
+      for (uint32_t pheno_idx = old_pheno_ct; pheno_idx != final_pheno_ct; ) {
         char* write_iter = memcpya_k(&(pheno_names[pheno_idx * max_pheno_name_blen]), default_prefix, 5);
         ++pheno_idx;  // 1-based default names, not 0-based
         write_iter = u32toa(pheno_idx, write_iter);

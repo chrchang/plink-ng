@@ -249,8 +249,8 @@ BoolErr ScanPosintCapped32(const char* str_iter, uint32_t cap_div_10, uint32_t c
       return 1;
     }
   }
-  while (1) {
-    const uint32_t cur_digit = ctou32(*str_iter++) - 48;
+  for (; ; ++str_iter) {
+    const uint32_t cur_digit = ctou32(*str_iter) - 48;
     if (cur_digit >= 10) {
       *valp = val;
       return 0;
@@ -281,8 +281,8 @@ BoolErr ScanUintCapped32(const char* str_iter, uint32_t cap_div_10, uint32_t cap
       return 1;
     }
   }
-  while (1) {
-    const uint32_t cur_digit = ctou32(*str_iter++) - 48;
+  for (; ; ++str_iter) {
+    const uint32_t cur_digit = ctou32(*str_iter) - 48;
     if (cur_digit >= 10) {
       *valp = val;
       return 0;
@@ -310,8 +310,8 @@ BoolErr ScanIntAbsBounded32(const char* str_iter, uint32_t bound_div_10, uint32_
       return 1;
     }
   }
-  while (1) {
-    const uint32_t cur_digit = ctou32(*str_iter++) - 48;
+  for (; ; ++str_iter) {
+    const uint32_t cur_digit = ctou32(*str_iter) - 48;
     if (cur_digit >= 10) {
       *valp = sign * S_CAST(int32_t, val);
       return 0;
@@ -388,7 +388,7 @@ void BitvecAnd(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintpt
 #endif
 }
 
-void BitvecAndNot(const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec) {
+void BitvecInvmask(const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec) {
   // main_bitvec := main_bitvec ANDNOT exclude_bitvec
   // note that this is the reverse of the _mm_andnot() operand order
 #ifdef __LP64__
@@ -421,6 +421,42 @@ void BitvecAndNot(const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct,
 #else
   for (uintptr_t widx = 0; widx != word_ct; ++widx) {
     main_bitvec[widx] &= ~exclude_bitvec[widx];
+  }
+#endif
+}
+
+void BitvecOr(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec) {
+  // main_bitvec := main_bitvec OR arg_bitvec
+#ifdef __LP64__
+  VecW* main_bitvvec_iter = R_CAST(VecW*, main_bitvec);
+  const VecW* arg_bitvvec_iter = R_CAST(const VecW*, arg_bitvec);
+  const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
+  if (full_vec_ct & 1) {
+    *main_bitvvec_iter++ |= (*arg_bitvvec_iter++);
+  }
+  if (full_vec_ct & 2) {
+    *main_bitvvec_iter++ |= (*arg_bitvvec_iter++);
+    *main_bitvvec_iter++ |= (*arg_bitvvec_iter++);
+  }
+  for (uintptr_t ulii = 3; ulii < full_vec_ct; ulii += 4) {
+    *main_bitvvec_iter++ |= (*arg_bitvvec_iter++);
+    *main_bitvvec_iter++ |= (*arg_bitvvec_iter++);
+    *main_bitvvec_iter++ |= (*arg_bitvvec_iter++);
+    *main_bitvvec_iter++ |= (*arg_bitvvec_iter++);
+  }
+#  ifdef USE_AVX2
+  if (word_ct & 2) {
+    const uintptr_t base_idx = full_vec_ct * kWordsPerVec;
+    main_bitvec[base_idx] |= arg_bitvec[base_idx];
+    main_bitvec[base_idx + 1] |= arg_bitvec[base_idx + 1];
+  }
+#  endif
+  if (word_ct & 1) {
+    main_bitvec[word_ct - 1] |= arg_bitvec[word_ct - 1];
+  }
+#else
+  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
+    main_bitvec[widx] |= arg_bitvec[widx];
   }
 #endif
 }
@@ -689,9 +725,9 @@ void ExpandBytearr(const void* __restrict compact_bitarr, const uintptr_t* __res
           compact_word = 0;
         }
       } else {
-#ifdef __arm__
-#  error "Unaligned accesses in ExpandBytearr()."
-#endif
+#  ifdef __arm__
+#    error "Unaligned accesses in ExpandBytearr()."
+#  endif
         uintptr_t next_compact_word = *compact_bitarr_iter++;
         next_compact_idx_lowbits -= kBitsPerWord;
         compact_word |= next_compact_word << (kBitsPerWord - compact_idx_lowbits);
@@ -746,9 +782,9 @@ void ExpandThenSubsetBytearr(const void* __restrict compact_bitarr, const uintpt
       if (compact_idx_lowbits >= kBitsPerWord) {
         compact_widx += compact_idx_lowbits / kBitsPerWord;
         compact_idx_lowbits = compact_idx_lowbits % kBitsPerWord;
-#ifdef __arm__
-#  error "Unaligned accesses in ExpandThenSubsetBytearr()."
-#endif
+#  ifdef __arm__
+#    error "Unaligned accesses in ExpandThenSubsetBytearr()."
+#  endif
         compact_word = compact_bitarr_alias[compact_widx] >> compact_idx_lowbits;
       } else {
         compact_word = compact_word >> expand_bit_ct_skip;
@@ -840,9 +876,9 @@ void ExpandBytearrNested(const void* __restrict compact_bitarr, const uintptr_t*
             compact_read_word = 0;
           }
         } else {
-#ifdef __arm__
-#  error "Unaligned accesses in ExpandBytearrNested()."
-#endif
+#  ifdef __arm__
+#    error "Unaligned accesses in ExpandBytearrNested()."
+#  endif
           uintptr_t next_compact_word = *compact_bitarr_iter++;
           next_compact_idx_lowbits -= kBitsPerWord;
           compact_read_word |= next_compact_word << (kBitsPerWord - compact_idx_lowbits);
@@ -930,9 +966,9 @@ void ExpandThenSubsetBytearrNested(const void* __restrict compact_bitarr, const 
       if (compact_idx_lowbits >= kBitsPerWord) {
         compact_widx += compact_idx_lowbits / kBitsPerWord;
         compact_idx_lowbits = compact_idx_lowbits % kBitsPerWord;
-#ifdef __arm__
-#  error "Unaligned accesses in ExpandThenSubsetBytearrNested()."
-#endif
+#  ifdef __arm__
+#    error "Unaligned accesses in ExpandThenSubsetBytearrNested()."
+#  endif
         compact_read_word = compact_bitarr_alias[compact_widx] >> compact_idx_lowbits;
       } else {
         compact_read_word = compact_read_word >> mid_set_skip;
@@ -1009,8 +1045,6 @@ void CopyBitarrSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* _
       const uint32_t cur_read_end = ctzw(mask_word_high);
       const uintptr_t bits_to_copy = cur_masked_input_word & (~mask_word_high);
       cur_masked_input_word ^= bits_to_copy;
-      // todo: check if a less-popcounty implementation should be used in
-      // non-SSE4.2 case
       const uint32_t cur_write_end = PopcountWord(cur_mask_word & (~mask_word_high));
       subsetted_input_word |= bits_to_copy >> (cur_read_end - cur_write_end);
     }
@@ -1045,7 +1079,7 @@ uintptr_t PopcountVecsNoAvx2(const VecW* bit_vvec, uintptr_t vec_ct) {
   VecW prev_sad_result = vecw_setzero();
   VecW acc = vecw_setzero();
   uintptr_t cur_incr = 30;
-  while (1) {
+  for (; ; vec_ct -= cur_incr) {
     if (vec_ct < 30) {
       if (!vec_ct) {
         acc = acc + prev_sad_result;
@@ -1055,7 +1089,6 @@ uintptr_t PopcountVecsNoAvx2(const VecW* bit_vvec, uintptr_t vec_ct) {
     }
     VecW inner_acc = vecw_setzero();
     const VecW* bit_vvec_stop = &(bit_vvec_iter[cur_incr]);
-    vec_ct -= cur_incr;
     do {
       VecW count1 = *bit_vvec_iter++;
       VecW count2 = *bit_vvec_iter++;
@@ -1092,12 +1125,11 @@ void ExpandBytearr(const void* __restrict compact_bitarr, const uintptr_t* __res
   const uintptr_t* compact_bitarr_alias = S_CAST(const uintptr_t*, compact_bitarr);
   const uint32_t expand_sizex_m1 = expand_size + read_start_bit - 1;
   const uint32_t compact_widx_last = expand_sizex_m1 / kBitsPerWord;
-  uint32_t compact_widx = 0;
   uint32_t compact_idx_lowbits = read_start_bit;
   uint32_t loop_len = kBitsPerWord;
   uintptr_t write_widx = 0;
   uintptr_t expand_mask_bits = expand_mask[0];
-  while (1) {
+  for (uint32_t compact_widx = 0; ; ++compact_widx) {
     uintptr_t compact_word;
     if (compact_widx >= compact_widx_last) {
       if (compact_widx > compact_widx_last) {
@@ -1121,7 +1153,6 @@ void ExpandBytearr(const void* __restrict compact_bitarr, const uintptr_t* __res
       }
     }
     compact_idx_lowbits = 0;
-    ++compact_widx;
   }
 }
 
@@ -1206,12 +1237,11 @@ void ExpandBytearrNested(const void* __restrict compact_bitarr, const uintptr_t*
   const uint32_t mid_popcount_m1 = mid_popcount - 1;
   const uint32_t compact_widx_last = mid_popcount_m1 / kBitsPerWord;
   uint32_t mid_idx = mid_start_bit;
-  uint32_t compact_widx = 0;
   // can allow compact_idx_lowbits to be initialized to nonzero
   uint32_t loop_len = kBitsPerWord;
   uintptr_t write_widx = 0;
   uintptr_t top_expand_mask_bits = top_expand_mask[0];
-  while (1) {
+  for (uint32_t compact_widx = 0; ; ++compact_widx) {
     uintptr_t compact_word;
     if (compact_widx >= compact_widx_last) {
       if (compact_widx > compact_widx_last) {
@@ -1235,7 +1265,6 @@ void ExpandBytearrNested(const void* __restrict compact_bitarr, const uintptr_t*
         ++compact_idx_lowbits;
       }
     }
-    ++compact_widx;
   }
 }
 
@@ -1387,17 +1416,17 @@ uintptr_t PopcountBytes(const unsigned char* bitarr, uintptr_t byte_ct) {
     // this may still be >= kBytesPerWord, so can't remove loop
     trail_byte_ct = byte_ct;
   }
-  while (1) {
+  for (uint32_t bytes_remaining = trail_byte_ct; ; ) {
     uintptr_t cur_word;
-    if (trail_byte_ct < kBytesPerWord) {
-      if (!trail_byte_ct) {
+    if (bytes_remaining < kBytesPerWord) {
+      if (!bytes_remaining) {
         return tot;
       }
-      cur_word = ProperSubwordLoad(bitarr_iter, trail_byte_ct);
-      trail_byte_ct = 0;
+      cur_word = ProperSubwordLoad(bitarr_iter, bytes_remaining);
+      bytes_remaining = 0;
     } else {
       cur_word = *bitarr_iter++;
-      trail_byte_ct -= kBytesPerWord;
+      bytes_remaining -= kBytesPerWord;
     }
     tot += PopcountWord(cur_word);
   }
@@ -1457,8 +1486,7 @@ uintptr_t PopcountBytesMasked(const unsigned char* bitarr, const uintptr_t* mask
     // 64-bit case: each 8-bit slot stores a number in 0..24.
     tot += (tmp_stor * kMask0101) >> (kBitsPerWord - 8);
   }
-  uint32_t trail_byte_ct = byte_ct - (mainblock_word_ct * kBytesPerWord);
-  while (1) {
+  for (uint32_t trail_byte_ct = byte_ct - (mainblock_word_ct * kBytesPerWord); ; ) {
     uintptr_t cur_word;
     if (trail_byte_ct < kBytesPerWord) {
       if (!trail_byte_ct) {
@@ -1699,14 +1727,12 @@ void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stri
       for (uint32_t vec_idx = 0; vec_idx != loop_vec_ct; ++vec_idx) {
         VecW loader = *source_iter++;
         loader = vecw_slli(loader, remainder_from8);
-        uint32_t write_idx_lowbits = remainder_m1;
-        while (1) {
+        for (uint32_t write_idx_lowbits = remainder_m1; ; --write_idx_lowbits) {
           target_iter0[write_v8ui_stride * write_idx_lowbits] = vecw_movemask(loader);
           if (!write_idx_lowbits) {
             break;
           }
           loader = vecw_slli(loader, 1);
-          --write_idx_lowbits;
         }
         ++target_iter0;
       }
@@ -1913,10 +1939,9 @@ uintptr_t BytesumArr(const void* bytearr, uintptr_t byte_ct) {
   const uintptr_t* bytearr_alias_iter = S_CAST(const uintptr_t*, bytearr);
   const uint32_t wordblock_idx_trail = word_ct / 256;
   const uint32_t wordblock_idx_end = DivUp(word_ct, 256);
-  uint32_t wordblock_idx = 0;
   uint32_t wordblock_len = 256;
   uintptr_t tot = 0;
-  while (1) {
+  for (uint32_t wordblock_idx = 0; ; ++wordblock_idx) {
     if (wordblock_idx >= wordblock_idx_trail) {
       if (wordblock_idx == wordblock_idx_end) {
         byte_ct = byte_ct % kBytesPerWord;
@@ -1928,7 +1953,6 @@ uintptr_t BytesumArr(const void* bytearr, uintptr_t byte_ct) {
       }
       wordblock_len = word_ct % 256;
     }
-    ++wordblock_idx;
     const uintptr_t* bytearr_alias_stop = &(bytearr_alias_iter[wordblock_len]);
     uintptr_t acc_even = 0;
     uintptr_t acc_odd = 0;

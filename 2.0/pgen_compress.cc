@@ -97,7 +97,7 @@ int32_t main(int32_t argc, char** argv) {
       const uint32_t final_widx = QuaterCtToWordCt(sample_ct) - 1;
       const uint32_t variant_byte_ct = (sample_ct + 3) / 4;
       fwrite("l\x1b\x01", 3, 1, outfile);
-      for (uint32_t vidx = 0; vidx < variant_ct;) {
+      for (uint32_t vidx = 0; vidx < variant_ct; ) {
         reterr = PgrGet(nullptr, nullptr, sample_ct, vidx, &pgr, genovec);
         if (reterr) {
           fprintf(stderr, "\nread error %u, vidx=%u\n", S_CAST(uint32_t, reterr), vidx);
@@ -157,7 +157,7 @@ int32_t main(int32_t argc, char** argv) {
     // ClearBit(320, sample_include);
     FillCumulativePopcounts(sample_include, 1 + (sample_ct / kBitsPerWord), sample_include_cumulative_popcounts);
 #endif
-    for (uint32_t vidx = 0; vidx < variant_ct;) {
+    for (uint32_t vidx = 0; vidx < variant_ct; ) {
       uint32_t difflist_common_geno;
       uint32_t difflist_len;
       reterr = PgrGetDifflistOrGenovec(sample_include, sample_include_cumulative_popcounts, write_sample_ct, max_simple_difflist_len, vidx, &pgr, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);

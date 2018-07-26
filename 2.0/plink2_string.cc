@@ -121,35 +121,31 @@ CXXCONST_CP strchrnul3(const char* ss, unsigned char ucc1, unsigned char ucc2, u
 }
 #else
 CXXCONST_VOIDP rawmemchr2(const void* ss, unsigned char ucc1, unsigned char ucc2) {
-  const unsigned char* ss_iter = S_CAST(const unsigned char*, ss);
-  while (1) {
+  for (const unsigned char* ss_iter = S_CAST(const unsigned char*, ss); ; ++ss_iter) {
     unsigned char ucc = *ss_iter;
     if ((ucc == ucc1) || (ucc == ucc2)) {
       return S_CAST(CXXCONST_VOIDP, ss_iter);
     }
-    ++ss_iter;
   }
 }
 
 CXXCONST_CP strchrnul2(const char* ss, unsigned char ucc1, unsigned char ucc2) {
-  while (1) {
+  for (; ; ++ss) {
     unsigned char ucc = *ss;
     if ((!ucc) || (ucc == ucc1) || (ucc == ucc2)) {
       return S_CAST(CXXCONST_CP, ss);
     }
-    ++ss;
   }
 }
 
 CXXCONST_CP strchrnul3(const char* ss, unsigned char ucc1, unsigned char ucc2, unsigned char ucc3) {
-  while (1) {
+  for (; ; ++ss) {
     unsigned char ucc = *ss;
     // at this point, checking against a precomputed 256-byte array may be
     // better?  test this.
     if ((!ucc) || (ucc == ucc1) || (ucc == ucc2) || (ucc == ucc3)) {
       return S_CAST(CXXCONST_CP, ss);
     }
-    ++ss;
   }
 }
 #endif
@@ -355,10 +351,9 @@ uintptr_t FirstUnequal4(const char* s1, const char* s2, uintptr_t slen) {
 int32_t strcmp_overread(const char* s1, const char* s2) {
   const uintptr_t* s1_alias = R_CAST(const uintptr_t*, s1);
   const uintptr_t* s2_alias = R_CAST(const uintptr_t*, s2);
-  uintptr_t widx = 0;
-  while (1) {
+  for (uintptr_t widx = 0; ; ++widx) {
     uintptr_t w1 = s1_alias[widx];
-    const uintptr_t zcheck = (w1 - kMask0101) & (~w1) & (0x80 * kMask0101);
+    const uintptr_t zcheck = DetectFirstZeroByte(w1);
     uintptr_t w2 = s2_alias[widx];
     if (zcheck) {
       // Mask out bytes past the known null.
@@ -368,19 +363,16 @@ int32_t strcmp_overread(const char* s1, const char* s2) {
       if (w1 == w2) {
         return 0;
       }
-      goto strcmp_overread_finish;
+    } else if (w1 == w2) {
+      continue;
     }
-    if (w1 != w2) {
-    strcmp_overread_finish:
-      // bugfix (30 Jun 2018): forgot to adhere to strcmp instead of std::sort
-      // interface
+    // bugfix (30 Jun 2018): forgot to adhere to strcmp instead of std::sort
+    // interface
 #ifdef __LP64__
-      return (__builtin_bswap64(w1) < __builtin_bswap64(w2))? -1 : 1;
+    return (__builtin_bswap64(w1) < __builtin_bswap64(w2))? -1 : 1;
 #else
-      return (__builtin_bswap32(w1) < __builtin_bswap32(w2))? -1 : 1;
+    return (__builtin_bswap32(w1) < __builtin_bswap32(w2))? -1 : 1;
 #endif
-    }
-    ++widx;
   }
 }
 
@@ -914,8 +906,8 @@ char* memcpya_toupper(char* __restrict target, const char* __restrict source, ui
 
 
 uint32_t IsAlphanumeric(const char* str_iter) {
-  while (1) {
-    uint32_t uii = ctou32(*str_iter++);
+  for (; ; ++str_iter) {
+    uint32_t uii = ctou32(*str_iter);
     if (!uii) {
       return 1;
     }
@@ -1073,11 +1065,11 @@ BoolErr ScanmovPosintCapped32(uint32_t cap_div_10, uint32_t cap_mod_10, const ch
       return 1;
     }
   }
-  while (1) {
-    const uint32_t cur_digit = ctou32(*str_iter++) - 48;
+  for (; ; ++str_iter) {
+    const uint32_t cur_digit = ctou32(*str_iter) - 48;
     if (cur_digit >= 10) {
       *valp = val;
-      *str_iterp = &(str_iter[-1]);
+      *str_iterp = str_iter;
       return 0;
     }
     if (unlikely((val >= cap_div_10) && ((val > cap_div_10) || (cur_digit > cap_mod_10)))) {
@@ -1105,11 +1097,11 @@ BoolErr ScanmovUintCapped32(uint32_t cap_div_10, uint32_t cap_mod_10, const char
       return 1;
     }
   }
-  while (1) {
-    const uint32_t cur_digit = ctou32(*str_iter++) - 48;
+  for (; ; ++str_iter) {
+    const uint32_t cur_digit = ctou32(*str_iter) - 48;
     if (cur_digit >= 10) {
       *valp = val;
-      *str_iterp = &(str_iter[-1]);
+      *str_iterp = str_iter;
       return 0;
     }
     if (unlikely((val >= cap_div_10) && ((val > cap_div_10) || (cur_digit > cap_mod_10)))) {
@@ -1657,10 +1649,10 @@ CXXCONST_CP NextTokenMultFar(const char* str_iter, uint32_t ct) {
   }
   uint32_t transition_bits_to_skip_p1 = ct * 2;
   const uintptr_t starting_addr = R_CAST(uintptr_t, str_iter);
-  const VecUc* str_viter = R_CAST(const VecUc*, RoundDownPow2(starting_addr, kBytesPerVec));
+  const VecUc* str_viter_start = R_CAST(const VecUc*, RoundDownPow2(starting_addr, kBytesPerVec));
   const VecUc vvec_all_tab = vecuc_set1(9);
   const VecUc vvec_all_space = vecuc_set1(32);
-  VecUc cur_vvec = *str_viter;
+  VecUc cur_vvec = *str_viter_start;
   VecUc tabspace_vvec = (cur_vvec == vvec_all_tab) | (cur_vvec == vvec_all_space);
   // Underlying intrinsics are _mm256_cmpeq_... and _mm256_cmpgt_...
   // So we don't really want to use <= or !=.
@@ -1672,12 +1664,12 @@ CXXCONST_CP NextTokenMultFar(const char* str_iter, uint32_t ct) {
   VecUc post31_vvec = vecuc_adds(cur_vvec, vvec_all96);
   uint32_t delimiter_bytes = vecuc_movemask(tabspace_vvec);
   const uint32_t initial_nonterminating_bytes = vecuc_movemask(post31_vvec) | delimiter_bytes;
-  const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, str_viter);
+  const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, str_viter_start);
   uint32_t leading_mask = UINT32_MAX << leading_byte_ct;
   delimiter_bytes &= leading_mask;
   uint32_t terminating_bytes = leading_mask & (~initial_nonterminating_bytes);
   uint32_t prev_delim_highbit = 0;
-  while (1) {
+  for (const VecUc* str_viter = str_viter_start; ; ) {
     // The number of 0->1 + 1->0 bit transitions in x is
     //   popcount(x ^ (x << 1)).
     uint32_t cur_transitions = S_CAST(Vec8thUint, delimiter_bytes ^ (delimiter_bytes << 1) ^ prev_delim_highbit);
@@ -1814,26 +1806,24 @@ CXXCONST_CP NextCsvMult(const char* str_iter, uint32_t ct) {
   // ok if we're at the end of the token
   unsigned char ucc = *str_iter;
   assert(ucc != ' ');
-  while (1) {
+  while (ucc >= ' ') {
     // avoid strchr to keep "ASCII code < 32 == newline" consistent
     // (tab handling is quirky right now--permitted at the beginning of a
     // token, but treated as newline later--but it should never appear so
     // no point in e.g. adding an extra parameter to FirstNonTspace();
     // just need to make sure the quirky behavior is consistent.)
-    if (ucc < 32) {
-      return nullptr;
-    }
-    if (ucc == ',') {
-      do {
-        ucc = *(++str_iter);
-      } while ((ucc == ' ') || (ucc == '\t'));
-      if (!(--ct)) {
-        return S_CAST(CXXCONST_CP, str_iter);
-      }
+    if (ucc != ',') {
+      ucc = *(++str_iter);
       continue;
     }
-    ucc = *(++str_iter);
+    do {
+      ucc = *(++str_iter);
+    } while ((ucc == ' ') || (ucc == '\t'));
+    if (!(--ct)) {
+      return S_CAST(CXXCONST_CP, str_iter);
+    }
   }
+  return nullptr;
 }
 
 #ifdef USE_AVX2
@@ -3081,6 +3071,16 @@ CXXCONST_CP Memrchr(const char* str_start, char needle, uintptr_t slen) {
   }
 }
 #endif  // __LP64__
+
+void TabsToSpaces(char* ss_iter) {
+  while (1) {
+    ss_iter = strchr(ss_iter, '\t');
+    if (!ss_iter) {
+      return;
+    }
+    *ss_iter++ = ' ';
+  }
+}
 
 #ifdef __cplusplus
 }  // namespace plink2

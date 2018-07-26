@@ -128,16 +128,15 @@ PglErr SnpFlag(const uint32_t* variant_bps, const char* const* variant_ids, cons
       if (unlikely(bigstack_calloc_w(raw_variant_ctl, &seen_uidxs))) {
         goto SnpFlag_ret_NOMEM;
       }
-      while (1) {
+      for (; ; cur_llidx = htable_dup_base[cur_llidx + 1]) {
         SetBit(variant_uidx, seen_uidxs);
         if (cur_llidx == UINT32_MAX) {
           break;
         }
         variant_uidx = htable_dup_base[cur_llidx];
-        cur_llidx = htable_dup_base[cur_llidx + 1];
       }
       if (do_exclude) {
-        BitvecAndNot(seen_uidxs, raw_variant_ctl, variant_include);
+        BitvecInvmask(seen_uidxs, raw_variant_ctl, variant_include);
       } else {
         BitvecAnd(seen_uidxs, raw_variant_ctl, variant_include);
       }
@@ -233,20 +232,19 @@ PglErr SnpsFlag(const char* const* variant_ids, const uint32_t* variant_id_htabl
           }
           FillBitsNz(range_start_vidx, variant_uidx + 1, seen_uidxs);
         } else {
-          while (1) {
+          for (; ; cur_llidx = htable_dup_base[cur_llidx + 1]) {
             SetBit(variant_uidx, seen_uidxs);
             if (cur_llidx == UINT32_MAX) {
               break;
             }
             variant_uidx = htable_dup_base[cur_llidx];
-            cur_llidx = htable_dup_base[cur_llidx + 1];
           }
         }
         range_start_vidx = UINT32_MAX;
       }
     }
     if (do_exclude) {
-      BitvecAndNot(seen_uidxs, raw_variant_ctl, variant_include);
+      BitvecInvmask(seen_uidxs, raw_variant_ctl, variant_include);
     } else {
       BitvecAnd(seen_uidxs, raw_variant_ctl, variant_include);
     }
@@ -278,13 +276,12 @@ void ExtractExcludeProcessToken(const char* const* variant_ids, const uint32_t* 
   if (IsSet(already_seen, variant_uidx)) {
     *duplicate_ct_ptr += 1;
   } else {
-    while (1) {
+    for (; ; cur_llidx = htable_dup_base[cur_llidx + 1]) {
       SetBit(variant_uidx, already_seen);
       if (cur_llidx == UINT32_MAX) {
         return;
       }
       variant_uidx = htable_dup_base[cur_llidx];
-      cur_llidx = htable_dup_base[cur_llidx + 1];
     }
   }
 }
@@ -336,7 +333,7 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
       ++fnames_iter;
     } while (*fnames_iter);
     if (do_exclude) {
-      BitvecAndNot(already_seen, raw_variant_ctl, variant_include);
+      BitvecInvmask(already_seen, raw_variant_ctl, variant_include);
     } else {
       BitvecAnd(already_seen, raw_variant_ctl, variant_include);
     }
@@ -527,12 +524,12 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
               if (IsSet(seen_uidxs, sample_uidx)) {
                 ++duplicate_ct;
               } else {
-                while (1) {
+                for (uint32_t xid_idx = xid_idx_start; ; ) {
                   SetBit(sample_uidx, seen_uidxs);
-                  if (++xid_idx_start == xid_idx_end) {
+                  if (++xid_idx == xid_idx_end) {
                     break;
                   }
-                  sample_uidx = xid_map[xid_idx_start];
+                  sample_uidx = xid_map[xid_idx];
                 }
               }
             } else if (unlikely(!linebuf_iter)) {
@@ -551,12 +548,12 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
               if (IsSet(seen_uidxs, sample_uidx)) {
                 ++duplicate_ct;
               } else {
-                while (1) {
+                for (uint32_t xid_map_idx = lb_idx; ; ) {
                   SetBit(sample_uidx, seen_uidxs);
-                  if (++lb_idx == ub_idx) {
+                  if (++xid_map_idx == ub_idx) {
                     break;
                   }
-                  sample_uidx = xid_map[lb_idx];
+                  sample_uidx = xid_map[xid_map_idx];
                 }
               }
             }
@@ -581,7 +578,7 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
     } while (*fnames_iter);
     reterr = kPglRetSuccess;
     if (flags & kfKeepRemove) {
-      BitvecAndNot(seen_uidxs, raw_sample_ctl, sample_include);
+      BitvecInvmask(seen_uidxs, raw_sample_ctl, sample_include);
     } else {
       memcpy(sample_include, seen_uidxs, raw_sample_ctl * sizeof(intptr_t));
     }
@@ -998,7 +995,7 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
         if (is_remove ^ (val_12 == 2)) {
           BitvecAnd(cur_pheno_col->data.cc, raw_sample_ctl, sample_include);
         } else {
-          BitvecAndNot(cur_pheno_col->data.cc, raw_sample_ctl, sample_include);
+          BitvecInvmask(cur_pheno_col->data.cc, raw_sample_ctl, sample_include);
         }
       } else {
         assert(cur_pheno_col->type_code == kPhenoDtypeCat);
@@ -1162,7 +1159,7 @@ PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fn
         }
       }
       if (is_remove) {
-        BitvecAndNot(affected_samples, raw_sample_ctl, sample_include);
+        BitvecInvmask(affected_samples, raw_sample_ctl, sample_include);
       } else {
         BitvecAnd(affected_samples, raw_sample_ctl, sample_include);
       }
@@ -1508,7 +1505,6 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                 header_cols &= ~kfReadFreqColsetAlt1Allele;
                 allele_list_just_alt1 = 0;
               }
-              ;;;
             } else if (memequal_k(linebuf_iter, "CTS", 3)) {
               goto ReadAlleleFreqs_freqmain_found1;
             }
@@ -1766,7 +1762,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         while ((S_CAST(uint32_t, header_cols) >> col_types[relevant_col_idx_read]) & 1) {
           ++relevant_col_idx_read;
         }
-        uint32_t relevant_col_idx_write = relevant_col_idx_read;
+        uint32_t relevant_col_idx_write = relevant_col_idx_read++;
         for (; relevant_col_idx_read != relevant_col_ct; ++relevant_col_idx_read) {
           const ReadFreqColidx cur_colidx = col_types[relevant_col_idx_read];
           if ((S_CAST(uint32_t, header_cols) >> cur_colidx) & 1) {
@@ -2237,9 +2233,8 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                     *eq_ptr++ = '\0';
 
                     const uint32_t cur_blen = eq_ptr - alt_freq_iter;
-                    uint32_t internal_allele_idx = 0;
                     // O(n^2), may want to replace with O(n log n)
-                    for (; internal_allele_idx != cur_allele_ct; ++internal_allele_idx) {
+                    for (uint32_t internal_allele_idx = 0; internal_allele_idx != cur_allele_ct; ++internal_allele_idx) {
                       if (memequal(alt_freq_iter, cur_alleles[internal_allele_idx], cur_blen)) {
                         if (unlikely(cur_allele_freqs[internal_allele_idx] != 0.0)) {
                           snprintf(g_logbuf, kLogbufSize, "Error: Duplicate entry on line %" PRIuPTR " of --read-freq file.\n", line_idx);
@@ -2655,24 +2650,23 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
     const uint32_t read_block_ct_m1 = (raw_variant_ct - 1) / read_block_size;
     uint32_t parity = 0;
     uint32_t read_block_idx = 0;
-    uint32_t variant_idx = 0;
     uint32_t is_last_block = 0;
     uint32_t cur_read_block_size = read_block_size;
     uint32_t next_print_variant_idx = variant_ct / 100;
 
-    while (1) {
+    for (uint32_t variant_idx = 0; ; ) {
       uintptr_t cur_loaded_variant_ct = 0;
       if (!is_last_block) {
-        while (read_block_idx < read_block_ct_m1) {
+        for (; ; ++read_block_idx) {
+          if (read_block_idx == read_block_ct_m1) {
+            cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
+            cur_loaded_variant_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), BitCtToWordCt(cur_read_block_size));
+            break;
+          }
           cur_loaded_variant_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), read_block_sizel);
           if (cur_loaded_variant_ct) {
             break;
           }
-          ++read_block_idx;
-        }
-        if (read_block_idx == read_block_ct_m1) {
-          cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
-          cur_loaded_variant_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), BitCtToWordCt(cur_read_block_size));
         }
         if (unlikely(PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_loaded_variant_ct, pgfip))) {
           if (variant_idx) {
@@ -2822,8 +2816,8 @@ PglErr MindFilter(const uint32_t* sample_missing_cts, const uint32_t* sample_het
     // just one place
     logprintf("%u sample%s removed due to missing genotype data (--mind).\n", removed_ct, (removed_ct == 1)? "" : "s");
     if (removed_ct) {
-      BitvecAndNot(newly_excluded, raw_sample_ctl, sample_include);
-      BitvecAndNot(newly_excluded, raw_sample_ctl, sex_male);
+      BitvecInvmask(newly_excluded, raw_sample_ctl, sample_include);
+      BitvecInvmask(newly_excluded, raw_sample_ctl, sex_male);
       snprintf(outname_end, kMaxOutfnameExtBlen, ".mindrem.id");
       reterr = WriteSampleIds(newly_excluded, siip, outname, removed_ct);
       if (unlikely(reterr)) {
@@ -3566,7 +3560,7 @@ PglErr RefFromFaProcessContig(const uintptr_t* variant_include, const uint32_t* 
   uint32_t changed_ct = *changed_ct_ptr;
   uint32_t validated_ct = *validated_ct_ptr;
   uint32_t cur_allele_ct = 2;
-  while (1) {
+  for (; ; variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits)) {
     const uint32_t cur_bp = variant_bps[variant_uidx];
     uintptr_t allele_idx_offset_base = variant_uidx * 2;
     if (allele_idx_offsets) {
@@ -3629,7 +3623,6 @@ PglErr RefFromFaProcessContig(const uintptr_t* variant_include, const uint32_t* 
       *validated_ct_ptr = validated_ct;
       return kPglRetSuccess;
     }
-    variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
   }
 }
 

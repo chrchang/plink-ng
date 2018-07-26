@@ -1463,6 +1463,9 @@ HEADER_INLINE uint32_t ModNz(uintptr_t val, uint32_t modulus) {
   return (1 + ((val - 1) % modulus));
 }
 
+// No need for ModNzU64 in practice, since high bits don't affect result when
+// modulus is a power of 2.
+
 // Equivalent to (static_cast<int32_t>(uii) < 0).  Most frequently used on
 // possibly-error chromosome indexes.
 HEADER_INLINE uint32_t IsI32Neg(uint32_t uii) {
@@ -1674,7 +1677,9 @@ void SetAllBits(uintptr_t ct, uintptr_t* bitarr);
 
 void BitvecAnd(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec);
 
-void BitvecAndNot(const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec);
+void BitvecInvmask(const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec);
+
+void BitvecOr(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec);
 
 void BitvecInvert(uintptr_t word_ct, uintptr_t* main_bitvec);
 
@@ -2537,6 +2542,10 @@ HEADER_INLINE void ZeroU64Arr(uintptr_t entry_ct, uint64_t* u64arr) {
   memset(u64arr, 0, entry_ct * sizeof(int64_t));
 }
 
+HEADER_INLINE void ZeroHwArr(uintptr_t entry_ct, Halfword* hwarr) {
+  memset(hwarr, 0, entry_ct * sizeof(Halfword));
+}
+
 HEADER_INLINE void SetAllWArr(uintptr_t entry_ct, uintptr_t* warr) {
   // todo: test this against vecset()
   for (uintptr_t idx = 0; idx != entry_ct; ++idx) {
@@ -2833,6 +2842,23 @@ uintptr_t BytesumArr(const void* bytearr, uintptr_t byte_ct);
 uintptr_t CountByte(const void* bytearr, unsigned char ucc, uintptr_t byte_ct);
 
 uintptr_t CountU16(const void* u16arr, uint16_t usii, uintptr_t u16_ct);
+
+// Returns zero when ww has no zero bytes, and a word where the lowest set bit
+// is at position 8x + 7 when the first zero byte is [8x .. 8x+7].
+HEADER_INLINE uintptr_t DetectFirstZeroByte(uintptr_t ww) {
+  return (ww - kMask0101) & (~ww) & (kMask0101 * 0x80);
+}
+
+// From TAOCP 4a, 7.1.3, (91).
+// Position 8x + 7 is always set iff byte x is zero.  All other bits are always
+// zero.
+HEADER_INLINE uintptr_t DetectAllZeroBytes(uintptr_t ww) {
+  return (kMask0101 * 0x80) & (~(ww | ((ww | (kMask0101 * 0x80)) - kMask0101)));
+}
+
+HEADER_INLINE uintptr_t DetectAllZeroNibbles(uintptr_t ww) {
+  return (kMask1111 * 8) & (~(ww | ((ww | (kMask1111 * 8)) - kMask1111)));
+}
 
 // Flagset conventions:
 // * Each 32-bit and 64-bit flagset has its own type, which is guaranteed to be

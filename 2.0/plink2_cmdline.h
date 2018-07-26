@@ -1130,13 +1130,11 @@ HEADER_INLINE uint32_t wordsequal(const uintptr_t* word_arr1, const uintptr_t* w
 }
 
 
-// BitvecAnd(), BitvecAndNot(), BitvecInvert() in plink2_base.h
+// BitvecAnd(), BitvecInvmask(), BitvecOr(), BitvecInvert() in plink2_base.h
 
 void BitvecAndCopy(const uintptr_t* __restrict source1_bitvec, const uintptr_t* __restrict source2_bitvec, uintptr_t word_ct, uintptr_t* target_bitvec);
 
-void BitvecAndNotCopy(const uintptr_t* __restrict source_bitvec, const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct, uintptr_t* target_bitvec);
-
-void BitvecOr(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec);
+void BitvecInvmaskCopy(const uintptr_t* __restrict source_bitvec, const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct, uintptr_t* target_bitvec);
 
 void BitvecInvertCopy(const uintptr_t* __restrict source_bitvec, uintptr_t word_ct, uintptr_t* __restrict target_bitvec);
 
@@ -1163,7 +1161,7 @@ HEADER_INLINE void AlignedBitarrInvertCopy(const uintptr_t* __restrict source_bi
 
 // void BitvecXor(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec);
 
-void BitvecAndNot2(const uintptr_t* __restrict include_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec);
+void BitvecInvertAndMask(const uintptr_t* __restrict include_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec);
 
 // void BitvecOrNot(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec);
 

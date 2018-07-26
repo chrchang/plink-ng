@@ -99,7 +99,7 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
         }
         // this can theoretically be confused by e.g. a Description="..." field
         // containing commas not followed by spaces
-        while (1) {
+        do {
           ++chrset_iter;
           // uppercase
           uint32_t first_char_ui = ctou32(*chrset_iter) & 0xdf;
@@ -135,10 +135,7 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
               }
             }
           }
-          if (strchrnul_n_mov(',', &chrset_iter)) {
-            break;
-          }
-        }
+        } while (!strchrnul_n_mov(',', &chrset_iter));
       }
       if (cmdline_autosome_ct) {
         if (unlikely(cmdline_haploid)) {
@@ -334,8 +331,7 @@ BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* v
 }
 
 void BackfillChrIdxs(const ChrInfo* cip, uint32_t chrs_encountered_m1, uint32_t offset, uint32_t end_vidx, ChrIdx* chr_idxs) {
-  uint32_t chr_fo_idx = chrs_encountered_m1;
-  while (1) {
+  for (uint32_t chr_fo_idx = chrs_encountered_m1; ; --chr_fo_idx) {
     uint32_t start_vidx = cip->chr_fo_vidx_start[chr_fo_idx];
     if (start_vidx < offset) {
       start_vidx = offset;
@@ -350,7 +346,6 @@ void BackfillChrIdxs(const ChrInfo* cip, uint32_t chrs_encountered_m1, uint32_t 
       return;
     }
     end_vidx = start_vidx;
-    --chr_fo_idx;
   }
 }
 
@@ -869,17 +864,15 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       // code is similar to plink 1.9 annotate() and gene_report(), but they
       // don't have a forced first column
       // might want to write plink2_common library functions for this...
-      uint32_t col_idx = 0;
       const char* token_end = &(linebuf_first_token[6]);
       uint32_t found_header_bitset = 0;
       relevant_postchr_col_ct = 0;
       const char* linebuf_iter;
-      while (1) {
+      for (uint32_t col_idx = 1; ; ++col_idx) {
         linebuf_iter = FirstNonTspace(token_end);
         if (IsEolnKns(*linebuf_iter)) {
           break;
         }
-        ++col_idx;
         token_end = CurTokenEnd(linebuf_iter);
         const uint32_t token_slen = token_end - linebuf_iter;
         uint32_t cur_col_type;
@@ -1438,9 +1431,8 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
                   if (!fexcept_ct) {
                     goto LoadPvar_skip_variant;
                   }
-                  const char* filter_token_iter = filter_token;
                   const char* filter_token_end = &(filter_token[filter_slen]);
-                  while (1) {
+                  for (const char* filter_token_iter = filter_token; ; ) {
                     const char* cur_filter_name_end = AdvToDelimOrEnd(filter_token_iter, filter_token_end, ';');
                     uint32_t cur_slen = cur_filter_name_end - filter_token_iter;
                     // possible todo: error out on "PASS", since that
@@ -1913,7 +1905,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       if (chr_idxs_start_block >= cms_start_block) {
         chr_idxs_read_iter = R_CAST(ChrIdx*, R_CAST(uintptr_t, chr_idxs_read_iter) + kLoadPvarBlockSize * sizeof(double) * (chr_idxs_start_block + 1 - cms_start_block));
       }
-      for (uint32_t block_idx = chr_idxs_start_block; block_idx != full_block_ct;) {
+      for (uint32_t block_idx = chr_idxs_start_block; block_idx != full_block_ct; ) {
         memcpy(&(chr_idxs[block_idx * kLoadPvarBlockSize]), chr_idxs_read_iter, kLoadPvarBlockSize * sizeof(ChrIdx));
         ++block_idx;
         chr_idxs_read_iter = R_CAST(ChrIdx*, R_CAST(uintptr_t, chr_idxs_read_iter) + read_iter_stride_base + kLoadPvarBlockSize * sizeof(ChrIdx) + (block_idx >= cms_start_block) * kLoadPvarBlockSize * sizeof(double));

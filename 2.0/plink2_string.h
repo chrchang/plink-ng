@@ -413,10 +413,9 @@ HEADER_INLINE uintptr_t FirstUnequal(const char* s1, const char* s2, uintptr_t s
 HEADER_INLINE int32_t strequal_overread(const char* s1, const char* s2) {
   const uintptr_t* s1_alias = R_CAST(const uintptr_t*, s1);
   const uintptr_t* s2_alias = R_CAST(const uintptr_t*, s2);
-  uintptr_t widx = 0;
-  while (1) {
+  for (uintptr_t widx = 0; ; ++widx) {
     const uintptr_t w1 = s1_alias[widx];
-    const uintptr_t zcheck = (w1 - kMask0101) & (~w1) & (0x80 * kMask0101);
+    const uintptr_t zcheck = DetectFirstZeroByte(w1);
     const uintptr_t w2 = s2_alias[widx];
     const uintptr_t xor_word = w1 ^ w2;
     if (zcheck) {
@@ -427,7 +426,6 @@ HEADER_INLINE int32_t strequal_overread(const char* s1, const char* s2) {
     if (xor_word) {
       return 0;
     }
-    ++widx;
   }
 }
 
@@ -487,10 +485,9 @@ typedef struct StrSortDerefStruct {
 HEADER_INLINE bool strcmp_overread_lt(const char* s1, const char* s2) {
   const uintptr_t* s1_alias = R_CAST(const uintptr_t*, s1);
   const uintptr_t* s2_alias = R_CAST(const uintptr_t*, s2);
-  uintptr_t widx = 0;
-  while (1) {
+  for (uintptr_t widx = 0; ; ++widx) {
     uintptr_t w1 = s1_alias[widx];
-    const uintptr_t zcheck = (w1 - kMask0101) & (~w1) & (0x80 * kMask0101);
+    const uintptr_t zcheck = DetectFirstZeroByte(w1);
     uintptr_t w2 = s2_alias[widx];
     if (zcheck) {
       // Mask out bytes past the known null.
@@ -517,7 +514,6 @@ HEADER_INLINE bool strcmp_overread_lt(const char* s1, const char* s2) {
       return __builtin_bswap32(w1) < __builtin_bswap32(w2);
 #  endif
     }
-    ++widx;
   }
 }
 
@@ -982,10 +978,10 @@ HEADER_INLINE CXXCONST_CP AdvToNthDelimChecked(const char* str_iter, const char*
   const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, str_viter);
   const uint32_t leading_mask = UINT32_MAX << leading_byte_ct;
   delimiter_bytes &= leading_mask;
-  while (1) {
+  for (uint32_t remaining_delim_ct = ct; ; ) {
     const uint32_t cur_delim_ct = PopcountVec8thUint(delimiter_bytes);
-    if (cur_delim_ct >= ct) {
-      delimiter_bytes = ClearBottomSetBits(ct - 1, delimiter_bytes);
+    if (cur_delim_ct >= remaining_delim_ct) {
+      delimiter_bytes = ClearBottomSetBits(remaining_delim_ct - 1, delimiter_bytes);
       const uint32_t byte_offset_in_vec = ctzu32(delimiter_bytes);
       const uintptr_t result_addr = R_CAST(uintptr_t, str_viter) + byte_offset_in_vec;
       if (result_addr >= ending_addr) {
@@ -993,7 +989,7 @@ HEADER_INLINE CXXCONST_CP AdvToNthDelimChecked(const char* str_iter, const char*
       }
       return R_CAST(CXXCONST_CP, result_addr);
     }
-    ct -= cur_delim_ct;
+    remaining_delim_ct -= cur_delim_ct;
     ++str_viter;
     if (R_CAST(uintptr_t, str_viter) >= ending_addr) {
       return nullptr;
@@ -1014,15 +1010,15 @@ HEADER_INLINE CXXCONST_CP AdvToNthDelim(const char* str_iter, uint32_t ct, char 
   const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, str_viter);
   const uint32_t leading_mask = UINT32_MAX << leading_byte_ct;
   delimiter_bytes &= leading_mask;
-  while (1) {
+  for (uint32_t remaining_delim_ct = ct; ; ) {
     const uint32_t cur_delim_ct = PopcountVec8thUint(delimiter_bytes);
-    if (cur_delim_ct >= ct) {
-      delimiter_bytes = ClearBottomSetBits(ct - 1, delimiter_bytes);
+    if (cur_delim_ct >= remaining_delim_ct) {
+      delimiter_bytes = ClearBottomSetBits(remaining_delim_ct - 1, delimiter_bytes);
       const uint32_t byte_offset_in_vec = ctzu32(delimiter_bytes);
       const uintptr_t result_addr = R_CAST(uintptr_t, str_viter) + byte_offset_in_vec;
       return R_CAST(CXXCONST_CP, result_addr);
     }
-    ct -= cur_delim_ct;
+    remaining_delim_ct -= cur_delim_ct;
     ++str_viter;
     cur_vvec = *str_viter;
     delim_vvec = (cur_vvec == vvec_all_delim);
@@ -1031,12 +1027,12 @@ HEADER_INLINE CXXCONST_CP AdvToNthDelim(const char* str_iter, uint32_t ct, char 
 }
 #else  // !__LP64__
 HEADER_INLINE CXXCONST_CP AdvToNthDelimChecked(const char* str_iter, const char* str_end, uint32_t ct, char delim) {
-  while (1) {
+  for (uint32_t remaining_delim_ct = ct; ; ) {
     const char* next_delim = S_CAST(const char*, memchr(str_iter, delim, str_end - str_iter));
     if (!next_delim) {
       return nullptr;
     }
-    if (!(--ct)) {
+    if (!(--remaining_delim_ct)) {
       return S_CAST(CXXCONST_CP, next_delim);
     }
     str_iter = &(next_delim[1]);
@@ -1044,9 +1040,9 @@ HEADER_INLINE CXXCONST_CP AdvToNthDelimChecked(const char* str_iter, const char*
 }
 
 HEADER_INLINE CXXCONST_CP AdvToNthDelim(const char* str_iter, uint32_t ct, char delim) {
-  while (1) {
+  for (uint32_t remaining_delim_ct = ct; ; ) {
     const char* next_delim = AdvToDelim(str_iter, delim);
-    if (!(--ct)) {
+    if (!(--remaining_delim_ct)) {
       return S_CAST(CXXCONST_CP, next_delim);
     }
     str_iter = &(next_delim[1]);
@@ -1383,14 +1379,6 @@ HEADER_INLINE uint32_t IsNanStr(const char* ss, uint32_t slen) {
 }
 
 
-// see http://graphics.stanford.edu/~seander/bithacks.html#ZeroInWord
-// (not used for now since movemask generally supersedes this in 64-bit code)
-/*
-HEADER_INLINE uintptr_t WordHasZero(uintptr_t ulii) {
-  return (ulii - kMask0101) & (~ulii) & (0x80 * kMask0101);
-}
-*/
-
 HEADER_INLINE CXXCONST_CP AdvToDelimOrEnd(const char* str_iter, const char* str_end, char delim) {
   CXXCONST_CP memchr_result = S_CAST(CXXCONST_CP, memchr(str_iter, delim, str_end - str_iter));
   if (memchr_result) {
@@ -1435,6 +1423,8 @@ HEADER_INLINE char* Memrchr(char* str_start, char needle, uintptr_t slen) {
   return const_cast<char*>(Memrchr(const_cast<const char*>(str_start), needle, slen));
 }
 #endif
+
+void TabsToSpaces(char* ss_iter);
 
 #ifdef __cplusplus
 }  // namespace plink2
