@@ -26,12 +26,7 @@ void GenoarrToBytesMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int8_t* 
   const Quarterword* read_alias = R_CAST(const Quarterword*, genoarr);
   uintptr_t* write_walias = R_CAST(uintptr_t*, genobytes);
   for (uint32_t widx = 0; ; ++widx) {
-    uintptr_t qw = read_alias[widx];
-#ifdef __LP64__
-    qw = (qw | (qw << 24)) & kMask000000FF;
-#endif
-    qw = (qw | (qw << 12)) & kMask000F;
-    qw = (qw | (qw << 6)) & kMask0303;
+    uintptr_t qw = Unpack0303(read_alias[widx]);
     // now each byte is in {0, 1, 2, 3}.  Convert the 3s to -9s in a branchless
     // manner.
     // (-9) - 3 = -12, which is represented as 244 in a uint8_t
@@ -135,12 +130,8 @@ void GenoarrPhasedToAlleleCodes(const uintptr_t* genoarr, const uintptr_t* phase
   const Quarterword* read_alias = R_CAST(const Quarterword*, genoarr);
   uintptr_t* write_walias = R_CAST(uintptr_t*, phasebytes);
   for (uint32_t widx = 0; ; ++widx) {
-    uintptr_t qw = read_alias[widx];
-#ifdef __LP64__
-    qw = (qw | (qw << 24)) & kMask000000FF;
-#endif
-    qw = (qw | (qw << 12)) & kMask000F;
-    qw = (~(qw | (qw << 6))) & kMask0101;
+    uintptr_t qw = Unpack0303(read_alias[widx]);
+    qw = (~qw) & kMask0101;
     if (widx == word_ct_m1) {
       SubwordStore(qw, ModNz(sample_ct, kBytesPerWord), &(write_walias[widx]));
       break;
@@ -288,18 +279,7 @@ void BytesToGenoarrUnsafe(const int8_t* genobytes, uint32_t sample_ct, uintptr_t
     } else {
       ww = read_walias[widx];
     }
-#ifdef USE_AVX2
-    write_alias[widx] = _pext_u64(ww, kMask0303);
-#else
-    ww &= kMask0303;
-    ww = (ww | (ww >> 6)) & kMask000F;
-#  ifdef __LP64__
-    ww = (ww | (ww >> 12)) & kMask000000FF;
-    write_alias[widx] = S_CAST(Quarterword, ww | (ww >> 24));
-#  else
-    write_alias[widx] = S_CAST(Quarterword, ww | (ww >> 12));
-#  endif
-#endif
+    write_alias[widx] = Pack0303Mask(ww);
   }
 }
 

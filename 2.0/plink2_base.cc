@@ -1521,6 +1521,171 @@ void UidxsToIdxs(const uintptr_t* subset_mask, const uint32_t* subset_cumulative
   }
 }
 
+void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_byte_ct, uint32_t incr, uintptr_t* __restrict dst) {
+  const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
+#ifdef USE_SSE42
+  const uint32_t fullvec_ct = input_byte_ct / (kBytesPerVec / 8);
+  uint32_t byte_idx = 0;
+  if (fullvec_ct) {
+    const Vec8thUint* bytearr_alias = R_CAST(const Vec8thUint*, bytearr);
+#  ifdef USE_AVX2
+    const VecUc byte_gather = R_CAST(VecUc, _mm256_setr_epi64x(0, kMask0101, 2 * kMask0101, 3 * kMask0101));
+    const VecUc bit_mask = R_CAST(VecUc, _mm256_set1_epi64x(0x7fbfdfeff7fbfdfeLL));
+#  else
+    const VecUc byte_gather = R_CAST(VecUc, _mm_setr_epi32(0, 0, 0x01010101, 0x01010101));
+    const VecUc bit_mask = R_CAST(VecUc, _mm_set1_epi64x(0x7fbfdfeff7fbfdfeLL));
+#  endif
+    const VecUc all1 = vecuc_set1(255);
+    const VecUc subfrom = vecuc_set1(incr);
+    VecUc* dst_alias = R_CAST(VecUc*, dst);
+    for (uint32_t vec_idx = 0; vec_idx != fullvec_ct; ++vec_idx) {
+#  ifdef USE_AVX2
+      VecUc vmask = R_CAST(VecUc, _mm256_set1_epi32(bytearr_alias[vec_idx]));
+#  else
+      VecUc vmask = R_CAST(VecUc, _mm_set1_epi16(bytearr_alias[vec_idx]));
+#  endif
+      vmask = vecuc_shuffle8(vmask, byte_gather);
+      vmask = vmask | bit_mask;
+      vmask = (vmask == all1);
+      const VecUc result = subfrom - vmask;
+      vecuc_storeu(&(dst_alias[vec_idx]), result);
+    }
+    byte_idx = fullvec_ct * (kBytesPerVec / 8);
+  }
+  const uintptr_t incr_word = incr * kMask0101;
+  for (; byte_idx != input_byte_ct; ++byte_idx) {
+    const uintptr_t input_byte = bytearr_uc[byte_idx];
+#  ifdef USE_AVX2
+    const uintptr_t cur_mask = _pdep_u64(input_byte, kMask0101);
+#  else
+    const uintptr_t cur_mask = (((input_byte & 0xfe) * 0x2040810204080LLU) & kMask0101) | (input_byte & 1);
+#  endif
+    dst[byte_idx] = incr_word + cur_mask;
+  }
+#else
+  const uintptr_t incr_word = incr * kMask0101;
+#  ifdef __LP64__
+  for (uint32_t uii = 0; uii != input_byte_ct; ++uii) {
+    // this operation maps binary hgfedcba to h0000000g0000000f...
+    //                                        ^       ^       ^
+    //                                        |       |       |
+    //                                       56      48      40
+    // 1. (cur_variant_include_word & 0xfe) gives us hgfedcb0; necessary to
+    //    avoid carryover.
+    // 2. multiply by the number with bits 7, 14, 21, ..., 49 set, to get
+    //    hgfedcbhgfedcbhgf...
+    //    ^       ^       ^
+    //    |       |       |
+    //   56      48      40
+    // 3. mask out all but bits 8, 16, 24, ..., 56
+    // todo: test if this actually beats the per-character loop...
+    const uintptr_t input_byte = bytearr_uc[uii];
+    const uintptr_t cur_mask = (((input_byte & 0xfe) * 0x2040810204080LLU) & kMask0101) | (input_byte & 1);
+    dst[uii] = incr_word + cur_mask;
+  }
+#  else
+  for (uint32_t uii = 0; uii != input_byte_ct; ++uii) {
+    // dcba -> d0000000c0000000b0000000a
+    uintptr_t input_byte = bytearr_uc[uii];
+    uintptr_t cur_mask = ((input_byte & 0xf) * 0x204081) & kMask0101;
+    dst[2 * uii] = incr_word + cur_mask;
+    cur_mask = ((input_byte >> 4) * 0x204081) & kMask0101;
+    dst[2 * uii + 1] = incr_word + cur_mask;
+  }
+#  endif
+#endif
+}
+
+void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint32_t incr, uintptr_t* __restrict dst) {
+  const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
+#ifdef USE_SSE42
+  const uint32_t input_nibble_ct = DivUp(input_bit_ct, 4);
+  const uint32_t fullvec_ct = input_nibble_ct / (kBytesPerVec / 8);
+  uint32_t byte_idx = 0;
+  if (fullvec_ct) {
+    const Vec16thUint* bytearr_alias = R_CAST(const Vec16thUint*, bytearr);
+#  ifdef USE_AVX2
+    const VecU16 byte_gather = R_CAST(VecU16, _mm256_setr_epi64x(0, 0, kMask0101, kMask0101));
+    const VecU16 bit_mask = R_CAST(VecU16, _mm256_set_epi32(0xff7fffbfU, 0xffdfffefU, 0xfff7fffbU, 0xfffdfffeU, 0xff7fffbfU, 0xffdfffefU, 0xfff7fffbU, 0xfffdfffeU));
+#  else
+    const VecU16 byte_gather = VCONST_S(0);
+    const VecU16 bit_mask = R_CAST(VecU16, _mm_set_epi32(0xff7fffbfU, 0xffdfffefU, 0xfff7fffbU, 0xfffdfffeU));
+#  endif
+    const VecU16 all1 = VCONST_S(0xffff);
+    const VecU16 subfrom = vecu16_set1(incr);
+    VecU16* dst_alias = R_CAST(VecU16*, dst);
+    // todo: check whether this is actually any better than the non-vectorized
+    // loop
+    for (uint32_t vec_idx = 0; vec_idx != fullvec_ct; ++vec_idx) {
+#  ifdef USE_AVX2
+      VecU16 vmask = R_CAST(VecU16, _mm256_set1_epi16(bytearr_alias[vec_idx]));
+#  else
+      VecU16 vmask = R_CAST(VecU16, _mm_set1_epi8(bytearr_alias[vec_idx]));
+#  endif
+      vmask = vecu16_shuffle8(vmask, byte_gather);
+      vmask = vmask | bit_mask;
+      vmask = (vmask == all1);
+      const VecU16 result = subfrom - vmask;
+      vecu16_storeu(&(dst_alias[vec_idx]), result);
+    }
+    byte_idx = fullvec_ct * (kBytesPerVec / 8);
+  }
+  const uintptr_t incr_word = incr * kMask0001;
+  const uint32_t fullbyte_ct = input_nibble_ct / 2;
+  for (; byte_idx != fullbyte_ct; ++byte_idx) {
+    const uintptr_t input_byte = bytearr_uc[byte_idx];
+    const uintptr_t input_byte_scatter = input_byte * 0x200040008001LLU;
+    const uintptr_t write0 = input_byte_scatter & kMask0001;
+    const uintptr_t write1 = (input_byte_scatter >> 4) & kMask0001;
+    dst[2 * byte_idx] = incr_word + write0;
+    dst[2 * byte_idx + 1] = incr_word + write1;
+  }
+  if (input_nibble_ct % 2) {
+    const uintptr_t input_byte = bytearr_uc[byte_idx];
+    const uintptr_t write0 = (input_byte * 0x200040008001LLU) & kMask0001;
+    dst[input_nibble_ct - 1] = incr_word + write0;
+  }
+#else
+  const uintptr_t incr_word = incr * kMask0001;
+#  ifdef __LP64__
+  const uint32_t input_nibble_ct = DivUp(input_bit_ct, 4);
+  const uint32_t fullbyte_ct = input_nibble_ct / 2;
+  for (uint32_t uii = 0; uii != fullbyte_ct; ++uii) {
+    const uintptr_t input_byte = bytearr_uc[uii];
+    const uintptr_t input_byte_scatter = input_byte * 0x200040008001LLU;
+    const uintptr_t write0 = input_byte_scatter & kMask0001;
+    const uintptr_t write1 = (input_byte_scatter >> 4) & kMask0001;
+    dst[2 * uii] = incr_word + write0;
+    dst[2 * uii + 1] = incr_word + write1;
+  }
+  if (input_nibble_ct % 2) {
+    const uintptr_t input_byte = bytearr_uc[fullbyte_ct];
+    const uintptr_t write0 = (input_byte * 0x200040008001LLU) & kMask0001;
+    dst[input_nibble_ct - 1] = incr_word + write0;
+  }
+#  else
+  const uint32_t fullbyte_ct = input_bit_ct / 8;
+  for (uint32_t uii = 0; uii != fullbyte_ct; ++uii) {
+    uintptr_t input_byte = bytearr_uc[uii];
+    const uintptr_t input_byte_scatter = input_byte * 0x8001;
+    dst[4 * uii] = (input_byte_scatter & kMask0001) + incr_word;
+    dst[4 * uii + 1] = ((input_byte_scatter >> 2) & kMask0001) + incr_word;
+    dst[4 * uii + 2] = ((input_byte_scatter >> 4) & kMask0001) + incr_word;
+    dst[4 * uii + 3] = ((input_byte_scatter >> 6) & kMask0001) + incr_word;
+  }
+  const uint32_t remainder = input_bit_ct % 8;
+  if (remainder) {
+    uintptr_t input_byte = bytearr_uc[fullbyte_ct];
+    uint16_t* dst_alias = R_CAST(uint16_t*, &(dst[4 * fullbyte_ct]));
+    for (uint32_t uii = 0; uii < remainder; ++uii) {
+      dst_alias[uii] = (input_byte & 1) + incr;
+      input_byte = input_byte >> 1;
+    }
+  }
+#  endif
+#endif
+}
+
 #ifdef __LP64__
 int32_t memequal(const void* m1, const void* m2, uintptr_t byte_ct) {
   const unsigned char* m1_uc = S_CAST(const unsigned char*, m1);

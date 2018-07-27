@@ -203,10 +203,11 @@ HEADER_INLINE void CopyQuaterarr(const uintptr_t* __restrict source_quaterarr, u
 // need for some explicit end-of-bitarray checks.
 void CopyQuaterarrNonemptySubset(const uintptr_t* __restrict raw_quaterarr, const uintptr_t* __restrict subset_mask, uint32_t raw_quaterarr_entry_ct, uint32_t subset_entry_ct, uintptr_t* __restrict output_quaterarr);
 
-// Copies a bit from raw_bitarr for each 01 entry in genovec.
-void Copy01Subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genovec, uint32_t write_bit_idx_start, uint32_t bit_ct, uintptr_t* __restrict output_bitarr);
+// Copies a bit from raw_bitarr for each genovec entry matching match_word.
+// (match_word must be a multiple of kMask5555.)
+void CopyGenomatchSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genovec, uintptr_t match_word, uint32_t write_bit_idx_start, uint32_t bit_ct, uintptr_t* __restrict output_bitarr);
 
-void Copy10Subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genovec, uint32_t bit_ct, uintptr_t* __restrict output_bitarr);
+void ExpandBytearrFromGenovec(const void* __restrict compact_bitarr, const uintptr_t* __restrict genovec, uintptr_t match_word, uint32_t genoword_ct, uint32_t expand_size, uint32_t read_start_bit, uintptr_t* __restrict target);
 
 void GenovecCount12Unsafe(const uintptr_t* genovec, uint32_t sample_ct, uint32_t* __restrict raw_01_ctp, uint32_t* __restrict raw_10_ctp);
 
@@ -479,6 +480,17 @@ void InitPhaseXNohhLookup4b(void* table64x4bx2);
 
 // uses same table as PhaseXNohhLookup
 void GenoarrSexLookup4b(const uintptr_t* genoarr, const uintptr_t* sex_male, const void* table64x4bx2, uint32_t sample_ct, void* result);
+
+// Analogue of BitIter1x.
+HEADER_INLINE uint32_t GenoIter1x(const uintptr_t* __restrict genoarr, uintptr_t match_word, uintptr_t* __restrict widxp, uintptr_t* __restrict cur_bitsp) {
+  uintptr_t cur_bits = *cur_bitsp;
+  while (!cur_bits) {
+    cur_bits = genoarr[++(*widxp)] ^ match_word;
+    cur_bits = (~(cur_bits | (cur_bits >> 1))) & kMask5555;
+  }
+  *cur_bitsp = cur_bits & (cur_bits - 1);
+  return ctzw(cur_bits);
+}
 
 // ----- end plink2_common subset -----
 

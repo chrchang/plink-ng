@@ -1487,7 +1487,8 @@ VcfParseErr VcfConvertUnphasedBiallelicLine(const VcfImportBaseContext* vibcp, c
               // code triploids, etc. as missing
               // might want to subject handling of 0/0/. to
               // --vcf-half-call control
-              const uintptr_t second_allele_idx = ctou32(linebuf_iter[2]) - 48;
+              // bugfix (26 Jul 2018): this needs to be ctow, not ctou32
+              const uintptr_t second_allele_idx = ctow(linebuf_iter[2]) - 48;
               if (second_allele_idx <= 1) {
                 cur_geno += second_allele_idx;
               } else if (unlikely(second_allele_idx != (~k0LU) * 2)) {
