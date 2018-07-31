@@ -1905,9 +1905,10 @@ HEADER_INLINE uint32_t VecIsAligned(const void* ptr) {
 }
 
 HEADER_INLINE void VecAlignUp(void* pp) {
-  uintptr_t* pp_alias = S_CAST(uintptr_t*, pp);
-  const uintptr_t addr = *pp_alias;
-  *pp_alias = RoundUpPow2(addr, kBytesPerVec);
+  // bleah, need to write this way to avoid gcc 4.4 strict-aliasing warning
+  uintptr_t addr = *S_CAST(uintptr_t*, pp);
+  addr = RoundUpPow2(addr, kBytesPerVec);
+  memcpy(pp, &addr, sizeof(intptr_t));
 }
 
 #ifdef __LP64__

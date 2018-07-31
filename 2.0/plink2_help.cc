@@ -1391,8 +1391,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
               );
     HelpPrint("mach-r2-filter\0", &help_ctrl, 0,
 "  --mach-r2-filter {min} {max} : Exclude variants with MaCH imputation quality\n"
-"                                 metric outside of [min, max] (defaults 0.1 and\n"
-"                                 2.0).\n"
+"                                 metric less than min or greater than max\n"
+"                                 (defaults 0.1 and 2.0).  (Monomorphic\n"
+"                                 variants, with r2 = nan, are not excluded.)\n"
 "                                 * If a single parameter is provided, it is\n"
 "                                   treated as the minimum.\n"
 "                                 * The metric is not computed on chrX and MT.\n"

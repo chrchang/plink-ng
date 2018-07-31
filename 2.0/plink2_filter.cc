@@ -3096,8 +3096,9 @@ void EnforceMachR2Thresh(const ChrInfo* cip, const double* mach_r2_vals, double 
       cur_bits = variant_include[variant_widx] & ((~k1LU) << (variant_uidx % kBitsPerWord));
     }
     const double cur_mach_r2 = mach_r2_vals[variant_uidx];
-    // bugfix (30 Jul 2018): this needs to consistently filter out nan
-    if (!((cur_mach_r2 >= mach_r2_min) && (cur_mach_r2 <= mach_r2_max))) {
+    // er, we *don't* want to filter out NaN here, those variants may be worth
+    // filtering but not on imputation quality grounds
+    if ((cur_mach_r2 < mach_r2_min) || (cur_mach_r2 > mach_r2_max)) {
       ClearBit(variant_uidx, variant_include);
       ++removed_ct;
     }

@@ -8428,7 +8428,7 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
     }
     // yeah, it's sinful to implement mach-r2 here...
     const uint32_t nm_sample_ct = sample_ct - genocounts[3];
-    double mach_r2 = 1.0;
+    double mach_r2;
     if (nm_sample_ct) {
       const uintptr_t dosage_sum = genocounts[2] * 2 + genocounts[1];
       const int64_t dosage_ssq = dosage_sum + genocounts[2] * 2LLU;
@@ -8437,6 +8437,8 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
       const double dosage_variance = dosage_ssq - dosage_sumd * dosage_avg;
       // currently nan in monomorphic case.
       mach_r2 = 2 * dosage_variance / (dosage_sumd * (2 - dosage_avg));
+    } else {
+      mach_r2 = 0.0 / 0.0;
     }
     *mach_r2_ptr = mach_r2;
     return kPglRetSuccess;
@@ -8608,7 +8610,7 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
   if (!mach_r2_ptr) {
     return kPglRetSuccess;
   }
-  double mach_r2 = 1.0;
+  double mach_r2;
   if (new_sample_nm_ct) {
     // 16384^2, 32768^2
     alt1_dosage_sq_sum += remaining_het_ct * 0x10000000LLU + remaining_hom_alt_ct * 0x40000000LLU;
@@ -8616,6 +8618,8 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
     const double dosage_avg = dosage_sumd / u31tod(new_sample_nm_ct);
     const double dosage_variance = u63tod(alt1_dosage_sq_sum) - dosage_sumd * dosage_avg;
     mach_r2 = 2 * dosage_variance / (dosage_sumd * (32768 - dosage_avg));
+  } else {
+    mach_r2 = 0.0 / 0.0;
   }
   *mach_r2_ptr = mach_r2;
   return kPglRetSuccess;
@@ -9164,7 +9168,7 @@ PglErr GetMultiallelicCountsAndDosage16s(const uintptr_t* __restrict sample_incl
   }
   const uint64_t* ssqs = two_cts;
   const uint32_t nm_sample_ct = sample_ct - genocounts[3];
-  double mach_r2 = 1.0;
+  double mach_r2;
   if (nm_sample_ct) {
     // Allelic dosages are on a (k-1)-dimensional simplex; embed this in R^k as
     // the (2, 0, ..., 0), (0, 2, ..., 0), ..., (0, 0, ..., 2) polytope.
@@ -9241,6 +9245,8 @@ PglErr GetMultiallelicCountsAndDosage16s(const uintptr_t* __restrict sample_incl
       const double observed_variance = (observed_variance_hi * 4294967296.0) + observed_variance_lo;
       mach_r2 = (observed_variance * 2) / dbl_expected_variance;
     }
+  } else {
+    mach_r2 = 0.0 / 0.0;
   }
   *mach_r2_ptr = mach_r2;
   return kPglRetSuccess;
