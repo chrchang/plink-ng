@@ -1375,8 +1375,9 @@ void ExpandThenSubsetBytearrNested(const void* __restrict compact_bitarr, const 
   }
 }
 #endif
-uintptr_t PopcountBytes(const unsigned char* bitarr, uintptr_t byte_ct) {
-  const uint32_t lead_byte_ct = (-R_CAST(uintptr_t, bitarr)) % kBytesPerVec;
+uintptr_t PopcountBytes(const void* bitarr, uintptr_t byte_ct) {
+  const unsigned char* bitarr_uc = S_CAST(const unsigned char*, bitarr);
+  const uint32_t lead_byte_ct = (-R_CAST(uintptr_t, bitarr_uc)) % kBytesPerVec;
   uintptr_t tot = 0;
   const uintptr_t* bitarr_iter;
   uint32_t trail_byte_ct;
@@ -1385,9 +1386,9 @@ uintptr_t PopcountBytes(const unsigned char* bitarr, uintptr_t byte_ct) {
 #ifdef __LP64__
     const uint32_t word_rem = lead_byte_ct % kBytesPerWord;
     if (word_rem) {
-      tot = PopcountWord(ProperSubwordLoad(bitarr, word_rem));
+      tot = PopcountWord(ProperSubwordLoad(bitarr_uc, word_rem));
     }
-    bitarr_iter = R_CAST(const uintptr_t*, &(bitarr[word_rem]));
+    bitarr_iter = R_CAST(const uintptr_t*, &(bitarr_uc[word_rem]));
     if (lead_byte_ct >= kBytesPerWord) {
       tot += PopcountWord(*bitarr_iter++);
 #  ifdef USE_AVX2
@@ -1401,9 +1402,9 @@ uintptr_t PopcountBytes(const unsigned char* bitarr, uintptr_t byte_ct) {
     }
 #else
     if (lead_byte_ct) {
-      tot = PopcountWord(ProperSubwordLoad(bitarr, lead_byte_ct));
+      tot = PopcountWord(ProperSubwordLoad(bitarr_uc, lead_byte_ct));
     }
-    bitarr_iter = R_CAST(const uintptr_t*, &(bitarr[lead_byte_ct]));
+    bitarr_iter = R_CAST(const uintptr_t*, &(bitarr_uc[lead_byte_ct]));
 #endif
     byte_ct -= lead_byte_ct;
     const uintptr_t word_ct = byte_ct / kBytesPerWord;
@@ -1412,7 +1413,7 @@ uintptr_t PopcountBytes(const unsigned char* bitarr, uintptr_t byte_ct) {
     bitarr_iter = &(bitarr_iter[word_ct]);
     trail_byte_ct = byte_ct % kBytesPerWord;
   } else {
-    bitarr_iter = R_CAST(const uintptr_t*, bitarr);
+    bitarr_iter = R_CAST(const uintptr_t*, bitarr_uc);
     // this may still be >= kBytesPerWord, so can't remove loop
     trail_byte_ct = byte_ct;
   }
@@ -1432,25 +1433,25 @@ uintptr_t PopcountBytes(const unsigned char* bitarr, uintptr_t byte_ct) {
   }
 }
 
-uintptr_t PopcountBytesMasked(const unsigned char* bitarr, const uintptr_t* mask_arr, uintptr_t byte_ct) {
+uintptr_t PopcountBytesMasked(const void* bitarr, const uintptr_t* mask_arr, uintptr_t byte_ct) {
   // todo: try modifying PopcountWordsIntersect() to use unaligned load
   // instructions; then, if there is no performance penalty, try modifying this
   // main loop to call it.
   const uintptr_t word_ct = byte_ct / kBytesPerWord;
 #ifdef USE_SSE42
-  const uintptr_t* bitarr_alias = R_CAST(const uintptr_t*, bitarr);
+  const uintptr_t* bitarr_w = S_CAST(const uintptr_t*, bitarr);
   uintptr_t tot = 0;
   for (uintptr_t widx = 0; widx != word_ct; ++widx) {
-    tot += PopcountWord(bitarr_alias[widx] & mask_arr[widx]);
+    tot += PopcountWord(bitarr_w[widx] & mask_arr[widx]);
   }
   const uint32_t trail_byte_ct = byte_ct % kBytesPerWord;
   if (trail_byte_ct) {
-    uintptr_t cur_word = ProperSubwordLoad(&(bitarr_alias[word_ct]), trail_byte_ct);
+    uintptr_t cur_word = ProperSubwordLoad(&(bitarr_w[word_ct]), trail_byte_ct);
     tot += PopcountWord(cur_word & mask_arr[word_ct]);
   }
   return tot;
 #else
-  const uintptr_t* bitarr_iter = R_CAST(const uintptr_t*, bitarr);
+  const uintptr_t* bitarr_iter = S_CAST(const uintptr_t*, bitarr);
   const uintptr_t mainblock_word_ct = word_ct - (word_ct % (24 / kBytesPerWord));
   const uintptr_t* bitarr_24b_end = &(bitarr_iter[mainblock_word_ct]);
   const uintptr_t* mask_arr_iter = mask_arr;
@@ -1521,9 +1522,11 @@ void UidxsToIdxs(const uintptr_t* subset_mask, const uint32_t* subset_cumulative
   }
 }
 
-void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_byte_ct, uint32_t incr, uintptr_t* __restrict dst) {
+void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_bit_ct, uint32_t incr, uintptr_t* __restrict dst) {
   const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
+  const uint32_t input_bit_ct_plus = input_bit_ct + kBytesPerWord - 1;
 #ifdef USE_SSE42
+  const uint32_t input_byte_ct = input_bit_ct_plus / 8;
   const uint32_t fullvec_ct = input_byte_ct / (kBytesPerVec / 8);
   uint32_t byte_idx = 0;
   if (fullvec_ct) {
@@ -1556,15 +1559,16 @@ void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_byte_ct, uint3
   for (; byte_idx != input_byte_ct; ++byte_idx) {
     const uintptr_t input_byte = bytearr_uc[byte_idx];
 #  ifdef USE_AVX2
-    const uintptr_t cur_mask = _pdep_u64(input_byte, kMask0101);
+    const uintptr_t input_byte_scatter = _pdep_u64(input_byte, kMask0101);
 #  else
-    const uintptr_t cur_mask = (((input_byte & 0xfe) * 0x2040810204080LLU) & kMask0101) | (input_byte & 1);
+    const uintptr_t input_byte_scatter = (((input_byte & 0xfe) * 0x2040810204080LLU) & kMask0101) | (input_byte & 1);
 #  endif
-    dst[byte_idx] = incr_word + cur_mask;
+    dst[byte_idx] = incr_word + input_byte_scatter;
   }
 #else
   const uintptr_t incr_word = incr * kMask0101;
 #  ifdef __LP64__
+  const uint32_t input_byte_ct = input_bit_ct_plus / 8;
   for (uint32_t uii = 0; uii != input_byte_ct; ++uii) {
     // this operation maps binary hgfedcba to h0000000g0000000f...
     //                                        ^       ^       ^
@@ -1580,17 +1584,24 @@ void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_byte_ct, uint3
     // 3. mask out all but bits 8, 16, 24, ..., 56
     // todo: test if this actually beats the per-character loop...
     const uintptr_t input_byte = bytearr_uc[uii];
-    const uintptr_t cur_mask = (((input_byte & 0xfe) * 0x2040810204080LLU) & kMask0101) | (input_byte & 1);
-    dst[uii] = incr_word + cur_mask;
+    const uintptr_t input_byte_scatter = (((input_byte & 0xfe) * 0x2040810204080LLU) & kMask0101) | (input_byte & 1);
+    dst[uii] = incr_word + input_byte_scatter;
   }
 #  else
-  for (uint32_t uii = 0; uii != input_byte_ct; ++uii) {
+  const uint32_t fullbyte_ct = input_bit_ct_plus / 8;
+  for (uint32_t uii = 0; uii != fullbyte_ct; ++uii) {
     // dcba -> d0000000c0000000b0000000a
-    uintptr_t input_byte = bytearr_uc[uii];
-    uintptr_t cur_mask = ((input_byte & 0xf) * 0x204081) & kMask0101;
-    dst[2 * uii] = incr_word + cur_mask;
-    cur_mask = ((input_byte >> 4) * 0x204081) & kMask0101;
-    dst[2 * uii + 1] = incr_word + cur_mask;
+    const uintptr_t input_byte = bytearr_uc[uii];
+    uintptr_t input_byte_scatter = ((input_byte & 0xf) * 0x204081) & kMask0101;
+    dst[2 * uii] = incr_word + input_byte_scatter;
+    input_byte_scatter = ((input_byte >> 4) * 0x204081) & kMask0101;
+    dst[2 * uii + 1] = incr_word + input_byte_scatter;
+  }
+  if (!(input_bit_ct_plus & 4)) {
+    uintptr_t input_byte = bytearr_uc[fullbyte_ct];
+    // assume high bits zeroed out
+    uintptr_t input_byte_scatter = (input_byte * 0x204081) & kMask0101;
+    dst[2 * fullbyte_ct] = incr_word + input_byte_scatter;
   }
 #  endif
 #endif
@@ -2220,6 +2231,44 @@ uintptr_t CountU16(const void* u16arr, uint16_t usii, uintptr_t u16_ct) {
   acc = acc + vecw_sad(R_CAST(VecW, inner_acc), m0);
   return HsumW(acc);
 #endif  // __LP64__
+}
+
+uint32_t Copy1bit8Subset(const uintptr_t* __restrict src_subset, const void* __restrict src_vals, const uintptr_t* __restrict sample_include, uint32_t src_subset_size, uint32_t sample_ct, uintptr_t* __restrict dst_subset, void* __restrict dst_vals) {
+  if (!src_subset_size) {
+    return 0;
+  }
+  CopyBitarrSubset(src_subset, sample_include, sample_ct, dst_subset);
+  const unsigned char* src_vals_uc = S_CAST(const unsigned char*, src_vals);
+  unsigned char* dst_vals_uc = S_CAST(unsigned char*, dst_vals);
+  unsigned char* dst_vals_iter = dst_vals_uc;
+  uintptr_t sample_widx = 0;
+  uintptr_t src_subset_bits = src_subset[0];
+  for (uint32_t src_idx = 0; src_idx != src_subset_size; ++src_idx) {
+    const uintptr_t lowbit = BitIter1y(src_subset, &sample_widx, &src_subset_bits);
+    if (sample_include[sample_widx] & lowbit) {
+      *dst_vals_iter++ = src_vals_uc[src_idx];
+    }
+  }
+  return dst_vals_iter - dst_vals_uc;
+}
+
+uint32_t Copy1bit16Subset(const uintptr_t* __restrict src_subset, const void* __restrict src_vals, const uintptr_t* __restrict sample_include, uint32_t src_subset_size, uint32_t sample_ct, uintptr_t* __restrict dst_subset, void* __restrict dst_vals) {
+  if (!src_subset_size) {
+    return 0;
+  }
+  CopyBitarrSubset(src_subset, sample_include, sample_ct, dst_subset);
+  const uint16_t* src_vals_u16 = S_CAST(const uint16_t*, src_vals);
+  uint16_t* dst_vals_u16 = S_CAST(uint16_t*, dst_vals);
+  uint16_t* dst_vals_iter = dst_vals_u16;
+  uintptr_t sample_widx = 0;
+  uintptr_t src_subset_bits = src_subset[0];
+  for (uint32_t src_idx = 0; src_idx != src_subset_size; ++src_idx) {
+    const uintptr_t lowbit = BitIter1y(src_subset, &sample_widx, &src_subset_bits);
+    if (sample_include[sample_widx] & lowbit) {
+      *dst_vals_iter++ = src_vals_u16[src_idx];
+    }
+  }
+  return dst_vals_iter - dst_vals_u16;
 }
 
 #ifdef __cplusplus

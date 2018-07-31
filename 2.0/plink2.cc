@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (26 Jul 2018)";
+  " (30 Jul 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -3236,6 +3236,7 @@ int main(int argc, char** argv) {
     double import_dosage_certainty = 0.0;
     int32_t vcf_min_gq = -1;
     int32_t vcf_min_dp = -1;
+    int32_t vcf_max_dp = 0x7fffffff;
     intptr_t malloc_size_mib = 0;
     LoadParams load_params = kfLoadParams0;
     Xload xload = kfXload0;
@@ -5647,6 +5648,8 @@ int main(int argc, char** argv) {
               make_plink2_flags |= kfMakeBimZs;
             } else if (strequal_k(cur_modif, "trim-alts", cur_modif_slen)) {
               make_plink2_flags |= kfMakePlink2TrimAlts;
+            } else if (strequal_k(cur_modif, "erase-alt2+", cur_modif_slen)) {
+              make_plink2_flags |= kfMakePlink2EraseAlt2Plus;
             } else if (likely(
                          StrStartsWith(cur_modif, "m=", cur_modif_slen) ||
                          StrStartsWith(cur_modif, "multiallelics=", cur_modif_slen))) {
@@ -5660,15 +5663,9 @@ int main(int argc, char** argv) {
                 make_plink2_flags |= kfMakePlink2MSplitAll;
               } else if (strequal_k(mode_start, "-snps", mode_slen)) {
                 make_plink2_flags |= kfMakePlink2MSplitSnps;
-              } else if (strequal_k(mode_start, "+", mode_slen) ||
-                         strequal_k(mode_start, "+both", mode_slen)) {
-                make_plink2_flags |= kfMakePlink2MMergeBoth;
-              } else if (strequal_k(mode_start, "+snps", mode_slen)) {
-                make_plink2_flags |= kfMakePlink2MMergeSnps;
-              } else if (likely(strequal_k(mode_start, "+any", mode_slen))) {
-                make_plink2_flags |= kfMakePlink2MMergeAny;
               } else {
-                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-bed multiallelics= mode '%s'.\n", mode_start);
+                // merge modes not supported here
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-bed multiallelics= split mode '%s'.\n", mode_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
             } else {
@@ -5684,6 +5681,18 @@ int main(int argc, char** argv) {
               *write_iter++ = '\n';
               goto main_ret_INVALID_CMDLINE_WWA;
             }
+          }
+          if ((make_plink2_flags & (kfMakePlink2TrimAlts | kfMakePlink2EraseAlt2Plus)) == (kfMakePlink2TrimAlts | kfMakePlink2EraseAlt2Plus)) {
+            // Prohibit this combination since it's really only meaningful if
+            // alt1 is sometimes absent when a higher-numbered alt is not, and
+            // the erasure would only apply to the *post*-trimming alt2+
+            // alleles; but that's confusing, and already easy enough to
+            // achieve by splitting up the operation.
+            //
+            // todo: think about whether any multiallelics= interactions are
+            // worth prohibiting
+            logerrputs("Error: --make-bed 'trim-alts' and 'erase-alt2+' modifiers cannot be used\ntogether.\n");
+            goto main_ret_INVALID_CMDLINE_A;
           }
           make_plink2_flags |= kfMakeBed | kfMakeBim | kfMakeFam;
           pc.command_flags1 |= kfCommand1MakePlink2;
@@ -5748,7 +5757,7 @@ int main(int argc, char** argv) {
             } else if (strequal_k(cur_modif, "trim-alts", cur_modif_slen)) {
               make_plink2_flags |= kfMakePlink2TrimAlts;
             } else if (strequal_k(cur_modif, "erase-alt2+", cur_modif_slen)) {
-              make_plink2_flags |= kfMakePgenEraseAlt2Plus;
+              make_plink2_flags |= kfMakePlink2EraseAlt2Plus;
             } else if (strequal_k(cur_modif, "erase-phase", cur_modif_slen)) {
               make_plink2_flags |= kfMakePgenErasePhase;
             } else if (likely(strequal_k(cur_modif, "erase-dosage", cur_modif_slen))) {
@@ -5757,6 +5766,10 @@ int main(int argc, char** argv) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-bpgen parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
+          }
+          if ((make_plink2_flags & (kfMakePlink2TrimAlts | kfMakePlink2EraseAlt2Plus)) == (kfMakePlink2TrimAlts | kfMakePlink2EraseAlt2Plus)) {
+            logerrputs("Error: --make-bpgen 'trim-alts' and 'erase-alt2+' modifiers cannot be used\ntogether.\n");
+            goto main_ret_INVALID_CMDLINE_A;
           }
           make_plink2_flags |= kfMakePgen | kfMakeBim | kfMakeFam;
           pc.command_flags1 |= kfCommand1MakePlink2;
@@ -5840,7 +5853,7 @@ int main(int argc, char** argv) {
             } else if (strequal_k(cur_modif, "trim-alts", cur_modif_slen)) {
               make_plink2_flags |= kfMakePlink2TrimAlts;
             } else if (strequal_k(cur_modif, "erase-alt2+", cur_modif_slen)) {
-              make_plink2_flags |= kfMakePgenEraseAlt2Plus;
+              make_plink2_flags |= kfMakePlink2EraseAlt2Plus;
             } else if (strequal_k(cur_modif, "erase-phase", cur_modif_slen)) {
               make_plink2_flags |= kfMakePgenErasePhase;
             } else if (strequal_k(cur_modif, "erase-dosage", cur_modif_slen)) {
@@ -5859,6 +5872,10 @@ int main(int argc, char** argv) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-pgen parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
+          }
+          if ((make_plink2_flags & (kfMakePlink2TrimAlts | kfMakePlink2EraseAlt2Plus)) == (kfMakePlink2TrimAlts | kfMakePlink2EraseAlt2Plus)) {
+            logerrputs("Error: --make-pgen 'trim-alts' and 'erase-alt2+' modifiers cannot be used\ntogether.\n");
+            goto main_ret_INVALID_CMDLINE_A;
           }
           if (!explicit_pvar_cols) {
             pc.pvar_psam_flags |= kfPvarColDefault;
@@ -7979,7 +7996,26 @@ int main(int argc, char** argv) {
             vcf_min_gq = uii;
           } else {
             vcf_min_dp = uii;
+            if (vcf_max_dp < vcf_min_dp) {
+              logerrputs("Error: --vcf-min-dp value cannot be larger than --vcf-max-dp value.\n");
+              goto main_ret_INVALID_CMDLINE;
+            }
           }
+        } else if (strequal_k_unsafe(flagname_p2, "cf-max-dp")) {
+          if (unlikely(!(xload & kfXloadVcf))) {
+            logerrputs("Error: --vcf-max-dp must be used with --vcf/--bcf.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          uint32_t uii;
+          if (unlikely(ScanUintDefcap(cur_modif, &uii))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --vcf-max-dp parameter '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          vcf_max_dp = uii;
         } else if (strequal_k_unsafe(flagname_p2, "cf-idspace-to")) {
           if (unlikely(!(xload & (kfXloadVcf | kfXloadBcf)))) {
             logerrputs("Error: --vcf-idspace-to must be used with --vcf/--bcf.\n");
@@ -8284,7 +8320,7 @@ int main(int argc, char** argv) {
       logerrputs("Error: --indiv-sort must be used with --make-{b}pgen/--make-bed/--write-covar\nor dataset merging.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
-    if (unlikely((make_plink2_flags & (kfMakePlink2MMask | kfMakePlink2TrimAlts | kfMakePgenEraseAlt2Plus | kfMakePgenErasePhase | kfMakePgenEraseDosage)) && (pc.command_flags1 & (~kfCommand1MakePlink2)))) {
+    if (unlikely((make_plink2_flags & (kfMakePlink2MMask | kfMakePlink2TrimAlts | kfMakePlink2EraseAlt2Plus | kfMakePgenErasePhase | kfMakePgenEraseDosage)) && (pc.command_flags1 & (~kfCommand1MakePlink2)))) {
       logerrputs("Error: When the 'multiallelics=', 'trim-alts', and/or 'erase-...' modifier is\npresent, --make-bed/--make-{b}pgen cannot be combined with other commands.\n(Other filters are fine.)\n");
       goto main_ret_INVALID_CMDLINE;
     }
@@ -8464,7 +8500,7 @@ int main(int argc, char** argv) {
             pgenname[0] = '\0';
             goto main_reinterpret_vcf_instead_of_converting;
           } else {
-            reterr = VcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, import_flags, no_samples_ok, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_half_call, pc.fam_cols, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
+            reterr = VcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, import_flags, no_samples_ok, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
           }
         } else if (xload & kfXloadVcf) {
           logerrputs("Error: --bcf is not implemented yet.\n");

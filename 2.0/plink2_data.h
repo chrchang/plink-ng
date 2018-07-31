@@ -43,15 +43,15 @@ FLAGSET_DEF_START()
   // don't support e.g. '+indels' for now due to lack of standardization re:
   // handling of MNP/'other' classes
   kfMakePlink2TrimAlts = (1 << 10),
+  kfMakePlink2EraseAlt2Plus = (1 << 11),
   kfMakePlink2MMask = kfMakePlink2TrimAlts - kfMakePlink2MSplitBase,
-  kfMakePlink2SetHhMissing = (1 << 11),
-  kfMakePlink2SetHhMissingKeepDosage = (1 << 12),
-  kfMakePlink2SetMixedMtMissing = (1 << 13),
-  kfMakePlink2SetMixedMtMissingKeepDosage = (1 << 14),
-  kfMakePgenFormatBase = (1 << 15), // two bits
-  kfMakePgenEraseAlt2Plus = (1 << 16),
-  kfMakePgenErasePhase = (1 << 17),
-  kfMakePgenEraseDosage = (1 << 18)
+  kfMakePlink2SetHhMissing = (1 << 12),
+  kfMakePlink2SetHhMissingKeepDosage = (1 << 13),
+  kfMakePlink2SetMixedMtMissing = (1 << 14),
+  kfMakePlink2SetMixedMtMissingKeepDosage = (1 << 15),
+  kfMakePgenFormatBase = (1 << 16), // two bits
+  kfMakePgenErasePhase = (1 << 18),
+  kfMakePgenEraseDosage = (1 << 19)
 FLAGSET_DEF_END(MakePlink2Flags);
 
 FLAGSET_DEF_START()

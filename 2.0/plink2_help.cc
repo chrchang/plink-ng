@@ -250,12 +250,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --make-bpgen <vzs> <format=[code]> <trim-alts> <erase-phase> <erase-dosage>\n"
 "  --make-bed <vzs> <trim-alts>\n"
                /*
-"  --make-pgen <vzs> <format=[code]> <trim-alts> <erase-phase> <erase-dosage>\n"
-"              <multiallelics=[mode]> <erase-alt2+>\n"
+"  --make-pgen <vzs> <format=[code]> <trim-alts | erase-alt2+> <erase-phase>\n"
+"              <erase-dosage> <multiallelics=[mode]>\n"
 "              <pvar-cols=[col set descriptor]> <psam-cols=[col set descriptor]>\n"
-"  --make-bpgen <vzs> <format=[code]> <trim-alts> <erase-phase> <erase-dosage>\n"
-"               <multiallelics=[mode]> <erase-alt2+>\n"
-"  --make-bed <vzs> <trim-alts> <multiallelics=[split mode]> <erase-alt2+>\n"
+"  --make-bpgen <vzs> <format=[code]> <trim-alts | erase-alt2+> <erase-phase>\n"
+"               <erase-dosage> <multiallelics=[mode]>\n"
+"  --make-bed <vzs> <trim-alts | erase-alt2+> <multiallelics=[split mode]>\n"
                */
 "    Create a new PLINK binary fileset (--make-pgen = .pgen + .pvar{.zst} +\n"
 "    .psam, --make-bpgen = .pgen + .bim{.zst} + .fam).\n"
@@ -1020,12 +1020,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --idspace-to [c]   : Convert spaces in VCF/.bgen sample IDs to the given\n"
 "                       character.\n"
                );
-    HelpPrint("vcf\0bcf\0vcf-half-call\0vcf-min-gq\0vcf-min-dp\0vcf-require-gt\0", &help_ctrl, 0,
+    HelpPrint("vcf\0bcf\0vcf-half-call\0vcf-min-gq\0vcf-min-dp\0vcf-max-dp\0vcf-require-gt\0", &help_ctrl, 0,
 "  --vcf-require-gt   : Skip variants with no GT field.\n"
 "  --vcf-min-gq [val] : No-call genotypes when GQ is present and below the\n"
 "                       threshold.\n"
-"  --vcf-min-dp [val] : No-call genotypes when DP is present and below the\n"
-"                       threshold.\n"
+"  --vcf-max-dp [val] : No-call genotypes when DP is present and above/below the\n"
+"  --vcf-min-dp [val]   threshold.\n"
 "  --vcf-half-call [] : Specify how '0/.' and similar VCF GT values should be\n"
 "                       handled.  The following four modes are supported:\n"
 "                       * 'error'/'e' (default) errors out and reports line #.\n"

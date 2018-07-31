@@ -95,6 +95,17 @@ CONSTI32(kPglMaxAltAlleleCt, 254);
 #endif
 CONSTI32(kAlleleCodesPerVec, kBytesPerVec / sizeof(AlleleCode));
 
+// These are useful for defending against base-pointer integer overflow on bad
+// input.
+HEADER_INLINE BoolErr PtrAddCk(const unsigned char* end, intptr_t incr, const unsigned char** basep) {
+  *basep += incr;
+  return unlikely((end - (*basep)) < 0);
+}
+
+HEADER_INLINE BoolErr PtrCheck(const unsigned char* end, const unsigned char* base, intptr_t req) {
+  return unlikely((end - base) < req);
+}
+
 // more verbose than (val + 3) / 4, but may as well make semantic meaning
 // obvious; any explicit DivUp(val, 4) expressions should have a different
 // meaning
@@ -162,6 +173,14 @@ HEADER_INLINE uintptr_t Word10(uintptr_t ww) {
 
 HEADER_INLINE uintptr_t Word11(uintptr_t ww) {
   return ww & (ww >> 1) & kMask5555;
+}
+
+HEADER_INLINE Halfword Pack01ToHalfword(uintptr_t ww) {
+  return PackWordToHalfwordMask5555(ww & (~(ww >> 1)));
+}
+
+HEADER_INLINE Halfword Pack11ToHalfword(uintptr_t ww) {
+  return PackWordToHalfwordMask5555(ww & (ww >> 1));
 }
 
 #ifdef USE_SSE42
@@ -491,6 +510,10 @@ HEADER_INLINE uint32_t GenoIter1x(const uintptr_t* __restrict genoarr, uintptr_t
   *cur_bitsp = cur_bits & (cur_bits - 1);
   return ctzw(cur_bits);
 }
+
+void ClearGenovecMissing1bit8Unsafe(const uintptr_t* __restrict genovec, uint32_t* subset_sizep, uintptr_t* __restrict subset, void* __restrict sparse_vals);
+
+void ClearGenovecMissing1bit16Unsafe(const uintptr_t* __restrict genovec, uint32_t* subset_sizep, uintptr_t* __restrict subset, void* __restrict sparse_vals);
 
 // ----- end plink2_common subset -----
 
@@ -1026,21 +1049,21 @@ HEADER_INLINE uint32_t VrtypeDosage(uint32_t vrtype) {
 }
 
 static_assert(kPglMaxAltAlleleCt <= 254, "GetAux1xAlleleEntryByteCt() needs to be updated.");
-HEADER_INLINE uintptr_t GetAux1aAlleleEntryByteCt(uint32_t allele_ct, uint32_t rarehet_ct) {
+HEADER_INLINE uintptr_t GetAux1aAlleleEntryByteCt(uint32_t allele_ct, uint32_t rare01_ct) {
   assert(allele_ct >= 3);
   if (allele_ct == 3) {
     return 0;
   }
   if (allele_ct == 4) {
-    return DivUp(rarehet_ct, 8);
+    return DivUp(rare01_ct, 8);
   }
   if (allele_ct <= 6) {
-    return DivUp(rarehet_ct, 4);
+    return DivUp(rare01_ct, 4);
   }
   if (allele_ct <= 18) {
-    return DivUp(rarehet_ct, 2);
+    return DivUp(rare01_ct, 2);
   }
-  return rarehet_ct;
+  return rare01_ct;
 }
 
 HEADER_INLINE uintptr_t GetAux1bAlleleEntryByteCt(uint32_t allele_ct, uint32_t rare10_ct) {
@@ -1311,7 +1334,9 @@ PglErr PgrGet1D(const uintptr_t* __restrict sample_include, const uint32_t* __re
 
 PglErr PgrGetInv1D(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgrp, uintptr_t* __restrict allele_invcountvec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr);
 
-PglErr PgrGetDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* mach_r2_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts, STD_ARRAY_REF(uint64_t, 2) all_dosages);
+PglErr PgrGetDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* mach_r2_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages);
+
+PglErr PgrGetMDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* mach_r2_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages);
 
 // ok for both dosage_present and dosage_main to be nullptr when no dosage data
 // is present

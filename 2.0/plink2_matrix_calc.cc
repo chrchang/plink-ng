@@ -983,7 +983,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
             bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[0])) ||
             bigstack_alloc_w(king_bufsizew, &(g_smaj_hom[1])) ||
             bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[1])) ||
-            BIGSTACK_ALLOC_X(VecW, kPglBitTransposeBufvecs, &vecaligned_buf))) {
+            bigstack_alloc_v(kPglBitTransposeBufvecs, &vecaligned_buf))) {
       goto CalcKing_ret_NOMEM;
     }
 
@@ -1984,7 +1984,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
             bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[0])) ||
             bigstack_alloc_w(king_bufsizew, &(g_smaj_hom[1])) ||
             bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[1])) ||
-            BIGSTACK_ALLOC_X(VecW, kPglBitTransposeBufvecs, &vecaligned_buf))) {
+            bigstack_alloc_v(kPglBitTransposeBufvecs, &vecaligned_buf))) {
       goto CalcKingTableSubset_ret_NOMEM;
     }
     SetKingTableFname(king_flags, parallel_idx, parallel_tot, outname_end);

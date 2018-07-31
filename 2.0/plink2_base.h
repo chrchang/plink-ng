@@ -1904,6 +1904,21 @@ HEADER_INLINE uint32_t VecIsAligned(const void* ptr) {
   return !(R_CAST(uintptr_t, ptr) % kBytesPerVec);
 }
 
+HEADER_INLINE void VecAlignUp(void* pp) {
+  uintptr_t* pp_alias = S_CAST(uintptr_t*, pp);
+  const uintptr_t addr = *pp_alias;
+  *pp_alias = RoundUpPow2(addr, kBytesPerVec);
+}
+
+#ifdef __LP64__
+HEADER_INLINE void VecAlignUp64(void* pp) {
+  VecAlignUp(pp);
+}
+#else
+HEADER_INLINE void VecAlignUp64(__maybe_unused void* pp) {
+}
+#endif
+
 // Updated PopcountWords() code is based on
 // https://github.com/kimwalisch/libpopcnt .  libpopcnt license text follows.
 
@@ -2196,9 +2211,11 @@ void FillCumulativePopcounts(const uintptr_t* subset_mask, uint32_t word_ct, uin
 // in-place to corresponding filtered indexes.
 void UidxsToIdxs(const uintptr_t* subset_mask, const uint32_t* subset_cumulative_popcounts, const uint32_t idx_list_len, uint32_t* idx_list);
 
-void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_byte_ct, uint32_t incr, uintptr_t* __restrict dst);
+// These functions do not overread, but may write extra bytes up to the word
+// boundary.
+void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_bit_ct, uint32_t incr, uintptr_t* __restrict dst);
 
-void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_byte_ct, uint32_t incr, uintptr_t* __restrict dst);
+void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint32_t incr, uintptr_t* __restrict dst);
 
 
 HEADER_INLINE BoolErr vecaligned_malloc(uintptr_t size, void* aligned_pp) {
@@ -2912,8 +2929,8 @@ void ExpandBytearrNested(const void* __restrict compact_bitarr, const uintptr_t*
 void ExpandThenSubsetBytearrNested(const void* __restrict compact_bitarr, const uintptr_t* __restrict mid_bitarr, const uintptr_t* __restrict top_expand_mask, const uintptr_t* __restrict subset_mask, uint32_t subset_size, uint32_t mid_popcount, uint32_t mid_start_bit, uintptr_t* __restrict mid_target, uintptr_t* __restrict compact_target);
 
 // these don't read past the end of bitarr
-uintptr_t PopcountBytes(const unsigned char* bitarr, uintptr_t byte_ct);
-uintptr_t PopcountBytesMasked(const unsigned char* bitarr, const uintptr_t* mask_arr, uintptr_t byte_ct);
+uintptr_t PopcountBytes(const void* bitarr, uintptr_t byte_ct);
+uintptr_t PopcountBytesMasked(const void* bitarr, const uintptr_t* mask_arr, uintptr_t byte_ct);
 
 
 // transpose_quaterblock(), which is more plink-specific, is in
@@ -2961,6 +2978,10 @@ uintptr_t BytesumArr(const void* bytearr, uintptr_t byte_ct);
 uintptr_t CountByte(const void* bytearr, unsigned char ucc, uintptr_t byte_ct);
 
 uintptr_t CountU16(const void* u16arr, uint16_t usii, uintptr_t u16_ct);
+
+uint32_t Copy1bit8Subset(const uintptr_t* __restrict src_subset, const void* __restrict src_vals, const uintptr_t* __restrict sample_include, uint32_t src_subset_size, uint32_t sample_ct, uintptr_t* __restrict dst_subset, void* __restrict dst_vals);
+
+uint32_t Copy1bit16Subset(const uintptr_t* __restrict src_subset, const void* __restrict src_vals, const uintptr_t* __restrict sample_include, uint32_t src_subset_size, uint32_t sample_ct, uintptr_t* __restrict dst_subset, void* __restrict dst_vals);
 
 // Returns zero when ww has no zero bytes, and a word where the lowest set bit
 // is at position 8x + 7 when the first zero byte is [8x .. 8x+7].

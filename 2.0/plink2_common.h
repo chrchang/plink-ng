@@ -264,6 +264,11 @@ HEADER_INLINE BoolErr bigstack_alloc_dphase(uintptr_t ct, SDosage** dphase_arr_p
 }
 
 
+HEADER_INLINE BoolErr bigstack_alloc_acp(uintptr_t ct, AlleleCode*** acp_arr_ptr) {
+  *acp_arr_ptr = S_CAST(AlleleCode**, bigstack_alloc(ct * sizeof(intptr_t)));
+  return !(*acp_arr_ptr);
+}
+
 HEADER_INLINE BoolErr bigstack_alloc_dosagep(uintptr_t ct, Dosage*** dosagep_arr_ptr) {
   *dosagep_arr_ptr = S_CAST(Dosage**, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*dosagep_arr_ptr);
@@ -691,6 +696,8 @@ void SetMaleHetMissingKeepdosage(const uintptr_t* __restrict sex_male, const uin
 // Assumes that either trailing bits of bitarr are already zero, or trailing
 // bits of genovec are zero.
 void MaskGenovecHetsUnsafe(const uintptr_t* __restrict genovec, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr);
+
+void MaskGenovecHetsMultiallelicUnsafe(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr);
 
 // vertical popcount support
 // VcountScramble1() and friends in plink2_cmdline

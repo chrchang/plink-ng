@@ -570,6 +570,11 @@ HEADER_INLINE BoolErr bigstack_alloc_u64(uintptr_t ct, uint64_t** u64_arr_ptr) {
   return !(*u64_arr_ptr);
 }
 
+HEADER_INLINE BoolErr bigstack_alloc_v(uintptr_t ct, VecW** v_arr_ptr) {
+  *v_arr_ptr = S_CAST(VecW*, bigstack_alloc(ct * sizeof(VecW)));
+  return !(*v_arr_ptr);
+}
+
 // some versions of gcc give aliasing warnings if we use bigstack_alloc_w()
 // for everything
 // if sizeof(intptr_t) != sizeof(uintptr_t*), we're doomed anyway, so I won't

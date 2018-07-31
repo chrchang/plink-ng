@@ -897,7 +897,7 @@ uint32_t GetVcfFormatPosition(const char* __restrict needle, const char* format_
   }
 }
 
-uint32_t VcfQualScanInit1(const char* format_start, const char* format_end, int32_t vcf_min_gq, int32_t vcf_min_dp, STD_ARRAY_REF(uint32_t, 2) qual_field_idxs) {
+uint32_t VcfQualScanInit1(const char* format_start, const char* format_end, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, STD_ARRAY_REF(uint32_t, 2) qual_field_idxs) {
   uint32_t qual_present = 0;
   qual_field_idxs[0] = UINT32_MAX;
   qual_field_idxs[1] = UINT32_MAX;
@@ -905,7 +905,7 @@ uint32_t VcfQualScanInit1(const char* format_start, const char* format_end, int3
     qual_field_idxs[0] = GetVcfFormatPosition("GQ", format_start, format_end, 2);
     qual_present = (qual_field_idxs[0] != UINT32_MAX);
   }
-  if (vcf_min_dp >= 0) {
+  if ((vcf_min_dp >= 0) || (vcf_max_dp != 0x7fffffff)) {
     qual_field_idxs[1] = GetVcfFormatPosition("DP", format_start, format_end, 2);
     if (qual_field_idxs[1] != UINT32_MAX) {
       qual_present = 1;
@@ -914,23 +914,28 @@ uint32_t VcfQualScanInit1(const char* format_start, const char* format_end, int3
   return qual_present;
 }
 
-uint32_t VcfQualScanInit2(STD_ARRAY_KREF(uint32_t, 2) qual_field_idxs, STD_ARRAY_KREF(int32_t, 2) qual_thresholds, STD_ARRAY_REF(uint32_t, 2) qual_field_skips, STD_ARRAY_REF(int32_t, 2) qual_line_thresholds) {
+uint32_t VcfQualScanInit2(STD_ARRAY_KREF(uint32_t, 2) qual_field_idxs, STD_ARRAY_KREF(int32_t, 2) qual_mins, STD_ARRAY_KREF(int32_t, 2) qual_maxs, STD_ARRAY_REF(uint32_t, 2) qual_field_skips, STD_ARRAY_REF(int32_t, 2) qual_line_mins, STD_ARRAY_REF(int32_t, 2) qual_line_maxs) {
   // handcoded for now, but can be switched to a std::sort call if necessary
   const uint32_t gq_field_idx = qual_field_idxs[0];
   uint32_t dp_field_idx = qual_field_idxs[1];
   uint32_t qual_field_ct = 0;
   if (dp_field_idx < gq_field_idx) {
     qual_field_skips[0] = dp_field_idx;
-    qual_line_thresholds[0] = qual_thresholds[1];
+    qual_line_mins[0] = qual_mins[1];
+    qual_line_maxs[0] = qual_maxs[1];
     qual_field_ct = 1;
     dp_field_idx = UINT32_MAX;
   }
   if (gq_field_idx != UINT32_MAX) {
     qual_field_skips[qual_field_ct] = gq_field_idx;
-    qual_line_thresholds[qual_field_ct++] = qual_thresholds[0];
+    qual_line_mins[qual_field_ct] = qual_mins[0];
+    qual_line_maxs[qual_field_ct] = 0x7fffffff;
+    ++qual_field_ct;
     if (dp_field_idx != UINT32_MAX) {
       qual_field_skips[qual_field_ct] = dp_field_idx;
-      qual_line_thresholds[qual_field_ct++] = qual_thresholds[1];
+      qual_line_mins[qual_field_ct] = qual_mins[1];
+      qual_line_maxs[qual_field_ct] = qual_maxs[1];
+      ++qual_field_ct;
     }
   }
   if (qual_field_ct == 2) {
@@ -950,7 +955,8 @@ typedef struct VcfImportContextBaseStruct {
   // line-specific
   uint32_t gt_present;
   STD_ARRAY_DECL(uint32_t, 2, qual_field_skips);
-  STD_ARRAY_DECL(int32_t, 2, qual_line_thresholds);
+  STD_ARRAY_DECL(int32_t, 2, qual_line_mins);
+  STD_ARRAY_DECL(int32_t, 2, qual_line_maxs);
   uint32_t qual_field_ct;  // must be set to zero if no qual fields
 } VcfImportBaseContext;
 
@@ -969,7 +975,7 @@ typedef struct VcfImportContext {
 
 // returns 1 if a quality check failed
 // assumes either 1 or 2 qual fields, otherwise change this to a loop
-uint32_t VcfCheckQuals(STD_ARRAY_KREF(uint32_t, 2) qual_field_skips, STD_ARRAY_KREF(int32_t, 2) qual_line_thresholds, const char* gtext_iter, const char* gtext_end, uint32_t qual_field_ct) {
+uint32_t VcfCheckQuals(STD_ARRAY_KREF(uint32_t, 2) qual_field_skips, STD_ARRAY_KREF(int32_t, 2) qual_line_mins, STD_ARRAY_KREF(int32_t, 2) qual_line_maxs, const char* gtext_iter, const char* gtext_end, uint32_t qual_field_ct) {
   const uint32_t skip0 = qual_field_skips[0];  // this can now be zero
   if (skip0) {
     gtext_iter = AdvToNthDelimChecked(gtext_iter, gtext_end, skip0, ':');
@@ -979,7 +985,7 @@ uint32_t VcfCheckQuals(STD_ARRAY_KREF(uint32_t, 2) qual_field_skips, STD_ARRAY_K
     ++gtext_iter;
   }
   int32_t ii;
-  if ((!ScanInt32(gtext_iter, &ii)) && (ii < qual_line_thresholds[0])) {
+  if ((!ScanInt32(gtext_iter, &ii)) && ((ii < qual_line_mins[0]) || (ii > qual_line_maxs[0]))) {
     return 1;
   }
   if (qual_field_ct == 1) {
@@ -990,7 +996,7 @@ uint32_t VcfCheckQuals(STD_ARRAY_KREF(uint32_t, 2) qual_field_skips, STD_ARRAY_K
     return 0;
   }
   ++gtext_iter;
-  return (!ScanInt32(gtext_iter, &ii)) && (ii < qual_line_thresholds[1]);
+  return (!ScanInt32(gtext_iter, &ii)) && ((ii < qual_line_mins[1]) || (ii > qual_line_maxs[1]));
 }
 
 BoolErr ParseVcfGp(const char* gp_iter, uint32_t is_haploid, double import_dosage_certainty, uint32_t* is_missing_ptr, double* alt_dosage_ptr) {
@@ -1151,7 +1157,8 @@ VcfParseErr VcfScanBiallelicHdsLine(const VcfImportContext* vicp, const char* fo
   const VcfHalfCall halfcall_mode = vicp->vibc.halfcall_mode;
   const uint32_t gt_present = vicp->vibc.gt_present;
   STD_ARRAY_KREF(uint32_t, 2) qual_field_skips = vicp->vibc.qual_field_skips;
-  STD_ARRAY_KREF(int32_t, 2) qual_line_thresholds = vicp->vibc.qual_line_thresholds;
+  STD_ARRAY_KREF(int32_t, 2) qual_line_mins = vicp->vibc.qual_line_mins;
+  STD_ARRAY_KREF(int32_t, 2) qual_line_maxs = vicp->vibc.qual_line_maxs;
   const uint32_t qual_field_ct = vicp->vibc.qual_field_ct;
 
   const uint32_t dosage_erase_halfdist = vicp->dosage_erase_halfdist;
@@ -1169,7 +1176,7 @@ VcfParseErr VcfScanBiallelicHdsLine(const VcfImportContext* vicp, const char* fo
       return kVcfParseMissingTokens;
     }
     dosagescan_iter = cur_gtext_end;
-    if (qual_field_ct && VcfCheckQuals(qual_field_skips, qual_line_thresholds, cur_gtext_start, cur_gtext_end, qual_field_ct)) {
+    if (qual_field_ct && VcfCheckQuals(qual_field_skips, qual_line_mins, qual_line_maxs, cur_gtext_start, cur_gtext_end, qual_field_ct)) {
       // minor bugfix: this needs to be continue, not break
       continue;
     }
@@ -1222,7 +1229,8 @@ VcfParseErr VcfConvertPhasedBiallelicDosageLine(const VcfImportContext* vicp, co
   const VcfHalfCall halfcall_mode = vicp->vibc.halfcall_mode;
   const uint32_t gt_present = vicp->vibc.gt_present;
   STD_ARRAY_KREF(uint32_t, 2) qual_field_skips = vicp->vibc.qual_field_skips;
-  STD_ARRAY_KREF(int32_t, 2) qual_line_thresholds = vicp->vibc.qual_line_thresholds;
+  STD_ARRAY_KREF(int32_t, 2) qual_line_mins = vicp->vibc.qual_line_mins;
+  STD_ARRAY_KREF(int32_t, 2) qual_line_maxs = vicp->vibc.qual_line_maxs;
   const uint32_t qual_field_ct = vicp->vibc.qual_field_ct;
 
   const uint32_t dosage_is_gp = vicp->dosage_is_gp;
@@ -1254,7 +1262,7 @@ VcfParseErr VcfConvertPhasedBiallelicDosageLine(const VcfImportContext* vicp, co
         return kVcfParseMissingTokens;
       }
       uintptr_t cur_geno = 3;
-      if (!(qual_field_ct && VcfCheckQuals(qual_field_skips, qual_line_thresholds, linebuf_iter, cur_gtext_end, qual_field_ct))) {
+      if (!(qual_field_ct && VcfCheckQuals(qual_field_skips, qual_line_mins, qual_line_maxs, linebuf_iter, cur_gtext_end, qual_field_ct))) {
         // We now parse dosage first.  Only care about the hardcall if
         // (i) there's no dosage, or
         // (ii) there's no phased dosage, and it's a phased het.
@@ -1407,7 +1415,8 @@ uintptr_t VcfScanShortallelicLine(const VcfImportBaseContext* vibcp, const char*
   // Just check for a phased het.
   const VcfHalfCall halfcall_mode = vibcp->halfcall_mode;
   STD_ARRAY_KREF(uint32_t, 2) qual_field_skips = vibcp->qual_field_skips;
-  STD_ARRAY_KREF(int32_t, 2) qual_line_thresholds = vibcp->qual_line_thresholds;
+  STD_ARRAY_KREF(int32_t, 2) qual_line_mins = vibcp->qual_line_mins;
+  STD_ARRAY_KREF(int32_t, 2) qual_line_maxs = vibcp->qual_line_maxs;
   const uint32_t qual_field_ct = vibcp->qual_field_ct;
   const char* phasescan_iter = format_end;
   uintptr_t retval = 0;
@@ -1422,7 +1431,7 @@ uintptr_t VcfScanShortallelicLine(const VcfImportBaseContext* vibcp, const char*
       break;
     }
     if (VcfIsHetShort(&(phasescan_iter[-1]), halfcall_mode)) {
-      if ((!qual_field_ct) || (!VcfCheckQuals(qual_field_skips, qual_line_thresholds, phasescan_iter, FirstPrespace(&(phasescan_iter[2])), qual_field_ct))) {
+      if ((!qual_field_ct) || (!VcfCheckQuals(qual_field_skips, qual_line_mins, qual_line_maxs, phasescan_iter, FirstPrespace(&(phasescan_iter[2])), qual_field_ct))) {
         goto VcfScanShortallelicLine_phased_het_found;
       }
     }
@@ -1434,7 +1443,7 @@ uintptr_t VcfScanShortallelicLine(const VcfImportBaseContext* vibcp, const char*
     if ((phasescan_iter[2] != '|') || (!VcfIsHetShort(&(phasescan_iter[1]), halfcall_mode))) {
       continue;
     }
-    if ((!qual_field_ct) || (!VcfCheckQuals(qual_field_skips, qual_line_thresholds, phasescan_iter, FirstPrespace(&(phasescan_iter[4])), qual_field_ct))) {
+    if ((!qual_field_ct) || (!VcfCheckQuals(qual_field_skips, qual_line_mins, qual_line_maxs, phasescan_iter, FirstPrespace(&(phasescan_iter[4])), qual_field_ct))) {
       goto VcfScanShortallelicLine_phased_het_found;
     }
   }
@@ -1452,7 +1461,8 @@ VcfParseErr VcfConvertUnphasedBiallelicLine(const VcfImportBaseContext* vibcp, c
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
   const VcfHalfCall halfcall_mode = vibcp->halfcall_mode;
   STD_ARRAY_KREF(uint32_t, 2) qual_field_skips = vibcp->qual_field_skips;
-  STD_ARRAY_KREF(int32_t, 2) qual_line_thresholds = vibcp->qual_line_thresholds;
+  STD_ARRAY_KREF(int32_t, 2) qual_line_mins = vibcp->qual_line_mins;
+  STD_ARRAY_KREF(int32_t, 2) qual_line_maxs = vibcp->qual_line_maxs;
   const uint32_t qual_field_ct = vibcp->qual_field_ct;
 
   uint32_t inner_loop_last = kBitsPerWordD2 - 1;
@@ -1470,7 +1480,7 @@ VcfParseErr VcfConvertUnphasedBiallelicLine(const VcfImportBaseContext* vibcp, c
         return kVcfParseMissingTokens;
       }
       uintptr_t cur_geno;
-      if (qual_field_ct && VcfCheckQuals(qual_field_skips, qual_line_thresholds, linebuf_iter, cur_gtext_end, qual_field_ct)) {
+      if (qual_field_ct && VcfCheckQuals(qual_field_skips, qual_line_mins, qual_line_maxs, linebuf_iter, cur_gtext_end, qual_field_ct)) {
         cur_geno = 3;
       } else {
         // Still must check for '|', since phasing_flags bit is unset when all
@@ -1539,7 +1549,8 @@ VcfParseErr VcfConvertPhasedBiallelicLine(const VcfImportBaseContext* vibcp, con
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
   const VcfHalfCall halfcall_mode = vibcp->halfcall_mode;
   STD_ARRAY_KREF(uint32_t, 2) qual_field_skips = vibcp->qual_field_skips;
-  STD_ARRAY_KREF(int32_t, 2) qual_line_thresholds = vibcp->qual_line_thresholds;
+  STD_ARRAY_KREF(int32_t, 2) qual_line_mins = vibcp->qual_line_mins;
+  STD_ARRAY_KREF(int32_t, 2) qual_line_maxs = vibcp->qual_line_maxs;
   const uint32_t qual_field_ct = vibcp->qual_field_ct;
 
   uint32_t inner_loop_last = kBitsPerWordD2 - 1;
@@ -1559,7 +1570,7 @@ VcfParseErr VcfConvertPhasedBiallelicLine(const VcfImportBaseContext* vibcp, con
         return kVcfParseMissingTokens;
       }
       uintptr_t cur_geno;
-      if (qual_field_ct && VcfCheckQuals(qual_field_skips, qual_line_thresholds, linebuf_iter, cur_gtext_end, qual_field_ct)) {
+      if (qual_field_ct && VcfCheckQuals(qual_field_skips, qual_line_mins, qual_line_maxs, linebuf_iter, cur_gtext_end, qual_field_ct)) {
         cur_geno = 3;
       } else {
         const uint32_t is_phased = (linebuf_iter[1] == '|');
@@ -1634,7 +1645,8 @@ VcfParseErr VcfConvertPhasedBiallelicLine(const VcfImportBaseContext* vibcp, con
 uintptr_t VcfScanLongallelicLine(const VcfImportBaseContext* vibcp, const char* format_end, char** line_iter_ptr) {
   const VcfHalfCall halfcall_mode = vibcp->halfcall_mode;
   STD_ARRAY_KREF(uint32_t, 2) qual_field_skips = vibcp->qual_field_skips;
-  STD_ARRAY_KREF(int32_t, 2) qual_line_thresholds = vibcp->qual_line_thresholds;
+  STD_ARRAY_KREF(int32_t, 2) qual_line_mins = vibcp->qual_line_mins;
+  STD_ARRAY_KREF(int32_t, 2) qual_line_maxs = vibcp->qual_line_maxs;
   const uint32_t qual_field_ct = vibcp->qual_field_ct;
   const char* phasescan_iter = format_end;
   uintptr_t retval = 0;
@@ -1659,7 +1671,7 @@ uintptr_t VcfScanLongallelicLine(const VcfImportBaseContext* vibcp, const char* 
       break;
     }
     if (VcfIsHetLong(&(phasescan_iter[1]), &(next_vbar[1]), halfcall_mode)) {
-      if ((!qual_field_ct) || (!VcfCheckQuals(qual_field_skips, qual_line_thresholds, phasescan_iter, FirstPrespace(&(next_vbar[2])), qual_field_ct))) {
+      if ((!qual_field_ct) || (!VcfCheckQuals(qual_field_skips, qual_line_mins, qual_line_maxs, phasescan_iter, FirstPrespace(&(next_vbar[2])), qual_field_ct))) {
         goto VcfScanLongallelicLine_phased_het_found;
       }
     }
@@ -1675,7 +1687,7 @@ uintptr_t VcfScanLongallelicLine(const VcfImportBaseContext* vibcp, const char* 
     if ((*next_vbar != '|') || (!VcfIsHetLong(&(phasescan_iter[1]), &(next_vbar[1]), halfcall_mode))) {
       continue;
     }
-    if ((!qual_field_ct) || (!VcfCheckQuals(qual_field_skips, qual_line_thresholds, phasescan_iter, FirstPrespace(&(next_vbar[2])), qual_field_ct))) {
+    if ((!qual_field_ct) || (!VcfCheckQuals(qual_field_skips, qual_line_mins, qual_line_maxs, phasescan_iter, FirstPrespace(&(next_vbar[2])), qual_field_ct))) {
       goto VcfScanLongallelicLine_phased_het_found;
     }
   }
@@ -1702,7 +1714,8 @@ static uint32_t g_hard_call_halfdist = 0;
 static uint32_t g_dosage_erase_halfdist = 0;
 static double g_import_dosage_certainty = 0.0;
 static VcfHalfCall g_halfcall_mode = kVcfHalfCallReference;
-static STD_ARRAY_DECL(int32_t, 2, g_qual_thresholds) = STD_ARRAY_INIT_START() {0, 0} STD_ARRAY_INIT_END();
+static STD_ARRAY_DECL(int32_t, 2, g_qual_mins) = STD_ARRAY_INIT_START() {0, 0} STD_ARRAY_INIT_END();
+static STD_ARRAY_DECL(int32_t, 2, g_qual_maxs) = STD_ARRAY_INIT_START() {0, 0} STD_ARRAY_INIT_END();
 static uint32_t g_dosage_is_gp = 0;
 static GparseFlags g_gparse_flags = kfGparse0;
 
@@ -1720,8 +1733,10 @@ THREAD_FUNC_DECL VcfGenoToPgenThread(void* arg) {
   vic.dosage_erase_halfdist = g_dosage_erase_halfdist;
   vic.import_dosage_certainty = g_import_dosage_certainty;
   const uint32_t hard_call_halfdist = g_hard_call_halfdist;
-  STD_ARRAY_DECL(int32_t, 2, qual_thresholds);
-  STD_ARRAY_COPY(g_qual_thresholds, 2, qual_thresholds);
+  STD_ARRAY_DECL(int32_t, 2, qual_mins);
+  STD_ARRAY_DECL(int32_t, 2, qual_maxs);
+  STD_ARRAY_COPY(g_qual_mins, 2, qual_mins);
+  STD_ARRAY_COPY(g_qual_maxs, 2, qual_maxs);
   unsigned char* thread_wkspace = g_thread_wkspaces[tidx];
   uintptr_t* patch_01_set = nullptr;
   AlleleCode* patch_01_vals = nullptr;
@@ -1777,7 +1792,7 @@ THREAD_FUNC_DECL VcfGenoToPgenThread(void* arg) {
           ++genotext_start;
           uint32_t qual_field_ct = grp->metadata.read_vcf.qual_present;
           if (qual_field_ct) {
-            qual_field_ct = VcfQualScanInit2(grp->metadata.read_vcf.qual_field_idxs, qual_thresholds, vic.vibc.qual_field_skips, vic.vibc.qual_line_thresholds);
+            qual_field_ct = VcfQualScanInit2(grp->metadata.read_vcf.qual_field_idxs, qual_mins, qual_maxs, vic.vibc.qual_field_skips, vic.vibc.qual_line_mins, vic.vibc.qual_line_maxs);
           }
           vic.vibc.gt_present = grp->metadata.read_vcf.gt_present;
           vic.vibc.qual_field_ct = qual_field_ct;
@@ -1865,7 +1880,7 @@ THREAD_FUNC_DECL VcfGenoToPgenThread(void* arg) {
 
 static_assert(!kVcfHalfCallReference, "VcfToPgen() assumes kVcfHalfCallReference == 0.");
 static_assert(kVcfHalfCallHaploid == 1, "VcfToPgen() assumes kVcfHalfCallHaploid == 1.");
-PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, uint32_t no_samples_ok, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
+PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, uint32_t no_samples_ok, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
   // Now performs a 2-pass load.  Yes, this can be slower than plink 1.9, but
   // it's necessary to use the Pgen_writer classes for now (since we need to
   // know upfront how many variants there are, and whether phase/dosage is
@@ -1930,8 +1945,10 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       }
     }
 
-    g_qual_thresholds[0] = vcf_min_gq;
-    g_qual_thresholds[1] = vcf_min_dp;
+    g_qual_mins[0] = vcf_min_gq;
+    g_qual_mins[1] = vcf_min_dp;
+    g_qual_maxs[0] = 0x7fffffff;
+    g_qual_maxs[1] = vcf_max_dp;
     // sample_ct set later
     VcfImportContext vic;
     vic.vibc.halfcall_mode = halfcall_mode;
@@ -2044,7 +2061,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           goto VcfToPgen_ret_MALFORMED_INPUT;
         }
         format_gq_relevant = 1;
-      } else if ((vcf_min_dp != -1) && StrStartsWithUnsafe(&(linebuf_iter[2]), "FORMAT=<ID=DP,Number=1,Type=")) {
+      } else if (((vcf_min_dp != -1) || (vcf_max_dp != 0x7fffffff)) && StrStartsWithUnsafe(&(linebuf_iter[2]), "FORMAT=<ID=DP,Number=1,Type=")) {
         if (unlikely(format_dp_relevant)) {
           logerrputs("Error: Duplicate FORMAT:DP header line in --vcf file.\n");
           goto VcfToPgen_ret_MALFORMED_INPUT;
@@ -2090,8 +2107,9 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       logerrputs("Warning: No FORMAT:GQ field in --vcf file header.  --vcf-min-gq ignored.\n");
       vcf_min_gq = -1;
     }
-    if ((!format_dp_relevant) && (vcf_min_dp != -1)) {
-      logerrputs("Warning: No FORMAT:DP field in --vcf file header.  --vcf-min-dp ignored.\n");
+    if ((!format_dp_relevant) && ((vcf_max_dp != 0x7fffffff) || (vcf_min_dp != -1))) {
+      logerrputs("Warning: No FORMAT:DP field in --vcf file header.  --vcf-{max,min}-dp ignored.\n");
+      vcf_max_dp = 0x7fffffff;
       vcf_min_dp = -1;
     }
     const uint32_t format_gq_or_dp_relevant = format_gq_relevant || format_dp_relevant;
@@ -2349,11 +2367,11 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         }
         if (format_gq_or_dp_relevant) {
           STD_ARRAY_DECL(uint32_t, 2, qual_field_idxs);
-          uint32_t qual_field_ct = VcfQualScanInit1(linebuf_iter, format_end, vcf_min_gq, vcf_min_dp, qual_field_idxs);
+          uint32_t qual_field_ct = VcfQualScanInit1(linebuf_iter, format_end, vcf_min_gq, vcf_min_dp, vcf_max_dp, qual_field_idxs);
           // bugfix (5 Jun 2018): must initialize qual_field_ct to zero
           vic.vibc.qual_field_ct = 0;
           if (qual_field_ct) {
-            vic.vibc.qual_field_ct = VcfQualScanInit2(qual_field_idxs, g_qual_thresholds, vic.vibc.qual_field_skips, vic.vibc.qual_line_thresholds);
+            vic.vibc.qual_field_ct = VcfQualScanInit2(qual_field_idxs, g_qual_mins, g_qual_maxs, vic.vibc.qual_field_skips, vic.vibc.qual_line_mins, vic.vibc.qual_line_maxs);
           }
         }
 
@@ -2943,7 +2961,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           } else {
             linebuf_iter = AdvToDelim(format_start, '\t');
             if (format_gq_or_dp_relevant) {
-              vic.vibc.qual_field_ct = VcfQualScanInit1(format_start, linebuf_iter, vcf_min_gq, vcf_min_dp, vic.vibc.qual_field_skips);
+              vic.vibc.qual_field_ct = VcfQualScanInit1(format_start, linebuf_iter, vcf_min_gq, vcf_min_dp, vcf_max_dp, vic.vibc.qual_field_skips);
             }
             if ((!phase_or_dosage_found) && (!format_dosage_relevant) && (!format_hds_search)) {
               gparse_flags = kfGparse0;

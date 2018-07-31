@@ -1544,6 +1544,27 @@ void MaskGenovecHetsUnsafe(const uintptr_t* __restrict genovec, uint32_t raw_sam
   }
 }
 
+void MaskGenovecHetsMultiallelicUnsafe(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr) {
+  // Related to PgrDetectGenovecHetsMultiallelic().
+  const Halfword* patch_10_set_alias = R_CAST(const Halfword*, patch_10_set);
+  const AlleleCode* patch_10_vals_iter = patch_10_vals;
+  Halfword* bitarr_alias = R_CAST(Halfword*, bitarr);
+  for (uint32_t widx = 0; widx != raw_sample_ctl2; ++widx) {
+    const uintptr_t cur_word = genovec[widx];
+    uint32_t patch_10_hw = patch_10_set_alias[widx];
+    uint32_t cur_hets = Pack01ToHalfword(cur_word);
+    while (patch_10_hw) {
+      const AlleleCode code1 = *patch_10_vals_iter++;
+      const AlleleCode code2 = *patch_10_vals_iter++;
+      if (code1 != code2) {
+        cur_hets |= ctzu32(patch_10_hw);
+      }
+      patch_10_hw &= patch_10_hw - 1;
+    }
+    bitarr_alias[widx] &= cur_hets;
+  }
+}
+
 /*
 uint32_t chr_window_max(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bp, uint32_t chr_fo_idx, uint32_t ct_max, uint32_t bp_max, uint32_t cur_window_max) {
   if (cur_window_max >= ct_max) {
