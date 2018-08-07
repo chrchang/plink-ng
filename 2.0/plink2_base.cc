@@ -573,15 +573,15 @@ uint32_t FindLast1BitBefore(const uintptr_t* bitarr, uint32_t loc) {
 }
 
 #ifdef USE_AVX2
-// void CopyBitarrSubsetEx(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t bit_idx_start, uint32_t bit_idx_end, uintptr_t* __restrict output_bitarr) {
-void CopyBitarrSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t bit_idx_end, uintptr_t* __restrict output_bitarr) {
-  const uint32_t bit_idx_end_lowbits = bit_idx_end % kBitsPerWord;
+// void CopyBitarrSubsetEx(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t bit_idx_start, uint32_t output_bit_idx_end, uintptr_t* __restrict output_bitarr) {
+void CopyBitarrSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t output_bit_idx_end, uintptr_t* __restrict output_bitarr) {
+  const uint32_t output_bit_idx_end_lowbits = output_bit_idx_end % kBitsPerWord;
   uintptr_t* output_bitarr_iter = output_bitarr;
-  uintptr_t* output_bitarr_last = &(output_bitarr[bit_idx_end / kBitsPerWord]);
+  uintptr_t* output_bitarr_last = &(output_bitarr[output_bit_idx_end / kBitsPerWord]);
   uintptr_t cur_output_word = 0;
   uint32_t read_widx = UINT32_MAX;  // deliberate overflow
   uint32_t write_idx_lowbits = 0;
-  while ((output_bitarr_iter != output_bitarr_last) || (write_idx_lowbits != bit_idx_end_lowbits)) {
+  while ((output_bitarr_iter != output_bitarr_last) || (write_idx_lowbits != output_bit_idx_end_lowbits)) {
     uintptr_t cur_mask_word;
     // sparse subset_mask optimization
     // guaranteed to terminate since there's at least one more set bit
@@ -1019,14 +1019,14 @@ void ExpandThenSubsetBytearrNested(const void* __restrict compact_bitarr, const 
   }
 }
 #else  // !USE_AVX2
-void CopyBitarrSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t bit_idx_end, uintptr_t* __restrict output_bitarr) {
-  const uint32_t bit_idx_end_lowbits = bit_idx_end % kBitsPerWord;
+void CopyBitarrSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t output_bit_idx_end, uintptr_t* __restrict output_bitarr) {
+  const uint32_t output_bit_idx_end_lowbits = output_bit_idx_end % kBitsPerWord;
   uintptr_t* output_bitarr_iter = output_bitarr;
-  uintptr_t* output_bitarr_last = &(output_bitarr[bit_idx_end / kBitsPerWord]);
+  uintptr_t* output_bitarr_last = &(output_bitarr[output_bit_idx_end / kBitsPerWord]);
   uintptr_t cur_output_word = 0;
   uint32_t read_widx = UINT32_MAX;  // deliberate overflow
   uint32_t write_idx_lowbits = 0;
-  while ((output_bitarr_iter != output_bitarr_last) || (write_idx_lowbits != bit_idx_end_lowbits)) {
+  while ((output_bitarr_iter != output_bitarr_last) || (write_idx_lowbits != output_bit_idx_end_lowbits)) {
     uintptr_t cur_mask_word;
     // sparse subset_mask optimization
     // guaranteed to terminate since there's at least one more set bit
@@ -1597,9 +1597,9 @@ void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_bit_ct, uint32
     input_byte_scatter = ((input_byte >> 4) * 0x204081) & kMask0101;
     dst[2 * uii + 1] = incr_word + input_byte_scatter;
   }
-  if (!(input_bit_ct_plus & 4)) {
+  if (input_bit_ct_plus & 4) {
     uintptr_t input_byte = bytearr_uc[fullbyte_ct];
-    // assume high bits zeroed out
+    // input_bit_ct mod 8 in 1..4, so high bits zeroed out
     uintptr_t input_byte_scatter = (input_byte * 0x204081) & kMask0101;
     dst[2 * fullbyte_ct] = incr_word + input_byte_scatter;
   }
@@ -1639,7 +1639,7 @@ void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint3
       const VecU16 result = subfrom - vmask;
       vecu16_storeu(&(dst_alias[vec_idx]), result);
     }
-    byte_idx = fullvec_ct * (kBytesPerVec / 8);
+    byte_idx = fullvec_ct * (kBytesPerVec / 16);
   }
   const uintptr_t incr_word = incr * kMask0001;
   const uint32_t fullbyte_ct = input_nibble_ct / 2;

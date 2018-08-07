@@ -130,8 +130,9 @@ uint64_t GparseWriteByteCt(uint32_t sample_ct, uint32_t allele_ct, GparseFlags f
   if ((flags & (kfGparseHphase | kfGparseDosage | kfGparseDphase)) || is_multiallelic) {
     const uint32_t sample_ctv = BitCtToVecCt(sample_ct);
     if (is_multiallelic) {
-      logerrprintf("Error: GparseWriteByteCt allele_ct > 2 when that shouldn't be possible yet.\n");
-      exit(S_CAST(int32_t, kPglRetInternalError));
+      // patch_01_set, patch_10_set: sample_ctv each
+      // patch_01_vals: sample_ct AlleleCodes
+      // patch_10_vals: 2 * sample_ct AlleleCodes
       vec_ct += 2 * sample_ctv + AlleleCodeCtToVecCt(sample_ct) + DivUp(sample_ct * 2, kAlleleCodesPerVec);
     }
     if (flags & kfGparseHphase) {
@@ -144,6 +145,8 @@ uint64_t GparseWriteByteCt(uint32_t sample_ct, uint32_t allele_ct, GparseFlags f
         // todo
         // note that in VCF/BCF cases, we can compute an alternate upper bound
         // based on input record size, and this can buy us a lot
+        logerrprintf("Error: GparseWriteByteCt multiallelic dosage size request.\n");
+        exit(S_CAST(int32_t, kPglRetInternalError));
       }
       vec_ct += vec_incr * (1 + ((flags / kfGparseDphase) & 1));
     }
@@ -185,8 +188,6 @@ uintptr_t* GparseGetPointers(unsigned char* record_start, uint32_t sample_ct, ui
     uintptr_t* record_iter = &(genovec[QuaterCtToAlignedWordCt(sample_ct)]);
     const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
     if (is_multiallelic) {
-      logerrprintf("Error: GparseGetPointers allele_ct > 2 when that shouldn't be possible yet.\n");
-      exit(S_CAST(int32_t, kPglRetInternalError));
       *patch_01_set_ptr = record_iter;
       record_iter = &(record_iter[sample_ctaw]);
       *patch_01_vals_ptr = R_CAST(AlleleCode*, record_iter);
@@ -280,19 +281,29 @@ PglErr GparseFlushDebug(const GparseRecord* grp, uint32_t write_block_size, STPg
         const uint32_t cur_dphase_ct = cur_gwmp->dphase_ct;
         if (!cur_dphase_ct) {
           if (!cur_dosage_ct) {
-            // todo: multiallelic cases; then try to reduce the number of
-            // handcoded function calls here
-            if (!cur_gwmp->phasepresent_exists) {
-              if (unlikely(SpgwAppendBiallelicGenovec(genovec, spgwp))) {
-                goto GparseFlushDebug_ret_WRITE_FAIL;
+            if (allele_ct == 2) {
+              if (!cur_gwmp->phasepresent_exists) {
+                if (unlikely(SpgwAppendBiallelicGenovec(genovec, spgwp))) {
+                  goto GparseFlushDebug_ret_WRITE_FAIL;
+                }
+              } else {
+                if ((sample_ct % kBitsPerWord) && (phasepresent[sample_ct / kBitsPerWord] >> (sample_ct % kBitsPerWord))) {
+                  logerrprintf("Error: Dirty phasepresent trailing bits detected by GparseFlushDebug() in variant %u.\n", spgwp->pwc.vidx + write_block_vidx);
+                  exit(S_CAST(int32_t, kPglRetInternalError));
+                }
+                if (unlikely(SpgwAppendBiallelicGenovecHphase(genovec, phasepresent, phaseinfo, spgwp))) {
+                  goto GparseFlushDebug_ret_WRITE_FAIL;
+                }
               }
             } else {
-              if ((sample_ct % kBitsPerWord) && (phasepresent[sample_ct / kBitsPerWord] >> (sample_ct % kBitsPerWord))) {
-                logerrprintf("Error: Dirty phasepresent trailing bits detected by GparseFlushDebug() in variant %u.\n", spgwp->pwc.vidx + write_block_vidx);
-                exit(S_CAST(int32_t, kPglRetInternalError));
-              }
-              if (unlikely(SpgwAppendBiallelicGenovecHphase(genovec, phasepresent, phaseinfo, spgwp))) {
-                goto GparseFlushDebug_ret_WRITE_FAIL;
+              if (!cur_gwmp->phasepresent_exists) {
+                if (unlikely(SpgwAppendMultiallelicSparse(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, cur_gwmp->patch_01_ct, cur_gwmp->patch_10_ct, spgwp))) {
+                  goto GparseFlushDebug_ret_WRITE_FAIL;
+                }
+              } else {
+                if (unlikely(SpgwAppendMultiallelicGenovecHphase(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, phasepresent, phaseinfo, cur_gwmp->patch_01_ct, cur_gwmp->patch_10_ct, spgwp))) {
+                  goto GparseFlushDebug_ret_WRITE_FAIL;
+                }
               }
             }
           } else {
@@ -376,15 +387,25 @@ PglErr GparseFlush(const GparseRecord* grp, uint32_t write_block_size, STPgenWri
         const uint32_t cur_dphase_ct = cur_gwmp->dphase_ct;
         if (!cur_dphase_ct) {
           if (!cur_dosage_ct) {
-            // todo: multiallelic cases; then try to reduce the number of
-            // handcoded function calls here
-            if (!cur_gwmp->phasepresent_exists) {
-              if (unlikely(SpgwAppendBiallelicGenovec(genovec, spgwp))) {
-                goto GparseFlush_ret_WRITE_FAIL;
+            if (allele_ct == 2) {
+              if (!cur_gwmp->phasepresent_exists) {
+                if (unlikely(SpgwAppendBiallelicGenovec(genovec, spgwp))) {
+                  goto GparseFlush_ret_WRITE_FAIL;
+                }
+              } else {
+                if (unlikely(SpgwAppendBiallelicGenovecHphase(genovec, phasepresent, phaseinfo, spgwp))) {
+                  goto GparseFlush_ret_WRITE_FAIL;
+                }
               }
             } else {
-              if (unlikely(SpgwAppendBiallelicGenovecHphase(genovec, phasepresent, phaseinfo, spgwp))) {
-                goto GparseFlush_ret_WRITE_FAIL;
+              if (!cur_gwmp->phasepresent_exists) {
+                if (unlikely(SpgwAppendMultiallelicSparse(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, cur_gwmp->patch_01_ct, cur_gwmp->patch_10_ct, spgwp))) {
+                  goto GparseFlush_ret_WRITE_FAIL;
+                }
+              } else {
+                if (unlikely(SpgwAppendMultiallelicGenovecHphase(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, phasepresent, phaseinfo, cur_gwmp->patch_01_ct, cur_gwmp->patch_10_ct, spgwp))) {
+                  goto GparseFlush_ret_WRITE_FAIL;
+                }
               }
             }
           } else {
@@ -1233,12 +1254,16 @@ VcfParseErr VcfConvertPhasedBiallelicDosageLine(const VcfImportContext* vicp, co
   STD_ARRAY_KREF(int32_t, 2) qual_line_maxs = vicp->vibc.qual_line_maxs;
   const uint32_t qual_field_ct = vicp->vibc.qual_field_ct;
 
+  Halfword* phasepresent_alias = R_CAST(Halfword*, phasepresent);
+  Halfword* phaseinfo_alias = R_CAST(Halfword*, phaseinfo);
   const uint32_t dosage_is_gp = vicp->dosage_is_gp;
   const uint32_t dosage_erase_halfdist = vicp->dosage_erase_halfdist;
   const uint32_t dphase_erase_halfdist = dosage_erase_halfdist + kDosage4th;
   const double import_dosage_certainty = vicp->import_dosage_certainty;
   const uint32_t dosage_field_idx = vicp->dosage_field_idx;
   const uint32_t hds_field_idx = vicp->hds_field_idx;
+  Halfword* dosage_present_alias = R_CAST(Halfword*, dosage_present);
+  Halfword* dphase_present_alias = R_CAST(Halfword*, dphase_present);
   Dosage* dosage_main_iter = *dosage_main_iter_ptr;
   SDosage* dphase_delta_iter = *dphase_delta_iter_ptr;
   uint32_t inner_loop_last = kBitsPerWordD2 - 1;
@@ -1247,6 +1272,12 @@ VcfParseErr VcfConvertPhasedBiallelicDosageLine(const VcfImportContext* vicp, co
   for (uint32_t widx = 0; ; ++widx) {
     if (widx >= sample_ctl2_m1) {
       if (widx > sample_ctl2_m1) {
+        if (widx % 2) {
+          phasepresent_alias[widx] = 0;
+          // phaseinfo doesn't matter
+          dosage_present_alias[widx] = 0;
+          dphase_present_alias[widx] = 0;
+        }
         break;
       }
       inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
@@ -1318,9 +1349,6 @@ VcfParseErr VcfConvertPhasedBiallelicDosageLine(const VcfImportContext* vicp, co
             } else {
               const char cc = linebuf_iter[3];
               if (((cc != '/') && (cc != '|')) || (linebuf_iter[4] == '.')) {
-                // code triploids, etc. as missing
-                // might want to subject handling of 0/0/. to
-                // --vcf-half-call control
                 const uintptr_t second_allele_idx = ctow(linebuf_iter[2]) - 48;
                 if (second_allele_idx <= 1) {
                   cur_geno += second_allele_idx;
@@ -1343,6 +1371,13 @@ VcfParseErr VcfConvertPhasedBiallelicDosageLine(const VcfImportContext* vicp, co
                   // kVcfHalfCallHaploid, kVcfHalfCallReference
                   cur_geno <<= halfcall_mode;
                 }
+              } else {
+                // code triploids, etc. as missing
+                // (probable todo: make the scanning pass take this into
+                // account)
+                // might want to subject handling of 0/0/. to --vcf-half-call
+                // control
+                cur_geno = 3;
               }
             }
           } else if (unlikely(cur_geno != (~k0LU) * 2)) {
@@ -1400,10 +1435,10 @@ VcfParseErr VcfConvertPhasedBiallelicDosageLine(const VcfImportContext* vicp, co
       linebuf_iter = &(cur_gtext_end[1]);
     }
     genovec[widx] = genovec_word;
-    R_CAST(Halfword*, phasepresent)[widx] = phasepresent_hw;
-    R_CAST(Halfword*, phaseinfo)[widx] = phaseinfo_hw;
-    R_CAST(Halfword*, dosage_present)[widx] = dosage_present_hw;
-    R_CAST(Halfword*, dphase_present)[widx] = dphase_present_hw;
+    phasepresent_alias[widx] = phasepresent_hw;
+    phaseinfo_alias[widx] = phaseinfo_hw;
+    dosage_present_alias[widx] = dosage_present_hw;
+    dphase_present_alias[widx] = dphase_present_hw;
   }
   *dosage_main_iter_ptr = dosage_main_iter;
   *dphase_delta_iter_ptr = dphase_delta_iter;
@@ -1494,9 +1529,6 @@ VcfParseErr VcfConvertUnphasedBiallelicLine(const VcfImportBaseContext* vibcp, c
           } else {
             const char cc = linebuf_iter[3];
             if (((cc != '/') && (cc != '|')) || (linebuf_iter[4] == '.')) {
-              // code triploids, etc. as missing
-              // might want to subject handling of 0/0/. to
-              // --vcf-half-call control
               // bugfix (26 Jul 2018): this needs to be ctow, not ctou32
               const uintptr_t second_allele_idx = ctow(linebuf_iter[2]) - 48;
               if (second_allele_idx <= 1) {
@@ -1512,6 +1544,11 @@ VcfParseErr VcfConvertUnphasedBiallelicLine(const VcfImportBaseContext* vibcp, c
                 // kVcfHalfCallHaploid, kVcfHalfCallReference
                 cur_geno <<= halfcall_mode;
               }
+            } else {
+              // code triploids, etc. as missing
+              // might want to subject handling of 0/0/. to --vcf-half-call
+              // control
+              cur_geno = 3;
             }
           }
         } else if (unlikely(cur_geno != (~k0LU) * 2)) {
@@ -1527,6 +1564,7 @@ VcfParseErr VcfConvertUnphasedBiallelicLine(const VcfImportBaseContext* vibcp, c
             if (unlikely(halfcall_mode == kVcfHalfCallError)) {
               return kVcfParseHalfCallError;
             }
+            // probable todo: check for triploid
             // kVcfHalfCallHaploid, kVcfHalfCallReference
             cur_geno <<= halfcall_mode;
           } else {
@@ -1544,6 +1582,374 @@ VcfParseErr VcfConvertUnphasedBiallelicLine(const VcfImportBaseContext* vibcp, c
   return kVcfParseOk;
 }
 
+VcfParseErr VcfConvertUnphasedMultiallelicLine(const VcfImportBaseContext* vibcp, const char* linebuf_iter, uintptr_t allele_ct, uint32_t* __restrict patch_01_ctp, uint32_t* __restrict patch_10_ctp, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals) {
+  const uint32_t sample_ct = vibcp->sample_ct;
+  const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
+  const VcfHalfCall halfcall_mode = vibcp->halfcall_mode;
+  STD_ARRAY_KREF(uint32_t, 2) qual_field_skips = vibcp->qual_field_skips;
+  STD_ARRAY_KREF(int32_t, 2) qual_line_mins = vibcp->qual_line_mins;
+  STD_ARRAY_KREF(int32_t, 2) qual_line_maxs = vibcp->qual_line_maxs;
+  const uint32_t qual_field_ct = vibcp->qual_field_ct;
+  Halfword* patch_01_set_alias = R_CAST(Halfword*, patch_01_set);
+  Halfword* patch_10_set_alias = R_CAST(Halfword*, patch_10_set);
+  AlleleCode* patch_01_vals_iter = patch_01_vals;
+  AlleleCode* patch_10_vals_iter = patch_10_vals;
+
+  uint32_t inner_loop_last = kBitsPerWordD2 - 1;
+  for (uint32_t widx = 0; ; ++widx) {
+    if (widx >= sample_ctl2_m1) {
+      if (widx > sample_ctl2_m1) {
+        if (widx % 2) {
+          // might not need this, but lets play it safe
+          patch_01_set_alias[widx] = 0;
+          patch_10_set_alias[widx] = 0;
+        }
+        break;
+      }
+      inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
+    }
+    uintptr_t genovec_word = 0;
+    uint32_t patch_01_hw = 0;
+    uint32_t patch_10_hw = 0;
+    if (allele_ct <= 10) {
+      for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
+        const char* cur_gtext_end = FirstPrespace(linebuf_iter);
+        if (unlikely((*cur_gtext_end != '\t') && ((sample_idx_lowbits != inner_loop_last) || (widx != sample_ctl2_m1)))) {
+          return kVcfParseMissingTokens;
+        }
+        uintptr_t cur_geno;
+        if (qual_field_ct && VcfCheckQuals(qual_field_skips, qual_line_mins, qual_line_maxs, linebuf_iter, cur_gtext_end, qual_field_ct)) {
+          cur_geno = 3;
+        } else {
+          const uint32_t is_haploid = (linebuf_iter[1] != '/') && (linebuf_iter[1] != '|');
+          cur_geno = ctow(*linebuf_iter) - 48;
+          if (cur_geno < allele_ct) {
+            if (cur_geno <= 1) {
+              if (is_haploid) {
+                cur_geno *= 2;
+              } else {
+                const char cc = linebuf_iter[3];
+                if (((cc != '/') && (cc != '|')) || (linebuf_iter[4] == '.')) {
+                  const uintptr_t second_allele_idx = ctow(linebuf_iter[2]) - 48;
+                  if (second_allele_idx <= 1) {
+                    cur_geno += second_allele_idx;
+                  } else if (second_allele_idx < allele_ct) {
+                    const uint32_t shifted_bit = 1U << sample_idx_lowbits;
+                    if (!cur_geno) {
+                      patch_01_hw |= shifted_bit;
+                      *patch_01_vals_iter++ = second_allele_idx;
+                    } else {
+                      patch_10_hw |= shifted_bit;
+                      *patch_10_vals_iter++ = 1;
+                      *patch_10_vals_iter++ = second_allele_idx;
+                    }
+                    ++cur_geno;
+                  } else if (unlikely(second_allele_idx != (~k0LU) * 2)) {
+                    // not '.'
+                    return kVcfParseInvalidGt;
+                  } else if (halfcall_mode == kVcfHalfCallMissing) {
+                    cur_geno = 3;
+                  } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
+                    return kVcfParseHalfCallError;
+                  } else {
+                    // kVcfHalfCallHaploid, kVcfHalfCallReference
+                    cur_geno <<= halfcall_mode;
+                  }
+                } else {
+                  // code triploids, etc. as missing
+                  cur_geno = 3;
+                }
+              }
+            } else {
+              const uint32_t shifted_bit = 1U << sample_idx_lowbits;
+              if (is_haploid) {
+                patch_10_hw |= shifted_bit;
+                *patch_10_vals_iter++ = cur_geno;
+                *patch_10_vals_iter++ = cur_geno;
+                cur_geno = 2;
+              } else {
+                const char cc = linebuf_iter[3];
+                if (((cc != '/') && (cc != '|')) || (linebuf_iter[4] == '.')) {
+                  uintptr_t second_allele_idx = ctow(linebuf_iter[2]) - 48;
+                  if (second_allele_idx < allele_ct) {
+                    if (!second_allele_idx) {
+                      patch_01_hw |= shifted_bit;
+                      *patch_01_vals_iter++ = cur_geno;
+                      cur_geno = 1;
+                    } else {
+                      patch_10_hw |= shifted_bit;
+                      if (second_allele_idx < cur_geno) {
+                        // this is not explicitly disallowed, but should almost
+                        // never happen
+                        const uintptr_t ulii = cur_geno;
+                        cur_geno = second_allele_idx;
+                        second_allele_idx = ulii;
+                      }
+                      *patch_10_vals_iter++ = cur_geno;
+                      *patch_10_vals_iter++ = second_allele_idx;
+                      cur_geno = 2;
+                    }
+                  } else if (unlikely(second_allele_idx != (~k0LU) * 2)) {
+                    // not '.'
+                    return kVcfParseInvalidGt;
+                  } else if (halfcall_mode == kVcfHalfCallMissing) {
+                    cur_geno = 3;
+                  } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
+                    return kVcfParseHalfCallError;
+                  } else if (halfcall_mode == kVcfHalfCallReference) {
+                    patch_01_hw |= shifted_bit;
+                    *patch_01_vals_iter++ = cur_geno;
+                    cur_geno = 1;
+                  } else {
+                    // kVcfHalfCallHaploid
+                    patch_10_hw |= shifted_bit;
+                    *patch_10_vals_iter++ = cur_geno;
+                    *patch_10_vals_iter++ = cur_geno;
+                    cur_geno = 2;
+                  }
+                } else {
+                  // code triploids, etc. as missing
+                  cur_geno = 3;
+                }
+              }
+            }
+          } else if (unlikely(cur_geno != (~k0LU) * 2)) {
+            // not '.'
+            return kVcfParseInvalidGt;
+          } else if (halfcall_mode != kVcfHalfCallMissing) {
+            const char second_allele_char = linebuf_iter[2];
+            if ((second_allele_char != '.') && (!is_haploid)) {
+              cur_geno = ctow(second_allele_char) - 48;
+              if (unlikely(cur_geno >= allele_ct)) {
+                return kVcfParseInvalidGt;
+              }
+              if (unlikely(halfcall_mode == kVcfHalfCallError)) {
+                return kVcfParseHalfCallError;
+              }
+              // probable todo: check for triploid
+              if (cur_geno <= 1) {
+                // works for both kVcfHalfCallReference and kVcfHalfCallHaploid
+                cur_geno <<= halfcall_mode;
+              } else {
+                const uint32_t shifted_bit = 1U << sample_idx_lowbits;
+                if (halfcall_mode == kVcfHalfCallReference) {
+                  patch_01_hw |= shifted_bit;
+                  *patch_01_vals_iter++ = cur_geno;
+                  cur_geno = 1;
+                } else {
+                  // kVcfHalfCallHaploid
+                  patch_10_hw |= shifted_bit;
+                  *patch_10_vals_iter++ = cur_geno;
+                  *patch_10_vals_iter++ = cur_geno;
+                  cur_geno = 2;
+                }
+              }
+            } else {
+              cur_geno = 3;
+            }
+          } else {
+            cur_geno = 3;
+          }
+        }
+        genovec_word |= cur_geno << (2 * sample_idx_lowbits);
+        linebuf_iter = &(cur_gtext_end[1]);
+      }
+    } else {
+      // allele_ct > 10
+      for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
+        const char* cur_gtext_end = FirstPrespace(linebuf_iter);
+        if (unlikely((*cur_gtext_end != '\t') && ((sample_idx_lowbits != inner_loop_last) || (widx != sample_ctl2_m1)))) {
+          return kVcfParseMissingTokens;
+        }
+        uintptr_t cur_geno;
+        if (qual_field_ct && VcfCheckQuals(qual_field_skips, qual_line_mins, qual_line_maxs, linebuf_iter, cur_gtext_end, qual_field_ct)) {
+          cur_geno = 3;
+        } else {
+          cur_geno = ctow(*linebuf_iter) - 48;
+          if (cur_geno < 10) {
+            const char* gt_first_nondigit = &(linebuf_iter[1]);
+            uintptr_t next_digit;
+            for (; ; ++gt_first_nondigit) {
+              next_digit = ctow(*gt_first_nondigit) - 48;
+              if (next_digit >= 10) {
+                break;
+              }
+              cur_geno = cur_geno * 10 + next_digit;
+              if (cur_geno >= allele_ct) {
+                return kVcfParseInvalidGt;
+              }
+            }
+            // '/' = ascii 47, '|' = ascii 124
+            const uint32_t is_haploid = (next_digit != (~k0LU)) && (next_digit != 76);
+            if (cur_geno <= 1) {
+              if (is_haploid) {
+                cur_geno *= 2;
+              } else {
+                const char* second_allele_iter = &(gt_first_nondigit[1]);
+                uintptr_t second_allele_idx = ctow(*second_allele_iter++) - 48;
+                if (second_allele_idx < 10) {
+                  for (; ; ++second_allele_iter) {
+                    next_digit = ctow(*second_allele_iter) - 48;
+                    if (next_digit >= 10) {
+                      break;
+                    }
+                    second_allele_idx = second_allele_idx * 10 + next_digit;
+                    if (second_allele_idx >= allele_ct) {
+                      return kVcfParseInvalidGt;
+                    }
+                  }
+                  if (((next_digit != ~k0LU) && (next_digit != 76)) || second_allele_iter[1] == '.') {
+                    if (second_allele_idx <= 1) {
+                      cur_geno += second_allele_idx;
+                    } else {
+                      const uint32_t shifted_bit = 1U << sample_idx_lowbits;
+                      if (!cur_geno) {
+                        patch_01_hw |= shifted_bit;
+                        *patch_01_vals_iter++ = second_allele_idx;
+                      } else {
+                        patch_10_hw |= shifted_bit;
+                        *patch_10_vals_iter++ = 1;
+                        *patch_10_vals_iter++ = second_allele_idx;
+                      }
+                      ++cur_geno;
+                    }
+                  } else {
+                    // code triploids, etc. as missing
+                    cur_geno = 3;
+                  }
+                } else if (unlikely(second_allele_idx != (~k0LU) * 2)) {
+                  // not '.'
+                  return kVcfParseInvalidGt;
+                } else if (halfcall_mode == kVcfHalfCallMissing) {
+                  cur_geno = 3;
+                } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
+                  return kVcfParseHalfCallError;
+                } else {
+                  // kVcfHalfCallReference, kVcfHalfCallHaploid
+                  cur_geno <<= halfcall_mode;
+                }
+              }
+            } else {
+              const uint32_t shifted_bit = 1U << sample_idx_lowbits;
+              if (is_haploid) {
+                patch_10_hw |= shifted_bit;
+                *patch_10_vals_iter++ = cur_geno;
+                *patch_10_vals_iter++ = cur_geno;
+                cur_geno = 2;
+              } else {
+                const char* second_allele_iter = &(gt_first_nondigit[1]);
+                uintptr_t second_allele_idx = ctow(*second_allele_iter++) - 48;
+                if (second_allele_idx < 10) {
+                  for (; ; ++second_allele_iter) {
+                    next_digit = ctow(*second_allele_iter) - 48;
+                    if (next_digit >= 10) {
+                      break;
+                    }
+                    second_allele_idx = second_allele_idx * 10 + next_digit;
+                    if (second_allele_idx >= allele_ct) {
+                      return kVcfParseInvalidGt;
+                    }
+                  }
+                  if (((next_digit != ~k0LU) && (next_digit != 76)) || second_allele_iter[1] == '.') {
+                    if (!second_allele_idx) {
+                      patch_01_hw |= shifted_bit;
+                      *patch_01_vals_iter++ = cur_geno;
+                      cur_geno = 1;
+                    } else {
+                      patch_10_hw |= shifted_bit;
+                      if (second_allele_idx < cur_geno) {
+                        const uintptr_t ulii = cur_geno;
+                        cur_geno = second_allele_idx;
+                        second_allele_idx = ulii;
+                      }
+                      *patch_10_vals_iter++ = cur_geno;
+                      *patch_10_vals_iter++ = second_allele_idx;
+                      cur_geno = 2;
+                    }
+                  } else {
+                    // code triploids, etc. as missing
+                    cur_geno = 3;
+                  }
+                } else if (unlikely(second_allele_idx != (~k0LU) * 2)) {
+                  // not '.'
+                  return kVcfParseInvalidGt;
+                } else if (halfcall_mode == kVcfHalfCallMissing) {
+                  cur_geno = 3;
+                } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
+                  return kVcfParseHalfCallError;
+                } else if (halfcall_mode == kVcfHalfCallReference) {
+                  patch_01_hw |= shifted_bit;
+                  *patch_01_vals_iter++ = cur_geno;
+                  cur_geno = 1;
+                } else {
+                  // kVcfHalfCallHaploid
+                  patch_10_hw |= shifted_bit;
+                  *patch_10_vals_iter++ = cur_geno;
+                  *patch_10_vals_iter++ = cur_geno;
+                  cur_geno = 2;
+                }
+              }
+            }
+          } else if (unlikely(cur_geno != (~k0LU) * 2)) {
+            // not '.'
+            return kVcfParseInvalidGt;
+          } else if (halfcall_mode != kVcfHalfCallMissing) {
+            const char second_allele_first_char = linebuf_iter[2];
+            if ((second_allele_first_char != '.') && ((linebuf_iter[1] == '/') || (linebuf_iter[1] == '|'))) {
+              cur_geno = ctow(second_allele_first_char) - 48;
+              if (unlikely(cur_geno >= 10)) {
+                return kVcfParseInvalidGt;
+              }
+              for (const char* second_allele_iter = &(linebuf_iter[3]); ; ++second_allele_iter) {
+                uintptr_t next_digit = ctow(*second_allele_iter) - 48;
+                if (next_digit >= 10) {
+                  break;
+                }
+                cur_geno = cur_geno * 10 + next_digit;
+                if (cur_geno >= allele_ct) {
+                  return kVcfParseInvalidGt;
+                }
+              }
+              if (unlikely(halfcall_mode == kVcfHalfCallError)) {
+                return kVcfParseHalfCallError;
+              }
+              if (cur_geno <= 1) {
+                // works for both kVcfHalfCallReference and kVcfHalfCallHaploid
+                cur_geno <<= halfcall_mode;
+              } else {
+                const uint32_t shifted_bit = 1U << sample_idx_lowbits;
+                if (halfcall_mode == kVcfHalfCallReference) {
+                  patch_01_hw |= shifted_bit;
+                  *patch_01_vals_iter++ = cur_geno;
+                  cur_geno = 1;
+                } else {
+                  // kVcfHalfCallHaploid
+                  patch_10_hw |= shifted_bit;
+                  *patch_10_vals_iter++ = cur_geno;
+                  *patch_10_vals_iter++ = cur_geno;
+                  cur_geno = 2;
+                }
+              }
+            } else {
+              cur_geno = 3;
+            }
+          } else {
+            cur_geno = 3;
+          }
+        }
+        genovec_word |= cur_geno << (2 * sample_idx_lowbits);
+        linebuf_iter = &(cur_gtext_end[1]);
+      }
+    }
+    genovec[widx] = genovec_word;
+    patch_01_set_alias[widx] = patch_01_hw;
+    patch_10_set_alias[widx] = patch_10_hw;
+  }
+  *patch_01_ctp = patch_01_vals_iter - patch_01_vals;
+  *patch_10_ctp = S_CAST(uintptr_t, patch_10_vals_iter - patch_10_vals) / 2;
+  return kVcfParseOk;
+}
+
 VcfParseErr VcfConvertPhasedBiallelicLine(const VcfImportBaseContext* vibcp, const char* linebuf_iter, uintptr_t* genovec, uintptr_t* phasepresent, uintptr_t* phaseinfo) {
   const uint32_t sample_ct = vibcp->sample_ct;
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
@@ -1552,11 +1958,17 @@ VcfParseErr VcfConvertPhasedBiallelicLine(const VcfImportBaseContext* vibcp, con
   STD_ARRAY_KREF(int32_t, 2) qual_line_mins = vibcp->qual_line_mins;
   STD_ARRAY_KREF(int32_t, 2) qual_line_maxs = vibcp->qual_line_maxs;
   const uint32_t qual_field_ct = vibcp->qual_field_ct;
+  Halfword* phasepresent_alias = R_CAST(Halfword*, phasepresent);
+  Halfword* phaseinfo_alias = R_CAST(Halfword*, phaseinfo);
 
   uint32_t inner_loop_last = kBitsPerWordD2 - 1;
   for (uint32_t widx = 0; ; ++widx) {
     if (widx >= sample_ctl2_m1) {
       if (widx > sample_ctl2_m1) {
+        if (widx % 2) {
+          // might not need this, but lets play it safe
+          phasepresent_alias[widx] = 0;
+        }
         break;
       }
       inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
@@ -1582,9 +1994,6 @@ VcfParseErr VcfConvertPhasedBiallelicLine(const VcfImportBaseContext* vibcp, con
           } else {
             const char cc = linebuf_iter[3];
             if (((cc != '/') && (cc != '|')) || (linebuf_iter[4] == '.')) {
-              // code triploids, etc. as missing
-              // might want to subject handling of 0/0/. to
-              // --vcf-half-call control
               const uintptr_t second_allele_idx = ctow(linebuf_iter[2]) - 48;
               if (second_allele_idx <= 1) {
                 cur_geno += second_allele_idx;
@@ -1606,8 +2015,19 @@ VcfParseErr VcfConvertPhasedBiallelicLine(const VcfImportBaseContext* vibcp, con
                 return kVcfParseHalfCallError;
               } else {
                 // kVcfHalfCallHaploid, kVcfHalfCallReference
-                cur_geno <<= halfcall_mode;
+                if (is_phased && (halfcall_mode == kVcfHalfCallReference) && (cur_geno == 1)) {
+                  const uint32_t shifted_bit = 1U << sample_idx_lowbits;
+                  phasepresent_hw |= shifted_bit;
+                  phaseinfo_hw |= shifted_bit;
+                } else {
+                  cur_geno <<= halfcall_mode;
+                }
               }
+            } else {
+              // code triploids, etc. as missing
+              // might want to subject handling of 0/0/. to --vcf-half-call
+              // control
+              cur_geno = 3;
             }
           }
         } else if (unlikely(cur_geno != (~k0LU) * 2)) {
@@ -1615,7 +2035,7 @@ VcfParseErr VcfConvertPhasedBiallelicLine(const VcfImportBaseContext* vibcp, con
           return kVcfParseInvalidGt;
         } else if (halfcall_mode != kVcfHalfCallMissing) {
           const char second_allele_char = linebuf_iter[2];
-          if ((second_allele_char != '.') && ((linebuf_iter[1] == '/') || (linebuf_iter[1] == '|'))) {
+          if ((second_allele_char != '.') && (!is_haploid)) {
             cur_geno = ctow(second_allele_char) - 48;
             if (unlikely(cur_geno > 1)) {
               return kVcfParseInvalidGt;
@@ -1624,7 +2044,12 @@ VcfParseErr VcfConvertPhasedBiallelicLine(const VcfImportBaseContext* vibcp, con
               return kVcfParseHalfCallError;
             }
             // kVcfHalfCallHaploid, kVcfHalfCallReference
-            cur_geno <<= halfcall_mode;
+            if (is_phased && (halfcall_mode == kVcfHalfCallReference) && (cur_geno == 1)) {
+              const uint32_t shifted_bit = 1U << sample_idx_lowbits;
+              phasepresent_hw |= shifted_bit;
+            } else {
+              cur_geno <<= halfcall_mode;
+            }
           } else {
             cur_geno = 3;
           }
@@ -1636,9 +2061,439 @@ VcfParseErr VcfConvertPhasedBiallelicLine(const VcfImportBaseContext* vibcp, con
       linebuf_iter = &(cur_gtext_end[1]);
     }
     genovec[widx] = genovec_word;
-    R_CAST(Halfword*, phasepresent)[widx] = phasepresent_hw;
-    R_CAST(Halfword*, phaseinfo)[widx] = phaseinfo_hw;
+    phasepresent_alias[widx] = phasepresent_hw;
+    phaseinfo_alias[widx] = phaseinfo_hw;
   }
+  return kVcfParseOk;
+}
+
+// todo: try merging this with VcfConvertUnphasedMultiallelicLine, most of the
+// code is duplicated
+VcfParseErr VcfConvertPhasedMultiallelicLine(const VcfImportBaseContext* vibcp, const char* linebuf_iter, uintptr_t allele_ct, uint32_t* __restrict patch_01_ctp, uint32_t* __restrict patch_10_ctp, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo) {
+  const uint32_t sample_ct = vibcp->sample_ct;
+  const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
+  const VcfHalfCall halfcall_mode = vibcp->halfcall_mode;
+  STD_ARRAY_KREF(uint32_t, 2) qual_field_skips = vibcp->qual_field_skips;
+  STD_ARRAY_KREF(int32_t, 2) qual_line_mins = vibcp->qual_line_mins;
+  STD_ARRAY_KREF(int32_t, 2) qual_line_maxs = vibcp->qual_line_maxs;
+  const uint32_t qual_field_ct = vibcp->qual_field_ct;
+  Halfword* patch_01_set_alias = R_CAST(Halfword*, patch_01_set);
+  Halfword* patch_10_set_alias = R_CAST(Halfword*, patch_10_set);
+  AlleleCode* patch_01_vals_iter = patch_01_vals;
+  AlleleCode* patch_10_vals_iter = patch_10_vals;
+  Halfword* phasepresent_alias = R_CAST(Halfword*, phasepresent);
+  Halfword* phaseinfo_alias = R_CAST(Halfword*, phaseinfo);
+
+  uint32_t inner_loop_last = kBitsPerWordD2 - 1;
+  for (uint32_t widx = 0; ; ++widx) {
+    if (widx >= sample_ctl2_m1) {
+      if (widx > sample_ctl2_m1) {
+        if (widx % 2) {
+          // might not need this, but lets play it safe
+          patch_01_set_alias[widx] = 0;
+          patch_10_set_alias[widx] = 0;
+          phasepresent_alias[widx] = 0;
+          // phaseinfo doesn't matter
+        }
+        break;
+      }
+      inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
+    }
+    uintptr_t genovec_word = 0;
+    uint32_t patch_01_hw = 0;
+    uint32_t patch_10_hw = 0;
+    uint32_t phasepresent_hw = 0;
+    uint32_t phaseinfo_hw = 0;
+    uint32_t shifted_bit = 1;
+    if (allele_ct <= 10) {
+      for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
+        const char* cur_gtext_end = FirstPrespace(linebuf_iter);
+        if (unlikely((*cur_gtext_end != '\t') && ((sample_idx_lowbits != inner_loop_last) || (widx != sample_ctl2_m1)))) {
+          return kVcfParseMissingTokens;
+        }
+        uintptr_t cur_geno;
+        if (qual_field_ct && VcfCheckQuals(qual_field_skips, qual_line_mins, qual_line_maxs, linebuf_iter, cur_gtext_end, qual_field_ct)) {
+          cur_geno = 3;
+        } else {
+          const uint32_t is_phased = (linebuf_iter[1] == '|');
+          const uint32_t is_haploid = (!is_phased) && (linebuf_iter[1] != '/');
+          cur_geno = ctow(*linebuf_iter) - 48;
+          if (cur_geno < allele_ct) {
+            if (cur_geno <= 1) {
+              if (is_haploid) {
+                cur_geno *= 2;
+              } else {
+                const char cc = linebuf_iter[3];
+                if (((cc != '/') && (cc != '|')) || (linebuf_iter[4] == '.')) {
+                  const uintptr_t second_allele_idx = ctow(linebuf_iter[2]) - 48;
+                  if (second_allele_idx < allele_ct) {
+                    if (is_phased && (cur_geno != second_allele_idx)) {
+                      phasepresent_hw |= shifted_bit;
+                      if (!second_allele_idx) {
+                        // has to be 1|0 here, since cur_geno <= 1
+                        phaseinfo_hw |= shifted_bit;
+                      }
+                    }
+                    if (second_allele_idx <= 1) {
+                      cur_geno += second_allele_idx;
+                    } else {
+                      if (!cur_geno) {
+                        patch_01_hw |= shifted_bit;
+                        *patch_01_vals_iter++ = second_allele_idx;
+                      } else {
+                        patch_10_hw |= shifted_bit;
+                        *patch_10_vals_iter++ = 1;
+                        *patch_10_vals_iter++ = second_allele_idx;
+                      }
+                      ++cur_geno;
+                    }
+                  } else if (unlikely(second_allele_idx != (~k0LU) * 2)) {
+                    // not '.'
+                    return kVcfParseInvalidGt;
+                  } else if (halfcall_mode == kVcfHalfCallMissing) {
+                    cur_geno = 3;
+                  } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
+                    return kVcfParseHalfCallError;
+                  } else {
+                    // kVcfHalfCallHaploid, kVcfHalfCallReference
+                    if (is_phased && (halfcall_mode == kVcfHalfCallReference) && cur_geno) {
+                      phasepresent_hw |= shifted_bit;
+                      phaseinfo_hw |= shifted_bit;
+                    } else {
+                      cur_geno <<= halfcall_mode;
+                    }
+                  }
+                } else {
+                  // code triploids, etc. as missing
+                  cur_geno = 3;
+                }
+              }
+            } else {
+              // first allele index > 1
+              if (is_haploid) {
+                patch_10_hw |= shifted_bit;
+                *patch_10_vals_iter++ = cur_geno;
+                *patch_10_vals_iter++ = cur_geno;
+                cur_geno = 2;
+              } else {
+                const char cc = linebuf_iter[3];
+                if (((cc != '/') && (cc != '|')) || (linebuf_iter[4] == '.')) {
+                  uintptr_t second_allele_idx = ctow(linebuf_iter[2]) - 48;
+                  if (second_allele_idx < allele_ct) {
+                    if (is_phased && (cur_geno != second_allele_idx)) {
+                      phasepresent_hw |= shifted_bit;
+                      if (second_allele_idx < cur_geno) {
+                        phaseinfo_hw |= shifted_bit;
+                      }
+                    }
+                    if (!second_allele_idx) {
+                      patch_01_hw |= shifted_bit;
+                      *patch_01_vals_iter++ = cur_geno;
+                      cur_geno = 1;
+                    } else {
+                      patch_10_hw |= shifted_bit;
+                      if (second_allele_idx < cur_geno) {
+                        const uintptr_t ulii = cur_geno;
+                        cur_geno = second_allele_idx;
+                        second_allele_idx = ulii;
+                      }
+                      *patch_10_vals_iter++ = cur_geno;
+                      *patch_10_vals_iter++ = second_allele_idx;
+                      cur_geno = 2;
+                    }
+                  } else if (unlikely(second_allele_idx != (~k0LU) * 2)) {
+                    // not '.'
+                    return kVcfParseInvalidGt;
+                  } else if (halfcall_mode == kVcfHalfCallMissing) {
+                    cur_geno = 3;
+                  } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
+                    return kVcfParseHalfCallError;
+                  } else if (halfcall_mode == kVcfHalfCallReference) {
+                    if (is_phased) {
+                      phasepresent_hw |= shifted_bit;
+                      phaseinfo_hw |= shifted_bit;
+                    }
+                    patch_01_hw |= shifted_bit;
+                    *patch_01_vals_iter++ = cur_geno;
+                    cur_geno = 1;
+                  } else {
+                    // kVcfHalfCallHaploid
+                    patch_10_hw |= shifted_bit;
+                    *patch_10_vals_iter++ = cur_geno;
+                    *patch_10_vals_iter++ = cur_geno;
+                    cur_geno = 2;
+                  }
+                } else {
+                  // code triploids, etc. as missing
+                  cur_geno = 3;
+                }
+              }
+            }
+          } else if (unlikely(cur_geno != (~k0LU) * 2)) {
+            // not '.'
+            return kVcfParseInvalidGt;
+          } else if (halfcall_mode != kVcfHalfCallMissing) {
+            const char second_allele_char = linebuf_iter[2];
+            if ((second_allele_char != '.') && (!is_haploid)) {
+              cur_geno = ctow(second_allele_char) - 48;
+              if (unlikely(cur_geno >= allele_ct)) {
+                return kVcfParseInvalidGt;
+              }
+              if (unlikely(halfcall_mode == kVcfHalfCallError)) {
+                return kVcfParseHalfCallError;
+              }
+              // probable todo: check for triploid
+              if (is_phased && (halfcall_mode == kVcfHalfCallReference) && cur_geno) {
+                phasepresent_hw |= shifted_bit;
+              }
+              if (cur_geno <= 1) {
+                // works for both kVcfHalfCallReference and kVcfHalfCallHaploid
+                cur_geno <<= halfcall_mode;
+              } else {
+                if (halfcall_mode == kVcfHalfCallReference) {
+                  patch_01_hw |= shifted_bit;
+                  *patch_01_vals_iter++ = cur_geno;
+                  cur_geno = 1;
+                } else {
+                  // kVcfHalfCallHaploid
+                  patch_10_hw |= shifted_bit;
+                  *patch_10_vals_iter++ = cur_geno;
+                  *patch_10_vals_iter++ = cur_geno;
+                  cur_geno = 2;
+                }
+              }
+            } else {
+              cur_geno = 3;
+            }
+          } else {
+            cur_geno = 3;
+          }
+        }
+        genovec_word |= cur_geno << (2 * sample_idx_lowbits);
+        shifted_bit *= 2;
+        linebuf_iter = &(cur_gtext_end[1]);
+      }
+    } else {
+      // allele_ct > 10
+      for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
+        const char* cur_gtext_end = FirstPrespace(linebuf_iter);
+        if (unlikely((*cur_gtext_end != '\t') && ((sample_idx_lowbits != inner_loop_last) || (widx != sample_ctl2_m1)))) {
+          return kVcfParseMissingTokens;
+        }
+        uintptr_t cur_geno;
+        if (qual_field_ct && VcfCheckQuals(qual_field_skips, qual_line_mins, qual_line_maxs, linebuf_iter, cur_gtext_end, qual_field_ct)) {
+          cur_geno = 3;
+        } else {
+          cur_geno = ctow(*linebuf_iter) - 48;
+          if (cur_geno < 10) {
+            const char* gt_first_nondigit = &(linebuf_iter[1]);
+            uintptr_t next_digit;
+            for (; ; ++gt_first_nondigit) {
+              next_digit = ctow(*gt_first_nondigit) - 48;
+              if (next_digit >= 10) {
+                break;
+              }
+              cur_geno = cur_geno * 10 + next_digit;
+              if (cur_geno >= allele_ct) {
+                return kVcfParseInvalidGt;
+              }
+            }
+            // '/' = ascii 47, '|' = ascii 124
+            const uint32_t is_phased = (next_digit == 76);
+            const uint32_t is_haploid = (!is_phased) && (next_digit != (~k0LU));
+            if (cur_geno <= 1) {
+              if (is_haploid) {
+                cur_geno *= 2;
+              } else {
+                const char* second_allele_iter = &(gt_first_nondigit[1]);
+                uintptr_t second_allele_idx = ctow(*second_allele_iter++) - 48;
+                if (second_allele_idx < 10) {
+                  for (; ; ++second_allele_iter) {
+                    next_digit = ctow(*second_allele_iter) - 48;
+                    if (next_digit >= 10) {
+                      break;
+                    }
+                    second_allele_idx = second_allele_idx * 10 + next_digit;
+                    if (second_allele_idx >= allele_ct) {
+                      return kVcfParseInvalidGt;
+                    }
+                  }
+                  if (((next_digit != ~k0LU) && (next_digit != 76)) || second_allele_iter[1] == '.') {
+                    if (is_phased && (cur_geno != second_allele_idx)) {
+                      phasepresent_hw |= shifted_bit;
+                      if (!second_allele_idx) {
+                        // has to be 1|0 here, since cur_geno <= 1
+                        phaseinfo_hw |= shifted_bit;
+                      }
+                    }
+                    if (second_allele_idx <= 1) {
+                      cur_geno += second_allele_idx;
+                    } else {
+                      if (!cur_geno) {
+                        patch_01_hw |= shifted_bit;
+                        *patch_01_vals_iter++ = second_allele_idx;
+                      } else {
+                        patch_10_hw |= shifted_bit;
+                        *patch_10_vals_iter++ = 1;
+                        *patch_10_vals_iter++ = second_allele_idx;
+                      }
+                      ++cur_geno;
+                    }
+                  } else {
+                    // code triploids, etc. as missing
+                    cur_geno = 3;
+                  }
+                } else if (unlikely(second_allele_idx != (~k0LU) * 2)) {
+                  // not '.'
+                  return kVcfParseInvalidGt;
+                } else if (halfcall_mode == kVcfHalfCallMissing) {
+                  cur_geno = 3;
+                } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
+                  return kVcfParseHalfCallError;
+                } else {
+                  // kVcfHalfCallReference, kVcfHalfCallHaploid
+                  if (is_phased && (halfcall_mode == kVcfHalfCallReference) && cur_geno) {
+                    phasepresent_hw |= shifted_bit;
+                    phaseinfo_hw |= shifted_bit;
+                  } else {
+                    cur_geno <<= halfcall_mode;
+                  }
+                }
+              }
+            } else {
+              // first allele index > 1
+              if (is_haploid) {
+                patch_10_hw |= shifted_bit;
+                *patch_10_vals_iter++ = cur_geno;
+                *patch_10_vals_iter++ = cur_geno;
+                cur_geno = 2;
+              } else {
+                const char* second_allele_iter = &(gt_first_nondigit[1]);
+                uintptr_t second_allele_idx = ctow(*second_allele_iter++) - 48;
+                if (second_allele_idx < 10) {
+                  for (; ; ++second_allele_iter) {
+                    next_digit = ctow(*second_allele_iter) - 48;
+                    if (next_digit >= 10) {
+                      break;
+                    }
+                    second_allele_idx = second_allele_idx * 10 + next_digit;
+                    if (second_allele_idx >= allele_ct) {
+                      return kVcfParseInvalidGt;
+                    }
+                  }
+                  if (((next_digit != ~k0LU) && (next_digit != 76)) || second_allele_iter[1] == '.') {
+                    if (is_phased && (cur_geno != second_allele_idx)) {
+                      phasepresent_hw |= shifted_bit;
+                      if (second_allele_idx < cur_geno) {
+                        phaseinfo_hw |= shifted_bit;
+                      }
+                    }
+                    if (!second_allele_idx) {
+                      patch_01_hw |= shifted_bit;
+                      *patch_01_vals_iter++ = cur_geno;
+                      cur_geno = 1;
+                    } else {
+                      patch_10_hw |= shifted_bit;
+                      if (second_allele_idx < cur_geno) {
+                        const uintptr_t ulii = cur_geno;
+                        cur_geno = second_allele_idx;
+                        second_allele_idx = ulii;
+                      }
+                      *patch_10_vals_iter++ = cur_geno;
+                      *patch_10_vals_iter++ = second_allele_idx;
+                      cur_geno = 2;
+                    }
+                  } else {
+                    // code triploids, etc. as missing
+                    cur_geno = 3;
+                  }
+                } else if (unlikely(second_allele_idx != (~k0LU) * 2)) {
+                  // not '.'
+                  return kVcfParseInvalidGt;
+                } else if (halfcall_mode == kVcfHalfCallMissing) {
+                  cur_geno = 3;
+                } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
+                  return kVcfParseHalfCallError;
+                } else if (halfcall_mode == kVcfHalfCallReference) {
+                  if (is_phased) {
+                    phasepresent_hw |= shifted_bit;
+                    phaseinfo_hw |= shifted_bit;
+                  }
+                  patch_01_hw |= shifted_bit;
+                  *patch_01_vals_iter++ = cur_geno;
+                  cur_geno = 1;
+                } else {
+                  // kVcfHalfCallHaploid
+                  patch_10_hw |= shifted_bit;
+                  *patch_10_vals_iter++ = cur_geno;
+                  *patch_10_vals_iter++ = cur_geno;
+                  cur_geno = 2;
+                }
+              }
+            }
+          } else if (unlikely(cur_geno != (~k0LU) * 2)) {
+            // not '.'
+            return kVcfParseInvalidGt;
+          } else if (halfcall_mode != kVcfHalfCallMissing) {
+            const char second_allele_first_char = linebuf_iter[2];
+            if ((second_allele_first_char != '.') && ((linebuf_iter[1] == '/') || (linebuf_iter[1] == '|'))) {
+              cur_geno = ctow(second_allele_first_char) - 48;
+              if (unlikely(cur_geno >= 10)) {
+                return kVcfParseInvalidGt;
+              }
+              for (const char* second_allele_iter = &(linebuf_iter[3]); ; ++second_allele_iter) {
+                uintptr_t next_digit = ctow(*second_allele_iter) - 48;
+                if (next_digit >= 10) {
+                  break;
+                }
+                cur_geno = cur_geno * 10 + next_digit;
+                if (cur_geno >= allele_ct) {
+                  return kVcfParseInvalidGt;
+                }
+              }
+              if (unlikely(halfcall_mode == kVcfHalfCallError)) {
+                return kVcfParseHalfCallError;
+              }
+              // probable todo: check for triploid
+              if ((linebuf_iter[1] == '|') && (halfcall_mode == kVcfHalfCallReference) && cur_geno) {
+                phasepresent_hw |= shifted_bit;
+              }
+              if (cur_geno <= 1) {
+                // works for both kVcfHalfCallReference and kVcfHalfCallHaploid
+                cur_geno <<= halfcall_mode;
+              } else {
+                if (halfcall_mode == kVcfHalfCallReference) {
+                  patch_01_hw |= shifted_bit;
+                  *patch_01_vals_iter++ = cur_geno;
+                  cur_geno = 1;
+                } else {
+                  // kVcfHalfCallHaploid
+                  patch_10_hw |= shifted_bit;
+                  *patch_10_vals_iter++ = cur_geno;
+                  *patch_10_vals_iter++ = cur_geno;
+                  cur_geno = 2;
+                }
+              }
+            } else {
+              cur_geno = 3;
+            }
+          } else {
+            cur_geno = 3;
+          }
+        }
+        genovec_word |= cur_geno << (2 * sample_idx_lowbits);
+        shifted_bit *= 2;
+        linebuf_iter = &(cur_gtext_end[1]);
+      }
+    }
+    genovec[widx] = genovec_word;
+    patch_01_set_alias[widx] = patch_01_hw;
+    patch_10_set_alias[widx] = patch_10_hw;
+    phasepresent_alias[widx] = phasepresent_hw;
+    phaseinfo_alias[widx] = phaseinfo_hw;
+  }
+  *patch_01_ctp = patch_01_vals_iter - patch_01_vals;
+  *patch_10_ctp = S_CAST(uintptr_t, patch_10_vals_iter - patch_10_vals) / 2;
   return kVcfParseOk;
 }
 
@@ -1749,7 +2604,7 @@ THREAD_FUNC_DECL VcfGenoToPgenThread(void* arg) {
   uintptr_t* dphase_present = nullptr;
   SDosage* dphase_delta = nullptr;
   SDosage* tmp_dphase_delta = R_CAST(SDosage*, thread_wkspace);
-  thread_wkspace = &(thread_wkspace[RoundUpPow2(sample_ct * sizeof(SDosage), kBytesPerVec)]);;;
+  thread_wkspace = &(thread_wkspace[RoundUpPow2(sample_ct * sizeof(SDosage), kBytesPerVec)]);
   uintptr_t* write_patch_01_set = nullptr;
   AlleleCode* write_patch_01_vals = nullptr;
   uintptr_t* write_patch_10_set = nullptr;
@@ -1776,6 +2631,8 @@ THREAD_FUNC_DECL VcfGenoToPgenThread(void* arg) {
 
       for (; bidx != bidx_end; ++bidx) {
         GparseRecord* grp = &(cur_gparse[bidx]);
+        uint32_t patch_01_ct = 0;
+        uint32_t patch_10_ct = 0;
         uint32_t cur_phasepresent_exists = 0;
         uint32_t dosage_ct = 0;
         uint32_t dphase_ct = 0;
@@ -1803,14 +2660,13 @@ THREAD_FUNC_DECL VcfGenoToPgenThread(void* arg) {
               if (cur_allele_ct == 2) {
                 vcf_parse_err = VcfConvertUnphasedBiallelicLine(&(vic.vibc), genotext_start, genovec);
               } else {
-                // todo
+                vcf_parse_err = VcfConvertUnphasedMultiallelicLine(&(vic.vibc), genotext_start, cur_allele_ct, &patch_01_ct, &patch_10_ct, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals);
               }
             } else {
-              phasepresent[sample_ctl - 1] = 0;
               if (cur_allele_ct == 2) {
                 vcf_parse_err = VcfConvertPhasedBiallelicLine(&(vic.vibc), genotext_start, genovec, phasepresent, phaseinfo);
               } else {
-                // todo
+                vcf_parse_err = VcfConvertPhasedMultiallelicLine(&(vic.vibc), genotext_start, cur_allele_ct, &patch_01_ct, &patch_10_ct, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, phasepresent, phaseinfo);
               }
               cur_phasepresent_exists = !AllWordsAreZero(phasepresent, sample_ctl);
             }
@@ -1821,11 +2677,11 @@ THREAD_FUNC_DECL VcfGenoToPgenThread(void* arg) {
           } else {
             Dosage* dosage_main_iter = dosage_main;
             SDosage* dphase_delta_iter = dphase_delta;
-            phasepresent[sample_ctl - 1] = 0;
             if (cur_allele_ct == 2) {
               vcf_parse_err = VcfConvertPhasedBiallelicDosageLine(&vic, genotext_start, genovec, phasepresent, phaseinfo, dosage_present, dphase_present, &dosage_main_iter, &dphase_delta_iter);
             } else {
-              // todo
+              // multiallelic dosage: shouldn't be possible to get here yet
+              exit(S_CAST(int32_t, kPglRetInternalError));
             }
             if (unlikely(vcf_parse_err)) {
               line_idx = grp->metadata.read_vcf.line_idx;
@@ -1833,10 +2689,6 @@ THREAD_FUNC_DECL VcfGenoToPgenThread(void* arg) {
             }
             dosage_ct = dosage_main_iter - dosage_main;
             if (dosage_ct) {
-              if (sample_ctl2 % 2) {
-                R_CAST(Halfword*, dosage_present)[sample_ctl2] = 0;
-                R_CAST(Halfword*, dphase_present)[sample_ctl2] = 0;
-              }
               dphase_ct = ApplyHardCallThreshPhased(dosage_present, dosage_main, dosage_ct, hard_call_halfdist, genovec, phasepresent, phaseinfo, dphase_present, dphase_delta, tmp_dphase_delta);
               memcpy(write_dosage_present, dosage_present, sample_ctl * sizeof(intptr_t));
               memcpy(write_dosage_main, dosage_main, dosage_ct * sizeof(Dosage));
@@ -1848,14 +2700,22 @@ THREAD_FUNC_DECL VcfGenoToPgenThread(void* arg) {
             cur_phasepresent_exists = !AllWordsAreZero(phasepresent, sample_ctl);
           }
           memcpy(write_genovec, genovec, sample_ctl2 * sizeof(intptr_t));
+          if (patch_01_ct) {
+            memcpy(write_patch_01_set, patch_01_set, sample_ctl * sizeof(intptr_t));
+            memcpy(write_patch_01_vals, patch_01_vals, patch_01_ct * sizeof(AlleleCode));
+          }
+          if (patch_10_ct) {
+            memcpy(write_patch_10_set, patch_10_set, sample_ctl * sizeof(intptr_t));
+            memcpy(write_patch_10_vals, patch_10_vals, patch_10_ct * sizeof(AlleleCode) * 2);
+          }
           if (cur_phasepresent_exists || dphase_ct) {
             memcpy(write_phasepresent, phasepresent, sample_ctl * sizeof(intptr_t));
             memcpy(write_phaseinfo, phaseinfo, sample_ctl * sizeof(intptr_t));
           }
         }
 
-        grp->metadata.write.patch_01_ct = 0;
-        grp->metadata.write.patch_10_ct = 0;
+        grp->metadata.write.patch_01_ct = patch_01_ct;
+        grp->metadata.write.patch_10_ct = patch_10_ct;
         grp->metadata.write.phasepresent_exists = cur_phasepresent_exists;
         grp->metadata.write.dosage_ct = dosage_ct;
         grp->metadata.write.multiallelic_dosage_ct = 0;
@@ -2185,9 +3045,6 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     uint32_t max_qualfilterinfo_slen = 6;
     uint32_t phase_or_dosage_found = 0;
 
-    // temporary kludge
-    uint32_t multiallelic_skip_ct = 0;
-
     while (1) {
       ++line_idx;
       line_iter = AdvPastDelim(line_iter, '\n');
@@ -2267,14 +3124,6 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         if (ucc != ',') {
           break;
         }
-      }
-
-      // temporary kludge
-      if (alt_ct > 1) {
-        ++multiallelic_skip_ct;
-        // May as well avoid '\n' search redundancy.
-        line_iter = linebuf_iter;
-        continue;
       }
 
       if (unlikely(ucc != '\t')) {
@@ -2382,7 +3231,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           if (alt_ct == 1) {
             vcf_parse_err = VcfScanBiallelicHdsLine(&vic, format_end, &phase_or_dosage_found, &line_iter);
           } else {
-            logerrputs("Error: Multiallelic dosage import is not implemented yet.\n");
+            logerrputs("Error: --vcf multiallelic dosage import is under development.\n");
             reterr = kPglRetNotYetSupported;
             goto VcfToPgen_ret_1;
           }
@@ -2434,10 +3283,6 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       logprintf("--vcf: %u variant%s scanned.\n", variant_ct, (variant_ct == 1)? "" : "s");
     } else {
       logprintf("--vcf: %u variant%s scanned (%" PRIuPTR " skipped).\n", variant_ct, (variant_ct == 1)? "" : "s", variant_skip_ct);
-    }
-
-    if (multiallelic_skip_ct) {
-      logerrprintfww("Warning: %" PRIuPTR " multiallelic variant%s %sskipped (not yet supported).\n", multiallelic_skip_ct, (multiallelic_skip_ct == 1)? "" : "s", variant_skip_ct? "also " : "");
     }
 
     if (allele_idx_end > 2 * variant_ct) {
@@ -2492,14 +3337,13 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     if (unlikely(fopen_checked(outname, FOPEN_WB, &pvarfile))) {
       goto VcfToPgen_ret_OPEN_FAIL;
     }
-    line_idx = 0;
-    while (1) {
+    for (line_idx = 1; ; ++line_idx) {
       // ok to ignore specific return value since this is second pass
       if (unlikely(RlsNext(&vcf_rls, &line_iter))) {
         DPrintf("Stream header read failure.\n");
         goto VcfToPgen_ret_READ_FAIL;
       }
-      if (++line_idx == header_line_ct) {
+      if (line_idx == header_line_ct) {
         break;
       }
       // don't use textbuf here, since header line length could theoretically
@@ -2636,8 +3480,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     DPrintf("end of writebuf: %lx\n", R_CAST(uintptr_t, g_bigstack_base));
     write_iter = writebuf;
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
-    if (max_alt_ct > 1) {
-      logerrputs("Error: Multiallelic variant import is under development.\n");
+    if (max_alt_ct > kPglMaxAltAlleleCt) {
+      logerrprintfww("Error: VCF file has a variant with %u ALT alleles; this build of " PROG_NAME_STR " is limited to %u.\n", max_alt_ct, kPglMaxAltAlleleCt);
       reterr = kPglRetNotYetSupported;
       goto VcfToPgen_ret_1;
     }
@@ -2896,9 +3740,6 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
             goto VcfToPgen_ret_MALFORMED_INPUT_2N;
           }
 
-          // temporary kludge
-          char* cur_write_start = write_iter;
-
           if (chr_code_base == UINT32_MAX) {
             write_iter = memcpya(write_iter, line_iter, chr_code_end - line_iter);
           } else {
@@ -2907,43 +3748,24 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           *write_iter++ = '\t';
           write_iter = u32toa(cur_bp, write_iter);
 
-          uint32_t alt_ct = 1;
+          // first copy includes both REF and ALT1
           char* copy_start = pos_str_end;
-          while (1) {
+          uint32_t alt_ct;
+          for (alt_ct = 1; ; ++alt_ct) {
             ++linebuf_iter;
             unsigned char ucc;
             do {
               ucc = *(++linebuf_iter);
               // allow GATK 3.4 <*:DEL> symbolic allele
             } while ((ucc > ',') || (ucc == '*'));
-
-            // temporary kludge
-            if (ucc == ',') {
-              alt_ct = 2;
-              break;
-            }
-
             write_iter = memcpya(write_iter, copy_start, linebuf_iter - copy_start);
-            // unsafe to flush for now due to multiallelic kludge
-            /*
             if (fwrite_ck(writebuf_flush, pvarfile, &write_iter)) {
               goto VcfToPgen_ret_WRITE_FAIL;
             }
-            */
             if (ucc != ',') {
               break;
             }
             copy_start = linebuf_iter;
-            ++alt_ct;
-          }
-          // temporary kludge
-          if (alt_ct > 1) {
-            write_iter = cur_write_start;
-            line_iter = info_end;
-            goto VcfToPgen_load_start;
-          }
-          if (unlikely(fwrite_ck(writebuf_flush, pvarfile, &write_iter))) {
-            goto VcfToPgen_ret_WRITE_FAIL;
           }
 
           write_iter = memcpya(write_iter, linebuf_iter, (info_nonpr_present? info_end : filter_end) - linebuf_iter);

@@ -1269,8 +1269,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     HelpPrint("snps-only\0", &help_ctrl, 0,
 "  --snps-only <just-acgt> : Exclude non-SNP variants.  By default, SNP = all\n"
-"                            allele codes are single-character; 'just-acgt'\n"
-"                            restricts SNP codes to {A,C,G,T,a,c,g,t,[missing]}.\n"
+"                            allele codes are single-character (so multiallelic\n"
+"                            variants with a mix of SNPs and non-SNPs are\n"
+"                            excluded; split your variants first if that's a\n"
+"                            problem).\n"
+"                            The 'just-acgt' modifier restricts SNP codes to\n"
+"                            {A,C,G,T,a,c,g,t,[missing]}.\n"
                );
     // best to only support --chr with --from-bp/--to-bp/etc., now that
     // FinalizeChrset() is deferred
@@ -1369,6 +1373,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       k / (j+k).\n"
 "                       Note that this does not affect --freq's output.\n"
                );
+    HelpPrint("max-alleles\0min-alleles\0", &help_ctrl, 0,
+"  --min-alleles [ct] : Exclude variants with fewer than the given # of alleles.\n"
+"                       (When a variant has exactly one ALT allele, and it's\n"
+"                       a missing-code, it's excluded by \"--min-alleles 2\".)\n"
+"  --max-alleles [ct] : Exclude variants with more than the given # of alleles.\n"
+              );
     HelpPrint("read-freq\0bad-freqs\0", &help_ctrl, 0,
 "  --read-freq [file] : Load allele frequency estimates from the given --freq or\n"
 "                       --geno-counts (or PLINK 1.9 --freqx) report, instead of\n"

@@ -1905,10 +1905,14 @@ HEADER_INLINE uint32_t VecIsAligned(const void* ptr) {
 }
 
 HEADER_INLINE void VecAlignUp(void* pp) {
-  // bleah, need to write this way to avoid gcc 4.4 strict-aliasing warning
   uintptr_t addr = *S_CAST(uintptr_t*, pp);
+#if (__GNUC__ <= 4) && (__GNUC_MINOR__ < 7) && !defined(__APPLE__)
+  // bleah, need to write this way to avoid gcc 4.4 strict-aliasing warning
   addr = RoundUpPow2(addr, kBytesPerVec);
   memcpy(pp, &addr, sizeof(intptr_t));
+#else
+  *S_CAST(uintptr_t*, pp) = RoundUpPow2(addr, kBytesPerVec);
+#endif
 }
 
 #ifdef __LP64__
@@ -2899,6 +2903,19 @@ HEADER_INLINE void vecset(void* target_vec, uintptr_t ww, uintptr_t vec_ct) {
 #endif
 }
 
+// todo: make sure these are efficient for small ct
+HEADER_INLINE void u16set(void* dst, uint16_t usii, uintptr_t ct) {
+  uint16_t* dst_u16 = S_CAST(uint16_t*, dst);
+  for (uintptr_t ulii = 0; ulii != ct; ++ulii) {
+    dst_u16[ulii] = usii;
+  }
+}
+
+HEADER_INLINE char* u16setsa(char* dst, uint16_t usii, uintptr_t ct) {
+  u16set(dst, usii, ct);
+  return &(dst[ct * 2]);
+}
+
 HEADER_INLINE uintptr_t ClearBottomSetBits(uint32_t ct, uintptr_t ulii) {
 #ifdef USE_AVX2
   return _pdep_u64((~k0LU) << ct, ulii);
@@ -2914,7 +2931,8 @@ HEADER_INLINE uint32_t WordBitIdxToUidx(uintptr_t ulii, uint32_t bit_idx) {
   return ctzw(ClearBottomSetBits(bit_idx, ulii));
 }
 
-void CopyBitarrSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t bit_idx_end, uintptr_t* __restrict output_bitarr);
+// output_bit_idx_end is practically always subset_size
+void CopyBitarrSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t output_bit_idx_end, uintptr_t* __restrict output_bitarr);
 
 // expand_size + read_start_bit must be positive.
 void ExpandBytearr(const void* __restrict compact_bitarr, const uintptr_t* __restrict expand_mask, uint32_t word_ct, uint32_t expand_size, uint32_t read_start_bit, uintptr_t* __restrict target);

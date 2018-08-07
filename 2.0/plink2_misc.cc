@@ -2419,30 +2419,47 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
       goto WriteGenoCounts_ret_NOMEM;
     }
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
-    const uint32_t raw_sample_ctv = BitCtToVecCt(raw_sample_ct);
-    uintptr_t* sample_include_interleaved_vec = nullptr;
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    const uint32_t max_allele_ct = simple_pgrp->fi.max_allele_ct;
     uint32_t* sample_include_cumulative_popcounts = nullptr;
+    uintptr_t* sex_male_collapsed = nullptr;  // chrX
+    uint32_t* sex_male_cumulative_popcounts = nullptr;  // chrY
     uintptr_t* genovec = nullptr;
-    uintptr_t* sex_male_interleaved_vec = nullptr;
-    uint32_t* sex_male_cumulative_popcounts = nullptr;
-    const uint32_t more_counts_needed = (simple_pgrp->fi.max_allele_ct > 2) && (geno_counts_flags & (kfGenoCountsColRefalt1 | kfGenoCountsColRefalt | kfGenoCountsColHomalt1 | kfGenoCountsColAltxy | kfGenoCountsColXy | kfGenoCountsColHapalt1 | kfGenoCountsColHapalt | kfGenoCountsColHap | kfGenoCountsColNumeq));
+    uintptr_t* patch_01_set = nullptr;
+    AlleleCode* patch_01_vals = nullptr;
+    uintptr_t* patch_10_set = nullptr;
+    AlleleCode* patch_10_vals = nullptr;
+    uint32_t* diploid_pair_cts = nullptr;
+    uint32_t* hap_cts = nullptr;
+    const uint32_t more_counts_needed = (max_allele_ct > 2) && (geno_counts_flags & (kfGenoCountsColRefalt1 | kfGenoCountsColRefalt | kfGenoCountsColHomalt1 | kfGenoCountsColAltxy | kfGenoCountsColXy | kfGenoCountsColHapalt1 | kfGenoCountsColHapalt | kfGenoCountsColHap | kfGenoCountsColNumeq));
     if (more_counts_needed) {
       if (unlikely(
-              bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &sample_include_interleaved_vec) ||
               bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+              bigstack_alloc_w(sample_ctl, &sex_male_collapsed) ||
+              bigstack_alloc_u32(raw_sample_ctl, &sex_male_cumulative_popcounts) ||
               bigstack_alloc_w(QuaterCtToWordCt(raw_sample_ct), &genovec) ||
-              bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &sex_male_interleaved_vec) ||
-              bigstack_alloc_u32(raw_sample_ctl, &sex_male_cumulative_popcounts))) {
+              bigstack_alloc_w(sample_ctl, &patch_01_set) ||
+              bigstack_alloc_ac(sample_ct, &patch_01_vals) ||
+              bigstack_alloc_w(sample_ctl, &patch_10_set) ||
+              bigstack_alloc_ac(2 * sample_ct, &patch_10_vals) ||
+              bigstack_alloc_u32(max_allele_ct * max_allele_ct, &diploid_pair_cts) ||
+              bigstack_alloc_u32(max_allele_ct, &hap_cts))) {
         goto WriteGenoCounts_ret_NOMEM;
       }
-      FillInterleavedMaskVec(sample_include, raw_sample_ctv, sample_include_interleaved_vec);
       FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
-      FillInterleavedMaskVec(sex_male, raw_sample_ctv, sex_male_interleaved_vec);
+      CopyBitarrSubset(sex_male, sample_include, sample_ct, sex_male_collapsed);
       FillCumulativePopcounts(sex_male, raw_sample_ctl, sex_male_cumulative_popcounts);
       // currently clear in front of every chromosome
       // PgrClearLdCache(simple_pgrp);
     }
-    const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + simple_pgrp->fi.max_allele_ct * (24 * k1LU) + 2 * max_allele_slen;
+    // Will need to remove quadratic dependency on max_allele_ct if
+    // sizeof(AlleleCode) > 1.
+    // The actual number of numeq and {alt}xy entries is roughly half of
+    // allele_ct^2, so 12 * allele_ct^2 allows 20 bytes per entry when both
+    // fields are present simultaneously, which is more than enough.  (The
+    // surplus and the 512 constant are enough to cover the linearly-growing
+    // fields.)
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + max_allele_ct * max_allele_ct * 20 + 2 * max_allele_slen;
     const uint32_t output_zst = geno_counts_flags & kfGenoCountsZs;
     OutnameZstSet(".gcount", output_zst, outname_end);
     reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
@@ -2532,7 +2549,8 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
 
     const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
     const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
-    // const uintptr_t* cur_sample_include = nullptr;
+    const uintptr_t* cur_sample_include = nullptr;
+    const uint32_t* cur_cumulative_popcounts = nullptr;
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
     uint32_t is_autosomal_diploid = 0;
@@ -2550,7 +2568,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
     uint32_t next_print_variant_idx = variant_ct / 100;
     printf("--geno-counts%s: 0%%", output_zst? " zs" : "");
     fflush(stdout);
-    uint32_t cur_allele_ct = 2;
+    uint32_t allele_ct = 2;
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
       const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
       if (variant_uidx >= chr_end) {
@@ -2565,11 +2583,13 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
         is_autosomal_diploid = !IsSet(cip->haploid_mask, chr_idx);
         nobs_base = sample_ct;
         is_x = (chr_idx == x_code);
-        // cur_sample_include = sample_include;
+        cur_sample_include = sample_include;
+        cur_cumulative_popcounts = sample_include_cumulative_popcounts;
         PgrClearLdCache(simple_pgrp);
         if (!is_autosomal_diploid) {
           if (chr_idx == y_code) {
-            // cur_sample_include = sex_male;
+            cur_sample_include = sex_male;
+            cur_cumulative_popcounts = sex_male_cumulative_popcounts;
             nobs_base = male_ct;
           }
         }
@@ -2589,7 +2609,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
       uintptr_t allele_idx_offset_base = variant_uidx * 2;
       if (allele_idx_offsets) {
         allele_idx_offset_base = allele_idx_offsets[variant_uidx];
-        cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+        allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
       }
       const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
       if (ref_col) {
@@ -2602,7 +2622,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
       }
       if (alt_col) {
         *cswritep++ = '\t';
-        for (uint32_t allele_idx = 1; allele_idx != cur_allele_ct; ++allele_idx) {
+        for (uint32_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
           if (unlikely(Cswrite(&css, &cswritep))) {
             goto WriteGenoCounts_ret_WRITE_FAIL;
           }
@@ -2610,9 +2630,9 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
         }
         --cswritep;
       }
+      STD_ARRAY_KREF(uint32_t, 3) cur_raw_geno_cts = raw_geno_cts[variant_uidx];
       uint32_t missing_ct;
-      if ((cur_allele_ct == 2) || (!more_counts_needed)) {
-        STD_ARRAY_KREF(uint32_t, 3) cur_raw_geno_cts = raw_geno_cts[variant_uidx];
+      if ((allele_ct == 2) || (!more_counts_needed)) {
         if (is_autosomal_diploid) {
           homref_ct = cur_raw_geno_cts[0];
           het_ct = cur_raw_geno_cts[1];
@@ -2634,7 +2654,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
             }
             missing_ct = nobs_base - homref_ct - het_ct - homalt1_ct - hapref_ct - hapalt1_ct;
           } else {
-            // chrY or other pure-haploid
+            // chrY or other pure-haploid; hethap treated as missing
             hapref_ct = cur_raw_geno_cts[0];
             hapalt1_ct = cur_raw_geno_cts[2];
             missing_ct = nobs_base - hapref_ct - hapalt1_ct;
@@ -2709,8 +2729,191 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
           }
         }
       } else {
-        // todo; need PgrGetM()
-        exit(63);
+        uint32_t patch_01_ct;
+        uint32_t patch_10_ct;
+        reterr = PgrGetM(cur_sample_include, cur_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, &patch_01_ct, &patch_10_ct);
+        if (unlikely(reterr)) {
+          if (reterr == kPglRetMalformedInput) {
+            logputs("\n");
+            logerrputs("Error: Malformed .pgen file.\n");
+          }
+          goto WriteGenoCounts_ret_1;
+        }
+        // Usually don't care about contents of genovec, patch_01_set, and
+        // patch_10_set, but chrX is an exception.
+        // Need to have an alternate strategy once sizeof(AlleleCode) > 1.
+        ZeroU32Arr(allele_ct * allele_ct, diploid_pair_cts);
+        diploid_pair_cts[0] = cur_raw_geno_cts[0];
+        // lo_idx * allele_ct + hi_idx
+        diploid_pair_cts[1] = cur_raw_geno_cts[1] - patch_01_ct;
+        for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
+          diploid_pair_cts[patch_01_vals[uii]] += 1;
+        }
+        const uintptr_t allele_ctp1 = allele_ct + 1;
+        diploid_pair_cts[allele_ctp1] = cur_raw_geno_cts[2] - patch_10_ct;
+        for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
+          const uintptr_t lo_code = patch_10_vals[2 * uii];
+          const uintptr_t hi_code = patch_10_vals[2 * uii + 1];
+          diploid_pair_cts[lo_code * allele_ct + hi_code] += 1;
+        }
+        if (is_autosomal_diploid) {
+          homref_ct = cur_raw_geno_cts[0];
+          homalt1_ct = diploid_pair_cts[allele_ctp1];
+          missing_ct = nobs_base - cur_raw_geno_cts[0] - cur_raw_geno_cts[1] - cur_raw_geno_cts[2];
+          hap_cts[0] = 0;
+          hap_cts[1] = 0;
+        } else {
+          if (is_x) {
+            missing_ct = nobs_base - cur_raw_geno_cts[0] - cur_raw_geno_cts[1] - cur_raw_geno_cts[2];
+            ZeroU32Arr(allele_ct, hap_cts);
+            if (x_male_geno_cts) {
+              STD_ARRAY_KREF(uint32_t, 3) cur_male_geno_cts = x_male_geno_cts[variant_uidx - x_start];
+              hap_cts[0] = cur_male_geno_cts[0];
+              diploid_pair_cts[0] -= cur_male_geno_cts[0];
+              // possible todo: try making two disjoint PgrGetM calls instead.
+              // don't expect that to be better, though.
+              uintptr_t sample_widx = 0;
+              uintptr_t cur_patch_bits = patch_01_set[0];
+              uint32_t male_patch_01_ct = 0;
+              for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
+                const uintptr_t lowbit = BitIter1y(patch_01_set, &sample_widx, &cur_patch_bits);
+                if (sex_male_collapsed[sample_widx] & lowbit) {
+                  diploid_pair_cts[patch_01_vals[uii]] -= 1;
+                  ++male_patch_01_ct;
+                }
+              }
+              missing_ct += male_patch_01_ct;
+              diploid_pair_cts[1] -= cur_male_geno_cts[1] - male_patch_01_ct;
+              sample_widx = 0;
+              cur_patch_bits = patch_10_set[0];
+              uint32_t* hap_cts_offset1 = &(hap_cts[1]);
+              uint32_t male_patch_10_ct = 0;
+              for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
+                const uintptr_t lowbit = BitIter1y(patch_10_set, &sample_widx, &cur_patch_bits);
+                if (sex_male_collapsed[sample_widx] & lowbit) {
+                  const uintptr_t lo_code = patch_10_vals[2 * uii];
+                  const uintptr_t hi_code = patch_10_vals[2 * uii + 1];
+                  diploid_pair_cts[lo_code * allele_ct + hi_code] -= 1;
+                  ++male_patch_10_ct;
+                  if (lo_code == hi_code) {
+                    hap_cts_offset1[lo_code] += 1;
+                  }
+                }
+              }
+              missing_ct += male_patch_10_ct;
+              hap_cts[1] = cur_male_geno_cts[2] - male_patch_10_ct;
+              diploid_pair_cts[allele_ctp1] -= hap_cts[1];
+              for (uint32_t aidx = 2; aidx != allele_ct; ++aidx) {
+                // subtract male rarehoms
+                missing_ct -= hap_cts[aidx];
+              }
+            }
+            homref_ct = diploid_pair_cts[0];
+            homalt1_ct = diploid_pair_cts[allele_ctp1];
+          } else {
+            // chrY or other pure-haploid; hethap treated as missing
+            uint32_t nonmissing_ct = 0;
+            for (uintptr_t aidx = 0; aidx != allele_ct; ++aidx) {
+              const uint32_t cur_ct = diploid_pair_cts[aidx * allele_ctp1];
+              hap_cts[aidx] = cur_ct;
+              nonmissing_ct += cur_ct;
+            }
+            missing_ct = nobs_base - nonmissing_ct;
+          }
+        }
+        if (homref_col) {
+          *cswritep++ = '\t';
+          cswritep = u32toa(homref_ct, cswritep);
+        }
+        if (refalt1_col) {
+          if (is_autosomal_diploid || is_x) {
+            *cswritep++ = '\t';
+            cswritep = u32toa(diploid_pair_cts[1], cswritep);
+          } else {
+            cswritep = strcpya_k(cswritep, "\t0");
+          }
+        }
+        if (refalt_col) {
+          *cswritep++ = '\t';
+          if (is_autosomal_diploid || is_x) {
+            for (uint32_t aidx = 1; aidx != allele_ct; ++aidx) {
+              cswritep = u32toa_x(diploid_pair_cts[aidx], ',', cswritep);
+            }
+            --cswritep;
+          } else {
+            // repeat "0,"
+            cswritep = u16setsa(cswritep, 0x2c30, allele_ct - 2);
+            *cswritep++ = '0';
+          }
+        }
+        if (homalt1_col) {
+          *cswritep++ = '\t';
+          cswritep = u32toa(homalt1_ct, cswritep);
+        }
+        if (xy_col) {
+          *cswritep++ = '\t';
+          if (is_autosomal_diploid || is_x) {
+            for (uint32_t aidx_hi = xy_col_altonly; aidx_hi != allele_ct; ++aidx_hi) {
+              for (uint32_t aidx_lo = xy_col_altonly; aidx_lo <= aidx_hi; ++aidx_lo) {
+                cswritep = u32toa_x(diploid_pair_cts[aidx_lo * allele_ct + aidx_hi], ',', cswritep);
+              }
+            }
+            --cswritep;
+          } else {
+            const uint32_t triangle_base = allele_ct - xy_col_altonly;
+            cswritep = u16setsa(cswritep, 0x2c30, (triangle_base * (triangle_base + 1) / 2) - 1);
+            *cswritep++ = '0';
+          }
+        }
+        if (hapref_col) {
+          *cswritep++ = '\t';
+          cswritep = u32toa(hap_cts[0], cswritep);
+        }
+        if (hapalt1_col) {
+          *cswritep++ = '\t';
+          cswritep = u32toa(hap_cts[1], cswritep);
+        }
+        if (hap_col) {
+          *cswritep++ = '\t';
+          if (!is_autosomal_diploid) {
+            for (uint32_t aidx = hap_col_altonly; aidx != allele_ct; ++aidx) {
+              cswritep = u32toa_x(hap_cts[aidx], ',', cswritep);
+            }
+            --cswritep;
+          } else {
+            cswritep = u16setsa(cswritep, 0x2c30, allele_ct - hap_col_altonly - 1);
+            *cswritep++ = '0';
+          }
+        }
+        if (numeq_col) {
+          *cswritep++ = '\t';
+          if (is_autosomal_diploid || is_x) {
+            for (uint32_t aidx_hi = 0; aidx_hi != allele_ct; ++aidx_hi) {
+              for (uint32_t aidx_lo = 0; aidx_lo <= aidx_hi; ++aidx_lo) {
+                const uint32_t cur_ct = diploid_pair_cts[aidx_lo * allele_ct + aidx_hi];
+                if (cur_ct) {
+                  cswritep = u32toa_x(aidx_lo, '/', cswritep);
+                  cswritep = u32toa_x(aidx_hi, '=', cswritep);
+                  cswritep = u32toa_x(cur_ct, ',', cswritep);
+                }
+              }
+            }
+          }
+          if (!is_autosomal_diploid) {
+            for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
+              const uint32_t cur_ct = hap_cts[aidx];
+              if (cur_ct) {
+                cswritep = u32toa_x(aidx, '=', cswritep);
+                cswritep = u32toa_x(cur_ct, ',', cswritep);
+              }
+            }
+          }
+          if (missing_ct != nobs_base) {
+            --cswritep;
+          } else {
+            *cswritep++ = '.';
+          }
+        }
       }
       if (missing_col) {
         *cswritep++ = '\t';
@@ -3147,31 +3350,46 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
   return reterr;
 }
 
-/*
-PglErr HardyMultiallelic(__maybe_unused const uintptr_t* founder_info, __maybe_unused const uintptr_t* sex_nm, __maybe_unused const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t autosomal_variant_ct, uint32_t hwe_x_ct, uint32_t hwe_multiallelic_flags, __maybe_unused PgenReader* simple_pgrp, STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_geno_cts), __maybe_unused STD_ARRAY_PTR_DECL(uint32_t, 6, hwe_triallelic_geno_cts), __maybe_unused double* hwe_triallelic_pvals, __maybe_unused STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_male_geno_cts), __maybe_unused STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_nosex_geno_cts)) {
+PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_geno_cts), uint32_t raw_sample_ct, uint32_t autosomal_variant_ct, uint32_t autosomal_xallele_ct, uint32_t hwe_x_ct, uint32_t x_xallele_ct, PgenReader* simple_pgrp, STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), STD_ARRAY_PTR_DECL(uint32_t, 2, autosomal_xgeno_cts), STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts)) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
   {
-    logerrputs("Error: --hardy/--hwe multiallelic support is under development.\n");
-    exit(63);
-    const uint32_t raw_sample_ctv = BitCtToVecCt(raw_sample_ct);
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
-    uintptr_t* founder_info_interleaved_vec;
-    uint32_t* founder_info_cumulative_popcounts;
-    if (bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &founder_info_interleaved_vec) ||
-        bigstack_alloc_u32(raw_sample_ctl, &founder_info_cumulative_popcounts)) {
-      goto HardyMultiallelic_ret_NOMEM;
+    uint32_t* cumulative_popcounts;
+    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &cumulative_popcounts))) {
+      goto GetMultiallelicMarginalCounts_ret_NOMEM;
     }
-    FillInterleavedMaskVec(founder_info, raw_sample_ctv, founder_info_interleaved_vec);
-    FillCumulativePopcounts(founder_info, raw_sample_ctl, founder_info_cumulative_popcounts);
-    const uint32_t founder_ct = founder_info_cumulative_popcounts[raw_sample_ctl - 1] + PopcountWord(founder_info[raw_sample_ctl - 1]);
-    uint32_t chr_fo_idx = UINT32_MAX;
-    uint32_t chr_end = 0;
-    uint32_t variant_uidx = 0;
+    FillCumulativePopcounts(founder_info, raw_sample_ctl, cumulative_popcounts);
+    const uint32_t founder_ct = cumulative_popcounts[raw_sample_ctl - 1] + PopcountWord(founder_info[raw_sample_ctl - 1]);
+    const uint32_t founder_ctl2 = QuaterCtToWordCt(founder_ct);
+    const uint32_t founder_ctl = BitCtToWordCt(founder_ct);
+    const uint32_t max_allele_ct = simple_pgrp->fi.max_allele_ct;
+    uintptr_t* genovec;
+    uintptr_t* patch_01_set;
+    AlleleCode* patch_01_vals;
+    uintptr_t* patch_10_set;
+    AlleleCode* patch_10_vals;
+    uint32_t* one_cts;
+    uint32_t* two_cts;
+    if (unlikely(
+            bigstack_alloc_w(founder_ctl2, &genovec) ||
+            bigstack_alloc_w(founder_ctl, &patch_01_set) ||
+            bigstack_alloc_ac(founder_ct, &patch_01_vals) ||
+            bigstack_alloc_w(founder_ctl, &patch_10_set) ||
+            bigstack_alloc_ac(2 * founder_ct, &patch_10_vals) ||
+            bigstack_alloc_u32(max_allele_ct, &one_cts) ||
+            bigstack_alloc_u32(max_allele_ct, &two_cts))) {
+      goto GetMultiallelicMarginalCounts_ret_NOMEM;
+    }
     PgrClearLdCache(simple_pgrp);
-    if (hwe_multiallelic_flags & 2) {
-      for (uint32_t variant_idx = 0; variant_idx != autosomal_variant_ct; ++variant_idx, ++variant_uidx) {
-        MovU32To1Bit(variant_include, &variant_uidx);
+    if (autosomal_xallele_ct) {
+      uint32_t chr_fo_idx = UINT32_MAX;
+      uint32_t chr_end = 0;
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_bits = variant_include[0];
+      uintptr_t xgeno_idx = 0;
+      for (uint32_t variant_idx = 0; variant_idx != autosomal_variant_ct; ++variant_idx) {
+        uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
         if (variant_uidx >= chr_end) {
           uint32_t chr_idx;
           do {
@@ -3179,88 +3397,187 @@ PglErr HardyMultiallelic(__maybe_unused const uintptr_t* founder_info, __maybe_u
             chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
             chr_idx = cip->chr_file_order[chr_fo_idx];
           } while ((variant_uidx >= chr_end) || IsSet(cip->haploid_mask, chr_idx));
-          variant_uidx = AdvTo1Bit(variant_include, cip->chr_fo_vidx_start[chr_fo_idx]);
+          BitIter1Start(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], &variant_uidx_base, &cur_bits);
+          variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
         }
-        // just do the same thing as we do on chrX
-        const uintptr_t allele_idx_offsets_base = allele_idx_offsets[variant_uidx];
-        const uint32_t cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets_base;
-        if (cur_allele_ct == 2) {
-          continue;
-        }
-        const uint32_t maj_idx = GetMajIdx(&(allele_freqs[allele_idx_offsets_base - variant_uidx]), cur_allele_ct);
-        if (!maj_idx) {
-          continue;
-        }
-        STD_ARRAY_DECL(uint32_t, 4, genocounts);
-        reterr = PgrGetInv1Counts(founder_info, founder_info_interleaved_vec, founder_info_cumulative_popcounts, founder_ct, variant_uidx, maj_idx, simple_pgrp, genocounts);
-        if (reterr) {
-          if (reterr == kPglRetMalformedInput) {
-            // probably want to attach a more descriptive error buffer to
-            // PgenReader at some point.
-            logputs("\n");
-            logerrputs("Error: Malformed .pgen file.\n");
+        const uint32_t allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
+        if (allele_ct > 2) {
+          uint32_t patch_01_ct;
+          uint32_t patch_10_ct;
+          reterr = PgrGetM(founder_info, cumulative_popcounts, founder_ct, variant_uidx, simple_pgrp, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, &patch_01_ct, &patch_10_ct);
+          if (unlikely(reterr)) {
+            if (reterr == kPglRetMalformedInput) {
+              logputs("\n");
+              logerrputs("Error: Malformed .pgen file.\n");
+            }
+            goto GetMultiallelicMarginalCounts_ret_1;
           }
-          goto HardyMultiallelic_ret_1;
+          ZeroTrailingQuaters(founder_ct, genovec);
+          ZeroU32Arr(allele_ct, one_cts);
+          ZeroU32Arr(allele_ct, two_cts);
+          // const uint32_t hom_ref_ct = hwe_geno_cts[variant_uidx][0];
+          const uint32_t het_ref_ct = hwe_geno_cts[variant_uidx][1];
+          const uint32_t altxy_ct = hwe_geno_cts[variant_uidx][2];
+          // two_cts[0] = hom_ref_ct;
+          // one_cts[0] = het_ref_ct;
+          one_cts[1] = het_ref_ct - patch_01_ct;
+          two_cts[1] = altxy_ct - patch_10_ct;
+          for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
+            one_cts[patch_01_vals[uii]] += 1;
+          }
+          for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
+            const uintptr_t lo_code = patch_10_vals[2 * uii];
+            const uintptr_t hi_code = patch_10_vals[2 * uii + 1];
+            if (lo_code == hi_code) {
+              two_cts[lo_code] += 1;
+            } else {
+              one_cts[lo_code] += 1;
+              one_cts[hi_code] += 1;
+            }
+          }
+          for (uint32_t aidx = 1; aidx != allele_ct; ++aidx) {
+            // This is currently inverted, to match how hwe_geno_cts represents
+            // REF allele counts.
+            autosomal_xgeno_cts[xgeno_idx][0] = two_cts[aidx];
+            autosomal_xgeno_cts[xgeno_idx][1] = one_cts[aidx];
+            ++xgeno_idx;
+          }
         }
-        STD_ARRAY_REF(uint32_t, 3) cur_hwe_geno_cts = hwe_geno_cts[variant_uidx];
-        cur_hwe_geno_cts[0] = genocounts[0];
-        cur_hwe_geno_cts[1] = genocounts[1];
-        cur_hwe_geno_cts[2] = genocounts[2];
       }
-    } else {
-      // want multiple worker threads calling HweTriallelicP()
-      // usual trivial load balancer is a bad idea here, want a work queue
-      // instead since job length can vary pretty wildly (try batches of 8
-      // first, they're cacheline friendly and locking overhead shouldn't be
-      // too horrendous?
     }
-      const uintptr_t allele_idx_offset_base = allele_idx_offsets[variant_uidx];
-      const uint32_t cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];;;
-      const uint32_t maj_idx = GetMajIdx();
-      if (!maj_idx) {
-        continue;
+    if (x_xallele_ct) {
+      // Related to multiallelic-chrX --geno-counts implementation.
+      PgrClearLdCache(simple_pgrp);
+      uintptr_t* founder_knownsex;
+      if (unlikely(bigstack_alloc_w(raw_sample_ctl, &founder_knownsex))) {
+        goto GetMultiallelicMarginalCounts_ret_NOMEM;
       }
-      if (allele_idx_offsets) {
-        cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
+      BitvecAndCopy(founder_info, sex_nm, raw_sample_ctl, founder_knownsex);
+      FillCumulativePopcounts(founder_knownsex, raw_sample_ctl, cumulative_popcounts);
+      const uint32_t founder_x_ct = cumulative_popcounts[raw_sample_ctl - 1] + PopcountWord(founder_knownsex[raw_sample_ctl - 1]);
+      const uint32_t founder_x_ctaw = BitCtToAlignedWordCt(founder_x_ct);
+      uintptr_t* founder_male_collapsed;
+      uintptr_t* founder_male_interleaved_vec;
+      if (unlikely(
+              bigstack_alloc_w(founder_x_ctaw, &founder_male_collapsed) ||
+              bigstack_alloc_w(founder_x_ctaw, &founder_male_interleaved_vec))) {
+        goto GetMultiallelicMarginalCounts_ret_NOMEM;
       }
-      if (cur_allele_ct == 2) {
-        STD_ARRAY_REF(uint32_t, 3) cur_geno_cts = hwe_geno_cts[variant_uidx];
-        uint32_t tmp_ct = cur_geno_cts[0];
-        cur_geno_cts[0] = cur_geno_cts[2];
-        cur_geno_cts[2] = tmp_ct;
-        if (is_x) {
-          const uint32_t offset = variant_uidx - x_start;
-          if (hwe_x_male_geno_cts) {
-            STD_ARRAY_REF(uint32_t, 3) cur_x_male_geno_cts = hwe_x_male_geno_cts[offset];
-            tmp_ct = cur_x_male_geno_cts[0];
-            cur_x_male_geno_cts[0] = cur_x_male_geno_cts[2];
-            cur_x_male_geno_cts[2] = tmp_ct;
+      CopyBitarrSubset(sex_male, founder_knownsex, founder_x_ct, founder_male_collapsed);
+      const uint32_t founder_x_ctl = BitCtToWordCt(founder_x_ct);
+      const uint32_t founder_male_ct = PopcountWords(founder_male_collapsed, founder_ctl);
+      ZeroWArr(founder_x_ctaw - founder_x_ctl, &(founder_male_collapsed[founder_x_ctl]));
+      FillInterleavedMaskVec(founder_male_collapsed, founder_x_ctaw / kWordsPerVec, founder_male_interleaved_vec);
+      const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
+      const uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[x_code];
+      const uint32_t x_start = cip->chr_fo_vidx_start[x_chr_fo_idx];
+      uintptr_t variant_uidx_base;
+      uintptr_t cur_bits;
+      BitIter1Start(variant_include, x_start, &variant_uidx_base, &cur_bits);
+      uintptr_t xgeno_idx = 0;
+      for (uint32_t variant_idx = 0; variant_idx != hwe_x_ct; ++variant_idx) {
+        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+        const uint32_t allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
+        if (allele_ct > 2) {
+          uint32_t patch_01_ct;
+          uint32_t patch_10_ct;
+          reterr = PgrGetM(founder_knownsex, cumulative_popcounts, founder_x_ct, variant_uidx, simple_pgrp, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, &patch_01_ct, &patch_10_ct);
+          if (unlikely(reterr)) {
+            if (reterr == kPglRetMalformedInput) {
+              logputs("\n");
+              logerrputs("Error: Malformed .pgen file.\n");
+            }
+            goto GetMultiallelicMarginalCounts_ret_1;
           }
-          if (hwe_x_nosex_geno_cts) {
-            STD_ARRAY_REF(uint32_t, 3) cur_x_nosex_geno_cts = hwe_x_nosex_geno_cts[offset];
-            tmp_ct = cur_x_nosex_geno_cts[0];
-            cur_x_nosex_geno_cts[0] = cur_x_nosex_geno_cts[2];
-            cur_x_nosex_geno_cts[2] = tmp_ct;
+          ZeroTrailingQuaters(founder_x_ct, genovec);
+          ZeroU32Arr(allele_ct, one_cts);
+          ZeroU32Arr(allele_ct, two_cts);
+          STD_ARRAY_DECL(uint32_t, 4, genocounts);
+          GenovecCountFreqsUnsafe(genovec, founder_x_ct, genocounts);
+          // const uint32_t hom_ref_ct = genocounts[0];
+          const uint32_t het_ref_ct = genocounts[1];
+          const uint32_t altxy_ct = genocounts[2];
+          // two_cts[0] = hom_ref_ct;
+          // one_cts[0] = het_ref_ct;
+          one_cts[1] = het_ref_ct - patch_01_ct;
+          two_cts[1] = altxy_ct - patch_10_ct;
+          for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
+            one_cts[patch_01_vals[uii]] += 1;
+          }
+          for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
+            const uintptr_t lo_code = patch_10_vals[2 * uii];
+            const uintptr_t hi_code = patch_10_vals[2 * uii + 1];
+            if (lo_code == hi_code) {
+              two_cts[lo_code] += 1;
+            } else {
+              one_cts[lo_code] += 1;
+              one_cts[hi_code] += 1;
+            }
+          }
+          uintptr_t knownsex_xgeno_idx = xgeno_idx;
+          for (uint32_t aidx = 1; aidx != allele_ct; ++aidx) {
+            x_knownsex_xgeno_cts[knownsex_xgeno_idx][0] = two_cts[aidx];
+            x_knownsex_xgeno_cts[knownsex_xgeno_idx][1] = one_cts[aidx];
+            ++knownsex_xgeno_idx;
+          }
+          if (x_male_xgeno_cts) {
+            ZeroU32Arr(allele_ct, one_cts);
+            ZeroU32Arr(allele_ct, two_cts);
+            GenovecCountSubsetFreqs(genovec, founder_male_interleaved_vec, founder_x_ct, founder_male_ct, genocounts);
+            const uint32_t male_het_ref_ct = genocounts[1];
+            const uint32_t male_altxy_ct = genocounts[2];
+            one_cts[1] = male_het_ref_ct;
+            two_cts[1] = male_altxy_ct;
+            uintptr_t sample_widx = 0;
+            uintptr_t cur_patch_bits = patch_01_set[0];
+            uint32_t male_patch_01_ct = 0;
+            for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
+              const uintptr_t lowbit = BitIter1y(patch_01_set, &sample_widx, &cur_patch_bits);
+              if (founder_male_collapsed[sample_widx] & lowbit) {
+                ++male_patch_01_ct;
+                one_cts[patch_01_vals[uii]] += 1;
+              }
+            }
+            one_cts[1] -= male_patch_01_ct;
+            sample_widx = 0;
+            cur_patch_bits = patch_10_set[0];
+            uint32_t male_patch_10_ct = 0;
+            for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
+              const uintptr_t lowbit = BitIter1y(patch_10_set, &sample_widx, &cur_patch_bits);
+              if (founder_male_collapsed[sample_widx] & lowbit) {
+                ++male_patch_10_ct;
+                const uintptr_t lo_code = patch_10_vals[2 * uii];
+                const uintptr_t hi_code = patch_10_vals[2 * uii + 1];
+                if (lo_code == hi_code) {
+                  two_cts[lo_code] += 1;
+                } else {
+                  one_cts[lo_code] += 1;
+                  one_cts[hi_code] += 1;
+                }
+              }
+            }
+            two_cts[1] -= male_patch_10_ct;
+            for (uint32_t aidx = 1; aidx != allele_ct; ++aidx) {
+              x_male_xgeno_cts[xgeno_idx][0] = two_cts[aidx];
+              x_male_xgeno_cts[xgeno_idx][1] = one_cts[aidx];
+              ++xgeno_idx;
+            }
+          } else {
+            xgeno_idx = knownsex_xgeno_idx;
           }
         }
-      } else {
       }
-    if (hwe_x_ct) {
-      // todo: leave biallelic variants alone, load major counts for
-      // multiallelics
-      PgrClearLdCache(simple_pgrp);
     }
   }
   while (0) {
-  HardyMultiallelic_ret_NOMEM:
+  GetMultiallelicMarginalCounts_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
   }
- HardyMultiallelic_ret_1:
+ GetMultiallelicMarginalCounts_ret_1:
   BigstackReset(bigstack_mark);
   return reterr;
 }
-*/
 
 // multithread globals
 static const uintptr_t* g_variant_include = nullptr;
@@ -3268,8 +3585,12 @@ static const uintptr_t* g_variant_include = nullptr;
 static const STD_ARRAY_PTR_DECL(uint32_t, 3, g_founder_raw_geno_cts) = nullptr;
 static const STD_ARRAY_PTR_DECL(uint32_t, 3, g_founder_x_male_geno_cts) = nullptr;
 static const STD_ARRAY_PTR_DECL(uint32_t, 3, g_founder_x_nosex_geno_cts) = nullptr;
+static const STD_ARRAY_PTR_DECL(uint32_t, 2, g_x_knownsex_xgeno_cts) = nullptr;
+static const STD_ARRAY_PTR_DECL(uint32_t, 2, g_x_male_xgeno_cts) = nullptr;
 
 static uint32_t* g_variant_uidx_starts = nullptr;
+static const uintptr_t* g_allele_idx_offsets = nullptr;
+static uintptr_t* g_extra_aidx_starts = nullptr;
 static double* g_hwe_x_pvals = nullptr;
 static uint32_t g_x_start = 0;
 static uint32_t g_hwe_x_ct = 0;
@@ -3279,9 +3600,12 @@ static uint32_t g_hwe_midp = 0;
 THREAD_FUNC_DECL ComputeHweXPvalsThread(void* arg) {
   const uintptr_t tidx = R_CAST(uintptr_t, arg);
   const uintptr_t* variant_include = g_variant_include;
+  const uintptr_t* allele_idx_offsets = g_allele_idx_offsets;
   const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts) = g_founder_raw_geno_cts;
   const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts) = g_founder_x_male_geno_cts;
   const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts) = g_founder_x_nosex_geno_cts;
+  const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts) = g_x_knownsex_xgeno_cts;
+  const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts) = g_x_male_xgeno_cts;
   const uint32_t calc_thread_ct = g_calc_thread_ct;
   const uint32_t x_start = g_x_start;
   const uint32_t hwe_x_ct = g_hwe_x_ct;
@@ -3291,7 +3615,8 @@ THREAD_FUNC_DECL ComputeHweXPvalsThread(void* arg) {
   const uint32_t variant_idx_end = (hwe_x_ct * (S_CAST(uint64_t, tidx) + 1)) / calc_thread_ct;
   uint32_t variant_idx = (hwe_x_ct * S_CAST(uint64_t, tidx)) / calc_thread_ct;
 
-  double* hwe_x_pvals_iter = &(g_hwe_x_pvals[variant_idx]);
+  uintptr_t xgeno_idx = g_extra_aidx_starts[tidx];
+  double* hwe_x_pvals_iter = &(g_hwe_x_pvals[variant_idx + xgeno_idx]);
   uintptr_t variant_uidx_base;
   uintptr_t cur_bits;
   BitIter1Start(variant_include, g_variant_uidx_starts[tidx], &variant_uidx_base, &cur_bits);
@@ -3300,30 +3625,54 @@ THREAD_FUNC_DECL ComputeHweXPvalsThread(void* arg) {
   if (!tidx) {
     next_print_variant_idx = variant_idx_end / 100;
   }
-  uint32_t male_maj_ct = 0;
-  uint32_t male_nonmaj_ct = 0;
+  uint32_t male_1copy_ct = 0;
+  uint32_t male_hethap_ct = 0;
+  uint32_t male_0copy_ct = 0;
   for (; variant_idx != variant_idx_end; ++variant_idx) {
     const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
     STD_ARRAY_KREF(uint32_t, 3) cur_raw_geno_cts = founder_raw_geno_cts[variant_uidx];
-    uint32_t female_hommaj_ct = cur_raw_geno_cts[0];
-    uint32_t female_het_maj_ct = cur_raw_geno_cts[1];
-    uint32_t female_two_nonmaj_ct = cur_raw_geno_cts[2];
+    uint32_t female_2copy_ct = cur_raw_geno_cts[0];
+    uint32_t female_1copy_ct = cur_raw_geno_cts[1];
+    uint32_t female_0copy_ct = cur_raw_geno_cts[2];
     if (founder_x_male_geno_cts) {
       STD_ARRAY_KREF(uint32_t, 3) cur_male_geno_cts = founder_x_male_geno_cts[variant_uidx - x_start];
-      male_maj_ct = cur_male_geno_cts[0];
-      female_hommaj_ct -= male_maj_ct;
-      female_het_maj_ct -= cur_male_geno_cts[1];
-      male_nonmaj_ct = cur_male_geno_cts[2];
-      female_two_nonmaj_ct -= male_nonmaj_ct;
+      male_1copy_ct = cur_male_geno_cts[0];
+      female_2copy_ct -= male_1copy_ct;
+      male_hethap_ct = cur_male_geno_cts[1];
+      female_1copy_ct -= male_hethap_ct;
+      male_0copy_ct = cur_male_geno_cts[2];
+      female_0copy_ct -= male_0copy_ct;
     }
     if (founder_x_nosex_geno_cts) {
       STD_ARRAY_KREF(uint32_t, 3) cur_nosex_geno_cts = founder_x_nosex_geno_cts[variant_uidx - x_start];
-      female_hommaj_ct -= cur_nosex_geno_cts[0];
-      female_het_maj_ct -= cur_nosex_geno_cts[1];
-      female_two_nonmaj_ct -= cur_nosex_geno_cts[2];
+      female_2copy_ct -= cur_nosex_geno_cts[0];
+      female_1copy_ct -= cur_nosex_geno_cts[1];
+      female_0copy_ct -= cur_nosex_geno_cts[2];
     }
-    *hwe_x_pvals_iter++ = HweXchrP(female_het_maj_ct, female_hommaj_ct, female_two_nonmaj_ct, male_maj_ct, male_nonmaj_ct, hwe_midp);
+    *hwe_x_pvals_iter++ = HweXchrP(female_1copy_ct, female_2copy_ct, female_0copy_ct, male_1copy_ct, male_0copy_ct, hwe_midp);
+    if (allele_idx_offsets) {
+      const uint32_t allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
+      if (allele_ct != 2) {
+        const uint32_t female_obs_ct = female_2copy_ct + female_1copy_ct + female_0copy_ct;
+        const uint32_t male_obs_ct = male_1copy_ct + male_hethap_ct + male_0copy_ct;
+        for (uint32_t aidx = 1; aidx != allele_ct; ++aidx) {
+          female_2copy_ct = x_knownsex_xgeno_cts[xgeno_idx][0];
+          female_1copy_ct = x_knownsex_xgeno_cts[xgeno_idx][1];
+          if (x_male_xgeno_cts) {
+            male_1copy_ct = x_male_xgeno_cts[xgeno_idx][0];
+            female_2copy_ct -= male_1copy_ct;
+            male_hethap_ct = x_male_xgeno_cts[xgeno_idx][1];
+            female_1copy_ct -= male_hethap_ct;
+            male_0copy_ct = male_obs_ct - male_1copy_ct - male_hethap_ct;
+          }
+          female_0copy_ct = female_obs_ct - female_2copy_ct - female_1copy_ct;
+          *hwe_x_pvals_iter++ = HweXchrP(female_1copy_ct, female_2copy_ct, female_0copy_ct, male_1copy_ct, male_0copy_ct, hwe_midp);
+          ++xgeno_idx;
+        }
+      }
+    }
     if (variant_idx >= next_print_variant_idx) {
+      // only possible for tidx == 0
       if (pct > 10) {
         putc_unlocked('\b', stdout);
       }
@@ -3339,12 +3688,12 @@ THREAD_FUNC_DECL ComputeHweXPvalsThread(void* arg) {
   THREAD_RETURN;
 }
 
-PglErr ComputeHweXPvals(const uintptr_t* variant_include, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), uint32_t x_start, uint32_t hwe_x_ct, uint32_t hwe_midp, uint32_t calc_thread_ct, double** hwe_x_pvals_ptr) {
+PglErr ComputeHweXPvals(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), uint32_t x_start, uint32_t hwe_x_ct, uintptr_t x_xallele_ct, uint32_t hwe_midp, uint32_t calc_thread_ct, double** hwe_x_pvals_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
   {
     assert(hwe_x_ct);
-    if (unlikely(bigstack_alloc_d(hwe_x_ct, hwe_x_pvals_ptr))) {
+    if (unlikely(bigstack_alloc_d(hwe_x_ct + x_xallele_ct, hwe_x_pvals_ptr))) {
       goto ComputeHweXPvals_ret_NOMEM;
     }
     bigstack_mark = g_bigstack_base;
@@ -3356,14 +3705,28 @@ PglErr ComputeHweXPvals(const uintptr_t* variant_include, const STD_ARRAY_PTR_DE
     pthread_t* threads;
     if (unlikely(
             bigstack_alloc_thread(calc_thread_ct, &threads) ||
-            bigstack_alloc_u32(calc_thread_ct, &g_variant_uidx_starts))) {
+            bigstack_alloc_u32(calc_thread_ct, &g_variant_uidx_starts) ||
+            bigstack_alloc_w(calc_thread_ct, &g_extra_aidx_starts))) {
       goto ComputeHweXPvals_ret_NOMEM;
     }
+    // possible todo: extra-allele-based load balancer
     ComputeUidxStartPartition(variant_include, hwe_x_ct, calc_thread_ct, x_start, g_variant_uidx_starts);
+    g_extra_aidx_starts[0] = 0;
+    uintptr_t extra_aidx = 0;
+    uint32_t prev_variant_uidx = g_variant_uidx_starts[0];
+    for (uint32_t tidx = 1; tidx != calc_thread_ct; ++tidx) {
+      const uint32_t cur_variant_uidx = g_variant_uidx_starts[tidx];
+      extra_aidx += CountExtraAlleles(variant_include, allele_idx_offsets, prev_variant_uidx, cur_variant_uidx, 1);
+      g_extra_aidx_starts[tidx] = extra_aidx;
+      prev_variant_uidx = cur_variant_uidx;
+    }
     g_variant_include = variant_include;
+    g_allele_idx_offsets = allele_idx_offsets;
     g_founder_raw_geno_cts = founder_raw_geno_cts;
     g_founder_x_male_geno_cts = founder_x_male_geno_cts;
     g_founder_x_nosex_geno_cts = founder_x_nosex_geno_cts;
+    g_x_knownsex_xgeno_cts = x_knownsex_xgeno_cts;
+    g_x_male_xgeno_cts = x_male_xgeno_cts;
     g_calc_thread_ct = calc_thread_ct;
     g_x_start = x_start;
     g_hwe_x_ct = hwe_x_ct;
@@ -3391,7 +3754,7 @@ PglErr ComputeHweXPvals(const uintptr_t* variant_include, const STD_ARRAY_PTR_DE
   return reterr;
 }
 
-PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_nosex_geno_cts), const double* hwe_x_pvals, uint32_t variant_ct, uint32_t hwe_x_ct, uint32_t max_allele_slen, double output_min_ln, HardyFlags hardy_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end) {
+PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, autosomal_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), const double* hwe_x_pvals, uint32_t variant_ct, uint32_t hwe_x_ct, uint32_t max_allele_slen, double output_min_ln, HardyFlags hardy_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -3512,7 +3875,8 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
       uint32_t next_print_variant_idx = variant_ct / 100;
       printf("--hardy%s%s: 0%%", output_zst? " zs" : "", midp? " midp" : "");
       fflush(stdout);
-      uint32_t cur_allele_ct = 2;
+      uintptr_t xgeno_idx = 0;
+      uint32_t allele_ct = 2;
       for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
         uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
         // bugfix (15 May 2018): this needs to happen even if we aren't
@@ -3535,10 +3899,13 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
         uintptr_t allele_idx_offset_base = variant_uidx * 2;
         if (allele_idx_offsets) {
           allele_idx_offset_base = allele_idx_offsets[variant_uidx];
-          cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+          allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
         }
         const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
-        const uint32_t print_allele_ct = ((cur_allele_ct == 2) && (!redundant))? 1 : cur_allele_ct;
+        const uint32_t print_allele_ct = ((allele_ct == 2) && (!redundant))? 1 : allele_ct;
+        STD_ARRAY_KREF(uint32_t, 3) cur_geno_cts = hwe_geno_cts[variant_uidx];
+        uint32_t het_a1_ct = cur_geno_cts[1];
+        const uint32_t nonmissing_ct = cur_geno_cts[0] + het_a1_ct + cur_geno_cts[2];
         for (uint32_t a1_idx = 0; a1_idx != print_allele_ct; ++a1_idx) {
           if (chr_col) {
             cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
@@ -3557,7 +3924,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
           }
           if (alt_col) {
             *cswritep++ = '\t';
-            for (uint32_t allele_idx = 1; allele_idx != cur_allele_ct; ++allele_idx) {
+            for (uint32_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
               if (unlikely(Cswrite(&css, &cswritep))) {
                 goto HardyReport_ret_WRITE_FAIL;
               }
@@ -3569,7 +3936,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
           cswritep = strcpya(cswritep, cur_alleles[a1_idx]);
           if (ax_col) {
             *cswritep++ = '\t';
-            for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct; ++allele_idx) {
+            for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
               if (allele_idx == a1_idx) {
                 continue;
               }
@@ -3580,17 +3947,21 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
             }
             --cswritep;
           }
-          STD_ARRAY_KREF(uint32_t, 3) cur_geno_cts = hwe_geno_cts[variant_uidx];
-          // todo: multiallelic support
-          const uint32_t het_a1_ct = cur_geno_cts[1];
           uint32_t hom_a1_ct;
           uint32_t two_ax_ct;
           if (!a1_idx) {
             hom_a1_ct = cur_geno_cts[0];
             two_ax_ct = cur_geno_cts[2];
-          } else {
+          } else if (allele_ct == 2) {
+            // special case, don't read from autosomal_xgeno_cts
             hom_a1_ct = cur_geno_cts[2];
             two_ax_ct = cur_geno_cts[0];
+          } else {
+            STD_ARRAY_KREF(uint32_t, 2) xgeno_cts = autosomal_xgeno_cts[xgeno_idx];
+            hom_a1_ct = xgeno_cts[0];
+            het_a1_ct = xgeno_cts[1];
+            two_ax_ct = nonmissing_ct - hom_a1_ct - het_a1_ct;
+            ++xgeno_idx;
           }
           if (gcounts) {
             *cswritep++ = '\t';
@@ -3600,14 +3971,13 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
           }
           if (hetfreq_cols) {
             *cswritep++ = '\t';
-            const uint32_t tot_obs = hom_a1_ct + het_a1_ct + two_ax_ct;
-            const double tot_obs_recip = 1.0 / u31tod(tot_obs);
-            cswritep = dtoa_g(u31tod(het_a1_ct) * tot_obs_recip, cswritep);
+            const double nonmissing_ct_recip = 1.0 / u31tod(nonmissing_ct);
+            cswritep = dtoa_g(u31tod(het_a1_ct) * nonmissing_ct_recip, cswritep);
             *cswritep++ = '\t';
-            const double dbl_maj_freq = (hom_a1_ct * 2 + het_a1_ct) * tot_obs_recip;
+            const double dbl_maj_freq = (hom_a1_ct * 2 + het_a1_ct) * nonmissing_ct_recip;
             // (1.0 - maj_freq) is vulnerable to catastrophic cancellation when
             // maj_freq is 1
-            if (hom_a1_ct == tot_obs) {
+            if (hom_a1_ct == nonmissing_ct) {
               *cswritep++ = '0';
             } else {
               const double expected_het_freq = dbl_maj_freq * (1.0 - dbl_maj_freq * 0.5);
@@ -3719,7 +4089,8 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
       uintptr_t variant_uidx_base;
       uintptr_t variant_include_bits;
       BitIter1Start(variant_include, x_start, &variant_uidx_base, &variant_include_bits);
-      uint32_t cur_allele_ct = 2;
+      uintptr_t xgeno_idx = 0;
+      uint32_t allele_ct = 2;
       uint32_t male_a1_ct = 0;
       uint32_t male_ax_ct = 0;
       for (uint32_t variant_idx = 0; variant_idx != hwe_x_ct; ++variant_idx) {
@@ -3727,10 +4098,22 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
         uintptr_t allele_idx_offset_base = variant_uidx * 2;
         if (allele_idx_offsets) {
           allele_idx_offset_base = allele_idx_offsets[variant_uidx];
-          cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+          allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
         }
         const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
-        const uint32_t print_allele_ct = ((cur_allele_ct == 2) && (!redundant))? 1 : cur_allele_ct;
+        const uint32_t print_allele_ct = ((allele_ct == 2) && (!redundant))? 1 : allele_ct;
+        STD_ARRAY_KREF(uint32_t, 3) cur_geno_cts = hwe_geno_cts[variant_uidx];
+        uint32_t female_obs_ct = cur_geno_cts[0] + cur_geno_cts[1] + cur_geno_cts[2];
+        if (hwe_x_nosex_geno_cts) {
+          STD_ARRAY_KREF(uint32_t, 3) cur_nosex_geno_cts = hwe_x_nosex_geno_cts[variant_uidx - x_start];
+          female_obs_ct -= cur_nosex_geno_cts[0] + cur_nosex_geno_cts[1] + cur_nosex_geno_cts[2];
+        }
+        uint32_t male_obs_ct = 0;
+        if (hwe_x_male_geno_cts) {
+          STD_ARRAY_KREF(uint32_t, 3) cur_male_geno_cts = hwe_x_male_geno_cts[variant_uidx - x_start];
+          male_obs_ct = cur_male_geno_cts[0] + cur_male_geno_cts[1] + cur_male_geno_cts[2];
+          female_obs_ct -= male_obs_ct;
+        }
         for (uint32_t a1_idx = 0; a1_idx != print_allele_ct; ++a1_idx) {
           cswritep = memcpya(cswritep, x_name_buf, x_name_blen);
           if (variant_bps) {
@@ -3747,7 +4130,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
           }
           if (alt_col) {
             *cswritep++ = '\t';
-            for (uint32_t allele_idx = 1; allele_idx != cur_allele_ct; ++allele_idx) {
+            for (uint32_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
               if (unlikely(Cswrite(&css, &cswritep))) {
                 goto HardyReport_ret_WRITE_FAIL;
               }
@@ -3759,7 +4142,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
           cswritep = strcpya(cswritep, cur_alleles[a1_idx]);
           if (ax_col) {
             *cswritep++ = '\t';
-            for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct; ++allele_idx) {
+            for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
               if (allele_idx == a1_idx) {
                 continue;
               }
@@ -3770,24 +4153,41 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
             }
             --cswritep;
           }
-          // todo: multiallelic support
-          STD_ARRAY_KREF(uint32_t, 3) cur_geno_cts = hwe_geno_cts[variant_uidx];
-          uint32_t female_hom_a1_ct = cur_geno_cts[2 * a1_idx];
-          uint32_t female_het_a1_ct = cur_geno_cts[1];
-          uint32_t female_two_ax_ct = cur_geno_cts[2 - 2 * a1_idx];
-          if (hwe_x_male_geno_cts) {
-            STD_ARRAY_KREF(uint32_t, 3) cur_male_geno_cts = hwe_x_male_geno_cts[variant_uidx - x_start];
-            male_a1_ct = cur_male_geno_cts[2 * a1_idx];
-            female_hom_a1_ct -= male_a1_ct;
-            female_het_a1_ct -= cur_male_geno_cts[1];
-            male_ax_ct = cur_male_geno_cts[2 - 2 * a1_idx];
-            female_two_ax_ct -= male_ax_ct;
-          }
-          if (hwe_x_nosex_geno_cts) {
-            STD_ARRAY_KREF(uint32_t, 3) cur_nosex_geno_cts = hwe_x_nosex_geno_cts[variant_uidx - x_start];
-            female_hom_a1_ct -= cur_nosex_geno_cts[2 * a1_idx];
-            female_het_a1_ct -= cur_nosex_geno_cts[1];
-            female_two_ax_ct -= cur_nosex_geno_cts[2 - 2 * a1_idx];
+          uint32_t female_hom_a1_ct;
+          uint32_t female_het_a1_ct;
+          uint32_t female_two_ax_ct;
+          if ((!a1_idx) || (allele_ct == 2)) {
+            female_hom_a1_ct = cur_geno_cts[2 * a1_idx];
+            female_het_a1_ct = cur_geno_cts[1];
+            female_two_ax_ct = cur_geno_cts[2 - 2 * a1_idx];
+            if (hwe_x_male_geno_cts) {
+              STD_ARRAY_KREF(uint32_t, 3) cur_male_geno_cts = hwe_x_male_geno_cts[variant_uidx - x_start];
+              male_a1_ct = cur_male_geno_cts[2 * a1_idx];
+              female_hom_a1_ct -= male_a1_ct;
+              female_het_a1_ct -= cur_male_geno_cts[1];
+              male_ax_ct = cur_male_geno_cts[2 - 2 * a1_idx];
+              female_two_ax_ct -= male_ax_ct;
+            }
+            if (hwe_x_nosex_geno_cts) {
+              STD_ARRAY_KREF(uint32_t, 3) cur_nosex_geno_cts = hwe_x_nosex_geno_cts[variant_uidx - x_start];
+              female_hom_a1_ct -= cur_nosex_geno_cts[2 * a1_idx];
+              female_het_a1_ct -= cur_nosex_geno_cts[1];
+              female_two_ax_ct -= cur_nosex_geno_cts[2 - 2 * a1_idx];
+            }
+          } else {
+            STD_ARRAY_KREF(uint32_t, 2) cur_knownsex_xgeno_cts = x_knownsex_xgeno_cts[xgeno_idx];
+            female_hom_a1_ct = cur_knownsex_xgeno_cts[0];
+            female_het_a1_ct = cur_knownsex_xgeno_cts[1];
+            if (x_male_xgeno_cts) {
+              STD_ARRAY_KREF(uint32_t, 2) cur_male_xgeno_cts = x_male_xgeno_cts[xgeno_idx];
+              male_a1_ct = cur_male_xgeno_cts[0];
+              female_hom_a1_ct -= male_a1_ct;
+              const uint32_t male_hethap_ct = cur_male_xgeno_cts[1];
+              female_het_a1_ct -= male_hethap_ct;
+              male_ax_ct = male_obs_ct - male_a1_ct - male_hethap_ct;
+            }
+            female_two_ax_ct = female_obs_ct - female_hom_a1_ct - female_het_a1_ct;
+            ++xgeno_idx;
           }
           if (gcounts) {
             *cswritep++ = '\t';
@@ -3798,16 +4198,15 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
             cswritep = u32toa(male_ax_ct, cswritep);
           }
           if (hetfreq_cols || sexaf_cols) {
-            const uint32_t tot_female_obs = female_hom_a1_ct + female_het_a1_ct + female_two_ax_ct;
-            const double tot_female_obs_recip = 1.0 / u31tod(tot_female_obs);
-            const double dbl_a1_freq = (female_hom_a1_ct * 2 + female_het_a1_ct) * tot_female_obs_recip;
+            const double female_obs_ct_recip = 1.0 / u31tod(female_obs_ct);
+            const double dbl_a1_freq = (female_hom_a1_ct * 2 + female_het_a1_ct) * female_obs_ct_recip;
             if (hetfreq_cols) {
               *cswritep++ = '\t';
-              cswritep = dtoa_g(u31tod(female_het_a1_ct) * tot_female_obs_recip, cswritep);
+              cswritep = dtoa_g(u31tod(female_het_a1_ct) * female_obs_ct_recip, cswritep);
               *cswritep++ = '\t';
-              // (1.0 - a1_freq) is vulnerable to catastrophic cancellation when
-              // actual a1_freq is 1.
-              if (female_hom_a1_ct == tot_female_obs) {
+              // (1.0 - a1_freq) is vulnerable to catastrophic cancellation
+              // when actual a1_freq is 1.
+              if (female_hom_a1_ct == female_obs_ct) {
                 *cswritep++ = '0';
               } else {
                 const double expected_het_freq = dbl_a1_freq * (1.0 - 0.5 * dbl_a1_freq);

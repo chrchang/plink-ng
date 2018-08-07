@@ -568,7 +568,7 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
 PglErr RlsOpenMaybeBgzf(const char* fname, __maybe_unused uint32_t calc_thread_ct, ReadLineStream* rlsp) {
   uint32_t file_is_bgzf;
   PglErr reterr = IsBgzf(fname, &file_is_bgzf);
-  if (reterr) {
+  if (unlikely(reterr)) {
     return reterr;
   }
   if (file_is_bgzf) {

@@ -43,9 +43,9 @@ DEALINGS IN THE SOFTWARE.  */
 
 #include "thread_pool_internal.h"
 
-//#define DEBUG
+//#define XDEBUG
 
-#ifdef DEBUG
+#ifdef XDEBUG
 static int worker_id(hts_tpool *p) {
     int i;
     pthread_t s = pthread_self();
@@ -501,7 +501,7 @@ static void *tpool_worker(void *arg) {
 
         if (p->shutdown) {
         shutdown:
-#ifdef DEBUG
+#ifdef XDEBUG
             fprintf(stderr, "%d: Shutting down\n", worker_id(p));
 #endif
             pthread_mutex_unlock(&p->pool_m);

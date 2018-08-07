@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1100
+#define PGENLIB_INTERNAL_VERNUM 1101
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -515,6 +515,8 @@ void ClearGenovecMissing1bit8Unsafe(const uintptr_t* __restrict genovec, uint32_
 
 void ClearGenovecMissing1bit16Unsafe(const uintptr_t* __restrict genovec, uint32_t* subset_sizep, uintptr_t* __restrict subset, void* __restrict sparse_vals);
 
+double MultiallelicDiploidMachR2(const uint64_t* __restrict sums, const uint64_t* __restrict ssqs, uint32_t nm_sample_ct, uint32_t allele_ct);
+
 // ----- end plink2_common subset -----
 
 // other configuration-ish values
@@ -572,10 +574,12 @@ FLAGSET_DEF_END(PgrLdcacheFlags);
 // entries.  (however, returned difflists can have up to twice as many entries,
 // when a variant is LD-compressed and the reference variant is
 // difflist-compressed.)
+// This should be considered set in stone.
 CONSTI32(kPglMaxDifflistLenDivisor, 8);
 
-// threshold for using a deltalist to represent a bitarray on disk (currently
-// relevant for dosage data)
+// Threshold for using a deltalist to represent a bitarray on disk (currently
+// relevant for dosage data).  This is a tunable parameter, but must be >=
+// kPglMaxDifflistLenDivisor.
 CONSTI32(kPglMaxDeltalistLenDivisor, 9);
 
 // The actual format:
@@ -1069,10 +1073,10 @@ HEADER_INLINE uintptr_t GetAux1aAlleleEntryByteCt(uint32_t allele_ct, uint32_t r
 HEADER_INLINE uintptr_t GetAux1bAlleleEntryByteCt(uint32_t allele_ct, uint32_t rare10_ct) {
   assert(allele_ct >= 3);
   if (allele_ct == 3) {
-    return DivUp(rare10_ct, 1);
+    return DivUp(rare10_ct, 8);
   }
   if (allele_ct < 6) {
-    return DivUp(rare10_ct, 4);
+    return DivUp(rare10_ct, 2);
   }
   // one byte per entry for allele_ct <= 17, two bytes for 18..256
   return ((allele_ct >= 18) + 1) * rare10_ct;
@@ -1208,8 +1212,8 @@ void PgrDifflistToGenovecUnsafe(const uintptr_t* __restrict raregeno, const uint
 //   GetInv1() should be called on major alleles and Get1() should be called on
 //   minor ones.
 // * PgrGetM() is the multiallelic loader which doesn't collapse multiple
-//   alleles into one.  This will probably retrieve a sparse form identical to
-//   what PwcAppendMultiallelicSparse takes.
+//   alleles into one.  This retrieves a sparse form identical to what
+//   PwcAppendMultiallelicSparse takes.
 //   Multiallelic-dosage read functions (PgrReadRaw() included) will probably
 //   fill a 3-part data structure of the following form:
 //   1. Bitarray indicating which samples have at least one rarealt dosage.
@@ -1292,10 +1296,12 @@ PglErr PgrGetInv1(const uintptr_t* __restrict sample_include, const uint32_t* __
 
 PglErr PgrGet2(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx0, uint32_t allele_idx1, PgenReader* pgrp, uintptr_t* __restrict genovec);
 
-// todo: add functions which directly support MAF-based queries.  Note that
-// when the difflist representation is used, we can disqualify some low-MAF
-// variants without actually loading the genotype data, since the size of the
-// record puts an upper bound on the alt allele frequency.
+PglErr PgrGetM(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals, uint32_t* __restrict patch_01_ctp, uint32_t* __restrict patch_10_ctp);
+
+// possible todo: add functions which directly support MAF-based queries.  Note
+// that when the difflist representation is used, we can disqualify some
+// low-MAF variants without actually loading the genotype data, since the size
+// of the record puts an upper bound on the alt allele frequency.
 
 // requires trailing bits of genovec to be zeroed out, AND does not update high
 // bits of last word if raw_sample_ctl2 is odd.
@@ -1327,6 +1333,8 @@ PglErr PgrGetInv1P(const uintptr_t* __restrict sample_include, const uint32_t* _
 
 PglErr PgrGet2P(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx0, uint32_t allele_idx1, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* __restrict phasepresent_ct_ptr);
 
+PglErr PgrGetMP(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals, uint32_t* __restrict patch_01_ctp, uint32_t* __restrict patch_10_ctp, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* __restrict phasepresent_ct_ptr);
+
 // if dosage_present and dosage_main are nullptr, dosage data is ignored
 PglErr PgrGetD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr);
 
@@ -1336,7 +1344,7 @@ PglErr PgrGetInv1D(const uintptr_t* __restrict sample_include, const uint32_t* _
 
 PglErr PgrGetDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* mach_r2_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages);
 
-PglErr PgrGetMDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* mach_r2_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages);
+PglErr PgrGetMDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* __restrict mach_r2_ptr, uint32_t* __restrict het_ctp, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages);
 
 // ok for both dosage_present and dosage_main to be nullptr when no dosage data
 // is present

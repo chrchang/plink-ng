@@ -66,10 +66,10 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (30 Jul 2018)";
+  " (6 Aug 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -244,7 +244,7 @@ PglErr PgenInfoStandalone(const char* pgenname) {
     uintptr_t pgr_alloc_cacheline_ct = 0;
     uint32_t max_vrec_width;
     reterr = PgfiInitPhase2(header_ctrl, 0, 0, 1, 0, raw_variant_ct, &max_vrec_width, &pgfi, pgfi_alloc, &pgr_alloc_cacheline_ct, g_logbuf);
-    if (reterr) {
+    if (unlikely(reterr)) {
       logerrputsb();
       goto PgenInfoStandalone_ret_1;
     }
@@ -356,6 +356,8 @@ typedef struct Plink2CmdlineStruct {
   uint32_t thin_keep_ct;
   uint32_t thin_keep_sample_ct;
   uint32_t keep_fcol_num;
+  uint32_t filter_min_allele_ct;
+  uint32_t filter_max_allele_ct;
 
   char* var_filter_exceptions_flattened;
   char* varid_template_str;
@@ -773,7 +775,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     const char* const* pvar_filter_storage = nullptr;
     uintptr_t* nonref_flags = nullptr;
     InfoFlags info_flags = kfInfo0;
-    // may want to track max_allele_ct here?
+    uint32_t max_allele_ct = 2;
     uint32_t max_allele_slen = 0;
     uint32_t max_filter_slen = 0;
     UnsortedVar vpos_sortstatus = kfUnsortedVar0;
@@ -781,7 +783,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     ChrIdx* chr_idxs = nullptr;  // split-chromosome case only
     if (pvarname[0]) {
       char** pvar_filter_storage_mutable = nullptr;
-      reterr = LoadPvar(pvarname, pcp->var_filter_exceptions_flattened, pcp->varid_template_str, pcp->varid_multi_template_str, pcp->varid_multi_nonsnp_template_str, pcp->missing_varid_match, pcp->require_info_flattened, pcp->require_no_info_flattened, &(pcp->extract_if_info_expr), &(pcp->exclude_if_info_expr), pcp->misc_flags, pcp->pvar_psam_flags, pcp->exportf_info.flags, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->dependency_flags & kfFilterNoSplitChr), pcp->max_thread_ct, cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids_mutable, &allele_idx_offsets, K_CAST(const char***, &allele_storage_mutable), &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage_mutable, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_slen, &xheader_blen, &info_flags, &max_filter_slen);
+      reterr = LoadPvar(pvarname, pcp->var_filter_exceptions_flattened, pcp->varid_template_str, pcp->varid_multi_template_str, pcp->varid_multi_nonsnp_template_str, pcp->missing_varid_match, pcp->require_info_flattened, pcp->require_no_info_flattened, &(pcp->extract_if_info_expr), &(pcp->exclude_if_info_expr), pcp->misc_flags, pcp->pvar_psam_flags, pcp->exportf_info.flags, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->dependency_flags & kfFilterNoSplitChr), pcp->filter_min_allele_ct, pcp->filter_max_allele_ct, pcp->max_thread_ct, cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids_mutable, &allele_idx_offsets, K_CAST(const char***, &allele_storage_mutable), &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage_mutable, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_ct, &max_allele_slen, &xheader_blen, &info_flags, &max_filter_slen);
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
       }
@@ -901,6 +903,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         pgfi.shared_ff = nullptr;
       }
       pgfi.allele_idx_offsets = allele_idx_offsets;
+      pgfi.max_allele_ct = max_allele_ct;
       unsigned char* pgfi_alloc;
       if (unlikely(bigstack_alloc_uc(cur_alloc_cacheline_ct * kCacheline, &pgfi_alloc))) {
         goto Plink2Core_ret_NOMEM;
@@ -994,7 +997,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         if (pgfi.const_vrtype == kPglVrtypePlink1) {
           logerrputs("Warning: Skipping --pgen-info since a .bed file was provided.\n");
         } else {
-          PgenInfoPrint(pgenname, &pgfi, header_ctrl, pgfi.max_allele_ct);
+          PgenInfoPrint(pgenname, &pgfi, header_ctrl, max_allele_ct);
         }
         if (!(pcp->command_flags1 & (~(kfCommand1Validate | kfCommand1PgenInfo)))) {
           goto Plink2Core_ret_1;
@@ -1782,7 +1785,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           const uint32_t maf_succ = (pcp->misc_flags / kfMiscMafSucc) & 1;
           ComputeAlleleFreqs(variant_include, allele_idx_offsets, nonfounders? allele_dosages : founder_allele_dosages, variant_ct, maf_succ, allele_freqs);
           if (pcp->read_freq_fname) {
-            reterr = ReadAlleleFreqs(variant_include, variant_ids, allele_idx_offsets, allele_storage, pcp->read_freq_fname, raw_variant_ct, variant_ct, pgfi.max_allele_ct, max_variant_id_slen, max_allele_slen, maf_succ, pcp->max_thread_ct, allele_freqs);
+            reterr = ReadAlleleFreqs(variant_include, variant_ids, allele_idx_offsets, allele_storage, pcp->read_freq_fname, raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, maf_succ, pcp->max_thread_ct, allele_freqs);
             if (unlikely(reterr)) {
               goto Plink2Core_ret_1;
             }
@@ -1795,7 +1798,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
 
         if (pcp->command_flags1 & kfCommand1AlleleFreq) {
-          reterr = WriteAlleleFreqs(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonfounders? allele_dosages : founder_allele_dosages, mach_r2_vals, pcp->freq_ref_binstr, pcp->freq_alt1_binstr, variant_ct, pgfi.max_allele_ct, max_allele_slen, pcp->freq_rpt_flags, pcp->max_thread_ct, nonfounders, outname, outname_end);
+          reterr = WriteAlleleFreqs(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonfounders? allele_dosages : founder_allele_dosages, mach_r2_vals, pcp->freq_ref_binstr, pcp->freq_alt1_binstr, variant_ct, max_allele_ct, max_allele_slen, pcp->freq_rpt_flags, pcp->max_thread_ct, nonfounders, outname, outname_end);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -1847,60 +1850,56 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             // tests, and the resulting set of p-values are arguably more
             // useful anyway.
 
-            // one entry per autosomal multiallelic alt allele.
-            // STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_autosomal_multiallelic_altgeno_cts) = nullptr;
+            // One entry per autosomal multiallelic alt allele.
+            // Only two cells per entry, since third can be inferred by
+            // subtracting from the nonmissing genotype count (this is
+            // potentially a memory hog).
+            STD_ARRAY_PTR_DECL(uint32_t, 2, autosomal_xgeno_cts) = nullptr;
             // one entry per chrX multiallelic alt allele.
-            // STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_multiallelic_knownsex_altgeno_cts) = nullptr;
-            // STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_multiallelic_male_altgeno_cts) = nullptr;
+            STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts) = nullptr;
+            STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts) = nullptr;
             uint32_t hwe_x_ct = 0;
             if (hwe_x_probs_needed) {
               hwe_x_ct = CountChrVariantsUnsafe(variant_include, cip, cip->xymt_codes[kChrOffsetX]);
               // hwe_x_ct == 0 possible when hwe_x_probs_needed set, if --geno
               // filters out all chrX variants
             }
-            uintptr_t autosomal_extra_allele_ct = 0;
-            uintptr_t x_extra_allele_ct = 0;
+            uintptr_t autosomal_xallele_ct = 0;
+            uintptr_t x_xallele_ct = 0;
             if (allele_idx_offsets) {
-              const uint32_t autosomal_variant_ct = variant_ct - hwe_x_ct - CountNonAutosomalVariants(variant_include, cip, !hwe_x_probs_needed, 1);
-              uint32_t chr_fo_idx = 0;
-              uint32_t chr_end = 0;
-              uintptr_t variant_uidx_base = 0;
-              uintptr_t cur_bits = variant_include[0];
-              for (uint32_t variant_idx = 0; variant_idx != autosomal_variant_ct; ++variant_idx) {
-                uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
-                if (variant_uidx >= chr_end) {
-                  uint32_t chr_idx;
-                  do {
-                    ++chr_fo_idx;
-                    chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-                    chr_idx = cip->chr_file_order[chr_fo_idx];
-                  } while ((variant_uidx >= chr_end) || IsSet(cip->haploid_mask, chr_idx));
-                  BitIter1Start(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], &variant_uidx_base, &cur_bits);
-                  variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
-                }
-                const uint32_t cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
-                if (cur_allele_ct > 2) {
-                  autosomal_extra_allele_ct += cur_allele_ct - 1;
+              const uint32_t autosomal_variant_ct = variant_ct - hwe_x_ct - CountNonAutosomalVariants(variant_include, cip, 0, 1);
+              const uint32_t chr_ct = cip->chr_ct;
+              for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
+                const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+                if ((chr_idx != x_code) && (!IsSet(cip->haploid_mask, chr_idx))) {
+                  autosomal_xallele_ct += CountExtraAlleles(variant_include, allele_idx_offsets, cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1], 1);
                 }
               }
               if (hwe_x_ct) {
-                BitIter1Start(variant_include, x_start, &variant_uidx_base, &cur_bits);
-                for (uint32_t variant_idx = 0; variant_idx != hwe_x_ct; ++variant_idx) {
-                  const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
-                  const uint32_t cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
-                  if (cur_allele_ct > 2) {
-                    x_extra_allele_ct += cur_allele_ct - 1;
+                x_xallele_ct = CountExtraAlleles(variant_include, allele_idx_offsets, x_start, x_start + x_len, 1);
+              }
+              if (autosomal_xallele_ct || x_xallele_ct) {
+                if (autosomal_xallele_ct) {
+                  if (unlikely(BIGSTACK_ALLOC_STD_ARRAY(uint32_t, 2, autosomal_xallele_ct, &autosomal_xgeno_cts))) {
+                    goto Plink2Core_ret_NOMEM;
                   }
                 }
-              }
-              if (autosomal_extra_allele_ct || x_extra_allele_ct) {
-                // todo
-                /*
-                reterr = HardyMultiallelic(nonfounders? sample_include : founder_info, sex_nm, sex_male, variant_include, cip, allele_idx_offsets, allele_freqs, raw_sample_ct, autosomal_variant_ct, hwe_x_ct, hwe_multiallelic_flags, &simple_pgr, hwe_geno_cts, hwe_triallelic_geno_cts, hwe_triallelic_pvals, hwe_x_male_geno_cts, hwe_x_nosex_geno_cts);
-                if (reterr) {
+                if (x_xallele_ct) {
+                  if (unlikely(
+                          BIGSTACK_ALLOC_STD_ARRAY(uint32_t, 2, x_xallele_ct, &x_knownsex_xgeno_cts))) {
+                    goto Plink2Core_ret_NOMEM;
+                  }
+                  if (hwe_x_male_geno_cts) {
+                    if (unlikely(
+                            BIGSTACK_ALLOC_STD_ARRAY(uint32_t, 2, x_xallele_ct, &x_male_xgeno_cts))) {
+                      goto Plink2Core_ret_NOMEM;
+                    }
+                  }
+                }
+                reterr = GetMultiallelicMarginalCounts(nonfounders? sample_include : founder_info, sex_nm, sex_male, variant_include, cip, allele_idx_offsets, hwe_geno_cts, raw_sample_ct, autosomal_variant_ct, autosomal_xallele_ct, hwe_x_ct, x_xallele_ct, &simple_pgr, x_male_xgeno_cts, autosomal_xgeno_cts, x_knownsex_xgeno_cts);
+                if (unlikely(reterr)) {
                   goto Plink2Core_ret_1;
                 }
-                */
               }
             }
 
@@ -1922,15 +1921,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               } else {
                 hwe_midp = (pcp->misc_flags / kfMiscHweMidp) & 1;
               }
-              // todo: multiallelic support
-              reterr = ComputeHweXPvals(variant_include, hwe_geno_cts, hwe_x_male_geno_cts, hwe_x_nosex_geno_cts, x_start, hwe_x_ct, hwe_midp, pcp->max_thread_ct, &hwe_x_pvals);
+              reterr = ComputeHweXPvals(variant_include, allele_idx_offsets, hwe_geno_cts, hwe_x_male_geno_cts, hwe_x_nosex_geno_cts, x_knownsex_xgeno_cts, x_male_xgeno_cts, x_start, hwe_x_ct, x_xallele_ct, hwe_midp, pcp->max_thread_ct, &hwe_x_pvals);
               if (unlikely(reterr)) {
                 goto Plink2Core_ret_1;
               }
             }
             if (pcp->command_flags1 & kfCommand1Hardy) {
-              // todo: multiallelic support
-              reterr = HardyReport(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, hwe_geno_cts, hwe_x_male_geno_cts, hwe_x_nosex_geno_cts, hwe_x_pvals, variant_ct, hwe_x_ct, max_allele_slen, pcp->output_min_ln, pcp->hardy_flags, pcp->max_thread_ct, nonfounders, outname, outname_end);
+              reterr = HardyReport(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, hwe_geno_cts, autosomal_xgeno_cts, hwe_x_male_geno_cts, hwe_x_nosex_geno_cts, x_knownsex_xgeno_cts, x_male_xgeno_cts, hwe_x_pvals, variant_ct, hwe_x_ct, max_allele_slen, pcp->output_min_ln, pcp->hardy_flags, pcp->max_thread_ct, nonfounders, outname, outname_end);
               if (unlikely(reterr)) {
                 goto Plink2Core_ret_1;
               }
@@ -1941,7 +1938,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             if (pcp->hwe_thresh != 1.0) {
               // assumes no filtering between hwe_x_pvals[] computation and
               // here
-              EnforceHweThresh(cip, hwe_geno_cts, hwe_x_male_geno_cts, hwe_x_nosex_geno_cts, hwe_x_pvals, pcp->misc_flags, pcp->hwe_thresh, nonfounders, variant_include, &variant_ct);
+              EnforceHweThresh(cip, allele_idx_offsets, hwe_geno_cts, autosomal_xgeno_cts, hwe_x_male_geno_cts, hwe_x_nosex_geno_cts, x_knownsex_xgeno_cts, x_male_xgeno_cts, hwe_x_pvals, pcp->misc_flags, pcp->hwe_thresh, nonfounders, variant_include, &variant_ct);
             }
           }
         }
@@ -2975,9 +2972,11 @@ int main(int argc, char** argv) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "autosome-par");
           } else if (strequal_k(flagname_p, "a1-allele", flag_slen)) {
             fputs("Warning: --a1-allele flag deprecated.  Use --alt1-allele instead.\n", stderr);
+            g_stderr_written_to = 1;
             snprintf(flagname_write_iter, kMaxFlagBlen, "alt1-allele");
           } else if (strequal_k(flagname_p, "a2-allele", flag_slen)) {
             fputs("Warning: --a2-allele flag deprecated.  Use --ref-allele instead.\n", stderr);
+            g_stderr_written_to = 1;
             snprintf(flagname_write_iter, kMaxFlagBlen, "ref-allele");
           } else {
             goto main_flag_copy;
@@ -3233,6 +3232,8 @@ int main(int argc, char** argv) {
     pc.thin_keep_ct = UINT32_MAX;
     pc.thin_keep_sample_ct = UINT32_MAX;
     pc.keep_fcol_num = 0;
+    pc.filter_min_allele_ct = 0;
+    pc.filter_max_allele_ct = UINT32_MAX;
     double import_dosage_certainty = 0.0;
     int32_t vcf_min_gq = -1;
     int32_t vcf_min_dp = -1;
@@ -6638,6 +6639,33 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.keep_fcol_num = mfilter_arg + 2;
+        } else if (strequal_k_unsafe(flagname_p2, "ax-alleles")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          if (unlikely(ScanPosintDefcap(cur_modif, &pc.filter_max_allele_ct))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --max-alleles parameter '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.filter_flags |= kfFilterPvarReq;
+        } else if (strequal_k_unsafe(flagname_p2, "in-alleles")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          if (unlikely(ScanPosintDefcap(cur_modif, &pc.filter_min_allele_ct))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --min-alleles parameter '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          if (unlikely(pc.filter_min_allele_ct > pc.filter_max_allele_ct)) {
+            logerrputs("Error: --min-alleles argument can't be larger than --max-alleles argument.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (pc.filter_min_allele_ct == 1) {
+            pc.filter_min_allele_ct = 0;
+          }
+          pc.filter_flags |= kfFilterPvarReq;
         } else if (likely(strequal_k_unsafe(flagname_p2, "pheno"))) {
           logerrputs("Warning: --mpheno flag deprecated.  Use --pheno-col-nums instead.  (Note that\n--pheno-col-nums does not add 2 to the column number(s).)\n");
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -7286,7 +7314,7 @@ int main(int argc, char** argv) {
             pc.misc_flags |= kfMiscRefFromFaForce;
           }
           reterr = AllocFname(argvk[arg_idx + fname_modif_idx], flagname_p, 0, &pc.ref_from_fa_fname);
-          if (reterr) {
+          if (unlikely(reterr)) {
             goto main_ret_1;
           }
           pc.dependency_flags |= kfFilterPvarReq | kfFilterNonrefFlagsNeeded;

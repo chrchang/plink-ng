@@ -683,7 +683,7 @@ PglErr SplitPar(const uint32_t* variant_bps, UnsortedVar vpos_sortstatus, uint32
 }
 
 static_assert((!(kMaxIdSlen % kCacheline)), "LoadPvar() must be updated.");
-PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattened, const char* varid_template_str, const char* varid_multi_template_str, const char* varid_multi_nonsnp_template_str, const char* missing_varid_match, const char* require_info_flattened, const char* require_no_info_flattened, const CmpExpr* extract_if_info_exprp, const CmpExpr* exclude_if_info_exprp, MiscFlags misc_flags, PvarPsamFlags pvar_psam_flags, ExportfFlags exportf_flags, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, uint32_t max_thread_ct, ChrInfo* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, UnsortedVar* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** allele_idx_offsets_ptr, const char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, ChrIdx** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, InfoFlags* info_flags_ptr, uint32_t* max_filter_slen_ptr) {
+PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattened, const char* varid_template_str, const char* varid_multi_template_str, const char* varid_multi_nonsnp_template_str, const char* missing_varid_match, const char* require_info_flattened, const char* require_no_info_flattened, const CmpExpr* extract_if_info_exprp, const CmpExpr* exclude_if_info_exprp, MiscFlags misc_flags, PvarPsamFlags pvar_psam_flags, ExportfFlags exportf_flags, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, uint32_t filter_min_allele_ct, uint32_t filter_max_allele_ct, uint32_t max_thread_ct, ChrInfo* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, UnsortedVar* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** allele_idx_offsets_ptr, const char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, ChrIdx** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, InfoFlags* info_flags_ptr, uint32_t* max_filter_slen_ptr) {
   // chr_info, max_variant_id_slen, and info_reload_slen are in/out; just
   // outparameters after them.  (Due to its large size in some VCFs, INFO is
   // not kept in memory for now.  This has a speed penalty, of course; maybe
@@ -714,6 +714,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t line_idx = 0;
+  uint32_t max_extra_alt_ct = 0;
   uint32_t max_allele_slen = 1;
   PglErr reterr = kPglRetSuccess;
   ReadLineStream pvar_rls;
@@ -1293,6 +1294,14 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
             const int32_t chr_slen_delta = chr_slen - varid_templatep->chr_slen;
             varid_templatep->chr_slen = chr_slen;
             varid_templatep->base_len += chr_slen_delta;
+            if (varid_multi_templatep) {
+              varid_multi_templatep->chr_slen = chr_slen;
+              varid_multi_templatep->base_len += chr_slen_delta;
+            }
+            if (varid_multi_nonsnp_templatep) {
+              varid_multi_nonsnp_templatep->chr_slen = chr_slen;
+              varid_multi_nonsnp_templatep->base_len += chr_slen_delta;
+            }
           }
         }
         *linebuf_iter = '\t';
@@ -1421,6 +1430,26 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
             }
           }
 
+          // also handle --min-alleles/--max-alleles here
+          char* alt_allele_iter = S_CAST(char*, memchr(linebuf_iter, ',', remaining_alt_char_ct));
+          if (filter_min_allele_ct || (filter_max_allele_ct <= kPglMaxAltAlleleCt)) {
+            uint32_t allele_ct;
+            if (!alt_allele_iter) {
+              // allele_ct == 1 or 2 for filtering purposes, depending on
+              // whether ALT allele matches a missing code.
+              allele_ct = 2;
+              if ((remaining_alt_char_ct == 1) && ((linebuf_iter[0] == '.') || (linebuf_iter[0] == input_missing_geno_char))) {
+                allele_ct = 1;
+              }
+            } else {
+              // allele_ct > 2.
+              allele_ct = 2 + CountByte(alt_allele_iter, ',', remaining_alt_char_ct - S_CAST(uintptr_t, alt_allele_iter - linebuf_iter));
+            }
+            if ((allele_ct < filter_min_allele_ct) || (allele_ct > filter_max_allele_ct)) {
+              goto LoadPvar_skip_variant;
+            }
+          }
+
           // FILTER
           if (load_filter_col) {
             const char* filter_token = token_ptrs[5];
@@ -1479,7 +1508,6 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           cur_bps[variant_idx_lowbits] = cur_bp;
           last_bp = cur_bp;
           const uint32_t ref_slen = token_slens[2];
-          char* alt_allele_iter = S_CAST(char*, memchr(linebuf_iter, ',', remaining_alt_char_ct));
           uint32_t id_slen;
           if ((!varid_templatep) || (missing_varid_match_slen && ((token_slens[1] != missing_varid_match_slen) || (!memequal(token_ptrs[1], missing_varid_match, missing_varid_match_slen))))) {
             id_slen = token_slens[1];
@@ -1542,6 +1570,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
 
           // ALT
           if (alt_allele_iter) {
+            const char** allele_storage_alt_start = allele_storage_iter;
             do {
               if (unlikely(allele_storage_iter >= allele_storage_limit)) {
                 goto LoadPvar_ret_NOMEM;
@@ -1574,6 +1603,10 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
             } while (alt_allele_iter);
             if (unlikely(!remaining_alt_char_ct)) {
               goto LoadPvar_ret_EMPTY_ALLELE_CODE;
+            }
+            const uint32_t extra_alt_ct = allele_storage_iter - allele_storage_alt_start;
+            if (extra_alt_ct > max_extra_alt_ct) {
+              max_extra_alt_ct = extra_alt_ct;
             }
           }
           if (remaining_alt_char_ct == 1) {
@@ -1704,6 +1737,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       }
     }
     *max_variant_id_slen_ptr = max_variant_id_slen;
+    *max_allele_ct_ptr = max_extra_alt_ct + 2;
     *max_allele_slen_ptr = max_allele_slen;
     *max_filter_slen_ptr = max_filter_slen;
     *raw_variant_ct_ptr = raw_variant_ct;

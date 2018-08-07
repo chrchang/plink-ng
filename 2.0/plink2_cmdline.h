@@ -619,6 +619,11 @@ HEADER_INLINE BoolErr bigstack_alloc_u32p(uintptr_t ct, uint32_t*** u32p_arr_ptr
   return !(*u32p_arr_ptr);
 }
 
+HEADER_INLINE BoolErr bigstack_alloc_u64p(uintptr_t ct, uint64_t*** u64p_arr_ptr) {
+  *u64p_arr_ptr = S_CAST(uint64_t**, bigstack_alloc(ct * sizeof(intptr_t)));
+  return !(*u64p_arr_ptr);
+}
+
 HEADER_INLINE BoolErr bigstack_alloc_dp(uintptr_t ct, double*** dp_arr_ptr) {
   *dp_arr_ptr = S_CAST(double**, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*dp_arr_ptr);
@@ -1547,6 +1552,11 @@ HEADER_INLINE uint32_t IdxToUidxBasic(const uintptr_t* bitvec, uint32_t idx) {
 
 // variant_ct must be positive, but can be smaller than thread_ct
 void ComputeUidxStartPartition(const uintptr_t* variant_include, uint64_t variant_ct, uint32_t thread_ct, uint32_t first_uidx, uint32_t* variant_uidx_starts);
+
+// Set multiplier to 0 to only count extra alleles, 1 to also count alt1 for
+// those variants (useful for HWE), 2 to count both ref and alt1 for
+// multiallelic variants.
+uintptr_t CountExtraAlleles(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, uint32_t variant_uidx_start, uint32_t variant_uidx_end, uint32_t multiallelic_variant_ct_multiplier);
 
 void ComputePartitionAligned(const uintptr_t* variant_include, uint32_t orig_thread_ct, uint32_t first_variant_uidx, uint32_t cur_variant_idx, uint32_t cur_variant_ct, uint32_t alignment, uint32_t* variant_uidx_starts, uint32_t* vidx_starts);
 

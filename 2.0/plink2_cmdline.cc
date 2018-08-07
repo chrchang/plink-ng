@@ -2097,6 +2097,27 @@ void ComputeUidxStartPartition(const uintptr_t* variant_include, uint64_t varian
   }
 }
 
+// May want to have an is_multiallelic bitarray to accelerate this.
+uintptr_t CountExtraAlleles(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, uint32_t variant_uidx_start, uint32_t variant_uidx_end, uint32_t multiallelic_variant_ct_multiplier) {
+  if (!allele_idx_offsets) {
+    return 0;
+  }
+  const uint32_t variant_ct = PopcountBitRange(variant_include, variant_uidx_start, variant_uidx_end);
+  const uint32_t const_subtract = 2 - multiallelic_variant_ct_multiplier;
+  uintptr_t result = 0;
+  uintptr_t variant_uidx_base;
+  uintptr_t cur_bits;
+  BitIter1Start(variant_include, variant_uidx_start, &variant_uidx_base, &cur_bits);
+  for (uint32_t uii = 0; uii != variant_ct; ++uii) {
+    const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+    const uintptr_t allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
+    if (allele_ct != 2) {
+      result += allele_ct - const_subtract;
+    }
+  }
+  return result;
+}
+
 void ComputePartitionAligned(const uintptr_t* variant_include, uint32_t orig_thread_ct, uint32_t first_variant_uidx, uint32_t cur_variant_idx, uint32_t cur_variant_ct, uint32_t alignment, uint32_t* variant_uidx_starts, uint32_t* vidx_starts) {
   // Minimize size of the largest chunk, under the condition that all
   // intermediate variant_idx values are divisible by alignment.

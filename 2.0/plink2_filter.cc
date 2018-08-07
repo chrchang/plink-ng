@@ -2878,8 +2878,7 @@ void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, 
   *variant_ct_ptr -= removed_ct;
 }
 
-// todo: use triallelic p-values when available
-void EnforceHweThresh(const ChrInfo* cip, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const double* hwe_x_pvals, MiscFlags misc_flags, double hwe_thresh, uint32_t nonfounders, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+void EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, autosomal_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), const double* hwe_x_pvals, MiscFlags misc_flags, double hwe_thresh, uint32_t nonfounders, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   uint32_t prefilter_variant_ct = *variant_ct_ptr;
   uint32_t x_start = UINT32_MAX;
   uint32_t x_end = UINT32_MAX;
@@ -2901,12 +2900,15 @@ void EnforceHweThresh(const ChrInfo* cip, const STD_ARRAY_PTR_DECL(uint32_t, 3, 
   uint32_t min_obs = UINT32_MAX;
   uint32_t max_obs = 0;
   uint32_t is_x = 0;
-  uint32_t male_ref_ct = 0;
-  uint32_t male_alt_ct = 0;
+  uint32_t male_a1_ct = 0;
+  uint32_t male_ax_ct = 0;
   const double* hwe_x_pvals_iter = hwe_x_pvals;
   const double hwe_thresh_recip = (1 + 4 * kSmallEpsilon) / hwe_thresh;
+  uintptr_t autosomal_xgeno_idx = 0;
+  uintptr_t x_xgeno_idx = 0;
   uintptr_t variant_uidx_base = 0;
   uintptr_t cur_bits = variant_include[0];
+  uint32_t xallele_ct = 0;
   for (uint32_t variant_idx = 0; variant_idx != prefilter_variant_ct; ++variant_idx) {
     uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
     if (variant_uidx >= x_thresh) {
@@ -2925,71 +2927,113 @@ void EnforceHweThresh(const ChrInfo* cip, const STD_ARRAY_PTR_DECL(uint32_t, 3, 
       }
     }
     STD_ARRAY_KREF(uint32_t, 3) cur_geno_cts = founder_raw_geno_cts[variant_uidx];
-    uint32_t homref_ct = cur_geno_cts[0];
-    uint32_t hetref_ct = cur_geno_cts[1];
-    uint32_t nonref_diploid_ct = cur_geno_cts[2];
-    uint32_t test_failed;
+    if (allele_idx_offsets) {
+      const uint32_t allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
+      xallele_ct = (allele_ct == 2)? 0 : (allele_ct - 1);
+    }
+    uint32_t hom_a1_ct = cur_geno_cts[0];
+    uint32_t het_a1_ct = cur_geno_cts[1];
+    uint32_t two_ax_ct = cur_geno_cts[2];
+    uint32_t test_failed = 0;
+    uint32_t pval_computed = 0;
     uint32_t cur_obs_ct;
     if (!is_x) {
-      cur_obs_ct = homref_ct + hetref_ct + nonref_diploid_ct;
+      cur_obs_ct = hom_a1_ct + het_a1_ct + two_ax_ct;
       if (!cur_obs_ct) {
         // currently happens for chrY, chrM
+        if (xallele_ct) {
+          autosomal_xgeno_idx += xallele_ct;
+        }
         continue;
       }
-      if (keep_fewhet) {
-        if (hetref_ct * S_CAST(uint64_t, hetref_ct) <= (4LLU * homref_ct) * nonref_diploid_ct) {
-          // no p-value computed at all, so don't count this toward
-          // min_obs/max_obs
-          continue;
+      for (uint32_t xallele_idx = 0; ; ++xallele_idx) {
+        if (keep_fewhet) {
+          if (het_a1_ct * S_CAST(uint64_t, het_a1_ct) <= (4LLU * hom_a1_ct) * two_ax_ct) {
+            goto EnforceHweThresh_skip_autosomal;
+          }
         }
+        pval_computed = 1;
+        if (midp) {
+          test_failed = HweThreshMidp(het_a1_ct, hom_a1_ct, two_ax_ct, hwe_thresh);
+        } else {
+          test_failed = HweThresh(het_a1_ct, hom_a1_ct, two_ax_ct, hwe_thresh);
+        }
+        if (test_failed) {
+          break;
+        }
+      EnforceHweThresh_skip_autosomal:
+        if (xallele_idx == xallele_ct) {
+          break;
+        }
+        STD_ARRAY_KREF(uint32_t, 2) cur_xgeno_cts = autosomal_xgeno_cts[autosomal_xgeno_idx + xallele_idx];
+        hom_a1_ct = cur_xgeno_cts[0];
+        het_a1_ct = cur_xgeno_cts[1];
+        two_ax_ct = cur_obs_ct - hom_a1_ct - het_a1_ct;
       }
-      if (midp) {
-        test_failed = HweThreshMidp(hetref_ct, homref_ct, nonref_diploid_ct, hwe_thresh);
-      } else {
-        test_failed = HweThresh(hetref_ct, homref_ct, nonref_diploid_ct, hwe_thresh);
-      }
+      autosomal_xgeno_idx += xallele_ct;
     } else {
       if (founder_x_male_geno_cts) {
         STD_ARRAY_KREF(uint32_t, 3) cur_male_geno_cts = founder_x_male_geno_cts[variant_uidx - x_start];
-        male_ref_ct = cur_male_geno_cts[0];
-        homref_ct -= male_ref_ct;
-        hetref_ct -= cur_male_geno_cts[1];
-        male_alt_ct = cur_male_geno_cts[2];
-        nonref_diploid_ct -= male_alt_ct;
+        male_a1_ct = cur_male_geno_cts[0];
+        hom_a1_ct -= male_a1_ct;
+        het_a1_ct -= cur_male_geno_cts[1];
+        male_ax_ct = cur_male_geno_cts[2];
+        two_ax_ct -= male_ax_ct;
       }
       if (founder_x_nosex_geno_cts) {
         STD_ARRAY_KREF(uint32_t, 3) cur_nosex_geno_cts = founder_x_nosex_geno_cts[variant_uidx - x_start];
-        homref_ct -= cur_nosex_geno_cts[0];
-        hetref_ct -= cur_nosex_geno_cts[1];
-        nonref_diploid_ct -= cur_nosex_geno_cts[2];
+        hom_a1_ct -= cur_nosex_geno_cts[0];
+        het_a1_ct -= cur_nosex_geno_cts[1];
+        two_ax_ct -= cur_nosex_geno_cts[2];
       }
-      cur_obs_ct = homref_ct + hetref_ct + nonref_diploid_ct + male_ref_ct + male_alt_ct;
+      const uint32_t female_obs_ct = hom_a1_ct + het_a1_ct + two_ax_ct;
+      cur_obs_ct = female_obs_ct + male_a1_ct + male_ax_ct;
+      pval_computed = 1;
       double joint_pval = *hwe_x_pvals_iter++;
-      test_failed = (joint_pval < hwe_thresh);
-      if (test_failed && keep_fewhet && (hetref_ct * S_CAST(uint64_t, hetref_ct) < (4LLU * homref_ct) * nonref_diploid_ct)) {
-        // female-only retest
-        if (joint_pval != 0.0) {
-          joint_pval *= hwe_thresh_recip;
-        } else {
-          // keep the variant iff female-only p-value also underflows
-          joint_pval = 2.2250738585072013e-308;
+      for (uint32_t xallele_idx = 0; ; ++xallele_idx) {
+        test_failed = (joint_pval < hwe_thresh);
+        if (test_failed && keep_fewhet && (het_a1_ct * S_CAST(uint64_t, het_a1_ct) < (4LLU * hom_a1_ct) * two_ax_ct)) {
+          // female-only retest
+          if (joint_pval != 0.0) {
+            joint_pval *= hwe_thresh_recip;
+          } else {
+            // keep the variant iff female-only p-value also underflows
+            joint_pval = 2.2250738585072013e-308;
+          }
+          if (midp) {
+            test_failed = !HweThreshMidp(het_a1_ct, hom_a1_ct, two_ax_ct, joint_pval);
+          } else {
+            test_failed = !HweThresh(het_a1_ct, hom_a1_ct, two_ax_ct, joint_pval);
+          }
         }
-        if (midp) {
-          test_failed = !HweThreshMidp(hetref_ct, homref_ct, nonref_diploid_ct, joint_pval);
-        } else {
-          test_failed = !HweThresh(hetref_ct, homref_ct, nonref_diploid_ct, joint_pval);
+        if (xallele_idx == xallele_ct) {
+          break;
         }
+        STD_ARRAY_KREF(uint32_t, 2) cur_xgeno_cts = x_knownsex_xgeno_cts[x_xgeno_idx + xallele_idx];
+        hom_a1_ct = cur_xgeno_cts[0];
+        het_a1_ct = cur_xgeno_cts[1];
+        if (x_male_xgeno_cts) {
+          STD_ARRAY_KREF(uint32_t, 2) cur_male_xgeno_cts = x_male_xgeno_cts[x_xgeno_idx + xallele_idx];
+          hom_a1_ct -= cur_male_xgeno_cts[0];
+          het_a1_ct -= cur_male_xgeno_cts[1];
+        }
+        two_ax_ct = female_obs_ct - hom_a1_ct - het_a1_ct;
+        joint_pval = hwe_x_pvals_iter[xallele_idx];
       }
+      x_xgeno_idx += xallele_ct;
+      hwe_x_pvals_iter = &(hwe_x_pvals_iter[xallele_ct]);
     }
     if (test_failed) {
       ClearBit(variant_uidx, variant_include);
       ++removed_ct;
     }
-    if (cur_obs_ct < min_obs) {
-      min_obs = cur_obs_ct;
-    }
-    if (cur_obs_ct > max_obs) {
-      max_obs = cur_obs_ct;
+    if (pval_computed) {
+      if (cur_obs_ct < min_obs) {
+        min_obs = cur_obs_ct;
+      }
+      if (cur_obs_ct > max_obs) {
+        max_obs = cur_obs_ct;
+      }
     }
   }
   if (S_CAST(uint64_t, max_obs) * 9 > S_CAST(uint64_t, min_obs) * 10) {
