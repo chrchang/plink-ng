@@ -5918,6 +5918,8 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
 	}
 	goto model_assoc_set_test_perms_done;
       }
+      // bugfix (7 Aug 2018): forgot to update marker_unstopped_ct
+      marker_unstopped_ct = popcount_longs(unstopped_markers, (marker_ct + BITCT - 1) / BITCT);
     }
     printf("\r%u permutation%s complete.", perms_done, (perms_done != 1)? "s" : "");
     fflush(stdout);
