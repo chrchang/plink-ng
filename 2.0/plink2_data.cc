@@ -2235,7 +2235,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
 
     uint32_t unused_chr_code;
     uint32_t unused_chr_code2;
-    const uint32_t xy_complications_present = ((allele_presents || allele_dosages || founder_allele_dosages || variant_missing_dosage_cts) && XymtExists(cip, kChrOffsetX, &unused_chr_code)) || (allele_presents && (sample_ct != male_ct) && XymtExists(cip, kChrOffsetY, &unused_chr_code2));
+    uint32_t xy_complications_present = ((allele_presents || allele_dosages || founder_allele_dosages || variant_missing_dosage_cts) && XymtExists(cip, kChrOffsetX, &unused_chr_code)) || (allele_presents && (sample_ct != male_ct) && XymtExists(cip, kChrOffsetY, &unused_chr_code2));
     const uint32_t xy_dosages_needed = (pgfip->gflags & kfPgenGlobalDosagePresent) && xy_complications_present;
     if (!xy_dosages_needed) {
       // defensive
@@ -2251,6 +2251,9 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
       if (unlikely(
               bigstack_alloc_u64p(calc_thread_ct, &g_all_dosages))) {
         goto LoadAlleleAndGenoCounts_ret_NOMEM;
+      }
+      if ((variant_hethap_cts || mach_r2_vals) && XymtExists(cip, kChrOffsetX, &unused_chr_code)) {
+        xy_complications_present = 1;
       }
       uintptr_t mhc_word_ct = 0;
       if (xy_complications_present) {
@@ -3198,9 +3201,41 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
             // need to erase dosages associated with the hardcalls we're
             // about to clear
 
-            // male hets to missing
+            // male 0/x hets to missing
             SetMaleHetMissingCleardosage(sex_male_collapsed, sex_male_collapsed_interleaved, sample_ctv2, write_genovec, &write_dosage_ct, write_dosagepresent, write_dosagevals);
+            // male x/y hets to missing
+            if (write_rare10_ct) {
+              uintptr_t sample_widx = 0;
+              uintptr_t patch_10_bits = write_patch_10_set[0];
+              uint32_t read_patch_10_idx = 0;
+              for (; read_patch_10_idx != write_rare10_ct; ++read_patch_10_idx) {
+                uintptr_t lowbit = BitIter1y(write_patch_10_set, &sample_widx, &patch_10_bits);
+                AlleleCode lo_code = write_patch_10_vals[read_patch_10_idx * 2];
+                AlleleCode hi_code = write_patch_10_vals[read_patch_10_idx * 2 + 1];
+                if ((sex_male_collapsed[sample_widx] & lowbit) && (lo_code != hi_code)) {
+                  write_patch_10_set[sample_widx] ^= lowbit;
+                  uint32_t write_patch_10_idx = read_patch_10_idx;
+                  ++read_patch_10_idx;
+                  for (; read_patch_10_idx != write_rare10_ct; ++read_patch_10_idx) {
+                    lowbit = BitIter1y(write_patch_10_set, &sample_widx, &patch_10_bits);
+                    lo_code = write_patch_10_vals[read_patch_10_idx * 2];
+                    hi_code = write_patch_10_vals[read_patch_10_idx * 2 + 1];
+                    if ((sex_male_collapsed[sample_widx] & lowbit) && (lo_code != hi_code)) {
+                      write_patch_10_set[sample_widx] ^= lowbit;
+                    } else {
+                      write_patch_10_vals[write_patch_10_idx * 2] = lo_code;
+                      write_patch_10_vals[write_patch_10_idx * 2 + 1] = hi_code;
+                      ++write_patch_10_idx;
+                    }
+                  }
+                  write_rare10_ct = write_patch_10_idx;
+                  break;
+                }
+              }
+            }
           } else {
+            assert(!write_rare01_ct);
+            assert(!write_rare10_ct);
             // need to generate a new unphased dosage for each cleared
             // hardcall lacking a dosage entry
             SetMaleHetMissingKeepdosage(sex_male_collapsed, sex_male_collapsed_interleaved, sample_ctl2, write_genovec, &write_dosage_ct, write_dosagepresent, write_dosagevals);

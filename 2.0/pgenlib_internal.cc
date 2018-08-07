@@ -2196,6 +2196,7 @@ void ClearGenovecMissing1bit8Unsafe(const uintptr_t* __restrict genovec, uint32_
           sparse_vals_uc[write_idx++] = sparse_vals_uc[read_idx];
         }
         subset_alias[read_widx] = subset_bits_write;
+        *subset_sizep = write_idx;
         return;
       }
     }
@@ -2266,6 +2267,7 @@ void ClearGenovecMissing1bit16Unsafe(const uintptr_t* __restrict genovec, uint32
           sparse_vals_u16[write_idx++] = sparse_vals_u16[read_idx];
         }
         subset_alias[read_widx] = subset_bits_write;
+        *subset_sizep = write_idx;
         return;
       }
     }
@@ -7619,56 +7621,81 @@ void Expand2bitTo8(const void* __restrict bytearr, uint32_t input_quater_ct, uin
   if (input_vec_ct) {
     const VecW mincr = R_CAST(VecW, vecuc_set1(incr));
     const VecW m03 = VCONST_W(kMask0303);
+#  ifdef USE_AVX2
+    const VecW midswap = vecw_setr8(
+        0, 1, 2, 3, 8, 9, 10, 11,
+        4, 5, 6, 7, 12, 13, 14, 15);
+#  endif
     for (uint32_t vec_idx = 0; vec_idx != input_vec_ct; ++vec_idx) {
       VecW cur_vec = vecw_loadu(src_iter);
       src_iter = &(src_iter[kBytesPerVec]);
 #  ifdef USE_AVX2
-      // 0xd8: {0, 2, 1, 3}
-      // This operation is also used in FillInterleavedMaskVec().
-      // cur_vec now contains {0-1-2-3, 4-5-6-7, ..., 28-29-30-31,
-      //                       64-65-66-67, ..., 92-93-94-95,
-      //                       32-33-34-35, ..., 60-61-62-63,
-      //                       96-97-98-99, ..., 124-125-126-127}
       // (todo: benchmark against just reading 8 bytes at a time and
       // broadcasting.)
-      cur_vec = R_CAST(VecW, _mm256_permute4x64_epi64(R_CAST(__m256i, cur_vec), 0xd8));
-
-      // vec_even contains {0-1, 4-5, 8-9, ..., 28-29, 64-65, ..., 92-93,
-      //                    32-33, ..., 60-61, 96-97, ..., 124-125}
-      // vec_odd contains {2-3, 6-7, ..., 30-31, 66-67, ..., 94-95,
-      //                   34-35, ..., 62-63, 98-99, ..., 126-127}
+      // midswapped_vec contains {0-1-2-3, 4-5-6-7, ..., 12-13-14-15,
+      //                          32-33-34-35, ..., 44-45-46-47,
+      //                          16-17-18-19, ..., 28-29-30-31,
+      //                          48-49-50-51, ..., 60-61-62-63,
+      //                          64-65-66-67, ..., 76-77-78-79,
+      //                          96-97-98-99, ..., 108-109-110-111,
+      //                          80-81-82-83, ..., 92-93-94-95,
+      //                          112-113-114-115, ..., 124-125-126-127}
+      const VecW midswapped_vec = vecw_shuffle8(cur_vec, midswap);
+      // 0xd8: {0, 2, 1, 3}
+      // This operation is also used in FillInterleavedMaskVec().
+      // cur_vec now contains {0-1-2-3, 4-5-6-7, 8-9-10-11, 12-13-14-15,
+      //                       32-33-34-35, ..., 44-45-46-47,
+      //                       64-65-66-67, ..., 76-77-78-79,
+      //                       96-97-98-99, ..., 108-109-110-111,
+      //                       16-17-18-19, ..., 28-29-30-31,
+      //                       48-49-50-51, ..., 60-61-62-63,
+      //                       80-81-82-83, ..., 92-93-94-95,
+      //                       112-113-114-115, ..., 124-125-126-127}
+      cur_vec = R_CAST(VecW, _mm256_permute4x64_epi64(R_CAST(__m256i, midswapped_vec), 0xd8));
+#  endif
+      // AVX2:
+      //   vec_even contains {0-1, 4-5, 8-9, 12-13, 32-33, ..., 44-45,
+      //                      64-65, ..., 76-77, 96-97, ..., 108-109,
+      //                      16-17, ..., 28-29, 48-49, ..., 60-61,
+      //                      80-81, ..., 92-93, 112-113, ..., 124-125}
+      //   vec_odd contains {2-3, 6-7, 10-11, 14-15, 34-35, ..., 46-47,
+      //                     66-67, ..., 78-79, 98-99, ..., 110-111,
+      //                     18-19, ..., 30-31, 50-51, ..., 62-63,
+      //                     82-83, ..., 94-95, 114-115, ..., 126-127}
+      // SSE2:
+      //   vec_even contains {0-1, 4-5, 8-9, ..., 60-61}
+      //   vec_odd contains {2-3, 6-7, 10-11, ..., 62-63}
       const VecW vec_even = cur_vec;
       const VecW vec_odd = vecw_srli(cur_vec, 4);
 
-      // vec01 contains {0-1, 2-3, ..., 62-63}
-      // vec23 contains {64-65, 66-67, ..., 126-127}
-      VecW vec01 = vecw_unpacklo8(vec_even, vec_odd);
-      VecW vec23 = vecw_unpackhi8(vec_even, vec_odd);
-
-      // vec01 now contains {0-1, 2-3, ..., 14-15,
-      //                     32-33, ..., 46-47,
-      //                     16-17, ..., 30-31,
-      //                     48-49, ..., 62-63}
-      vec01 = R_CAST(VecW, _mm256_permute4x64_epi64(R_CAST(__m256i, vec01), 0xd8));
-      vec23 = R_CAST(VecW, _mm256_permute4x64_epi64(R_CAST(__m256i, vec23), 0xd8));
-#  else
-      // vec_even contains {0-1, 4-5, 8-9, ...}
-      // vec_odd contains {2-3, 6-7, 10-11, ...}
-      const VecW vec_even = cur_vec;
-      const VecW vec_odd = vecw_srli(cur_vec, 4);
-
-      // vec01 contains {0-1, 2-3, 4-5, 6-7, ...}
-      // vec23 contains {32-33, 34-35, 36-37, 38-39, ...}
+      // AVX2:
+      //   vec01 contains {0-1, 2-3, 4-5, ..., 14-15, 32-33, ..., 46-47,
+      //                   16-17, ..., 30-31, 48-49, ..., 62-63}
+      //   vec23 contains {64-65, 66-67, ..., 78-79, 96-97, ..., 110-111,
+      //                   80-81, ..., 94-95, 112-113, ..., 126-127}
+      // SSE2:
+      //   vec01 contains {0-1, 2-3, 4-5, 6-7, ..., 30-31}
+      //   vec23 contains {32-33, 34-35, 36-37, 38-39, ..., 62-63}
       const VecW vec01 = vecw_unpacklo8(vec_even, vec_odd);
       const VecW vec23 = vecw_unpackhi8(vec_even, vec_odd);
-#  endif
-      // vec01_even contains {0, 2, 4, 6, ...}
-      // vec01_odd contains {1, 3, 5, 7, ...}
+
+      // AVX2:
+      //   vec01_even contains {0, 2, 4, ..., 14, 32, 34, ..., 46,
+      //                        16, 18, ..., 30, 48, 50, ..., 62}
+      //   vec01_odd contains {1, 3, 5, ..., 15, 33, 35, ..., 47,
+      //                       17, 19, ..., 31, 49, 51, ..., 63}
+      // SSE2:
+      //   vec01_even contains {0, 2, 4, 6, ..., 30}
+      //   vec01_odd contains {1, 3, 5, 7, ..., 31}
       const VecW vec01_even = vec01 & m03;
       const VecW vec01_odd = vecw_srli(vec01, 2) & m03;
 
-      // vecw_unpacklo8() contains {0, 1, ..., 15}
-      // vecw_unpachhi8() contains {16, 17, ..., 31}
+      // AVX2:
+      //   vecw_unpacklo8() contains {0, 1, ..., 15, 16, ..., 31}
+      //   vecw_unpachhi8() contains {32, 33, ..., 47, 48, ..., 63}
+      // SSE2:
+      //   vecw_unpacklo8() contains {0, 1, ..., 15}
+      //   vecw_unpachhi8() contains {16, 17, ..., 31}
       vecw_storeu(dst_iter, mincr + vecw_unpacklo8(vec01_even, vec01_odd));
       dst_iter = &(dst_iter[kBytesPerVec]);
       vecw_storeu(dst_iter, mincr + vecw_unpackhi8(vec01_even, vec01_odd));

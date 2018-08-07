@@ -1629,7 +1629,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         uint32_t x_len = 0;
         uint32_t hwe_x_probs_needed = 0;
         uint32_t x_code;
-        if ((!(vpos_sortstatus & kfUnsortedVarSplitChr)) && XymtExists(cip, kChrOffsetX, &x_code)) {
+        if (XymtExists(cip, kChrOffsetX, &x_code) && (!(vpos_sortstatus & kfUnsortedVarSplitChr))) {
           const uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[x_code];
           x_start = cip->chr_fo_vidx_start[x_chr_fo_idx];
           const uint32_t x_end = cip->chr_fo_vidx_start[x_chr_fo_idx + 1];
