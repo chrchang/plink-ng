@@ -4118,6 +4118,9 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     }
     char* linebuf_first_token = line_iter;
     char* token_end = CurTokenEnd(linebuf_first_token);
+    // todo: allow arbitrary first column name, and ID_2/missing to be absent,
+    // to match SNPTEST 2.5.4's de facto change to the .sample file format.
+    // (Probably wait till 2.5.4 is a stable version, though.)
     if (unlikely(!strequal_k(linebuf_first_token, "ID_1", token_end - linebuf_first_token))) {
       goto OxSampleToPsam_ret_INVALID_SAMPLE_HEADER_1;
     }
