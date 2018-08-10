@@ -486,6 +486,25 @@ typedef uint32_t BoolErr;
 #  endif
 #endif
 
+// These are useful for defending against base-pointer integer overflow on bad
+// input.
+HEADER_INLINE BoolErr PtrAddCk(const unsigned char* end, intptr_t incr, const unsigned char** basep) {
+  *basep += incr;
+  return unlikely((end - (*basep)) < 0);
+}
+
+// 'W' for writable
+HEADER_INLINE BoolErr PtrWSubCk(unsigned char* base, intptr_t decr, unsigned char** endp) {
+  *endp -= decr;
+  return unlikely(((*endp) - base) < 0);
+}
+
+HEADER_INLINE BoolErr PtrCheck(const void* end, const void* base, intptr_t req) {
+  const unsigned char* end_uc = S_CAST(const unsigned char*, end);
+  const unsigned char* base_uc = S_CAST(const unsigned char*, base);
+  return unlikely((end_uc - base_uc) < req);
+}
+
 // We want this to return an uint32_t, not an int32_t.
 HEADER_INLINE uint32_t ctzu32(uint32_t uii) {
   return __builtin_ctz(uii);
@@ -761,6 +780,10 @@ HEADER_INLINE VecW vecw_setr8(char e15, char e14, char e13, char e12, char e11, 
   return R_CAST(VecW, _mm256_setr_epi8(e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0, e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
 }
 
+HEADER_INLINE VecUc vecuc_setr8(char e15, char e14, char e13, char e12, char e11, char e10, char e9, char e8, char e7, char e6, char e5, char e4, char e3, char e2, char e1, char e0) {
+  return R_CAST(VecUc, _mm256_setr_epi8(e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0, e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
+}
+
 // Discards last 16 arguments in SSE2/SSE4.2 case.
 HEADER_INLINE VecW vecw_setr8x(char e31, char e30, char e29, char e28, char e27, char e26, char e25, char e24, char e23, char e22, char e21, char e20, char e19, char e18, char e17, char e16, char e15, char e14, char e13, char e12, char e11, char e10, char e9, char e8, char e7, char e6, char e5, char e4, char e3, char e2, char e1, char e0) {
   return R_CAST(VecW, _mm256_setr_epi8(e31, e30, e29, e28, e27, e26, e25, e24, e23, e22, e21, e20, e19, e18, e17, e16, e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
@@ -994,6 +1017,10 @@ HEADER_INLINE void vecuc_storeu(void* mem_addr, VecUc vv) {
 // Repeats arguments in AVX2 case.
 HEADER_INLINE VecW vecw_setr8(char e15, char e14, char e13, char e12, char e11, char e10, char e9, char e8, char e7, char e6, char e5, char e4, char e3, char e2, char e1, char e0) {
   return R_CAST(VecW, _mm_setr_epi8(e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
+}
+
+HEADER_INLINE VecUc vecuc_setr8(char e15, char e14, char e13, char e12, char e11, char e10, char e9, char e8, char e7, char e6, char e5, char e4, char e3, char e2, char e1, char e0) {
+  return R_CAST(VecUc, _mm_setr_epi8(e15, e14, e13, e12, e11, e10, e9, e8, e7, e6, e5, e4, e3, e2, e1, e0));
 }
 
 // Discards last 16 arguments in SSE2/SSE4.2 case.
@@ -1331,6 +1358,10 @@ HEADER_INLINE Vec8thUint PackVec4thUintTo8th(Vec4thUint ww) {
   return _pext_u64(ww, kMask5555);
 }
 
+HEADER_INLINE Vec16thUint PackVec8thUintTo16th(Vec8thUint ww) {
+  return _pext_u64(ww, kMask5555);
+}
+
 HEADER_INLINE uintptr_t Unpack0F0F(uintptr_t hw) {
   return _pdep_u64(hw, kMask0F0F);
 }
@@ -1482,6 +1513,12 @@ HEADER_INLINE Vec8thUint PackVec4thUintTo8th(Vec4thUint ww) {
   ww = (ww | (ww >> 2)) & kMask0F0F;
   ww = (ww | (ww >> 4)) & kMask00FF;
   return S_CAST(Vec8thUint, ww | (ww >> 8));
+}
+
+HEADER_INLINE Vec16thUint PackVec8thUintTo16th(Vec8thUint ww) {
+  ww = (ww | (ww >> 1)) & 0x3333;
+  ww = (ww | (ww >> 2)) & 0x0f0f;
+  return S_CAST(Vec16thUint, ww | (ww >> 4));
 }
 
 #    ifdef USE_SSE42

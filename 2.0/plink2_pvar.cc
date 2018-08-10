@@ -234,7 +234,7 @@ void VaridTemplateInit(const char* varid_template_str, const char* missing_id_ma
 }
 
 // alt1_end currently allowed to be nullptr in biallelic case
-BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* vtp, const char* const* token_ptrs, const uint32_t* token_slens, const char* alt1_start, const char* alt1_end, uint32_t cur_bp, uint32_t alt_token_slen, unsigned char** tmp_alloc_endp, uintptr_t* new_id_allele_len_overflowp, uint32_t* id_slen_ptr) {
+BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* vtp, const char* const* token_ptrs, const uint32_t* token_slens, const char* alt1_start, uint32_t cur_bp, uint32_t extra_alt_ct, uint32_t alt_token_slen, unsigned char** tmp_alloc_endp, uintptr_t* new_id_allele_len_overflowp, uint32_t* id_slen_ptr) {
   uint32_t insert_slens[4];
   const uint32_t alleles_needed = vtp->alleles_needed;
   const uint32_t new_id_max_allele_slen = vtp->new_id_max_allele_slen;
@@ -257,10 +257,10 @@ BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* v
   }
   if (alleles_needed > 1) {
     uint32_t alt1_slen;
-    if (!alt1_end) {
+    if (!extra_alt_ct) {
       alt1_slen = alt_token_slen;
     } else {
-      alt1_slen = alt1_end - alt1_start;
+      alt1_slen = AdvToDelim(alt1_start, ',') - alt1_start;
     }
     if (alt1_slen > new_id_max_allele_slen) {
       alt1_slen = new_id_max_allele_slen;
@@ -1313,11 +1313,18 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
 
         char* token_ptrs[8];
         uint32_t token_slens[8];
+        uint32_t extra_alt_ct;
         if (IsSet(chr_mask, cur_chr_code) || info_pr_present) {
           linebuf_iter = TokenLex(linebuf_iter, col_types, col_skips, relevant_postchr_col_ct, token_ptrs, token_slens);
           if (unlikely(!linebuf_iter)) {
             goto LoadPvar_ret_MISSING_TOKENS;
           }
+
+          extra_alt_ct = CountByte(token_ptrs[3], ',', token_slens[3]);
+          if (extra_alt_ct > max_extra_alt_ct) {
+            max_extra_alt_ct = extra_alt_ct;
+          }
+
           // It is possible for the info_token[info_slen] assignment below to
           // clobber the line terminator, so we advance line_iter to eoln here
           // and never reference it again before the next line.
@@ -1406,16 +1413,8 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           // handle --snps-only here instead of later, since it reduces the
           // amount of data we need to load
           if (snps_only) {
-            if ((token_slens[2] != 1) || (!(remaining_alt_char_ct % 2))) {
+            if ((token_slens[2] != 1) || (remaining_alt_char_ct != 2 * extra_alt_ct + 1)) {
               goto LoadPvar_skip_variant;
-            }
-            const uint32_t extra_alt_ct = remaining_alt_char_ct / 2;
-            for (uint32_t uii = 0; uii != extra_alt_ct; ++uii) {
-              // no need to check for empty allele code here, that'll be
-              // caught later
-              if (linebuf_iter[2 * uii + 1] != ',') {
-                goto LoadPvar_skip_variant;
-              }
             }
             if (snps_only > 1) {
               // just-acgt
@@ -1431,19 +1430,14 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           }
 
           // also handle --min-alleles/--max-alleles here
-          char* alt_allele_iter = S_CAST(char*, memchr(linebuf_iter, ',', remaining_alt_char_ct));
           if (filter_min_allele_ct || (filter_max_allele_ct <= kPglMaxAltAlleleCt)) {
-            uint32_t allele_ct;
-            if (!alt_allele_iter) {
+            uint32_t allele_ct = extra_alt_ct + 2;
+            if (!extra_alt_ct) {
               // allele_ct == 1 or 2 for filtering purposes, depending on
               // whether ALT allele matches a missing code.
-              allele_ct = 2;
               if ((remaining_alt_char_ct == 1) && ((linebuf_iter[0] == '.') || (linebuf_iter[0] == input_missing_geno_char))) {
                 allele_ct = 1;
               }
-            } else {
-              // allele_ct > 2.
-              allele_ct = 2 + CountByte(alt_allele_iter, ',', remaining_alt_char_ct - S_CAST(uintptr_t, alt_allele_iter - linebuf_iter));
             }
             if ((allele_ct < filter_min_allele_ct) || (allele_ct > filter_max_allele_ct)) {
               goto LoadPvar_skip_variant;
@@ -1518,27 +1512,17 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
             memcpyx(tmp_alloc_end, token_ptrs[1], id_slen, '\0');
           } else {
             VaridTemplate* cur_varid_templatep = varid_templatep;
-            if (alt_allele_iter && (varid_multi_templatep || varid_multi_nonsnp_templatep)) {
+            if (extra_alt_ct && (varid_multi_templatep || varid_multi_nonsnp_templatep)) {
               if (varid_multi_templatep) {
                 cur_varid_templatep = varid_multi_templatep;
               }
               if (varid_multi_nonsnp_templatep) {
-                uint32_t multichar_found = (ref_slen > 1) || (S_CAST(uintptr_t, alt_allele_iter - linebuf_iter) > 1) || (!(remaining_alt_char_ct % 2));
-                if (!multichar_found) {
-                  for (uint32_t uii = 2; uii < remaining_alt_char_ct; uii += 2) {
-                    if (alt_allele_iter[uii] != ',') {
-                      multichar_found = 1;
-                      break;
-                    }
-                  }
-                }
-                if (multichar_found) {
+                if ((ref_slen > 1) || (remaining_alt_char_ct != 2 * extra_alt_ct + 1)) {
                   cur_varid_templatep = varid_multi_nonsnp_templatep;
                 }
               }
             }
-            // todo: select which of up to 3 templates to apply
-            if (unlikely(VaridTemplateApply(tmp_alloc_base, cur_varid_templatep, TO_CONSTCPCONSTP(token_ptrs), token_slens, linebuf_iter, alt_allele_iter, cur_bp, remaining_alt_char_ct, &tmp_alloc_end, &new_variant_id_allele_len_overflow, &id_slen))) {
+            if (unlikely(VaridTemplateApply(tmp_alloc_base, cur_varid_templatep, TO_CONSTCPCONSTP(token_ptrs), token_slens, linebuf_iter, cur_bp, extra_alt_ct, remaining_alt_char_ct, &tmp_alloc_end, &new_variant_id_allele_len_overflow, &id_slen))) {
               goto LoadPvar_ret_NOMEM;
             }
           }
@@ -1569,13 +1553,14 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           ++allele_storage_iter;
 
           // ALT
-          if (alt_allele_iter) {
-            const char** allele_storage_alt_start = allele_storage_iter;
-            do {
-              if (unlikely(allele_storage_iter >= allele_storage_limit)) {
-                goto LoadPvar_ret_NOMEM;
-              }
-              const uint32_t cur_allele_slen = alt_allele_iter - linebuf_iter;
+          if (extra_alt_ct) {
+            if (PtrCheck(allele_storage_limit, allele_storage_iter, extra_alt_ct * sizeof(intptr_t))) {
+              goto LoadPvar_ret_NOMEM;
+            }
+            char* alt_token_end = &(linebuf_iter[remaining_alt_char_ct]);
+            for (uint32_t alt_idx = 0; alt_idx != extra_alt_ct; ++alt_idx) {
+              char* cur_alt_end = AdvToDelim(linebuf_iter, ',');
+              const uint32_t cur_allele_slen = cur_alt_end - linebuf_iter;
               if (cur_allele_slen == 1) {
                 char geno_char = linebuf_iter[0];
                 if (geno_char == input_missing_geno_char) {
@@ -1586,8 +1571,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
                 if (unlikely(!cur_allele_slen)) {
                   goto LoadPvar_ret_EMPTY_ALLELE_CODE;
                 }
-                tmp_alloc_end -= cur_allele_slen + 1;
-                if (unlikely(tmp_alloc_end < tmp_alloc_base)) {
+                if (PtrWSubCk(tmp_alloc_base, cur_allele_slen + 1, &tmp_alloc_end)) {
                   goto LoadPvar_ret_NOMEM;
                 }
                 memcpyx(tmp_alloc_end, linebuf_iter, cur_allele_slen, '\0');
@@ -1597,16 +1581,11 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
                 }
               }
               ++allele_storage_iter;
-              remaining_alt_char_ct -= cur_allele_slen + 1;
-              linebuf_iter = &(alt_allele_iter[1]);
-              alt_allele_iter = S_CAST(char*, memchr(linebuf_iter, ',', remaining_alt_char_ct));
-            } while (alt_allele_iter);
+              linebuf_iter = &(cur_alt_end[1]);
+            }
+            remaining_alt_char_ct = alt_token_end - linebuf_iter;
             if (unlikely(!remaining_alt_char_ct)) {
               goto LoadPvar_ret_EMPTY_ALLELE_CODE;
-            }
-            const uint32_t extra_alt_ct = allele_storage_iter - allele_storage_alt_start;
-            if (extra_alt_ct > max_extra_alt_ct) {
-              max_extra_alt_ct = extra_alt_ct;
             }
           }
           if (remaining_alt_char_ct == 1) {
@@ -1616,8 +1595,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
             }
             *allele_storage_iter = &(g_one_char_strs[2 * ctou32(geno_char)]);
           } else {
-            tmp_alloc_end -= remaining_alt_char_ct + 1;
-            if (unlikely(tmp_alloc_end < tmp_alloc_base)) {
+            if (PtrWSubCk(tmp_alloc_base, remaining_alt_char_ct + 1, &tmp_alloc_end)) {
               goto LoadPvar_ret_NOMEM;
             }
             memcpyx(tmp_alloc_end, linebuf_iter, remaining_alt_char_ct, '\0');
@@ -1666,34 +1644,31 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
             }
           }
         } else {
-          token_ptrs[3] = NextTokenMult(linebuf_iter, alt_col_idx);
-          if (unlikely(!token_ptrs[3])) {
-            goto LoadPvar_ret_MISSING_TOKENS;
-          }
           {
-            char* alt_col_end = CurTokenEnd(token_ptrs[3]);
-            token_slens[3] = alt_col_end - token_ptrs[3];
+            // linebuf_iter guaranteed to be at '\t' after chromosome code
+            char* alt_col_start = NextTokenMult(linebuf_iter, alt_col_idx);
+            if (unlikely(!alt_col_start)) {
+              goto LoadPvar_ret_MISSING_TOKENS;
+            }
+            char* alt_col_end = CurTokenEnd(alt_col_start);
+            extra_alt_ct = CountByte(alt_col_start, ',', alt_col_end - alt_col_start);
             line_iter = AdvToDelim(alt_col_end, '\n');
           }
         LoadPvar_skip_variant:
           ++exclude_ct;
           ClearBit(variant_idx_lowbits, cur_include);
           cur_bps[variant_idx_lowbits] = last_bp;
-          // necessary to check alt allele count
+          // need to advance allele_storage_iter for later allele_idx_offsets
+          // lookups to work properly
           *allele_storage_iter++ = missing_allele_str;
           *allele_storage_iter++ = missing_allele_str;
-          linebuf_iter = token_ptrs[3];
-          const char* token_end = &(linebuf_iter[token_slens[3]]);
-          while (1) {
-            linebuf_iter = S_CAST(char*, memchr(linebuf_iter, ',', token_end - linebuf_iter));
-            if (!linebuf_iter) {
-              break;
-            }
-            if (unlikely(allele_storage_iter >= allele_storage_limit)) {
+          if (extra_alt_ct) {
+            if (PtrCheck(allele_storage_limit, allele_storage_iter, extra_alt_ct * sizeof(intptr_t))) {
               goto LoadPvar_ret_NOMEM;
             }
-            ++linebuf_iter;
-            *allele_storage_iter++ = missing_allele_str;
+            for (uint32_t uii = 0; uii != extra_alt_ct; ++uii) {
+              *allele_storage_iter++ = missing_allele_str;
+            }
           }
         }
         ++raw_variant_ct;

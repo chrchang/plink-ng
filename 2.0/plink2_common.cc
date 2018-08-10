@@ -1642,6 +1642,24 @@ uint32_t CountNonAutosomalVariants(const uintptr_t* variant_include, const ChrIn
   return ct;
 }
 
+void ExcludeNonAutosomalVariants(const ChrInfo* cip, uintptr_t* variant_include) {
+  uint32_t x_code;
+  if (XymtExists(cip, kChrOffsetX, &x_code)) {
+    const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[x_code];
+    ClearBitsNz(cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1], variant_include);
+  }
+  uint32_t y_code;
+  if (XymtExists(cip, kChrOffsetY, &y_code)) {
+    const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[y_code];
+    ClearBitsNz(cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1], variant_include);
+  }
+  uint32_t mt_code;
+  if (XymtExists(cip, kChrOffsetMT, &mt_code)) {
+    const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[mt_code];
+    ClearBitsNz(cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1], variant_include);
+  }
+}
+
 PglErr ConditionalAllocateNonAutosomalVariants(const ChrInfo* cip, const char* calc_descrip, uint32_t raw_variant_ct, const uintptr_t** variant_include_ptr, uint32_t* variant_ct_ptr) {
   const uint32_t non_autosomal_variant_ct = CountNonAutosomalVariants(*variant_include_ptr, cip, 1, 1);
   if (!non_autosomal_variant_ct) {
@@ -1661,21 +1679,7 @@ PglErr ConditionalAllocateNonAutosomalVariants(const ChrInfo* cip, const char* c
     return kPglRetNomem;
   }
   memcpy(working_variant_include, *variant_include_ptr, raw_variant_ctl * sizeof(intptr_t));
-  uint32_t x_code;
-  if (XymtExists(cip, kChrOffsetX, &x_code)) {
-    uint32_t chr_fo_idx = cip->chr_idx_to_foidx[x_code];
-    ClearBitsNz(cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1], working_variant_include);
-  }
-  uint32_t y_code;
-  if (XymtExists(cip, kChrOffsetY, &y_code)) {
-    uint32_t chr_fo_idx = cip->chr_idx_to_foidx[y_code];
-    ClearBitsNz(cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1], working_variant_include);
-  }
-  uint32_t mt_code;
-  if (XymtExists(cip, kChrOffsetMT, &mt_code)) {
-    uint32_t chr_fo_idx = cip->chr_idx_to_foidx[mt_code];
-    ClearBitsNz(cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1], working_variant_include);
-  }
+  ExcludeNonAutosomalVariants(cip, working_variant_include);
   *variant_include_ptr = working_variant_include;
   return kPglRetSuccess;
 }

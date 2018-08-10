@@ -80,7 +80,7 @@ typedef struct VaridTemplateStruct {
 void VaridTemplateInit(const char* varid_template_str, const char* missing_id_match, char* chr_output_name_buf, uint32_t new_id_max_allele_slen, uint32_t overflow_substitute_blen, VaridTemplate* vtp);
 
 // alt1_end currently allowed to be nullptr in biallelic case
-BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* vtp, const char* const* token_ptrs, const uint32_t* token_slens, const char* alt1_start, const char* alt1_end, uint32_t cur_bp, uint32_t alt_token_slen, unsigned char** tmp_alloc_endp, uintptr_t* new_id_allele_len_overflowp, uint32_t* id_slen_ptr);
+BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* vtp, const char* const* token_ptrs, const uint32_t* token_slens, const char* alt1_start, uint32_t cur_bp, uint32_t extra_alt_ct, uint32_t alt_token_slen, unsigned char** tmp_alloc_endp, uintptr_t* new_id_allele_len_overflowp, uint32_t* id_slen_ptr);
 
 // assumes info_token[-1] is safe to read
 // may set info_token[info_slen] to \0, since it needs to use strstr()

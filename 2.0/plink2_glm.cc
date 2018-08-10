@@ -4982,8 +4982,15 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
     dosage_present = g_dosage_presents[tidx];
     dosage_main = g_dosage_mains[tidx];
   }
+  /*
+  uintptr_t* patch_01_set = nullptr;
+  AlleleCode* patch_01_vals = nullptr;
+  uintptr_t* patch_10_set = nullptr;
+  AlleleCode* patch_10_vals = nullptr;
+  */
   unsigned char* workspace_buf = g_workspace_bufs[tidx];
   const uintptr_t* variant_include = g_variant_include;
+  // const uintptr_t* allele_idx_offsets = g_allele_idx_offsets;
   const AlleleCode* omitted_alleles = g_omitted_alleles;
   const uintptr_t* sex_male_collapsed = g_sex_male_collapsed;
   const ChrInfo* cip = g_cip;
@@ -5185,15 +5192,25 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
       STD_ARRAY_DECL(uint32_t, 4, genocounts);
       for (; variant_bidx != cur_variant_bidx_end; ++variant_bidx) {
         const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
+        /*
+        if (allele_idx_offsets) {
+          cur_extra_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx] - 1;
+        }
+        */
         {
-          // todo: get cur_extra_allele_ct and multiallelic dosage instead
           const uint32_t cur_predictor_ct = cur_biallelic_predictor_ct + cur_extra_allele_ct;
-          uint32_t dosage_ct;
-          PglErr reterr = PgrGetD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
-          if (unlikely(reterr)) {
-            g_error_ret = reterr;
-            variant_bidx = variant_bidx_end;
-            break;
+          uint32_t dosage_ct = 0;
+          if (1) {
+          // if (!cur_extra_allele_ct) {
+            PglErr reterr = PgrGetD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
+            if (unlikely(reterr)) {
+              g_error_ret = reterr;
+              variant_bidx = variant_bidx_end;
+              break;
+            }
+          } else {
+            // todo: proper multiallelic dosage support
+            // PglErr reterr = PgrGetMD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, &patch_01_ct, &patch_10_ct, dosage_present, dosage_main, &dosage_ct, multidosage_present, multidosage_cts, multidosage_codes, multidosage_vals, &multidosage_sample_ct);
           }
           if (omitted_alleles && omitted_alleles[variant_uidx]) {
             GenovecInvertUnsafe(cur_sample_ct, genovec);
@@ -6932,9 +6949,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     // multiallelic case: one more predictor per extra allele
     const uint32_t biallelic_raw_predictor_ct = 2 + domdev_present + raw_covar_ct * (1 + add_interactions * domdev_present_p1);
 
-    // todo: more careful scan, once e.g. flag for specifically filtering out
-    // multiallelic variants is implemented
-    const uint32_t max_extra_allele_ct = allele_idx_offsets? (simple_pgrp->fi.max_allele_ct - 2) : 0;
+    const uint32_t max_extra_allele_ct = MaxAlleleCtSubset(early_variant_include, allele_idx_offsets, raw_variant_ct, variant_ct, simple_pgrp->fi.max_allele_ct) - 2;
     if (unlikely(biallelic_raw_predictor_ct + max_extra_allele_ct > 46340)) {
       logerrputs("Error: Too many predictors for --glm.\n");
       if ((biallelic_raw_predictor_ct > 46000) && (max_extra_allele_ct < 23170)) {
@@ -7147,15 +7162,6 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       uint32_t extra_cat_ct = 0;
       uint32_t separation_warning = 0;
       BigstackDoubleReset(bigstack_mark2, bigstack_end_mark);
-      /*
-      for (uint32_t uii = 0; uii != raw_covar_ct; ++uii) {
-        const PhenoCol* cur_covar_col = &(covar_cols[uii]);
-        for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
-          printf("%g ", cur_covar_col->data.qt[sample_uidx]);
-        }
-        printf("\n\n");
-      }
-      */
       if (initial_nonx_covar_ct) {
         if (unlikely(GlmDetermineCovars(is_logistic? cur_pheno_col->data.cc : nullptr, initial_covar_include, covar_cols, raw_sample_ct, raw_covar_ctl, initial_nonx_covar_ct, covar_max_nonnull_cat_ct, is_sometimes_firth, cur_sample_include, covar_include, &sample_ct, &covar_ct, &extra_cat_ct, &separation_warning))) {
           goto GlmMain_ret_NOMEM;

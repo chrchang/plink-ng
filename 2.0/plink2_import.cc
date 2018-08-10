@@ -1352,13 +1352,16 @@ VcfParseErr VcfConvertPhasedBiallelicDosageLine(const VcfImportContext* vicp, co
                 const uintptr_t second_allele_idx = ctow(linebuf_iter[2]) - 48;
                 if (second_allele_idx <= 1) {
                   cur_geno += second_allele_idx;
-                  // todo: check if this should be less branchy
                   if (cur_gt_phased && (cur_geno == 1)) {
                     phasepresent_hw |= shifted_bit;
+#ifdef USE_AVX2
                     if (!second_allele_idx) {
                       // 1|0
                       phaseinfo_hw |= shifted_bit;
                     }
+#else
+                    phaseinfo_hw |= shifted_bit & (second_allele_idx - 1);
+#endif
                   }
                 } else if (unlikely(second_allele_idx != (~k0LU) * 2)) {
                   // not '.'
@@ -1997,14 +2000,20 @@ VcfParseErr VcfConvertPhasedBiallelicLine(const VcfImportBaseContext* vibcp, con
               const uintptr_t second_allele_idx = ctow(linebuf_iter[2]) - 48;
               if (second_allele_idx <= 1) {
                 cur_geno += second_allele_idx;
-                // todo: check if this should be less branchy
                 if (is_phased && (cur_geno == 1)) {
                   const uint32_t shifted_bit = 1U << sample_idx_lowbits;
                   phasepresent_hw |= shifted_bit;
+#ifdef USE_AVX2
+                  // compiler seems to automatically handle this well iff it
+                  // has access to BMI/BMI2 instructions, at least on my main
+                  // dev Mac
                   if (!second_allele_idx) {
                     // 1|0
                     phaseinfo_hw |= shifted_bit;
                   }
+#else
+                  phaseinfo_hw |= shifted_bit & (second_allele_idx - 1);
+#endif
                 }
               } else if (unlikely(second_allele_idx != (~k0LU) * 2)) {
                 // not '.'

@@ -1558,6 +1558,8 @@ void ComputeUidxStartPartition(const uintptr_t* variant_include, uint64_t varian
 // multiallelic variants.
 uintptr_t CountExtraAlleles(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, uint32_t variant_uidx_start, uint32_t variant_uidx_end, uint32_t multiallelic_variant_ct_multiplier);
 
+uint32_t MaxAlleleCtSubset(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct);
+
 void ComputePartitionAligned(const uintptr_t* variant_include, uint32_t orig_thread_ct, uint32_t first_variant_uidx, uint32_t cur_variant_idx, uint32_t cur_variant_ct, uint32_t alignment, uint32_t* variant_uidx_starts, uint32_t* vidx_starts);
 
 BoolErr ParseNextRange(const char* const* argvk, uint32_t param_ct, char range_delim, uint32_t* cur_param_idx_ptr, const char** cur_arg_pptr, const char** range_start_ptr, uint32_t* rs_len_ptr, const char** range_end_ptr, uint32_t* re_len_ptr);

@@ -2097,7 +2097,9 @@ void ComputeUidxStartPartition(const uintptr_t* variant_include, uint64_t varian
   }
 }
 
-// May want to have an is_multiallelic bitarray to accelerate this.
+// May want to have an multiallelic_set bitarray to accelerate this type of
+// operation?  Probably only want to conditionally initialize it, and only
+// after variant filtering is complete, though.
 uintptr_t CountExtraAlleles(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, uint32_t variant_uidx_start, uint32_t variant_uidx_end, uint32_t multiallelic_variant_ct_multiplier) {
   if (!allele_idx_offsets) {
     return 0;
@@ -2116,6 +2118,29 @@ uintptr_t CountExtraAlleles(const uintptr_t* variant_include, const uintptr_t* a
     }
   }
   return result;
+}
+
+uint32_t MaxAlleleCtSubset(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct) {
+  if (!allele_idx_offsets) {
+    return 2;
+  }
+  if (raw_variant_ct == variant_ct) {
+    return max_allele_ct;
+  }
+  uintptr_t variant_uidx_base = 0;
+  uintptr_t cur_bits = variant_include[0];
+  uintptr_t subset_max_allele_ct = 2;
+  for (uint32_t uii = 0; uii != variant_ct; ++uii) {
+    const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+    const uint32_t allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
+    if (allele_ct > subset_max_allele_ct) {
+      if (allele_ct == max_allele_ct) {
+        return max_allele_ct;
+      }
+      subset_max_allele_ct = allele_ct;
+    }
+  }
+  return subset_max_allele_ct;
 }
 
 void ComputePartitionAligned(const uintptr_t* variant_include, uint32_t orig_thread_ct, uint32_t first_variant_uidx, uint32_t cur_variant_idx, uint32_t cur_variant_ct, uint32_t alignment, uint32_t* variant_uidx_starts, uint32_t* vidx_starts) {

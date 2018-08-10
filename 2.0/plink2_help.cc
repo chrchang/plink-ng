@@ -1366,7 +1366,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     HelpPrint("maf-succ\0", &help_ctrl, 0,
 "  --maf-succ         : Rule of succession allele frequency estimation (used in\n"
-"                       EIGENSOFT).  Given a j observations of one allele and k\n"
+"                       EIGENSOFT).  Given j observations of one allele and k\n"
 "                       observations of the other for a biallelic variant, infer\n"
 "                       allele frequencies of (j+1) / (j+k+2) and\n"
 "                       (k+1) / (j+k+2), rather than the default j / (j+k) and\n"
