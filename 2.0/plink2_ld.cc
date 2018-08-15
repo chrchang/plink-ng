@@ -1755,7 +1755,7 @@ void GenoarrSplit12Nm(const uintptr_t* __restrict genoarr, uint32_t sample_ct, u
 
 uint32_t GenoBitvecSumMain(const VecW* one_vvec, const VecW* two_vvec, uint32_t vec_ct) {
   // Analog of popcount_vecs.
-  const VecW m0 = VCONST_W(kMask00FF);
+  const VecW m0 = vecw_setzero();  // bugfix (15 Aug 2018)
   const VecW m1 = VCONST_W(kMask5555);
   const VecW m2 = VCONST_W(kMask3333);
   const VecW m4 = VCONST_W(kMask0F0F);

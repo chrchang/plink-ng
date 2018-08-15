@@ -6555,11 +6555,9 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                   --cswritep;
                 }
                 *cswritep++ = '\t';
-                cswritep = strcpya(cswritep, cur_alleles[a1_allele_idx]);
-                if (ax_col) {
-                  *cswritep++ = '\t';
+                if (cur_extra_allele_ct && beta_se_multiallelic_fused && (test_idx != primary_reported_test_idx)) {
                   for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct; ++allele_idx) {
-                    if (allele_idx == a1_allele_idx) {
+                    if (allele_idx == omitted_allele_idx) {
                       continue;
                     }
                     if (unlikely(Cswrite(&css, &cswritep))) {
@@ -6568,6 +6566,28 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                     cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
                   }
                   --cswritep;
+                } else {
+                  cswritep = strcpya(cswritep, cur_alleles[a1_allele_idx]);
+                }
+                if (ax_col) {
+                  *cswritep++ = '\t';
+                  if (beta_se_multiallelic_fused && (test_idx != primary_reported_test_idx)) {
+                    if (unlikely(Cswrite(&css, &cswritep))) {
+                      goto GlmLinear_ret_WRITE_FAIL;
+                    }
+                    cswritep = strcpya(cswritep, cur_alleles[omitted_allele_idx]);
+                  } else {
+                    for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct; ++allele_idx) {
+                      if (allele_idx == a1_allele_idx) {
+                        continue;
+                      }
+                      if (unlikely(Cswrite(&css, &cswritep))) {
+                        goto GlmLinear_ret_WRITE_FAIL;
+                      }
+                      cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
+                    }
+                    --cswritep;
+                  }
                 }
                 if (a1_ct_col) {
                   *cswritep++ = '\t';
