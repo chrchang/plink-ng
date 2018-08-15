@@ -1316,6 +1316,7 @@ HEADER_INLINE uintptr_t PopcountWordsNzbase(const uintptr_t* bitvec, uintptr_t s
 }
 #endif
 
+// start_idx == end_idx ok
 uintptr_t PopcountBitRange(const uintptr_t* bitvec, uintptr_t start_idx, uintptr_t end_idx);
 
 HEADER_INLINE uint32_t IntersectionIsEmpty(const uintptr_t* bitvec1, const uintptr_t* bitvec2, uintptr_t word_ct) {

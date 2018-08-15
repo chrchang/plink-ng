@@ -1091,6 +1091,8 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
     if (unlikely(HtableGoodSizeAlloc(final_pheno_ct, bigstack_left(), &htable_tmp, &tmp_htable_size))) {
       goto LoadPhenos_ret_NOMEM;
     }
+    // possible todo: implement something like --pheno-merge, allow conditional
+    // duplication in that case
     const uint32_t duplicate_idx = PopulateStrboxHtable(pheno_names, final_pheno_ct, max_pheno_name_blen, tmp_htable_size, htable_tmp);
     if (unlikely(duplicate_idx)) {
       const char* duplicate_pheno_name = &(pheno_names[duplicate_idx * max_pheno_name_blen]);

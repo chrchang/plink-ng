@@ -2064,7 +2064,7 @@ uintptr_t GetMaxAltAlleleBlockSize(const uintptr_t* __restrict variant_include, 
       if (cur_ubound > max_alt_allele_block_size) {
         // subtract at beginning of each variant_include bitblock, add at end.
         // deliberate underflow
-        uintptr_t cur_alt_allele_block_size = -cur_variant_ct;
+        uintptr_t cur_alt_allele_block_size = -S_CAST(uintptr_t, cur_variant_ct);
         do {
           const uint32_t cur_bitblock_start = AdvTo1Bit(variant_include, variant_uidx);
           // deliberate underflow
@@ -2088,7 +2088,14 @@ uintptr_t GetMaxAltAlleleBlockSize(const uintptr_t* __restrict variant_include, 
   }
 }
 
-PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t bytes_avail, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, uintptr_t per_alt_allele_xalloc_byte_ct, PgenFileInfo* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** phasepresent_ptr, uintptr_t*** phaseinfo_ptr, uintptr_t*** dosage_present_ptr, Dosage*** dosage_mains_ptr, uintptr_t*** dphase_present_ptr, SDosage*** dphase_delta_ptr, uint32_t* read_block_size_ptr, uintptr_t* max_alt_allele_block_size_ptr, STD_ARRAY_REF(unsigned char*, 2) main_loadbufs, pthread_t** threads_ptr, PgenReader*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr) {
+uintptr_t GetMhcWordCt(uintptr_t sample_ct) {
+  const uintptr_t sample_ctl = BitCtToWordCt(sample_ct);
+  const uintptr_t patch_01_max_word_ct = sample_ctl + DivUp(sizeof(AlleleCode) * sample_ct, kBytesPerWord);
+  const uintptr_t patch_10_max_word_ct = sample_ctl + DivUp(2 * sizeof(AlleleCode) * sample_ct, kBytesPerWord);
+  return RoundUpPow2(patch_01_max_word_ct, kWordsPerVec) + RoundUpPow2(patch_10_max_word_ct, kWordsPerVec);
+}
+
+PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t bytes_avail, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, uintptr_t per_alt_allele_xalloc_byte_ct, PgenFileInfo* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** mhc_ptr, uintptr_t*** phasepresent_ptr, uintptr_t*** phaseinfo_ptr, uintptr_t*** dosage_present_ptr, Dosage*** dosage_mains_ptr, uintptr_t*** dphase_present_ptr, SDosage*** dphase_delta_ptr, uint32_t* read_block_size_ptr, uintptr_t* max_alt_allele_block_size_ptr, STD_ARRAY_REF(unsigned char*, 2) main_loadbufs, pthread_t** threads_ptr, PgenReader*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr) {
   uintptr_t cachelines_avail = bytes_avail / kCacheline;
   uint32_t read_block_size = kPglVblockSize;
   uint64_t multiread_cacheline_ct;
@@ -2145,10 +2152,15 @@ PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint
   const uint32_t sample_ctcl2 = QuaterCtToCachelineCt(sample_ct);
   const uint32_t sample_ctcl = BitCtToCachelineCt(sample_ct);
 
-  // todo: increase in multiallelic case
+  // todo: multiallelic dosage
   const uintptr_t dosage_main_cl = DivUp(sample_ct, (kCacheline / sizeof(Dosage)));
+  uintptr_t mhc_cl = 0;
   if (genovecs_ptr) {
     thread_alloc_cacheline_ct += 1 + sample_ctcl2;
+    if (mhc_ptr) {
+      mhc_cl = DivUp(GetMhcWordCt(sample_ct), kWordsPerCacheline);
+      thread_alloc_cacheline_ct += 1 + mhc_cl;
+    }
     if (phasepresent_ptr) {
       assert(phaseinfo_ptr);
       thread_alloc_cacheline_ct += 2 + sample_ctcl;
@@ -2184,6 +2196,9 @@ PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint
   }
   if (genovecs_ptr) {
     *genovecs_ptr = S_CAST(uintptr_t**, bigstack_alloc_raw(array_of_ptrs_alloc));
+    if (mhc_ptr) {
+      *mhc_ptr = S_CAST(uintptr_t**, bigstack_alloc_raw(array_of_ptrs_alloc));
+    }
     if (phasepresent_ptr) {
       *phasepresent_ptr = S_CAST(uintptr_t**, bigstack_alloc_raw(array_of_ptrs_alloc));
       *phaseinfo_ptr = S_CAST(uintptr_t**, bigstack_alloc_raw(array_of_ptrs_alloc));
@@ -2201,6 +2216,9 @@ PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint
     const uintptr_t dosage_main_alloc = dosage_main_cl * kCacheline;
     for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
       (*genovecs_ptr)[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(genovec_alloc));
+      if (mhc_ptr) {
+        (*mhc_ptr)[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(mhc_cl * kCacheline));
+      }
       if (phasepresent_ptr) {
         (*phasepresent_ptr)[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(bitarray_alloc));
         (*phaseinfo_ptr)[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(bitarray_alloc));

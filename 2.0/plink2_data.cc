@@ -1270,16 +1270,6 @@ uint32_t CopyAndResort16bit(const uintptr_t* __restrict src_subset, const void* 
   return dst_vals_iter - dst_vals_u16;
 }
 
-// Mhc stands for "multiallelic hardcall" here, not major histocompatibility
-// complex.  Though multiallelic hardcalls are of course especially relevant
-// for analysis of major histocompatibility complex genomic data...
-uintptr_t GetMhcWordCt(uintptr_t sample_ct) {
-  const uintptr_t sample_ctl = BitCtToWordCt(sample_ct);
-  const uintptr_t patch_01_max_word_ct = sample_ctl + DivUp(sizeof(AlleleCode) * sample_ct, kBytesPerWord);
-  const uintptr_t patch_10_max_word_ct = sample_ctl + DivUp(2 * sizeof(AlleleCode) * sample_ct, kBytesPerWord);
-  return RoundUpPow2(patch_01_max_word_ct, kWordsPerVec) + RoundUpPow2(patch_10_max_word_ct, kWordsPerVec);
-}
-
 // Requires trailing bits of genovec to be zeroed out.
 // "Flat" = don't separate one_cts and two_cts.
 void GetMFlatCounts64(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t allele_ct, uint32_t patch_01_ct, uint32_t patch_10_ct, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* all_dosages) {
@@ -2246,33 +2236,19 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     // todo: check when this saturates
     uint32_t calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
     const uint32_t max_allele_ct = pgfip->max_allele_ct;
+    uint32_t mhc_needed = 0;
     g_thread_read_mhc = nullptr;
     if ((max_allele_ct > 2) && (variant_hethap_cts || allele_presents || allele_dosages || founder_allele_dosages || mach_r2_vals)) {
       if (unlikely(
               bigstack_alloc_u64p(calc_thread_ct, &g_all_dosages))) {
         goto LoadAlleleAndGenoCounts_ret_NOMEM;
       }
-      if ((variant_hethap_cts || mach_r2_vals) && XymtExists(cip, kChrOffsetX, &unused_chr_code)) {
-        xy_complications_present = 1;
-      }
-      uintptr_t mhc_word_ct = 0;
-      if (xy_complications_present) {
-        if (unlikely(bigstack_alloc_wp(calc_thread_ct, &g_thread_read_mhc))) {
-          goto LoadAlleleAndGenoCounts_ret_NOMEM;
-        }
-        mhc_word_ct = GetMhcWordCt(raw_sample_ct);
-      }
+      mhc_needed = (xy_complications_present || ((variant_hethap_cts || mach_r2_vals) && XymtExists(cip, kChrOffsetX, &unused_chr_code)));
       for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
         // double allocation size, to leave room for chrY ssqs
         if (unlikely(
                 bigstack_alloc_u64(max_allele_ct * 2, &(g_all_dosages[tidx])))) {
           goto LoadAlleleAndGenoCounts_ret_NOMEM;
-        }
-        if (xy_complications_present) {
-          if (unlikely(
-                  bigstack_alloc_w(mhc_word_ct, &(g_thread_read_mhc[tidx])))) {
-            goto LoadAlleleAndGenoCounts_ret_NOMEM;
-          }
         }
       }
     } else {
@@ -2282,7 +2258,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     pthread_t* threads;
     uint32_t read_block_size;
     // todo: check if raw_sample_ct should be replaced with sample_ct here
-    if (unlikely(PgenMtLoadInit(variant_include, raw_sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, 0, 0, 0, pgfip, &calc_thread_ct, &g_genovecs, nullptr, nullptr, xy_dosages_needed? (&g_dosage_presents) : nullptr, xy_dosages_needed? (&g_dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &threads, &g_pgr_ptrs, &g_read_variant_uidx_starts))) {
+    if (unlikely(PgenMtLoadInit(variant_include, raw_sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, 0, 0, 0, pgfip, &calc_thread_ct, &g_genovecs, mhc_needed? (&g_thread_read_mhc) : nullptr, nullptr, nullptr, xy_dosages_needed? (&g_dosage_presents) : nullptr, xy_dosages_needed? (&g_dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &threads, &g_pgr_ptrs, &g_read_variant_uidx_starts))) {
       goto LoadAlleleAndGenoCounts_ret_NOMEM;
     }
 
@@ -3989,7 +3965,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
       }
       STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
       uint32_t read_block_size;
-      if (unlikely(PgenMtLoadInit(variant_include, sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, 0, 2 * (sample_ct4 + 1), 0, pgfip, &calc_thread_ct, &g_genovecs, nullptr, nullptr, g_hard_call_halfdist? (&g_dosage_presents) : nullptr, g_hard_call_halfdist? (&g_dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &ts.threads, &g_pgr_ptrs, &g_read_variant_uidx_starts))) {
+      if (unlikely(PgenMtLoadInit(variant_include, sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, 0, 2 * (sample_ct4 + 1), 0, pgfip, &calc_thread_ct, &g_genovecs, nullptr, nullptr, nullptr, g_hard_call_halfdist? (&g_dosage_presents) : nullptr, g_hard_call_halfdist? (&g_dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &ts.threads, &g_pgr_ptrs, &g_read_variant_uidx_starts))) {
         goto MakePlink2NoVsort_ret_NOMEM;
       }
       if (unlikely(

@@ -10031,7 +10031,7 @@ PglErr PgrGetMDCounts(const uintptr_t* __restrict sample_include, const uintptr_
   return GetMultiallelicCountsAndDosage16s(sample_include, sample_include_interleaved_vec, sample_ct, vidx, allele_ct, pgrp, mach_r2_ptr, het_ctp, genocounts, all_dosages);
 }
 
-PglErr PgrGetMD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals, uint32_t* __restrict patch_01_ctp, uint32_t* __restrict patch_10_ctp, uintptr_t* __restrict dosage_present, uint16_t* __restrict dosage_main, uint32_t* __restrict dosage_ctp, __maybe_unused uintptr_t* __restrict multidosage_present, __maybe_unused unsigned char* __restrict multidosage_cts, __maybe_unused AlleleCode* __restrict multidosage_codes, __maybe_unused uint16_t* __restrict multidosage_vals, __maybe_unused uint32_t* __restrict multidosage_sample_ctp) {
+PglErr PgrGetMD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals, uint32_t* __restrict patch_01_ctp, uint32_t* __restrict patch_10_ctp, uintptr_t* __restrict dosage_present, uint16_t* __restrict dosage_main, uint32_t* __restrict dosage_ctp, __maybe_unused uintptr_t* __restrict multidosage_present, __maybe_unused unsigned char* __restrict multidosage_cts, __maybe_unused AlleleCode* __restrict multidosage_codes, __maybe_unused uint16_t* __restrict multidosage_vals, uint32_t* __restrict multidosage_sample_ctp) {
   *patch_01_ctp = 0;
   *patch_10_ctp = 0;
   *dosage_ctp = 0;
@@ -10041,10 +10041,10 @@ PglErr PgrGetMD(const uintptr_t* __restrict sample_include, const uint32_t* __re
   }
   const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
   const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
-  if (allele_ct == 2) {
+  const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
+  if ((allele_ct == 2) || (!(vrtype & 0x68))) {
     return PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, genovec, dosage_present, dosage_main, dosage_ctp);
   }
-  const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
   const unsigned char* fread_ptr;
   const unsigned char* fread_end;
   uintptr_t* all_hets = VrtypeHphase(vrtype)? pgrp->workspace_all_hets : nullptr;
@@ -10058,6 +10058,7 @@ PglErr PgrGetMD(const uintptr_t* __restrict sample_include, const uint32_t* __re
     // todo: ReadRawGenovec, etc.
   }
   fputs("true multiallelic dosages not yet supported by PgrGetMD()\n", stderr);
+  fprintf(stderr, "%u\n", vidx);
   exit(S_CAST(int32_t, kPglRetNotYetSupported));
   return kPglRetSuccess;
 }

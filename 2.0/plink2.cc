@@ -3795,60 +3795,64 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_A;
           }
         } else if (strequal_k_unsafe(flagname_p2, "ondition")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          uint32_t fname_modif_idx = 1;
-          if (param_ct == 2) {
-            if (!strcmp("dominant", argvk[arg_idx + 2])) {
-              pc.glm_info.flags |= kfGlmConditionDominant;
-            } else if (!strcmp("recessive", argvk[arg_idx + 2])) {
-              pc.glm_info.flags |= kfGlmConditionRecessive;
-            } else {
-              fname_modif_idx = 2;
-              if (!strcmp("dominant", argvk[arg_idx + 1])) {
-                pc.glm_info.flags |= kfGlmConditionDominant;
-              } else if (likely(!strcmp("recessive", argvk[arg_idx + 1]))) {
-                pc.glm_info.flags |= kfGlmConditionRecessive;
-              } else {
-                logerrputs("Error: Invalid --condition parameter sequence.\n");
-                goto main_ret_INVALID_CMDLINE_A;
-              }
-            }
-          }
-          reterr = CmdlineAllocString(argvk[arg_idx + fname_modif_idx], argvk[arg_idx], kMaxIdSlen, &pc.glm_info.condition_varname);
+          reterr = CmdlineAllocString(argvk[arg_idx + 1], argvk[arg_idx], kMaxIdSlen, &pc.glm_info.condition_varname);
           if (unlikely(reterr)) {
             goto main_ret_1;
+          }
+          for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "dominant", cur_modif_slen)) {
+              pc.glm_info.flags |= kfGlmConditionDominant;
+            } else if (strequal_k(cur_modif, "recessive", cur_modif_slen)) {
+              pc.glm_info.flags |= kfGlmConditionRecessive;
+            } else if (likely(
+                strequal_k(cur_modif, "multiallelic", cur_modif_slen) ||
+                strequal_k(cur_modif, "m", cur_modif_slen))) {
+              pc.glm_info.flags |= kfGlmConditionMultiallelic;
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --condition parameter '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          if (unlikely((pc.glm_info.flags & (kfGlmConditionDominant | kfGlmConditionRecessive)) == (kfGlmConditionDominant | kfGlmConditionRecessive))) {
+            logerrputs("Error: --condition 'dominant' and 'recessive' modifiers can't be used together.\n");
+            goto main_ret_INVALID_CMDLINE;
           }
         } else if (strequal_k_unsafe(flagname_p2, "ondition-list")) {
           if (unlikely(pc.glm_info.condition_varname)) {
             logerrputs("Error: --condition-list cannot be used with --condition.\n");
             goto main_ret_INVALID_CMDLINE;
           }
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          uint32_t fname_modif_idx = 1;
-          if (param_ct == 2) {
-            if (!strcmp("dominant", argvk[arg_idx + 2])) {
-              pc.glm_info.flags |= kfGlmConditionDominant;
-            } else if (!strcmp("recessive", argvk[arg_idx + 2])) {
-              pc.glm_info.flags |= kfGlmConditionRecessive;
-            } else {
-              fname_modif_idx = 2;
-              if (!strcmp("dominant", argvk[arg_idx + 1])) {
-                pc.glm_info.flags |= kfGlmConditionDominant;
-              } else if (likely(!strcmp("recessive", argvk[arg_idx + 1]))) {
-                pc.glm_info.flags |= kfGlmConditionRecessive;
-              } else {
-                logerrputs("Error: Invalid --condition-list parameter sequence.\n");
-                goto main_ret_INVALID_CMDLINE_A;
-              }
-            }
-          }
-          reterr = AllocFname(argvk[arg_idx + fname_modif_idx], flagname_p, 0, &pc.glm_info.condition_list_fname);
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.glm_info.condition_list_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
+          }
+          for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "dominant", cur_modif_slen)) {
+              pc.glm_info.flags |= kfGlmConditionDominant;
+            } else if (strequal_k(cur_modif, "recessive", cur_modif_slen)) {
+              pc.glm_info.flags |= kfGlmConditionRecessive;
+            } else if (likely(
+                strequal_k(cur_modif, "multiallelic", cur_modif_slen) ||
+                strequal_k(cur_modif, "m", cur_modif_slen))) {
+              pc.glm_info.flags |= kfGlmConditionMultiallelic;
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --condition-list parameter '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          if (unlikely((pc.glm_info.flags & (kfGlmConditionDominant | kfGlmConditionRecessive)) == (kfGlmConditionDominant | kfGlmConditionRecessive))) {
+            logerrputs("Error: --condition-list 'dominant' and 'recessive' modifiers can't be used\ntogether.\n");
+            goto main_ret_INVALID_CMDLINE;
           }
         } else if (strequal_k_unsafe(flagname_p2, "ow")) {
           if (unlikely(chr_info.chrset_source)) {

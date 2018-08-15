@@ -51,8 +51,9 @@ FLAGSET_DEF_START()
   kfGlmPermCount = (1 << 15),
   kfGlmConditionDominant = (1 << 16),
   kfGlmConditionRecessive = (1 << 17),
-  kfGlmLocalOmitLast = (1 << 18),
-  kfGlmTestsAll = (1 << 19)
+  kfGlmConditionMultiallelic = (1 << 18),
+  kfGlmLocalOmitLast = (1 << 19),
+  kfGlmTestsAll = (1 << 20)
 FLAGSET_DEF_END(GlmFlags);
 
 FLAGSET_DEF_START()
