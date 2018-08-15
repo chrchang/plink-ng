@@ -789,6 +789,8 @@ uint32_t NotOnlyXymt(const uintptr_t* variant_include, const ChrInfo* cip, uint3
 
 uint32_t CountNonAutosomalVariants(const uintptr_t* variant_include, const ChrInfo* cip, uint32_t count_x, uint32_t count_mt);
 
+void ExcludeNonAutosomalVariants(const ChrInfo* cip, uintptr_t* variant_include);
+
 PglErr ConditionalAllocateNonAutosomalVariants(const ChrInfo* cip, const char* calc_descrip, uint32_t raw_variant_ct, const uintptr_t** variant_include_ptr, uint32_t* variant_ct_ptr);
 
 void FillSubsetChrFoVidxStart(const uintptr_t* variant_include, const ChrInfo* cip, uint32_t* subset_chr_fo_vidx_start);

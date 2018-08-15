@@ -95,17 +95,6 @@ CONSTI32(kPglMaxAltAlleleCt, 254);
 #endif
 CONSTI32(kAlleleCodesPerVec, kBytesPerVec / sizeof(AlleleCode));
 
-// These are useful for defending against base-pointer integer overflow on bad
-// input.
-HEADER_INLINE BoolErr PtrAddCk(const unsigned char* end, intptr_t incr, const unsigned char** basep) {
-  *basep += incr;
-  return unlikely((end - (*basep)) < 0);
-}
-
-HEADER_INLINE BoolErr PtrCheck(const unsigned char* end, const unsigned char* base, intptr_t req) {
-  return unlikely((end - base) < req);
-}
-
 // more verbose than (val + 3) / 4, but may as well make semantic meaning
 // obvious; any explicit DivUp(val, 4) expressions should have a different
 // meaning
@@ -1347,6 +1336,8 @@ PglErr PgrGetInv1D(const uintptr_t* __restrict sample_include, const uint32_t* _
 PglErr PgrGetDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* mach_r2_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages);
 
 PglErr PgrGetMDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* __restrict mach_r2_ptr, uint32_t* __restrict het_ctp, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages);
+
+PglErr PgrGetMD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals, uint32_t* __restrict patch_01_ctp, uint32_t* __restrict patch_10_ctp, uintptr_t* __restrict dosage_present, uint16_t* __restrict dosage_main, uint32_t* __restrict dosage_ctp, uintptr_t* __restrict multidosage_present, unsigned char* __restrict multidosage_cts, AlleleCode* __restrict multidosage_codes, uint16_t* __restrict multidosage_vals, uint32_t* __restrict multidosage_sample_ctp);
 
 // ok for both dosage_present and dosage_main to be nullptr when no dosage data
 // is present

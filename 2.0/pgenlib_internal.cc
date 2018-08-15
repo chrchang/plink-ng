@@ -7612,11 +7612,6 @@ void Expand2bitTo8(const void* __restrict bytearr, uint32_t input_quater_ct, uin
   if (input_vec_ct) {
     const VecW mincr = R_CAST(VecW, vecuc_set1(incr));
     const VecW m03 = VCONST_W(kMask0303);
-#  ifdef USE_AVX2
-    const VecW midswap = vecw_setr8(
-        0, 1, 2, 3, 8, 9, 10, 11,
-        4, 5, 6, 7, 12, 13, 14, 15);
-#  endif
     for (uint32_t vec_idx = 0; vec_idx != input_vec_ct; ++vec_idx) {
       VecW cur_vec = vecw_loadu(src_iter);
       src_iter = &(src_iter[kBytesPerVec]);
@@ -7631,8 +7626,8 @@ void Expand2bitTo8(const void* __restrict bytearr, uint32_t input_quater_ct, uin
       //                          96-97-98-99, ..., 108-109-110-111,
       //                          80-81-82-83, ..., 92-93-94-95,
       //                          112-113-114-115, ..., 124-125-126-127}
-      const VecW midswapped_vec = vecw_shuffle8(cur_vec, midswap);
       // 0xd8: {0, 2, 1, 3}
+      const __m256i midswapped_vec = _mm256_shuffle_epi32(R_CAST(__m256i, cur_vec), 0xd8);
       // This operation is also used in FillInterleavedMaskVec().
       // cur_vec now contains {0-1-2-3, 4-5-6-7, 8-9-10-11, 12-13-14-15,
       //                       32-33-34-35, ..., 44-45-46-47,
@@ -7642,7 +7637,7 @@ void Expand2bitTo8(const void* __restrict bytearr, uint32_t input_quater_ct, uin
       //                       48-49-50-51, ..., 60-61-62-63,
       //                       80-81-82-83, ..., 92-93-94-95,
       //                       112-113-114-115, ..., 124-125-126-127}
-      cur_vec = R_CAST(VecW, _mm256_permute4x64_epi64(R_CAST(__m256i, midswapped_vec), 0xd8));
+      cur_vec = R_CAST(VecW, _mm256_permute4x64_epi64(midswapped_vec, 0xd8));
 #  endif
       // AVX2:
       //   vec_even contains {0-1, 4-5, 8-9, 12-13, 32-33, ..., 44-45,
@@ -9056,9 +9051,8 @@ PglErr PgrGetD(const uintptr_t* __restrict sample_include, const uint32_t* __res
   }
   const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
   if ((!VrtypeDosage(vrtype)) || (!dosage_present)) {
-    PglErr reterr = ReadGenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, nullptr, nullptr, genovec);
     *dosage_ct_ptr = 0;
-    return reterr;
+    return ReadGenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, nullptr, nullptr, genovec);
   }
   const unsigned char* fread_ptr = nullptr;
   const unsigned char* fread_end = nullptr;
@@ -10035,6 +10029,37 @@ PglErr PgrGetMDCounts(const uintptr_t* __restrict sample_include, const uintptr_
     return reterr;
   }
   return GetMultiallelicCountsAndDosage16s(sample_include, sample_include_interleaved_vec, sample_ct, vidx, allele_ct, pgrp, mach_r2_ptr, het_ctp, genocounts, all_dosages);
+}
+
+PglErr PgrGetMD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals, uint32_t* __restrict patch_01_ctp, uint32_t* __restrict patch_10_ctp, uintptr_t* __restrict dosage_present, uint16_t* __restrict dosage_main, uint32_t* __restrict dosage_ctp, __maybe_unused uintptr_t* __restrict multidosage_present, __maybe_unused unsigned char* __restrict multidosage_cts, __maybe_unused AlleleCode* __restrict multidosage_codes, __maybe_unused uint16_t* __restrict multidosage_vals, __maybe_unused uint32_t* __restrict multidosage_sample_ctp) {
+  *patch_01_ctp = 0;
+  *patch_10_ctp = 0;
+  *dosage_ctp = 0;
+  *multidosage_sample_ctp = 0;
+  if (!sample_ct) {
+    return kPglRetSuccess;
+  }
+  const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
+  const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
+  if (allele_ct == 2) {
+    return PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, genovec, dosage_present, dosage_main, dosage_ctp);
+  }
+  const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
+  const unsigned char* fread_ptr;
+  const unsigned char* fread_end;
+  uintptr_t* all_hets = VrtypeHphase(vrtype)? pgrp->workspace_all_hets : nullptr;
+  if (VrtypeMultiallelicHc(vrtype)) {
+    PglErr reterr = GetMultiallelicCodes(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, all_hets? (&fread_ptr) : nullptr, all_hets? (&fread_end) : nullptr, all_hets, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, patch_01_ctp, patch_10_ctp);
+;
+    if (!(vrtype & 0x60)) {
+      return reterr;
+    }
+  } else {
+    // todo: ReadRawGenovec, etc.
+  }
+  fputs("true multiallelic dosages not yet supported by PgrGetMD()\n", stderr);
+  exit(S_CAST(int32_t, kPglRetNotYetSupported));
+  return kPglRetSuccess;
 }
 
 PglErr PgrGetDp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr, uintptr_t* __restrict dphase_present, int16_t* dphase_delta, uint32_t* dphase_ct_ptr) {
@@ -12833,6 +12858,44 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
         uint32_t written_byte_ct;
         if (allele_ct == 4) {
           // 1 bit per entry, clear = ref/alt2, set = ref/alt3
+#ifdef __LP64__
+          const uint32_t fullvec_ct = patch_01_ct / kBytesPerVec;
+          Vec8thUint* write_aliasv = R_CAST(Vec8thUint*, write_alias);
+          if (fullvec_ct) {
+            // parallel-equality-to-3 check, movemask
+            // (+125 or <<7 followed by movemask also works)
+            for (uint32_t vec_idx = 0; vec_idx != fullvec_ct; ++vec_idx) {
+              VecUc cur_vec = vecuc_loadu(patch_01_vals_iter);
+              patch_01_vals_iter = &(patch_01_vals_iter[kBytesPerVec]);
+              write_aliasv[vec_idx] = vecuc_movemask(R_CAST(VecUc, vecw_slli(R_CAST(VecW, cur_vec), 7)));
+            }
+          }
+          const uint32_t remainder = patch_01_ct % kBytesPerVec;
+          if (remainder) {
+            const uintptr_t* cur_read_iter = R_CAST(const uintptr_t*, patch_01_vals_iter);
+            unsigned char* write_uc = R_CAST(unsigned char*, &(write_aliasv[fullvec_ct]));
+            const uint32_t word_ct_m1 = (remainder - 1) / kBytesPerWord;
+            for (uint32_t widx = 0; ; ++widx) {
+              uintptr_t cur_word;
+              if (widx >= word_ct_m1) {
+                if (widx > word_ct_m1) {
+                  break;
+                }
+                cur_word = SubwordLoad(cur_read_iter, ModNz(remainder, kBytesPerWord));
+              } else {
+                cur_word = *cur_read_iter++;
+              }
+#  ifdef USE_AVX2
+              cur_word = _pext_u64(cur_word, kMask0101);
+#  else
+              // extract the low bit from each byte
+              cur_word = cur_word & kMask0101;
+              cur_word = (cur_word * 0x102040810204080LLU) >> 56;
+#  endif
+              write_uc[widx] = cur_word;
+            }
+          }
+#else  // !__LP64__
           const uint32_t word_ct_m1 = (patch_01_ct - 1) / kBitsPerWord;
           uint32_t loop_len = kBitsPerWord;
           for (uint32_t widx = 0; ; ++widx) {
@@ -12843,14 +12906,17 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
               loop_len = ModNz(patch_01_ct, kBitsPerWord);
             }
             uintptr_t cur_word = 0;
-            for (uint32_t uii = 0; uii != loop_len; ++uii) {
-              // todo: replace this with movemask, starting with parallel
-              // equality-to-3 check
-              cur_word |= S_CAST(uintptr_t, patch_01_vals_iter[uii] - 2) << uii;
+            for (uint32_t uii = loop_len - 1; ; --uii) {
+              cur_word |= patch_01_vals_iter[uii] & 1;
+              if (!uii) {
+                break;
+              }
+              cur_word <<= 1;
             }
             write_alias[widx] = cur_word;
             patch_01_vals_iter = &(patch_01_vals_iter[loop_len]);
           }
+#endif  // !__LP64__
           written_byte_ct = DivUp(patch_01_ct, 8);
         } else if (allele_ct <= 6) {
           // 2 bits per entry
@@ -12864,7 +12930,7 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
               loop_len = ModNz(patch_01_ct, kBitsPerWordD2);
             }
             uintptr_t cur_word = 0;
-            for (uint32_t uii = 0; uii != loop_len; ++uii) {
+            for (uint32_t uii = loop_len - 1; ; --uii) {
               // todo:
               // 1. parallel-subtract (now all bytes are in 0..3)
               // 2. bitwise or with right-shift-6
@@ -12874,7 +12940,11 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
               // 5. store result of _mm_extract_epi32(, 0)
               // AVX2:
               // 5. store results of _mm256_extract_epi32(, 0) and (, 4)
-              cur_word |= S_CAST(uintptr_t, patch_01_vals_iter[uii] - 2) << (2 * uii);
+              cur_word |= patch_01_vals_iter[uii] - 2;
+              if (!uii) {
+                break;
+              }
+              cur_word <<= 2;
             }
             write_alias[widx] = cur_word;
             patch_01_vals_iter = &(patch_01_vals_iter[loop_len]);
@@ -12892,14 +12962,18 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
               loop_len = ModNz(patch_01_ct, kBitsPerWordD4);
             }
             uintptr_t cur_word = 0;
-            for (uint32_t uii = 0; uii != loop_len; ++uii) {
+            for (uint32_t uii = loop_len - 1; ; --uii) {
               // todo: replace this with parallel-subtract, followed by bitwise
               // or with right-shift-4, followed by _mm{256}_shuffle_epi8()
               // gather from even bytes, followed by _mm{256}_extract_epi64()
               // (or _mm256_permute4x64_epi64() followed by
               // _mm256_extracti128_si256()?  test this.)
               // Or in non-SSE4.2 case, use end of PackWordToHalfword logic.
-              cur_word |= S_CAST(uintptr_t, patch_01_vals_iter[uii] - 2) << (4 * uii);
+              cur_word |= patch_01_vals_iter[uii] - 2;
+              if (!uii) {
+                break;
+              }
+              cur_word <<= 4;
             }
             write_alias[widx] = cur_word;
             patch_01_vals_iter = &(patch_01_vals_iter[loop_len]);
@@ -12955,6 +13029,54 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
         if (unlikely(CheckedVrecLenIncr(bytes_to_write, &vrec_len))) {
           return 1;
         }
+#ifdef __LP64__
+        const uint32_t fullvec_ct = patch_10_ct / (kBytesPerVec / 2);
+        Vec16thUint* write_aliasv = R_CAST(Vec16thUint*, write_alias);
+        if (fullvec_ct) {
+#  if defined(USE_SSE42) && !defined(USE_AVX2)
+          // SSE4.2: _mm_shuffle_epi8() to gather even bytes, parallel
+          //         equality-to-2 check, movemask
+          // (+126 or <<6 followed by movemask also works)
+          const VecUc gather_even = vecuc_setr8(0, 2, 4, 6, 8, 10, 12, 14,
+                                                -1, -1, -1, -1, -1, -1, -1, -1);
+          for (uint32_t vec_idx = 0; vec_idx != fullvec_ct; ++vec_idx) {
+            const VecUc cur_vec = vecuc_loadu(patch_10_vals_iter);
+            patch_10_vals_iter = &(patch_10_vals_iter[kBytesPerVec]);
+            const VecUc even_vec = vecuc_shuffle8(cur_vec, gather_even);
+            const uint32_t cur_u32 = vecuc_movemask(R_CAST(VecUc, vecw_slli(R_CAST(VecW, even_vec), 6)));
+            write_aliasv[vec_idx] = cur_u32;
+          }
+#  else
+          // SSE2/AVX2: parallel equality-to-{2, 2} check, movemask,
+          //            PackWordToHalfword
+          // (uint16_t +126 followed by movemask also works, and avoids an
+          // extra masking step in SSE2 case)
+          // (<<6 doesn't work here)
+          const VecU16 all126 = vecu16_set1(126);
+          for (uint32_t vec_idx = 0; vec_idx != fullvec_ct; ++vec_idx) {
+            VecU16 cur_vec = vecu16_loadu(patch_10_vals_iter);
+            patch_10_vals_iter = &(patch_10_vals_iter[kBytesPerVec]);
+            const uint32_t cur_u32 = vecu16_movemask(cur_vec + all126);
+            write_aliasv[vec_idx] = PackVec8thUintTo16th(cur_u32);
+          }
+#  endif
+        }
+        const uint32_t remainder = patch_10_ct % (kBytesPerVec / 2);
+        if (remainder) {
+          uint32_t cur_u32 = 0;
+          for (uint32_t uii = remainder - 1; ; --uii) {
+            cur_u32 += patch_10_vals_iter[2 * uii];
+            if (!uii) {
+              break;
+            }
+            cur_u32 <<= 1;
+          }
+          // this effectively subtracts 1 from each entry
+          cur_u32 += 1 - (1U << remainder);
+          write_aliasv[fullvec_ct] = cur_u32;
+          patch_10_vals_iter = &(patch_10_vals_iter[remainder * 2]);
+        }
+#else  // !__LP64__
         const uint32_t word_ct_m1 = (patch_10_ct - 1) / kBitsPerWord;
         uint32_t loop_len = kBitsPerWord;
         for (uint32_t widx = 0; ; ++widx) {
@@ -12965,17 +13087,17 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
             loop_len = ModNz(patch_10_ct, kBitsPerWord);
           }
           uintptr_t cur_word = 0;
-          for (uint32_t uii = 0; uii != loop_len; ++uii) {
-            // todo:
-            //   SSE2/AVX2: parallel equality-to-{2, 2} check, movemask,
-            //              PackWordToHalfword
-            //   SSE4.2: _mm_shuffle_epi8() to gather even bytes, parallel
-            //           equality-to-2 check, movemask
-            cur_word |= S_CAST(uintptr_t, patch_10_vals_iter[2 * uii] - 1) << uii;
+          for (uint32_t uii = loop_len - 1; ; --uii) {
+            cur_word |= patch_10_vals_iter[2 * uii] - 1;
+            if (!uii) {
+              break;
+            }
+            cur_word <<= 1;
           }
           write_alias[widx] = cur_word;
           patch_10_vals_iter = &(patch_10_vals_iter[loop_len * 2]);
         }
+#endif  // !__LP64__
       } else if (allele_ct <= 5) {
         // 2 bits per half-entry
         bytes_to_write = DivUp(patch_10_ct, 2);
@@ -12993,11 +13115,14 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
             loop_len = 2 * ModNz(patch_10_ct, kBitsPerWordD4);
           }
           uintptr_t cur_word = 0;
-          for (uint32_t uii = 0; uii != loop_len; ++uii) {
+          for (uint32_t uii = loop_len - 1; ; --uii) {
             // todo: same as 2-bit patch_01 case, except starting with
             // parallel-subtract 1 instead of 2
-            // (also, ascending loop may be worse than descending here)
-            cur_word |= S_CAST(uintptr_t, patch_10_vals_iter[uii] - 1) << (2 * uii);
+            cur_word |= patch_10_vals_iter[uii] - 1;
+            if (!uii) {
+              break;
+            }
+            cur_word <<= 2;
           }
           write_alias[widx] = cur_word;
           patch_10_vals_iter = &(patch_10_vals_iter[loop_len]);
@@ -13018,8 +13143,12 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
             loop_len = 2 * ModNz(patch_10_ct, kBytesPerWord);
           }
           uintptr_t cur_word = 0;
-          for (uint32_t uii = 0; uii != loop_len; ++uii) {
-            cur_word |= S_CAST(uintptr_t, patch_10_vals_iter[uii] - 1) << (4 * uii);
+          for (uint32_t uii = loop_len - 1; ; --uii) {
+            cur_word |= patch_10_vals_iter[uii] - 1;
+            if (!uii) {
+              break;
+            }
+            cur_word <<= 4;
           }
           write_alias[widx] = cur_word;
           patch_10_vals_iter = &(patch_10_vals_iter[loop_len]);
@@ -13153,15 +13282,13 @@ void PglMultiallelicDenseToSparse(const AlleleCode* __restrict wide_codes, uint3
             *patch_10_vals_iter++ = second_code;
           }
         }
+      } else if (!second_code) {
+        continue;
       } else {
-        if (second_code) {
-          cur_geno = 1;
-          if (second_code > 1) {
-            patch_01_hw |= 1U << sample_idx_lowbits;
-            *patch_01_vals_iter++ = second_code;
-          }
-        } else {
-          cur_geno = 0;
+        cur_geno = 1;
+        if (second_code > 1) {
+          patch_01_hw |= 1U << sample_idx_lowbits;
+          *patch_01_vals_iter++ = second_code;
         }
       }
       geno_word |= cur_geno << (2 * sample_idx_lowbits);
