@@ -5091,9 +5091,11 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
       const uint32_t sample_ctl = BitCtToWordCt(cur_sample_ct);
       const uint32_t sample_ctl2 = QuaterCtToWordCt(cur_sample_ct);
       const uint32_t cur_biallelic_predictor_ct_base = 2 + domdev_present + cur_covar_ct * (1 + add_interactions * domdev_present_p1);
+      uint32_t literal_covar_ct = cur_covar_ct;
       uint32_t cur_biallelic_predictor_ct = cur_biallelic_predictor_ct_base;
       if (cur_parameter_subset) {
         cur_biallelic_predictor_ct = PopcountWords(cur_parameter_subset, BitCtToWordCt(cur_biallelic_predictor_ct_base));
+        literal_covar_ct = PopcountBitRange(cur_parameter_subset, 2 + domdev_present, 2 + domdev_present + cur_covar_ct);
       }
       const uint32_t max_predictor_ct = cur_biallelic_predictor_ct + max_extra_allele_ct;
       uint32_t reported_pred_uidx_biallelic_end;
@@ -5423,13 +5425,11 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
               }
               prev_nm = !missing_ct;
             } else {
-              if (cur_parameter_subset && cur_covar_ct) {
-                parameter_uidx = FindNth1BitFrom(cur_parameter_subset, parameter_uidx, cur_covar_ct) + 1;
-              } else {
-                parameter_uidx += cur_covar_ct;
-              }
-              // bugfix (12 Jan 2018): forgot t update nm_predictors_pmaj_iter
-              nm_predictors_pmaj_iter = &(nm_predictors_pmaj_iter[cur_covar_ct * nm_sample_ct]);
+              // bugfix (15 Aug 2018): this was not handling --parameters
+              // correctly when a covariate was only needed as part of an
+              // interaction
+              parameter_uidx += cur_covar_ct;
+              nm_predictors_pmaj_iter = &(nm_predictors_pmaj_iter[literal_covar_ct * nm_sample_ct]);
             }
             // fill interaction terms
             if (add_interactions) {
