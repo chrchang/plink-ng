@@ -309,7 +309,12 @@ BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* v
     char* id_iter = R_CAST(char*, *tmp_alloc_endp);
     const uint32_t insert_ct = vtp->insert_ct;
     char* insert_ptrs[4];
-    insert_ptrs[0] = nullptr;  // maybe-uninitialized warning
+
+    // maybe-uninitialized warnings
+    insert_ptrs[0] = nullptr;
+    insert_ptrs[1] = nullptr;
+    insert_ptrs[2] = nullptr;
+
     for (uint32_t insert_idx = 0; insert_idx != insert_ct; ++insert_idx) {
       id_iter = memcpya(id_iter, vtp->segs[insert_idx], vtp->seg_lens[insert_idx]);
       const uint32_t cur_insert_type = vtp->insert_types[insert_idx];

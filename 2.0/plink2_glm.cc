@@ -5573,12 +5573,10 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
         // a1_dosage, mach_r2 even for skipped variants
         // compute them all for now, could conditionally skip later
         uint32_t allele_obs_ct = nm_sample_ct * 2;
-        double dosage_ceil = 2.0;
         if (!is_x) {
           if (is_nonx_haploid) {
             allele_obs_ct = nm_sample_ct;
             // everything is on 0..1 scale, not 0..2
-            dosage_ceil = 1.0;
             if (!sparse_optimization) {
               for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
                 genotype_vals[sample_idx] *= 0.5;

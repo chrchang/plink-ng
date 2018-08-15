@@ -382,7 +382,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
         king_uidx_to_sample_idx[king_uidx] = sample_idx;
       }
     }
-    snprintf(fprefix_end, 9, ".king.bin");
+    snprintf(fprefix_end, 10, ".king.bin");
     if (unlikely(fopen_checked(king_cutoff_fprefix, FOPEN_RB, &binfile))) {
       goto KingCutoffBatch_ret_OPEN_FAIL;
     }
