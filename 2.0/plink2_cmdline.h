@@ -1557,6 +1557,7 @@ void ComputeUidxStartPartition(const uintptr_t* variant_include, uint64_t varian
 // Set multiplier to 0 to only count extra alleles, 1 to also count alt1 for
 // those variants (useful for HWE), 2 to count both ref and alt1 for
 // multiallelic variants.
+// allele_idx_offsets == nullptr ok.
 uintptr_t CountExtraAlleles(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, uint32_t variant_uidx_start, uint32_t variant_uidx_end, uint32_t multiallelic_variant_ct_multiplier);
 
 uint32_t MaxAlleleCtSubset(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct);

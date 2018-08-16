@@ -867,7 +867,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      firth: Reports whether Firth regression was used (firth-fallback only).\n"
 "      test: Test identifier.  (Required unless only one test is run.)\n"
 "      nobs: Number of samples in the regression.\n"
-"      beta: Regression coefficient (for A1).\n"
+"      beta: Regression coefficient (for A1 if additive test).\n"
 "      orbeta: Odds ratio for case/control, beta for quantitative traits.\n"
 "      se: Standard error of beta.\n"
 "      ci: Bounds of symmetric approximate confidence interval (requires --ci).\n"
