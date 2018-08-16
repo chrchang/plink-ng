@@ -1107,8 +1107,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                          '--chr-override file' defers to the file.\n"
                );
     // possible todo: --var-max-qual
-    HelpPrint("biallelic-only\0var-min-qual\0var-filter\0vcf-min-qual\0vcf-filter\0qual-scores\0qual-threshold\0qual-max-threshold\0", &help_ctrl, 0,
-"  --biallelic-only <strict> <list> : Skip variants with 2+ alt. alleles.\n"
+    HelpPrint("var-min-qual\0var-filter\0vcf-min-qual\0vcf-filter\0qual-scores\0qual-threshold\0qual-max-threshold\0", &help_ctrl, 0,
 "  --var-min-qual [val]             : Skip variants with low/missing QUAL.\n"
 "  --var-filter {exception(s)...}   : Skip variants which have FILTER failures.\n"
                );
@@ -1116,7 +1115,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --extract-if-info [key] [op] [val] : Exclude variants which don't/do satisfy\n"
 "  --exclude-if-info [key] [op] [val]   a comparison predicate on an INFO key,\n"
 "  (aliases: --extract-if,              e.g.\n"
-"  --exclude-if)                          --extract-if-info \"VT == SNP\"\n"
+"            --exclude-if)                --extract-if-info \"VT == SNP\"\n"
 "                                       Unless the operator is !=, the predicate\n"
 "                                       always evaluates to false when the key\n"
 "                                       is missing.\n"
@@ -1375,7 +1374,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       k / (j+k).\n"
 "                       Note that this does not affect --freq's output.\n"
                );
-    HelpPrint("max-alleles\0min-alleles\0", &help_ctrl, 0,
+    HelpPrint("max-alleles\0min-alleles\0biallelic-only\0", &help_ctrl, 0,
 "  --min-alleles [ct] : Exclude variants with fewer than the given # of alleles.\n"
 "                       (When a variant has exactly one ALT allele, and it's\n"
 "                       a missing-code, it's excluded by \"--min-alleles 2\".)\n"

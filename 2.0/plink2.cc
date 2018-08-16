@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (15 Aug 2018)";
+  " (16 Aug 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -3632,24 +3632,8 @@ int main(int argc, char** argv) {
           }
           load_params |= kfLoadParamsPfileAll;
         } else if (strequal_k_unsafe(flagname_p2, "iallelic-only")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
-            goto main_ret_INVALID_CMDLINE_2A;
-          }
-          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argvk[arg_idx + param_idx];
-            if (!strcmp(cur_modif, "strict")) {
-              pc.misc_flags |= kfMiscBiallelicOnlyStrict;
-            } else if (likely(!strcmp(cur_modif, "list"))) {
-              pc.misc_flags |= kfMiscBiallelicOnlyList;
-            } else {
-              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --biallelic-only parameter '%s'.\n", cur_modif);
-              goto main_ret_INVALID_CMDLINE_WWA;
-            }
-          }
-          pc.misc_flags |= kfMiscBiallelicOnly;
-          logerrputs("Error: --biallelic-only is not implemented yet.\n");
-          reterr = kPglRetNotYetSupported;
-          goto main_ret_1;
+          logerrputs("Error: --biallelic-only is retired.  Use e.g. \"--max-alleles 2\" instead.\n");
+          goto main_ret_INVALID_CMDLINE_A;
         } else if (strequal_k_unsafe(flagname_p2, "cf")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
