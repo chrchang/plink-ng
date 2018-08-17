@@ -3556,7 +3556,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
                     ++alt1_het_ct;
                     alt1_start[sample_idx] = 1.0;
                   } else {
-                    rarealt_start[(ac0 - 2) * nm_sample_ctav + sample_idx] += 1.0;
+                    rarealt_start[(ac0 - 2) * nm_sample_ctav + sample_idx] += S_CAST(float, 1.0);
                     alt1_start[sample_idx] = 0.0;
                     machr2_dosage_sums[ac0] += 1;
                   }
@@ -3576,7 +3576,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
                   if (ac0 == 1) {
                     ++alt1_het_ct;
                   } else {
-                    rarealt_start[(ac0 - 2) * nm_sample_ctav + sample_idx] += 1.0;
+                    rarealt_start[(ac0 - 2) * nm_sample_ctav + sample_idx] += S_CAST(float, 1.0);
                     machr2_dosage_sums[ac0] += 1;
                   }
                 }
@@ -3607,7 +3607,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
                     alt1_start[sample_idx] = 0.0;
                     if (ac0 != omitted_allele_idx) {
                       const uint32_t ac0_col = ac0 - 2 - (ac0 > omitted_allele_idx);
-                      rarealt_start[ac0_col * nm_sample_ctav + sample_idx] += 1.0;
+                      rarealt_start[ac0_col * nm_sample_ctav + sample_idx] += S_CAST(float, 1.0);
                     }
                   }
                 }
@@ -3711,7 +3711,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
             }
             const uint32_t high_ct = nm_sample_ct * allele_ct_m2;
             for (uint32_t uii = 0; uii != high_ct; ++uii) {
-              multi_start[uii] *= 0.5;
+              multi_start[uii] *= S_CAST(float, 0.5);
             }
           }
         } else {
@@ -3734,7 +3734,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
               male_nm_bits = male_nm[0];
               for (uint32_t male_idx = 0; male_idx != nm_male_ct; ++male_idx) {
                 const uintptr_t sample_idx = BitIter1(male_nm, &sample_idx_base, &male_nm_bits);
-                cur_start[sample_idx] *= 0.5;
+                cur_start[sample_idx] *= S_CAST(float, 0.5);
               }
             }
             allele_obs_ct -= nm_male_ct;
