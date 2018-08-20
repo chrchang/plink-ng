@@ -4171,6 +4171,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
         reterr = kPglRetNotYetSupported;
         goto MakePlink2NoVsort_ret_1;
       }
+      write_gflags &= ~kfPgenGlobalMultiallelicHardcallFound;
       uintptr_t alloc_base_cacheline_ct;
       uint64_t mpgw_per_thread_cacheline_ct;
       uint32_t vrec_len_byte_ct;

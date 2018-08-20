@@ -2822,7 +2822,9 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     VcfImportContext vic;
     vic.vibc.halfcall_mode = halfcall_mode;
 
-    vic.dosage_is_gp = strequal_k(dosage_import_field, "GP", dosage_import_field_slen);
+    // bugfix (20 Aug 2018): forgot to initialize g_dosage_is_gp
+    g_dosage_is_gp = strequal_k(dosage_import_field, "GP", dosage_import_field_slen);
+    vic.dosage_is_gp = g_dosage_is_gp;
 
     // always positive
     vic.dosage_erase_halfdist = kDosage4th - dosage_erase_thresh;

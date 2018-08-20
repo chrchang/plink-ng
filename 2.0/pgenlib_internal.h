@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1101
+#define PGENLIB_INTERNAL_VERNUM 1102
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -1529,6 +1529,15 @@ HEADER_INLINE PglErr SpgwAppendMultiallelicSparse(const uintptr_t* __restrict ge
 
 // This may not zero out trailing halfword of patch_{01,10}_set.
 void PglMultiallelicDenseToSparse(const AlleleCode* __restrict wide_codes, uint32_t sample_ct, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals, uint32_t* __restrict patch_01_ct_ptr, uint32_t* __restrict patch_10_ct_ptr);
+
+// If remap is not nullptr, this simultaneously performs a rotation operation:
+// wide_codes[2n] and [2n+1] are set to remap[geno[n]] rather than geno[n], and
+// bit n of flipped (if flipped non-null) is set iff phase orientation is
+// flipped (i.e. wide_codes[2n] was larger than wide_codes[2n+1] before the
+// final reordering pass; caller needs to know this to properly update
+// phaseinfo, dphase_delta, multidphase_delta).
+// It currently assumes no alleles are being mapped to 'missing'.
+void PglMultiallelicSparseToDense(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, const AlleleCode* __restrict remap, uint32_t sample_ct, uint32_t patch_01_ct, uint32_t patch_10_ct, uintptr_t* __restrict flipped, AlleleCode* __restrict wide_codes);
 
 // phasepresent == nullptr ok, that indicates that ALL heterozygous calls are
 // phased.  Caller should use e.g. PwcAppendBiallelicGenovec() if it's known

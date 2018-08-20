@@ -299,8 +299,10 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
     if (InitRLstreamFastsizeRaw(king_cutoff_fprefix, &rls, &line_iter)) {
       goto KingCutoffBatch_ret_1;
     }
-    ++line_idx;
-    reterr = RlsNextLstrip(&rls, &line_iter);
+    // bugfix (18 Aug 2018): this missed some xid_mode possibilities
+    char* linebuf_first_token;
+    XidMode xid_mode;
+    reterr = LoadXidHeader("king-cutoff", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeader0 : kfXidHeaderIgnoreSid, &line_iter, &line_idx, &linebuf_first_token, &rls, &xid_mode);
     if (unlikely(reterr)) {
       if (reterr == kPglRetEof) {
         logerrputs("Error: Empty --king-cutoff ID file.\n");
@@ -308,11 +310,6 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
       }
       goto KingCutoffBatch_ret_READ_RLSTREAM;
     }
-    if (unlikely(IsEolnKns(*line_iter))) {
-      goto KingCutoffBatch_ret_MISSING_TOKENS;
-    }
-    const char* linebuf_first_token = line_iter;
-    const XidMode xid_mode = (siip->sids && NextTokenMult(linebuf_first_token, 2))? kfXidModeFidIidSid : kfXidModeFidIid;
 
     uint32_t* xid_map;  // IDs not collapsed
     char* sorted_xidbox;
@@ -326,28 +323,34 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
       goto KingCutoffBatch_ret_NOMEM;
     }
     SetAllU32Arr(raw_sample_ct, sample_uidx_to_king_uidx);
+    if (*linebuf_first_token == '#') {
+      *linebuf_first_token = '\0';
+    }
+    uintptr_t king_id_ct = 0;
     while (1) {
-      const char* linebuf_iter = linebuf_first_token;
-      uint32_t sample_uidx;
-      if (!SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx, idbuf)) {
-        if (unlikely(sample_uidx_to_king_uidx[sample_uidx] != UINT32_MAX)) {
-          char* first_tab = AdvToDelim(idbuf, '\t');
-          char* second_tab = strchr(&(first_tab[1]), '\t');
-          *first_tab = ' ';
-          if (second_tab) {
-            *second_tab = ' ';
+      if (!IsEolnKns(*linebuf_first_token)) {
+        const char* linebuf_iter = linebuf_first_token;
+        uint32_t sample_uidx;
+        if (!SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx, idbuf)) {
+          if (unlikely(sample_uidx_to_king_uidx[sample_uidx] != UINT32_MAX)) {
+            char* first_tab = AdvToDelim(idbuf, '\t');
+            char* second_tab = strchr(&(first_tab[1]), '\t');
+            *first_tab = ' ';
+            if (second_tab) {
+              *second_tab = ' ';
+            }
+            snprintf(g_logbuf, kLogbufSize, "Error: Duplicate ID '%s' in %s .\n", idbuf, king_cutoff_fprefix);
+            goto KingCutoffBatch_ret_MALFORMED_INPUT_WW;
           }
-          snprintf(g_logbuf, kLogbufSize, "Error: Duplicate ID '%s' in %s .\n", idbuf, king_cutoff_fprefix);
-          goto KingCutoffBatch_ret_MALFORMED_INPUT_WW;
+          sample_uidx_to_king_uidx[sample_uidx] = king_id_ct;
+          ++king_id_ct;
+        } else {
+          if (unlikely(!linebuf_iter)) {
+            goto KingCutoffBatch_ret_MISSING_TOKENS;
+          }
         }
-        sample_uidx_to_king_uidx[sample_uidx] = line_idx - 1;
-      } else {
-        if (unlikely(!linebuf_iter)) {
-          goto KingCutoffBatch_ret_MISSING_TOKENS;
-        }
+        line_iter = K_CAST(char*, linebuf_iter);
       }
-      line_iter = K_CAST(char*, linebuf_iter);
-
       ++line_idx;
       reterr = RlsNextLstrip(&rls, &line_iter);
       if (reterr) {
@@ -357,11 +360,8 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
         }
         goto KingCutoffBatch_ret_READ_RLSTREAM;
       }
-      if (unlikely(IsEolnKns(*line_iter))) {
-        goto KingCutoffBatch_ret_MISSING_TOKENS;
-      }
+      linebuf_first_token = line_iter;
     }
-    const uintptr_t king_id_ct = line_idx - 1;
 
     BigstackReset(RLstreamMemStart(&rls));
     CleanupRLstream(&rls);
@@ -498,6 +498,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
     break;
   KingCutoffBatch_ret_MISSING_TOKENS:
     logerrprintfww("Error: Fewer tokens than expected on line %" PRIuPTR " of %s .\n", line_idx, king_cutoff_fprefix);
+    reterr = kPglRetMalformedInput;
     break;
   KingCutoffBatch_ret_READ_RLSTREAM:
     RLstreamErrPrint(king_cutoff_fprefix, &rls, &reterr);

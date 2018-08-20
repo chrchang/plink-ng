@@ -13300,6 +13300,184 @@ void PglMultiallelicDenseToSparse(const AlleleCode* __restrict wide_codes, uint3
   }
 }
 
+#define HC_TO_AC4_2(f2, f3, f4) 0, f2, f3, f4, 0x100, f2, f3, f4, 0x101, f2, f3, f4, 0xffff, f2, f3, f4
+#define HC_TO_AC4_3(f3, f4) HC_TO_AC4_2(0, f3, f4), HC_TO_AC4_2(0x100, f3, f4), HC_TO_AC4_2(0x101, f3, f4), HC_TO_AC4_2(0xffff, f3, f4)
+#define HC_TO_AC4_4(f4) HC_TO_AC4_3(0, f4), HC_TO_AC4_3(0x100, f4), HC_TO_AC4_3(0x101, f4), HC_TO_AC4_3(0xffff, f4)
+
+static const uint16_t kHcToAlleleCodes[1024] = {HC_TO_AC4_4(0), HC_TO_AC4_4(0x100), HC_TO_AC4_4(0x101), HC_TO_AC4_4(0xffff)};
+
+static_assert(sizeof(AlleleCode) == 1, "PwcMultiallelicSparseToDense() needs to be updated.");
+void PglMultiallelicSparseToDense(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, const AlleleCode* __restrict remap, uint32_t sample_ct, uint32_t patch_01_ct, uint32_t patch_10_ct, uintptr_t* __restrict flipped, AlleleCode* __restrict wide_codes) {
+  if (flipped) {
+    ZeroWArr(BitCtToWordCt(sample_ct), flipped);
+  }
+  if ((!remap) || ((!remap[0]) && (remap[1] == 1))) {
+    GenoarrLookup256x2bx4(genovec, kHcToAlleleCodes, sample_ct, wide_codes);
+    if (!remap) {
+      if (patch_01_ct) {
+        uintptr_t sample_idx_base = 0;
+        uintptr_t cur_bits = patch_01_set[0];
+        AlleleCode* wide_codes1 = &(wide_codes[1]);
+        for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
+          const uintptr_t sample_idx = BitIter1(patch_01_set, &sample_idx_base, &cur_bits);
+          wide_codes1[2 * sample_idx] = patch_01_vals[uii];
+        }
+      }
+      if (patch_10_ct) {
+        uintptr_t sample_idx_base = 0;
+        uintptr_t cur_bits = patch_10_set[0];
+        const DoubleAlleleCode* patch_10_vals_alias = R_CAST(const DoubleAlleleCode*, patch_10_vals);
+        DoubleAlleleCode* wide_codes_alias = R_CAST(DoubleAlleleCode*, wide_codes);
+        for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
+          const uintptr_t sample_idx = BitIter1(patch_10_set, &sample_idx_base, &cur_bits);
+          wide_codes_alias[sample_idx] = patch_10_vals_alias[uii];
+        }
+      }
+      return;
+    }
+  } else {
+    // 0 -> (remap[0], remap[0])
+    // 1 -> (remap[0], remap[1])
+    // 2 -> (remap[1], remap[1])
+    // 3 -> (255, 255)
+    // 256x4 lookup table usually too expensive to reinitialize for every
+    // single variant.  16x2 should be a good compromise?
+    // todo: try Expand1bitTo8 strategy in SSE4.2+ case, see if that's fast
+    // enough to remove 0/1 special case
+    const uint32_t remap0 = remap[0];
+    const uint32_t remap1 = remap[1];
+    uint32_t table4[4];
+    table4[0] = remap0 * 257;
+    table4[1] = remap0 + remap1 * 256;
+    table4[2] = remap1 * 257;
+    table4[3] = 0xffff;
+    if (remap1 < remap0) {
+      table4[1] = remap1 + remap0 * 256;
+      if (flipped) {
+        // See GenovecToMissingnessUnsafe().
+        const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
+        Halfword* flipped_alias = R_CAST(Halfword*, flipped);
+        for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
+          const uintptr_t cur_geno_word = genovec[widx];
+          flipped_alias[widx] = PackWordToHalfwordMask5555(cur_geno_word & (~(cur_geno_word >> 1)));
+        }
+      }
+    }
+    // could have an InitLookup16x2bx2 function for this
+    uint32_t table16[16];
+    for (uint32_t uii = 0; uii != 4; ++uii) {
+      const uint32_t high_bits = table4[uii] << 16;
+      uint32_t* table_row = &(table16[uii * 4]);
+      for (uint32_t ujj = 0; ujj != 4; ++ujj) {
+        table_row[ujj] = high_bits | table4[ujj];
+      }
+    }
+    const uint32_t sample_ctd4 = sample_ct / 4;
+    const unsigned char* genovec_alias = R_CAST(const unsigned char*, genovec);
+    uint32_t* wide_codes_alias_iter = R_CAST(uint32_t*, wide_codes);
+    for (uint32_t byte_idx = 0; byte_idx != sample_ctd4; ++byte_idx) {
+      const uint32_t geno_byte = genovec_alias[byte_idx];
+      *wide_codes_alias_iter++ = table16[geno_byte & 15];
+      *wide_codes_alias_iter++ = table16[geno_byte >> 4];
+    }
+    const uint32_t remainder = sample_ct % 4;
+    if (remainder) {
+      uint32_t geno_byte = genovec_alias[sample_ctd4];
+      if (remainder & 2) {
+        *wide_codes_alias_iter++ = table16[geno_byte & 15];
+        geno_byte = geno_byte >> 4;
+      }
+      if (remainder & 1) {
+        uint16_t* last_code_pair_ptr = R_CAST(uint16_t*, wide_codes_alias_iter);
+        // guess it's easy enough to defend against dirty trailing bits for now
+        *last_code_pair_ptr = table4[geno_byte & 3];
+      }
+    }
+  }
+  if (patch_01_vals) {
+    uintptr_t sample_idx_base = 0;
+    uintptr_t cur_bits = patch_01_set[0];
+    const AlleleCode remap0 = remap[0];
+    const AlleleCode remap1 = remap[1];
+    // TODO: need special flipped handling for remap1 < remap0
+    if ((!remap0) || ((!flipped) && (remap0 == 1) && (!remap1))) {
+      // no flips possible
+      AlleleCode* wide_codes1 = &(wide_codes[1]);
+      for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
+        const uintptr_t sample_idx = BitIter1(patch_01_set, &sample_idx_base, &cur_bits);
+        wide_codes1[2 * sample_idx] = remap[patch_01_vals[uii]];
+      }
+    } else if (!flipped) {
+      for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
+        const uintptr_t sample_idx = BitIter1(patch_01_set, &sample_idx_base, &cur_bits);
+        const AlleleCode ac = remap[patch_01_vals[uii]];
+        if (ac > remap0) {
+          wide_codes[2 * sample_idx + 1] = ac;
+        } else {
+          wide_codes[2 * sample_idx] = ac;
+          wide_codes[2 * sample_idx + 1] = remap0;
+        }
+      }
+    } else if (remap1 >= remap0) {
+      for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
+        const uintptr_t sample_idx = BitIter1(patch_01_set, &sample_idx_base, &cur_bits);
+        const AlleleCode ac = remap[patch_01_vals[uii]];
+        if (ac > remap0) {
+          wide_codes[2 * sample_idx + 1] = ac;
+        } else {
+          wide_codes[2 * sample_idx] = ac;
+          wide_codes[2 * sample_idx + 1] = remap0;
+          SetBit(sample_idx, flipped);
+        }
+      }
+    } else {
+      for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
+        const uintptr_t sample_idx = BitIter1(patch_01_set, &sample_idx_base, &cur_bits);
+        const AlleleCode ac = remap[patch_01_vals[uii]];
+        if (ac > remap0) {
+          wide_codes[2 * sample_idx + 1] = ac;
+          ClearBit(sample_idx, flipped);
+        } else {
+          wide_codes[2 * sample_idx] = ac;
+          wide_codes[2 * sample_idx + 1] = remap0;
+        }
+      }
+    }
+  }
+  if (patch_10_ct) {
+    uintptr_t sample_idx_base = 0;
+    uintptr_t cur_bits = patch_10_set[0];
+    if (!flipped) {
+      for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
+        const uintptr_t sample_idx = BitIter1(patch_10_set, &sample_idx_base, &cur_bits);
+        const AlleleCode ac0 = remap[patch_10_vals[2 * uii]];
+        const AlleleCode ac1 = remap[patch_10_vals[2 * uii + 1]];
+        if (ac0 <= ac1) {
+          wide_codes[2 * sample_idx] = ac0;
+          wide_codes[2 * sample_idx + 1] = ac1;
+        } else {
+          wide_codes[2 * sample_idx] = ac1;
+          wide_codes[2 * sample_idx + 1] = ac0;
+        }
+      }
+    } else {
+      for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
+        const uintptr_t sample_idx = BitIter1(patch_10_set, &sample_idx_base, &cur_bits);
+        const AlleleCode ac0 = remap[patch_10_vals[2 * uii]];
+        const AlleleCode ac1 = remap[patch_10_vals[2 * uii + 1]];
+        if (ac0 <= ac1) {
+          wide_codes[2 * sample_idx] = ac0;
+          wide_codes[2 * sample_idx + 1] = ac1;
+        } else {
+          wide_codes[2 * sample_idx] = ac1;
+          wide_codes[2 * sample_idx + 1] = ac0;
+          SetBit(sample_idx, flipped);
+        }
+      }
+    }
+  }
+}
+
 
 // tolerates extraneous phaseinfo bits
 BoolErr AppendHphase(const uintptr_t* __restrict genovec_hets, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, uint32_t het_ct, uint32_t phasepresent_ct, PgenWriterCommon* pwcp, unsigned char* vrtype_ptr, uint32_t* vrec_len_ptr) {
