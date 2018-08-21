@@ -3085,8 +3085,15 @@ double GetTypedFreq(const double* cur_allele_freqs, uint32_t allele_ct, uint32_t
 }
 
 uint64_t GetTypedDosage(const uint64_t* cur_allele_dosages, uint32_t allele_ct, uint32_t flag_int) {
-  if (flag_int & 3) {
-    return cur_allele_dosages[flag_int - 1];
+  if (flag_int & 2) {
+    return cur_allele_dosages[1];
+  }
+  if (flag_int & 1) {
+    uint64_t nref_dosage = cur_allele_dosages[1];
+    for (uint32_t allele_idx = 2; allele_idx != allele_ct; ++allele_idx) {
+      nref_dosage += cur_allele_dosages[allele_idx];
+    }
+    return nref_dosage;
   }
   if (allele_ct == 2) {
     return MINV(cur_allele_dosages[0], cur_allele_dosages[1]);
