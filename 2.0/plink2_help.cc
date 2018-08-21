@@ -145,14 +145,22 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * These can be used with --psam/--fam.\n"
 "    * By default, dosage information is not imported.  To import the GP field\n"
 "      (must be VCFv4.3-style 0..1, one probability per possible genotype), add\n"
-"      'dosage=GP'.  To import Minimac4-style DS+HDS phased dosage, add\n"
-"      'dosage=HDS'.  'dosage=DS' (or anything else for now) causes the named\n"
-"      field to be interpreted as a Minimac3-style dosage.\n"
+"      'dosage=GP' (or 'dosage=GP-force', see below).  To import Minimac4-style\n"
+"      DS+HDS phased dosage, add 'dosage=HDS'.  'dosage=DS' (or anything else\n"
+"      for now) causes the named field to be interpreted as a Minimac3-style\n"
+"      dosage.\n"
+"      Note that, in the dosage=GP case, plink2 collapses the probabilities down\n"
+"      to dosages; you cannot use plink2 to losslessly convert VCF FORMAT:GP\n"
+"      data to e.g. BGEN format.  To make this more obvious, plink2 now errors\n"
+"      out when dosage=GP is used on a file with a FORMAT:DS header line and\n"
+"      --import-dosage-certainty wasn't specified, since dosage=DS extracts the\n"
+"      same information more quickly in this situation.  You can suppress this\n"
+"      error with 'dosage=GP-force'.\n"
 "      In all of these cases, hardcalls are regenerated from scratch from the\n"
 "      dosages.  As a consequence, variants with no GT field can now be\n"
 "      imported; they will be assumed to contain only diploid calls when HDS is\n"
 "      also absent.\n\n"
-               );
+              );
     HelpPrint("data\0gen\0bgen\0sample\0haps\0legend\0", &help_ctrl, 1,
 "  --data [filename prefix] <ref-first | ref-last> <gzs>\n"
 "  --bgen [filename] <snpid-chr> <ref-first | ref-last>\n"
@@ -924,7 +932,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      phenos: All active phenotypes, if any.\n"
 "      nmissallele: Number of nonmissing alleles.\n"
 "      denom: Denominator of score average (equal to nmissallele value when\n"
-"             'no-mean-imputation' specified)\n"
+"             'no-mean-imputation' specified).\n"
 "      dosagesum: Sum of named allele dosages.\n"
 "      scoreavgs: Score averages.\n"
 "      scoresums: Score sums.\n"
@@ -1356,14 +1364,21 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                 are provided, all phenotype(s)/covariate(s)\n"
 "                                 must be present.\n"
                );
-    HelpPrint("maf\0max-maf\0mac\0min-ac\0max-mac\0max-ac\0", &help_ctrl, 0,
-"  --maf {freq}       : Exclude variants with nonmajor allele frequency lower\n"
-"                       than a threshold (default 0.01).\n"
-"  --max-maf [freq]   : Exclude variants with MAF greater than the threshold.\n"
-"  --mac [ct]         : Exclude variants with nonmajor allele dosage lower than\n"
-"                       the given threshold.\n"
-"  --max-mac [ct]     : Exclude variants with nonmajor allele dosage greater\n"
-"                       than the given threshold.\n"
+    // 'major' mode intentionally omitted since it's almost entirely redundant,
+    // and kind of forces the underlying flag to be renamed
+    HelpPrint("maf\0min-af\0max-maf\0max-af\0mac\0min-ac\0max-mac\0max-ac\0", &help_ctrl, 0,
+"  --maf {freq} {mode}     : Exclude variants with allele frequency lower than a\n"
+"  (alias: --min-af)         threshold (default 0.01).  By default, the nonmajor\n"
+"                            allele frequency is used; the other supported modes\n"
+"                            are 'nref' (non-reference), 'alt1', and 'minor'\n"
+"                            (least frequent).  bcftools freq:mode notation is\n"
+"                            permitted.\n"
+"  --max-maf [freq] {mode} : Exclude variants with MAF greater than the\n"
+"  (alias: --max-af)         threshold.\n"
+"  --mac [ct] {mode}       : Exclude variants with allele dosage lower than the\n"
+"  (alias: --min-ac)         given threshold.\n"
+"  --max-mac [ct] {mode}   : Exclude variants with allele dosage greater than\n"
+"  (alias: --max-ac)         the given threshold.\n"
                );
     HelpPrint("maf-succ\0", &help_ctrl, 0,
 "  --maf-succ         : Rule of succession allele frequency estimation (used in\n"

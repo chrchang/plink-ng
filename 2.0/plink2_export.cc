@@ -4244,7 +4244,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         write_iter = strcpya_k(write_iter, "##FORMAT=<ID=HDS,Number=.,Type=Float,Description=\"Estimated Haploid Alternate Allele Dosage \">" EOLN_STR);
       }
     } else if (write_some_dosage) {
-      write_iter = strcpya_k(write_iter, "##FORMAT=<ID=GP,Number=G,Type=Float,Description=\"Phred-scaled Genotype Likelihoods\">" EOLN_STR);
+      write_iter = strcpya_k(write_iter, "##FORMAT=<ID=GP,Number=G,Type=Float,Description=\"Estimated Posterior Probabilities for Genotypes 0/0, 0/1 and 1/1 \">" EOLN_STR);
     }
     // possible todo: optionally export .psam information as
     // PEDIGREE/META/SAMPLE lines in header, and make --vcf be able to read it

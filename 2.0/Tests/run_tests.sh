@@ -43,4 +43,9 @@ cd TEST_SAMPLE_SUBSET
 cd ..
 echo "TEST_SAMPLE_SUBSET passed."
 
+cd TEST_DOSAGE_ROUND_TRIP
+./run_tests.sh $d $2 $3 > TEST_DOSAGE_ROUND_TRIP.log
+cd ..
+echo "TEST_DOSAGE_ROUND_TRIP passed."
+
 echo "All tests passed."

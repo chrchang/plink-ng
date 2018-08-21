@@ -3325,7 +3325,7 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
 
 PgenGlobalFlags GflagsVfilter(const uintptr_t* variant_include, const unsigned char* vrtypes, uint32_t raw_variant_ct, PgenGlobalFlags input_gflags) {
   PgenGlobalFlags read_gflags = kfPgenGlobal0;
-  const uintptr_t* vrtypes_alias_iter = R_CAST(const uintptr_t*, vrtypes);
+  const uintptr_t* vrtypes_alias = R_CAST(const uintptr_t*, vrtypes);
   const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
   uint32_t mask_multiply = ((input_gflags & kfPgenGlobalHardcallPhasePresent)? 0x10 : 0) + ((input_gflags & kfPgenGlobalDosagePresent)? 0x60 : 0) + ((input_gflags & kfPgenGlobalDosagePhasePresent)? 0x80 : 0);
   uintptr_t vrtypes_or = 0;
@@ -3334,6 +3334,9 @@ PgenGlobalFlags GflagsVfilter(const uintptr_t* variant_include, const unsigned c
   for (uint32_t widx = 0; widx != raw_variant_ctl; ++widx) {
     uintptr_t cur_variant_include_word = variant_include[widx];
     if (cur_variant_include_word) {
+      // bugfix (20 Aug 2018): this needs to advance on every variant_include
+      // word, not just the nonzero ones
+      const uintptr_t* cur_vrtypes = &(vrtypes_alias[8 * widx]);
 #ifdef __LP64__
       for (uint32_t vi_byte_idx = 0; vi_byte_idx != 8; ++vi_byte_idx) {
 #  ifdef USE_AVX2
@@ -3356,14 +3359,14 @@ PgenGlobalFlags GflagsVfilter(const uintptr_t* variant_include, const unsigned c
         // todo: test if this actually beats the per-character loop...
         const uintptr_t cur_mask = (((cur_variant_include_word & 0xfe) * 0x2040810204080LLU) & kMask0101) | (cur_variant_include_word & 1);
 #  endif
-        vrtypes_or |= (*vrtypes_alias_iter++) & (cur_mask * mask_multiply);
+        vrtypes_or |= cur_vrtypes[vi_byte_idx] & (cur_mask * mask_multiply);
         cur_variant_include_word >>= 8;
       }
 #else
       for (uint32_t vi_hexa_idx = 0; vi_hexa_idx != 8; ++vi_hexa_idx) {
         // dcba -> d0000000c0000000b0000000a
         const uintptr_t cur_mask = ((cur_variant_include_word & 0xf) * 0x204081) & kMask0101;
-        vrtypes_or |= (*vrtypes_alias_iter++) & (cur_mask * mask_multiply);
+        vrtypes_or |= cur_vrtypes[vi_hexa_idx] & (cur_mask * mask_multiply);
         cur_variant_include_word >>= 4;
       }
 #endif

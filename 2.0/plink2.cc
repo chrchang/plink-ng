@@ -306,6 +306,7 @@ typedef struct Plink2CmdlineStruct {
   MissingRptFlags missing_rpt_flags;
   GenoCountsFlags geno_counts_flags;
   HardyFlags hardy_flags;
+  FreqFilterFlags ff_flags;
   GlmInfo glm_info;
   AdjustInfo adjust_info;
   ScoreInfo score_info;
@@ -1946,7 +1947,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         BigstackReset(bigstack_mark_geno_cts);
 
         if ((pcp->min_maf != 0.0) || (pcp->max_maf != 1.0) || pcp->min_allele_dosage || (pcp->max_allele_dosage != (~0LLU))) {
-          EnforceMinorFreqConstraints(allele_idx_offsets, nonfounders? allele_dosages : founder_allele_dosages, allele_freqs, pcp->min_maf, pcp->max_maf, pcp->min_allele_dosage, pcp->max_allele_dosage, variant_include, &variant_ct);
+          EnforceFreqConstraints(allele_idx_offsets, nonfounders? allele_dosages : founder_allele_dosages, allele_freqs, pcp->min_maf, pcp->max_maf, pcp->min_allele_dosage, pcp->max_allele_dosage, pcp->ff_flags, variant_include, &variant_ct);
         }
 
         if (mach_r2_vals) {
@@ -1973,52 +1974,49 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         logprintf("%u variant%s remaining after main filters.\n", variant_ct, (variant_ct == 1)? "" : "s");
       }
 
-      if (pgenname[0]) {
-        if (pcp->command_flags1 & (kfCommand1MakeKing | kfCommand1KingCutoff)) {
-          uintptr_t* prev_sample_include = nullptr;
-          const uint32_t prev_sample_ct = sample_ct;
-          if (pcp->king_cutoff != -1) {
-            if (unlikely(bigstack_alloc_w(raw_sample_ctl, &prev_sample_include))) {
-              goto Plink2Core_ret_NOMEM;
-            }
-            memcpy(prev_sample_include, sample_include, raw_sample_ctl * sizeof(intptr_t));
+      if (pcp->command_flags1 & (kfCommand1MakeKing | kfCommand1KingCutoff)) {
+        uintptr_t* prev_sample_include = nullptr;
+        const uint32_t prev_sample_ct = sample_ct;
+        if (pcp->king_cutoff != -1) {
+          if (unlikely(bigstack_alloc_w(raw_sample_ctl, &prev_sample_include))) {
+            goto Plink2Core_ret_NOMEM;
           }
-          if (pcp->king_table_subset_fname) {
-            // command-line parser currently guarantees --king-table-subset
-            // isn't used with --king-cutoff or --make-king
-            // probable todo: --king-cutoff-table which can use .kin0 as input
-            reterr = CalcKingTableSubset(sample_include, &pii.sii, variant_include, cip, pcp->king_table_subset_fname, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, pcp->king_table_filter, pcp->king_table_subset_thresh, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
-            if (unlikely(reterr)) {
-              goto Plink2Core_ret_1;
-            }
+          memcpy(prev_sample_include, sample_include, raw_sample_ctl * sizeof(intptr_t));
+        }
+        if (pcp->king_table_subset_fname) {
+          // command-line parser currently guarantees --king-table-subset
+          // isn't used with --king-cutoff or --make-king
+          // probable todo: --king-cutoff-table which can use .kin0 as input
+          reterr = CalcKingTableSubset(sample_include, &pii.sii, variant_include, cip, pcp->king_table_subset_fname, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, pcp->king_table_filter, pcp->king_table_subset_thresh, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+          if (unlikely(reterr)) {
+            goto Plink2Core_ret_1;
+          }
+        } else {
+          if (king_cutoff_fprefix) {
+            reterr = KingCutoffBatch(&pii.sii, raw_sample_ct, pcp->king_cutoff, sample_include, king_cutoff_fprefix, &sample_ct);
           } else {
-            if (king_cutoff_fprefix) {
-              // this does not actually require .pgen/.pvar...
-              reterr = KingCutoffBatch(&pii.sii, raw_sample_ct, pcp->king_cutoff, sample_include, king_cutoff_fprefix, &sample_ct);
-            } else {
-              reterr = CalcKing(&pii.sii, variant_include, cip, raw_sample_ct, raw_variant_ct, variant_ct, pcp->king_cutoff, pcp->king_table_filter, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, sample_include, &sample_ct, outname, outname_end);
-            }
+            reterr = CalcKing(&pii.sii, variant_include, cip, raw_sample_ct, raw_variant_ct, variant_ct, pcp->king_cutoff, pcp->king_table_filter, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, sample_include, &sample_ct, outname, outname_end);
+          }
+          if (unlikely(reterr)) {
+            goto Plink2Core_ret_1;
+          }
+          if (pcp->king_cutoff != -1) {
+            snprintf(outname_end, kMaxOutfnameExtBlen, ".king.cutoff.in.id");
+            reterr = WriteSampleIds(sample_include, &pii.sii, outname, sample_ct);
             if (unlikely(reterr)) {
               goto Plink2Core_ret_1;
             }
-            if (pcp->king_cutoff != -1) {
-              snprintf(outname_end, kMaxOutfnameExtBlen, ".king.cutoff.in.id");
-              reterr = WriteSampleIds(sample_include, &pii.sii, outname, sample_ct);
-              if (unlikely(reterr)) {
-                goto Plink2Core_ret_1;
-              }
-              snprintf(&(outname_end[13]), kMaxOutfnameExtBlen - 13, "out.id");
-              BitvecInvmask(sample_include, raw_sample_ctl, prev_sample_include);
-              const uint32_t removed_sample_ct = prev_sample_ct - sample_ct;
-              reterr = WriteSampleIds(prev_sample_include, &pii.sii, outname, removed_sample_ct);
-              if (unlikely(reterr)) {
-                goto Plink2Core_ret_1;
-              }
-              BigstackReset(prev_sample_include);
-              outname_end[13] = '\0';
-              logprintfww("--king-cutoff: Excluded sample ID%s written to %sout, and %u remaining sample ID%s written to %sin .\n", (removed_sample_ct == 1)? "" : "s", outname, sample_ct, (sample_ct == 1)? "" : "s", outname);
-              UpdateSampleSubsets(sample_include, raw_sample_ct, sample_ct, founder_info, &founder_ct, sex_nm, sex_male, &male_ct, &nosex_ct);
+            snprintf(&(outname_end[13]), kMaxOutfnameExtBlen - 13, "out.id");
+            BitvecInvmask(sample_include, raw_sample_ctl, prev_sample_include);
+            const uint32_t removed_sample_ct = prev_sample_ct - sample_ct;
+            reterr = WriteSampleIds(prev_sample_include, &pii.sii, outname, removed_sample_ct);
+            if (unlikely(reterr)) {
+              goto Plink2Core_ret_1;
             }
+            BigstackReset(prev_sample_include);
+            outname_end[13] = '\0';
+            logprintfww("--king-cutoff: Excluded sample ID%s written to %sout.id , and %u remaining sample ID%s written to %sin.id .\n", (removed_sample_ct == 1)? "" : "s", outname, sample_ct, (sample_ct == 1)? "" : "s", outname);
+            UpdateSampleSubsets(sample_include, raw_sample_ct, sample_ct, founder_info, &founder_ct, sex_nm, sex_male, &male_ct, &nosex_ct);
           }
         }
       }
@@ -3060,6 +3058,10 @@ int main(int argc, char** argv) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "mac");
           } else if (strequal_k(flagname_p, "max-ac", flag_slen)) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "max-mac");
+          } else if (strequal_k(flagname_p, "min-af", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "maf");
+          } else if (strequal_k(flagname_p, "max-af", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "max-maf");
           } else if (strequal_k(flagname_p, "make-bfile", flag_slen)) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "make-bed");
           } else if (strequal_k(flagname_p, "make-bpfile", flag_slen)) {
@@ -3184,6 +3186,7 @@ int main(int argc, char** argv) {
     pc.missing_rpt_flags = kfMissingRpt0;
     pc.geno_counts_flags = kfGenoCounts0;
     pc.hardy_flags = kfHardy0;
+    pc.ff_flags = kfFreqFilter0;
     pc.aperm.min = 6;
     pc.aperm.max = 1000000;
     pc.aperm.alpha = 0.0;
@@ -3650,7 +3653,7 @@ int main(int argc, char** argv) {
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
-            if (unlikely(!IsAlphanumeric(vcf_dosage_import_field))) {
+            if (unlikely(!((!strcmp(vcf_dosage_import_field, "GP-force")) || IsAlphanumeric(vcf_dosage_import_field)))) {
               logerrputs("Error: --bcf dosage= parameter is not alphanumeric.\n");
               goto main_ret_INVALID_CMDLINE;
             }
@@ -5384,6 +5387,9 @@ int main(int argc, char** argv) {
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
+            pc.dependency_flags |= kfFilterPsamReq;
+          } else {
+            pc.dependency_flags |= kfFilterAllReq;
           }
           const char* cur_modif = argvk[arg_idx + param_ct];
           if (unlikely((!ScanadvDouble(cur_modif, &pc.king_cutoff)) || (pc.king_cutoff < 0.0) || (pc.king_cutoff >= 0.5))) {
@@ -5391,7 +5397,6 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.command_flags1 |= kfCommand1KingCutoff;
-          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "ing-table-filter")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -6178,21 +6183,59 @@ int main(int argc, char** argv) {
           pc.misc_flags |= kfMiscMajRef;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
         } else if (strequal_k_unsafe(flagname_p2, "af")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct) {
             const char* cur_modif = argvk[arg_idx + 1];
-            if (unlikely(!ScanadvDouble(cur_modif, &pc.min_maf))) {
-              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --maf parameter '%s'.\n", cur_modif);
-              goto main_ret_INVALID_CMDLINE_WWA;
+            const char* mode_str = ScanadvDouble(cur_modif, &pc.min_maf);
+            if (!mode_str) {
+              pc.min_maf = 0.01;
+              if (unlikely(param_ct == 2)) {
+                logerrputs("Error: Invalid --maf parameter sequence.\n");
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+              mode_str = cur_modif;
+            } else {
+              if (unlikely(pc.min_maf < 0.0)) {
+                snprintf(g_logbuf, kLogbufSize, "Error: --maf parameter '%s' too small (must be >= 0).\n", cur_modif);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              } else if (unlikely(pc.min_maf > 1.0)) {
+                snprintf(g_logbuf, kLogbufSize, "Error: --maf parameter '%s' too large (must be <= 1).\n", cur_modif);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+              if (mode_str[0] == ':') {
+                if (unlikely(param_ct == 2)) {
+                  logerrputs("Error: Invalid --maf parameter sequence.\n");
+                  goto main_ret_INVALID_CMDLINE_WWA;
+                }
+              } else {
+                if (unlikely(mode_str[0])) {
+                  snprintf(g_logbuf, kLogbufSize, "Error: Invalid --maf parameter '%s'.\n", cur_modif);
+                  goto main_ret_INVALID_CMDLINE_WWA;
+                }
+                if (param_ct == 2) {
+                  mode_str = argvk[arg_idx + 2];
+                } else {
+                  mode_str = nullptr;
+                }
+              }
             }
-            if (unlikely(pc.min_maf < 0.0)) {
-              snprintf(g_logbuf, kLogbufSize, "Error: --maf parameter '%s' too small (must be >= 0).\n", cur_modif);
-              goto main_ret_INVALID_CMDLINE_WWA;
-            } else if (unlikely(pc.min_maf >= 1.0)) {
-              snprintf(g_logbuf, kLogbufSize, "Error: --maf parameter '%s' too large (must be < 1).\n", cur_modif);
-              goto main_ret_INVALID_CMDLINE_WWA;
+            if (mode_str) {
+              if (mode_str[0] == ':') {
+                ++mode_str;
+              }
+              const uint32_t mode_slen = strlen(mode_str);
+              if (strequal_k(mode_str, "nref", mode_slen)) {
+                pc.ff_flags |= kfFreqFilterMafNref;
+              } else if (strequal_k(mode_str, "alt1", mode_slen)) {
+                pc.ff_flags |= kfFreqFilterMafAlt1;
+              } else if (strequal_k(mode_str, "minor", mode_slen)) {
+                pc.ff_flags |= kfFreqFilterMafMinor;
+              } else if (unlikely(!strequal_k(mode_str, "nonmajor", mode_slen))) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --maf mode '%s'.\n", mode_str);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
             }
           } else {
             pc.min_maf = 0.01;
@@ -6202,30 +6245,65 @@ int main(int argc, char** argv) {
             pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
           }
         } else if (strequal_k_unsafe(flagname_p2, "ax-maf")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (unlikely(!ScanadvDouble(cur_modif, &pc.max_maf))) {
+          const char* mode_str = ScanadvDouble(cur_modif, &pc.max_maf);
+          if (unlikely(!mode_str)) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --max-maf parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           if (unlikely(pc.max_maf < pc.min_maf)) {
+            // todo: permit this in some cases when modes differ
             snprintf(g_logbuf, kLogbufSize, "Error: --max-maf parameter '%s' too small (must be >= %g).\n", cur_modif, pc.min_maf);
             goto main_ret_INVALID_CMDLINE_WWA;
           } else if (unlikely(pc.max_maf >= 1.0)) {
             snprintf(g_logbuf, kLogbufSize, "Error: --max-maf parameter '%s' too large (must be < 1).\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
+          if (mode_str[0] == ':') {
+            if (unlikely(param_ct == 2)) {
+              logerrputs("Error: Invalid --max-maf parameter sequence.\n");
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          } else {
+            if (unlikely(mode_str[0])) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --max-maf parameter '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            if (param_ct == 2) {
+              mode_str = argvk[arg_idx + 2];
+            } else {
+              mode_str = nullptr;
+            }
+          }
+          if (mode_str) {
+            if (mode_str[0] == ':') {
+              ++mode_str;
+            }
+            const uint32_t mode_slen = strlen(mode_str);
+            if (strequal_k(mode_str, "nref", mode_slen)) {
+              pc.ff_flags |= kfFreqFilterMaxMafNref;
+            } else if (strequal_k(mode_str, "alt1", mode_slen)) {
+              pc.ff_flags |= kfFreqFilterMaxMafAlt1;
+            } else if (strequal_k(mode_str, "minor", mode_slen)) {
+              pc.ff_flags |= kfFreqFilterMaxMafMinor;
+            } else if (unlikely(!strequal_k(mode_str, "nonmajor", mode_slen))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --max-maf mode '%s'.\n", mode_str);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
           pc.filter_flags |= kfFilterPvarReq;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
         } else if (strequal_k_unsafe(flagname_p2, "ac")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
           double dxx;
-          if (unlikely((!ScanadvDouble(cur_modif, &dxx)) || (dxx < 0.0) || (dxx > 2147483646.0))) {
+          const char* mode_str = ScanadvDouble(cur_modif, &dxx);
+          if (unlikely((!mode_str) || (dxx < 0.0) || (dxx > 2147483646.0))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mac parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE;
           }
@@ -6237,16 +6315,50 @@ int main(int argc, char** argv) {
             if (dxx > 0.0) {
               pc.min_allele_dosage += 1 + S_CAST(uint64_t, dxx * (kDosageMax * (1 - kSmallEpsilon)));
             }
+            // yeah, this should be its own function...
+            if (mode_str[0] == ':') {
+              if (unlikely(param_ct == 2)) {
+                logerrputs("Error: Invalid --mac parameter sequence.\n");
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+            } else {
+              if (unlikely(mode_str[0])) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mac parameter '%s'.\n", cur_modif);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+              if (param_ct == 2) {
+                mode_str = argvk[arg_idx + 2];
+              } else {
+                mode_str = nullptr;
+              }
+            }
+            if (mode_str) {
+              if (mode_str[0] == ':') {
+                ++mode_str;
+              }
+              const uint32_t mode_slen = strlen(mode_str);
+              if (strequal_k(mode_str, "nref", mode_slen)) {
+                pc.ff_flags |= kfFreqFilterMacNref;
+              } else if (strequal_k(mode_str, "alt1", mode_slen)) {
+                pc.ff_flags |= kfFreqFilterMacAlt1;
+              } else if (strequal_k(mode_str, "minor", mode_slen)) {
+                pc.ff_flags |= kfFreqFilterMacMinor;
+              } else if (unlikely(!strequal_k(mode_str, "nonmajor", mode_slen))) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mac mode '%s'.\n", mode_str);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+            }
             pc.filter_flags |= kfFilterPvarReq;
             pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
           }
         } else if (strequal_k_unsafe(flagname_p2, "ax-mac")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
           double dxx;
-          if (unlikely((!ScanadvDouble(cur_modif, &dxx)) || (dxx < 0.0) || (dxx > 2147483646.0))) {
+          const char* mode_str = ScanadvDouble(cur_modif, &dxx);
+          if (unlikely((!mode_str) || (dxx < 0.0) || (dxx > 2147483646.0))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --max-mac parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -6254,8 +6366,41 @@ int main(int argc, char** argv) {
           pc.max_allele_dosage = S_CAST(int64_t, dxx * kDosageMax);
           if (unlikely(pc.max_allele_dosage < pc.min_allele_dosage)) {
             // yeah, --mac 0.1 --max-mac 0.1 also isn't allowed
+            // todo: permit this in some cases when modes differ
             logerrputs("Error: --max-mac parameter cannot be smaller than --mac parameter.\n");
             goto main_ret_INVALID_CMDLINE;
+          }
+          if (mode_str[0] == ':') {
+            if (unlikely(param_ct == 2)) {
+              logerrputs("Error: Invalid --max-mac parameter sequence.\n");
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          } else {
+            if (unlikely(mode_str[0])) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --max-mac parameter '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            if (param_ct == 2) {
+              mode_str = argvk[arg_idx + 2];
+            } else {
+              mode_str = nullptr;
+            }
+          }
+          if (mode_str) {
+            if (mode_str[0] == ':') {
+              ++mode_str;
+            }
+            const uint32_t mode_slen = strlen(mode_str);
+            if (strequal_k(mode_str, "nref", mode_slen)) {
+              pc.ff_flags |= kfFreqFilterMaxMacNref;
+            } else if (strequal_k(mode_str, "alt1", mode_slen)) {
+              pc.ff_flags |= kfFreqFilterMaxMacAlt1;
+            } else if (strequal_k(mode_str, "minor", mode_slen)) {
+              pc.ff_flags |= kfFreqFilterMaxMacMinor;
+            } else if (unlikely(!strequal_k(mode_str, "nonmajor", mode_slen))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --max-mac mode '%s'.\n", mode_str);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
           }
           pc.filter_flags |= kfFilterPvarReq;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
@@ -7974,7 +8119,7 @@ int main(int argc, char** argv) {
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
-            if (unlikely(!IsAlphanumeric(vcf_dosage_import_field))) {
+            if (unlikely(!((!strcmp(vcf_dosage_import_field, "GP-force")) || IsAlphanumeric(vcf_dosage_import_field)))) {
               logerrputs("Error: --vcf dosage= parameter is not alphanumeric.\n");
               goto main_ret_INVALID_CMDLINE;
             }

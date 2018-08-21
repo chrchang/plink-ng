@@ -2747,6 +2747,8 @@ THREAD_FUNC_DECL VcfGenoToPgenThread(void* arg) {
   }
 }
 
+static const char kGpText[] = "GP";
+
 static_assert(!kVcfHalfCallReference, "VcfToPgen() assumes kVcfHalfCallReference == 0.");
 static_assert(kVcfHalfCallHaploid == 1, "VcfToPgen() assumes kVcfHalfCallHaploid == 1.");
 PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, uint32_t no_samples_ok, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
@@ -2804,13 +2806,24 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     // == 2 when searched for and found in header
     // then becomes a boolean
     uint32_t format_hds_search = 0;
+
+    uint32_t unforced_gp = 0;
     if (dosage_import_field) {
       dosage_import_field_slen = strlen(dosage_import_field);
+      g_dosage_is_gp = 0;
       if (strequal_k(dosage_import_field, "HDS", dosage_import_field_slen)) {
         format_hds_search = 1;
         // special case: search for DS and HDS
         dosage_import_field = &(dosage_import_field[1]);
         dosage_import_field_slen = 2;
+      } else if (strequal_k(dosage_import_field, "GP-force", dosage_import_field_slen)) {
+        dosage_import_field = kGpText;
+        dosage_import_field_slen = 2;
+        g_dosage_is_gp = 1;
+      } else if (strequal_k(dosage_import_field, "GP", dosage_import_field_slen)) {
+        unforced_gp = (import_dosage_certainty == 0.0);
+        // bugfix (20 Aug 2018): forgot to initialize g_dosage_is_gp
+        g_dosage_is_gp = 1;
       }
     }
 
@@ -2818,12 +2831,10 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     g_qual_mins[1] = vcf_min_dp;
     g_qual_maxs[0] = 0x7fffffff;
     g_qual_maxs[1] = vcf_max_dp;
-    // sample_ct set later
     VcfImportContext vic;
+    // sample_ct set later
     vic.vibc.halfcall_mode = halfcall_mode;
 
-    // bugfix (20 Aug 2018): forgot to initialize g_dosage_is_gp
-    g_dosage_is_gp = strequal_k(dosage_import_field, "GP", dosage_import_field_slen);
     vic.dosage_is_gp = g_dosage_is_gp;
 
     // always positive
@@ -2952,6 +2963,9 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
             goto VcfToPgen_ret_MALFORMED_INPUT;
           }
           format_hds_search = 2;
+        } else if (unforced_gp && memequal_k(&(linebuf_iter[13]), "DS,", 3)) {
+          logerrputs("Error: --vcf dosage=GP specified, but --import-dosage-certainty was not and\nFORMAT:DS header line is present.\nSince " PROG_NAME_STR " collapses genotype probabilities down to dosages (even when\nperforming simple operations like \"" PROG_NAME_STR " --vcf ... --export bgen-1.2 ...\"),\n'dosage=GP' almost never makes sense in this situation.  Either change it to\n'dosage=DS' (if dosages are good enough for your analysis), or use another\nprogram to work with the genotype probabilities.\nThere is one notable exception to the preceding recommendation: you are writing\na script to process VCF files that are guaranteed to have FORMAT:GP, but may or\nmay not have FORMAT:DS.  You can use 'dosage=GP-force' to suppress this error\nin that situation.\n");
+          goto VcfToPgen_ret_INCONSISTENT_INPUT;
         }
       } else if (StrStartsWithUnsafe(&(linebuf_iter[2]), "INFO=<ID=")) {
         if (StrStartsWithUnsafe(&(linebuf_iter[2 + strlen("INFO=<ID=")]), "PR,Number=")) {

@@ -357,11 +357,11 @@ HEADER_INLINE uint32_t GetMajIdx(const double* cur_allele_freqs, uint32_t cur_al
   return GetMajIdxMulti(cur_allele_freqs, cur_allele_ct);
 }
 
-HEADER_INLINE double GetNonmajFreq(const double* cur_allele_freqs, uint32_t cur_allele_ct) {
+HEADER_INLINE double GetNonmajFreq(const double* cur_allele_freqs, uint32_t allele_ct) {
   double tot_nonlast_freq = cur_allele_freqs[0];
   double max_freq = tot_nonlast_freq;
-  const uint32_t cur_allele_ct_m1 = cur_allele_ct - 1;
-  for (uint32_t allele_idx = 1; allele_idx != cur_allele_ct_m1; ++allele_idx) {
+  const uint32_t allele_ct_m1 = allele_ct - 1;
+  for (uint32_t allele_idx = 1; allele_idx != allele_ct_m1; ++allele_idx) {
     const double cur_alt_freq = cur_allele_freqs[allele_idx];
     tot_nonlast_freq += cur_alt_freq;
     if (cur_alt_freq > max_freq) {
@@ -372,13 +372,13 @@ HEADER_INLINE double GetNonmajFreq(const double* cur_allele_freqs, uint32_t cur_
   return MINV(nonmajor_freq, tot_nonlast_freq);
 }
 
-HEADER_INLINE double GetAlleleFreq(const double* cur_allele_freqs, uint32_t allele_idx, uint32_t cur_allele_ct) {
-  const uint32_t cur_allele_ct_m1 = cur_allele_ct - 1;
-  if (allele_idx < cur_allele_ct_m1) {
+HEADER_INLINE double GetAlleleFreq(const double* cur_allele_freqs, uint32_t allele_idx, uint32_t allele_ct) {
+  const uint32_t allele_ct_m1 = allele_ct - 1;
+  if (allele_idx < allele_ct_m1) {
     return cur_allele_freqs[allele_idx];
   }
   double last_freq = 1.0 - cur_allele_freqs[0];
-  for (uint32_t tmp_allele_idx = 1; tmp_allele_idx != cur_allele_ct_m1; ++tmp_allele_idx) {
+  for (uint32_t tmp_allele_idx = 1; tmp_allele_idx != allele_ct_m1; ++tmp_allele_idx) {
     last_freq -= cur_allele_freqs[tmp_allele_idx];
   }
   return MAXV(last_freq, 0.0);

@@ -66,7 +66,26 @@ void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, 
 
 void EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, autosomal_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), const double* hwe_x_pvals, MiscFlags misc_flags, double hwe_thresh, uint32_t nonfounders, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
 
-void EnforceMinorFreqConstraints(const uintptr_t* allele_idx_offsets, const uint64_t* founder_allele_dosages, const double* allele_freqs, double min_maf, double max_maf, uint64_t min_allele_dosage, uint64_t max_allele_dosage, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
+// This needs to be synced with GetTypedFreq().
+FLAGSET_DEF_START()
+  kfFreqFilter0,
+  kfFreqFilterMafNref = (1 << 0),
+  kfFreqFilterMafAlt1 = (1 << 1),
+  kfFreqFilterMafMinor = (1 << 2),
+  kfFreqFilterMaxMafNref = (1 << 3),
+  kfFreqFilterMaxMafAlt1 = (1 << 4),
+  kfFreqFilterMaxMafMinor = (1 << 5),
+  kfFreqFilterFracAll = (2 * kfFreqFilterMaxMafMinor) - kfFreqFilterMafNref,
+  kfFreqFilterMacNref = (1 << 6),
+  kfFreqFilterMacAlt1 = (1 << 7),
+  kfFreqFilterMacMinor = (1 << 8),
+  kfFreqFilterMaxMacNref = (1 << 9),
+  kfFreqFilterMaxMacAlt1 = (1 << 10),
+  kfFreqFilterMaxMacMinor = (1 << 11),
+  kfFreqFilterCountAll = (2 * kfFreqFilterMaxMacMinor) - kfFreqFilterMacNref,
+FLAGSET_DEF_END(FreqFilterFlags);
+
+void EnforceFreqConstraints(const uintptr_t* allele_idx_offsets, const uint64_t* founder_allele_dosages, const double* allele_freqs, double min_maf, double max_maf, uint64_t min_allele_dosage, uint64_t max_allele_dosage, FreqFilterFlags ff_flags, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
 
 void EnforceMachR2Thresh(const ChrInfo* cip, const double* mach_r2_vals, double mach_r2_min, double mach_r2_max, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
 
