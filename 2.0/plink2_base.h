@@ -2473,10 +2473,12 @@ template <uint32_t N, typename = TRange<true> > struct MemcpyKImpl {
   }
 };
 
-// Patch a bunch of cases where we know OS X/LLVM sometimes generates
-// suboptimal code.  (Since this code is shamelessly x86-specific, we don't
-// worry about the formal undefinedness of unaligned pointer dereferences
+// Patch a bunch of cases where some commonly-used gcc and clang versions
+// generate suboptimal code.  (Since this code is shamelessly x86-specific, we
+// don't worry about the formal undefinedness of unaligned pointer dereferences
 // here.)
+// (todo: check if/when this has been fixed, and remove this bloat once all
+// production build machines have sufficiently new compilers.)
 template <> struct MemcpyKImpl<2> {
   static void MemcpyK(void* __restrict dst, const void* __restrict src) {
     *S_CAST(uint16_t*, dst) = *S_CAST(const uint16_t*, src);
@@ -2694,6 +2696,8 @@ HEADER_INLINE unsigned char* memcpyuao_k(void* __restrict dst, const void* __res
 #ifdef __LP64__
 // This is also better than the June 2018 OS X/LLVM stock implementation,
 // especially for small values of ct.
+// (gcc 7.1 and clang 6.0.0 should have better stock implementations;
+// re-benchmark this once Linux build machine is upgraded to Ubuntu 18.04.)
 int32_t Memcmp(const void* m1, const void* m2, uintptr_t ct);
 #else
 HEADER_INLINE int32_t Memcmp(const void* m1, const void* m2, uintptr_t ct) {
@@ -3185,7 +3189,7 @@ private: \
 #  define ENUM_U31_DEF_START() typedef enum : uint32_t {
 #  define ENUM_U31_DEF_END(tname) } tname
 
-#else
+#else  // !__cplusplus >= 201103L
 
 #  define FLAGSET_DEF_START() enum {
 #  define FLAGSET_DEF_END(tname) } ; \

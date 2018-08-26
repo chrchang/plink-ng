@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (21 Aug 2018)";
+  " (26 Aug 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -306,7 +306,7 @@ typedef struct Plink2CmdlineStruct {
   MissingRptFlags missing_rpt_flags;
   GenoCountsFlags geno_counts_flags;
   HardyFlags hardy_flags;
-  FreqFilterFlags ff_flags;
+  STD_ARRAY_DECL(FreqFilterMode, 4, filter_modes);
   GlmInfo glm_info;
   AdjustInfo adjust_info;
   ScoreInfo score_info;
@@ -1947,7 +1947,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         BigstackReset(bigstack_mark_geno_cts);
 
         if ((pcp->min_maf != 0.0) || (pcp->max_maf != 1.0) || pcp->min_allele_dosage || (pcp->max_allele_dosage != (~0LLU))) {
-          EnforceFreqConstraints(allele_idx_offsets, nonfounders? allele_dosages : founder_allele_dosages, allele_freqs, pcp->min_maf, pcp->max_maf, pcp->min_allele_dosage, pcp->max_allele_dosage, pcp->ff_flags, variant_include, &variant_ct);
+          EnforceFreqConstraints(allele_idx_offsets, nonfounders? allele_dosages : founder_allele_dosages, allele_freqs, pcp->filter_modes, pcp->min_maf, pcp->max_maf, pcp->min_allele_dosage, pcp->max_allele_dosage, variant_include, &variant_ct);
         }
 
         if (mach_r2_vals) {
@@ -2787,6 +2787,25 @@ uint32_t VaridTemplateIsValid(const char* varid_str, const char* flagname_p) {
   return 1;
 }
 
+BoolErr ParseFreqSelector(const char* mode_str, const char* flagname_p, FreqFilterMode* modep) {
+  // assume preinitialization to kFreqFilterNonmajor
+  if (mode_str[0] == ':') {
+    ++mode_str;
+  }
+  const uint32_t mode_slen = strlen(mode_str);
+  if (strequal_k(mode_str, "nref", mode_slen)) {
+    *modep = kFreqFilterNref;
+  } else if (strequal_k(mode_str, "alt1", mode_slen)) {
+    *modep = kFreqFilterAlt1;
+  } else if (strequal_k(mode_str, "minor", mode_slen)) {
+    *modep = kFreqFilterMinor;
+  } else if (unlikely(!strequal_k(mode_str, "nonmajor", mode_slen))) {
+    snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s mode '%s'.\n", flagname_p, mode_str);
+    return 1;
+  }
+  return 0;
+}
+
 
 static_assert(sizeof(int) == sizeof(int32_t), "main() assumes int and int32_t are synonymous.");
 static_assert(!kChrOffsetX, "--autosome-num/--chr-set/--cow/etc. assume kChrOffsetX == 0.");
@@ -3186,7 +3205,9 @@ int main(int argc, char** argv) {
     pc.missing_rpt_flags = kfMissingRpt0;
     pc.geno_counts_flags = kfGenoCounts0;
     pc.hardy_flags = kfHardy0;
-    pc.ff_flags = kfFreqFilter0;
+    for (uint32_t uii = 0; uii != 4; ++uii) {
+      pc.filter_modes[uii] = kFreqFilterNonmajor;
+    }
     pc.aperm.min = 6;
     pc.aperm.max = 1000000;
     pc.aperm.alpha = 0.0;
@@ -6222,18 +6243,7 @@ int main(int argc, char** argv) {
               }
             }
             if (mode_str) {
-              if (mode_str[0] == ':') {
-                ++mode_str;
-              }
-              const uint32_t mode_slen = strlen(mode_str);
-              if (strequal_k(mode_str, "nref", mode_slen)) {
-                pc.ff_flags |= kfFreqFilterMafNref;
-              } else if (strequal_k(mode_str, "alt1", mode_slen)) {
-                pc.ff_flags |= kfFreqFilterMafAlt1;
-              } else if (strequal_k(mode_str, "minor", mode_slen)) {
-                pc.ff_flags |= kfFreqFilterMafMinor;
-              } else if (unlikely(!strequal_k(mode_str, "nonmajor", mode_slen))) {
-                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --maf mode '%s'.\n", mode_str);
+              if (ParseFreqSelector(mode_str, flagname_p, &(pc.filter_modes[0]))) {
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
             }
@@ -6254,11 +6264,7 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --max-maf parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-          if (unlikely(pc.max_maf < pc.min_maf)) {
-            // todo: permit this in some cases when modes differ
-            snprintf(g_logbuf, kLogbufSize, "Error: --max-maf parameter '%s' too small (must be >= %g).\n", cur_modif, pc.min_maf);
-            goto main_ret_INVALID_CMDLINE_WWA;
-          } else if (unlikely(pc.max_maf >= 1.0)) {
+          if (unlikely(pc.max_maf >= 1.0)) {
             snprintf(g_logbuf, kLogbufSize, "Error: --max-maf parameter '%s' too large (must be < 1).\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -6279,20 +6285,13 @@ int main(int argc, char** argv) {
             }
           }
           if (mode_str) {
-            if (mode_str[0] == ':') {
-              ++mode_str;
-            }
-            const uint32_t mode_slen = strlen(mode_str);
-            if (strequal_k(mode_str, "nref", mode_slen)) {
-              pc.ff_flags |= kfFreqFilterMaxMafNref;
-            } else if (strequal_k(mode_str, "alt1", mode_slen)) {
-              pc.ff_flags |= kfFreqFilterMaxMafAlt1;
-            } else if (strequal_k(mode_str, "minor", mode_slen)) {
-              pc.ff_flags |= kfFreqFilterMaxMafMinor;
-            } else if (unlikely(!strequal_k(mode_str, "nonmajor", mode_slen))) {
-              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --max-maf mode '%s'.\n", mode_str);
+            if (ParseFreqSelector(mode_str, flagname_p, &(pc.filter_modes[1]))) {
               goto main_ret_INVALID_CMDLINE_WWA;
             }
+          }
+          if (unlikely((pc.filter_modes[0] == pc.filter_modes[1]) && (pc.max_maf < pc.min_maf))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: --max-maf parameter '%s' too small (must be >= %g).\n", cur_modif, pc.min_maf);
+            goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.filter_flags |= kfFilterPvarReq;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
@@ -6333,18 +6332,7 @@ int main(int argc, char** argv) {
               }
             }
             if (mode_str) {
-              if (mode_str[0] == ':') {
-                ++mode_str;
-              }
-              const uint32_t mode_slen = strlen(mode_str);
-              if (strequal_k(mode_str, "nref", mode_slen)) {
-                pc.ff_flags |= kfFreqFilterMacNref;
-              } else if (strequal_k(mode_str, "alt1", mode_slen)) {
-                pc.ff_flags |= kfFreqFilterMacAlt1;
-              } else if (strequal_k(mode_str, "minor", mode_slen)) {
-                pc.ff_flags |= kfFreqFilterMacMinor;
-              } else if (unlikely(!strequal_k(mode_str, "nonmajor", mode_slen))) {
-                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mac mode '%s'.\n", mode_str);
+              if (ParseFreqSelector(mode_str, flagname_p, &(pc.filter_modes[2]))) {
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
             }
@@ -6364,12 +6352,6 @@ int main(int argc, char** argv) {
           }
           // round down
           pc.max_allele_dosage = S_CAST(int64_t, dxx * kDosageMax);
-          if (unlikely(pc.max_allele_dosage < pc.min_allele_dosage)) {
-            // yeah, --mac 0.1 --max-mac 0.1 also isn't allowed
-            // todo: permit this in some cases when modes differ
-            logerrputs("Error: --max-mac parameter cannot be smaller than --mac parameter.\n");
-            goto main_ret_INVALID_CMDLINE;
-          }
           if (mode_str[0] == ':') {
             if (unlikely(param_ct == 2)) {
               logerrputs("Error: Invalid --max-mac parameter sequence.\n");
@@ -6387,20 +6369,14 @@ int main(int argc, char** argv) {
             }
           }
           if (mode_str) {
-            if (mode_str[0] == ':') {
-              ++mode_str;
-            }
-            const uint32_t mode_slen = strlen(mode_str);
-            if (strequal_k(mode_str, "nref", mode_slen)) {
-              pc.ff_flags |= kfFreqFilterMaxMacNref;
-            } else if (strequal_k(mode_str, "alt1", mode_slen)) {
-              pc.ff_flags |= kfFreqFilterMaxMacAlt1;
-            } else if (strequal_k(mode_str, "minor", mode_slen)) {
-              pc.ff_flags |= kfFreqFilterMaxMacMinor;
-            } else if (unlikely(!strequal_k(mode_str, "nonmajor", mode_slen))) {
-              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --max-mac mode '%s'.\n", mode_str);
+            if (ParseFreqSelector(mode_str, flagname_p, &(pc.filter_modes[3]))) {
               goto main_ret_INVALID_CMDLINE_WWA;
             }
+          }
+          if (unlikely((pc.filter_modes[2] == pc.filter_modes[3]) && (pc.max_allele_dosage < pc.min_allele_dosage))) {
+            // yeah, --mac 0.1 --max-mac 0.1 also isn't allowed
+            logerrputs("Error: --max-mac parameter cannot be smaller than --mac parameter when modes\nare identical.\n");
+            goto main_ret_INVALID_CMDLINE;
           }
           pc.filter_flags |= kfFilterPvarReq;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;

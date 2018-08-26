@@ -4313,7 +4313,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       if (nonmaj_col) {
         cswritep = strcpya_k(cswritep, "\tNONMAJ");
       }
-      for (uint32_t pc_idx = 1; pc_idx != pc_ct; ++pc_idx) {
+      for (uint32_t pc_idx = 1; pc_idx <= pc_ct; ++pc_idx) {
         cswritep = strcpya_k(cswritep, "\tPC");
         cswritep = u32toa(pc_idx, cswritep);
       }
@@ -4559,7 +4559,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     if (write_sid) {
       write_iter = strcpya_k(write_iter, "\tSID");
     }
-    for (uint32_t pc_idx = 1; pc_idx != pc_ct; ++pc_idx) {
+    for (uint32_t pc_idx = 1; pc_idx <= pc_ct; ++pc_idx) {
       write_iter = strcpya_k(write_iter, "\tPC");
       write_iter = u32toa(pc_idx, write_iter);
     }
