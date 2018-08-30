@@ -82,8 +82,6 @@ void EnforceMinBpSpace(const ChrInfo* cip, const uint32_t* variant_bps, uint32_t
 
 PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const TwoColParams* allele_flag_info, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t is_alt1, uint32_t force, uint32_t max_thread_ct, const char** allele_storage, uint32_t* max_allele_slen_ptr, STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uintptr_t* nonref_flags, uintptr_t* previously_seen);
 
-PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const ChrInfo* cip, const char* fname, uint32_t max_allele_slen, uint32_t force, STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uintptr_t* nonref_flags);
-
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

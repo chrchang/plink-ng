@@ -300,6 +300,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
       goto KingCutoffBatch_ret_1;
     }
     // bugfix (18 Aug 2018): this missed some xid_mode possibilities
+    // todo: try to simplify this interface, it's bordering on incomprehensible
     char* linebuf_first_token;
     XidMode xid_mode;
     reterr = LoadXidHeader("king-cutoff", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeader0 : kfXidHeaderIgnoreSid, &line_iter, &line_idx, &linebuf_first_token, &rls, &xid_mode);

@@ -238,6 +238,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      them take on decimal values, use 'dosage-freq='.  (These dosages are\n"
 "      affected by --hard-call-threshold and --dosage-erase-threshold.)\n\n"
                );
+    HelpPrint("fa\0normalize\0ref-from-fa\0", &help_ctrl, 1,
+"  --fa [fname]       : Specify full name of reference FASTA file.\n\n"
+              );
     if (!param_ct) {
       fputs(
 "Output files have names of the form 'plink2.{extension}' by default.  You can\n"
@@ -259,10 +262,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --make-bed <vzs> <trim-alts>\n"
                /*
 "  --make-pgen <vzs> <format=[code]> <trim-alts | erase-alt2+> <erase-phase>\n"
-"              <erase-dosage> <multiallelics=[mode]>\n"
+"              <erase-dosage> <multiallelics=[mode]> <vid-split | vid-join>\n"
 "              <pvar-cols=[col set descriptor]> <psam-cols=[col set descriptor]>\n"
 "  --make-bpgen <vzs> <format=[code]> <trim-alts | erase-alt2+> <erase-phase>\n"
-"               <erase-dosage> <multiallelics=[mode]>\n"
+"               <erase-dosage> <multiallelics=[mode]> <vid-split | vid-join>\n"
 "  --make-bed <vzs> <trim-alts | erase-alt2+> <multiallelics=[split mode]>\n"
                */
 "    Create a new PLINK binary fileset (--make-pgen = .pgen + .pvar{.zst} +\n"
@@ -284,8 +287,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      dataset after sample filtering to be removed.  (This occurs before any\n"
 "      genotype/dosage erasure performed by --make-{b}pgen/--make-bed.)\n"
                */
-    // Commented out since, while this is on the roadmap, it isn't implemented
-    // yet.  (This also applies to other commented-out help text.)
+    // Commented out since, while this is on the roadmap, it isn't fully
+    // implemented yet.  (This also applies to other commented-out help text.)
 "    * The 'erase-phase' and 'erase-dosage' modifiers prevent phase and dosage\n"
 "      information from being written to the new .pgen.\n"
                /*
@@ -299,14 +302,15 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      * '+snps': Similar to '+both', except only SNPs are merged.\n"
 "      * '+any': All adjacent biallelic variants with identical CHROM/POS/REF\n"
 "                are merged into a single multiallelic variant.\n"
-"      If a variant ID template was specified with --set-[missing/all]-var-ids,\n"
-"      it is applied to the newly created variants.  Otherwise, the ID is set to\n"
-"      the missing value.\n"
+"      If the vid-split/vid-join modifier was specified, new variant IDs are\n"
+"      constructed by splitting/joining by ';'.  If not (or the number of\n"
+"      semicolons is incorrect in the split case), if a variant ID template was\n"
+"      specified with --set-[missing/all]-var-ids, that's applied to the newly\n"
+"      created variants.  Otherwise, the IDs will be set to the missing value.\n"
 "      When merging, the new variant gets the lowest QUAL and the union of the\n"
 "      FILTER values.\n"
-"      INFO splitting/merging and left-alignment and normalization of indels are\n"
-"      not currently supported.  'bcftools norm' (possibly on a single-sample\n"
-"      file) can be used for this.\n"
+"      INFO splitting/merging is under development; for now, 'bcftools norm'\n"
+"      (possibly on a single-sample file) can be used for this.\n"
 "    * The 'erase-alt2+' modifier causes alt alleles past the first to be\n"
 "      removed; substantially affected genotypes/dosages (alt2+ dosage >= 0.5)\n"
 "      are set to missing, and slightly affected dosages are rescaled.  This is\n"
@@ -411,27 +415,28 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * 'structure': Structure-format.\n"
 "    * 'transpose': PLINK 1 variant-major (.tped + .tfam), loadable with\n"
 "                   --tfile.\n"
-"    * 'vcf': VCFv4.3.  If PAR1 and PAR2 are present, they are automatically\n"
-"             merged with chrX, with proper handling of chromosome codes and\n"
-"             male ploidy.  When the 'bgz' modifier is present, the VCF file is\n"
-"             block-gzipped.\n"
-"             The 'id-paste' modifier controls which .psam columns are used to\n"
-"             construct sample IDs (choices are maybefid, fid, iid, maybesid,\n"
-"             and sid; default is maybefid,iid,maybesid), while the 'id-delim'\n"
-"             modifier sets the character between the ID pieces (default '_').\n"
-"             Dosages are not exported unless the 'vcf-dosage=' modifier is\n"
-"             present.  The following five dosage export modes are supported:\n"
-"               'GP': genotype posterior probabilities.\n"
-"               'DS': Minimac3-style dosages, omitted for hardcalls.\n"
-"               'DS-force': Minimac3-style dosages, never omit.\n"
-"               'HDS': Minimac4-style phased dosages, omitted for hardcalls and\n"
-"                      unphased calls.  Also includes 'DS' output.\n"
-"               'HDS-force': Always report DS and HDS.\n"
+"    * 'vcf', 'vcf-4.2': VCF (default version 4.3).  If PAR1 and PAR2 are\n"
+"                        present, they are automatically merged with chrX, with\n"
+"                        proper handling of chromosome codes and male ploidy.\n"
+"                        When the 'bgz' modifier is present, the VCF file is\n"
+"                        block-gzipped.\n"
+"                        The 'id-paste' modifier controls which .psam columns\n"
+"                        are used to construct sample IDs (choices are maybefid,\n"
+"                        fid, iid, maybesid, and sid; default is\n"
+"                        maybefid,iid,maybesid), while the 'id-delim' modifier\n"
+"                        sets the character between the ID pieces (default '_').\n"
+"                        Dosages are not exported unless the 'vcf-dosage='\n"
+"                        modifier is present.  The following five dosage export\n"
+"                        modes are supported:\n"
+"                        'GP': genotype posterior probabilities (v4.3 only).\n"
+"                        'DS': Minimac3-style dosages, omitted for hardcalls.\n"
+"                        'DS-force': Minimac3-style dosages, never omit.\n"
+"                        'HDS': Minimac4-style phased dosages, omitted for\n"
+"                               hardcalls and unphased calls.  Also includes\n"
+"                               'DS' output.\n"
+"                        'HDS-force': Always report DS and HDS.\n"
                // possible todo: pedigree output?
 "    In addition,\n"
-"    * When the output format only supports biallelic variants, multiallelic\n"
-"      variants are downcoded to ref/alt1, not split.\n"
-               // todo: implement CPRA <-> CPR
 "    * The '12' modifier causes alt1 alleles to be coded as '1' and ref alleles\n"
 "      to be coded as '2', while '01' maps alt1 -> 0 and ref -> 1.\n"
 "    * The 'spaces' modifier makes the output space-delimited instead of\n"
@@ -1577,14 +1582,18 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * When --alt1-allele changes the previous ref allele to alt1, the previous\n"
 "      alt1 allele is set to reference and marked as provisional.\n"
                );
-    HelpPrint("ref-from-fa\0maj-ref\0ref-allele\0reference-allele\0update-ref-allele\0a2-allele\0keep-allele-order\0", &help_ctrl, 0,
-"  --ref-from-fa [fn] <force> : This sets reference alleles from the given FASTA\n"
-"                               file when it can be done unambiguously (note\n"
-"                               that it's never possible for deletions or some\n"
-"                               insertions).  By default, it errors out when\n"
-"                               asked to change a 'known' reference allele; add\n"
-"                               the 'force' modifier to permit that.\n"
+    HelpPrint("ref-from-fa\0maj-ref\0ref-allele\0reference-allele\0update-ref-allele\0a2-allele\0keep-allele-order\0fa\0", &help_ctrl, 0,
+"  --ref-from-fa <force> : This sets reference alleles from the --fa file when\n"
+"                          it can be done unambiguously (note that it's never\n"
+"                          possible for deletions or some insertions).\n"
+"                          By default, it errors out when asked to change a\n"
+"                          'known' reference allele; add the 'force' modifier to\n"
+"                          permit that.\n"
                );
+    HelpPrint("normalize\0norm\0fa\0", &help_ctrl, 0,
+"  --normalize           : Left-normalize all variants, using the --fa file.\n"
+"  (alias: --norm)         (Assumes no differences in capitalization.)\n"
+              );
     HelpPrint("indiv-sort\0", &help_ctrl, 0,
 "  --indiv-sort [m] {f} : Specify sample ID sort order for merge and\n"
 "                         --make-{b}pgen/--make-bed.  The following four modes\n"

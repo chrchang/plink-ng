@@ -126,15 +126,14 @@ FLAGSET64_DEF_START()
   kfMiscCatPhenoFamily = (1 << 28),
   kfMiscRefAlleleForce = (1 << 29),
   kfMiscAlt1AlleleForce = (1 << 30),
-  kfMiscRefFromFaForce = (1LLU << 31),
-  kfMiscMergeX = (1LLU << 32),
-  kfMiscNoIdHeader = (1LLU << 33),
-  kfMiscNoIdHeaderIidOnly = (1LLU << 34),
-  kfMiscBiallelicOnly = (1LLU << 35),
-  kfMiscBiallelicOnlyStrict = (1LLU << 36),
-  kfMiscBiallelicOnlyList = (1LLU << 37),
-  kfMiscStrictSid0 = (1LLU << 38),
-  kfMiscAllowBadFreqs = (1LLU << 39)
+  kfMiscMergeX = (1U << 31),
+  kfMiscNoIdHeader = (1LLU << 32),
+  kfMiscNoIdHeaderIidOnly = (1LLU << 33),
+  kfMiscBiallelicOnly = (1LLU << 34),
+  kfMiscBiallelicOnlyStrict = (1LLU << 35),
+  kfMiscBiallelicOnlyList = (1LLU << 36),
+  kfMiscStrictSid0 = (1LLU << 37),
+  kfMiscAllowBadFreqs = (1LLU << 38)
 FLAGSET64_DEF_END(MiscFlags);
 
 FLAGSET64_DEF_START()
@@ -170,11 +169,13 @@ FLAGSET64_DEF_START()
   kfExportfCompound = (1 << 28),
   kfExportfStructure = (1 << 29),
   kfExportfTranspose = (1 << 30),
-  kfExportfVcf = (1U << 31),
-  kfExportfTypemask = (2LLU * kfExportfVcf) - kfExportf23,
-  kfExportfIncludeAlt = (1LLU << 32),
-  kfExportfBgz = (1LLU << 33),
-  kfExportfOmitNonmaleY = (1LLU << 34)
+  kfExportfVcf42 = (1U << 31),
+  kfExportfVcf43 = (1LLU << 32),
+  kfExportfVcf = kfExportfVcf42 | kfExportfVcf43,
+  kfExportfTypemask = (2LLU * kfExportfVcf43) - kfExportf23,
+  kfExportfIncludeAlt = (1LLU << 33),
+  kfExportfBgz = (1LLU << 34),
+  kfExportfOmitNonmaleY = (1LLU << 35)
 FLAGSET64_DEF_END(ExportfFlags);
 
 FLAGSET_DEF_START()

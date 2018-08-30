@@ -3628,7 +3628,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       if (refalt1_select) {
         if (write_allele_idx_offsets) {
           // this will require write_mhc and an additional AlleleCode buffer
-          logerrputs("Error: Multiallelic allele rotation is under development..\n");
+          logerrputs("Error: Multiallelic allele rotation is under development.\n");
           reterr = kPglRetNotYetSupported;
           goto MakePgenRobust_ret_1;
         }
@@ -4257,7 +4257,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
       if (refalt1_select) {
         if (write_allele_idx_offsets) {
           // this will require write_mhc and an additional AlleleCode buffer
-          logerrputs("Error: Multiallelic allele rotation is under development..\n");
+          logerrputs("Error: Multiallelic allele rotation is under development.\n");
           reterr = kPglRetNotYetSupported;
           goto MakePlink2NoVsort_ret_1;
         }

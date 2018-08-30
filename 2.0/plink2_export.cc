@@ -1947,7 +1947,8 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
 // it's easy to force vector-alignment if it would be useful.
 unsigned char* FillBgen13PloidyAndMissingness(const uintptr_t* genovec, const uintptr_t* dosage_present, uintptr_t ploidy, uint32_t sample_ct, uint32_t dosage_ct, unsigned char* bgen_geno_buf_iter) {
   uint64_t* sample_ploidy_and_missingness_alias = R_CAST(uint64_t*, bgen_geno_buf_iter);
-  const uint64_t ploidy_u64 = ploidy * kMask0101;
+  // bugfix (30 Aug 2018): need to spell out mask in 32-bit case
+  const uint64_t ploidy_u64 = ploidy * 0x101010101010101LLU;
   const uint32_t sample_ct8 = DivUp(sample_ct, 8);
   const uint16_t* genovec_alias = R_CAST(const uint16_t*, genovec);
   if (!dosage_ct) {
@@ -1957,7 +1958,7 @@ unsigned char* FillBgen13PloidyAndMissingness(const uintptr_t* genovec, const ui
 #ifdef USE_AVX2
       // 0,2,4,6...14 -> 7,15,23,...,63
       // todo: try inverse-movespreadmask
-      cur_missing8 = _pext_u64(cur_missing8 & 0x5555, 8 * kMask1111);
+      cur_missing8 = _pdep_u64(cur_missing8 & 0x5555, 0x80 * kMask1111);
 #else
       // 0,2,4,6,8,10,12,14 -> 0,2,4,6,32,34,36,38
       cur_missing8 = (cur_missing8 | (cur_missing8 << 24)) & 0x5500000055LLU;
@@ -1978,9 +1979,10 @@ unsigned char* FillBgen13PloidyAndMissingness(const uintptr_t* genovec, const ui
       uint64_t cur_hardcall_missing8 = cur_geno8 & (cur_geno8 >> 1);
 #ifdef USE_AVX2
       // 0,2,4,6...14 -> 7,15,23,...,63
-      cur_hardcall_missing8 = _pext_u64(cur_hardcall_missing8 & 0x5555, 8 * kMask1111);
-      cur_dosage_missing8 = _pext_u64(cur_dosage_missing8, 0x80 * kMask0101);
+      cur_hardcall_missing8 = _pdep_u64(cur_hardcall_missing8 & 0x5555, 0x80 * kMask1111);
+      cur_dosage_missing8 = _pdep_u64(cur_dosage_missing8, 0x80 * kMask0101);
       const uint64_t cur_missing8 = cur_hardcall_missing8 & cur_dosage_missing8;
+      printf("cur_missing8: %llx\n", cur_missing8);
 #else
       // 0,2,4,6,8,10,12,14 -> 0,2,4,6,32,34,36,38
       cur_hardcall_missing8 = (cur_hardcall_missing8 | (cur_hardcall_missing8 << 24)) & 0x5500000055LLU;
@@ -2990,6 +2992,13 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* arg) {
         bgen_geno_buf_iter = &(bgen_geno_buf_iter[DivUp(cur_write_bit_idx, CHAR_BIT)]);
       }
       const uint32_t uncompressed_bytect = bgen_geno_buf_iter - uncompressed_bgen_geno_buf;
+      /*
+      for (uint32_t uii = 0; uii != uncompressed_bytect; ++uii) {
+        printf("%u ", uncompressed_bgen_geno_buf[uii]);
+      }
+      printf("\n");
+      exit(1);
+      */
       uintptr_t compressed_bytect;
       if (compressor) {
         compressed_bytect = libdeflate_zlib_compress(compressor, uncompressed_bgen_geno_buf, uncompressed_bytect, writebuf_iter, bgen_compressed_buf_max);
@@ -4114,7 +4123,9 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       goto ExportVcf_ret_NOMEM;
     }
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
-    char* write_iter = strcpya_k(writebuf, "##fileformat=VCFv4.3" EOLN_STR "##fileDate=");
+    char* write_iter = strcpya_k(writebuf, "##fileformat=VCFv4.");
+    *write_iter++ = (exportf_flags & kfExportfVcf43)? '3' : '2';
+    write_iter = strcpya_k(write_iter, EOLN_STR "##fileDate=");
     time_t rawtime;
     time(&rawtime);
     struct tm* loctime;
@@ -4132,6 +4143,12 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     if (unlikely(bigstack_calloc_w(chr_ctl, &written_contig_header_lines))) {
       goto ExportVcf_ret_NOMEM;
     }
+    // bugfix (30 Aug 2018): remove extraneous PAR1/PAR2 ##contig header lines,
+    // count them as part of chrX
+    const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
+    const uint32_t par1_code = cip->xymt_codes[kChrOffsetPAR1];
+    const uint32_t par2_code = cip->xymt_codes[kChrOffsetPAR2];
+    uint32_t x_contig_line_written = 0;
     if (xheader) {
       memcpyao_k(writebuf, "##contig=<ID=", 13);
       char* xheader_iter = xheader;
@@ -4152,8 +4169,11 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
           // if GetChrCodeCounted() is modified to not mutate
           // contig_name_start[], xheader can be changed to const char*
           const uint32_t chr_idx = GetChrCodeCounted(cip, contig_name_end - contig_name_start, contig_name_start);
-          if (IsI32Neg(chr_idx)) {
+          if (IsI32Neg(chr_idx) || (chr_idx == par1_code) || (chr_idx == par2_code)) {
             continue;
+          }
+          if (chr_idx == x_code) {
+            x_contig_line_written = 1;
           }
           const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[chr_idx];
           if (unlikely(IsSet(written_contig_header_lines, chr_fo_idx))) {
@@ -4180,12 +4200,21 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     write_iter = writebuf;
     // fill in the missing ##contig lines
     uint32_t contig_zero_written = 0;
+    uint32_t chrx_end = 0;
     for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
       if (IsSet(written_contig_header_lines, chr_fo_idx)) {
         continue;
       }
       const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
       if ((!IsSet(cip->chr_mask, chr_idx)) || AllBitsAreZero(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1])) {
+        continue;
+      }
+      if ((chr_idx == x_code) || (chr_idx == par1_code) || (chr_idx == par2_code)) {
+        // if variant included, should add max allele length instead of 1
+        const uint32_t pos_end = variant_bps[cip->chr_fo_vidx_start[chr_fo_idx + 1] - 1] + 1;
+        if (pos_end > chrx_end) {
+          chrx_end = pos_end;
+        }
         continue;
       }
       char* chr_name_write_start = strcpya_k(write_iter, "##contig=<ID=");
@@ -4204,10 +4233,26 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         }
         write_iter = strcpya_k(chr_name_write_end, ",length=");
         if (1) {
+          // er, if variant included, should add max allele length instead of
+          // 1...
           write_iter = u32toa(variant_bps[cip->chr_fo_vidx_start[chr_fo_idx + 1] - 1] + 1, write_iter);
         } else {
-          // todo: unsorted map case
+          // todo: scan for maximum pos in unsorted map case
         }
+      }
+      *write_iter++ = '>';
+      AppendBinaryEoln(&write_iter);
+      if (unlikely(flexbwrite_ck(writebuf_flush, outfile, bgz_outfile, &write_iter))) {
+        goto ExportVcf_ret_WRITE_FAIL;
+      }
+    }
+    if (chrx_end && (!x_contig_line_written)) {
+      char* chr_name_write_start = strcpya_k(write_iter, "##contig=<ID=");
+      char* chr_name_write_end = chrtoa(cip, x_code, chr_name_write_start);
+      write_iter = strcpya_k(chr_name_write_end, ",length=");
+      if (1) {
+        write_iter = u32toa(chrx_end, write_iter);
+      } else {
       }
       *write_iter++ = '>';
       AppendBinaryEoln(&write_iter);
