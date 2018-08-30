@@ -1982,7 +1982,6 @@ unsigned char* FillBgen13PloidyAndMissingness(const uintptr_t* genovec, const ui
       cur_hardcall_missing8 = _pdep_u64(cur_hardcall_missing8 & 0x5555, 0x80 * kMask1111);
       cur_dosage_missing8 = _pdep_u64(cur_dosage_missing8, 0x80 * kMask0101);
       const uint64_t cur_missing8 = cur_hardcall_missing8 & cur_dosage_missing8;
-      printf("cur_missing8: %llx\n", cur_missing8);
 #else
       // 0,2,4,6,8,10,12,14 -> 0,2,4,6,32,34,36,38
       cur_hardcall_missing8 = (cur_hardcall_missing8 | (cur_hardcall_missing8 << 24)) & 0x5500000055LLU;
