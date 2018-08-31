@@ -908,8 +908,6 @@ BoolErr GlmDetermineCovars(const uintptr_t* pheno_cc, const uintptr_t* initial_c
     uint32_t sample_ct = prev_sample_ct;
     uint32_t extra_cat_ct = 0;
     BigstackReset(sample_include_backup);
-    uintptr_t sample_uidx_base = 0;
-    uintptr_t cur_sample_include_bits = cur_sample_include[0];
     if (!pheno_cc) {
       uintptr_t* cat_one_obs = nullptr;
       uintptr_t* cat_two_or_more_obs = nullptr;
@@ -934,6 +932,10 @@ BoolErr GlmDetermineCovars(const uintptr_t* pheno_cc, const uintptr_t* initial_c
           if (cur_covar_col->type_code == kPhenoDtypeOther) {
             continue;
           }
+          // bugfix (31 Aug 2018): sample_uidx_base/cur_sample_include_bits
+          // must be reset on each iteration
+          uintptr_t sample_uidx_base = 0;
+          uintptr_t cur_sample_include_bits = cur_sample_include[0];
           if (cur_covar_col->type_code == kPhenoDtypeQt) {
             const double* pheno_vals = cur_covar_col->data.qt;
             const uint32_t first_sample_uidx = BitIter1(cur_sample_include, &sample_uidx_base, &cur_sample_include_bits);
