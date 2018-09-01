@@ -1594,7 +1594,6 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --normalize           : Left-normalize all variants, using the --fa file.\n"
 "  (alias: --norm)         (Assumes no differences in capitalization.)\n"
               );
-    /*
     HelpPrint("rm-dup\0list-duplicate-vars\0", &help_ctrl, 0,
 "  --rm-dup {mode}       : Remove all but one instance of each duplicate-ID\n"
 "                          variant (other than '.').  The following modes are\n"
@@ -1602,18 +1601,21 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                          * 'error' (default) causes this to error out when\n"
 "                            there's a genotype data or other mismatch between\n"
 "                            the records.  A list of affected IDs is written to\n"
-"                            [output prefix].rmdup.err.\n"
-"                          * 'exclude-mismatch' causes all instances of a\n"
-"                            duplicate-ID variant to be removed when there's a\n"
+"                            [output prefix].rmdup.mismatch.\n"
+"                          * 'retain-mismatch' causes all instances of a\n"
+"                            duplicate-ID variant to be retained when there's a\n"
 "                            genotype data or variant info mismatch; otherwise\n"
-"                            one instance is kept.\n"
-"                          * 'exclude-all' causes all instances of these\n"
+"                            one instance is kept.  The .rmdup.mismatch file is\n"
+"                            also written.\n"
+"                          * 'exclude-mismatch' removes all instances of\n"
+"                            duplicate-ID mismatched variants instead.\n"
+"                          * 'exclude-all' causes all instances of duplicate-ID\n"
 "                            variants to be removed, even when the actual\n"
 "                            records are identical.\n"
 "                          * 'force-first' causes only the first instance of\n"
-"                            these variants to be kept, under all circumstances.\n"
+"                            duplicate-ID variants to be kept, under all\n"
+"                            circumstances.\n"
               );
-    */
     HelpPrint("indiv-sort\0", &help_ctrl, 0,
 "  --indiv-sort [m] {f}  : Specify sample ID sort order for merge and\n"
 "                          --make-{b}pgen/--make-bed.  The following four modes\n"

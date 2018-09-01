@@ -126,19 +126,21 @@ FLAGSET64_DEF_START()
   kfFilterAllReq = (1 << 0),
   kfFilterPvarReq = (1 << 1),
   kfFilterPsamReq = (1 << 2),
-  kfFilterNonrefFlagsNeeded = (1 << 3),
-  kfFilterNoSplitChr = (1 << 4),
-  kfFilterExclFemales = (1 << 5),
-  kfFilterExclMales = (1 << 6),
-  kfFilterExclNosex = (1 << 7),
-  kfFilterExclFounders = (1 << 8),
-  kfFilterExclNonfounders = (1 << 9),
-  kfFilterSnpsOnly = (1 << 10),
-  kfFilterSnpsOnlyJustAcgt = (1 << 11),
-  kfFilterExtractIbed0 = (1 << 12),
-  kfFilterExtractIbed1 = (1 << 13),
-  kfFilterExcludeIbed0 = (1 << 14),
-  kfFilterExcludeIbed1 = (1 << 15)
+  kfFilterOpportunisticPgen = (1 << 3),
+  kfFilterNonrefFlagsNeeded = (1 << 4),
+  kfFilterNonrefFlagsNeededSet = kfFilterNonrefFlagsNeeded | kfFilterOpportunisticPgen,
+  kfFilterNoSplitChr = (1 << 5),
+  kfFilterExclFemales = (1 << 6),
+  kfFilterExclMales = (1 << 7),
+  kfFilterExclNosex = (1 << 8),
+  kfFilterExclFounders = (1 << 9),
+  kfFilterExclNonfounders = (1 << 10),
+  kfFilterSnpsOnly = (1 << 11),
+  kfFilterSnpsOnlyJustAcgt = (1 << 12),
+  kfFilterExtractIbed0 = (1 << 13),
+  kfFilterExtractIbed1 = (1 << 14),
+  kfFilterExcludeIbed0 = (1 << 15),
+  kfFilterExcludeIbed1 = (1 << 16)
 FLAGSET64_DEF_END(FilterFlags);
 
 FLAGSET64_DEF_START()
@@ -308,6 +310,7 @@ typedef struct Plink2CmdlineStruct {
   MissingRptFlags missing_rpt_flags;
   GenoCountsFlags geno_counts_flags;
   HardyFlags hardy_flags;
+  RmDupMode rmdup_mode;
   STD_ARRAY_DECL(FreqFilterMode, 4, filter_modes);
   GlmInfo glm_info;
   AdjustInfo adjust_info;
@@ -417,8 +420,8 @@ typedef struct Plink2CmdlineStruct {
 } Plink2Cmdline;
 
 // er, probably time to just always initialize this...
-uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, double hwe_thresh) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy)) || ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) || ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) || (hwe_thresh != 1.0);
+uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_thresh) {
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy)) || ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) || ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) || (rmdup_mode != kRmDup0) || (hwe_thresh != 1.0);
 }
 
 
@@ -487,9 +490,9 @@ uint32_t FounderRawGenoCtsAreNeeded(Command1Flags command_flags1, MiscFlags misc
   return (!(misc_flags & kfMiscNonfounders)) && ((command_flags1 & kfCommand1Hardy) || (hwe_thresh != 1.0));
 }
 
-uint32_t InfoReloadIsNeeded(Command1Flags command_flags1, PvarPsamFlags pvar_psam_flags, ExportfFlags exportf_flags) {
+uint32_t InfoReloadIsNeeded(Command1Flags command_flags1, PvarPsamFlags pvar_psam_flags, ExportfFlags exportf_flags, RmDupMode rmdup_mode) {
   // add kfExportfBcf later
-  return ((command_flags1 & kfCommand1MakePlink2) && (pvar_psam_flags & kfPvarColXinfo)) || ((command_flags1 & kfCommand1Exportf) && (exportf_flags & kfExportfVcf));
+  return ((command_flags1 & kfCommand1MakePlink2) && (pvar_psam_flags & kfPvarColXinfo)) || ((command_flags1 & kfCommand1Exportf) && (exportf_flags & kfExportfVcf)) || (rmdup_mode != kRmDup0);
 }
 
 uint32_t GrmKeepIsNeeded(Command1Flags command_flags1, PcaFlags pca_flags) {
@@ -754,7 +757,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     }
 
     uint32_t max_variant_id_slen = 1;
-    uint32_t info_reload_slen = InfoReloadIsNeeded(pcp->command_flags1, pcp->pvar_psam_flags, pcp->exportf_info.flags);
+    uint32_t info_reload_slen = InfoReloadIsNeeded(pcp->command_flags1, pcp->pvar_psam_flags, pcp->exportf_info.flags, pcp->rmdup_mode);
     uintptr_t* allele_idx_offsets = nullptr;
     uint32_t raw_variant_ct = 0;
     uint32_t variant_ct = 0;
@@ -786,7 +789,9 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     ChrIdx* chr_idxs = nullptr;  // split-chromosome case only
     if (pvarname[0]) {
       char** pvar_filter_storage_mutable = nullptr;
-      reterr = LoadPvar(pvarname, pcp->var_filter_exceptions_flattened, pcp->varid_template_str, pcp->varid_multi_template_str, pcp->varid_multi_nonsnp_template_str, pcp->missing_varid_match, pcp->require_info_flattened, pcp->require_no_info_flattened, &(pcp->extract_if_info_expr), &(pcp->exclude_if_info_expr), pcp->misc_flags, pcp->pvar_psam_flags, pcp->exportf_info.flags, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->dependency_flags & kfFilterNoSplitChr), pcp->filter_min_allele_ct, pcp->filter_max_allele_ct, pcp->max_thread_ct, cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids_mutable, &allele_idx_offsets, K_CAST(const char***, &allele_storage_mutable), &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage_mutable, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_ct, &max_allele_slen, &xheader_blen, &info_flags, &max_filter_slen);
+      const uint32_t xheader_needed = (pcp->exportf_info.flags & kfExportfVcf)? 1 : 0;
+      const uint32_t qualfilter_needed = xheader_needed || ((pcp->rmdup_mode != kRmDup0) && (pcp->rmdup_mode <= kRmDupExcludeMismatch));
+      reterr = LoadPvar(pvarname, pcp->var_filter_exceptions_flattened, pcp->varid_template_str, pcp->varid_multi_template_str, pcp->varid_multi_nonsnp_template_str, pcp->missing_varid_match, pcp->require_info_flattened, pcp->require_no_info_flattened, &(pcp->extract_if_info_expr), &(pcp->exclude_if_info_expr), pcp->misc_flags, pcp->pvar_psam_flags, xheader_needed, qualfilter_needed, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->dependency_flags & kfFilterNoSplitChr), pcp->filter_min_allele_ct, pcp->filter_max_allele_ct, pcp->max_thread_ct, cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids_mutable, &allele_idx_offsets, K_CAST(const char***, &allele_storage_mutable), &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage_mutable, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_ct, &max_allele_slen, &xheader_blen, &info_flags, &max_filter_slen);
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
       }
@@ -953,7 +958,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
         pgfi.gflags &= ~kfPgenGlobalAllNonref;
       }
-      if (SingleVariantLoaderIsNeeded(king_cutoff_fprefix, pcp->command_flags1, make_plink2_flags, pcp->hwe_thresh)) {
+      if (SingleVariantLoaderIsNeeded(king_cutoff_fprefix, pcp->command_flags1, make_plink2_flags, pcp->rmdup_mode, pcp->hwe_thresh)) {
         // ugly kludge, probably want to add pgenlib_internal support for this
         // hybrid use pattern
         FILE* shared_ff_copy = pgfi.shared_ff;
@@ -1081,7 +1086,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     // Otherwise, it may be very advantageous to apply the position-based
     // filters before constructing the variant ID hash table.  So we split this
     // into two cases.
-    const uint32_t full_variant_id_htable_needed = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_fname);
+    const uint32_t full_variant_id_htable_needed = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_fname || (pcp->rmdup_mode != kRmDup0));
     if (!full_variant_id_htable_needed) {
       reterr = ApplyVariantBpFilters(pcp->extract_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, variant_include, &variant_ct);
       if (unlikely(reterr)) {
@@ -1177,6 +1182,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
         if (pcp->exclude_fnames && (!(pcp->filter_flags & (kfFilterExcludeIbed0 | kfFilterExcludeIbed1)))) {
           reterr = ExtractExcludeFlagNorange(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, pcp->exclude_fnames, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, 1, variant_include, &variant_ct);
+          if (unlikely(reterr)) {
+            goto Plink2Core_ret_1;
+          }
+        }
+        if (pcp->rmdup_mode != kRmDup0) {
+          reterr = RmDup(sample_include, cip, variant_bps, TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, allele_idx_offsets, TO_CONSTCPCONSTP(allele_storage_mutable), pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, raw_sample_ct, sample_ct, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, info_reload_slen, pcp->rmdup_mode, pcp->max_thread_ct, pgenname[0]? (&simple_pgr) : nullptr, variant_include, &variant_ct, outname, outname_end);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -3224,6 +3235,7 @@ int main(int argc, char** argv) {
     pc.missing_rpt_flags = kfMissingRpt0;
     pc.geno_counts_flags = kfGenoCounts0;
     pc.hardy_flags = kfHardy0;
+    pc.rmdup_mode = kRmDup0;
     for (uint32_t uii = 0; uii != 4; ++uii) {
       pc.filter_modes[uii] = kFreqFilterNonmajor;
     }
@@ -6029,7 +6041,7 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE_A;
               }
               if (pc.pvar_psam_flags & kfPvarColInfo) {
-                pc.dependency_flags |= kfFilterNonrefFlagsNeeded;
+                pc.dependency_flags |= kfFilterNonrefFlagsNeededSet;
               }
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-just-pvar parameter '%s'.\n", cur_modif);
@@ -7526,7 +7538,36 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_A;
           }
           pc.fa_flags |= kfFaRefFrom;
-          pc.dependency_flags |= kfFilterPvarReq | kfFilterNonrefFlagsNeeded;
+          pc.dependency_flags |= kfFilterPvarReq | kfFilterNonrefFlagsNeededSet;
+        } else if (strequal_k_unsafe(flagname_p2, "m-dup")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (param_ct) {
+            const char* cur_modif = argvk[arg_idx + 1];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "error", cur_modif_slen)) {
+              pc.rmdup_mode = kRmDupError;
+              pc.dependency_flags |= kfFilterOpportunisticPgen;
+            } else if (strequal_k(cur_modif, "retain-mismatch", cur_modif_slen)) {
+              pc.rmdup_mode = kRmDupRetainMismatch;
+              pc.dependency_flags |= kfFilterOpportunisticPgen;
+            } else if (strequal_k(cur_modif, "exclude-mismatch", cur_modif_slen)) {
+              pc.rmdup_mode = kRmDupExcludeMismatch;
+              pc.dependency_flags |= kfFilterOpportunisticPgen;
+            } else if (strequal_k(cur_modif, "exclude-all", cur_modif_slen)) {
+              pc.rmdup_mode = kRmDupExcludeAll;
+            } else if (likely(strequal_k(cur_modif, "force-first", cur_modif_slen))) {
+              pc.rmdup_mode = kRmDupForceFirst;
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --rm-dup parameter '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          } else {
+            pc.rmdup_mode = kRmDupError;
+            pc.dependency_flags |= kfFilterOpportunisticPgen;
+          }
+          pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "andmem")) {
           randmem = 1;
           goto main_param_zero;
@@ -8804,7 +8845,7 @@ int main(int argc, char** argv) {
         }
       } else {
         // no genotype file required
-        if (!(pc.dependency_flags & kfFilterNonrefFlagsNeeded)) {
+        if (!(pc.dependency_flags & kfFilterOpportunisticPgen)) {
           pgenname[0] = '\0';
         }
 
