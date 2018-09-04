@@ -3855,7 +3855,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
         }
       }
       if (hetfreq_cols) {
-        cswritep = strcpya_k(cswritep, "\tO(HET_MAJ)\tE(HET_MAJ)");
+        cswritep = strcpya_k(cswritep, "\tO(HET_A1)\tE(HET_A1)");
       }
       if (p_col) {
         *cswritep++ = '\t';

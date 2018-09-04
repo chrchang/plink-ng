@@ -3798,6 +3798,10 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
             }
           }
           block_aux_iter[nonomitted_allele_idx].a1_dosage = a1_dosage;
+
+          // bugfix (4 Sep 2018): forgot to save this
+          block_aux_iter[nonomitted_allele_idx].case_allele_obs_ct = case_allele_obs_ct;
+
           block_aux_iter[nonomitted_allele_idx].a1_case_dosage = a1_case_dosage;
           block_aux_iter[nonomitted_allele_idx].firth_fallback = 0;
           block_aux_iter[nonomitted_allele_idx].mach_r2 = mach_r2;

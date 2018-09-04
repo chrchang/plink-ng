@@ -115,14 +115,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     // decompression was too slow
     // Zstd should have the necessary x86 performance characteristics, though
     HelpPrint("pfile\0pgen\0bfile\0bed\0", &help_ctrl, 1,
-"  --pfile [prefix] <vzs> : Specify .pgen + .pvar{.zst} + .psam prefix.\n"
-"  --pgen [filename]      : Specify full name of .pgen/.bed file.\n"
+"  --pfile [prefix] <vzs>  : Specify .pgen + .pvar{.zst} + .psam prefix.\n"
+"  --pgen [filename]       : Specify full name of .pgen/.bed file.\n"
                );
     HelpPrint("pfile\0pgen\0pvar\0psam\0bfile\0bed\0bim\0fam\0import-dosage\0dosage\0", &help_ctrl, 1,
-"  --pvar [filename]      : Specify full name of .pvar/.bim file.\n"
+"  --pvar [filename]       : Specify full name of .pvar/.bim file.\n"
               );
     HelpPrint("pfile\0pgen\0pvar\0psam\0bfile\0bed\0bim\0fam\0import-dosage\0dosage\0vcf\0bcf\0", &help_ctrl, 1,
-"  --psam [filename]      : Specify full name of .psam/.fam file.\n\n"
+"  --psam [filename]       : Specify full name of .psam/.fam file.\n\n"
                );
     HelpPrint("bfile\0bpfile\0bed\0bim\0fam\0", &help_ctrl, 1,
 "  --bfile  [prefix] <vzs> : Specify .bed + .bim{.zst} + .fam prefix.\n"
@@ -1512,7 +1512,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --merge-x               : Merge XY back with X.  This usually has to be\n"
 "                            combined with --sort-vars.\n"
                );
-    HelpPrint("set-all-var-ids\0set-missing-var-ids\0var-id-multi\0var-id-multi-nonsnp\0new-id-max-allele-len\0missing-var-code\0", &help_ctrl, 0,
+    HelpPrint("set-all-var-ids\0set-missing-var-ids\0var-id-multi\0var-id-multi-nonsnp\0new-id-max-allele-len\0", &help_ctrl, 0,
 "  --set-missing-var-ids [t]  : Given a template string with a '@' where the\n"
 "  --set-all-var-ids [t]        chromosome code should go and '#' where the bp\n"
 "                               coordinate belongs, --set-missing-var-ids\n"
@@ -1528,7 +1528,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --new-id-max-allele-len [len] <error | missing | truncate> :\n"
 "    Specify maximum number of leading characters from allele codes to include\n"
 "    in new variant IDs, and behavior on longer codes (defaults 23, error).\n"
-"  --missing-var-code [str]   : Change unnamed variant code for\n"
+              );
+    HelpPrint("missing-var-code\0rm-dup\0set-all-var-ids\0set-missing-var-ids\0", &help_ctrl, 0,
+"  --missing-var-code [str]   : Change unnamed variant code for --rm-dup and\n"
 "                               --set-[missing/all]-var-ids (default '.').\n"
                );
     HelpPrint("update-map\0update-name\0", &help_ctrl, 0,
@@ -1553,7 +1555,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     // don't make --real-ref-alleles apply to e.g. Oxford import, since
     // explicit 'ref-first'/'ref-last' modifiers are clearer
     HelpPrint("real-ref-alleles\0", &help_ctrl, 0,
-"  --real-ref-alleles : Treat A2 alleles in a PLINK 1.x fileset as actual ref\n"
+"  --real-ref-alleles : Treat A2 alleles in a PLINK 1.x fileset as actual REF\n"
 "                       alleles; otherwise they're marked as provisional.\n"
                );
     HelpPrint("maj-ref\0ref-allele\0alt1-allele\0a1-allele\0reference-allele\0update-ref-allele\0a2-allele\0keep-allele-order\0", &help_ctrl, 0,
@@ -1596,8 +1598,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
               );
     HelpPrint("rm-dup\0list-duplicate-vars\0", &help_ctrl, 0,
 "  --rm-dup {mode}       : Remove all but one instance of each duplicate-ID\n"
-"                          variant (other than '.').  The following modes are\n"
-"                          supported:\n"
+"                          variant (other than the --missing-var-code value).\n"
+"                          The following modes are supported:\n"
 "                          * 'error' (default) causes this to error out when\n"
 "                            there's a genotype data or other mismatch between\n"
 "                            the records.  A list of affected IDs is written to\n"
