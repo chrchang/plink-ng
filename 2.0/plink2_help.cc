@@ -125,8 +125,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --psam [filename]      : Specify full name of .psam/.fam file.\n\n"
                );
     HelpPrint("bfile\0bpfile\0bed\0bim\0fam\0", &help_ctrl, 1,
-"  --bfile [prefix] <vzs> : Specify .bed + .bim{.zst} + .fam prefix.\n"
-"  --bpfile [prefx] <vzs> : Specify .pgen + .bim{.zst} + .fam prefix.\n\n"
+"  --bfile  [prefix] <vzs> : Specify .bed + .bim{.zst} + .fam prefix.\n"
+"  --bpfile [prefix] <vzs> : Specify .pgen + .bim{.zst} + .fam prefix.\n\n"
                );
     HelpPrint("vcf\0bcf\0keep-autoconv\0", &help_ctrl, 1,
 "  --keep-autoconv    : When importing non-PLINK-binary data, don't delete\n"
