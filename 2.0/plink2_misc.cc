@@ -2512,9 +2512,10 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
     if (xy_col) {
       *cswritep++ = '\t';
       if (xy_col_altonly) {
-        cswritep = strcpya_k(cswritep, "NONREF_");
+        cswritep = strcpya_k(cswritep, "TWO_ALT_GENO_CTS");
+      } else {
+        cswritep = strcpya_k(cswritep, "DIPLOID_GENO_CTS");
       }
-      cswritep = strcpya_k(cswritep, "DIPLOID_GENO_CTS");
     }
     const uint32_t hapref_col = geno_counts_flags & kfGenoCountsColHapref;
     if (hapref_col) {

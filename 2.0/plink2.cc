@@ -202,9 +202,9 @@ void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenHeaderCt
     logerrprintf("  Maximum allele count for a single variant: %u\n", max_allele_ct);
   }
   if (pgfip->gflags & kfPgenGlobalHardcallPhasePresent) {
-    logerrputs("  Phased hardcalls present\n");
+    logerrputs("  Explicitly phased hardcalls present\n");
   } else {
-    logerrputs("  No phased hardcalls present\n");
+    logerrputs("  No hardcalls are explicitly phased\n");
   }
   if (pgfip->gflags & kfPgenGlobalDosagePresent) {
     if (pgfip->gflags & kfPgenGlobalDosagePhasePresent) {

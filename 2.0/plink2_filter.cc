@@ -1689,7 +1689,8 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           }
         } else if (strequal_k(linebuf_iter, "HOM_ALT1_CT", token_slen) && main_list_just_alt1) {
           cur_colidx = kfReadFreqColHomAlt1Ct;
-        } else if (strequal_k(linebuf_iter, "NONREF_DIPLOID_GENO_CTS", token_slen)) {
+        } else if (strequal_k(linebuf_iter, "TWO_ALT_GENO_CTS", token_slen) ||
+                   strequal_k(linebuf_iter, "NONREF_DIPLOID_GENO_CTS", token_slen)) {
           goto ReadAlleleFreqs_countmain_found;
         } else if (strequal_k(linebuf_iter, "DIPLOID_GENO_CTS", token_slen)) {
           main_allele_idx_start = 0;
@@ -1852,7 +1853,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           // require both diploid and haploid columns for now.  (could
           // conditionally drop one of these requirements later.)
           if (unlikely(!(header_cols & kfReadFreqColsetNonrefDiploidCts))) {
-            logerrputs("Error: Missing column(s) in --read-freq file (HOM_ALT1_CT,\nNONREF_DIPLOID_GENO_CTS, or DIPLOID_GENO_CTS required).\n");
+            logerrputs("Error: Missing column(s) in --read-freq file (HOM_ALT1_CT,\nTWO_ALT_GENO_CTS, or DIPLOID_GENO_CTS required).\n");
             goto ReadAlleleFreqs_ret_MALFORMED_INPUT;
           }
           if (!main_allele_idx_start) {
