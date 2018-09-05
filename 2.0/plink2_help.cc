@@ -896,9 +896,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    Apply linear scoring system(s) to each sample.\n"
 "    The input file should have one line per scored variant.  Variant IDs are\n"
 "    read from column #i and allele codes are read from column #j, where i\n"
-"    defaults to 1 and j defaults to i+1.  (For now, only one allele per\n"
+"    defaults to 1 and j defaults to i+1.  For now, only one allele per\n"
 "    multiallelic variant may be assigned an explicit score; contact us if you\n"
-"    need this changed.)\n"
+"    need this changed.\n"
 "    * By default, a single column of input coefficients is read from column #k,\n"
 "      where k defaults to j+1.  (--score-col-nums can be used to specify\n"
 "      multiple columns.)\n"
@@ -941,7 +941,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      dosagesum: Sum of named allele dosages.\n"
 "      scoreavgs: Score averages.\n"
 "      scoresums: Score sums.\n"
-"    The default is maybefid,maybesid,phenos,nmissallele,dosagesum,scoreavgs.\n\n"
+"    The default is maybefid,maybesid,phenos,nmissallele,dosagesum,scoreavgs.\n"
+"    For more sophisticated polygenic risk scoring, we recommend the PRSice-2\n"
+"    software package (https://choishingwan.github.io/PRSice/ ).\n\n"
                );
     HelpPrint("adjust-file\0adjust\0", &help_ctrl, 1,
 "  --adjust-file [filename] <zs> <gc> <log10> <cols=[column set descriptor]>\n"
