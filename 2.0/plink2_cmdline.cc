@@ -2752,7 +2752,8 @@ THREAD_FUNC_DECL CalcIdHashThread(void* arg) {
   THREAD_RETURN;
 }
 
-PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t store_all_dups, uint32_t id_htable_size, uint32_t thread_ct, uint32_t* id_htable) {
+// dup_ct assumed to be initialized to 0 when dup_ct_ptr != nullptr
+PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t store_all_dups, uint32_t id_htable_size, uint32_t thread_ct, uint32_t* id_htable, uint32_t* dup_ct_ptr) {
   // Change from plink 1.9: if store_all_dups is false, we don't error out on
   // the first encountered duplicate ID; instead, we just flag it in the hash
   // table.  So if '.' is the only duplicate ID, and it never appears in a
@@ -2905,6 +2906,9 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
       if (extra_alloc) {
         // bugfix: forgot to align this
         bigstack_alloc_raw_rd(extra_alloc * sizeof(int32_t));
+        if (dup_ct_ptr) {
+          *dup_ct_ptr = extra_alloc / 2;
+        }
       }
     }
   }
@@ -2920,7 +2924,7 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
   return reterr;
 }
 
-PglErr AllocAndPopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t max_thread_ct, uint32_t** id_htable_ptr, uint32_t** htable_dup_base_ptr, uint32_t* id_htable_size_ptr) {
+PglErr AllocAndPopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t max_thread_ct, uint32_t** id_htable_ptr, uint32_t** htable_dup_base_ptr, uint32_t* id_htable_size_ptr, uint32_t* dup_ct_ptr) {
   uint32_t id_htable_size = GetHtableFastSize(item_ct);
   // 4 bytes per variant for hash buffer
   // if store_all_dups, up to 8 bytes per variant in extra_alloc for duplicate
@@ -2947,7 +2951,7 @@ PglErr AllocAndPopulateIdHtableMt(const uintptr_t* subset_mask, const char* cons
     *htable_dup_base_ptr = &((*id_htable_ptr)[RoundUpPow2(id_htable_size, kInt32PerCacheline)]);
   }
   *id_htable_size_ptr = id_htable_size;
-  return PopulateIdHtableMt(subset_mask, item_ids, item_ct, store_all_dups, id_htable_size, max_thread_ct, *id_htable_ptr);
+  return PopulateIdHtableMt(subset_mask, item_ids, item_ct, store_all_dups, id_htable_size, max_thread_ct, *id_htable_ptr, dup_ct_ptr);
 }
 
 

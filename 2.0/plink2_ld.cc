@@ -2840,31 +2840,16 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     const uint32_t founder_ctl = BitCtToWordCt(founder_ct);
     const uint32_t founder_ctl2 = QuaterCtToWordCt(founder_ct);
     uint32_t* founder_info_cumulative_popcounts;
-    uintptr_t* genovecs[2];
-    uintptr_t* phasepresents[2];
-    uintptr_t* phaseinfos[2];
-    uint32_t phasepresent_cts[2];
-    uintptr_t* dosage_presents[2];
-    Dosage* dosage_mains[2];
-    uintptr_t* dphase_presents[2];
-    SDosage* dphase_deltas[2];
-    if (bigstack_alloc_u32(founder_ctl, &founder_info_cumulative_popcounts) ||
-        bigstack_alloc_w(founder_ctl2, &(genovecs[0])) ||
-        bigstack_alloc_w(founder_ctl2, &(genovecs[1])) ||
-        bigstack_alloc_w(founder_ctl, &(phasepresents[0])) ||
-        bigstack_alloc_w(founder_ctl, &(phasepresents[1])) ||
-        bigstack_alloc_w(founder_ctl, &(phaseinfos[0])) ||
-        bigstack_alloc_w(founder_ctl, &(phaseinfos[1])) ||
-        bigstack_alloc_w(founder_ctl, &(dosage_presents[0])) ||
-        bigstack_alloc_w(founder_ctl, &(dosage_presents[1])) ||
-        bigstack_alloc_dosage(founder_ct, &(dosage_mains[0])) ||
-        bigstack_alloc_dosage(founder_ct, &(dosage_mains[1])) ||
-        bigstack_alloc_w(founder_ctl, &(dphase_presents[0])) ||
-        bigstack_alloc_w(founder_ctl, &(dphase_presents[1])) ||
-        bigstack_alloc_dphase(founder_ct, &(dphase_deltas[0])) ||
-        bigstack_alloc_dphase(founder_ct, &(dphase_deltas[1]))) {
+    PgenVariant pgvs[2];
+    PreinitPgv(&(pgvs[0]));
+    PreinitPgv(&(pgvs[1]));
+    if (unlikely(
+            bigstack_alloc_u32(founder_ctl, &founder_info_cumulative_popcounts) ||
+            BigstackAllocPgv(founder_ct, 0, kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent, &(pgvs[0])) ||
+            BigstackAllocPgv(founder_ct, 0, kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent, &(pgvs[1])))) {
       goto LdConsole_ret_NOMEM;
     }
+
     const uint32_t x_present = (is_xs[0] || is_xs[1]);
     const uint32_t founder_ctv = BitCtToVecCt(founder_ct);
     const uint32_t founder_ctaw = founder_ctv * kWordsPerVec;
@@ -2886,23 +2871,15 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     uint32_t use_dosage = ldip->ld_console_flags & kfLdConsoleDosage;
 
     PgrClearLdCache(simple_pgrp);
-    uint32_t dosage_cts[2];
-    uint32_t dphase_cts[2];
     for (uint32_t var_idx = 0; var_idx != 2; ++var_idx) {
       const uint32_t variant_uidx = var_uidxs[var_idx];
-      uintptr_t* cur_genovec = genovecs[var_idx];
-      uintptr_t* cur_phasepresent = phasepresents[var_idx];
-      uintptr_t* cur_phaseinfo = phaseinfos[var_idx];
-      uintptr_t* cur_dosage_present = dosage_presents[var_idx];
-      Dosage* cur_dosage_main = dosage_mains[var_idx];
-      uintptr_t* cur_dphase_present = dphase_presents[var_idx];
-      SDosage* cur_dphase_delta = dphase_deltas[var_idx];
       // (unconditionally allocating phaseinfo/dosage_main and using the most
       // general-purpose loader makes sense when this loop only executes twice,
       // but --r2 will want to use different pgenlib loaders depending on
       // context.)
 
-      reterr = PgrGetInv1Dp(founder_info, founder_info_cumulative_popcounts, founder_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, cur_genovec, cur_phasepresent, cur_phaseinfo, &(phasepresent_cts[var_idx]), cur_dosage_present, cur_dosage_main, &(dosage_cts[var_idx]), cur_dphase_present, cur_dphase_delta, &(dphase_cts[var_idx]));
+      PgenVariant* pgvp = &(pgvs[var_idx]);
+      reterr = PgrGetInv1Dp(founder_info, founder_info_cumulative_popcounts, founder_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, pgvp);
       if (unlikely(reterr)) {
         if (reterr == kPglRetMalformedInput) {
           logputs("\n");
@@ -2910,29 +2887,29 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         }
         goto LdConsole_ret_1;
       }
-      ZeroTrailingQuaters(founder_ct, cur_genovec);
+      ZeroTrailingQuaters(founder_ct, pgvp->genovec);
       if (is_nonx_haploids[var_idx]) {
         if (!use_dosage) {
-          SetHetMissing(founder_ctl2, cur_genovec);
+          SetHetMissing(founder_ctl2, pgvp->genovec);
         }
-        phasepresent_cts[var_idx] = 0;
-        dphase_cts[var_idx] = 0;
+        pgvp->phasepresent_ct = 0;
+        pgvp->dphase_ct = 0;
       } else if (x_male_ct && is_xs[var_idx]) {
         if (!use_dosage) {
-          SetMaleHetMissing(sex_male_collapsed_interleaved, founder_ctv, cur_genovec);
+          SetMaleHetMissing(sex_male_collapsed_interleaved, founder_ctv, pgvp->genovec);
         }
-        if (phasepresent_cts[var_idx]) {
-          BitvecInvmask(sex_male_collapsed, founder_ctl, cur_phasepresent);
-          phasepresent_cts[var_idx] = PopcountWords(cur_phasepresent, founder_ctl);
+        if (pgvp->phasepresent_ct) {
+          BitvecInvmask(sex_male_collapsed, founder_ctl, pgvp->phasepresent);
+          pgvp->phasepresent_ct = PopcountWords(pgvp->phasepresent, founder_ctl);
         }
-        if (dphase_cts[var_idx]) {
-          EraseMaleDphases(sex_male_collapsed, &(dphase_cts[var_idx]), cur_dphase_present, cur_dphase_delta);
+        if (pgvp->dphase_ct) {
+          EraseMaleDphases(sex_male_collapsed, &(pgvp->dphase_ct), pgvp->dphase_present, pgvp->dphase_delta);
         }
       }
     }
-    const uint32_t use_phase = is_same_chr && (phasepresent_cts[0] || dphase_cts[0]) && (phasepresent_cts[1] || dphase_cts[1]);
+    const uint32_t use_phase = is_same_chr && (pgvs[0].phasepresent_ct || pgvs[0].dphase_ct) && (pgvs[1].phasepresent_ct || pgvs[1].dphase_ct);
     const uint32_t ignore_hethet = is_nonx_haploids[0] || is_nonx_haploids[1];
-    if ((!dosage_cts[0]) && (!dosage_cts[1]) && (!ignore_hethet)) {
+    if ((!pgvs[0].dosage_ct) && (!pgvs[1].dosage_ct) && (!ignore_hethet)) {
       // If the 'dosage' modifier was present, no literal dosages are present,
       // but one or both variants is purely haploid, may as well use the dosage
       // code path anyway (converting hets to dosage 0.5).
@@ -2973,7 +2950,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       uint32_t nmaj_cts[2];
       uint32_t nm_cts[2];  // ugh.
       for (uint32_t var_idx = 0; var_idx != 2; ++var_idx) {
-        GenoarrSplit12Nm(genovecs[var_idx], founder_ct, one_bitvecs[var_idx], two_bitvecs[var_idx], nm_bitvecs[var_idx]);
+        GenoarrSplit12Nm(pgvs[var_idx].genovec, founder_ct, one_bitvecs[var_idx], two_bitvecs[var_idx], nm_bitvecs[var_idx]);
         nmaj_cts[var_idx] = GenoBitvecSum(one_bitvecs[var_idx], two_bitvecs[var_idx], founder_ctl);
         nm_cts[var_idx] = PopcountWords(nm_bitvecs[var_idx], founder_ctl);
       }
@@ -2990,7 +2967,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         //   popcount(phasepresent0 & phasepresent1)
         //   popcount(phasepresent0 & phasepresent1 &
         //            (phaseinfo0 ^ phaseinfo1))
-        HardcallPhasedR2Refine(phasepresents[0], phaseinfos[0], phasepresents[1], phaseinfos[1], founder_ctl, &known_dotprod, &unknown_hethet_ct);
+        HardcallPhasedR2Refine(pgvs[0].phasepresent, pgvs[0].phaseinfo, pgvs[1].phasepresent, pgvs[1].phaseinfo, founder_ctl, &known_dotprod, &unknown_hethet_ct);
       }
       nmajsums_d[0] = u31tod(nmaj_cts[0]);
       nmajsums_d[1] = u31tod(nmaj_cts[1]);
@@ -3045,12 +3022,12 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       uint64_t nmaj_dosages[2];
       uint32_t nm_cts[2];
       for (uint32_t var_idx = 0; var_idx != 2; ++var_idx) {
-        PopulateDenseDosage(genovecs[var_idx], dosage_presents[var_idx], dosage_mains[var_idx], founder_ct, dosage_cts[var_idx], dosage_vecs[var_idx]);
+        PopulateDenseDosage(pgvs[var_idx].genovec, pgvs[var_idx].dosage_present, pgvs[var_idx].dosage_main, founder_ct, pgvs[var_idx].dosage_ct, dosage_vecs[var_idx]);
         nmaj_dosages[var_idx] = DenseDosageSum(dosage_vecs[var_idx], founder_dosagev_ct);
         FillDosageUhet(dosage_vecs[var_idx], founder_dosagev_ct, dosage_uhets[var_idx]);
-        GenovecToNonmissingnessUnsafe(genovecs[var_idx], founder_ct, nm_bitvecs[var_idx]);
+        GenovecToNonmissingnessUnsafe(pgvs[var_idx].genovec, founder_ct, nm_bitvecs[var_idx]);
         ZeroTrailingBits(founder_ct, nm_bitvecs[var_idx]);
-        BitvecOr(dosage_presents[var_idx], founder_ctl, nm_bitvecs[var_idx]);
+        BitvecOr(pgvs[var_idx].dosage_present, founder_ctl, nm_bitvecs[var_idx]);
         nm_cts[var_idx] = PopcountWords(nm_bitvecs[var_idx], founder_ctl);
       }
       SDosage* main_dphase_deltas[2];
@@ -3066,12 +3043,12 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
           // this should probably be a PopulateDenseDphase() function in
           // plink2_common
           ZeroDphaseArr(founder_dosagev_ct * kDosagePerVec, main_dphase_deltas[var_idx]);
-          const SDosage* read_dphase_delta = dphase_deltas[var_idx];
-          uintptr_t* cur_dphase_present = dphase_presents[var_idx];
+          const SDosage* read_dphase_delta = pgvs[var_idx].dphase_delta;
+          uintptr_t* cur_dphase_present = pgvs[var_idx].dphase_present;
           const Dosage* cur_dosage_vec = dosage_vecs[var_idx];
           Dosage* cur_dosage_uhet = dosage_uhets[var_idx];
           SDosage* cur_dphase_delta = main_dphase_deltas[var_idx];
-          const uint32_t cur_dphase_ct = dphase_cts[var_idx];
+          const uint32_t cur_dphase_ct = pgvs[var_idx].dphase_ct;
           if (cur_dphase_ct) {
             uintptr_t sample_uidx_base = 0;
             uintptr_t cur_bits = cur_dphase_present[0];
@@ -3085,8 +3062,8 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
           } else {
             ZeroWArr(founder_ctl, cur_dphase_present);
           }
-          if (phasepresent_cts[var_idx]) {
-            DosagePhaseinfoPatch(phasepresents[var_idx], phaseinfos[var_idx], dosage_presents[var_idx], cur_dosage_vec, cur_dphase_present, founder_ct, cur_dosage_uhet, cur_dphase_delta);
+          if (pgvs[var_idx].phasepresent_ct) {
+            DosagePhaseinfoPatch(pgvs[var_idx].phasepresent, pgvs[var_idx].phaseinfo, pgvs[var_idx].dosage_present, cur_dosage_vec, cur_dphase_present, founder_ct, cur_dosage_uhet, cur_dphase_delta);
           }
         }
       }
@@ -3372,7 +3349,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         // Unlike plink 1.9, we don't restrict these HWE computations to the
         // nonmissing intersection.
         for (uint32_t var_idx = 0; var_idx != 2; ++var_idx) {
-          const uintptr_t* cur_genovec = genovecs[var_idx];
+          const uintptr_t* cur_genovec = pgvs[var_idx].genovec;
           STD_ARRAY_DECL(uint32_t, 4, genocounts);
           GenovecCountFreqsUnsafe(cur_genovec, founder_ct, genocounts);
           double hwe_pval;

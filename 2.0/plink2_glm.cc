@@ -3040,12 +3040,13 @@ static uintptr_t g_max_reported_test_ct = 0;
 THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
   const uintptr_t tidx = R_CAST(uintptr_t, arg);
   PgenReader* pgrp = g_pgr_ptrs[tidx];
-  uintptr_t* genovec = g_genovecs[tidx];
-  uintptr_t* dosage_present = nullptr;
-  Dosage* dosage_main = nullptr;
+  PgenVariant pgv;
+  pgv.genovec = g_genovecs[tidx];
+  pgv.dosage_present = nullptr;
+  pgv.dosage_main = nullptr;
   if (g_dosage_presents) {
-    dosage_present = g_dosage_presents[tidx];
-    dosage_main = g_dosage_mains[tidx];
+    pgv.dosage_present = g_dosage_presents[tidx];
+    pgv.dosage_main = g_dosage_mains[tidx];
   }
   unsigned char* workspace_buf = g_workspace_bufs[tidx];
   const uintptr_t* variant_include = g_variant_include;
@@ -3081,19 +3082,22 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
   if (max_sample_ct < g_sample_ct_y) {
     max_sample_ct = g_sample_ct_y;
   }
-  uintptr_t* patch_01_set = nullptr;
-  AlleleCode* patch_01_vals = nullptr;
-  uintptr_t* patch_10_set = nullptr;
-  AlleleCode* patch_10_vals = nullptr;
+  pgv.patch_01_set = nullptr;
+  pgv.patch_01_vals = nullptr;
+  pgv.patch_10_set = nullptr;
+  pgv.patch_10_vals = nullptr;
   if (g_thread_mhc) {
     const uint32_t max_sample_ctl = BitCtToWordCt(max_sample_ct);
-    patch_01_set = g_thread_mhc[tidx];
-    patch_01_vals = R_CAST(AlleleCode*, &(patch_01_set[max_sample_ctl]));
-    AlleleCode* patch_01_vals_end = &(patch_01_vals[max_sample_ct]);
+    pgv.patch_01_set = g_thread_mhc[tidx];
+    pgv.patch_01_vals = R_CAST(AlleleCode*, &(pgv.patch_01_set[max_sample_ctl]));
+    AlleleCode* patch_01_vals_end = &(pgv.patch_01_vals[max_sample_ct]);
     VecAlignUp(&patch_01_vals_end);
-    patch_10_set = R_CAST(uintptr_t*, patch_01_vals_end);
-    patch_10_vals = R_CAST(AlleleCode*, &(patch_10_set[max_sample_ctl]));
+    pgv.patch_10_set = R_CAST(uintptr_t*, patch_01_vals_end);
+    pgv.patch_10_vals = R_CAST(AlleleCode*, &(pgv.patch_10_set[max_sample_ctl]));
   }
+  pgv.patch_01_ct = 0;
+  pgv.patch_10_ct = 0;
+  pgv.multidosage_sample_ct = 0;
   uint32_t variant_idx_offset = 0;
   uint32_t allele_ct = 2;
   uint32_t omitted_allele_idx = 0;
@@ -3325,33 +3329,27 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
         const uint32_t cur_predictor_ct = cur_biallelic_predictor_ct + allele_ct_m2;
         const uint32_t cur_predictor_ctav = RoundUpPow2(cur_predictor_ct, kFloatPerFVec);
         const uint32_t cur_predictor_ctavp1 = cur_predictor_ctav + 1;
-        uint32_t patch_01_ct = 0;
-        uint32_t patch_10_ct = 0;
-        uint32_t dosage_ct = 0;
-        uint32_t multidosage_sample_ct = 0;
         PglErr reterr;
         if (!allele_ct_m2) {
-          reterr = PgrGetD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
+          reterr = PgrGetD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &(pgv.dosage_ct));
         } else {
+          reterr = PgrGetMD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, &pgv);
           // todo: proper multiallelic dosage support
-          reterr = PgrGetMD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, &patch_01_ct, &patch_10_ct, dosage_present, dosage_main, &dosage_ct, nullptr, nullptr, nullptr, nullptr, &multidosage_sample_ct);
-          // PglErr reterr = PgrGetMD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, &patch_01_ct, &patch_10_ct, dosage_present, dosage_main, &dosage_ct, multidosage_present, multidosage_cts, multidosage_codes, multidosage_vals, &multidosage_sample_ct);
-
         }
         if (unlikely(reterr)) {
           g_error_ret = reterr;
           variant_bidx = variant_bidx_end;
           break;
         }
-        ZeroTrailingQuaters(cur_sample_ct, genovec);
-        GenovecCountFreqsUnsafe(genovec, cur_sample_ct, genocounts);
+        ZeroTrailingQuaters(cur_sample_ct, pgv.genovec);
+        GenovecCountFreqsUnsafe(pgv.genovec, cur_sample_ct, genocounts);
         uint32_t missing_ct = genocounts[3];
         if (!missing_ct) {
           SetAllBits(cur_sample_ct, sample_nm);
         } else {
-          GenoarrToNonmissing(genovec, cur_sample_ct, sample_nm);
-          if (dosage_ct) {
-            BitvecOr(dosage_present, sample_ctl, sample_nm);
+          GenoarrToNonmissing(pgv.genovec, cur_sample_ct, sample_nm);
+          if (pgv.dosage_ct) {
+            BitvecOr(pgv.dosage_present, sample_ctl, sample_nm);
             missing_ct = cur_sample_ct - PopcountWords(sample_nm, sample_ctl);
           }
         }
@@ -3381,10 +3379,10 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
         float* multi_start = nullptr;
         if (!allele_ct_m2) {
           if (omitted_allele_idx) {
-            GenovecInvertUnsafe(cur_sample_ct, genovec);
-            // ZeroTrailingQuaters(cur_sample_ct, genovec);
-            if (dosage_ct) {
-              BiallelicDosage16Invert(dosage_ct, dosage_main);
+            GenovecInvertUnsafe(cur_sample_ct, pgv.genovec);
+            // ZeroTrailingQuaters(cur_sample_ct, pgv.genovec);
+            if (pgv.dosage_ct) {
+              BiallelicDosage16Invert(pgv.dosage_ct, pgv.dosage_main);
             }
             const uint32_t uii = genocounts[0];
             genocounts[0] = genocounts[2];
@@ -3392,20 +3390,20 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
           }
           uint64_t dosage_sum = (genocounts[1] + 2 * genocounts[2]) * 0x4000LLU;
           uint64_t dosage_ssq = (genocounts[1] + 4LLU * genocounts[2]) * 0x10000000LLU;
-          const_allele_present = (!dosage_ct) && ((genocounts[0] == nm_sample_ct) || (genocounts[1] == nm_sample_ct) || (genocounts[2] == nm_sample_ct));
+          const_allele_present = (!pgv.dosage_ct) && ((genocounts[0] == nm_sample_ct) || (genocounts[1] == nm_sample_ct) || (genocounts[2] == nm_sample_ct));
           if (!missing_ct) {
-            GenoarrLookup16x4bx2(genovec, kSmallFloatPairs, nm_sample_ct, genotype_vals);
-            if (dosage_ct) {
+            GenoarrLookup16x4bx2(pgv.genovec, kSmallFloatPairs, nm_sample_ct, genotype_vals);
+            if (pgv.dosage_ct) {
               uintptr_t sample_idx_base = 0;
-              uintptr_t dosage_present_bits = dosage_present[0];
-              for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
-                const uintptr_t sample_idx = BitIter1(dosage_present, &sample_idx_base, &dosage_present_bits);
-                const uint32_t dosage_val = dosage_main[dosage_idx];
+              uintptr_t dosage_present_bits = pgv.dosage_present[0];
+              for (uint32_t dosage_idx = 0; dosage_idx != pgv.dosage_ct; ++dosage_idx) {
+                const uintptr_t sample_idx = BitIter1(pgv.dosage_present, &sample_idx_base, &dosage_present_bits);
+                const uint32_t dosage_val = pgv.dosage_main[dosage_idx];
                 // 32768 -> 2, 16384 -> 1, 0 -> 0
                 genotype_vals[sample_idx] = kRecipDosageMidf * u31tof(dosage_val);
                 dosage_sum += dosage_val;
                 dosage_ssq += dosage_val * dosage_val;
-                const uintptr_t cur_geno = GetQuaterarrEntry(genovec, sample_idx);
+                const uintptr_t cur_geno = GetQuaterarrEntry(pgv.genovec, sample_idx);
                 if (cur_geno && (cur_geno != 3)) {
                   const uintptr_t prev_val = cur_geno * kDosageMid;
                   dosage_sum -= prev_val;
@@ -3414,18 +3412,18 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
               }
             }
           } else {
-            if (!dosage_ct) {
-              GenoarrToFloatsRemoveMissing(genovec, kSmallFloats, cur_sample_ct, genotype_vals);
+            if (!pgv.dosage_ct) {
+              GenoarrToFloatsRemoveMissing(pgv.genovec, kSmallFloats, cur_sample_ct, genotype_vals);
             } else {
               uintptr_t sample_midx_base = 0;
               uintptr_t sample_nm_bits = sample_nm[0];
               uint32_t dosage_idx = 0;
               for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
                 const uintptr_t sample_midx = BitIter1(sample_nm, &sample_midx_base, &sample_nm_bits);
-                const uintptr_t cur_geno = GetQuaterarrEntry(genovec, sample_midx);
+                const uintptr_t cur_geno = GetQuaterarrEntry(pgv.genovec, sample_midx);
                 float cur_val;
-                if (IsSet(dosage_present, sample_midx)) {
-                  const uint32_t dosage_val = dosage_main[dosage_idx++];
+                if (IsSet(pgv.dosage_present, sample_midx)) {
+                  const uint32_t dosage_val = pgv.dosage_main[dosage_idx++];
                   cur_val = kRecipDosageMidf * u31tof(dosage_val);
                   dosage_sum += dosage_val;
                   dosage_ssq += dosage_val * dosage_val;
@@ -3449,7 +3447,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
           if (cur_gcount_case_interleaved_vec) {
             // gcountcc
             STD_ARRAY_REF(uint32_t, 6) cur_geno_hardcall_cts = block_aux_iter->geno_hardcall_cts;
-            GenovecCountSubsetFreqs(genovec, cur_gcount_case_interleaved_vec, cur_sample_ct, cur_case_ct, R_CAST(STD_ARRAY_REF(uint32_t, 4), cur_geno_hardcall_cts));
+            GenovecCountSubsetFreqs(pgv.genovec, cur_gcount_case_interleaved_vec, cur_sample_ct, cur_case_ct, R_CAST(STD_ARRAY_REF(uint32_t, 4), cur_geno_hardcall_cts));
             for (uint32_t geno_hardcall_idx = 0; geno_hardcall_idx != 3; ++geno_hardcall_idx) {
               cur_geno_hardcall_cts[3 + geno_hardcall_idx] = genocounts[geno_hardcall_idx] - cur_geno_hardcall_cts[geno_hardcall_idx];
             }
@@ -3460,7 +3458,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
           // sequence of output lines is predictable.  It's the caller's
           // responsibility to use trim-alts first when appropriate.
           // dosage_ct == 0 temporarily guaranteed if we reach here.
-          assert(!dosage_ct);
+          assert(!pgv.dosage_ct);
           multi_start = &(nm_predictors_pmaj_buf[(cur_predictor_ct - allele_ct_m2) * nm_sample_ctav]);
           ZeroU64Arr(allele_ct, machr2_dosage_sums);
           ZeroU64Arr(allele_ct, machr2_dosage_ssqs);
@@ -3472,9 +3470,9 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
           if (omitted_allele_idx) {
             // Main genotype column starts as REF.
             if (!missing_ct) {
-              GenoarrLookup16x4bx2(genovec, kSmallInvFloatPairs, nm_sample_ct, genotype_vals);
+              GenoarrLookup16x4bx2(pgv.genovec, kSmallInvFloatPairs, nm_sample_ct, genotype_vals);
             } else {
-              GenoarrToFloatsRemoveMissing(genovec, kSmallInvFloats, cur_sample_ct, genotype_vals);
+              GenoarrToFloatsRemoveMissing(pgv.genovec, kSmallInvFloats, cur_sample_ct, genotype_vals);
             }
           }
           uint32_t rare_allele_ct = allele_ct_m2;
@@ -3490,40 +3488,40 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
               alt1_start = genotype_vals;
             }
             if (!missing_ct) {
-              GenoarrLookup16x4bx2(genovec, kSmallFloatPairs, nm_sample_ct, alt1_start);
+              GenoarrLookup16x4bx2(pgv.genovec, kSmallFloatPairs, nm_sample_ct, alt1_start);
             } else {
-              GenoarrToFloatsRemoveMissing(genovec, kSmallFloats, cur_sample_ct, alt1_start);
+              GenoarrToFloatsRemoveMissing(pgv.genovec, kSmallFloats, cur_sample_ct, alt1_start);
             }
           }
           ZeroFArr(rare_allele_ct * nm_sample_ctav, rarealt_start);
-          if (patch_01_ct) {
-            const uintptr_t* patch_set_nm = patch_01_set;
+          if (pgv.patch_01_ct) {
+            const uintptr_t* patch_set_nm = pgv.patch_01_set;
             if (missing_ct) {
-              CopyBitarrSubset(patch_01_set, sample_nm, nm_sample_ct, tmp_nm);
+              CopyBitarrSubset(pgv.patch_01_set, sample_nm, nm_sample_ct, tmp_nm);
               patch_set_nm = tmp_nm;
             }
             uintptr_t sample_idx_base = 0;
             uintptr_t cur_bits = patch_set_nm[0];
             if (!omitted_allele_idx) {
-              for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
+              for (uint32_t uii = 0; uii != pgv.patch_01_ct; ++uii) {
                 const uintptr_t sample_idx = BitIter1(patch_set_nm, &sample_idx_base, &cur_bits);
-                const uint32_t allele_code = patch_01_vals[uii];
+                const uint32_t allele_code = pgv.patch_01_vals[uii];
                 rarealt_start[(allele_code - 2) * nm_sample_ctav + sample_idx] = 1.0;
                 alt1_start[sample_idx] = 0.0;
                 machr2_dosage_sums[allele_code] += 1;
               }
             } else if (omitted_allele_idx == 1) {
-              for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
+              for (uint32_t uii = 0; uii != pgv.patch_01_ct; ++uii) {
                 const uintptr_t sample_idx = BitIter1(patch_set_nm, &sample_idx_base, &cur_bits);
-                const uint32_t allele_code = patch_01_vals[uii];
+                const uint32_t allele_code = pgv.patch_01_vals[uii];
                 rarealt_start[(allele_code - 2) * nm_sample_ctav + sample_idx] = 1.0;
                 machr2_dosage_sums[allele_code] += 1;
               }
             } else {
-              for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
+              for (uint32_t uii = 0; uii != pgv.patch_01_ct; ++uii) {
                 const uintptr_t sample_idx = BitIter1(patch_set_nm, &sample_idx_base, &cur_bits);
                 alt1_start[sample_idx] = 0.0;
-                const uint32_t allele_code = patch_01_vals[uii];
+                const uint32_t allele_code = pgv.patch_01_vals[uii];
                 machr2_dosage_sums[allele_code] += 1;
                 if (allele_code == omitted_allele_idx) {
                   continue;
@@ -3533,20 +3531,20 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
               }
             }
           }
-          uintptr_t alt1_het_ct = genocounts[1] - patch_01_ct;
-          if (patch_10_ct) {
-            const uintptr_t* patch_set_nm = patch_10_set;
+          uintptr_t alt1_het_ct = genocounts[1] - pgv.patch_01_ct;
+          if (pgv.patch_10_ct) {
+            const uintptr_t* patch_set_nm = pgv.patch_10_set;
             if (missing_ct) {
-              CopyBitarrSubset(patch_10_set, sample_nm, nm_sample_ct, tmp_nm);
+              CopyBitarrSubset(pgv.patch_10_set, sample_nm, nm_sample_ct, tmp_nm);
               patch_set_nm = tmp_nm;
             }
             uintptr_t sample_idx_base = 0;
             uintptr_t cur_bits = patch_set_nm[0];
             if (!omitted_allele_idx) {
-              for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
+              for (uint32_t uii = 0; uii != pgv.patch_10_ct; ++uii) {
                 const uintptr_t sample_idx = BitIter1(patch_set_nm, &sample_idx_base, &cur_bits);
-                const AlleleCode ac0 = patch_10_vals[2 * uii];
-                const AlleleCode ac1 = patch_10_vals[2 * uii + 1];
+                const AlleleCode ac0 = pgv.patch_10_vals[2 * uii];
+                const AlleleCode ac1 = pgv.patch_10_vals[2 * uii + 1];
                 if (ac0 == ac1) {
                   rarealt_start[(ac0 - 2) * nm_sample_ctav + sample_idx] = 2.0;
                   alt1_start[sample_idx] = 0.0;
@@ -3565,10 +3563,10 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
                 }
               }
             } else if (omitted_allele_idx == 1) {
-              for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
+              for (uint32_t uii = 0; uii != pgv.patch_10_ct; ++uii) {
                 const uintptr_t sample_idx = BitIter1(patch_set_nm, &sample_idx_base, &cur_bits);
-                const AlleleCode ac0 = patch_10_vals[2 * uii];
-                const AlleleCode ac1 = patch_10_vals[2 * uii + 1];
+                const AlleleCode ac0 = pgv.patch_10_vals[2 * uii];
+                const AlleleCode ac1 = pgv.patch_10_vals[2 * uii + 1];
                 if (ac0 == ac1) {
                   rarealt_start[(ac0 - 2) * nm_sample_ctav + sample_idx] = 2.0;
                   machr2_dosage_ssqs[ac0] += 1;
@@ -3584,10 +3582,10 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
                 }
               }
             } else {
-              for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
+              for (uint32_t uii = 0; uii != pgv.patch_10_ct; ++uii) {
                 const uintptr_t sample_idx = BitIter1(patch_set_nm, &sample_idx_base, &cur_bits);
-                const uint32_t ac0 = patch_10_vals[2 * uii];
-                const uint32_t ac1 = patch_10_vals[2 * uii + 1];
+                const uint32_t ac0 = pgv.patch_10_vals[2 * uii];
+                const uint32_t ac1 = pgv.patch_10_vals[2 * uii + 1];
                 if (ac0 == ac1) {
                   machr2_dosage_ssqs[ac0] += 1;
                   alt1_start[sample_idx] = 0.0;
@@ -3617,24 +3615,24 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
             }
           }
           machr2_dosage_sums[1] = alt1_het_ct;
-          machr2_dosage_ssqs[1] = genocounts[2] - patch_10_ct;
+          machr2_dosage_ssqs[1] = genocounts[2] - pgv.patch_10_ct;
           if (cur_gcount_case_interleaved_vec) {
             // gcountcc.  Need case-specific one_cts and two_cts for each
             // allele.
             STD_ARRAY_DECL(uint32_t, 4, case_hardcall_cts);
-            GenovecCountSubsetFreqs(genovec, cur_gcount_case_interleaved_vec, cur_sample_ct, cur_case_ct, case_hardcall_cts);
+            GenovecCountSubsetFreqs(pgv.genovec, cur_gcount_case_interleaved_vec, cur_sample_ct, cur_case_ct, case_hardcall_cts);
             ZeroU32Arr(allele_ct, case_one_cts);
             ZeroU32Arr(allele_ct, case_two_cts);
             uint32_t case_alt1_het_ct = case_hardcall_cts[1];
             case_one_cts[0] = case_alt1_het_ct;
             case_two_cts[0] = case_hardcall_cts[0];
-            if (patch_01_ct) {
+            if (pgv.patch_01_ct) {
               uintptr_t sample_widx = 0;
-              uintptr_t cur_bits = patch_01_set[0];
-              for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
-                const uintptr_t lowbit = BitIter1y(patch_01_set, &sample_widx, &cur_bits);
+              uintptr_t cur_bits = pgv.patch_01_set[0];
+              for (uint32_t uii = 0; uii != pgv.patch_01_ct; ++uii) {
+                const uintptr_t lowbit = BitIter1y(pgv.patch_01_set, &sample_widx, &cur_bits);
                 if (cur_pheno_cc[sample_widx] & lowbit) {
-                  const uint32_t allele_code = patch_01_vals[uii];
+                  const uint32_t allele_code = pgv.patch_01_vals[uii];
                   case_one_cts[allele_code] += 1;
                 }
               }
@@ -3643,14 +3641,14 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
               }
             }
             uint32_t case_alt1_hom_ct = case_hardcall_cts[2];
-            if (patch_10_ct) {
+            if (pgv.patch_10_ct) {
               uintptr_t sample_widx = 0;
-              uintptr_t cur_bits = patch_10_set[0];
-              for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
-                const uintptr_t lowbit = BitIter1y(patch_10_set, &sample_widx, &cur_bits);
+              uintptr_t cur_bits = pgv.patch_10_set[0];
+              for (uint32_t uii = 0; uii != pgv.patch_10_ct; ++uii) {
+                const uintptr_t lowbit = BitIter1y(pgv.patch_10_set, &sample_widx, &cur_bits);
                 if (cur_pheno_cc[sample_widx] & lowbit) {
-                  const uint32_t ac0 = patch_10_vals[2 * uii];
-                  const uint32_t ac1 = patch_10_vals[2 * uii + 1];
+                  const uint32_t ac0 = pgv.patch_10_vals[2 * uii];
+                  const uint32_t ac1 = pgv.patch_10_vals[2 * uii + 1];
                   --case_alt1_hom_ct;
                   if (ac0 == ac1) {
                     case_two_cts[ac0] += 1;
@@ -5481,12 +5479,13 @@ uintptr_t GetLinearWorkspaceSize(uint32_t sample_ct, uint32_t biallelic_predicto
 THREAD_FUNC_DECL GlmLinearThread(void* arg) {
   const uintptr_t tidx = R_CAST(uintptr_t, arg);
   PgenReader* pgrp = g_pgr_ptrs[tidx];
-  uintptr_t* genovec = g_genovecs[tidx];
-  uintptr_t* dosage_present = nullptr;
-  Dosage* dosage_main = nullptr;
+  PgenVariant pgv;
+  pgv.genovec = g_genovecs[tidx];
+  pgv.dosage_present = nullptr;
+  pgv.dosage_main = nullptr;
   if (g_dosage_presents) {
-    dosage_present = g_dosage_presents[tidx];
-    dosage_main = g_dosage_mains[tidx];
+    pgv.dosage_present = g_dosage_presents[tidx];
+    pgv.dosage_main = g_dosage_mains[tidx];
   }
   unsigned char* workspace_buf = g_workspace_bufs[tidx];
   const uintptr_t* variant_include = g_variant_include;
@@ -5520,19 +5519,22 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
   if (max_sample_ct < g_sample_ct_y) {
     max_sample_ct = g_sample_ct_y;
   }
-  uintptr_t* patch_01_set = nullptr;
-  AlleleCode* patch_01_vals = nullptr;
-  uintptr_t* patch_10_set = nullptr;
-  AlleleCode* patch_10_vals = nullptr;
+  pgv.patch_01_set = nullptr;
+  pgv.patch_01_vals = nullptr;
+  pgv.patch_10_set = nullptr;
+  pgv.patch_10_vals = nullptr;
   if (g_thread_mhc) {
     const uint32_t max_sample_ctl = BitCtToWordCt(max_sample_ct);
-    patch_01_set = g_thread_mhc[tidx];
-    patch_01_vals = R_CAST(AlleleCode*, &(patch_01_set[max_sample_ctl]));
-    AlleleCode* patch_01_vals_end = &(patch_01_vals[max_sample_ct]);
+    pgv.patch_01_set = g_thread_mhc[tidx];
+    pgv.patch_01_vals = R_CAST(AlleleCode*, &(pgv.patch_01_set[max_sample_ctl]));
+    AlleleCode* patch_01_vals_end = &(pgv.patch_01_vals[max_sample_ct]);
     VecAlignUp(&patch_01_vals_end);
-    patch_10_set = R_CAST(uintptr_t*, patch_01_vals_end);
-    patch_10_vals = R_CAST(AlleleCode*, &(patch_10_set[max_sample_ctl]));
+    pgv.patch_10_set = R_CAST(uintptr_t*, patch_01_vals_end);
+    pgv.patch_10_vals = R_CAST(AlleleCode*, &(pgv.patch_10_set[max_sample_ctl]));
   }
+  pgv.patch_01_ct = 0;
+  pgv.patch_10_ct = 0;
+  pgv.multidosage_sample_ct = 0;
   uint32_t variant_idx_offset = 0;
   uint32_t allele_ct = 2;
   uint32_t omitted_allele_idx = 0;
@@ -5742,32 +5744,27 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
         }
         const uint32_t allele_ct_m2 = allele_ct - 2;
         const uint32_t cur_predictor_ct = cur_biallelic_predictor_ct + allele_ct_m2;
-        uint32_t patch_01_ct = 0;
-        uint32_t patch_10_ct = 0;
-        uint32_t dosage_ct = 0;
-        uint32_t multidosage_sample_ct = 0;
         PglErr reterr;
         if (!allele_ct_m2) {
-          reterr = PgrGetD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
+          reterr = PgrGetD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &(pgv.dosage_ct));
         } else {
+          reterr = PgrGetMD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, &pgv);
           // todo: proper multiallelic dosage support
-          reterr = PgrGetMD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, &patch_01_ct, &patch_10_ct, dosage_present, dosage_main, &dosage_ct, nullptr, nullptr, nullptr, nullptr, &multidosage_sample_ct);
-          // PglErr reterr = PgrGetMD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, &patch_01_ct, &patch_10_ct, dosage_present, dosage_main, &dosage_ct, multidosage_present, multidosage_cts, multidosage_codes, multidosage_vals, &multidosage_sample_ct);
         }
         if (unlikely(reterr)) {
           g_error_ret = reterr;
           variant_bidx = variant_bidx_end;
           break;
         }
-        ZeroTrailingQuaters(cur_sample_ct, genovec);
-        GenovecCountFreqsUnsafe(genovec, cur_sample_ct, genocounts);
+        ZeroTrailingQuaters(cur_sample_ct, pgv.genovec);
+        GenovecCountFreqsUnsafe(pgv.genovec, cur_sample_ct, genocounts);
         uint32_t missing_ct = genocounts[3];
         if (!missing_ct) {
           SetAllBits(cur_sample_ct, sample_nm);
         } else {
-          GenoarrToNonmissing(genovec, cur_sample_ct, sample_nm);
-          if (dosage_ct) {
-            BitvecOr(dosage_present, sample_ctl, sample_nm);
+          GenoarrToNonmissing(pgv.genovec, cur_sample_ct, sample_nm);
+          if (pgv.dosage_ct) {
+            BitvecOr(pgv.dosage_present, sample_ctl, sample_nm);
             missing_ct = cur_sample_ct - PopcountWords(sample_nm, sample_ctl);
           }
         }
@@ -5810,10 +5807,10 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
           // probable todos: allow a few dosages to be present, cover chrX
           // case.
           if (omitted_allele_idx) {
-            GenovecInvertUnsafe(cur_sample_ct, genovec);
-            ZeroTrailingQuaters(cur_sample_ct, genovec);
-            if (dosage_ct) {
-              BiallelicDosage16Invert(dosage_ct, dosage_main);
+            GenovecInvertUnsafe(cur_sample_ct, pgv.genovec);
+            ZeroTrailingQuaters(cur_sample_ct, pgv.genovec);
+            if (pgv.dosage_ct) {
+              BiallelicDosage16Invert(pgv.dosage_ct, pgv.dosage_main);
             }
             const uint32_t uii = genocounts[0];
             genocounts[0] = genocounts[2];
@@ -5821,25 +5818,25 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
           }
           uint64_t dosage_sum = (genocounts[1] + 2 * genocounts[2]) * 0x4000LLU;
           uint64_t dosage_ssq = (genocounts[1] + 4LLU * genocounts[2]) * 0x10000000LLU;
-          const_allele_present = (!dosage_ct) && ((genocounts[0] == nm_sample_ct) || (genocounts[1] == nm_sample_ct) || (genocounts[2] == nm_sample_ct));
+          const_allele_present = (!pgv.dosage_ct) && ((genocounts[0] == nm_sample_ct) || (genocounts[1] == nm_sample_ct) || (genocounts[2] == nm_sample_ct));
           if (!missing_ct) {
             // originally had genocounts[0] > 0.875 * nm_sample_ct threshold,
             // but then tried this on high-MAF data and it was still
             // substantially faster
-            sparse_optimization = sparse_optimization_eligible && (!dosage_ct) && prev_nm;
+            sparse_optimization = sparse_optimization_eligible && (!pgv.dosage_ct) && prev_nm;
             if (!sparse_optimization) {
-              GenoarrLookup16x8bx2(genovec, kSmallDoublePairs, nm_sample_ct, genotype_vals);
-              if (dosage_ct) {
+              GenoarrLookup16x8bx2(pgv.genovec, kSmallDoublePairs, nm_sample_ct, genotype_vals);
+              if (pgv.dosage_ct) {
                 uintptr_t sample_idx_base = 0;
-                uintptr_t dosage_present_bits = dosage_present[0];
-                for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
-                  const uintptr_t sample_idx = BitIter1(dosage_present, &sample_idx_base, &dosage_present_bits);
-                  const uintptr_t dosage_val = dosage_main[dosage_idx];
+                uintptr_t dosage_present_bits = pgv.dosage_present[0];
+                for (uint32_t dosage_idx = 0; dosage_idx != pgv.dosage_ct; ++dosage_idx) {
+                  const uintptr_t sample_idx = BitIter1(pgv.dosage_present, &sample_idx_base, &dosage_present_bits);
+                  const uintptr_t dosage_val = pgv.dosage_main[dosage_idx];
                   // 32768 -> 2, 16384 -> 1, 0 -> 0
                   genotype_vals[sample_idx] = kRecipDosageMid * swtod(dosage_val);
                   dosage_sum += dosage_val;
                   dosage_ssq += dosage_val * dosage_val;
-                  const uintptr_t cur_geno = GetQuaterarrEntry(genovec, sample_idx);
+                  const uintptr_t cur_geno = GetQuaterarrEntry(pgv.genovec, sample_idx);
                   if (cur_geno && (cur_geno != 3)) {
                     const uintptr_t prev_val = cur_geno * kDosageMid;
                     dosage_sum -= prev_val;
@@ -5849,18 +5846,18 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
               }
             }
           } else {
-            if (!dosage_ct) {
-              GenoarrToDoublesRemoveMissing(genovec, kSmallDoubles, cur_sample_ct, genotype_vals);
+            if (!pgv.dosage_ct) {
+              GenoarrToDoublesRemoveMissing(pgv.genovec, kSmallDoubles, cur_sample_ct, genotype_vals);
             } else {
               sample_midx_base = 0;
               uintptr_t sample_nm_bits = sample_nm[0];
               uint32_t dosage_idx = 0;
               for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
                 const uintptr_t sample_midx = BitIter1(sample_nm, &sample_midx_base, &sample_nm_bits);
-                const uintptr_t cur_geno = GetQuaterarrEntry(genovec, sample_midx);
+                const uintptr_t cur_geno = GetQuaterarrEntry(pgv.genovec, sample_midx);
                 double cur_val;
-                if (IsSet(dosage_present, sample_midx)) {
-                  const uintptr_t dosage_val = dosage_main[dosage_idx++];
+                if (IsSet(pgv.dosage_present, sample_midx)) {
+                  const uintptr_t dosage_val = pgv.dosage_main[dosage_idx++];
                   cur_val = kRecipDosageMid * swtod(dosage_val);
                   dosage_sum += dosage_val;
                   dosage_ssq += dosage_val * dosage_val;
@@ -5888,7 +5885,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
           // Punt on sparse_optimization for now; may be worth revisiting after
           // multiallelic dosage implemented.
           // dosage_ct == 0 temporarily guaranteed if we reach here.
-          assert(!dosage_ct);
+          assert(!pgv.dosage_ct);
           multi_start = &(nm_predictors_pmaj_buf[(cur_predictor_ct - allele_ct_m2) * nm_sample_ct]);
           ZeroU64Arr(allele_ct, machr2_dosage_sums);
           ZeroU64Arr(allele_ct, machr2_dosage_ssqs);
@@ -5899,9 +5896,9 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
           if (omitted_allele_idx) {
             // Main genotype column starts as REF.
             if (!missing_ct) {
-              GenoarrLookup16x8bx2(genovec, kSmallInvDoublePairs, nm_sample_ct, genotype_vals);
+              GenoarrLookup16x8bx2(pgv.genovec, kSmallInvDoublePairs, nm_sample_ct, genotype_vals);
             } else {
-              GenoarrToDoublesRemoveMissing(genovec, kSmallInvDoubles, cur_sample_ct, genotype_vals);
+              GenoarrToDoublesRemoveMissing(pgv.genovec, kSmallInvDoubles, cur_sample_ct, genotype_vals);
             }
           }
           uint32_t rare_allele_ct = allele_ct_m2;
@@ -5916,42 +5913,42 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
               alt1_start = genotype_vals;
             }
             if (!missing_ct) {
-              GenoarrLookup16x8bx2(genovec, kSmallDoublePairs, nm_sample_ct, alt1_start);
+              GenoarrLookup16x8bx2(pgv.genovec, kSmallDoublePairs, nm_sample_ct, alt1_start);
             } else {
-              GenoarrToDoublesRemoveMissing(genovec, kSmallDoubles, cur_sample_ct, alt1_start);
+              GenoarrToDoublesRemoveMissing(pgv.genovec, kSmallDoubles, cur_sample_ct, alt1_start);
             }
           }
           ZeroDArr(rare_allele_ct * nm_sample_ct, rarealt_start);
           // Use sums as ones[] and ssqs as twos[] for rarealts; transform to
           // actual sums/ssqs later.
-          if (patch_01_ct) {
-            const uintptr_t* patch_set_nm = patch_01_set;
+          if (pgv.patch_01_ct) {
+            const uintptr_t* patch_set_nm = pgv.patch_01_set;
             if (missing_ct) {
-              CopyBitarrSubset(patch_01_set, sample_nm, nm_sample_ct, tmp_nm);
+              CopyBitarrSubset(pgv.patch_01_set, sample_nm, nm_sample_ct, tmp_nm);
               patch_set_nm = tmp_nm;
             }
             uintptr_t sample_idx_base = 0;
             uintptr_t cur_bits = patch_set_nm[0];
             if (!omitted_allele_idx) {
-              for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
+              for (uint32_t uii = 0; uii != pgv.patch_01_ct; ++uii) {
                 const uintptr_t sample_idx = BitIter1(patch_set_nm, &sample_idx_base, &cur_bits);
-                const uint32_t allele_code = patch_01_vals[uii];
+                const uint32_t allele_code = pgv.patch_01_vals[uii];
                 rarealt_start[(allele_code - 2) * nm_sample_ct + sample_idx] = 1.0;
                 alt1_start[sample_idx] = 0.0;
                 machr2_dosage_sums[allele_code] += 1;
               }
             } else if (omitted_allele_idx == 1) {
-              for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
+              for (uint32_t uii = 0; uii != pgv.patch_01_ct; ++uii) {
                 const uintptr_t sample_idx = BitIter1(patch_set_nm, &sample_idx_base, &cur_bits);
-                const uint32_t allele_code = patch_01_vals[uii];
+                const uint32_t allele_code = pgv.patch_01_vals[uii];
                 rarealt_start[(allele_code - 2) * nm_sample_ct + sample_idx] = 1.0;
                 machr2_dosage_sums[allele_code] += 1;
               }
             } else {
-              for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
+              for (uint32_t uii = 0; uii != pgv.patch_01_ct; ++uii) {
                 const uintptr_t sample_idx = BitIter1(patch_set_nm, &sample_idx_base, &cur_bits);
                 alt1_start[sample_idx] = 0.0;
-                const uint32_t allele_code = patch_01_vals[uii];
+                const uint32_t allele_code = pgv.patch_01_vals[uii];
                 machr2_dosage_sums[allele_code] += 1;
                 if (allele_code == omitted_allele_idx) {
                   continue;
@@ -5961,20 +5958,20 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
               }
             }
           }
-          uintptr_t alt1_het_ct = genocounts[1] - patch_01_ct;
-          if (patch_10_ct) {
-            const uintptr_t* patch_set_nm = patch_10_set;
+          uintptr_t alt1_het_ct = genocounts[1] - pgv.patch_01_ct;
+          if (pgv.patch_10_ct) {
+            const uintptr_t* patch_set_nm = pgv.patch_10_set;
             if (missing_ct) {
-              CopyBitarrSubset(patch_10_set, sample_nm, nm_sample_ct, tmp_nm);
+              CopyBitarrSubset(pgv.patch_10_set, sample_nm, nm_sample_ct, tmp_nm);
               patch_set_nm = tmp_nm;
             }
             uintptr_t sample_idx_base = 0;
             uintptr_t cur_bits = patch_set_nm[0];
             if (!omitted_allele_idx) {
-              for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
+              for (uint32_t uii = 0; uii != pgv.patch_10_ct; ++uii) {
                 const uintptr_t sample_idx = BitIter1(patch_set_nm, &sample_idx_base, &cur_bits);
-                const AlleleCode ac0 = patch_10_vals[2 * uii];
-                const AlleleCode ac1 = patch_10_vals[2 * uii + 1];
+                const AlleleCode ac0 = pgv.patch_10_vals[2 * uii];
+                const AlleleCode ac1 = pgv.patch_10_vals[2 * uii + 1];
                 if (ac0 == ac1) {
                   rarealt_start[(ac0 - 2) * nm_sample_ct + sample_idx] = 2.0;
                   alt1_start[sample_idx] = 0.0;
@@ -5993,10 +5990,10 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
                 }
               }
             } else if (omitted_allele_idx == 1) {
-              for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
+              for (uint32_t uii = 0; uii != pgv.patch_10_ct; ++uii) {
                 const uintptr_t sample_idx = BitIter1(patch_set_nm, &sample_idx_base, &cur_bits);
-                const AlleleCode ac0 = patch_10_vals[2 * uii];
-                const AlleleCode ac1 = patch_10_vals[2 * uii + 1];
+                const AlleleCode ac0 = pgv.patch_10_vals[2 * uii];
+                const AlleleCode ac1 = pgv.patch_10_vals[2 * uii + 1];
                 if (ac0 == ac1) {
                   rarealt_start[(ac0 - 2) * nm_sample_ct + sample_idx] = 2.0;
                   machr2_dosage_ssqs[ac0] += 1;
@@ -6012,10 +6009,10 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
                 }
               }
             } else {
-              for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
+              for (uint32_t uii = 0; uii != pgv.patch_10_ct; ++uii) {
                 const uintptr_t sample_idx = BitIter1(patch_set_nm, &sample_idx_base, &cur_bits);
-                const uint32_t ac0 = patch_10_vals[2 * uii];
-                const uint32_t ac1 = patch_10_vals[2 * uii + 1];
+                const uint32_t ac0 = pgv.patch_10_vals[2 * uii];
+                const uint32_t ac1 = pgv.patch_10_vals[2 * uii + 1];
                 if (ac0 == ac1) {
                   machr2_dosage_ssqs[ac0] += 1;
                   alt1_start[sample_idx] = 0.0;
@@ -6053,7 +6050,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
               const_allele_present = 1;
             }
           }
-          const uintptr_t alt1_hom_ct = genocounts[2] - patch_10_ct;
+          const uintptr_t alt1_hom_ct = genocounts[2] - pgv.patch_10_ct;
           machr2_dosage_sums[1] = alt1_het_ct + 2 * alt1_hom_ct;
           machr2_dosage_ssqs[1] = alt1_het_ct + 4LLU * alt1_hom_ct;
           if ((alt1_het_ct == nm_sample_ct) || (alt1_hom_ct == nm_sample_ct) || ((!alt1_het_ct) && (!alt1_hom_ct))) {
@@ -6303,7 +6300,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
                 double* geno_dotprod_row = &(xtx_inv[cur_predictor_ct]);
                 double* domdev_dotprod_row = &(xtx_inv[2 * cur_predictor_ct]);
                 for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
-                  uintptr_t geno_word = genovec[widx];
+                  uintptr_t geno_word = pgv.genovec[widx];
                   if (geno_word) {
                     const uint32_t sample_idx_base = widx * kBitsPerWordD2;
                     do {
@@ -7543,7 +7540,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           }
           uint32_t* variant_id_htable = nullptr;
           uint32_t variant_id_htable_size;
-          reterr = AllocAndPopulateIdHtableMt(orig_variant_include, variant_ids, orig_variant_ct, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size);
+          reterr = AllocAndPopulateIdHtableMt(orig_variant_include, variant_ids, orig_variant_ct, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size, nullptr);
           if (unlikely(reterr)) {
             goto GlmMain_ret_1;
           }

@@ -34,7 +34,7 @@ void CleanupUpdateSex(UpdateSexInfo* update_sex_info_ptr) {
   free_cond(update_sex_info_ptr->fname);
 }
 
-PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const uint32_t* variant_id_htable, const TwoColParams* params, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t htable_size, uintptr_t* variant_include, uint32_t* __restrict variant_bps, uint32_t* __restrict variant_ct_ptr, UnsortedVar* vpos_sortstatusp) {
+PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const TwoColParams* params, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t htable_size, uintptr_t* variant_include, uint32_t* __restrict variant_bps, uint32_t* __restrict variant_ct_ptr, UnsortedVar* vpos_sortstatusp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
@@ -62,8 +62,6 @@ PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const ui
       goto UpdateVarBps_ret_READ_RLSTREAM;
     }
     line_idx = params->skip_ct;
-    // ok, this should be a parameter instead...
-    const uint32_t* htable_dup_base = &(variant_id_htable[RoundUpPow2(htable_size, kInt32PerCacheline)]);
     const uint32_t colid_first = (params->colid < params->colx);
     uint32_t variant_ct = *variant_ct_ptr;
     uint32_t colmin;
@@ -206,7 +204,7 @@ PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const ui
   return reterr;
 }
 
-PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_id_htable, const TwoColParams* params, uint32_t raw_variant_ct, uint32_t htable_size, char** variant_ids, uint32_t* max_variant_id_slen_ptr) {
+PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const TwoColParams* params, uint32_t raw_variant_ct, uint32_t htable_size, char** variant_ids, uint32_t* max_variant_id_slen_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
@@ -241,8 +239,6 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
       goto UpdateVarNames_ret_READ_RLSTREAM;
     }
     line_idx = params->skip_ct;
-    // ok, this should be a parameter instead...
-    const uint32_t* htable_dup_base = &(variant_id_htable[RoundUpPow2(htable_size, kInt32PerCacheline)]);
     const uint32_t colold_first = (params->colid < params->colx);
     uint32_t colmin;
     uint32_t coldiff;
@@ -364,7 +360,7 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
   return reterr;
 }
 
-PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, const char* const* variant_ids, const uint32_t* variant_id_htable, const uintptr_t* allele_idx_offsets, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t htable_size, char** allele_storage_mutable, uint32_t* max_allele_slen_ptr, char* outname, char* outname_end) {
+PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const uintptr_t* allele_idx_offsets, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t htable_size, char** allele_storage_mutable, uint32_t* max_allele_slen_ptr, char* outname, char* outname_end) {
   // probable todos:
   // - add '3col' modifier to support three-column input file where second
   //   column has comma-delimited old alleles and third column has
@@ -390,7 +386,6 @@ PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, con
     if (unlikely(reterr)) {
       goto UpdateVarAlleles_ret_1;
     }
-    const uint32_t* htable_dup_base = &(variant_id_htable[RoundUpPow2(htable_size, kInt32PerCacheline)]);
     const char* std_input_missing_geno = &(g_one_char_strs[92]);
     const char input_missing_geno_char = *g_input_missing_geno_ptr;
     unsigned char* tmp_alloc_base = g_bigstack_base;

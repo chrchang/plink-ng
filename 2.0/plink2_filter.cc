@@ -23,13 +23,12 @@
 namespace plink2 {
 #endif
 
-PglErr FromToFlag(const char* const* variant_ids, const uint32_t* variant_id_htable, const char* varid_from, const char* varid_to, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uintptr_t* variant_include, ChrInfo* cip, uint32_t* variant_ct_ptr) {
+PglErr FromToFlag(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* varid_from, const char* varid_to, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uintptr_t* variant_include, ChrInfo* cip, uint32_t* variant_ct_ptr) {
   PglErr reterr = kPglRetSuccess;
   {
     if (!(*variant_ct_ptr)) {
       goto FromToFlag_ret_1;
     }
-    const uint32_t* htable_dup_base = &(variant_id_htable[RoundUpPow2(variant_id_htable_size, kInt32PerCacheline)]);
     uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t variant_uidx_start = UINT32_MAX;
     if (varid_from) {
@@ -103,14 +102,13 @@ PglErr FromToFlag(const char* const* variant_ids, const uint32_t* variant_id_hta
   return reterr;
 }
 
-PglErr SnpFlag(const uint32_t* variant_bps, const char* const* variant_ids, const uint32_t* variant_id_htable, const char* varid_snp, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t do_exclude, int32_t window_bp, uintptr_t* variant_include, ChrInfo* cip, uint32_t* variant_ct_ptr) {
+PglErr SnpFlag(const uint32_t* variant_bps, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* varid_snp, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t do_exclude, int32_t window_bp, uintptr_t* variant_include, ChrInfo* cip, uint32_t* variant_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
   {
     if (!(*variant_ct_ptr)) {
       goto SnpFlag_ret_1;
     }
-    const uint32_t* htable_dup_base = &(variant_id_htable[RoundUpPow2(variant_id_htable_size, kInt32PerCacheline)]);
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     uint32_t cur_llidx;
     uint32_t variant_uidx = VariantIdDupHtableFind(varid_snp, variant_ids, variant_id_htable, htable_dup_base, strlen(varid_snp), variant_id_htable_size, max_variant_id_slen, &cur_llidx);
@@ -187,14 +185,13 @@ PglErr SnpFlag(const uint32_t* variant_bps, const char* const* variant_ids, cons
   return reterr;
 }
 
-PglErr SnpsFlag(const char* const* variant_ids, const uint32_t* variant_id_htable, const RangeList* snps_range_list_ptr, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t do_exclude, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+PglErr SnpsFlag(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const RangeList* snps_range_list_ptr, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t do_exclude, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
   {
     if (!(*variant_ct_ptr)) {
       goto SnpsFlag_ret_1;
     }
-    const uint32_t* htable_dup_base = &(variant_id_htable[RoundUpPow2(variant_id_htable_size, kInt32PerCacheline)]);
     const char* varid_strbox = snps_range_list_ptr->names;
     const unsigned char* starts_range = snps_range_list_ptr->starts_range;
     const uint32_t varid_ct = snps_range_list_ptr->name_ct;
@@ -286,7 +283,7 @@ void ExtractExcludeProcessToken(const char* const* variant_ids, const uint32_t* 
   }
 }
 
-PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t* variant_id_htable, const char* fnames, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t do_exclude, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* fnames, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t do_exclude, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   GzTokenStream gts;
   PreinitGzTokenStream(&gts);
@@ -302,7 +299,6 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
     if (unlikely(bigstack_calloc_w(raw_variant_ctl, &already_seen))) {
       goto ExtractExcludeFlagNorange_ret_NOMEM;
     }
-    const uint32_t* htable_dup_base = &(variant_id_htable[RoundUpPow2(variant_id_htable_size, kInt32PerCacheline)]);
     const char* fnames_iter = fnames;
     uintptr_t duplicate_ct = 0;
     do {
@@ -362,122 +358,381 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
   return reterr;
 }
 
-PglErr RmDup(__maybe_unused const uintptr_t* sample_include, __maybe_unused const ChrInfo* cip, __maybe_unused const uint32_t* variant_bps, const char* const* variant_ids, const uint32_t* variant_id_htable, __maybe_unused const uintptr_t* allele_idx_offsets, __maybe_unused const char* const* allele_storage, __maybe_unused const uintptr_t* pvar_qual_present, __maybe_unused const float* pvar_quals, __maybe_unused const uintptr_t* pvar_filter_present, __maybe_unused const uintptr_t* pvar_filter_npass, __maybe_unused const char* const* pvar_filter_storage, __maybe_unused const char* pvar_info_reload, __maybe_unused const double* variant_cms, __maybe_unused uint32_t raw_sample_ct, __maybe_unused uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, __maybe_unused uint32_t info_reload_slen, RmDupMode rmdup_mode, __maybe_unused uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* variant_include, uint32_t* variant_ct_ptr, __maybe_unused char* outname, __maybe_unused char* outname_end) {
+PglErr RmDup(__maybe_unused const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* missing_varid_match, __maybe_unused uint32_t raw_sample_ct, __maybe_unused uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t orig_dup_ct, RmDupMode rmdup_mode, uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* variant_include, uint32_t* variant_ct_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  ReadLineStream rls;
+  PreinitRLstream(&rls);
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
   {
+    if (!orig_dup_ct) {
+      logputs("Note: Skipping --rm-dup since no duplicate IDs are present.\n");
+      goto RmDup_ret_1;
+    }
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
-    uintptr_t* orig_variant_include;
+    uintptr_t* orig_dups;
     uintptr_t* already_seen;
     if (unlikely(
-            bigstack_alloc_w(raw_variant_ctl, &orig_variant_include) ||
+            bigstack_calloc_w(raw_variant_ctl, &orig_dups) ||
             bigstack_calloc_w(raw_variant_ctl, &already_seen))) {
       goto RmDup_ret_NOMEM;
     }
-    memcpy(orig_variant_include, variant_include, raw_variant_ctl * sizeof(intptr_t));
-    const uint32_t* htable_dup_base = &(variant_id_htable[RoundUpPow2(variant_id_htable_size, kInt32PerCacheline)]);
+    // variant_id_htable + htable_dup_base is structured as follows:
+    // - Empty cells in variant_id_htable are represented by UINT32_MAX.
+    // - Non-duplicate variant IDs are usually stored at
+    //   variant_id_htable[hash(ID)].  Collisions are resolved with linear
+    //   probing.
+    // - Duplicate IDs are represented by a (2^31 + HALF the first
+    //   htable_dup_base cell index) entry in variant_id_htable[hash(ID)].
+    // - A htable_dup_base cell contains two parts:
+    //   - First element (array index [k]) is a variant_uidx.
+    //   - Second element (array index [k+1]) is another htable_dup_base cell
+    //     index (not halved), or UINT32_MAX if we've reached the last ID.
+    // Thus, we can initialize a bitarray with just the positions correspond to
+    // duplicate-ID variant_uidxs set by looking at just the even entries of
+    // htable_dup_base[].  (The bitarray may have some false positives from
+    // recently-filtered variants and/or the missing-ID code.)
+    for (uint32_t uii = 0; uii != orig_dup_ct; ++uii) {
+      SetBit(htable_dup_base[uii * 2], orig_dups);
+    }
     const uint32_t orig_variant_ct = *variant_ct_ptr;
+    uint32_t dup_recheck_needed = 0;
+    if (orig_variant_ct != raw_variant_ct) {
+      BitvecAnd(variant_include, raw_variant_ctl, orig_dups);
+      const uint32_t subsetted_dup_ct = PopcountWords(orig_dups, raw_variant_ctl);
+      if (subsetted_dup_ct != orig_dup_ct) {
+        if (!subsetted_dup_ct) {
+          logputs("Note: Skipping --rm-dup since no duplicate IDs remain.\n");
+          goto RmDup_ret_1;
+        }
+        orig_dup_ct = subsetted_dup_ct;
+        dup_recheck_needed = 1;
+      }
+    }
+    if (!missing_varid_match) {
+      missing_varid_match = &(g_one_char_strs[92]);
+    }
+    const uint32_t missing_varid_blen = strlen(missing_varid_match) + 1;
+    uint32_t* orig_dups_cumulative_popcounts = nullptr;
+    // Load all relevant INFO lines before main loop, since main loop can
+    // perform out-of-order lookups.
+    const char** dup_info_strs = nullptr;
+    if (pvar_info_reload && (rmdup_mode < kRmDupExcludeAll)) {
+      if (unlikely(
+              bigstack_alloc_kcp(orig_dup_ct, &dup_info_strs) ||
+              bigstack_alloc_u32(raw_variant_ctl, &orig_dups_cumulative_popcounts))) {
+        goto RmDup_ret_NOMEM;
+      }
+      FillCumulativePopcounts(orig_dups, raw_variant_ctl, orig_dups_cumulative_popcounts);
+      uintptr_t linebuf_size;
+      if (unlikely(StandardizeLinebufSize(bigstack_left() / 4, kMaxMediumLine + 1, &linebuf_size))) {
+        goto RmDup_ret_NOMEM;
+      }
+      const uint32_t calc_thread_ct = ClipU32(max_thread_ct - 1, 1, 4);
+      reterr = RlsOpenMaybeBgzf(pvar_info_reload, calc_thread_ct, &rls);
+      if (reterr) {
+        if (reterr == kPglRetOpenFail) {
+          logerrprintfww(kErrprintfFopen, pvar_info_reload);
+        }
+        goto RmDup_ret_1;
+      }
+      char* line_iter;
+      reterr = InitRLstreamEx(0, kMaxLongLine, linebuf_size, &rls, &line_iter);
+      if (unlikely(reterr)) {
+        goto RmDup_ret_1;
+      }
+      unsigned char* tmp_alloc_end = g_bigstack_end;
+      // if INFO column exists, #CHROM header line guaranteed
+      do {
+        reterr = RlsNextLstrip(&rls, &line_iter);
+        if (unlikely(reterr)) {
+          goto RmDup_ret_READ_FAIL;
+        }
+      } while (!tokequal_k(line_iter, "#CHROM"));
+      uint32_t info_col_idx = 1;
+      {
+        line_iter = &(line_iter[6]);
+        for (; ; ++info_col_idx) {
+          char* token_start = FirstNonTspace(line_iter);
+          if (IsEolnKns(*token_start)) {
+            goto RmDup_ret_READ_FAIL;
+          }
+          line_iter = CurTokenEnd(token_start);
+          if (strequal_k(token_start, "INFO", line_iter - token_start)) {
+            break;
+          }
+        }
+      }
+      unsigned char* tmp_alloc_base = g_bigstack_base;
+      uint32_t dup_variant_idx = 0;
+      for (uint32_t variant_uidx = 0; ; ++variant_uidx) {
+        reterr = RlsNextLstrip(&rls, &line_iter);
+        if (unlikely(reterr)) {
+          goto RmDup_ret_READ_FAIL;
+        }
+        if (IsSet(orig_dups, variant_uidx)) {
+          if (!memequal(variant_ids[variant_uidx], missing_varid_match, missing_varid_blen)) {
+            char* info_start = NextTokenMult(line_iter, info_col_idx);
+            line_iter = CurTokenEnd(info_start);
+            const uint32_t info_slen = line_iter - info_start;
+            tmp_alloc_end -= info_slen + 1;
+            if (unlikely(tmp_alloc_end < tmp_alloc_base)) {
+              goto RmDup_ret_NOMEM;
+            }
+            memcpyx(tmp_alloc_end, info_start, info_slen, '\0');
+            dup_info_strs[dup_variant_idx] = R_CAST(char*, tmp_alloc_end);
+          }
+          ++dup_variant_idx;
+          if (dup_variant_idx == orig_dup_ct) {
+            break;
+          }
+        }
+      }
+      BigstackEndSet(tmp_alloc_end);
+      CleanupRLstream(&rls);
+      BigstackReset(orig_dups_cumulative_popcounts);
+    }
     char* write_iter = g_textbuf;
     char* textbuf_flush = &(write_iter[kMaxMediumLine]);
     uintptr_t variant_uidx_base = 0;
-    uintptr_t cur_bits = variant_include[0];
+    uintptr_t cur_bits = orig_dups[0];
     uint32_t duplicate_ct = 0;
-    uint32_t error_ct = 0;
-    if (simple_pgrp) {
+    uint32_t mismatch_ct = 0;
+    uint32_t first_allele_ct = 2;
+    uint32_t first_qual_is_present = 0;
+    float first_qual = 0.0;
+    uint32_t first_filter_is_present = 0;
+    uint32_t first_filter_npass = 0;
+    const char* first_filter_str = nullptr;
+    const char* first_info_str = nullptr;
+    double first_cm = 0.0;
+
+    uint32_t* sample_include_cumulative_popcounts = nullptr;
+    PgenVariant first_pgv;
+    PreinitPgv(&first_pgv);
+    if (simple_pgrp && (rmdup_mode < kRmDupExcludeAll)) {
+      logerrputs("Error: --rm-dup 'error', 'retain-mismatch', and 'exclude-mismatch' modes are\nunder development.\n");
+      reterr = kPglRetNotYetSupported;
+      goto RmDup_ret_1;
+      const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+      if (unlikely(
+              bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+              BigstackAllocPgv(sample_ct, allele_idx_offsets != nullptr, simple_pgrp->fi.gflags, &first_pgv))) {
+        goto RmDup_ret_NOMEM;
+      }
+      FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
       PgrClearLdCache(simple_pgrp);
     }
-    for (uint32_t variant_idx = 0; variant_idx != orig_variant_ct; ++variant_idx) {
-      const uint32_t variant_uidx = BitIter1(orig_variant_include, &variant_uidx_base, &cur_bits);
+    for (uint32_t variant_idx = 0; variant_idx != orig_dup_ct; ++variant_idx) {
+      const uint32_t variant_uidx = BitIter1(orig_dups, &variant_uidx_base, &cur_bits);
       if (IsSet(already_seen, variant_uidx)) {
         continue;
       }
-      // Could iterate in hashtable-bucket-index order instead, but I'm
-      // guessing that's worse in the usual genotype-data-present case?
-      // Can multithread more of the work here.
-      // ...or just iterate over htable_dup_base contents?  need to know its
-      // end position then.
       const char* cur_id = variant_ids[variant_uidx];
-      if (memequal_k(cur_id, ".", 2)) {
+      if (memequal(cur_id, missing_varid_match, missing_varid_blen)) {
         continue;
       }
-      uint32_t cur_llidx;
-      uint32_t variant_uidx2 = VariantIdDupHtableFind(cur_id, variant_ids, variant_id_htable, htable_dup_base, strlen(cur_id), variant_id_htable_size, max_variant_id_slen, &cur_llidx);
-      if (cur_llidx == UINT32_MAX) {
-        // don't actually need to set already_seen bit
-        continue;
-      }
-      // Okay, we have a duplicate... well, at least it was a duplicate in the
-      // original dataset.
+      uint32_t first_llidx;
+      uint32_t variant_uidx_ll_first = VariantIdDupHtableFind(cur_id, variant_ids, variant_id_htable, htable_dup_base, strlen(cur_id), variant_id_htable_size, max_variant_id_slen, &first_llidx);
+      assert(first_llidx != UINT32_MAX);
       // 1. Verify this is still a duplicate in the current filtering state.
       // 2. If exclude-all or force-first mode, we're done; otherwise:
       //   3. Load variant information and genotype data for variant_uidx.
       //   4. Check for inequality.  If any inequality found, write variant ID
       //      to {output prefix}.rmdup.mismatch (lazy-opening the file before
       //      first write) if not in exclude-mismatch mode.
-      uint32_t is_still_dup = 0;
-      uint32_t dupcheck_llidx = cur_llidx;
-      uint32_t dupcheck_vidx2 = variant_uidx2;
-      for (; ; dupcheck_llidx = htable_dup_base[dupcheck_llidx + 1]) {
-        if ((dupcheck_vidx2 != variant_uidx) && IsSet(variant_include, dupcheck_vidx2)) {
-          is_still_dup = 1;
-          break;
+      if (dup_recheck_needed) {
+        uint32_t is_still_dup = 0;
+        uint32_t dupcheck_llidx = first_llidx;
+        for (uint32_t dupcheck_vidx = variant_uidx_ll_first; ; dupcheck_llidx = htable_dup_base[dupcheck_llidx + 1]) {
+          if ((dupcheck_vidx != variant_uidx) && IsSet(orig_dups, dupcheck_vidx)) {
+            is_still_dup = 1;
+            break;
+          }
+          if (dupcheck_llidx == UINT32_MAX) {
+            break;
+          }
+          dupcheck_vidx = htable_dup_base[dupcheck_llidx];
         }
-        if (dupcheck_llidx == UINT32_MAX) {
-          break;
+        if (!is_still_dup) {
+          continue;
         }
-        dupcheck_vidx2 = htable_dup_base[dupcheck_llidx];
-      }
-      if (!is_still_dup) {
-        continue;
       }
       ++duplicate_ct;
       if (rmdup_mode >= kRmDupExcludeAll) {
-        for (; ; cur_llidx = htable_dup_base[cur_llidx + 1]) {
-          SetBit(variant_uidx2, already_seen);
-          ClearBit(variant_uidx2, variant_include);
+        for (uint32_t cur_llidx = first_llidx; ; cur_llidx = htable_dup_base[cur_llidx + 1]) {
+          SetBit(variant_uidx_ll_first, already_seen);
+          ClearBit(variant_uidx_ll_first, variant_include);
           if (cur_llidx == UINT32_MAX) {
             break;
           }
-          variant_uidx2 = htable_dup_base[cur_llidx];
+          variant_uidx_ll_first = htable_dup_base[cur_llidx];
         }
         if (rmdup_mode == kRmDupForceFirst) {
           SetBit(variant_uidx, variant_include);
         }
         continue;
       }
-      logerrputs("Error: --rm-dup 'error', 'keep-mismatch', and 'exclude-mismatch' modes are\nunder development.\n");
-      reterr = kPglRetNotYetSupported;
-      goto RmDup_ret_1;
-      for (; ; cur_llidx = htable_dup_base[cur_llidx + 1]) {
-        if ((variant_uidx != variant_uidx2) && IsSet(variant_include, variant_uidx2)) {
-          SetBit(variant_uidx2, already_seen);
-          // todo: check .pvar fields for equality
+      const uint32_t first_chr_fo_idx = GetVariantChrFoIdx(cip, variant_uidx);
+      const uint32_t first_bp = variant_bps[variant_uidx];
+      uintptr_t allele_idx_offset_base;
+      if (!allele_idx_offsets) {
+        allele_idx_offset_base = 2 * variant_uidx;
+      } else {
+        allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        first_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+      }
+      const char* const* first_alleles = &(allele_storage[allele_idx_offset_base]);
+      if (pvar_qual_present) {
+        first_qual_is_present = IsSet(pvar_qual_present, variant_uidx);
+        if (first_qual_is_present) {
+          first_qual = pvar_quals[variant_uidx];
+        }
+      }
+      if (pvar_filter_present) {
+        first_filter_is_present = IsSet(pvar_filter_present, variant_uidx);
+        if (first_filter_is_present) {
+          first_filter_npass = IsSet(pvar_filter_npass, variant_uidx);
+          if (first_filter_npass) {
+            first_filter_str = pvar_filter_storage[variant_uidx];
+          }
+        }
+      }
+      if (dup_info_strs) {
+        const uint32_t subsetted_idx = RawToSubsettedPos(orig_dups, orig_dups_cumulative_popcounts, variant_uidx);
+        first_info_str = dup_info_strs[subsetted_idx];
+      }
+      if (variant_cms) {
+        first_cm = variant_cms[variant_uidx];
+      }
+
+      uint32_t cur_llidx = first_llidx;
+      uint32_t is_mismatch = 0;
+      for (uint32_t ll_variant_uidx = variant_uidx_ll_first; ; ll_variant_uidx = htable_dup_base[cur_llidx], cur_llidx = htable_dup_base[cur_llidx + 1]) {
+        if ((variant_uidx != ll_variant_uidx) && IsSet(orig_dups, ll_variant_uidx)) {
+          SetBit(ll_variant_uidx, already_seen);
+          ClearBit(ll_variant_uidx, variant_include);
+          if (is_mismatch) {
+            continue;
+          }
+          // Check .pvar fields for equality.
+          if ((GetVariantChrFoIdx(cip, ll_variant_uidx) != first_chr_fo_idx) ||
+              (variant_bps[ll_variant_uidx] != first_bp)) {
+            is_mismatch = 1;
+            continue;
+          }
+          if (!allele_idx_offsets) {
+            allele_idx_offset_base = 2 * ll_variant_uidx;
+          } else {
+            allele_idx_offset_base = allele_idx_offsets[ll_variant_uidx];
+            if (first_allele_ct != allele_idx_offsets[ll_variant_uidx + 1] - allele_idx_offset_base) {
+              is_mismatch = 1;
+              continue;
+            }
+          }
+          const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+          for (uint32_t aidx = 0; aidx != first_allele_ct; ++aidx) {
+            if (!strequal_overread(first_alleles[aidx], cur_alleles[aidx])) {
+              is_mismatch = 1;
+              break;
+            }
+          }
+          if (is_mismatch) {
+            continue;
+          }
+          if (pvar_qual_present) {
+            if ((IsSet(pvar_qual_present, ll_variant_uidx) != first_qual_is_present) || (first_qual_is_present && (pvar_quals[ll_variant_uidx] != first_qual))) {
+              is_mismatch = 1;
+              continue;
+            }
+          }
+          if (pvar_filter_present) {
+            if (IsSet(pvar_filter_present, ll_variant_uidx) != first_filter_is_present) {
+              is_mismatch = 1;
+              continue;
+            }
+            if (first_filter_is_present) {
+              if (IsSet(pvar_filter_npass, ll_variant_uidx) != first_filter_npass) {
+                is_mismatch = 1;
+                continue;
+              }
+              if (first_filter_npass && (!strequal_overread(first_filter_str, pvar_filter_storage[ll_variant_uidx]))) {
+                is_mismatch = 1;
+                continue;
+              }
+            }
+          }
+          if (first_info_str) {
+            const uint32_t subsetted_idx = RawToSubsettedPos(orig_dups, orig_dups_cumulative_popcounts, ll_variant_uidx);
+            if (!strequal_overread(first_info_str, dup_info_strs[subsetted_idx])) {
+              is_mismatch = 1;
+              continue;
+            }
+          }
+          if (variant_cms) {
+            if (variant_cms[ll_variant_uidx] != first_cm) {
+              is_mismatch = 1;
+              continue;
+            }
+          }
           if (simple_pgrp) {
           }
         }
         if (cur_llidx == UINT32_MAX) {
           break;
         }
-        variant_uidx2 = htable_dup_base[cur_llidx];
+      }
+      if (is_mismatch) {
+        ++mismatch_ct;
+        if (rmdup_mode == kRmDupExcludeMismatch) {
+          ClearBit(variant_uidx, variant_include);
+        } else {
+          if (rmdup_mode == kRmDupRetainMismatch) {
+            cur_llidx = first_llidx;
+            for (uint32_t ll_variant_uidx = variant_uidx_ll_first; ; ll_variant_uidx = htable_dup_base[cur_llidx], cur_llidx = htable_dup_base[cur_llidx + 1]) {
+              if ((variant_uidx != ll_variant_uidx) && IsSet(orig_dups, ll_variant_uidx)) {
+                SetBit(ll_variant_uidx, variant_include);
+              }
+              if (cur_llidx == UINT32_MAX) {
+                break;
+              }
+            }
+          }
+          if (outfile == nullptr) {
+            snprintf(outname_end, kMaxOutfnameExtBlen, ".rmdup.mismatch");
+            if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
+              goto RmDup_ret_WRITE_FAIL;
+            }
+          }
+          write_iter = strcpya(write_iter, variant_ids[variant_uidx]);
+          AppendBinaryEoln(&write_iter);
+          if (unlikely(fwrite_ck(textbuf_flush, outfile, &write_iter))) {
+            goto RmDup_ret_WRITE_FAIL;
+          }
+        }
       }
     }
     if (outfile != nullptr) {
       if (unlikely(fclose_flush_null(textbuf_flush, write_iter, &outfile))) {
         goto RmDup_ret_WRITE_FAIL;
       }
-      logerrprintfww("Error: %u duplicate ID%s with inconsistent %svariant information detected by --rm-dup; see %s .\n", error_ct, (error_ct == 1)? "" : "s", simple_pgrp? "genotype data or " : "", outname);
-      reterr = kPglRetInconsistentInput;
+      logerrprintfww("%s: %u duplicate ID%s with inconsistent %svariant information detected by --rm-dup; see %s .\n", (rmdup_mode == kRmDupError)? "Error" : "Warning", mismatch_ct, (mismatch_ct == 1)? "" : "s", simple_pgrp? "genotype data or " : "", outname);
+      if (rmdup_mode == kRmDupError) {
+        reterr = kPglRetInconsistentInput;
+        goto RmDup_ret_1;
+      }
     }
     *variant_ct_ptr = PopcountWords(variant_include, raw_variant_ctl);
     const uint32_t removed_variant_ct = orig_variant_ct - (*variant_ct_ptr);
-    // const char rmdup_mode_strs[5][17] = {"error", "retain-mismatch", "exclude-mismatch", "exclude-all", "force-first"};
     logprintfww("--rm-dup: %u duplicated ID%s, %u variant%s removed.\n", duplicate_ct, (duplicate_ct == 1)? "" : "s", removed_variant_ct, (removed_variant_ct == 1)? "" : "s");
-    // logprintfww("--rm-dup %s: %u duplicated ID%s, %u variant%s removed.\n", rmdup_mode_strs[rmdup_mode - 1], duplicate_ct, (duplicate_ct == 1)? "" : "s", removed_variant_ct, (removed_variant_ct == 1)? "" : "s");
   }
   while (0) {
   RmDup_ret_NOMEM:
     reterr = kPglRetNomem;
+    break;
+  RmDup_ret_READ_FAIL:
+    reterr = kPglRetReadFail;
     break;
   RmDup_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -485,7 +740,8 @@ PglErr RmDup(__maybe_unused const uintptr_t* sample_include, __maybe_unused cons
   }
  RmDup_ret_1:
   fclose_cond(outfile);
-  BigstackReset(bigstack_mark);
+  CleanupRLstream(&rls);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }
 
@@ -735,8 +991,8 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
     break;
   }
  KeepOrRemove_ret_1:
-  BigstackReset(bigstack_mark);
   CleanupRLstream(&rls);
+  BigstackReset(bigstack_mark);
   return reterr;
 }
 
@@ -1213,7 +1469,7 @@ PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fn
     const char* const* category_names = cur_pheno_col->category_names;
     uint32_t* cat_id_htable;
     uint32_t id_htable_size;
-    reterr = AllocAndPopulateIdHtableMt(cat_include, category_names, cat_ct, max_thread_ct, &cat_id_htable, nullptr, &id_htable_size);
+    reterr = AllocAndPopulateIdHtableMt(cat_include, category_names, cat_ct, max_thread_ct, &cat_id_htable, nullptr, &id_htable_size, nullptr);
     if (unlikely(reterr)) {
       goto KeepRemoveCatsInternal_ret_1;
     }
@@ -1562,7 +1818,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
     }
     uint32_t* variant_id_htable = nullptr;
     uint32_t variant_id_htable_size;
-    reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size);
+    reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size, nullptr);
     if (unlikely(reterr)) {
       goto ReadAlleleFreqs_ret_1;
     }
@@ -3441,7 +3697,7 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
     }
     uint32_t* variant_id_htable = nullptr;
     uint32_t variant_id_htable_size;
-    reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size);
+    reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size, nullptr);
     if (unlikely(reterr)) {
       goto SetRefalt1FromFile_ret_1;
     }

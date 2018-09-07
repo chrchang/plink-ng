@@ -9670,7 +9670,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
       // allow hash table to only use half of available memory
       g_bigstack_end = &(g_bigstack_base[RoundDownPow2(bigstack_left() / 2, kEndAllocAlign)]);
 
-      reterr = AllocAndPopulateIdHtableMt(variant_already_seen, TO_CONSTCPCONSTP(variant_ids), map_variant_ct, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size);
+      reterr = AllocAndPopulateIdHtableMt(variant_already_seen, TO_CONSTCPCONSTP(variant_ids), map_variant_ct, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size, nullptr);
       if (unlikely(reterr)) {
         goto Plink1DosageToPgen_ret_1;
       }

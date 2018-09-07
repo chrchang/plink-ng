@@ -7562,6 +7562,36 @@ PglErr PgrGet2(const uintptr_t* __restrict sample_include, const uint32_t* __res
   return kPglRetSuccess;
 }
 
+void PreinitPgv(PgenVariant* pgvp) {
+  pgvp->genovec = nullptr;
+  pgvp->patch_01_set = nullptr;
+  pgvp->patch_01_vals = nullptr;
+  pgvp->patch_10_set = nullptr;
+  pgvp->patch_10_vals = nullptr;
+  pgvp->phasepresent = nullptr;
+  pgvp->phaseinfo = nullptr;
+  pgvp->dosage_present = nullptr;
+  pgvp->dosage_main = nullptr;
+  pgvp->multidosage_present = nullptr;
+  pgvp->multidosage_cts = nullptr;
+  pgvp->multidosage_codes = nullptr;
+  pgvp->multidosage_vals = nullptr;
+  pgvp->dphase_present = nullptr;
+  pgvp->dphase_delta = nullptr;
+  pgvp->multidphase_present = nullptr;
+  pgvp->multidphase_cts = nullptr;
+  pgvp->multidphase_codes = nullptr;
+  pgvp->multidphase_delta = nullptr;
+
+  pgvp->patch_01_ct = 0;
+  pgvp->patch_10_ct = 0;
+  pgvp->phasepresent_ct = 0;
+  pgvp->dosage_ct = 0;
+  pgvp->multidosage_sample_ct = 0;
+  pgvp->dphase_ct = 0;
+  pgvp->multidphase_sample_ct = 0;
+}
+
 // similar to ParseAndSaveDifflist()
 PglErr ParseAndSaveDeltalistAsBitarr(const unsigned char* fread_end, uint32_t raw_sample_ct, const unsigned char** fread_pp, uintptr_t* deltalist_include, uint32_t* deltalist_len_ptr) {
   const unsigned char* group_info_iter;
@@ -8595,7 +8625,19 @@ PglErr Get1MP(const uintptr_t* __restrict sample_include, const uint32_t* __rest
     return reterr;
   }
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
-  return ParseAux2Subset(fread_end, (sample_ct != raw_sample_ct)? sample_include : nullptr, all_hets, subsetted_10het, raw_sample_ct, sample_ct, &fread_ptr, phasepresent, phaseinfo, phasepresent_ct_ptr, pgrp->workspace_subset);
+  reterr = ParseAux2Subset(fread_end, (sample_ct != raw_sample_ct)? sample_include : nullptr, all_hets, subsetted_10het, raw_sample_ct, sample_ct, &fread_ptr, phasepresent, phaseinfo, phasepresent_ct_ptr, pgrp->workspace_subset);
+  // bugfix (7 Sep 2018): Need to postprocess phasepresent when collapsing
+  // multiple alleles.
+  if (reterr || (!(*phasepresent_ct_ptr))) {
+    return reterr;
+  }
+  const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
+  Halfword* phasepresent_alias = R_CAST(Halfword*, phasepresent);
+  for (uint32_t hwidx = 0; hwidx != sample_ctl2; ++hwidx) {
+    phasepresent_alias[hwidx] &= Pack01ToHalfword(allele_countvec[hwidx]);
+  }
+  *phasepresent_ct_ptr = PopcountWords(phasepresent, BitCtToWordCt(sample_ct));
+  return kPglRetSuccess;
 }
 
 PglErr PgrGet1P(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgrp, uintptr_t* __restrict allele_countvec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* __restrict phasepresent_ct_ptr) {
@@ -10031,11 +10073,11 @@ PglErr PgrGetMDCounts(const uintptr_t* __restrict sample_include, const uintptr_
   return GetMultiallelicCountsAndDosage16s(sample_include, sample_include_interleaved_vec, sample_ct, vidx, allele_ct, pgrp, mach_r2_ptr, het_ctp, genocounts, all_dosages);
 }
 
-PglErr PgrGetMD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals, uint32_t* __restrict patch_01_ctp, uint32_t* __restrict patch_10_ctp, uintptr_t* __restrict dosage_present, uint16_t* __restrict dosage_main, uint32_t* __restrict dosage_ctp, __maybe_unused uintptr_t* __restrict multidosage_present, __maybe_unused unsigned char* __restrict multidosage_cts, __maybe_unused AlleleCode* __restrict multidosage_codes, __maybe_unused uint16_t* __restrict multidosage_vals, uint32_t* __restrict multidosage_sample_ctp) {
-  *patch_01_ctp = 0;
-  *patch_10_ctp = 0;
-  *dosage_ctp = 0;
-  *multidosage_sample_ctp = 0;
+PglErr PgrGetMD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, PgenVariant* pgvp) {
+  pgvp->patch_01_ct = 0;
+  pgvp->patch_10_ct = 0;
+  pgvp->dosage_ct = 0;
+  pgvp->multidosage_sample_ct = 0;
   if (!sample_ct) {
     return kPglRetSuccess;
   }
@@ -10043,13 +10085,13 @@ PglErr PgrGetMD(const uintptr_t* __restrict sample_include, const uint32_t* __re
   const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
   const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
   if ((allele_ct == 2) || (!(vrtype & 0x68))) {
-    return PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, genovec, dosage_present, dosage_main, dosage_ctp);
+    return PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, pgvp->genovec, pgvp->dosage_present, pgvp->dosage_main, &(pgvp->dosage_ct));
   }
   const unsigned char* fread_ptr;
   const unsigned char* fread_end;
   uintptr_t* all_hets = VrtypeHphase(vrtype)? pgrp->workspace_all_hets : nullptr;
   if (VrtypeMultiallelicHc(vrtype)) {
-    PglErr reterr = GetMultiallelicCodes(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, all_hets? (&fread_ptr) : nullptr, all_hets? (&fread_end) : nullptr, all_hets, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, patch_01_ctp, patch_10_ctp);
+    PglErr reterr = GetMultiallelicCodes(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, all_hets? (&fread_ptr) : nullptr, all_hets? (&fread_end) : nullptr, all_hets, pgvp->genovec, pgvp->patch_01_set, pgvp->patch_01_vals, pgvp->patch_10_set, pgvp->patch_10_vals, &(pgvp->patch_01_ct), &(pgvp->patch_10_ct));
 ;
     if (!(vrtype & 0x60)) {
       return reterr;
@@ -10086,40 +10128,79 @@ PglErr PgrGetDp(const uintptr_t* __restrict sample_include, const uint32_t* __re
   return ParseDosage16(fread_ptr, fread_end, sample_include, sample_ct, vidx, allele_ct, pgrp, dosage_ct_ptr, dphase_present, dphase_delta, dphase_ct_ptr, dosage_present, dosage_main);
 }
 
-PglErr PgrGetInv1Dp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgrp, uintptr_t* __restrict allele_invcountvec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* __restrict dosage_ct_ptr, uintptr_t* __restrict dphase_present, int16_t* dphase_delta, uint32_t* __restrict dphase_ct_ptr) {
+PglErr PgrGetInv1Dp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgrp, PgenVariant* pgvp) {
   const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
   const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
   if ((allele_ct == 2) || (!allele_idx)) {
     uint32_t phasepresent_ct;
     uint32_t dosage_ct;
     uint32_t dphase_ct;
-    PglErr reterr = PgrGetDp(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, allele_invcountvec, phasepresent, phaseinfo, &phasepresent_ct, dosage_present, dosage_main, &dosage_ct, dphase_present, dphase_delta, &dphase_ct);
+    PglErr reterr = PgrGetDp(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, pgvp->genovec, pgvp->phasepresent, pgvp->phaseinfo, &phasepresent_ct, pgvp->dosage_present, pgvp->dosage_main, &dosage_ct, pgvp->dphase_present, pgvp->dphase_delta, &dphase_ct);
     if (allele_idx) {
-      GenovecInvertUnsafe(sample_ct, allele_invcountvec);
+      GenovecInvertUnsafe(sample_ct, pgvp->genovec);
       if (phasepresent_ct) {
-        BitvecInvert(BitCtToWordCt(sample_ct), phaseinfo);
+        BitvecInvert(BitCtToWordCt(sample_ct), pgvp->phaseinfo);
       }
       if (dosage_ct) {
-        BiallelicDosage16Invert(dosage_ct, dosage_main);
+        BiallelicDosage16Invert(dosage_ct, pgvp->dosage_main);
         if (dphase_ct) {
-          BiallelicDphase16Invert(dphase_ct, dphase_delta);
+          BiallelicDphase16Invert(dphase_ct, pgvp->dphase_delta);
         }
       }
     }
-    *phasepresent_ct_ptr = phasepresent_ct;
-    *dosage_ct_ptr = dosage_ct;
-    *dphase_ct_ptr = dphase_ct;
+    pgvp->phasepresent_ct = phasepresent_ct;
+    pgvp->dosage_ct = dosage_ct;
+    pgvp->dphase_ct = dphase_ct;
     return reterr;
   }
   const uint32_t vrtype = pgrp->fi.vrtypes[vidx];
   if (!VrtypeDosage(vrtype)) {
-    *dosage_ct_ptr = 0;
-    *dphase_ct_ptr = 0;
-    return PgrGetInv1P(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx, pgrp, allele_invcountvec, phasepresent, phaseinfo, phasepresent_ct_ptr);
+    pgvp->dosage_ct = 0;
+    pgvp->dphase_ct = 0;
+    return PgrGetInv1P(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx, pgrp, pgvp->genovec, pgvp->phasepresent, pgvp->phaseinfo, &(pgvp->phasepresent_ct));
   }
   fputs("multiallelic dosage not yet supported by PgrGetInv1Dp()\n", stderr);
   exit(S_CAST(int32_t, kPglRetNotYetSupported));
   return kPglRetSuccess;
+}
+
+PglErr PgrGetMDp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, PgenVariant* pgvp) {
+  pgvp->patch_01_ct = 0;
+  pgvp->patch_10_ct = 0;
+  pgvp->phasepresent_ct = 0;
+  pgvp->dosage_ct = 0;
+  pgvp->multidosage_sample_ct = 0;
+  pgvp->dphase_ct = 0;
+  pgvp->multidphase_sample_ct = 0;
+  if (!sample_ct) {
+    return kPglRetSuccess;
+  }
+  const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
+  const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
+  const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
+  if ((allele_ct == 2) || (!(vrtype & 0x68))) {
+    return PgrGetDp(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, pgvp->genovec, pgvp->phasepresent, pgvp->phaseinfo, &(pgvp->phasepresent_ct), pgvp->dosage_present, pgvp->dosage_main, &(pgvp->dosage_ct), pgvp->dphase_present, pgvp->dphase_delta, &(pgvp->dphase_ct));
+  }
+  const unsigned char* fread_ptr;
+  const unsigned char* fread_end;
+  uintptr_t* all_hets = VrtypeHphase(vrtype)? pgrp->workspace_all_hets : nullptr;
+  if (VrtypeMultiallelicHc(vrtype)) {
+    PglErr reterr = GetMultiallelicCodes(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, all_hets? (&fread_ptr) : nullptr, all_hets? (&fread_end) : nullptr, all_hets, pgvp->genovec, pgvp->patch_01_set, pgvp->patch_01_vals, pgvp->patch_10_set, pgvp->patch_10_vals, &(pgvp->patch_01_ct), &(pgvp->patch_10_ct));
+    if (reterr || (!all_hets)) {
+      return reterr;
+    }
+    if (!(vrtype & 0x60)) {
+      const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
+      return ParseAux2Subset(fread_end, (sample_ct != raw_sample_ct)? sample_include : nullptr, all_hets, nullptr, raw_sample_ct, sample_ct, &fread_ptr, pgvp->phasepresent, pgvp->phaseinfo, &(pgvp->phasepresent_ct), pgrp->workspace_subset);
+    }
+  } else {
+    // todo: ReadRawGenovec, etc.
+  }
+  fputs("true multiallelic dosages not yet supported by PgrGetMDp()\n", stderr);
+  fprintf(stderr, "%u\n", vidx);
+  exit(S_CAST(int32_t, kPglRetNotYetSupported));
+  return kPglRetSuccess;
+
 }
 
 static_assert(sizeof(AlleleCode) == 1, "CountAux1bHets() must be updated.");

@@ -42,6 +42,53 @@ void InitPedigreeIdInfo(MiscFlags misc_flags, PedigreeIdInfo* piip) {
   piip->parental_id_info.max_maternal_id_blen = 2;
 }
 
+BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenGlobalFlags gflags, PgenVariant* pgvp) {
+  const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
+  if (unlikely(
+          bigstack_alloc_w(sample_ctl2, &(pgvp->genovec)))) {
+    return 1;
+  }
+  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  if (multiallelic_needed) {
+    if (unlikely(
+            bigstack_alloc_w(sample_ctl, &(pgvp->patch_01_set)) ||
+            bigstack_alloc_ac(sample_ct, &(pgvp->patch_01_vals)) ||
+            bigstack_alloc_w(sample_ctl, &(pgvp->patch_10_set)) ||
+            bigstack_alloc_ac(sample_ct, &(pgvp->patch_10_vals)))) {
+      return 1;
+    }
+  }
+  if (gflags & kfPgenGlobalHardcallPhasePresent) {
+    if (unlikely(
+            bigstack_alloc_w(sample_ctl, &(pgvp->phasepresent)) ||
+            bigstack_alloc_w(sample_ctl, &(pgvp->phaseinfo)))) {
+      return 1;
+    }
+  }
+  if (gflags & kfPgenGlobalDosagePresent) {
+    if (unlikely(
+            bigstack_alloc_w(sample_ctl, &(pgvp->dosage_present)) ||
+            bigstack_alloc_dosage(sample_ct, &(pgvp->dosage_main)))) {
+      return 1;
+    }
+    if (multiallelic_needed) {
+      // todo
+    }
+    if (gflags & kfPgenGlobalDosagePhasePresent) {
+      if (unlikely(
+              bigstack_alloc_w(sample_ctl, &(pgvp->dphase_present)) ||
+              bigstack_alloc_dphase(sample_ct, &(pgvp->dphase_delta)))) {
+        return 1;
+      }
+      if (multiallelic_needed) {
+        // todo
+      }
+    }
+  }
+
+  return 0;
+}
+
 static_assert(kDosageMax == 32768, "dosagetoa() needs to be updated.");
 char* dosagetoa(uint64_t dosage, char* start) {
   // 3 digit precision seems like the best compromise between accuracy and

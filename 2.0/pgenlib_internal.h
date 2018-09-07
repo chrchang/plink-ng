@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1102
+#define PGENLIB_INTERNAL_VERNUM 1103
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -1287,6 +1287,44 @@ PglErr PgrGetInv1(const uintptr_t* __restrict sample_include, const uint32_t* __
 
 PglErr PgrGet2(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx0, uint32_t allele_idx1, PgenReader* pgrp, uintptr_t* __restrict genovec);
 
+// This covers all the possibilities.  Todo: switch all functions exporting
+// multiallelic codes and/or phased dosage to use this struct.  (Biallelic
+// phased hardcalls and unphased dosages are simple enough for this to be
+// overkill, though.)
+struct PgenVariantStruct {
+  uintptr_t* genovec;
+  uintptr_t* patch_01_set;
+  AlleleCode* patch_01_vals;
+  uintptr_t* patch_10_set;
+  AlleleCode* patch_10_vals;
+  uintptr_t* phasepresent;
+  uintptr_t* phaseinfo;
+  uintptr_t* dosage_present;
+  uint16_t* dosage_main;
+  uintptr_t* multidosage_present;
+  unsigned char* multidosage_cts;
+  AlleleCode* multidosage_codes;
+  uint16_t* multidosage_vals;
+  uintptr_t* dphase_present;
+  int16_t* dphase_delta;
+  uintptr_t* multidphase_present;
+  unsigned char* multidphase_cts;
+  AlleleCode* multidphase_codes;
+  int16_t* multidphase_delta;
+
+  uint32_t patch_01_ct;
+  uint32_t patch_10_ct;
+  uint32_t phasepresent_ct;
+  uint32_t dosage_ct;
+  uint32_t multidosage_sample_ct;
+  uint32_t dphase_ct;
+  uint32_t multidphase_sample_ct;
+};
+
+typedef struct PgenVariantStruct PgenVariant;
+
+void PreinitPgv(PgenVariant* pgvp);
+
 PglErr PgrGetM(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals, uint32_t* __restrict patch_01_ctp, uint32_t* __restrict patch_10_ctp);
 
 // possible todo: add functions which directly support MAF-based queries.  Note
@@ -1337,7 +1375,7 @@ PglErr PgrGetDCounts(const uintptr_t* __restrict sample_include, const uintptr_t
 
 PglErr PgrGetMDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* __restrict mach_r2_ptr, uint32_t* __restrict het_ctp, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages);
 
-PglErr PgrGetMD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals, uint32_t* __restrict patch_01_ctp, uint32_t* __restrict patch_10_ctp, uintptr_t* __restrict dosage_present, uint16_t* __restrict dosage_main, uint32_t* __restrict dosage_ctp, uintptr_t* __restrict multidosage_present, unsigned char* __restrict multidosage_cts, AlleleCode* __restrict multidosage_codes, uint16_t* __restrict multidosage_vals, uint32_t* __restrict multidosage_sample_ctp);
+PglErr PgrGetMD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, PgenVariant* pgvp);
 
 // ok for both dosage_present and dosage_main to be nullptr when no dosage data
 // is present
@@ -1345,7 +1383,10 @@ PglErr PgrGetMD(const uintptr_t* __restrict sample_include, const uint32_t* __re
 // in that case
 PglErr PgrGetDp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr, uintptr_t* __restrict dphase_present, int16_t* dphase_delta, uint32_t* dphase_ct_ptr);
 
-PglErr PgrGetInv1Dp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgrp, uintptr_t* __restrict allele_invcountvec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* __restrict dosage_ct_ptr, uintptr_t* __restrict dphase_present, int16_t* dphase_delta, uint32_t* __restrict dphase_ct_ptr);
+// pgvp->genovec filled with inverse-counts for specified allele
+PglErr PgrGetInv1Dp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgrp, PgenVariant* pgvp);
+
+PglErr PgrGetMDp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, PgenVariant* pgvp);
 
 // interface used by --make-pgen, just performs basic LD/difflist decompression
 // to maximize parallelism

@@ -291,6 +291,7 @@ HEADER_INLINE BoolErr bigstack_end_alloc_dphase(uintptr_t ct, SDosage** dphase_a
   return !(*dphase_arr_ptr);
 }
 
+BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenGlobalFlags gflags, PgenVariant* pgvp);
 
 char* dosagetoa(uint64_t dosage, char* start);
 
