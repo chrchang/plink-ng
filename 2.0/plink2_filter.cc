@@ -358,7 +358,7 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
   return reterr;
 }
 
-PglErr RmDup(__maybe_unused const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* missing_varid_match, __maybe_unused uint32_t raw_sample_ct, __maybe_unused uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t orig_dup_ct, RmDupMode rmdup_mode, uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* variant_include, uint32_t* variant_ct_ptr, char* outname, char* outname_end) {
+PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* missing_varid_match, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t orig_dup_ct, RmDupMode rmdup_mode, uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* variant_include, uint32_t* variant_ct_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   ReadLineStream rls;
@@ -420,11 +420,12 @@ PglErr RmDup(__maybe_unused const uintptr_t* sample_include, const ChrInfo* cip,
     const char** dup_info_strs = nullptr;
     if (pvar_info_reload && (rmdup_mode < kRmDupExcludeAll)) {
       if (unlikely(
-              bigstack_alloc_kcp(orig_dup_ct, &dup_info_strs) ||
-              bigstack_alloc_u32(raw_variant_ctl, &orig_dups_cumulative_popcounts))) {
+              bigstack_alloc_u32(raw_variant_ctl, &orig_dups_cumulative_popcounts) ||
+              bigstack_alloc_kcp(orig_dup_ct, &dup_info_strs))) {
         goto RmDup_ret_NOMEM;
       }
       FillCumulativePopcounts(orig_dups, raw_variant_ctl, orig_dups_cumulative_popcounts);
+      unsigned char* bigstack_mark2 = g_bigstack_base;
       uintptr_t linebuf_size;
       if (unlikely(StandardizeLinebufSize(bigstack_left() / 4, kMaxMediumLine + 1, &linebuf_size))) {
         goto RmDup_ret_NOMEM;
@@ -442,6 +443,8 @@ PglErr RmDup(__maybe_unused const uintptr_t* sample_include, const ChrInfo* cip,
       if (unlikely(reterr)) {
         goto RmDup_ret_1;
       }
+      logputs("--rm-dup: Loading INFO field... ");
+      fflush(stdout);
       unsigned char* tmp_alloc_end = g_bigstack_end;
       // if INFO column exists, #CHROM header line guaranteed
       do {
@@ -489,9 +492,10 @@ PglErr RmDup(__maybe_unused const uintptr_t* sample_include, const ChrInfo* cip,
           }
         }
       }
+      logputs("done.\n");
       BigstackEndSet(tmp_alloc_end);
       CleanupRLstream(&rls);
-      BigstackReset(orig_dups_cumulative_popcounts);
+      BigstackReset(bigstack_mark2);
     }
     char* write_iter = g_textbuf;
     char* textbuf_flush = &(write_iter[kMaxMediumLine]);
@@ -509,16 +513,19 @@ PglErr RmDup(__maybe_unused const uintptr_t* sample_include, const ChrInfo* cip,
     double first_cm = 0.0;
 
     uint32_t* sample_include_cumulative_popcounts = nullptr;
+    const uint32_t sample_ctb2 = QuaterCtToWordCt(sample_ct) * sizeof(intptr_t);
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    const uint32_t sample_ctb = sample_ctl * sizeof(intptr_t);
     PgenVariant first_pgv;
     PreinitPgv(&first_pgv);
+    PgenVariant cur_pgv;
+    PreinitPgv(&cur_pgv);
     if (simple_pgrp && (rmdup_mode < kRmDupExcludeAll)) {
-      logerrputs("Error: --rm-dup 'error', 'retain-mismatch', and 'exclude-mismatch' modes are\nunder development.\n");
-      reterr = kPglRetNotYetSupported;
-      goto RmDup_ret_1;
       const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
       if (unlikely(
               bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
-              BigstackAllocPgv(sample_ct, allele_idx_offsets != nullptr, simple_pgrp->fi.gflags, &first_pgv))) {
+              BigstackAllocPgv(sample_ct, allele_idx_offsets != nullptr, simple_pgrp->fi.gflags, &first_pgv) ||
+              BigstackAllocPgv(sample_ct, allele_idx_offsets != nullptr, simple_pgrp->fi.gflags, &cur_pgv))) {
         goto RmDup_ret_NOMEM;
       }
       FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
@@ -534,7 +541,7 @@ PglErr RmDup(__maybe_unused const uintptr_t* sample_include, const ChrInfo* cip,
         continue;
       }
       uint32_t first_llidx;
-      uint32_t variant_uidx_ll_first = VariantIdDupHtableFind(cur_id, variant_ids, variant_id_htable, htable_dup_base, strlen(cur_id), variant_id_htable_size, max_variant_id_slen, &first_llidx);
+      const uint32_t variant_uidx_ll_first = VariantIdDupHtableFind(cur_id, variant_ids, variant_id_htable, htable_dup_base, strlen(cur_id), variant_id_htable_size, max_variant_id_slen, &first_llidx);
       assert(first_llidx != UINT32_MAX);
       // 1. Verify this is still a duplicate in the current filtering state.
       // 2. If exclude-all or force-first mode, we're done; otherwise:
@@ -561,13 +568,14 @@ PglErr RmDup(__maybe_unused const uintptr_t* sample_include, const ChrInfo* cip,
       }
       ++duplicate_ct;
       if (rmdup_mode >= kRmDupExcludeAll) {
+        uint32_t dupset_vidx = variant_uidx_ll_first;
         for (uint32_t cur_llidx = first_llidx; ; cur_llidx = htable_dup_base[cur_llidx + 1]) {
-          SetBit(variant_uidx_ll_first, already_seen);
-          ClearBit(variant_uidx_ll_first, variant_include);
+          SetBit(dupset_vidx, already_seen);
+          ClearBit(dupset_vidx, variant_include);
           if (cur_llidx == UINT32_MAX) {
             break;
           }
-          variant_uidx_ll_first = htable_dup_base[cur_llidx];
+          dupset_vidx = htable_dup_base[cur_llidx];
         }
         if (rmdup_mode == kRmDupForceFirst) {
           SetBit(variant_uidx, variant_include);
@@ -617,9 +625,9 @@ PglErr RmDup(__maybe_unused const uintptr_t* sample_include, const ChrInfo* cip,
             continue;
           }
           // Check .pvar fields for equality.
+          is_mismatch = 1;
           if ((GetVariantChrFoIdx(cip, ll_variant_uidx) != first_chr_fo_idx) ||
               (variant_bps[ll_variant_uidx] != first_bp)) {
-            is_mismatch = 1;
             continue;
           }
           if (!allele_idx_offsets) {
@@ -627,38 +635,33 @@ PglErr RmDup(__maybe_unused const uintptr_t* sample_include, const ChrInfo* cip,
           } else {
             allele_idx_offset_base = allele_idx_offsets[ll_variant_uidx];
             if (first_allele_ct != allele_idx_offsets[ll_variant_uidx + 1] - allele_idx_offset_base) {
-              is_mismatch = 1;
               continue;
             }
           }
           const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
-          for (uint32_t aidx = 0; aidx != first_allele_ct; ++aidx) {
+          uint32_t aidx = 0;
+          for (; aidx != first_allele_ct; ++aidx) {
             if (!strequal_overread(first_alleles[aidx], cur_alleles[aidx])) {
-              is_mismatch = 1;
               break;
             }
           }
-          if (is_mismatch) {
+          if (aidx != first_allele_ct) {
             continue;
           }
           if (pvar_qual_present) {
             if ((IsSet(pvar_qual_present, ll_variant_uidx) != first_qual_is_present) || (first_qual_is_present && (pvar_quals[ll_variant_uidx] != first_qual))) {
-              is_mismatch = 1;
               continue;
             }
           }
           if (pvar_filter_present) {
             if (IsSet(pvar_filter_present, ll_variant_uidx) != first_filter_is_present) {
-              is_mismatch = 1;
               continue;
             }
             if (first_filter_is_present) {
               if (IsSet(pvar_filter_npass, ll_variant_uidx) != first_filter_npass) {
-                is_mismatch = 1;
                 continue;
               }
               if (first_filter_npass && (!strequal_overread(first_filter_str, pvar_filter_storage[ll_variant_uidx]))) {
-                is_mismatch = 1;
                 continue;
               }
             }
@@ -666,21 +669,94 @@ PglErr RmDup(__maybe_unused const uintptr_t* sample_include, const ChrInfo* cip,
           if (first_info_str) {
             const uint32_t subsetted_idx = RawToSubsettedPos(orig_dups, orig_dups_cumulative_popcounts, ll_variant_uidx);
             if (!strequal_overread(first_info_str, dup_info_strs[subsetted_idx])) {
-              is_mismatch = 1;
               continue;
             }
           }
           if (variant_cms) {
             if (variant_cms[ll_variant_uidx] != first_cm) {
-              is_mismatch = 1;
               continue;
             }
           }
-          if (simple_pgrp) {
-          }
+          is_mismatch = 0;
         }
         if (cur_llidx == UINT32_MAX) {
           break;
+        }
+      }
+      if ((!is_mismatch) && first_pgv.genovec) {
+        // Avoid loading genotypes when possible.
+        reterr = PgrGetMDp(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, &first_pgv);
+        if (unlikely(reterr)) {
+          if (reterr == kPglRetMalformedInput) {
+            logputs("\n");
+            logerrputs("Error: Malformed .pgen file.\n");
+          }
+          goto RmDup_ret_1;
+        }
+        ZeroTrailingQuaters(sample_ct, first_pgv.genovec);
+        if (first_pgv.phasepresent_ct) {
+          BitvecAnd(first_pgv.phasepresent, sample_ctl, first_pgv.phaseinfo);
+        }
+        cur_llidx = first_llidx;
+        is_mismatch = 1;
+        for (uint32_t ll_variant_uidx = variant_uidx_ll_first; ; ll_variant_uidx = htable_dup_base[cur_llidx], cur_llidx = htable_dup_base[cur_llidx + 1]) {
+          if ((variant_uidx != ll_variant_uidx) && IsSet(orig_dups, ll_variant_uidx)) {
+            reterr = PgrGetMDp(sample_include, sample_include_cumulative_popcounts, sample_ct, ll_variant_uidx, simple_pgrp, &cur_pgv);
+            if (unlikely(reterr)) {
+              if (reterr == kPglRetMalformedInput) {
+                logputs("\n");
+                logerrputs("Error: Malformed .pgen file.\n");
+              }
+              goto RmDup_ret_1;
+            }
+            // todo: multidosage, multidphase
+            if ((first_pgv.patch_01_ct != cur_pgv.patch_01_ct) ||
+                (first_pgv.patch_10_ct != cur_pgv.patch_10_ct) ||
+                (first_pgv.phasepresent_ct != cur_pgv.phasepresent_ct) ||
+                (first_pgv.dosage_ct != cur_pgv.dosage_ct) ||
+                (first_pgv.dphase_ct != cur_pgv.dphase_ct)) {
+              break;
+            }
+            ZeroTrailingQuaters(sample_ct, cur_pgv.genovec);
+            if (!memequal(first_pgv.genovec, cur_pgv.genovec, sample_ctb2)) {
+              break;
+            }
+            if (first_pgv.patch_01_ct) {
+              if ((!memequal(first_pgv.patch_01_set, cur_pgv.patch_01_set, sample_ctb)) ||
+                  (!memequal(first_pgv.patch_01_vals, cur_pgv.patch_01_vals, first_pgv.patch_01_ct * sizeof(AlleleCode)))) {
+                break;
+              }
+            }
+            if (first_pgv.patch_10_ct) {
+              if ((!memequal(first_pgv.patch_10_set, cur_pgv.patch_10_set, sample_ctb)) ||
+                  (!memequal(first_pgv.patch_10_vals, cur_pgv.patch_10_vals, first_pgv.patch_10_ct * sizeof(AlleleCode) * 2))) {
+                break;
+              }
+            }
+            if (first_pgv.phasepresent_ct) {
+              BitvecAnd(cur_pgv.phasepresent, sample_ctl, cur_pgv.phaseinfo);
+              if ((!memequal(first_pgv.phasepresent, cur_pgv.phasepresent, sample_ctb)) ||
+                  (!memequal(first_pgv.phaseinfo, cur_pgv.phaseinfo, sample_ctb))) {
+                break;
+              }
+            }
+            if (first_pgv.dosage_ct) {
+              if ((!memequal(first_pgv.dosage_present, cur_pgv.dosage_present, sample_ctb)) ||
+                  (!memequal(first_pgv.dosage_main, cur_pgv.dosage_main, first_pgv.dosage_ct * sizeof(Dosage)))) {
+                break;
+              }
+              if (first_pgv.dphase_ct) {
+                if ((!memequal(first_pgv.dphase_present, cur_pgv.dphase_present, sample_ctb)) ||
+                    (!memequal(first_pgv.dphase_delta, cur_pgv.dphase_delta, first_pgv.dphase_ct * sizeof(SDosage)))) {
+                  break;
+                }
+              }
+            }
+          }
+          if (cur_llidx == UINT32_MAX) {
+            is_mismatch = 0;
+            break;
+          }
         }
       }
       if (is_mismatch) {
@@ -722,6 +798,8 @@ PglErr RmDup(__maybe_unused const uintptr_t* sample_include, const ChrInfo* cip,
         reterr = kPglRetInconsistentInput;
         goto RmDup_ret_1;
       }
+    } else if (mismatch_ct) {
+      logprintfww("Note: %u duplicate ID%s with inconsistent %svariant information detected by --rm-dup exclude-mismatch; all copies removed.\n", mismatch_ct, (mismatch_ct == 1)? "" : "s", simple_pgrp? "genotype data or " : "");
     }
     *variant_ct_ptr = PopcountWords(variant_include, raw_variant_ctl);
     const uint32_t removed_variant_ct = orig_variant_ct - (*variant_ct_ptr);
@@ -3147,7 +3225,7 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
       putc_unlocked('\b', stdout);
     }
     fputs("\b\b", stdout);
-    logprintf("done.\n");
+    logputs("done.\n");
   }
   while (0) {
   LoadSampleMissingCts_ret_NOMEM:

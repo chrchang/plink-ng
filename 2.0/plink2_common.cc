@@ -58,7 +58,7 @@ BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenG
       return 1;
     }
   }
-  if (gflags & kfPgenGlobalHardcallPhasePresent) {
+  if (gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePhasePresent)) {
     if (unlikely(
             bigstack_alloc_w(sample_ctl, &(pgvp->phasepresent)) ||
             bigstack_alloc_w(sample_ctl, &(pgvp->phaseinfo)))) {

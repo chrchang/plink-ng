@@ -1272,15 +1272,19 @@ uint32_t CopyAndResort16bit(const uintptr_t* __restrict src_subset, const void* 
 
 // Requires trailing bits of genovec to be zeroed out.
 // "Flat" = don't separate one_cts and two_cts.
-void GetMFlatCounts64(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t allele_ct, uint32_t patch_01_ct, uint32_t patch_10_ct, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* all_dosages) {
+void GetMFlatCounts64(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const PgenVariant* pgvp, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t allele_ct, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* all_dosages) {
   if (sample_ct == raw_sample_ct) {
-    GenovecCountFreqsUnsafe(genovec, sample_ct, genocounts);
+    GenovecCountFreqsUnsafe(pgvp->genovec, sample_ct, genocounts);
   } else {
-    GenovecCountSubsetFreqs(genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
+    GenovecCountSubsetFreqs(pgvp->genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
   }
   all_dosages[0] = 2 * genocounts[0] + genocounts[1];
   all_dosages[1] = 2 * genocounts[2] + genocounts[1];
   ZeroU64Arr(allele_ct - 2, &(all_dosages[2]));
+  const AlleleCode* patch_01_vals = pgvp->patch_01_vals;
+  const AlleleCode* patch_10_vals = pgvp->patch_10_vals;
+  const uint32_t patch_01_ct = pgvp->patch_01_ct;
+  const uint32_t patch_10_ct = pgvp->patch_10_ct;
   if (sample_ct == raw_sample_ct) {
     all_dosages[1] -= patch_01_ct + 2 * patch_10_ct;
     for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
@@ -1292,6 +1296,7 @@ void GetMFlatCounts64(const uintptr_t* __restrict sample_include, const uintptr_
     }
   } else {
     if (patch_01_ct) {
+      const uintptr_t* patch_01_set = pgvp->patch_01_set;
       uintptr_t sample_widx = 0;
       uintptr_t patch_01_bits = patch_01_set[0];
       uint32_t subsetted_patch_01_ct = 0;
@@ -1305,6 +1310,7 @@ void GetMFlatCounts64(const uintptr_t* __restrict sample_include, const uintptr_
       all_dosages[1] -= subsetted_patch_01_ct;
     }
     if (patch_10_ct) {
+      const uintptr_t* patch_10_set = pgvp->patch_10_set;
       uintptr_t sample_widx = 0;
       uintptr_t patch_10_bits = patch_10_set[0];
       uint32_t subsetted_patch_10_ct = 0;
@@ -1321,12 +1327,12 @@ void GetMFlatCounts64(const uintptr_t* __restrict sample_include, const uintptr_
   }
 }
 
-void GetMCounts64(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t allele_ct, uint32_t patch_01_ct, uint32_t patch_10_ct, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict one_cts, uint64_t* __restrict two_cts) {
+void GetMCounts64(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const PgenVariant* pgvp, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t allele_ct, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict one_cts, uint64_t* __restrict two_cts) {
   // This mirrors GetMultiallelicCountsAndDosage16s().
   if (sample_ct == raw_sample_ct) {
-    GenovecCountFreqsUnsafe(genovec, sample_ct, genocounts);
+    GenovecCountFreqsUnsafe(pgvp->genovec, sample_ct, genocounts);
   } else {
-    GenovecCountSubsetFreqs(genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
+    GenovecCountSubsetFreqs(pgvp->genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
   }
   one_cts[0] = genocounts[1];
   one_cts[1] = genocounts[1];
@@ -1334,6 +1340,10 @@ void GetMCounts64(const uintptr_t* __restrict sample_include, const uintptr_t* _
   two_cts[0] = genocounts[0];
   two_cts[1] = genocounts[2];
   ZeroU64Arr(allele_ct - 2, &(two_cts[2]));
+  const AlleleCode* patch_01_vals = pgvp->patch_01_vals;
+  const AlleleCode* patch_10_vals = pgvp->patch_10_vals;
+  const uint32_t patch_01_ct = pgvp->patch_01_ct;
+  const uint32_t patch_10_ct = pgvp->patch_10_ct;
   if (sample_ct == raw_sample_ct) {
     one_cts[1] -= patch_01_ct;
     for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
@@ -1353,6 +1363,7 @@ void GetMCounts64(const uintptr_t* __restrict sample_include, const uintptr_t* _
     }
   } else {
     if (patch_01_ct) {
+      const uintptr_t* patch_01_set = pgvp->patch_01_set;
       uintptr_t sample_widx = 0;
       uintptr_t patch_01_bits = patch_01_set[0];
       uint32_t subsetted_patch_01_ct = 0;
@@ -1366,6 +1377,7 @@ void GetMCounts64(const uintptr_t* __restrict sample_include, const uintptr_t* _
       one_cts[1] -= subsetted_patch_01_ct;
     }
     if (patch_10_ct) {
+      const uintptr_t* patch_10_set = pgvp->patch_10_set;
       uintptr_t sample_widx = 0;
       uintptr_t patch_10_bits = patch_10_set[0];
       uint32_t subsetted_patch_10_ct = 0;
@@ -1459,24 +1471,25 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
   const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
   const uint32_t first_hap_uidx = g_first_hap_uidx;
   const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
-  uintptr_t* genovec = g_genovecs[tidx];
-  uintptr_t* patch_01_set = nullptr;
-  AlleleCode* patch_01_vals = nullptr;
-  uintptr_t* patch_10_set = nullptr;
-  AlleleCode* patch_10_vals = nullptr;
+  PgenVariant pgv;
+  pgv.genovec = g_genovecs[tidx];
+  pgv.patch_01_set = nullptr;
+  pgv.patch_01_vals = nullptr;
+  pgv.patch_10_set = nullptr;
+  pgv.patch_10_vals = nullptr;
   if (g_thread_read_mhc) {
-    patch_01_set = g_thread_read_mhc[tidx];
-    patch_01_vals = R_CAST(AlleleCode*, &(patch_01_set[raw_sample_ctl]));
-    AlleleCode* patch_01_vals_end = &(patch_01_vals[raw_sample_ct]);
+    pgv.patch_01_set = g_thread_read_mhc[tidx];
+    pgv.patch_01_vals = R_CAST(AlleleCode*, &(pgv.patch_01_set[raw_sample_ctl]));
+    AlleleCode* patch_01_vals_end = &(pgv.patch_01_vals[raw_sample_ct]);
     VecAlignUp(&patch_01_vals_end);
-    patch_10_set = R_CAST(uintptr_t*, patch_01_vals_end);
-    patch_10_vals = R_CAST(AlleleCode*, &(patch_10_set[raw_sample_ctl]));
+    pgv.patch_10_set = R_CAST(uintptr_t*, patch_01_vals_end);
+    pgv.patch_10_vals = R_CAST(AlleleCode*, &(pgv.patch_10_set[raw_sample_ctl]));
   }
-  uintptr_t* dosage_present = nullptr;
-  Dosage* dosage_main = nullptr;
+  pgv.dosage_present = nullptr;
+  pgv.dosage_main = nullptr;
   if (g_dosage_presents) {
-    dosage_present = g_dosage_presents[tidx];
-    dosage_main = g_dosage_mains[tidx];
+    pgv.dosage_present = g_dosage_presents[tidx];
+    pgv.dosage_main = g_dosage_mains[tidx];
   }
   uint64_t* all_dosages = nullptr;
   if (g_all_dosages) {
@@ -1516,7 +1529,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
     STD_ARRAY_PTR_DECL(uint32_t, 3, x_nosex_geno_cts) = g_x_nosex_geno_cts;
     double* mach_r2_vals = g_mach_r2_vals;
     const uint32_t no_multiallelic_branch = (!variant_hethap_cts) && (!allele_presents_bytearr) && (!allele_dosages) && (!mach_r2_vals);
-    uint32_t dosage_ct = 0;
+    pgv.dosage_ct = 0;
     for (uint32_t subset_idx = 0; ; ) {
       uint32_t cur_idx = (tidx * cur_block_write_ct) / calc_thread_ct;
       uintptr_t variant_uidx_base;
@@ -1621,12 +1634,12 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
             } else {
               // ugh, need to count female/unknown-sex for allele_presents and
               // ignore elsewhere
-              reterr = PgrGetD(nullptr, nullptr, raw_sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
+              reterr = PgrGetD(nullptr, nullptr, raw_sample_ct, variant_uidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &pgv.dosage_ct);
               if (unlikely(reterr)) {
                 g_error_ret = reterr;
                 break;
               }
-              const uint32_t dosage_is_relevant = dosage_ct && ((sample_ct == raw_sample_ct) || (!IntersectionIsEmpty(sample_include, dosage_present, raw_sample_ctl)));
+              const uint32_t dosage_is_relevant = pgv.dosage_ct && ((sample_ct == raw_sample_ct) || (!IntersectionIsEmpty(sample_include, pgv.dosage_present, raw_sample_ctl)));
               if (dosage_is_relevant) {
                 // at least one dosage value is present, that's all we need to
                 // know
@@ -1638,10 +1651,10 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
                 // possible todo: use a specialized function which just checks
                 // which alleles exist
                 if (sample_ct == raw_sample_ct) {
-                  ZeroTrailingQuaters(raw_sample_ct, genovec);
-                  GenovecCountFreqsUnsafe(genovec, sample_ct, genocounts);
+                  ZeroTrailingQuaters(raw_sample_ct, pgv.genovec);
+                  GenovecCountFreqsUnsafe(pgv.genovec, sample_ct, genocounts);
                 } else {
-                  GenovecCountSubsetFreqs(genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
+                  GenovecCountSubsetFreqs(pgv.genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
                 }
                 if (genocounts[0] || genocounts[1]) {
                   allele_presents_bytearr[cur_allele_idx_offset] = 128;
@@ -1650,7 +1663,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
                   allele_presents_bytearr[cur_allele_idx_offset + 1] = 128;
                 }
               }
-              GenovecCountSubsetFreqs(genovec, sex_male_interleaved_vec, raw_sample_ct, male_ct, genocounts);
+              GenovecCountSubsetFreqs(pgv.genovec, sex_male_interleaved_vec, raw_sample_ct, male_ct, genocounts);
               hethap_ct = genocounts[1];
               // x2, x4 since this is haploid
               uintptr_t alt1_ct_x2 = genocounts[2] * 2 + hethap_ct;
@@ -1660,15 +1673,15 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
               uint32_t additional_dosage_ct = 0;
               if (dosage_is_relevant) {
                 uintptr_t sample_widx = 0;
-                uintptr_t dosage_present_bits = dosage_present[0];
+                uintptr_t dosage_present_bits = pgv.dosage_present[0];
                 uint32_t sample_uidx = 0;
-                for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
-                  const uintptr_t lowbit = BitIter1y(dosage_present, &sample_widx, &dosage_present_bits);
+                for (uint32_t dosage_idx = 0; dosage_idx != pgv.dosage_ct; ++dosage_idx) {
+                  const uintptr_t lowbit = BitIter1y(pgv.dosage_present, &sample_widx, &dosage_present_bits);
                   if (sample_include[sample_widx] & lowbit) {
-                    const uintptr_t cur_dosage_val = dosage_main[dosage_idx];
+                    const uintptr_t cur_dosage_val = pgv.dosage_main[dosage_idx];
                     alt1_dosage += cur_dosage_val;
                     alt1_dosage_sq_sum += cur_dosage_val * cur_dosage_val;
-                    const uintptr_t hardcall_code = GetQuaterarrEntry(genovec, sample_uidx);
+                    const uintptr_t hardcall_code = GetQuaterarrEntry(pgv.genovec, sample_uidx);
                     if (hardcall_code != 3) {
                       alt1_ct_x2 -= hardcall_code;
                       alt1_sq_sum_x4 -= hardcall_code * hardcall_code;
@@ -1696,18 +1709,18 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
             }
           } else {
             // chrX
-            reterr = PgrGetD(nullptr, nullptr, raw_sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
+            reterr = PgrGetD(nullptr, nullptr, raw_sample_ct, variant_uidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &pgv.dosage_ct);
             if (unlikely(reterr)) {
               g_error_ret = reterr;
               break;
             }
             if (sample_ct == raw_sample_ct) {
-              ZeroTrailingQuaters(raw_sample_ct, genovec);
-              GenovecCountFreqsUnsafe(genovec, sample_ct, genocounts);
+              ZeroTrailingQuaters(raw_sample_ct, pgv.genovec);
+              GenovecCountFreqsUnsafe(pgv.genovec, sample_ct, genocounts);
             } else {
-              GenovecCountSubsetFreqs(genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
+              GenovecCountSubsetFreqs(pgv.genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
             }
-            GenovecCountSubsetFreqs(genovec, sex_male_interleaved_vec, raw_sample_ct, male_ct, sex_specific_genocounts);
+            GenovecCountSubsetFreqs(pgv.genovec, sex_male_interleaved_vec, raw_sample_ct, male_ct, sex_specific_genocounts);
             hethap_ct = sex_specific_genocounts[1];
             // Could compute mach-r2 iff there are no unknown-sex samples, but
             // probably not worth it since larger datasets could have a small
@@ -1716,7 +1729,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
             // that chrX filter to other software.
 
             if (allele_presents_bytearr) {
-              if (dosage_ct && ((sample_ct == raw_sample_ct) || (!IntersectionIsEmpty(sample_include, dosage_present, raw_sample_ctl)))) {
+              if (pgv.dosage_ct && ((sample_ct == raw_sample_ct) || (!IntersectionIsEmpty(sample_include, pgv.dosage_present, raw_sample_ctl)))) {
                 // at least one dosage value is present, that's all we need to
                 // know
                 allele_presents_bytearr[cur_allele_idx_offset] = 128;
@@ -1737,20 +1750,20 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
               uint32_t additional_dosage_ct = 0;  // missing hardcalls only; nonmales count twice
               // bugfix (12 Jul 2018): dosage_present may be null if dosage_ct
               // == 0
-              if (dosage_ct) {
+              if (pgv.dosage_ct) {
                 uintptr_t sample_uidx_base = 0;
-                uintptr_t dosage_present_bits = dosage_present[0];
+                uintptr_t dosage_present_bits = pgv.dosage_present[0];
                 if (sample_ct == raw_sample_ct) {
-                  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
-                    const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &dosage_present_bits);
-                    const uintptr_t cur_dosage_val = dosage_main[dosage_idx];
+                  for (uint32_t dosage_idx = 0; dosage_idx != pgv.dosage_ct; ++dosage_idx) {
+                    const uintptr_t sample_uidx = BitIter1(pgv.dosage_present, &sample_uidx_base, &dosage_present_bits);
+                    const uintptr_t cur_dosage_val = pgv.dosage_main[dosage_idx];
                     const uintptr_t sex_multiplier = 2 - IsSet(sex_male, sample_uidx);
                     alt1_dosage += cur_dosage_val * sex_multiplier;
 
                     // could call GenoarrCountSubsetIntersectFreqs() twice
                     // instead, but since we've already manually extracted the
                     // sex bit it probably doesn't help?
-                    const uintptr_t hardcall_code = GetQuaterarrEntry(genovec, sample_uidx);
+                    const uintptr_t hardcall_code = GetQuaterarrEntry(pgv.genovec, sample_uidx);
                     if (hardcall_code != 3) {
                       alt1_ct -= hardcall_code * sex_multiplier;
                     } else {
@@ -1758,13 +1771,13 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
                     }
                   }
                 } else {
-                  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
-                    const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &dosage_present_bits);
+                  for (uint32_t dosage_idx = 0; dosage_idx != pgv.dosage_ct; ++dosage_idx) {
+                    const uintptr_t sample_uidx = BitIter1(pgv.dosage_present, &sample_uidx_base, &dosage_present_bits);
                     if (IsSet(sample_include, sample_uidx)) {
-                      const uintptr_t cur_dosage_val = dosage_main[dosage_idx];
+                      const uintptr_t cur_dosage_val = pgv.dosage_main[dosage_idx];
                       const uintptr_t sex_multiplier = 2 - IsSet(sex_male, sample_uidx);
                       alt1_dosage += cur_dosage_val * sex_multiplier;
-                      const uintptr_t hardcall_code = GetQuaterarrEntry(genovec, sample_uidx);
+                      const uintptr_t hardcall_code = GetQuaterarrEntry(pgv.genovec, sample_uidx);
                       if (hardcall_code != 3) {
                         alt1_ct -= hardcall_code * sex_multiplier;
                       } else {
@@ -1789,7 +1802,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
               cur_x_male_geno_cts[1] = sex_specific_genocounts[1];
               cur_x_male_geno_cts[2] = sex_specific_genocounts[2];
               if (x_nosex_geno_cts) {
-                GenovecCountSubsetFreqs(genovec, nosex_interleaved_vec, raw_sample_ct, nosex_ct, sex_specific_genocounts);
+                GenovecCountSubsetFreqs(pgv.genovec, nosex_interleaved_vec, raw_sample_ct, nosex_ct, sex_specific_genocounts);
                 STD_ARRAY_REF(uint32_t, 3) cur_nosex_geno_cts = x_nosex_geno_cts[variant_uidx - x_start];
                 cur_nosex_geno_cts[0] = sex_specific_genocounts[0];
                 cur_nosex_geno_cts[1] = sex_specific_genocounts[1];
@@ -1804,9 +1817,9 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
             } else if (is_y) {
               missing_dosage_ct = male_ct - ((cur_dosages[0] + cur_dosages[1]) / kDosageMax);
             } else {
-              if (dosage_ct) {
-                ZeroTrailingQuaters(raw_sample_ct, genovec);
-                missing_dosage_ct = GenoarrCountMissingInvsubsetUnsafe(genovec, dosage_present, raw_sample_ct);
+              if (pgv.dosage_ct) {
+                ZeroTrailingQuaters(raw_sample_ct, pgv.genovec);
+                missing_dosage_ct = GenoarrCountMissingInvsubsetUnsafe(pgv.genovec, pgv.dosage_present, raw_sample_ct);
               } else {
                 missing_dosage_ct = genocounts[3];
               }
@@ -1866,17 +1879,15 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
             } else {
               // need to count female/unknown-sex for allele_presents and
               // ignore elsewhere
-              uint32_t patch_01_ct;
-              uint32_t patch_10_ct;
-              reterr = PgrGetM(nullptr, nullptr, raw_sample_ct, variant_uidx, pgrp, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, &patch_01_ct, &patch_10_ct);
+              reterr = PgrGetM(nullptr, nullptr, raw_sample_ct, variant_uidx, pgrp, &pgv);
               if (unlikely(reterr)) {
                 g_error_ret = reterr;
                 break;
               }
               // possible todo: use a specialized function which just checks
               // which alleles exist
-              ZeroTrailingQuaters(raw_sample_ct, genovec);
-              GetMFlatCounts64(sample_include, sample_include_interleaved_vec, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, raw_sample_ct, sample_ct, allele_ct, patch_01_ct, patch_10_ct, genocounts, all_dosages);
+              ZeroTrailingQuaters(raw_sample_ct, pgv.genovec);
+              GetMFlatCounts64(sample_include, sample_include_interleaved_vec, &pgv, raw_sample_ct, sample_ct, allele_ct, genocounts, all_dosages);
               for (uintptr_t aidx = 0; aidx != allele_ct; ++aidx) {
                 if (all_dosages[aidx]) {
                   allele_presents_bytearr[cur_allele_idx_offset + aidx] = 128;
@@ -1884,7 +1895,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
               }
 
               uint64_t* two_cts = &(all_dosages[allele_ct]);
-              GetMCounts64(sex_male, sex_male_interleaved_vec, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, raw_sample_ct, male_ct, allele_ct, patch_01_ct, patch_10_ct, genocounts, all_dosages, two_cts);
+              GetMCounts64(sex_male, sex_male_interleaved_vec, &pgv, raw_sample_ct, male_ct, allele_ct, genocounts, all_dosages, two_cts);
               uintptr_t hethap_x2 = 0;
               for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
                 hethap_x2 += all_dosages[aidx];
@@ -1910,23 +1921,21 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
           } else {
             // chrX
             // multiallelic dosages not supported yet
-            uint32_t patch_01_ct;
-            uint32_t patch_10_ct;
-            reterr = PgrGetM(nullptr, nullptr, raw_sample_ct, variant_uidx, pgrp, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, &patch_01_ct, &patch_10_ct);
+            reterr = PgrGetM(nullptr, nullptr, raw_sample_ct, variant_uidx, pgrp, &pgv);
             if (unlikely(reterr)) {
               g_error_ret = reterr;
               break;
             }
-            ZeroTrailingQuaters(raw_sample_ct, genovec);
+            ZeroTrailingQuaters(raw_sample_ct, pgv.genovec);
             // We don't attempt to compute mach_r2 on chrX, so flat counts are
             // fine.
-            GetMFlatCounts64(sample_include, sample_include_interleaved_vec, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, raw_sample_ct, sample_ct, allele_ct, patch_01_ct, patch_10_ct, genocounts, all_dosages);
+            GetMFlatCounts64(sample_include, sample_include_interleaved_vec, &pgv, raw_sample_ct, sample_ct, allele_ct, genocounts, all_dosages);
 
             // Double all counts, then subtract male counts.
             for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
               all_dosages[aidx] *= 2;
             }
-            GenovecCountSubsetFreqs(genovec, sex_male_interleaved_vec, raw_sample_ct, male_ct, sex_specific_genocounts);
+            GenovecCountSubsetFreqs(pgv.genovec, sex_male_interleaved_vec, raw_sample_ct, male_ct, sex_specific_genocounts);
             hethap_ct = sex_specific_genocounts[1];
             if (male_ct) {
               all_dosages[0] -= 2 * sex_specific_genocounts[0] + hethap_ct;
@@ -1934,29 +1943,29 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
               // may underflow
               all_dosages[1] -= 2 * sex_specific_genocounts[2] + hethap_ct;
 
-              if (patch_01_ct) {
+              if (pgv.patch_01_ct) {
                 uintptr_t sample_widx = 0;
-                uintptr_t patch_01_bits = patch_01_set[0];
+                uintptr_t patch_01_bits = pgv.patch_01_set[0];
                 uint32_t male_patch_01_ct = 0;
-                for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
-                  const uintptr_t lowbit = BitIter1y(patch_01_set, &sample_widx, &patch_01_bits);
+                for (uint32_t uii = 0; uii != pgv.patch_01_ct; ++uii) {
+                  const uintptr_t lowbit = BitIter1y(pgv.patch_01_set, &sample_widx, &patch_01_bits);
                   if (sex_male[sample_widx] & lowbit) {
                     ++male_patch_01_ct;
-                    all_dosages[patch_01_vals[uii]] -= 1;
+                    all_dosages[pgv.patch_01_vals[uii]] -= 1;
                   }
                 }
                 all_dosages[1] += male_patch_01_ct;
               }
-              if (patch_10_ct) {
+              if (pgv.patch_10_ct) {
                 uintptr_t sample_widx = 0;
-                uintptr_t patch_10_bits = patch_10_set[0];
+                uintptr_t patch_10_bits = pgv.patch_10_set[0];
                 uint32_t male_patch_10_ct = 0;
-                for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
-                  const uintptr_t lowbit = BitIter1y(patch_10_set, &sample_widx, &patch_10_bits);
+                for (uint32_t uii = 0; uii != pgv.patch_10_ct; ++uii) {
+                  const uintptr_t lowbit = BitIter1y(pgv.patch_10_set, &sample_widx, &patch_10_bits);
                   if (sex_male[sample_widx] & lowbit) {
                     ++male_patch_10_ct;
-                    const AlleleCode code_lo = patch_10_vals[2 * uii];
-                    const AlleleCode code_hi = patch_10_vals[2 * uii + 1];
+                    const AlleleCode code_lo = pgv.patch_10_vals[2 * uii];
+                    const AlleleCode code_hi = pgv.patch_10_vals[2 * uii + 1];
                     all_dosages[code_lo] -= 1;
                     all_dosages[code_hi] -= 1;
                     hethap_ct += (code_lo != code_hi);
@@ -1983,7 +1992,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
               cur_x_male_geno_cts[1] = sex_specific_genocounts[1];
               cur_x_male_geno_cts[2] = sex_specific_genocounts[2];
               if (x_nosex_geno_cts) {
-                GenovecCountSubsetFreqs(genovec, nosex_interleaved_vec, raw_sample_ct, nosex_ct, sex_specific_genocounts);
+                GenovecCountSubsetFreqs(pgv.genovec, nosex_interleaved_vec, raw_sample_ct, nosex_ct, sex_specific_genocounts);
                 STD_ARRAY_REF(uint32_t, 3) cur_nosex_geno_cts = x_nosex_geno_cts[variant_uidx - x_start];
                 cur_nosex_geno_cts[0] = sex_specific_genocounts[0];
                 cur_nosex_geno_cts[1] = sex_specific_genocounts[1];

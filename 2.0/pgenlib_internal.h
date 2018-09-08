@@ -1325,7 +1325,7 @@ typedef struct PgenVariantStruct PgenVariant;
 
 void PreinitPgv(PgenVariant* pgvp);
 
-PglErr PgrGetM(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals, uint32_t* __restrict patch_01_ctp, uint32_t* __restrict patch_10_ctp);
+PglErr PgrGetM(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, PgenVariant* pgvp);
 
 // possible todo: add functions which directly support MAF-based queries.  Note
 // that when the difflist representation is used, we can disqualify some
@@ -1362,7 +1362,7 @@ PglErr PgrGetInv1P(const uintptr_t* __restrict sample_include, const uint32_t* _
 
 PglErr PgrGet2P(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx0, uint32_t allele_idx1, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* __restrict phasepresent_ct_ptr);
 
-PglErr PgrGetMP(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals, uint32_t* __restrict patch_01_ctp, uint32_t* __restrict patch_10_ctp, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* __restrict phasepresent_ct_ptr);
+PglErr PgrGetMP(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, PgenVariant* pgvp);
 
 // if dosage_present and dosage_main are nullptr, dosage data is ignored
 PglErr PgrGetD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr);
@@ -1381,7 +1381,7 @@ PglErr PgrGetMD(const uintptr_t* __restrict sample_include, const uint32_t* __re
 // is present
 // ok for dphase_present/dphase_delta to be nullptr; dphase_ct always set to 0
 // in that case
-PglErr PgrGetDp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr, uintptr_t* __restrict dphase_present, int16_t* dphase_delta, uint32_t* dphase_ct_ptr);
+PglErr PgrGetDp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, PgenVariant* pgvp);
 
 // pgvp->genovec filled with inverse-counts for specified allele
 PglErr PgrGetInv1Dp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgrp, PgenVariant* pgvp);

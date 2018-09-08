@@ -2419,11 +2419,12 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
     uint32_t* sample_include_cumulative_popcounts = nullptr;
     uintptr_t* sex_male_collapsed = nullptr;  // chrX
     uint32_t* sex_male_cumulative_popcounts = nullptr;  // chrY
-    uintptr_t* genovec = nullptr;
-    uintptr_t* patch_01_set = nullptr;
-    AlleleCode* patch_01_vals = nullptr;
-    uintptr_t* patch_10_set = nullptr;
-    AlleleCode* patch_10_vals = nullptr;
+    PgenVariant pgv;
+    pgv.genovec = nullptr;
+    pgv.patch_01_set = nullptr;
+    pgv.patch_01_vals = nullptr;
+    pgv.patch_10_set = nullptr;
+    pgv.patch_10_vals = nullptr;
     uint32_t* diploid_pair_cts = nullptr;
     uint32_t* hap_cts = nullptr;
     const uint32_t more_counts_needed = (max_allele_ct > 2) && (geno_counts_flags & (kfGenoCountsColRefalt1 | kfGenoCountsColRefalt | kfGenoCountsColHomalt1 | kfGenoCountsColAltxy | kfGenoCountsColXy | kfGenoCountsColHapalt1 | kfGenoCountsColHapalt | kfGenoCountsColHap | kfGenoCountsColNumeq));
@@ -2432,11 +2433,11 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
               bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
               bigstack_alloc_w(sample_ctl, &sex_male_collapsed) ||
               bigstack_alloc_u32(raw_sample_ctl, &sex_male_cumulative_popcounts) ||
-              bigstack_alloc_w(QuaterCtToWordCt(raw_sample_ct), &genovec) ||
-              bigstack_alloc_w(sample_ctl, &patch_01_set) ||
-              bigstack_alloc_ac(sample_ct, &patch_01_vals) ||
-              bigstack_alloc_w(sample_ctl, &patch_10_set) ||
-              bigstack_alloc_ac(2 * sample_ct, &patch_10_vals) ||
+              bigstack_alloc_w(QuaterCtToWordCt(raw_sample_ct), &pgv.genovec) ||
+              bigstack_alloc_w(sample_ctl, &pgv.patch_01_set) ||
+              bigstack_alloc_ac(sample_ct, &pgv.patch_01_vals) ||
+              bigstack_alloc_w(sample_ctl, &pgv.patch_10_set) ||
+              bigstack_alloc_ac(2 * sample_ct, &pgv.patch_10_vals) ||
               bigstack_alloc_u32(max_allele_ct * max_allele_ct, &diploid_pair_cts) ||
               bigstack_alloc_u32(max_allele_ct, &hap_cts))) {
         goto WriteGenoCounts_ret_NOMEM;
@@ -2725,9 +2726,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
           }
         }
       } else {
-        uint32_t patch_01_ct;
-        uint32_t patch_10_ct;
-        reterr = PgrGetM(cur_sample_include, cur_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, &patch_01_ct, &patch_10_ct);
+        reterr = PgrGetM(cur_sample_include, cur_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, &pgv);
         if (unlikely(reterr)) {
           if (reterr == kPglRetMalformedInput) {
             logputs("\n");
@@ -2741,15 +2740,15 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
         ZeroU32Arr(allele_ct * allele_ct, diploid_pair_cts);
         diploid_pair_cts[0] = cur_raw_geno_cts[0];
         // lo_idx * allele_ct + hi_idx
-        diploid_pair_cts[1] = cur_raw_geno_cts[1] - patch_01_ct;
-        for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
-          diploid_pair_cts[patch_01_vals[uii]] += 1;
+        diploid_pair_cts[1] = cur_raw_geno_cts[1] - pgv.patch_01_ct;
+        for (uint32_t uii = 0; uii != pgv.patch_01_ct; ++uii) {
+          diploid_pair_cts[pgv.patch_01_vals[uii]] += 1;
         }
         const uintptr_t allele_ctp1 = allele_ct + 1;
-        diploid_pair_cts[allele_ctp1] = cur_raw_geno_cts[2] - patch_10_ct;
-        for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
-          const uintptr_t lo_code = patch_10_vals[2 * uii];
-          const uintptr_t hi_code = patch_10_vals[2 * uii + 1];
+        diploid_pair_cts[allele_ctp1] = cur_raw_geno_cts[2] - pgv.patch_10_ct;
+        for (uint32_t uii = 0; uii != pgv.patch_10_ct; ++uii) {
+          const uintptr_t lo_code = pgv.patch_10_vals[2 * uii];
+          const uintptr_t hi_code = pgv.patch_10_vals[2 * uii + 1];
           diploid_pair_cts[lo_code * allele_ct + hi_code] += 1;
         }
         if (is_autosomal_diploid) {
@@ -2769,26 +2768,26 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
               // possible todo: try making two disjoint PgrGetM calls instead.
               // don't expect that to be better, though.
               uintptr_t sample_widx = 0;
-              uintptr_t cur_patch_bits = patch_01_set[0];
+              uintptr_t cur_patch_bits = pgv.patch_01_set[0];
               uint32_t male_patch_01_ct = 0;
-              for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
-                const uintptr_t lowbit = BitIter1y(patch_01_set, &sample_widx, &cur_patch_bits);
+              for (uint32_t uii = 0; uii != pgv.patch_01_ct; ++uii) {
+                const uintptr_t lowbit = BitIter1y(pgv.patch_01_set, &sample_widx, &cur_patch_bits);
                 if (sex_male_collapsed[sample_widx] & lowbit) {
-                  diploid_pair_cts[patch_01_vals[uii]] -= 1;
+                  diploid_pair_cts[pgv.patch_01_vals[uii]] -= 1;
                   ++male_patch_01_ct;
                 }
               }
               missing_ct += male_patch_01_ct;
               diploid_pair_cts[1] -= cur_male_geno_cts[1] - male_patch_01_ct;
               sample_widx = 0;
-              cur_patch_bits = patch_10_set[0];
+              cur_patch_bits = pgv.patch_10_set[0];
               uint32_t* hap_cts_offset1 = &(hap_cts[1]);
               uint32_t male_patch_10_ct = 0;
-              for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
-                const uintptr_t lowbit = BitIter1y(patch_10_set, &sample_widx, &cur_patch_bits);
+              for (uint32_t uii = 0; uii != pgv.patch_10_ct; ++uii) {
+                const uintptr_t lowbit = BitIter1y(pgv.patch_10_set, &sample_widx, &cur_patch_bits);
                 if (sex_male_collapsed[sample_widx] & lowbit) {
-                  const uintptr_t lo_code = patch_10_vals[2 * uii];
-                  const uintptr_t hi_code = patch_10_vals[2 * uii + 1];
+                  const uintptr_t lo_code = pgv.patch_10_vals[2 * uii];
+                  const uintptr_t hi_code = pgv.patch_10_vals[2 * uii + 1];
                   diploid_pair_cts[lo_code * allele_ct + hi_code] -= 1;
                   ++male_patch_10_ct;
                   if (lo_code == hi_code) {
@@ -3360,19 +3359,15 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
     const uint32_t founder_ctl2 = QuaterCtToWordCt(founder_ct);
     const uint32_t founder_ctl = BitCtToWordCt(founder_ct);
     const uint32_t max_allele_ct = simple_pgrp->fi.max_allele_ct;
-    uintptr_t* genovec;
-    uintptr_t* patch_01_set;
-    AlleleCode* patch_01_vals;
-    uintptr_t* patch_10_set;
-    AlleleCode* patch_10_vals;
+    PgenVariant pgv;
     uint32_t* one_cts;
     uint32_t* two_cts;
     if (unlikely(
-            bigstack_alloc_w(founder_ctl2, &genovec) ||
-            bigstack_alloc_w(founder_ctl, &patch_01_set) ||
-            bigstack_alloc_ac(founder_ct, &patch_01_vals) ||
-            bigstack_alloc_w(founder_ctl, &patch_10_set) ||
-            bigstack_alloc_ac(2 * founder_ct, &patch_10_vals) ||
+            bigstack_alloc_w(founder_ctl2, &(pgv.genovec)) ||
+            bigstack_alloc_w(founder_ctl, &(pgv.patch_01_set)) ||
+            bigstack_alloc_ac(founder_ct, &(pgv.patch_01_vals)) ||
+            bigstack_alloc_w(founder_ctl, &(pgv.patch_10_set)) ||
+            bigstack_alloc_ac(2 * founder_ct, &(pgv.patch_10_vals)) ||
             bigstack_alloc_u32(max_allele_ct, &one_cts) ||
             bigstack_alloc_u32(max_allele_ct, &two_cts))) {
       goto GetMultiallelicMarginalCounts_ret_NOMEM;
@@ -3398,9 +3393,7 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
         }
         const uint32_t allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
         if (allele_ct > 2) {
-          uint32_t patch_01_ct;
-          uint32_t patch_10_ct;
-          reterr = PgrGetM(founder_info, cumulative_popcounts, founder_ct, variant_uidx, simple_pgrp, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, &patch_01_ct, &patch_10_ct);
+          reterr = PgrGetM(founder_info, cumulative_popcounts, founder_ct, variant_uidx, simple_pgrp, &pgv);
           if (unlikely(reterr)) {
             if (reterr == kPglRetMalformedInput) {
               logputs("\n");
@@ -3408,7 +3401,7 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
             }
             goto GetMultiallelicMarginalCounts_ret_1;
           }
-          ZeroTrailingQuaters(founder_ct, genovec);
+          ZeroTrailingQuaters(founder_ct, pgv.genovec);
           ZeroU32Arr(allele_ct, one_cts);
           ZeroU32Arr(allele_ct, two_cts);
           // const uint32_t hom_ref_ct = hwe_geno_cts[variant_uidx][0];
@@ -3416,14 +3409,14 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
           const uint32_t altxy_ct = hwe_geno_cts[variant_uidx][2];
           // two_cts[0] = hom_ref_ct;
           // one_cts[0] = het_ref_ct;
-          one_cts[1] = het_ref_ct - patch_01_ct;
-          two_cts[1] = altxy_ct - patch_10_ct;
-          for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
-            one_cts[patch_01_vals[uii]] += 1;
+          one_cts[1] = het_ref_ct - pgv.patch_01_ct;
+          two_cts[1] = altxy_ct - pgv.patch_10_ct;
+          for (uint32_t uii = 0; uii != pgv.patch_01_ct; ++uii) {
+            one_cts[pgv.patch_01_vals[uii]] += 1;
           }
-          for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
-            const uintptr_t lo_code = patch_10_vals[2 * uii];
-            const uintptr_t hi_code = patch_10_vals[2 * uii + 1];
+          for (uint32_t uii = 0; uii != pgv.patch_10_ct; ++uii) {
+            const uintptr_t lo_code = pgv.patch_10_vals[2 * uii];
+            const uintptr_t hi_code = pgv.patch_10_vals[2 * uii + 1];
             if (lo_code == hi_code) {
               two_cts[lo_code] += 1;
             } else {
@@ -3475,9 +3468,7 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
         const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
         const uint32_t allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
         if (allele_ct > 2) {
-          uint32_t patch_01_ct;
-          uint32_t patch_10_ct;
-          reterr = PgrGetM(founder_knownsex, cumulative_popcounts, founder_x_ct, variant_uidx, simple_pgrp, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, &patch_01_ct, &patch_10_ct);
+          reterr = PgrGetM(founder_knownsex, cumulative_popcounts, founder_x_ct, variant_uidx, simple_pgrp, &pgv);
           if (unlikely(reterr)) {
             if (reterr == kPglRetMalformedInput) {
               logputs("\n");
@@ -3485,24 +3476,24 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
             }
             goto GetMultiallelicMarginalCounts_ret_1;
           }
-          ZeroTrailingQuaters(founder_x_ct, genovec);
+          ZeroTrailingQuaters(founder_x_ct, pgv.genovec);
           ZeroU32Arr(allele_ct, one_cts);
           ZeroU32Arr(allele_ct, two_cts);
           STD_ARRAY_DECL(uint32_t, 4, genocounts);
-          GenovecCountFreqsUnsafe(genovec, founder_x_ct, genocounts);
+          GenovecCountFreqsUnsafe(pgv.genovec, founder_x_ct, genocounts);
           // const uint32_t hom_ref_ct = genocounts[0];
           const uint32_t het_ref_ct = genocounts[1];
           const uint32_t altxy_ct = genocounts[2];
           // two_cts[0] = hom_ref_ct;
           // one_cts[0] = het_ref_ct;
-          one_cts[1] = het_ref_ct - patch_01_ct;
-          two_cts[1] = altxy_ct - patch_10_ct;
-          for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
-            one_cts[patch_01_vals[uii]] += 1;
+          one_cts[1] = het_ref_ct - pgv.patch_01_ct;
+          two_cts[1] = altxy_ct - pgv.patch_10_ct;
+          for (uint32_t uii = 0; uii != pgv.patch_01_ct; ++uii) {
+            one_cts[pgv.patch_01_vals[uii]] += 1;
           }
-          for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
-            const uintptr_t lo_code = patch_10_vals[2 * uii];
-            const uintptr_t hi_code = patch_10_vals[2 * uii + 1];
+          for (uint32_t uii = 0; uii != pgv.patch_10_ct; ++uii) {
+            const uintptr_t lo_code = pgv.patch_10_vals[2 * uii];
+            const uintptr_t hi_code = pgv.patch_10_vals[2 * uii + 1];
             if (lo_code == hi_code) {
               two_cts[lo_code] += 1;
             } else {
@@ -3519,31 +3510,31 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
           if (x_male_xgeno_cts) {
             ZeroU32Arr(allele_ct, one_cts);
             ZeroU32Arr(allele_ct, two_cts);
-            GenovecCountSubsetFreqs(genovec, founder_male_interleaved_vec, founder_x_ct, founder_male_ct, genocounts);
+            GenovecCountSubsetFreqs(pgv.genovec, founder_male_interleaved_vec, founder_x_ct, founder_male_ct, genocounts);
             const uint32_t male_het_ref_ct = genocounts[1];
             const uint32_t male_altxy_ct = genocounts[2];
             one_cts[1] = male_het_ref_ct;
             two_cts[1] = male_altxy_ct;
             uintptr_t sample_widx = 0;
-            uintptr_t cur_patch_bits = patch_01_set[0];
+            uintptr_t cur_patch_bits = pgv.patch_01_set[0];
             uint32_t male_patch_01_ct = 0;
-            for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
-              const uintptr_t lowbit = BitIter1y(patch_01_set, &sample_widx, &cur_patch_bits);
+            for (uint32_t uii = 0; uii != pgv.patch_01_ct; ++uii) {
+              const uintptr_t lowbit = BitIter1y(pgv.patch_01_set, &sample_widx, &cur_patch_bits);
               if (founder_male_collapsed[sample_widx] & lowbit) {
                 ++male_patch_01_ct;
-                one_cts[patch_01_vals[uii]] += 1;
+                one_cts[pgv.patch_01_vals[uii]] += 1;
               }
             }
             one_cts[1] -= male_patch_01_ct;
             sample_widx = 0;
-            cur_patch_bits = patch_10_set[0];
+            cur_patch_bits = pgv.patch_10_set[0];
             uint32_t male_patch_10_ct = 0;
-            for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
-              const uintptr_t lowbit = BitIter1y(patch_10_set, &sample_widx, &cur_patch_bits);
+            for (uint32_t uii = 0; uii != pgv.patch_10_ct; ++uii) {
+              const uintptr_t lowbit = BitIter1y(pgv.patch_10_set, &sample_widx, &cur_patch_bits);
               if (founder_male_collapsed[sample_widx] & lowbit) {
                 ++male_patch_10_ct;
-                const uintptr_t lo_code = patch_10_vals[2 * uii];
-                const uintptr_t hi_code = patch_10_vals[2 * uii + 1];
+                const uintptr_t lo_code = pgv.patch_10_vals[2 * uii];
+                const uintptr_t hi_code = pgv.patch_10_vals[2 * uii + 1];
                 if (lo_code == hi_code) {
                   two_cts[lo_code] += 1;
                 } else {
