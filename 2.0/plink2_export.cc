@@ -4168,7 +4168,9 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
           // if GetChrCodeCounted() is modified to not mutate
           // contig_name_start[], xheader can be changed to const char*
           const uint32_t chr_idx = GetChrCodeCounted(cip, contig_name_end - contig_name_start, contig_name_start);
-          if (IsI32Neg(chr_idx) || (chr_idx == par1_code) || (chr_idx == par2_code)) {
+          // bugfix (8 Sep 2018): must exclude ##contig lines not present in
+          // input, otherwise chr_fo_idx == 0xffffffffU, etc.
+          if (IsI32Neg(chr_idx) || (!IsSet(cip->chr_mask, chr_idx)) || (chr_idx == par1_code) || (chr_idx == par2_code)) {
             continue;
           }
           if (chr_idx == x_code) {

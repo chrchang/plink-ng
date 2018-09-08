@@ -67,7 +67,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (7 Sep 2018)";
+  " (8 Sep 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -2231,7 +2231,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               logerrputs("Error: --normalize and --ref-from-fa require a sorted .pvar/.bim.  Retry this\ncommand after using --make-pgen/--make-bed + --sort-vars to sort your data.\n");
               goto Plink2Core_ret_INCONSISTENT_INPUT;
             }
-            reterr = ProcessFa(variant_include, allele_idx_offsets, cip, pcp->fa_fname, max_allele_ct, max_allele_slen, pcp->fa_flags, variant_bps, allele_storage, refalt1_select, nonref_flags);
+            reterr = ProcessFa(variant_include, allele_idx_offsets, cip, pcp->fa_fname, max_allele_ct, max_allele_slen, pcp->fa_flags, &vpos_sortstatus, variant_bps, allele_storage, refalt1_select, nonref_flags);
             if (unlikely(reterr)) {
               goto Plink2Core_ret_1;
             }
@@ -5661,6 +5661,9 @@ int main(int argc, char** argv) {
           pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "oop-assoc")) {
           logerrputs("Error: --loop-assoc is retired.  Use --within + --split-cat-pheno instead.\n");
+          goto main_ret_INVALID_CMDLINE_A;
+        } else if (strequal_k_unsafe(flagname_p2, "ist-duplicate-vars")) {
+          logerrputs("Error: --list-duplicate-vars is retired.  We recommend --set-all-var-ids +\n--rm-dup for variant deduplication.\n");
           goto main_ret_INVALID_CMDLINE_A;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;

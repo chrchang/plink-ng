@@ -154,7 +154,7 @@ PglErr RefFromFaContig(const uintptr_t* variant_include, const uint32_t* variant
   }
 }
 
-PglErr VNormalizeContig(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* seqbuf, uint32_t chr_fo_idx, uint32_t variant_uidx_last, uint32_t bp_end, unsigned char** alloc_endp, uint32_t* __restrict variant_bps, const char** allele_storage, uint32_t* __restrict nchanged_ct_ptr, uint32_t* __restrict alen_buf) {
+PglErr VNormalizeContig(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* seqbuf, uint32_t chr_fo_idx, uint32_t variant_uidx_last, uint32_t bp_end, unsigned char** alloc_endp, UnsortedVar* vpos_sortstatusp, uint32_t* __restrict variant_bps, const char** allele_storage, uint32_t* __restrict nchanged_ct_ptr, uint32_t* __restrict alen_buf) {
   uintptr_t variant_uidx_base;
   uintptr_t cur_bits;
   BitIter1Start(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], &variant_uidx_base, &cur_bits);
@@ -174,9 +174,20 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const uintptr_t* allel
   unsigned char* alloc_end = *alloc_endp;
   uint32_t nchanged_ct = *nchanged_ct_ptr;
   uint32_t allele_ct = 2;
+  uint32_t prev_bp = 0;
+  uint32_t is_unsorted = ((*vpos_sortstatusp) / kfUnsortedVarBp) & 1;
   uint32_t cur_bp;
   goto VNormalizeContig_loop_start;
-  for (; variant_uidx != variant_uidx_last; ) {
+  while (1) {
+    if (!is_unsorted) {
+      if (prev_bp > cur_bp) {
+        is_unsorted = 1;
+      }
+      prev_bp = cur_bp;
+    }
+    if (variant_uidx == variant_uidx_last) {
+      break;
+    }
     variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
   VNormalizeContig_loop_start:
     cur_bp = variant_bps[variant_uidx];
@@ -188,7 +199,8 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const uintptr_t* allel
     const char** cur_alleles = &(allele_storage[allele_idx_offset_base]);
     {
       uint32_t aidx = 0;
-      // Common case: if all alleles have length 1, variant must be normalized.
+      // Common case: if all alleles have length 1, variant must already be
+      // normalized.
       for (; aidx != allele_ct; ++aidx) {
         if (cur_alleles[aidx][1]) {
           break;
@@ -305,7 +317,6 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const uintptr_t* allel
         }
       }
     VNormalizeContig_ltrim1_done:
-      variant_bps[variant_uidx] += ltrim;
       const uint32_t ltrim_p1 = ltrim + 1;
       for (uint32_t aidx = first_aidx; aidx != allele_ct; ++aidx) {
         if (aidx == missing_aidx) {
@@ -329,6 +340,8 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const uintptr_t* allel
           cur_alleles[aidx] = &(cur_alleles[aidx][ltrim]);
         }
       }
+      cur_bp += ltrim;
+      variant_bps[variant_uidx] = cur_bp;
       continue;
     }
     // cur_bp == 0 is possible for e.g. an indel at the beginning of chr17.
@@ -364,9 +377,10 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const uintptr_t* allel
   VNormalizeContig_rtrim_done:
     if (rtrim >= min_alen) {
       lshift = rtrim + 1 - min_alen;
-      shifted_ref = &(seqbuf[cur_bp - lshift]);
+      cur_bp -= lshift;
+      shifted_ref = &(seqbuf[cur_bp]);
       // min_alen = 1;
-      variant_bps[variant_uidx] -= lshift;
+      variant_bps[variant_uidx] = cur_bp;
     } else {
       min_alen -= rtrim;
       if ((left_match != UINT32_MAX) && (min_alen > 1)) {
@@ -386,7 +400,8 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const uintptr_t* allel
         }
       }
     VNormalizeContig_ltrim2_done:
-      variant_bps[variant_uidx] += ltrim;
+      cur_bp += ltrim;
+      variant_bps[variant_uidx] = cur_bp;
     }
     for (uint32_t aidx = first_aidx; aidx != allele_ct; ++aidx) {
       if (aidx == missing_aidx) {
@@ -425,11 +440,14 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const uintptr_t* allel
     }
   }
   *alloc_endp = alloc_end;
+  if (is_unsorted) {
+    *vpos_sortstatusp |= kfUnsortedVarBp;
+  }
   *nchanged_ct_ptr = nchanged_ct;
   return kPglRetSuccess;
 }
 
-PglErr ProcessFa(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* fname, uint32_t max_allele_ct, uint32_t max_allele_slen, FaFlags flags, uint32_t* variant_bps, const char** allele_storage, STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uintptr_t* nonref_flags) {
+PglErr ProcessFa(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* fname, uint32_t max_allele_ct, uint32_t max_allele_slen, FaFlags flags, UnsortedVar* vpos_sortstatusp, uint32_t* variant_bps, const char** allele_storage, STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uintptr_t* nonref_flags) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
@@ -526,7 +544,7 @@ PglErr ProcessFa(const uintptr_t* variant_include, const uintptr_t* allele_idx_o
             }
           }
           if (flags & kfFaNormalize) {
-            reterr = VNormalizeContig(variant_include, allele_idx_offsets, cip, seqbuf, chr_fo_idx, cur_vidx_last, bp_end, &tmp_alloc_end, variant_bps, allele_storage, &nchanged_ct, alen_buf);
+            reterr = VNormalizeContig(variant_include, allele_idx_offsets, cip, seqbuf, chr_fo_idx, cur_vidx_last, bp_end, &tmp_alloc_end, vpos_sortstatusp, variant_bps, allele_storage, &nchanged_ct, alen_buf);
             if (unlikely(reterr)) {
               goto ProcessFa_ret_1;
             }
@@ -610,13 +628,16 @@ PglErr ProcessFa(const uintptr_t* variant_include, const uintptr_t* allele_idx_o
         // slightly redundant
         *seq_iter = '\0';
         const uint32_t bp_end = seq_iter - seqbuf;
-        reterr = VNormalizeContig(variant_include, allele_idx_offsets, cip, seqbuf, chr_fo_idx, cur_vidx_last, bp_end, &tmp_alloc_end, variant_bps, allele_storage, &nchanged_ct, alen_buf);
+        reterr = VNormalizeContig(variant_include, allele_idx_offsets, cip, seqbuf, chr_fo_idx, cur_vidx_last, bp_end, &tmp_alloc_end, vpos_sortstatusp, variant_bps, allele_storage, &nchanged_ct, alen_buf);
         if (unlikely(reterr)) {
           goto ProcessFa_ret_1;
         }
       }
       BigstackEndSet(tmp_alloc_end);
       logprintf("--normalize: %u variant%s changed.\n", nchanged_ct, (nchanged_ct == 1)? "" : "s");
+      if ((*vpos_sortstatusp) & kfUnsortedVarBp) {
+        logerrprintf("Warning: Base-pair positions are now unsorted!\n");
+      }
     }
   }
   while (0) {

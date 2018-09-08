@@ -5279,7 +5279,9 @@ PglErr MakePlink2Vsort(const char* xheader, const uintptr_t* sample_include, con
             chr_end = cip->chr_fo_vidx_start[old_chr_fo_idx + 1];
           } while (variant_uidx >= chr_end);
           chr_idx = cip->chr_file_order[old_chr_fo_idx];
-          write_vidx = write_chr_info.chr_idx_to_foidx[chr_idx];
+          // bugfix (8 Sep 2018): write_vidx was set to the wrong value here
+          const uint32_t new_chr_fo_idx = write_chr_info.chr_idx_to_foidx[chr_idx];
+          write_vidx = write_chr_info.chr_fo_vidx_start[new_chr_fo_idx];
         }
         pos_vidx_sort_buf[write_vidx] = (S_CAST(uint64_t, variant_bps[variant_uidx]) << 32) | variant_uidx;
       }
