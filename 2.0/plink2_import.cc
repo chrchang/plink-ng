@@ -110,20 +110,6 @@ typedef struct GparseReadVcfMetadataStruct {
 //       iff allele_ct > 2:
 //         todo; probably want to exploit alternate size limit
 
-// There is a rare bug which, when (and only when) multiple VCF parsing threads
-// are active (and maybe dosage= has to be specified as well?), can cause the
-// output .pgen to be corrupt, in a way that may simultaneously not trigger a
-// "malformed .pgen" error until 70% of the way in, but is detected by the
-// validator as extra bytes in variant #1; see
-//   https://groups.google.com/forum/#!topic/plink2-users/aB-Msjfger0
-// The code guarded by DEBUG_VCF_PARSE tries to track down the source of the
-// problem.
-#define DEBUG_VCF_PARSE
-#ifdef DEBUG_VCF_PARSE
-const uint32_t g_debug_sentinel32 = 0xdeadbeefU;
-static uint64_t g_thread_wkspace_sentinel_offset = 0;
-#endif
-
 uint64_t GparseWriteByteCt(uint32_t sample_ct, uint32_t allele_ct, GparseFlags flags) {
   const uint32_t is_multiallelic = (allele_ct > 2);
   uint64_t vec_ct = QuaterCtToVecCt(sample_ct);
@@ -151,10 +137,6 @@ uint64_t GparseWriteByteCt(uint32_t sample_ct, uint32_t allele_ct, GparseFlags f
       vec_ct += vec_incr * (1 + ((flags / kfGparseDphase) & 1));
     }
   }
-#ifdef DEBUG_VCF_PARSE
-  // Add 1, so we can add guard bytes and verify they're undisturbed.
-  ++vec_ct;
-#endif
   return vec_ct * kBytesPerVec;
 }
 
@@ -225,123 +207,6 @@ uintptr_t* GparseGetPointers(unsigned char* record_start, uint32_t sample_ct, ui
   }
   return genovec;
 }
-
-#ifdef DEBUG_VCF_PARSE
-PglErr GparseFlushDebug(const GparseRecord* grp, uint32_t write_block_size, STPgenWriter* spgwp) {
-  PglErr reterr = kPglRetSuccess;
-  {
-    const uintptr_t* allele_idx_offsets = spgwp->pwc.allele_idx_offsets;
-    if (allele_idx_offsets) {
-      allele_idx_offsets = &(allele_idx_offsets[spgwp->pwc.vidx]);
-    }
-    const uint32_t sample_ct = spgwp->pwc.sample_ct;
-    uint32_t allele_ct = 2;
-    uintptr_t* patch_01_set = nullptr;
-    AlleleCode* patch_01_vals = nullptr;
-    uintptr_t* patch_10_set = nullptr;
-    AlleleCode* patch_10_vals = nullptr;
-    uintptr_t* phasepresent = nullptr;
-    uintptr_t* phaseinfo = nullptr;
-    uintptr_t* dosage_present = nullptr;
-    Dosage* dosage_main = nullptr;
-    uintptr_t* dphase_present = nullptr;
-    SDosage* dphase_delta = nullptr;
-    // todo: multiallelic dosage buffers
-    for (uintptr_t write_block_vidx = 0; write_block_vidx != write_block_size; ++write_block_vidx) {
-      const GparseRecord* cur_gparse_rec = &(grp[write_block_vidx]);
-      const GparseFlags flags = cur_gparse_rec->flags;
-      if (allele_idx_offsets) {
-        allele_ct = allele_idx_offsets[write_block_vidx + 1] - allele_idx_offsets[write_block_vidx];
-      }
-      if (write_block_vidx) {
-        if (memcmp(&(cur_gparse_rec->record_start[-kBytesPerVec]), &g_debug_sentinel32, 4)) {
-          logerrprintf("Error: Buffer overrun detected by GparseFlushDebug() at end of variant %u.\n", spgwp->pwc.vidx + write_block_vidx - 1);
-          exit(S_CAST(int32_t, kPglRetInternalError));
-        }
-      }
-      uintptr_t* genovec = GparseGetPointers(cur_gparse_rec->record_start, sample_ct, allele_ct, flags, &patch_01_set, &patch_01_vals, &patch_10_set, &patch_10_vals, &phasepresent, &phaseinfo, &dosage_present, &dosage_main, &dphase_present, &dphase_delta);
-      if ((sample_ct % kBitsPerWordD2) && (genovec[sample_ct / kBitsPerWordD2] >> (2 * (sample_ct % kBitsPerWordD2)))) {
-        logerrprintf("Error: Dirty genovec trailing bits detected by GparseFlushDebug() in variant %u.\n", spgwp->pwc.vidx + write_block_vidx);
-        exit(S_CAST(int32_t, kPglRetInternalError));
-      }
-      const GparseWriteMetadata* cur_gwmp = &(cur_gparse_rec->metadata.write);
-      if (!(flags & (kfGparseHphase | kfGparseDosage))) {
-        if (allele_ct == 2) {
-          if (unlikely(SpgwAppendBiallelicGenovec(genovec, spgwp))) {
-            goto GparseFlushDebug_ret_WRITE_FAIL;
-          }
-        } else {
-          reterr = SpgwAppendMultiallelicSparse(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, cur_gwmp->patch_01_ct, cur_gwmp->patch_10_ct, spgwp);
-          if (unlikely(reterr)) {
-            goto GparseFlushDebug_ret_1;
-          }
-        }
-      } else {
-        const uint32_t cur_dosage_ct = cur_gwmp->dosage_ct;
-        const uint32_t cur_dphase_ct = cur_gwmp->dphase_ct;
-        if (!cur_dphase_ct) {
-          if (!cur_dosage_ct) {
-            if (allele_ct == 2) {
-              if (!cur_gwmp->phasepresent_exists) {
-                if (unlikely(SpgwAppendBiallelicGenovec(genovec, spgwp))) {
-                  goto GparseFlushDebug_ret_WRITE_FAIL;
-                }
-              } else {
-                if ((sample_ct % kBitsPerWord) && (phasepresent[sample_ct / kBitsPerWord] >> (sample_ct % kBitsPerWord))) {
-                  logerrprintf("Error: Dirty phasepresent trailing bits detected by GparseFlushDebug() in variant %u.\n", spgwp->pwc.vidx + write_block_vidx);
-                  exit(S_CAST(int32_t, kPglRetInternalError));
-                }
-                if (unlikely(SpgwAppendBiallelicGenovecHphase(genovec, phasepresent, phaseinfo, spgwp))) {
-                  goto GparseFlushDebug_ret_WRITE_FAIL;
-                }
-              }
-            } else {
-              if (!cur_gwmp->phasepresent_exists) {
-                if (unlikely(SpgwAppendMultiallelicSparse(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, cur_gwmp->patch_01_ct, cur_gwmp->patch_10_ct, spgwp))) {
-                  goto GparseFlushDebug_ret_WRITE_FAIL;
-                }
-              } else {
-                if (unlikely(SpgwAppendMultiallelicGenovecHphase(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, phasepresent, phaseinfo, cur_gwmp->patch_01_ct, cur_gwmp->patch_10_ct, spgwp))) {
-                  goto GparseFlushDebug_ret_WRITE_FAIL;
-                }
-              }
-            }
-          } else {
-            if (!cur_gwmp->phasepresent_exists) {
-              reterr = SpgwAppendBiallelicGenovecDosage16(genovec, dosage_present, dosage_main, cur_dosage_ct, spgwp);
-            } else {
-              if ((sample_ct % kBitsPerWord) && (phasepresent[sample_ct / kBitsPerWord] >> (sample_ct % kBitsPerWord))) {
-                logerrprintf("Error: Dirty phasepresent trailing bits detected by GparseFlushDebug() in variant %u.\n", spgwp->pwc.vidx + write_block_vidx);
-                exit(S_CAST(int32_t, kPglRetInternalError));
-              }
-              reterr = SpgwAppendBiallelicGenovecHphaseDosage16(genovec, phasepresent, phaseinfo, dosage_present, dosage_main, cur_dosage_ct, spgwp);
-            }
-            if (unlikely(reterr)) {
-              goto GparseFlushDebug_ret_1;
-            }
-          }
-        } else {
-          if (phasepresent && (sample_ct % kBitsPerWord) && (phasepresent[sample_ct / kBitsPerWord] >> (sample_ct % kBitsPerWord))) {
-            logerrprintf("Error: Dirty phasepresent trailing bits detected by GparseFlushDebug() in variant %u.\n", spgwp->pwc.vidx + write_block_vidx);
-            exit(S_CAST(int32_t, kPglRetInternalError));
-          }
-          reterr = SpgwAppendBiallelicGenovecDphase16(genovec, phasepresent, phaseinfo, dosage_present, dphase_present, dosage_main, dphase_delta, cur_dosage_ct, cur_dphase_ct, spgwp);
-          if (unlikely(reterr)) {
-            goto GparseFlushDebug_ret_1;
-          }
-        }
-      }
-    }
-  }
-  while (0) {
-  GparseFlushDebug_ret_WRITE_FAIL:
-    reterr = kPglRetWriteFail;
-    break;
-  }
- GparseFlushDebug_ret_1:
-  return reterr;
-}
-#endif
 
 PglErr GparseFlush(const GparseRecord* grp, uint32_t write_block_size, STPgenWriter* spgwp) {
   PglErr reterr = kPglRetSuccess;
@@ -3340,7 +3205,6 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       reterr = RlsOpenMaybeBgzf(vcfname, decompress_thread_ct, &vcf_rls);
       if (unlikely(reterr)) {
         if (reterr == kPglRetOpenFail) {
-          DPrintf("Stream reopen failure.\n");
           goto VcfToPgen_ret_READ_FAIL;
         }
         goto VcfToPgen_ret_1;
@@ -3348,15 +3212,11 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       if (calc_thread_ct + decompress_thread_ct > max_thread_ct) {
         calc_thread_ct = MAXV(1, max_thread_ct - decompress_thread_ct);
       }
-      DPrintf("Pass 2 calc_thread_ct: %u\n", calc_thread_ct);
     }
-    DPrintf("g_bigstack_end before stream reallocate: %lx\n", R_CAST(uintptr_t, g_bigstack_end));
     reterr = InitRLstreamEx(1, kMaxLongLine, MAXV(max_line_blen, kRLstreamBlenFast), &vcf_rls, &line_iter);
     if (unlikely(reterr)) {
-      DPrintf("Stream reinitialization failure.\n");
       goto VcfToPgen_ret_1;
     }
-    DPrintf("g_bigstack_end after stream reallocate: %lx\n", R_CAST(uintptr_t, g_bigstack_end));
 
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
     if (unlikely(fopen_checked(outname, FOPEN_WB, &pvarfile))) {
@@ -3365,7 +3225,6 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     for (line_idx = 1; ; ++line_idx) {
       // ok to ignore specific return value since this is second pass
       if (unlikely(RlsNext(&vcf_rls, &line_iter))) {
-        DPrintf("Stream header read failure.\n");
         goto VcfToPgen_ret_READ_FAIL;
       }
       if (line_idx == header_line_ct) {
@@ -3501,8 +3360,6 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     if (unlikely(bigstack_alloc_c(2 * max_allele_slen + max_qualfilterinfo_slen + kMaxMediumLine + kMaxIdSlen + 32, &writebuf))) {
       goto VcfToPgen_ret_NOMEM;
     }
-    DPrintf("start of writebuf: %lx\n", R_CAST(uintptr_t, writebuf));
-    DPrintf("end of writebuf: %lx\n", R_CAST(uintptr_t, g_bigstack_base));
     write_iter = writebuf;
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
     if (max_alt_ct > kPglMaxAltAlleleCt) {
@@ -3563,10 +3420,6 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       uint64_t max_write_byte_ct = GparseWriteByteCt(sample_ct, max_allele_ct, gparse_flags);
       // always allocate tmp_dphase_delta for now
       uint64_t thread_wkspace_cl_ct = DivUp(max_write_byte_ct + sample_ct * sizeof(SDosage), kCacheline);
-#ifdef DEBUG_VCF_PARSE
-      g_thread_wkspace_sentinel_offset = thread_wkspace_cl_ct * kCacheline;
-      thread_wkspace_cl_ct += 1;
-#endif
       uintptr_t cachelines_avail = bigstack_left() / (6 * kCacheline);
       if (calc_thread_ct * thread_wkspace_cl_ct > cachelines_avail) {
         if (unlikely(thread_wkspace_cl_ct > cachelines_avail)) {
@@ -3574,15 +3427,10 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         }
         calc_thread_ct = cachelines_avail / thread_wkspace_cl_ct;
       }
-      DPrintf("start of thread_wkspaces: %lx\n", R_CAST(uintptr_t, g_bigstack_base));
       for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
         g_thread_wkspaces[tidx] = S_CAST(unsigned char*, bigstack_alloc_raw(thread_wkspace_cl_ct * kCacheline));
-#ifdef DEBUG_VCF_PARSE
-        memcpy(&(g_thread_wkspaces[tidx][g_thread_wkspace_sentinel_offset]), &g_debug_sentinel32, 4);
-#endif
         g_vcf_parse_errs[tidx] = kVcfParseOk;
       }
-      DPrintf("end of thread_wkspaces: %lx\n", R_CAST(uintptr_t, g_bigstack_base));
 
       // be pessimistic re: rounding
       cachelines_avail = (bigstack_left() / kCacheline) - 4;
@@ -3610,15 +3458,12 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       g_gparse[0] = S_CAST(GparseRecord*, bigstack_alloc_raw_rd(main_block_size * sizeof(GparseRecord)));
       g_gparse[1] = S_CAST(GparseRecord*, bigstack_alloc_raw_rd(main_block_size * sizeof(GparseRecord)));
       cachelines_avail = bigstack_left() / (kCacheline * 2);
-      DPrintf("start of geno_bufs: %lx\n", R_CAST(uintptr_t, g_bigstack_base));
       geno_bufs[0] = S_CAST(unsigned char*, bigstack_alloc_raw(cachelines_avail * kCacheline));
       geno_bufs[1] = S_CAST(unsigned char*, bigstack_alloc_raw(cachelines_avail * kCacheline));
-      DPrintf("end of geno_bufs: %lx\n", R_CAST(uintptr_t, g_bigstack_base));
       // This is only used for comparison purposes, so it is unnecessary to
       // round it down to a multiple of kBytesPerVec even though every actual
       // record will be vector-aligned.
       per_thread_byte_limit = (cachelines_avail * kCacheline) / calc_thread_ct;
-      DPrintf("per_thread_byte_limit: %lx\n", per_thread_byte_limit);
     }
 
     // Main workflow:
@@ -3680,9 +3525,6 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
             memcpy(geno_buf_iter, linebuf_iter, genotext_byte_ct);
           }
           geno_buf_iter = &(geno_buf_iter[record_byte_ct]);
-#ifdef DEBUG_VCF_PARSE
-          memcpy(&(geno_buf_iter[-kBytesPerVec]), &g_debug_sentinel32, 4);
-#endif
           ++block_vidx;
 
           // true iff this is the last variant we're keeping in the entire
@@ -3701,8 +3543,6 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           // of reterr, but we currently need this to investigate a bug.
           reterr = RlsNext(&vcf_rls, &line_iter);
           if (unlikely(reterr)) {
-            DPrintf("Stream body read failure.\n");
-            DPrintf("reterr: %u  line_idx: %" PRIuPTR "  sample_ct: %u\n", S_CAST(uint32_t, reterr), line_idx, sample_ct);
             goto VcfToPgen_ret_READ_FAIL;
           }
 
@@ -3826,13 +3666,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           }
           allele_ct = alt_ct + 1;
           const uintptr_t write_byte_ct_limit = GparseWriteByteCt(sample_ct, allele_ct, gparse_flags);
-#ifdef DEBUG_VCF_PARSE
-          // Guarantee that kBytesPerVec bytes at the end of each record can be
-          // used for buffer-overflow checking.
-          record_byte_ct = MAXV(RoundUpPow2(genotext_byte_ct + kBytesPerVec, kBytesPerVec), write_byte_ct_limit);
-#else
           record_byte_ct = MAXV(RoundUpPow2(genotext_byte_ct, kBytesPerVec), write_byte_ct_limit);
-#endif
 
           if ((block_vidx == cur_thread_block_vidx_limit) || (S_CAST(uintptr_t, cur_thread_byte_stop - geno_buf_iter) < record_byte_ct)) {
             thread_bidxs[++cur_thread_fill_idx] = block_vidx;
@@ -3863,11 +3697,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         parity = 1 - parity;
         if (vidx_start) {
           // write *previous* block results
-#ifdef DEBUG_VCF_PARSE
-          reterr = GparseFlushDebug(g_gparse[parity], prev_block_write_ct, &spgw);
-#else
           reterr = GparseFlush(g_gparse[parity], prev_block_write_ct, &spgw);
-#endif
           if (unlikely(reterr)) {
             goto VcfToPgen_ret_1;
           }
@@ -3888,14 +3718,6 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       vidx_start += cur_block_write_ct;
       prev_block_write_ct = cur_block_write_ct;
     }
-#ifdef DEBUG_VCF_PARSE
-    for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-      if (memcmp(&(g_thread_wkspaces[tidx][g_thread_wkspace_sentinel_offset]), &g_debug_sentinel32, 4)) {
-        logerrprintfww("Error: Buffer overrun detected by VcfToPgen() at end of thread %u workspace. (calc_thread_ct == %u.)\n", tidx, calc_thread_ct);
-        exit(S_CAST(int32_t, kPglRetInternalError));
-      }
-    }
-#endif
     if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &pvarfile))) {
       goto VcfToPgen_ret_WRITE_FAIL;
     }

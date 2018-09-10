@@ -14,10 +14,6 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
-
-// temporary
-#include "htslib/htslib/hfile.h"
-
 #include "plink2_decompress.h"
 
 #ifdef __cplusplus
@@ -217,7 +213,6 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
       if (!read_attempt_size) {
         const uint32_t memmove_required = (read_stop == buf_end);
         if (unlikely((cur_block_start == buf) && memmove_required)) {
-          DPrintf("long line fail 1\n");
           goto ReadLineStreamThread_LONG_LINE;
         }
         // We cannot continue reading forward.  Cases:
@@ -317,7 +312,6 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
       if (bgz_infile) {
         bytes_read = bgzf_read(bgz_infile, read_head, read_attempt_size);
         if (unlikely(bytes_read == -1)) {
-          DPrintf("bgzf_read() failure.  bgzf.errcode=%u  errno=%d\n", bgz_infile->errcode, bgz_infile->fp->has_errno);
           goto ReadLineStreamThread_READ_FAIL;
         }
       } else {
@@ -327,7 +321,6 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
       if (bytes_read < S_CAST(int32_t, S_CAST(uint32_t, read_attempt_size))) {
         if (!bgz_infile) {
           if (unlikely(!gzeof(gz_infile))) {
-            DPrintf("!gzeof(gz_infile).  bytes_read=%d  read_attempt_size=%" PRIuPTR "\n", bytes_read, read_attempt_size);
             goto ReadLineStreamThread_READ_FAIL;
           }
         }
@@ -345,7 +338,6 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
       if (last_lf) {
         if (S_CAST(uintptr_t, last_lf - cur_block_start) >= enforced_max_line_blen) {
           if (unlikely(!memchr(read_head, '\n', &(cur_block_start[enforced_max_line_blen]) - read_head))) {
-            DPrintf("long line fail 2\n");
             goto ReadLineStreamThread_LONG_LINE;
           }
         }
@@ -362,6 +354,9 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
         char* latest_consume_tail = syncp->consume_tail;
         const uint32_t all_later_bytes_consumed = (latest_consume_tail <= cur_block_start);
         const uint32_t return_to_start = all_later_bytes_consumed && (latest_consume_tail >= &(buf[kDecompressChunkSize]));
+        ;;;
+        // BUG? (9 Sep 2018): if this is exactly the position of consume_tail,
+        // and cur_circular_end is later, we can incorrectly skip lines here?
         syncp->available_end = next_available_end;
         if (return_to_start) {
           syncp->cur_circular_end = next_available_end;
@@ -492,12 +487,10 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
     if (!new_fname) {
       if (bgz_infile) {
         if (unlikely(bgzf_seek(bgz_infile, 0, SEEK_SET))) {
-          DPrintf("bgzf_seek fail\n");
           goto ReadLineStreamThread_READ_FAIL;
         }
       } else {
         if (unlikely(gzrewind(gz_infile))) {
-          DPrintf("gzrewind fail\n");
           goto ReadLineStreamThread_READ_FAIL;
         }
       }
@@ -516,20 +509,17 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
       uint32_t new_file_is_bgzf;
       reterr = IsBgzf(new_fname, &new_file_is_bgzf);
       if (unlikely(reterr)) {
-        DPrintf("IsBgzf fail\n");
         goto ReadLineStreamThread_OPEN_OR_READ_FAIL;
       }
       if (new_file_is_bgzf) {
         bgz_infile = bgzf_open(new_fname, "r");
         context->bgz_infile = bgz_infile;
         if (unlikely(!bgz_infile)) {
-          DPrintf("bgzf_open fail\n");
           goto ReadLineStreamThread_OPEN_FAIL;
         }
 #ifndef _WIN32
         if (context->bgzf_decompress_thread_ct > 1) {
           if (unlikely(bgzf_mt(bgz_infile, context->bgzf_decompress_thread_ct, 128))) {
-            DPrintf("bgzf_mt fail\n");
             goto ReadLineStreamThread_NOMEM;
           }
         }
@@ -540,12 +530,10 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
         gz_infile = gzopen(new_fname, FOPEN_RB);
         context->gz_infile = gz_infile;
         if (unlikely(!gz_infile)) {
-          DPrintf("gzopen fail\n");
           goto ReadLineStreamThread_OPEN_FAIL;
         }
         if (unlikely(gzbuffer(gz_infile, 131072))) {
           // is this actually possible?
-          DPrintf("gzbuffer fail\n");
           goto ReadLineStreamThread_NOMEM;
         }
       }
@@ -704,7 +692,7 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
     }
     char* available_end = syncp->available_end;
     char* cur_circular_end = syncp->cur_circular_end;
-    if (consume_iter != available_end) {
+    if ((consume_iter != available_end) || (cur_circular_end && (cur_circular_end != consume_iter))) {
       if (cur_circular_end) {
         if (cur_circular_end == consume_iter) {
           char* buf = rlsp->buf;
@@ -760,7 +748,11 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
     }
     char* available_end = syncp->available_end;
     char* cur_circular_end = syncp->cur_circular_end;
+    // bugfix (9 Sep 2018): If consume_iter == available_end but
+    // cur_circular_end is later, there *are* bytes to process immediately in
+    // front of us.
     if (consume_iter != available_end) {
+    // if ((consume_iter != available_end) || (cur_circular_end && (cur_circular_end != consume_iter))) {
       if (cur_circular_end) {
         if (cur_circular_end == consume_iter) {
           char* buf = rlsp->buf;

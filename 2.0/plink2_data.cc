@@ -280,8 +280,7 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
     // includes trailing tab
     char* chr_buf;
 
-    if (unlikely(
-                 bigstack_alloc_c(max_chr_blen, &chr_buf))) {
+    if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
       goto WritePvar_ret_NOMEM;
     }
     uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
@@ -389,6 +388,10 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
     uint32_t ref_allele_idx = 0;
     uint32_t alt1_allele_idx = 1;
     uint32_t cur_allele_ct = 2;
+    uint32_t pct = 0;
+    uint32_t next_print_variant_idx = variant_ct / 100;
+    fputs("0%", stdout);
+    fflush(stdout);
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
       const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
       if (variant_uidx >= chr_end) {
@@ -489,10 +492,23 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
         }
       }
       AppendBinaryEoln(&cswritep);
+      if (variant_idx >= next_print_variant_idx) {
+        if (pct > 10) {
+          putc_unlocked('\b', stdout);
+        }
+        pct = (variant_idx * 100LLU) / variant_ct;
+        printf("\b\b%u%%", pct++);
+        fflush(stdout);
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+      }
     }
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
       goto WritePvar_ret_WRITE_FAIL;
     }
+    if (pct > 10) {
+      putc_unlocked('\b', stdout);
+    }
+    fputs("\b\b", stdout);
   }
   while (0) {
   WritePvar_ret_NOMEM:
@@ -511,6 +527,270 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
   BigstackReset(bigstack_mark);
   return reterr;
 }
+
+/*
+PglErr WritePvarMerge(const char* outname, const char* xheader, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* qual_present, const float* quals, const uintptr_t* filter_present, const uintptr_t* filter_npass, const char* const* filter_storage, const uintptr_t* nonref_flags, const char* pvar_info_reload, const double* variant_cms, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t nonref_flags_storage, uint32_t max_filter_slen, uint32_t info_reload_slen, PvarPsamFlags pvar_psam_flags, uint32_t thread_ct) {
+  // allele_presents must be nullptr unless we're trimming alt alleles
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  CompressStreamState css;
+  ReadLineStream pvar_reload_rls;
+  PreinitCstream(&css);
+  PreinitRLstream(&pvar_reload_rls);
+  {
+    const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
+    // includes trailing tab
+    char* chr_buf;
+
+    if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
+      goto WritePvar_ret_NOMEM;
+    }
+    uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
+    if (overflow_buf_size < 2 * kCompressStreamBlock) {
+      overflow_buf_size = 2 * kCompressStreamBlock;
+    }
+    const uint32_t output_zst = (pvar_psam_flags / kfPvarZs) & 1;
+    reterr = InitCstreamAlloc(outname, 0, output_zst, thread_ct, overflow_buf_size, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto WritePvar_ret_1;
+    }
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    const uint32_t all_nonref = (nonref_flags_storage == 2);
+    uint32_t write_info_pr = all_nonref;
+    uint32_t write_info = (pvar_psam_flags & kfPvarColInfo) || pvar_info_reload;
+    if (write_info && nonref_flags) {
+      write_info_pr = !IntersectionIsEmpty(variant_include, nonref_flags, raw_variant_ctl);
+    }
+    write_info_pr = write_info_pr && write_info;
+    if (unlikely(write_info_pr && (info_flags & kfInfoPrNonflagPresent))) {
+      logputs("\n");
+      logerrputs("Error: Conflicting INFO:PR fields.  Either fix all REF alleles so that the\n'provisional reference' field is no longer needed, or remove/rename the other\nINFO:PR field.\n");
+      goto WritePvar_ret_INCONSISTENT_INPUT;
+    }
+
+    char* pvar_info_line_iter = nullptr;
+    uint32_t info_col_idx = 0;  // could save this during first load instead
+    const uint32_t info_pr_flag_present = (info_flags / kfInfoPrFlagPresent) & 1;
+    if (pvar_psam_flags & kfPvarColXheader) {
+      if (unlikely(CsputsStd(xheader, xheader_blen, &css, &cswritep))) {
+        goto WritePvar_ret_WRITE_FAIL;
+      }
+      if (write_info_pr && (!info_pr_flag_present)) {
+        cswritep = strcpya_k(cswritep, "##INFO=<ID=PR,Number=0,Type=Flag,Description=\"Provisional reference allele, may not be based on real reference genome\">" EOLN_STR);
+      }
+    }
+    // bugfix (30 Jul 2017): may be necessary to reload INFO when no ## lines
+    // are in the header
+    if (pvar_info_reload) {
+      reterr = PvarInfoOpenAndReloadHeader(pvar_info_reload, 1 + (thread_ct > 1), &pvar_reload_rls, &pvar_info_line_iter, &info_col_idx);
+      if (unlikely(reterr)) {
+        goto WritePvar_ret_1;
+      }
+    }
+    if (cip->chrset_source) {
+      AppendChrsetLine(cip, &cswritep);
+    }
+    cswritep = strcpya_k(cswritep, "#CHROM\tPOS\tID\tREF\tALT");
+
+    uint32_t write_qual = 0;
+    if (pvar_psam_flags & kfPvarColQual) {
+      write_qual = 1;
+    } else if ((pvar_psam_flags & kfPvarColMaybequal) && qual_present) {
+      write_qual = !IntersectionIsEmpty(variant_include, qual_present, raw_variant_ctl);
+    }
+    if (write_qual) {
+      cswritep = strcpya_k(cswritep, "\tQUAL");
+    }
+
+    uint32_t write_filter = 0;
+    if (pvar_psam_flags & kfPvarColFilter) {
+      write_filter = 1;
+    } else if ((pvar_psam_flags & kfPvarColMaybefilter) && filter_present) {
+      write_filter = !IntersectionIsEmpty(variant_include, filter_present, raw_variant_ctl);
+    }
+    if (write_filter) {
+      cswritep = strcpya_k(cswritep, "\tFILTER");
+    }
+
+    if (write_info) {
+      cswritep = strcpya_k(cswritep, "\tINFO");
+    }
+
+    uint32_t write_cm = 0;
+    if (pvar_psam_flags & kfPvarColCm) {
+      write_cm = 1;
+    } else if ((pvar_psam_flags & kfPvarColMaybecm) && variant_cms) {
+      if (raw_variant_ct == variant_ct) {
+        // nonzero_cm_present check was performed
+        write_cm = 1;
+      } else {
+        uintptr_t variant_uidx_base = 0;
+        uintptr_t cur_bits = variant_include[0];
+        for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+          const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+          if (variant_cms[variant_uidx] != 0.0) {
+            write_cm = 1;
+            break;
+          }
+        }
+      }
+    }
+    if (write_cm) {
+      cswritep = strcpya_k(cswritep, "\tCM");
+    }
+    AppendBinaryEoln(&cswritep);
+
+    const char output_missing_geno_char = *g_output_missing_geno_ptr;
+    uint32_t rls_variant_uidx = 0;
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
+    uint32_t chr_fo_idx = UINT32_MAX;
+    uint32_t chr_end = 0;
+    uint32_t chr_buf_blen = 0;
+    uint32_t ref_allele_idx = 0;
+    uint32_t alt1_allele_idx = 1;
+    uint32_t cur_allele_ct = 2;
+    uint32_t pct = 0;
+    uint32_t next_print_variant_idx = variant_ct / 100;
+    fputs("0%", stdout);
+    fflush(stdout);
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      if (variant_uidx >= chr_end) {
+        do {
+          ++chr_fo_idx;
+          chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+        } while (variant_uidx >= chr_end);
+        char* chr_name_end = chrtoa(cip, cip->chr_file_order[chr_fo_idx], chr_buf);
+        *chr_name_end = '\t';
+        chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
+      }
+      cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
+      cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
+      cswritep = strcpyax(cswritep, variant_ids[variant_uidx], '\t');
+      uintptr_t allele_idx_offset_base;
+      if (!allele_idx_offsets) {
+        allele_idx_offset_base = variant_uidx * 2;
+      } else {
+        allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+      }
+      const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+      if (refalt1_select) {
+        ref_allele_idx = refalt1_select[variant_uidx][0];
+        alt1_allele_idx = refalt1_select[variant_uidx][1];
+      }
+      cswritep = strcpyax(cswritep, cur_alleles[ref_allele_idx], '\t');
+      uint32_t alt_allele_written = 0;
+      if ((!allele_presents) || IsSet(allele_presents, allele_idx_offset_base + alt1_allele_idx)) {
+        cswritep = strcpya(cswritep, cur_alleles[alt1_allele_idx]);
+        alt_allele_written = 1;
+      }
+      if (unlikely(Cswrite(&css, &cswritep))) {
+        goto WritePvar_ret_WRITE_FAIL;
+      }
+      if (cur_allele_ct > 2) {
+        for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct; ++allele_idx) {
+          if ((allele_idx == ref_allele_idx) || (allele_idx == alt1_allele_idx) || (allele_presents && (!IsSet(allele_presents, allele_idx_offset_base + allele_idx)))) {
+            continue;
+          }
+          if (alt_allele_written) {
+            *cswritep++ = ',';
+          }
+          alt_allele_written = 1;
+          cswritep = strcpya(cswritep, cur_alleles[allele_idx]);
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto WritePvar_ret_WRITE_FAIL;
+          }
+        }
+      }
+      if (!alt_allele_written) {
+        *cswritep++ = output_missing_geno_char;
+      }
+
+      if (write_qual) {
+        *cswritep++ = '\t';
+        if ((!qual_present) || (!IsSet(qual_present, variant_uidx))) {
+          *cswritep++ = '.';
+        } else {
+          cswritep = ftoa_g(quals[variant_uidx], cswritep);
+        }
+      }
+
+      if (write_filter) {
+        *cswritep++ = '\t';
+        if ((!filter_present) || (!IsSet(filter_present, variant_uidx))) {
+          *cswritep++ = '.';
+        } else if (!IsSet(filter_npass, variant_uidx)) {
+          cswritep = strcpya_k(cswritep, "PASS");
+        } else {
+          cswritep = strcpya(cswritep, filter_storage[variant_uidx]);
+        }
+      }
+
+      if (write_info) {
+        *cswritep++ = '\t';
+        const uint32_t is_pr = all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx));
+        if (pvar_info_line_iter) {
+          reterr = PvarInfoReloadAndWrite(info_pr_flag_present, info_col_idx, variant_uidx, is_pr, &pvar_reload_rls, &pvar_info_line_iter, &cswritep, &rls_variant_uidx);
+          if (unlikely(reterr)) {
+            goto WritePvar_ret_1;
+          }
+        } else {
+          if (is_pr) {
+            cswritep = strcpya_k(cswritep, "PR");
+          } else {
+            *cswritep++ = '.';
+          }
+        }
+      }
+
+      if (write_cm) {
+        *cswritep++ = '\t';
+        if (!variant_cms) {
+          *cswritep++ = '0';
+        } else {
+          cswritep = dtoa_g_p8(variant_cms[variant_uidx], cswritep);
+        }
+      }
+      AppendBinaryEoln(&cswritep);
+      if (variant_idx >= next_print_variant_idx) {
+        if (pct > 10) {
+          putc_unlocked('\b', stdout);
+        }
+        pct = (variant_idx * 100LLU) / variant_ct;
+        printf("\b\b%u%%", pct++);
+        fflush(stdout);
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+      }
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto WritePvar_ret_WRITE_FAIL;
+    }
+    if (pct > 10) {
+      putc_unlocked('\b', stdout);
+    }
+    fputs("\b\b", stdout);
+  }
+  while (0) {
+  WritePvar_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  WritePvar_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  WritePvar_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ WritePvar_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  CleanupRLstream(&pvar_reload_rls);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+*/
 
 PglErr WriteFam(const char* outname, const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uint32_t* new_sample_idx_to_old, uint32_t sample_ct, uint32_t pheno_ct, char delim) {
   FILE* outfile = nullptr;
@@ -4857,6 +5137,126 @@ PglErr PvarInfoReloadInterval(const uint32_t* old_variant_uidx_to_new, uint32_t 
   return kPglRetSuccess;
 }
 
+/*
+PglErr PvarInfoReloadIntervalDebug(const uint32_t* old_variant_uidx_to_new, const uint32_t* variant_bps, const char* const* variant_ids, uint32_t variant_idx_start, uint32_t variant_idx_end, uint32_t raw_variant_ct, ReadLineStream* pvar_reload_rlsp, char** pvar_info_strs) {
+  // We assume the batch size was chosen such that there's no risk of
+  // scribbling past g_bigstack_end (barring pathological cases like another
+  // process modifying the .pvar file after initial load).
+  // We also assume no more dynamic allocations are needed after this;
+  // otherwise, str_store_iter should be returned.
+  char* line_iter;
+  PglErr reterr = RewindRLstreamRaw(pvar_reload_rlsp, &line_iter);
+  if (unlikely(reterr)) {
+    return reterr;
+  }
+  const uint32_t cur_batch_size = variant_idx_end - variant_idx_start;
+  char* str_store_iter = R_CAST(char*, g_bigstack_base);
+  uint32_t info_col_idx;
+  reterr = PvarInfoReloadHeader(pvar_reload_rlsp, &line_iter, &info_col_idx);
+  if (unlikely(reterr)) {
+    return reterr;
+  }
+  char* penult_consume_tail = nullptr;
+  char* penult_consume_stop = nullptr;
+  char* penult_available_end = nullptr;
+  char* penult_circular_end = nullptr;
+  uint32_t penult_uidx = 0;
+  char* prev_line_start = nullptr;
+  char* prev_line_end = nullptr;
+  char* prev_consume_tail = nullptr;
+  char* prev_consume_stop = nullptr;
+  char* prev_available_end = nullptr;
+  char* prev_circular_end = nullptr;
+  uint32_t prev_uidx = 0;
+  uint32_t reset = 0;
+  for (uint32_t variant_uidx = 0; variant_uidx != raw_variant_ct; ++variant_uidx) {
+    do {
+      prev_line_end = AdvPastDelim(line_iter, '\n');
+      if (prev_line_end == pvar_reload_rlsp->consume_stop) {
+        if (!reset) {
+          penult_consume_tail = prev_consume_tail;
+          penult_consume_stop = prev_consume_stop;
+          penult_available_end = prev_available_end;
+          penult_circular_end = prev_circular_end;
+          penult_uidx = prev_uidx;
+          prev_uidx = variant_uidx;
+          prev_consume_tail = pvar_reload_rlsp->syncp->consume_tail;
+          prev_consume_stop = prev_line_end;
+          prev_available_end = pvar_reload_rlsp->syncp->available_end;
+          prev_circular_end = pvar_reload_rlsp->syncp->cur_circular_end;
+        }
+        ++reset;
+      }
+      reterr = RlsNextLstrip(pvar_reload_rlsp, &line_iter);
+      if (reterr) {
+        return (reterr == kPglRetNomem)? kPglRetNomem : kPglRetReadFail;
+      }
+    } while (IsEolnKns(*line_iter));
+    {
+      char* id_start = NextTokenMult(line_iter, 2);
+      char* id_end = CurTokenEnd(id_start);
+      const uint32_t id_slen = id_end - id_start;
+      if ((!memequal(id_start, variant_ids[variant_uidx], id_slen)) || variant_ids[variant_uidx][id_slen]) {
+        char* cur_consume_tail = pvar_reload_rlsp->syncp->consume_tail;
+        char* cur_available_end = pvar_reload_rlsp->syncp->available_end;
+        char* cur_circular_end = pvar_reload_rlsp->syncp->cur_circular_end;
+        printf("mismatched ID at %u\n", variant_uidx);
+        fwrite(prev_line_start, prev_line_end - prev_line_start, 1, stdout);
+        fputs("\n", stdout);
+        fwrite(id_start, id_slen, 1, stdout);
+        printf("\n");
+        printf("%lx  prev_line_end: %lx  %lx\n", (uintptr_t)prev_line_start, (uintptr_t)prev_line_end, (uintptr_t)line_iter);
+        printf("penult_consume_tail: %lx  penult_consume_stop: %lx  penult_available_end: %lx  penult_circular_end: %lx\n", (uintptr_t)penult_consume_tail, (uintptr_t)penult_consume_stop, (uintptr_t)penult_available_end, (uintptr_t)penult_circular_end);
+        printf("penult_uidx: %u\n", penult_uidx);
+        uint32_t all_ascii = 1;
+        for (uint32_t uii = 0; uii != 79; ++uii) {
+          if ((penult_consume_stop[uii] < 32) && (penult_consume_stop[uii] != 9)) {
+            all_ascii = 0;
+            break;
+          }
+        }
+        if (all_ascii) {
+          printf("expected bp: %u\n", variant_bps[variant_uidx]);
+        }
+        printf("prev_consume_tail: %lx  prev_consume_stop: %lx  prev_available_end: %lx  prev_circular_end: %lx\n", (uintptr_t)prev_consume_tail, (uintptr_t)prev_consume_stop, (uintptr_t)prev_available_end, (uintptr_t)prev_circular_end);
+        printf("cur_consume_tail: %lx  cur_available_end: %lx  cur_circular_end: %lx\n", (uintptr_t)cur_consume_tail, (uintptr_t)cur_available_end, (uintptr_t)cur_circular_end);
+        printf("buf: %lx\n", (uintptr_t)pvar_reload_rlsp->buf);
+        fwrite(pvar_reload_rlsp->buf, 79, 1, stdout);
+        printf("\n");
+        printf("reset: %u\n", reset);
+        printf("cur_batch_size: %u\n", cur_batch_size);
+        printf("variant_idx_start: %u\n", variant_idx_start);
+        for (uint32_t uii = variant_uidx + 1; uii != raw_variant_ct; ++uii) {
+          if (memequal(id_start, variant_ids[uii], id_slen) && (!variant_ids[uii][id_slen])) {
+            printf("actual: %u\n", uii);
+            break;
+          }
+        }
+        exit(1);
+      }
+    }
+    prev_line_start = line_iter;
+    reset = 0;
+    const uint32_t new_variant_idx_offset = old_variant_uidx_to_new[variant_uidx] - variant_idx_start;
+    // exploit wraparound, UINT32_MAX null value
+    if (new_variant_idx_offset >= cur_batch_size) {
+      continue;
+    }
+    line_iter = NextTokenMultFar(line_iter, info_col_idx);
+    if (!line_iter) {
+      return kPglRetReadFail;
+    }
+    char* info_end = CurTokenEnd(line_iter);
+    const uint32_t info_slen = info_end - line_iter;
+    pvar_info_strs[new_variant_idx_offset] = str_store_iter;
+    str_store_iter = memcpyax(str_store_iter, line_iter, info_slen, '\0');
+    line_iter = info_end;
+  }
+  assert(str_store_iter <= R_CAST(char*, g_bigstack_end));
+  return kPglRetSuccess;
+}
+*/
+
 // could be BoolErr
 PglErr WritePvarResortedInterval(const ChrInfo* write_cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* qual_present, const float* quals, const uintptr_t* filter_present, const uintptr_t* filter_npass, const char* const* filter_storage, const uintptr_t* nonref_flags, const double* variant_cms, const uint32_t* new_variant_idx_to_old, uint32_t variant_idx_start, uint32_t variant_idx_end, uint32_t info_pr_flag_present, uint32_t write_qual, uint32_t write_filter, uint32_t write_info, uint32_t all_nonref, uint32_t write_cm, char** pvar_info_strs, CompressStreamState* cssp, char** cswritepp, uint32_t* chr_fo_idxp, uint32_t* chr_endp, uint32_t* chr_buf_blenp, char* chr_buf) {
   char* cswritep = *cswritepp;
@@ -5123,10 +5523,24 @@ PglErr WritePvarResorted(const char* outname, const char* xheader, const uintptr
     uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t chr_end = 0;
     uint32_t chr_buf_blen = 0;
+    uint32_t pct = 0;
+    uint32_t next_print_variant_idx = variant_ct / 100;
+    fputs("0%", stdout);
+    fflush(stdout);
     for (uint32_t batch_idx = 0; batch_idx != batch_ct; ++batch_idx) {
+      if (variant_idx_start >= next_print_variant_idx) {
+        if (pct > 10) {
+          putc_unlocked('\b', stdout);
+        }
+        pct = (variant_idx_start * 100LLU) / variant_ct;
+        printf("\b\b%u%%", pct++);
+        fflush(stdout);
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+      }
       uint32_t variant_idx_end = MINV(variant_idx_start + batch_size, variant_ct);
       if (pvar_info_reload) {
         reterr = PvarInfoReloadInterval(old_variant_uidx_to_new, variant_idx_start, variant_idx_end, raw_variant_ct, &pvar_reload_rls, pvar_info_strs);
+        // reterr = PvarInfoReloadIntervalDebug(old_variant_uidx_to_new, variant_bps, variant_ids, variant_idx_start, variant_idx_end, raw_variant_ct, &pvar_reload_rls, pvar_info_strs);
         if (unlikely(reterr)) {
           goto WritePvarResorted_ret_1;
         }
@@ -5141,6 +5555,10 @@ PglErr WritePvarResorted(const char* outname, const char* xheader, const uintptr
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
       goto WritePvarResorted_ret_WRITE_FAIL;
     }
+    if (pct > 10) {
+      putc_unlocked('\b', stdout);
+    }
+    fputs("\b\b", stdout);
   }
   while (0) {
   WritePvarResorted_ret_NOMEM:
@@ -5169,9 +5587,10 @@ PglErr MakePlink2Vsort(const char* xheader, const uintptr_t* sample_include, con
     // 1. (todo) Apply --update-chr if necessary.
     // 2. Count number of remaining variants in each chromosome, then sort the
     //    chromosomes.
-    // 3. Within each chromosome, sort by position, effectively adding 0.5 for
-    //    non-SNPs.  (could multithread this by chromosome, and/or use C++17
-    //    multithreaded sort)
+    // 3. Within each chromosome, sort by position.  Could add 0.5 for
+    //    non-SNPs (not currently implemented)?  Could multithread this by
+    //    chromosome, and/or use C++17 multithreaded sort, but INFO-reload is a
+    //    much bigger bottleneck in practice.
     // 4. Scan for position ties, sort on ID (according to --sort-vars setting,
     //    defaults to natural-sort but can be ASCII).
     // 5. Fill new_variant_idx_to_old, free sort buffers.
