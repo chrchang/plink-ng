@@ -5093,13 +5093,16 @@ PglErr WriteBimResorted(const char* outname, const ChrInfo* write_cip, const uin
   return reterr;
 }
 
-PglErr PvarInfoReloadInterval(const uint32_t* old_variant_uidx_to_new, uint32_t variant_idx_start, uint32_t variant_idx_end, uint32_t raw_variant_ct, ReadLineStream* pvar_reload_rlsp, char** pvar_info_strs) {
+PglErr PvarInfoReloadInterval(const uint32_t* old_variant_uidx_to_new, uint32_t variant_idx_start, uint32_t variant_idx_end, ReadLineStream* pvar_reload_rlsp, char** pvar_info_strs) {
   // We assume the batch size was chosen such that there's no risk of
   // scribbling past g_bigstack_end (barring pathological cases like another
   // process modifying the .pvar file after initial load).
   // We also assume no more dynamic allocations are needed after this;
   // otherwise, str_store_iter should be returned.
   char* line_iter;
+  // probable todo: avoid rewind when one batch is entirely after the previous
+  // batch (this is likely when input was already almost-sorted, and just a few
+  // coordinates changed due to e.g. --normalize)
   PglErr reterr = RewindRLstreamRaw(pvar_reload_rlsp, &line_iter);
   if (unlikely(reterr)) {
     return reterr;
@@ -5111,7 +5114,8 @@ PglErr PvarInfoReloadInterval(const uint32_t* old_variant_uidx_to_new, uint32_t 
   if (unlikely(reterr)) {
     return reterr;
   }
-  for (uint32_t variant_uidx = 0; variant_uidx != raw_variant_ct; ++variant_uidx) {
+  uint32_t variant_idx = 0;
+  for (uint32_t variant_uidx = 0; ; ++variant_uidx) {
     do {
       reterr = RlsNextLstrip(pvar_reload_rlsp, &line_iter);
       if (reterr) {
@@ -5132,130 +5136,13 @@ PglErr PvarInfoReloadInterval(const uint32_t* old_variant_uidx_to_new, uint32_t 
     pvar_info_strs[new_variant_idx_offset] = str_store_iter;
     str_store_iter = memcpyax(str_store_iter, line_iter, info_slen, '\0');
     line_iter = info_end;
+    if (++variant_idx == cur_batch_size) {
+      break;
+    }
   }
   assert(str_store_iter <= R_CAST(char*, g_bigstack_end));
   return kPglRetSuccess;
 }
-
-/*
-PglErr PvarInfoReloadIntervalDebug(const uint32_t* old_variant_uidx_to_new, const uint32_t* variant_bps, const char* const* variant_ids, uint32_t variant_idx_start, uint32_t variant_idx_end, uint32_t raw_variant_ct, ReadLineStream* pvar_reload_rlsp, char** pvar_info_strs) {
-  // We assume the batch size was chosen such that there's no risk of
-  // scribbling past g_bigstack_end (barring pathological cases like another
-  // process modifying the .pvar file after initial load).
-  // We also assume no more dynamic allocations are needed after this;
-  // otherwise, str_store_iter should be returned.
-  char* line_iter;
-  PglErr reterr = RewindRLstreamRaw(pvar_reload_rlsp, &line_iter);
-  if (unlikely(reterr)) {
-    return reterr;
-  }
-  const uint32_t cur_batch_size = variant_idx_end - variant_idx_start;
-  char* str_store_iter = R_CAST(char*, g_bigstack_base);
-  uint32_t info_col_idx;
-  reterr = PvarInfoReloadHeader(pvar_reload_rlsp, &line_iter, &info_col_idx);
-  if (unlikely(reterr)) {
-    return reterr;
-  }
-  char* penult_consume_tail = nullptr;
-  char* penult_consume_stop = nullptr;
-  char* penult_available_end = nullptr;
-  char* penult_circular_end = nullptr;
-  uint32_t penult_uidx = 0;
-  char* prev_line_start = nullptr;
-  char* prev_line_end = nullptr;
-  char* prev_consume_tail = nullptr;
-  char* prev_consume_stop = nullptr;
-  char* prev_available_end = nullptr;
-  char* prev_circular_end = nullptr;
-  uint32_t prev_uidx = 0;
-  uint32_t reset = 0;
-  for (uint32_t variant_uidx = 0; variant_uidx != raw_variant_ct; ++variant_uidx) {
-    do {
-      prev_line_end = AdvPastDelim(line_iter, '\n');
-      if (prev_line_end == pvar_reload_rlsp->consume_stop) {
-        if (!reset) {
-          penult_consume_tail = prev_consume_tail;
-          penult_consume_stop = prev_consume_stop;
-          penult_available_end = prev_available_end;
-          penult_circular_end = prev_circular_end;
-          penult_uidx = prev_uidx;
-          prev_uidx = variant_uidx;
-          prev_consume_tail = pvar_reload_rlsp->syncp->consume_tail;
-          prev_consume_stop = prev_line_end;
-          prev_available_end = pvar_reload_rlsp->syncp->available_end;
-          prev_circular_end = pvar_reload_rlsp->syncp->cur_circular_end;
-        }
-        ++reset;
-      }
-      reterr = RlsNextLstrip(pvar_reload_rlsp, &line_iter);
-      if (reterr) {
-        return (reterr == kPglRetNomem)? kPglRetNomem : kPglRetReadFail;
-      }
-    } while (IsEolnKns(*line_iter));
-    {
-      char* id_start = NextTokenMult(line_iter, 2);
-      char* id_end = CurTokenEnd(id_start);
-      const uint32_t id_slen = id_end - id_start;
-      if ((!memequal(id_start, variant_ids[variant_uidx], id_slen)) || variant_ids[variant_uidx][id_slen]) {
-        char* cur_consume_tail = pvar_reload_rlsp->syncp->consume_tail;
-        char* cur_available_end = pvar_reload_rlsp->syncp->available_end;
-        char* cur_circular_end = pvar_reload_rlsp->syncp->cur_circular_end;
-        printf("mismatched ID at %u\n", variant_uidx);
-        fwrite(prev_line_start, prev_line_end - prev_line_start, 1, stdout);
-        fputs("\n", stdout);
-        fwrite(id_start, id_slen, 1, stdout);
-        printf("\n");
-        printf("%lx  prev_line_end: %lx  %lx\n", (uintptr_t)prev_line_start, (uintptr_t)prev_line_end, (uintptr_t)line_iter);
-        printf("penult_consume_tail: %lx  penult_consume_stop: %lx  penult_available_end: %lx  penult_circular_end: %lx\n", (uintptr_t)penult_consume_tail, (uintptr_t)penult_consume_stop, (uintptr_t)penult_available_end, (uintptr_t)penult_circular_end);
-        printf("penult_uidx: %u\n", penult_uidx);
-        uint32_t all_ascii = 1;
-        for (uint32_t uii = 0; uii != 79; ++uii) {
-          if ((penult_consume_stop[uii] < 32) && (penult_consume_stop[uii] != 9)) {
-            all_ascii = 0;
-            break;
-          }
-        }
-        if (all_ascii) {
-          printf("expected bp: %u\n", variant_bps[variant_uidx]);
-        }
-        printf("prev_consume_tail: %lx  prev_consume_stop: %lx  prev_available_end: %lx  prev_circular_end: %lx\n", (uintptr_t)prev_consume_tail, (uintptr_t)prev_consume_stop, (uintptr_t)prev_available_end, (uintptr_t)prev_circular_end);
-        printf("cur_consume_tail: %lx  cur_available_end: %lx  cur_circular_end: %lx\n", (uintptr_t)cur_consume_tail, (uintptr_t)cur_available_end, (uintptr_t)cur_circular_end);
-        printf("buf: %lx\n", (uintptr_t)pvar_reload_rlsp->buf);
-        fwrite(pvar_reload_rlsp->buf, 79, 1, stdout);
-        printf("\n");
-        printf("reset: %u\n", reset);
-        printf("cur_batch_size: %u\n", cur_batch_size);
-        printf("variant_idx_start: %u\n", variant_idx_start);
-        for (uint32_t uii = variant_uidx + 1; uii != raw_variant_ct; ++uii) {
-          if (memequal(id_start, variant_ids[uii], id_slen) && (!variant_ids[uii][id_slen])) {
-            printf("actual: %u\n", uii);
-            break;
-          }
-        }
-        exit(1);
-      }
-    }
-    prev_line_start = line_iter;
-    reset = 0;
-    const uint32_t new_variant_idx_offset = old_variant_uidx_to_new[variant_uidx] - variant_idx_start;
-    // exploit wraparound, UINT32_MAX null value
-    if (new_variant_idx_offset >= cur_batch_size) {
-      continue;
-    }
-    line_iter = NextTokenMultFar(line_iter, info_col_idx);
-    if (!line_iter) {
-      return kPglRetReadFail;
-    }
-    char* info_end = CurTokenEnd(line_iter);
-    const uint32_t info_slen = info_end - line_iter;
-    pvar_info_strs[new_variant_idx_offset] = str_store_iter;
-    str_store_iter = memcpyax(str_store_iter, line_iter, info_slen, '\0');
-    line_iter = info_end;
-  }
-  assert(str_store_iter <= R_CAST(char*, g_bigstack_end));
-  return kPglRetSuccess;
-}
-*/
 
 // could be BoolErr
 PglErr WritePvarResortedInterval(const ChrInfo* write_cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* qual_present, const float* quals, const uintptr_t* filter_present, const uintptr_t* filter_npass, const char* const* filter_storage, const uintptr_t* nonref_flags, const double* variant_cms, const uint32_t* new_variant_idx_to_old, uint32_t variant_idx_start, uint32_t variant_idx_end, uint32_t info_pr_flag_present, uint32_t write_qual, uint32_t write_filter, uint32_t write_info, uint32_t all_nonref, uint32_t write_cm, char** pvar_info_strs, CompressStreamState* cssp, char** cswritepp, uint32_t* chr_fo_idxp, uint32_t* chr_endp, uint32_t* chr_buf_blenp, char* chr_buf) {
@@ -5539,8 +5426,7 @@ PglErr WritePvarResorted(const char* outname, const char* xheader, const uintptr
       }
       uint32_t variant_idx_end = MINV(variant_idx_start + batch_size, variant_ct);
       if (pvar_info_reload) {
-        reterr = PvarInfoReloadInterval(old_variant_uidx_to_new, variant_idx_start, variant_idx_end, raw_variant_ct, &pvar_reload_rls, pvar_info_strs);
-        // reterr = PvarInfoReloadIntervalDebug(old_variant_uidx_to_new, variant_bps, variant_ids, variant_idx_start, variant_idx_end, raw_variant_ct, &pvar_reload_rls, pvar_info_strs);
+        reterr = PvarInfoReloadInterval(old_variant_uidx_to_new, variant_idx_start, variant_idx_end, &pvar_reload_rls, pvar_info_strs);
         if (unlikely(reterr)) {
           goto WritePvarResorted_ret_1;
         }

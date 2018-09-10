@@ -354,9 +354,6 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
         char* latest_consume_tail = syncp->consume_tail;
         const uint32_t all_later_bytes_consumed = (latest_consume_tail <= cur_block_start);
         const uint32_t return_to_start = all_later_bytes_consumed && (latest_consume_tail >= &(buf[kDecompressChunkSize]));
-        ;;;
-        // BUG? (9 Sep 2018): if this is exactly the position of consume_tail,
-        // and cur_circular_end is later, we can incorrectly skip lines here?
         syncp->available_end = next_available_end;
         if (return_to_start) {
           syncp->cur_circular_end = next_available_end;
@@ -751,8 +748,7 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
     // bugfix (9 Sep 2018): If consume_iter == available_end but
     // cur_circular_end is later, there *are* bytes to process immediately in
     // front of us.
-    if (consume_iter != available_end) {
-    // if ((consume_iter != available_end) || (cur_circular_end && (cur_circular_end != consume_iter))) {
+    if ((consume_iter != available_end) || (cur_circular_end && (cur_circular_end != consume_iter))) {
       if (cur_circular_end) {
         if (cur_circular_end == consume_iter) {
           char* buf = rlsp->buf;
