@@ -67,10 +67,10 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (9 Sep 2018)";
+  " (11 Sep 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -88,9 +88,9 @@ static const char ver_str2[] =
 static const char errstr_append[] = "For more info, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
 
 #ifndef NOLAPACK
-static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --ld, --make-king, --king-cutoff, --write-samples,\n--write-snplist, --make-grm-list, --pca, --glm, --adjust-file, --score,\n--genotyping-rate, --pgen-info, --validate, and --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--missing, --hardy, --indep-pairwise, --ld, --make-king, --king-cutoff,\n--write-samples, --write-snplist, --make-grm-list, --pca, --glm, --adjust-file,\n--score, --genotyping-rate, --pgen-info, --validate, and --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
 #else
-static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --ld, --make-king, --king-cutoff, --write-samples,\n--write-snplist, --make-grm-list, --glm, --adjust-file, --score,\n--genotyping-rate, --pgen-info, --validate, and --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--missing, --hardy, --indep-pairwise, --ld, --make-king, --king-cutoff,\n--write-samples, --write-snplist, --make-grm-list, --glm, --adjust-file,\n--score, --genotyping-rate, --pgen-info, --validate, and --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
 #endif
 
 // covar-variance-standardize + terminating null
@@ -164,7 +164,8 @@ FLAGSET64_DEF_START()
   kfCommand1WriteCovar = (1 << 16),
   kfCommand1WriteSamples = (1 << 17),
   kfCommand1Ld = (1 << 18),
-  kfCommand1PgenInfo = (1 << 19)
+  kfCommand1PgenInfo = (1 << 19),
+  kfCommand1RmDupList = (1 << 20)
 FLAGSET64_DEF_END(Command1Flags);
 
 // this is a hybrid, only kfSortFileSid is actually a flag
@@ -1189,8 +1190,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
         }
         if (pcp->rmdup_mode != kRmDup0) {
-          reterr = RmDup(sample_include, cip, variant_bps, TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, allele_idx_offsets, TO_CONSTCPCONSTP(allele_storage_mutable), pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->missing_varid_match, raw_sample_ct, sample_ct, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, dup_ct, pcp->rmdup_mode, pcp->max_thread_ct, pgenname[0]? (&simple_pgr) : nullptr, variant_include, &variant_ct, outname, outname_end);
-          if (unlikely(reterr)) {
+          reterr = RmDup(sample_include, cip, variant_bps, TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, allele_idx_offsets, TO_CONSTCPCONSTP(allele_storage_mutable), pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->missing_varid_match, raw_sample_ct, sample_ct, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, dup_ct, pcp->rmdup_mode, (pcp->command_flags1 / kfCommand1RmDupList) & 1, pcp->max_thread_ct, pgenname[0]? (&simple_pgr) : nullptr, variant_include, &variant_ct, outname, outname_end);
+          if (reterr || (!(pcp->command_flags1 & (~(kfCommand1Validate | kfCommand1PgenInfo | kfCommand1RmDupList))))) {
             goto Plink2Core_ret_1;
           }
         }
@@ -1606,7 +1607,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_1;
         }
         logprintfww("--write-samples: Sample IDs written to %s .\n", outname);
-        if (!(pcp->command_flags1 & (~(kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo)))) {
+        if (!(pcp->command_flags1 & (~(kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo | kfCommand1RmDupList)))) {
           continue;
         }
       }
@@ -1792,7 +1793,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             // multithreading in that case.
             const uint32_t is_dosage = (pcp->misc_flags / kfMiscGenotypingRateDosage) & 1;
             ReportGenotypingRate(variant_include, cip, is_dosage? variant_missing_dosage_cts : variant_missing_hc_cts, raw_sample_ct, sample_ct, male_ct, variant_ct, is_dosage);
-            if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo)))) {
+            if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo | kfCommand1RmDupList)))) {
               continue;
             }
           }
@@ -1818,7 +1819,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
-          if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo)))) {
+          if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo | kfCommand1RmDupList)))) {
             continue;
           }
         }
@@ -1827,7 +1828,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
-          if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo)))) {
+          if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo | kfCommand1RmDupList)))) {
             continue;
           }
         }
@@ -1837,7 +1838,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
-          if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1MissingReport | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo)))) {
+          if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1MissingReport | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo | kfCommand1RmDupList)))) {
             continue;
           }
         }
@@ -1947,7 +1948,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               if (unlikely(reterr)) {
                 goto Plink2Core_ret_1;
               }
-              if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1MissingReport | kfCommand1Hardy | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo)))) {
+              if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1MissingReport | kfCommand1Hardy | kfCommand1WriteSamples | kfCommand1Validate | kfCommand1PgenInfo | kfCommand1RmDupList)))) {
                 continue;
               }
             }
@@ -7545,33 +7546,40 @@ int main(int argc, char** argv) {
           pc.fa_flags |= kfFaRefFrom;
           pc.dependency_flags |= kfFilterPvarReq | kfFilterNonrefFlagsNeededSet;
         } else if (strequal_k_unsafe(flagname_p2, "m-dup")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          if (param_ct) {
-            const char* cur_modif = argvk[arg_idx + 1];
+          RmDupMode rmdup_mode = kRmDup0;
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
-            if (strequal_k(cur_modif, "error", cur_modif_slen)) {
-              pc.rmdup_mode = kRmDupError;
-              pc.dependency_flags |= kfFilterOpportunisticPgen;
+            if (strequal_k(cur_modif, "list", cur_modif_slen)) {
+              pc.command_flags1 |= kfCommand1RmDupList;
+            } else if (rmdup_mode != kRmDup0) {
+              logerrputs("Error: Invalid --rm-dup parameter sequence.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            } else if (strequal_k(cur_modif, "error", cur_modif_slen)) {
+              rmdup_mode = kRmDupError;
             } else if (strequal_k(cur_modif, "retain-mismatch", cur_modif_slen)) {
-              pc.rmdup_mode = kRmDupRetainMismatch;
-              pc.dependency_flags |= kfFilterOpportunisticPgen;
+              rmdup_mode = kRmDupRetainMismatch;
             } else if (strequal_k(cur_modif, "exclude-mismatch", cur_modif_slen)) {
-              pc.rmdup_mode = kRmDupExcludeMismatch;
-              pc.dependency_flags |= kfFilterOpportunisticPgen;
+              rmdup_mode = kRmDupExcludeMismatch;
             } else if (strequal_k(cur_modif, "exclude-all", cur_modif_slen)) {
-              pc.rmdup_mode = kRmDupExcludeAll;
+              rmdup_mode = kRmDupExcludeAll;
             } else if (likely(strequal_k(cur_modif, "force-first", cur_modif_slen))) {
-              pc.rmdup_mode = kRmDupForceFirst;
+              rmdup_mode = kRmDupForceFirst;
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --rm-dup parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
-          } else {
-            pc.rmdup_mode = kRmDupError;
+          }
+          if (rmdup_mode < kRmDupExcludeAll) {
+            if (rmdup_mode == kRmDup0) {
+              rmdup_mode = kRmDupError;
+            }
             pc.dependency_flags |= kfFilterOpportunisticPgen;
           }
+          pc.rmdup_mode = rmdup_mode;
           pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "andmem")) {
           randmem = 1;

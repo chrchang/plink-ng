@@ -358,12 +358,13 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
   return reterr;
 }
 
-PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* missing_varid_match, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t orig_dup_ct, RmDupMode rmdup_mode, uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* variant_include, uint32_t* variant_ct_ptr, char* outname, char* outname_end) {
+PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* missing_varid_match, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t orig_dup_ct, RmDupMode rmdup_mode, uint32_t save_list, uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* variant_include, uint32_t* variant_ct_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   ReadLineStream rls;
   PreinitRLstream(&rls);
-  FILE* outfile = nullptr;
+  FILE* list_file = nullptr;
+  FILE* mismatch_file = nullptr;
   PglErr reterr = kPglRetSuccess;
   {
     if (!orig_dup_ct) {
@@ -497,8 +498,17 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
       CleanupRLstream(&rls);
       BigstackReset(bigstack_mark2);
     }
-    char* write_iter = g_textbuf;
-    char* textbuf_flush = &(write_iter[kMaxMediumLine]);
+    char* list_write_iter = g_textbuf;
+    char* list_flush = &(list_write_iter[kMaxMediumLine]);
+    char* mismatch_write_iter = nullptr;
+    char* mismatch_flush = nullptr;
+    if (rmdup_mode < kRmDupExcludeMismatch) {
+      if (unlikely(
+              bigstack_alloc_c(kMaxMediumLine + kMaxIdBlen, &mismatch_write_iter))) {
+        goto RmDup_ret_NOMEM;
+      }
+      mismatch_flush = &(mismatch_write_iter[kMaxMediumLine]);
+    }
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = orig_dups[0];
     uint32_t duplicate_ct = 0;
@@ -564,6 +574,19 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
         }
         if (!is_still_dup) {
           continue;
+        }
+      }
+      if (save_list) {
+        if (!list_file) {
+          snprintf(outname_end, kMaxOutfnameExtBlen, ".rmdup.list");
+          if (unlikely(fopen_checked(outname, FOPEN_WB, &list_file))) {
+            goto RmDup_ret_WRITE_FAIL;
+          }
+        }
+        list_write_iter = strcpya(list_write_iter, variant_ids[variant_uidx]);
+        AppendBinaryEoln(&list_write_iter);
+        if (unlikely(fwrite_ck(list_flush, list_file, &list_write_iter))) {
+          goto RmDup_ret_WRITE_FAIL;
         }
       }
       ++duplicate_ct;
@@ -775,22 +798,22 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
               }
             }
           }
-          if (outfile == nullptr) {
+          if (mismatch_file == nullptr) {
             snprintf(outname_end, kMaxOutfnameExtBlen, ".rmdup.mismatch");
-            if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
+            if (unlikely(fopen_checked(outname, FOPEN_WB, &mismatch_file))) {
               goto RmDup_ret_WRITE_FAIL;
             }
           }
-          write_iter = strcpya(write_iter, variant_ids[variant_uidx]);
-          AppendBinaryEoln(&write_iter);
-          if (unlikely(fwrite_ck(textbuf_flush, outfile, &write_iter))) {
+          mismatch_write_iter = strcpya(mismatch_write_iter, variant_ids[variant_uidx]);
+          AppendBinaryEoln(&mismatch_write_iter);
+          if (unlikely(fwrite_ck(mismatch_flush, mismatch_file, &mismatch_write_iter))) {
             goto RmDup_ret_WRITE_FAIL;
           }
         }
       }
     }
-    if (outfile != nullptr) {
-      if (unlikely(fclose_flush_null(textbuf_flush, write_iter, &outfile))) {
+    if (mismatch_file != nullptr) {
+      if (unlikely(fclose_flush_null(mismatch_flush, mismatch_write_iter, &mismatch_file))) {
         goto RmDup_ret_WRITE_FAIL;
       }
       logerrprintfww("%s: %u duplicate ID%s with inconsistent %svariant information detected by --rm-dup; see %s .\n", (rmdup_mode == kRmDupError)? "Error" : "Warning", mismatch_ct, (mismatch_ct == 1)? "" : "s", simple_pgrp? "genotype data or " : "", outname);
@@ -804,6 +827,13 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
     *variant_ct_ptr = PopcountWords(variant_include, raw_variant_ctl);
     const uint32_t removed_variant_ct = orig_variant_ct - (*variant_ct_ptr);
     logprintfww("--rm-dup: %u duplicated ID%s, %u variant%s removed.\n", duplicate_ct, (duplicate_ct == 1)? "" : "s", removed_variant_ct, (removed_variant_ct == 1)? "" : "s");
+    if (list_file != nullptr) {
+      if (unlikely(fclose_flush_null(list_flush, list_write_iter, &list_file))) {
+        goto RmDup_ret_WRITE_FAIL;
+      }
+      *outname_end = '\0';
+      logprintfww("Full duplicate ID list written to %s.rmdup.list .\n", outname);
+    }
   }
   while (0) {
   RmDup_ret_NOMEM:
@@ -817,7 +847,8 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
     break;
   }
  RmDup_ret_1:
-  fclose_cond(outfile);
+  fclose_cond(mismatch_file);
+  fclose_cond(list_file);
   CleanupRLstream(&rls);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;

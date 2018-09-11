@@ -255,6 +255,25 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "Most runs also require at least one of the following commands:\n\n"
 , stdout);
     }
+    HelpPrint("rm-dup\0list-duplicate-vars\0", &help_ctrl, 1,
+"  --rm-dup {mode} <list>\n"
+"    Remove all but one instance of each duplicate-ID variant (ignoring the\n"
+"    missing ID), and (with the 'list' modifier) write a list of duplicated IDs\n"
+"    to [output prefix].rmdup.list.\n"
+"    The following modes of operation are supported:\n"
+"    * 'error' (default) causes this to error out when there's a genotype data\n"
+"      or other mismatch between the records.  A list of affected IDs is written\n"
+"      to [output prefix].rmdup.mismatch.\n"
+"    * 'retain-mismatch' causes all instances of a duplicate-ID variant to be\n"
+"      retained when there's a genotype data or variant info mismatch; otherwise\n"
+"      one instance is kept.  The .rmdup.mismatch file is also written.\n"
+"    * 'exclude-mismatch' removes all instances of duplicate-ID mismatched\n"
+"      variants instead.\n"
+"    * 'exclude-all' causes all instances of duplicate-ID variants to be\n"
+"      removed, even when the actual records are identical.\n"
+"    * 'force-first' causes only the first instance of duplicate-ID variants to\n"
+"      be kept, under all circumstances.\n\n"
+              );
     HelpPrint("make-pgen\0make-bpgen\0make-bed\0make-just-pvar\0make-just-psam\0", &help_ctrl, 1,
 "  --make-pgen <vzs> <format=[code]> <trim-alts> <erase-phase> <erase-dosage>\n"
 "              <pvar-cols=[col set descriptor]> <psam-cols=[col set descriptor]>\n"
@@ -1329,28 +1348,6 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                         --force-intersect allows the run to proceed; the set\n"
 "                         intersection will be taken.\n"
                );
-    HelpPrint("rm-dup\0list-duplicate-vars\0", &help_ctrl, 0,
-"  --rm-dup {mode}       : Usually removes all but one instance of each\n"
-"                          duplicate-ID variant (ignoring the missing ID).\n"
-"                          The following modes are supported:\n"
-"                          * 'error' (default) causes this to error out when\n"
-"                            there's a genotype data or other mismatch between\n"
-"                            the records.  A list of affected IDs is written to\n"
-"                            [output prefix].rmdup.mismatch.\n"
-"                          * 'retain-mismatch' causes all instances of a\n"
-"                            duplicate-ID variant to be retained when there's a\n"
-"                            genotype data or variant info mismatch; otherwise\n"
-"                            one instance is kept.  The .rmdup.mismatch file is\n"
-"                            also written.\n"
-"                          * 'exclude-mismatch' removes all instances of\n"
-"                            duplicate-ID mismatched variants instead.\n"
-"                          * 'exclude-all' causes all instances of duplicate-ID\n"
-"                            variants to be removed, even when the actual\n"
-"                            records are identical.\n"
-"                          * 'force-first' causes only the first instance of\n"
-"                            duplicate-ID variants to be kept, under all\n"
-"                            circumstances.\n"
-              );
     HelpPrint("thin\0thin-count\0", &help_ctrl, 0,
 "  --thin [p]           : Randomly remove variants, retaining each with prob. p.\n"
 "  --thin-count [n]     : Randomly remove variants until n of them remain.\n"
