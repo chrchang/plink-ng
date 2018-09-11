@@ -63,6 +63,7 @@ int32_t rserve_call(char* rplugin_fname, char* rplugin_host_or_socket, int32_t r
   Rinteger* r_l;
   Rinteger* r_g;
   Rdouble* r_data;
+  Rexp* r_eval_dummy;  // bugfix (11 Sep 2018): must delete rc->eval return-val
   double* pheno_d2;
   double* covar_d2 = nullptr;
   double* dptr;
@@ -81,6 +82,12 @@ int32_t rserve_call(char* rplugin_fname, char* rplugin_host_or_socket, int32_t r
   uint32_t cur_data_len;
   uint32_t uii;
   int32_t ii;
+  if (!pheno_nm_ct) {
+    // bugfix (11 Sep 2018): this was segfaulting instead of printing an error
+    // message
+    logerrprint("Error: --R only processes samples with nonmissing phenotype values, and all\nphenotype values are missing.\n");
+    goto rserve_call_ret_1;
+  }
   if (fopen_checked(rplugin_fname, "r", &infile)) {
     goto rserve_call_ret_OPEN_FAIL;
   }
@@ -198,13 +205,19 @@ int32_t rserve_call(char* rplugin_fname, char* rplugin_host_or_socket, int32_t r
     rc->assign("n", r_n);
     rc->assign("PHENO", r_p);
     rc->assign("CLUSTER", r_s);
-    rc->eval("CLUSTER[CLUSTER==-1] <- NA");
+    r_eval_dummy = rc->eval("CLUSTER[CLUSTER==-1] <- NA");
+    if (r_eval_dummy) {
+      delete r_eval_dummy;
+    }
     if (covar_ct) {
       r_cov = new Rdouble(covar_d2, pheno_nm_ct * covar_ct);
       rc->assign("c", r_cov);
-      rc->eval("COVAR<-matrix(c,nrow=n,byrow=T)");
+      r_eval_dummy = rc->eval("COVAR<-matrix(c,nrow=n,byrow=T)");
     } else {
-      rc->eval("COVAR<-NA");
+      r_eval_dummy = rc->eval("COVAR<-NA");
+    }
+    if (r_eval_dummy) {
+      delete r_eval_dummy;
     }
     memcpy(outname_end, ".auto.R", 8);
   } else {
@@ -314,11 +327,20 @@ int32_t rserve_call(char* rplugin_fname, char* rplugin_host_or_socket, int32_t r
       r_g = new Rinteger(geno_int_buf, block_size * pheno_nm_ct);
       rc->assign("l", r_l);
       rc->assign("g", r_g);
-      rc->eval("GENO<-matrix(g,nrow=n,byrow=T)");
-      rc->eval("GENO[GENO==-1] <- NA");
+      r_eval_dummy = rc->eval("GENO<-matrix(g,nrow=n,byrow=T)");
+      if (r_eval_dummy) {
+        delete r_eval_dummy;
+      }
+      r_eval_dummy = rc->eval("GENO[GENO==-1] <- NA");
+      if (r_eval_dummy) {
+        delete r_eval_dummy;
+      }
       delete r_l;
       delete r_g;
-      rc->eval(inbuf_start);
+      r_eval_dummy = rc->eval(inbuf_start);
+      if (r_eval_dummy) {
+        delete r_eval_dummy;
+      }
       r_data = (Rdouble*)rc->eval("Rplink(PHENO,GENO,CLUSTER,COVAR)");
       if (r_data) {
 	dptr = r_data->doubleArray();
@@ -463,6 +485,7 @@ int32_t rserve_call(char* rplugin_fname, char* rplugin_host_or_socket, int32_t r
     retval = RET_NETWORK;
     break;
   }
+ rserve_call_ret_1:
   fclose_cond(infile);
   fclose_cond(outfile);
   bigstack_reset(bigstack_mark);
