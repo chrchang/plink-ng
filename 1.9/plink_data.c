@@ -6184,7 +6184,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       if (bigstack_left() >= marker_ct * sample_ct4) {
 	markers_per_pass = marker_ct;
 	sprintf(g_logbuf, "Performing single-pass .bed write (%" PRIuPTR " variant%s, %" PRIuPTR " %s).\n", marker_ct, (marker_ct == 1)? "" : "s", sample_ct, species_str(sample_ct));
-	pass_ct = (marker_ct * sample_ct4)? 1 : 0;
+	pass_ct = (marker_ct && sample_ct4)? 1 : 0;
       } else {
 	if (!map_is_unsorted) {
 	  if (bigstack_alloc_ll(sample_ct, &line_starts)) {

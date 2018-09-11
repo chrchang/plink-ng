@@ -3028,7 +3028,7 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_sample_ct, uintpt
     dxx = g_reg_tot_x / dww;
     dhh_sd = sqrt((dhh_ssq / dww - dxx * dxx) / (dww - 1.0));
   }
-  if (!(g_case_ct * g_ctrl_ct)) {
+  if (!(g_case_ct && g_ctrl_ct)) {
     dyy = 0.0;
     dhl_sd = 0.0;
   } else {
