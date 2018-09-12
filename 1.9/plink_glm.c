@@ -1658,6 +1658,14 @@ uint32_t logistic_regression(uint32_t sample_ct, uint32_t param_ct, float* vv, f
 	return 1;
       }
       if (iteration >= 15) {
+        // quasi-bugfix (11 Sep 2018): if fabsf(any coefficient) > 5e6, this is
+        // almost certainly a form of convergence failure that didn't get
+        // caught by the (delta_coef > 20.0) check due to a precision quirk
+        for (param_idx = 0; param_idx < param_ct; param_idx++) {
+          if (fabsf(coef[param_idx]) > 5e6) {
+            return 1;
+          }
+        }
 	return 0;
       }
     }
