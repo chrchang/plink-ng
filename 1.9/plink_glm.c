@@ -1674,6 +1674,13 @@ uint32_t logistic_regression(uint32_t sample_ct, uint32_t param_ct, float* vv, f
     // Pons reported that 1.1e-3 was dangerous, so I agree with the decision to
     // tighten this threshold from 1e-3 to 1e-4.
     if (delta_coef < 1e-4) {
+      // Be more conservative in throwing out results when we don't hit the
+      // iteration limit.
+      for (param_idx = 0; param_idx < param_ct; param_idx++) {
+        if (fabs(coef[param_idx] > 6e4)) {
+          return 1;
+        }
+      }
       return 0;
     }
   }
