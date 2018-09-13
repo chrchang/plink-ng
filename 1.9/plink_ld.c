@@ -4713,11 +4713,15 @@ THREAD_RET_TYPE epi_logistic_thread(void* arg) {
 	  cur_word2 = cur_word2 & (cur_word2 >> 1);
 	  cur_sample_ct -= popcount2_long((cur_word1 | cur_word2) & FIVEMASK);
 	}
+        unsigned char geno_pair_present[12];
 	if (cur_sample_ct <= 4) {
 	  goto epi_logistic_thread_regression_fail;
 	}
 	// 2. now populate covariate-major matrix with 16-byte-aligned,
 	//    trailing-entries-zeroed rows
+        // quasi-bugfix (13 Sep 2018): reliably detect when this matrix is not
+        // of full rank, and skip the regression in that case.
+        memset(geno_pair_present, 0, 12);
 	cur_sample_cta4 = round_up_pow2(cur_sample_ct, 4);
 	for (widx = 0; widx < pheno_nm_ctl2; widx++) {
 	  sample_idx = widx * BITCT2;
@@ -4732,6 +4736,7 @@ THREAD_RET_TYPE epi_logistic_thread(void* arg) {
             uljj = cur_word2 & (3 * ONELU);
 	    if ((ulii != 3) && (uljj != 3)) {
               *fptr = 1.0;
+              geno_pair_present[ulii + uljj * 4] = 1;
 	      fxx = (float)((intptr_t)ulii);
 	      fyy = (float)((intptr_t)uljj);
 	      // maybe this is faster with continuous writes instead of
@@ -4746,6 +4751,16 @@ THREAD_RET_TYPE epi_logistic_thread(void* arg) {
             cur_word2 >>= 2;
 	  }
 	}
+        if (!geno_pair_present[5]) {
+          // not full rank if any 2x2 square in the 3x3 contingency table is
+          // empty.
+          if (((!geno_pair_present[0]) && (!geno_pair_present[1]) && (!geno_pair_present[4])) ||
+              ((!geno_pair_present[1]) && (!geno_pair_present[2]) && (!geno_pair_present[6])) ||
+              ((!geno_pair_present[4]) && (!geno_pair_present[8]) && (!geno_pair_present[9])) ||
+              ((!geno_pair_present[6]) && (!geno_pair_present[9]) && (!geno_pair_present[10]))) {
+            goto epi_logistic_thread_regression_fail;
+          }
+        }
 	if (cur_sample_ct < cur_sample_cta4) {
 	  loop_end = cur_sample_cta4 - cur_sample_ct;
 	  fill_float_zero(loop_end, fptr);
