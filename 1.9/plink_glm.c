@@ -1677,7 +1677,7 @@ uint32_t logistic_regression(uint32_t sample_ct, uint32_t param_ct, float* vv, f
       // Be more conservative in throwing out results when we don't hit the
       // iteration limit.
       for (param_idx = 0; param_idx < param_ct; param_idx++) {
-        if (fabs(coef[param_idx] > 6e4)) {
+        if (fabsf(coef[param_idx]) > 6e4) {
           return 1;
         }
       }
