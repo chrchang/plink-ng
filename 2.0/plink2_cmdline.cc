@@ -2924,7 +2924,7 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
   return reterr;
 }
 
-PglErr AllocAndPopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t max_thread_ct, uint32_t** id_htable_ptr, uint32_t** htable_dup_base_ptr, uint32_t* id_htable_size_ptr, uint32_t* dup_ct_ptr) {
+PglErr AllocAndPopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uintptr_t fast_size_min_extra_bytes, uint32_t max_thread_ct, uint32_t** id_htable_ptr, uint32_t** htable_dup_base_ptr, uint32_t* id_htable_size_ptr, uint32_t* dup_ct_ptr) {
   uint32_t id_htable_size = GetHtableFastSize(item_ct);
   // 4 bytes per variant for hash buffer
   // if store_all_dups, up to 8 bytes per variant in extra_alloc for duplicate
@@ -2938,7 +2938,7 @@ PglErr AllocAndPopulateIdHtableMt(const uintptr_t* subset_mask, const char* cons
     return kPglRetNomem;
   }
   max_bytes -= nonhtable_alloc;
-  if (id_htable_size * sizeof(int32_t) > max_bytes) {
+  if (id_htable_size * sizeof(int32_t) + fast_size_min_extra_bytes > max_bytes) {
     id_htable_size = max_bytes / sizeof(int32_t);
     // id_htable_size = leqprime((max_bytes / sizeof(int32_t)) - 1);
     const uint32_t min_htable_size = GetHtableMinSize(item_ct);

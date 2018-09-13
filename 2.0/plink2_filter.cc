@@ -1578,7 +1578,7 @@ PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fn
     const char* const* category_names = cur_pheno_col->category_names;
     uint32_t* cat_id_htable;
     uint32_t id_htable_size;
-    reterr = AllocAndPopulateIdHtableMt(cat_include, category_names, cat_ct, max_thread_ct, &cat_id_htable, nullptr, &id_htable_size, nullptr);
+    reterr = AllocAndPopulateIdHtableMt(cat_include, category_names, cat_ct, 0, max_thread_ct, &cat_id_htable, nullptr, &id_htable_size, nullptr);
     if (unlikely(reterr)) {
       goto KeepRemoveCatsInternal_ret_1;
     }
@@ -1927,7 +1927,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
     }
     uint32_t* variant_id_htable = nullptr;
     uint32_t variant_id_htable_size;
-    reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size, nullptr);
+    reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, 0, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size, nullptr);
     if (unlikely(reterr)) {
       goto ReadAlleleFreqs_ret_1;
     }
@@ -3806,7 +3806,7 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
     }
     uint32_t* variant_id_htable = nullptr;
     uint32_t variant_id_htable_size;
-    reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size, nullptr);
+    reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, bigstack_left() / 8, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size, nullptr);
     if (unlikely(reterr)) {
       goto SetRefalt1FromFile_ret_1;
     }

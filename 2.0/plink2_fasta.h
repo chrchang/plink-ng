@@ -28,10 +28,11 @@ FLAGSET_DEF_START()
   kfFa0,
   kfFaRefFrom = (1 << 0),
   kfFaRefFromForce = (1 << 1),
-  kfFaNormalize = (1 << 2)
+  kfFaNormalize = (1 << 2),
+  kfFaNormalizeList = (1 << 3)
 FLAGSET_DEF_END(FaFlags);
 
-PglErr ProcessFa(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* fname, uint32_t max_allele_ct, uint32_t max_allele_slen, FaFlags flags, UnsortedVar* vpos_sortstatusp, uint32_t* variant_bps, const char** allele_storage, STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uintptr_t* nonref_flags);
+PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* fname, uint32_t max_allele_ct, uint32_t max_allele_slen, FaFlags flags, UnsortedVar* vpos_sortstatusp, uint32_t* variant_bps, const char** allele_storage, STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uintptr_t* nonref_flags, char* outname, char* outname_end);
 
 #ifdef __cplusplus
 }  // namespace plink2

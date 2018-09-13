@@ -154,7 +154,7 @@ PglErr RefFromFaContig(const uintptr_t* variant_include, const uint32_t* variant
   }
 }
 
-PglErr VNormalizeContig(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* seqbuf, uint32_t chr_fo_idx, uint32_t variant_uidx_last, uint32_t bp_end, unsigned char** alloc_endp, UnsortedVar* vpos_sortstatusp, uint32_t* __restrict variant_bps, const char** allele_storage, uint32_t* __restrict nchanged_ct_ptr, uint32_t* __restrict alen_buf) {
+PglErr VNormalizeContig(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* seqbuf, uint32_t chr_fo_idx, uint32_t variant_uidx_last, uint32_t bp_end, unsigned char** alloc_endp, UnsortedVar* vpos_sortstatusp, uint32_t* __restrict variant_bps, const char** allele_storage, uint32_t* __restrict nchanged_ct_ptr, char* nlist_flush, FILE* nlist_file, char** nlist_write_iterp, uint32_t* __restrict alen_buf) {
   uintptr_t variant_uidx_base;
   uintptr_t cur_bits;
   BitIter1Start(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], &variant_uidx_base, &cur_bits);
@@ -172,6 +172,7 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const uintptr_t* allel
   const uint32_t input_missing_geno_code = ctou32(*g_input_missing_geno_ptr);
   unsigned char* alloc_base = g_bigstack_base;
   unsigned char* alloc_end = *alloc_endp;
+  char* nlist_write_iter = *nlist_write_iterp;
   uint32_t nchanged_ct = *nchanged_ct_ptr;
   uint32_t allele_ct = 2;
   uint32_t prev_bp = 0;
@@ -276,6 +277,7 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const uintptr_t* allel
         break;
       }
       if (++aidx == allele_ct) {
+        // probable todo: report ID instead?
         const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
         char* write_iter = strcpya_k(g_logbuf, "Error: Variant at ");
         write_iter = chrtoa(cip, chr_idx, write_iter);
@@ -288,6 +290,13 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const uintptr_t* allel
       }
     }
     ++nchanged_ct;
+    if (nlist_write_iter) {
+      nlist_write_iter = strcpya(nlist_write_iter, variant_ids[variant_uidx]);
+      AppendBinaryEoln(&nlist_write_iter);
+      if (unlikely(fwrite_ck(nlist_flush, nlist_file, &nlist_write_iter))) {
+        return kPglRetWriteFail;
+      }
+    }
     // Algorithm from Tan A, Abecasis GR, Kang HM (2015) Unified representation
     // of genetic variants:
     //   while (alleles end with the same nucleotide) {
@@ -305,6 +314,7 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const uintptr_t* allel
       // allocation is never required.
       const uint32_t min_alen_m1 = min_alen - 1;
       uint32_t ltrim = 1;
+      uint32_t ltrim_p1;
       for (; ltrim != min_alen_m1; ++ltrim) {
         const char cc = cur_alleles[first_aidx][ltrim];
         for (uint32_t aidx = first_aidx + 1; aidx != allele_ct; ++aidx) {
@@ -317,7 +327,7 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const uintptr_t* allel
         }
       }
     VNormalizeContig_ltrim1_done:
-      const uint32_t ltrim_p1 = ltrim + 1;
+      ltrim_p1 = ltrim + 1;
       for (uint32_t aidx = first_aidx; aidx != allele_ct; ++aidx) {
         if (aidx == missing_aidx) {
           continue;
@@ -444,12 +454,14 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const uintptr_t* allel
     *vpos_sortstatusp |= kfUnsortedVarBp;
   }
   *nchanged_ct_ptr = nchanged_ct;
+  *nlist_write_iterp = nlist_write_iter;
   return kPglRetSuccess;
 }
 
-PglErr ProcessFa(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* fname, uint32_t max_allele_ct, uint32_t max_allele_slen, FaFlags flags, UnsortedVar* vpos_sortstatusp, uint32_t* variant_bps, const char** allele_storage, STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uintptr_t* nonref_flags) {
+PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* fname, uint32_t max_allele_ct, uint32_t max_allele_slen, FaFlags flags, UnsortedVar* vpos_sortstatusp, uint32_t* variant_bps, const char** allele_storage, STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uintptr_t* nonref_flags, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
+  FILE* nlist_file = nullptr;
   PglErr reterr = kPglRetSuccess;
   ReadLineStream fa_rls;
   PreinitRLstream(&fa_rls);
@@ -463,12 +475,21 @@ PglErr ProcessFa(const uintptr_t* variant_include, const uintptr_t* allele_idx_o
       goto ProcessFa_ret_NOMEM;
     }
     uint32_t* alen_buf = nullptr;
+    char* nlist_write_iter = nullptr;
+    char* nlist_flush = nullptr;
     if (flags & kfFaNormalize) {
       if (unlikely(bigstack_alloc_u32(max_allele_ct, &alen_buf))) {
         goto ProcessFa_ret_NOMEM;
       }
+      if (flags & kfFaNormalizeList) {
+        snprintf(outname_end, kMaxOutfnameExtBlen, ".normalized");
+        if (unlikely(fopen_checked(outname, FOPEN_WB, &nlist_file))) {
+          goto ProcessFa_ret_OPEN_FAIL;
+        }
+        nlist_write_iter = g_textbuf;
+        nlist_flush = &(nlist_write_iter[kMaxMediumLine]);
+      }
     }
-
 
     // To simplify indel/complex-variant handling, we load an entire contig at
     // a time.  Determine an upper bound for the size of this buffer.
@@ -544,7 +565,7 @@ PglErr ProcessFa(const uintptr_t* variant_include, const uintptr_t* allele_idx_o
             }
           }
           if (flags & kfFaNormalize) {
-            reterr = VNormalizeContig(variant_include, allele_idx_offsets, cip, seqbuf, chr_fo_idx, cur_vidx_last, bp_end, &tmp_alloc_end, vpos_sortstatusp, variant_bps, allele_storage, &nchanged_ct, alen_buf);
+            reterr = VNormalizeContig(variant_include, variant_ids, allele_idx_offsets, cip, seqbuf, chr_fo_idx, cur_vidx_last, bp_end, &tmp_alloc_end, vpos_sortstatusp, variant_bps, allele_storage, &nchanged_ct, nlist_flush, nlist_file, &nlist_write_iter, alen_buf);
             if (unlikely(reterr)) {
               goto ProcessFa_ret_1;
             }
@@ -628,13 +649,19 @@ PglErr ProcessFa(const uintptr_t* variant_include, const uintptr_t* allele_idx_o
         // slightly redundant
         *seq_iter = '\0';
         const uint32_t bp_end = seq_iter - seqbuf;
-        reterr = VNormalizeContig(variant_include, allele_idx_offsets, cip, seqbuf, chr_fo_idx, cur_vidx_last, bp_end, &tmp_alloc_end, vpos_sortstatusp, variant_bps, allele_storage, &nchanged_ct, alen_buf);
+        reterr = VNormalizeContig(variant_include, variant_ids, allele_idx_offsets, cip, seqbuf, chr_fo_idx, cur_vidx_last, bp_end, &tmp_alloc_end, vpos_sortstatusp, variant_bps, allele_storage, &nchanged_ct, nlist_flush, nlist_file, &nlist_write_iter, alen_buf);
         if (unlikely(reterr)) {
           goto ProcessFa_ret_1;
         }
       }
       BigstackEndSet(tmp_alloc_end);
       logprintf("--normalize: %u variant%s changed.\n", nchanged_ct, (nchanged_ct == 1)? "" : "s");
+      if (nlist_file) {
+        if (unlikely(fclose_flush_null(nlist_flush, nlist_write_iter, &nlist_file))) {
+          goto ProcessFa_ret_WRITE_FAIL;
+        }
+        logprintfww("Affected variant ID%s written to %s .\n", (nchanged_ct == 1)? "" : "s", outname);
+      }
       if ((*vpos_sortstatusp) & kfUnsortedVarBp) {
         logerrprintf("Warning: Base-pair positions are now unsorted!\n");
       }
@@ -644,8 +671,14 @@ PglErr ProcessFa(const uintptr_t* variant_include, const uintptr_t* allele_idx_o
   ProcessFa_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
+  ProcessFa_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
   ProcessFa_ret_READ_RLSTREAM:
     RLstreamErrPrint("--ref-from-fa file", &fa_rls, &reterr);
+    break;
+  ProcessFa_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
     break;
   ProcessFa_ret_MALFORMED_INPUT_WW:
     WordWrapB(0);
@@ -655,6 +688,7 @@ PglErr ProcessFa(const uintptr_t* variant_include, const uintptr_t* allele_idx_o
     break;
   }
  ProcessFa_ret_1:
+  fclose_cond(nlist_file);
   CleanupRLstream(&fa_rls);
   BigstackReset(bigstack_mark);
   return reterr;

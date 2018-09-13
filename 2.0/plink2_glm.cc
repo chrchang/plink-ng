@@ -2580,6 +2580,15 @@ BoolErr LogisticRegression(const float* yy, const float* xx, uint32_t sample_ct,
         return 1;
       }
       if (iteration > 13) {
+        // If fabsf(any coefficient) > 8e3, this is almost certainly a form of
+        // convergence failure that didn't get caught by the
+        // (delta_coef > 20.0) check due to a precision quirk.  (8e3 threshold
+        // ~= 1e-4 * 2^23, since floats have 23 bits of precision)
+        for (uint32_t pred_idx = 0; pred_idx != predictor_ct; ++pred_idx) {
+          if (fabsf(coef[pred_idx]) > S_CAST(float, 8e3)) {
+            return 1;
+          }
+        }
         return 0;
       }
     }
@@ -7540,7 +7549,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           }
           uint32_t* variant_id_htable = nullptr;
           uint32_t variant_id_htable_size;
-          reterr = AllocAndPopulateIdHtableMt(orig_variant_include, variant_ids, orig_variant_ct, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size, nullptr);
+          reterr = AllocAndPopulateIdHtableMt(orig_variant_include, variant_ids, orig_variant_ct, 0, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size, nullptr);
           if (unlikely(reterr)) {
             goto GlmMain_ret_1;
           }

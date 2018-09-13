@@ -67,7 +67,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (11 Sep 2018)";
+  " (12 Sep 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -1103,7 +1103,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       uint32_t* htable_dup_base = nullptr;
       uint32_t dup_ct = 0;
       uint32_t variant_id_htable_size;
-      reterr = AllocAndPopulateIdHtableMt(variant_include, TO_CONSTCPCONSTP(variant_ids_mutable), variant_ct, pcp->max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size, &dup_ct);
+      reterr = AllocAndPopulateIdHtableMt(variant_include, TO_CONSTCPCONSTP(variant_ids_mutable), variant_ct, bigstack_left() / 8, pcp->max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size, &dup_ct);
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
       }
@@ -1163,7 +1163,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             // Must reconstruct the hash table in this case.
             BigstackReset(bigstack_mark);
             dup_ct = 0;
-            reterr = AllocAndPopulateIdHtableMt(variant_include, TO_CONSTCPCONSTP(variant_ids_mutable), variant_ct, pcp->max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size, &dup_ct);
+            reterr = AllocAndPopulateIdHtableMt(variant_include, TO_CONSTCPCONSTP(variant_ids_mutable), variant_ct, bigstack_left() / 8, pcp->max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size, &dup_ct);
             if (unlikely(reterr)) {
               goto Plink2Core_ret_1;
             }
@@ -2232,7 +2232,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               logerrputs("Error: --normalize and --ref-from-fa require a sorted .pvar/.bim.  Retry this\ncommand after using --make-pgen/--make-bed + --sort-vars to sort your data.\n");
               goto Plink2Core_ret_INCONSISTENT_INPUT;
             }
-            reterr = ProcessFa(variant_include, allele_idx_offsets, cip, pcp->fa_fname, max_allele_ct, max_allele_slen, pcp->fa_flags, &vpos_sortstatus, variant_bps, allele_storage, refalt1_select, nonref_flags);
+            reterr = ProcessFa(variant_include, variant_ids, allele_idx_offsets, cip, pcp->fa_fname, max_allele_ct, max_allele_slen, pcp->fa_flags, &vpos_sortstatus, variant_bps, allele_storage, refalt1_select, nonref_flags, outname, outname_end);
             if (unlikely(reterr)) {
               goto Plink2Core_ret_1;
             }
@@ -6969,9 +6969,19 @@ int main(int argc, char** argv) {
             logerrputs("Error: --normalize requires --fa.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (param_ct) {
+            const char* cur_modif = argvk[arg_idx + 1];
+            if (unlikely(strcmp(cur_modif, "list"))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --normalize parameter '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            pc.fa_flags |= kfFaNormalizeList;
+          }
           pc.fa_flags |= kfFaNormalize;
           pc.dependency_flags |= kfFilterPvarReq;
-          goto main_param_zero;
         } else if (likely(strequal_k_unsafe(flagname_p2, "o-id-header"))) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;

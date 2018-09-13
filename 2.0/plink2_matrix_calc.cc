@@ -4906,7 +4906,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     const uint32_t male_ct = sample_ct - nonmale_ct;
     uint32_t* variant_id_htable = nullptr;
     uint32_t variant_id_htable_size;
-    reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size, nullptr);
+    reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, 0, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size, nullptr);
     if (unlikely(reterr)) {
       goto ScoreReport_ret_1;
     }

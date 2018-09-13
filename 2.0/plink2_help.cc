@@ -1621,8 +1621,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                          permit that.\n"
                );
     HelpPrint("normalize\0norm\0fa\0", &help_ctrl, 0,
-"  --normalize           : Left-normalize all variants, using the --fa file.\n"
-"  (alias: --norm)         (Assumes no differences in capitalization.)\n"
+"  --normalize <list>    : Left-normalize all variants, using the --fa file.\n"
+"  (alias: --norm)         (Assumes no differences in capitalization.)  The\n"
+"                          'list' modifier causes a list of affected variant IDs\n"
+"                          to be written to [output prefix].normalized.\n"
               );
     HelpPrint("indiv-sort\0", &help_ctrl, 0,
 "  --indiv-sort [m] {f}  : Specify sample ID sort order for merge and\n"
