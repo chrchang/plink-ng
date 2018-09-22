@@ -528,8 +528,30 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
   return reterr;
 }
 
+// Join behavior:
+// - Require sorted input .pvar for now, though it won't be difficult to lift
+//   this restriction later.
+// - Don't need to do anything different when chr:pos only appears once.
+// - When chr:pos appears multiple times:
+//   - In +snps mode, also don't need to do anything different for non-SNPs.
+//   - Otherwise, create up to three linked lists of input variant records
+//     (need to distinguish SNPs from non-SNPs in +both mode, and within the
+//     non-SNP category, symbolic alleles are separate from non-symbolic).
+//     The variant with symbolic alleles has additional constraints: a warning
+//     is printed if INFO:END isn't defined, and an error occurs if either REF
+//     is multi-character, or there's an INFO:END mismatch.
+//   - Error out if REF alleles aren't all consistent, or any ALT allele is
+//     duplicated (necessary to use --pmerge to merge the latter).
+//   - For joined not-entirely-SNP non-symbolic variants, the final REF is the
+//     longest of the original REFs; ALT alleles have bases added to the end if
+//     necessary.
+//   ...todo
+//     ID: 1. If --set-all-var-ids specified, apply template.
+//         2. Otherwise, keep original variant ID if all sources identical and
+//            nonmissing.
+//         3. Otherwise, if vid-join specified, check for ';'.
 /*
-PglErr WritePvarMerge(const char* outname, const char* xheader, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* qual_present, const float* quals, const uintptr_t* filter_present, const uintptr_t* filter_npass, const char* const* filter_storage, const uintptr_t* nonref_flags, const char* pvar_info_reload, const double* variant_cms, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t nonref_flags_storage, uint32_t max_filter_slen, uint32_t info_reload_slen, PvarPsamFlags pvar_psam_flags, uint32_t thread_ct) {
+PglErr WritePvarJoin(const char* outname, const char* xheader, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* qual_present, const float* quals, const uintptr_t* filter_present, const uintptr_t* filter_npass, const char* const* filter_storage, const uintptr_t* nonref_flags, const char* pvar_info_reload, const double* variant_cms, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t nonref_flags_storage, uint32_t max_filter_slen, uint32_t info_reload_slen, PvarPsamFlags pvar_psam_flags, uint32_t thread_ct) {
   // allele_presents must be nullptr unless we're trimming alt alleles
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
@@ -2669,7 +2691,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
       putc_unlocked('\b', stdout);
     }
     fputs("\b\b", stdout);
-    logprintf("done.\n");
+    logputs("done.\n");
   }
   while (0) {
   LoadAlleleAndGenoCounts_ret_NOMEM:
@@ -4094,7 +4116,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
         putc_unlocked('\b', stdout);
       }
       fputs("\b\b", stdout);
-      logprintf("done.\n");
+      logputs("done.\n");
     }
   }
   while (0) {
@@ -4369,7 +4391,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
         putc_unlocked('\b', stdout);
       }
       fputs("\b\b", stdout);
-      logprintf("done.\n");
+      logputs("done.\n");
       BigstackReset(bigstack_mark);
     } else if (make_pgen) {
       assert(variant_ct);
@@ -4822,7 +4844,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
         putc_unlocked('\b', stdout);
       }
       fputs("\b\b", stdout);
-      logprintf("done.\n");
+      logputs("done.\n");
       BigstackReset(bigstack_mark);
     } else if (0) {
     MakePlink2NoVsort_fallback:

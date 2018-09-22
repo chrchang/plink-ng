@@ -1426,6 +1426,9 @@ HEADER_INLINE char* Memrchr(char* str_start, char needle, uintptr_t slen) {
 
 void TabsToSpaces(char* ss_iter);
 
+// Errors out if new_char is already present.
+BoolErr ReplaceCharAdvChecked(char old_char, char new_char, char** str_ptr);
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

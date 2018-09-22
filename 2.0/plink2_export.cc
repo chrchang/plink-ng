@@ -311,7 +311,7 @@ PglErr Export012Vmaj(const char* outname, const uintptr_t* sample_include, const
       putc_unlocked('\b', stdout);
     }
     fputs("\b\b", stdout);
-    logprintf("done.\n");
+    logputs("done.\n");
   }
   while (0) {
   Export012Vmaj_ret_NOMEM:
@@ -1070,7 +1070,7 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
       putc_unlocked('\b', stdout);
     }
     fputs("\b\b", stdout);
-    logprintf("done.\n");
+    logputs("done.\n");
     VcountIncr4To8(missing_acc4, acc4_vec_ct, missing_acc8);
     VcountIncr8To32(missing_acc8, acc8_vec_ct, missing_acc32);
     uint32_t* scrambled_missing_cts = R_CAST(uint32_t*, missing_acc32);
@@ -1370,7 +1370,7 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
       putc_unlocked('\b', stdout);
     }
     fputs("\b\b", stdout);
-    logprintf("done.\n");
+    logputs("done.\n");
   }
   while (0) {
   ExportOxHapslegend_ret_NOMEM:
@@ -1891,7 +1891,7 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
       putc_unlocked('\b', stdout);
     }
     fputs("\b\b", stdout);
-    logprintf("done.\n");
+    logputs("done.\n");
     const uint32_t sample_ctav = acc1_vec_ct * kBitsPerVec;
     const uintptr_t acc32_offset = acc1_vec_ct * (13 * k1LU * kWordsPerVec);
     uint32_t* scrambled_missing_cts = R_CAST(uint32_t*, &(g_missing_acc1[0][acc32_offset]));
@@ -3522,7 +3522,7 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
       putc_unlocked('\b', stdout);
     }
     fputs("\b\b", stdout);
-    logprintf("done.\n");
+    logputs("done.\n");
     const uint32_t sample_ctav = acc1_vec_ct * kBitsPerVec;
     const uintptr_t acc32_offset = acc1_vec_ct * (13 * k1LU * kWordsPerVec);
     uint32_t* scrambled_missing_cts = R_CAST(uint32_t*, &(g_missing_acc1[0][acc32_offset]));
@@ -5878,7 +5878,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       putc_unlocked('\b', stdout);
     }
     fputs("\b\b", stdout);
-    logprintf("done.\n");
+    logputs("done.\n");
   }
   while (0) {
   ExportVcf_ret_NOMEM:

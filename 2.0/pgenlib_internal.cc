@@ -4410,12 +4410,17 @@ PglErr ReadGenovecSubsetUnsafe(const uintptr_t* __restrict sample_include, const
     PgrPlink1ToPlink2InplaceUnsafe(sample_ct, genovec);
   } else {
     const uint32_t is_ldbase = pgrp->fi.vrtypes && VrtypeLdCompressed(pgrp->fi.vrtypes[vidx + 1]);
+    const uint32_t ldbase_raw_genovec_saved = (sample_ct != pgrp->fi.raw_sample_ct) && (!VrtypeDifflist(maintrack_vrtype));
     if (is_ldbase) {
       CopyQuaterarr(genovec, sample_ct, pgrp->ldbase_genovec);
       pgrp->ldbase_vidx = vidx;
       // may be better to just always set to kfPgrLdcacheQuater?  this depends
       // on multiallelic code
-      pgrp->ldbase_stypes = ((sample_ct != pgrp->fi.raw_sample_ct) && (!VrtypeDifflist(maintrack_vrtype)))? (kfPgrLdcacheQuater | kfPgrLdcacheRawQuater) : kfPgrLdcacheQuater;
+      pgrp->ldbase_stypes = ldbase_raw_genovec_saved? (kfPgrLdcacheQuater | kfPgrLdcacheRawQuater) : kfPgrLdcacheQuater;
+    } else if (ldbase_raw_genovec_saved) {
+      // bugfix (22 Sep 2018): when accessing variants out of order, need to
+      // note that we just clobbered the cache
+      pgrp->ldbase_stypes &= ~kfPgrLdcacheRawQuater;
     }
   }
   if (fread_pp) {
@@ -4722,9 +4727,13 @@ PglErr ReadDifflistOrGenovecSubsetUnsafe(const uintptr_t* __restrict sample_incl
     if (unlikely(reterr)) {
       return reterr;
     }
+    const uint32_t ldbase_raw_genovec_saved = (subsetting_required && (!VrtypeDifflist(vrtype)));
     if (is_ldbase) {
       CopyQuaterarr(genovec, sample_ct, pgrp->ldbase_genovec);
-      pgrp->ldbase_stypes = (subsetting_required && (!VrtypeDifflist(vrtype)))? (kfPgrLdcacheQuater | kfPgrLdcacheRawQuater) : kfPgrLdcacheQuater;
+      pgrp->ldbase_stypes = ldbase_raw_genovec_saved? (kfPgrLdcacheQuater | kfPgrLdcacheRawQuater) : kfPgrLdcacheQuater;
+    } else if (ldbase_raw_genovec_saved) {
+      // bugfix (22 Sep 2018)
+      pgrp->ldbase_stypes &= ~kfPgrLdcacheRawQuater;
     }
     if (vrtype == kPglVrtypePlink1) {
       PgrPlink1ToPlink2InplaceUnsafe(sample_ct, genovec);
@@ -13394,7 +13403,7 @@ void PglMultiallelicDenseToSparse(const AlleleCode* __restrict wide_codes, uint3
 
 static const uint16_t kHcToAlleleCodes[1024] = {HC_TO_AC4_4(0), HC_TO_AC4_4(0x100), HC_TO_AC4_4(0x101), HC_TO_AC4_4(0xffff)};
 
-static_assert(sizeof(AlleleCode) == 1, "PwcMultiallelicSparseToDense() needs to be updated.");
+static_assert(sizeof(AlleleCode) == 1, "PglMultiallelicSparseToDense() needs to be updated.");
 void PglMultiallelicSparseToDense(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, const AlleleCode* __restrict remap, uint32_t sample_ct, uint32_t patch_01_ct, uint32_t patch_10_ct, uintptr_t* __restrict flipped, AlleleCode* __restrict wide_codes) {
   if (flipped) {
     ZeroWArr(BitCtToWordCt(sample_ct), flipped);
@@ -13566,6 +13575,34 @@ void PglMultiallelicSparseToDense(const uintptr_t* __restrict genovec, const uin
   }
 }
 
+static_assert(sizeof(AlleleCode) == 1, "PglMultiallelicSparseToDenseMiss() needs to be updated.");
+void PglMultiallelicSparseToDenseMiss(const PgenVariant* pgvp, uint32_t sample_ct, AlleleCode* __restrict wide_codes) {
+  GenoarrLookup256x2bx4(pgvp->genovec, kHcToAlleleCodes, sample_ct, wide_codes);
+  const uint32_t patch_01_ct = pgvp->patch_01_ct;
+  if (patch_01_ct) {
+    const uintptr_t* patch_01_set = pgvp->patch_01_set;
+    uintptr_t sample_idx_base = 0;
+    uintptr_t cur_bits = patch_01_set[0];
+    const AlleleCode* patch_01_vals = pgvp->patch_01_vals;
+    AlleleCode* wide_codes1 = &(wide_codes[1]);
+    for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
+      const uintptr_t sample_idx = BitIter1(patch_01_set, &sample_idx_base, &cur_bits);
+      wide_codes1[2 * sample_idx] = patch_01_vals[uii];
+    }
+  }
+  const uint32_t patch_10_ct = pgvp->patch_10_ct;
+  if (patch_10_ct) {
+    const uintptr_t* patch_10_set = pgvp->patch_10_set;
+    uintptr_t sample_idx_base = 0;
+    uintptr_t cur_bits = patch_10_set[0];
+    const DoubleAlleleCode* patch_10_vals_alias = R_CAST(const DoubleAlleleCode*, pgvp->patch_10_vals);
+    DoubleAlleleCode* wide_codes_alias = R_CAST(DoubleAlleleCode*, wide_codes);
+    for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
+      const uintptr_t sample_idx = BitIter1(patch_10_set, &sample_idx_base, &cur_bits);
+      wide_codes_alias[sample_idx] = patch_10_vals_alias[uii];
+    }
+  }
+}
 
 // tolerates extraneous phaseinfo bits
 BoolErr AppendHphase(const uintptr_t* __restrict genovec_hets, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, uint32_t het_ct, uint32_t phasepresent_ct, PgenWriterCommon* pwcp, unsigned char* vrtype_ptr, uint32_t* vrec_len_ptr) {

@@ -474,8 +474,8 @@ PglErr SortedXidboxInitAlloc(const uintptr_t* sample_include, const SampleIdInfo
 }
 
 uint32_t XidRead(uintptr_t max_xid_blen, uint32_t comma_delim, XidMode xid_mode, const char** read_pp, char* __restrict idbuf) {
-  // idbuf = workspace
-  // sorted_xidbox = packed, sorted list of ID strings to search over.
+  // Saves normalized tokens pointed to by *read_pp to idbuf, and advances
+  // *read_pp.
   //
   // Input *read_pp must point to beginning of sample ID; this is a change from
   // plink 1.9.
@@ -603,6 +603,7 @@ uint32_t XidRead(uintptr_t max_xid_blen, uint32_t comma_delim, XidMode xid_mode,
 }
 
 BoolErr SortedXidboxReadMultifind(const char* __restrict sorted_xidbox, uintptr_t max_xid_blen, uintptr_t xid_ct, uint32_t comma_delim, XidMode xid_mode, const char** read_pp, uint32_t* __restrict xid_idx_start_ptr, uint32_t* __restrict xid_idx_end_ptr, char* __restrict idbuf) {
+  // sorted_xidbox = packed, sorted list of ID strings to search over.
   const uint32_t slen_final = XidRead(max_xid_blen, comma_delim, xid_mode, read_pp, idbuf);
   if (!slen_final) {
     return 1;
@@ -676,6 +677,92 @@ PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, XidHeaderF
     return reterr;
   }
   return LoadXidHeader(flag_name, xid_header_flags, line_iterp, line_idx_ptr, linebuf_first_token_ptr, rlsp, xid_mode_ptr);
+}
+
+PglErr LoadXidHeaderPair(const char* flag_name, uint32_t sid_over_fid, char** line_iterp, uintptr_t* line_idx_ptr, char** linebuf_first_token_ptr, ReadLineStream* rlsp, XidMode* xid_mode_ptr) {
+  char* line_iter = *line_iterp;
+  uintptr_t line_idx = *line_idx_ptr;
+  uint32_t is_header_line;
+  do {
+    ++line_idx;
+    PglErr reterr = RlsNext(rlsp, &line_iter);
+    // eof may be ok
+    if (reterr) {
+      return reterr;
+    }
+    line_iter = FirstNonTspace(line_iter);
+    is_header_line = (line_iter[0] == '#');
+  } while (IsEolnKns(*line_iter) || (is_header_line && (!tokequal_k(&(line_iter[1]), "FID1")) && (!tokequal_k(&(line_iter[1]), "ID1")) && (!tokequal_k(&(line_iter[1]), "IID1"))));
+  *linebuf_first_token_ptr = line_iter;
+  XidMode xid_mode = kfXidMode0;
+  if (is_header_line) {
+    // The following header leading columns are supported:
+    // #FID1 {I}ID1 FID2 {I}ID2
+    // #FID1 {I}ID1 SID1 FID2 {I}ID2 SID2
+    // #{I}ID1 {I}ID2
+    // #{I}ID1 SID1 {I}ID2 SID2
+    char* linebuf_iter = &(line_iter[4]);
+    if (line_iter[1] == 'I') {
+      xid_mode = kfXidModeFlagNeverFid;
+    } else {
+      linebuf_iter = FirstNonTspace(linebuf_iter);
+      if (tokequal_k(linebuf_iter, "ID1")) {
+        linebuf_iter = &(linebuf_iter[3]);
+      } else if (likely(tokequal_k(linebuf_iter, "IID1"))) {
+        linebuf_iter = &(linebuf_iter[4]);
+      } else {
+        logerrprintf("Error: No {I}ID1 column on line %" PRIuPTR " of --%s file.\n", line_idx, flag_name);
+        return kPglRetMalformedInput;
+      }
+    }
+    linebuf_iter = FirstNonTspace(linebuf_iter);
+    if (tokequal_k(linebuf_iter, "SID1")) {
+      xid_mode |= kfXidModeFlagSid;
+      linebuf_iter = FirstNonTspace(&(linebuf_iter[4]));
+    }
+    // Now verify the expected ID2 token sequence follows.
+    if (!(xid_mode & kfXidModeFlagNeverFid)) {
+      if (unlikely(!tokequal_k(linebuf_iter, "FID2"))) {
+        logerrprintf("Error: No FID2 column on line %" PRIuPTR " of --%s file.\n", line_idx, flag_name);
+        return kPglRetMalformedInput;
+      }
+      linebuf_iter = FirstNonTspace(&(linebuf_iter[4]));
+    }
+    if (tokequal_k(linebuf_iter, "ID2")) {
+      linebuf_iter = &(linebuf_iter[3]);
+    } else if (likely(tokequal_k(linebuf_iter, "IID2"))) {
+      linebuf_iter = &(linebuf_iter[4]);
+    } else {
+      logerrprintf("Error: No {I}ID2 column on line %" PRIuPTR " of --%s file.\n", line_idx, flag_name);
+      return kPglRetMalformedInput;
+    }
+    if (xid_mode & kfXidModeFlagSid) {
+      linebuf_iter = FirstNonTspace(linebuf_iter);
+      if (unlikely(!tokequal_k(linebuf_iter, "SID2"))) {
+        logerrprintf("Error: No SID2 column on line %" PRIuPTR " of --%s file.\n", line_idx, flag_name);
+        return kPglRetMalformedInput;
+      }
+      linebuf_iter = &(linebuf_iter[4]);
+    }
+    *line_iterp = linebuf_iter;
+  } else {
+    // Assume the file contains nothing but ID pairs.
+    const uint32_t token_ct = CountTokens(line_iter);
+    if (token_ct == 2) {
+      xid_mode = kfXidModeIid;
+    } else if (token_ct == 4) {
+      xid_mode = sid_over_fid? kfXidModeIidSid : kfXidModeFidIid;
+    } else if (likely(token_ct == 6)) {
+      xid_mode = kfXidModeFidIidSid;
+    } else {
+      logerrprintf("Error: Unexpected token count on line %" PRIuPTR " of --%s file.\n", line_idx, flag_name);
+      return kPglRetMalformedInput;
+    }
+    *line_iterp = line_iter;
+  }
+  *line_idx_ptr = line_idx;
+  *xid_mode_ptr = xid_mode;
+  return kPglRetSuccess;
 }
 
 
@@ -1320,6 +1407,18 @@ uintptr_t count_11_longs(const uintptr_t* genovec, uintptr_t word_ct) {
   }
 }
 */
+
+uint32_t AllGenoEqual(const uintptr_t* genovec, uint32_t sample_ct) {
+  const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
+  const uintptr_t match_word = (genovec[0] & 3) * kMask5555;
+  for (uint32_t widx = 0; widx != word_ct_m1; ++widx) {
+    if (genovec[widx] != match_word) {
+      return 0;
+    }
+  }
+  const uint32_t remainder = ModNz(sample_ct, kBitsPerWordD2);
+  return !bzhi_max(genovec[word_ct_m1] ^ match_word, 2 * remainder);
+}
 
 void InterleavedMaskZero(const uintptr_t* __restrict interleaved_mask, uintptr_t vec_ct, uintptr_t* __restrict genovec) {
   const uintptr_t twovec_ct = vec_ct / 2;

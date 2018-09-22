@@ -3082,6 +3082,21 @@ void TabsToSpaces(char* ss_iter) {
   }
 }
 
+BoolErr ReplaceCharAdvChecked(char old_char, char new_char, char** str_ptr) {
+  char* token_end;
+  for (char* str_iter = *str_ptr; ; str_iter = &(token_end[1])) {
+    token_end = strchrnul2(str_iter, old_char, new_char);
+    if ((*token_end) != old_char) {
+      if (likely(!(*token_end))) {
+        *str_ptr = token_end;
+        return 0;
+      }
+      return 1;
+    }
+    *token_end = new_char;
+  }
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

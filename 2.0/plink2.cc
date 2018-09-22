@@ -67,7 +67,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (12 Sep 2018)";
+  " (22 Sep 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -88,9 +88,9 @@ static const char ver_str2[] =
 static const char errstr_append[] = "For more info, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
 
 #ifndef NOLAPACK
-static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--missing, --hardy, --indep-pairwise, --ld, --make-king, --king-cutoff,\n--write-samples, --write-snplist, --make-grm-list, --pca, --glm, --adjust-file,\n--score, --genotyping-rate, --pgen-info, --validate, and --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--missing, --hardy, --indep-pairwise, --ld, --sample-diff, --make-king,\n--king-cutoff, --write-samples, --write-snplist, --make-grm-list, --pca, --glm,\n--adjust-file, --score, --genotyping-rate, --pgen-info, --validate, and\n--zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
 #else
-static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--missing, --hardy, --indep-pairwise, --ld, --make-king, --king-cutoff,\n--write-samples, --write-snplist, --make-grm-list, --glm, --adjust-file,\n--score, --genotyping-rate, --pgen-info, --validate, and --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--missing, --hardy, --indep-pairwise, --ld, --sample-diff, --make-king,\n--king-cutoff, --write-samples, --write-snplist, --make-grm-list, --glm,\n--adjust-file, --score, --genotyping-rate, --pgen-info, --validate, and\n--zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
 #endif
 
 // covar-variance-standardize + terminating null
@@ -165,7 +165,8 @@ FLAGSET64_DEF_START()
   kfCommand1WriteSamples = (1 << 17),
   kfCommand1Ld = (1 << 18),
   kfCommand1PgenInfo = (1 << 19),
-  kfCommand1RmDupList = (1 << 20)
+  kfCommand1RmDupList = (1 << 20),
+  kfCommand1Sdiff = (1 << 21)
 FLAGSET64_DEF_END(Command1Flags);
 
 // this is a hybrid, only kfSortFileSid is actually a flag
@@ -303,6 +304,7 @@ typedef struct Plink2CmdlineStruct {
   FamCol fam_cols;
   UpdateSexInfo update_sex_info;
   LdInfo ld_info;
+  SdiffInfo sdiff_info;
   KingFlags king_flags;
   double king_cutoff;
   double king_table_filter;
@@ -422,7 +424,7 @@ typedef struct Plink2CmdlineStruct {
 
 // er, probably time to just always initialize this...
 uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_thresh) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy)) || ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) || ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) || (rmdup_mode != kRmDup0) || (hwe_thresh != 1.0);
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff)) || ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) || ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) || (rmdup_mode != kRmDup0) || (hwe_thresh != 1.0);
 }
 
 
@@ -1990,6 +1992,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         logprintf("%u variant%s remaining after main filters.\n", variant_ct, (variant_ct == 1)? "" : "s");
       }
 
+      if (pcp->command_flags1 & kfCommand1Sdiff) {
+        reterr = Sdiff(sample_include, &pii.sii, sex_nm, sex_male, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, &(pcp->sdiff_info), raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
       if (pcp->command_flags1 & (kfCommand1MakeKing | kfCommand1KingCutoff)) {
         uintptr_t* prev_sample_include = nullptr;
         const uint32_t prev_sample_ct = sample_ct;
@@ -2964,6 +2973,7 @@ int main(int argc, char** argv) {
   InitRangeList(&pc.covar_range_list);
   InitUpdateSex(&pc.update_sex_info);
   InitLd(&pc.ld_info);
+  InitSdiff(&pc.sdiff_info);
   InitGlm(&pc.glm_info);
   InitScore(&pc.score_info);
   InitCmpExpr(&pc.keep_if_expr);
@@ -3174,6 +3184,13 @@ int main(int argc, char** argv) {
           } else if (strequal_k(flagname_p, "remove-if-info", flag_slen)) {
             fputs("Note: --remove-if-info renamed to --exclude-if-info, for consistency with other\nsample/variant filters (keep/remove = sample filter; extract/exclude = variant\nfilter).\n", stdout);
             snprintf(flagname_write_iter, kMaxFlagBlen, "exclude-if-info");
+          } else {
+            goto main_flag_copy;
+          }
+          break;
+        case 's':
+          if (strequal_k(flagname_p, "sdiff", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "sample-diff");
           } else {
             goto main_flag_copy;
           }
@@ -7975,6 +7992,167 @@ int main(int argc, char** argv) {
           } else {
             pc.sort_vars_flags = kfSortNatural;
           }
+        } else if (strequal_k_unsafe(flagname_p2, "ample-diff")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t param_idx = 1;
+
+          // defer this since default depends on whether we're in 'pairwise'
+          // mode
+          uint32_t diff_cols_param_idx = 0;
+          uint32_t is_file = 0;
+          char sdiff_id_delim = '\0';
+          for (; param_idx < param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (StrStartsWith(cur_modif, "id-delim=", cur_modif_slen)) {
+              if (unlikely(sdiff_id_delim)) {
+                logerrputs("Error: Multiple --sample-diff id-delim= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              sdiff_id_delim = ExtractCharParam(&(cur_modif[strlen("id-delim=")]));
+              if (unlikely(!sdiff_id_delim)) {
+                logerrputs("Error: --sample-diff id-delim= value must be a single character.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              if (unlikely((ctou32(sdiff_id_delim) <= ' ') || (sdiff_id_delim == '.'))) {
+                logerrputs("Error: --sample-diff id-delim= value cannot be tab/space/newline, '.', or a\nnonprinting character.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+            } else if (strequal_k(cur_modif, "sid", cur_modif_slen)) {
+              pc.sdiff_info.flags |= kfSdiffSid;
+            } else if (StrStartsWith(cur_modif, "dosage", cur_modif_slen)) {
+              if (unlikely(pc.sdiff_info.dosage_hap_tol != kDosageMissing)) {
+                logerrputs("Error: Multiple --sample-diff dosage modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              if (cur_modif[6] == '\0') {
+                pc.sdiff_info.dosage_hap_tol = 0;
+              } else if (cur_modif[6] != '=') {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --sample-diff parameter '%s'.\n", cur_modif);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              } else {
+                double dxx;
+                if (unlikely((!ScanadvDouble(&(cur_modif[7]), &dxx)) || (dxx < 0.0) || (dxx > (0.5 - kSmallEpsilon)))) {
+                  snprintf(g_logbuf, kLogbufSize, "Error: Invalid --sample-diff parameter '%s'.\n", cur_modif);
+                  goto main_ret_INVALID_CMDLINE_WWA;
+                }
+                pc.sdiff_info.dosage_hap_tol = S_CAST(int32_t, dxx * ((1 + kSmallEpsilon) * kDosageMax));
+              }
+            } else if (strequal_k(cur_modif, "include-missing", cur_modif_slen)) {
+              pc.sdiff_info.flags |= kfSdiffIncludeMissing;
+            } else if (strequal_k(cur_modif, "pairwise", cur_modif_slen)) {
+              pc.sdiff_info.flags |= kfSdiffPairwise;
+            } else if (strequal_k(cur_modif, "counts-only", cur_modif_slen)) {
+              pc.sdiff_info.flags |= kfSdiffCountsOnly;
+            } else if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.sdiff_info.flags |= kfSdiffZs;
+            } else if (StrStartsWith0(cur_modif, "cols=", cur_modif_slen)) {
+              if (unlikely(diff_cols_param_idx)) {
+                logerrputs("Error: Multiple --sample-diff cols= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              diff_cols_param_idx = param_idx;
+            } else if (StrStartsWith(cur_modif, "counts-cols=", cur_modif_slen)) {
+              if (unlikely(pc.sdiff_info.flags & kfSdiffCountsColAll)) {
+                logerrputs("Error: Multiple --sample-diff counts-cols= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              reterr = ParseColDescriptor(&(cur_modif[strlen("counts-cols=")]), "maybefid\0fid\0maybesid\0sid\0nobs\0nobsibs\0ibs0\0ibs1\0ibs2\0halfmiss\0diff\0", "sample-diff counts-cols=", kfSdiffCountsColMaybefid, kfSdiffCountsColDefault, 1, &pc.sdiff_info.flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else if (StrStartsWith(cur_modif, "base=", cur_modif_slen)) {
+              reterr = CmdlineAllocString(&(cur_modif[5]), argvk[arg_idx], kPglFnamesize - 11, &(pc.sdiff_info.first_id_or_fname));
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+              pc.sdiff_info.flags |= kfSdiffOneBase;
+              break;
+            } else if (StrStartsWith(cur_modif, "ids=", cur_modif_slen)) {
+              reterr = CmdlineAllocString(&(cur_modif[4]), argvk[arg_idx], kMaxIdSlen, &(pc.sdiff_info.first_id_or_fname));
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+              break;
+            } else if (likely(StrStartsWith(cur_modif, "file=", cur_modif_slen))) {
+              reterr = AllocFname(&(cur_modif[5]), argvk[arg_idx], 0, &pc.sdiff_info.first_id_or_fname);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+              is_file = 1;
+              break;
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --diff parameter '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          if (diff_cols_param_idx) {
+            reterr = ParseColDescriptor(&(argvk[diff_cols_param_idx][5]), "chrom\0pos\0ref\0alt\0maybefid\0fid\0id\0maybesid\0sid\0geno\0", "sample-diff cols=", kfSdiffColChrom, (pc.sdiff_info.flags & kfSdiffPairwise)? kfSdiffColPairwiseDefault : kfSdiffColDefault, 0, &pc.sdiff_info.flags);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+            if (!(pc.sdiff_info.flags & kfSdiffColId)) {
+              if (unlikely(pc.sdiff_info.flags & (kfSdiffColMaybefid | kfSdiffColFid | kfSdiffColMaybesid | kfSdiffColSid))) {
+                logerrputs("Error: Invalid --sample-diff cols= set ('maybefid', 'fid', 'maybesid', and\n'sid' require 'id').\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+            }
+          } else {
+            pc.sdiff_info.flags |= kfSdiffColDefault;
+          }
+          if (param_idx == param_ct) {
+            logerrputs("Error: Invalid --sample-diff parameter sequence (base=/id= must be\nsecond-to-last parameter or earlier, or file= must be last parameter).\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if ((pc.sdiff_info.flags & (kfSdiffPairwise | kfSdiffCountsOnly)) == (kfSdiffPairwise | kfSdiffCountsOnly)) {
+            logerrputs("Error: --sample-diff 'pairwise' and 'counts-only' modifiers cannot be used\ntogether.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          const uint32_t other_id_ct = param_ct - param_idx;
+          if (!other_id_ct) {
+            if (unlikely(!is_file)) {
+              logerrputs("Error: --sample-diff 'base='/'ids=' require 2 or more space-separated sample\nIDs.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            if (sdiff_id_delim) {
+              logerrputs("Error: --sample-diff id-delim= modifier does not apply to file= mode.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+          } else {
+            if (unlikely(is_file)) {
+              // this constraint is a bit arbitrary, but may as well have it
+              // for consistency with base=/ids=
+              logerrputs("Error: --sample-diff 'file=' must appear after all other modifiers.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            reterr = AllocAndFlatten(&(argvk[arg_idx + param_idx + 1]), other_id_ct, kPglFnamesize, &pc.sdiff_info.other_ids_flattened);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+            if (sdiff_id_delim) {
+              char* id_iter = pc.sdiff_info.first_id_or_fname;
+              if (unlikely(ReplaceCharAdvChecked(sdiff_id_delim, ' ', &id_iter))) {
+                logerrputs("Error: --sample-diff sample IDs cannot include spaces.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              id_iter = pc.sdiff_info.other_ids_flattened;
+              for (uint32_t uii = 0; uii != other_id_ct; ++uii) {
+                if (unlikely(ReplaceCharAdvChecked(sdiff_id_delim, ' ', &id_iter))) {
+                  logerrputs("Error: --sample-diff sample IDs cannot include spaces.\n");
+                  goto main_ret_INVALID_CMDLINE;
+                }
+                ++id_iter;
+              }
+            }
+          }
+          pc.sdiff_info.other_id_ct = other_id_ct;
+          if (!(pc.sdiff_info.flags & kfSdiffCountsColAll)) {
+            pc.sdiff_info.flags |= kfSdiffCountsColDefault;
+          }
+          pc.command_flags1 |= kfCommand1Sdiff;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "trict-sid0")) {
           pc.misc_flags |= kfMiscStrictSid0;
           goto main_param_zero;
@@ -9022,13 +9200,14 @@ int main(int argc, char** argv) {
       file_delete_list = llstr_ptr;
     } while (file_delete_list);
   }
+  CleanupChrInfo(&chr_info);
   CleanupCmpExpr(&pc.exclude_if_info_expr);
   CleanupCmpExpr(&pc.extract_if_info_expr);
   CleanupCmpExpr(&pc.remove_if_expr);
   CleanupCmpExpr(&pc.keep_if_expr);
   CleanupScore(&pc.score_info);
   CleanupGlm(&pc.glm_info);
-  CleanupChrInfo(&chr_info);
+  CleanupSdiff(&pc.sdiff_info);
   CleanupLd(&pc.ld_info);
   CleanupUpdateSex(&pc.update_sex_info);
   CleanupRangeList(&pc.covar_range_list);

@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1103
+#define PGENLIB_INTERNAL_VERNUM 1104
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -1579,6 +1579,9 @@ void PglMultiallelicDenseToSparse(const AlleleCode* __restrict wide_codes, uint3
 // phaseinfo, dphase_delta, multidphase_delta).
 // It currently assumes no alleles are being mapped to 'missing'.
 void PglMultiallelicSparseToDense(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, const AlleleCode* __restrict remap, uint32_t sample_ct, uint32_t patch_01_ct, uint32_t patch_10_ct, uintptr_t* __restrict flipped, AlleleCode* __restrict wide_codes);
+
+// Permits missing codes, does not remap.
+void PglMultiallelicSparseToDenseMiss(const PgenVariant* pgvp, uint32_t sample_ct, AlleleCode* __restrict wide_codes);
 
 // phasepresent == nullptr ok, that indicates that ALL heterozygous calls are
 // phased.  Caller should use e.g. PwcAppendBiallelicGenovec() if it's known

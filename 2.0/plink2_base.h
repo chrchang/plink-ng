@@ -1211,6 +1211,10 @@ CONSTI32(kDiskBlockSize, 4096);
 // unsafe to fread or fwrite more bytes than this on e.g. OS X
 CONSTI32(kMaxBytesPerIO, 0x7ffff000);
 
+// Can't assume more than 512 are allowed on Windows, with current compilation
+// settings.  Could have #ifdefs here setting this to a higher value on other
+// OSes.
+CONSTI32(kMaxOpenFiles, 512);
 
 // note that this is NOT foolproof: see e.g.
 // http://insanecoding.blogspot.com/2007/11/pathmax-simply-isnt.html .  (This
@@ -2251,7 +2255,7 @@ void FillCumulativePopcounts(const uintptr_t* subset_mask, uint32_t word_ct, uin
 
 // If idx_list is a list of valid unfiltered indexes, this converts them
 // in-place to corresponding filtered indexes.
-void UidxsToIdxs(const uintptr_t* subset_mask, const uint32_t* subset_cumulative_popcounts, const uint32_t idx_list_len, uint32_t* idx_list);
+void UidxsToIdxs(const uintptr_t* subset_mask, const uint32_t* subset_cumulative_popcounts, const uintptr_t idx_list_len, uint32_t* idx_list);
 
 // These functions do not overread, but may write extra bytes up to the word
 // boundary.

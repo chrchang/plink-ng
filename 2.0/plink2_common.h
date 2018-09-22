@@ -462,6 +462,9 @@ PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, cha
 
 PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, XidHeaderFlags xid_header_flags, uintptr_t linebuf_size, char** line_iterp, uintptr_t* line_idx_ptr, char** linebuf_first_token_ptr, ReadLineStream* rlsp, XidMode* xid_mode_ptr);
 
+// header line expected to start with FID1, ID1, or IID1
+PglErr LoadXidHeaderPair(const char* flag_name, uint32_t sid_over_fid, char** line_iterp, uintptr_t* line_idx_ptr, char** linebuf_first_token_ptr, ReadLineStream* rlsp, XidMode* xid_mode_ptr);
+
 
 // note that this is no longer divisible by 64
 CONSTI32(kMaxContigs, 65274);
@@ -677,6 +680,9 @@ HEADER_INLINE PglErr GetOrAddChrCodeDestructive(const char* file_descrip, uintpt
   *chr_name_end = '\0';
   return GetOrAddChrCode(chr_name, file_descrip, line_idx, chr_name_end - chr_name, allow_extra_chrs, cip, chr_idx_ptr);
 }
+
+// Assumes sample_ct positive.  Does not require trailing bits to be clear.
+uint32_t AllGenoEqual(const uintptr_t* genovec, uint32_t sample_ct);
 
 // zeroes out samples not in the mask
 void InterleavedMaskZero(const uintptr_t* __restrict interleaved_mask, uintptr_t vec_ct, uintptr_t* __restrict genovec);

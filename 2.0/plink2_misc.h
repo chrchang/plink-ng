@@ -190,9 +190,62 @@ typedef struct UpdateSexStruct {
   char* fname;
 } UpdateSexInfo;
 
+FLAGSET_DEF_START()
+  kfSdiff0,
+  kfSdiffSid = (1 << 0),
+  kfSdiffIncludeMissing = (1 << 1),
+  kfSdiffPairwise = (1 << 2),
+  kfSdiffCountsOnly = (1 << 3),
+  kfSdiffOneBase = (1 << 4),
+  // no need for kfSdiffFile since that's synonymous with other_id_ct == 0
+  kfSdiffZs = (1 << 5),
+
+  kfSdiffColChrom = (1 << 6),
+  kfSdiffColPos = (1 << 7),
+  kfSdiffColRef = (1 << 8),
+  kfSdiffColAlt = (1 << 9),
+  kfSdiffColMaybefid = (1 << 10),
+  kfSdiffColFid = (1 << 11),
+  kfSdiffColId = (1 << 12),
+  kfSdiffColMaybesid = (1 << 13),
+  kfSdiffColSid = (1 << 14),
+  kfSdiffColGeno = (1 << 15),
+  kfSdiffColPairwiseDefault = (kfSdiffColChrom | kfSdiffColPos | kfSdiffColRef | kfSdiffColAlt | kfSdiffColGeno),
+  kfSdiffColDefault = (kfSdiffColPairwiseDefault | kfSdiffColMaybefid | kfSdiffColId | kfSdiffColMaybesid),
+  kfSdiffColAll = ((kfSdiffColGeno * 2) - kfSdiffColChrom),
+
+  kfSdiffCountsColMaybefid = (1 << 16),
+  kfSdiffCountsColFid = (1 << 17),
+  kfSdiffCountsColMaybesid = (1 << 18),
+  kfSdiffCountsColSid = (1 << 19),
+  kfSdiffCountsColNobs = (1 << 20),
+  kfSdiffCountsColNobsIbs = (1 << 21),
+  kfSdiffCountsColIbs0 = (1 << 22),
+  kfSdiffCountsColIbs1 = (1 << 23),
+  kfSdiffCountsColIbs2 = (1 << 24),
+  kfSdiffCountsIbsNeeded = (kfSdiffCountsColNobsIbs | kfSdiffCountsColIbs0 | kfSdiffCountsColIbs1 | kfSdiffCountsColIbs2),
+  kfSdiffCountsColHalfmiss = (1 << 25),
+  kfSdiffCountsColDiff = (1 << 26),
+  kfSdiffCountsColDefault = (kfSdiffCountsColMaybefid | kfSdiffCountsColMaybesid | kfSdiffCountsColNobs | kfSdiffCountsColHalfmiss | kfSdiffCountsColDiff),
+  kfSdiffCountsColAll = ((kfSdiffCountsColDiff * 2) - kfSdiffCountsColMaybefid)
+FLAGSET_DEF_END(SdiffFlags);
+
+typedef struct SdiffStruct {
+  NONCOPYABLE(SdiffStruct);
+  SdiffFlags flags;
+  Dosage dosage_hap_tol; // missing value when 'dosage' not specified
+  uint32_t other_id_ct;
+  char* first_id_or_fname;
+  char* other_ids_flattened;
+} SdiffInfo;
+
 void InitUpdateSex(UpdateSexInfo* update_sex_info_ptr);
 
 void CleanupUpdateSex(UpdateSexInfo* update_sex_info_ptr);
+
+void InitSdiff(SdiffInfo* sdiff_info_ptr);
+
+void CleanupSdiff(SdiffInfo* sdiff_info_ptr);
 
 PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const TwoColParams* params, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t htable_size, uintptr_t* variant_include, uint32_t* __restrict variant_bps, uint32_t* __restrict variant_ct_ptr, UnsortedVar* vpos_sortstatusp);
 
@@ -221,6 +274,8 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
 PglErr ComputeHweXPvals(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), uint32_t x_start, uint32_t hwe_x_ct, uintptr_t x_xallele_ct, uint32_t hwe_midp, uint32_t calc_thread_ct, double** hwe_x_pvals_ptr);
 
 PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, autosomal_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), const double* hwe_x_pvals, uint32_t variant_ct, uint32_t hwe_x_ct, uint32_t max_allele_slen, double output_min_ln, HardyFlags hardy_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end);
+
+PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const SdiffInfo* sdip, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
 PglErr WriteSnplist(const uintptr_t* variant_include, const char* const* variant_ids, uint32_t variant_ct, uint32_t output_zst, uint32_t max_thread_ct, char* outname, char* outname_end);
 

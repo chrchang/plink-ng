@@ -2595,6 +2595,13 @@ BoolErr LogisticRegression(const float* yy, const float* xx, uint32_t sample_ct,
     // Pons reported that 1.1e-3 was dangerous, so I agree with the decision to
     // tighten this threshold from 1e-3 to 1e-4.
     if (delta_coef < S_CAST(float, 1e-4)) {
+      // Be more conservative in throwing out results when we don't hit the
+      // iteration limit.
+      for (uint32_t pred_idx = 0; pred_idx != predictor_ct; ++pred_idx) {
+        if (fabsf(coef[pred_idx]) > S_CAST(float, 6e4)) {
+          return 1;
+        }
+      }
       return 0;
     }
   }
@@ -5363,7 +5370,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
       putc_unlocked('\b', stdout);
     }
     fputs("\b\b", stdout);
-    logprintf("done.\n");
+    logputs("done.\n");
     logprintf("Results written to %s .\n", outname);
     *valid_allele_ct_ptr = valid_allele_ct;
     BigstackReset(bigstack_mark);
@@ -7284,7 +7291,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
       putc_unlocked('\b', stdout);
     }
     fputs("\b\b", stdout);
-    logprintf("done.\n");
+    logputs("done.\n");
     logprintf("Results written to %s .\n", outname);
     *valid_allele_ct_ptr = valid_allele_ct;
     BigstackReset(bigstack_mark);
