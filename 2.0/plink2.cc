@@ -1993,7 +1993,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pcp->command_flags1 & kfCommand1Sdiff) {
-        reterr = Sdiff(sample_include, &pii.sii, sex_nm, sex_male, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, &(pcp->sdiff_info), raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = Sdiff(sample_include, &pii.sii, sex_nm, sex_male, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, &(pcp->sdiff_info), raw_sample_ct, sample_ct, variant_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -8003,7 +8003,7 @@ int main(int argc, char** argv) {
           uint32_t diff_cols_param_idx = 0;
           uint32_t is_file = 0;
           char sdiff_id_delim = '\0';
-          for (; param_idx < param_ct; ++param_idx) {
+          for (; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (StrStartsWith(cur_modif, "id-delim=", cur_modif_slen)) {
@@ -8046,6 +8046,20 @@ int main(int argc, char** argv) {
               pc.sdiff_info.flags |= kfSdiffPairwise;
             } else if (strequal_k(cur_modif, "counts-only", cur_modif_slen)) {
               pc.sdiff_info.flags |= kfSdiffCountsOnly;
+            } else if (StrStartsWith(cur_modif, "fname-id-delim=", cur_modif_slen)) {
+              if (unlikely(pc.sdiff_info.fname_id_delim)) {
+                logerrputs("Error: Multiple --sample-diff fname-id-delim= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              pc.sdiff_info.fname_id_delim = ExtractCharParam(&(cur_modif[strlen("fname-id-delim=")]));
+              if (unlikely(!pc.sdiff_info.fname_id_delim)) {
+                logerrputs("Error: --sample-diff fname-id-delim= value must be a single character.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              if (unlikely((ctou32(pc.sdiff_info.fname_id_delim) <= ' ') || (pc.sdiff_info.fname_id_delim == '.'))) {
+                logerrputs("Error: --sample-diff fname-id-delim= value cannot be tab/space/newline, '.', or\na nonprinting character.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
             } else if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.sdiff_info.flags |= kfSdiffZs;
             } else if (StrStartsWith0(cur_modif, "cols=", cur_modif_slen)) {
@@ -8084,12 +8098,16 @@ int main(int argc, char** argv) {
               is_file = 1;
               break;
             } else {
-              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --diff parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --sample-diff parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
+          if (param_idx > param_ct) {
+            logerrputs("Error: Invalid --sample-diff parameter sequence (base=/id= must be\nsecond-to-last parameter or earlier, or file= must be last parameter).\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (diff_cols_param_idx) {
-            reterr = ParseColDescriptor(&(argvk[diff_cols_param_idx][5]), "chrom\0pos\0ref\0alt\0maybefid\0fid\0id\0maybesid\0sid\0geno\0", "sample-diff cols=", kfSdiffColChrom, (pc.sdiff_info.flags & kfSdiffPairwise)? kfSdiffColPairwiseDefault : kfSdiffColDefault, 0, &pc.sdiff_info.flags);
+            reterr = ParseColDescriptor(&(argvk[arg_idx + diff_cols_param_idx][5]), "chrom\0pos\0ref\0alt\0maybefid\0fid\0id\0maybesid\0sid\0geno\0", "sample-diff cols=", kfSdiffColChrom, (pc.sdiff_info.flags & kfSdiffPairwise)? kfSdiffColPairwiseDefault : kfSdiffColDefault, 0, &pc.sdiff_info.flags);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
@@ -8101,10 +8119,6 @@ int main(int argc, char** argv) {
             }
           } else {
             pc.sdiff_info.flags |= kfSdiffColDefault;
-          }
-          if (param_idx == param_ct) {
-            logerrputs("Error: Invalid --sample-diff parameter sequence (base=/id= must be\nsecond-to-last parameter or earlier, or file= must be last parameter).\n");
-            goto main_ret_INVALID_CMDLINE_A;
           }
           if ((pc.sdiff_info.flags & (kfSdiffPairwise | kfSdiffCountsOnly)) == (kfSdiffPairwise | kfSdiffCountsOnly)) {
             logerrputs("Error: --sample-diff 'pairwise' and 'counts-only' modifiers cannot be used\ntogether.\n");
@@ -8150,6 +8164,12 @@ int main(int argc, char** argv) {
           pc.sdiff_info.other_id_ct = other_id_ct;
           if (!(pc.sdiff_info.flags & kfSdiffCountsColAll)) {
             pc.sdiff_info.flags |= kfSdiffCountsColDefault;
+          }
+          if ((pc.sdiff_info.flags & (kfSdiffIncludeMissing | kfSdiffCountsColHalfmiss)) == kfSdiffCountsColHalfmiss) {
+            pc.sdiff_info.flags &= ~kfSdiffCountsColHalfmiss;
+          }
+          if (!pc.sdiff_info.fname_id_delim) {
+            pc.sdiff_info.fname_id_delim = '_';
           }
           pc.command_flags1 |= kfCommand1Sdiff;
           pc.dependency_flags |= kfFilterAllReq;

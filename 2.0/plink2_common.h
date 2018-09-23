@@ -936,6 +936,10 @@ HEADER_INLINE PglErr WriteSampleIds(const uintptr_t* sample_include, const Sampl
 // read_realpath must be a buffer of size >= kPglFnamesize bytes
 uint32_t RealpathIdentical(const char* outname, const char* read_realpath, char* write_realpath_buf);
 
+char* PrintSmallDosage(uint32_t rawval, char* start);
+
+char* PrintHaploidNonintDosage(uint32_t rawval, char* start);
+
 
 HEADER_INLINE void OutnameZstSet(const char* ext, uint32_t output_zst, char* outname_end) {
   const uint32_t ext_slen = strlen(ext);

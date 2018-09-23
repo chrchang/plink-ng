@@ -1211,10 +1211,14 @@ CONSTI32(kDiskBlockSize, 4096);
 // unsafe to fread or fwrite more bytes than this on e.g. OS X
 CONSTI32(kMaxBytesPerIO, 0x7ffff000);
 
+#ifdef __APPLE__
+// OS X is limited to 256?
+CONSTI32(kMaxOpenFiles, 252);
+#else
 // Can't assume more than 512 are allowed on Windows, with current compilation
-// settings.  Could have #ifdefs here setting this to a higher value on other
-// OSes.
-CONSTI32(kMaxOpenFiles, 512);
+// settings.
+CONSTI32(kMaxOpenFiles, 504);
+#endif
 
 // note that this is NOT foolproof: see e.g.
 // http://insanecoding.blogspot.com/2007/11/pathmax-simply-isnt.html .  (This
