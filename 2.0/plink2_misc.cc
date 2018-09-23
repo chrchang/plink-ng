@@ -5234,21 +5234,50 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
             if (flags & kfSdiffColGeno) {
               *cswritep++ = '\t';
               if (is_diploid_pair) {
-                cswritep = u32toa_x(ac11, '/', cswritep);
-                cswritep = u32toa_x(ac12, '\t', cswritep);
-                cswritep = u32toa_x(ac21, '/', cswritep);
-                cswritep = u32toa(ac22, cswritep);
-              } else {
-                cswritep = u32toa(ac11, cswritep);
-                if (ac11 != ac12) {
-                  *cswritep++ = '/';
-                  cswritep = u32toa(ac12, cswritep);
+                if (!dosage_reported) {
+                  if (ac11 == kMissingAlleleCode) {
+                    cswritep = strcpya_k(cswritep, "./.");
+                  } else {
+                    cswritep = u32toa_x(ac11, '/', cswritep);
+                    cswritep = u32toa(ac12, cswritep);
+                  }
+                  *cswritep++ = '\t';
+                  if (ac21 == kMissingAlleleCode) {
+                    cswritep = strcpya_k(cswritep, "./.");
+                  } else {
+                    cswritep = u32toa_x(ac21, '/', cswritep);
+                    cswritep = u32toa(ac22, cswritep);
+                  }
+                } else {
+                  cswritep = PrintMultiallelicHcAsDs(ac11, ac12, allele_ct, cswritep);
+                  *cswritep++ = '\t';
+                  cswritep = PrintMultiallelicHcAsDs(ac21, ac22, allele_ct, cswritep);
                 }
-                *cswritep++ = '\t';
-                cswritep = u32toa(ac21, cswritep);
-                if (ac21 != ac22) {
-                  *cswritep++ = '/';
-                  cswritep = u32toa(ac22, cswritep);
+              } else {
+                if (!dosage_reported) {
+                  if (ac11 == kMissingAlleleCode) {
+                    *cswritep++ = '.';
+                  } else {
+                    cswritep = u32toa(ac11, cswritep);
+                    if (ac11 != ac12) {
+                      *cswritep++ = '/';
+                      cswritep = u32toa(ac12, cswritep);
+                    }
+                  }
+                  *cswritep++ = '\t';
+                  if (ac21 == kMissingAlleleCode) {
+                    *cswritep++ = '.';
+                  } else {
+                    cswritep = u32toa(ac21, cswritep);
+                    if (ac21 != ac22) {
+                      *cswritep++ = '/';
+                      cswritep = u32toa(ac22, cswritep);
+                    }
+                  }
+                } else {
+                  cswritep = PrintMultiallelicHcAsHaploidDs(ac11, ac12, allele_ct, cswritep);
+                  *cswritep++ = '\t';
+                  cswritep = PrintMultiallelicHcAsHaploidDs(ac21, ac22, allele_ct, cswritep);
                 }
               }
             }

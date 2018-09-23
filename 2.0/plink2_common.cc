@@ -2537,6 +2537,66 @@ char* PrintHaploidNonintDosage(uint32_t rawval, char* start) {
   return start;
 }
 
+char* PrintMultiallelicHcAsDs(uint32_t hc1, uint32_t hc2, uint32_t allele_ct, char* start) {
+  if (hc1 == kMissingAlleleCode) {
+    *start++ = '.';
+    return start;
+  }
+  for (uint32_t uii = 1; uii < hc1; ++uii) {
+    start = strcpya_k(start, "0,");
+  }
+  if (hc1 == hc2) {
+    if (hc1) {
+      start = strcpya_k(start, "2,");
+    }
+    for (uint32_t uii = hc1 + 1; uii != allele_ct; ++uii) {
+      start = strcpya_k(start, "0,");
+    }
+    return &(start[-1]);
+  }
+  if (hc1) {
+    start = strcpya_k(start, "1,");
+  }
+  for (uint32_t uii = hc1 + 1; uii != hc2; ++uii) {
+    start = strcpya_k(start, "0,");
+  }
+  start = strcpya_k(start, "1,");
+  for (uint32_t uii = hc2 + 1; uii != allele_ct; ++uii) {
+    start = strcpya_k(start, "0,");
+  }
+  return &(start[-1]);
+}
+
+char* PrintMultiallelicHcAsHaploidDs(uint32_t hc1, uint32_t hc2, uint32_t allele_ct, char* start) {
+  if (hc1 == kMissingAlleleCode) {
+    *start++ = '.';
+    return start;
+  }
+  for (uint32_t uii = 1; uii < hc1; ++uii) {
+    start = strcpya_k(start, "0,");
+  }
+  if (hc1 == hc2) {
+    if (hc1) {
+      start = strcpya_k(start, "1,");
+    }
+    for (uint32_t uii = hc1 + 1; uii != allele_ct; ++uii) {
+      start = strcpya_k(start, "0,");
+    }
+    return &(start[-1]);
+  }
+  if (hc1) {
+    start = strcpya_k(start, "0.5,");
+  }
+  for (uint32_t uii = hc1 + 1; uii != hc2; ++uii) {
+    start = strcpya_k(start, "0,");
+  }
+  start = strcpya_k(start, "0.5,");
+  for (uint32_t uii = hc2 + 1; uii != allele_ct; ++uii) {
+    start = strcpya_k(start, "0,");
+  }
+  return &(start[-1]);
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

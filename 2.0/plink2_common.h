@@ -940,6 +940,10 @@ char* PrintSmallDosage(uint32_t rawval, char* start);
 
 char* PrintHaploidNonintDosage(uint32_t rawval, char* start);
 
+char* PrintMultiallelicHcAsDs(uint32_t hc1, uint32_t hc2, uint32_t allele_ct, char* start);
+
+char* PrintMultiallelicHcAsHaploidDs(uint32_t hc1, uint32_t hc2, uint32_t allele_ct, char* start);
+
 
 HEADER_INLINE void OutnameZstSet(const char* ext, uint32_t output_zst, char* outname_end) {
   const uint32_t ext_slen = strlen(ext);
