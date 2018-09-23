@@ -666,7 +666,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                <include-missing> <pairwise | counts-only> <fname-id-delim=[c]>\n"
 "                <zs> <cols=[col set descrip.]> <counts-cols=[col set descrip.]>\n"
 "                file=[ID-pair file]\n"
-"    (alias: --sdiff)\n"
+"  (alias: --sdiff)\n"
 "    Report discordances and discordance-counts between pairs of samples.  If\n"
 "    chrX or chrY is present, sex must be defined and consistent.\n"
 "    * There are three ways to specify which sample pairs to compare.  To\n"
@@ -710,8 +710,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      (IID1/IID2 are always present.)\n"
 "      maybesid: SID1/SID2, if that column was in the input.\n"
 "      sid: Force SID1/SID2 even when SID was absent in the input.\n"
-"      nobs: Number of variants considered.  If 'include-missing' was specified,\n"
-"            this includes variants where exactly 1 genotype/dosage was missing.\n"
+"      nobs: Number of variants considered.  This includes variants where one or\n"
+"            both variants are missing iff 'include-missing' was specified.\n"
 "      nobsibs: ibs0+ibs1+ibs2.\n"
 "      ibs0: Number of diploid variants with no common hardcall alleles.\n"
 "      ibs1: Number of diploid variants with exactly 1 common hardcall allele.\n"
@@ -1094,7 +1094,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     HelpPrint("zst-decompress\0zd\0", &help_ctrl, 1,
 "  --zst-decompress [.zst file] {output filename}\n"
-"    (alias: --zd)\n"
+"  (alias: --zd)\n"
 "    Decompress a Zstd-compressed file.  If no output filename is specified, the\n"
 "    file is decompressed to standard output.\n"
 "    This cannot be used with any other flags, and does not cause a log file to\n"
@@ -1152,7 +1152,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     HelpPrint("missing-code\0missing_code\0data\0sample\0", &help_ctrl, 0,
 "  --missing-code {string list}    : Comma-delimited list of missing phenotype\n"
-"    (alias: --missing_code)         values for Oxford-format import (default\n"
+"  (alias: --missing_code)           values for Oxford-format import (default\n"
 "                                    'NA').\n"
                );
     // any need to keep --hard-call-threshold random?  postpone it for now...

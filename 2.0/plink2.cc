@@ -8118,7 +8118,7 @@ int main(int argc, char** argv) {
               }
             }
           } else {
-            pc.sdiff_info.flags |= kfSdiffColDefault;
+            pc.sdiff_info.flags |= (pc.sdiff_info.flags & kfSdiffPairwise)? kfSdiffColPairwiseDefault : kfSdiffColDefault;
           }
           if ((pc.sdiff_info.flags & (kfSdiffPairwise | kfSdiffCountsOnly)) == (kfSdiffPairwise | kfSdiffCountsOnly)) {
             logerrputs("Error: --sample-diff 'pairwise' and 'counts-only' modifiers cannot be used\ntogether.\n");
