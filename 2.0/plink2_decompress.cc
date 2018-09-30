@@ -281,6 +281,7 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
           latest_consume_tail = syncp->consume_tail;
           if (memmove_required) {
             if (latest_consume_tail == cur_block_start) {
+              // uh oh.;;;
               syncp->cur_circular_end = cur_block_start;
               break;
             }
@@ -352,8 +353,11 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
           goto ReadLineStreamThread_INTERRUPT;
         }
         char* latest_consume_tail = syncp->consume_tail;
-        const uint32_t all_later_bytes_consumed = (latest_consume_tail <= cur_block_start);
-        const uint32_t return_to_start = all_later_bytes_consumed && (latest_consume_tail >= &(buf[kDecompressChunkSize]));
+        // bugfix (30 Sep 2018): consume_tail == cur_circular_end also means
+        // all later bytes have been consumed.  Failing to recognize this could
+        // cause read_stop to be set before read_head on a very long line.
+        const uint32_t all_later_bytes_consumed = (latest_consume_tail <= cur_block_start) || (latest_consume_tail == syncp->cur_circular_end);
+        const uint32_t return_to_start = (latest_consume_tail <= cur_block_start) && (latest_consume_tail >= &(buf[kDecompressChunkSize]));
         syncp->available_end = next_available_end;
         if (return_to_start) {
           syncp->cur_circular_end = next_available_end;

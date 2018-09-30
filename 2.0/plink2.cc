@@ -67,7 +67,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (22 Sep 2018)";
+  " (30 Sep 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -2347,7 +2347,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             if (vpos_sortstatus & kfUnsortedVarBp) {
               logerrputs("Warning: Variants are not sorted by position.  Consider rerunning with the\n--sort-vars flag added to remedy this.\n");
             }
-            reterr = MakePlink2NoVsort(xheader, sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, make_plink2_flags, pcp->pvar_psam_flags, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
+            reterr = MakePlink2NoVsort(xheader, sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, make_plink2_flags, pcp->pvar_psam_flags, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
           }
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
@@ -5828,11 +5828,11 @@ int main(int argc, char** argv) {
                 make_plink2_flags |= kfMakePlink2MSplitSnps;
               } else if (strequal_k(mode_start, "+", mode_slen) ||
                          strequal_k(mode_start, "+both", mode_slen)) {
-                make_plink2_flags |= kfMakePlink2MMergeBoth;
+                make_plink2_flags |= kfMakePlink2MJoinBoth;
               } else if (strequal_k(mode_start, "+snps", mode_slen)) {
-                make_plink2_flags |= kfMakePlink2MMergeSnps;
+                make_plink2_flags |= kfMakePlink2MJoinSnps;
               } else if (likely(strequal_k(mode_start, "+any", mode_slen))) {
-                make_plink2_flags |= kfMakePlink2MMergeAny;
+                make_plink2_flags |= kfMakePlink2MJoinAny;
               } else {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-bpgen multiallelics= mode '%s'.\n", mode_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
@@ -5859,15 +5859,15 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (vid_semicolon & 1) {
-            if (unlikely((make_plink2_flags & kfMakePlink2MMerge) || (!(make_plink2_flags & kfMakePlink2MMask)))) {
+            if (unlikely((make_plink2_flags & kfMakePlink2MJoin) || (!(make_plink2_flags & kfMakePlink2MMask)))) {
               logerrputs("Error: --make-bpgen 'vid-split' must be used with a multiallelics= split mode.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
             make_plink2_flags |= kfMakePlink2VidSemicolon;
           }
           if (vid_semicolon & 2) {
-            if (unlikely(!(make_plink2_flags & kfMakePlink2MMerge))) {
-              logerrputs("Error: --make-bpgen 'vid-join' must be used with a multiallelics= merge mode.\n");
+            if (unlikely(!(make_plink2_flags & kfMakePlink2MJoin))) {
+              logerrputs("Error: --make-bpgen 'vid-join' must be used with a multiallelics= join mode.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
             make_plink2_flags |= kfMakePlink2VidSemicolon;
@@ -5943,11 +5943,11 @@ int main(int argc, char** argv) {
                 make_plink2_flags |= kfMakePlink2MSplitSnps;
               } else if (strequal_k(mode_start, "+", mode_slen) ||
                          strequal_k(mode_start, "+both", mode_slen)) {
-                make_plink2_flags |= kfMakePlink2MMergeBoth;
+                make_plink2_flags |= kfMakePlink2MJoinBoth;
               } else if (strequal_k(mode_start, "+snps", mode_slen)) {
-                make_plink2_flags |= kfMakePlink2MMergeSnps;
+                make_plink2_flags |= kfMakePlink2MJoinSnps;
               } else if (likely(strequal_k(mode_start, "+any", mode_slen))) {
-                make_plink2_flags |= kfMakePlink2MMergeAny;
+                make_plink2_flags |= kfMakePlink2MJoinAny;
               } else {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-pgen multiallelics= mode '%s'.\n", mode_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
@@ -5984,14 +5984,14 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (vid_semicolon & 1) {
-            if (unlikely((make_plink2_flags & kfMakePlink2MMerge) || (!(make_plink2_flags & kfMakePlink2MMask)))) {
+            if (unlikely((make_plink2_flags & kfMakePlink2MJoin) || (!(make_plink2_flags & kfMakePlink2MMask)))) {
               logerrputs("Error: --make-pgen 'vid-split' must be used with a multiallelics= split mode.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
             make_plink2_flags |= kfMakePlink2VidSemicolon;
           }
           if (vid_semicolon & 2) {
-            if (unlikely(!(make_plink2_flags & kfMakePlink2MMerge))) {
+            if (unlikely(!(make_plink2_flags & kfMakePlink2MJoin))) {
               logerrputs("Error: --make-pgen 'vid-join' must be used with a multiallelics= merge mode.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
@@ -8828,6 +8828,16 @@ int main(int argc, char** argv) {
     if (unlikely((make_plink2_flags & (kfMakePlink2MMask | kfMakePlink2TrimAlts | kfMakePlink2EraseAlt2Plus | kfMakePgenErasePhase | kfMakePgenEraseDosage)) && (pc.command_flags1 & (~kfCommand1MakePlink2)))) {
       logerrputs("Error: When the 'multiallelics=', 'trim-alts', and/or 'erase-...' modifier is\npresent, --make-bed/--make-{b}pgen cannot be combined with other commands.\n(Other filters are fine.)\n");
       goto main_ret_INVALID_CMDLINE;
+    }
+    if (make_plink2_flags & kfMakePlink2MMask) {
+      if (unlikely((pc.misc_flags & kfMiscMajRef) || pc.ref_allele_flag || pc.alt1_allele_flag || (pc.fa_flags & kfFaRefFrom))) {
+        logerrputs("Error: --make-bed/--make-{b}pgen 'multiallelics=' cannot be used with\n'trim-alts'.\n");
+        goto main_ret_INVALID_CMDLINE;
+      }
+      if (unlikely((pc.misc_flags & kfMiscMajRef) || pc.ref_allele_flag || pc.alt1_allele_flag || (pc.fa_flags & kfFaRefFrom))) {
+        logerrputs("Error: When the 'multiallelics=' modifier is present, --make-bed/--make-{b}pgen\ncannot be used with a flag which alters REF/ALT1 allele settings.\n");
+        goto main_ret_INVALID_CMDLINE;
+      }
     }
     if (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Exportf))) {
       if (unlikely((pc.misc_flags & kfMiscMajRef) || pc.ref_allele_flag || pc.alt1_allele_flag || (pc.fa_flags & kfFaRefFrom))) {

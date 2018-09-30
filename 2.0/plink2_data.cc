@@ -530,9 +530,14 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
 
 // Join behavior:
 // - Require sorted input .pvar for now, though it won't be difficult to lift
-//   this restriction later.
-// - Don't need to do anything different when chr:pos only appears once.
-// - When chr:pos appears multiple times:
+//   this restriction later.  Ok for input to contain multiallelic variants.
+// - Don't need to do anything different when chr:pos only appears once in a
+//   biallelic variant, or in a multiallelic variant in "+any" mode.  For an
+//   isolated multiallelic variant in +both/+snps mode, error out if the
+//   variant is mixed SNP/non-SNP.  In +both case, also error out if the
+//   variant is mixed symbolic/non-symbolic, or it's symbolic and does not
+//   satisfy the REF or INFO:END constraints.
+// - When multiple variants have the same chr:pos:
 //   - In +snps mode, also don't need to do anything different for non-SNPs.
 //   - Otherwise, create up to three linked lists of input variant records
 //     (need to distinguish SNPs from non-SNPs in +both mode, and within the
@@ -544,12 +549,43 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
 //     duplicated (necessary to use --pmerge to merge the latter).
 //   - For joined not-entirely-SNP non-symbolic variants, the final REF is the
 //     longest of the original REFs; ALT alleles have bases added to the end if
-//     necessary.
-//   ...todo
-//     ID: 1. If --set-all-var-ids specified, apply template.
+//     necessary.  (Yes, this causes SNPs to stop being visible to a strlen ==
+//     1 check in +any mode, which is why + is interpreted as +both instead.)
+//   - Final ALT allele order is based on allele frequency (highest first),
+//     with ties broken by natural-sort.
+//   - ID: 1. If --set-all-var-ids specified, apply template.
 //         2. Otherwise, keep original variant ID if all sources identical and
 //            nonmissing.
-//         3. Otherwise, if vid-join specified, check for ';'.
+//         3. Otherwise, if vid-join specified, check if all original IDs are
+//            nonmissing and contain exactly one ';' per extra ALT allele.  If
+//            so, join on ';' in final ALT allele order.
+//         4. Otherwise, set to --set-missing-var-ids template or missing code.
+//   - QUAL is minimum of inputs ('.' treated as positive infinity).  FILTER is
+//     natural-sorted union of non-PASS values; if all inputs were '.'/PASS,
+//     output is PASS unless all inputs were missing.
+//   - INFO join is based on the Number field in the key's header line.  (If
+//     there's no header line corresponding to a key, we error out.)  For
+//     Number=A, we join in the obvious manner.  For Number=R (or Number=G in
+//     the haploid case), we replace the reference allele entry with . iff
+//     there's any string mismatch (e.g. '13' and '13.0' will be treated as
+//     unequal).  For diploid Number=G, we do the same for the hom-ref entry.
+//     For Number=0, we error out if the header line Type isn't Flag, and the
+//     final flag is set iff any of the original variants have the flag set.
+//     For the other cases (Number=[fixed constant] or '.'), we replace the
+//     value with '.' if there's any string mismatch.
+//     The key won't appear at all iff it doesn't appear in any of the original
+//     variants (not even a '.').
+//   - We error out if the joined variant has total ALT dosage > ~2.02, or
+//     either side of the total ALT phased dosage > ~1.01.  (We scale the
+//     components down if there's a <1% overflow.)
+// - Missing ALTs... ugh.  Have to permit this in biallelic case, but don't
+//   allow it elsewhere.  This forces a SNP (if REF is single-char) and/or
+//   non-SNP (if REF is multichar) entry to be written when no corresponding
+//   regular ALT is present, genotype writing/merging will error out if a
+//   missing allele has any dosage, and QUAL/FILTER/INFO is merged as usual
+//   when there are multiple missing-ALT same-type variants at the same
+//   position.  However, when a regular ALT is present, the missing-ALT
+//   variants are completely ignored.
 /*
 PglErr WritePvarJoin(const char* outname, const char* xheader, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* qual_present, const float* quals, const uintptr_t* filter_present, const uintptr_t* filter_npass, const char* const* filter_storage, const uintptr_t* nonref_flags, const char* pvar_info_reload, const double* variant_cms, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t nonref_flags_storage, uint32_t max_filter_slen, uint32_t info_reload_slen, PvarPsamFlags pvar_psam_flags, uint32_t thread_ct) {
   // allele_presents must be nullptr unless we're trimming alt alleles
@@ -2863,6 +2899,441 @@ uintptr_t InitWriteAlleleIdxOffsets(const uintptr_t* variant_include, const uint
   return cur_offset;
 }
 
+typedef struct JoinTypeStruct {
+  uintptr_t snp_ct;
+  uintptr_t nonsnp_ct;
+  uintptr_t symbolic_ct;
+  uint32_t missalt_snp_ct;
+  uint32_t missalt_nonsnp_ct;
+} JoinType;
+
+BoolErr JoinTypeCount(const char* const* cur_alleles, uintptr_t allele_ct, JoinType* jtp) {
+  jtp->snp_ct = 0;
+  jtp->symbolic_ct = 0;
+  if (cur_alleles[0][1] == '\0') {
+    jtp->nonsnp_ct = 0;
+    jtp->missalt_nonsnp_ct = 0;
+    for (uintptr_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
+      const char* cur_allele = cur_alleles[allele_idx];
+      if (cur_allele[0] == '<') {
+        jtp->symbolic_ct += 1;
+      } else if (cur_allele[1] == '\0') {
+        if (cur_allele[0] == '.') {
+          if (allele_ct == 2) {
+            jtp->missalt_snp_ct = 1;
+            return 0;
+          } else {
+            return 1;
+          }
+        }
+        jtp->snp_ct += 1;
+      } else {
+        jtp->nonsnp_ct += 1;
+      }
+    }
+    return (jtp->symbolic_ct && (jtp->symbolic_ct != allele_ct - 1));
+  }
+  jtp->missalt_snp_ct = 0;
+  for (uint32_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
+    const char* cur_allele = cur_alleles[allele_idx];
+    if (cur_allele[0] == '<') {
+      return 1;
+    } else if (memequal_k(cur_allele, ".", 2)) {
+      if (allele_ct == 2) {
+        jtp->nonsnp_ct = 0;
+        jtp->missalt_nonsnp_ct = 1;
+        return 0;
+      } else {
+        return 1;
+      }
+    }
+  }
+  jtp->nonsnp_ct = allele_ct - 1;
+  return 0;
+}
+
+// *write_allele_idx_offsetsp assumed to be initialized to nullptr
+PglErr PlanMultiallelicJoin(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, MakePlink2Flags flags, uint32_t* write_variant_ctp, const uintptr_t** write_allele_idx_offsetsp) {
+  uint32_t variant_uidx = 0;
+  PglErr reterr = kPglRetSuccess;
+  {
+    const uint32_t variant_ct = *write_variant_ctp;
+    uintptr_t* write_allele_idx_offsets = R_CAST(uintptr_t*, g_bigstack_base);
+    uintptr_t* write_allele_idx_offsets_stop = R_CAST(uintptr_t*, RoundDownPow2(R_CAST(uintptr_t, g_bigstack_end), kCacheline));
+    if (write_allele_idx_offsets == write_allele_idx_offsets_stop) {
+      return kPglRetNomem;
+    }
+    write_allele_idx_offsets_stop = &(write_allele_idx_offsets_stop[-4]);
+    const MakePlink2Flags join_mode = flags & kfMakePlink2MMask;
+    uintptr_t* write_allele_idx_offsets_iter = write_allele_idx_offsets;
+    *write_allele_idx_offsets_iter++ = 0;
+    uintptr_t cur_offset = 0;
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
+    uint32_t chr_fo_idx = UINT32_MAX;
+    uint32_t chr_end = 0;
+    uint32_t prev_bp = 0;
+    uint32_t allele_ct = 2;
+    JoinType jt;
+    // probable todo: track and return the highest values of each
+    jt.snp_ct = 0;
+    jt.nonsnp_ct = 0;
+    jt.symbolic_ct = 0;
+    jt.missalt_snp_ct = 0;
+    jt.missalt_nonsnp_ct = 0;
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      if (variant_uidx >= chr_end) {
+        do {
+          ++chr_fo_idx;
+          chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+        } while (variant_uidx >= chr_end);
+        prev_bp = UINT32_MAX;
+      }
+      uintptr_t allele_idx_offset_base = variant_uidx * 2;
+      if (allele_idx_offsets) {
+        allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+      }
+      const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+      JoinType cur_jt;
+      if (unlikely(JoinTypeCount(cur_alleles, allele_ct, &cur_jt))) {
+        goto PlanMultiallelicJoin_ret_MIXED_SYMBOLIC;
+      }
+      const uint32_t cur_bp = variant_bps[variant_uidx];
+      if (cur_bp != prev_bp) {
+        // save previous entry
+        if (join_mode == kfMakePlink2MJoinSnps) {
+          if (jt.snp_ct || jt.missalt_snp_ct) {
+            if (jt.snp_ct > kPglMaxAltAlleleCt) {
+              goto PlanMultiallelicJoin_ret_TOO_MANY_ALTS;
+            }
+            cur_offset += 1 + MAXV(1, jt.snp_ct);
+            *write_allele_idx_offsets_iter++ = cur_offset;
+          }
+          if (cur_jt.nonsnp_ct || cur_jt.symbolic_ct || cur_jt.missalt_nonsnp_ct) {
+            if (cur_jt.snp_ct) {
+              logerrprintfww("Error: Variant '%s' is mixed SNP/non-SNP; multiallelics=+snps does not permit this.\n", variant_ids[variant_uidx]);
+              goto PlanMultiallelicJoin_ret_INCONSISTENT_INPUT;
+            }
+            // Flush immediately.
+            cur_offset += 1 + cur_jt.nonsnp_ct + cur_jt.symbolic_ct;
+            *write_allele_idx_offsets_iter++ = cur_offset;
+            // Also need to reinitialize.
+            jt.snp_ct = 0;
+            jt.missalt_snp_ct = 0;
+          } else {
+            jt.snp_ct = cur_jt.snp_ct;
+            jt.missalt_snp_ct = cur_jt.missalt_snp_ct;
+          }
+        } else {
+          if (join_mode == kfMakePlink2MJoinBoth) {
+            if (jt.snp_ct || jt.missalt_snp_ct) {
+              if (jt.snp_ct > kPglMaxAltAlleleCt) {
+                goto PlanMultiallelicJoin_ret_TOO_MANY_ALTS;
+              }
+              cur_offset += 1 + MAXV(1, jt.snp_ct);
+              *write_allele_idx_offsets_iter++ = cur_offset;
+            }
+            if (jt.nonsnp_ct || jt.missalt_nonsnp_ct) {
+              if (jt.nonsnp_ct > kPglMaxAltAlleleCt) {
+                goto PlanMultiallelicJoin_ret_TOO_MANY_ALTS;
+              }
+              cur_offset += 1 + MAXV(1, jt.nonsnp_ct);
+              *write_allele_idx_offsets_iter++ = cur_offset;
+            }
+          } else {
+            // +any
+            if (jt.snp_ct || jt.nonsnp_ct || jt.missalt_snp_ct || jt.missalt_nonsnp_ct) {
+              const uintptr_t final_alt_allele_ct = MAXV(1, jt.snp_ct + jt.nonsnp_ct);
+              if (final_alt_allele_ct > kPglMaxAltAlleleCt) {
+                goto PlanMultiallelicJoin_ret_TOO_MANY_ALTS;
+              }
+              cur_offset += 1 + final_alt_allele_ct;
+              *write_allele_idx_offsets_iter++ = cur_offset;
+            }
+          }
+          if (jt.symbolic_ct) {
+            if (jt.symbolic_ct > kPglMaxAltAlleleCt) {
+              goto PlanMultiallelicJoin_ret_TOO_MANY_ALTS;
+            }
+            cur_offset += 1 + jt.symbolic_ct;
+            *write_allele_idx_offsets_iter++ = cur_offset;
+          }
+          jt = cur_jt;
+        }
+        prev_bp = cur_bp;
+      } else if ((join_mode == kfMakePlink2MJoinSnps) && (cur_jt.nonsnp_ct || cur_jt.symbolic_ct)) {
+        if (cur_jt.snp_ct) {
+          logerrprintfww("Error: Variant '%s' is mixed SNP/non-SNP; multiallelics=+snps does not permit this.\n", variant_ids[variant_uidx]);
+          goto PlanMultiallelicJoin_ret_INCONSISTENT_INPUT;
+        }
+        // Flush immediately.
+        cur_offset += 1 + cur_jt.nonsnp_ct + cur_jt.symbolic_ct;
+        *write_allele_idx_offsets_iter++ = cur_offset;
+      } else {
+        jt.snp_ct += cur_jt.snp_ct;
+        jt.nonsnp_ct += cur_jt.nonsnp_ct;
+        jt.symbolic_ct += cur_jt.symbolic_ct;
+        jt.missalt_snp_ct += cur_jt.missalt_snp_ct;
+        jt.missalt_nonsnp_ct += cur_jt.missalt_nonsnp_ct;
+        continue;
+      }
+      if (write_allele_idx_offsets_iter > write_allele_idx_offsets_stop) {
+        goto PlanMultiallelicJoin_ret_NOMEM;
+      }
+    }
+    // Flush last position.
+    if (join_mode == kfMakePlink2MJoinSnps) {
+      if (jt.snp_ct || jt.missalt_snp_ct) {
+        if (jt.snp_ct > kPglMaxAltAlleleCt) {
+          goto PlanMultiallelicJoin_ret_TOO_MANY_ALTS;
+        }
+        cur_offset += 1 + MAXV(1, jt.snp_ct);
+        *write_allele_idx_offsets_iter++ = cur_offset;
+      }
+    } else {
+      if (join_mode == kfMakePlink2MJoinBoth) {
+        if (jt.snp_ct || jt.missalt_snp_ct) {
+          if (jt.snp_ct > kPglMaxAltAlleleCt) {
+            goto PlanMultiallelicJoin_ret_TOO_MANY_ALTS;
+          }
+          cur_offset += 1 + MAXV(1, jt.snp_ct);
+          *write_allele_idx_offsets_iter++ = cur_offset;
+        }
+        if (jt.nonsnp_ct || jt.missalt_nonsnp_ct) {
+          if (jt.nonsnp_ct > kPglMaxAltAlleleCt) {
+            goto PlanMultiallelicJoin_ret_TOO_MANY_ALTS;
+          }
+          cur_offset += 1 + MAXV(1, jt.nonsnp_ct);
+          *write_allele_idx_offsets_iter++ = cur_offset;
+        }
+      } else {
+        if (jt.snp_ct || jt.nonsnp_ct || jt.missalt_snp_ct || jt.missalt_nonsnp_ct) {
+          const uintptr_t final_alt_allele_ct = MAXV(1, jt.snp_ct + jt.nonsnp_ct);
+          if (final_alt_allele_ct > kPglMaxAltAlleleCt) {
+            goto PlanMultiallelicJoin_ret_TOO_MANY_ALTS;
+          }
+          cur_offset += 1 + final_alt_allele_ct;
+          *write_allele_idx_offsets_iter++ = cur_offset;
+        }
+      }
+      if (jt.symbolic_ct) {
+        if (jt.symbolic_ct > kPglMaxAltAlleleCt) {
+          goto PlanMultiallelicJoin_ret_TOO_MANY_ALTS;
+        }
+        cur_offset += 1 + jt.symbolic_ct;
+        *write_allele_idx_offsets_iter++ = cur_offset;
+      }
+    }
+    *write_variant_ctp = S_CAST(uintptr_t, write_allele_idx_offsets_iter - write_allele_idx_offsets) - 1;
+    if (cur_offset != 2 * (*write_variant_ctp)) {
+      assert(cur_offset > (2 * (*write_variant_ctp)));
+      BigstackBaseSet(write_allele_idx_offsets_iter);
+      *write_allele_idx_offsetsp = write_allele_idx_offsets;
+    }
+  }
+  while (0) {
+  PlanMultiallelicJoin_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  PlanMultiallelicJoin_ret_MIXED_SYMBOLIC:
+    logerrprintfww("Error: Variant '%s' mixes symbolic and non-symbolic alleles in an unsupported manner.\n", variant_ids[variant_uidx]);
+  PlanMultiallelicJoin_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  PlanMultiallelicJoin_ret_TOO_MANY_ALTS:
+    logerrprintf("Error: Variant-join would create a variant with too many ALT alleles for this\nplink2 build.\n");
+    reterr = kPglRetNotYetSupported;
+    break;
+  }
+  return reterr;
+}
+
+/*
+PglErr PlanMultiallelicSplit(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, uint32_t max_allele_ct, MakePlink2Flags flags, uint32_t* write_variant_ctp, const uintptr_t** write_allele_idx_offsetsp) {
+  uint32_t variant_uidx = 0;
+  PglErr reterr = kPglRetSuccess;
+  {
+    const uint32_t variant_ct = *write_variant_ctp;
+    uintptr_t* write_allele_idx_offsets = R_CAST(uintptr_t*, g_bigstack_base);
+    uintptr_t* write_allele_idx_offsets_stop = R_CAST(uintptr_t*, RoundDownPow2(R_CAST(uintptr_t, g_bigstack_end), kCacheline));
+    if (S_CAST(uintptr_t, write_allele_idx_offsets_stop - write_allele_idx_offsets) <= max_allele_ct) {
+      return kPglRetNomem;
+    }
+    write_allele_idx_offsets_stop -= max_allele_ct;
+    const MakePlink2Flags split_mode = flags & kfMakePlink2MMask;
+    uintptr_t* write_allele_idx_offsets_iter = write_allele_idx_offsets;
+    *write_allele_idx_offsets_iter++ = 0;
+    uintptr_t cur_offset = 0;
+    uintptr_t variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
+    uint32_t chr_fo_idx = UINT32_MAX;
+    uint32_t chr_end = 0;
+    uint32_t prev_bp = 0;
+    uint32_t allele_ct = 2;
+    STD_ARRAY_DECL(uintptr_t, 3, type_cts);
+    STD_ARRAY_FILL0(type_cts);
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+      if (variant_uidx >= chr_end) {
+        do {
+          ++chr_fo_idx;
+          chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+        } while (variant_uidx >= chr_end);
+        prev_bp = UINT32_MAX;
+      }
+      uintptr_t allele_idx_offset_base = variant_uidx * 2;
+      if (allele_idx_offsets) {
+        allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
+      }
+      const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+      STD_ARRAY_DECL(uintptr_t, 3, cur_type_cts);
+      if (unlikely(JoinTypeCount(cur_alleles, allele_ct, cur_type_cts))) {
+        goto PlanMultiallelicJoin_ret_MIXED_SYMBOLIC;
+      }
+      const uint32_t cur_bp = variant_bps[variant_uidx];
+      if (cur_bp != prev_bp) {
+        // save previous entry
+        if (join_mode == kfMakePlink2MJoinSnps) {
+          if (type_cts[0]) {
+            if (type_cts[0] > kPglMaxAltAlleleCt) {
+              goto PlanMultiallelicJoin_ret_TOO_MANY_ALTS;
+            }
+            cur_offset += 1 + type_cts[0];
+            *write_allele_idx_offsets_iter++ = cur_offset;
+          }
+          if (cur_type_cts[1] || cur_type_cts[2]) {
+            if (cur_type_cts[0]) {
+              logerrprintfww("Error: Variant '%s' is mixed SNP/non-SNP; multiallelics=+snps does not permit this.\n", variant_ids[variant_uidx]);
+              goto PlanMultiallelicJoin_ret_INCONSISTENT_INPUT;
+            }
+            // Flush immediately.
+            cur_offset += 1 + cur_type_cts[1] + cur_type_cts[2];
+            *write_allele_idx_offsets_iter++ = cur_offset;
+            // Also need to reinitialize.
+            type_cts[0] = 0;
+          } else {
+            type_cts[0] = cur_type_cts[0];
+          }
+        } else {
+          if (join_mode == kfMakePlink2MJoinBoth) {
+            if (type_cts[0]) {
+              if (type_cts[0] > kPglMaxAltAlleleCt) {
+                goto PlanMultiallelicJoin_ret_TOO_MANY_ALTS;
+              }
+              cur_offset += 1 + type_cts[0];
+              *write_allele_idx_offsets_iter++ = cur_offset;
+            }
+            if (type_cts[1]) {
+              if (type_cts[1] > kPglMaxAltAlleleCt) {
+                goto PlanMultiallelicJoin_ret_TOO_MANY_ALTS;
+              }
+              cur_offset += 1 + type_cts[1];
+              *write_allele_idx_offsets_iter++ = cur_offset;
+            }
+          } else {
+            if (type_cts[0] || type_cts[1]) {
+              const uintptr_t final_alt_allele_ct = type_cts[0] + type_cts[1];
+              if (final_alt_allele_ct > kPglMaxAltAlleleCt) {
+                goto PlanMultiallelicJoin_ret_TOO_MANY_ALTS;
+              }
+              cur_offset += 1 + final_alt_allele_ct;
+              *write_allele_idx_offsets_iter++ = cur_offset;
+            }
+          }
+          if (type_cts[2]) {
+            if (type_cts[2] > kPglMaxAltAlleleCt) {
+              goto PlanMultiallelicJoin_ret_TOO_MANY_ALTS;
+            }
+            cur_offset += 1 + type_cts[2];
+            *write_allele_idx_offsets_iter++ = cur_offset;
+          }
+          STD_ARRAY_COPY(cur_type_cts, 3, type_cts);
+        }
+        prev_bp = cur_bp;
+      } else if ((join_mode == kfMakePlink2MJoinSnps) && (cur_type_cts[1] || cur_type_cts[2])) {
+        if (cur_type_cts[0]) {
+          logerrprintfww("Error: Variant '%s' is mixed SNP/non-SNP; multiallelics=+snps does not permit this.\n", variant_ids[variant_uidx]);
+          goto PlanMultiallelicJoin_ret_INCONSISTENT_INPUT;
+        }
+        // Flush immediately.
+        cur_offset += 1 + cur_type_cts[1] + cur_type_cts[2];
+        *write_allele_idx_offsets_iter++ = cur_offset;
+      } else {
+        type_cts[0] += cur_type_cts[0];
+        type_cts[1] += cur_type_cts[1];
+        type_cts[2] += cur_type_cts[2];
+        continue;
+      }
+      if (write_allele_idx_offsets_iter > write_allele_idx_offsets_stop) {
+        goto PlanMultiallelicJoin_ret_NOMEM;
+      }
+    }
+    // Flush last position.
+    if (join_mode == kfMakePlink2MJoinSnps) {
+      if (type_cts[0]) {
+        if (type_cts[0] > kPglMaxAltAlleleCt) {
+          goto PlanMultiallelicJoin_ret_TOO_MANY_ALTS;
+        }
+        cur_offset += 1 + type_cts[0];
+        *write_allele_idx_offsets_iter++ = cur_offset;
+      }
+    } else {
+      if (join_mode == kfMakePlink2MJoinBoth) {
+        if (type_cts[0]) {
+          if (type_cts[0] > kPglMaxAltAlleleCt) {
+            goto PlanMultiallelicJoin_ret_TOO_MANY_ALTS;
+          }
+          cur_offset += 1 + type_cts[0];
+          *write_allele_idx_offsets_iter++ = cur_offset;
+        }
+        if (type_cts[1]) {
+          if (type_cts[1] > kPglMaxAltAlleleCt) {
+            goto PlanMultiallelicJoin_ret_TOO_MANY_ALTS;
+          }
+          cur_offset += 1 + type_cts[1];
+          *write_allele_idx_offsets_iter++ = cur_offset;
+        }
+      } else {
+        if (type_cts[0] || type_cts[1]) {
+          const uintptr_t final_alt_allele_ct = type_cts[0] + type_cts[1];
+          if (final_alt_allele_ct > kPglMaxAltAlleleCt) {
+            goto PlanMultiallelicJoin_ret_TOO_MANY_ALTS;
+          }
+          cur_offset += 1 + final_alt_allele_ct;
+          *write_allele_idx_offsets_iter++ = cur_offset;
+        }
+      }
+      if (type_cts[2]) {
+        if (type_cts[2] > kPglMaxAltAlleleCt) {
+          goto PlanMultiallelicJoin_ret_TOO_MANY_ALTS;
+        }
+        cur_offset += 1 + type_cts[2];
+        *write_allele_idx_offsets_iter++ = cur_offset;
+      }
+    }
+    *write_variant_ctp = S_CAST(uintptr_t, write_allele_idx_offsets_iter - write_allele_idx_offsets) - 1;
+    if (cur_offset != 2 * (*write_variant_ctp)) {
+      assert(cur_offset > (2 * (*write_variant_ctp)));
+      BigstackBaseSet(write_allele_idx_offsets_iter);
+      *write_allele_idx_offsetsp = write_allele_idx_offsets;
+    }
+  }
+  while (0) {
+  PlanMultiallelicSplit_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  PlanMultiallelicJoin_ret_MIXED_SYMBOLIC:
+    logerrprintfww("Error: Variant '%s' mixes symbolic and non-symbolic alleles in an unsupported manner.\n", variant_ids[variant_uidx]);
+  PlanMultiallelicJoin_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+  return reterr;
+}
+*/
 
 FLAGSET_DEF_START()
   kfPlink2Write0,
@@ -3708,7 +4179,7 @@ PgenGlobalFlags GflagsVfilter(const uintptr_t* variant_include, const unsigned c
 // (Note that MakePlink2NoVsort() currently requires enough memory for 64k * 2
 // variants per output thread, due to LD compression.  This is faster in the
 // common case, but once you have 150k+ samples with dosage data...)
-PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uint32_t* new_variant_idx_to_old, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, MakePlink2Flags make_plink2_flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, __maybe_unused const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* write_allele_idx_offsets, const uint32_t* new_variant_idx_to_old, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, __maybe_unused uint32_t write_variant_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, MakePlink2Flags make_plink2_flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   // variant_uidx_new_to_old[] can be nullptr
 
   // caller responsible for initializing g_cip (may need to be different from
@@ -3745,24 +4216,6 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
     } else {
       const uint32_t input_biallelic = (!allele_idx_offsets);
       // output_biallelic: test write_allele_idx_offsets equality to null
-      const uintptr_t* write_allele_idx_offsets = nullptr;
-      if ((!input_biallelic) && (!(make_plink2_flags & kfMakePlink2EraseAlt2Plus))) {
-        if ((variant_ct < raw_variant_ct) || new_variant_idx_to_old) {
-          uintptr_t* new_allele_idx_offsets;
-          if (unlikely(bigstack_alloc_w(variant_ct + 1, &new_allele_idx_offsets))) {
-            goto MakePgenRobust_ret_NOMEM;
-          }
-          const uintptr_t final_offset = InitWriteAlleleIdxOffsets(variant_include, allele_idx_offsets, allele_presents, refalt1_select, new_variant_idx_to_old, variant_ct, new_allele_idx_offsets);
-          if (final_offset != 2 * variant_ct) {
-            new_allele_idx_offsets[variant_ct] = final_offset;
-            write_allele_idx_offsets = new_allele_idx_offsets;
-          } else {
-            BigstackReset(new_allele_idx_offsets);
-          }
-        } else {
-          write_allele_idx_offsets = allele_idx_offsets;
-        }
-      }
       g_allele_idx_offsets = write_allele_idx_offsets;
       if ((variant_ct == raw_variant_ct) || new_variant_idx_to_old) {
         g_write_chr_fo_vidx_start = g_cip->chr_fo_vidx_start;
@@ -4137,7 +4590,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
 }
 
 // allele_presents should be nullptr iff trim_alts not true
-PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t max_thread_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, MakePlink2Flags make_plink2_flags, PvarPsamFlags pvar_psam_flags, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, __maybe_unused uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t max_thread_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, MakePlink2Flags make_plink2_flags, PvarPsamFlags pvar_psam_flags, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   ThreadsState ts;
   InitThreads3z(&ts);
@@ -4145,6 +4598,97 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
   {
+    if (make_plink2_flags & kfMakeFam) {
+      snprintf(outname_end, kMaxOutfnameExtBlen, ".fam");
+      logprintfww5("Writing %s ... ", outname);
+      fflush(stdout);
+      reterr = WriteFam(outname, sample_include, piip, sex_nm, sex_male, pheno_cols, new_sample_idx_to_old, sample_ct, pheno_ct, '\t');
+      if (unlikely(reterr)) {
+        goto MakePlink2NoVsort_ret_1;
+      }
+      logputs("done.\n");
+    }
+    if (make_plink2_flags & kfMakePsam) {
+      snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
+      logprintfww5("Writing %s ... ", outname);
+      fflush(stdout);
+      reterr = WritePsam(outname, sample_include, piip, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, sample_ct, pheno_ct, max_pheno_name_blen, pvar_psam_flags);
+      if (unlikely(reterr)) {
+        goto MakePlink2NoVsort_ret_1;
+      }
+      logputs("done.\n");
+    }
+    const uint32_t input_biallelic = (!allele_idx_offsets);
+    // output_biallelic: test write_allele_idx_offsets equality to null
+    PgenGlobalFlags read_gflags = pgfip->gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent);
+    if (!input_biallelic) {
+      // Can only skip this when there are actually zero copies of alt2+.
+      // Otherwise, even with erase-alt2+, we still need to distinguish alt1
+      // from alt2 so we can set calls involving the latter to missing.
+      read_gflags |= kfPgenGlobalMultiallelicHardcallFound;
+    }
+    const uintptr_t* write_allele_idx_offsets = nullptr;
+    uint32_t write_variant_ct = variant_ct;
+    if (make_plink2_flags & kfMakePlink2MMask) {
+      assert((!refalt1_select) && (!allele_presents));
+      logerrputs("Error: --make-bed/--make-{b}pgen multiallelics= is under development.\n");
+      reterr = kPglRetNotYetSupported;
+      goto MakePlink2NoVsort_ret_1;
+      if (make_plink2_flags & kfMakePlink2MJoin) {
+        reterr = PlanMultiallelicJoin(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, make_plink2_flags, &write_variant_ct, &write_allele_idx_offsets);
+      } else {
+        // reterr = PlanMultiallelicSplit(variant_include, cip, variant_bps, allele_idx_offsets, allele_storage, max_allele_ct, make_plink2_flags, &write_variant_ct, &write_allele_idx_offsets);
+        reterr = kPglRetNotYetSupported;
+      }
+      if (unlikely(reterr)) {
+        goto MakePlink2NoVsort_ret_1;
+      }
+    } else if (allele_idx_offsets) {
+      if (allele_presents) {
+        fputs("multiallelic variants + trim-alts not yet supported\n", stderr);
+        exit(S_CAST(int32_t, kPglRetNotYetSupported));
+      }
+      if (variant_ct < raw_variant_ct) {
+        uintptr_t* new_allele_idx_offsets;
+        if (bigstack_alloc_w(variant_ct + 1, &new_allele_idx_offsets)) {
+          goto MakePlink2NoVsort_ret_NOMEM;
+        }
+        const uintptr_t final_offset = InitWriteAlleleIdxOffsets(variant_include, allele_idx_offsets, nullptr, refalt1_select, nullptr, variant_ct, new_allele_idx_offsets);
+        if (final_offset != 2 * variant_ct) {
+          new_allele_idx_offsets[variant_ct] = final_offset;
+          write_allele_idx_offsets = new_allele_idx_offsets;
+        } else {
+          BigstackReset(new_allele_idx_offsets);
+        }
+      } else {
+        write_allele_idx_offsets = allele_idx_offsets;
+      }
+    }
+    if (make_plink2_flags & kfMakeBim) {
+      const uint32_t bim_zst = (make_plink2_flags / kfMakeBimZs) & 1;
+      OutnameZstSet(".bim", bim_zst, outname_end);
+      logprintfww5("Writing %s ... ", outname);
+      fflush(stdout);
+      reterr = WriteMapOrBim(outname, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, variant_cms, variant_ct, max_allele_slen, '\t', bim_zst, max_thread_ct);
+      if (unlikely(reterr)) {
+        goto MakePlink2NoVsort_ret_1;
+      }
+      logputs("done.\n");
+    }
+    if (make_plink2_flags & kfMakePvar) {
+      OutnameZstSet(".pvar", pvar_psam_flags & kfPvarZs, outname_end);
+      logprintfww5("Writing %s ... ", outname);
+      fflush(stdout);
+      uint32_t nonref_flags_storage = 3;
+      if (!pgfip->nonref_flags) {
+        nonref_flags_storage = (pgfip->gflags & kfPgenGlobalAllNonref)? 2 : 1;
+      }
+      reterr = WritePvar(outname, xheader, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, pgfip->nonref_flags, pvar_info_reload, variant_cms, raw_variant_ct, variant_ct, max_allele_slen, xheader_blen, info_flags, nonref_flags_storage, max_filter_slen, info_reload_slen, pvar_psam_flags, max_thread_ct);
+      if (unlikely(reterr)) {
+        goto MakePlink2NoVsort_ret_1;
+      }
+      logputs("done.\n");
+    }
     if (make_plink2_flags & kfMakePlink2MMask) {
       logerrputs("Error: --make-bed/--make-{b}pgen multiallelics= is currently under development.\n");
       reterr = kPglRetNotYetSupported;
@@ -4392,7 +4936,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
       }
       fputs("\b\b", stdout);
       logputs("done.\n");
-      BigstackReset(bigstack_mark);
+      // BigstackReset(bigstack_mark);
     } else if (make_pgen) {
       assert(variant_ct);
       assert(sample_ct);
@@ -4401,31 +4945,6 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
         // here for now.
         // (also auto-punt multiallelic dosage?)
         goto MakePlink2NoVsort_fallback;
-      }
-      const uint32_t input_biallelic = (!allele_idx_offsets);
-      // output_biallelic: test write_allele_idx_offsets equality to null
-      const uintptr_t* write_allele_idx_offsets = nullptr;
-      PgenGlobalFlags read_gflags = pgfip->gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent);
-      if ((!input_biallelic) && (!(make_plink2_flags & kfMakePlink2EraseAlt2Plus))) {
-        if (allele_presents) {
-          goto MakePlink2NoVsort_fallback;
-        }
-        read_gflags |= kfPgenGlobalMultiallelicHardcallFound;
-        if (variant_ct < raw_variant_ct) {
-          uintptr_t* new_allele_idx_offsets;
-          if (bigstack_alloc_w(variant_ct + 1, &new_allele_idx_offsets)) {
-            goto MakePlink2NoVsort_fallback;
-          }
-          const uintptr_t final_offset = InitWriteAlleleIdxOffsets(variant_include, allele_idx_offsets, nullptr, refalt1_select, nullptr, variant_ct, new_allele_idx_offsets);
-          if (final_offset != 2 * variant_ct) {
-            new_allele_idx_offsets[variant_ct] = final_offset;
-            write_allele_idx_offsets = new_allele_idx_offsets;
-          } else {
-            BigstackReset(new_allele_idx_offsets);
-          }
-        } else {
-          write_allele_idx_offsets = allele_idx_offsets;
-        }
       }
       g_allele_idx_offsets = write_allele_idx_offsets;
       if (variant_ct == raw_variant_ct) {
@@ -4845,61 +5364,16 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
       }
       fputs("\b\b", stdout);
       logputs("done.\n");
-      BigstackReset(bigstack_mark);
+      // BigstackReset(bigstack_mark);
     } else if (0) {
     MakePlink2NoVsort_fallback:
       // g_failed_alloc_attempt_size = 0;
       mpgwp = nullptr;
       BigstackReset(bigstack_mark2);
-      reterr = MakePgenRobust(sample_include, new_sample_idx_to_old, variant_include, allele_idx_offsets, allele_presents, refalt1_select, nullptr, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, hard_call_thresh, dosage_erase_thresh, make_plink2_flags, simple_pgrp, outname, outname_end);
+      reterr = MakePgenRobust(sample_include, new_sample_idx_to_old, variant_include, allele_idx_offsets, allele_presents, refalt1_select, write_allele_idx_offsets, nullptr, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, write_variant_ct, hard_call_thresh, dosage_erase_thresh, make_plink2_flags, simple_pgrp, outname, outname_end);
       if (unlikely(reterr)) {
         goto MakePlink2NoVsort_ret_1;
       }
-    }
-    if (make_plink2_flags & kfMakeBim) {
-      const uint32_t bim_zst = (make_plink2_flags / kfMakeBimZs) & 1;
-      OutnameZstSet(".bim", bim_zst, outname_end);
-      logprintfww5("Writing %s ... ", outname);
-      fflush(stdout);
-      reterr = WriteMapOrBim(outname, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, variant_cms, variant_ct, max_allele_slen, '\t', bim_zst, max_thread_ct);
-      if (unlikely(reterr)) {
-        goto MakePlink2NoVsort_ret_1;
-      }
-      logputs("done.\n");
-    }
-    if (make_plink2_flags & kfMakePvar) {
-      OutnameZstSet(".pvar", pvar_psam_flags & kfPvarZs, outname_end);
-      logprintfww5("Writing %s ... ", outname);
-      fflush(stdout);
-      uint32_t nonref_flags_storage = 3;
-      if (!pgfip->nonref_flags) {
-        nonref_flags_storage = (pgfip->gflags & kfPgenGlobalAllNonref)? 2 : 1;
-      }
-      reterr = WritePvar(outname, xheader, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, pgfip->nonref_flags, pvar_info_reload, variant_cms, raw_variant_ct, variant_ct, max_allele_slen, xheader_blen, info_flags, nonref_flags_storage, max_filter_slen, info_reload_slen, pvar_psam_flags, max_thread_ct);
-      if (unlikely(reterr)) {
-        goto MakePlink2NoVsort_ret_1;
-      }
-      logputs("done.\n");
-    }
-    if (make_plink2_flags & kfMakeFam) {
-      snprintf(outname_end, kMaxOutfnameExtBlen, ".fam");
-      logprintfww5("Writing %s ... ", outname);
-      fflush(stdout);
-      reterr = WriteFam(outname, sample_include, piip, sex_nm, sex_male, pheno_cols, new_sample_idx_to_old, sample_ct, pheno_ct, '\t');
-      if (unlikely(reterr)) {
-        goto MakePlink2NoVsort_ret_1;
-      }
-      logputs("done.\n");
-    }
-    if (make_plink2_flags & kfMakePsam) {
-      snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
-      logprintfww5("Writing %s ... ", outname);
-      fflush(stdout);
-      reterr = WritePsam(outname, sample_include, piip, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, sample_ct, pheno_ct, max_pheno_name_blen, pvar_psam_flags);
-      if (unlikely(reterr)) {
-        goto MakePlink2NoVsort_ret_1;
-      }
-      logputs("done.\n");
     }
   }
   while (0) {
@@ -5754,7 +6228,25 @@ PglErr MakePlink2Vsort(const char* xheader, const uintptr_t* sample_include, con
         g_plink2_write_flags |= kfPlink2WriteSetMixedMtMissing;
       }
       g_cip = &write_chr_info;
-      reterr = MakePgenRobust(sample_include, new_sample_idx_to_old, variant_include, allele_idx_offsets, allele_presents, refalt1_select, new_variant_idx_to_old, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, hard_call_thresh, dosage_erase_thresh, make_plink2_flags, simple_pgrp, outname, outname_end);
+      const uintptr_t* write_allele_idx_offsets = nullptr;
+      if (allele_idx_offsets && (!(make_plink2_flags & kfMakePlink2EraseAlt2Plus))) {
+        if ((variant_ct < raw_variant_ct) || new_variant_idx_to_old) {
+          uintptr_t* new_allele_idx_offsets;
+          if (unlikely(bigstack_alloc_w(variant_ct + 1, &new_allele_idx_offsets))) {
+            goto MakePlink2Vsort_ret_NOMEM;
+          }
+          const uintptr_t final_offset = InitWriteAlleleIdxOffsets(variant_include, allele_idx_offsets, allele_presents, refalt1_select, new_variant_idx_to_old, variant_ct, new_allele_idx_offsets);
+          if (final_offset != 2 * variant_ct) {
+            new_allele_idx_offsets[variant_ct] = final_offset;
+            write_allele_idx_offsets = new_allele_idx_offsets;
+          } else {
+            BigstackReset(new_allele_idx_offsets);
+          }
+        } else {
+          write_allele_idx_offsets = allele_idx_offsets;
+        }
+      }
+      reterr = MakePgenRobust(sample_include, new_sample_idx_to_old, variant_include, allele_idx_offsets, allele_presents, refalt1_select, write_allele_idx_offsets, new_variant_idx_to_old, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, variant_ct, hard_call_thresh, dosage_erase_thresh, make_plink2_flags, simple_pgrp, outname, outname_end);
       if (unlikely(reterr)) {
         goto MakePlink2Vsort_ret_1;
       }

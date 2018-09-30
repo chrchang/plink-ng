@@ -4711,6 +4711,57 @@ void AppendSdiffHeaderLine(SdiffFlags flags, uint32_t col_fid, uint32_t col_sid,
   AppendBinaryEoln(cswritepp);
 }
 
+typedef struct SdiffWriteContextStruct {
+  char* collapsed_sample_fmtids;
+  char* chr_buf;
+  const uint32_t* variant_bps;
+  const char* const* variant_ids;
+  SdiffFlags flags;
+  uintptr_t max_sample_fmtid_blen;
+  uint32_t chr_buf_blen;
+} SdiffWriteContext;
+
+BoolErr AppendSdiffPregenoFields(const SdiffWriteContext* swcp, const char* const* cur_alleles, uint32_t sample_idx1, uint32_t sample_idx2, uint32_t variant_uidx, uint32_t allele_ct, CompressStreamState* cssp, char** cswritepp) {
+  char* cswritep = *cswritepp;
+  if (swcp->chr_buf) {
+    cswritep = memcpya(cswritep, swcp->chr_buf, swcp->chr_buf_blen);
+  }
+  if (swcp->variant_bps) {
+    cswritep = u32toa_x(swcp->variant_bps[variant_uidx], '\t', cswritep);
+  }
+  cswritep = strcpya(cswritep, swcp->variant_ids[variant_uidx]);
+  if (swcp->flags & kfSdiffColRef) {
+    *cswritep++ = '\t';
+    const char* cur_allele = cur_alleles[0];
+    const uint32_t allele_slen = strlen(cur_allele);
+    if (unlikely(CsputsStd(cur_allele, allele_slen, cssp, &cswritep))) {
+      // might not need this assignment, but play it safe for now
+      *cswritepp = cswritep;
+      return 1;
+    }
+  }
+  if (swcp->flags & kfSdiffColAlt) {
+    *cswritep++ = '\t';
+    for (uint32_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
+      const char* cur_allele = cur_alleles[allele_idx];
+      const uint32_t allele_slen = strlen(cur_allele);
+      if (unlikely(CsputsStd(cur_allele, allele_slen, cssp, &cswritep))) {
+        *cswritepp = cswritep;
+        return 1;
+      }
+      *cswritep++ = ',';
+    }
+    --cswritep;
+  }
+  if (swcp->collapsed_sample_fmtids) {
+    *cswritep++ = '\t';
+    cswritep = strcpyax(cswritep, &(swcp->collapsed_sample_fmtids[sample_idx1 * swcp->max_sample_fmtid_blen]), '\t');
+    cswritep = strcpya(cswritep, &(swcp->collapsed_sample_fmtids[sample_idx2 * swcp->max_sample_fmtid_blen]));
+  }
+  *cswritepp = cswritep;
+  return 0;
+}
+
 PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts,  const SampleIdInfo* siip, const uint32_t* __restrict id_pairs, const uintptr_t* __restrict pair_sex_male, const uintptr_t* __restrict variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* __restrict allele_idx_offsets, const char* const* allele_storage, const SdiffInfo* sdip, uint32_t sample_ct, uint32_t variant_ct, uintptr_t id_pair_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end, SdiffCounts* sdiff_counts) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char** cswritep_arr = nullptr;
@@ -4722,23 +4773,30 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
   {
     const uint32_t col_fid = FidColIsRequired(siip, flags / kfSdiffColMaybefid);
     const uint32_t col_sid = SidColIsRequired(siip->sids, flags / kfSdiffColMaybesid);
-    char* collapsed_sample_fmtids;
-    uintptr_t max_sample_fmtid_blen;
-    if (unlikely(CollapsedSampleFmtidInitAlloc(sample_include, siip, sample_ct, col_fid, col_sid, &collapsed_sample_fmtids, &max_sample_fmtid_blen))) {
+    SdiffWriteContext swc;
+    if (unlikely(CollapsedSampleFmtidInitAlloc(sample_include, siip, sample_ct, col_fid, col_sid, &swc.collapsed_sample_fmtids, &swc.max_sample_fmtid_blen))) {
       goto SdiffMainBatch_ret_NOMEM;
     }
-    char* chr_buf = nullptr;
+    swc.chr_buf = nullptr;
     if (flags & kfSdiffColChrom) {
       const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
-      if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
+      if (unlikely(bigstack_alloc_c(max_chr_blen, &swc.chr_buf))) {
         goto SdiffMainBatch_ret_NOMEM;
       }
     }
+    if (!(flags & kfSdiffColPos)) {
+      swc.variant_bps = nullptr;
+    } else {
+      swc.variant_bps = variant_bps;
+    }
+    swc.variant_ids = variant_ids;
     if (unlikely(
             bigstack_calloc_cp(file_ct, &cswritep_arr) ||
             BIGSTACK_ALLOC_X(CompressStreamState, file_ct, &css_arr))) {
       goto SdiffMainBatch_ret_NOMEM;
     }
+    swc.flags = flags;
+    swc.chr_buf_blen = 0;
     for (uintptr_t fidx = 0; fidx != id_pair_ct; ++fidx) {
       PreinitCstream(&(css_arr[fidx]));
     }
@@ -4749,9 +4807,6 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
     const uint32_t dosage_hap_tol = sdip->dosage_hap_tol;
     const uint32_t dosage_reported = (dosage_hap_tol != kDosageMissing);
     const uint32_t dosage_needed = (simple_pgrp->fi.gflags & kfPgenGlobalDosagePresent) && dosage_reported;
-    if (!(flags & kfSdiffColPos)) {
-      variant_bps = nullptr;
-    }
     if (is_pairwise) {
       const uint32_t* id_pair_iter = id_pairs;
       const uint32_t stream_thread_ct = (max_thread_ct > (2 * id_pair_ct))? ((max_thread_ct - 1) / id_pair_ct) : 1;
@@ -4759,8 +4814,8 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
       for (uintptr_t fidx = 0; fidx != id_pair_ct; ++fidx) {
         const uint32_t sample_idx1 = *id_pair_iter++;
         const uint32_t sample_idx2 = *id_pair_iter++;
-        const char* sample_fmtid1 = &(collapsed_sample_fmtids[sample_idx1 * max_sample_fmtid_blen]);
-        const char* sample_fmtid2 = &(collapsed_sample_fmtids[sample_idx2 * max_sample_fmtid_blen]);
+        const char* sample_fmtid1 = &(swc.collapsed_sample_fmtids[sample_idx1 * swc.max_sample_fmtid_blen]);
+        const char* sample_fmtid2 = &(swc.collapsed_sample_fmtids[sample_idx2 * swc.max_sample_fmtid_blen]);
         const uint32_t slen1 = strlen(sample_fmtid1);
         const uint32_t slen2 = strlen(sample_fmtid2);
         if (unlikely(slen1 + slen2 + 2 > fname_extrachar_limit)) {
@@ -4807,7 +4862,7 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
       const uint32_t stream_thread_ct = (max_thread_ct > 1)? (max_thread_ct - 1) : 1;
       if (flags & kfSdiffOneBase) {
         const uint32_t base_sample_idx = id_pairs[0];
-        const char* sample_fmtid = &(collapsed_sample_fmtids[base_sample_idx * max_sample_fmtid_blen]);
+        const char* sample_fmtid = &(swc.collapsed_sample_fmtids[base_sample_idx * swc.max_sample_fmtid_blen]);
         const uint32_t base_slen = strlen(sample_fmtid);
         if (unlikely(base_slen >= fname_extrachar_limit)) {
           logputs("\n");
@@ -4838,7 +4893,7 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
       AppendSdiffHeaderLine(flags, col_fid, col_sid, dosage_reported, &(cswritep_arr[0]));
     }
     if (!(flags & kfSdiffColId)) {
-      collapsed_sample_fmtids = nullptr;
+      swc.collapsed_sample_fmtids = nullptr;
     }
 
     // values unimportant if dosage_hap_tol == kDosageMissing
@@ -4887,7 +4942,6 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
     uint32_t is_y = 0;
     uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t chr_end = 0;
-    uint32_t chr_buf_blen = 0;
     uint32_t pct = 0;
     uint32_t next_print_variant_idx = variant_ct / 100;
     uint32_t allele_ct = 2;
@@ -4903,10 +4957,10 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
         is_autosomal_diploid = !IsSet(cip->haploid_mask, chr_idx);
         is_x = (chr_idx == x_code);
         is_y = (chr_idx == y_code);
-        if (chr_buf) {
-          char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
+        if (swc.chr_buf) {
+          char* chr_name_end = chrtoa(cip, chr_idx, swc.chr_buf);
           *chr_name_end = '\t';
-          chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
+          swc.chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - swc.chr_buf);
         }
       }
       uintptr_t allele_idx_offset_base = variant_uidx * 2;
@@ -4985,41 +5039,11 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
             }
             const uintptr_t fidx = is_pairwise? pair_idx : 0;
             char* cswritep = cswritep_arr[fidx];
-            if (chr_buf) {
-              cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
-            }
-            if (variant_bps) {
-              cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
-            }
-            cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
             const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
-            if (flags & kfSdiffColRef) {
-              *cswritep++ = '\t';
-              const char* cur_allele = cur_alleles[0];
-              const uint32_t allele_slen = strlen(cur_allele);
-              if (unlikely(CsputsStd(cur_allele, allele_slen, &(css_arr[fidx]), &cswritep))) {
-                // might not need this assignment, but play it safe for now
-                cswritep_arr[fidx] = cswritep;
-                goto SdiffMainBatch_ret_WRITE_FAIL;
-              }
-            }
-            if (flags & kfSdiffColAlt) {
-              *cswritep++ = '\t';
-              for (uint32_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
-                const char* cur_allele = cur_alleles[allele_idx];
-                const uint32_t allele_slen = strlen(cur_allele);
-                if (unlikely(CsputsStd(cur_allele, allele_slen, &(css_arr[fidx]), &cswritep))) {
-                  cswritep_arr[fidx] = cswritep;
-                  goto SdiffMainBatch_ret_WRITE_FAIL;
-                }
-                *cswritep++ = ',';
-              }
-              --cswritep;
-            }
-            if (collapsed_sample_fmtids) {
-              *cswritep++ = '\t';
-              cswritep = strcpyax(cswritep, &(collapsed_sample_fmtids[sample_idx1 * max_sample_fmtid_blen]), '\t');
-              cswritep = strcpya(cswritep, &(collapsed_sample_fmtids[sample_idx2 * max_sample_fmtid_blen]));
+            if (unlikely(AppendSdiffPregenoFields(&swc, cur_alleles, sample_idx1, sample_idx2, variant_uidx, allele_ct, &(css_arr[fidx]), &cswritep))) {
+              // might not need this assignment, but play it safe for now
+              cswritep_arr[fidx] = cswritep;
+              goto SdiffMainBatch_ret_WRITE_FAIL;
             }
             if (flags & kfSdiffColGeno) {
               if (is_diploid_pair) {
@@ -5093,40 +5117,10 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
             }
             const uintptr_t fidx = is_pairwise? pair_idx : 0;
             char* cswritep = cswritep_arr[fidx];
-            if (chr_buf) {
-              cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
-            }
-            if (variant_bps) {
-              cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
-            }
-            cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
             const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
-            if (flags & kfSdiffColRef) {
-              *cswritep++ = '\t';
-              const char* cur_allele = cur_alleles[0];
-              const uint32_t allele_slen = strlen(cur_allele);
-              if (unlikely(CsputsStd(cur_allele, allele_slen, &(css_arr[fidx]), &cswritep))) {
-                cswritep_arr[fidx] = cswritep;
-                goto SdiffMainBatch_ret_WRITE_FAIL;
-              }
-            }
-            if (flags & kfSdiffColAlt) {
-              *cswritep++ = '\t';
-              for (uint32_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
-                const char* cur_allele = cur_alleles[allele_idx];
-                const uint32_t allele_slen = strlen(cur_allele);
-                if (unlikely(CsputsStd(cur_allele, allele_slen, &(css_arr[fidx]), &cswritep))) {
-                  cswritep_arr[fidx] = cswritep;
-                  goto SdiffMainBatch_ret_WRITE_FAIL;
-                }
-                *cswritep++ = ',';
-              }
-              --cswritep;
-            }
-            if (collapsed_sample_fmtids) {
-              *cswritep++ = '\t';
-              cswritep = strcpyax(cswritep, &(collapsed_sample_fmtids[sample_idx1 * max_sample_fmtid_blen]), '\t');
-              cswritep = strcpya(cswritep, &(collapsed_sample_fmtids[sample_idx2 * max_sample_fmtid_blen]));
+            if (unlikely(AppendSdiffPregenoFields(&swc, cur_alleles, sample_idx1, sample_idx2, variant_uidx, allele_ct, &(css_arr[fidx]), &cswritep))) {
+              cswritep_arr[fidx] = cswritep;
+              goto SdiffMainBatch_ret_WRITE_FAIL;
             }
             if (flags & kfSdiffColGeno) {
               *cswritep++ = '\t';
@@ -5196,40 +5190,11 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
             }
             const uintptr_t fidx = is_pairwise? pair_idx : 0;
             char* cswritep = cswritep_arr[fidx];
-            if (chr_buf) {
-              cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
-            }
-            if (variant_bps) {
-              cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
-            }
-            cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
             const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
-            if (flags & kfSdiffColRef) {
-              *cswritep++ = '\t';
-              const char* cur_allele = cur_alleles[0];
-              const uint32_t allele_slen = strlen(cur_allele);
-              if (unlikely(CsputsStd(cur_allele, allele_slen, &(css_arr[fidx]), &cswritep))) {
-                cswritep_arr[fidx] = cswritep;
-                goto SdiffMainBatch_ret_WRITE_FAIL;
-              }
-            }
-            if (flags & kfSdiffColAlt) {
-              *cswritep++ = '\t';
-              for (uint32_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
-                const char* cur_allele = cur_alleles[allele_idx];
-                const uint32_t allele_slen = strlen(cur_allele);
-                if (unlikely(CsputsStd(cur_allele, allele_slen, &(css_arr[fidx]), &cswritep))) {
-                  cswritep_arr[fidx] = cswritep;
-                  goto SdiffMainBatch_ret_WRITE_FAIL;
-                }
-                *cswritep++ = ',';
-              }
-              --cswritep;
-            }
-            if (collapsed_sample_fmtids) {
-              *cswritep++ = '\t';
-              cswritep = strcpyax(cswritep, &(collapsed_sample_fmtids[sample_idx1 * max_sample_fmtid_blen]), '\t');
-              cswritep = strcpya(cswritep, &(collapsed_sample_fmtids[sample_idx2 * max_sample_fmtid_blen]));
+            if (unlikely(AppendSdiffPregenoFields(&swc, cur_alleles, sample_idx1, sample_idx2, variant_uidx, allele_ct, &(css_arr[fidx]), &cswritep))) {
+              // might not need this assignment, but play it safe for now
+              cswritep_arr[fidx] = cswritep;
+              goto SdiffMainBatch_ret_WRITE_FAIL;
             }
             if (flags & kfSdiffColGeno) {
               *cswritep++ = '\t';
