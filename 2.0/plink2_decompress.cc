@@ -254,8 +254,8 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
           latest_consume_tail = syncp->consume_tail;
           if (memmove_required) {
             if (latest_consume_tail == cur_block_start) {
-              // bugfix (5 Mar 2018): Need to set cur_circular_end here.
-              syncp->cur_circular_end = cur_block_start;
+              syncp->consume_tail = buf;
+              syncp->available_end = buf;
               break;
             }
           } else if (latest_consume_tail <= cur_block_start) {
@@ -271,6 +271,7 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
 #else
         pthread_mutex_lock(sync_mutexp);
         if (!memmove_required) {
+          // Wait for all bytes in front of read_stop to be consumed.
           goto ReadLineStreamThread_wait_first;
         }
         while (1) {
@@ -281,11 +282,22 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
           latest_consume_tail = syncp->consume_tail;
           if (memmove_required) {
             if (latest_consume_tail == cur_block_start) {
-              // uh oh.;;;
-              syncp->cur_circular_end = cur_block_start;
+              // All bytes have been consumed; memmove is now safe.
+              // bugfix (2 Oct 2018): Previously, this just set
+              // syncp->cur_circular_end = cur_block_start, but that created
+              // TWO consume_iter == available_end == cur_circular_end cases,
+              // one of which was handled incorrectly.
+              syncp->consume_tail = buf;
+              syncp->available_end = buf;
               break;
             }
+            // There are bytes behind cur_block_start that haven't been
+            // consumed yet.  This is possible on the first iteration through
+            // the loop, since consumer_progress_state may have been set for a
+            // reason we aren't interested in.
+
           } else if (latest_consume_tail <= cur_block_start) {
+            // All bytes in front of read_stop have been consumed.
             break;
           }
         ReadLineStreamThread_wait_first:
@@ -310,6 +322,7 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
         read_attempt_size = kDecompressChunkSize;
       }
       int32_t bytes_read;
+      // printf("reading %lx..%lx\n", (uintptr_t)read_head, (uintptr_t)(read_head + read_attempt_size));
       if (bgz_infile) {
         bytes_read = bgzf_read(bgz_infile, read_head, read_attempt_size);
         if (unlikely(bytes_read == -1)) {
@@ -353,14 +366,17 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
           goto ReadLineStreamThread_INTERRUPT;
         }
         char* latest_consume_tail = syncp->consume_tail;
-        // bugfix (30 Sep 2018): consume_tail == cur_circular_end also means
-        // all later bytes have been consumed.  Failing to recognize this could
-        // cause read_stop to be set before read_head on a very long line.
-        const uint32_t all_later_bytes_consumed = (latest_consume_tail <= cur_block_start) || (latest_consume_tail == syncp->cur_circular_end);
-        const uint32_t return_to_start = (latest_consume_tail <= cur_block_start) && (latest_consume_tail >= &(buf[kDecompressChunkSize]));
-        syncp->available_end = next_available_end;
+        const uint32_t all_later_bytes_consumed = (latest_consume_tail <= cur_block_start);
+        const uint32_t return_to_start = all_later_bytes_consumed && (latest_consume_tail >= &(buf[kDecompressChunkSize]));
         if (return_to_start) {
+          // bugfix (2 Oct 2018): This was previously setting
+          // syncp->available_end = next_available_end too, and that was being
+          // handled as a special case which conflicted with a rare legitimate
+          // case.
           syncp->cur_circular_end = next_available_end;
+          syncp->available_end = buf;
+        } else {
+          syncp->available_end = next_available_end;
         }
 #ifdef _WIN32
         // bugfix (23 Mar 2018): this needs to be in the critical section,
@@ -383,6 +399,11 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
           // (Note that read_attempt_size is guaranteed to be
           // <= kDecompressChunkSize.)
           const uintptr_t trailing_byte_ct = cur_read_end - next_available_end;
+          /*
+          printf("trailing_byte_ct: %lu\n", (uintptr_t)trailing_byte_ct);
+          printf("buf: %lx\n", (uintptr_t)buf);
+          printf("latest_consume_tail: %lx\n", (uintptr_t)latest_consume_tail);
+          */
           memcpy(buf, next_available_end, trailing_byte_ct);
           cur_block_start = buf;
           read_head = &(buf[trailing_byte_ct]);
@@ -693,38 +714,29 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
     }
     char* available_end = syncp->available_end;
     char* cur_circular_end = syncp->cur_circular_end;
-    if ((consume_iter != available_end) || (cur_circular_end && (cur_circular_end != consume_iter))) {
+    if (consume_iter == cur_circular_end) {
+      char* buf = rlsp->buf;
+      consume_iter = buf;
+      cur_circular_end = nullptr;
+      syncp->cur_circular_end = nullptr;
+      *consume_iterp = buf;
+      if (consume_iter != available_end) {
+        SetEvent(consumer_progress_event);
+      }
+    }
+    syncp->consume_tail = consume_iter;
+    if ((consume_iter != available_end) || cur_circular_end) {
       if (cur_circular_end) {
-        if (cur_circular_end == consume_iter) {
-          char* buf = rlsp->buf;
-          syncp->consume_tail = buf;
-          syncp->cur_circular_end = nullptr;
-          SetEvent(consumer_progress_event);
-          LeaveCriticalSection(critical_sectionp);
-          *consume_iterp = buf;
-          rlsp->consume_stop = available_end;  // move this up when debugging
-          return kPglRetSuccess;
-        }
         rlsp->consume_stop = cur_circular_end;
       } else {
         rlsp->consume_stop = available_end;
       }
-      syncp->consume_tail = consume_iter;
       LeaveCriticalSection(critical_sectionp);
       // We could set the consumer_progress event here, but it's not really
       // necessary?
       // SetEvent(consumer_progress_event);
       return kPglRetSuccess;
     }
-    if (consume_iter == cur_circular_end) {
-      char* buf = rlsp->buf;
-      // rlsp->consume_stop = buf;  // for diagnostic purposes
-      syncp->cur_circular_end = nullptr;
-      syncp->available_end = buf;
-      consume_iter = buf;
-      *consume_iterp = buf;
-    }
-    syncp->consume_tail = consume_iter;
     SetEvent(consumer_progress_event);
     LeaveCriticalSection(critical_sectionp);
     // We've processed all the consume-ready bytes...
@@ -735,6 +747,9 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
     }
     // ...and there's probably more.
     WaitForSingleObject(rlsp->reader_progress_event, INFINITE);
+    // bugfix (2 Oct 2018)
+    consume_iter = syncp->consume_tail;
+    *consume_iterp = syncp->consume_tail;
   }
 #else
   pthread_mutex_t* sync_mutexp = &syncp->sync_mutex;
@@ -748,30 +763,36 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
       return reterr;
     }
     char* available_end = syncp->available_end;
-    char* cur_circular_end = syncp->cur_circular_end;
-    // bugfix (9 Sep 2018): If consume_iter == available_end but
-    // cur_circular_end is later, there *are* bytes to process immediately in
-    // front of us.
-    if ((consume_iter != available_end) || (cur_circular_end && (cur_circular_end != consume_iter))) {
-      if (cur_circular_end) {
-        if (cur_circular_end == consume_iter) {
-          char* buf = rlsp->buf;
-          syncp->consume_tail = buf;
-          syncp->cur_circular_end = nullptr;
-          syncp->consumer_progress_state = 1;
-          pthread_cond_signal(consumer_progress_condvarp);
-          pthread_mutex_unlock(sync_mutexp);
-          *consume_iterp = buf;
-          rlsp->consume_stop = available_end;
-          return kPglRetSuccess;
-        }
-        rlsp->consume_stop = cur_circular_end;
+    // bugfix (2 Oct 2018): There were TWO consume_iter == available_end ==
+    // cur_circular_end cases.
+    // printf("checking for more to consume: %lx %lx %lx\n", (uintptr_t)consume_iter, (uintptr_t)syncp->cur_circular_end, (uintptr_t)available_end);
+    if (consume_iter == syncp->cur_circular_end) {
+      char* buf = rlsp->buf;
+      consume_iter = buf;
+      *consume_iterp = buf;
+      syncp->cur_circular_end = nullptr;
+      // File-reader could be waiting on either "all bytes in front have been
+      // consumed, some bytes behind may remain" or "all bytes have been
+      // consumed".  Signal in case it's the first.
+      if (consume_iter != available_end) {
+        syncp->consumer_progress_state = 1;
+        pthread_cond_signal(consumer_progress_condvarp);
+      }
+    }
+    syncp->consume_tail = consume_iter;
+    // If cur_circular_end is still non-null here, there must be bytes
+    // available even when consume_iter == available_end.  (Is the latter
+    // still possible?  Check this.)
+    if ((consume_iter != available_end) || syncp->cur_circular_end) {
+      // assert(consume_iter != available_end);
+      if (syncp->cur_circular_end) {
+        rlsp->consume_stop = syncp->cur_circular_end;
       } else {
         rlsp->consume_stop = available_end;
       }
-      syncp->consume_tail = consume_iter;
       // pthread_cond_signal(consumer_progress_condvarp);
       pthread_mutex_unlock(sync_mutexp);
+      // printf("consuming %lx..%lx\n", (uintptr_t)(*consume_iterp), (uintptr_t)rlsp->consume_stop);
       return kPglRetSuccess;
     }
     // We've processed all the consume-ready bytes...
@@ -781,27 +802,15 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
       return reterr;
     }
     // ...and there's probably more.
-
-    // bugfix (20 Mar 2018): This update is necessary in the
-    // consume_iter == available_end == cur_circular_end case for the
-    // (latest_consume_tail <= cur_block_start) check to work correctly in the
-    // reader thread; otherwise there's a potential deadlock when lines are
-    // >1mb.
-    if (consume_iter == cur_circular_end) {
-      char* buf = rlsp->buf;
-      // rlsp->consume_stop = buf;  // for diagnostic purposes
-      syncp->cur_circular_end = nullptr;
-      syncp->available_end = buf;
-      consume_iter = buf;
-      *consume_iterp = buf;
-    }
-    syncp->consume_tail = consume_iter;
     syncp->consumer_progress_state = 1;
     pthread_cond_signal(consumer_progress_condvarp);
     // no need for an explicit spurious-wakeup check, we'll check the progress
     // condition (available_end has advanced, or we have a read error) anyway
     // and get back here if it isn't satisfied
     pthread_cond_wait(reader_progress_condvarp, sync_mutexp);
+    // bugfix (2 Oct 2018)
+    consume_iter = syncp->consume_tail;
+    *consume_iterp = syncp->consume_tail;
   }
 #endif
 }
