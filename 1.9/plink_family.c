@@ -1749,6 +1749,7 @@ int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* o
   // entry bit 16 & 24: hhh?
   // entry bit 17: paternal A1 transmitted?
   // entry bit 25: maternal A1 transmitted?
+  // bugfix (10 Oct 2018): missed a few chrX possibilities
   const uint32_t poo_table[] =
     {0, 0, 0, 0,
      0, 0, 0, 0,
@@ -1758,10 +1759,10 @@ int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* o
      0, 0, 0, 0,
      0, 0, 0, 0,
      0, 0, 0, 0,
-     0x2000200, 0, 0x200, 0,
+     0x2000200, 0, 0x200, 0x200,
      0, 0, 0, 0,
      0x2020202, 0, 0x1010202, 0x202,
-     0, 0, 0x2000200, 0x200,
+     0x2000200, 0, 0x2000200, 0x200,
      0, 0, 0, 0,
      0, 0, 0, 0,
      0, 0, 0x20002, 2};
