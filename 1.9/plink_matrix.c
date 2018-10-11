@@ -20,9 +20,9 @@
 #include "plink_matrix.h"
 
 #ifndef NOLAPACK
-#ifndef __APPLE__
+#  ifndef __APPLE__
   void xerbla_(void) {} // fix static linking error
-#endif
+#  endif
 #endif
 
 static inline double SQR(const double a) {
@@ -286,7 +286,7 @@ int32_t invert_matrix(int32_t dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* dbl_
   }
   return 0;
 }
-#else
+#else  // !NOLAPACK
 int32_t invert_matrix(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* int_1d_buf, double* dbl_2d_buf) {
   // dgetrf_/dgetri_ is more efficient than dpotrf_/dpotri_ on OS X.
   __CLPK_integer lwork = dim * dim;
@@ -321,7 +321,7 @@ int32_t invert_matrix_checked(__CLPK_integer dim, double* matrix, MATRIX_INVERT_
   dgetri_(&dim, matrix, &dim, int_1d_buf, dbl_2d_buf, &lwork, &info);
   return 0;
 }
-#endif
+#endif  // !NOLAPACK
 
 void col_major_matrix_multiply(__CLPK_integer row1_ct, __CLPK_integer col2_ct, __CLPK_integer common_ct, double* inmatrix1, double* inmatrix2, double* outmatrix) {
 #ifdef NOLAPACK
@@ -345,15 +345,15 @@ void col_major_matrix_multiply(__CLPK_integer row1_ct, __CLPK_integer col2_ct, _
     }
   }
 #else
-#ifdef _WIN32
+#  ifndef USE_CBLAS_XGEMM
   char blas_char = 'N';
   double dyy = 1;
   double dzz = 0;
   dgemm_(&blas_char, &blas_char, &row1_ct, &col2_ct, &common_ct, &dyy, inmatrix1, &row1_ct, inmatrix2, &common_ct, &dzz, outmatrix, &row1_ct);
-#else
+#  else
   cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, row1_ct, col2_ct, common_ct, 1.0, inmatrix1, row1_ct, inmatrix2, common_ct, 0.0, outmatrix, row1_ct);
-#endif // _WIN32
-#endif // NOLAPACK
+#  endif  // USE_CBLAS_XGEMM
+#endif  // !NOLAPACK
 }
 
 void col_major_fmatrix_multiply(__CLPK_integer row1_ct, __CLPK_integer col2_ct, __CLPK_integer common_ct, float* inmatrix1, float* inmatrix2, float* outmatrix) {
@@ -378,15 +378,15 @@ void col_major_fmatrix_multiply(__CLPK_integer row1_ct, __CLPK_integer col2_ct, 
     }
   }
 #else
-#ifdef _WIN32
+#  ifndef USE_CBLAS_XGEMM
   char blas_char = 'N';
   float fyy = 1;
   float fzz = 0;
   sgemm_(&blas_char, &blas_char, &row1_ct, &col2_ct, &common_ct, &fyy, inmatrix1, &row1_ct, inmatrix2, &common_ct, &fzz, outmatrix, &row1_ct);
-#else
+#  else
   cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, row1_ct, col2_ct, common_ct, 1.0, inmatrix1, row1_ct, inmatrix2, common_ct, 0.0, outmatrix, row1_ct);
-#endif // _WIN32
-#endif // NOLAPACK
+#  endif  // USE_CBLAS_XGEMM
+#endif  // !NOLAPACK
 }
 
 // Todo: replace these with cache-oblivious, or at least -friendlier,

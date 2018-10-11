@@ -19,38 +19,51 @@
 
 
 // Wrappers for frequent LAPACK calls (sometimes with no-LAPACK fallbacks).
-// May want to make this comprehensive to make linking with Intel MKL practical
-// in the future.
-
-// todo: allow this to take advantage of 64-bit integer LAPACK.  As of this
-// writing, it's available on Amazon EC2 64-bit Linux instances, but I can't
-// find it for Windows.  (And even if OS X vecLib adds it soon, we can't use it
-// there anytime soon because static linking is not an option.)
-
-#ifdef __APPLE__
-#include <Accelerate/Accelerate.h>
-#endif
+// (Update, 11 Oct 2018: Backported PLINK 2.0's MKL support.)
 
 #ifdef NOLAPACK
 
-#define MATRIX_INVERT_BUF1_TYPE double
-#define MATRIX_INVERT_BUF1_ELEM_ALLOC (2 * sizeof(double))
-#define MATRIX_INVERT_BUF1_CHECKED_ALLOC (2 * sizeof(double))
-#define __CLPK_integer int
+#  define MATRIX_INVERT_BUF1_TYPE double
+#  define MATRIX_INVERT_BUF1_ELEM_ALLOC (2 * sizeof(double))
+#  define MATRIX_INVERT_BUF1_CHECKED_ALLOC (2 * sizeof(double))
+#  define __CLPK_integer int
 
-#else // not NOLAPACK
+#else // !NOLAPACK
 
-#ifndef __APPLE__
+#  ifdef __APPLE__
+#    include <Accelerate/Accelerate.h>
+#    define USE_CBLAS_XGEMM
+#  endif
 
-#ifdef __cplusplus
+#  ifndef __APPLE__
+
+#    ifdef __cplusplus
 extern "C" {
-#endif
+#    endif
+
   typedef double __CLPK_doublereal;
-#ifdef _WIN32
-#define HAVE_LAPACK_CONFIG_H
-#define LAPACK_COMPLEX_STRUCTURE
-#include "lapack/lapacke/include/lapacke.h"
+#    if defined(__LP64__) || defined(_WIN32)
   typedef int32_t __CLPK_integer;
+#    else
+  typedef long int __CLPK_integer;
+#    endif
+
+#    ifdef _WIN32
+  // openblas is easy enough to set up on Windows nowadays.
+  // not worth the trouble of ripping out vector extensions, etc. just so we
+  // can compile with Visual Studio and gain access to MKL.
+  // (todo: upgrade from 0.2.19 to a later version, build setup will probably
+  // need to change a bit)
+#      ifndef USE_OPENBLAS
+#        error "Windows build currently requires OpenBLAS's LAPACK."
+#      endif
+#     define HAVE_LAPACK_CONFIG_H
+#     define LAPACK_COMPLEX_STRUCTURE
+#     include "lapacke.h"
+
+  __CLPK_doublereal ddot_(__CLPK_integer* n, __CLPK_doublereal* dx,
+                          __CLPK_integer* incx, __CLPK_doublereal* dy,
+                          __CLPK_integer* incy);
 
   void dger_(int* m, int* n, double* alpha, double* x, int* incx, double* y,
              int* incy, double* a, int* lda);
@@ -62,8 +75,6 @@ extern "C" {
   void dsymv_(char* uplo, int* n, double* alpha, double* a, int* lda,
               double* x, int* incx, double* beta, double* y, int* incy);
 
-  double ddot_(int* n, double* dx, int* incx, double* dy, int* incy);
-
   void dgetrf_(__CLPK_integer* m, __CLPK_integer* n,
                __CLPK_doublereal* a, __CLPK_integer* lda,
                __CLPK_integer* ipiv, __CLPK_integer* info);
@@ -72,13 +83,49 @@ extern "C" {
               float* alpha, float* a, int* lda, float* b, int* ldb,
               float* beta, float* c, int* ldc);
 
-#else // not _WIN32
-#include <cblas.h>
-#ifdef __LP64__
-  typedef int32_t __CLPK_integer;
-#else
-  typedef long int __CLPK_integer;
-#endif
+#    else  // Linux
+#      ifdef USE_MKL
+#        define USE_CBLAS_XGEMM
+#        ifdef DYNAMIC_MKL
+#          include <mkl_cblas.h>
+#          include <mkl_lapack.h>
+#        else
+#          include "mkl_cblas.h"
+#          include "mkl_lapack.h"
+#        endif
+  // sizeof(MKL_INT) should be 4.
+#      else
+#        ifdef USE_CBLAS_XGEMM
+#          include <cblas.h>
+#        else
+  // ARGH
+  // cmake on Ubuntu 14 seems to require use of cblas_f77.h instead of cblas.h.
+  // Conversely, cblas_f77.h does not seem to be available on the Scientific
+  // Linux ATLAS/LAPACK install, and right now that's my only option for
+  // producing 32-bit static builds...
+  // So.  Default include is cblas.h.  To play well with cmake + Ubuntu 14 and
+  // 16 simultaneously, there is a CBLAS_F77_ON_OLD_GCC mode which picks
+  // cblas_f77.h on Ubuntu 14 and cblas.h on 16.
+#          ifdef FORCE_CBLAS_F77
+#            include <cblas_f77.h>
+#          elif !defined(CBLAS_F77_ON_OLD_GCC)
+#            include <cblas.h>
+#          else
+#            if (__GNUC__ <= 4)
+#              include <cblas_f77.h>
+#            else
+#              if __has_include(<cblas.h>)
+#                include <cblas.h>
+#              else
+#                include <cblas_f77.h>
+#              endif
+#            endif
+#          endif
+  __CLPK_doublereal ddot_(__CLPK_integer* n, __CLPK_doublereal* dx,
+                          __CLPK_integer* incx, __CLPK_doublereal* dy,
+                          __CLPK_integer* incy);
+#        endif
+
   int dgetrf_(__CLPK_integer* m, __CLPK_integer* n,
               __CLPK_doublereal* a, __CLPK_integer* lda,
               __CLPK_integer* ipiv, __CLPK_integer* info);
@@ -118,27 +165,44 @@ extern "C" {
                __CLPK_doublereal* vt, __CLPK_integer* ldvt,
                __CLPK_doublereal* work, __CLPK_integer* lwork,
                __CLPK_integer* iwork, __CLPK_integer* info);
-#endif
+
+#        ifndef USE_CBLAS_XGEMM
+  void dgemm_(char* transa, char* transb, int* m, int* n, int* k,
+              double* alpha, double* a, int* lda, double* b, int* ldb,
+              double* beta, double* c, int* ldc);
+
+  void dsymv_(char* uplo, int* n, double* alpha, double* a, int* lda,
+              double* x, int* incx, double* beta, double* y, int* incy);
+
+  void sgemm_(char* transa, char* transb, int* m, int* n, int* k,
+              float* alpha, float* a, int* lda, float* b, int* ldb,
+              float* beta, float* c, int* ldc);
+#        endif
+
+#      endif  // !USE_MKL
+#    endif
+
 
   void xerbla_(void);
-#ifdef __cplusplus
-}
-#endif // __cplusplus
-#endif // __APPLE__
+#    ifdef __cplusplus
+} // extern "C"
+#    endif
 
-#define MATRIX_INVERT_BUF1_TYPE __CLPK_integer
-#define MATRIX_INVERT_BUF1_ELEM_ALLOC sizeof(__CLPK_integer)
+#  endif  // !__APPLE__
+
+#  define MATRIX_INVERT_BUF1_TYPE __CLPK_integer
+#  define MATRIX_INVERT_BUF1_ELEM_ALLOC sizeof(__CLPK_integer)
 // invert_matrix_checked() usually requires a larger buffer
-#define MATRIX_INVERT_BUF1_CHECKED_ALLOC (2 * sizeof(__CLPK_integer))
+#  define MATRIX_INVERT_BUF1_CHECKED_ALLOC (2 * sizeof(__CLPK_integer))
 
-#endif // NOLAPACK
+#endif  // !NOLAPACK
 
 #define MATRIX_SINGULAR_RCOND 1e-14
 
 #ifdef NOLAPACK
 int32_t invert_matrix(int32_t dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* dbl_1d_buf, double* dbl_2d_buf);
 
-#define invert_matrix_checked invert_matrix
+#  define invert_matrix_checked invert_matrix
 #else
 int32_t invert_matrix(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* int_1d_buf, double* dbl_2d_buf);
 
