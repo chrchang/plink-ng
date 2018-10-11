@@ -5,7 +5,6 @@ BLASFLAGS=-L/usr/lib64/atlas -llapack -lcblas -latlas
 BLASFLAGS64=-L/usr/lib64/atlas -llapack -lcblas -latlas
 LINKFLAGS=-lm -lpthread
 ZLIB=../zlib-1.2.11/libz.so.1.2.11
-ARCH64=-arch x86_64
 
 UNAME := $(shell uname)
 ifeq ($(UNAME), Darwin)
@@ -21,7 +20,6 @@ ifeq ($(UNAME), Darwin)
   ZLIB64=../zlib-1.2.11/libz-64.a
 else
   ifeq ($(UNAME), MINGW32_NT-6.2)
-    ARCH64=
     BLASFLAGS=-Wl,-Bstatic -L. lapack/liblapack.a -L. lapack/librefblas.a
     BLASFLAGS64=-Wl,-Bstatic -L. lapack/liblapack-64.a -L. lapack/librefblas-64.a
     LINKFLAGS=-lm -static-libgcc
@@ -39,13 +37,13 @@ SRC = $(CSRC) $(CCSRC)
 OBJ = $(CSRC:.c=.o) $(CCSRC:.cc=.o)
 
 %.o: %.c
-	g++ -x c++ -c $(CFLAGS) $(ARCH64) -o $@ $<
+	g++ -x c++ -c $(CFLAGS) -o $@ $<
 
 %.o: %.cc
-	g++ -x c++ -c $(CFLAGS) $(ARCH64) -o $@ $<
+	g++ -x c++ -c $(CFLAGS) -o $@ $<
 
 plink64: $(OBJ)
-	g++ $(CFLAGS) $(ARCH64) $(OBJ) -o plink $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
+	g++ $(CFLAGS) $(OBJ) -o plink $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
 # for clean build, "make clobber" first
 
 plink: $(SRC)
@@ -68,26 +66,26 @@ plinknl: $(SRC)
 	g++ $(CFLAGS) $(SRC) -o plink $(LINKFLAGS) -Wl,-Bstatic -L. $(ZLIB)
 
 plink64w: $(SRC)
-	g++ $(CFLAGS) $(ARCH64) $(SRC) -c
+	g++ $(CFLAGS) $(SRC) -c
 	gfortran -O2 $(OBJ) -o plink64 $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
 
 plink64c: $(SRC)
-	gcc $(CFLAGS) $(ARCH64) $(CSRC) -std=c99 -x none -o plink $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
+	gcc $(CFLAGS) $(CSRC) -std=c99 -x none -o plink $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
 
 plink64nl: $(SRC)
-	g++ $(CFLAGS) $(ARCH64) $(SRC) -o plink $(LINKFLAGS) -L. $(ZLIB64)
+	g++ $(CFLAGS) $(SRC) -o plink $(LINKFLAGS) -L. $(ZLIB64)
 
 pigz_test: pigz_test.c pigz.c yarn.c
-	g++ -Wall -arch x86_64 -O2 pigz_test.c pigz.c yarn.c -o pigz_test -L. $(ZLIB64)
+	g++ -Wall -O2 pigz_test.c pigz.c yarn.c -o pigz_test -L. $(ZLIB64)
 
 prettify: prettify.c
-	gcc -Wall -arch x86_64 -O2 prettify.c -o prettify
+	gcc -Wall -O2 prettify.c -o prettify
 
 prettifyw: prettify.c
 	gcc -Wall -O2 prettify.c -o prettify
 
 dbl2txt: dbl2txt.c
-	gcc -Wall -arch x86_64 -O2 dbl2txt.c -o dbl2txt
+	gcc -Wall -O2 dbl2txt.c -o dbl2txt
 
 nsort: nsort.c
 	gcc -Wall -O2 nsort.c -o nsort
