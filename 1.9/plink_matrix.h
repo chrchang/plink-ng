@@ -85,15 +85,21 @@ extern "C" {
 
 #    else  // Linux
 #      ifdef USE_MKL
+#        ifndef __LP64__
+#          error "32-bit Linux build does not support Intel MKL."
+#        endif
 #        define USE_CBLAS_XGEMM
+  // sizeof(MKL_INT) should be 4.
+#        define MKL_LP64
 #        ifdef DYNAMIC_MKL
+#          include <mkl_service.h>
 #          include <mkl_cblas.h>
 #          include <mkl_lapack.h>
 #        else
+#          include "mkl_service.h"
 #          include "mkl_cblas.h"
 #          include "mkl_lapack.h"
 #        endif
-  // sizeof(MKL_INT) should be 4.
 #      else
 #        ifdef USE_CBLAS_XGEMM
 #          include <cblas.h>

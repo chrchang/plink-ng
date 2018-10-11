@@ -1,0 +1,17 @@
+CWARN = -Wall
+CXXWARN = ${CWARN}
+
+CSRC = plink.c plink_assoc.c plink_calc.c plink_cluster.c plink_cnv.c plink_common.c plink_data.c plink_dosage.c plink_family.c plink_filter.c plink_glm.c plink_help.c plink_homozyg.c plink_lasso.c plink_ld.c plink_matrix.c plink_misc.c plink_perm.c plink_rserve.c plink_set.c plink_stats.c SFMT.c dcdflib.c pigz.c yarn.c hfile.c bgzf.c
+
+CCSRC = Rconnection.cc
+
+OBJ = $(CSRC:.c=.o) $(CCSRC:.cc=.o)
+
+CSRC2 = $(foreach fname,$(CSRC),../$(fname))
+CCSRC2 = $(foreach fname,$(CCSRC),../$(fname))
+OBJ2 = $(notdir $(OBJ))
+
+OBJ3 = $(CSRC2:.c=.o) $(CCSRC2:.cc=.o)
+
+CLEAN = *.o plink
+CLEAN3 = $(foreach expr,$(CLEAN),../$(expr))
