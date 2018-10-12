@@ -27,6 +27,9 @@
 #include <string.h>
 #include <math.h>
 #include <stdint.h>
+#ifndef __STDC_FORMAT_MACROS
+#  define __STDC_FORMAT_MACROS 1
+#endif
 #include <inttypes.h>
 
 // avoid compiler warning
@@ -59,7 +62,13 @@
   // needed for MEMORYSTATUSEX
   #ifndef _WIN64
     #define WINVER 0x0500
+  #else
+    #define __LP64__
   #endif
+  #ifndef WIN32_LEAN_AND_MEAN
+    #define WIN32_LEAN_AND_MEAN
+  #endif
+  #include <windows.h>
 #else // Unix
   #include <sys/stat.h>
 #endif
@@ -77,12 +86,13 @@
 #endif
 
 #ifdef _WIN32
-  #define PRId64 "I64d"
-  #define PRIu64 "I64u"
   #define fseeko fseeko64
   #define ftello ftello64
-  #include <windows.h>
   #include <process.h>
+#  undef PRId64
+#  undef PRIu64
+#  define PRId64 "I64d"
+#  define PRIu64 "I64u"
   #define pthread_t HANDLE
   #define THREAD_RET_TYPE unsigned __stdcall
   #define THREAD_RETURN return 0
@@ -96,8 +106,10 @@
     #define getc_unlocked getc
     #define putc_unlocked putc
   #endif
-  #define uint64_t unsigned long long
-  #define int64_t long long
+  #if __cplusplus < 201103L
+    #define uint64_t unsigned long long
+    #define int64_t long long
+  #endif
 #else
   #include <pthread.h>
   #define THREAD_RET_TYPE void*
@@ -144,6 +156,27 @@
 
 #ifdef __cplusplus
   #include <algorithm>
+#  ifdef _WIN32
+// Windows C++11 <algorithm> resets these values :(
+#    undef PRIu64
+#    undef PRId64
+#    define PRIu64 "I64u"
+#    define PRId64 "I64d"
+#    undef PRIuPTR
+#    undef PRIdPTR
+#    ifdef __LP64__
+#      define PRIuPTR PRIu64
+#      define PRIdPTR PRId64
+#    else
+#      if __cplusplus < 201103L
+#        define PRIuPTR "lu"
+#        define PRIdPTR "ld"
+#      else
+#        define PRIuPTR "u"
+#        define PRIdPTR "d"
+#      endif
+#    endif
+#  endif
   #define HEADER_INLINE inline
 #else
   #define HEADER_INLINE static inline
@@ -206,12 +239,12 @@
 
   #define ZEROLU 0LU
   #define ONELU 1LU
-  #ifndef PRIuPTR
-    #define PRIuPTR "lu"
-  #endif
-  #ifndef PRIdPTR
-    #define PRIdPTR "ld"
-  #endif
+#  if (__GNUC__ <= 4) && (__GNUC_MINOR__ < 8) && (__cplusplus < 201103L)
+#    undef PRIuPTR
+#    undef PRIdPTR
+#    define PRIuPTR "lu"
+#    define PRIdPTR "ld"
+#  endif
   #define PRIxPTR2 "08lx"
 
   // todo: update code so this still works when reduced to 4
