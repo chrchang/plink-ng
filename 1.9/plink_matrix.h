@@ -65,9 +65,10 @@ extern "C" {
   void dger_(int* m, int* n, double* alpha, double* x, int* incx, double* y,
              int* incy, double* a, int* lda);
 
-  void dgemm_(char* transa, char* transb, int* m, int* n, int* k,
-              double* alpha, double* a, int* lda, double* b, int* ldb,
-              double* beta, double* c, int* ldc);
+  void dgemm_(char* transa, char* transb, __CLPK_integer* m, __CLPK_integer* n,
+              __CLPK_integer* k, double* alpha, double* a, __CLPK_integer* lda,
+              double* b, __CLPK_integer* ldb, double* beta, double* c,
+              __CLPK_integer* ldc);
 
   void dsymv_(char* uplo, int* n, double* alpha, double* a, int* lda,
               double* x, int* incx, double* beta, double* y, int* incy);
@@ -76,9 +77,10 @@ extern "C" {
                __CLPK_doublereal* a, __CLPK_integer* lda,
                __CLPK_integer* ipiv, __CLPK_integer* info);
 
-  void sgemm_(char* transa, char* transb, int* m, int* n, int* k,
-              float* alpha, float* a, int* lda, float* b, int* ldb,
-              float* beta, float* c, int* ldc);
+  void sgemm_(char* transa, char* transb, __CLPK_integer* m, __CLPK_integer* n,
+              __CLPK_integer* k, float* alpha, float* a, __CLPK_integer* lda,
+              float* b, __CLPK_integer* ldb, float* beta, float* c,
+              __CLPK_integer* ldc);
 
 #    else  // Linux
 #      ifdef USE_MKL
@@ -170,16 +172,18 @@ extern "C" {
                __CLPK_integer* iwork, __CLPK_integer* info);
 
 #        ifndef USE_CBLAS_XGEMM
-  void dgemm_(char* transa, char* transb, int* m, int* n, int* k,
-              double* alpha, double* a, int* lda, double* b, int* ldb,
-              double* beta, double* c, int* ldc);
+  void dgemm_(char* transa, char* transb, __CLPK_integer* m, __CLPK_integer* n,
+              __CLPK_integer* k, double* alpha, double* a, __CLPK_integer* lda,
+              double* b, __CLPK_integer* ldb, double* beta, double* c,
+              __CLPK_integer* ldc);
 
   void dsymv_(char* uplo, int* n, double* alpha, double* a, int* lda,
               double* x, int* incx, double* beta, double* y, int* incy);
 
-  void sgemm_(char* transa, char* transb, int* m, int* n, int* k,
-              float* alpha, float* a, int* lda, float* b, int* ldb,
-              float* beta, float* c, int* ldc);
+  void sgemm_(char* transa, char* transb, __CLPK_integer* m, __CLPK_integer* n,
+              __CLPK_integer* k, float* alpha, float* a, __CLPK_integer* lda,
+              float* b, __CLPK_integer* ldb, float* beta, float* c,
+              __CLPK_integer* ldc);
 #        endif
 
 #      endif  // !USE_MKL

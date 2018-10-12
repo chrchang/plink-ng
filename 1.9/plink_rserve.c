@@ -20,13 +20,13 @@
 // gcc instead of g++.
 #if defined __cplusplus && !defined _WIN32
 
-#include "plink_common.h"
-#include "plink_cluster.h"
-
 #define MAIN
 #define SOCK_ERRORS
 #include "sisocks.h"
 #include "Rconnection.h"
+
+#include "plink_common.h"
+#include "plink_cluster.h"
 
 #define RPLUGIN_BLOCK_SIZE 100
 
