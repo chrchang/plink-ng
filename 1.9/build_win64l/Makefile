@@ -9,6 +9,7 @@ LINKFLAGS=-lm -static-libgcc -L. ${ZLIB_STATIC}
 BLASFLAGS=-Wl,-Bstatic -L. ${OPENBLAS_ROOT}/lib/libopenblas.a
 
 BASEFLAGS += -I${OPENBLAS_ROOT}/include
+CXXFLAGS=-O2 -std=gnu++11
 
 include ../Makefile.src
 CXXFLAGS += ${BASEFLAGS} ${CXXWARN}
