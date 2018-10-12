@@ -6,7 +6,6 @@ LINKFLAGS=-lm -lpthread
 
 
 include ../Makefile.src
-CFLAGS += ${BASEFLAGS} ${CWARN} ${CINCLUDE2}
 CXXFLAGS += ${BASEFLAGS} ${CXXWARN}
 
 plink: $(CSRC2) $(CCSRC2)

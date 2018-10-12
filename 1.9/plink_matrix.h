@@ -54,9 +54,6 @@ extern "C" {
   // can compile with Visual Studio and gain access to MKL.
   // (todo: upgrade from 0.2.19 to a later version, build setup will probably
   // need to change a bit)
-#      ifndef USE_OPENBLAS
-#        error "Windows build currently requires OpenBLAS's LAPACK."
-#      endif
 #     define HAVE_LAPACK_CONFIG_H
 #     define LAPACK_COMPLEX_STRUCTURE
 #     include "lapacke.h"
