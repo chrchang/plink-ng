@@ -22,11 +22,7 @@ namespace plink2 {
 #endif
 
 typedef struct PsamInfoLlStruct {
-#if __cplusplus >= 201103L
-  PsamInfoLlStruct() = default;
-  PsamInfoLlStruct(const PsamInfoLlStruct&) = delete;
-  PsamInfoLlStruct& operator=(const PsamInfoLlStruct&) = delete;
-#endif
+  NONCOPYABLE(PsamInfoLlStruct);
   // vardata[] starts with 8-byte phenotypes (we don't want to parse the same
   // same numeric string twice), followed by NON-null-terminated sample_id, and
   // then non-terminated paternal and maternal IDs.
@@ -40,11 +36,7 @@ typedef struct PsamInfoLlStruct {
 } PsamInfoLl;
 
 typedef struct CatnameLl2Struct {
-#if __cplusplus >= 201103L
-  CatnameLl2Struct() = default;
-  CatnameLl2Struct(const CatnameLl2Struct&) = delete;
-  CatnameLl2Struct& operator=(const CatnameLl2Struct&) = delete;
-#endif
+  NONCOPYABLE(CatnameLl2Struct);
   struct CatnameLl2Struct* htable_next;
   struct CatnameLl2Struct* pheno_next;
   uint32_t cat_idx;  // 0 == "NONE", etc.
@@ -840,11 +832,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
 
 
 typedef struct PhenoInfoLlStruct {
-#if __cplusplus >= 201103L
-  PhenoInfoLlStruct() = default;
-  PhenoInfoLlStruct(const PhenoInfoLlStruct&) = delete;
-  PhenoInfoLlStruct& operator=(const PhenoInfoLlStruct&) = delete;
-#endif
+  NONCOPYABLE(PhenoInfoLlStruct);
   // for categorical phenotypes, phenodata entry should be reinterpreted as
   // uint32_t
   struct PhenoInfoLlStruct* next;

@@ -245,6 +245,15 @@ namespace plink2 {
 #  define S_CAST(type, val) ((type)(val))
 #endif
 
+// (from Linux kernel)
+// container_of - cast a member of a structure out to the containing structure
+// @ptr: the pointer to the member.
+// @type: the type of the container struct this is embedded in.
+// @member: the name of the member within the struct.
+#define container_of(ptr, type, member) ({ \
+      const typeof(R_CAST(type*, 0)->member)* __mptr = (ptr); \
+      R_CAST(type*, R_CAST(char*, __mptr) - offsetof(type, member));})
+
 HEADER_INLINE double u31tod(uint32_t uii) {
   const int32_t ii = uii;
   assert(ii >= 0);

@@ -3148,7 +3148,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       if (unlikely(variant_ct++ == max_variant_ct)) {
 #ifdef __LP64__
         if (variant_ct == 0x7ffffffd) {
-          logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend other\nsoftware, such as PLINK/SEQ, for very deep studies of small numbers of genomes.\n");
+          logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
           goto VcfToPgen_ret_MALFORMED_INPUT;
         }
 #endif
@@ -8281,7 +8281,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
 BoolErr ImportLegendCols(const char* fname, uintptr_t line_idx, uint32_t prov_ref_allele_second, const char** loadbuf_iter_ptr, char** write_iter_ptr, uint32_t* variant_ct_ptr) {
   {
     if (*variant_ct_ptr == 0x7ffffffd) {
-      logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend other\nsoftware, such as PLINK/SEQ, for very deep studies of small numbers of genomes.\n");
+      logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
       return 1;
     }
     *variant_ct_ptr += 1;

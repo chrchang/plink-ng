@@ -234,7 +234,7 @@ void VaridTemplateInit(const char* varid_template_str, const char* missing_id_ma
 }
 
 // alt1_end currently allowed to be nullptr in biallelic case
-BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* vtp, const char* const* token_ptrs, const uint32_t* token_slens, const char* alt1_start, uint32_t cur_bp, uint32_t extra_alt_ct, uint32_t alt_token_slen, unsigned char** tmp_alloc_endp, uintptr_t* new_id_allele_len_overflowp, uint32_t* id_slen_ptr) {
+BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* vtp, const char* ref_start, const char* alt1_start, uint32_t cur_bp, uint32_t ref_token_slen, uint32_t extra_alt_ct, uint32_t alt_token_slen, unsigned char** tmp_alloc_endp, uintptr_t* new_id_allele_len_overflowp, uint32_t* id_slen_ptr) {
   uint32_t insert_slens[4];
   const uint32_t alleles_needed = vtp->alleles_needed;
   const uint32_t new_id_max_allele_slen = vtp->new_id_max_allele_slen;
@@ -246,14 +246,14 @@ BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* v
   uint32_t cur_overflow = 0;
   const char* tmp_allele_ptrs[2];
   if (alleles_needed & 1) {
-    ref_slen = token_slens[2];
+    ref_slen = ref_token_slen;
     if (ref_slen > new_id_max_allele_slen) {
       ref_slen = new_id_max_allele_slen;
       cur_overflow = 1;
     }
     insert_slens[2] = ref_slen;
     id_slen += ref_slen;
-    tmp_allele_ptrs[0] = token_ptrs[2];
+    tmp_allele_ptrs[0] = ref_start;
   }
   if (alleles_needed > 1) {
     uint32_t alt1_slen;
@@ -277,7 +277,7 @@ BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* v
       if (!ref_slen_geq) {
         smaller_slen = ref_slen;
       }
-      int32_t memcmp_result = Memcmp(token_ptrs[2], alt1_start, smaller_slen);
+      int32_t memcmp_result = Memcmp(ref_start, alt1_start, smaller_slen);
       if (!memcmp_result) {
         memcmp_result = ref_slen_geq;
       }
@@ -293,7 +293,8 @@ BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* v
   const uint32_t overflow_substitute_blen = vtp->overflow_substitute_blen;
   if (overflow_substitute_blen && cur_overflow) {
     // er, do we really want to make a separate allocation here?  see if we can
-    // remove this.
+    // remove this.  (that would impose more constraints on downstream
+    // variant-ID-changing functions, though.)
     *tmp_alloc_endp -= overflow_substitute_blen;
     if (unlikely((*tmp_alloc_endp) < tmp_alloc_base)) {
       return 1;
@@ -335,6 +336,94 @@ BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* v
   return 0;
 }
 
+// Exported variant of VaridTemplateApply() which appends to a buffer.
+// Probable todo: pull out the common parts of the functions.
+char* VaridTemplateWrite(const VaridTemplate* vtp, const char* ref_start, const char* alt1_start, uint32_t cur_bp, uint32_t ref_token_slen, uint32_t extra_alt_ct, uint32_t alt_token_slen, char* dst) {
+  uint32_t insert_slens[4];
+  const uint32_t alleles_needed = vtp->alleles_needed;
+  const uint32_t new_id_max_allele_slen = vtp->new_id_max_allele_slen;
+  uint32_t id_slen = UintSlen(cur_bp);
+  insert_slens[0] = vtp->chr_slen;
+  insert_slens[1] = id_slen;
+  id_slen += vtp->base_len;
+  uint32_t ref_slen = 0;
+  uint32_t cur_overflow = 0;
+  const char* tmp_allele_ptrs[2];
+  if (alleles_needed & 1) {
+    ref_slen = ref_token_slen;
+    if (ref_slen > new_id_max_allele_slen) {
+      ref_slen = new_id_max_allele_slen;
+      cur_overflow = 1;
+    }
+    insert_slens[2] = ref_slen;
+    id_slen += ref_slen;
+    tmp_allele_ptrs[0] = ref_start;
+  }
+  if (alleles_needed > 1) {
+    uint32_t alt1_slen;
+    if (!extra_alt_ct) {
+      alt1_slen = alt_token_slen;
+    } else {
+      alt1_slen = AdvToDelim(alt1_start, ',') - alt1_start;
+    }
+    if (alt1_slen > new_id_max_allele_slen) {
+      alt1_slen = new_id_max_allele_slen;
+      cur_overflow = 1;
+    }
+    id_slen += alt1_slen;
+    if (alleles_needed <= 3) {
+    VaridTemplateWrite_keep_allele_ascii_order:
+      insert_slens[3] = alt1_slen;
+      tmp_allele_ptrs[1] = alt1_start;
+    } else {
+      uint32_t smaller_slen = alt1_slen;
+      const int32_t ref_slen_geq = (ref_slen >= alt1_slen);
+      if (!ref_slen_geq) {
+        smaller_slen = ref_slen;
+      }
+      int32_t memcmp_result = Memcmp(ref_start, alt1_start, smaller_slen);
+      if (!memcmp_result) {
+        memcmp_result = ref_slen_geq;
+      }
+      if (memcmp_result <= 0) {
+        goto VaridTemplateWrite_keep_allele_ascii_order;
+      }
+      insert_slens[3] = ref_slen;
+      tmp_allele_ptrs[1] = tmp_allele_ptrs[0];
+      insert_slens[2] = alt1_slen;
+      tmp_allele_ptrs[0] = alt1_start;
+    }
+  }
+  const uint32_t overflow_substitute_blen = vtp->overflow_substitute_blen;
+  if (overflow_substitute_blen && cur_overflow) {
+    return memcpya(dst, vtp->missing_id_match, overflow_substitute_blen);
+  }
+  char* id_iter = dst;
+  const uint32_t insert_ct = vtp->insert_ct;
+  char* insert_ptrs[4];
+
+  // maybe-uninitialized warnings
+  insert_ptrs[0] = nullptr;
+  insert_ptrs[1] = nullptr;
+  insert_ptrs[2] = nullptr;
+
+  for (uint32_t insert_idx = 0; insert_idx != insert_ct; ++insert_idx) {
+    id_iter = memcpya(id_iter, vtp->segs[insert_idx], vtp->seg_lens[insert_idx]);
+    const uint32_t cur_insert_type = vtp->insert_types[insert_idx];
+    insert_ptrs[cur_insert_type] = id_iter;
+    id_iter = &(id_iter[insert_slens[cur_insert_type]]);
+  }
+  char* id_end = memcpya(id_iter, vtp->segs[insert_ct], vtp->seg_lens[insert_ct]);
+
+  memcpy(insert_ptrs[0], vtp->chr_output_name_buf, insert_slens[0]);
+  u32toa(cur_bp, insert_ptrs[1]);
+  // insert_ct currently guaranteed to be >= 2 since @ and # required
+  for (uint32_t insert_type_idx = 2; insert_type_idx != insert_ct; ++insert_type_idx) {
+    memcpy(insert_ptrs[insert_type_idx], tmp_allele_ptrs[insert_type_idx - 2], insert_slens[insert_type_idx]);
+  }
+  return id_end;
+}
+
 void BackfillChrIdxs(const ChrInfo* cip, uint32_t chrs_encountered_m1, uint32_t offset, uint32_t end_vidx, ChrIdx* chr_idxs) {
   for (uint32_t chr_fo_idx = chrs_encountered_m1; ; --chr_fo_idx) {
     uint32_t start_vidx = cip->chr_fo_vidx_start[chr_fo_idx];
@@ -371,11 +460,7 @@ char* PrInInfoToken(uint32_t info_slen, char* info_token) {
 }
 
 typedef struct InfoExistStruct {
-#if __cplusplus >= 201103L
-  InfoExistStruct() = default;
-  InfoExistStruct(const InfoExistStruct&) = delete;
-  InfoExistStruct& operator=(const InfoExistStruct&) = delete;
-#endif
+  NONCOPYABLE(InfoExistStruct);
   char* prekeys;
   uint32_t key_ct;
   uint32_t key_slens[];
@@ -1190,7 +1275,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         // maximum prime < 2^32 is 4294967291; quadratic hashing guarantee
         // breaks down past that divided by 2.
         if (unlikely(raw_variant_ct == 0x7ffffffd)) {
-          logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend other\nsoftware, such as PLINK/SEQ, for very deep studies of small numbers of genomes.\n");
+          logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
           goto LoadPvar_ret_MALFORMED_INPUT;
         }
 #endif
@@ -1527,7 +1612,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
                 }
               }
             }
-            if (unlikely(VaridTemplateApply(tmp_alloc_base, cur_varid_templatep, TO_CONSTCPCONSTP(token_ptrs), token_slens, linebuf_iter, cur_bp, extra_alt_ct, remaining_alt_char_ct, &tmp_alloc_end, &new_variant_id_allele_len_overflow, &id_slen))) {
+            if (unlikely(VaridTemplateApply(tmp_alloc_base, cur_varid_templatep, token_ptrs[2], linebuf_iter, cur_bp, token_slens[2], extra_alt_ct, remaining_alt_char_ct, &tmp_alloc_end, &new_variant_id_allele_len_overflow, &id_slen))) {
               goto LoadPvar_ret_NOMEM;
             }
           }

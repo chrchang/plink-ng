@@ -67,10 +67,10 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (2 Oct 2018)";
+  " (28 Oct 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -270,11 +270,7 @@ PglErr PgenInfoStandalone(const char* pgenname) {
 }
 
 typedef struct Plink2CmdlineStruct {
-#if __cplusplus >= 201103L
-  Plink2CmdlineStruct() = default;
-  Plink2CmdlineStruct(const Plink2CmdlineStruct&) = delete;
-  Plink2CmdlineStruct& operator=(const Plink2CmdlineStruct&) = delete;
-#endif
+  NONCOPYABLE(Plink2CmdlineStruct);
   MiscFlags misc_flags;
 
   // filter_flags tracks some info about flags which may cause the .pgen part
@@ -2347,7 +2343,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             if (vpos_sortstatus & kfUnsortedVarBp) {
               logerrputs("Warning: Variants are not sorted by position.  Consider rerunning with the\n--sort-vars flag added to remedy this.\n");
             }
-            reterr = MakePlink2NoVsort(xheader, sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, make_plink2_flags, pcp->pvar_psam_flags, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
+            reterr = MakePlink2NoVsort(xheader, sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, pcp->varid_template_str, pcp->varid_multi_template_str, pcp->varid_multi_nonsnp_template_str, pcp->missing_varid_match, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, pcp->new_variant_id_max_allele_slen, pcp->misc_flags, make_plink2_flags, pcp->pvar_psam_flags, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
           }
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
@@ -4735,6 +4731,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 17))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
+          uint32_t explicit_no_firth = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
@@ -4763,6 +4760,8 @@ int main(int argc, char** argv) {
               pc.glm_info.flags |= kfGlmHideCovar;
             } else if (strequal_k(cur_modif, "intercept", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmIntercept;
+            } else if (strequal_k(cur_modif, "no-firth", cur_modif_slen)) {
+              explicit_no_firth = 1;
             } else if (strequal_k(cur_modif, "firth-fallback", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmFirthFallback;
             } else if (strequal_k(cur_modif, "firth", cur_modif_slen)) {
@@ -4846,6 +4845,10 @@ int main(int argc, char** argv) {
           }
           if (!pc.glm_info.cols) {
             pc.glm_info.cols = kfGlmColDefault;
+          }
+          if (unlikely(explicit_no_firth && (pc.glm_info.flags & (kfGlmFirthFallback | kfGlmFirth)))) {
+            logerrputs("Error: Conflicting --glm parameters.\n");
+            goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely((pc.glm_info.flags & (kfGlmSex | kfGlmNoXSex)) == (kfGlmSex | kfGlmNoXSex))) {
             logerrputs("Error: Conflicting --glm parameters.\n");

@@ -1031,6 +1031,8 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
             line_iter = K_CAST(char*, linebuf_iter);
           } else {
             char* token_end = CurTokenEnd(linebuf_first_token);
+            // bugfix (28 Oct 2018): \n was being clobbered and not replaced
+            const char orig_token_end_char = *token_end;
             *token_end = '\t';
             const uint32_t slen = 1 + S_CAST(uintptr_t, token_end - linebuf_first_token);
             uint32_t lb_idx = bsearch_str_lb(linebuf_first_token, sorted_xidbox, slen, max_xid_blen, orig_sample_ct);
@@ -1050,6 +1052,7 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
                 }
               }
             }
+            *token_end = orig_token_end_char;
             line_iter = token_end;
           }
         }
