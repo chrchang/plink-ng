@@ -6005,12 +6005,13 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       bufptr = skip_initial_spaces(bufptr);
       for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
 	cc = *bufptr++;
-	if (!cc) {
+        // bugfix (23 Nov 2018): must check for any eoln here, not just \0
+	if (is_eoln_char(cc)) {
 	  goto ped_to_bed_ret_MISSING_TOKENS_PED;
 	}
 	bufptr = skip_initial_spaces(bufptr);
 	cc2 = *bufptr++;
-	if (!cc2) {
+	if (is_eoln_char(cc2)) {
 	  goto ped_to_bed_ret_MISSING_TOKENS_PED;
 	}
 	bufptr = skip_initial_spaces(bufptr);

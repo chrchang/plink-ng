@@ -1275,6 +1275,10 @@ HEADER_INLINE int32_t is_space_or_eoln(unsigned char ucc) {
 // could assert ucc is not a space/tab
 #define is_eoln_kns is_space_or_eoln
 
+HEADER_INLINE int32_t is_eoln_char(unsigned char ucc) {
+  return (ucc < 32) && (ucc != 9);
+}
+
 HEADER_INLINE int32_t is_eoln_or_comment_kns(unsigned char ucc) {
   return (ucc < 32) || (ucc == '#');
 }

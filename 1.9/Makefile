@@ -8,7 +8,7 @@ ZLIB=../zlib-1.2.11/libz.so.1.2.11
 
 UNAME := $(shell uname)
 ifeq ($(UNAME), Darwin)
-  CFLAGS=-Wall -O2 -mmacosx-version-min=10.7
+  CFLAGS=-Wall -O2 -mmacosx-version-min=10.7 -stdlib=libc++
   GCC_GTEQ_43 := $(shell expr `g++ -dumpversion | sed -e 's/\.\([0-9][0-9]\)/\1/g' -e 's/\.\([0-9]\)/0\1/g' -e 's/^[0-9]\{3,4\}$$/&00/'` \>= 40300)
   ifeq "$(GCC_GTEQ_43)" "1"
     CFLAGS=-Wall -O2 -flax-vector-conversions -mmacosx-version-min=10.7
