@@ -686,7 +686,11 @@ uint32_t save_set_bitfield(uintptr_t* marker_bitfield_tmp, uint32_t marker_ct, u
 	complement_sets = 1 - complement_sets;
 	goto save_set_bitfield_degen;
       }
-    } else {
+    } else if (uii != range_end) {
+      // bugfix (2 Dec 2018): in the uii == range_end case, flipping would
+      // cause no bits to be set in the new [range_start, range_end), and this
+      // could cause a segfault.  Simplest fix is to never flip in that case
+      // since we know the set can be represented as a single range.
       if (((marker_ct - 1) / 128) - (uii / 128) < ukk) {
 	do_flip = 1;
         range_start = uii;
@@ -2101,6 +2105,7 @@ uint32_t extract_set_union_unfiltered(Set_info* sip, uintptr_t* set_incl, uintpt
 }
 
 uint32_t setdefs_compress(Set_info* sip, uintptr_t* set_incl, uintptr_t set_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, uintptr_t* marker_exclude, uintptr_t marker_ct, uint32_t*** new_setdefs_ptr) {
+  printf("entering\n");
   // currently assumes marker_exclude does not exclude anything in the union of
   // the remaining sets
   unsigned char* bigstack_end_mark = g_bigstack_end;
