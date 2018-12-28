@@ -530,6 +530,7 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
     uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t cur_vidx_last = 0;
     uint32_t skip_chr = 1;
+    uint32_t is_first_noncomment_line = 1;
     uint32_t ref_changed_ct = 0;
     uint32_t ref_validated_ct = 0;
     uint32_t ref_downgraded_ct = 0;
@@ -551,6 +552,7 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
         if ((ucc == ';') || (ucc <= '\r')) {
           continue;
         }
+        is_first_noncomment_line = 0;
         if (unlikely(ucc != '>')) {
           snprintf(g_logbuf, kLogbufSize, "Error: Unexpected character at beginning of line %" PRIuPTR " of --fa file.\n", line_idx);
           goto ProcessFa_ret_MALFORMED_INPUT_WW;
@@ -607,6 +609,10 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
       line_iter = CurTokenEnd(line_iter);
       const char* seqline_end = line_iter;
       if (skip_chr) {
+        if (is_first_noncomment_line) {
+          logerrputs("Error: --fa file is not a valid FASTA.\n");
+          goto ProcessFa_ret_MALFORMED_INPUT;
+        }
         continue;
       }
       ucc = *seqline_end;
@@ -684,6 +690,7 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
     WordWrapB(0);
   ProcessFa_ret_MALFORMED_INPUT_2:
     logerrputsb();
+  ProcessFa_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
   }
