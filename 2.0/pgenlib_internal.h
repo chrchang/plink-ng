@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1104
+#define PGENLIB_INTERNAL_VERNUM 1105
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -1292,6 +1292,7 @@ PglErr PgrGet2(const uintptr_t* __restrict sample_include, const uint32_t* __res
 // phased hardcalls and unphased dosages are simple enough for this to be
 // overkill, though.)
 struct PgenVariantStruct {
+  NONCOPYABLE(PgenVariantStruct);
   uintptr_t* genovec;
   uintptr_t* patch_01_set;
   AlleleCode* patch_01_vals;
@@ -1654,6 +1655,9 @@ HEADER_INLINE PglErr SpgwAppendBiallelicGenovecDphase16(const uintptr_t* __restr
   }
   return kPglRetSuccess;
 }
+
+extern uint32_t g_pwc_debug_on;
+extern uint64_t g_final_fpos;
 
 // Backfills header info, then closes the file.
 PglErr SpgwFinish(STPgenWriter* spgwp);

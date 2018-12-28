@@ -584,7 +584,8 @@ uint32_t InfoNonexistCheck(const char* info_token, const InfoExist* nonexistp) {
   return 1;
 }
 
-typedef struct {
+typedef struct InfoFilterStruct {
+  NONCOPYABLE(InfoFilterStruct);
   char* prekey;
   const char* val_str;
   uint32_t key_slen;

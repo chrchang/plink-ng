@@ -13732,7 +13732,7 @@ BoolErr PwcAppendMultiallelicGenovecHphase(const uintptr_t* __restrict genovec, 
 }
 
 // ok if dosage_present trailing bits set
-BoolErr AppendDosage16(const uintptr_t* __restrict dosage_present, const uint16_t* dosage_main, uint32_t dosage_ct, PgenWriterCommon* pwcp, unsigned char* vrtype_ptr, uint32_t* vrec_len_ptr) {
+BoolErr AppendDosage16(const uintptr_t* __restrict dosage_present, const uint16_t* dosage_main, uint32_t dosage_ct, uint32_t dphase_ct, PgenWriterCommon* pwcp, unsigned char* vrtype_ptr, uint32_t* vrec_len_ptr) {
   const uint32_t sample_ct = pwcp->sample_ct;
   const uint32_t max_deltalist_entry_ct = sample_ct / kPglMaxDeltalistLenDivisor;
   if (dosage_ct < max_deltalist_entry_ct) {
@@ -13741,9 +13741,11 @@ BoolErr AppendDosage16(const uintptr_t* __restrict dosage_present, const uint16_
       return 1;
     }
     *vrtype_ptr += 0x20;
-  } else if (dosage_ct == sample_ct) {
+  } else if ((dosage_ct == sample_ct) && ((!dphase_ct) || (dphase_ct == sample_ct))) {
     // case 2: fixed-width, no need to store dosage IDs at all.
     // dosage_main permitted to have 65535 = missing
+    // bugfix (9 Dec 2018): since this forces fixed-width dosage-phase storage,
+    // also require dphase_ct == 0 or dphase_ct == sample_ct.
     *vrtype_ptr += 0x40;
   } else {
     // case 3: save dosage_present bitarray directly.
@@ -13779,7 +13781,7 @@ BoolErr PwcAppendBiallelicGenovecDosage16(const uintptr_t* __restrict genovec, c
   pwcp->vidx += 1;
   unsigned char* vrec_len_dest = &(pwcp->vrec_len_buf[vidx * vrec_len_byte_ct]);
   if (dosage_ct) {
-    if (unlikely(AppendDosage16(dosage_present, dosage_main, dosage_ct, pwcp, &vrtype, &vrec_len))) {
+    if (unlikely(AppendDosage16(dosage_present, dosage_main, dosage_ct, 0, pwcp, &vrtype, &vrec_len))) {
       return 1;
     }
   }
@@ -13813,7 +13815,7 @@ BoolErr PwcAppendBiallelicGenovecHphaseDosage16(const uintptr_t* __restrict geno
     AppendHphase(genovec, phasepresent, phaseinfo, het_ct, phasepresent_ct, pwcp, vrtype_dest, &vrec_len);
   }
   if (dosage_ct) {
-    if (unlikely(AppendDosage16(dosage_present, dosage_main, dosage_ct, pwcp, vrtype_dest, &vrec_len))) {
+    if (unlikely(AppendDosage16(dosage_present, dosage_main, dosage_ct, 0, pwcp, vrtype_dest, &vrec_len))) {
       return 1;
     }
   }
@@ -13823,13 +13825,16 @@ BoolErr PwcAppendBiallelicGenovecHphaseDosage16(const uintptr_t* __restrict geno
 
 BoolErr AppendDphase16(const uintptr_t* __restrict dosage_present, const uintptr_t* __restrict dphase_present, const int16_t* dphase_delta, uint32_t dosage_ct, uint32_t dphase_ct, PgenWriterCommon* pwcp, unsigned char* vrtype_ptr, uint32_t* vrec_len_ptr) {
   assert(dphase_ct);
-  const uint32_t dphase_present_byte_ct = DivUp(dosage_ct, CHAR_BIT);
-  if (unlikely(CheckedVrecLenIncr(dphase_present_byte_ct + dphase_ct * sizeof(int16_t), vrec_len_ptr))) {
-    return 1;
-  }
   *vrtype_ptr += 0x80;
-  CopyBitarrSubset(dphase_present, dosage_present, dosage_ct, R_CAST(uintptr_t*, pwcp->fwrite_bufp));
-  pwcp->fwrite_bufp = &(pwcp->fwrite_bufp[dphase_present_byte_ct]);
+  if (dphase_ct != pwcp->sample_ct) {
+    // bugfix (9 Dec 2018): forgot to separate fixed-width phased-dosage case
+    const uint32_t dphase_present_byte_ct = DivUp(dosage_ct, CHAR_BIT);
+    if (unlikely(CheckedVrecLenIncr(dphase_present_byte_ct + dphase_ct * sizeof(int16_t), vrec_len_ptr))) {
+      return 1;
+    }
+    CopyBitarrSubset(dphase_present, dosage_present, dosage_ct, R_CAST(uintptr_t*, pwcp->fwrite_bufp));
+    pwcp->fwrite_bufp = &(pwcp->fwrite_bufp[dphase_present_byte_ct]);
+  }
   pwcp->fwrite_bufp = memcpyua(pwcp->fwrite_bufp, dphase_delta, dphase_ct * sizeof(int16_t));
   return 0;
 }
@@ -13851,7 +13856,7 @@ BoolErr PwcAppendBiallelicGenovecDphase16(const uintptr_t* __restrict genovec, c
     AppendHphase(genovec, phasepresent, phaseinfo, het_ct, phasepresent_ct, pwcp, vrtype_dest, &vrec_len);
   }
   if (dosage_ct) {
-    if (unlikely(AppendDosage16(dosage_present, dosage_main, dosage_ct, pwcp, vrtype_dest, &vrec_len))) {
+    if (unlikely(AppendDosage16(dosage_present, dosage_main, dosage_ct, dphase_ct, pwcp, vrtype_dest, &vrec_len))) {
       return 1;
     }
     if (dphase_ct) {
@@ -13863,6 +13868,9 @@ BoolErr PwcAppendBiallelicGenovecDphase16(const uintptr_t* __restrict genovec, c
   SubU32Store(vrec_len, vrec_len_byte_ct, vrec_len_dest);
   return 0;
 }
+
+uint32_t g_pwc_debug_on = 0;
+uint64_t g_final_fpos = 0;
 
 PglErr PwcFinish(PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr) {
   const uint32_t variant_ct = pwcp->variant_ct;
@@ -13886,6 +13894,9 @@ PglErr PwcFinish(PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr) {
   for (; ; vrec_len_buf_iter = &(vrec_len_buf_iter[vrec_iter_incr])) {
     if (vrec_len_buf_iter >= vrec_len_buf_last) {
       if (vrec_len_buf_iter > vrec_len_buf_last) {
+        if (g_pwc_debug_on) {
+          g_final_fpos = ftello(pgen_outfile);
+        }
         return fclose_null(pgen_outfile_ptr)? kPglRetWriteFail : kPglRetSuccess;
       }
       const uint32_t vblock_size = ModNz(variant_ct, kPglVblockSize);

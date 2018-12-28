@@ -62,6 +62,7 @@ namespace plink2 {
 PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, MiscFlags misc_flags, uintptr_t line_idx, ChrInfo* cip);
 
 typedef struct VaridTemplateStruct {
+  NONCOPYABLE(VaridTemplateStruct);
   const char* missing_id_match;
   char* chr_output_name_buf;
   STD_ARRAY_DECL(const char*, 5, segs);

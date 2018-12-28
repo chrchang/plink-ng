@@ -3779,19 +3779,30 @@ char* PrintHdsPair(uint32_t dosage_int, int32_t dphase_delta, char* start) {
   }
   // see PrintHaploidNonintDosage() banker's rounding
   uint32_t val_x32768 = dosage_int + dphase_delta;
-  uint32_t five_decimal_places = ((3125 * val_x32768 + 512) / 1024) - ((val_x32768 % 2048) == 512);
-  uint32_t first_decimal_place = five_decimal_places / 10000;
-  *start++ = '0' + first_decimal_place;
-  uint32_t last_four_digits = five_decimal_places - first_decimal_place * 10000;
-  if (last_four_digits) {
-    start = u32toa_trunc4(last_four_digits, start);
+  // bugfix (11 Dec 2018): Forgot to print leading digit and dot here.
+  if (!(val_x32768 & 32767)) {
+    *start++ = '0' + (val_x32768 == 32768);
+  } else {
+    const uint32_t five_decimal_places = ((3125 * val_x32768 + 512) / 1024) - ((val_x32768 % 2048) == 512);
+    const uint32_t first_decimal_place = five_decimal_places / 10000;
+    start = strcpya_k(start, "0.");
+    *start++ = '0' + first_decimal_place;
+    const uint32_t last_four_digits = five_decimal_places - first_decimal_place * 10000;
+    if (last_four_digits) {
+      start = u32toa_trunc4(last_four_digits, start);
+    }
   }
   *start++ = ',';
   val_x32768 = dosage_int - dphase_delta;
-  five_decimal_places = ((3125 * val_x32768 + 512) / 1024) - ((val_x32768 % 2048) == 512);
-  first_decimal_place = five_decimal_places / 10000;
+  if (!(val_x32768 & 32767)) {
+    *start++ = '0' + (val_x32768 == 32768);
+    return start;
+  }
+  const uint32_t five_decimal_places = ((3125 * val_x32768 + 512) / 1024) - ((val_x32768 % 2048) == 512);
+  const uint32_t first_decimal_place = five_decimal_places / 10000;
+  start = strcpya_k(start, "0.");
   *start++ = '0' + first_decimal_place;
-  last_four_digits = five_decimal_places - first_decimal_place * 10000;
+  const uint32_t last_four_digits = five_decimal_places - first_decimal_place * 10000;
   if (last_four_digits) {
     return u32toa_trunc4(last_four_digits, start);
   }

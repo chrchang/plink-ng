@@ -67,7 +67,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (28 Oct 2018)";
+  " (27 Dec 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -788,8 +788,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     ChrIdx* chr_idxs = nullptr;  // split-chromosome case only
     if (pvarname[0]) {
       char** pvar_filter_storage_mutable = nullptr;
+
+      // LoadPvar() uses pvar_psam_flags to determine what's needed for .pvar
+      // export.  These booleans are just for tracking requirements beyond
+      // that.
       const uint32_t xheader_needed = (pcp->exportf_info.flags & kfExportfVcf)? 1 : 0;
       const uint32_t qualfilter_needed = xheader_needed || ((pcp->rmdup_mode != kRmDup0) && (pcp->rmdup_mode <= kRmDupExcludeMismatch));
+
       reterr = LoadPvar(pvarname, pcp->var_filter_exceptions_flattened, pcp->varid_template_str, pcp->varid_multi_template_str, pcp->varid_multi_nonsnp_template_str, pcp->missing_varid_match, pcp->require_info_flattened, pcp->require_no_info_flattened, &(pcp->extract_if_info_expr), &(pcp->exclude_if_info_expr), pcp->misc_flags, pcp->pvar_psam_flags, xheader_needed, qualfilter_needed, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->dependency_flags & kfFilterNoSplitChr), pcp->filter_min_allele_ct, pcp->filter_max_allele_ct, pcp->max_thread_ct, cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids_mutable, &allele_idx_offsets, K_CAST(const char***, &allele_storage_mutable), &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage_mutable, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_ct, &max_allele_slen, &xheader_blen, &info_flags, &max_filter_slen);
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
@@ -5848,6 +5853,8 @@ int main(int argc, char** argv) {
               vid_semicolon |= 1;
             } else if (strequal_k(cur_modif, "vid-join", cur_modif_slen)) {
               vid_semicolon |= 2;
+            } else if (strequal_k(cur_modif, "vid-dup", cur_modif_slen)) {
+              make_plink2_flags |= kfMakePlink2VidDup;
             } else if (strequal_k(cur_modif, "erase-phase", cur_modif_slen)) {
               make_plink2_flags |= kfMakePgenErasePhase;
             } else if (likely(strequal_k(cur_modif, "erase-dosage", cur_modif_slen))) {
@@ -5861,19 +5868,32 @@ int main(int argc, char** argv) {
             logerrputs("Error: --make-bpgen 'trim-alts' and 'erase-alt2+' modifiers cannot be used\ntogether.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (vid_semicolon & 1) {
+          if (vid_semicolon) {
+            if (make_plink2_flags & kfMakePlink2VidDup) {
+              logerrputs("Error: --make-bpgen 'vid-dup' cannot be used with 'vid-split' or 'vid-join'.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            if (unlikely(vid_semicolon == 3)) {
+              logerrputs("Error: --make-bpgen 'vid-split' and 'vid-join' modifiers cannot be used\ntogether.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            if (vid_semicolon == 1) {
+              if (unlikely((make_plink2_flags & kfMakePlink2MJoin) || (!(make_plink2_flags & kfMakePlink2MMask)))) {
+                logerrputs("Error: --make-bpgen 'vid-split' must be used with a multiallelics= split mode.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+            } else {
+              if (unlikely(!(make_plink2_flags & kfMakePlink2MJoin))) {
+                logerrputs("Error: --make-bpgen 'vid-join' must be used with a multiallelics= join mode.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+            }
+            make_plink2_flags |= kfMakePlink2VidSemicolon;
+          } else if (make_plink2_flags & kfMakePlink2VidDup) {
             if (unlikely((make_plink2_flags & kfMakePlink2MJoin) || (!(make_plink2_flags & kfMakePlink2MMask)))) {
-              logerrputs("Error: --make-bpgen 'vid-split' must be used with a multiallelics= split mode.\n");
+              logerrputs("Error: --make-bpgen 'vid-dup' must be used with a multiallelics= split mode.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
-            make_plink2_flags |= kfMakePlink2VidSemicolon;
-          }
-          if (vid_semicolon & 2) {
-            if (unlikely(!(make_plink2_flags & kfMakePlink2MJoin))) {
-              logerrputs("Error: --make-bpgen 'vid-join' must be used with a multiallelics= join mode.\n");
-              goto main_ret_INVALID_CMDLINE_A;
-            }
-            make_plink2_flags |= kfMakePlink2VidSemicolon;
           }
           make_plink2_flags |= kfMakePgen | kfMakeBim | kfMakeFam;
           pc.command_flags1 |= kfCommand1MakePlink2;
@@ -5986,17 +6006,20 @@ int main(int argc, char** argv) {
             logerrputs("Error: --make-pgen 'trim-alts' and 'erase-alt2+' modifiers cannot be used\ntogether.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (vid_semicolon & 1) {
-            if (unlikely((make_plink2_flags & kfMakePlink2MJoin) || (!(make_plink2_flags & kfMakePlink2MMask)))) {
-              logerrputs("Error: --make-pgen 'vid-split' must be used with a multiallelics= split mode.\n");
+          if (vid_semicolon) {
+            if (unlikely(vid_semicolon == 3)) {
+              logerrputs("Error: --make-pgen 'vid-split' and 'vid-join' modifiers cannot be used\ntogether.\n");
               goto main_ret_INVALID_CMDLINE_A;
-            }
-            make_plink2_flags |= kfMakePlink2VidSemicolon;
-          }
-          if (vid_semicolon & 2) {
-            if (unlikely(!(make_plink2_flags & kfMakePlink2MJoin))) {
-              logerrputs("Error: --make-pgen 'vid-join' must be used with a multiallelics= merge mode.\n");
-              goto main_ret_INVALID_CMDLINE_A;
+            } else if (vid_semicolon == 1) {
+              if (unlikely((make_plink2_flags & kfMakePlink2MJoin) || (!(make_plink2_flags & kfMakePlink2MMask)))) {
+                logerrputs("Error: --make-pgen 'vid-split' must be used with a multiallelics= split mode.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+            } else {
+              if (unlikely(!(make_plink2_flags & kfMakePlink2MJoin))) {
+                logerrputs("Error: --make-pgen 'vid-join' must be used with a multiallelics= join mode.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
             }
             make_plink2_flags |= kfMakePlink2VidSemicolon;
           }

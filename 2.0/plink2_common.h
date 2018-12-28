@@ -197,7 +197,11 @@ FLAGSET_DEF_START()
   kfInfoPrNonrefDefault = (1 << 3),
 FLAGSET_DEF_END(InfoFlags);
 
+// These structs are small enough and ownership of the pointed-to arrays is
+// generall clear enough that the noncopyable annotation is just intended to be
+// a tripwire.
 typedef struct SampleIdInfoStruct {
+  NONCOPYABLE(SampleIdInfoStruct);
   char* sample_ids;
   char* sids;
   uintptr_t max_sample_id_blen;
@@ -206,6 +210,7 @@ typedef struct SampleIdInfoStruct {
 } SampleIdInfo;
 
 typedef struct PaternalIdInfoStruct {
+  NONCOPYABLE(PaternalIdInfoStruct);
   char* paternal_ids;
   char* maternal_ids;
   uintptr_t max_paternal_id_blen;

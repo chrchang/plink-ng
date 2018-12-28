@@ -3852,6 +3852,8 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
       char* linebuf_first_token = FirstNonTspace(line_iter);
       char cc = *linebuf_first_token;
       if (IsEolnKns(cc) || (cc == skipchar)) {
+        // bugfix (27 Dec 2018): need to advance line_iter here
+        line_iter = AdvToDelim(line_iter, '\n');
         continue;
       }
       // er, replace this with TokenLex0()...

@@ -40,7 +40,8 @@ extern uint32_t g_zst_level;
 // todo: test different values, may want to increase on at least OS X...
 CONSTI32(kCompressStreamBlock, 131072);
 
-typedef struct {
+typedef struct CompressStreamStateStruct {
+  NONCOPYABLE(CompressStreamStateStruct);
   // Usually compress text, so appropriate to define this as char*.
   char* overflow_buf;
 

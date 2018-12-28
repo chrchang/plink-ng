@@ -22,6 +22,7 @@ namespace plink2 {
 #endif
 
 typedef struct MakeSetRangeStruct {
+  NONCOPYABLE(MakeSetRangeStruct);
   struct MakeSetRangeStruct* next;
   uint32_t uidx_start;
   uint32_t uidx_end;
