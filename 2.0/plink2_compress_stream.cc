@@ -43,10 +43,10 @@ PglErr InitCstreamZstd(const char* out_fname, uint32_t do_append, __maybe_unused
   if (unlikely(!css_ptr->cctx)) {
     return kPglRetNomem;
   }
-  __maybe_unused size_t retval = ZSTD_CCtx_setParameter(css_ptr->cctx, ZSTD_p_compressionLevel, g_zst_level);
+  __maybe_unused size_t retval = ZSTD_CCtx_setParameter(css_ptr->cctx, ZSTD_c_compressionLevel, g_zst_level);
   assert(!ZSTD_isError(retval));
 #ifdef ZSTD_MULTITHREAD
-  retval = ZSTD_CCtx_setParameter(css_ptr->cctx, ZSTD_p_nbWorkers, thread_ct);
+  retval = ZSTD_CCtx_setParameter(css_ptr->cctx, ZSTD_c_nbWorkers, thread_ct);
   if (unlikely(ZSTD_isError(retval))) {
     ZSTD_freeCCtx(css_ptr->cctx);
     return kPglRetNomem;
@@ -109,7 +109,7 @@ BoolErr ForceCompressedCswrite(CompressStreamState* css_ptr, char** writep_ptr) 
     ZSTD_inBuffer input = {overflow_buf, in_size, 0};
     while (1) {
       // todo: conditionally support seekable files
-      size_t retval = ZSTD_compress_generic(css_ptr->cctx, &css_ptr->output, &input, ZSTD_e_continue);
+      size_t retval = ZSTD_compressStream2(css_ptr->cctx, &css_ptr->output, &input, ZSTD_e_continue);
       if (unlikely(ZSTD_isError(retval))) {
         // is this actually possible?  well, play it safe for now
         return 1;
@@ -152,7 +152,7 @@ BoolErr CsputsStd(const char* readp, uint32_t byte_ct, CompressStreamState* css_
       ZSTD_inBuffer input = {overflow_buf, 2 * kCompressStreamBlock, 0};
       while (1) {
         // todo: conditionally support seekable files
-        size_t retval = ZSTD_compress_generic(css_ptr->cctx, &css_ptr->output, &input, ZSTD_e_continue);
+        size_t retval = ZSTD_compressStream2(css_ptr->cctx, &css_ptr->output, &input, ZSTD_e_continue);
         if (unlikely(ZSTD_isError(retval))) {
           return 1;
         }
@@ -193,7 +193,7 @@ BoolErr CompressedCswriteCloseNull(CompressStreamState* css_ptr, char* writep) {
   ZSTD_inBuffer input = {overflow_buf, in_size, 0};
   BoolErr reterr = 0;
   while (1) {
-    size_t retval = ZSTD_compress_generic(css_ptr->cctx, &css_ptr->output, &input, ZSTD_e_end);
+    size_t retval = ZSTD_compressStream2(css_ptr->cctx, &css_ptr->output, &input, ZSTD_e_end);
     if (unlikely(ZSTD_isError(retval))) {
       reterr = 1;
       break;

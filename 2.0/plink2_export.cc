@@ -5677,7 +5677,8 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
                   const uint32_t cur_geno = genovec_word & 3;
                   const uint32_t cur_is_male = is_male_hw & 1;
                   const uint32_t should_be_diploid = is_x && (!cur_is_male);
-                  if (!(multiallelic_hw & 1)) {
+                  // bugfix (29 Dec 2018): need to check correct bit here
+                  if (!(multiallelic_hw & cur_shift)) {
                     const uint32_t cur_blen = haploid_genotext_blen[cur_geno + cur_is_male * 4];
                     memcpy(write_iter, &(basic_genotext[cur_geno]), 4);
                     write_iter = &(write_iter[cur_blen]);
