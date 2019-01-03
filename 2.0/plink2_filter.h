@@ -1,7 +1,7 @@
 #ifndef __PLINK2_FILTER_H__
 #define __PLINK2_FILTER_H__
 
-// This file is part of PLINK 2.00, copyright (C) 2005-2018 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2019 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
