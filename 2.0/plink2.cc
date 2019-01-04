@@ -67,7 +67,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (2 Jan 2019)";
+  " (3 Jan 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -84,7 +84,7 @@ static const char ver_str2[] =
   "  "
 #endif
   "   www.cog-genomics.org/plink/2.0/\n"
-  "(C) 2005-2018 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
+  "(C) 2005-2019 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
 static const char errstr_append[] = "For more info, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
 
 #ifndef NOLAPACK

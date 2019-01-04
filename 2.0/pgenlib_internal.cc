@@ -13758,24 +13758,16 @@ BoolErr AppendDosage16(const uintptr_t* __restrict dosage_present, const uint16_
   } else {
     // case 3: save dosage_present bitarray directly.
     const uint32_t sample_ctb = DivUp(sample_ct, CHAR_BIT);
-    const uintptr_t new_vrec_len = (*vrec_len_ptr) + sample_ctb;
-#ifdef __LP64__
-    if (unlikely(new_vrec_len > kPglMaxBytesPerVariant)) {
+    if (unlikely(CheckedVrecLenIncr(sample_ctb, vrec_len_ptr))) {
       return 1;
     }
-#endif
-    *vrec_len_ptr = new_vrec_len;
     pwcp->fwrite_bufp = memcpyua(pwcp->fwrite_bufp, dosage_present, sample_ctb);
     *vrtype_ptr += 0x60;
   }
-  const uintptr_t new_vrec_len = (*vrec_len_ptr) + dosage_ct * sizeof(int16_t);
-#ifdef __LP64__
-  if (unlikely(new_vrec_len > kPglMaxBytesPerVariant)) {
+  if (unlikely(CheckedVrecLenIncr(dosage_ct * sizeof(int16_t), vrec_len_ptr))) {
     return 1;
   }
-#endif
   pwcp->fwrite_bufp = memcpyua(pwcp->fwrite_bufp, dosage_main, dosage_ct * sizeof(int16_t));
-  *vrec_len_ptr = new_vrec_len;
   return 0;
 }
 

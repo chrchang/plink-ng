@@ -74,7 +74,7 @@ libdeflate_gzip_decompress_ex(struct libdeflate_decompressor *d,
 		u16 xlen = get_unaligned_le16(in_next);
 		in_next += 2;
 
-		if ((u32)(in_end - in_next) < (u32)xlen + GZIP_FOOTER_SIZE)
+		if (in_end - in_next < (u32)xlen + GZIP_FOOTER_SIZE)
 			return LIBDEFLATE_BAD_DATA;
 
 		in_next += xlen;
