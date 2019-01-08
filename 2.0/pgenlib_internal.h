@@ -1658,9 +1658,6 @@ HEADER_INLINE PglErr SpgwAppendBiallelicGenovecDphase16(const uintptr_t* __restr
   return kPglRetSuccess;
 }
 
-extern uint32_t g_pwc_debug_on;
-extern uint64_t g_final_fpos;
-
 // Backfills header info, then closes the file.
 PglErr SpgwFinish(STPgenWriter* spgwp);
 

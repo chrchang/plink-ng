@@ -13873,9 +13873,6 @@ BoolErr PwcAppendBiallelicGenovecDphase16(const uintptr_t* __restrict genovec, c
   return 0;
 }
 
-uint32_t g_pwc_debug_on = 0;
-uint64_t g_final_fpos = 0;
-
 PglErr PwcFinish(PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr) {
   const uint32_t variant_ct = pwcp->variant_ct;
   assert(pwcp->vidx == variant_ct);
@@ -13898,9 +13895,6 @@ PglErr PwcFinish(PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr) {
   for (; ; vrec_len_buf_iter = &(vrec_len_buf_iter[vrec_iter_incr])) {
     if (vrec_len_buf_iter >= vrec_len_buf_last) {
       if (vrec_len_buf_iter > vrec_len_buf_last) {
-        if (g_pwc_debug_on) {
-          g_final_fpos = ftello(pgen_outfile);
-        }
         return fclose_null(pgen_outfile_ptr)? kPglRetWriteFail : kPglRetSuccess;
       }
       const uint32_t vblock_size = ModNz(variant_ct, kPglVblockSize);

@@ -1475,8 +1475,6 @@ static uint32_t g_founder_male_ct = 0;
 static uint32_t g_founder_nosex_ct = 0;
 static uint32_t g_first_hap_uidx = 0;
 
-static uint32_t g_error_variant_uidxs[kMaxThreads];
-
 THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
   const uintptr_t tidx = R_CAST(uintptr_t, arg);
   PgenReader* pgrp = g_pgr_ptrs[tidx];
@@ -1557,23 +1555,11 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
       uint32_t is_x_or_y = 0;
       PglErr reterr = kPglRetSuccess;
 
-      const uint32_t debug_print = g_debug_on && (tidx == 25) && (variant_uidx_base >= 7602176) && (variant_uidx_base < 7667712);
-      if (debug_print) {
-        logerrprintf("variant_uidx_base[25]: %" PRIuPTR "\n", variant_uidx_base);
-        logerrprintf("variant_uidx_base[26]: %" PRIuPTR "\n", g_read_variant_uidx_starts[26]);
-        logerrprintf("starting cur_idx: %u  cur_idx_end: %u\n", cur_idx, cur_idx_end);
-      }
       STD_ARRAY_DECL(uint32_t, 4, genocounts);
       STD_ARRAY_DECL(uint32_t, 4, sex_specific_genocounts);
       for (; cur_idx != cur_idx_end; ++cur_idx) {
         const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
         if (variant_uidx >= chr_end) {
-          if (debug_print) {
-            logerrprintf("crossing chromosome boundary, uidx = %u, chr_end = %u, cur_idx = %u\n", variant_uidx, chr_end, cur_idx);
-            logerrprintf("previous is_x_or_y: %u\n", is_x_or_y);
-            logerrprintf("previous is_y: %u\n", is_y);
-            logerrprintf("previous is_nonxy_haploid: %u\n", is_nonxy_haploid);
-          }
           const uint32_t chr_fo_idx = GetVariantChrFoIdx(cip, variant_uidx);
           const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
           chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
@@ -1594,11 +1580,6 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
             // no way for this to happen now unless everything is haploid?
             is_nonxy_haploid = IsSet(cip->haploid_mask, chr_idx);
           }
-          if (debug_print) {
-            logerrprintf("new is_x_or_y: %u\n", is_x_or_y);
-            logerrprintf("new is_y: %u\n", is_y);
-            logerrprintf("new is_nonxy_haploid: %u\n", is_nonxy_haploid);
-          }
         }
         uintptr_t cur_allele_idx_offset;
         if (!allele_idx_offsets) {
@@ -1607,22 +1588,12 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
           cur_allele_idx_offset = allele_idx_offsets[variant_uidx];
           allele_ct = allele_idx_offsets[variant_uidx + 1] - cur_allele_idx_offset;
         }
-        if (debug_print) {
-          logerrprintf("trying to load uidx %u; allele_ct = %u, vrtype = %u\n", variant_uidx, allele_ct, pgrp->fi.vrtypes[variant_uidx]);
-          if (variant_uidx == 7644133) {
-            logerrprintf("ldbase_stypes: %u  ldbase_vidx: %u\n", (uint32_t)pgrp->ldbase_stypes, pgrp->ldbase_vidx);
-          }
-        }
         uint32_t hethap_ct;
         if ((allele_ct == 2) || no_multiallelic_branch) {
           uint64_t cur_dosages[2];
           if (!is_x_or_y) {
             reterr = PgrGetDCounts(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, mach_r2_vals? (&(mach_r2_vals[variant_uidx])) : nullptr, genocounts, cur_dosages);
             if (unlikely(reterr)) {
-              if (g_debug_on) {
-                logerrprintf("GetBasicGenotypeCountsAndDosage16s failure point: %u\n", g_freq_fail);
-                g_error_variant_uidxs[tidx] = variant_uidx;
-              }
               g_error_ret = reterr;
               break;
             }
@@ -2321,11 +2292,6 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     g_calc_thread_ct = calc_thread_ct;
     g_error_ret = kPglRetSuccess;
 
-    if (g_debug_on) {
-      for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-        g_error_variant_uidxs[tidx] = UINT32_MAX;
-      }
-    }
     logputs("Calculating allele frequencies... ");
     fputs("0%", stdout);
     fflush(stdout);
@@ -2374,16 +2340,6 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
           if (reterr == kPglRetMalformedInput) {
             logputs("\n");
             logerrputs("Error: Malformed .pgen file.\n");
-            if (g_debug_on) {
-              for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-                const uint32_t variant_uidx = g_error_variant_uidxs[tidx];
-                if (variant_uidx != UINT32_MAX) {
-                  logerrprintf("thread %u/%u failed on variant %u\n", tidx, calc_thread_ct, variant_uidx);
-                  logerrprintf("vrtype: %u\n", pgfip->vrtypes[variant_uidx]);
-                  logerrprintf("byte range: [%" PRIu64 ", %" PRIu64 ")\n", pgfip->var_fpos[variant_uidx], pgfip->var_fpos[variant_uidx + 1]);
-                }
-              }
-            }
           }
           goto LoadAlleleAndGenoCounts_ret_1;
         }

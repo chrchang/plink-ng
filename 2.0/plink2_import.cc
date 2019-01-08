@@ -235,12 +235,6 @@ PglErr GparseFlush(const GparseRecord* grp, uint32_t write_block_size, STPgenWri
         allele_ct = allele_idx_offsets[write_block_vidx + 1] - allele_idx_offsets[write_block_vidx];
       }
       uintptr_t* genovec = GparseGetPointers(cur_gparse_rec->record_start, sample_ct, allele_ct, flags, &patch_01_set, &patch_01_vals, &patch_10_set, &patch_10_vals, &phasepresent, &phaseinfo, &dosage_present, &dosage_main, &dphase_present, &dphase_delta);
-      if (g_debug_on && (spgwp->pwc.vidx < 4)) {
-        logprintf("0-based variant #%u:\n", spgwp->pwc.vidx);
-        logprintf("  File position: %" PRIu64"\n", ftello(spgwp->pgen_outfile) + spgwp->pwc.fwrite_bufp - spgwp->pwc.fwrite_buf);
-        logprintf("  flags: %u\n", (uint32_t)flags);
-        logprintf("  allele_ct: %u\n", allele_ct);
-      }
       const GparseWriteMetadata* cur_gwmp = &(cur_gparse_rec->metadata.write);
       if (!(flags & (kfGparseHphase | kfGparseDosage))) {
         if (allele_ct == 2) {
@@ -248,10 +242,6 @@ PglErr GparseFlush(const GparseRecord* grp, uint32_t write_block_size, STPgenWri
             goto GparseFlush_ret_WRITE_FAIL;
           }
         } else {
-          if (g_debug_on && (spgwp->pwc.vidx < 4)) {
-            logprintf("  patch_01_ct: %u\n", cur_gwmp->patch_01_ct);
-            logprintf("  patch_10_ct: %u\n", cur_gwmp->patch_10_ct);
-          }
           reterr = SpgwAppendMultiallelicSparse(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, cur_gwmp->patch_01_ct, cur_gwmp->patch_10_ct, spgwp);
           if (unlikely(reterr)) {
             goto GparseFlush_ret_1;
@@ -260,11 +250,6 @@ PglErr GparseFlush(const GparseRecord* grp, uint32_t write_block_size, STPgenWri
       } else {
         const uint32_t cur_dosage_ct = cur_gwmp->dosage_ct;
         const uint32_t cur_dphase_ct = cur_gwmp->dphase_ct;
-        if (g_debug_on && (spgwp->pwc.vidx < 4)) {
-          logprintf("  cur_dphase_ct: %u\n", cur_dphase_ct);
-          logprintf("  cur_dosage_ct: %u\n", cur_dosage_ct);
-          logprintf("  phasepresent_exists: %u\n", cur_gwmp->phasepresent_exists);
-        }
         if (!cur_dphase_ct) {
           if (!cur_dosage_ct) {
             if (allele_ct == 2) {
@@ -278,10 +263,6 @@ PglErr GparseFlush(const GparseRecord* grp, uint32_t write_block_size, STPgenWri
                 }
               }
             } else {
-              if (g_debug_on && (spgwp->pwc.vidx < 4)) {
-                logprintf("  patch_01_ct: %u\n", cur_gwmp->patch_01_ct);
-                logprintf("  patch_10_ct: %u\n", cur_gwmp->patch_10_ct);
-              }
               if (!cur_gwmp->phasepresent_exists) {
                 if (unlikely(SpgwAppendMultiallelicSparse(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, cur_gwmp->patch_01_ct, cur_gwmp->patch_10_ct, spgwp))) {
                   goto GparseFlush_ret_WRITE_FAIL;
@@ -3741,16 +3722,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       goto VcfToPgen_ret_WRITE_FAIL;
     }
     if (sample_ct) {
-      if (g_debug_on) {
-        g_pwc_debug_on = 1;
-        logprintf("sample_ct: %u\n", sample_ct);
-        logprintf("phase_dosage_gflags: %u\n", (uint32_t)spgw.pwc.phase_dosage_gflags);
-        logprintf("first 4 vrtype_buf entries: %x\n", spgw.pwc.vrtype_buf[0]);
-      }
       SpgwFinish(&spgw);
-      if (g_debug_on) {
-        logprintf("final_fpos: %" PRIu64 "\n", g_final_fpos);
-      }
     }
     putc_unlocked('\r', stdout);
     write_iter = strcpya_k(g_logbuf, "--vcf: ");
