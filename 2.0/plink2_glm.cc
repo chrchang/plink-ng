@@ -1125,7 +1125,8 @@ void CollapseParameterSubset(const uintptr_t* covar_include, const uintptr_t* ra
 ENUM_U31_DEF_START()
   kVifCorrCheckOk,
   kVifCorrCheckVifFail,
-  kVifCorrCheckCorrFail
+  kVifCorrCheckCorrFail,
+  kVifCorrCheckScaleFail
 ENUM_U31_DEF_END(VifCorrErrcode);
 
 typedef struct {
@@ -1399,6 +1400,19 @@ BoolErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* c
   const char** cur_covar_names_iter = cur_covar_names;
   double* covar_write_iter = covars_cmaj;
   double* sum_iter = dbl_2d_buf;
+  // Quasi-bugfix (22 Jan 2019): Main loop is too numerically unstable,
+  // especially in the single-precision logistic/Firth regression case, when a
+  // covariate is on a very different scale from the main genotype column (or
+  // other covariates).  We now check sum-of-squares and (rescaled) sample
+  // variance of each fixed covariate column, and error out when the range of
+  // either value exceeds ~6 orders of magnitude.  (Conveniently, this catches
+  // the fairly common "year of birth" problem.)
+  // Initial ssq and variance values correspond to genotype columns with a MAF
+  // range of [0.01, 0.5].
+  double min_ssq = 0.0202 * u31tod(sample_ct);
+  double max_ssq = 1.5 * u31tod(sample_ct);
+  double min_ssq_minus_sqmean = 0.0198 * u31tod(sample_ct - 1);
+  double max_ssq_minus_sqmean = 0.5 * u31tod(sample_ct - 1);
   for (uintptr_t covar_read_idx = 0; covar_read_idx != covar_ct; ++covar_read_idx) {
     const uintptr_t covar_read_uidx = BitIter1(covar_include, &covar_read_uidx_base, &covar_include_bits);
     const PhenoCol* cur_covar_col = &(covar_cols[covar_read_uidx]);
@@ -1413,13 +1427,26 @@ BoolErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* c
       uintptr_t sample_include_bits;
       BitIter1Start(sample_include, first_sample_uidx, &sample_uidx_base, &sample_include_bits);
       double covar_sum = 0.0;
+      double covar_ssq = 0.0;
       for (uintptr_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
         const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
         const double cur_covar_val = covar_vals[sample_uidx];
         covar_sum += cur_covar_val;
+        covar_ssq += cur_covar_val * cur_covar_val;
         *covar_write_iter++ = cur_covar_val;
       }
       *sum_iter++ = covar_sum;
+      if (covar_ssq < min_ssq) {
+        min_ssq = covar_ssq;
+      } else if (covar_ssq > max_ssq) {
+        max_ssq = covar_ssq;
+      }
+      covar_ssq -= covar_sum * covar_sum / u31tod(sample_ct);
+      if (covar_ssq < min_ssq_minus_sqmean) {
+        min_ssq_minus_sqmean = covar_ssq;
+      } else if (covar_ssq > max_ssq_minus_sqmean) {
+        max_ssq_minus_sqmean = covar_ssq;
+      }
     } else {
       const uint32_t remaining_cat_ct = IdentifyRemainingCats(sample_include, cur_covar_col, sample_ct, cat_covar_wkspace);
       assert(remaining_cat_ct >= 2);
@@ -1458,6 +1485,10 @@ BoolErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* c
     }
   }
   BigstackEndSet(new_covar_name_alloc);
+  if ((min_ssq * 1048576.0 < max_ssq) || (min_ssq_minus_sqmean * 1048576.0 < max_ssq_minus_sqmean)) {
+    vif_corr_check_result_ptr->errcode = kVifCorrCheckScaleFail;
+    return 1;
+  }
   assert(covar_write_iter == &(covars_cmaj[new_nonlocal_covar_ct * sample_ct]));
   MultiplySelfTranspose(covars_cmaj, new_nonlocal_covar_ct, sample_ct, covar_dotprod);
   // intentionally ignore error code, since all callers check
@@ -8253,7 +8284,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         }
       }
       if (vif_corr_check_result.errcode) {
-        if (vif_corr_check_result.covar_idx1 == UINT32_MAX) {
+        if (vif_corr_check_result.errcode == kVifCorrCheckScaleFail) {
+          logerrprintfww("Warning: Skipping --glm regression on phenotype '%s' since genotype/covariate\nscales vary too widely for numerical stability of the current implementation.\nTry rescaling your covariates with e.g. --covar-variance-standardize.\n", cur_pheno_name);
+        } else if (vif_corr_check_result.covar_idx1 == UINT32_MAX) {
           // must be correlation matrix inversion failure
           logerrprintfww("Warning: Skipping --glm regression on phenotype '%s' since covariate correlation matrix could not be inverted. You may want to remove redundant covariates and try again.\n", cur_pheno_name);
         } else {
@@ -8279,7 +8312,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         }
         if (vif_corr_check_result.errcode) {
           // maybe these prints should be in a separate function...
-          if (vif_corr_check_result.covar_idx1 == UINT32_MAX) {
+          if (vif_corr_check_result.errcode == kVifCorrCheckScaleFail) {
+            logerrprintfww("Warning: Skipping chrX in --glm regression on phenotype '%s' since\ngenotype/covariate scales vary too widely for numerical stability of the\ncurrent implementation. Try rescaling your covariates with e.g.\n--covar-variance-standardize.\n", cur_pheno_name);
+          } if (vif_corr_check_result.covar_idx1 == UINT32_MAX) {
             logerrprintfww("Warning: Skipping chrX in --glm regression on phenotype '%s', since covariate correlation matrix could not be inverted. You may want to remove redundant covariates and try again.\n", cur_pheno_name);
           } else {
             if (vif_corr_check_result.errcode == kVifCorrCheckVifFail) {
@@ -8303,7 +8338,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           }
         }
         if (vif_corr_check_result.errcode) {
-          if (vif_corr_check_result.covar_idx1 == UINT32_MAX) {
+          if (vif_corr_check_result.errcode == kVifCorrCheckScaleFail) {
+            logerrprintfww("Warning: Skipping chrY in --glm regression on phenotype '%s' since\ngenotype/covariate scales vary too widely for numerical stability of the\ncurrent implementation. Try rescaling your covariates with e.g.\n--covar-variance-standardize.\n", cur_pheno_name);
+          } else if (vif_corr_check_result.covar_idx1 == UINT32_MAX) {
             logerrprintfww("Warning: Skipping chrY in --glm regression on phenotype '%s', since covariate correlation matrix could not be inverted.\n", cur_pheno_name);
           } else {
             if (vif_corr_check_result.errcode == kVifCorrCheckVifFail) {

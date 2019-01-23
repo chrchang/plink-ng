@@ -5049,6 +5049,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         if (ref_allele_idx || (alt1_allele_idx != 1)) {
           // todo: rotation function that can also be used by --make-pgen
           // maybe add a PgrGetM2() function too
+          logputs("\n");
           logerrputs("Error: VCF-export multiallelic rotation is under development.\n");
           reterr = kPglRetNotYetSupported;
           goto ExportVcf_ret_1;
