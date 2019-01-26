@@ -538,7 +538,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --missing <gz>\n"
 "    Generate sample- and variant-based missing data reports.  If clusters are\n"
 "    defined, the variant-based report is cluster-stratified.  'gz' causes the\n"
-"    output files to be gzipped.\n\n"
+"    output files to be gzipped.\n"
+"    Unlike most other commands, this doesn't treat het. haploids as missing.\n\n"
 	       );
     help_print("test-mishap", &help_ctrl, 1,
 "  --test-mishap\n"
@@ -1079,8 +1080,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("test-missing\tmissing\tperm\tmperm", &help_ctrl, 1,
 "  --test-missing <perm | mperm=[value]> <perm-count> <midp>\n"
 "    Check for association between missingness and case/control status, using\n"
-"    Fisher's exact test.  The 'midp' modifier causes Lancaster's mid-p\n"
-"    adjustment to be applied.\n\n"
+"    Fisher's exact test.  (Het. haploids are treated as missing.)\n"
+"    The 'midp' modifier causes Lancaster's mid-p adjustment to be applied.\n\n"
 	       );
     help_print("make-perm-pheno", &help_ctrl, 1,
 "  --make-perm-pheno [ct]\n"
