@@ -4149,8 +4149,6 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
                 *beta_se_iter2++ = S_CAST(double, sample_variance_buf[pred_uidx]);
               }
               if (cur_constraint_ct) {
-                // currently just happens with domdev, need to support --tests
-                // later
                 *beta_se_iter2++ = 0.0;
 
                 uint32_t joint_test_idx = AdvTo1Bit(cur_joint_test_params, 0);
@@ -4216,12 +4214,11 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
   }
 }
 
-uint32_t GetBiallelicReportedTestCt(const uintptr_t* parameter_subset, GlmFlags glm_flags, uint32_t covar_ct) {
+uint32_t GetBiallelicReportedTestCt(const uintptr_t* parameter_subset, GlmFlags glm_flags, uint32_t covar_ct, uint32_t tests_flag) {
   const uint32_t hide_covar = (glm_flags / kfGlmHideCovar) & 1;
   const uint32_t include_intercept = (glm_flags / kfGlmIntercept) & 1;
   const uint32_t domdev_present = (glm_flags & (kfGlmGenotypic | kfGlmHethom))? 1 : 0;
-  // TODO: --tests
-  const uint32_t joint_test = domdev_present;
+  const uint32_t joint_test = domdev_present || tests_flag;
 
   if (hide_covar) {
     if (!parameter_subset) {
@@ -4656,18 +4653,18 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
         biallelic_predictor_ct_y = 0;
       }
     }
-    uint32_t biallelic_reported_test_ct = GetBiallelicReportedTestCt(parameter_subset, glm_flags, covar_ct);
+    uint32_t biallelic_reported_test_ct = GetBiallelicReportedTestCt(parameter_subset, glm_flags, covar_ct, g_tests_flag);
     uintptr_t max_reported_test_ct = biallelic_reported_test_ct;
     uint32_t biallelic_reported_test_ct_x = 0;
     if (sample_ct_x) {
-      biallelic_reported_test_ct_x = GetBiallelicReportedTestCt(parameter_subset_x, glm_flags, covar_ct_x);
+      biallelic_reported_test_ct_x = GetBiallelicReportedTestCt(parameter_subset_x, glm_flags, covar_ct_x, g_tests_flag);
       if (biallelic_reported_test_ct_x > max_reported_test_ct) {
         max_reported_test_ct = biallelic_reported_test_ct_x;
       }
     }
     uint32_t biallelic_reported_test_ct_y = 0;
     if (sample_ct_y) {
-      biallelic_reported_test_ct_y = GetBiallelicReportedTestCt(parameter_subset_y, glm_flags, covar_ct_y);
+      biallelic_reported_test_ct_y = GetBiallelicReportedTestCt(parameter_subset_y, glm_flags, covar_ct_y, g_tests_flag);
       if (biallelic_reported_test_ct_y > max_reported_test_ct) {
         max_reported_test_ct = biallelic_reported_test_ct_y;
       }
@@ -6681,18 +6678,18 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
         biallelic_predictor_ct_y = 0;
       }
     }
-    uint32_t biallelic_reported_test_ct = GetBiallelicReportedTestCt(parameter_subset, glm_flags, covar_ct);
+    uint32_t biallelic_reported_test_ct = GetBiallelicReportedTestCt(parameter_subset, glm_flags, covar_ct, g_tests_flag);
     uintptr_t max_reported_test_ct = biallelic_reported_test_ct;
     uint32_t biallelic_reported_test_ct_x = 0;
     if (sample_ct_x) {
-      biallelic_reported_test_ct_x = GetBiallelicReportedTestCt(parameter_subset_x, glm_flags, covar_ct_x);
+      biallelic_reported_test_ct_x = GetBiallelicReportedTestCt(parameter_subset_x, glm_flags, covar_ct_x, g_tests_flag);
       if (biallelic_reported_test_ct_x > max_reported_test_ct) {
         max_reported_test_ct = biallelic_reported_test_ct_x;
       }
     }
     uint32_t biallelic_reported_test_ct_y = 0;
     if (sample_ct_y) {
-      biallelic_reported_test_ct_y = GetBiallelicReportedTestCt(parameter_subset_y, glm_flags, covar_ct_y);
+      biallelic_reported_test_ct_y = GetBiallelicReportedTestCt(parameter_subset_y, glm_flags, covar_ct_y, g_tests_flag);
       if (biallelic_reported_test_ct_y > max_reported_test_ct) {
         max_reported_test_ct = biallelic_reported_test_ct_y;
       }
