@@ -197,7 +197,9 @@ next_block:
 		len = READ_U16();
 		nlen = READ_U16();
 
-		SAFETY_CHECK(len == (u16)~nlen);
+                // work around spurious gcc warning
+                const u16 nlen_compl = ~nlen;
+		SAFETY_CHECK(len == nlen_compl);
 		if (unlikely(len > out_end - out_next))
 			return LIBDEFLATE_INSUFFICIENT_SPACE;
 		SAFETY_CHECK(len <= in_end - in_next);
@@ -328,7 +330,7 @@ have_decode_tables:
 
 		/* The match source must not begin before the beginning of the
 		 * output buffer.  */
-		SAFETY_CHECK(offset <= out_next - (const u8 *)out);
+		SAFETY_CHECK(offset <= (size_t)(out_next - (const u8 *)out));
 
 		/*
 		 * Copy the match: 'length' bytes at 'out_next - offset' to

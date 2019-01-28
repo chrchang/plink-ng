@@ -372,7 +372,7 @@ hc_matchfinder_skip_positions(struct hc_matchfinder * const restrict mf,
 	u32 next_hashseq;
 	u32 remaining = count;
 
-	if (unlikely(count + 5 > in_end - in_next))
+	if (unlikely(count + 5 > (size_t)(in_end - in_next)))
 		return &in_next[count];
 
 	cur_pos = in_next - *in_base_p;

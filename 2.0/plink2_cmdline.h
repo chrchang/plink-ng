@@ -304,6 +304,8 @@ HEADER_INLINE BoolErr fclose_uflush_null(unsigned char* buf_flush, unsigned char
   return fclose_flush_null(R_CAST(char*, buf_flush), R_CAST(char*, write_iter), outfile_ptr);
 }
 
+// This should only be used when the file can only be open on error-early-exit;
+// otherwise we care about fclose's error code.
 HEADER_INLINE void fclose_cond(FILE* fptr) {
   if (fptr) {
     fclose(fptr);
