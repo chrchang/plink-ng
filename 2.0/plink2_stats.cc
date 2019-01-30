@@ -275,7 +275,7 @@ static const double kLanczosSumExpgDenom[6] = {0, 24, 50, 35, 10, 1};
 // this depends on the polynomial coefficients above
 static const double kLanczosG = 5.581;
 
-double lanczos_sum_expg_scaled_recip(double zz) {
+double lanczos_sum_expg_scaled_imp(double zz, double* s2_ptr) {
   double s1;
   double s2;
   if (zz <= 1) {
@@ -298,7 +298,19 @@ double lanczos_sum_expg_scaled_recip(double zz) {
       s2 += kLanczosSumExpgDenom[uii];
     }
   }
-  // may as well flip this
+  *s2_ptr = s2;
+  return s1;
+}
+
+double lanczos_sum_expg_scaled(double zz) {
+  double s2;
+  double s1 = lanczos_sum_expg_scaled_imp(zz, &s2);
+  return s1 / s2;
+}
+
+double lanczos_sum_expg_scaled_recip(double zz) {
+  double s2;
+  double s1 = lanczos_sum_expg_scaled_imp(zz, &s2);
   return s2 / s1;
 }
 
@@ -1079,6 +1091,173 @@ double TstatToLnP(double tt, double df) {
   return betai_slow_ln(df * 0.5, 0.5, df / (df + tt * tt));
 }
 // ***** end TstatToLnP *****
+
+// ***** FstatToLnP *****
+
+// Assumes x > 0.
+double neg_powm1_imp_ln(double xx, double yy) {
+  if ((fabs(yy * (xx - 1.0)) < 0.5) || (fabs(yy) < 0.2)) {
+    const double ll = yy * log(xx);
+    if (ll < 0.5) {
+      return log1p(-exp(ll));
+    }
+    if (ll > kLogMaxValue) {
+      return -ll;
+    }
+  }
+  return log1p(-pow(xx, yy));
+}
+
+double binomial_ccdf_ln(uint32_t nn, uint32_t kk, double xx, double yy, uint32_t inv) {
+  // x^n + (n choose 1)x^{n-1}y + ... + (n choose (n-k-1))x^{k+1}y^{n-k-1}
+  // This is currently just designed to work with ibeta_imp2_ln().  So we
+  // assume x and y positive, y = 1 - x, (n-k) < 40, (n-k) <= (k+1)(y/x).
+
+  // We know how to do a lot better than Boost here...
+  const double y_div_x = yy / xx;
+  double result = pow(xx, u31tod(nn));
+  if (result > kDblNormalMin) {
+    const uint32_t n_minus_k = nn - kk;
+    double term = result;
+    for (uint32_t ii = 1; ii < n_minus_k; ++ii) {
+      term *= (u31tod(nn - ii + 1) * y_div_x) / u31tod(ii);
+      result += term;
+    }
+    return inv? log1p(-result) : log(result);
+  }
+  // x^n underflow
+  // * n * (y/x) / 1
+  // * (n-1) * (y/x) / 2
+  //   ...
+  // * (n - (n-k+1) + 1) * (y/x) / (n-k+1)
+  //   k * (y/x) / (n-k+1)
+  // i.e. increasing up to at least second-to-last term, and it's reasonable to
+  // just sum in the other direction.
+
+  // todo
+  return result;
+}
+
+/*
+double ibeta_series_ln() {
+  ;;;
+}
+
+double ibeta_fraction2(double aa, double bb, double xx, double yy) {
+  // normalized always true
+
+  // todo
+  return 0.0;
+}
+*/
+
+double ibeta_imp2_ln(uint32_t df1, uint32_t df2, double xx, uint32_t inv) {
+  // normalized always true
+  //
+  // assume a >= 0, b >= 0, a+b > 0, x >= 0, a and b are multiples of 0.5 for
+  // now
+  if (df1 == 0) {
+    return inv? -DBL_MAX : 0.0;
+  }
+  if (df2 == 0) {
+    return inv? 0.0 : -DBL_MAX;
+  }
+  if (xx == 0.0) {
+    return inv? 0.0 : -DBL_MAX;
+  }
+  if (xx == 1.0) {
+    return inv? -DBL_MAX : 0.0;
+  }
+  double yy = 1.0 - xx;
+  if ((df1 == 1) && (df2 == 1)) {
+    return log(asin(sqrt(inv? yy : xx)) * (2.0 / kPi));
+  }
+  if (df1 == 2) {
+    df1 = df2;
+    df2 = 2;
+
+    const double tmp = xx;
+    xx = yy;
+    yy = tmp;
+
+    inv = 1 - inv;
+  }
+  double aa = u31tod(df1) * 0.5;
+  if (df2 == 2) {
+    if (df1 == 2) {
+      return log(inv? yy : xx);
+    }
+    double ln_pp;
+    if (yy < 0.5) {
+      //       pp = inv? -expm1(aa * log1p(-yy)) : exp(aa * log1p(-yy))
+      // -> ln_pp = inv? log(-exp(aa * log1p(-yy)) + 1.0) : (aa * log1p(-yy))
+      //          = inv? log1p(-exp(aa * log1p(-yy))) : (aa * log1p(-yy))
+      const double inner_term = aa * log1p(-yy);
+      ln_pp = inv? log1p(-exp(inner_term)) : inner_term;
+    } else {
+      //       pp = inv? -powm1(xx, aa) : pow(xx, aa);
+      // -> ln_pp = inv? log(-powm1(xx, aa)) : (aa * log(xx))
+      ln_pp = inv? neg_powm1_imp_ln(xx, aa) : (aa * log(xx));
+    }
+    return ln_pp;
+  }
+  // can ignore min(a, b) <= 1 branch for now
+
+  double bb = u31tod(df2) * 0.5;
+  double lambda;
+  if (aa < bb) {
+    lambda = aa - (aa + bb) * xx;
+  } else {
+    lambda = (aa + bb) * yy - bb;
+  }
+  if (lambda < 0.0) {
+    const uint32_t tmp1 = df1;
+    df1 = df2;
+    df2 = tmp1;
+
+    double tmp2 = aa;
+    aa = bb;
+    bb = tmp2;
+
+    tmp2 = xx;
+    xx = yy;
+    yy = tmp2;
+
+    inv = !inv;
+  }
+
+  if (df2 < 80) {
+    if ((!(df1 % 2)) && (!(df2 % 2)) && (yy != 1.0)) {
+      const uint32_t a_int = df1 / 2;
+      const uint32_t b_int = df2 / 2;
+      const uint32_t kk = a_int - 1;
+      const uint32_t nn = b_int + kk;
+      // fract = binomial_ccdf(nn, kk, xx, yy);
+      // return inv? log1p(-fract) : log(fract);
+      return binomial_ccdf_ln(nn, kk, xx, yy, inv);
+    }
+    if (bb * xx <= 0.7) {
+      ;;;
+    }
+    if (df1 > 30) {
+    }
+  }
+  // fract = ibeta_fraction2(aa, bb, xx, yy);
+  return 0.0;
+}
+
+double FstatToLnP(double ff, uint32_t df1, uint32_t df2) {
+  // See cdf() for complemented2_type in boost/math/distributions/fisher_f.hpp.
+  const double df1_d = u31tod(df1);
+  const double df2_d = u31tod(df2);
+  const double v1x = df1_d * ff;
+  if (v1x > df2_d) {
+    return ibeta_imp2_ln(df2, df1, df2_d / (df2_d + v1x), 0);
+  }
+  return ibeta_imp2_ln(df1, df2, v1x / (df2_d + v1x), 1);
+}
+
+// ***** end FstatToLnP *****
 
 
 // Inverse normal distribution

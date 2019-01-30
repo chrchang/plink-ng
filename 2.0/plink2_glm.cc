@@ -1372,14 +1372,14 @@ BoolErr CheckMaxCorrAndVifF(const float* predictors_pmaj, uint32_t predictor_ct,
   return 0;
 }
 
-BoolErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, double* covar_dotprod, double* corr_buf, double* inverse_corr_buf, double* covars_cmaj, const char** cur_covar_names, VifCorrErr* vif_corr_check_result_ptr) {
+PglErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, double* covar_dotprod, double* corr_buf, double* inverse_corr_buf, double* covars_cmaj, const char** cur_covar_names, VifCorrErr* vif_corr_check_result_ptr) {
   vif_corr_check_result_ptr->errcode = kVifCorrCheckOk;
   if (covar_ct == local_covar_ct) {
     // bugfix (5 Mar 2018): need to copy local-covar names
     for (uintptr_t local_covar_read_idx = 0; local_covar_read_idx != covar_ct; ++local_covar_read_idx) {
       cur_covar_names[local_covar_read_idx] = &(covar_names[local_covar_read_idx * max_covar_name_blen]);
     }
-    return 0;
+    return kPglRetNomem;
   }
   const uintptr_t new_covar_ct = covar_ct + extra_cat_ct;
   const uintptr_t new_nonlocal_covar_ct = new_covar_ct - local_covar_ct;
@@ -1390,7 +1390,7 @@ BoolErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* c
           BIGSTACK_ALLOC_X(MatrixInvertBuf1, kMatrixInvertBuf1CheckedAlloc * new_nonlocal_covar_ct, &matrix_invert_buf1) ||
           bigstack_alloc_w(1 + (covar_max_nonnull_cat_ct / kBitsPerWord), &cat_covar_wkspace) ||
           bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &dbl_2d_buf))) {
-    return 1;
+    return kPglRetNomem;
   }
   unsigned char* alloc_base = g_bigstack_base;
   unsigned char* new_covar_name_alloc = g_bigstack_end;
@@ -1458,7 +1458,7 @@ BoolErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* c
         const uint32_t catname_slen = strlen(catname);
         new_covar_name_alloc -= covar_name_base_slen + catname_slen + 2;
         if (unlikely(new_covar_name_alloc < alloc_base)) {
-          return 1;
+          return kPglRetNomem;
         }
         char* new_covar_name_write = memcpyax(new_covar_name_alloc, covar_name_base, covar_name_base_slen, '=');
         memcpy(new_covar_name_write, catname, catname_slen + 1);
@@ -1492,7 +1492,7 @@ BoolErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* c
     // of the linear transformations so we can translate results back to
     // original units in the final output.
     vif_corr_check_result_ptr->errcode = kVifCorrCheckScaleFail;
-    return 1;
+    return kPglRetSkipped;
   }
   assert(covar_write_iter == &(covars_cmaj[new_nonlocal_covar_ct * sample_ct]));
   MultiplySelfTranspose(covars_cmaj, new_nonlocal_covar_ct, sample_ct, covar_dotprod);
@@ -1500,7 +1500,7 @@ BoolErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* c
   // vif_corr_check_result
   CheckMaxCorrAndVif(covar_dotprod, 0, new_nonlocal_covar_ct, sample_ct, max_corr, vif_thresh, dbl_2d_buf, corr_buf, inverse_corr_buf, vif_corr_check_result_ptr, matrix_invert_buf1);
   BigstackReset(matrix_invert_buf1);
-  return 0;
+  return kPglRetSuccess;
 }
 
 // Useful precomputed values for linear and logistic regression, for variants
@@ -1570,6 +1570,9 @@ BoolErr InitNmPrecomp(const double* pheno_d, const double* covars_cmaj, const do
 // xtx_state 0: either interactions or local covariates present, no xtx_image
 // xtx_state 1: only additive effect
 // xtx_state 2: additive and domdev effects
+// Note that the immediate return value only corresponds to out-of-memory.
+// Other errors are indicated by vif_corr_check_result_ptr on a *false* return
+// value, due to how the caller is expected to handle them.
 BoolErr GlmAllocFillAndTestPhenoCovarsQt(const uintptr_t* sample_include, const double* pheno_qt, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uintptr_t xtx_state, double** pheno_d_ptr, RegressionNmPrecomp** nm_precomp_ptr, double** covars_cmaj_d_ptr, const char*** cur_covar_names_ptr, VifCorrErr* vif_corr_check_result_ptr) {
   const uintptr_t new_covar_ct = covar_ct + extra_cat_ct;
   const uintptr_t new_nonlocal_covar_ct = new_covar_ct - local_covar_ct;
@@ -1621,8 +1624,9 @@ BoolErr GlmAllocFillAndTestPhenoCovarsQt(const uintptr_t* sample_include, const 
     const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
     *pheno_d_iter++ = pheno_qt[sample_uidx];
   }
-  if (unlikely(GlmFillAndTestCovars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, covar_dotprod, corr_buf, inverse_corr_buf, *covars_cmaj_d_ptr, *cur_covar_names_ptr, vif_corr_check_result_ptr))) {
-    return 1;
+  PglErr reterr = GlmFillAndTestCovars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, covar_dotprod, corr_buf, inverse_corr_buf, *covars_cmaj_d_ptr, *cur_covar_names_ptr, vif_corr_check_result_ptr);
+  if (unlikely(reterr)) {
+    return (reterr == kPglRetNomem);
   }
   if (xtx_state) {
     if (InitNmPrecomp(*pheno_d_ptr, *covars_cmaj_d_ptr, covar_dotprod, corr_buf, inverse_corr_buf, sample_ct, new_covar_ct, xtx_state, *nm_precomp_ptr)) {
@@ -1694,8 +1698,9 @@ BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const 
   }
   const uint32_t sample_remv = sample_ctav - sample_ct;
   ZeroFArr(sample_remv, pheno_f_iter);
-  if (unlikely(GlmFillAndTestCovars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, covar_dotprod, corr_buf, inverse_corr_buf, covars_cmaj_d, *cur_covar_names_ptr, vif_corr_check_result_ptr))) {
-    return 1;
+  PglErr reterr = GlmFillAndTestCovars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, covar_dotprod, corr_buf, inverse_corr_buf, covars_cmaj_d, *cur_covar_names_ptr, vif_corr_check_result_ptr);
+  if (unlikely(reterr)) {
+    return (reterr == kPglRetNomem);
   }
   double* covar_read_iter = covars_cmaj_d;
   float* covar_write_iter = *covars_cmaj_f_ptr;

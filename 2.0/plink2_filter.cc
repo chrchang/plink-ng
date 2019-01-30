@@ -3495,7 +3495,7 @@ void EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets, c
             joint_pval *= hwe_thresh_recip;
           } else {
             // keep the variant iff female-only p-value also underflows
-            joint_pval = 2.2250738585072013e-308;
+            joint_pval = kDblNormalMin;
           }
           if (midp) {
             test_failed = !HweThreshMidp(het_a1_ct, hom_a1_ct, two_ax_ct, joint_pval);

@@ -463,6 +463,8 @@ static const double kExactTestBias = 0.00000000000000000000000010339757656912845
 
 static const double kLnPvalError = 9.0;
 
+static const double kDblNormalMin = 2.2250738585072013e-308;
+
 // probably time to flip arena_alloc and bigstack_alloc definitions...
 
 // manually managed, very large double-ended stack
