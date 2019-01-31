@@ -3924,6 +3924,16 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       // Sets.
       const uintptr_t pc_ct_x2 = pc_ct * 2;
       const uintptr_t qq_col_ct = (pc_ct + 1) * pc_ct_x2;
+      // bugfix (30 Jan 2019): First SvdRect() call returns min(variant_ct,
+      // qq_col_ct) singular vectors; this was previously assumed to always be
+      // qq_col_ct, and very inaccurate results were produced when the
+      // assumption wasn't true.
+      // Simplest solution is to force the user to request fewer PCs, since the
+      // final PCs wouldn't be accurate anyway.
+      if (qq_col_ct > variant_ct) {
+        logerrprintfww("Error: Too few variants to compute %u PCs with --pca approx (%u required).\n", pc_ct, qq_col_ct);
+        goto CalcPca_ret_INCONSISTENT_INPUT;
+      }
 #ifndef LAPACK_ILP64
       if (unlikely((variant_ct * S_CAST(uint64_t, qq_col_ct)) > 0x7effffff)) {
         logerrputs("Error: --pca approx problem instance too large for this " PROG_NAME_STR " build.  If this\nis really the computation you want, use a " PROG_NAME_STR " build with large-matrix\nsupport.\n");
@@ -4216,9 +4226,11 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       writebuf = R_CAST(char*, svd_rect_wkspace);
       // bugfix (25 Jun 2018): eigvals[] computation was missing a divide-by-2
       // somewhere, in both diploid and haploid cases.
-      const double eigvals_rescale = g_is_haploid? 0.25 : 0.5;
-      for (uint32_t pc_idx = 0; pc_idx != pc_ct; ++pc_idx) {
-        eigvals[pc_idx] *= eigvals_rescale;
+      // update (30 Jan 2019): er, actually, no.
+      if (g_is_haploid) {
+        for (uint32_t pc_idx = 0; pc_idx != pc_ct; ++pc_idx) {
+          eigvals[pc_idx] *= 0.5;
+        }
       }
     } else {
       __CLPK_integer lwork;
@@ -5298,7 +5310,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       WordWrapB(0);
       logerrputsb();
       if (duplicated_var_id_ct) {
-        logerrprintfww(g_logbuf, kLogbufSize, "Warning: %" PRIuPTR " --score file entr%s appear multiple times in the main dataset.\n", duplicated_var_id_ct, (duplicated_var_id_ct == 1)? "y was skipped since its variant ID" : "ies were skipped since their variant IDs");
+        logerrprintfww("Warning: %" PRIuPTR " --score file entr%s appear multiple times in the main dataset.\n", duplicated_var_id_ct, (duplicated_var_id_ct == 1)? "y was skipped since its variant ID" : "ies were skipped since their variant IDs");
       }
       if (!list_variants) {
         logerrputs("(Add the 'list-variants' modifier to see which variants were actually used for\nscoring.)\n");
