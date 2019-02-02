@@ -63,12 +63,29 @@ BoolErr LinearHypothesisChisqF(const float* coef, const float* constraints_con_m
       constraints_con_major_iter = &(constraints_con_major_iter[predictor_ct]);
     }
   }
+  /*
+  for (uint32_t uii = 0; uii < constraint_ct; ++uii) {
+    for (uint32_t ujj = 0; ujj < predictor_ct; ++ujj) {
+      printf("%g ", constraints_con_major[ujj + uii * predictor_ct]);
+    }
+    printf("\n");
+  }
+  printf("***\n");
+  */
   // h-transpose does not have a special stride
   FmatrixTransposeCopy(constraints_con_major, constraint_ct, predictor_ct, predictor_ct, h_transpose_buf);
   ColMajorFmatrixMultiplyStrided(h_transpose_buf, cov_matrix, constraint_ct, constraint_ct, predictor_ct, cov_stride, predictor_ct, constraint_ct, tmphxs_buf);
   // tmp[][] is now predictor-major
   ColMajorFmatrixMultiplyStrided(tmphxs_buf, constraints_con_major, constraint_ct, constraint_ct, constraint_ct, predictor_ct, predictor_ct, constraint_ct, inner_buf);
 
+  /*
+  for (uint32_t uii = 0; uii < constraint_ct; ++uii) {
+    for (uint32_t ujj = 0; ujj < constraint_ct; ++ujj) {
+      printf("%g ", inner_buf[uii * constraint_ct + ujj]);
+    }
+    printf("\n");
+  }
+  */
   if (InvertFmatrixFirstHalf(constraint_ct, constraint_ct, inner_buf, half_inverted_buf, mi_buf, dbl_2d_buf)) {
     return 1;
   }
@@ -7973,6 +7990,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       }
     }
     uintptr_t* raw_joint_test_params = nullptr;
+    uintptr_t* joint_test_params_buf = nullptr;
     g_joint_test_params = nullptr;
     g_joint_test_params_x = nullptr;
     g_joint_test_params_y = nullptr;
@@ -7990,6 +8008,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       // includes intercept
       uint32_t raw_param_ct = biallelic_raw_predictor_ct;
       if (raw_parameter_subset) {
+        if (unlikely(bigstack_alloc_w(biallelic_raw_predictor_ctl, &joint_test_params_buf))) {
+          goto GlmMain_ret_NOMEM;
+        }
         raw_param_ct = PopcountWords(raw_parameter_subset, biallelic_raw_predictor_ctl);
       }
 
@@ -8189,6 +8210,13 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       }
       if (raw_joint_test_params) {
         g_constraint_ct = CollapseParamOrTestSubset(covar_include, raw_joint_test_params, domdev_present, raw_covar_ct, covar_ct, add_interactions, g_joint_test_params);
+        if (raw_parameter_subset) {
+          // bugfix (2 Feb 2019): forgot to properly take --parameters into
+          // account
+          memcpy(joint_test_params_buf, g_joint_test_params, biallelic_raw_predictor_ctl * sizeof(intptr_t));
+          ZeroWArr(biallelic_raw_predictor_ctl, g_joint_test_params);
+          CopyBitarrSubset(joint_test_params_buf, g_parameter_subset, biallelic_predictor_ct, g_joint_test_params);
+        }
       }
       if (sample_ct <= biallelic_predictor_ct) {
         logerrprintfww("Warning: Skipping --glm regression on phenotype '%s' since # samples <= # predictor columns.\n", cur_pheno_name);
@@ -8282,6 +8310,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             }
             if (raw_joint_test_params) {
               g_constraint_ct_x = CollapseParamOrTestSubset(covar_include, raw_joint_test_params, domdev_present, raw_covar_ct, covar_ct_x, add_interactions, g_joint_test_params_x);
+              if (raw_parameter_subset) {
+                memcpy(joint_test_params_buf, g_joint_test_params_x, biallelic_raw_predictor_ctl * sizeof(intptr_t));
+                ZeroWArr(biallelic_raw_predictor_ctl, g_joint_test_params_x);
+                CopyBitarrSubset(joint_test_params_buf, g_parameter_subset, biallelic_predictor_ct_x, g_joint_test_params_x);
+              }
             }
             if (sample_ct_x <= biallelic_predictor_ct_x) {
               logerrprintfww("Warning: Skipping chrX in --glm regression on phenotype '%s', since # remaining samples <= # predictor columns.\n", cur_pheno_name);
@@ -8353,6 +8386,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             if (raw_joint_test_params) {
               assert(g_tests_flag);
               g_constraint_ct_y = CollapseParamOrTestSubset(covar_include, raw_joint_test_params, domdev_present, raw_covar_ct, covar_ct_y, add_interactions, g_joint_test_params_y);
+              if (raw_parameter_subset) {
+                memcpy(joint_test_params_buf, g_joint_test_params_y, biallelic_raw_predictor_ctl * sizeof(intptr_t));
+                ZeroWArr(biallelic_raw_predictor_ctl, g_joint_test_params_y);
+                CopyBitarrSubset(joint_test_params_buf, g_parameter_subset, biallelic_predictor_ct_y, g_joint_test_params_y);
+              }
             }
             if (sample_ct_y <= biallelic_predictor_ct_y) {
               logerrprintfww("Warning: Skipping chrY in --glm regression on phenotype '%s', since # remaining samples <= # predictor columns.\n", cur_pheno_name);
