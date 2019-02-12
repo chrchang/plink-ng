@@ -1037,63 +1037,7 @@ double betai_slow(double aa, double bb, double xx) {
   return 1.0 - bt * betacf_slow(bb, aa, 1.0 - xx) / bb;
 }
 
-// todo: try to adapt Boost beta_small_b_large_a_series()
-
-double TstatToP(double tt, double df) {
-  // must be thread-safe, so dcdflib won't cut it.
-  if (!isfinite(tt)) {
-    return -9;
-  }
-  return betai_slow(df * 0.5, 0.5, df / (df + tt * tt));
-}
-
-double TstatToP2(double tt, double df, double cached_gamma_mult) {
-  // assumes cached_mult == exp(lgamma(df * 0.5 + 0.5) - lgamma(df * 0.5) -
-  //   lgamma(0.5))
-  //         invert_thresh = (df + 2) / (df + 5)
-  double tt_sq = tt * tt;
-  double denom_recip = 1.0 / (df + tt_sq);
-  double xx = df * denom_recip;
-  double yy = tt_sq * denom_recip;
-  if ((xx < 0.0) || (yy < 0.0)) {
-    return -9;
-  }
-  uint32_t do_invert = (xx * (df + 5.0)) >= (df + 2.0);
-  if ((xx == 0.0) || (yy == 0.0)) {
-    return u31tod(do_invert);
-  }
-  double aa = df * 0.5;
-  double bt = cached_gamma_mult * pow(xx, aa) * sqrt(yy);
-  if (!do_invert) {
-    return bt * betacf_slow(aa, 0.5, xx) / aa;
-  }
-  return 1.0 - bt * 2 * betacf_slow(0.5, aa, yy);
-}
-// ***** end thread-safe TstatToP calculation *****
-
-// ***** begin TstatToLnP *****
-
-// Assumes xx is in range; no -9 error return since that value may be valid.
-double betai_slow_ln(double aa, double bb, double xx) {
-  uint32_t do_invert = (xx * (aa + bb + 2.0)) >= (aa + 1.0);
-  if ((xx == 0.0) || (xx == 1.0)) {
-    return do_invert? 0.0 : -DBL_MAX;
-  }
-  // this is very expensive
-  double bt_ln = lgamma(aa + bb) - lgamma(aa) - lgamma(bb) + aa * log(xx) + bb * log(1.0 - xx);
-  if (!do_invert) {
-    return bt_ln + log(betacf_slow(aa, bb, xx) / aa);
-  }
-  return log(1.0 - exp(bt_ln) * betacf_slow(bb, aa, 1.0 - xx) / bb);
-}
-
-double TstatToLnP(double tt, double df) {
-  return betai_slow_ln(df * 0.5, 0.5, df / (df + tt * tt));
-}
-// ***** end TstatToLnP *****
-
-// ***** FstatToLnP *****
-
+/*
 // Assumes x > 0.
 double neg_powm1_imp_ln(double xx, double yy) {
   if ((fabs(yy * (xx - 1.0)) < 0.5) || (fabs(yy) < 0.2)) {
@@ -1113,44 +1057,155 @@ double binomial_ccdf_ln(uint32_t nn, uint32_t kk, double xx, double yy, uint32_t
   // This is currently just designed to work with ibeta_imp2_ln().  So we
   // assume x and y positive, y = 1 - x, (n-k) < 40, (n-k) <= (k+1)(y/x).
 
-  // We know how to do a lot better than Boost here...
-  const double y_div_x = yy / xx;
-  double result = pow(xx, u31tod(nn));
-  if (result > kDblNormalMin) {
-    const uint32_t n_minus_k = nn - kk;
-    double term = result;
-    for (uint32_t ii = 1; ii < n_minus_k; ++ii) {
-      term *= (u31tod(nn - ii + 1) * y_div_x) / u31tod(ii);
-      result += term;
-    }
-    return inv? log1p(-result) : log(result);
+  // Thanks to the (n-k) <= (k+1)(y/x) condition, it's always reasonable to
+  // start from the rightmost term normalized to 1, and sum leftward; then we
+  // multiply by the rightmost term at the end.
+  const double n_d = u31tod(nn);
+  const double k_plus1_d = u31tod(kk + 1);
+  double multiplier = 1.0;
+  double cur_term = 1.0;
+  for (double i_d = k_plus1_d; i_d > 0.5; ) {
+    //   (n choose i) / (n choose (i + 1))
+    // = (n!/(i!(n-i!))) / (n!/((i+1)!(n-i-1)!))
+    // = (i+1)!(n-i-1)! / (i!(n-i)!)
+    // = ((i+1)!/i!) * (n-i-1)!/(n-i)!
+    // = (i+1) / (n-i)
+    cur_term *= i_d;
+    i_d -= 1.0;
+    cur_term /= n_d - i_d;
+    multiplier += cur_term;
+    // Could do an early-exit check here, but it isn't worth much when n-k is
+    // guaranteed to be less than 40.
   }
-  // x^n underflow
-  // * n * (y/x) / 1
-  // * (n-1) * (y/x) / 2
-  //   ...
-  // * (n - (n-k+1) + 1) * (y/x) / (n-k+1)
-  //   k * (y/x) / (n-k+1)
-  // i.e. increasing up to at least second-to-last term, and it's reasonable to
-  // just sum in the other direction.
+  const double result = log(multiplier) + k_plus1_d * log(xx) + (n_d - k_plus1_d) * log(yy);
+  if (!inv) {
+    return result;
+  }
+  // The nightmare scenario of result > 0.999999999999999 shouldn't happen
+  // thanks to the (n-k) <= (k+1)(y/x) condition.
+  return log1p(-exp(result));
+}
 
-  // todo
+double ibeta_power_terms(double aa, double bb, double xx, double yy) {
+  // normalized always true
+  // prefix always 1
+  double cc = aa + bb;
+
+  double la = aa + 5.0;
+  double lb = bb + 5.0;
+  double lc = cc + 5.0;
+  double sa = lower_gamma_series(aa, la, 0.0) / aa;
+  sa += upper_gamma_fraction(aa, la);
+  double sb = lower_gamma_series(bb, lb, 0.0) / bb;
+  sb += upper_gamma_fraction(bb, lb);
+  double sc = lower_gamma_series(cc, lc, 0.0) / cc;
+  sc += upper_gamma_fraction(cc, lc);
+
+  double b1 = (xx * lc) / la;
+  double b2 = (yy * lc) / lb;
+  double e1 = -5.0;
+  double lb1 = aa * log(b1);
+  double lb2 = bb * log(b2);
+  double result;
+  if ((lb1 >= kLogMaxValue) || (lb1 <= kLogMinValue) ||
+      (lb2 >= kLogMaxValue) || (lb2 <= kLogMinValue) ||
+      (e1 >= kLogMaxValue) || (e1 <= kLogMinValue)) {
+    result = exp(lb1 + lb2 - e1);
+  } else {
+    double p1 = (xx * bb - yy * la) / la;
+    if (fabs(p1) < 0.5) {
+      p1 = exp(aa * log1p(p1));
+    } else {
+      p1 = pow(b1, aa);
+    }
+    double p2 = (yy * aa - xx * lb) / lb;
+    if (fabs(p2) < 0.5) {
+      p2 = exp(bb * log1p(p2));
+    } else {
+      p2 = pow(b2, bb);
+    }
+    double p3 = exp(e1);
+    result = p1 * (p2 / p3);
+  }
+  result *= sc / (sa * sb);
   return result;
 }
 
-/*
-double ibeta_series_ln() {
-  ;;;
+double ibeta_fraction2_ln(double aa, double bb, double xx, double yy, uint32_t inv) {
+  // normalized always true
+  // inv: return log1p(-result) instead of log(result)
+
+  // see Boost continued_fraction_b()
+  const double ay_minus_bx_plus1 = aa * yy - bb * xx + 1.0;
+  double ff = (aa * ay_minus_bx_plus1) / (aa + 1.0);
+  if (fabs(ff) < kLentzFpmin) {
+    ff = kLentzFpmin;
+  }
+  const double a_plus_b = aa + bb;
+  double cc = ff;
+  double dd = 0.0;
+  double mm = 0.0;
+  while (1) {
+    double cur_a = (aa + mm) * (a_plus_b + mm);
+    mm += 1.0;
+    cur_a *= mm * (bb - mm) * xx * xx;
+    double denom = aa + 2 * mm - 1.0;
+    cur_a /= denom * denom;
+    double cur_b = mm;
+    cur_b += (mm * (bb - mm) * xx) / (aa + 2 * mm - 1.0);
+    cur_b += ((aa + mm) * (ay_minus_bx_plus1 + mm * (2.0 - xx))) / (aa + 2 * mm + 1.0);
+    dd = cur_b + cur_a * dd;
+    if (fabs(dd) < kLentzFpmin) {
+      dd = kLentzFpmin;
+    }
+    cc = cur_b + cur_a / cc;
+    if (fabs(cc) < kLentzFpmin) {
+      cc = kLentzFpmin;
+    }
+    dd = 1.0 / dd;
+    const double delta = cc * dd;
+    ff *= delta;
+    if (fabs(delta - 1.0) <= 3.0e-7) {
+      return inv? log1p(-ff) : log(ff);
+    }
+  }
 }
 
-double ibeta_fraction2(double aa, double bb, double xx, double yy) {
+double ibeta_series_ln(double aa, double bb, double xx, uint32_t inv) {
+  // normalized always true
+  // inv: return log1p(-result) instead of log(result)
+
+  // todo
+  return 0.0;
+}
+
+double beta_small_b_large_a_series(double aa, double bb, double xx, double yy, double s0, double mult) {
   // normalized always true
 
   // todo
   return 0.0;
 }
-*/
 
+double ibeta_a_step(double aa, double bb, double xx, double yy, uint32_t kk) {
+  double prefix = ibeta_power_terms(aa, bb, xx, yy);
+  prefix /= aa;
+  if (prefix == 0.0) {
+    return 0.0;
+  }
+  double sum = 1.0;
+  double term = 1.0;
+  const double a_plus_b = aa + bb;
+  const double k_minus_1pt5 = u31tod(kk) - 1.5;
+  for (double i_d = 0.0; i_d < k_minus_1pt5; ) {
+    term *= (a_plus_b + i_d) * xx;
+    i_d += 1.0;
+    term /= aa + i_d;
+    sum += term;
+  }
+  return prefix * sum;
+}
+
+// the '2' in imp2 refers to df1 and df2 arguments instead of a and b
 double ibeta_imp2_ln(uint32_t df1, uint32_t df2, double xx, uint32_t inv) {
   // normalized always true
   //
@@ -1226,26 +1281,100 @@ double ibeta_imp2_ln(uint32_t df1, uint32_t df2, double xx, uint32_t inv) {
     inv = !inv;
   }
 
-  if (df2 < 80) {
-    if ((!(df1 % 2)) && (!(df2 % 2)) && (yy != 1.0)) {
-      const uint32_t a_int = df1 / 2;
-      const uint32_t b_int = df2 / 2;
-      const uint32_t kk = a_int - 1;
-      const uint32_t nn = b_int + kk;
-      // fract = binomial_ccdf(nn, kk, xx, yy);
-      // return inv? log1p(-fract) : log(fract);
-      return binomial_ccdf_ln(nn, kk, xx, yy, inv);
-    }
-    if (bb * xx <= 0.7) {
-      ;;;
-    }
-    if (df1 > 30) {
-    }
+  if (df2 >= 80) {
+    return ibeta_fraction2_ln(aa, bb, xx, yy, inv);
   }
-  // fract = ibeta_fraction2(aa, bb, xx, yy);
-  return 0.0;
+  if ((!(df1 % 2)) && (!(df2 % 2)) && (yy != 1.0)) {
+    const uint32_t a_int = df1 / 2;
+    const uint32_t b_int = df2 / 2;
+    const uint32_t kk = a_int - 1;
+    const uint32_t nn = b_int + kk;
+    return binomial_ccdf_ln(nn, kk, xx, yy, inv);
+  }
+  if (bb * xx <= 0.7) {
+    return ibeta_series_ln(aa, bb, xx, inv);
+  }
+  const uint32_t nn = (df2 - 1) / 2;
+  const double bbar = bb - u31tod(nn);
+  double fract = ibeta_a_step(bbar, aa, yy, xx, nn);
+  if (df1 > 30) {
+    fract = beta_small_b_large_a_series(aa, bbar, xx, yy, fract, 1);
+    return inv? log1p(-fract) : log(fract);
+  }
+  fract += ibeta_a_step(aa, bbar, xx, yy, 20);
+  if (inv) {
+    fract -= 1.0;
+  }
+  fract = beta_small_b_large_a_series(aa + 20.0, bbar, xx, yy, fract, 1);
+  if (inv) {
+    fract = -fract;
+  }
+  return log(fract);
+}
+*/
+
+// todo: use Boost beta_small_b_large_a_series() instead, behind ibeta/ibetac
+double TstatToP(double tt, double df) {
+  // must be thread-safe, so dcdflib won't cut it.
+  if (!isfinite(tt)) {
+    return -9;
+  }
+  return betai_slow(df * 0.5, 0.5, df / (df + tt * tt));
 }
 
+double TstatToP2(double tt, double df, double cached_gamma_mult) {
+  // assumes cached_mult == exp(lgamma(df * 0.5 + 0.5) - lgamma(df * 0.5) -
+  //   lgamma(0.5))
+  //         invert_thresh = (df + 2) / (df + 5)
+  double tt_sq = tt * tt;
+  double denom_recip = 1.0 / (df + tt_sq);
+  double xx = df * denom_recip;
+  double yy = tt_sq * denom_recip;
+  if ((xx < 0.0) || (yy < 0.0)) {
+    return -9;
+  }
+  uint32_t do_invert = (xx * (df + 5.0)) >= (df + 2.0);
+  if ((xx == 0.0) || (yy == 0.0)) {
+    return u31tod(do_invert);
+  }
+  double aa = df * 0.5;
+  double bt = cached_gamma_mult * pow(xx, aa) * sqrt(yy);
+  if (!do_invert) {
+    return bt * betacf_slow(aa, 0.5, xx) / aa;
+  }
+  return 1.0 - bt * 2 * betacf_slow(0.5, aa, yy);
+}
+// ***** end thread-safe TstatToP calculation *****
+
+// ***** begin TstatToLnP *****
+
+// Assumes xx is in range; no -9 error return since that value may be valid.
+double betai_slow_ln(double aa, double bb, double xx) {
+  uint32_t do_invert = (xx * (aa + bb + 2.0)) >= (aa + 1.0);
+  if ((xx == 0.0) || (xx == 1.0)) {
+    return do_invert? 0.0 : -DBL_MAX;
+  }
+  // this is very expensive
+  double bt_ln = lgamma(aa + bb) - lgamma(aa) - lgamma(bb) + aa * log(xx) + bb * log(1.0 - xx);
+  if (!do_invert) {
+    return bt_ln + log(betacf_slow(aa, bb, xx) / aa);
+  }
+  return log(1.0 - exp(bt_ln) * betacf_slow(bb, aa, 1.0 - xx) / bb);
+}
+
+// todo: use Boost beta_small_b_large_a_series() instead, behind ibeta/ibetac
+// for large |t|:
+//    1 - 2 * ibeta(df/2, 1/2, df / (df + t*t))
+// small |t|:
+//    1 - 2 * ibetac(1/2, df/2, (t*t) / (df + t*t))
+double TstatToLnP(double tt, double df) {
+  return betai_slow_ln(df * 0.5, 0.5, df / (df + tt * tt));
+}
+// ***** end TstatToLnP *****
+
+// ***** FstatToLnP *****
+
+/*
 double FstatToLnP(double ff, uint32_t df1, uint32_t df2) {
   // See cdf() for complemented2_type in boost/math/distributions/fisher_f.hpp.
   const double df1_d = u31tod(df1);
@@ -1256,6 +1385,7 @@ double FstatToLnP(double ff, uint32_t df1, uint32_t df2) {
   }
   return ibeta_imp2_ln(df1, df2, v1x / (df2_d + v1x), 1);
 }
+*/
 
 // ***** end FstatToLnP *****
 

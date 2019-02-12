@@ -1034,7 +1034,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    The main report supports the following column sets:\n"
 "      maybefid: FID, if that column was in the input.\n"
 "      fid: Force FID column to be written even when absent in the input.\n"
-"      (IID are always present, and positioned here.)\n"
+"      (IID is always present, and positioned here.)\n"
 "      maybesid: SID, if that column was in the input.\n"
 "      sid: Force SID column to be written even when absent in the input.\n"
 "      pheno1: First active phenotype.\n"

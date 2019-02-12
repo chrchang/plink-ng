@@ -67,10 +67,10 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (2 Feb 2019)";
+  " (12 Feb 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -7891,13 +7891,14 @@ int main(int argc, char** argv) {
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
-            } else if (unlikely(numeric_param_ct == 3)) {
-              logerrputs("Error: --score takes at most three numeric parameters.\n");
-              goto main_ret_INVALID_CMDLINE_A;
             } else {
               if (unlikely(ScanPosintCapped(cur_modif, kMaxLongLine / 2, &(score_cols[numeric_param_ct])))) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --score parameter '%s'.\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_WWA;
+              }
+              if (unlikely(numeric_param_ct == 3)) {
+                logerrputs("Error: --score takes at most three numeric parameters.\n");
+                goto main_ret_INVALID_CMDLINE_A;
               }
               for (uint32_t uii = 0; uii != numeric_param_ct; ++uii) {
                 if (unlikely(score_cols[uii] == score_cols[numeric_param_ct])) {

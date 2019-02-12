@@ -537,7 +537,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
                 g_cur_block_write_ct = 0;
                 ErrorCleanupThreads2z(TransposeToSmajReadThread, calc_thread_ct, threads);
               }
-              goto ExportIndMajorBed_ret_THREAD_CREATE_FAIL;
+              goto ExportIndMajorBed_ret_READ_FAIL;
             }
           }
           if (variant_idx) {
@@ -658,6 +658,9 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
     break;
   ExportIndMajorBed_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
+    break;
+  ExportIndMajorBed_ret_READ_FAIL:
+    reterr = kPglRetReadFail;
     break;
   ExportIndMajorBed_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -6240,7 +6243,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
             }
           }
           if (unlikely(PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_write_ct, pgfip))) {
-            goto Export012Smaj_ret_THREAD_CREATE_FAIL;
+            goto Export012Smaj_ret_READ_FAIL;
           }
         }
         if (variant_idx) {
@@ -6366,6 +6369,9 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
     break;
   Export012Smaj_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
+    break;
+  Export012Smaj_ret_READ_FAIL:
+    reterr = kPglRetReadFail;
     break;
   Export012Smaj_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;

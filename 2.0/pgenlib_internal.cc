@@ -13828,8 +13828,9 @@ BoolErr AppendDphase16(const uintptr_t* __restrict dosage_present, const uintptr
   *vrtype_ptr += 0x80;
   if (dphase_ct != pwcp->sample_ct) {
     // bugfix (9 Dec 2018): forgot to separate fixed-width phased-dosage case
+    // bugfix (12 Feb 2019): double-added dphase_ct * sizeof(int16_t)
     const uint32_t dphase_present_byte_ct = DivUp(dosage_ct, CHAR_BIT);
-    if (unlikely(CheckedVrecLenIncr(dphase_present_byte_ct + dphase_ct * sizeof(int16_t), vrec_len_ptr))) {
+    if (unlikely(CheckedVrecLenIncr(dphase_present_byte_ct, vrec_len_ptr))) {
       return 1;
     }
     CopyBitarrSubset(dphase_present, dosage_present, dosage_ct, R_CAST(uintptr_t*, pwcp->fwrite_bufp));
