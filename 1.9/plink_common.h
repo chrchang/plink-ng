@@ -1373,6 +1373,33 @@ HEADER_INLINE uint32_t scan_float(const char* ss, float* valp) {
   return (ss == ss2);
 }
 
+// More restrictive parsing of command-line parameters.
+HEADER_INLINE uint32_t scan_doublex(const char* ss, double* valp) {
+  char* ss2;
+  *valp = strtod(ss, &ss2);
+  return (ss == ss2) || (!is_space_or_eoln(ss2[0]));
+}
+
+uint32_t scan_posint_cappedx(const char* ss, uint64_t cap, uint32_t* valp);
+
+uint32_t scan_uint_cappedx(const char* ss, uint64_t cap, uint32_t* valp);
+
+uint32_t scan_int_abs_boundedx(const char* ss, uint64_t bound, int32_t* valp);
+
+HEADER_INLINE uint32_t scan_int32x(const char* ss, int32_t* valp) {
+  return scan_int_abs_boundedx(ss, 0x7fffffff, valp);
+}
+
+HEADER_INLINE uint32_t scan_posint_defcapx(const char* ss, uint32_t* valp) {
+  return scan_posint_cappedx(ss, 0x7ffffffe, valp);
+}
+
+HEADER_INLINE uint32_t scan_uint_defcapx(const char* ss, uint32_t* valp) {
+  return scan_uint_cappedx(ss, 0x7ffffffe, valp);
+}
+
+uint32_t scan_posintptrx(const char* ss, uintptr_t* valp);
+
 // __restrict isn't very important for newer x86 processors since loads/stores
 // tend to be automatically reordered, but may as well use it properly in
 // plink_common.

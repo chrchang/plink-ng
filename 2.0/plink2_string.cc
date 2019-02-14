@@ -1615,6 +1615,43 @@ CXXCONST_CP ScanadvLn(const char* str_iter, double* ln_ptr) {
   return S_CAST(CXXCONST_CP, str_iter);
 }
 
+BoolErr ScanPosintCappedx(const char* str_iter, uint64_t cap, uint32_t* valp) {
+  double val;
+  if (ScanDoublex(str_iter, &val) || (val < 1.0) || (val > S_CAST(double, cap))) {
+    return 1;
+  }
+  *valp = S_CAST(uint32_t, val);
+  return (val != S_CAST(double, *valp));
+}
+
+BoolErr ScanUintCappedx(const char* str_iter, uint64_t cap, uint32_t* valp) {
+  double val;
+  if (ScanDoublex(str_iter, &val) || (val < 0.0) || (val > S_CAST(double, cap))) {
+    return 1;
+  }
+  *valp = S_CAST(uint32_t, val);
+  return (val != S_CAST(double, *valp));
+}
+
+BoolErr ScanIntAbsBoundedx(const char* str_iter, int64_t bound, int32_t* valp) {
+  const double bound_d = S_CAST(double, bound);
+  double val;
+  if (ScanDoublex(str_iter, &val) || (val < -bound_d) || (val > bound_d)) {
+    return 1;
+  }
+  *valp = S_CAST(int32_t, val);
+  return (val != S_CAST(double, *valp));
+}
+
+BoolErr ScanPosintptrx(const char* str_iter, uintptr_t* valp) {
+  double val;
+  if (ScanDoublex(str_iter, &val) || (val < 1.0) || (val > S_CAST(double, ~k0LU))) {
+    return 1;
+  }
+  *valp = S_CAST(uintptr_t, val);
+  return (val != S_CAST(double, *valp));
+}
+
 void GetTopTwoUi(const uint32_t* __restrict uint_arr, uintptr_t uia_size, uintptr_t* __restrict top_idx_ptr, uintptr_t* __restrict second_idx_ptr) {
   assert(uia_size > 1);
   uintptr_t top_idx = (uint_arr[1] > uint_arr[0])? 1 : 0;

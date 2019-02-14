@@ -2347,7 +2347,7 @@ PglErr ParseNameRanges(const char* const* argvk, const char* errstr_append, uint
               return kPglRetInvalidCmdline;
             }
           } while (*(++dup_check));
-          if (unlikely(ScanPosintDefcap(cur_name_str, &cur_val))) {
+          if (unlikely(ScanPosintDefcapx(cur_name_str, &cur_val))) {
             logerrprintfww("Error: Invalid %s parameter '%s'.\n", argvk[0], cur_name_str);
             return kPglRetInvalidCmdline;
           }
@@ -4075,9 +4075,9 @@ PglErr ValidateAndAllocCmpExpr(const char* const* sources, const char* flag_name
       logerrprintf("Error: ID too long in %s expression.\n", flag_name);
       goto ValidateAndAllocCmpExpr_ret_INVALID_CMDLINE;
     }
-    if (unlikely((cmp_expr_ptr->binary_op != kCmpOperatorNoteq) && (cmp_expr_ptr->binary_op != kCmpOperatorEq))) {
+    if ((cmp_expr_ptr->binary_op != kCmpOperatorNoteq) && (cmp_expr_ptr->binary_op != kCmpOperatorEq)) {
       double dxx;
-      if (!ScanadvDouble(pheno_val_start, &dxx)) {
+      if (unlikely(ScanDoublex(pheno_val_start, &dxx))) {
         logerrprintfww("Error: Invalid %s value '%s' (finite number expected).\n", flag_name, pheno_val_start);
         goto ValidateAndAllocCmpExpr_ret_INVALID_CMDLINE;
       }

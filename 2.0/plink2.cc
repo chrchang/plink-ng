@@ -67,7 +67,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (12 Feb 2019)";
+  " (14 Feb 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -2540,12 +2540,12 @@ PglErr Alloc2col(const char* const* sources, const char* flagname_p, uint32_t pa
   (*tcbuf)->skip_ct = 0;
   (*tcbuf)->skipchar = '\0';
   if (param_ct > 1) {
-    if (unlikely(ScanPosintDefcap(sources[1], &((*tcbuf)->colx)))) {
+    if (unlikely(ScanPosintDefcapx(sources[1], &((*tcbuf)->colx)))) {
       logerrprintf("Error: Invalid --%s column number.\n", flagname_p);
       return kPglRetInvalidCmdline;
     }
     if (param_ct > 2) {
-      if (unlikely(ScanPosintDefcap(sources[2], &((*tcbuf)->colid)))) {
+      if (unlikely(ScanPosintDefcapx(sources[2], &((*tcbuf)->colid)))) {
         logerrprintf("Error: Invalid --%s variant ID column number.\n", flagname_p);
         return kPglRetInvalidCmdline;
       }
@@ -2558,7 +2558,7 @@ PglErr Alloc2col(const char* const* sources, const char* flagname_p, uint32_t pa
           }
           (*tcbuf)->skipchar = cc;
         } else {
-          if (unlikely(ScanUintDefcap(sources[3], &((*tcbuf)->skip_ct)))) {
+          if (unlikely(ScanUintDefcapx(sources[3], &((*tcbuf)->skip_ct)))) {
           Alloc2col_invalid_skip:
             logerrprintf("Error: Invalid --%s skip parameter.  This needs to either be a\nsingle character (usually '#') which, when present at the start of a line,\nindicates it should be skipped; or the number of initial lines to skip.  (Note\nthat in shells such as bash, '#' is a special character that must be\nsurrounded by single- or double-quotes to be parsed correctly.)\n", flagname_p);
             return kPglRetInvalidCmdline;
@@ -3551,14 +3551,14 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (unlikely(ScanPosintDefcap(cur_modif, &pc.aperm.min))) {
+          if (unlikely(ScanPosintDefcapx(cur_modif, &pc.aperm.min))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm min permutation count '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           ++pc.aperm.min;
           if (param_ct > 1) {
             cur_modif = argvk[arg_idx + 2];
-            if (unlikely(ScanPosintCapped(cur_modif, kApermMax, &pc.aperm.max))) {
+            if (unlikely(ScanPosintCappedx(cur_modif, kApermMax, &pc.aperm.max))) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm max permutation count '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
@@ -3570,19 +3570,19 @@ int main(int argc, char** argv) {
           aperm_present = 1;
           if (param_ct > 2) {
             cur_modif = argvk[arg_idx + 3];
-            if (unlikely(!ScanadvDouble(cur_modif, &pc.aperm.alpha))) {
+            if (unlikely(ScanDoublex(cur_modif, &pc.aperm.alpha))) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm alpha threshold '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
             if (param_ct > 3) {
               cur_modif = argvk[arg_idx + 4];
-              if (unlikely((!ScanadvDouble(cur_modif, &pc.aperm.beta)) || (pc.aperm.beta <= 0.0))) {
+              if (unlikely((ScanDoublex(cur_modif, &pc.aperm.beta)) || (pc.aperm.beta <= 0.0))) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm beta '%s'.\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
               if (param_ct > 4) {
                 cur_modif = argvk[arg_idx + 5];
-                if (unlikely(!ScanadvDouble(cur_modif, &pc.aperm.init_interval))) {
+                if (unlikely(ScanDoublex(cur_modif, &pc.aperm.init_interval))) {
                   snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm initial pruning interval '%s'.\n", cur_modif);
                   goto main_ret_INVALID_CMDLINE_WWA;
                 }
@@ -3592,7 +3592,7 @@ int main(int argc, char** argv) {
                 }
                 if (param_ct == 6) {
                   cur_modif = argvk[arg_idx + 6];
-                  if (unlikely(!ScanadvDouble(cur_modif, &pc.aperm.interval_slope) || (pc.aperm.interval_slope < 0.0) || (pc.aperm.interval_slope > 1.0))) {
+                  if (unlikely(ScanDoublex(cur_modif, &pc.aperm.interval_slope) || (pc.aperm.interval_slope < 0.0) || (pc.aperm.interval_slope > 1.0))) {
                     snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm pruning interval slope '%s'.\n", cur_modif);
                     goto main_ret_INVALID_CMDLINE_WWA;
                   }
@@ -3606,7 +3606,7 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvk[arg_idx + 1];
           uint32_t autosome_ct;
-          if (unlikely(ScanPosintCapped(cur_modif, kMaxChrTextnum, &autosome_ct))) {
+          if (unlikely(ScanPosintCappedx(cur_modif, kMaxChrTextnum, &autosome_ct))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --autosome-num parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -3780,7 +3780,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (unlikely(ScanPosintDefcap(cur_modif, &pc.min_bp_space))) {
+          if (unlikely(ScanPosintDefcapx(cur_modif, &pc.min_bp_space))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --bp-space minimum bp distance '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -3847,7 +3847,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          if (unlikely(!ScanadvDouble(argvk[arg_idx + 1], &pc.ci_size))) {
+          if (unlikely(ScanDoublex(argvk[arg_idx + 1], &pc.ci_size))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --ci parameter '%s'.\n", argvk[arg_idx + 1]);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -3947,7 +3947,7 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvk[arg_idx + 1];
           int32_t signed_autosome_ct;
-          if (unlikely(ScanIntAbsBounded(cur_modif, kMaxChrTextnum, &signed_autosome_ct) || (!signed_autosome_ct))) {
+          if (unlikely(ScanIntAbsBoundedx(cur_modif, kMaxChrTextnum, &signed_autosome_ct) || (!signed_autosome_ct))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --chr-set parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -4098,7 +4098,7 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvk[arg_idx + 1];
           double dosage_erase_frac;
-          if (unlikely((!ScanadvDouble(cur_modif, &dosage_erase_frac)) || (dosage_erase_frac < 0.0) || (dosage_erase_frac >= (0.5 - kSmallEpsilon)))) {
+          if (unlikely((ScanDoublex(cur_modif, &dosage_erase_frac)) || (dosage_erase_frac < 0.0) || (dosage_erase_frac >= (0.5 - kSmallEpsilon)))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --dosage-erase-threshold parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -4110,11 +4110,11 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 8))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          if (unlikely(ScanPosintDefcap(argvk[arg_idx + 1], &gendummy_info.sample_ct))) {
+          if (unlikely(ScanPosintDefcapx(argvk[arg_idx + 1], &gendummy_info.sample_ct))) {
             logerrputs("Error: Invalid --dummy sample count.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (unlikely(ScanPosintDefcap(argvk[arg_idx + 2], &gendummy_info.variant_ct))) {
+          if (unlikely(ScanPosintDefcapx(argvk[arg_idx + 2], &gendummy_info.variant_ct))) {
             logerrputs("Error: Invalid --dummy SNP count.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
@@ -4130,7 +4130,7 @@ int main(int argc, char** argv) {
               gendummy_info.flags |= kfGenDummy12;
             } else if (StrStartsWith(cur_modif, "pheno-ct=", cur_modif_slen)) {
               const char* pheno_ct_start = &(cur_modif[strlen("pheno-ct=")]);
-              if (unlikely(ScanUintCapped(pheno_ct_start, kMaxPhenoCt, &gendummy_info.pheno_ct))) {
+              if (unlikely(ScanUintCappedx(pheno_ct_start, kMaxPhenoCt, &gendummy_info.pheno_ct))) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --dummy pheno-ct= parameter '%s'.\n", pheno_ct_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
@@ -4139,14 +4139,14 @@ int main(int argc, char** argv) {
             } else if (StrStartsWith(cur_modif, "dosage-freq=", cur_modif_slen)) {
               const char* dosage_freq_start = &(cur_modif[strlen("dosage-freq=")]);
               double dxx;
-              if (unlikely((!ScanadvDouble(dosage_freq_start, &dxx)) || (dxx < 0.0) || (dxx > 1.0))) {
+              if (unlikely((ScanDoublex(dosage_freq_start, &dxx)) || (dxx < 0.0) || (dxx > 1.0))) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --dummy dosage-freq= parameter '%s'.\n", dosage_freq_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
               gendummy_info.dosage_freq = dxx;
             } else {
               double dxx;
-              if (unlikely((extra_numeric_param_ct == 2) || (!ScanadvDouble(cur_modif, &dxx)) || (dxx < 0.0) || (dxx > 1.0))) {
+              if (unlikely((extra_numeric_param_ct == 2) || (ScanDoublex(cur_modif, &dxx)) || (dxx < 0.0) || (dxx > 1.0))) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --dummy parameter '%s'.\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
@@ -4361,7 +4361,7 @@ int main(int argc, char** argv) {
               }
               const char* bits_start = &(cur_modif[strlen("bits=")]);
               uint32_t bgen_bits;
-              if (unlikely(ScanPosintCapped(bits_start, 24, &bgen_bits))) {
+              if (unlikely(ScanPosintCappedx(bits_start, 24, &bgen_bits))) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --export bits= parameter '%s'.\n", bits_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
@@ -4588,7 +4588,7 @@ int main(int argc, char** argv) {
           // permit negative numbers, to simplify shell script windowing logic
           const char* cur_modif = argvk[arg_idx + 1];
           double dxx;
-          if (unlikely(!ScanadvDouble(cur_modif, &dxx))) {
+          if (unlikely(ScanDoublex(cur_modif, &dxx))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --from-bp/-kb/-mb parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -4678,7 +4678,7 @@ int main(int argc, char** argv) {
             } else if (unlikely(geno_thresh_present)) {
               logerrputs("Error: Invalid --geno parameter sequence.\n");
               goto main_ret_INVALID_CMDLINE_A;
-            } else if (unlikely(!ScanadvDouble(cur_modif, &pc.geno_thresh))) {
+            } else if (unlikely(ScanDoublex(cur_modif, &pc.geno_thresh))) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --geno parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             } else if (unlikely((pc.geno_thresh < 0.0) || (pc.geno_thresh > 1.0))) {
@@ -4796,7 +4796,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Improper --glm mperm syntax.  (Use --glm mperm=[value]'.)\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-              if (unlikely(ScanPosintDefcap(&(cur_modif[6]), &pc.glm_info.mperm_ct))) {
+              if (unlikely(ScanPosintDefcapx(&(cur_modif[6]), &pc.glm_info.mperm_ct))) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --glm mperm= parameter '%s'.\n", &(cur_modif[6]));
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
@@ -4839,7 +4839,7 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE;
               }
               // bugfix (7 Nov 2017): forgot to offset by strlen("local-cats=")
-              if (unlikely(ScanPosintCapped(&(cur_modif[strlen("local-cats=")]), 4095, &pc.glm_info.local_cat_ct) || (pc.glm_info.local_cat_ct == 1))) {
+              if (unlikely(ScanPosintCappedx(&(cur_modif[strlen("local-cats=")]), 4095, &pc.glm_info.local_cat_ct) || (pc.glm_info.local_cat_ct == 1))) {
                 logerrputs("Error: Invalid --glm local-cats= category count (must be in [2, 4095]).\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
@@ -4992,7 +4992,7 @@ int main(int argc, char** argv) {
             } else if (!strcmp(cur_modif, "keep-fewhet")) {
               pc.misc_flags |= kfMiscHweKeepFewhet;
             } else {
-              if (unlikely((pc.hwe_thresh != 1.0) || (!ScanadvDouble(cur_modif, &pc.hwe_thresh)))) {
+              if (unlikely((pc.hwe_thresh != 1.0) || (ScanDoublex(cur_modif, &pc.hwe_thresh)))) {
                 logerrputs("Error: Invalid --hwe parameter sequence.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
@@ -5017,7 +5017,7 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvk[arg_idx + 1];
           double hard_call_frac;
-          if (unlikely((!ScanadvDouble(cur_modif, &hard_call_frac)) || (hard_call_frac < 0.0) || (hard_call_frac >= (0.5 - kSmallEpsilon)))) {
+          if (unlikely((ScanDoublex(cur_modif, &hard_call_frac)) || (hard_call_frac < 0.0) || (hard_call_frac >= (0.5 - kSmallEpsilon)))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --hard-call-threshold parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -5202,7 +5202,7 @@ int main(int argc, char** argv) {
           if (next_param_idx < param_ct) {
             // explicit step size
             cur_modif = argvk[arg_idx + next_param_idx];
-            if (unlikely(ScanPosintDefcap(cur_modif, &pc.ld_info.prune_window_incr))) {
+            if (unlikely(ScanPosintDefcapx(cur_modif, &pc.ld_info.prune_window_incr))) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s window-increment '%s'.\n", flagname_p, cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
@@ -5219,7 +5219,7 @@ int main(int argc, char** argv) {
             pc.ld_info.prune_window_incr = 1;
           }
           cur_modif = argvk[arg_idx + param_ct];
-          if (unlikely((!ScanadvDouble(cur_modif, &pc.ld_info.prune_last_param)) || (pc.ld_info.prune_last_param < 0.0) || (pc.ld_info.prune_last_param >= 1.0))) {
+          if (unlikely((ScanDoublex(cur_modif, &pc.ld_info.prune_last_param)) || (pc.ld_info.prune_last_param < 0.0) || (pc.ld_info.prune_last_param >= 1.0))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s r^2 threshold '%s'.\n", flagname_p2, cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -5246,7 +5246,7 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvk[arg_idx + 1];
           double dxx;
-          if (unlikely(ScanInt32(cur_modif, &pc.missing_pheno) || ((pc.missing_pheno >= 0) && (pc.missing_pheno <= 2)) || (!ScanadvDouble(cur_modif, &dxx)) || (dxx != S_CAST(double, pc.missing_pheno)))) {
+          if (unlikely(ScanInt32x(cur_modif, &pc.missing_pheno) || ((pc.missing_pheno >= 0) && (pc.missing_pheno <= 2)) || (ScanDoublex(cur_modif, &dxx)) || (dxx != S_CAST(double, pc.missing_pheno)))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --input-missing-phenotype parameter '%s' (must be an integer in [-2147483647, -1] or [3, 2147483647]).\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -5255,7 +5255,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (unlikely((!ScanadvDouble(cur_modif, &import_dosage_certainty)) || (import_dosage_certainty < 0.0) || (import_dosage_certainty > 1.0))) {
+          if (unlikely((ScanDoublex(cur_modif, &import_dosage_certainty)) || (import_dosage_certainty < 0.0) || (import_dosage_certainty > 1.0))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --import-dosage-certainty parameter '%s' (must be in [0, 1]).\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -5279,7 +5279,7 @@ int main(int argc, char** argv) {
                 logerrprintf("Error: Multiple --import-dosage skip%u= modifiers.\n", skip_idx);
                 goto main_ret_INVALID_CMDLINE;
               }
-              if (unlikely(ScanUintCapped(&(cur_modif[6]), kMaxLongLine / 2, &(plink1_dosage_info.skips[skip_idx])))) {
+              if (unlikely(ScanUintCappedx(&(cur_modif[6]), kMaxLongLine / 2, &(plink1_dosage_info.skips[skip_idx])))) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --import-dosage skip%u= parameter '%s'.\n", skip_idx, &(cur_modif[6]));
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
@@ -5343,7 +5343,7 @@ int main(int argc, char** argv) {
               }
               const char* chr_col_num_start = &(cur_modif[strlen("chr-col-num=")]);
               uint32_t uii;
-              if (unlikely(ScanPosintCapped(chr_col_num_start, kMaxLongLine / 2, &uii))) {
+              if (unlikely(ScanPosintCappedx(chr_col_num_start, kMaxLongLine / 2, &uii))) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --import-dosage chr-col-num= parameter '%s'.\n", chr_col_num_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
@@ -5355,7 +5355,7 @@ int main(int argc, char** argv) {
               }
               const char* pos_col_num_start = &(cur_modif[strlen("pos-col-num=")]);
               uint32_t uii;
-              if (unlikely(ScanPosintCapped(pos_col_num_start, kMaxLongLine / 2, &uii))) {
+              if (unlikely(ScanPosintCappedx(pos_col_num_start, kMaxLongLine / 2, &uii))) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --import-dosage pos-col-num= parameter '%s'.\n", pos_col_num_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
@@ -5484,7 +5484,7 @@ int main(int argc, char** argv) {
             pc.dependency_flags |= kfFilterAllReq;
           }
           const char* cur_modif = argvk[arg_idx + param_ct];
-          if (unlikely((!ScanadvDouble(cur_modif, &pc.king_cutoff)) || (pc.king_cutoff < 0.0) || (pc.king_cutoff >= 0.5))) {
+          if (unlikely((ScanDoublex(cur_modif, &pc.king_cutoff)) || (pc.king_cutoff < 0.0) || (pc.king_cutoff >= 0.5))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --king-cutoff parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -5494,7 +5494,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (unlikely((!ScanadvDouble(cur_modif, &pc.king_table_filter)) || (pc.king_table_filter > 0.5))) {
+          if (unlikely((ScanDoublex(cur_modif, &pc.king_table_filter)) || (pc.king_table_filter > 0.5))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --king-table-filter parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -5512,7 +5512,7 @@ int main(int argc, char** argv) {
           }
           if (param_ct == 2) {
             const char* cur_modif = argvk[arg_idx + 2];
-            if (unlikely((!ScanadvDouble(cur_modif, &pc.king_table_subset_thresh)) || (pc.king_table_subset_thresh > 0.5))) {
+            if (unlikely((ScanDoublex(cur_modif, &pc.king_table_subset_thresh)) || (pc.king_table_subset_thresh > 0.5))) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --king-table-subset threshold '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
@@ -5589,7 +5589,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (unlikely(ScanPosintDefcap(cur_modif, &pc.keep_fcol_num) || (pc.keep_fcol_num == 1))) {
+          if (unlikely(ScanPosintDefcapx(cur_modif, &pc.keep_fcol_num) || (pc.keep_fcol_num == 1))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --keep-fcol-num parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -5614,7 +5614,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           double lambda;
-          if (unlikely(!ScanadvDouble(argvk[arg_idx + 1], &lambda))) {
+          if (unlikely(ScanDoublex(argvk[arg_idx + 1], &lambda))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --lambda parameter '%s'.\n", argvk[arg_idx + 1]);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -5709,7 +5709,7 @@ int main(int argc, char** argv) {
             memory_require = 1;
           }
           const char* mb_modif = argvk[arg_idx + mb_modif_idx];
-          if (unlikely(ScanPosintptr(mb_modif, R_CAST(uintptr_t*, &malloc_size_mib)))) {
+          if (unlikely(ScanPosintptrx(mb_modif, R_CAST(uintptr_t*, &malloc_size_mib)))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --memory parameter '%s'.\n", mb_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -6524,7 +6524,7 @@ int main(int argc, char** argv) {
             } else if (unlikely(mind_thresh_present)) {
               logerrputs("Error: Invalid --mind parameter sequence.\n");
               goto main_ret_INVALID_CMDLINE_A;
-            } else if (unlikely(!ScanadvDouble(cur_modif, &pc.mind_thresh))) {
+            } else if (unlikely(ScanDoublex(cur_modif, &pc.mind_thresh))) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mind parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             } else if (unlikely((pc.mind_thresh < 0.0) || (pc.mind_thresh > 1.0))) {
@@ -6579,7 +6579,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (unlikely(!ScanadvDouble(cur_modif, &pc.glm_info.max_corr))) {
+          if (unlikely(ScanDoublex(cur_modif, &pc.glm_info.max_corr))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --max-corr parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -6593,7 +6593,7 @@ int main(int argc, char** argv) {
           }
           if (param_ct) {
             const char* cur_modif = argvk[arg_idx + 1];
-            if (unlikely(!ScanadvDouble(cur_modif, &pc.mach_r2_min))) {
+            if (unlikely(ScanDoublex(cur_modif, &pc.mach_r2_min))) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mach-r2-filter min parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
@@ -6603,7 +6603,7 @@ int main(int argc, char** argv) {
             }
             if (param_ct == 2) {
               cur_modif = argvk[arg_idx + 2];
-              if (unlikely(!ScanadvDouble(cur_modif, &pc.mach_r2_max))) {
+              if (unlikely(ScanDoublex(cur_modif, &pc.mach_r2_max))) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mach-r2-filter max parameter '%s'.\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
@@ -6851,7 +6851,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (unlikely(ScanPosintCapped(cur_modif, kMaxLongLine / 2, &pc.mwithin_val))) {
+          if (unlikely(ScanPosintCappedx(cur_modif, kMaxLongLine / 2, &pc.mwithin_val))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mwithin parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -6874,7 +6874,7 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvk[arg_idx + 1];
           uint32_t mfilter_arg;
-          if (unlikely(ScanPosintDefcap(cur_modif, &mfilter_arg))) {
+          if (unlikely(ScanPosintDefcapx(cur_modif, &mfilter_arg))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mfilter parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -6884,7 +6884,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (unlikely(ScanPosintDefcap(cur_modif, &pc.filter_max_allele_ct))) {
+          if (unlikely(ScanPosintDefcapx(cur_modif, &pc.filter_max_allele_ct))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --max-alleles parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -6894,7 +6894,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (unlikely(ScanPosintDefcap(cur_modif, &pc.filter_min_allele_ct))) {
+          if (unlikely(ScanPosintDefcapx(cur_modif, &pc.filter_min_allele_ct))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --min-alleles parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -6913,7 +6913,7 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvk[arg_idx + 1];
           uint32_t mpheno_arg;
-          if (unlikely(ScanPosintDefcap(cur_modif, &mpheno_arg))) {
+          if (unlikely(ScanPosintDefcapx(cur_modif, &mpheno_arg))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mpheno parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -6986,7 +6986,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (unlikely(ScanPosintCapped(cur_modif, kMaxIdSlen - 2, &pc.new_variant_id_max_allele_slen))) {
+          if (unlikely(ScanPosintCappedx(cur_modif, kMaxIdSlen - 2, &pc.new_variant_id_max_allele_slen))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --new-id-max-allele-len length parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -7073,7 +7073,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (unlikely((!ScanadvLn(cur_modif, &pc.output_min_ln)) || (pc.output_min_ln >= 0.0))) {
+          if (unlikely((ScanLnx(cur_modif, &pc.output_min_ln)) || (pc.output_min_ln >= 0.0))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --output-min-p parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -7250,11 +7250,11 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          if (unlikely(ScanPosintCapped(argvk[arg_idx + 1], kParallelMax, &pc.parallel_idx))) {
+          if (unlikely(ScanPosintCappedx(argvk[arg_idx + 1], kParallelMax, &pc.parallel_idx))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --parallel job index '%s'.\n", argvk[arg_idx + 1]);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-          if (unlikely(ScanPosintCapped(argvk[arg_idx + 2], kParallelMax, &pc.parallel_tot) || (pc.parallel_tot == 1) || (pc.parallel_tot < pc.parallel_idx))) {
+          if (unlikely(ScanPosintCappedx(argvk[arg_idx + 2], kParallelMax, &pc.parallel_tot) || (pc.parallel_tot == 1) || (pc.parallel_tot < pc.parallel_idx))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --parallel total job count '%s'.\n", argvk[arg_idx + 2]);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -7273,7 +7273,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (unlikely(!ScanadvLn(cur_modif, &pc.ln_pfilter))) {
+          if (unlikely(ScanLnx(cur_modif, &pc.ln_pfilter))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --pfilter parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -7325,7 +7325,7 @@ int main(int argc, char** argv) {
               logerrputs("Error: --pca 'sid' modifier retired.  Use --pca scols= instead.\n");
               goto main_ret_INVALID_CMDLINE_A;
             } else {
-              if (unlikely(pc.pca_ct || ScanPosintDefcap(cur_modif, &pc.pca_ct))) {
+              if (unlikely(pc.pca_ct || ScanPosintDefcapx(cur_modif, &pc.pca_ct))) {
                 logerrputs("Error: Invalid --pca parameter sequence.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
@@ -7668,7 +7668,7 @@ int main(int argc, char** argv) {
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
-            if (unlikely(ScanUintCapped(cur_modif, UINT32_MAX, &(rseeds[param_idx - 1])))) {
+            if (unlikely(ScanUintCappedx(cur_modif, UINT32_MAX, &(rseeds[param_idx - 1])))) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --seed parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
@@ -7701,11 +7701,11 @@ int main(int argc, char** argv) {
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           } else {
-            if (unlikely(ScanUintDefcap(argvk[arg_idx + 1], &pc.splitpar_bound1))) {
+            if (unlikely(ScanUintDefcapx(argvk[arg_idx + 1], &pc.splitpar_bound1))) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --split-par parameter '%s'.\n", argvk[arg_idx + 1]);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
-            if (unlikely(ScanUintDefcap(argvk[arg_idx + 2], &pc.splitpar_bound2) || (pc.splitpar_bound2 <= pc.splitpar_bound1))) {
+            if (unlikely(ScanUintDefcapx(argvk[arg_idx + 2], &pc.splitpar_bound2) || (pc.splitpar_bound2 <= pc.splitpar_bound1))) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --split-par parameter '%s'.\n", argvk[arg_idx + 2]);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
@@ -7892,7 +7892,7 @@ int main(int argc, char** argv) {
                 goto main_ret_1;
               }
             } else {
-              if (unlikely(ScanPosintCapped(cur_modif, kMaxLongLine / 2, &(score_cols[numeric_param_ct])))) {
+              if (unlikely(ScanPosintCappedx(cur_modif, kMaxLongLine / 2, &(score_cols[numeric_param_ct])))) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --score parameter '%s'.\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
@@ -8061,7 +8061,7 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE_WWA;
               } else {
                 double dxx;
-                if (unlikely((!ScanadvDouble(&(cur_modif[7]), &dxx)) || (dxx < 0.0) || (dxx > (0.5 - kSmallEpsilon)))) {
+                if (unlikely((ScanDoublex(&(cur_modif[7]), &dxx)) || (dxx < 0.0) || (dxx > (0.5 - kSmallEpsilon)))) {
                   snprintf(g_logbuf, kLogbufSize, "Error: Invalid --sample-diff parameter '%s'.\n", cur_modif);
                   goto main_ret_INVALID_CMDLINE_WWA;
                 }
@@ -8213,7 +8213,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          if (unlikely(ScanPosintDefcap(argvk[arg_idx + 1], &pc.max_thread_ct))) {
+          if (unlikely(ScanPosintDefcapx(argvk[arg_idx + 1], &pc.max_thread_ct))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --threads parameter '%s'.\n", argvk[arg_idx + 1]);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -8255,7 +8255,7 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvk[arg_idx + 1];
           double dxx;
-          if (unlikely(!ScanadvDouble(cur_modif, &dxx))) {
+          if (unlikely(ScanDoublex(cur_modif, &dxx))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --to-bp/-kb/-mb parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -8285,7 +8285,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (unlikely(!ScanadvDouble(cur_modif, &pc.thin_keep_prob))) {
+          if (unlikely(ScanDoublex(cur_modif, &pc.thin_keep_prob))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --thin variant retention probability '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -8294,7 +8294,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_A;
           } else if (unlikely(pc.thin_keep_prob >= (4294967295.5 / 4294967296.0))) {
             uint32_t uii;
-            if (ScanUintDefcap(cur_modif, &uii)) {
+            if (ScanUintDefcapx(cur_modif, &uii)) {
               logerrputs("Error: --thin variant retention probability too large.\n");
             } else {
               // VCFtools --thin = --bp-space...
@@ -8312,7 +8312,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (unlikely(ScanUintDefcap(cur_modif, &pc.thin_keep_ct) || (!pc.thin_keep_ct))) {
+          if (unlikely(ScanUintDefcapx(cur_modif, &pc.thin_keep_ct) || (!pc.thin_keep_ct))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --thin-count parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -8322,7 +8322,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (unlikely(!ScanadvDouble(cur_modif, &pc.thin_keep_sample_prob))) {
+          if (unlikely(ScanDoublex(cur_modif, &pc.thin_keep_sample_prob))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --thin-indiv sample retention probability '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -8343,7 +8343,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (unlikely(ScanUintDefcap(cur_modif, &pc.thin_keep_sample_ct) || (!pc.thin_keep_sample_ct))) {
+          if (unlikely(ScanUintDefcapx(cur_modif, &pc.thin_keep_sample_ct) || (!pc.thin_keep_sample_ct))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --thin-indiv-count parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -8382,14 +8382,14 @@ int main(int argc, char** argv) {
               pc.update_sex_info.flags |= kfUpdateSexMale0;
             } else if (StrStartsWith(cur_modif, "col-num=", cur_modif_slen)) {
               const char* col_num_start = &(cur_modif[strlen("col-num=")]);
-              if (unlikely(ScanPosintDefcap(col_num_start, &pc.update_sex_info.col_num) || (pc.update_sex_info.col_num == 1))) {
+              if (unlikely(ScanPosintDefcapx(col_num_start, &pc.update_sex_info.col_num) || (pc.update_sex_info.col_num == 1))) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --update-sex col-num= parameter '%s'.\n", col_num_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
             } else if (likely(param_ct == 2)) {
               // only one extra parameter, try to interpret it the plink 1.9
               // way but print a warning
-              if (unlikely(ScanPosintDefcap(cur_modif, &pc.update_sex_info.col_num))) {
+              if (unlikely(ScanPosintDefcapx(cur_modif, &pc.update_sex_info.col_num))) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --update-sex parameter '%s'.\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
@@ -8517,7 +8517,7 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvk[arg_idx + 1];
           uint32_t uii;
-          if (unlikely(ScanUintDefcap(cur_modif, &uii))) {
+          if (unlikely(ScanUintDefcapx(cur_modif, &uii))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s parameter '%s'.\n", flagname_p, cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -8540,7 +8540,7 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvk[arg_idx + 1];
           uint32_t uii;
-          if (unlikely(ScanUintDefcap(cur_modif, &uii))) {
+          if (unlikely(ScanUintDefcapx(cur_modif, &uii))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --vcf-max-dp parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -8610,7 +8610,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (unlikely(!ScanadvDouble(cur_modif, &pc.vif_thresh))) {
+          if (unlikely(ScanDoublex(cur_modif, &pc.vif_thresh))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --glm/--epistasis VIF threshold '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -8689,7 +8689,7 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvk[arg_idx + 1];
           double dxx;
-          if (unlikely(!ScanadvDouble(cur_modif, &dxx) || (dxx < 0))) {
+          if (unlikely(ScanDoublex(cur_modif, &dxx) || (dxx < 0))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --window parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -8800,7 +8800,7 @@ int main(int argc, char** argv) {
           //   https://github.com/facebook/zstd/issues/1077 .
           // I've postponed the decision on whether this sort of nondeterminism
           // is acceptable in plink2 for now (by reverting to 1.3.3).
-          if (unlikely(ScanPosintCapped(cur_modif, 22, &g_zst_level))) {
+          if (unlikely(ScanPosintCappedx(cur_modif, 22, &g_zst_level))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --zst-level parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }

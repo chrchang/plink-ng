@@ -571,6 +571,44 @@ uint32_t scan_uintptr(char* ss, uintptr_t* valp) {
 }
 */
 
+uint32_t scan_posint_cappedx(const char* ss, uint64_t cap, uint32_t* valp) {
+  double val;
+  if (scan_doublex(ss, &val) || (val < 1.0) || (val > ((double)cap))) {
+    return 1;
+  }
+  *valp = (uint32_t)val;
+  return (val != ((double)(*valp)));
+}
+
+uint32_t scan_uint_cappedx(const char* ss, uint64_t cap, uint32_t* valp) {
+  double val;
+  if (scan_doublex(ss, &val) || (val < 0.0) || (val > ((double)cap))) {
+    return 1;
+  }
+  *valp = (uint32_t)val;
+  return (val != ((double)(*valp)));
+}
+
+uint32_t scan_int_abs_boundedx(const char* ss, uint64_t bound, int32_t* valp) {
+  const double bound_d = (double)bound;
+  double val;
+  if (scan_doublex(ss, &val) || (val < -bound_d) || (val > bound_d)) {
+    return 1;
+  }
+  *valp = (int32_t)val;
+  return (val != ((double)(*valp)));
+}
+
+uint32_t scan_posintptrx(const char* ss, uintptr_t* valp) {
+  double val;
+  if (scan_doublex(ss, &val) || (val < 1.0) || (val > ((double)(~ZEROLU)))) {
+    return 1;
+  }
+  *valp = (uintptr_t)val;
+  return (val != ((double)(*valp)));
+}
+
+
 uint32_t scan_two_doubles(char* ss, double* __restrict val1p, double* __restrict val2p) {
   char* ss2;
   *val1p = strtod(ss, &ss2);

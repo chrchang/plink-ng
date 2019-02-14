@@ -907,6 +907,47 @@ HEADER_INLINE char* ScanadvLn(char* str_iter, double* ln_ptr) {
 }
 #endif
 
+// These provide the same interface as ScanPosintCapped(), etc., but there are
+// two differences in behavior to make these more suitable for parsing of
+// command-line parameters:
+// - The strings are initially parsed as floating-point, and then the function
+//   errors out if the result isn't an exact integer.  This allows exponential
+//   notation to be used.
+// - Unlike atoi()/ScanPosintCapped(), the function errors out if parsing stops
+//   at non-whitespace.
+// The performance cost of this behavior is relatively high: these functions
+// shouldn't be used for internal file-reading loops.
+HEADER_INLINE BoolErr ScanDoublex(const char* str_iter, double* valp) {
+  str_iter = ScanadvDouble(str_iter, valp);
+  return (!str_iter) || (!IsSpaceOrEoln(str_iter[0]));
+}
+
+BoolErr ScanPosintCappedx(const char* str_iter, uint64_t cap, uint32_t* valp);
+
+BoolErr ScanUintCappedx(const char* str_iter, uint64_t cap, uint32_t* valp);
+
+BoolErr ScanIntAbsBoundedx(const char* str_iter, int64_t bound, int32_t* valp);
+
+HEADER_INLINE BoolErr ScanInt32x(const char* str, int32_t* valp) {
+  return ScanIntAbsBounded(str, 0x7fffffff, valp);
+}
+
+HEADER_INLINE BoolErr ScanPosintDefcapx(const char* str, uint32_t* valp) {
+  return ScanPosintCappedx(str, 0x7ffffffe, valp);
+}
+
+HEADER_INLINE BoolErr ScanUintDefcapx(const char* str, uint32_t* valp) {
+  return ScanUintCappedx(str, 0x7ffffffe, valp);
+}
+
+BoolErr ScanPosintptrx(const char* str_iter, uintptr_t* valp);
+
+HEADER_INLINE BoolErr ScanLnx(const char* str_iter, double* ln_ptr) {
+  str_iter = ScanadvLn(str_iter, ln_ptr);
+  return (!str_iter) || (!IsSpaceOrEoln(str_iter[0]));
+}
+
+
 HEADER_INLINE void AppendBinaryEoln(char** dst_ptr) {
 #ifdef _WIN32
   (*dst_ptr)[0] = '\r';
