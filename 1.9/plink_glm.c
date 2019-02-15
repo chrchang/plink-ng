@@ -6677,7 +6677,8 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	    dxx = (double)g_logistic_mt[0].coef[0];
 	    wptr = memcpya(wptr_start2, " INTERCEPT ", 11);
 	    wptr = uint32toa_w8x((uint32_t)cur_sample_valid_ct, ' ', wptr);
-	    wptr = dtoa_g_wxp4x(dxx, 10, ' ', wptr);
+            // bugfix (15 Feb 2019): forgot report_odds here
+	    wptr = dtoa_g_wxp4x(report_odds? exp(dxx) : dxx, 10, ' ', wptr);
 	    if (display_ci) {
 	      se = sqrt((double)g_logistic_mt[0].regression_results[0]);
 	      dyy = ci_zt * se;
