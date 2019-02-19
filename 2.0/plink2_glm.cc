@@ -6897,8 +6897,8 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
         cswritep = strcpya_k(cswritep, "\tT_STAT");
       } else {
         // chisq for joint tests.  may switch to F-statistic (just divide by
-        // df; the hard part there is porting a function to convert that to a
-        // p-value)
+        // df; the annoying part there is porting a function to convert that to
+        // a p-value)
         cswritep = strcpya_k(cswritep, "\tT_OR_CHISQ_STAT");
       }
     }

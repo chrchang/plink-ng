@@ -439,6 +439,7 @@ CONSTI32(kNonBigstackMin, 67108864);
 CONSTI32(kBigstackMinMib, 640);
 CONSTI32(kBigstackDefaultMib, 2048);
 
+static const double kE = 2.7182818284590452;
 static const double kPi = 3.1415926535897932;
 static const double kSqrt2 = 1.4142135623730951;
 static const double kRecipE = 0.36787944117144233;

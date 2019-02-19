@@ -47,7 +47,7 @@ double TstatToP2(double tt, double df, double cached_gamma_mult);
 // responsible for validating input.
 double TstatToLnP(double tt, double df);
 
-// double FstatToLnP(double ff, uint32_t df1, uint32_t df2);
+double FstatToLnP(double ff, uint32_t df1, uint32_t df2);
 
 double QuantileToZscore(double pval);
 

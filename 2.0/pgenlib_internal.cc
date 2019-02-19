@@ -10584,15 +10584,33 @@ PglErr PgrGetMissingnessD(const uintptr_t* __restrict sample_include, const uint
 #  error "Unaligned accesses in PgrGetMissingnessPD()."
 #endif
     const uint16_t* dosage_main = R_CAST(const uint16_t*, fread_ptr);
-    uintptr_t sample_uidx_base = 0;
-    uintptr_t sample_include_bits = sample_include[0];
-    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-      const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
-      if (!IsSet(missingness_dosage, sample_idx)) {
-        continue;
+    // bugfix (18 Feb 2019): sample_include is permitted to be nullptr here
+    if (!subsetting_required) {
+      // probable todo: faster iteration over set bits
+      for (uint32_t widx = 0; widx != raw_sample_ctl; ++widx) {
+        uintptr_t missing_dosage_bits = missingness_dosage[widx];
+        if (missing_dosage_bits) {
+          const uint16_t* cur_dosage_main = &(dosage_main[widx * kBitsPerWord]);
+          do {
+            uint32_t sample_idx_lowbits = ctzw(missing_dosage_bits);
+            if (cur_dosage_main[sample_idx_lowbits] != 65535) {
+              missingness_dosage[widx] ^= missing_dosage_bits & (-missing_dosage_bits);
+            }
+            missing_dosage_bits &= missing_dosage_bits - 1;
+          } while (missing_dosage_bits);
+        }
       }
-      if (dosage_main[sample_uidx] != 65535) {
-        ClearBit(sample_idx, missingness_dosage);
+    } else {
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t sample_include_bits = sample_include[0];
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
+        if (!IsSet(missingness_dosage, sample_idx)) {
+          continue;
+        }
+        if (dosage_main[sample_uidx] != 65535) {
+          ClearBit(sample_idx, missingness_dosage);
+        }
       }
     }
     return kPglRetSuccess;

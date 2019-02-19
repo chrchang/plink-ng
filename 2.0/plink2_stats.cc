@@ -129,6 +129,40 @@ static const double kFactorialRecips[30] = {
   1.1309962886447718e-31
 };
 
+// this may move to a more central location
+static const double kSmallRecips[30] = {
+  1.0 / 0,
+  1.0 / 1,
+  1.0 / 2,
+  1.0 / 3,
+  1.0 / 4,
+  1.0 / 5,
+  1.0 / 6,
+  1.0 / 7,
+  1.0 / 8,
+  1.0 / 9,
+  1.0 / 10,
+  1.0 / 11,
+  1.0 / 12,
+  1.0 / 13,
+  1.0 / 14,
+  1.0 / 15,
+  1.0 / 16,
+  1.0 / 17,
+  1.0 / 18,
+  1.0 / 19,
+  1.0 / 20,
+  1.0 / 21,
+  1.0 / 22,
+  1.0 / 23,
+  1.0 / 24,
+  1.0 / 25,
+  1.0 / 26,
+  1.0 / 27,
+  1.0 / 28,
+  1.0 / 29
+};
+
 double finite_gamma_q(uint32_t aa, double xx, double* p_derivative) {
   // a is a positive integer < 30; max(0.6, a-1) < x < kLogMaxValue
   // (e^{-x})(1 + x + x^2/2 + x^3/3! + x^4/4! + ... + x^{a-1}/(a-1)!)
@@ -139,8 +173,7 @@ double finite_gamma_q(uint32_t aa, double xx, double* p_derivative) {
   double sum = ee;
   double term = sum;
   for (uint32_t nn = 1; nn != aa; ++nn) {
-    term /= u31tod(nn);
-    term *= xx;
+    term *= xx * kSmallRecips[nn];
     sum += term;
   }
   if (p_derivative) {
@@ -152,20 +185,25 @@ double finite_gamma_q(uint32_t aa, double xx, double* p_derivative) {
 static const double kSqrtPi = 1.7724538509055159;
 
 double lower_gamma_series(double aa, double zz, double init_value) {
-  // z must not be much larger than a
+  // evaluate init_value + 1 + (z/(a+1)) + (z^2 / ((a+1)(a+2))) +
+  //   (z^3 / ((a+1)(a+2)(a+3))) + ...
+  // z shouldn't be larger than (a+170), otherwise overflow is possible
   double result = 1;
-  double total = init_value;
-  double rr;
+  double total = init_value + 1;
   do {
-    rr = result;
     aa += 1.0;
     result *= zz / aa;
-    total += rr;
-  } while (fabs(rr) > (kBigEpsilon * kBigEpsilon));
+    total += result;
+  } while (fabs(result) > (kBigEpsilon * kBigEpsilon));
   return total;
 }
 
+// ~6 digits of precision is appropriate for p-value computations
+static const double kContinuedFractionEpsilon = 3.0e-7;
+
 double upper_gamma_fraction(double a1, double z1) {
+  // No overflow issues, this tends to be close to 1.
+
   // evaluate a_1 / (b_1 + (a_2 / (b_2 + (a_3 / (b_3 + ...)))))
   // see Boost continued_fraction_a(), upper_incomplete_gamma_fract
   double cur_b = z1 - a1 + 3;
@@ -191,14 +229,16 @@ double upper_gamma_fraction(double a1, double z1) {
     dd = 1.0 / dd;
     const double delta = cc * dd;
     hh *= delta;
-    if (fabs(delta - 1.0) < 3.0e-7) {
+    if (fabs(delta - 1.0) < kContinuedFractionEpsilon) {
       break;
     }
   }
-  const double cont_frac = a0 / hh;
-  return 1 / (z1 - a1 + 1 + cont_frac);
+  // const double cont_frac = a0 / hh;
+  // return 1 / (z1 - a1 + 1 + cont_frac);
+  return hh / (hh * (z1 - a1 + 1) + a0);
 }
 
+/*
 double small_gamma2_series(double aa, double xx, double init_value) {
   double apn = aa + 1;
   const double negx = -xx;
@@ -236,6 +276,7 @@ double tgamma_small_upper_part_df1(double xx, uint32_t invert, double* p_derivat
   }
   return result;
 }
+*/
 
 // from Numerical Recipes in Fortran 77: The Art of Scientific Computing, via
 // Wikipedia
@@ -246,17 +287,48 @@ double erfc_fast(double zz) {
   return tau;
 }
 
-double finite_half_gamma_q(double aa, double xx, double* p_derivative) {
+static const double kSmallHalfRecips[30] = {
+  1.0 / 0.5,
+  1.0 / 1.5,
+  1.0 / 2.5,
+  1.0 / 3.5,
+  1.0 / 4.5,
+  1.0 / 5.5,
+  1.0 / 6.5,
+  1.0 / 7.5,
+  1.0 / 8.5,
+  1.0 / 9.5,
+  1.0 / 10.5,
+  1.0 / 11.5,
+  1.0 / 12.5,
+  1.0 / 13.5,
+  1.0 / 14.5,
+  1.0 / 15.5,
+  1.0 / 16.5,
+  1.0 / 17.5,
+  1.0 / 18.5,
+  1.0 / 19.5,
+  1.0 / 20.5,
+  1.0 / 21.5,
+  1.0 / 22.5,
+  1.0 / 23.5,
+  1.0 / 24.5,
+  1.0 / 25.5,
+  1.0 / 26.5,
+  1.0 / 27.5,
+  1.0 / 28.5,
+  1.0 / 29.5
+};
+
+double finite_half_gamma_q2(uint32_t a_minus_half, double xx, double* p_derivative) {
   // a is in {0.5, 1.5, ..., 29.5}; max(0.2, a-1) < x < kLogMaxValue
   const double sqrt_x = sqrt(xx);
   double ee = erfc_fast(sqrt_x);
-  if ((ee != 0) && (aa > 1)) {
-    double term = exp(-xx) / (kSqrtPi * sqrt_x);
-    term *= xx * 2;
+  if ((ee != 0) && a_minus_half) {
+    double term = sqrt_x * exp(-xx) * (2.0 / kSqrtPi);
     double sum = term;
-    for (double nn = 1.5; nn < aa; nn += 1.0) {
-      term /= nn;
-      term *= xx;
+    for (uint32_t n_minus_half = 1; n_minus_half != a_minus_half; ++n_minus_half) {
+      term *= xx * kSmallHalfRecips[n_minus_half];
       sum += term;
     }
     ee += sum;
@@ -269,33 +341,60 @@ double finite_half_gamma_q(double aa, double xx, double* p_derivative) {
   return ee;
 }
 
+static const double kLanczosSumNumer[6] = {8706.3495925490091, 8523.650341121874, 3338.0292194764235, 653.64249942940087, 63.999518449381870, 2.5066282746310063};
+static const double kLanczosSumDenom[6] = {0, 24, 50, 35, 10, 1};
 static const double kLanczosSumExpgNumer[6] = {32.812445410297834, 32.123889414443320, 12.580347294552161, 2.4634444783532414, 0.2412010548258800, 0.0094469677045392};
-static const double kLanczosSumExpgDenom[6] = {0, 24, 50, 35, 10, 1};
 
 // this depends on the polynomial coefficients above
 static const double kLanczosG = 5.581;
+
+double lanczos_sum(double zz) {
+  double s1;
+  double s2;
+  if (zz <= 1) {
+    s1 = kLanczosSumNumer[5];
+    s2 = kLanczosSumDenom[5];
+    for (int32_t ii = 4; ii >= 0; --ii) {
+      s1 *= zz;
+      s2 *= zz;
+      s1 += kLanczosSumNumer[S_CAST(uint32_t, ii)];
+      s2 += kLanczosSumDenom[S_CAST(uint32_t, ii)];
+    }
+  } else {
+    zz = 1 / zz;
+    s1 = kLanczosSumNumer[0];
+    s2 = kLanczosSumDenom[0];
+    for (uint32_t uii = 1; uii != 6; ++uii) {
+      s1 *= zz;
+      s2 *= zz;
+      s1 += kLanczosSumNumer[uii];
+      s2 += kLanczosSumDenom[uii];
+    }
+  }
+  return s1 / s2;
+}
 
 double lanczos_sum_expg_scaled_imp(double zz, double* s2_ptr) {
   double s1;
   double s2;
   if (zz <= 1) {
     s1 = kLanczosSumExpgNumer[5];
-    s2 = kLanczosSumExpgDenom[5];
+    s2 = kLanczosSumDenom[5];
     for (int32_t ii = 4; ii >= 0; --ii) {
       s1 *= zz;
       s2 *= zz;
       s1 += kLanczosSumExpgNumer[S_CAST(uint32_t, ii)];
-      s2 += kLanczosSumExpgDenom[S_CAST(uint32_t, ii)];
+      s2 += kLanczosSumDenom[S_CAST(uint32_t, ii)];
     }
   } else {
     zz = 1 / zz;
     s1 = kLanczosSumExpgNumer[0];
-    s2 = kLanczosSumExpgDenom[0];
+    s2 = kLanczosSumDenom[0];
     for (uint32_t uii = 1; uii != 6; ++uii) {
       s1 *= zz;
       s2 *= zz;
       s1 += kLanczosSumExpgNumer[uii];
-      s2 += kLanczosSumExpgDenom[uii];
+      s2 += kLanczosSumDenom[uii];
     }
   }
   *s2_ptr = s2;
@@ -411,6 +510,7 @@ double igamma_temme_large(double aa, double xx) {
 }
 
 double gamma_incomplete_imp2(uint32_t df, double xx, uint32_t invert, double* p_derivative) {
+  // normalized = true
   assert(df);
   assert(xx >= 0.0);
   const double aa = u31tod(df) * 0.5;
@@ -434,6 +534,7 @@ double gamma_incomplete_imp2(uint32_t df, double xx, uint32_t invert, double* p_
     // invert always == 1
     assert(!p_derivative);
     return 1.0;
+    /*
   } else if (xx < 0.5) {
     // log(x) is negative
     // -0.4 / log(x) >= 0.5 (this is impossible for larger a)
@@ -445,6 +546,9 @@ double gamma_incomplete_imp2(uint32_t df, double xx, uint32_t invert, double* p_
     // x * 0.75 >= 0.5
     // x >= 2/3
     eval_method = 2 + ((df == 1) && (xx >= (2.0 / 3.0)));
+    */
+  } else if (xx < 1.1) {
+    eval_method = 2;
   } else {
     const double x_minus_a = xx - aa;
     uint32_t use_temme = 0;
@@ -483,7 +587,7 @@ double gamma_incomplete_imp2(uint32_t df, double xx, uint32_t invert, double* p_
   case 1:
     // previously used erfc, but that was up to ~3x as slow as dcdflib (e.g.
     // ChisqToP(2.706, 1) case).
-    result = finite_half_gamma_q(aa, xx, p_derivative);
+    result = finite_half_gamma_q2(df / 2, xx, p_derivative);
     if (p_derivative && (*p_derivative == 0)) {
       *p_derivative = regularized_gamma_prefix(aa, xx);
     }
@@ -508,8 +612,12 @@ double gamma_incomplete_imp2(uint32_t df, double xx, uint32_t invert, double* p_
       }
     }
     break;
+    /*
   case 3:
     {
+      // only when df=1 and 0.449 < x < 1.1, so no overflow/underflow issues.
+      // ...wait a sec, we never reach here at all since eval_method is always
+      // 1 there.
       invert = !invert;
       double gg;
       result = tgamma_small_upper_part_df1(xx, invert, p_derivative, &gg);
@@ -517,6 +625,7 @@ double gamma_incomplete_imp2(uint32_t df, double xx, uint32_t invert, double* p_
       result /= gg;  // convert this to multiplication by constant?
     }
     break;
+    */
   case 4:
     result = regularized_gamma_prefix(aa, xx);
     if (p_derivative) {
@@ -570,7 +679,7 @@ static inline long double u31told(uint32_t uii) {
 */
 
 double finite_gamma_q_ln(uint32_t aa, double xx) {
-  // a is a positive integer < 30; max(0.6, a-1) < x < kLogMaxValue
+  // a is a positive integer < 30; max(0.6, a-1) < x < 1e10
   // (e^{-x})(1 + x + x^2/2 + x^3/3! + x^4/4! + ... + x^{a-1}/(a-1)!)
   //
   // logarithm:
@@ -579,37 +688,38 @@ double finite_gamma_q_ln(uint32_t aa, double xx) {
   double sum = 1.0;
   double term = 1.0;
   for (uint32_t nn = 1; nn != aa; ++nn) {
-    term /= u31tod(nn);
-    term *= xx;
+    // division is slow enough that the lookup table speeds up this function by
+    // >3x
+    term *= xx * kSmallRecips[nn];
     sum += term;
   }
   return log(sum) - xx;
 }
 
-double erfc_fast2(double zz, double* tau_ln_ptr) {
+double erfc_fast2(double zz, double* tau_ln_plus_z2_ptr) {
   const double tt = 1.0 / (1.0 + 0.5 * zz);
-  *tau_ln_ptr = ((((((((0.17087277 * tt - 0.82215223) * tt + 1.48851587) * tt - 1.13520398) * tt + 0.27886807) * tt - 0.18628806) * tt + 0.09678418) * tt + 0.37409196) * tt + 1.00002368) * tt - 1.26551223 - zz * zz;
+  *tau_ln_plus_z2_ptr = ((((((((0.17087277 * tt - 0.82215223) * tt + 1.48851587) * tt - 1.13520398) * tt + 0.27886807) * tt - 0.18628806) * tt + 0.09678418) * tt + 0.37409196) * tt + 1.00002368) * tt - 1.26551223;
   return tt;
 }
 
-double finite_half_gamma_q_ln(double aa, double xx) {
-  // a is in {0.5, 1.5, ..., 29.5}; max(0.2, a-1) < x < kLogMaxValue
+double finite_half_gamma_q2_ln(uint32_t a_minus_half, double xx) {
+  // a is in {0.5, 1.5, ..., 29.5}; max(0.2, a-1) < x < 1e10
   const double sqrt_x = sqrt(xx);
-  double tau_ln;
-  double tt = erfc_fast2(sqrt_x, &tau_ln);
-  if (aa < 1) {
-    return log(tt) + tau_ln;
+  double tau_ln_plus_x;
+  double tt = erfc_fast2(sqrt_x, &tau_ln_plus_x);
+  if (!a_minus_half) {
+    return log(tt) + tau_ln_plus_x - xx;
   }
-  double term = exp(-xx) / (kSqrtPi * sqrt_x);
-  term *= xx * 2;
+  // pre-multiply by e^x to avoid underflow
+  double term = sqrt_x * (2.0 / kSqrtPi);
   double sum = term;
-  for (double nn = 1.5; nn < aa; nn += 1.0) {
-    term /= nn;
-    term *= xx;
+  for (uint32_t n_minus_half = 1; n_minus_half != a_minus_half; ++n_minus_half) {
+    term *= xx * kSmallHalfRecips[n_minus_half];
     sum += term;
   }
-  double ee = tt * exp(tau_ln) + sum;
-  return log(ee);
+  // tau_ln + xx guaranteed to be small
+  double ee = tt * exp(tau_ln_plus_x) + sum;
+  return log(ee) - xx;
 }
 
 static const double kLnSqrtPi = 0.5723649429247001;
@@ -631,17 +741,17 @@ double regularized_gamma_prefix_ln(double aa, double zz) {
   } else {
     prefix_ln = (aa - zz) + aa * log(zz * agh_recip);
   }
-  // there may be a better way to organize the second term, but let's get this
-  // working first
-  return prefix_ln + log(sqrt(agh * kRecipE) * lanczos_sum_expg_scaled_recip(aa));
+  const double scaled_recip = lanczos_sum_expg_scaled_recip(aa);
+  return prefix_ln + 0.5 * log(agh * kRecipE * scaled_recip * scaled_recip);
 }
 
 // does not guarantee return value <= 0 for now; caller must do that.
 double gamma_incomplete_imp2_ln(uint32_t df, double xx) {
+  // normalized = true, invert = false
   assert(df);
   assert(xx >= 0.0);
   const double aa = u31tod(df) * 0.5;
-  const uint32_t is_small_a = (df < 60) && (aa <= xx + 1) && (xx < kLogMaxValue);
+  const uint32_t is_small_a = (df < 60) && (aa <= xx + 1) && (xx < 1e10);
   uint32_t is_int = 0;
   uint32_t is_half_int = 0;
   if (is_small_a) {
@@ -657,17 +767,8 @@ double gamma_incomplete_imp2_ln(uint32_t df, double xx) {
     // avoid computing log(0)
     // don't need more precision here, 6 digits is enough
     return 0.0;
-  } else if (xx < 0.5) {
-    // log(x) is negative
-    // -0.4 / log(x) >= 0.5 (this is impossible for larger a)
-    // -> -0.4 <= 0.5 * log(x)
-    // -> -0.8 <= log(x)
-    // -> e^{-0.8} <= x
-    eval_method = 2 + ((df == 1) && (xx >= 0.44932896411722156));
   } else if (xx < 1.1) {
-    // x * 0.75 >= 0.5
-    // x >= 2/3
-    eval_method = 2 + ((df == 1) && (xx >= (2.0 / 3.0)));
+    eval_method = 2;
   } else {
     const double x_minus_a = xx - aa;
     uint32_t use_temme = 0;
@@ -701,7 +802,7 @@ double gamma_incomplete_imp2_ln(uint32_t df, double xx) {
   case 0:
     return finite_gamma_q_ln(df / 2, xx);
   case 1:
-    return finite_half_gamma_q_ln(aa, xx);
+    return finite_half_gamma_q2_ln(df / 2, xx);
   case 2:
     {
       const double result_ln = regularized_gamma_prefix_ln(aa, xx);
@@ -716,14 +817,6 @@ double gamma_incomplete_imp2_ln(uint32_t df, double xx) {
       const double init_value = -aa * exp(-result_ln);
       const double multiplier = -lower_gamma_series(aa, xx, init_value) / aa;
       return result_ln + log(multiplier);
-    }
-  case 3:
-    {
-      // only when df=1 and 0.449 < x < 1.1, so no overflow/underflow issues.
-      double gg;
-      double result = tgamma_small_upper_part_df1(xx, 0, nullptr, &gg);
-      result /= gg;  // convert this to multiplication by constant?
-      return log(result);
     }
   case 4:
     {
@@ -969,6 +1062,7 @@ double LnPToChisq(double ln_pval) {
 // ***** thread-safe TstatToP *****
 
 // see Numerical Recipes, section 6.4
+// no overflow or convergence issues
 double betacf_slow(double aa, double bb, double xx) {
   double qab = aa + bb;
   double qap = aa + 1.0;
@@ -981,6 +1075,7 @@ double betacf_slow(double aa, double bb, double xx) {
   dd = 1.0 / dd;
   double hh = dd;
   // evaluate 1 / (1 + d_1 / (1 + d_2 / (1 + d_3 / (...))))
+  // might need more iterations for very large df?
   for (double mm = 1.0; mm <= 100.0; mm += 1.0) {
     double m2 = 2 * mm;
 
@@ -1012,7 +1107,7 @@ double betacf_slow(double aa, double bb, double xx) {
     dd = 1.0 / dd;
     double del = dd * cc;
     hh *= del;
-    if (fabs(del - 1.0) < 3.0e-7) {
+    if (fabs(del - 1.0) < kContinuedFractionEpsilon) {
       return hh;
     }
   }
@@ -1037,19 +1132,19 @@ double betai_slow(double aa, double bb, double xx) {
   return 1.0 - bt * betacf_slow(bb, aa, 1.0 - xx) / bb;
 }
 
-/*
-// Assumes x > 0.
+// Returns log(1 - x^y).
+// Assumes x in (0, 1), y positive.
 double neg_powm1_imp_ln(double xx, double yy) {
-  if ((fabs(yy * (xx - 1.0)) < 0.5) || (fabs(yy) < 0.2)) {
-    const double ll = yy * log(xx);
-    if (ll < 0.5) {
-      return log1p(-exp(ll));
-    }
-    if (ll > kLogMaxValue) {
-      return -ll;
-    }
+  const double ll = yy * log(xx);
+  if (ll > -1.0) {
+    // For tiny |l|, we may lose all precision when exp(l) evaluates to 1.
+    return log(-expm1(ll));
   }
-  return log1p(-pow(xx, yy));
+  // For larger |l|, it's the log step that may throw away precision.
+  if (ll < kLogMinValue) {
+    return 0.0;
+  }
+  return log1p(-exp(ll));
 }
 
 double binomial_ccdf_ln(uint32_t nn, uint32_t kk, double xx, double yy, uint32_t inv) {
@@ -1066,9 +1161,6 @@ double binomial_ccdf_ln(uint32_t nn, uint32_t kk, double xx, double yy, uint32_t
   double cur_term = 1.0;
   for (double i_d = k_plus1_d; i_d > 0.5; ) {
     //   (n choose i) / (n choose (i + 1))
-    // = (n!/(i!(n-i!))) / (n!/((i+1)!(n-i-1)!))
-    // = (i+1)!(n-i-1)! / (i!(n-i)!)
-    // = ((i+1)!/i!) * (n-i-1)!/(n-i)!
     // = (i+1) / (n-i)
     cur_term *= i_d;
     i_d -= 1.0;
@@ -1077,78 +1169,234 @@ double binomial_ccdf_ln(uint32_t nn, uint32_t kk, double xx, double yy, uint32_t
     // Could do an early-exit check here, but it isn't worth much when n-k is
     // guaranteed to be less than 40.
   }
-  const double result = log(multiplier) + k_plus1_d * log(xx) + (n_d - k_plus1_d) * log(yy);
+  const double result_ln = log(multiplier) + k_plus1_d * log(xx) + (n_d - k_plus1_d) * log(yy);
   if (!inv) {
-    return result;
+    return result_ln;
   }
-  // The nightmare scenario of result > 0.999999999999999 shouldn't happen
-  // thanks to the (n-k) <= (k+1)(y/x) condition.
-  return log1p(-exp(result));
+  // The nightmare scenario of tiny result_ln shouldn't happen thanks to the
+  // (n-k) <= (k+1)(y/x) condition.
+  return log1p(-exp(result_ln));
 }
 
-double ibeta_power_terms(double aa, double bb, double xx, double yy) {
+double ibeta_series_ln(double aa, double bb, double xx, uint32_t inv) {
+  // BPSER in DiDonato and Morris.
+  // ibeta(a, b, x) ~= gamma(a+b) / (gamma(a) * gamma(b))
+  //                 * x^a / a
+  //                 * (1 + a\sum_j=1^N [(1-b)(2-b)...(j-b)x^j / (j!(a+j))])
+  // Currently always called with x <= 0.7, and either b*x <= 0.7 or b<40, so
+  // guaranteed to converge at reasonable speed.
+
+  // normalized always true
+
+  const double cc = aa + bb;
+
+  const double agh = aa + kLanczosG - 0.5;
+  const double bgh = bb + kLanczosG - 0.5;
+  const double cgh = cc + kLanczosG - 0.5;
+  double numer_a;
+  double denom_a = lanczos_sum_expg_scaled_imp(aa, &numer_a);
+  double numer_b;
+  double denom_b = lanczos_sum_expg_scaled_imp(bb, &numer_b);
+  double denom_c;
+  double numer_c = lanczos_sum_expg_scaled_imp(cc, &denom_c);
+  double result = (numer_a * numer_b * numer_c) / (denom_a * denom_b * denom_c);
+  double l1 = log(cgh / bgh) * (bb - 0.5);
+  double l2 = log(xx * cgh / agh) * aa;
+  double result_ln = log(result * result * agh) * 0.5 + l1 + l2 - 0.5;
+
+  double series_sum = 0.0;
+  double term = 1.0;
+  double apn = aa;
+  double poch = 1.0 - bb;
+  double nn = 1.0;
+  while (1) {
+    double rr = term / apn;
+    series_sum += rr;
+    if (fabs(rr) <= fabs(series_sum * kEpsilon)) {
+      result_ln += log(series_sum);
+      if (!inv) {
+        return result_ln;
+      }
+      // assume for now that we wouldn't be inverting into the tiny result_ln
+      // case.
+      return log1p(-exp(result_ln));
+    }
+    apn += 1.0;
+    term *= poch * xx / nn;
+    nn += 1.0;
+    poch += 1.0;
+  }
+}
+
+double ln_sum(double aa, double bb) {
+  if (aa > bb) {
+    const double tmp = aa;
+    aa = bb;
+    bb = tmp;
+  }
+  const double diff = bb - aa;
+  if ((aa == -DBL_MAX) || (diff >= kLn2 * 53)) {
+    return bb;
+  }
+  return bb + log(1 + exp(-diff));
+}
+
+double tgamma_delta_ratio(double zz, double delta) {
+  // gamma(z) / gamma(z + delta)
+  // We only call this with delta = 0.5 or 1, so no overflow issues.
+  // zz >= 15 for now.
+  if (delta == 1.0) {
+    // Trivial case.
+    return 1.0 / zz;
+  }
+  assert(delta == 0.5);
+  // Can skip z < epsilon and z + delta == z branches for now.
+  double zgh = zz + kLanczosG - 0.5;
+  // Also skip fabs(delta) >= 10 branch for now.
+  double result = exp((0.5 - zz) * log1p(delta / zgh));
+  result *= lanczos_sum(zz) / lanczos_sum(zz + delta);
+  // exploit forced delta == 0.5
+  result *= sqrt(kE / (zgh + delta));
+  return result;
+}
+
+double beta_small_b_large_a_series_ln(double aa, double bb, double xx, double yy, double s0_ln, uint32_t inv) {
+  // BGRAT in DiDonato and Morris.
+  // **** this is currently buggy, try FstatToLnP(6, 3, 500) ****
+
+  // normalized always true, mult always 1
+  // a >= 15, b == 0.5 or 1, and ibeta_imp was patched to ensure x > 0.7.
+  double bm1 = bb - 1.0;
+  double tt = aa + bm1 * 0.5;
+  double lx;
+  if (yy < 0.35) {
+    lx = log1p(-yy);
+  } else {
+    lx = log(xx);
+  }
+  double uu = -tt * lx;
+  double hh_ln = regularized_gamma_prefix_ln(bb, uu);
+  double prefix_ln = hh_ln - log(tgamma_delta_ratio(aa, bb)) - bb * log(tt);
+
+  double pp[15]; // ~8-15 digit accuracy
+  pp[0] = 1.0;
+
+  double jj;
+  if (bb == 0.5) {
+    jj = finite_half_gamma_q2(0, uu, nullptr);
+  } else {
+    assert(bb == 1.0);
+    jj = -uu;
+  }
+  double sum = jj; // patch in s0 and prefix at the end
+  uint32_t tnp1 = 1;
+  double lx2 = lx * 0.5;
+  lx2 *= lx2;
+  double lxp = 1.0;
+  double t4_recip = 0.25 / (tt * tt);
+  double b2n = bb;
+  for (uint32_t nn = 1; nn < 15; ++nn) {
+    tnp1 += 2;
+    double new_pn = 0.0;
+    uint32_t tmp1 = 3;
+    const double nn_d = u31tod(nn);
+    for (uint32_t mm = 1; mm < nn; ++mm) {
+      double mbn = u31tod(mm) * bb - nn_d;
+      new_pn += mbn * pp[nn - mm] * kFactorialRecips[tmp1];
+      tmp1 += 2;
+    }
+    new_pn /= nn_d;
+    new_pn += bm1 * kFactorialRecips[tnp1];
+    pp[nn] = new_pn;
+
+    jj = (b2n * (b2n + 1) * jj + (uu + b2n + 1) * lxp) * t4_recip;
+    lxp *= lx2;
+    b2n += 2;
+
+    double rr = new_pn * jj;
+    sum += rr;
+    if (rr > 1) {
+      if (fabs(rr) < fabs(kEpsilon * sum)) {
+        break;
+      }
+    } else {
+      if (fabs(rr * (1.0 / kEpsilon)) < fabs(sum)) {
+        break;
+      }
+    }
+  }
+  double result_ln = ln_sum(s0_ln, prefix_ln + log(sum));
+  if (!inv) {
+    return result_ln;
+  }
+  return log1p(-exp(result_ln));
+}
+
+double ibeta_power_terms_ln(double aa, double bb, double xx, double yy) {
+  // returns log((x^a)(y^b) / Beta(a,b))
+  //
   // normalized always true
   // prefix always 1
   double cc = aa + bb;
 
-  double la = aa + 5.0;
-  double lb = bb + 5.0;
-  double lc = cc + 5.0;
-  double sa = lower_gamma_series(aa, la, 0.0) / aa;
-  sa += upper_gamma_fraction(aa, la);
-  double sb = lower_gamma_series(bb, lb, 0.0) / bb;
-  sb += upper_gamma_fraction(bb, lb);
-  double sc = lower_gamma_series(cc, lc, 0.0) / cc;
-  sc += upper_gamma_fraction(cc, lc);
+  const double agh = aa + kLanczosG - 0.5;
+  const double bgh = bb + kLanczosG - 0.5;
+  const double cgh = cc + kLanczosG - 0.5;
+  double numer_a;
+  double denom_a = lanczos_sum_expg_scaled_imp(aa, &numer_a);
+  double numer_b;
+  double denom_b = lanczos_sum_expg_scaled_imp(bb, &numer_b);
+  double denom_c;
+  double numer_c = lanczos_sum_expg_scaled_imp(cc, &denom_c);
+  double result = (numer_a * numer_b * numer_c) / (denom_a * denom_b * denom_c);
+  result *= sqrt(agh * bgh * kRecipE / cgh);
+  double result_ln = log(result);
+  double l1 = (xx * bb - yy * agh) / agh;
+  double l2 = (yy * aa - xx * bgh) / bgh;
+  // Since we're returning log(result) rather than the original result (thus,
+  // no intermediate overflow/underflow problems), and we only need 6 digits of
+  // precision, we shouldn't need any of the numerous cases in the Boost code.
+  return result_ln + aa * log1p(l1) + bb * log1p(l2);
+}
 
-  double b1 = (xx * lc) / la;
-  double b2 = (yy * lc) / lb;
-  double e1 = -5.0;
-  double lb1 = aa * log(b1);
-  double lb2 = bb * log(b2);
-  double result;
-  if ((lb1 >= kLogMaxValue) || (lb1 <= kLogMinValue) ||
-      (lb2 >= kLogMaxValue) || (lb2 <= kLogMinValue) ||
-      (e1 >= kLogMaxValue) || (e1 <= kLogMinValue)) {
-    result = exp(lb1 + lb2 - e1);
-  } else {
-    double p1 = (xx * bb - yy * la) / la;
-    if (fabs(p1) < 0.5) {
-      p1 = exp(aa * log1p(p1));
-    } else {
-      p1 = pow(b1, aa);
-    }
-    double p2 = (yy * aa - xx * lb) / lb;
-    if (fabs(p2) < 0.5) {
-      p2 = exp(bb * log1p(p2));
-    } else {
-      p2 = pow(b2, bb);
-    }
-    double p3 = exp(e1);
-    result = p1 * (p2 / p3);
+double ibeta_a_step_ln(double aa, double bb, double xx, double yy, uint32_t kk) {
+  double prefix_ln = ibeta_power_terms_ln(aa, bb, xx, yy) - log(aa);
+  double sum = 1.0;
+  double term = 1.0;
+  const double a_plus_b = aa + bb;
+  const double k_minus_1pt5 = u31tod(kk) - 1.5;
+  for (double i_d = 0.0; i_d < k_minus_1pt5; ) {
+    term *= (a_plus_b + i_d) * xx;
+    i_d += 1.0;
+    term /= aa + i_d;
+    sum += term;
   }
-  result *= sc / (sa * sb);
-  return result;
+  return prefix_ln + log(sum);
 }
 
 double ibeta_fraction2_ln(double aa, double bb, double xx, double yy, uint32_t inv) {
   // normalized always true
-  // inv: return log1p(-result) instead of log(result)
+
+  // todo: original DiDonato and Morris paper notes that "x must also be a
+  // sufficient distance from p when a > 100"; check if we have a problem there
+
+  double result_ln = ibeta_power_terms_ln(aa, bb, xx, yy);
 
   // see Boost continued_fraction_b()
   const double ay_minus_bx_plus1 = aa * yy - bb * xx + 1.0;
-  double ff = (aa * ay_minus_bx_plus1) / (aa + 1.0);
-  if (fabs(ff) < kLentzFpmin) {
-    ff = kLentzFpmin;
+  double cc = (aa * ay_minus_bx_plus1) / (aa + 1.0);
+  if (fabs(cc) < kLentzFpmin) {
+    cc = kLentzFpmin;
   }
   const double a_plus_b = aa + bb;
-  double cc = ff;
+  const double x2 = xx * xx;
+  result_ln -= log(cc);
   double dd = 0.0;
   double mm = 0.0;
   while (1) {
     double cur_a = (aa + mm) * (a_plus_b + mm);
     mm += 1.0;
-    cur_a *= mm * (bb - mm) * xx * xx;
+    cur_a *= mm * (bb - mm) * x2;
     double denom = aa + 2 * mm - 1.0;
     cur_a /= denom * denom;
     double cur_b = mm;
@@ -1164,53 +1412,24 @@ double ibeta_fraction2_ln(double aa, double bb, double xx, double yy, uint32_t i
     }
     dd = 1.0 / dd;
     const double delta = cc * dd;
-    ff *= delta;
-    if (fabs(delta - 1.0) <= 3.0e-7) {
-      return inv? log1p(-ff) : log(ff);
+    result_ln -= log(delta);
+    if (fabs(delta - 1.0) <= kContinuedFractionEpsilon) {
+      return inv? log1p(-exp(result_ln)) : result_ln;
     }
   }
 }
 
-double ibeta_series_ln(double aa, double bb, double xx, uint32_t inv) {
-  // normalized always true
-  // inv: return log1p(-result) instead of log(result)
-
-  // todo
-  return 0.0;
-}
-
-double beta_small_b_large_a_series(double aa, double bb, double xx, double yy, double s0, double mult) {
-  // normalized always true
-
-  // todo
-  return 0.0;
-}
-
-double ibeta_a_step(double aa, double bb, double xx, double yy, uint32_t kk) {
-  double prefix = ibeta_power_terms(aa, bb, xx, yy);
-  prefix /= aa;
-  if (prefix == 0.0) {
-    return 0.0;
-  }
-  double sum = 1.0;
-  double term = 1.0;
-  const double a_plus_b = aa + bb;
-  const double k_minus_1pt5 = u31tod(kk) - 1.5;
-  for (double i_d = 0.0; i_d < k_minus_1pt5; ) {
-    term *= (a_plus_b + i_d) * xx;
-    i_d += 1.0;
-    term /= aa + i_d;
-    sum += term;
-  }
-  return prefix * sum;
-}
-
 // the '2' in imp2 refers to df1 and df2 arguments instead of a and b
 double ibeta_imp2_ln(uint32_t df1, uint32_t df2, double xx, uint32_t inv) {
+  // In addition to Boost beta.hpp and its dependencies, see DiDonato and
+  // Morris's original paper at
+  // https://apps.dtic.mil/dtic/tr/fulltext/u2/a210118.pdf .
+
   // normalized always true
   //
-  // assume a >= 0, b >= 0, a+b > 0, x >= 0, a and b are multiples of 0.5 for
-  // now
+  // assume a >= 0, b >= 0, a+b > 0, x in [0, 1], a and b are multiples of 0.5
+  // for now
+  // in practice, x always <= 0.5 right now
   if (df1 == 0) {
     return inv? -DBL_MAX : 0.0;
   }
@@ -1235,7 +1454,7 @@ double ibeta_imp2_ln(uint32_t df1, uint32_t df2, double xx, uint32_t inv) {
     xx = yy;
     yy = tmp;
 
-    inv = 1 - inv;
+    inv = !inv;
   }
   double aa = u31tod(df1) * 0.5;
   if (df2 == 2) {
@@ -1256,9 +1475,38 @@ double ibeta_imp2_ln(uint32_t df1, uint32_t df2, double xx, uint32_t inv) {
     }
     return ln_pp;
   }
-  // can ignore min(a, b) <= 1 branch for now
 
   double bb = u31tod(df2) * 0.5;
+  if ((df1 == 1) || (df2 == 1)) {
+    if (xx > 0.5) {
+      const uint32_t tmp1 = df1;
+      df1 = df2;
+      df2 = tmp1;
+
+      double tmp2 = aa;
+      aa = bb;
+      bb = tmp2;
+
+      tmp2 = xx;
+      xx = yy;
+      yy = tmp2;
+
+      inv = !inv;
+    }
+    // can ignore max(a, b) <= 1 branch
+    if ((df2 == 1) || ((xx < 0.1) && (bb * xx <= 0.49))) {
+      return ibeta_series_ln(aa, bb, xx, inv);
+    }
+    // a/b swapped, x/y swapped, inv swapped
+    if (xx >= 0.3) {
+      return ibeta_series_ln(bb, aa, yy, !inv);
+    }
+    if (bb >= 15) {
+      return beta_small_b_large_a_series_ln(bb, aa, yy, xx, -DBL_MAX, !inv);
+    }
+    double fract_ln = ibeta_a_step_ln(bb, aa, yy, xx, 20);
+    return beta_small_b_large_a_series_ln(bb + 20.0, aa, yy, xx, fract_ln, !inv);
+  }
   double lambda;
   if (aa < bb) {
     lambda = aa - (aa + bb) * xx;
@@ -1281,6 +1529,7 @@ double ibeta_imp2_ln(uint32_t df1, uint32_t df2, double xx, uint32_t inv) {
     inv = !inv;
   }
 
+  // a > 1, b > 1 guaranteed if we get here.
   if (df2 >= 80) {
     return ibeta_fraction2_ln(aa, bb, xx, yy, inv);
   }
@@ -1291,27 +1540,20 @@ double ibeta_imp2_ln(uint32_t df1, uint32_t df2, double xx, uint32_t inv) {
     const uint32_t nn = b_int + kk;
     return binomial_ccdf_ln(nn, kk, xx, yy, inv);
   }
-  if (bb * xx <= 0.7) {
+  // Changed from b*x <= 0.7 since BGRAT has problems with small x, while BPSER
+  // can handle this larger b*x case since b<40 is guaranteed.
+  if (xx <= 0.7) {
     return ibeta_series_ln(aa, bb, xx, inv);
   }
   const uint32_t nn = (df2 - 1) / 2;
   const double bbar = bb - u31tod(nn);
-  double fract = ibeta_a_step(bbar, aa, yy, xx, nn);
+  double fract_ln = ibeta_a_step_ln(bbar, aa, yy, xx, nn);
   if (df1 > 30) {
-    fract = beta_small_b_large_a_series(aa, bbar, xx, yy, fract, 1);
-    return inv? log1p(-fract) : log(fract);
+    return beta_small_b_large_a_series_ln(aa, bbar, xx, yy, fract_ln, inv);
   }
-  fract += ibeta_a_step(aa, bbar, xx, yy, 20);
-  if (inv) {
-    fract -= 1.0;
-  }
-  fract = beta_small_b_large_a_series(aa + 20.0, bbar, xx, yy, fract, 1);
-  if (inv) {
-    fract = -fract;
-  }
-  return log(fract);
+  fract_ln = ln_sum(fract_ln, ibeta_a_step_ln(aa, bbar, xx, yy, 20));
+  return beta_small_b_large_a_series_ln(aa + 20.0, bbar, xx, yy, fract_ln, inv);
 }
-*/
 
 // todo: use Boost beta_small_b_large_a_series() instead, behind ibeta/ibetac
 double TstatToP(double tt, double df) {
@@ -1374,7 +1616,6 @@ double TstatToLnP(double tt, double df) {
 
 // ***** FstatToLnP *****
 
-/*
 double FstatToLnP(double ff, uint32_t df1, uint32_t df2) {
   // See cdf() for complemented2_type in boost/math/distributions/fisher_f.hpp.
   const double df1_d = u31tod(df1);
@@ -1385,7 +1626,6 @@ double FstatToLnP(double ff, uint32_t df1, uint32_t df2) {
   }
   return ibeta_imp2_ln(df1, df2, v1x / (df2_d + v1x), 1);
 }
-*/
 
 // ***** end FstatToLnP *****
 
