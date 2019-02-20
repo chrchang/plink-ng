@@ -902,7 +902,7 @@ BoolErr ParseVcfGp(const char* gp_iter, uint32_t is_haploid, double import_dosag
     const double denom = prob_0alt + prob_1alt;
     if (denom <= 2 * import_dosage_certainty) {
       if ((prob_0alt <= import_dosage_certainty) && (prob_1alt <= import_dosage_certainty)) {
-        *is_missing_ptr = 1;
+        *is_missing_ptr = 2;
         return 1;
       }
     }
