@@ -961,7 +961,23 @@ BoolErr ParseVcfBiallelicDosage(const char* gtext_iter, const char* gtext_end, u
       // scale
       // right now the best approach for importing those files is commenting
       // out this line and recompiling...
+      if (import_dosage_certainty != 0.0) {
+        // quasi-bugfix (19 Feb 2019): dosage=DS import should respect
+        // --import-dosage-certainty
+        if (((1.0 - alt_dosage) <= import_dosage_certainty) && (alt_dosage <= import_dosage_certainty)) {
+          *no_dosage_here_ptr = 1;
+          return 1;
+        }
+      }
       alt_dosage *= 2;
+    } else {
+      if (import_dosage_certainty != 0.0) {
+        const double dist_from_1 = fabs(1.0 - alt_dosage);
+        if ((1.0 - dist_from_1 <= import_dosage_certainty) && (dist_from_1 <= import_dosage_certainty)) {
+          *no_dosage_here_ptr = 1;
+          return 1;
+        }
+      }
     }
     if (unlikely(alt_dosage > 2.0)) {
       return 1;
@@ -1010,6 +1026,14 @@ BoolErr ParseVcfBiallelicHds(const char* gtext_iter, const char* gtext_end, uint
         return 1;
       }
       const double dosage_sum = dosage1 + dosage2;
+      if (import_dosage_certainty != 0.0) {
+        // Assume maximal het probability.
+        const double dist_from_1 = fabs(1.0 - dosage_sum);
+        if ((1.0 - dist_from_1 <= import_dosage_certainty) && (dist_from_1 <= import_dosage_certainty)) {
+          *no_dosage_here_ptr = 1;
+          return 1;
+        }
+      }
 
       // force this to be nonnegative, since static_cast<int32_t> rounds
       // negative numbers toward zero
@@ -4982,10 +5006,10 @@ static uint32_t g_prov_ref_allele_second = 0;
 
 THREAD_FUNC_DECL Bgen11DosageScanThread(void* arg) {
   // this bails as soon as a single non-hardcall is detected.  still
-  // multithreaded due to low speed of uncompress() call, practical value of
-  // handling the all-hardcall case efficiently, and reduced code complexity
-  // (locally more complex, but globally cleaner due to overlap with
-  // bgen11_geno_to_pgen_thread()).
+  // multithreaded due to relatively low speed of zlib_decompress() call,
+  // practical value of handling the all-hardcall case efficiently, and reduced
+  // code complexity (locally more complex, but globally cleaner due to overlap
+  // with Bgen11GenoToPgenThread()).
   const uintptr_t tidx = R_CAST(uintptr_t, arg);
   const uint32_t sample_ct = g_sample_ct;
   uint16_t* bgen_geno_buf = g_bgen_geno_bufs[tidx];
@@ -9634,7 +9658,11 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     }
     uint32_t format_triple = (flags / kfPlink1DosageFormatTriple) & 1;
     uint32_t format_infer = !(flags & (kfPlink1DosageFormatSingle | kfPlink1DosageFormatDouble | kfPlink1DosageFormatTriple));
+    // dosage_erase_halfdist corresponds to very high confidence (keep only
+    // hardcall), while force_missing_halfdist corresponds to very low
+    // confidence.
     const uint32_t dosage_erase_halfdist = kDosage4th - dosage_erase_thresh;
+    const uint32_t force_missing_halfdist_p1 = (import_dosage_certainty == 0.0)? 0 : (1 + S_CAST(uint32_t, (import_dosage_certainty - 0.5) * kDosageMid));
     uint32_t dosage_is_present = 0;
     uint32_t variant_ct = 0;
     uintptr_t variant_skip_ct = 0;
@@ -9758,7 +9786,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
             a1_dosage *= dosage_multiplier;
             const uint32_t dosage_int = S_CAST(int32_t, a1_dosage + 0.5);
             const uint32_t halfdist = BiallelicDosageHalfdist(dosage_int);
-            if (halfdist < dosage_erase_halfdist) {
+            if ((halfdist < dosage_erase_halfdist) && (halfdist >= force_missing_halfdist_p1)) {
               dosage_is_present = 1;
               break;
             }
@@ -9935,6 +9963,9 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
             const uint32_t cur_halfdist = BiallelicDosageHalfdist(dosage_int);
             if (cur_halfdist < hard_call_halfdist) {
               genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+              if (cur_halfdist < force_missing_halfdist_p1) {
+                continue;
+              }
             } else {
               genovec_word |= ((dosage_int + (kDosage4th * k1LU)) / kDosageMid) << (2 * sample_idx_lowbits);
               if (cur_halfdist >= dosage_erase_halfdist) {

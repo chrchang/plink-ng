@@ -131,7 +131,7 @@ static const double kFactorialRecips[30] = {
 
 // this may move to a more central location
 static const double kSmallRecips[30] = {
-  1.0 / 0,
+  0.0,  // could make this nan, though that's annoying for C++03
   1.0 / 1,
   1.0 / 2,
   1.0 / 3,

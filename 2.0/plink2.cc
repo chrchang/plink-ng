@@ -67,7 +67,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (18 Feb 2019)";
+  " (19 Feb 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -5260,6 +5260,16 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           import_dosage_certainty *= 1.0 - kSmallEpsilon;
+          // We may as well enforce --hard-call-threshold +
+          // --import-dosage-certainty <= 1.
+          uint32_t hard_call_thresh = pc.hard_call_thresh;
+          if (hard_call_thresh == UINT32_MAX) {
+            hard_call_thresh = kDosageMid / 10;
+          }
+          if (u31tod(hard_call_thresh) + import_dosage_certainty * kDosageMid >= u31tod(kDosageMid)) {
+            logerrputs("Error: --hard-call-threshold + --import-dosage-certainty settings cannot add up\nto more than 1.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
         } else if (likely(strequal_k_unsafe(flagname_p2, "mport-dosage"))) {
           if (unlikely(load_params || xload)) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;

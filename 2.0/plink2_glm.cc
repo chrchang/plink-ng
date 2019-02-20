@@ -1396,7 +1396,7 @@ PglErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* co
     for (uintptr_t local_covar_read_idx = 0; local_covar_read_idx != covar_ct; ++local_covar_read_idx) {
       cur_covar_names[local_covar_read_idx] = &(covar_names[local_covar_read_idx * max_covar_name_blen]);
     }
-    return kPglRetNomem;
+    return kPglRetSuccess;
   }
   const uintptr_t new_covar_ct = covar_ct + extra_cat_ct;
   const uintptr_t new_nonlocal_covar_ct = new_covar_ct - local_covar_ct;
