@@ -916,11 +916,11 @@ BoolErr ParseVcfGp(const char* gp_iter, uint32_t is_haploid, double import_dosag
   const double denom = prob_0alt + prob_1alt + prob_2alt;
   if (denom <= 3 * import_dosage_certainty) {
     if ((prob_0alt <= import_dosage_certainty) && (prob_1alt <= import_dosage_certainty) && (prob_2alt <= import_dosage_certainty)) {
-      // treat as missing
+      // force-missing
       // ok to use <= since we multiplied by (1 - epsilon)
       // during command-line parsing.  this lets us avoid
       // special-casing denom=0.
-      *is_missing_ptr = 1;
+      *is_missing_ptr = 2;
       return 1;  // not really an error
     }
   }
@@ -965,7 +965,7 @@ BoolErr ParseVcfBiallelicDosage(const char* gtext_iter, const char* gtext_end, u
         // quasi-bugfix (19 Feb 2019): dosage=DS import should respect
         // --import-dosage-certainty
         if (((1.0 - alt_dosage) <= import_dosage_certainty) && (alt_dosage <= import_dosage_certainty)) {
-          *no_dosage_here_ptr = 1;
+          *no_dosage_here_ptr = 2;
           return 1;
         }
       }
@@ -974,7 +974,7 @@ BoolErr ParseVcfBiallelicDosage(const char* gtext_iter, const char* gtext_end, u
       if (import_dosage_certainty != 0.0) {
         const double dist_from_1 = fabs(1.0 - alt_dosage);
         if ((1.0 - dist_from_1 <= import_dosage_certainty) && (dist_from_1 <= import_dosage_certainty)) {
-          *no_dosage_here_ptr = 1;
+          *no_dosage_here_ptr = 2;
           return 1;
         }
       }
@@ -1030,7 +1030,7 @@ BoolErr ParseVcfBiallelicHds(const char* gtext_iter, const char* gtext_end, uint
         // Assume maximal het probability.
         const double dist_from_1 = fabs(1.0 - dosage_sum);
         if ((1.0 - dist_from_1 <= import_dosage_certainty) && (dist_from_1 <= import_dosage_certainty)) {
-          *no_dosage_here_ptr = 1;
+          *no_dosage_here_ptr = 2;
           return 1;
         }
       }
@@ -1102,7 +1102,7 @@ VcfParseErr VcfScanBiallelicHdsLine(const VcfImportContext* vicp, const char* fo
       if (unlikely(!no_dosage_here)) {
         return kVcfParseInvalidDosage;
       }
-      if (cur_gt_phased && VcfIsHetShort(cur_gtext_start, halfcall_mode)) {
+      if ((no_dosage_here != 2) && cur_gt_phased && VcfIsHetShort(cur_gtext_start, halfcall_mode)) {
         goto VcfScanBiallelicHdsLine_found;
       }
     } else if (cur_dphase_delta) {
@@ -1228,6 +1228,10 @@ VcfParseErr VcfConvertPhasedBiallelicDosageLine(const VcfImportContext* vicp, co
           // defer handling of unphased dosage
         } else if (unlikely(!no_dosage_here)) {
           return kVcfParseInvalidDosage;
+        } else if (no_dosage_here == 2) {
+          // bugfix (20 Feb 2019): if forced missing due to
+          // --import-dosage-certainty, gt_present must be ignored
+          goto VcfConvertPhasedBiallelicDosageLine_geno_done;
         }
         if (gt_present) {
           cur_geno = ctow(*linebuf_iter) - 48;

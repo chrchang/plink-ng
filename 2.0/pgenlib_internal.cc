@@ -9294,8 +9294,6 @@ uint64_t U16VecSum(const uint16_t* __restrict uint16_vec, uint32_t entry_ct) {
 #endif
 }
 
-uint32_t g_freq_fail = 0;
-
 // MaCH-r^2 computation:
 // * This function assumes the biallelic diploid case.  Divide by two to get
 //   the biallelic haploid value, for whatever that's worth.
@@ -9316,7 +9314,6 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
     {
       PglErr reterr = GetBasicGenotypeCounts(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, genocounts);
       if (unlikely(reterr)) {
-        g_freq_fail = 1;
         return reterr;
       }
     }
@@ -9348,7 +9345,6 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
   const unsigned char* fread_end;
   PglErr reterr = ReadRawGenovec(subsetting_required, vidx, pgrp, &fread_ptr, &fread_end, raw_genovec);
   if (unlikely(reterr)) {
-    g_freq_fail = 2;
     return reterr;
   }
   ZeroTrailingQuaters(raw_sample_ct, raw_genovec);
@@ -9374,12 +9370,10 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
       }
       reterr = SkipAux1a(fread_end, aux1a_mode, raw_sample_ct, allele_ct, raw_het_ct, &fread_ptr);
       if (unlikely(reterr)) {
-        g_freq_fail = 3;
         return reterr;
       }
       reterr = GetAux1bHetIncr(fread_end, aux1b_mode, raw_sample_ct, allele_ct, raw_10_ct, &fread_ptr, &raw_het_ct);
       if (unlikely(reterr)) {
-        g_freq_fail = 4;
         return reterr;
       }
     } else if (subsetting_required) {
@@ -9400,7 +9394,6 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
   } else if (VrtypeMultiallelicHc(vrtype)) {
     reterr = SkipAux1(fread_end, raw_genovec, raw_sample_ct, allele_ct, &fread_ptr);
     if (unlikely(reterr)) {
-      g_freq_fail = 5;
       return reterr;
     }
   }
@@ -9461,7 +9454,6 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
     if (!(vrtype & 0x40)) {
       // dosage list
       if (unlikely(ParseAndSaveDeltalistAsBitarr(fread_end, raw_sample_ct, &fread_ptr, raw_dosage_present, &raw_dosage_ct))) {
-        g_freq_fail = 6;
         return kPglRetMalformedInput;
       }
     } else {
