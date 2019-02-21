@@ -885,9 +885,15 @@ uint32_t VcfCheckQuals(STD_ARRAY_KREF(uint32_t, 2) qual_field_skips, STD_ARRAY_K
   return (!ScanInt32(gtext_iter, &ii)) && ((ii < qual_line_mins[1]) || (ii > qual_line_maxs[1]));
 }
 
-BoolErr ParseVcfGp(const char* gp_iter, uint32_t is_haploid, double import_dosage_certainty, uint32_t* is_missing_ptr, double* alt_dosage_ptr) {
+ENUM_U31_DEF_START()
+  kDosageParseOk,
+  kDosageParseMissing,
+  kDosageParseForceMissing
+ENUM_U31_DEF_END(DosageParseResult);
+
+BoolErr ParseVcfGp(const char* gp_iter, uint32_t is_haploid, double import_dosage_certainty, DosageParseResult* dpr_ptr, double* alt_dosage_ptr) {
   // P(0/0), P(0/1), P(1/1), etc.
-  // assumes is_missing initialized to 0
+  // assumes dpr initialized to kDosageParseOk
   double prob_0alt;
   gp_iter = ScanadvDouble(gp_iter, &prob_0alt);
   if (unlikely((!gp_iter) || (prob_0alt < 0.0) || (prob_0alt > 1.0) || (*gp_iter != ','))) {
@@ -902,7 +908,7 @@ BoolErr ParseVcfGp(const char* gp_iter, uint32_t is_haploid, double import_dosag
     const double denom = prob_0alt + prob_1alt;
     if (denom <= 2 * import_dosage_certainty) {
       if ((prob_0alt <= import_dosage_certainty) && (prob_1alt <= import_dosage_certainty)) {
-        *is_missing_ptr = 2;
+        *dpr_ptr = kDosageParseForceMissing;
         return 1;
       }
     }
@@ -920,7 +926,7 @@ BoolErr ParseVcfGp(const char* gp_iter, uint32_t is_haploid, double import_dosag
       // ok to use <= since we multiplied by (1 - epsilon)
       // during command-line parsing.  this lets us avoid
       // special-casing denom=0.
-      *is_missing_ptr = 2;
+      *dpr_ptr = kDosageParseForceMissing;
       return 1;  // not really an error
     }
   }
@@ -928,14 +934,14 @@ BoolErr ParseVcfGp(const char* gp_iter, uint32_t is_haploid, double import_dosag
   return 0;
 }
 
-BoolErr ParseVcfBiallelicDosage(const char* gtext_iter, const char* gtext_end, uint32_t dosage_field_idx, uint32_t is_haploid, uint32_t dosage_is_gp, double import_dosage_certainty, uint32_t* no_dosage_here_ptr, uint32_t* dosage_int_ptr) {
+BoolErr ParseVcfBiallelicDosage(const char* gtext_iter, const char* gtext_end, uint32_t dosage_field_idx, uint32_t is_haploid, uint32_t dosage_is_gp, double import_dosage_certainty, DosageParseResult* dpr_ptr, uint32_t* dosage_int_ptr) {
   // assumes dosage_field_idx != UINT32_MAX
-  // assumes no_dosage_here initialized to 0
-  // returns 1 if missing OR parsing error.  error: no_dosage_here still 0.
+  // assumes dpr initialized to kDosageParseOk
+  // returns 1 if missing OR parsing error.  error: dpr still kDosageParseOk.
   if (dosage_field_idx) {
     gtext_iter = AdvToNthDelimChecked(gtext_iter, gtext_end, dosage_field_idx, ':');
     if (!gtext_iter) {
-      *no_dosage_here_ptr = 1;
+      *dpr_ptr = kDosageParseMissing;
       return 1;
     }
     ++gtext_iter;
@@ -943,12 +949,12 @@ BoolErr ParseVcfBiallelicDosage(const char* gtext_iter, const char* gtext_end, u
   if ((gtext_iter[0] == '?') || ((gtext_iter[0] == '.') && (ctou32(gtext_iter[1]) - 48 >= 10))) {
     // missing field (dot/'?' followed by non-digit)
     // could enforce gtext_iter[1] == colon, comma, etc.?
-    *no_dosage_here_ptr = 1;
+    *dpr_ptr = kDosageParseMissing;
     return 1;
   }
   double alt_dosage;
   if (dosage_is_gp) {
-    if (ParseVcfGp(gtext_iter, is_haploid, import_dosage_certainty, no_dosage_here_ptr, &alt_dosage)) {
+    if (ParseVcfGp(gtext_iter, is_haploid, import_dosage_certainty, dpr_ptr, &alt_dosage)) {
       return 1;
     }
   } else {
@@ -965,7 +971,7 @@ BoolErr ParseVcfBiallelicDosage(const char* gtext_iter, const char* gtext_end, u
         // quasi-bugfix (19 Feb 2019): dosage=DS import should respect
         // --import-dosage-certainty
         if (((1.0 - alt_dosage) <= import_dosage_certainty) && (alt_dosage <= import_dosage_certainty)) {
-          *no_dosage_here_ptr = 2;
+          *dpr_ptr = kDosageParseForceMissing;
           return 1;
         }
       }
@@ -974,7 +980,7 @@ BoolErr ParseVcfBiallelicDosage(const char* gtext_iter, const char* gtext_end, u
       if (import_dosage_certainty != 0.0) {
         const double dist_from_1 = fabs(1.0 - alt_dosage);
         if ((1.0 - dist_from_1 <= import_dosage_certainty) && (dist_from_1 <= import_dosage_certainty)) {
-          *no_dosage_here_ptr = 2;
+          *dpr_ptr = kDosageParseForceMissing;
           return 1;
         }
       }
@@ -987,8 +993,8 @@ BoolErr ParseVcfBiallelicDosage(const char* gtext_iter, const char* gtext_end, u
   return 0;
 }
 
-BoolErr ParseVcfBiallelicHds(const char* gtext_iter, const char* gtext_end, uint32_t dosage_field_idx, uint32_t hds_field_idx, uint32_t is_haploid, uint32_t dosage_is_gp, double import_dosage_certainty, uint32_t* no_dosage_here_ptr, uint32_t* dosage_int_ptr, int32_t* cur_dphase_delta_ptr, uint32_t* hds_valid_ptr) {
-  // assumes no_dosage_here initialized to 0
+BoolErr ParseVcfBiallelicHds(const char* gtext_iter, const char* gtext_end, uint32_t dosage_field_idx, uint32_t hds_field_idx, uint32_t is_haploid, uint32_t dosage_is_gp, double import_dosage_certainty, DosageParseResult* dpr_ptr, uint32_t* dosage_int_ptr, int32_t* cur_dphase_delta_ptr, uint32_t* hds_valid_ptr) {
+  // assumes dpr initialized to kDosageParseOk
   // assumes cur_dphase_delta initialized to 0
   // assumes hds_valid initialized to 0
   // assumes dosage_field_idx != UINT32_MAX and/or hds_field_idx != UINT32_MAX
@@ -1016,6 +1022,12 @@ BoolErr ParseVcfBiallelicHds(const char* gtext_iter, const char* gtext_end, uint
       // hardcall-phase
       *hds_valid_ptr = 1;
       if (*hds_gtext_iter != ',') {
+        if (import_dosage_certainty != 0.0) {
+          if ((1.0 - dosage1 <= import_dosage_certainty) && (dosage1 <= import_dosage_certainty)) {
+            *dpr_ptr = kDosageParseForceMissing;
+            return 1;
+          }
+        }
         *dosage_int_ptr = S_CAST(int32_t, dosage1 * kDosageMax + 0.5);
         return 0;
       }
@@ -1030,7 +1042,7 @@ BoolErr ParseVcfBiallelicHds(const char* gtext_iter, const char* gtext_end, uint
         // Assume maximal het probability.
         const double dist_from_1 = fabs(1.0 - dosage_sum);
         if ((1.0 - dist_from_1 <= import_dosage_certainty) && (dist_from_1 <= import_dosage_certainty)) {
-          *no_dosage_here_ptr = 2;
+          *dpr_ptr = kDosageParseForceMissing;
           return 1;
         }
       }
@@ -1045,11 +1057,11 @@ BoolErr ParseVcfBiallelicHds(const char* gtext_iter, const char* gtext_end, uint
     }
   ParseVcfBiallelicHdsSkip:
     if (dosage_field_idx == UINT32_MAX) {
-      *no_dosage_here_ptr = 1;
+      *dpr_ptr = kDosageParseMissing;
       return 1;
     }
   }
-  return ParseVcfBiallelicDosage(gtext_iter, gtext_end, dosage_field_idx, is_haploid, dosage_is_gp, import_dosage_certainty, no_dosage_here_ptr, dosage_int_ptr);
+  return ParseVcfBiallelicDosage(gtext_iter, gtext_end, dosage_field_idx, is_haploid, dosage_is_gp, import_dosage_certainty, dpr_ptr, dosage_int_ptr);
 }
 
 ENUM_U31_DEF_START()
@@ -1057,7 +1069,7 @@ ENUM_U31_DEF_START()
   kVcfParseMissingTokens,
   kVcfParseInvalidGt,
   kVcfParseHalfCallError,
-  kVcfParseInvalidDosage,
+  kVcfParseInvalidDosage
 ENUM_U31_DEF_END(VcfParseErr);
 
 VcfParseErr VcfScanBiallelicHdsLine(const VcfImportContext* vicp, const char* format_end, uint32_t* phase_or_dosage_found_ptr, char** line_iter_ptr) {
@@ -1094,15 +1106,15 @@ VcfParseErr VcfScanBiallelicHdsLine(const VcfImportContext* vicp, const char* fo
       cur_gt_phased = (cur_gtext_start[1] == '|');
       is_haploid = (cur_gtext_start[1] != '/') && (!cur_gt_phased);
     }
-    uint32_t no_dosage_here = 0;
+    DosageParseResult dpr = kDosageParseOk;
     int32_t cur_dphase_delta = 0;
     uint32_t hds_valid = 0;
     uint32_t dosage_int;
-    if (ParseVcfBiallelicHds(cur_gtext_start, cur_gtext_end, dosage_field_idx, hds_field_idx, is_haploid, 0, import_dosage_certainty, &no_dosage_here, &dosage_int, &cur_dphase_delta, &hds_valid)) {
-      if (unlikely(!no_dosage_here)) {
+    if (ParseVcfBiallelicHds(cur_gtext_start, cur_gtext_end, dosage_field_idx, hds_field_idx, is_haploid, 0, import_dosage_certainty, &dpr, &dosage_int, &cur_dphase_delta, &hds_valid)) {
+      if (unlikely(!dpr)) {
         return kVcfParseInvalidDosage;
       }
-      if ((no_dosage_here != 2) && cur_gt_phased && VcfIsHetShort(cur_gtext_start, halfcall_mode)) {
+      if ((dpr != kDosageParseForceMissing) && cur_gt_phased && VcfIsHetShort(cur_gtext_start, halfcall_mode)) {
         goto VcfScanBiallelicHdsLine_found;
       }
     } else if (cur_dphase_delta) {
@@ -1191,11 +1203,11 @@ VcfParseErr VcfConvertPhasedBiallelicDosageLine(const VcfImportContext* vicp, co
           is_haploid = (linebuf_iter[1] != '/') && (!cur_gt_phased);
         }
         const uint32_t shifted_bit = 1U << sample_idx_lowbits;
-        uint32_t no_dosage_here = 0;
+        DosageParseResult dpr = kDosageParseOk;
         int32_t cur_dphase_delta = 0;
         uint32_t hds_valid = 0;
         uint32_t dosage_int;
-        if (!ParseVcfBiallelicHds(linebuf_iter, cur_gtext_end, dosage_field_idx, hds_field_idx, is_haploid, dosage_is_gp, import_dosage_certainty, &no_dosage_here, &dosage_int, &cur_dphase_delta, &hds_valid)) {
+        if (!ParseVcfBiallelicHds(linebuf_iter, cur_gtext_end, dosage_field_idx, hds_field_idx, is_haploid, dosage_is_gp, import_dosage_certainty, &dpr, &dosage_int, &cur_dphase_delta, &hds_valid)) {
           if (hds_valid) {
             const uint32_t dphase_halfdist1 = DphaseHalfdist(dosage_int + cur_dphase_delta);
             const uint32_t dphase_halfdist2 = DphaseHalfdist(dosage_int - cur_dphase_delta);
@@ -1226,9 +1238,9 @@ VcfParseErr VcfConvertPhasedBiallelicDosageLine(const VcfImportContext* vicp, co
             goto VcfConvertPhasedBiallelicDosageLine_geno_done;
           }
           // defer handling of unphased dosage
-        } else if (unlikely(!no_dosage_here)) {
+        } else if (unlikely(!dpr)) {
           return kVcfParseInvalidDosage;
-        } else if (no_dosage_here == 2) {
+        } else if (dpr == kDosageParseForceMissing) {
           // bugfix (20 Feb 2019): if forced missing due to
           // --import-dosage-certainty, gt_present must be ignored
           goto VcfConvertPhasedBiallelicDosageLine_geno_done;
@@ -1298,7 +1310,7 @@ VcfParseErr VcfConvertPhasedBiallelicDosageLine(const VcfImportContext* vicp, co
             cur_geno = 3;
           }
         }
-        if (!no_dosage_here) {
+        if (!dpr) {
           // now actually handle the unphased dosage
           const uint32_t cur_halfdist = BiallelicDosageHalfdist(dosage_int);
           if (cur_halfdist < dosage_erase_halfdist) {

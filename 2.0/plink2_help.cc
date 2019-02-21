@@ -1306,19 +1306,25 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --keep-fam [fn...]   : Exclude all families not named in a file.\n"
 "  --remove-fam [f...]  : Exclude all families named in a file.\n"
                );
-    HelpPrint("extract\0exclude\0range\0", &help_ctrl, 0,
-"  --extract <ibed0 | ibed1> [f...] : Usually excludes all variants (not) named\n"
-"  --exclude <ibed0 | ibed1> [f...]   in the given file(s).  When multiple files\n"
-"                                     are named, they are concatenated.\n"
-"                                     With the 'ibed0' or 'ibed1' modifier,\n"
-"                                     variants outside/inside the positional\n"
-"                                     ranges in the interval-BED file(s) are\n"
-"                                     excluded instead.  'ibed0' tells PLINK 2\n"
-"                                     to assume the interval bounds follow the\n"
-"                                     UCSC 0-based half-open convention, while\n"
-"                                     'ibed1' (equivalent to PLINK 1.9 'range')\n"
-"                                     specifies 1-based fully-closed.\n"
+    HelpPrint("extract\0exclude\0range\0extract-intersect\0", &help_ctrl, 0,
+"  --extract <bed0 | bed1> [f...] : Usually excludes all variants (not) named in\n"
+"  --exclude <bed0 | bed1> [f...]   the given file(s).  When multiple files are\n"
+"                                   named, they are concatenated.\n"
+"                                   With the 'bed0' or 'bed1' modifier, variants\n"
+"                                   outside/inside the positional ranges in the\n"
+"                                   interval-BED file(s) are excluded instead.\n"
+"                                   'bed0' tells PLINK 2 to assume the interval\n"
+"                                   bounds follow the UCSC 0-based half-open\n"
+"                                   convention, while 'bed1' (equivalent to\n"
+"                                   PLINK 1.9 'range') specifies 1-based\n"
+"                                   fully-closed.\n"
                );
+    HelpPrint("extract-intersect\0extract\0exclude\0", &help_ctrl, 0,
+"  --extract-intersect <bed0 | bed1> [f...] : Just like --extract, except that\n"
+"                                             a variant must be in the\n"
+"                                             intersection, rather than just the\n"
+"                                             union, of the files to be kept.\n"
+              );
     HelpPrint("keep-cats\0keep-cat-names\0keep-cat-pheno\0remove-cats\0remove-cat-names\0remove-cat-pheno\0keep-clusters\0keep-cluster-names\0remove-clusters\0remove-cluster-names\0", &help_ctrl, 0,
 "  --keep-cats [filename]   : These can be used individually or in combination\n"
 "  --keep-cat-names [nm...]   to define a list of categories to keep; all\n"
@@ -1420,12 +1426,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --snps [var IDs...]  : Use IDs to specify variant range(s) to load or\n"
 "  --exclude-snps [...]   exclude.  E.g. '--snps rs1111-rs2222, rs3333, rs4444'.\n"
                );
-    HelpPrint("force-intersect\0extract\0from\0to\0snp\0from-bp\0to-bp\0from-kb\0to-kb\0from-mb\0to-mb\0extract-snp\0snps\0", &help_ctrl, 0,
+    HelpPrint("force-intersect\0extract\0extract-intersect\0from\0to\0snp\0from-bp\0to-bp\0from-kb\0to-kb\0from-mb\0to-mb\0extract-snp\0snps\0", &help_ctrl, 0,
 "  --force-intersect    : PLINK 2 normally errors out when multiple variant\n"
-"                         inclusion filters (--extract, --from/--to,\n"
-"                         --from-bp/--to-bp, --snp, --snps) are specified.\n"
-"                         --force-intersect allows the run to proceed; the set\n"
-"                         intersection will be taken.\n"
+"                         inclusion filters (--extract, --extract-intersect,\n"
+"                         --from/--to, --from-bp/--to-bp, --snp, --snps) are\n"
+"                         specified.  --force-intersect allows the run to\n"
+"                         proceed; the set intersection will be taken.\n"
                );
     HelpPrint("thin\0thin-count\0", &help_ctrl, 0,
 "  --thin [p]           : Randomly remove variants, retaining each with prob. p.\n"

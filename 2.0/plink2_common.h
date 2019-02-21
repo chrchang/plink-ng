@@ -959,6 +959,14 @@ HEADER_INLINE void OutnameZstSet(const char* ext, uint32_t output_zst, char* out
   }
 }
 
+ENUM_U31_DEF_START()
+  kVfilterExtract,
+  kVfilterExtractIntersect,
+  kVfilterExclude
+ENUM_U31_DEF_END(VfilterType);
+
+extern const char g_vft_names[3][18];
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

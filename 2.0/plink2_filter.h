@@ -30,7 +30,7 @@ PglErr SnpFlag(const uint32_t* variant_bps, const char* const* variant_ids, cons
 
 PglErr SnpsFlag(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const RangeList* snps_range_list_ptr, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t do_exclude, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
 
-PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* fnames, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t do_exclude, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
+PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* fnames, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, VfilterType vft, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
 
 ENUM_U31_DEF_START()
   kRmDup0,

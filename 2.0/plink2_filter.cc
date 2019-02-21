@@ -283,7 +283,7 @@ void ExtractExcludeProcessToken(const char* const* variant_ids, const uint32_t* 
   }
 }
 
-PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* fnames, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t do_exclude, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* fnames, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, VfilterType vft, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   GzTokenStream gts;
   PreinitGzTokenStream(&gts);
@@ -300,6 +300,7 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
       goto ExtractExcludeFlagNorange_ret_NOMEM;
     }
     const char* fnames_iter = fnames;
+    const char* vft_name = g_vft_names[vft];
     uintptr_t duplicate_ct = 0;
     do {
       reterr = InitGzTokenStream(fnames_iter, &gts, g_textbuf);
@@ -317,7 +318,7 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
       if (unlikely(token_slen)) {
         // error code
         if (token_slen == UINT32_MAX) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Excessively long ID in --%s file.\n", do_exclude? "exclude" : "extract");
+          snprintf(g_logbuf, kLogbufSize, "Error: Excessively long ID in --%s file.\n", vft_name);
           goto ExtractExcludeFlagNorange_ret_MALFORMED_INPUT_2;
         }
         goto ExtractExcludeFlagNorange_ret_READ_FAIL;
@@ -325,19 +326,23 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
       if (unlikely(CloseGzTokenStream(&gts))) {
         goto ExtractExcludeFlagNorange_ret_READ_FAIL;
       }
+      if (vft == kVfilterExtractIntersect) {
+        BitvecAnd(already_seen, raw_variant_ctl, variant_include);
+        ZeroWArr(raw_variant_ctl, already_seen);
+      }
       fnames_iter = strnul(fnames_iter);
       ++fnames_iter;
     } while (*fnames_iter);
-    if (do_exclude) {
+    if (vft == kVfilterExclude) {
       BitvecInvmask(already_seen, raw_variant_ctl, variant_include);
-    } else {
+    } else if (vft == kVfilterExtract) {
       BitvecAnd(already_seen, raw_variant_ctl, variant_include);
     }
     const uint32_t new_variant_ct = PopcountWords(variant_include, raw_variant_ctl);
-    logprintf("--%s: %u variant%s remaining.\n", do_exclude? "exclude" : "extract", new_variant_ct, (new_variant_ct == 1)? "" : "s");
+    logprintf("--%s: %u variant%s remaining.\n", vft_name, new_variant_ct, (new_variant_ct == 1)? "" : "s");
     *variant_ct_ptr = new_variant_ct;
     if (duplicate_ct) {
-      logerrprintf("Warning: At least %" PRIuPTR " duplicate ID%s in --%s file(s).\n", duplicate_ct, (duplicate_ct == 1)? "" : "s", do_exclude? "exclude" : "extract");
+      logerrprintf("Warning: At least %" PRIuPTR " duplicate ID%s in --%s file(s).\n", duplicate_ct, (duplicate_ct == 1)? "" : "s", vft_name);
     }
   }
   while (0) {

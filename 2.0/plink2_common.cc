@@ -2597,6 +2597,8 @@ char* PrintMultiallelicHcAsHaploidDs(uint32_t hc1, uint32_t hc2, uint32_t allele
   return &(start[-1]);
 }
 
+const char g_vft_names[3][18] = {"extract", "extract-intersect", "exclude"};
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

@@ -137,10 +137,12 @@ FLAGSET64_DEF_START()
   kfFilterExclNonfounders = (1 << 10),
   kfFilterSnpsOnly = (1 << 11),
   kfFilterSnpsOnlyJustAcgt = (1 << 12),
-  kfFilterExtractIbed0 = (1 << 13),
-  kfFilterExtractIbed1 = (1 << 14),
-  kfFilterExcludeIbed0 = (1 << 15),
-  kfFilterExcludeIbed1 = (1 << 16)
+  kfFilterExtractBed0 = (1 << 13),
+  kfFilterExtractBed1 = (1 << 14),
+  kfFilterExtractIntersectBed0 = (1 << 15),
+  kfFilterExtractIntersectBed1 = (1 << 16),
+  kfFilterExcludeBed0 = (1 << 17),
+  kfFilterExcludeBed1 = (1 << 18)
 FLAGSET64_DEF_END(FilterFlags);
 
 FLAGSET64_DEF_START()
@@ -376,6 +378,7 @@ typedef struct Plink2CmdlineStruct {
   char* pheno_fname;
   char* covar_fname;
   char* extract_fnames;
+  char* extract_intersect_fnames;
   char* exclude_fnames;
   char* keep_fnames;
   char* keepfam_fnames;
@@ -564,7 +567,7 @@ void ReportGenotypingRate(const uintptr_t* variant_include, const ChrInfo* cip, 
   }
 }
 
-PglErr ApplyVariantBpFilters(const char* extract_fnames, const char* exclude_fnames, const ChrInfo* cip, const uint32_t* variant_bps, int32_t from_bp, int32_t to_bp, uint32_t raw_variant_ct, FilterFlags filter_flags, UnsortedVar vpos_sortstatus, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+PglErr ApplyVariantBpFilters(const char* extract_fnames, const char* extract_intersect_fnames, const char* exclude_fnames, const ChrInfo* cip, const uint32_t* variant_bps, int32_t from_bp, int32_t to_bp, uint32_t raw_variant_ct, FilterFlags filter_flags, UnsortedVar vpos_sortstatus, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   if (!(*variant_ct_ptr)) {
     return kPglRetSuccess;
   }
@@ -597,22 +600,32 @@ PglErr ApplyVariantBpFilters(const char* extract_fnames, const char* exclude_fna
     }
     *variant_ct_ptr = PopcountBitRange(variant_include, variant_uidx_start, variant_uidx_end);
   }
-  if (extract_fnames && (filter_flags & (kfFilterExtractIbed0 | kfFilterExtractIbed1))) {
+  if (extract_fnames && (filter_flags & (kfFilterExtractBed0 | kfFilterExtractBed1))) {
     if (unlikely(vpos_sortstatus & kfUnsortedVarBp)) {
-      logerrputs("Error: '--extract ibed0'/'--extract ibed1' requires a sorted .pvar/.bim.  Retry\nthis command after using --make-pgen/--make-bed + --sort-vars to sort your\ndata.\n");
+      logerrputs("Error: '--extract bed0'/'--extract bed1' requires a sorted .pvar/.bim.  Retry\nthis command after using --make-pgen/--make-bed + --sort-vars to sort your\ndata.\n");
       return kPglRetInconsistentInput;
     }
-    PglErr reterr = ExtractExcludeRange(extract_fnames, cip, variant_bps, raw_variant_ct, 0, (filter_flags / kfFilterExtractIbed0) & 1, variant_include, variant_ct_ptr);
+    PglErr reterr = ExtractExcludeRange(extract_fnames, cip, variant_bps, raw_variant_ct, kVfilterExtract, (filter_flags / kfFilterExtractBed0) & 1, variant_include, variant_ct_ptr);
     if (unlikely(reterr)) {
       return reterr;
     }
   }
-  if (exclude_fnames && (filter_flags & (kfFilterExcludeIbed0 | kfFilterExcludeIbed1))) {
+  if (extract_intersect_fnames && (filter_flags & (kfFilterExtractIntersectBed0 | kfFilterExtractIntersectBed1))) {
     if (unlikely(vpos_sortstatus & kfUnsortedVarBp)) {
-      logerrputs("Error: '--exclude ibed0'/'--exclude ibed1' requires a sorted .pvar/.bim.  Retry\nthis commandafter using --make-pgen/--make-bed + --sort-vars to sort your\ndata.\n");
+      logerrputs("Error: '--extract-intersect bed0'/'--extract-intersect bed1' requires a sorted\n.pvar/.bim.  Retry this command after using --make-pgen/--make-bed +\n--sort-vars to sort your data.\n");
       return kPglRetInconsistentInput;
     }
-    PglErr reterr = ExtractExcludeRange(exclude_fnames, cip, variant_bps, raw_variant_ct, 1, (filter_flags / kfFilterExcludeIbed0) & 1, variant_include, variant_ct_ptr);
+    PglErr reterr = ExtractExcludeRange(extract_intersect_fnames, cip, variant_bps, raw_variant_ct, kVfilterExtractIntersect, (filter_flags / kfFilterExtractIntersectBed0) & 1, variant_include, variant_ct_ptr);
+    if (unlikely(reterr)) {
+      return reterr;
+    }
+  }
+  if (exclude_fnames && (filter_flags & (kfFilterExcludeBed0 | kfFilterExcludeBed1))) {
+    if (unlikely(vpos_sortstatus & kfUnsortedVarBp)) {
+      logerrputs("Error: '--exclude bed0'/'--exclude bed1' requires a sorted .pvar/.bim.  Retry\nthis commandafter using --make-pgen/--make-bed + --sort-vars to sort your\ndata.\n");
+      return kPglRetInconsistentInput;
+    }
+    PglErr reterr = ExtractExcludeRange(exclude_fnames, cip, variant_bps, raw_variant_ct, kVfilterExclude, (filter_flags / kfFilterExcludeBed0) & 1, variant_include, variant_ct_ptr);
     if (unlikely(reterr)) {
       return reterr;
     }
@@ -1092,12 +1105,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     // into two cases.
     const uint32_t full_variant_id_htable_needed = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_fname || (pcp->rmdup_mode != kRmDup0));
     if (!full_variant_id_htable_needed) {
-      reterr = ApplyVariantBpFilters(pcp->extract_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, variant_include, &variant_ct);
+      reterr = ApplyVariantBpFilters(pcp->extract_fnames, pcp->extract_intersect_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, variant_include, &variant_ct);
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
       }
     }
-    if (variant_ct && (full_variant_id_htable_needed || (pcp->extract_fnames && (!(pcp->filter_flags & (kfFilterExtractIbed0 | kfFilterExtractIbed1)))) || (pcp->exclude_fnames && (!(pcp->filter_flags & (kfFilterExcludeIbed0 | kfFilterExcludeIbed1)))))) {
+    const uint32_t extract_exclude_by_id = (pcp->extract_fnames && (!(pcp->filter_flags & (kfFilterExtractBed0 | kfFilterExtractBed1)))) || (pcp->extract_intersect_fnames && (!(pcp->filter_flags & (kfFilterExtractIntersectBed0 | kfFilterExtractIntersectBed1)))) || (pcp->exclude_fnames && (!(pcp->filter_flags & (kfFilterExcludeBed0 | kfFilterExcludeBed1))));
+    if (variant_ct && (full_variant_id_htable_needed || extract_exclude_by_id)) {
       // don't bother with having different allow_dups vs. no allow_dups hash
       // table structures, just check specific IDs for duplication in the
       // no-duplicates-allowed cases
@@ -1162,7 +1176,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
-          if ((pcp->extract_fnames && (!(pcp->filter_flags & (kfFilterExtractIbed0 | kfFilterExtractIbed1)))) || (pcp->exclude_fnames && (!(pcp->filter_flags & (kfFilterExcludeIbed0 | kfFilterExcludeIbed1)))) || pcp->update_alleles_fname) {
+          if (extract_exclude_by_id || pcp->update_alleles_fname) {
             // Must reconstruct the hash table in this case.
             BigstackReset(bigstack_mark);
             dup_ct = 0;
@@ -1180,14 +1194,20 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
         }
 
-        if (pcp->extract_fnames && (!(pcp->filter_flags & (kfFilterExtractIbed0 | kfFilterExtractIbed1)))) {
-          reterr = ExtractExcludeFlagNorange(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, pcp->extract_fnames, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, 0, variant_include, &variant_ct);
+        if (pcp->extract_fnames && (!(pcp->filter_flags & (kfFilterExtractBed0 | kfFilterExtractBed1)))) {
+          reterr = ExtractExcludeFlagNorange(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, pcp->extract_fnames, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, kVfilterExtract, variant_include, &variant_ct);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
         }
-        if (pcp->exclude_fnames && (!(pcp->filter_flags & (kfFilterExcludeIbed0 | kfFilterExcludeIbed1)))) {
-          reterr = ExtractExcludeFlagNorange(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, pcp->exclude_fnames, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, 1, variant_include, &variant_ct);
+        if (pcp->extract_intersect_fnames && (!(pcp->filter_flags & (kfFilterExtractIntersectBed0 | kfFilterExtractIntersectBed1)))) {
+          reterr = ExtractExcludeFlagNorange(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, pcp->extract_intersect_fnames, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, kVfilterExtractIntersect, variant_include, &variant_ct);
+          if (unlikely(reterr)) {
+            goto Plink2Core_ret_1;
+          }
+        }
+        if (pcp->exclude_fnames && (!(pcp->filter_flags & (kfFilterExcludeBed0 | kfFilterExcludeBed1)))) {
+          reterr = ExtractExcludeFlagNorange(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, pcp->exclude_fnames, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, kVfilterExclude, variant_include, &variant_ct);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -1202,7 +1222,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
       BigstackReset(bigstack_mark);
       if (full_variant_id_htable_needed) {
-        reterr = ApplyVariantBpFilters(pcp->extract_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, variant_include, &variant_ct);
+        reterr = ApplyVariantBpFilters(pcp->extract_fnames, pcp->extract_intersect_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, variant_include, &variant_ct);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -2933,6 +2953,7 @@ int main(int argc, char** argv) {
   pc.remove_fnames = nullptr;
   pc.removefam_fnames = nullptr;
   pc.extract_fnames = nullptr;
+  pc.extract_intersect_fnames = nullptr;
   pc.exclude_fnames = nullptr;
   pc.freq_ref_binstr = nullptr;
   pc.freq_alt1_binstr = nullptr;
@@ -4199,25 +4220,50 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvk[arg_idx + 1];
           const uint32_t cur_modif_slen = strlen(cur_modif);
-          uint32_t is_ibed = 0;
-          if (cur_modif_slen == 5) {
-            if (memequal_k(cur_modif, "ibed0", 5)) {
-              if (unlikely(param_ct == 1)) {
-                logerrputs("Error: '--extract ibed0' requires at least one filename.\n");
-                goto main_ret_INVALID_CMDLINE_A;
-              }
-              pc.filter_flags |= kfFilterExtractIbed0 | kfFilterNoSplitChr;
-              is_ibed = 1;
-            } else if (memequal_k(cur_modif, "ibed1", 5) || memequal_k(cur_modif, "range", 5)) {
-              if (unlikely(param_ct == 1)) {
-                logerrputs("Error: '--extract ibed1' requires at least one filename.\n");
-                goto main_ret_INVALID_CMDLINE_A;
-              }
-              pc.filter_flags |= kfFilterExtractIbed1 | kfFilterNoSplitChr;
-              is_ibed = 1;
+          uint32_t is_interval_bed = 0;
+          if (strequal_k(cur_modif, "bed0", cur_modif_slen) || strequal_k(cur_modif, "ibed0", cur_modif_slen)) {
+            if (unlikely(param_ct == 1)) {
+              logerrputs("Error: '--extract bed0' requires at least one filename.\n");
+              goto main_ret_INVALID_CMDLINE_A;
             }
+            pc.filter_flags |= kfFilterExtractBed0 | kfFilterNoSplitChr;
+            is_interval_bed = 1;
+          } else if (strequal_k(cur_modif, "bed1", cur_modif_slen) || strequal_k(cur_modif, "ibed1", cur_modif_slen) || strequal_k(cur_modif, "range", cur_modif_slen)) {
+            if (unlikely(param_ct == 1)) {
+              logerrputs("Error: '--extract bed1' requires at least one filename.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            pc.filter_flags |= kfFilterExtractBed1 | kfFilterNoSplitChr;
+            is_interval_bed = 1;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1 + is_ibed]), param_ct - is_ibed, kPglFnamesize, &pc.extract_fnames);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1 + is_interval_bed]), param_ct - is_interval_bed, kPglFnamesize, &pc.extract_fnames);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          pc.filter_flags |= kfFilterPvarReq;
+        } else if (strequal_k_unsafe(flagname_p2, "xtract-intersect")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          const uint32_t cur_modif_slen = strlen(cur_modif);
+          uint32_t is_interval_bed = 0;;;
+          if (strequal_k(cur_modif, "bed0", cur_modif_slen)) {
+            if (unlikely(param_ct == 1)) {
+              logerrputs("Error: '--extract-intersect bed0' requires at least one filename.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            pc.filter_flags |= kfFilterExtractIntersectBed0 | kfFilterNoSplitChr;
+            is_interval_bed = 1;
+          } else if (strequal_k(cur_modif, "bed1", cur_modif_slen)) {
+            if (unlikely(param_ct == 1)) {
+              logerrputs("Error: '--extract-intersect bed1' requires at least one filename.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            pc.filter_flags |= kfFilterExtractIntersectBed1 | kfFilterNoSplitChr;
+            is_interval_bed = 1;
+          }
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1 + is_interval_bed]), param_ct - is_interval_bed, kPglFnamesize, &pc.extract_intersect_fnames);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -4228,25 +4274,23 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvk[arg_idx + 1];
           const uint32_t cur_modif_slen = strlen(cur_modif);
-          uint32_t is_ibed = 0;
-          if (cur_modif_slen == 5) {
-            if (memequal_k(cur_modif, "ibed0", 5)) {
-              if (unlikely(param_ct == 1)) {
-                logerrputs("Error: '--exclude ibed0' requires at least one filename.\n");
-                goto main_ret_INVALID_CMDLINE_A;
-              }
-              pc.filter_flags |= kfFilterExcludeIbed0 | kfFilterNoSplitChr;
-              is_ibed = 1;
-            } else if (memequal_k(cur_modif, "ibed1", 5) || memequal_k(cur_modif, "range", 5)) {
-              if (unlikely(param_ct == 1)) {
-                logerrputs("Error: '--exclude ibed1' requires at least one filename.\n");
-                goto main_ret_INVALID_CMDLINE_A;
-              }
-              pc.filter_flags |= kfFilterExcludeIbed1 | kfFilterNoSplitChr;
-              is_ibed = 1;
+          uint32_t is_interval_bed = 0;
+          if (strequal_k(cur_modif, "bed0", cur_modif_slen) || strequal_k(cur_modif, "ibed0", cur_modif_slen)) {
+            if (unlikely(param_ct == 1)) {
+              logerrputs("Error: '--exclude bed0' requires at least one filename.\n");
+              goto main_ret_INVALID_CMDLINE_A;
             }
+            pc.filter_flags |= kfFilterExcludeBed0 | kfFilterNoSplitChr;
+            is_interval_bed = 1;
+          } else if (strequal_k(cur_modif, "bed1", cur_modif_slen) || strequal_k(cur_modif, "ibed1", cur_modif_slen) || strequal_k(cur_modif, "range", cur_modif_slen)) {
+            if (unlikely(param_ct == 1)) {
+              logerrputs("Error: '--exclude bed1' requires at least one filename.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            pc.filter_flags |= kfFilterExcludeBed1 | kfFilterNoSplitChr;
+            is_interval_bed = 1;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1 + is_ibed]), param_ct - is_ibed, kPglFnamesize, &pc.exclude_fnames);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1 + is_interval_bed]), param_ct - is_interval_bed, kPglFnamesize, &pc.exclude_fnames);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -8939,12 +8983,13 @@ int main(int argc, char** argv) {
       // --autosome{-par}/--chr is exempted since it's more obvious how they
       // interact with other filters.)
       const uint32_t inclusion_filter_extract = (pc.extract_fnames != nullptr);
+      const uint32_t inclusion_filter_extract_intersect = (pc.extract_intersect_fnames != nullptr);
       const uint32_t inclusion_filter_fromto_id = pc.varid_from || pc.varid_to;
       const uint32_t inclusion_filter_fromto_bp = (pc.from_bp != -1) || (pc.to_bp != -1);
       const uint32_t inclusion_filter_snpflag = (pc.varid_snp != nullptr);
       const uint32_t inclusion_filter_snpsflag = !!pc.snps_range_list.name_ct;
-      if (unlikely(inclusion_filter_extract + inclusion_filter_fromto_id + inclusion_filter_fromto_bp + inclusion_filter_snpflag + inclusion_filter_snpsflag > 1)) {
-        logerrputs("Error: Multiple variant inclusion filters specified (--extract, --from/--to,\n--from-bp/--to-bp, --snp, --snps).  Add --force-intersect if you really want\nthe intersection of these sets.  (If your variant IDs are unique, you can\nextract the union by e.g. running --write-snplist for each set, followed by\n--extract on all the .snplist files.)\n");
+      if (unlikely(inclusion_filter_extract + inclusion_filter_extract_intersect + inclusion_filter_fromto_id + inclusion_filter_fromto_bp + inclusion_filter_snpflag + inclusion_filter_snpsflag > 1)) {
+        logerrputs("Error: Multiple variant inclusion filters specified (--extract,\n--extract-intersect, --from/--to, --from-bp/--to-bp, --snp, --snps).  Add\n--force-intersect if you really want the intersection of these sets.  (If your\nvariant IDs are unique, you can extract the union by e.g. running\n--write-snplist for each set, followed by --extract on all the .snplist files.)\n");
         goto main_ret_INVALID_CMDLINE_A;
       }
     }
@@ -9243,6 +9288,7 @@ int main(int argc, char** argv) {
   free_cond(pc.keepfam_fnames);
   free_cond(pc.keep_fnames);
   free_cond(pc.exclude_fnames);
+  free_cond(pc.extract_intersect_fnames);
   free_cond(pc.extract_fnames);
   free_cond(pc.sample_sort_fname);
   free_cond(pc.covar_fname);
