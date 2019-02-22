@@ -4907,10 +4907,8 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
       if (!constraint_ct) {
         cswritep = strcpya_k(cswritep, "\tZ_STAT");
       } else {
-        // chisq for joint tests.  may switch to F-statistic (just divide by
-        // df; the annoying part there is porting a function to convert that to
-        // a p-value).
-        cswritep = strcpya_k(cswritep, "\tZ_OR_CHISQ_STAT");
+        // F-statistic for joint tests.
+        cswritep = strcpya_k(cswritep, "\tZ_OR_F_STAT");
       }
     }
     if (p_col) {
@@ -5078,6 +5076,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
             const uint32_t allele_is_valid = (primary_se != -9);
             variant_is_valid |= allele_is_valid;
             {
+              const LogisticAuxResult* auxp = &(cur_block_aux[allele_bidx]);
               if (ln_pfilter <= 0.0) {
                 if (!allele_is_valid) {
                   goto GlmLogistic_allele_iterate;
@@ -5089,12 +5088,10 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                   // could precompute a tstat threshold instead
                   primary_ln_pval = ZscoreToLnP(permstat);
                 } else {
-                  // possible todo: support for F-distribution p-values instead
-                  // of asymptotic chi-square p-values
                   // cur_constraint_ct may be different on chrX/chrY than it is
                   // on autosomes, so just have permstat be -log(pval) to be
                   // safe
-                  primary_ln_pval = ChisqToLnP(primary_se, cur_constraint_ct);
+                  primary_ln_pval = FstatToLnP(primary_se / u31tod(cur_constraint_ct), cur_constraint_ct, auxp->sample_obs_ct);
                   permstat = -primary_ln_pval;
                 }
                 if (primary_ln_pval > ln_pfilter) {
@@ -5107,7 +5104,6 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                   goto GlmLogistic_allele_iterate;
                 }
               }
-              const LogisticAuxResult* auxp = &(cur_block_aux[allele_bidx]);
               uint32_t inner_reported_test_ct = cur_biallelic_reported_test_ct;
               if (extra_allele_ct) {
                 if (beta_se_multiallelic_fused) {
@@ -5365,14 +5361,14 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                   if (z_col) {
                     *cswritep++ = '\t';
                     if (allele_is_valid) {
-                      cswritep = dtoa_g(primary_se, cswritep);
+                      cswritep = dtoa_g(primary_se / u31tod(cur_constraint_ct), cswritep);
                     } else {
                       cswritep = strcpya_k(cswritep, "NA");
                     }
                   }
                   // could avoid recomputing
                   if (allele_is_valid) {
-                    ln_pval = ChisqToLnP(primary_se, cur_constraint_ct);
+                    ln_pval = FstatToLnP(primary_se / u31tod(cur_constraint_ct), cur_constraint_ct, auxp->sample_obs_ct);
                     permstat = -ln_pval;
                   }
                 }
@@ -6896,10 +6892,8 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
       if (!constraint_ct) {
         cswritep = strcpya_k(cswritep, "\tT_STAT");
       } else {
-        // chisq for joint tests.  may switch to F-statistic (just divide by
-        // df; the annoying part there is porting a function to convert that to
-        // a p-value)
-        cswritep = strcpya_k(cswritep, "\tT_OR_CHISQ_STAT");
+        // F-statistic for joint tests.
+        cswritep = strcpya_k(cswritep, "\tT_OR_F_STAT");
       }
     }
     if (p_col) {
@@ -7085,9 +7079,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                     primary_ln_pval = TstatToLnP(primary_tstat, auxp->sample_obs_ct - cur_biallelic_predictor_ct - extra_allele_ct);
                   }
                 } else {
-                  // possible todo: support for F-distribution p-values instead
-                  // of asymptotic chi-square p-values
-                  primary_ln_pval = ChisqToLnP(primary_se, cur_constraint_ct);
+                  primary_ln_pval = FstatToLnP(primary_se / u31tod(cur_constraint_ct), cur_constraint_ct, auxp->sample_obs_ct);
                 }
                 if (primary_ln_pval > ln_pfilter) {
                   if (orig_ln_pvals) {
@@ -7285,8 +7277,6 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                     }
                   }
                 } else {
-                  // joint test: use (currently approximate) F-test instead of
-                  // T test
                   if (beta_col) {
                     cswritep = strcpya_k(cswritep, "\tNA");
                   }
@@ -7299,14 +7289,14 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                   if (t_col) {
                     *cswritep++ = '\t';
                     if (allele_is_valid) {
-                      cswritep = dtoa_g(primary_se, cswritep);
+                      cswritep = dtoa_g(primary_se / u31tod(cur_constraint_ct), cswritep);
                     } else {
                       cswritep = strcpya_k(cswritep, "NA");
                     }
                   }
                   // could avoid recomputing
                   if (allele_is_valid) {
-                    ln_pval = ChisqToLnP(primary_se, cur_constraint_ct);
+                    ln_pval = FstatToLnP(primary_se / u31tod(cur_constraint_ct), cur_constraint_ct, auxp->sample_obs_ct);
                   }
                 }
                 if (p_col) {

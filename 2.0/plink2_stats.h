@@ -37,15 +37,14 @@ double PToChisq(double pval, uint32_t df);
 // only handles df=1 for now
 double LnPToChisq(double ln_pval);
 
-double TstatToP(double tt, double df);
-
-// Better when the same df comes up many times.  (May want a higher-level
-// interface that allocates and incrementally fills a table.)
+// Better than the original TstatToP() when the same df comes up many times.
+// (May want a higher-level interface that allocates and incrementally fills a
+// table.)
 double TstatToP2(double tt, double df, double cached_gamma_mult);
 
 // No -9 error return since that's a legitimate p-value logarithm.  Caller is
 // responsible for validating input.
-double TstatToLnP(double tt, double df);
+double TstatToLnP(double tt, uint32_t df);
 
 double FstatToLnP(double ff, uint32_t df1, uint32_t df2);
 

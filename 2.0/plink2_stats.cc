@@ -96,7 +96,7 @@ static const double kFactorials[30] = {
 };
 */
 
-static const double kFactorialRecips[30] = {
+static const double kFactorialRecips[34] = {
   1.0,
   1.0,
   0.5,
@@ -126,7 +126,11 @@ static const double kFactorialRecips[30] = {
   2.4795962632247972e-27,
   9.183689863795546e-29,
   3.279889237069838e-30,
-  1.1309962886447718e-31
+  1.1309962886447718e-31,
+  3.7699876288159054e-33,
+  1.2161250415535181e-34,
+  3.800390754854744e-36,
+  1.151633562077195e-37
 };
 
 // this may move to a more central location
@@ -1060,6 +1064,7 @@ double LnPToChisq(double ln_pval) {
 
 
 // ***** thread-safe TstatToP *****
+// ...time to get rid of this
 
 // see Numerical Recipes, section 6.4
 // no overflow or convergence issues
@@ -1115,23 +1120,6 @@ double betacf_slow(double aa, double bb, double xx) {
   return hh;
 }
 
-double betai_slow(double aa, double bb, double xx) {
-  if ((xx < 0.0) || (xx > 1.0)) {
-    return -9;
-  }
-  uint32_t do_invert = (xx * (aa + bb + 2.0)) >= (aa + 1.0);
-  if ((xx == 0.0) || (xx == 1.0)) {
-    return u31tod(do_invert);
-  }
-  // this is very expensive
-  double bt = exp(lgamma(aa + bb) - lgamma(aa) - lgamma(bb) + aa * log(xx) + bb * log(1.0 - xx));
-
-  if (!do_invert) {
-    return bt * betacf_slow(aa, bb, xx) / aa;
-  }
-  return 1.0 - bt * betacf_slow(bb, aa, 1.0 - xx) / bb;
-}
-
 // Returns log(1 - x^y).
 // Assumes x in (0, 1), y positive.
 double neg_powm1_imp_ln(double xx, double yy) {
@@ -1157,19 +1145,45 @@ double binomial_ccdf_ln(uint32_t nn, uint32_t kk, double xx, double yy, uint32_t
   // multiply by the rightmost term at the end.
   const double n_d = u31tod(nn);
   const double k_plus1_d = u31tod(kk + 1);
+  const double x_div_y = xx / yy;
   double multiplier = 1.0;
   double cur_term = 1.0;
-  for (double i_d = k_plus1_d; i_d > 0.5; ) {
-    //   (n choose i) / (n choose (i + 1))
-    // = (i+1) / (n-i)
-    cur_term *= i_d;
+  // need to shift to avoid overflow for n > 1 billion, (n-k) close to 40
+  double shifted_inv_binom_coeff = 1.0 / kExactTestBias;
+  double i_d = n_d - k_plus1_d;
+  for (uint32_t uii = nn - kk - 1; uii; --uii) {
+    //   (n choose (i - 1)) / (n choose i)
+    //   i!(n-i)! / (i-1)!(n-i+1)!
+    // = i / (n-i+1)
+    if (cur_term < kRecip2m53) {
+      // Only need to finish computing shifted_inv_binom_coeff: multiply by
+      // i!, divide by n!/(n-i)!.
+      // Since we support n up to 2^31, n!/(n-i)! may overflow for i>33.
+      for (; uii > 33; --uii) {
+        shifted_inv_binom_coeff *= i_d;
+        i_d -= 1.0;
+        shifted_inv_binom_coeff /= n_d - i_d;
+      }
+      double denom = kFactorialRecips[uii];
+      double n_minus_i = n_d - i_d;
+      for (; uii; --uii) {
+        n_minus_i += 1.0;
+        denom *= n_minus_i;
+      }
+      shifted_inv_binom_coeff /= denom;
+      break;
+    }
+    double cur_binom_ratio = i_d;
     i_d -= 1.0;
-    cur_term /= n_d - i_d;
+    cur_binom_ratio /= n_d - i_d;
+    shifted_inv_binom_coeff *= cur_binom_ratio;
+    cur_term *= cur_binom_ratio * x_div_y;
     multiplier += cur_term;
-    // Could do an early-exit check here, but it isn't worth much when n-k is
-    // guaranteed to be less than 40.
   }
-  const double result_ln = log(multiplier) + k_plus1_d * log(xx) + (n_d - k_plus1_d) * log(yy);
+  // 1.0 / kExactTestBias = 2^83
+  // tried taking log(multiplier / shifted_inv_binom_coeff), but that was
+  // slower on my Mac?
+  const double result_ln = log(multiplier) + k_plus1_d * log(xx) + (n_d - k_plus1_d) * log(yy) - log(shifted_inv_binom_coeff) + 83 * kLn2;
   if (!inv) {
     return result_ln;
   }
@@ -1262,7 +1276,6 @@ double tgamma_delta_ratio(double zz, double delta) {
 
 double beta_small_b_large_a_series_ln(double aa, double bb, double xx, double yy, double s0_ln, uint32_t inv) {
   // BGRAT in DiDonato and Morris.
-  // **** this is currently buggy, try FstatToLnP(6, 3, 500) ****
 
   // normalized always true, mult always 1
   // a >= 15, b == 0.5 or 1, and ibeta_imp was patched to ensure x > 0.7.
@@ -1277,6 +1290,7 @@ double beta_small_b_large_a_series_ln(double aa, double bb, double xx, double yy
   double uu = -tt * lx;
   double hh_ln = regularized_gamma_prefix_ln(bb, uu);
   double prefix_ln = hh_ln - log(tgamma_delta_ratio(aa, bb)) - bb * log(tt);
+  // validated up to this point
 
   double pp[15]; // ~8-15 digit accuracy
   pp[0] = 1.0;
@@ -1288,6 +1302,7 @@ double beta_small_b_large_a_series_ln(double aa, double bb, double xx, double yy
     assert(bb == 1.0);
     jj = -uu;
   }
+  jj *= exp(-hh_ln); // this can underflow?  but should be harmless
   double sum = jj; // patch in s0 and prefix at the end
   uint32_t tnp1 = 1;
   double lx2 = lx * 0.5;
@@ -1555,15 +1570,6 @@ double ibeta_imp2_ln(uint32_t df1, uint32_t df2, double xx, uint32_t inv) {
   return beta_small_b_large_a_series_ln(aa + 20.0, bbar, xx, yy, fract_ln, inv);
 }
 
-// todo: use Boost beta_small_b_large_a_series() instead, behind ibeta/ibetac
-double TstatToP(double tt, double df) {
-  // must be thread-safe, so dcdflib won't cut it.
-  if (!isfinite(tt)) {
-    return -9;
-  }
-  return betai_slow(df * 0.5, 0.5, df / (df + tt * tt));
-}
-
 double TstatToP2(double tt, double df, double cached_gamma_mult) {
   // assumes cached_mult == exp(lgamma(df * 0.5 + 0.5) - lgamma(df * 0.5) -
   //   lgamma(0.5))
@@ -1590,27 +1596,15 @@ double TstatToP2(double tt, double df, double cached_gamma_mult) {
 
 // ***** begin TstatToLnP *****
 
-// Assumes xx is in range; no -9 error return since that value may be valid.
-double betai_slow_ln(double aa, double bb, double xx) {
-  uint32_t do_invert = (xx * (aa + bb + 2.0)) >= (aa + 1.0);
-  if ((xx == 0.0) || (xx == 1.0)) {
-    return do_invert? 0.0 : -DBL_MAX;
+double TstatToLnP(double tt, uint32_t df) {
+  const double df_d = u31tod(df);
+  const double t2 = tt * tt;
+  if (df_d > 2 * t2) {
+    const double zz = t2 / (df_d + t2);
+    return ibeta_imp2_ln(1, df, zz, 1);
   }
-  // this is very expensive
-  double bt_ln = lgamma(aa + bb) - lgamma(aa) - lgamma(bb) + aa * log(xx) + bb * log(1.0 - xx);
-  if (!do_invert) {
-    return bt_ln + log(betacf_slow(aa, bb, xx) / aa);
-  }
-  return log(1.0 - exp(bt_ln) * betacf_slow(bb, aa, 1.0 - xx) / bb);
-}
-
-// todo: use Boost beta_small_b_large_a_series() instead, behind ibeta/ibetac
-// for large |t|:
-//    1 - 2 * ibeta(df/2, 1/2, df / (df + t*t))
-// small |t|:
-//    1 - 2 * ibetac(1/2, df/2, (t*t) / (df + t*t))
-double TstatToLnP(double tt, double df) {
-  return betai_slow_ln(df * 0.5, 0.5, df / (df + tt * tt));
+  const double zz = df_d / (df_d + t2);
+  return ibeta_imp2_ln(df, 1, zz, 0);
 }
 // ***** end TstatToLnP *****
 
