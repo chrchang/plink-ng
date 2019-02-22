@@ -1750,16 +1750,17 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --parameters [...] : Include only the given covariates/interactions in the\n"
 "                       --glm model, identified by a list of 1-based indices\n"
 "                       and/or ranges of them.\n"
-               /*
 "  --tests [...]      : Perform a (joint) test on the specified term(s) in the\n"
 "  --tests all          --glm model, identified by 1-based indices and/or ranges\n"
+"                       of them.\n"
+              /*
 "                       of them.  If permutation was requested, it is based on\n"
 "                       this test.\n"
+              */
 "                       * Note that, when --parameters is also present, the\n"
 "                         indices refer to the terms remaining AFTER pruning by\n"
 "                         --parameters.\n"
 "                       * You can use '--tests all' to include all terms.\n"
-               */
                );
     HelpPrint("glm\0linear\0logistic\0vif\0max-corr\0", &help_ctrl, 0,
 "  --vif [max VIF]    : Set VIF threshold for --glm multicollinearity check\n"
