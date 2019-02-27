@@ -506,11 +506,13 @@ of heterozygous hard-calls; when this initial bit is set, the next $H$ bits
 hardcall-phase for that heterozygous call, and 1 = the call is phased.  When
 the initial bit is clear, all heterozygous hard-calls are phased.
 
-This is followed by a ``phaseinfo'' bitarray (beginning at the usual byte
-boundary) with $P$ bits, where $P$ is the number of phased heterozygous
-hard-calls; clear bits correspond to ``unswapped'' alleles (first allele index
-is less than the second, like ``0$|$1'' in the VCF GT field), and set bits
-correspond to ``swapped'' alleles.
+This is followed by a ``phaseinfo'' bitarray, which begins at the usual byte
+boundary when ``phasepresent'' is stored, but begins at bit 1 of the first
+auxiliary data track \#2 byte instead when phasepresent is omitted.  It has $P$
+bits, where $P$ is the number of phased heterozygous hard-calls; clear bits
+correspond to ``unswapped'' alleles (first allele index is less than the
+second, like ``0$|$1'' in the VCF GT field), and set bits correspond to
+``swapped'' alleles.
 
 Note that the PGEN format does not distinguish between GT values of ``0/0'' and
 ``0$|$0'', since the distinction is meaningless.  (Phase sets are meaningful,
