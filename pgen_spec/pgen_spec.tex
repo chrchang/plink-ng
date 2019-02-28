@@ -564,13 +564,13 @@ As for auxiliary data track \#3:
 \end{itemize}
 
 For example, suppose $N=488377$, sample ID 10000 has an ALT allele dosage of
-1.5, every other even sample ID has an ALT allele dosage of 0.75 on a 0..2
-scale, and no odd sample IDs have associated dosages.  Then a bitarray is a
-more compact way to represent the sample ID list than a difflist, so bits 5 and
-6 of the variant record type would normally be set.  Auxiliary data track \#3
-would contain 61047 bytes with value \texttt{0x55}, followed by a byte with
-value \texttt{0x01}.  Auxiliary data track \#4 would start with 5000 instances
-of \texttt{0x00 0x30}, which is the little-endian \texttt{uint16} encoding of
+1.5 on a 0..2 scale, every other even sample ID has an ALT allele dosage of
+0.75, and no odd sample IDs have associated dosages.  Then a bitarray is a more
+compact way to represent the sample ID list than a difflist, so bits 5 and 6 of
+the variant record type would normally be set.  Auxiliary data track \#3 would
+contain 61047 bytes with value \texttt{0x55}, followed by a byte with value
+\texttt{0x01}.  Auxiliary data track \#4 would start with 5000 instances of
+\texttt{0x00 0x30}, which is the little-endian \texttt{uint16} encoding of
 $(0.75/2)\cdot 2^{15}$, followed by \texttt{0x00 0x60} representing the lone
 1.5 dosage (since sample ID 10000 is the 5001th smallest ID with a dosage),
 followed by 239188 more instances of \texttt{0x00 0x30}.
@@ -652,7 +652,8 @@ Windows-style ('\texttt{\textbackslash r\textbackslash n}').
 
 \subsection{Header}
 
-All initial lines starting with '\#' are part of the header.
+All initial lines starting with '\#', and no other lines, are part of the
+header.
 
 If no header lines are present, the file is treated as if it had a
 ``\texttt{\#FID IID PAT MAT SEX PHENO1}'' header line if it has 6 or more
@@ -663,7 +664,8 @@ Otherwise:
 
 \begin{itemize}
 \item The last header line must start with ``\#FID'' or ``\#IID'', and no
-  earlier header lines can start this way.
+  earlier header lines can start this way.  This header line labels the columns
+  in the remainder of the file.
 \item In this version of the specification, the earlier header lines don't
   matter.  Without loss of generality, the rest of this specification assumes
   there is only one header line.
@@ -714,15 +716,57 @@ column (this is unfortunately necessary for backward compatibility):
   seeing a single entry in the column.
 \item The usual PLINK 1 encoding of binary phenotypes is control = 1, case = 2,
   and missing-value = -9/0/``NA''/``nan'' (among these, ``NA'' is now the
-  preferred representation of missing values).  Therefore, PLINK 2 defaults to
-  interpreting any phenotype column containing only these values as binary, and
-  any phenotype column containing a numeric value outside \{-9, 0, 1, 2\} as
-  quantitative.
+  preferred representation of missing values in PSAM files).  Therefore, PLINK
+  2 defaults to interpreting any phenotype column containing only these values
+  as binary, and any phenotype column containing a numeric value outside \{-9,
+  0, 1, 2\} as quantitative.
 \end{itemize}
 
 \newpage
 \section{PVAR Format Specification}
 
-TBD.
+PVAR is a text format which stores non-genotype variant information.  Its key
+properties are:
+
+\begin{itemize}
+\item A PLINK 1 .bim file is a valid PVAR file.
+\item A VCF file is almost always a valid PVAR file.
+\end{itemize}
+
+Fields are tab- or space-delimited; consecutive tabs/spaces are treated as a
+single delimiter.  Newlines must be Unix- ('\texttt{\textbackslash n}') or
+Windows-style ('\texttt{\textbackslash r\textbackslash n}').
+
+\subsection{Header}
+
+All initial lines starting with '\#', and no other lines, are part of the
+header.
+
+If no header lines are present, the file is treated as if it had a
+``\texttt{\#CHROM ID CM POS ALT REF}'' header line if it has 6 or more columns,
+and ``\texttt{\#CHROM ID POS ALT REF}'' if there are exactly five.  This
+provides compatibility with (a slight generalization of) PLINK 1 .bim.
+
+Otherwise:
+
+\begin{itemize}
+\item The last header line must start with ``\#CHROM'', and no earlier header
+  lines can start with that.  This header line labels the columns in the
+  remainder of the file.
+\item Only the following other column labels are recognized: ``POS'', ``ID'',
+  ``REF'', ``ALT'', ``QUAL'', ``FILTER'', ``INFO'', ``CM'', and ``FORMAT''.  To
+  allow regular VCF files to be treated as if they were PVAR files, ``FORMAT''
+  causes parsing of the last header line to end (the FORMAT column is also
+  ignored).  Other column labels are not permitted before ``FORMAT''.
+\item If the FILTER or INFO columns are nonempty, the header should contain
+  meta-information lines describing all FILTERs and INFO fields, following the
+  VCF 4.3 specification.
+\end{itemize}
+
+\subsection{Body}
+
+``CM'' indicates a column of centimorgan positions.  All other columns are as
+defined in the VCF specification, with the additional restriction that the
+space character is not permitted in the INFO field.
 
 \end{document}
