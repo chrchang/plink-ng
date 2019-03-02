@@ -404,9 +404,9 @@ PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, con
     const char input_missing_geno_char = *g_input_missing_geno_ptr;
     unsigned char* tmp_alloc_base = g_bigstack_base;
     unsigned char* tmp_alloc_end = g_bigstack_end;
-    uintptr_t hit_ct = 0;
     uintptr_t miss_ct = 0;
     uintptr_t err_ct = 0;
+    uint32_t hit_ct = 0;
     uint32_t max_allele_slen = *max_allele_slen_ptr;
     uint32_t cur_allele_ct = 2;
     while (1) {
@@ -594,9 +594,9 @@ PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, con
     }
     *max_allele_slen_ptr = max_allele_slen;
     if (miss_ct) {
-      snprintf(g_logbuf, kLogbufSize, "--update-alleles: %" PRIuPTR " variant%s updated, %" PRIuPTR " ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+      snprintf(g_logbuf, kLogbufSize, "--update-alleles: %u variant%s updated, %" PRIuPTR " ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
     } else {
-      snprintf(g_logbuf, kLogbufSize, "--update-alleles: %" PRIuPTR " variant%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
+      snprintf(g_logbuf, kLogbufSize, "--update-alleles: %u variant%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
     }
     logputsb();
     if (err_ct) {

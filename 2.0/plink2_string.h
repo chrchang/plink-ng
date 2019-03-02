@@ -1384,6 +1384,8 @@ uintptr_t bsearch_str_lb(const char* idbuf, const char* sorted_strbox, uintptr_t
 // same result as bsearch_str_lb(), but checks against [cur_idx],
 // [cur_idx + 1], [cur_idx + 3], [cur_idx + 7], etc. before finishing with a
 // binary search, and assumes cur_id_slen <= max_id_blen and end_idx > 0.
+// probable todo: standardize naming (this is usually called exponential or
+// galloping search)
 uintptr_t FwdsearchStrLb(const char* idbuf, const char* sorted_strbox, uintptr_t cur_id_slen, uintptr_t max_id_blen, uintptr_t end_idx, uintptr_t cur_idx);
 
 // this is frequently preferable to bsearch_str(), since it's way too easy to

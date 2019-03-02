@@ -67,10 +67,10 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (21 Feb 2019)";
+  " (1 Mar 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -85,7 +85,7 @@ static const char ver_str2[] =
 #endif
   "   www.cog-genomics.org/plink/2.0/\n"
   "(C) 2005-2019 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
-static const char errstr_append[] = "For more info, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
+static const char errstr_append[] = "For more info, try '" PROG_NAME_STR " --help <flag name>' or '" PROG_NAME_STR " --help | more'.\n";
 
 #ifndef NOLAPACK
 static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--missing, --hardy, --indep-pairwise, --ld, --sample-diff, --make-king,\n--king-cutoff, --write-samples, --write-snplist, --make-grm-list, --pca, --glm,\n--adjust-file, --score, --genotyping-rate, --pgen-info, --validate, and\n--zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
@@ -2378,7 +2378,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
 
         if (pcp->command_flags1 & kfCommand1Exportf) {
-          reterr = Exportf(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, &(pcp->exportf_info), xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, make_plink2_flags, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
+          reterr = Exportf(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, &(pcp->exportf_info), xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, make_plink2_flags, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -3206,6 +3206,8 @@ int main(int argc, char** argv) {
           } else if (strequal_k(flagname_p, "remove-if-info", flag_slen)) {
             fputs("Note: --remove-if-info renamed to --exclude-if-info, for consistency with other\nsample/variant filters (keep/remove = sample filter; extract/exclude = variant\nfilter).\n", stdout);
             snprintf(flagname_write_iter, kMaxFlagBlen, "exclude-if-info");
+          } else if (strequal_k(flagname_p, "recode-allele", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "export-allele");
           } else {
             goto main_flag_copy;
           }
@@ -4247,7 +4249,7 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvk[arg_idx + 1];
           const uint32_t cur_modif_slen = strlen(cur_modif);
-          uint32_t is_interval_bed = 0;;;
+          uint32_t is_interval_bed = 0;
           if (strequal_k(cur_modif, "bed0", cur_modif_slen)) {
             if (unlikely(param_ct == 1)) {
               logerrputs("Error: '--extract-intersect bed0' requires at least one filename.\n");
@@ -4482,6 +4484,18 @@ int main(int argc, char** argv) {
           }
           pc.command_flags1 |= kfCommand1Exportf;
           pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "xport-allele")) {
+          if (unlikely((!(pc.command_flags1 & kfCommand1Exportf)) || (!(pc.exportf_info.flags & (kfExportfA | kfExportfATranspose | kfExportfAD))))) {
+            logerrputs("Error: --export-allele must be used with --export A/A-transpose/AD..\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.exportf_info.export_allele_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
         } else if (strequal_k_unsafe(flagname_p2, "xclude-snp")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -9311,6 +9325,7 @@ int main(int argc, char** argv) {
     } while (file_delete_list);
   }
   CleanupChrInfo(&chr_info);
+  CleanupExportf(&pc.exportf_info);
   CleanupCmpExpr(&pc.exclude_if_info_expr);
   CleanupCmpExpr(&pc.extract_if_info_expr);
   CleanupCmpExpr(&pc.remove_if_expr);

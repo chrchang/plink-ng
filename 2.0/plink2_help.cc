@@ -23,7 +23,7 @@
 namespace plink2 {
 #endif
 
-const char kCmdlineFormatStr[] = "\n  plink2 [input flag(s)...] {command flag(s)...} {other flag(s)...}\n  plink2 --help {flag name(s)...}\n\n";
+const char kCmdlineFormatStr[] = "\n  plink2 <input flag(s)...> [command flag(s)...] [other flag(s)...]\n  plink2 --help [flag name(s)...]\n\n";
 
 PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
   // yes, this is overkill.  But it should be a good template for other
@@ -86,16 +86,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     help_ctrl.argv = nullptr;
     fputs(
 "\nIn the command line flag definitions that follow,\n"
-"  * [square brackets] denote a required parameter, where the text between the\n"
-"    brackets describes its nature.\n"
-"  * <angle brackets> denote an optional modifier (or if '|' is present, a set\n"
-"    of mutually exclusive optional modifiers).  Use the EXACT text in the\n"
-"    definition.\n"
-"  * There's one exception to the angle brackets/exact text rule: when an angle\n"
-"    bracket term ends with '=[value]', '[value]' designates a variable\n"
-"    parameter.\n"
-"  * {curly braces} denote an optional parameter, where the text between the\n"
-"    braces describes its nature.\n"
+"  * <angle brackets> denote a required parameter, where the text between the\n"
+"    angle brackets describes its nature.\n"
+"  * [{square brackets + braces}] denotes an optional modifier (or if '|' is\n"
+"    present, a set of mutually exclusive optional modifiers).  Use the EXACT\n"
+"    text in the definition.\n"
+"  * [{braced_text=}description of value] denotes an optional modifier that must\n"
+"    begin with the exact braced text (which always ends with '='), and then you\n"
+"    provide an accompanying value.  (No whitespace between '=' and the value.)\n"
+"  * [square brackets without braces] denote an optional parameter, where the\n"
+"    text between the brackets describes its nature.\n"
 "  * An ellipsis (...) indicates that you may enter multiple parameters of the\n"
 "    specified type.\n"
 "  * A \"column set descriptor\" is either\n"
@@ -115,18 +115,18 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     // decompression was too slow
     // Zstd should have the necessary x86 performance characteristics, though
     HelpPrint("pfile\0pgen\0bfile\0bed\0", &help_ctrl, 1,
-"  --pfile [prefix] <vzs>  : Specify .pgen + .pvar{.zst} + .psam prefix.\n"
-"  --pgen [filename]       : Specify full name of .pgen/.bed file.\n"
+"  --pfile <prefix> [{vzs}]  : Specify .pgen + .pvar{|.zst} + .psam prefix.\n"
+"  --pgen <filename>         : Specify full name of .pgen/.bed file.\n"
                );
     HelpPrint("pfile\0pgen\0pvar\0psam\0bfile\0bed\0bim\0fam\0import-dosage\0dosage\0", &help_ctrl, 1,
-"  --pvar [filename]       : Specify full name of .pvar/.bim file.\n"
+"  --pvar <filename>         : Specify full name of .pvar/.bim file.\n"
               );
     HelpPrint("pfile\0pgen\0pvar\0psam\0bfile\0bed\0bim\0fam\0import-dosage\0dosage\0vcf\0bcf\0", &help_ctrl, 1,
-"  --psam [filename]       : Specify full name of .psam/.fam file.\n\n"
+"  --psam <filename>         : Specify full name of .psam/.fam file.\n\n"
                );
     HelpPrint("bfile\0bpfile\0bed\0bim\0fam\0", &help_ctrl, 1,
-"  --bfile  [prefix] <vzs> : Specify .bed + .bim{.zst} + .fam prefix.\n"
-"  --bpfile [prefix] <vzs> : Specify .pgen + .bim{.zst} + .fam prefix.\n\n"
+"  --bfile  <prefix> [{vzs}] : Specify .bed + .bim{|.zst} + .fam prefix.\n"
+"  --bpfile <prefix> [{vzs}] : Specify .pgen + .bim{|.zst} + .fam prefix.\n\n"
                );
     HelpPrint("vcf\0bcf\0keep-autoconv\0", &help_ctrl, 1,
 "  --keep-autoconv    : When importing non-PLINK-binary data, don't delete\n"
@@ -139,9 +139,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     // probable todo: dosage=AD mode.
     HelpPrint("vcf\0bcf\0psam\0fam\0", &help_ctrl, 1,
-"  --vcf [filename] <dosage=[field]>\n"
-"  --bcf [filename] <dosage=[field]>  (not implemented yet)\n"
-"    Specify full name of .vcf{.gz|.zst} or BCF2 file to import.\n"
+"  --vcf <filename> [{dosage=}field]>\n"
+"  --bcf <filename> [{dosage=}field]>  (not implemented yet)\n"
+"    Specify full name of .vcf{|.gz|.zst} or BCF2 file to import.\n"
 "    * These can be used with --psam/--fam.\n"
 "    * By default, dosage information is not imported.  To import the GP field\n"
 "      (must be VCFv4.3-style 0..1, one probability per possible genotype), add\n"
@@ -162,11 +162,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      also absent.\n\n"
               );
     HelpPrint("data\0gen\0bgen\0sample\0haps\0legend\0", &help_ctrl, 1,
-"  --data [filename prefix] <ref-first | ref-last> <gzs>\n"
-"  --bgen [filename] <snpid-chr> <ref-first | ref-last>\n"
-"  --gen [filename] <ref-first | ref-last>\n"
-"  --sample [filename]\n"
-"    Specify an Oxford-format dataset to import.  --data specifies a .gen{.zst}\n"
+"  --data <filename prefix> [{ref-first | ref-last}] [{gzs}]\n"
+"  --bgen <filename> [{snpid-chr}] [{ref-first | ref-last}]\n"
+"  --gen <filename> [{ref-first | ref-last}]\n"
+"  --sample <filename>\n"
+"    Specify an Oxford-format dataset to import.  --data specifies a .gen{|.zst}\n"
 "    + .sample pair, while --bgen specifies a BGEN v1.1+ file.\n"
 "    * If a BGEN v1.2+ file contains sample IDs, it may be imported without a\n"
 "      companion .sample file.\n"
@@ -178,8 +178,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     // todo: make 'per' prefix modifiable
     HelpPrint("haps\0legend\0", &help_ctrl, 1,
-"  --haps [filename] <ref-first | ref-last>\n"
-"  --legend [filename] [chr code]\n"
+"  --haps <filename> [{ref-first | ref-last}]\n"
+"  --legend <filename> <chr code>\n"
 "    Specify .haps {+ .legend} file(s) to import.\n"
 "    * When --legend is specified, it's assumed that the --haps file doesn't\n"
 "      contain header columns.\n"
@@ -188,13 +188,13 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * If not used with --sample, new sample IDs are of the form 'per#/per#'.\n\n"
                );
     HelpPrint("map\0import-dosage\0dosage\0", &help_ctrl, 1,
-"  --map [fname]      : Specify full name of .map file.\n"
+"  --map <filename>   : Specify full name of .map file.\n"
                );
     HelpPrint("import-dosage\0dosage\0", &help_ctrl, 1,
-"  --import-dosage [allele dosage file] <noheader> <id-delim=[char]> <skip0=[i]>\n"
-"                  <skip1=[j]> <skip2=[k]> <dose1> <format=[m]>\n"
-"                  <ref-first | ref-last> <single-chr=[code]>\n"
-"                  <chr-col-num=[#]> <pos-col-num=[#]>\n"
+"  --import-dosage <allele dosage file> [{noheader}] [{id-delim=}char]\n"
+"                  [{skip0=}i] [{skip1=}j] [{skip2=}k] [{dose1}] [{format=}m]\n"
+"                  [{ref-first | ref-last}] [{single-chr=}code]\n"
+"                  [{chr-col-num=}#] [{pos-col-num=}#]\n"
 "    Specify PLINK 1.x-style dosage file to import.\n"
 "    * You must also specify a companion .psam/.fam file.\n"
 "    * By default, PLINK assumes that the file contains a header line, which has\n"
@@ -222,9 +222,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     // todo: triallelic rate
     HelpPrint("dummy\0", &help_ctrl, 1,
-"  --dummy [sample ct] [SNP ct] {missing dosage freq} {missing pheno freq}\n"
-"          <acgt | 1234 | 12> <pheno-ct=[count]> <scalar-pheno>\n"
-"          <dosage-freq=[rate]>\n"
+"  --dummy <sample ct> <SNP ct> [missing dosage freq] [missing pheno freq]\n"
+"          [{acgt | 1234 | 12}] [{pheno-ct=}count] [{scalar-pheno}]\n"
+"          [{dosage-freq=}rate]\n"
 "    This generates a fake input dataset with the specified number of samples\n"
 "    and SNPs.\n"
 "    * By default, the missing dosage and phenotype frequencies are zero.\n"
@@ -239,16 +239,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      affected by --hard-call-threshold and --dosage-erase-threshold.)\n\n"
                );
     HelpPrint("fa\0normalize\0ref-from-fa\0", &help_ctrl, 1,
-"  --fa [fname]       : Specify full name of reference FASTA file.\n\n"
+"  --fa <filename>    : Specify full name of reference FASTA file.\n\n"
               );
     if (!param_ct) {
       fputs(
-"Output files have names of the form 'plink2.{extension}' by default.  You can\n"
+"Output files have names of the form 'plink2.<extension>' by default.  You can\n"
 "change the 'plink2' prefix with\n\n"
 , stdout);
     }
     HelpPrint("out\0", &help_ctrl, 1,
-"  --out [prefix]     : Specify prefix for output files.\n\n"
+"  --out <prefix>     : Specify prefix for output files.\n\n"
               );
     if (!param_ct) {
       fputs(
@@ -256,14 +256,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 , stdout);
     }
     HelpPrint("rm-dup\0list-duplicate-vars\0", &help_ctrl, 1,
-"  --rm-dup {mode} <list>\n"
+"  --rm-dup [mode] [{list}]\n"
 "    Remove all but one instance of each duplicate-ID variant (ignoring the\n"
 "    missing ID), and (with the 'list' modifier) write a list of duplicated IDs\n"
-"    to [output prefix].rmdup.list.\n"
+"    to <output prefix>.rmdup.list.\n"
 "    The following modes of operation are supported:\n"
 "    * 'error' (default) causes this to error out when there's a genotype data\n"
 "      or other mismatch between the records.  A list of affected IDs is written\n"
-"      to [output prefix].rmdup.mismatch.\n"
+"      to <output prefix>.rmdup.mismatch.\n"
 "    * 'retain-mismatch' causes all instances of a duplicate-ID variant to be\n"
 "      retained when there's a genotype data or variant info mismatch; otherwise\n"
 "      one instance is kept.  The .rmdup.mismatch file is also written.\n"
@@ -275,19 +275,21 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      be kept, under all circumstances.\n\n"
               );
     HelpPrint("make-pgen\0make-bpgen\0make-bed\0make-just-pvar\0make-just-psam\0", &help_ctrl, 1,
-"  --make-pgen <vzs> <format=[code]> <trim-alts> <erase-phase> <erase-dosage>\n"
-"              <pvar-cols=[col set descriptor]> <psam-cols=[col set descriptor]>\n"
-"  --make-bpgen <vzs> <format=[code]> <trim-alts> <erase-phase> <erase-dosage>\n"
-"  --make-bed <vzs> <trim-alts>\n"
+"  --make-pgen [{vzs}] [{format=}code] [{trim-alts}] [{erase-phase}]\n"
+"              [{erase-dosage}] [{pvar-cols=}col set descriptor]\n"
+"              [{psam-cols=}col set descriptor]\n"
+"  --make-bpgen [{vzs}] [{format=}code] [{trim-alts}] [{erase-phase}]\n"
+"               [{erase-dosage}]\n"
+"  --make-bed [{vzs}] [{trim-alts}]\n"
                /*
-"  --make-pgen <vzs> <format=[code]> <trim-alts | erase-alt2+> <erase-phase>\n"
-"              <erase-dosage> <multiallelics=[mode]>\n"
-"              <vid-split | vid-dup | vid-join> <pvar-cols=[col set descriptor]>\n"
-"              <psam-cols=[col set descriptor]>\n"
-"  --make-bpgen <vzs> <format=[code]> <trim-alts | erase-alt2+> <erase-phase>\n"
-"               <erase-dosage> <multiallelics=[mode]>\n"
-"               <vid-split | vid-dup | vid-join>\n"
-"  --make-bed <vzs> <trim-alts | erase-alt2+> <multiallelics=[split mode]>\n"
+"  --make-pgen [{vzs}] [{format=}code] [{trim-alts | erase-alt2+}]\n"
+"              [{erase-phase}] [{erase-dosage}] [{multiallelics=}mode]\n"
+"              [{vid-split | vid-dup | vid-join}]\n"
+"              [{pvar-cols=}col set descriptor] [{psam-cols=}col set descriptor]\n"
+"  --make-bpgen [{vzs}] [{format=}code] [{trim-alts | erase-alt2+}]\n"
+"               [{erase-phase}] [{erase-dosage}] [{multiallelics=}mode]\n"
+"               [{vid-split | vid-dup | vid-join}]\n"
+"  --make-bed [{vzs}] [{trim-alts | erase-alt2+}] [{multiallelics=}split mode]\n"
                */
 "    Create a new PLINK binary fileset (--make-pgen = .pgen + .pvar{.zst} +\n"
 "    .psam, --make-bpgen = .pgen + .bim{.zst} + .fam).\n"
@@ -306,7 +308,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "        4: phased dosage data\n"
 "    * The 'trim-alts' modifier causes alternate alleles not present in the\n"
 "      dataset after sample filtering to be removed.  (This occurs before any\n"
-"      genotype/dosage erasure performed by --make-{b}pgen/--make-bed.)\n"
+"      genotype/dosage erasure performed by --make-{|b}pgen/--make-bed.)\n"
                */
     // Commented out since, while this is on the roadmap, it isn't fully
     // implemented yet.  (This also applies to other commented-out help text.)
@@ -352,7 +354,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      are set to missing, and slightly affected dosages are rescaled.  This is\n"
 "      applied after 'multiallelics=' merge.\n"
 "    * When the 'trim-alts', 'multiallelics=', and/or 'erase-...' modifier is\n"
-"      present, --make-bed/--make-{b}pgen cannot be combined with other\n"
+"      present, --make-bed/--make-{|b}pgen cannot be combined with other\n"
 "      commands.  (They can be combined with other filters.)\n"
                */
 "    * The first five columns of a .pvar file are always #CHROM/POS/ID/REF/ALT.\n"
@@ -384,20 +386,21 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      The default is maybefid,maybesid,maybeparents,sex,phenos.\n\n"
               );
     HelpPrint("make-just-pvar\0make-just-psam\0make-just-bim\0make-just-fam\0write-cluster\n\0", &help_ctrl, 1,
-"  --make-just-pvar <zs> <cols=[column set descriptor]>\n"
-"  --make-just-psam <cols=[column set descriptor]>\n"
-"  --make-just-bim <zs>\n"
+"  --make-just-pvar [{zs}] [{cols=}column set descriptor]\n"
+"  --make-just-psam [{cols=}column set descriptor]\n"
+"  --make-just-bim [{zs}]\n"
 "  --make-just-fam\n"
 "    Variants of --make-pgen/--make-bed which only write a new variant or sample\n"
 "    file.  These don't always require an input genotype file.\n"
 "    USE THESE CAUTIOUSLY.  It is very easy to desynchronize your binary\n"
 "    genotype data and your sample/variant indexes if you use these commands\n"
-"    improperly.  If you have any doubt, stick with --make-{b}pgen/--make-bed.\n\n"
+"    improperly.  If you have any doubt, stick with --make-{|b}pgen/--make-bed.\n\n"
               );
     HelpPrint("export\0recode\0", &help_ctrl, 1,
-"  --export [output format(s)...] <01 | 12> <bgz> <id-delim=[char]>\n"
-"    <id-paste=[column set descriptor]> <include-alt> <omit-nonmale-y> <spaces>\n"
-"    <vcf-dosage=[field]> <ref-first> <bits=[#]>\n"
+"  --export <output format(s)...> [{01 | 12}] [{bgz}] [{id-delim=}char]\n"
+"           [{id-paste=}column set descriptor] [{include-alt}]\n"
+"           [{omit-nonmale-y}] [{spaces}] [{vcf-dosage=}field] [{ref-first}]\n"
+"           [{bits=}#]\n"
 "    Create a new fileset with all filters applied.  The following output\n"
 "    formats are supported:\n"
 "    (actually, only A, AD, A-transpose, bgen-1.x, ind-major-bed, haps,\n"
@@ -488,9 +491,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     // todo: add optional column for computed MAF (nothing here quite
     // corresponds to nonmajor_freqs when e.g. --maf-succ was specified).
     HelpPrint("freq\0mach-r2-filter\0", &help_ctrl, 1,
-"  --freq <zs> <counts> <cols=[column set descriptor]> <bins-only>\n"
-"         <refbins=[comma-separated bin boundaries] | refbins-file=[filename]>\n"
-"         <alt1bins=[comma-separated bin boundaries] | alt1bins-file=[filename]>\n"
+"  --freq [{zs}] [{counts}] [{cols=}column set descriptor] [{bins-only}]\n"
+"         [{refbins=}comma-separated bin boundaries | {refbins-file=}filename]\n"
+"         [{alt1bins=}comma-separated bin boundaries | {alt1bins-file=}filename]\n"
 "    Empirical allele frequency report.  By default, only founders are\n"
 "    considered.  Dosages are taken into account (e.g. heterozygous haploid\n"
 "    calls count as 0.5).  chrM dosages are scaled to sum to 2.\n"
@@ -505,11 +508,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      alt1freq: Alt1 frequency/dosage.\n"
 "      altfreq: Comma-separated frequencies/dosages for all alternate alleles.\n"
 "      freq: Similar to altfreq, except ref is also included at the start.\n"
-"      eq: Comma-separated [allele]=[freq] for all present alleles.  (If no\n"
+"      eq: Comma-separated <allele>=<freq> for all present alleles.  (If no\n"
 "          alleles are present, the column contains a single '.'.)\n"
 "      eqz: Same as eq, except zero-counts are included.\n"
 "      alteq/alteqz: Same as eq/eqz, except reference allele is omitted.\n"
-"      numeq: 0=[freq],1=[freq], etc.  Zero-counts are omitted.\n"
+"      numeq: 0=<freq>,1=<freq>, etc.  Zero-counts are omitted.\n"
 "      altnumeq: Same as numeq, except reference allele is omitted.\n"
 "      machr2: Empirical divided by theoretical variance quality metric.\n"
 "      nobs: Number of allele observations.\n"
@@ -522,7 +525,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
               );
     // this can't really handle dosages, so we specify "hardcall"
     HelpPrint("geno-counts\0freq\0freqx\frqx\0", &help_ctrl, 1,
-"  --geno-counts <zs> <cols=[column set descriptor]>\n"
+"  --geno-counts [{zs}] [{cols=}column set descriptor]\n"
 "    Hardcall genotype count report (considering both alleles simultaneously in\n"
 "    the diploid case).  Nonfounders are now included; use --keep-founders if\n"
 "    this is a problem.  Heterozygous haploid calls are treated as missing.\n"
@@ -545,7 +548,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      hapalt1: Haploid-alt1 count.\n"
 "      hapalt: Comma-separated haploid-altx counts.\n"
 "      hap: Similar to hapalts, except ref is also included at the start.\n"
-"      numeq: 0/0=[hom ref ct],0/1=[het ref-alt1],1/1=[hom alt1],...,0=[hap ref]\n"
+"      numeq: 0/0=<hom ref ct>,0/1=<het ref-alt1>,1/1=<hom alt1>,...,0=<hap ref>\n"
 "             etc.  Zero-counts are omitted.  (If all genotypes are missing, the\n"
 "             column contains a single '.'.)\n"
 "      missing: Number of missing genotypes.\n"
@@ -554,8 +557,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
               );
     // todo: add cluster-stratification
     HelpPrint("missing\0", &help_ctrl, 1,
-"  --missing <zs> <sample-only | variant-only> <scols=[column set descriptor]>\n"
-"            <vcols=[column set descriptor]>\n"
+"  --missing [{zs}] [{sample-only | variant-only}]\n"
+"            [{scols=}column set descriptor] [{vcols=}column set descriptor]\n"
 "    Generate sample- and variant-based missing data reports (or just one report\n"
 "    if 'sample-only'/'variant-only' is specified).\n"
 "    As of alpha 2, mixed MT hardcalls appear in the heterozygous haploid stats.\n"
@@ -597,11 +600,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    The default is chrom,nmiss,nobs,fmiss.\n\n"
               );
     HelpPrint("hardy\0", &help_ctrl, 1,
-"  --hardy <zs> <midp> <redundant> <cols=[column set descriptor]>\n"
+"  --hardy [{zs}] [{midp}] [{redundant}] [{cols=}column set descriptor]\n"
 "    Hardy-Weinberg exact test p-value report(s).\n"
 "    * By default, only founders are considered; change this with --nonfounders.\n"
-"    * chrX is now omitted from the main [output prefix].hardy report.  Instead,\n"
-"      (if present) it gets its own [output prefix].hardy.x report based on the\n"
+"    * chrX is now omitted from the main <output prefix>.hardy report.  Instead,\n"
+"      (if present) it gets its own <output prefix>.hardy.x report based on the\n"
 "      method described in Graffelman J, Weir BS (2016) Hardy-Weinberg\n"
 "      equilibrium and the X chromosome.\n"
 "    * For variants with k alleles where k>2, k separate 'biallelic' tests are\n"
@@ -631,8 +634,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    The default is chrom,ax,gcounts,hetfreq,sexaf,p.\n\n"
                );
     HelpPrint("indep\0indep-pairwise\0", &help_ctrl, 1,
-"  --indep-pairwise [window size]<kb> {step size (variant ct)}\n"
-"                   [unphased-hardcall-r^2 threshold]\n"
+"  --indep-pairwise <window size>[{kb}] [step size (variant ct)]\n"
+"                   <unphased-hardcall-r^2 threshold>\n"
 "    Generate a list of variants in approximate linkage equilibrium.\n"
 "    * For multiallelic variants, major allele counts are used in the r^2\n"
 "      computation.\n"
@@ -648,7 +651,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     // todo: implement --indep-pairphase with new --ld approach.  (eventually
     // add an option to take dosages into account?  but not a priority.)
     HelpPrint("ld\0", &help_ctrl, 1,
-"  --ld [variant ID] [variant ID] <dosage> <hwe-midp>\n"
+"  --ld <variant ID> <variant ID> [{dosage}] [{hwe-midp}]\n"
 "    This displays diplotype frequencies, r^2, and D' for a single pair of\n"
 "    variants.\n"
 "    * For multiallelic variants, major allele counts/dosages are used.\n"
@@ -663,14 +666,15 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      is in 0..1.)\n\n"
                );
     HelpPrint("sample-diff\0sdiff\0", &help_ctrl, 1,
-"  --sample-diff <id-delim=[char]> <sid> <dosage | dosage=[tolerance]>\n"
-"                <include-missing> <pairwise | counts-only> <fname-id-delim=[c]>\n"
-"                <zs> <cols=[col set descrip.]> <counts-cols=[col set descrip.]>\n"
-"                <base= | ids=>[sample ID] [other sample ID(s)...]\n"
-"  --sample-diff <id-delim=[char]> <sid> <dosage | dosage=[tolerance]>\n"
-"                <include-missing> <pairwise | counts-only> <fname-id-delim=[c]>\n"
-"                <zs> <cols=[col set descrip.]> <counts-cols=[col set descrip.]>\n"
-"                file=[ID-pair file]\n"
+"  --sample-diff [{id-delim=}char] [{sid}] [{dosage} | {dosage=}tolerance]\n"
+"                [{include-missing}] [{pairwise | counts-only}]\n"
+"                [{fname-id-delim=}c] [{zs}] [{cols=}column set descriptor]\n"
+"                [{counts-cols=}column set descriptor]\n"
+"                [{base= | ids=}sample ID] [other sample ID(s)...]\n"
+"  --sample-diff [{id-delim=}char] [{sid}] [{dosage} | {dosage=}tolerance]\n"
+"                [{include-missing}] [{pairwise | counts-only}]\n"
+"                [{fname-id-delim=}c] [{zs}] [{cols=}column set descriptor]\n"
+"                [{counts-cols=}column set descriptor] file=<ID-pair file>\n"
 "  (alias: --sdiff)\n"
 "    Report discordances and discordance-counts between pairs of samples.  If\n"
 "    chrX or chrY is present, sex must be defined and consistent.\n"
@@ -687,8 +691,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * By default, if one genotype is missing and the other isn't, that doesn't\n"
 "      count as a difference; this can be changed with 'include-missing'.\n"
 "    * By default, a single main report is written to\n"
-"      [output prefix]{.base ID}.sdiff.  To write separate pairwise\n"
-"      [output prefix].[ID1].[ID2].sdiff reports for each compared ID pair, add\n"
+"      <output prefix>{|.base ID}.sdiff.  To write separate pairwise\n"
+"      <output prefix>.<ID1>.<ID2>.sdiff reports for each compared ID pair, add\n"
 "      the 'pairwise' modifier.  To omit the main report, add the 'counts-only'\n"
 "      modifier.  (Note that, if you're only interested in nonmissing autosomal\n"
 "      biallelic hardcalls, --make-king-table provides a more efficient way to\n"
@@ -735,15 +739,15 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     // slightly more informative than REF allele counts, but the advantage is
     // far too small to be worth losing allele-frequency-independence.
     HelpPrint("make-king\0make-king-table\0", &help_ctrl, 1,
-"  --make-king <square | square0 | triangle> <zs | bin | bin4>\n"
+"  --make-king [{square | square0 | triangle}] [{zs | bin | bin4}]\n"
 "    KING-robust kinship estimator, described by Manichaikul A, Mychaleckyj JC,\n"
 "    Rich SS, Daly K, Sale M, Chen WM (2010) Robust relationship inference in\n"
 "    genome-wide association studies.  By default, this writes a\n"
 "    lower-triangular tab-delimited table of kinship coefficients to\n"
-"    [output prefix].king, and a list of the corresponding sample IDs to\n"
-"    [output prefix].king.id.  The first row of the .king file contains a single\n"
-"    [genome 1-genome 2] kinship coefficient, the second row has the\n"
-"    [genome 1-genome 3] and [genome 2-genome 3] kinship values in that order,\n"
+"    <output prefix>.king, and a list of the corresponding sample IDs to\n"
+"    <output prefix>.king.id.  The first row of the .king file contains a single\n"
+"    <genome 1-genome 2> kinship coefficient, the second row has the\n"
+"    <genome 1-genome 3> and <genome 2-genome 3> kinship values in that order,\n"
 "    etc.\n"
 "    * Only autosomes are currently considered.\n"
 "    * Pedigree information is currently ignored; the between-family estimator\n"
@@ -754,12 +758,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * If the 'zs' modifier is present, the .king file is Zstd-compressed.\n"
 "    * If the 'bin' modifier is present, a binary (square) matrix of\n"
 "      double-precision floating point values, suitable for loading from R, is\n"
-"      instead written to [output prefix].king.bin.  ('bin4' specifies\n"
+"      instead written to <output prefix>.king.bin.  ('bin4' specifies\n"
 "      single-precision numbers instead.)  This can be combined with 'square0'\n"
 "      if you still want the upper right zeroed out, or 'triangle' if you don't\n"
 "      want to pad the upper right at all.\n"
 "    * The computation can be subdivided with --parallel.\n"
-"  --make-king-table <zs> <counts> <cols=[column set descriptor]>\n"
+"  --make-king-table [{zs}] [{counts}] [{cols=}column set descriptor]\n"
 "    Similar to --make-king, except results are reported in the original .kin0\n"
 "    text table format (with minor changes, e.g. row order is more friendly to\n"
 "    incremental addition of samples), and --king-table-filter can be used to\n"
@@ -780,9 +784,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    present.  If id is omitted, a .kin0.id file is also written.\n\n"
                );
     HelpPrint("make-rel\0make-grm\0make-grm-bin\0make-grm-list\0make-grm-gz\0", &help_ctrl, 1,
-"  --make-rel <cov> <meanimpute> <square | square0 | triangle> <zs | bin | bin4>\n"
+"  --make-rel [{cov}] [{meanimpute}] [{square | square0 | triangle}]\n"
+"             [{zs | bin | bin4}]\n"
 "    Write a lower-triangular variance-standardized relationship matrix to\n"
-"    [output prefix].rel, and corresponding IDs to [output prefix].rel.id.\n"
+"    <output prefix>.rel, and corresponding IDs to <output prefix>.rel.id.\n"
 "    * This computation assumes that variants do not have very low MAF, or\n"
 "      deviate greatly from Hardy-Weinberg equilibrium.\n"
 // depending on what your original variant set looks like, you can occasionally
@@ -793,8 +798,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * The 'cov' modifier replaces the variance-standardization step with basic\n"
 "      mean-centering, causing a covariance matrix to be calculated instead.\n"
 "    * The computation can be subdivided with --parallel.\n"
-"  --make-grm-list <cov> <meanimpute> <zs> <id-header | iid-only>\n"
-"  --make-grm-bin <cov> <meanimpute> <id-header | iid-only>\n"
+"  --make-grm-list [{cov}] [{meanimpute}] [{zs}] [{id-header | iid-only}]\n"
+"  --make-grm-bin [{cov}] [{meanimpute}] [{id-header | iid-only}]\n"
 "    --make-grm-list causes the relationships to be written to GCTA's original\n"
 "    list format, which describes one pair per line, while --make-grm-bin writes\n"
 "    them in GCTA 1.1+'s single-precision triangular binary format.  Note that\n"
@@ -808,9 +813,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     //   algorithm, which does not require memory quadratic in the # of PCs.
     //   but probably not, don't see any real application for that many PCs?
     HelpPrint("pca\0", &help_ctrl, 1,
-"  --pca {count} <approx | meanimpute> <scols=[col set descriptor]>\n"
-"  --pca var-wts {count} <approx | meanimpute> <scols=[col set descriptor]>\n"
-"                <vzs> <vcols=[col set descriptor]>\n"
+"  --pca [count] [{approx | meanimpute}] [{scols=}col set descriptor]\n"
+"  --pca var-wts [count] [{approx | meanimpute}] [{scols=}col set descriptor]\n"
+"                [{vzs}] [{vcols=}col set descriptor]\n"
 "    Extracts top principal components from the variance-standardized\n"
 "    relationship matrix.\n"
 "    * It is usually best to perform this calculation on a variant set in\n"
@@ -850,14 +855,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
 #endif
     HelpPrint("king-cutoff\0make-king\0make-king-table\0rel-cutoff\0grm-cutoff\0", &help_ctrl, 1,
-"  --king-cutoff {.king.bin + .king.id fileset prefix} [threshold]\n"
+"  --king-cutoff [.king.bin + .king.id fileset prefix] <threshold>\n"
 "    Exclude one member of each pair of samples with KING-robust kinship greater\n"
 "    than the given threshold.  Remaining/excluded sample IDs are written to\n"
-"    [output prefix].king.cutoff.in.id + .king.cutoff.out.id.\n"
+"    <output prefix>.king.cutoff.in.id + .king.cutoff.out.id.\n"
 "    If present, the .king.bin file must be triangular (either precision is ok).\n\n"
                );
     HelpPrint("write-covar\0with-phenotype\0", &help_ctrl, 1,
-"  --write-covar <cols=[column set descriptor]>\n"
+"  --write-covar [{cols=}column set descriptor]\n"
 "    If covariates are defined, an updated version (with all filters applied) is\n"
 "    automatically written to [output prefix].cov whenever --make-pgen,\n"
 "    --make-just-psam, --export, or a similar command is present.  However, if\n"
@@ -883,16 +888,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    Report IDs of all samples which pass your filters/inclusion thresholds.\n\n"
                );
     HelpPrint("write-snplist\0", &help_ctrl, 1,
-"  --write-snplist <zs>\n"
+"  --write-snplist [{zs}]\n"
 "    List all variants which pass your filters/inclusion thresholds.\n\n"
                );
     HelpPrint("glm\0linear\0logistic\0assoc\0", &help_ctrl, 1,
-"  --glm <zs> <omit-ref> <sex | no-x-sex> <log10>\n"
-"        <genotypic | hethom | dominant | recessive> <interaction> <hide-covar>\n"
-"        <intercept> <no-firth | firth-fallback | firth> <cols=[col set desc.]>\n"
-"        <local-covar=[f]> <local-pvar=[f]> <local-psam=[f]>\n"
-"        <local-omit-last | local-cats=[category ct]>\n"
-               // "        <perm | mperm=[value]> <perm-count>\n"
+"  --glm [{zs}] [{omit-ref}] [{sex | no-x-sex}] [{log10}]\n"
+"        [{genotypic | hethom | dominant | recessive}] [{interaction}]\n"
+"        [{hide-covar}] [{intercept}] [{no-firth | firth-fallback | firth}]\n"
+"        [{cols=}col set desc.] [{local-covar=}file] [{local-pvar=}file]\n"
+"        [{local-psam=}file] [{local-omit-last} | {local-cats=}category ct]\n"
+               // "        [{perm} | {mperm=}value] [{perm-count}]\n"
 "    Basic association analysis on quantitative and/or case/control phenotypes.\n"
 "    For each variant, a linear (for quantitative traits) or logistic (for\n"
 "    case/control) regression is run with the phenotype as the dependent\n"
@@ -949,12 +954,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      LOCAL1, LOCAL2, etc.; to exclude the last local covariate from the\n"
 "      regression (necessary if they are e.g. local ancestry coefficients which\n"
 "      sum to 1), add 'local-omit-last'.\n"
-"      Alternatively, with 'local-cats=[k]', the local-covar file is expected to\n"
+"      Alternatively, with 'local-cats=<k>', the local-covar file is expected to\n"
 "      have n columns with integer-valued entries in [1, k].  These category\n"
 "      assignments are expanded into (k-1) local covariates in the usual manner.\n"
                /*
 "    * 'perm' normally causes an adaptive permutation test to be performed on\n"
-"      the main effect, while 'mperm=[value]' starts a max(T) permutation test.\n"
+"      the main effect, while 'mperm=<value>' starts a max(T) permutation test.\n"
 "    * 'perm-count' causes the permutation test report to include counts instead\n"
 "      of frequencies.\n"
                */
@@ -993,10 +998,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    The default is chrom,pos,ref,alt,firth,test,nobs,orbeta,se,ci,tz,p.\n\n"
                );
     HelpPrint("score\0", &help_ctrl, 1,
-"  --score [filename] {i} {j} {k} <header | header-read> <no-mean-imputation>\n"
-"          <center | variance-standardize | dominant | recessive> <se> <zs>\n"
-"          <ignore-dup-ids> <list-variants | list-variants-zs>\n"
-"          <cols=[col set descriptor]>\n"
+"  --score <filename> [i] [j] [k] [{header | header-read}]\n"
+"          [{center | variance-standardize | dominant | recessive}]\n"
+"          [{no-mean-imputation}] [{se}] [{zs}] [{ignore-dup-ids}]\n"
+"          [{list-variants | list-variants-zs}] [{cols=}col set descriptor]\n"
 "    Apply linear scoring system(s) to each sample.\n"
 "    The input file should have one line per scored variant.  Variant IDs are\n"
 "    read from column #i and allele codes are read from column #j, where i\n"
@@ -1050,8 +1055,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    software package (https://choishingwan.github.io/PRSice/ ).\n\n"
                );
     HelpPrint("adjust-file\0adjust\0", &help_ctrl, 1,
-"  --adjust-file [filename] <zs> <gc> <log10> <cols=[column set descriptor]>\n"
-"                <input-log10> <test=[test name, case-sensitive]>\n"
+"  --adjust-file <filename> [{zs}] [{gc}] [{cols=}column set descriptor]\n"
+"                [{log10}] [{input-log10}] [{test=}test name, case-sensitive]\n"
 "    Given a file with unfiltered association test results, report some basic\n"
 "    multiple-testing corrections, sorted in increasing-p-value order.\n"
 "    * 'gc' causes genomic-controlled p-values to be used in the formulas.\n"
@@ -1089,7 +1094,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     // haploids, missing sex, etc. with corresponding output files) and have a
     // flag (--qc1?) which invokes them all.
     HelpPrint("genotyping-rate\0", &help_ctrl, 1,
-"  --genotyping-rate <dosage>\n"
+"  --genotyping-rate [{dosage}]\n"
 "    Report genotyping rate in log (this was automatic in PLINK 1.x).\n\n"
                );
     HelpPrint("pgen-info\0", &help_ctrl, 1,
@@ -1101,7 +1106,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    Validates all variant records in a .pgen file.\n\n"
                );
     HelpPrint("zst-decompress\0zd\0", &help_ctrl, 1,
-"  --zst-decompress [.zst file] {output filename}\n"
+"  --zst-decompress <.zst file> [output filename]\n"
 "  (alias: --zd)\n"
 "    Decompress a Zstd-compressed file.  If no output filename is specified, the\n"
 "    file is decompressed to standard output.\n"
@@ -1115,57 +1120,57 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 , stdout);
     }
     HelpPrint("script\0rerun\0", &help_ctrl, 0,
-"  --script [fname]   : Include command-line options from file.\n"
-"  --rerun {log}      : Rerun commands in log (default 'plink2.log').\n"
+"  --script <fname>    : Include command-line options from file.\n"
+"  --rerun [log]       : Rerun commands in log (default 'plink2.log').\n"
                );
     HelpPrint("version\0", &help_ctrl, 0,
-"  --version          : Display only version number before exiting.\n"
+"  --version           : Display only version number before exiting.\n"
                );
     HelpPrint("silent\0", &help_ctrl, 0,
-"  --silent           : Suppress output to console.\n"
+"  --silent            : Suppress output to console.\n"
                );
     HelpPrint("vcf\0bcf\0bgen\0double-id\0const-fid\0id-delim\0", &help_ctrl, 0,
-"  --double-id          : Set both FIDs and IIDs to the VCF/.bgen sample ID.\n"
-"  --const-fid {ID}     : Set all FIDs to the given constant.  If '0' (the\n"
-"                         default), no FID column is created.\n"
-"  --id-delim {d} <sid> : Normally parses single-delimiter sample IDs as\n"
-"                         [FID][d][IID], and double-delimiter IDs as\n"
-"                         [FID][d][IID][d][SID]; default delimiter is '_'.  With\n"
-"                         the 'sid' modifier, single-delimiter IDs are parsed as\n"
-"                         [IID][d][SID] instead.\n"
-"                         --id-delim can no longer be used with\n"
-"                         --double-id/--const-fid; it will error out if any ID\n"
-"                         lacks the delimiter.\n"
+"  --double-id         : Set both FIDs and IIDs to the VCF/.bgen sample ID.\n"
+"  --const-fid [ID]    : Set all FIDs to the given constant.  If '0' (the\n"
+"                        default), no FID column is created.\n"
+"  --id-delim [d] [{sid}] : Normally parses single-delimiter sample IDs as\n"
+"                           <FID><d><IID>, and double-delimiter IDs as\n"
+"                           <FID><d><IID><d><SID>; default delimiter is '_'.\n"
+"                           With the 'sid' modifier, single-delimiter IDs are\n"
+"                           parsed as <IID><d><SID> instead.\n"
+"                           --id-delim can no longer be used with\n"
+"                           --double-id/--const-fid; it will error out if any ID\n"
+"                           lacks the delimiter.\n"
                );
     HelpPrint("idspace-to\0vcf\0bcf\0bgen\0id-delim\0vcf-idspace-to\0", &help_ctrl, 0,
-"  --idspace-to [c]   : Convert spaces in VCF/.bgen sample IDs to the given\n"
-"                       character.\n"
+"  --idspace-to <c>    : Convert spaces in VCF/.bgen sample IDs to the given\n"
+"                        character.\n"
                );
     HelpPrint("vcf\0bcf\0vcf-half-call\0vcf-min-gq\0vcf-min-dp\0vcf-max-dp\0vcf-require-gt\0", &help_ctrl, 0,
-"  --vcf-require-gt   : Skip variants with no GT field.\n"
-"  --vcf-min-gq [val] : No-call genotypes when GQ is present and below the\n"
-"                       threshold.\n"
-"  --vcf-max-dp [val] : No-call genotypes when DP is present and above/below the\n"
-"  --vcf-min-dp [val]   threshold.\n"
-"  --vcf-half-call [] : Specify how '0/.' and similar VCF GT values should be\n"
-"                       handled.  The following four modes are supported:\n"
-"                       * 'error'/'e' (default) errors out and reports line #.\n"
-"                       * 'haploid'/'h' treats them as haploid calls.\n"
-"                       * 'missing'/'m' treats them as missing.\n"
-"                       * 'reference'/'r' treats the missing value as 0.\n"
+"  --vcf-require-gt    : Skip variants with no GT field.\n"
+"  --vcf-min-gq <val>  : No-call genotypes when GQ is present and below the\n"
+"                        threshold.\n"
+"  --vcf-max-dp <val>  : No-call genotypes when DP is present and above/below\n"
+"  --vcf-min-dp <val>    the threshold.\n"
+"  --vcf-half-call <m> : Specify how '0/.' and similar VCF GT values should be\n"
+"                        handled.  The following four modes are supported:\n"
+"                        * 'error'/'e' (default) errors out and reports line #.\n"
+"                        * 'haploid'/'h' treats them as haploid calls.\n"
+"                        * 'missing'/'m' treats them as missing.\n"
+"                        * 'reference'/'r' treats the missing value as 0.\n"
                );
     HelpPrint("oxford-single-chr\0data\0gen\0bgen\0", &help_ctrl, 0,
-"  --oxford-single-chr [chr name]  : Specify single-chromosome .gen/.bgen file\n"
+"  --oxford-single-chr <chr name>  : Specify single-chromosome .gen/.bgen file\n"
 "                                    with no useful chromosome info inside.\n"
                );
     HelpPrint("missing-code\0missing_code\0data\0sample\0", &help_ctrl, 0,
-"  --missing-code {string list}    : Comma-delimited list of missing phenotype\n"
+"  --missing-code [string list]    : Comma-delimited list of missing phenotype\n"
 "  (alias: --missing_code)           values for Oxford-format import (default\n"
 "                                    'NA').\n"
                );
     // any need to keep --hard-call-threshold random?  postpone it for now...
     HelpPrint("hard-call-threshold\0gen\0bgen\0data\0import-dosage\0", &help_ctrl, 0,
-"  --hard-call-threshold [val]     : When importing dosage data, a hardcall is\n"
+"  --hard-call-threshold <val>     : When importing dosage data, a hardcall is\n"
 "                                    normally saved when the distance from the\n"
 "                                    nearest hardcall, defined as\n"
 "                                      0.5 * sum_i |x_i - round(x_i)|\n"
@@ -1173,19 +1178,19 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                    is not greater than 0.1.  You can adjust\n"
 "                                    this threshold by providing a numeric\n"
 "                                    parameter to --hard-call-threshold.\n"
-"                                    You can also use this with --make-{b}pgen\n"
+"                                    You can also use this with --make-{|b}pgen\n"
 "                                    to alter the saved hardcalls while leaving\n"
 "                                    the dosages untouched, or --make-bed to\n"
 "                                    tweak hardcall export.\n"
                );
     HelpPrint("dosage-erase-threshold\0import-dosage-certainty\0gen\0bgen\0data\0vcf\0bcf\0import-dosage\0", &help_ctrl, 0,
-"  --dosage-erase-threshold [val]  : --hard-call-threshold normally preserves\n"
+"  --dosage-erase-threshold <val>  : --hard-call-threshold normally preserves\n"
 "                                    the original dosages, and several PLINK 2.x\n"
 "                                    commands use them when they're available.\n"
 "                                    Use --dosage-erase-threshold to make PLINK\n"
 "                                    erase dosages and keep only hardcalls when\n"
 "                                    distance-from-hardcall <= the given level.\n"
-"  --import-dosage-certainty [val] : The PLINK 2.0 file format currently\n"
+"  --import-dosage-certainty <val> : The PLINK 2.0 file format currently\n"
 "                                    supports a single dosage for each allele.\n"
 "                                    Some other dosage file formats include a\n"
 "                                    separate probability for every possible\n"
@@ -1198,7 +1203,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                    threshold, use --import-dosage-certainty.\n"
                );
     HelpPrint("input-missing-genotype\0missing-genotype\0", &help_ctrl, 0,
-"  --input-missing-genotype [c] : '.' is always interpreted as a missing\n"
+"  --input-missing-genotype <c> : '.' is always interpreted as a missing\n"
 "                                 genotype code in input files.  By default, '0'\n"
 "                                 also is; you can change this second missing\n"
 "                                 code with --input-missing-genotype.\n"
@@ -1208,49 +1213,50 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     // possible todo: nonhuman PARs?
     HelpPrint("chr-set\0cow\0dog\0horse\0hound\0mouse\0rice\0sheep\0autosome-num\0human\0chr-override\0", &help_ctrl, 0,
-"  --chr-set [autosome ct] <no-x> <no-y> <no-xy> <no-mt> :\n"
+"  --chr-set <autosome ct> [{no-x}] [{no-y}] [{no-xy}] [{no-mt}] :\n"
 "    Specify a nonhuman chromosome set.  The first parameter sets the number of\n"
 "    diploid autosome pairs if positive, or haploid chromosomes if negative.\n"
 "    Given diploid autosomes, the remaining modifiers indicate the absence of\n"
 "    the named non-autosomal chromosomes.\n"
 "  --cow/--dog/--horse/--mouse/--rice/--sheep : Shortcuts for those species.\n"
-"  --autosome-num [val]  : Alias for '--chr-set [value] no-y no-xy no-mt'.\n"
-"  --human               : Explicitly specify human chromosome set, and make\n"
-"                          output .pvar/VCF files include a ##chrSet header\n"
-"                          line.  (.pvar/VCF output files automatically include\n"
-"                          ##chrSet when a nonhuman set is specified.)\n"
-"  --chr-override <file> : By default, if --chr-set/--autosome-num/--human/etc.\n"
-"                          conflicts with an input file ##chrSet header line,\n"
-"                          PLINK 2 will error out.  --chr-override with no\n"
-"                          parameter causes the command line to take precedence;\n"
-"                          '--chr-override file' defers to the file.\n"
+"  --autosome-num <val>    : Alias for '--chr-set <value> no-y no-xy no-mt'.\n"
+"  --human                 : Explicitly specify human chromosome set, and make\n"
+"                            output .pvar/VCF files include a ##chrSet header\n"
+"                            line.  (.pvar/VCF output files automatically\n"
+"                            include ##chrSet when a nonhuman set is specified.)\n"
+"  --chr-override [{file}] : By default, if --chr-set/--autosome-num/--cow/etc.\n"
+"                            conflicts with an input file ##chrSet header line,\n"
+"                            PLINK 2 will error out.  --chr-override with no\n"
+"                            parameter causes the command line to take\n"
+"                            precedence; '--chr-override file' defers to the\n"
+"                            file.\n"
                );
     // possible todo: --var-max-qual
     HelpPrint("var-min-qual\0var-filter\0vcf-min-qual\0vcf-filter\0qual-scores\0qual-threshold\0qual-max-threshold\0", &help_ctrl, 0,
-"  --var-min-qual [val]             : Skip variants with low/missing QUAL.\n"
-"  --var-filter {exception(s)...}   : Skip variants which have FILTER failures.\n"
+"  --var-min-qual <val>             : Skip variants with low/missing QUAL.\n"
+"  --var-filter [exception(s)...]   : Skip variants which have FILTER failures.\n"
                );
     HelpPrint("extract-if-info\0exclude-if-info\0require-info\0require-no-info\0extract-if\0exclude-if\0keep-if-info\0remove-if-info\0var-min-qual\0var-filter\0vcf-min-qual\0vcf-filter\0", &help_ctrl, 0,
-"  --extract-if-info [key] [op] [val] : Exclude variants which don't/do satisfy\n"
-"  --exclude-if-info [key] [op] [val]   a comparison predicate on an INFO key,\n"
+"  --extract-if-info <key> <op> <val> : Exclude variants which don't/do satisfy\n"
+"  --exclude-if-info <key> <op> <val>   a comparison predicate on an INFO key,\n"
 "  (aliases: --extract-if,              e.g.\n"
 "            --exclude-if)                --extract-if-info \"VT == SNP\"\n"
 "                                       Unless the operator is !=, the predicate\n"
 "                                       always evaluates to false when the key\n"
 "                                       is missing.\n"
-"  --require-info [key(s)...]         : Exclude variants based on nonexistence\n"
-"  --require-no-info [key(s)...]        or existence of an INFO key.  \"[key]=.\"\n"
+"  --require-info <key(s)...>         : Exclude variants based on nonexistence\n"
+"  --require-no-info <key(s)...>        or existence of an INFO key.  \"<key>=.\"\n"
 "                                       is treated as nonexistence.\n"
                );
     HelpPrint("pheno\0pheno-name\0pheno-col-nums\0mpheno\0", &help_ctrl, 0,
-"  --pheno [filename]     : Specify additional phenotype/covariate file.\n"
+"  --pheno <filename>     : Specify additional phenotype/covariate file.\n"
 "                           Comma-delimited files with a header line are now\n"
 "                           permitted.\n"
-"  --pheno-name [...]     : Only load the designated phenotype(s) from the\n"
+"  --pheno-name <...>     : Only load the designated phenotype(s) from the\n"
 "                           --pheno (if one was specified) or .psam (if no\n"
 "                           --pheno) file.  Separate multiple names with spaces\n"
 "                           or commas, and use dashes to designate ranges.\n"
-"  --pheno-col-nums [...] : Only load the phenotype(s) in the designated column\n"
+"  --pheno-col-nums <...> : Only load the phenotype(s) in the designated column\n"
 "                           number(s) from the --pheno file.\n"
                );
     HelpPrint("bfile\0fam\0psam\0no-psam-pheno\0no-fam-pheno\0no-pheno\0pheno\0pheno-name\0", &help_ctrl, 0,
@@ -1265,87 +1271,90 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       also want to require SID = '0' for a sample ID match in\n"
 "                       this situation, add --strict-sid0.\n"
               );
-    HelpPrint("input-missing-phenotype\01\0missing-catname\0missing-phenotype\0", &help_ctrl, 0,
-"  --input-missing-phenotype [v] : Set number to treat as a missing phenotype in\n"
+    // bugfix (27 Feb 2019): "\01" is interpreted as a single character, not a
+    // null followed by a '1'...
+    HelpPrint("input-missing-phenotype\0\061\0missing-catname\0missing-phenotype\0", &help_ctrl, 0,
+"  --input-missing-phenotype <v> : Set number to treat as a missing phenotype in\n"
 "                                  input files (default -9).\n"
 "  --1                           : Expect case/control phenotypes in input files\n"
 "                                  to be coded as 0 = control, 1 = case, instead\n"
 "                                  of the usual 0 = missing, 1 = ctrl, 2 = case.\n"
 "                                  (Unlike PLINK 1.x, this does not force all\n"
 "                                  phenotypes to be interpreted as case/ctrl.)\n"
-"  --missing-catname [str]       : Set missing-categorical-phenotype string\n"
+"  --missing-catname <str>       : Set missing-categorical-phenotype string\n"
 "                                  (case-sensitive, default 'NONE').\n"
                );
     HelpPrint("covar\0covar-name\0covar-col-nums\0covar-number\0", &help_ctrl, 0,
-"  --covar [filename]     : Specify additional covariate file.  Comma-delimited\n"
+"  --covar <filename>     : Specify additional covariate file.  Comma-delimited\n"
 "                           files with a header line are now permitted.\n"
-"  --covar-name [...]     : Only load the designated covariate(s) from the\n"
+"  --covar-name <...>     : Only load the designated covariate(s) from the\n"
 "                           --covar (if one was specified), --pheno (if no\n"
 "                           --covar), or .psam (if no --covar or --pheno) file.\n"
-"  --covar-col-nums [...] : Only load the covariate(s) in the designated column\n"
+"  --covar-col-nums <...> : Only load the covariate(s) in the designated column\n"
 "                           number(s) from the --covar (if one was specified) or\n"
 "                           --pheno (if no --covar) file.\n"
                );
     HelpPrint("within\0mwithin\0family\0family-missing-catname\0", &help_ctrl, 0,
-"  --within [f] {new pheno name} : Import a PLINK 1.x categorical phenotype.\n"
+"  --within <f> [new pheno name] : Import a PLINK 1.x categorical phenotype.\n"
 "                                  (Phenotype name defaults to 'CATPHENO'.)\n"
 "                                  * If any numeric values are present, ALL\n"
 "                                    values must be numeric.  In that case, 'C'\n"
 "                                    is added in front of all category names.\n"
 "                                  * 'NA' is treated as a missing value.\n"
-"  --mwithin [n]                 : Load --within categories from column n+2.\n"
-"  --family {new pheno name}     : Create a categorical phenotype from FID.\n"
+"  --mwithin <n>                 : Load --within categories from column n+2.\n"
+"  --family [new pheno name]     : Create a categorical phenotype from FID.\n"
 "                                  Restrictions on and handling of numeric\n"
 "                                  values are the same as for --within.\n"
-"  --family-missing-catname [nm] : Make --family treat the specified FID as\n"
+"  --family-missing-catname <nm> : Make --family treat the specified FID as\n"
 "                                  missing.\n"
                );
     HelpPrint("keep\0remove\0keep-fam\0remove-fam\0", &help_ctrl, 0,
-"  --keep [fname...]    : Exclude all samples not named in a file.\n"
-"  --remove [fname...]  : Exclude all samples named in a file.\n"
-"  --keep-fam [fn...]   : Exclude all families not named in a file.\n"
-"  --remove-fam [f...]  : Exclude all families named in a file.\n"
+"  --keep <fname...>    : Exclude all samples not named in a file.\n"
+"  --remove <fname...>  : Exclude all samples named in a file.\n"
+"  --keep-fam <fn...>   : Exclude all families not named in a file.\n"
+"  --remove-fam <f...>  : Exclude all families named in a file.\n"
                );
     HelpPrint("extract\0exclude\0range\0extract-intersect\0", &help_ctrl, 0,
-"  --extract <bed0 | bed1> [f...] : Usually excludes all variants (not) named in\n"
-"  --exclude <bed0 | bed1> [f...]   the given file(s).  When multiple files are\n"
-"                                   named, they are concatenated.\n"
-"                                   With the 'bed0' or 'bed1' modifier, variants\n"
-"                                   outside/inside the positional ranges in the\n"
-"                                   interval-BED file(s) are excluded instead.\n"
-"                                   'bed0' tells PLINK 2 to assume the interval\n"
-"                                   bounds follow the UCSC 0-based half-open\n"
-"                                   convention, while 'bed1' (equivalent to\n"
-"                                   PLINK 1.9 'range') specifies 1-based\n"
-"                                   fully-closed.\n"
+"  --extract [{bed0 | bed1}] <f...> : Usually excludes all variants (not) named\n"
+"  --exclude [{bed0 | bed1}] <f...>   in the given file(s).  When multiple files\n"
+"                                     are named, they are concatenated.\n"
+"                                     With the 'bed0' or 'bed1' modifier,\n"
+"                                     variants outside/inside the positional\n"
+"                                     ranges in the interval-BED file(s) are\n"
+"                                     excluded instead.  'bed0' tells PLINK 2 to\n"
+"                                     assume the interval bounds follow the UCSC\n"
+"                                     0-based half-open convention, while 'bed1'\n"
+"                                     (equivalent to PLINK 1.9 'range')\n"
+"                                     specifies 1-based fully-closed.\n"
                );
     HelpPrint("extract-intersect\0extract\0exclude\0", &help_ctrl, 0,
-"  --extract-intersect <bed0 | bed1> [f...] : Just like --extract, except that\n"
-"                                             a variant must be in the\n"
-"                                             intersection, rather than just the\n"
-"                                             union, of the files to be kept.\n"
+"  --extract-intersect [{bed0 | bed1}] <f...> : Just like --extract, except that\n"
+"                                               a variant must be in the\n"
+"                                               intersection, rather than just\n"
+"                                               the union, of the files to\n"
+"                                               remain.\n"
               );
     HelpPrint("keep-cats\0keep-cat-names\0keep-cat-pheno\0remove-cats\0remove-cat-names\0remove-cat-pheno\0keep-clusters\0keep-cluster-names\0remove-clusters\0remove-cluster-names\0", &help_ctrl, 0,
-"  --keep-cats [filename]   : These can be used individually or in combination\n"
-"  --keep-cat-names [nm...]   to define a list of categories to keep; all\n"
+"  --keep-cats <filename>   : These can be used individually or in combination\n"
+"  --keep-cat-names <nm...>   to define a list of categories to keep; all\n"
 "                             samples not in one of the named categories are\n"
 "                             excluded.  Use spaces to separate category names\n"
 "                             for --keep-cat-names.  Use the --missing-catname\n"
 "                             value (default 'NONE') to refer to the group of\n"
 "                             uncategorized samples.\n"
-"  --keep-cat-pheno [pheno] : If more than one categorical phenotype is loaded,\n"
+"  --keep-cat-pheno <pheno> : If more than one categorical phenotype is loaded,\n"
 "                             or you wish to filter on a categorical covariate,\n"
 "                             --keep-cat-pheno must be used to specify which\n"
 "                             phenotype/covariate --keep-cats and\n"
 "                             --keep-cat-names apply to.\n"
-"  --remove-cats [filename] : Exclude all categories named in the file.\n"
-"  --remove-cat-names [...] : Exclude named categories.\n"
-"  --remove-cat-pheno [phe] : Specify pheno for --remove-cats/remove-cat-names.\n"
+"  --remove-cats <filename> : Exclude all categories named in the file.\n"
+"  --remove-cat-names <...> : Exclude named categories.\n"
+"  --remove-cat-pheno <phe> : Specify pheno for --remove-cats/remove-cat-names.\n"
                );
     HelpPrint("split-cat-pheno\0dummy-coding\0loop-assoc\0", &help_ctrl, 0,
-"  --split-cat-pheno <omit-last> <covar-01> {cat. pheno/covar name(s)...} :\n"
+"  --split-cat-pheno [{omit-last}] [{covar-01}] [cat. pheno/covar name(s)...] :\n"
 "    Split n-category phenotype(s) into n (or n-1, with 'omit-last') binary\n"
-"    phenotypes, with names of the form [orig. pheno name]=[category name].  (As\n"
+"    phenotypes, with names of the form <orig. pheno name>=<category name>.  (As\n"
 "    a consequence, affected phenotypes and categories are not permitted to\n"
 "    contain the '=' character.)\n"
 "    * This happens after all sample filters.\n"
@@ -1355,38 +1364,39 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      them as 0=false, 1=true instead, add the 'covar-01' modifier.\n"
                );
     HelpPrint("loop-cats\0loop-assoc\0", &help_ctrl, 0,
-"  --loop-cats [pheno/covar] : Run variant filters and subsequent operations on\n"
-"                              just the samples in the first category; then just\n"
-"                              the samples in the second category; and so on,\n"
-"                              for all categories in the named categorical\n"
-"                              phenotype.\n"
+"  --loop-cats <pheno/covar>   : Run variant filters and subsequent operations\n"
+"                                on just the samples in the first category; then\n"
+"                                just the samples in the second category; and so\n"
+"                                on, for all categories in the named categorical\n"
+"                                phenotype.\n"
                );
     HelpPrint("no-id-header\0write-samples\0king-cutoff\0", &help_ctrl, 0,
-"  --no-id-header <iid-only> : Don't include a header line in .id output files.\n"
-"                              This normally forces two-column FID/IID output;\n"
-"                              add 'iid-only' to force just single-column IID.\n"
+"  --no-id-header [{iid-only}] : Don't include a header line in .id output\n"
+"                                files.  This normally forces two-column FID/IID\n"
+"                                output; add 'iid-only' to force just\n"
+"                                single-column IID.\n"
               );
     HelpPrint("variance-standardize\0covar-variance-standardize\0quantile-normalize\0pheno-quantile-normalize\0covar-quantile-normalize\0standard-beta\0glm\0linear\0logistic\0", &help_ctrl, 0,
-"  --variance-standardize {pheno/covar name(s)...}\n"
-"  --covar-variance-standardize {covar name(s)...} :\n"
+"  --variance-standardize [pheno/covar name(s)...]\n"
+"  --covar-variance-standardize [covar name(s)...] :\n"
 "    Linearly transform named covariates (and quantitative phenotypes, if\n"
 "    --variance-standardize) to mean-zero, variance 1.  If no parameters are\n"
 "    provided, all possible phenotypes/covariates are affected.\n"
 "    This is frequently necessary to prevent multicollinearity when dealing with\n"
 "    covariates where abs(mean) is much larger than abs(standard deviation),\n"
 "    such as year of birth.\n"
-"  --quantile-normalize {...}       : Force named covariates and quantitative\n"
-"  --pheno-quantile-normalize {...}   phenotypes to a N(0,1) distribution,\n"
-"  --covar-quantile-normalize {...}   preserving only the original rank orders.\n"
+"  --quantile-normalize [...]       : Force named covariates and quantitative\n"
+"  --pheno-quantile-normalize [...]   phenotypes to a N(0,1) distribution,\n"
+"  --covar-quantile-normalize [...]   preserving only the original rank orders.\n"
                );
     HelpPrint("chr\0not-chr\0", &help_ctrl, 0,
-"  --chr [chr(s)...]  : Exclude all variants not on the given chromosome(s).\n"
+"  --chr <chr(s)...>  : Exclude all variants not on the given chromosome(s).\n"
 "                       Valid choices for humans are 0 (unplaced), 1-22, X, Y,\n"
 "                       XY, MT, PAR1, and PAR2.  Separate multiple chromosomes\n"
 "                       with spaces and/or commas, and use a dash (no adjacent\n"
 "                       spaces permitted) to denote a range, e.g.\n"
 "                       '--chr 1-4, 22, par1, x, par2'.\n"
-"  --not-chr [...]    : Reverse of --chr (exclude variants on listed\n"
+"  --not-chr <...>    : Reverse of --chr (exclude variants on listed\n"
 "                       chromosomes).\n"
                );
     HelpPrint("autosome\0autosome-par\0autosome-xy\0chr\0not-chr\0", &help_ctrl, 0,
@@ -1395,36 +1405,36 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       pseudo-autosomal region.\n"
                );
     HelpPrint("snps-only\0", &help_ctrl, 0,
-"  --snps-only <just-acgt> : Exclude non-SNP variants.  By default, SNP = all\n"
-"                            allele codes are single-character (so multiallelic\n"
-"                            variants with a mix of SNPs and non-SNPs are\n"
-"                            excluded; split your variants first if that's a\n"
-"                            problem).\n"
-"                            The 'just-acgt' modifier restricts SNP codes to\n"
-"                            {A,C,G,T,a,c,g,t,[missing]}.\n"
+"  --snps-only [{just-acgt}] : Exclude non-SNP variants.  By default, SNP = all\n"
+"                              allele codes are single-character (so\n"
+"                              multiallelic variants with a mix of SNPs and\n"
+"                              non-SNPs are excluded; split your variants first\n"
+"                              if that's a problem).\n"
+"                              The 'just-acgt' modifier restricts SNP codes to\n"
+"                              {A,C,G,T,a,c,g,t,<missing>}.\n"
                );
     // best to only support --chr with --from-bp/--to-bp/etc., now that
     // FinalizeChrset() is deferred
     HelpPrint("from\0to\0snp\0window\0from-bp\0to-bp\0from-kb\0to-kb\0from-mb\0to-mb\0exclude-snp\0extract-snp\0", &help_ctrl, 0,
-"  --from [var ID]    : Use ID(s) to specify a variant range to load.  When used\n"
-"  --to   [var ID]      together, both variants must be on the same chromosome.\n"
+"  --from <var ID>    : Use ID(s) to specify a variant range to load.  When used\n"
+"  --to   <var ID>      together, both variants must be on the same chromosome.\n"
 "                       (--snps can be used to specify intervals which cross\n"
 "                       chromosome boundaries.)\n"
-"  --snp  [var ID]    : Specify a single variant to load.\n"
-"  --exclude-snp [ID] : Specify a single variant to exclude.\n"
-"  --window  [kbs]    : With --snp/--exclude-snp, loads/excludes all variants\n"
+"  --snp  <var ID>    : Specify a single variant to load.\n"
+"  --exclude-snp <ID> : Specify a single variant to exclude.\n"
+"  --window  <kbs>    : With --snp/--exclude-snp, loads/excludes all variants\n"
 "                       within half the specified kb distance of the named one.\n"
-"  --from-bp [pos]    : Use base-pair coordinates to define a variant range to\n"
-"  --to-bp   [pos]      load.\n"
-"  --from-kb [pos]      * You must use these with --chr, specifying a single\n"
-"  --to-kb   [pos]        chromosome.\n"
-"  --from-mb [pos]      * Decimals and negative numbers are permitted.\n"
-"  --to-mb   [pos]      * The --to-bp(/-kb/-mb) position is no longer permitted\n"
+"  --from-bp <pos>    : Use base-pair coordinates to define a variant range to\n"
+"  --to-bp   <pos>      load.\n"
+"  --from-kb <pos>      * You must use these with --chr, specifying a single\n"
+"  --to-kb   <pos>        chromosome.\n"
+"  --from-mb <pos>      * Decimals and negative numbers are permitted.\n"
+"  --to-mb   <pos>      * The --to-bp(/-kb/-mb) position is no longer permitted\n"
 "                         to be smaller than the --from-bp position.\n"
                );
     HelpPrint("snps\0exclude-snps\0", &help_ctrl, 0,
-"  --snps [var IDs...]  : Use IDs to specify variant range(s) to load or\n"
-"  --exclude-snps [...]   exclude.  E.g. '--snps rs1111-rs2222, rs3333, rs4444'.\n"
+"  --snps <var IDs...>  : Use IDs to specify variant range(s) to load or\n"
+"  --exclude-snps <...>   exclude.  E.g. '--snps rs1111-rs2222, rs3333, rs4444'.\n"
                );
     HelpPrint("force-intersect\0extract\0extract-intersect\0from\0to\0snp\0from-bp\0to-bp\0from-kb\0to-kb\0from-mb\0to-mb\0extract-snp\0snps\0", &help_ctrl, 0,
 "  --force-intersect    : PLINK 2 normally errors out when multiple variant\n"
@@ -1434,28 +1444,28 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                         proceed; the set intersection will be taken.\n"
                );
     HelpPrint("thin\0thin-count\0", &help_ctrl, 0,
-"  --thin [p]           : Randomly remove variants, retaining each with prob. p.\n"
-"  --thin-count [n]     : Randomly remove variants until n of them remain.\n"
+"  --thin <p>           : Randomly remove variants, retaining each with prob. p.\n"
+"  --thin-count <n>     : Randomly remove variants until n of them remain.\n"
                );
     HelpPrint("bp-space\0thin\0", &help_ctrl, 0,
-"  --bp-space [bps]     : Remove variants so that each pair is no closer than\n"
+"  --bp-space <bps>     : Remove variants so that each pair is no closer than\n"
 "                         the given bp distance.\n"
                );
     HelpPrint("thin-indiv\0thin-indiv-count\0max-indv\0", &help_ctrl, 0,
-"  --thin-indiv [p]       : Randomly remove samples, retaining with prob. p.\n"
-"  --thin-indiv-count [n] : Randomly remove samples until n of them remain.\n"
+"  --thin-indiv <p>       : Randomly remove samples, retaining with prob. p.\n"
+"  --thin-indiv-count <n> : Randomly remove samples until n of them remain.\n"
                );
     HelpPrint("keep-fcol\0keep-fcol-name\0keep-fcol-num\0filter\0mfilter\0", &help_ctrl, 0,
-"  --keep-fcol [f] [val(s)...] : Exclude all samples without a 3rd column entry\n"
+"  --keep-fcol <f> <val(s)...> : Exclude all samples without a 3rd column entry\n"
 "                                in the given file exactly matching one of the\n"
 "                                given strings.  (Separate multiple strings with\n"
 "                                spaces.)\n"
-"  --keep-fcol-name [col name] : Check column with given name instead.\n"
-"  --keep-fcol-num [n]         : Check nth column instead.\n"
+"  --keep-fcol-name <col name> : Check column with given name instead.\n"
+"  --keep-fcol-num <n>         : Check nth column instead.\n"
                );
     HelpPrint("geno\0mind\0oblig-clusters\0oblig-missing\0", &help_ctrl, 0,
-"  --geno {val} <dosage | hh-missing>\n"
-"  --mind {val} <dosage | hh-missing> : \n"
+"  --geno [val] [{dosage | hh-missing}]\n"
+"  --mind [val] [{dosage | hh-missing}] : \n"
 "    Exclude variants (--geno) and/or samples (--mind) with missing call\n"
 "    frequencies greater than a threshold (default 0.1).  (Note that the default\n"
 "    threshold is only applied if --geno/--mind is invoked without a parameter;\n"
@@ -1477,25 +1487,25 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     */
     HelpPrint("require-pheno\0require-covar\0keep-if\0remove-if\0prune\0", &help_ctrl, 0,
-"  --require-pheno {name(s)...} : Remove samples missing any of the named\n"
-"  --require-covar {name(s)...}   phenotype(s)/covariate(s).  If no parameters\n"
+"  --require-pheno [name(s)...] : Remove samples missing any of the named\n"
+"  --require-covar [name(s)...]   phenotype(s)/covariate(s).  If no parameters\n"
 "                                 are provided, all phenotype(s)/covariate(s)\n"
 "                                 must be present.\n"
                );
     // 'major' mode intentionally omitted since it's almost entirely redundant,
     // and kind of forces the underlying flag to be renamed
     HelpPrint("maf\0min-af\0max-maf\0max-af\0mac\0min-ac\0max-mac\0max-ac\0", &help_ctrl, 0,
-"  --maf {freq} {mode}     : Exclude variants with allele frequency lower than a\n"
+"  --maf [freq] [mode]     : Exclude variants with allele frequency lower than a\n"
 "  (alias: --min-af)         threshold (default 0.01).  By default, the nonmajor\n"
 "                            allele frequency is used; the other supported modes\n"
 "                            are 'nref' (non-reference), 'alt1', and 'minor'\n"
 "                            (least frequent).  bcftools freq:mode notation is\n"
 "                            permitted.\n"
-"  --max-maf [freq] {mode} : Exclude variants with MAF greater than the\n"
+"  --max-maf <freq> [mode] : Exclude variants with MAF greater than the\n"
 "  (alias: --max-af)         threshold.\n"
-"  --mac [ct] {mode}       : Exclude variants with allele dosage lower than the\n"
+"  --mac <ct> [mode]       : Exclude variants with allele dosage lower than the\n"
 "  (alias: --min-ac)         given threshold.\n"
-"  --max-mac [ct] {mode}   : Exclude variants with allele dosage greater than\n"
+"  --max-mac <ct> [mode]   : Exclude variants with allele dosage greater than\n"
 "  (alias: --max-ac)         the given threshold.\n"
                );
     HelpPrint("maf-succ\0", &help_ctrl, 0,
@@ -1508,20 +1518,20 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       Note that this does not affect --freq's output.\n"
                );
     HelpPrint("max-alleles\0min-alleles\0biallelic-only\0", &help_ctrl, 0,
-"  --min-alleles [ct] : Exclude variants with fewer than the given # of alleles.\n"
+"  --min-alleles <ct> : Exclude variants with fewer than the given # of alleles.\n"
 "                       (When a variant has exactly one ALT allele, and it's\n"
 "                       a missing-code, it's excluded by \"--min-alleles 2\".)\n"
-"  --max-alleles [ct] : Exclude variants with more than the given # of alleles.\n"
+"  --max-alleles <ct> : Exclude variants with more than the given # of alleles.\n"
               );
     HelpPrint("read-freq\0bad-freqs\0", &help_ctrl, 0,
-"  --read-freq [file] : Load allele frequency estimates from the given --freq or\n"
+"  --read-freq <file> : Load allele frequency estimates from the given --freq or\n"
 "                       --geno-counts (or PLINK 1.9 --freqx) report, instead of\n"
 "                       imputing them from the immediate dataset.\n"
                );
 // todo: something like <check-ctrls>/<check-ctrl=[case/ctrl phenotype name]>
 // and maybe <ctrls-only>/<ctrl-only=[case/ctrl phenotype name]>
     HelpPrint("hwe\0", &help_ctrl, 0,
-"  --hwe [p] <midp> <keep-fewhet> :\n"
+"  --hwe <p> [{midp}] [{keep-fewhet}] :\n"
 "    Exclude variants with Hardy-Weinberg equilibrium exact test p-values below\n"
 "    a threshold.\n"
 "    * By default, only founders are considered.\n"
@@ -1534,7 +1544,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * There is currently no special handling of case/control phenotypes.\n"
               );
     HelpPrint("mach-r2-filter\0", &help_ctrl, 0,
-"  --mach-r2-filter {min} {max} : Exclude variants with MaCH imputation quality\n"
+"  --mach-r2-filter [min] [max] : Exclude variants with MaCH imputation quality\n"
 "                                 metric less than min or greater than max\n"
 "                                 (defaults 0.1 and 2.0).  (Monomorphic\n"
 "                                 variants, with r2 = nan, are not excluded.)\n"
@@ -1558,8 +1568,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     // best if syntax allows for '=' character inside phenotype/covariate
     // names, though...
     HelpPrint("keep-if\0remove-if\0filter-cases\0filter-controls\0prune\0", &help_ctrl, 0,
-"  --keep-if [pheno/covar] [op] [val] : Exclude samples which don't/do satisfy a\n"
-"  --remove-if [pheno/covar] [op] [v]   comparison predicate, e.g.\n"
+"  --keep-if <pheno/covar> <op> <val> : Exclude samples which don't/do satisfy a\n"
+"  --remove-if <pheno/covar> <op> <v>   comparison predicate, e.g.\n"
 "                                         --keep-if \"PHENO1 == case\"\n"
 "                                       Unless the operator is !=, the predicate\n"
 "                                       always evaluates to false when the\n"
@@ -1575,42 +1585,45 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       impute them from.  Use --bad-freqs to force PLINK 2 to\n"
 "                       proceed in this case.\n"
               );
+    HelpPrint("export-allele\0recode-allele\0export\0recode", &help_ctrl, 0,
+"  --export-allele <file> : With --export A/A-transpose/AD, count alleles named\n"
+"                           in the file, instead of REF alleles.\n"
+              );
     HelpPrint("output-chr\0", &help_ctrl, 0,
-"  --output-chr [MT code] : Set chromosome coding scheme in output files by\n"
+"  --output-chr <MT code> : Set chromosome coding scheme in output files by\n"
 "                           providing the desired human mitochondrial code.\n"
 "                           Options are '26', 'M', 'MT', '0M', 'chr26', 'chrM',\n"
 "                           and 'chrMT'; default is now 'MT' (note that this is\n"
 "                           a change from PLINK 1.x, which defaulted to '26').\n"
                );
     HelpPrint("output-missing-genotype\0output-missing-phenotype\0missing-genotype\0missing-phenotype\0", &help_ctrl, 0,
-"  --output-missing-genotype [ch] : Set the code used to represent missing\n"
+"  --output-missing-genotype <ch> : Set the code used to represent missing\n"
 "                                   genotypes in output files (default '.').\n"
-"  --output-missing-phenotype [s] : Set the string used to represent missing\n"
+"  --output-missing-phenotype <s> : Set the string used to represent missing\n"
 "                                   phenotypes in output files (default 'NA').\n"
                );
     HelpPrint("sort-vars\0", &help_ctrl, 0,
-"  --sort-vars {mode}      : Sort variants by chromosome, then position, then\n"
+"  --sort-vars [mode]      : Sort variants by chromosome, then position, then\n"
 "                            ID.  The following string orders are supported:\n"
 "                            * 'natural'/'n': Natural sort (default).\n"
 "                            * 'ascii'/'a': ASCII.\n"
-"                            This must be used with --make-{b}pgen/--make-bed.\n"
+"                            This must be used with --make-{|b}pgen/--make-bed.\n"
                );
     HelpPrint("set-hh-missing\0set-mixed-mt-missing\0", &help_ctrl, 0,
-"  --set-hh-missing <keep-dosage>       : Make --make-{b}pgen/--make-bed set\n"
-"                                         non-MT heterozygous haploid hardcalls,\n"
-"                                         and all female chrY calls, to missing.\n"
-"                                         (Unlike PLINK 1.x, this treats\n"
-"                                         unknown-sex chrY genotypes like males,\n"
-"                                         not females.)\n"
-"                                         By default, all associated dosages are\n"
-"                                         are also erased; use 'keep-dosage' to\n"
-"                                         keep them all.\n"
-"  --set-mixed-mt-missing <keep-dosage> : Make --make-{b}pgen/--make-bed set\n"
-"                                         mixed MT hardcalls to missing.\n"
+"  --set-hh-missing [{keep-dosage}] : Make --make-{|b}pgen/--make-bed set non-MT\n"
+"                                     heterozygous haploid hardcalls, and all\n"
+"                                     female chrY calls, to missing.  (Unlike\n"
+"                                     PLINK 1.x, this treats unknown-sex chrY\n"
+"                                     genotypes like males, not females.)\n"
+"                                     By default, all associated dosages are\n"
+"                                     also erased; use 'keep-dosage' to keep\n"
+"                                     them all.\n"
+"  --set-mixed-mt-missing [{keep-dosage}] : Make --make-{|b}pgen/--make-bed set\n"
+"                                           mixed MT hardcalls to missing.\n"
                );
     HelpPrint("split-par\0merge-par\0split-x\0merge-x\0", &help_ctrl, 0,
-"  --split-par [bp1] [bp2] : Changes chromosome code of all X chromosome\n"
-"  --split-par [build]       variants with bp position <= bp1 to PAR1, and those\n"
+"  --split-par <bp1> <bp2> : Changes chromosome code of all X chromosome\n"
+"  --split-par <build>       variants with bp position <= bp1 to PAR1, and those\n"
 "                            with position >= bp2 to PAR2.  The following build\n"
 "                            codes are supported as shorthand:\n"
 "                            * 'b36'/'hg18' = NCBI 36, 2709521/154584237\n"
@@ -1626,8 +1639,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                            combined with --sort-vars.\n"
                );
     HelpPrint("set-all-var-ids\0set-missing-var-ids\0var-id-multi\0var-id-multi-nonsnp\0new-id-max-allele-len\0", &help_ctrl, 0,
-"  --set-missing-var-ids [t]  : Given a template string with a '@' where the\n"
-"  --set-all-var-ids [t]        chromosome code should go and '#' where the bp\n"
+"  --set-missing-var-ids <t>  : Given a template string with a '@' where the\n"
+"  --set-all-var-ids <t>        chromosome code should go and '#' where the bp\n"
 "                               coordinate belongs, --set-missing-var-ids\n"
 "                               assigns chromosome-and-bp-based IDs to unnamed\n"
 "                               variants, while --set-all-var-ids resets all\n"
@@ -1635,26 +1648,26 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                               You may also use '$r'/'$a' to refer to the\n"
 "                               ref and alt1 alleles, or '$1'/'$2' to refer to\n"
 "                               them in alphabetical order.\n"
-"  --var-id-multi [t]         : Specify alternative templates for multiallelic\n"
-"  --var-id-multi-nonsnp [t]    variants.  ('$a' and '$1'/'$2' should be avoided\n"
+"  --var-id-multi <t>         : Specify alternative templates for multiallelic\n"
+"  --var-id-multi-nonsnp <t>    variants.  ('$a' and '$1'/'$2' should be avoided\n"
 "                               here, though they're technically still allowed.)\n"
-"  --new-id-max-allele-len [len] <error | missing | truncate> :\n"
+"  --new-id-max-allele-len <len> [{error | missing | truncate}] :\n"
 "    Specify maximum number of leading characters from allele codes to include\n"
 "    in new variant IDs, and behavior on longer codes (defaults 23, error).\n"
               );
     HelpPrint("missing-var-code\0rm-dup\0set-all-var-ids\0set-missing-var-ids\0", &help_ctrl, 0,
-"  --missing-var-code [str]   : Change unnamed variant code for --rm-dup and\n"
-"                               --set-[missing/all]-var-ids (default '.').\n"
+"  --missing-var-code <str>   : Change unnamed variant code for --rm-dup and\n"
+"                               --set-{missing|all}-var-ids (default '.').\n"
                );
     HelpPrint("update-map\0update-name\0", &help_ctrl, 0,
-"  --update-map  [f] {bpcol}  {IDcol}  {skip} : Update variant bp positions.\n"
-"  --update-name [f] {newcol} {oldcol} {skip} : Update variant IDs.\n"
+"  --update-map  <f> [bpcol]  [IDcol]  [skip] : Update variant bp positions.\n"
+"  --update-name <f> [newcol] [oldcol] [skip] : Update variant IDs.\n"
                );
     HelpPrint("update-alleles\0", &help_ctrl, 0,
-"  --update-alleles [fname] : Update variant allele codes.\n"
+"  --update-alleles <fname> : Update variant allele codes.\n"
               );
     HelpPrint("update-sex\0", &help_ctrl, 0,
-"  --update-sex [filename] <col-num=[n]> <male0> :\n"
+"  --update-sex <filename> [{col-num=}n] [{male0}] :\n"
 "    Update sex information.\n"
 "    * By default, if there is a header line starting with '#FID'/'#IID', sex is\n"
 "      loaded from the first column titled 'SEX' (any capitalization);\n"
@@ -1668,28 +1681,28 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     // don't make --real-ref-alleles apply to e.g. Oxford import, since
     // explicit 'ref-first'/'ref-last' modifiers are clearer
     HelpPrint("real-ref-alleles\0", &help_ctrl, 0,
-"  --real-ref-alleles : Treat A2 alleles in a PLINK 1.x fileset as actual REF\n"
-"                       alleles; otherwise they're marked as provisional.\n"
+"  --real-ref-alleles  : Treat A2 alleles in a PLINK 1.x fileset as actual REF\n"
+"                        alleles; otherwise they're marked as provisional.\n"
                );
     HelpPrint("maj-ref\0ref-allele\0alt1-allele\0a1-allele\0reference-allele\0update-ref-allele\0a2-allele\0keep-allele-order\0", &help_ctrl, 0,
-"  --maj-ref <force>  : Set major alleles to reference, like PLINK 1.x\n"
-"                       automatically did.  (Note that this is now opt-in rather\n"
-"                       than opt-out; --keep-allele-order is no longer necessary\n"
-"                       to prevent allele-swapping.)\n"
-"                       * This can only be used in runs with\n"
-"                         --make-bed/--make-{b}pgen/--export and no other\n"
-"                         commands.\n"
-"                       * By default, this only affects variants marked as\n"
-"                         having 'provisional' reference alleles.  Add 'force'\n"
-"                         to apply this to all variants.\n"
-"                       * All new reference alleles are marked as provisional.\n"
-"  --ref-allele <force> [filename] {refcol} {IDcol} {skip}\n"
-"  --alt1-allele <force> [filename] {alt1col} {IDcol} {skip} :\n"
+"  --maj-ref [{force}] : Set major alleles to reference, like PLINK 1.x\n"
+"                        automatically did.  (Note that this is now opt-in\n"
+"                        rather than opt-out; --keep-allele-order is no longer\n"
+"                        necessary to prevent allele-swapping.)\n"
+"                        * This can only be used in runs with\n"
+"                          --make-bed/--make-{|b}pgen/--export and no other\n"
+"                          commands.\n"
+"                        * By default, this only affects variants marked as\n"
+"                          having 'provisional' reference alleles.  Add 'force'\n"
+"                          to apply this to all variants.\n"
+"                        * All new reference alleles are marked as provisional.\n"
+"  --ref-allele [{force}] <filename> [refcol] [IDcol] [skip]\n"
+"  --alt1-allele [{force}] <filename> [alt1col] [IDcol] [skip] :\n"
 "    These set the alleles specified in the file to ref (--ref-allele) or alt1\n"
 "    (--alt1-allele).  They can be combined in the same run.\n"
-"    * These can only be used in runs with --make-bed/--make-{b}pgen/--export\n"
+"    * These can only be used in runs with --make-bed/--make-{|b}pgen/--export\n"
 "      and no other commands.\n"
-"    * \"--ref-allele [VCF filename] 4 3 '#'\", which scrapes reference allele\n"
+"    * \"--ref-allele <VCF filename> 4 3 '#'\", which scrapes reference allele\n"
 "      assignments from a VCF file, is especially useful.\n"
 "    * By default, these error out when asked to change a 'known' reference\n"
 "      allele.  Add 'force' to permit that (when e.g. switching to a new\n"
@@ -1698,47 +1711,47 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      alt1 allele is set to reference and marked as provisional.\n"
                );
     HelpPrint("ref-from-fa\0maj-ref\0ref-allele\0reference-allele\0update-ref-allele\0a2-allele\0keep-allele-order\0fa\0", &help_ctrl, 0,
-"  --ref-from-fa <force> : This sets reference alleles from the --fa file when\n"
-"                          it can be done unambiguously (note that it's never\n"
-"                          possible for deletions or some insertions).\n"
-"                          By default, it errors out when asked to change a\n"
-"                          'known' reference allele; add the 'force' modifier to\n"
-"                          permit that.\n"
+"  --ref-from-fa [{force}] : This sets reference alleles from the --fa file when\n"
+"                            it can be done unambiguously (note that it's never\n"
+"                            possible for deletions or some insertions).\n"
+"                            By default, it errors out when asked to change a\n"
+"                            'known' reference allele; add the 'force' modifier\n"
+"                            to permit that.\n"
                );
     HelpPrint("normalize\0norm\0fa\0", &help_ctrl, 0,
-"  --normalize <list>    : Left-normalize all variants, using the --fa file.\n"
-"  (alias: --norm)         (Assumes no differences in capitalization.)  The\n"
-"                          'list' modifier causes a list of affected variant IDs\n"
-"                          to be written to [output prefix].normalized.\n"
+"  --normalize [{list}]    : Left-normalize all variants, using the --fa file.\n"
+"  (alias: --norm)           (Assumes no differences in capitalization.)  The\n"
+"                            'list' modifier causes a list of affected variant\n"
+"                            IDs to be written to <output prefix>.normalized.\n"
               );
     HelpPrint("indiv-sort\0", &help_ctrl, 0,
-"  --indiv-sort [m] {f}  : Specify sample ID sort order for merge and\n"
-"                          --make-{b}pgen/--make-bed.  The following four modes\n"
-"                          are supported:\n"
-"                          * 'none'/'0' keeps samples in the order they were\n"
-"                            loaded.  Default for non-merge.\n"
-"                          * 'natural'/'n' invokes \"natural sort\", e.g.\n"
-"                            'id2' < 'ID3' < 'id10'.  Default when merging.\n"
-"                          * 'ascii'/'a' sorts in ASCII order, e.g.\n"
-"                            'ID3' < 'id10' < 'id2'.\n"
-"                          * 'file'/'f' uses the order in the given file (named\n"
-"                             in the last parameter).\n"
+"  --indiv-sort <mode> [f] : Specify sample ID sort order for merge and\n"
+"                            --make-{b}pgen/--make-bed.  The following four\n"
+"                            modes are supported:\n"
+"                            * 'none'/'0' keeps samples in the order they were\n"
+"                              loaded.  Default for non-merge.\n"
+"                            * 'natural'/'n' invokes \"natural sort\", e.g.\n"
+"                              'id2' < 'ID3' < 'id10'.  Default when merging.\n"
+"                            * 'ascii'/'a' sorts in ASCII order, e.g.\n"
+"                              'ID3' < 'id10' < 'id2'.\n"
+"                            * 'file'/'f' uses the order in the given file\n"
+"                              (named in the last parameter).\n"
                );
     // todo: add citation for 2018 KING update paper, which should discuss the
     // two-stage screen + refine workflow supported by --king-table-subset,
     // when it comes out
     HelpPrint("make-king\0make-king-table\0king-table-filter\0king-table-subset\0", &help_ctrl, 0,
-"  --king-table-filter [min]      : Specify minimum kinship coefficient for\n"
+"  --king-table-filter <min>      : Specify minimum kinship coefficient for\n"
 "                                   inclusion in --make-king-table report.\n"
-"  --king-table-subset [f] {kmin} : Restrict current --make-king-table run to\n"
+"  --king-table-subset <f> [kmin] : Restrict current --make-king-table run to\n"
 "                                   sample pairs listed in the given .kin0 file.\n"
 "                                   If a second parameter is provided, only\n"
 "                                   sample pairs with kinship >= that threshold\n"
 "                                   (in the input .kin0) are processed.\n"
                );
     HelpPrint("glm\0linear\0logistic\0condition\0condition-list\0parameters\0tests\0", &help_ctrl, 0,
-"  --condition [variant ID] <dominant | recessive> <multiallelic>\n"
-"  --condition-list [fname] <dominant | recessive> <multiallelic> :\n"
+"  --condition <variant ID> [{dominant | recessive}] [{multiallelic}]\n"
+"  --condition-list <fname> [{dominant | recessive}] [{multiallelic}] :\n"
 "    Add the given variant, or all variants in the given file, as --glm\n"
 "    covariates.\n"
 "    By default, this errors out if any of the variants are multiallelic; add\n"
@@ -1747,10 +1760,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    modifier was specified), and all induced covariate names--even for\n"
 "    biallelic variants--will have an underscore followed by the allele code at\n"
 "    the end.\n"
-"  --parameters [...] : Include only the given covariates/interactions in the\n"
+"  --parameters <...> : Include only the given covariates/interactions in the\n"
 "                       --glm model, identified by a list of 1-based indices\n"
 "                       and/or ranges of them.\n"
-"  --tests [...]      : Perform a (joint) test on the specified term(s) in the\n"
+"  --tests <...>      : Perform a (joint) test on the specified term(s) in the\n"
 "  --tests all          --glm model, identified by 1-based indices and/or ranges\n"
 "                       of them.\n"
               /*
@@ -1763,15 +1776,15 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       * You can use '--tests all' to include all terms.\n"
                );
     HelpPrint("glm\0linear\0logistic\0vif\0max-corr\0", &help_ctrl, 0,
-"  --vif [max VIF]    : Set VIF threshold for --glm multicollinearity check\n"
+"  --vif <max VIF>    : Set VIF threshold for --glm multicollinearity check\n"
 "                       (default 50).  (This is no longer skipped for\n"
 "                       case/control phenotypes.)\n"
-"  --max-corr [val]   : Skip --glm regression when the absolute value of the\n"
+"  --max-corr <val>   : Skip --glm regression when the absolute value of the\n"
 "                       correlation between two predictors exceeds this value\n"
 "                       (default 0.999).\n"
                );
     HelpPrint("glm\0linear\0logistic\0score\0xchr-model\0", &help_ctrl, 0,
-"  --xchr-model [m]   : Set the chrX --glm/--condition{-list}/--score model.\n"
+"  --xchr-model <m>   : Set the chrX --glm/--condition{-list}/--score model.\n"
 "                       * '0' = skip chrX.\n"
 "                       * '1' = add sex as a covar on chrX, code males 0..1.\n"
 "                       * '2' (default) = chrX sex covar, code males 0..2.\n"
@@ -1779,29 +1792,29 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       interaction between genotype and sex.)\n"
                );
     HelpPrint("adjust\0", &help_ctrl, 0,
-"  --adjust <zs> <gc> <log10> <cols=[column set descriptor]> :\n"
+"  --adjust [{zs}] [{gc}] [{log10}] [{cols=}column set descriptor] :\n"
 "    For each association test in this run, report some basic multiple-testing\n"
 "    corrections, sorted in increasing-p-value order.  Modifiers work the same\n"
 "    way as they do on --adjust-file.\n"
                );
     HelpPrint("adjust\0adjust-file\0lambda\0", &help_ctrl, 0,
-"  --lambda                   : Set genomic control lambda for --adjust{-file}.\n"
+"  --lambda                   : Set genomic control lambda for --adjust{|-file}.\n"
                );
     HelpPrint("adjust-chr-field\0adjust-pos-field\0adjust-id-field\0adjust-ref-field\0adjust-alt-field\0adjust-a1-field\0adjust-test-field\0adjust-p-field\0adjust-file\0", &help_ctrl, 0,
-"  --adjust-chr-field [n...]  : Set --adjust-file input field names.  When\n"
-"  --adjust-pos-field [n...]    multiple parameters are given to these flags,\n"
-"  --adjust-id-field [n...]     earlier names take precedence over later ones.\n"
-"  --adjust-ref-field [n...]\n"
-"  --adjust-alt-field [n...]\n"
-"  --adjust-a1-field [n...]\n"
-"  --adjust-test-field [n...]\n"
-"  --adjust-p-field [n...]\n"
+"  --adjust-chr-field <n...>  : Set --adjust-file input field names.  When\n"
+"  --adjust-pos-field <n...>    multiple parameters are given to these flags,\n"
+"  --adjust-id-field <n...>     earlier names take precedence over later ones.\n"
+"  --adjust-ref-field <n...>\n"
+"  --adjust-alt-field <n...>\n"
+"  --adjust-a1-field <n...>\n"
+"  --adjust-test-field <n...>\n"
+"  --adjust-p-field <n...>\n"
                );
     HelpPrint("ci\0linear\0logistic\0", &help_ctrl, 0,
-"  --ci [size]        : Report confidence ratios for odds ratios/betas.\n"
+"  --ci <size>        : Report confidence ratios for odds ratios/betas.\n"
                );
     HelpPrint("pfilter\0", &help_ctrl, 0,
-"  --pfilter [val]    : Filter out assoc. test results with higher p-values.\n"
+"  --pfilter <val>    : Filter out assoc. test results with higher p-values.\n"
                );
     /*
     HelpPrint("aperm\0", &help_ctrl, 0,
@@ -1825,12 +1838,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     */
     HelpPrint("score-col-nums\0score\0", &help_ctrl, 0,
-"  --score-col-nums [...] : Process all the specified coefficient columns in the\n"
+"  --score-col-nums <...> : Process all the specified coefficient columns in the\n"
 "                           --score file, identified by 1-based indexes and/or\n"
 "                           ranges of them.\n"
                );
     HelpPrint("parallel\0", &help_ctrl, 0,
-"  --parallel [k] [n] : Divide the output matrix into n pieces, and only compute\n"
+"  --parallel <k> <n> : Divide the output matrix into n pieces, and only compute\n"
 "                       the kth piece.  The primary output file will have the\n"
 "                       piece number included in its name, e.g. plink2.king.13\n"
 "                       or plink2.king.13.zst if k is 13.  Concatenating these\n"
@@ -1841,22 +1854,22 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       shape instead, and postprocess as necessary.\n"
                );
     HelpPrint("memory\0seed\0", &help_ctrl, 0,
-"  --memory [val] <require> : Set size, in MiB, of initial workspace malloc\n"
-"                             attempt.  To error out instead of reducing the\n"
-"                             request size when the initial attempt fails, add\n"
-"                             the 'require' modifier.\n"
+"  --memory <val> [{require}] : Set size, in MiB, of initial workspace malloc\n"
+"                               attempt.  To error out instead of reducing the\n"
+"                               request size when the initial attempt fails, add\n"
+"                               the 'require' modifier.\n"
                );
     HelpPrint("threads\0num_threads\0thread-num\0seed\0", &help_ctrl, 0,
-"  --threads [val]    : Set maximum number of compute threads.\n"
+"  --threads <val>    : Set maximum number of compute threads.\n"
                );
     HelpPrint("seed\0", &help_ctrl, 0,
-"  --seed [val...]    : Set random number seed(s).  Each value must be an\n"
+"  --seed <val...>    : Set random number seed(s).  Each value must be an\n"
 "                       integer between 0 and 4294967295 inclusive.\n"
 "                       Note that --threads and \"--memory require\" may also be\n"
 "                       needed to reproduce some randomized runs.\n"
                );
     HelpPrint("output-min-p\0", &help_ctrl, 0,
-"  --output-min-p [p] : Specify minimum p-value to write to reports.  (2.23e-308\n"
+"  --output-min-p <p> : Specify minimum p-value to write to reports.  (2.23e-308\n"
 "                       is useful for preventing underflow in some programs.)\n"
                );
     HelpPrint("debug\0randmem\0", &help_ctrl, 0,
@@ -1870,7 +1883,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     // possible todo: --zst-block {block size} to generate seekable files
     HelpPrint("zst-level\0", &help_ctrl, 0,
-"  --zst-level [level] : Set the Zstd compression level (1-22, default 3).\n"
+"  --zst-level <lvl>  : Set the Zstd compression level (1-22, default 3).\n"
                );
     if (!param_ct) {
       fputs(

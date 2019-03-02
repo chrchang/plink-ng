@@ -5660,7 +5660,15 @@ uint32_t GetAux1aConsts(uint32_t allele_ct, uintptr_t* detect_mask_hi_ptr, uintp
 // sample_include assumed to be nullptr if no subsetting required
 PglErr CountAux1a(const unsigned char* fread_end, const uintptr_t* __restrict sample_include, const uintptr_t* __restrict raw_genovec, uint32_t aux1a_mode, uint32_t raw_sample_ct, uint32_t allele_ct, uint32_t allele_idx, uint32_t raw_01_ct, uint32_t subsetted_01_ct, const unsigned char** fread_pp, uint32_t* __restrict het_ctp, uint32_t* __restrict deltalist_workspace) {
   if (aux1a_mode == 15) {
-    *het_ctp = 0;
+    if (allele_idx == 1) {
+      if (sample_include) {
+        *het_ctp = subsetted_01_ct;
+      } else {
+        *het_ctp = raw_01_ct;
+      }
+    } else {
+      *het_ctp = 0;
+    }
     return kPglRetSuccess;
   }
   const uint32_t ignore_01_fvals = (allele_idx == 1) || (allele_ct == 3);
@@ -5913,7 +5921,15 @@ uint32_t GetAux1bConsts(uint32_t allele_ct, uintptr_t* detect_hom_mask_lo_ptr) {
 // sample_include assumed to be nullptr if no subsetting required
 PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sample_include, const uintptr_t* __restrict raw_genovec, uint32_t aux1b_mode, uint32_t raw_sample_ct, uint32_t allele_ct, uint32_t allele_idx, uint32_t raw_10_ct, uint32_t subsetted_10_ct, const unsigned char** fread_pp, uint32_t* __restrict het_ctp, uint32_t* __restrict hom_ctp, uint32_t* __restrict deltalist_workspace) {
   if (aux1b_mode == 15) {
-    *hom_ctp = 0;
+    if (allele_idx == 1) {
+      if (sample_include) {
+        *hom_ctp = subsetted_10_ct;
+      } else {
+        *hom_ctp = raw_10_ct;
+      }
+    } else {
+      *hom_ctp = 0;
+    }
     return kPglRetSuccess;
   }
   uintptr_t detect_hom_mask_lo;
@@ -9589,6 +9605,7 @@ void CountAllAux1aDense(const void* patch_01_fvals, uint32_t allele_ct, uint32_t
   CountAllBytes64(patch_01_fvals, rare01_ct, &(one_cts[2]));
 }
 
+// assumes one_cts[1] initialized to genocounts[1]
 // sample_include should be nullptr if we aren't subsetting
 PglErr CountAllAux1a(const unsigned char* fread_end, const uintptr_t* __restrict sample_include, const uintptr_t* __restrict raw_genovec, uint32_t aux1a_mode, uint32_t raw_sample_ct, uint32_t allele_ct, uint32_t raw_01_ct, const unsigned char** fread_pp, uint64_t* __restrict one_cts, uint32_t* __restrict deltalist_workspace) {
   if (aux1a_mode == 15) {

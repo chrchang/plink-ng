@@ -705,6 +705,15 @@ BoolErr bigstack_end_calloc_u64(uintptr_t ct, uint64_t** u64_arr_ptr) {
   return 0;
 }
 
+BoolErr bigstack_end_calloc_cp(uintptr_t ct, char*** cp_arr_ptr) {
+  *cp_arr_ptr = S_CAST(char**, bigstack_end_alloc(ct * sizeof(intptr_t)));
+  if (unlikely(!(*cp_arr_ptr))) {
+    return 1;
+  }
+  ZeroPtrArr(ct, *cp_arr_ptr);
+  return 0;
+}
+
 
 BoolErr PushLlStr(const char* str, LlStr** ll_stack_ptr) {
   uintptr_t blen = strlen(str) + 1;

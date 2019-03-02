@@ -5308,7 +5308,11 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                   if (orbeta_col) {
                     *cswritep++ = '\t';
                     if (allele_is_valid) {
-                      cswritep = dtoa_g(report_beta_instead_of_odds_ratio? beta : exp(beta), cswritep);
+                      if (report_beta_instead_of_odds_ratio) {
+                        cswritep = dtoa_g(beta, cswritep);
+                      } else {
+                        cswritep = lntoa_g(beta, cswritep);
+                      }
                     } else {
                       cswritep = strcpya_k(cswritep, "NA");
                     }
@@ -5330,9 +5334,9 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                         *cswritep++ = '\t';
                         cswritep = dtoa_g(beta + ci_halfwidth, cswritep);
                       } else {
-                        cswritep = dtoa_g(exp(beta - ci_halfwidth), cswritep);
+                        cswritep = lntoa_g(beta - ci_halfwidth, cswritep);
                         *cswritep++ = '\t';
-                        cswritep = dtoa_g(exp(beta + ci_halfwidth), cswritep);
+                        cswritep = lntoa_g(beta + ci_halfwidth, cswritep);
                       }
                     } else {
                       cswritep = strcpya_k(cswritep, "NA\tNA");

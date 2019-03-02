@@ -3673,7 +3673,17 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
             copy_start = linebuf_iter;
           }
 
-          write_iter = memcpya(write_iter, linebuf_iter, (info_nonpr_present? info_end : filter_end) - linebuf_iter);
+          if (info_nonpr_present) {
+            // VCF specification permits whitespace in INFO field, while PVAR
+            // does not.  Check for whitespace and error out if necessary.
+            if (unlikely(memchr(filter_end, ' ', info_end - filter_end))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: INFO field on line %" PRIuPTR " of --vcf file contains a space; this cannot be imported by " PROG_NAME_STR ".  Remove or reformat the field before reattempting import.\n", line_idx);
+              goto VcfToPgen_ret_MALFORMED_INPUT_2N;
+            }
+            write_iter = memcpya(write_iter, linebuf_iter, info_end - linebuf_iter);
+          } else {
+            write_iter = memcpya(write_iter, linebuf_iter, filter_end - linebuf_iter);
+          }
           AppendBinaryEoln(&write_iter);
           if (!sample_ct) {
             if (++block_vidx == cur_thread_block_vidx_limit) {

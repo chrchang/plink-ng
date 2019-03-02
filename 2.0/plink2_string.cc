@@ -1958,6 +1958,8 @@ char* u32toa(uint32_t uii, char* start) {
   // instead of 9+ digits vs. <8).  This tends to be slightly better unless the
   // integers are almost uniformly distributed over [0, 2^32).
   //
+  // Todo: compare against an_itoa in https://github.com/appnexus/acf/ .
+  //
   // (Making the first comparison 7+ digits vs. <7 would seem to make sense,
   // but it seems to benchmark slightly worse on my Mac?)
   //

@@ -591,7 +591,10 @@ CONSTI32(kPglMaxDeltalistLenDivisor, 9);
 //      0x10 = variable-type and/or variable-length records present.
 //      0x11 = mode 0x10, but with phase set information at the end of the
 //             file.
-//      larger values, and 0x05..0x0f, reserved for now.
+//      0x05..0x0f and 0x12..0x7f are reserved for possible use by future
+//      versions of the PGEN specification, and 0 is off-limits (PLINK 1
+//      sample-major .bed).
+//      0x80..0xff can be safely used by developers for their own purposes.
 //
 // 3. If not plink1-format,
 //    a. 4-byte # of variants; call this M.
@@ -631,7 +634,7 @@ CONSTI32(kPglMaxDeltalistLenDivisor, 9);
 //       file and write the header.
 //         i. array of 4-bit or 1-byte vrtypes.
 //        ii. array of variant record lengths (each occupying vrec_len_byte_ct
-//            bytes, or 4 bits).
+//            bytes, or 2-4 bits).
 //       iii. if bits 4-5 of {3c} aren't 00, array of alt allele counts.
 //        iv. nonref flags info, if explicitly stored
 //      (this representation allows more efficient random access)
@@ -717,11 +720,11 @@ struct PgenFileInfoStruct {
   //         the two common values are: 2 low bits = [set value - unset value],
   //         next 2 bits = unset value (6 possibilities).  Top 4 bits are
   //         reserved.
-  // bit 3: more than 1 alt allele?  If yes, auxiliary data track #1
-  //        disambiguates the 0b01 (ref/altx) and 0b10 (altx/alty, x may equal
-  //        y) hardcalls.  This contains a format byte, followed by a list of
-  //        ref/altx patches, then a list of altx/alty patches.  All unpatched
-  //        genotypes are ref/alt1 or alt1/alt1.
+  // bit 3: multiallelic hardcalls present with alt2/alt3/... present?  If yes,
+  //        auxiliary data track #1 disambiguates the 0b01 (ref/altx) and 0b10
+  //        (altx/alty, x may equal y) hardcalls.  This contains a format byte,
+  //        followed by a list of ref/altx patches, then a list of altx/alty
+  //        patches.  All unpatched genotypes are ref/alt1 or alt1/alt1.
   //        The bottom 4 bits of the format byte describe how the ref/altx
   //        patch set is stored.
   //   0 = Starts with a bitarray with [total ref/altx count] bits (divide by 8
@@ -762,9 +765,8 @@ struct PgenFileInfoStruct {
   //       sure that isn't worth the performance penalty of requiring all_01
   //       and more complicated unpacking.  Though we'll need to peek at
   //       aux1[0] before decompressing the main datatrack to exploit this.)
-  //   15 = Null (no ref/altx exists in the maintrack)?  Might remove this
-  //        (storing this as mode 0 takes no more space, and mode 1 just takes
-  //        1 more byte), but it may enable some relevant performance
+  //   15 = Empty patch set.  Might remove this (storing this as mode 1 just
+  //        takes 1 more byte), but it may enable some relevant performance
   //        optimizations.
   //   2-14 are reserved for future use.  We don't define an efficient way to
   //   represent a variant that e.g. has more alt2s than alt1s for now, since
