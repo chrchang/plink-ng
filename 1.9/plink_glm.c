@@ -5045,7 +5045,10 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	cur_param_ct = np_base + np_diploid;
 	if (constraint_ct_max) {
 	  // bugfix: this incorrectly had constraint_ct_max as last parameter
-          cur_constraint_ct = popcount_bit_idx(g_joint_test_params, 0, cur_param_ct);
+          // bugfix (4 Mar 2019): also need to subtract 1 from cur_param_ct,
+          // since g_joint_test_params has ADD rather than INTERCEPT in bit 0,
+          // etc.
+          cur_constraint_ct = popcount_bit_idx(g_joint_test_params, 0, cur_param_ct - 1);
 	} else {
 	  cur_constraint_ct = 0;
 	}
@@ -6520,7 +6523,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       } else if ((!g_min_ploidy_1) || (!genotypic_or_hethom)) {
 	cur_param_ct = np_base + np_diploid;
 	if (constraint_ct_max) {
-          cur_constraint_ct = popcount_bit_idx(g_joint_test_params, 0, cur_param_ct);
+          cur_constraint_ct = popcount_bit_idx(g_joint_test_params, 0, cur_param_ct - 1);
 	} else {
 	  cur_constraint_ct = 0;
 	}
