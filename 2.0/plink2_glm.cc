@@ -5351,8 +5351,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                     }
                   }
                 } else {
-                  // joint test: use (currently approximate) F-test instead of
-                  // Wald test
+                  // joint test: use F-test instead of Wald test
                   if (orbeta_col) {
                     cswritep = strcpya_k(cswritep, "\tNA");
                   }
@@ -6776,7 +6775,8 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     const uint32_t dosage_is_present = pgfip->gflags & kfPgenGlobalDosagePresent;
     uintptr_t thread_xalloc_cacheline_ct = (workspace_alloc / kCacheline) + 1;
 
-    const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!add_interactions);
+    // bugfix (4 Mar 2019): forgot to update this for --tests
+    const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!g_tests_flag) && (!add_interactions);
 
     uintptr_t per_variant_xalloc_byte_ct = max_sample_ct * local_covar_ct * sizeof(double);
     uintptr_t per_alt_allele_xalloc_byte_ct = sizeof(LinearAuxResult);
@@ -7281,6 +7281,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                     }
                   }
                 } else {
+                  // joint test
                   if (beta_col) {
                     cswritep = strcpya_k(cswritep, "\tNA");
                   }

@@ -1312,7 +1312,6 @@ static const double kLn10 = 2.3025850929940457;
 static const double kRecipLn10 = 0.43429448190325176;
 static const double kLnNormalMin = -708.3964185322641;
 
-// Currently assumes ln_val <= 0.0.
 char* lntoa_g(double ln_val, char* start);
 
 HEADER_INLINE void TrailingZeroesToSpaces(char* start) {

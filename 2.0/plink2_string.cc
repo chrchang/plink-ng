@@ -2856,51 +2856,75 @@ char* dtoa_f_p5_clipped(double dxx, char* start) {
 }
 */
 
+// todo: benchmark the exponential-notation part of this vs. dtoa_g(); maybe
+// dtoa_g() should actually call this (or at least the exponential-notation
+// part, put into its own function) for the most extreme values?
 char* lntoa_g(double ln_val, char* start) {
-  assert(ln_val <= 0.0);
-  // log(9.9999949999999e-5)
-  if (ln_val > -9.210340871976317) {
-    // log(0.99999949999999)
-    if (ln_val > -5.000001349509205e-7) {
-      *start++ = '1';
+  // log(999999.49999999)
+  if (ln_val < 13.81551005796414) {
+    // log(9.9999949999999e-5)
+    if (ln_val > -9.210340871976317) {
+      // No exponential notation.
+
+      // log(0.99999949999999)
+      if (ln_val > -5.000001349509205e-7) {
+        // may as well fast-path x=1; since the most common use-case for this
+        // function is p-value printing, x=1 should happen a lot more than x>1.
+        // log(1.0000050000001)
+        if (ln_val < 4.999987599993995e-6) {
+          *start++ = '1';
+          return start;
+        }
+        return dtoa_so6(exp(ln_val), start);
+      }
+      double dxx = exp(ln_val);
+      // 6 sig fig decimal, no less than ~0.0001
+      start = memcpya_k(start, "0.", 2);
+      if (dxx < 9.9999949999999e-3) {
+        dxx *= 100;
+        start = memcpya_k(start, "00", 2);
+      }
+      if (dxx < 9.9999949999999e-2) {
+        dxx *= 10;
+        *start++ = '0';
+      }
+      return uitoa_trunc6(BankerRoundD(dxx * 1000000, kBankerRound8), start);
+    }
+    // if exponent is in danger of overflowing int32, just print '0'
+    if (ln_val < 0x7ffffffb * (-kLn10)) {
+      *start++ = '0';
       return start;
     }
-    double dxx = exp(ln_val);
-    // 6 sig fig decimal, no less than ~0.0001
-    start = memcpya_k(start, "0.", 2);
-    if (dxx < 9.9999949999999e-3) {
-      dxx *= 100;
-      start = memcpya_k(start, "00", 2);
+  } else {
+    // if exponent is in danger of overflowing int32, just print 'inf'
+    if (ln_val > 0x7ffffffb * kLn10) {
+      return strcpya_k(start, "inf");
     }
-    if (dxx < 9.9999949999999e-2) {
-      dxx *= 10;
-      *start++ = '0';
-    }
-    return uitoa_trunc6(BankerRoundD(dxx * 1000000, kBankerRound8), start);
   }
-  // 6 sig fig exponential notation, small
-
-  // if exponent is in danger of overflowing int32, just print '0'
-  if (ln_val < 0x7ffffffb * (-kLn10)) {
-    *start++ = '0';
-    return start;
-  }
-  int32_t xp10 = 1 + S_CAST(int32_t, (-5.000001349509205e-7 - ln_val) * kRecipLn10);
-  double mantissa = exp((S_CAST(int32_t, xp10) * kLn10) + ln_val);
-  // mantissa will usually be in [.9999995, 9.999995], but ln_val can be
-  // smaller than -2^32, and floating point errors in either direction are
+  int32_t xp10 = S_CAST(int32_t, (5.000001349509205e-7 + ln_val) * kRecipLn10);
+  double mantissa = exp(xp10 * (-kLn10) + ln_val);
+  // mantissa will usually be in [.9999995, 9.999995], but |ln_val| can be
+  // larger than 2^32, and floating point errors in either direction are
   // definitely possible (<20 bits of precision).
   if (mantissa < 0.99999949999999) {
     mantissa *= 10;
-    xp10 += 1;
+    xp10 -= 1;
   } else if (mantissa > 9.9999949999999) {
     mantissa *= 0.1;
-    xp10 -= 1;
+    xp10 += 1;
   }
   uint32_t quotient;
   uint32_t remainder;
   BankerRoundD5(mantissa, kBankerRound8, &quotient, &remainder);
-  start = memcpya_k(qrtoa_1p5(quotient, remainder, start), "e-", 2);
+  start = qrtoa_1p5(quotient, remainder, start);
+  if (xp10 < 0) {
+    start = memcpya_k(start, "e-", 2);
+    if (xp10 > -10) {
+      *start++ = '0';
+    }
+    return u32toa(-xp10, start);
+  }
+  start = memcpya_k(start, "e+", 2);
   if (xp10 < 10) {
     *start++ = '0';
   }
