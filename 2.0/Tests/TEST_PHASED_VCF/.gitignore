@@ -7,3 +7,6 @@ sparse.*
 1kg_geno_cols*
 1kg_phase3_chr21_start.vcf
 1kg_noheader_pruned.txt
+pheno_cc*
+pheno_qt*
+sample_ids.txt

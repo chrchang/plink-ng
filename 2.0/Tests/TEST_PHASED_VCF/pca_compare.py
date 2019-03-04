@@ -2,9 +2,9 @@
 """
 This compares two sets of {.eigenval, .eigenvec, .eigenvec.var} files, and
 verifies that symmetric absolute percentage error between the two sets is less
-than the given tolerance.  (To avoid problems spurious test failures due to
-isolated near-zero values, we only compute a single error statistic on sums of
-absolute values, instead of taking means across all samples/PCs.)
+than the given tolerance.  (To avoid spurious test failures due to isolated
+near-zero values, we only compute a single error statistic on sums of absolute
+values, instead of taking means across all samples/PCs.)
 """
 
 from __future__ import print_function
