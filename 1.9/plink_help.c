@@ -2194,54 +2194,54 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --cnv-dup                : Exclude all variants with fewer than three copies.\n"
 	       );
     help_print("cnv-kb\tcnv-max-kb", &help_ctrl, 0,
-"  --cnv-kb [kb len]        : Exclude segments shorter than the given length.\n"
-"  --cnv-max-kb [kb len]    : Exclude segments longer than the given length.\n"
+"  --cnv-kb <kb len>        : Exclude segments shorter than the given length.\n"
+"  --cnv-max-kb <kb len>    : Exclude segments longer than the given length.\n"
 	       );
     help_print("cnv-score\tcnv-max-score", &help_ctrl, 0,
-"  --cnv-score [val]        : Exclude all variants with confidence score < val.\n"
-"  --cnv-max-score [val]    : Exclude all variants with confidence score > val.\n"
+"  --cnv-score <val>        : Exclude all variants with confidence score < val.\n"
+"  --cnv-max-score <val>    : Exclude all variants with confidence score > val.\n"
 	       );
     help_print("cnv-sites\tcnv-max-sites", &help_ctrl, 0,
-"  --cnv-sites [ct]         : Exclude all segments with fewer than ct probes.\n"
-"  --cnv-max-sites [ct]     : Exclude all segments with more than ct probes.\n"
+"  --cnv-sites <ct>         : Exclude all segments with fewer than ct probes.\n"
+"  --cnv-max-sites <ct>     : Exclude all segments with more than ct probes.\n"
 	       );
     help_print("cnv-intersect\tcnv-exclude\tcnv-subset\tcnv-overlap\tcnv-region-overlap\tcnv-union-overlap\tcnv-disrupt", &help_ctrl, 0,
-"  --cnv-intersect [fname]  : Only include segments which intersect a region in\n"
+"  --cnv-intersect <fname>  : Only include segments which intersect a region in\n"
 "                             the given region list.\n"
-"  --cnv-exclude [fname]    : Exclude all segments which intersect a region in\n"
+"  --cnv-exclude <fname>    : Exclude all segments which intersect a region in\n"
 "                             the given region list.\n"
-"  --cnv-subset [fname]     : Ignore all regions in the --cnv-intersect/-exclude\n"
+"  --cnv-subset <fname>     : Ignore all regions in the --cnv-intersect/-exclude\n"
 "                             /-count list that aren't named in the given file.\n"
-"  --cnv-overlap [x]        : Only count intersections of length at least xn,\n"
+"  --cnv-overlap <x>        : Only count intersections of length at least xn,\n"
 "                             where n is the segment size.\n"
-"  --cnv-region-overlap [x] : x >= [overlap] / [region size].\n"
-"  --cnv-union-overlap [x]  : x >= [overlap] / [union size].\n"
+"  --cnv-region-overlap <x> : x >= <overlap> / <region size>.\n"
+"  --cnv-union-overlap <x>  : x >= <overlap> / <union size>.\n"
 "  --cnv-disrupt            : Only include/exclude segments with an endpoint in\n"
 "                             a region.\n"
 	       );
     help_print("cnv-freq-exclude-above\tcnv-freq-exclude-below\tcnv-freq-exclude-exact\tcnv-freq-include-exact\tcnv-freq-overlap\tcnv-freq-method2", &help_ctrl, 0,
-"  --cnv-freq-exclude-above [k] : Exclude all segments where any portion is\n"
+"  --cnv-freq-exclude-above <k> : Exclude all segments where any portion is\n"
 "                                 included by more than k total segments.\n"
-"  --cnv-freq-exclude-below [k] : Exclude all segments where no portion is\n"
+"  --cnv-freq-exclude-below <k> : Exclude all segments where no portion is\n"
 "                                 included by k or more total segments.\n"
-"  --cnv-freq-exclude-exact [k] : Exclude all segments which have a portion\n"
+"  --cnv-freq-exclude-exact <k> : Exclude all segments which have a portion\n"
 "                                 included by at least k total segments, but no\n"
 "                                 portion included by more.\n"
-"  --cnv-freq-include-exact [k] : Reverse of --cnv-freq-exclude-exact.\n"
-"  --cnv-freq-overlap {x}   : Only count portions of length at least xn, where n\n"
+"  --cnv-freq-include-exact <k> : Reverse of --cnv-freq-exclude-exact.\n"
+"  --cnv-freq-overlap [x]   : Only count portions of length at least xn, where n\n"
 "                             is the segment size.\n"
-"  --cnv-freq-method2 {x}   : Causes k to instead be compared against the number\n"
-"                             of segments for which x >= [overlap] / [union].\n"
+"  --cnv-freq-method2 [x]   : Causes k to instead be compared against the number\n"
+"                             of segments for which x >= <overlap> / <union>.\n"
 	       );
     help_print("cnv-exclude-off-by-1", &help_ctrl, 0,
 "  --cnv-exclude-off-by-1   : Exclude .cnv segments where the terminal .cnv.map\n"
 "                             entry is off by 1.\n"
 	       );
     help_print("cnv-test-window\tcnv-test", &help_ctrl, 0,
-"  --cnv-test-window [size] : Specify window size (in kb) for CNV assoc. test.\n"
+"  --cnv-test-window <size> : Specify window size (in kb) for CNV assoc. test.\n"
 	       );
     help_print("cnv-count\tcnv-indiv-perm\tcnv-enrichment-test", &help_ctrl, 0,
-"  --cnv-count [fname]      : Specify region list for --cnv-indiv-perm\n"
+"  --cnv-count <fname>      : Specify region list for --cnv-indiv-perm\n"
 "                             (optional) or --cnv-enrichment-test (required).\n"
 	       );
 #endif
