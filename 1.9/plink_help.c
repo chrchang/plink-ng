@@ -1299,8 +1299,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #endif
     /*
     help_print("regress-pcs\tregress-pcs-distance", &help_ctrl, 1,
-"  --regress-pcs [.evec or .eigenvec filename] <normalize-pheno> <sex-specific>\n"
-"                <clip> {max PCs}\n"
+"  --regress-pcs <.evec or .eigenvec filename> ['normalize-pheno']\n"
+"                ['sex-specific'] ['clip'] [max PCs]\n"
 "    Linear regression of phenotypes and genotypes on the given list of\n"
 "    principal components (produced by SMARTPCA or GCTA).  Output is currently a\n"
 "    .gen + .sample fileset in the Oxford IMPUTE/SNPTEST v2 format.\n"
@@ -1314,9 +1314,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      by setting the max PCs parameter.\n\n"
       );
     help_print("regress-pcs\tdistance\tregress-pcs-distance", &help_ctrl, 1,
-"  --regress-pcs-distance [.evec/.eigenvec file] <normalize-pheno>\n"
-"                         <sex-specific> {max PCs} <square | square0 | triangle>\n"
-"                         <gz | bin> <ibs> <1-ibs> <allele-ct> <flat-missing>\n"
+"  --regress-pcs-distance <.evec/.eigenvec file> ['normalize-pheno']\n"
+"                         ['sex-specific'] [max PCs]\n"
+"                         [{square | square0 | triangle}] [{gz | bin}] ['ibs']\n"
+"                         ['1-ibs'] ['allele-ct'] ['flat-missing']\n"
 "    High-speed combination of --regress-pcs and --distance (no .gen + .sample\n"
 "    fileset is written to disk).\n\n"
 	       );
@@ -1364,12 +1365,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     if (!param_ct) {
       fputs(
 "The following other flags are supported.  (Order of operations is described at\n"
-"https://www.cog-genomics.org/plink2/order .)\n"
+"https://www.cog-genomics.org/plink/1.9/order .)\n"
 , stdout);
     }
     help_print("script\trerun", &help_ctrl, 0,
-"  --script [fname] : Include command-line options from file.\n"
-"  --rerun {log}    : Rerun commands in log (default '" PROG_NAME_STR ".log').\n"
+"  --script <fname> : Include command-line options from file.\n"
+"  --rerun [log]    : Rerun commands in log (default '" PROG_NAME_STR ".log').\n"
 	       );
     help_print("version", &help_ctrl, 0,
 "  --version        : Display only version number before exiting.\n"
@@ -1379,26 +1380,26 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --gplink         : Reserved for interoperation with gPLINK.\n"
 	       );
     help_print("missing-genotype", &help_ctrl, 0,
-"  --missing-genotype [char] : Set missing genotype code (normally '0').\n"
+"  --missing-genotype <char> : Set missing genotype code (normally '0').\n"
 	       );
     help_print("vcf\tbcf\tdouble-id\tconst-fid\tid-delim", &help_ctrl, 0,
 "  --double-id          : Set both FIDs and IIDs to the VCF/BCF sample ID.\n"
-"  --const-fid {ID}     : Set all FIDs to the given constant (default '0').\n"
-"  --id-delim {d}       : Parse sample IDs as [FID][d][IID] (default delim '_').\n"
+"  --const-fid [ID]     : Set all FIDs to the given constant (default '0').\n"
+"  --id-delim [d]       : Parse sample IDs as <FID><d><IID> (default delim '_').\n"
 	       );
     help_print("vcf\tbcf\tid-delim\tvcf-idspace-to", &help_ctrl, 0,
-"  --vcf-idspace-to [c] : Convert spaces in sample IDs to the given character.\n"
+"  --vcf-idspace-to <c> : Convert spaces in sample IDs to the given character.\n"
 	       );
     help_print("vcf\tbcf\tbiallelic-only\tvcf-min-qual\tvcf-filter\tvcf-half-call\tvcf-min-gq\tvcf-min-gp\tvcf-require-gt", &help_ctrl, 0,
-"  --biallelic-only <strict> <list> : Skip VCF variants with 2+ alt. alleles.\n"
-"  --vcf-min-qual [val]             : Skip VCF variants with low/missing QUAL.\n"
-"  --vcf-filter {exception(s)...}   : Skip variants which have FILTER failures.\n"
-"  --vcf-require-gt                 : Skip variants with no GT field.\n"
-"  --vcf-min-gq [val]               : No-call a genotype when GQ is below the\n"
-"                                     given threshold.\n"
-"  --vcf-min-gp [val]               : No-call a genotype when 0-1 scaled GP is\n"
-"                                     below the given threshold.\n"
-"  --vcf-half-call [m]  : Specify how '0/.' and similar VCF GT values should be\n"
+"  --biallelic-only ['strict'] ['list'] : Skip VCF variants with 2+ ALT alleles.\n"
+"  --vcf-min-qual <val>           : Skip VCF variants with low/missing QUAL.\n"
+"  --vcf-filter [exception(s)...] : Skip variants which have FILTER failures.\n"
+"  --vcf-require-gt               : Skip variants with no GT field.\n"
+"  --vcf-min-gq <val>             : No-call a genotype when GQ is below the\n"
+"                                   given threshold.\n"
+"  --vcf-min-gp <val>             : No-call a genotype when 0-1 scaled GP is\n"
+"                                   below the given threshold.\n"
+"  --vcf-half-call <m>  : Specify how '0/.' and similar VCF GT values should be\n"
 "                         handled.  The following four modes are supported:\n"
 "                         * 'error'/'e' (default) errors out and reports line #.\n"
 "                         * 'haploid'/'h' treats them as haploid calls.\n"
@@ -1406,69 +1407,67 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                         * 'reference'/'r' treats the missing value as 0.\n"
 	       );
     help_print("oxford-single-chr\tdata\tgen", &help_ctrl, 0,
-"  --oxford-single-chr [chr nm] : Specify single-chromosome .gen file with\n"
+"  --oxford-single-chr <chr nm> : Specify single-chromosome .gen file with\n"
 "                                 ignorable first column.\n"
 	       );
     help_print("oxford-pheno-name\tdata\tsample", &help_ctrl, 0,
-"  --oxford-pheno-name [col nm] : Import named phenotype from the .sample file.\n"
+"  --oxford-pheno-name <col nm> : Import named phenotype from the .sample file.\n"
 	       );
     help_print("hard-call-threshold\tmissing-code\tmissing_code\tdata\tgen\tbgen\tsample", &help_ctrl, 0,
-"  --hard-call-threshold [val]  : When an Oxford-format fileset is loaded, calls\n"
+"  --hard-call-threshold <val>  : When an Oxford-format fileset is loaded, calls\n"
 "  --hard-call-threshold random   with uncertainty level greater than 0.1 are\n"
 "                                 normally treated as missing.  You can adjust\n"
 "                                 this threshold by providing a numeric\n"
 "                                 parameter, or randomize all calls with\n"
 "                                 'random'.\n"
-"  --missing-code {string list} : Comma-delimited list of missing phenotype\n"
+"  --missing-code [string list] : Comma-delimited list of missing phenotype\n"
 "    (alias: --missing_code)      values for Oxford-format filesets (def. 'NA').\n"
 	       );
     help_print("simulate\tsimulate-ncases\tsimulate-ncontrols\tsimulate-prevalence", &help_ctrl, 0,
-"  --simulate-ncases [num]   : Set --simulate case count (default 1000).\n"
-"  --simulate-ncontrols [n]  : Set --simulate control count (default 1000).\n"
-"  --simulate-prevalence [p] : Set --simulate disease prevalence (default 0.01).\n"
+"  --simulate-ncases <num>   : Set --simulate case count (default 1000).\n"
+"  --simulate-ncontrols <n>  : Set --simulate control count (default 1000).\n"
+"  --simulate-prevalence <p> : Set --simulate disease prevalence (default 0.01).\n"
 	       );
     help_print("simulate-qt\tsimulate-n", &help_ctrl, 0,
-"  --simulate-n [num]        : Set --simulate-qt sample count (default 1000).\n"
+"  --simulate-n <num>        : Set --simulate-qt sample count (default 1000).\n"
 	       );
     help_print("simulate\tsimulate-qt\tsimulate-label\tsimulate-missing", &help_ctrl, 0,
-"  --simulate-label [prefix] : Set --simulate{-qt} FID/IID name prefix.\n"
-"  --simulate-missing [freq] : Set --simulate{-qt} missing genotype frequency.\n"
+"  --simulate-label <prefix> : Set --simulate{,-qt} FID/IID name prefix.\n"
+"  --simulate-missing <freq> : Set --simulate{,-qt} missing genotype frequency.\n"
 	       );
     help_print("allow-extra-chr\taec", &help_ctrl, 0,
-"  --allow-extra-chr <0>     : Permit unrecognized chromosome codes.  The '0'\n"
+"  --allow-extra-chr ['0']   : Permit unrecognized chromosome codes.  The '0'\n"
 "    (alias: --aec)            modifier causes them to be treated as if they had\n"
 "                              been set to zero.\n"
                );
     help_print("chr-set\tcow\tdog\thorse\tmouse\trice\tsheep\tautosome-num", &help_ctrl, 0,
-"  --chr-set [autosome ct] <no-x> <no-y> <no-xy> <no-mt> :\n"
+"  --chr-set <autosome ct> ['no-x'] ['no-y'] ['no-xy'] ['no-mt'] :\n"
 "    Specify a nonhuman chromosome set.  The first parameter sets the number of\n"
 "    diploid autosome pairs if positive, or haploid chromosomes if negative.\n"
 "    Given diploid autosomes, the remaining modifiers indicate the absence of\n"
 "    the named non-autosomal chromosomes.\n"
 "  --cow/--dog/--horse/--mouse/--rice/--sheep : Shortcuts for those species.\n"
-"  --autosome-num [value]    : Alias for '--chr-set [value] no-y no-xy no-mt'.\n"
+"  --autosome-num <value>    : Alias for '--chr-set <value> no-y no-xy no-mt'.\n"
 	       );
     help_print("cm-map\tzero-cms\tupdate-cm", &help_ctrl, 0,
-"  --cm-map [fname pattern] {chr} : Use SHAPEIT-format recombination maps to set\n"
+"  --cm-map <fname pattern> [chr] : Use SHAPEIT-format recombination maps to set\n"
 "                                   centimorgan positions.  To process more than\n"
 "                                   one chromosome, include a '@' in the first\n"
 "                                   parameter where the chrom. number belongs,\n"
 "                                   e.g. 'genetic_map_chr@_combined_b37.txt'.\n"
 "  --zero-cms         : Zero out centimorgan positions.\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("allow-no-samples\tallow-no-vars", &help_ctrl, 0,
 "  --allow-no-samples : Allow the input fileset to contain no samples.\n"
 "  --allow-no-vars    : Allow the input fileset to contain no variants.\n"
 	       );
-#endif
     help_print("pheno\tall-pheno\tmpheno\tpheno-name\tpheno-merge", &help_ctrl, 0,
-"  --pheno [fname]  : Load phenotype data from the specified file, instead of\n"
+"  --pheno <fname>  : Load phenotype data from the specified file, instead of\n"
 "                     using the values in the main input fileset.\n"
 "  --all-pheno      : For basic association tests, loop through all phenotypes\n"
 "                     in --pheno file.\n"
-"  --mpheno [n]     : Load phenotype from column (n+2) in --pheno file.\n"
-"  --pheno-name [c] : If --pheno file has a header row, use column with the\n"
+"  --mpheno <n>     : Load phenotype from column (n+2) in --pheno file.\n"
+"  --pheno-name <c> : If --pheno file has a header row, use column with the\n"
 "                     given name.\n"
 "  --pheno-merge    : When the main input fileset contains an phenotype value\n"
 "                     for a sample, but the --pheno file does not, use the\n"
@@ -1476,14 +1475,14 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     missing.\n"
 	       );
     help_print("missing-phenotype\t1", &help_ctrl, 0,
-"  --missing-phenotype [v] : Set missing phenotype value (normally -9).\n"
+"  --missing-phenotype <v> : Set missing phenotype value (normally -9).\n"
 "  --1                     : Expect case/control phenotypes to be coded as\n"
 "                            0 = control, 1 = case, instead of the usual\n"
 "                            0 = missing, 1 = control, 2 = case.  This also\n"
 "                            forces phenotypes to be interpreted as case/ctrl.\n"
 	       );
     help_print("make-pheno\tpheno", &help_ctrl, 0,
-"  --make-pheno [fn] [val] : Define a new case/control phenotype.  If the val\n"
+"  --make-pheno <fn> <val> : Define a new case/control phenotype.  If the val\n"
 "                            parameter is '*', all samples listed in the given\n"
 "                            file are cases, and everyone else is a control.\n"
 "                            (Note that, in some shells, it is necessary to\n"
@@ -1493,7 +1492,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                            samples mentioned in the file are controls.\n"
 	       );
     help_print("tail-pheno\tgroupdist\tpheno", &help_ctrl, 0,
-"  --tail-pheno [Lt] {Hbt} : Downcode a scalar phenotype to a case/control\n"
+"  --tail-pheno <Lt> [Hbt] : Downcode a scalar phenotype to a case/control\n"
 "                            phenotype.  All samples with phenotype values\n"
 "                            greater than Hbt are cases, and all with values\n"
 "                            less than or equal to Lt are controls.  If Hbt is\n"
@@ -1501,68 +1500,67 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                            in-between phenotype values are set to missing.\n"
 	       );
     help_print("covar\tcovar-name\tcovar-number\tno-const-covar\tallow-no-covars", &help_ctrl, 0,
-"  --covar [filename] <keep-pheno-on-missing-cov> : Specify covariate file.\n"
-"  --covar-name [...]      : Specify covariate(s) in --covar file by name.\n"
-"                            Separate multiple names with spaces or commas, and\n"
-"                            use dashes to designate ranges.\n"
-"  --covar-number [...]    : Specify covariate(s) in --covar file by index.\n"
-"  --no-const-covar        : Exclude constant covariates.\n"
-#ifndef STABLE_BUILD
-"  --allow-no-covars       : Allow no covariates to be loaded from --covar file.\n"
-#endif
+"  --covar <filename> ['keep-pheno-on-missing-cov'] : Specify covariate file.\n"
+"  --covar-name <...>       : Specify covariate(s) in --covar file by name.\n"
+"                             Separate multiple names with spaces or commas, and\n"
+"                             use dashes to designate ranges.\n"
+"  --covar-number <...>     : Specify covariate(s) in --covar file by index.\n"
+"  --no-const-covar         : Exclude constant covariates.\n"
+"  --allow-no-covars        : Allow no covariates to be loaded from --covar\n"
+"                             file.\n"
 	       );
     help_print("within\tmwithin\tfamily", &help_ctrl, 0,
-"  --within [f] <keep-NA>  : Specify initial cluster assignments.\n"
-"  --mwithin [n]           : Load cluster assignments from column n+2.\n"
-"  --family                : Create a cluster for each family ID.\n"
+"  --within <f> ['keep-NA'] : Specify initial cluster assignments.\n"
+"  --mwithin <n>            : Load cluster assignments from column n+2.\n"
+"  --family                 : Create a cluster for each family ID.\n"
 	       );
     help_print("loop-assoc", &help_ctrl, 0,
-"  --loop-assoc [f] <keep-NA>    : Run specified case/control association\n"
+"  --loop-assoc <f> ['keep-NA']  : Run specified case/control association\n"
 "                                  commands once for each cluster in the file,\n"
 "                                  using cluster membership as the phenotype.\n"
 	       );
     help_print("set\tset-names\tsubset\tset-collapse-all\tmake-set-collapse-all\tcomplement-sets\tmake-set-complement-all\tmake-set\tmake-set-border\tborder\tmake-set-collapse-group\t--make-set-complement-group", &help_ctrl, 0,
-"  --set [filename]              : Load sets from a .set file.\n"
-"  --set-names [name(s)...]      : Load only sets named on the command line.\n"
+"  --set <filename>              : Load sets from a .set file.\n"
+"  --set-names <name(s)...>      : Load only sets named on the command line.\n"
 "                                  Use spaces to separate multiple names.\n"
-"  --subset [filename]           : Load only sets named in the given text file.\n"
-"  --set-collapse-all [set name] : Merge all sets.\n"
+"  --subset <filename>           : Load only sets named in the given text file.\n"
+"  --set-collapse-all <set name> : Merge all sets.\n"
 "  --complement-sets             : Invert all sets.  (Names gain 'C_' prefixes.)\n"
-"  --make-set-complement-all [s] : --set-collapse-all + inversion.\n"
-"  --make-set [filename]         : Define sets from a list of named bp ranges.\n"
-"  --make-set-border [kbs]       : Stretch regions in --make-set file.\n"
+"  --make-set-complement-all <s> : --set-collapse-all + inversion.\n"
+"  --make-set <filename>         : Define sets from a list of named bp ranges.\n"
+"  --make-set-border <kbs>       : Stretch regions in --make-set file.\n"
 "  --make-set-collapse-group     : Define sets from groups instead of sets in\n"
 "                                  --make-set file.\n"
 	       );
     help_print("keep\tremove\tkeep-fam\tremove-fam", &help_ctrl, 0,
-"  --keep [filename]     : Exclude all samples not named in the file.\n"
-"  --remove [filename]   : Exclude all samples named in the file.\n"
-"  --keep-fam [filename] : Exclude all families not named in the file.\n"
-"  --remove-fam [fname]  : Exclude all families named in the file.\n"
+"  --keep <filename>       : Exclude all samples not named in the file.\n"
+"  --remove <filename>     : Exclude all samples named in the file.\n"
+"  --keep-fam <filename>   : Exclude all families not named in the file.\n"
+"  --remove-fam <filename> : Exclude all families named in the file.\n"
 	       );
     help_print("extract\texclude\trange", &help_ctrl, 0,
-"  --extract <range> [f] : Exclude all variants not named in the file.\n"
-"  --exclude <range> [f] : Exclude all variants named in the file.\n"
+"  --extract ['range'] <f> : Exclude all variants not named in the file.\n"
+"  --exclude ['range'] <f> : Exclude all variants named in the file.\n"
 	       );
     help_print("keep-clusters\tkeep-cluster-names\tremove-clusters\tremove-cluster-names", &help_ctrl, 0,
-"  --keep-clusters [filename]          : These can be used individually or in\n"
-"  --keep-cluster-names [name(s)...]     combination to define a list of\n"
+"  --keep-clusters <filename>          : These can be used individually or in\n"
+"  --keep-cluster-names <name(s)...>     combination to define a list of\n"
 "                                        clusters to keep; all samples not in a\n"
 "                                        cluster in that list are then excluded.\n"
 "                                        Use spaces to separate cluster names\n"
 "                                        for --keep-cluster-names.\n"
-"  --remove-clusters [filename]        : Exclude all clusters named in the file.\n"
-"  --remove-cluster-names [name(s)...] : Exclude the named clusters.\n"
+"  --remove-clusters <filename>        : Exclude all clusters named in the file.\n"
+"  --remove-cluster-names <name(s)...> : Exclude the named clusters.\n"
 	       );
     help_print("set\tmake-set\tgene\tgene-all", &help_ctrl, 0,
-"  --gene [sets...] : Exclude variants not in a set named on the command line.\n"
+"  --gene <sets...> : Exclude variants not in a set named on the command line.\n"
 "                     (Separate multiple set names with spaces.)\n"
 "  --gene-all       : Exclude variants which aren't a member of any set.  (PLINK\n"
 "                     1.07 automatically did this under some circumstances.)\n"
 	       );
     help_print("attrib\tattrib-indiv", &help_ctrl, 0,
-"  --attrib [f] {att lst} : Given a file assigning attributes to variants, and a\n"
-"  --attrib-indiv [f] {a}   comma-delimited list (with no whitespace) of\n"
+"  --attrib <f> [att lst] : Given a file assigning attributes to variants, and a\n"
+"  --attrib-indiv <f> [a]   comma-delimited list (with no whitespace) of\n"
 "                           attribute names, remove variants/samples which are\n"
 "                           either missing from the file or don't have any of\n"
 "                           the listed attributes.  If some attribute names in\n"
@@ -1574,12 +1572,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                           front to get around this.\n"
 	       );
     help_print("chr\tnot-chr\tchr-excl\tfrom-bp\tto-bp\tfrom-kb\tto-kb\tfrom-mb\tto-mb", &help_ctrl, 0,
-"  --chr [chrs...]  : Exclude all variants not on the given chromosome(s).\n"
+"  --chr <chrs...>  : Exclude all variants not on the given chromosome(s).\n"
 "                     Valid choices for humans are 0 (unplaced), 1-22, X, Y, XY,\n"
 "                     and MT.  Separate multiple chromosomes with spaces and/or\n"
 "                     commas, and use a dash (no adjacent spaces permitted) to\n"
 "                     denote a range, e.g. '--chr 1-4, 22, xy'.\n"
-"  --not-chr [...]  : Reverse of --chr (exclude variants on listed chromosomes).\n"
+"  --not-chr <...>  : Reverse of --chr (exclude variants on listed chromosomes).\n"
 	       );
     help_print("autosome\tautosome-xy\tchr\tnot-chr\tchr-excl", &help_ctrl, 0,
 "  --autosome       : Exclude all non-autosomal variants.\n"
@@ -1587,58 +1585,58 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     chromosome code XY (pseudo-autosomal region of X).\n"
 	       );
     help_print("snps-only", &help_ctrl, 0,
-"  --snps-only <just-acgt> : Exclude non-SNP variants.  By default, SNP = both\n"
-"                            allele codes are single-character; 'just-acgt'\n"
-"                            restricts SNP codes to {A,C,G,T,a,c,g,t,[missing]}.\n"
+"  --snps-only ['just-acgt'] : Exclude non-SNP variants.  By default, SNP = both\n"
+"                              allele codes are single-character; 'just-acgt'\n"
+"                              restricts codes to {A,C,G,T,a,c,g,t,<missing>}.\n"
 	       );
     help_print("from\tto\tsnp\twindow\tfrom-bp\tto-bp\tfrom-kb\tto-kb\tfrom-mb\tto-mb\texclude-snp\textract-snp", &help_ctrl, 0,
-"  --from [var ID]  : Use ID(s) to specify a variant range to load.  When used\n"
-"  --to   [var ID]    together, both variants must be on the same chromosome.\n"
-"  --snp  [var ID]  : Specify a single variant to load.\n"
-"  --exclude-snp [] : Specify a single variant to exclude.\n"
-"  --window  [kbs]  : With --snp or --exclude-snp, loads/excludes all variants\n"
+"  --from <var ID>  : Use ID(s) to specify a variant range to load.  When used\n"
+"  --to   <var ID>    together, both variants must be on the same chromosome.\n"
+"  --snp  <var ID>  : Specify a single variant to load.\n"
+"  --exclude-snp <> : Specify a single variant to exclude.\n"
+"  --window  <kbs>  : With --snp or --exclude-snp, loads/excludes all variants\n"
 "                     within half the specified kb distance of the named one.\n"
-"  --from-bp [pos]  : Use physical position(s) to define a variant range to\n"
-"  --to-bp   [pos]    load.  --from-kb/--to-kb/--from-mb/--to-mb allow decimal\n"
-"  --from-kb [pos]    values.  You must also specify a single chromosome (using\n"
-"  --to-kb   [pos]    e.g. --chr) when using these flags.\n"
-"  --from-mb [pos]\n"
-"  --to-mb   [pos]\n"
+"  --from-bp <pos>  : Use physical position(s) to define a variant range to\n"
+"  --to-bp   <pos>    load.  --from-kb/--to-kb/--from-mb/--to-mb allow decimal\n"
+"  --from-kb <pos>    values.  You must also specify a single chromosome (using\n"
+"  --to-kb   <pos>    e.g. --chr) when using these flags.\n"
+"  --from-mb <pos>\n"
+"  --to-mb   <pos>\n"
 	       );
     help_print("snps\texclude-snps", &help_ctrl, 0,
-"  --snps [var IDs...]  : Use IDs to specify variant range(s) to load or\n"
-"  --exclude-snps [...]   exclude.  E.g. '--snps rs1111-rs2222, rs3333, rs4444'.\n"
+"  --snps <var IDs...>  : Use IDs to specify variant range(s) to load or\n"
+"  --exclude-snps <...>   exclude.  E.g. '--snps rs1111-rs2222, rs3333, rs4444'.\n"
 	       );
     help_print("thin\tthin-count", &help_ctrl, 0,
-"  --thin [p]       : Randomly remove variants, retaining each with prob. p.\n"
-"  --thin-count [n] : Randomly remove variants until n of them remain.\n"
+"  --thin <p>       : Randomly remove variants, retaining each with prob. p.\n"
+"  --thin-count <n> : Randomly remove variants until n of them remain.\n"
 	       );
     help_print("bp-space\tthin", &help_ctrl, 0,
-"  --bp-space [bps] : Remove variants so that each pair is no closer than the\n"
+"  --bp-space <bps> : Remove variants so that each pair is no closer than the\n"
 "                     given bp distance.  (Equivalent to VCFtools --thin.)\n"
 	       );
     help_print("thin-indiv\tthin-indiv-count\tmax-indv", &help_ctrl, 0,
-"  --thin-indiv [p]         : Randomly remove samples, retaining with prob. p.\n"
-"  --thin-indiv-count [n]   : Randomly remove samples until n of them remain.\n"
+"  --thin-indiv <p>         : Randomly remove samples, retaining with prob. p.\n"
+"  --thin-indiv-count <n>   : Randomly remove samples until n of them remain.\n"
 	       );
     help_print("filter\tmfilter", &help_ctrl, 0,
-"  --filter [f] [val(s)...] : Exclude all samples without a 3rd column entry in\n"
+"  --filter <f> <val(s)...> : Exclude all samples without a 3rd column entry in\n"
 "                             the given file matching one of the given\n"
 "                             space-separated value(s).\n"
-"  --mfilter [n]            : Match against (n+2)th column instead.\n"
+"  --mfilter <n>            : Match against (n+2)th column instead.\n"
 	       );
     help_print("geno\tmind\toblig-clusters\toblig-missing", &help_ctrl, 0,
-"  --geno {val}     : Exclude variants with missing call frequencies greater\n"
+"  --geno [val]     : Exclude variants with missing call frequencies greater\n"
 "                     than a threshold (default 0.1).  (Note that the default\n"
 "                     threshold is only applied if --geno is invoked without a\n"
 "                     parameter; when --geno is not invoked, no per-variant\n"
 "                     missing call frequency ceiling is enforced at all.  Other\n"
 "                     inclusion/exclusion default thresholds work the same way.)\n"
-"  --mind {val}     : Exclude samples with missing call frequencies greater than\n"
+"  --mind [val]     : Exclude samples with missing call frequencies greater than\n"
 "                     a threshold (default 0.1).\n"
 	       );
     help_print("oblig-clusters\toblig-missing", &help_ctrl, 0,
-"  --oblig-missing [f1] [f2] : Specify blocks of missing genotype calls for\n"
+"  --oblig-missing <f1> <f2> : Specify blocks of missing genotype calls for\n"
 "                              --geno/--mind to ignore.  The first file should\n"
 "                              have variant IDs in the first column and block\n"
 "                              IDs in the second, while the second file should\n"
@@ -1649,12 +1647,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --prune             : Remove samples with missing phenotypes.\n"
 	       );
     help_print("maf\tmax-maf\tmac\tmin-ac\tmax-mac\tmax-ac", &help_ctrl, 0,
-"  --maf {freq}        : Exclude variants with minor allele frequency lower than\n"
+"  --maf [freq]        : Exclude variants with minor allele frequency lower than\n"
 "                        a threshold (default 0.01).\n"
-"  --max-maf [freq]    : Exclude variants with MAF greater than the threshold.\n"
-"  --mac [ct]          : Exclude variants with minor allele count lower than the\n"
+"  --max-maf <freq>    : Exclude variants with MAF greater than the threshold.\n"
+"  --mac <ct>          : Exclude variants with minor allele count lower than the\n"
 "    (alias: --min-ac)   given threshold.\n"
-"  --max-mac [ct]      : Exclude variants with minor allele count greater than\n"
+"  --max-mac <ct>      : Exclude variants with minor allele count greater than\n"
 "    (alias: --max-ac)   the given threshold.\n"
 	       );
     help_print("maf-succ", &help_ctrl, 0,
@@ -1664,25 +1662,25 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     the default j / (j+k).\n"
 	       );
     help_print("read-freq\tupdate-freq", &help_ctrl, 0,
-"  --read-freq [fn] : Estimate MAFs and heterozygote frequencies from the given\n"
+"  --read-freq <fn> : Estimate MAFs and heterozygote frequencies from the given\n"
 "                     --freq{x} report, instead of the input fileset.\n"
 	       );
     help_print("hwe\thwe-all\thwe2", &help_ctrl, 0,
-"  --hwe [p] <midp> <include-nonctrl> : Exclude variants with Hardy-Weinberg\n"
-"                                       equilibrium exact test p-values below a\n"
-"                                       threshold.\n"
+"  --hwe <p> ['midp'] ['include-nonctrl'] : Exclude variants with Hardy-Weinberg\n"
+"                                           equilibrium exact test p-values\n"
+"                                           below a threshold.\n"
 	       );
     help_print("me\tme-exclude-one", &help_ctrl, 0,
-"  --me [t] [v] <var-first> : Filter out trios and variants with Mendel error\n"
-"                             rates exceeding the given thresholds.\n"
-"  --me-exclude-one {ratio} : Make --me exclude only one sample per trio.\n"
+"  --me <t> <v> ['var-first'] : Filter out trios and variants with Mendel error\n"
+"                               rates exceeding the given thresholds.\n"
+"  --me-exclude-one [ratio]   : Make --me exclude only one sample per trio.\n"
 	       );
     help_print("qual-scores\tqual-threshold\tqual-max-threshold", &help_ctrl, 0,
-"  --qual-scores [f] {qcol} {IDcol} {skip} : Filter out variants with\n"
+"  --qual-scores <f> [qcol] [IDcol] [skip] : Filter out variants with\n"
 "                                            out-of-range quality scores.\n"
 "                                            Default range is now [0, \\infty ).\n"
-"  --qual-threshold [min qual score]       : Set --qual-scores range floor.\n"
-"  --qual-max-threshold [max qual score]   : Set --qual-scores range ceiling.\n"
+"  --qual-threshold <min qual score>       : Set --qual-scores range floor.\n"
+"  --qual-max-threshold <max qual score>   : Set --qual-scores range ceiling.\n"
 	       );
     help_print("allow-no-sex\tmust-have-sex", &help_ctrl, 0,
 "  --allow-no-sex   : Do not treat ambiguous-sex samples as having missing\n"
@@ -1706,29 +1704,30 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --nonfounders        : Include nonfounders in allele freq/HWE calculations.\n"
 	       );
     help_print("make-founders", &help_ctrl, 0,
-"  --make-founders <require-2-missing> <first> : Clear parental IDs for those\n"
-"                                                with 1+ missing parent(s).\n"
+"  --make-founders ['require-2-missing'] ['first'] : Clear parental IDs for\n"
+"                                                    those with 1+ missing\n"
+"                                                    parent(s).\n"
 	       );
     help_print("recode\trecode-allele\texport", &help_ctrl, 0,
-"  --recode-allele [fn] : With --recode A/A-transpose/AD, count alleles named in\n"
+"  --recode-allele <fn> : With --recode A/A-transpose/AD, count alleles named in\n"
 "                         the file (otherwise A1 alleles are always counted).\n"
 	       );
     help_print("output-chr\tchr-output", &help_ctrl, 0,
-"  --output-chr [MT code] : Set chromosome coding scheme in output files by\n"
+"  --output-chr <MT code> : Set chromosome coding scheme in output files by\n"
 "                           providing the desired human mitochondrial code.\n"
 "                           (Options are '26', 'M', 'MT', '0M', 'chr26', 'chrM',\n"
 "                           and 'chrMT'.)\n"
 	       );
     help_print("output-missing-genotype\toutput-missing-phenotype", &help_ctrl, 0,
-"  --output-missing-genotype [ch] : Set the code used to represent missing\n"
+"  --output-missing-genotype <ch> : Set the code used to represent missing\n"
 "                                   genotypes in output files (normally the\n"
 "                                   --missing-genotype value).\n"
-"  --output-missing-phenotype [s] : Set the string used to represent missing\n"
+"  --output-missing-phenotype <s> : Set the string used to represent missing\n"
 "                                   phenotypes in output files (normally the\n"
 "                                   --missing-phenotype value).\n"
 	       );
     help_print("zero-cluster", &help_ctrl, 0,
-"  --zero-cluster [f] : In combination with --within/--family, set blocks of\n"
+"  --zero-cluster <f> : In combination with --within/--family, set blocks of\n"
 "                       genotype calls to missing.  The input file should have\n"
 "                       variant IDs in the first column and cluster IDs in the\n"
 "                       second.  This must now be used with --make-bed and no\n"
@@ -1741,28 +1740,26 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                           genotypes to missing.\n"
 	       );
     help_print("split-x\tmerge-x\tset-hh-missing\t23file-convert-xy\t23file-make-xylist\tcheck-sex\timpute-sex", &help_ctrl, 0,
-"  --split-x [bp1] [bp2] <no-fail> : Changes chromosome code of all X chromosome\n"
-"  --split-x [build] <no-fail>       variants with bp position <= bp1 or >= bp2\n"
-"                                    to XY.  The following build codes are\n"
-"                                    supported as shorthand:\n"
-"                                    * 'b36'/'hg18' = NCBI 36, 2709521/154584237\n"
-"                                    * 'b37'/'hg19' = GRCh37, 2699520/154931044\n"
-"                                    * 'b38'/'hg38' = GRCh38, 2781479/155701383\n"
-"                                    By default, PLINK errors out when no\n"
-"                                    variants would be affected by --split-x;\n"
-"                                    the 'no-fail' modifier (useful in scripts)\n"
-"                                    overrides this.\n"
-"  --merge-x <no-fail>             : Merge XY chromosome back with X.\n"
+"  --split-x <bp1> <bp2> ['no-fail']\n"
+"  --split-x <build> ['no-fail'] :\n"
+"    Changes chromosome code of all chrX variants with bp position <= bp1 or >=\n"
+"    bp2 to XY.  The following build codes are supported as shorthand:\n"
+"    * 'b36'/'hg18' = NCBI 36, 2709521/154584237\n"
+"    * 'b37'/'hg19' = GRCh37, 2699520/154931044\n"
+"    * 'b38'/'hg38' = GRCh38, 2781479/155701383\n"
+"    By default, PLINK errors out when no variants would be affected by\n"
+"    --split-x; the 'no-fail' modifier (useful in scripts) overrides this.\n"
+"  --merge-x ['no-fail'] : Merge XY chromosome back with X.\n"
 	       );
     help_print("set-me-missing", &help_ctrl, 0,
-"  --set-me-missing  : Cause --make-bed to set Mendel errors to missing.\n"
+"  --set-me-missing      : Cause --make-bed to set Mendel errors to missing.\n"
 	       );
     help_print("fill-missing-a2", &help_ctrl, 0,
-"  --fill-missing-a2 : Cause --make-bed to replace all missing calls with\n"
-"                      homozygous A2 calls.\n"
+"  --fill-missing-a2     : Cause --make-bed to replace all missing calls with\n"
+"                          homozygous A2 calls.\n"
 	       );
     help_print("set-missing-snp-ids\tset-missing-nonsnp-ids\tset-missing-var-ids\tnew-id-max-allele-len\tmissing-var-code", &help_ctrl, 0,
-"  --set-missing-var-ids [t]   : Given a template string with a '@' where the\n"
+"  --set-missing-var-ids <t>   : Given a template string with a '@' where the\n"
 "                                chromosome code should go and '#' where the bp\n"
 "                                coordinate belongs, --set-missing-var-ids\n"
 "                                assigns chromosome-and-bp-based IDs to unnamed\n"
@@ -1771,56 +1768,56 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                                allele names in the template string, and in\n"
 "                                fact this becomes essential when multiple\n"
 "                                variants share the same coordinate.\n"
-"  --new-id-max-allele-len [n] : Specify maximum number of leading characters\n"
+"  --new-id-max-allele-len <n> : Specify maximum number of leading characters\n"
 "                                from allele names to include in new variant IDs\n"
 "                                (default 23).\n"
-"  --missing-var-code [string] : Change unnamed variant code (default '.').\n"
+"  --missing-var-code <string> : Change unnamed variant code (default '.').\n"
 	       );
     help_print("update-chr\tupdate-cm\tupdate-map\tupdate-name", &help_ctrl, 0,
-"  --update-chr  [f] {chrcol} {IDcol}  {skip} : Update variant chromosome codes.\n"
-"  --update-cm   [f] {cmcol}  {IDcol}  {skip} : Update centimorgan positions.\n"
-"  --update-map  [f] {bpcol}  {IDcol}  {skip} : Update variant bp positions.\n"
-"  --update-name [f] {newcol} {oldcol} {skip} : Update variant IDs.\n"
+"  --update-chr  <f> [chrcol] [IDcol]  [skip] : Update variant chromosome codes.\n"
+"  --update-cm   <f> [cmcol]  [IDcol]  [skip] : Update centimorgan positions.\n"
+"  --update-map  <f> [bpcol]  [IDcol]  [skip] : Update variant bp positions.\n"
+"  --update-name <f> [newcol] [oldcol] [skip] : Update variant IDs.\n"
 	       );
     help_print("update-alleles", &help_ctrl, 0,
-"  --update-alleles [fname] : Update variant allele codes.\n"
+"  --update-alleles <fname> : Update variant allele codes.\n"
 	       );
     help_print("allele1234\talleleACGT\talleleacgt", &help_ctrl, 0,
-"  --allele1234 <multichar> : Interpret/recode A/C/G/T alleles as 1/2/3/4.\n"
-"                             With 'multichar', converts all A/C/G/Ts in allele\n"
-"                             names to 1/2/3/4s.\n"
-"  --alleleACGT <multichar> : Reverse of --allele1234.\n"
+"  --allele1234 ['multichar'] : Interpret/recode A/C/G/T alleles as 1/2/3/4.\n"
+"                               With 'multichar', converts all A/C/G/Ts in\n"
+"                               allele names to 1/2/3/4s.\n"
+"  --alleleACGT ['multichar'] : Reverse of --allele1234.\n"
 	       );
     help_print("update-ids\tupdate-parents\tupdate-sex\timpute-sex", &help_ctrl, 0,
-"  --update-ids [f]     : Update sample IDs.\n"
-"  --update-parents [f] : Update parental IDs.\n"
-"  --update-sex [f] {n} : Update sexes.  Sex (1 or M = male, 2 or F = female, 0\n"
+"  --update-ids <f>     : Update sample IDs.\n"
+"  --update-parents <f> : Update parental IDs.\n"
+"  --update-sex <f> [n] : Update sexes.  Sex (1 or M = male, 2 or F = female, 0\n"
 "                         = missing) is loaded from column n+2 (default n is 1).\n"
 	       );
     help_print("flip\tflip-subset", &help_ctrl, 0,
-"  --flip [filename]    : Flip alleles (A<->T, C<->G) for SNP IDs in the file.\n"
-"  --flip-subset [fn]   : Only apply --flip to samples in --flip-subset file.\n"
+"  --flip <filename>    : Flip alleles (A<->T, C<->G) for SNP IDs in the file.\n"
+"  --flip-subset <fn>   : Only apply --flip to samples in --flip-subset file.\n"
 	       );
     help_print("flip-scan\tflip-scan-window\tflip-scan-window-kb\tflip-scan-threshold\tld-window\tld-window-kb\tflipscan\tflipscan-window\tflipscan-window-kb\tflipscan-threshold", &help_ctrl, 0,
-"  --flip-scan-window [ct+1] : Set --flip-scan max variant ct dist. (def. 10).\n"
-"  --flip-scan-window-kb [x] : Set --flip-scan max kb distance (default 1000).\n"
-"  --flip-scan-threshold [x] : Set --flip-scan min correlation (default 0.5).\n"
+"  --flip-scan-window <ct+1> : Set --flip-scan max variant ct dist. (def. 10).\n"
+"  --flip-scan-window-kb <x> : Set --flip-scan max kb distance (default 1000).\n"
+"  --flip-scan-threshold <x> : Set --flip-scan min correlation (default 0.5).\n"
 	       );
     help_print("keep-allele-order\treal-ref-alleles\tmake-bed\tmerge\tbmerge\tmerge-list\trecode", &help_ctrl, 0,
 "  --keep-allele-order  : Keep the allele order defined in the .bim file,\n"
 "  --real-ref-alleles     instead of forcing A2 to be the major allele.\n"
 "                         --real-ref-alleles also removes 'PR' from the INFO\n"
-"                         values emitted by --recode vcf{-fid/-iid}.\n"
+"                         values emitted by --recode vcf{,-fid,-iid}.\n"
 	       );
     help_print("a1-allele\treference-allele\tupdate-ref-allele\ta2-allele", &help_ctrl, 0,
-"  --a1-allele [f] {a1col} {IDcol} {skip} : Force alleles in the file to A1.\n"
-"  --a2-allele [filename] {a2col} {IDcol} {skip} :\n"
-"    Force alleles in the file to A2.  (\"--a2-allele [VCF filename] 4 3 '#'\",\n"
+"  --a1-allele <f> [a1col] [IDcol] [skip] : Force alleles in the file to A1.\n"
+"  --a2-allele <filename> [a2col] [IDcol] [skip] :\n"
+"    Force alleles in the file to A2.  (\"--a2-allele <VCF filename> 4 3 '#'\",\n"
 "    which scrapes reference allele assignments from a VCF file, is especially\n"
 "    useful.)\n"
 	       );
     help_print("indiv-sort\tmerge\tbmerge\tmerge-list", &help_ctrl, 0,
-"  --indiv-sort [m] {f} : Specify FID/IID sort order.  The following four modes\n"
+"  --indiv-sort <m> [f] : Specify FID/IID sort order.  The following four modes\n"
 "                         are supported:\n"
 "                         * 'none'/'0' keeps samples in the order they were\n"
 "                           loaded.  Default for non-merge operations.\n"
@@ -1834,14 +1831,15 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                         --make-bed/--make-just-fam respect this flag.\n"
 	       );
     help_print("with-phenotype\tdummy-coding\twrite-covar", &help_ctrl, 0,
-"  --with-phenotype <no-parents> <no-sex | female-2> : Include more sample info\n"
-"                                                      in new .cov file.\n"
-"  --dummy-coding {N} <no-round> : Split categorical variables (n categories,\n"
-"                                  2 < n <= N, default N is 49) into n-1 binary\n"
-"                                  dummy variables when writing covariate file.\n"
+"  --with-phenotype ['no-parents'] [{no-sex | female-2}] :\n"
+"    Include more sample info in new .cov file.\n"
+"  --dummy-coding [N] ['no-round'] : Split categorical variables (n categories,\n"
+"                                    2 < n <= N, default N is 49) into n-1\n"
+"                                    binary dummy variables when writing\n"
+"                                    covariate file.\n"
 	       );
     help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 0,
-"  --merge-mode [n]   : Adjust --{b}merge/--merge-list behavior based on a\n"
+"  --merge-mode <n>   : Adjust --{,b}merge/--merge-list behavior based on a\n"
 "                       numeric code.\n"
 "                       1 (default) = ignore missing calls, otherwise difference\n"
 "                                     -> missing\n"
@@ -1865,98 +1863,99 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                       genotypes when parental genotype data is missing.\n"
 	       );
     help_print("r\tr2\tld-window-kb\tld-window-cm\tld-window-r2\tld-window\tld-snp\tld-snps\tld-snp-list", &help_ctrl, 0,
-"  --ld-window [ct+1] : Set --r/--r2 max variant ct pairwise distance (usu. 10).\n"
-"  --ld-window-kb [x] : Set --r/--r2 max kb pairwise distance (usually 1000).\n"
-"  --ld-window-cm [x] : Set --r/--r2 max centimorgan pairwise distance.\n"
-"  --ld-window-r2 [x] : Set threshold for --r2 report inclusion (usually 0.2).\n"
-"  --ld-snp [var ID]  : Set first variant in all --r/--r2 pairs.\n"
-"  --ld-snps [vID...] : Restrict first --r/--r2 variant to the given ranges.\n"
-"  --ld-snp-list [f]  : Restrict first --r/--r2 var. to those named in the file.\n"
+"  --ld-window <ct+1> : Set --r/--r2 max variant ct pairwise distance (usu. 10).\n"
+"  --ld-window-kb <x> : Set --r/--r2 max kb pairwise distance (usually 1000).\n"
+"  --ld-window-cm <x> : Set --r/--r2 max centimorgan pairwise distance.\n"
+"  --ld-window-r2 <x> : Set threshold for --r2 report inclusion (usually 0.2).\n"
+"  --ld-snp <var ID>  : Set first variant in all --r/--r2 pairs.\n"
+"  --ld-snps <vID...> : Restrict first --r/--r2 variant to the given ranges.\n"
+"  --ld-snp-list <f>  : Restrict first --r/--r2 var. to those named in the file.\n"
 	       );
     help_print("list-all\ttag-kb\ttag-r2\ttag-mode2\tshow-tags", &help_ctrl, 0,
 "  --list-all         : Generate the 'all' mode report when using --show-tags in\n"
 "                       file mode.\n"
-"  --tag-kb [kbs]     : Set --show-tags max tag kb distance (default 250).\n"
-"  --tag-r2 [val]     : Set --show-tags min tag r-squared (default 0.8)\n"
+"  --tag-kb <kbs>     : Set --show-tags max tag kb distance (default 250).\n"
+"  --tag-r2 <val>     : Set --show-tags min tag r-squared (default 0.8)\n"
 "  --tag-mode2        : Use two-column --show-tags (file mode) I/O format.\n"
 	       );
     help_print("indep\tindep-pairwise\tr\tr2\tflip-scan\tflipscan\tshow-tags\tld-xchr", &help_ctrl, 0,
-"  --ld-xchr [code]   : Set Xchr model for --indep{-pairwise}, --r/--r2,\n"
+"  --ld-xchr <code>   : Set chrX model for --indep{,-pairwise}, --r/--r2,\n"
 "                       --flip-scan, and --show-tags.\n"
 "                       1 (default) = males coded 0/1, females 0/1/2 (A1 dosage)\n"
 "                       2 = males coded 0/2\n"
 "                       3 = males coded 0/2, but females given double weighting\n"
 	       );
     help_print("blocks\tblocks-max-kb\tblocks-min-maf\tblocks-strong-lowci\tblocks-strong-highci\tblocks-recomb-highci\tblocks-inform-frac\tld-window-kb", &help_ctrl, 0,
-"  --blocks-max-kb [kbs]      : Set --blocks maximum haploblock span (def. 200).\n"
-"  --blocks-min-maf [cutoff]  : Adjust --blocks MAF minimum (default 0.05).\n"
-"  --blocks-strong-lowci [x]  : Set --blocks 'strong LD' CI thresholds (defaults\n"
-"  --blocks-strong-highci [x]   0.70 and 0.98).\n"
-"  --blocks-recomb-highci [x] : Set 'recombination' CI threshold (default 0.90).\n"
-"  --blocks-inform-frac [x]   : Force haploblock [strong LD pairs]:[total\n"
-"                               informative pairs] ratios to be larger than this\n"
+"  --blocks-max-kb <kbs>      : Set --blocks maximum haploblock span (def. 200).\n"
+"  --blocks-min-maf <cutoff>  : Adjust --blocks MAF minimum (default 0.05).\n"
+"  --blocks-strong-lowci <x>  : Set --blocks 'strong LD' CI thresholds (defaults\n"
+"  --blocks-strong-highci <x>   0.70 and 0.98).\n"
+"  --blocks-recomb-highci <x> : Set 'recombination' CI threshold (default 0.90).\n"
+"  --blocks-inform-frac <x>   : Force haploblock <strong LD pairs>:<total\n"
+"                               informative pairs> ratios to be larger than this\n"
 "                               value (default 0.95).\n"
 	       );
     help_print("distance-wts\tdistance-exp\texponent\tdistance", &help_ctrl, 0,
-"  --distance-wts exp=[x]        : When computing genomic distances, assign each\n"
+"  --distance-wts exp=<x>        : When computing genomic distances, assign each\n"
 "                                  variant a weight of (2q(1-q))^{-x}, where q\n"
 "                                  is the loaded or inferred MAF.\n"
 	       );
 #ifndef STABLE_BUILD
     help_print("distance-wts\tdistance\tmake-grm-gz\tmake-grm-bin", &help_ctrl, 0,
-"  --distance-wts [f] <noheader> : When computing genomic distances, assign each\n"
-"                                  variant the weight specified in the file.\n"
+"  --distance-wts <f> ['noheader'] : When computing genomic distances, assign\n"
+"                                    each variant the weight specified in the\n"
+"                                    file.\n"
 	       );
 #endif
     help_print("read-dists\tload-dists\tibs-test\tgroupdist\tregress-distance\tcluster\tneighbour\tneighbor", &help_ctrl, 0,
-"  --read-dists [dist file] {id file} : Load a triangular binary distance matrix\n"
+"  --read-dists <dist file> [id file] : Load a triangular binary distance matrix\n"
 "                                       instead of recalculating from scratch.\n"
 	       );
     help_print("ppc-gap\tmin\tmax\tgenome\tZ-genome", &help_ctrl, 0,
-"  --ppc-gap [val]    : Minimum number of base pairs, in thousands, between\n"
+"  --ppc-gap <val>    : Minimum number of base pairs, in thousands, between\n"
 "                       informative pairs of markers used in --genome PPC test.\n"
 "                       500 if unspecified.\n"
-"  --min [cutoff]     : Specify minimum PI_HAT for inclusion in --genome report.\n"
-"  --max [cutoff]     : Specify maximum PI_HAT for inclusion in --genome report.\n"
+"  --min <cutoff>     : Specify minimum PI_HAT for inclusion in --genome report.\n"
+"  --max <cutoff>     : Specify maximum PI_HAT for inclusion in --genome report.\n"
 	       );
     help_print("homozyg\thomozyg-match\tpool-size", &help_ctrl, 0,
-"  --homozyg-match [] : Set minimum concordance across jointly homozygous\n"
+"  --homozyg-match <> : Set minimum concordance across jointly homozygous\n"
 "                       variants for a pairwise allelic match to be declared.\n"
-"  --pool-size [ct]   : Set minimum size of pools in '--homozyg group' report.\n"
+"  --pool-size <ct>   : Set minimum size of pools in '--homozyg group' report.\n"
 	       );
     help_print("read-genome\tcluster\tneighbour\tneighbor", &help_ctrl, 0,
-"  --read-genome [fn] : Load --genome report for --cluster/--neighbour, instead\n"
+"  --read-genome <fn> : Load --genome report for --cluster/--neighbour, instead\n"
 "                       of recalculating IBS and PPC test p-values from scratch.\n"
 	       );
     help_print("ppc\tmc\tmcc\tK\tk\tibm\tcluster", &help_ctrl, 0,
-"  --ppc [p-val]    : Specify minimum PPC test p-value within a cluster.\n"
-"  --mc [max size]  : Specify maximum cluster size.\n"
-"  --mcc [c1] [c2]  : Specify maximum case and control counts per cluster.\n"
-"  --K [min count]  : Specify minimum cluster count.\n"
-"  --ibm [val]      : Specify minimum identity-by-missingness.\n"
+"  --ppc <p-val>    : Specify minimum PPC test p-value within a cluster.\n"
+"  --mc <max size>  : Specify maximum cluster size.\n"
+"  --mcc <c1> <c2>  : Specify maximum case and control counts per cluster.\n"
+"  --K <min count>  : Specify minimum cluster count.\n"
+"  --ibm <val>      : Specify minimum identity-by-missingness.\n"
 	       );
     help_print("match\tmatch-type\tqmatch\tqt\tcluster", &help_ctrl, 0,
-"  --match [f] {mv} : Use covariate values to restrict clustering.  Without\n"
+"  --match <f> [mv] : Use covariate values to restrict clustering.  Without\n"
 "                     --match-type, two samples can only be in the same cluster\n"
 "                     if all covariates match.  The optional second parameter\n"
 "                     specifies a covariate value to treat as missing.\n"
-"  --match-type [f] : Refine interpretation of --match file.  The --match-type\n"
+"  --match-type <f> : Refine interpretation of --match file.  The --match-type\n"
 "                     file is expected to be a single line with as many entries\n"
 "                     as the --match file has covariates; '0' entries specify\n"
 "                     'negative matches' (i.e. samples with equal covariate\n"
 "                     values cannot be in the same cluster), '1' entries specify\n"
 "                     'positive matches' (default), and '-1' causes the\n"
 "                     corresponding covariate to be ignored.\n"
-"  --qmatch [f] {m} : Force all members of a cluster to have similar\n"
-"  --qt [fname]       quantitative covariate values.  The --qmatch file contains\n"
+"  --qmatch <f> [m] : Force all members of a cluster to have similar\n"
+"  --qt <fname>       quantitative covariate values.  The --qmatch file contains\n"
 "                     the covariate values, while the --qt file is a list of\n"
 "                     nonnegative tolerances (and '-1's marking covariates to\n"
 "                     skip).\n"
 	       );
 #ifndef NOLAPACK
     help_print("pca\tpca-cluster-names\tpca-clusters", &help_ctrl, 0,
-"  --pca-cluster-names [...] : These can be used individually or in combination\n"
-"  --pca-clusters [fname]      to define a list of clusters to use in the basic\n"
+"  --pca-cluster-names <...> : These can be used individually or in combination\n"
+"  --pca-clusters <fname>      to define a list of clusters to use in the basic\n"
 "                              --pca computation.  (--pca-cluster-names expects\n"
 "                              a space-delimited sequence of cluster names,\n"
 "                              while --pca-clusters expects a file with one\n"
@@ -1965,23 +1964,24 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                              calculated PCs.\n"
 	       );
     help_print("cluster\tmds-plot\tmds-cluster", &help_ctrl, 0,
-"  --mds-plot [dims] <by-cluster> <eigendecomp> <eigvals> :\n"
+"  --mds-plot <dims> ['by-cluster'] ['eigendecomp'] ['eigvals'] :\n"
 "    Multidimensional scaling analysis.  Requires --cluster.\n"
 	       );
 #endif
     help_print("cell\tmodel", &help_ctrl, 0,
-"  --cell [thresh]  : Skip some --model tests when a contingency table entry is\n"
+"  --cell <thresh>  : Skip some --model tests when a contingency table entry is\n"
 "                     smaller than the given threshold.\n"
 	       );
     help_print("linear\tlogistic\tcondition\tcondition-list\tparameters\ttests\ttest-all", &help_ctrl, 0,
-"  --condition [var ID] <dominant | recessive> : Add one variant as a --linear\n"
-"                                                or --logistic covariate.\n"
-"  --condition-list [f] <dominant | recessive> : Add variants named in the file\n"
-"                                                as --linear/--logistic covs.\n"
-"  --parameters [...]  : Include only the given covariates/interactions in the\n"
+"  --condition <var ID> [{dominant | recessive}] : Add one variant as a --linear\n"
+"                                                  or --logistic covariate.\n"
+"  --condition-list <f> [{dominant | recessive}] : Add variants named in the\n"
+"                                                  file as --linear/--logistic\n"
+"                                                  covariates.\n"
+"  --parameters <...>  : Include only the given covariates/interactions in the\n"
 "                        --linear/--logistic models, identified by a list of\n"
 "                        1-based indices and/or ranges of them.\n"
-"  --tests <all> {...} : Perform a (joint) test on the specified term(s) in the\n"
+"  --tests <all> [...] : Perform a (joint) test on the specified term(s) in the\n"
 "                        --linear/--logistic model, identified by 1-based\n"
 "                        indices and/or ranges of them.  If permutation was\n"
 "                        requested, it is based on this test.\n"
@@ -1991,40 +1991,41 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                        * You can use '--tests all' to include all terms.\n"
 	       );
     help_print("linear\tdosage\tvif", &help_ctrl, 0,
-"  --vif [max VIF]     : Set VIF threshold for --linear multicollinearity check\n"
+"  --vif <max VIF>     : Set VIF threshold for --linear multicollinearity check\n"
 "                        (default 50).\n"
 	       );
     help_print("linear\tlogistic\txchr-model", &help_ctrl, 0,
-"  --xchr-model [code] : Set the X chromosome --linear/--logistic model.\n"
+"  --xchr-model <code> : Set the X chromosome --linear/--logistic model.\n"
 "                        0 = skip sex and haploid chromosomes\n"
 "                        1 (default) = add sex as a covariate on X chromosome\n"
 "                        2 = code male genotypes 0/2 instead of 0/1\n"
 "                        3 = test for interaction between genotype and sex\n"
 	       );
     help_print("lasso\tlasso-select-covars", &help_ctrl, 0,
-"  --lasso-select-covars {cov(s)...} : Subject some or all covariates to LASSO\n"
+"  --lasso-select-covars [cov(s)...] : Subject some or all covariates to LASSO\n"
 "                                      model selection.\n"
 	       );
 #ifndef STABLE_BUILD
     help_print("lasso\tlasso-lambda", &help_ctrl, 0,
-"  --lasso-lambda [iters] {h2}       : Customize LASSO warm-start procedure.\n"
+"  --lasso-lambda <iters> [h2]       : Customize LASSO warm-start procedure.\n"
 "                                      (h2 required if not used with --lasso.)\n"
 	       );
 #endif
     help_print("adjust\tgc\tlog10\tqq-plot", &help_ctrl, 0,
-"  --adjust <gc> <log10> <qq-plot>   : Report some multiple-testing corrections.\n"
+"  --adjust ['gc'] ['log10'] ['qq-plot'] : Report some multiple-testing\n"
+"                                          corrections.\n"
 	       );
     help_print("adjust\tlambda", &help_ctrl, 0,
-"  --lambda [val]   : Set genomic control lambda for --adjust.\n"
+"  --lambda <val>   : Set genomic control lambda for --adjust.\n"
 	       );
     help_print("ci\tassoc\tlinear\tlogistic\tmh\tbd\ttdt", &help_ctrl, 0,
-"  --ci [size]      : Report confidence intervals for odds ratios.\n"
+"  --ci <size>      : Report confidence intervals for odds ratios.\n"
 	       );
     help_print("pfilter", &help_ctrl, 0,
-"  --pfilter [val]  : Filter out association test results with higher p-values.\n"
+"  --pfilter <val>  : Filter out association test results with higher p-values.\n"
 	       );
     help_print("aperm", &help_ctrl, 0,
-"  --aperm [min perms - 1] {max perms} {alpha} {beta} {init interval} {slope} :\n"
+"  --aperm <min perms - 1> [max perms] [alpha] [beta] [init interval] [slope] :\n"
 "    Set up to six parameters controlling adaptive permutation tests.\n"
 "    * The first two control the minimum and maximum number of permutations that\n"
 "      may be run for each variant; default values are 5 and 1000000.\n"
@@ -2035,7 +2036,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      further permutation testing.  Default values are 0 and 1e-4.\n"
 "    * The last two control when the early termination condition is checked.  If\n"
 "      a check occurs at permutation #p, the next check occurs after\n"
-"      [slope]p + [init interval] more permutations (rounded down).  Default\n"
+"      <slope>p + <init interval> more permutations (rounded down).  Default\n"
 "      initial interval is 1, and default slope is 0.001.\n"
 	       );
     help_print("mperm-save\tmperm-save-all", &help_ctrl, 0,
@@ -2043,28 +2044,28 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --mperm-save-all : Save all max(T) permutation test statistics.\n"
 	       );
     help_print("set-p\tset-r2\tset-max\tset-test-lambda\tset-test\twrite-set-r2\tset-r2-phase", &help_ctrl, 0,
-"  --set-p [p-val]       : Adjust set test significant variant p-value ceiling\n"
-"                          (default 0.05).\n"
-"  --set-r2 {v} <write>  : Adjust set test significant variant pairwise r^2\n"
-"                          ceiling (default 0.5).  'write' causes violating\n"
+"  --set-p <p-val>        : Adjust set test significant variant p-value ceiling\n"
+"                           (default 0.05).\n"
+"  --set-r2 [v] ['write'] : Adjust set test significant variant pairwise r^2\n"
+"                           ceiling (default 0.5).  'write' causes violating\n"
 "                          pairs to be dumped to <output prefix>.ldset.\n"
-"  --set-max [ct]        : Adjust set test maximum # of significant variants\n"
-"                          considered per set (default 5).\n"
-"  --set-test-lambda [v] : Specify genomic control correction for set test.\n"
+"  --set-max <ct>         : Adjust set test maximum # of significant variants\n"
+"                           considered per set (default 5).\n"
+"  --set-test-lambda <v>  : Specify genomic control correction for set test.\n"
 	       );
     help_print("annotate\tborder\tannotate-snp-field", &help_ctrl, 0,
-"  --border [kbs]            : Extend --annotate range intervals by given # kbs.\n"
-"  --annotate-snp-field [nm] : Set --annotate variant ID field name.\n"
+"  --border <kbs>            : Extend --annotate range intervals by given # kbs.\n"
+"  --annotate-snp-field <nm> : Set --annotate variant ID field name.\n"
 	       );
     help_print("clump-p1\tclump-p2\tclump-r2\tclump-kb\tclump-snp-field\tclump-field\tclump", &help_ctrl, 0,
-"  --clump-p1 [pval] : Set --clump index var. p-value ceiling (default 1e-4).\n"
-"  --clump-p2 [pval] : Set --clump secondary p-value threshold (default 0.01).\n"
-"  --clump-r2 [r^2]  : Set --clump r^2 threshold (default 0.5).\n"
-"  --clump-kb [kbs]  : Set --clump kb radius (default 250).\n"
-"  --clump-snp-field [n...]  : Set --clump variant ID field name (default\n"
+"  --clump-p1 <pval> : Set --clump index var. p-value ceiling (default 1e-4).\n"
+"  --clump-p2 <pval> : Set --clump secondary p-value threshold (default 0.01).\n"
+"  --clump-r2 <r^2>  : Set --clump r^2 threshold (default 0.5).\n"
+"  --clump-kb <kbs>  : Set --clump kb radius (default 250).\n"
+"  --clump-snp-field <n...>  : Set --clump variant ID field name (default\n"
 "                              'SNP').  With multiple field names, earlier names\n"
 "                              take precedence over later ones.\n"
-"  --clump-field [name...]   : Set --clump p-value field name (default 'P').\n"
+"  --clump-field <name...>   : Set --clump p-value field name (default 'P').\n"
 	       );
     help_print("clump-allow-overlap\tclump", &help_ctrl, 0,
 "  --clump-allow-overlap     : Let --clump non-index vars. join multiple clumps.\n"
@@ -2073,13 +2074,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --clump-verbose           : Request extended --clump report.\n"
 	       );
     help_print("clump-annotate\tclump-verbose\tclump-best\tclump", &help_ctrl, 0,
-"  --clump-annotate [hdr...] : Include named extra fields in --clump-verbose and\n"
+"  --clump-annotate <hdr...> : Include named extra fields in --clump-verbose and\n"
 "                              --clump-best reports.  (Field names can be\n"
 "                              separated with spaces or commas.)\n"
 	       );
     help_print("clump-range\tclump-range-border\tclump", &help_ctrl, 0,
-"  --clump-range [filename]  : Report overlaps between clumps and regions.\n"
-"  --clump-range-border [kb] : Stretch regions in --clump-range file.\n"
+"  --clump-range <filename>  : Report overlaps between clumps and regions.\n"
+"  --clump-range-border <kb> : Stretch regions in --clump-range file.\n"
 	       );
     help_print("clump-index-first\tclump-replicate\tclump", &help_ctrl, 0,
 "  --clump-index-first       : Extract --clump index vars. from only first file.\n"
@@ -2090,40 +2091,40 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --clump-best              : Report best proxy for each --clump index var.\n"
 	       );
     help_print("meta-analysis-snp-field\tmeta-analysis-a1-field\tmeta-analysis-a2-field\tmeta-analysis-p-field\tmeta-analysis-ess-field\tmeta-analysis", &help_ctrl, 0,
-"  --meta-analysis-snp-field [n...] : Set --meta-analysis variant ID, A1/A2\n"
-"  --meta-analysis-a1-field [n...]    allele, p-value, and/or effective sample\n"
-"  --meta-analysis-a2-field [n...]    size field names.  Defauls are 'SNP',\n"
-"  --meta-analysis-p-field [n...]     'A1', 'A2', 'P', and 'NMISS',\n"
-"  --meta-analysis-ess-field [n...]   respectively.  When multiple parameters\n"
+"  --meta-analysis-snp-field <n...> : Set --meta-analysis variant ID, A1/A2\n"
+"  --meta-analysis-a1-field <n...>    allele, p-value, and/or effective sample\n"
+"  --meta-analysis-a2-field <n...>    size field names.  Defauls are 'SNP',\n"
+"  --meta-analysis-p-field <n...>     'A1', 'A2', 'P', and 'NMISS',\n"
+"  --meta-analysis-ess-field <n...>   respectively.  When multiple parameters\n"
 "                                     are given to these flags, earlier names\n"
 "                                     take precedence over later ones.\n"
 "                                     Note that, if the numbers of cases and\n"
 "                                     controls are unequal, effective sample\n"
 "                                     size should be\n"
-"                                       4 / (1/[# cases] + 1/[# controls]).\n"
+"                                       4 / (1/<# cases> + 1/<# controls>).\n"
 	       );
     help_print("meta-analysis-report-dups\tmeta-analysis", &help_ctrl, 0,
 "  --meta-analysis-report-dups      : When a variant appears multiple times in\n"
 "                                     in the same file, report that.\n"
 	       );
     help_print("gene-list-border\tgene-report\tgene-subset\tgene-list\tgene-report-snp-field", &help_ctrl, 0,
-"  --gene-list-border [kbs]   : Extend --gene-report regions by given # of kbs.\n"
-"  --gene-subset [filename]   : Specify gene name subset for --gene-report.\n"
-"  --gene-report-snp-field [] : Set --gene-report variant ID field name (default\n"
+"  --gene-list-border <kbs>   : Extend --gene-report regions by given # of kbs.\n"
+"  --gene-subset <filename>   : Specify gene name subset for --gene-report.\n"
+"  --gene-report-snp-field <> : Set --gene-report variant ID field name (default\n"
 "                               'SNP').  Only relevant with --extract.\n"
 	       );
     help_print("fast-epistasis\tepistasis\tgap\tepi1\tepi2", &help_ctrl, 0,
-"  --gap [kbs]      : Set '--fast-epistasis case-only' min. gap (default 1000).\n"
-"  --epi1 [p-value] : Set --{fast-}epistasis reporting threshold (default\n"
+"  --gap <kbs>      : Set '--fast-epistasis case-only' min. gap (default 1000).\n"
+"  --epi1 <p-value> : Set --{,fast-}epistasis reporting threshold (default\n"
 "                     5e-6 for 'boost', 1e-4 otherwise).\n"
-"  --epi2 [p-value] : Set threshold for contributing to SIG_E count (def. 0.01).\n"
+"  --epi2 <p-value> : Set threshold for contributing to SIG_E count (def. 0.01).\n"
 	       );
     help_print("fast-epistasis\tje-cellmin", &help_ctrl, 0,
-"  --je-cellmin [n] : Set required number of observations per 3x3x2 contingency\n"
+"  --je-cellmin <n> : Set required number of observations per 3x3x2 contingency\n"
 "                     table cell for joint-effects test (default 5).\n"
 	       );
     help_print("score\tq-score-file\tq-score-range", &help_ctrl, 0,
-"  --q-score-range [range file] [data file] {i} {j} <header> :\n"
+"  --q-score-range <range file> <data file> [i] [j] ['header'] :\n"
 "    Apply --score to subset(s) of variants in the primary score list based\n"
 "    on e.g. p-value ranges.\n"
 "    * The first file should have range labels in the first column, p-value\n"
@@ -2138,13 +2139,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 #if defined __cplusplus && !defined _WIN32
     help_print("R\tR-port\tR-host\tR-socket", &help_ctrl, 0,
-"  --R-port [port #]  : Connect to Rserve on a port other than 6311.\n"
-"  --R-host [host]    : Connect to Rserve host.\n"
-"  --R-socket [sock]  : Connect to Rserve socket.\n"
+"  --R-port <port #>  : Connect to Rserve on a port other than 6311.\n"
+"  --R-host <host>    : Connect to Rserve host.\n"
+"  --R-socket <sock>  : Connect to Rserve socket.\n"
 	       );
 #endif
     help_print("parallel\tgenome-lists", &help_ctrl, 0,
-"  --parallel [k] [n] : Divide the output matrix into n pieces, and only compute\n"
+"  --parallel <k> <n> : Divide the output matrix into n pieces, and only compute\n"
 "                       the kth piece.  The primary output file will have the\n"
 "                       piece number included in its name, e.g. " PROG_NAME_STR ".rel.13 or\n"
 "                       " PROG_NAME_STR ".rel.13.gz if k is 13.  Concatenating these files\n"
@@ -2155,29 +2156,29 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                       shape instead, and postprocess as necessary.\n"
 	       );
     help_print("memory", &help_ctrl, 0,
-"  --memory [val]     : Set size, in MB, of initial workspace malloc attempt.\n"
+"  --memory <val>     : Set size, in MB, of initial workspace malloc attempt.\n"
 "                       (Practically mandatory when using GNU parallel.)\n"
 	       );
     help_print("threads\tthread-num\tnum_threads", &help_ctrl, 0,
-"  --threads [val]    : Set maximum number of concurrent threads.\n"
+"  --threads <val>    : Set maximum number of concurrent threads.\n"
 "                       This has one known limitation: some BLAS/LAPACK linear\n"
 "                       algebra operations are multithreaded in a way that PLINK\n"
 "                       cannot control.  If this is problematic, you should\n"
 "                       recompile against single-threaded BLAS/LAPACK.\n"
 	       );
     help_print("d\tsnps", &help_ctrl, 0,
-"  --d [char]         : Change variant/covariate range delimiter (normally '-').\n"
+"  --d <char>         : Change variant/covariate range delimiter (normally '-').\n"
 	       );
     help_print("seed", &help_ctrl, 0,
-"  --seed [val...]    : Set random number seed(s).  Each value must be an\n"
+"  --seed <val...>    : Set random number seed(s).  Each value must be an\n"
 "                       integer between 0 and 4294967295 inclusive.\n"
 	       );
     help_print("perm-batch-size", &help_ctrl, 0,
-"  --perm-batch-size [val] : Set number of permutations per batch for some\n"
+"  --perm-batch-size <val> : Set number of permutations per batch for some\n"
 "                            permutation tests.\n"
 	       );
     help_print("output-min-p", &help_ctrl, 0,
-"  --output-min-p [p] : Specify minimum p-value to write to reports.\n"
+"  --output-min-p <p> : Specify minimum p-value to write to reports.\n"
 	       );
     help_print("debug", &help_ctrl, 0,
 "  --debug            : Use slower, more crash-resistant logging method.\n"
