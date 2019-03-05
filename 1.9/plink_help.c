@@ -420,10 +420,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * 'bimbam-1chr': BIMBAM format, with a two-column .pos.txt file.  Does not\n"
 "      support multiple chromosomes.\n"
 "    * 'fastphase': Per-chromosome fastPHASE files, with\n"
-"      .chr-[chr #].recode.phase.inp filename extensions.\n"
+"      .chr-<chr #>.recode.phase.inp filename extensions.\n"
 "    * 'fastphase-1chr': Single .recode.phase.inp file.  Does not support\n"
 "      multiple chromosomes.\n"
-"    * 'HV': Per-chromosome Haploview files, with .chr-[chr #][.ped + .info]\n"
+"    * 'HV': Per-chromosome Haploview files, with .chr-<chr #>{.ped,.info}\n"
 "      filename extensions.\n"
 "    * 'HV-1chr': Single Haploview .ped + .info file pair.  Does not support\n"
 "      multiple chromosomes.\n"
@@ -1663,7 +1663,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("read-freq\tupdate-freq", &help_ctrl, 0,
 "  --read-freq <fn> : Estimate MAFs and heterozygote frequencies from the given\n"
-"                     --freq{x} report, instead of the input fileset.\n"
+"                     --freq{,x} report, instead of the input fileset.\n"
 	       );
     help_print("hwe\thwe-all\thwe2", &help_ctrl, 0,
 "  --hwe <p> ['midp'] ['include-nonctrl'] : Exclude variants with Hardy-Weinberg\n"
@@ -1704,9 +1704,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --nonfounders        : Include nonfounders in allele freq/HWE calculations.\n"
 	       );
     help_print("make-founders", &help_ctrl, 0,
-"  --make-founders ['require-2-missing'] ['first'] : Clear parental IDs for\n"
-"                                                    those with 1+ missing\n"
-"                                                    parent(s).\n"
+"  --make-founders ['require-2-missing'] ['first'] :\n"
+"    Clear parental IDs for those with 1+ missing parent(s).\n"
 	       );
     help_print("recode\trecode-allele\texport", &help_ctrl, 0,
 "  --recode-allele <fn> : With --recode A/A-transpose/AD, count alleles named in\n"
@@ -2252,7 +2251,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "Second-generation PLINK: rising to the challenge of larger and richer datasets.\n"
 "GigaScience, 4.\n\n"
 "For further documentation and support, consult the main webpage\n"
-"(https://www.cog-genomics.org/plink2 ) and/or the mailing list\n"
+"(https://www.cog-genomics.org/plink/1.9 ) and/or the mailing list\n"
 "(https://groups.google.com/d/forum/plink2-users ).\n"
 , stdout);
     }
