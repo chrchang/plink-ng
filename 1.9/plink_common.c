@@ -22,7 +22,7 @@
 // no leading \n since this is used in LOGPRINTFWW expressions
 const char g_errstr_fopen[] = "Error: Failed to open %s.\n";
 
-const char g_cmdline_format_str[] = "\n  " PROG_NAME_STR " [input flag(s)...] {command flag(s)...} {other flag(s)...}\n  " PROG_NAME_STR " --help {flag name(s)...}\n\n";
+const char g_cmdline_format_str[] = "\n  " PROG_NAME_STR " <input flag(s)...> [command flag(s)...] [other flag(s)...]\n  " PROG_NAME_STR " --help [flag name(s]...}\n\n";
 
 char g_textbuf[TEXTBUF_SIZE];
 

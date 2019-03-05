@@ -2105,7 +2105,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
       logprint("--read-freq: .frqx file loaded.\n");
     } else {
       // Also support GCTA-style frequency files:
-      // [marker ID]\t[reference allele]\t[frequency of reference allele]\n
+      // <marker ID>\t<reference allele>\t<frequency of reference allele>\n
       if (nchrobs) {
 	logerrprint("Error: The current run requires an allele frequency file with observation\ncounts.\n");
 	goto read_external_freqs_ret_INVALID_FORMAT;
@@ -5948,7 +5948,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	  cur_data[-1] = 0.0;
 	}
 	cur_data = &(cur_data[-((intptr_t)(cur_data_slots - window_entry_base_cost))]);
-	// [effect sizes/SEs, reverse order] {WZ} {file idx bitfield} {A1/A2}
+	// <effect sizes/SEs, reverse order> [WZ] [file idx bitfield] [A1/A2]
 	//                                       ^
 	//                                       |
 	//                                  cur_data_ptr

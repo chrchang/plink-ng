@@ -2195,19 +2195,19 @@ static uint32_t g_precomp_start[MODEL_BLOCKSIZE];
 //   n := (g_precomp_width * marker_bidx) + missing_ct -
 //        g_precomp_start[marker_bidx].
 //
-// For --assoc perm/--model [dom/rec/trend] perm:
+// For --assoc perm/--model {dom|rec|trend} perm:
 //   g_precomp_ui[4n] and [4n + 1] define the interval with less extreme
 //     p-values than the original.  [4n + 2] and [4n + 3] define the
 //     interval with less or equally extreme p-values.
 //
-// For --assoc mperm fisher/--model [dom/rec] fisher:
+// For --assoc mperm fisher/--model {dom|rec} fisher:
 //   g_precomp_ui[6n]...[6n + 3] is as in --assoc perm.
 //   g_precomp_ui[6n + 4] and [6n + 5] are the floor and offset for the
 //     range of case_set_cts where Fisher p-value calculation is unnecessary.
 //   g_precomp_d[2n] and [2n + 1] are tot_prob and right_prob for
 //     fisher22_tail_pval().  (This is almost irrelevant.)
 //
-// For --assoc mperm/--model [dom/rec/trend] mperm:
+// For --assoc mperm/--model {dom|rec|trend} mperm:
 //   g_precomp_ui is as in --assoc mperm fisher.
 //   g_precomp_d[2n] and [2n + 1] are expm11 and recip_sum from
 //     chi22_get_coeffs()/ca_trend_get_coeffs().

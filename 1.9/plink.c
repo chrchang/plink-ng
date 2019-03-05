@@ -136,7 +136,7 @@ static const char ver_str2[] =
   #endif
 #endif
   "\n";
-static const char errstr_append[] = "For more information, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
+static const char errstr_append[] = "For more information, try '" PROG_NAME_STR " --help <flag name>' or '" PROG_NAME_STR " --help | more'.\n";
 #ifdef STABLE_BUILD
   #ifndef NOLAPACK
 static const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --pca, --neighbour, --ibs-test, --regress-distance,\n--model, --bd, --gxe, --logistic, --dosage, --lasso, --test-missing,\n--make-perm-pheno, --tdt, --qfam, --annotate, --clump, --gene-report,\n--meta-analysis, --epistasis, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
@@ -3565,7 +3565,7 @@ int32_t main(int32_t argc, char** argv) {
 	  fputs("--help present, ignoring other flags.\n", stdout);
 	}
 	if ((uii == ((uint32_t)argc) - 1) && flag_ct) {
-	  // make "plink [valid flags/parameters] --help" work, and skip the
+	  // make "plink <valid flags/parameters> --help" work, and skip the
 	  // parameters
 	  char** help_argv = (char**)malloc(flag_ct * sizeof(intptr_t));
 	  if (!help_argv) {
@@ -4191,7 +4191,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --R-debug must be used with --R.\n");
 	  goto main_ret_INVALID_CMDLINE;
         }
-	logprint("Note: --R-debug flag deprecated.  Use e.g. '--R [filename] debug'.\n");
+	logprint("Note: --R-debug flag deprecated.  Use e.g. '--R <filename> debug'.\n");
 	misc_flags |= MISC_RPLUGIN_DEBUG;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "-host", 6)) {
@@ -4988,7 +4988,7 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Note: --compound-genotypes flag unnecessary (spaces between alleles in .ped\nand .lgen files are optional if all alleles are single-character).\n");
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ompress", 8)) {
-	logerrprint("Error: --compress flag retired.  Use e.g. 'gzip [filename]'.\n");
+	logerrprint("Error: --compress flag retired.  Use e.g. 'gzip <filename>'.\n");
 	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "ounts", 6)) {
 	if (model_modifier & MODEL_ASSOC) {
@@ -6040,7 +6040,7 @@ int32_t main(int32_t argc, char** argv) {
 	memcpy(strcpya(mapname, csptr), ".sample", 8);
 	load_params |= LOAD_PARAMS_OXSAMPLE;
       } else if (!memcmp(argptr2, "ecompress", 10)) {
-	logerrprint("Error: --decompress flag retired.  Use e.g. 'gunzip [filename]'.\n");
+	logerrprint("Error: --decompress flag retired.  Use e.g. 'gunzip <filename>'.\n");
 	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "istance", 8)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 6)) {
@@ -6129,7 +6129,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(g_logbuf, "Error: Invalid --distance-exp parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WW;
 	}
-	fputs("Note: '--distance-exp [x]' deprecated.  Use '--distance-weights exp=[x]' instead.\n", stdout);
+	fputs("Note: '--distance-exp <x>' deprecated.  Use '--distance-weights exp=[x]' instead.\n", stdout);
       } else if (!memcmp(argptr2, "istance-wts", 12)) {
 	if (distance_exp != 0.0) {
 	  logerrprint("Error: --distance-wts cannot be used with --distance-exp.\n");
@@ -6255,7 +6255,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	write_covar_modifier |= WRITE_COVAR_DUMMY;
       } else if (!memcmp(argptr2, "ominant", 8)) {
-	logprint("Note: --dominant flag deprecated.  Use e.g. '--linear dominant' (and\n'--condition-list [filename] dominant' to change covariate coding).\n");
+	logprint("Note: --dominant flag deprecated.  Use e.g. '--linear dominant' (and\n'--condition-list <filename> dominant' to change covariate coding).\n");
 	glm_modifier |= GLM_DOMINANT | GLM_CONDITION_DOMINANT;
 	glm_xchr_model = 0;
 	goto main_param_zero;
@@ -7469,7 +7469,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --hethom must be used with --genotypic.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	logprint("Note: --hethom flag deprecated.  Use e.g. '--linear hethom' (and\n'--condition-list [filename] recessive' to change covariate coding).\n");
+	logprint("Note: --hethom flag deprecated.  Use e.g. '--linear hethom' (and\n'--condition-list <filename> recessive' to change covariate coding).\n");
 	glm_modifier |= GLM_HETHOM | GLM_CONDITION_RECESSIVE;
 	glm_modifier -= GLM_GENOTYPIC;
 	glm_xchr_model = 0;
@@ -8767,7 +8767,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(g_logbuf, "Error: Invalid --mcovar parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
-        logprint("Note: --mcovar flag deprecated.  Use '--gxe [covariate index]'.\n");
+        logprint("Note: --mcovar flag deprecated.  Use '--gxe <covariate index>'.\n");
       } else if (!memcmp(argptr2, "odel", 5)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 6)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -8934,14 +8934,14 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (load_rare & LOAD_RARE_CNV) {
 	  if ((cnv_calc_type & CNV_SAMPLE_PERM) && (!cnv_sample_mperms)) {
-	    logprint("Note: --mperm flag deprecated.  Use e.g. '--cnv-indiv-perm [perm. count]'.\n");
+	    logprint("Note: --mperm flag deprecated.  Use e.g. '--cnv-indiv-perm <perm. count>'.\n");
 	    cnv_sample_mperms = mperm_val;
 	  } else if ((cnv_calc_type & CNV_TEST_REGION) && (!cnv_test_region_mperms)) {
-	    logprint("Note: --mperm flag deprecated.  Use e.g. '--cnv-test-region [perm. count]'.\n");
+	    logprint("Note: --mperm flag deprecated.  Use e.g. '--cnv-test-region <perm. count>'.\n");
 	  } else if ((cnv_calc_type & CNV_ENRICHMENT_TEST) && (!cnv_enrichment_test_mperms)) {
-	    logprint("Note: --mperm flag deprecated.  Use e.g. '--cnv-enrichment-test [perm. count]'.\n");
+	    logprint("Note: --mperm flag deprecated.  Use e.g. '--cnv-enrichment-test <perm. count>'.\n");
 	  } else {
-	    logprint("Note: --mperm flag deprecated.  Use e.g. '--cnv-test [permutation count]'.\n");
+	    logprint("Note: --mperm flag deprecated.  Use e.g. '--cnv-test <permutation count>'.\n");
             if (!(cnv_calc_type & (CNV_SAMPLE_PERM | CNV_ENRICHMENT_TEST | CNV_TEST | CNV_TEST_REGION))) {
 	      cnv_calc_type |= CNV_TEST;
 	    }
@@ -10861,7 +10861,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(g_logbuf, "Error: --recessive conflicts with a --%s modifier.\n", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear");
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
-	logprint("Note: --recessive flag deprecated.  Use e.g. '--linear recessive' (and\n'--condition-list [filename] recessive' to change covariate coding).\n");
+	logprint("Note: --recessive flag deprecated.  Use e.g. '--linear recessive' (and\n'--condition-list <filename> recessive' to change covariate coding).\n");
 	glm_modifier |= GLM_RECESSIVE | GLM_CONDITION_RECESSIVE;
 	glm_xchr_model = 0;
 	goto main_param_zero;
@@ -11034,7 +11034,7 @@ int32_t main(int32_t argc, char** argv) {
         if (excludename) {
 	  misc_flags |= MISC_EXCLUDE_RANGE;
 	}
-	logprint("Note: --range flag deprecated.  Use e.g. '--extract range [filename]'.\n");
+	logprint("Note: --range flag deprecated.  Use e.g. '--extract range <filename>'.\n");
 	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
@@ -12345,7 +12345,7 @@ int32_t main(int32_t argc, char** argv) {
 	  if (retval) {
 	    goto main_ret_1;
 	  }
-	  LOGPRINTF("Note: --update-map [filename] + parameter-free --update-%s deprecated.  Use\n--update-%s [filename] instead.\n", (update_map_modifier == 1)? "chr" : "cm", (update_map_modifier == 1)? "chr" : "cm");
+	  LOGPRINTF("Note: --update-map <filename> + parameter-free --update-%s deprecated.  Use\n--update-%s <filename> instead.\n", (update_map_modifier == 1)? "chr" : "cm", (update_map_modifier == 1)? "chr" : "cm");
 	  update_map_modifier = 0;
 	} else {
 	  retval = alloc_2col(&update_map, &(argv[cur_arg + 1]), argptr, param_ct);
@@ -12378,7 +12378,7 @@ int32_t main(int32_t argc, char** argv) {
 	    logerrprint("Error: Multi-parameter --update-map cannot be used with deprecated\nparameter-free --update-name.\n");
 	    goto main_ret_INVALID_CMDLINE;
 	  }
-	  logprint("Note: --update-map [filename] + parameter-free --update-name deprecated.  Use\n--update-name [filename] instead.\n");
+	  logprint("Note: --update-map <filename> + parameter-free --update-name deprecated.  Use\n--update-name <filename> instead.\n");
 	  update_name = update_map;
 	  update_map = nullptr;
 	} else {
