@@ -184,7 +184,7 @@ int32_t scan_column_widths(FILE* infile, uintptr_t column_sep, uintptr_t** col_w
 	}
 	if (++cur_col_idx == max_col_ct) {
 	  malloc_size *= 2;
-	  new_col_widths = realloc(col_widths, malloc_size);
+	  new_col_widths = (uintptr_t*)realloc(col_widths, malloc_size);
 	  if (!new_col_widths) {
 	    goto scan_column_widths_ret_READ_FAIL;
 	  }
