@@ -41,9 +41,9 @@ char pathbuf[FNAMESIZE * 2 + 128];
 
 void disp_usage(FILE* stream) {
   fputs(
-"  prettify {flag(s)...} [input filename] {output filename}\n\n"
+"  prettify [flag(s)...] <input filename> [output filename]\n\n"
 "  -i, --inplace      : Replace the input instead of writing to a new file.\n"
-"  -s, --spacing [ct] : Set number of spaces between columns (default 2).\n"
+"  -s, --spacing <ct> : Set number of spaces between columns (default 2).\n"
 "  -r, --ralign       : Make right sides of columns line up, instead of left.\n"
 "  -l, --leading      : Add space(s) before the first column.\n"
 "  -e, --extend-short : Use spaces to extend lines with fewer columns.\n"
@@ -602,7 +602,7 @@ int32_t main(int32_t argc, char** argv) {
   while (0) {
   main_ret_HELP:
     fputs(
-"prettify v1.04 (21 Feb 2014)   Christopher Chang (chrchang@alumni.caltech.edu)\n\n"
+"prettify v1.05 (5 Mar 2019)    Christopher Chang (chrchang@alumni.caltech.edu)\n\n"
 "Takes a tab-and/or-space-delimited text table, and generates a space-delimited\n"
 "pretty-printed version.  Multibyte character encodings are not currently\n"
 "supported.\n\n"
@@ -611,10 +611,10 @@ int32_t main(int32_t argc, char** argv) {
     fputs(
 "\nTo perform the simplest reverse conversion (multiple spaces to one tab), you\n"
 "can use\n"
-"  cat [input filename] | tr -s ' ' '\\t' > [output filename]\n"
+"  cat <input filename> | tr -s ' ' '\\t' > <output filename>\n"
 "For one-to-one conversion between spaces and tabs instead, omit the \"-s\".  And\n"
 "to strip leading and trailing tabs and spaces, try\n"
-"  cat [in] | sed 's/^[[:space:]]*//g' | sed 's/[[:space:]]*$//g' > [out]\n"
+"  cat <in> | sed 's/^[[:space:]]*//g' | sed 's/[[:space:]]*$//g' > <out>\n"
 , stdout);
     retval = RET_HELP;
     break;
