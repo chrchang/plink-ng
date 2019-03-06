@@ -55,7 +55,7 @@ void disp_usage(FILE* stream) {
 , stream);
 }
 
-void dispmsg(retval) {
+void dispmsg(int32_t retval) {
   switch (retval) {
   case RET_NOMEM:
     fputs("\nError: Out of memory.\n", stderr);
