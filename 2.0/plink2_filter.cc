@@ -342,10 +342,11 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
   PreinitTBstream(&tbs);
   InitThreads3z(&ts);
   {
+    const uint32_t calc_thread_ct_m1 = ((max_thread_ct > 2)? MINV(max_thread_ct - 1, kMaxExtractExcludeThreads) : max_thread_ct) - 1;
+    ts.calc_thread_ct = calc_thread_ct_m1;
     if (!(*variant_ct_ptr)) {
       goto ExtractExcludeFlagNorange_ret_1;
     }
-    const uint32_t calc_thread_ct_m1 = ((max_thread_ct > 2)? MINV(max_thread_ct - 1, kMaxExtractExcludeThreads) : max_thread_ct) - 1;
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     for (uint32_t tidx = 0; tidx <= calc_thread_ct_m1; ++tidx) {
       if (unlikely(bigstack_calloc_w(raw_variant_ctl, &(g_already_seens[tidx])))) {
@@ -353,7 +354,6 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
       }
     }
     if (calc_thread_ct_m1) {
-      ts.calc_thread_ct = calc_thread_ct_m1;
       if (unlikely(bigstack_alloc_thread(calc_thread_ct_m1, &ts.threads))) {
         goto ExtractExcludeFlagNorange_ret_NOMEM;
       }
