@@ -62,28 +62,6 @@ HEADER_INLINE void gzclose_cond(gzFile gz_infile) {
 }
 
 
-// currently hardcoded to have maximum token length = kMaxMediumLine, buffer
-// size = 2 * kMaxMediumLine * 2.
-typedef struct GzTokenStreamStruct {
-  NONCOPYABLE(GzTokenStreamStruct);
-  gzFile gz_infile;
-  char* buf_start;
-  char* read_iter;
-  char* buf_end;
-} GzTokenStream;
-
-void PreinitGzTokenStream(GzTokenStream* gtsp);
-
-PglErr InitGzTokenStream(const char* fname, GzTokenStream* gtsp, char* buf_start);
-
-// sets token_slen to 0xfffffffeU on read fail, 0xffffffffU on too-long token
-// safe to null-terminate token between calls
-char* AdvanceGzTokenStream(GzTokenStream* gtsp, uint32_t* token_slen_ptr);
-
-// ok if already closed
-BoolErr CloseGzTokenStream(GzTokenStream* gtsp);
-
-
 PglErr IsBgzf(const char* fname, uint32_t* is_bgzf_ptr);
 
 // While a separate non-compressing writer thread is practically useless (since
@@ -213,7 +191,7 @@ HEADER_INLINE BoolErr StandardizeLinebufSizemax(uintptr_t required_byte_ct, uint
 // sane.  I'll discuss the insane one first.
 // * consume_iter is effectively initialized to position -1, not 0, in the
 //   file, and points to a '\n' byte.  This is necessary to make a simple loop
-//   calling ReadNextLineFromRLstreamRaw() do the right thing.
+//   calling RlsNext{,Lstrip}() do the right thing.
 // * On return from that function, consume_iter points to the beginning of a
 //   line, that line is guaranteed to be '\n' terminated even if it's an
 //   unterminated last line in the original file, and it is safe to mutate the
@@ -221,10 +199,10 @@ HEADER_INLINE BoolErr StandardizeLinebufSizemax(uintptr_t required_byte_ct, uint
 //   one.  However, the line is NOT null-terminated.  You are expected to use
 //   functions like strchrnul_n() and FirstPrespace() in place of the standard
 //   C string library functions.
-// * Since ReadNextLineFromRLstreamRaw starts with a rawmemchr operation, you
-//   get the best performance by setting consume_iter to the last known
-//   position in the previous line (pointing to the actual terminating '\n' is
-//   fine), rather than leaving it in front.
+// * Since RlsNext{,Lstrip} starts with a rawmemchr operation, you get the best
+//   performance by setting consume_iter to the last known position in the
+//   previous line (pointing to the actual terminating '\n' is fine), rather
+//   than leaving it in front.
 // The sane interface gets rid of the roughest edges by returning a pointer to
 // the end of the line (original position of '\n') as well, and automatically
 // replacing the '\n' with a null character.  It also doesn't care if you
@@ -244,7 +222,8 @@ PglErr RlsOpenMaybeBgzf(const char* fname, uint32_t calc_thread_ct, ReadLineStre
 
 // gz_infile assumed to already be opened.  Ok if e.g. header line has already
 // been read from it.
-// enforced_max_line_blen must be a multiple of kCacheline.
+// enforced_max_line_blen must be a multiple of kCacheline.  Special case:
+// enforced_max_line_blen == 0 triggers token-batch-stream mode.
 // The caller is responsible for ensuring max_line_blen >=
 // kRLstreamBlenLowerBound, and preferably >= kRLstreamBlenFast, if at all
 // possible.  The lower bound isn't hard--the stream will still work properly
@@ -364,8 +343,7 @@ HEADER_INLINE PglErr RlsNextNonemptyLstripK(ReadLineStream* rlsp, uintptr_t* lin
 }
 
 // On success, consume_iter may be anywhere in the last skipped line; only
-// guarantee is that a subsequent ReadNextLineFromRLstreamRaw() does what you'd
-// expect.
+// guarantee is that a subsequent RlsNext{,Lstrip}() does what you'd expect.
 // (The Nz function actually handles skip_ct == 0 properly, but we'd rather
 // inline the skip_ct == 0 common-case check.)
 PglErr RlsSkipNz(uintptr_t skip_ct, ReadLineStream* rlsp, char** consume_iterp);
@@ -436,6 +414,43 @@ void RLstreamErrPrint(const char* file_descrip, ReadLineStream* rlsp, PglErr* re
 HEADER_INLINE unsigned char* RLstreamMemStart(ReadLineStream* rlsp) {
   return R_CAST(unsigned char*, rlsp->syncp);
 }
+
+
+// Low-level token-batch-reading interface, using the extra ReadLineStream mode
+// which cares about token rather than line endings.  Replaces the
+// GzTokenStream in earlier versions of this library.
+typedef struct TokenBatchStreamStruct {
+  NONCOPYABLE(TokenBatchStreamStruct);
+  ReadLineStream rls;
+  char* consume_iter;
+} TokenBatchStream;
+
+HEADER_INLINE void PreinitTBstream(TokenBatchStream* tbsp) {
+  PreinitRLstream(&tbsp->rls);
+  // don't need to initialize consume_iter?
+}
+
+HEADER_INLINE PglErr InitTBstreamEx(uint32_t alloc_at_end, TokenBatchStream* tbsp) {
+  return InitRLstreamEx(alloc_at_end, 0, kRLstreamBlenFast, &(tbsp->rls), &(tbsp->consume_iter));
+}
+
+HEADER_INLINE PglErr InitTBstreamRaw(const char* fname, TokenBatchStream* tbsp) {
+  PglErr reterr = gzopen_read_checked(fname, &tbsp->rls.gz_infile);
+  if (unlikely(reterr)) {
+    return reterr;
+  }
+  return InitRLstreamEx(0, 0, kRLstreamBlenFast, &(tbsp->rls), &(tbsp->consume_iter));
+}
+
+
+// Note that shard_boundaries must have length (piece_ct + 1).
+PglErr TbsNext(TokenBatchStream* tbsp, uint32_t shard_ct, char** shard_boundaries);
+
+HEADER_INLINE PglErr CleanupTBstream(TokenBatchStream* tbsp) {
+  return CleanupRLstream(&(tbsp->rls));
+}
+
+void TBstreamErrPrint(const char* file_descrip, TokenBatchStream* tbsp, PglErr* reterr_ptr);
 
 #ifdef __cplusplus
 }  // namespace plink2

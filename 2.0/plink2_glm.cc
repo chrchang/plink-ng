@@ -7430,9 +7430,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
   unsigned char* bigstack_end_mark = g_bigstack_end;
   PglErr reterr = kPglRetSuccess;
   ReadLineStream local_covar_rls;
-  GzTokenStream gts;
+  TokenBatchStream tbs;
   PreinitRLstream(&local_covar_rls);
-  PreinitGzTokenStream(&gts);
+  PreinitTBstream(&tbs);
   {
     if (unlikely(!pheno_ct)) {
       logerrputs("Error: No phenotypes loaded.\n");
@@ -7654,6 +7654,10 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           if (unlikely(bigstack_calloc_w(raw_variant_ctl, &already_seen))) {
             goto GlmMain_ret_NOMEM;
           }
+          reterr = InitTBstreamRaw(glm_info_ptr->condition_list_fname, &tbs);
+          if (unlikely(reterr)) {
+            goto GlmMain_ret_1;
+          }
           uint32_t* variant_id_htable = nullptr;
           uint32_t variant_id_htable_size;
           reterr = AllocAndPopulateIdHtableMt(orig_variant_include, variant_ids, orig_variant_ct, 0, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size, nullptr);
@@ -7664,49 +7668,52 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           // 2. iterate through --condition-list file, make sure no IDs are
           //    duplicate in loaded fileset, warn about duplicates in
           //    --condition-list file
-          reterr = InitGzTokenStream(glm_info_ptr->condition_list_fname, &gts, g_textbuf);
-          if (unlikely(reterr)) {
-            goto GlmMain_ret_1;
-          }
           uintptr_t skip_ct = 0;
           uintptr_t duplicate_ct = 0;
-          uint32_t token_slen;
           while (1) {
-            const char* token_start = AdvanceGzTokenStream(&gts, &token_slen);
-            if (!token_start) {
+            char* shard_boundaries[2];
+            reterr = TbsNext(&tbs, 1, shard_boundaries);
+            if (reterr) {
               break;
             }
-            uint32_t cur_variant_uidx = VariantIdDupflagHtableFind(token_start, variant_ids, variant_id_htable, token_slen, variant_id_htable_size, max_variant_id_slen);
-            if (cur_variant_uidx >> 31) {
-              if (unlikely(cur_variant_uidx != UINT32_MAX)) {
-                logerrprintfww("Error: --condition-list variant ID '%s' appears multiple times.\n", variant_ids[cur_variant_uidx & 0x7fffffff]);
-                goto GlmMain_ret_INCONSISTENT_INPUT;
+            const char* shard_iter = shard_boundaries[0];
+            const char* shard_end = shard_boundaries[1];
+            while (1) {
+              shard_iter = FirstPostspaceBounded(shard_iter, shard_end);
+              if (shard_iter == shard_end) {
+                break;
               }
-              ++skip_ct;
-            } else if (IsSet(already_seen, cur_variant_uidx)) {
-              ++duplicate_ct;
-            } else {
-              if (unlikely(condition_ct == condition_ct_max)) {
-                logerrputs("Error: Too many --condition-list variant IDs.\n");
-                goto GlmMain_ret_MALFORMED_INPUT;
+              const char* token_end = CurTokenEnd(shard_iter);
+              const uint32_t token_slen = token_end - shard_iter;
+              uint32_t cur_variant_uidx = VariantIdDupflagHtableFind(shard_iter, variant_ids, variant_id_htable, token_slen, variant_id_htable_size, max_variant_id_slen);
+              if (cur_variant_uidx >> 31) {
+                if (unlikely(cur_variant_uidx != UINT32_MAX)) {
+                  logerrprintfww("Error: --condition-list variant ID '%s' appears multiple times.\n", variant_ids[cur_variant_uidx & 0x7fffffff]);
+                  goto GlmMain_ret_INCONSISTENT_INPUT;
+                }
+                ++skip_ct;
+              } else if (IsSet(already_seen, cur_variant_uidx)) {
+                ++duplicate_ct;
+              } else {
+                if (unlikely(condition_ct == condition_ct_max)) {
+                  logerrputs("Error: Too many --condition-list variant IDs.\n");
+                  goto GlmMain_ret_MALFORMED_INPUT;
+                }
+                SetBit(cur_variant_uidx, already_seen);
+                condition_uidxs[condition_ct++] = cur_variant_uidx;
+                if (new_max_covar_name_blen <= token_slen) {
+                  new_max_covar_name_blen = token_slen + 1;
+                }
               }
-              SetBit(cur_variant_uidx, already_seen);
-              condition_uidxs[condition_ct++] = cur_variant_uidx;
-              if (new_max_covar_name_blen <= token_slen) {
-                new_max_covar_name_blen = token_slen + 1;
-              }
+              shard_iter = token_end;
             }
           }
-          if (unlikely(token_slen)) {
-            // error code
-            if (token_slen == UINT32_MAX) {
-              logerrputs("Error: Excessively long ID in --condition-list file.\n");
-              goto GlmMain_ret_MALFORMED_INPUT;
-            }
-            goto GlmMain_ret_READ_FAIL;
+          if (unlikely(reterr != kPglRetEof)) {
+            goto GlmMain_ret_READ_TBSTREAM;
           }
-          if (unlikely(CloseGzTokenStream(&gts))) {
-            goto GlmMain_ret_READ_FAIL;
+          reterr = CleanupTBstream(&tbs);
+          if (unlikely(reterr)) {
+            goto GlmMain_ret_1;
           }
           if (skip_ct || duplicate_ct) {
             if (skip_ct && duplicate_ct) {
@@ -7719,7 +7726,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           }
           logprintf("--condition-list: %u variant ID%s loaded.\n", condition_ct, (condition_ct == 1)? "" : "s");
 
-          // free hash table and duplicate tracker
+          // free hash table, duplicate tracker, TBstream
           BigstackReset(already_seen);
         }
         raw_covar_ct += condition_ct;
@@ -8719,8 +8726,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
   GlmMain_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  GlmMain_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
+  GlmMain_ret_READ_TBSTREAM:
+    TBstreamErrPrint("--condition-list file", &tbs, &reterr);
     break;
   GlmMain_ret_INVALID_CMDLINE:
     reterr = kPglRetInvalidCmdline;
@@ -8733,7 +8740,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     break;
   }
  GlmMain_ret_1:
-  CloseGzTokenStream(&gts);
+  CleanupTBstream(&tbs);
   CleanupRLstream(&local_covar_rls);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;

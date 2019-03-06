@@ -264,83 +264,170 @@ PglErr SnpsFlag(const char* const* variant_ids, const uint32_t* variant_id_htabl
   return reterr;
 }
 
-void ExtractExcludeProcessToken(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* tok_start, uint32_t variant_id_htable_size, uint32_t max_variant_id_slen, uint32_t token_slen, uintptr_t* already_seen, uintptr_t* duplicate_ct_ptr) {
-  uint32_t cur_llidx;
-  uint32_t variant_uidx = VariantIdDupHtableFind(tok_start, variant_ids, variant_id_htable, htable_dup_base, token_slen, variant_id_htable_size, max_variant_id_slen, &cur_llidx);
-  if (variant_uidx == UINT32_MAX) {
-    return;
-  }
-  if (IsSet(already_seen, variant_uidx)) {
-    *duplicate_ct_ptr += 1;
-  } else {
+void ExtractExcludeProcessTokens(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* shard_start, const char* shard_end, uint32_t variant_id_htable_size, uint32_t max_variant_id_slen, uintptr_t* already_seen, uintptr_t* duplicate_ct_ptr) {
+  const char* shard_iter = shard_start;
+  uintptr_t duplicate_ct = *duplicate_ct_ptr;
+  while (1) {
+    shard_iter = FirstPostspaceBounded(shard_iter, shard_end);
+    if (shard_iter == shard_end) {
+      *duplicate_ct_ptr = duplicate_ct;
+      return;
+    }
+    const char* token_end = CurTokenEnd(shard_iter);
+    uint32_t cur_llidx;
+    uint32_t variant_uidx = VariantIdDupHtableFind(shard_iter, variant_ids, variant_id_htable, htable_dup_base, token_end - shard_iter, variant_id_htable_size, max_variant_id_slen, &cur_llidx);
+    shard_iter = token_end;
+    if (variant_uidx == UINT32_MAX) {
+      continue;
+    }
+    if (IsSet(already_seen, variant_uidx)) {
+      ++duplicate_ct;
+      continue;
+    }
     for (; ; cur_llidx = htable_dup_base[cur_llidx + 1]) {
       SetBit(variant_uidx, already_seen);
       if (cur_llidx == UINT32_MAX) {
-        return;
+        break;
       }
       variant_uidx = htable_dup_base[cur_llidx];
     }
   }
 }
 
-PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* fnames, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, VfilterType vft, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+CONSTI32(kMaxExtractExcludeThreads, 8);
+
+// multithread globals
+static uint32_t g_calc_thread_ct = 0;
+static char* g_shard_boundaries[kMaxExtractExcludeThreads + 1];
+static uintptr_t* g_already_seens[kMaxExtractExcludeThreads];
+static uintptr_t g_duplicate_cts[kMaxExtractExcludeThreads];
+
+static const char* const* g_variant_ids = nullptr;
+static const uint32_t* g_variant_id_htable = nullptr;
+static const uint32_t* g_htable_dup_base = nullptr;
+static uintptr_t g_variant_id_htable_size = 0;
+static uint32_t g_max_variant_id_slen = 0;
+static uint32_t g_cur_block_size = 0; // just used as termination signal
+
+THREAD_FUNC_DECL ExtractExcludeThread(void* arg) {
+  const uintptr_t tidx = R_CAST(uintptr_t, arg);
+  const uintptr_t tidx_p1 = tidx + 1;
+  const char* const* variant_ids = g_variant_ids;
+  const uint32_t* variant_id_htable = g_variant_id_htable;
+  const uint32_t* htable_dup_base = g_htable_dup_base;
+  const uintptr_t variant_id_htable_size = g_variant_id_htable_size;
+  const uint32_t max_variant_id_slen = g_max_variant_id_slen;
+  uintptr_t* already_seen = g_already_seens[tidx_p1];
+  uintptr_t duplicate_ct = 0;
+  while (1) {
+    const uint32_t is_last_block = g_is_last_thread_block;
+    const uint32_t no_error = g_cur_block_size;
+    if (no_error) {
+      ExtractExcludeProcessTokens(variant_ids, variant_id_htable, htable_dup_base, g_shard_boundaries[tidx_p1], g_shard_boundaries[tidx_p1 + 1], variant_id_htable_size, max_variant_id_slen, already_seen, &duplicate_ct);
+    }
+    if (is_last_block) {
+      g_duplicate_cts[tidx_p1] = duplicate_ct;
+      THREAD_RETURN;
+    }
+    THREAD_BLOCK_FINISH(tidx);
+  }
+}
+
+PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* fnames, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, VfilterType vft, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  GzTokenStream gts;
-  PreinitGzTokenStream(&gts);
+  const char* vft_name = g_vft_names[vft];
+  TokenBatchStream tbs;
+  ThreadsState ts;
   PglErr reterr = kPglRetSuccess;
+  PreinitTBstream(&tbs);
+  InitThreads3z(&ts);
   {
     if (!(*variant_ct_ptr)) {
       goto ExtractExcludeFlagNorange_ret_1;
     }
-    // probable todo: multithreaded read/htable lookup, merge bitarrays at end
-    // (upgrade GzTokenStream first)
+    const uint32_t calc_thread_ct_m1 = ((max_thread_ct > 2)? MINV(max_thread_ct - 1, kMaxExtractExcludeThreads) : max_thread_ct) - 1;
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
-    uintptr_t* already_seen;
-    if (unlikely(bigstack_calloc_w(raw_variant_ctl, &already_seen))) {
-      goto ExtractExcludeFlagNorange_ret_NOMEM;
+    for (uint32_t tidx = 0; tidx <= calc_thread_ct_m1; ++tidx) {
+      if (unlikely(bigstack_calloc_w(raw_variant_ctl, &(g_already_seens[tidx])))) {
+        goto ExtractExcludeFlagNorange_ret_NOMEM;
+      }
     }
+    if (calc_thread_ct_m1) {
+      ts.calc_thread_ct = calc_thread_ct_m1;
+      if (unlikely(bigstack_alloc_thread(calc_thread_ct_m1, &ts.threads))) {
+        goto ExtractExcludeFlagNorange_ret_NOMEM;
+      }
+      ts.thread_func_ptr = ExtractExcludeThread;
+      g_variant_ids = variant_ids;
+      g_variant_id_htable = variant_id_htable;
+      g_htable_dup_base = htable_dup_base;
+      g_variant_id_htable_size = variant_id_htable_size;
+      g_max_variant_id_slen = max_variant_id_slen;
+      g_cur_block_size = 1;
+    }
+    ZeroWArr(calc_thread_ct_m1 + 1, g_duplicate_cts);
     const char* fnames_iter = fnames;
-    const char* vft_name = g_vft_names[vft];
-    uintptr_t duplicate_ct = 0;
+    uint32_t is_not_first_block = 0;
     do {
-      reterr = InitGzTokenStream(fnames_iter, &gts, g_textbuf);
+      reterr = InitTBstreamRaw(fnames_iter, &tbs);
       if (unlikely(reterr)) {
         goto ExtractExcludeFlagNorange_ret_1;
       }
-      uint32_t token_slen;
       while (1) {
-        const char* token_start = AdvanceGzTokenStream(&gts, &token_slen);
-        if (!token_start) {
+        reterr = TbsNext(&tbs, calc_thread_ct_m1 + 1, g_shard_boundaries);
+        if (reterr) {
           break;
         }
-        ExtractExcludeProcessToken(variant_ids, variant_id_htable, htable_dup_base, token_start, variant_id_htable_size, max_variant_id_slen, token_slen, already_seen, &duplicate_ct);
-      }
-      if (unlikely(token_slen)) {
-        // error code
-        if (token_slen == UINT32_MAX) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Excessively long ID in --%s file.\n", vft_name);
-          goto ExtractExcludeFlagNorange_ret_MALFORMED_INPUT_2;
+        if (calc_thread_ct_m1) {
+          if (unlikely(SpawnThreads3z(is_not_first_block, &ts))) {
+            goto ExtractExcludeFlagNorange_ret_THREAD_CREATE_FAIL;
+          }
+          is_not_first_block = 1;
         }
-        goto ExtractExcludeFlagNorange_ret_READ_FAIL;
+        ExtractExcludeProcessTokens(variant_ids, variant_id_htable, htable_dup_base, g_shard_boundaries[0], g_shard_boundaries[1], variant_id_htable_size, max_variant_id_slen, g_already_seens[0], &(g_duplicate_cts[0]));
+        if (calc_thread_ct_m1) {
+          JoinThreads3z(&ts);
+        }
       }
-      if (unlikely(CloseGzTokenStream(&gts))) {
-        goto ExtractExcludeFlagNorange_ret_READ_FAIL;
+      if (unlikely(reterr != kPglRetEof)) {
+        goto ExtractExcludeFlagNorange_ret_READ_TBSTREAM;
+      }
+      reterr = CleanupTBstream(&tbs);
+      if (unlikely(reterr)) {
+        goto ExtractExcludeFlagNorange_ret_1;
       }
       if (vft == kVfilterExtractIntersect) {
-        BitvecAnd(already_seen, raw_variant_ctl, variant_include);
-        ZeroWArr(raw_variant_ctl, already_seen);
+        for (uint32_t tidx = 1; tidx <= calc_thread_ct_m1; ++tidx) {
+          BitvecOr(g_already_seens[tidx], raw_variant_ctl, g_already_seens[0]);
+          ZeroWArr(raw_variant_ctl, g_already_seens[tidx]);
+        }
+        BitvecAnd(g_already_seens[0], raw_variant_ctl, variant_include);
+        ZeroWArr(raw_variant_ctl, g_already_seens[0]);
       }
       fnames_iter = strnul(fnames_iter);
       ++fnames_iter;
     } while (*fnames_iter);
+    if (calc_thread_ct_m1) {
+      StopThreads3z(&ts, &g_cur_block_size);
+    }
     if (vft == kVfilterExclude) {
-      BitvecInvmask(already_seen, raw_variant_ctl, variant_include);
+      for (uint32_t tidx = 1; tidx <= calc_thread_ct_m1; ++tidx) {
+        BitvecOr(g_already_seens[tidx], raw_variant_ctl, g_already_seens[0]);
+      }
+      BitvecInvmask(g_already_seens[0], raw_variant_ctl, variant_include);
     } else if (vft == kVfilterExtract) {
-      BitvecAnd(already_seen, raw_variant_ctl, variant_include);
+      for (uint32_t tidx = 1; tidx <= calc_thread_ct_m1; ++tidx) {
+        BitvecOr(g_already_seens[tidx], raw_variant_ctl, g_already_seens[0]);
+      }
+      BitvecAnd(g_already_seens[0], raw_variant_ctl, variant_include);
     }
     const uint32_t new_variant_ct = PopcountWords(variant_include, raw_variant_ctl);
     logprintf("--%s: %u variant%s remaining.\n", vft_name, new_variant_ct, (new_variant_ct == 1)? "" : "s");
     *variant_ct_ptr = new_variant_ct;
+    uintptr_t duplicate_ct = g_duplicate_cts[0];
+    for (uint32_t tidx = 1; tidx <= calc_thread_ct_m1; ++tidx) {
+      duplicate_ct += g_duplicate_cts[tidx];
+    }
     if (duplicate_ct) {
       logerrprintf("Warning: At least %" PRIuPTR " duplicate ID%s in --%s file(s).\n", duplicate_ct, (duplicate_ct == 1)? "" : "s", vft_name);
     }
@@ -349,16 +436,19 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
   ExtractExcludeFlagNorange_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  ExtractExcludeFlagNorange_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
+  ExtractExcludeFlagNorange_ret_READ_TBSTREAM:
+    {
+      char file_descrip_buf[32];
+      snprintf(file_descrip_buf, 32, "--%s file", vft_name);
+      TBstreamErrPrint(file_descrip_buf, &tbs, &reterr);
+    }
     break;
-  ExtractExcludeFlagNorange_ret_MALFORMED_INPUT_2:
-    logerrputsb();
-    reterr = kPglRetMalformedInput;
-    break;
+  ExtractExcludeFlagNorange_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
   }
  ExtractExcludeFlagNorange_ret_1:
-  CloseGzTokenStream(&gts);
+  CleanupThreads3z(&ts, &g_cur_block_size);
+  CleanupTBstream(&tbs);
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -1565,8 +1655,8 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
 
 PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fname, const char* cat_names_flattened, uint32_t raw_sample_ct, uint32_t is_remove, uint32_t max_thread_ct, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  GzTokenStream gts;
-  PreinitGzTokenStream(&gts);
+  TokenBatchStream tbs;
+  PreinitTBstream(&tbs);
   PglErr reterr = kPglRetSuccess;
   {
     const uint32_t orig_sample_ct = *sample_ct_ptr;
@@ -1593,36 +1683,42 @@ PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fn
     }
     ZeroWArr(cat_ctl, cat_include);
     if (cats_fname) {
-      reterr = InitGzTokenStream(cats_fname, &gts, g_textbuf);
+      reterr = InitTBstreamRaw(cats_fname, &tbs);
       if (unlikely(reterr)) {
         goto KeepRemoveCatsInternal_ret_1;
       }
       uintptr_t skip_ct = 0;
-      uint32_t token_slen;
       while (1) {
-        char* token_start = AdvanceGzTokenStream(&gts, &token_slen);
-        if (!token_start) {
+        char* shard_boundaries[2];
+        reterr = TbsNext(&tbs, 1, shard_boundaries);
+        if (reterr) {
           break;
         }
-        token_start[token_slen] = '\0';
-        // can't overread, category_names not in main workspace
-        const uint32_t cur_cat_idx = IdHtableFind(token_start, category_names, cat_id_htable, token_slen, id_htable_size);
-        if (cur_cat_idx == UINT32_MAX) {
-          ++skip_ct;
-        } else {
-          SetBit(cur_cat_idx, cat_include);
+        char* shard_iter = shard_boundaries[0];
+        char* shard_end = shard_boundaries[1];
+        while (1) {
+          shard_iter = FirstPostspaceBounded(shard_iter, shard_end);
+          if (shard_iter == shard_end) {
+            break;
+          }
+          char* token_end = CurTokenEnd(shard_iter);
+          *token_end = '\0';
+          // can't overread, category_names not in main workspace
+          const uint32_t cur_cat_idx = IdHtableFind(shard_iter, category_names, cat_id_htable, token_end - shard_iter, id_htable_size);
+          if (cur_cat_idx == UINT32_MAX) {
+            ++skip_ct;
+          } else {
+            SetBit(cur_cat_idx, cat_include);
+          }
+          shard_iter = token_end;
         }
       }
-      if (unlikely(token_slen)) {
-        // error code
-        if (token_slen == UINT32_MAX) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Excessively long ID in --%s-cats file.\n", is_remove? "remove" : "keep");
-          goto KeepRemoveCatsInternal_ret_MALFORMED_INPUT_2;
-        }
-        goto KeepRemoveCatsInternal_ret_READ_FAIL;
+      if (unlikely(reterr != kPglRetEof)) {
+        goto KeepRemoveCatsInternal_ret_READ_TBSTREAM;
       }
-      if (unlikely(CloseGzTokenStream(&gts))) {
-        goto KeepRemoveCatsInternal_ret_READ_FAIL;
+      reterr = CleanupTBstream(&tbs);
+      if (unlikely(reterr)) {
+        goto KeepRemoveCatsInternal_ret_1;
       }
       if (skip_ct) {
         logerrprintf("Warning: %" PRIuPTR " --%s-cats categor%s not present.\n", skip_ct, is_remove? "remove" : "keep", (skip_ct == 1)? "y" : "ies");
@@ -1674,16 +1770,16 @@ PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fn
   KeepRemoveCatsInternal_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  KeepRemoveCatsInternal_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
-    break;
-  KeepRemoveCatsInternal_ret_MALFORMED_INPUT_2:
-    logerrputsb();
-    reterr = kPglRetMalformedInput;
+  KeepRemoveCatsInternal_ret_READ_TBSTREAM:
+    {
+      char file_descrip_buf[32];
+      snprintf(file_descrip_buf, 32, "--%s-cats file", is_remove? "remove" : "keep");
+      TBstreamErrPrint(file_descrip_buf, &tbs, &reterr);
+    }
     break;
   }
  KeepRemoveCatsInternal_ret_1:
-  CloseGzTokenStream(&gts);
+  CleanupTBstream(&tbs);
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -2942,7 +3038,7 @@ void ComputeMajAlleles(const uintptr_t* variant_include, const uintptr_t* allele
 }
 
 
-// multithread globals
+// more multithread globals
 static PgenReader** g_pgr_ptrs = nullptr;
 static uintptr_t** g_genovecs = nullptr;
 static uint32_t* g_read_variant_uidx_starts = nullptr;
@@ -2954,8 +3050,6 @@ static const uintptr_t* g_variant_include = nullptr;
 static const ChrInfo* g_cip = nullptr;
 static const uintptr_t* g_sex_male = nullptr;
 static uint32_t g_raw_sample_ct = 0;
-static uint32_t g_cur_block_size = 0;
-static uint32_t g_calc_thread_ct = 0;
 static PglErr g_error_ret = kPglRetSuccess;
 
 THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* arg) {

@@ -1921,11 +1921,24 @@ PglErr ProcessBoundaryToken(const char* tok_start, const char* tok_end, const ch
 }
 
 PglErr InitHistogramFromFileOrCommalist(const char* binstr, uint32_t is_fname, double** freq_bounds_ptr, uint64_t** dosage_bounds_ptr, uint32_t* boundary_ct_ptr, uint32_t** histogram_ptr) {
-  GzTokenStream gts;
-  PreinitGzTokenStream(&gts);
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  TokenBatchStream tbs;
+  PreinitTBstream(&tbs);
   uint32_t max_boundary_ct = 0;
   PglErr reterr = kPglRetSuccess;
   {
+    if (is_fname) {
+      // we want to accept >100000 numbers on a single line.  this will reject
+      // "000...{a million more zeroes}...1"; pretty sure that's okay.
+      reterr = gzopen_read_checked(binstr, &tbs.rls.gz_infile);
+      if (unlikely(reterr)) {
+        goto InitHistogramFromFileOrCommalist_ret_1;
+      }
+      reterr = InitTBstreamEx(1, &tbs);
+      if (unlikely(reterr)) {
+        goto InitHistogramFromFileOrCommalist_ret_1;
+      }
+    }
     uintptr_t ulii = RoundDownPow2(bigstack_left(), kCacheline);
     if (unlikely(ulii < 2 * kCacheline)) {
       goto InitHistogramFromFileOrCommalist_ret_NOMEM;
@@ -1945,30 +1958,33 @@ PglErr InitHistogramFromFileOrCommalist(const char* binstr, uint32_t is_fname, d
     uint32_t boundary_ct = 0;
     double prev_boundary = 0.0;
     if (is_fname) {
-      // we want to accept >100000 numbers on a single line.  this will reject
-      // "000...{a million more zeroes}...1"; pretty sure that's okay.
-      reterr = InitGzTokenStream(binstr, &gts, g_textbuf);
-      if (unlikely(reterr)) {
-        goto InitHistogramFromFileOrCommalist_ret_1;
-      }
-      uint32_t token_slen;
       while (1) {
-        const char* token_start = AdvanceGzTokenStream(&gts, &token_slen);
-        if (!token_start) {
+        char* shard_boundaries[2];
+        reterr = TbsNext(&tbs, 1, shard_boundaries);
+        if (reterr) {
           break;
         }
-        reterr = ProcessBoundaryToken(token_start, &(token_start[token_slen]), binstr, max_boundary_ct, kPglRetMalformedInput, &prev_boundary, &boundary_ct, freq_bounds_ptr, dosage_bounds_ptr);
-        if (unlikely(reterr)) {
-          goto InitHistogramFromFileOrCommalist_ret_1;
+        char* shard_iter = shard_boundaries[0];
+        char* shard_end = shard_boundaries[1];
+        while (1) {
+          shard_iter = FirstPostspaceBounded(shard_iter, shard_end);
+          if (shard_iter == shard_end) {
+            break;
+          }
+          char* token_end = CurTokenEnd(shard_iter);
+          reterr = ProcessBoundaryToken(shard_iter, token_end, binstr, max_boundary_ct, kPglRetMalformedInput, &prev_boundary, &boundary_ct, freq_bounds_ptr, dosage_bounds_ptr);
+          if (unlikely(reterr)) {
+            goto InitHistogramFromFileOrCommalist_ret_1;
+          }
+          shard_iter = token_end;
         }
       }
-      if (unlikely(token_slen)) {
-        if (token_slen == UINT32_MAX) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Excessively long token in %s.\n", binstr);
-          goto InitHistogramFromFileOrCommalist_ret_MALFORMED_INPUT_2;
-        } else {
-          goto InitHistogramFromFileOrCommalist_ret_READ_FAIL;
-        }
+      if (unlikely(reterr != kPglRetEof)) {
+        goto InitHistogramFromFileOrCommalist_ret_READ_TBSTREAM;
+      }
+      reterr = CleanupTBstream(&tbs);
+      if (unlikely(reterr)) {
+        goto InitHistogramFromFileOrCommalist_ret_1;
       }
     } else {
       const char* binstr_iter = binstr;
@@ -1993,16 +2009,13 @@ PglErr InitHistogramFromFileOrCommalist(const char* binstr, uint32_t is_fname, d
   InitHistogramFromFileOrCommalist_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  InitHistogramFromFileOrCommalist_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
-    break;
-  InitHistogramFromFileOrCommalist_ret_MALFORMED_INPUT_2:
-    logerrputsb();
-    reterr = kPglRetMalformedInput;
+  InitHistogramFromFileOrCommalist_ret_READ_TBSTREAM:
+    TBstreamErrPrint("--freq {ref|alt1}bins-file= file", &tbs, &reterr);
     break;
   }
  InitHistogramFromFileOrCommalist_ret_1:
-  CloseGzTokenStream(&gts);
+  CleanupTBstream(&tbs);
+  BigstackEndReset(bigstack_end_mark);
   return reterr;
 }
 

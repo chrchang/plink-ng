@@ -679,6 +679,22 @@ HEADER_INLINE char* FirstNonTspace(char* str_iter) {
 }
 #endif
 
+HEADER_INLINE CXXCONST_CP FirstPostspaceBounded(const char* str_iter, const char* str_end) {
+  for (; str_iter != str_end; ++str_iter) {
+    if (ctou32(*str_iter) > ' ') {
+      break;
+    }
+  }
+  return S_CAST(CXXCONST_CP, str_iter);
+}
+
+#ifdef __cplusplus
+HEADER_INLINE char* FirstPostspaceBounded(char* str_iter, char* str_end) {
+  return const_cast<char*>(FirstPostspaceBounded(const_cast<const char*>(str_iter), const_cast<const char*>(str_end)));
+}
+#endif
+
+
 // See also (93) on TAOCP vol 4a, pp. 153.  Todo: benchmark a
 // FirstPrecharUnsafe() function which uses that (unsafe because it reads up to
 // 7 characters past buffer end).
@@ -703,7 +719,7 @@ HEADER_INLINE CXXCONST_CP FirstPrechar(const char* str_iter, uint32_t char_code)
 //   rawmemchr2, strnul, strchrnul_n, strchrnul2, strchrnul3, strchrnul_n_mov,
 //     incr_strchrnul_n_mov
 //   NextTokenMultFar
-//   AdvToNthDelimChecked, AdvToNthDelim, AdvToDelimOrEnd, Memrchr
+//   AdvToNthDelimChecked, AdvToNthDelim, AdvToDelimOrEnd, Memrchr, LastSpace
 
 /*
 #ifdef __LP64__
@@ -1444,6 +1460,8 @@ HEADER_INLINE char* AdvToDelimOrEnd(char* str_iter, char* str_end, char needle) 
 // hence the initial capital letter.
 #ifdef __LP64__
 CXXCONST_CP Memrchr(const char* str_start, char needle, uintptr_t slen);
+
+CXXCONST_CP LastSpaceOrEoln(const char* str_start, uintptr_t slen);
 #else  // !__LP64__
 HEADER_INLINE CXXCONST_CP Memrchr(const char* str_start, char needle, uintptr_t slen) {
 #  ifdef _GNU_SOURCE
@@ -1458,11 +1476,24 @@ HEADER_INLINE CXXCONST_CP Memrchr(const char* str_start, char needle, uintptr_t 
   return nullptr;
 #  endif  // !_GNU_SOURCE
 }
+
+HEADER_INLINE CXXCONST_CP LastSpaceOrEoln(const char* str_start, uintptr_t slen) {
+  for (uintptr_t pos = slen; pos; ) {
+    if (ctou32(str_start[--pos]) <= 32) {
+      return S_CAST(CXXCONST_CP, &(str_start[pos]));
+    }
+  }
+  return nullptr;
+}
 #endif  // !__LP64__
 
 #ifdef __cplusplus
 HEADER_INLINE char* Memrchr(char* str_start, char needle, uintptr_t slen) {
   return const_cast<char*>(Memrchr(const_cast<const char*>(str_start), needle, slen));
+}
+
+HEADER_INLINE char* LastSpaceOrEoln(char* str_start, uintptr_t slen) {
+  return const_cast<char*>(LastSpaceOrEoln(const_cast<const char*>(str_start), slen));
 }
 #endif
 

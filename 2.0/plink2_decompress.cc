@@ -59,89 +59,6 @@ PglErr GzopenAndSkipFirstLines(const char* fname, uint32_t lines_to_skip, uintpt
 }
 
 
-void PreinitGzTokenStream(GzTokenStream* gtsp) {
-  gtsp->gz_infile = nullptr;
-}
-
-PglErr InitGzTokenStream(const char* fname, GzTokenStream* gtsp, char* buf_start) {
-  PglErr reterr = gzopen_read_checked(fname, &(gtsp->gz_infile));
-  if (unlikely(reterr)) {
-    return reterr;
-  }
-  gtsp->buf_start = buf_start;
-  gtsp->read_iter = &(buf_start[kMaxMediumLine]);
-  gtsp->buf_end = gtsp->read_iter;
-  gtsp->buf_end[0] = '0';  // force initial load
-  return kPglRetSuccess;
-}
-
-char* AdvanceGzTokenStream(GzTokenStream* gtsp, uint32_t* token_slen_ptr) {
-  char* token_start = gtsp->read_iter;
-  char* buf_end = gtsp->buf_end;
- AdvanceGzTokenStream_restart:
-  while (ctou32(*token_start) <= ' ') {
-    ++token_start;
-  }
-  while (1) {
-    if (token_start < buf_end) {
-      char* token_end = &(token_start[1]);
-      while (ctou32(*token_end) > ' ') {
-        ++token_end;
-      }
-      const uint32_t token_slen = token_end - token_start;
-      if (token_end < buf_end) {
-        *token_slen_ptr = token_slen;
-        gtsp->read_iter = &(token_end[1]);
-        return token_start;
-      }
-      if (unlikely(token_slen > kMaxMediumLine)) {
-        *token_slen_ptr = UINT32_MAX;
-        return nullptr;
-      }
-      char* new_token_start = &(gtsp->buf_start[kMaxMediumLine - token_slen]);
-      memcpy(new_token_start, token_start, token_slen);
-      token_start = new_token_start;
-    } else {
-      token_start = &(gtsp->buf_start[kMaxMediumLine]);
-    }
-    char* load_start = &(gtsp->buf_start[kMaxMediumLine]);
-    const int32_t bufsize = gzread(gtsp->gz_infile, load_start, kMaxMediumLine);
-    if (unlikely(bufsize < 0)) {
-      *token_slen_ptr = UINT32_MAXM1;
-      return nullptr;
-    }
-    buf_end = &(load_start[S_CAST(uint32_t, bufsize)]);
-    buf_end[0] = ' ';
-    buf_end[1] = '0';
-    gtsp->buf_end = buf_end;
-    if (!bufsize) {
-      if (unlikely(!gzeof(gtsp->gz_infile))) {
-        *token_slen_ptr = UINT32_MAXM1;
-        return nullptr;
-      }
-      // bufsize == 0, eof
-      if (token_start == load_start) {
-        *token_slen_ptr = 0;
-        return nullptr;
-      }
-      gtsp->read_iter = load_start;
-      *token_slen_ptr = load_start - token_start;
-      return token_start;
-    }
-    if (token_start == load_start) {
-      goto AdvanceGzTokenStream_restart;
-    }
-  }
-}
-
-BoolErr CloseGzTokenStream(GzTokenStream* gtsp) {
-  if (!gtsp->gz_infile) {
-    return 0;
-  }
-  return gzclose_null(&(gtsp->gz_infile));
-}
-
-
 void PreinitRLstream(ReadLineStream* rlsp) {
   rlsp->gz_infile = nullptr;
   rlsp->bgz_infile = nullptr;
@@ -204,6 +121,7 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
 #endif
   const uint32_t enforced_max_line_blen = context->enforced_max_line_blen;
   const char* new_fname = nullptr;
+  const uint32_t is_token_stream = (enforced_max_line_blen == 0);
   while (1) {
     RlsInterrupt interrupt = kRlsInterruptNone;
     PglErr reterr;
@@ -348,14 +266,20 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
         }
         goto ReadLineStreamThread_EOF;
       }
-      char* last_lf = Memrchr(read_head, '\n', read_attempt_size);
-      if (last_lf) {
-        if (S_CAST(uintptr_t, last_lf - cur_block_start) >= enforced_max_line_blen) {
+      char* last_byte_ptr;
+      if (!is_token_stream) {
+        last_byte_ptr = Memrchr(read_head, '\n', read_attempt_size);
+      } else {
+        last_byte_ptr = LastSpaceOrEoln(read_head, read_attempt_size);
+      }
+      if (last_byte_ptr) {
+        if ((!is_token_stream) && S_CAST(uintptr_t, last_byte_ptr - cur_block_start) >= enforced_max_line_blen) {
+          // this isn't an exhaustive check.
           if (unlikely(!memchr(read_head, '\n', &(cur_block_start[enforced_max_line_blen]) - read_head))) {
             goto ReadLineStreamThread_LONG_LINE;
           }
         }
-        char* next_available_end = &(last_lf[1]);
+        char* next_available_end = &(last_byte_ptr[1]);
 #ifdef _WIN32
         EnterCriticalSection(critical_sectionp);
 #else
@@ -1015,6 +939,7 @@ void RLstreamErrPrint(const char* file_descrip, ReadLineStream* rlsp, PglErr* re
     }
     return;
   }
+  assert(rlsp->enforced_max_line_blen);
   if (S_CAST(uintptr_t, rlsp->buf_end - rlsp->buf) != rlsp->enforced_max_line_blen + kDecompressChunkSize) {
     *reterr_ptr = kPglRetNomem;
     return;
@@ -1022,6 +947,48 @@ void RLstreamErrPrint(const char* file_descrip, ReadLineStream* rlsp, PglErr* re
   // Could report accurate line number, but probably not worth the trouble.
   putc_unlocked('\n', stdout);
   logerrprintfww("Error: Pathologically long line in %s.\n", file_descrip);
+  *reterr_ptr = kPglRetMalformedInput;
+}
+
+
+PglErr TbsNext(TokenBatchStream* tbsp, uint32_t shard_ct, char** shard_boundaries) {
+  char* consume_iter = tbsp->rls.consume_stop;
+  PglErr reterr = AdvanceRLstream(&(tbsp->rls), &consume_iter);
+  tbsp->consume_iter = consume_iter;
+  if (reterr) { // not unlikely due to eof
+    return reterr;
+  }
+  char* consume_stop = tbsp->rls.consume_stop;
+  shard_boundaries[0] = consume_iter;
+  shard_boundaries[shard_ct] = tbsp->rls.consume_stop;
+  if (shard_ct > 1) {
+    const uintptr_t shard_size_target = S_CAST(uintptr_t, consume_stop - consume_iter) / shard_ct;
+    char* boundary_min = consume_iter;
+    char* cur_boundary = consume_iter;
+    for (uint32_t boundary_idx = 1; boundary_idx < shard_ct; ++boundary_idx) {
+      boundary_min = &(boundary_min[shard_size_target]);
+      if (boundary_min > cur_boundary) {
+        // last character must be token separator
+        cur_boundary = FirstSpaceOrEoln(boundary_min);
+        ++cur_boundary;
+      }
+      shard_boundaries[boundary_idx] = cur_boundary;
+    }
+  }
+  return kPglRetSuccess;
+}
+
+void TBstreamErrPrint(const char* file_descrip, TokenBatchStream* tbsp, PglErr* reterr_ptr) {
+  if (*reterr_ptr != kPglRetLongLine) {
+    if (*reterr_ptr == kPglRetOpenFail) {
+      putc_unlocked('\n', stdout);
+      logerrprintfww(kErrprintfFopen, tbsp->rls.syncp->new_fname);
+    }
+    return;
+  }
+  assert(!tbsp->rls.enforced_max_line_blen);
+  putc_unlocked('\n', stdout);
+  logerrprintfww("Error: Pathologically long token in %s.\n", file_descrip);
   *reterr_ptr = kPglRetMalformedInput;
 }
 
