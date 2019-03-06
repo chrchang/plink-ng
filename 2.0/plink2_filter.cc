@@ -264,13 +264,11 @@ PglErr SnpsFlag(const char* const* variant_ids, const uint32_t* variant_id_htabl
   return reterr;
 }
 
-void ExtractExcludeProcessTokens(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* shard_start, const char* shard_end, uint32_t variant_id_htable_size, uint32_t max_variant_id_slen, uintptr_t* already_seen, uintptr_t* duplicate_ct_ptr) {
+void ExtractExcludeProcessTokens(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* shard_start, const char* shard_end, uint32_t variant_id_htable_size, uint32_t max_variant_id_slen, uintptr_t* already_seen) {
   const char* shard_iter = shard_start;
-  uintptr_t duplicate_ct = *duplicate_ct_ptr;
   while (1) {
     shard_iter = FirstPostspaceBounded(shard_iter, shard_end);
     if (shard_iter == shard_end) {
-      *duplicate_ct_ptr = duplicate_ct;
       return;
     }
     const char* token_end = CurTokenEnd(shard_iter);
@@ -281,7 +279,6 @@ void ExtractExcludeProcessTokens(const char* const* variant_ids, const uint32_t*
       continue;
     }
     if (IsSet(already_seen, variant_uidx)) {
-      ++duplicate_ct;
       continue;
     }
     for (; ; cur_llidx = htable_dup_base[cur_llidx + 1]) {
@@ -300,7 +297,6 @@ CONSTI32(kMaxExtractExcludeThreads, 8);
 static uint32_t g_calc_thread_ct = 0;
 static char* g_shard_boundaries[kMaxExtractExcludeThreads + 1];
 static uintptr_t* g_already_seens[kMaxExtractExcludeThreads];
-static uintptr_t g_duplicate_cts[kMaxExtractExcludeThreads];
 
 static const char* const* g_variant_ids = nullptr;
 static const uint32_t* g_variant_id_htable = nullptr;
@@ -318,15 +314,13 @@ THREAD_FUNC_DECL ExtractExcludeThread(void* arg) {
   const uintptr_t variant_id_htable_size = g_variant_id_htable_size;
   const uint32_t max_variant_id_slen = g_max_variant_id_slen;
   uintptr_t* already_seen = g_already_seens[tidx_p1];
-  uintptr_t duplicate_ct = 0;
   while (1) {
     const uint32_t is_last_block = g_is_last_thread_block;
     const uint32_t no_error = g_cur_block_size;
     if (no_error) {
-      ExtractExcludeProcessTokens(variant_ids, variant_id_htable, htable_dup_base, g_shard_boundaries[tidx_p1], g_shard_boundaries[tidx_p1 + 1], variant_id_htable_size, max_variant_id_slen, already_seen, &duplicate_ct);
+      ExtractExcludeProcessTokens(variant_ids, variant_id_htable, htable_dup_base, g_shard_boundaries[tidx_p1], g_shard_boundaries[tidx_p1 + 1], variant_id_htable_size, max_variant_id_slen, already_seen);
     }
     if (is_last_block) {
-      g_duplicate_cts[tidx_p1] = duplicate_ct;
       THREAD_RETURN;
     }
     THREAD_BLOCK_FINISH(tidx);
@@ -365,7 +359,6 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
       g_max_variant_id_slen = max_variant_id_slen;
       g_cur_block_size = 1;
     }
-    ZeroWArr(calc_thread_ct_m1 + 1, g_duplicate_cts);
     const char* fnames_iter = fnames;
     uint32_t is_not_first_block = 0;
     do {
@@ -384,7 +377,7 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
           }
           is_not_first_block = 1;
         }
-        ExtractExcludeProcessTokens(variant_ids, variant_id_htable, htable_dup_base, g_shard_boundaries[0], g_shard_boundaries[1], variant_id_htable_size, max_variant_id_slen, g_already_seens[0], &(g_duplicate_cts[0]));
+        ExtractExcludeProcessTokens(variant_ids, variant_id_htable, htable_dup_base, g_shard_boundaries[0], g_shard_boundaries[1], variant_id_htable_size, max_variant_id_slen, g_already_seens[0]);
         if (calc_thread_ct_m1) {
           JoinThreads3z(&ts);
         }
@@ -424,13 +417,6 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
     const uint32_t new_variant_ct = PopcountWords(variant_include, raw_variant_ctl);
     logprintf("--%s: %u variant%s remaining.\n", vft_name, new_variant_ct, (new_variant_ct == 1)? "" : "s");
     *variant_ct_ptr = new_variant_ct;
-    uintptr_t duplicate_ct = g_duplicate_cts[0];
-    for (uint32_t tidx = 1; tidx <= calc_thread_ct_m1; ++tidx) {
-      duplicate_ct += g_duplicate_cts[tidx];
-    }
-    if (duplicate_ct) {
-      logerrprintf("Warning: At least %" PRIuPTR " duplicate ID%s in --%s file(s).\n", duplicate_ct, (duplicate_ct == 1)? "" : "s", vft_name);
-    }
   }
   while (0) {
   ExtractExcludeFlagNorange_ret_NOMEM:
