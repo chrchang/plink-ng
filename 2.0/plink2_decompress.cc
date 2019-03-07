@@ -89,6 +89,43 @@ PglErr IsBgzf(const char* fname, uint32_t* is_bgzf_ptr) {
   return kPglRetSuccess;
 }
 
+// Validated by testing on lines of length 2^31 - 64 and 2^31 - 63 (including
+// \n)
+BoolErr IsPathologicallyLongLine(const char* cur_block_start, uint32_t cur_blen, uint32_t enforced_max_line_blen) {
+  // Guaranteed that enforced_max_line_blen is at least 2/3 of
+  // cur_blen.  Therefore:
+  //   If there's a \n in the middle, we're done.
+  //   Otherwise, find the last \n before the middle and the first
+  //     one after it, and check that distance.
+  const uint32_t margin = cur_blen - enforced_max_line_blen;
+  const char* middle_start = &(cur_block_start[margin]);
+  if (memchr(middle_start, '\n', enforced_max_line_blen - margin)) {
+    return 0;
+  }
+  const char* pre_middle_lf = Memrchr(cur_block_start, '\n', margin);
+  if (unlikely(!pre_middle_lf)) {
+    return 1;
+  }
+  const char* post_middle_lf = S_CAST(const char*, memchr(&(cur_block_start[enforced_max_line_blen]), '\n', margin));
+  return (S_CAST(uintptr_t, post_middle_lf - pre_middle_lf) > enforced_max_line_blen);
+}
+
+// Validated by testing on tokens of length 2^23 and 2^23 - 1.
+BoolErr IsPathologicallyLongToken(const char* cur_block_start, uint32_t cur_blen) {
+  const uint32_t margin = cur_blen - kMaxTokenBlen;
+  const char* middle_start = &(cur_block_start[margin]);
+  // might want FirstPrecharFar here
+  const char* middle_token_end = FirstPrechar(middle_start, 33);
+  if (S_CAST(uintptr_t, middle_token_end - middle_start) < kMaxTokenBlen - margin) {
+    return 0;
+  }
+  const char* pre_middle_nontoken = LastSpaceOrEoln(cur_block_start, margin);
+  if (unlikely(!pre_middle_nontoken)) {
+    return 1;
+  }
+  return (S_CAST(uintptr_t, middle_token_end - pre_middle_nontoken) > kMaxTokenBlen);
+}
+
 // This type of code is especially bug-prone (ESR would call it a "defect
 // attractor").  Goal is to get it right, and fast enough to be a major win
 // over gzgets()... and then not worry about it again for years.
@@ -264,6 +301,21 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
             *read_head++ = '\n';
           }
         }
+        // Still want to consistently enforce max line/token length.
+        const uint32_t cur_blen = read_head - cur_block_start;
+        if (!is_token_stream) {
+          if (cur_blen > enforced_max_line_blen) {
+            if (unlikely(IsPathologicallyLongLine(cur_block_start, cur_blen, enforced_max_line_blen))) {
+              goto ReadLineStreamThread_LONG_LINE;
+            }
+          }
+        } else {
+          if (cur_blen > kMaxTokenBlen) {
+            if (unlikely(IsPathologicallyLongToken(cur_block_start, cur_blen))) {
+              goto ReadLineStreamThread_LONG_LINE;
+            }
+          }
+        }
         goto ReadLineStreamThread_EOF;
       }
       char* last_byte_ptr;
@@ -273,10 +325,18 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
         last_byte_ptr = LastSpaceOrEoln(read_head, read_attempt_size);
       }
       if (last_byte_ptr) {
-        if ((!is_token_stream) && S_CAST(uintptr_t, last_byte_ptr - cur_block_start) >= enforced_max_line_blen) {
-          // this isn't an exhaustive check.
-          if (unlikely(!memchr(read_head, '\n', &(cur_block_start[enforced_max_line_blen]) - read_head))) {
-            goto ReadLineStreamThread_LONG_LINE;
+        const uint32_t cur_blen = 1 + S_CAST(uintptr_t, last_byte_ptr - cur_block_start);
+        if (!is_token_stream) {
+          if (cur_blen > enforced_max_line_blen) {
+            if (unlikely(IsPathologicallyLongLine(cur_block_start, cur_blen, enforced_max_line_blen))) {
+              goto ReadLineStreamThread_LONG_LINE;
+            }
+          }
+        } else {
+          if (cur_blen > kMaxTokenBlen) {
+            if (unlikely(IsPathologicallyLongToken(cur_block_start, cur_blen))) {
+              goto ReadLineStreamThread_LONG_LINE;
+            }
           }
         }
         char* next_available_end = &(last_byte_ptr[1]);
@@ -939,7 +999,6 @@ void RLstreamErrPrint(const char* file_descrip, ReadLineStream* rlsp, PglErr* re
     }
     return;
   }
-  assert(rlsp->enforced_max_line_blen);
   if (S_CAST(uintptr_t, rlsp->buf_end - rlsp->buf) != rlsp->enforced_max_line_blen + kDecompressChunkSize) {
     *reterr_ptr = kPglRetNomem;
     return;

@@ -152,6 +152,10 @@ static_assert(kRLstreamBlenLowerBound >= kMaxMediumLine, "max_line_blen lower li
 // bit.)
 CONSTI32(kRLstreamBlenFast, 11 * kDecompressChunkSize);
 
+CONSTI32(kMaxTokenBlen, 8 * kDecompressChunkSize);
+static_assert(kMaxTokenBlen * 3 >= 2 * (kRLstreamBlenFast + kDecompressChunkSize), "kMaxTokenBlen too small.");
+static_assert(kMaxTokenBlen < kRLstreamBlenFast, "kMaxTokenBlen too large.");
+
 // required_byte_ct can't be greater than kMaxLongLine.
 // unstandardized_byte_ct cannot be bigstack_left() here, because the read
 // stream requires a few additional allocations; use

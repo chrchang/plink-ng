@@ -719,7 +719,8 @@ HEADER_INLINE CXXCONST_CP FirstPrechar(const char* str_iter, uint32_t char_code)
 //   rawmemchr2, strnul, strchrnul_n, strchrnul2, strchrnul3, strchrnul_n_mov,
 //     incr_strchrnul_n_mov
 //   NextTokenMultFar
-//   AdvToNthDelimChecked, AdvToNthDelim, AdvToDelimOrEnd, Memrchr, LastSpace
+//   AdvToNthDelimChecked, AdvToNthDelim, AdvToDelimOrEnd, Memrchr,
+//     LastSpaceOrEoln
 
 /*
 #ifdef __LP64__
