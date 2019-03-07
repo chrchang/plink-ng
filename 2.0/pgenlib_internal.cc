@@ -5092,7 +5092,9 @@ PglErr LdLoadGenovecSubsetIfNecessary(const uintptr_t* __restrict sample_include
       return kPglRetReadFail;
     }
     const uint32_t vrtype = pgrp->fi.vrtypes[ldbase_vidx];
-    pgrp->ldbase_stypes = VrtypeDifflist(vrtype)? kfPgrLdcacheQuater : (kfPgrLdcacheQuater | kfPgrLdcacheRawQuater);
+    // bugfix (6 Mar 2019): ldbase_raw_genovec is only filled in (!difflist) &&
+    //   subsetting_required case; (!difflist) isn't enough
+    pgrp->ldbase_stypes = (VrtypeDifflist(vrtype) || (sample_ct == pgrp->fi.raw_sample_ct))? kfPgrLdcacheQuater : (kfPgrLdcacheQuater | kfPgrLdcacheRawQuater);
     return ParseNonLdGenovecSubsetUnsafe(fread_end, sample_include, sample_include_cumulative_popcounts, sample_ct, vrtype, &fread_ptr, pgrp, pgrp->ldbase_genovec);
   }
   if (!(pgrp->ldbase_stypes & kfPgrLdcacheQuater)) {
