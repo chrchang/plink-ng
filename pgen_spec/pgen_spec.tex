@@ -310,7 +310,7 @@ indicates whether hardcall-phase information is present, bits 5 and 6 describe
 whether and how unphased dosage data is stored, and bit 7 indicates whether
 explicit phased-dosages are present.
 
-Variant records are currently limited to 4284736160 (slightly under $2^{32}$)
+Variant records are currently limited to 4294736160 (slightly under $2^{32}$)
 bytes.
 
 \subsubsection{Difflists}
@@ -349,9 +349,9 @@ components of the difflist are, in order:
 \item If 2-bit genotype category values are also stored in the difflist, the
   fourth component is a packed array of them, occupying $\lfloor L/4\rfloor $
   bytes.
-\item The final component is a sequence of $L-G$ varints encoding ([sample ID
-  \#$k$] - [sample ID \#$k-1$]) for all positive $k<L$ which aren't multiples
-  of 64.
+\item The final component is a sequence of $L-G$ varints encoding (\textless
+  sample ID \#$k$\textgreater $\>-$ \textless sample ID \#$k-1$\textgreater)
+  for all positive $k<L$ which aren't multiples of 64.
 \end{enumerate}
 
 As an example, suppose $N=488377$, $L=79$, 2-bit genotype category values are
@@ -372,13 +372,17 @@ also stored in the difflist, and the sample IDs in the list are 5000, 10000,
   sample \#10000, bits 4-5 of the first byte are for sample \#15000, bits 6-7
   of the first byte are for sample \#20000, bits 0-1 of the second byte are for
   sample \#25000, \ldots .
-\item The remainder of the difflist stores ([sample ID \#1] - [sample ID \#0]),
-  ([sample ID \#2] - [sample ID \#1]), \ldots , ([sample ID \#63] - [sample ID
-  \#62]), ([sample ID \#65] - [sample ID \#64]), ([sample ID \#66] - [sample ID
-  \#65]), \ldots , ([sample ID \#78] - [sample ID \#77]) using varint encoding.
-  There are 77 values (note that there is no entry for $k=64$), all equal to
-  5000 in this example, so these 154 bytes are \texttt{0x88 0x27 0x88 0x27 0x88
-  0x27 \ldots}, since 5000's varint encoding is \texttt{0x88 0x27}.
+\item The remainder of the difflist stores (\textless sample ID \#1\textgreater
+  $\>-$ \textless sample ID \#0\textgreater ), (\textless sample ID
+  \#2\textgreater $\>-$ \textless sample ID \#1\textgreater ), \ldots ,
+  (\textless sample ID \#63\textgreater $\>-$ \textless sample ID
+  \#62\textgreater ), (\textless sample ID \#65\textgreater $\>-$ \textless
+  sample ID \#64\textgreater ), (\textless sample ID \#66\textgreater $\>-$
+  \textless sample ID \#65\textgreater ), \ldots , (\textless sample ID
+  \#78\textgreater $\>-$ \textless sample ID \#77\textgreater ) using varint
+  encoding.  There are 77 values (note that there is no entry for $k=64$), all
+  equal to 5000 in this example, so these 154 bytes are \texttt{0x88 0x27 0x88
+  0x27 0x88 0x27 \ldots}, since 5000's varint encoding is \texttt{0x88 0x27}.
 \end{itemize}
 
 \subsubsection{Main data track}
@@ -530,10 +534,10 @@ present; auxiliary data tracks \#3-4 (and \#5-10, for that matter) don't exist.
 Otherwise, auxiliary data track \#4 contains dosages, represented as an array
 of \texttt{uint16}s.  In this array, a value in [0, $2^{15}$] corresponds to a
 sum-of-ALT-allele-dosages equal to that value multiplied by $2^{-15}\cdot $
-[maximum possible dosage]; e.g. 1638 corresponds to a diploid ALT allele dosage
-of roughly 0.05, or a haploid dosage of roughly 0.025.  (Note that PGEN files
-don't distinguish between diploid and haploid calls; it is assumed that ploidy
-is known from other context.)
+\textless maximum possible dosage\textgreater ; e.g. 1638 corresponds to a
+diploid ALT allele dosage of roughly 0.05, or a haploid dosage of roughly
+0.025.  (Note that PGEN files don't distinguish between diploid and haploid
+calls; it is assumed that ploidy is known from other context.)
 
 \textbf{Dosages are not allowed to be inconsistent with the corresponding
 hard-calls.}  More precisely, given a (possibly phased) dosage, the (possibly
@@ -611,7 +615,8 @@ cover the other bases...
 When bit 7 of the variant record type is set, auxiliary data track \#8 stores
 explicit dosage phasing information, represented as an array of
 \texttt{int16}s.  In this array, a value in [$-2^{14}$, $2^{14}$] is $2^{14}$
-multiplied by ([left-haplotype ALT dosage] minus [right-haplotype ALT dosage]).
+multiplied by (\textless left-haplotype ALT dosage\textgreater $\>-$ \textless
+right-haplotype ALT dosage\textgreater ).
 
 As for auxiliary data track \#7:
 
