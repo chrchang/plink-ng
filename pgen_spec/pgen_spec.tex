@@ -3,6 +3,7 @@
 \usepackage{indentfirst}
 \usepackage[margin=0.75in]{geometry}
 \usepackage[pdfborder={0 0 0}]{hyperref}
+\usepackage[normalem]{ulem}
 
 \usepackage{listings}
 \lstset{
@@ -169,17 +170,17 @@ rest of the header is formatted.
   \item \texttt{5}: 8 bits per record type, 2 bytes per record length.
   \item \texttt{6}: 8 bits per record type, 3 bytes per record length.
   \item \texttt{7}: 8 bits per record type, 4 bytes per record length.
-  \item \texttt{8}: 0 bits per record type, 2 bits per record length ($\ell
+  \item \sout{\texttt{8}: 0 bits per record type, 2 bits per record length ($\ell
     -\lceil N/4\rceil$ is stored when the record length is $\ell$ byte(s)).
     Record type is inferred as 0 when record length is minimal, and 8 (i.e.
     multiallelic-variant hard-call) when record length has 1-3 extra bytes.
-    This is designed for single-sample filesets sharing a single PVAR.
-  \item \texttt{9}: 0 bits per record type, 4 bits per record length ($\ell
+    This is designed for single-sample filesets sharing a single PVAR.}
+  \item \sout{\texttt{9}: 0 bits per record type, 4 bits per record length ($\ell
     -\lceil N/4\rceil$ stored when record length is $\ell$).  Record type is
     inferred as 0 when record length is minimal, and 8 when record-length has
-    1-15 extra bytes.
+    1-15 extra bytes.}
   \end{itemize}
-  Values 10-15 are reserved for future use.
+  Values 8-15 are reserved for future use.
 
   With storage modes \texttt{0x02..0x04}, these bits are always zeroed out,
   since it is unnecessary to store any additional variant-record type or length
