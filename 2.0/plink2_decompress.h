@@ -152,9 +152,10 @@ static_assert(kRLstreamBlenLowerBound >= kMaxMediumLine, "max_line_blen lower li
 // bit.)
 CONSTI32(kRLstreamBlenFast, 11 * kDecompressChunkSize);
 
+CONSTI32(kTBstreamBlen, 11 * kDecompressChunkSize);
 CONSTI32(kMaxTokenBlen, 8 * kDecompressChunkSize);
-static_assert(kMaxTokenBlen * 3 >= 2 * (kRLstreamBlenFast + kDecompressChunkSize), "kMaxTokenBlen too small.");
-static_assert(kMaxTokenBlen < kRLstreamBlenFast, "kMaxTokenBlen too large.");
+static_assert(kMaxTokenBlen >= kDecompressChunkSize, "kMaxTokenBlen too small.");
+static_assert(kMaxTokenBlen <= kTBstreamBlen, "kMaxTokenBlen too large.");
 
 // required_byte_ct can't be greater than kMaxLongLine.
 // unstandardized_byte_ct cannot be bigstack_left() here, because the read
@@ -435,7 +436,7 @@ HEADER_INLINE void PreinitTBstream(TokenBatchStream* tbsp) {
 }
 
 HEADER_INLINE PglErr InitTBstreamEx(uint32_t alloc_at_end, TokenBatchStream* tbsp) {
-  return InitRLstreamEx(alloc_at_end, 0, kRLstreamBlenFast, &(tbsp->rls), &(tbsp->consume_iter));
+  return InitRLstreamEx(alloc_at_end, 0, kTBstreamBlen, &(tbsp->rls), &(tbsp->consume_iter));
 }
 
 HEADER_INLINE PglErr InitTBstreamRaw(const char* fname, TokenBatchStream* tbsp) {
@@ -443,7 +444,7 @@ HEADER_INLINE PglErr InitTBstreamRaw(const char* fname, TokenBatchStream* tbsp) 
   if (unlikely(reterr)) {
     return reterr;
   }
-  return InitRLstreamEx(0, 0, kRLstreamBlenFast, &(tbsp->rls), &(tbsp->consume_iter));
+  return InitRLstreamEx(0, 0, kTBstreamBlen, &(tbsp->rls), &(tbsp->consume_iter));
 }
 
 
@@ -455,6 +456,10 @@ HEADER_INLINE PglErr CleanupTBstream(TokenBatchStream* tbsp) {
 }
 
 void TBstreamErrPrint(const char* file_descrip, TokenBatchStream* tbsp, PglErr* reterr_ptr);
+
+// Could create a slightly simpler interface for the one-token-at-a-time case,
+// but I won't bother for now since it's kind of good for the relative cost of
+// parallelizing token processing to be low.
 
 #ifdef __cplusplus
 }  // namespace plink2

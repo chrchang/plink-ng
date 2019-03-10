@@ -468,7 +468,7 @@ PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, con
       if ((old_slen2 == 1) && (old_allele2_start[0] == input_missing_geno_char)) {
         old_allele2_start = std_input_missing_geno;
       }
-      if ((old_slen1 == old_slen2) && (!memcmp(old_allele1_start, old_allele2_start, old_slen1))) {
+      if ((old_slen1 == old_slen2) && memequal(old_allele1_start, old_allele2_start, old_slen1)) {
         goto UpdateVarAlleles_ret_DUPLICATE_INPUT_ALLELE_CODE;
       }
       const uint32_t new_slen1 = new_allele1_end - new_allele1_start;
@@ -479,7 +479,7 @@ PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, con
       if ((new_slen2 == 1) && (new_allele2_start[0] == input_missing_geno_char)) {
         new_allele2_start = std_input_missing_geno;
       }
-      if ((new_slen1 == new_slen2) && (!memcmp(new_allele1_start, new_allele2_start, new_slen1))) {
+      if ((new_slen1 == new_slen2) && memequal(new_allele1_start, new_allele2_start, new_slen1)) {
         goto UpdateVarAlleles_ret_DUPLICATE_INPUT_ALLELE_CODE;
       }
       if (memchr(new_allele1_start, ',', new_slen1) || memchr(new_allele2_start, ',', new_slen2)) {

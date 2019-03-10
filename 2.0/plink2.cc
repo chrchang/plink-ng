@@ -67,7 +67,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (6 Mar 2019)";
+  " (9 Mar 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -2363,7 +2363,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         if (pcp->command_flags1 & kfCommand1MakePlink2) {
           // todo: unsorted case (--update-chr, etc.)
           if (pcp->sort_vars_flags != kfSort0) {
-            reterr = MakePlink2Vsort(xheader, sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, chr_idxs, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, make_plink2_flags, (pcp->sort_vars_flags == kfSortNatural), pcp->pvar_psam_flags, &simple_pgr, outname, outname_end);
+            reterr = MakePlink2Vsort(xheader, sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, chr_idxs, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, make_plink2_flags, (pcp->sort_vars_flags == kfSortNatural), pcp->pvar_psam_flags, &simple_pgr, outname, outname_end);
           } else {
             if (vpos_sortstatus & kfUnsortedVarBp) {
               logerrputs("Warning: Variants are not sorted by position.  Consider rerunning with the\n--sort-vars flag added to remedy this.\n");
@@ -3018,7 +3018,10 @@ int main(int argc, char** argv) {
     uint32_t first_arg_idx;
     uint32_t flag_ct;
     reterr = CmdlineParsePhase1(ver_str, ver_str2, PROG_NAME_STR, notestr_null_calc2, kCmdlineFormatStr, errstr_append, kMaxFlagBlen, DispHelp, &argc, &argv, &pcm, &first_arg_idx, &flag_ct);
-    if (unlikely(reterr)) {
+    if (reterr) {
+      if (reterr == kPglRetHelp) {
+        reterr = kPglRetSuccess;
+      }
       goto main_ret_NOLOG;
     }
     if (!flag_ct) {

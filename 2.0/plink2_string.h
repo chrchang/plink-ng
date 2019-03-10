@@ -172,6 +172,9 @@ HEADER_INLINE char* strnul(char* str) {
 
 #endif  // !_GNU_SOURCE
 
+// See also AdvToDelimOrEnd later below, which is an obvious alternative memchr
+// interface.
+
 // ReadLineStream emits lines which are *not* null-terminated, but are
 // guaranteed to have trailing '\n's.
 CXXCONST_VOIDP rawmemchr2(const void* ss, unsigned char ucc1, unsigned char ucc2);

@@ -2688,22 +2688,45 @@ PglErr PgfiInitPhase1(const char* fname, uint32_t raw_variant_ct, uint32_t raw_s
   // 8 extra bytes per vblock, to support fast random access
   const uintptr_t vblock_ct = DivUp(raw_variant_ct, kPglVblockSize);
 
-  uint64_t vrtype_and_vrec_len_quarterbyte_cost;
-  if (header_ctrl & 8) {
-    const uint32_t header_ctrl_lowbits = header_ctrl & 15;
-    if (unlikely(header_ctrl_lowbits > 9)) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Twelfth byte of %s does not correspond to a format supported by this version of pgenlib.\n", fname);
-      return kPglRetNotYetSupported;
-    }
-    vrtype_and_vrec_len_quarterbyte_cost = header_ctrl_lowbits - 7;
+  uint64_t vrtype_and_vrec_len_bit_cost;
+  if (unlikely(header_ctrl & 8)) {
+    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Twelfth byte of %s does not correspond to a format supported by this version of pgenlib.\n", fname);
+    return kPglRetNotYetSupported;
+    // Update (9 Mar 2019): New plan is to define vrtype 5 =
+    // all-homozygous-ref; this allows for much smaller single-sample PGENs
+    // (~1.1 bits per variant if all biallelic unphased, instead of the
+    // previous minimum of 10 bits).
+    // The corresponding special header_ctrl modes would then be:
+    //   8: 1 bit per fused vrtype-length.  Unset = vrtype 5, set = vrtype 0.
+    //   9: 2 bits, multiallelic.  0 = vrtype 5, 1 = vrtype 0, 2-3 = vrtype
+    //      8 with that many more bytes than vrtype 0.  Note that this is
+    //      limited to 16 ALT alleles.
+    //   10: 2 bits, phased.  0 = vrtype 5, 1 = vrtype 0, 2-3 = vrtype 16
+    //       with that many minus 1 bytes beyond vrtype 0.  While this is also
+    //       aimed at the single-sample use case, it technically supports up to
+    //       15 always-phased or 7 partially-phased samples.
+    //   11: 4 bits, multiallelic + phased.  0 = vrtype 5, 1 = vrtype 0,
+    //       2-7 = vrtype 8 with that many bytes beyond vrtype 0, 9 = vrtype 16
+    //       phase info requiring just 1 byte, 10-15 = vrtype 24 with (x-7)
+    //       extra bytes required between multiallelic and phased tracks.
+    //   12: 2 bits, dosage, must be single-sample.  0 = vrtype 5,
+    //       1 = vrtype 0, 2 = vrtype 0x45 with 2 bytes, 3 = vrtype 0x40 with 3
+    //       total bytes.
+    //   13: reserved for single-sample multiallelic + dosage.
+    //   14: 4 bits, phased + dosage, must be single-sample.  0 and 1 as usual,
+    //       3 = vrtype 16 with 1 phaseinfo byte, 4 = vrtype 0x45 with 2 bytes,
+    //       5 = vrtype 0x40 with 3 total bytes, 12 = vrtype 0xc5 with 4 total
+    //       bytes, 13 = vrtype 0xc0 with 5 total bytes, 15 = vrtype 0xe0 with
+    //       6 total bytes
+    //   15: reserved for single-sample multiallelic + phased dosage.
   } else {
-    // set this to *2* if true, 0 if false
-    const uint32_t phase_or_dosage_present_x2 = (header_ctrl >> 1) & 2;
+    // set this to *4* if true, 0 if false
+    const uint32_t phase_or_dosage_present_x4 = header_ctrl & 4;
     // vrtype entries = 2 quarterbytes if no phase/dosage, 4 otherwise
     // var_fpos entries = 4 + (4 * (header_ctrl & 3)) quarterbytes
-    vrtype_and_vrec_len_quarterbyte_cost = 6 + phase_or_dosage_present_x2 + 4 * (header_ctrl & 3);
+    vrtype_and_vrec_len_bit_cost = 12 + phase_or_dosage_present_x4 + 8 * (header_ctrl & 3);
   }
-  pgfip->const_fpos_offset += (raw_sample_ct * vrtype_and_vrec_len_quarterbyte_cost + 3) / 4 + (raw_sample_ct * alt_allele_ct_byte_ct) + (8 * vblock_ct);
+  pgfip->const_fpos_offset += (raw_sample_ct * vrtype_and_vrec_len_bit_cost + 7) / 8 + (raw_sample_ct * alt_allele_ct_byte_ct) + (8 * vblock_ct);
   *pgfi_alloc_cacheline_ct_ptr = CountPgfiAllocCachelinesRequired(raw_variant_ct);
   return kPglRetSuccess;
 }
@@ -3049,6 +3072,11 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
     }
     // 1. handle vrtypes and var_fpos.
     if (vrtype_and_fpos_storage & 8) {
+      return kPglRetNotYetSupported;
+    /*
+      // the code below is obsolete, but it has some similarities with what the
+      // new implementation will look like
+
       // vrtype_and_fpos_storage == 8 -> 2-bit storage -> right-shift 2
       //                         == 9 -> 4-bit storage -> right-shift 1
       const uint32_t log2_entry_bit_width = vrtype_and_fpos_storage - 7;
@@ -3094,6 +3122,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
           input_word >>= entry_bit_width;
         }
       }
+    */
     } else {
       if (!(vrtype_and_fpos_storage & 4)) {
         // no phase or dosage present, 4-bit vrtypes

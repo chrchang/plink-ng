@@ -89,41 +89,30 @@ PglErr IsBgzf(const char* fname, uint32_t* is_bgzf_ptr) {
   return kPglRetSuccess;
 }
 
-// Validated by testing on lines of length 2^31 - 64 and 2^31 - 63 (including
-// \n)
-BoolErr IsPathologicallyLongLine(const char* cur_block_start, uint32_t cur_blen, uint32_t enforced_max_line_blen) {
-  // Guaranteed that enforced_max_line_blen is at least 2/3 of
-  // cur_blen.  Therefore:
-  //   If there's a \n in the middle, we're done.
-  //   Otherwise, find the last \n before the middle and the first
-  //     one after it, and check that distance.
-  const uint32_t margin = cur_blen - enforced_max_line_blen;
-  const char* middle_start = &(cur_block_start[margin]);
-  if (memchr(middle_start, '\n', enforced_max_line_blen - margin)) {
+BoolErr IsPathologicallyLongLineOrToken(const char* cur_block_start, const char* read_head, const char* read_end, uint32_t enforced_max_line_blen) {
+  if (enforced_max_line_blen) {
+    // Preconditions:
+    // * No \n in [cur_block_start, read_head).
+    // * read_end - read_head <= kDecompressChunkSize.
+    // * enforced_max_line_blen >= kDecompressChunkSize.
+    if (S_CAST(uintptr_t, read_end - cur_block_start) <= enforced_max_line_blen) {
+      return 0;
+    }
+    const uint32_t already_scanned_byte_ct = read_head - cur_block_start;
+    if (unlikely(already_scanned_byte_ct >= enforced_max_line_blen)) {
+      return 1;
+    }
+    return (memchr(read_head, '\n', enforced_max_line_blen - already_scanned_byte_ct) == nullptr);
+  }
+  if (S_CAST(uintptr_t, read_end - cur_block_start) <= kMaxTokenBlen) {
     return 0;
   }
-  const char* pre_middle_lf = Memrchr(cur_block_start, '\n', margin);
-  if (unlikely(!pre_middle_lf)) {
+  const uint32_t already_scanned_byte_ct = read_head - cur_block_start;
+  if (unlikely(already_scanned_byte_ct >= kMaxTokenBlen)) {
     return 1;
   }
-  const char* post_middle_lf = S_CAST(const char*, memchr(&(cur_block_start[enforced_max_line_blen]), '\n', margin));
-  return (S_CAST(uintptr_t, post_middle_lf - pre_middle_lf) > enforced_max_line_blen);
-}
-
-// Validated by testing on tokens of length 2^23 and 2^23 - 1.
-BoolErr IsPathologicallyLongToken(const char* cur_block_start, uint32_t cur_blen) {
-  const uint32_t margin = cur_blen - kMaxTokenBlen;
-  const char* middle_start = &(cur_block_start[margin]);
-  // might want FirstPrecharFar here
-  const char* middle_token_end = FirstPrechar(middle_start, 33);
-  if (S_CAST(uintptr_t, middle_token_end - middle_start) < kMaxTokenBlen - margin) {
-    return 0;
-  }
-  const char* pre_middle_nontoken = LastSpaceOrEoln(cur_block_start, margin);
-  if (unlikely(!pre_middle_nontoken)) {
-    return 1;
-  }
-  return (S_CAST(uintptr_t, middle_token_end - pre_middle_nontoken) > kMaxTokenBlen);
+  // replace with a forward-scanning version of this function when available
+  return (LastSpaceOrEoln(read_head, kMaxTokenBlen - already_scanned_byte_ct) == nullptr);
 }
 
 // This type of code is especially bug-prone (ESR would call it a "defect
@@ -293,29 +282,19 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
             goto ReadLineStreamThread_READ_FAIL;
           }
         }
-        read_head = cur_read_end;
-        if (cur_block_start != read_head) {
-          if (read_head[-1] != '\n') {
+        char* final_read_head = cur_read_end;
+        if (cur_block_start != final_read_head) {
+          if (final_read_head[-1] != '\n') {
             // Append '\n' so consumer can always use rawmemchr(., '\n') to
             // find the end of the current line.
-            *read_head++ = '\n';
+            *final_read_head++ = '\n';
           }
         }
         // Still want to consistently enforce max line/token length.
-        const uint32_t cur_blen = read_head - cur_block_start;
-        if (!is_token_stream) {
-          if (cur_blen > enforced_max_line_blen) {
-            if (unlikely(IsPathologicallyLongLine(cur_block_start, cur_blen, enforced_max_line_blen))) {
-              goto ReadLineStreamThread_LONG_LINE;
-            }
-          }
-        } else {
-          if (cur_blen > kMaxTokenBlen) {
-            if (unlikely(IsPathologicallyLongToken(cur_block_start, cur_blen))) {
-              goto ReadLineStreamThread_LONG_LINE;
-            }
-          }
+        if (unlikely(IsPathologicallyLongLineOrToken(cur_block_start, read_head, final_read_head, enforced_max_line_blen))) {
+          goto ReadLineStreamThread_LONG_LINE;
         }
+        read_head = final_read_head;
         goto ReadLineStreamThread_EOF;
       }
       char* last_byte_ptr;
@@ -325,21 +304,10 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
         last_byte_ptr = LastSpaceOrEoln(read_head, read_attempt_size);
       }
       if (last_byte_ptr) {
-        const uint32_t cur_blen = 1 + S_CAST(uintptr_t, last_byte_ptr - cur_block_start);
-        if (!is_token_stream) {
-          if (cur_blen > enforced_max_line_blen) {
-            if (unlikely(IsPathologicallyLongLine(cur_block_start, cur_blen, enforced_max_line_blen))) {
-              goto ReadLineStreamThread_LONG_LINE;
-            }
-          }
-        } else {
-          if (cur_blen > kMaxTokenBlen) {
-            if (unlikely(IsPathologicallyLongToken(cur_block_start, cur_blen))) {
-              goto ReadLineStreamThread_LONG_LINE;
-            }
-          }
-        }
         char* next_available_end = &(last_byte_ptr[1]);
+        if (unlikely(IsPathologicallyLongLineOrToken(cur_block_start, read_head, next_available_end, enforced_max_line_blen))) {
+          goto ReadLineStreamThread_LONG_LINE;
+        }
 #ifdef _WIN32
         EnterCriticalSection(critical_sectionp);
 #else
@@ -596,6 +564,7 @@ PglErr RlsOpenMaybeBgzf(const char* fname, __maybe_unused uint32_t calc_thread_c
 PglErr InitRLstreamEx(uint32_t alloc_at_end, uint32_t enforced_max_line_blen, uint32_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp) {
   PglErr reterr = kPglRetSuccess;
   {
+    assert((enforced_max_line_blen >= kDecompressChunkSize) || (enforced_max_line_blen == 0));
     // To avoid a first-line special case, we start consume_iter at position
     // -1, pointing to a \n.  We make this safe by adding 1 to the previous
     // bigstack allocation size.  To simplify rewind/retarget, we also don't

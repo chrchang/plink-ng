@@ -1380,13 +1380,24 @@ uint32_t populate_strbox_subset_htable(const uintptr_t* __restrict subset_mask, 
 }
 */
 
-// probably want to create an overread version of this, but there aren't any
-// callers which can use it yet
 uint32_t IdHtableFind(const char* cur_id, const char* const* item_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size) {
   // returns UINT32_MAX on failure
   for (uint32_t hashval = Hashceil(cur_id, cur_id_slen, id_htable_size); ; ) {
     const uint32_t cur_htable_idval = id_htable[hashval];
     if ((cur_htable_idval == UINT32_MAX) || (!strcmp(cur_id, item_ids[cur_htable_idval]))) {
+      return cur_htable_idval;
+    }
+    if (++hashval == id_htable_size) {
+      hashval = 0;
+    }
+  }
+}
+
+uint32_t IdHtableFindNnt(const char* cur_id, const char* const* item_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size) {
+  // returns UINT32_MAX on failure
+  for (uint32_t hashval = Hashceil(cur_id, cur_id_slen, id_htable_size); ; ) {
+    const uint32_t cur_htable_idval = id_htable[hashval];
+    if ((cur_htable_idval == UINT32_MAX) || (memequal(cur_id, item_ids[cur_htable_idval], cur_id_slen) && (!item_ids[cur_htable_idval][cur_id_slen]))) {
       return cur_htable_idval;
     }
     if (++hashval == id_htable_size) {

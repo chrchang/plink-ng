@@ -595,29 +595,31 @@ THREAD_FUNC_DECL TransposeToPlink1SmajWriteThread(void* arg) {
   uint32_t parity = 0;
   while (1) {
     const uint32_t is_last_block = g_is_last_thread_block;
-    const uintptr_t* vmaj_readbuf_iter = &(vmaj_readbuf[variant_batch_idx_start * kPglQuaterTransposeBatch * read_sample_ctaw2 + sample_widx]);
     const uint32_t sample_batch_size = g_sample_batch_size;
-    uintptr_t* smaj_writebuf_start = &(g_smaj_writebufs[parity][variant_batch_idx_start * kPglQuaterTransposeWords]);
-    uintptr_t* smaj_writebuf_iter = smaj_writebuf_start;
-    uint32_t variant_batch_size = kPglQuaterTransposeBatch;
-    for (uintptr_t variant_batch_idx = variant_batch_idx_start; ; ++variant_batch_idx) {
-      if (variant_batch_idx >= variant_batch_idx_full_end) {
-        if (variant_batch_idx * kPglQuaterTransposeBatch >= variant_idx_end) {
-          break;
+    if (g_cur_block_write_ct) {
+      const uintptr_t* vmaj_readbuf_iter = &(vmaj_readbuf[variant_batch_idx_start * kPglQuaterTransposeBatch * read_sample_ctaw2 + sample_widx]);
+      uintptr_t* smaj_writebuf_start = &(g_smaj_writebufs[parity][variant_batch_idx_start * kPglQuaterTransposeWords]);
+      uintptr_t* smaj_writebuf_iter = smaj_writebuf_start;
+      uint32_t variant_batch_size = kPglQuaterTransposeBatch;
+      for (uintptr_t variant_batch_idx = variant_batch_idx_start; ; ++variant_batch_idx) {
+        if (variant_batch_idx >= variant_batch_idx_full_end) {
+          if (variant_batch_idx * kPglQuaterTransposeBatch >= variant_idx_end) {
+            break;
+          }
+          variant_batch_size = variant_idx_end - variant_batch_idx * kPglQuaterTransposeBatch;
         }
-        variant_batch_size = variant_idx_end - variant_batch_idx * kPglQuaterTransposeBatch;
+        TransposeQuaterblock(vmaj_readbuf_iter, read_sample_ctaw2, variant_batch_word_ct, variant_batch_size, sample_batch_size, smaj_writebuf_iter, vecaligned_buf);
+        smaj_writebuf_iter = &(smaj_writebuf_iter[kPglQuaterTransposeWords]);
+        vmaj_readbuf_iter = &(vmaj_readbuf_iter[variant_batch_size * read_sample_ctaw2]);
       }
-      TransposeQuaterblock(vmaj_readbuf_iter, read_sample_ctaw2, variant_batch_word_ct, variant_batch_size, sample_batch_size, smaj_writebuf_iter, vecaligned_buf);
-      smaj_writebuf_iter = &(smaj_writebuf_iter[kPglQuaterTransposeWords]);
-      vmaj_readbuf_iter = &(vmaj_readbuf_iter[variant_batch_size * read_sample_ctaw2]);
-    }
-    smaj_writebuf_iter = smaj_writebuf_start;
-    for (uint32_t sample_idx = 0; sample_idx != sample_batch_size; ++sample_idx) {
-      // could fold this into TransposeQuaterblock(), but I won't bother,
-      // we're already saturating at ~3 threads
-      PgrPlink2ToPlink1InplaceUnsafe(thread_variant_ct, smaj_writebuf_iter);
-      ZeroTrailingQuaters(thread_variant_ct, smaj_writebuf_iter);
-      smaj_writebuf_iter = &(smaj_writebuf_iter[variant_batch_word_ct]);
+      smaj_writebuf_iter = smaj_writebuf_start;
+      for (uint32_t sample_idx = 0; sample_idx != sample_batch_size; ++sample_idx) {
+        // could fold this into TransposeQuaterblock(), but I won't bother,
+        // we're already saturating at ~3 threads
+        PgrPlink2ToPlink1InplaceUnsafe(thread_variant_ct, smaj_writebuf_iter);
+        ZeroTrailingQuaters(thread_variant_ct, smaj_writebuf_iter);
+        smaj_writebuf_iter = &(smaj_writebuf_iter[variant_batch_word_ct]);
+      }
     }
     if (is_last_block) {
       THREAD_RETURN;
@@ -631,6 +633,8 @@ THREAD_FUNC_DECL TransposeToPlink1SmajWriteThread(void* arg) {
 PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
+  ThreadsState ts;
+  InitThreads3z(&ts);
   PglErr reterr = kPglRetSuccess;
   {
     // Possible special case: if the input file is a variant-major .bed, we do
@@ -652,10 +656,9 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
       // todo: if only 1 pass is needed, and no subsetting is happening, this
       // saturates at ~4 threads?
       STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
-      pthread_t* threads;
       uint32_t read_block_size;
       // note that this is restricted to half of available workspace
-      if (unlikely(PgenMtLoadInit(variant_include, sample_ct, variant_ct, bigstack_left() / 2, pgr_alloc_cacheline_ct, 0, 0, 0, pgfip, &calc_thread_ct, &g_genovecs, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &threads, &g_pgr_ptrs, &g_read_variant_uidx_starts))) {
+      if (unlikely(PgenMtLoadInit(variant_include, sample_ct, variant_ct, bigstack_left() / 2, pgr_alloc_cacheline_ct, 0, 0, 0, pgfip, &calc_thread_ct, &g_genovecs, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &ts.threads, &g_pgr_ptrs, &g_read_variant_uidx_starts))) {
         goto ExportIndMajorBed_ret_NOMEM;
       }
       g_variant_include = variant_include;
@@ -743,7 +746,8 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
         }
         uint32_t parity = 0;
         uint32_t read_block_idx = 0;
-        uint32_t is_last_block = 0;
+        ts.calc_thread_ct = calc_thread_ct;
+        ts.is_last_block = 0;
         uint32_t cur_read_block_size = read_block_size;
         uint32_t pct = 0;
         uint32_t next_print_idx = variant_ct / 100;
@@ -752,7 +756,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
         fflush(stdout);
         for (uint32_t variant_idx = 0; ; ) {
           uintptr_t cur_block_write_ct = 0;
-          if (!is_last_block) {
+          if (!ts.is_last_block) {
             for (; ; ++read_block_idx) {
               if (read_block_idx == read_block_ct_m1) {
                 cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
@@ -765,22 +769,13 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
               }
             }
             if (unlikely(PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_write_ct, pgfip))) {
-              if (variant_idx) {
-                JoinThreads2z(calc_thread_ct, 0, threads);
-                g_cur_block_write_ct = 0;
-                ErrorCleanupThreads2z(TransposeToSmajReadThread, calc_thread_ct, threads);
-              }
               goto ExportIndMajorBed_ret_READ_FAIL;
             }
           }
           if (variant_idx) {
-            JoinThreads2z(calc_thread_ct, is_last_block, threads);
+            JoinThreads3z(&ts);
             reterr = g_error_ret;
             if (unlikely(reterr)) {
-              if (!is_last_block) {
-                g_cur_block_write_ct = 0;
-                ErrorCleanupThreads2z(TransposeToSmajReadThread, calc_thread_ct, threads);
-              }
               if (reterr == kPglRetMalformedInput) {
                 logputs("\n");
                 logerrputs("Error: Malformed .pgen file.\n");
@@ -788,15 +783,16 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
               goto ExportIndMajorBed_ret_1;
             }
           }
-          if (!is_last_block) {
+          if (!ts.is_last_block) {
             g_cur_block_write_ct = cur_block_write_ct;
             ComputeUidxStartPartition(variant_include, cur_block_write_ct, calc_thread_ct, read_block_idx * read_block_size, g_read_variant_uidx_starts);
             for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
               g_pgr_ptrs[tidx]->fi.block_base = pgfip->block_base;
               g_pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
             }
-            is_last_block = (variant_idx + cur_block_write_ct == variant_ct);
-            if (unlikely(SpawnThreads2z(TransposeToSmajReadThread, calc_thread_ct, is_last_block, threads))) {
+            ts.is_last_block = (variant_idx + cur_block_write_ct == variant_ct);
+            ts.thread_func_ptr = TransposeToSmajReadThread;
+            if (unlikely(SpawnThreads3z(variant_idx, &ts))) {
               goto ExportIndMajorBed_ret_THREAD_CREATE_FAIL;
             }
           }
@@ -822,9 +818,11 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
         //    with the read loop, but since we can't write a single row until
         //    the read loop is done, and both write speed and write buffer
         //    space are bottlenecks, that can't be expected to help much.)
+        ts.calc_thread_ct = output_calc_thread_ct;
+        ts.is_last_block = 0;
+        assert(g_cur_block_write_ct != 0);
         g_sample_batch_size = sample_batch_size;
         parity = 0;
-        is_last_block = 0;
         if (pct > 10) {
           fputs("\b \b", stdout);
         }
@@ -834,12 +832,13 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
         uint32_t flush_sample_idx = 0;
         next_print_idx = read_sample_ct / 100;
         for (uint32_t flush_sample_idx_end = 0; ; ) {
-          if (!is_last_block) {
-            is_last_block = (flush_sample_idx_end + sample_batch_size >= read_sample_ct);
-            if (is_last_block) {
+          if (!ts.is_last_block) {
+            ts.is_last_block = (flush_sample_idx_end + sample_batch_size >= read_sample_ct);
+            if (ts.is_last_block) {
               g_sample_batch_size = read_sample_ct - flush_sample_idx_end;
             }
-            if (unlikely(SpawnThreads2z(TransposeToPlink1SmajWriteThread, output_calc_thread_ct, is_last_block, threads))) {
+            ts.thread_func_ptr = TransposeToPlink1SmajWriteThread;
+            if (unlikely(SpawnThreads3z(flush_sample_idx_end, &ts))) {
               goto ExportIndMajorBed_ret_THREAD_CREATE_FAIL;
             }
           }
@@ -862,7 +861,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
               next_print_idx = (pct * S_CAST(uint64_t, read_sample_ct)) / 100;
             }
           }
-          JoinThreads2z(output_calc_thread_ct, is_last_block, threads);
+          JoinThreads3z(&ts);
           if (unlikely(ferror_unlocked(outfile))) {
             // may as well put this check when there are no threads to clean up
             goto ExportIndMajorBed_ret_WRITE_FAIL;
@@ -903,6 +902,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
     break;
   }
  ExportIndMajorBed_ret_1:
+  CleanupThreads3z(&ts, &g_cur_block_write_ct);
   fclose_cond(outfile);
   pgfip->block_base = nullptr;
   BigstackReset(bigstack_mark);
@@ -1786,6 +1786,8 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
   assert(sample_ct);
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
+  ThreadsState ts;
+  InitThreads3z(&ts);
   PglErr reterr = kPglRetSuccess;
   {
     const uint32_t max_chr_slen = GetMaxChrSlen(cip);
@@ -1861,9 +1863,8 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
     const uintptr_t bgen_geno_cacheline_ct = DivUp(6 * sample_ct, kCacheline);
     const uintptr_t thread_xalloc_cacheline_ct = track_missing_cacheline_ct + bgen_geno_cacheline_ct;
     STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
-    pthread_t* threads;
     uint32_t read_block_size;
-    if (unlikely(PgenMtLoadInit(variant_include, sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, &g_genovecs, nullptr, nullptr, nullptr, dosage_is_present? (&g_dosage_presents) : nullptr, dosage_is_present? (&g_dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &threads, &g_pgr_ptrs, &g_read_variant_uidx_starts))) {
+    if (unlikely(PgenMtLoadInit(variant_include, sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, &g_genovecs, nullptr, nullptr, nullptr, dosage_is_present? (&g_dosage_presents) : nullptr, dosage_is_present? (&g_dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &ts.threads, &g_pgr_ptrs, &g_read_variant_uidx_starts))) {
       goto ExportBgen11_ret_NOMEM;
     }
     if (read_block_size > max_write_block_size) {
@@ -1900,6 +1901,7 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
     g_ref_allele_last = ref_allele_last;
     g_cip = cip;
     g_error_ret = kPglRetSuccess;
+    ts.calc_thread_ct = calc_thread_ct;
 
     // 6 bytes present at start of every bgen-1.1 variant record
     memcpy(writebuf, &sample_ct, 4);
@@ -1927,7 +1929,6 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
     uint32_t chr_slen = 0;
 
     uint32_t prev_block_write_ct = 0;
-    uint32_t is_last_block = 0;
     uint32_t cur_read_block_size = read_block_size;
     uint32_t pct = 0;
     uint32_t next_print_variant_idx = variant_ct / 100;
@@ -1938,7 +1939,7 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
     uint32_t alt1_allele_idx = 1;
     for (uint32_t variant_idx = 0; ; ) {
       uintptr_t cur_block_write_ct = 0;
-      if (!is_last_block) {
+      if (!ts.is_last_block) {
         for (; ; ++read_block_idx) {
           if (read_block_idx == read_block_ct_m1) {
             cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
@@ -1951,22 +1952,13 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
           }
         }
         if (unlikely(PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_write_ct, pgfip))) {
-          if (variant_idx) {
-            JoinThreads2z(calc_thread_ct, 0, threads);
-            g_cur_block_write_ct = 0;
-            ErrorCleanupThreads2z(ExportBgen11Thread, calc_thread_ct, threads);
-          }
           goto ExportBgen11_ret_READ_FAIL;
         }
       }
       if (variant_idx) {
-        JoinThreads2z(calc_thread_ct, is_last_block, threads);
+        JoinThreads3z(&ts);
         reterr = g_error_ret;
         if (unlikely(reterr)) {
-          if (!is_last_block) {
-            g_cur_block_write_ct = 0;
-            ErrorCleanupThreads2z(ExportBgen11Thread, calc_thread_ct, threads);
-          }
           if (reterr == kPglRetMalformedInput) {
             logputs("\n");
             logerrputs("Error: Malformed .pgen file.\n");
@@ -1977,15 +1969,16 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
           goto ExportBgen11_ret_1;
         }
       }
-      if (!is_last_block) {
+      if (!ts.is_last_block) {
         g_cur_block_write_ct = cur_block_write_ct;
         ComputeUidxStartPartition(variant_include, cur_block_write_ct, calc_thread_ct, read_block_idx * read_block_size, g_read_variant_uidx_starts);
         for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
           g_pgr_ptrs[tidx]->fi.block_base = pgfip->block_base;
           g_pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
         }
-        is_last_block = (variant_idx + cur_block_write_ct == variant_ct);
-        if (unlikely(SpawnThreads2z(ExportBgen11Thread, calc_thread_ct, is_last_block, threads))) {
+        ts.is_last_block = (variant_idx + cur_block_write_ct == variant_ct);
+        ts.thread_func_ptr = ExportBgen11Thread;
+        if (unlikely(SpawnThreads3z(variant_idx, &ts))) {
           goto ExportBgen11_ret_THREAD_CREATE_FAIL;
         }
       }
@@ -2046,13 +2039,6 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
           writebuf_iter = memcpyua(writebuf_iter, compressed_data_iter, cur_variant_bytect);
           compressed_data_iter = &(compressed_data_iter[bgen_compressed_buf_max]);
           if (unlikely(fwrite_checked(writebuf, writebuf_iter - writebuf, outfile))) {
-            if (variant_idx < variant_ct) {
-              JoinThreads2z(calc_thread_ct, is_last_block, threads);
-              if (!is_last_block) {
-                g_cur_block_write_ct = 0;
-                ErrorCleanupThreads2z(ExportBgen11Thread, calc_thread_ct, threads);
-              }
-            }
             goto ExportBgen11_ret_WRITE_FAIL;
           }
         }
@@ -2117,6 +2103,7 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
     break;
   }
  ExportBgen11_ret_1:
+  CleanupThreads3z(&ts, &g_cur_block_write_ct);
   if (g_libdeflate_compressors) {
     for (uint32_t tidx = 0; tidx != max_thread_ct; ++tidx) {
       if (!g_libdeflate_compressors[tidx]) {

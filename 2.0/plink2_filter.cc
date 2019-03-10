@@ -3175,6 +3175,8 @@ THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* arg) {
 PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uint32_t* sample_missing_hc_cts, uint32_t* sample_missing_dosage_cts, uint32_t* sample_hethap_cts) {
   assert(sample_missing_hc_cts || sample_missing_dosage_cts);
   unsigned char* bigstack_mark = g_bigstack_base;
+  ThreadsState ts;
+  InitThreads3z(&ts);
   PglErr reterr = kPglRetSuccess;
   {
     if (!variant_ct) {
@@ -3204,9 +3206,8 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
       goto LoadSampleMissingCts_ret_NOMEM;
     }
     STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
-    pthread_t* threads;
     uint32_t read_block_size;
-    if (unlikely(PgenMtLoadInit(variant_include, raw_sample_ct, raw_variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_alloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, &g_genovecs, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &threads, &g_pgr_ptrs, &g_read_variant_uidx_starts))) {
+    if (unlikely(PgenMtLoadInit(variant_include, raw_sample_ct, raw_variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_alloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, &g_genovecs, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &ts.threads, &g_pgr_ptrs, &g_read_variant_uidx_starts))) {
       goto LoadSampleMissingCts_ret_NOMEM;
     }
     const uintptr_t acc1_alloc = acc1_alloc_cacheline_ct * kCacheline;
@@ -3221,6 +3222,7 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
     g_cip = cip;
     g_raw_sample_ct = raw_sample_ct;
     g_calc_thread_ct = calc_thread_ct;
+    ts.calc_thread_ct = calc_thread_ct;
 
     // nearly identical to LoadAlleleAndGenoCounts()
     logputs("Calculating sample missingness rates... ");
@@ -3232,13 +3234,12 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
     const uint32_t read_block_ct_m1 = (raw_variant_ct - 1) / read_block_size;
     uint32_t parity = 0;
     uint32_t read_block_idx = 0;
-    uint32_t is_last_block = 0;
     uint32_t cur_read_block_size = read_block_size;
     uint32_t next_print_variant_idx = variant_ct / 100;
 
     for (uint32_t variant_idx = 0; ; ) {
       uintptr_t cur_loaded_variant_ct = 0;
-      if (!is_last_block) {
+      if (!ts.is_last_block) {
         for (; ; ++read_block_idx) {
           if (read_block_idx == read_block_ct_m1) {
             cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
@@ -3251,22 +3252,13 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
           }
         }
         if (unlikely(PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_loaded_variant_ct, pgfip))) {
-          if (variant_idx) {
-            JoinThreads2z(calc_thread_ct, 0, threads);
-            g_cur_block_size = 0;
-            ErrorCleanupThreads2z(LoadSampleMissingCtsThread, calc_thread_ct, threads);
-          }
           goto LoadSampleMissingCts_ret_READ_FAIL;
         }
       }
       if (variant_idx) {
-        JoinThreads2z(calc_thread_ct, is_last_block, threads);
+        JoinThreads3z(&ts);
         reterr = g_error_ret;
         if (unlikely(reterr)) {
-          if (!is_last_block) {
-            g_cur_block_size = 0;
-            ErrorCleanupThreads2z(LoadSampleMissingCtsThread, calc_thread_ct, threads);
-          }
           if (reterr == kPglRetMalformedInput) {
             logputs("\n");
             logerrputs("Error: Malformed .pgen file.\n");
@@ -3274,15 +3266,16 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
           goto LoadSampleMissingCts_ret_1;
         }
       }
-      if (!is_last_block) {
+      if (!ts.is_last_block) {
         g_cur_block_size = cur_loaded_variant_ct;
         ComputeUidxStartPartition(variant_include, cur_loaded_variant_ct, calc_thread_ct, read_block_idx * read_block_size, g_read_variant_uidx_starts);
         for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
           g_pgr_ptrs[tidx]->fi.block_base = pgfip->block_base;
           g_pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
         }
-        is_last_block = (variant_idx + cur_loaded_variant_ct == variant_ct);
-        if (unlikely(SpawnThreads2z(LoadSampleMissingCtsThread, calc_thread_ct, is_last_block, threads))) {
+        ts.is_last_block = (variant_idx + cur_loaded_variant_ct == variant_ct);
+        ts.thread_func_ptr = LoadSampleMissingCtsThread;
+        if (unlikely(SpawnThreads3z(variant_idx, &ts))) {
           goto LoadSampleMissingCts_ret_THREAD_CREATE_FAIL;
         }
       }
@@ -3359,6 +3352,7 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
     break;
   }
  LoadSampleMissingCts_ret_1:
+  CleanupThreads3z(&ts, &g_cur_block_size);
   BigstackReset(bigstack_mark);
   return reterr;
 }

@@ -882,6 +882,8 @@ THREAD_FUNC_DECL IndepPairwiseThread(void* arg) {
 }
 
 PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uint32_t* founder_info_cumulative_popcounts, const uintptr_t* founder_nonmale, const uintptr_t* founder_male, const LdInfo* ldip, const uint32_t* subcontig_info, const uint32_t* subcontig_thread_assignments, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t founder_male_ct, uint32_t subcontig_ct, uintptr_t window_max, uint32_t calc_thread_ct, uint32_t max_load, PgenReader* simple_pgrp, uintptr_t* removed_variants_collapsed) {
+  ThreadsState ts;
+  InitThreads3z(&ts);
   PglErr reterr = kPglRetSuccess;
   {
     const uint32_t founder_nonmale_ct = founder_ct - founder_male_ct;
@@ -916,7 +918,6 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     uint32_t* thread_subcontig_start_tvidx;
     uint32_t* thread_last_tvidx;
     uint32_t* thread_last_uidx;
-    pthread_t* threads = nullptr;
     if (unlikely(
             bigstack_alloc_w(QuaterCtToWordCt(raw_sample_ct), &tmp_genovec) ||
             bigstack_calloc_u32(calc_thread_ct, &g_tvidx_end) ||
@@ -936,7 +937,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
             bigstack_alloc_u32p(calc_thread_ct, &g_first_unchecked_tvidx) ||
             bigstack_alloc_wp(calc_thread_ct, &(g_raw_tgenovecs[0])) ||
             bigstack_alloc_wp(calc_thread_ct, &(g_raw_tgenovecs[1])) ||
-            bigstack_alloc_thread(calc_thread_ct, &threads))) {
+            bigstack_alloc_thread(calc_thread_ct, &ts.threads))) {
       goto IndepPairwise_ret_NOMEM;
     }
     for (uint32_t subcontig_idx = 0; subcontig_idx != subcontig_ct; ++subcontig_idx) {
@@ -1011,6 +1012,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     g_window_maxl = window_maxl;
     g_window_incr = ldip->prune_window_incr;
     g_cur_batch_size = tvidx_batch_size;
+    ts.calc_thread_ct = calc_thread_ct;
 
     const uint32_t all_haploid = IsSet(cip->haploid_mask, 0);
     uint32_t x_start = 0;
@@ -1035,7 +1037,6 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     // 6. Goto step 2 unless eof
     //
     // 7. Assemble final results with CopyBitarrRange()
-    uint32_t is_last_batch = 0;
     uint32_t parity = 0;
     uint32_t pct = 0;
     uint32_t next_print_tvidx_start = max_load / 100;
@@ -1043,7 +1044,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     fputs("0%", stdout);
     fflush(stdout);
     for (uint32_t cur_tvidx_start = 0; ; cur_tvidx_start += tvidx_batch_size) {
-      if (!is_last_batch) {
+      if (!ts.is_last_block) {
         PgrClearLdCache(simple_pgrp);
         uintptr_t** cur_raw_tgenovecs = g_raw_tgenovecs[parity];
         const uint32_t cur_tvidx_end = cur_tvidx_start + tvidx_batch_size;
@@ -1123,11 +1124,6 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
               }
             }
             if (unlikely(reterr)) {
-              if (cur_tvidx_start) {
-                JoinThreads2z(calc_thread_ct, 0, threads);
-                g_cur_batch_size = 0;
-                ErrorCleanupThreads2z(IndepPairwiseThread, calc_thread_ct, threads);
-              }
               if (reterr != kPglRetReadFail) {
                 logputs("\n");
                 logerrputs("Error: Malformed .pgen file.\n");
@@ -1140,8 +1136,8 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
         }
       }
       if (cur_tvidx_start) {
-        JoinThreads2z(calc_thread_ct, is_last_batch, threads);
-        if (is_last_batch) {
+        JoinThreads3z(&ts);
+        if (ts.is_last_block) {
           break;
         }
         if (cur_tvidx_start >= next_print_tvidx_start) {
@@ -1154,8 +1150,9 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
           next_print_tvidx_start = (pct * S_CAST(uint64_t, max_load)) / 100;
         }
       }
-      is_last_batch = (cur_tvidx_start + tvidx_batch_size >= max_load);
-      if (unlikely(SpawnThreads2z(IndepPairwiseThread, calc_thread_ct, is_last_batch, threads))) {
+      ts.is_last_block = (cur_tvidx_start + tvidx_batch_size >= max_load);
+      ts.thread_func_ptr = IndepPairwiseThread;
+      if (unlikely(SpawnThreads3z(cur_tvidx_start, &ts))) {
         goto IndepPairwise_ret_THREAD_CREATE_FAIL;
       }
       parity = 1 - parity;
@@ -1186,6 +1183,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     break;
   }
  IndepPairwise_ret_1:
+  CleanupThreads3z(&ts, &g_cur_batch_size);
   // caller will free memory
   return reterr;
 }

@@ -10728,6 +10728,8 @@ THREAD_FUNC_DECL Plink1SmajTransposeThread(void* arg) {
 PglErr Plink1SampleMajorToPgen(const char* pgenname, uintptr_t variant_ct, uintptr_t sample_ct, uint32_t real_ref_alleles, uint32_t max_thread_ct, FILE* infile) {
   unsigned char* bigstack_mark = g_bigstack_base;
   MTPgenWriter* mpgwp = nullptr;
+  ThreadsState ts;
+  InitThreads3z(&ts);
   PglErr reterr = kPglRetSuccess;
   {
     // file size already validated by PgfiInitPhase1()
@@ -10777,9 +10779,8 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, uintptr_t variant_ct, uintp
       goto Plink1SampleMajorToPgen_ret_NOMEM;
     }
     mpgwp->pgen_outfile = nullptr;
-    pthread_t* threads;
     if (unlikely(
-            bigstack_alloc_thread(calc_thread_ct, &threads) ||
+            bigstack_alloc_thread(calc_thread_ct, &ts.threads) ||
             bigstack_alloc_vp(calc_thread_ct, &g_thread_vecaligned_bufs) ||
             bigstack_alloc_wp(calc_thread_ct, &g_thread_write_genovecs))) {
       goto Plink1SampleMajorToPgen_ret_NOMEM;
@@ -10856,6 +10857,7 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, uintptr_t variant_ct, uintp
     g_sample_ct = sample_ct;
     g_stride = QuaterCtToVecCt(cur_vidx_ct) * kWordsPerVec;
     g_calc_thread_ct = calc_thread_ct;
+    ts.calc_thread_ct = calc_thread_ct - 1;
     uint32_t pass_idx1 = 0;
     for (uint32_t cur_vidx_base = 0; ; ) {
       uint32_t cur_raw_load_batch_size = raw_load_batch_size;
@@ -10907,7 +10909,6 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, uintptr_t variant_ct, uintp
       const uintptr_t last_tidx = calc_thread_ct - 1;
       uint32_t load_idx = 0;
       g_cur_block_write_ct = calc_thread_ct * kPglVblockSize;
-      uint32_t is_last_block;
       putc_unlocked('\r', stdout);
       printf("Pass %u/%u: transposing and compressing... 0%%", pass_idx1, pass_ct);
       pct = 0;
@@ -10923,29 +10924,26 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, uintptr_t variant_ct, uintp
           next_print_idx = (pct * S_CAST(uint64_t, load_multiplier)) / 100;
         }
         g_plink1_smaj_loadbuf_iter = &(plink1_smaj_loadbuf[load_idx * calc_thread_ct * (kPglVblockSize / kBitsPerWordD2)]);
-        is_last_block = (++load_idx == load_multiplier);
-        if (is_last_block) {
+        ts.is_last_block = (++load_idx == load_multiplier);
+        if (ts.is_last_block) {
           g_cur_block_write_ct = cur_vidx_ct - (load_idx - 1) * calc_thread_ct * kPglVblockSize;
         }
         if (last_tidx) {
-          if (unlikely(SpawnThreads2z(Plink1SmajTransposeThread, last_tidx, is_last_block, threads))) {
+          ts.thread_func_ptr = Plink1SmajTransposeThread;
+          if (unlikely(SpawnThreads3z(load_idx - 1, &ts))) {
             goto Plink1SampleMajorToPgen_ret_THREAD_CREATE_FAIL;
           }
         }
         Plink1SmajTransposeThread(R_CAST(uintptr_t*, last_tidx));
         if (last_tidx) {
-          JoinThreads2z(last_tidx, is_last_block, threads);
+          JoinThreads3z(&ts);
           // Plink1SmajTransposeThread() never errors out
         }
         reterr = MpgwFlush(mpgwp);
         if (unlikely(reterr)) {
-          if (!is_last_block) {
-            g_cur_block_write_ct = 0;
-            ErrorCleanupThreads2z(Plink1SmajTransposeThread, last_tidx, threads);
-          }
           goto Plink1SampleMajorToPgen_ret_WRITE_FAIL;
         }
-      } while (!is_last_block);
+      } while (!ts.is_last_block);
       cur_vidx_base += cur_vidx_ct;
       if (cur_vidx_base == variant_ct) {
         if (pct > 10) {
@@ -10988,6 +10986,7 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, uintptr_t variant_ct, uintp
     reterr = kPglRetThreadCreateFail;
     break;
   }
+  CleanupThreads3z(&ts, &g_cur_block_write_ct);
   if (MpgwCleanup(mpgwp) && (!reterr)) {
     reterr = kPglRetWriteFail;
   }

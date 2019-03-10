@@ -99,6 +99,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stddef.h>  // offsetof()
 #include <stdint.h>
 #ifndef __STDC_FORMAT_MACROS
 #  define __STDC_FORMAT_MACROS 1
@@ -250,9 +251,8 @@ namespace plink2 {
 // @ptr: the pointer to the member.
 // @type: the type of the container struct this is embedded in.
 // @member: the name of the member within the struct.
-#define container_of(ptr, type, member) ({ \
-      const typeof(R_CAST(type*, 0)->member)* __mptr = (ptr); \
-      R_CAST(type*, R_CAST(char*, __mptr) - offsetof(type, member));})
+#define container_of(ptr, type, member) \
+  (R_CAST(type*, K_CAST(char*, R_CAST(const char*, ptr) - offsetof(type, member))))
 
 HEADER_INLINE double u31tod(uint32_t uii) {
   const int32_t ii = uii;
@@ -323,7 +323,6 @@ typedef enum
   kPglRetMalformedInput,
   kPglRetInconsistentInput,
   kPglRetInvalidCmdline,
-  kPglRetHelp,
   kPglRetThreadCreateFail,
   kPglRetNetworkFail,
   kPglRetVarRecordTooLarge,
@@ -337,6 +336,7 @@ typedef enum
   // These are only for internal use.  If any of these reach the top level
   // instead of being handled or converted to another error code, that's a bug,
   // and plink2 prints a message to that effect.
+  kPglRetHelp = 125,
   kPglRetLongLine = 126,
   kPglRetEof = 127}
 #if __cplusplus >= 201103L

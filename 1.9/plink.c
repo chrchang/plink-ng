@@ -105,7 +105,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (4 Mar 2019)";
+  " (9 Mar 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -3591,7 +3591,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	fputs(g_cmdline_format_str, stdout);
 	fputs(notestr_null_calc2, stdout);
-        retval = RET_HELP;
 	goto main_ret_1;
       }
       if (!strcmp("version", argptr)) {

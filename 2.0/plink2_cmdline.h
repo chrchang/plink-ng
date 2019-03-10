@@ -1260,6 +1260,10 @@ uint32_t PopulateStrboxHtable(const char* strbox, uintptr_t str_ct, uintptr_t ma
 // cur_id DOES need to be null-terminated
 uint32_t IdHtableFind(const char* cur_id, const char* const* item_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size);
 
+// item_ids overread must be ok.  In exchange, cur_id doesn't need to be
+// null-terminated any more.
+uint32_t IdHtableFindNnt(const char* cur_id, const char* const* item_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size);
+
 // assumes cur_id_slen < max_str_blen.
 // requires cur_id to be null-terminated.
 uint32_t StrboxHtableFind(const char* cur_id, const char* strbox, const uint32_t* id_htable, uintptr_t max_str_blen, uint32_t cur_id_slen, uint32_t id_htable_size);
@@ -1600,6 +1604,9 @@ BoolErr SpawnThreads(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthread_t* t
 // threads on every block, and (unlike plink 1.9) the launcher thread does not
 // participate.  (Function names end with "2z" instead of "2" since launched
 // threads start with index 0 instead of 1.)
+//
+// ...actually, the 2z interface is being retired due to the messy
+// error-cleanup interface.  Use 3z instead.
 extern uintptr_t g_thread_spawn_ct;
 extern uint32_t g_is_last_thread_block;
 
