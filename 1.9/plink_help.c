@@ -833,9 +833,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * If you're satisfied with all the default settings described below, just\n"
 "      use --homozyg with no modifiers.  Otherwise, --homozyg lets you change a\n"
 "      few binary settings:\n"
-"      * 'group{,-verbose}' adds a report on pools of overlapping runs of\n"
+"      * 'group[-verbose]' adds a report on pools of overlapping runs of\n"
 "        homozygosity.  (Automatically set when --homozyg-match is present.)\n"
-"      * With 'group{,-verbose}', 'consensus-match' causes pairwise segmental\n"
+"      * With 'group[-verbose]', 'consensus-match' causes pairwise segmental\n"
 "        matches to be called based on the variants in the pool's consensus\n"
 "        segment, rather than the variants in the pairwise intersection.\n"
 "      * Due to how the scanning window algorithm works, it is possible for a\n"
@@ -1253,7 +1253,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * 'nop' strips p-values from the main report.\n"
 "    * These computations can be subdivided with --parallel; however...\n"
 "  --epistasis-summary-merge <common file prefix> <ct>\n"
-"    When a --{,fast-}epistasis job is subdivided with --parallel, the main\n"
+"    When a --[fast-]epistasis job is subdivided with --parallel, the main\n"
 "    report can be assembled at the end by applying Unix 'cat' in the usual\n"
 "    manner, but the .summary.1, .summary.2, ... files may require a specialized\n"
 "    merge.  --epistasis-summary-merge takes care of the latter.\n\n"
@@ -1432,8 +1432,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --simulate-n <num>        : Set --simulate-qt sample count (default 1000).\n"
 	       );
     help_print("simulate\tsimulate-qt\tsimulate-label\tsimulate-missing", &help_ctrl, 0,
-"  --simulate-label <prefix> : Set --simulate{,-qt} FID/IID name prefix.\n"
-"  --simulate-missing <freq> : Set --simulate{,-qt} missing genotype frequency.\n"
+"  --simulate-label <prefix> : Set --simulate[-qt] FID/IID name prefix.\n"
+"  --simulate-missing <freq> : Set --simulate[-qt] missing genotype frequency.\n"
 	       );
     help_print("allow-extra-chr\taec", &help_ctrl, 0,
 "  --allow-extra-chr ['0']   : Permit unrecognized chromosome codes.  The '0'\n"
@@ -1663,7 +1663,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("read-freq\tupdate-freq", &help_ctrl, 0,
 "  --read-freq <fn> : Estimate MAFs and heterozygote frequencies from the given\n"
-"                     --freq{,x} report, instead of the input fileset.\n"
+"                     --freq[x] report, instead of the input fileset.\n"
 	       );
     help_print("hwe\thwe-all\thwe2", &help_ctrl, 0,
 "  --hwe <p> ['midp'] ['include-nonctrl'] : Exclude variants with Hardy-Weinberg\n"
@@ -1838,7 +1838,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                                    covariate file.\n"
 	       );
     help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 0,
-"  --merge-mode <n>   : Adjust --{,b}merge/--merge-list behavior based on a\n"
+"  --merge-mode <n>   : Adjust --[b]merge/--merge-list behavior based on a\n"
 "                       numeric code.\n"
 "                       1 (default) = ignore missing calls, otherwise difference\n"
 "                                     -> missing\n"
@@ -1878,7 +1878,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --tag-mode2        : Use two-column --show-tags (file mode) I/O format.\n"
 	       );
     help_print("indep\tindep-pairwise\tr\tr2\tflip-scan\tflipscan\tshow-tags\tld-xchr", &help_ctrl, 0,
-"  --ld-xchr <code>   : Set chrX model for --indep{,-pairwise}, --r/--r2,\n"
+"  --ld-xchr <code>   : Set chrX model for --indep[-pairwise], --r/--r2,\n"
 "                       --flip-scan, and --show-tags.\n"
 "                       1 (default) = males coded 0/1, females 0/1/2 (A1 dosage)\n"
 "                       2 = males coded 0/2\n"
@@ -2114,7 +2114,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("fast-epistasis\tepistasis\tgap\tepi1\tepi2", &help_ctrl, 0,
 "  --gap <kbs>      : Set '--fast-epistasis case-only' min. gap (default 1000).\n"
-"  --epi1 <p-value> : Set --{,fast-}epistasis reporting threshold (default\n"
+"  --epi1 <p-value> : Set --[fast-]epistasis reporting threshold (default\n"
 "                     5e-6 for 'boost', 1e-4 otherwise).\n"
 "  --epi2 <p-value> : Set threshold for contributing to SIG_E count (def. 0.01).\n"
 	       );
