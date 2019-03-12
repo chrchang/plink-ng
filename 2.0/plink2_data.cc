@@ -3194,8 +3194,8 @@ typedef struct InfoFieldStruct {
 } InfoField;
 
 // info_keys[] entries point to the (variable-size) key[] member of InfoField
-// structs.  We use container_of(x)->num to look up the associated Number=
-// value.
+// structs.  We use [const_]container_of(x)->num to look up the associated
+// Number= value.
 PglErr ParseInfoHeader(const char* xheader, uintptr_t xheader_blen, const char* const** info_keys_ptr, uint32_t* info_field_ctp, uint32_t** info_keys_htablep, uint32_t* info_keys_htable_sizep) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -3471,7 +3471,7 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
     const VaridTemplate* cur_varid_templatep = nullptr;
     const char* varid_token_start = nullptr; // for vid-split
     const uint32_t vid_split = (make_plink2_flags & kfMakePlink2VidSemicolon) & 1;
-    const uint32_t split_just_snps = ((make_plink2_flags & kfMakePlink2MSplitBase) == kfMakePlink2MSplitSnps);
+    const uint32_t split_just_snps = ((make_plink2_flags & (kfMakePlink2MSplitBase * 3)) == kfMakePlink2MSplitSnps);
     uint32_t rls_variant_uidx = 0;
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
@@ -3568,7 +3568,7 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
                 goto WritePvarSplit_ret_MALFORMED_INPUT_WW;
               }
               info_key_order[cur_info_field_ct] = kidx;
-              const int32_t knum = container_of(info_keys[kidx], InfoField, key)->num;
+              const int32_t knum = const_container_of(info_keys[kidx], InfoField, key)->num;
               if (key_end == info_subtoken_end) {
                 if (unlikely(knum)) {
                   snprintf(g_logbuf, kLogbufSize, "Error: INFO key '%s' for variant ID '%s' does not have an accompanying value.\n", info_keys[kidx], orig_variant_id);
@@ -3699,7 +3699,7 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
                   const uint32_t kidx = info_key_order[kpos];
                   const char* cur_key_str = info_keys[kidx];
                   cswritep = strcpya(cswritep, cur_key_str);
-                  const int32_t knum = container_of(info_keys[kidx], InfoField, key)->num;
+                  const int32_t knum = const_container_of(info_keys[kidx], InfoField, key)->num;
                   if (knum) {
                     *cswritep++ = '=';
                     const char* cur_info_start = info_starts[kpos];
@@ -4653,7 +4653,7 @@ PgenGlobalFlags GflagsVfilter(const uintptr_t* variant_include, const unsigned c
 // (Note that MakePlink2NoVsort() currently requires enough memory for 64k * 2
 // variants per output thread, due to LD compression.  This is faster in the
 // common case, but once you have 150k+ samples with dosage data...)
-PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, __maybe_unused const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* write_allele_idx_offsets, const uint32_t* new_variant_idx_to_old, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, __maybe_unused uint32_t write_variant_ct, uint32_t max_read_allele_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, MakePlink2Flags make_plink2_flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, __maybe_unused const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* write_allele_idx_offsets, const uint32_t* new_variant_idx_to_old, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t write_variant_ct, uint32_t max_read_allele_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, MakePlink2Flags make_plink2_flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   // variant_uidx_new_to_old[] can be nullptr
 
   // caller responsible for initializing g_cip (may need to be different from
@@ -4773,7 +4773,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
       uintptr_t spgw_alloc_cacheline_ct;
       uint32_t max_vrec_len;
-      reterr = SpgwInitPhase1(outname, write_allele_idx_offsets, simple_pgrp->fi.nonref_flags, variant_ct, sample_ct, write_gflags, nonref_flags_storage, g_spgwp, &spgw_alloc_cacheline_ct, &max_vrec_len);
+      reterr = SpgwInitPhase1(outname, write_allele_idx_offsets, simple_pgrp->fi.nonref_flags, write_variant_ct, sample_ct, write_gflags, nonref_flags_storage, g_spgwp, &spgw_alloc_cacheline_ct, &max_vrec_len);
       if (unlikely(reterr)) {
         goto MakePgenRobust_ret_1;
       }
@@ -4893,32 +4893,38 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
           g_refalt1_select = tmp_refalt1_select;
         }
       }
-      const uint32_t raw_sample_ctv2 = QuaterCtToVecCt(raw_sample_ct);
+      const uint32_t raw_sample_ctl2 = QuaterCtToWordCt(raw_sample_ct);
       PgenVariant pgv;
       PreinitPgv(&pgv);
-      uint64_t* one_cts = nullptr;
-      uint64_t* two_cts = nullptr;
+      uint32_t* alt_regular_one_cts = nullptr;
+      uint32_t* alt_invphase_one_cts = nullptr;
+      uint32_t* alt_two_cts = nullptr;
       uint32_t* alt_sample_idx_buf = nullptr;
-      uint32_t** alt_sample_idx_starts = nullptr;
+      uint32_t** alt_regular_one_sample_idx_starts = nullptr;
+      uint32_t** alt_invphase_one_sample_idx_starts = nullptr;
+      uint32_t** alt_two_sample_idx_starts = nullptr;
       if (make_plink2_flags & (kfMakePlink2MSplitBase * 7)) {
         // split or join
         // this is currently for split with no dosages
         if (unlikely(
-                 bigstack_alloc_w(raw_sample_ctv2, &pgv.genovec) ||
-                 bigstack_alloc_w(raw_sample_ctl, &pgv.patch_01_set) ||
-                 bigstack_alloc_ac(raw_sample_ct, &pgv.patch_01_vals) ||
-                 bigstack_alloc_w(raw_sample_ctl, &pgv.patch_10_set) ||
-                 bigstack_alloc_ac(2 * raw_sample_ct, &pgv.patch_10_vals) ||
-                 bigstack_alloc_u64(max_read_allele_ct, &one_cts) ||
-                 bigstack_alloc_u64(max_read_allele_ct, &two_cts) ||
-                 bigstack_alloc_u32(raw_sample_ct, &alt_sample_idx_buf) ||
-                 bigstack_alloc_u32p(max_read_allele_ct, &alt_sample_idx_starts))) {
+                bigstack_alloc_w(raw_sample_ctl2, &pgv.genovec) ||
+                bigstack_alloc_w(raw_sample_ctl, &pgv.patch_01_set) ||
+                bigstack_alloc_ac(raw_sample_ct, &pgv.patch_01_vals) ||
+                bigstack_alloc_w(raw_sample_ctl, &pgv.patch_10_set) ||
+                bigstack_alloc_ac(2 * raw_sample_ct, &pgv.patch_10_vals) ||
+                bigstack_alloc_u32(max_read_allele_ct, &alt_regular_one_cts) ||
+                bigstack_alloc_u32(max_read_allele_ct, &alt_two_cts) ||
+                bigstack_alloc_u32(2 * raw_sample_ct + 1, &alt_sample_idx_buf) ||
+                bigstack_alloc_u32p(max_read_allele_ct + 1, &alt_regular_one_sample_idx_starts) ||
+                bigstack_alloc_u32p(max_read_allele_ct + 1, &alt_two_sample_idx_starts))) {
           goto MakePgenRobust_ret_NOMEM;
         }
         if (read_hphase_present) {
           if (unlikely(
                   bigstack_alloc_w(raw_sample_ctl, &pgv.phasepresent) ||
-                  bigstack_alloc_w(raw_sample_ctl, &pgv.phaseinfo))) {
+                  bigstack_alloc_w(raw_sample_ctl, &pgv.phaseinfo) ||
+                  bigstack_alloc_u32(max_read_allele_ct, &alt_invphase_one_cts) ||
+                  bigstack_alloc_u32p(max_read_allele_ct + 1, &alt_invphase_one_sample_idx_starts))) {
             goto MakePgenRobust_ret_NOMEM;
           }
         }
@@ -4927,11 +4933,9 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
           reterr = kPglRetNotYetSupported;
           goto MakePgenRobust_ret_1;
         }
-        logerrputs("Error: Multiallelic-split is under development.\n");
-        reterr = kPglRetNotYetSupported;
-        goto MakePgenRobust_ret_1;
       }
 
+      const uint32_t raw_sample_ctv2 = QuaterCtToVecCt(raw_sample_ct);
       uintptr_t load_variant_vec_ct = raw_sample_ctv2;
       uint32_t loaded_vrtypes_needed = (read_gflags & kfPgenGlobalMultiallelicHardcallFound)? 1 : 0;
       if (read_hphase_present || read_dosage_present) {
@@ -4971,8 +4975,8 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       if (unlikely(!ulii)) {
         goto MakePgenRobust_ret_NOMEM;
       }
-      if (ulii > MINV(kPglVblockSize, variant_ct)) {
-        ulii = MINV(kPglVblockSize, variant_ct);
+      if (ulii > MINV(kPglVblockSize, write_variant_ct)) {
+        ulii = MINV(kPglVblockSize, write_variant_ct);
       }
       const uint32_t write_block_size = ulii;
       uintptr_t* main_loadbufs[2];
@@ -5003,25 +5007,27 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       // 6. Goto step 2 unless eof
       const uint32_t* new_variant_idx_to_old_iter = new_variant_idx_to_old;
       const uintptr_t* cur_write_allele_idx_offsets = nullptr;
-      const uint32_t batch_ct_m1 = (variant_ct - 1) / write_block_size;
+      const uint32_t batch_ct_m1 = (write_variant_ct - 1) / write_block_size;
       uint32_t pct = 0;
       uint32_t parity = 0;
       uint32_t cur_batch_size = write_block_size;
-      uint32_t next_print_variant_idx = variant_ct / 100;
+      uint32_t next_print_write_variant_idx = write_variant_ct / 100;
       uint32_t cur_read_allele_ct = 2;
       uint32_t cur_write_allele_ct = 2;
+      uint32_t cur_het_ct = 0;
+      uintptr_t read_variant_uidx_base = 0;
 
-      // need to retain this across loop iterations in case a split is
+      // now need to retain these across loop iterations in case a split is
       // interrupted by batch-end
+      uint32_t read_variant_uidx = 0;
       uint32_t write_aidx = 1;
 
-      uintptr_t read_variant_uidx_base = 0;
       uintptr_t cur_bits = variant_include[0];
       PgrClearLdCache(simple_pgrp);
       for (uint32_t read_batch_idx = 0; ; ++read_batch_idx) {
         if (!ts.is_last_block) {
           if (read_batch_idx == batch_ct_m1) {
-            cur_batch_size = variant_ct - (read_batch_idx * write_block_size);
+            cur_batch_size = write_variant_ct - (read_batch_idx * write_block_size);
           }
           uintptr_t* cur_loadbuf = main_loadbufs[parity];
           uintptr_t* loadbuf_iter = cur_loadbuf;
@@ -5030,26 +5036,27 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
           if (write_allele_idx_offsets) {
             cur_write_allele_idx_offsets = &(write_allele_idx_offsets[read_batch_idx * write_block_size]);
           }
-          for (uint32_t block_widx = 0; block_widx != cur_batch_size; ++block_widx) {
-            uint32_t read_variant_uidx;
-            if (!new_variant_idx_to_old_iter) {
-              read_variant_uidx = BitIter1(variant_include, &read_variant_uidx_base, &cur_bits);
-            } else {
-              read_variant_uidx = *new_variant_idx_to_old_iter++;
-            }
-            // todo: multiallelic trim-alts
-            // todo: multiallelic merge/split
-            // split: load to buffer instead of loadbuf_iter, have function for
-            //        writing to loadbuf_iter given buffer contents, this
-            //        should work if split is 'interrupted' by batch boundary
-            //        in middle
-            // merge: track loadbuf_iter location at beginning of
-            //        same-position block... (finish writing this later)
-            if (allele_idx_offsets) {
-              cur_read_allele_ct = allele_idx_offsets[read_variant_uidx + 1] - allele_idx_offsets[read_variant_uidx];
+          for (uint32_t block_widx = 0; block_widx != cur_batch_size; ) {
+            if (write_aidx == 1) {
+              if (!new_variant_idx_to_old_iter) {
+                read_variant_uidx = BitIter1(variant_include, &read_variant_uidx_base, &cur_bits);
+              } else {
+                read_variant_uidx = *new_variant_idx_to_old_iter++;
+              }
+              // todo: multiallelic trim-alts
+              // todo: multiallelic merge
+              // split: load to buffer instead of loadbuf_iter, have function
+              //        for writing to loadbuf_iter given buffer contents, this
+              //        should work if split is 'interrupted' by batch boundary
+              //        in middle
+              // merge: track loadbuf_iter location at beginning of
+              //        same-position block... (finish writing this later)
+              if (allele_idx_offsets) {
+                cur_read_allele_ct = allele_idx_offsets[read_variant_uidx + 1] - allele_idx_offsets[read_variant_uidx];
+              }
             }
             if (cur_write_allele_idx_offsets) {
-              cur_write_allele_ct = cur_write_allele_idx_offsets[block_widx + 1] - write_allele_idx_offsets[block_widx];
+              cur_write_allele_ct = cur_write_allele_idx_offsets[block_widx + 1] - cur_write_allele_idx_offsets[block_widx];
             }
             if (cur_read_allele_ct == cur_write_allele_ct) {
               reterr = PgrGetRaw(read_variant_uidx, read_gflags, simple_pgrp, &loadbuf_iter, cur_loaded_vrtypes? (&(cur_loaded_vrtypes[block_widx])) : nullptr);
@@ -5060,6 +5067,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
                 }
                 goto MakePgenRobust_ret_1;
               }
+              ++block_widx;
               continue;
             } else if (cur_write_allele_ct == 2) {
               if (write_aidx == 1) {
@@ -5074,17 +5082,193 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
                     logputs("\n");
                     logerrputs("Error: Malformed .pgen file.\n");
                   }
+                  printf("fail 2 %u\n", read_variant_uidx);
                   goto MakePgenRobust_ret_1;
                 }
 
                 // 2a. count # of each alt
                 // 2b. create het and hom lists for each alt
-                // (defer phase-info processing to step 3)
-                // Related to CountAllAux1aDense.
+                uintptr_t* genovec = pgv.genovec;
+                ZeroTrailingQuaters(raw_sample_ct, genovec);
+                uint32_t raw_01_ct;
+                uint32_t raw_10_ct;
+                GenovecCount12Unsafe(genovec, raw_sample_ct, &raw_01_ct, &raw_10_ct);
+                ZeroU32Arr(cur_read_allele_ct, alt_regular_one_cts);
+                alt_regular_one_cts[1] = raw_01_ct - pgv.patch_01_ct;
+                for (uint32_t rarealt_idx = 0; rarealt_idx != pgv.patch_01_ct; ++rarealt_idx) {
+                  alt_regular_one_cts[pgv.patch_01_vals[rarealt_idx]] += 1;
+                }
+                ZeroU32Arr(cur_read_allele_ct, alt_two_cts);
+                if (!pgv.phasepresent_ct) {
+                  for (uint32_t uii = 0; uii != pgv.patch_10_ct; ++uii) {
+                    const AlleleCode ac0 = pgv.patch_10_vals[2 * uii];
+                    const AlleleCode ac1 = pgv.patch_10_vals[2 * uii + 1];
+                    if (ac0 == ac1) {
+                      alt_two_cts[ac0] += 1;
+                    } else {
+                      alt_regular_one_cts[ac0] += 1;
+                      alt_regular_one_cts[ac1] += 1;
+                    }
+                  }
+                } else {
+                  ZeroU32Arr(cur_read_allele_ct, alt_invphase_one_cts);
+                  for (uint32_t uii = 0; uii != pgv.patch_10_ct; ++uii) {
+                    const AlleleCode ac0 = pgv.patch_10_vals[2 * uii];
+                    const AlleleCode ac1 = pgv.patch_10_vals[2 * uii + 1];
+                    if (ac0 == ac1) {
+                      alt_two_cts[ac0] += 1;
+                    } else {
+                      alt_invphase_one_cts[ac0] += 1;
+                      alt_regular_one_cts[ac1] += 1;
+                    }
+                  }
+                }
 
+                alt_two_cts[1] = raw_10_ct - pgv.patch_10_ct;
+                cur_het_ct = raw_01_ct + pgv.patch_10_ct;
+                for (uint32_t aidx = 2; aidx != cur_read_allele_ct; ++aidx) {
+                  cur_het_ct -= alt_two_cts[aidx];
+                }
+
+                uint32_t* sample_idx_buf_iter = alt_sample_idx_buf;
+                alt_regular_one_sample_idx_starts[0] = alt_sample_idx_buf;
+                for (uint32_t aidx = 1; aidx != cur_read_allele_ct; ++aidx) {
+                  alt_regular_one_sample_idx_starts[aidx] = sample_idx_buf_iter;
+                  sample_idx_buf_iter = &(sample_idx_buf_iter[alt_regular_one_cts[aidx]]);
+                }
+                alt_regular_one_sample_idx_starts[cur_read_allele_ct] = sample_idx_buf_iter;
+                if (pgv.phasepresent_ct) {
+                  alt_invphase_one_sample_idx_starts[0] = sample_idx_buf_iter;
+                  for (uint32_t aidx = 1; aidx != cur_read_allele_ct - 1; ++aidx) {
+                    alt_invphase_one_sample_idx_starts[aidx] = sample_idx_buf_iter;
+                    sample_idx_buf_iter = &(sample_idx_buf_iter[alt_invphase_one_cts[aidx]]);
+                  }
+                  alt_invphase_one_sample_idx_starts[cur_read_allele_ct - 1] = sample_idx_buf_iter;
+                  alt_invphase_one_sample_idx_starts[cur_read_allele_ct] = sample_idx_buf_iter;
+                }
+                alt_two_sample_idx_starts[0] = sample_idx_buf_iter;
+                for (uint32_t aidx = 1; aidx != cur_read_allele_ct; ++aidx) {
+                  alt_two_sample_idx_starts[aidx] = sample_idx_buf_iter;
+                  sample_idx_buf_iter = &(sample_idx_buf_iter[alt_two_cts[aidx]]);
+                }
+                alt_two_sample_idx_starts[cur_read_allele_ct] = sample_idx_buf_iter;
+
+                Halfword* patch_01_set_alias = R_CAST(Halfword*, pgv.patch_01_set);
+                Halfword* patch_10_set_alias = R_CAST(Halfword*, pgv.patch_10_set);
+                uint32_t idx_01 = 0;
+                uint32_t idx_10 = 0;
+                for (uint32_t widx = 0; widx != raw_sample_ctl2; ++widx) {
+                  const uintptr_t geno_word = genovec[widx];
+                  const uint32_t sample_idx_offset = widx * kBitsPerWordD2;
+                  uintptr_t geno_01 = Word01(geno_word);
+                  if (geno_01) {
+                    if (!pgv.patch_01_ct) {
+                      // patch_01_set not initialized in this case
+                      do {
+                        const uint32_t sample_idx = sample_idx_offset + ctzw(geno_01) / 2;
+                        alt_regular_one_sample_idx_starts[1][0] = sample_idx;
+                        alt_regular_one_sample_idx_starts[1] += 1;
+                        geno_01 &= geno_01 - 1;
+                      } while (geno_01);
+                    } else {
+                      uint32_t geno_01_hw = PackWordToHalfword(geno_01);
+                      const uint32_t patch_01_hw = patch_01_set_alias[widx];
+                      do {
+                        const uint32_t lowbit = geno_01_hw & (-geno_01_hw);
+                        const uint32_t sample_idx = sample_idx_offset + ctzu32(lowbit);
+                        if (lowbit & patch_01_hw) {
+                          AlleleCode ac = pgv.patch_01_vals[idx_01];
+                          alt_regular_one_sample_idx_starts[ac][0] = sample_idx;
+                          alt_regular_one_sample_idx_starts[ac] += 1;
+                          ++idx_01;
+                        } else {
+                          alt_regular_one_sample_idx_starts[1][0] = sample_idx;
+                          alt_regular_one_sample_idx_starts[1] += 1;
+                        }
+                        geno_01_hw ^= lowbit;
+                      } while (geno_01_hw);
+                    }
+                  }
+                  uintptr_t geno_10 = Word10(geno_word);
+                  if (geno_10) {
+                    if (!pgv.patch_10_ct) {
+                      // patch_10_set not initialized in this case
+                      do {
+                        const uint32_t sample_idx = sample_idx_offset + ctzw(geno_10) / 2;
+                        alt_two_sample_idx_starts[1][0] = sample_idx;
+                        alt_two_sample_idx_starts[1] += 1;
+                        geno_10 &= geno_10 - 1;
+                      } while (geno_10);
+                    } else {
+                      uint32_t geno_10_hw = PackWordToHalfword(geno_10);
+                      const uint32_t patch_10_hw = patch_10_set_alias[widx];
+                      if (!pgv.phasepresent_ct) {
+                        do {
+                          const uint32_t lowbit = geno_10_hw & (-geno_10_hw);
+                          const uint32_t sample_idx = sample_idx_offset + ctzu32(lowbit);
+                          if (lowbit & patch_10_hw) {
+                            AlleleCode ac0 = pgv.patch_10_vals[2 * idx_10];
+                            AlleleCode ac1 = pgv.patch_10_vals[2 * idx_10 + 1];
+                            if (ac0 == ac1) {
+                              alt_two_sample_idx_starts[ac0][0] = sample_idx;
+                              alt_two_sample_idx_starts[ac0] += 1;
+                            } else {
+                              alt_regular_one_sample_idx_starts[ac0][0] = sample_idx;
+                              alt_regular_one_sample_idx_starts[ac0] += 1;
+                              alt_regular_one_sample_idx_starts[ac1][0] = sample_idx;
+                              alt_regular_one_sample_idx_starts[ac1] += 1;
+                            }
+                            ++idx_10;
+                          } else {
+                            alt_two_sample_idx_starts[1][0] = sample_idx;
+                            alt_two_sample_idx_starts[1] += 1;
+                          }
+                          geno_10_hw ^= lowbit;
+                        } while (geno_10_hw);
+                      } else {
+                        do {
+                          const uint32_t lowbit = geno_10_hw & (-geno_10_hw);
+                          const uint32_t sample_idx = sample_idx_offset + ctzu32(lowbit);
+                          if (lowbit & patch_10_hw) {
+                            AlleleCode ac0 = pgv.patch_10_vals[2 * idx_10];
+                            AlleleCode ac1 = pgv.patch_10_vals[2 * idx_10 + 1];
+                            if (ac0 == ac1) {
+                              alt_two_sample_idx_starts[ac0][0] = sample_idx;
+                              alt_two_sample_idx_starts[ac0] += 1;
+                            } else {
+                              alt_invphase_one_sample_idx_starts[ac0][0] = sample_idx;
+                              alt_invphase_one_sample_idx_starts[ac0] += 1;
+                              alt_regular_one_sample_idx_starts[ac1][0] = sample_idx;
+                              alt_regular_one_sample_idx_starts[ac1] += 1;
+                            }
+                            ++idx_10;
+                          } else {
+                            alt_two_sample_idx_starts[1][0] = sample_idx;
+                            alt_two_sample_idx_starts[1] += 1;
+                          }
+                          geno_10_hw ^= lowbit;
+                        } while (geno_10_hw);
+                      }
+                    }
+                  }
+                }
+                for (uint32_t aidx = cur_read_allele_ct - 1; aidx; --aidx) {
+                  alt_regular_one_sample_idx_starts[aidx] = alt_regular_one_sample_idx_starts[aidx - 1];
+                  alt_two_sample_idx_starts[aidx] = alt_two_sample_idx_starts[aidx - 1];
+                }
+                if (pgv.phasepresent_ct) {
+                  for (uint32_t aidx = cur_read_allele_ct - 1; aidx; --aidx) {
+                    alt_invphase_one_sample_idx_starts[aidx] = alt_invphase_one_sample_idx_starts[aidx - 1];
+                  }
+                }
                 // todo: multiallelic dosage
+
+                for (uint32_t widx = 0; widx != raw_sample_ctl2; ++widx) {
+                  // keep 3s, set 1s and 2s to 0
+                  genovec[widx] = Word11(genovec[widx]) * 3;
+                }
               }
-              const uint32_t split_stop = MINV(cur_batch_size - block_widx, cur_write_allele_ct);
+              const uint32_t split_stop = MINV(cur_batch_size + 1 - block_widx, cur_read_allele_ct);
               for (; write_aidx != split_stop; ++write_aidx, ++block_widx) {
                 // 3. synthesize raw
                 //   (save to loaded_vrtypes if necessary)
@@ -5101,9 +5285,137 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
                 //       <second_half_byte_ct phaseinfo contents>
                 //     ]
                 //     align up to vector boundary
+                uintptr_t* new_genovec = loadbuf_iter;
+                memcpy(new_genovec, pgv.genovec, raw_sample_ctl2 * sizeof(intptr_t));
+                loadbuf_iter = &(loadbuf_iter[raw_sample_ctv2 * kWordsPerVec]);
+                uint32_t new_phasepresent_ct = 0;
+                uint32_t new_het_ct = 0;
+                uint32_t* regular_stop = alt_regular_one_sample_idx_starts[write_aidx + 1];
+                if (pgv.phasepresent_ct) {
+                  uint32_t* regular_iter = alt_regular_one_sample_idx_starts[write_aidx];
+                  uint32_t* invphase_iter = alt_invphase_one_sample_idx_starts[write_aidx];
+                  uint32_t* invphase_stop = alt_invphase_one_sample_idx_starts[write_aidx + 1];
+                  new_het_ct = (regular_stop - regular_iter) + (invphase_stop - invphase_iter);
+                  if (pgv.phasepresent_ct == cur_het_ct) {
+                    new_phasepresent_ct = new_het_ct;
+                  } else {
+                    uintptr_t* phasepresent = pgv.phasepresent;
+                    for (; regular_iter != regular_stop; ++regular_iter) {
+                      new_phasepresent_ct += IsSet(phasepresent, *regular_iter);
+                    }
+                    for (; invphase_iter != invphase_stop; ++invphase_iter) {
+                      new_phasepresent_ct += IsSet(phasepresent, *invphase_iter);
+                    }
+                  }
+                }
+                uint32_t* two_stop = alt_two_sample_idx_starts[write_aidx + 1];
+                for (uint32_t* two_iter = alt_two_sample_idx_starts[write_aidx]; two_iter != two_stop; ++two_iter) {
+                  const uint32_t sample_uidx = *two_iter;
+                  SetBit(sample_uidx * 2 + 1, new_genovec);
+                }
+                uint32_t* regular_iter = alt_regular_one_sample_idx_starts[write_aidx];
+                if (!new_phasepresent_ct) {
+                  for (; regular_iter != regular_stop; ++regular_iter) {
+                    const uint32_t sample_uidx = *regular_iter;
+                    SetBit(sample_uidx * 2, new_genovec);
+                  }
+                  if (pgv.phasepresent_ct) {
+                    uint32_t* invphase_stop = alt_invphase_one_sample_idx_starts[write_aidx + 1];
+                    for (uint32_t* invphase_iter = alt_invphase_one_sample_idx_starts[write_aidx]; invphase_iter != invphase_stop; ++invphase_iter) {
+                      const uint32_t sample_uidx = *invphase_iter;
+                      SetBit(sample_uidx * 2, new_genovec);
+                    }
+                  }
+                  if (cur_loaded_vrtypes) {
+                    cur_loaded_vrtypes[block_widx] = 0;
+                  }
+                } else {
+                  // need to write raw hphase
+                  const uint32_t het_ctdl = new_het_ct / kBitsPerWord;
+                  uintptr_t* shifted_part1 = &(loadbuf_iter[8 / kBytesPerWord]);
+                  uintptr_t* part1_end = &(shifted_part1[1 + het_ctdl]);
+                  uint32_t* invphase_iter = alt_invphase_one_sample_idx_starts[write_aidx];
+                  uint32_t* invphase_stop = alt_invphase_one_sample_idx_starts[write_aidx + 1];
+                  const uint32_t orig_regular_end = *regular_stop;
+                  const uint32_t orig_invphase_end = *invphase_stop;
+                  // sentinel value to simplify the next loop.
+                  *invphase_stop = UINT32_MAX;
+                  // must grab this before setting *regular_stop, in case
+                  // they overlap; and after setting *invphase_stop, in case
+                  // this list is empty
+                  uint32_t invphase_idx = *invphase_iter++;
 
+                  *regular_stop = UINT32_MAX;
+                  uint32_t regular_idx = *regular_iter++;
+                  uint32_t shifted_het_idx = 1;
+                  if (new_phasepresent_ct == new_het_ct) {
+                    loadbuf_iter[0] = new_het_ct;
+#ifndef __LP64__
+                    loadbuf_iter[1] = 0;
+#endif
+                    // shifted_part1 is phaseinfo
+                    shifted_part1[0] = 0;
+                    shifted_part1[het_ctdl] = 0;
+                    while (regular_idx != invphase_idx) {
+                      uintptr_t is_inverted = (invphase_idx < regular_idx);
+                      uint32_t sample_uidx;
+                      if (is_inverted) {
+                        sample_uidx = invphase_idx;
+                        invphase_idx = *invphase_iter++;
+                      } else {
+                        sample_uidx = regular_idx;
+                        regular_idx = *regular_iter++;
+                      }
+                      SetBit(sample_uidx * 2, new_genovec);
+                      AssignBit(shifted_het_idx, is_inverted ^ IsSet(pgv.phaseinfo, sample_uidx), shifted_part1);
+                      ++shifted_het_idx;
+                    }
+                    assert(shifted_het_idx == new_het_ct + 1);
+                    loadbuf_iter = part1_end;
+                  } else {
+#ifdef __LP64__
+                    loadbuf_iter[0] = new_het_ct | (S_CAST(uint64_t, new_phasepresent_ct) << 32);
+#else
+                    loadbuf_iter[0] = new_het_ct;
+                    loadbuf_iter[1] = new_phasepresent_ct;
+#endif
+                    shifted_part1[0] = 1;
+                    memset(shifted_part1, 0, (1 + het_ctdl) * sizeof(intptr_t));
+                    // shifted_part1 is phasepresent
+                    // part1_end is start of phaseinfo
+                    const uint32_t new_phasepresent_ctl = BitCtToWordCt(new_phasepresent_ct);
+                    part1_end[new_phasepresent_ctl - 1] = 0;
+                    uint32_t phasepresent_idx = 0;
+                    while (regular_idx != invphase_idx) {
+                      uintptr_t is_inverted = (invphase_idx < regular_idx);
+                      uint32_t sample_uidx;
+                      if (is_inverted) {
+                        sample_uidx = invphase_idx;
+                        invphase_idx = *invphase_iter++;
+                      } else {
+                        sample_uidx = regular_idx;
+                        regular_idx = *regular_iter++;
+                      }
+                      SetBit(sample_uidx * 2, new_genovec);
+                      if (IsSet(pgv.phasepresent, sample_uidx)) {
+                        SetBit(shifted_het_idx, shifted_part1);
+                        AssignBit(phasepresent_idx, is_inverted ^ IsSet(pgv.phaseinfo, sample_uidx), part1_end);
+                        ++phasepresent_idx;
+                      }
+                      ++shifted_het_idx;
+                    }
+                    assert(phasepresent_idx == new_phasepresent_ct);
+                  }
+                  assert(regular_idx == UINT32_MAX);
+                  *regular_stop = orig_regular_end;
+                  *invphase_stop = orig_invphase_end;
+                  VecAlignUp(&loadbuf_iter);
+                  if (cur_loaded_vrtypes) {
+                    cur_loaded_vrtypes[block_widx] = 0x10;
+                  }
+                }
               }
-              if (split_stop != cur_write_allele_ct) {
+              if (split_stop != cur_read_allele_ct) {
                 break;
               }
               write_aidx = 1;
@@ -5133,14 +5445,14 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
             break;
           }
           const uint32_t write_idx_end = read_batch_idx * write_block_size;
-          if (write_idx_end >= next_print_variant_idx) {
+          if (write_idx_end >= next_print_write_variant_idx) {
             if (pct > 10) {
               putc_unlocked('\b', stdout);
             }
-            pct = (write_idx_end * 100LLU) / variant_ct;
+            pct = (write_idx_end * 100LLU) / write_variant_ct;
             printf("\b\b%u%%", pct++);
             fflush(stdout);
-            next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+            next_print_write_variant_idx = (pct * S_CAST(uint64_t, write_variant_ct)) / 100;
           }
         }
       }

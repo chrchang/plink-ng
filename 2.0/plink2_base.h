@@ -252,7 +252,12 @@ namespace plink2 {
 // @type: the type of the container struct this is embedded in.
 // @member: the name of the member within the struct.
 #define container_of(ptr, type, member) \
-  (R_CAST(type*, K_CAST(char*, R_CAST(const char*, ptr) - offsetof(type, member))))
+  (R_CAST(type*, R_CAST(char*, ptr) - offsetof(type, member)))
+
+// original macro doesn't work in C++ when e.g. ptr is a const char*, and the
+// quick workaround of casting away the const is unsafe.
+#define const_container_of(ptr, type, member) \
+  (R_CAST(const type*, R_CAST(const char*, ptr) - offsetof(type, member)))
 
 HEADER_INLINE double u31tod(uint32_t uii) {
   const int32_t ii = uii;

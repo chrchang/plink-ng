@@ -217,9 +217,13 @@ void CopyGenomatchSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t
 
 void ExpandBytearrFromGenovec(const void* __restrict compact_bitarr, const uintptr_t* __restrict genovec, uintptr_t match_word, uint32_t genoword_ct, uint32_t expand_size, uint32_t read_start_bit, uintptr_t* __restrict target);
 
+
+// These two functions are "unsafe" since they assume trailing bits of last
+// genovec word are zeroed out.
 void GenovecCount12Unsafe(const uintptr_t* genovec, uint32_t sample_ct, uint32_t* __restrict raw_01_ctp, uint32_t* __restrict raw_10_ctp);
 
 void GenovecCountFreqsUnsafe(const uintptr_t* genovec, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts);
+
 
 void GenovecCountSubsetFreqs(const uintptr_t* __restrict genovec, const uintptr_t* __restrict sample_include_interleaved_vec, uint32_t raw_sample_ct, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts);
 
@@ -440,6 +444,8 @@ void GenovecToMissingnessUnsafe(const uintptr_t* __restrict genovec, uint32_t sa
 // currently does not zero trailing halfword
 void GenovecToNonmissingnessUnsafe(const uintptr_t* __restrict genovec, uint32_t sample_ct, uintptr_t* __restrict nonmissingness);
 
+// hom_buf gets set bits when genoarr value is 0 or 2.
+// ref2het_buf gets set bits when genoarr value is 0 or 1.
 // N.B. assumes trailing bits of loadbuf have been filled with 1s, not 0s
 // Also takes genoarr word count instead of sample count.
 void SplitHomRef2hetUnsafeW(const uintptr_t* genoarr, uint32_t inword_ct, uintptr_t* __restrict hom_buf, uintptr_t* __restrict ref2het_buf);
@@ -1375,12 +1381,6 @@ PglErr PgrGet1D(const uintptr_t* __restrict sample_include, const uint32_t* __re
 PglErr PgrGetInv1D(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgrp, uintptr_t* __restrict allele_invcountvec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr);
 
 PglErr PgrGetDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* mach_r2_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages);
-
-// Temporarily exposed to support initial variant-split implementation; will
-// probably change the division of labor later.
-void CountAllAux1aDense(const void* patch_01_fvals, uint32_t allele_ct, uint32_t rare01_ct, uint64_t* __restrict one_cts);
-
-void CountAllAux1bDense(const void* __restrict patch_10_fvals, uint32_t allele_ct, uint32_t rare10_ct, uint64_t* __restrict one_cts_offset1, uint64_t* __restrict two_cts_offset1);
 
 PglErr PgrGetMDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* __restrict mach_r2_ptr, uint32_t* __restrict het_ctp, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages);
 
