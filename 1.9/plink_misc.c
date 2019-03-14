@@ -582,8 +582,9 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
 	  goto apply_cm_map_ret_INVALID_FORMAT_2;
 	}
 	if (bp_new <= bp_old) {
-	  logerrprint("Error: bp coordinates in --cm-map file are not in increasing order.\n");
-	  goto apply_cm_map_ret_INVALID_FORMAT;
+	  sprintf(g_logbuf, "Error: bp coordinates in --cm-map file are not in increasing order ('%d' on line %" PRIuPTR " is not larger than previous value '%d').\n", bp_new, line_idx, bp_old);
+          wordwrapb(0);
+	  goto apply_cm_map_ret_INVALID_FORMAT_2;
 	}
 	bufptr2 = next_token_mult(bufptr, 2);
 	if (no_more_tokens_kns(bufptr2)) {
@@ -642,7 +643,6 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
     sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --cm-map file has fewer tokens than expected.\n", line_idx);
   apply_cm_map_ret_INVALID_FORMAT_2:
     logerrprintb();
-  apply_cm_map_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
   }
