@@ -67,7 +67,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (15 Mar 2019)";
+  " (16 Mar 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -4565,7 +4565,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --freq cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0reffreq\0alt1freq\0altfreq\0freq\0eq\0eqz\0alteq\0alteqz\0numeq\0altnumeq\0machr2\0phasedr2\0nobs\0", "freq", kfAlleleFreqColChrom, kfAlleleFreqColDefault, 1, &pc.freq_rpt_flags);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0reffreq\0alt1freq\0altfreq\0freq\0eq\0eqz\0alteq\0alteqz\0numeq\0altnumeq\0machr2\0minimac4r2\0nobs\0", "freq", kfAlleleFreqColChrom, kfAlleleFreqColDefault, 1, &pc.freq_rpt_flags);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
@@ -4574,8 +4574,8 @@ int main(int argc, char** argv) {
                 logerrputs("Error: --freq's altfreq, freq, eq, eqz, alteq, alteqz, numeq, and altnumeq\ncolumns are mutually exclusive.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-              if (pc.freq_rpt_flags & kfAlleleFreqColPhasedR2) {
-                logerrputs("Error: --freq phasedr2 column output is under development.\n");
+              if (pc.freq_rpt_flags & kfAlleleFreqColMinimac4R2) {
+                logerrputs("Error: --freq minimac4r2 column output is under development.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
             } else if (strequal_k(cur_modif, "bins-only", cur_modif_slen)) {

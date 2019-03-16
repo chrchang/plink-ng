@@ -521,7 +521,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      numeq: 0=<freq>,1=<freq>, etc.  Zero-counts are omitted.\n"
 "      altnumeq: Same as numeq, except reference allele is omitted.\n"
 "      machr2: Unphased MaCH imputation quality metric.\n"
-"      phasedr2: Phased Minimac4 imputation quality (not implemented yet).\n"
+"      minimac4r2: Phased Minimac4 imputation quality (not implemented yet).\n"
 "      nobs: Number of allele observations.\n"
 "    The default is chrom,ref,alt,altfreq,nobs.\n"
 "    Additional .afreq.{ref,alt1}.bins (or .acount.{ref,alt1}.bins with\n"
@@ -1560,7 +1560,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                   on phased rather than unphased dosages.  You\n"
 "                                   can use --extract-if-info/--exclude-if-info\n"
 "                                   to filter on precomputed Minimac4 R2.\n"
-              // add comment about --phased-r2-filter once it's ready
+              // add comment about --minimac4-r2-filter once it's ready
 "                                 * If a single parameter is provided, it is\n"
 "                                   treated as the minimum.\n"
 "                                 * The metric is not computed on chrX and MT.\n"

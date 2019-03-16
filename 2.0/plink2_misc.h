@@ -80,7 +80,7 @@ FLAGSET_DEF_START()
   kfAlleleFreqColNumeq = (1 << 18),
   kfAlleleFreqColAltnumeq = (1 << 19),
   kfAlleleFreqColMachR2 = (1 << 20),
-  kfAlleleFreqColPhasedR2 = (1 << 21),
+  kfAlleleFreqColMinimac4R2 = (1 << 21),
   kfAlleleFreqColNobs = (1 << 22),
   kfAlleleFreqColDefault = (kfAlleleFreqColChrom | kfAlleleFreqColRef | kfAlleleFreqColAlt | kfAlleleFreqColAltfreq | kfAlleleFreqColNobs),
   kfAlleleFreqColAll = ((kfAlleleFreqColNobs * 2) - kfAlleleFreqColChrom),
