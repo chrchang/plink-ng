@@ -3759,10 +3759,10 @@ void EnforceFreqConstraints(const uintptr_t* allele_idx_offsets, const uint64_t*
   *variant_ct_ptr -= removed_ct;
 }
 
-void EnforceMachR2Thresh(const ChrInfo* cip, const double* mach_r2_vals, double mach_r2_min, double mach_r2_max, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+void EnforceImpR2Thresh(const ChrInfo* cip, const double* imp_r2_vals, double imp_r2_min, double imp_r2_max, uint32_t is_minimac3_r2, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   const uint32_t prefilter_variant_ct = *variant_ct_ptr;
-  mach_r2_min *= 1 - kSmallEpsilon;
-  mach_r2_max *= 1 + kSmallEpsilon;
+  imp_r2_min *= 1 - kSmallEpsilon;
+  imp_r2_max *= 1 + kSmallEpsilon;
   uint32_t removed_ct = 0;
   uint32_t relevant_variant_ct = prefilter_variant_ct;
   // skip X, MT
@@ -3796,15 +3796,15 @@ void EnforceMachR2Thresh(const ChrInfo* cip, const double* mach_r2_vals, double 
       variant_uidx_base = variant_widx * kBitsPerWord;
       cur_bits = variant_include[variant_widx] & ((~k1LU) << (variant_uidx % kBitsPerWord));
     }
-    const double cur_mach_r2 = mach_r2_vals[variant_uidx];
+    const double cur_imp_r2 = imp_r2_vals[variant_uidx];
     // er, we *don't* want to filter out NaN here, those variants may be worth
     // filtering but not on imputation quality grounds
-    if ((cur_mach_r2 < mach_r2_min) || (cur_mach_r2 > mach_r2_max)) {
+    if ((cur_imp_r2 < imp_r2_min) || (cur_imp_r2 > imp_r2_max)) {
       ClearBit(variant_uidx, variant_include);
       ++removed_ct;
     }
   }
-  logprintf("--mach-r2-filter: %u variant%s removed.\n", removed_ct, (removed_ct == 1)? "" : "s");
+  logprintf("--%s-r2-filter: %u variant%s removed.\n", is_minimac3_r2? "minimac3" : "mach", removed_ct, (removed_ct == 1)? "" : "s");
   *variant_ct_ptr -= removed_ct;
 }
 

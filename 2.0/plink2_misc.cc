@@ -2019,7 +2019,7 @@ PglErr InitHistogramFromFileOrCommalist(const char* binstr, uint32_t is_fname, d
   return reterr;
 }
 
-PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uint64_t* founder_allele_dosages, const double* mach_r2_vals, const char* ref_binstr, const char* alt1_binstr, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, FreqRptFlags freq_rpt_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end) {
+PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uint64_t* founder_allele_dosages, const double* imp_r2_vals, const char* ref_binstr, const char* alt1_binstr, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, FreqRptFlags freq_rpt_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -2110,9 +2110,14 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
           cswritep = strcpya_k(cswritep, "FREQS");
         }
       }
-      const uint32_t mach_r2_col = freq_rpt_flags & kfAlleleFreqColMachR2;
-      if (mach_r2_col) {
-        cswritep = strcpya_k(cswritep, "\tMACH_R2");
+      const uint32_t imp_r2_col = freq_rpt_flags & (kfAlleleFreqColMachR2 | kfAlleleFreqColMinimac3R2);
+      if (imp_r2_col) {
+        // These two columns are currently mutually exclusive.
+        if (freq_rpt_flags & kfAlleleFreqColMachR2) {
+          cswritep = strcpya_k(cswritep, "\tMACH_R2");
+        } else {
+          cswritep = strcpya_k(cswritep, "\tMINIMAC3_R2");
+        }
       }
       const uint32_t nobs_col = freq_rpt_flags & kfAlleleFreqColNobs;
       if (nobs_col) {
@@ -2127,7 +2132,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
       uint32_t chr_fo_idx = UINT32_MAX;
       uint32_t chr_end = 0;
       uint32_t chr_buf_blen = 0;
-      uint32_t suppress_mach_r2 = 0;
+      uint32_t suppress_imp_r2 = 0;
       uint32_t pct = 0;
       uint32_t next_print_variant_idx = variant_ct / 100;
       uint32_t cur_allele_ct = 2;
@@ -2142,7 +2147,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
           } while (variant_uidx >= chr_end);
           const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
           char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
-          suppress_mach_r2 = (chr_idx == x_code) || (chr_idx == mt_code);
+          suppress_imp_r2 = (chr_idx == x_code) || (chr_idx == mt_code);
           *chr_name_end = '\t';
           chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
         }
@@ -2252,10 +2257,10 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
             *cswritep++ = '.';
           }
         }
-        if (mach_r2_col) {
+        if (imp_r2_col) {
           *cswritep++ = '\t';
-          if (!suppress_mach_r2) {
-            cswritep = dtoa_g(mach_r2_vals[variant_uidx], cswritep);
+          if (!suppress_imp_r2) {
+            cswritep = dtoa_g(imp_r2_vals[variant_uidx], cswritep);
           } else {
             cswritep = strcpya_k(cswritep, "NA");
           }

@@ -9348,7 +9348,7 @@ uint64_t U16VecSum(const uint16_t* __restrict uint16_vec, uint32_t entry_ct) {
 //   LoadAlleleAndGenoCountsThread().
 // * See PgrGetMDCounts() support functions below for multiallelic-diploid
 //   notes.
-PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* mach_r2_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages) {
+PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, __maybe_unused uint32_t is_minimac3_r2, PgenReader* pgrp, double* imp_r2_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages) {
   // genocounts[0] := ref/ref, genocounts[1] := ref/altx,
   // genocounts[2] := altx/alty, genocounts[3] := missing
   const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
@@ -9367,7 +9367,7 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
   GetBasicGenotypeCountsAndDosage16s_basic_finish:
     all_dosages[0] = (genocounts[0] * 2 + genocounts[1]) * 16384LLU;
     all_dosages[1] = (genocounts[2] * 2 + genocounts[1]) * 16384LLU;
-    if (!mach_r2_ptr) {
+    if (!imp_r2_ptr) {
       return kPglRetSuccess;
     }
     // yeah, it's sinful to implement mach-r2 here...
@@ -9384,7 +9384,7 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
     } else {
       mach_r2 = 0.0 / 0.0;
     }
-    *mach_r2_ptr = mach_r2;
+    *imp_r2_ptr = mach_r2;
     return kPglRetSuccess;
   }
   uintptr_t* raw_genovec = pgrp->workspace_vec;
@@ -9527,7 +9527,7 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
       }
       GenoarrCountSubsetIntersectFreqs(raw_genovec, raw_dosage_present, sample_include, raw_sample_ct, replaced_genocounts);
     } else {
-      if (!mach_r2_ptr) {
+      if (!imp_r2_ptr) {
         for (uint32_t dosage_idx = 0; dosage_idx != raw_dosage_ct; ++dosage_idx) {
           alt1_dosage += dosage_main_iter[dosage_idx];
         }
@@ -9551,7 +9551,7 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
   const uint32_t nondosage_nm_ct = sample_ct - genocounts[3] - replaced_ct;
   const uint32_t new_sample_nm_ct = dosage_ct + nondosage_nm_ct;
   all_dosages[0] = new_sample_nm_ct * 32768LLU - alt1_dosage;
-  if (!mach_r2_ptr) {
+  if (!imp_r2_ptr) {
     return kPglRetSuccess;
   }
   double mach_r2;
@@ -9565,22 +9565,22 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
   } else {
     mach_r2 = 0.0 / 0.0;
   }
-  *mach_r2_ptr = mach_r2;
+  *imp_r2_ptr = mach_r2;
   return kPglRetSuccess;
 }
 
-PglErr PgrGetDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* mach_r2_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages) {
+PglErr PgrGetDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t is_minimac3_r2, PgenReader* pgrp, double* imp_r2_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages) {
   assert(vidx < pgrp->fi.raw_variant_ct);
   if (!sample_ct) {
     STD_ARRAY_REF_FILL0(4, genocounts);
     all_dosages[0] = 0;
     all_dosages[1] = 0;
-    if (mach_r2_ptr) {
-      *mach_r2_ptr = 1.0;
+    if (imp_r2_ptr) {
+      *imp_r2_ptr = 1.0;
     }
     return kPglRetSuccess;
   }
-  return GetBasicGenotypeCountsAndDosage16s(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, mach_r2_ptr, genocounts, all_dosages);
+  return GetBasicGenotypeCountsAndDosage16s(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, vidx, is_minimac3_r2, pgrp, imp_r2_ptr, genocounts, all_dosages);
 }
 
 // Does not zero-initialize results[].
@@ -10058,7 +10058,7 @@ PglErr CountAllAux1b(const unsigned char* fread_end, const uintptr_t* __restrict
   return kPglRetSuccess;
 }
 
-PglErr GetMultiallelicCountsAndDosage16s(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, uint32_t sample_ct, uint32_t vidx, uint32_t allele_ct, PgenReader* pgrp, double* __restrict mach_r2_ptr, uint32_t* __restrict het_ctp, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* all_dosages) {
+PglErr GetMultiallelicCountsAndDosage16s(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, uint32_t sample_ct, uint32_t vidx, uint32_t allele_ct, __maybe_unused uint32_t is_minimac3_r2, PgenReader* pgrp, double* __restrict imp_r2_ptr, uint32_t* __restrict het_ctp, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* all_dosages) {
   // only called on multiallelic variants
   // no dosages for now
   const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
@@ -10117,31 +10117,31 @@ PglErr GetMultiallelicCountsAndDosage16s(const uintptr_t* __restrict sample_incl
   }
   const uint32_t nm_sample_ct = sample_ct - genocounts[3];
   *het_ctp = nm_sample_ct - hom_hc_ct;
-  if (!mach_r2_ptr) {
+  if (!imp_r2_ptr) {
     return kPglRetSuccess;
   }
-  *mach_r2_ptr = MultiallelicDiploidMachR2(all_dosages, two_cts, nm_sample_ct, allele_ct);
+  *imp_r2_ptr = MultiallelicDiploidMachR2(all_dosages, two_cts, nm_sample_ct, allele_ct);
   return kPglRetSuccess;
 }
 
-PglErr PgrGetMDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* __restrict mach_r2_ptr, uint32_t* __restrict het_ctp, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages) {
+PglErr PgrGetMDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t is_minimac3_r2, PgenReader* pgrp, double* __restrict imp_r2_ptr, uint32_t* __restrict het_ctp, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages) {
   assert(vidx < pgrp->fi.raw_variant_ct);
   const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
   const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
   if (!sample_ct) {
     STD_ARRAY_REF_FILL0(4, genocounts);
     ZeroU64Arr(allele_ct, all_dosages);
-    if (mach_r2_ptr) {
-      *mach_r2_ptr = 1.0;
+    if (imp_r2_ptr) {
+      *imp_r2_ptr = 1.0;
     }
     return kPglRetSuccess;
   }
   if (allele_ct == 2) {
-    PglErr reterr = GetBasicGenotypeCountsAndDosage16s(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, mach_r2_ptr, genocounts, all_dosages);
+    PglErr reterr = GetBasicGenotypeCountsAndDosage16s(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, vidx, is_minimac3_r2, pgrp, imp_r2_ptr, genocounts, all_dosages);
     *het_ctp = genocounts[1];
     return reterr;
   }
-  return GetMultiallelicCountsAndDosage16s(sample_include, sample_include_interleaved_vec, sample_ct, vidx, allele_ct, pgrp, mach_r2_ptr, het_ctp, genocounts, all_dosages);
+  return GetMultiallelicCountsAndDosage16s(sample_include, sample_include_interleaved_vec, sample_ct, vidx, allele_ct, is_minimac3_r2, pgrp, imp_r2_ptr, het_ctp, genocounts, all_dosages);
 }
 
 PglErr PgrGetMD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, PgenVariant* pgvp) {

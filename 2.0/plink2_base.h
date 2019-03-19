@@ -91,7 +91,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 400
+#define PLINK2_BASE_VERNUM 500
 
 
 #define _FILE_OFFSET_BITS 64
@@ -3017,8 +3017,8 @@ uintptr_t PopcountBytesMasked(const void* bitarr, const uintptr_t* mask_arr, uin
 
 // transpose_quaterblock(), which is more plink-specific, is in
 // pgenlib_internal
-CONSTI32(kPglBitTransposeBatch, kBitsPerCacheline);
-CONSTI32(kPglBitTransposeWords, kWordsPerCacheline);
+CONSTI32(kBitTransposeBatch, kBitsPerCacheline);
+CONSTI32(kBitTransposeWords, kWordsPerCacheline);
 // * Up to 512x512; vecaligned_buf must have size 32k (64k in 32-bit case)
 //   (er, can reduce buffer size to 512 bytes in 64-bit case...)
 // * write_iter must be allocated up to at least
@@ -3029,7 +3029,7 @@ CONSTI32(kPglBitTransposeWords, kWordsPerCacheline);
 //   tell the compiler it doesn't need to be paranoid about writes to one of
 //   the buffers screwing with reads from the other.
 #ifdef __LP64__
-CONSTI32(kPglBitTransposeBufbytes, kPglBitTransposeBatch);
+CONSTI32(kBitTransposeBufbytes, kBitTransposeBatch);
 void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, void* buf0);
 
 HEADER_INLINE void TransposeBitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecW* vecaligned_buf) {
@@ -3037,19 +3037,44 @@ HEADER_INLINE void TransposeBitblock(const uintptr_t* read_iter, uint32_t read_u
 }
 
 #else  // !__LP64__
-CONSTI32(kPglBitTransposeBufbytes, (kPglBitTransposeBatch * kPglBitTransposeBatch) / (CHAR_BIT / 2));
+CONSTI32(kBitTransposeBufbytes, (kBitTransposeBatch * kBitTransposeBatch) / (CHAR_BIT / 2));
 void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecW* __restrict buf0, VecW* __restrict buf1);
 
 // If this ever needs to be called on an input byte array, read_iter could be
 // changed to const void*; in that case, read_ul_stride should be changed to a
 // byte count.
 HEADER_INLINE void TransposeBitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecW* vecaligned_buf) {
-  TransposeBitblockInternal(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, vecaligned_buf, &(vecaligned_buf[kPglBitTransposeBufbytes / (2 * kBytesPerWord)]));
+  TransposeBitblockInternal(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, vecaligned_buf, &(vecaligned_buf[kBitTransposeBufbytes / (2 * kBytesPerWord)]));
 }
 #endif
 
-CONSTI32(kPglBitTransposeBufwords, kPglBitTransposeBufbytes / kBytesPerWord);
-CONSTI32(kPglBitTransposeBufvecs, kPglBitTransposeBufbytes / kBytesPerVec);
+CONSTI32(kBitTransposeBufwords, kBitTransposeBufbytes / kBytesPerWord);
+CONSTI32(kBitTransposeBufvecs, kBitTransposeBufbytes / kBytesPerVec);
+
+CONSTI32(kNibblesPerWord, 2 * kBytesPerWord);
+CONSTI32(kNibblesPerCacheline, 2 * kCacheline);
+
+HEADER_CINLINE uintptr_t NibbleCtToByteCt(uintptr_t val) {
+  return DivUp(val, 2);
+}
+
+HEADER_CINLINE uintptr_t NibbleCtToWordCt(uintptr_t val) {
+  return DivUp(val, kNibblesPerWord);
+}
+
+CONSTI32(kNibbleTransposeBatch, kNibblesPerCacheline);
+CONSTI32(kNibbleTransposeWords, kWordsPerCacheline);
+
+CONSTI32(kNibbleTransposeBufbytes, (kNibbleTransposeBatch * kNibbleTransposeBatch) / 2);
+
+// up to 128x128; vecaligned_buf must have size 8k
+// important: write_iter must be allocated up to at least
+//   RoundUpPow2(write_batch_size, 2) rows
+void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, VecW* vecaligned_buf);
+
+HEADER_INLINE uintptr_t GetNibbleArrEntry(const uintptr_t* nibblearr, uint32_t idx) {
+  return (nibblearr[idx / kBitsPerWordD4] >> (4 * (idx % kBitsPerWordD4))) & 15;
+}
 
 #ifdef __LP64__
 extern const unsigned char kLeadMask[2 * kBytesPerVec] __attribute__ ((aligned (64)));

@@ -87,7 +87,7 @@ ENUM_U31_DEF_END(FreqFilterMode);
 
 void EnforceFreqConstraints(const uintptr_t* allele_idx_offsets, const uint64_t* founder_allele_dosages, const double* allele_freqs, STD_ARRAY_KREF(FreqFilterMode, 4) filter_modes, double min_maf, double max_maf, uint64_t min_allele_dosage, uint64_t max_allele_dosage, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
 
-void EnforceMachR2Thresh(const ChrInfo* cip, const double* mach_r2_vals, double mach_r2_min, double mach_r2_max, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
+void EnforceImpR2Thresh(const ChrInfo* cip, const double* imp_r2_vals, double imp_r2_min, double imp_r2_max, uint32_t is_minimac3_r2, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
 
 void EnforceMinBpSpace(const ChrInfo* cip, const uint32_t* variant_bps, uint32_t min_bp_space, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
 

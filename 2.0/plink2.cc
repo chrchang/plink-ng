@@ -67,7 +67,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (16 Mar 2019)";
+  " (18 Mar 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -343,6 +343,8 @@ typedef struct Plink2CmdlineStruct {
   double hwe_thresh;
   double mach_r2_min;
   double mach_r2_max;
+  double minimac3_r2_min;
+  double minimac3_r2_max;
   double min_maf;
   double max_maf;
   double thin_keep_prob;
@@ -1704,9 +1706,15 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             }
           }
         }
-        double* mach_r2_vals = nullptr;
-        if ((pcp->freq_rpt_flags & kfAlleleFreqColMachR2) || (pcp->mach_r2_max != 0.0)) {
-          if (unlikely(bigstack_alloc_d(raw_variant_ct, &mach_r2_vals))) {
+        double* imp_r2_vals = nullptr;
+        const uint32_t is_minimac3_r2 = (pcp->freq_rpt_flags & kfAlleleFreqColMinimac3R2) || (pcp->minimac3_r2_max != 0.0);
+        if (is_minimac3_r2) {
+          logerrputs("Error: Minimac3-R2 computation is under development.\n");
+          reterr = kPglRetNotYetSupported;
+          goto Plink2Core_ret_1;
+        }
+        if (is_minimac3_r2 || (pcp->freq_rpt_flags & kfAlleleFreqColMachR2) || (pcp->mach_r2_max != 0.0)) {
+          if (unlikely(bigstack_alloc_d(raw_variant_ct, &imp_r2_vals))) {
             goto Plink2Core_ret_NOMEM;
           }
         }
@@ -1793,7 +1801,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             }
           }
         }
-        if (allele_presents || allele_dosages || founder_allele_dosages || variant_missing_hc_cts || variant_missing_dosage_cts || variant_hethap_cts || raw_geno_cts || founder_raw_geno_cts || mach_r2_vals) {
+        if (allele_presents || allele_dosages || founder_allele_dosages || variant_missing_hc_cts || variant_missing_dosage_cts || variant_hethap_cts || raw_geno_cts || founder_raw_geno_cts || imp_r2_vals) {
           // note that --geno depends on different handling of X/Y than --maf.
 
           // possible todo: "free" these arrays early in some cases
@@ -1806,7 +1814,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           // hardcall-missing-count slot... and it's NOT fine to pass in
           // nullptrs for both missing-count arrays...
           const uint32_t dosageless_file = !(pgfi.gflags & kfPgenGlobalDosagePresent);
-          reterr = LoadAlleleAndGenoCounts(sample_include, founder_info, sex_nm, sex_male, variant_include, cip, allele_idx_offsets, raw_sample_ct, sample_ct, founder_ct, male_ct, nosex_ct, raw_variant_ct, variant_ct, first_hap_uidx, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, allele_presents, allele_dosages, founder_allele_dosages, ((!variant_missing_hc_cts) && dosageless_file)? variant_missing_dosage_cts : variant_missing_hc_cts, dosageless_file? nullptr : variant_missing_dosage_cts, variant_hethap_cts, raw_geno_cts, founder_raw_geno_cts, x_male_geno_cts, founder_x_male_geno_cts, x_nosex_geno_cts, founder_x_nosex_geno_cts, mach_r2_vals);
+          reterr = LoadAlleleAndGenoCounts(sample_include, founder_info, sex_nm, sex_male, variant_include, cip, allele_idx_offsets, raw_sample_ct, sample_ct, founder_ct, male_ct, nosex_ct, raw_variant_ct, variant_ct, first_hap_uidx, is_minimac3_r2, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, allele_presents, allele_dosages, founder_allele_dosages, ((!variant_missing_hc_cts) && dosageless_file)? variant_missing_dosage_cts : variant_missing_hc_cts, dosageless_file? nullptr : variant_missing_dosage_cts, variant_hethap_cts, raw_geno_cts, founder_raw_geno_cts, x_male_geno_cts, founder_x_male_geno_cts, x_nosex_geno_cts, founder_x_nosex_geno_cts, imp_r2_vals);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -1838,7 +1846,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
 
         if (pcp->command_flags1 & kfCommand1AlleleFreq) {
-          reterr = WriteAlleleFreqs(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonfounders? allele_dosages : founder_allele_dosages, mach_r2_vals, pcp->freq_ref_binstr, pcp->freq_alt1_binstr, variant_ct, max_allele_ct, max_allele_slen, pcp->freq_rpt_flags, pcp->max_thread_ct, nonfounders, outname, outname_end);
+          reterr = WriteAlleleFreqs(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonfounders? allele_dosages : founder_allele_dosages, imp_r2_vals, pcp->freq_ref_binstr, pcp->freq_alt1_binstr, variant_ct, max_allele_ct, max_allele_slen, pcp->freq_rpt_flags, pcp->max_thread_ct, nonfounders, outname, outname_end);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -1989,11 +1997,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           EnforceFreqConstraints(allele_idx_offsets, nonfounders? allele_dosages : founder_allele_dosages, allele_freqs, pcp->filter_modes, pcp->min_maf, pcp->max_maf, pcp->min_allele_dosage, pcp->max_allele_dosage, variant_include, &variant_ct);
         }
 
-        if (mach_r2_vals) {
+        if (imp_r2_vals) {
           if (pcp->mach_r2_max != 0.0) {
-            EnforceMachR2Thresh(cip, mach_r2_vals, pcp->mach_r2_min, pcp->mach_r2_max, variant_include, &variant_ct);
+            EnforceImpR2Thresh(cip, imp_r2_vals, pcp->mach_r2_min, pcp->mach_r2_max, 0, variant_include, &variant_ct);
+          } else if (pcp->minimac3_r2_max != 0.0) {
+            EnforceImpR2Thresh(cip, imp_r2_vals, pcp->minimac3_r2_min, pcp->minimac3_r2_max, 1, variant_include, &variant_ct);
           }
-          BigstackReset(mach_r2_vals);
+          BigstackReset(imp_r2_vals);
         }
       }
 
@@ -2351,13 +2361,19 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
         }
 
-        if (covar_ct && ((pcp->command_flags1 & (kfCommand1Exportf | kfCommand1WriteCovar)) || ((pcp->command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & (kfMakeBed | kfMakeFam | kfMakePgen | kfMakePsam))))) {
+        // update (18 Mar 2018): permit no-covariate --write-covar when used to
+        // write phenotypes.
+        if ((covar_ct || (pheno_ct && (pcp->write_covar_flags & (kfWriteCovarColPheno1 | kfWriteCovarColPhenos)))) && ((pcp->command_flags1 & (kfCommand1Exportf | kfCommand1WriteCovar)) || ((pcp->command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & (kfMakeBed | kfMakeFam | kfMakePgen | kfMakePsam))))) {
           reterr = WriteCovar(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, new_sample_idx_to_old, sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, pcp->write_covar_flags, outname, outname_end);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
         } else if (pcp->command_flags1 & kfCommand1WriteCovar) {
-          logerrputs("Warning: Skipping --write-covar, since no covariates are loaded.\n");
+          if (pcp->write_covar_flags & (kfWriteCovarColPheno1 | kfWriteCovarColPhenos)) {
+            logerrputs("Warning: Skipping --write-covar, since no phenotypes or covariates are loaded.\n");
+          } else {
+            logerrputs("Warning: Skipping --write-covar, since no covariates are loaded.\n");
+          }
         }
 
         if (pcp->command_flags1 & kfCommand1MakePlink2) {
@@ -3311,6 +3327,8 @@ int main(int argc, char** argv) {
     pc.hwe_thresh = 1.0;
     pc.mach_r2_min = 0.0;
     pc.mach_r2_max = 0.0;
+    pc.minimac3_r2_min = 0.0;
+    pc.minimac3_r2_max = 0.0;
     pc.min_maf = 0.0;
     pc.max_maf = 1.0;
     pc.thin_keep_prob = 1.0;
@@ -4565,7 +4583,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --freq cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0reffreq\0alt1freq\0altfreq\0freq\0eq\0eqz\0alteq\0alteqz\0numeq\0altnumeq\0machr2\0minimac4r2\0nobs\0", "freq", kfAlleleFreqColChrom, kfAlleleFreqColDefault, 1, &pc.freq_rpt_flags);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0reffreq\0alt1freq\0altfreq\0freq\0eq\0eqz\0alteq\0alteqz\0numeq\0altnumeq\0machr2\0minimac3r2\0nobs\0", "freq", kfAlleleFreqColChrom, kfAlleleFreqColDefault, 1, &pc.freq_rpt_flags);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
@@ -4574,8 +4592,8 @@ int main(int argc, char** argv) {
                 logerrputs("Error: --freq's altfreq, freq, eq, eqz, alteq, alteqz, numeq, and altnumeq\ncolumns are mutually exclusive.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-              if (pc.freq_rpt_flags & kfAlleleFreqColMinimac4R2) {
-                logerrputs("Error: --freq minimac4r2 column output is under development.\n");
+              if ((pc.freq_rpt_flags & (kfAlleleFreqColMachR2 | kfAlleleFreqColMinimac3R2)) == (kfAlleleFreqColMachR2 | kfAlleleFreqColMinimac3R2)) {
+                logerrputs("Error: --freq machr2 and minimac3r2 columns are mutually exclusive.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
             } else if (strequal_k(cur_modif, "bins-only", cur_modif_slen)) {
@@ -6663,6 +6681,10 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else if (strequal_k_unsafe(flagname_p2, "ach-r2-filter")) {
+          if (unlikely(pc.freq_rpt_flags & kfAlleleFreqColMinimac3R2)) {
+            logerrputs("Error: --freq minimac3r2 output and --mach-r2-filter cannot be used together.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -6678,7 +6700,7 @@ int main(int argc, char** argv) {
             }
             if (param_ct == 2) {
               cur_modif = argvk[arg_idx + 2];
-              if (unlikely(ScanDoublex(cur_modif, &pc.mach_r2_max))) {
+              if (unlikely(ScanDoublex(cur_modif, &pc.mach_r2_max) || (pc.mach_r2_max == 0.0))) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mach-r2-filter max parameter '%s'.\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
@@ -6691,6 +6713,42 @@ int main(int argc, char** argv) {
             }
           } else {
             pc.mach_r2_min = 0.1;
+          }
+          pc.filter_flags |= kfFilterPvarReq;
+          pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
+        } else if (strequal_k_unsafe(flagname_p2, "inimac3-r2-filter")) {
+          if (unlikely(pc.mach_r2_max != 0.0)) {
+            logerrputs("Error: --mach-r2-filter and --minimac3-r2-filter cannot be used together.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(pc.freq_rpt_flags & kfAlleleFreqColMachR2)) {
+            logerrputs("Error: --freq machr2 output and --minimac3-r2-filter cannot be used together.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          if (unlikely(ScanDoublex(cur_modif, &pc.minimac3_r2_min))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --minimac3-r2-filter min parameter '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          if (unlikely(pc.minimac3_r2_min < 0.0)) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --minimac3-r2-filter min parameter '%s' (must be nonnegative).\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          if (param_ct == 2) {
+            cur_modif = argvk[arg_idx + 2];
+            if (unlikely(ScanDoublex(cur_modif, &pc.minimac3_r2_max) || (pc.minimac3_r2_max == 0.0))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --minimac3-r2-filter max parameter '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          } else {
+            pc.minimac3_r2_max = 1.0;
+          }
+          if (unlikely(pc.minimac3_r2_max < pc.minimac3_r2_min)) {
+            logerrputs("Error: --minimac3-r2-filter min parameter cannot be larger than max parameter.\n");
+            goto main_ret_INVALID_CMDLINE_A;
           }
           pc.filter_flags |= kfFilterPvarReq;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;

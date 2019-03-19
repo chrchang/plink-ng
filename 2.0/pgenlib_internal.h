@@ -142,10 +142,6 @@ HEADER_INLINE void ClearQuaterarrEntry(uint32_t idx, uintptr_t* quaterarr) {
   quaterarr[idx / kBitsPerWordD2] &= ~((3 * k1LU) << (idx % kBitsPerWordD2));
 }
 
-HEADER_INLINE uintptr_t GetNibbleArrEntry(const uintptr_t* nibblearr, uint32_t idx) {
-  return (nibblearr[idx / kBitsPerWordD4] >> (4 * (idx % kBitsPerWordD4))) & 15;
-}
-
 // returns a word with low bit in each pair set at each 00.
 HEADER_INLINE uintptr_t Word00(uintptr_t ww) {
   return (~(ww | (ww >> 1))) & kMask5555;
@@ -1380,9 +1376,9 @@ PglErr PgrGet1D(const uintptr_t* __restrict sample_include, const uint32_t* __re
 
 PglErr PgrGetInv1D(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgrp, uintptr_t* __restrict allele_invcountvec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr);
 
-PglErr PgrGetDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* mach_r2_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages);
+PglErr PgrGetDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t is_minimac3_r2, PgenReader* pgrp, double* imp_r2_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages);
 
-PglErr PgrGetMDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* __restrict mach_r2_ptr, uint32_t* __restrict het_ctp, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages);
+PglErr PgrGetMDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t is_minimac3_r2, PgenReader* pgrp, double* __restrict imp_r2_ptr, uint32_t* __restrict het_ctp, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages);
 
 PglErr PgrGetMD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, PgenVariant* pgvp);
 
