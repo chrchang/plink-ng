@@ -563,7 +563,8 @@ As for auxiliary data track \#3:
   is a difflist indicating which samples have dosage information.
 \item If bit 5 is clear and bit 6 is set, track \#4 has an entry for every
   single sample, and a value of 65535 in that array represents a missing
-  dosage.  Track \#3 doesn't exist.
+  dosage (all hard-calls at these positions must also be missing).  Track \#3
+  doesn't exist.
 \item If bits 5 and 6 are both set, track \#3 is a bitarray with $N$ bits,
   where a set bit indicates the corresponding sample has a dosage in track \#4.
 \end{itemize}
