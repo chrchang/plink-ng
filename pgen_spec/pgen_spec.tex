@@ -350,7 +350,7 @@ components of the difflist are, in order:
   fourth component is a packed array of them, occupying $\lfloor L/4\rfloor $
   bytes.
 \item The final component is a sequence of $L-G$ varints encoding (\textless
-  sample ID \#$k$\textgreater $\>-$ \textless sample ID \#$k-1$\textgreater)
+  sample ID \#$k$\textgreater $\>-$ \textless sample ID \#$(k-1)$\textgreater)
   for all positive $k<L$ which aren't multiples of 64.
 \end{enumerate}
 
