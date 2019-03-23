@@ -119,7 +119,7 @@ uint64_t GparseWriteByteCt(uint32_t sample_ct, uint32_t allele_ct, GparseFlags f
       // patch_01_set, patch_10_set: sample_ctv each
       // patch_01_vals: sample_ct AlleleCodes
       // patch_10_vals: 2 * sample_ct AlleleCodes
-      vec_ct += 2 * sample_ctv + AlleleCodeCtToVecCt(sample_ct) + DivUp(sample_ct * 2, kAlleleCodesPerVec);
+      vec_ct += 2 * sample_ctv + AlleleCodeCtToVecCt(sample_ct) + AlleleCodeCtToVecCt(sample_ct * 2);
     }
     if (flags & kfGparseHphase) {
       vec_ct += 2 * sample_ctv;

@@ -1384,11 +1384,12 @@ HEADER_INLINE uint32_t UnionIsFull(const uintptr_t* bitarr1, const uintptr_t* bi
   return 1;
 }
 
-uintptr_t PopcountWordsIntersect(const uintptr_t* __restrict bitvec1_iter, const uintptr_t* __restrict bitvec2_iter, uintptr_t word_ct);
+// PopcountWordsIntersect moved to plink2_base
 
 void PopcountWordsIntersect3val(const uintptr_t* __restrict bitvec1, const uintptr_t* __restrict bitvec2, uint32_t word_ct, uint32_t* __restrict popcount1_ptr, uint32_t* __restrict popcount2_ptr, uint32_t* __restrict popcount_intersect_ptr);
 
 // uintptr_t count_11_longs(const uintptr_t* genovec, uintptr_t word_ct);
+// (see CountQuater in pgenlib_internal for that functionality)
 
 // Must be safe to read from bitarr[start_idx / kBitsPerWord].
 uint32_t AllBitsAreZero(const uintptr_t* bitarr, uintptr_t start_idx, uintptr_t end_idx);

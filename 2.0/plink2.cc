@@ -67,7 +67,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (18 Mar 2019)";
+  " (22 Mar 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -1708,11 +1708,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
         double* imp_r2_vals = nullptr;
         const uint32_t is_minimac3_r2 = (pcp->freq_rpt_flags & kfAlleleFreqColMinimac3R2) || (pcp->minimac3_r2_max != 0.0);
-        if (is_minimac3_r2) {
-          logerrputs("Error: Minimac3-R2 computation is under development.\n");
-          reterr = kPglRetNotYetSupported;
-          goto Plink2Core_ret_1;
-        }
         if (is_minimac3_r2 || (pcp->freq_rpt_flags & kfAlleleFreqColMachR2) || (pcp->mach_r2_max != 0.0)) {
           if (unlikely(bigstack_alloc_d(raw_variant_ct, &imp_r2_vals))) {
             goto Plink2Core_ret_NOMEM;

@@ -1624,7 +1624,10 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
             } else {
               // this hethap_ct can be inaccurate in multiallelic case
               hethap_ct = genocounts[1];
-              if (imp_r2_vals) {
+              if (imp_r2_vals && (!is_minimac3_r2)) {
+                // Assuming the input data isn't malformed "phased haploid",
+                // minimac3-r2 is independent of haploid/diploid state; only
+                // mach-r2 requires a haploid correction.
                 imp_r2_vals[variant_uidx] *= 0.5;
               }
               if (allele_dosages) {
@@ -1640,7 +1643,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
                 break;
               }
               hethap_ct = genocounts[1];
-              if (imp_r2_vals) {
+              if (imp_r2_vals && (!is_minimac3_r2)) {
                 // note that female/unknown-sex are not counted here
                 imp_r2_vals[variant_uidx] *= 0.5;
               }
@@ -1722,6 +1725,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
               cur_dosages[0] = obs_ct * S_CAST(uint64_t, kDosageMax) - alt1_dosage;
               cur_dosages[1] = alt1_dosage;
               if (imp_r2_vals) {
+                // minimac3-r2 and mach-r2 are identical in haploid case
                 const double dosage_sumd = u63tod(alt1_dosage);
                 const double dosage_avg = dosage_sumd / u31tod(obs_ct);
                 const double dosage_variance = u63tod(alt1_dosage_sq_sum) - dosage_sumd * dosage_avg;
@@ -1747,11 +1751,11 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
             }
             GenovecCountSubsetFreqs(pgv.genovec, sex_male_interleaved_vec, raw_sample_ct, male_ct, sex_specific_genocounts);
             hethap_ct = sex_specific_genocounts[1];
-            // Could compute mach-r2 iff there are no unknown-sex samples, but
-            // probably not worth it since larger datasets could have a small
-            // number of Klinefelter syndrome cases, etc. coded as unknown-sex,
-            // and we don't want to discourage their inclusion; let's delegate
-            // that chrX filter to other software.
+            // Could compute imputation r2 iff there are no unknown-sex
+            // samples, but probably not worth it since larger datasets could
+            // have a small number of Klinefelter syndrome cases, etc. coded as
+            // unknown-sex, and we don't want to discourage their inclusion;
+            // let's delegate that chrX filter to other software for now.
 
             if (allele_presents_bytearr) {
               if (pgv.dosage_ct && ((sample_ct == raw_sample_ct) || (!IntersectionIsEmpty(sample_include, pgv.dosage_present, raw_sample_ctl)))) {
@@ -1874,7 +1878,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
                 }
               }
             } else {
-              if (imp_r2_vals) {
+              if (imp_r2_vals && (!is_minimac3_r2)) {
                 imp_r2_vals[variant_uidx] *= 0.5;
               }
               if (allele_dosages) {
@@ -1888,7 +1892,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
                 g_error_ret = reterr;
                 break;
               }
-              if (imp_r2_vals) {
+              if (imp_r2_vals && (!is_minimac3_r2)) {
                 imp_r2_vals[variant_uidx] *= 0.5;
               }
               if (allele_presents_bytearr) {
@@ -3975,9 +3979,11 @@ PglErr MakeFilterHtable(const uintptr_t* variant_include, const uintptr_t* filte
   MakeFilterHtable_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
+#ifdef __LP64__
   MakeFilterHtable_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
+#endif
   }
  MakeFilterHtable_ret_1:
   BigstackEndReset(bigstack_end_mark);

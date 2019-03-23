@@ -3761,8 +3761,8 @@ void EnforceFreqConstraints(const uintptr_t* allele_idx_offsets, const uint64_t*
 
 void EnforceImpR2Thresh(const ChrInfo* cip, const double* imp_r2_vals, double imp_r2_min, double imp_r2_max, uint32_t is_minimac3_r2, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   const uint32_t prefilter_variant_ct = *variant_ct_ptr;
-  imp_r2_min *= 1 - kSmallEpsilon;
-  imp_r2_max *= 1 + kSmallEpsilon;
+  imp_r2_min *= 1 - kEpsilon;
+  imp_r2_max *= 1 + kEpsilon; // kSmallEpsilon proved to be too small...
   uint32_t removed_ct = 0;
   uint32_t relevant_variant_ct = prefilter_variant_ct;
   // skip X, MT

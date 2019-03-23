@@ -704,6 +704,57 @@ uintptr_t PopcountVecsAvx2(const VecW* bit_vvec, uintptr_t vec_ct) {
   return HsumW(cnt);
 }
 
+uintptr_t PopcountVecsAvx2Intersect(const VecW* __restrict vvec1_iter, const VecW* __restrict vvec2_iter, uintptr_t vec_ct) {
+  // See popcnt_avx2() in libpopcnt.  vec_ct must be a multiple of 16.
+  VecW cnt = vecw_setzero();
+  VecW ones = vecw_setzero();
+  VecW twos = vecw_setzero();
+  VecW fours = vecw_setzero();
+  VecW eights = vecw_setzero();
+  for (uintptr_t vec_idx = 0; vec_idx < vec_ct; vec_idx += 16) {
+    VecW twos_a = Csa256(vvec1_iter[vec_idx + 0] & vvec2_iter[vec_idx + 0], vvec1_iter[vec_idx + 1] & vvec2_iter[vec_idx + 1], &ones);
+    VecW twos_b = Csa256(vvec1_iter[vec_idx + 2] & vvec2_iter[vec_idx + 2], vvec1_iter[vec_idx + 3] & vvec2_iter[vec_idx + 3], &ones);
+    VecW fours_a = Csa256(twos_a, twos_b, &twos);
+
+    twos_a = Csa256(vvec1_iter[vec_idx + 4] & vvec2_iter[vec_idx + 4], vvec1_iter[vec_idx + 5] & vvec2_iter[vec_idx + 5], &ones);
+    twos_b = Csa256(vvec1_iter[vec_idx + 6] & vvec2_iter[vec_idx + 6], vvec1_iter[vec_idx + 7] & vvec2_iter[vec_idx + 7], &ones);
+    VecW fours_b = Csa256(twos_a, twos_b, &twos);
+    const VecW eights_a = Csa256(fours_a, fours_b, &fours);
+
+    twos_a = Csa256(vvec1_iter[vec_idx + 8] & vvec2_iter[vec_idx + 8], vvec1_iter[vec_idx + 9] & vvec2_iter[vec_idx + 9], &ones);
+    twos_b = Csa256(vvec1_iter[vec_idx + 10] & vvec2_iter[vec_idx + 10], vvec1_iter[vec_idx + 11] & vvec2_iter[vec_idx + 11], &ones);
+    fours_a = Csa256(twos_a, twos_b, &twos);
+
+    twos_a = Csa256(vvec1_iter[vec_idx + 12] & vvec2_iter[vec_idx + 12], vvec1_iter[vec_idx + 13] & vvec2_iter[vec_idx + 13], &ones);
+    twos_b = Csa256(vvec1_iter[vec_idx + 14] & vvec2_iter[vec_idx + 14], vvec1_iter[vec_idx + 15] & vvec2_iter[vec_idx + 15], &ones);
+    fours_b = Csa256(twos_a, twos_b, &twos);
+    const VecW eights_b = Csa256(fours_a, fours_b, &fours);
+    const VecW sixteens = Csa256(eights_a, eights_b, &eights);
+    cnt = cnt + PopcountVecAvx2(sixteens);
+  }
+  cnt = vecw_slli(cnt, 4);
+  cnt = cnt + vecw_slli(PopcountVecAvx2(eights), 3);
+  cnt = cnt + vecw_slli(PopcountVecAvx2(fours), 2);
+  cnt = cnt + vecw_slli(PopcountVecAvx2(twos), 1);
+  cnt = cnt + PopcountVecAvx2(ones);
+  return HsumW(cnt);
+}
+
+uintptr_t PopcountWordsIntersect(const uintptr_t* __restrict bitvec1_iter, const uintptr_t* __restrict bitvec2_iter, uintptr_t word_ct) {
+  const uintptr_t* bitvec1_end = &(bitvec1_iter[word_ct]);
+  const uintptr_t block_ct = word_ct / (16 * kWordsPerVec);
+  uintptr_t tot = 0;
+  if (block_ct) {
+    tot = PopcountVecsAvx2Intersect(R_CAST(const VecW*, bitvec1_iter), R_CAST(const VecW*, bitvec2_iter), block_ct * 16);
+    bitvec1_iter = &(bitvec1_iter[block_ct * (16 * kWordsPerVec)]);
+    bitvec2_iter = &(bitvec2_iter[block_ct * (16 * kWordsPerVec)]);
+  }
+  while (bitvec1_iter < bitvec1_end) {
+    tot += PopcountWord((*bitvec1_iter++) & (*bitvec2_iter++));
+  }
+  return tot;
+}
+
 void ExpandBytearr(const void* __restrict compact_bitarr, const uintptr_t* __restrict expand_mask, uint32_t word_ct, uint32_t expand_size, uint32_t read_start_bit, uintptr_t* __restrict target) {
   const uint32_t expand_sizex_m1 = expand_size + read_start_bit - 1;
   const uint32_t leading_byte_ct = 1 + (expand_sizex_m1 % kBitsPerWord) / CHAR_BIT;
@@ -1120,6 +1171,58 @@ uintptr_t PopcountVecsNoAvx2(const VecW* bit_vvec, uintptr_t vec_ct) {
   }
 }
 
+static inline uintptr_t PopcountVecsNoAvx2Intersect(const VecW* __restrict vvec1_iter, const VecW* __restrict vvec2_iter, uintptr_t vec_ct) {
+  // popcounts vvec1 AND vvec2[0..(ct-1)].  ct is a multiple of 3.
+  assert(!(vec_ct % 3));
+  const VecW m0 = vecw_setzero();
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW m4 = VCONST_W(kMask0F0F);
+  VecW prev_sad_result = vecw_setzero();
+  VecW acc = vecw_setzero();
+  uintptr_t cur_incr = 30;
+  for (; ; vec_ct -= cur_incr) {
+    if (vec_ct < 30) {
+      if (!vec_ct) {
+        acc = acc + prev_sad_result;
+        return HsumW(acc);
+      }
+      cur_incr = vec_ct;
+    }
+    VecW inner_acc = vecw_setzero();
+    const VecW* vvec1_stop = &(vvec1_iter[cur_incr]);
+    do {
+      VecW count1 = (*vvec1_iter++) & (*vvec2_iter++);
+      VecW count2 = (*vvec1_iter++) & (*vvec2_iter++);
+      VecW half1 = (*vvec1_iter++) & (*vvec2_iter++);
+      const VecW half2 = vecw_srli(half1, 1) & m1;
+      half1 = half1 & m1;
+      count1 = count1 - (vecw_srli(count1, 1) & m1);
+      count2 = count2 - (vecw_srli(count2, 1) & m1);
+      count1 = count1 + half1;
+      count2 = count2 + half2;
+      count1 = (count1 & m2) + (vecw_srli(count1, 2) & m2);
+      count1 = count1 + (count2 & m2) + (vecw_srli(count2, 2) & m2);
+      inner_acc = inner_acc + (count1 & m4) + (vecw_srli(count1, 4) & m4);
+    } while (vvec1_iter < vvec1_stop);
+    acc = acc + prev_sad_result;
+    prev_sad_result = vecw_bytesum(inner_acc, m0);
+  }
+}
+
+uintptr_t PopcountWordsIntersect(const uintptr_t* __restrict bitvec1_iter, const uintptr_t* __restrict bitvec2_iter, uintptr_t word_ct) {
+  uintptr_t tot = 0;
+  const uintptr_t* bitvec1_end = &(bitvec1_iter[word_ct]);
+  const uintptr_t trivec_ct = word_ct / (3 * kWordsPerVec);
+  tot += PopcountVecsNoAvx2Intersect(R_CAST(const VecW*, bitvec1_iter), R_CAST(const VecW*, bitvec2_iter), trivec_ct * 3);
+  bitvec1_iter = &(bitvec1_iter[trivec_ct * (3 * kWordsPerVec)]);
+  bitvec2_iter = &(bitvec2_iter[trivec_ct * (3 * kWordsPerVec)]);
+  while (bitvec1_iter < bitvec1_end) {
+    tot += PopcountWord((*bitvec1_iter++) & (*bitvec2_iter++));
+  }
+  return tot;
+}
+
 void ExpandBytearr(const void* __restrict compact_bitarr, const uintptr_t* __restrict expand_mask, uint32_t word_ct, uint32_t expand_size, uint32_t read_start_bit, uintptr_t* __restrict target) {
   ZeroWArr(word_ct, target);
   const uintptr_t* compact_bitarr_alias = S_CAST(const uintptr_t*, compact_bitarr);
@@ -1139,9 +1242,9 @@ void ExpandBytearr(const void* __restrict compact_bitarr, const uintptr_t* __res
       // avoid possible segfault
       compact_word = SubwordLoad(&(compact_bitarr_alias[compact_widx]), DivUp(loop_len, CHAR_BIT));
     } else {
-#ifdef __arm__
-#  error "Unaligned accesses in ExpandBytearr()."
-#endif
+#  ifdef __arm__
+#    error "Unaligned accesses in ExpandBytearr()."
+#  endif
       compact_word = compact_bitarr_alias[compact_widx];
     }
     for (; compact_idx_lowbits != loop_len; ++compact_idx_lowbits) {
@@ -1184,9 +1287,9 @@ void ExpandThenSubsetBytearr(const void* __restrict compact_bitarr, const uintpt
         tmp_compact_read_word = compact_read_word >> read_idx_lowbits;
       }
       if (read_idx_lowbits_end > kBitsPerWord) {
-#ifdef __arm__
-#  error "Unaligned accesses in ExpandThenSubsetBytearr()."
-#endif
+#  ifdef __arm__
+#    error "Unaligned accesses in ExpandThenSubsetBytearr()."
+#  endif
         compact_read_word = *compact_bitarr_iter++;
         tmp_compact_read_word |= compact_read_word << (kBitsPerWord - read_idx_lowbits);
         read_idx_lowbits_end -= kBitsPerWord;

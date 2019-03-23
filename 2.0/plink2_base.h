@@ -1205,6 +1205,7 @@ static_assert(sizeof(int64_t) == 8, "plink2_base requires sizeof(int64_t) == 8."
 
 CONSTI32(kWordsPerVec, kBytesPerVec / kBytesPerWord);
 CONSTI32(kInt32PerVec, kBytesPerVec / 4);
+CONSTI32(kInt16PerVec, kBytesPerVec / 2);
 
 CONSTI32(kFloatPerFVec, kBytesPerFVec / 4);
 
@@ -2125,6 +2126,8 @@ HEADER_INLINE uintptr_t PopcountWords(const uintptr_t* bitvec, uintptr_t word_ct
   return tot;
 }
 #endif  // !USE_AVX2
+
+uintptr_t PopcountWordsIntersect(const uintptr_t* __restrict bitvec1_iter, const uintptr_t* __restrict bitvec2_iter, uintptr_t word_ct);
 
 // Turns out memcpy(&cur_word, bytearr, ct) can't be trusted to be fast when ct
 // isn't known at compile time.

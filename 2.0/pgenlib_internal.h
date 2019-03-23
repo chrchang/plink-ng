@@ -508,7 +508,11 @@ void ClearGenovecMissing1bit8Unsafe(const uintptr_t* __restrict genovec, uint32_
 
 void ClearGenovecMissing1bit16Unsafe(const uintptr_t* __restrict genovec, uint32_t* subset_sizep, uintptr_t* __restrict subset, void* __restrict sparse_vals);
 
-double MultiallelicDiploidMachR2(const uint64_t* __restrict sums, const uint64_t* __restrict ssqs, uint32_t nm_sample_ct, uint32_t allele_ct);
+double MultiallelicDiploidMinimac3R2(const uint64_t* __restrict sums, const uint64_t* __restrict hap_ssqs_x2, uint32_t nm_sample_ct, uint32_t allele_ct, uint32_t extra_phased_het_ct);
+
+HEADER_INLINE double MultiallelicDiploidMachR2(const uint64_t* __restrict sums, const uint64_t* __restrict ssqs, uint32_t nm_sample_ct, uint32_t allele_ct) {
+  return 2 * MultiallelicDiploidMinimac3R2(sums, ssqs, nm_sample_ct, allele_ct, 0);
+}
 
 // ----- end plink2_common subset -----
 
@@ -975,7 +979,8 @@ struct PgenReaderStruct {
   uintptr_t* workspace_raregeno_tmp_loadbuf;
 
   uintptr_t* workspace_aux1x_present;
-  uint64_t* workspace_mach_r2;  // needed in multiallelic case
+  uint64_t* workspace_imp_r2;  // needed in multiallelic case
+
   uintptr_t* workspace_all_hets;
   uintptr_t* workspace_subset;  // currently used for hphase decoding
 
@@ -1376,6 +1381,10 @@ PglErr PgrGet1D(const uintptr_t* __restrict sample_include, const uint32_t* __re
 
 PglErr PgrGetInv1D(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgrp, uintptr_t* __restrict allele_invcountvec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr);
 
+// When computing either form of imputation-r2, this function requires the
+// variant to be biallelic; PgrGetMDCounts must be called in that multiallelic
+// case.
+// imp_r2_ptr must be non-null when is_minimac3_r2 is set.
 PglErr PgrGetDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t is_minimac3_r2, PgenReader* pgrp, double* imp_r2_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages);
 
 PglErr PgrGetMDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t is_minimac3_r2, PgenReader* pgrp, double* __restrict imp_r2_ptr, uint32_t* __restrict het_ctp, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages);
