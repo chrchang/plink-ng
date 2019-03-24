@@ -9966,8 +9966,11 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
     } else {
       const uintptr_t* file_dphase_present = R_CAST(const uintptr_t*, fread_ptr);
       const uint32_t raw_dosage_ctb = DivUp(raw_dosage_ct, CHAR_BIT);
-      fread_ptr = &(fread_ptr[raw_dosage_ctb]);
-      if (PtrCheck(fread_end, fread_ptr, raw_dosage_ct * sizeof(int16_t))) {
+      if (PtrAddCk(fread_end, raw_dosage_ctb, &fread_ptr)) {
+        return kPglRetMalformedInput;
+      }
+      const uint32_t raw_dphase_ct = PopcountBytes(file_dphase_present, raw_dosage_ctb);
+      if (PtrCheck(fread_end, fread_ptr, raw_dphase_ct * sizeof(int16_t))) {
         return kPglRetMalformedInput;
       }
       uintptr_t* raw_dphase_present = pgrp->workspace_dphase_present;
