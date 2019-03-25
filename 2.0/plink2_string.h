@@ -70,12 +70,12 @@
 
 #ifdef __cplusplus
 #  define STD_SORT(ct, fallback_cmp, arr) std::sort(&((arr)[0]), (&((arr)[ct])))
-#  if __cplusplus >= 201703L
+#  if __cplusplus >= 201902L
 // this should only be used for arrays of length >= variant_ct or sample_ct
 // (sample_ct is cutting it close).
 // macro should still be used in e.g. non-__cplusplus blocks, so that we have
 // the option of falling back on a hand-coded parallel sort.
-#    define STD_SORT_PAR_UNSEQ(ct, fallback_cmp, arr) std::sort(std::par_unseq, &((arr)[0]), (&((arr)[ct])))
+#    define STD_SORT_PAR_UNSEQ(ct, fallback_cmp, arr) std::sort(std::execution::par_unseq, &((arr)[0]), (&((arr)[ct])))
 #  else
 #    define STD_SORT_PAR_UNSEQ(ct, fallback_cmp, arr) std::sort(&((arr)[0]), (&((arr)[ct])))
 #  endif
