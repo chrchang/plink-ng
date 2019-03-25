@@ -28,7 +28,7 @@
 
 #ifdef __cplusplus
 #  include <algorithm>
-#  if __cplusplus >= 201703L
+#  if __cplusplus >= 201902L
 #    include <execution>
 #  endif
 #  ifdef _WIN32
