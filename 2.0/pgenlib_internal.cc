@@ -2376,6 +2376,36 @@ double MultiallelicDiploidMinimac3R2(const uint64_t* __restrict sums, const uint
   return observed_variance_times_2n / expected_variance_times_2n;
 }
 
+double BiallelicDiploidMinimac3R2(uint64_t alt1_dosage, uint64_t hap_alt1_ssq_x2, uint32_t nm_sample_ct) {
+  if (!nm_sample_ct) {
+    return (0.0 / 0.0);
+  }
+
+  const uint64_t nm_sample_ct_x32768 = nm_sample_ct * 0x8000LLU;
+  if (nm_sample_ct < 131072) {
+    const uint64_t alt1_dosage_sq = alt1_dosage * alt1_dosage;
+    const uint64_t observed_variance_times_2n = hap_alt1_ssq_x2 * nm_sample_ct - alt1_dosage * alt1_dosage;
+    const uint64_t expected_variance_times_2n = nm_sample_ct_x32768 * alt1_dosage - alt1_dosage_sq;
+    return S_CAST(double, observed_variance_times_2n) / S_CAST(double, expected_variance_times_2n);
+  }
+  // Need to avoid catastrophic cancellation here.
+  const double alt1_dosaged = u63tod(alt1_dosage);
+  const double expected_variance_times_2n = alt1_dosaged * u63tod(nm_sample_ct_x32768 - alt1_dosage);
+  const uint64_t hap_alt1_ssq_x2_hi = hap_alt1_ssq_x2 >> 32;
+  uint64_t left_lo = (hap_alt1_ssq_x2 & 0xffffffffLLU) * nm_sample_ct;
+  const uint64_t left_hi = (left_lo >> 32) + hap_alt1_ssq_x2_hi * nm_sample_ct;
+  left_lo &= 0xffffffffU;
+  const uint64_t alt1_dosage_lo = alt1_dosage & 0xffffffffLLU;
+  const uint64_t alt1_dosage_hi = alt1_dosage >> 32;
+  uint64_t right_lo = alt1_dosage_lo * alt1_dosage_lo;
+  const uint64_t right_hi = (right_lo >> 32) + (alt1_dosage_lo + alt1_dosage) * alt1_dosage_hi;
+  right_lo &= 0xffffffffU;
+  const double observed_variance_times_2n_hi = u63tod(left_hi - right_hi);
+  const int64_t observed_variance_times_2n_lo = S_CAST(int64_t, left_lo) - S_CAST(int64_t, right_lo);
+  const double observed_variance_times_2n = (observed_variance_times_2n_hi * 4294967296.0) + observed_variance_times_2n_lo;
+  return observed_variance_times_2n / expected_variance_times_2n;
+}
+
 void PreinitPgfi(PgenFileInfo* pgfip) {
   pgfip->shared_ff = nullptr;
   pgfip->block_base = nullptr;
@@ -5004,7 +5034,8 @@ PglErr CountparseDifflistSubset(const unsigned char* fread_end, const uintptr_t*
     ZeroTrailingQuaters(difflist_len, raregeno_workspace);
     GenovecCountFreqsUnsafe(raregeno_workspace, difflist_len, genocounts);
     genocounts[common_geno] = sample_ct - difflist_len;
-    return kPglRetSuccess;
+    // bugfix (26 Mar 2019): forgot to advance fread_pp
+    return SkipDeltalistIds(fread_end, group_info_iter, difflist_len, raw_sample_ct, 1, fread_pp);
   }
   const uint32_t subgroup_idx_last = (difflist_len - 1) / kBitsPerWordD2;
   const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(raw_sample_ct);
@@ -5085,7 +5116,8 @@ PglErr CountparseOnebitSubset(const unsigned char* fread_end, const uintptr_t* _
     GenovecCountFreqsUnsafe(raregeno_workspace, difflist_len, genocounts);
     genocounts[geno_code_low] = sample_ct - difflist_len - high_geno_ct;
     genocounts[geno_code_high] = high_geno_ct;
-    return kPglRetSuccess;
+    // bugfix (26 Mar 2019): forgot to advance fread_pp
+    return SkipDeltalistIds(fread_end, group_info_iter, difflist_len, raw_sample_ct, 1, fread_pp);
   }
   const uint32_t subgroup_idx_last = (difflist_len - 1) / kBitsPerWordD2;
   const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(raw_sample_ct);
@@ -5168,7 +5200,8 @@ PglErr GetBasicGenotypeCounts(const uintptr_t* __restrict sample_include, const 
   // genocounts[0] := ref/ref, genocounts[1] := ref/altx,
   // genocounts[2] := altx/alty, genocounts[3] := missing
   // If unphased_het_ctp is non-null, this assumes multiallelic hardcalls are
-  // not present, phased hardcalls are present, and we aren't subsetting.
+  // not present, phased hardcalls are present, we aren't subsetting, and
+  // unphased_het_ct is initialized to zero.
   assert(vidx < pgrp->fi.raw_variant_ct);
   assert(sample_ct);
   const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
@@ -9510,32 +9543,18 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
     }
     // yeah, it's sinful to implement imputation r2 here...
     const uint32_t nm_sample_ct = sample_ct - genocounts[3];
-    if (!nm_sample_ct) {
-      *imp_r2_ptr = 0.0 / 0.0;
-      return kPglRetSuccess;
+    const uint64_t alt1_dosage = genocounts[2] * 0x8000LLU + genocounts[1] * 0x4000LLU;
+    uint64_t hap_alt1_ssq_x2 = genocounts[2] * 0x40000000LLU + genocounts[1] * 0x10000000LLU;
+    if (is_minimac3_r2) {
+      if (!VrtypeHphase(vrtype)) {
+        unphased_het_ct = genocounts[1];
+      }
+      hap_alt1_ssq_x2 += (genocounts[1] - unphased_het_ct) * 0x10000000LLU;
     }
-    const uintptr_t dosage_sum = genocounts[2] * 2 + genocounts[1];
-    const double dosage_sumd = dosage_sum;
-    const double dosage_avg = dosage_sumd / u31tod(nm_sample_ct);
-    const double sum_dosage_product = dosage_sumd * dosage_avg;
-    const double r2_denom = dosage_sumd * (2 - dosage_avg);
+    *imp_r2_ptr = BiallelicDiploidMinimac3R2(alt1_dosage, hap_alt1_ssq_x2, nm_sample_ct);
     if (!is_minimac3_r2) {
-      const int64_t dosage_ssq = dosage_sum + genocounts[2] * 2LLU;
-      const double dosage_variance = dosage_ssq - sum_dosage_product;
-      *imp_r2_ptr = 2 * dosage_variance / r2_denom;
-      return kPglRetSuccess;
+      *imp_r2_ptr *= 2;
     }
-    if (!VrtypeHphase(vrtype)) {
-      unphased_het_ct = genocounts[1];
-    }
-    // Unphased hets are treated as 0.5 on each side.
-    const int64_t phased_dosage_ssq_x2 = S_CAST(uint64_t, dosage_sum) * 2 - unphased_het_ct;
-    // dosage_avg == phased_dosage_avg_x2
-    // TODO: danger of catastrophic cancellation here, had to change
-    // kSmallEpsilon to kEpsilon upstream.  Should switch to
-    // MultiallelicDiploidMinimac3R2()'s strategy.
-    const double phased_dosage_variance_x2 = phased_dosage_ssq_x2 - sum_dosage_product;
-    *imp_r2_ptr = phased_dosage_variance_x2 / r2_denom;
     return kPglRetSuccess;
   }
   uintptr_t* raw_genovec = pgrp->workspace_vec;
@@ -9735,20 +9754,12 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
     if (!imp_r2_ptr) {
       return kPglRetSuccess;
     }
-    if (!new_sample_nm_ct) {
-      *imp_r2_ptr = 0.0 / 0.0;
-      return kPglRetSuccess;
-    }
     // possible todo: also move all-hardcall-phase-present, no-dosage
     // is_minimac3_r2 case under this branch, since we can just set imp_r2 to
-    // NaN or 1.  (but wait till mixed-phase calculation is validated.)
-
+    // NaN or 1.
     // 16384^2, 32768^2
     alt1_dosage_sq_sum += remaining_het_ct * 0x10000000LLU + remaining_hom_alt_ct * 0x40000000LLU;
-    const double dosage_sumd = u63tod(alt1_dosage);
-    const double dosage_avg = dosage_sumd / u31tod(new_sample_nm_ct);
-    const double dosage_variance = u63tod(alt1_dosage_sq_sum) - dosage_sumd * dosage_avg;
-    *imp_r2_ptr = dosage_variance / (dosage_sumd * (32768 - dosage_avg));
+    *imp_r2_ptr = BiallelicDiploidMinimac3R2(alt1_dosage, alt1_dosage_sq_sum, new_sample_nm_ct);
     if (!is_minimac3_r2) {
       *imp_r2_ptr *= 2;
     }
@@ -10048,15 +10059,8 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
   const uint32_t nondosage_nm_ct = sample_ct - genocounts[3] - replaced_ct;
   const uint32_t new_sample_nm_ct = dosage_ct + nondosage_nm_ct;
   all_dosages[0] = new_sample_nm_ct * 32768LLU - alt1_dosage;
-  if (!new_sample_nm_ct) {
-    *imp_r2_ptr = 0.0 / 0.0;
-    return kPglRetSuccess;
-  }
   hap_ssq_x2 += (remaining_het_ct + phased_hc_het_ct) * 0x10000000LLU + remaining_hom_alt_ct * 0x40000000LLU;
-  const double dosage_sumd = u63tod(alt1_dosage);
-  const double hap_dosage_avg_x2 = dosage_sumd / u31tod(new_sample_nm_ct);
-  const double hap_dosage_variance_x2 = u63tod(hap_ssq_x2) - dosage_sumd * hap_dosage_avg_x2;
-  *imp_r2_ptr = hap_dosage_variance_x2 / (dosage_sumd * (32768 - hap_dosage_avg_x2));
+  *imp_r2_ptr = BiallelicDiploidMinimac3R2(alt1_dosage, hap_ssq_x2, new_sample_nm_ct);
   return kPglRetSuccess;
 }
 

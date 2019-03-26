@@ -346,16 +346,16 @@ HEADER_INLINE char* strcpya_k(char* __restrict dst, const void* __restrict src) 
 
 #if defined(__cplusplus)
 #  if __cplusplus >= 201103L
-HEADER_INLINE bool isfinite_f(float dxx) {
+HEADER_INLINE bool isfinite_f(float fxx) {
   using namespace std;
-  return isfinite(dxx);
+  return isfinite(fxx);
 }
 #  else
 #    ifdef isfinite
 #      define isfinite_f isfinite
 #    else
-HEADER_INLINE bool isfinite_f(float dxx) {
-  return (dxx == dxx) && (dxx != INFINITY) && (dxx != -INFINITY);
+HEADER_INLINE bool isfinite_f(float fxx) {
+  return (fxx == fxx) && (fxx != INFINITY) && (fxx != -INFINITY);
 }
 #    endif
 #  endif
