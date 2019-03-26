@@ -4147,7 +4147,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
             // validParameters() check
             for (uint32_t pred_uidx = 1; pred_uidx != cur_predictor_ct; ++pred_uidx) {
               const float hh_inv_diag_element = hh_return[pred_uidx * cur_predictor_ctavp1];
-              if ((hh_inv_diag_element < S_CAST(float, 1e-20)) || (!isfinite(hh_inv_diag_element))) {
+              if ((hh_inv_diag_element < S_CAST(float, 1e-20)) || (!isfinite_f(hh_inv_diag_element))) {
                 goto GlmLogisticThread_skip_allele;
               }
               // use sample_variance_buf[] to store diagonal square roots

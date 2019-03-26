@@ -344,16 +344,23 @@ HEADER_INLINE char* strcpya_k(char* __restrict dst, const void* __restrict src) 
 }
 #endif
 
-#if defined(__cplusplus) && !defined(__APPLE__)
-#  ifndef isfinite
-#    if __cplusplus >= 201103L
-#      define isfinite std::isfinite
+#if defined(__cplusplus)
+#  if __cplusplus >= 201103L
+HEADER_INLINE bool isfinite_f(float dxx) {
+  using namespace std;
+  return isfinite(dxx);
+}
+#  else
+#    ifdef isfinite
+#      define isfinite_f isfinite
 #    else
-HEADER_INLINE bool isfinite(double dxx) {
+HEADER_INLINE bool isfinite_f(float dxx) {
   return (dxx == dxx) && (dxx != INFINITY) && (dxx != -INFINITY);
 }
 #    endif
 #  endif
+#else
+#  define isfinite_f isfinite
 #endif
 
 HEADER_INLINE int32_t IsSpaceOrEoln(unsigned char ucc) {
