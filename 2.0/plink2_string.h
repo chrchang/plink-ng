@@ -345,14 +345,10 @@ HEADER_INLINE char* strcpya_k(char* __restrict dst, const void* __restrict src) 
 #endif
 
 #if defined(__cplusplus) && !defined(__APPLE__)
-#  if __cplusplus >= 201103L
-#    define isfinite std::isfinite
-#  else
-#    ifndef isfinite
+#  if (__cplusplus < 201103L) && !defined(isfinite)
 HEADER_INLINE bool isfinite(double dxx) {
   return (dxx == dxx) && (dxx != INFINITY) && (dxx != -INFINITY);
 }
-#    endif
 #  endif
 #endif
 
