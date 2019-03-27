@@ -53,7 +53,8 @@ FLAGSET_DEF_START()
   kfGlmConditionRecessive = (1 << 17),
   kfGlmConditionMultiallelic = (1 << 18),
   kfGlmLocalOmitLast = (1 << 19),
-  kfGlmTestsAll = (1 << 20)
+  kfGlmTestsAll = (1 << 20),
+  kfGlmPhenoIds = (1 << 21)
 FLAGSET_DEF_END(GlmFlags);
 
 FLAGSET_DEF_START()

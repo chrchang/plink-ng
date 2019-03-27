@@ -417,6 +417,7 @@ typedef struct Plink2CmdlineStruct {
   char* keep_fcol_flattened;
   char* keep_fcol_name;
   char* update_alleles_fname;
+  char* update_sample_ids_fname;
   TwoColParams* ref_allele_flag;
   TwoColParams* alt1_allele_flag;
   TwoColParams* update_map_flag;
@@ -738,6 +739,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     PedigreeIdInfo pii;
     InitPedigreeIdInfo(pcp->misc_flags, &pii);
     if (psamname[0]) {
+      if (pcp->update_sample_ids_fname) {
+        reterr = PrescanSampleIds(pcp->update_sample_ids_fname, (pcp->misc_flags / kfMiscUpdateIdsSid) & 1, &pii.sii);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
       // update (26 Nov 2017): change --no-pheno to also apply to .psam file
       const uint32_t ignore_psam_phenos = (!(pcp->fam_cols & kfFamCol6)) || (pcp->pheno_fname && pcp->pheno_range_list.name_ct);
       reterr = LoadPsam(psamname, pcp->pheno_fname? nullptr : &(pcp->pheno_range_list), pcp->fam_cols, ignore_psam_phenos? 0 : 0x7fffffff, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, &pii, &sample_include, &founder_info, &sex_nm, &sex_male, &pheno_cols, &pheno_names, &raw_sample_ct, &pheno_ct, &max_pheno_name_blen);
@@ -1257,10 +1264,18 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       // xid_mode may vary between these operations in a single run, and
       // sample-sort is relatively cheap, so we abandon plink 1.9's "construct
       // sample ID map only once" optimization.
-      if (pcp->update_sex_info.fname) {
-        reterr = UpdateSampleSexes(sample_include, &pii.sii, &(pcp->update_sex_info), raw_sample_ct, sample_ct, sex_nm, sex_male);
+      if (pcp->update_sample_ids_fname) {
+        reterr = UpdateSampleIds(pcp->update_sample_ids_fname, sample_include, raw_sample_ct, sample_ct, (pcp->misc_flags / kfMiscUpdateIdsSid) & 1, &pii.sii);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
+        }
+      } else {
+        // --update-parents goes here
+        if (pcp->update_sex_info.fname) {
+          reterr = UpdateSampleSexes(sample_include, &pii.sii, &(pcp->update_sex_info), raw_sample_ct, sample_ct, sex_nm, sex_male);
+          if (unlikely(reterr)) {
+            goto Plink2Core_ret_1;
+          }
         }
       }
       if (pcp->keepfam_fnames) {
@@ -3000,6 +3015,7 @@ int main(int argc, char** argv) {
   pc.alt1_allele_flag = nullptr;
   pc.update_map_flag = nullptr;
   pc.update_name_flag = nullptr;
+  pc.update_sample_ids_fname = nullptr;
   InitRangeList(&pc.snps_range_list);
   InitRangeList(&pc.exclude_snps_range_list);
   InitRangeList(&pc.pheno_range_list);
@@ -4811,7 +4827,7 @@ int main(int argc, char** argv) {
           pc.command_flags1 |= kfCommand1GenoCounts;
           pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "lm")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 17))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 18))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t explicit_no_firth = 0;
@@ -4829,6 +4845,8 @@ int main(int argc, char** argv) {
               pc.glm_info.flags |= kfGlmNoXSex;
             } else if (strequal_k(cur_modif, "log10", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmLog10;
+            } else if (strequal_k(cur_modif, "pheno-ids", cur_modif_slen)) {
+              pc.glm_info.flags |= kfGlmPhenoIds;
             } else if (strequal_k(cur_modif, "genotypic", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmGenotypic;
             } else if (strequal_k(cur_modif, "hethom", cur_modif_slen)) {
@@ -8499,6 +8517,10 @@ int main(int argc, char** argv) {
 
       case 'u':
         if (strequal_k_unsafe(flagname_p2, "pdate-sex")) {
+          if (unlikely(pc.update_sample_ids_fname)) {
+            logerrputs("Error: --update-sex cannot be used with --update-ids.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 4))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -8554,6 +8576,22 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.dependency_flags |= kfFilterPvarReq;
+        } else if (strequal_k_unsafe(flagname_p2, "pdate-ids")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t fname_modif_idx = 1;
+          if (param_ct == 2) {
+            if (unlikely(CheckExtraParam(&(argvk[arg_idx]), "sid", &fname_modif_idx))) {
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            pc.misc_flags |= kfMiscUpdateIdsSid;
+          }
+          reterr = AllocFname(argvk[arg_idx + fname_modif_idx], flagname_p, 0, &pc.update_sample_ids_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          pc.dependency_flags |= kfFilterPsamReq;
         } else if (likely(strequal_k_unsafe(flagname_p2, "pdate-alleles"))) {
           // Prevent the most confusing order-of-operations dependencies.  (May
           // want to prevent more combinations later.)
@@ -9326,6 +9364,7 @@ int main(int argc, char** argv) {
   CleanupPlink2CmdlineMeta(&pcm);
   CleanupAdjust(&adjust_file_info);
   free_cond(king_cutoff_fprefix);
+  free_cond(pc.update_sample_ids_fname);
   free_cond(pc.update_name_flag);
   free_cond(pc.update_map_flag);
   free_cond(pc.alt1_allele_flag);

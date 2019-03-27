@@ -1088,6 +1088,556 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
   return reterr;
 }
 
+PglErr PrescanSampleIds(const char* fname, uint32_t sid_modifier, SampleIdInfo* siip) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  ReadLineStream rls;
+  PreinitRLstream(&rls);
+  {
+    const char* line_iter;
+    reterr = InitRLstreamFastsizeRawK(fname, &rls, &line_iter);
+    if (unlikely(reterr)) {
+      goto PrescanSampleIds_ret_1;
+    }
+    while (1) {
+      ++line_idx;
+      reterr = RlsNextLstripK(&rls, &line_iter);
+      if (reterr) {
+        if (likely(reterr == kPglRetEof)) {
+          // permit empty file
+          reterr = kPglRetSuccess;
+          goto PrescanSampleIds_ret_1;
+        }
+        goto PrescanSampleIds_ret_READ_RLSTREAM;
+      }
+      char cc = *line_iter;
+      // Interpret '#' as header line; don't dictate what the column IDs are
+      // for now.
+      if ((!IsEolnKns(cc)) && (cc != '#')) {
+        break;
+      }
+    }
+    const uint32_t token_ct = CountTokens(line_iter);
+    uint32_t fid_present = 0;
+    uint32_t sid_present = 0;
+    if (token_ct == 4) {
+      fid_present = 1 - sid_modifier;
+      sid_present = sid_modifier;
+    } else if (token_ct == 6) {
+      fid_present = 1;
+      sid_present = 1;
+    } else if (unlikely(token_ct != 2)) {
+      logerrputs("Error: Invalid --update-ids file (2, 4, or 6 columns expected).\n");
+      goto PrescanSampleIds_ret_MALFORMED_INPUT;
+    }
+    const uint32_t initial_skip_ct = token_ct / 2;
+    uintptr_t max_sample_id_blen = 0;
+    uintptr_t max_sid_blen = 0;
+    do {
+      if (!IsEolnKns(*line_iter)) {
+        line_iter = NextTokenMult(line_iter, initial_skip_ct);
+        if (unlikely(!line_iter)) {
+          goto PrescanSampleIds_ret_MISSING_TOKENS;
+        }
+        const char* id_start = line_iter;
+        line_iter = CurTokenEnd(id_start);
+        uintptr_t cur_sample_id_blen = 1 + S_CAST(uintptr_t, line_iter - id_start);
+        if (fid_present) {
+          const char* iid_start = FirstNonTspace(line_iter);
+          if (unlikely(IsEolnKns(*iid_start))) {
+            goto PrescanSampleIds_ret_MISSING_TOKENS;
+          }
+          line_iter = CurTokenEnd(iid_start);
+          cur_sample_id_blen += 1 + S_CAST(uintptr_t, line_iter - iid_start);
+        }
+        if (cur_sample_id_blen > max_sample_id_blen) {
+          max_sample_id_blen = cur_sample_id_blen;
+        }
+        if (sid_present) {
+          const char* sid_start = FirstNonTspace(line_iter);
+          if (unlikely(IsEolnKns(*sid_start))) {
+            goto PrescanSampleIds_ret_MISSING_TOKENS;
+          }
+          line_iter = CurTokenEnd(sid_start);
+          const uintptr_t sid_slen = line_iter - sid_start;
+          if (sid_slen >= max_sid_blen) {
+            max_sid_blen = sid_slen + 1;
+          }
+        }
+        if (unlikely(!IsEolnKns(*line_iter))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --update-ids file has more tokens than expected.\n", line_idx);
+          goto PrescanSampleIds_ret_MALFORMED_INPUT_WW;
+        }
+      }
+      ++line_idx;
+      reterr = RlsNextLstripK(&rls, &line_iter);
+    } while (!reterr);
+    if (unlikely(reterr != kPglRetEof)) {
+      goto PrescanSampleIds_ret_READ_RLSTREAM;
+    }
+    reterr = kPglRetSuccess;
+    siip->max_sample_id_blen = max_sample_id_blen;
+    if (sid_present) {
+      siip->max_sid_blen = max_sid_blen;
+    }
+  }
+  while (0) {
+  PrescanSampleIds_ret_READ_RLSTREAM:
+    RLstreamErrPrint("--update-ids file", &rls, &reterr);
+    break;
+  PrescanSampleIds_ret_MISSING_TOKENS:
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --update-ids file has fewer tokens than expected.\n", line_idx);
+  PrescanSampleIds_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+  PrescanSampleIds_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+ PrescanSampleIds_ret_1:
+  CleanupRLstream(&rls);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+PglErr PrescanParentalIds(const char* fname, ParentalIdInfo* parental_id_infop) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  ReadLineStream rls;
+  PreinitRLstream(&rls);
+  {
+    const char* line_iter;
+    reterr = InitRLstreamFastsizeRawK(fname, &rls, &line_iter);
+    if (unlikely(reterr)) {
+      goto PrescanParentalIds_ret_1;
+    }
+
+    uint32_t is_header_line;
+    do {
+      ++line_idx;
+      reterr = RlsNextLstripK(&rls, &line_iter);
+      if (reterr) {
+        if (likely(reterr == kPglRetEof)) {
+          // permit empty file
+          reterr = kPglRetSuccess;
+          goto PrescanParentalIds_ret_1;
+        }
+        goto PrescanParentalIds_ret_READ_RLSTREAM;
+      }
+      is_header_line = (*line_iter == '#');
+    } while (IsEolnKns(*line_iter) || (is_header_line && (!tokequal_k(&(line_iter[1]), "FID")) && (!tokequal_k(&(line_iter[1]), "IID"))));
+    uint32_t pat_col_idx;
+    if (is_header_line) {
+      // Search for 'PAT' column.  Require all-caps.
+      pat_col_idx = 0;
+      line_iter = &(line_iter[4]);
+      while (1) {
+        ++pat_col_idx;
+        const char* token_start = FirstNonTspace(line_iter);
+        if (unlikely(IsEolnKns(*token_start))) {
+          logerrputs("Error: Invalid --update-parents file (no PAT column).\n");
+          goto PrescanParentalIds_ret_MALFORMED_INPUT;
+        }
+        line_iter = CurTokenEnd(token_start);
+        if (strequal_k(token_start, "PAT", line_iter - token_start)) {
+          break;
+        }
+      }
+      // Require immediately-following column to be 'MAT'.
+      const char* token_start = FirstNonTspace(line_iter);
+      if (unlikely(IsEolnKns(*token_start))) {
+        logerrputs("Error: Invalid --update-parents file (no MAT column immediately following PAT\ncolumn).\n");
+        goto PrescanParentalIds_ret_MALFORMED_INPUT;
+      }
+      line_iter = CurTokenEnd(token_start);
+      if (unlikely(!strequal_k(token_start, "MAT", line_iter - token_start))) {
+        logerrputs("Error: Invalid --update-parents file (no MAT column immediately following PAT\ncolumn).\n");
+        goto PrescanParentalIds_ret_MALFORMED_INPUT;
+      }
+      line_iter = AdvToDelim(line_iter, '\n');
+    } else {
+      const uint32_t token_ct = CountTokens(line_iter);
+      if (unlikely((token_ct < 3) || (token_ct > 5))) {
+        logerrputs("Error: Invalid --update-parents file (3-5 columns expected when no header line\npresent).\n");
+        goto PrescanParentalIds_ret_MALFORMED_INPUT;
+      }
+      pat_col_idx = token_ct - 2;
+    }
+
+    uintptr_t max_paternal_id_blen = 0;
+    uintptr_t max_maternal_id_blen = 0;
+    do {
+      if (!IsEolnKns(*line_iter)) {
+        line_iter = NextTokenMult(line_iter, pat_col_idx);
+        if (unlikely(!line_iter)) {
+          goto PrescanParentalIds_ret_MISSING_TOKENS;
+        }
+        const char* pat_start = line_iter;
+        line_iter = CurTokenEnd(pat_start);
+        const uintptr_t cur_paternal_id_slen = line_iter - pat_start;
+        if (cur_paternal_id_slen >= max_paternal_id_blen) {
+          max_paternal_id_blen = cur_paternal_id_slen + 1;
+        }
+        const char* mat_start = FirstNonTspace(line_iter);
+        if (unlikely(IsEolnKns(*mat_start))) {
+          goto PrescanParentalIds_ret_MISSING_TOKENS;
+        }
+        line_iter = CurTokenEnd(mat_start);
+        uintptr_t cur_maternal_id_slen = line_iter - mat_start;
+        if (cur_maternal_id_slen >= max_maternal_id_blen) {
+          max_maternal_id_blen = cur_maternal_id_slen + 1;
+        }
+      }
+      ++line_idx;
+      reterr = RlsNextLstripK(&rls, &line_iter);
+    } while (!reterr);
+    reterr = kPglRetSuccess;
+    parental_id_infop->max_paternal_id_blen = max_paternal_id_blen;
+    parental_id_infop->max_maternal_id_blen = max_maternal_id_blen;
+  }
+  while (0) {
+  PrescanParentalIds_ret_READ_RLSTREAM:
+    RLstreamErrPrint("--update-parents file", &rls, &reterr);
+    break;
+  PrescanParentalIds_ret_MISSING_TOKENS:
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --update-parents file has fewer tokens than expected.\n", line_idx);
+    WordWrapB(0);
+    logerrputsb();
+  PrescanParentalIds_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+ PrescanParentalIds_ret_1:
+  CleanupRLstream(&rls);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+PglErr UpdateSampleIds(const char* fname, const uintptr_t* sample_include, uint32_t raw_sample_ct, uintptr_t sample_ct, uint32_t sid_modifier, SampleIdInfo* siip) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  ReadLineStream rls;
+  PreinitRLstream(&rls);
+  {
+    if (!sample_ct) {
+      goto UpdateSampleIds_ret_1;
+    }
+    const char* line_iter;
+    reterr = InitRLstreamFastsizeRawK(fname, &rls, &line_iter);
+    if (unlikely(reterr)) {
+      goto UpdateSampleIds_ret_1;
+    }
+    while (1) {
+      ++line_idx;
+      reterr = RlsNextLstripK(&rls, &line_iter);
+      if (reterr) {
+        if (likely(reterr == kPglRetEof)) {
+          // permit empty file
+          logputs("--update-ids: 0 samples updated.\n");
+          reterr = kPglRetSuccess;
+          goto UpdateSampleIds_ret_1;
+        }
+        goto UpdateSampleIds_ret_READ_RLSTREAM;
+      }
+      char cc = *line_iter;
+      // Interpret '#' as header line; don't dictate what the column IDs are
+      // for now.  (Maybe require FID1, IID1, FID2, IID2 later.)
+      if ((!IsEolnKns(cc)) && (cc != '#')) {
+        break;
+      }
+    }
+
+    const uint32_t token_ct = CountTokens(line_iter);
+    uint32_t fid_present = 0;
+    uint32_t sid_present = 0;
+    XidMode xid_mode;
+    if (token_ct == 4) {
+      if (!sid_modifier) {
+        fid_present = 1;
+        xid_mode = kfXidModeFidIid;
+      } else {
+        sid_present = 1;
+        xid_mode = kfXidModeIidSid;
+      }
+    } else if (token_ct == 6) {
+      fid_present = 1;
+      sid_present = 1;
+      xid_mode = kfXidModeFidIidSid;
+    } else if (likely(token_ct == 2)) {
+      xid_mode = kfXidModeIid;
+    } else {
+      // We already scanned this file.
+      goto UpdateSampleIds_ret_READ_FAIL;
+    }
+    const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+    const uintptr_t max_sid_blen = siip->max_sid_blen;
+    uint32_t* xid_map = nullptr;
+    char* sorted_xidbox = nullptr;
+    const uint32_t allow_dups = siip->sids && (!sid_present);
+    uintptr_t max_xid_blen;
+    reterr = SortedXidboxInitAlloc(sample_include, siip, sample_ct, allow_dups, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+    if (unlikely(reterr)) {
+      goto UpdateSampleIds_ret_1;
+    }
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* already_seen;
+    char* idbuf;
+    if (unlikely(
+            bigstack_calloc_w(raw_sample_ctl, &already_seen) ||
+            bigstack_alloc_c(max_xid_blen, &idbuf))) {
+      goto UpdateSampleIds_ret_NOMEM;
+    }
+    uint32_t hit_ct = 0;
+    uintptr_t miss_ct = 0;
+    do {
+      if (!IsEolnKns(*line_iter)) {
+        const char* linebuf_iter = line_iter;
+        uint32_t xid_idx;
+        uint32_t xid_idx_end;
+        if (!SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &xid_idx, &xid_idx_end, idbuf)) {
+          uint32_t sample_uidx = xid_map[xid_idx];
+          if (IsSet(already_seen, sample_uidx)) {
+            // possible todo: tolerate duplicates if payload matches, like
+            // --update-sex does
+            logerrprintfww("Error: Sample ID on line %" PRIuPTR " of --update-ids file duplicates one earlier in the file.\n", line_idx);
+            goto UpdateSampleIds_ret_MALFORMED_INPUT;
+          }
+          SetBit(sample_uidx, already_seen);
+          char* new_sample_id = &(siip->sample_ids[sample_uidx * max_sample_id_blen]);
+          char* new_sample_id_iter = new_sample_id;
+          if (fid_present) {
+            const char* sample_id_start = FirstNonTspace(linebuf_iter);
+            linebuf_iter = CurTokenEnd(sample_id_start);
+            new_sample_id_iter = memcpya(new_sample_id_iter, sample_id_start, linebuf_iter - sample_id_start);
+          } else {
+            *new_sample_id_iter++ = '0';
+          }
+          *new_sample_id_iter++ = '\t';
+          const char* iid_start = FirstNonTspace(linebuf_iter);
+          linebuf_iter = CurTokenEnd(iid_start);
+          new_sample_id_iter = memcpyax(new_sample_id_iter, iid_start, linebuf_iter - iid_start, '\0');
+          if (sid_present) {
+            char* new_sid = &(siip->sids[sample_uidx * max_sid_blen]);
+            const char* sid_start = FirstNonTspace(linebuf_iter);
+            linebuf_iter = CurTokenEnd(sid_start);
+            memcpyx(new_sid, sid_start, linebuf_iter - sid_start, '\0');
+          }
+          line_iter = linebuf_iter;
+          hit_ct += xid_idx_end - xid_idx;
+          if (++xid_idx != xid_idx_end) {
+            uintptr_t new_sample_id_blen = new_sample_id_iter - new_sample_id;
+            do {
+              sample_uidx = xid_map[xid_idx];
+              memcpy(&(siip->sample_ids[sample_uidx * max_sample_id_blen]), new_sample_id, new_sample_id_blen);
+              // multi-update impossible when SID column present
+            } while (++xid_idx != xid_idx_end);
+          }
+        } else if (unlikely(!linebuf_iter)) {
+          goto UpdateSampleIds_ret_READ_FAIL;
+        } else {
+          ++miss_ct;
+        }
+      }
+      ++line_idx;
+      reterr = RlsNextLstripK(&rls, &line_iter);
+    } while (!reterr);
+    if (unlikely(reterr != kPglRetEof)) {
+      goto UpdateSampleIds_ret_READ_RLSTREAM;
+    }
+    reterr = kPglRetSuccess;
+    if (miss_ct) {
+      snprintf(g_logbuf, kLogbufSize, "--update-ids: %u sample%s updated, %" PRIuPTR " ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+    } else {
+      snprintf(g_logbuf, kLogbufSize, "--update-ids: %u sample%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
+    }
+    logputsb();
+  }
+  while (0) {
+  UpdateSampleIds_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  UpdateSampleIds_ret_READ_RLSTREAM:
+    RLstreamErrPrint("--update-ids file", &rls, &reterr);
+    break;
+  UpdateSampleIds_ret_READ_FAIL:
+    reterr = kPglRetReadFail;
+    break;
+  UpdateSampleIds_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+ UpdateSampleIds_ret_1:
+  CleanupRLstream(&rls);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+// todo: check if LoadPsam also needs to be updated
+/*
+PglErr UpdateSampleParents(const char* fname, const SampleIdInfo* siip, const uintptr_t* sample_include, uint32_t raw_sample_ct, uintptr_t sample_ct, uint32_t sid_modifier, ) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  ReadLineStream rls;
+  PreinitRLstream(&rls);
+  {
+    if (!sample_ct) {
+      goto UpdateSampleIds_ret_1;
+    }
+    const char* line_iter;
+    reterr = InitRLstreamFastsizeRawK(fname, &rls, &line_iter);
+    if (unlikely(reterr)) {
+      goto UpdateSampleIds_ret_1;
+    }
+    while (1) {
+      ++line_idx;
+      reterr = RlsNextLstripK(&rls, &line_iter);
+      if (reterr) {
+        if (likely(reterr == kPglRetEof)) {
+          // permit empty file
+          logputs("--update-ids: 0 samples updated.\n");
+          reterr = kPglRetSuccess;
+          goto UpdateSampleIds_ret_1;
+        }
+        goto UpdateSampleIds_ret_READ_RLSTREAM;
+      }
+      char cc = *line_iter;
+      // Interpret '#' as header line; don't dictate what the column IDs are
+      // for now.
+      if ((!IsEolnKns(cc)) && (cc != '#')) {
+        break;
+      }
+    }
+
+    const uint32_t token_ct = CountTokens(line_iter);
+    uint32_t fid_present = 0;
+    uint32_t sid_present = 0;
+    XidMode xid_mode;
+    if (token_ct == 4) {
+      if (!sid_modifier) {
+        fid_present = 1;
+        xid_mode = kfXidModeFidIid;
+      } else {
+        sid_present = 1;
+        xid_mode = kfXidModeIidSid;
+      }
+    } else if (token_ct == 6) {
+      fid_present = 1;
+      sid_present = 1;
+      xid_mode = kfXidModeFidIidSid;
+    } else if (likely(token_ct == 2)) {
+      xid_mode = kfXidModeIid;
+    } else {
+      // We already scanned this file.
+      goto UpdateSampleIds_ret_READ_FAIL;
+    }
+    const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+    const uintptr_t max_sid_blen = siip->max_sid_blen;
+    uint32_t* xid_map = nullptr;
+    char* sorted_xidbox = nullptr;
+    const uint32_t allow_dups = siip->sids && (!sid_present);
+    uintptr_t max_xid_blen;
+    reterr = SortedXidboxInitAlloc(sample_include, siip, sample_ct, allow_dups, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+    if (unlikely(reterr)) {
+      goto UpdateSampleIds_ret_1;
+    }
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* already_seen;
+    char* idbuf;
+    if (unlikely(
+            bigstack_calloc_w(raw_sample_ctl, &already_seen) ||
+            bigstack_alloc_c(max_xid_blen, &idbuf))) {
+      goto UpdateSampleIds_ret_NOMEM;
+    }
+    uint32_t hit_ct = 0;
+    uintptr_t miss_ct = 0;
+    do {
+      if (!IsEolnKns(*line_iter)) {
+        const char* linebuf_iter = line_iter;
+        uint32_t xid_idx;
+        uint32_t xid_idx_end;
+        if (!SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &xid_idx, &xid_idx_end, idbuf)) {
+          uint32_t sample_uidx = xid_map[xid_idx];
+          if (IsSet(already_seen, sample_uidx)) {
+            // possible todo: tolerate duplicates if payload matches, like
+            // --update-sex does
+            logerrprintfww("Error: Sample ID on line %" PRIuPTR " of --update-ids file duplicates one earlier in the file.\n", line_idx);
+            goto UpdateSampleIds_ret_MALFORMED_INPUT;
+          }
+          SetBit(sample_uidx, already_seen);
+          char* new_sample_id = &(siip->sample_ids[sample_uidx * max_sample_id_blen]);
+          char* new_sample_id_iter = new_sample_id;
+          if (fid_present) {
+            const char* sample_id_start = FirstNonTspace(linebuf_iter);
+            linebuf_iter = CurTokenEnd(sample_id_start);
+            new_sample_id_iter = memcpya(new_sample_id_iter, sample_id_start, linebuf_iter - sample_id_start);
+          } else {
+            *new_sample_id_iter++ = '0';
+          }
+          *new_sample_id_iter++ = '\t';
+          const char* iid_start = FirstNonTspace(linebuf_iter);
+          linebuf_iter = CurTokenEnd(iid_start);
+          new_sample_id_iter = memcpyax(new_sample_id_iter, iid_start, linebuf_iter - iid_start, '\0');
+          if (sid_present) {
+            char* new_sid = &(siip->sids[sample_uidx * max_sid_blen]);
+            const char* sid_start = FirstNonTspace(linebuf_iter);
+            linebuf_iter = CurTokenEnd(sid_start);
+            memcpyx(new_sid, sid_start, linebuf_iter - sid_start, '\0');
+          }
+          line_iter = linebuf_iter;
+          hit_ct += xid_idx_end - xid_idx;
+          if (++xid_idx != xid_idx_end) {
+            uintptr_t new_sample_id_blen = new_sample_id_iter - new_sample_id;
+            do {
+              sample_uidx = xid_map[xid_idx];
+              memcpy(&(siip->sample_ids[sample_uidx * max_sample_id_blen]), new_sample_id, new_sample_id_blen);
+              // multi-update impossible when SID column present
+            } while (++xid_idx != xid_idx_end);
+          }
+        } else if (unlikely(!linebuf_iter)) {
+          goto UpdateSampleIds_ret_READ_FAIL;
+        } else {
+          ++miss_ct;
+        }
+      }
+      ++line_idx;
+      reterr = RlsNextLstripK(&rls, &line_iter);
+    } while (!reterr);
+    if (unlikely(reterr != kPglRetEof)) {
+      goto UpdateSampleIds_ret_READ_RLSTREAM;
+    }
+    reterr = kPglRetSuccess;
+    if (miss_ct) {
+      snprintf(g_logbuf, kLogbufSize, "--update-ids: %u sample%s updated, %" PRIuPTR " ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+    } else {
+      snprintf(g_logbuf, kLogbufSize, "--update-ids: %u sample%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
+    }
+    logputsb();
+  }
+  while (0) {
+  UpdateSampleIds_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  UpdateSampleIds_ret_READ_RLSTREAM:
+    RLstreamErrPrint("--update-ids file", &rls, &reterr);
+    break;
+  UpdateSampleIds_ret_READ_FAIL:
+    reterr = kPglRetReadFail;
+    break;
+  UpdateSampleIds_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+ UpdateSampleIds_ret_1:
+  CleanupRLstream(&rls);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+*/
+
 PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* siip, const UpdateSexInfo* update_sex_info_ptr, uint32_t raw_sample_ct, uintptr_t sample_ct, uintptr_t* sex_nm, uintptr_t* sex_male) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
@@ -1224,6 +1774,7 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
             continue;
           }
           SetBit(sample_uidx, already_seen);
+          hit_ct += xid_idx_end - xid_idx_start;
           for (uint32_t xid_idx = xid_idx_start; ; ) {
             if (sexval) {
               SetBit(sample_uidx, sex_nm);
@@ -1236,7 +1787,6 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
               ClearBit(sample_uidx, sex_nm);
               ClearBit(sample_uidx, sex_male);
             }
-            ++hit_ct;
             if (++xid_idx == xid_idx_end) {
               break;
             }
@@ -1244,6 +1794,8 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
           }
         } else if (unlikely(!linebuf_iter)) {
           goto UpdateSampleSexes_ret_MISSING_TOKENS;
+        } else {
+          ++miss_ct;
         }
       }
       ++line_idx;

@@ -899,7 +899,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    List all variants which pass your filters/inclusion thresholds.\n\n"
                );
     HelpPrint("glm\0linear\0logistic\0assoc\0", &help_ctrl, 1,
-"  --glm ['zs'] ['omit-ref'] [{sex | no-x-sex}] ['log10']\n"
+"  --glm ['zs'] ['omit-ref'] [{sex | no-x-sex}] ['log10'] ['pheno-ids']\n"
 "        [{genotypic | hethom | dominant | recessive}] ['interaction']\n"
 "        ['hide-covar'] ['intercept'] [{no-firth | firth-fallback | firth}]\n"
 "        ['cols='<col set desc.>] ['local-covar='<file>] ['local-pvar='<file>]\n"
@@ -920,6 +920,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      variants, and no others.  The 'sex' modifier causes it to be added\n"
 "      everywhere (except chrY), while 'no-x-sex' excludes it entirely.\n"
 "    * The 'log10' modifier causes p-values to be reported in -log10(p) form.\n"
+"    * 'pheno-ids' causes the samples used in each set of regressions to be\n"
+"      written to an .id file.  (When the samples differ on chrX or chrY, .x.id\n"
+"      and/or .y.id files are also written.)\n"
 "    * The 'genotypic' modifier adds an additive effect/dominance deviation 2df\n"
 "      joint test (0-2 and 0..1..0 coding), while 'hethom' uses 0..0..1 and\n"
 "      0..1..0 coding instead.\n"
@@ -1271,12 +1274,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     HelpPrint("strict-sid0\0", &help_ctrl, 0,
 "  --strict-sid0      : By default, if there is no SID column in the .psam/.fam\n"
-"                       file, but there is one in another input file (for e.g.\n"
-"                       --keep/--remove), the latter SID column is ignored;\n"
-"                       sample IDs are considered matching as long as FID and\n"
-"                       IID are equal (with missing FID treated as '0').  If you\n"
-"                       also want to require SID = '0' for a sample ID match in\n"
-"                       this situation, add --strict-sid0.\n"
+"                       (or --update-ids) file, but there is one in another\n"
+"                       input file (for e.g. --keep/--remove), the latter SID\n"
+"                       column is ignored; sample IDs are considered matching as\n"
+"                       long as FID and IID are equal (with missing FID treated\n"
+"                       as '0').  If you also want to require SID = '0' for a\n"
+"                       sample ID match in this situation, add --strict-sid0.\n"
               );
     // bugfix (27 Feb 2019): "\01" is interpreted as a single character, not a
     // null followed by a '1'...
@@ -1687,7 +1690,15 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("update-alleles\0", &help_ctrl, 0,
 "  --update-alleles <fname> : Update variant allele codes.\n"
               );
-    HelpPrint("update-sex\0", &help_ctrl, 0,
+    HelpPrint("update-ids\0update-parents\0update-sex\0", &help_ctrl, 0,
+"  --update-ids <f> ['sid'] : Update sample IDs.  With 'sid', if the file has\n"
+"                             four columns, it's interpreted as <old IID>, <old\n"
+"                             SID>, <new IID>, <new SID>.\n"
+              /*
+"  --update-parents <f> ['sid'] : Update parental IDs.  With 'sid', if there is\n"
+"                                 no header line and four columns, the first two\n"
+"                                 are interpreted as IID/SID instead of FID/IID.\n"
+              */
 "  --update-sex <filename> ['col-num='<n>] ['male0'] :\n"
 "    Update sex information.\n"
 "    * By default, if there is a header line starting with '#FID'/'#IID', sex is\n"

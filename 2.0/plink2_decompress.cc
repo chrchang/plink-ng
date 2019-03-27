@@ -33,31 +33,6 @@ PglErr gzopen_read_checked(const char* fname, gzFile* gzf_ptr) {
   return kPglRetSuccess;
 }
 
-PglErr GzopenAndSkipFirstLines(const char* fname, uint32_t lines_to_skip, uintptr_t loadbuf_size, char* loadbuf, gzFile* gzf_ptr) {
-  PglErr reterr = gzopen_read_checked(fname, gzf_ptr);
-  if (unlikely(reterr)) {
-    return reterr;
-  }
-  loadbuf[loadbuf_size - 1] = ' ';
-  for (uint32_t line_idx = 1; line_idx <= lines_to_skip; ++line_idx) {
-    if (unlikely(!gzgets(*gzf_ptr, loadbuf, loadbuf_size))) {
-      if (gzeof(*gzf_ptr)) {
-        logerrprintfww("Error: Fewer lines than expected in %s.\n", fname);
-        return kPglRetInconsistentInput;
-      }
-      return kPglRetReadFail;
-    }
-    if (unlikely(!loadbuf[loadbuf_size - 1])) {
-      if ((loadbuf_size == kMaxMediumLine) || (loadbuf_size == kMaxLongLine)) {
-        logerrprintfww("Error: Line %u of %s is pathologically long.\n", line_idx, fname);
-        return kPglRetMalformedInput;
-      }
-      return kPglRetNomem;
-    }
-  }
-  return kPglRetSuccess;
-}
-
 
 void PreinitRLstream(ReadLineStream* rlsp) {
   rlsp->gz_infile = nullptr;

@@ -133,7 +133,8 @@ FLAGSET64_DEF_START()
   kfMiscBiallelicOnlyStrict = (1LLU << 35),
   kfMiscBiallelicOnlyList = (1LLU << 36),
   kfMiscStrictSid0 = (1LLU << 37),
-  kfMiscAllowBadFreqs = (1LLU << 38)
+  kfMiscAllowBadFreqs = (1LLU << 38),
+  kfMiscUpdateIdsSid = (1LLU << 39)
 FLAGSET64_DEF_END(MiscFlags);
 
 FLAGSET64_DEF_START()
@@ -209,8 +210,8 @@ typedef struct SampleIdInfoStruct {
   SampleIdFlags flags;
 } SampleIdInfo;
 
-typedef struct PaternalIdInfoStruct {
-  NONCOPYABLE(PaternalIdInfoStruct);
+typedef struct ParentalIdInfoStruct {
+  NONCOPYABLE(ParentalIdInfoStruct);
   char* paternal_ids;
   char* maternal_ids;
   uintptr_t max_paternal_id_blen;

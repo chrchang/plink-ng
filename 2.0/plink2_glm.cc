@@ -1547,10 +1547,6 @@ BoolErr InitNmPrecomp(const double* pheno_d, const double* covars_cmaj, const do
     memcpy(&(xtx_image_row[1 + xtx_state]), &(covar_dotprod[covar_idx * new_covar_ct]), (covar_idx + 1) * sizeof(double));
   }
   if (pheno_d) {
-    double dxx = 0.0;
-    for (uint32_t uii = 0; uii != sample_ct; ++uii) {
-      dxx += pheno_d[uii];
-    }
     // also save precomputed inverse of covar dotprods, with intercept included
     // (not currently needed in logistic case)
     double* covarx_dotprod_inv = nm_precomp->covarx_dotprod_inv;
@@ -1567,6 +1563,10 @@ BoolErr InitNmPrecomp(const double* pheno_d, const double* covars_cmaj, const do
     ReflectMatrix(new_covar_ct_p1, covarx_dotprod_inv);
     // This must now happen after the InvertSymmdefMatrixChecked call above;
     // otherwise xt_y gets clobbered by it.
+    double dxx = 0.0;
+    for (uint32_t uii = 0; uii != sample_ct; ++uii) {
+      dxx += pheno_d[uii];
+    }
     nm_precomp->xt_y_image[0] = dxx;
     ZeroDArr(xtx_state, &(nm_precomp->xt_y_image[1]));
     ColMajorVectorMatrixMultiplyStrided(pheno_d, covars_cmaj, sample_ct, sample_ct, new_covar_ct, &(nm_precomp->xt_y_image[1 + xtx_state]));
@@ -9232,26 +9232,30 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           }
         }
 
+        batch_size = PopcountWords(pheno_batch, pheno_ctl);
+        if (batch_size <= 1) {
+          continue;
+        }
         // Expand categorical covariates and perform VIF and correlation checks
         // here.
         // TODO
         double* covars_cmaj_d = nullptr;
         const char** cur_covar_names = nullptr;
         VifCorrErr vif_corr_check_result;
-        if (unlikely(GlmAllocFillAndTestPhenoCovarsQt(cur_sample_include, cur_pheno_col->data.qt, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, g_max_corr, vif_thresh, xtx_state, &g_pheno_d, &g_nm_precomp, &covars_cmaj_d, &cur_covar_names, &vif_corr_check_result))) {
+        if (unlikely(GlmAllocFillAndTestCovarsQt(cur_sample_include, cur_pheno_col->data.qt, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, g_max_corr, vif_thresh, xtx_state, &g_pheno_d, &g_nm_precomp, &covars_cmaj_d, &cur_covar_names, &vif_corr_check_result))) {
           goto GlmMain_ret_NOMEM;
         }
         if (vif_corr_check_result.errcode) {
           if (vif_corr_check_result.errcode == kVifCorrCheckScaleFail) {
-            logerrprintfww("Warning: Skipping --glm regression on phenotype '%s' since genotype/covariate scales vary too widely for numerical stability of the current implementation. Try rescaling your covariates with e.g. --covar-variance-standardize.\n", cur_pheno_name);
+            logerrprintfww("Warning: Skipping --glm regression on phenotype '%s', and other(s) with identical missingness patterns, since genotype/covariate scales vary too widely for numerical stability of the current implementation. Try rescaling your covariates with e.g. --covar-variance-standardize.\n", first_pheno_name);
           } else if (vif_corr_check_result.covar_idx1 == UINT32_MAX) {
             // must be correlation matrix inversion failure
-            logerrprintfww("Warning: Skipping --glm regression on phenotype '%s' since covariate correlation matrix could not be inverted. You may want to remove redundant covariates and try again.\n", cur_pheno_name);
+            logerrprintfww("Warning: Skipping --glm regression on phenotype '%s', and other(s) with identical missingness patterns, since covariate correlation matrix could not be inverted. You may want to remove redundant covariates and try again.\n", first_pheno_name);
           } else {
             if (vif_corr_check_result.errcode == kVifCorrCheckVifFail) {
-              logerrprintfww("Warning: Skipping --glm regression on phenotype '%s' since variance inflation factor for covariate '%s' is too high. You may want to remove redundant covariates and try again.\n", cur_pheno_name, cur_covar_names[vif_corr_check_result.covar_idx1 + local_covar_ct]);
+              logerrprintfww("Warning: Skipping --glm regression on phenotype '%s', and other(s) with identical missingness patterns, since variance inflation factor for covariate '%s' is too high. You may want to remove redundant covariates and try again.\n", first_pheno_name, cur_covar_names[vif_corr_check_result.covar_idx1 + local_covar_ct]);
             } else {
-              logerrprintfww("Warning: Skipping --glm regression on phenotype '%s' since correlation between covariates '%s' and '%s' is too high. You may want to remove redundant covariates and try again.\n", cur_pheno_name, cur_covar_names[vif_corr_check_result.covar_idx1 + local_covar_ct], cur_covar_names[vif_corr_check_result.covar_idx2 + local_covar_ct]);
+              logerrprintfww("Warning: Skipping --glm regression on phenotype '%s', and other(s) with identical missingness patterns, since correlation between covariates '%s' and '%s' is too high. You may want to remove redundant covariates and try again.\n", first_pheno_name, cur_covar_names[vif_corr_check_result.covar_idx1 + local_covar_ct], cur_covar_names[vif_corr_check_result.covar_idx2 + local_covar_ct]);
             }
           }
           continue;
@@ -9299,10 +9303,6 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         }
 
         // todo: more common initialization
-        batch_size = PopcountWords(pheno_batch, pheno_ctl);
-        if (batch_size <= 1) {
-          continue;
-        }
         continue; // temporary
         // todo: handle batch
         BitvecInvmask(pheno_batch, pheno_ctl, pheno_include);
@@ -9822,25 +9822,27 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         outname_end2 = strcpya_k(outname_end2, ".glm.linear");
       }
       // write IDs
-      snprintf(outname_end2, 22, ".id");
-      reterr = WriteSampleIds(cur_sample_include, siip, outname, sample_ct);
-      if (unlikely(reterr)) {
-        goto GlmMain_ret_1;
-      }
-      if (sample_ct_x && x_samples_are_different) {
-        // quasi-bugfix (7 Jan 2017): use ".x.id" suffix instead of ".id.x",
-        // since the last part of the file extension should indicate format
-        snprintf(outname_end2, 22, ".x.id");
-        reterr = WriteSampleIds(cur_sample_include_x, siip, outname, sample_ct_x);
+      if (glm_flags & kfGlmPhenoIds) {
+        snprintf(outname_end2, 22, ".id");
+        reterr = WriteSampleIds(cur_sample_include, siip, outname, sample_ct);
         if (unlikely(reterr)) {
           goto GlmMain_ret_1;
         }
-      }
-      if (sample_ct_y && y_samples_are_different) {
-        snprintf(outname_end2, 22, ".y.id");
-        reterr = WriteSampleIds(cur_sample_include_y, siip, outname, sample_ct_y);
-        if (unlikely(reterr)) {
-          goto GlmMain_ret_1;
+        if (sample_ct_x && x_samples_are_different) {
+          // quasi-bugfix (7 Jan 2017): use ".x.id" suffix instead of ".id.x",
+          // since the last part of the file extension should indicate format
+          snprintf(outname_end2, 22, ".x.id");
+          reterr = WriteSampleIds(cur_sample_include_x, siip, outname, sample_ct_x);
+          if (unlikely(reterr)) {
+            goto GlmMain_ret_1;
+          }
+        }
+        if (sample_ct_y && y_samples_are_different) {
+          snprintf(outname_end2, 22, ".y.id");
+          reterr = WriteSampleIds(cur_sample_include_y, siip, outname, sample_ct_y);
+          if (unlikely(reterr)) {
+            goto GlmMain_ret_1;
+          }
         }
       }
 

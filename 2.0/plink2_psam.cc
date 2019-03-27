@@ -595,6 +595,10 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
       logerrputs("Error: FIDs and IIDs are limited to " MAX_ID_SLEN_STR " characters.\n");
       goto LoadPsam_ret_MALFORMED_INPUT;
     }
+    if (unlikely(max_sid_blen > kMaxIdBlen)) {
+      logerrputs("Error: SIDs are limited to " MAX_ID_SLEN_STR " characters.\n");
+      goto LoadPsam_ret_MALFORMED_INPUT;
+    }
     if (unlikely(!raw_sample_ct)) {
       logerrprintfww("Error: No samples in %s.\n", psamname);
       goto LoadPsam_ret_MALFORMED_INPUT;
@@ -690,9 +694,17 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
             bigstack_end_calloc_w(aligned_wct, sex_male_ptr))) {
       goto LoadPsam_ret_NOMEM;
     }
-    if (sids_present) {
+    if (max_sid_blen) {
       if (unlikely(bigstack_end_alloc_c(raw_sample_ct * max_sid_blen, &(piip->sii.sids)))) {
         goto LoadPsam_ret_NOMEM;
+      }
+      if (!sids_present) {
+        // Possible with --update-ids.
+        char* sids_iter = piip->sii.sids;
+        for (uint32_t sample_idx = 0; sample_idx != raw_sample_ct; ++sample_idx) {
+          strcpy_k(sids_iter, "0");
+          sids_iter = &(sids_iter[max_sid_blen]);
+        }
       }
     }
     bigstack_end_mark = g_bigstack_end;
@@ -751,7 +763,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
       char* cur_sample_id = R_CAST(char*, &(cur_vardata[pheno_ct * 8]));
       memcpyx(&(sample_ids[sample_uidx * max_sample_id_blen]), cur_sample_id, sample_id_slen, '\0');
       char* cur_paternal_id = &(cur_sample_id[sample_id_slen]);
-      if (sids) {
+      if (sids_present) {
         const uint32_t sid_slen = psam_info_reverse_ll->sid_slen;
         char* cur_sid = cur_paternal_id;
         memcpyx(&(sids[sample_uidx * max_sid_blen]), cur_sid, sid_slen, '\0');
