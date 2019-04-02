@@ -8750,32 +8750,33 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
       if (subbatch_size == 1) {
         goto GlmLinearBatch_ret_NOMEM;
       }
-      if (unlikely(bigstack_alloc_d(sample_ct * subbatch_size, &g_pheno_d))) {
-        goto GlmLinearBatch_ret_NOMEM;
+      BigstackReset(bigstack_mark2);
+      if (bigstack_alloc_d(sample_ct * subbatch_size, &g_pheno_d)) {
+        continue;
       }
       if (g_nm_precomp) {
-        if (unlikely(bigstack_alloc_d((2 + domdev_present + covar_ct) * subbatch_size, &(g_nm_precomp->xt_y_image)))) {
-          goto GlmLinearBatch_ret_NOMEM;
+        if (bigstack_alloc_d((2 + domdev_present + covar_ct) * subbatch_size, &(g_nm_precomp->xt_y_image))) {
+          continue;
         }
       }
       if (sample_ct_x) {
-        if (unlikely(bigstack_alloc_d(sample_ct_x * subbatch_size, &g_pheno_x_d))) {
-          goto GlmLinearBatch_ret_NOMEM;
+        if (bigstack_alloc_d(sample_ct_x * subbatch_size, &g_pheno_x_d)) {
+          continue;
         }
         if (g_nm_precomp_x) {
           // domdev_present can't be set here.
-          if (unlikely(bigstack_alloc_d((2 + covar_ct_x) * subbatch_size, &(g_nm_precomp_x->xt_y_image)))) {
-            goto GlmLinearBatch_ret_NOMEM;
+          if (bigstack_alloc_d((2 + covar_ct_x) * subbatch_size, &(g_nm_precomp_x->xt_y_image))) {
+            continue;
           }
         }
       }
       if (sample_ct_y) {
-        if (unlikely(bigstack_alloc_d(sample_ct_y * subbatch_size, &g_pheno_y_d))) {
-          goto GlmLinearBatch_ret_NOMEM;
+        if (bigstack_alloc_d(sample_ct_y * subbatch_size, &g_pheno_y_d)) {
+          continue;
         }
         if (g_nm_precomp_y) {
-          if (unlikely(bigstack_alloc_d((2 + covar_ct_y) * subbatch_size, &(g_nm_precomp_y->xt_y_image)))) {
-            goto GlmLinearBatch_ret_NOMEM;
+          if (bigstack_alloc_d((2 + covar_ct_y) * subbatch_size, &(g_nm_precomp_y->xt_y_image))) {
+            continue;
           }
         }
       }
@@ -8801,13 +8802,14 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
         per_alt_allele_xalloc_byte_ct += 2 * max_reported_test_ct * subbatch_size * sizeof(double);
       }
 
-      if (bigstack_alloc(cstream_alloc_size * subbatch_size) == nullptr) {
+      uintptr_t bytes_avail = bigstack_left();
+      if (bytes_avail < cstream_alloc_size * subbatch_size) {
         continue;
       }
-      if (!PgenMtLoadInit(variant_include, max_sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, per_variant_xalloc_byte_ct, per_alt_allele_xalloc_byte_ct, pgfip, &calc_thread_ct, &g_genovecs, max_extra_allele_ct? (&g_thread_mhc) : nullptr, nullptr, nullptr, dosage_is_present? (&g_dosage_presents) : nullptr, dosage_is_present? (&g_dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, &max_alt_allele_block_size, main_loadbufs, &ts.threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
+      bytes_avail -= cstream_alloc_size * subbatch_size;
+      if (!PgenMtLoadInit(variant_include, max_sample_ct, variant_ct, bytes_avail, pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, per_variant_xalloc_byte_ct, per_alt_allele_xalloc_byte_ct, pgfip, &calc_thread_ct, &g_genovecs, max_extra_allele_ct? (&g_thread_mhc) : nullptr, nullptr, nullptr, dosage_is_present? (&g_dosage_presents) : nullptr, dosage_is_present? (&g_dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, &max_alt_allele_block_size, main_loadbufs, &ts.threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
         break;
       }
-      BigstackReset(bigstack_mark2);
     }
     g_failed_alloc_attempt_size = 0;
     ts.calc_thread_ct = calc_thread_ct;
@@ -10682,10 +10684,33 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         g_covars_cmaj_d = covars_cmaj_d;
 
         if (glm_flags & kfGlmPhenoIds) {
-          // todo: write the files once, then just copy
-          logerrputs("Error: --glm 'pheno-ids' is not fully implemented yet.\n");
-          reterr = kPglRetNotYetSupported;
-          goto GlmMain_ret_1;
+          // Possible todo: have file-copy library function which uses
+          // sendfile() with Linux kernel 2.6.33+, etc.
+          uint32_t pheno_uidx2 = 0;
+          for (uint32_t pheno_idx = 0; pheno_idx != batch_size; ++pheno_idx, ++pheno_uidx2) {
+            pheno_uidx2 = AdvTo1Bit(pheno_batch, pheno_uidx2);
+            char* outname_end2 = strcpya(&(outname_end[1]), &(pheno_names[pheno_uidx2 * max_pheno_name_blen]));
+            outname_end2 = strcpya_k(outname_end2, ".glm.linear");
+            strcpy_k(outname_end2, ".id");
+            reterr = WriteSampleIds(cur_sample_include, siip, outname, sample_ct);
+            if (unlikely(reterr)) {
+              goto GlmMain_ret_1;
+            }
+            if (sample_ct_x && x_samples_are_different) {
+              strcpy_k(outname_end2, ".x.id");
+              reterr = WriteSampleIds(cur_sample_include_x, siip, outname, sample_ct_x);
+              if (unlikely(reterr)) {
+                goto GlmMain_ret_1;
+              }
+            }
+            if (sample_ct_y && y_samples_are_different) {
+              strcpy_k(outname_end2, ".y.id");
+              reterr = WriteSampleIds(cur_sample_include_y, siip, outname, sample_ct_y);
+              if (unlikely(reterr)) {
+                goto GlmMain_ret_1;
+              }
+            }
+          }
         }
 
         reterr = GlmLinearBatch(pheno_batch, pheno_cols, pheno_names, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, raw_variant_ct, completed_pheno_ct, batch_size, max_pheno_name_blen, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &local_covar_rls, outname, outname_end);
