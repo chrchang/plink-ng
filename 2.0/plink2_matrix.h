@@ -408,22 +408,23 @@ BoolErr InvertRank2Symm(const double* a_inv, const double* bb, __CLPK_integer or
 BoolErr InvertRank2SymmDiag(const double* a_inv, const double* bb, __CLPK_integer orig_dim, double d11, double d12, double d22, double* __restrict outdiag, double* __restrict b_ainv_buf, double* __restrict s_b_ainv_buf);
 
 #ifdef NOLAPACK
-BoolErr LinearRegressionInvMain(const double* xt_y, uint32_t predictor_ct, double* xtx_inv, double* fitted_coefs, MatrixInvertBuf1* mi_buf, double* dbl_2d_buf);
+BoolErr LinearRegressionInvMain(const double* xt_y_phenomaj, uint32_t predictor_ct, uint32_t pheno_ct, double* xtx_inv, double* fitted_coefs_phenomaj, MatrixInvertBuf1* mi_buf, double* dbl_2d_buf);
 #else
-BoolErr LinearRegressionInvMain(const double* xt_y, uint32_t predictor_ct, double* xtx_inv, double* fitted_coefs);
+BoolErr LinearRegressionInvMain(const double* xt_y_phenomaj, uint32_t predictor_ct, __CLPK_integer pheno_ct, double* xtx_inv, double* fitted_coefs_phenomaj);
 #endif
 
 // now assumes xtx_inv is predictors_pmaj * transpose on input
-// todo: support nrhs > 1 when permutation test implemented
-HEADER_INLINE BoolErr LinearRegressionInv(const double* pheno_d, double* predictors_pmaj, uint32_t predictor_ct, uint32_t sample_ct, double* xtx_inv, double* fitted_coefs, double* xt_y, __maybe_unused MatrixInvertBuf1* mi_buf, __maybe_unused double* dbl_2d_buf) {
+HEADER_INLINE BoolErr LinearRegressionInv(const double* pheno_d_pmaj, double* predictors_pmaj, uint32_t predictor_ct, uint32_t sample_ct, uint32_t pheno_ct, double* xtx_inv, double* fitted_coefs_phenomaj, double* xt_y_phenomaj, __maybe_unused MatrixInvertBuf1* mi_buf, __maybe_unused double* dbl_2d_buf) {
   // MultiplySelfTranspose(predictors_pmaj, predictor_ct, sample_ct,
   //   xtx_inv);
   // categorical optimization possible here
-  RowMajorMatrixMultiply(predictors_pmaj, pheno_d, predictor_ct, 1, sample_ct, xt_y);
+  for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+    RowMajorMatrixMultiply(predictors_pmaj, &(pheno_d_pmaj[pheno_idx * sample_ct]), predictor_ct, 1, sample_ct, &(xt_y_phenomaj[pheno_idx * predictor_ct]));
+  }
 #ifdef NOLAPACK
-  return LinearRegressionInvMain(xt_y, predictor_ct, xtx_inv, fitted_coefs, mi_buf, dbl_2d_buf);
+  return LinearRegressionInvMain(xt_y_phenomaj, predictor_ct, pheno_ct, xtx_inv, fitted_coefs_phenomaj, mi_buf, dbl_2d_buf);
 #else
-  return LinearRegressionInvMain(xt_y, predictor_ct, xtx_inv, fitted_coefs);
+  return LinearRegressionInvMain(xt_y_phenomaj, predictor_ct, pheno_ct, xtx_inv, fitted_coefs_phenomaj);
 #endif
 }
 

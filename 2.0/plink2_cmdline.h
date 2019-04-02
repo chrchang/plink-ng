@@ -1652,6 +1652,7 @@ HEADER_INLINE void InitThreads3z(ThreadsState* tsp) {
   tsp->is_unjoined = 0;
 }
 
+// ok to call this "unnecessarily".
 HEADER_INLINE void ReinitThreads3z(ThreadsState* tsp) {
   assert(!tsp->is_unjoined);
   tsp->is_last_block = 0;

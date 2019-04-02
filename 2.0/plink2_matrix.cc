@@ -1334,17 +1334,17 @@ BoolErr InvertRank2SymmDiag(const double* a_inv, const double* bb, __CLPK_intege
 }
 
 // now assumes xtx_inv is predictors_pmaj * transpose on input
-// todo: support nrhs > 1 when permutation test implemented
 #ifdef NOLAPACK
-BoolErr LinearRegressionInvMain(const double* xt_y, uint32_t predictor_ct, double* xtx_inv, double* fitted_coefs, MatrixInvertBuf1* mi_buf, double* dbl_2d_buf) {
+BoolErr LinearRegressionInvMain(const double* xt_y_phenomaj, uint32_t predictor_ct, uint32_t pheno_ct, double* xtx_inv, double* fitted_coefs_phenomaj, MatrixInvertBuf1* mi_buf, double* dbl_2d_buf) {
   if (InvertSymmdefMatrix(predictor_ct, xtx_inv, mi_buf, dbl_2d_buf)) {
     return 1;
   }
-  ColMajorVectorMatrixMultiplyStrided(xt_y, xtx_inv, predictor_ct, predictor_ct, predictor_ct, fitted_coefs);
+  RowMajorMatrixMultiply(xt_y_phenomaj, xtx_inv, pheno_ct, predictor_ct, predictor_ct, fitted_coefs_phenomaj);
   return 0;
 }
 #else
-BoolErr LinearRegressionInvMain(const double* xt_y, uint32_t predictor_ct, double* xtx_inv, double* fitted_coefs) {
+
+BoolErr LinearRegressionInvMain(const double* xt_y_phenomaj, uint32_t predictor_ct, __CLPK_integer pheno_ct, double* xtx_inv, double* fitted_coefs_phenomaj) {
   char uplo = 'U';
   __CLPK_integer tmp_n = predictor_ct;
   __CLPK_integer info;
@@ -1352,9 +1352,8 @@ BoolErr LinearRegressionInvMain(const double* xt_y, uint32_t predictor_ct, doubl
   if (info) {
     return 1;
   }
-  memcpy(fitted_coefs, xt_y, predictor_ct * sizeof(double));
-  __CLPK_integer nrhs = 1;
-  dpotrs_(&uplo, &tmp_n, &nrhs, xtx_inv, &tmp_n, fitted_coefs, &tmp_n, &info);
+  memcpy(fitted_coefs_phenomaj, xt_y_phenomaj, predictor_ct * pheno_ct * sizeof(double));
+  dpotrs_(&uplo, &tmp_n, &pheno_ct, xtx_inv, &tmp_n, fitted_coefs_phenomaj, &tmp_n, &info);
   assert(!info);
   dpotri_(&uplo, &tmp_n, xtx_inv, &tmp_n, &info);
   return (info != 0);
