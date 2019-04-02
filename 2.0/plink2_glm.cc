@@ -5460,7 +5460,6 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     logputs("done.\n");
     logprintf("Results written to %s .\n", outname);
     *valid_allele_ct_ptr = valid_allele_ct;
-    BigstackReset(bigstack_mark);
   }
   while (0) {
   GlmLogistic_ret_NOMEM:
@@ -7391,7 +7390,6 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     logputs("done.\n");
     logprintf("Results written to %s .\n", outname);
     *valid_allele_ct_ptr = valid_allele_ct;
-    BigstackReset(bigstack_mark);
   }
   while (0) {
   GlmLinear_ret_NOMEM:
@@ -8192,7 +8190,6 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* arg) {
                   const uintptr_t sample_midx = BitIter1(sample_nm, &sample_midx_base, &sample_nm_bits);
                   nm_pheno_col[sample_idx] = cur_pheno[sample_midx];
                 }
-                ;;;
               }
 
               // fill covariates
@@ -9436,7 +9433,8 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
       logputs("done.\n");
       completed_pheno_ct += batch_size;
     }
-    BigstackReset(bigstack_mark);
+    outname_end[1] = '\0';
+    logprintfww("Results written to %s<phenotype name>.glm.linear%s .\n", outname, output_zst? ".zst" : "");
   }
   while (0) {
   GlmLinearBatch_ret_NOMEM:

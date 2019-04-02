@@ -3456,51 +3456,56 @@ void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, 
 
 void EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, autosomal_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), const double* hwe_x_pvals, MiscFlags misc_flags, double hwe_thresh, uint32_t nonfounders, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   uint32_t prefilter_variant_ct = *variant_ct_ptr;
-  uint32_t x_start = UINT32_MAX;
-  uint32_t x_end = UINT32_MAX;
-  uint32_t x_code;
-  if (XymtExists(cip, kChrOffsetX, &x_code)) {
-    const uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[x_code];
-    x_start = cip->chr_fo_vidx_start[x_chr_fo_idx];
-    x_end = cip->chr_fo_vidx_start[x_chr_fo_idx + 1];
-    // bugfix (4 Jun 2017): if no sex info available, need to skip chrX
-    if (!hwe_x_pvals) {
-      prefilter_variant_ct -= PopcountBitRange(variant_include, x_start, x_end);
-    }
-  }
-  uint32_t x_thresh = x_start;
   const uint32_t midp = (misc_flags / kfMiscHweMidp) & 1;
   const uint32_t keep_fewhet = (misc_flags / kfMiscHweKeepFewhet) & 1;
   hwe_thresh *= 1 - kSmallEpsilon;
   uint32_t removed_ct = 0;
   uint32_t min_obs = UINT32_MAX;
   uint32_t max_obs = 0;
-  uint32_t is_x = 0;
   uint32_t male_a1_ct = 0;
   uint32_t male_ax_ct = 0;
   const double* hwe_x_pvals_iter = hwe_x_pvals;
   const double hwe_thresh_recip = (1 + 4 * kSmallEpsilon) / hwe_thresh;
   uintptr_t autosomal_xgeno_idx = 0;
   uintptr_t x_xgeno_idx = 0;
+  uint32_t x_skip_code = UINT32_MAX;
+  uint32_t x_start = 0;
+  uint32_t x_code;
+  if (XymtExists(cip, kChrOffsetX, &x_code)) {
+    const uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[x_code];
+    x_start = cip->chr_fo_vidx_start[x_chr_fo_idx];
+    if (!hwe_x_pvals) {
+      x_skip_code = x_code;  // only set this if we're skipping chrX
+      prefilter_variant_ct -= PopcountBitRange(variant_include, x_start, cip->chr_fo_vidx_start[x_chr_fo_idx + 1]);
+    }
+  }
+  // bugfix (2 Apr 2019): wasn't skipping chrY/chrM properly
+  uint32_t y_code;
+  if (XymtExists(cip, kChrOffsetY, &y_code)) {
+    prefilter_variant_ct -= CountChrVariantsUnsafe(variant_include, cip, y_code);
+  }
+  uint32_t mt_code;
+  if (XymtExists(cip, kChrOffsetMT, &mt_code)) {
+    prefilter_variant_ct -= CountChrVariantsUnsafe(variant_include, cip, mt_code);
+  }
+  uint32_t chr_fo_idx = UINT32_MAX;
+  uint32_t chr_end = 0;
+  uint32_t is_x = 0;
   uintptr_t variant_uidx_base = 0;
-  uintptr_t cur_bits = variant_include[0];
+  uintptr_t variant_include_bits = variant_include[0];
   uint32_t xallele_ct = 0;
   for (uint32_t variant_idx = 0; variant_idx != prefilter_variant_ct; ++variant_idx) {
-    uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
-    if (variant_uidx >= x_thresh) {
-      is_x = (variant_uidx < x_end);
-      if (is_x) {
-        if (hwe_x_pvals) {
-          x_thresh = x_end;
-        } else {
-          is_x = 0;
-          x_thresh = UINT32_MAX;
-          BitIter1Start(variant_include, x_end, &variant_uidx_base, &cur_bits);
-          variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
-        }
-      } else {
-        x_thresh = UINT32_MAX;
-      }
+    uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
+    if (variant_uidx >= chr_end) {
+      uint32_t chr_idx;
+      do {
+        ++chr_fo_idx;
+        chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+        chr_idx = cip->chr_file_order[chr_fo_idx];
+      } while ((variant_uidx >= chr_end) || (chr_idx == y_code) || (chr_idx == mt_code) || (chr_idx == x_skip_code));
+      BitIter1Start(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], &variant_uidx_base, &variant_include_bits);
+      variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
+      is_x = (chr_idx == x_code);
     }
     STD_ARRAY_KREF(uint32_t, 3) cur_geno_cts = founder_raw_geno_cts[variant_uidx];
     if (allele_idx_offsets) {
@@ -3516,7 +3521,6 @@ void EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets, c
     if (!is_x) {
       cur_obs_ct = hom_a1_ct + het_a1_ct + two_ax_ct;
       if (!cur_obs_ct) {
-        // currently happens for chrY, chrM
         if (xallele_ct) {
           autosomal_xgeno_idx += xallele_ct;
         }
