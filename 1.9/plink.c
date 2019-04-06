@@ -105,10 +105,10 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (14 Mar 2019)";
+  " (6 Apr 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifdef STABLE_BUILD
   " " // (don't want this when version number has two trailing digits)
 #else
@@ -294,7 +294,7 @@ static inline int32_t bed_suffix_conflict(uint64_t calculation_type, uint32_t re
 }
 
 static inline uint32_t are_marker_pos_needed(uint64_t calculation_type, uint64_t misc_flags, char* cm_map_fname, char* set_fname, uint32_t min_bp_space, uint32_t genome_skip_write, uint32_t ld_modifier, uint32_t epi_modifier, uint32_t cluster_modifier) {
-  return (calculation_type & (CALC_MAKE_BED | CALC_MAKE_BIM | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_CLUMP | CALC_BLOCKS | CALC_FLIPSCAN | CALC_TDT | CALC_QFAM | CALC_FST | CALC_SHOW_TAGS | CALC_DUPVAR | CALC_RPLUGIN | CALC_TUCC)) || (misc_flags & (MISC_EXTRACT_RANGE | MISC_EXCLUDE_RANGE)) || cm_map_fname || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || ((calculation_type & CALC_EPI) && (epi_modifier & EPI_FAST_CASE_ONLY)) || ((calculation_type & CALC_CMH) && (!(cluster_modifier & CLUSTER_CMH2)));
+  return (calculation_type & (CALC_MAKE_BED | CALC_MAKE_BIM | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_MODEL | CALC_GLM | CALC_CLUMP | CALC_BLOCKS | CALC_FLIPSCAN | CALC_TDT | CALC_QFAM | CALC_FST | CALC_SHOW_TAGS | CALC_DUPVAR | CALC_RPLUGIN | CALC_TUCC)) || (misc_flags & (MISC_EXTRACT_RANGE | MISC_EXCLUDE_RANGE)) || cm_map_fname || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || ((calculation_type & CALC_EPI) && (epi_modifier & EPI_FAST_CASE_ONLY)) || ((calculation_type & CALC_CMH) && (!(cluster_modifier & CLUSTER_CMH2)));
 }
 
 static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, char* cm_map_fname, Two_col_params* update_cm, Ld_info* ldip) {
@@ -312,7 +312,7 @@ static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, char* cm
 }
 
 static inline uint32_t are_marker_alleles_needed(uint64_t calculation_type, char* freqname, Homozyg_info* homozyg_ptr, Two_col_params* a1alleles, Two_col_params* a2alleles, uint32_t ld_modifier, uint32_t snps_only, uint32_t clump_modifier, uint32_t cluster_modifier, uint32_t rel_modifier) {
-  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_MAKE_BIM | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS | CALC_EPI | CALC_TESTMISHAP | CALC_SCORE | CALC_MENDEL | CALC_TDT | CALC_FLIPSCAN | CALC_QFAM | CALC_HOMOG | CALC_DUPVAR | CALC_RPLUGIN | CALC_DFAM | CALC_TUCC)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || ((calculation_type & CALC_LD) && (ld_modifier & LD_INPHASE)) || ((calculation_type & CALC_PCA) && (rel_modifier & REL_PCA_VAR_WTS)) || ((calculation_type & CALC_CMH) && (!(cluster_modifier & CLUSTER_CMH2))) || a1alleles || a2alleles || snps_only || (clump_modifier & (CLUMP_VERBOSE | CLUMP_BEST)));
+  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_MAKE_BIM | CALC_RECODE | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS | CALC_EPI | CALC_TESTMISHAP | CALC_SCORE | CALC_MENDEL | CALC_TDT | CALC_FLIPSCAN | CALC_QFAM | CALC_HOMOG | CALC_DUPVAR | CALC_RPLUGIN | CALC_DFAM | CALC_TUCC)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || ((calculation_type & CALC_LD) && (ld_modifier & LD_INPHASE)) || ((calculation_type & CALC_PCA) && (rel_modifier & REL_PCA_VAR_WTS)) || ((calculation_type & CALC_CMH) && (!(cluster_modifier & CLUSTER_CMH2))) || a1alleles || a2alleles || snps_only || (clump_modifier & (CLUMP_VERBOSE | CLUMP_BEST)));
 }
 
 static inline int32_t relationship_or_ibc_req(uint64_t calculation_type) {
@@ -689,11 +689,6 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       }
 
       if (pheno_c) {
-	/*
-	if (calculation_type & (CALC_REGRESS_PCS | CALC_REGRESS_PCS_DISTANCE)) {
-	  sprintf(g_logbuf, "Error: --regress-pcs%s requires a scalar phenotype.\n", (calculation_type & CALC_REGRESS_PCS_DISTANCE)? "-distance" : "");
-	  goto plink_ret_INVALID_CMDLINE_2;
-	*/
 	if (calculation_type & (CALC_REGRESS_REL | CALC_REGRESS_DISTANCE | CALC_UNRELATED_HERITABILITY | CALC_GXE)) {
 	  if (calculation_type & CALC_REGRESS_REL) {
 	    logerrprint("Error: --regress-rel calculation requires a scalar phenotype.\n");
@@ -1741,15 +1736,6 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     }
   }
 
-  /*
-  if (calculation_type & CALC_REGRESS_PCS) {
-    retval = calc_regress_pcs(evecname, regress_pcs_modifier, max_pcs, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_blen, marker_allele_ptrs, chrom_info_ptr, marker_pos, sample_ct, unfiltered_sample_ct, sample_exclude, sample_ids, max_sample_id_len, sex_nm, sex_male, pheno_d, missing_phenod, outname, outname_end, hh_exists);
-    if (retval) {
-      goto plink_ret_1;
-    }
-  }
-  */
-
   // sometimes no more need for marker_ids/marker_allele_ptrs, conditional
   // unload to clear space for IBS matrix, etc.?  (probably want to initially
   // load at far end of stack to make this workable...)
@@ -1811,13 +1797,6 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 
   bigstack_mark2 = g_bigstack_base;
 
-  /*
-  if (calculation_type & CALC_REGRESS_PCS_DISTANCE) {
-    logerrprint("Error: --regress-pcs-distance has not yet been written.\n");
-    retval = RET_CALC_NOT_YET_SUPPORTED;
-    goto plink_ret_1;
-  }
-  */
   if (distance_req(read_dists_fname, calculation_type)) {
     retval = calc_distance(threads, parallel_idx, parallel_tot, bedfile, bed_offset, outname, outname_end, read_dists_fname, distance_wts_fname, distance_exp, calculation_type, dist_calc_type, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, set_allele_freqs, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, chrom_info_ptr);
     if (retval) {
@@ -10420,132 +10399,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	calculation_type |= CALC_REGRESS_REL;
       } else if ((!memcmp(argptr2, "egress-pcs", 11)) || (!memcmp(argptr2, "egress-pcs-distance", 20))) {
-	logerrprint("Error: --regress-pcs has been temporarily disabled.  Contact the developers if\nyou need a build with the old implementation unlocked.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto main_ret_1;
-	/*
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 5)) {
-	  goto main_ret_INVALID_CMDLINE_2A;
-	}
-	retval = alloc_fname(&evecname, argv[cur_arg + 1], argptr, 9);
-	if (retval) {
-	  goto main_ret_1;
-	}
-	for (uii = 2; uii <= param_ct; uii++) {
-	  if (!strcmp(argv[cur_arg + uii], "normalize-pheno")) {
-	    regress_pcs_modifier |= REGRESS_PCS_NORMALIZE_PHENO;
-	  } else if (!strcmp(argv[cur_arg + uii], "sex-specific")) {
-	    regress_pcs_modifier |= REGRESS_PCS_SEX_SPECIFIC;
-	  } else if (!strcmp(argv[cur_arg + uii], "clip")) {
-	    regress_pcs_modifier |= REGRESS_PCS_CLIP;
-	  } else if ((max_pcs != MAX_PCS_DEFAULT) || (argv[cur_arg + uii][0] < '0') || (argv[cur_arg + uii][0] > '9')) {
-	    sprintf(g_logbuf, "Error: Invalid --regress-pcs parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
-	  } else {
-            if (scan_posint_defcapx(argv[cur_arg + uii], &max_pcs)) {
-	      sprintf(g_logbuf, "Error: Invalid --regress-pcs maximum principal component count '%s'.%s", argv[cur_arg + uii], errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
-	    }
-	  }
-	}
-	calculation_type |= CALC_REGRESS_PCS;
-      } else if (!memcmp(argptr2, "egress-pcs-distance", 20)) {
-	if (calculation_type & CALC_REGRESS_PCS) {
-	  sprintf(g_logbuf, "Error: --regress-pcs-distance cannot be used with --regress-pcs.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
-	} else if (calculation_type & CALC_DISTANCE) {
-	  sprintf(g_logbuf, "Error: --regress-pcs-distance cannot be used with --distance.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
-        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 11)) {
-	  goto main_ret_INVALID_CMDLINE_2A;
-	}
-	retval = alloc_fname(&evecname, argv[cur_arg + 1], argptr, 9);
-	if (retval) {
-	  goto main_ret_1;
-	}
-	for (uii = 2; uii <= param_ct; uii++) {
-	  if (!strcmp(argv[cur_arg + uii], "normalize-pheno")) {
-	    regress_pcs_modifier |= REGRESS_PCS_NORMALIZE_PHENO;
-	  } else if (!strcmp(argv[cur_arg + uii], "sex-specific")) {
-	    regress_pcs_modifier |= REGRESS_PCS_SEX_SPECIFIC;
-	  } else if (!strcmp(argv[cur_arg + uii], "square")) {
-	    if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ0) {
-	      sprintf(g_logbuf, "Error: --regress-pcs-distance 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
-	    } else if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_TRI) {
-	      sprintf(g_logbuf, "Error: --regress-pcs-distance 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
-	    } else if (parallel_tot > 1) {
-	      sprintf(g_logbuf, "Error: --parallel cannot be used with '--regress-pcs-distance square'.  Use\nthe square0 or triangle shape instead.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
-	    }
-	    dist_calc_type |= DISTANCE_SQ;
-	  } else if (!strcmp(argv[cur_arg + uii], "square0")) {
-	    if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ) {
-	      sprintf(g_logbuf, "Error: --regress-pcs-distance 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
-	    } else if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_TRI) {
-	      sprintf(g_logbuf, "Error: --regress-pcs-distance 'square0' and 'triangle' modifiers can't coexist.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
-	    }
-	    dist_calc_type |= DISTANCE_SQ0;
-	  } else if (!strcmp(argv[cur_arg + uii], "triangle")) {
-	    if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ) {
-	      sprintf(g_logbuf, "Error: --regress-pcs-distance 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
-	    } else if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ0) {
-	      sprintf(g_logbuf, "Error: --regress-pcs-distance 'square0' and 'triangle' modifiers can't coexist.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
-	    }
-	    dist_calc_type |= DISTANCE_TRI;
-	  } else if (!strcmp(argv[cur_arg + uii], "gz")) {
-	    if (dist_calc_type & DISTANCE_BIN) {
-	      sprintf(g_logbuf, "Error: --regress-pcs-distance 'gz' and 'bin' flags cannot coexist.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
-	    }
-	    dist_calc_type |= DISTANCE_GZ;
-	  } else if (!strcmp(argv[cur_arg + uii], "bin")) {
-	    if (dist_calc_type & DISTANCE_GZ) {
-	      sprintf(g_logbuf, "Error: --regress-pcs-distance 'gz' and 'bin' flags cannot coexist.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
-	    }
-	    dist_calc_type |= DISTANCE_BIN;
-	  } else if (!strcmp(argv[cur_arg + uii], "ibs")) {
-	    if (dist_calc_type & DISTANCE_IBS) {
-	      logerrprint("Error: Duplicate --regress-pcs-distance 'ibs' modifier.\n");
-	      goto main_ret_INVALID_CMDLINE;
-	    }
-	    dist_calc_type |= DISTANCE_IBS;
-	  } else if (!strcmp(argv[cur_arg + uii], "1-ibs")) {
-	    if (dist_calc_type & DISTANCE_1_MINUS_IBS) {
-	      logerrprint("Error: Duplicate --regress-pcs-distance '1-ibs' modifier.\n");
-	      goto main_ret_INVALID_CMDLINE;
-	    }
-	    dist_calc_type |= DISTANCE_1_MINUS_IBS;
-	  } else if (!strcmp(argv[cur_arg + uii], "allele-ct")) {
-	    if (dist_calc_type & DISTANCE_ALCT) {
-	      logerrprint("Error: Duplicate --regress-pcs-distance 'allele-ct' modifier.\n");
-	      goto main_ret_INVALID_CMDLINE;
-	    }
-	    dist_calc_type |= DISTANCE_ALCT;
-	  } else if (!strcmp(argv[cur_arg + uii], "flat-missing")) {
-	    dist_calc_type |= DISTANCE_FLAT_MISSING;
-	  } else if ((max_pcs != MAX_PCS_DEFAULT) || (argv[cur_arg + uii][0] < '0') || (argv[cur_arg + uii][0] > '9')) {
-	    sprintf(g_logbuf, "Error: Invalid --regress-pcs-distance parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
-	  } else {
-            if (scan_posint_defcapx(argv[cur_arg + uii], &max_pcs)) {
-	      sprintf(g_logbuf, "Error: Invalid --regress-pcs-distance maximum PC count '%s'.%s", argv[cur_arg + uii], errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
-	    }
-	  }
-	}
-	if (!(dist_calc_type & DISTANCE_TYPEMASK)) {
-	  dist_calc_type |= DISTANCE_ALCT;
-	}
-	calculation_type |= CALC_REGRESS_PCS_DISTANCE;
-	*/
+	logerrprint("Error: --regress-pcs has been retired.  Contact the developers if you need a\nlibrary which efficiently computes genotype residuals on the fly.\n");
+        goto main_ret_INVALID_CMDLINE_A;
       } else if (!memcmp(argptr2, "ead-freq", 9)) {
 	if (calculation_type & CALC_FREQ) {
 	  logerrprint("Error: --freq and --read-freq flags cannot coexist.\n");

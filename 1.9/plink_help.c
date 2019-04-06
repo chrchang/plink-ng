@@ -1297,31 +1297,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    have tried to execute are logged to a file.)\n\n"
 	       );
 #endif
-    /*
-    help_print("regress-pcs\tregress-pcs-distance", &help_ctrl, 1,
-"  --regress-pcs <.evec or .eigenvec filename> ['normalize-pheno']\n"
-"                ['sex-specific'] ['clip'] [max PCs]\n"
-"    Linear regression of phenotypes and genotypes on the given list of\n"
-"    principal components (produced by SMARTPCA or GCTA).  Output is currently a\n"
-"    .gen + .sample fileset in the Oxford IMPUTE/SNPTEST v2 format.\n"
-"    * The 'normalize-pheno' modifier converts all phenotype residuals to\n"
-"      Z-scores.  When combined with 'sex-specific', the Z-scores are evaluated\n"
-"      separately by sex.\n"
-"    * The 'clip' modifier clips out-of-range genotype residuals.  Without it,\n"
-"      they are represented as negative probabilities in the .gen file, which\n"
-"      are invalid input for some programs.\n"
-"    * By default, principal components beyond the 20th are ignored; change this\n"
-"      by setting the max PCs parameter.\n\n"
-      );
-    help_print("regress-pcs\tdistance\tregress-pcs-distance", &help_ctrl, 1,
-"  --regress-pcs-distance <.evec/.eigenvec file> ['normalize-pheno']\n"
-"                         ['sex-specific'] [max PCs]\n"
-"                         [{square | square0 | triangle}] [{gz | bin}] ['ibs']\n"
-"                         ['1-ibs'] ['allele-ct'] ['flat-missing']\n"
-"    High-speed combination of --regress-pcs and --distance (no .gen + .sample\n"
-"    fileset is written to disk).\n\n"
-	       );
-				     */
 #ifndef STABLE_BUILD
     help_print("cnv-make-map", &help_ctrl, 1,
 "  --cnv-make-map ['short']\n"
