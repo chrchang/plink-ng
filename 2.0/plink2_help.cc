@@ -121,7 +121,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --pfile <prefix> ['vzs']  : Specify .pgen + .pvar{|.zst} + .psam prefix.\n"
 "  --pgen <filename>         : Specify full name of .pgen/.bed file.\n"
                );
-    HelpPrint("pfile\0pgen\0pvar\0psam\0bfile\0bed\0bim\0fam\0import-dosage\0dosage\0", &help_ctrl, 1,
+    HelpPrint("pfile\0pgen\0pvar\0psam\0bfile\0bed\0bim\0fam\0dosage\0", &help_ctrl, 1,
 "  --pvar <filename>         : Specify full name of .pvar/.bim file.\n"
               );
     HelpPrint("pfile\0pgen\0pvar\0psam\0bfile\0bed\0bim\0fam\0import-dosage\0dosage\0vcf\0bcf\0", &help_ctrl, 1,

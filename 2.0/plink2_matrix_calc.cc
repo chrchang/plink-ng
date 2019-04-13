@@ -365,7 +365,10 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
     }
 
     BigstackReset(RLstreamMemStart(&rls));
-    CleanupRLstream(&rls);
+    reterr = CleanupRLstream(&rls);
+    if (unlikely(reterr)) {
+      goto KingCutoffBatch_ret_1;
+    }
     uintptr_t* king_include;
     uint32_t* king_uidx_to_sample_idx;
     if (unlikely(

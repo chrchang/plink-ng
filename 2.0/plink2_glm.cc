@@ -51,18 +51,7 @@ void CleanupGlm(GlmInfo* glm_info_ptr) {
 // tmphxs_buf and h_transpose_buf are constraint_ct x predictor_ct
 // mi_buf only needs to be of length 2 * constraint_ct
 BoolErr LinearHypothesisChisqF(const float* coef, const float* constraints_con_major, const float* cov_matrix, uint32_t constraint_ct, uint32_t predictor_ct, uint32_t cov_stride, double* chisq_ptr, float* tmphxs_buf, float* h_transpose_buf, float* inner_buf, double* half_inverted_buf, MatrixInvertBuf1* mi_buf, double* dbl_2d_buf, float* outer_buf) {
-  const float* constraints_con_major_iter = constraints_con_major;
-  if (predictor_ct > kDotprodFThresh) {
-    for (uint32_t constraint_idx = 0; constraint_idx != constraint_ct; constraint_idx++) {
-      outer_buf[constraint_idx] = DotprodF(constraints_con_major_iter, coef, predictor_ct);
-      constraints_con_major_iter = &(constraints_con_major_iter[predictor_ct]);
-    }
-  } else {
-    for (uint32_t constraint_idx = 0; constraint_idx != constraint_ct; constraint_idx++) {
-      outer_buf[constraint_idx] = DotprodFShort(constraints_con_major_iter, coef, predictor_ct);
-      constraints_con_major_iter = &(constraints_con_major_iter[predictor_ct]);
-    }
-  }
+  ColMajorFvectorMatrixMultiplyStrided(coef, constraints_con_major, predictor_ct, predictor_ct, constraint_ct, outer_buf);
   // h-transpose does not have a special stride
   FmatrixTransposeCopy(constraints_con_major, constraint_ct, predictor_ct, predictor_ct, h_transpose_buf);
   ColMajorFmatrixMultiplyStrided(h_transpose_buf, cov_matrix, constraint_ct, constraint_ct, predictor_ct, cov_stride, predictor_ct, constraint_ct, tmphxs_buf);
@@ -105,18 +94,7 @@ BoolErr LinearHypothesisChisq(const double* coef, const double* constraints_con_
   // Since no PLINK function ever calls this with nonzero h[] values, this just
   // takes a df (constraint_ct) parameter for now; it's trivial to switch to
   // the more general interface later.
-  const double* constraints_con_major_iter = constraints_con_major;
-  if (predictor_ct > kDotprodDThresh) {
-    for (uintptr_t constraint_idx = 0; constraint_idx != constraint_ct; constraint_idx++) {
-      outer_buf[constraint_idx] = DotprodD(constraints_con_major_iter, coef, predictor_ct);
-      constraints_con_major_iter = &(constraints_con_major_iter[predictor_ct]);
-    }
-  } else {
-    for (uintptr_t constraint_idx = 0; constraint_idx != constraint_ct; constraint_idx++) {
-      outer_buf[constraint_idx] = DotprodDShort(constraints_con_major_iter, coef, predictor_ct);
-      constraints_con_major_iter = &(constraints_con_major_iter[predictor_ct]);
-    }
-  }
+  ColMajorVectorMatrixMultiplyStrided(coef, constraints_con_major, predictor_ct, predictor_ct, constraint_ct, outer_buf);
   MatrixTransposeCopy(constraints_con_major, constraint_ct, predictor_ct, h_transpose_buf);
   ColMajorMatrixMultiply(h_transpose_buf, cov_matrix, constraint_ct, predictor_ct, predictor_ct, tmphxs_buf);
   // tmp[][] is now predictor-major
@@ -558,7 +536,10 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
 
     // 3. If not local-cats=, scan first line of local-covar= file to determine
     //    covariate count.
-    CleanupRLstream(&rls);
+    reterr = CleanupRLstream(&rls);
+    if (unlikely(reterr)) {
+      goto GlmLocalOpen_ret_1;
+    }
     BigstackEndReset(bigstack_end_mark);
     reterr = gzopen_read_checked(local_covar_fname, &local_covar_rlsp->gz_infile);
     if (unlikely(reterr)) {

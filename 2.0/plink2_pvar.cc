@@ -1810,7 +1810,10 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     uintptr_t allele_idx_end = allele_storage_iter - allele_storage;
     BigstackFinalizeCp(allele_storage, allele_idx_end);
     // We may clobber this object soon, so close it now.
-    CleanupRLstream(&pvar_rls);
+    reterr = CleanupRLstream(&pvar_rls);
+    if (unlikely(reterr)) {
+      goto LoadPvar_ret_1;
+    }
     uintptr_t* allele_idx_offsets = nullptr;
     const uint32_t full_block_ct = raw_variant_ct / kLoadPvarBlockSize;
     const uintptr_t raw_variant_ct_lowbits = raw_variant_ct % kLoadPvarBlockSize;

@@ -575,9 +575,12 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
           }
         }
       }
+      reterr = CleanupRLstream(&rls);
+      if (unlikely(reterr)) {
+        goto RmDup_ret_1;
+      }
       logputs("done.\n");
       BigstackEndSet(tmp_alloc_end);
-      CleanupRLstream(&rls);
       BigstackReset(bigstack_mark2);
     }
     char* list_write_iter = g_textbuf;

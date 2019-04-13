@@ -625,12 +625,13 @@ HEADER_INLINE uint32_t bsrw(unsigned long ulii) {
 // to the need for too much duplicate C vs. C++ code ("initializer element is
 // not constant" when using const [type] in C99...)
 //
-// We start most pgenlib-specific numeric constant names here with "kPgl",
-// which should have a vanishingly small chance of colliding with anything in
-// C99.  Note that stuff like kBytesPerWord is not considered library-specific,
-// so it's exempt from having "Pgl" in the name.  Also, the few string literals
-// here are of the FOPEN_WB sort, which have similar usage patterns to e.g.
-// PRIuPTR which shouldn't be renamed, so those remain all-caps.
+// We start most plink2- and pgenlib-specific numeric constant names here with
+// "kPgl", which should have a vanishingly small chance of colliding with
+// anything in C99.  Note that stuff like kBytesPerWord is not considered
+// library-specific, so it's exempt from having "Pgl" in the name.  Also, the
+// few string literals here are of the FOPEN_WB sort, which have similar usage
+// patterns to e.g. PRIuPTR which shouldn't be renamed, so those remain
+// all-caps.
 //
 // (Update, May 2018: CONSTU31 was renamed to CONSTI32 and changed to type
 // int32_t, to prevent C vs. C++ differences.  This almost never makes a

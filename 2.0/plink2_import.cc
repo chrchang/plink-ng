@@ -3240,7 +3240,10 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         // this seems to saturate around 3 threads.
         calc_thread_ct = 1 + (sample_ct > 40) + (sample_ct > 320);
       }
-      CleanupRLstream(&vcf_rls);
+      reterr = CleanupRLstream(&vcf_rls);
+      if (unlikely(reterr)) {
+        goto VcfToPgen_ret_1;
+      }
       BigstackEndReset(bigstack_end_mark);
       reterr = RlsOpenMaybeBgzf(vcfname, decompress_thread_ct, &vcf_rls);
       if (unlikely(reterr)) {
@@ -8617,7 +8620,10 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         }
       }
       BigstackReset(RLstreamMemStart(&legend_rls));
-      CleanupRLstream(&legend_rls);
+      reterr = CleanupRLstream(&legend_rls);
+      if (unlikely(reterr)) {
+        goto OxHapslegendToPgen_ret_1;
+      }
     } else {
       if (unlikely((token_ct < 7) || (!(token_ct % 2)))) {
         snprintf(g_logbuf, kLogbufSize, "Error: Unexpected token count in line %" PRIuPTR " of %s (should be odd, >5).\n", line_idx_haps, hapsname);
@@ -9209,7 +9215,10 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
     // true requirement is weaker, but whatever
     g_bigstack_end = g_bigstack_base;
     g_bigstack_base = RLstreamMemStart(&map_rls);
-    CleanupRLstream(&map_rls);
+    reterr = CleanupRLstream(&map_rls);
+    if (unlikely(reterr)) {
+      goto LoadMap_ret_1;
+    }
 
     if (unlikely(
             bigstack_alloc_u16(variant_ct, variant_chr_codes_ptr) ||
