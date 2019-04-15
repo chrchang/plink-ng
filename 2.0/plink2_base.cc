@@ -1977,7 +1977,7 @@ int32_t Memcmp(const void* m1, const void* m2, uintptr_t byte_ct) {
 }
 #endif
 
-static_assert(kBitTransposeBatch == S_CAST(uint32_t, kBitsPerCacheline), "TransposeBitblockInternal() needs to be updated.");
+static_assert(kPglBitTransposeBatch == S_CAST(uint32_t, kBitsPerCacheline), "TransposeBitblockInternal() needs to be updated.");
 #ifdef __LP64__
 void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, void* buf0) {
   // buf must be vector-aligned and have space for 512 bytes
@@ -2233,7 +2233,7 @@ void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
       target_iter1[2 * write_full_halfvec_ct] = _mm256_extract_epi64(R_CAST(__m256i, target1), 0);
     }
 #  endif
-    source_iter = &(source_iter[kNibbleTransposeBatch / kBytesPerVec]);
+    source_iter = &(source_iter[kPglNibbleTransposeBatch / kBytesPerVec]);
     target_iter0 = &(target_iter1[write_ul_stride]);
   }
 }
