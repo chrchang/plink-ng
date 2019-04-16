@@ -1001,7 +1001,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      beta: Regression coefficient (for A1 if additive test).\n"
 "      orbeta: Odds ratio for case/control, beta for quantitative traits.\n"
 "              (Ignored if 'beta' column set included.)\n"
-"      se: Standard error of beta/odds ratio.\n"
+"      se: Standard error of beta.\n"
 "      ci: Bounds of symmetric approximate confidence interval (requires --ci).\n"
 "      tz: T-statistic for linear regression, Wald Z-score for logistic/Firth.\n"
 "      p: Asymptotic p-value (or -log10(p)) for T/Z-statistic.\n"

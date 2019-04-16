@@ -4884,7 +4884,11 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
       }
     }
     if (se_col) {
-      cswritep = strcpya_k(cswritep, "\tSE");
+      if (report_beta_instead_of_odds_ratio) {
+        cswritep = strcpya_k(cswritep, "\tSE");
+      } else {
+        cswritep = strcpya_k(cswritep, "\tLOG(OR)_SE");
+      }
     }
     double ci_zt = 0.0;
     if (ci_col) {
