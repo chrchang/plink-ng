@@ -105,10 +105,10 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (6 Apr 2019)";
+  " (26 Apr 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifdef STABLE_BUILD
   " " // (don't want this when version number has two trailing digits)
 #else
@@ -136,18 +136,18 @@ static const char ver_str2[] =
   #endif
 #endif
   "\n";
-static const char errstr_append[] = "For more information, try '" PROG_NAME_STR " --help <flag name>' or '" PROG_NAME_STR " --help | more'.\n";
+static const char errstr_append[] = "For more information, try \"" PROG_NAME_STR " --help <flag name>\" or \"" PROG_NAME_STR " --help | more\".\n";
 #ifdef STABLE_BUILD
   #ifndef NOLAPACK
-static const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --pca, --neighbour, --ibs-test, --regress-distance,\n--model, --bd, --gxe, --logistic, --dosage, --lasso, --test-missing,\n--make-perm-pheno, --tdt, --qfam, --annotate, --clump, --gene-report,\n--meta-analysis, --epistasis, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+static const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --pca, --neighbour, --ibs-test, --regress-distance,\n--model, --bd, --gxe, --logistic, --dosage, --lasso, --test-missing,\n--make-perm-pheno, --tdt, --qfam, --annotate, --clump, --gene-report,\n--meta-analysis, --epistasis, --fast-epistasis, and --score.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions (warning: long).\n";
   #else
-static const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --neighbour, --ibs-test, --regress-distance, --model,\n--bd, --gxe, --logistic, --dosage, --lasso, --test-missing, --make-perm-pheno,\n--tdt, --qfam, --annotate, --clump, --gene-report, --meta-analysis,\n--epistasis, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+static const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --neighbour, --ibs-test, --regress-distance, --model,\n--bd, --gxe, --logistic, --dosage, --lasso, --test-missing, --make-perm-pheno,\n--tdt, --qfam, --annotate, --clump, --gene-report, --meta-analysis,\n--epistasis, --fast-epistasis, and --score.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions (warning: long).\n";
   #endif
 #else
   #ifndef NOLAPACK
-static const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --pca, --neighbour, --ibs-test, --regress-distance,\n--model, --bd, --gxe, --logistic, --dosage, --lasso, --test-missing,\n--make-perm-pheno, --unrelated-heritability, --tdt, --dfam, --qfam, --tucc,\n--annotate, --clump, --gene-report, --meta-analysis, --epistasis,\n--fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+static const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --pca, --neighbour, --ibs-test, --regress-distance,\n--model, --bd, --gxe, --logistic, --dosage, --lasso, --test-missing,\n--make-perm-pheno, --unrelated-heritability, --tdt, --dfam, --qfam, --tucc,\n--annotate, --clump, --gene-report, --meta-analysis, --epistasis,\n--fast-epistasis, and --score.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions (warning: long).\n";
   #else
-static const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --neighbour, --ibs-test, --regress-distance, --model,\n--bd, --gxe, --logistic, --dosage, --lasso, --test-missing, --make-perm-pheno,\n--tdt, --dfam, --qfam, --tucc, --annotate, --clump, --gene-report,\n--meta-analysis, --epistasis, --fast-epistasis, and --score.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+static const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --flip-scan, --merge-list,\n--write-snplist, --list-duplicate-vars, --freqx, --missing, --test-mishap,\n--hardy, --mendel, --ibc, --impute-sex, --indep-pairphase, --r2, --show-tags,\n--blocks, --distance, --genome, --homozyg, --make-rel, --make-grm-gz,\n--rel-cutoff, --cluster, --neighbour, --ibs-test, --regress-distance, --model,\n--bd, --gxe, --logistic, --dosage, --lasso, --test-missing, --make-perm-pheno,\n--tdt, --dfam, --qfam, --tucc, --annotate, --clump, --gene-report,\n--meta-analysis, --epistasis, --fast-epistasis, and --score.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions (warning: long).\n";
   #endif
 #endif
 
@@ -724,10 +724,10 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	  logerrprint("Error: --recode HV{-1chr} requires a case/control phenotype.\n");
 	  goto plink_ret_INVALID_CMDLINE;
 	} else if ((calculation_type & CALC_FST) && (misc_flags & MISC_FST_CC)) {
-	  logerrprint("Error: '--fst case-control' requires a case/control phenotype.\n");
+	  logerrprint("Error: \"--fst case-control\" requires a case/control phenotype.\n");
 	  goto plink_ret_INVALID_CMDLINE;
 	} else if ((calculation_type & CALC_FREQ) && (misc_flags & MISC_FREQ_CC)) {
-	  logerrprint("Error: '--freq case-control' requires a case/control phenotype.\n");
+	  logerrprint("Error: \"--freq case-control\" requires a case/control phenotype.\n");
 	  goto plink_ret_INVALID_CMDLINE;
 	}
       }
@@ -845,7 +845,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	  }
 	} else {
 	  if (map_is_unsorted & UNSORTED_BP) {
-	    logerrprint("Error: '--extract range' requires a sorted .bim.  Retry this command after\nusing --make-bed to sort your data.\n");
+	    logerrprint("Error: \"--extract range\" requires a sorted .bim.  Retry this command after\nusing --make-bed to sort your data.\n");
 	    goto plink_ret_INVALID_CMDLINE;
 	  }
 	  retval = extract_exclude_range(extractname, marker_pos, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0, allow_no_variants, chrom_info_ptr);
@@ -864,7 +864,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	  }
 	} else {
 	  if (map_is_unsorted & UNSORTED_BP) {
-	    logerrprint("Error: '--exclude range' requires a sorted .bim.  Retry this command after\nusing --make-bed to sort your data.\n");
+	    logerrprint("Error: \"--exclude range\" requires a sorted .bim.  Retry this command after\nusing --make-bed to sort your data.\n");
 	    goto plink_ret_INVALID_CMDLINE;
 	  }
 	  retval = extract_exclude_range(excludename, marker_pos, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 1, allow_no_variants, chrom_info_ptr);
@@ -3708,11 +3708,11 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_flag_copy;
       case 'h':
         if (!strcmp(argptr, "hwe2")) {
-	  fputs("Warning: --hwe2 flag is obsolete, and now treated as an alias for '--hwe midp'.\n", stderr);
+	  fputs("Warning: --hwe2 flag is obsolete, and now treated as an alias for \"--hwe midp\".\n", stderr);
 	  memcpy(flagptr, "hwe midp", 9);
 	  break;
         } else if (!strcmp(argptr, "hardy2")) {
-	  fputs("Warning: --hardy2 flag is obsolete, and now treated as an alias for\n'--hardy midp'.\n", stderr);
+	  fputs("Warning: --hardy2 flag is obsolete, and now treated as an alias for\n\"--hardy midp\".\n", stderr);
 	  memcpy(flagptr, "hardy midp", 11);
 	  break;
 	}
@@ -3727,7 +3727,7 @@ int32_t main(int32_t argc, char** argv) {
       case 'l':
 	if (!strcmp(argptr, "list")) {
 	  memcpy(flagptr, "recode list", 12);
-	  fputs("Note: --list flag deprecated.  Use '--recode list' instead.\n", stdout);
+	  fputs("Note: --list flag deprecated.  Use \"--recode list\" instead.\n", stdout);
 	  recode_modifier |= RECODE_LIST;
 	  misc_flags |= MISC_SET_HH_MISSING;
 	  break;
@@ -3792,7 +3792,7 @@ int32_t main(int32_t argc, char** argv) {
 	    } else if (match_upper(argptr2, "HV")) {
 	      memcpy(flagptr, "recode HV-1chr", 15);
 	      recode_modifier |= RECODE_HV_1CHR;
-              fputs("Note: --recodeHV flag deprecated.  Use '--recode HV' or '--recode HV-1chr'.\n", stdout);
+              fputs("Note: --recodeHV flag deprecated.  Use \"--recode HV\" or \"--recode HV-1chr\".\n", stdout);
 	      ujj = 2;
 	    }
 	    break;
@@ -3829,7 +3829,7 @@ int32_t main(int32_t argc, char** argv) {
 	      memcpy(flagptr, "recode bimbam-1chr", 19);
 	      recode_modifier |= RECODE_BIMBAM_1CHR;
 	      misc_flags |= MISC_SET_HH_MISSING;
-	      fputs("Note: --recode-bimbam flag deprecated.  Use '--recode bimbam' or\n'--recode bimbam-1chr'.\n", stdout);
+	      fputs("Note: --recode-bimbam flag deprecated.  Use \"--recode bimbam\" or\n\"--recode bimbam-1chr\".\n", stdout);
 	      ujj = 2;
 	    }
 	    break;
@@ -3838,7 +3838,7 @@ int32_t main(int32_t argc, char** argv) {
 	      memcpy(flagptr, "recode 01 fastphase-1chr", 25);
 	      recode_modifier |= RECODE_01 | RECODE_FASTPHASE_1CHR;
 	      misc_flags |= MISC_SET_HH_MISSING;
-	      fputs("Note: --recode-fastphase flag deprecated.  Use e.g. '--recode 01 fastphase-1chr'.\n", stdout);
+	      fputs("Note: --recode-fastphase flag deprecated.  Use e.g. \"--recode 01 fastphase-1chr\".\n", stdout);
 	      ujj = 2;
 	    } else if (!memcmp(argptr2, "-structure", 10)) {
 	      memcpy(flagptr, "recode structure", 17);
@@ -3850,7 +3850,7 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	  if (ujj) {
 	    if (ujj == 1) {
-	      printf("Note: --%s flag deprecated.  Use '%s ...'.\n", argptr, flagptr);
+	      printf("Note: --%s flag deprecated.  Use \"--%s ...\".\n", argptr, flagptr);
 	    }
 	    break;
 	  }
@@ -4100,7 +4100,7 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'D':
       if (*argptr2 == '\0') {
-	logprint("Note: --D flag deprecated.  Use e.g. '--r2 dprime'.\n");
+	logprint("Note: --D flag deprecated.  Use e.g. \"--r2 dprime\".\n");
 	ld_info.modifier |= LD_DPRIME;
 	goto main_param_zero;
       } else {
@@ -4169,7 +4169,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --R-debug must be used with --R.\n");
 	  goto main_ret_INVALID_CMDLINE;
         }
-	logprint("Note: --R-debug flag deprecated.  Use e.g. '--R <filename> debug'.\n");
+	logprint("Note: --R-debug flag deprecated.  Use e.g. \"--R <filename> debug\".\n");
 	misc_flags |= MISC_RPLUGIN_DEBUG;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "-host", 6)) {
@@ -4370,7 +4370,7 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	    model_modifier |= MODEL_LIN;
 	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
-	    logerrprint("Error: Improper --assoc mperm syntax.  (Use '--assoc mperm=[value]'.)\n");
+	    logerrprint("Error: Improper --assoc mperm syntax.  (Use \"--assoc mperm=<value>\".)\n");
 	    goto main_ret_INVALID_CMDLINE;
 	  } else if (!strcmp(argv[cur_arg + uii], "set-test")) {
 	    model_modifier |= MODEL_SET_TEST;
@@ -4704,7 +4704,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "eta", 4)) {
-	logprint("Note: --beta flag deprecated.  Use e.g. '--logistic beta'.\n");
+	logprint("Note: --beta flag deprecated.  Use e.g. \"--logistic beta\".\n");
 	glm_modifier |= GLM_BETA;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "d", 2)) {
@@ -4714,7 +4714,7 @@ int32_t main(int32_t argc, char** argv) {
 	for (uii = 1; uii <= param_ct; uii++) {
 	  if (!strcmp(argv[cur_arg + uii], "perm")) {
 	    if (cluster.modifier & CLUSTER_CMH_MPERM) {
-	      logerrprint("Error: --bd 'mperm' and 'perm{-bd}' cannot be used together.\n");
+	      logerrprint("Error: --bd 'mperm' and 'perm{,-bd}' cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE_A;
 	    } else if (cluster.modifier & CLUSTER_CMH_PERM_BD) {
 	      logerrprint("Error: --bd 'perm' and 'perm-bd' modifiers cannot be used together.\n");
@@ -4723,7 +4723,7 @@ int32_t main(int32_t argc, char** argv) {
 	    cluster.modifier |= CLUSTER_CMH_PERM;
 	  } else if (!strcmp(argv[cur_arg + uii], "perm-bd")) {
 	    if (cluster.modifier & CLUSTER_CMH_MPERM) {
-	      logerrprint("Error: --bd 'mperm' and 'perm{-bd}' cannot be used together.\n");
+	      logerrprint("Error: --bd 'mperm' and 'perm{,-bd}' cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE_A;
 	    } else if ((cluster.modifier & (CLUSTER_CMH_PERM | CLUSTER_CMH_PERM_BD)) == CLUSTER_CMH_PERM) {
 	      logerrprint("Error: --bd 'perm' and 'perm-bd' modifiers cannot be used together.\n");
@@ -4735,7 +4735,7 @@ int32_t main(int32_t argc, char** argv) {
 	    cluster.modifier |= CLUSTER_CMH_PERM_BD;
 	  } else if ((strlen(argv[cur_arg + uii]) > 6) && (!memcmp(argv[cur_arg + uii], "mperm=", 6))) {
 	    if (cluster.modifier & CLUSTER_CMH_PERM) {
-	      logerrprint("Error: --bd 'mperm' and 'perm{-bd}' cannot be used together.\n");
+	      logerrprint("Error: --bd 'mperm' and 'perm{,-bd}' cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE_A;
 	    } else if (cluster.modifier & CLUSTER_CMH_MPERM) {
 	      logerrprint("Error: Duplicate --bd 'mperm' modifier.\n");
@@ -4751,7 +4751,7 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "set-test")) {
 	    cluster.modifier |= CLUSTER_CMH_SET_TEST;
 	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
-            logerrprint("Error: Improper --bd mperm syntax.  (Use '--bd mperm=[value]'.)\n");
+            logerrprint("Error: Improper --bd mperm syntax.  (Use \"--bd mperm=<value>\".)\n");
             goto main_ret_INVALID_CMDLINE_A;
 	  } else {
             sprintf(g_logbuf, "Error: Invalid --bd parameter '%s'.\n", argv[cur_arg + uii]);
@@ -4953,7 +4953,7 @@ int32_t main(int32_t argc, char** argv) {
     case 'c':
       if (!memcmp(argptr2, "hr", 3)) {
 	if (chrom_flag_present) {
-	  logerrprint("Error: --chr cannot be used with --autosome{-xy}.\n");
+	  logerrprint("Error: --chr cannot be used with --autosome{,-xy}.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
         retval = parse_chrom_ranges(param_ct, '-', &(argv[cur_arg]), chrom_info.chrom_mask, &chrom_info, (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1, argptr);
@@ -4966,7 +4966,7 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Note: --compound-genotypes flag unnecessary (spaces between alleles in .ped\nand .lgen files are optional if all alleles are single-character).\n");
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ompress", 8)) {
-	logerrprint("Error: --compress flag retired.  Use e.g. 'gzip <filename>'.\n");
+	logerrprint("Error: --compress flag retired.  Use e.g. \"gzip <filename>\".\n");
 	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "ounts", 6)) {
 	if (model_modifier & MODEL_ASSOC) {
@@ -4974,10 +4974,10 @@ int32_t main(int32_t argc, char** argv) {
 	    logerrprint("Error: --assoc 'qt-means'/'lin' does not make sense with --counts.\n");
 	    goto main_ret_INVALID_CMDLINE_A;
 	  }
-	  logprint("Note: --counts flag deprecated.  Use '--assoc counts' instead.\n");
+	  logprint("Note: --counts flag deprecated.  Use \"--assoc counts\" instead.\n");
           model_modifier |= MODEL_ASSOC_COUNTS;
 	} else {
-	  logprint("Note: --counts flag deprecated.  Use '--freq counts' or --freqx instead.\n");
+	  logprint("Note: --counts flag deprecated.  Use \"--freq counts\" or --freqx instead.\n");
 	}
 	misc_flags |= MISC_FREQ_COUNTS;
 	goto main_param_zero;
@@ -5081,7 +5081,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
         calculation_type |= CALC_CLUSTER;
       } else if (!memcmp(argptr2, "c", 2)) {
-        logprint("Note: --cc flag deprecated.  Use '--cluster cc'.\n");
+        logprint("Note: --cc flag deprecated.  Use \"--cluster cc\".\n");
         cluster.modifier |= CLUSTER_CC;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "luster-missing", 15)) {
@@ -5089,7 +5089,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --cluster-missing cannot be used with --cluster.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	logprint("Note: --cluster-missing flag deprecated.  Use '--cluster missing'.\n");
+	logprint("Note: --cluster-missing flag deprecated.  Use \"--cluster missing\".\n");
         calculation_type |= CALC_CLUSTER;
         cluster.modifier |= CLUSTER_MISSING;
 	goto main_param_zero;
@@ -5512,7 +5512,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --cnv-test cannot be both 1-sided and 2-sided at the same time.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	logprint("Note: --cnv-test-1sided flag deprecated.  Use '--cnv-test 1sided'.\n");
+	logprint("Note: --cnv-test-1sided flag deprecated.  Use \"--cnv-test 1sided\".\n");
 	cnv_calc_type |= CNV_TEST_FORCE_1SIDED;
       } else if (!memcmp(argptr2, "nv-test-2sided", 15)) {
 	UNSTABLE("cnv-test-2sided");
@@ -5520,7 +5520,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --cnv-test cannot be both 1-sided and 2-sided at the same time.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	logprint("Note: --cnv-test-2sided flag deprecated.  Use '--cnv-test 2sided'.\n");
+	logprint("Note: --cnv-test-2sided flag deprecated.  Use \"--cnv-test 2sided\".\n");
 	cnv_calc_type |= CNV_TEST_FORCE_2SIDED;
       } else if (!memcmp(argptr2, "nv-test-region", 15)) {
 	UNSTABLE("cnv-test-region");
@@ -5607,10 +5607,10 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --cnv-write-freq must be used with --cnv-write.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	logprint("Note: --cnv-write-freq flag deprecated.  Use '--cnv-write freq'.\n");
+	logprint("Note: --cnv-write-freq flag deprecated.  Use \"--cnv-write freq\".\n");
 	cnv_calc_type |= CNV_WRITE_FREQ;
       } else if (!memcmp(argptr2, "onsensus-match", 15)) {
-        logprint("Note: --consensus-match flag deprecated.  Use '--homozyg consensus-match'.\n");
+        logprint("Note: --consensus-match flag deprecated.  Use \"--homozyg consensus-match\".\n");
 	homozyg.modifier |= HOMOZYG_CONSENSUS_MATCH;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ondition", 9)) {
@@ -5679,7 +5679,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_NOMEM;
 	}
       } else if (!memcmp(argptr2, "ase-only", 9)) {
-	logprint("Note: --case-only flag deprecated.  Use '--fast-epistasis case-only'.\n");
+	logprint("Note: --case-only flag deprecated.  Use \"--fast-epistasis case-only\".\n");
         epi_info.modifier |= EPI_FAST_CASE_ONLY;
         goto main_param_zero;
       } else if (!memcmp(argptr2, "m-map", 6)) {
@@ -6018,7 +6018,7 @@ int32_t main(int32_t argc, char** argv) {
 	memcpy(strcpya(mapname, csptr), ".sample", 8);
 	load_params |= LOAD_PARAMS_OXSAMPLE;
       } else if (!memcmp(argptr2, "ecompress", 10)) {
-	logerrprint("Error: --decompress flag retired.  Use e.g. 'gunzip <filename>'.\n");
+	logerrprint("Error: --decompress flag retired.  Use e.g. \"gunzip <filename>\".\n");
 	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "istance", 8)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 6)) {
@@ -6107,7 +6107,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(g_logbuf, "Error: Invalid --distance-exp parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WW;
 	}
-	fputs("Note: '--distance-exp <x>' deprecated.  Use '--distance-weights exp=[x]' instead.\n", stdout);
+	fputs("Note: \"--distance-exp <x>\" deprecated.  Use \"--distance-wts exp=<x>\" instead.\n", stdout);
       } else if (!memcmp(argptr2, "istance-wts", 12)) {
 	if (distance_exp != 0.0) {
 	  logerrprint("Error: --distance-wts cannot be used with --distance-exp.\n");
@@ -6147,7 +6147,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (dist_calc_type & DISTANCE_1_MINUS_IBS) {
-	  logerrprint("Error: --distance-matrix flag cannot be used with '--distance 1-ibs'.\n");
+	  logerrprint("Error: --distance-matrix flag cannot be used with \"--distance 1-ibs\".\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	calculation_type |= CALC_PLINK1_DISTANCE_MATRIX;
@@ -6233,7 +6233,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	write_covar_modifier |= WRITE_COVAR_DUMMY;
       } else if (!memcmp(argptr2, "ominant", 8)) {
-	logprint("Note: --dominant flag deprecated.  Use e.g. '--linear dominant' (and\n'--condition-list <filename> dominant' to change covariate coding).\n");
+	logprint("Note: --dominant flag deprecated.  Use e.g. \"--linear dominant\" (and\n\"--condition-list <filename> dominant\" to change covariate coding).\n");
 	glm_modifier |= GLM_DOMINANT | GLM_CONDITION_DOMINANT;
 	glm_xchr_model = 0;
 	goto main_param_zero;
@@ -6385,7 +6385,7 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "set-test")) {
 	    family_info.dfam_modifier |= DFAM_SET_TEST;
 	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
-	    logerrprint("Error: Improper --dfam mperm syntax.  (Use '--dfam mperm=[value]'.)\n");
+	    logerrprint("Error: Improper --dfam mperm syntax.  (Use \"--dfam mperm=<value>\".)\n");
 	    goto main_ret_INVALID_CMDLINE;
 	  } else {
 	    sprintf(g_logbuf, "Error: Invalid --dfam parameter '%s'.\n", argv[cur_arg + uii]);
@@ -6401,10 +6401,10 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	family_info.dfam_modifier |= DFAM_NO_UNRELATEDS;
-	logprint("Note: --dfam-no-unrelateds flag deprecated.  Use '--dfam no-unrelateds'.\n");
+	logprint("Note: --dfam-no-unrelateds flag deprecated.  Use \"--dfam no-unrelateds\".\n");
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "prime", 6)) {
-	logprint("Note: --dprime flag deprecated.  Use e.g. '--r2 dprime'.\n");
+	logprint("Note: --dprime flag deprecated.  Use e.g. \"--r2 dprime\".\n");
 	ld_info.modifier |= LD_DPRIME;
 	goto main_param_zero;
       } else {
@@ -6651,7 +6651,7 @@ int32_t main(int32_t argc, char** argv) {
 	calculation_type |= CALC_FREQ;
 	if (misc_flags & MISC_FREQ_COUNTS) {
 	  // --keep-allele-order also set for backward compatibility
-	  // placed here instead of a few lines up because '--freq --counts' is
+	  // placed here instead of a few lines up because "--freq --counts" is
 	  // permitted
 	  misc_flags |= MISC_KEEP_ALLELE_ORDER;
 	}
@@ -6674,7 +6674,7 @@ int32_t main(int32_t argc, char** argv) {
 	misc_flags |= MISC_FREQX;
       } else if (!memcmp(argptr2, "rom", 4)) {
 	if (chrom_flag_present) {
-	  logerrprint("Error: --from cannot be used with --autosome{-xy} or --{not-}chr.\n");
+	  logerrprint("Error: --from cannot be used with --autosome{,-xy} or --{,not-}chr.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -9552,7 +9552,7 @@ int32_t main(int32_t argc, char** argv) {
         calculation_type |= CALC_NEIGHBOR;
       } else if (!memcmp(argptr2, "ot-chr", 7)) {
 	if (markername_from) {
-	  logerrprint("Error: --from cannot be used with --autosome{-xy} or --{not-}chr.\n");
+	  logerrprint("Error: --from cannot be used with --autosome{,-xy} or --{,not-}chr.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	// allowed:
@@ -9562,7 +9562,7 @@ int32_t main(int32_t argc, char** argv) {
 	// does not make sense, disallowed:
 	//   --allow-extra-chr --chr 5-22 --not-chr bobs_chrom
 
-	// --allow-extra-chr present, --chr/--autosome{-xy} not present
+	// --allow-extra-chr present, --chr/--autosome{,-xy} not present
 	uii = ((misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1) && (!chrom_info.is_include_stack);
 	retval = parse_chrom_ranges(param_ct, '-', &(argv[cur_arg]), chrom_exclude, &chrom_info, uii, argptr);
 	if (retval) {
@@ -10932,7 +10932,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --snp cannot be used with --from-bp/-kb/-mb.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if ((!are_all_words_zero(chrom_info.chrom_mask, CHROM_MASK_INITIAL_WORDS)) || chrom_info.incl_excl_name_stack) {
-	  logerrprint("Error: --snp cannot be used with --autosome{-xy} or --{not-}chr.\n");
+	  logerrprint("Error: --snp cannot be used with --autosome{,-xy} or --{,not-}chr.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (markername_snp) {
           logerrprint("Error: --snp cannot be used with --exclude-snp.\n");
@@ -11662,7 +11662,7 @@ int32_t main(int32_t argc, char** argv) {
 	load_rare |= LOAD_RARE_TPED;
       } else if (!memcmp(argptr2, "o", 2)) {
 	if ((!are_all_words_zero(chrom_info.chrom_mask, CHROM_MASK_INITIAL_WORDS)) || chrom_info.incl_excl_name_stack) {
-	  logerrprint("Error: --to cannot be used with --autosome{-xy} or --{not-}chr.\n");
+	  logerrprint("Error: --to cannot be used with --autosome{,-xy} or --{,not-}chr.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (markername_snp) {
 	  logerrprint("Error: --to cannot be used with --snp.\n");
