@@ -6722,12 +6722,12 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --fisher cannot be used with --assoc.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	logprint("Note: --fisher flag deprecated.  Use '--assoc fisher' or '--model fisher'.\n");
+	logprint("Note: --fisher flag deprecated.  Use \"--assoc fisher\" or \"--model fisher\".\n");
 	model_modifier |= MODEL_ASSOC | MODEL_FISHER | MODEL_ASSOC_FDEPR;
 	calculation_type |= CALC_MODEL;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "id", 3)) {
-        logprint("Note: --fid flag deprecated.  Use '--recode vcf-fid'.\n");
+        logprint("Note: --fid flag deprecated.  Use \"--recode vcf-fid\".\n");
 	recode_modifier |= RECODE_FID;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "lip", 4)) {
@@ -6869,7 +6869,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --flip-scan-verbose must be used with --flip-scan.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	logprint("Note: --flip-scan-verbose flag deprecated.  Use '--flip-scan verbose'.\n");
+	logprint("Note: --flip-scan-verbose flag deprecated.  Use \"--flip-scan verbose\".\n");
         ld_info.modifier |= LD_FLIPSCAN_VERBOSE;
       } else if (!memcmp(argptr2, "amily", 6)) {
 	if (calculation_type & CALC_DFAM) {
@@ -6941,7 +6941,7 @@ int32_t main(int32_t argc, char** argv) {
 	strcpy(pedname, argv[cur_arg + 1]);
       } else if (!memcmp(argptr2, "enome", 6)) {
 	if (genome_modifier & GENOME_OUTPUT_GZ) {
-          logerrprint("Warning: Duplicate --genome flag.  (--Z-genome is treated as '--genome gz'.)\n");
+          logerrprint("Warning: Duplicate --genome flag.  (--Z-genome is treated as \"--genome gz\".)\n");
 	}
 	kk = 0;
       main_genome_flag:
@@ -6970,7 +6970,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --genome-full must be used with --genome.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	logprint("Note: --genome-full flag deprecated.  Use '--genome full'.\n");
+	logprint("Note: --genome-full flag deprecated.  Use \"--genome full\".\n");
 	genome_modifier |= GENOME_OUTPUT_FULL;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "roupdist", 9)) {
@@ -7051,7 +7051,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --assoc 'qt-means'/'lin' does not make sense with --genedrop.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	logprint("Note: --genedrop flag deprecated.  Use e.g. '--model genedrop'.\n");
+	logprint("Note: --genedrop flag deprecated.  Use e.g. \"--model genedrop\".\n");
 	model_modifier |= MODEL_GENEDROP;
 	glm_modifier |= GLM_GENEDROP;
 	goto main_param_zero;
@@ -7060,7 +7060,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --gc must be used with --adjust.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	logprint("Note: --gc flag deprecated.  Use '--adjust gc'.\n");
+	logprint("Note: --gc flag deprecated.  Use \"--adjust gc\".\n");
 	mtest_adjust |= ADJUST_GC;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "file", 5)) {
@@ -7087,7 +7087,7 @@ int32_t main(int32_t argc, char** argv) {
 	logerrprint("Error: --genome-lists flag retired.  Use --parallel.\n");
 	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "enome-minimal", 14)) {
-	logerrprint("Error: --genome-minimal flag retired.  Use '--genome gz'.\n");
+	logerrprint("Error: --genome-minimal flag retired.  Use \"--genome gz\".\n");
         goto main_ret_INVALID_CMDLINE;
       } else if ((!memcmp(argptr2, "roup-avg", 9)) || (!memcmp(argptr2, "roup-average", 13))) {
         if (!(calculation_type & CALC_CLUSTER)) {
@@ -7097,7 +7097,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --cluster 'group-avg' and 'old-tiebreaks' cannot be used together.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-        LOGPRINTF("Note: --%s flag deprecated.  Use '--cluster group-avg'.\n", argptr);
+        LOGPRINTF("Note: --%s flag deprecated.  Use \"--cluster group-avg\".\n", argptr);
 	cluster.modifier |= CLUSTER_GROUP_AVG;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "enotypic", 9)) {
@@ -7105,7 +7105,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --genotypic cannot be used with --dominant.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	logprint("Note: --genotypic flag deprecated.  Use e.g. '--linear genotypic'.\n");
+	logprint("Note: --genotypic flag deprecated.  Use e.g. \"--linear genotypic\".\n");
 	glm_modifier |= GLM_GENOTYPIC;
 	glm_xchr_model = 0;
 	goto main_param_zero;
@@ -7128,7 +7128,7 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ap", 3)) {
 	if ((epi_info.modifier & (EPI_FAST | EPI_FAST_CASE_ONLY)) != (EPI_FAST | EPI_FAST_CASE_ONLY)) {
-	  logerrprint("Error: --gap must be used with '--fast-epistasis case-only'.\n");
+	  logerrprint("Error: --gap must be used with \"--fast-epistasis case-only\".\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -7197,7 +7197,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --gene-report-snp-field must be used with --extract.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (misc_flags & MISC_EXTRACT_RANGE) {
-	  logerrprint("Error: --gene-report-snp-field cannot be used with '--extract range'.\n");
+	  logerrprint("Error: --gene-report-snp-field cannot be used with \"--extract range\".\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -7253,7 +7253,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	filter_flags |= FILTER_ALL_REQ | FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "we-all", 7)) {
-	logprint("Note: --hwe-all flag deprecated.  Use '--hwe include-nonctrl'.\n");
+	logprint("Note: --hwe-all flag deprecated.  Use \"--hwe include-nonctrl\".\n");
 	hwe_modifier |= HWE_THRESH_ALL;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "et", 3)) {
@@ -7427,7 +7427,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (homozyg.modifier & HOMOZYG_GROUP_VERBOSE) {
 	  logprint("Note: --homozyg-group deprecated, and superseded by --homozyg group-verbose.\n");
 	} else {
-	  logprint("Note: --homozyg-group flag deprecated.  Use '--homozyg group'.\n");
+	  logprint("Note: --homozyg-group flag deprecated.  Use \"--homozyg group\".\n");
 	  homozyg.modifier |= HOMOZYG_GROUP;
 	}
 	goto main_param_zero;
@@ -7436,7 +7436,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --homozyg-verbose must be used with --homozyg group.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	logprint("Note: --homozyg-verbose flag deprecated.  Use '--homozyg group-verbose'.\n");
+	logprint("Note: --homozyg-verbose flag deprecated.  Use \"--homozyg group-verbose\".\n");
 	homozyg.modifier = (homozyg.modifier & (~HOMOZYG_GROUP)) | HOMOZYG_GROUP_VERBOSE;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "omozyg-include-missing", 23)) {
@@ -7447,13 +7447,13 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --hethom must be used with --genotypic.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	logprint("Note: --hethom flag deprecated.  Use e.g. '--linear hethom' (and\n'--condition-list <filename> recessive' to change covariate coding).\n");
+	logprint("Note: --hethom flag deprecated.  Use e.g. \"--linear hethom\" (and\n\"--condition-list <filename> recessive\" to change covariate coding).\n");
 	glm_modifier |= GLM_HETHOM | GLM_CONDITION_RECESSIVE;
 	glm_modifier -= GLM_GENOTYPIC;
 	glm_xchr_model = 0;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ide-covar", 10)) {
-	logprint("Note: --hide-covar flag deprecated.  Use e.g. '--linear hide-covar'.\n");
+	logprint("Note: --hide-covar flag deprecated.  Use e.g. \"--linear hide-covar\".\n");
 	glm_modifier |= GLM_HIDE_COVAR;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ard-call-threshold", 19)) {
@@ -7471,7 +7471,7 @@ int32_t main(int32_t argc, char** argv) {
 	    sprintf(g_logbuf, "Error: Invalid --hard-call-threshold parameter '%s'.\n", argv[cur_arg + 1]);
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  } else if (dxx > (0.5 + SMALLISH_EPSILON)) {
-	    sprintf(g_logbuf, "Error: The --hard-call-threshold parameter must be smaller than 0.5.  (Did you\nmean '--hard-call-threshold %g'?)\n", 1.0 - dxx);
+	    sprintf(g_logbuf, "Error: The --hard-call-threshold parameter must be smaller than 0.5.  (Did you\nmean \"--hard-call-threshold %g\"?)\n", 1.0 - dxx);
 	    goto main_ret_INVALID_CMDLINE_2A;
 	  } else if (dxx > (0.5 - SMALLISH_EPSILON)) {
 	    logerrprint("Error: The --hard-call-threshold parameter must be smaller than 0.5, to prevent\nties.\n");
@@ -7503,7 +7503,7 @@ int32_t main(int32_t argc, char** argv) {
 		 (!memcmp(argptr2, "ap-window", 10)) ||
                  (!memcmp(argptr2, "omozyg-haplo-track", 19))) {
       main_hap_disabled_message:
-        logerrprint("Error: The --hap... family of flags has not been reimplemented in PLINK 1.9 due\nto poor phasing accuracy (and, consequently, inferior haplotype\nlikelihood/frequency estimates) relative to other software; for now, we\nrecommend using BEAGLE instead of PLINK for case/control haplotype association\nanalysis.  (You can use '--recode beagle' to export data.)  We apologize for\nthe inconvenience, and plan to develop variants of the --hap... flags which\nhandle pre-phased data effectively.\n");
+        logerrprint("Error: The --hap... family of flags has not been reimplemented in PLINK 1.9 due\nto poor phasing accuracy (and, consequently, inferior haplotype\nlikelihood/frequency estimates) relative to other software; for now, we\nrecommend using BEAGLE instead of PLINK for case/control haplotype association\nanalysis.  (You can use \"--recode beagle\" to export data.)  We apologize for\nthe inconvenience, and plan to develop variants of the --hap... flags which\nhandle pre-phased data effectively.\n");
 	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "ard-call", 9)) {
 	logerrprint("Error: The undocumented --hard-call flag has been retired.  (The\n--hard-call-threshold flag, supported by both PLINK and PLINK/SEQ, has similar\nfunctionality.)\n");
@@ -7605,7 +7605,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sample_sort = SAMPLE_SORT_ASCII;
 	} else if ((!strcmp(argv[cur_arg + 1], "file")) || ((tolower(argv[cur_arg + 1][0]) == 'f') && jj)) {
 	  if (param_ct == 1) {
-	    sprintf(g_logbuf, "Error: Missing '--indiv-sort %s' filename.\n", argv[cur_arg + 1]);
+	    sprintf(g_logbuf, "Error: Missing \"--indiv-sort %s\" filename.\n", argv[cur_arg + 1]);
 	    goto main_ret_INVALID_CMDLINE_2A;
 	  }
 	  sample_sort = SAMPLE_SORT_FILE;
@@ -7618,7 +7618,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if ((param_ct == 2) && (sample_sort != SAMPLE_SORT_FILE)) {
-          sprintf(g_logbuf, "Error: '--indiv-sort %s' does not accept a second parameter.\n", argv[cur_arg + 1]);
+          sprintf(g_logbuf, "Error: \"--indiv-sort %s\" does not accept a second parameter.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
       } else if (!memcmp(argptr2, "bs-test", 8)) {
@@ -7637,7 +7637,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	calculation_type |= CALC_IBS_TEST;
       } else if (!memcmp(argptr2, "id", 3)) {
-        logprint("Note: --iid flag deprecated.  Use '--recode vcf-iid'.\n");
+        logprint("Note: --iid flag deprecated.  Use \"--recode vcf-iid\".\n");
 	recode_modifier |= RECODE_IID;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "bm", 3)) {
@@ -7658,10 +7658,10 @@ int32_t main(int32_t argc, char** argv) {
 	}
         cluster.min_ibm = dxx;
       } else if (!memcmp(argptr2, "mpossible", 10)) {
-	logerrprint("Error: --impossible flag retired.  Use '--genome nudge', or explicitly validate\nZ0/Z1/Z2/PI_HAT in your script.\n");
+	logerrprint("Error: --impossible flag retired.  Use \"--genome nudge\", or explicitly validate\nZ0/Z1/Z2/PI_HAT in your script.\n");
         goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "nteraction", 11)) {
-	logprint("Note: --interaction flag deprecated.  Use e.g. '--linear interaction'.\n");
+	logprint("Note: --interaction flag deprecated.  Use e.g. \"--linear interaction\".\n");
 	glm_modifier |= GLM_INTERACTION;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "bs-matrix", 10)) {
@@ -7684,10 +7684,10 @@ int32_t main(int32_t argc, char** argv) {
           id_delim = '_';
 	}
       } else if (!memcmp(argptr2, "nter-chr", 9)) {
-        logprint("Note: --inter-chr flag deprecated.  Use e.g. '--r2 inter-chr'.\n");
+        logprint("Note: --inter-chr flag deprecated.  Use e.g. \"--r2 inter-chr\".\n");
 	ld_info.modifier |= LD_INTER_CHR;
       } else if (!memcmp(argptr2, "nd-major", 9)) {
-	logerrprint("Error: --ind-major is retired, to discourage creation of .bed files that\nconstantly have to be transposed back.  '--recode ped' exports sample-major\nfiles which are good enough for smaller jobs; we suggest transposing small data\nwindows on the fly when tackling large jobs.\n");
+	logerrprint("Error: --ind-major is retired, to discourage creation of .bed files that\nconstantly have to be transposed back.  \"--recode ped\" exports sample-major\nfiles which are good enough for smaller jobs; we suggest transposing small data\nwindows on the fly when tackling large jobs.\n");
         goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "mpute-sex", 10)) {
 	if (calculation_type & CALC_SEXCHECK) {
@@ -7793,7 +7793,7 @@ int32_t main(int32_t argc, char** argv) {
     case 'j':
       if (!memcmp(argptr2, "e-cellmin", 10)) {
         if (!(epi_info.modifier & EPI_FAST_JOINT_EFFECTS)) {
-	  logerrprint("Error: --je-cellmin must be used with '--fast-epistasis joint-effects'.\n");
+	  logerrprint("Error: --je-cellmin must be used with \"--fast-epistasis joint-effects\".\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -7941,7 +7941,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --log10 must be used with --adjust.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	logprint("Note: --log10 flag deprecated.  Use '--adjust log10'.\n");
+	logprint("Note: --log10 flag deprecated.  Use \"--adjust log10\".\n");
 	mtest_adjust |= ADJUST_LOG10;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ambda", 6)) {
@@ -8075,7 +8075,7 @@ int32_t main(int32_t argc, char** argv) {
 	    } else if (!strcmp(argv[cur_arg + uii], "set-test")) {
 	      glm_modifier |= GLM_SET_TEST;
 	    } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
-	      sprintf(g_logbuf, "Error: Improper --%s mperm syntax.  (Use '--%s mperm=[value]'.)\n", argptr, argptr);
+	      sprintf(g_logbuf, "Error: Improper --%s mperm syntax.  (Use \"--%s mperm=<value>\".)\n", argptr, argptr);
 	      goto main_ret_INVALID_CMDLINE_2;
 	    } else {
 	      sprintf(g_logbuf, "Error: Invalid --%s parameter '%s'.\n", argptr, argv[cur_arg + uii]);
@@ -8446,7 +8446,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (distance_exp != 0.0) {
-	  logerrprint("Error: '--distance-wts exp=[x]' cannot be used with --make-grm-gz.\n");
+	  logerrprint("Error: \"--distance-wts exp=<x>\" cannot be used with --make-grm-gz.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
@@ -8487,7 +8487,7 @@ int32_t main(int32_t argc, char** argv) {
 	calculation_type |= CALC_RELATIONSHIP;
       } else if (!memcmp(argptr2, "ake-grm-bin", 12)) {
 	if (distance_exp != 0.0) {
-	  logerrprint("Error: '--distance-wts exp=[x]' cannot be used with --make-grm-bin.\n");
+	  logerrprint("Error: \"--distance-wts exp=<x>\" cannot be used with --make-grm-bin.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
@@ -8515,7 +8515,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (distance_exp != 0.0) {
-	  logerrprint("Error: '--distance-wts exp=[x]' cannot be used with --make-rel.\n");
+	  logerrprint("Error: \"--distance-wts exp=<x>\" cannot be used with --make-rel.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 3)) {
@@ -8600,7 +8600,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	calculation_type |= CALC_RELATIONSHIP;
       } else if (!memcmp(argptr2, "atrix", 6)) {
-	logprint("Note: --matrix flag deprecated.  Migrate to '--distance ibs flat-missing',\n'--r2 square', etc.\n");
+	logprint("Note: --matrix flag deprecated.  Migrate to \"--distance ibs flat-missing\",\n\"--r2 square\", etc.\n");
         matrix_flag_state = 1;
 	if (calculation_type & CALC_CLUSTER) {
 	  calculation_type |= CALC_PLINK1_IBS_MATRIX;
@@ -8608,7 +8608,7 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "af-succ", 8)) {
 	if (misc_flags & MISC_HET_SMALL_SAMPLE) {
-	  logerrprint("Error: '--het small-sample' cannot be used with --maf-succ.\n");
+	  logerrprint("Error: \"--het small-sample\" cannot be used with --maf-succ.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	misc_flags |= MISC_MAF_SUCC;
@@ -8745,7 +8745,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(g_logbuf, "Error: Invalid --mcovar parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
-        logprint("Note: --mcovar flag deprecated.  Use '--gxe <covariate index>'.\n");
+        logprint("Note: --mcovar flag deprecated.  Use \"--gxe <covariate index>\".\n");
       } else if (!memcmp(argptr2, "odel", 5)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 6)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -8827,7 +8827,7 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	    model_modifier |= MODEL_MPERM;
 	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
-	    logerrprint("Error: Improper --model mperm syntax.  (Use '--model mperm=[value]'.)\n");
+	    logerrprint("Error: Improper --model mperm syntax.  (Use \"--model mperm=<value>\".)\n");
 	    goto main_ret_INVALID_CMDLINE;
 	  } else if (!strcmp(argv[cur_arg + uii], "set-test")) {
 	    model_modifier |= MODEL_SET_TEST;
@@ -8846,7 +8846,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: Conflicting --model parameters.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	logprint("Note: --model-dom flag deprecated.  Use '--model dom'.\n");
+	logprint("Note: --model-dom flag deprecated.  Use \"--model dom\".\n");
 	model_modifier |= MODEL_PDOM;
 	calculation_type |= CALC_MODEL;
 	goto main_param_zero;
@@ -8859,7 +8859,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: Conflicting --model parameters.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	logprint("Note: --model-gen flag deprecated.  Use '--model gen'.\n");
+	logprint("Note: --model-gen flag deprecated.  Use \"--model gen\".\n");
 	model_modifier |= MODEL_PGEN;
         calculation_type |= CALC_MODEL;
 	goto main_param_zero;
@@ -8872,7 +8872,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: Conflicting --model parameters.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	logprint("Note: --model-rec flag deprecated.  Use '--model rec'.\n");
+	logprint("Note: --model-rec flag deprecated.  Use \"--model rec\".\n");
 	model_modifier |= MODEL_PREC;
         calculation_type |= CALC_MODEL;
 	goto main_param_zero;
@@ -8885,7 +8885,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: Conflicting --model parameters.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	logprint("Note: --model-trend flag deprecated.  Use '--model trend'.\n");
+	logprint("Note: --model-trend flag deprecated.  Use \"--model trend\".\n");
 	model_modifier |= MODEL_PTREND;
         calculation_type |= CALC_MODEL;
 	goto main_param_zero;
@@ -8912,14 +8912,14 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (load_rare & LOAD_RARE_CNV) {
 	  if ((cnv_calc_type & CNV_SAMPLE_PERM) && (!cnv_sample_mperms)) {
-	    logprint("Note: --mperm flag deprecated.  Use e.g. '--cnv-indiv-perm <perm. count>'.\n");
+	    logprint("Note: --mperm flag deprecated.  Use e.g. \"--cnv-indiv-perm <perm. count>\".\n");
 	    cnv_sample_mperms = mperm_val;
 	  } else if ((cnv_calc_type & CNV_TEST_REGION) && (!cnv_test_region_mperms)) {
-	    logprint("Note: --mperm flag deprecated.  Use e.g. '--cnv-test-region <perm. count>'.\n");
+	    logprint("Note: --mperm flag deprecated.  Use e.g. \"--cnv-test-region <perm. count>\".\n");
 	  } else if ((cnv_calc_type & CNV_ENRICHMENT_TEST) && (!cnv_enrichment_test_mperms)) {
-	    logprint("Note: --mperm flag deprecated.  Use e.g. '--cnv-enrichment-test <perm. count>'.\n");
+	    logprint("Note: --mperm flag deprecated.  Use e.g. \"--cnv-enrichment-test <perm. count>\".\n");
 	  } else {
-	    logprint("Note: --mperm flag deprecated.  Use e.g. '--cnv-test <permutation count>'.\n");
+	    logprint("Note: --mperm flag deprecated.  Use e.g. \"--cnv-test <permutation count>\".\n");
             if (!(cnv_calc_type & (CNV_SAMPLE_PERM | CNV_ENRICHMENT_TEST | CNV_TEST | CNV_TEST_REGION))) {
 	      cnv_calc_type |= CNV_TEST;
 	    }
@@ -8933,7 +8933,7 @@ int32_t main(int32_t argc, char** argv) {
 	    cnv_enrichment_test_mperms = mperm_val;
 	  }
 	} else {
-	  logprint("Note: --mperm flag deprecated.  Use e.g. '--model mperm=[value]'.\n");
+	  logprint("Note: --mperm flag deprecated.  Use e.g. \"--model mperm=<value>\".\n");
 	  model_mperm_val = mperm_val;
 	  model_modifier |= MODEL_MPERM;
 	  glm_mperm_val = mperm_val;
@@ -9067,7 +9067,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --mds-cluster must be used with --cluster.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-        logprint("Note: --mds-cluster flag deprecated.  Use '--mds-plot by-cluster'.\n");
+        logprint("Note: --mds-cluster flag deprecated.  Use \"--mds-plot by-cluster\".\n");
         cluster.modifier |= CLUSTER_MDS;
       } else if (!memcmp(argptr2, "within", 7)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -9176,7 +9176,7 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "set-test")) {
 	    cluster.modifier |= CLUSTER_CMH_SET_TEST;
 	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
-            logerrprint("Error: Improper --mh mperm syntax.  (Use '--mh mperm=[value]'.)\n");
+            logerrprint("Error: Improper --mh mperm syntax.  (Use \"--mh mperm=<value>\".)\n");
             goto main_ret_INVALID_CMDLINE_A;
 	  } else {
             sprintf(g_logbuf, "Error: Invalid --mh parameter '%s'.\n", argv[cur_arg + uii]);
@@ -9329,7 +9329,7 @@ int32_t main(int32_t argc, char** argv) {
 	  family_info.mendel_exclude_one_ratio = -1;
 	}
       } else if (!memcmp(argptr2, "at", 3)) {
-	logprint("Note: --mat flag deprecated.  Use e.g. '--tdt poo mperm=[value] mat'.\n");
+	logprint("Note: --mat flag deprecated.  Use e.g. \"--tdt poo mperm=<value> mat\".\n");
 	family_info.tdt_modifier |= TDT_POOPERM_MAT;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "endel", 6)) {
@@ -9584,7 +9584,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --nudge must be used with --genome.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-        logprint("Note: --nudge flag deprecated.  Use '--genome nudge'.\n");
+        logprint("Note: --nudge flag deprecated.  Use \"--genome nudge\".\n");
         genome_modifier |= GENOME_NUDGE;
         goto main_param_zero;
       } else if (!memcmp(argptr2, "ew-id-max-allele-len", 21)) {
@@ -9609,7 +9609,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(g_logbuf, "Error: --no-snp conflicts with a --%s modifier.\n", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear");
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
-	logprint("Note: --no-snp flag deprecated.  Use e.g. '--linear no-snp'.\n");
+	logprint("Note: --no-snp flag deprecated.  Use e.g. \"--linear no-snp\".\n");
         glm_modifier |= GLM_NO_SNP;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "o-x-sex", 8)) {
@@ -9620,7 +9620,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(g_logbuf, "Error: --no-x-sex conflicts with a --%s modifier.\n", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear");
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
-	logprint("Note: --no-x-sex flag deprecated.  Use e.g. '--linear no-x-sex'.\n");
+	logprint("Note: --no-x-sex flag deprecated.  Use e.g. \"--linear no-x-sex\".\n");
 	glm_modifier |= GLM_NO_X_SEX;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "op", 3)) {
@@ -9628,7 +9628,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --nop must be used with --fast-epistasis.\n");
           goto main_ret_INVALID_CMDLINE_A;
 	}
-	logprint("Note: --nop flag deprecated.  Use '--fast-epistasis nop'.\n");
+	logprint("Note: --nop flag deprecated.  Use \"--fast-epistasis nop\".\n");
         epi_info.modifier |= EPI_FAST_NO_P_VALUE;
         goto main_param_zero;
       } else if (!memcmp(argptr2, "o-const-covar", 14)) {
@@ -9782,7 +9782,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --ped parameter too long.\n");
 	  goto main_ret_OPEN_FAIL;
 	} else if (!memcmp(argv[cur_arg + 1], "-", 2)) {
-	  logerrprint("Error: '--ped -' is no longer supported.  Redirect to a temporary file and load\nit the usual way, or use PLINK 1.07.\n");
+	  logerrprint("Error: \"--ped -\" is no longer supported.  Redirect to a temporary file and load\nit the usual way, or use PLINK 1.07.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	strcpy(pedname, argv[cur_arg + 1]);
@@ -9826,16 +9826,16 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "arallel", 8)) {
 	if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ) {
-	  logerrprint("Error: --parallel cannot be used with '--distance square'.  Use '--distance\nsquare0' or plain --distance instead.\n");
+	  logerrprint("Error: --parallel cannot be used with \"--distance square\".  Use \"--distance\nsquare0\" or plain --distance instead.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if ((dist_calc_type & (DISTANCE_BIN | DISTANCE_BIN4)) && (!(dist_calc_type & DISTANCE_SHAPEMASK))) {
-	  logerrprint("Error: --parallel cannot be used with plain '--distance bin{4}'.  Use e.g.\n'--distance bin square0' or '--distance bin triangle' instead.\n");
+	  logerrprint("Error: --parallel cannot be used with plain \"--distance bin{,4}\".  Use e.g.\n\"--distance bin square0\" or \"--distance bin triangle\" instead.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if ((rel_info.modifier & REL_CALC_SHAPEMASK) == REL_CALC_SQ) {
-	  logerrprint("Error: --parallel cannot be used with '--make-rel square'.  Use '--make-rel\nsquare0' or plain '--make-rel' instead.\n");
+	  logerrprint("Error: --parallel cannot be used with \"--make-rel square\".  Use \"--make-rel\nsquare0\" or plain --make-rel instead.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if ((rel_info.modifier & (REL_CALC_BIN | REL_CALC_BIN4)) && (!(rel_info.modifier & (REL_CALC_SHAPEMASK | REL_CALC_GRM_BIN)))) {
-	  logerrprint("Error: --parallel cannot be used with plain '--make-rel bin{4}'.  Use e.g.\n'--make-rel bin square0' or '--make-rel bin triangle' instead.\n");
+	  logerrprint("Error: --parallel cannot be used with plain \"--make-rel bin{,4}\".  Use e.g.\n\"--make-rel bin square0\" or \"--make-rel bin triangle\" instead.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (calculation_type & CALC_PLINK1_DISTANCE_MATRIX) {
 	  logerrprint("Error: --parallel and --distance-matrix cannot be used together.  Use\n--distance instead.\n");
@@ -9909,7 +9909,7 @@ int32_t main(int32_t argc, char** argv) {
 	family_info.dfam_modifier |= DFAM_PERM;
 	family_info.qfam_modifier |= QFAM_PERM;
 	cluster.modifier |= CLUSTER_CMH_PERM;
-	logprint("Note: --perm flag deprecated.  Use e.g. '--model perm'.\n");
+	logprint("Note: --perm flag deprecated.  Use e.g. \"--model perm\".\n");
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "erm-count", 10)) {
 	model_modifier |= MODEL_PERM_COUNT;
@@ -9919,7 +9919,7 @@ int32_t main(int32_t argc, char** argv) {
 	family_info.dfam_modifier |= DFAM_PERM_COUNT;
         family_info.qfam_modifier |= QFAM_PERM_COUNT;
 	cluster.modifier |= CLUSTER_CMH_PERM_COUNT;
-	logprint("Note: --perm-count flag deprecated.  Use e.g. '--model perm-count'.\n");
+	logprint("Note: --perm-count flag deprecated.  Use e.g. \"--model perm-count\".\n");
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "2", 2)) {
 	logerrprint("Error: --p2 has been provisionally retired.  Contact the developers if you need\nthis functionality.\n");
@@ -10050,19 +10050,19 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "oo", 3)) {
-	logprint("Note: --poo flag deprecated.  Use '--tdt poo'.\n");
+	logprint("Note: --poo flag deprecated.  Use \"--tdt poo\".\n");
 	family_info.tdt_modifier |= TDT_POO;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "arentdt1", 9)) {
-	logprint("Note: --parentdt1 flag deprecated.  Use e.g.\n'--tdt exact mperm=[value] parentdt1'.\n");
+	logprint("Note: --parentdt1 flag deprecated.  Use e.g.\n\"--tdt exact mperm=<value> parentdt1\".\n");
 	family_info.tdt_modifier |= TDT_PARENPERM1;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "arentdt2", 9)) {
-	logprint("Note: --parentdt2 flag deprecated.  Use e.g.\n'--tdt exact mperm=[value] parentdt2'.\n");
+	logprint("Note: --parentdt2 flag deprecated.  Use e.g.\n\"--tdt exact mperm=<value> parentdt2\".\n");
 	family_info.tdt_modifier |= TDT_PARENPERM2;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "at", 3)) {
-	logprint("Note: --pat flag deprecated.  Use e.g. '--tdt poo mperm=[value] pat'.\n");
+	logprint("Note: --pat flag deprecated.  Use e.g. \"--tdt poo mperm=<value> pat\".\n");
 	family_info.tdt_modifier |= TDT_POOPERM_PAT;
 	goto main_param_zero;
       } else if ((!memcmp(argptr2, "roxy-assoc", 11)) ||
@@ -10080,7 +10080,7 @@ int32_t main(int32_t argc, char** argv) {
 	// a PLINK 2.1 which includes a port of its imputation routine, and
 	// that can be written to handle Y/MT in a sane manner.  But that's not
 	// happening before 2016.)
-        logerrprint("Error: PLINK 1 proxy association and imputation commands have been retired due\nto poor accuracy.  (See Nothnagel M et al. (2009) A comprehensive evaluation of\nSNP genotype imputation.)  We suggest using another tool, such as BEAGLE 4 or\nIMPUTE2, for imputation instead, and performing association analysis on those\nresults.  ('--recode vcf' and --vcf can be used to exchange data with BEAGLE 4,\nwhile '--recode oxford' and --data let you work with IMPUTE2.)\n");
+        logerrprint("Error: PLINK 1 proxy association and imputation commands have been retired due\nto poor accuracy.  (See Nothnagel M et al. (2009) A comprehensive evaluation of\nSNP genotype imputation.)  We suggest using another tool, such as BEAGLE 4 or\nIMPUTE2, for imputation instead, and performing association analysis on those\nresults.  (\"--recode vcf\" and --vcf can be used to exchange data with BEAGLE 4,\nwhile \"--recode oxford\" and --data let you work with IMPUTE2.)\n");
         goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "file", 5)) {
 	sprintf(g_logbuf, "Error: Unrecognized flag (%s).  (This is PLINK 1.9, not 2.x.)\n", argv[cur_arg]);
@@ -10100,7 +10100,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --qt-means does not make sense with a case/control-specific --assoc\nmodifier.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	logprint("Note: --qt-means flag deprecated.  Use '--assoc qt-means ...'.\n");
+	logprint("Note: --qt-means flag deprecated.  Use \"--assoc qt-means ...\".\n");
 	model_modifier |= MODEL_QT_MEANS;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "q-plot", 7)) {
@@ -10108,7 +10108,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --qq-plot must be used with --adjust.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	logprint("Note: --qq-plot flag deprecated.  Use '--adjust qq-plot'.\n");
+	logprint("Note: --qq-plot flag deprecated.  Use \"--adjust qq-plot\".\n");
 	mtest_adjust |= ADJUST_QQ;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "match", 6)) {
@@ -10261,7 +10261,7 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "perm-count")) {
             family_info.qfam_modifier |= QFAM_PERM_COUNT;
 	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
-            sprintf(g_logbuf, "Error: Improper --%s mperm syntax.  (Use '--%s mperm=[value]'.)\n", argptr, argptr);
+            sprintf(g_logbuf, "Error: Improper --%s mperm syntax.  (Use \"--%s mperm=<value>\".)\n", argptr, argptr);
             goto main_ret_INVALID_CMDLINE_WWA;
 	  } else {
             sprintf(g_logbuf, "Error: Invalid --%s parameter '%s'.\n", argptr, argv[cur_arg + uii]);
@@ -10406,7 +10406,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --freq and --read-freq flags cannot coexist.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (misc_flags & MISC_HET_SMALL_SAMPLE) {
-	  logerrprint("Error: '--het small-sample' cannot currently be used with --read-freq.  Contact\nthe developers if you need to combine them.\n");
+	  logerrprint("Error: \"--het small-sample\" cannot currently be used with --read-freq.  Contact\nthe developers if you need to combine them.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -10683,7 +10683,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --read-dists cannot be used with a distance matrix calculation.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (cluster.modifier & CLUSTER_MISSING) {
-          logerrprint("Error: --read-dists cannot be used with '--cluster missing'.\n");
+          logerrprint("Error: --read-dists cannot be used with \"--cluster missing\".\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
@@ -10704,7 +10704,7 @@ int32_t main(int32_t argc, char** argv) {
           logerrprint("Error: --rel-check must be used with --genome.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-        logprint("Note: --rel-check flag deprecated.  Use '--genome rel-check'.\n");
+        logprint("Note: --rel-check flag deprecated.  Use \"--genome rel-check\".\n");
         genome_modifier |= GENOME_REL_CHECK;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ecessive", 9)) {
@@ -10715,7 +10715,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(g_logbuf, "Error: --recessive conflicts with a --%s modifier.\n", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear");
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
-	logprint("Note: --recessive flag deprecated.  Use e.g. '--linear recessive' (and\n'--condition-list <filename> recessive' to change covariate coding).\n");
+	logprint("Note: --recessive flag deprecated.  Use e.g. \"--linear recessive\" (and\n\"--condition-list <filename> recessive\" to change covariate coding).\n");
 	glm_modifier |= GLM_RECESSIVE | GLM_CONDITION_RECESSIVE;
 	glm_xchr_model = 0;
 	goto main_param_zero;
@@ -10786,7 +10786,7 @@ int32_t main(int32_t argc, char** argv) {
 	      logerrprint("Error: Conflicting --r/--r2 modifiers.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    } else if (ld_info.modifier & LD_MATRIX_SPACES) {
-	      logerrprint("Error: --r/--r2 'bin{4}' and 'spaces' modifiers cannot be used together.\n");
+	      logerrprint("Error: --r/--r2 'bin{,4}' and 'spaces' modifiers cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    ld_info.modifier |= LD_MATRIX_BIN;
@@ -10797,7 +10797,7 @@ int32_t main(int32_t argc, char** argv) {
 	      logerrprint("Error: Conflicting --r/--r2 modifiers.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    } else if (ld_info.modifier & LD_MATRIX_SPACES) {
-	      logerrprint("Error: --r/--r2 'bin{4}' and 'spaces' modifiers cannot be used together.\n");
+	      logerrprint("Error: --r/--r2 'bin{,4}' and 'spaces' modifiers cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    ld_info.modifier |= LD_MATRIX_BIN4;
@@ -10808,7 +10808,7 @@ int32_t main(int32_t argc, char** argv) {
 	    if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DX | LD_WITH_FREQS)) {
 	      goto main_r2_matrix_conflict;
 	    } else if (ld_info.modifier & (LD_MATRIX_BIN | LD_MATRIX_BIN4)) {
-	      logerrprint("Error: --r/--r2 'bin{4}' and 'spaces' modifiers cannot be used together.\n");
+	      logerrprint("Error: --r/--r2 'bin{,4}' and 'spaces' modifiers cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    ld_info.modifier |= LD_MATRIX_SPACES;
@@ -10888,7 +10888,7 @@ int32_t main(int32_t argc, char** argv) {
         if (excludename) {
 	  misc_flags |= MISC_EXCLUDE_RANGE;
 	}
-	logprint("Note: --range flag deprecated.  Use e.g. '--extract range <filename>'.\n");
+	logprint("Note: --range flag deprecated.  Use e.g. \"--extract range <filename>\".\n");
 	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
@@ -11108,7 +11108,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	if ((!simulate_controls) && (!simulate_cases)) {
-	  logerrprint("Error: '--simulate-ncases 0' cannot be used with '--simulate-ncontrols 0'.\n");
+	  logerrprint("Error: \"--simulate-ncases 0\" cannot be used with \"--simulate-ncontrols 0\".\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
       } else if (!memcmp(argptr2, "imulate-prevalence", 19)) {
@@ -11151,7 +11151,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --simulate-tags cannot be used with --simulate-haps.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	logprint("Note: --simulate-haps flag deprecated.  Use e.g. '--simulate haps'.\n");
+	logprint("Note: --simulate-haps flag deprecated.  Use e.g. \"--simulate haps\".\n");
 	simulate_flags |= SIMULATE_HAPS;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "imulate-tags", 13)) {
@@ -11159,7 +11159,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --simulate-tags cannot be used with --simulate-haps.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	logprint("Note: --simulate-tags flag deprecated.  Use e.g. '--simulate tags'.\n");
+	logprint("Note: --simulate-tags flag deprecated.  Use e.g. \"--simulate tags\".\n");
 	simulate_flags |= SIMULATE_TAGS;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ex", 3)) {
@@ -11173,7 +11173,7 @@ int32_t main(int32_t argc, char** argv) {
 	    sprintf(g_logbuf, "Error: --sex conflicts with a --%s modifier.\n", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear");
 	    goto main_ret_INVALID_CMDLINE_2A;
 	  }
-	  logprint("Note: --sex flag deprecated.  Use e.g. '--linear sex'.\n");
+	  logprint("Note: --sex flag deprecated.  Use e.g. \"--linear sex\".\n");
 	  glm_modifier |= GLM_SEX;
 	}
 	goto main_param_zero;
@@ -11182,9 +11182,9 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --standard-beta must be used with --linear or --dosage.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	// '--linear standard-beta' is ALSO deprecated now for plink2's
+	// "--linear standard-beta" is ALSO deprecated now for plink2's
 	// --{covar-}variance-normalize, so this note is pointless.
-	// logprint("Note: --standard-beta flag deprecated.  Use e.g. '--linear standard-beta'.\n");
+	// logprint("Note: --standard-beta flag deprecated.  Use e.g. \"--linear standard-beta\".\n");
 	glm_modifier |= GLM_STANDARD_BETA;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "et-table", 9)) {
@@ -11200,7 +11200,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --set-test must be used with --set/--make-set.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	logprint("Note: --set-test flag deprecated.  Use e.g. '--assoc perm set-test'.\n");
+	logprint("Note: --set-test flag deprecated.  Use e.g. \"--assoc perm set-test\".\n");
 	if (calculation_type & CALC_MODEL) {
           model_modifier |= MODEL_SET_TEST;
 	}
@@ -11310,7 +11310,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --set-by-all must be used with --{fast-}epistasis.\n");
           goto main_ret_INVALID_CMDLINE_A;
 	}
-	logprint("Note: --set-by-all flag deprecated.  Use e.g. '--fast-epistasis set-by-all'.\n");
+	logprint("Note: --set-by-all flag deprecated.  Use e.g. \"--fast-epistasis set-by-all\".\n");
         epi_info.modifier |= EPI_SET_BY_ALL;
         goto main_param_zero;
       } else if (!memcmp(argptr2, "nps-only", 9)) {
@@ -11506,7 +11506,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --score-no-mean-imputation cannot be used with --score 'center'\nmodifier.\n");
           goto main_ret_INVALID_CMDLINE_A;
 	}
-	logprint("Note: --score-no-mean-imputation flag deprecated.  Use e.g.\n'--score ... no-mean-imputation'.\n");
+	logprint("Note: --score-no-mean-imputation flag deprecated.  Use e.g.\n\"--score ... no-mean-imputation\".\n");
         score_info.modifier |= SCORE_NO_MEAN_IMPUTATION;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "et-me-missing", 14)) {
@@ -11529,7 +11529,7 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	} else {
           if (ld_info.modifier & LD_SHOW_TAGS_LIST_ALL) {
-	    logerrprint("Error: --list-all cannot be used with '--show-tags all'.\n");
+	    logerrprint("Error: --list-all cannot be used with \"--show-tags all\".\n");
             goto main_ret_INVALID_CMDLINE_A;
 	  }
 	  ld_info.modifier |= LD_SHOW_TAGS_LIST_ALL;
@@ -11589,7 +11589,7 @@ int32_t main(int32_t argc, char** argv) {
 	  known_procs = 0;
 	}
       } else if (!memcmp(argptr2, "ab", 3)) {
-	logprint("Note: --tab flag deprecated.  Use '--recode tab ...'.\n");
+	logprint("Note: --tab flag deprecated.  Use \"--recode tab ...\".\n");
 	if (recode_modifier & RECODE_DELIMX) {
 	  logerrprint("Error: Multiple --recode delimiter modifiers.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
@@ -11597,7 +11597,7 @@ int32_t main(int32_t argc, char** argv) {
 	recode_modifier |= RECODE_TAB;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ranspose", 9)) {
-	logprint("Note: --transpose flag deprecated.  Use '--recode transpose ...'.\n");
+	logprint("Note: --transpose flag deprecated.  Use \"--recode transpose ...\".\n");
 	if (recode_modifier & RECODE_LGEN) {
 	  logerrprint("Error: --recode 'transpose' and 'lgen' modifiers cannot be used together.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
@@ -11738,7 +11738,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --trend cannot be used with --model dom/rec/gen.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	logprint("Note: --trend flag deprecated.  Use '--model trend-only ...'.\n");
+	logprint("Note: --trend flag deprecated.  Use \"--model trend-only ...\".\n");
 	model_modifier |= MODEL_PTREND | MODEL_TRENDONLY;
         calculation_type |= CALC_MODEL;
 	goto main_param_zero;
@@ -11825,7 +11825,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --test-all must be used with --linear or --logistic.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	logprint("Note: --test-all flag deprecated.  Use '--tests all'.\n");
+	logprint("Note: --test-all flag deprecated.  Use \"--tests all\".\n");
 	glm_modifier |= GLM_TEST_ALL;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "wolocus", 8)) {
@@ -11873,7 +11873,7 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "midp")) {
             testmiss_modifier |= TESTMISS_MIDP;
 	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
-            logerrprint("Error: Improper --test-missing mperm syntax.  (Use '--test-missing\nmperm=[value]'.)\n");
+            logerrprint("Error: Improper --test-missing mperm syntax.  (Use \"--test-missing\nmperm=<value>\".)\n");
             goto main_ret_INVALID_CMDLINE;
 	  } else {
             sprintf(g_logbuf, "Error: Invalid --test-missing parameter '%s'.\n", argv[cur_arg + uii]);
@@ -11961,7 +11961,7 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "set-test")) {
             family_info.tdt_modifier |= TDT_SET_TEST;
 	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
-	    logerrprint("Error: Improper --tdt mperm syntax.  (Use '--tdt mperm=[value]'.)\n");
+	    logerrprint("Error: Improper --tdt mperm syntax.  (Use \"--tdt mperm=<value>\".)\n");
 	    goto main_ret_INVALID_CMDLINE;
 	  } else {
 	    sprintf(g_logbuf, "Error: Invalid --tdt parameter '%s'.\n", argv[cur_arg + uii]);
@@ -12024,7 +12024,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --tag-mode2 must be used with --show-tags.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (!(ld_info.show_tags_fname)) {
-	  logerrprint("Error: --tag-mode2 cannot be used with '--show-tags all'.\n");
+	  logerrprint("Error: --tag-mode2 cannot be used with \"--show-tags all\".\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	ld_info.modifier |= LD_SHOW_TAGS_MODE2;
@@ -12285,7 +12285,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --unbounded must be used with --genome.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	logprint("Note: --unbounded flag deprecated.  Use '--genome unbounded'.\n");
+	logprint("Note: --unbounded flag deprecated.  Use \"--genome unbounded\".\n");
 	genome_modifier |= GENOME_IBD_UNBOUNDED;
 	goto main_param_zero;
       } else {
@@ -12485,7 +12485,7 @@ int32_t main(int32_t argc, char** argv) {
           goto main_ret_INVALID_CMDLINE_A;
 	}
 	if ((calculation_type & CALC_FREQ) && (misc_flags & MISC_FREQ_COUNTS)) {
-	  logerrprint("Error: --within cannot be used with '--freq counts'.\n");
+	  logerrprint("Error: --within cannot be used with \"--freq counts\".\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
@@ -12540,7 +12540,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --with-reference must be used with --recode lgen.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	logprint("Note: --with-reference flag deprecated.  Use '--recode lgen-ref' instead.\n");
+	logprint("Note: --with-reference flag deprecated.  Use \"--recode lgen-ref\" instead.\n");
 	recode_modifier += RECODE_LGEN_REF - RECODE_LGEN;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "rite-covar", 11)) {
@@ -12584,7 +12584,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
         set_info.modifier |= SET_R2_WRITE;
-        logprint("Note: --write-set-r2 flag deprecated.  Use '--set-r2 write'.\n");
+        logprint("Note: --write-set-r2 flag deprecated.  Use \"--set-r2 write\".\n");
         goto main_param_zero;
       } else if (!memcmp(argptr2, "ith-freqs", 10)) {
 	if (!(calculation_type & CALC_LD)) {
@@ -12595,12 +12595,12 @@ int32_t main(int32_t argc, char** argv) {
 	if (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_MATRIX_BIN | LD_MATRIX_BIN4 | LD_MATRIX_SPACES)) {
 	  goto main_r2_matrix_conflict;
 	}
-	logprint("Note: --with-freqs flag deprecated.  Use e.g. '--r2 with-freqs'.\n");
+	logprint("Note: --with-freqs flag deprecated.  Use e.g. \"--r2 with-freqs\".\n");
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "rite-dosage", 12)) {
 	if (!(dosage_info.modifier & DOSAGE_GLM)) {
 	  if (dosage_info.modifier & DOSAGE_OCCUR) {
-	    logerrprint("Error: --write-dosage cannot be used with '--dosage occur'.\n");
+	    logerrprint("Error: --write-dosage cannot be used with \"--dosage occur\".\n");
 	  } else if (dosage_info.modifier & DOSAGE_SCORE) {
 	    logerrprint("Error: --write-dosage cannot be used with --score.\n");
 	  } else {
@@ -12756,7 +12756,7 @@ int32_t main(int32_t argc, char** argv) {
       goto main_ret_INVALID_CMDLINE;
     }
     if (dist_calc_type & DISTANCE_IBS) {
-      logerrprint("Error: --ibs-matrix cannot be used with '--distance ibs'.\n");
+      logerrprint("Error: --ibs-matrix cannot be used with \"--distance ibs\".\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
     if (read_genome_fname && (cluster.ppc == 0.0)) {
