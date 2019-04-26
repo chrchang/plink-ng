@@ -628,8 +628,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --indep-pairphase <window size>['kb'] <step size (variant ct)> <r^2 thresh>\n"
 "    Generate a list of markers in approximate linkage equilibrium.  With the\n"
 "    'kb' modifier, the window size is in kilobase instead of variant count\n"
-"    units.  (Pre-'kb' space is optional, i.e. '--indep-pairwise 500 kb 5 0.5'\n"
-"    and '--indep-pairwise 500kb 5 0.5' have the same effect.)\n"
+"    units.  (Pre-'kb' space is optional, i.e. \"--indep-pairwise 500 kb 5 0.5\"\n"
+"    and \"--indep-pairwise 500kb 5 0.5\" have the same effect.)\n"
 "    Note that you need to rerun " PROG_NAME_CAPS " using --extract or --exclude on the\n"
 "    .prune.in/.prune.out file to apply the list to another computation.\n\n"
 		);
@@ -694,7 +694,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    the --hap... family of flags has not been reimplemented in PLINK 1.9 due to\n"
 "    poor phasing accuracy relative to other software; for now, we recommend\n"
 "    using BEAGLE instead of PLINK for case/control haplotype association\n"
-"    analysis.  (You can use '--recode beagle' to export data to BEAGLE 3.3.)\n"
+"    analysis.  (You can use \"--recode beagle\" to export data to BEAGLE 3.3.)\n"
 "    We apologize for the inconvenience, and plan to develop variants of the\n"
 "    --hap... flags which handle pre-phased data effectively.\n\n"
 	       );
@@ -735,8 +735,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("distance-matrix\tibs-matrix\tmatrix", &help_ctrl, 1,
 "  --distance-matrix\n"
 "  --ibs-matrix\n"
-"    These deprecated commands are equivalent to '--distance 1-ibs flat-missing\n"
-"    square' and '--distance ibs flat-missing square', respectively, except that\n"
+"    These deprecated commands are equivalent to \"--distance 1-ibs flat-missing\n"
+"    square\" and \"--distance ibs flat-missing square\", respectively, except that\n"
 "    they generate space- instead of tab-delimited text matrices.\n\n"
 		);
     help_print("make-rel", &help_ctrl, 1,
@@ -969,7 +969,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    derived from considering only members of one group to the regression\n"
 "    coefficient derived from considering only members of the other.  By\n"
 "    default, the first covariate in the --covar file defines the groups; use\n"
-"    e.g. '--gxe 3' to base them on the third covariate instead.\n\n"
+"    e.g. \"--gxe 3\" to base them on the third covariate instead.\n\n"
 	       );
     help_print("linear\tlogistic\tperm\tmperm\tperm-count\tset-test\tgenotypic\thethom\tdominant\trecessive\tno-snp\thide-covar\tsex\tno-x-sex\tinteraction\tstandard-beta\tbeta", &help_ctrl, 1,
 #ifndef NOLAPACK
@@ -1422,7 +1422,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Given diploid autosomes, the remaining modifiers indicate the absence of\n"
 "    the named non-autosomal chromosomes.\n"
 "  --cow/--dog/--horse/--mouse/--rice/--sheep : Shortcuts for those species.\n"
-"  --autosome-num <value>    : Alias for '--chr-set <value> no-y no-xy no-mt'.\n"
+"  --autosome-num <value>    : Alias for \"--chr-set <value> no-y no-xy no-mt\".\n"
 	       );
     help_print("cm-map\tzero-cms\tupdate-cm", &help_ctrl, 0,
 "  --cm-map <fname pattern> [chr] : Use SHAPEIT-format recombination maps to set\n"
@@ -1540,7 +1540,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                           either missing from the file or don't have any of\n"
 "                           the listed attributes.  If some attribute names in\n"
 "                           the list are preceded by '-', they are treated as\n"
-"                           'negative match conditions' instead: variants with\n"
+"                           \"negative match conditions\" instead: variants with\n"
 "                           at least one negative match attribute are removed.\n"
 "                           The first character in the list cannot be a '-', due\n"
 "                           to how command-line parsing works; add a comma in\n"
@@ -1551,7 +1551,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     Valid choices for humans are 0 (unplaced), 1-22, X, Y, XY,\n"
 "                     and MT.  Separate multiple chromosomes with spaces and/or\n"
 "                     commas, and use a dash (no adjacent spaces permitted) to\n"
-"                     denote a range, e.g. '--chr 1-4, 22, xy'.\n"
+"                     denote a range, e.g. \"--chr 1-4, 22, xy\".\n"
 "  --not-chr <...>  : Reverse of --chr (exclude variants on listed chromosomes).\n"
 	       );
     help_print("autosome\tautosome-xy\tchr\tnot-chr\tchr-excl", &help_ctrl, 0,
@@ -1580,7 +1580,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("snps\texclude-snps", &help_ctrl, 0,
 "  --snps <var IDs...>  : Use IDs to specify variant range(s) to load or\n"
-"  --exclude-snps <...>   exclude.  E.g. '--snps rs1111-rs2222, rs3333, rs4444'.\n"
+"  --exclude-snps <...>   exclude.  E.g. \"--snps rs1111-rs2222, rs3333, rs4444\".\n"
 	       );
     help_print("thin\tthin-count", &help_ctrl, 0,
 "  --thin <p>       : Randomly remove variants, retaining each with prob. p.\n"
@@ -1862,7 +1862,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("blocks\tblocks-max-kb\tblocks-min-maf\tblocks-strong-lowci\tblocks-strong-highci\tblocks-recomb-highci\tblocks-inform-frac\tld-window-kb", &help_ctrl, 0,
 "  --blocks-max-kb <kbs>      : Set --blocks maximum haploblock span (def. 200).\n"
 "  --blocks-min-maf <cutoff>  : Adjust --blocks MAF minimum (default 0.05).\n"
-"  --blocks-strong-lowci <x>  : Set --blocks 'strong LD' CI thresholds (defaults\n"
+"  --blocks-strong-lowci <x>  : Set --blocks \"strong LD\" CI thresholds (defaults\n"
 "  --blocks-strong-highci <x>   0.70 and 0.98).\n"
 "  --blocks-recomb-highci <x> : Set 'recombination' CI threshold (default 0.90).\n"
 "  --blocks-inform-frac <x>   : Force haploblock <strong LD pairs>:<total\n"
@@ -1895,7 +1895,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("homozyg\thomozyg-match\tpool-size", &help_ctrl, 0,
 "  --homozyg-match <> : Set minimum concordance across jointly homozygous\n"
 "                       variants for a pairwise allelic match to be declared.\n"
-"  --pool-size <ct>   : Set minimum size of pools in '--homozyg group' report.\n"
+"  --pool-size <ct>   : Set minimum size of pools in \"--homozyg group\" report.\n"
 	       );
     help_print("read-genome\tcluster\tneighbour\tneighbor", &help_ctrl, 0,
 "  --read-genome <fn> : Load --genome report for --cluster/--neighbour, instead\n"
@@ -1916,9 +1916,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --match-type <f> : Refine interpretation of --match file.  The --match-type\n"
 "                     file is expected to be a single line with as many entries\n"
 "                     as the --match file has covariates; '0' entries specify\n"
-"                     'negative matches' (i.e. samples with equal covariate\n"
+"                     \"negative matches\" (i.e. samples with equal covariate\n"
 "                     values cannot be in the same cluster), '1' entries specify\n"
-"                     'positive matches' (default), and '-1' causes the\n"
+"                     \"positive matches\" (default), and '-1' causes the\n"
 "                     corresponding covariate to be ignored.\n"
 "  --qmatch <f> [m] : Force all members of a cluster to have similar\n"
 "  --qt <fname>       quantitative covariate values.  The --qmatch file contains\n"
@@ -1962,7 +1962,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                        * Note that, when --parameters is also present, the\n"
 "                          indices refer to the terms remaining AFTER pruning by\n"
 "                          --parameters.\n"
-"                        * You can use '--tests all' to include all terms.\n"
+"                        * You can use \"--tests all\" to include all terms.\n"
 	       );
     help_print("linear\tdosage\tvif", &help_ctrl, 0,
 "  --vif <max VIF>     : Set VIF threshold for --linear multicollinearity check\n"
@@ -2088,7 +2088,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                               'SNP').  Only relevant with --extract.\n"
 	       );
     help_print("fast-epistasis\tepistasis\tgap\tepi1\tepi2", &help_ctrl, 0,
-"  --gap <kbs>      : Set '--fast-epistasis case-only' min. gap (default 1000).\n"
+"  --gap <kbs>      : Set \"--fast-epistasis case-only\" min. gap (default 1000).\n"
 "  --epi1 <p-value> : Set --{,fast-}epistasis reporting threshold (default\n"
 "                     5e-6 for 'boost', 1e-4 otherwise).\n"
 "  --epi2 <p-value> : Set threshold for contributing to SIG_E count (def. 0.01).\n"
