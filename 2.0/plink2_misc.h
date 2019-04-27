@@ -259,7 +259,11 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
 
 PglErr PrescanSampleIds(const char* fname, uint32_t sid_modifier, SampleIdInfo* siip);
 
+PglErr PrescanParentalIds(const char* fname, ParentalIdInfo* parental_id_infop);
+
 PglErr UpdateSampleIds(const char* fname, const uintptr_t* sample_include, uint32_t raw_sample_ct, uintptr_t sample_ct, uint32_t sid_modifier, SampleIdInfo* siip);
+
+PglErr UpdateSampleParents(const char* fname, const SampleIdInfo* siip, const uintptr_t* sample_include, uint32_t raw_sample_ct, uintptr_t sample_ct, uint32_t sid_modifier, ParentalIdInfo* parental_id_infop, uintptr_t* founder_info);
 
 PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* siip, const UpdateSexInfo* update_sex_info_ptr, uint32_t raw_sample_ct, uintptr_t sample_ct, uintptr_t* sex_nm, uintptr_t* sex_male);
 

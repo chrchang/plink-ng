@@ -2201,6 +2201,8 @@ void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
   for (uint32_t uii = 0; uii != initial_read_byte_ct; ++uii) {
     uintptr_t* target_iter1 = &(target_iter0[write_ul_stride]);
     for (uint32_t vidx = 0; vidx != write_full_halfvec_ct; ++vidx) {
+      // todo: try mm{,256}_packus_epi16(), which also removes the SSE4.2
+      // requirement.
       const VecW loader = source_iter[vidx];
       VecW target0 = loader & m4;
       VecW target1 = vecw_srli(loader, 4) & m4;

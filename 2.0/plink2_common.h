@@ -134,7 +134,8 @@ FLAGSET64_DEF_START()
   kfMiscBiallelicOnlyList = (1LLU << 36),
   kfMiscStrictSid0 = (1LLU << 37),
   kfMiscAllowBadFreqs = (1LLU << 38),
-  kfMiscUpdateIdsSid = (1LLU << 39)
+  kfMiscUpdateIdsSid = (1LLU << 39),
+  kfMiscUpdateParentsSid = (1LLU << 40)
 FLAGSET64_DEF_END(MiscFlags);
 
 FLAGSET64_DEF_START()

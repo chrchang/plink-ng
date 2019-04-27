@@ -8841,7 +8841,9 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid token on line %" PRIuPTR " of %s.\n", line_idx_haps, hapsname);
               goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
             }
-            const uint32_t new_geno = (cur_hap_4char + (cur_hap_4char >> 16)) & 3;
+            // bugfix (28 Apr 2019): this needs to be uintptr_t for the next
+            // left-shift to work
+            const uintptr_t new_geno = (cur_hap_4char + (cur_hap_4char >> 16)) & 3;
             genovec_word |= new_geno << (2 * sample_idx_lowbits);
             if (cur_hap_4char == phaseinfo_match_4char) {
               phaseinfo_hw |= 1U << sample_idx_lowbits;

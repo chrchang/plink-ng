@@ -67,7 +67,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (16 Apr 2019)";
+  " (28 Apr 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -418,6 +418,7 @@ typedef struct Plink2CmdlineStruct {
   char* keep_fcol_name;
   char* update_alleles_fname;
   char* update_sample_ids_fname;
+  char* update_parental_ids_fname;
   TwoColParams* ref_allele_flag;
   TwoColParams* alt1_allele_flag;
   TwoColParams* update_map_flag;
@@ -741,6 +742,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     if (psamname[0]) {
       if (pcp->update_sample_ids_fname) {
         reterr = PrescanSampleIds(pcp->update_sample_ids_fname, (pcp->misc_flags / kfMiscUpdateIdsSid) & 1, &pii.sii);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+      if (pcp->update_parental_ids_fname) {
+        reterr = PrescanParentalIds(pcp->update_parental_ids_fname, &pii.parental_id_info);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -1270,6 +1277,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_1;
         }
       } else {
+        if (pcp->update_parental_ids_fname) {
+          reterr = UpdateSampleParents(pcp->update_parental_ids_fname, &pii.sii, sample_include, raw_sample_ct, sample_ct, (pcp->misc_flags / kfMiscUpdateParentsSid) & 1, &pii.parental_id_info, founder_info);
+          if (unlikely(reterr)) {
+            goto Plink2Core_ret_1;
+          }
+        }
         // --update-parents goes here
         if (pcp->update_sex_info.fname) {
           reterr = UpdateSampleSexes(sample_include, &pii.sii, &(pcp->update_sex_info), raw_sample_ct, sample_ct, sex_nm, sex_male);
@@ -3016,6 +3029,7 @@ int main(int argc, char** argv) {
   pc.update_map_flag = nullptr;
   pc.update_name_flag = nullptr;
   pc.update_sample_ids_fname = nullptr;
+  pc.update_parental_ids_fname = nullptr;
   InitRangeList(&pc.snps_range_list);
   InitRangeList(&pc.exclude_snps_range_list);
   InitRangeList(&pc.pheno_range_list);
@@ -8592,6 +8606,26 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.dependency_flags |= kfFilterPsamReq;
+        } else if (strequal_k_unsafe(flagname_p2, "pdate-parents")) {
+          if (unlikely(pc.update_sample_ids_fname)) {
+            logerrputs("Error: --update-parents cannot be used with --update-ids.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t fname_modif_idx = 1;
+          if (param_ct == 2) {
+            if (unlikely(CheckExtraParam(&(argvk[arg_idx]), "sid", &fname_modif_idx))) {
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            pc.misc_flags |= kfMiscUpdateParentsSid;
+          }
+          reterr = AllocFname(argvk[arg_idx + fname_modif_idx], flagname_p, 0, &pc.update_parental_ids_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          pc.dependency_flags |= kfFilterPsamReq;
         } else if (likely(strequal_k_unsafe(flagname_p2, "pdate-alleles"))) {
           // Prevent the most confusing order-of-operations dependencies.  (May
           // want to prevent more combinations later.)
@@ -9364,6 +9398,7 @@ int main(int argc, char** argv) {
   CleanupPlink2CmdlineMeta(&pcm);
   CleanupAdjust(&adjust_file_info);
   free_cond(king_cutoff_fprefix);
+  free_cond(pc.update_parental_ids_fname);
   free_cond(pc.update_sample_ids_fname);
   free_cond(pc.update_name_flag);
   free_cond(pc.update_map_flag);

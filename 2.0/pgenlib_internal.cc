@@ -1499,6 +1499,7 @@ void TransposeQuaterblockNoshuffle(const uintptr_t* read_iter, uint32_t read_ul_
     uintptr_t* target_iter1 = &(target_iter0[kWordsPerCacheline * 2]);
     for (uint32_t ujj = 0; ujj != penult_inner_loop_iter_ct; ++ujj) {
 #  ifdef __LP64__
+      // todo: try _mm_packus_epi16() here
       const VecW loader = *source_iter++;
       VecW target0 = loader & m4;
       VecW target1 = (vecw_srli(loader, 4)) & m4;

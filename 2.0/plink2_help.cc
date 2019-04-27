@@ -521,7 +521,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      numeq: 0=<freq>,1=<freq>, etc.  Zero-counts are omitted.\n"
 "      altnumeq: Same as numeq, except reference allele is omitted.\n"
 "      machr2: Unphased MaCH imputation quality metric.\n"
-"      minimac3r2: Phased Minimac3 imputation quality (not implemented yet).\n"
+"      minimac3r2: Phased Minimac3 imputation quality.\n"
 "      nobs: Number of allele observations.\n"
 "    The default is chrom,ref,alt,altfreq,nobs.\n"
 "    Additional .afreq.{ref,alt1}.bins (or .acount.{ref,alt1}.bins with\n"
@@ -1694,11 +1694,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --update-ids <f> ['sid'] : Update sample IDs.  With 'sid', if the file has\n"
 "                             four columns, it's interpreted as <old IID>, <old\n"
 "                             SID>, <new IID>, <new SID>.\n"
-              /*
 "  --update-parents <f> ['sid'] : Update parental IDs.  With 'sid', if there is\n"
 "                                 no header line and four columns, the first two\n"
 "                                 are interpreted as IID/SID instead of FID/IID.\n"
-              */
 "  --update-sex <filename> ['col-num='<n>] ['male0'] :\n"
 "    Update sex information.\n"
 "    * By default, if there is a header line starting with '#FID'/'#IID', sex is\n"
