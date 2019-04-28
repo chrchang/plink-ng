@@ -313,7 +313,7 @@ typedef struct ImportSampleIdContextStruct {
   char id_delim;
 } ImportSampleIdContext;
 
-void InitImportSampleIdContext(const char* const_fid, ImportFlags import_flags, char id_delim, ImportSampleIdContext* isicp) {
+void InitImportSampleIdContext(const char* const_fid, MiscFlags misc_flags, ImportFlags import_flags, char id_delim, ImportSampleIdContext* isicp) {
   isicp->const_fid = nullptr;
   isicp->const_fid_slen = 0;
   if (const_fid && (!memequal_k(const_fid, "0", 2))) {
@@ -321,7 +321,7 @@ void InitImportSampleIdContext(const char* const_fid, ImportFlags import_flags, 
     isicp->const_fid = const_fid;
   }
   isicp->double_id = (import_flags / kfImportDoubleId) & 1;
-  isicp->id_delim_sid = (import_flags / kfImportIdDelimSid) & 1;
+  isicp->id_delim_sid = (misc_flags / kfMiscIidSid) & 1;
   isicp->two_part_null_fid = 0;
   isicp->two_part_null_sid = 0;
   isicp->omit_fid_0 = 0;
@@ -491,7 +491,7 @@ PglErr ImportIidFromSampleId(const char* input_id_iter, const char* input_id_end
   return kPglRetSuccess;
 }
 
-PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, ImportFlags import_flags, FamCol fam_cols, char id_delim, char idspace_to, char flag_char, char* sample_line_first_id, char* outname, char* outname_end, uint32_t* sample_ct_ptr) {
+PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, MiscFlags misc_flags, ImportFlags import_flags, FamCol fam_cols, char id_delim, char idspace_to, char flag_char, char* sample_line_first_id, char* outname, char* outname_end, uint32_t* sample_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   uintptr_t line_idx = 0;
@@ -500,7 +500,7 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Im
   PreinitRLstream(&psam_rls);
   {
     ImportSampleIdContext isic;
-    InitImportSampleIdContext(const_fid, import_flags, id_delim, &isic);
+    InitImportSampleIdContext(const_fid, misc_flags, import_flags, id_delim, &isic);
     uint32_t write_fid = 1;
     uint32_t write_sid = 0;
     // Alpha 2 changes:
@@ -2926,7 +2926,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     linebuf_iter = &(linebuf_iter[strlen("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO")]);
     uint32_t sample_ct = 0;
     if (StrStartsWithUnsafe(linebuf_iter, "\tFORMAT\t")) {
-      reterr = VcfSampleLine(preexisting_psamname, const_fid, import_flags, fam_cols, id_delim, idspace_to, 'v', &(linebuf_iter[strlen("\tFORMAT\t")]), outname, outname_end, &sample_ct);
+      reterr = VcfSampleLine(preexisting_psamname, const_fid, misc_flags, import_flags, fam_cols, id_delim, idspace_to, 'v', &(linebuf_iter[strlen("\tFORMAT\t")]), outname, outname_end, &sample_ct);
       if (unlikely(reterr)) {
         goto VcfToPgen_ret_1;
       }
@@ -6559,7 +6559,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         goto OxBgenToPgen_ret_OPEN_FAIL;
       }
       ImportSampleIdContext isic;
-      InitImportSampleIdContext(const_fid, import_flags, id_delim, &isic);
+      InitImportSampleIdContext(const_fid, misc_flags, import_flags, id_delim, &isic);
       uint32_t write_fid = 1;
       uint32_t write_sid = 0;
       if (id_delim) {

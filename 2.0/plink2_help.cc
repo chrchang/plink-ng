@@ -673,12 +673,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      is in 0..1.)\n\n"
               );
     HelpPrint("sample-diff\0sdiff\0", &help_ctrl, 1,
-"  --sample-diff ['id-delim='<char>] ['sid'] ['dosage' | 'dosage='<tolerance>]\n"
+"  --sample-diff ['id-delim='<char>] ['dosage' | 'dosage='<tolerance>]\n"
 "                ['include-missing'] [{pairwise | counts-only}]\n"
 "                ['fname-id-delim='<c>] ['zs'] ['cols='<column set descriptor>]\n"
 "                ['counts-cols='<column set descriptor>]\n"
 "                {base= | ids=}<sample ID> [other sample ID(s)...]\n"
-"  --sample-diff ['id-delim='<char>] ['sid'] ['dosage' | 'dosage='<tolerance>]\n"
+"  --sample-diff ['id-delim='<char>] ['dosage' | 'dosage='<tolerance>]\n"
 "                ['include-missing'] [{pairwise | counts-only}]\n"
 "                ['fname-id-delim='<c>] ['zs'] ['cols='<column set descriptor>]\n"
 "                ['counts-cols='<column set descriptor>] file=<ID-pair file>\n"
@@ -692,7 +692,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      in a file, use 'file='.\n"
 "      Note that 'base='/'ids='/'file=' must be positioned after all modifiers.\n"
 "    * Sample IDs are interpreted as if they were in a VCF header line, with\n"
-"      'id-delim=' and 'sid' having the usual effects.\n"
+"      'id-delim=' having the usual effect.\n"
 "    * By default, comparisons are based on hardcalls.  Use 'dosage' to compare\n"
 "      dosages instead; you can combine this with a tolerance in [0, 0.5).\n"
 "    * By default, if one genotype is missing and the other isn't, that doesn't\n"
@@ -1143,19 +1143,21 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --double-id         : Set both FIDs and IIDs to the VCF/.bgen sample ID.\n"
 "  --const-fid [ID]    : Set all FIDs to the given constant.  If '0' (the\n"
 "                        default), no FID column is created.\n"
-"  --id-delim [d] ['sid'] : Normally parses single-delimiter sample IDs as\n"
-"                           <FID><d><IID>, and double-delimiter IDs as\n"
-"                           <FID><d><IID><d><SID>; default delimiter is '_'.\n"
-"                           With the 'sid' modifier, single-delimiter IDs are\n"
-"                           parsed as <IID><d><SID> instead.\n"
-"                           --id-delim can no longer be used with\n"
-"                           --double-id/--const-fid; it will error out if any ID\n"
-"                           lacks the delimiter.\n"
+"  --id-delim [d]      : Normally parses single-delimiter sample IDs as\n"
+"                        <FID><d><IID>, and double-delimiter IDs as\n"
+"                        <FID><d><IID><d><SID>; default delimiter is '_'.\n"
+"                        --id-delim can no longer be used with\n"
+"                        --double-id/--const-fid; it will error out if any ID\n"
+"                        lacks the delimiter.\n"
                );
     HelpPrint("idspace-to\0vcf\0bcf\0bgen\0id-delim\0vcf-idspace-to\0", &help_ctrl, 0,
 "  --idspace-to <c>    : Convert spaces in VCF/.bgen sample IDs to the given\n"
 "                        character.\n"
                );
+    HelpPrint("iid-sid\0id-delim\0sample-diff\0", &help_ctrl, 0,
+"  --iid-sid           : Make --id-delim and --sample-diff interpret two-token\n"
+"                        sample IDs as IID-SID instead of FID-IID.\n"
+              );
     HelpPrint("vcf\0bcf\0vcf-half-call\0vcf-min-gq\0vcf-min-dp\0vcf-max-dp\0vcf-require-gt\0", &help_ctrl, 0,
 "  --vcf-require-gt    : Skip variants with no GT field.\n"
 "  --vcf-min-gq <val>  : No-call genotypes when GQ is present and below the\n"
@@ -1688,15 +1690,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --update-name <f> [newcol] [oldcol] [skip] : Update variant IDs.\n"
                );
     HelpPrint("update-alleles\0", &help_ctrl, 0,
-"  --update-alleles <fname> : Update variant allele codes.\n"
+"  --update-alleles <fname>   : Update variant allele codes.\n"
               );
     HelpPrint("update-ids\0update-parents\0update-sex\0", &help_ctrl, 0,
-"  --update-ids <f> ['sid'] : Update sample IDs.  With 'sid', if the file has\n"
-"                             four columns, it's interpreted as <old IID>, <old\n"
-"                             SID>, <new IID>, <new SID>.\n"
-"  --update-parents <f> ['sid'] : Update parental IDs.  With 'sid', if there is\n"
-"                                 no header line and four columns, the first two\n"
-"                                 are interpreted as IID/SID instead of FID/IID.\n"
+"  --update-ids <fname>       : Update sample IDs.\n"
+"  --update-parents <fname>   : Update parental IDs.\n"
 "  --update-sex <filename> ['col-num='<n>] ['male0'] :\n"
 "    Update sex information.\n"
 "    * By default, if there is a header line starting with '#FID'/'#IID', sex is\n"

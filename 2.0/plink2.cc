@@ -67,7 +67,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (27 Apr 2019)";
+  " (28 Apr 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -741,7 +741,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     InitPedigreeIdInfo(pcp->misc_flags, &pii);
     if (psamname[0]) {
       if (pcp->update_sample_ids_fname) {
-        reterr = PrescanSampleIds(pcp->update_sample_ids_fname, (pcp->misc_flags / kfMiscUpdateIdsSid) & 1, &pii.sii);
+        reterr = PrescanSampleIds(pcp->update_sample_ids_fname, &pii.sii);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -1272,13 +1272,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       // sample-sort is relatively cheap, so we abandon plink 1.9's "construct
       // sample ID map only once" optimization.
       if (pcp->update_sample_ids_fname) {
-        reterr = UpdateSampleIds(pcp->update_sample_ids_fname, sample_include, raw_sample_ct, sample_ct, (pcp->misc_flags / kfMiscUpdateIdsSid) & 1, &pii.sii);
+        reterr = UpdateSampleIds(pcp->update_sample_ids_fname, sample_include, raw_sample_ct, sample_ct, &pii.sii);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
       } else {
         if (pcp->update_parental_ids_fname) {
-          reterr = UpdateSampleParents(pcp->update_parental_ids_fname, &pii.sii, sample_include, raw_sample_ct, sample_ct, (pcp->misc_flags / kfMiscUpdateParentsSid) & 1, &pii.parental_id_info, founder_info);
+          reterr = UpdateSampleParents(pcp->update_parental_ids_fname, &pii.sii, sample_include, raw_sample_ct, sample_ct, &pii.parental_id_info, founder_info);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -2047,7 +2047,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pcp->command_flags1 & kfCommand1Sdiff) {
-        reterr = Sdiff(sample_include, &pii.sii, sex_nm, sex_male, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, &(pcp->sdiff_info), raw_sample_ct, sample_ct, variant_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = Sdiff(sample_include, &pii.sii, sex_nm, sex_male, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, &(pcp->sdiff_info), raw_sample_ct, sample_ct, variant_ct, (pcp->misc_flags / kfMiscIidSid) & 1, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -5242,23 +5242,19 @@ int main(int argc, char** argv) {
             logerrputs("Error: --id-delim can no longer be used with --const-fid or --double-id.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argvk[arg_idx + param_idx];
-            if (!strcmp(cur_modif, "sid")) {
-              import_flags |= kfImportIdDelimSid;
-            } else {
-              id_delim = ExtractCharParam(cur_modif);
-              if (unlikely(!id_delim)) {
-                logerrputs("Error: --id-delim delimiter must be a single character.\n");
-                goto main_ret_INVALID_CMDLINE_A;
-              }
-              if (unlikely(ctou32(id_delim) < ' ')) {
-                logerrputs("Error: --id-delim parameter cannot be tab, newline, or a nonprinting character.\n");
-                goto main_ret_INVALID_CMDLINE;
-              }
+          if (param_ct) {
+            const char* cur_modif = argvk[arg_idx + 1];
+            id_delim = ExtractCharParam(cur_modif);
+            if (unlikely(!id_delim)) {
+              logerrputs("Error: --id-delim delimiter must be a single character.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            if (unlikely(ctou32(id_delim) < ' ')) {
+              logerrputs("Error: --id-delim parameter cannot be tab, newline, or a nonprinting character.\n");
+              goto main_ret_INVALID_CMDLINE;
             }
           }
           if (!id_delim) {
@@ -5380,6 +5376,8 @@ int main(int argc, char** argv) {
             logerrputs("Error: --hard-call-threshold + --import-dosage-certainty settings cannot add up\nto more than 1.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
+        } else if (strequal_k_unsafe(flagname_p2, "id-sid")) {
+          pc.misc_flags |= kfMiscIidSid;
         } else if (likely(strequal_k_unsafe(flagname_p2, "mport-dosage"))) {
           if (unlikely(load_params || xload)) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
@@ -8210,8 +8208,6 @@ int main(int argc, char** argv) {
                 logerrputs("Error: --sample-diff id-delim= value cannot be tab/space/newline, '.', or a\nnonprinting character.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-            } else if (strequal_k(cur_modif, "sid", cur_modif_slen)) {
-              pc.sdiff_info.flags |= kfSdiffSid;
             } else if (StrStartsWith(cur_modif, "dosage", cur_modif_slen)) {
               if (unlikely(pc.sdiff_info.dosage_hap_tol != kDosageMissing)) {
                 logerrputs("Error: Multiple --sample-diff dosage modifiers.\n");
@@ -8591,17 +8587,10 @@ int main(int argc, char** argv) {
           }
           pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "pdate-ids")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          uint32_t fname_modif_idx = 1;
-          if (param_ct == 2) {
-            if (unlikely(CheckExtraParam(&(argvk[arg_idx]), "sid", &fname_modif_idx))) {
-              goto main_ret_INVALID_CMDLINE_A;
-            }
-            pc.misc_flags |= kfMiscUpdateIdsSid;
-          }
-          reterr = AllocFname(argvk[arg_idx + fname_modif_idx], flagname_p, 0, &pc.update_sample_ids_fname);
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.update_sample_ids_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -8611,17 +8600,10 @@ int main(int argc, char** argv) {
             logerrputs("Error: --update-parents cannot be used with --update-ids.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          uint32_t fname_modif_idx = 1;
-          if (param_ct == 2) {
-            if (unlikely(CheckExtraParam(&(argvk[arg_idx]), "sid", &fname_modif_idx))) {
-              goto main_ret_INVALID_CMDLINE_A;
-            }
-            pc.misc_flags |= kfMiscUpdateParentsSid;
-          }
-          reterr = AllocFname(argvk[arg_idx + fname_modif_idx], flagname_p, 0, &pc.update_parental_ids_fname);
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.update_parental_ids_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }

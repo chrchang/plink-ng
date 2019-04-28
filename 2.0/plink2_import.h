@@ -28,8 +28,7 @@ FLAGSET_DEF_START()
   kfImport0,
   kfImportKeepAutoconv = (1 << 0),
   kfImportDoubleId = (1 << 1),
-  kfImportIdDelimSid = (1 << 2),
-  kfImportVcfRequireGt = (1 << 3)
+  kfImportVcfRequireGt = (1 << 2)
 FLAGSET_DEF_END(ImportFlags);
 
 ENUM_U31_DEF_START()
