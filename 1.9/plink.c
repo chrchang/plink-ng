@@ -105,7 +105,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (26 Apr 2019)";
+  " (29 Apr 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -9366,12 +9366,27 @@ int32_t main(int32_t argc, char** argv) {
 	// if '+' present, must detect it before using alloc_and_flatten()
         // must detect '+'
 	for (uii = 1; uii <= param_ct; uii++) {
-	  if ((argv[cur_arg + uii][0] == '+') && (!argv[cur_arg + uii][1])) {
-	    if (uii <= 2) {
-	      logerrprint("Error: --meta-analysis requires at least two PLINK report files.\n");
-	      goto main_ret_INVALID_CMDLINE_A;
-	    }
-	    break;
+	  if (argv[cur_arg + uii][0] == '+') {
+            if (!argv[cur_arg + uii][1]) {
+	      if (uii <= 2) {
+	        logerrprint("Error: --meta-analysis requires at least two PLINK report files.\n");
+	        goto main_ret_INVALID_CMDLINE_A;
+	      }
+	      break;
+            } else {
+              const char* post_plus = &(argv[cur_arg + uii][1]);
+              if ((!strcmp(post_plus, "study")) ||
+                  (!strcmp(post_plus, "no-map")) ||
+                  (!strcmp(post_plus, "no-allele")) ||
+                  (!strcmp(post_plus, "report-all")) ||
+                  (!strcmp(post_plus, "logscale")) ||
+                  (!strcmp(post_plus, "qt")) ||
+                  (!strcmp(post_plus, "weighted-z"))) {
+                // This is far more likely to be a mistake than a real
+                // filename...
+                LOGERRPRINTFWW("Warning: In order to end the filename list, --meta-analysis '+' must be followed by a space.  Currently interpreting %s as a literal filename, which probably isn't what you want...\n", argv[cur_arg + uii]);
+              }
+            }
 	  }
 	}
 	retval = alloc_and_flatten(&metaanal_fnames, &(argv[cur_arg + 1]), uii - 1);
