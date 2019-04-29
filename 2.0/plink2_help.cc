@@ -288,12 +288,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                /*
 "  --make-pgen ['vzs'] ['format='<code>] [{trim-alts | erase-alt2+}]\n"
 "              ['erase-phase'] ['erase-dosage'] ['multiallelics='<mode>]\n"
-"              [{vid-split | vid-dup | vid-join}]\n"
+"              [{vid-split | vid-split-dup | vid-dup | vid-join}]\n"
 "              ['pvar-cols='<col set descriptor>]\n"
 "              ['psam-cols='<col set descriptor>]\n"
 "  --make-bpgen ['vzs'] ['format='<code>] [{trim-alts | erase-alt2+}]\n"
 "               ['erase-phase'] ['erase-dosage'] ['multiallelics='<mode>]\n"
-"               [{vid-split | vid-dup | vid-join}]\n"
+"               [{vid-split | vid-split-dup | vid-dup | vid-join}]\n"
 "  --make-bed ['vzs'] [{trim-alts | erase-alt2+}]\n"
 "             ['multiallelics='<split mode>]\n"
                */
@@ -341,16 +341,17 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      1. If --set-all-var-ids was specified, that template is applied.\n"
 "      2. Otherwise, if joining, and all source variant IDs are identical and\n"
 "         nonmissing, that ID is used.\n"
-"      3. Otherwise, if splitting with the 'vid-split' modifier, the original\n"
-"         variant ID is split on the ';' character when the number of ';'s is\n"
-"         correct.  (When the post-split ID is the missing code,\n"
-"         --set-missing-var-ids is applied to it.)  Similarly, if joining with\n"
-"         the 'vid-join' modifier, the new variant ID is set to the original IDs\n"
-"         joined with the ';' character when all original IDs are nonmissing and\n"
-"         contain exactly one ';' per extra ALT allele.\n"
-"      4. Otherwise, if --set-missing-var-ids was specified, that template is\n"
+"      3. Otherwise, if splitting with the 'vid-split' or 'vid-split-dup'\n"
+"         modifier, the original variant ID is split on the ';' character when\n"
+"         the number of ';'s is correct.  (When the post-split ID is the missing\n"
+"         code, --set-missing-var-ids is applied to it.)  Similarly, if joining\n"
+"         with the 'vid-join' modifier, the new variant ID is set to the\n"
+"         original IDs joined with the ';' character when all original IDs are\n"
+"         nonmissing and contain exactly one ';' per extra ALT allele.\n"
+"      4. Otherwise, if splitting with 'vid-split-dup', the original ID is kept.\n"
+"      5. Otherwise, if --set-missing-var-ids was specified, that template is\n"
 "         applied.\n"
-"      5. Otherwise, the variant ID is set to the missing code.\n"
+"      6. Otherwise, the variant ID is set to the missing code.\n"
 "      When merging, the new variant gets the lowest QUAL and the union of the\n"
 "      FILTER values.\n"
 "      INFO splitting/merging is under development; for now, 'bcftools norm'\n"
@@ -745,7 +746,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     // For multiallelic variants, major allele counts are theoretically
     // slightly more informative than REF allele counts, but the advantage is
     // far too small to be worth losing allele-frequency-independence.
-    HelpPrint("make-king\0make-king-table\0", &help_ctrl, 1,
+    HelpPrint("make-king\0make-king-table\0", &help_ctrl, 0,
 "  --make-king [{square | square0 | triangle}] [{zs | bin | bin4}]\n"
 "    KING-robust kinship estimator, described by Manichaikul A, Mychaleckyj JC,\n"
 "    Rich SS, Daly K, Sale M, Chen WM (2010) Robust relationship inference in\n"
@@ -770,6 +771,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      if you still want the upper right zeroed out, or 'triangle' if you don't\n"
 "      want to pad the upper right at all.\n"
 "    * The computation can be subdivided with --parallel.\n"
+              );
+    HelpPrint("make-king\0make-king-table\0genome\0", &help_ctrl, 1,
 "  --make-king-table ['zs'] ['counts'] ['cols='<column set descriptor>]\n"
 "    Similar to --make-king, except results are reported in the original .kin0\n"
 "    text table format (with minor changes, e.g. row order is more friendly to\n"

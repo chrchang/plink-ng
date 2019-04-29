@@ -67,7 +67,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (28 Apr 2019)";
+  " (29 Apr 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -5969,8 +5969,10 @@ int main(int argc, char** argv) {
               make_plink2_flags |= kfMakePlink2EraseAlt2Plus;
             } else if (strequal_k(cur_modif, "vid-split", cur_modif_slen)) {
               vid_semicolon |= 1;
-            } else if (strequal_k(cur_modif, "vid-join", cur_modif_slen)) {
+            } else if (strequal_k(cur_modif, "vid-split-dup", cur_modif_slen)) {
               vid_semicolon |= 2;
+            } else if (strequal_k(cur_modif, "vid-join", cur_modif_slen)) {
+              vid_semicolon |= 4;
             } else if (strequal_k(cur_modif, "vid-dup", cur_modif_slen)) {
               make_plink2_flags |= kfMakePlink2VidDup;
             } else if (strequal_k(cur_modif, "erase-phase", cur_modif_slen)) {
@@ -5987,15 +5989,11 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (vid_semicolon) {
-            if (make_plink2_flags & kfMakePlink2VidDup) {
-              logerrputs("Error: --make-bpgen 'vid-dup' cannot be used with 'vid-split' or 'vid-join'.\n");
+            if (unlikely((make_plink2_flags & kfMakePlink2VidDup) || (vid_semicolon & (vid_semicolon - 1)))) {
+              logerrputs("Error: --make-bpgen 'vid-split', 'vid-split-dup', 'vid-dup', and 'vid-join'\nmodifiers are mutually exclusive.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
-            if (unlikely(vid_semicolon == 3)) {
-              logerrputs("Error: --make-bpgen 'vid-split' and 'vid-join' modifiers cannot be used\ntogether.\n");
-              goto main_ret_INVALID_CMDLINE_A;
-            }
-            if (vid_semicolon == 1) {
+            if (vid_semicolon & 3) {
               if (unlikely((make_plink2_flags & kfMakePlink2MJoin) || (!(make_plink2_flags & kfMakePlink2MMask)))) {
                 logerrputs("Error: --make-bpgen 'vid-split' must be used with a multiallelics= split mode.\n");
                 goto main_ret_INVALID_CMDLINE_A;
@@ -6007,6 +6005,9 @@ int main(int argc, char** argv) {
               }
             }
             make_plink2_flags |= kfMakePlink2VidSemicolon;
+            if (vid_semicolon == 2) {
+              make_plink2_flags |= kfMakePlink2VidDup;
+            }
           } else if (make_plink2_flags & kfMakePlink2VidDup) {
             if (unlikely((make_plink2_flags & kfMakePlink2MJoin) || (!(make_plink2_flags & kfMakePlink2MMask)))) {
               logerrputs("Error: --make-bpgen 'vid-dup' must be used with a multiallelics= split mode.\n");
@@ -6099,8 +6100,12 @@ int main(int argc, char** argv) {
               make_plink2_flags |= kfMakePlink2EraseAlt2Plus;
             } else if (strequal_k(cur_modif, "vid-split", cur_modif_slen)) {
               vid_semicolon |= 1;
-            } else if (strequal_k(cur_modif, "vid-join", cur_modif_slen)) {
+            } else if (strequal_k(cur_modif, "vid-split-dup", cur_modif_slen)) {
               vid_semicolon |= 2;
+            } else if (strequal_k(cur_modif, "vid-join", cur_modif_slen)) {
+              vid_semicolon |= 4;
+            } else if (strequal_k(cur_modif, "vid-dup", cur_modif_slen)) {
+              make_plink2_flags |= kfMakePlink2VidDup;
             } else if (strequal_k(cur_modif, "erase-phase", cur_modif_slen)) {
               make_plink2_flags |= kfMakePgenErasePhase;
             } else if (strequal_k(cur_modif, "erase-dosage", cur_modif_slen)) {
@@ -6125,10 +6130,11 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (vid_semicolon) {
-            if (unlikely(vid_semicolon == 3)) {
-              logerrputs("Error: --make-pgen 'vid-split' and 'vid-join' modifiers cannot be used\ntogether.\n");
+            if (unlikely((make_plink2_flags & kfMakePlink2VidDup) || (vid_semicolon & (vid_semicolon - 1)))) {
+              logerrputs("Error: --make-pgen 'vid-split', 'vid-split-dup', 'vid-dup', and 'vid-join'\nmodifiers are mutually exclusive.\n");
               goto main_ret_INVALID_CMDLINE_A;
-            } else if (vid_semicolon == 1) {
+            }
+            if (vid_semicolon & 3) {
               if (unlikely((make_plink2_flags & kfMakePlink2MJoin) || (!(make_plink2_flags & kfMakePlink2MMask)))) {
                 logerrputs("Error: --make-pgen 'vid-split' must be used with a multiallelics= split mode.\n");
                 goto main_ret_INVALID_CMDLINE_A;
@@ -6140,6 +6146,9 @@ int main(int argc, char** argv) {
               }
             }
             make_plink2_flags |= kfMakePlink2VidSemicolon;
+            if (vid_semicolon == 2) {
+              make_plink2_flags |= kfMakePlink2VidDup;
+            }
           }
           if (!explicit_pvar_cols) {
             pc.pvar_psam_flags |= kfPvarColDefault;
@@ -7394,7 +7403,7 @@ int main(int argc, char** argv) {
           }
         } else if (strequal_k_unsafe(flagname_p2, "arallel")) {
           if (unlikely(pc.king_flags & kfKingMatrixSq)) {
-            logerrputs("Error: --parallel cannot be used with '--make-king square'.  Use '--make-king\nsquare0' or plain --make-king instead.\n");
+            logerrputs("Error: --parallel cannot be used with \"--make-king square\".  Use \"--make-king\nsquare0\" or plain --make-king instead.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely((pc.king_cutoff != -1) && (!king_cutoff_fprefix))) {
@@ -7402,7 +7411,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(pc.grm_flags & kfGrmMatrixSq)) {
-            logerrputs("Error: --parallel cannot be used with '--make-rel square'.  Use '--make-rel\nsquare0' or plain --make-rel instead.\n");
+            logerrputs("Error: --parallel cannot be used with \"--make-rel square\".  Use \"--make-rel\nsquare0\" or plain --make-rel instead.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 2))) {
@@ -9253,6 +9262,7 @@ int main(int argc, char** argv) {
 
         // todo: we have to skip this when merging is involved
         pc.hard_call_thresh = UINT32_MAX;
+        pc.dosage_erase_thresh = 0;
 
         if (pgen_generated) {
           snprintf(memcpya(pgenname, outname, convname_slen), kMaxOutfnameExtBlen - 10, ".pgen");

@@ -3002,11 +3002,11 @@ PglErr PlanMultiallelicSplit(const uintptr_t* variant_include, const uintptr_t* 
   return reterr;
 }
 
-// Returns 1 iff there are exactly (allele_ct - 1) semicolons in
+// Returns 1 iff there are exactly (allele_ct - 2) semicolons in
 // orig_variant_id, and no two are adjacent (or leading/trailing).
 uint32_t VidSplitOk(const char* orig_variant_id, uint32_t allele_ct) {
   const char* id_iter = orig_variant_id;
-  for (uint32_t aidx = 1; aidx != allele_ct; ++aidx) {
+  for (uint32_t aidx = 2; aidx != allele_ct; ++aidx) {
     const char* tok_end = strchr(id_iter, ';');
     if ((!tok_end) || (tok_end == id_iter)) {
       return 0;
@@ -3033,6 +3033,7 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
       goto WriteBimSplit_ret_NOMEM;
     }
     const uint32_t new_variant_id_overflow_missing = (misc_flags / kfMiscNewVarIdOverflowMissing) & 1;
+    const uint32_t vid_dup_nosplit = vid_dup && (!vid_split);
     VaridTemplate* varid_templatep = nullptr;
     uint32_t missing_varid_slen = 0;
     uint32_t missing_varid_match_blen = 0; // nonzero iff --set-missing-var-ids
@@ -3055,7 +3056,7 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
           if ((insert_type == 3) || ((insert_type == 2) && (varid_templatep->alleles_needed & 4))) {
             // Could define what takes precedence here, but simpler to prohibit
             // this combination.
-            logerrputs("Error: 'vid-dup' cannot be used with a --set-all-var-ids or\n--set-missing-var-ids template string containing a non-REF allele.\n");
+            logerrputs("Error: 'vid-{,split-}dup' cannot be used with a --set-all-var-ids or\n--set-missing-var-ids template string containing a non-REF allele.\n");
             goto WriteBimSplit_ret_INVALID_CMDLINE;
           }
         }
@@ -3097,7 +3098,9 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
       const char* orig_variant_id = variant_ids[variant_uidx];
       const char* ref_allele = cur_alleles[0];
       const uint32_t ref_allele_slen = strlen(ref_allele);
-      if ((orig_allele_ct > 2) && (!vid_dup)) {
+      uint32_t keep_orig_id = 1;
+      if ((orig_allele_ct > 2) && (!vid_dup_nosplit)) {
+        keep_orig_id = 0;
         if (varid_templatep && (!missing_varid_match_blen)) {
           cur_varid_templatep = varid_templatep;
         } else {
@@ -3105,14 +3108,17 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
           if (vid_split) {
             if (VidSplitOk(orig_variant_id, orig_allele_ct)) {
               varid_token_start = orig_variant_id;
+            } else if (vid_dup) {
+              keep_orig_id = 1;
             } else {
               varid_token_start = nullptr;
             }
           }
           if ((!varid_token_start) && varid_templatep) {
-            // Note that --set-missing-var-ids almost always applies here when
-            // it's specified; only exception is when vid-split was also
-            // specified and the split succeeded.
+            // --set-missing-var-ids usually applies here when it's specified;
+            // the exceptions are when vid-split was also specified and the
+            // split succeeded, or vid-split-dup was specified.
+            // (In the latter case, this value is ignored anyway.)
             cur_varid_templatep = varid_templatep;
           }
         }
@@ -3124,7 +3130,7 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
         cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
         const char* cur_alt_allele = cur_alleles[alt_allele_idx];
         const uint32_t cur_alt_allele_slen = strlen(cur_alt_allele);
-        if ((orig_allele_ct == 2) || vid_dup) {
+        if (keep_orig_id) {
           cswritep = strcpyax(cswritep, orig_variant_id, '\t');
         } else {
           if (cur_varid_templatep) {
@@ -3386,7 +3392,7 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
           if ((insert_type == 3) || ((insert_type == 2) && (varid_templatep->alleles_needed & 4))) {
             // Could define what takes precedence here, but simpler to prohibit
             // this combination.
-            logerrputs("Error: 'vid-dup' cannot be used with a --set-all-var-ids or\n--set-missing-var-ids template string containing a non-REF allele.\n");
+            logerrputs("Error: 'vid-{,split-}dup' cannot be used with a --set-all-var-ids or\n--set-missing-var-ids template string containing a non-REF allele.\n");
             goto WritePvarSplit_ret_INVALID_CMDLINE;
           }
         }
@@ -3503,7 +3509,8 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
 
     const VaridTemplate* cur_varid_templatep = nullptr;
     const char* varid_token_start = nullptr; // for vid-split
-    const uint32_t vid_split = (make_plink2_flags & kfMakePlink2VidSemicolon) & 1;
+    const uint32_t vid_split = (make_plink2_flags / kfMakePlink2VidSemicolon) & 1;
+    const uint32_t vid_dup_nosplit = vid_dup && (!vid_split);
     const uint32_t split_just_snps = ((make_plink2_flags & (kfMakePlink2MSplitBase * 3)) == kfMakePlink2MSplitSnps);
     uint32_t rls_variant_uidx = 0;
     uintptr_t variant_uidx_base = 0;
@@ -3547,8 +3554,10 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
       const uint32_t ref_allele_slen = strlen(ref_allele);
       const uint32_t cur_bp = variant_bps[variant_uidx];
       uint32_t split_ct_p1 = orig_allele_ct;
+      uint32_t keep_orig_id = 1;
       if (orig_allele_ct > 2) {
-        if (!vid_dup) {
+        if (!vid_dup_nosplit) {
+          keep_orig_id = 0;
           if (varid_templatep && (!missing_varid_match_blen)) {
             cur_varid_templatep = varid_templatep;
           } else {
@@ -3556,6 +3565,8 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
             if (vid_split) {
               if (VidSplitOk(orig_variant_id, orig_allele_ct)) {
                 varid_token_start = orig_variant_id;
+              } else if (vid_dup) {
+                keep_orig_id = 1;
               } else {
                 varid_token_start = nullptr;
               }
@@ -3650,7 +3661,7 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
         cswritep = u32toa_x(cur_bp, '\t', cswritep);
         const char* cur_alt_allele = cur_alleles[alt_allele_idx];
         const uint32_t cur_alt_allele_slen = strlen(cur_alt_allele);
-        if ((split_ct_p1 == 2) || vid_dup) {
+        if ((split_ct_p1 == 2) || keep_orig_id) {
           cswritep = strcpyax(cswritep, orig_variant_id, '\t');
           cswritep = memcpyax(cswritep, ref_allele, ref_allele_slen, '\t');
           cswritep = memcpya(cswritep, cur_alt_allele, cur_alt_allele_slen);
@@ -4909,7 +4920,9 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
             // todo: multiallelic dosage
             PgrDetectGenovecHets(write_genovec, sample_ct, write_phasepresent);
           }
-          if (is_hphase && (!write_dphase_ct)) {
+          if (write_dphasepresent && is_hphase && (!write_dphase_ct)) {
+            // bugfix (29 Apr 2019): write_dphasepresent not guaranteed to be
+            // non-null.
             ZeroWArr(sample_ctl, write_dphasepresent);
           }
           if (hard_call_halfdist) {
@@ -5682,7 +5695,6 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
                     logputs("\n");
                     logerrputs("Error: Malformed .pgen file.\n");
                   }
-                  printf("fail 2 %u\n", read_variant_uidx);
                   goto MakePgenRobust_ret_1;
                 }
 

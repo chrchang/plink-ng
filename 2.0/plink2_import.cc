@@ -5267,14 +5267,8 @@ uint32_t Bgen13ScanBiallelicPhased(uintptr_t numer_a1, uintptr_t numer_a2, uintp
   // assume maximal het probability.
   const uintptr_t numer_sum = numer_a1 + numer_a2;
   if (numer_certainty_min) {
-    // this will need to change slightly if 32-bit precision is ever supported
-
-    // numer_sum_x2 < numer_mask:
-    //   P(0) = 1 - (numer_sum_x2 / numer_mask)
-    //   P(1) = numer_sum_x2 / numer_mask
-    const uint32_t dist_from_het_x2 = 2 * abs_i32(2 * numer_sum - numer_mask);
-    const uint32_t cur_certainty = numer_mask - abs_i32(dist_from_het_x2 - numer_mask);
-    if (cur_certainty < numer_certainty_min) {
+    const uint32_t dist_from_1 = abs_i32(numer_sum - numer_mask);
+    if ((dist_from_1 < numer_certainty_min) && (numer_mask - dist_from_1 < numer_certainty_min)) {
       return 0;
     }
   }
@@ -5816,10 +5810,16 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
 uint32_t Bgen13ConvertBiallelicPhased(uint32_t sample_idx_lowbits, uintptr_t numer_a1, uintptr_t numer_a2, uintptr_t numer_mask, uint32_t numer_certainty_min, uint64_t magic_preadd, uint64_t magic_mult, uint32_t magic_postshift, uint32_t hard_call_halfdist, uint32_t dosage_erase_halfdist, uintptr_t* genovec_word_ptr, uint32_t* __restrict phasepresent_hw_ptr, uint32_t* __restrict phaseinfo_hw_ptr, uint32_t* __restrict dphase_present_hw_ptr, SDosage** dphase_delta_iterp, uint32_t* write_dosage_int_ptr) {
   const uint32_t sample_idx_lowbits_x2 = sample_idx_lowbits * 2;
   if (numer_certainty_min) {
-    const uintptr_t numer_sum_x2 = 2 * (numer_a1 + numer_a2);
-    const uint32_t dist_from_het_x2 = 2 * abs_i32(numer_sum_x2 - numer_mask);
-    const uint32_t cur_certainty = numer_mask - abs_i32(dist_from_het_x2 - numer_mask);
-    if (cur_certainty < numer_certainty_min) {
+    // bugfix (29 Apr 2019): This check was not implemented correctly.
+    //
+    // Correct VCF HDS-import code:
+    //   dist_from_1 = fabs(1.0 - dosage_sum);
+    //   if ((1.0 - dist_from_1 <= import_dosage_certainty) && (dist_from_1 <= import_dosage_certainty)) {
+    //     (force missing)
+    //   }
+    const uintptr_t numer_sum = numer_a1 + numer_a2;
+    const uint32_t dist_from_1 = abs_i32(numer_sum - numer_mask);
+    if ((dist_from_1 < numer_certainty_min) && (numer_mask - dist_from_1 < numer_certainty_min)) {
       *genovec_word_ptr |= (3 * k1LU) << sample_idx_lowbits_x2;
       return 1;
     }
@@ -5854,6 +5854,11 @@ uint32_t Bgen13ConvertBiallelicPhased(uint32_t sample_idx_lowbits, uintptr_t num
     // discontinuity between
     //   dosage=0.103=0.0515|0.0515 (dphase omitted) and
     //   dosage=0.103=0.051|0.052.
+    // Note that, since we don't allow the --dosage-erase-threshold value
+    // to exceed the --hard-call-threshold value, the dosage component of
+    // 0|1:0.85 cannot be erased by any --dosage-erase-threshold setting when
+    // importing with --hard-call-threshold 0.2; it is necessary to use e.g.
+    // "--make-pgen erase-dosage" instead.
     const uintptr_t geno1 = (dphase_side1 + kDosageMid) / kDosageMax;
     const uintptr_t geno2 = (dphase_side2 + kDosageMid) / kDosageMax;
     uintptr_t cur_geno = geno1 + geno2;
