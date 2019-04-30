@@ -4041,7 +4041,7 @@ PglErr WritePvarJoin(const char* outname, const char* xheader, const uintptr_t* 
           if ((insert_type == 3) || ((insert_type == 2) && (varid_templatep->alleles_needed & 4))) {
             // Could define what takes precedence here, but simpler to prohibit
             // this combination.
-            logerrputs("Error: 'vid-dup' cannot be used with a --set-all-var-ids or\n--set-missing-var-ids template string containing a non-REF allele.\n");
+            logerrputs("Error: 'vid-{,split-}dup' cannot be used with a --set-all-var-ids or\n--set-missing-var-ids template string containing a non-REF allele.\n");
             goto WritePvarJoin_ret_INVALID_CMDLINE;
           }
         }
@@ -4188,7 +4188,8 @@ PglErr WritePvarJoin(const char* outname, const char* xheader, const uintptr_t* 
 
     const VaridTemplate* cur_varid_templatep = nullptr;
     const char* varid_token_start = nullptr; // for vid-split
-    const uint32_t vid_split = (make_plink2_flags & kfMakePlink2VidSemicolon) & 1;
+    const uint32_t vid_split = (make_plink2_flags / kfMakePlink2VidSemicolon) & 1;
+    const uint32_t vid_dup_nosplit = vid_dup && (!vid_split);
     uint32_t next_variant_idx = 0;
     uint32_t rls_variant_uidx = 0;
     uint32_t next_variant_uidx = 0;
