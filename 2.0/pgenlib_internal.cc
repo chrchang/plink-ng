@@ -10737,7 +10737,6 @@ PglErr PgrGetMD(const uintptr_t* __restrict sample_include, const uint32_t* __re
     // todo: ReadRawGenovec, etc.
   }
   fputs("true multiallelic dosages not yet supported by PgrGetMD()\n", stderr);
-  fprintf(stderr, "%u\n", vidx);
   exit(S_CAST(int32_t, kPglRetNotYetSupported));
   return kPglRetSuccess;
 }

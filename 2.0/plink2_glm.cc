@@ -8990,6 +8990,8 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
       }
       fputs("0%", stdout);
       fflush(stdout);
+      // bugfix (12 May 2019): need to reinitialize this
+      pgfip->block_base = main_loadbufs[0];
       ReinitThreads3z(&ts);
       for (uint32_t variant_idx = 0; ; ) {
         uintptr_t cur_block_variant_ct = 0;
@@ -9416,7 +9418,8 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
       }
       fputs("\b\b", stdout);
       logputs("done.\n");
-      completed_pheno_ct += batch_size;
+      // bugfix (12 May 2019): added batch_size instead of subbatch_size here
+      completed_pheno_ct += subbatch_size;
     }
     outname_end[1] = '\0';
     logprintfww("Results written to %s<phenotype name>.glm.linear%s .\n", outname, output_zst? ".zst" : "");
