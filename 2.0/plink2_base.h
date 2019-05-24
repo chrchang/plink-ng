@@ -91,7 +91,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 501
+#define PLINK2_BASE_VERNUM 502
 
 
 #define _FILE_OFFSET_BITS 64
@@ -742,6 +742,11 @@ HEADER_INLINE VecW vecw_slli(VecW vv, uint32_t ct) {
   return R_CAST(VecW, _mm256_slli_epi64(R_CAST(__m256i, vv), ct));
 }
 
+// Compiler still doesn't seem to be smart enough to use andnot properly.
+HEADER_INLINE VecW vecw_and_notfirst(VecW excl, VecW main) {
+  return R_CAST(VecW, _mm256_andnot_si256(R_CAST(__m256i, excl), R_CAST(__m256i, main)));
+}
+
 HEADER_INLINE VecW vecw_set1(uintptr_t ulii) {
   return R_CAST(VecW, _mm256_set1_epi64x(ulii));
 }
@@ -829,6 +834,10 @@ HEADER_INLINE VecUc vecuc_shuffle8(VecUc table, VecUc indexes) {
 typedef uint16_t Vec16thUint;
 typedef uint32_t Vec8thUint;
 typedef uint64_t Vec4thUint;
+
+// There may be some value in adding a 4-consecutive-vector load function when
+// addresses are expected to be unaligned: see
+//   https://www.agner.org/optimize/blog/read.php?i=627&v=t
 
 HEADER_INLINE VecW vecw_loadu(const void* mem_addr) {
   return R_CAST(VecW, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
@@ -927,6 +936,10 @@ HEADER_INLINE VecW vecw_srli(VecW vv, uint32_t ct) {
 
 HEADER_INLINE VecW vecw_slli(VecW vv, uint32_t ct) {
   return R_CAST(VecW, _mm_slli_epi64(R_CAST(__m128i, vv), ct));
+}
+
+HEADER_INLINE VecW vecw_and_notfirst(VecW excl, VecW main) {
+  return R_CAST(VecW, _mm_andnot_si128(R_CAST(__m128i, excl), R_CAST(__m128i, main)));
 }
 
 HEADER_INLINE VecW vecw_set1(uintptr_t ulii) {
@@ -3072,8 +3085,7 @@ CONSTI32(kPglNibbleTransposeWords, kWordsPerCacheline);
 CONSTI32(kPglNibbleTransposeBufbytes, (kPglNibbleTransposeBatch * kPglNibbleTransposeBatch) / 2);
 
 // up to 128x128; vecaligned_buf must have size 8k
-// important: write_iter must be allocated up to at least
-//   RoundUpPow2(write_batch_size, 2) rows
+// now ok for write_iter to not be padded when write_batch_size odd
 void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, VecW* vecaligned_buf);
 
 HEADER_INLINE uintptr_t GetNibbleArrEntry(const uintptr_t* nibblearr, uint32_t idx) {
