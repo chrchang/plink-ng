@@ -1993,16 +1993,12 @@ void TransposeBitblock64(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
   // Since each input row has 8 words, this amounts to 3 shuffles.
   //
   // The second step writes
-  //   (0,0) (0,8) ...   (0,56)  (1,0) (1,8) ...  (1,56) ...  (511,56)
-  //   (0,1) (0,9) ...   (0,57)  (1,1) (1,9) ...  (1,57) ...  (511,57)
+  //   (0,0) (0,1) ... (0,7)   (1,0) (1,1) ... (1,7) ...   (511,7)
+  //   (0,8) (0,9) ... (0,15)  (1,8) (1,9) ... (1,15) ...  (511,15)
   //   ...
-  //   (0,7) (0,15) ...  (0,63)  (1,7) (1,15) ... (1,63) ...  (511,63)
-  //   (0,64) (0,72) ... (0,120) (1,64) ...       (1,120) ... (511,120)
-  //   (0,65) (0,73) ... (0,121) (1,65) ...       (1,121) ... (511,121)
-  //   ...
-  //   (0,455) ...       (0,511) (1,455) ...      (1,511) ... (511,511)
-  // to buf1, using movemask to perform the equivalent of 3 shuffles, and the
-  // third step finishes the transpose using another movemask.
+  //   (0,504) ...     (0,511) (1,504) ...     (1,511) ... (511,511)
+  // to buf1, performing the equivalent of 3 shuffles, and the third step
+  // finishes the transpose using movemask.
   //
   // buf0 and buf1 must both be 32KiB vector-aligned buffers.
 
@@ -2026,295 +2022,162 @@ void TransposeBitblock64(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
   }
   {
     const VecW* buf0_read_iter = buf0;
-    Vec8thUint* write_iter0 = R_CAST(Vec8thUint*, buf1);
-    // Each buf0 row contains (buf_row_xwidth * 64) 8-byte words.  Convert to
-    // vector units.
-    const uint32_t buf0_row_vecwidth = buf_row_xwidth * (64 / kWordsPerVec);
+    uintptr_t* write_iter0 = R_CAST(uintptr_t*, buf1);
+#  ifdef USE_SSE42
+    const VecW gather_u16s = vecw_setr8(0, 8, 1, 9, 2, 10, 3, 11,
+                                        4, 12, 5, 13, 6, 14, 7, 15);
+#    ifdef USE_AVX2
+    const VecW gather_u32s = vecw_setr8(0, 1, 8, 9, 2, 3, 10, 11,
+                                        4, 5, 12, 13, 6, 7, 14, 15);
+#    endif
+#  else
+    const VecW m8 = VCONST_W(kMask00FF);
+#  endif
+    const uint32_t buf0_row_clwidth = buf_row_xwidth * 8;
     for (uint32_t bidx = 0; bidx != buf0_row_ct; ++bidx) {
-      Vec8thUint* write_iter1 = &(write_iter0[512 / kWordsPerVec]);
-      Vec8thUint* write_iter2 = &(write_iter1[512 / kWordsPerVec]);
-      Vec8thUint* write_iter3 = &(write_iter2[512 / kWordsPerVec]);
-      Vec8thUint* write_iter4 = &(write_iter3[512 / kWordsPerVec]);
-      Vec8thUint* write_iter5 = &(write_iter4[512 / kWordsPerVec]);
-      Vec8thUint* write_iter6 = &(write_iter5[512 / kWordsPerVec]);
-      Vec8thUint* write_iter7 = &(write_iter6[512 / kWordsPerVec]);
-      for (uint32_t vidx = 0; vidx != buf0_row_vecwidth; ++vidx) {
-        VecW loader = buf0_read_iter[vidx];
-        write_iter7[vidx] = vecw_movemask(loader);
-        loader = vecw_slli(loader, 1);
-        write_iter6[vidx] = vecw_movemask(loader);
-        loader = vecw_slli(loader, 1);
-        write_iter5[vidx] = vecw_movemask(loader);
-        loader = vecw_slli(loader, 1);
-        write_iter4[vidx] = vecw_movemask(loader);
-        loader = vecw_slli(loader, 1);
-        write_iter3[vidx] = vecw_movemask(loader);
-        loader = vecw_slli(loader, 1);
-        write_iter2[vidx] = vecw_movemask(loader);
-        loader = vecw_slli(loader, 1);
-        write_iter1[vidx] = vecw_movemask(loader);
-        loader = vecw_slli(loader, 1);
-        write_iter0[vidx] = vecw_movemask(loader);
+      uintptr_t* write_iter1 = &(write_iter0[64]);
+      uintptr_t* write_iter2 = &(write_iter1[64]);
+      uintptr_t* write_iter3 = &(write_iter2[64]);
+      uintptr_t* write_iter4 = &(write_iter3[64]);
+      uintptr_t* write_iter5 = &(write_iter4[64]);
+      uintptr_t* write_iter6 = &(write_iter5[64]);
+      uintptr_t* write_iter7 = &(write_iter6[64]);
+      for (uint32_t clidx = 0; clidx != buf0_row_clwidth; ++clidx) {
+#  ifdef USE_AVX2
+        VecW loader0 = buf0_read_iter[clidx * 2];
+        VecW loader1 = buf0_read_iter[clidx * 2 + 1];
+        //    (0,0) (0,1) ... (0,7) (1,0) (1,1) ... (1,7) (2,0) ... (3,7)
+        // -> (0,0) (1,0) (0,1) (1,1) (0,2) .... (1,7) (2,0) (3,0) (2,1) ...
+        loader0 = vecw_shuffle8(loader0, gather_u16s);
+        loader1 = vecw_shuffle8(loader1, gather_u16s);
+        // -> (0,0) (1,0) (0,1) (1,1) (0,2) (1,2) (0,3) (1,3) (2,0) (3,0) ...
+        __m256i vec_lo = _mm256_permute4x64_epi64(R_CAST(__m256i, loader0), 0xd8);
+        __m256i vec_hi = _mm256_permute4x64_epi64(R_CAST(__m256i, loader1), 0xd8);
+        // -> (0,0) (1,0) (2,0) (3,0) (0,1) (1,1) (2,1) (3,1) (0,2) ...
+        vec_lo = _mm256_shuffle_epi8(vec_lo, gather_u32s);
+        // -> (4,0) (5,0) (6,0) (7,0) (4,1) (5,1) (6,1) (7,1) (4,2) ...
+        vec_hi = _mm256_shuffle_epi8(vec_hi, gather_u32s);
+        const __m256i final0145 = _mm256_unpacklo_epi32(vec_lo, vec_hi);
+        const __m256i final2367 = _mm256_unpackhi_epi32(vec_lo, vec_hi);
+        write_iter0[clidx] = _mm256_extract_epi64(final0145, 0);
+        write_iter1[clidx] = _mm256_extract_epi64(final0145, 1);
+        write_iter2[clidx] = _mm256_extract_epi64(final2367, 0);
+        write_iter3[clidx] = _mm256_extract_epi64(final2367, 1);
+        write_iter4[clidx] = _mm256_extract_epi64(final0145, 2);
+        write_iter5[clidx] = _mm256_extract_epi64(final0145, 3);
+        write_iter6[clidx] = _mm256_extract_epi64(final2367, 2);
+        write_iter7[clidx] = _mm256_extract_epi64(final2367, 3);
+#  else  // !USE_AVX2
+        VecW loader0 = buf0_read_iter[clidx * 4];
+        VecW loader1 = buf0_read_iter[clidx * 4 + 1];
+        VecW loader2 = buf0_read_iter[clidx * 4 + 2];
+        VecW loader3 = buf0_read_iter[clidx * 4 + 3];
+        //    (0,0) (0,1) ... (0,7) (1,0) (1,1) ... (1,7)
+        // -> (0,0) (1,0) (0,1) (1,1) (0,2) ... (1,7)
+#    ifdef USE_SSE42
+        loader0 = vecw_shuffle8(loader0, gather_u16s);
+        loader1 = vecw_shuffle8(loader1, gather_u16s);
+        loader2 = vecw_shuffle8(loader2, gather_u16s);
+        loader3 = vecw_shuffle8(loader3, gather_u16s);
+#    else
+        VecW tmp_lo = vecw_unpacklo8(loader0, loader1);
+        VecW tmp_hi = vecw_unpackhi8(loader0, loader1);
+        loader0 = (tmp_lo & m8) | vecw_and_notfirst(m8, vecw_slli(tmp_hi, 8));
+        loader1 = (vecw_srli(tmp_lo, 8) & m8) | vecw_and_notfirst(m8, tmp_hi);
+        tmp_lo = vecw_unpacklo8(loader2, loader3);
+        tmp_hi = vecw_unpackhi8(loader2, loader3);
+        loader2 = (tmp_lo & m8) | vecw_and_notfirst(m8, vecw_slli(tmp_hi, 8));
+        loader3 = (vecw_srli(tmp_lo, 8) & m8) | vecw_and_notfirst(m8, tmp_hi);
+#    endif
+        // -> (0,0) (1,0) (2,0) (3,0) (0,1) (1,1) (2,1) (3,1) (0,2) ...
+        const __m128i lo_0123 = _mm_unpacklo_epi16(R_CAST(__m128i, loader0), R_CAST(__m128i, loader1));
+        // -> (0,4) (1,4) (2,4) (3,4) (0,5) (1,5) (2,5) (3,5) (0,6) ...
+        const __m128i lo_4567 = _mm_unpackhi_epi16(R_CAST(__m128i, loader0), R_CAST(__m128i, loader1));
+        const __m128i hi_0123 = _mm_unpacklo_epi16(R_CAST(__m128i, loader2), R_CAST(__m128i, loader3));
+        const __m128i hi_4567 = _mm_unpackhi_epi16(R_CAST(__m128i, loader2), R_CAST(__m128i, loader3));
+
+        __m128i final01 = _mm_unpacklo_epi32(lo_0123, hi_0123);
+        __m128i final23 = _mm_unpackhi_epi32(lo_0123, hi_0123);
+        __m128i final45 = _mm_unpacklo_epi32(lo_4567, hi_4567);
+        __m128i final67 = _mm_unpackhi_epi32(lo_4567, hi_4567);
+#    ifdef USE_SSE42
+        write_iter0[clidx] = _mm_extract_epi64(final01, 0);
+        write_iter1[clidx] = _mm_extract_epi64(final01, 1);
+        write_iter2[clidx] = _mm_extract_epi64(final23, 0);
+        write_iter3[clidx] = _mm_extract_epi64(final23, 1);
+        write_iter4[clidx] = _mm_extract_epi64(final45, 0);
+        write_iter5[clidx] = _mm_extract_epi64(final45, 1);
+        write_iter6[clidx] = _mm_extract_epi64(final67, 0);
+        write_iter7[clidx] = _mm_extract_epi64(final67, 1);
+#    else
+        write_iter0[clidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(final01));
+        write_iter2[clidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(final23));
+        write_iter4[clidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(final45));
+        write_iter6[clidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(final67));
+        final01 = _mm_srli_si128(final01, 8);
+        final23 = _mm_srli_si128(final23, 8);
+        final45 = _mm_srli_si128(final45, 8);
+        final67 = _mm_srli_si128(final67, 8);
+        write_iter1[clidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(final01));
+        write_iter3[clidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(final23));
+        write_iter5[clidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(final45));
+        write_iter7[clidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(final67));
+#    endif
+#  endif  // !USE_AVX2
       }
       buf0_read_iter = &(buf0_read_iter[512 / kWordsPerVec]);
-      write_iter0 = &(write_iter7[512 / kWordsPerVec]);
+      write_iter0 = &(write_iter7[64]);
     }
   }
   const VecW* buf1_read_iter = buf1;
   const uint32_t write_v8ui_stride = kVec8thUintPerWord * write_ul_stride;
-  const uint32_t write_v8ui_stride_x8 = write_v8ui_stride * 8;
-  const uint32_t buf0_fullrow_ct = write_row_ct / 64;
+  const uint32_t buf1_fullrow_ct = write_row_ct / 8;
   const uint32_t buf1_row_vecwidth = buf_row_xwidth * (8 / kWordsPerVec);
   Vec8thUint* write_iter0 = R_CAST(Vec8thUint*, write_iter);
-  for (uint32_t bidx = 0; bidx < buf0_fullrow_ct; ++bidx) {
-    for (uint32_t midx = 0; midx != 8; ++midx) {
-      // Note that write_iter0 writes rows 0..7 (mod 64), write_iter1 writes
-      // rows 8..15 (mod 64), etc.
-      Vec8thUint* write_iter1 = &(write_iter0[write_v8ui_stride_x8]);
-      Vec8thUint* write_iter2 = &(write_iter1[write_v8ui_stride_x8]);
-      Vec8thUint* write_iter3 = &(write_iter2[write_v8ui_stride_x8]);
-      Vec8thUint* write_iter4 = &(write_iter3[write_v8ui_stride_x8]);
-      Vec8thUint* write_iter5 = &(write_iter4[write_v8ui_stride_x8]);
-      Vec8thUint* write_iter6 = &(write_iter5[write_v8ui_stride_x8]);
-      Vec8thUint* write_iter7 = &(write_iter6[write_v8ui_stride_x8]);
-      for (uint32_t vidx = 0; vidx != buf1_row_vecwidth; ++vidx) {
-        VecW loader = buf1_read_iter[vidx];
-        write_iter7[vidx] = vecw_movemask(loader);
-        loader = vecw_slli(loader, 1);
-        write_iter6[vidx] = vecw_movemask(loader);
-        loader = vecw_slli(loader, 1);
-        write_iter5[vidx] = vecw_movemask(loader);
-        loader = vecw_slli(loader, 1);
-        write_iter4[vidx] = vecw_movemask(loader);
-        loader = vecw_slli(loader, 1);
-        write_iter3[vidx] = vecw_movemask(loader);
-        loader = vecw_slli(loader, 1);
-        write_iter2[vidx] = vecw_movemask(loader);
-        loader = vecw_slli(loader, 1);
-        write_iter1[vidx] = vecw_movemask(loader);
-        loader = vecw_slli(loader, 1);
-        write_iter0[vidx] = vecw_movemask(loader);
-      }
-      buf1_read_iter = &(buf1_read_iter[64 / kWordsPerVec]);
-      write_iter0 = &(write_iter0[write_v8ui_stride]);
+  for (uint32_t bidx = 0; bidx != buf1_fullrow_ct; ++bidx) {
+    Vec8thUint* write_iter1 = &(write_iter0[write_v8ui_stride]);
+    Vec8thUint* write_iter2 = &(write_iter1[write_v8ui_stride]);
+    Vec8thUint* write_iter3 = &(write_iter2[write_v8ui_stride]);
+    Vec8thUint* write_iter4 = &(write_iter3[write_v8ui_stride]);
+    Vec8thUint* write_iter5 = &(write_iter4[write_v8ui_stride]);
+    Vec8thUint* write_iter6 = &(write_iter5[write_v8ui_stride]);
+    Vec8thUint* write_iter7 = &(write_iter6[write_v8ui_stride]);
+    for (uint32_t vidx = 0; vidx != buf1_row_vecwidth; ++vidx) {
+      VecW loader = buf1_read_iter[vidx];
+      write_iter7[vidx] = vecw_movemask(loader);
+      loader = vecw_slli(loader, 1);
+      write_iter6[vidx] = vecw_movemask(loader);
+      loader = vecw_slli(loader, 1);
+      write_iter5[vidx] = vecw_movemask(loader);
+      loader = vecw_slli(loader, 1);
+      write_iter4[vidx] = vecw_movemask(loader);
+      loader = vecw_slli(loader, 1);
+      write_iter3[vidx] = vecw_movemask(loader);
+      loader = vecw_slli(loader, 1);
+      write_iter2[vidx] = vecw_movemask(loader);
+      loader = vecw_slli(loader, 1);
+      write_iter1[vidx] = vecw_movemask(loader);
+      loader = vecw_slli(loader, 1);
+      write_iter0[vidx] = vecw_movemask(loader);
     }
-    // Advance from 8 (mod 64) to the next multiple of 64.
-    write_iter0 = &(write_iter0[7 * write_v8ui_stride_x8]);
+    buf1_read_iter = &(buf1_read_iter[64 / kWordsPerVec]);
+    write_iter0 = &(write_iter7[write_v8ui_stride]);
   }
-  const uint32_t row_ct_rem = write_row_ct % 64;
+  const uint32_t row_ct_rem = write_row_ct % 8;
   if (!row_ct_rem) {
     return;
   }
-  // Okay, this is the crappy part.
-  // The main drawback of the unusual, movemask-driven bit arrangement after
-  // step 2 is that when write_row_ct is not a multiple of 64, we can't just
-  // use a single loop or switch-statement to avoid writing past the end of the
-  // matrix; instead, we have to tweak a pair of nested loops, where the inner
-  // loop executes DivUpPow2(remainder,8) times on the first outer-loop
-  // iteration, but executes one less time later on (unless remainder is a
-  // multiple of 8).
-  const uint32_t inner_loop_len = (row_ct_rem + 7) / 8;
-  uint32_t midx = 0;
-
-  // When midx hits this value, we have to fall through and finish with the
-  // next-smaller inner loop.
-  const uint32_t loop_change_point = row_ct_rem % 8;
-
-  switch (inner_loop_len) {
-    case 8:
-      do {
-        Vec8thUint* write_iter1 = &(write_iter0[write_v8ui_stride_x8]);
-        Vec8thUint* write_iter2 = &(write_iter1[write_v8ui_stride_x8]);
-        Vec8thUint* write_iter3 = &(write_iter2[write_v8ui_stride_x8]);
-        Vec8thUint* write_iter4 = &(write_iter3[write_v8ui_stride_x8]);
-        Vec8thUint* write_iter5 = &(write_iter4[write_v8ui_stride_x8]);
-        Vec8thUint* write_iter6 = &(write_iter5[write_v8ui_stride_x8]);
-        Vec8thUint* write_iter7 = &(write_iter6[write_v8ui_stride_x8]);
-        for (uint32_t vidx = 0; vidx != buf1_row_vecwidth; ++vidx) {
-          VecW loader = buf1_read_iter[vidx];
-          write_iter7[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter6[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter5[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter4[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter3[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter2[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter1[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter0[vidx] = vecw_movemask(loader);
-        }
-        // impossible for midx to hit 8 in this loop, since row_ct_rem can't be
-        // 64
-        ++midx;
-        buf1_read_iter = &(buf1_read_iter[64 / kWordsPerVec]);
-        write_iter0 = &(write_iter0[write_v8ui_stride]);
-      } while (midx != loop_change_point);
-      // fall through
-    case 7:
-      do {
-        Vec8thUint* write_iter1 = &(write_iter0[write_v8ui_stride_x8]);
-        Vec8thUint* write_iter2 = &(write_iter1[write_v8ui_stride_x8]);
-        Vec8thUint* write_iter3 = &(write_iter2[write_v8ui_stride_x8]);
-        Vec8thUint* write_iter4 = &(write_iter3[write_v8ui_stride_x8]);
-        Vec8thUint* write_iter5 = &(write_iter4[write_v8ui_stride_x8]);
-        Vec8thUint* write_iter6 = &(write_iter5[write_v8ui_stride_x8]);
-        for (uint32_t vidx = 0; vidx != buf1_row_vecwidth; ++vidx) {
-          VecW loader = buf1_read_iter[vidx];
-          loader = vecw_slli(loader, 1);
-          write_iter6[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter5[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter4[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter3[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter2[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter1[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter0[vidx] = vecw_movemask(loader);
-        }
-        if (++midx == 8) {
-          return;
-        }
-        buf1_read_iter = &(buf1_read_iter[64 / kWordsPerVec]);
-        write_iter0 = &(write_iter0[write_v8ui_stride]);
-      } while (midx != loop_change_point);
-      // fall through
-    case 6:
-      do {
-        Vec8thUint* write_iter1 = &(write_iter0[write_v8ui_stride_x8]);
-        Vec8thUint* write_iter2 = &(write_iter1[write_v8ui_stride_x8]);
-        Vec8thUint* write_iter3 = &(write_iter2[write_v8ui_stride_x8]);
-        Vec8thUint* write_iter4 = &(write_iter3[write_v8ui_stride_x8]);
-        Vec8thUint* write_iter5 = &(write_iter4[write_v8ui_stride_x8]);
-        for (uint32_t vidx = 0; vidx != buf1_row_vecwidth; ++vidx) {
-          VecW loader = buf1_read_iter[vidx];
-          loader = vecw_slli(loader, 2);
-          write_iter5[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter4[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter3[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter2[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter1[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter0[vidx] = vecw_movemask(loader);
-        }
-        if (++midx == 8) {
-          return;
-        }
-        buf1_read_iter = &(buf1_read_iter[64 / kWordsPerVec]);
-        write_iter0 = &(write_iter0[write_v8ui_stride]);
-      } while (midx != loop_change_point);
-      // fall through
-    case 5:
-      do {
-        Vec8thUint* write_iter1 = &(write_iter0[write_v8ui_stride_x8]);
-        Vec8thUint* write_iter2 = &(write_iter1[write_v8ui_stride_x8]);
-        Vec8thUint* write_iter3 = &(write_iter2[write_v8ui_stride_x8]);
-        Vec8thUint* write_iter4 = &(write_iter3[write_v8ui_stride_x8]);
-        for (uint32_t vidx = 0; vidx != buf1_row_vecwidth; ++vidx) {
-          VecW loader = buf1_read_iter[vidx];
-          loader = vecw_slli(loader, 3);
-          write_iter4[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter3[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter2[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter1[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter0[vidx] = vecw_movemask(loader);
-        }
-        if (++midx == 8) {
-          return;
-        }
-        buf1_read_iter = &(buf1_read_iter[64 / kWordsPerVec]);
-        write_iter0 = &(write_iter0[write_v8ui_stride]);
-      } while (midx != loop_change_point);
-      // fall through
-    case 4:
-      do {
-        Vec8thUint* write_iter1 = &(write_iter0[write_v8ui_stride_x8]);
-        Vec8thUint* write_iter2 = &(write_iter1[write_v8ui_stride_x8]);
-        Vec8thUint* write_iter3 = &(write_iter2[write_v8ui_stride_x8]);
-        for (uint32_t vidx = 0; vidx != buf1_row_vecwidth; ++vidx) {
-          VecW loader = buf1_read_iter[vidx];
-          loader = vecw_slli(loader, 4);
-          write_iter3[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter2[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter1[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter0[vidx] = vecw_movemask(loader);
-        }
-        if (++midx == 8) {
-          return;
-        }
-        buf1_read_iter = &(buf1_read_iter[64 / kWordsPerVec]);
-        write_iter0 = &(write_iter0[write_v8ui_stride]);
-      } while (midx != loop_change_point);
-      // fall through
-    case 3:
-      do {
-        Vec8thUint* write_iter1 = &(write_iter0[write_v8ui_stride_x8]);
-        Vec8thUint* write_iter2 = &(write_iter1[write_v8ui_stride_x8]);
-        for (uint32_t vidx = 0; vidx != buf1_row_vecwidth; ++vidx) {
-          VecW loader = buf1_read_iter[vidx];
-          loader = vecw_slli(loader, 5);
-          write_iter2[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter1[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter0[vidx] = vecw_movemask(loader);
-        }
-        if (++midx == 8) {
-          return;
-        }
-        buf1_read_iter = &(buf1_read_iter[64 / kWordsPerVec]);
-        write_iter0 = &(write_iter0[write_v8ui_stride]);
-      } while (midx != loop_change_point);
-      // fall through
-    case 2:
-      do {
-        Vec8thUint* write_iter1 = &(write_iter0[write_v8ui_stride_x8]);
-        for (uint32_t vidx = 0; vidx != buf1_row_vecwidth; ++vidx) {
-          VecW loader = buf1_read_iter[vidx];
-          loader = vecw_slli(loader, 6);
-          write_iter1[vidx] = vecw_movemask(loader);
-          loader = vecw_slli(loader, 1);
-          write_iter0[vidx] = vecw_movemask(loader);
-        }
-        if (++midx == 8) {
-          return;
-        }
-        buf1_read_iter = &(buf1_read_iter[64 / kWordsPerVec]);
-        write_iter0 = &(write_iter0[write_v8ui_stride]);
-      } while (midx != loop_change_point);
-      // fall through
-    default:
-      do {
-        for (uint32_t vidx = 0; vidx != buf1_row_vecwidth; ++vidx) {
-          VecW loader = buf1_read_iter[vidx];
-          loader = vecw_slli(loader, 7);
-          write_iter0[vidx] = vecw_movemask(loader);
-        }
-        if (++midx == 8) {
-          return;
-        }
-        buf1_read_iter = &(buf1_read_iter[64 / kWordsPerVec]);
-        write_iter0 = &(write_iter0[write_v8ui_stride]);
-      } while (midx != loop_change_point);
+  const uint32_t lshift = 8 - row_ct_rem;
+  Vec8thUint* write_iter_last = &(write_iter0[write_v8ui_stride * (row_ct_rem - 1)]);
+  for (uint32_t vidx = 0; vidx != buf1_row_vecwidth; ++vidx) {
+    VecW loader = buf1_read_iter[vidx];
+    loader = vecw_slli(loader, lshift);
+    Vec8thUint* inner_write_iter = &(write_iter_last[vidx]);
+    for (uint32_t uii = 0; uii != row_ct_rem; ++uii) {
+      *inner_write_iter = vecw_movemask(loader);
+      loader = vecw_slli(loader, 1);
+      inner_write_iter -= write_v8ui_stride;
+    }
   }
 }
 #else  // !__LP64__
@@ -2440,7 +2303,7 @@ void TransposeBitblock32(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
 }
 #endif  // !__LP64__
 
-#ifdef USE_SSE42
+#ifdef __LP64__
 void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, VecW* vecaligned_buf) {
   // Very similar to TransposeQuaterblockShuffle() in pgenlib_internal.
   // vecaligned_buf must be vector-aligned and have size 8k
@@ -2470,11 +2333,16 @@ void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
   const uint32_t buf_fullrow_ct = write_batch_size / 8;
   const uint32_t eightword_ct = DivUp(read_batch_size, 16);
   uintptr_t* target_iter0 = write_iter;
+  uint32_t cur_dst_row_ct = 8;
+#  ifdef USE_SSE42
   const VecW gather_u16s = vecw_setr8(0, 8, 1, 9, 2, 10, 3, 11,
                                       4, 12, 5, 13, 6, 14, 7, 15);
-  uint32_t cur_dst_row_ct = 8;
+#  else
+  const VecW m8 = VCONST_W(kMask00FF);
+#  endif
 #  ifdef USE_AVX2
-  const __m256i final_gather = R_CAST(__m256i, vecw_setr8(0, 1, 8, 9, 2, 3, 10, 11, 4, 5, 12, 13, 6, 7, 14, 15));
+  // movemask is slower even in AVX2 case
+  const __m256i gather_u32s = R_CAST(__m256i, vecw_setr8(0, 1, 8, 9, 2, 3, 10, 11, 4, 5, 12, 13, 6, 7, 14, 15));
   for (uint32_t buf_row_idx = 0; ; ++buf_row_idx) {
     if (buf_row_idx >= buf_fullrow_ct) {
       if (buf_row_idx == buf_row_ct) {
@@ -2533,12 +2401,8 @@ void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
       target_even = _mm256_permute4x64_epi64(target_even, 0xd8);
       target_odd = _mm256_permute4x64_epi64(target_odd, 0xd8);
 
-      target_even = _mm256_shuffle_epi8(target_even, final_gather);
-      target_odd = _mm256_shuffle_epi8(target_odd, final_gather);
-
-      // random note: _mm_storeu_si{16,32,64}() exists, but was missed by
-      // clang <= 7 and gcc < 9?!
-      // http://gcc.1065356.n8.nabble.com/Bug-c-87558-New-Missing-mm-storeu-si64-intrinsic-td1519995.html
+      target_even = _mm256_shuffle_epi8(target_even, gather_u32s);
+      target_odd = _mm256_shuffle_epi8(target_odd, gather_u32s);
 
       switch (cur_dst_row_ct) {
         case 8:
@@ -2623,6 +2487,7 @@ void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
       //   (32, 40, 48, 56, 33, 41, 49, 57, 34, 42, 50, 58, 35, 43, 51, 59)
       //
       // finish with _mm_unpack{lo,hi}_epi32
+#    ifdef USE_SSE42
       even_nibbles0 = vecw_shuffle8(even_nibbles0, gather_u16s);
       odd_nibbles0 = vecw_shuffle8(odd_nibbles0, gather_u16s);
       even_nibbles1 = vecw_shuffle8(even_nibbles1, gather_u16s);
@@ -2631,6 +2496,24 @@ void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
       odd_nibbles2 = vecw_shuffle8(odd_nibbles2, gather_u16s);
       even_nibbles3 = vecw_shuffle8(even_nibbles3, gather_u16s);
       odd_nibbles3 = vecw_shuffle8(odd_nibbles3, gather_u16s);
+#    else
+      VecW tmp_lo = vecw_unpacklo8(even_nibbles0, odd_nibbles0);
+      VecW tmp_hi = vecw_unpackhi8(even_nibbles0, odd_nibbles0);
+      even_nibbles0 = (tmp_lo & m8) | vecw_and_notfirst(m8, vecw_slli(tmp_hi, 8));
+      odd_nibbles0 = (vecw_srli(tmp_lo, 8) & m8) | vecw_and_notfirst(m8, tmp_hi);
+      tmp_lo = vecw_unpacklo8(even_nibbles1, odd_nibbles1);
+      tmp_hi = vecw_unpackhi8(even_nibbles1, odd_nibbles1);
+      even_nibbles1 = (tmp_lo & m8) | vecw_and_notfirst(m8, vecw_slli(tmp_hi, 8));
+      odd_nibbles1 = (vecw_srli(tmp_lo, 8) & m8) | vecw_and_notfirst(m8, tmp_hi);
+      tmp_lo = vecw_unpacklo8(even_nibbles2, odd_nibbles2);
+      tmp_hi = vecw_unpackhi8(even_nibbles2, odd_nibbles2);
+      even_nibbles2 = (tmp_lo & m8) | vecw_and_notfirst(m8, vecw_slli(tmp_hi, 8));
+      odd_nibbles2 = (vecw_srli(tmp_lo, 8) & m8) | vecw_and_notfirst(m8, tmp_hi);
+      tmp_lo = vecw_unpacklo8(even_nibbles3, odd_nibbles3);
+      tmp_hi = vecw_unpackhi8(even_nibbles3, odd_nibbles3);
+      even_nibbles3 = (tmp_lo & m8) | vecw_and_notfirst(m8, vecw_slli(tmp_hi, 8));
+      odd_nibbles3 = (vecw_srli(tmp_lo, 8) & m8) | vecw_and_notfirst(m8, tmp_hi);
+#    endif
 
       const __m128i even_lo = _mm_unpacklo_epi16(R_CAST(__m128i, even_nibbles0), R_CAST(__m128i, even_nibbles1));
       const __m128i odd_lo = _mm_unpackhi_epi16(R_CAST(__m128i, odd_nibbles0), R_CAST(__m128i, odd_nibbles1));
@@ -2642,6 +2525,7 @@ void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
       const __m128i final46 = _mm_unpackhi_epi32(even_lo, even_hi);
       const __m128i final57 = _mm_unpackhi_epi32(odd_lo, odd_hi);
       switch (cur_dst_row_ct) {
+#    ifdef USE_SSE42
         case 8:
           target_iter7[qvidx] = _mm_extract_epi64(final57, 1);
           // fall through
@@ -2665,6 +2549,43 @@ void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
           // fall through
         default:
           target_iter0[qvidx] = _mm_extract_epi64(final02, 0);
+#    else
+        case 8:
+          {
+            const __m128i tmp7 = _mm_srli_si128(final57, 8);
+            target_iter7[qvidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(tmp7));
+          }
+          // fall through
+        case 7:
+          {
+            const __m128i tmp6 = _mm_srli_si128(final46, 8);
+            target_iter6[qvidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(tmp6));
+          }
+          // fall through
+        case 6:
+          target_iter5[qvidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(final57));
+          // fall through
+        case 5:
+          target_iter4[qvidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(final46));
+          // fall through
+        case 4:
+          {
+            const __m128i tmp3 = _mm_srli_si128(final13, 8);
+            target_iter3[qvidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(tmp3));
+          }
+          // fall through
+        case 3:
+          {
+            const __m128i tmp2 = _mm_srli_si128(final02, 8);
+            target_iter2[qvidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(tmp2));
+          }
+          // fall through
+        case 2:
+          target_iter1[qvidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(final13));
+          // fall through
+        default:
+          target_iter0[qvidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(final02));
+#    endif
       }
     }
     source_iter = &(source_iter[(4 * kPglNibbleTransposeBatch) / kBytesPerVec]);
@@ -2672,12 +2593,8 @@ void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
   }
 #  endif  // !USE_AVX2
 }
-#else
-#  ifdef __LP64__
-static_assert(kWordsPerVec == 2, "TransposeNibbleblock() needs to be updated.");
-#  else
+#else  // !__LP64__
 static_assert(kWordsPerVec == 1, "TransposeNibbleblock() needs to be updated.");
-#  endif
 void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, VecW* vecaligned_buf) {
   // Very similar to TransposeQuaterblockInternal() in pgenlib_internal.
   // vecaligned_buf must be vector-aligned and have size 8k
@@ -2700,33 +2617,11 @@ void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
   // 8 bit spacing -> 4
   const VecW* source_iter = vecaligned_buf;
   uintptr_t* target_iter0 = write_iter;
-#  ifdef __LP64__
-  const VecW m4 = VCONST_W(kMask0F0F);
-  const VecW m8 = VCONST_W(kMask00FF);
-  const VecW m16 = VCONST_W(kMask0000FFFF);
-#  endif
   const uint32_t buf_fullrow_ct = write_batch_size / 2;
   const uint32_t write_word_ct = NibbleCtToWordCt(read_batch_size);
   for (uint32_t uii = 0; uii != buf_fullrow_ct; ++uii) {
     uintptr_t* target_iter1 = &(target_iter0[write_ul_stride]);
     for (uint32_t ujj = 0; ujj != write_word_ct; ++ujj) {
-#  ifdef __LP64__
-      const VecW loader = *source_iter++;
-      VecW target0 = loader & m4;
-      VecW target1 = (vecw_srli(loader, 4)) & m4;
-      target0 = (target0 | (vecw_srli(target0, 4)));
-      target1 = (target1 | (vecw_srli(target1, 4)));
-      target0 = target0 & m8;
-      target1 = target1 & m8;
-      target0 = (target0 | (vecw_srli(target0, 8))) & m16;
-      target1 = (target1 | (vecw_srli(target1, 8))) & m16;
-      UniVec target0u;
-      UniVec target1u;
-      target0u.vw = target0 | (vecw_srli(target0, 16));
-      target1u.vw = target1 | (vecw_srli(target1, 16));
-      target_iter0[ujj] = S_CAST(uint32_t, target0u.w[0]) | (target0u.w[1] << 32);
-      target_iter1[ujj] = S_CAST(uint32_t, target1u.w[0]) | (target1u.w[1] << 32);
-#  else
       const uintptr_t source_word_lo = *source_iter++;
       const uintptr_t source_word_hi = *source_iter++;
       uintptr_t target_word0_lo = source_word_lo & kMask0F0F;
@@ -2743,13 +2638,8 @@ void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
       target_word1_hi = target_word1_hi | (target_word1_hi >> kBitsPerWordD4);
       target_iter0[ujj] = S_CAST(Halfword, target_word0_lo) | (target_word0_hi << kBitsPerWordD2);
       target_iter1[ujj] = S_CAST(Halfword, target_word1_lo) | (target_word1_hi << kBitsPerWordD2);
-#  endif
     }
-#  ifdef __LP64__
-    source_iter = &(source_iter[kWordsPerCacheline - write_word_ct]);
-#  else
     source_iter = &(source_iter[2 * (kWordsPerCacheline - write_word_ct)]);
-#  endif
     target_iter0 = &(target_iter1[write_ul_stride]);
   }
   const uint32_t remainder = write_batch_size % 2;
@@ -2757,16 +2647,6 @@ void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
     return;
   }
   for (uint32_t ujj = 0; ujj != write_word_ct; ++ujj) {
-#  ifdef __LP64__
-    const VecW loader = *source_iter++;
-    VecW target0 = loader & m4;
-    target0 = (target0 | (vecw_srli(target0, 4)));
-    target0 = target0 & m8;
-    target0 = (target0 | (vecw_srli(target0, 8))) & m16;
-    UniVec target0u;
-    target0u.vw = target0 | (vecw_srli(target0, 16));
-    target_iter0[ujj] = S_CAST(uint32_t, target0u.w[0]) | (target0u.w[1] << 32);
-#  else
     const uintptr_t source_word_lo = *source_iter++;
     const uintptr_t source_word_hi = *source_iter++;
     uintptr_t target_word0_lo = source_word_lo & kMask0F0F;
@@ -2776,10 +2656,9 @@ void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
     target_word0_lo = target_word0_lo | (target_word0_lo >> kBitsPerWordD4);
     target_word0_hi = target_word0_hi | (target_word0_hi >> kBitsPerWordD4);
     target_iter0[ujj] = S_CAST(Halfword, target_word0_lo) | (target_word0_hi << kBitsPerWordD2);
-#  endif
   }
 }
-#endif  // !USE_SSE42
+#endif  // !__LP64__
 
 #ifdef __LP64__
 #  ifdef USE_AVX2
