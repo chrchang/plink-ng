@@ -944,7 +944,7 @@ HEADER_INLINE VecUc vecuc_adds(VecUc v1, VecUc v2) {
   return R_CAST(VecUc, _mm256_adds_epu8(R_CAST(__m256i, v1), R_CAST(__m256i, v2)));
 }
 
-#  else
+#  else  // !USE_AVX2
 
 #    define VCONST_W(xx) {xx, xx}
 #    define VCONST_S(xx) {xx, xx, xx, xx, xx, xx, xx, xx}
@@ -3148,7 +3148,7 @@ HEADER_INLINE void TransposeBitblock(const uintptr_t* read_iter, uintptr_t read_
 
 #else  // !__LP64__
 CONSTI32(kPglBitTransposeBufbytes, (kPglBitTransposeBatch * kPglBitTransposeBatch) / (CHAR_BIT / 2));
-void TransposeBitblock32(const uintptr_t* read_iter, uint32_t read_ul_stride, uintptr_t write_ul_stride, uintptr_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecW* __restrict buf0, VecW* __restrict buf1);
+void TransposeBitblock32(const uintptr_t* read_iter, uintptr_t read_ul_stride, uintptr_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecW* __restrict buf0, VecW* __restrict buf1);
 
 // If this ever needs to be called on an input byte array, read_iter could be
 // changed to const void*; in that case, read_ul_stride should be changed to a

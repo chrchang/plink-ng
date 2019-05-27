@@ -1442,8 +1442,11 @@ void TransposeQuaterblock64(const uintptr_t* read_iter, uint32_t read_ul_stride,
         const __m256i vec_hi = _mm256_shuffle_epi32(R_CAST(__m256i, loader1), 0xd8);
         const __m256i final0145 = _mm256_unpacklo_epi64(vec_lo, vec_hi);
         const __m256i final2367 = _mm256_unpackhi_epi64(vec_lo, vec_hi);
-        _mm256_storeu2_m128i(&(write_iter2[clidx]), &(write_iter0[clidx]), final0145);
-        _mm256_storeu2_m128i(&(write_iter3[clidx]), &(write_iter1[clidx]), final2367);
+        // GCC doesn't support _mm256_storeu_si128i as of this writing.
+        write_iter0[clidx] = _mm256_castsi256_si128(final0145);
+        write_iter1[clidx] = _mm256_castsi256_si128(final2367);
+        write_iter2[clidx] = _mm256_extracti128_si256(final0145, 1);
+        write_iter3[clidx] = _mm256_extracti128_si256(final2367, 1);
 #  else
         VecW loader0 = buf0_read_iter[clidx * 4];
         VecW loader1 = buf0_read_iter[clidx * 4 + 1];
