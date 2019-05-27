@@ -2003,11 +2003,9 @@ void TransposeBitblock64(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
   // buf0 and buf1 must both be 32KiB vector-aligned buffers.
 
   const uint32_t buf0_row_ct = DivUp(write_row_ct, 64);
-  // Each width-unit corresponds to 64 input rows.
-  const uint32_t buf_row_xwidth = DivUp(read_row_ct, 64);
   {
     uintptr_t* buf0_ul = R_CAST(uintptr_t*, buf0);
-    const uint32_t zfill_ct = buf_row_xwidth * 64 - read_row_ct;
+    const uint32_t zfill_ct = (-read_row_ct) & 63;
     for (uint32_t bidx = 0; bidx != buf0_row_ct; ++bidx) {
       const uintptr_t* read_iter_tmp = &(read_iter[bidx]);
       uintptr_t* buf0_row_start = &(buf0_ul[512 * bidx]);
@@ -2017,9 +2015,14 @@ void TransposeBitblock64(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
       }
       // This is a simple way of fulfilling the trailing-zero part of the
       // function contract.
+      // (   buf0 rows zeroed out to 512 bytes
+      //  -> buf1 rows zeroed out to 64 bytes
+      //  -> output rows zeroed out to 8 bytes)
       ZeroWArr(zfill_ct, &(buf0_row_start[read_row_ct]));
     }
   }
+  // Each width-unit corresponds to 64 input rows.
+  const uint32_t buf_row_xwidth = DivUp(read_row_ct, 64);
   {
     const VecW* buf0_read_iter = buf0;
     uintptr_t* write_iter0 = R_CAST(uintptr_t*, buf1);
@@ -2051,22 +2054,22 @@ void TransposeBitblock64(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
         loader0 = vecw_shuffle8(loader0, gather_u16s);
         loader1 = vecw_shuffle8(loader1, gather_u16s);
         // -> (0,0) (1,0) (0,1) (1,1) (0,2) (1,2) (0,3) (1,3) (2,0) (3,0) ...
-        __m256i vec_lo = _mm256_permute4x64_epi64(R_CAST(__m256i, loader0), 0xd8);
-        __m256i vec_hi = _mm256_permute4x64_epi64(R_CAST(__m256i, loader1), 0xd8);
+        VecW vec_lo = vecw_permute0xd8_if_avx2(loader0);
+        VecW vec_hi = vecw_permute0xd8_if_avx2(loader1);
         // -> (0,0) (1,0) (2,0) (3,0) (0,1) (1,1) (2,1) (3,1) (0,2) ...
-        vec_lo = _mm256_shuffle_epi8(vec_lo, gather_u32s);
+        vec_lo = vecw_shuffle8(vec_lo, gather_u32s);
         // -> (4,0) (5,0) (6,0) (7,0) (4,1) (5,1) (6,1) (7,1) (4,2) ...
-        vec_hi = _mm256_shuffle_epi8(vec_hi, gather_u32s);
-        const __m256i final0145 = _mm256_unpacklo_epi32(vec_lo, vec_hi);
-        const __m256i final2367 = _mm256_unpackhi_epi32(vec_lo, vec_hi);
-        write_iter0[clidx] = _mm256_extract_epi64(final0145, 0);
-        write_iter1[clidx] = _mm256_extract_epi64(final0145, 1);
-        write_iter2[clidx] = _mm256_extract_epi64(final2367, 0);
-        write_iter3[clidx] = _mm256_extract_epi64(final2367, 1);
-        write_iter4[clidx] = _mm256_extract_epi64(final0145, 2);
-        write_iter5[clidx] = _mm256_extract_epi64(final0145, 3);
-        write_iter6[clidx] = _mm256_extract_epi64(final2367, 2);
-        write_iter7[clidx] = _mm256_extract_epi64(final2367, 3);
+        vec_hi = vecw_shuffle8(vec_hi, gather_u32s);
+        const VecW final0145 = vecw_unpacklo32(vec_lo, vec_hi);
+        const VecW final2367 = vecw_unpackhi32(vec_lo, vec_hi);
+        write_iter0[clidx] = vecw_extract64_0(final0145);
+        write_iter1[clidx] = vecw_extract64_1(final0145);
+        write_iter2[clidx] = vecw_extract64_0(final2367);
+        write_iter3[clidx] = vecw_extract64_1(final2367);
+        write_iter4[clidx] = vecw_extract64_2(final0145);
+        write_iter5[clidx] = vecw_extract64_3(final0145);
+        write_iter6[clidx] = vecw_extract64_2(final2367);
+        write_iter7[clidx] = vecw_extract64_3(final2367);
 #  else  // !USE_AVX2
         VecW loader0 = buf0_read_iter[clidx * 4];
         VecW loader1 = buf0_read_iter[clidx * 4 + 1];
@@ -2090,39 +2093,24 @@ void TransposeBitblock64(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
         loader3 = (vecw_srli(tmp_lo, 8) & m8) | vecw_and_notfirst(m8, tmp_hi);
 #    endif
         // -> (0,0) (1,0) (2,0) (3,0) (0,1) (1,1) (2,1) (3,1) (0,2) ...
-        const __m128i lo_0123 = _mm_unpacklo_epi16(R_CAST(__m128i, loader0), R_CAST(__m128i, loader1));
+        const VecW lo_0123 = vecw_unpacklo16(loader0, loader1);
         // -> (0,4) (1,4) (2,4) (3,4) (0,5) (1,5) (2,5) (3,5) (0,6) ...
-        const __m128i lo_4567 = _mm_unpackhi_epi16(R_CAST(__m128i, loader0), R_CAST(__m128i, loader1));
-        const __m128i hi_0123 = _mm_unpacklo_epi16(R_CAST(__m128i, loader2), R_CAST(__m128i, loader3));
-        const __m128i hi_4567 = _mm_unpackhi_epi16(R_CAST(__m128i, loader2), R_CAST(__m128i, loader3));
+        const VecW lo_4567 = vecw_unpackhi16(loader0, loader1);
+        const VecW hi_0123 = vecw_unpacklo16(loader2, loader3);
+        const VecW hi_4567 = vecw_unpackhi16(loader2, loader3);
 
-        __m128i final01 = _mm_unpacklo_epi32(lo_0123, hi_0123);
-        __m128i final23 = _mm_unpackhi_epi32(lo_0123, hi_0123);
-        __m128i final45 = _mm_unpacklo_epi32(lo_4567, hi_4567);
-        __m128i final67 = _mm_unpackhi_epi32(lo_4567, hi_4567);
-#    ifdef USE_SSE42
-        write_iter0[clidx] = _mm_extract_epi64(final01, 0);
-        write_iter1[clidx] = _mm_extract_epi64(final01, 1);
-        write_iter2[clidx] = _mm_extract_epi64(final23, 0);
-        write_iter3[clidx] = _mm_extract_epi64(final23, 1);
-        write_iter4[clidx] = _mm_extract_epi64(final45, 0);
-        write_iter5[clidx] = _mm_extract_epi64(final45, 1);
-        write_iter6[clidx] = _mm_extract_epi64(final67, 0);
-        write_iter7[clidx] = _mm_extract_epi64(final67, 1);
-#    else
-        write_iter0[clidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(final01));
-        write_iter2[clidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(final23));
-        write_iter4[clidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(final45));
-        write_iter6[clidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(final67));
-        final01 = _mm_srli_si128(final01, 8);
-        final23 = _mm_srli_si128(final23, 8);
-        final45 = _mm_srli_si128(final45, 8);
-        final67 = _mm_srli_si128(final67, 8);
-        write_iter1[clidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(final01));
-        write_iter3[clidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(final23));
-        write_iter5[clidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(final45));
-        write_iter7[clidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(final67));
-#    endif
+        VecW final01 = vecw_unpacklo32(lo_0123, hi_0123);
+        VecW final23 = vecw_unpackhi32(lo_0123, hi_0123);
+        VecW final45 = vecw_unpacklo32(lo_4567, hi_4567);
+        VecW final67 = vecw_unpackhi32(lo_4567, hi_4567);
+        write_iter0[clidx] = vecw_extract64_0(final01);
+        write_iter1[clidx] = vecw_extract64_1(final01);
+        write_iter2[clidx] = vecw_extract64_0(final23);
+        write_iter3[clidx] = vecw_extract64_1(final23);
+        write_iter4[clidx] = vecw_extract64_0(final45);
+        write_iter5[clidx] = vecw_extract64_1(final45);
+        write_iter6[clidx] = vecw_extract64_0(final67);
+        write_iter7[clidx] = vecw_extract64_1(final67);
 #  endif  // !USE_AVX2
       }
       buf0_read_iter = &(buf0_read_iter[512 / kWordsPerVec]);
@@ -2305,7 +2293,7 @@ void TransposeBitblock32(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
 
 #ifdef __LP64__
 void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, VecW* vecaligned_buf) {
-  // Very similar to TransposeQuaterblockShuffle() in pgenlib_internal.
+  // Very similar to TransposeQuaterblock64() in pgenlib_internal.
   // vecaligned_buf must be vector-aligned and have size 8k
   const uint32_t buf_row_ct = DivUp(write_batch_size, 8);
   // fold the first 4 shuffles into the initial ingestion loop
@@ -2342,7 +2330,8 @@ void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
 #  endif
 #  ifdef USE_AVX2
   // movemask is slower even in AVX2 case
-  const __m256i gather_u32s = R_CAST(__m256i, vecw_setr8(0, 1, 8, 9, 2, 3, 10, 11, 4, 5, 12, 13, 6, 7, 14, 15));
+  const VecW gather_u32s = vecw_setr8(0, 1, 8, 9, 2, 3, 10, 11,
+                                      4, 5, 12, 13, 6, 7, 14, 15);
   for (uint32_t buf_row_idx = 0; ; ++buf_row_idx) {
     if (buf_row_idx >= buf_fullrow_ct) {
       if (buf_row_idx == buf_row_ct) {
@@ -2395,39 +2384,40 @@ void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
       even_nibbles1 = vecw_shuffle8(even_nibbles1, gather_u16s);
       odd_nibbles1 = vecw_shuffle8(odd_nibbles1, gather_u16s);
 
-      __m256i target_even = _mm256_unpacklo_epi16(R_CAST(__m256i, even_nibbles0), R_CAST(__m256i, even_nibbles1));
-      __m256i target_odd = _mm256_unpackhi_epi16(R_CAST(__m256i, odd_nibbles0), R_CAST(__m256i, odd_nibbles1));
+      VecW target_even = vecw_unpacklo16(even_nibbles0, even_nibbles1);
+      VecW target_odd = vecw_unpackhi16(odd_nibbles0, odd_nibbles1);
 
-      target_even = _mm256_permute4x64_epi64(target_even, 0xd8);
-      target_odd = _mm256_permute4x64_epi64(target_odd, 0xd8);
+      target_even = vecw_permute0xd8_if_avx2(target_even);
+      target_odd = vecw_permute0xd8_if_avx2(target_odd);
 
-      target_even = _mm256_shuffle_epi8(target_even, gather_u32s);
-      target_odd = _mm256_shuffle_epi8(target_odd, gather_u32s);
+      target_even = vecw_shuffle8(target_even, gather_u32s);
+      target_odd = vecw_shuffle8(target_odd, gather_u32s);
 
+      // tried using _mm_stream_si64 here, that totally sucked
       switch (cur_dst_row_ct) {
         case 8:
-          target_iter7[dvidx] = _mm256_extract_epi64(target_odd, 3);
+          target_iter7[dvidx] = vecw_extract64_3(target_odd);
           // fall through
         case 7:
-          target_iter6[dvidx] = _mm256_extract_epi64(target_even, 3);
+          target_iter6[dvidx] = vecw_extract64_3(target_even);
           // fall through
         case 6:
-          target_iter5[dvidx] = _mm256_extract_epi64(target_odd, 2);
+          target_iter5[dvidx] = vecw_extract64_2(target_odd);
           // fall through
         case 5:
-          target_iter4[dvidx] = _mm256_extract_epi64(target_even, 2);
+          target_iter4[dvidx] = vecw_extract64_2(target_even);
           // fall through
         case 4:
-          target_iter3[dvidx] = _mm256_extract_epi64(target_odd, 1);
+          target_iter3[dvidx] = vecw_extract64_1(target_odd);
           // fall through
         case 3:
-          target_iter2[dvidx] = _mm256_extract_epi64(target_even, 1);
+          target_iter2[dvidx] = vecw_extract64_1(target_even);
           // fall through
         case 2:
-          target_iter1[dvidx] = _mm256_extract_epi64(target_odd, 0);
+          target_iter1[dvidx] = vecw_extract64_0(target_odd);
           // fall through
         default:
-          target_iter0[dvidx] = _mm256_extract_epi64(target_even, 0);
+          target_iter0[dvidx] = vecw_extract64_0(target_even);
       }
     }
     source_iter = &(source_iter[(4 * kPglNibbleTransposeBatch) / kBytesPerVec]);
@@ -2515,77 +2505,39 @@ void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
       odd_nibbles3 = (vecw_srli(tmp_lo, 8) & m8) | vecw_and_notfirst(m8, tmp_hi);
 #    endif
 
-      const __m128i even_lo = _mm_unpacklo_epi16(R_CAST(__m128i, even_nibbles0), R_CAST(__m128i, even_nibbles1));
-      const __m128i odd_lo = _mm_unpackhi_epi16(R_CAST(__m128i, odd_nibbles0), R_CAST(__m128i, odd_nibbles1));
-      const __m128i even_hi = _mm_unpacklo_epi16(R_CAST(__m128i, even_nibbles2), R_CAST(__m128i, even_nibbles3));
-      const __m128i odd_hi = _mm_unpackhi_epi16(R_CAST(__m128i, odd_nibbles2), R_CAST(__m128i, odd_nibbles3));
+      const VecW even_lo = vecw_unpacklo16(even_nibbles0, even_nibbles1);
+      const VecW odd_lo = vecw_unpackhi16(odd_nibbles0, odd_nibbles1);
+      const VecW even_hi = vecw_unpacklo16(even_nibbles2, even_nibbles3);
+      const VecW odd_hi = vecw_unpackhi16(odd_nibbles2, odd_nibbles3);
 
-      const __m128i final02 = _mm_unpacklo_epi32(even_lo, even_hi);
-      const __m128i final13 = _mm_unpacklo_epi32(odd_lo, odd_hi);
-      const __m128i final46 = _mm_unpackhi_epi32(even_lo, even_hi);
-      const __m128i final57 = _mm_unpackhi_epi32(odd_lo, odd_hi);
+      const VecW final02 = vecw_unpacklo32(even_lo, even_hi);
+      const VecW final13 = vecw_unpacklo32(odd_lo, odd_hi);
+      const VecW final46 = vecw_unpackhi32(even_lo, even_hi);
+      const VecW final57 = vecw_unpackhi32(odd_lo, odd_hi);
       switch (cur_dst_row_ct) {
-#    ifdef USE_SSE42
         case 8:
-          target_iter7[qvidx] = _mm_extract_epi64(final57, 1);
+          target_iter7[qvidx] = vecw_extract64_1(final57);
           // fall through
         case 7:
-          target_iter6[qvidx] = _mm_extract_epi64(final46, 1);
+          target_iter6[qvidx] = vecw_extract64_1(final46);
           // fall through
         case 6:
-          target_iter5[qvidx] = _mm_extract_epi64(final57, 0);
+          target_iter5[qvidx] = vecw_extract64_0(final57);
           // fall through
         case 5:
-          target_iter4[qvidx] = _mm_extract_epi64(final46, 0);
+          target_iter4[qvidx] = vecw_extract64_0(final46);
           // fall through
         case 4:
-          target_iter3[qvidx] = _mm_extract_epi64(final13, 1);
+          target_iter3[qvidx] = vecw_extract64_1(final13);
           // fall through
         case 3:
-          target_iter2[qvidx] = _mm_extract_epi64(final02, 1);
+          target_iter2[qvidx] = vecw_extract64_1(final02);
           // fall through
         case 2:
-          target_iter1[qvidx] = _mm_extract_epi64(final13, 0);
+          target_iter1[qvidx] = vecw_extract64_0(final13);
           // fall through
         default:
-          target_iter0[qvidx] = _mm_extract_epi64(final02, 0);
-#    else
-        case 8:
-          {
-            const __m128i tmp7 = _mm_srli_si128(final57, 8);
-            target_iter7[qvidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(tmp7));
-          }
-          // fall through
-        case 7:
-          {
-            const __m128i tmp6 = _mm_srli_si128(final46, 8);
-            target_iter6[qvidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(tmp6));
-          }
-          // fall through
-        case 6:
-          target_iter5[qvidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(final57));
-          // fall through
-        case 5:
-          target_iter4[qvidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(final46));
-          // fall through
-        case 4:
-          {
-            const __m128i tmp3 = _mm_srli_si128(final13, 8);
-            target_iter3[qvidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(tmp3));
-          }
-          // fall through
-        case 3:
-          {
-            const __m128i tmp2 = _mm_srli_si128(final02, 8);
-            target_iter2[qvidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(tmp2));
-          }
-          // fall through
-        case 2:
-          target_iter1[qvidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(final13));
-          // fall through
-        default:
-          target_iter0[qvidx] = R_CAST(uintptr_t, _mm_movepi64_pi64(final02));
-#    endif
+          target_iter0[qvidx] = vecw_extract64_0(final02);
       }
     }
     source_iter = &(source_iter[(4 * kPglNibbleTransposeBatch) / kBytesPerVec]);
@@ -2596,7 +2548,7 @@ void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
 #else  // !__LP64__
 static_assert(kWordsPerVec == 1, "TransposeNibbleblock() needs to be updated.");
 void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, VecW* vecaligned_buf) {
-  // Very similar to TransposeQuaterblockInternal() in pgenlib_internal.
+  // Very similar to TransposeQuaterblock32() in pgenlib_internal.
   // vecaligned_buf must be vector-aligned and have size 8k
   const uint32_t buf_row_ct = NibbleCtToByteCt(write_batch_size);
   // fold the first 6 shuffles into the initial ingestion loop

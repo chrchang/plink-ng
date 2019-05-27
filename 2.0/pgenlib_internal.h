@@ -402,28 +402,29 @@ CONSTI32(kPglQuaterTransposeBatch, kQuatersPerCacheline);
 CONSTI32(kPglQuaterTransposeWords, kWordsPerCacheline);
 
 #ifdef __LP64__
-CONSTI32(kPglQuaterTransposeBufbytes, (kPglQuaterTransposeBatch * kPglQuaterTransposeBatch) / 4);
+CONSTI32(kPglQuaterTransposeBufbytes, (kPglQuaterTransposeBatch * kPglQuaterTransposeBatch) / 2);
 
-void TransposeQuaterblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, void* __restrict buf0);
+void TransposeQuaterblock64(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1);
 #else  // !__LP64__
 CONSTI32(kPglQuaterTransposeBufbytes, (kPglQuaterTransposeBatch * kPglQuaterTransposeBatch) / 2);
 
-void TransposeQuaterblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1);
+void TransposeQuaterblock32(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1);
 #endif
 CONSTI32(kPglQuaterTransposeBufwords, kPglQuaterTransposeBufbytes / kBytesPerWord);
 
-// up to 256x256; vecaligned_buf must have size 16k (64-bit) or 32k
-// (32-bit)
-// does NOT zero out trailing bits
-// important: write_iter must be allocated up to at least
-//   RoundUpPow2(write_batch_size, 4) rows
+// - up to 256x256; vecaligned_buf must have size 16k (64-bit) or 32k (32-bit)
+// - does NOT zero out trailing bits, because main application is ind-major-bed
+//   <-> plink2 format conversion, where the zeroing would be undone...
+// - important: write_iter must be allocated up to at least
+//   RoundUpPow2(write_batch_size, 4) rows (may want to remove this
+//   requirement)
 
 HEADER_INLINE void TransposeQuaterblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecW* vecaligned_buf) {
 #ifdef __LP64__
   // assert(!(write_ul_stride % 2));
-  TransposeQuaterblockInternal(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, vecaligned_buf);
+  TransposeQuaterblock64(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, R_CAST(unsigned char*, vecaligned_buf), &(R_CAST(unsigned char*, vecaligned_buf)[kPglQuaterTransposeBufbytes / 2]));
 #else
-  TransposeQuaterblockInternal(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, R_CAST(unsigned char*, vecaligned_buf), &(R_CAST(unsigned char*, vecaligned_buf)[kPglQuaterTransposeBufbytes / 2]));
+  TransposeQuaterblock32(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, R_CAST(unsigned char*, vecaligned_buf), &(R_CAST(unsigned char*, vecaligned_buf)[kPglQuaterTransposeBufbytes / 2]));
 #endif
 }
 

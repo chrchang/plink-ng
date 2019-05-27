@@ -656,13 +656,11 @@ void FillInterleavedMaskVec(const uintptr_t* __restrict subset_mask, uint32_t ba
     // I'll assume the compiler can handle this register allocation job.
     VecW cur_vec = subset_mask_valias[vidx];
 
-#  ifdef USE_AVX2
     // This is the critical lane-crossing operation.  May wrap this (in a way
     // that reduces to a null-op in the SSE4.2 case?), but let's first see how
     // often we use it, and in what ways.
     //   0xd8: {0, 2, 1, 3}
-    cur_vec = R_CAST(VecW, _mm256_permute4x64_epi64(R_CAST(__m256i, cur_vec), 0xd8));
-#  endif
+    cur_vec = vecw_permute0xd8_if_avx2(cur_vec);
     const VecW vec_even = cur_vec & m4;
     const VecW vec_odd = vecw_srli(cur_vec, 4) & m4;
     VecW vec_lo = vecw_unpacklo8(vec_even, vec_odd);
@@ -1379,44 +1377,122 @@ void DifflistCountSubsetFreqs(const uintptr_t* __restrict sample_include, const 
 }
 
 
-static_assert(kPglQuaterTransposeBatch == S_CAST(uint32_t, kQuatersPerCacheline), "TransposeQuaterblockInternal() needs to be updated.");
+static_assert(kPglQuaterTransposeBatch == S_CAST(uint32_t, kQuatersPerCacheline), "TransposeQuaterblock64() needs to be updated.");
 #ifdef __LP64__
-void TransposeQuaterblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, void* __restrict buf0) {
-  // buf0 must be vector-aligned and have size 16k
+void TransposeQuaterblock64(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1) {
+  // buf0 and buf1 must each be vector-aligned and have size 16k
   // Tried using previous AVX2 small-buffer approach, but that was a bit
   // worse... though maybe it should be revisited?
-  const uint32_t buf_row_ct = DivUp(write_batch_size, 8);
-  // fold the first 5 shuffles into the initial ingestion loop
-  const uint16_t* initial_read_iter = R_CAST(const uint16_t*, read_iter);
-  const uint16_t* initial_read_end = &(initial_read_iter[buf_row_ct]);
-  uint16_t* initial_target_iter = S_CAST(uint16_t*, buf0);
-  const uint32_t read_u16_stride = read_ul_stride * (kBytesPerWord / 2);
-  const uint32_t read_batch_rem = kQuatersPerCacheline - read_batch_size;
-  for (; initial_read_iter != initial_read_end; ++initial_read_iter) {
-    const uint16_t* read_iter_tmp = initial_read_iter;
-    for (uint32_t ujj = 0; ujj != read_batch_size; ++ujj) {
-      *initial_target_iter++ = *read_iter_tmp;
-      read_iter_tmp = &(read_iter_tmp[read_u16_stride]);
+  const uint32_t buf0_row_ct = DivUp(write_batch_size, 32);
+  {
+    // Fold the first 3 shuffles into the ingestion loop.
+    // Can fold 2 additional shuffles here by ingesting uint16s instead.  That
+    // removes the need for the second loop, halving the workspace requirement.
+    // Benchmark results of that approach are slightly but consistently worse,
+    // though.
+    const uintptr_t* initial_read_iter = R_CAST(const uintptr_t*, read_iter);
+    const uintptr_t* initial_read_end = &(initial_read_iter[buf0_row_ct]);
+    uintptr_t* initial_target_iter = R_CAST(uintptr_t*, buf0);
+    const uint32_t read_batch_rem = kQuatersPerCacheline - read_batch_size;
+    // Tried fancier vector-based ingestion, didn't help.
+    for (; initial_read_iter != initial_read_end; ++initial_read_iter) {
+      const uintptr_t* read_iter_tmp = initial_read_iter;
+      for (uint32_t ujj = 0; ujj != read_batch_size; ++ujj) {
+        *initial_target_iter++ = *read_iter_tmp;
+        read_iter_tmp = &(read_iter_tmp[read_ul_stride]);
+      }
+      ZeroWArr(read_batch_rem, initial_target_iter);
+      initial_target_iter = &(initial_target_iter[read_batch_rem]);
     }
-    if (!read_batch_rem) {
-      continue;
-    }
-    memset(initial_target_iter, 0, read_batch_rem * 2);
-    initial_target_iter = &(initial_target_iter[read_batch_rem]);
   }
 
-  // use movemask to go directly from 16 -> 2
-  // don't even need shuffle any more!
-  const VecW* source_iter = S_CAST(VecW*, buf0);
+  // shuffle from 64 -> 16
+  const uint32_t buf1_row_ct = DivUp(write_batch_size, 8);
+  {
+    // full buf0 row is 256 * 8 bytes
+    // full buf1 row is 512 bytes
+    const VecW* buf0_read_iter = R_CAST(const VecW*, buf0);
+    __m128i* write_iter0 = R_CAST(__m128i*, buf1);
+    const uint32_t buf0_row_clwidth = DivUp(read_batch_size, 8);
+#  ifdef USE_SSE42
+    const VecW gather_u32s = vecw_setr8(0, 1, 8, 9, 2, 3, 10, 11,
+                                        4, 5, 12, 13, 6, 7, 14, 15);
+#  else
+    const VecW m16 = VCONST_W(kMask0000FFFF);
+#  endif
+    for (uint32_t bidx = 0; bidx != buf0_row_ct; ++bidx) {
+      __m128i* write_iter1 = &(write_iter0[32]);
+      __m128i* write_iter2 = &(write_iter1[32]);
+      __m128i* write_iter3 = &(write_iter2[32]);
+      for (uint32_t clidx = 0; clidx != buf0_row_clwidth; ++clidx) {
+#  ifdef USE_AVX2
+        VecW loader0 = buf0_read_iter[clidx * 2];
+        VecW loader1 = buf0_read_iter[clidx * 2 + 1];
+        loader0 = vecw_shuffle8(loader0, gather_u32s);
+        loader1 = vecw_shuffle8(loader1, gather_u32s);
+        //    (0,0) (0,1) (1,0) ... (7,1) (0,2) ... (7,3) (8,0) ... (31,3)
+        //      (0,4) ... (31,7)
+        // -> (0,0) ... (7,1) (0,2) ... (7,3) (8,0) ... (15,3) (0,4) ... (15,7)
+        //      (16,0) ... (31,3) (16,4) ...
+        loader0 = vecw_permute0xd8_if_avx2(loader0);
+        loader1 = vecw_permute0xd8_if_avx2(loader1);
+        // -> (0,0) ... (7,1) (0,2) ... (7,3) (0,4) ... (7,7) (8,0) ... (15,7)
+        //      (16,0) ... (23,7) (24,0) ... (31,7)
+        const __m256i vec_lo = _mm256_shuffle_epi32(R_CAST(__m256i, loader0), 0xd8);
+        const __m256i vec_hi = _mm256_shuffle_epi32(R_CAST(__m256i, loader1), 0xd8);
+        const __m256i final0145 = _mm256_unpacklo_epi64(vec_lo, vec_hi);
+        const __m256i final2367 = _mm256_unpackhi_epi64(vec_lo, vec_hi);
+        _mm256_storeu2_m128i(&(write_iter2[clidx]), &(write_iter0[clidx]), final0145);
+        _mm256_storeu2_m128i(&(write_iter3[clidx]), &(write_iter1[clidx]), final2367);
+#  else
+        VecW loader0 = buf0_read_iter[clidx * 4];
+        VecW loader1 = buf0_read_iter[clidx * 4 + 1];
+        VecW loader2 = buf0_read_iter[clidx * 4 + 2];
+        VecW loader3 = buf0_read_iter[clidx * 4 + 3];
+#    ifdef USE_SSE42
+        loader0 = vecw_shuffle8(loader0, gather_u32s);
+        loader1 = vecw_shuffle8(loader1, gather_u32s);
+        loader2 = vecw_shuffle8(loader2, gather_u32s);
+        loader3 = vecw_shuffle8(loader3, gather_u32s);
+#    else
+        VecW tmp_lo = vecw_unpacklo16(loader0, loader1);
+        VecW tmp_hi = vecw_unpackhi16(loader0, loader1);
+        loader0 = (tmp_lo & m16) | vecw_and_notfirst(m16, vecw_slli(tmp_hi, 16));
+        loader1 = (vecw_srli(tmp_lo, 16) & m16) | (vecw_and_notfirst(m16, tmp_hi));
+        tmp_lo = vecw_unpacklo16(loader2, loader3);
+        tmp_hi = vecw_unpackhi16(loader2, loader3);
+        loader2 = (tmp_lo & m16) | vecw_and_notfirst(m16, vecw_slli(tmp_hi, 16));
+        loader3 = (vecw_srli(tmp_lo, 16) & m16) | (vecw_and_notfirst(m16, tmp_hi));
+#    endif
+        //    (0,0) (0,1) (1,0) ... (7,1) (0,2) ... (7,3) (8,0) ... (31,3)
+        //  + (0,4) ... (31,7)
+        // -> (0,0) ... (7,3) (0,4) ... (7,7) (8,0) ... (15,7)
+        const VecW lo_0_15 = vecw_unpacklo32(loader0, loader1);
+        const VecW lo_16_31 = vecw_unpackhi32(loader0, loader1);
+        const VecW hi_0_15 = vecw_unpacklo32(loader2, loader3);
+        const VecW hi_16_31 = vecw_unpackhi32(loader2, loader3);
+        write_iter0[clidx] = R_CAST(__m128i, vecw_unpacklo64(lo_0_15, hi_0_15));
+        write_iter1[clidx] = R_CAST(__m128i, vecw_unpackhi64(lo_0_15, hi_0_15));
+        write_iter2[clidx] = R_CAST(__m128i, vecw_unpacklo64(lo_16_31, hi_16_31));
+        write_iter3[clidx] = R_CAST(__m128i, vecw_unpackhi64(lo_16_31, hi_16_31));
+#  endif
+      }
+      buf0_read_iter = &(buf0_read_iter[2048 / kBytesPerVec]);
+      write_iter0 = &(write_iter3[32]);
+    }
+  }
+
+  // movemask from 16 -> 2
+  const VecW* source_iter = R_CAST(VecW*, buf1);
   const VecW m8 = VCONST_W(kMask00FF);
 
   // Take advantage of current function contract.
-  const uint32_t buf_fullrow_ct = (write_batch_size + 3) / 8;
+  const uint32_t buf1_fullrow_ct = (write_batch_size + 3) / 8;
 
   const uint32_t write_v8ui_stride = kVec8thUintPerWord * write_ul_stride;
   const uint32_t vec_ct = DivUp(read_batch_size, (kBytesPerVec / 2));
   Vec8thUint* target_iter0 = R_CAST(Vec8thUint*, write_iter);
-  for (uint32_t uii = 0; uii != buf_fullrow_ct; ++uii) {
+  for (uint32_t uii = 0; uii != buf1_fullrow_ct; ++uii) {
     Vec8thUint* target_iter1 = &(target_iter0[write_v8ui_stride]);
     Vec8thUint* target_iter2 = &(target_iter1[write_v8ui_stride]);
     Vec8thUint* target_iter3 = &(target_iter2[write_v8ui_stride]);
@@ -1452,7 +1528,7 @@ void TransposeQuaterblockInternal(const uintptr_t* read_iter, uint32_t read_ul_s
     source_iter = &(source_iter[(2 * kPglQuaterTransposeBatch) / kBytesPerVec]);
     target_iter0 = &(target_iter7[write_v8ui_stride]);
   }
-  if (buf_fullrow_ct == buf_row_ct) {
+  if (buf1_fullrow_ct == buf1_row_ct) {
     return;
   }
   Vec8thUint* target_iter1 = &(target_iter0[write_v8ui_stride]);
@@ -1471,8 +1547,8 @@ void TransposeQuaterblockInternal(const uintptr_t* read_iter, uint32_t read_ul_s
   }
 }
 #else  // !__LP64__
-static_assert(kWordsPerVec == 1, "TransposeQuaterblockInternal() needs to be updated.");
-void TransposeQuaterblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1) {
+static_assert(kWordsPerVec == 1, "TransposeQuaterblock32() needs to be updated.");
+void TransposeQuaterblock32(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1) {
   // buf0 and buf1 must each be vector-aligned and have size 16k
   // defining them as unsigned char* might prevent a strict-aliasing issue?
   // (might need to go through greater contortions to actually be safe?)
@@ -7745,7 +7821,7 @@ void Expand2bitTo8(const void* __restrict bytearr, uint32_t input_quater_ct, uin
       //                       48-49-50-51, ..., 60-61-62-63,
       //                       80-81-82-83, ..., 92-93-94-95,
       //                       112-113-114-115, ..., 124-125-126-127}
-      cur_vec = R_CAST(VecW, _mm256_permute4x64_epi64(midswapped_vec, 0xd8));
+      cur_vec = vecw_permute0xd8_if_avx2(R_CAST(VecW, midswapped_vec));
 #  endif
       // AVX2:
       //   vec_even contains {0-1, 4-5, 8-9, 12-13, 32-33, ..., 44-45,
@@ -7846,9 +7922,7 @@ void Expand4bitTo8(const void* __restrict bytearr, uint32_t input_nibble_ct, uin
     for (uint32_t vec_idx = 0; vec_idx != input_vec_ct; ++vec_idx) {
       VecW cur_vec = vecw_loadu(src_iter);
       src_iter = &(src_iter[kBytesPerVec]);
-#  ifdef USE_AVX2
-      cur_vec = R_CAST(VecW, _mm256_permute4x64_epi64(R_CAST(__m256i, cur_vec), 0xd8));
-#  endif
+      cur_vec = vecw_permute0xd8_if_avx2(cur_vec);
       // AVX2:
       //   vec_even contains {0, 2, 4, ..., 14, 32, 34, ..., 46,
       //                      16, 18, ..., 30, 48, ... 62}

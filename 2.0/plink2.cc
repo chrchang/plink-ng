@@ -67,7 +67,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (25 May 2019)";
+  " (27 May 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -4235,6 +4235,9 @@ int main(int argc, char** argv) {
           xload |= kfXloadGenDummy;
         } else if (unlikely(strequal_k_unsafe(flagname_p2, "ummy-coding"))) {
           logerrputs("Error: --dummy-coding is retired.  Use --split-cat-pheno instead.\n");
+          goto main_ret_INVALID_CMDLINE_A;
+        } else if (unlikely(strequal_k_unsafe(flagname_p2, "osage"))) {
+          logerrputs("Error: --dosage has been replaced with --import-dosage, which converts to .pgen\nformat and provides access to the full range of plink2 flags.  (Run --glm on\nthe imported dataset to invoke the original --dosage linear/logistic\nregression.)\n");
           goto main_ret_INVALID_CMDLINE_A;
         } else if (likely(strequal_k_unsafe(flagname_p2, "og"))) {
           if (unlikely(chr_info.chrset_source)) {

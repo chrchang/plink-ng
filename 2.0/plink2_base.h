@@ -817,6 +817,26 @@ HEADER_INLINE VecW vecw_unpackhi8(VecW evens, VecW odds) {
   return R_CAST(VecW, _mm256_unpackhi_epi8(R_CAST(__m256i, evens), R_CAST(__m256i, odds)));
 }
 
+HEADER_INLINE VecW vecw_unpacklo16(VecW evens, VecW odds) {
+  return R_CAST(VecW, _mm256_unpacklo_epi16(R_CAST(__m256i, evens), R_CAST(__m256i, odds)));
+}
+
+HEADER_INLINE VecW vecw_unpackhi16(VecW evens, VecW odds) {
+  return R_CAST(VecW, _mm256_unpackhi_epi16(R_CAST(__m256i, evens), R_CAST(__m256i, odds)));
+}
+
+HEADER_INLINE VecW vecw_unpacklo32(VecW evens, VecW odds) {
+  return R_CAST(VecW, _mm256_unpacklo_epi32(R_CAST(__m256i, evens), R_CAST(__m256i, odds)));
+}
+
+HEADER_INLINE VecW vecw_unpackhi32(VecW evens, VecW odds) {
+  return R_CAST(VecW, _mm256_unpackhi_epi32(R_CAST(__m256i, evens), R_CAST(__m256i, odds)));
+}
+
+HEADER_INLINE VecW vecw_permute0xd8_if_avx2(VecW vv) {
+  return R_CAST(VecW, _mm256_permute4x64_epi64(R_CAST(__m256i, vv), 0xd8));
+}
+
 HEADER_INLINE VecW vecw_shuffle8(VecW table, VecW indexes) {
   return R_CAST(VecW, _mm256_shuffle_epi8(R_CAST(__m256i, table), R_CAST(__m256i, indexes)));
 }
@@ -829,11 +849,36 @@ HEADER_INLINE VecUc vecuc_shuffle8(VecUc table, VecUc indexes) {
   return R_CAST(VecUc, _mm256_shuffle_epi8(R_CAST(__m256i, table), R_CAST(__m256i, indexes)));
 }
 
+HEADER_INLINE uintptr_t vecw_extract64_0(VecW vv) {
+  return _mm256_extract_epi64(R_CAST(__m256i, vv), 0);
+}
+
+HEADER_INLINE uintptr_t vecw_extract64_1(VecW vv) {
+  return _mm256_extract_epi64(R_CAST(__m256i, vv), 1);
+}
+
+// *** AVX2-only section ***
+HEADER_INLINE uintptr_t vecw_extract64_2(VecW vv) {
+  return _mm256_extract_epi64(R_CAST(__m256i, vv), 2);
+}
+
+HEADER_INLINE uintptr_t vecw_extract64_3(VecW vv) {
+  return _mm256_extract_epi64(R_CAST(__m256i, vv), 3);
+}
+
+// todo: permute
+
+// *** end AVX2-only section ***
+
 #    define kVec8thUintMax UINT32_MAX
 
 typedef uint16_t Vec16thUint;
 typedef uint32_t Vec8thUint;
 typedef uint64_t Vec4thUint;
+
+HEADER_INLINE VecW vecw_load(const void* mem_addr) {
+  return R_CAST(VecW, _mm256_load_si256(S_CAST(const __m256i*, mem_addr)));
+}
 
 // There may be some value in adding a 4-consecutive-vector load function when
 // addresses are expected to be unaligned: see
@@ -998,6 +1043,10 @@ typedef unsigned char Vec16thUint;
 typedef uint16_t Vec8thUint;
 typedef uint32_t Vec4thUint;
 
+HEADER_INLINE VecW vecw_load(const void* mem_addr) {
+  return R_CAST(VecW, _mm_load_si128(S_CAST(const __m128i*, mem_addr)));
+}
+
 HEADER_INLINE VecW vecw_loadu(const void* mem_addr) {
   return R_CAST(VecW, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
 }
@@ -1076,6 +1125,34 @@ HEADER_INLINE VecW vecw_unpackhi8(VecW evens, VecW odds) {
   return R_CAST(VecW, _mm_unpackhi_epi8(R_CAST(__m128i, evens), R_CAST(__m128i, odds)));
 }
 
+HEADER_INLINE VecW vecw_unpacklo16(VecW evens, VecW odds) {
+  return R_CAST(VecW, _mm_unpacklo_epi16(R_CAST(__m128i, evens), R_CAST(__m128i, odds)));
+}
+
+HEADER_INLINE VecW vecw_unpackhi16(VecW evens, VecW odds) {
+  return R_CAST(VecW, _mm_unpackhi_epi16(R_CAST(__m128i, evens), R_CAST(__m128i, odds)));
+}
+
+HEADER_INLINE VecW vecw_unpacklo32(VecW evens, VecW odds) {
+  return R_CAST(VecW, _mm_unpacklo_epi32(R_CAST(__m128i, evens), R_CAST(__m128i, odds)));
+}
+
+HEADER_INLINE VecW vecw_unpackhi32(VecW evens, VecW odds) {
+  return R_CAST(VecW, _mm_unpackhi_epi32(R_CAST(__m128i, evens), R_CAST(__m128i, odds)));
+}
+
+HEADER_INLINE VecW vecw_unpacklo64(VecW evens, VecW odds) {
+  return R_CAST(VecW, _mm_unpacklo_epi64(R_CAST(__m128i, evens), R_CAST(__m128i, odds)));
+}
+
+HEADER_INLINE VecW vecw_unpackhi64(VecW evens, VecW odds) {
+  return R_CAST(VecW, _mm_unpackhi_epi64(R_CAST(__m128i, evens), R_CAST(__m128i, odds)));
+}
+
+HEADER_INLINE VecW vecw_permute0xd8_if_avx2(VecW vv) {
+  return vv;
+}
+
 #    ifdef USE_SSE42
 HEADER_INLINE VecI32 veci32_max(VecI32 v1, VecI32 v2) {
   return R_CAST(VecI32, _mm_max_epi32(R_CAST(__m128i, v1), R_CAST(__m128i, v2)));
@@ -1091,6 +1168,23 @@ HEADER_INLINE VecU16 vecu16_shuffle8(VecU16 table, VecU16 indexes) {
 
 HEADER_INLINE VecUc vecuc_shuffle8(VecUc table, VecUc indexes) {
   return R_CAST(VecUc, _mm_shuffle_epi8(R_CAST(__m128i, table), R_CAST(__m128i, indexes)));
+}
+
+HEADER_INLINE uintptr_t vecw_extract64_0(VecW vv) {
+  return _mm_extract_epi64(R_CAST(__m128i, vv), 0);
+}
+
+HEADER_INLINE uintptr_t vecw_extract64_1(VecW vv) {
+  return _mm_extract_epi64(R_CAST(__m128i, vv), 1);
+}
+#    else
+HEADER_INLINE uintptr_t vecw_extract64_0(VecW vv) {
+  return R_CAST(uintptr_t, _mm_movepi64_pi64(R_CAST(__m128i, vv)));
+}
+
+HEADER_INLINE uintptr_t vecw_extract64_1(VecW vv) {
+  const __m128i v0 = _mm_srli_si128(R_CAST(__m128i, vv), 8);
+  return R_CAST(uintptr_t, _mm_movepi64_pi64(v0));
 }
 #    endif
 

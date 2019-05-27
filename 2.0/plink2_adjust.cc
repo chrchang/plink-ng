@@ -623,7 +623,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     col_search_order[2] = afip->id_field? afip->id_field : "ID\0SNP\0";
     col_search_order[3] = need_ref? (afip->ref_field? afip->ref_field : "REF\0A2\0") : "";
     col_search_order[4] = need_alt? (afip->alt_field? afip->alt_field : "ALT\0ALT1\0") : "";
-    col_search_order[5] = check_a1? (afip->a1_field? afip->a1_field : "A1") : "";
+    col_search_order[5] = check_a1? (afip->a1_field? afip->a1_field : "A1\0") : "";
     col_search_order[6] = afip->test_field? afip->test_field : "TEST\0";
     const uint32_t input_log10 = (flags & kfAdjustInputLog10);
     col_search_order[7] = afip->p_field? afip->p_field : (input_log10? "LOG10_P\0LOG10_UNADJ\0P\0UNADJ\0" : "P\0UNADJ\0");
