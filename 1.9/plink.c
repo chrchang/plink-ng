@@ -93,7 +93,7 @@
 
 static const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b6.9"
+  "PLINK v1.90b6.10"
 #else
   "PLINK v1.90p"
 #endif
@@ -105,12 +105,12 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (29 Apr 2019)";
+  " (17 Jun 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
 #ifdef STABLE_BUILD
-  " " // (don't want this when version number has two trailing digits)
+  "" // (don't want this when version number has two trailing digits)
 #else
   "    " // (don't want this when version number has e.g. "b3" before "p")
 #endif
@@ -1928,6 +1928,11 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       if (retval) {
 	goto plink_ret_1;
       }
+      // bugfix (17 Jun 2019): need to reset pheno_nm, otherwise missing values
+      // in original phenotype remain missing in the --loop-assoc analysis
+      bitarr_invert_copy(sample_exclude, unfiltered_sample_ct, pheno_nm);
+      pheno_nm_ct = unfiltered_sample_ct - sample_exclude_ct;
+
       if (pheno_d) {
 	free(pheno_d);
 	pheno_d = nullptr;
