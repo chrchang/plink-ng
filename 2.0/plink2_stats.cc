@@ -324,6 +324,7 @@ static const double kSmallHalfRecips[30] = {
   1.0 / 29.5
 };
 
+// This can underflow.  Use finite_half_gamma_q2_ln when that's a problem.
 double finite_half_gamma_q2(uint32_t a_minus_half, double xx, double* p_derivative) {
   // a is in {0.5, 1.5, ..., 29.5}; max(0.2, a-1) < x < kLogMaxValue
   const double sqrt_x = sqrt(xx);
@@ -1297,12 +1298,14 @@ double beta_small_b_large_a_series_ln(double aa, double bb, double xx, double yy
 
   double jj;
   if (bb == 0.5) {
-    jj = finite_half_gamma_q2(0, uu, nullptr);
+    // bugfix (17 Jun 2019): original expression could underflow
+    // jj = finite_half_gamma_q2(0, uu, nullptr);
+    double ln_jj = finite_half_gamma_q2_ln(0, uu) - hh_ln;
+    jj = exp(ln_jj);
   } else {
     assert(bb == 1.0);
-    jj = -uu;
+    jj = -uu * exp(-hh_ln); // todo: check if this also has underflow danger
   }
-  jj *= exp(-hh_ln); // this can underflow?  but should be harmless
   double sum = jj; // patch in s0 and prefix at the end
   uint32_t tnp1 = 1;
   double lx2 = lx * 0.5;

@@ -1280,7 +1280,7 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
     reterr = kPglRetWriteFail;
     break;
   ExportOxGen_ret_INCONSISTENT_INPUT:
-    reterr = kPglRetWriteFail;
+    reterr = kPglRetInconsistentInput;
     break;
   }
  ExportOxGen_ret_1:

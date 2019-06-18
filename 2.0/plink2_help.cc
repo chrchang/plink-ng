@@ -489,7 +489,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      tab-delimited, whenever both are permitted.\n"
 "    * For biallelic formats where it's unspecified whether the reference/major\n"
 "      allele should appear first or second, --export defaults to second for\n"
-"      compatibility with PLINK 1.9.  Use 'ref-first' to change this.\n\n"
+"      compatibility with PLINK 1.9.  Use 'ref-first' to change this.\n"
+"      (Note that this doesn't apply to the 'A', 'AD', and 'A-transpose'\n"
+"      formats; use --export-allele to control which alleles are counted there.)\n\n"
               );
 
     // don't bother with case/control or cluster-stratification any more, since
