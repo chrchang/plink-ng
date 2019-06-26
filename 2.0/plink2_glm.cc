@@ -5124,7 +5124,9 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                   if (!allele_test_idx) {
                     test_idx = primary_reported_test_idx;
                   } else {
-                    ++test_idx;
+                    // bugfix (26 Jun 2019): only correct to add 1 here in
+                    // include_intercept case
+                    test_idx += include_intercept;
                   }
                 }
                 if (chr_col) {
@@ -7113,7 +7115,9 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                   if (!allele_test_idx) {
                     test_idx = primary_reported_test_idx;
                   } else {
-                    ++test_idx;
+                    // bugfix (26 Jun 2019): only correct to add 1 here in
+                    // include_intercept case
+                    test_idx += include_intercept;
                   }
                 }
                 if (chr_col) {
