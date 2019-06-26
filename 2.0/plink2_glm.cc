@@ -1081,20 +1081,23 @@ uint32_t CollapseParamOrTestSubset(const uintptr_t* covar_include, const uintptr
   ZeroWArr(write_idx_ctl, new_params_or_tests);
   // intercept, additive, domdev
   new_params_or_tests[0] = raw_params_or_tests[0] & (3 + 4 * domdev_present);
-  uintptr_t covar_uidx_base = 0;
-  uintptr_t cur_bits = covar_include[0];
-  for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
-    const uintptr_t covar_uidx = BitIter1(covar_include, &covar_uidx_base, &cur_bits);
-    if (IsSet(raw_params_or_tests, first_covar_pred_idx + covar_uidx)) {
-      SetBit(first_covar_pred_idx + covar_idx, new_params_or_tests);
-    }
-    if (add_interactions) {
-      if (IsSet(raw_params_or_tests, first_interaction_pred_read_idx + domdev_present_p1 * covar_uidx)) {
-        SetBit(first_interaction_pred_write_idx + domdev_present_p1 * covar_idx, new_params_or_tests);
+  // bugfix (26 Jun 2019): covar_include == nullptr when covar_ct == 0
+  if (covar_ct) {
+    uintptr_t covar_uidx_base = 0;
+    uintptr_t cur_bits = covar_include[0];
+    for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+      const uintptr_t covar_uidx = BitIter1(covar_include, &covar_uidx_base, &cur_bits);
+      if (IsSet(raw_params_or_tests, first_covar_pred_idx + covar_uidx)) {
+        SetBit(first_covar_pred_idx + covar_idx, new_params_or_tests);
       }
-      if (domdev_present) {
-        if (IsSet(raw_params_or_tests, first_interaction_pred_read_idx + 2 * covar_uidx + 1)) {
-          SetBit(first_interaction_pred_write_idx + 2 * covar_idx + 1, new_params_or_tests);
+      if (add_interactions) {
+        if (IsSet(raw_params_or_tests, first_interaction_pred_read_idx + domdev_present_p1 * covar_uidx)) {
+          SetBit(first_interaction_pred_write_idx + domdev_present_p1 * covar_idx, new_params_or_tests);
+        }
+        if (domdev_present) {
+          if (IsSet(raw_params_or_tests, first_interaction_pred_read_idx + 2 * covar_uidx + 1)) {
+            SetBit(first_interaction_pred_write_idx + 2 * covar_idx + 1, new_params_or_tests);
+          }
         }
       }
     }
