@@ -6,11 +6,13 @@
 #   Print clear error message if SSE42/AVX2 needed but missing: CPU_CHECK
 #   Do not link to OpenBLAS: NO_OPENBLAS
 #   Use only -O2 optimization for zstd: ZSTD_O2
+#   Debug symbols: set DEBUG to -g
 NO_AVX2 = 1
 NO_SSE42 =
 CPU_CHECK = 1
 NO_OPENBLAS =
 ZSTD_O2 = 1
+DEBUG =
 
 OPENBLAS_ROOT = ../../openblas
 ZLIB_STATIC = ../../zlib-1.2.11/libz.a
@@ -18,10 +20,12 @@ ZLIB_STATIC = ../../zlib-1.2.11/libz.a
 BASEFLAGS=
 # ***** end configuration *****
 
+BASEFLAGS += ${DEBUG}
+
 include ../Makefile.src
 
 BASEFLAGS += -DSTATIC_ZLIB -fno-exceptions
-LINKFLAGS=-lm -static-libgcc -L. ${ZLIB_STATIC}
+LINKFLAGS=${DEBUG} -lm -static-libgcc -L. ${ZLIB_STATIC}
 ifdef NO_OPENBLAS
   BASEFLAGS += -DNOLAPACK
   BLASFLAGS=
@@ -32,7 +36,7 @@ endif
 
 CFLAGS=-O2 -std=gnu99
 CXXFLAGS=-O2 -std=gnu++11
-CPUCHECK_FLAGS =
+CPUCHECK_FLAGS = ${DEBUG}
 
 ifdef NO_AVX2
   ifndef NO_SSE42

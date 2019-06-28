@@ -14,6 +14,7 @@
 #   32-bit binary (also sets STATIC_ZLIB and ZSTD_O2):
 #     FORCE_32BIT (warning: you may need to add a zconf.h symlink to make that
 #     work)
+#   Debug symbols: set DEBUG to -g
 NO_AVX2 = 1
 NO_SSE42 =
 CPU_CHECK = 1
@@ -25,16 +26,19 @@ DYNAMIC_MKL =
 MKLROOT = /home/ubuntu/intel/mkl
 MKL_IOMP5_DIR = /home/ubuntu/intel/compilers_and_libraries_2017.2.174/linux/compiler/lib/intel64
 FORCE_32BIT =
+DEBUG =
 
 BASEFLAGS=-DZSTD_MULTITHREAD
 # ***** end configuration *****
 
+BASEFLAGS += ${DEBUG}
+
 include ../Makefile.src
 
-LINKFLAGS=-lm -lpthread
+LINKFLAGS=-lm -lpthread ${DEBUG}
 ZLIB=
 ARCH32=
-CPUCHECK_FLAGS =
+CPUCHECK_FLAGS = ${DEBUG}
 
 ifdef FORCE_32BIT
   # this is targeted at Scientific Linux 6.

@@ -1955,8 +1955,7 @@ THREAD_FUNC_DECL CalcKingTableSubsetThread(void* arg) {
   }
 }
 
-PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, double king_table_subset_thresh, XidMode xid_mode, uint32_t skip_sid, uint32_t kinship_skip, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, ReadLineStream* rlsp, char** line_iter_ptr, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
-  uintptr_t line_idx = 1;
+PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, double king_table_subset_thresh, XidMode xid_mode, uint32_t skip_sid, uint32_t kinship_skip, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, uintptr_t line_idx, ReadLineStream* rlsp, char** line_iter_ptr, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
   PglErr reterr = kPglRetSuccess;
   {
     uint64_t pair_idx = *pair_idx_ptr;
@@ -2184,7 +2183,11 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       }
       goto CalcKingTableSubset_ret_READ_RLSTREAM;
     }
-    line_iter = FirstNonTspace(line_iter);
+    uintptr_t line_idx = 0;
+    reterr = RlsNextNonemptyLstrip(&rls, &line_idx, &line_iter);
+    if (reterr) {
+      goto CalcKingTableSubset_ret_READ_RLSTREAM;
+    }
     if (unlikely(IsEolnKns(*line_iter))) {
       goto CalcKingTableSubset_ret_INVALID_HEADER;
     }
@@ -2290,7 +2293,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     uint64_t pair_idx = 0;
     fputs("Scanning --king-table-subset file...", stdout);
     fflush(stdout);
-    reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, (parallel_tot != 1), 0, pair_buf_capacity, &rls, &line_iter, &pair_idx, g_loaded_sample_idx_pairs, idbuf);
+    reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, (parallel_tot != 1), 0, pair_buf_capacity, line_idx, &rls, &line_iter, &pair_idx, g_loaded_sample_idx_pairs, idbuf);
     if (unlikely(reterr)) {
       goto CalcKingTableSubset_ret_1;
     }
@@ -2313,7 +2316,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
           if (unlikely(reterr)) {
             goto CalcKingTableSubset_ret_READ_RLSTREAM;
           }
-          reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &rls, &line_iter, &pair_idx, g_loaded_sample_idx_pairs, idbuf);
+          reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), line_idx, &rls, &line_iter, &pair_idx, g_loaded_sample_idx_pairs, idbuf);
           if (unlikely(reterr)) {
             goto CalcKingTableSubset_ret_1;
           }
@@ -2541,7 +2544,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       pair_idx_cur_start = pair_idx;
       fputs("Scanning --king-table-subset file...", stdout);
       fflush(stdout);
-      reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, 0, pair_idx_cur_start, MINV(pair_idx_global_stop, pair_idx_cur_start + pair_buf_capacity), &rls, &line_iter, &pair_idx, g_loaded_sample_idx_pairs, idbuf);
+      reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, 0, pair_idx_cur_start, MINV(pair_idx_global_stop, pair_idx_cur_start + pair_buf_capacity), line_idx, &rls, &line_iter, &pair_idx, g_loaded_sample_idx_pairs, idbuf);
       if (unlikely(reterr)) {
         goto CalcKingTableSubset_ret_1;
       }
