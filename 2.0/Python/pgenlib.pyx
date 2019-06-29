@@ -91,7 +91,7 @@ cdef extern from "../pgenlib_python_support.h" namespace "plink2":
     cdef enum:
         kPglQuaterTransposeBufbytes
     cdef enum:
-        kBitTransposeBufbytes
+        kPglBitTransposeBufbytes
 
     ctypedef uint32_t PgenGlobalFlags
     cdef enum:
@@ -266,7 +266,7 @@ cdef class PgenReader:
         cdef uintptr_t genovec_byte_ct = DivUp(file_sample_ct, kQuatersPerVec) * kBytesPerVec
         cdef uintptr_t dosage_main_byte_ct = DivUp(file_sample_ct, (2 * kInt32PerVec)) * kBytesPerVec
         cdef unsigned char* pgr_alloc
-        if cachealigned_malloc(pgr_alloc_main_byte_ct + (2 * kPglQuaterTransposeBatch + 5) * sample_subset_byte_ct + cumulative_popcounts_byte_ct + (1 + kPglQuaterTransposeBatch) * genovec_byte_ct + dosage_main_byte_ct + kBitTransposeBufbytes + 4 * (kPglQuaterTransposeBatch * kPglQuaterTransposeBatch / 8), &pgr_alloc):
+        if cachealigned_malloc(pgr_alloc_main_byte_ct + (2 * kPglQuaterTransposeBatch + 5) * sample_subset_byte_ct + cumulative_popcounts_byte_ct + (1 + kPglQuaterTransposeBatch) * genovec_byte_ct + dosage_main_byte_ct + kPglBitTransposeBufbytes + 4 * (kPglQuaterTransposeBatch * kPglQuaterTransposeBatch / 8), &pgr_alloc):
             raise MemoryError()
         cdef PglErr reterr = PgrInit(fname, max_vrec_width, self._info_ptr, self._state_ptr, pgr_alloc)
         if reterr != kPglRetSuccess:
@@ -299,7 +299,7 @@ cdef class PgenReader:
         else:
             self._subset_size = file_sample_ct
         self._transpose_batch_buf = <VecW*>pgr_alloc_iter
-        pgr_alloc_iter = &(pgr_alloc_iter[kBitTransposeBufbytes])
+        pgr_alloc_iter = &(pgr_alloc_iter[kPglBitTransposeBufbytes])
         self._multivar_vmaj_geno_buf = <uintptr_t*>pgr_alloc_iter
         pgr_alloc_iter = &(pgr_alloc_iter[kPglQuaterTransposeBatch * genovec_byte_ct])
         self._multivar_vmaj_phasepresent_buf = <uintptr_t*>pgr_alloc_iter
