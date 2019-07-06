@@ -22,6 +22,8 @@ public:
 
   NumericVector Read(int variant_idx, int allele_idx);
 
+  void Close();
+
   ~RPgenReader();
 
 private:
@@ -220,6 +222,26 @@ NumericVector RPgenReader::Read(int variant_idx, int allele_idx) {
   return nv;
 }
 
+void RPgenReader::Close() {
+  // don't bother propagating file close errors for now
+  if (_info_ptr) {
+    plink2::CleanupPgfi(_info_ptr);
+    if (_info_ptr->vrtypes) {
+      plink2::aligned_free(_info_ptr->vrtypes);
+      if (_state_ptr) {
+        plink2::CleanupPgr(_state_ptr);
+        if (_state_ptr->fread_buf) {
+          plink2::aligned_free(_state_ptr->fread_buf);
+        }
+        free(_state_ptr);
+        _state_ptr = nullptr;
+      }
+    }
+    free(_info_ptr);
+    _info_ptr = nullptr;
+  }
+}
+
 void RPgenReader::SetSampleSubsetInternal(IntegerVector sample_subset) {
   const uint32_t raw_sample_ct = _info_ptr->raw_sample_ct;
   const uint32_t raw_sample_ctv = plink2::DivUp(raw_sample_ct, plink2::kBitsPerVec);
@@ -320,4 +342,10 @@ SEXP ReadHardcalls(SEXP xp, int variant_idx, int allele_idx = 1) {
 SEXP Read(SEXP xp, int variant_idx, int allele_idx = 1) {
   XPtr<class RPgenReader> rp(xp);
   return rp->Read(variant_idx, allele_idx);
+}
+
+// [[Rcpp::export]]
+void Close(SEXP xp) {
+  XPtr<class RPgenReader> rp(xp);
+  rp->Close();
 }
