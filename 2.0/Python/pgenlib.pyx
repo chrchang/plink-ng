@@ -6,7 +6,7 @@ import numpy as np
 cimport numpy as np
 import sys
 
-cdef extern from "../pgenlib_python_support.h" namespace "plink2":
+cdef extern from "../pgenlib_ffi_support.h" namespace "plink2":
     ctypedef uint32_t BoolErr
     ctypedef enum PglErr:
         kPglRetSuccess
@@ -127,7 +127,9 @@ cdef extern from "../pgenlib_python_support.h" namespace "plink2":
 
     PglErr PgrGetP(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgrp, uintptr_t* genovec, uintptr_t* phasepresent, uintptr_t* phaseinfo, uint32_t* phasepresent_ct_ptr)
 
-    PglErr PgrGetD(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgrp, uintptr_t* genovec, uintptr_t* dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr)
+    ctypedef unsigned char AlleleCode
+
+    PglErr PgrGet1D(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReaderStruct* pgrp, uintptr_t* allele_countvec, uintptr_t* dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr)
 
     PglErr PgrGetCounts(const uintptr_t* sample_include, const uintptr_t* sample_include_interleaved_vec, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgrp, uint32_t* genocounts)
 
@@ -272,7 +274,7 @@ cdef class PgenReader:
         if reterr != kPglRetSuccess:
             if not self._state_ptr[0].fread_buf:
                 aligned_free(pgr_alloc)
-            raise RuntimeError("pgl_init() error " + str(reterr))
+            raise RuntimeError("PgrInit() error " + str(reterr))
         cdef unsigned char* pgr_alloc_iter = &(pgr_alloc[pgr_alloc_main_byte_ct])
         self._subset_include_vec = <uintptr_t*>pgr_alloc_iter
         pgr_alloc_iter = &(pgr_alloc_iter[sample_subset_byte_ct])
@@ -365,16 +367,10 @@ cdef class PgenReader:
             raise RuntimeError("read_dosages() variant_idx too large (" + str(variant_idx) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
         if not floatarr_out.flags["C_CONTIGUOUS"]:
             raise RuntimeError("read_dosages() requires floatarr_out to be C-contiguous.")
-        # todo: change this when pgenlib_internal supports multiallelic
-        # variants
         cdef uint32_t dosage_ct
-        cdef PglErr reterr = PgrGetD(self._subset_include_vec, self._subset_cumulative_popcounts, self._subset_size, variant_idx, self._state_ptr, self._genovec, self._dosage_present, self._dosage_main, &dosage_ct)
+        cdef PglErr reterr = PgrGet1D(self._subset_include_vec, self._subset_cumulative_popcounts, self._subset_size, variant_idx, allele_idx, self._state_ptr, self._genovec, self._dosage_present, self._dosage_main, &dosage_ct)
         if reterr != kPglRetSuccess:
             raise RuntimeError("read_dosages() error " + str(reterr))
-        if allele_idx == 0:
-            GenovecInvertUnsafe(self._subset_size, self._genovec)
-            BiallelicDosage16Invert(dosage_ct, self._dosage_main)
-        # todo: flip on allele_idx == 0
         cdef float* data32_ptr
         cdef double* data64_ptr
         if floatarr_out.dtype == np.float32:

@@ -15,7 +15,7 @@
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
 
-#include "pgenlib_python_support.h"
+#include "pgenlib_ffi_support.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -79,6 +79,27 @@ void GenoarrToInt64sMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int64_t
     uintptr_t geno_word = genoarr[widx];
     for (uint32_t uii = 0; uii != subgroup_len; ++uii) {
       *write_iter++ = kGenoToInt64[geno_word & 3];
+      geno_word >>= 2;
+    }
+  }
+}
+
+static const double kGenoToDouble[4] = {0.0, 1.0, 2.0, -9.0};
+
+void GenoarrToDoublesMinus9(const uintptr_t* genoarr, uint32_t sample_ct, double* geno_double) {
+  const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
+  double* write_iter = geno_double;
+  uint32_t subgroup_len = kBitsPerWordD2;
+  for (uint32_t widx = 0; ; ++widx) {
+    if (widx >= word_ct_m1) {
+      if (widx > word_ct_m1) {
+        return;
+      }
+      subgroup_len = ModNz(sample_ct, kBitsPerWordD2);
+    }
+    uintptr_t geno_word = genoarr[widx];
+    for (uint32_t uii = 0; uii != subgroup_len; ++uii) {
+      *write_iter++ = kGenoToDouble[geno_word & 3];
       geno_word >>= 2;
     }
   }
@@ -210,7 +231,6 @@ void Dosage16ToFloatsMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_pr
 }
 
 // todo: use GenoarrLookup16x8bx2()
-static const double kGenoToDouble[4] = {0.0, 1.0, 2.0, -9.0};
 
 void Dosage16ToDoublesMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, double* geno_double) {
   const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;

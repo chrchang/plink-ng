@@ -1,5 +1,5 @@
-#ifndef __PGENLIB_PYTHON_SUPPORT_H__
-#define __PGENLIB_PYTHON_SUPPORT_H__
+#ifndef __PGENLIB_FFI_SUPPORT_H__
+#define __PGENLIB_FFI_SUPPORT_H__
 
 // This library is part of PLINK 2.00, copyright (C) 2005-2019 Shaun Purcell,
 // Christopher Chang.
@@ -31,6 +31,8 @@ void GenoarrToBytesMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int8_t* 
 void GenoarrToInt32sMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int32_t* geno_int32);
 
 void GenoarrToInt64sMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int64_t* geno_int64);
+
+void GenoarrToDoublesMinus9(const uintptr_t* genoarr, uint32_t sample_ct, double* geno_double);
 
 // For Python interface, allele_codes is always int32_t.  Python programmers
 // should not need to worry about whether pgenlib was compiled with 1-, 2-, or
@@ -72,4 +74,4 @@ void DoublesToDosage16(const double* doublearr, uint32_t sample_ct, uint32_t har
 }  // namespace plink2
 #endif
 
-#endif  // __PGENLIB_PYTHON_SUPPORT_H__
+#endif  // __PGENLIB_FFI_SUPPORT_H__
