@@ -67,10 +67,10 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (28 Jun 2019)";
+  " (5 Jul 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -462,12 +462,26 @@ uint32_t GetFirstHaploidUidx(const ChrInfo* cip, UnsortedVar vpos_sortstatus) {
   return 0x7fffffff;
 }
 
-uint32_t AlleleDosagesAreNeeded(MiscFlags misc_flags, uint32_t afreq_needed, uint64_t min_allele_dosage, uint64_t max_allele_dosage) {
-  return (misc_flags & kfMiscNonfounders) && (afreq_needed || (misc_flags & kfMiscMajRef) || min_allele_dosage || (max_allele_dosage != UINT32_MAX));
+uint32_t AlleleDosagesAreNeeded(MiscFlags misc_flags, uint32_t afreq_needed, uint64_t min_allele_dosage, uint64_t max_allele_dosage, uint32_t* regular_freqcounts_neededp) {
+  if (!(misc_flags & kfMiscNonfounders)) {
+    return 0;
+  }
+  if ((misc_flags & kfMiscMajRef) || min_allele_dosage || (max_allele_dosage != UINT32_MAX)) {
+    *regular_freqcounts_neededp = 1;
+    return 1;
+  }
+  return afreq_needed;
 }
 
-uint32_t FounderAlleleDosagesAreNeeded(MiscFlags misc_flags, uint32_t afreq_needed, uint64_t min_allele_dosage, uint64_t max_allele_dosage) {
-  return (afreq_needed || (misc_flags & kfMiscMajRef) || min_allele_dosage || (max_allele_dosage != (~0LLU))) && (!(misc_flags & kfMiscNonfounders));
+uint32_t FounderAlleleDosagesAreNeeded(MiscFlags misc_flags, uint32_t afreq_needed, uint64_t min_allele_dosage, uint64_t max_allele_dosage, uint32_t* regular_freqcounts_neededp) {
+  if (misc_flags & kfMiscNonfounders) {
+    return 0;
+  }
+  if ((misc_flags & kfMiscMajRef) || min_allele_dosage || (max_allele_dosage != (~0LLU))) {
+    *regular_freqcounts_neededp = 1;
+    return 1;
+  }
+  return afreq_needed;
 }
 
 uint32_t SampleMissingDosageCtsAreNeeded(MiscFlags misc_flags, uint32_t smaj_missing_geno_report_requested, double mind_thresh, MissingRptFlags missing_rpt_flags) {
@@ -1720,12 +1734,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
         }
         bigstack_mark_allele_dosages = g_bigstack_base;
-        if (AlleleDosagesAreNeeded(pcp->misc_flags, (allele_freqs != nullptr), pcp->min_allele_dosage, pcp->max_allele_dosage)) {
+        uint32_t regular_freqcounts_needed = (allele_presents != nullptr);
+        if (AlleleDosagesAreNeeded(pcp->misc_flags, (allele_freqs != nullptr), pcp->min_allele_dosage, pcp->max_allele_dosage, &regular_freqcounts_needed)) {
           if (unlikely(bigstack_alloc_u64(raw_allele_ct, &allele_dosages))) {
             goto Plink2Core_ret_NOMEM;
           }
         }
-        if (FounderAlleleDosagesAreNeeded(pcp->misc_flags, (allele_freqs != nullptr), pcp->min_allele_dosage, pcp->max_allele_dosage)) {
+        if (FounderAlleleDosagesAreNeeded(pcp->misc_flags, (allele_freqs != nullptr), pcp->min_allele_dosage, pcp->max_allele_dosage, &regular_freqcounts_needed)) {
           if ((founder_ct == sample_ct) && allele_dosages) {
             founder_allele_dosages = allele_dosages;
           } else {
@@ -1824,7 +1839,25 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             }
           }
         }
-        if (allele_presents || allele_dosages || founder_allele_dosages || variant_missing_hc_cts || variant_missing_dosage_cts || variant_hethap_cts || raw_geno_cts || founder_raw_geno_cts || imp_r2_vals) {
+        unsigned char* bigstack_mark_read_freqs = g_bigstack_base;
+        regular_freqcounts_needed = regular_freqcounts_needed || variant_missing_hc_cts || variant_missing_dosage_cts || variant_hethap_cts || raw_geno_cts || founder_raw_geno_cts || imp_r2_vals;
+        uintptr_t* variant_afreqcalc = nullptr;
+        uint32_t afreqcalc_variant_ct = 0;
+        if (allele_freqs) {
+          if (pcp->read_freq_fname) {
+            reterr = ReadAlleleFreqs(variant_include, variant_ids, allele_idx_offsets, allele_storage, pcp->read_freq_fname, raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, (pcp->misc_flags / kfMiscMafSucc) & 1, pcp->max_thread_ct, allele_freqs, &variant_afreqcalc);
+            if (unlikely(reterr)) {
+              goto Plink2Core_ret_1;
+            }
+            afreqcalc_variant_ct = PopcountWords(variant_afreqcalc, raw_variant_ctl);
+          } else {
+            variant_afreqcalc = variant_include;
+            afreqcalc_variant_ct = variant_ct;
+          }
+        } else if (pcp->read_freq_fname) {
+          logerrprintf("Warning: Ignoring --read-freq since no command would use the frequencies.\n");
+        }
+        if (regular_freqcounts_needed || afreqcalc_variant_ct) {
           // note that --geno depends on different handling of X/Y than --maf.
 
           // possible todo: "free" these arrays early in some cases
@@ -1837,7 +1870,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           // hardcall-missing-count slot... and it's NOT fine to pass in
           // nullptrs for both missing-count arrays...
           const uint32_t dosageless_file = !(pgfi.gflags & kfPgenGlobalDosagePresent);
-          reterr = LoadAlleleAndGenoCounts(sample_include, founder_info, sex_nm, sex_male, variant_include, cip, allele_idx_offsets, raw_sample_ct, sample_ct, founder_ct, male_ct, nosex_ct, raw_variant_ct, variant_ct, first_hap_uidx, is_minimac3_r2, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, allele_presents, allele_dosages, founder_allele_dosages, ((!variant_missing_hc_cts) && dosageless_file)? variant_missing_dosage_cts : variant_missing_hc_cts, dosageless_file? nullptr : variant_missing_dosage_cts, variant_hethap_cts, raw_geno_cts, founder_raw_geno_cts, x_male_geno_cts, founder_x_male_geno_cts, x_nosex_geno_cts, founder_x_nosex_geno_cts, imp_r2_vals);
+          reterr = LoadAlleleAndGenoCounts(sample_include, founder_info, sex_nm, sex_male, regular_freqcounts_needed? variant_include : variant_afreqcalc, cip, allele_idx_offsets, raw_sample_ct, sample_ct, founder_ct, male_ct, nosex_ct, raw_variant_ct, regular_freqcounts_needed? variant_ct : afreqcalc_variant_ct, first_hap_uidx, is_minimac3_r2, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, allele_presents, allele_dosages, founder_allele_dosages, ((!variant_missing_hc_cts) && dosageless_file)? variant_missing_dosage_cts : variant_missing_hc_cts, dosageless_file? nullptr : variant_missing_dosage_cts, variant_hethap_cts, raw_geno_cts, founder_raw_geno_cts, x_male_geno_cts, founder_x_male_geno_cts, x_nosex_geno_cts, founder_x_nosex_geno_cts, imp_r2_vals);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -1853,20 +1886,15 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
         }
         if (allele_freqs) {
-          const uint32_t maf_succ = (pcp->misc_flags / kfMiscMafSucc) & 1;
-          ComputeAlleleFreqs(variant_include, allele_idx_offsets, nonfounders? allele_dosages : founder_allele_dosages, variant_ct, maf_succ, allele_freqs);
-          if (pcp->read_freq_fname) {
-            reterr = ReadAlleleFreqs(variant_include, variant_ids, allele_idx_offsets, allele_storage, pcp->read_freq_fname, raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, maf_succ, pcp->max_thread_ct, allele_freqs);
-            if (unlikely(reterr)) {
-              goto Plink2Core_ret_1;
-            }
+          if (afreqcalc_variant_ct) {
+            const uint32_t maf_succ = (pcp->misc_flags / kfMiscMafSucc) & 1;
+            ComputeAlleleFreqs(variant_afreqcalc, allele_idx_offsets, nonfounders? allele_dosages : founder_allele_dosages, afreqcalc_variant_ct, maf_succ, allele_freqs);
           }
           if (maj_alleles) {
             ComputeMajAlleles(variant_include, allele_idx_offsets, allele_freqs, variant_ct, maj_alleles);
           }
-        } else if (pcp->read_freq_fname) {
-          logerrprintf("Warning: Ignoring --read-freq since no command would use the frequencies.\n");
         }
+        BigstackReset(bigstack_mark_read_freqs);
 
         if (pcp->command_flags1 & kfCommand1AlleleFreq) {
           reterr = WriteAlleleFreqs(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonfounders? allele_dosages : founder_allele_dosages, imp_r2_vals, pcp->freq_ref_binstr, pcp->freq_alt1_binstr, variant_ct, max_allele_ct, max_allele_slen, pcp->freq_rpt_flags, pcp->max_thread_ct, nonfounders, outname, outname_end);

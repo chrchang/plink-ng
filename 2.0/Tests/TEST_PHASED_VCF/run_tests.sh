@@ -67,6 +67,23 @@ plink --bfile plink1_data --maf 0.02 --pca 3 header tabs var-wts --out plink1_pc
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pca 3 var-wts --out plink2_pca
 python pca_compare.py -1 plink1_pca -2 plink2_pca -t 0.000002
 
+# while we're at it, test all --read-freq input formats.
+# (todo: add multiallelic --read-freq test when --score gets better
+# multiallelic-variant support.)
+plink --bfile plink1_data --freq
+$1/plink2 $2 $3 --bfile plink1_data --read-freq plink.frq --maf 0.02 --pca 3 var-wts --out plink2_pca_rfreq
+# .frq only has 4-digit precision
+python pca_compare.py -1 plink2_pca -2 plink2_pca_rfreq -t 0.0002
+plink --bfile plink1_data --freqx
+$1/plink2 $2 $3 --bfile plink1_data --read-freq plink.frqx --maf 0.02 --pca 3 var-wts --out plink2_pca_rfreq
+diff -q plink2_pca.eigenvec plink2_pca_rfreq.eigenvec
+plink2 --bfile plink1_data --freq
+$1/plink2 $2 $3 --bfile plink1_data --read-freq plink2.afreq --maf 0.02 --pca 3 var-wts --out plink2_pca_rfreq
+python pca_compare.py -1 plink2_pca -2 plink2_pca_rfreq -t 0.000002
+plink2 --bfile plink1_data --geno-counts
+$1/plink2 $2 $3 --bfile plink1_data --read-freq plink2.gcount --maf 0.02 --pca 3 var-wts --out plink2_pca_rfreq
+diff -q plink2_pca.eigenvec plink2_pca_rfreq.eigenvec
+
 # note that this run depends on the random seed.
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pca 3 approx var-wts --out plink2_pca_approx
 python pca_compare.py -1 plink1_pca -2 plink2_pca_approx -t 0.005
@@ -85,6 +102,7 @@ python pca_compare.py -1 plink1_pca -2 plink2_pca_approx -t 0.005
 # - top PCs, --tests
 #
 # TODO: Also test --condition/--condition-list, local-covar.
+# TODO: TEST_MULTIALLELIC_VCF fixture, etc.
 
 $1/plink2 --dummy 2504 1 --seed 1 --out pheno_cc
 $1/plink2 --dummy 2504 1 scalar-pheno --seed 1 --out pheno_qt

@@ -1990,7 +1990,7 @@ FLAGSET_DEF_START()
   kfReadFreqColsetHapAlt1Ct = (1 << kfReadFreqColHapAlt1Ct)
 FLAGSET_DEF_END(ReadFreqColFlags);
 
-PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* read_freq_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t maf_succ, uint32_t max_thread_ct, double* allele_freqs) {
+PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* read_freq_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t maf_succ, uint32_t max_thread_ct, double* allele_freqs, uintptr_t** variant_afreqcalcp) {
   // support PLINK 1.9 --freq/--freqx, and 2.0 --freq/--geno-counts.
   // GCTA-format no longer supported since it inhibits the allele consistency
   // check.
@@ -2000,19 +2000,22 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
   ReadLineStream read_freq_rls;
   PreinitRLstream(&read_freq_rls);
   {
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     double* cur_allele_freqs;
     uintptr_t* matched_loaded_alleles;
     uintptr_t* matched_internal_alleles;
     uint32_t* loaded_to_internal_allele_idx;
     uintptr_t* already_seen;
     if (unlikely(
+            bigstack_calloc_w(raw_variant_ctl, variant_afreqcalcp) ||
             bigstack_calloc_d(kMaxReadFreqAlleles, &cur_allele_freqs) ||
             bigstack_alloc_w(BitCtToWordCt(kMaxReadFreqAlleles), &matched_loaded_alleles) ||
             bigstack_alloc_w(BitCtToWordCt(max_allele_ct), &matched_internal_alleles) ||
             bigstack_alloc_u32(kMaxReadFreqAlleles, &loaded_to_internal_allele_idx) ||
-            bigstack_calloc_w(BitCtToWordCt(raw_variant_ct), &already_seen))) {
+            bigstack_calloc_w(raw_variant_ctl, &already_seen))) {
       goto ReadAlleleFreqs_ret_NOMEM;
     }
+    bigstack_mark = R_CAST(unsigned char*, cur_allele_freqs);
 
     char* line_iter;
     reterr = SizeAndInitRLstreamRaw(read_freq_fname, bigstack_left() / 8, &read_freq_rls, &line_iter);
@@ -2234,7 +2237,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         }
         ReadFreqColFlags header_cols_exempt = kfReadFreqColset0;
         if ((header_cols & kfReadFreqColsetAltFreqs) && (!is_numeq)) {
-          // {ALT_}FREQS can be formatted as either
+          // [ALT_]FREQS can be formatted as either
           //   0.5,0,0.2
           // or
           //   A=0.5,G=0.2
@@ -2275,7 +2278,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           linebuf_first_token = line_iter;
         }
         if (unlikely(((header_cols & kfReadFreqColsetBase) | header_cols_exempt) != kfReadFreqColsetBase)) {
-          logerrputs("Error: Missing column(s) in --read-freq file (ID, REF, ALT{1} usually\nrequired).\n");
+          logerrputs("Error: Missing column(s) in --read-freq file (ID, REF, ALT[1] usually\nrequired).\n");
           goto ReadAlleleFreqs_ret_MALFORMED_INPUT;
         }
         if (!main_allele_idx_start) {
@@ -2299,7 +2302,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         logputs("--read-freq: PLINK 2 --freq file detected.\n");
       } else if (likely(header_cols & kfReadFreqColsetGcountOnly)) {
         if (unlikely((header_cols & kfReadFreqColsetBase) != kfReadFreqColsetBase)) {
-          logerrputs("Error: Missing column(s) in --read-freq file (ID, REF, ALT{1} required).\n");
+          logerrputs("Error: Missing column(s) in --read-freq file (ID, REF, ALT[1] required).\n");
           goto ReadAlleleFreqs_ret_MALFORMED_INPUT;
         }
         // possible todo: allow one frequency/count to be missing.  (not really
@@ -2450,6 +2453,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
     uintptr_t skipped_variant_ct = 0;
     uint32_t loaded_variant_ct = 0;
     uint32_t cur_allele_ct = 2;
+    uint32_t variant_uidx = 0;
     while (1) {
       if (!IsEolnKns(*linebuf_first_token)) {
         // not const since tokens may be null-terminated or comma-terminated
@@ -2465,10 +2469,10 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         line_iter = AdvToDelim(line_iter, '\n');
         const char* variant_id_start = token_ptrs[kfReadFreqColVarId];
         const uint32_t variant_id_slen = token_slens[kfReadFreqColVarId];
-        uint32_t variant_uidx = VariantIdDupflagHtableFind(variant_id_start, variant_ids, variant_id_htable, variant_id_slen, variant_id_htable_size, max_variant_id_slen);
+        variant_uidx = VariantIdDupflagHtableFind(variant_id_start, variant_ids, variant_id_htable, variant_id_slen, variant_id_htable_size, max_variant_id_slen);
         if (variant_uidx >> 31) {
           if (likely(variant_uidx == UINT32_MAX)) {
-            goto ReadAlleleFreqs_skip_variant;
+            goto ReadAlleleFreqs_skip_missing_variant;
           }
           snprintf(g_logbuf, kLogbufSize, "Error: --read-freq variant ID '%s' appears multiple times in main dataset.\n", variant_ids[variant_uidx & 0x7fffffff]);
           goto ReadAlleleFreqs_ret_MALFORMED_INPUT_WW;
@@ -2956,6 +2960,8 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
       }
       while (0) {
       ReadAlleleFreqs_skip_variant:
+        SetBit(variant_uidx, *variant_afreqcalcp);
+      ReadAlleleFreqs_skip_missing_variant:
         ++skipped_variant_ct;
       }
       ++line_iter;
@@ -2970,6 +2976,13 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
       }
       linebuf_first_token = FirstNonTspace(line_iter);
     }
+    // Set variant_afreqcalc to the set of variants in variant_include, but
+    // without loaded frequencies.
+    BitvecInvertAndMask(variant_include, raw_variant_ctl, already_seen);
+    // already_seen is now the set of remaining variants that *weren't* seen,
+    // and variant_afreqcalc is the set of variants which were seen but
+    // skipped due to incomplete information.
+    BitvecOr(already_seen, raw_variant_ctl, *variant_afreqcalcp);
     putc_unlocked('\r', stdout);
     logprintf("--read-freq: Frequencies for %u variant%s loaded.\n", loaded_variant_ct, (loaded_variant_ct == 1)? "" : "s");
     if (skipped_variant_ct) {
