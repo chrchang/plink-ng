@@ -457,8 +457,8 @@ void SplitHomRef2het(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* __
 //   f: {0,1,2,3} -> x
 // to genoarr, saving the output to result[].
 // 256-element tables result in a substantially faster inner loop, but they are
-// more expensive to set up and consume a non-negligible fractino of L1 cache,
-// they aren't always the right choice.
+// more expensive to set up and consume a non-negligible fraction of L1 cache,
+// so they aren't always the right choice.
 // When lookup table rows are 16 bytes, they are assumed to be 16-byte aligned
 // in 64-bit builds.  result[] is not assumed to be aligned.
 void GenoarrLookup16x4bx2(const uintptr_t* genoarr, const void* table16x4bx2, uint32_t sample_ct, void* result);

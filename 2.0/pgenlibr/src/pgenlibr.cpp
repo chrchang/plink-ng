@@ -8,19 +8,21 @@ public:
   // imitates Python/pgenlib.pyx
   RPgenReader(String filename, Nullable<int> raw_sample_ct,
               Nullable<int> variant_ct,
-              Nullable<IntegerVector> sample_subset);
+              Nullable<IntegerVector> sample_subset_1based);
 
   int GetRawSampleCt() const;
+
+  int GetSubsetSize() const;
 
   int GetVariantCt() const;
 
   bool HardcallPhasePresent() const;
 
-  IntegerVector ReadIntHardcalls(int variant_idx, int allele_idx);
+  void ReadIntHardcalls(IntegerVector buf, int variant_idx, int allele_idx);
 
-  NumericVector ReadHardcalls(int variant_idx, int allele_idx);
+  void ReadHardcalls(NumericVector buf, int variant_idx, int allele_idx);
 
-  NumericVector Read(int variant_idx, int allele_idx);
+  void Read(NumericVector buf, int variant_idx, int allele_idx);
 
   void Close();
 
@@ -48,12 +50,12 @@ private:
   uintptr_t* _multivar_smaj_phaseinfo_batch_buf;
   uintptr_t* _multivar_smaj_phasepresent_batch_buf;
 
-  void SetSampleSubsetInternal(IntegerVector sample_subset);
+  void SetSampleSubsetInternal(IntegerVector sample_subset_1based);
 };
 
 RPgenReader::RPgenReader(String filename, Nullable<int> raw_sample_ct,
                          Nullable<int> variant_ct,
-                         Nullable<IntegerVector> sample_subset) {
+                         Nullable<IntegerVector> sample_subset_1based) {
   _info_ptr = static_cast<plink2::PgenFileInfo*>(malloc(sizeof(plink2::PgenFileInfo)));
   if (!_info_ptr) {
     stop("Out of memory");
@@ -75,10 +77,10 @@ RPgenReader::RPgenReader(String filename, Nullable<int> raw_sample_ct,
     stop(&(errstr_buf[7]));
   }
   if (header_ctrl & 0x30) {
-    stop("Explicit ALT allele counts not yet supported.");
+    stop("Explicit ALT allele counts not yet supported");
   }
   if ((header_ctrl & 0xc0) == 0xc0) {
-    stop("Explicit nonref_flags not yet supported.");
+    stop("Explicit nonref_flags not yet supported");
   }
   const uint32_t file_sample_ct = _info_ptr->raw_sample_ct;
   unsigned char* pgfi_alloc = nullptr;
@@ -137,8 +139,8 @@ RPgenReader::RPgenReader(String filename, Nullable<int> raw_sample_ct,
   pgr_alloc_iter = &(pgr_alloc_iter[sample_subset_byte_ct]);
   _dosage_main = reinterpret_cast<uint16_t*>(pgr_alloc_iter);
   pgr_alloc_iter = &(pgr_alloc_iter[dosage_main_byte_ct]);
-  if (sample_subset.isNotNull()) {
-    SetSampleSubsetInternal(sample_subset.get());
+  if (sample_subset_1based.isNotNull()) {
+    SetSampleSubsetInternal(sample_subset_1based.get());
   } else {
     _subset_size = file_sample_ct;
   }
@@ -162,6 +164,10 @@ int RPgenReader::GetRawSampleCt() const {
   return _info_ptr->raw_sample_ct;
 }
 
+int RPgenReader::GetSubsetSize() const {
+  return _subset_size;
+}
+
 int RPgenReader::GetVariantCt() const {
   return _info_ptr->raw_variant_ct;
 }
@@ -170,10 +176,15 @@ bool RPgenReader::HardcallPhasePresent() const {
   return ((_info_ptr->gflags & plink2::kfPgenGlobalHardcallPhasePresent) != 0);
 }
 
-IntegerVector RPgenReader::ReadIntHardcalls(int variant_idx, int allele_idx) {
+void RPgenReader::ReadIntHardcalls(IntegerVector buf, int variant_idx, int allele_idx) {
   if (static_cast<uint32_t>(variant_idx) >= _info_ptr->raw_variant_ct) {
     char errstr_buf[256];
-    sprintf(errstr_buf, "ReadIntHardcalls() variant_idx out of range (%d; must be 0..%u)", variant_idx, _info_ptr->raw_variant_ct - 1);
+    sprintf(errstr_buf, "variant_num out of range (%d; must be 1..%u)", variant_idx + 1, _info_ptr->raw_variant_ct);
+    stop(errstr_buf);
+  }
+  if (buf.size() != _subset_size) {
+    char errstr_buf[256];
+    sprintf(errstr_buf, "buf has wrong length (%" PRIdPTR "; %u expected)", buf.size(), _subset_size);
     stop(errstr_buf);
   }
   plink2::PglErr reterr = PgrGet1(_subset_include_vec, _subset_cumulative_popcounts, _subset_size, variant_idx, allele_idx, _state_ptr, _genovec);
@@ -182,15 +193,18 @@ IntegerVector RPgenReader::ReadIntHardcalls(int variant_idx, int allele_idx) {
     sprintf(errstr_buf, "ReadIntHardcalls() error %d", static_cast<int>(reterr));
     stop(errstr_buf);
   }
-  IntegerVector iv(_subset_size);
-  plink2::GenoarrToInt32sMinus9(_genovec, _subset_size, &iv[0]);
-  return iv;
+  plink2::GenoarrToInt32sMinus9(_genovec, _subset_size, &buf[0]);
 }
 
-NumericVector RPgenReader::ReadHardcalls(int variant_idx, int allele_idx) {
+void RPgenReader::ReadHardcalls(NumericVector buf, int variant_idx, int allele_idx) {
   if (static_cast<uint32_t>(variant_idx) >= _info_ptr->raw_variant_ct) {
     char errstr_buf[256];
-    sprintf(errstr_buf, "ReadHardcalls() variant_idx out of range (%d; must be 0..%u)", variant_idx, _info_ptr->raw_variant_ct - 1);
+    sprintf(errstr_buf, "variant_num out of range (%d; must be 1..%u)", variant_idx + 1, _info_ptr->raw_variant_ct);
+    stop(errstr_buf);
+  }
+  if (buf.size() != _subset_size) {
+    char errstr_buf[256];
+    sprintf(errstr_buf, "buf has wrong length (%" PRIdPTR "; %u expected)", buf.size(), _subset_size);
     stop(errstr_buf);
   }
   plink2::PglErr reterr = PgrGet1(_subset_include_vec, _subset_cumulative_popcounts, _subset_size, variant_idx, allele_idx, _state_ptr, _genovec);
@@ -199,15 +213,18 @@ NumericVector RPgenReader::ReadHardcalls(int variant_idx, int allele_idx) {
     sprintf(errstr_buf, "ReadHardcalls() error %d", static_cast<int>(reterr));
     stop(errstr_buf);
   }
-  NumericVector nv(_subset_size);
-  plink2::GenoarrToDoublesMinus9(_genovec, _subset_size, &nv[0]);
-  return nv;
+  plink2::GenoarrToDoublesMinus9(_genovec, _subset_size, &buf[0]);
 }
 
-NumericVector RPgenReader::Read(int variant_idx, int allele_idx) {
+void RPgenReader::Read(NumericVector buf, int variant_idx, int allele_idx) {
   if (static_cast<uint32_t>(variant_idx) >= _info_ptr->raw_variant_ct) {
     char errstr_buf[256];
-    sprintf(errstr_buf, "Read() variant_idx out of range (%d; must be 0..%u)", variant_idx, _info_ptr->raw_variant_ct - 1);
+    sprintf(errstr_buf, "variant_num out of range (%d; must be 1..%u)", variant_idx + 1, _info_ptr->raw_variant_ct);
+    stop(errstr_buf);
+  }
+  if (buf.size() != _subset_size) {
+    char errstr_buf[256];
+    sprintf(errstr_buf, "buf has wrong length (%" PRIdPTR "; %u expected)", buf.size(), _subset_size);
     stop(errstr_buf);
   }
   uint32_t dosage_ct;
@@ -217,9 +234,7 @@ NumericVector RPgenReader::Read(int variant_idx, int allele_idx) {
     sprintf(errstr_buf, "Read() error %d", static_cast<int>(reterr));
     stop(errstr_buf);
   }
-  NumericVector nv(_subset_size);
-  plink2::Dosage16ToDoublesMinus9(_genovec, _dosage_present, _dosage_main, _subset_size, dosage_ct, &nv[0]);
-  return nv;
+  plink2::Dosage16ToDoublesMinus9(_genovec, _dosage_present, _dosage_main, _subset_size, dosage_ct, &buf[0]);
 }
 
 void RPgenReader::Close() {
@@ -242,30 +257,30 @@ void RPgenReader::Close() {
   }
 }
 
-void RPgenReader::SetSampleSubsetInternal(IntegerVector sample_subset) {
+void RPgenReader::SetSampleSubsetInternal(IntegerVector sample_subset_1based) {
   const uint32_t raw_sample_ct = _info_ptr->raw_sample_ct;
   const uint32_t raw_sample_ctv = plink2::DivUp(raw_sample_ct, plink2::kBitsPerVec);
   const uint32_t raw_sample_ctaw = raw_sample_ctv * plink2::kWordsPerVec;
   uintptr_t* sample_include = _subset_include_vec;
   plink2::ZeroWArr(raw_sample_ctaw, sample_include);
-  const uint32_t subset_size = sample_subset.size();
+  const uint32_t subset_size = sample_subset_1based.size();
   if (subset_size == 0) {
-    stop("Empty sample_subset is not currently permitted.");
+    stop("Empty sample_subset is not currently permitted");
   }
-  uint32_t sample_uidx = sample_subset[0];
+  uint32_t sample_uidx = sample_subset_1based[0] - 1;
   uint32_t idx = 0;
   uint32_t next_uidx;
   while (1) {
     if (sample_uidx >= raw_sample_ct) {
       char errstr_buf[256];
-      sprintf(errstr_buf, "0-based sample idx out of range (%d; must be 0..%u)", static_cast<int>(sample_uidx), raw_sample_ct - 1);
+      sprintf(errstr_buf, "sample number out of range (%d; must be 1..%u)", static_cast<int>(sample_uidx + 1), raw_sample_ct);
       stop(errstr_buf);
     }
     plink2::SetBit(sample_uidx, sample_include);
     if (++idx == subset_size) {
       break;
     }
-    next_uidx = sample_subset[idx];
+    next_uidx = sample_subset_1based[idx] - 1;
 
     // prohibit this since it implies that the caller expects genotypes to be
     // returned in a different order
@@ -325,23 +340,37 @@ bool HardcallPhasePresent(SEXP xp) {
 }
 
 // [[Rcpp::export]]
-SEXP ReadIntHardcalls(SEXP xp, int variant_idx, int allele_idx = 1) {
-  // probable todo: alternate interface which overwrites an IntegerVector
-  // instead of returning one
+IntegerVector IntBuf(SEXP xp) {
   XPtr<class RPgenReader> rp(xp);
-  return rp->ReadIntHardcalls(variant_idx, allele_idx);
+  return IntegerVector(rp->GetSubsetSize());
 }
 
 // [[Rcpp::export]]
-SEXP ReadHardcalls(SEXP xp, int variant_idx, int allele_idx = 1) {
+NumericVector Buf(SEXP xp) {
   XPtr<class RPgenReader> rp(xp);
-  return rp->ReadHardcalls(variant_idx, allele_idx);
+  return NumericVector(rp->GetSubsetSize());
+}
+
+// _num indicates R 1-based indexing.
+
+// [[Rcpp::export]]
+void ReadHardcalls(SEXP xp, SEXP buf, int variant_num, int allele_num = 2) {
+  const int variant_idx = variant_num - 1;
+  const int allele_idx = allele_num - 1;
+  XPtr<class RPgenReader> rp(xp);
+  if (TYPEOF(buf) == REALSXP) {
+    rp->ReadHardcalls(buf, variant_idx, allele_idx);
+  } else if (TYPEOF(buf) == INTSXP) {
+    rp->ReadIntHardcalls(buf, variant_idx, allele_idx);
+  } else {
+    stop("Unsupported buf type");
+  }
 }
 
 // [[Rcpp::export]]
-SEXP Read(SEXP xp, int variant_idx, int allele_idx = 1) {
+void Read(SEXP xp, NumericVector buf, int variant_num, int allele_num = 2) {
   XPtr<class RPgenReader> rp(xp);
-  return rp->Read(variant_idx, allele_idx);
+  rp->Read(buf, variant_num - 1, allele_num - 1);
 }
 
 // [[Rcpp::export]]
