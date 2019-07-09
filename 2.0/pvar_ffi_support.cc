@@ -497,6 +497,7 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
             if (extra_alt_ct > max_extra_alt_ct) {
               max_extra_alt_ct = extra_alt_ct;
             }
+            allele_ct += extra_alt_ct;
             const char* alt_iter = alt_start;
             const char* alt_end = &(alt_start[alt_slen]);
             for (uint32_t alt_idx = 0; alt_idx != extra_alt_ct; ++alt_idx) {
@@ -608,11 +609,11 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
       }
       ++allele_idx;
 
+      const char* alt_start = token_ptrs[2];
       const uint32_t alt_slen = token_slens[2];
       if (alt_slen == 1) {
-        allele_storage[allele_idx++] = &(g_one_char_strs[2 * token_ptrs[2][0]]);
+        allele_storage[allele_idx++] = &(g_one_char_strs[2 * alt_start[0]]);
       } else {
-        const char* alt_start = token_ptrs[2];
         const uint32_t extra_alt_ct = CountByte(alt_start, ',', alt_slen);
         if (!extra_alt_ct) {
           memcpyx(string_space_iter, alt_start, alt_slen, '\0');

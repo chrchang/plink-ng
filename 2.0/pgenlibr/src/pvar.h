@@ -6,10 +6,16 @@
 #include <Rcpp.h>
 using namespace Rcpp;
 
-class RPvarReader {
+class RPvar {
 public:
   // only tracks variant IDs and allele codes for now
-  RPvarReader(String filename);
+  RPvar();
+
+  RPvar(const RPvar&) = delete;
+
+  RPvar& operator=(const RPvar&) = delete;
+
+  void Load(String filename);
 
   uint32_t GetVariantCt() const;
 
@@ -25,10 +31,14 @@ public:
 
   void Close();
 
-  ~RPvarReader();
+  ~RPvar();
 
 private:
   plink2::MinimalPvar _mp;
 };
+
+HEADER_INLINE int strcmp_r_c(String r_string, const char* cstr) {
+  return strcmp(r_string.get_cstring(), cstr);
+}
 
 #endif  // __PVAR_H__

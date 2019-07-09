@@ -67,7 +67,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (8 Jul 2019)";
+  " (9 Jul 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -3738,6 +3738,9 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.dependency_flags |= kfFilterPvarReq;
+        } else if (unlikely(strequal_k_unsafe(flagname_p2, "ssoc"))) {
+          logerrputs("Error: --assoc is retired.  Use --glm instead.\n");
+          goto main_ret_INVALID_CMDLINE_A;
         } else if (likely(strequal_k_unsafe(flagname_p2, "llow-no-sex"))) {
           logputs("Note: --allow-no-sex no longer has any effect.  (Missing-sex samples are\nautomatically excluded from association analysis when sex is a covariate, and\ntreated normally otherwise.)\n");
           goto main_param_zero;

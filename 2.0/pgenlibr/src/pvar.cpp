@@ -1,8 +1,11 @@
 #include "pvar.h"  // includes Rcpp
 
-RPvarReader::RPvarReader(String filename) {
-  char errbuf[plink2::kPglErrstrBufBlen];
+RPvar::RPvar() {
   PreinitMinimalPvar(&_mp);
+}
+
+void RPvar::Load(String filename) {
+  char errbuf[plink2::kPglErrstrBufBlen];
   plink2::PglErr reterr = LoadMinimalPvar(filename.get_cstring(), &_mp, errbuf);
   if (reterr != plink2::kPglRetSuccess) {
     if (reterr == plink2::kPglRetNomem) {
@@ -15,11 +18,11 @@ RPvarReader::RPvarReader(String filename) {
   }
 }
 
-uint32_t RPvarReader::GetVariantCt() const {
+uint32_t RPvar::GetVariantCt() const {
   return _mp.variant_ct;
 }
 
-const char* RPvarReader::GetVariantId(uint32_t variant_idx) const {
+const char* RPvar::GetVariantId(uint32_t variant_idx) const {
   if (variant_idx >= _mp.variant_ct) {
     char errbuf[256];
     if (_mp.variant_ct) {
@@ -32,16 +35,15 @@ const char* RPvarReader::GetVariantId(uint32_t variant_idx) const {
   return _mp.variant_ids[variant_idx];
 }
 
-uint32_t RPvarReader::GetAlleleCt(uint32_t variant_idx) const {
+uint32_t RPvar::GetAlleleCt(uint32_t variant_idx) const {
   if (!_mp.allele_idx_offsetsp) {
     return 2;
-  } else {
-    const uintptr_t* allele_idx_offsets = _mp.allele_idx_offsetsp->p;
-    return allele_idx_offsets[variant_idx + 1] - allele_idx_offsets[variant_idx];
   }
+  const uintptr_t* allele_idx_offsets = _mp.allele_idx_offsetsp->p;
+  return allele_idx_offsets[variant_idx + 1] - allele_idx_offsets[variant_idx];
 }
 
-const char* RPvarReader::GetAlleleCode(uint32_t variant_idx, uint32_t allele_idx) const {
+const char* RPvar::GetAlleleCode(uint32_t variant_idx, uint32_t allele_idx) const {
   if (variant_idx >= _mp.variant_ct) {
     char errbuf[256];
     if (_mp.variant_ct) {
@@ -66,65 +68,57 @@ const char* RPvarReader::GetAlleleCode(uint32_t variant_idx, uint32_t allele_idx
   return _mp.allele_storage[allele_idx_offset_base + allele_idx];
 }
 
-plink2::RefcountedWptr* RPvarReader::GetAlleleIdxOffsetsp() {
+plink2::RefcountedWptr* RPvar::GetAlleleIdxOffsetsp() {
   if (_mp.allele_idx_offsetsp) {
     _mp.allele_idx_offsetsp->ref_ct += 1;
   }
   return _mp.allele_idx_offsetsp;
 }
 
-uint32_t RPvarReader::GetMaxAlleleCt() const {
+uint32_t RPvar::GetMaxAlleleCt() const {
   return _mp.max_allele_ct;
 }
 
-void RPvarReader::Close() {
+void RPvar::Close() {
   plink2::CleanupMinimalPvar(&_mp);
 }
 
-RPvarReader::~RPvarReader() {
+RPvar::~RPvar() {
   plink2::CleanupMinimalPvar(&_mp);
 }
 
 // [[Rcpp::export]]
 SEXP NewPvar(String filename) {
-  XPtr<class RPvarReader> rp(new RPvarReader(filename), true);
-  return rp;
+  XPtr<class RPvar> pvar(new RPvar(), true);
+  pvar->Load(filename);
+  return List::create(_["class"] = "pvar", _["pvar"] = pvar);
 }
 
 // [[Rcpp::export]]
-int GetPvarCt(SEXP pvar) {
-  XPtr<class RPvarReader> rp(pvar);
-  return rp->GetVariantCt();
-}
-
-// [[Rcpp::export]]
-String GetVariantId(SEXP pvar, int variant_num) {
-  XPtr<class RPvarReader> rp(pvar);
+String GetVariantId(List pvar, int variant_num) {
+  if (strcmp_r_c(pvar[0], "pvar")) {
+    stop("pvar is not a pvar object");
+  }
+  XPtr<class RPvar> rp = as<XPtr<class RPvar>>(pvar[1]);
   String ss(rp->GetVariantId(variant_num - 1));
   return ss;
 }
 
 // [[Rcpp::export]]
-int GetAlleleCt(SEXP pvar, int variant_num) {
-  XPtr<class RPvarReader> rp(pvar);
-  return rp->GetAlleleCt(variant_num - 1);
-}
-
-// [[Rcpp::export]]
-String GetAlleleCode(SEXP pvar, int variant_num, int allele_num) {
-  XPtr<class RPvarReader> rp(pvar);
+String GetAlleleCode(List pvar, int variant_num, int allele_num) {
+  if (strcmp_r_c(pvar[0], "pvar")) {
+    stop("pvar is not a pvar object");
+  }
+  XPtr<class RPvar> rp = as<XPtr<class RPvar>>(pvar[1]);
   String ss(rp->GetAlleleCode(variant_num - 1, allele_num - 1));
   return ss;
 }
 
 // [[Rcpp::export]]
-int GetMaxAlleleCt(SEXP pvar) {
-  XPtr<class RPvarReader> rp(pvar);
-  return rp->GetMaxAlleleCt();
-}
-
-// [[Rcpp::export]]
-void ClosePvar(SEXP pvar) {
-  XPtr<class RPvarReader> rp(pvar);
+void ClosePvar(List pvar) {
+  if (strcmp_r_c(pvar[0], "pvar")) {
+    stop("pvar is not a pvar object");
+  }
+  XPtr<class RPvar> rp = as<XPtr<class RPvar>>(pvar[1]);
   rp->Close();
 }

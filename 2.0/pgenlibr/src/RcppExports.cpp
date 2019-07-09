@@ -5,82 +5,104 @@
 
 using namespace Rcpp;
 
-// NewReader
-SEXP NewReader(String filename, Nullable<int> raw_sample_ct, Nullable<int> variant_ct, SEXP pvar, Nullable<IntegerVector> sample_subset);
-RcppExport SEXP _pgenlibr_NewReader(SEXP filenameSEXP, SEXP raw_sample_ctSEXP, SEXP variant_ctSEXP, SEXP pvarSEXP, SEXP sample_subsetSEXP) {
+// NewPgen
+SEXP NewPgen(String filename, Nullable<List> pvar, Nullable<int> raw_sample_ct, Nullable<IntegerVector> sample_subset);
+RcppExport SEXP _pgenlibr_NewPgen(SEXP filenameSEXP, SEXP pvarSEXP, SEXP raw_sample_ctSEXP, SEXP sample_subsetSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< String >::type filename(filenameSEXP);
+    Rcpp::traits::input_parameter< Nullable<List> >::type pvar(pvarSEXP);
     Rcpp::traits::input_parameter< Nullable<int> >::type raw_sample_ct(raw_sample_ctSEXP);
-    Rcpp::traits::input_parameter< Nullable<int> >::type variant_ct(variant_ctSEXP);
-    Rcpp::traits::input_parameter< SEXP >::type pvar(pvarSEXP);
     Rcpp::traits::input_parameter< Nullable<IntegerVector> >::type sample_subset(sample_subsetSEXP);
-    rcpp_result_gen = Rcpp::wrap(NewReader(filename, raw_sample_ct, variant_ct, pvar, sample_subset));
+    rcpp_result_gen = Rcpp::wrap(NewPgen(filename, pvar, raw_sample_ct, sample_subset));
     return rcpp_result_gen;
 END_RCPP
 }
 // GetRawSampleCt
-int GetRawSampleCt(SEXP pgen);
+int GetRawSampleCt(List pgen);
 RcppExport SEXP _pgenlibr_GetRawSampleCt(SEXP pgenSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< SEXP >::type pgen(pgenSEXP);
+    Rcpp::traits::input_parameter< List >::type pgen(pgenSEXP);
     rcpp_result_gen = Rcpp::wrap(GetRawSampleCt(pgen));
     return rcpp_result_gen;
 END_RCPP
 }
 // GetVariantCt
-int GetVariantCt(SEXP pgen);
-RcppExport SEXP _pgenlibr_GetVariantCt(SEXP pgenSEXP) {
+int GetVariantCt(List pvar_or_pgen);
+RcppExport SEXP _pgenlibr_GetVariantCt(SEXP pvar_or_pgenSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< SEXP >::type pgen(pgenSEXP);
-    rcpp_result_gen = Rcpp::wrap(GetVariantCt(pgen));
+    Rcpp::traits::input_parameter< List >::type pvar_or_pgen(pvar_or_pgenSEXP);
+    rcpp_result_gen = Rcpp::wrap(GetVariantCt(pvar_or_pgen));
+    return rcpp_result_gen;
+END_RCPP
+}
+// GetAlleleCt
+int GetAlleleCt(List pvar_or_pgen, int variant_num);
+RcppExport SEXP _pgenlibr_GetAlleleCt(SEXP pvar_or_pgenSEXP, SEXP variant_numSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type pvar_or_pgen(pvar_or_pgenSEXP);
+    Rcpp::traits::input_parameter< int >::type variant_num(variant_numSEXP);
+    rcpp_result_gen = Rcpp::wrap(GetAlleleCt(pvar_or_pgen, variant_num));
+    return rcpp_result_gen;
+END_RCPP
+}
+// GetMaxAlleleCt
+int GetMaxAlleleCt(List pvar_or_pgen);
+RcppExport SEXP _pgenlibr_GetMaxAlleleCt(SEXP pvar_or_pgenSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type pvar_or_pgen(pvar_or_pgenSEXP);
+    rcpp_result_gen = Rcpp::wrap(GetMaxAlleleCt(pvar_or_pgen));
     return rcpp_result_gen;
 END_RCPP
 }
 // HardcallPhasePresent
-bool HardcallPhasePresent(SEXP pgen);
+bool HardcallPhasePresent(List pgen);
 RcppExport SEXP _pgenlibr_HardcallPhasePresent(SEXP pgenSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< SEXP >::type pgen(pgenSEXP);
+    Rcpp::traits::input_parameter< List >::type pgen(pgenSEXP);
     rcpp_result_gen = Rcpp::wrap(HardcallPhasePresent(pgen));
     return rcpp_result_gen;
 END_RCPP
 }
 // IntBuf
-IntegerVector IntBuf(SEXP pgen);
+IntegerVector IntBuf(List pgen);
 RcppExport SEXP _pgenlibr_IntBuf(SEXP pgenSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< SEXP >::type pgen(pgenSEXP);
+    Rcpp::traits::input_parameter< List >::type pgen(pgenSEXP);
     rcpp_result_gen = Rcpp::wrap(IntBuf(pgen));
     return rcpp_result_gen;
 END_RCPP
 }
 // Buf
-NumericVector Buf(SEXP pgen);
+NumericVector Buf(List pgen);
 RcppExport SEXP _pgenlibr_Buf(SEXP pgenSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< SEXP >::type pgen(pgenSEXP);
+    Rcpp::traits::input_parameter< List >::type pgen(pgenSEXP);
     rcpp_result_gen = Rcpp::wrap(Buf(pgen));
     return rcpp_result_gen;
 END_RCPP
 }
 // ReadHardcalls
-void ReadHardcalls(SEXP pgen, SEXP buf, int variant_num, int allele_num);
+void ReadHardcalls(List pgen, SEXP buf, int variant_num, int allele_num);
 RcppExport SEXP _pgenlibr_ReadHardcalls(SEXP pgenSEXP, SEXP bufSEXP, SEXP variant_numSEXP, SEXP allele_numSEXP) {
 BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< SEXP >::type pgen(pgenSEXP);
+    Rcpp::traits::input_parameter< List >::type pgen(pgenSEXP);
     Rcpp::traits::input_parameter< SEXP >::type buf(bufSEXP);
     Rcpp::traits::input_parameter< int >::type variant_num(variant_numSEXP);
     Rcpp::traits::input_parameter< int >::type allele_num(allele_numSEXP);
@@ -89,11 +111,11 @@ BEGIN_RCPP
 END_RCPP
 }
 // Read
-void Read(SEXP pgen, NumericVector buf, int variant_num, int allele_num);
+void Read(List pgen, NumericVector buf, int variant_num, int allele_num);
 RcppExport SEXP _pgenlibr_Read(SEXP pgenSEXP, SEXP bufSEXP, SEXP variant_numSEXP, SEXP allele_numSEXP) {
 BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< SEXP >::type pgen(pgenSEXP);
+    Rcpp::traits::input_parameter< List >::type pgen(pgenSEXP);
     Rcpp::traits::input_parameter< NumericVector >::type buf(bufSEXP);
     Rcpp::traits::input_parameter< int >::type variant_num(variant_numSEXP);
     Rcpp::traits::input_parameter< int >::type allele_num(allele_numSEXP);
@@ -101,13 +123,13 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
-// Close
-void Close(SEXP pgen);
-RcppExport SEXP _pgenlibr_Close(SEXP pgenSEXP) {
+// ClosePgen
+void ClosePgen(List pgen);
+RcppExport SEXP _pgenlibr_ClosePgen(SEXP pgenSEXP) {
 BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< SEXP >::type pgen(pgenSEXP);
-    Close(pgen);
+    Rcpp::traits::input_parameter< List >::type pgen(pgenSEXP);
+    ClosePgen(pgen);
     return R_NilValue;
 END_RCPP
 }
@@ -122,92 +144,57 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// GetPvarCt
-int GetPvarCt(SEXP pvar);
-RcppExport SEXP _pgenlibr_GetPvarCt(SEXP pvarSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< SEXP >::type pvar(pvarSEXP);
-    rcpp_result_gen = Rcpp::wrap(GetPvarCt(pvar));
-    return rcpp_result_gen;
-END_RCPP
-}
 // GetVariantId
-String GetVariantId(SEXP pvar, int variant_num);
+String GetVariantId(List pvar, int variant_num);
 RcppExport SEXP _pgenlibr_GetVariantId(SEXP pvarSEXP, SEXP variant_numSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< SEXP >::type pvar(pvarSEXP);
+    Rcpp::traits::input_parameter< List >::type pvar(pvarSEXP);
     Rcpp::traits::input_parameter< int >::type variant_num(variant_numSEXP);
     rcpp_result_gen = Rcpp::wrap(GetVariantId(pvar, variant_num));
     return rcpp_result_gen;
 END_RCPP
 }
-// GetAlleleCt
-int GetAlleleCt(SEXP pvar, int variant_num);
-RcppExport SEXP _pgenlibr_GetAlleleCt(SEXP pvarSEXP, SEXP variant_numSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< SEXP >::type pvar(pvarSEXP);
-    Rcpp::traits::input_parameter< int >::type variant_num(variant_numSEXP);
-    rcpp_result_gen = Rcpp::wrap(GetAlleleCt(pvar, variant_num));
-    return rcpp_result_gen;
-END_RCPP
-}
 // GetAlleleCode
-String GetAlleleCode(SEXP pvar, int variant_num, int allele_num);
+String GetAlleleCode(List pvar, int variant_num, int allele_num);
 RcppExport SEXP _pgenlibr_GetAlleleCode(SEXP pvarSEXP, SEXP variant_numSEXP, SEXP allele_numSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< SEXP >::type pvar(pvarSEXP);
+    Rcpp::traits::input_parameter< List >::type pvar(pvarSEXP);
     Rcpp::traits::input_parameter< int >::type variant_num(variant_numSEXP);
     Rcpp::traits::input_parameter< int >::type allele_num(allele_numSEXP);
     rcpp_result_gen = Rcpp::wrap(GetAlleleCode(pvar, variant_num, allele_num));
     return rcpp_result_gen;
 END_RCPP
 }
-// GetMaxAlleleCt
-int GetMaxAlleleCt(SEXP pvar);
-RcppExport SEXP _pgenlibr_GetMaxAlleleCt(SEXP pvarSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< SEXP >::type pvar(pvarSEXP);
-    rcpp_result_gen = Rcpp::wrap(GetMaxAlleleCt(pvar));
-    return rcpp_result_gen;
-END_RCPP
-}
 // ClosePvar
-void ClosePvar(SEXP pvar);
+void ClosePvar(List pvar);
 RcppExport SEXP _pgenlibr_ClosePvar(SEXP pvarSEXP) {
 BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< SEXP >::type pvar(pvarSEXP);
+    Rcpp::traits::input_parameter< List >::type pvar(pvarSEXP);
     ClosePvar(pvar);
     return R_NilValue;
 END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
-    {"_pgenlibr_NewReader", (DL_FUNC) &_pgenlibr_NewReader, 5},
+    {"_pgenlibr_NewPgen", (DL_FUNC) &_pgenlibr_NewPgen, 4},
     {"_pgenlibr_GetRawSampleCt", (DL_FUNC) &_pgenlibr_GetRawSampleCt, 1},
     {"_pgenlibr_GetVariantCt", (DL_FUNC) &_pgenlibr_GetVariantCt, 1},
+    {"_pgenlibr_GetAlleleCt", (DL_FUNC) &_pgenlibr_GetAlleleCt, 2},
+    {"_pgenlibr_GetMaxAlleleCt", (DL_FUNC) &_pgenlibr_GetMaxAlleleCt, 1},
     {"_pgenlibr_HardcallPhasePresent", (DL_FUNC) &_pgenlibr_HardcallPhasePresent, 1},
     {"_pgenlibr_IntBuf", (DL_FUNC) &_pgenlibr_IntBuf, 1},
     {"_pgenlibr_Buf", (DL_FUNC) &_pgenlibr_Buf, 1},
     {"_pgenlibr_ReadHardcalls", (DL_FUNC) &_pgenlibr_ReadHardcalls, 4},
     {"_pgenlibr_Read", (DL_FUNC) &_pgenlibr_Read, 4},
-    {"_pgenlibr_Close", (DL_FUNC) &_pgenlibr_Close, 1},
+    {"_pgenlibr_ClosePgen", (DL_FUNC) &_pgenlibr_ClosePgen, 1},
     {"_pgenlibr_NewPvar", (DL_FUNC) &_pgenlibr_NewPvar, 1},
-    {"_pgenlibr_GetPvarCt", (DL_FUNC) &_pgenlibr_GetPvarCt, 1},
     {"_pgenlibr_GetVariantId", (DL_FUNC) &_pgenlibr_GetVariantId, 2},
-    {"_pgenlibr_GetAlleleCt", (DL_FUNC) &_pgenlibr_GetAlleleCt, 2},
     {"_pgenlibr_GetAlleleCode", (DL_FUNC) &_pgenlibr_GetAlleleCode, 3},
-    {"_pgenlibr_GetMaxAlleleCt", (DL_FUNC) &_pgenlibr_GetMaxAlleleCt, 1},
     {"_pgenlibr_ClosePvar", (DL_FUNC) &_pgenlibr_ClosePvar, 1},
     {NULL, NULL, 0}
 };
