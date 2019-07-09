@@ -6,7 +6,7 @@ Date: 2019-07-06
 Author: Christopher Chang
 Maintainer: Christopher Chang <chrchang@alumni.caltech.edu>
 Description: A thin wrapper over PLINK 2's core libraries which provides an R
-  interface for reading .pgen files.
+  interface for reading .pgen files.  A minimal .pvar loader is also included.
 License: LGPL (>= 3)
 Imports: Rcpp (>= 1.0.1)
 LinkingTo: Rcpp

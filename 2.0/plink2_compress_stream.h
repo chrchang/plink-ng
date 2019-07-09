@@ -26,8 +26,6 @@
 // may not actually want this include.
 #include "plink2_decompress.h"
 
-#define ZSTD_STATIC_LINKING_ONLY  // ZSTD_compress_generic(), etc.
-
 #include "zstd/lib/zstd.h"
 
 #ifdef __cplusplus

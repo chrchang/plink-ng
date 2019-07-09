@@ -1,13 +1,11 @@
 #include "pgenlib_ffi_support.h"
-
-#include <Rcpp.h>
-using namespace Rcpp;
+#include "pvar.h"  // includes Rcpp
 
 class RPgenReader {
 public:
   // imitates Python/pgenlib.pyx
   RPgenReader(String filename, Nullable<int> raw_sample_ct,
-              Nullable<int> variant_ct,
+              Nullable<int> variant_ct, SEXP pvar,
               Nullable<IntegerVector> sample_subset_1based);
 
   int GetRawSampleCt() const;
@@ -24,23 +22,27 @@ public:
 
   void Read(NumericVector buf, int variant_idx, int allele_idx);
 
+  /*
+  void ReadAlleles(IntegerVector buf, int variant_idx);
+
+  void ReadAllelesNumeric(IntegerVector buf, int variant_idx);
+  */
+
   void Close();
 
   ~RPgenReader();
 
 private:
   plink2::PgenFileInfo* _info_ptr;
+  plink2::RefcountedWptr* _allele_idx_offsetsp;
   plink2::PgenReader* _state_ptr;
   uintptr_t* _subset_include_vec;
   uintptr_t* _subset_include_interleaved_vec;
   uint32_t* _subset_cumulative_popcounts;
   uint32_t _subset_size;
-  // preallocate buffers we'll use repeatedly
-  uintptr_t* _genovec;
-  uintptr_t* _phasepresent;
-  uintptr_t* _phaseinfo;
-  uintptr_t* _dosage_present;
-  uint16_t* _dosage_main;
+
+  plink2::PgenVariant _pgv;
+
   plink2::VecW* _transpose_batch_buf;
   // kPglQuaterTransposeBatch (= 256) variants at a time, and then transpose
   uintptr_t* _multivar_vmaj_geno_buf;
@@ -54,7 +56,7 @@ private:
 };
 
 RPgenReader::RPgenReader(String filename, Nullable<int> raw_sample_ct,
-                         Nullable<int> variant_ct,
+                         Nullable<int> variant_ct, SEXP pvar,
                          Nullable<IntegerVector> sample_subset_1based) {
   _info_ptr = static_cast<plink2::PgenFileInfo*>(malloc(sizeof(plink2::PgenFileInfo)));
   if (!_info_ptr) {
@@ -69,18 +71,40 @@ RPgenReader::RPgenReader(String filename, Nullable<int> raw_sample_ct,
   if (variant_ct.isNotNull()) {
     cur_variant_ct = as<int>(variant_ct.get());
   }
+  char errstr_buf[plink2::kPglErrstrBufBlen];
+  if (pvar != R_NilValue) {
+    XPtr<RPvarReader> rp(pvar);
+    const uint32_t pvar_variant_ct = rp->GetVariantCt();
+    if (cur_variant_ct == UINT32_MAX) {
+      cur_variant_ct = pvar_variant_ct;
+    } else if (cur_variant_ct != pvar_variant_ct) {
+      snprintf(errstr_buf, plink2::kPglErrstrBufBlen, "variant_ct (%u) unequal to GetPvarCt(pvar) (%u)", cur_variant_ct, pvar_variant_ct);
+      stop(errstr_buf);
+    }
+  }
   const char* fname = filename.get_cstring();
   plink2::PgenHeaderCtrl header_ctrl;
   uintptr_t pgfi_alloc_cacheline_ct;
-  char errstr_buf[plink2::kPglErrstrBufBlen];
   if (PgfiInitPhase1(fname, cur_variant_ct, cur_sample_ct, 0, &header_ctrl, _info_ptr, &pgfi_alloc_cacheline_ct, errstr_buf) != plink2::kPglRetSuccess) {
     stop(&(errstr_buf[7]));
   }
   if (header_ctrl & 0x30) {
+    // need to be careful about ownership when this is supported
     stop("Explicit ALT allele counts not yet supported");
   }
   if ((header_ctrl & 0xc0) == 0xc0) {
     stop("Explicit nonref_flags not yet supported");
+  }
+  _info_ptr->allele_idx_offsets = nullptr;
+  if (pvar != R_NilValue) {
+    XPtr<RPvarReader> rp(pvar);
+    _allele_idx_offsetsp = rp->GetAlleleIdxOffsetsp();
+    if (_allele_idx_offsetsp) {
+      _info_ptr->allele_idx_offsets = _allele_idx_offsetsp->p;
+    }
+    _info_ptr->max_allele_ct = rp->GetMaxAlleleCt();
+  } else {
+    _info_ptr->max_allele_ct = 2;
   }
   const uint32_t file_sample_ct = _info_ptr->raw_sample_ct;
   unsigned char* pgfi_alloc = nullptr;
@@ -95,6 +119,9 @@ RPgenReader::RPgenReader(String filename, Nullable<int> raw_sample_ct,
     }
     stop(&(errstr_buf[7]));
   }
+  if ((!_allele_idx_offsetsp) && (_info_ptr->gflags & 4)) {
+    stop("Multiallelic variants present; pvar required in this case");
+  }
   _state_ptr = static_cast<plink2::PgenReader*>(malloc(sizeof(plink2::PgenReader)));
   if (!_state_ptr) {
     stop("Out of memory");
@@ -105,9 +132,15 @@ RPgenReader::RPgenReader(String filename, Nullable<int> raw_sample_ct,
   const uintptr_t sample_subset_byte_ct = plink2::DivUp(file_sample_ct, plink2::kBitsPerVec) * plink2::kBytesPerVec;
   const uintptr_t cumulative_popcounts_byte_ct = plink2::DivUp(file_sample_ct, plink2::kBitsPerWord * plink2::kInt32PerVec) * plink2::kBytesPerVec;
   const uintptr_t genovec_byte_ct = plink2::DivUp(file_sample_ct, plink2::kQuatersPerVec) * plink2::kBytesPerVec;
+  const uintptr_t ac_byte_ct = plink2::RoundUpPow2(file_sample_ct * sizeof(plink2::AlleleCode), plink2::kBytesPerVec);
+  const uintptr_t ac2_byte_ct = plink2::RoundUpPow2(file_sample_ct * 2 * sizeof(plink2::AlleleCode), plink2::kBytesPerVec);
+  uintptr_t multiallelic_hc_byte_ct = 0;
+  if (_info_ptr->max_allele_ct != 2) {
+    multiallelic_hc_byte_ct = 2 * sample_subset_byte_ct + ac_byte_ct + ac2_byte_ct;
+  }
   const uintptr_t dosage_main_byte_ct = plink2::DivUp(file_sample_ct, (2 * plink2::kInt32PerVec)) * plink2::kBytesPerVec;
   unsigned char* pgr_alloc;
-  if (plink2::cachealigned_malloc(pgr_alloc_main_byte_ct + (2 * plink2::kPglQuaterTransposeBatch + 5) * sample_subset_byte_ct + cumulative_popcounts_byte_ct + (1 + plink2::kPglQuaterTransposeBatch) * genovec_byte_ct + dosage_main_byte_ct + plink2::kPglBitTransposeBufbytes + 4 * (plink2::kPglQuaterTransposeBatch * plink2::kPglQuaterTransposeBatch / 8), &pgr_alloc)) {
+  if (plink2::cachealigned_malloc(pgr_alloc_main_byte_ct + (2 * plink2::kPglQuaterTransposeBatch + 5) * sample_subset_byte_ct + cumulative_popcounts_byte_ct + (1 + plink2::kPglQuaterTransposeBatch) * genovec_byte_ct + multiallelic_hc_byte_ct + dosage_main_byte_ct + plink2::kPglBitTransposeBufbytes + 4 * (plink2::kPglQuaterTransposeBatch * plink2::kPglQuaterTransposeBatch / 8), &pgr_alloc)) {
     stop("Out of memory");
   }
   plink2::PglErr reterr = PgrInit(fname, max_vrec_width, _info_ptr, _state_ptr, pgr_alloc);
@@ -124,20 +157,38 @@ RPgenReader::RPgenReader(String filename, Nullable<int> raw_sample_ct,
   _subset_include_interleaved_vec = reinterpret_cast<uintptr_t*>(pgr_alloc_iter);
   pgr_alloc_iter = &(pgr_alloc_iter[sample_subset_byte_ct]);
 
-  // assumes kWordsPerVec <= 2
+#ifdef USE_AVX2
+  _subset_include_interleaved_vec[-3] = 0;
+  _subset_include_interleaved_vec[-2] = 0;
+#endif
   _subset_include_interleaved_vec[-1] = 0;
 
   _subset_cumulative_popcounts = reinterpret_cast<uint32_t*>(pgr_alloc_iter);
   pgr_alloc_iter = &(pgr_alloc_iter[cumulative_popcounts_byte_ct]);
-  _genovec = reinterpret_cast<uintptr_t*>(pgr_alloc_iter);
+  _pgv.genovec = reinterpret_cast<uintptr_t*>(pgr_alloc_iter);
   pgr_alloc_iter = &(pgr_alloc_iter[genovec_byte_ct]);
-  _phasepresent = reinterpret_cast<uintptr_t*>(pgr_alloc_iter);
+  if (multiallelic_hc_byte_ct) {
+    _pgv.patch_01_set = reinterpret_cast<uintptr_t*>(pgr_alloc_iter);
+    pgr_alloc_iter = &(pgr_alloc_iter[sample_subset_byte_ct]);
+    _pgv.patch_01_vals = reinterpret_cast<plink2::AlleleCode*>(pgr_alloc_iter);
+    pgr_alloc_iter = &(pgr_alloc_iter[ac_byte_ct]);
+    _pgv.patch_10_set = reinterpret_cast<uintptr_t*>(pgr_alloc_iter);
+    pgr_alloc_iter = &(pgr_alloc_iter[sample_subset_byte_ct]);
+    _pgv.patch_10_vals = reinterpret_cast<plink2::AlleleCode*>(pgr_alloc_iter);
+    pgr_alloc_iter = &(pgr_alloc_iter[ac2_byte_ct]);
+  } else {
+    _pgv.patch_01_set = nullptr;
+    _pgv.patch_01_vals = nullptr;
+    _pgv.patch_10_set = nullptr;
+    _pgv.patch_10_vals = nullptr;
+  }
+  _pgv.phasepresent = reinterpret_cast<uintptr_t*>(pgr_alloc_iter);
   pgr_alloc_iter = &(pgr_alloc_iter[sample_subset_byte_ct]);
-  _phaseinfo = reinterpret_cast<uintptr_t*>(pgr_alloc_iter);
+  _pgv.phaseinfo = reinterpret_cast<uintptr_t*>(pgr_alloc_iter);
   pgr_alloc_iter = &(pgr_alloc_iter[sample_subset_byte_ct]);
-  _dosage_present = reinterpret_cast<uintptr_t*>(pgr_alloc_iter);
+  _pgv.dosage_present = reinterpret_cast<uintptr_t*>(pgr_alloc_iter);
   pgr_alloc_iter = &(pgr_alloc_iter[sample_subset_byte_ct]);
-  _dosage_main = reinterpret_cast<uint16_t*>(pgr_alloc_iter);
+  _pgv.dosage_main = reinterpret_cast<uint16_t*>(pgr_alloc_iter);
   pgr_alloc_iter = &(pgr_alloc_iter[dosage_main_byte_ct]);
   if (sample_subset_1based.isNotNull()) {
     SetSampleSubsetInternal(sample_subset_1based.get());
@@ -187,13 +238,13 @@ void RPgenReader::ReadIntHardcalls(IntegerVector buf, int variant_idx, int allel
     sprintf(errstr_buf, "buf has wrong length (%" PRIdPTR "; %u expected)", buf.size(), _subset_size);
     stop(errstr_buf);
   }
-  plink2::PglErr reterr = PgrGet1(_subset_include_vec, _subset_cumulative_popcounts, _subset_size, variant_idx, allele_idx, _state_ptr, _genovec);
+  plink2::PglErr reterr = PgrGet1(_subset_include_vec, _subset_cumulative_popcounts, _subset_size, variant_idx, allele_idx, _state_ptr, _pgv.genovec);
   if (reterr != plink2::kPglRetSuccess) {
     char errstr_buf[256];
     sprintf(errstr_buf, "ReadIntHardcalls() error %d", static_cast<int>(reterr));
     stop(errstr_buf);
   }
-  plink2::GenoarrToInt32sMinus9(_genovec, _subset_size, &buf[0]);
+  plink2::GenoarrToInt32sMinus9(_pgv.genovec, _subset_size, &buf[0]);
 }
 
 void RPgenReader::ReadHardcalls(NumericVector buf, int variant_idx, int allele_idx) {
@@ -207,13 +258,13 @@ void RPgenReader::ReadHardcalls(NumericVector buf, int variant_idx, int allele_i
     sprintf(errstr_buf, "buf has wrong length (%" PRIdPTR "; %u expected)", buf.size(), _subset_size);
     stop(errstr_buf);
   }
-  plink2::PglErr reterr = PgrGet1(_subset_include_vec, _subset_cumulative_popcounts, _subset_size, variant_idx, allele_idx, _state_ptr, _genovec);
+  plink2::PglErr reterr = PgrGet1(_subset_include_vec, _subset_cumulative_popcounts, _subset_size, variant_idx, allele_idx, _state_ptr, _pgv.genovec);
   if (reterr != plink2::kPglRetSuccess) {
     char errstr_buf[256];
     sprintf(errstr_buf, "ReadHardcalls() error %d", static_cast<int>(reterr));
     stop(errstr_buf);
   }
-  plink2::GenoarrToDoublesMinus9(_genovec, _subset_size, &buf[0]);
+  plink2::GenoarrToDoublesMinus9(_pgv.genovec, _subset_size, &buf[0]);
 }
 
 void RPgenReader::Read(NumericVector buf, int variant_idx, int allele_idx) {
@@ -228,18 +279,43 @@ void RPgenReader::Read(NumericVector buf, int variant_idx, int allele_idx) {
     stop(errstr_buf);
   }
   uint32_t dosage_ct;
-  plink2::PglErr reterr = PgrGet1D(_subset_include_vec, _subset_cumulative_popcounts, _subset_size, variant_idx, allele_idx, _state_ptr, _genovec, _dosage_present, _dosage_main, &dosage_ct);
+  plink2::PglErr reterr = PgrGet1D(_subset_include_vec, _subset_cumulative_popcounts, _subset_size, variant_idx, allele_idx, _state_ptr, _pgv.genovec, _pgv.dosage_present, _pgv.dosage_main, &dosage_ct);
   if (reterr != plink2::kPglRetSuccess) {
     char errstr_buf[256];
     sprintf(errstr_buf, "Read() error %d", static_cast<int>(reterr));
     stop(errstr_buf);
   }
-  plink2::Dosage16ToDoublesMinus9(_genovec, _dosage_present, _dosage_main, _subset_size, dosage_ct, &buf[0]);
+  plink2::Dosage16ToDoublesMinus9(_pgv.genovec, _pgv.dosage_present, _pgv.dosage_main, _subset_size, dosage_ct, &buf[0]);
 }
+
+/*
+void RPgenReader::ReadAlleles(IntegerVector buf, int variant_idx) {
+  if (static_cast<uint32_t>(variant_idx) >= _info_ptr->raw_variant_ct) {
+    char errstr_buf[256];
+    sprintf(errstr_buf, "variant_num out of range (%d; must be 1..%u)", variant_idx + 1, _info_ptr->raw_variant_ct);
+    stop(errstr_buf);
+  }
+  if (buf.size() != _subset_size) {
+    char errstr_buf[256];
+    sprintf(errstr_buf, "buf has wrong length (%" PRIdPTR "; %u expected)", buf.size(), _subset_size);
+    stop(errstr_buf);
+  }
+  // todo: upgrade to PgrGetMP()
+  uint32_t phasepresent_ct;
+  plink2::PglErr reterr = PgrGetP(_subset_include_vec, _subset_cumulative_popcounts, _subset_size, variant_idx, _state_ptr, _pgv.genovec, _pgv.phasepresent, _pgv.phaseinfo, &phasepresent_ct);
+  if (reterr != plink2::kPglRetSuccess) {
+    char errstr_buf[256];
+    sprintf(errstr_buf, "Read() error %d", static_cast<int>(reterr));
+    stop(errstr_buf);
+  }
+  plink2::Dosage16ToDoublesMinus9(_pgv.genovec, _pgv.dosage_present, _pgv.dosage_main, _subset_size, dosage_ct, &buf[0]);
+}
+*/
 
 void RPgenReader::Close() {
   // don't bother propagating file close errors for now
   if (_info_ptr) {
+    CondReleaseRefcountedWptr(&_allele_idx_offsetsp);
     plink2::CleanupPgfi(_info_ptr);
     if (_info_ptr->vrtypes) {
       plink2::aligned_free(_info_ptr->vrtypes);
@@ -297,6 +373,7 @@ void RPgenReader::SetSampleSubsetInternal(IntegerVector sample_subset_1based) {
 
 RPgenReader::~RPgenReader() {
   if (_info_ptr) {
+    CondReleaseRefcountedWptr(&_allele_idx_offsetsp);
     plink2::CleanupPgfi(_info_ptr);
     if (_info_ptr->vrtypes) {
       plink2::aligned_free(_info_ptr->vrtypes);
@@ -314,50 +391,51 @@ RPgenReader::~RPgenReader() {
 
 // [[Rcpp::export]]
 SEXP NewReader(String filename, Nullable<int> raw_sample_ct = R_NilValue,
-               Nullable<int> variant_ct = R_NilValue,
+               Nullable<int> variant_ct = R_NilValue, SEXP pvar = R_NilValue,
                Nullable<IntegerVector> sample_subset = R_NilValue) {
   XPtr<class RPgenReader> rp(new RPgenReader(filename, raw_sample_ct,
-                                             variant_ct, sample_subset), true);
+                                             variant_ct, pvar, sample_subset),
+                             true);
   return rp;
 }
 
 // [[Rcpp::export]]
-int GetRawSampleCt(SEXP xp) {
-  XPtr<class RPgenReader> rp(xp);
+int GetRawSampleCt(SEXP pgen) {
+  XPtr<class RPgenReader> rp(pgen);
   return rp->GetRawSampleCt();
 }
 
 // [[Rcpp::export]]
-int GetVariantCt(SEXP xp) {
-  XPtr<class RPgenReader> rp(xp);
+int GetVariantCt(SEXP pgen) {
+  XPtr<class RPgenReader> rp(pgen);
   return rp->GetVariantCt();
 }
 
 // [[Rcpp::export]]
-bool HardcallPhasePresent(SEXP xp) {
-  XPtr<class RPgenReader> rp(xp);
+bool HardcallPhasePresent(SEXP pgen) {
+  XPtr<class RPgenReader> rp(pgen);
   return rp->HardcallPhasePresent();
 }
 
 // [[Rcpp::export]]
-IntegerVector IntBuf(SEXP xp) {
-  XPtr<class RPgenReader> rp(xp);
+IntegerVector IntBuf(SEXP pgen) {
+  XPtr<class RPgenReader> rp(pgen);
   return IntegerVector(rp->GetSubsetSize());
 }
 
 // [[Rcpp::export]]
-NumericVector Buf(SEXP xp) {
-  XPtr<class RPgenReader> rp(xp);
+NumericVector Buf(SEXP pgen) {
+  XPtr<class RPgenReader> rp(pgen);
   return NumericVector(rp->GetSubsetSize());
 }
 
 // _num indicates R 1-based indexing.
 
 // [[Rcpp::export]]
-void ReadHardcalls(SEXP xp, SEXP buf, int variant_num, int allele_num = 2) {
+void ReadHardcalls(SEXP pgen, SEXP buf, int variant_num, int allele_num = 2) {
   const int variant_idx = variant_num - 1;
   const int allele_idx = allele_num - 1;
-  XPtr<class RPgenReader> rp(xp);
+  XPtr<class RPgenReader> rp(pgen);
   if (TYPEOF(buf) == REALSXP) {
     rp->ReadHardcalls(buf, variant_idx, allele_idx);
   } else if (TYPEOF(buf) == INTSXP) {
@@ -368,13 +446,28 @@ void ReadHardcalls(SEXP xp, SEXP buf, int variant_num, int allele_num = 2) {
 }
 
 // [[Rcpp::export]]
-void Read(SEXP xp, NumericVector buf, int variant_num, int allele_num = 2) {
-  XPtr<class RPgenReader> rp(xp);
+void Read(SEXP pgen, NumericVector buf, int variant_num, int allele_num = 2) {
+  XPtr<class RPgenReader> rp(pgen);
   rp->Read(buf, variant_num - 1, allele_num - 1);
 }
 
+/*
 // [[Rcpp::export]]
-void Close(SEXP xp) {
-  XPtr<class RPgenReader> rp(xp);
+void ReadAlleles(SEXP pgen, SEXP allele_buf, int variant_num) {
+  const int variant_idx = variant_num - 1;
+  XPtr<class RPgenReader> rp(pgen);
+  if (TYPEOF(buf) == INTSXP) {
+    rp->ReadAlleles(buf, variant_idx);
+  } else if (TYPEOF(buf) == REALSXP) {
+    rp->ReadAllelesNumeric(buf, variant_idx);
+  } else {
+    stop("Unsupported buf type");
+  }
+}
+*/
+
+// [[Rcpp::export]]
+void Close(SEXP pgen) {
+  XPtr<class RPgenReader> rp(pgen);
   rp->Close();
 }

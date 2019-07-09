@@ -1020,7 +1020,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         if (unlikely(found_header_bitset & cur_col_type_shifted)) {
           // known token, so no overflow danger
           char* write_iter = strcpya_k(g_logbuf, "Error: Duplicate column header '");
-          write_iter = strcpya(write_iter, linebuf_iter);
+          write_iter = memcpya(write_iter, linebuf_iter, token_slen);
           write_iter = strcpya_k(write_iter, "' on line ");
           write_iter = wtoa(line_idx, write_iter);
           write_iter = strcpya_k(write_iter, " of ");

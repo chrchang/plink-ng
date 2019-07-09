@@ -325,7 +325,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
           // Known column type, so length is limited and we don't have to worry
           // about buffer overflow.
           char* write_iter = strcpya_k(g_logbuf, "Error: Duplicate column header '");
-          write_iter = memcpya(write_iter, linebuf_iter, token_end - linebuf_iter);
+          write_iter = memcpya(write_iter, linebuf_iter, token_slen);
           write_iter = strcpya_k(write_iter, "' on line ");
           write_iter = wtoa(line_idx, write_iter);
           write_iter = strcpya_k(write_iter, " of ");

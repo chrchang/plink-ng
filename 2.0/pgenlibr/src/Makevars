@@ -1,0 +1,3 @@
+SOURCES = $(wildcard zstd/lib/compress/*.c) $(wildcard zstd/lib/decompress/*.c) $(wildcard zstd/lib/common/*.c)
+OBJECTS = plink2_base.o pgenlib_internal.o pvar_ffi_support.o pgenlib_ffi_support.o plink2_string.o pvar.o pgenlibr.o RcppExports.o $(SOURCES:.c=.o)
+PKG_CFLAGS = -Izstd/lib -Izstd/lib/common

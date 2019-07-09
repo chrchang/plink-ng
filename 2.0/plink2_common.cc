@@ -54,7 +54,7 @@ BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenG
             bigstack_alloc_w(sample_ctl, &(pgvp->patch_01_set)) ||
             bigstack_alloc_ac(sample_ct, &(pgvp->patch_01_vals)) ||
             bigstack_alloc_w(sample_ctl, &(pgvp->patch_10_set)) ||
-            bigstack_alloc_ac(sample_ct, &(pgvp->patch_10_vals)))) {
+            bigstack_alloc_ac(sample_ct * 2, &(pgvp->patch_10_vals)))) {
       return 1;
     }
   }

@@ -457,6 +457,7 @@ typedef uint32_t BoolErr;
 #  define FOPEN_WB "wb"
 #  define FOPEN_AB "ab"
 #  define ferror_unlocked ferror
+#  define feof_unlocked feof
 #  ifdef __LP64__
 #    define getc_unlocked _fgetc_nolock
 #    define putc_unlocked _fputc_nolock
@@ -484,6 +485,7 @@ typedef uint32_t BoolErr;
 #  endif
 #  if defined(__NetBSD__)
 #    define ferror_unlocked ferror
+#    define feof_unlocked feof
 #  endif
 #endif
 
@@ -1333,6 +1335,12 @@ CONSTI32(kDiskBlockSize, 4096);
 
 // unsafe to fread or fwrite more bytes than this on e.g. OS X
 CONSTI32(kMaxBytesPerIO, 0x7ffff000);
+
+// Maximum size of "dynamically" allocated line load buffer.  (This is the
+// limit that applies to .vcf and similar files.)  Inconvenient to go higher
+// since fgets() takes a int32_t size argument.
+CONSTI32(kMaxLongLine, 0x7fffffc0);
+static_assert(!(kMaxLongLine % kCacheline), "kMaxLongLine must be a multiple of kCacheline.");
 
 #ifdef __APPLE__
 // OS X is limited to 256?

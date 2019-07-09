@@ -139,12 +139,6 @@ CONSTI32(kMaxIdBlen, kMaxIdSlen + 1);
 // Don't see a better option than #define for this.
 #define MAX_ID_SLEN_STR "16000"
 
-// Maximum size of "dynamically" allocated line load buffer.  (This is the
-// limit that applies to .vcf and similar files.)  Inconvenient to go higher
-// since fgets() takes a int32_t size argument.
-CONSTI32(kMaxLongLine, 0x7fffffc0);
-static_assert(!(kMaxLongLine % kCacheline), "kMaxLongLine must be a multiple of kCacheline.");
-
 // allow extensions like .model.trend.fisher.set.score.adjusted
 CONSTI32(kMaxOutfnameExtBlen, 39);
 

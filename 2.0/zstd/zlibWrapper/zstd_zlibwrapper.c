@@ -10,6 +10,7 @@
 
 
 /* ===   Tuning parameters   === */
+// always use in plink2 (outside bgzf) for now.
 #define ZWRAP_USE_ZSTD 1
 #ifndef ZWRAP_USE_ZSTD
     #define ZWRAP_USE_ZSTD 0
@@ -22,6 +23,7 @@
 #include <stdarg.h>                /* va_list, for z_gzprintf */
 #define NO_DUMMY_DECL
 #define ZLIB_CONST
+
 #ifdef STATIC_ZLIB
   #include "../../../zlib-1.2.11/zlib.h"
 #else
@@ -1088,7 +1090,6 @@ ZEXTERN uLong ZEXPORT z_crc32   OF((uLong crc, const Bytef *buf, uInt len))
     return crc32(crc, buf, len);
 }
 
-
 /*
 #if ZLIB_VERNUM >= 0x12B0
 ZEXTERN uLong ZEXPORT z_adler32_z OF((uLong adler, const Bytef *buf, z_size_t len))
@@ -1102,7 +1103,6 @@ ZEXTERN uLong ZEXPORT z_crc32_z OF((uLong crc, const Bytef *buf, z_size_t len))
 }
 #endif
 */
-
 
 #if ZLIB_VERNUM >= 0x1270
 ZEXTERN const z_crc_t FAR * ZEXPORT z_get_crc_table    OF((void))
