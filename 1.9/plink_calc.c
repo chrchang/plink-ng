@@ -7121,6 +7121,11 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   }
   fill_int_zero(liwork * (sizeof(__CLPK_integer) / sizeof(int32_t)), (int32_t*)iwork);
   dsyevr_(&jobz, &range, &uplo, &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, work, &lwork, iwork, &liwork, &info);
+  if ((info != 0) || (out_w[0] != out_w[0])) {
+    logprint("\n");
+    logerrprint("Error: Failed to extract eigenvector(s) from GRM.\n");
+    goto calc_pca_ret_DEGENERATE_DATA;
+  }
 
   // * out_w[0..(pc_ct-1)] contains eigenvalues
   // * out_z[(ii*ulii)..(ii*ulii + ulii - 1)] is eigenvector corresponding to
@@ -7436,6 +7441,9 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
     break;
   calc_pca_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
+    break;
+  calc_pca_ret_DEGENERATE_DATA:
+    retval = RET_DEGENERATE_DATA;
     break;
   }
   return retval;
