@@ -1476,7 +1476,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     if (psamname[0]) {
       if (unlikely(!sample_ct)) {
         logerrputs("Error: No samples remaining after main filters.\n");
-        goto Plink2Core_ret_INCONSISTENT_INPUT;
+        goto Plink2Core_ret_DEGENERATE_DATA;
       }
       UpdateSampleSubsets(sample_include, raw_sample_ct, sample_ct, founder_info, &founder_ct, sex_nm, sex_male, &male_ct, &nosex_ct);
       if (pcp->filter_flags & kfFilterPsamReq) {
@@ -1694,7 +1694,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
                 logerrputs("If you're certain you want to proceed without doing that, use --bad-freqs to\noverride this error, and consider using --nonfounders as well.\n");
               }
             }
-            goto Plink2Core_ret_INCONSISTENT_INPUT;
+            goto Plink2Core_ret_DEGENERATE_DATA;
           }
           if (maj_alleles_needed) {
             if (unlikely(bigstack_alloc_ac(raw_variant_ct, &maj_alleles))) {
@@ -2069,7 +2069,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         if (unlikely(!variant_ct)) {
           // do we want this to be conditionally acceptable?
           logerrputs("Error: No variants remaining after main filters.\n");
-          goto Plink2Core_ret_INCONSISTENT_INPUT;
+          goto Plink2Core_ret_DEGENERATE_DATA;
         }
         logprintf("%u variant%s remaining after main filters.\n", variant_ct, (variant_ct == 1)? "" : "s");
       }
@@ -2516,6 +2516,9 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     break;
   Plink2Core_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
+    break;
+  Plink2Core_ret_DEGENERATE_DATA:
+    reterr = kPglRetDegenerateData;
     break;
   }
  Plink2Core_ret_1:

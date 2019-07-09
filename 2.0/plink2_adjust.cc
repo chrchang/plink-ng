@@ -707,7 +707,8 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     // probably want to permit this soon
     if (entry_ct > 0xffffffffU) {
       logerrputs("Error: Too many entries for --adjust-file.\n");
-      goto AdjustFile_ret_INCONSISTENT_INPUT;
+      reterr = kPglRetNotYetSupported;
+      goto AdjustFile_ret_1;
     }
 #endif
 

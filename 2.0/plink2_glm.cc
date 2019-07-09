@@ -592,7 +592,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
     } else {
       local_covar_ct = glm_info_ptr->local_cat_ct - 1;
       if (unlikely(local_covar_ct * S_CAST(uint64_t, local_sample_ct) > kMaxLongLine / 2)) {
-        snprintf(g_logbuf, kLogbufSize, "Error: [# samples in %s] * [# categories - 1] too large (limited to %u).\n", local_covar_fname, kMaxLongLine / 2);
+        snprintf(g_logbuf, kLogbufSize, "Error: <# samples in %s> * <# categories - 1> too large (limited to %u).\n", local_covar_fname, kMaxLongLine / 2);
         goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
       }
     }
@@ -4481,7 +4481,7 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
           if (reterr == kPglRetEof) {
             logputs("\n");
             logerrputs("Error: --glm local-covar= file has fewer lines than local-pvar= file.\n");
-            return kPglRetMalformedInput;
+            return kPglRetInconsistentInput;
           }
           RLstreamErrPrint("--glm local-covar= file", local_covar_rlsp, &reterr);
           return reterr;
@@ -4494,7 +4494,7 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
         if (reterr == kPglRetEof) {
           logputs("\n");
           logerrputs("Error: --glm local-covar= file has fewer lines than local-pvar= file.\n");
-          return kPglRetMalformedInput;
+          return kPglRetInconsistentInput;
         }
         RLstreamErrPrint("--glm local-covar= file", local_covar_rlsp, &reterr);
         return reterr;
@@ -9497,12 +9497,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     }
     if (unlikely(orig_sample_ct < 2)) {
       logerrputs("Error: --glm requires at least two samples.\n");
-      goto GlmMain_ret_INCONSISTENT_INPUT;
+      goto GlmMain_ret_DEGENERATE_DATA;
     }
-    if (unlikely(!orig_variant_ct)) {
-      logerrputs("Error: --glm requires at least one variant.\n");
-      goto GlmMain_ret_INCONSISTENT_INPUT;
-    }
+    assert(orig_variant_ct);
     // common linear/logistic initialization
     const uintptr_t* early_variant_include = orig_variant_include;
     uint32_t* local_sample_uidx_order = nullptr;
@@ -9605,7 +9602,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       if (removed_variant_ct) {
         if (unlikely(variant_ct == removed_variant_ct)) {
           logerrputs("Error: No variants remaining for --glm ('dominant', 'recessive', 'genotypic',\nand 'hethom' only operate on diploid data).\n");
-          goto GlmMain_ret_INCONSISTENT_INPUT;
+          goto GlmMain_ret_DEGENERATE_DATA;
         }
         variant_ct -= removed_variant_ct;
         early_variant_include = variant_include_nohap;
@@ -9625,7 +9622,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           max_variant_ct -= variant_ct_x;
           if (unlikely(!max_variant_ct)) {
             logerrputs("Error: No variants remaining for --glm, due to --xchr-model 0.\n");
-            goto GlmMain_ret_INCONSISTENT_INPUT;
+            goto GlmMain_ret_DEGENERATE_DATA;
           }
         }
       }
@@ -9638,7 +9635,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             max_variant_ct -= variant_ct_y;
             if (unlikely(!max_variant_ct)) {
               logerrputs("Error: No variants remaining for --glm.\n");
-              goto GlmMain_ret_INCONSISTENT_INPUT;
+              goto GlmMain_ret_DEGENERATE_DATA;
             }
           } else if (male_ct < orig_sample_ct) {
             // may as well check for only-chrY special case
@@ -11296,6 +11293,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     break;
   GlmMain_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
+    break;
+  GlmMain_ret_DEGENERATE_DATA:
+    reterr = kPglRetDegenerateData;
     break;
   }
  GlmMain_ret_1:

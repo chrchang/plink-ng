@@ -11,9 +11,10 @@ public:
   // only tracks variant IDs and allele codes for now
   RPvar();
 
+#if __cplusplus >= 201103L
   RPvar(const RPvar&) = delete;
-
   RPvar& operator=(const RPvar&) = delete;
+#endif
 
   void Load(String filename);
 

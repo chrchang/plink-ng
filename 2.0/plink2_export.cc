@@ -4386,8 +4386,8 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         }
         write_iter = strcpya_k(chr_name_write_end, ",length=");
         if (1) {
-          // er, if variant included, should add max allele length instead of
-          // 1...
+          // er, if variant included, should look at lengths of last few allele
+          // codes, and compute max(pos + <max allele len in variant>)...
           write_iter = u32toa(variant_bps[cip->chr_fo_vidx_start[chr_fo_idx + 1] - 1] + 1, write_iter);
         } else {
           // todo: scan for maximum pos in unsorted map case
@@ -4425,7 +4425,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     if (write_pr) {
       if (unlikely(info_flags & kfInfoPrNonflagPresent)) {
         logputs("\n");
-        logerrputs("Error: Conflicting INFO:PR fields.  Either fix all REF alleles so that the\n'provisional reference' field is no longer needed, or remove/rename the other\nINFO:PR field.\n");
+        logerrputs("Error: Conflicting INFO:PR definitions.  Either fix all REF alleles so that the\n'provisional reference' flag is no longer needed, or remove/rename the other\nuse of the INFO:PR key.\n");
         goto ExportVcf_ret_INCONSISTENT_INPUT;
       }
       if (!info_pr_flag_present) {

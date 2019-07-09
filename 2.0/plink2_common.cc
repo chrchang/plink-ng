@@ -711,7 +711,7 @@ PglErr LoadXidHeaderPair(const char* flag_name, uint32_t sid_over_fid, char** li
       } else if (likely(tokequal_k(linebuf_iter, "IID1"))) {
         linebuf_iter = &(linebuf_iter[4]);
       } else {
-        logerrprintf("Error: No {I}ID1 column on line %" PRIuPTR " of --%s file.\n", line_idx, flag_name);
+        logerrprintf("Error: No [I]ID1 column on line %" PRIuPTR " of --%s file.\n", line_idx, flag_name);
         return kPglRetMalformedInput;
       }
     }
@@ -733,7 +733,7 @@ PglErr LoadXidHeaderPair(const char* flag_name, uint32_t sid_over_fid, char** li
     } else if (likely(tokequal_k(linebuf_iter, "IID2"))) {
       linebuf_iter = &(linebuf_iter[4]);
     } else {
-      logerrprintf("Error: No {I}ID2 column on line %" PRIuPTR " of --%s file.\n", line_idx, flag_name);
+      logerrprintf("Error: No [I]ID2 column on line %" PRIuPTR " of --%s file.\n", line_idx, flag_name);
       return kPglRetMalformedInput;
     }
     if (xid_mode & kfXidModeFlagSid) {
@@ -1817,7 +1817,7 @@ PglErr ConditionalAllocateNonAutosomalVariants(const ChrInfo* cip, const char* c
     // this may not always be an error condition, probably add a flag later to
     // control printing of this error message, etc.
     logerrprintf("Error: No variants remaining for %s.\n", calc_descrip);
-    return kPglRetInconsistentInput;
+    return kPglRetDegenerateData;
   }
   const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
   uintptr_t* working_variant_include;

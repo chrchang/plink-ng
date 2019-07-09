@@ -3540,7 +3540,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     break;
   LdConsole_ret_NO_VALID_OBSERVATIONS:
     logerrputs("Error: No valid observations for --ld.\n");
-    reterr = kPglRetInconsistentInput;
+    reterr = kPglRetDegenerateData;
     break;
   }
  LdConsole_ret_1:

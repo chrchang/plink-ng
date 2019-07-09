@@ -6,9 +6,10 @@ public:
   // imitates Python/pgenlib.pyx
   RPgenReader();
 
+#if __cplusplus >= 201103L
   RPgenReader(const RPgenReader&) = delete;
-
   RPgenReader& operator=(const RPgenReader&) = delete;
+#endif
 
   void Load(String filename, Nullable<List> pvar, Nullable<int> raw_sample_ct,
             Nullable<IntegerVector> sample_subset_1based);

@@ -29,7 +29,7 @@ typedef struct MakeSetRangeStruct {
 } MakeSetRange;
 
 static_assert(kMaxChrCodeDigits == 5, "LoadIntervalBed() must be updated.");
-PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sorted_subset_ids, const char* file_descrip, uint32_t zero_based, uint32_t track_set_names, uint32_t border_extend, uint32_t fail_on_no_sets, uint32_t c_prefix, uint32_t allow_no_variants, uintptr_t subset_ct, uintptr_t max_subset_id_blen, ReadLineStream* rlsp, char** line_iterp, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_blen_ptr, uint64_t** range_sort_buf_ptr, MakeSetRange*** make_set_range_arr_ptr) {
+PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sorted_subset_ids, const char* file_descrip, uint32_t zero_based, uint32_t track_set_names, uint32_t border_extend, uint32_t fail_on_no_sets, uint32_t c_prefix, uintptr_t subset_ct, uintptr_t max_subset_id_blen, ReadLineStream* rlsp, char** line_iterp, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_blen_ptr, uint64_t** range_sort_buf_ptr, MakeSetRange*** make_set_range_arr_ptr) {
   // In plink 1.9, this was named load_range_list() and called directly by
   // ExtractExcludeRange(), define_sets(), and indirectly by annotate(),
   // gene_report(), and clump_reports().  That function required set IDs in
@@ -123,14 +123,11 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
         goto LoadIntervalBed_LINE_ITER_ALREADY_ADVANCED_1;
       }
       if (!set_ct) {
-        if (fail_on_no_sets) {
-          if (likely(variant_bps)) {
-            if (unlikely(!allow_no_variants)) {
-              // okay, this is a kludge
-              logerrputs("Error: All variants excluded by --gene{-all}, since no sets were defined from\n--make-set file.\n");
-              reterr = kPglRetMalformedInput;
-              goto LoadIntervalBed_ret_1;
-            }
+        if (unlikely(fail_on_no_sets)) {
+          if (variant_bps) {
+            logerrputs("Error: All variants excluded by --gene[-all], since no sets were defined from\n--make-set file.\n");
+            reterr = kPglRetMalformedInput;
+            goto LoadIntervalBed_ret_1;
           } else {
             if (subset_ct) {
               logerrputs("Error: No --gene-subset genes present in --gene-report file.\n");
@@ -378,7 +375,7 @@ PglErr ExtractExcludeRange(const char* fnames, const ChrInfo* cip, const uint32_
       }
       MakeSetRange** range_arr = nullptr;
       const char file_descrips[6][30] = {"--extract bed1 file", "--extract bed0 file", "--extract-intersect bed1 file", "--extract-intersect bed0 file", "--exclude bed1 file", "--exclude bed0 file"};
-      reterr = LoadIntervalBed(cip, variant_bps, nullptr, file_descrips[2 * vft + zero_based], zero_based, 0, 0, 0, 0, 1, 0, 0, &rls, &line_iter, nullptr, nullptr, nullptr, nullptr, &range_arr);
+      reterr = LoadIntervalBed(cip, variant_bps, nullptr, file_descrips[2 * vft + zero_based], zero_based, 0, 0, 0, 0, 0, 0, &rls, &line_iter, nullptr, nullptr, nullptr, nullptr, &range_arr);
       if (unlikely(reterr)) {
         goto ExtractExcludeRange_ret_1;
       }

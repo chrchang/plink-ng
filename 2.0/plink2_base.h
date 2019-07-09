@@ -324,7 +324,10 @@ typedef enum
   kPglRetWriteFail,
   // MalformedInput should be returned on low-level file format violations,
   // while InconsistentInput should be returned for higher-level logical
-  // problems like mismatched files.
+  // problems like mismatched files (generally solvable by fixing the command
+  // line), and DegenerateData for properly-formatted-and-matched files that
+  // yields degenerate computational results due to e.g. divide by zero or
+  // insufficient rank.
   kPglRetMalformedInput,
   kPglRetInconsistentInput,
   kPglRetInvalidCmdline,
@@ -332,6 +335,7 @@ typedef enum
   kPglRetNetworkFail,
   kPglRetVarRecordTooLarge,
   kPglRetUnsupportedInstructions,
+  kPglRetDegenerateData,
   kPglRetSampleMajorBed = 32,
   kPglRetInternalError = 60,
   kPglRetWarningErrcode = 61,
@@ -387,6 +391,7 @@ const PglErr kPglRetThreadCreateFail = PglErr::ec::kPglRetThreadCreateFail;
 const PglErr kPglRetNetworkFail = PglErr::ec::kPglRetNetworkFail;
 const PglErr kPglRetVarRecordTooLarge = PglErr::ec::kPglRetVarRecordTooLarge;
 const PglErr kPglRetUnsupportedInstructions = PglErr::ec::kPglRetUnsupportedInstructions;
+const PglErr kPglRetDegenerateData = PglErr::ec::kPglRetDegenerateData;
 const PglErr kPglRetSampleMajorBed = PglErr::ec::kPglRetSampleMajorBed;
 const PglErr kPglRetWarningErrcode = PglErr::ec::kPglRetWarningErrcode;
 const PglErr kPglRetInternalError = PglErr::ec::kPglRetInternalError;

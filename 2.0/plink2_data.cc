@@ -309,7 +309,7 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
     write_info_pr = write_info_pr && write_info;
     if (unlikely(write_info_pr && (info_flags & kfInfoPrNonflagPresent))) {
       logputs("\n");
-      logerrputs("Error: Conflicting INFO:PR fields.  Either fix all REF alleles so that the\n'provisional reference' field is no longer needed, or remove/rename the other\nINFO:PR field.\n");
+      logerrputs("Error: Conflicting INFO:PR definitions.  Either fix all REF alleles so that the\n'provisional reference' flag is no longer needed, or remove/rename the other\nuse of the INFO:PR key.\n");
       goto WritePvar_ret_INCONSISTENT_INPUT;
     }
 
@@ -3193,14 +3193,14 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
   return reterr;
 }
 
-// We only need to distinguish between the following INFO-field-type cases:
+// We only need to distinguish between the following INFO-value-type cases:
 // Number=0 (flag), Number=<positive integer>, Number=., Number=A, Number=R,
 // and Number=G.  We use negative numbers to represent the last 4 cases in
-// InfoField.
-CONSTI32(kInfoFieldNumUnknown, -1);
-CONSTI32(kInfoFieldNumA, -2);
-CONSTI32(kInfoFieldNumR, -3);
-CONSTI32(kInfoFieldNumG, -4);
+// InfoVtype.
+CONSTI32(kInfoVtypeUnknown, -1);
+CONSTI32(kInfoVtypeA, -2);
+CONSTI32(kInfoVtypeR, -3);
+CONSTI32(kInfoVtypeG, -4);
 
 // Main fixed data structure when splitting/joining INFO is a hashmap of keys.
 // Behavior when splitting:
@@ -3226,16 +3226,16 @@ CONSTI32(kInfoFieldNumG, -4);
 //   of remaining workspace memory for this when we cannot prove that we can
 //   get by with less.
 
-typedef struct InfoFieldStruct {
-  NONCOPYABLE(InfoFieldStruct);
+typedef struct InfoVtypeStruct {
+  NONCOPYABLE(InfoVtypeStruct);
   int32_t num;
   char key[];
-} InfoField;
+} InfoVtype;
 
-// info_keys[] entries point to the (variable-size) key[] member of InfoField
+// info_keys[] entries point to the (variable-size) key[] member of InfoVtype
 // structs.  We use [const_]container_of(x)->num to look up the associated
 // Number= value.
-PglErr ParseInfoHeader(const char* xheader, uintptr_t xheader_blen, const char* const** info_keys_ptr, uint32_t* info_field_ctp, uint32_t** info_keys_htablep, uint32_t* info_keys_htable_sizep) {
+PglErr ParseInfoHeader(const char* xheader, uintptr_t xheader_blen, const char* const** info_keys_ptr, uint32_t* info_key_ctp, uint32_t** info_keys_htablep, uint32_t* info_keys_htable_sizep) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   PglErr reterr = kPglRetSuccess;
@@ -3264,17 +3264,17 @@ PglErr ParseInfoHeader(const char* xheader, uintptr_t xheader_blen, const char* 
         logerrputs("Error: " PROG_NAME_STR " does not support INFO keys longer than " MAX_INFO_KEY_SLEN_STR " characters.\n");
         // VCF spec doesn't specify a limit, so this isn't "malformed input".
         // We enforce a limit so we can safely print INFO keys in error
-        // message, etc.; it's trivial to increase the limit if it's ever
+        // messages, etc.; it's trivial to increase the limit if it's ever
         // necessary.
         reterr = kPglRetNotYetSupported;
         goto ParseInfoHeader_ret_1;
       }
-      const uintptr_t entry_byte_ct = RoundUpPow2(offsetof(InfoField, key) + 1 + key_slen, sizeof(intptr_t));
+      const uintptr_t entry_byte_ct = RoundUpPow2(offsetof(InfoVtype, key) + 1 + key_slen, sizeof(intptr_t));
       if (S_CAST(uintptr_t, tmp_alloc_end - R_CAST(unsigned char*, info_keys_iter)) < entry_byte_ct + 8) {
         goto ParseInfoHeader_ret_NOMEM;
       }
       tmp_alloc_end -= entry_byte_ct;
-      InfoField* new_entry = R_CAST(InfoField*, tmp_alloc_end);
+      InfoVtype* new_entry = R_CAST(InfoVtype*, tmp_alloc_end);
       memcpyx(new_entry->key, key_start, key_slen, '\0');
       *info_keys_iter++ = new_entry->key;
 
@@ -3288,17 +3288,17 @@ PglErr ParseInfoHeader(const char* xheader, uintptr_t xheader_blen, const char* 
           }
           new_entry->num = 0;
         } else if (likely(first_num_char == '.')) {
-          new_entry->num = kInfoFieldNumUnknown;
+          new_entry->num = kInfoVtypeUnknown;
         } else {
           goto ParseInfoHeader_ret_MALFORMED_INFO_HEADER_LINE;
         }
       } else if (first_num_char > '9') {
         if (first_num_char == 'A') {
-          new_entry->num = kInfoFieldNumA;
+          new_entry->num = kInfoVtypeA;
         } else if (first_num_char == 'R') {
-          new_entry->num = kInfoFieldNumR;
+          new_entry->num = kInfoVtypeR;
         } else if (likely(first_num_char == 'G')) {
-          new_entry->num = kInfoFieldNumG;
+          new_entry->num = kInfoVtypeG;
         } else {
           goto ParseInfoHeader_ret_MALFORMED_INFO_HEADER_LINE;
         }
@@ -3310,28 +3310,28 @@ PglErr ParseInfoHeader(const char* xheader, uintptr_t xheader_blen, const char* 
         new_entry->num = val;
       }
     }
-    const uintptr_t info_field_ct = info_keys_iter - info_keys;
+    const uintptr_t info_key_ct = info_keys_iter - info_keys;
 #ifdef __LP64__
-    if (unlikely(info_field_ct > 0x7ffffffdU)) {
+    if (unlikely(info_key_ct > 0x7ffffffdU)) {
       logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 INFO keys.\n");
       reterr = kPglRetMalformedInput;
       goto ParseInfoHeader_ret_1;
     }
 #endif
-    assert(info_field_ct);
-    *info_field_ctp = info_field_ct;
+    assert(info_key_ct);
+    *info_key_ctp = info_key_ct;
     BigstackBaseSet(info_keys_iter);
     BigstackEndSet(tmp_alloc_end);
     bigstack_end_mark = g_bigstack_end;
-    const uintptr_t info_field_ctl = BitCtToWordCt(info_field_ct);
+    const uintptr_t info_key_ctl = BitCtToWordCt(info_key_ct);
     uintptr_t* dummy_include;
     if (unlikely(
             (g_bigstack_base > g_bigstack_end) ||
-            bigstack_end_alloc_w(info_field_ctl, &dummy_include))) {
+            bigstack_end_alloc_w(info_key_ctl, &dummy_include))) {
       goto ParseInfoHeader_ret_NOMEM;
     }
-    SetAllBits(info_field_ct, dummy_include);
-    reterr = AllocAndPopulateIdHtableMt(dummy_include, info_keys, info_field_ct, bigstack_left() / 32, 1, info_keys_htablep, nullptr, info_keys_htable_sizep, nullptr);
+    SetAllBits(info_key_ct, dummy_include);
+    reterr = AllocAndPopulateIdHtableMt(dummy_include, info_keys, info_key_ct, bigstack_left() / 32, 1, info_keys_htablep, nullptr, info_keys_htable_sizep, nullptr);
     if (unlikely(reterr)) {
       goto ParseInfoHeader_ret_1;
     }
@@ -3353,7 +3353,7 @@ PglErr ParseInfoHeader(const char* xheader, uintptr_t xheader_blen, const char* 
   return reterr;
 }
 
-PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* qual_present, const float* quals, const uintptr_t* filter_present, const uintptr_t* filter_npass, const char* const* filter_storage, const uintptr_t* nonref_flags, const char* pvar_info_reload, const double* variant_cms, const char* varid_template_str, const char* missing_varid_match, const char* const* info_keys, const uint32_t* info_keys_htable, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t new_variant_id_max_allele_slen, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t nonref_flags_storage, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t info_field_ct, uint32_t info_keys_htable_size, MiscFlags misc_flags, MakePlink2Flags make_plink2_flags, PvarPsamFlags pvar_psam_flags, uint32_t thread_ct) {
+PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* qual_present, const float* quals, const uintptr_t* filter_present, const uintptr_t* filter_npass, const char* const* filter_storage, const uintptr_t* nonref_flags, const char* pvar_info_reload, const double* variant_cms, const char* varid_template_str, const char* missing_varid_match, const char* const* info_keys, const uint32_t* info_keys_htable, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t new_variant_id_max_allele_slen, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t nonref_flags_storage, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t info_key_ct, uint32_t info_keys_htable_size, MiscFlags misc_flags, MakePlink2Flags make_plink2_flags, PvarPsamFlags pvar_psam_flags, uint32_t thread_ct) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   PglErr reterr = kPglRetSuccess;
@@ -3419,7 +3419,7 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
     write_info_pr = write_info_pr && write_info;
     if (unlikely(write_info_pr && (info_flags & kfInfoPrNonflagPresent))) {
       logputs("\n");
-      logerrputs("Error: Conflicting INFO:PR fields.  Either fix all REF alleles so that the\n'provisional reference' field is no longer needed, or remove/rename the other\nINFO:PR field.\n");
+      logerrputs("Error: Conflicting INFO:PR definitions.  Either fix all REF alleles so that the\n'provisional reference' flag is no longer needed, or remove/rename the other\nuse of the INFO:PR key.\n");
       goto WritePvarSplit_ret_INCONSISTENT_INPUT;
     }
 
@@ -3442,11 +3442,11 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
     uint32_t* info_ref_blens = nullptr;
     if (pvar_info_reload) {
       if (unlikely(
-              bigstack_alloc_u32(info_field_ct, &info_key_order) ||
-              bigstack_alloc_kcp(info_field_ct, &info_starts) ||
-              bigstack_alloc_kcp(info_field_ct, &info_ends) ||
-              bigstack_alloc_kcp(info_field_ct, &info_curs) ||
-              bigstack_alloc_u32(info_field_ct, &info_ref_blens))) {
+              bigstack_alloc_u32(info_key_ct, &info_key_order) ||
+              bigstack_alloc_kcp(info_key_ct, &info_starts) ||
+              bigstack_alloc_kcp(info_key_ct, &info_ends) ||
+              bigstack_alloc_kcp(info_key_ct, &info_curs) ||
+              bigstack_alloc_u32(info_key_ct, &info_ref_blens))) {
         goto WritePvarSplit_ret_NOMEM;
       }
       reterr = PvarInfoOpenAndReloadHeader(pvar_info_reload, 1 + (thread_ct > 1), &pvar_reload_rls, &pvar_info_line_iter, &info_col_idx);
@@ -3519,7 +3519,7 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
     uint32_t chr_end = 0;
     uint32_t chr_buf_blen = 0;
     uint32_t orig_allele_ct = 2;
-    uint32_t cur_info_field_ct = 0;
+    uint32_t cur_info_key_ct = 0;
     uint32_t pct = 0;
     uint32_t next_print_variant_idx = variant_ct / 100;
     fputs("0%", stdout);
@@ -3595,11 +3595,11 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
           }
           char* info_subtoken_iter = pvar_info_line_iter;
           pvar_info_line_iter = CurTokenEnd(pvar_info_line_iter);
-          cur_info_field_ct = 0;
+          cur_info_key_ct = 0;
           // special case: if entire info field is '.', treat as zero keys
           if ((info_subtoken_iter[0] != '.') || (pvar_info_line_iter != &(info_subtoken_iter[1]))) {
             while (1) {
-              if (unlikely(cur_info_field_ct == info_field_ct)) {
+              if (unlikely(cur_info_key_ct == info_key_ct)) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Too many INFO keys for variant ID '%s'.\n", orig_variant_id);
                 goto WritePvarSplit_ret_MALFORMED_INPUT_WW;
               }
@@ -3611,8 +3611,8 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
                 snprintf(g_logbuf, kLogbufSize, "Error: INFO key for variant ID '%s' missing from header.\n", orig_variant_id);
                 goto WritePvarSplit_ret_MALFORMED_INPUT_WW;
               }
-              info_key_order[cur_info_field_ct] = kidx;
-              const int32_t knum = const_container_of(info_keys[kidx], InfoField, key)->num;
+              info_key_order[cur_info_key_ct] = kidx;
+              const int32_t knum = const_container_of(info_keys[kidx], InfoVtype, key)->num;
               if (key_end == info_subtoken_end) {
                 if (unlikely(knum)) {
                   snprintf(g_logbuf, kLogbufSize, "Error: INFO key '%s' for variant ID '%s' does not have an accompanying value.\n", info_keys[kidx], orig_variant_id);
@@ -3626,15 +3626,15 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
                 info_subtoken_iter = &(key_end[1]);
 
                 // don't actually need this for Number=A case
-                info_starts[cur_info_field_ct] = info_subtoken_iter;
+                info_starts[cur_info_key_ct] = info_subtoken_iter;
 
-                info_ends[cur_info_field_ct] = info_subtoken_end;
-                if (knum <= kInfoFieldNumA) {
-                  // (Don't need to do anything else for kInfoFieldNumUnknown
-                  // or positive; we unconditionally copy all the text in those
+                info_ends[cur_info_key_ct] = info_subtoken_end;
+                if (knum <= kInfoVtypeA) {
+                  // (Don't need to do anything else for kInfoVtypeUnknown or
+                  // positive; we unconditionally copy all the text in those
                   // cases.)
-                  if (knum == kInfoFieldNumA) {
-                    info_curs[cur_info_field_ct] = info_subtoken_iter;
+                  if (knum == kInfoVtypeA) {
+                    info_curs[cur_info_key_ct] = info_subtoken_iter;
                   } else {
                     char* ref_value_end = S_CAST(char*, memchr(info_subtoken_iter, ',', info_subtoken_end - info_subtoken_iter));
                     if (unlikely(!ref_value_end)) {
@@ -3642,12 +3642,12 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
                       goto WritePvarSplit_ret_MALFORMED_INPUT_WW;
                     }
                     ++ref_value_end;
-                    info_ref_blens[cur_info_field_ct] = ref_value_end - info_subtoken_iter;
-                    info_curs[cur_info_field_ct] = ref_value_end;
+                    info_ref_blens[cur_info_key_ct] = ref_value_end - info_subtoken_iter;
+                    info_curs[cur_info_key_ct] = ref_value_end;
                   }
                 }
               }
-              ++cur_info_field_ct;
+              ++cur_info_key_ct;
               if (info_subtoken_end == pvar_info_line_iter) {
                 break;
               }
@@ -3735,30 +3735,30 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
                 goto WritePvarSplit_ret_1;
               }
             } else {
-              if (!cur_info_field_ct) {
+              if (!cur_info_key_ct) {
                 *cswritep++ = '.';
               } else {
                 const uint32_t is_last_allele = (alt_allele_idx + 1 == split_ct_p1);
-                for (uint32_t kpos = 0; kpos != cur_info_field_ct; ++kpos) {
+                for (uint32_t kpos = 0; kpos != cur_info_key_ct; ++kpos) {
                   const uint32_t kidx = info_key_order[kpos];
                   const char* cur_key_str = info_keys[kidx];
                   cswritep = strcpya(cswritep, cur_key_str);
-                  const int32_t knum = const_container_of(info_keys[kidx], InfoField, key)->num;
+                  const int32_t knum = const_container_of(info_keys[kidx], InfoVtype, key)->num;
                   if (knum) {
                     *cswritep++ = '=';
                     const char* cur_info_start = info_starts[kpos];
                     const char* cur_info_end = info_ends[kpos];
-                    if (knum >= kInfoFieldNumUnknown) {
+                    if (knum >= kInfoVtypeUnknown) {
                       cswritep = memcpya(cswritep, cur_info_start, cur_info_end - cur_info_start);
                     } else {
-                      if (knum != kInfoFieldNumA) {
+                      if (knum != kInfoVtypeA) {
                         cswritep = memcpya(cswritep, cur_info_start, info_ref_blens[kpos]);
                       }
                       // okay, this needs a better name
                       const char* cur_info_cur = info_curs[kpos];
 
                       const char* subtoken_end = AdvToDelimOrEnd(cur_info_cur, cur_info_end, ',');
-                      if (knum == kInfoFieldNumG) {
+                      if (knum == kInfoVtypeG) {
                         if (unlikely(subtoken_end == cur_info_end)) {
                           snprintf(g_logbuf, kLogbufSize, "Error: Too few values for INFO key '%s', variant ID '%s'.\n", cur_key_str, orig_variant_id);
                           goto WritePvarSplit_ret_MALFORMED_INPUT_WW;
@@ -4002,7 +4002,7 @@ PglErr MakeFilterHtable(const uintptr_t* variant_include, const uintptr_t* filte
 }
 
 /*
-PglErr WritePvarJoin(const char* outname, const char* xheader, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* qual_present, const float* quals, const uintptr_t* filter_present, const uintptr_t* filter_npass, const char* const* filter_storage, const uintptr_t* nonref_flags, const char* pvar_info_reload, const double* variant_cms, const char* varid_template_str, const char* missing_varid_match, const char* const* info_keys, const uint32_t* info_keys_htable, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t new_variant_id_max_allele_slen, uint32_t max_write_allele_ct, uint32_t max_missalt_ct, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t nonref_flags_storage, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t info_field_ct, uint32_t info_keys_htable_size, MiscFlags misc_flags, MakePlink2Flags make_plink2_flags, PvarPsamFlags pvar_psam_flags, uint32_t thread_ct) {
+PglErr WritePvarJoin(const char* outname, const char* xheader, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* qual_present, const float* quals, const uintptr_t* filter_present, const uintptr_t* filter_npass, const char* const* filter_storage, const uintptr_t* nonref_flags, const char* pvar_info_reload, const double* variant_cms, const char* varid_template_str, const char* missing_varid_match, const char* const* info_keys, const uint32_t* info_keys_htable, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t new_variant_id_max_allele_slen, uint32_t max_write_allele_ct, uint32_t max_missalt_ct, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t nonref_flags_storage, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t info_key_ct, uint32_t info_keys_htable_size, MiscFlags misc_flags, MakePlink2Flags make_plink2_flags, PvarPsamFlags pvar_psam_flags, uint32_t thread_ct) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   PglErr reterr = kPglRetSuccess;
@@ -4068,7 +4068,7 @@ PglErr WritePvarJoin(const char* outname, const char* xheader, const uintptr_t* 
     write_info_pr = write_info_pr && write_info;
     if (unlikely(write_info_pr && (info_flags & kfInfoPrNonflagPresent))) {
       logputs("\n");
-      logerrputs("Error: Conflicting INFO:PR fields.  Either fix all REF alleles so that the\n'provisional reference' field is no longer needed, or remove/rename the other\nINFO:PR field.\n");
+      logerrputs("Error: Conflicting INFO:PR definitions.  Either fix all REF alleles so that the\n'provisional reference' flag is no longer needed, or remove/rename the other\nuse of the INFO:PR key.\n");
       goto WritePvarJoin_ret_INCONSISTENT_INPUT;
     }
 
@@ -4089,7 +4089,7 @@ PglErr WritePvarJoin(const char* outname, const char* xheader, const uintptr_t* 
       info_cache_size *= 3;
     }
 #ifndef __LP64__
-    if (S_CAST(uint64_t, info_cache_size) * info_field_ct * sizeof(intptr_t) > 0x7fffffff) {
+    if (S_CAST(uint64_t, info_cache_size) * info_key_ct * sizeof(intptr_t) > 0x7fffffff) {
       goto WritePvarJoin_ret_NOMEM;
     }
 #endif
@@ -4148,9 +4148,9 @@ PglErr WritePvarJoin(const char* outname, const char* xheader, const uintptr_t* 
     if (pvar_info_reload) {
       if (unlikely(
               bigstack_alloc_cp(info_cache_size, &info_bufs) ||
-              bigstack_alloc_kcp(info_field_ct * info_cache_size, &info_starts) ||
-              bigstack_alloc_kcp(info_field_ct * info_cache_size, &info_ends) ||
-              bigstack_alloc_kcp(info_field_ct * info_cache_size, &info_curs))) {
+              bigstack_alloc_kcp(info_key_ct * info_cache_size, &info_starts) ||
+              bigstack_alloc_kcp(info_key_ct * info_cache_size, &info_ends) ||
+              bigstack_alloc_kcp(info_key_ct * info_cache_size, &info_curs))) {
         goto WritePvarJoin_ret_NOMEM;
       }
       reterr = PvarInfoOpenAndReloadHeader(pvar_info_reload, 1 + (thread_ct > 1), &pvar_reload_rls, &pvar_info_line_iter, &info_col_idx);
@@ -6203,22 +6203,22 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
         reterr = WritePvar(outname, xheader, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, pgfip->nonref_flags, pvar_info_reload, variant_cms, raw_variant_ct, variant_ct, max_allele_slen, xheader_blen, info_flags, nonref_flags_storage, max_filter_slen, info_reload_slen, pvar_psam_flags, max_thread_ct);
       } else {
         const char* const* info_keys = nullptr;
-        uint32_t info_field_ct = 0;
+        uint32_t info_key_ct = 0;
         uint32_t* info_keys_htable = nullptr;
         uint32_t info_keys_htable_size = 0;
         if (pvar_info_reload) {
-          reterr = ParseInfoHeader(xheader, xheader_blen, &info_keys, &info_field_ct, &info_keys_htable, &info_keys_htable_size);
+          reterr = ParseInfoHeader(xheader, xheader_blen, &info_keys, &info_key_ct, &info_keys_htable, &info_keys_htable_size);
           if (reterr) {
             goto MakePlink2NoVsort_ret_1;
           }
         }
         if (write_variant_ct > variant_ct) {
-          reterr = WritePvarSplit(outname, xheader, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, pgfip->nonref_flags, pvar_info_reload, variant_cms, varid_template_str, missing_varid_match, info_keys, info_keys_htable, raw_variant_ct, variant_ct, max_allele_slen, new_variant_id_max_allele_slen, xheader_blen, info_flags, nonref_flags_storage, max_filter_slen, info_reload_slen, info_field_ct, info_keys_htable_size, misc_flags, make_plink2_flags, pvar_psam_flags, max_thread_ct);
+          reterr = WritePvarSplit(outname, xheader, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, pgfip->nonref_flags, pvar_info_reload, variant_cms, varid_template_str, missing_varid_match, info_keys, info_keys_htable, raw_variant_ct, variant_ct, max_allele_slen, new_variant_id_max_allele_slen, xheader_blen, info_flags, nonref_flags_storage, max_filter_slen, info_reload_slen, info_key_ct, info_keys_htable_size, misc_flags, make_plink2_flags, pvar_psam_flags, max_thread_ct);
         } else {
           logerrputs("Error: Multiallelic join is under development.\n");
           reterr = kPglRetNotYetSupported;
           goto MakePlink2NoVsort_ret_1;
-          // reterr = WritePvarJoin(outname, xheader, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, pgfip->nonref_flags, pvar_info_reload, variant_cms, varid_template_str, missing_varid_match, info_keys, info_keys_htable, raw_variant_ct, variant_ct, max_allele_slen, new_variant_id_max_allele_slen, max_write_allele_ct, max_missalt_ct, xheader_blen, info_flags, nonref_flags_storage, max_filter_slen, info_reload_slen, info_field_ct, info_keys_htable_size, misc_flags, make_plink2_flags, pvar_psam_flags, max_thread_ct);
+          // reterr = WritePvarJoin(outname, xheader, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, pgfip->nonref_flags, pvar_info_reload, variant_cms, varid_template_str, missing_varid_match, info_keys, info_keys_htable, raw_variant_ct, variant_ct, max_allele_slen, new_variant_id_max_allele_slen, max_write_allele_ct, max_missalt_ct, xheader_blen, info_flags, nonref_flags_storage, max_filter_slen, info_reload_slen, info_key_ct, info_keys_htable_size, misc_flags, make_plink2_flags, pvar_psam_flags, max_thread_ct);
         }
       }
       if (unlikely(reterr)) {
@@ -7349,7 +7349,7 @@ PglErr WritePvarResorted(const char* outname, const char* xheader, const uintptr
     write_info_pr = write_info_pr && write_info;
     if (unlikely(write_info_pr && (info_flags & kfInfoPrNonflagPresent))) {
       logputs("\n");
-      logerrputs("Error: Conflicting INFO:PR fields.  Either fix all REF alleles so that the\n'provisional reference' field is no longer needed, or remove/rename the other\nINFO:PR field.\n");
+      logerrputs("Error: Conflicting INFO:PR definitions.  Either fix all REF alleles so that the\n'provisional reference' flag is no longer needed, or remove/rename the other\nuse of the INFO:PR key.\n");
       goto WritePvarResorted_ret_INCONSISTENT_INPUT;
     }
 

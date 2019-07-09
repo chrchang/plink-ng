@@ -937,7 +937,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
     uint32_t sample_ct = *sample_ct_ptr;
     if (unlikely(sample_ct < 2)) {
       logerrprintf("Error: %s requires at least 2 samples.\n", flagname);
-      goto CalcKing_ret_INCONSISTENT_INPUT;
+      goto CalcKing_ret_DEGENERATE_DATA;
     }
 #ifdef __LP64__
     // there's also a UINT32_MAX / kKingMultiplexWords limit, but that's not
@@ -968,7 +968,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
       variant_ct -= non_autosomal_variant_ct;
       if (!variant_ct) {
         logerrprintf("Error: No variants remaining for KING-robust calculation.\n");
-        goto CalcKing_ret_INCONSISTENT_INPUT;
+        goto CalcKing_ret_DEGENERATE_DATA;
       }
       ExcludeNonAutosomalVariants(cip, variant_include);
     }
@@ -1675,6 +1675,9 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
     break;
   CalcKing_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
+    break;
+  CalcKing_ret_DEGENERATE_DATA:
+    reterr = kPglRetDegenerateData;
     break;
   }
  CalcKing_ret_1:
@@ -2609,7 +2612,7 @@ PglErr ExpandCenteredVarmaj(const uintptr_t* genovec, const uintptr_t* dosage_pr
       GenovecCountFreqsUnsafe(genovec, sample_ct, genocounts);
       // remove unlikely() if any caller ever handles this case gracefully
       if (unlikely(dosage_ct || (genocounts[0] && (genocounts[1] || genocounts[2])) || (genocounts[1] && genocounts[2]))) {
-        return kPglRetInconsistentInput;
+        return kPglRetDegenerateData;
       }
       ZeroDArr(sample_ct, normed_dosages);
       return kPglRetSuccess;
@@ -2635,8 +2638,8 @@ PglErr LoadCenteredVarmaj(const uintptr_t* sample_include, const uint32_t* sampl
   uint32_t dosage_ct;
   PglErr reterr = PgrGetInv1D(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, maj_allele_idx, simple_pgrp, genovec_buf, dosage_present_buf, dosage_main_buf, &dosage_ct);
   if (unlikely(reterr)) {
-    // don't print malformed-.pgen error message here for now, since we may
-    // want to put this in a multithreaded loop?
+    // don't print malformed-.pgen error message here, since this is called
+    // from multithreaded loops
     return reterr;
   }
   ZeroTrailingQuaters(sample_ct, genovec_buf);
@@ -2981,7 +2984,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     ts.calc_thread_ct = calc_thread_ct;
     if (unlikely(sample_ct < 2)) {
       logerrputs("Error: GRM construction requires at least two samples.\n");
-      goto CalcGrm_ret_INCONSISTENT_INPUT;
+      goto CalcGrm_ret_DEGENERATE_DATA;
     }
     const uintptr_t* sample_include = orig_sample_include;
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
@@ -3114,7 +3117,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           }
           reterr = LoadCenteredVarmaj(sample_include, sample_include_cumulative_popcounts, variance_standardize, is_haploid, row_end_idx, variant_uidx, maj_allele_idx, GetAlleleFreq(&(allele_freqs[allele_idx_base]), maj_allele_idx, cur_allele_ct), simple_pgrp, variant_include_has_missing? (&missing_present) : nullptr, normed_vmaj_iter, genovec_buf, dosage_present_buf, dosage_main_buf);
           if (unlikely(reterr)) {
-            if (reterr == kPglRetInconsistentInput) {
+            if (reterr == kPglRetDegenerateData) {
               logputs("\n");
               logerrputs("Error: Zero-MAF variant is not actually monomorphic.  (This is possible when\ne.g. MAF is estimated from founders, but the minor allele was only observed in\nnonfounders.  In any case, you should be using e.g. --maf to filter out all\nvery-low-MAF variants, since the relationship matrix distance formula does not\nhandle them well.)\n");
             } else if (reterr == kPglRetMalformedInput) {
@@ -3560,16 +3563,15 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
   CalcGrm_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
-  CalcGrm_ret_INCONSISTENT_INPUT:
-    reterr = kPglRetInconsistentInput;
-    break;
   CalcGrm_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
+    break;
+  CalcGrm_ret_DEGENERATE_DATA:
+    reterr = kPglRetDegenerateData;
     break;
   }
  CalcGrm_ret_1:
   CswriteCloseCond(&css, cswritep);
-  ZWRAP_useZSTDcompression(1);
   fclose_cond(outfile);
   CleanupThreads3z(&ts, &g_cur_batch_size);
   BLAS_SET_NUM_THREADS(1);
@@ -3856,7 +3858,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       }
       if (unlikely(pc_ct < 2)) {
         logerrputs("Error: Too few samples or autosomal variants for PCA.\n");
-        goto CalcPca_ret_INCONSISTENT_INPUT;
+        goto CalcPca_ret_DEGENERATE_DATA;
       }
       logerrputsb();
     }
@@ -3938,7 +3940,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       // final PCs wouldn't be accurate anyway.
       if (qq_col_ct > variant_ct) {
         logerrprintfww("Error: Too few variants to compute %u PCs with --pca approx (%u required).\n", pc_ct, qq_col_ct);
-        goto CalcPca_ret_INCONSISTENT_INPUT;
+        goto CalcPca_ret_DEGENERATE_DATA;
       }
 #ifndef LAPACK_ILP64
       if (unlikely((variant_ct * S_CAST(uint64_t, qq_col_ct)) > 0x7effffff)) {
@@ -4132,7 +4134,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       if (unlikely(svd_rect_err)) {
         logputs("\n");
         snprintf(g_logbuf, kLogbufSize, "Error: Failed to compute SVD of Krylov matrix (DGESVD info=%d).\n", S_CAST(int32_t, svd_rect_err));
-        goto CalcPca_ret_INCONSISTENT_INPUT_2;
+        goto CalcPca_ret_DEGENERATE_DATA_2;
       }
       BLAS_SET_NUM_THREADS(1);
       logputs("done.\nRecovering top PCs from range approximation... ");
@@ -4218,7 +4220,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       if (unlikely(svd_rect_err)) {
         logputs("\n");
         snprintf(g_logbuf, kLogbufSize, "Error: Failed to compute SVD of final matrix (DGESVD info=%d).\n", S_CAST(int32_t, svd_rect_err));
-        goto CalcPca_ret_INCONSISTENT_INPUT_2;
+        goto CalcPca_ret_DEGENERATE_DATA_2;
       }
       BLAS_SET_NUM_THREADS(1);
       logputs("done.\n");
@@ -4262,7 +4264,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       // not putting unlikely() here for now.
       if (ExtractEigvecs(pca_sample_ct, pc_ct, lwork, liwork, grm, eigvals, reverse_eigvecs_pcmaj, extract_eigvecs_wkspace)) {
         logerrputs("Error: Failed to extract eigenvector(s) from GRM.\n");
-        goto CalcPca_ret_INCONSISTENT_INPUT;
+        goto CalcPca_ret_DEGENERATE_DATA;
       }
       BLAS_SET_NUM_THREADS(1);
       logputs("done.\n");
@@ -4645,13 +4647,16 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
   CalcPca_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
-  CalcPca_ret_INCONSISTENT_INPUT_2:
-    logerrputsb();
   CalcPca_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
   CalcPca_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
+    break;
+  CalcPca_ret_DEGENERATE_DATA_2:
+    logerrputsb();
+  CalcPca_ret_DEGENERATE_DATA:
+    reterr = kPglRetDegenerateData;
     break;
   }
  CalcPca_ret_1:
@@ -5147,7 +5152,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
                   GenovecCountFreqsUnsafe(genovec_buf, sample_ct, genocounts);
                   if (unlikely(dosage_ct || genocounts[1] || genocounts[2])) {
                     snprintf(g_logbuf, kLogbufSize, "Error: --score variance-standardize failure for ID '%s': estimated allele frequency is zero, but not all dosages are zero. (This is possible when e.g. allele frequencies are estimated from founders, but the allele is only observed in nonfounders.)\n", variant_ids[variant_uidx]);
-                    goto ScoreReport_ret_INCONSISTENT_INPUT_WW;
+                    goto ScoreReport_ret_DEGENERATE_DATA_WW;
                   }
                   geno_slope = 0.0;
                 } else {
@@ -5330,7 +5335,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       }
     } else if (unlikely(!valid_variant_ct)) {
       logerrputs("Error: No valid variants in --score file.\n");
-      goto ScoreReport_ret_MALFORMED_INPUT;
+      goto ScoreReport_ret_DEGENERATE_DATA;
     } else {
       JoinThreads3z(&ts);
     }
@@ -5558,6 +5563,13 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     break;
   ScoreReport_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
+    break;
+  ScoreReport_ret_DEGENERATE_DATA_WW:
+    WordWrapB(0);
+    logputs("\n");
+    logerrputsb();
+  ScoreReport_ret_DEGENERATE_DATA:
+    reterr = kPglRetDegenerateData;
     break;
   }
  ScoreReport_ret_1:
