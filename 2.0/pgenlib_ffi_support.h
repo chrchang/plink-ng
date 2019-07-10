@@ -32,6 +32,9 @@ void GenoarrToInt32sMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int32_t
 
 void GenoarrToInt64sMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int64_t* geno_int64);
 
+// May want to use STD_ARRAY_INIT_{START,END} here.
+extern const double kGenoDoublePairs[32];
+
 void GenoarrToDoublesMinus9(const uintptr_t* genoarr, uint32_t sample_ct, double* geno_double);
 
 // For Python interface, allele_codes is always int32_t.  Python programmers
@@ -49,7 +52,11 @@ void GenoarrPhasedToHapCodes(const uintptr_t* genoarr, const uintptr_t* phaseinf
 
 void Dosage16ToFloatsMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, float* geno_float);
 
-void Dosage16ToDoublesMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, double* geno_double);
+void Dosage16ToDoubles(const double* geno_double_pair_table, const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, double* geno_double);
+
+HEADER_INLINE void Dosage16ToDoublesMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, double* geno_double) {
+  Dosage16ToDoubles(kGenoDoublePairs, genoarr, dosage_present, dosage_main, sample_ct, dosage_ct, geno_double);
+}
 
 // Does not zero out trailing bits of bitarr.
 void BytesToBitsUnsafe(const uint8_t* boolbytes, uint32_t sample_ct, uintptr_t* bitarr);

@@ -45,6 +45,7 @@ public:
 private:
   plink2::PgenFileInfo* _info_ptr;
   plink2::RefcountedWptr* _allele_idx_offsetsp;
+  plink2::RefcountedWptr* _nonref_flagsp;
   plink2::PgenReader* _state_ptr;
   uintptr_t* _subset_include_vec;
   uintptr_t* _subset_include_interleaved_vec;
@@ -67,6 +68,7 @@ private:
 
 RPgenReader::RPgenReader() : _info_ptr(nullptr),
                              _allele_idx_offsetsp(nullptr),
+                             _nonref_flagsp(nullptr),
                              _state_ptr(nullptr) {
 }
 
@@ -93,21 +95,14 @@ void RPgenReader::Load(String filename, Nullable<List> pvar,
   if (PgfiInitPhase1(fname, cur_variant_ct, cur_sample_ct, 0, &header_ctrl, _info_ptr, &pgfi_alloc_cacheline_ct, errstr_buf) != plink2::kPglRetSuccess) {
     stop(&(errstr_buf[7]));
   }
-  if (header_ctrl & 0x30) {
-    // need to be careful about ownership when this is supported
-    stop("Explicit ALT allele counts not yet supported");
-  }
-  if ((header_ctrl & 0xc0) == 0xc0) {
-    stop("Explicit nonref_flags not yet supported");
-  }
-  _info_ptr->allele_idx_offsets = nullptr;
+  const uint32_t raw_variant_ct = _info_ptr->raw_variant_ct;
   if (pvar.isNotNull()) {
     List pvarl = as<List>(pvar);
     if (strcmp_r_c(pvarl[0], "pvar")) {
       stop("pvar is not a pvar object");
     }
     XPtr<class RPvar> rp = as<XPtr<class RPvar>>(pvarl[1]);
-    if (rp->GetVariantCt() != _info_ptr->raw_variant_ct) {
+    if (rp->GetVariantCt() != raw_variant_ct) {
       stop("pvar and pgen have different variant counts");
     }
     _allele_idx_offsetsp = rp->GetAlleleIdxOffsetsp();
@@ -116,7 +111,21 @@ void RPgenReader::Load(String filename, Nullable<List> pvar,
     }
     _info_ptr->max_allele_ct = rp->GetMaxAlleleCt();
   } else {
+    if (header_ctrl & 0x30) {
+      // no need to zero-initialize this
+      _allele_idx_offsetsp = plink2::CreateRefcountedWptr(raw_variant_ct + 1);
+      _info_ptr->allele_idx_offsets = _allele_idx_offsetsp->p;
+      // _info_ptr->max_allele_ct updated by PgfiInitPhase2() in this case
+    }
     _info_ptr->max_allele_ct = 2;
+  }
+  if ((header_ctrl & 0xc0) == 0xc0) {
+    // todo: load this in pvar, to enable consistency check.  we use a
+    // (manually implemented) shared_ptr in preparation for this.
+    const uintptr_t raw_variant_ctl = plink2::DivUp(raw_variant_ct, plink2::kBitsPerWord);
+    // no need to zero-initialize this
+    _nonref_flagsp = plink2::CreateRefcountedWptr(raw_variant_ctl + 1);
+    _info_ptr->nonref_flags = _nonref_flagsp->p;
   }
   const uint32_t file_sample_ct = _info_ptr->raw_sample_ct;
   unsigned char* pgfi_alloc = nullptr;
@@ -125,14 +134,18 @@ void RPgenReader::Load(String filename, Nullable<List> pvar,
   }
   uint32_t max_vrec_width;
   uintptr_t pgr_alloc_cacheline_ct;
-  if (PgfiInitPhase2(header_ctrl, 1, 1, 0, 0, _info_ptr->raw_variant_ct, &max_vrec_width, _info_ptr, pgfi_alloc, &pgr_alloc_cacheline_ct, errstr_buf)) {
+  if (PgfiInitPhase2(header_ctrl, 1, 1, 0, 0, raw_variant_ct, &max_vrec_width, _info_ptr, pgfi_alloc, &pgr_alloc_cacheline_ct, errstr_buf)) {
     if (pgfi_alloc && (!_info_ptr->vrtypes)) {
       plink2::aligned_free(pgfi_alloc);
     }
     stop(&(errstr_buf[7]));
   }
   if ((!_allele_idx_offsetsp) && (_info_ptr->gflags & 4)) {
-    stop("Multiallelic variants present; pvar required in this case");
+    // Note that it's safe to be ignorant of multiallelic variants when
+    // phase and dosage info aren't present; GetAlleleCt() then always returns
+    // 2 when that isn't actually true, and all ALTs are treated as if they
+    // were ALT1, but otherwise everything works properly.
+    stop("Multiallelic variants and phase/dosage info simultaneously present; pvar required in this case");
   }
   _state_ptr = static_cast<plink2::PgenReader*>(malloc(sizeof(plink2::PgenReader)));
   if (!_state_ptr) {
@@ -266,6 +279,16 @@ bool RPgenReader::HardcallPhasePresent() const {
   return ((_info_ptr->gflags & plink2::kfPgenGlobalHardcallPhasePresent) != 0);
 }
 
+#ifndef INT32_MIN
+#  define INT32_MIN -2147483648
+#endif
+
+#define GENO_TO_RI32QUAD_2(f2, f3, f4) 0, f2, f3, f4, 1, f2, f3, f4, 2, f2, f3, f4, INT32_MIN, f2, f3, f4
+#define GENO_TO_RI32QUAD_3(f3, f4) GENO_TO_RI32QUAD_2(0, f3, f4), GENO_TO_RI32QUAD_2(1, f3, f4), GENO_TO_RI32QUAD_2(2, f3, f4), GENO_TO_RI32QUAD_2(INT32_MIN, f3, f4)
+#define GENO_TO_RI32QUAD_4(f4) GENO_TO_RI32QUAD_3(0, f4), GENO_TO_RI32QUAD_3(1, f4), GENO_TO_RI32QUAD_3(2, f4), GENO_TO_RI32QUAD_3(INT32_MIN, f4)
+
+static const int32_t kGenoRInt32Quads[1024] ALIGNV16 = {GENO_TO_RI32QUAD_4(0), GENO_TO_RI32QUAD_4(1), GENO_TO_RI32QUAD_4(2), GENO_TO_RI32QUAD_4(INT32_MIN)};
+
 void RPgenReader::ReadIntHardcalls(IntegerVector buf, int variant_idx, int allele_idx) {
   if (!_info_ptr) {
     stop("pgen is closed");
@@ -286,8 +309,14 @@ void RPgenReader::ReadIntHardcalls(IntegerVector buf, int variant_idx, int allel
     sprintf(errstr_buf, "PgrGet1() error %d", static_cast<int>(reterr));
     stop(errstr_buf);
   }
-  plink2::GenoarrToInt32sMinus9(_pgv.genovec, _subset_size, &buf[0]);
+  plink2::GenoarrLookup256x4bx4(_pgv.genovec, kGenoRInt32Quads, _subset_size, &buf[0]);
 }
+
+static const double kGenoRDoublePairs[32] ALIGNV16 =
+{0.0, 0.0, 1.0, 0.0, 2.0, 0.0, NA_REAL, 0.0,
+ 0.0, 1.0, 1.0, 1.0, 2.0, 1.0, NA_REAL, 1.0,
+ 0.0, 2.0, 1.0, 2.0, 2.0, 2.0, NA_REAL, 2.0,
+ 0.0, NA_REAL, 1.0, NA_REAL, 2.0, NA_REAL, NA_REAL, NA_REAL};
 
 void RPgenReader::ReadHardcalls(NumericVector buf, int variant_idx, int allele_idx) {
   if (!_info_ptr) {
@@ -309,7 +338,7 @@ void RPgenReader::ReadHardcalls(NumericVector buf, int variant_idx, int allele_i
     sprintf(errstr_buf, "PgrGet1() error %d", static_cast<int>(reterr));
     stop(errstr_buf);
   }
-  plink2::GenoarrToDoublesMinus9(_pgv.genovec, _subset_size, &buf[0]);
+  plink2::GenoarrLookup16x8bx2(_pgv.genovec, kGenoRDoublePairs, _subset_size, &buf[0]);
 }
 
 void RPgenReader::Read(NumericVector buf, int variant_idx, int allele_idx) {
@@ -333,7 +362,7 @@ void RPgenReader::Read(NumericVector buf, int variant_idx, int allele_idx) {
     sprintf(errstr_buf, "PgrGet1D() error %d", static_cast<int>(reterr));
     stop(errstr_buf);
   }
-  plink2::Dosage16ToDoublesMinus9(_pgv.genovec, _pgv.dosage_present, _pgv.dosage_main, _subset_size, dosage_ct, &buf[0]);
+  plink2::Dosage16ToDoubles(kGenoRDoublePairs, _pgv.genovec, _pgv.dosage_present, _pgv.dosage_main, _subset_size, dosage_ct, &buf[0]);
 }
 
 /*
@@ -367,6 +396,7 @@ void RPgenReader::Close() {
   // don't bother propagating file close errors for now
   if (_info_ptr) {
     CondReleaseRefcountedWptr(&_allele_idx_offsetsp);
+    CondReleaseRefcountedWptr(&_nonref_flagsp);
     if (_info_ptr->vrtypes) {
       plink2::aligned_free(_info_ptr->vrtypes);
     }

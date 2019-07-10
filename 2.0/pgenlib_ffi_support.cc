@@ -71,7 +71,7 @@ void GenoarrToInt64sMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int64_t
   }
 }
 
-static const double kGenoDoublePairs[32] ALIGNV16 =
+const double kGenoDoublePairs[32] ALIGNV16 =
 {0.0, 0.0, 1.0, 0.0, 2.0, 0.0, -9.0, 0.0,
  0.0, 1.0, 1.0, 1.0, 2.0, 1.0, -9.0, 1.0,
  0.0, 2.0, 1.0, 2.0, 2.0, 2.0, -9.0, 2.0,
@@ -206,8 +206,8 @@ void Dosage16ToFloatsMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_pr
   }
 }
 
-void Dosage16ToDoublesMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, double* geno_double) {
-  GenoarrLookup16x8bx2(genoarr, kGenoDoublePairs, sample_ct, geno_double);
+void Dosage16ToDoubles(const double* geno_double_pair_table, const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, double* geno_double) {
+  GenoarrLookup16x8bx2(genoarr, geno_double_pair_table, sample_ct, geno_double);
   if (dosage_ct) {
     const uint16_t* dosage_main_iter = dosage_main;
     uintptr_t sample_uidx_base = 0;
