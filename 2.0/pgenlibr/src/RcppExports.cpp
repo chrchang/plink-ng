@@ -75,6 +75,17 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// Buf
+NumericVector Buf(List pgen);
+RcppExport SEXP _pgenlibr_Buf(SEXP pgenSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type pgen(pgenSEXP);
+    rcpp_result_gen = Rcpp::wrap(Buf(pgen));
+    return rcpp_result_gen;
+END_RCPP
+}
 // IntBuf
 IntegerVector IntBuf(List pgen);
 RcppExport SEXP _pgenlibr_IntBuf(SEXP pgenSEXP) {
@@ -86,14 +97,14 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// Buf
-NumericVector Buf(List pgen);
-RcppExport SEXP _pgenlibr_Buf(SEXP pgenSEXP) {
+// BoolBuf
+LogicalVector BoolBuf(List pgen);
+RcppExport SEXP _pgenlibr_BoolBuf(SEXP pgenSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< List >::type pgen(pgenSEXP);
-    rcpp_result_gen = Rcpp::wrap(Buf(pgen));
+    rcpp_result_gen = Rcpp::wrap(BoolBuf(pgen));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -187,8 +198,9 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pgenlibr_GetAlleleCt", (DL_FUNC) &_pgenlibr_GetAlleleCt, 2},
     {"_pgenlibr_GetMaxAlleleCt", (DL_FUNC) &_pgenlibr_GetMaxAlleleCt, 1},
     {"_pgenlibr_HardcallPhasePresent", (DL_FUNC) &_pgenlibr_HardcallPhasePresent, 1},
-    {"_pgenlibr_IntBuf", (DL_FUNC) &_pgenlibr_IntBuf, 1},
     {"_pgenlibr_Buf", (DL_FUNC) &_pgenlibr_Buf, 1},
+    {"_pgenlibr_IntBuf", (DL_FUNC) &_pgenlibr_IntBuf, 1},
+    {"_pgenlibr_BoolBuf", (DL_FUNC) &_pgenlibr_BoolBuf, 1},
     {"_pgenlibr_ReadHardcalls", (DL_FUNC) &_pgenlibr_ReadHardcalls, 4},
     {"_pgenlibr_Read", (DL_FUNC) &_pgenlibr_Read, 4},
     {"_pgenlibr_ClosePgen", (DL_FUNC) &_pgenlibr_ClosePgen, 1},

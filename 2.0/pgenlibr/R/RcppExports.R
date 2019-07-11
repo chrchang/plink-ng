@@ -25,12 +25,16 @@ HardcallPhasePresent <- function(pgen) {
     .Call(`_pgenlibr_HardcallPhasePresent`, pgen)
 }
 
+Buf <- function(pgen) {
+    .Call(`_pgenlibr_Buf`, pgen)
+}
+
 IntBuf <- function(pgen) {
     .Call(`_pgenlibr_IntBuf`, pgen)
 }
 
-Buf <- function(pgen) {
-    .Call(`_pgenlibr_Buf`, pgen)
+BoolBuf <- function(pgen) {
+    .Call(`_pgenlibr_BoolBuf`, pgen)
 }
 
 ReadHardcalls <- function(pgen, buf, variant_num, allele_num = 2L) {
