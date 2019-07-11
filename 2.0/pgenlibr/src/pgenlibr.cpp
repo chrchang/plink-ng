@@ -72,9 +72,11 @@ private:
 
   void SetSampleSubsetInternal(IntegerVector sample_subset_1based);
 
+  /*
   void ReadAllelesUnphasedInternal(int variant_idx);
 
   void ReadAllelesPhasedInternal(int variant_idx);
+  */
 };
 
 RPgenReader::RPgenReader() : _info_ptr(nullptr),
