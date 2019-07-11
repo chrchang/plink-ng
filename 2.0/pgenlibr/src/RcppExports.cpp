@@ -86,6 +86,17 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// AlleleCodeBuf
+NumericVector AlleleCodeBuf(List pgen);
+RcppExport SEXP _pgenlibr_AlleleCodeBuf(SEXP pgenSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type pgen(pgenSEXP);
+    rcpp_result_gen = Rcpp::wrap(AlleleCodeBuf(pgen));
+    return rcpp_result_gen;
+END_RCPP
+}
 // IntBuf
 IntegerVector IntBuf(List pgen);
 RcppExport SEXP _pgenlibr_IntBuf(SEXP pgenSEXP) {
@@ -94,6 +105,17 @@ BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< List >::type pgen(pgenSEXP);
     rcpp_result_gen = Rcpp::wrap(IntBuf(pgen));
+    return rcpp_result_gen;
+END_RCPP
+}
+// IntAlleleCodeBuf
+IntegerVector IntAlleleCodeBuf(List pgen);
+RcppExport SEXP _pgenlibr_IntAlleleCodeBuf(SEXP pgenSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type pgen(pgenSEXP);
+    rcpp_result_gen = Rcpp::wrap(IntAlleleCodeBuf(pgen));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -131,6 +153,19 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< int >::type variant_num(variant_numSEXP);
     Rcpp::traits::input_parameter< int >::type allele_num(allele_numSEXP);
     Read(pgen, buf, variant_num, allele_num);
+    return R_NilValue;
+END_RCPP
+}
+// ReadAlleles
+void ReadAlleles(List pgen, SEXP acbuf, int variant_num, Nullable<LogicalVector> phasepresent_buf);
+RcppExport SEXP _pgenlibr_ReadAlleles(SEXP pgenSEXP, SEXP acbufSEXP, SEXP variant_numSEXP, SEXP phasepresent_bufSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type pgen(pgenSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type acbuf(acbufSEXP);
+    Rcpp::traits::input_parameter< int >::type variant_num(variant_numSEXP);
+    Rcpp::traits::input_parameter< Nullable<LogicalVector> >::type phasepresent_buf(phasepresent_bufSEXP);
+    ReadAlleles(pgen, acbuf, variant_num, phasepresent_buf);
     return R_NilValue;
 END_RCPP
 }
@@ -199,10 +234,13 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pgenlibr_GetMaxAlleleCt", (DL_FUNC) &_pgenlibr_GetMaxAlleleCt, 1},
     {"_pgenlibr_HardcallPhasePresent", (DL_FUNC) &_pgenlibr_HardcallPhasePresent, 1},
     {"_pgenlibr_Buf", (DL_FUNC) &_pgenlibr_Buf, 1},
+    {"_pgenlibr_AlleleCodeBuf", (DL_FUNC) &_pgenlibr_AlleleCodeBuf, 1},
     {"_pgenlibr_IntBuf", (DL_FUNC) &_pgenlibr_IntBuf, 1},
+    {"_pgenlibr_IntAlleleCodeBuf", (DL_FUNC) &_pgenlibr_IntAlleleCodeBuf, 1},
     {"_pgenlibr_BoolBuf", (DL_FUNC) &_pgenlibr_BoolBuf, 1},
     {"_pgenlibr_ReadHardcalls", (DL_FUNC) &_pgenlibr_ReadHardcalls, 4},
     {"_pgenlibr_Read", (DL_FUNC) &_pgenlibr_Read, 4},
+    {"_pgenlibr_ReadAlleles", (DL_FUNC) &_pgenlibr_ReadAlleles, 4},
     {"_pgenlibr_ClosePgen", (DL_FUNC) &_pgenlibr_ClosePgen, 1},
     {"_pgenlibr_NewPvar", (DL_FUNC) &_pgenlibr_NewPvar, 1},
     {"_pgenlibr_GetVariantId", (DL_FUNC) &_pgenlibr_GetVariantId, 2},

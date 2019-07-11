@@ -32,18 +32,12 @@ public:
 
   void Read(NumericVector buf, int variant_idx, int allele_idx);
 
-  /*
-  void ReadAlleles(IntegerVector buf, int variant_idx);
+  void ReadAlleles(IntegerMatrix acbuf,
+                   Nullable<LogicalVector> phasepresent_buf, int variant_idx);
 
-  void ReadAllelesNumeric(NumericVector buf, int variant_idx);
-
-  void ReadAllelesPhased(IntegerVector buf, LogicalVector phasepresent_buf,
-                         int variant_idx);
-
-  void ReadAllelesPhasedNumeric(NumericVector buf,
-                                LogicalVector phasepresent_buf,
-                                int variant_idx);
-  */
+  void ReadAllelesNumeric(NumericMatrix acbuf,
+                          Nullable<LogicalVector> phasepresent_buf,
+                          int variant_idx);
 
   void Close();
 
@@ -72,11 +66,7 @@ private:
 
   void SetSampleSubsetInternal(IntegerVector sample_subset_1based);
 
-  /*
-  void ReadAllelesUnphasedInternal(int variant_idx);
-
   void ReadAllelesPhasedInternal(int variant_idx);
-  */
 };
 
 RPgenReader::RPgenReader() : _info_ptr(nullptr),
@@ -292,15 +282,7 @@ bool RPgenReader::HardcallPhasePresent() const {
   return ((_info_ptr->gflags & plink2::kfPgenGlobalHardcallPhasePresent) != 0);
 }
 
-#ifndef INT32_MIN
-#  define INT32_MIN -2147483648
-#endif
-
-#define GENO_TO_RI32QUAD_2(f2, f3, f4) 0, f2, f3, f4, 1, f2, f3, f4, 2, f2, f3, f4, INT32_MIN, f2, f3, f4
-#define GENO_TO_RI32QUAD_3(f3, f4) GENO_TO_RI32QUAD_2(0, f3, f4), GENO_TO_RI32QUAD_2(1, f3, f4), GENO_TO_RI32QUAD_2(2, f3, f4), GENO_TO_RI32QUAD_2(INT32_MIN, f3, f4)
-#define GENO_TO_RI32QUAD_4(f4) GENO_TO_RI32QUAD_3(0, f4), GENO_TO_RI32QUAD_3(1, f4), GENO_TO_RI32QUAD_3(2, f4), GENO_TO_RI32QUAD_3(INT32_MIN, f4)
-
-static const int32_t kGenoRInt32Quads[1024] ALIGNV16 = {GENO_TO_RI32QUAD_4(0), GENO_TO_RI32QUAD_4(1), GENO_TO_RI32QUAD_4(2), GENO_TO_RI32QUAD_4(INT32_MIN)};
+static const int32_t kGenoRInt32Quads[1024] ALIGNV16 = QUAD_TABLE256(0, 1, 2, NA_INTEGER);
 
 void RPgenReader::ReadIntHardcalls(IntegerVector buf, int variant_idx, int allele_idx) {
   if (!_info_ptr) {
@@ -325,11 +307,7 @@ void RPgenReader::ReadIntHardcalls(IntegerVector buf, int variant_idx, int allel
   plink2::GenoarrLookup256x4bx4(_pgv.genovec, kGenoRInt32Quads, _subset_size, &buf[0]);
 }
 
-static const double kGenoRDoublePairs[32] ALIGNV16 =
-{0.0, 0.0, 1.0, 0.0, 2.0, 0.0, NA_REAL, 0.0,
- 0.0, 1.0, 1.0, 1.0, 2.0, 1.0, NA_REAL, 1.0,
- 0.0, 2.0, 1.0, 2.0, 2.0, 2.0, NA_REAL, 2.0,
- 0.0, NA_REAL, 1.0, NA_REAL, 2.0, NA_REAL, NA_REAL, NA_REAL};
+static const double kGenoRDoublePairs[32] ALIGNV16 = PAIR_TABLE16(0.0, 1.0, 2.0, NA_REAL);
 
 void RPgenReader::ReadHardcalls(NumericVector buf, int variant_idx, int allele_idx) {
   if (!_info_ptr) {
@@ -378,42 +356,161 @@ void RPgenReader::Read(NumericVector buf, int variant_idx, int allele_idx) {
   plink2::Dosage16ToDoubles(kGenoRDoublePairs, _pgv.genovec, _pgv.dosage_present, _pgv.dosage_main, _subset_size, dosage_ct, &buf[0]);
 }
 
-/*
-void RPgenReader::ReadAlleles(IntegerVector buf, int variant_idx) {
+static const uint64_t kGenoToRIntcodeDPairs[32] ALIGNV16 = PAIR_TABLE16(0, 0x100000000LLU, 0x100000001LLU, 0x8000000080000000LLU);
+static const int32_t kGenoToLogicalPhaseQuads[1024] ALIGNV16 = QUAD_TABLE256(1, 0, 1, NA_LOGICAL);
+
+void RPgenReader::ReadAlleles(IntegerMatrix acbuf, Nullable<LogicalVector> phasepresent_buf, int variant_idx) {
   if (!_info_ptr) {
     stop("pgen is closed");
   }
-  if (static_cast<uint32_t>(variant_idx) >= _info_ptr->raw_variant_ct) {
+  if ((acbuf.nrow() != 2) || (acbuf.ncol() != _subset_size)) {
     char errstr_buf[256];
-    sprintf(errstr_buf, "variant_num out of range (%d; must be 1..%u)", variant_idx + 1, _info_ptr->raw_variant_ct);
+    sprintf(errstr_buf, "acbuf has wrong size (%dx%d; 2x%u expected)", acbuf.nrow(), acbuf.ncol(), _subset_size);
     stop(errstr_buf);
   }
-  if (buf.size() != _subset_size) {
-    char errstr_buf[256];
-    sprintf(errstr_buf, "buf has wrong length (%" PRIdPTR "; %u expected)", buf.size(), _subset_size);
-    stop(errstr_buf);
+  ReadAllelesPhasedInternal(variant_idx);
+  plink2::GenoarrToAlleleCodes(kGenoToRIntcodeDPairs, _pgv.genovec, _subset_size, &acbuf[0]);
+  const uintptr_t* allele_idx_offsets = _info_ptr->allele_idx_offsets;
+  uint32_t cur_allele_ct = 2;
+  if (allele_idx_offsets) {
+    cur_allele_ct = allele_idx_offsets[variant_idx + 1] - allele_idx_offsets[variant_idx];
+    if (cur_allele_ct != 2) {
+      stop("multiallelic support under development");
+    }
   }
-  plink2::PglErr reterr = PgrGetMP(_subset_include_vec, _subset_cumulative_popcounts, _subset_size, variant_idx, _state_ptr, _pgv);
-  if (reterr != plink2::kPglRetSuccess) {
-    char errstr_buf[256];
-    sprintf(errstr_buf, "PgrGetMP() error %d", static_cast<int>(reterr));
-    stop(errstr_buf);
+  const uintptr_t* phasepresent = _pgv.phasepresent;
+  const uintptr_t* phaseinfo = _pgv.phaseinfo;
+  const uint32_t phasepresent_ct = _pgv.phasepresent_ct;
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = phasepresent[0];
+  if (!phasepresent_buf.isNotNull()) {
+    if (cur_allele_ct == 2) {
+      uint64_t* allele_codes_alias64 = R_CAST(uint64_t*, &acbuf[0]);
+      for (uint32_t phased_idx = 0; phased_idx != phasepresent_ct; ++phased_idx) {
+        const uintptr_t sample_uidx = plink2::BitIter1(phasepresent, &sample_uidx_base, &cur_bits);
+        if (plink2::IsSet(phaseinfo, sample_uidx)) {
+          // 1|0
+          allele_codes_alias64[sample_uidx] = 1;
+        }
+      }
+    } else {
+      int32_t* allele_codes = &acbuf[0];
+      for (uint32_t phased_idx = 0; phased_idx != phasepresent_ct; ++phased_idx) {
+        const uintptr_t sample_uidx = plink2::BitIter1(phasepresent, &sample_uidx_base, &cur_bits);
+        if (plink2::IsSet(phaseinfo, sample_uidx)) {
+          const int32_t tmpval = allele_codes[2 * sample_uidx];
+          allele_codes[2 * sample_uidx] = allele_codes[2 * sample_uidx + 1];
+          allele_codes[2 * sample_uidx + 1] = tmpval;
+        }
+      }
+    }
+    return;
   }
-  plink2::GenoarrPhasedToAlleleCodes(_pgv.genovec, _pgv.phasepresent, _pgv.phaseinfo, _subset_size, _pgv.phasepresent_ct);;;
+  // Unfortunately, we can't use GenoarrPhasedToAlleleCodes directly, since
+  // it's written for Python 1-byte bools instead of R 4-byte logical values.
+  // (probable todo: allow the no-phasepresent_buf part to be called
+  // separately)
+  //
+  // 0, 2 -> automatically phased.  3 -> NA_LOGICAL.
+  // 1 -> assume unphased; then change to phased as necessary when iterating
+  //      over phasepresent.
+  int32_t* phasepresent_wbuf = &(as<LogicalVector>(phasepresent_buf)[0]);
+  plink2::GenoarrLookup256x4bx4(_pgv.genovec, kGenoToLogicalPhaseQuads, _subset_size, phasepresent_wbuf);
+  if (cur_allele_ct == 2) {
+    uint64_t* allele_codes_alias64 = R_CAST(uint64_t*, &acbuf[0]);
+    for (uint32_t phased_idx = 0; phased_idx != phasepresent_ct; ++phased_idx) {
+      const uintptr_t sample_uidx = plink2::BitIter1(phasepresent, &sample_uidx_base, &cur_bits);
+      phasepresent_wbuf[sample_uidx] = 1;
+      if (plink2::IsSet(phaseinfo, sample_uidx)) {
+        allele_codes_alias64[sample_uidx] = 1;
+      }
+    }
+  } else {
+    int32_t* allele_codes = &acbuf[0];
+    for (uint32_t phased_idx = 0; phased_idx != phasepresent_ct; ++phased_idx) {
+      const uintptr_t sample_uidx = plink2::BitIter1(phasepresent, &sample_uidx_base, &cur_bits);
+      phasepresent_wbuf[sample_uidx] = 1;
+      if (plink2::IsSet(phaseinfo, sample_uidx)) {
+        const int32_t tmpval = allele_codes[2 * sample_uidx];
+        allele_codes[2 * sample_uidx] = allele_codes[2 * sample_uidx + 1];
+        allele_codes[2 * sample_uidx + 1] = tmpval;
+      }
+    }
+  }
 }
 
-void RPgenReader::ReadAllelesNumeric(NumericVector buf, int variant_idx) {
+static const double kGenoToRNumcodePairs[8] ALIGNV16 = {0.0, 0.0, 0.0, 1.0, 1.0, 1.0, NA_REAL, NA_REAL};
+
+void RPgenReader::ReadAllelesNumeric(NumericMatrix acbuf, Nullable<LogicalVector> phasepresent_buf, int variant_idx) {
   if (!_info_ptr) {
     stop("pgen is closed");
   }
-  if (buf.size() != _subset_size) {
+  if ((acbuf.nrow() != 2) || (acbuf.ncol() != _subset_size)) {
     char errstr_buf[256];
-    sprintf(errstr_buf, "buf has wrong length (%" PRIdPTR "; %u expected)", buf.size(), _subset_size);
+    sprintf(errstr_buf, "acbuf has wrong size (%dx%d; 2x%u expected)", acbuf.nrow(), acbuf.ncol(), _subset_size);
     stop(errstr_buf);
   }
-  plink2::GenoarrPhasedToAlleleCodes(_pgv.genovec, );;;
+  ReadAllelesPhasedInternal(variant_idx);
+  double* allele_codes = &acbuf[0];
+  plink2::GenoarrLookup4x16b(_pgv.genovec, kGenoToRNumcodePairs, _subset_size, allele_codes);
+  const uintptr_t* allele_idx_offsets = _info_ptr->allele_idx_offsets;
+  uint32_t cur_allele_ct = 2;
+  if (allele_idx_offsets) {
+    cur_allele_ct = allele_idx_offsets[variant_idx + 1] - allele_idx_offsets[variant_idx];
+    if (cur_allele_ct != 2) {
+      stop("multiallelic support under development");
+    }
+  }
+  const uintptr_t* phasepresent = _pgv.phasepresent;
+  const uintptr_t* phaseinfo = _pgv.phaseinfo;
+  const uint32_t phasepresent_ct = _pgv.phasepresent_ct;
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = phasepresent[0];
+  if (!phasepresent_buf.isNotNull()) {
+    if (cur_allele_ct == 2) {
+      for (uint32_t phased_idx = 0; phased_idx != phasepresent_ct; ++phased_idx) {
+        const uintptr_t sample_uidx = plink2::BitIter1(phasepresent, &sample_uidx_base, &cur_bits);
+        if (plink2::IsSet(phaseinfo, sample_uidx)) {
+          // 1|0
+          allele_codes[2 * sample_uidx] = 1.0;
+          allele_codes[2 * sample_uidx + 1] = 0.0;
+        }
+      }
+    } else {
+      for (uint32_t phased_idx = 0; phased_idx != phasepresent_ct; ++phased_idx) {
+        const uintptr_t sample_uidx = plink2::BitIter1(phasepresent, &sample_uidx_base, &cur_bits);
+        if (plink2::IsSet(phaseinfo, sample_uidx)) {
+          const double tmpval = allele_codes[2 * sample_uidx];
+          allele_codes[2 * sample_uidx] = allele_codes[2 * sample_uidx + 1];
+          allele_codes[2 * sample_uidx + 1] = tmpval;
+        }
+      }
+    }
+    return;
+  }
+  int32_t* phasepresent_wbuf = &(as<LogicalVector>(phasepresent_buf)[0]);
+  plink2::GenoarrLookup256x4bx4(_pgv.genovec, kGenoToLogicalPhaseQuads, _subset_size, phasepresent_wbuf);
+  if (cur_allele_ct == 2) {
+    for (uint32_t phased_idx = 0; phased_idx != phasepresent_ct; ++phased_idx) {
+      const uintptr_t sample_uidx = plink2::BitIter1(phasepresent, &sample_uidx_base, &cur_bits);
+      phasepresent_wbuf[sample_uidx] = 1;
+      if (plink2::IsSet(phaseinfo, sample_uidx)) {
+        allele_codes[2 * sample_uidx] = 1.0;
+        allele_codes[2 * sample_uidx + 1] = 0.0;
+      }
+    }
+  } else {
+    for (uint32_t phased_idx = 0; phased_idx != phasepresent_ct; ++phased_idx) {
+      const uintptr_t sample_uidx = plink2::BitIter1(phasepresent, &sample_uidx_base, &cur_bits);
+      phasepresent_wbuf[sample_uidx] = 1;
+      if (plink2::IsSet(phaseinfo, sample_uidx)) {
+        const double tmpval = allele_codes[2 * sample_uidx];
+        allele_codes[2 * sample_uidx] = allele_codes[2 * sample_uidx + 1];
+        allele_codes[2 * sample_uidx + 1] = tmpval;
+      }
+    }
+  }
 }
-*/
 
 void RPgenReader::Close() {
   // don't bother propagating file close errors for now
@@ -476,36 +573,19 @@ void RPgenReader::SetSampleSubsetInternal(IntegerVector sample_subset_1based) {
   _subset_size = subset_size;
 }
 
-/*
-void RPgenReader::ReadAllelesUnphasedInternal(int variant_idx) {
-  if (static_cast<uint32_t>(variant_idx) >= _info_ptr->raw_variant_ct) {
-    char errstr_buf[256];
-    sprintf(errstr_buf, "variant_num out of range (%d; must be 1..%u)", variant_idx + 1, _info_ptr->raw_variant_ct);
-    stop(errstr_buf);
-  }
-  plink2::PglErr reterr = PgrGetM(_subset_include_vec, _subset_cumulative_popcounts, _subset_size, variant_idx, _state_ptr, _pgv);
-  if (reterr != plink2::kPglRetSuccess) {
-    char errstr_buf[256];
-    sprintf(errstr_buf, "PgrGetM() error %d", static_cast<int>(reterr));
-    stop(errstr_buf);
-  }
-
-}
-
 void RPgenReader::ReadAllelesPhasedInternal(int variant_idx) {
   if (static_cast<uint32_t>(variant_idx) >= _info_ptr->raw_variant_ct) {
     char errstr_buf[256];
     sprintf(errstr_buf, "variant_num out of range (%d; must be 1..%u)", variant_idx + 1, _info_ptr->raw_variant_ct);
     stop(errstr_buf);
   }
-  plink2::PglErr reterr = PgrGetMP(_subset_include_vec, _subset_cumulative_popcounts, _subset_size, variant_idx, _state_ptr, _pgv);
+  plink2::PglErr reterr = plink2::PgrGetMP(_subset_include_vec, _subset_cumulative_popcounts, _subset_size, variant_idx, _state_ptr, &_pgv);
   if (reterr != plink2::kPglRetSuccess) {
     char errstr_buf[256];
     sprintf(errstr_buf, "PgrGetMP() error %d", static_cast<int>(reterr));
     stop(errstr_buf);
   }
 }
-*/
 
 RPgenReader::~RPgenReader() {
   Close();
@@ -588,12 +668,30 @@ NumericVector Buf(List pgen) {
 }
 
 // [[Rcpp::export]]
+NumericVector AlleleCodeBuf(List pgen) {
+  if (strcmp_r_c(pgen[0], "pgen")) {
+    stop("pgen is not a pgen object");
+  }
+  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pgen[1]);
+  return NumericMatrix(2, rp->GetSubsetSize());
+}
+
+// [[Rcpp::export]]
 IntegerVector IntBuf(List pgen) {
   if (strcmp_r_c(pgen[0], "pgen")) {
     stop("pgen is not a pgen object");
   }
   XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pgen[1]);
   return IntegerVector(rp->GetSubsetSize());
+}
+
+// [[Rcpp::export]]
+IntegerVector IntAlleleCodeBuf(List pgen) {
+  if (strcmp_r_c(pgen[0], "pgen")) {
+    stop("pgen is not a pgen object");
+  }
+  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pgen[1]);
+  return IntegerMatrix(2, rp->GetSubsetSize());
 }
 
 // [[Rcpp::export]]
@@ -612,6 +710,10 @@ void ReadHardcalls(List pgen, SEXP buf, int variant_num, int allele_num = 2) {
   if (strcmp_r_c(pgen[0], "pgen")) {
     stop("pgen is not a pgen object");
   }
+  if (Rf_isMatrix(buf)) {
+    // otherwise the original buffer is not modified by Read[Int]Hardcalls
+    stop("buf must be a non-matrix vector");
+  }
   XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pgen[1]);
   const int variant_idx = variant_num - 1;
   const int allele_idx = allele_num - 1;
@@ -629,36 +731,29 @@ void Read(List pgen, NumericVector buf, int variant_num, int allele_num = 2) {
   if (strcmp_r_c(pgen[0], "pgen")) {
     stop("pgen is not a pgen object");
   }
+  if (Rf_isMatrix(buf)) {
+    stop("buf must be a non-matrix vector");
+  }
   XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pgen[1]);
   rp->Read(buf, variant_num - 1, allele_num - 1);
 }
 
-/*
 // [[Rcpp::export]]
-void ReadAlleles(SEXP pgen, SEXP allele_buf, int variant_num, Nullable<LogicalVector> phasepresent_buf) {
+void ReadAlleles(List pgen, SEXP acbuf, int variant_num, Nullable<LogicalVector> phasepresent_buf = R_NilValue) {
   if (strcmp_r_c(pgen[0], "pgen")) {
     stop("pgen is not a pgen object");
   }
   XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pgen[1]);
   const int variant_idx = variant_num - 1;
-  // in this case, integer is a more appropriate default than numeric
-  if (TYPEOF(buf) == INTSXP) {
-    if (phasepresent_buf.isNotNull()) {
-      rp->ReadAllelesPhased(buf, phasepresent_buf, variant_idx);
-    } else {
-      rp->ReadAlleles(buf, variant_idx);
-    }
-  } else if (TYPEOF(buf) == REALSXP) {
-    if (phasepresent_buf.isNotNull()) {
-      rp->ReadAllelesPhasedNumeric(buf, phasepresent_buf, variant_idx);
-    } else {
-      rp->ReadAllelesNumeric(buf, variant_idx);
-    }
+  // in this case, integer may be a more appropriate default than numeric?
+  if (TYPEOF(acbuf) == INTSXP) {
+    rp->ReadAlleles(acbuf, phasepresent_buf, variant_idx);
+  } else if (TYPEOF(acbuf) == REALSXP) {
+    rp->ReadAllelesNumeric(acbuf, phasepresent_buf, variant_idx);
   } else {
-    stop("Unsupported buf type");
+    stop("Unsupported acbuf type");
   }
 }
-*/
 
 // [[Rcpp::export]]
 void ClosePgen(List pgen) {

@@ -465,7 +465,36 @@ void GenoarrLookup16x4bx2(const uintptr_t* genoarr, const void* table16x4bx2, ui
 
 void GenoarrLookup256x2bx4(const uintptr_t* genoarr, const void* table256x2bx4, uint32_t sample_ct, void* result);
 
+void GenoarrLookup4x16b(const uintptr_t* genoarr, const void* table4x16b, uint32_t sample_ct, void* result);
+
+#define PAIR_TABLE16(a, b, c, d) \
+  {(a), (a), (b), (a), (c), (a), (d), (a), \
+  (a), (b), (b), (b), (c), (b), (d), (b), \
+  (a), (c), (b), (c), (c), (c), (d), (c), \
+  (a), (d), (b), (d), (c), (d), (d), (d)}
+
 void GenoarrLookup16x8bx2(const uintptr_t* genoarr, const void* table16x8bx2, uint32_t sample_ct, void* result);
+
+#define QUAD_TABLE256_INTERNAL2(a, b, c, d, f2, f3, f4) \
+  (a), (f2), (f3), (f4), \
+  (b), (f2), (f3), (f4), \
+  (c), (f2), (f3), (f4), \
+  (d), (f2), (f3), (f4)
+#define QUAD_TABLE256_INTERNAL3(a, b, c, d, f3, f4) \
+  QUAD_TABLE256_INTERNAL2((a), (b), (c), (d), (a), (f3), (f4)), \
+  QUAD_TABLE256_INTERNAL2((a), (b), (c), (d), (b), (f3), (f4)), \
+  QUAD_TABLE256_INTERNAL2((a), (b), (c), (d), (c), (f3), (f4)), \
+  QUAD_TABLE256_INTERNAL2((a), (b), (c), (d), (d), (f3), (f4))
+#define QUAD_TABLE256_INTERNAL4(a, b, c, d, f4) \
+  QUAD_TABLE256_INTERNAL3((a), (b), (c), (d), (a), (f4)), \
+  QUAD_TABLE256_INTERNAL3((a), (b), (c), (d), (b), (f4)), \
+  QUAD_TABLE256_INTERNAL3((a), (b), (c), (d), (c), (f4)), \
+  QUAD_TABLE256_INTERNAL3((a), (b), (c), (d), (d), (f4))
+#define QUAD_TABLE256(a, b, c, d) \
+  {QUAD_TABLE256_INTERNAL4((a), (b), (c), (d), (a)), \
+   QUAD_TABLE256_INTERNAL4((a), (b), (c), (d), (b)), \
+   QUAD_TABLE256_INTERNAL4((a), (b), (c), (d), (c)), \
+   QUAD_TABLE256_INTERNAL4((a), (b), (c), (d), (d))}
 
 void GenoarrLookup256x4bx4(const uintptr_t* genoarr, const void* table256x4bx4, uint32_t sample_ct, void* result);
 

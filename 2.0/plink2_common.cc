@@ -122,11 +122,7 @@ char* dosagetoa(uint64_t dosage, char* start) {
   return start;
 }
 
-#define HC_TO_DOSAGE4_2(f2, f3, f4) 0, f2, f3, f4, kDosageMid, f2, f3, f4, kDosageMax, f2, f3, f4, kDosageMissing, f2, f3, f4
-#define HC_TO_DOSAGE4_3(f3, f4) HC_TO_DOSAGE4_2(0, f3, f4), HC_TO_DOSAGE4_2(kDosageMid, f3, f4), HC_TO_DOSAGE4_2(kDosageMax, f3, f4), HC_TO_DOSAGE4_2(kDosageMissing, f3, f4)
-#define HC_TO_DOSAGE4_4(f4) HC_TO_DOSAGE4_3(0, f4), HC_TO_DOSAGE4_3(kDosageMid, f4), HC_TO_DOSAGE4_3(kDosageMax, f4), HC_TO_DOSAGE4_3(kDosageMissing, f4)
-
-static const uint16_t kHcToDosage[1024] = {HC_TO_DOSAGE4_4(0), HC_TO_DOSAGE4_4(kDosageMid), HC_TO_DOSAGE4_4(kDosageMax), HC_TO_DOSAGE4_4(kDosageMissing)};
+static const uint16_t kHcToDosage[1024] = QUAD_TABLE256(0, kDosageMid, kDosageMax, kDosageMissing);
 
 void PopulateDenseDosage(const uintptr_t* genoarr, const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, Dosage* dense_dosage) {
   GenoarrLookup256x2bx4(genoarr, kHcToDosage, sample_ct, dense_dosage);

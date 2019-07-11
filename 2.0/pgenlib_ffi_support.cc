@@ -39,11 +39,7 @@ void GenoarrToBytesMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int8_t* 
   }
 }
 
-#define GENO_TO_I32QUAD_2(f2, f3, f4) 0, f2, f3, f4, 1, f2, f3, f4, 2, f2, f3, f4, -9, f2, f3, f4
-#define GENO_TO_I32QUAD_3(f3, f4) GENO_TO_I32QUAD_2(0, f3, f4), GENO_TO_I32QUAD_2(1, f3, f4), GENO_TO_I32QUAD_2(2, f3, f4), GENO_TO_I32QUAD_2(-9, f3, f4)
-#define GENO_TO_I32QUAD_4(f4) GENO_TO_I32QUAD_3(0, f4), GENO_TO_I32QUAD_3(1, f4), GENO_TO_I32QUAD_3(2, f4), GENO_TO_I32QUAD_3(-9, f4)
-
-static const int32_t kGenoInt32Quads[1024] ALIGNV16 = {GENO_TO_I32QUAD_4(0), GENO_TO_I32QUAD_4(1), GENO_TO_I32QUAD_4(2), GENO_TO_I32QUAD_4(-9)};
+static const int32_t kGenoInt32Quads[1024] ALIGNV16 = QUAD_TABLE256(0, 1, 2, -9);
 
 void GenoarrToInt32sMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int32_t* geno_int32) {
   GenoarrLookup256x4bx4(genoarr, kGenoInt32Quads, sample_ct, geno_int32);
@@ -71,42 +67,14 @@ void GenoarrToInt64sMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int64_t
   }
 }
 
-const double kGenoDoublePairs[32] ALIGNV16 =
-{0.0, 0.0, 1.0, 0.0, 2.0, 0.0, -9.0, 0.0,
- 0.0, 1.0, 1.0, 1.0, 2.0, 1.0, -9.0, 1.0,
- 0.0, 2.0, 1.0, 2.0, 2.0, 2.0, -9.0, 2.0,
- 0.0, -9.0, 1.0, -9.0, 2.0, -9.0, -9.0, -9.0};
-
-void GenoarrToDoublesMinus9(const uintptr_t* genoarr, uint32_t sample_ct, double* geno_double) {
-  GenoarrLookup16x8bx2(genoarr, kGenoDoublePairs, sample_ct, geno_double);
-}
-
 // missing = -9
-// todo: use GenoarrLookup16x8bx2()
-static const uint64_t kGenoToIntcodePair[4] = {0, 0x100000000LLU, 0x100000001LLU, 0xfffffff7fffffff7LLU};
+const double kGenoDoublePairs[32] ALIGNV16 = PAIR_TABLE16(0.0, 1.0, 2.0, -9.0);
 
-void GenoarrToAlleleCodes(const uintptr_t* genoarr, uint32_t sample_ct, int32_t* allele_codes) {
-  const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
-  uint64_t* write_iter = (uint64_t*)allele_codes;
-  uint32_t subgroup_len = kBitsPerWordD2;
-  for (uint32_t widx = 0; ; ++widx) {
-    if (widx >= word_ct_m1) {
-      if (widx > word_ct_m1) {
-        return;
-      }
-      subgroup_len = ModNz(sample_ct, kBitsPerWordD2);
-    }
-    uintptr_t geno_word = genoarr[widx];
-    for (uint32_t uii = 0; uii != subgroup_len; ++uii) {
-      *write_iter++ = kGenoToIntcodePair[geno_word & 3];
-      geno_word >>= 2;
-    }
-  }
-}
+const uint64_t kGenoToIntcodeDPairs[32] ALIGNV16 = PAIR_TABLE16(0, 0x100000000LLU, 0x100000001LLU, 0xfffffff7fffffff7LLU);
 
-void GenoarrPhasedToAlleleCodes(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, uint32_t sample_ct, uint32_t phasepresent_ct, unsigned char* phasebytes, int32_t* allele_codes) {
+void GenoarrPhasedToAlleleCodes(const uint64_t* genoarr_to_intcode_pair_table, const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, uint32_t sample_ct, uint32_t phasepresent_ct, unsigned char* phasebytes, int32_t* allele_codes) {
   // phasebytes can be nullptr, phasepresent cannot
-  GenoarrToAlleleCodes(genoarr, sample_ct, allele_codes);
+  GenoarrToAlleleCodes(genoarr_to_intcode_pair_table, genoarr, sample_ct, allele_codes);
   uint64_t* allele_codes_alias64 = R_CAST(uint64_t*, allele_codes);
   uintptr_t sample_uidx_base = 0;
   uintptr_t cur_bits = phasepresent[0];

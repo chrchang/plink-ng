@@ -46,8 +46,7 @@ cdef extern from "../pgenlib_ffi_support.h" namespace "plink2":
     void GenoarrToBytesMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int8_t* genobytes)
     void GenoarrToInt32sMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int32_t* geno_int32)
     void GenoarrToInt64sMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int64_t* geno_int64)
-    void GenoarrToAlleleCodes(const uintptr_t* genoarr, uint32_t sample_ct, int32_t* allele_codes)
-    void GenoarrPhasedToAlleleCodes(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, uint32_t sample_ct, uint32_t phasepresent_ct, unsigned char* phasebytes, int32_t* allele_codes)
+    void GenoarrPhasedToAlleleCodesMinus9(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, uint32_t sample_ct, uint32_t phasepresent_ct, unsigned char* phasebytes, int32_t* allele_codes)
     void GenoarrPhasedToHapCodes(const uintptr_t* genoarr, const uintptr_t* phaseinfo, uint32_t variant_batch_size, int32_t* hap0_codes_iter, int32_t* hap1_codes_iter)
     void Dosage16ToFloatsMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, float* geno_float)
     void Dosage16ToDoublesMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, double* geno_double)
@@ -395,7 +394,7 @@ cdef class PgenReader:
         if reterr != kPglRetSuccess:
             raise RuntimeError("read_alleles() error " + str(reterr))
         cdef int32_t* main_data_ptr = <int32_t*>(&(allele_int32_out[0]))
-        GenoarrPhasedToAlleleCodes(self._genovec, self._phasepresent, self._phaseinfo, self._subset_size, phasepresent_ct, NULL, main_data_ptr)
+        GenoarrPhasedToAlleleCodesMinus9(self._genovec, self._phasepresent, self._phaseinfo, self._subset_size, phasepresent_ct, NULL, main_data_ptr)
         return
 
 
@@ -411,7 +410,7 @@ cdef class PgenReader:
             raise RuntimeError("read_alleles_and_phasepresent() error " + str(reterr))
         cdef int32_t* main_data_ptr = <int32_t*>(&(allele_int32_out[0]))
         cdef unsigned char* phasepresent_data_ptr = <unsigned char*>(&(phasepresent_out[0]))
-        GenoarrPhasedToAlleleCodes(self._genovec, self._phasepresent, self._phaseinfo, self._subset_size, phasepresent_ct, phasepresent_data_ptr, main_data_ptr)
+        GenoarrPhasedToAlleleCodesMinus9(self._genovec, self._phasepresent, self._phaseinfo, self._subset_size, phasepresent_ct, phasepresent_data_ptr, main_data_ptr)
         return
 
 
@@ -890,7 +889,7 @@ cdef class PgenReader:
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_alleles_range() error " + str(reterr))
                 main_data_ptr = <int32_t*>(&(allele_int32_out[(variant_idx - variant_idx_start), 0]))
-                GenoarrPhasedToAlleleCodes(genovec, phasepresent, phaseinfo, subset_size, phasepresent_ct, NULL, main_data_ptr)
+                GenoarrPhasedToAlleleCodesMinus9(genovec, phasepresent, phaseinfo, subset_size, phasepresent_ct, NULL, main_data_ptr)
             return
         if variant_idx_start >= variant_idx_end:
             raise RuntimeError("read_alleles_range() variant_idx_start >= variant_idx_end (" + str(variant_idx_start) + ", " + str(variant_idx_end) + ")")
@@ -992,7 +991,7 @@ cdef class PgenReader:
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_alleles_list() error " + str(reterr))
                 main_data_ptr = <int32_t*>(&(allele_int32_out[variant_list_idx, 0]))
-                GenoarrPhasedToAlleleCodes(genovec, phasepresent, phaseinfo, subset_size, phasepresent_ct, NULL, main_data_ptr)
+                GenoarrPhasedToAlleleCodesMinus9(genovec, phasepresent, phaseinfo, subset_size, phasepresent_ct, NULL, main_data_ptr)
             return
         if allele_int32_out.shape[0] < 2 * subset_size:
             raise RuntimeError("Haplotype-major read_alleles_list() allele_int32_out buffer has too few rows (" + str(allele_int32_out.shape[0]) + "; current sample subset has size " + str(subset_size) + ", and row count should be twice that)")

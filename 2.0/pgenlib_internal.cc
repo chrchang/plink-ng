@@ -1767,6 +1767,28 @@ void GenoarrLookup256x2bx4(const uintptr_t* genoarr, const void* table256x2bx4, 
 }
 
 #ifdef __LP64__
+void GenoarrLookup4x16b(const uintptr_t* genoarr, const void* table4x16b, uint32_t sample_ct, void* result) {
+  const __m128i* table_alias = S_CAST(const __m128i*, table4x16b);
+  __m128i* result_iter = S_CAST(__m128i*, result);
+  const uint32_t sample_ctl2m1 = (sample_ct - 1) / kBitsPerWordD2;
+  uint32_t loop_len = kBitsPerWordD2;
+  uintptr_t geno_word = 0;
+  for (uint32_t widx = 0; ; ++widx) {
+    if (widx >= sample_ctl2m1) {
+      if (widx > sample_ctl2m1) {
+        return;
+      }
+      loop_len = ModNz(sample_ct, kBitsPerWordD2);
+    }
+    geno_word = genoarr[widx];
+    for (uint32_t uii = 0; uii != loop_len; ++uii) {
+      _mm_storeu_si128(result_iter, table_alias[geno_word & 3]);
+      ++result_iter;
+      geno_word >>= 2;
+    }
+  }
+}
+
 void GenoarrLookup16x8bx2(const uintptr_t* genoarr, const void* table16x8bx2, uint32_t sample_ct, void* __restrict result) {
   const __m128i* table_alias = S_CAST(const __m128i*, table16x8bx2);
   __m128i* result_iter = S_CAST(__m128i*, result);
@@ -1812,6 +1834,28 @@ void GenoarrLookup256x4bx4(const uintptr_t* genoarr, const void* table256x4bx4, 
   }
 }
 #else
+void GenoarrLookup4x16b(const uintptr_t* genoarr, const void* table4x16b, uint32_t sample_ct, void* result) {
+  const uint64_t* table_alias = S_CAST(const uint64_t*, table4x16b);
+  uint64_t* result_iter = S_CAST(uint64_t*, result);
+  const uint32_t sample_ctl2m1 = (sample_ct - 1) / kBitsPerWordD2;
+  uint32_t loop_len = kBitsPerWordD2;
+  uintptr_t geno_word = 0;
+  for (uint32_t widx = 0; ; ++widx) {
+    if (widx >= sample_ctl2m1) {
+      if (widx > sample_ctl2m1) {
+        return;
+      }
+      loop_len = ModNz(sample_ct, kBitsPerWordD2);
+    }
+    geno_word = genoarr[widx];
+    for (uint32_t uii = 0; uii != loop_len; ++uii) {
+      memcpy(result_iter, &(table_alias[(geno_word & 3) * 2]), 16);
+      result_iter = &(result_iter[2]);
+      geno_word >>= 2;
+    }
+  }
+}
+
 void GenoarrLookup16x8bx2(const uintptr_t* genoarr, const void* table16x8bx2, uint32_t sample_ct, void* __restrict result) {
   const uint64_t* table_alias = S_CAST(const uint64_t*, table16x8bx2);
   uint64_t* result_iter = S_CAST(uint64_t*, result);
@@ -14059,11 +14103,7 @@ void PglMultiallelicDenseToSparse(const AlleleCode* __restrict wide_codes, uint3
   }
 }
 
-#define HC_TO_AC4_2(f2, f3, f4) 0, f2, f3, f4, 0x100, f2, f3, f4, 0x101, f2, f3, f4, 0xffff, f2, f3, f4
-#define HC_TO_AC4_3(f3, f4) HC_TO_AC4_2(0, f3, f4), HC_TO_AC4_2(0x100, f3, f4), HC_TO_AC4_2(0x101, f3, f4), HC_TO_AC4_2(0xffff, f3, f4)
-#define HC_TO_AC4_4(f4) HC_TO_AC4_3(0, f4), HC_TO_AC4_3(0x100, f4), HC_TO_AC4_3(0x101, f4), HC_TO_AC4_3(0xffff, f4)
-
-static const uint16_t kHcToAlleleCodes[1024] = {HC_TO_AC4_4(0), HC_TO_AC4_4(0x100), HC_TO_AC4_4(0x101), HC_TO_AC4_4(0xffff)};
+static const uint16_t kHcToAlleleCodes[1024] = QUAD_TABLE256(0, 0x100, 0x101, 0xffff);
 
 static_assert(sizeof(AlleleCode) == 1, "PglMultiallelicSparseToDense() needs to be updated.");
 void PglMultiallelicSparseToDense(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, const AlleleCode* __restrict remap, uint32_t sample_ct, uint32_t patch_01_ct, uint32_t patch_10_ct, uintptr_t* __restrict flipped, AlleleCode* __restrict wide_codes) {

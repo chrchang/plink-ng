@@ -1743,17 +1743,9 @@ BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const 
   return 0;
 }
 
-static const float kSmallFloatPairs[32] =
-{0.0, 0.0, 1.0, 0.0, 2.0, 0.0, 3.0, 0.0,
- 0.0, 1.0, 1.0, 1.0, 2.0, 1.0, 3.0, 1.0,
- 0.0, 2.0, 1.0, 2.0, 2.0, 2.0, 3.0, 2.0,
- 0.0, 3.0, 1.0, 3.0, 2.0, 3.0, 3.0, 3.0};
+static const float kSmallFloatPairs[32] = PAIR_TABLE16(0.0, 1.0, 2.0, 3.0);
 
-static const float kSmallInvFloatPairs[32] =
-{2.0, 2.0, 1.0, 2.0, 0.0, 2.0, 3.0, 2.0,
- 2.0, 1.0, 1.0, 1.0, 0.0, 1.0, 3.0, 1.0,
- 2.0, 0.0, 1.0, 0.0, 0.0, 0.0, 3.0, 0.0,
- 2.0, 3.0, 1.0, 3.0, 0.0, 3.0, 3.0, 3.0};
+static const float kSmallInvFloatPairs[32] = PAIR_TABLE16(2.0, 1.0, 0.0, 3.0);
 
 static const float kSmallInvFloats[4] = {2.0, 1.0, 0.0, 3.0};
 
@@ -5478,17 +5470,9 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
   return reterr;
 }
 
-static const double kSmallDoublePairs[32] ALIGNV16 =
-{0.0, 0.0, 1.0, 0.0, 2.0, 0.0, 3.0, 0.0,
- 0.0, 1.0, 1.0, 1.0, 2.0, 1.0, 3.0, 1.0,
- 0.0, 2.0, 1.0, 2.0, 2.0, 2.0, 3.0, 2.0,
- 0.0, 3.0, 1.0, 3.0, 2.0, 3.0, 3.0, 3.0};
+static const double kSmallDoublePairs[32] ALIGNV16 = PAIR_TABLE16(0.0, 1.0, 2.0, 3.0);
 
-static const double kSmallInvDoublePairs[32] ALIGNV16 =
-{2.0, 2.0, 1.0, 2.0, 0.0, 2.0, 3.0, 2.0,
- 2.0, 1.0, 1.0, 1.0, 0.0, 1.0, 3.0, 1.0,
- 2.0, 0.0, 1.0, 0.0, 0.0, 0.0, 3.0, 0.0,
- 2.0, 3.0, 1.0, 3.0, 0.0, 3.0, 3.0, 3.0};
+static const double kSmallInvDoublePairs[32] ALIGNV16 = PAIR_TABLE16(2.0, 1.0, 0.0, 3.0);
 
 static const double kSmallInvDoubles[4] = {2.0, 1.0, 0.0, 3.0};
 

@@ -32,20 +32,32 @@ void GenoarrToInt32sMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int32_t
 
 void GenoarrToInt64sMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int64_t* geno_int64);
 
-// May want to use STD_ARRAY_INIT_{START,END} here.
+// May want to use STD_ARRAY_INIT_{START,END}... though it may not be worth the
+// additional compilation headaches here.
 extern const double kGenoDoublePairs[32];
 
-void GenoarrToDoublesMinus9(const uintptr_t* genoarr, uint32_t sample_ct, double* geno_double);
+HEADER_INLINE void GenoarrToDoublesMinus9(const uintptr_t* genoarr, uint32_t sample_ct, double* geno_double) {
+  GenoarrLookup16x8bx2(genoarr, kGenoDoublePairs, sample_ct, geno_double);
+}
 
-// For Python interface, allele_codes is always int32_t.  Python programmers
-// should not need to worry about whether pgenlib was compiled with 1-, 2-, or
-// 4-byte AlleleCode.
-void GenoarrToAlleleCodes(const uintptr_t* genoarr, uint32_t sample_ct, int32_t* allele_codes);
+HEADER_INLINE void GenoarrToAlleleCodes(const uint64_t* geno_to_intcode_pair_table, const uintptr_t* genoarr, uint32_t sample_ct, int32_t* allele_codes) {
+  GenoarrLookup16x8bx2(genoarr, geno_to_intcode_pair_table, sample_ct, allele_codes);
+}
 
+extern const uint64_t kGenoToIntcodeDPairs[32];
+
+// For FFI, allele_codes is always int32_t.  Python/R programmers should not
+// need to worry about whether pgenlib was compiled with 1-, 2-, or 4-byte
+// AlleleCode.
+//
 // phasebytes can be nullptr; if it isn't, entry is 1 iff genotype is an
 // explicitly phased het, OR genotype is homozygous
 // phasepresent cannot be nullptr
-void GenoarrPhasedToAlleleCodes(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, uint32_t sample_ct, uint32_t phasepresent_ct, unsigned char* phasebytes, int32_t* allele_codes);
+void GenoarrPhasedToAlleleCodes(const uint64_t* geno_to_intcode_dpair_table, const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, uint32_t sample_ct, uint32_t phasepresent_ct, unsigned char* phasebytes, int32_t* allele_codes);
+
+HEADER_INLINE void GenoarrPhasedToAlleleCodesMinus9(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, uint32_t sample_ct, uint32_t phasepresent_ct, unsigned char* phasebytes, int32_t* allele_codes) {
+  GenoarrPhasedToAlleleCodes(kGenoToIntcodeDPairs, genoarr, phasepresent, phaseinfo, sample_ct, phasepresent_ct, phasebytes, allele_codes);
+}
 
 // assumes transposed genoarr, phaseinfo
 void GenoarrPhasedToHapCodes(const uintptr_t* genoarr, const uintptr_t* phaseinfo, uint32_t variant_batch_size, int32_t* hap0_codes_iter, int32_t* hap1_codes_iter);

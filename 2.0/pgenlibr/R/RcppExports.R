@@ -29,8 +29,16 @@ Buf <- function(pgen) {
     .Call(`_pgenlibr_Buf`, pgen)
 }
 
+AlleleCodeBuf <- function(pgen) {
+    .Call(`_pgenlibr_AlleleCodeBuf`, pgen)
+}
+
 IntBuf <- function(pgen) {
     .Call(`_pgenlibr_IntBuf`, pgen)
+}
+
+IntAlleleCodeBuf <- function(pgen) {
+    .Call(`_pgenlibr_IntAlleleCodeBuf`, pgen)
 }
 
 BoolBuf <- function(pgen) {
@@ -43,6 +51,10 @@ ReadHardcalls <- function(pgen, buf, variant_num, allele_num = 2L) {
 
 Read <- function(pgen, buf, variant_num, allele_num = 2L) {
     invisible(.Call(`_pgenlibr_Read`, pgen, buf, variant_num, allele_num))
+}
+
+ReadAlleles <- function(pgen, acbuf, variant_num, phasepresent_buf = NULL) {
+    invisible(.Call(`_pgenlibr_ReadAlleles`, pgen, acbuf, variant_num, phasepresent_buf))
 }
 
 ClosePgen <- function(pgen) {
