@@ -67,10 +67,10 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (9 Jul 2019)";
+  " (10 Jul 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -9279,7 +9279,7 @@ int main(int argc, char** argv) {
           } else {
             reterr = VcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, import_flags, no_samples_ok, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
           }
-        } else if (xload & kfXloadVcf) {
+        } else if (xload & kfXloadBcf) {
           logerrputs("Error: --bcf is not implemented yet.\n");
           reterr = kPglRetNotYetSupported;
         } else if (xload & kfXloadOxGen) {
