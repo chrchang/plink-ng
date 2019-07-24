@@ -411,7 +411,6 @@ int ZEXPORT gzread(file, buf, len)
     return (int)len;
 }
 
-// gzfread stripped due to duplicate-symbol problem
 
 /* -- see zlib.h -- */
 #if ZLIB_VERNUM >= 0x1261

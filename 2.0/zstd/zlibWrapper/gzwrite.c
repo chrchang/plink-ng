@@ -275,7 +275,6 @@ int ZEXPORT gzwrite(file, buf, len)
     return (int)gz_write(state, buf, len);
 }
 
-// gzfwrite stripped due to duplicate-symbol problem
 
 /* -- see zlib.h -- */
 int ZEXPORT gzputc(file, c)

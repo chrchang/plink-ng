@@ -1895,6 +1895,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("threads\0num_threads\0thread-num\0seed\0", &help_ctrl, 0,
 "  --threads <val>    : Set maximum number of compute threads.\n"
                );
+    HelpPrint("d\0covar-name\0exclude-snps\0pheno-name\0snps", &help_ctrl, 0,
+"  --d <char>         : Change variant/covariate range delimiter (normally '-').\n"
+              );
     HelpPrint("seed\0", &help_ctrl, 0,
 "  --seed <val...>    : Set random number seed(s).  Each value must be an\n"
 "                       integer between 0 and 4294967295 inclusive.\n"

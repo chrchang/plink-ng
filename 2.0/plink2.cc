@@ -67,7 +67,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (10 Jul 2019)";
+  " (24 Jul 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -3321,8 +3321,9 @@ int main(int argc, char** argv) {
     char outname[kPglFnamesize];
     memcpy_k(outname, "plink2", 6);
     char* outname_end = nullptr;
+    char range_delim;
     int32_t known_procs;
-    reterr = CmdlineParsePhase2(ver_str, errstr_append, argvk, 6, kMaxFlagBlen, argc, flag_ct, &pcm, outname, &outname_end, &known_procs, &pc.max_thread_ct);
+    reterr = CmdlineParsePhase2(ver_str, errstr_append, argvk, 6, kMaxFlagBlen, argc, flag_ct, &pcm, outname, &outname_end, &range_delim, &known_procs, &pc.max_thread_ct);
     if (unlikely(reterr)) {
       goto main_ret_NOLOG;
     }
@@ -3422,7 +3423,6 @@ int main(int argc, char** argv) {
     MakePlink2Flags make_plink2_flags = kfMake0;
     OxfordImportFlags oxford_import_flags = kfOxfordImport0;
     VcfHalfCall vcf_half_call = kVcfHalfCallDefault;
-    char range_delim = '-';
     char id_delim = '\0';
     char idspace_to = '\0';
     char input_missing_geno_char = '0';
@@ -3440,7 +3440,7 @@ int main(int argc, char** argv) {
     do {
       flagname_p = &(pcm.flag_buf[cur_flag_idx * kMaxFlagBlen]);
       if (!(*flagname_p)) {
-        // preprocessed; not relevant now, but will need --d later
+        // preprocessed (--d, --out)
         continue;
       }
       const char* flagname_p2 = &(flagname_p[1]);
@@ -3922,7 +3922,7 @@ int main(int argc, char** argv) {
         } else if (strequal_k_unsafe(flagname_p2, "ovar-col-nums")) {
           // requires --covar or --pheno, but --pheno hasn't been parsed yet so
           // we don't enforce the condition here
-          reterr = ParseNameRanges(&(argvk[arg_idx]), errstr_append, param_ct, 1, range_delim, &pc.covar_range_list);
+          reterr = ParseNameRanges(&(argvk[arg_idx]), errstr_append, param_ct, 1, '-', &pc.covar_range_list);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -7314,7 +7314,7 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --output-missing-genotype parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-        } else if (strequal_k_unsafe(flagname_p2, "utput-missing-phenotype")) {
+        } else if (likely(strequal_k_unsafe(flagname_p2, "utput-missing-phenotype"))) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -7325,7 +7325,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
           }
           memcpy(g_output_missing_pheno, cur_modif, cur_modif_slen + 1);
-        } else if (unlikely(!strequal_k_unsafe(flagname_p2, "ut"))) {
+        } else {
           // --out is a special case due to logging
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
@@ -7423,7 +7423,7 @@ int main(int argc, char** argv) {
             logerrputs("Error: --pheno-col-nums can't be used with --mpheno.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          reterr = ParseNameRanges(&(argvk[arg_idx]), errstr_append, param_ct, 1, range_delim, &pc.pheno_range_list);
+          reterr = ParseNameRanges(&(argvk[arg_idx]), errstr_append, param_ct, 1, '-', &pc.pheno_range_list);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
