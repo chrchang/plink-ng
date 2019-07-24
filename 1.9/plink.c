@@ -8218,6 +8218,10 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_NOMEM;
 	}
       } else if (!memcmp(argptr2, "d-snps", 7)) {
+        if (ld_info.snpstr) {
+          logerrprint("Error: --ld-snps cannot be used with --ld-snp or --ld-snp-list.\n");
+          goto main_ret_INVALID_CMDLINE_A;
+        }
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x7fffffff)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -8226,6 +8230,10 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "d-snp-list", 11)) {
+        if (ld_info.snpstr) {
+          logerrprint("Error: --ld-snp cannot be used with --ld-snp-list.\n");
+          goto main_ret_INVALID_CMDLINE_A;
+        }
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
