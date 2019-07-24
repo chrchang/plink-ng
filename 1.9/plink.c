@@ -105,7 +105,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (10 Jul 2019)";
+  " (24 Jul 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -10756,6 +10756,7 @@ int32_t main(int32_t argc, char** argv) {
           ld_info.modifier |= LD_R2;
 	} else if (ld_info.window_r2 != 0.2) {
 	  logerrprint("Error: --ld-window-r2 flag cannot be used with --r.\n");
+          goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (matrix_flag_state) {
 	  matrix_flag_state = 2;
