@@ -5235,6 +5235,9 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             const char* read_iter = linebuf_first_token;
             for (uint32_t score_col_idx = 0; score_col_idx != score_col_ct; ++score_col_idx) {
               read_iter = NextTokenMult0(read_iter, score_col_idx_deltas[score_col_idx]);
+              if (unlikely(!read_iter)) {
+                goto ScoreReport_ret_MISSING_TOKENS;
+              }
               double raw_coef;
               const char* token_end = ScanadvDouble(read_iter, &raw_coef);
               if (unlikely(!token_end)) {

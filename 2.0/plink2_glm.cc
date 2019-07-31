@@ -1106,6 +1106,25 @@ uint32_t CollapseParamOrTestSubset(const uintptr_t* covar_include, const uintptr
 }
 
 
+// may want to try to identify a specific linear dependency in rank-deficient
+// case
+ENUM_U31_DEF_START()
+  kGlmErrcodeNone,
+  kGlmErrcodeSampleCtLtePredictorCt,
+  kGlmErrcodeConstAllele, // 1 allele arg
+  kGlmErrcodeCorrTooHigh, // 2 predictor args
+  kGlmErrcodeVifTooHigh, // 1 predictor arg
+  kGlmErrcodeSeparation, // 1 allele arg
+  kGlmErrcodeRankDeficient,
+  kGlmErrcodeLogisticConvergeFail,
+  kGlmErrcodeFirthConvergeFail,
+  kGlmErrcodeUnstablePred, // 1 predictor arg
+  kGlmErrcodeUnstablePair, // 2 predictor args
+  kGlmErrcodeUnstableScale, // only during initial scan
+ENUM_U31_DEF_END(GlmErrcode);
+
+;;;
+
 ENUM_U31_DEF_START()
   kVifCorrCheckOk,
   kVifCorrCheckVifFail,
