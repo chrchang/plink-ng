@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1200
+#define PGENLIB_INTERNAL_VERNUM 1201
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -622,7 +622,7 @@ CONSTI32(kPglMaxDeltalistLenDivisor, 9);
 //      These are designed to be easy to write.  Note that the dosage formats
 //      require hardcalls to be stored as well; however, you can just set them
 //      to all-missing and then use
-//        plink2 --hard-call-threshold [...] --make-pgen
+//        plink2 --hard-call-threshold <...> --make-pgen
 //      to populate them.
 //
 //      0x10 = variable-type and/or variable-length records present.
@@ -644,16 +644,31 @@ CONSTI32(kPglMaxDeltalistLenDivisor, 9);
 //         instead of 4 bits for vrtypes).
 //         If bit 3 is set, a specialized encoding is used which combines the
 //         two pieces of information (reducing the overhead for files with few
-//         samples).  The following encodings are currently defined:
-//         1000: No difflist/LD/onebit compression, 2 bit
-//               (vrec_len - ceil(sample_ct / 4))) value.  vrtype is zero if
-//               the entry is zero, and 8 (multiallelic-hardcall) if the record
-//               has 1-3 extra bytes.  Designed for single-sample files sharing
-//               a single .bim-like file (note that if they don't share a .bim,
-//               .bim size will dominate).
-//         1001: No difflist/LD/onebit compression, 4 bit
-//               (vrec_len - ceil(sample_ct / 4)) value.  vrtype is zero if the
-//               entry is zero, and 8 if the record has 1-15 extra bytes.
+//         samples).  The following encodings are now defined (note that there
+//         was a change of plans in Mar 2019):
+//           8: 1 bit per fused vrtype-length.  Unset = vrtype 5, set = vrtype
+//              0.
+//           9: 2 bits, multiallelic.  0 = vrtype 5, 1 = vrtype 0, 2-3 = vrtype
+//              8 with that many more bytes than vrtype 0.  Note that this is
+//              limited to 16 ALT alleles.
+//          10: 2 bits, phased.  0 = vrtype 5, 1 = vrtype 0, 2-3 = vrtype 16
+//              with that many minus 1 bytes beyond vrtype 0.  While this is
+//              also aimed at the single-sample use case, it technically
+//              supports up to 15 always-phased or 7 partially-phased samples.
+//          11: 4 bits, multiallelic + phased.  0 = vrtype 5, 1 = vrtype 0, 2-7
+//              = vrtype 8 with that many bytes beyond vrtype 0, 9 = vrtype 16
+//              phase info requiring just 1 byte, 10-15 = vrtype 24 with (x-7)
+//              extra bytes required between multiallelic and phased tracks.
+//          12: 2 bits, dosage, must be single-sample.  0 = vrtype 5, 1 =
+//              vrtype 0, 2 = vrtype 0x45 with 2 bytes, 3 = vrtype 0x40 with 3
+//              total bytes.
+//          13: reserved for single-sample multiallelic + dosage.
+//          14: 4 bits, phased + dosage, must be single-sample.  0 and 1 as
+//              usual, 3 = vrtype 16 with 1 phaseinfo byte, 4 = vrtype 0x45
+//              with 2 bytes, 5 = vrtype 0x40 with 3 total bytes, 12 = vrtype
+//              0xc5 with 4 total bytes, 13 = vrtype 0xc0 with 5 total bytes,
+//              15 = vrtype 0xe0 with 6 total bytes
+//          15: reserved for single-sample multiallelic + phased dosage.
 //       bits 4-5: allele count storage (00 = unstored, 01-11 = bytes per ct)
 //       bits 6-7: nonref flags info (00 = unstored, 01 = all ref/alt, 10 =
 //                 never ref/alt, 11 = explicitly stored)
@@ -1054,7 +1069,7 @@ HEADER_INLINE uint32_t PgfiIsSimpleFormat(const PgenFileInfo* pgfip) {
 }
 
 HEADER_INLINE uint32_t VrtypeDifflist(uint32_t vrtype) {
-  return (vrtype & 4);
+  return (vrtype & 4) && ((vrtype & 3) != 1);
 }
 
 HEADER_INLINE uint32_t VrtypeLdCompressed(uint32_t vrtype) {
@@ -1289,6 +1304,8 @@ PglErr PgrGet(const uintptr_t* __restrict sample_include, const uint32_t* __rest
 // Loads the specified variant as a difflist if that's more efficient, setting
 // difflist_common_geno to the common genotype value in that case.  Otherwise,
 // genovec is populated and difflist_common_geno is set to UINT32_MAX.
+//
+// max_simple_difflist_len must be smaller than sample_ct.
 //
 // Note that the returned difflist_len can be much larger than
 // max_simple_difflist_len when the variant is LD-encoded; it's bounded by

@@ -3661,8 +3661,9 @@ PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const 
           goto CmdlineParsePhase2_ret_INVALID_CMDLINE;
         }
         *range_delim_ptr = cc;
-        // Mark this flag as already-processed.
-        *cur_flag = '\0';
+        // bugfix (31 Jul 2019): can't set *cur_flag = '\0' to mark the flag as
+        // already-processed, since we haven't written the start of the .log
+        // file yet.
         continue;
       }
       const int32_t memcmp_out_result = Memcmp("out", cur_flag, 4);
@@ -3682,7 +3683,6 @@ PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const 
         const uint32_t slen = strlen(argvk[arg_idx + 1]);
         memcpy(outname, argvk[arg_idx + 1], slen + 1);
         *outname_end_ptr = &(outname[slen]);
-        *cur_flag = '\0';
       }
       if (memcmp_out_result <= 0) {
         break;

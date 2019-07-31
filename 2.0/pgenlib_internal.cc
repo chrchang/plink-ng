@@ -2806,7 +2806,7 @@ PglErr PgfiInitPhase1(const char* fname, uint32_t raw_variant_ct, uint32_t raw_s
     return kPglRetSuccess;
   }
   if (unlikely(file_type_code >= 0x11)) {
-    // todo: 0x11 phase sets (maybe not before 2020, though)
+    // todo: 0x11 phase sets (maybe not before 2021, though)
     snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Third byte of %s does not correspond to a storage mode supported by this version of pgenlib.\n", fname);
     return kPglRetNotYetSupported;
   }
@@ -2823,14 +2823,8 @@ PglErr PgfiInitPhase1(const char* fname, uint32_t raw_variant_ct, uint32_t raw_s
   const uintptr_t vblock_ct = DivUp(raw_variant_ct, kPglVblockSize);
 
   uint64_t vrtype_and_vrec_len_bit_cost;
-  if (unlikely(header_ctrl & 8)) {
-    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Twelfth byte of %s does not correspond to a format supported by this version of pgenlib.\n", fname);
-    return kPglRetNotYetSupported;
-    // Update (9 Mar 2019): New plan is to define vrtype 5 =
-    // all-homozygous-ref; this allows for much smaller single-sample PGENs
-    // (~1.1 bits per variant if all biallelic unphased, instead of the
-    // previous minimum of 10 bits).
-    // The corresponding special header_ctrl modes would then be:
+  if (header_ctrl & 8) {
+    // Special header_ctrl modes:
     //   8: 1 bit per fused vrtype-length.  Unset = vrtype 5, set = vrtype 0.
     //   9: 2 bits, multiallelic.  0 = vrtype 5, 1 = vrtype 0, 2-3 = vrtype
     //      8 with that many more bytes than vrtype 0.  Note that this is
@@ -2853,11 +2847,23 @@ PglErr PgfiInitPhase1(const char* fname, uint32_t raw_variant_ct, uint32_t raw_s
     //       bytes, 13 = vrtype 0xc0 with 5 total bytes, 15 = vrtype 0xe0 with
     //       6 total bytes
     //   15: reserved for single-sample multiallelic + phased dosage.
+    const uint32_t header_ctrl_low3 = header_ctrl & 7;
+    // this can be a table lookup once 13/15 are implemented
+    if (!header_ctrl_low3) {
+      vrtype_and_vrec_len_bit_cost = 1;
+    } else if ((header_ctrl_low3 == 3) || (header_ctrl_low3 == 6)) {
+      vrtype_and_vrec_len_bit_cost = 4;
+    } else if (likely(header_ctrl_low3 <= 4)) {
+      vrtype_and_vrec_len_bit_cost = 2;
+    } else {
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Twelfth byte of %s does not correspond to a format supported by this version of pgenlib.\n", fname);
+      return kPglRetNotYetSupported;
+    }
   } else {
     // set this to *4* if true, 0 if false
     const uint32_t phase_or_dosage_present_x4 = header_ctrl & 4;
-    // vrtype entries = 2 quarterbytes if no phase/dosage, 4 otherwise
-    // var_fpos entries = 4 + (4 * (header_ctrl & 3)) quarterbytes
+    // vrtype entries = 4 bits if no phase/dosage, 8 otherwise
+    // var_fpos entries = 8 + (8 * (header_ctrl & 3)) bits
     vrtype_and_vrec_len_bit_cost = 12 + phase_or_dosage_present_x4 + 8 * (header_ctrl & 3);
   }
   pgfip->const_fpos_offset += (raw_sample_ct * vrtype_and_vrec_len_bit_cost + 7) / 8 + (raw_sample_ct * alt_allele_ct_byte_ct) + (8 * vblock_ct);
@@ -3104,7 +3110,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
         // if difflist/LD might be present, scan for them in a way that's
         // likely to terminate quickly
         PgenGlobalFlags new_gflags = kfPgenGlobal0;
-        if (vrtype_and_fpos_storage < 8) {
+        if (vrtype_and_fpos_storage != 8) {
           const uint32_t trailing_byte_ct = vidx_end & (kBytesPerVec - 1);
           if (trailing_byte_ct) {
             memset(&(pgfip->vrtypes[vidx_end]), 0, kBytesPerVec - trailing_byte_ct);
@@ -3115,38 +3121,42 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
             vrtypes_alias_start = &(vrtypes_alias_start[vblock_idx_start * (kPglVblockSize / kBytesPerVec)]);
           }
           const VecW* vrtypes_alias_iter = vrtypes_alias_start;
-          for (; vrtypes_alias_iter != vrtypes_alias_end; ++vrtypes_alias_iter) {
-            const VecW cur_vvec = *vrtypes_alias_iter;
+          if (vrtype_and_fpos_storage < 8) {
+            for (; vrtypes_alias_iter != vrtypes_alias_end; ++vrtypes_alias_iter) {
+              const VecW cur_vvec = *vrtypes_alias_iter;
 #ifdef __LP64__
-            const VecW cur_vvec_bit2 = vecw_slli(cur_vvec, 5);
-            const VecW cur_vvec_bit1 = vecw_slli(cur_vvec, 6);
-            // check if any vrtype has bit 1 set and bit 2 clear
-            if (vecw_movemask(cur_vvec_bit1 & (~cur_vvec_bit2))) {
-              new_gflags |= kfPgenGlobalLdCompressionPresent | kfPgenGlobalDifflistOrLdPresent;
-              break;
-            }
-            const VecW cur_vvec_bit0 = vecw_slli(cur_vvec, 7);
-            if (vecw_movemask(cur_vvec_bit0 | cur_vvec_bit2)) {
-              // this catches onebit
-              new_gflags |= kfPgenGlobalDifflistOrLdPresent;
-            }
+              const VecW cur_vvec_bit2 = vecw_slli(cur_vvec, 5);
+              const VecW cur_vvec_bit1 = vecw_slli(cur_vvec, 6);
+              // check if any vrtype has bit 1 set and bit 2 clear
+              if (vecw_movemask(cur_vvec_bit1 & (~cur_vvec_bit2))) {
+                new_gflags |= kfPgenGlobalLdCompressionPresent | kfPgenGlobalDifflistOrLdPresent;
+                break;
+              }
+              const VecW cur_vvec_bit0 = vecw_slli(cur_vvec, 7);
+              if (vecw_movemask(cur_vvec_bit0 | cur_vvec_bit2)) {
+                // this catches onebit
+                new_gflags |= kfPgenGlobalDifflistOrLdPresent;
+              }
 #else
-            const uintptr_t cur_vvec_shifted = cur_vvec >> 1;
-            // check if any vrtype has bit 1 set and bit 2 clear
-            if (cur_vvec & (~cur_vvec_shifted) & (2 * kMask0101)) {
-              new_gflags |= kfPgenGlobalLdCompressionPresent | kfPgenGlobalDifflistOrLdPresent;
-              break;
-            }
-            if (cur_vvec & (5 * kMask0101)) {
-              // this catches onebit
-              new_gflags |= kfPgenGlobalDifflistOrLdPresent;
-            }
+              const uintptr_t cur_vvec_shifted = cur_vvec >> 1;
+              // check if any vrtype has bit 1 set and bit 2 clear
+              if (cur_vvec & (~cur_vvec_shifted) & (2 * kMask0101)) {
+                new_gflags |= kfPgenGlobalLdCompressionPresent | kfPgenGlobalDifflistOrLdPresent;
+                break;
+              }
+              if (cur_vvec & (5 * kMask0101)) {
+                // this catches onebit
+                new_gflags |= kfPgenGlobalDifflistOrLdPresent;
+              }
 #endif
+            }
           }
-          if (vrtype_and_fpos_storage & 4) {
-            // likely for one of {hphase, dosage} to be present without the
+          if (vrtype_and_fpos_storage >= 4) {
+            // Likely for one of {hphase, dosage} to be present without the
             // other; make this scan faster in that case, at the cost of
-            // failing to early-exit when both are present
+            // failing to early-exit when both are present.
+            // This is also suboptimal for the vrtype_and_fpos_storage > 8
+            // special encodings.
             VecW or_vvec = vecw_setzero();
             for (vrtypes_alias_iter = vrtypes_alias_start; vrtypes_alias_iter != vrtypes_alias_end; ++vrtypes_alias_iter) {
               or_vvec |= *vrtypes_alias_iter;
@@ -3185,18 +3195,32 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
             }
 #endif
           }
-          if (!(vrtype_and_fpos_storage & 3)) {
+          if (vrtype_and_fpos_storage > 8) {
+            if (vrtype_and_fpos_storage == 12) {
+              max_vrec_width = 3;
+            } else if (vrtype_and_fpos_storage == 14) {
+              max_vrec_width = 6;
+            } else {
+              max_vrec_width = QuaterCtToByteCt(raw_sample_ct);
+              if (vrtype_and_fpos_storage == 9) {
+                max_vrec_width += 3;
+              } else if (vrtype_and_fpos_storage == 10) {
+                max_vrec_width += 2;
+              } else {
+                // 11
+                max_vrec_width += 8;
+              }
+              // 13 and 15 not specified yet
+            }
+          } else if (!(vrtype_and_fpos_storage & 3)) {
             // 1 byte per vrec_len entry, don't bother to determine true
             // maximum
             max_vrec_width = 255;
           }
           pgfip->gflags |= new_gflags;
         } else {
-          // just assume worst case here.  the funny-looking
-          // (vrtype_and_fpos_storage * 12) - 93 expression evaluates to 3 for
-          // the 2-bit case and 15 for the 4-bit case.
-          assert(vrtype_and_fpos_storage < 10);
-          max_vrec_width = QuaterCtToByteCt(raw_sample_ct) + (vrtype_and_fpos_storage * 12) - 93;
+          // vrtype_and_fpos_storage == 8.
+          max_vrec_width = QuaterCtToByteCt(raw_sample_ct);
         }
         *pgr_alloc_cacheline_ct_ptr = CountPgrAllocCachelinesRequired(raw_sample_ct, new_gflags, max_allele_ct, (shared_ff && (!use_blockload))? max_vrec_width : 0);
         *max_vrec_width_ptr = max_vrec_width;
@@ -3205,21 +3229,75 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
       cur_vblock_variant_ct = ModNz(vidx_end, kPglVblockSize);
     }
     // 1. handle vrtypes and var_fpos.
-    if (vrtype_and_fpos_storage & 8) {
-      return kPglRetNotYetSupported;
-    /*
-      // the code below is obsolete, but it has some similarities with what the
-      // new implementation will look like
-
-      // vrtype_and_fpos_storage == 8 -> 2-bit storage -> right-shift 2
-      //                         == 9 -> 4-bit storage -> right-shift 1
-      const uint32_t log2_entry_bit_width = vrtype_and_fpos_storage - 7;
-      const uint32_t entry_bit_width = log2_entry_bit_width * 2;
-      const uintptr_t entry_mask = (1 << entry_bit_width) - 1;
-      const uint32_t log2_entries_per_word = kBitsPerWordLog2 - log2_entry_bit_width;
-      const uintptr_t base_vrec_len = QuaterCtToByteCt(raw_sample_ct);
-      const uint32_t cur_byte_ct = 1 + ((cur_vblock_variant_ct - 1) >> (10 - vrtype_and_fpos_storage));
-      uint32_t block_len = 1 << log2_entries_per_word;
+    if (vrtype_and_fpos_storage >= 8) {
+      // Special encodings.
+      uint32_t log2_entry_bit_width = 1;
+      unsigned char vrtype_table[16];
+      uint32_t vrec_len_table[16];
+      vrtype_table[0] = 5;
+      vrtype_table[1] = 0;
+      vrec_len_table[0] = 0;
+      const uint32_t raw_sample_ct4 = QuaterCtToByteCt(raw_sample_ct);
+      vrec_len_table[1] = raw_sample_ct4;
+      if (vrtype_and_fpos_storage == 8) {
+        log2_entry_bit_width = 0;
+      } else if (vrtype_and_fpos_storage == 9) {
+        vrtype_table[2] = 8;
+        vrtype_table[3] = 8;
+        vrec_len_table[2] = raw_sample_ct4 + 2;
+        vrec_len_table[3] = raw_sample_ct4 + 3;
+      } else if (vrtype_and_fpos_storage == 10) {
+        vrtype_table[2] = 16;
+        vrtype_table[3] = 16;
+        vrec_len_table[2] = raw_sample_ct4 + 1;
+        vrec_len_table[3] = raw_sample_ct4 + 2;
+      } else if (vrtype_and_fpos_storage == 11) {
+        log2_entry_bit_width = 2;
+        vrtype_table[2] = 8;
+        vrtype_table[3] = 8;
+        vrtype_table[4] = 8;
+        vrtype_table[5] = 8;
+        vrtype_table[6] = 8;
+        vrtype_table[7] = 8;
+        // 8 invalid
+        vrtype_table[9] = 16;
+        vrtype_table[10] = 24;
+        vrtype_table[11] = 24;
+        vrtype_table[12] = 24;
+        vrtype_table[13] = 24;
+        vrtype_table[14] = 24;
+        vrtype_table[15] = 24;
+        vrec_len_table[9] = raw_sample_ct4 + 1;
+        for (uint32_t uii = 2; uii < 8; ++uii) {
+          vrec_len_table[uii] = raw_sample_ct4 + uii;
+          vrec_len_table[uii + 8] = raw_sample_ct4 + 1 + uii;
+        }
+      } else if (vrtype_and_fpos_storage == 12) {
+        assert(raw_sample_ct == 1);
+        vrtype_table[2] = 0x45;
+        vrtype_table[3] = 0x40;
+        vrec_len_table[2] = 2;
+        vrec_len_table[3] = 3;
+      } else {
+        // 14 is only remaining possibility for now
+        assert(raw_sample_ct == 1);
+        log2_entry_bit_width = 2;
+        vrtype_table[3] = 0x10;
+        vrtype_table[4] = 0x45;
+        vrtype_table[5] = 0x40;
+        vrtype_table[12] = 0xc5;
+        vrtype_table[13] = 0xc0;
+        vrtype_table[15] = 0xe0;
+        vrec_len_table[3] = 2;
+        vrec_len_table[4] = 2;
+        vrec_len_table[5] = 3;
+        vrec_len_table[12] = 4;
+        vrec_len_table[13] = 5;
+        vrec_len_table[15] = 6;
+      }
+      const uint32_t entry_bit_width = 1 << log2_entry_bit_width;
+      const uint32_t entry_mask = (1 << entry_bit_width) - 1;
+      const uint32_t cur_byte_ct = 1 + ((cur_vblock_variant_ct - 1) >> (3 - log2_entry_bit_width));
       const uintptr_t* loadbuf_iter;
 #ifdef __arm__
 #  error "Unaligned accesses in PgfiInitPhase2()."
@@ -3238,6 +3316,8 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
 #ifndef NO_MMAP
       }
 #endif
+      const uint32_t log2_entries_per_word = kBitsPerWordLog2 - log2_entry_bit_width;
+      const uint32_t block_len = 1 << log2_entries_per_word;
       uint32_t cur_vblock_idx = 0;
       uint32_t cur_vblock_idx_stop = block_len;
       for (; ; cur_vblock_idx_stop += block_len) {
@@ -3249,16 +3329,15 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
         }
         uintptr_t input_word = *loadbuf_iter++;
         for (; cur_vblock_idx != cur_vblock_idx_stop; ++cur_vblock_idx) {
-          const uintptr_t input_word_masked = input_word & entry_mask;
-          *vrtypes_iter++ = input_word_masked? 8 : 0;
+          const uint32_t input_word_masked = input_word & entry_mask;
+          *vrtypes_iter++ = vrtype_table[input_word_masked];
           *var_fpos_iter++ = cur_fpos;
-          cur_fpos += base_vrec_len + input_word_masked;
+          cur_fpos += vrec_len_table[input_word_masked];
           input_word >>= entry_bit_width;
         }
       }
-    */
     } else {
-      if (!(vrtype_and_fpos_storage & 4)) {
+      if (vrtype_and_fpos_storage < 4) {
         // no phase or dosage present, 4-bit vrtypes
         const uint32_t cur_byte_ct = DivUp(cur_vblock_variant_ct, 2);
 #ifndef NO_MMAP
@@ -4399,12 +4478,12 @@ PglErr Parse1or2bitGenovecUnsafe(const unsigned char* fread_end, uint32_t vrtype
 PglErr ParseNonLdGenovecSubsetUnsafe(const unsigned char* fread_end, const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vrtype, const unsigned char** fread_pp, PgenReader* pgrp, uintptr_t* __restrict genovec) {
   // Side effects:
   //   may use pgrp->workspace_raregeno_tmp_loadbuf
-  //   fills pgrp->ldbase_raw_genovec iff (!VrtypeDifflist(vrtype)) and
+  //   fills pgrp->ldbase_raw_genovec iff (!(vrtype & 4)) and
   //     subsetting_required (does not update ldbase_stypes, caller's
   //     responsibility to care)
   // See comments on Parse1or2bitGenovecUnsafe().
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
-  if (!VrtypeDifflist(vrtype)) {
+  if (!(vrtype & 4)) {
     const uint32_t subsetting_required = (sample_ct != raw_sample_ct);
     uintptr_t* raw_genovec = subsetting_required? pgrp->ldbase_raw_genovec : genovec;
     PglErr reterr = Parse1or2bitGenovecUnsafe(fread_end, vrtype, fread_pp, pgrp, raw_genovec);
@@ -4415,13 +4494,17 @@ PglErr ParseNonLdGenovecSubsetUnsafe(const unsigned char* fread_end, const uintp
     return kPglRetSuccess;
   }
   const uint32_t vrtype_low2 = vrtype & 3;
-  const uint32_t vec_ct = QuaterCtToVecCt(sample_ct);
+  if (vrtype_low2 != 1) {
+    const uint32_t vec_ct = QuaterCtToVecCt(sample_ct);
 
-  // This memset is frequently the limiting operation.  Probably not worth
-  // worrying about before 2019 or so, but it suggests that the
-  // DifflistOrGenovec interface shouldn't be abandoned.
-  vecset(genovec, vrtype_low2 * kMask5555, vec_ct);
-  return ParseAndApplyDifflistSubset(fread_end, sample_include, sample_include_cumulative_popcounts, sample_ct, fread_pp, pgrp, genovec);
+    // This memset is frequently the limiting operation.  This suggests that we
+    // should eventually make more use of the DifflistOrGenovec interface.
+    vecset(genovec, vrtype_low2 * kMask5555, vec_ct);
+    return ParseAndApplyDifflistSubset(fread_end, sample_include, sample_include_cumulative_popcounts, sample_ct, fread_pp, pgrp, genovec);
+  }
+  // all homozygous-ref special case
+  ZeroWArr(QuaterCtToWordCt(sample_ct), genovec);
+  return kPglRetSuccess;
 }
 
 PglErr InitReadPtrs(uint32_t vidx, PgenReader* pgrp, const unsigned char** fread_pp, const unsigned char** fread_endp) {
@@ -4499,7 +4582,7 @@ PglErr LdLoadAndCopyGenovecSubset(const uintptr_t* __restrict sample_include, co
     }
     const uint32_t vrtype = pgrp->fi.vrtypes[ldbase_vidx];
     PglErr reterr = ParseNonLdGenovecSubsetUnsafe(fread_end, sample_include, sample_include_cumulative_popcounts, sample_ct, vrtype, &fread_ptr, pgrp, dest);
-    pgrp->ldbase_stypes = ((sample_ct != raw_sample_ct) && (!VrtypeDifflist(vrtype)))? (kfPgrLdcacheQuater | kfPgrLdcacheRawQuater) : kfPgrLdcacheQuater;
+    pgrp->ldbase_stypes = ((sample_ct != raw_sample_ct) && (!(vrtype & 4)))? (kfPgrLdcacheQuater | kfPgrLdcacheRawQuater) : kfPgrLdcacheQuater;
     CopyQuaterarr(dest, sample_ct, pgrp->ldbase_genovec);
     return reterr;
   }
@@ -4521,7 +4604,7 @@ PglErr LdLoadAndCopyGenovecSubset(const uintptr_t* __restrict sample_include, co
 }
 
 // fread_pp should be non-null iff this is being called by an internal function
-// as part of a more complex read
+// as part of a more complex read.
 // in multiallelic case:
 //   hom-ref = 0
 //   het-ref = 1
@@ -4572,7 +4655,7 @@ PglErr ReadGenovecSubsetUnsafe(const uintptr_t* __restrict sample_include, const
     PgrPlink1ToPlink2InplaceUnsafe(sample_ct, genovec);
   } else {
     const uint32_t is_ldbase = pgrp->fi.vrtypes && VrtypeLdCompressed(pgrp->fi.vrtypes[vidx + 1]);
-    const uint32_t ldbase_raw_genovec_saved = (sample_ct != pgrp->fi.raw_sample_ct) && (!VrtypeDifflist(maintrack_vrtype));
+    const uint32_t ldbase_raw_genovec_saved = (sample_ct != pgrp->fi.raw_sample_ct) && (!(maintrack_vrtype & 4));
     if (is_ldbase) {
       CopyQuaterarr(genovec, sample_ct, pgrp->ldbase_genovec);
       pgrp->ldbase_vidx = vidx;
@@ -4613,9 +4696,10 @@ PglErr LdLoadAndCopyRawGenovec(uint32_t subsetting_required, uint32_t vidx, Pgen
     }
     const uint32_t vrtype = pgrp->fi.vrtypes[ldbase_vidx];
     pgrp->ldbase_stypes = kfPgrLdcacheRawQuater;
+    assert((vrtype & 7) != 5); // all-hom-ref can't be ldbase
     uintptr_t* raw_genovec = pgrp->ldbase_raw_genovec;
     PglErr reterr;
-    if (!VrtypeDifflist(vrtype)) {
+    if (!(vrtype & 4)) {
       reterr = Parse1or2bitGenovecUnsafe(fread_end, vrtype, &fread_ptr, pgrp, raw_genovec);
     } else {
       const uint32_t vrtype_low2 = vrtype & 3;
@@ -4668,10 +4752,15 @@ PglErr ReadRawGenovec(uint32_t subsetting_required, uint32_t vidx, PgenReader* p
   }
   const unsigned char* fread_end = *fread_endp;
   PglErr reterr;
-  if (!VrtypeDifflist(vrtype)) {
+  if (!(vrtype & 4)) {
     reterr = Parse1or2bitGenovecUnsafe(fread_end, vrtype, fread_pp, pgrp, raw_genovec);
   } else {
     const uint32_t vrtype_low2 = vrtype & 3;
+    if (vrtype_low2 == 1) {
+      ZeroWArr(QuaterCtToWordCt(raw_sample_ct), raw_genovec);
+      // all-hom-ref can't be ldbase
+      return kPglRetSuccess;
+    }
     const uint32_t vec_ct = QuaterCtToVecCt(raw_sample_ct);
     vecset(raw_genovec, vrtype_low2 * kMask5555, vec_ct);
     reterr = ParseAndApplyDifflist(fread_end, fread_pp, pgrp, raw_genovec);
@@ -4761,7 +4850,7 @@ PglErr LdLoadMinimalSubsetIfNecessary(const uintptr_t* __restrict sample_include
       fread_ptr = &(block_base[cur_vidx_fpos - block_offset]);
       fread_end = &(block_base[pgrp->fi.var_fpos[ldbase_vidx + 1] - block_offset]);
     }
-    if (!VrtypeDifflist(ldbase_vrtype)) {
+    if (!(ldbase_vrtype & 4)) {
       reterr = Parse1or2bitGenovecUnsafe(fread_end, ldbase_vrtype, &fread_ptr, pgrp, raw_genovec);
     LdLoadMinimalSubsetIfNecessary_genovec_finish:
       pgrp->ldbase_stypes = subsetting_required? (kfPgrLdcacheQuater | kfPgrLdcacheRawQuater) : kfPgrLdcacheQuater;
@@ -4795,7 +4884,7 @@ PglErr LdLoadMinimalSubsetIfNecessary(const uintptr_t* __restrict sample_include
     }
     fread_ptr = pgrp->fread_buf;
     fread_end = &(pgrp->fread_buf[cur_vrec_width]);
-    if (!VrtypeDifflist(ldbase_vrtype)) {
+    if (!(ldbase_vrtype & 4)) {
       reterr = ParseOnebitUnsafe(fread_end, &fread_ptr, pgrp, raw_genovec);
       goto LdLoadMinimalSubsetIfNecessary_genovec_finish;
     }
@@ -4818,6 +4907,7 @@ PglErr LdLoadMinimalSubsetIfNecessary(const uintptr_t* __restrict sample_include
 PglErr ReadDifflistOrGenovecSubsetUnsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t max_simple_difflist_len, uint32_t vidx, PgenReader* pgrp, const unsigned char** fread_pp, const unsigned char** fread_endp, uintptr_t* __restrict genovec, uint32_t* difflist_common_geno_ptr, uintptr_t* __restrict main_raregeno, uint32_t* __restrict difflist_sample_ids, uint32_t* __restrict difflist_len_ptr) {
   assert(vidx < pgrp->fi.raw_variant_ct);
   assert(sample_ct);
+  assert(max_simple_difflist_len < sample_ct);
   // Side effects:
   //   may use pgr.workspace_raregeno_tmp_loadbuf
   // Trailing bits of genovec/main_raregeno may not be zeroed out.
@@ -4889,7 +4979,7 @@ PglErr ReadDifflistOrGenovecSubsetUnsafe(const uintptr_t* __restrict sample_incl
     if (unlikely(reterr)) {
       return reterr;
     }
-    const uint32_t ldbase_raw_genovec_saved = (subsetting_required && (!VrtypeDifflist(vrtype)));
+    const uint32_t ldbase_raw_genovec_saved = (subsetting_required && (!(vrtype & 4)));
     if (is_ldbase) {
       CopyQuaterarr(genovec, sample_ct, pgrp->ldbase_genovec);
       pgrp->ldbase_stypes = ldbase_raw_genovec_saved? (kfPgrLdcacheQuater | kfPgrLdcacheRawQuater) : kfPgrLdcacheQuater;
@@ -5258,7 +5348,7 @@ PglErr LdLoadGenovecSubsetIfNecessary(const uintptr_t* __restrict sample_include
     const uint32_t vrtype = pgrp->fi.vrtypes[ldbase_vidx];
     // bugfix (6 Mar 2019): ldbase_raw_genovec is only filled in (!difflist) &&
     //   subsetting_required case; (!difflist) isn't enough
-    pgrp->ldbase_stypes = (VrtypeDifflist(vrtype) || (sample_ct == pgrp->fi.raw_sample_ct))? kfPgrLdcacheQuater : (kfPgrLdcacheQuater | kfPgrLdcacheRawQuater);
+    pgrp->ldbase_stypes = ((vrtype & 4) || (sample_ct == pgrp->fi.raw_sample_ct))? kfPgrLdcacheQuater : (kfPgrLdcacheQuater | kfPgrLdcacheRawQuater);
     return ParseNonLdGenovecSubsetUnsafe(fread_end, sample_include, sample_include_cumulative_popcounts, sample_ct, vrtype, &fread_ptr, pgrp, pgrp->ldbase_genovec);
   }
   if (!(pgrp->ldbase_stypes & kfPgrLdcacheQuater)) {
@@ -5327,9 +5417,18 @@ PglErr GetBasicGenotypeCounts(const uintptr_t* __restrict sample_include, const 
       ZeroTrailingQuaters(sample_ct, pgrp->ldbase_genovec);
       GenovecCountFreqsUnsafe(pgrp->ldbase_genovec, sample_ct, genocounts);
       STD_ARRAY_COPY(genocounts, 4, pgrp->ldbase_basic_genocounts);
-      pgrp->ldbase_stypes = (subsetting_required && (!VrtypeDifflist(vrtype)))? (kfPgrLdcacheQuater | kfPgrLdcacheRawQuater | kfPgrLdcacheBasicGenocounts) : (kfPgrLdcacheQuater | kfPgrLdcacheBasicGenocounts);
-    } else if (VrtypeDifflist(vrtype)) {
-      reterr = CountparseDifflistSubset(fread_end, sample_include, vrtype & 3, raw_sample_ct, sample_ct, &fread_ptr, genocounts, pgrp->workspace_raregeno_tmp_loadbuf);
+      pgrp->ldbase_stypes = (subsetting_required && (!(vrtype & 4)))? (kfPgrLdcacheQuater | kfPgrLdcacheRawQuater | kfPgrLdcacheBasicGenocounts) : (kfPgrLdcacheQuater | kfPgrLdcacheBasicGenocounts);
+    } else if (vrtype & 4) {
+      const uint32_t vrtype_low2 = vrtype & 3;
+      if (vrtype_low2 != 1) {
+        reterr = CountparseDifflistSubset(fread_end, sample_include, vrtype & 3, raw_sample_ct, sample_ct, &fread_ptr, genocounts, pgrp->workspace_raregeno_tmp_loadbuf);
+      } else {
+        genocounts[0] = sample_ct;
+        genocounts[1] = 0;
+        genocounts[2] = 0;
+        genocounts[3] = 0;
+        reterr = kPglRetSuccess;
+      }
     } else if (vrtype & 1) {
       reterr = CountparseOnebitSubset(fread_end, sample_include, raw_sample_ct, sample_ct, &fread_ptr, genocounts, pgrp->workspace_raregeno_tmp_loadbuf);
     } else {
@@ -11552,7 +11651,7 @@ BoolErr ValidateGeno(const unsigned char* fread_end, uint32_t vidx, PgenReader* 
     return 0;
   }
   const uint32_t is_ldbase = VrtypeLdCompressed(pgrp->fi.vrtypes[vidx + 1]);
-  if (!VrtypeDifflist(vrtype)) {
+  if (!(vrtype & 4)) {
     if (vrtype & 1) {
       if (unlikely(ValidateOnebit(fread_end, fread_pp, pgrp, genovec))) {
         snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid 1-bit genotype record for (0-based) variant #%u.\n", vidx);
@@ -11577,11 +11676,19 @@ BoolErr ValidateGeno(const unsigned char* fread_end, uint32_t vidx, PgenReader* 
     }
   } else {
     const uint32_t vrtype_low2 = vrtype & 3;
-    const uint32_t vec_ct = QuaterCtToVecCt(sample_ct);
-    vecset(genovec, vrtype_low2 * kMask5555, vec_ct);
-    if (unlikely(ValidateAndApplyDifflist(fread_end, 0, fread_pp, pgrp, genovec))) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid genotype difflist for (0-based) variant #%u.\n", vidx);
-      return 1;
+    if (vrtype_low2 != 1) {
+      const uint32_t vec_ct = QuaterCtToVecCt(sample_ct);
+      vecset(genovec, vrtype_low2 * kMask5555, vec_ct);
+      if (unlikely(ValidateAndApplyDifflist(fread_end, 0, fread_pp, pgrp, genovec))) {
+        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid genotype difflist for (0-based) variant #%u.\n", vidx);
+        return 1;
+      }
+    } else {
+      if (is_ldbase) {
+        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid LD back-reference from variant #%u to all-hom-ref variant #%u.\n", vidx + 1, vidx);
+        return 1;
+      }
+      ZeroWArr(QuaterCtToWordCt(sample_ct), genovec);
     }
   }
   if (is_ldbase) {
@@ -13243,6 +13350,12 @@ uint32_t PwcAppendBiallelicGenovecMain(const uintptr_t* __restrict genovec, uint
   }
   memcpy(ldbase_genovec, genovec, genovec_word_ct * sizeof(intptr_t));
   if (difflist_viable) {
+#ifdef FUTURE_ENCODER
+    if ((!difflist_len) && (!most_common_geno)) {
+      *vrtype_ptr = 5;
+      return 0;
+    }
+#endif
     *vrtype_ptr = 4 + most_common_geno;
     return SaveLdDifflist(genovec, nullptr, most_common_geno, difflist_len, pwcp);
   }

@@ -67,7 +67,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (24 Jul 2019)";
+  " (31 Jul 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -3116,10 +3116,6 @@ int main(int argc, char** argv) {
       if (flagname_p) {
         const uint32_t flag_slen = strlen(flagname_p);
         switch (*flagname_p) {
-        case '\0':
-          // special case, since we reserve empty names for preprocessed flags
-          fputs("Error: Unrecognized flag ('--').\n", stderr);
-          goto main_ret_INVALID_CMDLINE;
         case 'a':
           if (strequal_k(flagname_p, "aec", flag_slen)) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "allow-extra-chr");
@@ -3439,10 +3435,6 @@ int main(int argc, char** argv) {
     InitPlink1Dosage(&plink1_dosage_info);
     do {
       flagname_p = &(pcm.flag_buf[cur_flag_idx * kMaxFlagBlen]);
-      if (!(*flagname_p)) {
-        // preprocessed (--d, --out)
-        continue;
-      }
       const char* flagname_p2 = &(flagname_p[1]);
       arg_idx = pcm.flag_map[cur_flag_idx];
       uint32_t param_ct = GetParamCt(argvk, argc, arg_idx);
@@ -4273,7 +4265,7 @@ int main(int argc, char** argv) {
         } else if (unlikely(strequal_k_unsafe(flagname_p2, "osage"))) {
           logerrputs("Error: --dosage has been replaced with --import-dosage, which converts to .pgen\nformat and provides access to the full range of plink2 flags.  (Run --glm on\nthe imported dataset to invoke the original --dosage linear/logistic\nregression.)\n");
           goto main_ret_INVALID_CMDLINE_A;
-        } else if (likely(strequal_k_unsafe(flagname_p2, "og"))) {
+        } else if (strequal_k_unsafe(flagname_p2, "og")) {
           if (unlikely(chr_info.chrset_source)) {
             logerrputs("Error: Conflicting chromosome-set flags.\n");
             goto main_ret_INVALID_CMDLINE;
@@ -4293,7 +4285,8 @@ int main(int argc, char** argv) {
           chr_info.haploid_mask[1] = 0x580;
 #endif
           goto main_param_zero;
-        } else {
+        } else if (unlikely(*flagname_p2)) {
+          // --d is preprocessed
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
         break;
@@ -7314,7 +7307,7 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --output-missing-genotype parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-        } else if (likely(strequal_k_unsafe(flagname_p2, "utput-missing-phenotype"))) {
+        } else if (strequal_k_unsafe(flagname_p2, "utput-missing-phenotype")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -7325,7 +7318,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
           }
           memcpy(g_output_missing_pheno, cur_modif, cur_modif_slen + 1);
-        } else {
+        } else if (unlikely(!strequal_k_unsafe(flagname_p2, "ut"))) {
           // --out is a special case due to logging
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
