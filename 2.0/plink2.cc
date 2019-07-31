@@ -4923,7 +4923,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --glm cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0ax\0a1count\0totallele\0a1countcc\0totallelecc\0gcountcc\0a1freq\0a1freqcc\0machr2\0firth\0test\0nobs\0beta\0orbeta\0se\0ci\0tz\0p\0", flagname_p, kfGlmColChrom, kfGlmColDefault, 1, &pc.glm_info.cols);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0ax\0a1count\0totallele\0a1countcc\0totallelecc\0gcountcc\0a1freq\0a1freqcc\0machr2\0firth\0test\0nobs\0beta\0orbeta\0se\0ci\0tz\0p\0err\0", flagname_p, kfGlmColChrom, kfGlmColDefault, 1, &pc.glm_info.cols);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
@@ -5033,6 +5033,10 @@ int main(int argc, char** argv) {
               logerrputs("Error: Either all three --glm local-covar filenames must be specified, or none\nof them.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
+          }
+          if (pc.glm_info.cols & kfGlmColErr) {
+            logerrputs("Error: --glm 'err' column output is under development.\n");
+            goto main_ret_INVALID_CMDLINE;
           }
           pc.command_flags1 |= kfCommand1Glm;
           pc.dependency_flags |= kfFilterAllReq;

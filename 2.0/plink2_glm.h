@@ -85,8 +85,8 @@ FLAGSET_DEF_START()
   kfGlmColCi = (1 << 20),
   kfGlmColTz = (1 << 21),
   kfGlmColP = (1 << 22),
-  kfGlmColDefault = (kfGlmColChrom | kfGlmColPos | kfGlmColRef | kfGlmColAlt | kfGlmColFirthYn | kfGlmColTest | kfGlmColNobs | kfGlmColOrbeta | kfGlmColSe | kfGlmColCi | kfGlmColTz | kfGlmColP),
-  kfGlmColAll = ((kfGlmColCi * 2) - kfGlmColChrom)
+  kfGlmColErr = (1 << 23),
+  kfGlmColDefault = (kfGlmColChrom | kfGlmColPos | kfGlmColRef | kfGlmColAlt | kfGlmColFirthYn | kfGlmColTest | kfGlmColNobs | kfGlmColOrbeta | kfGlmColSe | kfGlmColCi | kfGlmColTz | kfGlmColP)
 FLAGSET_DEF_END(GlmColFlags);
 
 typedef struct GlmInfoStruct {

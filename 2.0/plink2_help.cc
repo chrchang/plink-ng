@@ -1010,6 +1010,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      ci: Bounds of symmetric approximate confidence interval (requires --ci).\n"
 "      tz: T-statistic for linear regression, Wald Z-score for logistic/Firth.\n"
 "      p: Asymptotic p-value (or -log10(p)) for T/Z-statistic.\n"
+"      err: Error code for NA results.\n"
 "    The default is chrom,pos,ref,alt,firth,test,nobs,orbeta,se,ci,tz,p.\n\n"
                );
     HelpPrint("score\0", &help_ctrl, 1,

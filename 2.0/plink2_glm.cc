@@ -1131,6 +1131,13 @@ BoolErr CheckMaxCorrAndVif(const double* predictor_dotprods, uint32_t first_pred
   // to get small-sample covariance
   const uintptr_t relevant_predictor_ct = predictor_ct - first_predictor_idx;
   if (relevant_predictor_ct == 1) {
+    // bugfix (31 Jul 2019): precomputed images are wrong if these aren't
+    // initialized
+    if (corr_buf) {
+      corr_buf[0] = 1.0;
+      corr_buf[1] = 1.0;
+    }
+    inverse_corr_buf[0] = 1.0;
     return 0;
   }
   const uintptr_t relevant_predictor_ct_p1 = relevant_predictor_ct + 1;
@@ -1242,6 +1249,7 @@ BoolErr CheckMaxCorrAndVifNm(const double* predictor_dotprods, const double* cor
   semicomputed_inv_corr_sqrts[0] = 1.0 / sqrt(semicomputed_corr_matrix[0]);
   const uintptr_t nongeno_pred_ct = relevant_predictor_ct - geno_pred_ct;
   double inverse_stdev1 = semicomputed_inv_corr_sqrts[0];
+  // NOT INITIALIZED IN nongeno_pred_ct == 1, geno_pred_ct == 1 case
   const double* nongeno_inverse_stdevs = &(semicomputed_inv_corr_sqrts[geno_pred_ct]);
   const double* corr_col = &(semicomputed_corr_matrix[geno_pred_ct * relevant_predictor_ct]);
   for (uintptr_t nongeno_pred_idx = 0; nongeno_pred_idx != nongeno_pred_ct; ++nongeno_pred_idx) {
@@ -1287,7 +1295,7 @@ BoolErr CheckMaxCorrAndVifNm(const double* predictor_dotprods, const double* cor
   return 0;
 }
 
-// Only called by glm_logistic_thread(), so there are the following differences
+// Only called by GlmLogisticThread(), so there are the following differences
 // from CheckMaxCorrAndVif():
 // * predictor_dotprods is not precomputed; we start with predictors_pmaj
 //   instead.
@@ -4817,6 +4825,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     const uint32_t ci_col = (ci_size != 0.0) && (glm_cols & kfGlmColCi);
     const uint32_t z_col = glm_cols & kfGlmColTz;
     const uint32_t p_col = glm_cols & kfGlmColP;
+    const uint32_t err_col = glm_cols & kfGlmColErr;
     *cswritep++ = '#';
     if (chr_col) {
       cswritep = strcpya_k(cswritep, "CHROM\t");
@@ -4907,6 +4916,9 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
       } else {
         cswritep = strcpya_k(cswritep, "\tP");
       }
+    }
+    if (err_col) {
+      cswritep = strcpya_k(cswritep, "\tERRCODE");
     }
     AppendBinaryEoln(&cswritep);
 
@@ -5379,6 +5391,15 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                     }
                   } else {
                     cswritep = strcpya_k(cswritep, "NA");
+                  }
+                }
+                if (err_col) {
+                  *cswritep++ = '\t';
+                  if (allele_is_valid) {
+                    *cswritep++ = '.';
+                  } else {
+                    // placeholder
+                    *cswritep++ = '?';
                   }
                 }
                 AppendBinaryEoln(&cswritep);
@@ -6827,6 +6848,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     const uint32_t ci_col = (ci_size != 0.0) && (glm_cols & kfGlmColCi);
     const uint32_t t_col = glm_cols & kfGlmColTz;
     const uint32_t p_col = glm_cols & kfGlmColP;
+    const uint32_t err_col = glm_cols & kfGlmColErr;
     *cswritep++ = '#';
     if (chr_col) {
       cswritep = strcpya_k(cswritep, "CHROM\t");
@@ -6894,6 +6916,9 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
       } else {
         cswritep = strcpya_k(cswritep, "\tP");
       }
+    }
+    if (err_col) {
+      cswritep = strcpya_k(cswritep, "\tERRCODE");
     }
     AppendBinaryEoln(&cswritep);
 
@@ -7306,6 +7331,15 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                     }
                   } else {
                     cswritep = strcpya_k(cswritep, "NA");
+                  }
+                }
+                if (err_col) {
+                  *cswritep++ = '\t';
+                  if (allele_is_valid) {
+                    *cswritep++ = '.';
+                  } else {
+                    // placeholder
+                    *cswritep++ = '?';
                   }
                 }
                 AppendBinaryEoln(&cswritep);
@@ -8834,6 +8868,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
     const uint32_t ci_col = (ci_size != 0.0) && (glm_cols & kfGlmColCi);
     const uint32_t t_col = glm_cols & kfGlmColTz;
     const uint32_t p_col = glm_cols & kfGlmColP;
+    const uint32_t err_col = glm_cols & kfGlmColErr;
     double ci_zt = 0.0;
     if (ci_col) {
       ci_zt = QuantileToZscore((ci_size + 1.0) * 0.5);
@@ -8927,6 +8962,9 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
           } else {
             cswritep = strcpya_k(cswritep, "\tP");
           }
+        }
+        if (err_col) {
+          cswritep = strcpya_k(cswritep, "\tERRCODE");
         }
         AppendBinaryEoln(&cswritep);
         cswritep_arr[fidx] = cswritep;
@@ -9357,6 +9395,15 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
                         }
                       } else {
                         cswritep = strcpya_k(cswritep, "NA");
+                      }
+                    }
+                    if (err_col) {
+                      *cswritep++ = '\t';
+                      if (allele_is_valid) {
+                        *cswritep++ = '.';
+                      } else {
+                        // placeholder
+                        *cswritep++ = '?';
                       }
                     }
                     AppendBinaryEoln(&cswritep);
