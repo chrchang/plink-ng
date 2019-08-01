@@ -4647,9 +4647,11 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
   CalcPca_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
+#ifndef LAPACK_ILP64
   CalcPca_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
+#endif
   CalcPca_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
     break;
