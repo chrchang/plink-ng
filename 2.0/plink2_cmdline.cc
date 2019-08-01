@@ -1652,17 +1652,29 @@ PglErr StringRangeListToBitarr(const char* header_line, const RangeList* range_l
     const uintptr_t max_id_blen = range_list_ptr->name_max_blen;
     for (uint32_t item_idx = 0; ; ) {
       const char* token_end = CommaOrTspaceTokenEnd(header_line_iter, comma_delim);
-      uint32_t cmdline_pos;
-      if (!SortedIdboxFind(header_line_iter, sorted_ids, id_map, token_end - header_line_iter, max_id_blen, name_ct, &cmdline_pos)) {
+      const int32_t sorted_pos = bsearch_str(header_line_iter, sorted_ids, token_end - header_line_iter, max_id_blen, name_ct);
+      if (sorted_pos != -1) {
+        uint32_t cmdline_pos = sorted_pos;
+        if (id_map) {
+          cmdline_pos = id_map[S_CAST(uint32_t, sorted_pos)];
+        }
         if (unlikely(seen_idxs[cmdline_pos] != -1)) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Duplicate --%s token in %s.\n", range_list_flag, file_descrip);
-          goto StringRangeListToBitarr_ret_MALFORMED_INPUT_2;
+          logerrprintfww("Error: --%s: '%s' appears multiple times in header line of %s.\n", range_list_flag, &(sorted_ids[S_CAST(uint32_t, sorted_pos) * max_id_blen]), file_descrip);
+          goto StringRangeListToBitarr_ret_MALFORMED_INPUT;
         }
         seen_idxs[cmdline_pos] = item_idx;
         if (cmdline_pos && range_list_ptr->starts_range[cmdline_pos - 1]) {
           if (unlikely(seen_idxs[cmdline_pos - 1] == -1)) {
-            logpreprintfww("Error: Second element of --%s range appears before first element in %s.\n", range_list_flag, file_descrip);
-            goto StringRangeListToBitarr_ret_INVALID_CMDLINE_2;
+            uint32_t first_sorted_pos = cmdline_pos - 1;
+            if (id_map) {
+              for (first_sorted_pos = 0; ; ++first_sorted_pos) {
+                if (id_map[first_sorted_pos] == cmdline_pos - 1) {
+                  break;
+                }
+              }
+            }
+            snprintf(g_logbuf, kLogbufSize, "Error: --%s: '%s' appears before '%s' in header line of %s.\n", range_list_flag, &(sorted_ids[S_CAST(uint32_t, sorted_pos) * max_id_blen]), &(sorted_ids[first_sorted_pos * max_id_blen]), file_descrip);
+            goto StringRangeListToBitarr_ret_INVALID_CMDLINE_WW;
           }
           FillBitsNz(seen_idxs[cmdline_pos - 1], item_idx + 1, bitarr);
         } else if (!(range_list_ptr->starts_range[cmdline_pos])) {
@@ -1680,19 +1692,26 @@ PglErr StringRangeListToBitarr(const char* header_line, const RangeList* range_l
     }
     for (uint32_t cmdline_pos = 0; cmdline_pos != name_ct; ++cmdline_pos) {
       if (unlikely(seen_idxs[cmdline_pos] == -1)) {
-        goto StringRangeListToBitarr_ret_INVALID_CMDLINE_3;
+        uint32_t sorted_pos = cmdline_pos;
+        if (id_map) {
+          for (sorted_pos = 0; ; ++sorted_pos) {
+            if (id_map[sorted_pos] == cmdline_pos) {
+              break;
+            }
+          }
+        }
+        snprintf(g_logbuf, kLogbufSize, "Error: --%s: '%s' does not appear in header line of %s.\n", range_list_flag, &(sorted_ids[sorted_pos * max_id_blen]), file_descrip);
+        goto StringRangeListToBitarr_ret_INVALID_CMDLINE_WW;
       }
     }
   }
   while (0) {
-  StringRangeListToBitarr_ret_INVALID_CMDLINE_3:
-    snprintf(g_logbuf, kLogbufSize, "Error: Missing --%s token in %s.\n", range_list_flag, file_descrip);
-  StringRangeListToBitarr_ret_INVALID_CMDLINE_2:
+  StringRangeListToBitarr_ret_INVALID_CMDLINE_WW:
+    WordWrapB(0);
     logerrputsb();
     reterr = kPglRetInvalidCmdline;
     break;
-  StringRangeListToBitarr_ret_MALFORMED_INPUT_2:
-    logerrputsb();
+  StringRangeListToBitarr_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
   }

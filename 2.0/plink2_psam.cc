@@ -944,9 +944,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
             goto LoadPhenos_ret_INCONSISTENT_INPUT_WW;
           }
         } else {
-          // actually, --covar-name can apply to --pheno file now, etc.; may
-          // want to make error messages account for that
-          reterr = StringRangeListToBitarrAlloc(pheno_start, pheno_range_list_ptr, (affection_01 == 2)? "covar-name" : "pheno-name", (affection_01 == 2)? "--covar file" : "--pheno file", pheno_col_ct, 0, comma_delim, &bitarr);
+          reterr = StringRangeListToBitarrAlloc(pheno_start, pheno_range_list_ptr, (affection_01 == 2)? "covar-name" : "pheno-name", pheno_fname, pheno_col_ct, 0, comma_delim, &bitarr);
           if (unlikely(reterr)) {
             goto LoadPhenos_ret_1;
           }
@@ -1167,8 +1165,8 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
           }
         } else {
           if (unlikely(IsSet(already_seen, sample_uidx))) {
-            logerrputs("Error: Duplicate sample ID in --pheno/--covar file.\n");
-            goto LoadPhenos_ret_MALFORMED_INPUT;
+            snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID in %s.\n", pheno_fname);
+            goto LoadPhenos_ret_MALFORMED_INPUT_WW;
           }
           SetBit(sample_uidx, already_seen);
           if (!comma_delim) {
