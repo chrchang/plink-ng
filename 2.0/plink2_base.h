@@ -416,7 +416,7 @@ struct IntErr {
   IntErr(int32_t source) : value_(source) {}
 
   explicit operator int32_t() const {
-    return static_cast<int32_t>(value_);
+    return value_;
   }
 
   explicit operator bool() const {
@@ -434,7 +434,7 @@ struct BoolErr {
   BoolErr(uint32_t source) : value_(source) {}
 
   explicit operator uint32_t() const {
-    return static_cast<uint32_t>(value_);
+    return value_;
   }
 
   explicit operator bool() const {

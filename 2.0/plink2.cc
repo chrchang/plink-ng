@@ -5034,10 +5034,6 @@ int main(int argc, char** argv) {
               goto main_ret_INVALID_CMDLINE_A;
             }
           }
-          if (pc.glm_info.cols & kfGlmColErr) {
-            logerrputs("Error: --glm 'err' column output is under development.\n");
-            goto main_ret_INVALID_CMDLINE;
-          }
           pc.command_flags1 |= kfCommand1Glm;
           pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "en")) {
