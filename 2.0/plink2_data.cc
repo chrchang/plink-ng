@@ -164,7 +164,7 @@ PglErr PvarInfoOpenAndReloadHeader(const char* pvar_info_reload, uint32_t calc_t
   PglErr reterr = RlsOpenMaybeBgzf(pvar_info_reload, calc_thread_ct, pvar_reload_rlsp);
   if (reterr) {
     if (reterr == kPglRetOpenFail) {
-      logerrprintfww(kErrprintfFopen, pvar_info_reload);
+      logerrprintfww(kErrprintfFopen, pvar_info_reload, strerror(errno));
     }
     return reterr;
   }
@@ -4602,6 +4602,7 @@ static uintptr_t** g_thread_write_dphasepresents = nullptr;
 static SDosage** g_thread_write_dphasedeltas = nullptr;
 static uint32_t** g_thread_cumulative_popcount_bufs = nullptr;
 static PgenWriterCommon** g_pwcs = nullptr;
+static int32_t g_errno_ret = 0;
 
 static STPgenWriter* g_spgwp = nullptr;
 
@@ -5141,6 +5142,7 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
           const uintptr_t cur_byte_ct = pwcp->fwrite_bufp - pwcp->fwrite_buf;
           if (unlikely(fwrite_checked(pwcp->fwrite_buf, cur_byte_ct, spgwp->pgen_outfile))) {
             g_error_ret = kPglRetWriteFail;
+            g_errno_ret = errno;
             break;
           }
           // printf("vblock_fpos_offset: %llu\n", pwcp->vblock_fpos_offset);
@@ -5389,6 +5391,9 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       uint32_t max_vrec_len;
       reterr = SpgwInitPhase1(outname, write_allele_idx_offsets, simple_pgrp->fi.nonref_flags, write_variant_ct, sample_ct, write_gflags, nonref_flags_storage, g_spgwp, &spgw_alloc_cacheline_ct, &max_vrec_len);
       if (unlikely(reterr)) {
+        if (reterr == kPglRetOpenFail) {
+          logerrprintfww(kErrprintfFopen, outname, strerror(errno));
+        }
         goto MakePgenRobust_ret_1;
       }
       unsigned char* spgw_alloc;
@@ -6041,6 +6046,9 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
           JoinThreads3z(&ts);
           reterr = g_error_ret;
           if (unlikely(reterr)) {
+            if (reterr == kPglRetWriteFail) {
+              errno = g_errno_ret;
+            }
             goto MakePgenRobust_ret_1;
           }
         }
@@ -6419,6 +6427,9 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
           JoinThreads3z(&ts);
           reterr = g_error_ret;
           if (unlikely(reterr)) {
+            // this should only be possible in MakePgenRobust()
+            assert(reterr != kPglRetWriteFail);
+
             if (reterr == kPglRetMalformedInput) {
               logputs("\n");
               logerrputs("Error: Malformed .pgen file.\n");
@@ -6804,6 +6815,10 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
       assert(g_bigstack_base <= g_bigstack_end);
       reterr = MpgwInitPhase2(outname, write_allele_idx_offsets, pgfip->nonref_flags, variant_ct, sample_ct, write_gflags, nonref_flags_storage, vrec_len_byte_ct, vblock_cacheline_ct, calc_thread_ct, mpgw_alloc, mpgwp);
       if (unlikely(reterr)) {
+        if (reterr == kPglRetOpenFail) {
+          logputs("\n");
+          logerrprintfww(kErrprintfFopen, outname, strerror(errno));
+        }
         goto MakePlink2NoVsort_ret_1;
       }
       g_sample_include = subsetting_required? sample_include : nullptr;

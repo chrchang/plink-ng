@@ -101,6 +101,7 @@ typedef struct ReadLineStreamSyncStruct {
   char* cur_circular_end;
   char* available_end;
   PglErr reterr;  // note that this is set to kPglRetEof once we reach eof
+  int32_t open_errno;
 
   RlsInterrupt interrupt;
   const char* new_fname;
@@ -411,6 +412,8 @@ HEADER_INLINE PglErr RewindRLstream(ReadLineStream* rlsp, char** consume_iterp, 
 
 PglErr CleanupRLstream(ReadLineStream* rlsp);
 
+// In open-fail case, the caller is responsible for setting errno correctly if
+// a different worker-thread made the failed RlsOpen{,MaybeBgzf} call.
 void RLstreamErrPrint(const char* file_descrip, ReadLineStream* rlsp, PglErr* reterr_ptr);
 
 HEADER_INLINE unsigned char* RLstreamMemStart(ReadLineStream* rlsp) {

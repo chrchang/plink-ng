@@ -517,7 +517,7 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
       reterr = RlsOpenMaybeBgzf(pvar_info_reload, calc_thread_ct, &rls);
       if (reterr) {
         if (reterr == kPglRetOpenFail) {
-          logerrprintfww(kErrprintfFopen, pvar_info_reload);
+          logerrprintfww(kErrprintfFopen, pvar_info_reload, strerror(errno));
         }
         goto RmDup_ret_1;
       }
@@ -665,7 +665,7 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
         if (!list_file) {
           snprintf(outname_end, kMaxOutfnameExtBlen, ".rmdup.list");
           if (unlikely(fopen_checked(outname, FOPEN_WB, &list_file))) {
-            goto RmDup_ret_WRITE_FAIL;
+            goto RmDup_ret_OPEN_FAIL;
           }
         }
         list_write_iter = strcpya(list_write_iter, variant_ids[variant_uidx]);
@@ -886,7 +886,7 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
           if (mismatch_file == nullptr) {
             snprintf(outname_end, kMaxOutfnameExtBlen, ".rmdup.mismatch");
             if (unlikely(fopen_checked(outname, FOPEN_WB, &mismatch_file))) {
-              goto RmDup_ret_WRITE_FAIL;
+              goto RmDup_ret_OPEN_FAIL;
             }
           }
           mismatch_write_iter = strcpya(mismatch_write_iter, variant_ids[variant_uidx]);
@@ -923,6 +923,9 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
   while (0) {
   RmDup_ret_NOMEM:
     reterr = kPglRetNomem;
+    break;
+  RmDup_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
     break;
   RmDup_ret_READ_FAIL:
     reterr = kPglRetReadFail;

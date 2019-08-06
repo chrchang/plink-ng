@@ -6671,7 +6671,7 @@ PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
     if (unlikely(fclose_flush_null(textbuf_flush, write_iter, &outfile))) {
       goto WriteCovar_ret_WRITE_FAIL;
     }
-    logprintfww("Covariates written to %s.\n", outname);
+    logprintfww("Covariates written to %s .\n", outname);
   }
   while (0) {
   WriteCovar_ret_NOMEM:

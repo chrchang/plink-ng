@@ -67,7 +67,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (1 Aug 2019)";
+  " (6 Aug 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -688,7 +688,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       if (unlikely(!realpath(pgenname, g_textbuf)))
 #endif
       {
-        logerrprintfww(kErrprintfFopen, pgenname);
+        logerrprintfww(kErrprintfFopen, pgenname, strerror(errno));
         goto Plink2Core_ret_OPEN_FAIL;
       }
       uint32_t pgen_rename = 0;
@@ -867,7 +867,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         if (unlikely(!realpath(pvarname, g_textbuf)))
 #endif
         {
-          logerrprintfww(kErrprintfFopen, pvarname);
+          logerrprintfww(kErrprintfFopen, pvarname, strerror(errno));
           goto Plink2Core_ret_OPEN_FAIL;
         }
         if (make_plink2_flags & kfMakeBim) {
@@ -1017,7 +1017,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         reterr = PgrInit(pgenname, max_vrec_width, &pgfi, &simple_pgr, simple_pgr_alloc);
         if (unlikely(reterr)) {
           if (reterr == kPglRetOpenFail) {
-            logerrprintf(kErrprintfFopen, pgenname);
+            logerrprintfww(kErrprintfFopen, pgenname, strerror(errno));
           }
           // only other possibility is kPglRetReadFail
           goto Plink2Core_ret_1;
@@ -2551,7 +2551,7 @@ PglErr ZstDecompress(const char* in_fname, const char* out_fname) {
   PglErr reterr = kPglRetSuccess;
   {
     if (unlikely(!gz_infile)) {
-      fprintf(stderr, kErrprintfFopen, in_fname);
+      fprintf(stderr, kErrprintfFopen, in_fname, strerror(errno));
       goto ZstDecompress_ret_OPEN_FAIL;
     }
     if (unlikely(gzbuffer(gz_infile, 131072))) {
@@ -2560,7 +2560,7 @@ PglErr ZstDecompress(const char* in_fname, const char* out_fname) {
     if (out_fname) {
       outfile = fopen(out_fname, FOPEN_WB);
       if (unlikely(!outfile)) {
-        fprintf(stderr, kErrprintfFopen, out_fname);
+        fprintf(stderr, kErrprintfFopen, out_fname, strerror(errno));
         goto ZstDecompress_ret_OPEN_FAIL;
       }
     } else {
@@ -2606,7 +2606,7 @@ PglErr ZstDecompress(const char* in_fname, const char* out_fname) {
     reterr = kPglRetReadFail;
     break;
   ZstDecompress_ret_WRITE_FAIL:
-    fputs(kErrstrWrite, stderr);
+    fprintf(stderr, kErrstrWrite, strerror(errno));
     reterr = kPglRetWriteFail;
     break;
   }

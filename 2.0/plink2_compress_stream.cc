@@ -30,7 +30,7 @@ PglErr InitCstreamNoop(const char* out_fname, uint32_t do_append, char* overflow
   css_ptr->outfile = fopen(out_fname, do_append? FOPEN_AB : FOPEN_WB);
   if (unlikely(!css_ptr->outfile)) {
     logputs("\n");
-    logerrprintfww(kErrprintfFopen, out_fname);
+    logerrprintfww(kErrprintfFopen, out_fname, strerror(errno));
     return kPglRetOpenFail;
   }
   css_ptr->overflow_buf = overflow_buf;
@@ -55,7 +55,7 @@ PglErr InitCstreamZstd(const char* out_fname, uint32_t do_append, __maybe_unused
   css_ptr->outfile = fopen(out_fname, do_append? FOPEN_AB : FOPEN_WB);
   if (unlikely(!css_ptr->outfile)) {
     logputs("\n");
-    logerrprintfww(kErrprintfFopen, out_fname);
+    logerrprintfww(kErrprintfFopen, out_fname, strerror(errno));
     ZSTD_freeCCtx(css_ptr->cctx);  // might return an error later?
     return kPglRetOpenFail;
   }
@@ -109,11 +109,8 @@ BoolErr ForceCompressedCswrite(CompressStreamState* css_ptr, char** writep_ptr) 
     ZSTD_inBuffer input = {overflow_buf, in_size, 0};
     while (1) {
       // todo: conditionally support seekable files
-      size_t retval = ZSTD_compressStream2(css_ptr->cctx, &css_ptr->output, &input, ZSTD_e_continue);
-      if (unlikely(ZSTD_isError(retval))) {
-        // is this actually possible?  well, play it safe for now
-        return 1;
-      }
+      __maybe_unused size_t retval = ZSTD_compressStream2(css_ptr->cctx, &css_ptr->output, &input, ZSTD_e_continue);
+      assert(!ZSTD_isError(retval));
       if (css_ptr->output.pos >= kCompressStreamBlock) {
         if (unlikely(!fwrite_unlocked(css_ptr->output.dst, css_ptr->output.pos, 1, css_ptr->outfile))) {
           return 1;
@@ -152,10 +149,8 @@ BoolErr CsputsStd(const char* readp, uint32_t byte_ct, CompressStreamState* css_
       ZSTD_inBuffer input = {overflow_buf, 2 * kCompressStreamBlock, 0};
       while (1) {
         // todo: conditionally support seekable files
-        size_t retval = ZSTD_compressStream2(css_ptr->cctx, &css_ptr->output, &input, ZSTD_e_continue);
-        if (unlikely(ZSTD_isError(retval))) {
-          return 1;
-        }
+        __maybe_unused size_t retval = ZSTD_compressStream2(css_ptr->cctx, &css_ptr->output, &input, ZSTD_e_continue);
+        assert(!ZSTD_isError(retval));
         if (css_ptr->output.pos >= kCompressStreamBlock) {
           if (unlikely(!fwrite_unlocked(css_ptr->output.dst, css_ptr->output.pos, 1, css_ptr->outfile))) {
             return 1;
@@ -193,11 +188,8 @@ BoolErr CompressedCswriteCloseNull(CompressStreamState* css_ptr, char* writep) {
   ZSTD_inBuffer input = {overflow_buf, in_size, 0};
   BoolErr reterr = 0;
   while (1) {
-    size_t retval = ZSTD_compressStream2(css_ptr->cctx, &css_ptr->output, &input, ZSTD_e_end);
-    if (unlikely(ZSTD_isError(retval))) {
-      reterr = 1;
-      break;
-    }
+    __maybe_unused size_t retval = ZSTD_compressStream2(css_ptr->cctx, &css_ptr->output, &input, ZSTD_e_end);
+    assert(!ZSTD_isError(retval));
     if (css_ptr->output.pos) {
       if (unlikely(!fwrite_unlocked(css_ptr->output.dst, css_ptr->output.pos, 1, css_ptr->outfile))) {
         reterr = 1;

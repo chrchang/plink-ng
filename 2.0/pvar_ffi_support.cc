@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
+#include <errno.h>
 #include <zlib.h>
 #include "pvar_ffi_support.h"
 #define ZSTD_STATIC_LINKING_ONLY
@@ -62,7 +63,7 @@ PglErr InitTextReader(const char* fname, TextReader* trp, char* errstr_buf) {
     }
     trp->infile = fopen(fname, FOPEN_RB);
     if (!trp->infile) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s.\n", fname);
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", fname, strerror(errno));
       goto InitTextReader_ret_OPEN_FAIL;
     }
     char header[4];

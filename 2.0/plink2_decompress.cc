@@ -24,7 +24,7 @@ PglErr gzopen_read_checked(const char* fname, gzFile* gzf_ptr) {
   *gzf_ptr = gzopen(fname, FOPEN_RB);
   if (unlikely(!(*gzf_ptr))) {
     logputs("\n");
-    logerrprintfww(kErrprintfFopen, fname);
+    logerrprintfww(kErrprintfFopen, fname, strerror(errno));
     return kPglRetOpenFail;
   }
   if (unlikely(gzbuffer(*gzf_ptr, 131072))) {
@@ -458,9 +458,13 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
       uint32_t new_file_is_bgzf;
       reterr = IsBgzf(new_fname, &new_file_is_bgzf);
       if (unlikely(reterr)) {
+        if (reterr == kPglRetOpenFail) {
+          syncp->open_errno = errno;
+        }
         goto ReadLineStreamThread_OPEN_OR_READ_FAIL;
       }
       if (new_file_is_bgzf) {
+        errno = 0;
         bgz_infile = bgzf_open(new_fname, "r");
         context->bgz_infile = bgz_infile;
         if (unlikely(!bgz_infile)) {
@@ -509,6 +513,7 @@ PglErr RlsOpenMaybeBgzf(const char* fname, __maybe_unused uint32_t calc_thread_c
     return reterr;
   }
   if (file_is_bgzf) {
+    errno = 0;
     rlsp->bgz_infile = bgzf_open(fname, "r");
     if (unlikely(!rlsp->bgz_infile)) {
       return kPglRetOpenFail;
@@ -635,6 +640,9 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
     EnterCriticalSection(critical_sectionp);
     const PglErr reterr = syncp->reterr;
     if (unlikely((reterr != kPglRetSuccess) && (reterr != kPglRetEof))) {
+      if (reterr == kPglRetOpenFail) {
+        errno = syncp->open_errno;
+      }
       LeaveCriticalSection(critical_sectionp);
       // No need to set consumer_progress event here, just let the cleanup
       // routine take care of that.
@@ -687,6 +695,9 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
   while (1) {
     const PglErr reterr = syncp->reterr;
     if (unlikely((reterr != kPglRetSuccess) && (reterr != kPglRetEof))) {
+      if (reterr == kPglRetOpenFail) {
+        errno = syncp->open_errno;
+      }
       pthread_mutex_unlock(sync_mutexp);
       return reterr;
     }
@@ -832,6 +843,9 @@ PglErr RetargetRLstreamRaw(const char* new_fname, ReadLineStream* rlsp, char** c
   const PglErr reterr = syncp->reterr;
   if (reterr != kPglRetSuccess) {
     if (unlikely(reterr != kPglRetEof)) {
+      if (reterr == kPglRetOpenFail) {
+        errno = syncp->open_errno;
+      }
       LeaveCriticalSection(critical_sectionp);
       return reterr;
     }
@@ -862,6 +876,9 @@ PglErr RetargetRLstreamRaw(const char* new_fname, ReadLineStream* rlsp, char** c
   const PglErr reterr = syncp->reterr;
   if (reterr != kPglRetSuccess) {
     if (unlikely(reterr != kPglRetEof)) {
+      if (reterr == kPglRetOpenFail) {
+        errno = syncp->open_errno;
+      }
       pthread_mutex_unlock(sync_mutexp);
       return reterr;
     }
@@ -939,7 +956,7 @@ void RLstreamErrPrint(const char* file_descrip, ReadLineStream* rlsp, PglErr* re
   if (*reterr_ptr != kPglRetLongLine) {
     if (*reterr_ptr == kPglRetOpenFail) {
       putc_unlocked('\n', stdout);
-      logerrprintfww(kErrprintfFopen, rlsp->syncp->new_fname);
+      logerrprintfww(kErrprintfFopen, rlsp->syncp->new_fname, strerror(errno));
     }
     return;
   }
@@ -985,7 +1002,7 @@ void TBstreamErrPrint(const char* file_descrip, TokenBatchStream* tbsp, PglErr* 
   if (*reterr_ptr != kPglRetLongLine) {
     if (*reterr_ptr == kPglRetOpenFail) {
       putc_unlocked('\n', stdout);
-      logerrprintfww(kErrprintfFopen, tbsp->rls.syncp->new_fname);
+      logerrprintfww(kErrprintfFopen, tbsp->rls.syncp->new_fname, strerror(errno));
     }
     return;
   }

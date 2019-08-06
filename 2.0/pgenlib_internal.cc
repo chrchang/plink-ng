@@ -17,6 +17,8 @@
 
 #include "pgenlib_internal.h"
 
+#include <errno.h>
+
 #ifndef NO_MMAP
 #  include <sys/types.h>  // fstat()
 #  include <sys/stat.h>  // open(), fstat()
@@ -2605,12 +2607,12 @@ PglErr PgfiInitPhase1(const char* fname, uint32_t raw_variant_ct, uint32_t raw_s
     pgfip->shared_ff = nullptr;  // this must be initialized before block_base
     int32_t file_handle = open(fname, O_RDONLY);
     if (unlikely(file_handle < 0)) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s.\n", fname);
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", fname, strerror(errno));
       return kPglRetOpenFail;
     }
     struct stat statbuf;
     if (unlikely(fstat(file_handle, &statbuf) < 0)) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s.\n", fname);
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", fname, strerror(errno));
       return kPglRetOpenFail;
     }
     fsize = statbuf.st_size;
@@ -2640,7 +2642,7 @@ PglErr PgfiInitPhase1(const char* fname, uint32_t raw_variant_ct, uint32_t raw_s
     shared_ff = fopen(fname, FOPEN_RB);
     pgfip->shared_ff = shared_ff;
     if (unlikely(!shared_ff)) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s.\n", fname);
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", fname, strerror(errno));
       return kPglRetOpenFail;
     }
     if (unlikely(fseeko(shared_ff, 0, SEEK_END))) {
@@ -12900,15 +12902,16 @@ PglErr MpgwInitPhase2(const char* __restrict fname, const uintptr_t* __restrict 
     mpgwp->pwcs[tidx] = R_CAST(PgenWriterCommon*, &(mpgw_alloc[tidx * pwc_byte_ct]));
   }
   PglErr reterr = PwcInitPhase1(fname, allele_idx_offsets, explicit_nonref_flags, variant_ct, sample_ct, phase_dosage_gflags, nonref_flags_storage, vrec_len_byte_ct, mpgwp->pwcs[0], &(mpgwp->pgen_outfile));
-  if (!reterr) {
-    mpgwp->thread_ct = thread_ct;
-    for (uint32_t tidx = 1; tidx != thread_ct; ++tidx) {
-      memcpy(mpgwp->pwcs[tidx], mpgwp->pwcs[0], sizeof(PgenWriterCommon));
-      mpgwp->pwcs[tidx]->vidx = tidx * kPglVblockSize;
-    }
-    PwcInitPhase2(vblock_cacheline_ct, thread_ct, mpgwp->pwcs, &(mpgw_alloc[thread_ct * pwc_byte_ct]));
+  if (unlikely(reterr)) {
+    return reterr;
   }
-  return reterr;
+  mpgwp->thread_ct = thread_ct;
+  for (uint32_t tidx = 1; tidx != thread_ct; ++tidx) {
+    memcpy(mpgwp->pwcs[tidx], mpgwp->pwcs[0], sizeof(PgenWriterCommon));
+    mpgwp->pwcs[tidx]->vidx = tidx * kPglVblockSize;
+  }
+  PwcInitPhase2(vblock_cacheline_ct, thread_ct, mpgwp->pwcs, &(mpgw_alloc[thread_ct * pwc_byte_ct]));
+  return kPglRetSuccess;
 }
 
 

@@ -2127,7 +2127,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     if (unlikely(!realpath(subset_fname, g_textbuf)))
 #endif
     {
-      logerrprintfww(kErrprintfFopen, subset_fname);
+      logerrprintfww(kErrprintfFopen, subset_fname, strerror(errno));
       goto CalcKingTableSubset_ret_OPEN_FAIL;
     }
     if (RealpathIdentical(outname, g_textbuf, &(g_textbuf[kPglFnamesize + 64]))) {

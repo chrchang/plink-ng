@@ -264,13 +264,12 @@ PglErr GparseFlush(const GparseRecord* grp, uint32_t write_block_size, STPgenWri
               }
             } else {
               if (!cur_gwmp->phasepresent_exists) {
-                if (unlikely(SpgwAppendMultiallelicSparse(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, cur_gwmp->patch_01_ct, cur_gwmp->patch_10_ct, spgwp))) {
-                  goto GparseFlush_ret_WRITE_FAIL;
-                }
+                reterr = SpgwAppendMultiallelicSparse(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, cur_gwmp->patch_01_ct, cur_gwmp->patch_10_ct, spgwp);
               } else {
-                if (unlikely(SpgwAppendMultiallelicGenovecHphase(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, phasepresent, phaseinfo, cur_gwmp->patch_01_ct, cur_gwmp->patch_10_ct, spgwp))) {
-                  goto GparseFlush_ret_WRITE_FAIL;
-                }
+                reterr = SpgwAppendMultiallelicGenovecHphase(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, phasepresent, phaseinfo, cur_gwmp->patch_01_ct, cur_gwmp->patch_10_ct, spgwp);
+              }
+              if (unlikely(reterr)) {
+                goto GparseFlush_ret_1;
               }
             }
           } else {
@@ -2693,9 +2692,9 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         const uint32_t slen = strlen(vcfname);
         if (StrEndsWith(vcfname, ".vcf", slen) ||
             StrEndsWith(vcfname, ".vcf.gz", slen)) {
-          logerrprintfww(kErrprintfFopen, vcfname);
+          logerrprintfww(kErrprintfFopen, vcfname, strerror(errno));
         } else {
-          logerrprintfww("Error: Failed to open %s. (--vcf expects a complete filename; did you forget '.vcf' at the end?)\n", vcfname);
+          logerrprintfww("Error: Failed to open %s : %s. (--vcf expects a complete filename; did you forget '.vcf' at the end?)\n", vcfname, strerror(errno));
         }
       }
       goto VcfToPgen_ret_1;
@@ -3430,6 +3429,9 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       uint32_t max_vrec_len;
       reterr = SpgwInitPhase1(outname, allele_idx_offsets, nonref_flags, variant_ct, sample_ct, phase_dosage_gflags, nonref_flags_storage, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
       if (unlikely(reterr)) {
+        if (reterr == kPglRetOpenFail) {
+          logerrprintfww(kErrprintfFopen, outname, strerror(errno));
+        }
         goto VcfToPgen_ret_1;
       }
       unsigned char* spgw_alloc;
@@ -3919,9 +3921,9 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
       const uint32_t slen = strlen(samplename);
       if (StrEndsWith(samplename, ".sample", slen) ||
           StrEndsWith(samplename, ".sample.gz", slen)) {
-        logerrprintfww(kErrprintfFopen, samplename);
+        logerrprintfww(kErrprintfFopen, samplename, strerror(errno));
       } else {
-        logerrprintfww("Error: Failed to open %s. (--sample expects a complete filename; did you forget '.sample' at the end?)\n", samplename);
+        logerrprintfww("Error: Failed to open %s : %s. (--sample expects a complete filename; did you forget '.sample' at the end?)\n", samplename, strerror(errno));
       }
       goto OxSampleToPsam_ret_OPEN_FAIL;
     }
@@ -4538,9 +4540,9 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
         const uint32_t slen = strlen(genname);
         if (StrEndsWith(genname, ".gen", slen) ||
             StrEndsWith(genname, ".gen.gz", slen)) {
-          logerrprintfww(kErrprintfFopen, genname);
+          logerrprintfww(kErrprintfFopen, genname, strerror(errno));
         } else {
-          logerrprintfww("Error: Failed to open %s. (--gen expects a complete filename; did you forget '.gen' at the end?)\n", genname);
+          logerrprintfww("Error: Failed to open %s : %s. (--gen expects a complete filename; did you forget '.gen' at the end?)\n", genname, strerror(errno));
         }
       }
       goto OxGenToPgen_ret_1;
@@ -4787,6 +4789,9 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
     uint32_t max_vrec_len;
     reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, dosage_is_present? kfPgenGlobalDosagePresent : kfPgenGlobal0, (oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefLast))? 1 : 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
     if (unlikely(reterr)) {
+      if (reterr == kPglRetOpenFail) {
+        logerrprintfww(kErrprintfFopen, outname, strerror(errno));
+      }
       goto OxGenToPgen_ret_1;
     }
     unsigned char* spgw_alloc;
@@ -7054,6 +7059,10 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       uint32_t max_vrec_len;
       reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, dosage_is_present? kfPgenGlobalDosagePresent : kfPgenGlobal0, (oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefLast))? 1 : 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
       if (unlikely(reterr)) {
+        if (reterr == kPglRetOpenFail) {
+          logputs("\n");
+          logerrprintfww(kErrprintfFopen, outname, strerror(errno));
+        }
         goto OxBgenToPgen_ret_1;
       }
       unsigned char* spgw_alloc;
@@ -7953,6 +7962,9 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       uint32_t max_vrec_len;
       reterr = SpgwInitPhase1(outname, allele_idx_offsets, nullptr, variant_ct, sample_ct, dosage_is_present? (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent) : kfPgenGlobal0, (oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefLast))? 1 : 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
       if (unlikely(reterr)) {
+        if (reterr == kPglRetOpenFail) {
+          logerrprintfww(kErrprintfFopen, outname, strerror(errno));
+        }
         goto OxBgenToPgen_ret_1;
       }
 
@@ -8484,7 +8496,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     reterr = RlsOpenMaybeBgzf(hapsname, ClipU32(max_thread_ct - 1, 1, 4), &haps_rls);
     if (unlikely(reterr)) {
       if (reterr == kPglRetOpenFail) {
-        logerrprintfww("Error: Failed to open %s.\n", hapsname);
+        logerrprintfww("Error: Failed to open %s : %s.\n", hapsname, strerror(errno));
       }
       goto OxHapslegendToPgen_ret_1;
     }
@@ -8725,6 +8737,9 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     uint32_t max_vrec_len;
     reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, at_least_one_het? kfPgenGlobalHardcallPhasePresent : kfPgenGlobal0, (oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefLast))? 1 : 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
     if (unlikely(reterr)) {
+      if (reterr == kPglRetOpenFail) {
+        logerrprintfww(kErrprintfFopen, outname, strerror(errno));
+      }
       goto OxHapslegendToPgen_ret_1;
     }
     unsigned char* spgw_alloc;
@@ -9915,6 +9930,9 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     uint32_t max_vrec_len;
     reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, dosage_is_present? kfPgenGlobalDosagePresent: kfPgenGlobal0, (flags & (kfPlink1DosageRefFirst | kfPlink1DosageRefLast))? 1 : 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
     if (unlikely(reterr)) {
+      if (reterr == kPglRetOpenFail) {
+        logerrprintfww(kErrprintfFopen, outname, strerror(errno));
+      }
       goto Plink1DosageToPgen_ret_1;
     }
     unsigned char* spgw_alloc;
@@ -10515,6 +10533,9 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
     uint32_t max_vrec_len;
     reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, (dosage_nfreq >= 1.0)? kfPgenGlobal0 : kfPgenGlobalDosagePresent, 1, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
     if (unlikely(reterr)) {
+      if (reterr == kPglRetOpenFail) {
+        logerrprintfww(kErrprintfFopen, outname, strerror(errno));
+      }
       goto GenerateDummy_ret_1;
     }
     unsigned char* spgw_alloc;
@@ -10844,6 +10865,13 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, uintptr_t variant_ct, uintp
     // than 7-8.)
     unsigned char* mpgw_alloc = S_CAST(unsigned char*, bigstack_alloc_raw((alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct * calc_thread_ct) * kCacheline));
     reterr = MpgwInitPhase2(pgenname, nullptr, nullptr, variant_ct, sample_ct, kfPgenGlobal0, 2 - real_ref_alleles, vrec_len_byte_ct, vblock_cacheline_ct, calc_thread_ct, mpgw_alloc, mpgwp);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetOpenFail) {
+        logputs("\n");
+        logerrprintfww(kErrprintfFopen, pgenname, strerror(errno));
+      }
+      goto Plink1SampleMajorToPgen_ret_1;
+    }
 
     cachelines_avail = bigstack_left() / kCacheline;
     const uint64_t full_load_vecs_req = sample_ct * S_CAST(uint64_t, QuaterCtToAlignedWordCt(variant_ct));
@@ -11002,6 +11030,7 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, uintptr_t variant_ct, uintp
     reterr = kPglRetThreadCreateFail;
     break;
   }
+ Plink1SampleMajorToPgen_ret_1:
   CleanupThreads3z(&ts, &g_cur_block_write_ct);
   if (MpgwCleanup(mpgwp) && (!reterr)) {
     reterr = kPglRetWriteFail;

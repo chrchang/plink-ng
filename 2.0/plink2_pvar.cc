@@ -830,7 +830,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     reterr = RlsOpenMaybeBgzf(pvarname, calc_thread_ct, &pvar_rls);
     if (unlikely(reterr)) {
       if (reterr == kPglRetOpenFail) {
-        logerrprintfww(kErrprintfFopen, pvarname);
+        logerrprintfww(kErrprintfFopen, pvarname, strerror(errno));
       }
       goto LoadPvar_ret_1;
     }

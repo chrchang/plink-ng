@@ -1059,6 +1059,7 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
       snprintf(outname_end, kMaxOutfnameExtBlen, ".gen.gz");
       // may want to move the next few lines of boilerplate into its own
       // function
+      errno = 0; // Defensive.
       bgz_outfile = bgzf_open(outname, "w");
       if (unlikely(!bgz_outfile)) {
         goto ExportOxGen_ret_OPEN_FAIL;
@@ -1439,6 +1440,7 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
       }
     } else {
       snprintf(outname_end, kMaxOutfnameExtBlen, ".haps.gz");
+      errno = 0;
       bgz_outfile = bgzf_open(outname, "w");
       if (unlikely(!bgz_outfile)) {
         goto ExportOxHapslegend_ret_OPEN_FAIL;
@@ -4181,6 +4183,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       }
     } else {
       snprintf(outname_end, kMaxOutfnameExtBlen, ".vcf.gz");
+      errno = 0;
       bgz_outfile = bgzf_open(outname, "w");
       if (unlikely(!bgz_outfile)) {
         goto ExportVcf_ret_OPEN_FAIL;

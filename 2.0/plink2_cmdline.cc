@@ -31,7 +31,7 @@
 namespace plink2 {
 #endif
 
-const char kErrprintfFopen[] = "Error: Failed to open %s.\n";
+const char kErrprintfFopen[] = "Error: Failed to open %s : %s.\n";
 
 char g_textbuf[kTextbufSize];
 
@@ -120,7 +120,7 @@ BoolErr fopen_checked(const char* fname, const char* mode, FILE** target_ptr) {
     if (access(fname, W_OK) != -1) {
       if (unlikely(unlink(fname))) {
         logputs("\n");
-        logerrprintfww(kErrprintfFopen, fname);
+        logerrprintfww(kErrprintfFopen, fname, strerror(errno));
         return 1;
       }
     }
@@ -129,7 +129,7 @@ BoolErr fopen_checked(const char* fname, const char* mode, FILE** target_ptr) {
   *target_ptr = fopen(fname, mode);
   if (unlikely(!(*target_ptr))) {
     logputs("\n");
-    logerrprintfww(kErrprintfFopen, fname);
+    logerrprintfww(kErrprintfFopen, fname, strerror(errno));
     return 1;
   }
   return 0;
@@ -440,7 +440,7 @@ PglErr InitLogfile(uint32_t always_stderr, char* outname, char* outname_end) {
   g_logfile = fopen(outname, "w");
   if (unlikely(!g_logfile)) {
     fflush(stdout);
-    fprintf(stderr, "Error: Failed to open %s for logging.\n", outname);
+    fprintf(stderr, "Error: Failed to open %s for logging: %s.\n", outname, strerror(errno));
     // g_stderr_written_to = 1;
     return kPglRetOpenFail;
   }
@@ -463,7 +463,7 @@ BoolErr CleanupLogfile(uint32_t print_end_time) {
       logputs_silent(g_logbuf);
       if (unlikely(fclose(g_logfile))) {
         fflush(stdout);
-        fputs("Error: Failed to finish writing to log.\n", stderr);
+        fprintf(stderr, "Error: Failed to finish writing to log: %s.\n", strerror(errno));
         ret_boolerr = 1;
       }
     } else {
@@ -3076,7 +3076,7 @@ void PreinitPlink2CmdlineMeta(Plink2CmdlineMeta* pcmp) {
 }
 
 const char kErrstrNomem[] = "Error: Out of memory.  The --memory flag may be helpful.\n";
-const char kErrstrWrite[] = "Error: File write failure.\n";
+const char kErrstrWrite[] = "Error: File write failure: %s.\n";
 const char kErrstrRead[] = "Error: File read failure.\n";
 const char kErrstrThreadCreate[] = "Error: Failed to create thread.\n";
 const char kErrstrVarRecordTooLarge[] = "Error: Variant record size exceeds ~4 GiB limit.\n";
@@ -3095,7 +3095,12 @@ void DispExitMsg(PglErr reterr) {
       logerrputs(kErrstrRead);
     } else if (reterr == kPglRetWriteFail) {
       logputs("\n");
-      logerrputs(kErrstrWrite);
+      if (errno) {
+        logerrprintfww(kErrstrWrite, strerror(errno));
+      } else {
+        // Defensive.
+        logerrputs("Error: File write failure: Untracked cause.\n");
+      }
     } else if (reterr == kPglRetThreadCreateFail) {
       logputs("\n");
       logerrputs(kErrstrThreadCreate);
@@ -3365,7 +3370,7 @@ PglErr Rerun(const char* ver_str, const char* ver_str2, const char* prog_name_st
   Rerun_ret_OPEN_FAIL:
     fputs(ver_str, stdout);
     fputs(ver_str2, stdout);
-    fprintf(stderr, kErrprintfFopen, rerun_fname);
+    fprintf(stderr, kErrprintfFopen, rerun_fname, strerror(errno));
     reterr = kPglRetOpenFail;
     break;
   Rerun_ret_LONG_LINE:
@@ -3416,7 +3421,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
         if (unlikely(!scriptfile)) {
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
-          fprintf(stderr, kErrprintfFopen, argvk[arg_idx + 1]);
+          fprintf(stderr, kErrprintfFopen, argvk[arg_idx + 1], strerror(errno));
           goto CmdlineParsePhase1_ret_OPEN_FAIL;
         }
         if (unlikely(fseeko(scriptfile, 0, SEEK_END))) {
