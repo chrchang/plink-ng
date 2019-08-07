@@ -44,7 +44,9 @@ FLAGSET_DEF_START()
   kfOxfordImport0,
   kfOxfordImportRefFirst = (1 << 0),
   kfOxfordImportRefLast = (1 << 1),
-  kfOxfordImportBgenSnpIdChr = (1 << 2)
+  kfOxfordImportRefUnknown = (1 << 2),
+  kfOxfordImportRefAll = ((kfOxfordImportRefUnknown * 2) - kfOxfordImportRefFirst),
+  kfOxfordImportBgenSnpIdChr = (1 << 3)
 FLAGSET_DEF_END(OxfordImportFlags);
 
 FLAGSET_DEF_START()

@@ -3852,6 +3852,8 @@ int main(int argc, char** argv) {
               oxford_import_flags |= kfOxfordImportBgenSnpIdChr;
             } else if (strequal_k(cur_modif, "ref-first", cur_modif_slen)) {
               oxford_import_flags |= kfOxfordImportRefFirst;
+            } else if (strequal_k(cur_modif, "ref-unknown", cur_modif_slen)) {
+              oxford_import_flags |= kfOxfordImportRefUnknown;
             } else if (strequal_k(cur_modif, "ref-last", cur_modif_slen)) {
               oxford_import_flags |= kfOxfordImportRefLast;
             } else if (likely(strequal_k(cur_modif, "ref-second", cur_modif_slen))) {
@@ -3861,6 +3863,9 @@ int main(int argc, char** argv) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --bgen parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
+          }
+          if (!(oxford_import_flags & kfOxfordImportRefAll)) {
+            logerrputs("Warning: No --bgen REF/ALT mode specified ('ref-first', 'ref-last', or\n'ref-unknown').  This will be required as of alpha 3.\n");
           }
           const char* cur_fname = argvk[arg_idx + 1];
           const uint32_t slen = strlen(cur_fname);
@@ -4155,6 +4160,8 @@ int main(int argc, char** argv) {
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "ref-first", cur_modif_slen)) {
               oxford_import_flags |= kfOxfordImportRefFirst;
+            } else if (strequal_k(cur_modif, "ref-unknown", cur_modif_slen)) {
+              oxford_import_flags |= kfOxfordImportRefUnknown;
             } else if (strequal_k(cur_modif, "ref-last", cur_modif_slen) ||
                        strequal_k(cur_modif, "ref-second", cur_modif_slen)) {
               oxford_import_flags |= kfOxfordImportRefLast;
@@ -4169,6 +4176,9 @@ int main(int argc, char** argv) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --data parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
+          }
+          if (!(oxford_import_flags & kfOxfordImportRefAll)) {
+            logerrputs("Warning: No --data REF/ALT mode specified ('ref-first', 'ref-last', or\n'ref-unknown').  This will be required as of alpha 3.\n");
           }
           const char* fname_prefix = argvk[arg_idx + 1];
           const uint32_t slen = strlen(fname_prefix);
@@ -5048,6 +5058,8 @@ int main(int argc, char** argv) {
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "ref-first", cur_modif_slen)) {
               oxford_import_flags |= kfOxfordImportRefFirst;
+            } else if (strequal_k(cur_modif, "ref-unknown", cur_modif_slen)) {
+              oxford_import_flags |= kfOxfordImportRefUnknown;
             } else if (likely(
                 strequal_k(cur_modif, "ref-last", cur_modif_slen) ||
                 strequal_k(cur_modif, "ref-second", cur_modif_slen))) {
@@ -5056,6 +5068,9 @@ int main(int argc, char** argv) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --gen parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
+          }
+          if (!(oxford_import_flags & kfOxfordImportRefAll)) {
+            logerrputs("Warning: No --gen REF/ALT mode specified ('ref-first', 'ref-last', or\n'ref-unknown').  This will be required as of alpha 3.\n");
           }
           const char* cur_fname = argvk[arg_idx + 1];
           const uint32_t slen = strlen(cur_fname);
@@ -9122,8 +9137,8 @@ int main(int argc, char** argv) {
         goto main_ret_INVALID_CMDLINE_A;
       }
     }
-    if (unlikely((oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefLast)) == (kfOxfordImportRefFirst | kfOxfordImportRefLast))) {
-      logerrputs("Error: --data/--{b}gen 'ref-first' and 'ref-last' modifiers cannot be used\ntogether.\n");
+    if (unlikely((oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefLast | kfOxfordImportRefUnknown)) == (kfOxfordImportRefFirst | kfOxfordImportRefLast | kfOxfordImportRefUnknown))) {
+      logerrputs("Error: --data/--{b}gen 'ref-first', 'ref-last', and 'ref-unknown' modifiers\ncannot be used together.\n");
       goto main_ret_INVALID_CMDLINE;
     }
     if (unlikely(!strcmp(g_missing_catname, g_output_missing_pheno))) {

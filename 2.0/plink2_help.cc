@@ -165,9 +165,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      also absent.\n\n"
               );
     HelpPrint("data\0gen\0bgen\0sample\0haps\0legend\0", &help_ctrl, 1,
-"  --data <filename prefix> [{ref-first | ref-last}] ['gzs']\n"
-"  --bgen <filename> ['snpid-chr'] [{ref-first | ref-last}]\n"
-"  --gen <filename> [{ref-first | ref-last}]\n"
+"  --data <filename prefix> [REF/ALT mode] ['gzs']\n"
+"  --bgen <filename> [REF/ALT mode] ['snpid-chr']\n"
+"  --gen <filename> [REF/ALT mode]\n"
 "  --sample <filename> :\n"
 "    Specify an Oxford-format dataset to import.  --data specifies a .gen{|.zst}\n"
 "    + .sample pair, while --bgen specifies a BGEN v1.1+ file.\n"
@@ -175,9 +175,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      companion .sample file.\n"
 "    * With 'snpid-chr', chromosome codes are read from the 'SNP ID' field\n"
 "      instead of the usual chromosome field.\n"
-"    * By default, the last allele for each variant is treated as a provisional\n"
-"      reference allele.  To specify that the first (resp. last) allele really\n"
-"      is always reference, add the 'ref-first' (resp. 'ref-last') modifier.\n\n"
+"    * The following REF/ALT modes are supported:\n"
+"      'ref-first': The first allele for each variant is REF.\n"
+"      'ref-last': The last allele for each variant is REF.\n"
+"      'ref-unknown' (default): The last allele for each variant is treated as\n"
+"                               provisional-REF.\n"
+"      This parameter will be required instead of optional in alpha 3.\n"
                );
     // todo: make 'per' prefix modifiable
     HelpPrint("haps\0legend\0", &help_ctrl, 1,
