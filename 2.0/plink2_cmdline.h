@@ -115,10 +115,6 @@ CONSTI32(kDefaultThreadStack, 524288);
 CONSTI32(kDefaultThreadStack, 131072);
 #endif
 
-// generic maximum line byte length, currently also used as a default I/O
-// buffer size.  .ped/.vcf/etc. lines can of course be longer.
-CONSTI32(kMaxMediumLine, 131072);
-
 CONSTI32(kLogbufSize, 2 * kMaxMediumLine);
 
 // must be at least 2 * kMaxMediumLine + 2 to support generic token loader.

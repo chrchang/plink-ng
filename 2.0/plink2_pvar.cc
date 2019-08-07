@@ -181,48 +181,42 @@ void VaridTemplateInit(const char* varid_template_str, const char* missing_id_ma
   const char* varid_template_str_iter = varid_template_str;
   uint32_t template_insert_ct = 0;
   uint32_t template_base_len = 0;
-  unsigned char ucc = *varid_template_str_iter;
   uint32_t alleles_needed = 0;  // bit 0 = ref, bit 1 = alt, bit 2 = ascii sort
   vtp->chr_output_name_buf = chr_output_name_buf;
   vtp->segs[0] = varid_template_str_iter;
   vtp->chr_slen = 0;
-  do {
-    if (ucc <= '@') {
-      uint32_t seg_len;
-      uint32_t insert_type;
-      if (ucc == '@') {
-        seg_len = varid_template_str_iter - vtp->segs[template_insert_ct];
-        insert_type = 0;
-        goto VaridTemplateInit_match;
-      }
-      if (ucc == '#') {
-        seg_len = varid_template_str_iter - vtp->segs[template_insert_ct];
-        insert_type = 1;
-        goto VaridTemplateInit_match;
-      }
-      if (ucc == '$') {
-        seg_len = varid_template_str_iter - vtp->segs[template_insert_ct];
-        {
-          const uint32_t uii = ctou32(*(++varid_template_str_iter));
-          if (uii <= '2') {
-            alleles_needed += 2;  // this happens twice
-            insert_type = uii - 48;  // '1' -> type 2, '2' -> type 3
-          } else {
-            // 'r' -> type 2, 'a' -> type 3
-            insert_type = 1 + ((uii & 0xdf) == 'A');
-          }
-          alleles_needed += insert_type;
-          ++insert_type;
-        }
-      VaridTemplateInit_match:
-        vtp->seg_lens[template_insert_ct] = seg_len;
-        template_base_len += seg_len;
-        vtp->insert_types[template_insert_ct++] = insert_type;
-        vtp->segs[template_insert_ct] = &(varid_template_str_iter[1]);
-      }
+  for (unsigned char ucc = *varid_template_str_iter; ucc; ucc = *(++varid_template_str_iter)) {
+    if (ucc > '@') {
+      continue;
     }
-    ucc = *(++varid_template_str_iter);
-  } while (ucc);
+    uint32_t seg_len;
+    uint32_t insert_type;
+    if (ucc == '@') {
+      seg_len = varid_template_str_iter - vtp->segs[template_insert_ct];
+      insert_type = 0;
+    } else if (ucc == '#') {
+      seg_len = varid_template_str_iter - vtp->segs[template_insert_ct];
+      insert_type = 1;
+    } else if (ucc != '$') {
+      continue;
+    } else {
+      seg_len = varid_template_str_iter - vtp->segs[template_insert_ct];
+      const uint32_t uii = ctou32(*(++varid_template_str_iter));
+      if (uii <= '2') {
+        alleles_needed += 2;  // this happens twice
+        insert_type = uii - 48;  // '1' -> type 2, '2' -> type 3
+      } else {
+        // 'r' -> type 2, 'a' -> type 3
+        insert_type = 1 + ((uii & 0xdf) == 'A');
+      }
+      alleles_needed += insert_type;
+      ++insert_type;
+    }
+    vtp->seg_lens[template_insert_ct] = seg_len;
+    template_base_len += seg_len;
+    vtp->insert_types[template_insert_ct++] = insert_type;
+    vtp->segs[template_insert_ct] = &(varid_template_str_iter[1]);
+  }
   const uint32_t seg_len = varid_template_str_iter - vtp->segs[template_insert_ct];
   vtp->seg_lens[template_insert_ct] = seg_len;
   vtp->insert_ct = template_insert_ct;
@@ -422,6 +416,11 @@ char* VaridTemplateWrite(const VaridTemplate* vtp, const char* ref_start, const 
     memcpy(insert_ptrs[insert_type_idx], tmp_allele_ptrs[insert_type_idx - 2], insert_slens[insert_type_idx]);
   }
   return id_end;
+}
+
+uint32_t VaridWorstCaseSlen(const VaridTemplate* vtp, uint32_t max_chr_slen, uint32_t max_allele_slen) {
+  // +10 for base-pair coordinate
+  return (max_allele_slen * vtp->alleles_needed + vtp->base_len + max_chr_slen + 10);
 }
 
 void BackfillChrIdxs(const ChrInfo* cip, uint32_t chrs_encountered_m1, uint32_t offset, uint32_t end_vidx, ChrIdx* chr_idxs) {
@@ -1251,6 +1250,10 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     uintptr_t* cur_filter_npass = nullptr;
     char** cur_filter_storage = nullptr;
     uintptr_t* cur_nonref_flags = nullptr;
+
+    // only need this for --set-{missing,all}-var-ids error message
+    uint32_t max_chr_slen = 0;
+
     uint32_t max_filter_slen = 0;
     uint32_t exclude_ct = 0;
 
@@ -1382,6 +1385,9 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           if (chr_output_name_buf) {
             char* chr_name_end = chrtoa(cip, cur_chr_code, chr_output_name_buf);
             const uint32_t chr_slen = chr_name_end - chr_output_name_buf;
+            if (chr_slen > max_chr_slen) {
+              max_chr_slen = chr_slen;
+            }
             const int32_t chr_slen_delta = chr_slen - varid_templatep->chr_slen;
             varid_templatep->chr_slen = chr_slen;
             varid_templatep->base_len += chr_slen_delta;
@@ -1798,7 +1804,26 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         // possible.
         logerrprintf("Warning: %" PRIuPTR " allele code%s truncated by --set-%s-var-ids.\n", new_variant_id_allele_len_overflow, (new_variant_id_allele_len_overflow == 1)? "" : "s", missing_varid_match_slen? "missing" : "all");
       } else {
-        logerrprintfww("Error: %" PRIuPTR " allele code%s too long for --set-%s-var-ids. Use '--new-id-max-allele-len [len] missing' to set the IDs of all variants with an allele code longer than the given length to '.' (and then process those variants with another script, if necessary).\n", new_variant_id_allele_len_overflow, (new_variant_id_allele_len_overflow == 1)? "" : "s", missing_varid_match_slen? "missing" : "all");
+        uint32_t worst_case_id_slen = VaridWorstCaseSlen(varid_templatep, max_chr_slen, max_allele_slen);
+        if ((worst_case_id_slen <= kMaxIdSlen) && varid_multi_templatep) {
+          const uint32_t tmp_slen = VaridWorstCaseSlen(varid_multi_templatep, max_chr_slen, max_allele_slen);
+          if (tmp_slen > worst_case_id_slen) {
+            worst_case_id_slen = tmp_slen;
+          }
+        }
+        if ((worst_case_id_slen <= kMaxIdSlen) && varid_multi_nonsnp_templatep) {
+          const uint32_t tmp_slen = VaridWorstCaseSlen(varid_multi_nonsnp_templatep, max_chr_slen, max_allele_slen);
+          if (tmp_slen > worst_case_id_slen) {
+            worst_case_id_slen = tmp_slen;
+          }
+        }
+        logerrprintf("Error: %" PRIuPTR " allele code%s too long for --set-%s-var-ids.\n", new_variant_id_allele_len_overflow, (new_variant_id_allele_len_overflow == 1)? "" : "s", missing_varid_match_slen? "missing" : "all");
+        if (worst_case_id_slen <= kMaxIdSlen) {
+          logerrprintfww("The longest observed allele code in this dataset has length %u. If you're fine with the corresponding ID length, rerun with \"--new-id-max-allele-len %u\" added to your command line.\n", max_allele_slen, max_allele_slen);
+          logerrputs("Otherwise, use \"--new-id-max-allele-len <limit> missing\" to set the IDs of all\nvariants with an allele code longer than the given length-limit to '.' (and\nthen process those variants with another script, if necessary).\n");
+        } else {
+          logerrprintfww("The longest observed allele code in this dataset has length %u. We recommend deciding on a length-limit, and then adding \"--new-id-max-allele-len <limit> missing\" to your command line to cause variants with longer allele codes to be assigned '.' IDs. (You can then process just those variants with another script, if necessary.)\n", max_allele_slen);
+        }
         goto LoadPvar_ret_INCONSISTENT_INPUT;
       }
     }

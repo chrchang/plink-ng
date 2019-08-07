@@ -60,6 +60,10 @@
 #  define EOLN_STR "\n"
 #endif
 
+// generic maximum line byte length, currently also used as a default I/O
+// buffer size.  .ped/.vcf/etc. lines can of course be longer.
+CONSTI32(kMaxMediumLine, 131072);
+
 // apparently these aren't always defined in limits.h
 #ifndef DBL_MAX
 #  define DBL_MAX 1.7976931348623157e308
