@@ -86,7 +86,8 @@ BoolErr IsPathologicallyLongLineOrToken(const char* cur_block_start, const char*
   if (unlikely(already_scanned_byte_ct >= kMaxTokenBlen)) {
     return 1;
   }
-  // replace with a forward-scanning version of this function when available
+  // Replace with a forward-scanning version of this functionality when
+  // available ("FirstPostspaceBoundedFar"?)
   return (LastSpaceOrEoln(read_head, kMaxTokenBlen - already_scanned_byte_ct) == nullptr);
 }
 
@@ -108,8 +109,6 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
   // In the first case, read_stop is buf_end, but it gets changed to the
   // latest value of consume_tail when we return to the front of the buffer.
   // In the second case, read_stop is the position of the first passed byte.
-  // todo: change how buf_end works so that long lines are consistently
-  // detected.
   char* read_stop = buf_end;
 #ifdef _WIN32
   CRITICAL_SECTION* critical_sectionp = &syncp->critical_section;

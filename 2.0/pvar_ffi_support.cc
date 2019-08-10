@@ -230,7 +230,7 @@ uint32_t TextReadLine(TextReader* trp, char** line_startp, PglErr* reterrp) {
             *reterrp = kPglRetMalformedInput;
             return 0;
           }
-          ZSTD_resetDStream(trp->zds);
+          ZSTD_DCtx_reset(trp->zds, ZSTD_reset_session_only);
           if (trp->zsrc_loaded < ZSTD_FRAMEHEADERSIZE_MAX) {
             const uint32_t incr = fread_unlocked(&(buf[trp->zsrc_loaded]), 1, ZSTD_FRAMEHEADERSIZE_MAX, trp->infile);
             trp->zsrc_loaded += incr;

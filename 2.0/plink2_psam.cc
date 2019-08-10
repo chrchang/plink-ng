@@ -1015,7 +1015,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
       }
       if (pheno_range_list_ptr->names) {
         if (unlikely(!numeric_ranges)) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Header line expected in %s (due to --pheno-name/--covar-name).\n", pheno_fname);
+          snprintf(g_logbuf, kLogbufSize, "Error: Header line expected in %s, due to --pheno-name/--covar-name. (This line must start with '#FID', 'FID', '#IID', or 'IID'.)\n", pheno_fname);
           goto LoadPhenos_ret_INCONSISTENT_INPUT_WW;
         }
         const uint32_t bitarr_size = col_ct - 2;
