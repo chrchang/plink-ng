@@ -20,6 +20,7 @@
 #include "plink2_fasta.h"
 #include "plink2_filter.h"
 #include "plink2_glm.h"
+#include "plink2_help.h"
 #include "plink2_import.h"
 #include "plink2_ld.h"
 #include "plink2_matrix_calc.h"
@@ -28,6 +29,7 @@
 #include "plink2_pvar.h"
 #include "plink2_random.h"
 #include "plink2_set.h"
+#include "plink2_zstfile.h"
 
 #include <time.h>  // time()
 #include <unistd.h>  // unlink()
@@ -35,9 +37,6 @@
 #ifdef __APPLE__
 #  include <fenv.h>  // fesetenv()
 #endif
-
-#include "plink2_help.h"
-
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -67,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (13 Aug 2019)";
+  " (14 Aug 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -2544,18 +2543,21 @@ PglErr ZstDecompress(const char* in_fname, const char* out_fname) {
   // the decompressed data to stdout, we have to duplicate a bit of
   // plink2_decompress code and strip out printing/logging.
 
-  // Strictly speaking, this can currently decompress gzipped files too, but
-  // that's not its purpose.
-  gzFile gz_infile = gzopen(in_fname, FOPEN_RB);
+  zstRFILE zrf;
+  PreinitZstRfile(&zrf);
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
   {
-    if (unlikely(!gz_infile)) {
-      fprintf(stderr, kErrprintfFopen, in_fname, strerror(errno));
-      goto ZstDecompress_ret_OPEN_FAIL;
-    }
-    if (unlikely(gzbuffer(gz_infile, 131072))) {
-      goto ZstDecompress_ret_NOMEM;
+    reterr = ZstRfileOpen(in_fname, &zrf);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetNomem) {
+        goto ZstDecompress_ret_NOMEM;
+      }
+      if (reterr == kPglRetOpenFail) {
+        fprintf(stderr, kErrprintfFopen, in_fname, strerror(errno));
+        goto ZstDecompress_ret_OPEN_FAIL;
+      }
+      goto ZstDecompress_ret_READ_FAIL;
     }
     if (out_fname) {
       outfile = fopen(out_fname, FOPEN_WB);
@@ -2568,7 +2570,7 @@ PglErr ZstDecompress(const char* in_fname, const char* out_fname) {
     }
     unsigned char* buf = R_CAST(unsigned char*, g_textbuf);
     while (1) {
-      const int32_t bytes_read = gzread(gz_infile, buf, kTextbufMainSize);
+      const int32_t bytes_read = zstread(&zrf, buf, kTextbufMainSize);
       if (bytes_read <= 0) {
         if (likely(!bytes_read)) {
           break;
@@ -2580,7 +2582,7 @@ PglErr ZstDecompress(const char* in_fname, const char* out_fname) {
       }
       fflush(outfile);
     }
-    if (unlikely(gzclose_null(&gz_infile))) {
+    if (unlikely(CleanupZstRfile(&zrf))) {
       goto ZstDecompress_ret_READ_FAIL;
     }
     if (out_fname) {
@@ -2613,7 +2615,9 @@ PglErr ZstDecompress(const char* in_fname, const char* out_fname) {
   if (out_fname) {
     fclose_cond(outfile);
   }
-  gzclose_cond(gz_infile);
+  if (reterr) {
+    CleanupZstRfile(&zrf);
+  }
   return reterr;
 }
 

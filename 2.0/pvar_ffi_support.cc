@@ -17,14 +17,7 @@
 #include <errno.h>
 #include <zlib.h>
 #include "pvar_ffi_support.h"
-#ifdef STATIC_ZSTD
-#  include "zstd/lib/zstd.h"
-#else
-#  include <zstd.h>
-#  if !defined(ZSTD_VERSION_NUMBER) || (ZSTD_VERSION_NUMBER < 10401)
-#    error "zstd 1.4.1 or later required"
-#  endif
-#endif
+#include "plink2_zstfile.h"
 #include "plink2_string.h"
 
 namespace plink2 {
@@ -32,103 +25,66 @@ namespace plink2 {
 // Time to move away from zlibWrapper, so we can permit dynamically linked
 // zstd.
 struct TextReaderStruct {
-  FILE* infile;
   gzFile gz_infile;
   char* textbuf;
   char* textbuf_cur;
   char* textbuf_stop;
-  ZSTD_DStream* zds;
-  char* zsrcbuf;
+  zstRFILE zrf;
   uint32_t textbuf_size;
-  uint32_t zsrc_size;
-  uint32_t zsrc_loaded;
-  uint32_t zstd_eof;
 };
 
 typedef struct TextReaderStruct TextReader;
 
 void PreinitTextReader(TextReader* trp) {
-  trp->infile = nullptr;
   trp->gz_infile = nullptr;
   trp->textbuf = nullptr;
-  trp->zds = nullptr;
-  trp->zsrcbuf = nullptr;
+  PreinitZstRfile(&trp->zrf);
 }
 
 CONSTI32(kTextReaderBufSize, 1048576);
-
-uint32_t IsZstdFrame(const void* bytes, uint32_t nbytes) {
-  if (nbytes < 4) {
-    return 0;
-  }
-#  ifdef __arm__
-#    error "Unaligned accesses in IsZstdFrame()."
-#  endif
-  const uint32_t magic = *S_CAST(const uint32_t*, bytes);
-  return (magic == ZSTD_MAGICNUMBER) || ((magic & ZSTD_MAGIC_SKIPPABLE_MASK) == ZSTD_MAGIC_SKIPPABLE_START);
-}
 
 PglErr InitTextReader(const char* fname, TextReader* trp, char* errstr_buf) {
   PglErr reterr = kPglRetSuccess;
   {
     // don't permit reuse for now; but we may want to do this intelligently
     // later
-    if (trp->infile || trp->gz_infile || trp->textbuf || trp->zds) {
+    if (trp->gz_infile || trp->textbuf || ZstRfileIsOpen(&trp->zrf)) {
       reterr = kPglRetImproperFunctionCall;
       goto InitTextReader_ret_1;
     }
-    trp->infile = fopen(fname, FOPEN_RB);
-    if (!trp->infile) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", fname, strerror(errno));
-      goto InitTextReader_ret_OPEN_FAIL;
+    FileCompressionType ftype;
+    reterr = GetFileType(fname, &ftype);
+    if (reterr) {
+      if (reterr == kPglRetOpenFail) {
+        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", fname, strerror(errno));
+      }
+      goto InitTextReader_ret_1;
     }
-    char header[4];
-    uint32_t nbytes = fread_unlocked(header, 1, 4, trp->infile);
-    if (IsZstdFrame(header, nbytes)) {
-      trp->zds = ZSTD_createDStream();
-      if (!trp->zds) {
-        goto InitTextReader_ret_NOMEM;
-      }
-      trp->textbuf_size = ZSTD_DStreamOutSize() * 2;
-      if (trp->textbuf_size < kTextReaderBufSize) {
-        trp->textbuf_size = kTextReaderBufSize;
-      }
-      trp->textbuf = S_CAST(char*, malloc(trp->textbuf_size));
-      if (!trp->textbuf) {
-        goto InitTextReader_ret_NOMEM;
-      }
-      trp->zsrc_size = ZSTD_DStreamInSize();
-      trp->zsrcbuf = S_CAST(char*, malloc(trp->zsrc_size));
-      if (!trp->zsrcbuf) {
-        goto InitTextReader_ret_NOMEM;
-      }
-      memcpy(trp->zsrcbuf, header, 4);
-      trp->zsrc_loaded = 4;
-      trp->zstd_eof = 0;
-    } else {
-      if (fclose_null(&trp->infile)) {
+    if (ftype == kFileZstd) {
+      if (ZstRfileOpen(fname, nullptr, &trp->zrf)) {
         goto InitTextReader_ret_READ_FAIL;
       }
+    } else {
       trp->gz_infile = gzopen(fname, FOPEN_RB);
       if (!trp->gz_infile) {
         // we successfully opened it once...
         goto InitTextReader_ret_READ_FAIL;
       }
-      trp->textbuf = S_CAST(char*, malloc(kTextReaderBufSize));
-      if (!trp->textbuf) {
+      if (gzbuffer(trp->gz_infile, 131072)) {
         goto InitTextReader_ret_NOMEM;
       }
-      trp->textbuf_size = kTextReaderBufSize;
     }
+    trp->textbuf = S_CAST(char*, malloc(kTextReaderBufSize));
+    if (!trp->textbuf) {
+      goto InitTextReader_ret_NOMEM;
+    }
+    trp->textbuf_size = kTextReaderBufSize;
     trp->textbuf_cur = trp->textbuf;
     trp->textbuf_stop = trp->textbuf;
   }
   while (0) {
   InitTextReader_ret_NOMEM:
     reterr = kPglRetNomem;
-    break;
-  InitTextReader_ret_OPEN_FAIL:
-    reterr = kPglRetOpenFail;
     break;
   InitTextReader_ret_READ_FAIL:
     reterr = kPglRetReadFail;
@@ -196,74 +152,22 @@ uint32_t TextReadLine(TextReader* trp, char** line_startp, PglErr* reterrp) {
     const uint32_t bytes_avail = trp->textbuf_size - trailing_byte_ct;
     if (trp->gz_infile) {
       nbytes = gzread(trp->gz_infile, textbuf_stop, bytes_avail);
-      if (!nbytes) {
-        if (gzeof(trp->gz_infile)) {
+      if (S_CAST(int32_t, nbytes) <= 0) {
+        if ((!nbytes) && gzeof(trp->gz_infile)) {
           goto TextReadLine_eof;
         }
         *reterrp = kPglRetReadFail;
         return 0;
       }
     } else {
-      // Similar to FIO_decompressFrames() in zstd programs/fileio.c.  However,
-      // we can exit in the middle of a block.
-      if (trp->zstd_eof) {
-        goto TextReadLine_eof;
+      nbytes = zstread(&trp->zrf, textbuf_stop, bytes_avail);
+      if (S_CAST(int32_t, nbytes) <= 0) {
+        if ((!nbytes) && zsteof(&trp->zrf)) {
+          goto TextReadLine_eof;
+        }
+        *reterrp = kPglRetReadFail;
+        return 0;
       }
-      char* buf = trp->zsrcbuf;
-      nbytes = 0;
-      do {
-        ZSTD_inBuffer in_buff = {buf, trp->zsrc_loaded, 0};
-        ZSTD_outBuffer out_buff = {&(textbuf_stop[nbytes]), bytes_avail - nbytes, 0};
-        const uintptr_t read_size_hint = ZSTD_decompressStream(trp->zds, &out_buff, &in_buff);
-        if (ZSTD_isError(read_size_hint)) {
-          // decoding error (36): ZSTD_getErrorName(readSizeHint)
-          *reterrp = kPglRetMalformedInput;
-          return 0;
-        }
-        nbytes += out_buff.pos;
-        if (in_buff.pos > 0) {
-          memmove(buf, &(buf[in_buff.pos]), in_buff.size - in_buff.pos);
-          trp->zsrc_loaded -= in_buff.pos;
-        }
-        if (read_size_hint == 0) {
-          // end of frame; start the next one.
-          if (trp->zsrc_loaded < 4) {
-            const uint32_t incr = fread_unlocked(&(buf[trp->zsrc_loaded]), 1, 4 - trp->zsrc_loaded, trp->infile);
-            trp->zsrc_loaded += incr;
-          }
-          if (!trp->zsrc_loaded) {
-            if (!feof_unlocked(trp->infile)) {
-              *reterrp = kPglRetReadFail;
-              return 0;
-            }
-            if (nbytes) {
-              trp->zstd_eof = 1;
-              break;
-            }
-            goto TextReadLine_eof;
-          }
-          if (!IsZstdFrame(buf, trp->zsrc_loaded)) {
-            *reterrp = kPglRetMalformedInput;
-            return 0;
-          }
-          ZSTD_DCtx_reset(trp->zds, ZSTD_reset_session_only);
-          continue;
-        }
-        if (in_buff.size != in_buff.pos) {
-          assert(bytes_avail == nbytes);
-          break;
-        }
-        const uint32_t to_decode = MINV(read_size_hint, trp->zsrc_size);
-        if (trp->zsrc_loaded < to_decode) {
-          const uint32_t incr = fread_unlocked(&(buf[trp->zsrc_loaded]), 1, to_decode - trp->zsrc_loaded, trp->infile);
-          if (!incr) {
-            // Read error (39): Premature end
-            *reterrp = kPglRetReadFail;
-            return 0;
-          }
-          trp->zsrc_loaded += incr;
-        }
-      } while (bytes_avail != nbytes);
     }
     memchr_start = textbuf_stop;
     textbuf_stop = &(textbuf_stop[nbytes]);
@@ -303,10 +207,8 @@ PglErr RewindTextReader(TextReader* trp) {
     if (gzrewind(trp->gz_infile)) {
       return kPglRetReadFail;
     }
-  } else if (trp->infile) {
-    rewind(trp->infile);
-    trp->zsrc_loaded = 0;
-    trp->zstd_eof = 0;
+  } else if (ZstRfileIsOpen(&trp->zrf)) {
+    zstrewind(&trp->zrf);
   } else {
     return kPglRetImproperFunctionCall;
   }
@@ -317,28 +219,19 @@ PglErr RewindTextReader(TextReader* trp) {
 
 PglErr CleanupTextReader(TextReader* trp) {
   PglErr reterr = kPglRetSuccess;
-  if (trp->infile) {
-    if (fclose_null(&trp->infile)) {
-      reterr = kPglRetReadFail;
-    }
-  }
   if (trp->gz_infile) {
     if (gzclose(trp->gz_infile)) {
       reterr = kPglRetReadFail;
     }
     trp->gz_infile = nullptr;
+  } else if (ZstRfileIsOpen(&trp->zrf)) {
+    if (CleanupZstRfile(&trp->zrf)) {
+      reterr = kPglRetReadFail;
+    }
   }
   if (trp->textbuf) {
     free(trp->textbuf);
     trp->textbuf = nullptr;
-    if (trp->zds) {
-      ZSTD_freeDStream(trp->zds);
-      trp->zds = nullptr;
-    }
-    if (trp->zsrcbuf) {
-      free(trp->zsrcbuf);
-      trp->zsrcbuf = nullptr;
-    }
   }
   return reterr;
 }

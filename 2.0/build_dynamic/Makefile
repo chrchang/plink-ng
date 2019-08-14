@@ -8,6 +8,7 @@
 #   Use cblas_f77 instead of cblas: FORCE_CBLAS_F77
 #   Use only -O2 optimization for zstd (may be necessary for gcc 4.x): ZSTD_O2
 #   Statically link zlib: STATIC_ZLIB
+#   Statically link zstd (currently required): STATIC_ZSTD
 #   Link to MKL with 64-bit indexes (dynamically): DYNAMIC_MKL
 #     (this also requires MKLROOT and MKL_IOMP5_DIR to be defined, and
 #     LD_LIBRARY_PATH to include the appropriate directories)
@@ -22,6 +23,7 @@ NO_LAPACK =
 PREFER_CBLAS_F77 =
 ZSTD_O2 = 1
 STATIC_ZLIB =
+STATIC_ZSTD = 1
 DYNAMIC_MKL =
 MKLROOT = /home/ubuntu/intel/mkl
 MKL_IOMP5_DIR = /home/ubuntu/intel/compilers_and_libraries_2017.2.174/linux/compiler/lib/intel64
@@ -91,6 +93,17 @@ else
   LINKFLAGS += -lz
 endif
 
+SKIP_STATIC_ZSTD =
+ifdef STATIC_ZSTD
+  BASEFLAGS += -DSTATIC_ZSTD
+else
+  $(error STATIC_ZSTD currently required)
+  ZCSRC2 =
+  SKIP_STATIC_ZSTD = echo
+  OBJ = $(CSRC:.c=.0) $(CCSRC:.cc=.o)
+  OBJ2 = $(notdir $(OBJ))
+endif
+
 UNAME := $(shell uname)
 ifeq ($(UNAME), Darwin)
   ifdef FORCE_32BIT
@@ -132,7 +145,7 @@ all: plink2 pgen_compress
 
 plink2: $(CSRC2) $(ZCSRC2) $(CCSRC2) ../plink2_cpu.cc
 	gcc $(CFLAGS) $(CSRC2) -c
-	gcc $(ZCFLAGS) $(ZCSRC2) -c
+	$(SKIP_STATIC_ZSTD) gcc $(ZCFLAGS) $(ZCSRC2) -c
 	g++ $(CXXFLAGS) $(CCSRC2) -c
 	g++ $(CPUCHECK_FLAGS) ../plink2_cpu.cc -c
 	g++ $(OBJ2) plink2_cpu.o $(ARCH32) -o plink2 $(BLASFLAGS) $(LINKFLAGS)
