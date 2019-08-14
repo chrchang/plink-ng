@@ -55,12 +55,13 @@ PglErr IsBgzf(const char* fname, uint32_t* is_bgzf_ptr) {
     return kPglRetOpenFail;
   }
   unsigned char buf[16];
-  if (unlikely(!fread_unlocked(buf, 16, 1, infile))) {
-    fclose(infile);
+  // bugfix (13 Aug 2019): don't error out on legitimate files smaller than 16
+  // bytes.
+  const uint32_t nbytes = fread_unlocked(buf, 1, 16, infile);
+  if (unlikely(ferror_unlocked(infile) || fclose(infile))) {
     return kPglRetReadFail;
   }
-  *is_bgzf_ptr = memequal_k(buf, "\37\213\10", 3) && ((buf[3] & 4) != 0) && memequal_k(&(buf[10]), "\6\0BC\2", 6);
-  fclose(infile);
+  *is_bgzf_ptr = (nbytes == 16) && memequal_k(buf, "\37\213\10", 3) && ((buf[3] & 4) != 0) && memequal_k(&(buf[10]), "\6\0BC\2", 6);
   return kPglRetSuccess;
 }
 

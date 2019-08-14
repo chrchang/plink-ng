@@ -17,15 +17,20 @@
 #include <errno.h>
 #include <zlib.h>
 #include "pvar_ffi_support.h"
-#define ZSTD_STATIC_LINKING_ONLY
-#include "zstd/lib/zstd.h"
+#ifdef STATIC_ZSTD
+#  include "zstd/lib/zstd.h"
+#else
+#  include <zstd.h>
+#  if !defined(ZSTD_VERSION_NUMBER) || (ZSTD_VERSION_NUMBER < 10401)
+#    error "zstd 1.4.1 or later required"
+#  endif
+#endif
 #include "plink2_string.h"
 
 namespace plink2 {
 
-// Time to move away from zlibWrapper, in preparation for permitting zstd
-// dynamic linking.  (This still has a few static-linking dependencies, but
-// they should be much easier to remove.)
+// Time to move away from zlibWrapper, so we can permit dynamically linked
+// zstd.
 struct TextReaderStruct {
   FILE* infile;
   gzFile gz_infile;
@@ -52,6 +57,17 @@ void PreinitTextReader(TextReader* trp) {
 
 CONSTI32(kTextReaderBufSize, 1048576);
 
+uint32_t IsZstdFrame(const void* bytes, uint32_t nbytes) {
+  if (nbytes < 4) {
+    return 0;
+  }
+#  ifdef __arm__
+#    error "Unaligned accesses in IsZstdFrame()."
+#  endif
+  const uint32_t magic = *S_CAST(const uint32_t*, bytes);
+  return (magic == ZSTD_MAGICNUMBER) || ((magic & ZSTD_MAGIC_SKIPPABLE_MASK) == ZSTD_MAGIC_SKIPPABLE_START);
+}
+
 PglErr InitTextReader(const char* fname, TextReader* trp, char* errstr_buf) {
   PglErr reterr = kPglRetSuccess;
   {
@@ -68,7 +84,7 @@ PglErr InitTextReader(const char* fname, TextReader* trp, char* errstr_buf) {
     }
     char header[4];
     uint32_t nbytes = fread_unlocked(header, 1, 4, trp->infile);
-    if (ZSTD_isFrame(header, nbytes)) {
+    if (IsZstdFrame(header, nbytes)) {
       trp->zds = ZSTD_createDStream();
       if (!trp->zds) {
         goto InitTextReader_ret_NOMEM;
@@ -87,7 +103,7 @@ PglErr InitTextReader(const char* fname, TextReader* trp, char* errstr_buf) {
         goto InitTextReader_ret_NOMEM;
       }
       memcpy(trp->zsrcbuf, header, 4);
-      trp->zsrc_loaded = 4 + fread_unlocked(&(trp->zsrcbuf[4]), 1, ZSTD_FRAMEHEADERSIZE_MAX - 4, trp->infile);
+      trp->zsrc_loaded = 4;
       trp->zstd_eof = 0;
     } else {
       if (fclose_null(&trp->infile)) {
@@ -226,15 +242,11 @@ uint32_t TextReadLine(TextReader* trp, char** line_startp, PglErr* reterrp) {
             }
             goto TextReadLine_eof;
           }
-          if (!ZSTD_isFrame(buf, trp->zsrc_loaded)) {
+          if (!IsZstdFrame(buf, trp->zsrc_loaded)) {
             *reterrp = kPglRetMalformedInput;
             return 0;
           }
           ZSTD_DCtx_reset(trp->zds, ZSTD_reset_session_only);
-          if (trp->zsrc_loaded < ZSTD_FRAMEHEADERSIZE_MAX) {
-            const uint32_t incr = fread_unlocked(&(buf[trp->zsrc_loaded]), 1, ZSTD_FRAMEHEADERSIZE_MAX, trp->infile);
-            trp->zsrc_loaded += incr;
-          }
           continue;
         }
         if (in_buff.size != in_buff.pos) {

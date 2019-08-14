@@ -1042,7 +1042,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      'variance-standardize' to linearly transform the genotypes to mean-0,\n"
 "      variance-1.\n"
 "    * The 'dominant' modifier causes dosages greater than 1 to be treated as 1,\n"
-"      while 'recessive' uses min(dosage - 1, 0) on diploid chromosomes.\n"
+"      while 'recessive' uses max(dosage - 1, 0) on diploid chromosomes.\n"
 "      ('dominant', 'recessive', and 'variance-standardize' cannot be used with\n"
 "      chrX or MT.)\n"
 "    * The 'se' modifier causes the score coefficients to be treated as\n"
@@ -1071,7 +1071,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      scoresums: Score sums.\n"
 "    The default is maybefid,maybesid,phenos,nmissallele,dosagesum,scoreavgs.\n"
 "    For more sophisticated polygenic risk scoring, we recommend the PRSice-2\n"
-"    software package (https://choishingwan.github.io/PRSice/ ).\n\n"
+"    software package (https://www.prsice.info/ ).\n\n"
                );
     HelpPrint("adjust-file\0adjust\0", &help_ctrl, 1,
 "  --adjust-file <filename> ['zs'] ['gc'] ['cols='<column set descriptor>]\n"
