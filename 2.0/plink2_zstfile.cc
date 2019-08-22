@@ -37,7 +37,9 @@ PglErr GetFileType(const char* fname, FileCompressionType* ftype_ptr) {
     *ftype_ptr = kFileUncompressed;
     return kPglRetSuccess;
   }
-  const uint32_t magic4 = *R_CAST(uint32_t*, buf);
+  uint32_t magic4;
+  memcpy(&magic4, buf, 4);
+
   if (IsZstdFrame(magic4)) {
     *ftype_ptr = kFileZstd;
     return kPglRetSuccess;
