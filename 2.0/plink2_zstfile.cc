@@ -14,15 +14,12 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
+#include <errno.h>
 #include "plink2_zstfile.h"
 
 #ifdef __cplusplus
 namespace plink2 {
 #endif
-
-uint32_t IsZstdFrame(uint32_t magic4) {
-  return (magic4 == ZSTD_MAGICNUMBER) || ((magic4 & ZSTD_MAGIC_SKIPPABLE_MASK) == ZSTD_MAGIC_SKIPPABLE_START);
-}
 
 PglErr GetFileType(const char* fname, FileCompressionType* ftype_ptr) {
   FILE* infile = fopen(fname, FOPEN_RB);
@@ -49,7 +46,7 @@ PglErr GetFileType(const char* fname, FileCompressionType* ftype_ptr) {
     *ftype_ptr = kFileUncompressed;
     return kPglRetSuccess;
   }
-  if ((nbytes == 16) && (buf[2] == '\10') && (buf[3] & 4) && memequal_k(&(buf[10]), "\6\0BC\2", 6)) {
+  if ((nbytes == 16) && IsBgzfHeader(buf)) {
     *ftype_ptr = kFileBgzf;
   } else {
     *ftype_ptr = kFileGzip;
@@ -61,37 +58,75 @@ void PreinitZstRfile(zstRFILE* zrfp) {
   zrfp->ff = nullptr;
   zrfp->zds = nullptr;
   zrfp->zib.src = nullptr;
-  zrfp->zstd_eof = 1;
+  zrfp->errmsg = nullptr;
+  zrfp->reterr = kPglRetEof;
 }
 
+// zstd prefix_unknown error string
+const char kShortErrZstdPrefixUnknown[] = "Unknown frame descriptor";
+const char kShortErrZstdCorruptionDetected[] = "Corrupted block detected";
+
+const char kShortErrZstAlreadyOpen[] = "ZstRfileOpen can't be called on an already-open file";
+
 PglErr ZstRfileOpen(const char* fname, zstRFILE* zrfp) {
-  if (unlikely(zrfp->ff)) {
-    return kPglRetImproperFunctionCall;
+  PglErr reterr = kPglRetSuccess;
+  {
+    if (unlikely(zrfp->ff)) {
+      reterr = kPglRetImproperFunctionCall;
+      zrfp->errmsg = kShortErrZstAlreadyOpen;
+      goto ZstRfileOpen_ret_1;
+    }
+    zrfp->ff = fopen(fname, FOPEN_RB);
+    if (unlikely(!zrfp->ff)) {
+      goto ZstRfileOpen_ret_OPEN_FAIL;
+    }
+    zrfp->zds = ZSTD_createDStream();
+    if (unlikely(!zrfp->zds)) {
+      goto ZstRfileOpen_ret_NOMEM;
+    }
+    zrfp->zib.src = malloc(ZSTD_DStreamInSize());
+    if (!zrfp->zib.src) {
+      goto ZstRfileOpen_ret_NOMEM;
+    }
+    uint32_t nbytes = fread_unlocked(K_CAST(void*, zrfp->zib.src), 1, 4, zrfp->ff);
+    if (nbytes < 4) {
+      if (!feof_unlocked(zrfp->ff)) {
+        goto ZstRfileOpen_ret_READ_FAIL;
+      }
+      if (!nbytes) {
+        // May as well accept this.
+        // Don't jump to ret_1 since we're setting zrfp->reterr to a
+        // different value than what we're returning.
+        zrfp->reterr = kPglRetEof;
+        return kPglRetSuccess;
+      }
+      reterr = kPglRetDecompressFail;
+      zrfp->errmsg = kShortErrZstdPrefixUnknown;
+      goto ZstRfileOpen_ret_1;
+    }
+    zrfp->zib.size = 4;
+    zrfp->zib.pos = 0;
   }
-  zrfp->ff = fopen(fname, FOPEN_RB);
-  if (unlikely(!zrfp->ff)) {
-    return kPglRetOpenFail;
+  while (0) {
+  ZstRfileOpen_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  ZstRfileOpen_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    zrfp->errmsg = strerror(errno);
+    break;
+  ZstRfileOpen_ret_READ_FAIL:
+    reterr = kPglRetReadFail;
+    zrfp->errmsg = strerror(errno);
+    break;
   }
-  zrfp->zds = ZSTD_createDStream();
-  if (unlikely(!zrfp->zds)) {
-    return kPglRetNomem;
-  }
-  zrfp->zib.src = malloc(ZSTD_DStreamInSize());
-  if (!zrfp->zib.src) {
-    return kPglRetNomem;
-  }
-  zrfp->zstd_eof = 0;
-  uint32_t nbytes = fread_unlocked(K_CAST(void*, zrfp->zib.src), 1, 4, zrfp->ff);
-  if (nbytes < 4) {
-    return kPglRetReadFail;
-  }
-  zrfp->zib.size = 4;
-  zrfp->zib.pos = 0;
-  return kPglRetSuccess;
+ ZstRfileOpen_ret_1:
+  zrfp->reterr = reterr;
+  return reterr;
 }
 
 int32_t zstread(zstRFILE* zrfp, void* dst, uint32_t len) {
-  if (zrfp->zstd_eof) {
+  if (zrfp->reterr) {
     return 0;
   }
   assert(len < 0x80000000U);
@@ -100,6 +135,8 @@ int32_t zstread(zstRFILE* zrfp, void* dst, uint32_t len) {
     ZSTD_outBuffer zob = {&(S_CAST(unsigned char*, dst)[wpos]), len - wpos, 0};
     const uintptr_t read_size_hint = ZSTD_decompressStream(zrfp->zds, &zob, &zrfp->zib);
     if (ZSTD_isError(read_size_hint)) {
+      zrfp->reterr = kPglRetDecompressFail;
+      zrfp->errmsg = ZSTD_getErrorName(read_size_hint);
       // zlib Z_STREAM_ERROR.  may want to return Z_DATA_ERROR when appropriate
       return -2;
     }
@@ -113,17 +150,23 @@ int32_t zstread(zstRFILE* zrfp, void* dst, uint32_t len) {
       zrfp->zib.size = nbytes;
       zrfp->zib.pos = 0;
       if (nbytes < 4) {
-        if (unlikely(nbytes)) {
-          return -2;
-        }
         if (unlikely(!feof_unlocked(zrfp->ff))) {
           // zlib Z_ERRNO
+          zrfp->reterr = kPglRetReadFail;
+          zrfp->errmsg = strerror(errno);
           return -1;
         }
-        zrfp->zstd_eof = 1;
+        if (unlikely(nbytes)) {
+          zrfp->reterr = kPglRetDecompressFail;
+          zrfp->errmsg = kShortErrZstdPrefixUnknown;
+          return -2;
+        }
+        zrfp->reterr = kPglRetEof;
         break;
       }
       if (unlikely(!IsZstdFrame(*R_CAST(const uint32_t*, zrfp->zib.src)))) {
+        zrfp->reterr = kPglRetDecompressFail;
+        zrfp->errmsg = kShortErrZstdPrefixUnknown;
         return -2;
       }
       // impossible for this to fail
@@ -136,28 +179,35 @@ int32_t zstread(zstRFILE* zrfp, void* dst, uint32_t len) {
     }
     const uint32_t to_decode = MINV(read_size_hint, ZSTD_DStreamInSize());
     unsigned char* buf = S_CAST(unsigned char*, K_CAST(void*, zrfp->zib.src));
-    const uint32_t nbytes = fread_unlocked(buf, 1, to_decode, zrfp->ff);
-    if (unlikely(!nbytes)) {
+    if (unlikely(!fread_unlocked(buf, to_decode, 1, zrfp->ff))) {
       if (feof_unlocked(zrfp->ff)) {
+        zrfp->reterr = kPglRetDecompressFail;
+        zrfp->errmsg = kShortErrZstdCorruptionDetected;
         return -2;
       }
+      zrfp->reterr = kPglRetReadFail;
+      zrfp->errmsg = strerror(errno);
       return -1;
     }
-    zrfp->zib.size = nbytes;
+    zrfp->zib.size = to_decode;
     zrfp->zib.pos = 0;
   }
   return wpos;
 }
 
 void zstrewind(zstRFILE* zrfp) {
-  rewind(zrfp->ff);
-  ZSTD_DCtx_reset(zrfp->zds, ZSTD_reset_session_only);
-  zrfp->zib.size = 0;
-  zrfp->zib.pos = 0;
-  zrfp->zstd_eof = 0;
+  if ((zrfp->reterr == kPglRetSuccess) || (zrfp->reterr == kPglRetEof)) {
+    rewind(zrfp->ff);
+    ZSTD_DCtx_reset(zrfp->zds, ZSTD_reset_session_only);
+    zrfp->zib.size = 0;
+    zrfp->zib.pos = 0;
+    zrfp->reterr = kPglRetSuccess;
+  }
 }
 
-BoolErr CleanupZstRfile(zstRFILE* zrfp) {
+BoolErr CleanupZstRfile(zstRFILE* zrfp, PglErr* reterrp) {
+  zrfp->reterr = kPglRetEof;
+  zrfp->errmsg = nullptr;
   if (zrfp->zib.src) {
     free_const(zrfp->zib.src);
     zrfp->zib.src = nullptr;
@@ -168,7 +218,13 @@ BoolErr CleanupZstRfile(zstRFILE* zrfp) {
   }
   if (zrfp->ff) {
     if (unlikely(fclose_null(&zrfp->ff))) {
-      return 1;
+      if (!reterrp) {
+        return 1;
+      }
+      if (*reterrp == kPglRetSuccess) {
+        *reterrp = kPglRetReadFail;
+        return 1;
+      }
     }
   }
   return 0;

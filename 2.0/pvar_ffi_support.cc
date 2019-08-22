@@ -61,7 +61,7 @@ PglErr InitTextReader(const char* fname, TextReader* trp, char* errstr_buf) {
       goto InitTextReader_ret_1;
     }
     if (ftype == kFileZstd) {
-      if (ZstRfileOpen(fname, nullptr, &trp->zrf)) {
+      if (ZstRfileOpen(fname, &trp->zrf)) {
         goto InitTextReader_ret_READ_FAIL;
       }
     } else {
@@ -225,9 +225,7 @@ PglErr CleanupTextReader(TextReader* trp) {
     }
     trp->gz_infile = nullptr;
   } else if (ZstRfileIsOpen(&trp->zrf)) {
-    if (CleanupZstRfile(&trp->zrf)) {
-      reterr = kPglRetReadFail;
-    }
+    CleanupZstRfile(&trp->zrf, &reterr);
   }
   if (trp->textbuf) {
     free(trp->textbuf);

@@ -336,6 +336,7 @@ typedef enum
   kPglRetVarRecordTooLarge,
   kPglRetUnsupportedInstructions,
   kPglRetDegenerateData,
+  kPglRetDecompressFail, // also distinguish this from MalformedInput
   kPglRetSampleMajorBed = 32,
   kPglRetInternalError = 60,
   kPglRetWarningErrcode = 61,
@@ -392,6 +393,7 @@ const PglErr kPglRetNetworkFail = PglErr::ec::kPglRetNetworkFail;
 const PglErr kPglRetVarRecordTooLarge = PglErr::ec::kPglRetVarRecordTooLarge;
 const PglErr kPglRetUnsupportedInstructions = PglErr::ec::kPglRetUnsupportedInstructions;
 const PglErr kPglRetDegenerateData = PglErr::ec::kPglRetDegenerateData;
+const PglErr kPglRetDecompressFail = PglErr::ec::kPglRetDecompressFail;
 const PglErr kPglRetSampleMajorBed = PglErr::ec::kPglRetSampleMajorBed;
 const PglErr kPglRetWarningErrcode = PglErr::ec::kPglRetWarningErrcode;
 const PglErr kPglRetInternalError = PglErr::ec::kPglRetInternalError;

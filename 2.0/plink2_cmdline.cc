@@ -3077,9 +3077,11 @@ void PreinitPlink2CmdlineMeta(Plink2CmdlineMeta* pcmp) {
 
 const char kErrstrNomem[] = "Error: Out of memory.  The --memory flag may be helpful.\n";
 const char kErrstrWrite[] = "Error: File write failure: %s.\n";
-const char kErrstrRead[] = "Error: File read failure.\n";
 const char kErrstrThreadCreate[] = "Error: Failed to create thread.\n";
 const char kErrstrVarRecordTooLarge[] = "Error: Variant record size exceeds ~4 GiB limit.\n";
+
+// This will soon propagate strerror(errno).
+const char kErrstrRead[] = "Error: File read failure.\n";
 
 // assumes logfile is open
 void DispExitMsg(PglErr reterr) {

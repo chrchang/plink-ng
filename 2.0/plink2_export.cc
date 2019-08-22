@@ -4417,8 +4417,8 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       }
     }
     BigstackReset(written_contig_header_lines);
-    const uint32_t all_nonref = pgfip->gflags & kfPgenGlobalAllNonref;
     const uintptr_t* nonref_flags = pgfip->nonref_flags;
+    const uint32_t all_nonref = pgfip->gflags & kfPgenGlobalAllNonref;
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     uint32_t write_pr = all_nonref;
     if (nonref_flags) {

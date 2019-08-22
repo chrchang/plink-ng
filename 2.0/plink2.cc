@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (14 Aug 2019)";
+  " (21 Aug 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -2238,6 +2238,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         const char** allele_storage_backup = nullptr;
         uint32_t max_allele_slen_backup = max_allele_slen;
         uintptr_t* nonref_flags_backup = nullptr;
+        const PgenGlobalFlags gflags_backup = pgfi.gflags;
         uint32_t nonref_flags_was_null = (nonref_flags == nullptr);
 
         STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select) = nullptr;
@@ -2290,6 +2291,9 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               if (not_all_nonref) {
                 ZeroWArr(raw_variant_ctl, nonref_flags);
               } else {
+                // bugfix (21 Aug 2019): VCF export was ignoring the new
+                // nonref_flags values when the all-nonref bit was set.
+                pgfi.gflags &= ~kfPgenGlobalAllNonref;
                 SetAllBits(raw_variant_ct, nonref_flags);
               }
             }
@@ -2463,6 +2467,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           nonref_flags = nullptr;
           pgfi.nonref_flags = nullptr;
         }
+        pgfi.gflags = gflags_backup;
       }
       BigstackReset(bigstack_mark_allele_dosages);
 
@@ -2582,9 +2587,6 @@ PglErr ZstDecompress(const char* in_fname, const char* out_fname) {
       }
       fflush(outfile);
     }
-    if (unlikely(CleanupZstRfile(&zrf))) {
-      goto ZstDecompress_ret_READ_FAIL;
-    }
     if (out_fname) {
       if (unlikely(fclose_null(&outfile))) {
         goto ZstDecompress_ret_WRITE_FAIL;
@@ -2604,6 +2606,9 @@ PglErr ZstDecompress(const char* in_fname, const char* out_fname) {
     reterr = kPglRetOpenFail;
     break;
   ZstDecompress_ret_READ_FAIL:
+    // todo:
+    //   "Error: File read failure: %s" strerror(errno)
+    //   "Error: Decompression failure: %s" zsterror(&zrf)
     fputs(kErrstrRead, stderr);
     reterr = kPglRetReadFail;
     break;
@@ -2615,8 +2620,8 @@ PglErr ZstDecompress(const char* in_fname, const char* out_fname) {
   if (out_fname) {
     fclose_cond(outfile);
   }
-  if (reterr) {
-    CleanupZstRfile(&zrf);
+  if (unlikely(CleanupZstRfile(&zrf, &reterr))) {
+    fputs(kErrstrRead, stderr);
   }
   return reterr;
 }
