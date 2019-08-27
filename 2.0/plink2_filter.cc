@@ -2003,6 +2003,10 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
   ReadLineStream read_freq_rls;
   PreinitRLstream(&read_freq_rls);
   {
+    if (!variant_ct) {
+      logerrputs("Warning: Skipping --read-freq since no variants remain.\n");
+      goto ReadAlleleFreqs_ret_1;
+    }
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     double* cur_allele_freqs;
     uintptr_t* matched_loaded_alleles;

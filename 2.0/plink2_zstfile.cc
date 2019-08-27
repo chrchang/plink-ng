@@ -144,9 +144,8 @@ int32_t zstread(zstRFILE* zrfp, void* dst, uint32_t len) {
     }
     wpos += zob.pos;
     if (!read_size_hint) {
-      // We've finished decompressing the most recent input frame (or are at
-      // the beginning of the file).  Finish loading the next frame if
-      // necessary, or exit on eof.
+      // We've finished decompressing the most recent input frame.  Finish
+      // loading the next frame if necessary, or exit on eof.
       assert(zrfp->zib.size == zrfp->zib.pos);
       const uint32_t nbytes = fread_unlocked(K_CAST(void*, zrfp->zib.src), 1, 4, zrfp->ff);
       zrfp->zib.size = nbytes;

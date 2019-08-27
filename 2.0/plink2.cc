@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (21 Aug 2019)";
+  " (26 Aug 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -1848,7 +1848,9 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             if (unlikely(reterr)) {
               goto Plink2Core_ret_1;
             }
-            afreqcalc_variant_ct = PopcountWords(variant_afreqcalc, raw_variant_ctl);
+            if (variant_ct) {
+              afreqcalc_variant_ct = PopcountWords(variant_afreqcalc, raw_variant_ctl);
+            }
           } else {
             variant_afreqcalc = variant_include;
             afreqcalc_variant_ct = variant_ct;
@@ -2238,7 +2240,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         const char** allele_storage_backup = nullptr;
         uint32_t max_allele_slen_backup = max_allele_slen;
         uintptr_t* nonref_flags_backup = nullptr;
-        const PgenGlobalFlags gflags_backup = pgfi.gflags;
         uint32_t nonref_flags_was_null = (nonref_flags == nullptr);
 
         STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select) = nullptr;
@@ -2291,9 +2292,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               if (not_all_nonref) {
                 ZeroWArr(raw_variant_ctl, nonref_flags);
               } else {
-                // bugfix (21 Aug 2019): VCF export was ignoring the new
-                // nonref_flags values when the all-nonref bit was set.
-                pgfi.gflags &= ~kfPgenGlobalAllNonref;
                 SetAllBits(raw_variant_ct, nonref_flags);
               }
             }
@@ -2467,7 +2465,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           nonref_flags = nullptr;
           pgfi.nonref_flags = nullptr;
         }
-        pgfi.gflags = gflags_backup;
       }
       BigstackReset(bigstack_mark_allele_dosages);
 
