@@ -261,6 +261,11 @@ uint32_t RPgenReader::GetAlleleCt(uint32_t variant_idx) const {
   if (!_info_ptr) {
     stop("pgen is closed");
   }
+  if (variant_idx >= _info_ptr->raw_variant_ct) {
+    char errstr_buf[256];
+    sprintf(errstr_buf, "variant_num out of range (%d; must be 1..%u)", variant_idx + 1, _info_ptr->raw_variant_ct);
+    stop(errstr_buf);
+  }
   if (!_allele_idx_offsetsp) {
     return 2;
   }

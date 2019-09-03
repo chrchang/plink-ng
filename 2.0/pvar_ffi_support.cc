@@ -17,223 +17,9 @@
 #include <errno.h>
 #include <zlib.h>
 #include "pvar_ffi_support.h"
-#include "plink2_zstfile.h"
-#include "plink2_string.h"
+#include "plink2_getline.h"
 
 namespace plink2 {
-
-// Time to move away from zlibWrapper, so we can permit dynamically linked
-// zstd.
-struct TextReaderStruct {
-  gzFile gz_infile;
-  char* textbuf;
-  char* textbuf_cur;
-  char* textbuf_stop;
-  zstRFILE zrf;
-  uint32_t textbuf_size;
-};
-
-typedef struct TextReaderStruct TextReader;
-
-void PreinitTextReader(TextReader* trp) {
-  trp->gz_infile = nullptr;
-  trp->textbuf = nullptr;
-  PreinitZstRfile(&trp->zrf);
-}
-
-CONSTI32(kTextReaderBufSize, 1048576);
-
-PglErr InitTextReader(const char* fname, TextReader* trp, char* errstr_buf) {
-  PglErr reterr = kPglRetSuccess;
-  {
-    // don't permit reuse for now; but we may want to do this intelligently
-    // later
-    if (trp->gz_infile || trp->textbuf || ZstRfileIsOpen(&trp->zrf)) {
-      reterr = kPglRetImproperFunctionCall;
-      goto InitTextReader_ret_1;
-    }
-    FileCompressionType ftype;
-    reterr = GetFileType(fname, &ftype);
-    if (reterr) {
-      if (reterr == kPglRetOpenFail) {
-        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Failed to open %s : %s.\n", fname, strerror(errno));
-      }
-      goto InitTextReader_ret_1;
-    }
-    if (ftype == kFileZstd) {
-      if (ZstRfileOpen(fname, &trp->zrf)) {
-        goto InitTextReader_ret_READ_FAIL;
-      }
-    } else {
-      trp->gz_infile = gzopen(fname, FOPEN_RB);
-      if (!trp->gz_infile) {
-        // we successfully opened it once...
-        goto InitTextReader_ret_READ_FAIL;
-      }
-      if (gzbuffer(trp->gz_infile, 131072)) {
-        goto InitTextReader_ret_NOMEM;
-      }
-    }
-    trp->textbuf = S_CAST(char*, malloc(kTextReaderBufSize));
-    if (!trp->textbuf) {
-      goto InitTextReader_ret_NOMEM;
-    }
-    trp->textbuf_size = kTextReaderBufSize;
-    trp->textbuf_cur = trp->textbuf;
-    trp->textbuf_stop = trp->textbuf;
-  }
-  while (0) {
-  InitTextReader_ret_NOMEM:
-    reterr = kPglRetNomem;
-    break;
-  InitTextReader_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
-    break;
-  }
- InitTextReader_ret_1:
-  return reterr;
-}
-
-// Returns 1 if a line was read, 0 on failure or eof.
-// When 1 is returned, '\n' is appended to final line if necessary, and a
-// subsequent TextPrevLineEnd() call returns a pointer immediately past the
-// '\n'.
-// If 0 is returned, *reterrp is set iff not eof.
-uint32_t TextReadLine(TextReader* trp, char** line_startp, PglErr* reterrp) {
-  char* memchr_start = trp->textbuf_cur;
-  char* textbuf_stop = trp->textbuf_stop;
-  uint32_t nbytes = textbuf_stop - memchr_start;
-  uint32_t trailing_byte_ct;
-  while (1) {
-    char* memchr_result = S_CAST(char*, memchr(memchr_start, '\n', nbytes));
-    if (memchr_result) {
-      // Common case, entire line in buffer.
-      *line_startp = trp->textbuf_cur;
-      trp->textbuf_cur = &(memchr_result[1]);
-      return 1;
-    }
-    // Need to load/decompress more...
-    trailing_byte_ct = textbuf_stop - trp->textbuf_cur;
-    if (trailing_byte_ct > (trp->textbuf_size / 2)) {
-      // ...and individual lines are long enough that we should grow the
-      // buffer.
-      if (trailing_byte_ct == kMaxLongLine) {
-        *reterrp = kPglRetLongLine;
-        return 0;
-      }
-      uint32_t next_textbuf_size = trp->textbuf_size * 2;
-      if (next_textbuf_size > kMaxLongLine) {
-        next_textbuf_size = kMaxLongLine;
-      }
-      char* textbuf_next;
-      if (trp->textbuf == trp->textbuf_cur) {
-        textbuf_next = S_CAST(char*, realloc(trp->textbuf, next_textbuf_size));
-        if (!textbuf_next) {
-          *reterrp = kPglRetNomem;
-          return 0;
-        }
-      } else {
-        // can thrash here when lines >1 GB; no, we don't really care
-        textbuf_next = S_CAST(char*, malloc(next_textbuf_size));
-        if (!textbuf_next) {
-          *reterrp = kPglRetNomem;
-          return 0;
-        }
-        memcpy(textbuf_next, trp->textbuf_cur, trailing_byte_ct);
-      }
-      trp->textbuf = textbuf_next;
-      trp->textbuf_cur = textbuf_next;
-      trp->textbuf_size = next_textbuf_size;
-    } else if (trp->textbuf != trp->textbuf_cur) {
-      memmove(trp->textbuf, trp->textbuf_cur, trailing_byte_ct);
-      trp->textbuf_cur = trp->textbuf;
-    }
-    textbuf_stop = &(trp->textbuf[trailing_byte_ct]);
-    const uint32_t bytes_avail = trp->textbuf_size - trailing_byte_ct;
-    if (trp->gz_infile) {
-      nbytes = gzread(trp->gz_infile, textbuf_stop, bytes_avail);
-      if (S_CAST(int32_t, nbytes) <= 0) {
-        if ((!nbytes) && gzeof(trp->gz_infile)) {
-          goto TextReadLine_eof;
-        }
-        *reterrp = kPglRetReadFail;
-        return 0;
-      }
-    } else {
-      nbytes = zstread(&trp->zrf, textbuf_stop, bytes_avail);
-      if (S_CAST(int32_t, nbytes) <= 0) {
-        if ((!nbytes) && zsteof(&trp->zrf)) {
-          goto TextReadLine_eof;
-        }
-        *reterrp = kPglRetReadFail;
-        return 0;
-      }
-    }
-    memchr_start = textbuf_stop;
-    textbuf_stop = &(textbuf_stop[nbytes]);
-    trp->textbuf_stop = textbuf_stop;
-  }
- TextReadLine_eof:
-  if (!trailing_byte_ct) {
-    // Usual EOF.
-    return 0;
-  }
-  // EOF without trailing \n.
-  *line_startp = trp->textbuf_cur;
-  *textbuf_stop++ = '\n';
-  trp->textbuf_cur = textbuf_stop;
-  trp->textbuf_stop = textbuf_stop;
-  return 1;
-}
-
-uint32_t TextReadLineK(TextReader* trp, const char** line_startp, PglErr* reterrp) {
-  return TextReadLine(trp, K_CAST(char**, line_startp), reterrp);
-}
-
-uint32_t TextReadLineLstripK(TextReader* trp, const char** line_startp, PglErr* reterrp) {
-  if (!TextReadLineK(trp, line_startp, reterrp)) {
-    return 0;
-  }
-  *line_startp = FirstNonTspace(*line_startp);
-  return 1;
-}
-
-char* TextPrevLineEnd(TextReader* trp) {
-  return trp->textbuf_cur;
-}
-
-PglErr RewindTextReader(TextReader* trp) {
-  if (trp->gz_infile) {
-    if (gzrewind(trp->gz_infile)) {
-      return kPglRetReadFail;
-    }
-  } else if (ZstRfileIsOpen(&trp->zrf)) {
-    zstrewind(&trp->zrf);
-  } else {
-    return kPglRetImproperFunctionCall;
-  }
-  trp->textbuf_cur = trp->textbuf;
-  trp->textbuf_stop = trp->textbuf;
-  return kPglRetSuccess;
-}
-
-PglErr CleanupTextReader(TextReader* trp) {
-  PglErr reterr = kPglRetSuccess;
-  if (trp->gz_infile) {
-    if (gzclose(trp->gz_infile)) {
-      reterr = kPglRetReadFail;
-    }
-    trp->gz_infile = nullptr;
-  } else if (ZstRfileIsOpen(&trp->zrf)) {
-    CleanupZstRfile(&trp->zrf, &reterr);
-  }
-  if (trp->textbuf) {
-    free(trp->textbuf);
-    trp->textbuf = nullptr;
-  }
-  return reterr;
-}
-
 
 RefcountedWptr* CreateRefcountedWptr(uintptr_t size) {
   RefcountedWptr* rwp = S_CAST(RefcountedWptr*, malloc(sizeof(RefcountedWptr) + size * sizeof(intptr_t)));
@@ -268,18 +54,25 @@ void PreinitMinimalPvar(MinimalPvar* mpp) {
 // probably cheaper than the code to subtract 32 everywhere.
 const char g_one_char_strs[] = "\0\0\1\0\2\0\3\0\4\0\5\0\6\0\7\0\10\0\11\0\12\0\13\0\14\0\15\0\16\0\17\0\20\0\21\0\22\0\23\0\24\0\25\0\26\0\27\0\30\0\31\0\32\0\33\0\34\0\35\0\36\0\37\0\40\0\41\0\42\0\43\0\44\0\45\0\46\0\47\0\50\0\51\0\52\0\53\0\54\0\55\0\56\0\57\0\60\0\61\0\62\0\63\0\64\0\65\0\66\0\67\0\70\0\71\0\72\0\73\0\74\0\75\0\76\0\77\0\100\0\101\0\102\0\103\0\104\0\105\0\106\0\107\0\110\0\111\0\112\0\113\0\114\0\115\0\116\0\117\0\120\0\121\0\122\0\123\0\124\0\125\0\126\0\127\0\130\0\131\0\132\0\133\0\134\0\135\0\136\0\137\0\140\0\141\0\142\0\143\0\144\0\145\0\146\0\147\0\150\0\151\0\152\0\153\0\154\0\155\0\156\0\157\0\160\0\161\0\162\0\163\0\164\0\165\0\166\0\167\0\170\0\171\0\172\0\173\0\174\0\175\0\176\0\177\0\200\0\201\0\202\0\203\0\204\0\205\0\206\0\207\0\210\0\211\0\212\0\213\0\214\0\215\0\216\0\217\0\220\0\221\0\222\0\223\0\224\0\225\0\226\0\227\0\230\0\231\0\232\0\233\0\234\0\235\0\236\0\237\0\240\0\241\0\242\0\243\0\244\0\245\0\246\0\247\0\250\0\251\0\252\0\253\0\254\0\255\0\256\0\257\0\260\0\261\0\262\0\263\0\264\0\265\0\266\0\267\0\270\0\271\0\272\0\273\0\274\0\275\0\276\0\277\0\300\0\301\0\302\0\303\0\304\0\305\0\306\0\307\0\310\0\311\0\312\0\313\0\314\0\315\0\316\0\317\0\320\0\321\0\322\0\323\0\324\0\325\0\326\0\327\0\330\0\331\0\332\0\333\0\334\0\335\0\336\0\337\0\340\0\341\0\342\0\343\0\344\0\345\0\346\0\347\0\350\0\351\0\352\0\353\0\354\0\355\0\356\0\357\0\360\0\361\0\362\0\363\0\364\0\365\0\366\0\367\0\370\0\371\0\372\0\373\0\374\0\375\0\376\0\377";
 
+uint32_t TextReadLineLstripK(textRFILE* trfp, const char** line_startp) {
+  if (TextRfileNextLine(trfp, K_CAST(char**, line_startp))) {
+    return 0;
+  }
+  *line_startp = FirstNonTspace(*line_startp);
+  return 1;
+}
+
 PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
   // Simple, somewhat inefficient two-pass loader.  Ignores everything but the
   // ID, REF, and ALT columns for now (since that's what we need to make
   // multiallelic .pgen files usable).
-  TextReader tr;
-  PreinitTextReader(&tr);
+  textRFILE trf;
+  PreinitTextRfile(&trf);
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
   {
-    reterr = InitTextReader(fname, &tr, errstr_buf);
-    if (reterr) {
-      goto LoadMinimalPvar_ret_1;
+    if (TextRfileOpen(fname, &trf)) {
+      goto LoadMinimalPvar_ret_FILE_FAIL;
     }
     // [0] = ID
     // [1] = REF
@@ -287,7 +80,7 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
     uint32_t col_skips[3];
     uint32_t col_types[3];
     const char* line_iter;
-    while (TextReadLineLstripK(&tr, &line_iter, &reterr)) {
+    while (TextReadLineLstripK(&trf, &line_iter)) {
       ++line_idx;
       if (IsEolnKns(*line_iter)) {
         continue;
@@ -367,12 +160,12 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
         col_skips[2] -= col_skips[1];
         col_skips[1] -= col_skips[0];
         // skip this line in main loop
-        line_iter = &(TextPrevLineEnd(&tr)[-1]);
+        line_iter = &(TextRfileLineEnd(&trf)[-1]);
         break;
       }
     }
-    if (reterr) {
-      goto LoadMinimalPvar_ret_READ_LINE_FAIL;
+    if (TextRfileErrcode(&trf)) {
+      goto LoadMinimalPvar_ret_FILE_FAIL;
     }
     uintptr_t variant_ct = 0;
     uintptr_t allele_ct = 0;
@@ -425,9 +218,9 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
           }
         }
       }
-      if (!TextReadLineLstripK(&tr, &line_iter, &reterr)) {
-        if (reterr) {
-          goto LoadMinimalPvar_ret_READ_LINE_FAIL;
+      if (!TextReadLineLstripK(&trf, &line_iter)) {
+        if (TextRfileErrcode(&trf)) {
+          goto LoadMinimalPvar_ret_FILE_FAIL;
         }
         break;
       }
@@ -472,17 +265,14 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
       }
       allele_idx_offsets = mpp->allele_idx_offsetsp->p;
     }
-    reterr = RewindTextReader(&tr);
-    if (reterr) {
-      goto LoadMinimalPvar_ret_1;
-    }
+    TextRfileRewind(&trf);
     const char** allele_storage = &(variant_ids[variant_ct]);
     mpp->allele_storage = allele_storage;
     mpp->variant_ct = variant_ct;
     mpp->max_allele_ct = max_extra_alt_ct + 2;
     uint32_t variant_idx = 0;
     uintptr_t allele_idx = 0;
-    while (TextReadLineLstripK(&tr, &line_iter, &reterr)) {
+    while (TextReadLineLstripK(&trf, &line_iter)) {
       if (*line_iter == '#') {
         continue;
       }
@@ -552,8 +342,8 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
       }
       ++variant_idx;
     }
-    if (reterr) {
-      goto LoadMinimalPvar_ret_1;
+    if (TextRfileErrcode(&trf)) {
+      goto LoadMinimalPvar_ret_FILE_FAIL;
     }
     if (variant_idx != variant_ct) {
       goto LoadMinimalPvar_ret_READ_FAIL;
@@ -572,16 +362,17 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
   LoadMinimalPvar_ret_READ_FAIL:
     reterr = kPglRetReadFail;
     break;
-  LoadMinimalPvar_ret_READ_LINE_FAIL:
-    if ((reterr == kPglRetNomem) || (reterr == kPglRetReadFail)) {
-      break;
+  LoadMinimalPvar_ret_FILE_FAIL:
+    reterr = TextRfileErrcode(&trf);
+    assert(reterr != kPglRetSuccess);
+    {
+      const char* errmsg = TextRfileError(&trf);
+      if (errmsg) {
+        memcpy_k(errstr_buf, "Error: ", 7);
+        strcpy(&(errstr_buf[7]), errmsg);
+      }
     }
-    if (reterr == kPglRetMalformedInput) {
-      strcpy(errstr_buf, "Error: Zstd decompression failure.\n");
-      break;
-    }
-    assert(reterr == kPglRetLongLine);
-    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Pathologically long line in %s.\n", fname);
+    break;
   LoadMinimalPvar_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
@@ -595,7 +386,7 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
     break;
   }
  LoadMinimalPvar_ret_1:
-  CleanupTextReader(&tr);
+  CleanupTextRfile(&trf, &reterr);
   return reterr;
 }
 

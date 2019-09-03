@@ -1,4 +1,5 @@
-SOURCES = $(wildcard zstd/lib/compress/*.c) $(wildcard zstd/lib/decompress/*.c) $(wildcard zstd/lib/common/*.c) $(wildcard libdeflate/lib/*.c) $(wildcard libdeflate/lib/x86/*.c)
-OBJECTS = plink2_base.o pgenlib_internal.o pvar_ffi_support.o pgenlib_ffi_support.o plink2_string.o plink2_zstfile.o pvar.o pgenlibr.o RcppExports.o $(SOURCES:.c=.o)
-PKG_CFLAGS = -Izstd/lib -Izstd/lib/common -Ilibdeflate -Ilibdeflate/common
-PKG_CPPFLAGS = -DSTATIC_ZSTD
+SOURCES = $(wildcard libdeflate/lib/*.c) $(wildcard libdeflate/lib/x86/*.c)
+OBJECTS = plink2_base.o pgenlib_internal.o pvar_ffi_support.o pgenlib_ffi_support.o plink2_getline.o plink2_string.o plink2_zstfile.o pvar.o pgenlibr.o RcppExports.o $(SOURCES:.c=.o)
+PKG_CFLAGS = -Ilibdeflate -Ilibdeflate/common
+PKG_CPPFLAGS =
+PKG_LIBS = -lzstd

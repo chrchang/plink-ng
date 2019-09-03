@@ -36,6 +36,11 @@ const char* RPvar::GetVariantId(uint32_t variant_idx) const {
 }
 
 uint32_t RPvar::GetAlleleCt(uint32_t variant_idx) const {
+  if (variant_idx >= _mp.variant_ct) {
+    char errstr_buf[256];
+    sprintf(errstr_buf, "variant_num out of range (%d; must be 1..%u)", variant_idx + 1, _mp.variant_ct);
+    stop(errstr_buf);
+  }
   if (!_mp.allele_idx_offsetsp) {
     return 2;
   }
