@@ -96,7 +96,7 @@ BoolErr IsPathologicallyLongLineOrToken(const char* cur_block_start, const char*
 // attractor").  Goal is to get it right, and fast enough to be a major win
 // over gzgets()... and then not worry about it again for years.
 THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
-  ReadLineStream* context = R_CAST(ReadLineStream*, arg);
+  ReadLineStream* context = S_CAST(ReadLineStream*, arg);
   ReadLineStreamSync* syncp = context->syncp;
   gzFile gz_infile = context->gz_infile;
   BGZF* bgz_infile = context->bgz_infile;

@@ -110,7 +110,7 @@
 
 #include "plink2_zstfile.h"
 #include "plink2_string.h"
-// #include "plink2_thread.h"
+#include "plink2_thread.h"
 #include "libdeflate/libdeflate.h"
 
 // htslib bgzf dependency has been removed, due to impedance mismatches
@@ -123,12 +123,41 @@
 namespace plink2 {
 #endif
 
+typedef struct TextRfileBaseStruct {
+  // Positioned first so (i) the compiler doesn't need to add an offset to
+  // access it, and (ii) we minimize the amount of padding needed to ensure dst
+  // is on a different cacheline.
+  char* consume_iter;
+
+  char* consume_stop;  // should always point after the last loaded \n
+
+  const char* errmsg;
+  PglErr reterr;
+
+  FileCompressionType file_type;
+  FILE* ff;  // could use e.g. htslib for some network support later
+#ifdef __LP64__
+  // Ensure dst/dst_len/dst_capacity and consume_iter live on different
+  // cachelines, since they can be changed by different threads.
+  uintptr_t padding[2];
+#else
+  uintptr_t padding[8];
+#endif
+  uint32_t dst_owned_by_caller;
+  uint32_t enforced_max_line_blen;
+  char* dst;
+  uint32_t dst_len;
+  uint32_t dst_capacity;
+} TextRfileBase;
+
 typedef struct GzRawDecompressStreamStruct {
+  unsigned char* in;
   z_stream ds;
   uint32_t ds_initialized;
 } GzRawDecompressStream;
 
 typedef struct BgzfRawDecompressStreamStruct {
+  unsigned char* in;
   struct libdeflate_decompressor* ldc;
   uint32_t in_size;
   uint32_t in_pos;
@@ -143,30 +172,14 @@ typedef union {
   GzRawDecompressStream gz;
   // Even in the single-threaded case, it's worth distinguishing bgzf from
   // generic .gz, since we can use libdeflate 100% of the time.
-  // (This is a 64 KiB buffer.)
   BgzfRawDecompressStream bgzf;
   ZstRawDecompressStream zst;
 } RawDecompressStream;
 
 typedef struct textRFILEStruct {
   NONCOPYABLE(textRFILEStruct);
-  // Positioned first so the compiler doesn't need to add an offset to compare
-  // to this.
-  char* consume_iter;
-
-  char* consume_stop;  // should always point after the last \n in buf
-  char* dst;
-
-  FILE* ff;  // could use e.g. htslib for some network support later
-  const char* errmsg;
-  PglErr reterr;
-  FileCompressionType file_type;
-  uint32_t dst_owned_by_caller;
-  uint32_t dst_len;
-  uint32_t dst_capacity;
-  uint32_t enforced_max_line_blen;
-  unsigned char* in;
-  RawDecompressStream raw;
+  TextRfileBase base;
+  RawDecompressStream rds;
 } textRFILE;
 
 void PreinitTextRfile(textRFILE* trfp);
@@ -176,17 +189,20 @@ void PreinitTextRfile(textRFILE* trfp);
 CONSTI32(kDecompressChunkSize, 1048576);
 static_assert(!(kDecompressChunkSize % kCacheline), "kDecompressChunkSize must be a multiple of kCacheline.");
 
+CONSTI32(kTokenRstreamBlen, 11 * kDecompressChunkSize);
 CONSTI32(kMaxTokenBlen, 8 * kDecompressChunkSize);
 static_assert(kMaxTokenBlen >= kDecompressChunkSize, "kMaxTokenBlen too small.");
+static_assert(kMaxTokenBlen <= kMaxTokenBlen, "kMaxTokenBlen can't be larger than kTokenRstreamBlen.");
 
-// Can return nomem, open-fail, or read-fail.
-// If dst == nullptr, this mallocs a buffer of size 2 * kDecompressChunkSize,
-// and it'll be realloced as necessary and freed by CleanupTextRfile().
-// Otherwise, the buffer is owned by the caller, assumed to have size >=
-// dst_capacity, and never grown.
-// enforced_max_line_blen must be >= dst_capacity - kDecompressChunkSize.  It's
-// the point at which long-line errors instead of out-of-memory errors are
-// reported.  It isn't permitted to be less than 1 MiB.
+// * Can return nomem, open-fail, or read-fail.
+// * If dst == nullptr, this mallocs a buffer of size 2 * kDecompressChunkSize,
+//   and it'll be realloced as necessary and freed by CleanupTextRfile().
+//   The original value of dst_capacity doesn't matter in this case.
+//   Otherwise, the buffer is owned by the caller, assumed to have size >=
+//   dst_capacity, and never grown.
+// * enforced_max_line_blen must be >= dst_capacity - kDecompressChunkSize.
+//   It's the point at which long-line errors instead of out-of-memory errors
+//   are reported.  It isn't permitted to be less than 1 MiB.
 PglErr TextRfileOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, char* dst, textRFILE* trfp);
 
 HEADER_INLINE PglErr TextRfileOpen(const char* fname, textRFILE* trfp) {
@@ -198,66 +214,67 @@ extern const char kShortErrLongLine[];
 PglErr TextRfileAdvance(textRFILE* trfp);
 
 HEADER_INLINE PglErr TextRfileNextLine(textRFILE* trfp, char** line_startp) {
-  if (trfp->consume_iter == trfp->consume_stop) {
+  if (trfp->base.consume_iter == trfp->base.consume_stop) {
     PglErr reterr = TextRfileAdvance(trfp);
     // not unlikely() due to eof
     if (reterr) {
       return reterr;
     }
   }
-  *line_startp = trfp->consume_iter;
-  trfp->consume_iter = AdvPastDelim(trfp->consume_iter, '\n');
+  *line_startp = trfp->base.consume_iter;
+  trfp->base.consume_iter = AdvPastDelim(trfp->base.consume_iter, '\n');
   return kPglRetSuccess;
 }
 
 HEADER_INLINE char* TextRfileLineEnd(textRFILE* trfp) {
-  return trfp->consume_iter;
+  return trfp->base.consume_iter;
 }
 
 void TextRfileRewind(textRFILE* trfp);
 
 HEADER_INLINE int32_t TextRfileIsOpen(const textRFILE* trfp) {
-  return (trfp->ff != nullptr);
+  return (trfp->base.ff != nullptr);
 }
 
 HEADER_INLINE int32_t TextRfileEof(const textRFILE* trfp) {
-  return (trfp->reterr == kPglRetEof);
+  return (trfp->base.reterr == kPglRetEof);
 }
 
 HEADER_INLINE const char* TextRfileError(const textRFILE* trfp) {
-  return trfp->errmsg;
+  return trfp->base.errmsg;
 }
 
 HEADER_INLINE PglErr TextRfileErrcode(const textRFILE* trfp) {
-  if (trfp->reterr == kPglRetEof) {
+  if (trfp->base.reterr == kPglRetEof) {
     return kPglRetSuccess;
   }
-  return trfp->reterr;
+  return trfp->base.reterr;
 }
 
 // Ok to pass reterrp == nullptr.
 // Returns nonzero iff file-close fails, and either reterrp == nullptr or
-// *reterrp == kPglRetSuccess.  In the latter case, *reterrp is set to
-// kPglRetReadFail.
+// *reterrp == kPglRetSuccess; this is intended to be followed by logging of
+// strerror(errno).  In the latter case, *reterrp is set to kPglRetReadFail.
 BoolErr CleanupTextRfile(textRFILE* trfp, PglErr* reterrp);
 
 
-/*
 // consumer -> reader message
 // could add a "close current file and open another one" case
 ENUM_U31_DEF_START()
-  kTsInterruptNone,
-  kTsInterruptRetarget,
-  kTsInterruptShutdown
-ENUM_U31_DEF_END(TsInterrupt);
+  kTrsInterruptNone,
+  kTrsInterruptRetarget,
+  kTrsInterruptShutdown
+ENUM_U31_DEF_END(TrsInterrupt);
 
-typedef struct TextStreamSyncStruct {
+typedef struct TextRstreamSyncStruct {
   // Mutex shared state, and everything guarded by the mutex.  Allocated to
   // different cacheline(s) than consume_stop.
-  NONCOPYABLE(TextStreamSyncStruct);
+  NONCOPYABLE(TextRstreamSyncStruct);
 
 #ifdef _WIN32
   CRITICAL_SECTION critical_section;
+  HANDLE reader_progress_event;
+  HANDLE consumer_progress_event;
 #else
   pthread_mutex_t sync_mutex;
   pthread_cond_t reader_progress_condvar;
@@ -273,12 +290,31 @@ typedef struct TextStreamSyncStruct {
   PglErr reterr;  // note that this is set to kPglRetEof once we reach eof
   int32_t open_errno;
 
-  TsInterrupt interrupt;
+  TrsInterrupt interrupt;
   const char* new_fname;
-} TextStreamSync;
+} TextRstreamSync;
+
+
+CONSTI32(kMaxBgzfDecompressThreads, 5);
+static_assert(kMaxBgzfDecompressThreads * 3 * 65600 < kDecompressChunkSize, "kMaxBgzfDecompressThreads too large relative to kDecompressChunkSize.");
+
+typedef struct BgzfMtReadBodyStruct {
+  // Thread 0 performs read-ahead into trs.in.
+  // Threads 1..(thread_ct-1) perform decompression from trs.in directly to
+  // target when there's sufficient space, and to decompressed_buf when there
+  // isn't.
+  struct libdeflate_decompressor* ldcs[kMaxBgzfDecompressThreads];
+  unsigned char* in;
+  unsigned char* decompressed_buf;
+  unsigned char* target;
+  unsigned char* target_end;
+  uint32_t buf_pos;
+  uint32_t buf_size;
+} BgzfMtReadBody;
 
 typedef struct BgzfRawMtDecompressStreamStruct {
-  // TODO
+  BgzfMtReadBody body;
+  ThreadGroup tg;  // stores thread_ct
 } BgzfRawMtDecompressStream;
 
 typedef union {
@@ -287,61 +323,63 @@ typedef union {
   ZstRawDecompressStream zst;
 } RawMtDecompressStream;
 
-// To minimize false (or true) sharing penalties, these values shouldn't change
-// much; only the things they point to should be frequently changing.
-typedef struct TextStreamStruct {
-  NONCOPYABLE(TextStreamStruct);
-  char* consume_iter;
+typedef struct TextRstreamStruct {
+  NONCOPYABLE(TextRstreamStruct);
+  TextRfileBase base;
+  RawMtDecompressStream rds;
 
-  char* consume_stop;
-  char* dst;
-
-#ifdef _WIN32
-  // stored here since they're just pointers.
-  HANDLE reader_progress_event;
-  HANDLE consumer_progress_event;
+  TextRstreamSync* syncp;
+  pthread_t read_thread;
+#ifndef _WIN32
+  uint32_t sync_init_state;
 #endif
-  TextStreamSync* syncp;
+} TextRstream;
 
-  FILE* ff;
-  const char* errmsg;
-  PglErr reterr;
-  FileCompressionType file_type;
-  uint32_t dst_owned_by_caller;
-  uint32_t dst_len;
-  uint32_t dst_capacity;
-  uint32_t enforced_max_line_blen;
-  unsigned char* in;
-  RawMtDecompressStream raw;
-} TextStream;
+void PreinitTextRstream(TextRstream* trsp);
 
-void PreinitText(TextStream* tsp);
+// * Can return nomem, open-fail, read-fail, or thread-create-fail.
+// * Exactly one of fname and trfp must be nullptr.  If trfp is null, fname is
+//   opened.  Otherwise, the returned stream is "move-constructed" from trfp.
+//   When not move-constructing, enforced_max_line_blen, dst_capacity, and dst
+//   are interpreted the same way as TextRfileOpenEx().
+//   When move-constructing, enforced_max_line_blen and dst_capacity may be
+//   smaller than what the textRFILE was opened with.
+PglErr TextRstreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, uint32_t decompress_thread_ct, textRFILE* trfp, char* dst, TextRstream* trsp);
 
-HEADER_INLINE char* TextLineEnd(TextStream* tsp) {
-  return tsp->consume_iter;
+HEADER_INLINE PglErr TextRstreamOpen(const char* fname, TextRstream* trsp) {
+  return TextRstreamOpenEx(fname, kMaxLongLine, 0, NumCpu(nullptr), nullptr, nullptr, trsp);
 }
 
-HEADER_INLINE int32_t TextEof(const TextStream* tsp) {
-  return (tsp->reterr == kPglRetEof);
+HEADER_INLINE char* TextLineEnd(TextRstream* trsp) {
+  return trsp->base.consume_iter;
 }
 
-HEADER_INLINE const char* TextError(const TextStream* tsp) {
-  return tsp->errmsg;
+HEADER_INLINE int32_t TextRstreamIsOpen(const TextRstream* trsp) {
+  return (trsp->base.ff != nullptr);
 }
 
-HEADER_INLINE PglErr TextErrcode(const TextStream* tsp) {
-  if (tsp->reterr == kPglRetEof) {
+HEADER_INLINE int32_t TextEof(const TextRstream* trsp) {
+  return (trsp->base.reterr == kPglRetEof);
+}
+
+uint32_t TextDecompressThreadCt(const TextRstream* trsp);
+
+HEADER_INLINE const char* TextRstreamError(const TextRstream* trsp) {
+  return trsp->base.errmsg;
+}
+
+HEADER_INLINE PglErr TextRstreamErrcode(const TextRstream* trsp) {
+  if (trsp->base.reterr == kPglRetEof) {
     return kPglRetSuccess;
   }
-  return tsp->reterr;
+  return trsp->base.reterr;
 }
 
 // Ok to pass reterrp == nullptr.
 // Returns nonzero iff file-close fails, and either reterrp == nullptr or
 // *reterrp == kPglRetSuccess.  In the latter case, *reterrp is set to
 // kPglRetReadFail.
-BoolErr CleanupText(TextStream* tsp, PglErr* reterrp);
-*/
+BoolErr CleanupTextRstream(TextRstream* trsp, PglErr* reterrp);
 
 #ifdef __cplusplus
 }  // namespace plink2

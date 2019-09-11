@@ -1767,7 +1767,9 @@ HEADER_INLINE uint32_t IsI32Neg(uint32_t uii) {
 }
 
 HEADER_INLINE uint32_t abs_i32(int32_t ii) {
-  const uint32_t neg_sign_bit = -IsI32Neg(ii);
+  // Arithmetic right shift.  0xffffffffU when ii is negative, 0 otherwise.
+  const uint32_t neg_sign_bit = S_CAST(uint32_t, ii >> 31);
+
   return (S_CAST(uint32_t, ii) ^ neg_sign_bit) - neg_sign_bit;
 }
 
