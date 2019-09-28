@@ -563,34 +563,33 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
   const char* in_fname = afip->fname;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
-  ReadLineStream adjust_rls;
-  PreinitRLstream(&adjust_rls);
+  TextRstream adjust_trs;
+  PreinitTextRstream(&adjust_trs);
   {
     // Two-pass load.
     // 1. Parse header line, count # of variants.
     // intermission. Allocate top-level arrays.
     // 2. Rewind and fill arrays.
     // (some overlap with LoadPvar(), though that's one-pass.)
-    const char* line_iter;
-    reterr = SizeAndInitRLstreamRawK(in_fname, bigstack_left() / 4, &adjust_rls, &line_iter);
+    reterr = SizeAndInitTextRstream(in_fname, bigstack_left() / 4, max_thread_ct, &adjust_trs);
     if (unlikely(reterr)) {
       goto AdjustFile_ret_1;
     }
 
+    const char* header_start;
     do {
       ++line_idx;
-      reterr = RlsNextLstripK(&adjust_rls, &line_iter);
+      reterr = TextNextLineLstripK(&adjust_trs, &header_start);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", in_fname);
           goto AdjustFile_ret_MALFORMED_INPUT_WW;
         }
-        goto AdjustFile_ret_READ_RLSTREAM;
+        goto AdjustFile_ret_RSTREAM_FAIL;
       }
-    } while (strequal_k_unsafe(line_iter, "##"));
-    const char* linebuf_first_token = line_iter;
-    if (*linebuf_first_token == '#') {
-      ++linebuf_first_token;
+    } while (strequal_k_unsafe(header_start, "##"));
+    if (*header_start == '#') {
+      ++header_start;
     }
 
     const AdjustFlags flags = afip->base.flags;
@@ -632,7 +631,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     uint32_t col_types[8];
     uint32_t relevant_col_ct;
     uint32_t found_type_bitset;
-    reterr = SearchHeaderLine(linebuf_first_token, col_search_order, "adjust-file", 8, &relevant_col_ct, &found_type_bitset, col_skips, col_types);
+    reterr = SearchHeaderLine(header_start, col_search_order, "adjust-file", 8, &relevant_col_ct, &found_type_bitset, col_skips, col_types);
     if (unlikely(reterr)) {
       goto AdjustFile_ret_1;
     }
@@ -680,23 +679,22 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
 
     uintptr_t entry_ct = 0;
     while (1) {
-      reterr = RlsNextNonemptyLstripK(&adjust_rls, &line_idx, &line_iter);
+      const char* line_start;
+      reterr = TextNextNonemptyLineLstripK(&adjust_trs, &line_idx, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           // reterr = kPglRetSuccess;
           break;
         }
-        goto AdjustFile_ret_READ_RLSTREAM;
+        goto AdjustFile_ret_RSTREAM_FAIL;
       }
       if (test_name) {
         // Don't count different-test entries.
-        line_iter = NextTokenMult0(line_iter, test_col_idx);
-        if (unlikely(!line_iter)) {
+        const char* test_name_start = NextTokenMult0(line_start, test_col_idx);
+        if (unlikely(!test_name_start)) {
           goto AdjustFile_ret_MISSING_TOKENS;
         }
-        const char* test_name_start = line_iter;
-        const uint32_t cur_test_slen = strlen_se(line_iter);
-        line_iter = &(line_iter[cur_test_slen]);
+        const uint32_t cur_test_slen = strlen_se(test_name_start);
         if ((cur_test_slen != test_name_slen) || (!memequal(test_name_start, test_name, test_name_slen))) {
           continue;
         }
@@ -712,17 +710,22 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     }
 #endif
 
-    RewindRLstreamRawK(&adjust_rls, &line_iter);
+    reterr = TextRewind(&adjust_trs);
+    if (unlikely(reterr)) {
+      goto AdjustFile_ret_RSTREAM_FAIL;
+    }
     const uintptr_t line_ct = line_idx;
     line_idx = 0;
     do {
       ++line_idx;
-      reterr = RlsNextLstripK(&adjust_rls, &line_iter);
+      reterr = TextNextLineLstripK(&adjust_trs, &header_start);
       if (unlikely(reterr)) {
-        goto AdjustFile_ret_READ_FAIL;
+        if (reterr == kPglRetEof) {
+          goto AdjustFile_ret_REWIND_FAIL;
+        }
+        goto AdjustFile_ret_RSTREAM_FAIL;
       }
-    } while (strequal_k_unsafe(line_iter, "##"));
-    linebuf_first_token = line_iter;
+    } while (strequal_k_unsafe(header_start, "##"));
 
     const uintptr_t entry_ctl = BitCtToWordCt(entry_ct);
     const uintptr_t entry_ctl2 = QuaterCtToWordCt(entry_ct);
@@ -786,16 +789,16 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     uintptr_t variant_idx = 0;
     while (line_idx < line_ct) {
       ++line_idx;
-      if (unlikely(RlsNextLstripK(&adjust_rls, &line_iter))) {
-        goto AdjustFile_ret_READ_FAIL;
+      const char* line_start;
+      if (unlikely(TextNextLineLstripK(&adjust_trs, &line_start))) {
+        goto AdjustFile_ret_REWIND_FAIL;
       }
-      if (IsEolnKns(*line_iter)) {
+      if (IsEolnKns(*line_start)) {
         continue;
       }
       const char* token_ptrs[8];
       uint32_t token_slens[8];
-      line_iter = TokenLexK0(line_iter, col_types, col_skips, relevant_col_ct, token_ptrs, token_slens);
-      if (unlikely(!line_iter)) {
+      if (unlikely(!TokenLexK0(line_start, col_types, col_skips, relevant_col_ct, token_ptrs, token_slens))) {
         goto AdjustFile_ret_MISSING_TOKENS;
       }
       if (test_name) {
@@ -902,11 +905,12 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
   AdjustFile_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  AdjustFile_ret_READ_RLSTREAM:
-    RLstreamErrPrint(in_fname, &adjust_rls, &reterr);
+  AdjustFile_ret_REWIND_FAIL:
+    logerrprintfww(kErrprintfRewind, in_fname);
+    reterr = kPglRetRewindFail;
     break;
-  AdjustFile_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
+  AdjustFile_ret_RSTREAM_FAIL:
+    TextRstreamErrPrint(in_fname, &adjust_trs);
     break;
   AdjustFile_ret_INVALID_CMDLINE:
     reterr = kPglRetInvalidCmdline;
@@ -930,7 +934,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     break;
   }
  AdjustFile_ret_1:
-  CleanupRLstream(&adjust_rls);
+  CleanupTextRstream2(in_fname, &adjust_trs, &reterr);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }

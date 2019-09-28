@@ -21,41 +21,6 @@
 namespace plink2 {
 #endif
 
-PglErr GetFileType(const char* fname, FileCompressionType* ftype_ptr) {
-  FILE* infile = fopen(fname, FOPEN_RB);
-  if (unlikely(!infile)) {
-    // Note that this does not print an error message (since it may be called
-    // by a worker thread).
-    return kPglRetOpenFail;
-  }
-  unsigned char buf[16];
-  const uint32_t nbytes = fread_unlocked(buf, 1, 16, infile);
-  if (unlikely(ferror_unlocked(infile) || fclose(infile))) {
-    return kPglRetReadFail;
-  }
-  if (nbytes < 4) {
-    *ftype_ptr = kFileUncompressed;
-    return kPglRetSuccess;
-  }
-  uint32_t magic4;
-  memcpy(&magic4, buf, 4);
-
-  if (IsZstdFrame(magic4)) {
-    *ftype_ptr = kFileZstd;
-    return kPglRetSuccess;
-  }
-  if (S_CAST(uint16_t, magic4) != 0x8b1f) { // gzip ID1/ID2 bytes
-    *ftype_ptr = kFileUncompressed;
-    return kPglRetSuccess;
-  }
-  if ((nbytes == 16) && IsBgzfHeader(buf)) {
-    *ftype_ptr = kFileBgzf;
-  } else {
-    *ftype_ptr = kFileGzip;
-  }
-  return kPglRetSuccess;
-}
-
 void PreinitZstRfile(zstRFILE* zrfp) {
   zrfp->ff = nullptr;
   zrfp->zds = nullptr;

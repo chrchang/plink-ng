@@ -458,13 +458,13 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const char* const* var
   return kPglRetSuccess;
 }
 
-PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* fname, uint32_t max_allele_ct, uint32_t max_allele_slen, FaFlags flags, UnsortedVar* vpos_sortstatusp, uint32_t* variant_bps, const char** allele_storage, STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uintptr_t* nonref_flags, char* outname, char* outname_end) {
+PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* fname, uint32_t max_allele_ct, uint32_t max_allele_slen, FaFlags flags, uint32_t max_thread_ct, UnsortedVar* vpos_sortstatusp, uint32_t* variant_bps, const char** allele_storage, STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uintptr_t* nonref_flags, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   FILE* nlist_file = nullptr;
   PglErr reterr = kPglRetSuccess;
-  ReadLineStream fa_rls;
-  PreinitRLstream(&fa_rls);
+  TextRstream fa_trs;
+  PreinitTextRstream(&fa_trs);
   {
     const uint32_t chr_ct = cip->chr_ct;
     char* chr_name_buf;
@@ -517,10 +517,9 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
     // first base, correctly.
     seqbuf[0] = 'N';
 
-    char* line_iter;
-    reterr = SizemaxAndInitRLstreamRaw(fname, &fa_rls, &line_iter);
+    reterr = SizeAndInitTextRstream(fname, bigstack_left(), MAXV(max_thread_ct - 1, 1), &fa_trs);
     if (unlikely(reterr)) {
-      goto ProcessFa_ret_1;
+      goto ProcessFa_ret_RSTREAM_FAIL;
     }
 
     unsigned char* tmp_alloc_end = g_bigstack_end;
@@ -537,13 +536,14 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
     uint32_t nchanged_ct = 0;
     while (1) {
       ++line_idx;
-      reterr = RlsNext(&fa_rls, &line_iter);
+      char* line_iter;
+      reterr = TextNextLine(&fa_trs, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
           break;
         }
-        goto ProcessFa_ret_READ_RLSTREAM;
+        goto ProcessFa_ret_RSTREAM_FAIL;
       }
       unsigned char ucc = line_iter[0];
       if (ucc < 'A') {
@@ -680,8 +680,8 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
   ProcessFa_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  ProcessFa_ret_READ_RLSTREAM:
-    RLstreamErrPrint("--ref-from-fa file", &fa_rls, &reterr);
+  ProcessFa_ret_RSTREAM_FAIL:
+    TextRstreamErrPrint("--ref-from-fa file", &fa_trs);
     break;
   ProcessFa_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -696,7 +696,7 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
   }
  ProcessFa_ret_1:
   fclose_cond(nlist_file);
-  CleanupRLstream(&fa_rls);
+  CleanupTextRstream2("--ref-from-fa file", &fa_trs, &reterr);
   BigstackReset(bigstack_mark);
   return reterr;
 }

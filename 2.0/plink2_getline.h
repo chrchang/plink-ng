@@ -108,25 +108,20 @@
 #  endif
 #endif
 
+#include "plink2_bgzf.h"
 #include "plink2_zstfile.h"
-#include "plink2_string.h"
-#include "plink2_thread.h"
-#include "libdeflate/libdeflate.h"
-
-// htslib bgzf dependency has been removed, due to impedance mismatches
-// (Windows multithreading, input streams).  No, plink2 doesn't promise that
-// input streams work, or even that their handling remains stable between daily
-// builds, but we shouldn't just break them 100% of the time for no meaningful
-// benefit...
 
 #ifdef __cplusplus
 namespace plink2 {
 #endif
 
+PglErr GetFileType(const char* fname, FileCompressionType* ftype_ptr);
+
 typedef struct TextRfileBaseStruct {
-  // Positioned first so (i) the compiler doesn't need to add an offset to
-  // access it, and (ii) we minimize the amount of padding needed to ensure dst
-  // is on a different cacheline.
+  // This *is* copied wholesale by the TextRstream move-constructor.
+
+  // Positioned first so the compiler doesn't need to add an offset to access
+  // it.
   char* consume_iter;
 
   char* consume_stop;  // should always point after the last loaded \n
@@ -136,34 +131,30 @@ typedef struct TextRfileBaseStruct {
 
   FileCompressionType file_type;
   FILE* ff;  // could use e.g. htslib for some network support later
-#ifdef __LP64__
-  // Ensure dst/dst_len/dst_capacity and consume_iter live on different
-  // cachelines, since they can be changed by different threads.
-  uintptr_t padding[2];
-#else
-  uintptr_t padding[8];
-#endif
-  uint32_t dst_owned_by_caller;
+  uint32_t dst_owned_by_consumer;
   uint32_t enforced_max_line_blen;
+  // Note that when dst_owned_by_consumer isn't true, the reader thread can
+  // alter the values below.  However, this can only happen when the consumer
+  // thread is blocked waiting for the next line, or before it's attempted to
+  // read the first line.  So there's no advantage to placing these in a
+  // different cacheline from consume_iter (which is constantly altered by the
+  // consumer).
   char* dst;
   uint32_t dst_len;
   uint32_t dst_capacity;
 } TextRfileBase;
 
 typedef struct GzRawDecompressStreamStruct {
+  // Copied by TextRstream move-constructor.
   unsigned char* in;
   z_stream ds;
   uint32_t ds_initialized;
 } GzRawDecompressStream;
 
-typedef struct BgzfRawDecompressStreamStruct {
-  unsigned char* in;
-  struct libdeflate_decompressor* ldc;
-  uint32_t in_size;
-  uint32_t in_pos;
-} BgzfRawDecompressStream;
+// BgzfRawDecompressStream declared in plink2_bgzf.h.
 
 typedef struct ZstRawDecompressStreamStruct {
+  // Copied by TextRstream move-constructor.
   ZSTD_DStream* ds;
   ZSTD_inBuffer ib;
 } ZstRawDecompressStream;
@@ -177,22 +168,22 @@ typedef union {
 } RawDecompressStream;
 
 typedef struct textRFILEStruct {
-  NONCOPYABLE(textRFILEStruct);
   TextRfileBase base;
   RawDecompressStream rds;
 } textRFILE;
 
 void PreinitTextRfile(textRFILE* trfp);
 
-// (tested a few different values for this, 1 MiB appears to work well on the
-// systems we care most about)
-CONSTI32(kDecompressChunkSize, 1048576);
-static_assert(!(kDecompressChunkSize % kCacheline), "kDecompressChunkSize must be a multiple of kCacheline.");
+// kDecompressChunkSize = 1 MiB currently declared in plink2_bgzf.h, may move
+// somewhere closer to the base later.
 
-CONSTI32(kTokenRstreamBlen, 11 * kDecompressChunkSize);
-CONSTI32(kMaxTokenBlen, 8 * kDecompressChunkSize);
-static_assert(kMaxTokenBlen >= kDecompressChunkSize, "kMaxTokenBlen too small.");
-static_assert(kMaxTokenBlen <= kMaxTokenBlen, "kMaxTokenBlen can't be larger than kTokenRstreamBlen.");
+CONSTI32(kTextRstreamBlenLowerBound, 2 * kDecompressChunkSizeX);
+static_assert(kTextRstreamBlenLowerBound >= kMaxMediumLine, "kTextRstreamBlenLowerBound too small.");
+
+CONSTI32(kTokenRstreamBlen, 11 * kDecompressChunkSizeX);
+CONSTI32(kMaxTokenBlenX, 8 * kDecompressChunkSizeX);
+static_assert(kMaxTokenBlenX >= kDecompressChunkSizeX, "kMaxTokenBlen too small.");
+static_assert(kMaxTokenBlenX <= kTokenRstreamBlen, "kMaxTokenBlen can't be larger than kTokenRstreamBlen.");
 
 // * Can return nomem, open-fail, or read-fail.
 // * If dst == nullptr, this mallocs a buffer of size 2 * kDecompressChunkSize,
@@ -269,8 +260,6 @@ ENUM_U31_DEF_END(TrsInterrupt);
 typedef struct TextRstreamSyncStruct {
   // Mutex shared state, and everything guarded by the mutex.  Allocated to
   // different cacheline(s) than consume_stop.
-  NONCOPYABLE(TextRstreamSyncStruct);
-
 #ifdef _WIN32
   CRITICAL_SECTION critical_section;
   HANDLE reader_progress_event;
@@ -282,40 +271,27 @@ typedef struct TextRstreamSyncStruct {
   // bugfix (7 Mar 2018): need to avoid waiting on consumer_progress_condvar if
   // this is set.  (could also check an appropriate predicate)
   uint32_t consumer_progress_state;
+
+  uint32_t sync_init_state;
 #endif
+
+  pthread_t read_thread;
 
   char* consume_tail;
   char* cur_circular_end;
   char* available_end;
-  PglErr reterr;  // note that this is set to kPglRetEof once we reach eof
-  int32_t open_errno;
 
+  // Separate from the TextRfileBase instances of these values, since we don't
+  // want to force the user to worry about these values changing at any moment.
+  // Instead, the TextRfileBase instances are only updated during TextAdvance()
+  // calls and the like.
+  const char* errmsg;
+  PglErr reterr;  // note that this is set to kPglRetEof once we reach eof
+
+  uint32_t dst_reallocated;
   TrsInterrupt interrupt;
   const char* new_fname;
 } TextRstreamSync;
-
-
-CONSTI32(kMaxBgzfDecompressThreads, 5);
-static_assert(kMaxBgzfDecompressThreads * 3 * 65600 < kDecompressChunkSize, "kMaxBgzfDecompressThreads too large relative to kDecompressChunkSize.");
-
-typedef struct BgzfMtReadBodyStruct {
-  // Thread 0 performs read-ahead into trs.in.
-  // Threads 1..(thread_ct-1) perform decompression from trs.in directly to
-  // target when there's sufficient space, and to decompressed_buf when there
-  // isn't.
-  struct libdeflate_decompressor* ldcs[kMaxBgzfDecompressThreads];
-  unsigned char* in;
-  unsigned char* decompressed_buf;
-  unsigned char* target;
-  unsigned char* target_end;
-  uint32_t buf_pos;
-  uint32_t buf_size;
-} BgzfMtReadBody;
-
-typedef struct BgzfRawMtDecompressStreamStruct {
-  BgzfMtReadBody body;
-  ThreadGroup tg;  // stores thread_ct
-} BgzfRawMtDecompressStream;
 
 typedef union {
   GzRawDecompressStream gz;
@@ -324,15 +300,10 @@ typedef union {
 } RawMtDecompressStream;
 
 typedef struct TextRstreamStruct {
-  NONCOPYABLE(TextRstreamStruct);
   TextRfileBase base;
   RawMtDecompressStream rds;
-
+  uint32_t decompress_thread_ct;
   TextRstreamSync* syncp;
-  pthread_t read_thread;
-#ifndef _WIN32
-  uint32_t sync_init_state;
-#endif
 } TextRstream;
 
 void PreinitTextRstream(TextRstream* trsp);
@@ -364,6 +335,84 @@ HEADER_INLINE int32_t TextEof(const TextRstream* trsp) {
 
 uint32_t TextDecompressThreadCt(const TextRstream* trsp);
 
+PglErr TextAdvance(TextRstream* trsp);
+
+HEADER_INLINE PglErr TextNextLine(TextRstream* trsp, char** line_startp) {
+  if (trsp->base.consume_iter == trsp->base.consume_stop) {
+    PglErr reterr = TextAdvance(trsp);
+    // not unlikely() due to eof
+    if (reterr) {
+      return reterr;
+    }
+  }
+  *line_startp = trsp->base.consume_iter;
+  trsp->base.consume_iter = AdvPastDelim(trsp->base.consume_iter, '\n');
+  return kPglRetSuccess;
+}
+
+HEADER_INLINE PglErr TextNextLineK(TextRstream* trsp, const char** line_startp) {
+  return TextNextLine(trsp, K_CAST(char**, line_startp));
+}
+
+HEADER_INLINE PglErr TextNextLineLstrip(TextRstream* trsp, char** line_startp) {
+  if (trsp->base.consume_iter == trsp->base.consume_stop) {
+    PglErr reterr = TextAdvance(trsp);
+    // not unlikely() due to eof
+    if (reterr) {
+      return reterr;
+    }
+  }
+  *line_startp = FirstNonTspace(trsp->base.consume_iter);
+  trsp->base.consume_iter = AdvPastDelim(*line_startp, '\n');
+  return kPglRetSuccess;
+}
+
+HEADER_INLINE PglErr TextNextLineLstripK(TextRstream* trsp, const char** line_startp) {
+  return TextNextLineLstrip(trsp, K_CAST(char**, line_startp));
+}
+
+// these do not update line_idx on eof.
+PglErr TextNextNonemptyLineLstrip(TextRstream* trsp, uintptr_t* line_idx_ptr, char** line_startp);
+
+HEADER_INLINE PglErr TextNextNonemptyLineLstripK(TextRstream* trsp, uintptr_t* line_idx_ptr, const char** line_startp) {
+  return TextNextNonemptyLineLstrip(trsp, line_idx_ptr, K_CAST(char**, line_startp));
+}
+
+PglErr TextSkipNz(uintptr_t skip_ct, TextRstream* trsp);
+
+HEADER_INLINE PglErr TextSkip(uintptr_t skip_ct, TextRstream* trsp) {
+  if (skip_ct == 0) {
+    return kPglRetSuccess;
+  }
+  return TextSkipNz(skip_ct, trsp);
+}
+
+
+// 'Unsafe' functions require line_iter to already point to the start of the
+// line, and don't update trsp->base.consume_iter; they primarily wrap the
+// TextAdvance() call.
+HEADER_INLINE PglErr TextNextLineLstripUnsafe(TextRstream* trsp, char** line_iterp) {
+  char* line_iter = *line_iterp;
+  if (line_iter == trsp->base.consume_stop) {
+    trsp->base.consume_iter = line_iter;
+    PglErr reterr = TextAdvance(trsp);
+    // not unlikely() due to eof
+    if (reterr) {
+      return reterr;
+    }
+    line_iter = trsp->base.consume_iter;
+  }
+  *line_iterp = FirstNonTspace(line_iter);
+  return kPglRetSuccess;
+}
+
+
+PglErr TextRetarget(const char* new_fname, TextRstream* trsp);
+
+HEADER_INLINE PglErr TextRewind(TextRstream* trsp) {
+  return TextRetarget(nullptr, trsp);
+}
+
 HEADER_INLINE const char* TextRstreamError(const TextRstream* trsp) {
   return trsp->base.errmsg;
 }
@@ -378,7 +427,9 @@ HEADER_INLINE PglErr TextRstreamErrcode(const TextRstream* trsp) {
 // Ok to pass reterrp == nullptr.
 // Returns nonzero iff file-close fails, and either reterrp == nullptr or
 // *reterrp == kPglRetSuccess.  In the latter case, *reterrp is set to
-// kPglRetReadFail.
+// kPglRetReadFail.  (Note that this does *not* retrieve the existing
+// trsp->reterr value; caller is responsible for checking TextRstreamErrcode()
+// first when they care.)
 BoolErr CleanupTextRstream(TextRstream* trsp, PglErr* reterrp);
 
 #ifdef __cplusplus

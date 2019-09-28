@@ -46,8 +46,8 @@ uint32_t NumCpu(int32_t* known_procs_ptr) {
   if (known_procs_ptr) {
     *known_procs_ptr = known_procs;
   }
-  if (max_thread_ct > kMaxThreads) {
-    max_thread_ct = kMaxThreads;
+  if (max_thread_ct > kMaxThreadsX) {
+    max_thread_ct = kMaxThreadsX;
   }
   return max_thread_ct;
 }
@@ -58,18 +58,19 @@ BoolErr SetThreadCt(uint32_t thread_ct, ThreadGroup* tgp) {
     free(tgp->threads);
     tgp->threads = nullptr;
   }
+  assert(thread_ct && (thread_ct <= kMaxThreadsX));
 #ifdef _WIN32
   unsigned char* memptr = S_CAST(unsigned char*, malloc(thread_ct * (sizeof(ThreadGroupFuncArg) + 3 * sizeof(HANDLE))));
   if (unlikely(!memptr)) {
     return 1;
   }
   tgp->threads = R_CAST(HANDLE*, memptr);
-  tgp->start_next_events = &(tgp->threads[thread_ct]);
-  tgp->cur_block_cond_events = &(tgp->start_next_events[thread_ct]);
+  tgp->shared.cb.start_next_events = &(tgp->threads[thread_ct]);
+  tgp->shared.cb.cur_block_done_events = &(tgp->shared.cb.start_next_events[thread_ct]);
   memset(tgp->threads, 0, thread_ct * (3 * sizeof(HANDLE)));
   memptr = &(memptr[thread_ct * (3 * sizeof(HANDLE))]);
 #else
-  void* memptr = malloc(thread_ct * (sizeof(pthread_t) + sizeof(ThreadGroupFuncArg)));
+  unsigned char* memptr = S_CAST(unsigned char*, malloc(thread_ct * (sizeof(pthread_t) + sizeof(ThreadGroupFuncArg))));
   if (unlikely(!memptr)) {
     return 1;
   }
@@ -78,6 +79,7 @@ BoolErr SetThreadCt(uint32_t thread_ct, ThreadGroup* tgp) {
   // initialized.  Could change this later.
   tgp->shared.cb.active_ct = 0;
   tgp->sync_init_bits = 0;
+  memptr = &(memptr[thread_ct * sizeof(pthread_t)]);
 #endif
   tgp->thread_args = R_CAST(ThreadGroupFuncArg*, memptr);
 
@@ -90,7 +92,7 @@ BoolErr SetThreadCt(uint32_t thread_ct, ThreadGroup* tgp) {
 void JoinThreadsInternal(uint32_t thread_ct, ThreadGroup* tgp) {
 #ifdef _WIN32
   if (!tgp->shared.cb.is_last_block) {
-    WaitForMultipleObjects(thread_ct, tgp->cur_block_done_events, 1, INFINITE);
+    WaitForMultipleObjects(thread_ct, tgp->shared.cb.cur_block_done_events, 1, INFINITE);
   } else {
     WaitForMultipleObjects(thread_ct, tgp->threads, 1, INFINITE);
     for (uint32_t tidx = 0; tidx != thread_ct; ++tidx) {
@@ -98,8 +100,8 @@ void JoinThreadsInternal(uint32_t thread_ct, ThreadGroup* tgp) {
     }
     const uint32_t orig_thread_ct = tgp->shared.cb.thread_ct;
     for (uint32_t tidx = 0; tidx != orig_thread_ct; ++tidx) {
-      CloseHandle(tgp->start_next_events[tidx]);
-      CloseHandle(tgp->cur_block_done_events[tidx]);
+      CloseHandle(tgp->shared.cb.start_next_events[tidx]);
+      CloseHandle(tgp->shared.cb.cur_block_done_events[tidx]);
     }
     memset(tgp->threads, 0, orig_thread_ct * (3 * sizeof(HANDLE)));
     tgp->is_active = 0;
@@ -124,10 +126,6 @@ void JoinThreadsInternal(uint32_t thread_ct, ThreadGroup* tgp) {
 #endif
   tgp->is_unjoined = 0;
 }
-
-#ifndef _WIN32
-pthread_attr_t g_smallstack_thread_attrx;
-#endif
 
 BoolErr SpawnThreadsX(ThreadGroup* tgp) {
   ThreadGroupControlBlock* cbp = &(tgp->shared.cb);
@@ -155,7 +153,7 @@ BoolErr SpawnThreadsX(ThreadGroup* tgp) {
       ThreadGroupFuncArg* arg_slot = &(tgp->thread_args[tidx]);
       arg_slot->sharedp = &(tgp->shared);
       arg_slot->tidx = tidx;
-      threads[tidx] = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStack, tgp->thread_func_ptr, arg_slot, 0, nullptr));
+      threads[tidx] = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStackX, tgp->thread_func_ptr, arg_slot, 0, nullptr));
       if (unlikely(!threads[tidx])) {
         if (tidx) {
           JoinThreadsInternal(tidx, tgp);
@@ -198,11 +196,14 @@ BoolErr SpawnThreadsX(ThreadGroup* tgp) {
       return 1;
     }
     tgp->sync_init_bits |= 4;
+    pthread_attr_t smallstack_thread_attr;
+    pthread_attr_init(&smallstack_thread_attr);
+    pthread_attr_setstacksize(&smallstack_thread_attr, kDefaultThreadStackX);
     for (uint32_t tidx = 0; tidx != thread_ct; ++tidx) {
       ThreadGroupFuncArg* arg_slot = &(tgp->thread_args[tidx]);
       arg_slot->sharedp = &(tgp->shared);
       arg_slot->tidx = tidx;
-      if (unlikely(pthread_create(&(threads[tidx]), &g_smallstack_thread_attrx, tgp->thread_func_ptr, arg_slot))) {
+      if (unlikely(pthread_create(&(threads[tidx]), &smallstack_thread_attr, tgp->thread_func_ptr, arg_slot))) {
         if (tidx) {
           if (is_last_block) {
             JoinThreadsInternal(tidx, tgp);
@@ -220,9 +221,11 @@ BoolErr SpawnThreadsX(ThreadGroup* tgp) {
             }
           }
         }
+        pthread_attr_destroy(&smallstack_thread_attr);
         return 1;
       }
     }
+    pthread_attr_destroy(&smallstack_thread_attr);
     tgp->is_active = 1;
   } else {
     cbp->spawn_ct += 1;
@@ -288,8 +291,11 @@ void CleanupThreads(ThreadGroup* tgp) {
 }
 
 #ifndef _WIN32
-BoolErr THREAD_BLOCK_FINISH(ThreadGroupFuncArg* tgfap) {
+BoolErr THREAD_BLOCK_FINISHX(ThreadGroupFuncArg* tgfap) {
   ThreadGroupControlBlock* cbp = &(tgfap->sharedp->cb);
+  if (cbp->is_last_block) {
+    return 1;
+  }
   const uintptr_t initial_spawn_ct = cbp->spawn_ct;
   pthread_mutex_lock(&cbp->sync_mutex);
   if (!(--cbp->active_ct)) {

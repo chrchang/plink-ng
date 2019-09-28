@@ -337,6 +337,7 @@ typedef enum
   kPglRetUnsupportedInstructions,
   kPglRetDegenerateData,
   kPglRetDecompressFail, // also distinguish this from MalformedInput
+  kPglRetRewindFail,
   kPglRetSampleMajorBed = 32,
   kPglRetInternalError = 60,
   kPglRetWarningErrcode = 61,
@@ -394,6 +395,7 @@ const PglErr kPglRetVarRecordTooLarge = PglErr::ec::kPglRetVarRecordTooLarge;
 const PglErr kPglRetUnsupportedInstructions = PglErr::ec::kPglRetUnsupportedInstructions;
 const PglErr kPglRetDegenerateData = PglErr::ec::kPglRetDegenerateData;
 const PglErr kPglRetDecompressFail = PglErr::ec::kPglRetDecompressFail;
+const PglErr kPglRetRewindFail = PglErr::ec::kPglRetRewindFail;
 const PglErr kPglRetSampleMajorBed = PglErr::ec::kPglRetSampleMajorBed;
 const PglErr kPglRetWarningErrcode = PglErr::ec::kPglRetWarningErrcode;
 const PglErr kPglRetInternalError = PglErr::ec::kPglRetInternalError;
@@ -2868,6 +2870,10 @@ HEADER_INLINE void ZeroWArr(uintptr_t entry_ct, uintptr_t* warr) {
 
 HEADER_INLINE void ZeroU64Arr(uintptr_t entry_ct, uint64_t* u64arr) {
   memset(u64arr, 0, entry_ct * sizeof(int64_t));
+}
+
+HEADER_INLINE void ZeroPtrArr(uintptr_t entry_ct, void* pp) {
+  memset(pp, 0, entry_ct * sizeof(intptr_t));
 }
 
 HEADER_INLINE void ZeroHwArr(uintptr_t entry_ct, Halfword* hwarr) {

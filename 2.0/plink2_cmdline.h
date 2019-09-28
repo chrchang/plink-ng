@@ -150,6 +150,8 @@ HEADER_CINLINE uint64_t RoundUpPow2U64(uint64_t val, uint64_t alignment) {
 #endif
 
 extern const char kErrprintfFopen[];
+extern const char kErrprintfFread[];
+extern const char kErrprintfRewind[];
 // extern const char g_cmdline_format_str[];
 
 // All global variables not initialized at compile time start with g_ (even if
@@ -1098,10 +1100,6 @@ HEADER_INLINE void ZeroDArr(uintptr_t entry_ct, double* darr) {
   for (uintptr_t ulii = 0; ulii != entry_ct; ulii++) {
     *darr++ = 0.0;
   }
-}
-
-HEADER_INLINE void ZeroPtrArr(uintptr_t entry_ct, void* pp) {
-  memset(pp, 0, entry_ct * sizeof(intptr_t));
 }
 
 

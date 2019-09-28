@@ -54,24 +54,16 @@ void PreinitMinimalPvar(MinimalPvar* mpp) {
 // probably cheaper than the code to subtract 32 everywhere.
 const char g_one_char_strs[] = "\0\0\1\0\2\0\3\0\4\0\5\0\6\0\7\0\10\0\11\0\12\0\13\0\14\0\15\0\16\0\17\0\20\0\21\0\22\0\23\0\24\0\25\0\26\0\27\0\30\0\31\0\32\0\33\0\34\0\35\0\36\0\37\0\40\0\41\0\42\0\43\0\44\0\45\0\46\0\47\0\50\0\51\0\52\0\53\0\54\0\55\0\56\0\57\0\60\0\61\0\62\0\63\0\64\0\65\0\66\0\67\0\70\0\71\0\72\0\73\0\74\0\75\0\76\0\77\0\100\0\101\0\102\0\103\0\104\0\105\0\106\0\107\0\110\0\111\0\112\0\113\0\114\0\115\0\116\0\117\0\120\0\121\0\122\0\123\0\124\0\125\0\126\0\127\0\130\0\131\0\132\0\133\0\134\0\135\0\136\0\137\0\140\0\141\0\142\0\143\0\144\0\145\0\146\0\147\0\150\0\151\0\152\0\153\0\154\0\155\0\156\0\157\0\160\0\161\0\162\0\163\0\164\0\165\0\166\0\167\0\170\0\171\0\172\0\173\0\174\0\175\0\176\0\177\0\200\0\201\0\202\0\203\0\204\0\205\0\206\0\207\0\210\0\211\0\212\0\213\0\214\0\215\0\216\0\217\0\220\0\221\0\222\0\223\0\224\0\225\0\226\0\227\0\230\0\231\0\232\0\233\0\234\0\235\0\236\0\237\0\240\0\241\0\242\0\243\0\244\0\245\0\246\0\247\0\250\0\251\0\252\0\253\0\254\0\255\0\256\0\257\0\260\0\261\0\262\0\263\0\264\0\265\0\266\0\267\0\270\0\271\0\272\0\273\0\274\0\275\0\276\0\277\0\300\0\301\0\302\0\303\0\304\0\305\0\306\0\307\0\310\0\311\0\312\0\313\0\314\0\315\0\316\0\317\0\320\0\321\0\322\0\323\0\324\0\325\0\326\0\327\0\330\0\331\0\332\0\333\0\334\0\335\0\336\0\337\0\340\0\341\0\342\0\343\0\344\0\345\0\346\0\347\0\350\0\351\0\352\0\353\0\354\0\355\0\356\0\357\0\360\0\361\0\362\0\363\0\364\0\365\0\366\0\367\0\370\0\371\0\372\0\373\0\374\0\375\0\376\0\377";
 
-uint32_t TextReadLineLstripK(textRFILE* trfp, const char** line_startp) {
-  if (TextRfileNextLine(trfp, K_CAST(char**, line_startp))) {
-    return 0;
-  }
-  *line_startp = FirstNonTspace(*line_startp);
-  return 1;
-}
-
 PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
   // Simple, somewhat inefficient two-pass loader.  Ignores everything but the
   // ID, REF, and ALT columns for now (since that's what we need to make
   // multiallelic .pgen files usable).
-  textRFILE trf;
-  PreinitTextRfile(&trf);
+  TextRstream trs;
+  PreinitTextRstream(&trs);
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
   {
-    if (TextRfileOpen(fname, &trf)) {
+    if (TextRstreamOpen(fname, &trs)) {
       goto LoadMinimalPvar_ret_FILE_FAIL;
     }
     // [0] = ID
@@ -80,7 +72,7 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
     uint32_t col_skips[3];
     uint32_t col_types[3];
     const char* line_iter;
-    while (TextReadLineLstripK(&trf, &line_iter)) {
+    while (!TextNextLineLstripK(&trs, &line_iter)) {
       ++line_idx;
       if (IsEolnKns(*line_iter)) {
         continue;
@@ -160,11 +152,11 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
         col_skips[2] -= col_skips[1];
         col_skips[1] -= col_skips[0];
         // skip this line in main loop
-        line_iter = &(TextRfileLineEnd(&trf)[-1]);
+        line_iter = &(TextLineEnd(&trs)[-1]);
         break;
       }
     }
-    if (TextRfileErrcode(&trf)) {
+    if (TextRstreamErrcode(&trs)) {
       goto LoadMinimalPvar_ret_FILE_FAIL;
     }
     uintptr_t variant_ct = 0;
@@ -218,8 +210,8 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
           }
         }
       }
-      if (!TextReadLineLstripK(&trf, &line_iter)) {
-        if (TextRfileErrcode(&trf)) {
+      if (TextNextLineLstripK(&trs, &line_iter)) {
+        if (TextRstreamErrcode(&trs)) {
           goto LoadMinimalPvar_ret_FILE_FAIL;
         }
         break;
@@ -265,14 +257,16 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
       }
       allele_idx_offsets = mpp->allele_idx_offsetsp->p;
     }
-    TextRfileRewind(&trf);
+    if (TextRewind(&trs)) {
+      goto LoadMinimalPvar_ret_FILE_FAIL;
+    }
     const char** allele_storage = &(variant_ids[variant_ct]);
     mpp->allele_storage = allele_storage;
     mpp->variant_ct = variant_ct;
     mpp->max_allele_ct = max_extra_alt_ct + 2;
     uint32_t variant_idx = 0;
     uintptr_t allele_idx = 0;
-    while (TextReadLineLstripK(&trf, &line_iter)) {
+    while (!TextNextLineLstripK(&trs, &line_iter)) {
       if (*line_iter == '#') {
         continue;
       }
@@ -342,7 +336,7 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
       }
       ++variant_idx;
     }
-    if (TextRfileErrcode(&trf)) {
+    if (TextRstreamErrcode(&trs)) {
       goto LoadMinimalPvar_ret_FILE_FAIL;
     }
     if (variant_idx != variant_ct) {
@@ -363,10 +357,10 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
     reterr = kPglRetReadFail;
     break;
   LoadMinimalPvar_ret_FILE_FAIL:
-    reterr = TextRfileErrcode(&trf);
+    reterr = TextRstreamErrcode(&trs);
     assert(reterr != kPglRetSuccess);
     {
-      const char* errmsg = TextRfileError(&trf);
+      const char* errmsg = TextRstreamError(&trs);
       if (errmsg) {
         memcpy_k(errstr_buf, "Error: ", 7);
         strcpy(&(errstr_buf[7]), errmsg);
@@ -386,7 +380,7 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
     break;
   }
  LoadMinimalPvar_ret_1:
-  CleanupTextRfile(&trf, &reterr);
+  CleanupTextRstream(&trs, &reterr);
   return reterr;
 }
 

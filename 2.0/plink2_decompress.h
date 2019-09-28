@@ -18,9 +18,12 @@
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
 
+// This is in the process of being mostly swallowed by plink2_getline.
+
 // This has been separated from plink2_cmdline due to the relatively
 // heavyweight dependence on zstd/zlibWrapper.
 #include "plink2_cmdline.h"
+#include "plink2_getline.h"
 
 // documentation on ZWRAP_USE_ZSTD is incorrect as of 11 Jan 2017, necessary to
 // edit zstd_zlibwrapper.c or use compile flag.
@@ -460,6 +463,87 @@ void TBstreamErrPrint(const char* file_descrip, TokenBatchStream* tbsp, PglErr* 
 // Could create a slightly simpler interface for the one-token-at-a-time case,
 // but I won't bother for now since it's kind of good for the relative cost of
 // parallelizing token processing to be low.
+
+
+// ***** plink2_getline-wrapping code starts here *****
+
+extern const char kErrprintfDecompress[];
+
+PglErr InitTextRstreamEx(const char* fname, uint32_t alloc_at_end, uint32_t enforced_max_line_blen, uint32_t max_line_blen, uint32_t decompress_thread_ct, TextRstream* trsp);
+
+HEADER_INLINE PglErr InitTextRstream(const char* fname, uint32_t max_line_blen, uint32_t decompress_thread_ct, TextRstream* trsp) {
+  return InitTextRstreamEx(fname, 0, kMaxLongLine, max_line_blen, decompress_thread_ct, trsp);
+}
+
+// required_byte_ct can't be greater than kMaxLongLine.
+// Now ok for unstandardized_byte_ct to be bigstack_left(), since other
+// allocations are made on the heap instead of the arena (to be more usable in
+// non-plink2 software).
+// Note that the actual buffer size is max_line_blen + kDecompressChunkSize,
+// not max_line_blen.
+HEADER_INLINE BoolErr StandardizeMaxLineBlen(uintptr_t unstandardized_byte_ct, uint32_t required_byte_ct, uint32_t* max_line_blenp) {
+#ifdef __LP64__
+  if (unstandardized_byte_ct >= S_CAST(uintptr_t, kMaxLongLine) + S_CAST(uintptr_t, kDecompressChunkSizeX)) {
+    *max_line_blenp = kMaxLongLine;
+    return 0;
+  }
+#endif
+  if (unlikely(unstandardized_byte_ct < kDecompressChunkSizeX + RoundUpPow2(MAXV(kTextRstreamBlenLowerBound, required_byte_ct), kCacheline))) {
+    return 1;
+  }
+  *max_line_blenp = RoundDownPow2(unstandardized_byte_ct, kCacheline) - kDecompressChunkSizeX;
+  return 0;
+}
+
+HEADER_INLINE PglErr SizeAndInitTextRstream(const char* fname, uintptr_t unstandardized_byte_ct, uint32_t decompress_thread_ct, TextRstream* trsp) {
+  // plink 1.9 immediately failed with an out-of-memory error if a "long line"
+  // buffer would be smaller than kMaxMediumLine + 1 bytes, so may as well make
+  // that the default lower bound.  (The precise value is currently irrelevant
+  // since kTextRstreamBlenLowerBound is larger and we take the maximum of the
+  // two at compile time, but it's useful to distinguish "minimum acceptable
+  // potentially-long-line buffer size" from "load/decompression block size
+  // which generally has good performance".)
+  uint32_t max_line_blen;
+  if (unlikely(StandardizeMaxLineBlen(unstandardized_byte_ct, kMaxMediumLine + 1, &max_line_blen))) {
+    return kPglRetNomem;
+  }
+  return InitTextRstream(fname, max_line_blen, decompress_thread_ct, trsp);
+}
+
+HEADER_INLINE unsigned char* TextRstreamMemStart(TextRstream* trsp) {
+  return R_CAST(unsigned char*, trsp->base.dst);
+}
+
+void TextErrPrint(const char* file_descrip, const char* errmsg, PglErr reterr);
+
+HEADER_INLINE void TextRfileErrPrint(const char* file_descrip, const textRFILE* trfp) {
+  TextErrPrint(file_descrip, TextRfileError(trfp), TextRfileErrcode(trfp));
+}
+
+HEADER_INLINE void TextRstreamErrPrint(const char* file_descrip, const TextRstream* trsp) {
+  TextErrPrint(file_descrip, TextRstreamError(trsp), TextRstreamErrcode(trsp));
+}
+
+HEADER_INLINE void TextRstreamErrPrintRewind(const char* file_descrip, const TextRstream* trsp, PglErr reterr) {
+  if (reterr == kPglRetRewindFail) {
+    logerrprintfww(kErrprintfRewind, file_descrip);
+  } else {
+    TextRstreamErrPrint(file_descrip, trsp);
+  }
+}
+
+HEADER_INLINE void CleanupTextRstream2(const char* file_descrip, TextRstream* trsp, PglErr* reterrp) {
+  if (CleanupTextRstream(trsp, reterrp)) {
+    logerrprintfww(kErrprintfFread, file_descrip, strerror(errno));
+  }
+}
+
+HEADER_INLINE void CleanupTextRstreamRewind(const char* file_descrip, TextRstream* trsp, PglErr* reterrp) {
+  if (CleanupTextRstream(trsp, reterrp)) {
+    *reterrp = kPglRetRewindFail;
+    logerrprintfww(kErrprintfRewind, file_descrip);
+  }
+}
 
 #ifdef __cplusplus
 }  // namespace plink2

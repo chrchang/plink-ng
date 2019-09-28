@@ -139,14 +139,11 @@ PglErr WriteMapOrBim(const char* outname, const uintptr_t* variant_include, cons
   return reterr;
 }
 
-PglErr PvarInfoReloadHeader(ReadLineStream* pvar_reload_rlsp, char** line_iterp, uint32_t* info_col_idx_ptr) {
-  char* line_iter = *line_iterp;
+PglErr PvarInfoReloadHeader(TextRstream* pvar_reload_trsp, char** line_iterp, uint32_t* info_col_idx_ptr) {
+  char* line_iter;
   do {
-    PglErr reterr = RlsNextLstrip(pvar_reload_rlsp, &line_iter);
-    if (reterr) {
-      // this is a reload, so reinterpret all errors other than nomem as
-      // read-fail
-      return (reterr == kPglRetNomem)? kPglRetNomem : kPglRetReadFail;
+    if (unlikely(TextNextLineLstrip(pvar_reload_trsp, &line_iter))) {
+      return kPglRetRewindFail;
     }
   } while (!StrStartsWithUnsafe(line_iter, "#CHROM"));
   uint32_t info_col_idx = 0;
@@ -159,24 +156,13 @@ PglErr PvarInfoReloadHeader(ReadLineStream* pvar_reload_rlsp, char** line_iterp,
   return kPglRetSuccess;
 }
 
-// May use all remaining memory.
-PglErr PvarInfoOpenAndReloadHeader(const char* pvar_info_reload, uint32_t calc_thread_ct, ReadLineStream* pvar_reload_rlsp, char** line_iterp, uint32_t* info_col_idx_ptr) {
-  PglErr reterr = RlsOpenMaybeBgzf(pvar_info_reload, calc_thread_ct, pvar_reload_rlsp);
-  if (reterr) {
-    if (reterr == kPglRetOpenFail) {
-      logerrprintfww(kErrprintfFopen, pvar_info_reload, strerror(errno));
-    }
-    return reterr;
-  }
-  uintptr_t linebuf_size;
-  if (StandardizeLinebufSizemax(kMaxMediumLine + 1, &linebuf_size)) {
-    return kPglRetNomem;
-  }
-  reterr = InitRLstreamEx(0, kMaxLongLine, linebuf_size, pvar_reload_rlsp, line_iterp);
+// May use all remaining workspace memory.
+PglErr PvarInfoOpenAndReloadHeader(const char* pvar_info_reload, uint32_t calc_thread_ct, TextRstream* pvar_reload_trsp, char** line_iterp, uint32_t* info_col_idx_ptr) {
+  PglErr reterr = SizeAndInitTextRstream(pvar_info_reload, bigstack_left(), calc_thread_ct, pvar_reload_trsp);
   if (unlikely(reterr)) {
     return reterr;
   }
-  return PvarInfoReloadHeader(pvar_reload_rlsp, line_iterp, info_col_idx_ptr);
+  return PvarInfoReloadHeader(pvar_reload_trsp, line_iterp, info_col_idx_ptr);
 }
 
 void PvarInfoWrite(uint32_t info_pr_flag_present, uint32_t is_pr, char* info_token, char** write_iter_ptr) {
@@ -198,7 +184,7 @@ void PvarInfoWrite(uint32_t info_pr_flag_present, uint32_t is_pr, char* info_tok
       }
     }
   } else {
-    // currently only possible with --real-ref-alleles
+    // possible with --real-ref-alleles/--ref-from-fa
     if (info_token_pr == info_token) {
       if (info_token_slen == 2) {
         *write_iter++ = '.';
@@ -214,30 +200,29 @@ void PvarInfoWrite(uint32_t info_pr_flag_present, uint32_t is_pr, char* info_tok
   *write_iter_ptr = write_iter;
 }
 
-PglErr PvarInfoReload(uint32_t info_col_idx, uint32_t variant_uidx, ReadLineStream* pvar_reload_rlsp, char** line_iterp, uint32_t* rls_variant_uidx_ptr) {
-  uint32_t rls_variant_uidx = *rls_variant_uidx_ptr;
+BoolErr PvarInfoReload(uint32_t info_col_idx, uint32_t variant_uidx, TextRstream* pvar_reload_trsp, char** line_iterp, uint32_t* trs_variant_uidx_ptr) {
+  uint32_t trs_variant_uidx = *trs_variant_uidx_ptr;
   char* line_iter = *line_iterp;
   do {
     do {
-      PglErr reterr = RlsNextLstrip(pvar_reload_rlsp, &line_iter);
-      if (unlikely(reterr)) {
-        return (reterr == kPglRetNomem)? kPglRetNomem : kPglRetReadFail;
+      line_iter = AdvPastDelim(line_iter, '\n');
+      if (unlikely(TextNextLineLstripUnsafe(pvar_reload_trsp, &line_iter))) {
+        return 1;
       }
     } while (IsEolnKns(*line_iter));
-    ++rls_variant_uidx;
-  } while (rls_variant_uidx <= variant_uidx);
+    ++trs_variant_uidx;
+  } while (trs_variant_uidx <= variant_uidx);
   *line_iterp = NextTokenMultFar(line_iter, info_col_idx);
-  *rls_variant_uidx_ptr = rls_variant_uidx;
-  return kPglRetSuccess;
+  *trs_variant_uidx_ptr = trs_variant_uidx;
+  return 0;
 }
 
-PglErr PvarInfoReloadAndWrite(uint32_t info_pr_flag_present, uint32_t info_col_idx, uint32_t variant_uidx, uint32_t is_pr, ReadLineStream* pvar_reload_rlsp, char** line_iterp, char** write_iter_ptr, uint32_t* rls_variant_uidx_ptr) {
-  PglErr reterr = PvarInfoReload(info_col_idx, variant_uidx, pvar_reload_rlsp, line_iterp, rls_variant_uidx_ptr);
-  if (unlikely(reterr)) {
-    return reterr;
+BoolErr PvarInfoReloadAndWrite(uint32_t info_pr_flag_present, uint32_t info_col_idx, uint32_t variant_uidx, uint32_t is_pr, TextRstream* pvar_reload_trsp, char** line_iterp, char** write_iter_ptr, uint32_t* trs_variant_uidx_ptr) {
+  if (unlikely(PvarInfoReload(info_col_idx, variant_uidx, pvar_reload_trsp, line_iterp, trs_variant_uidx_ptr))) {
+    return 1;
   }
   PvarInfoWrite(info_pr_flag_present, is_pr, *line_iterp, write_iter_ptr);
-  return kPglRetSuccess;
+  return 0;
 }
 
 void AppendChrsetLine(const ChrInfo* cip, char** write_iter_ptr) {
@@ -279,9 +264,9 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
   char* cswritep = nullptr;
   PglErr reterr = kPglRetSuccess;
   CompressStreamState css;
-  ReadLineStream pvar_reload_rls;
+  TextRstream pvar_reload_trs;
   PreinitCstream(&css);
-  PreinitRLstream(&pvar_reload_rls);
+  PreinitTextRstream(&pvar_reload_trs);
   {
     const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
     // includes trailing tab
@@ -327,9 +312,9 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
     // bugfix (30 Jul 2017): may be necessary to reload INFO when no ## lines
     // are in the header
     if (pvar_info_reload) {
-      reterr = PvarInfoOpenAndReloadHeader(pvar_info_reload, 1 + (thread_ct > 1), &pvar_reload_rls, &pvar_info_line_iter, &info_col_idx);
+      reterr = PvarInfoOpenAndReloadHeader(pvar_info_reload, 1 + (thread_ct > 1), &pvar_reload_trs, &pvar_info_line_iter, &info_col_idx);
       if (unlikely(reterr)) {
-        goto WritePvar_ret_1;
+        goto WritePvar_ret_RSTREAM_FAIL;
       }
     }
     if (cip->chrset_source) {
@@ -386,7 +371,7 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
     AppendBinaryEoln(&cswritep);
 
     const char output_missing_geno_char = *g_output_missing_geno_ptr;
-    uint32_t rls_variant_uidx = 0;
+    uint32_t trs_variant_uidx = 0;
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
     uint32_t chr_fo_idx = UINT32_MAX;
@@ -477,9 +462,8 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
         *cswritep++ = '\t';
         const uint32_t is_pr = all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx));
         if (pvar_info_line_iter) {
-          reterr = PvarInfoReloadAndWrite(info_pr_flag_present, info_col_idx, variant_uidx, is_pr, &pvar_reload_rls, &pvar_info_line_iter, &cswritep, &rls_variant_uidx);
-          if (unlikely(reterr)) {
-            goto WritePvar_ret_1;
+          if (unlikely(PvarInfoReloadAndWrite(info_pr_flag_present, info_col_idx, variant_uidx, is_pr, &pvar_reload_trs, &pvar_info_line_iter, &cswritep, &trs_variant_uidx))) {
+            goto WritePvar_ret_REWIND_FAIL;
           }
         } else {
           if (is_pr) {
@@ -521,6 +505,11 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
   WritePvar_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
+  WritePvar_ret_REWIND_FAIL:
+    reterr = kPglRetRewindFail;
+  WritePvar_ret_RSTREAM_FAIL:
+    TextRstreamErrPrintRewind(pvar_info_reload, &pvar_reload_trs, reterr);
+    break;
   WritePvar_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
@@ -530,7 +519,7 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
   }
  WritePvar_ret_1:
   CswriteCloseCond(&css, cswritep);
-  CleanupRLstream(&pvar_reload_rls);
+  CleanupTextRstreamRewind(pvar_info_reload, &pvar_reload_trs, &reterr);
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -3358,9 +3347,9 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
   char* cswritep = nullptr;
   PglErr reterr = kPglRetSuccess;
   CompressStreamState css;
-  ReadLineStream pvar_reload_rls;
+  TextRstream pvar_reload_trs;
   PreinitCstream(&css);
-  PreinitRLstream(&pvar_reload_rls);
+  PreinitTextRstream(&pvar_reload_trs);
   {
     const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
     // includes trailing tab
@@ -3449,9 +3438,9 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
               bigstack_alloc_u32(info_key_ct, &info_ref_blens))) {
         goto WritePvarSplit_ret_NOMEM;
       }
-      reterr = PvarInfoOpenAndReloadHeader(pvar_info_reload, 1 + (thread_ct > 1), &pvar_reload_rls, &pvar_info_line_iter, &info_col_idx);
+      reterr = PvarInfoOpenAndReloadHeader(pvar_info_reload, 1 + (thread_ct > 1), &pvar_reload_trs, &pvar_info_line_iter, &info_col_idx);
       if (unlikely(reterr)) {
-        goto WritePvarSplit_ret_1;
+        goto WritePvarSplit_ret_RSTREAM_FAIL;
       }
     }
     if (cip->chrset_source) {
@@ -3512,7 +3501,7 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
     const uint32_t vid_split = (make_plink2_flags / kfMakePlink2VidSemicolon) & 1;
     const uint32_t vid_dup_nosplit = vid_dup && (!vid_split);
     const uint32_t split_just_snps = ((make_plink2_flags & (kfMakePlink2MSplitBase * 3)) == kfMakePlink2MSplitSnps);
-    uint32_t rls_variant_uidx = 0;
+    uint32_t trs_variant_uidx = 0;
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
     uint32_t chr_fo_idx = UINT32_MAX;
@@ -3589,9 +3578,8 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
           }
         }
         if ((split_ct_p1 != 2) && pvar_info_line_iter) {
-          reterr = PvarInfoReload(info_col_idx, variant_uidx, &pvar_reload_rls, &pvar_info_line_iter, &rls_variant_uidx);
-          if (unlikely(reterr)) {
-            goto WritePvarSplit_ret_1;
+          if (unlikely(PvarInfoReload(info_col_idx, variant_uidx, &pvar_reload_trs, &pvar_info_line_iter, &trs_variant_uidx))) {
+            goto WritePvarSplit_ret_REWIND_FAIL;
           }
           char* info_subtoken_iter = pvar_info_line_iter;
           pvar_info_line_iter = CurTokenEnd(pvar_info_line_iter);
@@ -3730,9 +3718,8 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
           const uint32_t is_pr = all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx));
           if (pvar_info_line_iter) {
             if (split_ct_p1 == 2) {
-              reterr = PvarInfoReloadAndWrite(info_pr_flag_present, info_col_idx, variant_uidx, is_pr, &pvar_reload_rls, &pvar_info_line_iter, &cswritep, &rls_variant_uidx);
-              if (unlikely(reterr)) {
-                goto WritePvarSplit_ret_1;
+              if (unlikely(PvarInfoReloadAndWrite(info_pr_flag_present, info_col_idx, variant_uidx, is_pr, &pvar_reload_trs, &pvar_info_line_iter, &cswritep, &trs_variant_uidx))) {
+                goto WritePvarSplit_ret_REWIND_FAIL;
               }
             } else {
               if (!cur_info_key_ct) {
@@ -3830,6 +3817,11 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
   WritePvarSplit_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
+  WritePvarSplit_ret_REWIND_FAIL:
+    reterr = kPglRetRewindFail;
+  WritePvarSplit_ret_RSTREAM_FAIL:
+    TextRstreamErrPrintRewind(pvar_info_reload, &pvar_reload_trs, reterr);
+    break;
   WritePvarSplit_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
@@ -3848,7 +3840,7 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
   }
  WritePvarSplit_ret_1:
   CswriteCloseCond(&css, cswritep);
-  CleanupRLstream(&pvar_reload_rls);
+  CleanupTextRstreamRewind(pvar_info_reload, &pvar_reload_trs, &reterr);
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -4007,9 +3999,9 @@ PglErr WritePvarJoin(const char* outname, const char* xheader, const uintptr_t* 
   char* cswritep = nullptr;
   PglErr reterr = kPglRetSuccess;
   CompressStreamState css;
-  ReadLineStream pvar_reload_rls;
+  TextRstream pvar_reload_trs;
   PreinitCstream(&css);
-  PreinitRLstream(&pvar_reload_rls);
+  PreinitTextRstream(&pvar_reload_trs);
   {
     const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
     // includes trailing tab
@@ -4153,9 +4145,9 @@ PglErr WritePvarJoin(const char* outname, const char* xheader, const uintptr_t* 
               bigstack_alloc_kcp(info_key_ct * info_cache_size, &info_curs))) {
         goto WritePvarJoin_ret_NOMEM;
       }
-      reterr = PvarInfoOpenAndReloadHeader(pvar_info_reload, 1 + (thread_ct > 1), &pvar_reload_rls, &pvar_info_line_iter, &info_col_idx);
+      reterr = PvarInfoOpenAndReloadHeader(pvar_info_reload, 1 + (thread_ct > 1), &pvar_reload_trs, &pvar_info_line_iter, &info_col_idx);
       if (unlikely(reterr)) {
-        goto WritePvarJoin_ret_1;
+        goto WritePvarJoin_ret_RSTREAM_FAIL;
       }
     }
     if (write_info) {
@@ -4191,7 +4183,7 @@ PglErr WritePvarJoin(const char* outname, const char* xheader, const uintptr_t* 
     const uint32_t vid_split = (make_plink2_flags / kfMakePlink2VidSemicolon) & 1;
     const uint32_t vid_dup_nosplit = vid_dup && (!vid_split);
     uint32_t next_variant_idx = 0;
-    uint32_t rls_variant_uidx = 0;
+    uint32_t trs_variant_uidx = 0;
     uint32_t next_variant_uidx = 0;
     uintptr_t next_variant_uidx_base = 0;
     uintptr_t next_bits = variant_include[0];
@@ -4324,9 +4316,8 @@ PglErr WritePvarJoin(const char* outname, const char* xheader, const uintptr_t* 
           *cswritep++ = '\t';
           const uint32_t is_pr = all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx));
           if (pvar_info_line_iter) {
-            reterr = PvarInfoReloadAndWrite(info_pr_flag_present, info_col_idx, variant_uidx, is_pr, &pvar_reload_rls, &pvar_info_line_iter, &cswritep, &rls_variant_uidx);
-            if (unlikely(reterr)) {
-              goto WritePvar_ret_1;
+            if (unlikely(PvarInfoReloadAndWrite(info_pr_flag_present, info_col_idx, variant_uidx, is_pr, &pvar_reload_trs, &pvar_info_line_iter, &cswritep, &trs_variant_uidx))) {
+              goto WritePvar_ret_REWIND_FAIL;
             }
           } else {
             if (is_pr) {
@@ -4406,6 +4397,11 @@ PglErr WritePvarJoin(const char* outname, const char* xheader, const uintptr_t* 
   WritePvarJoin_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
+  WritePvarJoin_ret_REWIND_FAIL:
+    reterr = kPglRetRewindFail;
+  WritePvarJoin_ret_RSTREAM_FAIL:
+    TextRstreamErrPrintRewind(pvar_info_reload, &pvar_reload_trs, reterr);
+    break;
   WritePvarJoin_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
@@ -4415,7 +4411,7 @@ PglErr WritePvarJoin(const char* outname, const char* xheader, const uintptr_t* 
   }
  WritePvarJoin_ret_1:
   CswriteCloseCond(&css, cswritep);
-  CleanupRLstream(&pvar_reload_rls);
+  CleanupTextRstreamRewind(pvar_info_reload, &pvar_reload_trs, &reterr);
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -5265,6 +5261,16 @@ PgenGlobalFlags GflagsVfilter(const uintptr_t* variant_include, const unsigned c
   return read_gflags;
 }
 
+void SplitNonrefFlags() {
+  logerrputs("Provisional-reference flag split is not implemented yet.\n");
+  exit(S_CAST(int32_t, kPglRetNotYetSupported));
+}
+
+void JoinNonrefFlags() {
+  logerrputs("Provisional-reference flag join is not implemented yet.\n");
+  exit(S_CAST(int32_t, kPglRetNotYetSupported));
+}
+
 // Single-output-thread implementation.  Allows variants to be unsorted.
 // (Note that MakePlink2NoVsort() currently requires enough memory for 64k * 2
 // variants per output thread, due to LD compression.  This is faster in the
@@ -5380,16 +5386,48 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       }
 
       uint32_t nonref_flags_storage = 3;
-      if (!simple_pgrp->fi.nonref_flags) {
+      uintptr_t* nonref_flags_write = simple_pgrp->fi.nonref_flags;
+      if (!nonref_flags_write) {
         nonref_flags_storage = (simple_pgrp->fi.gflags & kfPgenGlobalAllNonref)? 2 : 1;
       } else if (variant_ct < raw_variant_ct) {
-        // todo: check if now constant, and we no longer need to store the
-        // entire bitarray
+        const uint32_t write_variant_ctl = BitCtToWordCt(write_variant_ct);
+        uintptr_t* old_nonref_flags = nonref_flags_write;
+        if (bigstack_alloc_w(write_variant_ctl, &nonref_flags_write)) {
+          goto MakePgenRobust_ret_NOMEM;
+        }
+        if ((variant_ct == write_variant_ct) && (!new_variant_idx_to_old)) {
+          CopyBitarrSubset(old_nonref_flags, variant_include, variant_ct, nonref_flags_write);
+        } else {
+          ZeroWArr(write_variant_ctl, nonref_flags_write);
+          if (variant_ct == write_variant_ct) {
+            for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+              const uintptr_t variant_uidx = new_variant_idx_to_old[variant_idx];
+              if (IsSet(old_nonref_flags, variant_uidx)) {
+                SetBit(variant_idx, nonref_flags_write);
+              }
+            }
+          } else if (!write_allele_idx_offsets) {
+            SplitNonrefFlags();
+          } else {
+            JoinNonrefFlags();
+          }
+        }
+        if (nonref_flags_write[0] & 1) {
+          if (AllBitsAreOne(nonref_flags_write, write_variant_ct)) {
+            BigstackReset(nonref_flags_write);
+            nonref_flags_write = nullptr;
+            nonref_flags_storage = 2;
+          }
+        } else if (AllWordsAreZero(nonref_flags_write, write_variant_ctl)) {
+          BigstackReset(nonref_flags_write);
+          nonref_flags_write = nullptr;
+          nonref_flags_storage = 1;
+        }
       }
       snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
       uintptr_t spgw_alloc_cacheline_ct;
       uint32_t max_vrec_len;
-      reterr = SpgwInitPhase1(outname, write_allele_idx_offsets, simple_pgrp->fi.nonref_flags, write_variant_ct, sample_ct, write_gflags, nonref_flags_storage, g_spgwp, &spgw_alloc_cacheline_ct, &max_vrec_len);
+      reterr = SpgwInitPhase1(outname, write_allele_idx_offsets, nonref_flags_write, write_variant_ct, sample_ct, write_gflags, nonref_flags_storage, g_spgwp, &spgw_alloc_cacheline_ct, &max_vrec_len);
       if (unlikely(reterr)) {
         if (reterr == kPglRetOpenFail) {
           logerrprintfww(kErrprintfFopen, outname, strerror(errno));
@@ -6665,10 +6703,36 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
         goto MakePlink2NoVsort_fallback;
       }
       uint32_t nonref_flags_storage = 3;
-      if (!pgfip->nonref_flags) {
-        nonref_flags_storage = (simple_pgrp->fi.gflags & kfPgenGlobalAllNonref)? 2 : 1;
+      uintptr_t* nonref_flags_write = pgfip->nonref_flags;
+      if (!nonref_flags_write) {
+        nonref_flags_storage = (pgfip->gflags & kfPgenGlobalAllNonref)? 2 : 1;
       } else if (variant_ct < raw_variant_ct) {
-        // todo: check if now constant
+        const uint32_t write_variant_ctl = BitCtToWordCt(write_variant_ct);
+        uintptr_t* old_nonref_flags = nonref_flags_write;
+        if (bigstack_alloc_w(write_variant_ctl, &nonref_flags_write)) {
+          goto MakePlink2NoVsort_fallback;
+        }
+        if (variant_ct == write_variant_ct) {
+          CopyBitarrSubset(old_nonref_flags, variant_include, variant_ct, nonref_flags_write);
+        } else {
+          ZeroWArr(write_variant_ctl, nonref_flags_write);
+          if (!write_allele_idx_offsets) {
+            SplitNonrefFlags();
+          } else {
+            JoinNonrefFlags();
+          }
+        }
+        if (nonref_flags_write[0] & 1) {
+          if (AllBitsAreOne(nonref_flags_write, write_variant_ct)) {
+            BigstackReset(nonref_flags_write);
+            nonref_flags_write = nullptr;
+            nonref_flags_storage = 2;
+          }
+        } else if (AllWordsAreZero(nonref_flags_write, write_variant_ctl)) {
+          BigstackReset(nonref_flags_write);
+          nonref_flags_write = nullptr;
+          nonref_flags_storage = 1;
+        }
       }
       g_pwcs = &(mpgwp->pwcs[0]);
       g_new_sample_idx_to_old = new_sample_idx_to_old;
@@ -6813,7 +6877,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
       fflush(stdout);
       unsigned char* mpgw_alloc = S_CAST(unsigned char*, bigstack_alloc_raw((alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct * calc_thread_ct) * kCacheline));
       assert(g_bigstack_base <= g_bigstack_end);
-      reterr = MpgwInitPhase2(outname, write_allele_idx_offsets, pgfip->nonref_flags, variant_ct, sample_ct, write_gflags, nonref_flags_storage, vrec_len_byte_ct, vblock_cacheline_ct, calc_thread_ct, mpgw_alloc, mpgwp);
+      reterr = MpgwInitPhase2(outname, write_allele_idx_offsets, nonref_flags_write, variant_ct, sample_ct, write_gflags, nonref_flags_storage, vrec_len_byte_ct, vblock_cacheline_ct, calc_thread_ct, mpgw_alloc, mpgwp);
       if (unlikely(reterr)) {
         if (reterr == kPglRetOpenFail) {
           logputs("\n");
@@ -7147,7 +7211,7 @@ PglErr WriteBimResorted(const char* outname, const ChrInfo* write_cip, const uin
   return reterr;
 }
 
-PglErr PvarInfoReloadInterval(const uint32_t* old_variant_uidx_to_new, uint32_t variant_idx_start, uint32_t variant_idx_end, ReadLineStream* pvar_reload_rlsp, char** pvar_info_strs) {
+PglErr PvarInfoReloadInterval(const uint32_t* old_variant_uidx_to_new, uint32_t variant_idx_start, uint32_t variant_idx_end, TextRstream* pvar_reload_trsp, char** pvar_info_strs) {
   // We assume the batch size was chosen such that there's no risk of
   // scribbling past g_bigstack_end (barring pathological cases like another
   // process modifying the .pvar file after initial load).
@@ -7157,23 +7221,22 @@ PglErr PvarInfoReloadInterval(const uint32_t* old_variant_uidx_to_new, uint32_t 
   // probable todo: avoid rewind when one batch is entirely after the previous
   // batch (this is likely when input was already almost-sorted, and just a few
   // coordinates changed due to e.g. --normalize)
-  PglErr reterr = RewindRLstreamRaw(pvar_reload_rlsp, &line_iter);
+  PglErr reterr = TextRewind(pvar_reload_trsp);
   if (unlikely(reterr)) {
     return reterr;
   }
   const uint32_t cur_batch_size = variant_idx_end - variant_idx_start;
   char* str_store_iter = R_CAST(char*, g_bigstack_base);
   uint32_t info_col_idx;
-  reterr = PvarInfoReloadHeader(pvar_reload_rlsp, &line_iter, &info_col_idx);
+  reterr = PvarInfoReloadHeader(pvar_reload_trsp, &line_iter, &info_col_idx);
   if (unlikely(reterr)) {
     return reterr;
   }
   uint32_t variant_idx = 0;
   for (uint32_t variant_uidx = 0; ; ++variant_uidx) {
     do {
-      reterr = RlsNextLstrip(pvar_reload_rlsp, &line_iter);
-      if (reterr) {
-        return (reterr == kPglRetNomem)? kPglRetNomem : kPglRetReadFail;
+      if (unlikely(TextNextLineLstrip(pvar_reload_trsp, &line_iter))) {
+        return kPglRetRewindFail;
       }
     } while (IsEolnKns(*line_iter));
     const uint32_t new_variant_idx_offset = old_variant_uidx_to_new[variant_uidx] - variant_idx_start;
@@ -7183,7 +7246,7 @@ PglErr PvarInfoReloadInterval(const uint32_t* old_variant_uidx_to_new, uint32_t 
     }
     line_iter = NextTokenMultFar(line_iter, info_col_idx);
     if (!line_iter) {
-      return kPglRetReadFail;
+      return kPglRetRewindFail;
     }
     char* info_end = CurTokenEnd(line_iter);
     const uint32_t info_slen = info_end - line_iter;
@@ -7333,9 +7396,9 @@ PglErr WritePvarResorted(const char* outname, const char* xheader, const uintptr
   char* cswritep = nullptr;
   PglErr reterr = kPglRetSuccess;
   CompressStreamState css;
-  ReadLineStream pvar_reload_rls;
+  TextRstream pvar_reload_trs;
   PreinitCstream(&css);
-  PreinitRLstream(&pvar_reload_rls);
+  PreinitTextRstream(&pvar_reload_trs);
   {
     const uint32_t max_chr_blen = GetMaxChrSlen(write_cip) + 1;
     // includes trailing tab
@@ -7444,10 +7507,16 @@ PglErr WritePvarResorted(const char* outname, const char* xheader, const uintptr
         old_variant_uidx_to_new[old_variant_uidx] = variant_idx;
       }
 
-      char* line_iter;
-      reterr = SizeAndInitRLstreamRaw(pvar_info_reload, bigstack_left() / 4, &pvar_reload_rls, &line_iter);
+      uint32_t decompress_thread_ct = 1;
+      if (!output_zst) {
+        decompress_thread_ct = thread_ct - 1;
+        if (!decompress_thread_ct) {
+          decompress_thread_ct = 1;
+        }
+      }
+      reterr = SizeAndInitTextRstream(pvar_info_reload, bigstack_left() / 4, decompress_thread_ct, &pvar_reload_trs);
       if (unlikely(reterr)) {
-        goto WritePvarResorted_ret_1;
+        goto WritePvarResorted_ret_RSTREAM_FAIL;
       }
 
       // subtract kCacheline to allow for rounding
@@ -7480,9 +7549,9 @@ PglErr WritePvarResorted(const char* outname, const char* xheader, const uintptr
       }
       uint32_t variant_idx_end = MINV(variant_idx_start + batch_size, variant_ct);
       if (pvar_info_reload) {
-        reterr = PvarInfoReloadInterval(old_variant_uidx_to_new, variant_idx_start, variant_idx_end, &pvar_reload_rls, pvar_info_strs);
+        reterr = PvarInfoReloadInterval(old_variant_uidx_to_new, variant_idx_start, variant_idx_end, &pvar_reload_trs, pvar_info_strs);
         if (unlikely(reterr)) {
-          goto WritePvarResorted_ret_1;
+          goto WritePvarResorted_ret_RSTREAM_FAIL;
         }
       }
       reterr = WritePvarResortedInterval(write_cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, qual_present, quals, filter_present, filter_npass, filter_storage, nonref_flags, variant_cms, new_variant_idx_to_old, variant_idx_start, variant_idx_end, info_pr_flag_present, write_qual, write_filter, write_info, all_nonref, write_cm, pvar_info_strs, &css, &cswritep, &chr_fo_idx, &chr_end, &chr_buf_blen, chr_buf);
@@ -7504,6 +7573,9 @@ PglErr WritePvarResorted(const char* outname, const char* xheader, const uintptr
   WritePvarResorted_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
+  WritePvarResorted_ret_RSTREAM_FAIL:
+    TextRstreamErrPrintRewind(pvar_info_reload, &pvar_reload_trs, reterr);
+    break;
   WritePvarResorted_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
@@ -7513,7 +7585,7 @@ PglErr WritePvarResorted(const char* outname, const char* xheader, const uintptr
   }
  WritePvarResorted_ret_1:
   CswriteCloseCond(&css, cswritep);
-  CleanupRLstream(&pvar_reload_rls);
+  CleanupTextRstreamRewind(pvar_info_reload, &pvar_reload_trs, &reterr);
   BigstackReset(bigstack_mark);
   return reterr;
 }

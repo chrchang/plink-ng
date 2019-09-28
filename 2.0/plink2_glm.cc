@@ -127,45 +127,46 @@ BoolErr LinearHypothesisChisq(const double* coef, const double* constraints_con_
 }
 
 
-PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, const char* sample_ids, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const GlmInfo* glm_info_ptr, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uint32_t raw_variant_ct, const uintptr_t** sample_include_ptr, const uintptr_t** sex_nm_ptr, const uintptr_t** sex_male_ptr, const uintptr_t** variant_include_ptr, uint32_t* sample_ct_ptr, uint32_t* variant_ct_ptr, ReadLineStream* local_covar_rlsp, uint32_t** local_sample_uidx_order_ptr, uintptr_t** local_variant_include_ptr, uint32_t* local_sample_ct_ptr, uint32_t* local_variant_ctl_ptr, uint32_t* local_covar_ct_ptr) {
+PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, const char* sample_ids, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const GlmInfo* glm_info_ptr, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uint32_t raw_variant_ct, const uintptr_t** sample_include_ptr, const uintptr_t** sex_nm_ptr, const uintptr_t** sex_male_ptr, const uintptr_t** variant_include_ptr, uint32_t* sample_ct_ptr, uint32_t* variant_ct_ptr, TextRstream* local_covar_trsp, uint32_t** local_sample_uidx_order_ptr, uintptr_t** local_variant_include_ptr, uint32_t* local_sample_ct_ptr, uint32_t* local_variant_ctl_ptr, uint32_t* local_covar_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
-  ReadLineStream rls;
-  PreinitRLstream(&rls);
+  textRFILE local_covar_trf;
+  TextRstream trs;
+  PreinitTextRfile(&local_covar_trf);
+  PreinitTextRstream(&trs);
   {
     // 1. read .psam/.fam file, update sample_ct, initialize
     //    local_sample_uidx_order (use OpenAndLoadXidHeader()?)
-    uintptr_t linebuf_size;
-    if (unlikely(StandardizeLinebufSize(bigstack_left() / 4, kMaxMediumLine + 1, &linebuf_size))) {
+    uint32_t max_line_blen;
+    if (unlikely(StandardizeMaxLineBlen(bigstack_left() / 4, 2 * kDecompressChunkSize, &max_line_blen))) {
       goto GlmLocalOpen_ret_NOMEM;
     }
-    char* line_iter;
-    reterr = InitRLstreamEndallocRaw(local_psam_fname, linebuf_size, &rls, &line_iter);
+    reterr = InitTextRstreamEx(local_psam_fname, 1, kMaxLongLine, max_line_blen, 1, &trs);
     if (unlikely(reterr)) {
-      goto GlmLocalOpen_ret_1;
+      goto GlmLocalOpen_ret_PSAM_RSTREAM_FAIL;
     }
     uint32_t is_header_line;
+    char* line_start;
     do {
       ++line_idx;
-      reterr = RlsNextLstrip(&rls, &line_iter);
+      reterr = TextNextLineLstrip(&trs, &line_start);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", local_psam_fname);
           goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
         }
-        goto GlmLocalOpen_ret_1;
+        goto GlmLocalOpen_ret_PSAM_RSTREAM_FAIL;
       }
-      is_header_line = (line_iter[0] == '#');
-    } while (IsEolnKns(*line_iter) || (is_header_line && (!tokequal_k(&(line_iter[1]), "FID")) && (!tokequal_k(&(line_iter[1]), "IID"))));
-    char* linebuf_first_token = line_iter;
+      is_header_line = (line_start[0] == '#');
+    } while (IsEolnKns(*line_start) || (is_header_line && (!tokequal_k(&(line_start[1]), "FID")) && (!tokequal_k(&(line_start[1]), "IID"))));
     XidMode xid_mode = kfXidModeFidIid;
     if (is_header_line) {
-      if (linebuf_first_token[1] == 'I') {
+      if (line_start[1] == 'I') {
         xid_mode = kfXidModeIid;
       }
-      *linebuf_first_token = '\0';
+      *line_start = '\0';
     }
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     const uint32_t orig_sample_ct = *sample_ct_ptr;
@@ -195,7 +196,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
 #endif
     uintptr_t local_sample_ct = 0;
     while (1) {
-      if (!IsEolnKns(*linebuf_first_token)) {
+      if (!IsEolnKns(*line_start)) {
         if (unlikely(local_sample_ct == max_local_sample_ct)) {
 #ifdef __LP64__
           if (local_sample_ct == kMaxLongLine / 2) {
@@ -205,7 +206,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
 #endif
           goto GlmLocalOpen_ret_NOMEM;
         }
-        const char* read_ptr = linebuf_first_token;
+        const char* read_ptr = line_start;
         uint32_t sample_uidx;
         if (!SortedXidboxReadFind(sorted_sample_idbox, sample_id_map, max_sample_id_blen, orig_sample_ct, 0, xid_mode, &read_ptr, &sample_uidx, idbuf)) {
           if (unlikely(IsSet(new_sample_include, sample_uidx))) {
@@ -224,19 +225,17 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
           local_sample_uidx_order[local_sample_ct] = UINT32_MAX;
         }
         ++local_sample_ct;
-        line_iter = K_CAST(char*, read_ptr);
       }
       ++line_idx;
-      reterr = RlsNextLstrip(&rls, &line_iter);
+      reterr = TextNextLineLstrip(&trs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           // reterr = kPglRetSuccess;
           break;
         }
-        goto GlmLocalOpen_ret_READ_RLSTREAM_PSAM;
+        goto GlmLocalOpen_ret_PSAM_RSTREAM_FAIL;
       }
-      linebuf_first_token = line_iter;
-      if (unlikely(linebuf_first_token[0] == '#')) {
+      if (unlikely(line_start[0] == '#')) {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and if a #FID/IID header line is present it must denote the end of the header block.)\n", line_idx, local_psam_fname);
         goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
       }
@@ -262,7 +261,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       BitvecAndCopy(sample_include_copy, *sex_male_ptr, raw_sample_ctl, sex_male_copy);
       *sex_male_ptr = sex_male_copy;
       *sample_include_ptr = sample_include_copy;
-      BigstackEndReset(RLstreamMemStart(&rls));
+      BigstackEndReset(TextRstreamMemStart(&trs));
       uint32_t* sample_include_cumulative_popcounts;
       if (unlikely(bigstack_end_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts))) {
         goto GlmLocalOpen_ret_NOMEM;
@@ -270,28 +269,27 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       FillCumulativePopcounts(sample_include_copy, raw_sample_ctl, sample_include_cumulative_popcounts);
       *sample_ct_ptr = new_sample_ct;
     }
-    BigstackEndReset(RLstreamMemStart(&rls));
+    BigstackEndReset(TextRstreamMemStart(&trs));
 
     // 2. read .pvar/.bim file, update variant_ct, initialize
     //    local_variant_ct/local_variant_include.
-    reterr = RetargetRLstreamRaw(local_pvar_fname, &rls, &line_iter);
+    reterr = TextRetarget(local_pvar_fname, &trs);
     if (unlikely(reterr)) {
-      goto GlmLocalOpen_ret_READ_RLSTREAM_PSAM;
+      goto GlmLocalOpen_ret_PSAM_RSTREAM_FAIL;
     }
     line_idx = 0;
     do {
       ++line_idx;
-      reterr = RlsNextLstrip(&rls, &line_iter);
+      reterr = TextNextLineLstrip(&trs, &line_start);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", local_pvar_fname);
           goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
         }
-        goto GlmLocalOpen_ret_READ_RLSTREAM_PVAR;
+        goto GlmLocalOpen_ret_PVAR_RSTREAM_FAIL;
       }
-      is_header_line = (line_iter[0] == '#');
-    } while (IsEolnKns(*line_iter) || (is_header_line && (!tokequal_k(line_iter, "#CHROM"))));
-    linebuf_first_token = line_iter;
+      is_header_line = (line_start[0] == '#');
+    } while (IsEolnKns(*line_start) || (is_header_line && (!tokequal_k(line_start, "#CHROM"))));
     uint32_t col_skips[2];
     uint32_t col_types[2];
     // uint32_t relevant_postchr_col_ct = 2;
@@ -301,7 +299,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       // [0] = POS
       // [1] = ID
       // don't care about the rest
-      const char* token_end = &(linebuf_first_token[6]);
+      const char* token_end = &(line_start[6]);
       uint32_t found_header_bitset = 0;
       uint32_t relevant_postchr_col_ct = 0;
       const char* linebuf_iter;
@@ -344,15 +342,13 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       for (uint32_t rpc_col_idx = relevant_postchr_col_ct - 1; rpc_col_idx; --rpc_col_idx) {
         col_skips[rpc_col_idx] -= col_skips[rpc_col_idx - 1];
       }
-      line_iter = K_CAST(char*, linebuf_iter);
-      linebuf_first_token = line_iter;
+      line_start = K_CAST(char*, linebuf_iter);
     } else {
       col_types[0] = 1;
       col_types[1] = 0;
       col_skips[0] = 1;
       // CM column may be omitted
-      line_iter = NextTokenMult(linebuf_first_token, 4);
-      const char* linebuf_iter = line_iter;
+      const char* linebuf_iter = NextTokenMult(line_start, 4);
       if (unlikely(!linebuf_iter)) {
         goto GlmLocalOpen_ret_MISSING_TOKENS_PVAR;
       }
@@ -385,7 +381,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
     uint32_t prev_bp = variant_bps[prev_variant_uidx];
     uint32_t chr_end = cip->chr_fo_vidx_start[cip->chr_idx_to_foidx[prev_chr_code] + 1];
     while (1) {
-      if (!IsEolnKns(*linebuf_first_token)) {
+      if (!IsEolnKns(*line_start)) {
         if (unlikely(local_variant_ct == max_local_variant_ct)) {
           if (max_local_variant_ct == 0x7ffffffd) {
             snprintf(g_logbuf, kLogbufSize, "Error: Too many samples in %s.\n", local_pvar_fname);
@@ -396,15 +392,15 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
         if (!(local_variant_ct % kBitsPerWord)) {
           local_variant_include[local_variant_ct / kBitsPerWord] = 0;
         }
-        line_iter = CurTokenEnd(linebuf_first_token);
+        char* line_iter = CurTokenEnd(line_start);
         // #CHROM
         if (unlikely((*line_iter != '\t') && (*line_iter != ' '))) {
           goto GlmLocalOpen_ret_MISSING_TOKENS_PVAR;
         }
         {
-          const uint32_t cur_chr_code = GetChrCodeCounted(cip, line_iter - linebuf_first_token, linebuf_first_token);
+          const uint32_t cur_chr_code = GetChrCodeCounted(cip, line_iter - line_start, line_start);
           if (IsI32Neg(cur_chr_code)) {
-            goto GlmLocalOpen_skip_variant_early;
+            goto GlmLocalOpen_skip_variant;
           }
           const uint32_t cur_chr_code_u = cur_chr_code;
           if (cur_chr_code_u != prev_chr_code) {
@@ -415,7 +411,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
                 snprintf(g_logbuf, kLogbufSize, "Error: Chromosome order in %s is different from chromosome order in main dataset.\n", local_pvar_fname);
                 goto GlmLocalOpen_ret_INCONSISTENT_INPUT_WW;
               }
-              goto GlmLocalOpen_skip_variant_early;
+              goto GlmLocalOpen_skip_variant;
             }
             prev_variant_uidx = AdvBoundedTo1Bit(orig_variant_include, first_variant_uidx_in_chr, raw_variant_ct);
             if (prev_variant_uidx == raw_variant_ct) {
@@ -426,16 +422,14 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
             prev_bp = variant_bps[prev_variant_uidx];
             chr_end = cip->chr_fo_vidx_start[cip->chr_idx_to_foidx[prev_chr_code] + 1];
             if (cur_chr_code_u != prev_chr_code) {
-              goto GlmLocalOpen_skip_variant_early;
+              goto GlmLocalOpen_skip_variant;
             }
           }
           char* token_ptrs[2];
           uint32_t token_slens[2];
-          line_iter = TokenLex(line_iter, col_types, col_skips, 2, token_ptrs, token_slens);
-          if (unlikely(!line_iter)) {
+          if (unlikely(!TokenLex(line_iter, col_types, col_skips, 2, token_ptrs, token_slens))) {
             goto GlmLocalOpen_ret_MISSING_TOKENS_PVAR;
           }
-          line_iter = AdvToDelim(line_iter, '\n');
           // POS
           int32_t cur_bp;
           if (unlikely(ScanIntAbsDefcap(token_ptrs[0], &cur_bp))) {
@@ -495,28 +489,20 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
           prev_bp = variant_bps[prev_variant_uidx];
           chr_end = cip->chr_fo_vidx_start[cip->chr_idx_to_foidx[prev_chr_code] + 1];
           break;
-        GlmLocalOpen_skip_variant_early:
-          line_iter = AdvToDelim(line_iter, '\n');
-          break;
         }
       GlmLocalOpen_skip_variant:
         ++local_variant_ct;
-      } else {
-        line_iter = AdvToDelim(line_iter, '\n');
       }
       ++line_idx;
-      ++line_iter;
-      reterr = RlsPostlfNext(&rls, &line_iter);
+      reterr = TextNextLineLstrip(&trs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           // reterr = kPglRetSuccess;
           break;
         }
-        goto GlmLocalOpen_ret_READ_RLSTREAM_PVAR;
+        goto GlmLocalOpen_ret_PVAR_RSTREAM_FAIL;
       }
-      line_iter = FirstNonTspace(line_iter);
-      linebuf_first_token = line_iter;
-      if (unlikely(linebuf_first_token[0] == '#')) {
+      if (unlikely(line_start[0] == '#')) {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and if a #CHROM header line is present it must denote the end of the header block.)\n", line_idx, local_pvar_fname);
         goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
       }
@@ -536,44 +522,37 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
 
     // 3. If not local-cats=, scan first line of local-covar= file to determine
     //    covariate count.
-    reterr = CleanupRLstream(&rls);
-    if (unlikely(reterr)) {
+    if (CleanupTextRstream(&trs, &reterr)) {
+      logerrprintfww(kErrprintfFread, local_pvar_fname, strerror(errno));
       goto GlmLocalOpen_ret_1;
     }
     BigstackEndReset(bigstack_end_mark);
-    reterr = gzopen_read_checked(local_covar_fname, &local_covar_rlsp->gz_infile);
+    uintptr_t loadbuf_size = bigstack_left();
+    if (loadbuf_size > kMaxLongLine) {
+      loadbuf_size = kMaxLongLine;
+    } else if (unlikely(loadbuf_size < 2 * kDecompressChunkSize)) {
+      // this shouldn't be possible
+      goto GlmLocalOpen_ret_NOMEM;
+    }
+    // don't formally allocate
+    char* dst = R_CAST(char*, g_bigstack_base);
+    reterr = TextRfileOpenEx(local_covar_fname, kMaxLongLine, loadbuf_size, dst, &local_covar_trf);
     if (unlikely(reterr)) {
-      goto GlmLocalOpen_ret_1;
+      goto GlmLocalOpen_ret_RFILE_FAIL;
     }
     uint32_t local_covar_ct;
     if (!glm_info_ptr->local_cat_ct) {
-      uintptr_t loadbuf_size = bigstack_left();
-      if (loadbuf_size > kMaxLongLine) {
-        loadbuf_size = kMaxLongLine;
-      } else if (unlikely(loadbuf_size <= kMaxMediumLine)) {
-        // this shouldn't be possible
-        goto GlmLocalOpen_ret_NOMEM;
-      }
-      // don't formally allocate
-      char* loadbuf = R_CAST(char*, g_bigstack_base);
-      loadbuf[loadbuf_size - 1] = ' ';
       line_idx = 1;
-      if (unlikely(!gzgets(local_covar_rlsp->gz_infile, loadbuf, loadbuf_size))) {
-        if (!gzeof(local_covar_rlsp->gz_infile)) {
-          goto GlmLocalOpen_ret_READ_FAIL;
+      reterr = TextRfileNextLine(&local_covar_trf, &line_start);
+      if (unlikely(reterr)) {
+        if (reterr == kPglRetEof) {
+          snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", local_covar_fname);
+          goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
         }
-        snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", local_covar_fname);
-        goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
+        goto GlmLocalOpen_ret_RFILE_FAIL;
       }
-      if (unlikely(!loadbuf[loadbuf_size - 1])) {
-        if (loadbuf_size != kMaxLongLine) {
-          goto GlmLocalOpen_ret_NOMEM;
-        }
-        snprintf(g_logbuf, kLogbufSize, "Error: Line 1 of %s is pathologically long.\n", local_covar_fname);
-        goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
-      }
-      linebuf_first_token = FirstNonTspace(loadbuf);
-      const uint32_t token_ct = CountTokens(linebuf_first_token);
+      line_start = FirstNonTspace(line_start);
+      const uint32_t token_ct = CountTokens(line_start);
       local_covar_ct = token_ct / local_sample_ct;
       if (unlikely(local_covar_ct * local_sample_ct != token_ct)) {
         snprintf(g_logbuf, kLogbufSize, "Error: Unexpected token count on line 1 of %s (%u, %smultiple of %" PRIuPTR " expected).\n", local_covar_fname, token_ct, (token_ct == local_sample_ct)? "larger " : "", local_sample_ct);
@@ -616,10 +595,16 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
     if (local_covar_linebuf_size < 2 * kDecompressChunkSize) {
       local_covar_linebuf_size = 2 * kDecompressChunkSize;
     }
-    local_covar_linebuf_size = RoundUpPow2(local_covar_linebuf_size, kCacheline);
-    char* local_covar_line_iter;  // unused since we always rewind
-    reterr = InitRLstreamEx(0, local_covar_linebuf_size, local_covar_linebuf_size, local_covar_rlsp, &local_covar_line_iter);
+    uint32_t dst_capacity = local_covar_linebuf_size;
+    if (local_covar_trf.base.dst_len > dst_capacity) {
+      dst_capacity = local_covar_trf.base.dst_len;
+    }
+    dst_capacity = RoundUpPow2(dst_capacity, kCacheline);
+    // local_covar_trf.base.dst_capacity = dst_capacity;
+    g_bigstack_base = R_CAST(unsigned char*, &(dst[dst_capacity]));
+    reterr = TextRstreamOpenEx(nullptr, local_covar_linebuf_size, dst_capacity, 1, &local_covar_trf, nullptr, local_covar_trsp);
     if (unlikely(reterr)) {
+      TextRstreamErrPrint(local_covar_fname, local_covar_trsp);
       goto GlmLocalOpen_ret_1;
     }
     bigstack_mark = g_bigstack_base;
@@ -628,14 +613,14 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
   GlmLocalOpen_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  GlmLocalOpen_ret_READ_FAIL:
-    reterr = kPglRetNomem;
+  GlmLocalOpen_ret_PSAM_RSTREAM_FAIL:
+    TextRstreamErrPrint(local_psam_fname, &trs);
     break;
-  GlmLocalOpen_ret_READ_RLSTREAM_PSAM:
-    RLstreamErrPrint(local_psam_fname, &rls, &reterr);
+  GlmLocalOpen_ret_PVAR_RSTREAM_FAIL:
+    TextRstreamErrPrint(local_pvar_fname, &trs);
     break;
-  GlmLocalOpen_ret_READ_RLSTREAM_PVAR:
-    RLstreamErrPrint(local_pvar_fname, &rls, &reterr);
+  GlmLocalOpen_ret_RFILE_FAIL:
+    TextRfileErrPrint(local_covar_fname, &local_covar_trf);
     break;
   GlmLocalOpen_ret_MALFORMED_INPUT_WW:
     WordWrapB(0);
@@ -655,7 +640,13 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
     break;
   }
  GlmLocalOpen_ret_1:
-  CleanupRLstream(&rls);
+#ifdef NDEBUG
+  CleanupTextRstream(&trs, &reterr);
+  CleanupTextRfile(&local_covar_trf, &reterr);
+#else
+  assert(!CleanupTextRstream(&trs, &reterr));
+  assert(!CleanupTextRfile(&local_covar_trf, &reterr));
+#endif
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }
@@ -4516,7 +4507,7 @@ BoolErr AllocAndInitReportedTestNames(const uintptr_t* parameter_subset, const c
   return 0;
 }
 
-PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sample_include_x, const uintptr_t* sample_include_y, const uint32_t* sample_include_cumulative_popcounts, const uint32_t* sample_include_x_cumulative_popcounts, const uint32_t* sample_include_y_cumulative_popcounts, const ChrInfo* cip, const uintptr_t* variant_include, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, uint32_t sample_ct, uint32_t sample_ct_x, uint32_t sample_ct_y, uint32_t variant_uidx_start, uint32_t variant_uidx_end, uint32_t cur_block_variant_ct, uint32_t local_sample_ct, uint32_t local_covar_ct, uint32_t omit_last, uint32_t local_cat_ct, ReadLineStream* local_covar_rlsp, char** local_covar_line_iterp, uint32_t* local_line_idx_ptr, uint32_t* local_xy_ptr, float* local_covars_vcmaj_f_iter, double* local_covars_vcmaj_d_iter, uint32_t* local_sample_idx_order) {
+PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sample_include_x, const uintptr_t* sample_include_y, const uint32_t* sample_include_cumulative_popcounts, const uint32_t* sample_include_x_cumulative_popcounts, const uint32_t* sample_include_y_cumulative_popcounts, const ChrInfo* cip, const uintptr_t* variant_include, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, uint32_t sample_ct, uint32_t sample_ct_x, uint32_t sample_ct_y, uint32_t variant_uidx_start, uint32_t variant_uidx_end, uint32_t cur_block_variant_ct, uint32_t local_sample_ct, uint32_t local_covar_ct, uint32_t omit_last, uint32_t local_cat_ct, TextRstream* local_covar_trsp, uint32_t* local_line_idx_ptr, uint32_t* local_xy_ptr, float* local_covars_vcmaj_f_iter, double* local_covars_vcmaj_d_iter, uint32_t* local_sample_idx_order) {
   const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
   const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
   const uint32_t tokens_per_sample = local_cat_ct? 1 : (local_covar_ct + omit_last);
@@ -4533,7 +4524,6 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
       ZeroDArr(local_covar_ct * max_sample_ct * S_CAST(uintptr_t, cur_block_variant_ct), local_covars_vcmaj_d_iter);
     }
   }
-  char* local_covar_line_iter = *local_covar_line_iterp;
   uintptr_t variant_uidx_base;
   uintptr_t cur_bits;
   BitIter1Start(variant_include, variant_uidx_start, &variant_uidx_base, &cur_bits);
@@ -4582,30 +4572,31 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
       BitIter1(variant_include, &variant_uidx_base, &cur_bits);
       if (!IsSet(local_variant_include, local_line_idx)) {
         uint32_t local_line_idx_target_m1 = AdvTo1Bit(local_variant_include, local_line_idx);
-        PglErr reterr = RlsSkipNz(local_line_idx_target_m1 - local_line_idx, local_covar_rlsp, &local_covar_line_iter);
+        PglErr reterr = TextSkipNz(local_line_idx_target_m1 - local_line_idx, local_covar_trsp);
         if (unlikely(reterr)) {
           if (reterr == kPglRetEof) {
             logputs("\n");
             logerrputs("Error: --glm local-covar= file has fewer lines than local-pvar= file.\n");
             return kPglRetInconsistentInput;
           }
-          RLstreamErrPrint("--glm local-covar= file", local_covar_rlsp, &reterr);
+          TextRstreamErrPrint("--glm local-covar= file", local_covar_trsp);
           return reterr;
         }
         local_line_idx = local_line_idx_target_m1;
       }
       ++local_line_idx;
-      PglErr reterr = RlsNextLstrip(local_covar_rlsp, &local_covar_line_iter);
+      char* local_covar_line_start;
+      PglErr reterr = TextNextLineLstrip(local_covar_trsp, &local_covar_line_start);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
           logputs("\n");
           logerrputs("Error: --glm local-covar= file has fewer lines than local-pvar= file.\n");
           return kPglRetInconsistentInput;
         }
-        RLstreamErrPrint("--glm local-covar= file", local_covar_rlsp, &reterr);
+        TextRstreamErrPrint("--glm local-covar= file", local_covar_trsp);
         return reterr;
       }
-      const char* linebuf_iter = local_covar_line_iter;
+      const char* linebuf_iter = local_covar_line_start;
       uint32_t sample_idx = 0;
       for (uint32_t local_sample_idx = 0; sample_idx != cur_sample_ct; ++local_sample_idx) {
         const uint32_t cur_sample_idx = local_sample_idx_order[local_sample_idx];
@@ -4671,7 +4662,6 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
         }
         ++sample_idx;
       }
-      local_covar_line_iter = K_CAST(char*, linebuf_iter);
       if (local_covars_vcmaj_f_iter) {
         local_covars_vcmaj_f_iter += max_sample_ct * local_covar_ct;
       } else {
@@ -4679,7 +4669,6 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
       }
     }
   }
-  *local_covar_line_iterp = local_covar_line_iter;
   *local_line_idx_ptr = local_line_idx;
   return kPglRetSuccess;
 }
@@ -4689,7 +4678,7 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
 // valid_variants and valid_alleles are a bit redundant, may want to remove the
 // former later, but let's make that decision during/after permutation test
 // implementation
-PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, const char* const* test_names_x, const char* const* test_names_y, const uint32_t* variant_bps, const char* const* variant_ids, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const char* outname, uint32_t raw_variant_ct, uint32_t max_chr_blen, double ci_size, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, PgenFileInfo* pgfip, ReadLineStream* local_covar_rlsp, uintptr_t* valid_variants, uintptr_t* valid_alleles, double* orig_ln_pvals, double* orig_permstat, uintptr_t* valid_allele_ct_ptr) {
+PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, const char* const* test_names_x, const char* const* test_names_y, const uint32_t* variant_bps, const char* const* variant_ids, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const char* outname, uint32_t raw_variant_ct, uint32_t max_chr_blen, double ci_size, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, PgenFileInfo* pgfip, TextRstream* local_covar_trsp, uintptr_t* valid_variants, uintptr_t* valid_alleles, double* orig_ln_pvals, double* orig_permstat, uintptr_t* valid_allele_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -4716,13 +4705,12 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
       max_sample_ct = sample_ct_y;
     }
     uint32_t* local_sample_idx_order = nullptr;
-    char* local_covar_line_iter = nullptr;
     uint32_t local_line_idx = 0;
     uint32_t local_xy = 0;  // 1 = chrX, 2 = chrY
     if (local_covar_ct) {
-      reterr = RewindRLstreamRaw(local_covar_rlsp, &local_covar_line_iter);
+      reterr = TextRewind(local_covar_trsp);
       if (unlikely(reterr)) {
-        goto GlmLogistic_ret_READ_RLSTREAM;
+        goto GlmLogistic_ret_RSTREAM_FAIL;
       }
       if (unlikely(bigstack_alloc_u32(local_sample_ct, &local_sample_idx_order))) {
         goto GlmLogistic_ret_NOMEM;
@@ -5082,8 +5070,8 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
         if (unlikely(PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, pgfip))) {
           goto GlmLogistic_ret_READ_FAIL;
         }
-        if (local_covar_line_iter) {
-          reterr = ReadLocalCovarBlock(g_sample_include, g_sample_include_x, g_sample_include_y, g_sample_include_cumulative_popcounts, g_sample_include_x_cumulative_popcounts, g_sample_include_y_cumulative_popcounts, cip, variant_include, local_sample_uidx_order, local_variant_include, sample_ct, sample_ct_x, sample_ct_y, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, local_sample_ct, local_covar_ct, (glm_info_ptr->flags / kfGlmLocalOmitLast) & 1, glm_info_ptr->local_cat_ct, local_covar_rlsp, &local_covar_line_iter, &local_line_idx, &local_xy, g_local_covars_vcmaj_f[parity], nullptr, local_sample_idx_order);
+        if (local_covar_ct) {
+          reterr = ReadLocalCovarBlock(g_sample_include, g_sample_include_x, g_sample_include_y, g_sample_include_cumulative_popcounts, g_sample_include_x_cumulative_popcounts, g_sample_include_y_cumulative_popcounts, cip, variant_include, local_sample_uidx_order, local_variant_include, sample_ct, sample_ct_x, sample_ct_y, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, local_sample_ct, local_covar_ct, (glm_info_ptr->flags / kfGlmLocalOmitLast) & 1, glm_info_ptr->local_cat_ct, local_covar_trsp, &local_line_idx, &local_xy, g_local_covars_vcmaj_f[parity], nullptr, local_sample_idx_order);
           if (unlikely(reterr)) {
             goto GlmLogistic_ret_1;
           }
@@ -5575,8 +5563,8 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
   GlmLogistic_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  GlmLogistic_ret_READ_RLSTREAM:
-    RLstreamErrPrint("--glm local-covar= file", local_covar_rlsp, &reterr);
+  GlmLogistic_ret_RSTREAM_FAIL:
+    TextRstreamErrPrint("--glm local-covar= file", local_covar_trsp);
     break;
   GlmLogistic_ret_READ_FAIL:
     reterr = kPglRetReadFail;
@@ -6746,7 +6734,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
   }
 }
 
-PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, const char* const* test_names_x, const char* const* test_names_y, const uint32_t* variant_bps, const char* const* variant_ids, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const char* outname, uint32_t raw_variant_ct, uint32_t max_chr_blen, double ci_size, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, PgenFileInfo* pgfip, ReadLineStream* local_covar_rlsp, uintptr_t* valid_variants, uintptr_t* valid_alleles, double* orig_ln_pvals, uintptr_t* valid_allele_ct_ptr) {
+PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, const char* const* test_names_x, const char* const* test_names_y, const uint32_t* variant_bps, const char* const* variant_ids, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const char* outname, uint32_t raw_variant_ct, uint32_t max_chr_blen, double ci_size, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, PgenFileInfo* pgfip, TextRstream* local_covar_trsp, uintptr_t* valid_variants, uintptr_t* valid_alleles, double* orig_ln_pvals, uintptr_t* valid_allele_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -6773,13 +6761,12 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
       max_sample_ct = sample_ct_y;
     }
     uint32_t* local_sample_idx_order = nullptr;
-    char* local_covar_line_iter = nullptr;
     uint32_t local_line_idx = 0;
     uint32_t local_xy = 0;  // 1 = chrX, 2 = chrY
     if (local_covar_ct) {
-      reterr = RewindRLstreamRaw(local_covar_rlsp, &local_covar_line_iter);
+      reterr = TextRewind(local_covar_trsp);
       if (unlikely(reterr)) {
-        goto GlmLinear_ret_READ_RLSTREAM;
+        goto GlmLinear_ret_RSTREAM_FAIL;
       }
       if (unlikely(bigstack_alloc_u32(local_sample_ct, &local_sample_idx_order))) {
         goto GlmLinear_ret_NOMEM;
@@ -7104,8 +7091,8 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
         if (unlikely(PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, pgfip))) {
           goto GlmLinear_ret_READ_FAIL;
         }
-        if (local_covar_line_iter) {
-          reterr = ReadLocalCovarBlock(g_sample_include, g_sample_include_x, g_sample_include_y, g_sample_include_cumulative_popcounts, g_sample_include_x_cumulative_popcounts, g_sample_include_y_cumulative_popcounts, cip, variant_include, local_sample_uidx_order, local_variant_include, sample_ct, sample_ct_x, sample_ct_y, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, local_sample_ct, local_covar_ct, (glm_info_ptr->flags / kfGlmLocalOmitLast) & 1, glm_info_ptr->local_cat_ct, local_covar_rlsp, &local_covar_line_iter, &local_line_idx, &local_xy, nullptr, g_local_covars_vcmaj_d[parity], local_sample_idx_order);
+        if (local_covar_ct) {
+          reterr = ReadLocalCovarBlock(g_sample_include, g_sample_include_x, g_sample_include_y, g_sample_include_cumulative_popcounts, g_sample_include_x_cumulative_popcounts, g_sample_include_y_cumulative_popcounts, cip, variant_include, local_sample_uidx_order, local_variant_include, sample_ct, sample_ct_x, sample_ct_y, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, local_sample_ct, local_covar_ct, (glm_info_ptr->flags / kfGlmLocalOmitLast) & 1, glm_info_ptr->local_cat_ct, local_covar_trsp, &local_line_idx, &local_xy, nullptr, g_local_covars_vcmaj_d[parity], local_sample_idx_order);
           if (unlikely(reterr)) {
             goto GlmLinear_ret_1;
           }
@@ -7533,8 +7520,8 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
   GlmLinear_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  GlmLinear_ret_READ_RLSTREAM:
-    RLstreamErrPrint("--glm local-covar= file", local_covar_rlsp, &reterr);
+  GlmLinear_ret_RSTREAM_FAIL:
+    TextRstreamErrPrint("--glm local-covar= file", local_covar_trsp);
     break;
   GlmLinear_ret_READ_FAIL:
     reterr = kPglRetReadFail;
@@ -8730,7 +8717,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* arg) {
 CONSTI32(kMaxLinearSubbatchSize, 240);
 static_assert(kMaxLinearSubbatchSize + 12 <= kMaxOpenFiles, "kMaxLinearSubbatchSize can't be too close to or larger than kMaxOpenFiles.");
 
-PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, const char* pheno_names, const char* const* test_names, const char* const* test_names_x, const char* const* test_names_y, const uint32_t* variant_bps, const char* const* variant_ids, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, uint32_t raw_variant_ct, uint32_t completed_pheno_ct, uint32_t batch_size, uintptr_t max_pheno_name_blen, uint32_t max_chr_blen, double ci_size, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, PgenFileInfo* pgfip, ReadLineStream* local_covar_rlsp, char* outname, char* outname_end) {
+PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, const char* pheno_names, const char* const* test_names, const char* const* test_names_x, const char* const* test_names_y, const uint32_t* variant_bps, const char* const* variant_ids, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, uint32_t raw_variant_ct, uint32_t completed_pheno_ct, uint32_t batch_size, uintptr_t max_pheno_name_blen, uint32_t max_chr_blen, double ci_size, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, PgenFileInfo* pgfip, TextRstream* local_covar_trsp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char** cswritep_arr = nullptr;
   CompressStreamState* css_arr = nullptr;
@@ -8758,13 +8745,12 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
     }
     const uintptr_t* sample_include = g_sample_include;
     uint32_t* local_sample_idx_order = nullptr;
-    char* local_covar_line_iter = nullptr;
     uint32_t local_line_idx = 0;
     uint32_t local_xy = 0;  // 1 = chrX, 2 = chrY
     if (local_covar_ct) {
-      reterr = RewindRLstreamRaw(local_covar_rlsp, &local_covar_line_iter);
+      reterr = TextRewind(local_covar_trsp);
       if (unlikely(reterr)) {
-        goto GlmLinearBatch_ret_READ_RLSTREAM;
+        goto GlmLinearBatch_ret_RSTREAM_FAIL;
       }
       if (unlikely(bigstack_alloc_u32(local_sample_ct, &local_sample_idx_order))) {
         goto GlmLinearBatch_ret_NOMEM;
@@ -9188,8 +9174,8 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
           if (unlikely(PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, pgfip))) {
             goto GlmLinearBatch_ret_READ_FAIL;
           }
-          if (local_covar_line_iter) {
-            reterr = ReadLocalCovarBlock(g_sample_include, g_sample_include_x, g_sample_include_y, g_sample_include_cumulative_popcounts, g_sample_include_x_cumulative_popcounts, g_sample_include_y_cumulative_popcounts, cip, variant_include, local_sample_uidx_order, local_variant_include, sample_ct, sample_ct_x, sample_ct_y, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, local_sample_ct, local_covar_ct, (glm_info_ptr->flags / kfGlmLocalOmitLast) & 1, glm_info_ptr->local_cat_ct, local_covar_rlsp, &local_covar_line_iter, &local_line_idx, &local_xy, nullptr, g_local_covars_vcmaj_d[parity], local_sample_idx_order);
+          if (local_covar_ct) {
+            reterr = ReadLocalCovarBlock(g_sample_include, g_sample_include_x, g_sample_include_y, g_sample_include_cumulative_popcounts, g_sample_include_x_cumulative_popcounts, g_sample_include_y_cumulative_popcounts, cip, variant_include, local_sample_uidx_order, local_variant_include, sample_ct, sample_ct_x, sample_ct_y, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, local_sample_ct, local_covar_ct, (glm_info_ptr->flags / kfGlmLocalOmitLast) & 1, glm_info_ptr->local_cat_ct, local_covar_trsp, &local_line_idx, &local_xy, nullptr, g_local_covars_vcmaj_d[parity], local_sample_idx_order);
             if (unlikely(reterr)) {
               goto GlmLinearBatch_ret_1;
             }
@@ -9616,8 +9602,8 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
   GlmLinearBatch_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  GlmLinearBatch_ret_READ_RLSTREAM:
-    RLstreamErrPrint("--glm local-covar= file", local_covar_rlsp, &reterr);
+  GlmLinearBatch_ret_RSTREAM_FAIL:
+    TextRstreamErrPrint("--glm local-covar= file", local_covar_trsp);
     break;
   GlmLinearBatch_ret_READ_FAIL:
     reterr = kPglRetReadFail;
@@ -9667,9 +9653,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   PglErr reterr = kPglRetSuccess;
-  ReadLineStream local_covar_rls;
+  TextRstream local_covar_trs;
   TokenBatchStream tbs;
-  PreinitRLstream(&local_covar_rls);
+  PreinitTextRstream(&local_covar_trs);
   PreinitTBstream(&tbs);
   {
     if (unlikely(!pheno_ct)) {
@@ -9690,7 +9676,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     uint32_t local_variant_ctl = 0;
     uint32_t local_covar_ct = 0;
     if (local_covar_fname) {
-      reterr = GlmLocalOpen(local_covar_fname, local_pvar_fname, local_psam_fname, siip->sample_ids, cip, variant_bps, variant_ids, glm_info_ptr, raw_sample_ct, siip->max_sample_id_blen, raw_variant_ct, &orig_sample_include, &sex_nm, &sex_male, &early_variant_include, &orig_sample_ct, &variant_ct, &local_covar_rls, &local_sample_uidx_order, &local_variant_include, &local_sample_ct, &local_variant_ctl, &local_covar_ct);
+      reterr = GlmLocalOpen(local_covar_fname, local_pvar_fname, local_psam_fname, siip->sample_ids, cip, variant_bps, variant_ids, glm_info_ptr, raw_sample_ct, siip->max_sample_id_blen, raw_variant_ct, &orig_sample_include, &sex_nm, &sex_male, &early_variant_include, &orig_sample_ct, &variant_ct, &local_covar_trs, &local_sample_uidx_order, &local_variant_include, &local_sample_ct, &local_variant_ctl, &local_covar_ct);
       if (unlikely(reterr)) {
         goto GlmMain_ret_1;
       }
@@ -10853,7 +10839,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           }
         }
 
-        reterr = GlmLinearBatch(pheno_batch, pheno_cols, pheno_names, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, raw_variant_ct, completed_pheno_ct, batch_size, max_pheno_name_blen, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &local_covar_rls, outname, outname_end);
+        reterr = GlmLinearBatch(pheno_batch, pheno_cols, pheno_names, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, raw_variant_ct, completed_pheno_ct, batch_size, max_pheno_name_blen, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &local_covar_trs, outname, outname_end);
         if (unlikely(reterr)) {
           goto GlmMain_ret_1;
         }
@@ -11374,9 +11360,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
 
       uintptr_t valid_allele_ct = 0;
       if (is_logistic) {
-        reterr = GlmLogistic(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &local_covar_rls, valid_variants, valid_alleles, orig_ln_pvals, orig_permstat, &valid_allele_ct);
+        reterr = GlmLogistic(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &local_covar_trs, valid_variants, valid_alleles, orig_ln_pvals, orig_permstat, &valid_allele_ct);
       } else {
-        reterr = GlmLinear(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &local_covar_rls, valid_variants, valid_alleles, orig_ln_pvals, &valid_allele_ct);
+        reterr = GlmLinear(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &local_covar_trs, valid_variants, valid_alleles, orig_ln_pvals, &valid_allele_ct);
       }
       if (unlikely(reterr)) {
         goto GlmMain_ret_1;
@@ -11418,7 +11404,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
   }
  GlmMain_ret_1:
   CleanupTBstream(&tbs);
-  CleanupRLstream(&local_covar_rls);
+  CleanupTextRstream2(local_covar_fname, &local_covar_trs, &reterr);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }

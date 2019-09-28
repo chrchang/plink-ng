@@ -443,8 +443,8 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
 PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* missing_varid_match, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t orig_dup_ct, RmDupMode rmdup_mode, uint32_t save_list, uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* variant_include, uint32_t* variant_ct_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
-  ReadLineStream rls;
-  PreinitRLstream(&rls);
+  TextRstream pvar_trs;
+  PreinitTextRstream(&pvar_trs);
   FILE* list_file = nullptr;
   FILE* mismatch_file = nullptr;
   PglErr reterr = kPglRetSuccess;
@@ -509,31 +509,20 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
       }
       FillCumulativePopcounts(orig_dups, raw_variant_ctl, orig_dups_cumulative_popcounts);
       unsigned char* bigstack_mark2 = g_bigstack_base;
-      uintptr_t linebuf_size;
-      if (unlikely(StandardizeLinebufSize(bigstack_left() / 4, kMaxMediumLine + 1, &linebuf_size))) {
-        goto RmDup_ret_NOMEM;
-      }
-      const uint32_t calc_thread_ct = ClipU32(max_thread_ct - 1, 1, 4);
-      reterr = RlsOpenMaybeBgzf(pvar_info_reload, calc_thread_ct, &rls);
+      const uint32_t decompress_thread_ct = ClipU32(max_thread_ct - 1, 1, 4);
+      reterr = SizeAndInitTextRstream(pvar_info_reload, bigstack_left() / 4, decompress_thread_ct, &pvar_trs);
       if (reterr) {
-        if (reterr == kPglRetOpenFail) {
-          logerrprintfww(kErrprintfFopen, pvar_info_reload, strerror(errno));
-        }
-        goto RmDup_ret_1;
-      }
-      char* line_iter;
-      reterr = InitRLstreamEx(0, kMaxLongLine, linebuf_size, &rls, &line_iter);
-      if (unlikely(reterr)) {
-        goto RmDup_ret_1;
+        goto RmDup_ret_RSTREAM_FAIL;
       }
       logputs("--rm-dup: Loading INFO field... ");
       fflush(stdout);
       unsigned char* tmp_alloc_end = g_bigstack_end;
+      char* line_iter;
       // if INFO column exists, #CHROM header line guaranteed
       do {
-        reterr = RlsNextLstrip(&rls, &line_iter);
+        reterr = TextNextLineLstrip(&pvar_trs, &line_iter);
         if (unlikely(reterr)) {
-          goto RmDup_ret_READ_FAIL;
+          goto RmDup_ret_RSTREAM_FAIL;
         }
       } while (!tokequal_k(line_iter, "#CHROM"));
       uint32_t info_col_idx = 1;
@@ -542,7 +531,7 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
         for (; ; ++info_col_idx) {
           char* token_start = FirstNonTspace(line_iter);
           if (IsEolnKns(*token_start)) {
-            goto RmDup_ret_READ_FAIL;
+            goto RmDup_ret_REWIND_FAIL;
           }
           line_iter = CurTokenEnd(token_start);
           if (strequal_k(token_start, "INFO", line_iter - token_start)) {
@@ -553,9 +542,9 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
       unsigned char* tmp_alloc_base = g_bigstack_base;
       uint32_t dup_variant_idx = 0;
       for (uint32_t variant_uidx = 0; ; ++variant_uidx) {
-        reterr = RlsNextLstrip(&rls, &line_iter);
+        reterr = TextNextLineLstrip(&pvar_trs, &line_iter);
         if (unlikely(reterr)) {
-          goto RmDup_ret_READ_FAIL;
+          goto RmDup_ret_RSTREAM_FAIL;
         }
         if (IsSet(orig_dups, variant_uidx)) {
           if (!memequal(variant_ids[variant_uidx], missing_varid_match, missing_varid_blen)) {
@@ -575,9 +564,8 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
           }
         }
       }
-      reterr = CleanupRLstream(&rls);
-      if (unlikely(reterr)) {
-        goto RmDup_ret_1;
+      if (CleanupTextRstream(&pvar_trs, &reterr)) {
+        goto RmDup_ret_REWIND_FAIL;
       }
       logputs("done.\n");
       BigstackEndSet(tmp_alloc_end);
@@ -927,8 +915,10 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
   RmDup_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  RmDup_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
+  RmDup_ret_REWIND_FAIL:
+    reterr = kPglRetRewindFail;
+  RmDup_ret_RSTREAM_FAIL:
+    TextRstreamErrPrintRewind(pvar_info_reload, &pvar_trs, reterr);
     break;
   RmDup_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -937,7 +927,7 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
  RmDup_ret_1:
   fclose_cond(mismatch_file);
   fclose_cond(list_file);
-  CleanupRLstream(&rls);
+  CleanupTextRstreamRewind(pvar_info_reload, &pvar_trs, &reterr);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }
@@ -2000,8 +1990,8 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
-  ReadLineStream read_freq_rls;
-  PreinitRLstream(&read_freq_rls);
+  TextRstream read_freq_trs;
+  PreinitTextRstream(&read_freq_trs);
   {
     if (!variant_ct) {
       logerrputs("Warning: Skipping --read-freq since no variants remain.\n");
@@ -2024,10 +2014,9 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
     }
     bigstack_mark = R_CAST(unsigned char*, cur_allele_freqs);
 
-    char* line_iter;
-    reterr = SizeAndInitRLstreamRaw(read_freq_fname, bigstack_left() / 8, &read_freq_rls, &line_iter);
+    reterr = SizeAndInitTextRstream(read_freq_fname, bigstack_left() / 8, MAXV(max_thread_ct - 1, 1), &read_freq_trs);
     if (unlikely(reterr)) {
-      goto ReadAlleleFreqs_ret_1;
+      goto ReadAlleleFreqs_ret_RSTREAM_FAIL;
     }
     uint32_t* variant_id_htable = nullptr;
     uint32_t variant_id_htable_size;
@@ -2035,20 +2024,19 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
     if (unlikely(reterr)) {
       goto ReadAlleleFreqs_ret_1;
     }
+    char* line_start;
     do {
       ++line_idx;
-      reterr = RlsNextLstrip(&read_freq_rls, &line_iter);
+      reterr = TextNextLineLstrip(&read_freq_trs, &line_start);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
           logerrputs("Error: Empty --read-freq file.\n");
           goto ReadAlleleFreqs_ret_MALFORMED_INPUT;
         }
-        goto ReadAlleleFreqs_ret_READ_RLSTREAM;
+        goto ReadAlleleFreqs_ret_RSTREAM_FAIL;
       }
       // automatically skip header lines that start with '##' or '# '
-    } while (IsEolnKns(*line_iter) || ((*line_iter == '#') && (ctou32(line_iter[1]) <= '#')));
-    char* linebuf_first_token = line_iter;
-
+    } while (IsEolnKns(*line_start) || ((*line_start == '#') && (ctou32(line_start[1]) <= '#')));
     uint32_t col_skips[kfReadFreqColNull];
     ReadFreqColidx col_types[kfReadFreqColNull];
     uint32_t overrideable_pos[kfReadFreqColNull - kfReadFreqColAlt1Allele];
@@ -2079,10 +2067,10 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
     uint32_t biallelic_only = 0;
 
     ReadFreqColFlags header_cols = kfReadFreqColset0;
-    if (*linebuf_first_token == '#') {
+    if (*line_start == '#') {
       // PLINK 2.0
       // guaranteed nonspace
-      const char* linebuf_iter = &(linebuf_first_token[1]);
+      const char* linebuf_iter = &(line_start[1]);
 
       uint32_t col_idx = 0;
       while (1) {
@@ -2234,7 +2222,6 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         biallelic_only = 1;
       }
 
-      line_iter = K_CAST(char*, linebuf_iter);
       main_eq = is_numeq;
       semifinal_header_cols = header_cols;
       if (header_cols & kfReadFreqColsetAfreqOnly) {
@@ -2249,16 +2236,15 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           // or
           //   A=0.5,G=0.2
           // Look at the first nonheader line to distinguish between these two.
-          reterr = RlsNextNonemptyLstrip(&read_freq_rls, &line_idx, &line_iter);
+          reterr = TextNextNonemptyLineLstrip(&read_freq_trs, &line_idx, &line_start);
           if (unlikely(reterr)) {
             if (reterr == kPglRetEof) {
               logerrputs("Error: Empty --read-freq file.\n");
               goto ReadAlleleFreqs_ret_MALFORMED_INPUT;
             }
-            goto ReadAlleleFreqs_ret_READ_RLSTREAM;
+            goto ReadAlleleFreqs_ret_RSTREAM_FAIL;
           }
-          linebuf_first_token = line_iter;
-          linebuf_iter = line_iter;
+          linebuf_iter = line_start;
           const char* alt_freq_str = nullptr;
           for (uint32_t relevant_col_idx = 0; relevant_col_idx != relevant_col_ct; ++relevant_col_idx) {
             if (col_types[relevant_col_idx] == kfReadFreqColAltFreqs) {
@@ -2281,8 +2267,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           }
         } else {
           // may as well not reprocess header line
-          line_iter = AdvToDelim(line_iter, '\n');
-          linebuf_first_token = line_iter;
+          line_start = &(TextLineEnd(&read_freq_trs)[-1]);
         }
         if (unlikely(((header_cols & kfReadFreqColsetBase) | header_cols_exempt) != kfReadFreqColsetBase)) {
           logerrputs("Error: Missing column(s) in --read-freq file (ID, REF, ALT[1] usually\nrequired).\n");
@@ -2344,8 +2329,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         }
         geno_counts = 1;
         logputs("--read-freq: PLINK 2 --geno-counts file detected.\n");
-        line_iter = AdvToDelim(line_iter, '\n');
-        linebuf_first_token = line_iter;  // don't rescan header
+        line_start = &(TextLineEnd(&read_freq_trs)[-1]);
       } else {
         logerrputs("Error: Missing column(s) in --read-freq file (no frequencies/counts).\n");
         goto ReadAlleleFreqs_ret_MALFORMED_INPUT;
@@ -2391,7 +2375,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
       col_types[1] = kfReadFreqColRefAllele;
       col_types[2] = kfReadFreqColAltAlleles;
       biallelic_only = 1;
-      if (StrStartsWithUnsafe(linebuf_first_token, "CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(HAP A1)\tC(HAP A2)\tC(MISSING)")) {
+      if (StrStartsWithUnsafe(line_start, "CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(HAP A1)\tC(HAP A2)\tC(MISSING)")) {
         col_skips[4] = 1;
         col_skips[5] = 1;
         col_skips[6] = 1;
@@ -2407,10 +2391,10 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         relevant_col_ct = 8;
         logputs("--read-freq: PLINK 1.9 --freqx file detected.\n");
       } else {
-        if (unlikely(!tokequal_k(linebuf_first_token, "CHR"))) {
+        if (unlikely(!tokequal_k(line_start, "CHR"))) {
           goto ReadAlleleFreqs_ret_UNRECOGNIZED_HEADER;
         }
-        const char* linebuf_iter = FirstNonTspace(&(linebuf_first_token[3]));
+        const char* linebuf_iter = FirstNonTspace(&(line_start[3]));
         if (unlikely(!tokequal_k(linebuf_iter, "SNP"))) {
           goto ReadAlleleFreqs_ret_UNRECOGNIZED_HEADER;
         }
@@ -2445,10 +2429,8 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           relevant_col_ct = 5;
           logputs("--read-freq: PLINK 1.x '--freq counts' file detected.\n");
         }
-        line_iter = K_CAST(char*, linebuf_iter);
       }
-      line_iter = AdvToDelim(line_iter, '\n');
-      linebuf_first_token = line_iter;  // don't rescan header
+      line_start = &(TextLineEnd(&read_freq_trs)[-1]);
     }
     assert(relevant_col_ct <= 8);
 
@@ -2461,13 +2443,14 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
     uint32_t loaded_variant_ct = 0;
     uint32_t cur_allele_ct = 2;
     uint32_t variant_uidx = 0;
+    char* line_iter = &(TextLineEnd(&read_freq_trs)[-1]);
     while (1) {
-      if (!IsEolnKns(*linebuf_first_token)) {
+      if (!IsEolnKns(*line_start)) {
         // not const since tokens may be null-terminated or comma-terminated
         // later
         char* token_ptrs[12];
         uint32_t token_slens[12];
-        line_iter = TokenLex0(linebuf_first_token, R_CAST(uint32_t*, col_types), col_skips, relevant_col_ct, token_ptrs, token_slens);
+        line_iter = TokenLex0(line_start, R_CAST(uint32_t*, col_types), col_skips, relevant_col_ct, token_ptrs, token_slens);
         if (unlikely(!line_iter)) {
           goto ReadAlleleFreqs_ret_MISSING_TOKENS;
         }
@@ -2973,15 +2956,15 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
       }
       ++line_iter;
       ++line_idx;
-      reterr = RlsPostlfNext(&read_freq_rls, &line_iter);
+      reterr = TextNextLineLstripUnsafe(&read_freq_trs, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
           break;
         }
-        goto ReadAlleleFreqs_ret_READ_RLSTREAM;
+        goto ReadAlleleFreqs_ret_RSTREAM_FAIL;
       }
-      linebuf_first_token = FirstNonTspace(line_iter);
+      line_start = line_iter;
     }
     // Set variant_afreqcalc to the set of variants in variant_include, but
     // without loaded frequencies.
@@ -2997,8 +2980,8 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
     }
   }
   while (0) {
-  ReadAlleleFreqs_ret_READ_RLSTREAM:
-    RLstreamErrPrint("--read-freq file", &read_freq_rls, &reterr);
+  ReadAlleleFreqs_ret_RSTREAM_FAIL:
+    TextRstreamErrPrint("--read-freq file", &read_freq_trs);
     break;
   ReadAlleleFreqs_ret_NOMEM:
     reterr = kPglRetNomem;
@@ -3023,7 +3006,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
     break;
   }
  ReadAlleleFreqs_ret_1:
-  CleanupRLstream(&read_freq_rls);
+  CleanupTextRstream2("--read-freq file", &read_freq_trs, &reterr);
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -3892,27 +3875,26 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
   const char* flagstr = is_alt1? "--alt1-allele" : "--ref-allele";
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
-  ReadLineStream rls;
-  PreinitRLstream(&rls);
+  TextRstream trs;
+  PreinitTextRstream(&trs);
   {
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     uintptr_t* already_seen;
     if (unlikely(bigstack_calloc_w(raw_variant_ctl, &already_seen))) {
       goto SetRefalt1FromFile_ret_NOMEM;
     }
-    char* line_iter;
-    reterr = SizeAndInitRLstreamRaw(allele_flag_info->fname, bigstack_left() / 4, &rls, &line_iter);
+    reterr = SizeAndInitTextRstream(allele_flag_info->fname, bigstack_left() / 4, MAXV(max_thread_ct - 1, 1), &trs);
     if (unlikely(reterr)) {
-      goto SetRefalt1FromFile_ret_1;
+      goto SetRefalt1FromFile_ret_RSTREAM_FAIL;
     }
     const uint32_t skip_ct = allele_flag_info->skip_ct;
-    reterr = RlsSkip(skip_ct, &rls, &line_iter);
+    reterr = TextSkip(skip_ct, &trs);
     if (unlikely(reterr)) {
       if (reterr == kPglRetEof) {
         snprintf(g_logbuf, kLogbufSize, "Error: Fewer lines than expected in %s.\n", allele_flag_info->fname);
         goto SetRefalt1FromFile_ret_INCONSISTENT_INPUT_WW;
       }
-      goto SetRefalt1FromFile_ret_READ_RLSTREAM;
+      goto SetRefalt1FromFile_ret_RSTREAM_FAIL;
     }
     uint32_t* variant_id_htable = nullptr;
     uint32_t variant_id_htable_size;
@@ -3942,43 +3924,36 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
     uint32_t fillin_variant_ct = 0;
     uint32_t max_allele_blen = 1 + (*max_allele_slen_ptr);
     uint32_t cur_allele_ct = 2;
-    line_iter = AdvToDelim(line_iter, '\n');
     while (1) {
       ++line_idx;
-      // line is mutated, so might not be safe to use RlsNext()
-      ++line_iter;
-      reterr = RlsPostlfNext(&rls, &line_iter);
+      char* line_start;
+      reterr = TextNextLineLstrip(&trs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
           break;
         }
-        goto SetRefalt1FromFile_ret_READ_RLSTREAM;
+        goto SetRefalt1FromFile_ret_RSTREAM_FAIL;
       }
-      char* linebuf_first_token = FirstNonTspace(line_iter);
-      char cc = *linebuf_first_token;
+      char cc = *line_start;
       if (IsEolnKns(cc) || (cc == skipchar)) {
-        // bugfix (27 Dec 2018): need to advance line_iter here
-        line_iter = AdvToDelim(line_iter, '\n');
         continue;
       }
       // er, replace this with TokenLex0()...
       char* variant_id_start;
       char* allele_start;
       if (colid_first) {
-        variant_id_start = NextTokenMult0(linebuf_first_token, colmin);
+        variant_id_start = NextTokenMult0(line_start, colmin);
         allele_start = NextTokenMult(variant_id_start, coldiff);
         if (unlikely(!allele_start)) {
           goto SetRefalt1FromFile_ret_MISSING_TOKENS;
         }
-        line_iter = AdvToDelim(allele_start, '\n');
       } else {
-        allele_start = NextTokenMult0(linebuf_first_token, colmin);
+        allele_start = NextTokenMult0(line_start, colmin);
         variant_id_start = NextTokenMult(allele_start, coldiff);
         if (unlikely(!variant_id_start)) {
           goto SetRefalt1FromFile_ret_MISSING_TOKENS;
         }
-        line_iter = AdvToDelim(variant_id_start, '\n');
       }
       char* token_end = CurTokenEnd(variant_id_start);
       const uint32_t variant_id_slen = token_end - variant_id_start;
@@ -4192,11 +4167,11 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
   SetRefalt1FromFile_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  SetRefalt1FromFile_ret_READ_RLSTREAM:
+  SetRefalt1FromFile_ret_RSTREAM_FAIL:
     {
       char file_descrip_buf[32];
       snprintf(file_descrip_buf, 32, "%s file", flagstr);
-      RLstreamErrPrint(file_descrip_buf, &rls, &reterr);
+      TextRstreamErrPrint(file_descrip_buf, &trs);
     }
     break;
   SetRefalt1FromFile_ret_MISSING_TOKENS:
@@ -4217,7 +4192,9 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
     break;
   }
  SetRefalt1FromFile_ret_1:
-  CleanupRLstream(&rls);
+  if (CleanupTextRstream(&trs, &reterr)) {
+    logerrprintfww("Error: %s file read failure: %s.\n", flagstr, strerror(errno));
+  }
   BigstackReset(bigstack_mark);
   BigstackEndSet(bigstack_end);
   return reterr;

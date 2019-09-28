@@ -30,6 +30,8 @@ namespace plink2 {
 #endif
 
 const char kErrprintfFopen[] = "Error: Failed to open %s : %s.\n";
+const char kErrprintfFread[] = "Error: %s read failure: %s.\n";
+const char kErrprintfRewind[] = "Error: %s could not be scanned twice. (Process-substitution/named-pipe input is not permitted in this use case.)\n";
 
 char g_textbuf[kTextbufSize];
 

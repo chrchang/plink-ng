@@ -789,18 +789,23 @@ PglErr RlsSkipNz(uintptr_t skip_ct, ReadLineStream* rlsp, char** consume_iterp) 
     const uint32_t leading_mask = UINT32_MAX << leading_byte_ct;
     lf_bytes &= leading_mask;
     uint32_t cur_lf_ct;
-    for (; consume_viter != consume_vstop; ++consume_viter) {
+    for (; consume_viter != consume_vstop; ) {
       cur_lf_ct = PopcountVec8thUint(lf_bytes);
-      if (cur_lf_ct >= skip_ct) {
-        goto SkipNextLineInRLstreamRaw_finish;
+      if (cur_lf_ct > skip_ct) {
+        goto RlsSkipNz_finish;
       }
       skip_ct -= cur_lf_ct;
+      // bugfix (28 Sep 2019): forgot to update cur_vvec/lf_vvec/lf_bytes?!
+      ++consume_viter;
+      cur_vvec = *consume_viter;
+      lf_vvec = (cur_vvec == vvec_all_lf);
+      lf_bytes = vecuc_movemask(lf_vvec);
     }
     lf_bytes &= (1U << (ending_addr % kBytesPerVec)) - 1;
     cur_lf_ct = PopcountVec8thUint(lf_bytes);
     if (cur_lf_ct > skip_ct) {
-    SkipNextLineInRLstreamRaw_finish:
-      lf_bytes = ClearBottomSetBits(skip_ct, cur_lf_ct);
+    RlsSkipNz_finish:
+      lf_bytes = ClearBottomSetBits(skip_ct, lf_bytes);
       const uint32_t byte_offset_in_vec = ctzu32(lf_bytes);
       const uintptr_t result_addr = R_CAST(uintptr_t, consume_viter) + byte_offset_in_vec;
       // return last character in last skipped line
@@ -1010,6 +1015,43 @@ void TBstreamErrPrint(const char* file_descrip, TokenBatchStream* tbsp, PglErr* 
   putc_unlocked('\n', stdout);
   logerrprintfww("Error: Pathologically long token in %s.\n", file_descrip);
   *reterr_ptr = kPglRetMalformedInput;
+}
+
+
+// ***** plink2_getline-wrapping code starts here *****
+
+const char kErrprintfDecompress[] = "Error: %s decompression failure: %s.\n";
+
+PglErr InitTextRstreamEx(const char* fname, uint32_t alloc_at_end, uint32_t enforced_max_line_blen, uint32_t max_line_blen, uint32_t decompress_thread_ct, TextRstream* trsp) {
+  const uint32_t dst_capacity = RoundUpPow2(max_line_blen + kDecompressChunkSize, kCacheline);
+  if (unlikely(dst_capacity > bigstack_left())) {
+    return kPglRetNomem;
+  }
+  char* dst;
+  if (!alloc_at_end) {
+    dst = S_CAST(char*, bigstack_alloc_raw(dst_capacity));
+  } else {
+    dst = S_CAST(char*, bigstack_end_alloc_raw(dst_capacity));
+  }
+  return TextRstreamOpenEx(fname, enforced_max_line_blen, dst_capacity, decompress_thread_ct, nullptr, dst, trsp);
+}
+
+void TextErrPrint(const char* file_descrip, const char* errmsg, PglErr reterr) {
+  assert(reterr != kPglRetSuccess);
+  if (reterr == kPglRetOpenFail) {
+    logerrprintfww(kErrprintfFopen, file_descrip, errmsg);
+  } else if (reterr == kPglRetReadFail) {
+    logerrprintfww(kErrprintfFread, file_descrip, errmsg);
+  } else if (reterr == kPglRetDecompressFail) {
+    logerrprintfww(kErrprintfDecompress, file_descrip, errmsg);
+  } else if (reterr == kPglRetMalformedInput) {
+    assert(errmsg == kShortErrLongLine);
+    logerrprintfww("Error: Pathologically long line in %s.\n", file_descrip);
+  } else if (reterr == kPglRetRewindFail) {
+    // Not produced directly by TextRstream, but it's inserted in between by
+    // some consumers.
+    logerrprintfww(kErrprintfRewind, file_descrip);
+  }
 }
 
 #ifdef __cplusplus

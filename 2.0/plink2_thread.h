@@ -18,10 +18,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-// Cross-platform logging, command-line parsing, workspace
-// initialization/allocation, basic multithreading code, and a few numeric
-// constants.
-
+// Basic multithreading code.  Uses native Win32 API instead of pthreads
+// emulation on Windows.
 #include "plink2_base.h"
 
 #ifdef _WIN32
@@ -30,6 +28,16 @@
 #  include <pthread.h>
 #endif
 
+// Thread functions are expected to be of the form
+//   THREAD_FUNC_DECL function_name(void* raw_arg) {
+//     ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+//     uint32_t tidx = arg->tidx;
+//     ...
+//     do {
+//       ... // process current block
+//     } while (!THREAD_BLOCK_FINISH(arg));
+//     THREAD_RETURN;
+//   }
 #ifdef _WIN32
 #  define pthread_t HANDLE
 #  define THREAD_FUNC_DECL unsigned __stdcall
@@ -48,25 +56,24 @@ namespace plink2 {
 #endif
 
 #ifdef _WIN32
-// if kMaxThreads > 64, single WaitForMultipleObjects calls must be converted
-// into loops
-CONSTI32(kMaxThreads, 64);
+// If kMaxThreads > 64, single WaitForMultipleObjects calls must be converted
+// into loops.  Which isn't a big deal, but let's keep things simpler for now.
+CONSTI32(kMaxThreadsX, 64);
 #else
 // currently assumed to be less than 2^16 (otherwise some multiply overflows
 // are theoretically possible, at least in the 32-bit build)
-CONSTI32(kMaxThreads, 512);
+CONSTI32(kMaxThreadsX, 512);
 #endif
 
 #ifdef __APPLE__
 // cblas_dgemm may fail with 128k
-CONSTI32(kDefaultThreadStack, 524288);
+CONSTI32(kDefaultThreadStackX, 524288);
 #else
 // asserts didn't seem to work properly with a setting much smaller than this
-CONSTI32(kDefaultThreadStack, 131072);
+CONSTI32(kDefaultThreadStackX, 131072);
 #endif
 
 typedef struct ThreadGroupControlBlockStruct {
-  NONCOPYABLE(ThreadGroupControlBlockStruct);
   // Neither thread-functions nor the thread-group owner should touch these
   // variables directly.
   uintptr_t spawn_ct;
@@ -88,8 +95,7 @@ typedef struct ThreadGroupControlBlockStruct {
 } ThreadGroupControlBlock;
 
 typedef struct ThreadGroupSharedStruct {
-  NONCOPYABLE(ThreadGroupSharedStruct);
-  void* body;
+  void* context;
   ThreadGroupControlBlock cb;
 } ThreadGroupShared;
 
@@ -99,7 +105,6 @@ typedef struct ThreadGroupFuncArgStruct {
 } ThreadGroupFuncArg;
 
 typedef struct ThreadGroupStruct {
-  NONCOPYABLE(ThreadGroupStruct);
   ThreadGroupShared shared;
   THREAD_FUNCPTR_T(thread_func_ptr);
   pthread_t* threads;
@@ -123,15 +128,19 @@ uint32_t NumCpu(int32_t* known_procs_ptr);
 // Also allocates, returning 1 on failure.
 BoolErr SetThreadCt(uint32_t thread_ct, ThreadGroup* tgp);
 
-HEADER_INLINE void SetThreadFuncAndData(THREAD_FUNCPTR_T(start_routine), void* shared_body, ThreadGroup* tgp) {
+HEADER_INLINE uint32_t GetThreadCt(const ThreadGroup* tgp) {
+  return tgp->shared.cb.thread_ct;
+}
+
+HEADER_INLINE void SetThreadFuncAndData(THREAD_FUNCPTR_T(start_routine), void* shared_context, ThreadGroup* tgp) {
   assert(!tgp->is_active);
-  tgp->shared.body = shared_body;
+  tgp->shared.context = shared_context;
   tgp->shared.cb.is_last_block = 0;
   tgp->thread_func_ptr = start_routine;
 }
 
 // Equivalent to SetThreadFuncAndData() with unchanged
-// start_routine/shared_body.  Ok to call this "unnecessarily".
+// start_routine/shared_context.  Ok to call this "unnecessarily".
 HEADER_INLINE void ReinitThreads(ThreadGroup* tgp) {
   assert(!tgp->is_active);
   tgp->shared.cb.is_last_block = 0;
@@ -144,11 +153,6 @@ HEADER_INLINE void DeclareLastThreadBlock(ThreadGroup* tgp) {
   tgp->shared.cb.is_last_block = 1;
 }
 
-#ifndef _WIN32
-// trailing 'x' is temporary, to avoid symbol conflict
-extern pthread_attr_t g_smallstack_thread_attrx;
-#endif
-
 // trailing X temporary
 BoolErr SpawnThreadsX(ThreadGroup* tgp);
 
@@ -158,15 +162,18 @@ void JoinThreadsX(ThreadGroup* tgp);
 void CleanupThreads(ThreadGroup* tgp);
 
 #ifdef _WIN32
-HEADER_INLINE BoolErr THREAD_BLOCK_FINISH(ThreadGroupFuncArg* tgfap) {
-  const uint32_t tidx = tgfap->tidx;
+HEADER_INLINE BoolErr THREAD_BLOCK_FINISHX(ThreadGroupFuncArg* tgfap) {
   ThreadGroupControlBlock* cbp = &(tgfap->sharedp->cb);
+  if (cbp->is_last_block) {
+    return 1;
+  }
+  const uint32_t tidx = tgfap->tidx;
   SetEvent(cbp->cur_block_done_events[tidx]);
-  WaitForSingleObject(cbp->start_next_events[tidx]);
+  WaitForSingleObject(cbp->start_next_events[tidx], INFINITE);
   return (cbp->is_last_block == 2);
 }
 #else
-BoolErr THREAD_BLOCK_FINISH(ThreadGroupFuncArg* tgfap);
+BoolErr THREAD_BLOCK_FINISHX(ThreadGroupFuncArg* tgfap);
 #endif
 
 #ifdef __cplusplus

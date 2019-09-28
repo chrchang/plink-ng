@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (10 Sep 2019)";
+  " (28 Sep 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -702,14 +702,14 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       if (pgen_rename) {
         logerrprintf("Warning: --make-%s input and output filenames match.  Appending '~' to input\nfilenames.\n", (make_plink2_flags & kfMakeBed)? "bed" : ((make_plink2_flags & kfMakePvar)? "pgen" : "bpgen"));
         fname_slen = strlen(pgenname);
-        memcpy(g_textbuf, pgenname, fname_slen);
+        memcpy(g_textbuf, pgenname, fname_slen + 1);
         snprintf(&(pgenname[fname_slen]), 2, "~");
         if (unlikely(rename(g_textbuf, pgenname))) {
           logerrputs("Error: Failed to append '~' to input .bed/.pgen filename.\n");
           goto Plink2Core_ret_OPEN_FAIL;
         }
         fname_slen = strlen(pvarname);
-        memcpy(g_textbuf, pvarname, fname_slen);
+        memcpy(g_textbuf, pvarname, fname_slen + 1);
         snprintf(&(pvarname[fname_slen]), 2, "~");
         if (unlikely(rename(g_textbuf, pvarname))) {
           logerrputs("Error: Failed to append '~' to input .bim/.pvar filename.\n");
@@ -717,7 +717,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
         pvar_renamed = 1;
         fname_slen = strlen(psamname);
-        memcpy(g_textbuf, psamname, fname_slen);
+        memcpy(g_textbuf, psamname, fname_slen + 1);
         snprintf(&(psamname[fname_slen]), 2, "~");
         if (unlikely(rename(g_textbuf, psamname))) {
           logerrputs("Error: Failed to append '~' to input .fam/.psam filename.\n");
@@ -875,7 +875,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (pvar_renamed) {
             logerrputs("Warning: .bim input and output filenames match.  Appending '~' to input\nfilename.\n");
             fname_slen = strlen(pvarname);
-            memcpy(g_textbuf, pvarname, fname_slen);
+            memcpy(g_textbuf, pvarname, fname_slen + 1);
             snprintf(&(pvarname[fname_slen]), 2, "~");
             if (unlikely(rename(g_textbuf, pvarname))) {
               logerrputs("Error: Failed to append '~' to input .bim filename.\n");
@@ -889,7 +889,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (RealpathIdentical(outname, g_textbuf, &(g_textbuf[kPglFnamesize + 64]))) {
             logerrputs("Warning: .pvar input and output filenames match.  Appending '~' to input\nfilename.\n");
             fname_slen = strlen(pvarname);
-            memcpy(g_textbuf, pvarname, fname_slen);
+            memcpy(g_textbuf, pvarname, fname_slen + 1);
             snprintf(&(pvarname[fname_slen]), 2, "~");
             if (unlikely(rename(g_textbuf, pvarname))) {
               logerrputs("Error: Failed to append '~' to input .pvar filename.\n");
@@ -2289,6 +2289,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
                 goto Plink2Core_ret_NOMEM;
               }
               pgfi.nonref_flags = nonref_flags;
+              simple_pgr.fi.nonref_flags = nonref_flags;
               if (not_all_nonref) {
                 ZeroWArr(raw_variant_ctl, nonref_flags);
               } else {
@@ -2324,7 +2325,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               logerrputs("Error: --normalize and --ref-from-fa require a sorted .pvar/.bim.  Retry this\ncommand after using --make-pgen/--make-bed + --sort-vars to sort your data.\n");
               goto Plink2Core_ret_INCONSISTENT_INPUT;
             }
-            reterr = ProcessFa(variant_include, variant_ids, allele_idx_offsets, cip, pcp->fa_fname, max_allele_ct, max_allele_slen, pcp->fa_flags, &vpos_sortstatus, variant_bps, allele_storage, refalt1_select, nonref_flags, outname, outname_end);
+            reterr = ProcessFa(variant_include, variant_ids, allele_idx_offsets, cip, pcp->fa_fname, max_allele_ct, max_allele_slen, pcp->fa_flags, pcp->max_thread_ct, &vpos_sortstatus, variant_bps, allele_storage, refalt1_select, nonref_flags, outname, outname_end);
             if (unlikely(reterr)) {
               goto Plink2Core_ret_1;
             }
@@ -2428,6 +2429,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
         }
 
+        ;;;
         if (pcp->command_flags1 & kfCommand1MakePlink2) {
           // todo: unsorted case (--update-chr, etc.)
           if (pcp->sort_vars_flags != kfSort0) {
@@ -2464,6 +2466,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         } else if (nonref_flags_was_null) {
           nonref_flags = nullptr;
           pgfi.nonref_flags = nullptr;
+          simple_pgr.fi.nonref_flags = nullptr;
         }
       }
       BigstackReset(bigstack_mark_allele_dosages);
@@ -2541,10 +2544,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 }
 
 PglErr ZstDecompress(const char* in_fname, const char* out_fname) {
-  // Since this needs to be able to dump the decompressed data and nothing but
-  // the decompressed data to stdout, we have to duplicate a bit of
-  // plink2_decompress code and strip out printing/logging.
-
   zstRFILE zrf;
   PreinitZstRfile(&zrf);
   FILE* outfile = nullptr;
@@ -2559,7 +2558,7 @@ PglErr ZstDecompress(const char* in_fname, const char* out_fname) {
         fprintf(stderr, kErrprintfFopen, in_fname, strerror(errno));
         goto ZstDecompress_ret_OPEN_FAIL;
       }
-      goto ZstDecompress_ret_READ_FAIL;
+      goto ZstDecompress_ret_RSTREAM_FAIL;
     }
     if (out_fname) {
       outfile = fopen(out_fname, FOPEN_WB);
@@ -2577,7 +2576,8 @@ PglErr ZstDecompress(const char* in_fname, const char* out_fname) {
         if (likely(!bytes_read)) {
           break;
         }
-        goto ZstDecompress_ret_READ_FAIL;
+        reterr = ZstRfileErrcode(&zrf);
+        goto ZstDecompress_ret_RSTREAM_FAIL;
       }
       if (unlikely(!fwrite_unlocked(buf, bytes_read, 1, outfile))) {
         goto ZstDecompress_ret_WRITE_FAIL;
@@ -2602,12 +2602,12 @@ PglErr ZstDecompress(const char* in_fname, const char* out_fname) {
   ZstDecompress_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  ZstDecompress_ret_READ_FAIL:
-    // todo:
-    //   "Error: File read failure: %s" strerror(errno)
-    //   "Error: Decompression failure: %s" zsterror(&zrf)
-    fputs(kErrstrRead, stderr);
-    reterr = kPglRetReadFail;
+  ZstDecompress_ret_RSTREAM_FAIL:
+    if (reterr == kPglRetReadFail) {
+      fprintf(stderr, kErrprintfFread, in_fname, zsterror(&zrf));
+    } else {
+      fprintf(stderr, kErrprintfDecompress, in_fname, zsterror(&zrf));
+    }
     break;
   ZstDecompress_ret_WRITE_FAIL:
     fprintf(stderr, kErrstrWrite, strerror(errno));

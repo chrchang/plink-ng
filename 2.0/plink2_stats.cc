@@ -1298,17 +1298,18 @@ double beta_small_b_large_a_series_ln(double aa, double bb, double xx, double yy
 
   double jj;
   {
-    double ln_jj;
+    double dxx;
     if (bb == 0.5) {
       // bugfix (17 Jun 2019): original expression could underflow
       // jj = finite_half_gamma_q2(0, uu, nullptr);
-      ln_jj = finite_half_gamma_q2_ln(0, uu) - hh_ln;
+      dxx = finite_half_gamma_q2_ln(0, uu);
     } else {
       assert(bb == 1.0);
-      // bugfix (10 Sep 2019): had mistakenly removed the exp() around -uu
-      ln_jj = -uu - hh_ln; // todo: check if this also has underflow danger
+      dxx = -uu;
     }
-    jj = exp(ln_jj);
+    // Underflow is harmless here, jj becomes nonzero for the other terms in
+    // the series in that case.
+    jj = exp(dxx - hh_ln);
   }
   double sum = jj; // patch in s0 and prefix at the end
   uint32_t tnp1 = 1;

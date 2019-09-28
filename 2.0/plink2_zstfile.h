@@ -47,20 +47,12 @@ ENUM_U31_DEF_START()
   kFileZstd
 ENUM_U31_DEF_END(FileCompressionType);
 
-HEADER_INLINE int32_t IsBgzfHeader(const void* buf) {
-  const uint32_t magic4 = *S_CAST(const uint32_t*, buf);
-  return ((magic4 & 0x4ffffff) == 0x4088b1f) && memequal_k(&(S_CAST(const unsigned char*, buf)[10]), "\6\0BC\2", 6);
-}
-
 HEADER_INLINE uint32_t IsZstdFrame(uint32_t magic4) {
   return (magic4 == ZSTD_MAGICNUMBER) || ((magic4 & ZSTD_MAGIC_SKIPPABLE_MASK) == ZSTD_MAGIC_SKIPPABLE_START);
 }
 
-PglErr GetFileType(const char* fname, FileCompressionType* ftype_ptr);
-
 // (yes, it might be better to make this opaque at some point.)
 typedef struct zstRFILEStruct {
-  NONCOPYABLE(zstRFILEStruct);
   FILE* ff;
   ZSTD_DStream* zds;
   ZSTD_inBuffer zib;
@@ -110,7 +102,9 @@ HEADER_INLINE PglErr ZstRfileErrcode(const zstRFILE* zrfp) {
 // Ok to pass reterrp == nullptr.
 // Returns nonzero iff file-close fails, and either reterrp == nullptr or
 // *reterrp == kPglRetSuccess.  In the latter case, *reterrp is set to
-// kPglRetReadFail.
+// kPglRetReadFail.  (Note that this does *not* retrieve the existing
+// zrfp->reterr value; caller is responsible for checking ZstRfileErrcode()
+// first when they care.)
 BoolErr CleanupZstRfile(zstRFILE* zrfp, PglErr* reterrp);
 
 #ifdef __cplusplus
