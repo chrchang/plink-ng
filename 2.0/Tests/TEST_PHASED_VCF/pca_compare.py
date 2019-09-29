@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 """
 This compares two sets of {.eigenval, .eigenvec, .eigenvec.var} files, and
 verifies that symmetric absolute percentage error between the two sets is less
@@ -7,7 +7,6 @@ near-zero values, we only compute a single error statistic on sums of absolute
 values, instead of taking means across all samples/PCs.)
 """
 
-from __future__ import print_function
 import argparse
 import csv
 import sys
@@ -29,8 +28,8 @@ def parse_commandline_args():
 
 
 # See https://stackoverflow.com/questions/5574702/how-to-print-to-stderr-in-python .
-def eprint(*args, **kwargs):
-    print(*args, file=sys.stderr, **kwargs)
+def eprint(*args):
+    print(*args, file=sys.stderr)
 
 
 def main():
@@ -55,39 +54,39 @@ def main():
     with open(cmd_args.plink1 + '.eigenvec', 'r') as eigvec1_file, open(cmd_args.plink2 + '.eigenvec', 'r') as eigvec2_file:
         reader1 = csv.reader(eigvec1_file, delimiter='\t')
         reader2 = csv.reader(eigvec2_file, delimiter='\t')
-        reader1.next()
-        reader2.next()
+        next(reader1)
+        next(reader2)
         absdiff1_sums = [0.0] * pc_ct
         absdiff2_sums = [0.0] * pc_ct
         avgabs_x2_sums = [0.0] * pc_ct
         for row1 in reader1:
-            row2 = reader2.next()
+            row2 = next(reader2)
             if row1[0] != row2[0] or row1[1] != row2[1]:
                 eprint('Sample ID mismatch between .eigenvec files.')
                 sys.exit(1)
             row1pc = row1[2:]
             row2pc = row2[2:]
-            for pc_idx in xrange(pc_ct):
+            for pc_idx in range(pc_ct):
                 val1 = float(row1pc[pc_idx])
                 val2 = float(row2pc[pc_idx])
                 absdiff1_sums[pc_idx] += abs(val2 - val1)
                 # all signs may be flipped
                 absdiff2_sums[pc_idx] += abs(val2 + val1)
                 avgabs_x2_sums[pc_idx] += abs(val2) + abs(val1)
-        for pc_idx in xrange(pc_ct):
+        for pc_idx in range(pc_ct):
             if min(absdiff1_sums[pc_idx], absdiff2_sums[pc_idx]) > tol * avgabs_x2_sums[pc_idx] * 0.5:
                 eprint('Eigenvector mismatch.')
                 sys.exit(1)
     with open(cmd_args.plink1 + '.eigenvec.var', 'r') as varwt1_file, open(cmd_args.plink2 + '.eigenvec.var', 'r') as varwt2_file:
         reader1 = csv.reader(varwt1_file, delimiter='\t')
         reader2 = csv.reader(varwt2_file, delimiter='\t')
-        reader1.next()
-        reader2.next()
+        next(reader1)
+        next(reader2)
         absdiff1_sums = [0.0] * pc_ct
         absdiff2_sums = [0.0] * pc_ct
         avgabs_x2_sums = [0.0] * pc_ct
         for row1 in reader1:
-            row2 = reader2.next()
+            row2 = next(reader2)
             if row1[0] != row2[0]:
                 eprint('Chromosome mismatch between .eigenvec.var files.')
                 sys.exit(1)
@@ -100,14 +99,14 @@ def main():
                 sys.exit(1)
             row1pc = row1[4:]
             row2pc = row2[4:]
-            for pc_idx in xrange(pc_ct):
+            for pc_idx in range(pc_ct):
                 val1 = float(row1pc[pc_idx])
                 val2 = float(row2pc[pc_idx])
                 absdiff1_sums[pc_idx] += abs(val2 - val1)
                 # all signs may be flipped
                 absdiff2_sums[pc_idx] += abs(val2 + val1)
                 avgabs_x2_sums[pc_idx] += abs(val2) + abs(val1)
-        for pc_idx in xrange(pc_ct):
+        for pc_idx in range(pc_ct):
             if min(absdiff1_sums[pc_idx], absdiff2_sums[pc_idx]) > tol * avgabs_x2_sums[pc_idx] * 0.5:
                 eprint('Variant weight mismatch.')
                 sys.exit(1)

@@ -65,7 +65,7 @@ diff -q plink2_sparse.psam plink2_sparse2.psam
 # variants
 plink --bfile plink1_data --maf 0.02 --pca 3 header tabs var-wts --out plink1_pca
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pca 3 var-wts --out plink2_pca
-python pca_compare.py -1 plink1_pca -2 plink2_pca -t 0.000002
+python3 pca_compare.py -1 plink1_pca -2 plink2_pca -t 0.000002
 
 # while we're at it, test all --read-freq input formats.
 # (todo: add multiallelic --read-freq test when --score gets better
@@ -73,20 +73,20 @@ python pca_compare.py -1 plink1_pca -2 plink2_pca -t 0.000002
 plink --bfile plink1_data --freq
 $1/plink2 $2 $3 --bfile plink1_data --read-freq plink.frq --maf 0.02 --pca 3 var-wts --out plink2_pca_rfreq
 # .frq only has 4-digit precision
-python pca_compare.py -1 plink2_pca -2 plink2_pca_rfreq -t 0.0002
+python3 pca_compare.py -1 plink2_pca -2 plink2_pca_rfreq -t 0.0002
 plink --bfile plink1_data --freqx
 $1/plink2 $2 $3 --bfile plink1_data --read-freq plink.frqx --maf 0.02 --pca 3 var-wts --out plink2_pca_rfreq
 diff -q plink2_pca.eigenvec plink2_pca_rfreq.eigenvec
 plink2 --bfile plink1_data --freq
 $1/plink2 $2 $3 --bfile plink1_data --read-freq plink2.afreq --maf 0.02 --pca 3 var-wts --out plink2_pca_rfreq
-python pca_compare.py -1 plink2_pca -2 plink2_pca_rfreq -t 0.000002
+python3 pca_compare.py -1 plink2_pca -2 plink2_pca_rfreq -t 0.000002
 plink2 --bfile plink1_data --geno-counts
 $1/plink2 $2 $3 --bfile plink1_data --read-freq plink2.gcount --maf 0.02 --pca 3 var-wts --out plink2_pca_rfreq
 diff -q plink2_pca.eigenvec plink2_pca_rfreq.eigenvec
 
 # note that this run depends on the random seed.
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pca 3 approx var-wts --out plink2_pca_approx
-python pca_compare.py -1 plink1_pca -2 plink2_pca_approx -t 0.005
+python3 pca_compare.py -1 plink1_pca -2 plink2_pca_approx -t 0.005
 
 # Test --glm.
 # Generate random binary and quantitative phenotypes for 1kg_phase3_chr21
@@ -114,37 +114,37 @@ paste sample_ids.txt pheno_qt_col.txt > pheno_qt.txt
 
 plink --bfile plink1_data --maf 0.02 --pheno pheno_cc.txt --logistic --allow-no-sex --out plink1_glm
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pheno pheno_cc.txt --glm --out plink2_glm
-python glm_compare.py -1 plink1_glm.assoc.logistic -2 plink2_glm.PHENO1.glm.logistic -t 0.1
+python3 glm_compare.py -1 plink1_glm.assoc.logistic -2 plink2_glm.PHENO1.glm.logistic -t 0.1
 plink --bfile plink1_data --maf 0.02 --pheno pheno_qt.txt --linear --allow-no-sex --out plink1_glm
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pheno pheno_qt.txt --glm --out plink2_glm
-python glm_compare.py -1 plink1_glm.assoc.linear -2 plink2_glm.PHENO1.glm.linear -t 0.1
+python3 glm_compare.py -1 plink1_glm.assoc.linear -2 plink2_glm.PHENO1.glm.linear -t 0.1
 
 plink --bfile plink1_data --maf 0.02 --pheno pheno_cc.txt --logistic genotypic --allow-no-sex --out plink1_glm
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pheno pheno_cc.txt --glm genotypic --out plink2_glm
-python glm_compare.py -1 plink1_glm.assoc.logistic -2 plink2_glm.PHENO1.glm.logistic -t 0.1
+python3 glm_compare.py -1 plink1_glm.assoc.logistic -2 plink2_glm.PHENO1.glm.logistic -t 0.1
 plink --bfile plink1_data --maf 0.02 --pheno pheno_qt.txt --linear genotypic --allow-no-sex --out plink1_glm
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pheno pheno_qt.txt --glm genotypic --out plink2_glm
-python glm_compare.py -1 plink1_glm.assoc.linear -2 plink2_glm.PHENO1.glm.linear -t 0.1
+python3 glm_compare.py -1 plink1_glm.assoc.linear -2 plink2_glm.PHENO1.glm.linear -t 0.1
 
 plink --bfile plink1_data --maf 0.02 --pheno pheno_cc.txt --logistic --covar plink1_pca.eigenvec --allow-no-sex --out plink1_glm
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pheno pheno_cc.txt --glm --covar plink2_pca.eigenvec --out plink2_glm
-python glm_compare.py -1 plink1_glm.assoc.logistic -2 plink2_glm.PHENO1.glm.logistic -t 0.1
+python3 glm_compare.py -1 plink1_glm.assoc.logistic -2 plink2_glm.PHENO1.glm.logistic -t 0.1
 plink --bfile plink1_data --maf 0.02 --pheno pheno_qt.txt --linear --covar plink1_pca.eigenvec --allow-no-sex --out plink1_glm
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pheno pheno_qt.txt --glm --covar plink2_pca.eigenvec --out plink2_glm
-python glm_compare.py -1 plink1_glm.assoc.linear -2 plink2_glm.PHENO1.glm.linear -t 0.1
+python3 glm_compare.py -1 plink1_glm.assoc.linear -2 plink2_glm.PHENO1.glm.linear -t 0.1
 
 plink --bfile plink1_data --maf 0.02 --pheno pheno_cc.txt --logistic genotypic --covar plink1_pca.eigenvec --allow-no-sex --out plink1_glm
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pheno pheno_cc.txt --glm genotypic --covar plink2_pca.eigenvec --out plink2_glm
-python glm_compare.py -1 plink1_glm.assoc.logistic -2 plink2_glm.PHENO1.glm.logistic -t 0.1
+python3 glm_compare.py -1 plink1_glm.assoc.logistic -2 plink2_glm.PHENO1.glm.logistic -t 0.1
 plink --bfile plink1_data --maf 0.02 --pheno pheno_qt.txt --linear genotypic --covar plink1_pca.eigenvec --allow-no-sex --out plink1_glm
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pheno pheno_qt.txt --glm genotypic --covar plink2_pca.eigenvec --out plink2_glm
-python glm_compare.py -1 plink1_glm.assoc.linear -2 plink2_glm.PHENO1.glm.linear -t 0.1
+python3 glm_compare.py -1 plink1_glm.assoc.linear -2 plink2_glm.PHENO1.glm.linear -t 0.1
 
 plink --bfile plink1_data --maf 0.02 --pheno pheno_cc.txt --logistic --covar plink1_pca.eigenvec --tests 1,3,4 --allow-no-sex --out plink1_glm
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pheno pheno_cc.txt --glm --covar plink2_pca.eigenvec --tests 1,3,4 --out plink2_glm
-python glm_compare.py -1 plink1_glm.assoc.logistic -2 plink2_glm.PHENO1.glm.logistic -t 0.1
+python3 glm_compare.py -1 plink1_glm.assoc.logistic -2 plink2_glm.PHENO1.glm.logistic -t 0.1
 # Note that 5 is "out of range" here.  This was handled incorrectly by ALL
 # versions of plink before this test!!
 plink --bfile plink1_data --maf 0.02 --pheno pheno_qt.txt --linear --covar plink1_pca.eigenvec --tests 1,3,5 --allow-no-sex --out plink1_glm
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pheno pheno_qt.txt --glm --covar plink2_pca.eigenvec --tests 1,3,5 --out plink2_glm
-python glm_compare.py -1 plink1_glm.assoc.linear -2 plink2_glm.PHENO1.glm.linear -t 0.1
+python3 glm_compare.py -1 plink1_glm.assoc.linear -2 plink2_glm.PHENO1.glm.linear -t 0.1

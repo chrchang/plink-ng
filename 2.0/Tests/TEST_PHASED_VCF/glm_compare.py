@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 """
 This compares a plink 1.x .assoc.linear or .assoc.logistic file with a plink
 2.0 .glm.linear or .glm.logistic file, verifying that CHR/CHROM, BP/POS,
@@ -10,7 +10,6 @@ todo:
 verify plink2 NA frequency isn't too high
 """
 
-from __future__ import print_function
 import argparse
 import csv
 import math
@@ -33,8 +32,8 @@ def parse_commandline_args():
 
 
 # See https://stackoverflow.com/questions/5574702/how-to-print-to-stderr-in-python .
-def eprint(*args, **kwargs):
-    print(*args, file=sys.stderr, **kwargs)
+def eprint(*args):
+    print(*args, file=sys.stderr)
 
 
 def float_compare_ok(val1, val2, tol):
@@ -52,8 +51,8 @@ def main():
     with open(cmd_args.plink1, 'r') as plink1_file, open(cmd_args.plink2, 'r') as plink2_file:
         reader1 = csv.reader(plink1_file, delimiter=' ', skipinitialspace=True)
         reader2 = csv.reader(plink2_file, delimiter='\t')
-        first_line1 = reader1.next()
-        first_line2 = reader2.next()
+        first_line1 = next(reader1)
+        first_line2 = next(reader2)
         if first_line2.index('#CHROM') != 0:
             eprint('Unsupported plink2 association file format (this script requires #CHROM in front, even though plink2 can omit it).')
             sys.exit(1)
@@ -94,7 +93,7 @@ def main():
             sys.exit(1)
 
         for row1 in reader1:
-            row2 = reader2.next()
+            row2 = next(reader2)
             if row1[0] != row2[0] or \
                row1[2] != row2[pos_col2] or \
                row1[1] != row2[id_col2] or \
