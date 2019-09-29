@@ -600,7 +600,6 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       dst_capacity = local_covar_trf.base.dst_len;
     }
     dst_capacity = RoundUpPow2(dst_capacity, kCacheline);
-    // local_covar_trf.base.dst_capacity = dst_capacity;
     g_bigstack_base = R_CAST(unsigned char*, &(dst[dst_capacity]));
     reterr = TextRstreamOpenEx(nullptr, local_covar_linebuf_size, dst_capacity, 1, &local_covar_trf, nullptr, local_covar_trsp);
     if (unlikely(reterr)) {

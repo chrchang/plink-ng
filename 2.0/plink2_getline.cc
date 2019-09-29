@@ -1270,6 +1270,9 @@ PglErr TextRstreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uin
         trsp->base.consume_iter = trsp->base.dst;
         trsp->base.consume_stop -= backfill_ct;
       }
+      trsp->base.enforced_max_line_blen = enforced_max_line_blen;
+      assert(trsp->base.dst_len <= dst_capacity);
+      trsp->base.dst_capacity = dst_capacity;
       reterr = trfp->base.reterr;
       const FileCompressionType file_type = trfp->base.file_type;
       if (file_type != kFileUncompressed) {
