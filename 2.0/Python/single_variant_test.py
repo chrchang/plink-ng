@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 import pgenlib
 import numpy as np
 import sys
@@ -6,9 +6,9 @@ import sys
 def main():
     arg_ct = len(sys.argv)
     if arg_ct < 3:
-        print "Usage: python single_variant_test.py [.bed/.pgen] [variant idx] {raw_sample_ct=[val]} {sample idx(s)...}"
-        print "* raw_sample_ct is required for .bed files."
-        print "* sample indexes must be in increasing order."
+        print("Usage: python single_variant_test.py <.bed/.pgen> <variant idx> [raw_sample_ct=<val>] [sample idx(s)...]")
+        print("* raw_sample_ct is required for .bed files.")
+        print("* sample indexes must be in increasing order.")
         return
     sample_subset = None
     specified_sample_ct = None
@@ -21,10 +21,10 @@ def main():
         if arg_ct > offset:
             sample_ct = arg_ct - offset
             sample_subset = np.empty(sample_ct, np.uint32)
-            for idx in xrange(sample_ct):
+            for idx in range(sample_ct):
                 sample_subset[idx] = int(sys.argv[offset + idx])
     vidx = int(sys.argv[2])
-    with pgenlib.PgenReader(sys.argv[1], raw_sample_ct = specified_sample_ct, sample_subset = sample_subset) as pf:
+    with pgenlib.PgenReader(bytes(sys.argv[1], 'utf8'), raw_sample_ct = specified_sample_ct, sample_subset = sample_subset) as pf:
         raw_sample_ct = pf.get_raw_sample_ct()
         if sample_ct is None:
             sample_ct = raw_sample_ct
@@ -32,7 +32,7 @@ def main():
         buf = np.empty(raw_sample_ct * 2, np.int32)
         buf2 = np.empty(raw_sample_ct, np.bool_)
         pf.read_alleles_and_phasepresent(vidx, buf, buf2)
-        for sample_idx in xrange(sample_ct):
+        for sample_idx in range(sample_ct):
             sys.stdout.write(str(buf[2 * sample_idx]))
             if buf2[sample_idx]:
                 sys.stdout.write('|')
@@ -43,7 +43,7 @@ def main():
         sys.stdout.write('\n')
         pf.change_sample_subset()
         pf.read_alleles_and_phasepresent(vidx, buf, buf2)
-        for sample_idx in xrange(raw_sample_ct):
+        for sample_idx in range(raw_sample_ct):
             sys.stdout.write(str(buf[2 * sample_idx]))
             if buf2[sample_idx]:
                 sys.stdout.write('|')

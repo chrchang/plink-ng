@@ -1,3 +1,4 @@
+# cython: language_level=3
 # from libc.stdlib cimport malloc, free
 from libc.stdint cimport int64_t, uintptr_t, uint32_t, int32_t, uint16_t, uint8_t, int8_t
 from cpython.mem cimport PyMem_Malloc, PyMem_Free
@@ -198,7 +199,7 @@ cdef class PgenReader:
         while True:
             if sample_uidx >= raw_sample_ct:
                 raise RuntimeError("0-based sample idx too large (" + str(sample_uidx) + "; only " + str(raw_sample_ct) + " in file).")
-            sample_include[sample_uidx / kBitsPerWord] |= k1LU << (sample_uidx % kBitsPerWord)
+            sample_include[sample_uidx // kBitsPerWord] |= k1LU << (sample_uidx % kBitsPerWord)
             idx += 1
             if idx == subset_size:
                 break
@@ -267,7 +268,7 @@ cdef class PgenReader:
         cdef uintptr_t genovec_byte_ct = DivUp(file_sample_ct, kQuatersPerVec) * kBytesPerVec
         cdef uintptr_t dosage_main_byte_ct = DivUp(file_sample_ct, (2 * kInt32PerVec)) * kBytesPerVec
         cdef unsigned char* pgr_alloc
-        if cachealigned_malloc(pgr_alloc_main_byte_ct + (2 * kPglQuaterTransposeBatch + 5) * sample_subset_byte_ct + cumulative_popcounts_byte_ct + (1 + kPglQuaterTransposeBatch) * genovec_byte_ct + dosage_main_byte_ct + kPglBitTransposeBufbytes + 4 * (kPglQuaterTransposeBatch * kPglQuaterTransposeBatch / 8), &pgr_alloc):
+        if cachealigned_malloc(pgr_alloc_main_byte_ct + (2 * kPglQuaterTransposeBatch + 5) * sample_subset_byte_ct + cumulative_popcounts_byte_ct + (1 + kPglQuaterTransposeBatch) * genovec_byte_ct + dosage_main_byte_ct + kPglBitTransposeBufbytes + 4 * (kPglQuaterTransposeBatch * kPglQuaterTransposeBatch // 8), &pgr_alloc):
             raise MemoryError()
         cdef PglErr reterr = PgrInit(fname, max_vrec_width, self._info_ptr, self._state_ptr, pgr_alloc)
         if reterr != kPglRetSuccess:
@@ -308,11 +309,11 @@ cdef class PgenReader:
         self._multivar_vmaj_phaseinfo_buf = <uintptr_t*>pgr_alloc_iter
         pgr_alloc_iter = &(pgr_alloc_iter[kPglQuaterTransposeBatch * sample_subset_byte_ct])
         self._multivar_smaj_geno_batch_buf = <uintptr_t*>pgr_alloc_iter
-        pgr_alloc_iter = &(pgr_alloc_iter[kPglQuaterTransposeBatch * kPglQuaterTransposeBatch / 4])
+        pgr_alloc_iter = &(pgr_alloc_iter[kPglQuaterTransposeBatch * kPglQuaterTransposeBatch // 4])
         self._multivar_smaj_phaseinfo_batch_buf = <uintptr_t*>pgr_alloc_iter
-        pgr_alloc_iter = &(pgr_alloc_iter[kPglQuaterTransposeBatch * kPglQuaterTransposeBatch / 8])
+        pgr_alloc_iter = &(pgr_alloc_iter[kPglQuaterTransposeBatch * kPglQuaterTransposeBatch // 8])
         self._multivar_smaj_phasepresent_batch_buf = <uintptr_t*>pgr_alloc_iter
-        # pgr_alloc_iter = &(pgr_alloc_iter[kPglQuaterTransposeBatch * kPglQuaterTransposeBatch / 8])
+        # pgr_alloc_iter = &(pgr_alloc_iter[kPglQuaterTransposeBatch * kPglQuaterTransposeBatch // 8])
         return
 
 
@@ -887,7 +888,7 @@ cdef class PgenReader:
                 # upgrade to multiallelic version of this function later
                 reterr = PgrGetP(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, pgrp, genovec, phasepresent, phaseinfo, &phasepresent_ct)
                 if reterr != kPglRetSuccess:
-                    raise RuntimeError("read_alleles_range() error " + str(reterr))
+                    raise RuntimeError("variant_idx " + str(variant_idx) + " read_alleles_range() error " + str(reterr))
                 main_data_ptr = <int32_t*>(&(allele_int32_out[(variant_idx - variant_idx_start), 0]))
                 GenoarrPhasedToAlleleCodesMinus9(genovec, phasepresent, phaseinfo, subset_size, phasepresent_ct, NULL, main_data_ptr)
             return
@@ -927,7 +928,7 @@ cdef class PgenReader:
             for uii in range(variant_batch_size):
                 reterr = PgrGetP(subset_include_vec, subset_cumulative_popcounts, subset_size, uii + variant_idx_offset, pgrp, vmaj_geno_iter, phasepresent, vmaj_phaseinfo_iter, &phasepresent_ct)
                 if reterr != kPglRetSuccess:
-                    raise RuntimeError("read_alleles_range() error " + str(reterr))
+                    raise RuntimeError("variant_idx " + str(uii + variant_idx_offset) + " read_alleles_range() error " + str(reterr))
                 if phasepresent_ct == 0:
                     ZeroWArr(sample_ctaw, vmaj_phaseinfo_iter)
                 # else:
@@ -945,15 +946,15 @@ cdef class PgenReader:
                 TransposeQuaterblock(vmaj_geno_iter, sample_ctaw2, kPglQuaterTransposeWords, variant_batch_size, sample_batch_size, smaj_geno_iter, transpose_batch_buf)
                 # todo: skip bitblock transpose when all phasepresent_ct values
                 #       are zero, etc.
-                TransposeBitblock(vmaj_phaseinfo_iter, sample_ctaw, <uint32_t>(kPglQuaterTransposeWords / 2), variant_batch_size, sample_batch_size, smaj_phaseinfo_iter, transpose_batch_buf)
+                TransposeBitblock(vmaj_phaseinfo_iter, sample_ctaw, <uint32_t>(kPglQuaterTransposeWords // 2), variant_batch_size, sample_batch_size, smaj_phaseinfo_iter, transpose_batch_buf)
                 for uii in range(sample_batch_size):
                     main_data_ptr = <int32_t*>(&(allele_int32_out[2 * (uii + sample_batch_idx * kPglQuaterTransposeWords), variant_batch_idx * kPglQuaterTransposeBatch]))
                     main_data1_ptr = <int32_t*>(&(allele_int32_out[2 * (uii + sample_batch_idx * kPglQuaterTransposeWords) + 1, variant_batch_idx * kPglQuaterTransposeBatch]))
                     GenoarrPhasedToHapCodes(smaj_geno_iter, smaj_phaseinfo_iter, variant_batch_size, main_data_ptr, main_data1_ptr)
                     smaj_geno_iter = &(smaj_geno_iter[kPglQuaterTransposeWords])
-                    smaj_phaseinfo_iter = &(smaj_phaseinfo_iter[kPglQuaterTransposeWords / 2])
+                    smaj_phaseinfo_iter = &(smaj_phaseinfo_iter[kPglQuaterTransposeWords // 2])
                 vmaj_geno_iter = &(vmaj_geno_iter[kPglQuaterTransposeWords])
-                vmaj_phaseinfo_iter = &(vmaj_phaseinfo_iter[kPglQuaterTransposeWords / 2])
+                vmaj_phaseinfo_iter = &(vmaj_phaseinfo_iter[kPglQuaterTransposeWords // 2])
             variant_idx_offset += kPglQuaterTransposeBatch
         return
 
@@ -1047,15 +1048,15 @@ cdef class PgenReader:
                 TransposeQuaterblock(vmaj_geno_iter, sample_ctaw2, kPglQuaterTransposeWords, variant_batch_size, sample_batch_size, smaj_geno_iter, transpose_batch_buf)
                 # todo: skip bitblock transpose when all phasepresent_ct values
                 #       are zero, etc.
-                TransposeBitblock(vmaj_phaseinfo_iter, sample_ctaw, <uint32_t>(kPglQuaterTransposeWords / 2), variant_batch_size, sample_batch_size, smaj_phaseinfo_iter, transpose_batch_buf)
+                TransposeBitblock(vmaj_phaseinfo_iter, sample_ctaw, <uint32_t>(kPglQuaterTransposeWords // 2), variant_batch_size, sample_batch_size, smaj_phaseinfo_iter, transpose_batch_buf)
                 for uii in range(sample_batch_size):
                     main_data_ptr = <int32_t*>(&(allele_int32_out[2 * (uii + sample_batch_idx * kPglQuaterTransposeWords), variant_batch_idx * kPglQuaterTransposeBatch]))
                     main_data1_ptr = <int32_t*>(&(allele_int32_out[2 * (uii + sample_batch_idx * kPglQuaterTransposeWords) + 1, variant_batch_idx * kPglQuaterTransposeBatch]))
                     GenoarrPhasedToHapCodes(smaj_geno_iter, smaj_phaseinfo_iter, variant_batch_size, main_data_ptr, main_data1_ptr)
                     smaj_geno_iter = &(smaj_geno_iter[kPglQuaterTransposeWords])
-                    smaj_phaseinfo_iter = &(smaj_phaseinfo_iter[kPglQuaterTransposeWords / 2])
+                    smaj_phaseinfo_iter = &(smaj_phaseinfo_iter[kPglQuaterTransposeWords // 2])
                 vmaj_geno_iter = &(vmaj_geno_iter[kPglQuaterTransposeWords])
-                vmaj_phaseinfo_iter = &(vmaj_phaseinfo_iter[kPglQuaterTransposeWords / 2])
+                vmaj_phaseinfo_iter = &(vmaj_phaseinfo_iter[kPglQuaterTransposeWords // 2])
         return
 
 
