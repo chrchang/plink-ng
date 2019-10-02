@@ -38,14 +38,12 @@ def main():
         else:
             allele_code_buf = np.empty(sample_ct * 2, np.int32)
             phasepresent_buf = np.empty(sample_ct, np.bool_)
-        with pgenlib.PgenWriter(bytes(sys.argv[2], 'utf8'), sample_ct, variant_ct, False) as outfile:
+        with pgenlib.PgenWriter(bytes(sys.argv[2], 'utf8'), sample_ct, variant_ct, False, hardcall_phase_present=hardcall_phase_present) as outfile:
             if not hardcall_phase_present:
                 for vidx in range(variant_ct):
                     infile.read(vidx, geno_buf)
                     outfile.append_biallelic(geno_buf)
             else:
-                print("phased output is undergoing repairs")
-                return
                 for vidx in range(variant_ct):
                     infile.read_alleles_and_phasepresent(vidx, allele_code_buf, phasepresent_buf)
                     outfile.append_partially_phased(allele_code_buf, phasepresent_buf)

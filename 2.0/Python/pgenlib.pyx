@@ -97,6 +97,8 @@ cdef extern from "../pgenlib_ffi_support.h" namespace "plink2":
     cdef enum:
         kfPgenGlobal0
     cdef enum:
+        kfPgenGlobalMultiallelicHardcallFound
+    cdef enum:
         kfPgenGlobalHardcallPhasePresent
     cdef enum:
         kfPgenGlobalDosagePresent
@@ -256,6 +258,10 @@ cdef class PgenReader:
             if pgfi_alloc and not self._info_ptr[0].vrtypes:
                 aligned_free(pgfi_alloc)
             raise RuntimeError(errstr_buf[7:])
+        if self._info_ptr[0].gflags & kfPgenGlobalMultiallelicHardcallFound:
+            # todo: support this by wrapping pvar loader the same way as the R
+            # interface
+            raise RuntimeError("Multiallelic + phase/dosage datasets not supported yet")
 
         self._state_ptr = <PgenReaderStruct*>PyMem_Malloc(sizeof(PgenReaderStruct))
         if not self._state_ptr:
