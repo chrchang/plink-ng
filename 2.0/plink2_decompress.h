@@ -488,7 +488,7 @@ HEADER_INLINE BoolErr StandardizeMaxLineBlen(uintptr_t unstandardized_byte_ct, u
     return 0;
   }
 #endif
-  if (unlikely(unstandardized_byte_ct < kDecompressChunkSizeX + RoundUpPow2(MAXV(kTextRstreamBlenLowerBound, required_byte_ct), kCacheline))) {
+  if (unlikely(unstandardized_byte_ct < kDecompressChunkSizeX + RoundUpPow2(MAXV(kDecompressChunkSizeX, required_byte_ct), kCacheline))) {
     return 1;
   }
   *max_line_blenp = RoundDownPow2(unstandardized_byte_ct, kCacheline) - kDecompressChunkSizeX;

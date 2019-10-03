@@ -579,7 +579,7 @@ FLAGSET_DEF_START()
   kfPgenGlobalLdCompressionPresent = (1 << 0),
   kfPgenGlobalDifflistOrLdPresent = (1 << 1),
 
-  // set opportunistically for now; may still be present if unset.
+  // Only guaranteed to be set when present if phase or dosage also present.
   kfPgenGlobalMultiallelicHardcallFound = (1 << 2),
 
   kfPgenGlobalHardcallPhasePresent = (1 << 3),

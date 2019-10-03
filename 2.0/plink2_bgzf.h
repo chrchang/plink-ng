@@ -57,6 +57,7 @@ typedef struct BgzfRawDecompressStreamStruct {
 // systems we care most about)
 CONSTI32(kDecompressChunkSizeX, 1048576);
 static_assert(!(kDecompressChunkSizeX % kCacheline), "kDecompressChunkSize must be a multiple of kCacheline.");
+static_assert(kDecompressChunkSizeX >= kMaxMediumLine, "kDecompressChunkSize too small.");
 
 CONSTI32(kMaxBgzfDecompressThreads, 5);
 CONSTI32(kMaxBgzfCompressedBlockSize, 65536);

@@ -20,11 +20,6 @@
 #include "plink2_pvar.h"
 #include "plink2_random.h"
 
-#include "libdeflate/libdeflate.h"
-#include "zstd/lib/zstd.h"
-
-#include <unistd.h>  // debug
-
 #ifdef __cplusplus
 namespace plink2 {
 #endif
@@ -495,8 +490,8 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Mi
   FILE* outfile = nullptr;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
-  ReadLineStream psam_rls;
-  PreinitRLstream(&psam_rls);
+  TextRstream psam_trs;
+  PreinitTextRstream(&psam_trs);
   {
     ImportSampleIdContext isic;
     InitImportSampleIdContext(const_fid, misc_flags, import_flags, id_delim, &isic);
@@ -614,18 +609,18 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Mi
       }
     } else {
       // check consistency of IIDs between VCF and .psam file.
-      char* psam_line_iter;
-      reterr = SizemaxAndInitRLstreamRaw(preexisting_psamname, &psam_rls, &psam_line_iter);
+      reterr = SizeAndInitTextRstream(preexisting_psamname, bigstack_left(), 1, &psam_trs);
       if (unlikely(reterr)) {
-        goto VcfSampleLine_ret_1;
+        goto VcfSampleLine_ret_RSTREAM_FAIL;
       }
       uint32_t sample_line_eoln = (ctou32(sample_line_iter[0]) < 32);
+      char* psam_line_start;
       do {
         ++line_idx;
-        reterr = RlsNextLstrip(&psam_rls, &psam_line_iter);
+        reterr = TextNextLineLstrip(&psam_trs, &psam_line_start);
         if (reterr) {
           if (unlikely(reterr != kPglRetEof)) {
-            goto VcfSampleLine_ret_READ_RLSTREAM;
+            goto VcfSampleLine_ret_RSTREAM_FAIL;
           }
           if (unlikely(!sample_line_eoln)) {
             snprintf(g_logbuf, kLogbufSize, "Error: --%ccf file contains more sample IDs than %s.\n", flag_char, preexisting_psamname);
@@ -635,20 +630,19 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Mi
           reterr = kPglRetSuccess;
           goto VcfSampleLine_ret_1;
         }
-      } while (IsEolnKns(*psam_line_iter) || ((psam_line_iter[0] == '#') && (!tokequal_k(&(psam_line_iter[1]), "FID")) && (!tokequal_k(&(psam_line_iter[1]), "IID"))));
-      char* linebuf_first_token = psam_line_iter;
+      } while (IsEolnKns(*psam_line_start) || ((psam_line_start[0] == '#') && (!tokequal_k(&(psam_line_start[1]), "FID")) && (!tokequal_k(&(psam_line_start[1]), "IID"))));
       uint32_t fid_present;
-      if (linebuf_first_token[0] == '#') {
+      if (psam_line_start[0] == '#') {
         // only check for matching IIDs for now.
-        fid_present = (linebuf_first_token[1] == 'F');
+        fid_present = (psam_line_start[1] == 'F');
         // bugfix (12 Apr 2018): forgot to skip this line
-        *linebuf_first_token = '\0';
+        *psam_line_start = '\0';
       } else {
         fid_present = fam_cols & kfFamCol1;
       }
       while (1) {
-        if (!IsEolnKns(*linebuf_first_token)) {
-          const char* psam_iid_start = linebuf_first_token;
+        if (!IsEolnKns(*psam_line_start)) {
+          const char* psam_iid_start = psam_line_start;
           if (fid_present) {
             psam_iid_start = FirstNonTspace(CurTokenEnd(psam_iid_start));
             if (unlikely(IsEolnKns(*psam_iid_start))) {
@@ -673,19 +667,17 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Mi
           }
           sample_line_eoln = (*sample_line_token_end != '\t');
           sample_line_iter = &(sample_line_token_end[1]);
-          psam_line_iter = K_CAST(char*, psam_iid_start);
         }
         ++line_idx;
-        reterr = RlsNextLstrip(&psam_rls, &psam_line_iter);
+        reterr = TextNextLineLstrip(&psam_trs, &psam_line_start);
         if (reterr) {
           if (likely(reterr == kPglRetEof)) {
             reterr = kPglRetSuccess;
             break;
           }
-          goto VcfSampleLine_ret_READ_RLSTREAM;
+          goto VcfSampleLine_ret_RSTREAM_FAIL;
         }
-        linebuf_first_token = psam_line_iter;
-        if (unlikely(linebuf_first_token[0] == '#')) {
+        if (unlikely(psam_line_start[0] == '#')) {
           snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and a #FID/IID header line is present it must denote the end of the header block.)\n", line_idx, preexisting_psamname);
           goto VcfSampleLine_ret_MALFORMED_INPUT_WW;
         }
@@ -701,8 +693,8 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Mi
   VcfSampleLine_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  VcfSampleLine_ret_READ_RLSTREAM:
-    RLstreamErrPrint(preexisting_psamname, &psam_rls, &reterr);
+  VcfSampleLine_ret_RSTREAM_FAIL:
+    TextRstreamErrPrint(preexisting_psamname, &psam_trs);
     break;
   VcfSampleLine_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -725,7 +717,7 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Mi
     break;
   }
  VcfSampleLine_ret_1:
-  CleanupRLstream(&psam_rls);
+  CleanupTextRstream2(preexisting_psamname, &psam_trs, &reterr);
   fclose_cond(outfile);
   BigstackReset(bigstack_mark);
   return reterr;
@@ -2664,19 +2656,19 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* pvarfile = nullptr;
-  uintptr_t line_idx = 0;
+  uintptr_t line_idx = 1;
   const uint32_t half_call_explicit_error = (halfcall_mode == kVcfHalfCallError);
   PglErr reterr = kPglRetSuccess;
   VcfParseErr vcf_parse_err = kVcfParseOk;
   ThreadsState ts;
-  ReadLineStream vcf_rls;
+  TextRstream vcf_trs;
   STPgenWriter spgw;
   InitThreads3z(&ts);
-  PreinitRLstream(&vcf_rls);
+  PreinitTextRstream(&vcf_trs);
   PreinitSpgw(&spgw);
   {
-    uintptr_t linebuf_size;
-    if (StandardizeLinebufSize(bigstack_left() / 4, kMaxMediumLine + 1, &linebuf_size)) {
+    uint32_t max_line_blen;
+    if (StandardizeMaxLineBlen(bigstack_left() / 4, kMaxMediumLine + 1, &max_line_blen)) {
       goto VcfToPgen_ret_NOMEM;
     }
     // probable todo: if chromosome filter specified, take advantage of an
@@ -2684,25 +2676,17 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     // reader can be very simple since *only* chromosome filters are supported
     // by import functions.)  Do the same for .bgen and .bcf files.
 
-    // tested this, 3 appears to be a better default than 2
-    // (actually, 4 is even better now that scanning pass does minimal work)
-    reterr = RlsOpenMaybeBgzf(vcfname, ClipU32(max_thread_ct - 1, 1, 4), &vcf_rls);
+    reterr = InitTextRstreamEx(vcfname, 1, kMaxLongLine, max_line_blen, ClipU32(max_thread_ct - 1, 1, 4), &vcf_trs);
     if (unlikely(reterr)) {
       if (reterr == kPglRetOpenFail) {
         const uint32_t slen = strlen(vcfname);
-        if (StrEndsWith(vcfname, ".vcf", slen) ||
-            StrEndsWith(vcfname, ".vcf.gz", slen)) {
-          logerrprintfww(kErrprintfFopen, vcfname, strerror(errno));
-        } else {
+        if ((!StrEndsWith(vcfname, ".vcf", slen)) &&
+            (!StrEndsWith(vcfname, ".vcf.gz", slen))) {
           logerrprintfww("Error: Failed to open %s : %s. (--vcf expects a complete filename; did you forget '.vcf' at the end?)\n", vcfname, strerror(errno));
+          goto VcfToPgen_ret_1;
         }
       }
-      goto VcfToPgen_ret_1;
-    }
-    char* line_iter;
-    reterr = InitRLstreamEx(1, kMaxLongLine, linebuf_size, &vcf_rls, &line_iter);
-    if (unlikely(reterr)) {
-      goto VcfToPgen_ret_1;
+      goto VcfToPgen_ret_RSTREAM_FAIL;
     }
     const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
     uint32_t dosage_import_field_slen = 0;
@@ -2749,8 +2733,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     vic.dosage_field_idx = UINT32_MAX;
     vic.hds_field_idx = UINT32_MAX;
 
-    char* prev_line_start = line_iter;
-    uint32_t max_line_blen = 1;
+    max_line_blen = 1;  // Now means "max_observed_line_blen".
     uint32_t format_gt_present = 0;
     uint32_t format_gq_relevant = 0;
     uint32_t format_dp_relevant = 0;
@@ -2759,26 +2742,21 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     uint32_t info_pr_nonflag_present = 0;
     uint32_t info_nonpr_present = 0;
     uint32_t chrset_present = 0;
-    char* linebuf_iter;
-    while (1) {
-      ++line_idx;
-      line_iter = AdvPastDelim(line_iter, '\n');
-      const uint32_t prev_line_blen = line_iter - prev_line_start;
-      if (prev_line_blen > max_line_blen) {
-        max_line_blen = prev_line_blen;
-      }
-      reterr = RlsPostlfNext(&vcf_rls, &line_iter);
-      prev_line_start = line_iter;
+    char* line_iter = TextLineEnd(&vcf_trs);
+    char* prev_line_start;
+    for (; ; ++line_idx) {
+      // don't tolerate leading spaces
+      reterr = TextNextLineUnsafe(&vcf_trs, &line_iter);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
           logerrputs("Error: No #CHROM header line or variant records in --vcf file.\n");
           goto VcfToPgen_ret_MALFORMED_INPUT;
         }
-        goto VcfToPgen_ret_READ_RLSTREAM;
+        goto VcfToPgen_ret_RSTREAM_FAIL;
       }
-      // don't tolerate leading spaces
+      prev_line_start = line_iter;
       if (unlikely(*line_iter != '#')) {
-        if ((line_idx == 1) && memequal_k(line_iter, "BCF", 3)) {
+        if ((line_idx == 1) && (memequal_k(line_iter, "BCF", 3))) {
           // this is more informative than "missing header line"...
           if (line_iter[3] == 2) {
             snprintf(g_logbuf, kLogbufSize, "Error: %s appears to be a BCF2 file. Try --bcf instead of --vcf.\n", vcfname);
@@ -2792,8 +2770,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         logerrputs("Error: No #CHROM header line in --vcf file.\n");
         goto VcfToPgen_ret_MALFORMED_INPUT;
       }
-      linebuf_iter = line_iter;
-      if (linebuf_iter[1] != '#') {
+      if (line_iter[1] != '#') {
         break;
       }
       // Recognized header lines:
@@ -2820,64 +2797,64 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       // Because of how ##contig is handled (we only keep the lines which
       // correspond to chromosomes/contigs actually present in the VCF, and not
       // filtered out), we wait until second pass to write the .pvar.
-      if (StrStartsWithUnsafe(&(linebuf_iter[2]), "chrSet=<")) {
+      if (StrStartsWithUnsafe(&(line_iter[2]), "chrSet=<")) {
         if (unlikely(chrset_present)) {
           logerrputs("Error: Multiple ##chrSet header lines in --vcf file.\n");
           goto VcfToPgen_ret_MALFORMED_INPUT;
         }
         chrset_present = 1;
         // .pvar loader will print a warning if necessary
-        reterr = ReadChrsetHeaderLine(&(linebuf_iter[10]), "--vcf file", misc_flags, line_idx, cip);
+        reterr = ReadChrsetHeaderLine(&(line_iter[10]), "--vcf file", misc_flags, line_idx, cip);
         if (unlikely(reterr)) {
           goto VcfToPgen_ret_1;
         }
-      } else if (StrStartsWithUnsafe(&(linebuf_iter[2]), "FORMAT=<ID=GT,Number=")) {
+      } else if (StrStartsWithUnsafe(&(line_iter[2]), "FORMAT=<ID=GT,Number=")) {
         if (unlikely(format_gt_present)) {
           logerrputs("Error: Duplicate FORMAT:GT header line in --vcf file.\n");
           goto VcfToPgen_ret_MALFORMED_INPUT;
         }
-        if (unlikely(!StrStartsWithUnsafe(&(linebuf_iter[2 + strlen("FORMAT=<ID=GT,Number=")]), "1,Type=String,Description="))) {
+        if (unlikely(!StrStartsWithUnsafe(&(line_iter[2 + strlen("FORMAT=<ID=GT,Number=")]), "1,Type=String,Description="))) {
           snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of --vcf file does not have expected FORMAT:GT format.\n", line_idx);
           goto VcfToPgen_ret_MALFORMED_INPUT_WW;
         }
         format_gt_present = 1;
-      } else if ((vcf_min_gq != -1) && StrStartsWithUnsafe(&(linebuf_iter[2]), "FORMAT=<ID=GQ,Number=1,Type=")) {
+      } else if ((vcf_min_gq != -1) && StrStartsWithUnsafe(&(line_iter[2]), "FORMAT=<ID=GQ,Number=1,Type=")) {
         if (unlikely(format_gq_relevant)) {
           logerrputs("Error: Duplicate FORMAT:GQ header line in --vcf file.\n");
           goto VcfToPgen_ret_MALFORMED_INPUT;
         }
         format_gq_relevant = 1;
-      } else if (((vcf_min_dp != -1) || (vcf_max_dp != 0x7fffffff)) && StrStartsWithUnsafe(&(linebuf_iter[2]), "FORMAT=<ID=DP,Number=1,Type=")) {
+      } else if (((vcf_min_dp != -1) || (vcf_max_dp != 0x7fffffff)) && StrStartsWithUnsafe(&(line_iter[2]), "FORMAT=<ID=DP,Number=1,Type=")) {
         if (unlikely(format_dp_relevant)) {
           logerrputs("Error: Duplicate FORMAT:DP header line in --vcf file.\n");
           goto VcfToPgen_ret_MALFORMED_INPUT;
         }
         format_dp_relevant = 1;
-      } else if (dosage_import_field && StrStartsWithUnsafe(&(linebuf_iter[2]), "FORMAT=<ID=")) {
+      } else if (dosage_import_field && StrStartsWithUnsafe(&(line_iter[2]), "FORMAT=<ID=")) {
         // strlen("##FORMAT=<ID=") == 13
-        if (memequal(&(linebuf_iter[13]), dosage_import_field, dosage_import_field_slen) && (linebuf_iter[13 + dosage_import_field_slen] == ',')) {
+        if (memequal(&(line_iter[13]), dosage_import_field, dosage_import_field_slen) && (line_iter[13 + dosage_import_field_slen] == ',')) {
           if (unlikely(format_dosage_relevant)) {
             logerrprintfww("Error: Duplicate FORMAT:%s header line in --vcf file.\n", dosage_import_field);
             goto VcfToPgen_ret_MALFORMED_INPUT_WW;
           }
           format_dosage_relevant = 1;
-        } else if (format_hds_search && memequal_k(&(linebuf_iter[13]), "HDS,", 4)) {
+        } else if (format_hds_search && memequal_k(&(line_iter[13]), "HDS,", 4)) {
           if (unlikely(format_hds_search == 2)) {
             logerrputs("Error: Duplicate FORMAT:HDS header line in --vcf file.\n");
             goto VcfToPgen_ret_MALFORMED_INPUT;
           }
           format_hds_search = 2;
-        } else if (unforced_gp && memequal_k(&(linebuf_iter[13]), "DS,", 3)) {
+        } else if (unforced_gp && memequal_k(&(line_iter[13]), "DS,", 3)) {
           logerrputs("Error: --vcf dosage=GP specified, but --import-dosage-certainty was not and\nFORMAT:DS header line is present.\nSince " PROG_NAME_STR " collapses genotype probabilities down to dosages (even when\nperforming simple operations like \"" PROG_NAME_STR " --vcf ... --export bgen-1.2 ...\"),\n'dosage=GP' almost never makes sense in this situation.  Either change it to\n'dosage=DS' (if dosages are good enough for your analysis), or use another\nprogram to work with the genotype probabilities.\nThere is one notable exception to the preceding recommendation: you are writing\na script to process VCF files that are guaranteed to have FORMAT:GP, but may or\nmay not have FORMAT:DS.  You can use 'dosage=GP-force' to suppress this error\nin that situation.\n");
           goto VcfToPgen_ret_INCONSISTENT_INPUT;
         }
-      } else if (StrStartsWithUnsafe(&(linebuf_iter[2]), "INFO=<ID=")) {
-        if (StrStartsWithUnsafe(&(linebuf_iter[2 + strlen("INFO=<ID=")]), "PR,Number=")) {
+      } else if (StrStartsWithUnsafe(&(line_iter[2]), "INFO=<ID=")) {
+        if (StrStartsWithUnsafe(&(line_iter[2 + strlen("INFO=<ID=")]), "PR,Number=")) {
           if (unlikely(info_pr_present || info_pr_nonflag_present)) {
             logerrputs("Error: Duplicate INFO:PR header line in --vcf file.\n");
             goto VcfToPgen_ret_MALFORMED_INPUT;
           }
-          info_pr_nonflag_present = !StrStartsWithUnsafe(&(linebuf_iter[2 + strlen("INFO=<ID=PR,Number=")]), "0,Type=Flag,Description=");
+          info_pr_nonflag_present = !StrStartsWithUnsafe(&(line_iter[2 + strlen("INFO=<ID=PR,Number=")]), "0,Type=Flag,Description=");
           info_pr_present = 1 - info_pr_nonflag_present;
           if (info_pr_nonflag_present) {
             logerrprintfww("Warning: Header line %" PRIuPTR " of --vcf file has an unexpected definition of INFO:PR. This interferes with a few merge and liftover operations.\n", line_idx);
@@ -2885,6 +2862,11 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         } else {
           info_nonpr_present = 1;
         }
+      }
+      line_iter = AdvPastDelim(line_iter, '\n');
+      const uint32_t prev_line_blen = line_iter - prev_line_start;
+      if (prev_line_blen > max_line_blen) {
+        max_line_blen = prev_line_blen;
       }
     }
     const uint32_t require_gt = (import_flags / kfImportVcfRequireGt) & 1;
@@ -2918,11 +2900,11 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     // don't call FinalizeChrInfo here, since this may be followed by
     // --pmerge, etc.
 
-    if (unlikely(!StrStartsWithUnsafe(linebuf_iter, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO"))) {
+    if (unlikely(!StrStartsWithUnsafe(line_iter, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO"))) {
       snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of --vcf file does not have expected field sequence after #CHROM.\n", line_idx);
       goto VcfToPgen_ret_MALFORMED_INPUT_WW;
     }
-    linebuf_iter = &(linebuf_iter[strlen("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO")]);
+    char* linebuf_iter = &(line_iter[strlen("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO")]);
     uint32_t sample_ct = 0;
     if (StrStartsWithUnsafe(linebuf_iter, "\tFORMAT\t")) {
       reterr = VcfSampleLine(preexisting_psamname, const_fid, misc_flags, import_flags, fam_cols, id_delim, idspace_to, 'v', &(linebuf_iter[strlen("\tFORMAT\t")]), outname, outname_end, &sample_ct);
@@ -2981,19 +2963,19 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       if (prev_line_blen > max_line_blen) {
         max_line_blen = prev_line_blen;
       }
-      reterr = RlsPostlfNext(&vcf_rls, &line_iter);
+      reterr = TextNextLineUnsafe(&vcf_trs, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           // reterr = kPglRetSuccess;
           break;
         }
-        goto VcfToPgen_ret_READ_RLSTREAM;
+        goto VcfToPgen_ret_RSTREAM_FAIL;
       }
       prev_line_start = line_iter;
       // do tolerate trailing newlines
       if (ctou32(*line_iter) <= 32) {
-        if (unlikely(*line_iter == ' ')) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Leading space on line %" PRIuPTR " of --vcf file.\n", line_idx);
+        if (unlikely((*line_iter == ' ') || (*line_iter == '\t'))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Leading space or tab on line %" PRIuPTR " of --vcf file.\n", line_idx);
           goto VcfToPgen_ret_MALFORMED_INPUT_2N;
         }
         continue;
@@ -3233,47 +3215,37 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         // this is based on a bunch of DS-force measurements
         calc_thread_ct = 1 + (sample_ct > 5) + (sample_ct > 12) + (sample_ct > 32) + (sample_ct > 512);
       } else {
-        if ((vcf_rls.bgz_infile != nullptr) && (max_thread_ct > 1)) {
+        if (TextIsMt(&vcf_trs) && (max_thread_ct > 1)) {
           decompress_thread_ct = 2;
         }
         // this seems to saturate around 3 threads.
         calc_thread_ct = 1 + (sample_ct > 40) + (sample_ct > 320);
       }
-      reterr = CleanupRLstream(&vcf_rls);
-      if (unlikely(reterr)) {
+      if (CleanupTextRstream(&vcf_trs, &reterr)) {
+        logerrprintfww(kErrprintfFread, vcfname, strerror(errno));
         goto VcfToPgen_ret_1;
       }
       BigstackEndReset(bigstack_end_mark);
-      reterr = RlsOpenMaybeBgzf(vcfname, decompress_thread_ct, &vcf_rls);
+      reterr = InitTextRstreamEx(vcfname, 1, kMaxLongLine, MAXV(max_line_blen, kTextRstreamBlenFast), decompress_thread_ct, &vcf_trs);
       if (unlikely(reterr)) {
-        if (reterr == kPglRetOpenFail) {
-          goto VcfToPgen_ret_READ_FAIL;
-        }
-        goto VcfToPgen_ret_1;
+        goto VcfToPgen_ret_REWIND_FAIL;
       }
       if (calc_thread_ct + decompress_thread_ct > max_thread_ct) {
         calc_thread_ct = MAXV(1, max_thread_ct - decompress_thread_ct);
       }
-    }
-    reterr = InitRLstreamEx(1, kMaxLongLine, MAXV(max_line_blen, kRLstreamBlenFast), &vcf_rls, &line_iter);
-    if (unlikely(reterr)) {
-      goto VcfToPgen_ret_1;
     }
 
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
     if (unlikely(fopen_checked(outname, FOPEN_WB, &pvarfile))) {
       goto VcfToPgen_ret_OPEN_FAIL;
     }
-    for (line_idx = 1; ; ++line_idx) {
-      // ok to ignore specific return value since this is second pass
-      if (unlikely(RlsNext(&vcf_rls, &line_iter))) {
-        goto VcfToPgen_ret_READ_FAIL;
+    for (line_idx = 1, line_iter = TextLineEnd(&vcf_trs); ; ++line_idx, line_iter = AdvPastDelim(line_iter, '\n')) {
+      if (unlikely(TextNextLineUnsafe(&vcf_trs, &line_iter))) {
+        goto VcfToPgen_ret_REWIND_FAIL;
       }
       if (line_idx == header_line_ct) {
         break;
       }
-      // don't use textbuf here, since header line length could theoretically
-      // exceed kMaxMediumLine bytes
       if (StrStartsWithUnsafe(line_iter, "##fileformat=") || StrStartsWithUnsafe(line_iter, "##fileDate=") || StrStartsWithUnsafe(line_iter, "##source=") || StrStartsWithUnsafe(line_iter, "##FORMAT=") || StrStartsWithUnsafe(line_iter, "##chrSet=")) {
         continue;
       }
@@ -3584,11 +3556,12 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           }
         VcfToPgen_load_start:
           ++line_idx;
+          line_iter = AdvPastDelim(line_iter, '\n');
           // In principle, it shouldn't be necessary to check the exact value
           // of reterr, but this may be useful for bug investigation.
-          reterr = RlsNext(&vcf_rls, &line_iter);
+          reterr = TextNextLineUnsafe(&vcf_trs, &line_iter);
           if (unlikely(reterr)) {
-            goto VcfToPgen_ret_READ_FAIL;
+            goto VcfToPgen_ret_REWIND_FAIL;
           }
 
           if (ctou32(*line_iter) < 32) {
@@ -3812,15 +3785,17 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
   VcfToPgen_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  VcfToPgen_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
-    break;
   VcfToPgen_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
-  VcfToPgen_ret_READ_RLSTREAM:
+  VcfToPgen_ret_RSTREAM_FAIL:
     putc_unlocked('\n', stdout);
-    RLstreamErrPrint("--vcf file", &vcf_rls, &reterr);
+    TextRstreamErrPrint("--vcf file", &vcf_trs);
+    break;
+  VcfToPgen_ret_REWIND_FAIL:
+    putc_unlocked('\n', stdout);
+    logerrprintfww(kErrprintfRewind, "--vcf file");
+    reterr = kPglRetRewindFail;
     break;
   VcfToPgen_ret_THREAD_PARSE:
     {
@@ -3883,7 +3858,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     reterr = kPglRetWriteFail;
   }
   CleanupThreads3z(&ts, &g_cur_block_write_ct);
-  CleanupRLstream(&vcf_rls);
+  CleanupTextRstream2("--vcf file", &vcf_trs, &reterr);
   fclose_cond(pvarfile);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;

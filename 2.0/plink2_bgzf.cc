@@ -108,7 +108,8 @@ PglErr BgzfJoinAndRespawn(unsigned char* dst_end, BgzfRawMtDecompressStream* bgz
     if (remaining_start == remaining_end) {
       assert(remaining_end_is_eof);
       bgzfp->eof = 1;
-      dst_iter = &(dst_iter[new_overflow_ct]);
+      // bugfix (2 Oct 2019): new_overflow_ct -> overflow_copy_ct
+      dst_iter = &(dst_iter[overflow_copy_ct]);
       next_target = nullptr;
     } else {
       // 4. Determine block boundaries in in[remaining_start, remaining_end),
@@ -464,6 +465,9 @@ PglErr BgzfRawMtStreamRead(unsigned char* dst_end, BgzfRawMtDecompressStream* bg
     return kPglRetSuccess;
   }
   bgzfp->overflow_start[consumer_parity] += overflow_remaining;
+  if (bgzfp->eof) {
+    fprintf(stderr, "eof copy: %u\n", overflow_remaining);
+  }
   *dst_iterp = memcpyua(*dst_iterp, overflow_src_start, overflow_remaining);
   if (bgzfp->eof) {
     return kPglRetSuccess;

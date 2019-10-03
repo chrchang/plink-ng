@@ -911,6 +911,7 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
         }
       case kFileBgzf:
         {
+          ;;;
           reterr = BgzfRawMtStreamRead(R_CAST(unsigned char*, cur_read_stop), &rdsp->bgzf, R_CAST(unsigned char**, &cur_read_end), &syncp->errmsg);
           if (unlikely(reterr)) {
             goto TextRstreamThread_MISC_FAIL;

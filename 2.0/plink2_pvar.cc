@@ -839,7 +839,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     uint32_t info_pr_present = 0;
     uint32_t info_pr_nonflag_present = 0;
     uint32_t info_nonpr_present = 0;
-    char* line_iter = pvar_trs.base.consume_iter;
+    char* line_iter = TextLineEnd(&pvar_trs);
     char* line_start;
     while (1) {
       ++line_idx;

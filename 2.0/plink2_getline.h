@@ -176,10 +176,7 @@ void PreinitTextRfile(textRFILE* trfp);
 
 // kDecompressChunkSize = 1 MiB currently declared in plink2_bgzf.h, may move
 // somewhere closer to the base later.
-
-CONSTI32(kTextRstreamBlenLowerBound, 2 * kDecompressChunkSizeX);
-static_assert(kTextRstreamBlenLowerBound >= kMaxMediumLine, "kTextRstreamBlenLowerBound too small.");
-
+CONSTI32(kTextRstreamBlenFast, 11 * kDecompressChunkSizeX);
 CONSTI32(kTokenRstreamBlen, 11 * kDecompressChunkSizeX);
 CONSTI32(kMaxTokenBlenX, 8 * kDecompressChunkSizeX);
 static_assert(kMaxTokenBlenX >= kDecompressChunkSizeX, "kMaxTokenBlen too small.");
@@ -391,6 +388,21 @@ HEADER_INLINE PglErr TextSkip(uintptr_t skip_ct, TextRstream* trsp) {
 // 'Unsafe' functions require line_iter to already point to the start of the
 // line, and don't update trsp->base.consume_iter; they primarily wrap the
 // TextAdvance() call.
+HEADER_INLINE PglErr TextNextLineUnsafe(TextRstream* trsp, char** line_iterp) {
+  if (*line_iterp != trsp->base.consume_stop) {
+    return kPglRetSuccess;
+  }
+  trsp->base.consume_iter = *line_iterp;
+  PglErr reterr = TextAdvance(trsp);
+  // not unlikely() due to eof
+  if (reterr) {
+    return reterr;
+  }
+  *line_iterp = trsp->base.consume_iter;
+  return kPglRetSuccess;
+}
+
+
 HEADER_INLINE PglErr TextNextLineLstripUnsafe(TextRstream* trsp, char** line_iterp) {
   char* line_iter = *line_iterp;
   if (line_iter == trsp->base.consume_stop) {
@@ -406,6 +418,11 @@ HEADER_INLINE PglErr TextNextLineLstripUnsafe(TextRstream* trsp, char** line_ite
   return kPglRetSuccess;
 }
 
+
+HEADER_INLINE uint32_t TextIsMt(const TextRstream* trsp) {
+  // Only bgzf decoder is multithreaded for now.
+  return (trsp->base.file_type == kFileBgzf);
+}
 
 PglErr TextRetarget(const char* new_fname, TextRstream* trsp);
 

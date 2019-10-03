@@ -578,30 +578,30 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
     *local_covar_ct_ptr = local_covar_ct;
 
     // 4. Initialize final local-covar reader.
-    uint64_t local_covar_linebuf_size = local_sample_ct;
+    uint64_t enforced_max_line_blen = local_sample_ct;
     if (glm_info_ptr->local_cat_ct) {
-      local_covar_linebuf_size *= 1 + UintSlen(glm_info_ptr->local_cat_ct);
+      enforced_max_line_blen *= 1 + UintSlen(glm_info_ptr->local_cat_ct);
     } else {
       // permit 24 characters per floating point number instead of 16, since
       // some tools dump 15-17 significant digits
-      local_covar_linebuf_size *= 24 * (local_covar_ct + ((glm_info_ptr->flags / kfGlmLocalOmitLast) & 1));
+      enforced_max_line_blen *= 24 * (local_covar_ct + ((glm_info_ptr->flags / kfGlmLocalOmitLast) & 1));
     }
     // \r\n
-    local_covar_linebuf_size += 2;
-    if (unlikely(local_covar_linebuf_size > kMaxLongLine)) {
+    enforced_max_line_blen += 2;
+    if (unlikely(enforced_max_line_blen > kMaxLongLine)) {
       logerrputs("Error: Too many samples/covariates for --glm local-covar=.\n");
       goto GlmLocalOpen_ret_MALFORMED_INPUT;
     }
-    if (local_covar_linebuf_size < 2 * kDecompressChunkSize) {
-      local_covar_linebuf_size = 2 * kDecompressChunkSize;
+    if (enforced_max_line_blen < kDecompressChunkSize) {
+      enforced_max_line_blen = kDecompressChunkSize;
     }
-    uint32_t dst_capacity = local_covar_linebuf_size;
+    uint32_t dst_capacity = enforced_max_line_blen + kDecompressChunkSize;
     if (local_covar_trf.base.dst_len > dst_capacity) {
       dst_capacity = local_covar_trf.base.dst_len;
     }
     dst_capacity = RoundUpPow2(dst_capacity, kCacheline);
     g_bigstack_base = R_CAST(unsigned char*, &(dst[dst_capacity]));
-    reterr = TextRstreamOpenEx(nullptr, local_covar_linebuf_size, dst_capacity, 1, &local_covar_trf, nullptr, local_covar_trsp);
+    reterr = TextRstreamOpenEx(nullptr, enforced_max_line_blen, dst_capacity, 1, &local_covar_trf, nullptr, local_covar_trsp);
     if (unlikely(reterr)) {
       TextRstreamErrPrint(local_covar_fname, local_covar_trsp);
       goto GlmLocalOpen_ret_1;
