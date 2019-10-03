@@ -465,9 +465,6 @@ PglErr BgzfRawMtStreamRead(unsigned char* dst_end, BgzfRawMtDecompressStream* bg
     return kPglRetSuccess;
   }
   bgzfp->overflow_start[consumer_parity] += overflow_remaining;
-  if (bgzfp->eof) {
-    fprintf(stderr, "eof copy: %u\n", overflow_remaining);
-  }
   *dst_iterp = memcpyua(*dst_iterp, overflow_src_start, overflow_remaining);
   if (bgzfp->eof) {
     return kPglRetSuccess;
