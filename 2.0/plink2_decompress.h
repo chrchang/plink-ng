@@ -481,7 +481,7 @@ HEADER_INLINE PglErr InitTextRstream(const char* fname, uint32_t max_line_blen, 
 // non-plink2 software).
 // Note that the actual buffer size is max_line_blen + kDecompressChunkSize,
 // not max_line_blen.
-HEADER_INLINE BoolErr StandardizeMaxLineBlen(uintptr_t unstandardized_byte_ct, uint32_t required_byte_ct, uint32_t* max_line_blenp) {
+HEADER_INLINE BoolErr StandardizeMaxLineBlenEx(uintptr_t unstandardized_byte_ct, uint32_t required_byte_ct, uint32_t* max_line_blenp) {
 #ifdef __LP64__
   if (unstandardized_byte_ct >= S_CAST(uintptr_t, kMaxLongLine) + S_CAST(uintptr_t, kDecompressChunkSizeX)) {
     *max_line_blenp = kMaxLongLine;
@@ -495,6 +495,10 @@ HEADER_INLINE BoolErr StandardizeMaxLineBlen(uintptr_t unstandardized_byte_ct, u
   return 0;
 }
 
+HEADER_INLINE BoolErr StandardizeMaxLineBlen(uintptr_t unstandardized_byte_ct, uint32_t* max_line_blenp) {
+  return StandardizeMaxLineBlenEx(unstandardized_byte_ct, kMaxMediumLine + 1, max_line_blenp);
+}
+
 HEADER_INLINE PglErr SizeAndInitTextRstream(const char* fname, uintptr_t unstandardized_byte_ct, uint32_t decompress_thread_ct, TextRstream* trsp) {
   // plink 1.9 immediately failed with an out-of-memory error if a "long line"
   // buffer would be smaller than kMaxMediumLine + 1 bytes, so may as well make
@@ -504,7 +508,7 @@ HEADER_INLINE PglErr SizeAndInitTextRstream(const char* fname, uintptr_t unstand
   // potentially-long-line buffer size" from "load/decompression block size
   // which generally has good performance".)
   uint32_t max_line_blen;
-  if (unlikely(StandardizeMaxLineBlen(unstandardized_byte_ct, kMaxMediumLine + 1, &max_line_blen))) {
+  if (unlikely(StandardizeMaxLineBlen(unstandardized_byte_ct, &max_line_blen))) {
     return kPglRetNomem;
   }
   return InitTextRstream(fname, max_line_blen, decompress_thread_ct, trsp);

@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (2 Oct 2019)";
+  " (3 Oct 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -2429,7 +2429,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
         }
 
-        ;;;
         if (pcp->command_flags1 & kfCommand1MakePlink2) {
           // todo: unsorted case (--update-chr, etc.)
           if (pcp->sort_vars_flags != kfSort0) {

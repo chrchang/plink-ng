@@ -54,7 +54,7 @@ PglErr ExportAlleleLoad(const char* fname, const uintptr_t* variant_include, con
     uint32_t max_export_allele_slen = max_allele_slen;
     const uintptr_t linebuf_min = 64 + kMaxIdSlen + max_export_allele_slen;
     uint32_t max_line_blen;
-    if (StandardizeMaxLineBlen(MAXV(bigstack_left() / 8, linebuf_min), linebuf_min, &max_line_blen)) {
+    if (StandardizeMaxLineBlenEx(MAXV(bigstack_left() / 8, linebuf_min), linebuf_min, &max_line_blen)) {
       goto ExportAlleleLoad_ret_NOMEM;
     }
     reterr = InitTextRstream(fname, max_line_blen, MAXV(max_thread_ct - 1, 1), &trs);

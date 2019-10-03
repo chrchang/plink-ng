@@ -911,7 +911,6 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
         }
       case kFileBgzf:
         {
-          ;;;
           reterr = BgzfRawMtStreamRead(R_CAST(unsigned char*, cur_read_stop), &rdsp->bgzf, R_CAST(unsigned char**, &cur_read_end), &syncp->errmsg);
           if (unlikely(reterr)) {
             goto TextRstreamThread_MISC_FAIL;
@@ -1607,6 +1606,30 @@ PglErr TextSkipNz(uintptr_t skip_ct, TextRstream* trsp) {
   trsp->base.consume_iter = consume_iter;
   return kPglRetSuccess;
 #endif
+}
+
+PglErr TextNextNonemptyLineLstripUnsafe(TextRstream* trsp, uintptr_t* line_idx_ptr, char** line_iterp) {
+  char* line_iter = *line_iterp;
+  uintptr_t line_idx = *line_idx_ptr;
+  while (1) {
+    ++line_idx;
+    if (line_iter == trsp->base.consume_stop) {
+      trsp->base.consume_iter = line_iter;
+      PglErr reterr = TextAdvance(trsp);
+      // not unlikely() due to eof
+      if (reterr) {
+        return reterr;
+      }
+      line_iter = trsp->base.consume_iter;
+    }
+    line_iter = FirstNonTspace(line_iter);
+    if (!IsEolnKns(*line_iter)) {
+      *line_idx_ptr = line_idx;
+      *line_iterp = line_iter;
+      return kPglRetSuccess;
+    }
+    line_iter = AdvPastDelim(line_iter, '\n');
+  }
 }
 
 PglErr TextRetarget(const char* new_fname, TextRstream* trsp) {

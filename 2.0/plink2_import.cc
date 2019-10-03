@@ -2668,7 +2668,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
   PreinitSpgw(&spgw);
   {
     uint32_t max_line_blen;
-    if (StandardizeMaxLineBlen(bigstack_left() / 4, kMaxMediumLine + 1, &max_line_blen)) {
+    if (StandardizeMaxLineBlen(bigstack_left() / 4, &max_line_blen)) {
       goto VcfToPgen_ret_NOMEM;
     }
     // probable todo: if chromosome filter specified, take advantage of an
@@ -3215,7 +3215,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         // this is based on a bunch of DS-force measurements
         calc_thread_ct = 1 + (sample_ct > 5) + (sample_ct > 12) + (sample_ct > 32) + (sample_ct > 512);
       } else {
-        if (TextIsMt(&vcf_trs) && (max_thread_ct > 1)) {
+        if (TextRstreamIsMt(&vcf_trs) && (max_thread_ct > 1)) {
           decompress_thread_ct = 2;
         }
         // this seems to saturate around 3 threads.
@@ -3870,8 +3870,8 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
   FILE* psamfile = nullptr;
   PglErr reterr = kPglRetSuccess;
   uintptr_t line_idx = 0;
-  ReadLineStream sample_rls;
-  PreinitRLstream(&sample_rls);
+  TextRstream sample_trs;
+  PreinitTextRstream(&sample_trs);
   {
     uint32_t omp_slen = 2;
     char output_missing_pheno[kMaxMissingPhenostrBlen];
@@ -3887,25 +3887,21 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     const char* missing_catname = g_missing_catname;
     uint32_t missing_catname_slen = strlen(missing_catname);
 
-    uintptr_t linebuf_size;
-    if (unlikely(StandardizeLinebufSize(bigstack_left() / 4, kMaxMediumLine + 1, &linebuf_size))) {
+    uint32_t max_line_blen;
+    if (unlikely(StandardizeMaxLineBlen(bigstack_left() / 4, &max_line_blen))) {
       goto OxSampleToPsam_ret_NOMEM;
     }
-    sample_rls.gz_infile = gzopen(samplename, FOPEN_RB);
-    if (unlikely(!sample_rls.gz_infile)) {
-      const uint32_t slen = strlen(samplename);
-      if (StrEndsWith(samplename, ".sample", slen) ||
-          StrEndsWith(samplename, ".sample.gz", slen)) {
-        logerrprintfww(kErrprintfFopen, samplename, strerror(errno));
-      } else {
-        logerrprintfww("Error: Failed to open %s : %s. (--sample expects a complete filename; did you forget '.sample' at the end?)\n", samplename, strerror(errno));
-      }
-      goto OxSampleToPsam_ret_OPEN_FAIL;
-    }
-    char* line_iter;
-    reterr = InitRLstreamEx(0, kMaxLongLine, linebuf_size, &sample_rls, &line_iter);
+    reterr = InitTextRstream(samplename, max_line_blen, 1, &sample_trs);
     if (unlikely(reterr)) {
-      goto OxSampleToPsam_ret_1;
+      if (reterr == kPglRetOpenFail) {
+        const uint32_t slen = strlen(samplename);
+        if ((!StrEndsWith(samplename, ".sample", slen)) &&
+            (!StrEndsWith(samplename, ".sample.gz", slen))) {
+          logerrprintfww("Error: Failed to open %s : %s. (--sample expects a complete filename; did you forget '.sample' at the end?)\n", samplename, strerror(errno));
+          goto OxSampleToPsam_ret_1;
+        }
+      }
+      goto OxSampleToPsam_ret_RSTREAM_FAIL;
     }
     uint32_t mc_ct = 0;
     uintptr_t max_mc_blen = 1;
@@ -3962,12 +3958,13 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     uint32_t write_fid = 0;
     uint32_t header_lines_left = 2;
     while (1) {
-      reterr = RlsNextNonemptyLstrip(&sample_rls, &line_idx, &line_iter);
+      char* line_start;
+      reterr = TextNextNonemptyLineLstrip(&sample_trs, &line_idx, &line_start);
       if (reterr) {
         // bugfix (16 Feb 2018): don't check this if we break out of the loop
         // on non-0 FID
         if (unlikely(reterr != kPglRetEof)) {
-          goto OxSampleToPsam_ret_READ_RLSTREAM;
+          goto OxSampleToPsam_ret_RSTREAM_FAIL;
         }
         if (unlikely(header_lines_left)) {
           logerrputs("Error: Empty .sample file.\n");
@@ -3979,26 +3976,26 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
         --header_lines_left;
         continue;
       }
-      if ((line_iter[0] != '0') || (!IsSpaceOrEoln(line_iter[1]))) {
+      if ((line_start[0] != '0') || (!IsSpaceOrEoln(line_start[1]))) {
         write_fid = 1;
         break;
       }
     }
-    reterr = RewindRLstreamRaw(&sample_rls, &line_iter);
+    reterr = TextRewind(&sample_trs);
     if (unlikely(reterr)) {
-      goto OxSampleToPsam_ret_READ_RLSTREAM;
+      goto OxSampleToPsam_ret_RSTREAM_FAIL;
     }
     line_idx = 0;
-    reterr = RlsNextNonemptyLstrip(&sample_rls, &line_idx, &line_iter);
+    char* line_start;
+    reterr = TextNextNonemptyLineLstrip(&sample_trs, &line_idx, &line_start);
     if (unlikely(reterr)) {
-      goto OxSampleToPsam_ret_READ_RLSTREAM;
+      goto OxSampleToPsam_ret_RSTREAM_FAIL;
     }
-    char* linebuf_first_token = line_iter;
-    char* token_end = CurTokenEnd(linebuf_first_token);
+    char* token_end = CurTokenEnd(line_start);
     // todo: allow arbitrary first column name, and ID_2/missing to be absent,
     // to match SNPTEST 2.5.4's de facto change to the .sample file format.
     // (Probably wait till 2.5.4 is a stable version, though.)
-    if (unlikely(!strequal_k(linebuf_first_token, "ID_1", token_end - linebuf_first_token))) {
+    if (unlikely(!strequal_k(line_start, "ID_1", token_end - line_start))) {
       goto OxSampleToPsam_ret_INVALID_SAMPLE_HEADER_1;
     }
     // currently accepts tab as delimiter, though .sample spec technically
@@ -4022,7 +4019,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     // categorical phenotypes are lengthened by 1 character ('C' added in
     // front), so this needs to be 50% larger than maximum possible line length
     // to handle worst case
-    linebuf_size += kDecompressChunkSize;
+    uintptr_t linebuf_size = max_line_blen + kDecompressChunkSize;
     linebuf_size += linebuf_size / 2;
     // bugfix (19 Mar 2018): this needs to be min, not max...
     linebuf_size = MINV(linebuf_size, kMaxLongLine);
@@ -4056,19 +4053,17 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
       ++col_ct;
       linebuf_iter = FirstNonTspace(token_end);
     }
-    line_iter = linebuf_iter;
 
-    reterr = RlsNextNonemptyLstrip(&sample_rls, &line_idx, &line_iter);
+    reterr = TextNextNonemptyLineLstrip(&sample_trs, &line_idx, &line_start);
     if (unlikely(reterr)) {
       if (reterr == kPglRetEof) {
         logerrputs("Error: Only one nonempty line in .sample file.\n");
         goto OxSampleToPsam_ret_MALFORMED_INPUT;
       }
-      goto OxSampleToPsam_ret_READ_RLSTREAM;
+      goto OxSampleToPsam_ret_RSTREAM_FAIL;
     }
-    linebuf_first_token = line_iter;
-    token_end = CurTokenEnd(linebuf_first_token);
-    if (unlikely((S_CAST(uintptr_t, token_end - linebuf_first_token) != 1) || (*linebuf_first_token != '0'))) {
+    token_end = CurTokenEnd(line_start);
+    if (unlikely((S_CAST(uintptr_t, token_end - line_start) != 1) || (*line_start != '0'))) {
       goto OxSampleToPsam_ret_INVALID_SAMPLE_HEADER_2;
     }
     linebuf_iter = FirstNonTspace(token_end);
@@ -4144,13 +4139,14 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
       --uncertain_col_ct;
     }
     while (uncertain_col_ct) {
-      reterr = RlsNextNonemptyLstrip(&sample_rls, &line_idx, &line_iter);
+      char* line_iter = line_start;
+      reterr = TextNextNonemptyLineLstrip(&sample_trs, &line_idx, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           // reterr = kPglRetSuccess;
           break;
         }
-        goto OxSampleToPsam_ret_READ_RLSTREAM;
+        goto OxSampleToPsam_ret_RSTREAM_FAIL;
       }
 
       const uint32_t old_uncertain_col_ct = uncertain_col_ct;
@@ -4174,30 +4170,29 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
       }
     }
 
-    reterr = RewindRLstreamRaw(&sample_rls, &line_iter);
+    reterr = TextRewind(&sample_trs);
     if (unlikely(reterr)) {
-      goto OxSampleToPsam_ret_READ_RLSTREAM;
+      goto OxSampleToPsam_ret_RSTREAM_FAIL;
     }
     line_idx = 0;
 
     uint32_t sample_ct_p2 = 0;
     while (1) {
-      reterr = RlsNextNonemptyLstrip(&sample_rls, &line_idx, &line_iter);
+      reterr = TextNextNonemptyLineLstrip(&sample_trs, &line_idx, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
           break;
         }
-        goto OxSampleToPsam_ret_READ_RLSTREAM;
+        goto OxSampleToPsam_ret_RSTREAM_FAIL;
       }
-      linebuf_first_token = line_iter;
       ++sample_ct_p2;
       if (sample_ct_p2 < 3) {
         // header lines
         if (sample_ct_p2 == 1) {
           // bugfix (21 Mar 2018): can't set line_iter to nullptr here when
           // col_ct == 3
-          line_iter = NextTokenMult(linebuf_first_token, 2);
+          char* line_iter = NextTokenMult(line_start, 2);
           line_iter = FirstNonTspace(CurTokenEnd(line_iter));
           for (uint32_t col_idx = 3; col_idx != col_ct; ++col_idx) {
             token_end = CurTokenEnd(line_iter);
@@ -4221,10 +4216,10 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
       }
 
       // FID
-      token_end = CurTokenEnd(linebuf_first_token);
+      token_end = CurTokenEnd(line_start);
       write_iter = writebuf;
       if (write_fid) {
-        write_iter = memcpyax(write_iter, linebuf_first_token, token_end - linebuf_first_token, '\t');
+        write_iter = memcpyax(write_iter, line_start, token_end - line_start, '\t');
       }
 
       // IID
@@ -4325,7 +4320,6 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
       if (unlikely(fwrite_checked(cur_writebuf_start, write_iter - cur_writebuf_start, psamfile))) {
         goto OxSampleToPsam_ret_WRITE_FAIL;
       }
-      line_iter = token_end;
     }
 
     // no final writebuf flush since we didn't use usual manual-streaming
@@ -4342,8 +4336,8 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     *sample_ct_ptr = sample_ct;
   }
   while (0) {
-  OxSampleToPsam_ret_READ_RLSTREAM:
-    RLstreamErrPrint(".sample file", &sample_rls, &reterr);
+  OxSampleToPsam_ret_RSTREAM_FAIL:
+    TextRstreamErrPrint(".sample file", &sample_trs);
     break;
   OxSampleToPsam_ret_NOMEM:
     reterr = kPglRetNomem;
@@ -4379,7 +4373,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     break;
   }
  OxSampleToPsam_ret_1:
-  CleanupRLstream(&sample_rls);
+  CleanupTextRstream2(".sample file", &sample_trs, &reterr);
   fclose_cond(psamfile);
   BigstackReset(bigstack_mark);
   return reterr;
@@ -4484,9 +4478,9 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
   FILE* pvarfile = nullptr;
   PglErr reterr = kPglRetSuccess;
   uintptr_t line_idx = 0;
-  ReadLineStream gen_rls;
+  TextRstream gen_trs;
   STPgenWriter spgw;
-  PreinitRLstream(&gen_rls);
+  PreinitTextRstream(&gen_trs);
   PreinitSpgw(&spgw);
   {
     uint32_t sample_ct;
@@ -4504,34 +4498,28 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
     // 1. Count # of (non-chromosome-filtered) variants, write .pvar file, and
     //    check if at least one non-hardcall needs to be saved.
     // 2. Write the .pgen.
-    uintptr_t linebuf_size;
-    if (unlikely(StandardizeLinebufSize(bigstack_left() / 4, kMaxMediumLine + 1, &linebuf_size))) {
+    uint32_t max_line_blen;
+    if (unlikely(StandardizeMaxLineBlen(bigstack_left() / 4, &max_line_blen))) {
       goto OxGenToPgen_ret_NOMEM;
     }
-    const uint32_t calc_thread_ct = 1 + (max_thread_ct > 2);
-    reterr = RlsOpenMaybeBgzf(genname, calc_thread_ct, &gen_rls);
+    const uint32_t decompress_thread_ct = 1 + (max_thread_ct > 2);
+    reterr = InitTextRstream(genname, max_line_blen, decompress_thread_ct, &gen_trs);
     if (unlikely(reterr)) {
       if (reterr == kPglRetOpenFail) {
         const uint32_t slen = strlen(genname);
-        if (StrEndsWith(genname, ".gen", slen) ||
-            StrEndsWith(genname, ".gen.gz", slen)) {
-          logerrprintfww(kErrprintfFopen, genname, strerror(errno));
-        } else {
+        if ((!StrEndsWith(genname, ".gen", slen)) &&
+            (!StrEndsWith(genname, ".gen.gz", slen))) {
           logerrprintfww("Error: Failed to open %s : %s. (--gen expects a complete filename; did you forget '.gen' at the end?)\n", genname, strerror(errno));
+          goto OxGenToPgen_ret_1;
         }
       }
-      goto OxGenToPgen_ret_1;
-    }
-    char* line_iter;
-    reterr = InitRLstreamEx(0, kMaxLongLine, linebuf_size, &gen_rls, &line_iter);
-    if (unlikely(reterr)) {
-      goto OxGenToPgen_ret_1;
+      goto OxGenToPgen_ret_RSTREAM_FAIL;
     }
     const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
     FinalizeChrset(misc_flags, cip);
 
     char* writebuf;
-    if (unlikely(bigstack_alloc_c(kMaxMediumLine + linebuf_size, &writebuf))) {
+    if (unlikely(bigstack_alloc_c(kMaxMediumLine + max_line_blen, &writebuf))) {
       // shouldn't actually be possible, but may as well defend against changes
       // to how RLstream allocation works
       goto OxGenToPgen_ret_NOMEM;
@@ -4569,14 +4557,15 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
     uint32_t dosage_is_present = 0;
     uint32_t variant_ct = 0;
     uintptr_t variant_skip_ct = 0;
+    char* line_iter = TextLineEnd(&gen_trs);
     while (1) {
-      reterr = RlsNextNonemptyLstrip(&gen_rls, &line_idx, &line_iter);
+      reterr = TextNextNonemptyLineLstripUnsafe(&gen_trs, &line_idx, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           // reterr = kPglRetSuccess;
           break;
         }
-        goto OxGenToPgen_ret_READ_RLSTREAM;
+        goto OxGenToPgen_ret_RSTREAM_FAIL;
       }
       char* chr_code_str = line_iter;
       char* chr_code_end = CurTokenEnd(chr_code_str);
@@ -4734,7 +4723,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
         printf("\r--data/--gen: %uk variants scanned.", variant_ct / 1000);
         fflush(stdout);
       }
-      line_iter = K_CAST(char*, linebuf_iter);
+      line_iter = AdvPastDelim(K_CAST(char*, linebuf_iter), '\n');
     }
     putc_unlocked('\r', stdout);
     if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &pvarfile))) {
@@ -4752,11 +4741,23 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
 
     // second pass
     BigstackReset(writebuf);
-    gen_rls.bgzf_decompress_thread_ct = 1;
-    // force file to be reopened since we want to change bgzf_mt configuration.
-    reterr = RetargetRLstreamRaw(genname, &gen_rls, &line_iter);
-    if (unlikely(reterr)) {
-      goto OxGenToPgen_ret_READ_RLSTREAM;
+    if (TextRstreamIsMt(&gen_trs) && (decompress_thread_ct > 1)) {
+      // Close and reopen, so that we can reduce decompress_thread_ct to 1.
+      // (possible todo: lower-overhead way of doing this)
+      char* dst = gen_trs.base.dst;
+      if (unlikely(CleanupTextRstream(&gen_trs, &reterr))) {
+        logerrprintfww(kErrprintfFread, ".gen file", strerror(errno));
+        goto OxGenToPgen_ret_1;
+      }
+      reterr = TextRstreamOpenEx(genname, kMaxLongLine, max_line_blen, 1, nullptr, dst, &gen_trs);
+      if (unlikely(reterr)) {
+        goto OxGenToPgen_ret_RSTREAM_FAIL;
+      }
+    } else {
+      reterr = TextRewind(&gen_trs);
+      if (unlikely(reterr)) {
+        goto OxGenToPgen_ret_RSTREAM_FAIL;
+      }
     }
 
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
@@ -4800,12 +4801,14 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
     // line_idx to get line_ct
     const uintptr_t line_ct = line_idx;
     uint32_t vidx = 0;
+    line_iter = TextLineEnd(&gen_trs);
     for (line_idx = 1; line_idx <= line_ct; ++line_idx) {
-      if (unlikely(RlsNextLstrip(&gen_rls, &line_iter))) {
-        goto OxGenToPgen_ret_READ_FAIL;
+      if (unlikely(TextNextLineLstripUnsafe(&gen_trs, &line_iter))) {
+        goto OxGenToPgen_ret_REWIND_FAIL;
       }
-      char* chr_code_str = FirstNonTspace(line_iter);
+      char* chr_code_str = line_iter;
       if (IsEolnKns(*chr_code_str)) {
+        line_iter = AdvPastDelim(line_iter, '\n');
         continue;
       }
       char* chr_code_end = CurTokenEnd(chr_code_str);
@@ -4813,7 +4816,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
         *chr_code_end = '\0';
         const uint32_t chr_code = GetChrCode(chr_code_str, cip, chr_code_end - chr_code_str);
         if (!IsSet(cip->chr_mask, chr_code)) {
-          line_iter = chr_code_end;
+          line_iter = AdvPastDelim(chr_code_end, '\n');
           continue;
         }
       }
@@ -4931,7 +4934,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
         printf("\r--data/--gen: %uk variants converted.", vidx / 1000);
         fflush(stdout);
       }
-      line_iter = K_CAST(char*, linebuf_iter);
+      line_iter = AdvPastDelim(K_CAST(char*, linebuf_iter), '\n');
     }
     SpgwFinish(&spgw);
     putc_unlocked('\r', stdout);
@@ -4946,17 +4949,18 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
     logputsb();
   }
   while (0) {
-  OxGenToPgen_ret_READ_RLSTREAM:
-    RLstreamErrPrint(".gen file", &gen_rls, &reterr);
+  OxGenToPgen_ret_RSTREAM_FAIL:
+    TextRstreamErrPrint(".gen file", &gen_trs);
+    break;
+  OxGenToPgen_ret_REWIND_FAIL:
+    logerrprintfww(kErrprintfRewind, ".gen file");
+    reterr = kPglRetRewindFail;
     break;
   OxGenToPgen_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
   OxGenToPgen_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
-    break;
-  OxGenToPgen_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
     break;
   OxGenToPgen_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -4988,7 +4992,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
   if (SpgwCleanup(&spgw) && (!reterr)) {
     reterr = kPglRetWriteFail;
   }
-  CleanupRLstream(&gen_rls);
+  CleanupTextRstream2(".gen file", &gen_trs, &reterr);
   fclose_cond(pvarfile);
   BigstackReset(bigstack_mark);
   return reterr;
@@ -8444,11 +8448,11 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
   uintptr_t line_idx_haps = 0;
   uintptr_t line_idx_legend = 0;
   PglErr reterr = kPglRetSuccess;
-  ReadLineStream haps_rls;
-  ReadLineStream legend_rls;
+  TextRstream haps_trs;
+  TextRstream legend_trs;
   STPgenWriter spgw;
-  PreinitRLstream(&haps_rls);
-  PreinitRLstream(&legend_rls);
+  PreinitTextRstream(&haps_trs);
+  PreinitTextRstream(&legend_trs);
   PreinitSpgw(&spgw);
   {
     uint32_t sfile_sample_ct = 0;
@@ -8464,23 +8468,15 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       }
     }
 
-    uintptr_t linebuf_size;
-    if (unlikely(StandardizeLinebufSize(bigstack_left() / 4, kMaxMediumLine + 1, &linebuf_size))) {
+    uint32_t max_line_blen;
+    if (StandardizeMaxLineBlen(bigstack_left() / 4, &max_line_blen)) {
       goto OxHapslegendToPgen_ret_NOMEM;
     }
-    reterr = RlsOpenMaybeBgzf(hapsname, ClipU32(max_thread_ct - 1, 1, 4), &haps_rls);
+    reterr = InitTextRstream(hapsname, max_line_blen, ClipU32(max_thread_ct - 1, 1, 4), &haps_trs);
     if (unlikely(reterr)) {
-      if (reterr == kPglRetOpenFail) {
-        logerrprintfww("Error: Failed to open %s : %s.\n", hapsname, strerror(errno));
-      }
-      goto OxHapslegendToPgen_ret_1;
+      goto OxHapslegendToPgen_ret_RSTREAM_FAIL_HAPS;
     }
-    char* haps_line_iter;
-    reterr = InitRLstreamEx(0, kMaxLongLine, linebuf_size, &haps_rls, &haps_line_iter);
-    if (unlikely(reterr)) {
-      goto OxHapslegendToPgen_ret_1;
-    }
-    uintptr_t writebuf_size = linebuf_size + kMaxMediumLine;
+    uintptr_t writebuf_size = max_line_blen + kMaxMediumLine;
     char* writebuf = S_CAST(char*, bigstack_alloc_raw(writebuf_size));
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
@@ -8488,15 +8484,16 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       goto OxHapslegendToPgen_ret_OPEN_FAIL;
     }
     char* write_iter = strcpya_k(writebuf, "#CHROM\tPOS\tID\tREF\tALT" EOLN_STR);
-    reterr = RlsNextNonemptyLstrip(&haps_rls, &line_idx_haps, &haps_line_iter);
+    char* haps_line_start;
+    reterr = TextNextNonemptyLineLstrip(&haps_trs, &line_idx_haps, &haps_line_start);
     if (unlikely(reterr)) {
       if (reterr == kPglRetEof) {
         snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", hapsname);
         goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
       }
-      goto OxHapslegendToPgen_ret_READ_RLSTREAM_HAPS;
+      goto OxHapslegendToPgen_ret_RSTREAM_FAIL_HAPS;
     }
-    const uint32_t token_ct = CountTokens(haps_line_iter);
+    const uint32_t token_ct = CountTokens(haps_line_start);
     // pass 1: count variants, write .pvar file, may as well also verify
     // there's at least one heterozygous call
     FinalizeChrset(misc_flags, cip);
@@ -8520,9 +8517,9 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         snprintf(g_logbuf, kLogbufSize, "Error: .sample file has %u sample%s, while %s has %u.\n", sfile_sample_ct, (sfile_sample_ct == 1)? "" : "s", hapsname, sample_ct);
         goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
       }
-      reterr = RewindRLstreamRaw(&haps_rls, &haps_line_iter);
+      reterr = TextRewind(&haps_trs);
       if (unlikely(reterr)) {
-        goto OxHapslegendToPgen_ret_READ_RLSTREAM_HAPS;
+        goto OxHapslegendToPgen_ret_RSTREAM_FAIL_HAPS;
       }
       line_idx_haps = 0;
       const uint32_t chr_code_raw = GetChrCodeRaw(ox_single_chr_str);
@@ -8555,35 +8552,34 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         single_chr_str = chr_buf;
         single_chr_slen = chr_name_end - chr_buf;
       }
-      char* legend_line_iter;
-      reterr = InitRLstreamRaw(legendname, linebuf_size, &legend_rls, &legend_line_iter);
+      reterr = InitTextRstream(legendname, max_line_blen, 1, &legend_trs);
       if (unlikely(reterr)) {
         goto OxHapslegendToPgen_ret_1;
       }
-      reterr = RlsNextNonemptyLstrip(&legend_rls, &line_idx_legend, &legend_line_iter);
+      char* legend_line_start;
+      reterr = TextNextNonemptyLineLstrip(&legend_trs, &line_idx_legend, &legend_line_start);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", legendname);
           goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
         }
-        goto OxHapslegendToPgen_ret_READ_RLSTREAM_LEGEND;
+        goto OxHapslegendToPgen_ret_RSTREAM_FAIL_LEGEND;
       }
       // require at least 4 columns, in ID/pos/A1/A2 order; header text is
       // permitted to vary.  tolerate and ignore extra columns.
-      legend_line_iter = NextTokenMult(legend_line_iter, 3);
-      if (unlikely(!legend_line_iter)) {
+      if (unlikely(!NextTokenMult(legend_line_start, 3))) {
         goto OxHapslegendToPgen_ret_MISSING_TOKENS_LEGEND;
       }
       while (1) {
-        reterr = RlsNextNonemptyLstrip(&legend_rls, &line_idx_legend, &legend_line_iter);
+        reterr = TextNextNonemptyLineLstrip(&legend_trs, &line_idx_legend, &legend_line_start);
         if (reterr) {
           if (likely(reterr == kPglRetEof)) {
             // reterr = kPglRetSuccess;
             break;
           }
-          goto OxHapslegendToPgen_ret_READ_RLSTREAM_LEGEND;
+          goto OxHapslegendToPgen_ret_RSTREAM_FAIL_LEGEND;
         }
-        const char* linebuf_iter = legend_line_iter;
+        const char* linebuf_iter = legend_line_start;
         write_iter = memcpya(write_iter, single_chr_str, single_chr_slen);
         if (unlikely(ImportLegendCols(legendname, line_idx_legend, prov_ref_allele_second, &linebuf_iter, &write_iter, &variant_ct))) {
           putc_unlocked('\n', stdout);
@@ -8592,17 +8588,16 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
           goto OxHapslegendToPgen_ret_WRITE_FAIL;
         }
-        legend_line_iter = K_CAST(char*, linebuf_iter);
         if (!at_least_one_het) {
-          reterr = RlsNextNonemptyLstrip(&haps_rls, &line_idx_haps, &haps_line_iter);
+          reterr = TextNextNonemptyLineLstrip(&haps_trs, &line_idx_haps, &haps_line_start);
           if (unlikely(reterr)) {
             if (reterr == kPglRetEof) {
               snprintf(g_logbuf, kLogbufSize, "Error: %s has fewer nonheader lines than %s.\n", hapsname, legendname);
               goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
             }
-            goto OxHapslegendToPgen_ret_READ_RLSTREAM_HAPS;
+            goto OxHapslegendToPgen_ret_REWIND_FAIL_HAPS;
           }
-          reterr = ScanHapsForHet(haps_line_iter, hapsname, sample_ct, is_haploid, line_idx_haps, &at_least_one_het);
+          reterr = ScanHapsForHet(haps_line_start, hapsname, sample_ct, is_haploid, line_idx_haps, &at_least_one_het);
           if (unlikely(reterr)) {
             putc_unlocked('\n', stdout);
             WordWrapB(0);
@@ -8611,9 +8606,9 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
           }
         }
       }
-      BigstackReset(RLstreamMemStart(&legend_rls));
-      reterr = CleanupRLstream(&legend_rls);
-      if (unlikely(reterr)) {
+      BigstackReset(TextRstreamMemStart(&legend_trs));
+      if (CleanupTextRstream(&legend_trs, &reterr)) {
+        logerrprintfww(kErrprintfFread, legendname, strerror(errno));
         goto OxHapslegendToPgen_ret_1;
       }
     } else {
@@ -8626,6 +8621,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         snprintf(g_logbuf, kLogbufSize, "Error: .sample file has %u sample%s, while %s has %u.\n", sfile_sample_ct, (sfile_sample_ct == 1)? "" : "s", hapsname, sample_ct);
         goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
       }
+      char* haps_line_iter = haps_line_start;
       while (1) {
         if (!IsEolnKns(*haps_line_iter)) {
           char* chr_code_end = CurTokenEnd(haps_line_iter);
@@ -8659,16 +8655,16 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
               }
             }
           }
-          haps_line_iter = linebuf_iter;
+          haps_line_iter = AdvPastDelim(linebuf_iter, '\n');
         }
         ++line_idx_haps;
-        reterr = RlsNextLstrip(&haps_rls, &haps_line_iter);
+        reterr = TextNextLineLstripUnsafe(&haps_trs, &haps_line_iter);
         if (reterr) {
           if (likely(reterr == kPglRetEof)) {
             // reterr = kPglRetSuccess;
             break;
           }
-          goto OxHapslegendToPgen_ret_READ_RLSTREAM_HAPS;
+          goto OxHapslegendToPgen_ret_RSTREAM_FAIL_HAPS;
         }
       }
       if (unlikely(!variant_ct)) {
@@ -8699,9 +8695,9 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         goto OxHapslegendToPgen_ret_WRITE_FAIL;
       }
     }
-    reterr = RewindRLstreamRaw(&haps_rls, &haps_line_iter);
+    reterr = TextRewind(&haps_trs);
     if (unlikely(reterr)) {
-      goto OxHapslegendToPgen_ret_READ_RLSTREAM_HAPS;
+      goto OxHapslegendToPgen_ret_RSTREAM_FAIL_HAPS;
     }
     line_idx_haps = 0;
     BigstackReset(writebuf);
@@ -8735,11 +8731,9 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       goto OxHapslegendToPgen_ret_NOMEM;
     }
 
-    haps_line_iter = AdvToDelim(haps_line_iter, '\n');
+    char* haps_line_iter = TextLineEnd(&haps_trs);
     for (uint32_t vidx = 0; vidx != variant_ct; ) {
-      ++line_idx_haps;
-      ++haps_line_iter;
-      reterr = RlsPostlfNext(&haps_rls, &haps_line_iter);
+      reterr = TextNextNonemptyLineLstripUnsafe(&haps_trs, &line_idx_haps, &haps_line_iter);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
           if (legendname[0]) {
@@ -8747,21 +8741,16 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
             goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
           }
           // we saw more variants in this file in the previous pass...
-          reterr = kPglRetReadFail;
+          goto OxHapslegendToPgen_ret_REWIND_FAIL_HAPS;
         }
-        goto OxHapslegendToPgen_ret_READ_RLSTREAM_HAPS;
-      }
-      haps_line_iter = FirstNonTspace(haps_line_iter);
-      if (IsEolnKns(*haps_line_iter)) {
-        haps_line_iter = AdvToDelim(haps_line_iter, '\n');
-        continue;
+        goto OxHapslegendToPgen_ret_RSTREAM_FAIL_HAPS;
       }
       char* linebuf_iter = haps_line_iter;
       if (!legendname[0]) {
         char* chr_code_end = CurTokenEnd(haps_line_iter);
         const uint32_t cur_chr_code = GetChrCodeCounted(cip, chr_code_end - haps_line_iter, haps_line_iter);
         if (!IsSet(cip->chr_mask, cur_chr_code)) {
-          haps_line_iter = AdvToDelim(haps_line_iter, '\n');
+          haps_line_iter = AdvPastDelim(haps_line_iter, '\n');
           continue;
         }
         is_haploid = IsSet(cip->haploid_mask, cur_chr_code);
@@ -8776,7 +8765,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       // this loop is time-critical; all my attemps to merge in the haploid
       // case have caused >10% slowdowns
       if ((!is_haploid) && (ctou32(linebuf_iter[sample_ct * 4 - 1]) < 32)) {
-        haps_line_iter = AdvToDelim(&(linebuf_iter[sample_ct * 4 - 1]), '\n');
+        haps_line_iter = AdvPastDelim(&(linebuf_iter[sample_ct * 4 - 1]), '\n');
         linebuf_iter[sample_ct * 4 - 1] = ' ';
 #ifdef __LP64__
         const VecU16* linebuf_viter = R_CAST(const VecU16*, linebuf_iter);
@@ -8940,7 +8929,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
           genovec_word_or |= genovec_word;
           R_CAST(Halfword*, phaseinfo)[widx] = phaseinfo_hw;
         }
-        haps_line_iter = AdvToDelim(linebuf_iter, '\n');
+        haps_line_iter = AdvPastDelim(linebuf_iter, '\n');
       }
       if (prov_ref_allele_second) {
         GenovecInvertUnsafe(sample_ct, genovec);
@@ -8980,11 +8969,17 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     logputsb();
   }
   while (0) {
-  OxHapslegendToPgen_ret_READ_RLSTREAM_HAPS:
-    RLstreamErrPrint(hapsname, &haps_rls, &reterr);
+  OxHapslegendToPgen_ret_REWIND_FAIL_HAPS:
+    putc_unlocked('\n', stdout);
+    reterr = kPglRetRewindFail;
+    logerrprintfww(kErrprintfRewind, hapsname);
     break;
-  OxHapslegendToPgen_ret_READ_RLSTREAM_LEGEND:
-    RLstreamErrPrint(legendname, &legend_rls, &reterr);
+  OxHapslegendToPgen_ret_RSTREAM_FAIL_HAPS:
+    putc_unlocked('\n', stdout);
+    TextRstreamErrPrint(hapsname, &haps_trs);
+    break;
+  OxHapslegendToPgen_ret_RSTREAM_FAIL_LEGEND:
+    TextRstreamErrPrint(legendname, &legend_trs);
     break;
   OxHapslegendToPgen_ret_NOMEM:
     reterr = kPglRetNomem;
@@ -9030,8 +9025,8 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
   }
  OxHapslegendToPgen_ret_1:
   SpgwCleanup(&spgw);
-  CleanupRLstream(&legend_rls);
-  CleanupRLstream(&haps_rls);
+  CleanupTextRstream2(legendname, &legend_trs, &reterr);
+  CleanupTextRstream2(hapsname, &haps_trs, &reterr);
   fclose_cond(outfile);
   BigstackReset(bigstack_mark);
   return reterr;

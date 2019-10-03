@@ -140,7 +140,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
     // 1. read .psam/.fam file, update sample_ct, initialize
     //    local_sample_uidx_order (use OpenAndLoadXidHeader()?)
     uint32_t max_line_blen;
-    if (unlikely(StandardizeMaxLineBlen(bigstack_left() / 4, 2 * kDecompressChunkSize, &max_line_blen))) {
+    if (unlikely(StandardizeMaxLineBlenEx(bigstack_left() / 4, 2 * kDecompressChunkSize, &max_line_blen))) {
       goto GlmLocalOpen_ret_NOMEM;
     }
     reterr = InitTextRstreamEx(local_psam_fname, 1, kMaxLongLine, max_line_blen, 1, &trs);
@@ -600,6 +600,9 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       dst_capacity = local_covar_trf.base.dst_len;
     }
     dst_capacity = RoundUpPow2(dst_capacity, kCacheline);
+    if (bigstack_left() < dst_capacity) {
+      goto GlmLocalOpen_ret_NOMEM;
+    }
     g_bigstack_base = R_CAST(unsigned char*, &(dst[dst_capacity]));
     reterr = TextRstreamOpenEx(nullptr, enforced_max_line_blen, dst_capacity, 1, &local_covar_trf, nullptr, local_covar_trsp);
     if (unlikely(reterr)) {

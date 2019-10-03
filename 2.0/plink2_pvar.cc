@@ -813,7 +813,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
   {
     const uintptr_t quarter_left = RoundDownPow2(bigstack_left() / 4, kCacheline);
     uint32_t max_line_blen;
-    if (unlikely(StandardizeMaxLineBlen(quarter_left, kLoadPvarBlockSize * 2 * sizeof(intptr_t), &max_line_blen))) {
+    if (unlikely(StandardizeMaxLineBlenEx(quarter_left, kLoadPvarBlockSize * 2 * sizeof(intptr_t), &max_line_blen))) {
       goto LoadPvar_ret_NOMEM;
     }
     // bugfix (29 Jun 2018): don't cap allele_storage space at 2 GB, otherwise

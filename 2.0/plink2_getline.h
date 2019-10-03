@@ -418,8 +418,10 @@ HEADER_INLINE PglErr TextNextLineLstripUnsafe(TextRstream* trsp, char** line_ite
   return kPglRetSuccess;
 }
 
+PglErr TextNextNonemptyLineLstripUnsafe(TextRstream* trsp, uintptr_t* line_idx_ptr, char** line_iterp);
 
-HEADER_INLINE uint32_t TextIsMt(const TextRstream* trsp) {
+
+HEADER_INLINE uint32_t TextRstreamIsMt(const TextRstream* trsp) {
   // Only bgzf decoder is multithreaded for now.
   return (trsp->base.file_type == kFileBgzf);
 }

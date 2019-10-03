@@ -497,6 +497,9 @@ PglErr BgzfRawMtStreamRetarget(BgzfRawMtDecompressStream* bgzfp, FILE* next_ff, 
     bodyp->cwd[parity]->target_capacity = 0;
     bodyp->cwd[parity]->target = nullptr;
     ZeroU32Arr(kMaxBgzfDecompressThreads + 1, bodyp->cwd[parity]->in_offsets);
+    // bugfix (3 Oct 2019): forgot this
+    bgzfp->overflow_start[parity] = 0;
+    bgzfp->overflow_end[parity] = 0;
   }
   BgzfMtReadCommWithR* next_cwr = bodyp->cwr[next_producer_parity];
   next_cwr->locked_start = kBgzfRawMtStreamRetargetCode;

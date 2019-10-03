@@ -465,6 +465,8 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
           if (sid_slen >= max_sid_blen) {
             max_sid_blen = sid_slen + 1;
           }
+          // bugfix (3 Oct 2019): forgot this
+          new_psam_info->sid_slen = sid_slen;
         }
         if (paternal_ids_present) {
           if (paternal_id_slen >= max_paternal_id_blen) {
