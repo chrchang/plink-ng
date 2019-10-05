@@ -1593,7 +1593,7 @@ uint32_t CubicRealRoots(double coef_a, double coef_b, double coef_c, STD_ARRAY_R
 void JoinThreadsOld(uint32_t ctp1, pthread_t* threads);
 
 #ifndef _WIN32
-extern pthread_attr_t g_smallstack_thread_attr;
+extern pthread_attr_t g_smallstack_thread_attr_old;
 #endif
 
 BoolErr SpawnThreadsOld(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthread_t* threads);

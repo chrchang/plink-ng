@@ -1068,7 +1068,7 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
             reterr = kPglRetSuccess;
             goto KeepOrRemove_empty_file;
           }
-          goto KeepOrRemove_ret_TSTREAM_FAIL;
+          goto KeepOrRemove_ret_TSTREAM_XID_FAIL;
         }
         const uint32_t allow_dups = siip->sids && (!(xid_mode & kfXidModeFlagSid));
         reterr = SortedXidboxInitAlloc(sample_include, siip, orig_sample_ct, allow_dups, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
@@ -1082,7 +1082,7 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
           *line_start = '\0';
         }
       } else {
-        line_start = K_CAST(char*, &(g_one_char_strs[20]));
+        line_start = K_CAST(char*, &(g_one_char_strs[0]));
       }
       while (1) {
         if (!IsEolnKns(*line_start)) {
@@ -1166,6 +1166,10 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
   KeepOrRemove_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
+  KeepOrRemove_ret_TSTREAM_XID_FAIL:
+    if (!TextStreamErrcode(&txs)) {
+      break;
+    }
   KeepOrRemove_ret_TSTREAM_FAIL:
     TextStreamErrPrint(fname_txs, &txs);
     break;
@@ -1225,7 +1229,7 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
         logerrputs("Error: Empty --keep-fcol file.\n");
         goto KeepFcol_ret_MALFORMED_INPUT;
       }
-      goto KeepFcol_ret_TSTREAM_FAIL;
+      goto KeepFcol_ret_TSTREAM_XID_FAIL;
     }
     const uint32_t id_col_ct = GetXidColCt(xid_mode);
     uint32_t postid_col_idx = 0;
@@ -1332,6 +1336,10 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
   KeepFcol_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
+  KeepFcol_ret_TSTREAM_XID_FAIL:
+    if (!TextStreamErrcode(&txs)) {
+      break;
+    }
   KeepFcol_ret_TSTREAM_FAIL:
     TextStreamErrPrint("--keep-fcol file", &txs);
     break;

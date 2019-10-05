@@ -7924,7 +7924,7 @@ PglErr SampleSortFileMap(const uintptr_t* sample_include, const SampleIdInfo* si
         logerrputs("Error: --indiv-sort file is empty.\n");
         goto SampleSortFileMap_ret_MALFORMED_INPUT;
       }
-      goto SampleSortFileMap_ret_TSTREAM_FAIL;
+      goto SampleSortFileMap_ret_TSTREAM_XID_FAIL;
     }
     uint32_t* xid_map;
     char* sorted_xidbox;
@@ -7988,6 +7988,10 @@ PglErr SampleSortFileMap(const uintptr_t* sample_include, const SampleIdInfo* si
   SampleSortFileMap_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
+  SampleSortFileMap_ret_TSTREAM_XID_FAIL:
+    if (!TextStreamErrcode(&txs)) {
+      break;
+    }
   SampleSortFileMap_ret_TSTREAM_FAIL:
     TextStreamErrPrint("--indiv-sort file", &txs);
     break;

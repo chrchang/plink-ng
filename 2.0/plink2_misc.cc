@@ -48,12 +48,12 @@ void CleanupSdiff(SdiffInfo* sdiff_info_ptr) {
   free_cond(sdiff_info_ptr->other_ids_flattened);
 }
 
-PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const TwoColParams* params, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t htable_size, uintptr_t* variant_include, uint32_t* __restrict variant_bps, uint32_t* __restrict variant_ct_ptr, UnsortedVar* vpos_sortstatusp) {
+PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const TwoColParams* params, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t htable_size, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* __restrict variant_bps, uint32_t* __restrict variant_ct_ptr, UnsortedVar* vpos_sortstatusp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
-  ReadLineStream rls;
-  PreinitRLstream(&rls);
+  TextStream txs;
+  PreinitTextStream(&txs);
   {
     uintptr_t* already_seen;
     if (unlikely(
@@ -62,18 +62,17 @@ PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const ui
     }
     // This could be pointed at a file containing allele codes, so don't limit
     // line length to minimum value.
-    const char* line_iter;
-    reterr = SizeAndInitRLstreamRawK(params->fname, bigstack_left() / 4, &rls, &line_iter);
+    reterr = SizeAndInitTextStream(params->fname, bigstack_left() / 4, MAXV(max_thread_ct - 1, 1), &txs);
     if (unlikely(reterr)) {
-      goto UpdateVarBps_ret_1;
+      goto UpdateVarBps_ret_TSTREAM_FAIL;
     }
-    reterr = RlsSkipK(params->skip_ct, &rls, &line_iter);
+    reterr = TextSkip(params->skip_ct, &txs);
     if (unlikely(reterr)) {
       if (reterr == kPglRetEof) {
         snprintf(g_logbuf, kLogbufSize, "Error: Fewer lines than expected in %s.\n", params->fname);
         goto UpdateVarBps_ret_INCONSISTENT_INPUT_WW;
       }
-      goto UpdateVarBps_ret_READ_RLSTREAM;
+      goto UpdateVarBps_ret_TSTREAM_FAIL;
     }
     line_idx = params->skip_ct;
     const uint32_t colid_first = (params->colid < params->colx);
@@ -92,29 +91,29 @@ PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const ui
     uint32_t hit_ct = 0;
     while (1) {
       ++line_idx;
-      reterr = RlsNextLstripK(&rls, &line_iter);
+      const char* line_start;
+      reterr = TextNextLineLstripK(&txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
           break;
         }
-        goto UpdateVarBps_ret_READ_RLSTREAM;
+        goto UpdateVarBps_ret_TSTREAM_FAIL;
       }
-      const char* linebuf_first_token = line_iter;
-      char cc = *linebuf_first_token;
+      char cc = *line_start;
       if (IsEolnKns(cc) || (cc == skipchar)) {
         continue;
       }
       const char* colid_ptr;
       const char* colbp_ptr;
       if (colid_first) {
-        colid_ptr = NextTokenMult0(linebuf_first_token, colmin);
+        colid_ptr = NextTokenMult0(line_start, colmin);
         colbp_ptr = NextTokenMult(colid_ptr, coldiff);
         if (unlikely(!colbp_ptr)) {
           goto UpdateVarBps_ret_MISSING_TOKENS;
         }
       } else {
-        colbp_ptr = NextTokenMult0(linebuf_first_token, colmin);
+        colbp_ptr = NextTokenMult0(line_start, colmin);
         colid_ptr = NextTokenMult(colbp_ptr, coldiff);
         if (unlikely(!colid_ptr)) {
           goto UpdateVarBps_ret_MISSING_TOKENS;
@@ -198,8 +197,8 @@ PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const ui
   UpdateVarBps_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  UpdateVarBps_ret_READ_RLSTREAM:
-    RLstreamErrPrint("--update-map file", &rls, &reterr);
+  UpdateVarBps_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--update-map file", &txs);
     break;
   UpdateVarBps_ret_MISSING_TOKENS:
     snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --update-map file has fewer tokens than expected.\n", line_idx);
@@ -212,18 +211,17 @@ PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const ui
     reterr = kPglRetMalformedInput;
     break;
   }
- UpdateVarBps_ret_1:
-  CleanupRLstream(&rls);
+  CleanupTextStream2("--update-map file", &txs, &reterr);
   BigstackReset(bigstack_mark);
   return reterr;
 }
 
-PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const TwoColParams* params, uint32_t raw_variant_ct, uint32_t htable_size, char** variant_ids, uint32_t* max_variant_id_slen_ptr) {
+PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const TwoColParams* params, uint32_t raw_variant_ct, uint32_t htable_size, uint32_t max_thread_ct, char** variant_ids, uint32_t* max_variant_id_slen_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
-  ReadLineStream rls;
-  PreinitRLstream(&rls);
+  TextStream txs;
+  PreinitTextStream(&txs);
   {
     const uint32_t orig_max_variant_id_slen = *max_variant_id_slen_ptr;
     uint32_t max_variant_id_slen = orig_max_variant_id_slen;
@@ -239,18 +237,17 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
     // line length to minimum value.
     // On the other hand, new variant IDs are allocated off the end of
     // bigstack, and that could result in a lot of memory pressure.
-    const char* line_iter;
-    reterr = SizeAndInitRLstreamRawK(params->fname, bigstack_left() / 4, &rls, &line_iter);
+    reterr = SizeAndInitTextStream(params->fname, bigstack_left() / 4, MAXV(max_thread_ct - 1, 1), &txs);
     if (unlikely(reterr)) {
-      goto UpdateVarNames_ret_1;
+      goto UpdateVarNames_ret_TSTREAM_FAIL;
     }
-    reterr = RlsSkipK(params->skip_ct, &rls, &line_iter);
+    reterr = TextSkip(params->skip_ct, &txs);
     if (unlikely(reterr)) {
       if (reterr == kPglRetEof) {
         snprintf(g_logbuf, kLogbufSize, "Error: Fewer lines than expected in %s.\n", params->fname);
         goto UpdateVarNames_ret_INCONSISTENT_INPUT_WW;
       }
-      goto UpdateVarNames_ret_READ_RLSTREAM;
+      goto UpdateVarNames_ret_TSTREAM_FAIL;
     }
     line_idx = params->skip_ct;
     const uint32_t colold_first = (params->colid < params->colx);
@@ -270,29 +267,29 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
     uint32_t hit_ct = 0;
     while (1) {
       ++line_idx;
-      reterr = RlsNextLstripK(&rls, &line_iter);
+      const char* line_start;
+      reterr = TextNextLineLstripK(&txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
           break;
         }
-        goto UpdateVarNames_ret_READ_RLSTREAM;
+        goto UpdateVarNames_ret_TSTREAM_FAIL;
       }
-      const char* linebuf_first_token = line_iter;
-      char cc = *linebuf_first_token;
+      char cc = *line_start;
       if (IsEolnKns(cc) || (cc == skipchar)) {
         continue;
       }
       const char* colold_ptr;
       const char* colnew_ptr;
       if (colold_first) {
-        colold_ptr = NextTokenMult0(linebuf_first_token, colmin);
+        colold_ptr = NextTokenMult0(line_start, colmin);
         colnew_ptr = NextTokenMult(colold_ptr, coldiff);
         if (unlikely(!colnew_ptr)) {
           goto UpdateVarNames_ret_MISSING_TOKENS;
         }
       } else {
-        colnew_ptr = NextTokenMult0(linebuf_first_token, colmin);
+        colnew_ptr = NextTokenMult0(line_start, colmin);
         colold_ptr = NextTokenMult(colnew_ptr, coldiff);
         if (unlikely(!colold_ptr)) {
           goto UpdateVarNames_ret_MISSING_TOKENS;
@@ -357,8 +354,8 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
   UpdateVarNames_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  UpdateVarNames_ret_READ_RLSTREAM:
-    RLstreamErrPrint("--update-name file", &rls, &reterr);
+  UpdateVarNames_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--update-name file", &txs);
     break;
   UpdateVarNames_ret_MISSING_TOKENS:
     snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --update-name file has fewer tokens than expected.\n", line_idx);
@@ -368,13 +365,12 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
     reterr = kPglRetInconsistentInput;
     break;
   }
- UpdateVarNames_ret_1:
-  CleanupRLstream(&rls);
+  CleanupTextStream2("--update-name file", &txs, &reterr);
   BigstackReset(bigstack_mark);
   return reterr;
 }
 
-PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const uintptr_t* allele_idx_offsets, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t htable_size, char** allele_storage_mutable, uint32_t* max_allele_slen_ptr, char* outname, char* outname_end) {
+PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const uintptr_t* allele_idx_offsets, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t htable_size, uint32_t max_thread_ct, char** allele_storage_mutable, uint32_t* max_allele_slen_ptr, char* outname, char* outname_end) {
   // probable todos:
   // - add '3col' modifier to support three-column input file where second
   //   column has comma-delimited old alleles and third column has
@@ -388,17 +384,16 @@ PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, con
   uintptr_t line_idx = 0;
   FILE* errfile = nullptr;
   PglErr reterr = kPglRetSuccess;
-  ReadLineStream rls;
-  PreinitRLstream(&rls);
+  TextStream txs;
+  PreinitTextStream(&txs);
   {
     uintptr_t* already_seen;
     if (unlikely(bigstack_calloc_w(BitCtToWordCt(raw_variant_ct), &already_seen))) {
       goto UpdateVarAlleles_ret_NOMEM;
     }
-    const char* line_iter;
-    reterr = SizeAndInitRLstreamRawK(fname, bigstack_left() / 4, &rls, &line_iter);
+    reterr = SizeAndInitTextStream(fname, bigstack_left() / 4, MAXV(max_thread_ct - 1, 1), &txs);
     if (unlikely(reterr)) {
-      goto UpdateVarAlleles_ret_1;
+      goto UpdateVarAlleles_ret_TSTREAM_FAIL;
     }
     const char* std_input_missing_geno = &(g_one_char_strs[92]);
     const char input_missing_geno_char = *g_input_missing_geno_ptr;
@@ -409,18 +404,15 @@ PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, con
     uint32_t hit_ct = 0;
     uint32_t max_allele_slen = *max_allele_slen_ptr;
     uint32_t cur_allele_ct = 2;
-    while (1) {
-      ++line_idx;
-      reterr = RlsNextLstripK(&rls, &line_iter);
+    const char* line_iter = TextLineEnd(&txs);
+    for (; ; line_iter = AdvPastDelim(line_iter, '\n')) {
+      reterr = TextNextNonemptyLineLstripUnsafeK(&txs, &line_idx, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
           break;
         }
-        goto UpdateVarAlleles_ret_READ_RLSTREAM;
-      }
-      if (IsEolnKns(*line_iter)) {
-        continue;
+        goto UpdateVarAlleles_ret_TSTREAM_FAIL;
       }
       const char* varid_start = line_iter;
       const char* varid_end = CurTokenEnd(varid_start);
@@ -614,8 +606,8 @@ PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, con
   UpdateVarAlleles_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
-  UpdateVarAlleles_ret_READ_RLSTREAM:
-    RLstreamErrPrint("--update-alleles file", &rls, &reterr);
+  UpdateVarAlleles_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--update-alleles file", &txs);
     break;
   UpdateVarAlleles_ret_MISSING_TOKENS:
     logerrprintfww("Error: Line %" PRIuPTR " of --update-alleles file has fewer tokens than expected.\n", line_idx);
@@ -634,19 +626,18 @@ PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, con
     reterr = kPglRetMalformedInput;
     break;
   }
- UpdateVarAlleles_ret_1:
   fclose_cond(errfile);
-  CleanupRLstream(&rls);
+  CleanupTextStream2("--update-alleles file", &txs, &reterr);
   BigstackReset(bigstack_mark);
   return reterr;
 }
 
-PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, const char* family_missing_catname, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uint32_t mwithin_val, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
+PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, const char* family_missing_catname, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uint32_t mwithin_val, uint32_t max_thread_ct, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
-  ReadLineStream within_rls;
-  PreinitRLstream(&within_rls);
+  TextStream within_txs;
+  PreinitTextStream(&within_txs);
   {
     if (!sample_ct) {
       goto Plink1ClusterImport_ret_1;
@@ -751,10 +742,9 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
       if (unlikely(CopySortStrboxSubset(sample_include, sample_ids, sample_ct, max_sample_id_blen, 1, 0, 0, &sorted_idbox, &id_map))) {
         goto Plink1ClusterImport_ret_NOMEM;
       }
-      char* line_iter;
-      reterr = SizeAndInitRLstreamRaw(within_fname, bigstack_left() - (bigstack_left() / 4), &within_rls, &line_iter);
+      reterr = SizeAndInitTextStream(within_fname, bigstack_left() - (bigstack_left() / 4), MAXV(max_thread_ct - 1, 1), &within_txs);
       if (unlikely(reterr)) {
-        goto Plink1ClusterImport_ret_1;
+        goto Plink1ClusterImport_ret_TSTREAM_FAIL;
       }
       char* cat_name_write_start = R_CAST(char*, g_bigstack_base);
       char* cat_name_iter = cat_name_write_start;
@@ -763,22 +753,17 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
       uint32_t nonnull_cat_ct = 0;
       uintptr_t miss_ct = 0;
       uintptr_t duplicate_ct = 0;
-      while (1) {
-        line_iter = AdvToDelim(line_iter, '\n');
+      for (char* line_iter = &(TextLineEnd(&within_txs)[-1]); ; line_iter = AdvToDelim(line_iter, '\n')) {
+        // need this since we may clobber \n
       Plink1ClusterImport_LINE_ITER_ALREADY_ADVANCED:
         ++line_iter;
-        ++line_idx;
-        reterr = RlsPostlfNext(&within_rls, &line_iter);
+        reterr = TextNextNonemptyLineLstripUnsafe(&within_txs, &line_idx, &line_iter);
         if (reterr) {
           if (likely(reterr == kPglRetEof)) {
             reterr = kPglRetSuccess;
             break;
           }
-          goto Plink1ClusterImport_ret_READ_RLSTREAM;
-        }
-        line_iter = FirstNonTspace(line_iter);
-        if (IsEolnKns(*line_iter)) {
-          continue;
+          goto Plink1ClusterImport_ret_TSTREAM_FAIL;
         }
         char* fid_start = line_iter;
         char* fid_end = CurTokenEnd(fid_start);
@@ -860,7 +845,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
       }
       if (unlikely(!nonnull_cat_ct)) {
         logerrputs("Error: All --within categories are null.\n");
-        goto Plink1ClusterImport_ret_INCONSISTENT_INPUT_WW;
+        goto Plink1ClusterImport_ret_INCONSISTENT_INPUT;
       }
       double dxx;
       const uint32_t prepend_c = (ScanadvDouble(cur_cat_names[1], &dxx) != nullptr);
@@ -999,7 +984,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
       }
       if (unlikely(!nonnull_cat_ct)) {
         logerrputs("Error: All --family FIDs are null.\n");
-        goto Plink1ClusterImport_ret_INCONSISTENT_INPUT_WW;
+        goto Plink1ClusterImport_ret_INCONSISTENT_INPUT;
       }
       // add 'P' prefixes?
       double dxx;
@@ -1057,8 +1042,8 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
   Plink1ClusterImport_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  Plink1ClusterImport_ret_READ_RLSTREAM:
-    RLstreamErrPrint("--within file", &within_rls, &reterr);
+  Plink1ClusterImport_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--within file", &within_txs);
     break;
   Plink1ClusterImport_ret_MISSING_TOKENS:
     snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --within file has fewer tokens than expected.\n", line_idx);
@@ -1074,7 +1059,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
     break;
   }
  Plink1ClusterImport_ret_1:
-  CleanupRLstream(&within_rls);
+  CleanupTextStream2("--within file", &within_txs, &reterr);
   BigstackReset(bigstack_mark);
   if (reterr) {
     if (*pheno_names_ptr) {
@@ -1092,28 +1077,28 @@ PglErr PrescanSampleIds(const char* fname, SampleIdInfo* siip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
-  ReadLineStream rls;
-  PreinitRLstream(&rls);
+  TextStream txs;
+  PreinitTextStream(&txs);
   {
-    const char* line_iter;
-    reterr = InitRLstreamFastsizeRawK(fname, &rls, &line_iter);
+    reterr = InitTextStream(fname, kTextStreamBlenFast, 1, &txs);
     if (unlikely(reterr)) {
-      goto PrescanSampleIds_ret_1;
+      goto PrescanSampleIds_ret_TSTREAM_FAIL;
     }
     uint32_t is_header_line;
+    const char* line_iter;
     do {
-      ++line_idx;
-      reterr = RlsNextLstripK(&rls, &line_iter);
+      reterr = TextNextNonemptyLineLstripK(&txs, &line_idx, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
-          // permit empty file
-          reterr = kPglRetSuccess;
+          // permit empty file, but signal this to caller
+          // (reterr == kPglRetSuccess when file is nonempty, so we can detect
+          // rewind-fail)
           goto PrescanSampleIds_ret_1;
         }
-        goto PrescanSampleIds_ret_READ_RLSTREAM;
+        goto PrescanSampleIds_ret_TSTREAM_FAIL;
       }
       is_header_line = (*line_iter == '#');
-    } while (IsEolnKns(*line_iter) || (is_header_line && (!tokequal_k(&(line_iter[1]), "OLD_FID")) && (!tokequal_k(&(line_iter[1]), "OLD_IID"))));
+    } while (is_header_line && (!tokequal_k(&(line_iter[1]), "OLD_FID")) && (!tokequal_k(&(line_iter[1]), "OLD_IID")));
     uint32_t old_fid_present = 0;
     uint32_t old_sid_present = 0;
     uint32_t new_fid_present = 0;
@@ -1201,10 +1186,11 @@ PglErr PrescanSampleIds(const char* fname, SampleIdInfo* siip) {
         }
       }
       ++line_idx;
-      reterr = RlsNextLstripK(&rls, &line_iter);
+      line_iter = AdvPastDelim(line_iter, '\n');
+      reterr = TextNextLineLstripUnsafeK(&txs, &line_iter);
     } while (!reterr);
     if (unlikely(reterr != kPglRetEof)) {
-      goto PrescanSampleIds_ret_READ_RLSTREAM;
+      goto PrescanSampleIds_ret_TSTREAM_FAIL;
     }
     reterr = kPglRetSuccess;
     siip->max_sample_id_blen = max_sample_id_blen;
@@ -1213,8 +1199,8 @@ PglErr PrescanSampleIds(const char* fname, SampleIdInfo* siip) {
     }
   }
   while (0) {
-  PrescanSampleIds_ret_READ_RLSTREAM:
-    RLstreamErrPrint("--update-ids file", &rls, &reterr);
+  PrescanSampleIds_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--update-ids file", &txs);
     break;
   PrescanSampleIds_ret_MISSING_TOKENS:
     snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --update-ids file has fewer tokens than expected.\n", line_idx);
@@ -1226,40 +1212,41 @@ PglErr PrescanSampleIds(const char* fname, SampleIdInfo* siip) {
     break;
   }
  PrescanSampleIds_ret_1:
-  CleanupRLstream(&rls);
+  CleanupTextStream2("--update-ids file", &txs, &reterr);
   BigstackReset(bigstack_mark);
   return reterr;
 }
 
-PglErr PrescanParentalIds(const char* fname, ParentalIdInfo* parental_id_infop) {
+PglErr PrescanParentalIds(const char* fname, uint32_t max_thread_ct, ParentalIdInfo* parental_id_infop) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
-  ReadLineStream rls;
-  PreinitRLstream(&rls);
+  TextStream txs;
+  PreinitTextStream(&txs);
   {
     // permit very long lines since this can be pointed at .ped files
     // possible minor todo: could save longest line length for later reference
-    const char* line_iter;
-    reterr = SizeAndInitRLstreamRawK(fname, bigstack_left() - (bigstack_left() / 4), &rls, &line_iter);
+    reterr = SizeAndInitTextStream(fname, bigstack_left() - (bigstack_left() / 4), MAXV(max_thread_ct - 1, 1), &txs);
     if (unlikely(reterr)) {
-      goto PrescanParentalIds_ret_1;
+      goto PrescanParentalIds_ret_TSTREAM_FAIL;
     }
 
     uint32_t is_header_line;
+    const char* line_iter;
     do {
       ++line_idx;
-      reterr = RlsNextLstripK(&rls, &line_iter);
+      reterr = TextNextNonemptyLineLstripK(&txs, &line_idx, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
-          // permit empty file
-          reterr = kPglRetSuccess;
+          // permit empty file, but signal this to caller
+          // (reterr == kPglRetSuccess when file is nonempty, so we can detect
+          // rewind-fail)
           goto PrescanParentalIds_ret_1;
         }
-        goto PrescanParentalIds_ret_READ_RLSTREAM;
+        goto PrescanParentalIds_ret_TSTREAM_FAIL;
       }
       is_header_line = (*line_iter == '#');
-    } while (IsEolnKns(*line_iter) || (is_header_line && (!tokequal_k(&(line_iter[1]), "FID")) && (!tokequal_k(&(line_iter[1]), "IID"))));
+    } while (is_header_line && (!tokequal_k(&(line_iter[1]), "FID")) && (!tokequal_k(&(line_iter[1]), "IID")));
     uint32_t pat_col_idx;
     if (is_header_line) {
       // Search for 'PAT' column.  Require all-caps.
@@ -1323,15 +1310,19 @@ PglErr PrescanParentalIds(const char* fname, ParentalIdInfo* parental_id_infop) 
         }
       }
       ++line_idx;
-      reterr = RlsNextLstripK(&rls, &line_iter);
+      line_iter = AdvPastDelim(line_iter, '\n');
+      reterr = TextNextLineLstripUnsafeK(&txs, &line_iter);
     } while (!reterr);
+    if (unlikely(reterr != kPglRetEof)) {
+      goto PrescanParentalIds_ret_TSTREAM_FAIL;
+    }
     reterr = kPglRetSuccess;
     parental_id_infop->max_paternal_id_blen = max_paternal_id_blen;
     parental_id_infop->max_maternal_id_blen = max_maternal_id_blen;
   }
   while (0) {
-  PrescanParentalIds_ret_READ_RLSTREAM:
-    RLstreamErrPrint("--update-parents file", &rls, &reterr);
+  PrescanParentalIds_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--update-parents file", &txs);
     break;
   PrescanParentalIds_ret_MISSING_TOKENS:
     snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --update-parents file has fewer tokens than expected.\n", line_idx);
@@ -1342,7 +1333,7 @@ PglErr PrescanParentalIds(const char* fname, ParentalIdInfo* parental_id_infop) 
     break;
   }
  PrescanParentalIds_ret_1:
-  CleanupRLstream(&rls);
+  CleanupTextStream2("--update-parents file", &txs, &reterr);
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -1351,33 +1342,27 @@ PglErr UpdateSampleIds(const char* fname, const uintptr_t* sample_include, uint3
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
-  ReadLineStream rls;
-  PreinitRLstream(&rls);
+  TextStream txs;
+  PreinitTextStream(&txs);
   {
     if (!sample_ct) {
       goto UpdateSampleIds_ret_1;
     }
     // probable todo: deduplicate shared code with PrescanSampleIds
-    const char* line_iter;
-    reterr = InitRLstreamFastsizeRawK(fname, &rls, &line_iter);
+    reterr = InitTextStream(fname, kTextStreamBlenFast, 1, &txs);
     if (unlikely(reterr)) {
-      goto UpdateSampleIds_ret_1;
+      goto UpdateSampleIds_ret_TSTREAM_REWIND_FAIL;
     }
+    const char* line_iter;
     uint32_t is_header_line;
     do {
-      ++line_idx;
-      reterr = RlsNextLstripK(&rls, &line_iter);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          // permit empty file
-          logputs("--update-ids: 0 samples updated.\n");
-          reterr = kPglRetSuccess;
-          goto UpdateSampleIds_ret_1;
-        }
-        goto UpdateSampleIds_ret_READ_RLSTREAM;
+      reterr = TextNextNonemptyLineLstripK(&txs, &line_idx, &line_iter);
+      if (unlikely(reterr)) {
+        // This function is no longer called when the original file is empty.
+        goto UpdateSampleIds_ret_TSTREAM_REWIND_FAIL;
       }
       is_header_line = (*line_iter == '#');
-    } while (IsEolnKns(*line_iter) || (is_header_line && (!tokequal_k(&(line_iter[1]), "OLD_FID")) && (!tokequal_k(&(line_iter[1]), "OLD_IID"))));
+    } while (is_header_line && (!tokequal_k(&(line_iter[1]), "OLD_FID")) && (!tokequal_k(&(line_iter[1]), "OLD_IID")));
     uint32_t old_fid_present = 0;
     uint32_t old_sid_present = 0;
     uint32_t new_fid_present = 0;
@@ -1387,8 +1372,7 @@ PglErr UpdateSampleIds(const char* fname, const uintptr_t* sample_include, uint3
         old_fid_present = 1;
         line_iter = FirstNonTspace(&(line_iter[8]));
         if (unlikely(!tokequal_k(line_iter, "OLD_IID"))) {
-          // previously validated
-          goto UpdateSampleIds_ret_READ_FAIL;
+          goto UpdateSampleIds_ret_REWIND_FAIL;
         }
       }
       line_iter = FirstNonTspace(CurTokenEnd(line_iter));
@@ -1401,7 +1385,7 @@ PglErr UpdateSampleIds(const char* fname, const uintptr_t* sample_include, uint3
         line_iter = FirstNonTspace(&(line_iter[7]));
       }
       if (unlikely(!tokequal_k(line_iter, "NEW_IID"))) {
-        goto UpdateSampleIds_ret_READ_FAIL;
+        goto UpdateSampleIds_ret_REWIND_FAIL;
       }
       line_iter = FirstNonTspace(&(line_iter[7]));
       if (tokequal_k(line_iter, "NEW_SID")) {
@@ -1409,7 +1393,7 @@ PglErr UpdateSampleIds(const char* fname, const uintptr_t* sample_include, uint3
         line_iter = FirstNonTspace(&(line_iter[7]));
       }
       if (unlikely(!IsSpaceOrEoln(*line_iter))) {
-        goto UpdateSampleIds_ret_READ_FAIL;
+        goto UpdateSampleIds_ret_REWIND_FAIL;
       }
     } else {
       const uint32_t token_ct = CountTokens(line_iter);
@@ -1417,7 +1401,7 @@ PglErr UpdateSampleIds(const char* fname, const uintptr_t* sample_include, uint3
         old_fid_present = 1;
         new_fid_present = 1;
       } else if (unlikely(token_ct != 2)) {
-        goto UpdateSampleIds_ret_READ_FAIL;
+        goto UpdateSampleIds_ret_REWIND_FAIL;
       }
     }
     XidMode xid_mode;
@@ -1497,16 +1481,17 @@ PglErr UpdateSampleIds(const char* fname, const uintptr_t* sample_include, uint3
             } while (++xid_idx != xid_idx_end);
           }
         } else if (unlikely(!linebuf_iter)) {
-          goto UpdateSampleIds_ret_READ_FAIL;
+          goto UpdateSampleIds_ret_REWIND_FAIL;
         } else {
           ++miss_ct;
         }
       }
       ++line_idx;
-      reterr = RlsNextLstripK(&rls, &line_iter);
+      line_iter = AdvPastDelim(line_iter, '\n');
+      reterr = TextNextLineLstripUnsafeK(&txs, &line_iter);
     } while (!reterr);
     if (unlikely(reterr != kPglRetEof)) {
-      goto UpdateSampleIds_ret_READ_RLSTREAM;
+      goto UpdateSampleIds_ret_TSTREAM_REWIND_FAIL;
     }
     reterr = kPglRetSuccess;
     if (miss_ct) {
@@ -1520,54 +1505,46 @@ PglErr UpdateSampleIds(const char* fname, const uintptr_t* sample_include, uint3
   UpdateSampleIds_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  UpdateSampleIds_ret_READ_RLSTREAM:
-    RLstreamErrPrint("--update-ids file", &rls, &reterr);
-    break;
-  UpdateSampleIds_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
+  UpdateSampleIds_ret_REWIND_FAIL:
+    reterr = kPglRetRewindFail;
+  UpdateSampleIds_ret_TSTREAM_REWIND_FAIL:
+    TextStreamErrPrintRewind("--update-ids file", &txs, &reterr);
     break;
   UpdateSampleIds_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
   }
  UpdateSampleIds_ret_1:
-  CleanupRLstream(&rls);
+  CleanupTextStream2("--update-ids file", &txs, &reterr);
   BigstackReset(bigstack_mark);
   return reterr;
 }
 
-PglErr UpdateSampleParents(const char* fname, const SampleIdInfo* siip, const uintptr_t* sample_include, uint32_t raw_sample_ct, uintptr_t sample_ct, ParentalIdInfo* parental_id_infop, uintptr_t* founder_info) {
+PglErr UpdateSampleParents(const char* fname, const SampleIdInfo* siip, const uintptr_t* sample_include, uint32_t raw_sample_ct, uintptr_t sample_ct, uint32_t max_thread_ct, ParentalIdInfo* parental_id_infop, uintptr_t* founder_info) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
-  ReadLineStream rls;
-  PreinitRLstream(&rls);
+  TextStream txs;
+  PreinitTextStream(&txs);
   {
     if (!sample_ct) {
       goto UpdateSampleParents_ret_1;
     }
     // This repeats code in PrescanParentalIds(); probably want to pull this
     // into its own function.
-    const char* line_iter;
-    reterr = SizeAndInitRLstreamRawK(fname, bigstack_left() - (bigstack_left() / 4), &rls, &line_iter);
+    reterr = SizeAndInitTextStream(fname, bigstack_left() - (bigstack_left() / 4), MAXV(max_thread_ct - 1, 1), &txs);
     if (unlikely(reterr)) {
-      goto UpdateSampleParents_ret_1;
+      goto UpdateSampleParents_ret_TSTREAM_REWIND_FAIL;
     }
+    const char* line_iter;
     uint32_t is_header_line;
     do {
-      ++line_idx;
-      reterr = RlsNextLstripK(&rls, &line_iter);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          // permit empty file
-          logputs("--update-parents: 0 samples updated.\n");
-          reterr = kPglRetSuccess;
-          goto UpdateSampleParents_ret_1;
-        }
-        goto UpdateSampleParents_ret_READ_RLSTREAM;
+      reterr = TextNextNonemptyLineLstripK(&txs, &line_idx, &line_iter);
+      if (unlikely(reterr)) {
+        goto UpdateSampleParents_ret_TSTREAM_REWIND_FAIL;
       }
       is_header_line = (*line_iter == '#');
-    } while (IsEolnKns(*line_iter) || (is_header_line && (!tokequal_k(&(line_iter[1]), "FID")) && (!tokequal_k(&(line_iter[1]), "IID"))));
+    } while (is_header_line && (!tokequal_k(&(line_iter[1]), "FID")) && (!tokequal_k(&(line_iter[1]), "IID")));
     uint32_t postid_pat_col_idx = 1;
     XidMode xid_mode;
     if (is_header_line) {
@@ -1592,9 +1569,8 @@ PglErr UpdateSampleParents(const char* fname, const SampleIdInfo* siip, const ui
       while (1) {
         const char* token_start = FirstNonTspace(line_iter);
         if (unlikely(IsEolnKns(*token_start))) {
-          // Previously validated, so report this as file read failure instead
-          // of malformed input.
-          goto UpdateSampleParents_ret_READ_FAIL;
+          // previously validated
+          goto UpdateSampleParents_ret_REWIND_FAIL;
         }
         line_iter = CurTokenEnd(token_start);
         if (strequal_k(token_start, "PAT", line_iter - token_start)) {
@@ -1606,7 +1582,7 @@ PglErr UpdateSampleParents(const char* fname, const SampleIdInfo* siip, const ui
     } else {
       const uint32_t token_ct = CountTokens(line_iter);
       if (unlikely(token_ct < 3)) {
-        goto UpdateSampleParents_ret_READ_FAIL;
+        goto UpdateSampleParents_ret_REWIND_FAIL;
       }
       xid_mode = (token_ct == 3)? kfXidModeIid : kfXidModeFidIid;
     }
@@ -1665,16 +1641,17 @@ PglErr UpdateSampleParents(const char* fname, const SampleIdInfo* siip, const ui
             sample_uidx = xid_map[xid_idx];
           }
         } else if (unlikely(!linebuf_iter)) {
-          goto UpdateSampleParents_ret_READ_FAIL;
+          goto UpdateSampleParents_ret_REWIND_FAIL;
         } else {
           ++miss_ct;
         }
       }
       ++line_idx;
-      reterr = RlsNextLstripK(&rls, &line_iter);
+      line_iter = AdvPastDelim(line_iter, '\n');
+      reterr = TextNextLineLstripUnsafeK(&txs, &line_iter);
     } while (!reterr);
     if (unlikely(reterr != kPglRetEof)) {
-      goto UpdateSampleParents_ret_READ_RLSTREAM;
+      goto UpdateSampleParents_ret_TSTREAM_REWIND_FAIL;
     }
     reterr = kPglRetSuccess;
     if (miss_ct) {
@@ -1688,56 +1665,54 @@ PglErr UpdateSampleParents(const char* fname, const SampleIdInfo* siip, const ui
   UpdateSampleParents_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  UpdateSampleParents_ret_READ_RLSTREAM:
-    RLstreamErrPrint("--update-parents file", &rls, &reterr);
-    break;
-  UpdateSampleParents_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
+  UpdateSampleParents_ret_REWIND_FAIL:
+    reterr = kPglRetRewindFail;
+  UpdateSampleParents_ret_TSTREAM_REWIND_FAIL:
+    TextStreamErrPrintRewind("--update-parents file", &txs, &reterr);
     break;
   UpdateSampleParents_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
   }
  UpdateSampleParents_ret_1:
-  CleanupRLstream(&rls);
+  CleanupTextStream2("--update-parents file", &txs, &reterr);
   BigstackReset(bigstack_mark);
   return reterr;
 }
 
-PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* siip, const UpdateSexInfo* update_sex_info_ptr, uint32_t raw_sample_ct, uintptr_t sample_ct, uintptr_t* sex_nm, uintptr_t* sex_male) {
+PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* siip, const UpdateSexInfo* update_sex_info_ptr, uint32_t raw_sample_ct, uintptr_t sample_ct, uint32_t max_thread_ct, uintptr_t* sex_nm, uintptr_t* sex_male) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
-  ReadLineStream rls;
-  PreinitRLstream(&rls);
+  TextStream txs;
+  PreinitTextStream(&txs);
   {
     if (!sample_ct) {
       goto UpdateSampleSexes_ret_1;
     }
     // permit very long lines since this can be pointed at .ped files
-    char* line_iter;
-    reterr = SizeAndInitRLstreamRaw(update_sex_info_ptr->fname, bigstack_left() - (bigstack_left() / 4), &rls, &line_iter);
+    reterr = SizeAndInitTextStream(update_sex_info_ptr->fname, bigstack_left() - (bigstack_left() / 4), MAXV(max_thread_ct - 1, 1), &txs);
     if (unlikely(reterr)) {
       goto UpdateSampleSexes_ret_1;
     }
 
     // (Much of this boilerplate is shared with e.g. KeepFcol(); it probably
     // belongs in its own function.)
-    char* linebuf_first_token;
+    char* line_start;
+    char* header_sample_id_end;
     XidMode xid_mode;
-    reterr = LoadXidHeaderOld("update-sex", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, &line_iter, &line_idx, &linebuf_first_token, &rls, &xid_mode);
+    reterr = LoadXidHeader("update-sex", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, &line_idx, &txs, &xid_mode, &line_start, &header_sample_id_end);
     if (unlikely(reterr)) {
       if (reterr == kPglRetEof) {
         logerrputs("Error: Empty --update-sex file.\n");
         goto UpdateSampleSexes_ret_MALFORMED_INPUT;
       }
-      goto UpdateSampleSexes_ret_READ_RLSTREAM;
+      goto UpdateSampleSexes_ret_TSTREAM_XID_FAIL;
     }
-    char* header_sample_id_end = line_iter;
     const uint32_t id_col_ct = GetXidColCt(xid_mode);
     uint32_t col_num = update_sex_info_ptr->col_num;
     uint32_t postid_col_idx = 0;
-    if ((*linebuf_first_token == '#') && (!col_num)) {
+    if ((*line_start == '#') && (!col_num)) {
       // search for 'SEX' column (any capitalization)
       const char* token_end = header_sample_id_end;
       while (1) {
@@ -1766,9 +1741,9 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
       }
       postid_col_idx = col_num - id_col_ct;
     }
-    if (*linebuf_first_token == '#') {
+    if (*line_start == '#') {
       // advance to next line
-      *linebuf_first_token = '\0';
+      *line_start = '\0';
     }
 
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
@@ -1793,8 +1768,8 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
     uintptr_t miss_ct = 0;
     uintptr_t duplicate_ct = 0;
     while (1) {
-      if (!IsEolnKns(*linebuf_first_token)) {
-        const char* linebuf_iter = linebuf_first_token;
+      if (!IsEolnKns(*line_start)) {
+        const char* linebuf_iter = line_start;
         uint32_t xid_idx_start;
         uint32_t xid_idx_end;
         if (!SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &xid_idx_start, &xid_idx_end, idbuf)) {
@@ -1865,15 +1840,14 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
         }
       }
       ++line_idx;
-      reterr = RlsNextLstrip(&rls, &line_iter);
+      reterr = TextNextLineLstrip(&txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
           break;
         }
-        goto UpdateSampleSexes_ret_READ_RLSTREAM;
+        goto UpdateSampleSexes_ret_TSTREAM_FAIL;
       }
-      linebuf_first_token = line_iter;
     }
     if (duplicate_ct) {
       logprintfww("Note: %" PRIuPTR " duplicate sample ID%s) in --update-sex file.\n", duplicate_ct, (duplicate_ct == 1)? " (with a consistent sex assignment" : "s (with consistent sex assignments");
@@ -1886,8 +1860,12 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
     logputsb();
   }
   while (0) {
-  UpdateSampleSexes_ret_READ_RLSTREAM:
-    RLstreamErrPrint("--update-sex file", &rls, &reterr);
+  UpdateSampleSexes_ret_TSTREAM_XID_FAIL:
+    if (!TextStreamErrcode(&txs)) {
+      break;
+    }
+  UpdateSampleSexes_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--update-sex file", &txs);
     break;
   UpdateSampleSexes_ret_NOMEM:
     reterr = kPglRetNomem;
@@ -1904,7 +1882,7 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
     break;
   }
  UpdateSampleSexes_ret_1:
-  CleanupRLstream(&rls);
+  CleanupTextStream2("--update-sex file", &txs, &reterr);
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -5933,17 +5911,17 @@ static_assert(kSdiffBatchMax > 0, "kSdiffBatchMax must be positive.");
 PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const SdiffInfo* sdip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t variant_ct, uint32_t iid_sid, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
-  ReadLineStream rls; // file=
-  PreinitRLstream(&rls);
+  TextStream txs; // file=
+  PreinitTextStream(&txs);
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
   {
     // Determine xid_mode.
     const SdiffFlags flags = sdip->flags;
     const uint32_t other_id_ct = sdip->other_id_ct;
-    char* line_iter = nullptr;
     uintptr_t line_idx = 0;
-    char* linebuf_first_token = nullptr;
+    char* line_start = nullptr;
+    char* line_iter = nullptr;
     XidMode xid_mode;
     if (other_id_ct) {
       // todo: make this its own function if we use the same logic elsewhere
@@ -5968,20 +5946,20 @@ PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, con
         }
       }
     } else {
-      reterr = InitRLstreamRaw(sdip->first_id_or_fname, kRLstreamBlenFast, &rls, &line_iter);
+      reterr = InitTextStream(sdip->first_id_or_fname, kTextStreamBlenFast, MAXV(max_thread_ct - 1, 1), &txs);
       if (unlikely(reterr)) {
-        goto Sdiff_ret_1;
+        goto Sdiff_ret_TSTREAM_FAIL;
       }
-      reterr = LoadXidHeaderPairOld("sample-diff", iid_sid, &line_iter, &line_idx, &linebuf_first_token, &rls, &xid_mode);
+      reterr = LoadXidHeaderPair("sample-diff", iid_sid, &line_idx, &txs, &xid_mode, &line_start, &line_iter);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
           logerrputs("Error: Empty --sample-diff file.\n");
           reterr = kPglRetInconsistentInput;
         }
-        goto Sdiff_ret_1;
+        goto Sdiff_ret_TSTREAM_XID_FAIL;
       }
-      if (*linebuf_first_token == '#') {
-        *linebuf_first_token = '\0';
+      if (*line_start == '#') {
+        *line_start = '\0';
       }
     }
     unsigned char* bigstack_mark2 = g_bigstack_base;
@@ -6070,8 +6048,8 @@ PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, con
       uint32_t* sample_pair_uidxs_iter = sample_pair_uidxs_end;
       uint32_t* sample_pair_uidxs_oom = R_CAST(uint32_t*, g_bigstack_base);
       while (1) {
-        if (!IsEolnKns(*linebuf_first_token)) {
-          const char* linebuf_iter = linebuf_first_token;
+        if (!IsEolnKns(*line_start)) {
+          const char* linebuf_iter = line_start;
           uint32_t sample_uidx1;
           if (unlikely(SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx1, idbuf))) {
             TabsToSpaces(idbuf);
@@ -6101,15 +6079,16 @@ PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, con
           line_iter = K_CAST(char*, linebuf_iter);
         }
         ++line_idx;
-        reterr = RlsNextLstrip(&rls, &line_iter);
+        line_iter = AdvPastDelim(line_iter, '\n');
+        reterr = TextNextLineLstripUnsafe(&txs, &line_iter);
         if (reterr) {
           if (likely(reterr == kPglRetEof)) {
             // reterr = kPglRetSuccess;
             break;
           }
-          goto Sdiff_ret_READ_RLSTREAM;
+          goto Sdiff_ret_TSTREAM_FAIL;
         }
-        linebuf_first_token = line_iter;
+        line_start = line_iter;
       }
       const uintptr_t id_ct = sample_pair_uidxs_end - sample_pair_uidxs_iter;
       if (unlikely(!id_ct)) {
@@ -6392,8 +6371,12 @@ PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, con
   Sdiff_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  Sdiff_ret_READ_RLSTREAM:
-    RLstreamErrPrint("--sample-diff file", &rls, &reterr);
+  Sdiff_ret_TSTREAM_XID_FAIL:
+    if (!TextStreamErrcode(&txs)) {
+      break;
+    }
+  Sdiff_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--sample-diff file", &txs);
     break;
   Sdiff_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -6410,7 +6393,7 @@ PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, con
   }
  Sdiff_ret_1:
   fclose_cond(outfile);
-  CleanupRLstream(&rls);
+  CleanupTextStream2("--sample-diff file", &txs, &reterr);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }

@@ -1193,16 +1193,17 @@ THREAD_FUNC_DECL TextStreamThread(void* raw_arg) {
           }
           break;
         case kFileBgzf:
-          {
-            reterr = BgzfRawMtStreamInit(buf, context->decompress_thread_ct, ff, nullptr, &rdsp->bgzf, &syncp->errmsg);
-            if (unlikely(reterr)) {
-              goto TextStreamThread_MISC_FAIL;
-            }
+          reterr = BgzfRawMtStreamInit(buf, context->decompress_thread_ct, ff, nullptr, &rdsp->bgzf, &syncp->errmsg);
+          if (unlikely(reterr)) {
+            goto TextStreamThread_MISC_FAIL;
           }
+          // bugfix (5 Oct 2019): forgot this break
+          break;
         case kFileZstd:
           if (unlikely(ZstRawInit(buf, nbytes, &rdsp->zst))) {
             goto TextStreamThread_NOMEM;
           }
+          break;
         }
       } else {
         switch (file_type) {
@@ -1227,7 +1228,7 @@ THREAD_FUNC_DECL TextStreamThread(void* raw_arg) {
           }
         case kFileBgzf:
           {
-            reterr = BgzfRawMtStreamRetarget(&rdsp->bgzf, next_ff, &syncp->errmsg);
+            reterr = BgzfRawMtStreamRetarget(buf, &rdsp->bgzf, next_ff, &syncp->errmsg);
             if (unlikely(reterr)) {
               fclose(next_ff);
               goto TextStreamThread_MISC_FAIL;

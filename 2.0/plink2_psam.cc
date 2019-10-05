@@ -43,7 +43,7 @@ typedef struct CatnameLl2Struct {
   char str[];
 } CatnameLl2;
 
-PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, FamCol fam_cols, uint32_t pheno_ct_max, int32_t missing_pheno, uint32_t affection_01, PedigreeIdInfo* piip, uintptr_t** sample_include_ptr, uintptr_t** founder_info_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* raw_sample_ct_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
+PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, FamCol fam_cols, uint32_t pheno_ct_max, int32_t missing_pheno, uint32_t affection_01, uint32_t max_thread_ct, PedigreeIdInfo* piip, uintptr_t** sample_include_ptr, uintptr_t** founder_info_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* raw_sample_ct_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
   // outparameter pointers assumed to be initialized to nullptr
   //
   // pheno_ct_max should default to something like 0x7fffffff, not UINT32_MAX
@@ -61,26 +61,24 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
   uintptr_t line_idx = 0;
   uint32_t pheno_ct = 0;
   PglErr reterr = kPglRetSuccess;
-  ReadLineStream psam_rls;
-  PreinitRLstream(&psam_rls);
+  TextStream psam_txs;
+  PreinitTextStream(&psam_txs);
   {
-    const char* line_iter;
-    reterr = SizeAndInitRLstreamRawK(psamname, bigstack_left() / 4, &psam_rls, &line_iter);
+    reterr = SizeAndInitTextStream(psamname, bigstack_left() / 4, MAXV(max_thread_ct - 1, 1), &psam_txs);
     if (unlikely(reterr)) {
-      goto LoadPsam_ret_1;
+      goto LoadPsam_ret_TSTREAM_FAIL;
     }
+    const char* line_iter;
     do {
-      ++line_idx;
-      reterr = RlsNextLstripK(&psam_rls, &line_iter);
+      reterr = TextNextNonemptyLineLstripK(&psam_txs, &line_idx, &line_iter);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
           logerrprintfww("Error: No samples in %s.\n", psamname);
           goto LoadPsam_ret_MALFORMED_INPUT;
         }
-        goto LoadPsam_ret_READ_RLSTREAM;
+        goto LoadPsam_ret_TSTREAM_FAIL;
       }
-    } while (IsEolnKns(*line_iter) || ((line_iter[0] == '#') && (!tokequal_k(&(line_iter[1]), "FID")) && (!tokequal_k(&(line_iter[1]), "IID"))));
-    const char* linebuf_first_token = line_iter;
+    } while ((line_iter[0] == '#') && (!tokequal_k(&(line_iter[1]), "FID")) && (!tokequal_k(&(line_iter[1]), "IID")));
     const uint32_t pheno_name_subset = pheno_range_list_ptr && pheno_range_list_ptr->names;
     uint32_t* col_skips = nullptr;
     uint32_t* col_types = nullptr;
@@ -92,7 +90,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     unsigned char* tmp_bigstack_end = g_bigstack_end;
     unsigned char* bigstack_mark2;
     uint32_t fid_present = 1;
-    if (linebuf_first_token[0] == '#') {
+    if (line_iter[0] == '#') {
       // parse header
       // [-1] = #FID (if present, must be first column)
       // [0] = IID (could also be first column)
@@ -101,7 +99,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
       // [3] = MAT
       // [4] = SEX
       // [5+] = phenotypes
-      relevant_postfid_col_ct = CountTokens(linebuf_first_token);
+      relevant_postfid_col_ct = CountTokens(line_iter);
       if (relevant_postfid_col_ct > pheno_ct_max + 5) {
         relevant_postfid_col_ct = pheno_ct_max + 5;
       }
@@ -112,7 +110,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
       }
       bigstack_mark2 = g_bigstack_base;
       uint32_t rpf_col_idx = 0;
-      if (linebuf_first_token[1] == 'I') {
+      if (line_iter[1] == 'I') {
         col_skips[0] = 0;
         col_types[0] = 0;
         ++rpf_col_idx;
@@ -142,7 +140,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
         }
         BigstackReset(dummy_bitarr);
       }
-      const char* token_end = &(linebuf_first_token[4]);
+      const char* token_end = &(line_iter[4]);
       unsigned char* ll_alloc_base = g_bigstack_base;
       const char* linebuf_iter;
       for (uint32_t col_idx = 1; ; ++col_idx) {
@@ -246,8 +244,8 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
       }
 
       // force line to be skipped by main loop
-      linebuf_first_token = linebuf_iter;
-    } else if (linebuf_first_token[0]) {
+      line_iter = linebuf_iter;
+    } else if (line_iter[0]) {
       if (unlikely(pheno_name_subset)) {
         logerrputs("Error: --pheno-name requires a --pheno or .psam file with a header.\n");
         goto LoadPsam_ret_INCONSISTENT_INPUT;
@@ -362,28 +360,29 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     CatnameLl2** pheno_catname_last = nullptr;
     uintptr_t* total_catname_blens = nullptr;
     while (1) {
-      if (!IsEolnKns(*linebuf_first_token)) {
+      if (!IsEolnKns(*line_iter)) {
         if (unlikely(raw_sample_ct == 0x7ffffffe)) {
           logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 2 samples.\n");
           goto LoadPsam_ret_MALFORMED_INPUT;
         }
+        const char* line_start = line_iter;
         const char* iid_ptr;
         uint32_t iid_slen;
         if (relevant_postfid_col_ct) {
           // bugfix (3 Jul 2018): didn't handle no-other-columns case correctly
-          line_iter = TokenLexK0(linebuf_first_token, col_types, col_skips, relevant_postfid_col_ct, token_ptrs, token_slens);
+          line_iter = TokenLexK0(line_start, col_types, col_skips, relevant_postfid_col_ct, token_ptrs, token_slens);
           if (unlikely(!line_iter)) {
             goto LoadPsam_ret_MISSING_TOKENS;
           }
           iid_ptr = token_ptrs[0];
           iid_slen = token_slens[0];
         } else {
-          iid_ptr = linebuf_first_token;
-          iid_slen = CurTokenEnd(linebuf_first_token) - linebuf_first_token;
+          iid_ptr = line_start;
+          iid_slen = CurTokenEnd(line_start) - line_start;
         }
         uint32_t fid_slen = 2;
         if (fid_present) {
-          fid_slen = CurTokenEnd(linebuf_first_token) - linebuf_first_token;
+          fid_slen = CurTokenEnd(line_start) - line_start;
         }
         const uint32_t sid_slen = sids_present? token_slens[1] : 0;
         const uint32_t paternal_id_slen = paternal_ids_present? token_slens[2] : 1;
@@ -444,7 +443,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
         char* sample_id_storage = R_CAST(char*, &(new_psam_info->vardata[pheno_ct * 8]));
         char* ss_iter = sample_id_storage;
         if (fid_present) {
-          ss_iter = memcpya(ss_iter, linebuf_first_token, fid_slen);
+          ss_iter = memcpya(ss_iter, line_start, fid_slen);
         } else {
           *ss_iter++ = '0';
         }
@@ -579,16 +578,16 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
         ++raw_sample_ct;
       }
       ++line_idx;
-      reterr = RlsNextLstripK(&psam_rls, &line_iter);
+      line_iter = AdvPastDelim(line_iter, '\n');
+      reterr = TextNextLineLstripUnsafeK(&psam_txs, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
           break;
         }
-        goto LoadPsam_ret_READ_RLSTREAM;
+        goto LoadPsam_ret_TSTREAM_FAIL;
       }
-      linebuf_first_token = line_iter;
-      if (unlikely(linebuf_first_token[0] == '#')) {
+      if (unlikely(line_iter[0] == '#')) {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and if a #FID/IID header line is present it must denote the end of the header block.)\n", line_idx, psamname);
         goto LoadPsam_ret_MALFORMED_INPUT_WW;
       }
@@ -805,8 +804,8 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
   LoadPsam_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  LoadPsam_ret_READ_RLSTREAM:
-    RLstreamErrPrint(psamname, &psam_rls, &reterr);
+  LoadPsam_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(psamname, &psam_txs);
     break;
   LoadPsam_ret_INCONSISTENT_INPUT_WW:
     WordWrapB(0);
@@ -830,7 +829,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     break;
   }
  LoadPsam_ret_1:
-  CleanupRLstream(&psam_rls);
+  CleanupTextStream2(psamname, &psam_txs, &reterr);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   if (reterr) {
     if (*pheno_names_ptr) {
@@ -856,52 +855,51 @@ typedef struct PhenoInfoLlStruct {
 
 // also for loading covariates.  set affection_01 to 2 to prohibit case/control
 // and make unnamed variables start with "COVAR" instead of "PHENO"
-PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, int32_t missing_pheno, uint32_t affection_01, uint32_t numeric_ranges, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
+PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, int32_t missing_pheno, uint32_t affection_01, uint32_t numeric_ranges, uint32_t max_thread_ct, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* pheno_names = nullptr;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
-  ReadLineStream pheno_rls;
-  PreinitRLstream(&pheno_rls);
+  TextStream pheno_txs;
+  PreinitTextStream(&pheno_txs);
   {
     if (!sample_ct) {
       goto LoadPhenos_ret_1;
     }
-    const char* line_iter;
-    reterr = SizeAndInitRLstreamRawK(pheno_fname, bigstack_left() / 4, &pheno_rls, &line_iter);
+    reterr = SizeAndInitTextStream(pheno_fname, bigstack_left() / 4, MAXV(max_thread_ct - 1, 1), &pheno_txs);
     if (unlikely(reterr)) {
-      goto LoadPhenos_ret_1;
+      goto LoadPhenos_ret_TSTREAM_FAIL;
     }
+    const char* line_iter;
     do {
-      ++line_idx;
-      reterr = RlsNextLstripK(&pheno_rls, &line_iter);
+      reterr = TextNextNonemptyLineLstripK(&pheno_txs, &line_idx, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
-          break;
+          reterr = kPglRetSuccess;
+          goto LoadPhenos_ret_1;
         }
-        goto LoadPhenos_ret_READ_RLSTREAM;
+        goto LoadPhenos_ret_TSTREAM_FAIL;
       }
-    } while (IsEolnKns(*line_iter) || ((line_iter[0] == '#') && (((line_iter[1] != 'F') && (line_iter[1] != 'I')) || (!memequal_k(&(line_iter[2]), "ID", 2)) || ((ctou32(line_iter[4]) > ' ') && (line_iter[4] != ',')))));
-    const char* linebuf_first_token = line_iter;
-    if (linebuf_first_token[0] == '#') {
-      ++linebuf_first_token;
+    } while ((line_iter[0] == '#') && (((line_iter[1] != 'F') && (line_iter[1] != 'I')) || (!memequal_k(&(line_iter[2]), "ID", 2)) || ((ctou32(line_iter[4]) > ' ') && (line_iter[4] != ','))));
+    if (line_iter[0] == '#') {
+      ++line_iter;
     }
     const uint32_t old_pheno_ct = *pheno_ct_ptr;
     const uintptr_t old_max_pheno_name_blen = *max_pheno_name_blen_ptr;
     uintptr_t max_pheno_name_blen = old_max_pheno_name_blen;
     uint32_t comma_delim = 0;
-    XidMode xid_mode = (linebuf_first_token[0] == 'I')? kfXidModeIid : kfXidModeFidIid;
+    XidMode xid_mode = (line_iter[0] == 'I')? kfXidModeIid : kfXidModeFidIid;
     uint32_t* col_types = nullptr;
     uint32_t* col_skips = nullptr;
     uint32_t new_pheno_ct;
     uint32_t final_pheno_ct;
     uintptr_t final_pheno_names_byte_ct;
-    if (((linebuf_first_token[0] == 'F') || (xid_mode != kfXidModeFidIid)) && memequal_k(&(linebuf_first_token[1]), "ID", 2) && ((ctou32(linebuf_first_token[3]) <= 32) || (linebuf_first_token[3] == ','))) {
+    if (((line_iter[0] == 'F') || (xid_mode != kfXidModeFidIid)) && memequal_k(&(line_iter[1]), "ID", 2) && ((ctou32(line_iter[3]) <= 32) || (line_iter[3] == ','))) {
       // treat this as a header line
       // autodetect CSV vs. space/tab-delimited
       // (note that we don't permit CSVs without header lines)
-      comma_delim = (linebuf_first_token[3] == ',');
-      const char* linebuf_iter = FirstNonTspace(&(linebuf_first_token[3 + comma_delim]));
+      comma_delim = (line_iter[3] == ',');
+      const char* linebuf_iter = FirstNonTspace(&(line_iter[3 + comma_delim]));
       if (unlikely(IsEolnKns(*linebuf_iter))) {
         goto LoadPhenos_ret_MISSING_TOKENS;
       }
@@ -915,7 +913,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         }
         linebuf_iter = CommaOrTspaceFirstToken(iid_end, comma_delim);
       } else {
-        iid_end = &(linebuf_first_token[3]);
+        iid_end = &(line_iter[3]);
       }
       uint32_t pheno_col_ct = 0;
       const char* pheno_start = linebuf_iter;
@@ -1001,16 +999,14 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         pheno_names_iter = &(pheno_names_iter[max_pheno_name_blen]);
         linebuf_iter = token_end;
       }
-      line_iter = AdvToDelim(linebuf_iter, '\n');
-
       // force line to be skipped by main loop
-      linebuf_first_token = line_iter;
+      line_iter = AdvToDelim(linebuf_iter, '\n');
     } else {
       // no header line
       xid_mode = kfXidModeFidIid;
       // don't support comma delimiter here, since we don't have guaranteed
       // leading FID/IID to distinguish it
-      const uint32_t col_ct = CountTokens(linebuf_first_token);
+      const uint32_t col_ct = CountTokens(line_iter);
       if (unlikely(col_ct < 3)) {
         // todo: tolerate col_ct == 2 with --allow-no-phenos
         goto LoadPhenos_ret_MISSING_TOKENS;
@@ -1158,11 +1154,10 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
     CatnameLl2** pheno_catname_last = nullptr;
     uintptr_t* total_catname_blens = nullptr;
     while (1) {
-      if (!IsEolnKns(*linebuf_first_token)) {
-        const char* linebuf_iter = linebuf_first_token;
+      if (!IsEolnKns(*line_iter)) {
         uint32_t sample_uidx;
-        if (SortedXidboxReadFind(sorted_sample_ids, sample_id_map, max_sample_id_blen, sample_ct, comma_delim, xid_mode, &linebuf_iter, &sample_uidx, id_buf)) {
-          if (unlikely(!linebuf_iter)) {
+        if (SortedXidboxReadFind(sorted_sample_ids, sample_id_map, max_sample_id_blen, sample_ct, comma_delim, xid_mode, &line_iter, &sample_uidx, id_buf)) {
+          if (unlikely(!line_iter)) {
             goto LoadPhenos_ret_MISSING_TOKENS;
           }
         } else {
@@ -1172,11 +1167,11 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
           }
           SetBit(sample_uidx, already_seen);
           if (!comma_delim) {
-            linebuf_iter = TokenLexK(linebuf_iter, col_types, col_skips, new_pheno_ct, token_ptrs, token_slens);
+            line_iter = TokenLexK(line_iter, col_types, col_skips, new_pheno_ct, token_ptrs, token_slens);
           } else {
-            linebuf_iter = CsvLexK(linebuf_iter, col_types, col_skips, new_pheno_ct, token_ptrs, token_slens);
+            line_iter = CsvLexK(line_iter, col_types, col_skips, new_pheno_ct, token_ptrs, token_slens);
           }
-          if (unlikely(!linebuf_iter)) {
+          if (unlikely(!line_iter)) {
             goto LoadPhenos_ret_MISSING_TOKENS;
           }
           if (!pheno_info_reverse_ll) {
@@ -1307,16 +1302,16 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         }
       }
       ++line_idx;
-      reterr = RlsNextLstripK(&pheno_rls, &line_iter);
+      line_iter = AdvPastDelim(line_iter, '\n');
+      reterr = TextNextLineLstripUnsafeK(&pheno_txs, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
           break;
         }
-        goto LoadPhenos_ret_READ_RLSTREAM;
+        goto LoadPhenos_ret_TSTREAM_FAIL;
       }
-      linebuf_first_token = line_iter;
-      if (unlikely(linebuf_first_token[0] == '#')) {
+      if (unlikely(line_iter[0] == '#')) {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and if a #FID/IID header line is present it must denote the end of the header block.)\n", line_idx, pheno_fname);
         goto LoadPhenos_ret_MALFORMED_INPUT_WW;
       }
@@ -1440,8 +1435,8 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
   LoadPhenos_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  LoadPhenos_ret_READ_RLSTREAM:
-    RLstreamErrPrint(pheno_fname, &pheno_rls, &reterr);
+  LoadPhenos_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(pheno_fname, &pheno_txs);
     break;
   LoadPhenos_ret_MALFORMED_INPUT_WW:
     WordWrapB(0);
@@ -1466,7 +1461,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
     break;
   }
  LoadPhenos_ret_1:
-  CleanupRLstream(&pheno_rls);
+  CleanupTextStream2(pheno_fname, &pheno_txs, &reterr);
   BigstackReset(bigstack_mark);
   if (reterr) {
     free_cond(pheno_names);

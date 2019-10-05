@@ -584,7 +584,7 @@ void ReportGenotypingRate(const uintptr_t* variant_include, const ChrInfo* cip, 
   }
 }
 
-PglErr ApplyVariantBpFilters(const char* extract_fnames, const char* extract_intersect_fnames, const char* exclude_fnames, const ChrInfo* cip, const uint32_t* variant_bps, int32_t from_bp, int32_t to_bp, uint32_t raw_variant_ct, FilterFlags filter_flags, UnsortedVar vpos_sortstatus, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+PglErr ApplyVariantBpFilters(const char* extract_fnames, const char* extract_intersect_fnames, const char* exclude_fnames, const ChrInfo* cip, const uint32_t* variant_bps, int32_t from_bp, int32_t to_bp, uint32_t raw_variant_ct, FilterFlags filter_flags, UnsortedVar vpos_sortstatus, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   if (!(*variant_ct_ptr)) {
     return kPglRetSuccess;
   }
@@ -622,7 +622,7 @@ PglErr ApplyVariantBpFilters(const char* extract_fnames, const char* extract_int
       logerrputs("Error: '--extract bed0'/'--extract bed1' requires a sorted .pvar/.bim.  Retry\nthis command after using --make-pgen/--make-bed + --sort-vars to sort your\ndata.\n");
       return kPglRetInconsistentInput;
     }
-    PglErr reterr = ExtractExcludeRange(extract_fnames, cip, variant_bps, raw_variant_ct, kVfilterExtract, (filter_flags / kfFilterExtractBed0) & 1, variant_include, variant_ct_ptr);
+    PglErr reterr = ExtractExcludeRange(extract_fnames, cip, variant_bps, raw_variant_ct, kVfilterExtract, (filter_flags / kfFilterExtractBed0) & 1, max_thread_ct, variant_include, variant_ct_ptr);
     if (unlikely(reterr)) {
       return reterr;
     }
@@ -632,7 +632,7 @@ PglErr ApplyVariantBpFilters(const char* extract_fnames, const char* extract_int
       logerrputs("Error: '--extract-intersect bed0'/'--extract-intersect bed1' requires a sorted\n.pvar/.bim.  Retry this command after using --make-pgen/--make-bed +\n--sort-vars to sort your data.\n");
       return kPglRetInconsistentInput;
     }
-    PglErr reterr = ExtractExcludeRange(extract_intersect_fnames, cip, variant_bps, raw_variant_ct, kVfilterExtractIntersect, (filter_flags / kfFilterExtractIntersectBed0) & 1, variant_include, variant_ct_ptr);
+    PglErr reterr = ExtractExcludeRange(extract_intersect_fnames, cip, variant_bps, raw_variant_ct, kVfilterExtractIntersect, (filter_flags / kfFilterExtractIntersectBed0) & 1, max_thread_ct, variant_include, variant_ct_ptr);
     if (unlikely(reterr)) {
       return reterr;
     }
@@ -642,7 +642,7 @@ PglErr ApplyVariantBpFilters(const char* extract_fnames, const char* extract_int
       logerrputs("Error: '--exclude bed0'/'--exclude bed1' requires a sorted .pvar/.bim.  Retry\nthis commandafter using --make-pgen/--make-bed + --sort-vars to sort your\ndata.\n");
       return kPglRetInconsistentInput;
     }
-    PglErr reterr = ExtractExcludeRange(exclude_fnames, cip, variant_bps, raw_variant_ct, kVfilterExclude, (filter_flags / kfFilterExcludeBed0) & 1, variant_include, variant_ct_ptr);
+    PglErr reterr = ExtractExcludeRange(exclude_fnames, cip, variant_bps, raw_variant_ct, kVfilterExclude, (filter_flags / kfFilterExcludeBed0) & 1, max_thread_ct, variant_include, variant_ct_ptr);
     if (unlikely(reterr)) {
       return reterr;
     }
@@ -734,6 +734,9 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     uint32_t raw_sample_ctl = 0;
     uint32_t sample_ct = 0;
 
+    uint32_t update_sample_ids_empty = 0;
+    uint32_t update_parental_ids_empty = 0;
+
     // There's a tradeoff between using structs like this and passing each of
     // the components separately: large structs make for shorter parameter
     // lists and hence slightly prettier code, but going too far in that
@@ -755,19 +758,27 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     if (psamname[0]) {
       if (pcp->update_sample_ids_fname) {
         reterr = PrescanSampleIds(pcp->update_sample_ids_fname, &pii.sii);
-        if (unlikely(reterr)) {
-          goto Plink2Core_ret_1;
+        if (reterr) {
+          if (unlikely(reterr != kPglRetEof)) {
+            goto Plink2Core_ret_1;
+          }
+          reterr = kPglRetSuccess;
+          update_sample_ids_empty = 1;
         }
       }
       if (pcp->update_parental_ids_fname) {
-        reterr = PrescanParentalIds(pcp->update_parental_ids_fname, &pii.parental_id_info);
-        if (unlikely(reterr)) {
-          goto Plink2Core_ret_1;
+        reterr = PrescanParentalIds(pcp->update_parental_ids_fname, pcp->max_thread_ct, &pii.parental_id_info);
+        if (reterr) {
+          if (unlikely(reterr != kPglRetEof)) {
+            goto Plink2Core_ret_1;
+          }
+          reterr = kPglRetSuccess;
+          update_parental_ids_empty = 1;
         }
       }
       // update (26 Nov 2017): change --no-pheno to also apply to .psam file
       const uint32_t ignore_psam_phenos = (!(pcp->fam_cols & kfFamCol6)) || (pcp->pheno_fname && pcp->pheno_range_list.name_ct);
-      reterr = LoadPsam(psamname, pcp->pheno_fname? nullptr : &(pcp->pheno_range_list), pcp->fam_cols, ignore_psam_phenos? 0 : 0x7fffffff, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, &pii, &sample_include, &founder_info, &sex_nm, &sex_male, &pheno_cols, &pheno_names, &raw_sample_ct, &pheno_ct, &max_pheno_name_blen);
+      reterr = LoadPsam(psamname, pcp->pheno_fname? nullptr : &(pcp->pheno_range_list), pcp->fam_cols, ignore_psam_phenos? 0 : 0x7fffffff, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, pcp->max_thread_ct, &pii, &sample_include, &founder_info, &sex_nm, &sex_male, &pheno_cols, &pheno_names, &raw_sample_ct, &pheno_ct, &max_pheno_name_blen);
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
       }
@@ -1064,7 +1075,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       pgfi.nonref_flags = nonref_flags;
     }
     if (pcp->pheno_fname) {
-      reterr = LoadPhenos(pcp->pheno_fname, &(pcp->pheno_range_list), sample_include, pii.sii.sample_ids, raw_sample_ct, sample_ct, pii.sii.max_sample_id_blen, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, (pcp->misc_flags / kfMiscPhenoColNums) & 1, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
+      reterr = LoadPhenos(pcp->pheno_fname, &(pcp->pheno_range_list), sample_include, pii.sii.sample_ids, raw_sample_ct, sample_ct, pii.sii.max_sample_id_blen, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, (pcp->misc_flags / kfMiscPhenoColNums) & 1, pcp->max_thread_ct, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
       }
@@ -1073,7 +1084,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     // move processing of PLINK 1.x cluster-loading/filtering flags here, since
     // they're now under the categorical-phenotype umbrella
     if ((pcp->misc_flags & kfMiscCatPhenoFamily) || pcp->within_fname) {
-      reterr = Plink1ClusterImport(pcp->within_fname, pcp->catpheno_name, pcp->family_missing_catname, sample_include, pii.sii.sample_ids, raw_sample_ct, sample_ct, pii.sii.max_sample_id_blen, pcp->mwithin_val, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
+      reterr = Plink1ClusterImport(pcp->within_fname, pcp->catpheno_name, pcp->family_missing_catname, sample_include, pii.sii.sample_ids, raw_sample_ct, sample_ct, pii.sii.max_sample_id_blen, pcp->mwithin_val, pcp->max_thread_ct, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
       }
@@ -1134,7 +1145,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     // into two cases.
     const uint32_t full_variant_id_htable_needed = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_fname || (pcp->rmdup_mode != kRmDup0));
     if (!full_variant_id_htable_needed) {
-      reterr = ApplyVariantBpFilters(pcp->extract_fnames, pcp->extract_intersect_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, variant_include, &variant_ct);
+      reterr = ApplyVariantBpFilters(pcp->extract_fnames, pcp->extract_intersect_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, pcp->max_thread_ct, variant_include, &variant_ct);
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
       }
@@ -1196,12 +1207,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
       if (variant_ct) {
         if (pcp->update_map_flag) {
-          reterr = UpdateVarBps(cip, TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, pcp->update_map_flag, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, variant_include, variant_bps, &variant_ct, &vpos_sortstatus);
+          reterr = UpdateVarBps(cip, TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, pcp->update_map_flag, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, pcp->max_thread_ct, variant_include, variant_bps, &variant_ct, &vpos_sortstatus);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
         } else if (pcp->update_name_flag) {
-          reterr = UpdateVarNames(variant_include, variant_id_htable, htable_dup_base, pcp->update_name_flag, raw_variant_ct, variant_id_htable_size, variant_ids_mutable, &max_variant_id_slen);
+          reterr = UpdateVarNames(variant_include, variant_id_htable, htable_dup_base, pcp->update_name_flag, raw_variant_ct, variant_id_htable_size, pcp->max_thread_ct, variant_ids_mutable, &max_variant_id_slen);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -1217,7 +1228,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
 
         if (pcp->update_alleles_fname) {
-          reterr = UpdateVarAlleles(pcp->update_alleles_fname, variant_include, TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, allele_idx_offsets, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, allele_storage_mutable, &max_allele_slen, outname, outname_end);
+          reterr = UpdateVarAlleles(pcp->update_alleles_fname, variant_include, TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, allele_idx_offsets, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, pcp->max_thread_ct, allele_storage_mutable, &max_allele_slen, outname, outname_end);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -1251,7 +1262,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
       BigstackReset(bigstack_mark);
       if (full_variant_id_htable_needed) {
-        reterr = ApplyVariantBpFilters(pcp->extract_fnames, pcp->extract_intersect_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, variant_include, &variant_ct);
+        reterr = ApplyVariantBpFilters(pcp->extract_fnames, pcp->extract_intersect_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, pcp->max_thread_ct, variant_include, &variant_ct);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -1285,20 +1296,28 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       // sample-sort is relatively cheap, so we abandon plink 1.9's "construct
       // sample ID map only once" optimization.
       if (pcp->update_sample_ids_fname) {
-        reterr = UpdateSampleIds(pcp->update_sample_ids_fname, sample_include, raw_sample_ct, sample_ct, &pii.sii);
-        if (unlikely(reterr)) {
-          goto Plink2Core_ret_1;
-        }
-      } else {
-        if (pcp->update_parental_ids_fname) {
-          reterr = UpdateSampleParents(pcp->update_parental_ids_fname, &pii.sii, sample_include, raw_sample_ct, sample_ct, &pii.parental_id_info, founder_info);
+        if (update_sample_ids_empty) {
+          logputs("--update-ids: 0 samples updated.\n");
+        } else {
+          reterr = UpdateSampleIds(pcp->update_sample_ids_fname, sample_include, raw_sample_ct, sample_ct, &pii.sii);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
         }
+      } else {
+        if (pcp->update_parental_ids_fname) {
+          if (update_parental_ids_empty) {
+            logputs("--update-parents: 0 samples updated.\n");
+          } else {
+            reterr = UpdateSampleParents(pcp->update_parental_ids_fname, &pii.sii, sample_include, raw_sample_ct, sample_ct, pcp->max_thread_ct, &pii.parental_id_info, founder_info);
+            if (unlikely(reterr)) {
+              goto Plink2Core_ret_1;
+            }
+          }
+        }
         // --update-parents goes here
         if (pcp->update_sex_info.fname) {
-          reterr = UpdateSampleSexes(sample_include, &pii.sii, &(pcp->update_sex_info), raw_sample_ct, sample_ct, sex_nm, sex_male);
+          reterr = UpdateSampleSexes(sample_include, &pii.sii, &(pcp->update_sex_info), raw_sample_ct, sample_ct, pcp->max_thread_ct, sex_nm, sex_male);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -1423,7 +1442,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
       if (pcp->covar_fname || pcp->covar_range_list.name_ct) {
         const char* cur_covar_fname = pcp->covar_fname? pcp->covar_fname : (pcp->pheno_fname? pcp->pheno_fname : psamname);
-        reterr = LoadPhenos(cur_covar_fname, &(pcp->covar_range_list), sample_include, pii.sii.sample_ids, raw_sample_ct, sample_ct, pii.sii.max_sample_id_blen, pcp->missing_pheno, 2, (pcp->misc_flags / kfMiscCovarColNums) & 1, &covar_cols, &covar_names, &covar_ct, &max_covar_name_blen);
+        reterr = LoadPhenos(cur_covar_fname, &(pcp->covar_range_list), sample_include, pii.sii.sample_ids, raw_sample_ct, sample_ct, pii.sii.max_sample_id_blen, pcp->missing_pheno, 2, (pcp->misc_flags / kfMiscCovarColNums) & 1, pcp->max_thread_ct, &covar_cols, &covar_names, &covar_ct, &max_covar_name_blen);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }

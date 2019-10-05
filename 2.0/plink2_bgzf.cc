@@ -270,7 +270,7 @@ THREAD_FUNC_DECL BgzfRawMtStreamThread(void* raw_arg) {
         ff = bodyp->ff;
         locked_start = 0;
         // Consumer is expected to set cwr->locked_end = 0 here.
-        remaining_read_start = 0;
+        remaining_read_start = 16;  // bugfix
         is_eof = 0;
       }
       uint32_t remaining_end;
@@ -472,7 +472,7 @@ PglErr BgzfRawMtStreamRead(unsigned char* dst_end, BgzfRawMtDecompressStream* bg
   return BgzfJoinAndRespawn(dst_end, bgzfp, dst_iterp, errmsgp);
 }
 
-PglErr BgzfRawMtStreamRetarget(BgzfRawMtDecompressStream* bgzfp, FILE* next_ff, const char** errmsgp) {
+PglErr BgzfRawMtStreamRetarget(const char* header, BgzfRawMtDecompressStream* bgzfp, FILE* next_ff, const char** errmsgp) {
   BgzfMtReadBody* bodyp = &bgzfp->body;
   ThreadGroup* tgp = &bgzfp->tg;
   if (!bgzfp->eof) {
@@ -508,6 +508,8 @@ PglErr BgzfRawMtStreamRetarget(BgzfRawMtDecompressStream* bgzfp, FILE* next_ff, 
   } else {
     // Caller is responsible for closing previous bodyp->ff, etc.
     bodyp->ff = next_ff;
+    // bugfix (5 Oct 2019): forgot this
+    memcpy(bodyp->in, header, 16);
   }
   SpawnThreads(tgp);
   bgzfp->eof = 0;

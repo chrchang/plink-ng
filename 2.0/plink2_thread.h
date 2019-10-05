@@ -157,6 +157,31 @@ HEADER_INLINE void DeclareLastThreadBlock(ThreadGroup* tgp) {
   tgp->shared.cb.is_last_block = 1;
 }
 
+#if defined(__cplusplus) && !defined(_WIN32)
+class Plink2ThreadStartup {
+public:
+  pthread_attr_t smallstack_thread_attr;
+  Plink2ThreadStartup() {
+#  ifdef NDEBUG
+    // we'll error out for another reason soon enough if there's insufficient
+    // memory...
+    pthread_attr_init(&smallstack_thread_attr);
+#  else
+    assert(!pthread_attr_init(&smallstack_thread_attr));
+#  endif
+    // if this fails due to kDefaultThreadStack being smaller than the system
+    // page size, no need to error out
+    pthread_attr_setstacksize(&smallstack_thread_attr, kDefaultThreadStack);
+  }
+
+  ~Plink2ThreadStartup() {
+    pthread_attr_destroy(&smallstack_thread_attr);
+  }
+};
+
+extern Plink2ThreadStartup g_thread_startup;
+#endif
+
 BoolErr SpawnThreads(ThreadGroup* tgp);
 
 void JoinThreads(ThreadGroup* tgp);

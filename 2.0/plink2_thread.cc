@@ -127,6 +127,10 @@ void JoinThreadsInternal(uint32_t thread_ct, ThreadGroup* tgp) {
   tgp->is_unjoined = 0;
 }
 
+#if defined(__cplusplus) && !defined(_WIN32)
+Plink2ThreadStartup g_thread_startup;
+#endif
+
 BoolErr SpawnThreads(ThreadGroup* tgp) {
   ThreadGroupControlBlock* cbp = &(tgp->shared.cb);
   const uint32_t thread_ct = cbp->thread_ct;
@@ -196,14 +200,24 @@ BoolErr SpawnThreads(ThreadGroup* tgp) {
       return 1;
     }
     tgp->sync_init_bits |= 4;
+#  ifndef __cplusplus
     pthread_attr_t smallstack_thread_attr;
-    pthread_attr_init(&smallstack_thread_attr);
+    if (unlikely(pthread_attr_init(&smallstack_thread_attr))) {
+      return 1;
+    }
     pthread_attr_setstacksize(&smallstack_thread_attr, kDefaultThreadStack);
+#  endif
     for (uint32_t tidx = 0; tidx != thread_ct; ++tidx) {
       ThreadGroupFuncArg* arg_slot = &(tgp->thread_args[tidx]);
       arg_slot->sharedp = &(tgp->shared);
       arg_slot->tidx = tidx;
-      if (unlikely(pthread_create(&(threads[tidx]), &smallstack_thread_attr, tgp->thread_func_ptr, arg_slot))) {
+      if (unlikely(pthread_create(&(threads[tidx]),
+#  ifdef __cplusplus
+                                  &g_thread_startup.smallstack_thread_attr,
+#  else
+                                  &smallstack_thread_attr,
+#  endif
+                                  tgp->thread_func_ptr, arg_slot))) {
         if (tidx) {
           if (is_last_block) {
             JoinThreadsInternal(tidx, tgp);
@@ -220,12 +234,18 @@ BoolErr SpawnThreads(ThreadGroup* tgp) {
               pthread_cancel(threads[tidx2]);
             }
           }
+        } else {
+          cbp->active_ct = 0;
         }
+#  ifndef __cplusplus
         pthread_attr_destroy(&smallstack_thread_attr);
+#  endif
         return 1;
       }
     }
+#  ifndef __cplusplus
     pthread_attr_destroy(&smallstack_thread_attr);
+#  endif
     tgp->is_active = 1;
   } else {
     cbp->spawn_ct += 1;

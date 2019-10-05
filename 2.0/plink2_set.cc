@@ -29,7 +29,7 @@ typedef struct MakeSetRangeStruct {
 } MakeSetRange;
 
 static_assert(kMaxChrCodeDigits == 5, "LoadIntervalBed() must be updated.");
-PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sorted_subset_ids, const char* file_descrip, uint32_t zero_based, uint32_t track_set_names, uint32_t border_extend, uint32_t fail_on_no_sets, uint32_t c_prefix, uintptr_t subset_ct, uintptr_t max_subset_id_blen, ReadLineStream* rlsp, char** line_iterp, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_blen_ptr, uint64_t** range_sort_buf_ptr, MakeSetRange*** make_set_range_arr_ptr) {
+PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sorted_subset_ids, const char* file_descrip, uint32_t zero_based, uint32_t track_set_names, uint32_t border_extend, uint32_t fail_on_no_sets, uint32_t c_prefix, uintptr_t subset_ct, uintptr_t max_subset_id_blen, TextStream* txsp, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_blen_ptr, uint64_t** range_sort_buf_ptr, MakeSetRange*** make_set_range_arr_ptr) {
   // In plink 1.9, this was named load_range_list() and called directly by
   // ExtractExcludeRange(), define_sets(), and indirectly by annotate(),
   // gene_report(), and clump_reports().  That function required set IDs in
@@ -44,54 +44,46 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
     char* set_names = nullptr;
     uintptr_t set_ct = 0;
     uintptr_t max_set_id_blen = 0;
-    char* line_iter = *line_iterp;
     // if we need to track set names, put together a sorted list
     if (track_set_names) {
       uintptr_t line_idx = 0;
-      while (1) {
-        line_iter = AdvToDelim(line_iter, '\n');
-      LoadIntervalBed_LINE_ITER_ALREADY_ADVANCED_1:
-        ++line_iter;
-        ++line_idx;
-        reterr = RlsPostlfNext(rlsp, &line_iter);
+      for (char* line_iter = TextLineEnd(txsp); ; ) {
+        reterr = TextNextNonemptyLineLstripUnsafe(txsp, &line_idx, &line_iter);
         if (reterr) {
           if (likely(reterr == kPglRetEof)) {
             reterr = kPglRetSuccess;
             break;
           }
-          goto LoadIntervalBed_ret_READ_RLSTREAM;
+          goto LoadIntervalBed_ret_TSTREAM_FAIL;
         }
-        line_iter = FirstNonTspace(line_iter);
-        if (IsEolnKns(*line_iter)) {
-          continue;
-        }
-        char* linebuf_first_token = line_iter;
-        char* first_token_end = CurTokenEnd(linebuf_first_token);
+        char* line_start = line_iter;
+        char* first_token_end = CurTokenEnd(line_start);
         char* cur_set_id = NextTokenMult(first_token_end, 3);
         char* last_token = cur_set_id;
         if (unlikely(NoMoreTokensKns(last_token))) {
           snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, file_descrip);
-          goto LoadIntervalBed_ret_MALFORMED_INPUT_2;
+          goto LoadIntervalBed_ret_MALFORMED_INPUT_WW;
         }
-        const uint32_t chr_name_slen = first_token_end - linebuf_first_token;
+        const uint32_t chr_name_slen = first_token_end - line_start;
         *first_token_end = '\0';
-        const uint32_t cur_chr_code = GetChrCode(linebuf_first_token, cip, chr_name_slen);
+        const uint32_t cur_chr_code = GetChrCode(line_start, cip, chr_name_slen);
         if (unlikely(IsI32Neg(cur_chr_code))) {
           snprintf(g_logbuf, kLogbufSize, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
-          goto LoadIntervalBed_ret_MALFORMED_INPUT_2;
+          goto LoadIntervalBed_ret_MALFORMED_INPUT_WW;
         }
         // chr_mask check removed, we want to track empty sets
         uint32_t set_id_slen = strlen_se(cur_set_id);
-        line_iter = AdvToDelim(&(cur_set_id[set_id_slen]), '\n');
+        // we're about to possibly clobber \n, so advance line_iter now
+        line_iter = AdvPastDelim(&(cur_set_id[set_id_slen]), '\n');
         cur_set_id[set_id_slen] = '\0';
         if (subset_ct) {
           if (bsearch_str(cur_set_id, sorted_subset_ids, set_id_slen, max_subset_id_blen, subset_ct) == -1) {
-            goto LoadIntervalBed_LINE_ITER_ALREADY_ADVANCED_1;
+            continue;
           }
         }
         // when there are repeats, they are likely to be next to each other
         if (make_set_ll && strequal_overread(make_set_ll->str, last_token)) {
-          goto LoadIntervalBed_LINE_ITER_ALREADY_ADVANCED_1;
+          continue;
         }
         uint32_t set_id_blen = set_id_slen + 1;
         // argh, --clump counts positional overlaps which don't include any
@@ -120,7 +112,6 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
         }
         make_set_ll = ll_tmp;
         ++set_ct;
-        goto LoadIntervalBed_LINE_ITER_ALREADY_ADVANCED_1;
       }
       if (!set_ct) {
         if (unlikely(fail_on_no_sets)) {
@@ -139,7 +130,7 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
             goto LoadIntervalBed_ret_1;
           }
         }
-        logerrprintf("Warning: No valid ranges in %s.\n", file_descrip);
+        logerrprintfww("Warning: No valid ranges in %s.\n", file_descrip);
         goto LoadIntervalBed_ret_1;
       }
       // c_prefix is 0 or 2
@@ -167,8 +158,10 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
         }
       }
       BigstackShrinkTop(set_names, set_ct * max_set_id_blen);
-      // no error possible here since we're always at eof
-      RewindRLstreamRaw(rlsp, &line_iter);
+      reterr = TextRewind(txsp);
+      if (unlikely(reterr)) {
+        goto LoadIntervalBed_ret_TSTREAM_FAIL;
+      }
     } else {
       set_ct = 1;
     }
@@ -180,36 +173,33 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
     uintptr_t line_idx = 0;
     uint32_t chr_start = 0;
     uint32_t chr_end = 0;
-    while (1) {
-      line_iter = AdvToDelim(line_iter, '\n');
-    LoadIntervalBed_LINE_ITER_ALREADY_ADVANCED_2:
+    for (char* line_iter = &(TextLineEnd(txsp)[-1]); ; line_iter = AdvToDelim(line_iter, '\n')) {
+    LoadIntervalBed_LINE_ITER_ALREADY_ADVANCED:
       ++line_iter;
-      ++line_idx;
-      reterr = RlsPostlfNext(rlsp, &line_iter);
+      reterr = TextNextNonemptyLineLstripUnsafe(txsp, &line_idx, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
+          if (unlikely(track_set_names && (line_idx == 1))) {
+            goto LoadIntervalBed_ret_REWIND_FAIL;
+          }
           reterr = kPglRetSuccess;
           break;
         }
-        goto LoadIntervalBed_ret_READ_RLSTREAM;
+        goto LoadIntervalBed_ret_TSTREAM_FAIL;
       }
-      line_iter = FirstNonTspace(line_iter);
-      if (IsEolnKns(*line_iter)) {
-        continue;
-      }
-      char* linebuf_first_token = line_iter;
-      char* first_token_end = CurTokenEnd(linebuf_first_token);
+      char* line_start = line_iter;
+      char* first_token_end = CurTokenEnd(line_start);
       char* last_token = NextTokenMult(first_token_end, 2 + track_set_names);
       if (unlikely(NoMoreTokensKns(last_token))) {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, file_descrip);
-        goto LoadIntervalBed_ret_MALFORMED_INPUT_2;
+        goto LoadIntervalBed_ret_MALFORMED_INPUT_WW;
       }
-      const uint32_t chr_name_slen = first_token_end - linebuf_first_token;
+      const uint32_t chr_name_slen = first_token_end - line_start;
       *first_token_end = '\0';
-      const uint32_t cur_chr_code = GetChrCode(linebuf_first_token, cip, chr_name_slen);
+      const uint32_t cur_chr_code = GetChrCode(line_start, cip, chr_name_slen);
       if (unlikely(IsI32Neg(cur_chr_code))) {
         snprintf(g_logbuf, kLogbufSize, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
-        goto LoadIntervalBed_ret_MALFORMED_INPUT_2;
+        goto LoadIntervalBed_ret_MALFORMED_INPUT_WW;
       }
       line_iter = CurTokenEnd(last_token);
       if (!IsSet(cip->chr_mask, cur_chr_code)) {
@@ -232,19 +222,18 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
       uint32_t range_first;
       if (unlikely(ScanmovUintDefcap(&linebuf_iter, &range_first))) {
         snprintf(g_logbuf, kLogbufSize, "Error: Invalid range start position on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
-        goto LoadIntervalBed_ret_MALFORMED_INPUT_2;
+        goto LoadIntervalBed_ret_MALFORMED_INPUT_WW;
       }
       range_first += zero_based;
       linebuf_iter = NextToken(linebuf_iter);
       uint32_t range_last;
       if (unlikely(ScanmovUintDefcap(&linebuf_iter, &range_last))) {
         snprintf(g_logbuf, kLogbufSize, "Error: Invalid range end position on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
-        goto LoadIntervalBed_ret_MALFORMED_INPUT_2;
+        goto LoadIntervalBed_ret_MALFORMED_INPUT_WW;
       }
       if (unlikely(range_last < range_first)) {
         snprintf(g_logbuf, kLogbufSize, "Error: Range end position smaller than range start on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
-        WordWrapB(0);
-        goto LoadIntervalBed_ret_MALFORMED_INPUT_2;
+        goto LoadIntervalBed_ret_MALFORMED_INPUT_WW;
       }
       if (border_extend > range_first) {
         range_first = 0;
@@ -253,6 +242,7 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
       }
       range_last += border_extend;
       const uint32_t last_token_slen = line_iter - last_token;
+      // about to potentially clobber \n, advance now
       line_iter = AdvToDelim(line_iter, '\n');
       uint32_t cur_set_idx = 0;
       if (set_ct > 1) {
@@ -296,7 +286,7 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
         msr_tmp->uidx_end = range_last + 1;
         make_set_range_arr[cur_set_idx] = msr_tmp;
       }
-      goto LoadIntervalBed_LINE_ITER_ALREADY_ADVANCED_2;
+      goto LoadIntervalBed_LINE_ITER_ALREADY_ADVANCED;
     }
     // allocate buffer for sorting ranges later
     uint32_t max_set_range_ct = 0;
@@ -323,16 +313,20 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
       *max_set_id_blen_ptr = max_set_id_blen;
     }
     *make_set_range_arr_ptr = make_set_range_arr;
-    *line_iterp = line_iter;
   }
   while (0) {
   LoadIntervalBed_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  LoadIntervalBed_ret_READ_RLSTREAM:
-    RLstreamErrPrint(file_descrip, rlsp, &reterr);
+  LoadIntervalBed_ret_REWIND_FAIL:
+    logerrprintfww(kErrprintfRewind, file_descrip);
+    reterr = kPglRetRewindFail;
     break;
-  LoadIntervalBed_ret_MALFORMED_INPUT_2:
+  LoadIntervalBed_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(file_descrip, txsp);
+    break;
+  LoadIntervalBed_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
     logerrputsb();
   LoadIntervalBed_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
@@ -342,7 +336,7 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
   return reterr;
 }
 
-PglErr ExtractExcludeRange(const char* fnames, const ChrInfo* cip, const uint32_t* variant_bps, uint32_t raw_variant_ct, VfilterType vft, uint32_t zero_based, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+PglErr ExtractExcludeRange(const char* fnames, const ChrInfo* cip, const uint32_t* variant_bps, uint32_t raw_variant_ct, VfilterType vft, uint32_t zero_based, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   const uint32_t orig_variant_ct = *variant_ct_ptr;
   if (!orig_variant_ct) {
     return kPglRetSuccess;
@@ -350,8 +344,9 @@ PglErr ExtractExcludeRange(const char* fnames, const ChrInfo* cip, const uint32_
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   PglErr reterr = kPglRetSuccess;
-  ReadLineStream rls;
-  PreinitRLstream(&rls);
+  const char* fname_txs = nullptr;
+  TextStream txs;
+  PreinitTextStream(&txs);
   {
     const uintptr_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     uintptr_t* variant_include_mask = nullptr;
@@ -361,21 +356,22 @@ PglErr ExtractExcludeRange(const char* fnames, const ChrInfo* cip, const uint32_
       }
     }
     const char* fnames_iter = fnames;
-    char* line_iter = nullptr;
     do {
-      if (!line_iter) {
-        reterr = InitRLstreamFastsizeRaw(fnames_iter, &rls, &line_iter);
+      if (fnames_iter == fnames) {
+        fname_txs = fnames_iter;
+        reterr = InitTextStream(fnames_iter, kTextStreamBlenFast, MAXV(max_thread_ct - 1, 1), &txs);
+        if (unlikely(reterr)) {
+          goto ExtractExcludeRange_ret_TSTREAM_FAIL;
+        }
       } else {
-        reterr = RetargetRLstreamRaw(fnames_iter, &rls, &line_iter);
-        // previous file always read to eof, so no need to call
-        // RLstreamErrPrint().
-      }
-      if (unlikely(reterr)) {
-        goto ExtractExcludeRange_ret_1;
+        reterr = TextRetarget(fnames_iter, &txs);
+        if (unlikely(reterr)) {
+          goto ExtractExcludeRange_ret_TSTREAM_FAIL;
+        }
+        fname_txs = fnames_iter;
       }
       MakeSetRange** range_arr = nullptr;
-      const char file_descrips[6][30] = {"--extract bed1 file", "--extract bed0 file", "--extract-intersect bed1 file", "--extract-intersect bed0 file", "--exclude bed1 file", "--exclude bed0 file"};
-      reterr = LoadIntervalBed(cip, variant_bps, nullptr, file_descrips[2 * vft + zero_based], zero_based, 0, 0, 0, 0, 0, 0, &rls, &line_iter, nullptr, nullptr, nullptr, nullptr, &range_arr);
+      reterr = LoadIntervalBed(cip, variant_bps, nullptr, fname_txs, zero_based, 0, 0, 0, 0, 0, 0, &txs, nullptr, nullptr, nullptr, nullptr, &range_arr);
       if (unlikely(reterr)) {
         goto ExtractExcludeRange_ret_1;
       }
@@ -414,9 +410,14 @@ PglErr ExtractExcludeRange(const char* fnames, const ChrInfo* cip, const uint32_
   ExtractExcludeRange_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
+  ExtractExcludeRange_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(fname_txs, &txs);
+    break;
   }
  ExtractExcludeRange_ret_1:
-  CleanupRLstream(&rls);
+  if (fname_txs) {
+    CleanupTextStream2(fname_txs, &txs, &reterr);
+  }
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }

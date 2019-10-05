@@ -309,7 +309,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
         logerrputs("Error: Empty --king-cutoff ID file.\n");
         goto KingCutoffBatch_ret_MALFORMED_INPUT;
       }
-      goto KingCutoffBatch_ret_TSTREAM_FAIL;
+      goto KingCutoffBatch_ret_TSTREAM_XID_FAIL;
     }
 
     uint32_t* xid_map;  // IDs not collapsed
@@ -501,6 +501,10 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
     logerrprintfww("Error: Fewer tokens than expected on line %" PRIuPTR " of %s .\n", line_idx, king_cutoff_fprefix);
     reterr = kPglRetMalformedInput;
     break;
+  KingCutoffBatch_ret_TSTREAM_XID_FAIL:
+    if (!TextStreamErrcode(&txs)) {
+      break;
+    }
   KingCutoffBatch_ret_TSTREAM_FAIL:
     TextStreamErrPrint(king_cutoff_fprefix, &txs);
     break;
@@ -4738,10 +4742,10 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
   uintptr_t line_idx = 0;
   char* cswritep = nullptr;
   PglErr reterr = kPglRetSuccess;
-  ReadLineStream score_rls;
+  TextStream score_txs;
   ThreadsState ts;
   CompressStreamState css;
-  PreinitRLstream(&score_rls);
+  PreinitTextStream(&score_txs);
   InitThreads3z(&ts);
   PreinitCstream(&css);
   {
@@ -4768,24 +4772,23 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     // now xchr_model is set iff it's 1
 
     const ScoreFlags score_flags = score_info_ptr->flags;
-    char* line_iter;
-    reterr = SizeAndInitRLstreamRaw(score_info_ptr->input_fname, bigstack_left() / 8, &score_rls, &line_iter);
+    reterr = SizeAndInitTextStream(score_info_ptr->input_fname, bigstack_left() / 8, 1, &score_txs);
     if (unlikely(reterr)) {
-      goto ScoreReport_ret_1;
+      goto ScoreReport_ret_TSTREAM_FAIL;
     }
     uint32_t nonempty_lines_to_skip_p1 = 1 + ((score_flags / kfScoreHeaderIgnore) & 1);
+    char* line_start;
     for (uint32_t uii = 0; uii != nonempty_lines_to_skip_p1; ++uii) {
-      reterr = RlsNextNonemptyLstrip(&score_rls, &line_idx, &line_iter);
+      reterr = TextNextNonemptyLineLstrip(&score_txs, &line_idx, &line_start);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
           logerrputs("Error: Empty --score file.\n");
           goto ScoreReport_ret_MALFORMED_INPUT;
         }
-        goto ScoreReport_ret_READ_RLSTREAM;
+        goto ScoreReport_ret_TSTREAM_FAIL;
       }
     }
-    char* linebuf_first_token = line_iter;
-    uint32_t last_col_idx = CountTokens(linebuf_first_token);
+    uint32_t last_col_idx = CountTokens(line_start);
     const uint32_t varid_col_idx = score_info_ptr->varid_col_p1 - 1;
     const uint32_t allele_col_idx = score_info_ptr->allele_col_p1 - 1;
     if (unlikely(MAXV(varid_col_idx, allele_col_idx) >= last_col_idx)) {
@@ -4800,7 +4803,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       if (unlikely(bigstack_alloc_u32(1, &score_col_idx_deltas))) {
         goto ScoreReport_ret_NOMEM;
       }
-      // catch corner case
+      // catch edge case
       if (unlikely(allele_col_idx + 1 == varid_col_idx)) {
         logerrputs("Error: --score variant ID column index matches a coefficient column index.\n");
         goto ScoreReport_ret_INVALID_CMDLINE;
@@ -4847,7 +4850,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     // don't have to worry about overflow, since linebuf was limited to 1/8
     // of available workspace.
     if (score_flags & kfScoreHeaderRead) {
-      char* read_iter = linebuf_first_token;
+      char* read_iter = line_start;
       for (uintptr_t score_col_idx = 0; score_col_idx != score_col_ct; ++score_col_idx) {
         read_iter = NextTokenMult0(read_iter, score_col_idx_deltas[score_col_idx]);
         score_col_names[score_col_idx] = write_iter;
@@ -4857,8 +4860,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       }
 
       // don't reparse this line
-      line_iter = AdvToDelim(read_iter, '\n');
-      linebuf_first_token = line_iter;
+      line_start = K_CAST(char*, &(g_one_char_strs[0]));
     } else {
       for (uintptr_t score_col_idx = 0; score_col_idx != score_col_ct; ++score_col_idx) {
         score_col_names[score_col_idx] = write_iter;
@@ -4986,9 +4988,9 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
 #endif
     PgrClearLdCache(simple_pgrp);
     while (1) {
-      if (!IsEolnKns(*linebuf_first_token)) {
+      if (!IsEolnKns(*line_start)) {
         // varid_col_idx and allele_col_idx will almost always be very small
-        char* variant_id_start = NextTokenMult0(linebuf_first_token, varid_col_idx);
+        char* variant_id_start = NextTokenMult0(line_start, varid_col_idx);
         if (unlikely(!variant_id_start)) {
           goto ScoreReport_ret_MISSING_TOKENS;
         }
@@ -5003,7 +5005,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             goto ScoreReport_ret_MALFORMED_INPUT_WW;
           }
           SetBit(variant_uidx, already_seen);
-          char* allele_start = NextTokenMult0(linebuf_first_token, allele_col_idx);
+          char* allele_start = NextTokenMult0(line_start, allele_col_idx);
           if (unlikely(!allele_start)) {
             goto ScoreReport_ret_MISSING_TOKENS;
           }
@@ -5239,7 +5241,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
 
             *allele_end = allele_end_char;
             double* cur_score_coefs_iter = &(cur_score_coefs_cmaj[block_vidx]);
-            const char* read_iter = linebuf_first_token;
+            const char* read_iter = line_start;
             for (uint32_t score_col_idx = 0; score_col_idx != score_col_ct; ++score_col_idx) {
               read_iter = NextTokenMult0(read_iter, score_col_idx_deltas[score_col_idx]);
               if (unlikely(!read_iter)) {
@@ -5304,15 +5306,14 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         }
       }
       ++line_idx;
-      reterr = RlsNextLstrip(&score_rls, &line_iter);
+      reterr = TextNextLineLstrip(&score_txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
           break;
         }
-        goto ScoreReport_ret_READ_RLSTREAM;
+        goto ScoreReport_ret_TSTREAM_FAIL;
       }
-      linebuf_first_token = line_iter;
     }
     VcountIncr4To8(missing_diploid_acc4, acc4_vec_ct, missing_diploid_acc8);
     VcountIncr8To32(missing_diploid_acc8, acc8_vec_ct, missing_diploid_acc32);
@@ -5539,8 +5540,8 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     logprintfww("--score: Results written to %s .\n", outname);
   }
   while (0) {
- ScoreReport_ret_READ_RLSTREAM:
-    RLstreamErrPrint("--score file", &score_rls, &reterr);
+  ScoreReport_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--score file", &score_txs);
     break;
   ScoreReport_ret_NOMEM:
     reterr = kPglRetNomem;
@@ -5586,7 +5587,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
   CswriteCloseCond(&css, cswritep);
   CleanupThreads3z(&ts, &g_cur_batch_size);
   BLAS_SET_NUM_THREADS(1);
-  CleanupRLstream(&score_rls);
+  CleanupTextStream2("--score file", &score_txs, &reterr);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }

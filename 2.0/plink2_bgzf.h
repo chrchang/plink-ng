@@ -155,10 +155,10 @@ PglErr BgzfRawMtStreamInit(const char* header, uint32_t decompress_thread_ct, FI
 
 PglErr BgzfRawMtStreamRead(unsigned char* dst_end, BgzfRawMtDecompressStream* bgzfp, unsigned char** dst_iterp, const char** errmsgp);
 
-PglErr BgzfRawMtStreamRetarget(BgzfRawMtDecompressStream* bgzfp, FILE* next_ff, const char** errmsgp);
+PglErr BgzfRawMtStreamRetarget(const char* header, BgzfRawMtDecompressStream* bgzfp, FILE* next_ff, const char** errmsgp);
 
 HEADER_INLINE PglErr BgzfRawMtStreamRewind(BgzfRawMtDecompressStream* bgzfp, const char** errmsgp) {
-  return BgzfRawMtStreamRetarget(bgzfp, nullptr, errmsgp);
+  return BgzfRawMtStreamRetarget(nullptr, bgzfp, nullptr, errmsgp);
 }
 
 void CleanupBgzfRawMtStream(BgzfRawMtDecompressStream* bgzfp);

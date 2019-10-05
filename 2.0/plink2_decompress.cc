@@ -612,7 +612,7 @@ PglErr InitRLstreamEx(uint32_t alloc_at_end, uint32_t enforced_max_line_blen, ui
       goto InitRLstreamEx_ret_THREAD_CREATE_FAIL;
     }
     rlsp->sync_init_state = 3;
-    if (unlikely(pthread_create(&rlsp->read_thread, &g_smallstack_thread_attr, ReadLineStreamThread, rlsp))) {
+    if (unlikely(pthread_create(&rlsp->read_thread, &g_smallstack_thread_attr_old, ReadLineStreamThread, rlsp))) {
       goto InitRLstreamEx_ret_THREAD_CREATE_FAIL;
     }
     rlsp->sync_init_state = 4;

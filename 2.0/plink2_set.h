@@ -24,7 +24,7 @@
 namespace plink2 {
 #endif
 
-PglErr ExtractExcludeRange(const char* fname, const ChrInfo* cip, const uint32_t* variant_bps, uint32_t raw_variant_ct, VfilterType vft, uint32_t ibed0, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
+PglErr ExtractExcludeRange(const char* fname, const ChrInfo* cip, const uint32_t* variant_bps, uint32_t raw_variant_ct, VfilterType vft, uint32_t ibed0, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
 
 #ifdef __cplusplus
 }

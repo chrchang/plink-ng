@@ -428,7 +428,15 @@ HEADER_INLINE PglErr TextNextLineLstripUnsafe(TextStream* txsp, char** line_iter
   return kPglRetSuccess;
 }
 
+HEADER_INLINE PglErr TextNextLineLstripUnsafeK(TextStream* txsp, const char** line_iterp) {
+  return TextNextLineLstripUnsafe(txsp, K_CAST(char**, line_iterp));
+}
+
 PglErr TextNextNonemptyLineLstripUnsafe(TextStream* txsp, uintptr_t* line_idx_ptr, char** line_iterp);
+
+HEADER_INLINE PglErr TextNextNonemptyLineLstripUnsafeK(TextStream* txsp, uintptr_t* line_idx_ptr, const char** line_iterp) {
+  return TextNextNonemptyLineLstripUnsafe(txsp, line_idx_ptr, K_CAST(char**, line_iterp));
+}
 
 
 HEADER_INLINE uint32_t TextIsMt(const TextStream* txsp) {

@@ -2414,7 +2414,7 @@ void JoinThreadsOld(uint32_t ctp1, pthread_t* threads) {
 }
 
 #ifndef _WIN32
-pthread_attr_t g_smallstack_thread_attr;
+pthread_attr_t g_smallstack_thread_attr_old;
 #endif
 
 BoolErr SpawnThreadsOld(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthread_t* threads) {
@@ -2426,7 +2426,7 @@ BoolErr SpawnThreadsOld(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthread_t
       return 1;
     }
 #else
-    if (unlikely(pthread_create(&(threads[ulii - 1]), &g_smallstack_thread_attr, start_routine, R_CAST(void*, ulii)))) {
+    if (unlikely(pthread_create(&(threads[ulii - 1]), &g_smallstack_thread_attr_old, start_routine, R_CAST(void*, ulii)))) {
       JoinThreadsOld(ulii, threads);
       return 1;
     }
@@ -2604,7 +2604,7 @@ BoolErr SpawnThreads2z(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, uint32_t i
       return 1;
     }
     for (uintptr_t ulii = 0; ulii != ct; ++ulii) {
-      if (unlikely(pthread_create(&(threads[ulii]), &g_smallstack_thread_attr, start_routine, R_CAST(void*, ulii)))) {
+      if (unlikely(pthread_create(&(threads[ulii]), &g_smallstack_thread_attr_old, start_routine, R_CAST(void*, ulii)))) {
         if (ulii) {
           if (is_last_block) {
             JoinThreads2z(ulii, 1, threads);
@@ -3856,8 +3856,8 @@ PglErr CmdlineParsePhase3(uintptr_t max_default_mib, uintptr_t malloc_size_mib, 
     }
 
 #ifndef _WIN32
-    pthread_attr_init(&g_smallstack_thread_attr);
-    pthread_attr_setstacksize(&g_smallstack_thread_attr, kDefaultThreadStackOld);
+    pthread_attr_init(&g_smallstack_thread_attr_old);
+    pthread_attr_setstacksize(&g_smallstack_thread_attr_old, kDefaultThreadStackOld);
 #endif
   }
   while (0) {

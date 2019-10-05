@@ -846,7 +846,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       reterr = TextNextLineLstripUnsafe(&pvar_txs, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
-          line_start = K_CAST(char*, &(g_one_char_strs[20]));  // '\n'
+          line_start = K_CAST(char*, &(g_one_char_strs[0]));
           --line_iter;
           reterr = kPglRetSuccess;
           break;
@@ -1073,7 +1073,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     uint32_t info_reload_slen = *info_reload_slen_ptr;
 
     // done with header.  line_start now points to either the beginning of the
-    // first real line, or '\n'.
+    // first real line, or an eoln character.
     uint32_t max_variant_id_slen = *max_variant_id_slen_ptr;
     uint32_t chrs_encountered_m1 = UINT32_MAX;  // intentional overflow
     uint32_t prev_chr_code = UINT32_MAX;  // force initial mismatch
