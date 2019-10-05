@@ -62,7 +62,7 @@ PglErr BgzfJoinAndRespawn(unsigned char* dst_end, BgzfRawMtDecompressStream* bgz
   }
   unsigned char* next_target;
   do {
-    JoinThreadsX(tgp);
+    JoinThreads(tgp);
 
     // 1. Check for decompression and read errors.
     const uint32_t next_producer_parity = bgzfp->consumer_parity;
@@ -196,7 +196,7 @@ PglErr BgzfJoinAndRespawn(unsigned char* dst_end, BgzfRawMtDecompressStream* bgz
       BgzfMtReadCommWithR* next_cwr = bodyp->cwr[next_producer_parity];
       next_cwr->locked_start = remaining_start;
       next_cwr->locked_end = locked_end;
-      SpawnThreadsX(tgp);
+      SpawnThreads(tgp);
 
       bgzfp->overflow_start[next_producer_parity] = 0;
       uint32_t next_overflow_end = 0;
@@ -245,7 +245,7 @@ THREAD_FUNC_DECL BgzfRawMtStreamThread(void* raw_arg) {
     // The current buffer-usage logic assumes that thresh1 <= 1/3 of the buffer
     // size, and thresh2 >= 2/3.
     const uint32_t thresh1 = (GetThreadCt(&context->tg) - 1) * (26 + kMaxBgzfCompressedBlockSize);
-    const uint32_t thresh2 = kDecompressChunkSizeX - thresh1;
+    const uint32_t thresh2 = kDecompressChunkSize - thresh1;
     uint32_t remaining_read_start = bodyp->initial_compressed_byte_ct;
     uint32_t is_eof = 0;
     do {
@@ -279,7 +279,7 @@ THREAD_FUNC_DECL BgzfRawMtStreamThread(void* raw_arg) {
         remaining_end = thresh2;
       } else if (locked_end <= thresh2) {
         // state 2
-        remaining_end = kDecompressChunkSizeX;
+        remaining_end = kDecompressChunkSize;
       } else {
         // state 3
         remaining_read_start -= locked_end;
@@ -305,7 +305,7 @@ THREAD_FUNC_DECL BgzfRawMtStreamThread(void* raw_arg) {
       cwr->remaining_end_is_eof = is_eof;
       remaining_read_start = remaining_end;
       parity = 1 - parity;
-    } while (!THREAD_BLOCK_FINISHX(arg));
+    } while (!THREAD_BLOCK_FINISH(arg));
   } else {
     // Threads 1..decompress_thread_ct decompress from bodyp->in to
     // bodyp->target, storing overflow bytes in the cwd->overflow buffers.
@@ -343,7 +343,7 @@ THREAD_FUNC_DECL BgzfRawMtStreamThread(void* raw_arg) {
         out_offset = out_offset_end;
       }
       parity = 1 - parity;
-    } while (!THREAD_BLOCK_FINISHX(arg));
+    } while (!THREAD_BLOCK_FINISH(arg));
   }
   THREAD_RETURN;
 }
@@ -373,7 +373,7 @@ PglErr BgzfRawMtStreamInit(const char* header, uint32_t decompress_thread_ct, FI
       memmove(bodyp->in, &(bodyp->in[in_pos]), initial_compressed_byte_ct);
       bodyp->initial_compressed_byte_ct = initial_compressed_byte_ct;
     } else {
-      bodyp->in = S_CAST(unsigned char*, malloc(kDecompressChunkSizeX));
+      bodyp->in = S_CAST(unsigned char*, malloc(kDecompressChunkSize));
       if (unlikely(!bodyp->in)) {
         goto BgzfRawMtStreamInit_ret_NOMEM;
       }
@@ -425,7 +425,7 @@ PglErr BgzfRawMtStreamInit(const char* header, uint32_t decompress_thread_ct, FI
     }
 
     SetThreadFuncAndData(BgzfRawMtStreamThread, bgzfp, tgp);
-    if (unlikely(SpawnThreadsX(tgp))) {
+    if (unlikely(SpawnThreads(tgp))) {
       goto BgzfRawMtStreamInit_ret_THREAD_CREATE_FAIL;
     }
     bgzfp->overflow_start[0] = 0;
@@ -476,7 +476,7 @@ PglErr BgzfRawMtStreamRetarget(BgzfRawMtDecompressStream* bgzfp, FILE* next_ff, 
   BgzfMtReadBody* bodyp = &bgzfp->body;
   ThreadGroup* tgp = &bgzfp->tg;
   if (!bgzfp->eof) {
-    JoinThreadsX(tgp);
+    JoinThreads(tgp);
     const uint32_t prev_producer_parity = 1 - bgzfp->consumer_parity;
     BgzfMtReadCommWithD* prev_cwd = bodyp->cwd[prev_producer_parity];
     if (unlikely(prev_cwd->invalid_bgzf)) {
@@ -509,7 +509,7 @@ PglErr BgzfRawMtStreamRetarget(BgzfRawMtDecompressStream* bgzfp, FILE* next_ff, 
     // Caller is responsible for closing previous bodyp->ff, etc.
     bodyp->ff = next_ff;
   }
-  SpawnThreadsX(tgp);
+  SpawnThreads(tgp);
   bgzfp->eof = 0;
   // Turn the crank once, for the same reason we do so during stream creation.
   return BgzfJoinAndRespawn(nullptr, bgzfp, nullptr, errmsgp);

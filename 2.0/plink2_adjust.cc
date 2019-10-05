@@ -563,15 +563,15 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
   const char* in_fname = afip->fname;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
-  TextRstream adjust_trs;
-  PreinitTextRstream(&adjust_trs);
+  TextStream adjust_txs;
+  PreinitTextStream(&adjust_txs);
   {
     // Two-pass load.
     // 1. Parse header line, count # of variants.
     // intermission. Allocate top-level arrays.
     // 2. Rewind and fill arrays.
     // (some overlap with LoadPvar(), though that's one-pass.)
-    reterr = SizeAndInitTextRstream(in_fname, bigstack_left() / 4, max_thread_ct, &adjust_trs);
+    reterr = SizeAndInitTextStream(in_fname, bigstack_left() / 4, max_thread_ct, &adjust_txs);
     if (unlikely(reterr)) {
       goto AdjustFile_ret_1;
     }
@@ -579,13 +579,13 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     const char* header_start;
     do {
       ++line_idx;
-      reterr = TextNextLineLstripK(&adjust_trs, &header_start);
+      reterr = TextNextLineLstripK(&adjust_txs, &header_start);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", in_fname);
           goto AdjustFile_ret_MALFORMED_INPUT_WW;
         }
-        goto AdjustFile_ret_RSTREAM_FAIL;
+        goto AdjustFile_ret_TSTREAM_FAIL;
       }
     } while (strequal_k_unsafe(header_start, "##"));
     if (*header_start == '#') {
@@ -680,13 +680,13 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     uintptr_t entry_ct = 0;
     while (1) {
       const char* line_start;
-      reterr = TextNextNonemptyLineLstripK(&adjust_trs, &line_idx, &line_start);
+      reterr = TextNextNonemptyLineLstripK(&adjust_txs, &line_idx, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           // reterr = kPglRetSuccess;
           break;
         }
-        goto AdjustFile_ret_RSTREAM_FAIL;
+        goto AdjustFile_ret_TSTREAM_FAIL;
       }
       if (test_name) {
         // Don't count different-test entries.
@@ -710,20 +710,17 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     }
 #endif
 
-    reterr = TextRewind(&adjust_trs);
+    reterr = TextRewind(&adjust_txs);
     if (unlikely(reterr)) {
-      goto AdjustFile_ret_RSTREAM_FAIL;
+      goto AdjustFile_ret_TSTREAM_FAIL;
     }
     const uintptr_t line_ct = line_idx;
     line_idx = 0;
     do {
       ++line_idx;
-      reterr = TextNextLineLstripK(&adjust_trs, &header_start);
+      reterr = TextNextLineLstripK(&adjust_txs, &header_start);
       if (unlikely(reterr)) {
-        if (reterr == kPglRetEof) {
-          goto AdjustFile_ret_REWIND_FAIL;
-        }
-        goto AdjustFile_ret_RSTREAM_FAIL;
+        goto AdjustFile_ret_TSTREAM_REWIND_FAIL;
       }
     } while (strequal_k_unsafe(header_start, "##"));
 
@@ -790,8 +787,9 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     while (line_idx < line_ct) {
       ++line_idx;
       const char* line_start;
-      if (unlikely(TextNextLineLstripK(&adjust_trs, &line_start))) {
-        goto AdjustFile_ret_REWIND_FAIL;
+      reterr = TextNextLineLstripK(&adjust_txs, &line_start);
+      if (unlikely(reterr)) {
+        goto AdjustFile_ret_TSTREAM_REWIND_FAIL;
       }
       if (IsEolnKns(*line_start)) {
         continue;
@@ -905,12 +903,11 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
   AdjustFile_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  AdjustFile_ret_REWIND_FAIL:
-    logerrprintfww(kErrprintfRewind, in_fname);
-    reterr = kPglRetRewindFail;
+  AdjustFile_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(in_fname, &adjust_txs);
     break;
-  AdjustFile_ret_RSTREAM_FAIL:
-    TextRstreamErrPrint(in_fname, &adjust_trs);
+  AdjustFile_ret_TSTREAM_REWIND_FAIL:
+    TextStreamErrPrintRewind(in_fname, &adjust_txs, &reterr);
     break;
   AdjustFile_ret_INVALID_CMDLINE:
     reterr = kPglRetInvalidCmdline;
@@ -934,7 +931,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     break;
   }
  AdjustFile_ret_1:
-  CleanupTextRstream2(in_fname, &adjust_trs, &reterr);
+  CleanupTextStream2(in_fname, &adjust_txs, &reterr);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }

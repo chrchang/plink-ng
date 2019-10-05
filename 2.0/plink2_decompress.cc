@@ -591,7 +591,7 @@ PglErr InitRLstreamEx(uint32_t alloc_at_end, uint32_t enforced_max_line_blen, ui
       CloseHandle(rlsp->reader_progress_event);
       goto InitRLstreamEx_ret_THREAD_CREATE_FAIL;
     }
-    rlsp->read_thread = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStack, ReadLineStreamThread, rlsp, 0, nullptr));
+    rlsp->read_thread = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStackOld, ReadLineStreamThread, rlsp, 0, nullptr));
     if (unlikely(!rlsp->read_thread)) {
       DeleteCriticalSection(&syncp->critical_section);
       CloseHandle(rlsp->consumer_progress_event);
@@ -1018,11 +1018,11 @@ void TBstreamErrPrint(const char* file_descrip, TokenBatchStream* tbsp, PglErr* 
 }
 
 
-// ***** plink2_getline-wrapping code starts here *****
+// ***** plink2_text-wrapping code starts here *****
 
 const char kErrprintfDecompress[] = "Error: %s decompression failure: %s.\n";
 
-PglErr InitTextRstreamEx(const char* fname, uint32_t alloc_at_end, uint32_t enforced_max_line_blen, uint32_t max_line_blen, uint32_t decompress_thread_ct, TextRstream* trsp) {
+PglErr InitTextStreamEx(const char* fname, uint32_t alloc_at_end, uint32_t enforced_max_line_blen, uint32_t max_line_blen, uint32_t decompress_thread_ct, TextStream* txsp) {
   const uint32_t dst_capacity = RoundUpPow2(max_line_blen + kDecompressChunkSize, kCacheline);
   if (unlikely(dst_capacity > bigstack_left())) {
     return kPglRetNomem;
@@ -1033,7 +1033,7 @@ PglErr InitTextRstreamEx(const char* fname, uint32_t alloc_at_end, uint32_t enfo
   } else {
     dst = S_CAST(char*, bigstack_end_alloc_raw(dst_capacity));
   }
-  return TextRstreamOpenEx(fname, enforced_max_line_blen, dst_capacity, decompress_thread_ct, nullptr, dst, trsp);
+  return TextStreamOpenEx(fname, enforced_max_line_blen, dst_capacity, decompress_thread_ct, nullptr, dst, txsp);
 }
 
 void TextErrPrint(const char* file_descrip, const char* errmsg, PglErr reterr) {
@@ -1048,7 +1048,7 @@ void TextErrPrint(const char* file_descrip, const char* errmsg, PglErr reterr) {
     assert(errmsg == kShortErrLongLine);
     logerrprintfww("Error: Pathologically long line in %s.\n", file_descrip);
   } else if (reterr == kPglRetRewindFail) {
-    // Not produced directly by TextRstream, but it's inserted in between by
+    // Not produced directly by TextStream, but it's inserted in between by
     // some consumers.
     logerrprintfww(kErrprintfRewind, file_descrip);
   }

@@ -458,18 +458,24 @@ FLAGSET_DEF_START()
   kfXidHeaderFixedWidthIgnoreSid = (kfXidHeaderFixedWidth | kfXidHeaderIgnoreSid)
 FLAGSET_DEF_END(XidHeaderFlags);
 
-// May return kPglRetEof.
-// loadbuf_iter_ptr can be nullptr.
+// May return kPglRetEof, or other TextStream errors.
+// line_startp can be nullptr.  If it isn't, it's set to the (lstripped)
+// beginning of the current line.
+// line_iterp can be nullptr.  If it isn't, it's set to the beginning of the
+// first unparsed (i.e. not FID/IID/SID) token in the header line, or
+// line_start if there's no header line.
 // line_idx must be zero unless initial lines were skipped.
 // If no header line is present, xid_mode will be set to kfXidModeFidIid if
 // kfXidHeaderFixedWidth is set, and kfXidModeFidIidOrIid (which tolerates a
 // mix of single-token and multitoken lines) otherwise.
-PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, char** line_iterp, uintptr_t* line_idx_ptr, char** linebuf_first_token_ptr, ReadLineStream* rlsp, XidMode* xid_mode_ptr);
+PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, uintptr_t* line_idx_ptr, TextStream* txsp, XidMode* xid_mode_ptr, char** line_startp, char** line_iterp);
 
-PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, XidHeaderFlags xid_header_flags, uintptr_t linebuf_size, char** line_iterp, uintptr_t* line_idx_ptr, char** linebuf_first_token_ptr, ReadLineStream* rlsp, XidMode* xid_mode_ptr);
+PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, XidHeaderFlags xid_header_flags, uint32_t max_line_blen, TextStream* txsp, XidMode* xid_mode_ptr, uintptr_t* line_idx_ptr, char** line_startp, char** line_iterp);
+
+PglErr LoadXidHeaderOld(const char* flag_name, XidHeaderFlags xid_header_flags, char** line_iterp, uintptr_t* line_idx_ptr, char** linebuf_first_token_ptr, ReadLineStream* rlsp, XidMode* xid_mode_ptr);
 
 // header line expected to start with FID1, ID1, or IID1
-PglErr LoadXidHeaderPair(const char* flag_name, uint32_t sid_over_fid, char** line_iterp, uintptr_t* line_idx_ptr, char** linebuf_first_token_ptr, ReadLineStream* rlsp, XidMode* xid_mode_ptr);
+PglErr LoadXidHeaderPairOld(const char* flag_name, uint32_t sid_over_fid, char** line_iterp, uintptr_t* line_idx_ptr, char** linebuf_first_token_ptr, ReadLineStream* rlsp, XidMode* xid_mode_ptr);
 
 
 // note that this is no longer divisible by 64

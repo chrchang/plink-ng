@@ -615,7 +615,71 @@ BoolErr SortedXidboxReadMultifind(const char* __restrict sorted_xidbox, uintptr_
   return 0;
 }
 
-PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, char** line_iterp, uintptr_t* line_idx_ptr, char** linebuf_first_token_ptr, ReadLineStream* rlsp, XidMode* xid_mode_ptr) {
+PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, uintptr_t* line_idx_ptr, TextStream* txsp, XidMode* xid_mode_ptr, char** line_startp, char** line_iterp) {
+  // possible todo: support comma delimiter
+  uintptr_t line_idx = *line_idx_ptr;
+  char* line_iter;
+  uint32_t is_header_line;
+  do {
+    ++line_idx;
+    PglErr reterr = TextNextLineLstrip(txsp, &line_iter);
+    // eof may be ok
+    if (reterr) {
+      return reterr;
+    }
+    is_header_line = (line_iter[0] == '#');
+  } while (IsEolnKns(*line_iter) || (is_header_line && (!tokequal_k(&(line_iter[1]), "FID")) && (!tokequal_k(&(line_iter[1]), "IID"))));
+  if (line_startp) {
+    *line_startp = line_iter;
+  }
+  XidMode xid_mode = kfXidMode0;
+  if (is_header_line) {
+    // The following header leading columns are supported:
+    // #FID IID
+    // #FID IID SID (SID ignored if kfXidHeaderIgnoreSid set)
+    // #IID
+    // #IID SID
+    char* linebuf_iter = &(line_iter[4]);
+    if (line_iter[1] == 'I') {
+      xid_mode = kfXidModeFlagNeverFid;
+    } else {
+      linebuf_iter = FirstNonTspace(linebuf_iter);
+      if (unlikely(!tokequal_k(linebuf_iter, "IID"))) {
+        logerrprintf("Error: No IID column on line %" PRIuPTR " of --%s file.\n", line_idx, flag_name);
+        return kPglRetMalformedInput;
+      }
+      linebuf_iter = &(linebuf_iter[3]);
+    }
+    linebuf_iter = FirstNonTspace(linebuf_iter);
+    if (tokequal_k(linebuf_iter, "SID")) {
+      if (!(xid_header_flags & kfXidHeaderIgnoreSid)) {
+        xid_mode |= kfXidModeFlagSid;
+      }
+      linebuf_iter = FirstNonTspace(&(linebuf_iter[3]));
+    }
+    line_iter = linebuf_iter;
+  } else {
+    xid_mode = (xid_header_flags & kfXidHeaderFixedWidth)? kfXidModeFidIid : kfXidModeFidIidOrIid;
+  }
+  if (line_iterp) {
+    *line_iterp = line_iter;
+  }
+  *line_idx_ptr = line_idx;
+  *xid_mode_ptr = xid_mode;
+  return kPglRetSuccess;
+}
+
+PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, XidHeaderFlags xid_header_flags, uint32_t max_line_blen, TextStream* txsp, XidMode* xid_mode_ptr, uintptr_t* line_idx_ptr, char** line_startp, char** line_iterp) {
+  PglErr reterr = InitTextStream(fname, max_line_blen, 1, txsp);
+  // remove unlikely() if any caller treats eof as ok
+  if (unlikely(reterr)) {
+    return reterr;
+  }
+  *line_idx_ptr = 0;
+  return LoadXidHeader(flag_name, xid_header_flags, line_idx_ptr, txsp, xid_mode_ptr, line_startp, line_iterp);
+}
+
+PglErr LoadXidHeaderOld(const char* flag_name, XidHeaderFlags xid_header_flags, char** line_iterp, uintptr_t* line_idx_ptr, char** linebuf_first_token_ptr, ReadLineStream* rlsp, XidMode* xid_mode_ptr) {
   // possible todo: support comma delimiter
   char* line_iter = *line_iterp;
   uintptr_t line_idx = *line_idx_ptr;
@@ -666,16 +730,7 @@ PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, cha
   return kPglRetSuccess;
 }
 
-PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, XidHeaderFlags xid_header_flags, uintptr_t linebuf_size, char** line_iterp, uintptr_t* line_idx_ptr, char** linebuf_first_token_ptr, ReadLineStream* rlsp, XidMode* xid_mode_ptr) {
-  PglErr reterr = InitRLstreamRaw(fname, linebuf_size, rlsp, line_iterp);
-  // remove unlikely() if any caller treats eof as ok
-  if (unlikely(reterr)) {
-    return reterr;
-  }
-  return LoadXidHeader(flag_name, xid_header_flags, line_iterp, line_idx_ptr, linebuf_first_token_ptr, rlsp, xid_mode_ptr);
-}
-
-PglErr LoadXidHeaderPair(const char* flag_name, uint32_t sid_over_fid, char** line_iterp, uintptr_t* line_idx_ptr, char** linebuf_first_token_ptr, ReadLineStream* rlsp, XidMode* xid_mode_ptr) {
+PglErr LoadXidHeaderPairOld(const char* flag_name, uint32_t sid_over_fid, char** line_iterp, uintptr_t* line_idx_ptr, char** linebuf_first_token_ptr, ReadLineStream* rlsp, XidMode* xid_mode_ptr) {
   char* line_iter = *line_iterp;
   uintptr_t line_idx = *line_idx_ptr;
   uint32_t is_header_line;

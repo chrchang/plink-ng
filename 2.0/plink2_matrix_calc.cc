@@ -280,8 +280,8 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
   FILE* binfile = nullptr;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
-  ReadLineStream rls;
-  PreinitRLstream(&rls);
+  TextStream txs;
+  PreinitTextStream(&txs);
   {
     uint32_t sample_ct = *sample_ct_ptr;
     const uint32_t orig_sample_ctl = BitCtToWordCt(sample_ct);
@@ -295,21 +295,21 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
 
     char* fprefix_end = &(king_cutoff_fprefix[strlen(king_cutoff_fprefix)]);
     snprintf(fprefix_end, 9, ".king.id");
-    char* line_iter;
-    if (InitRLstreamFastsizeRaw(king_cutoff_fprefix, &rls, &line_iter)) {
-      goto KingCutoffBatch_ret_1;
+    reterr = InitTextStream(king_cutoff_fprefix, kTextStreamBlenFast, 1, &txs);
+    if (unlikely(reterr)) {
+      goto KingCutoffBatch_ret_TSTREAM_FAIL;
     }
     // bugfix (18 Aug 2018): this missed some xid_mode possibilities
     // todo: try to simplify this interface, it's bordering on incomprehensible
-    char* linebuf_first_token;
+    char* line_start;
     XidMode xid_mode;
-    reterr = LoadXidHeader("king-cutoff", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeader0 : kfXidHeaderIgnoreSid, &line_iter, &line_idx, &linebuf_first_token, &rls, &xid_mode);
+    reterr = LoadXidHeader("king-cutoff", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeader0 : kfXidHeaderIgnoreSid, &line_idx, &txs, &xid_mode, &line_start, nullptr);
     if (unlikely(reterr)) {
       if (reterr == kPglRetEof) {
         logerrputs("Error: Empty --king-cutoff ID file.\n");
         goto KingCutoffBatch_ret_MALFORMED_INPUT;
       }
-      goto KingCutoffBatch_ret_READ_RLSTREAM;
+      goto KingCutoffBatch_ret_TSTREAM_FAIL;
     }
 
     uint32_t* xid_map;  // IDs not collapsed
@@ -324,13 +324,13 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
       goto KingCutoffBatch_ret_NOMEM;
     }
     SetAllU32Arr(raw_sample_ct, sample_uidx_to_king_uidx);
-    if (*linebuf_first_token == '#') {
-      *linebuf_first_token = '\0';
+    if (*line_start == '#') {
+      *line_start = '\0';
     }
     uintptr_t king_id_ct = 0;
     while (1) {
-      if (!IsEolnKns(*linebuf_first_token)) {
-        const char* linebuf_iter = linebuf_first_token;
+      if (!IsEolnKns(*line_start)) {
+        const char* linebuf_iter = line_start;
         uint32_t sample_uidx;
         if (!SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx, idbuf)) {
           if (unlikely(sample_uidx_to_king_uidx[sample_uidx] != UINT32_MAX)) {
@@ -350,23 +350,20 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
             goto KingCutoffBatch_ret_MISSING_TOKENS;
           }
         }
-        line_iter = K_CAST(char*, linebuf_iter);
       }
       ++line_idx;
-      reterr = RlsNextLstrip(&rls, &line_iter);
+      reterr = TextNextLineLstrip(&txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
           break;
         }
-        goto KingCutoffBatch_ret_READ_RLSTREAM;
+        goto KingCutoffBatch_ret_TSTREAM_FAIL;
       }
-      linebuf_first_token = line_iter;
     }
 
-    BigstackReset(RLstreamMemStart(&rls));
-    reterr = CleanupRLstream(&rls);
-    if (unlikely(reterr)) {
+    BigstackReset(TextStreamMemStart(&txs));
+    if (CleanupTextStream2(king_cutoff_fprefix, &txs, &reterr)) {
       goto KingCutoffBatch_ret_1;
     }
     uintptr_t* king_include;
@@ -504,8 +501,8 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
     logerrprintfww("Error: Fewer tokens than expected on line %" PRIuPTR " of %s .\n", line_idx, king_cutoff_fprefix);
     reterr = kPglRetMalformedInput;
     break;
-  KingCutoffBatch_ret_READ_RLSTREAM:
-    RLstreamErrPrint(king_cutoff_fprefix, &rls, &reterr);
+  KingCutoffBatch_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(king_cutoff_fprefix, &txs);
     break;
   KingCutoffBatch_ret_MALFORMED_INPUT_WW:
     WordWrapB(0);
@@ -516,7 +513,11 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
   }
  KingCutoffBatch_ret_1:
   fclose_cond(binfile);
-  CleanupRLstream(&rls);
+  if (CleanupTextStream(&txs, &reterr)) {
+    char* fprefix_end = &(king_cutoff_fprefix[strlen(king_cutoff_fprefix)]);
+    snprintf(fprefix_end, 9, ".king.id");
+    logerrprintfww(kErrprintfFread, king_cutoff_fprefix, strerror(errno));
+  }
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -813,7 +814,7 @@ THREAD_FUNC_DECL CalcKingThread(void* arg) {
     if (is_last_block) {
       THREAD_RETURN;
     }
-    THREAD_BLOCK_FINISH(tidx);
+    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
   }
 }
@@ -1953,30 +1954,26 @@ THREAD_FUNC_DECL CalcKingTableSubsetThread(void* arg) {
     if (is_last_block) {
       THREAD_RETURN;
     }
-    THREAD_BLOCK_FINISH(tidx);
+    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
   }
 }
 
-PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, double king_table_subset_thresh, XidMode xid_mode, uint32_t skip_sid, uint32_t kinship_skip, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, uintptr_t line_idx, ReadLineStream* rlsp, char** line_iter_ptr, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
+PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, double king_table_subset_thresh, XidMode xid_mode, uint32_t skip_sid, uint32_t kinship_skip, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, uintptr_t line_idx, TextStream* txsp, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
   PglErr reterr = kPglRetSuccess;
   {
     uint64_t pair_idx = *pair_idx_ptr;
-    char* line_iter = *line_iter_ptr;
     // Assumes header line already read if pair_idx == 0, and if pair_idx is
     // positive, we're that far into the file.
-    // Assumes textbuf[kMaxMediumLine - 1] initialized to ' '.
     uint32_t* loaded_sample_idx_pairs_iter = loaded_sample_idx_pairs;
-    while (1) {
-      reterr = RlsNextNonemptyLstrip(rlsp, &line_idx, &line_iter);
+    for (char* line_iter = TextLineEnd(txsp); ; line_iter = AdvPastDelim(line_iter, '\n')) {
+      reterr = TextNextNonemptyLineLstripUnsafe(txsp, &line_idx, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
-          // use line_iter = nullptr to mark EOF
-          line_iter = nullptr;
           break;
         }
-        goto KingTableSubsetLoad_ret_READ_RLSTREAM;
+        goto KingTableSubsetLoad_ret_TSTREAM_FAIL;
       }
       const char* linebuf_iter = line_iter;
       uint32_t sample_uidx1;
@@ -1984,6 +1981,7 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, u
         if (unlikely(!linebuf_iter)) {
           goto KingTableSubsetLoad_ret_MISSING_TOKENS;
         }
+        line_iter = K_CAST(char*, linebuf_iter);
         continue;
       }
       linebuf_iter = FirstNonTspace(linebuf_iter);
@@ -2029,6 +2027,7 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, u
       ++pair_idx;
       if (pair_idx == pair_idx_stop) {
         if (!is_first_parallel_scan) {
+          txsp->base.consume_iter = AdvPastDelim(line_iter, '\n');
           break;
         }
         // large --parallel job, first pass: count number of valid pairs, don't
@@ -2036,12 +2035,11 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, u
         pair_idx_start = ~0LLU;
       }
     }
-    *line_iter_ptr = line_iter;
     *pair_idx_ptr = pair_idx;
   }
   while (0) {
-  KingTableSubsetLoad_ret_READ_RLSTREAM:
-    RLstreamErrPrint("--king-table-subset file", rlsp, &reterr);
+  KingTableSubsetLoad_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--king-table-subset file", txsp);
     break;
   KingTableSubsetLoad_ret_MISSING_TOKENS:
     snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --king-table-subset file has fewer tokens than expected.\n", line_idx);
@@ -2059,10 +2057,10 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
   PglErr reterr = kPglRetSuccess;
-  ReadLineStream rls;
+  TextStream txs;
   CompressStreamState css;
   ThreadsState ts;
-  PreinitRLstream(&rls);
+  PreinitTextStream(&txs);
   PreinitCstream(&css);
   InitThreads3z(&ts);
   {
@@ -2139,12 +2137,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
         logerrputs("Error: Failed to append '~' to --king-table-subset input filename.\n");
         goto CalcKingTableSubset_ret_OPEN_FAIL;
       }
-      reterr = gzopen_read_checked(g_textbuf, &rls.gz_infile);
-    } else {
-      reterr = gzopen_read_checked(subset_fname, &rls.gz_infile);
-    }
-    if (unlikely(reterr)) {
-      goto CalcKingTableSubset_ret_1;
+      subset_fname = g_textbuf;
     }
 
     // Safe to "write" the header line now, if necessary.
@@ -2178,23 +2171,24 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       goto CalcKingTableSubset_ret_NOMEM;
     }
 
-    char* line_iter;
-    if (unlikely(InitRLstreamEx(0, kRLstreamBlenFast, kRLstreamBlenFast, &rls, &line_iter))) {
+    reterr = InitTextStream(subset_fname, kTextStreamBlenFast, 1, &txs);
+    if (unlikely(reterr)) {
       if (reterr == kPglRetEof) {
         logerrputs("Error: Empty --king-table-subset file.\n");
         goto CalcKingTableSubset_ret_MALFORMED_INPUT;
       }
-      goto CalcKingTableSubset_ret_READ_RLSTREAM;
+      goto CalcKingTableSubset_ret_TSTREAM_FAIL;
     }
+    const char* linebuf_iter;
     uintptr_t line_idx = 0;
-    reterr = RlsNextNonemptyLstrip(&rls, &line_idx, &line_iter);
-    if (reterr) {
-      goto CalcKingTableSubset_ret_READ_RLSTREAM;
+    reterr = TextNextNonemptyLineLstripK(&txs, &line_idx, &linebuf_iter);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetEof) {
+        logerrputs("Error: Empty --king-table-subset file.\n");
+        goto CalcKingTableSubset_ret_MALFORMED_INPUT;
+      }
+      goto CalcKingTableSubset_ret_TSTREAM_FAIL;
     }
-    if (unlikely(IsEolnKns(*line_iter))) {
-      goto CalcKingTableSubset_ret_INVALID_HEADER;
-    }
-    const char* linebuf_iter = line_iter;
     const char* token_end = CurTokenEnd(linebuf_iter);
     uint32_t token_slen = token_end - linebuf_iter;
     // Make this work with both KING- and plink2-generated .kin0 files.
@@ -2296,7 +2290,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     uint64_t pair_idx = 0;
     fputs("Scanning --king-table-subset file...", stdout);
     fflush(stdout);
-    reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, (parallel_tot != 1), 0, pair_buf_capacity, line_idx, &rls, &line_iter, &pair_idx, g_loaded_sample_idx_pairs, idbuf);
+    reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, (parallel_tot != 1), 0, pair_buf_capacity, line_idx, &txs, &pair_idx, g_loaded_sample_idx_pairs, idbuf);
     if (unlikely(reterr)) {
       goto CalcKingTableSubset_ret_1;
     }
@@ -2315,11 +2309,19 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
         }
         if (pair_idx_global_stop > pair_buf_capacity) {
           // large --parallel job
-          reterr = RewindRLstreamRaw(&rls, &line_iter);
+          reterr = TextRewind(&txs);
           if (unlikely(reterr)) {
-            goto CalcKingTableSubset_ret_READ_RLSTREAM;
+            goto CalcKingTableSubset_ret_TSTREAM_FAIL;
           }
-          reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), line_idx, &rls, &line_iter, &pair_idx, g_loaded_sample_idx_pairs, idbuf);
+          // bugfix (4 Oct 2019): forgot a bunch of reinitialization here
+          line_idx = 0;
+          char* header_throwaway;
+          reterr = TextNextNonemptyLineLstrip(&txs, &line_idx, &header_throwaway);
+          if (unlikely(reterr)) {
+            goto CalcKingTableSubset_ret_TSTREAM_REWIND_FAIL;
+          }
+          pair_idx = 0;
+          reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), line_idx, &txs, &pair_idx, g_loaded_sample_idx_pairs, idbuf);
           if (unlikely(reterr)) {
             goto CalcKingTableSubset_ret_1;
           }
@@ -2541,13 +2543,13 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       putc_unlocked('\r', stdout);
       const uint64_t pair_complete_ct = pair_idx - pair_idx_global_start;
       logprintf("Subsetted --make-king-table: %" PRIu64 " pair%s complete.\n", pair_complete_ct, (pair_complete_ct == 1)? "" : "s");
-      if (!line_iter) {
+      if (TextEof(&txs) || (pair_idx == pair_idx_global_stop)) {
         break;
       }
       pair_idx_cur_start = pair_idx;
       fputs("Scanning --king-table-subset file...", stdout);
       fflush(stdout);
-      reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, 0, pair_idx_cur_start, MINV(pair_idx_global_stop, pair_idx_cur_start + pair_buf_capacity), line_idx, &rls, &line_iter, &pair_idx, g_loaded_sample_idx_pairs, idbuf);
+      reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, 0, pair_idx_cur_start, MINV(pair_idx_global_stop, pair_idx_cur_start + pair_buf_capacity), line_idx, &txs, &pair_idx, g_loaded_sample_idx_pairs, idbuf);
       if (unlikely(reterr)) {
         goto CalcKingTableSubset_ret_1;
       }
@@ -2569,8 +2571,11 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
   CalcKingTableSubset_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  CalcKingTableSubset_ret_READ_RLSTREAM:
-    RLstreamErrPrint("--king-table-subset file", &rls, &reterr);
+  CalcKingTableSubset_ret_TSTREAM_REWIND_FAIL:
+    TextStreamErrPrintRewind("--king-table-subset file", &txs, &reterr);
+    break;
+  CalcKingTableSubset_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--king-table-subset file", &txs);
     break;
   CalcKingTableSubset_ret_PGR_FAIL:
     if (reterr != kPglRetReadFail) {
@@ -2594,7 +2599,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
   }
  CalcKingTableSubset_ret_1:
   CleanupThreads3z(&ts, nullptr);
-  CleanupRLstream(&rls);
+  CleanupTextStream2("--king-table-subset file", &txs, &reterr);
   CswriteCloseCond(&css, cswritep);
   fclose_cond(outfile);
   BigstackReset(bigstack_mark);
@@ -2698,7 +2703,7 @@ THREAD_FUNC_DECL CalcGrmThread(void* arg) {
     if (is_last_batch) {
       THREAD_RETURN;
     }
-    THREAD_BLOCK_FINISH(tidx);
+    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
   }
 }
@@ -2724,7 +2729,7 @@ THREAD_FUNC_DECL CalcGrmPartThread(void* arg) {
     if (is_last_batch) {
       THREAD_RETURN;
     }
-    THREAD_BLOCK_FINISH(tidx);
+    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
   }
 }
@@ -2802,7 +2807,7 @@ THREAD_FUNC_DECL CalcDblMissingThread(void* arg) {
     if (is_last_batch) {
       THREAD_RETURN;
     }
-    THREAD_BLOCK_FINISH(tidx);
+    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
   }
 }
@@ -3653,7 +3658,7 @@ THREAD_FUNC_DECL CalcPcaXtxaThread(void* arg) {
     if (is_last_batch) {
       THREAD_RETURN;
     }
-    THREAD_BLOCK_FINISH(tidx);
+    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
   }
 }
@@ -3702,7 +3707,7 @@ THREAD_FUNC_DECL CalcPcaXaThread(void* arg) {
     if (is_last_batch) {
       THREAD_RETURN;
     }
-    THREAD_BLOCK_FINISH(tidx);
+    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
   }
 }
@@ -3752,7 +3757,7 @@ THREAD_FUNC_DECL CalcPcaXtbThread(void* arg) {
     if (is_last_batch) {
       THREAD_RETURN;
     }
-    THREAD_BLOCK_FINISH(tidx);
+    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
   }
 }
@@ -3809,7 +3814,7 @@ THREAD_FUNC_DECL CalcPcaVarWtsThread(void* arg) {
     if (is_last_batch) {
       THREAD_RETURN;
     }
-    THREAD_BLOCK_FINISH(tidx);
+    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
   }
 }
@@ -4722,7 +4727,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* arg) {
     if (is_last_batch) {
       THREAD_RETURN;
     }
-    THREAD_BLOCK_FINISH(tidx);
+    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
   }
 }

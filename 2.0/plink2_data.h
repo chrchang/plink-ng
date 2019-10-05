@@ -91,9 +91,9 @@ CONSTI32(kMaxInfoKeySlen, kMaxIdSlen);
 
 PglErr WriteMapOrBim(const char* outname, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const double* variant_cms, uint32_t variant_ct, uint32_t max_allele_slen, char delim, uint32_t output_zst, uint32_t thread_ct);
 
-PglErr PvarInfoOpenAndReloadHeader(const char* pvar_info_reload, uint32_t max_thread_ct, TextRstream* pvar_reload_trsp, char** line_iterp, uint32_t* info_col_idx_ptr);
+PglErr PvarInfoOpenAndReloadHeader(const char* pvar_info_reload, uint32_t max_thread_ct, TextStream* pvar_reload_txsp, char** line_iterp, uint32_t* info_col_idx_ptr);
 
-BoolErr PvarInfoReloadAndWrite(uint32_t info_pr_flag_present, uint32_t info_col_idx, uint32_t variant_uidx, uint32_t is_pr, TextRstream* pvar_reload_trsp, char** line_iterp, char** write_iter_ptr, uint32_t* rls_variant_uidx_ptr);
+PglErr PvarInfoReloadAndWrite(uint32_t info_pr_flag_present, uint32_t info_col_idx, uint32_t variant_uidx, uint32_t is_pr, TextStream* pvar_reload_txsp, char** line_iterp, char** write_iter_ptr, uint32_t* rls_variant_uidx_ptr);
 
 void AppendChrsetLine(const ChrInfo* cip, char** write_iter_ptr);
 

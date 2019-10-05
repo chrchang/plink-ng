@@ -808,8 +808,8 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
   uint32_t max_extra_alt_ct = 0;
   uint32_t max_allele_slen = 1;
   PglErr reterr = kPglRetSuccess;
-  TextRstream pvar_trs;
-  PreinitTextRstream(&pvar_trs);
+  TextStream pvar_txs;
+  PreinitTextStream(&pvar_txs);
   {
     const uintptr_t quarter_left = RoundDownPow2(bigstack_left() / 4, kCacheline);
     uint32_t max_line_blen;
@@ -827,9 +827,9 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     } else if (!decompress_thread_ct) {
       decompress_thread_ct = 1;
     }
-    reterr = InitTextRstream(pvarname, max_line_blen, decompress_thread_ct, &pvar_trs);
+    reterr = InitTextStream(pvarname, max_line_blen, decompress_thread_ct, &pvar_txs);
     if (unlikely(reterr)) {
-      goto LoadPvar_ret_RSTREAM_FAIL;
+      goto LoadPvar_ret_TSTREAM_FAIL;
     }
     unsigned char* tmp_alloc_base = g_bigstack_base;
     g_bigstack_base = bigstack_mark;
@@ -839,11 +839,11 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     uint32_t info_pr_present = 0;
     uint32_t info_pr_nonflag_present = 0;
     uint32_t info_nonpr_present = 0;
-    char* line_iter = TextLineEnd(&pvar_trs);
+    char* line_iter = TextLineEnd(&pvar_txs);
     char* line_start;
     while (1) {
       ++line_idx;
-      reterr = TextNextLineLstripUnsafe(&pvar_trs, &line_iter);
+      reterr = TextNextLineLstripUnsafe(&pvar_txs, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           line_start = K_CAST(char*, &(g_one_char_strs[20]));  // '\n'
@@ -851,7 +851,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           reterr = kPglRetSuccess;
           break;
         }
-        goto LoadPvar_ret_RSTREAM_FAIL;
+        goto LoadPvar_ret_TSTREAM_FAIL;
       }
       line_start = line_iter;
       if (*line_start != '#') {
@@ -1775,13 +1775,13 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       }
       ++line_iter;
       ++line_idx;
-      reterr = TextNextLineLstripUnsafe(&pvar_trs, &line_iter);
+      reterr = TextNextLineLstripUnsafe(&pvar_txs, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
           break;
         }
-        goto LoadPvar_ret_RSTREAM_FAIL;
+        goto LoadPvar_ret_TSTREAM_FAIL;
       }
       line_start = line_iter;
       if (unlikely(line_start[0] == '#')) {
@@ -1836,7 +1836,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     uintptr_t allele_idx_end = allele_storage_iter - allele_storage;
     BigstackFinalizeCp(allele_storage, allele_idx_end);
     // We may clobber this object soon, so close it now.
-    if (unlikely(CleanupTextRstream(&pvar_trs, &reterr))) {
+    if (unlikely(CleanupTextStream(&pvar_txs, &reterr))) {
       logerrprintfww(kErrprintfFread, pvarname, strerror(errno));
       goto LoadPvar_ret_1;
     }
@@ -2067,8 +2067,8 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
   LoadPvar_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  LoadPvar_ret_RSTREAM_FAIL:
-    TextRstreamErrPrint(pvarname, &pvar_trs);
+  LoadPvar_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(pvarname, &pvar_txs);
     break;
   LoadPvar_ret_EMPTY_ALLELE_CODE:
     snprintf(g_logbuf, kLogbufSize, "Error: Empty allele code on line %" PRIuPTR " of %s.\n", line_idx, pvarname);
@@ -2087,7 +2087,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     break;
   }
  LoadPvar_ret_1:
-  CleanupTextRstream2(pvarname, &pvar_trs, &reterr);
+  CleanupTextStream2(pvarname, &pvar_txs, &reterr);
   if (reterr) {
     BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   }

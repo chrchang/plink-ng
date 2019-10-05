@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (3 Oct 2019)";
+  " (4 Oct 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -2557,7 +2557,7 @@ PglErr ZstDecompress(const char* in_fname, const char* out_fname) {
         fprintf(stderr, kErrprintfFopen, in_fname, strerror(errno));
         goto ZstDecompress_ret_OPEN_FAIL;
       }
-      goto ZstDecompress_ret_RSTREAM_FAIL;
+      goto ZstDecompress_ret_RFILE_FAIL;
     }
     if (out_fname) {
       outfile = fopen(out_fname, FOPEN_WB);
@@ -2576,7 +2576,7 @@ PglErr ZstDecompress(const char* in_fname, const char* out_fname) {
           break;
         }
         reterr = ZstRfileErrcode(&zrf);
-        goto ZstDecompress_ret_RSTREAM_FAIL;
+        goto ZstDecompress_ret_RFILE_FAIL;
       }
       if (unlikely(!fwrite_unlocked(buf, bytes_read, 1, outfile))) {
         goto ZstDecompress_ret_WRITE_FAIL;
@@ -2601,7 +2601,7 @@ PglErr ZstDecompress(const char* in_fname, const char* out_fname) {
   ZstDecompress_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  ZstDecompress_ret_RSTREAM_FAIL:
+  ZstDecompress_ret_RFILE_FAIL:
     if (reterr == kPglRetReadFail) {
       fprintf(stderr, kErrprintfFread, in_fname, zsterror(&zrf));
     } else {
@@ -8435,9 +8435,9 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --threads parameter '%s'.\n", argvk[arg_idx + 1]);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-          if (pc.max_thread_ct > kMaxThreads) {
-            logprintf("Note: Reducing --threads parameter to %u.  (If this is not large enough,\nrecompile with a larger kMaxThreads setting.)\n", kMaxThreads);
-            pc.max_thread_ct = kMaxThreads;
+          if (pc.max_thread_ct > kMaxThreadsOld) {
+            logprintf("Note: Reducing --threads parameter to %u.  (If this is not large enough,\nrecompile with a larger kMaxThreads setting.)\n", kMaxThreadsOld);
+            pc.max_thread_ct = kMaxThreadsOld;
           } else if (known_procs == -1) {
             // trigger BLAS/LAPACK warning?
             known_procs = 0;

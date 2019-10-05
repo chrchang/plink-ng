@@ -94,11 +94,11 @@ PglErr FillGaussianDArr(uintptr_t entry_pair_ct, uint32_t thread_ct, double* dar
     g_darray = darray;
     g_entry_pair_ct = entry_pair_ct;
     g_calc_thread_ct = thread_ct;
-    if (unlikely(SpawnThreads(FillGaussianDArrThread, thread_ct, threads))) {
+    if (unlikely(SpawnThreadsOld(FillGaussianDArrThread, thread_ct, threads))) {
       goto FillGaussianDArr_ret_THREAD_CREATE_FAIL;
     }
     FillGaussianDArrThread(S_CAST(void*, 0));
-    JoinThreads(thread_ct, threads);
+    JoinThreadsOld(thread_ct, threads);
   }
   while (0) {
   FillGaussianDArr_ret_NOMEM:
@@ -143,11 +143,11 @@ PglErr RandomizeBigstack(uint32_t thread_ct) {
     }
     g_calc_thread_ct = thread_ct;
     pthread_t threads[16];
-    if (unlikely(SpawnThreads(RandomizeBigstackThread, thread_ct, threads))) {
+    if (unlikely(SpawnThreadsOld(RandomizeBigstackThread, thread_ct, threads))) {
       goto RandomizeBigstack_ret_THREAD_CREATE_FAIL;
     }
     RandomizeBigstackThread(S_CAST(void*, 0));
-    JoinThreads(thread_ct, threads);
+    JoinThreadsOld(thread_ct, threads);
     // now ensure the bytes reserved by InitAllocSfmtpArr() are also properly
     // randomized (some of them already are, but there are gaps)
     uint64_t* initial_segment_end = R_CAST(uint64_t*, g_bigstack_base);

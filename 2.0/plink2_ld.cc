@@ -875,7 +875,7 @@ THREAD_FUNC_DECL IndepPairwiseThread(void* arg) {
     if (is_last_block) {
       THREAD_RETURN;
     }
-    THREAD_BLOCK_FINISH(tidx);
+    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
     tvidx_start = tvidx_stop;
   }

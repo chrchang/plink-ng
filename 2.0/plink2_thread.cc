@@ -46,8 +46,8 @@ uint32_t NumCpu(int32_t* known_procs_ptr) {
   if (known_procs_ptr) {
     *known_procs_ptr = known_procs;
   }
-  if (max_thread_ct > kMaxThreadsX) {
-    max_thread_ct = kMaxThreadsX;
+  if (max_thread_ct > kMaxThreads) {
+    max_thread_ct = kMaxThreads;
   }
   return max_thread_ct;
 }
@@ -58,7 +58,7 @@ BoolErr SetThreadCt(uint32_t thread_ct, ThreadGroup* tgp) {
     free(tgp->threads);
     tgp->threads = nullptr;
   }
-  assert(thread_ct && (thread_ct <= kMaxThreadsX));
+  assert(thread_ct && (thread_ct <= kMaxThreads));
 #ifdef _WIN32
   unsigned char* memptr = S_CAST(unsigned char*, malloc(thread_ct * (sizeof(ThreadGroupFuncArg) + 3 * sizeof(HANDLE))));
   if (unlikely(!memptr)) {
@@ -127,7 +127,7 @@ void JoinThreadsInternal(uint32_t thread_ct, ThreadGroup* tgp) {
   tgp->is_unjoined = 0;
 }
 
-BoolErr SpawnThreadsX(ThreadGroup* tgp) {
+BoolErr SpawnThreads(ThreadGroup* tgp) {
   ThreadGroupControlBlock* cbp = &(tgp->shared.cb);
   const uint32_t thread_ct = cbp->thread_ct;
   const uint32_t was_active = tgp->is_active;
@@ -153,7 +153,7 @@ BoolErr SpawnThreadsX(ThreadGroup* tgp) {
       ThreadGroupFuncArg* arg_slot = &(tgp->thread_args[tidx]);
       arg_slot->sharedp = &(tgp->shared);
       arg_slot->tidx = tidx;
-      threads[tidx] = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStackX, tgp->thread_func_ptr, arg_slot, 0, nullptr));
+      threads[tidx] = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStack, tgp->thread_func_ptr, arg_slot, 0, nullptr));
       if (unlikely(!threads[tidx])) {
         if (tidx) {
           JoinThreadsInternal(tidx, tgp);
@@ -198,7 +198,7 @@ BoolErr SpawnThreadsX(ThreadGroup* tgp) {
     tgp->sync_init_bits |= 4;
     pthread_attr_t smallstack_thread_attr;
     pthread_attr_init(&smallstack_thread_attr);
-    pthread_attr_setstacksize(&smallstack_thread_attr, kDefaultThreadStackX);
+    pthread_attr_setstacksize(&smallstack_thread_attr, kDefaultThreadStack);
     for (uint32_t tidx = 0; tidx != thread_ct; ++tidx) {
       ThreadGroupFuncArg* arg_slot = &(tgp->thread_args[tidx]);
       arg_slot->sharedp = &(tgp->shared);
@@ -238,7 +238,7 @@ BoolErr SpawnThreadsX(ThreadGroup* tgp) {
   return 0;
 }
 
-void JoinThreadsX(ThreadGroup* tgp) {
+void JoinThreads(ThreadGroup* tgp) {
   JoinThreadsInternal(tgp->shared.cb.thread_ct, tgp);
 }
 
@@ -252,7 +252,7 @@ void CleanupThreads(ThreadGroup* tgp) {
       }
       if (!cbp->is_last_block) {
         cbp->is_last_block = 2;
-        SpawnThreadsX(tgp);
+        SpawnThreads(tgp);
         JoinThreadsInternal(thread_ct, tgp);
       }
     } else {
@@ -291,7 +291,7 @@ void CleanupThreads(ThreadGroup* tgp) {
 }
 
 #ifndef _WIN32
-BoolErr THREAD_BLOCK_FINISHX(ThreadGroupFuncArg* tgfap) {
+BoolErr THREAD_BLOCK_FINISH(ThreadGroupFuncArg* tgfap) {
   ThreadGroupControlBlock* cbp = &(tgfap->sharedp->cb);
   if (cbp->is_last_block) {
     return 1;

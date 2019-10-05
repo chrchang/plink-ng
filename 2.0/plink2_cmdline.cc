@@ -2396,7 +2396,7 @@ uint32_t CubicRealRoots(double coef_a, double coef_b, double coef_c, STD_ARRAY_R
 }
 
 
-void JoinThreads(uint32_t ctp1, pthread_t* threads) {
+void JoinThreadsOld(uint32_t ctp1, pthread_t* threads) {
   if (!(--ctp1)) {
     return;
   }
@@ -2417,17 +2417,17 @@ void JoinThreads(uint32_t ctp1, pthread_t* threads) {
 pthread_attr_t g_smallstack_thread_attr;
 #endif
 
-BoolErr SpawnThreads(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthread_t* threads) {
+BoolErr SpawnThreadsOld(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthread_t* threads) {
   for (uintptr_t ulii = 1; ulii != ct; ++ulii) {
 #ifdef _WIN32
-    threads[ulii - 1] = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStack, start_routine, R_CAST(void*, ulii), 0, nullptr));
+    threads[ulii - 1] = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStackOld, start_routine, R_CAST(void*, ulii), 0, nullptr));
     if (unlikely(!threads[ulii - 1])) {
-      JoinThreads(ulii, threads);
+      JoinThreadsOld(ulii, threads);
       return 1;
     }
 #else
     if (unlikely(pthread_create(&(threads[ulii - 1]), &g_smallstack_thread_attr, start_routine, R_CAST(void*, ulii)))) {
-      JoinThreads(ulii, threads);
+      JoinThreadsOld(ulii, threads);
       return 1;
     }
 #endif
@@ -2461,15 +2461,15 @@ BoolErr SpawnThreads(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthread_t* t
 //         if (g_is_last_thread_block) {
 //           THREAD_RETURN;
 //         }
-//         THREAD_BLOCK_FINISH(tidx);
+//         THREAD_BLOCK_FINISH_OLD(tidx);
 //       }
 //     }
-// * On Linux and OS X, THREAD_BLOCK_FINISH() acquires a mutex, decrements
+// * On Linux and OS X, THREAD_BLOCK_FINISH_OLD() acquires a mutex, decrements
 //   g_thread_active_ct, calls pthread_cond_signal() on
 //   g_thread_cur_block_done_condvar iff g_thread_active_ct is now zero, then
 //   unconditionally calls pthread_cond_wait on g_thread_start_next_condvar and
 //   the mutex.
-// * On Windows, THREAD_BLOCK_FINISH() calls SetEvent() on
+// * On Windows, THREAD_BLOCK_FINISH_OLD() calls SetEvent() on
 //   g_thread_cur_block_done_events[tidx], then waits on
 //   g_thread_start_next_event[tidx].
 // * If the termination variable is set, JoinThreads2z() waits for all threads
@@ -2484,15 +2484,15 @@ BoolErr SpawnThreads(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthread_t* t
 uintptr_t g_thread_spawn_ct;
 uint32_t g_is_last_thread_block = 0;
 #ifdef _WIN32
-HANDLE g_thread_start_next_event[kMaxThreads];
-HANDLE g_thread_cur_block_done_events[kMaxThreads];
+HANDLE g_thread_start_next_event[kMaxThreadsOld];
+HANDLE g_thread_cur_block_done_events[kMaxThreadsOld];
 #else
 static pthread_mutex_t g_thread_sync_mutex;
 static pthread_cond_t g_thread_cur_block_done_condvar;
 static pthread_cond_t g_thread_start_next_condvar;
 static uint32_t g_thread_active_ct;
 
-void THREAD_BLOCK_FINISH(__attribute__((unused)) uintptr_t tidx) {
+void THREAD_BLOCK_FINISH_OLD(__attribute__((unused)) uintptr_t tidx) {
   const uintptr_t initial_spawn_ct = g_thread_spawn_ct;
   pthread_mutex_lock(&g_thread_sync_mutex);
   if (!(--g_thread_active_ct)) {
@@ -2560,7 +2560,7 @@ BoolErr SpawnThreads2z(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, uint32_t i
       g_thread_cur_block_done_events[ulii] = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     }
     for (uintptr_t ulii = 0; ulii != ct; ++ulii) {
-      threads[ulii] = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStack, start_routine, R_CAST(void*, ulii), 0, nullptr));
+      threads[ulii] = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStackOld, start_routine, R_CAST(void*, ulii), 0, nullptr));
       if (unlikely(!threads[ulii])) {
         if (ulii) {
           JoinThreads2z(ulii, is_last_block, threads);
@@ -2741,11 +2741,11 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
         item_idx = item_idx_new;
       }
     }
-    if (unlikely(SpawnThreads(CalcIdHashThread, thread_ct, threads))) {
+    if (unlikely(SpawnThreadsOld(CalcIdHashThread, thread_ct, threads))) {
       goto PopulateIdHtableMt_ret_THREAD_CREATE_FAIL;
     }
     CalcIdHashThread(R_CAST(void*, 0));
-    JoinThreads(thread_ct, threads);
+    JoinThreadsOld(thread_ct, threads);
     // could also partial-sort and actually fill the hash table in a
     // multithreaded manner, but I'll postpone that for now since it's tricky
     // to make that work with duplicate ID handling, and it also is a
@@ -3768,8 +3768,8 @@ PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const 
     // (virtual) cores will be dedicated to I/O and have lots of downtime.
     //
     // may make kMaxThreads a parameter later.
-    if (*max_thread_ct_ptr > kMaxThreads) {
-      *max_thread_ct_ptr = kMaxThreads;
+    if (*max_thread_ct_ptr > kMaxThreadsOld) {
+      *max_thread_ct_ptr = kMaxThreadsOld;
     }
   }
   while (0) {
@@ -3857,7 +3857,7 @@ PglErr CmdlineParsePhase3(uintptr_t max_default_mib, uintptr_t malloc_size_mib, 
 
 #ifndef _WIN32
     pthread_attr_init(&g_smallstack_thread_attr);
-    pthread_attr_setstacksize(&g_smallstack_thread_attr, kDefaultThreadStack);
+    pthread_attr_setstacksize(&g_smallstack_thread_attr, kDefaultThreadStackOld);
 #endif
   }
   while (0) {

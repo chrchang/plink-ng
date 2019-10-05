@@ -18,12 +18,11 @@
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
 
-// This is in the process of being mostly swallowed by plink2_getline.
+// This is in the process of being mostly swallowed by plink2_text.
 
 // This has been separated from plink2_cmdline due to the relatively
 // heavyweight dependence on zstd/zlibWrapper.
 #include "plink2_cmdline.h"
-#include "plink2_getline.h"
 
 // documentation on ZWRAP_USE_ZSTD is incorrect as of 11 Jan 2017, necessary to
 // edit zstd_zlibwrapper.c or use compile flag.
@@ -35,6 +34,10 @@
 #endif
 
 #include "htslib/htslib/bgzf.h"
+
+// transitional bugfix (4 Oct 2019): this needs to be after zlibWrapper for old
+// code to handle zstd input properly
+#include "plink2_text.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -65,16 +68,8 @@ PglErr IsBgzf(const char* fname, uint32_t* is_bgzf_ptr);
 // also usually good enough at sequential read-ahead, getting
 // *decompress-ahead* functionality for 'free' is a pretty big deal.
 //
-// Possible todos: tabix index support (caller must declare the entire sequence
-// of virtual offset ranges they want to read upfront), and optional
-// multithreaded decompression of BGZF and seekable-Zstd files.  Note that
-// these require us to stop using the Zstd zlib wrapper, so they're unlikely to
-// be worth the time investment before the initial plink 2.0 beta release.
-
-// (tested a few different values for this, 1 MiB appears to work well on the
-// systems we care most about)
-CONSTI32(kDecompressChunkSize, 1048576);
-static_assert(!(kDecompressChunkSize % kCacheline), "kDecompressChunkSize must be a multiple of kCacheline.");
+// Possible todo: tabix index support (caller must declare the entire sequence
+// of virtual offset ranges they want to read upfront).
 
 // consumer -> reader message
 // could add a "close current file and open another one" case
@@ -150,8 +145,6 @@ static_assert(kRLstreamBlenLowerBound >= kMaxMediumLine, "max_line_blen lower li
 CONSTI32(kRLstreamBlenFast, 11 * kDecompressChunkSize);
 
 CONSTI32(kTBstreamBlen, 11 * kDecompressChunkSize);
-CONSTI32(kMaxTokenBlen, 8 * kDecompressChunkSize);
-static_assert(kMaxTokenBlen >= kDecompressChunkSize, "kMaxTokenBlen too small.");
 static_assert(kMaxTokenBlen <= kTBstreamBlen, "kMaxTokenBlen too large.");
 
 // required_byte_ct can't be greater than kMaxLongLine.
@@ -465,14 +458,22 @@ void TBstreamErrPrint(const char* file_descrip, TokenBatchStream* tbsp, PglErr* 
 // parallelizing token processing to be low.
 
 
-// ***** plink2_getline-wrapping code starts here *****
+// ***** plink2_text-wrapping code starts here *****
 
 extern const char kErrprintfDecompress[];
 
-PglErr InitTextRstreamEx(const char* fname, uint32_t alloc_at_end, uint32_t enforced_max_line_blen, uint32_t max_line_blen, uint32_t decompress_thread_ct, TextRstream* trsp);
+HEADER_INLINE BoolErr CleanupTextFile2(const char* file_descrip, textFILE* txfp, PglErr* reterrp) {
+  if (unlikely(CleanupTextFile(txfp, reterrp))) {
+    logerrprintfww(kErrprintfFread, file_descrip, strerror(errno));
+    return 1;
+  }
+  return 0;
+}
 
-HEADER_INLINE PglErr InitTextRstream(const char* fname, uint32_t max_line_blen, uint32_t decompress_thread_ct, TextRstream* trsp) {
-  return InitTextRstreamEx(fname, 0, kMaxLongLine, max_line_blen, decompress_thread_ct, trsp);
+PglErr InitTextStreamEx(const char* fname, uint32_t alloc_at_end, uint32_t enforced_max_line_blen, uint32_t max_line_blen, uint32_t decompress_thread_ct, TextStream* txsp);
+
+HEADER_INLINE PglErr InitTextStream(const char* fname, uint32_t max_line_blen, uint32_t decompress_thread_ct, TextStream* txsp) {
+  return InitTextStreamEx(fname, 0, kMaxLongLine, max_line_blen, decompress_thread_ct, txsp);
 }
 
 // required_byte_ct can't be greater than kMaxLongLine.
@@ -483,15 +484,15 @@ HEADER_INLINE PglErr InitTextRstream(const char* fname, uint32_t max_line_blen, 
 // not max_line_blen.
 HEADER_INLINE BoolErr StandardizeMaxLineBlenEx(uintptr_t unstandardized_byte_ct, uint32_t required_byte_ct, uint32_t* max_line_blenp) {
 #ifdef __LP64__
-  if (unstandardized_byte_ct >= S_CAST(uintptr_t, kMaxLongLine) + S_CAST(uintptr_t, kDecompressChunkSizeX)) {
+  if (unstandardized_byte_ct >= S_CAST(uintptr_t, kMaxLongLine) + S_CAST(uintptr_t, kDecompressChunkSize)) {
     *max_line_blenp = kMaxLongLine;
     return 0;
   }
 #endif
-  if (unlikely(unstandardized_byte_ct < kDecompressChunkSizeX + RoundUpPow2(MAXV(kDecompressChunkSizeX, required_byte_ct), kCacheline))) {
+  if (unlikely(unstandardized_byte_ct < kDecompressChunkSize + RoundUpPow2(MAXV(kDecompressChunkSize, required_byte_ct), kCacheline))) {
     return 1;
   }
-  *max_line_blenp = RoundDownPow2(unstandardized_byte_ct, kCacheline) - kDecompressChunkSizeX;
+  *max_line_blenp = RoundDownPow2(unstandardized_byte_ct, kCacheline) - kDecompressChunkSize;
   return 0;
 }
 
@@ -499,11 +500,11 @@ HEADER_INLINE BoolErr StandardizeMaxLineBlen(uintptr_t unstandardized_byte_ct, u
   return StandardizeMaxLineBlenEx(unstandardized_byte_ct, kMaxMediumLine + 1, max_line_blenp);
 }
 
-HEADER_INLINE PglErr SizeAndInitTextRstream(const char* fname, uintptr_t unstandardized_byte_ct, uint32_t decompress_thread_ct, TextRstream* trsp) {
+HEADER_INLINE PglErr SizeAndInitTextStream(const char* fname, uintptr_t unstandardized_byte_ct, uint32_t decompress_thread_ct, TextStream* txsp) {
   // plink 1.9 immediately failed with an out-of-memory error if a "long line"
   // buffer would be smaller than kMaxMediumLine + 1 bytes, so may as well make
   // that the default lower bound.  (The precise value is currently irrelevant
-  // since kTextRstreamBlenLowerBound is larger and we take the maximum of the
+  // since kTextStreamBlenLowerBound is larger and we take the maximum of the
   // two at compile time, but it's useful to distinguish "minimum acceptable
   // potentially-long-line buffer size" from "load/decompression block size
   // which generally has good performance".)
@@ -511,42 +512,42 @@ HEADER_INLINE PglErr SizeAndInitTextRstream(const char* fname, uintptr_t unstand
   if (unlikely(StandardizeMaxLineBlen(unstandardized_byte_ct, &max_line_blen))) {
     return kPglRetNomem;
   }
-  return InitTextRstream(fname, max_line_blen, decompress_thread_ct, trsp);
+  return InitTextStream(fname, max_line_blen, decompress_thread_ct, txsp);
 }
 
-HEADER_INLINE unsigned char* TextRstreamMemStart(TextRstream* trsp) {
-  return R_CAST(unsigned char*, trsp->base.dst);
+HEADER_INLINE unsigned char* TextStreamMemStart(TextStream* txsp) {
+  return R_CAST(unsigned char*, txsp->base.dst);
 }
 
 void TextErrPrint(const char* file_descrip, const char* errmsg, PglErr reterr);
 
-HEADER_INLINE void TextRfileErrPrint(const char* file_descrip, const textRFILE* trfp) {
-  TextErrPrint(file_descrip, TextRfileError(trfp), TextRfileErrcode(trfp));
+HEADER_INLINE void TextFileErrPrint(const char* file_descrip, const textFILE* txfp) {
+  TextErrPrint(file_descrip, TextFileError(txfp), TextFileErrcode(txfp));
 }
 
-HEADER_INLINE void TextRstreamErrPrint(const char* file_descrip, const TextRstream* trsp) {
-  TextErrPrint(file_descrip, TextRstreamError(trsp), TextRstreamErrcode(trsp));
+HEADER_INLINE void TextStreamErrPrint(const char* file_descrip, const TextStream* txsp) {
+  TextErrPrint(file_descrip, TextStreamError(txsp), TextStreamErrcode(txsp));
 }
 
-HEADER_INLINE void TextRstreamErrPrintRewind(const char* file_descrip, const TextRstream* trsp, PglErr reterr) {
-  if (reterr == kPglRetRewindFail) {
+HEADER_INLINE void TextStreamErrPrintRewind(const char* file_descrip, const TextStream* txsp, PglErr* reterrp) {
+  if ((*reterrp == kPglRetOpenFail) || (*reterrp == kPglRetEof)) {
+    // attempting to rewind/reopen a pipe file descriptor should manifest as
+    // one of these two errors.  (todo: verify that open-fail is possible.)
+    *reterrp = kPglRetRewindFail;
+  }
+  if (*reterrp == kPglRetRewindFail) {
     logerrprintfww(kErrprintfRewind, file_descrip);
   } else {
-    TextRstreamErrPrint(file_descrip, trsp);
+    TextStreamErrPrint(file_descrip, txsp);
   }
 }
 
-HEADER_INLINE void CleanupTextRstream2(const char* file_descrip, TextRstream* trsp, PglErr* reterrp) {
-  if (CleanupTextRstream(trsp, reterrp)) {
+HEADER_INLINE BoolErr CleanupTextStream2(const char* file_descrip, TextStream* txsp, PglErr* reterrp) {
+  if (unlikely(CleanupTextStream(txsp, reterrp))) {
     logerrprintfww(kErrprintfFread, file_descrip, strerror(errno));
+    return 1;
   }
-}
-
-HEADER_INLINE void CleanupTextRstreamRewind(const char* file_descrip, TextRstream* trsp, PglErr* reterrp) {
-  if (CleanupTextRstream(trsp, reterrp)) {
-    *reterrp = kPglRetRewindFail;
-    logerrprintfww(kErrprintfRewind, file_descrip);
-  }
+  return 0;
 }
 
 #ifdef __cplusplus

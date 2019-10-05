@@ -58,19 +58,19 @@ namespace plink2 {
 #ifdef _WIN32
 // If kMaxThreads > 64, single WaitForMultipleObjects calls must be converted
 // into loops.  Which isn't a big deal, but let's keep things simpler for now.
-CONSTI32(kMaxThreadsX, 64);
+CONSTI32(kMaxThreads, 64);
 #else
 // currently assumed to be less than 2^16 (otherwise some multiply overflows
 // are theoretically possible, at least in the 32-bit build)
-CONSTI32(kMaxThreadsX, 512);
+CONSTI32(kMaxThreads, 512);
 #endif
 
 #ifdef __APPLE__
 // cblas_dgemm may fail with 128k
-CONSTI32(kDefaultThreadStackX, 524288);
+CONSTI32(kDefaultThreadStack, 524288);
 #else
 // asserts didn't seem to work properly with a setting much smaller than this
-CONSTI32(kDefaultThreadStackX, 131072);
+CONSTI32(kDefaultThreadStack, 131072);
 #endif
 
 typedef struct ThreadGroupControlBlockStruct {
@@ -109,6 +109,10 @@ typedef struct ThreadGroupStruct {
   THREAD_FUNCPTR_T(thread_func_ptr);
   pthread_t* threads;
   ThreadGroupFuncArg* thread_args;
+  // Generally favor uint16_t/uint32_t over unsigned char/uint8_t for isolated
+  // bools, since in the latter case the compiler is fairly likely to generate
+  // worse code due to aliasing paranoia; see e.g.
+  //   https://travisdowns.github.io/blog/2019/08/26/vector-inc.html
   uint16_t is_unjoined;
   uint16_t is_active;
 
@@ -153,16 +157,14 @@ HEADER_INLINE void DeclareLastThreadBlock(ThreadGroup* tgp) {
   tgp->shared.cb.is_last_block = 1;
 }
 
-// trailing X temporary
-BoolErr SpawnThreadsX(ThreadGroup* tgp);
+BoolErr SpawnThreads(ThreadGroup* tgp);
 
-// trailing X temporary
-void JoinThreadsX(ThreadGroup* tgp);
+void JoinThreads(ThreadGroup* tgp);
 
 void CleanupThreads(ThreadGroup* tgp);
 
 #ifdef _WIN32
-HEADER_INLINE BoolErr THREAD_BLOCK_FINISHX(ThreadGroupFuncArg* tgfap) {
+HEADER_INLINE BoolErr THREAD_BLOCK_FINISH(ThreadGroupFuncArg* tgfap) {
   ThreadGroupControlBlock* cbp = &(tgfap->sharedp->cb);
   if (cbp->is_last_block) {
     return 1;
@@ -173,7 +175,7 @@ HEADER_INLINE BoolErr THREAD_BLOCK_FINISHX(ThreadGroupFuncArg* tgfap) {
   return (cbp->is_last_block == 2);
 }
 #else
-BoolErr THREAD_BLOCK_FINISHX(ThreadGroupFuncArg* tgfap);
+BoolErr THREAD_BLOCK_FINISH(ThreadGroupFuncArg* tgfap);
 #endif
 
 #ifdef __cplusplus

@@ -1,5 +1,5 @@
-#ifndef __PLINK2_GETLINE_H__
-#define __PLINK2_GETLINE_H__
+#ifndef __PLINK2_TEXT_H__
+#define __PLINK2_TEXT_H__
 
 // This library is part of PLINK 2.00, copyright (C) 2005-2019 Shaun Purcell,
 // Christopher Chang.
@@ -104,7 +104,7 @@
 #else
 #  include <zlib.h>
 #  if !defined(ZLIB_VERNUM) || (ZLIB_VERNUM < 0x1240)
-#    error "plink2_getline requires zlib 1.2.4 or later."
+#    error "plink2_text requires zlib 1.2.4 or later."
 #  endif
 #endif
 
@@ -117,8 +117,9 @@ namespace plink2 {
 
 PglErr GetFileType(const char* fname, FileCompressionType* ftype_ptr);
 
-typedef struct TextRfileBaseStruct {
-  // This *is* copied wholesale by the TextRstream move-constructor.
+typedef struct TextFileBaseStruct {
+  // Not noncopyable, since this is copied wholesale by the TextStream
+  // move-constructor.
 
   // Positioned first so the compiler doesn't need to add an offset to access
   // it.
@@ -142,10 +143,10 @@ typedef struct TextRfileBaseStruct {
   char* dst;
   uint32_t dst_len;
   uint32_t dst_capacity;
-} TextRfileBase;
+} TextFileBase;
 
 typedef struct GzRawDecompressStreamStruct {
-  // Copied by TextRstream move-constructor.
+  // Copied by TextStream move-constructor.
   unsigned char* in;
   z_stream ds;
   uint32_t ds_initialized;
@@ -154,7 +155,7 @@ typedef struct GzRawDecompressStreamStruct {
 // BgzfRawDecompressStream declared in plink2_bgzf.h.
 
 typedef struct ZstRawDecompressStreamStruct {
-  // Copied by TextRstream move-constructor.
+  // Copied by TextStream move-constructor.
   ZSTD_DStream* ds;
   ZSTD_inBuffer ib;
 } ZstRawDecompressStream;
@@ -162,99 +163,104 @@ typedef struct ZstRawDecompressStreamStruct {
 typedef union {
   GzRawDecompressStream gz;
   // Even in the single-threaded case, it's worth distinguishing bgzf from
-  // generic .gz, since we can use libdeflate 100% of the time.
+  // generic .gz, since with bgzf we can use libdeflate.
   BgzfRawDecompressStream bgzf;
   ZstRawDecompressStream zst;
 } RawDecompressStream;
 
-typedef struct textRFILEStruct {
-  TextRfileBase base;
+typedef struct textFILEStruct {
+  TextFileBase base;
   RawDecompressStream rds;
-} textRFILE;
+} textFILE;
 
-void PreinitTextRfile(textRFILE* trfp);
+void PreinitTextFile(textFILE* txfp);
 
 // kDecompressChunkSize = 1 MiB currently declared in plink2_bgzf.h, may move
 // somewhere closer to the base later.
-CONSTI32(kTextRstreamBlenFast, 11 * kDecompressChunkSizeX);
-CONSTI32(kTokenRstreamBlen, 11 * kDecompressChunkSizeX);
-CONSTI32(kMaxTokenBlenX, 8 * kDecompressChunkSizeX);
-static_assert(kMaxTokenBlenX >= kDecompressChunkSizeX, "kMaxTokenBlen too small.");
-static_assert(kMaxTokenBlenX <= kTokenRstreamBlen, "kMaxTokenBlen can't be larger than kTokenRstreamBlen.");
+CONSTI32(kTextStreamBlenFast, 11 * kDecompressChunkSize);
+CONSTI32(kTokenStreamBlen, 11 * kDecompressChunkSize);
+CONSTI32(kMaxTokenBlen, 8 * kDecompressChunkSize);
+static_assert(kMaxTokenBlen >= kDecompressChunkSize, "kMaxTokenBlen too small.");
+static_assert(kMaxTokenBlen <= kTokenStreamBlen, "kMaxTokenBlen can't be larger than kTokenStreamBlen.");
+
+// max_line_blen and enforced_max_line_blen lower bound.
+CONSTI32(kDecompressMinBlen, kDecompressChunkSize);
+
+CONSTI32(kDecompressMinCapacity, kDecompressMinBlen + kDecompressChunkSize);
 
 // * Can return nomem, open-fail, or read-fail.
 // * If dst == nullptr, this mallocs a buffer of size 2 * kDecompressChunkSize,
-//   and it'll be realloced as necessary and freed by CleanupTextRfile().
+//   and it'll be realloced as necessary and freed by CleanupTextFile().
 //   The original value of dst_capacity doesn't matter in this case.
 //   Otherwise, the buffer is owned by the caller, assumed to have size >=
 //   dst_capacity, and never grown.
 // * enforced_max_line_blen must be >= dst_capacity - kDecompressChunkSize.
 //   It's the point at which long-line errors instead of out-of-memory errors
 //   are reported.  It isn't permitted to be less than 1 MiB.
-PglErr TextRfileOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, char* dst, textRFILE* trfp);
+PglErr TextFileOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, char* dst, textFILE* txfp);
 
-HEADER_INLINE PglErr TextRfileOpen(const char* fname, textRFILE* trfp) {
-  return TextRfileOpenEx(fname, kMaxLongLine, 0, nullptr, trfp);
+HEADER_INLINE PglErr TextFileOpen(const char* fname, textFILE* txfp) {
+  return TextFileOpenEx(fname, kMaxLongLine, 0, nullptr, txfp);
 }
 
 extern const char kShortErrLongLine[];
 
-PglErr TextRfileAdvance(textRFILE* trfp);
+PglErr TextFileAdvance(textFILE* txfp);
 
-HEADER_INLINE PglErr TextRfileNextLine(textRFILE* trfp, char** line_startp) {
-  if (trfp->base.consume_iter == trfp->base.consume_stop) {
-    PglErr reterr = TextRfileAdvance(trfp);
+HEADER_INLINE PglErr TextFileNextLine(textFILE* txfp, char** line_startp) {
+  if (txfp->base.consume_iter == txfp->base.consume_stop) {
+    PglErr reterr = TextFileAdvance(txfp);
     // not unlikely() due to eof
     if (reterr) {
       return reterr;
     }
   }
-  *line_startp = trfp->base.consume_iter;
-  trfp->base.consume_iter = AdvPastDelim(trfp->base.consume_iter, '\n');
+  *line_startp = txfp->base.consume_iter;
+  txfp->base.consume_iter = AdvPastDelim(txfp->base.consume_iter, '\n');
   return kPglRetSuccess;
 }
 
-HEADER_INLINE char* TextRfileLineEnd(textRFILE* trfp) {
-  return trfp->base.consume_iter;
+HEADER_INLINE char* TextFileLineEnd(textFILE* txfp) {
+  return txfp->base.consume_iter;
 }
 
-void TextRfileRewind(textRFILE* trfp);
+void TextFileRewind(textFILE* txfp);
 
-HEADER_INLINE int32_t TextRfileIsOpen(const textRFILE* trfp) {
-  return (trfp->base.ff != nullptr);
+HEADER_INLINE int32_t TextFileIsOpen(const textFILE* txfp) {
+  return (txfp->base.ff != nullptr);
 }
 
-HEADER_INLINE int32_t TextRfileEof(const textRFILE* trfp) {
-  return (trfp->base.reterr == kPglRetEof);
+HEADER_INLINE int32_t TextFileEof(const textFILE* txfp) {
+  return (txfp->base.reterr == kPglRetEof);
 }
 
-HEADER_INLINE const char* TextRfileError(const textRFILE* trfp) {
-  return trfp->base.errmsg;
+HEADER_INLINE const char* TextFileError(const textFILE* txfp) {
+  return txfp->base.errmsg;
 }
 
-HEADER_INLINE PglErr TextRfileErrcode(const textRFILE* trfp) {
-  if (trfp->base.reterr == kPglRetEof) {
+HEADER_INLINE PglErr TextFileErrcode(const textFILE* txfp) {
+  if (txfp->base.reterr == kPglRetEof) {
     return kPglRetSuccess;
   }
-  return trfp->base.reterr;
+  return txfp->base.reterr;
 }
 
 // Ok to pass reterrp == nullptr.
 // Returns nonzero iff file-close fails, and either reterrp == nullptr or
 // *reterrp == kPglRetSuccess; this is intended to be followed by logging of
 // strerror(errno).  In the latter case, *reterrp is set to kPglRetReadFail.
-BoolErr CleanupTextRfile(textRFILE* trfp, PglErr* reterrp);
+BoolErr CleanupTextFile(textFILE* txfp, PglErr* reterrp);
 
 
 // consumer -> reader message
 // could add a "close current file and open another one" case
 ENUM_U31_DEF_START()
-  kTrsInterruptNone,
-  kTrsInterruptRetarget,
-  kTrsInterruptShutdown
-ENUM_U31_DEF_END(TrsInterrupt);
+  kTxsInterruptNone,
+  kTxsInterruptRetarget,
+  kTxsInterruptShutdown
+ENUM_U31_DEF_END(TxsInterrupt);
 
-typedef struct TextRstreamSyncStruct {
+typedef struct TextStreamSyncStruct {
   // Mutex shared state, and everything guarded by the mutex.  Allocated to
   // different cacheline(s) than consume_stop.
 #ifdef _WIN32
@@ -278,17 +284,17 @@ typedef struct TextRstreamSyncStruct {
   char* cur_circular_end;
   char* available_end;
 
-  // Separate from the TextRfileBase instances of these values, since we don't
+  // Separate from the TextFileBase instances of these values, since we don't
   // want to force the user to worry about these values changing at any moment.
-  // Instead, the TextRfileBase instances are only updated during TextAdvance()
+  // Instead, the TextFileBase instances are only updated during TextAdvance()
   // calls and the like.
   const char* errmsg;
   PglErr reterr;  // note that this is set to kPglRetEof once we reach eof
 
   uint32_t dst_reallocated;
-  TrsInterrupt interrupt;
+  TxsInterrupt interrupt;
   const char* new_fname;
-} TextRstreamSync;
+} TextStreamSync;
 
 typedef union {
   GzRawDecompressStream gz;
@@ -296,163 +302,167 @@ typedef union {
   ZstRawDecompressStream zst;
 } RawMtDecompressStream;
 
-typedef struct TextRstreamStruct {
-  TextRfileBase base;
+typedef struct TextStreamStruct {
+  TextFileBase base;
   RawMtDecompressStream rds;
   uint32_t decompress_thread_ct;
-  TextRstreamSync* syncp;
-} TextRstream;
+  TextStreamSync* syncp;
+} TextStream;
 
-void PreinitTextRstream(TextRstream* trsp);
+void PreinitTextStream(TextStream* txsp);
 
 // * Can return nomem, open-fail, read-fail, or thread-create-fail.
-// * Exactly one of fname and trfp must be nullptr.  If trfp is null, fname is
-//   opened.  Otherwise, the returned stream is "move-constructed" from trfp.
+// * Exactly one of fname and txfp must be nullptr.  If txfp is null, fname is
+//   opened.  Otherwise, the returned stream is "move-constructed" from txfp.
 //   When not move-constructing, enforced_max_line_blen, dst_capacity, and dst
-//   are interpreted the same way as TextRfileOpenEx().
+//   are interpreted the same way as TextFileOpenEx().
 //   When move-constructing, enforced_max_line_blen and dst_capacity may be
-//   smaller than what the textRFILE was opened with.
-PglErr TextRstreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, uint32_t decompress_thread_ct, textRFILE* trfp, char* dst, TextRstream* trsp);
+//   smaller than what the textFILE was opened with.
+PglErr TextStreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, uint32_t decompress_thread_ct, textFILE* txfp, char* dst, TextStream* txsp);
 
-HEADER_INLINE PglErr TextRstreamOpen(const char* fname, TextRstream* trsp) {
-  return TextRstreamOpenEx(fname, kMaxLongLine, 0, NumCpu(nullptr), nullptr, nullptr, trsp);
+HEADER_INLINE PglErr TextStreamOpen(const char* fname, TextStream* txsp) {
+  return TextStreamOpenEx(fname, kMaxLongLine, 0, NumCpu(nullptr), nullptr, nullptr, txsp);
 }
 
-HEADER_INLINE char* TextLineEnd(TextRstream* trsp) {
-  return trsp->base.consume_iter;
+// We drop 'Stream' from the function names outside of open/close, to emphasize
+// that this is the default choice.
+// (Originally this was named 'TextRstream', but then I realized that the write
+// case doesn't really care about whether the input is text or binary.)
+HEADER_INLINE char* TextLineEnd(TextStream* txsp) {
+  return txsp->base.consume_iter;
 }
 
-HEADER_INLINE int32_t TextRstreamIsOpen(const TextRstream* trsp) {
-  return (trsp->base.ff != nullptr);
+HEADER_INLINE int32_t TextIsOpen(const TextStream* txsp) {
+  return (txsp->base.ff != nullptr);
 }
 
-HEADER_INLINE int32_t TextEof(const TextRstream* trsp) {
-  return (trsp->base.reterr == kPglRetEof);
+HEADER_INLINE int32_t TextEof(const TextStream* txsp) {
+  return (txsp->base.reterr == kPglRetEof);
 }
 
-uint32_t TextDecompressThreadCt(const TextRstream* trsp);
+uint32_t TextDecompressThreadCt(const TextStream* txsp);
 
-PglErr TextAdvance(TextRstream* trsp);
+PglErr TextAdvance(TextStream* txsp);
 
-HEADER_INLINE PglErr TextNextLine(TextRstream* trsp, char** line_startp) {
-  if (trsp->base.consume_iter == trsp->base.consume_stop) {
-    PglErr reterr = TextAdvance(trsp);
+HEADER_INLINE PglErr TextNextLine(TextStream* txsp, char** line_startp) {
+  if (txsp->base.consume_iter == txsp->base.consume_stop) {
+    PglErr reterr = TextAdvance(txsp);
     // not unlikely() due to eof
     if (reterr) {
       return reterr;
     }
   }
-  *line_startp = trsp->base.consume_iter;
-  trsp->base.consume_iter = AdvPastDelim(trsp->base.consume_iter, '\n');
+  *line_startp = txsp->base.consume_iter;
+  txsp->base.consume_iter = AdvPastDelim(txsp->base.consume_iter, '\n');
   return kPglRetSuccess;
 }
 
-HEADER_INLINE PglErr TextNextLineK(TextRstream* trsp, const char** line_startp) {
-  return TextNextLine(trsp, K_CAST(char**, line_startp));
+HEADER_INLINE PglErr TextNextLineK(TextStream* txsp, const char** line_startp) {
+  return TextNextLine(txsp, K_CAST(char**, line_startp));
 }
 
-HEADER_INLINE PglErr TextNextLineLstrip(TextRstream* trsp, char** line_startp) {
-  if (trsp->base.consume_iter == trsp->base.consume_stop) {
-    PglErr reterr = TextAdvance(trsp);
+HEADER_INLINE PglErr TextNextLineLstrip(TextStream* txsp, char** line_startp) {
+  if (txsp->base.consume_iter == txsp->base.consume_stop) {
+    PglErr reterr = TextAdvance(txsp);
     // not unlikely() due to eof
     if (reterr) {
       return reterr;
     }
   }
-  *line_startp = FirstNonTspace(trsp->base.consume_iter);
-  trsp->base.consume_iter = AdvPastDelim(*line_startp, '\n');
+  *line_startp = FirstNonTspace(txsp->base.consume_iter);
+  txsp->base.consume_iter = AdvPastDelim(*line_startp, '\n');
   return kPglRetSuccess;
 }
 
-HEADER_INLINE PglErr TextNextLineLstripK(TextRstream* trsp, const char** line_startp) {
-  return TextNextLineLstrip(trsp, K_CAST(char**, line_startp));
+HEADER_INLINE PglErr TextNextLineLstripK(TextStream* txsp, const char** line_startp) {
+  return TextNextLineLstrip(txsp, K_CAST(char**, line_startp));
 }
 
 // these do not update line_idx on eof.
-PglErr TextNextNonemptyLineLstrip(TextRstream* trsp, uintptr_t* line_idx_ptr, char** line_startp);
+PglErr TextNextNonemptyLineLstrip(TextStream* txsp, uintptr_t* line_idx_ptr, char** line_startp);
 
-HEADER_INLINE PglErr TextNextNonemptyLineLstripK(TextRstream* trsp, uintptr_t* line_idx_ptr, const char** line_startp) {
-  return TextNextNonemptyLineLstrip(trsp, line_idx_ptr, K_CAST(char**, line_startp));
+HEADER_INLINE PglErr TextNextNonemptyLineLstripK(TextStream* txsp, uintptr_t* line_idx_ptr, const char** line_startp) {
+  return TextNextNonemptyLineLstrip(txsp, line_idx_ptr, K_CAST(char**, line_startp));
 }
 
-PglErr TextSkipNz(uintptr_t skip_ct, TextRstream* trsp);
+PglErr TextSkipNz(uintptr_t skip_ct, TextStream* txsp);
 
-HEADER_INLINE PglErr TextSkip(uintptr_t skip_ct, TextRstream* trsp) {
+HEADER_INLINE PglErr TextSkip(uintptr_t skip_ct, TextStream* txsp) {
   if (skip_ct == 0) {
     return kPglRetSuccess;
   }
-  return TextSkipNz(skip_ct, trsp);
+  return TextSkipNz(skip_ct, txsp);
 }
 
 
 // 'Unsafe' functions require line_iter to already point to the start of the
-// line, and don't update trsp->base.consume_iter; they primarily wrap the
+// line, and don't update txsp->base.consume_iter; they primarily wrap the
 // TextAdvance() call.
-HEADER_INLINE PglErr TextNextLineUnsafe(TextRstream* trsp, char** line_iterp) {
-  if (*line_iterp != trsp->base.consume_stop) {
+HEADER_INLINE PglErr TextNextLineUnsafe(TextStream* txsp, char** line_iterp) {
+  if (*line_iterp != txsp->base.consume_stop) {
     return kPglRetSuccess;
   }
-  trsp->base.consume_iter = *line_iterp;
-  PglErr reterr = TextAdvance(trsp);
+  txsp->base.consume_iter = *line_iterp;
+  PglErr reterr = TextAdvance(txsp);
   // not unlikely() due to eof
   if (reterr) {
     return reterr;
   }
-  *line_iterp = trsp->base.consume_iter;
+  *line_iterp = txsp->base.consume_iter;
   return kPglRetSuccess;
 }
 
 
-HEADER_INLINE PglErr TextNextLineLstripUnsafe(TextRstream* trsp, char** line_iterp) {
+HEADER_INLINE PglErr TextNextLineLstripUnsafe(TextStream* txsp, char** line_iterp) {
   char* line_iter = *line_iterp;
-  if (line_iter == trsp->base.consume_stop) {
-    trsp->base.consume_iter = line_iter;
-    PglErr reterr = TextAdvance(trsp);
+  if (line_iter == txsp->base.consume_stop) {
+    txsp->base.consume_iter = line_iter;
+    PglErr reterr = TextAdvance(txsp);
     // not unlikely() due to eof
     if (reterr) {
       return reterr;
     }
-    line_iter = trsp->base.consume_iter;
+    line_iter = txsp->base.consume_iter;
   }
   *line_iterp = FirstNonTspace(line_iter);
   return kPglRetSuccess;
 }
 
-PglErr TextNextNonemptyLineLstripUnsafe(TextRstream* trsp, uintptr_t* line_idx_ptr, char** line_iterp);
+PglErr TextNextNonemptyLineLstripUnsafe(TextStream* txsp, uintptr_t* line_idx_ptr, char** line_iterp);
 
 
-HEADER_INLINE uint32_t TextRstreamIsMt(const TextRstream* trsp) {
+HEADER_INLINE uint32_t TextIsMt(const TextStream* txsp) {
   // Only bgzf decoder is multithreaded for now.
-  return (trsp->base.file_type == kFileBgzf);
+  return (txsp->base.file_type == kFileBgzf);
 }
 
-PglErr TextRetarget(const char* new_fname, TextRstream* trsp);
+PglErr TextRetarget(const char* new_fname, TextStream* txsp);
 
-HEADER_INLINE PglErr TextRewind(TextRstream* trsp) {
-  return TextRetarget(nullptr, trsp);
+HEADER_INLINE PglErr TextRewind(TextStream* txsp) {
+  return TextRetarget(nullptr, txsp);
 }
 
-HEADER_INLINE const char* TextRstreamError(const TextRstream* trsp) {
-  return trsp->base.errmsg;
+HEADER_INLINE const char* TextStreamError(const TextStream* txsp) {
+  return txsp->base.errmsg;
 }
 
-HEADER_INLINE PglErr TextRstreamErrcode(const TextRstream* trsp) {
-  if (trsp->base.reterr == kPglRetEof) {
+HEADER_INLINE PglErr TextStreamErrcode(const TextStream* txsp) {
+  if (txsp->base.reterr == kPglRetEof) {
     return kPglRetSuccess;
   }
-  return trsp->base.reterr;
+  return txsp->base.reterr;
 }
 
 // Ok to pass reterrp == nullptr.
 // Returns nonzero iff file-close fails, and either reterrp == nullptr or
 // *reterrp == kPglRetSuccess.  In the latter case, *reterrp is set to
 // kPglRetReadFail.  (Note that this does *not* retrieve the existing
-// trsp->reterr value; caller is responsible for checking TextRstreamErrcode()
+// txsp->reterr value; caller is responsible for checking TextStreamErrcode()
 // first when they care.)
-BoolErr CleanupTextRstream(TextRstream* trsp, PglErr* reterrp);
+BoolErr CleanupTextStream(TextStream* txsp, PglErr* reterrp);
 
 #ifdef __cplusplus
 }  // namespace plink2
 #endif
 
-#endif  // __PLINK2_GETLINE_H__
+#endif  // __PLINK2_TEXT_H__

@@ -55,13 +55,13 @@ typedef struct BgzfRawDecompressStreamStruct {
 
 // (tested a few different values for this, 1 MiB appears to work well on the
 // systems we care most about)
-CONSTI32(kDecompressChunkSizeX, 1048576);
-static_assert(!(kDecompressChunkSizeX % kCacheline), "kDecompressChunkSize must be a multiple of kCacheline.");
-static_assert(kDecompressChunkSizeX >= kMaxMediumLine, "kDecompressChunkSize too small.");
+CONSTI32(kDecompressChunkSize, 1048576);
+static_assert(!(kDecompressChunkSize % kCacheline), "kDecompressChunkSize must be a multiple of kCacheline.");
+static_assert(kDecompressChunkSize >= kMaxMediumLine, "kDecompressChunkSize too small.");
 
 CONSTI32(kMaxBgzfDecompressThreads, 5);
 CONSTI32(kMaxBgzfCompressedBlockSize, 65536);
-static_assert(kMaxBgzfDecompressThreads * 3 * kMaxBgzfCompressedBlockSize < kDecompressChunkSizeX, "kMaxBgzfDecompressThreads too large relative to kDecompressChunkSize.");
+static_assert(kMaxBgzfDecompressThreads * 3 * kMaxBgzfCompressedBlockSize < kDecompressChunkSize, "kMaxBgzfDecompressThreads too large relative to kDecompressChunkSize.");
 CONSTI32(kMaxBgzfDecompressedBlockSize, 65536);
 static_assert((kMaxBgzfDecompressedBlockSize % kCacheline) == 0, "kMaxBgzfDecompressedBlockSize is assumed to be a cacheline multiple.");
 

@@ -17,7 +17,7 @@
 #include <errno.h>
 #include <zlib.h>
 #include "pvar_ffi_support.h"
-#include "plink2_getline.h"
+#include "plink2_text.h"
 
 namespace plink2 {
 
@@ -58,12 +58,12 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
   // Simple, somewhat inefficient two-pass loader.  Ignores everything but the
   // ID, REF, and ALT columns for now (since that's what we need to make
   // multiallelic .pgen files usable).
-  TextRstream trs;
-  PreinitTextRstream(&trs);
+  TextStream txs;
+  PreinitTextStream(&txs);
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
   {
-    if (TextRstreamOpen(fname, &trs)) {
+    if (TextStreamOpen(fname, &txs)) {
       goto LoadMinimalPvar_ret_FILE_FAIL;
     }
     // [0] = ID
@@ -72,7 +72,7 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
     uint32_t col_skips[3];
     uint32_t col_types[3];
     const char* line_iter;
-    while (!TextNextLineLstripK(&trs, &line_iter)) {
+    while (!TextNextLineLstripK(&txs, &line_iter)) {
       ++line_idx;
       if (IsEolnKns(*line_iter)) {
         continue;
@@ -152,11 +152,11 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
         col_skips[2] -= col_skips[1];
         col_skips[1] -= col_skips[0];
         // skip this line in main loop
-        line_iter = &(TextLineEnd(&trs)[-1]);
+        line_iter = &(TextLineEnd(&txs)[-1]);
         break;
       }
     }
-    if (TextRstreamErrcode(&trs)) {
+    if (TextStreamErrcode(&txs)) {
       goto LoadMinimalPvar_ret_FILE_FAIL;
     }
     uintptr_t variant_ct = 0;
@@ -210,8 +210,8 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
           }
         }
       }
-      if (TextNextLineLstripK(&trs, &line_iter)) {
-        if (TextRstreamErrcode(&trs)) {
+      if (TextNextLineLstripK(&txs, &line_iter)) {
+        if (TextStreamErrcode(&txs)) {
           goto LoadMinimalPvar_ret_FILE_FAIL;
         }
         break;
@@ -257,7 +257,7 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
       }
       allele_idx_offsets = mpp->allele_idx_offsetsp->p;
     }
-    if (TextRewind(&trs)) {
+    if (TextRewind(&txs)) {
       goto LoadMinimalPvar_ret_FILE_FAIL;
     }
     const char** allele_storage = &(variant_ids[variant_ct]);
@@ -266,7 +266,7 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
     mpp->max_allele_ct = max_extra_alt_ct + 2;
     uint32_t variant_idx = 0;
     uintptr_t allele_idx = 0;
-    while (!TextNextLineLstripK(&trs, &line_iter)) {
+    while (!TextNextLineLstripK(&txs, &line_iter)) {
       if (*line_iter == '#') {
         continue;
       }
@@ -336,7 +336,7 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
       }
       ++variant_idx;
     }
-    if (TextRstreamErrcode(&trs)) {
+    if (TextStreamErrcode(&txs)) {
       goto LoadMinimalPvar_ret_FILE_FAIL;
     }
     if (variant_idx != variant_ct) {
@@ -357,10 +357,10 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
     reterr = kPglRetReadFail;
     break;
   LoadMinimalPvar_ret_FILE_FAIL:
-    reterr = TextRstreamErrcode(&trs);
+    reterr = TextStreamErrcode(&txs);
     assert(reterr != kPglRetSuccess);
     {
-      const char* errmsg = TextRstreamError(&trs);
+      const char* errmsg = TextStreamError(&txs);
       if (errmsg) {
         memcpy_k(errstr_buf, "Error: ", 7);
         strcpy(&(errstr_buf[7]), errmsg);
@@ -380,7 +380,7 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
     break;
   }
  LoadMinimalPvar_ret_1:
-  CleanupTextRstream(&trs, &reterr);
+  CleanupTextStream(&txs, &reterr);
   return reterr;
 }
 

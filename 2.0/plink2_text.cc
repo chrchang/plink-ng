@@ -15,7 +15,7 @@
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <errno.h>
-#include "plink2_getline.h"
+#include "plink2_text.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -56,7 +56,7 @@ PglErr GetFileType(const char* fname, FileCompressionType* ftype_ptr) {
   return kPglRetSuccess;
 }
 
-void EraseTextRfileBase(TextRfileBase* trbp) {
+void EraseTextFileBase(TextFileBase* trbp) {
   trbp->consume_iter = nullptr;
   trbp->consume_stop = nullptr;
   trbp->errmsg = nullptr;
@@ -65,13 +65,13 @@ void EraseTextRfileBase(TextRfileBase* trbp) {
   trbp->dst = nullptr;
 }
 
-void PreinitTextRfile(textRFILE* trfp) {
-  EraseTextRfileBase(&trfp->base);
+void PreinitTextFile(textFILE* txfp) {
+  EraseTextFileBase(&txfp->base);
 }
 
 BoolErr GzRawInit(const void* buf, uint32_t nbytes, GzRawDecompressStream* gzp) {
   gzp->ds_initialized = 0;
-  gzp->in = S_CAST(unsigned char*, malloc(kDecompressChunkSizeX));
+  gzp->in = S_CAST(unsigned char*, malloc(kDecompressChunkSize));
   if (!gzp->in) {
     return 1;
   }
@@ -90,7 +90,7 @@ BoolErr GzRawInit(const void* buf, uint32_t nbytes, GzRawDecompressStream* gzp) 
 }
 
 BoolErr ZstRawInit(const void* buf, uint32_t nbytes, ZstRawDecompressStream* zstp) {
-  zstp->ib.src = malloc(kDecompressChunkSizeX);
+  zstp->ib.src = malloc(kDecompressChunkSize);
   if (unlikely(!zstp->ib.src)) {
     zstp->ds = nullptr;
     return 1;
@@ -105,62 +105,62 @@ BoolErr ZstRawInit(const void* buf, uint32_t nbytes, ZstRawDecompressStream* zst
   return 0;
 }
 
-const char kShortErrRfileAlreadyOpen[] = "TextRfileOpenInternal can't be called on an already-open file";
-const char kShortErrRfileEnforcedMaxBlenTooSmall[] = "TextRfileOpenInternal: enforced_max_line_blen too small (must be at least max(1 MiB, dst_capacity - 1 MiB))";
-const char kShortErrRfileDstCapacityTooSmall[] = "TextRfileOpenInternal: dst_capacity too small (2 MiB minimum)";
+const char kShortErrRfileAlreadyOpen[] = "TextFileOpenInternal can't be called on an already-open file";
+const char kShortErrRfileEnforcedMaxBlenTooSmall[] = "TextFileOpenInternal: enforced_max_line_blen too small (must be at least max(1 MiB, dst_capacity - 1 MiB))";
+const char kShortErrRfileDstCapacityTooSmall[] = "TextFileOpenInternal: dst_capacity too small (2 MiB minimum)";
 
-PglErr TextRfileOpenInternal(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, char* dst, textRFILE* trfp, TextRstream* trsp) {
+PglErr TextFileOpenInternal(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, char* dst, textFILE* txfp, TextStream* txsp) {
   PglErr reterr = kPglRetSuccess;
-  TextRfileBase* trbp;
-  if (trfp) {
-    trbp = &trfp->base;
+  TextFileBase* trbp;
+  if (txfp) {
+    trbp = &txfp->base;
   } else {
-    trbp = &trsp->base;
+    trbp = &txsp->base;
   }
   {
     // 1. Open file, get type.
     if (unlikely(trbp->ff)) {
       reterr = kPglRetImproperFunctionCall;
       trbp->errmsg = kShortErrRfileAlreadyOpen;
-      goto TextRfileOpenInternal_ret_1;
+      goto TextFileOpenInternal_ret_1;
     }
-    if (enforced_max_line_blen || trfp) {
-      if (unlikely(enforced_max_line_blen < kDecompressChunkSizeX)) {
+    if (enforced_max_line_blen || txfp) {
+      if (unlikely(enforced_max_line_blen < kDecompressMinBlen)) {
         reterr = kPglRetImproperFunctionCall;
         trbp->errmsg = kShortErrRfileEnforcedMaxBlenTooSmall;
-        goto TextRfileOpenInternal_ret_1;
+        goto TextFileOpenInternal_ret_1;
       }
       if (dst) {
-        if (unlikely(dst_capacity < 2 * kDecompressChunkSizeX)) {
+        if (unlikely(dst_capacity < kDecompressMinCapacity)) {
           reterr = kPglRetImproperFunctionCall;
           trbp->errmsg = kShortErrRfileDstCapacityTooSmall;
-          goto TextRfileOpenInternal_ret_1;
+          goto TextFileOpenInternal_ret_1;
         }
-        if (unlikely(enforced_max_line_blen + kDecompressChunkSizeX < dst_capacity)) {
+        if (unlikely(enforced_max_line_blen + kDecompressChunkSize < dst_capacity)) {
           reterr = kPglRetImproperFunctionCall;
           trbp->errmsg = kShortErrRfileEnforcedMaxBlenTooSmall;
-          goto TextRfileOpenInternal_ret_1;
+          goto TextFileOpenInternal_ret_1;
         }
       }
     } else {
       // token-reading mode.  dst == nullptr not currently supported.
-      assert(dst && (dst_capacity == kTokenRstreamBlen));
+      assert(dst && (dst_capacity == kTokenStreamBlen));
     }
     trbp->ff = fopen(fname, FOPEN_RB);
     if (unlikely(!trbp->ff)) {
-      goto TextRfileOpenInternal_ret_OPEN_FAIL;
+      goto TextFileOpenInternal_ret_OPEN_FAIL;
     }
     trbp->file_type = kFileUncompressed;
     if (dst) {
       trbp->dst_owned_by_consumer = 1;
       trbp->dst_capacity = dst_capacity;
     } else {
-      dst = S_CAST(char*, malloc(2 * kDecompressChunkSizeX));
+      dst = S_CAST(char*, malloc(kDecompressMinCapacity));
       if (unlikely(dst == nullptr)) {
-        goto TextRfileOpenInternal_ret_NOMEM;
+        goto TextFileOpenInternal_ret_NOMEM;
       }
       trbp->dst_owned_by_consumer = 0;
-      trbp->dst_capacity = 2 * kDecompressChunkSizeX;
+      trbp->dst_capacity = kDecompressMinCapacity;
     }
     trbp->dst = dst;
     uint32_t nbytes = fread_unlocked(dst, 1, 16, trbp->ff);
@@ -174,83 +174,83 @@ PglErr TextRfileOpenInternal(const char* fname, uint32_t enforced_max_line_blen,
         trbp->dst_len = 0;
         trbp->file_type = kFileZstd;
         ZstRawDecompressStream* zstp;
-        if (trfp) {
-          zstp = &trfp->rds.zst;
+        if (txfp) {
+          zstp = &txfp->rds.zst;
         } else {
-          zstp = &trsp->rds.zst;
+          zstp = &txsp->rds.zst;
         }
         if (unlikely(ZstRawInit(dst, nbytes, zstp))) {
-          goto TextRfileOpenInternal_ret_NOMEM;
+          goto TextFileOpenInternal_ret_NOMEM;
         }
       } else if ((magic4 << 8) == 0x088b1f00) {
         // gzip ID1/ID2 bytes, deflate compression method
         trbp->dst_len = 0;
         if ((nbytes == 16) && IsBgzfHeader(dst)) {
           trbp->file_type = kFileBgzf;
-          if (trfp) {
-            BgzfRawDecompressStream* bgzfp = &trfp->rds.bgzf;
-            bgzfp->in = S_CAST(unsigned char*, malloc(kDecompressChunkSizeX));
+          if (txfp) {
+            BgzfRawDecompressStream* bgzfp = &txfp->rds.bgzf;
+            bgzfp->in = S_CAST(unsigned char*, malloc(kDecompressChunkSize));
             if (unlikely(!bgzfp->in)) {
               bgzfp->ldc = nullptr;
-              goto TextRfileOpenInternal_ret_NOMEM;
+              goto TextFileOpenInternal_ret_NOMEM;
             }
             bgzfp->ldc = libdeflate_alloc_decompressor();
             if (!bgzfp->ldc) {
-              goto TextRfileOpenInternal_ret_NOMEM;
+              goto TextFileOpenInternal_ret_NOMEM;
             }
             memcpy(bgzfp->in, dst, nbytes);
             bgzfp->in_size = nbytes;
             bgzfp->in_pos = 0;
           } else {
-            reterr = BgzfRawMtStreamInit(dst, trsp->decompress_thread_ct, trbp->ff, nullptr, &trsp->rds.bgzf, &trbp->errmsg);
+            reterr = BgzfRawMtStreamInit(dst, txsp->decompress_thread_ct, trbp->ff, nullptr, &txsp->rds.bgzf, &trbp->errmsg);
             if (unlikely(reterr)) {
-              goto TextRfileOpenInternal_ret_1;
+              goto TextFileOpenInternal_ret_1;
             }
           }
         } else {
           trbp->file_type = kFileGzip;
           GzRawDecompressStream* gzp;
-          if (trfp) {
-            gzp = &trfp->rds.gz;
+          if (txfp) {
+            gzp = &txfp->rds.gz;
           } else {
-            gzp = &trsp->rds.gz;
+            gzp = &txsp->rds.gz;
           }
           if (unlikely(GzRawInit(dst, nbytes, gzp))) {
-            goto TextRfileOpenInternal_ret_NOMEM;
+            goto TextFileOpenInternal_ret_NOMEM;
           }
         }
       }
     } else if (!nbytes) {
       if (unlikely(!feof_unlocked(trbp->ff))) {
-        goto TextRfileOpenInternal_ret_READ_FAIL;
+        goto TextFileOpenInternal_ret_READ_FAIL;
       }
       // May as well accept this.
-      // Don't jump to ret_1 since we're setting trfp->reterr to a different
+      // Don't jump to ret_1 since we're setting txfp->reterr to a different
       // value than we're returning.
       trbp->reterr = kPglRetEof;
       return kPglRetSuccess;
     }
   }
   while (0) {
-  TextRfileOpenInternal_ret_NOMEM:
+  TextFileOpenInternal_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  TextRfileOpenInternal_ret_OPEN_FAIL:
+  TextFileOpenInternal_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     trbp->errmsg = strerror(errno);
     break;
-  TextRfileOpenInternal_ret_READ_FAIL:
+  TextFileOpenInternal_ret_READ_FAIL:
     reterr = kPglRetReadFail;
     trbp->errmsg = strerror(errno);
     break;
   }
- TextRfileOpenInternal_ret_1:
+ TextFileOpenInternal_ret_1:
   trbp->reterr = reterr;
   return reterr;
 }
 
-PglErr TextRfileOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, char* dst, textRFILE* trfp) {
-  return TextRfileOpenInternal(fname, enforced_max_line_blen, dst_capacity, dst, trfp, nullptr);
+PglErr TextFileOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, char* dst, textFILE* txfp) {
+  return TextFileOpenInternal(fname, enforced_max_line_blen, dst_capacity, dst, txfp, nullptr);
 }
 
 // Set enforced_max_line_blen == 0 in the token-reading case.
@@ -288,18 +288,18 @@ BoolErr IsPathologicallyLongLineOrTokenX(const char* line_start, const char* loa
       }
     }
   }
-  if (S_CAST(uintptr_t, known_line_end - line_start) <= kMaxTokenBlenX) {
+  if (S_CAST(uintptr_t, known_line_end - line_start) <= kMaxTokenBlen) {
     return 0;
   }
   const uint32_t already_scanned_byte_ct = load_start - line_start;
-  if (unlikely(already_scanned_byte_ct >= kMaxTokenBlenX)) {
+  if (unlikely(already_scanned_byte_ct >= kMaxTokenBlen)) {
     return 1;
   }
   // No loop needed for now, since token-scanning buffer sizes are hardcoded.
   //
   // Replace with a forward-scanning version of this functionality when
   // available ("FirstPostspaceBoundedFar"?)
-  return (LastSpaceOrEoln(load_start, kMaxTokenBlenX - already_scanned_byte_ct) == nullptr);
+  return (LastSpaceOrEoln(load_start, kMaxTokenBlen - already_scanned_byte_ct) == nullptr);
 }
 
 const char kShortErrRfileTruncatedGz[] = "GzRawStreamRead: gzipped file appears to be truncated";
@@ -330,7 +330,7 @@ PglErr GzRawStreamRead(char* dst_end, FILE* ff, GzRawDecompressStream* gzp, char
         break;
       }
     }
-    const uint32_t nbytes = fread_unlocked(gzp->in, 1, kDecompressChunkSizeX, ff);
+    const uint32_t nbytes = fread_unlocked(gzp->in, 1, kDecompressChunkSize, ff);
     dsp->next_in = gzp->in;
     dsp->avail_in = nbytes;
     if (!nbytes) {
@@ -374,7 +374,7 @@ PglErr ZstRawStreamRead(char* dst_end, FILE* ff, ZstRawDecompressStream* zstp, c
     const uint32_t n_inbytes = zstp->ib.size - zstp->ib.pos;
     memmove(in, &(in[zstp->ib.pos]), n_inbytes);
     unsigned char* load_start = &(in[n_inbytes]);
-    const uint32_t nbytes = fread_unlocked(load_start, 1, kDecompressChunkSizeX - n_inbytes, ff);
+    const uint32_t nbytes = fread_unlocked(load_start, 1, kDecompressChunkSize - n_inbytes, ff);
     if (unlikely(ferror_unlocked(ff))) {
       *errmsgp = strerror(errno);
       return kPglRetReadFail;
@@ -395,62 +395,62 @@ PglErr ZstRawStreamRead(char* dst_end, FILE* ff, ZstRawDecompressStream* zstp, c
 
 const char kShortErrLongLine[] = "Pathologically long line";
 
-PglErr TextRfileAdvance(textRFILE* trfp) {
-  if (trfp->base.reterr) {
-    return trfp->base.reterr;
+PglErr TextFileAdvance(textFILE* txfp) {
+  if (txfp->base.reterr) {
+    return txfp->base.reterr;
   }
   PglErr reterr = kPglRetSuccess;
   {
-    char* orig_line_start = trfp->base.consume_stop;
-    assert(trfp->base.consume_iter == orig_line_start);
-    char* dst = trfp->base.dst;
+    char* orig_line_start = txfp->base.consume_stop;
+    assert(txfp->base.consume_iter == orig_line_start);
+    char* dst = txfp->base.dst;
     char* dst_load_start;
     while (1) {
       const uint32_t dst_offset = orig_line_start - dst;
-      const uint32_t dst_rem = trfp->base.dst_len - dst_offset;
-      // (dst_rem guaranteed to be < trfp->base.enforced_max_line_blen here,
+      const uint32_t dst_rem = txfp->base.dst_len - dst_offset;
+      // (dst_rem guaranteed to be < txfp->base.enforced_max_line_blen here,
       // since otherwise we error out earlier.)
       // Two cases:
       // 1. Move (possibly empty) unfinished line to the beginning of the
       //    buffer.
       // 2. Resize the buffer/report out-of-memory.
-      if (dst_rem < trfp->base.dst_capacity - kDecompressChunkSizeX) {
+      if (dst_rem < txfp->base.dst_capacity - kDecompressChunkSize) {
         memmove(dst, orig_line_start, dst_rem);
       } else {
-        if (unlikely(trfp->base.dst_owned_by_consumer)) {
-          goto TextRfileAdvance_ret_NOMEM;
+        if (unlikely(txfp->base.dst_owned_by_consumer)) {
+          goto TextFileAdvance_ret_NOMEM;
         }
-        uint32_t next_dst_capacity = trfp->base.enforced_max_line_blen + kDecompressChunkSizeX;
-        if ((next_dst_capacity / 2) > trfp->base.dst_capacity) {
-          next_dst_capacity = trfp->base.dst_capacity * 2;
+        uint32_t next_dst_capacity = txfp->base.enforced_max_line_blen + kDecompressChunkSize;
+        if ((next_dst_capacity / 2) > txfp->base.dst_capacity) {
+          next_dst_capacity = txfp->base.dst_capacity * 2;
         }
 #ifndef __LP64__
         if (next_dst_capacity >= 0x80000000U) {
-          goto TextRfileAdvance_ret_NOMEM;
+          goto TextFileAdvance_ret_NOMEM;
         }
 #endif
         char* dst_next;
         if (!dst_offset) {
           dst_next = S_CAST(char*, realloc(dst, next_dst_capacity));
           if (unlikely(!dst_next)) {
-            goto TextRfileAdvance_ret_NOMEM;
+            goto TextFileAdvance_ret_NOMEM;
           }
         } else {
           dst_next = S_CAST(char*, malloc(next_dst_capacity));
           if (unlikely(!dst_next)) {
-            goto TextRfileAdvance_ret_NOMEM;
+            goto TextFileAdvance_ret_NOMEM;
           }
           memcpy(dst_next, orig_line_start, dst_rem);
         }
-        trfp->base.dst = dst_next;
+        txfp->base.dst = dst_next;
         dst = dst_next;
       }
       dst_load_start = &(dst[dst_rem]);
-      FILE* ff = trfp->base.ff;
+      FILE* ff = txfp->base.ff;
       char* dst_iter = dst_load_start;
-      char* dst_end = &(dst[trfp->base.dst_capacity]);
-      trfp->base.consume_iter = dst;
-      switch (trfp->base.file_type) {
+      char* dst_end = &(dst[txfp->base.dst_capacity]);
+      txfp->base.consume_iter = dst;
+      switch (txfp->base.file_type) {
       case kFileUncompressed:
         {
           uint32_t rlen = dst_end - dst_iter;
@@ -462,9 +462,9 @@ PglErr TextRfileAdvance(textRFILE* trfp) {
             const uint32_t nbytes = fread_unlocked(dst_iter, 1, kMaxBytesPerIO, ff);
             if (nbytes < kMaxBytesPerIO) {
               if (unlikely(ferror_unlocked(ff))) {
-                goto TextRfileAdvance_ret_READ_FAIL;
+                goto TextFileAdvance_ret_READ_FAIL;
               }
-              trfp->base.dst_len = nbytes + dst_rem;
+              txfp->base.dst_len = nbytes + dst_rem;
               break;
             }
             rlen -= kMaxBytesPerIO;
@@ -472,16 +472,16 @@ PglErr TextRfileAdvance(textRFILE* trfp) {
           }
           const uint32_t nbytes = fread_unlocked(dst_iter, 1, rlen, ff);
           if (unlikely(ferror_unlocked(ff))) {
-            goto TextRfileAdvance_ret_READ_FAIL;
+            goto TextFileAdvance_ret_READ_FAIL;
           }
           dst_iter = &(dst_iter[nbytes]);
           break;
         }
       case kFileGzip:
         {
-          reterr = GzRawStreamRead(dst_end, ff, &trfp->rds.gz, &dst_iter, &trfp->base.errmsg);
+          reterr = GzRawStreamRead(dst_end, ff, &txfp->rds.gz, &dst_iter, &txfp->base.errmsg);
           if (unlikely(reterr)) {
-            goto TextRfileAdvance_ret_1;
+            goto TextFileAdvance_ret_1;
           }
           break;
         }
@@ -490,25 +490,25 @@ PglErr TextRfileAdvance(textRFILE* trfp) {
           // Fully independent blocks limited to 64 KiB.
           // probable todo: move this to a BgzfRawStreamRead() function in
           // plink2_bgzf (and move ZstRawStreamRead() to plink2_zstfile).
-          if ((!trfp->rds.bgzf.in_size) && feof_unlocked(ff)) {
+          if ((!txfp->rds.bgzf.in_size) && feof_unlocked(ff)) {
             break;
           }
-          struct libdeflate_decompressor* ldc = trfp->rds.bgzf.ldc;
-          unsigned char* in = trfp->rds.bgzf.in;
-          unsigned char* in_iter = &(in[trfp->rds.bgzf.in_pos]);
-          unsigned char* in_end = &(in[trfp->rds.bgzf.in_size]);
+          struct libdeflate_decompressor* ldc = txfp->rds.bgzf.ldc;
+          unsigned char* in = txfp->rds.bgzf.in;
+          unsigned char* in_iter = &(in[txfp->rds.bgzf.in_pos]);
+          unsigned char* in_end = &(in[txfp->rds.bgzf.in_size]);
           while (1) {
             uint32_t n_inbytes = in_end - in_iter;
             if (n_inbytes > 25) {
               if (unlikely(!IsBgzfHeader(in_iter))) {
-                goto TextRfileAdvance_ret_INVALID_BGZF;
+                goto TextFileAdvance_ret_INVALID_BGZF;
               }
 #  ifdef __arm__
-#    error "Unaligned accesses in TextRfileAdvance()."
+#    error "Unaligned accesses in TextFileAdvance()."
 #  endif
               const uint32_t bsize_minus1 = *R_CAST(uint16_t*, &(in_iter[16]));
               if (unlikely(bsize_minus1 < 25)) {
-                goto TextRfileAdvance_ret_INVALID_BGZF;
+                goto TextFileAdvance_ret_INVALID_BGZF;
               }
               if (bsize_minus1 < n_inbytes) {
                 // We have at least one fully-loaded compressed block.
@@ -516,13 +516,13 @@ PglErr TextRfileAdvance(textRFILE* trfp) {
                 const uint32_t in_size = bsize_minus1 - 25;
                 const uint32_t out_size = *R_CAST(uint32_t*, &(in_iter[in_size + 22]));
                 if (unlikely(out_size > 65536)) {
-                  goto TextRfileAdvance_ret_INVALID_BGZF;
+                  goto TextFileAdvance_ret_INVALID_BGZF;
                 }
                 if (out_size > S_CAST(uintptr_t, dst_end - dst_iter)) {
                   break;
                 }
                 if (unlikely(libdeflate_deflate_decompress(ldc, &(in_iter[18]), in_size, dst_iter, out_size, nullptr))) {
-                  goto TextRfileAdvance_ret_INVALID_BGZF;
+                  goto TextFileAdvance_ret_INVALID_BGZF;
                 }
                 in_iter = &(in_iter[bsize_minus1 + 1]);
                 dst_iter = &(dst_iter[out_size]);
@@ -532,158 +532,158 @@ PglErr TextRfileAdvance(textRFILE* trfp) {
             // Either we're at EOF, or we must load more.
             memmove(in, in_iter, n_inbytes);
             unsigned char* load_start = &(in[n_inbytes]);
-            const uint32_t nbytes = fread_unlocked(load_start, 1, kDecompressChunkSizeX - n_inbytes, ff);
+            const uint32_t nbytes = fread_unlocked(load_start, 1, kDecompressChunkSize - n_inbytes, ff);
             if (unlikely(ferror_unlocked(ff))) {
-              goto TextRfileAdvance_ret_READ_FAIL;
+              goto TextFileAdvance_ret_READ_FAIL;
             }
             in_iter = in;
             in_end = &(load_start[nbytes]);
-            trfp->rds.bgzf.in_size = in_end - in;
+            txfp->rds.bgzf.in_size = in_end - in;
             if (!nbytes) {
               if (unlikely(n_inbytes)) {
-                goto TextRfileAdvance_ret_INVALID_BGZF;
+                goto TextFileAdvance_ret_INVALID_BGZF;
               }
               break;
             }
           }
-          trfp->rds.bgzf.in_pos = in_iter - in;
+          txfp->rds.bgzf.in_pos = in_iter - in;
           dst_end = dst_iter;
           break;
         }
       case kFileZstd:
         {
-          reterr = ZstRawStreamRead(dst_end, ff, &trfp->rds.zst, &dst_iter, &trfp->base.errmsg);
+          reterr = ZstRawStreamRead(dst_end, ff, &txfp->rds.zst, &dst_iter, &txfp->base.errmsg);
           if (unlikely(reterr)) {
-            goto TextRfileAdvance_ret_1;
+            goto TextFileAdvance_ret_1;
           }
           break;
         }
       }
-      trfp->base.dst_len = dst_iter - dst;
-      if (!trfp->base.dst_len) {
-        goto TextRfileAdvance_ret_EOF;
+      txfp->base.dst_len = dst_iter - dst;
+      if (!txfp->base.dst_len) {
+        goto TextFileAdvance_ret_EOF;
       }
       if (dst_iter != dst_end) {
         // If last character of file isn't a newline, append one to simplify
         // downstream code.
         if (dst_iter[-1] != '\n') {
           *dst_iter++ = '\n';
-          trfp->base.dst_len += 1;
+          txfp->base.dst_len += 1;
         }
-        trfp->base.consume_stop = dst_iter;
+        txfp->base.consume_stop = dst_iter;
         break;
       }
       char* last_byte_ptr = Memrchr(dst_load_start, '\n', dst_iter - dst_load_start);
       if (last_byte_ptr) {
-        trfp->base.consume_stop = &(last_byte_ptr[1]);
+        txfp->base.consume_stop = &(last_byte_ptr[1]);
         break;
       }
       // Buffer is full, and no '\n' is present.  Restart the loop and try to
       // extend the buffer, if we aren't already at/past the line-length limit.
-      if (trfp->base.dst_len >= trfp->base.enforced_max_line_blen) {
-        goto TextRfileAdvance_ret_LONG_LINE;
+      if (txfp->base.dst_len >= txfp->base.enforced_max_line_blen) {
+        goto TextFileAdvance_ret_LONG_LINE;
       }
     }
-    if (unlikely(IsPathologicallyLongLineOrTokenX(dst, dst_load_start, trfp->base.consume_stop, trfp->base.enforced_max_line_blen))) {
-      goto TextRfileAdvance_ret_LONG_LINE;
+    if (unlikely(IsPathologicallyLongLineOrTokenX(dst, dst_load_start, txfp->base.consume_stop, txfp->base.enforced_max_line_blen))) {
+      goto TextFileAdvance_ret_LONG_LINE;
     }
   }
   while (0) {
-  TextRfileAdvance_ret_NOMEM:
+  TextFileAdvance_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  TextRfileAdvance_ret_READ_FAIL:
+  TextFileAdvance_ret_READ_FAIL:
     reterr = kPglRetReadFail;
-    trfp->base.errmsg = strerror(errno);
+    txfp->base.errmsg = strerror(errno);
     break;
-  TextRfileAdvance_ret_LONG_LINE:
-    trfp->base.errmsg = kShortErrLongLine;
+  TextFileAdvance_ret_LONG_LINE:
+    txfp->base.errmsg = kShortErrLongLine;
     reterr = kPglRetMalformedInput;
     break;
-  TextRfileAdvance_ret_INVALID_BGZF:
-    trfp->base.errmsg = kShortErrInvalidBgzf;
+  TextFileAdvance_ret_INVALID_BGZF:
+    txfp->base.errmsg = kShortErrInvalidBgzf;
     reterr = kPglRetDecompressFail;
     break;
-  TextRfileAdvance_ret_EOF:
+  TextFileAdvance_ret_EOF:
     reterr = kPglRetEof;
     break;
   }
- TextRfileAdvance_ret_1:
-  trfp->base.reterr = reterr;
+ TextFileAdvance_ret_1:
+  txfp->base.reterr = reterr;
   return reterr;
 }
 
-void TextRfileRewind(textRFILE* trfp) {
-  if ((!trfp->base.ff) || ((trfp->base.reterr) && (trfp->base.reterr != kPglRetEof))) {
+void TextFileRewind(textFILE* txfp) {
+  if ((!txfp->base.ff) || ((txfp->base.reterr) && (txfp->base.reterr != kPglRetEof))) {
     return;
   }
-  rewind(trfp->base.ff);
-  trfp->base.reterr = kPglRetSuccess;
-  trfp->base.dst_len = 0;
-  trfp->base.consume_iter = trfp->base.dst;
-  trfp->base.consume_stop = trfp->base.dst;
-  if (trfp->base.file_type != kFileUncompressed) {
-    if (trfp->base.file_type == kFileGzip) {
-      trfp->rds.gz.ds.avail_in = 0;
+  rewind(txfp->base.ff);
+  txfp->base.reterr = kPglRetSuccess;
+  txfp->base.dst_len = 0;
+  txfp->base.consume_iter = txfp->base.dst;
+  txfp->base.consume_stop = txfp->base.dst;
+  if (txfp->base.file_type != kFileUncompressed) {
+    if (txfp->base.file_type == kFileGzip) {
+      txfp->rds.gz.ds.avail_in = 0;
 #ifdef NDEBUG
-      inflateReset(&trfp->rds.gz.ds);
+      inflateReset(&txfp->rds.gz.ds);
 #else
-      const int errcode = inflateReset(&trfp->rds.gz.ds);
+      const int errcode = inflateReset(&txfp->rds.gz.ds);
       assert(errcode == Z_OK);
 #endif
-    } else if (trfp->base.file_type == kFileBgzf) {
-      trfp->rds.bgzf.in_size = 0;
-      trfp->rds.bgzf.in_pos = 0;
+    } else if (txfp->base.file_type == kFileBgzf) {
+      txfp->rds.bgzf.in_size = 0;
+      txfp->rds.bgzf.in_pos = 0;
     } else {
       // kFileZstd
-      trfp->rds.zst.ib.size = 0;
-      trfp->rds.zst.ib.pos = 0;
-      ZSTD_DCtx_reset(trfp->rds.zst.ds, ZSTD_reset_session_only);
+      txfp->rds.zst.ib.size = 0;
+      txfp->rds.zst.ib.pos = 0;
+      ZSTD_DCtx_reset(txfp->rds.zst.ds, ZSTD_reset_session_only);
     }
   }
 }
 
-BoolErr CleanupTextRfile(textRFILE* trfp, PglErr* reterrp) {
-  trfp->base.consume_iter = nullptr;
-  trfp->base.consume_stop = nullptr;
-  trfp->base.reterr = kPglRetEof;
-  trfp->base.errmsg = nullptr;
-  if (trfp->base.dst && (!trfp->base.dst_owned_by_consumer)) {
-    free(trfp->base.dst);
-    trfp->base.dst = nullptr;
+BoolErr CleanupTextFile(textFILE* txfp, PglErr* reterrp) {
+  txfp->base.consume_iter = nullptr;
+  txfp->base.consume_stop = nullptr;
+  txfp->base.reterr = kPglRetEof;
+  txfp->base.errmsg = nullptr;
+  if (txfp->base.dst && (!txfp->base.dst_owned_by_consumer)) {
+    free(txfp->base.dst);
+    txfp->base.dst = nullptr;
   }
-  if (trfp->base.ff) {
-    if (trfp->base.file_type != kFileUncompressed) {
-      if (trfp->base.file_type == kFileZstd) {
-        if (trfp->rds.zst.ib.src) {
-          free_const(trfp->rds.zst.ib.src);
-          trfp->rds.zst.ib.src = nullptr;
+  if (txfp->base.ff) {
+    if (txfp->base.file_type != kFileUncompressed) {
+      if (txfp->base.file_type == kFileZstd) {
+        if (txfp->rds.zst.ib.src) {
+          free_const(txfp->rds.zst.ib.src);
+          txfp->rds.zst.ib.src = nullptr;
         }
-        if (trfp->rds.zst.ds) {
-          ZSTD_freeDStream(trfp->rds.zst.ds);
-          trfp->rds.zst.ds = nullptr;
+        if (txfp->rds.zst.ds) {
+          ZSTD_freeDStream(txfp->rds.zst.ds);
+          txfp->rds.zst.ds = nullptr;
         }
-      } else if (trfp->base.file_type == kFileBgzf) {
-        if (trfp->rds.bgzf.in) {
-          free(trfp->rds.bgzf.in);
-          trfp->rds.bgzf.in = nullptr;
+      } else if (txfp->base.file_type == kFileBgzf) {
+        if (txfp->rds.bgzf.in) {
+          free(txfp->rds.bgzf.in);
+          txfp->rds.bgzf.in = nullptr;
         }
-        if (trfp->rds.bgzf.ldc) {
-          libdeflate_free_decompressor(trfp->rds.bgzf.ldc);
-          trfp->rds.bgzf.ldc = nullptr;
+        if (txfp->rds.bgzf.ldc) {
+          libdeflate_free_decompressor(txfp->rds.bgzf.ldc);
+          txfp->rds.bgzf.ldc = nullptr;
         }
       } else {
         // plain gzip
-        if (trfp->rds.gz.in) {
-          free(trfp->rds.gz.in);
-          trfp->rds.gz.in = nullptr;
+        if (txfp->rds.gz.in) {
+          free(txfp->rds.gz.in);
+          txfp->rds.gz.in = nullptr;
         }
-        if (trfp->rds.gz.ds_initialized) {
-          inflateEnd(&trfp->rds.gz.ds);
+        if (txfp->rds.gz.ds_initialized) {
+          inflateEnd(&txfp->rds.gz.ds);
         }
       }
     }
-    if (unlikely(fclose_null(&trfp->base.ff))) {
+    if (unlikely(fclose_null(&txfp->base.ff))) {
       if (!reterrp) {
         return 1;
       }
@@ -697,17 +697,17 @@ BoolErr CleanupTextRfile(textRFILE* trfp, PglErr* reterrp) {
 }
 
 
-void PreinitTextRstream(TextRstream* trsp) {
-  EraseTextRfileBase(&trsp->base);
-  trsp->syncp = nullptr;
+void PreinitTextStream(TextStream* txsp) {
+  EraseTextFileBase(&txsp->base);
+  txsp->syncp = nullptr;
 }
 
 // This type of code is especially bug-prone (ESR would call it a "defect
 // attractor").  Goal is to get it right, and fast enough to be a major win
 // over gzgets()... and then not worry about it again for years.
-THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
-  TextRstream* context = S_CAST(TextRstream*, raw_arg);
-  TextRstreamSync* syncp = context->syncp;
+THREAD_FUNC_DECL TextStreamThread(void* raw_arg) {
+  TextStream* context = S_CAST(TextStream*, raw_arg);
+  TextStreamSync* syncp = context->syncp;
   FileCompressionType file_type = context->base.file_type;
   RawMtDecompressStream* rdsp = &context->rds;
   FILE* ff = context->base.ff;
@@ -735,9 +735,9 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
   const char* new_fname = nullptr;
   const uint32_t is_token_stream = (enforced_max_line_blen == 0);
   while (1) {
-    TrsInterrupt interrupt = kTrsInterruptNone;
+    TxsInterrupt interrupt = kTxsInterruptNone;
     PglErr reterr;
-    TrsInterrupt min_interrupt;
+    TxsInterrupt min_interrupt;
     while (1) {
       uintptr_t read_attempt_size = read_stop - read_head;
       if (!read_attempt_size) {
@@ -747,21 +747,21 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
           // && !dst_owned_by_consumer.
           const uint32_t prev_capacity = buf_end - buf;
           if (context->base.dst_owned_by_consumer || (prev_capacity >= enforced_max_line_blen)) {
-            goto TextRstreamThread_LONG_LINE;
+            goto TextStreamThread_LONG_LINE;
           }
           // Try to expand buffer.
-          uint32_t next_dst_capacity = enforced_max_line_blen + kDecompressChunkSizeX;
+          uint32_t next_dst_capacity = enforced_max_line_blen + kDecompressChunkSize;
           if ((next_dst_capacity / 2) > context->base.dst_capacity) {
             next_dst_capacity = context->base.dst_capacity * 2;
           }
 #ifndef __LP64__
           if (next_dst_capacity >= 0x80000000U) {
-            goto TextRstreamThread_NOMEM;
+            goto TextStreamThread_NOMEM;
           }
 #endif
           char* dst_next = S_CAST(char*, realloc(buf, next_dst_capacity));
           if (unlikely(!dst_next)) {
-            goto TextRstreamThread_NOMEM;
+            goto TextStreamThread_NOMEM;
           }
 #ifdef _WIN32
           EnterCriticalSection(critical_sectionp);
@@ -813,13 +813,13 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
         // However, if memmove_required isn't true, we have to wait first; see
         // the 21 Mar bugfix.
         if (!memmove_required) {
-          goto TextRstreamThread_wait_first;
+          goto TextStreamThread_wait_first;
         }
         while (1) {
           EnterCriticalSection(critical_sectionp);
           interrupt = syncp->interrupt;
-          if (interrupt != kTrsInterruptNone) {
-            goto TextRstreamThread_INTERRUPT;
+          if (interrupt != kTxsInterruptNone) {
+            goto TextStreamThread_INTERRUPT;
           }
           latest_consume_tail = syncp->consume_tail;
           if (memmove_required) {
@@ -832,7 +832,7 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
             break;
           }
           LeaveCriticalSection(critical_sectionp);
-        TextRstreamThread_wait_first:
+        TextStreamThread_wait_first:
           WaitForSingleObject(consumer_progress_event, INFINITE);
         }
         // bugfix (23 Mar 2018): didn't always leave the critical section
@@ -841,12 +841,12 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
         pthread_mutex_lock(sync_mutexp);
         if (!memmove_required) {
           // Wait for all bytes in front of read_stop to be consumed.
-          goto TextRstreamThread_wait_first;
+          goto TextStreamThread_wait_first;
         }
         while (1) {
           interrupt = syncp->interrupt;
-          if (interrupt != kTrsInterruptNone) {
-            goto TextRstreamThread_INTERRUPT;
+          if (interrupt != kTxsInterruptNone) {
+            goto TextStreamThread_INTERRUPT;
           }
           latest_consume_tail = syncp->consume_tail;
           if (memmove_required) {
@@ -869,7 +869,7 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
             // All bytes in front of read_stop have been consumed.
             break;
           }
-        TextRstreamThread_wait_first:
+        TextStreamThread_wait_first:
           while (!syncp->consumer_progress_state) {
             pthread_cond_wait(consumer_progress_condvarp, sync_mutexp);
           }
@@ -887,8 +887,8 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
         }
         continue;
       }
-      if (read_attempt_size > kDecompressChunkSizeX) {
-        read_attempt_size = kDecompressChunkSizeX;
+      if (read_attempt_size > kDecompressChunkSize) {
+        read_attempt_size = kDecompressChunkSize;
       }
       char* cur_read_end = read_head;
       char* cur_read_stop = &(read_head[read_attempt_size]);
@@ -897,7 +897,7 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
         {
           cur_read_end += fread_unlocked(read_head, 1, read_attempt_size, ff);
           if (unlikely(ferror_unlocked(ff))) {
-            goto TextRstreamThread_READ_FAIL;
+            goto TextStreamThread_READ_FAIL;
           }
           break;
         }
@@ -905,7 +905,7 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
         {
           reterr = GzRawStreamRead(cur_read_stop, ff, &rdsp->gz, &cur_read_end, &syncp->errmsg);
           if (unlikely(reterr)) {
-            goto TextRstreamThread_MISC_FAIL;
+            goto TextStreamThread_MISC_FAIL;
           }
           break;
         }
@@ -913,7 +913,7 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
         {
           reterr = BgzfRawMtStreamRead(R_CAST(unsigned char*, cur_read_stop), &rdsp->bgzf, R_CAST(unsigned char**, &cur_read_end), &syncp->errmsg);
           if (unlikely(reterr)) {
-            goto TextRstreamThread_MISC_FAIL;
+            goto TextStreamThread_MISC_FAIL;
           }
           break;
         }
@@ -921,7 +921,7 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
         {
           reterr = ZstRawStreamRead(cur_read_stop, ff, &rdsp->zst, &cur_read_end, &syncp->errmsg);
           if (unlikely(reterr)) {
-            goto TextRstreamThread_MISC_FAIL;
+            goto TextStreamThread_MISC_FAIL;
           }
           break;
         }
@@ -937,10 +937,10 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
         }
         // Still want to consistently enforce max line/token length.
         if (unlikely(IsPathologicallyLongLineOrTokenX(cur_block_start, read_head, final_read_head, enforced_max_line_blen))) {
-          goto TextRstreamThread_LONG_LINE;
+          goto TextStreamThread_LONG_LINE;
         }
         read_head = final_read_head;
-        goto TextRstreamThread_EOF;
+        goto TextStreamThread_EOF;
       }
       char* last_byte_ptr;
       if (!is_token_stream) {
@@ -951,7 +951,7 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
       if (last_byte_ptr) {
         char* next_available_end = &(last_byte_ptr[1]);
         if (unlikely(IsPathologicallyLongLineOrTokenX(cur_block_start, read_head, next_available_end, enforced_max_line_blen))) {
-          goto TextRstreamThread_LONG_LINE;
+          goto TextStreamThread_LONG_LINE;
         }
 #ifdef _WIN32
         EnterCriticalSection(critical_sectionp);
@@ -959,12 +959,12 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
         pthread_mutex_lock(sync_mutexp);
 #endif
         interrupt = syncp->interrupt;
-        if (interrupt != kTrsInterruptNone) {
-          goto TextRstreamThread_INTERRUPT;
+        if (interrupt != kTxsInterruptNone) {
+          goto TextStreamThread_INTERRUPT;
         }
         char* latest_consume_tail = syncp->consume_tail;
         const uint32_t all_later_bytes_consumed = (latest_consume_tail <= cur_block_start);
-        const uint32_t return_to_start = all_later_bytes_consumed && (latest_consume_tail >= &(buf[kDecompressChunkSizeX]));
+        const uint32_t return_to_start = all_later_bytes_consumed && (latest_consume_tail >= &(buf[kDecompressChunkSize]));
         if (return_to_start) {
           // bugfix (2 Oct 2018): This was previously setting
           // syncp->available_end = next_available_end too, and that was being
@@ -1013,31 +1013,31 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
       read_head = cur_read_end;
     }
     while (0) {
-    TextRstreamThread_NOMEM:
-      min_interrupt = kTrsInterruptShutdown;
+    TextStreamThread_NOMEM:
+      min_interrupt = kTxsInterruptShutdown;
       reterr = kPglRetNomem;
       break;
-    TextRstreamThread_OPEN_FAIL:
-      min_interrupt = kTrsInterruptShutdown;
+    TextStreamThread_OPEN_FAIL:
+      min_interrupt = kTxsInterruptShutdown;
       syncp->errmsg = strerror(errno);
       reterr = kPglRetOpenFail;
       break;
-    TextRstreamThread_READ_FAIL:
-      min_interrupt = kTrsInterruptShutdown;
+    TextStreamThread_READ_FAIL:
+      min_interrupt = kTxsInterruptShutdown;
       syncp->errmsg = strerror(errno);
       reterr = kPglRetReadFail;
       break;
-    TextRstreamThread_LONG_LINE:
-      min_interrupt = kTrsInterruptShutdown;
+    TextStreamThread_LONG_LINE:
+      min_interrupt = kTxsInterruptShutdown;
       syncp->errmsg = kShortErrLongLine;
       reterr = kPglRetMalformedInput;
       break;
-    TextRstreamThread_EOF:
-      min_interrupt = kTrsInterruptRetarget;
+    TextStreamThread_EOF:
+      min_interrupt = kTxsInterruptRetarget;
       reterr = kPglRetEof;
       break;
-    TextRstreamThread_MISC_FAIL:
-      min_interrupt = kTrsInterruptShutdown;
+    TextStreamThread_MISC_FAIL:
+      min_interrupt = kTxsInterruptShutdown;
       break;
     }
     // We need to wait for a message from the consumer before we can usefully
@@ -1057,7 +1057,7 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
     interrupt = syncp->interrupt;
     if (interrupt >= min_interrupt) {
       // It's our lucky day: we don't need to wait again.
-      goto TextRstreamThread_INTERRUPT;
+      goto TextStreamThread_INTERRUPT;
     }
     if (reterr == kPglRetEof) {
       syncp->available_end = read_head;
@@ -1084,11 +1084,11 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
       interrupt = syncp->interrupt;
     } while (interrupt < min_interrupt);
 #endif
-  TextRstreamThread_INTERRUPT:
+  TextStreamThread_INTERRUPT:
     // must be in critical section here, or be holding the mutex.
-    if (interrupt == kTrsInterruptRetarget) {
+    if (interrupt == kTxsInterruptRetarget) {
       new_fname = syncp->new_fname;
-      syncp->interrupt = kTrsInterruptNone;
+      syncp->interrupt = kTxsInterruptNone;
       syncp->reterr = kPglRetSuccess;
     }
 #ifdef _WIN32
@@ -1096,20 +1096,20 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
 #else
     pthread_mutex_unlock(sync_mutexp);
 #endif
-    if (interrupt == kTrsInterruptShutdown) {
+    if (interrupt == kTxsInterruptShutdown) {
       // possible todo: close the file here
       THREAD_RETURN;
     }
-    assert(interrupt == kTrsInterruptRetarget);
+    assert(interrupt == kTxsInterruptRetarget);
     read_head = buf;
     if (!new_fname) {
       if (file_type == kFileBgzf) {
         reterr = BgzfRawMtStreamRewind(&rdsp->bgzf, &syncp->errmsg);
         if (unlikely(reterr)) {
-          goto TextRstreamThread_MISC_FAIL;
+          goto TextStreamThread_MISC_FAIL;
         }
       } else {
-        // See TextRfileRewind().
+        // See TextFileRewind().
         rewind(ff);
         if (file_type != kFileUncompressed) {
           if (file_type == kFileGzip) {
@@ -1132,9 +1132,9 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
       // Switch to another file, with less creation/destruction of resources.
       FILE* next_ff = fopen(new_fname, FOPEN_RB);
       if (unlikely(!next_ff)) {
-        goto TextRstreamThread_OPEN_FAIL;
+        goto TextStreamThread_OPEN_FAIL;
       }
-      // See TextRfileOpenInternal().
+      // See TextFileOpenInternal().
       uint32_t nbytes = fread_unlocked(buf, 1, 16, next_ff);
       FileCompressionType next_file_type = kFileUncompressed;
       if (nbytes >= 4) {
@@ -1163,7 +1163,7 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
 
         if (unlikely(fclose(ff))) {
           fclose(next_ff);
-          goto TextRstreamThread_READ_FAIL;
+          goto TextStreamThread_READ_FAIL;
         }
         ff = next_ff;
         context->base.ff = ff;
@@ -1175,19 +1175,19 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
           break;
         case kFileGzip:
           if (unlikely(GzRawInit(buf, nbytes, &rdsp->gz))) {
-            goto TextRstreamThread_NOMEM;
+            goto TextStreamThread_NOMEM;
           }
           break;
         case kFileBgzf:
           {
             reterr = BgzfRawMtStreamInit(buf, context->decompress_thread_ct, ff, nullptr, &rdsp->bgzf, &syncp->errmsg);
             if (unlikely(reterr)) {
-              goto TextRstreamThread_MISC_FAIL;
+              goto TextStreamThread_MISC_FAIL;
             }
           }
         case kFileZstd:
           if (unlikely(ZstRawInit(buf, nbytes, &rdsp->zst))) {
-            goto TextRstreamThread_NOMEM;
+            goto TextStreamThread_NOMEM;
           }
         }
       } else {
@@ -1216,7 +1216,7 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
             reterr = BgzfRawMtStreamRetarget(&rdsp->bgzf, next_ff, &syncp->errmsg);
             if (unlikely(reterr)) {
               fclose(next_ff);
-              goto TextRstreamThread_MISC_FAIL;
+              goto TextStreamThread_MISC_FAIL;
             }
             break;
           }
@@ -1232,7 +1232,7 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
         }
         if (unlikely(fclose(ff))) {
           fclose(next_ff);
-          goto TextRstreamThread_READ_FAIL;
+          goto TextStreamThread_READ_FAIL;
         }
         ff = next_ff;
         context->base.ff = ff;
@@ -1243,76 +1243,76 @@ THREAD_FUNC_DECL TextRstreamThread(void* raw_arg) {
   }
 }
 
-const char kShortErrRfileInvalid[] = "TextRstreamOpenEx can't be called with a closed or error-state textRFILE";
+const char kShortErrRfileInvalid[] = "TextStreamOpenEx can't be called with a closed or error-state textFILE";
 
-PglErr TextRstreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, uint32_t decompress_thread_ct, textRFILE* trfp, char* dst, TextRstream* trsp) {
+PglErr TextStreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, uint32_t decompress_thread_ct, textFILE* txfp, char* dst, TextStream* txsp) {
   PglErr reterr = kPglRetSuccess;
   {
-    trsp->decompress_thread_ct = decompress_thread_ct;
-    if (trfp) {
+    txsp->decompress_thread_ct = decompress_thread_ct;
+    if (txfp) {
       // Move-construct (unless there was an error, or file is not opened)
-      if (unlikely((!TextRfileIsOpen(trfp)) || TextRfileErrcode(trfp))) {
+      if (unlikely((!TextFileIsOpen(txfp)) || TextFileErrcode(txfp))) {
         reterr = kPglRetImproperFunctionCall;
-        trsp->base.errmsg = kShortErrRfileInvalid;
-        goto TextRstreamOpenEx_ret_1;
+        txsp->base.errmsg = kShortErrRfileInvalid;
+        goto TextStreamOpenEx_ret_1;
       }
-      if (unlikely(TextRstreamIsOpen(trsp))) {
+      if (unlikely(TextIsOpen(txsp))) {
         reterr = kPglRetImproperFunctionCall;
-        trsp->base.errmsg = kShortErrRfileAlreadyOpen;
-        goto TextRstreamOpenEx_ret_1;
+        txsp->base.errmsg = kShortErrRfileAlreadyOpen;
+        goto TextStreamOpenEx_ret_1;
       }
-      trsp->base = trfp->base;
-      // Simplify TextRstreamThread() initialization.
-      const uint32_t backfill_ct = trsp->base.consume_iter - trsp->base.dst;
+      txsp->base = txfp->base;
+      // Simplify TextStreamThread() initialization.
+      const uint32_t backfill_ct = txsp->base.consume_iter - txsp->base.dst;
       if (backfill_ct) {
-        trsp->base.dst_len -= backfill_ct;
-        memmove(trsp->base.dst, trsp->base.consume_iter, trsp->base.dst_len);
-        trsp->base.consume_iter = trsp->base.dst;
-        trsp->base.consume_stop -= backfill_ct;
+        txsp->base.dst_len -= backfill_ct;
+        memmove(txsp->base.dst, txsp->base.consume_iter, txsp->base.dst_len);
+        txsp->base.consume_iter = txsp->base.dst;
+        txsp->base.consume_stop -= backfill_ct;
       }
-      trsp->base.enforced_max_line_blen = enforced_max_line_blen;
-      assert(trsp->base.dst_len <= dst_capacity);
-      trsp->base.dst_capacity = dst_capacity;
-      reterr = trfp->base.reterr;
-      const FileCompressionType file_type = trfp->base.file_type;
+      txsp->base.enforced_max_line_blen = enforced_max_line_blen;
+      assert(txsp->base.dst_len <= dst_capacity);
+      txsp->base.dst_capacity = dst_capacity;
+      reterr = txfp->base.reterr;
+      const FileCompressionType file_type = txfp->base.file_type;
       if (file_type != kFileUncompressed) {
         if (file_type == kFileGzip) {
-          trsp->rds.gz = trfp->rds.gz;
+          txsp->rds.gz = txfp->rds.gz;
         } else if (file_type == kFileZstd) {
-          trsp->rds.zst = trfp->rds.zst;
+          txsp->rds.zst = txfp->rds.zst;
         } else {
-          reterr = BgzfRawMtStreamInit(nullptr, decompress_thread_ct, trsp->base.ff, &trfp->rds.bgzf, &trsp->rds.bgzf, &trsp->base.errmsg);
+          reterr = BgzfRawMtStreamInit(nullptr, decompress_thread_ct, txsp->base.ff, &txfp->rds.bgzf, &txsp->rds.bgzf, &txsp->base.errmsg);
           if (unlikely(reterr)) {
-            EraseTextRfileBase(&trfp->base);
-            goto TextRstreamOpenEx_ret_1;
+            EraseTextFileBase(&txfp->base);
+            goto TextStreamOpenEx_ret_1;
           }
         }
       }
-      EraseTextRfileBase(&trfp->base);
+      EraseTextFileBase(&txfp->base);
     } else {
-      reterr = TextRfileOpenInternal(fname, enforced_max_line_blen, dst_capacity, dst, nullptr, trsp);
+      reterr = TextFileOpenInternal(fname, enforced_max_line_blen, dst_capacity, dst, nullptr, txsp);
     }
     if (reterr) {
       if (reterr == kPglRetEof) {
-        trsp->base.reterr = kPglRetEof;
+        txsp->base.reterr = kPglRetEof;
         return kPglRetSuccess;
       }
-      goto TextRstreamOpenEx_ret_1;
+      goto TextStreamOpenEx_ret_1;
     }
-    assert(!trsp->syncp);
-    TextRstreamSync* syncp;
-    if (unlikely(cachealigned_malloc(RoundUpPow2(sizeof(TextRstreamSync), kCacheline), &syncp))) {
-      goto TextRstreamOpenEx_ret_NOMEM;
+    assert(!txsp->syncp);
+    TextStreamSync* syncp;
+    if (unlikely(cachealigned_malloc(RoundUpPow2(sizeof(TextStreamSync), kCacheline), &syncp))) {
+      goto TextStreamOpenEx_ret_NOMEM;
     }
-    trsp->syncp = syncp;
-    dst = trsp->base.dst;
+    txsp->syncp = syncp;
+    dst = txsp->base.dst;
     syncp->consume_tail = dst;
     syncp->cur_circular_end = nullptr;
-    syncp->available_end = trsp->base.consume_stop;
+    syncp->available_end = txsp->base.consume_stop;
     syncp->errmsg = nullptr;
     syncp->reterr = kPglRetSuccess;
     syncp->dst_reallocated = 0;
-    syncp->interrupt = kTrsInterruptNone;
+    syncp->interrupt = kTxsInterruptNone;
     syncp->new_fname = nullptr;
 #ifdef _WIN32
     syncp->read_thread = nullptr;
@@ -1323,74 +1323,74 @@ PglErr TextRstreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uin
     syncp->reader_progress_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     if (unlikely(!syncp->reader_progress_event)) {
       DeleteCriticalSection(&syncp->critical_section);
-      goto TextRstreamOpenEx_ret_THREAD_CREATE_FAIL;
+      goto TextStreamOpenEx_ret_THREAD_CREATE_FAIL;
     }
     syncp->consumer_progress_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     if (unlikely(!syncp->consumer_progress_event)) {
       DeleteCriticalSection(&syncp->critical_section);
       CloseHandle(syncp->reader_progress_event);
-      goto TextRstreamOpenEx_ret_THREAD_CREATE_FAIL;
+      goto TextStreamOpenEx_ret_THREAD_CREATE_FAIL;
     }
-    syncp->read_thread = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStackX, TextRstreamThread, trsp, 0, nullptr));
+    syncp->read_thread = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStack, TextStreamThread, txsp, 0, nullptr));
     if (unlikely(!syncp->read_thread)) {
       DeleteCriticalSection(&syncp->critical_section);
       CloseHandle(syncp->consumer_progress_event);
       CloseHandle(syncp->reader_progress_event);
-      goto TextRstreamOpenEx_ret_THREAD_CREATE_FAIL;
+      goto TextStreamOpenEx_ret_THREAD_CREATE_FAIL;
     }
 #else
     syncp->sync_init_state = 0;
     if (unlikely(pthread_mutex_init(&syncp->sync_mutex, nullptr))) {
-      goto TextRstreamOpenEx_ret_THREAD_CREATE_FAIL;
+      goto TextStreamOpenEx_ret_THREAD_CREATE_FAIL;
     }
     syncp->sync_init_state = 1;
     if (unlikely(pthread_cond_init(&syncp->reader_progress_condvar, nullptr))) {
-      goto TextRstreamOpenEx_ret_THREAD_CREATE_FAIL;
+      goto TextStreamOpenEx_ret_THREAD_CREATE_FAIL;
     }
     syncp->sync_init_state = 2;
     syncp->consumer_progress_state = 0;
     if (unlikely(pthread_cond_init(&syncp->consumer_progress_condvar, nullptr))) {
-      goto TextRstreamOpenEx_ret_THREAD_CREATE_FAIL;
+      goto TextStreamOpenEx_ret_THREAD_CREATE_FAIL;
     }
     syncp->sync_init_state = 3;
     pthread_attr_t smallstack_thread_attr;
     pthread_attr_init(&smallstack_thread_attr);
-    pthread_attr_setstacksize(&smallstack_thread_attr, kDefaultThreadStackX);
-    if (unlikely(pthread_create(&syncp->read_thread, &smallstack_thread_attr, TextRstreamThread, trsp))) {
+    pthread_attr_setstacksize(&smallstack_thread_attr, kDefaultThreadStack);
+    if (unlikely(pthread_create(&syncp->read_thread, &smallstack_thread_attr, TextStreamThread, txsp))) {
       pthread_attr_destroy(&smallstack_thread_attr);
-      goto TextRstreamOpenEx_ret_THREAD_CREATE_FAIL;
+      goto TextStreamOpenEx_ret_THREAD_CREATE_FAIL;
     }
     pthread_attr_destroy(&smallstack_thread_attr);
     syncp->sync_init_state = 4;
 #endif
   }
   while (0) {
-  TextRstreamOpenEx_ret_NOMEM:
+  TextStreamOpenEx_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  TextRstreamOpenEx_ret_THREAD_CREATE_FAIL:
+  TextStreamOpenEx_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
     break;
   }
- TextRstreamOpenEx_ret_1:
-  trsp->base.reterr = reterr;
+ TextStreamOpenEx_ret_1:
+  txsp->base.reterr = reterr;
   return reterr;
 }
 
-uint32_t TextDecompressThreadCt(const TextRstream* trsp) {
-  FileCompressionType file_type = trsp->base.file_type;
+uint32_t TextDecompressThreadCt(const TextStream* txsp) {
+  FileCompressionType file_type = txsp->base.file_type;
   if (file_type == kFileUncompressed) {
     return 0;
   }
   if (file_type != kFileBgzf) {
     return 1;
   }
-  return GetThreadCt(&trsp->rds.bgzf.tg);
+  return GetThreadCt(&txsp->rds.bgzf.tg);
 }
 
-PglErr TextAdvance(TextRstream* trsp) {
-  char* consume_iter = trsp->base.consume_iter;
-  TextRstreamSync* syncp = trsp->syncp;
+PglErr TextAdvance(TextStream* txsp) {
+  char* consume_iter = txsp->base.consume_iter;
+  TextStreamSync* syncp = txsp->syncp;
 #ifdef _WIN32
   CRITICAL_SECTION* critical_sectionp = &syncp->critical_section;
   HANDLE consumer_progress_event = syncp->consumer_progress_event;
@@ -1398,9 +1398,9 @@ PglErr TextAdvance(TextRstream* trsp) {
     EnterCriticalSection(critical_sectionp);
     const PglErr reterr = syncp->reterr;
     if (unlikely((reterr != kPglRetSuccess) && (reterr != kPglRetEof))) {
-      trsp->base.errmsg = syncp->errmsg;
+      txsp->base.errmsg = syncp->errmsg;
       LeaveCriticalSection(critical_sectionp);
-      trsp->base.reterr = reterr;
+      txsp->base.reterr = reterr;
       // No need to set consumer_progress event here, just let the cleanup
       // routine take care of that.
       return reterr;
@@ -1408,9 +1408,9 @@ PglErr TextAdvance(TextRstream* trsp) {
     char* available_end = syncp->available_end;
     char* cur_circular_end = syncp->cur_circular_end;
     if (consume_iter == cur_circular_end) {
-      char* buf = trsp->base.dst;
+      char* buf = txsp->base.dst;
       consume_iter = buf;
-      trsp->base.consume_iter = buf;
+      txsp->base.consume_iter = buf;
       cur_circular_end = nullptr;
       syncp->cur_circular_end = nullptr;
       if (consume_iter != available_end) {
@@ -1418,15 +1418,15 @@ PglErr TextAdvance(TextRstream* trsp) {
       }
     }
     if (syncp->dst_reallocated) {
-      consume_iter = trsp->base.dst;
+      consume_iter = txsp->base.dst;
       syncp->dst_reallocated = 0;
     }
     syncp->consume_tail = consume_iter;
     if ((consume_iter != available_end) || cur_circular_end) {
       if (cur_circular_end) {
-        trsp->base.consume_stop = cur_circular_end;
+        txsp->base.consume_stop = cur_circular_end;
       } else {
-        trsp->base.consume_stop = available_end;
+        txsp->base.consume_stop = available_end;
       }
       LeaveCriticalSection(critical_sectionp);
       // We could set the consumer_progress event here, but it's not really
@@ -1440,14 +1440,14 @@ PglErr TextAdvance(TextRstream* trsp) {
     if (reterr != kPglRetSuccess) {
       // ...and we're at eof.  Don't set consumer_progress event here; let that
       // wait until cleanup or rewind/retarget.
-      trsp->base.reterr = kPglRetEof;
+      txsp->base.reterr = kPglRetEof;
       return kPglRetEof;
     }
     // ...and there's probably more.
     WaitForSingleObject(syncp->reader_progress_event, INFINITE);
     // bugfix (2 Oct 2018)
     consume_iter = syncp->consume_tail;
-    trsp->base.consume_iter = consume_iter;
+    txsp->base.consume_iter = consume_iter;
   }
 #else
   pthread_mutex_t* sync_mutexp = &syncp->sync_mutex;
@@ -1457,9 +1457,9 @@ PglErr TextAdvance(TextRstream* trsp) {
   while (1) {
     const PglErr reterr = syncp->reterr;
     if (unlikely((reterr != kPglRetSuccess) && (reterr != kPglRetEof))) {
-      trsp->base.errmsg = syncp->errmsg;
+      txsp->base.errmsg = syncp->errmsg;
       pthread_mutex_unlock(sync_mutexp);
-      trsp->base.reterr = reterr;
+      txsp->base.reterr = reterr;
       return reterr;
     }
     char* available_end = syncp->available_end;
@@ -1467,9 +1467,9 @@ PglErr TextAdvance(TextRstream* trsp) {
     // cur_circular_end cases.
     // printf("checking for more to consume: %lx %lx %lx\n", (uintptr_t)consume_iter, (uintptr_t)syncp->cur_circular_end, (uintptr_t)available_end);
     if (consume_iter == syncp->cur_circular_end) {
-      char* buf = trsp->base.dst;
+      char* buf = txsp->base.dst;
       consume_iter = buf;
-      trsp->base.consume_iter = buf;
+      txsp->base.consume_iter = buf;
       syncp->cur_circular_end = nullptr;
       // File-reader could be waiting on either "all bytes in front have been
       // consumed, some bytes behind may remain" or "all bytes have been
@@ -1480,7 +1480,7 @@ PglErr TextAdvance(TextRstream* trsp) {
       }
     }
     if (syncp->dst_reallocated) {
-      consume_iter = trsp->base.dst;
+      consume_iter = txsp->base.dst;
       syncp->dst_reallocated = 0;
     }
     syncp->consume_tail = consume_iter;
@@ -1489,9 +1489,9 @@ PglErr TextAdvance(TextRstream* trsp) {
     // still possible?  Check this.)
     if ((consume_iter != available_end) || syncp->cur_circular_end) {
       if (syncp->cur_circular_end) {
-        trsp->base.consume_stop = syncp->cur_circular_end;
+        txsp->base.consume_stop = syncp->cur_circular_end;
       } else {
-        trsp->base.consume_stop = available_end;
+        txsp->base.consume_stop = available_end;
       }
       // pthread_cond_signal(consumer_progress_condvarp);
       pthread_mutex_unlock(sync_mutexp);
@@ -1502,7 +1502,7 @@ PglErr TextAdvance(TextRstream* trsp) {
     if (reterr != kPglRetSuccess) {
       // ...and we're at eof.
       pthread_mutex_unlock(sync_mutexp);
-      trsp->base.reterr = kPglRetEof;
+      txsp->base.reterr = kPglRetEof;
       return kPglRetEof;
     }
     // ...and there's probably more.
@@ -1514,24 +1514,24 @@ PglErr TextAdvance(TextRstream* trsp) {
     pthread_cond_wait(reader_progress_condvarp, sync_mutexp);
     // bugfix (2 Oct 2018)
     consume_iter = syncp->consume_tail;
-    trsp->base.consume_iter = syncp->consume_tail;
+    txsp->base.consume_iter = syncp->consume_tail;
   }
 #endif
 }
 
-PglErr TextNextNonemptyLineLstrip(TextRstream* trsp, uintptr_t* line_idx_ptr, char** line_startp) {
+PglErr TextNextNonemptyLineLstrip(TextStream* txsp, uintptr_t* line_idx_ptr, char** line_startp) {
   uintptr_t line_idx = *line_idx_ptr;
   while (1) {
     ++line_idx;
-    if (trsp->base.consume_iter == trsp->base.consume_stop) {
-      PglErr reterr = TextAdvance(trsp);
+    if (txsp->base.consume_iter == txsp->base.consume_stop) {
+      PglErr reterr = TextAdvance(txsp);
       // not unlikely() due to eof
       if (reterr) {
         return reterr;
       }
     }
-    char* line_start = FirstNonTspace(trsp->base.consume_iter);
-    trsp->base.consume_iter = AdvPastDelim(line_start, '\n');
+    char* line_start = FirstNonTspace(txsp->base.consume_iter);
+    txsp->base.consume_iter = AdvPastDelim(line_start, '\n');
     if (!IsEolnKns(*line_start)) {
       *line_idx_ptr = line_idx;
       *line_startp = line_start;
@@ -1540,15 +1540,15 @@ PglErr TextNextNonemptyLineLstrip(TextRstream* trsp, uintptr_t* line_idx_ptr, ch
   }
 }
 
-PglErr TextSkipNz(uintptr_t skip_ct, TextRstream* trsp) {
+PglErr TextSkipNz(uintptr_t skip_ct, TextStream* txsp) {
 #ifdef __LP64__
-  char* consume_iter = trsp->base.consume_iter;
+  char* consume_iter = txsp->base.consume_iter;
   // Minor extension of AdvToNthDelimChecked().
   const VecUc vvec_all_lf = vecuc_set1('\n');
   while (1) {
     uintptr_t starting_addr = R_CAST(uintptr_t, consume_iter);
     VecUc* consume_viter = R_CAST(VecUc*, RoundDownPow2(starting_addr, kBytesPerVec));
-    uintptr_t ending_addr = R_CAST(uintptr_t, trsp->base.consume_stop);
+    uintptr_t ending_addr = R_CAST(uintptr_t, txsp->base.consume_stop);
     VecUc* consume_vstop = R_CAST(VecUc*, RoundDownPow2(ending_addr, kBytesPerVec));
     VecUc cur_vvec = *consume_viter;
     VecUc lf_vvec = (cur_vvec == vvec_all_lf);
@@ -1576,51 +1576,51 @@ PglErr TextSkipNz(uintptr_t skip_ct, TextRstream* trsp) {
       lf_bytes = ClearBottomSetBits(skip_ct - 1, lf_bytes);
       const uint32_t byte_offset_in_vec = ctzu32(lf_bytes) + 1;
       const uintptr_t result_addr = R_CAST(uintptr_t, consume_viter) + byte_offset_in_vec;
-      trsp->base.consume_iter = R_CAST(char*, result_addr);
+      txsp->base.consume_iter = R_CAST(char*, result_addr);
       return kPglRetSuccess;
     }
     skip_ct -= cur_lf_ct;
-    trsp->base.consume_iter = consume_iter;
-    PglErr reterr = TextAdvance(trsp);
+    txsp->base.consume_iter = consume_iter;
+    PglErr reterr = TextAdvance(txsp);
     // not unlikely() due to eof
     if (reterr) {
       return reterr;
     }
-    consume_iter = trsp->base.consume_iter;
+    consume_iter = txsp->base.consume_iter;
   }
 #else
-  char* consume_iter = trsp->base.consume_iter;
-  char* consume_stop = trsp->base.consume_stop;
+  char* consume_iter = txsp->base.consume_iter;
+  char* consume_stop = txsp->base.consume_stop;
   for (uintptr_t ulii = 0; ulii != skip_ct; ++ulii) {
     if (consume_iter == consume_stop) {
-      trsp->base.consume_iter = consume_iter;
-      PglErr reterr = TextAdvance(trsp);
+      txsp->base.consume_iter = consume_iter;
+      PglErr reterr = TextAdvance(txsp);
       if (reterr) {
         return reterr;
       }
-      consume_iter = trsp->base.consume_iter;
-      consume_stop = trsp->base.consume_stop;
+      consume_iter = txsp->base.consume_iter;
+      consume_stop = txsp->base.consume_stop;
     }
     consume_iter = AdvPastDelim(consume_iter, '\n');
   }
-  trsp->base.consume_iter = consume_iter;
+  txsp->base.consume_iter = consume_iter;
   return kPglRetSuccess;
 #endif
 }
 
-PglErr TextNextNonemptyLineLstripUnsafe(TextRstream* trsp, uintptr_t* line_idx_ptr, char** line_iterp) {
+PglErr TextNextNonemptyLineLstripUnsafe(TextStream* txsp, uintptr_t* line_idx_ptr, char** line_iterp) {
   char* line_iter = *line_iterp;
   uintptr_t line_idx = *line_idx_ptr;
   while (1) {
     ++line_idx;
-    if (line_iter == trsp->base.consume_stop) {
-      trsp->base.consume_iter = line_iter;
-      PglErr reterr = TextAdvance(trsp);
+    if (line_iter == txsp->base.consume_stop) {
+      txsp->base.consume_iter = line_iter;
+      PglErr reterr = TextAdvance(txsp);
       // not unlikely() due to eof
       if (reterr) {
         return reterr;
       }
-      line_iter = trsp->base.consume_iter;
+      line_iter = txsp->base.consume_iter;
     }
     line_iter = FirstNonTspace(line_iter);
     if (!IsEolnKns(*line_iter)) {
@@ -1632,30 +1632,31 @@ PglErr TextNextNonemptyLineLstripUnsafe(TextRstream* trsp, uintptr_t* line_idx_p
   }
 }
 
-PglErr TextRetarget(const char* new_fname, TextRstream* trsp) {
-  TextRstreamSync* syncp = trsp->syncp;
+PglErr TextRetarget(const char* new_fname, TextStream* txsp) {
+  TextStreamSync* syncp = txsp->syncp;
 #ifdef _WIN32
   CRITICAL_SECTION* critical_sectionp = &syncp->critical_section;
   EnterCriticalSection(critical_sectionp);
   const PglErr reterr = syncp->reterr;
   if (reterr != kPglRetSuccess) {
     if (unlikely(reterr != kPglRetEof)) {
-      trsp->base.errmsg = syncp->errmsg;
+      txsp->base.errmsg = syncp->errmsg;
       LeaveCriticalSection(critical_sectionp);
-      trsp->base.reterr = reterr;
+      txsp->base.reterr = reterr;
       return reterr;
     }
     // clear eof
     syncp->reterr = kPglRetSuccess;
   }
+  txsp->base.reterr = kPglRetSuccess;
   // bugfix (5 Mar 2018): need to reset these here, can't wait for reader
   // thread to receive signal
-  char* buf = trsp->base.dst;
+  char* buf = txsp->base.dst;
   syncp->consume_tail = buf;
   syncp->cur_circular_end = nullptr;
   syncp->available_end = buf;
   syncp->dst_reallocated = 0;
-  syncp->interrupt = kTrsInterruptRetarget;
+  syncp->interrupt = kTxsInterruptRetarget;
   // Could also just open the file in this function (before acquiring the
   // mutex) and pass a gzFile.  Advantages: nothing bad happens if new_fname
   // is overwritten before it's read, RLstreamErrPrint() no longer has to deal
@@ -1673,38 +1674,40 @@ PglErr TextRetarget(const char* new_fname, TextRstream* trsp) {
   const PglErr reterr = syncp->reterr;
   if (reterr != kPglRetSuccess) {
     if (unlikely(reterr != kPglRetEof)) {
-      trsp->base.errmsg = syncp->errmsg;
+      txsp->base.errmsg = syncp->errmsg;
       pthread_mutex_unlock(sync_mutexp);
-      trsp->base.reterr = reterr;
+      txsp->base.reterr = reterr;
       return reterr;
     }
     // clear eof
     syncp->reterr = kPglRetSuccess;
   }
-  char* buf = trsp->base.dst;
+  // bugfix (4 Oct 2019): also need to clear eof here
+  txsp->base.reterr = kPglRetSuccess;
+  char* buf = txsp->base.dst;
   syncp->consume_tail = buf;
   syncp->cur_circular_end = nullptr;
   syncp->available_end = buf;
   syncp->dst_reallocated = 0;
-  syncp->interrupt = kTrsInterruptRetarget;
+  syncp->interrupt = kTxsInterruptRetarget;
   syncp->new_fname = new_fname;
   syncp->consumer_progress_state = 1;
   pthread_cond_signal(consumer_progress_condvarp);
   pthread_mutex_unlock(sync_mutexp);
 #endif
-  trsp->base.consume_iter = buf;
-  trsp->base.consume_stop = buf;
+  txsp->base.consume_iter = buf;
+  txsp->base.consume_stop = buf;
   return kPglRetSuccess;
 }
 
-BoolErr CleanupTextRstream(TextRstream* trsp, PglErr* reterrp) {
-  TextRstreamSync* syncp = trsp->syncp;
+BoolErr CleanupTextStream(TextStream* txsp, PglErr* reterrp) {
+  TextStreamSync* syncp = txsp->syncp;
   if (syncp) {
 #ifdef _WIN32
     if (syncp->read_thread) {
       CRITICAL_SECTION* critical_sectionp = &syncp->critical_section;
       EnterCriticalSection(critical_sectionp);
-      syncp->interrupt = kTrsInterruptShutdown;
+      syncp->interrupt = kTxsInterruptShutdown;
       SetEvent(syncp->consumer_progress_event);
       LeaveCriticalSection(critical_sectionp);
       WaitForSingleObject(syncp->read_thread, INFINITE);
@@ -1719,7 +1722,7 @@ BoolErr CleanupTextRstream(TextRstream* trsp, PglErr* reterrp) {
       pthread_cond_t* consumer_progress_condvarp = &syncp->consumer_progress_condvar;
       if (sync_init_state == 4) {
         pthread_mutex_lock(sync_mutexp);
-        syncp->interrupt = kTrsInterruptShutdown;
+        syncp->interrupt = kTxsInterruptShutdown;
         syncp->consumer_progress_state = 1;
         pthread_cond_signal(consumer_progress_condvarp);
         pthread_mutex_unlock(sync_mutexp);
@@ -1734,48 +1737,48 @@ BoolErr CleanupTextRstream(TextRstream* trsp, PglErr* reterrp) {
       }
     }
 #endif
-    aligned_free(trsp->syncp);
-    trsp->syncp = nullptr;
+    aligned_free(txsp->syncp);
+    txsp->syncp = nullptr;
   }
-  trsp->base.consume_iter = nullptr;
-  trsp->base.consume_stop = nullptr;
-  trsp->base.reterr = kPglRetEof;
-  trsp->base.errmsg = nullptr;
-  if (trsp->base.dst && (!trsp->base.dst_owned_by_consumer)) {
-    free(trsp->base.dst);
-    trsp->base.dst = nullptr;
+  txsp->base.consume_iter = nullptr;
+  txsp->base.consume_stop = nullptr;
+  txsp->base.reterr = kPglRetEof;
+  txsp->base.errmsg = nullptr;
+  if (txsp->base.dst && (!txsp->base.dst_owned_by_consumer)) {
+    free(txsp->base.dst);
+    txsp->base.dst = nullptr;
   }
-  if (trsp->base.ff) {
-    if (trsp->base.file_type != kFileUncompressed) {
-      if (trsp->base.file_type == kFileZstd) {
-        if (trsp->rds.zst.ib.src) {
-          free_const(trsp->rds.zst.ib.src);
-          trsp->rds.zst.ib.src = nullptr;
+  if (txsp->base.ff) {
+    if (txsp->base.file_type != kFileUncompressed) {
+      if (txsp->base.file_type == kFileZstd) {
+        if (txsp->rds.zst.ib.src) {
+          free_const(txsp->rds.zst.ib.src);
+          txsp->rds.zst.ib.src = nullptr;
         }
-        if (trsp->rds.zst.ds) {
-          ZSTD_freeDStream(trsp->rds.zst.ds);
-          trsp->rds.zst.ds = nullptr;
+        if (txsp->rds.zst.ds) {
+          ZSTD_freeDStream(txsp->rds.zst.ds);
+          txsp->rds.zst.ds = nullptr;
         }
-      } else if (trsp->base.file_type == kFileBgzf) {
-        CleanupBgzfRawMtStream(&trsp->rds.bgzf);
+      } else if (txsp->base.file_type == kFileBgzf) {
+        CleanupBgzfRawMtStream(&txsp->rds.bgzf);
       } else {
         // plain gzip
-        if (trsp->rds.gz.in) {
-          free(trsp->rds.gz.in);
-          trsp->rds.gz.in = nullptr;
+        if (txsp->rds.gz.in) {
+          free(txsp->rds.gz.in);
+          txsp->rds.gz.in = nullptr;
         }
-        if (trsp->rds.gz.ds_initialized) {
-          inflateEnd(&trsp->rds.gz.ds);
+        if (txsp->rds.gz.ds_initialized) {
+          inflateEnd(&txsp->rds.gz.ds);
         }
       }
-      trsp->base.file_type = kFileUncompressed;
+      txsp->base.file_type = kFileUncompressed;
     }
-    if (unlikely(fclose_null(&trsp->base.ff))) {
+    if (unlikely(fclose_null(&txsp->base.ff))) {
       if (!reterrp) {
         return 1;
       }
       if (*reterrp == kPglRetSuccess) {
-        // Note that we don't set trsp->base.reterr or .errmsg here.
+        // Note that we don't set txsp->base.reterr or .errmsg here.
         *reterrp = kPglRetReadFail;
         return 1;
       }

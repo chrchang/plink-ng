@@ -100,19 +100,19 @@ namespace plink2 {
 #ifdef _WIN32
 // if kMaxThreads > 64, single WaitForMultipleObjects calls must be converted
 // into loops
-CONSTI32(kMaxThreads, 64);
+CONSTI32(kMaxThreadsOld, 64);
 #else
 // currently assumed to be less than 2^16 (otherwise some multiply overflows
 // are theoretically possible, at least in the 32-bit build)
-CONSTI32(kMaxThreads, 512);
+CONSTI32(kMaxThreadsOld, 512);
 #endif
 
 #ifdef __APPLE__
 // cblas_dgemm may fail with 128k
-CONSTI32(kDefaultThreadStack, 524288);
+CONSTI32(kDefaultThreadStackOld, 524288);
 #else
 // asserts didn't seem to work properly with a setting much smaller than this
-CONSTI32(kDefaultThreadStack, 131072);
+CONSTI32(kDefaultThreadStackOld, 131072);
 #endif
 
 CONSTI32(kLogbufSize, 2 * kMaxMediumLine);
@@ -1584,13 +1584,13 @@ uint32_t CubicRealRoots(double coef_a, double coef_b, double coef_c, STD_ARRAY_R
 // For pure computations, where the launcher thread joins in as thread 0.
 // threads[] is second rather than first parameter since, on Windows, we may
 // need to call CloseHandle.
-void JoinThreads(uint32_t ctp1, pthread_t* threads);
+void JoinThreadsOld(uint32_t ctp1, pthread_t* threads);
 
 #ifndef _WIN32
 extern pthread_attr_t g_smallstack_thread_attr;
 #endif
 
-BoolErr SpawnThreads(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthread_t* threads);
+BoolErr SpawnThreadsOld(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthread_t* threads);
 
 
 // For double-buffering workloads where we don't want to respawn/join the
@@ -1599,7 +1599,9 @@ BoolErr SpawnThreads(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthread_t* t
 // threads start with index 0 instead of 1.)
 //
 // ...actually, the 2z interface is being retired due to the messy
-// error-cleanup interface.  Use 3z instead.
+// error-cleanup interface.  Use 3z instead...
+// ...that's being thrown out too, in favor of plink2_thread, which is much
+// more usable in other programs.
 extern uintptr_t g_thread_spawn_ct;
 extern uint32_t g_is_last_thread_block;
 
@@ -1607,12 +1609,12 @@ extern uint32_t g_is_last_thread_block;
 extern HANDLE g_thread_start_next_event[];
 extern HANDLE g_thread_cur_block_done_events[];
 
-HEADER_INLINE void THREAD_BLOCK_FINISH(uintptr_t tidx) {
+HEADER_INLINE void THREAD_BLOCK_FINISH_OLD(uintptr_t tidx) {
   SetEvent(g_thread_cur_block_done_events[tidx]);
   WaitForSingleObject(g_thread_start_next_event[tidx], INFINITE);
 }
 #else
-void THREAD_BLOCK_FINISH(uintptr_t tidx);
+void THREAD_BLOCK_FINISH_OLD(uintptr_t tidx);
 #endif
 
 void JoinThreads2z(uint32_t ct, uint32_t is_last_block, pthread_t* threads);

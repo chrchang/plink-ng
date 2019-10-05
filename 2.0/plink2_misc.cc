@@ -1725,7 +1725,7 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
     // belongs in its own function.)
     char* linebuf_first_token;
     XidMode xid_mode;
-    reterr = LoadXidHeader("update-sex", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, &line_iter, &line_idx, &linebuf_first_token, &rls, &xid_mode);
+    reterr = LoadXidHeaderOld("update-sex", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, &line_iter, &line_idx, &linebuf_first_token, &rls, &xid_mode);
     if (unlikely(reterr)) {
       if (reterr == kPglRetEof) {
         logerrputs("Error: Empty --update-sex file.\n");
@@ -4371,11 +4371,11 @@ PglErr ComputeHweXPvals(const uintptr_t* variant_include, const uintptr_t* allel
     logprintf("Computing chrX Hardy-Weinberg %sp-values... ", hwe_midp? "mid" : "");
     fputs("0%", stdout);
     fflush(stdout);
-    if (unlikely(SpawnThreads(ComputeHweXPvalsThread, calc_thread_ct, threads))) {
+    if (unlikely(SpawnThreadsOld(ComputeHweXPvalsThread, calc_thread_ct, threads))) {
       goto ComputeHweXPvals_ret_THREAD_CREATE_FAIL;
     }
     ComputeHweXPvalsThread(S_CAST(void*, 0));
-    JoinThreads(calc_thread_ct, threads);
+    JoinThreadsOld(calc_thread_ct, threads);
     fputs("\b\b", stdout);
     logputs("done.\n");
   }
@@ -5972,7 +5972,7 @@ PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, con
       if (unlikely(reterr)) {
         goto Sdiff_ret_1;
       }
-      reterr = LoadXidHeaderPair("sample-diff", iid_sid, &line_iter, &line_idx, &linebuf_first_token, &rls, &xid_mode);
+      reterr = LoadXidHeaderPairOld("sample-diff", iid_sid, &line_iter, &line_idx, &linebuf_first_token, &rls, &xid_mode);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
           logerrputs("Error: Empty --sample-diff file.\n");

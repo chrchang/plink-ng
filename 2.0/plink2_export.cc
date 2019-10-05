@@ -43,8 +43,8 @@ PglErr ExportAlleleLoad(const char* fname, const uintptr_t* variant_include, con
   // "Permanent" allocations occur on high end of bigstack.
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
-  TextRstream trs;
-  PreinitTextRstream(&trs);
+  TextStream txs;
+  PreinitTextStream(&txs);
   {
     uintptr_t* already_seen;
     if (unlikely(bigstack_calloc_w(BitCtToWordCt(raw_variant_ct), &already_seen))) {
@@ -57,9 +57,9 @@ PglErr ExportAlleleLoad(const char* fname, const uintptr_t* variant_include, con
     if (StandardizeMaxLineBlenEx(MAXV(bigstack_left() / 8, linebuf_min), linebuf_min, &max_line_blen)) {
       goto ExportAlleleLoad_ret_NOMEM;
     }
-    reterr = InitTextRstream(fname, max_line_blen, MAXV(max_thread_ct - 1, 1), &trs);
+    reterr = InitTextStream(fname, max_line_blen, MAXV(max_thread_ct - 1, 1), &txs);
     if (unlikely(reterr)) {
-      goto ExportAlleleLoad_ret_RSTREAM_FAIL;
+      goto ExportAlleleLoad_ret_TSTREAM_FAIL;
     }
 
     // use minimum instead of fast hash table size, since allele_missing could
@@ -88,13 +88,13 @@ PglErr ExportAlleleLoad(const char* fname, const uintptr_t* variant_include, con
     while (1) {
       ++line_idx;
       char* line_start;
-      reterr = TextNextLine(&trs, &line_start);
+      reterr = TextNextLine(&txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
           break;
         }
-        goto ExportAlleleLoad_ret_RSTREAM_FAIL;
+        goto ExportAlleleLoad_ret_TSTREAM_FAIL;
       }
       if (IsEolnKns(*line_start)) {
         continue;
@@ -194,8 +194,8 @@ PglErr ExportAlleleLoad(const char* fname, const uintptr_t* variant_include, con
     BigstackEndSet(tmp_alloc_end);
   }
   while (0) {
- ExportAlleleLoad_ret_RSTREAM_FAIL:
-    TextRstreamErrPrint("--export-allele file", &trs);
+ ExportAlleleLoad_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--export-allele file", &txs);
     break;
  ExportAlleleLoad_ret_NOMEM:
     reterr = kPglRetNomem;
@@ -210,7 +210,7 @@ PglErr ExportAlleleLoad(const char* fname, const uintptr_t* variant_include, con
     break;
   }
  ExportAlleleLoad_ret_1:
-  CleanupTextRstream2("--export-allele file", &trs, &reterr);
+  CleanupTextStream2("--export-allele file", &txs, &reterr);
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -557,7 +557,7 @@ THREAD_FUNC_DECL TransposeToSmajReadThread(void* arg) {
       THREAD_RETURN;
     }
     prev_copy_ct += cur_block_copy_ct;
-    THREAD_BLOCK_FINISH(tidx);
+    THREAD_BLOCK_FINISH_OLD(tidx);
   }
 }
 
@@ -622,7 +622,7 @@ THREAD_FUNC_DECL TransposeToPlink1SmajWriteThread(void* arg) {
     if (is_last_block) {
       THREAD_RETURN;
     }
-    THREAD_BLOCK_FINISH(tidx);
+    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
     sample_widx += sample_batch_size / kBitsPerWordD2;
   }
@@ -1776,7 +1776,7 @@ THREAD_FUNC_DECL ExportBgen11Thread(void* arg) {
       VcountIncr8To32(missing_acc8, acc8_vec_ct, missing_acc32);
       THREAD_RETURN;
     }
-    THREAD_BLOCK_FINISH(tidx);
+    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
   }
 }
@@ -3217,7 +3217,7 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* arg) {
       VcountIncr8To32(missing_acc8, acc8_vec_ct, missing_acc32);
       THREAD_RETURN;
     }
-    THREAD_BLOCK_FINISH(tidx);
+    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
   }
 }
@@ -4171,8 +4171,8 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
   FILE* outfile = nullptr;
   BGZF* bgz_outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
-  TextRstream pvar_reload_trs;
-  PreinitTextRstream(&pvar_reload_trs);
+  TextStream pvar_reload_txs;
+  PreinitTextStream(&pvar_reload_txs);
   {
     if (!(exportf_flags & kfExportfBgz)) {
       snprintf(outname_end, kMaxOutfnameExtBlen, ".vcf");
@@ -4539,9 +4539,9 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     char* pvar_reload_line_iter = nullptr;
     uint32_t info_col_idx = 0;
     if (pvar_info_reload) {
-      reterr = PvarInfoOpenAndReloadHeader(pvar_info_reload, 1 + (max_thread_ct > 1), &pvar_reload_trs, &pvar_reload_line_iter, &info_col_idx);
+      reterr = PvarInfoOpenAndReloadHeader(pvar_info_reload, 1 + (max_thread_ct > 1), &pvar_reload_txs, &pvar_reload_line_iter, &info_col_idx);
       if (unlikely(reterr)) {
-        goto ExportVcf_ret_RSTREAM_FAIL;
+        goto ExportVcf_ret_TSTREAM_REWIND_FAIL;
       }
     }
 
@@ -4720,8 +4720,9 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       *write_iter++ = '\t';
       const uint32_t is_pr = all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx));
       if (pvar_reload_line_iter) {
-        if (unlikely(PvarInfoReloadAndWrite(info_pr_flag_present, info_col_idx, variant_uidx, is_pr, &pvar_reload_trs, &pvar_reload_line_iter, &write_iter, &rls_variant_uidx))) {
-          goto ExportVcf_ret_REWIND_FAIL;
+        reterr = PvarInfoReloadAndWrite(info_pr_flag_present, info_col_idx, variant_uidx, is_pr, &pvar_reload_txs, &pvar_reload_line_iter, &write_iter, &rls_variant_uidx);
+        if (unlikely(reterr)) {
+          goto ExportVcf_ret_TSTREAM_REWIND_FAIL;
         }
       } else {
         if (is_pr) {
@@ -6041,10 +6042,8 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
   ExportVcf_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  ExportVcf_ret_REWIND_FAIL:
-    reterr = kPglRetRewindFail;
-  ExportVcf_ret_RSTREAM_FAIL:
-    TextRstreamErrPrint(pvar_info_reload, &pvar_reload_trs);
+  ExportVcf_ret_TSTREAM_REWIND_FAIL:
+    TextStreamErrPrintRewind(pvar_info_reload, &pvar_reload_txs, &reterr);
     break;
   ExportVcf_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -6063,7 +6062,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
   }
  ExportVcf_ret_1:
   fclose_cond(outfile);
-  CleanupTextRstreamRewind(pvar_info_reload, &pvar_reload_trs, &reterr);
+  CleanupTextStream2(pvar_info_reload, &pvar_reload_txs, &reterr);
   if (bgz_outfile) {
     bgzf_close(bgz_outfile);
   }
@@ -6208,7 +6207,7 @@ THREAD_FUNC_DECL DosageTransposeThread(void* arg) {
     if (is_last_block) {
       THREAD_RETURN;
     }
-    THREAD_BLOCK_FINISH(tidx);
+    THREAD_BLOCK_FINISH_OLD(tidx);
   }
 }
 

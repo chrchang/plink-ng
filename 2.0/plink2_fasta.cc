@@ -463,8 +463,8 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
   uintptr_t line_idx = 0;
   FILE* nlist_file = nullptr;
   PglErr reterr = kPglRetSuccess;
-  TextRstream fa_trs;
-  PreinitTextRstream(&fa_trs);
+  TextStream fa_txs;
+  PreinitTextStream(&fa_txs);
   {
     const uint32_t chr_ct = cip->chr_ct;
     char* chr_name_buf;
@@ -517,9 +517,9 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
     // first base, correctly.
     seqbuf[0] = 'N';
 
-    reterr = SizeAndInitTextRstream(fname, bigstack_left(), MAXV(max_thread_ct - 1, 1), &fa_trs);
+    reterr = SizeAndInitTextStream(fname, bigstack_left(), MAXV(max_thread_ct - 1, 1), &fa_txs);
     if (unlikely(reterr)) {
-      goto ProcessFa_ret_RSTREAM_FAIL;
+      goto ProcessFa_ret_TSTREAM_FAIL;
     }
 
     unsigned char* tmp_alloc_end = g_bigstack_end;
@@ -537,13 +537,13 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
     while (1) {
       ++line_idx;
       char* line_iter;
-      reterr = TextNextLine(&fa_trs, &line_iter);
+      reterr = TextNextLine(&fa_txs, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
           break;
         }
-        goto ProcessFa_ret_RSTREAM_FAIL;
+        goto ProcessFa_ret_TSTREAM_FAIL;
       }
       unsigned char ucc = line_iter[0];
       if (ucc < 'A') {
@@ -680,8 +680,8 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
   ProcessFa_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  ProcessFa_ret_RSTREAM_FAIL:
-    TextRstreamErrPrint("--ref-from-fa file", &fa_trs);
+  ProcessFa_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--ref-from-fa file", &fa_txs);
     break;
   ProcessFa_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -696,7 +696,7 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
   }
  ProcessFa_ret_1:
   fclose_cond(nlist_file);
-  CleanupTextRstream2("--ref-from-fa file", &fa_trs, &reterr);
+  CleanupTextStream2("--ref-from-fa file", &fa_txs, &reterr);
   BigstackReset(bigstack_mark);
   return reterr;
 }
