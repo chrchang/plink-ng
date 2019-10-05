@@ -94,9 +94,9 @@ extern "C" {
 #endif
 
 #ifdef _WIN32
-#  define NULL_STREAM "nul"
+#  define NULL_STREAM_NAME "nul"
 #else
-#  define NULL_STREAM "/dev/null"
+#  define NULL_STREAM_NAME "/dev/null"
 #endif
 
 #ifdef __cplusplus

@@ -3605,7 +3605,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
       goto CmdlineParsePhase1_ret_1;
     }
     if (silent_present) {
-      if (unlikely(!freopen(NULL_STREAM, "w", stdout))) {
+      if (unlikely(!freopen(NULL_STREAM_NAME, "w", stdout))) {
         fputs("Warning: --silent failed.", stderr);
         g_stderr_written_to = 1;
       }
