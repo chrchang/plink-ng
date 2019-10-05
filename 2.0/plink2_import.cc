@@ -9357,7 +9357,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
         goto Plink1DosageToPgen_ret_NOMEM;
       }
 #else
-      } if (unlikely(dst_capacity < kDecompressMinCapacity)) {
+      if (unlikely(dst_capacity < kDecompressMinCapacity)) {
         goto Plink1DosageToPgen_ret_NOMEM;
       }
 #endif
