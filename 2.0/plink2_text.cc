@@ -401,12 +401,12 @@ PglErr TextFileAdvance(textFILE* txfp) {
   }
   PglErr reterr = kPglRetSuccess;
   {
-    char* orig_line_start = txfp->base.consume_stop;
-    assert(txfp->base.consume_iter == orig_line_start);
+    char* line_start = txfp->base.consume_stop;
+    assert(txfp->base.consume_iter == line_start);
     char* dst = txfp->base.dst;
     char* dst_load_start;
     while (1) {
-      const uint32_t dst_offset = orig_line_start - dst;
+      const uint32_t dst_offset = line_start - dst;
       const uint32_t dst_rem = txfp->base.dst_len - dst_offset;
       // (dst_rem guaranteed to be < txfp->base.enforced_max_line_blen here,
       // since otherwise we error out earlier.)
@@ -415,7 +415,9 @@ PglErr TextFileAdvance(textFILE* txfp) {
       //    buffer.
       // 2. Resize the buffer/report out-of-memory.
       if (dst_rem < txfp->base.dst_capacity - kDecompressChunkSize) {
-        memmove(dst, orig_line_start, dst_rem);
+        if (dst_offset) {
+          memmove(dst, line_start, dst_rem);
+        }
       } else {
         if (unlikely(txfp->base.dst_owned_by_consumer)) {
           goto TextFileAdvance_ret_NOMEM;
@@ -440,20 +442,31 @@ PglErr TextFileAdvance(textFILE* txfp) {
           if (unlikely(!dst_next)) {
             goto TextFileAdvance_ret_NOMEM;
           }
-          memcpy(dst_next, orig_line_start, dst_rem);
+          memcpy(dst_next, line_start, dst_rem);
         }
         txfp->base.dst = dst_next;
         dst = dst_next;
       }
+      line_start = dst;
       dst_load_start = &(dst[dst_rem]);
       FILE* ff = txfp->base.ff;
       char* dst_iter = dst_load_start;
-      char* dst_end = &(dst[txfp->base.dst_capacity]);
+      // We don't want to always fill the entire buffer here.  The main plink2
+      // use case of textFILE is to just peek at an unknown-length header line
+      // with a maximal-length line-load buffer, compute a
+      // legitimate-line-length bound, and then (move-)construct a TextStream
+      // with the shorter buffer size.
+      // Instead, we load up to the smallest power of 2 >= (dst_rem + 1 MiB).
+      uintptr_t stop_offset = (2 * k1LU) << bsru32(dst_rem + kDecompressChunkSize - 1);
+      if (stop_offset > txfp->base.dst_capacity) {
+        stop_offset = txfp->base.dst_capacity;
+      }
+      char* dst_stop = &(dst[stop_offset]);
       txfp->base.consume_iter = dst;
       switch (txfp->base.file_type) {
       case kFileUncompressed:
         {
-          uint32_t rlen = dst_end - dst_iter;
+          uint32_t rlen = dst_stop - dst_iter;
           if (rlen > kMaxBytesPerIO) {
             // We need to know how many bytes were read, so fread_checked()
             // doesn't work.
@@ -479,7 +492,7 @@ PglErr TextFileAdvance(textFILE* txfp) {
         }
       case kFileGzip:
         {
-          reterr = GzRawStreamRead(dst_end, ff, &txfp->rds.gz, &dst_iter, &txfp->base.errmsg);
+          reterr = GzRawStreamRead(dst_stop, ff, &txfp->rds.gz, &dst_iter, &txfp->base.errmsg);
           if (unlikely(reterr)) {
             goto TextFileAdvance_ret_1;
           }
@@ -518,7 +531,7 @@ PglErr TextFileAdvance(textFILE* txfp) {
                 if (unlikely(out_size > 65536)) {
                   goto TextFileAdvance_ret_INVALID_BGZF;
                 }
-                if (out_size > S_CAST(uintptr_t, dst_end - dst_iter)) {
+                if (out_size > S_CAST(uintptr_t, dst_stop - dst_iter)) {
                   break;
                 }
                 if (unlikely(libdeflate_deflate_decompress(ldc, &(in_iter[18]), in_size, dst_iter, out_size, nullptr))) {
@@ -547,12 +560,12 @@ PglErr TextFileAdvance(textFILE* txfp) {
             }
           }
           txfp->rds.bgzf.in_pos = in_iter - in;
-          dst_end = dst_iter;
+          dst_stop = dst_iter;
           break;
         }
       case kFileZstd:
         {
-          reterr = ZstRawStreamRead(dst_end, ff, &txfp->rds.zst, &dst_iter, &txfp->base.errmsg);
+          reterr = ZstRawStreamRead(dst_stop, ff, &txfp->rds.zst, &dst_iter, &txfp->base.errmsg);
           if (unlikely(reterr)) {
             goto TextFileAdvance_ret_1;
           }
@@ -563,7 +576,7 @@ PglErr TextFileAdvance(textFILE* txfp) {
       if (!txfp->base.dst_len) {
         goto TextFileAdvance_ret_EOF;
       }
-      if (dst_iter != dst_end) {
+      if (dst_iter != dst_stop) {
         // If last character of file isn't a newline, append one to simplify
         // downstream code.
         if (dst_iter[-1] != '\n') {
@@ -579,7 +592,8 @@ PglErr TextFileAdvance(textFILE* txfp) {
         break;
       }
       // Buffer is full, and no '\n' is present.  Restart the loop and try to
-      // extend the buffer, if we aren't already at/past the line-length limit.
+      // load more data (extending the buffer if necessary), if we aren't
+      // already at/past the line-length limit.
       if (txfp->base.dst_len >= txfp->base.enforced_max_line_blen) {
         goto TextFileAdvance_ret_LONG_LINE;
       }

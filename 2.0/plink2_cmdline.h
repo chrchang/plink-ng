@@ -93,6 +93,12 @@ extern "C" {
 #  define THREAD_RETURN return nullptr
 #endif
 
+#ifdef _WIN32
+#  define NULL_STREAM "nul"
+#else
+#  define NULL_STREAM "/dev/null"
+#endif
+
 #ifdef __cplusplus
 namespace plink2 {
 #endif
