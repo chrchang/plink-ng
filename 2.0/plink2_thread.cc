@@ -78,7 +78,7 @@ BoolErr SetThreadCt(uint32_t thread_ct, ThreadGroup* tgp) {
   // !is_active currently guarantees that the sync mutex/condvars are not
   // initialized.  Could change this later.
   tgp->shared.cb.active_ct = 0;
-  tgp->sync_init_bits = 0;
+  tgp->sync_init_state = 0;
   memptr = &(memptr[thread_ct * sizeof(pthread_t)]);
 #endif
   tgp->thread_args = R_CAST(ThreadGroupFuncArg*, memptr);
@@ -121,7 +121,7 @@ void JoinThreadsInternal(uint32_t thread_ct, ThreadGroup* tgp) {
     pthread_cond_destroy(&tgp->shared.cb.cur_block_done_condvar);
     pthread_cond_destroy(&tgp->shared.cb.start_next_condvar);
     tgp->is_active = 0;
-    tgp->sync_init_bits = 0;
+    tgp->sync_init_state = 0;
   }
 #endif
   tgp->is_unjoined = 0;
@@ -187,19 +187,19 @@ BoolErr SpawnThreads(ThreadGroup* tgp) {
   }
   if (!was_active) {
     cbp->spawn_ct = 0;
-    assert(!tgp->sync_init_bits);
+    assert(!tgp->sync_init_state);
     if (unlikely(pthread_mutex_init(&cbp->sync_mutex, nullptr))) {
       return 1;
     }
-    tgp->sync_init_bits = 1;
     if (unlikely(pthread_cond_init(&cbp->cur_block_done_condvar, nullptr))) {
+      tgp->sync_init_state = 1;
       return 1;
     }
-    tgp->sync_init_bits |= 2;
     if (unlikely(pthread_cond_init(&cbp->start_next_condvar, nullptr))) {
+      tgp->sync_init_state = 2;
       return 1;
     }
-    tgp->sync_init_bits |= 4;
+    tgp->sync_init_state = 3;
 #  ifndef __cplusplus
     pthread_attr_t smallstack_thread_attr;
     if (unlikely(pthread_attr_init(&smallstack_thread_attr))) {
@@ -286,16 +286,16 @@ void CleanupThreads(ThreadGroup* tgp) {
         }
       }
 #else
-      const uint32_t sync_init_bits = tgp->sync_init_bits;
-      if (sync_init_bits & 1) {
+      const uint32_t sync_init_state = tgp->sync_init_state;
+      if (sync_init_state) {
         pthread_mutex_destroy(&cbp->sync_mutex);
-        if (sync_init_bits & 2) {
+        if (sync_init_state >= 2) {
           pthread_cond_destroy(&cbp->cur_block_done_condvar);
-          if (sync_init_bits & 4) {
+          if (sync_init_state >= 3) {
             pthread_cond_destroy(&cbp->start_next_condvar);
           }
         }
-        tgp->sync_init_bits = 0;
+        tgp->sync_init_state = 0;
       }
 #endif
     }

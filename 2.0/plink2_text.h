@@ -178,10 +178,10 @@ void PreinitTextFile(textFILE* txfp);
 // kDecompressChunkSize = 1 MiB currently declared in plink2_bgzf.h, may move
 // somewhere closer to the base later.
 CONSTI32(kTextStreamBlenFast, 11 * kDecompressChunkSize);
-CONSTI32(kTokenStreamBlen, 11 * kDecompressChunkSize);
+CONSTI32(kTokenStreamBlen, 12 * kDecompressChunkSize);
 CONSTI32(kMaxTokenBlen, 8 * kDecompressChunkSize);
 static_assert(kMaxTokenBlen >= kDecompressChunkSize, "kMaxTokenBlen too small.");
-static_assert(kMaxTokenBlen <= kTokenStreamBlen, "kMaxTokenBlen can't be larger than kTokenStreamBlen.");
+static_assert(kMaxTokenBlen + kDecompressChunkSize <= kTokenStreamBlen, "kMaxTokenBlen + kDecompressChunkSize can't be larger than kTokenStreamBlen.");
 
 // max_line_blen and enforced_max_line_blen lower bound.
 CONSTI32(kDecompressMinBlen, kDecompressChunkSize);
@@ -468,6 +468,49 @@ HEADER_INLINE PglErr TextStreamErrcode(const TextStream* txsp) {
 // txsp->reterr value; caller is responsible for checking TextStreamErrcode()
 // first when they care.)
 BoolErr CleanupTextStream(TextStream* txsp, PglErr* reterrp);
+
+
+// Low-level token-batch-reading interface, using the extra TextStream mode
+// which cares about token rather than line endings.
+typedef struct TokenStreamStruct {
+  NONCOPYABLE(TokenStreamStruct);
+  TextStream txs;
+} TokenStream;
+
+HEADER_INLINE void PreinitTokenStream(TokenStream* tksp) {
+  PreinitTextStream(&tksp->txs);
+}
+
+// Note that shard_boundaries must have length (piece_ct + 1).
+PglErr TksNext(TokenStream* tksp, uint32_t shard_ct, char** shard_boundaries);
+
+HEADER_INLINE PglErr TokenStreamRetarget(const char* new_fname, TokenStream* tksp) {
+  return TextRetarget(new_fname, &(tksp->txs));
+}
+
+HEADER_INLINE PglErr TokenRewind(TokenStream* tksp) {
+  return TextRetarget(nullptr, &(tksp->txs));
+}
+
+HEADER_INLINE const char* TokenStreamError(const TokenStream* tksp) {
+  return tksp->txs.base.errmsg;
+}
+
+HEADER_INLINE PglErr TokenStreamErrcode(const TokenStream* tksp) {
+  if (tksp->txs.base.reterr == kPglRetEof) {
+    return kPglRetSuccess;
+  }
+  return tksp->txs.base.reterr;
+}
+
+HEADER_INLINE BoolErr CleanupTokenStream(TokenStream* tksp, PglErr* reterrp) {
+  return CleanupTextStream(&(tksp->txs), reterrp);
+}
+
+// Could create a slightly simpler interface for the one-token-at-a-time case,
+// but I won't bother for now since it's kind of good for the relative cost of
+// parallelizing token processing to be low.
+
 
 #ifdef __cplusplus
 }  // namespace plink2

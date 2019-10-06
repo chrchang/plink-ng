@@ -330,16 +330,21 @@ THREAD_FUNC_DECL ExtractExcludeThread(void* arg) {
 PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* fnames, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, VfilterType vft, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   const char* vft_name = g_vft_names[vft];
-  TokenBatchStream tbs;
+  const char* fname_tks = nullptr;
+  TokenStream tks;
   ThreadsState ts;
   PglErr reterr = kPglRetSuccess;
-  PreinitTBstream(&tbs);
+  PreinitTokenStream(&tks);
   InitThreads3z(&ts);
   {
     const uint32_t calc_thread_ct_m1 = ((max_thread_ct > 2)? MINV(max_thread_ct - 1, kMaxExtractExcludeThreads) : max_thread_ct) - 1;
     ts.calc_thread_ct = calc_thread_ct_m1;
     if (!(*variant_ct_ptr)) {
       goto ExtractExcludeFlagNorange_ret_1;
+    }
+    uint32_t decompress_thread_ct = 1;
+    if (max_thread_ct > calc_thread_ct_m1 + 2) {
+      decompress_thread_ct = max_thread_ct - calc_thread_ct_m1 - 1;
     }
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     for (uint32_t tidx = 0; tidx <= calc_thread_ct_m1; ++tidx) {
@@ -362,12 +367,21 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
     const char* fnames_iter = fnames;
     uint32_t is_not_first_block = 0;
     do {
-      reterr = InitTBstreamRaw(fnames_iter, &tbs);
-      if (unlikely(reterr)) {
-        goto ExtractExcludeFlagNorange_ret_1;
+      if (fnames_iter == fnames) {
+        fname_tks = fnames_iter;
+        reterr = InitTokenStream(fnames_iter, decompress_thread_ct, &tks);
+        if (unlikely(reterr)) {
+          goto ExtractExcludeFlagNorange_ret_TKSTREAM_FAIL;
+        }
+      } else {
+        reterr = TokenStreamRetarget(fnames_iter, &tks);
+        if (unlikely(reterr)) {
+          goto ExtractExcludeFlagNorange_ret_TKSTREAM_FAIL;
+        }
+        fname_tks = fnames_iter;
       }
       while (1) {
-        reterr = TbsNext(&tbs, calc_thread_ct_m1 + 1, g_shard_boundaries);
+        reterr = TksNext(&tks, calc_thread_ct_m1 + 1, g_shard_boundaries);
         if (reterr) {
           break;
         }
@@ -383,11 +397,7 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
         }
       }
       if (unlikely(reterr != kPglRetEof)) {
-        goto ExtractExcludeFlagNorange_ret_READ_TBSTREAM;
-      }
-      reterr = CleanupTBstream(&tbs);
-      if (unlikely(reterr)) {
-        goto ExtractExcludeFlagNorange_ret_1;
+        goto ExtractExcludeFlagNorange_ret_TKSTREAM_FAIL;
       }
       if (vft == kVfilterExtractIntersect) {
         for (uint32_t tidx = 1; tidx <= calc_thread_ct_m1; ++tidx) {
@@ -400,6 +410,7 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
       fnames_iter = strnul(fnames_iter);
       ++fnames_iter;
     } while (*fnames_iter);
+    reterr = kPglRetSuccess;
     if (calc_thread_ct_m1) {
       StopThreads3z(&ts, &g_cur_block_size);
     }
@@ -422,19 +433,17 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
   ExtractExcludeFlagNorange_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  ExtractExcludeFlagNorange_ret_READ_TBSTREAM:
-    {
-      char file_descrip_buf[32];
-      snprintf(file_descrip_buf, 32, "--%s file", vft_name);
-      TBstreamErrPrint(file_descrip_buf, &tbs, &reterr);
-    }
+  ExtractExcludeFlagNorange_ret_TKSTREAM_FAIL:
+    TokenStreamErrPrint(fname_tks, &tks);
     break;
   ExtractExcludeFlagNorange_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
   }
  ExtractExcludeFlagNorange_ret_1:
   CleanupThreads3z(&ts, &g_cur_block_size);
-  CleanupTBstream(&tbs);
+  if (fname_tks) {
+    CleanupTokenStream2(fname_tks, &tks, &reterr);
+  }
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -1637,8 +1646,14 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
 
 PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fname, const char* cat_names_flattened, uint32_t raw_sample_ct, uint32_t is_remove, uint32_t max_thread_ct, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  TokenBatchStream tbs;
-  PreinitTBstream(&tbs);
+  char file_descrip[32];
+  if (is_remove) {
+    strcpy_k(file_descrip, "--remove-cats file");
+  } else {
+    strcpy_k(file_descrip, "--keep-cats file");
+  }
+  TokenStream tks;
+  PreinitTokenStream(&tks);
   PglErr reterr = kPglRetSuccess;
   {
     const uint32_t orig_sample_ct = *sample_ct_ptr;
@@ -1665,14 +1680,14 @@ PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fn
     }
     ZeroWArr(cat_ctl, cat_include);
     if (cats_fname) {
-      reterr = InitTBstreamRaw(cats_fname, &tbs);
+      reterr = InitTokenStream(cats_fname, MAXV(max_thread_ct - 1, 1), &tks);
       if (unlikely(reterr)) {
-        goto KeepRemoveCatsInternal_ret_1;
+        goto KeepRemoveCatsInternal_ret_TKSTREAM_FAIL;
       }
       uintptr_t skip_ct = 0;
       while (1) {
         char* shard_boundaries[2];
-        reterr = TbsNext(&tbs, 1, shard_boundaries);
+        reterr = TksNext(&tks, 1, shard_boundaries);
         if (reterr) {
           break;
         }
@@ -1696,10 +1711,9 @@ PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fn
         }
       }
       if (unlikely(reterr != kPglRetEof)) {
-        goto KeepRemoveCatsInternal_ret_READ_TBSTREAM;
+        goto KeepRemoveCatsInternal_ret_TKSTREAM_FAIL;
       }
-      reterr = CleanupTBstream(&tbs);
-      if (unlikely(reterr)) {
+      if (CleanupTokenStream3(file_descrip, &tks, &reterr)) {
         goto KeepRemoveCatsInternal_ret_1;
       }
       if (skip_ct) {
@@ -1752,16 +1766,12 @@ PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fn
   KeepRemoveCatsInternal_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  KeepRemoveCatsInternal_ret_READ_TBSTREAM:
-    {
-      char file_descrip_buf[32];
-      snprintf(file_descrip_buf, 32, "--%s-cats file", is_remove? "remove" : "keep");
-      TBstreamErrPrint(file_descrip_buf, &tbs, &reterr);
-    }
+  KeepRemoveCatsInternal_ret_TKSTREAM_FAIL:
+    TokenStreamErrPrint(file_descrip, &tks);
     break;
   }
  KeepRemoveCatsInternal_ret_1:
-  CleanupTBstream(&tbs);
+  CleanupTokenStream2(file_descrip, &tks, &reterr);
   BigstackReset(bigstack_mark);
   return reterr;
 }

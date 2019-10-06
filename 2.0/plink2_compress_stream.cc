@@ -46,11 +46,9 @@ PglErr InitCstreamZstd(const char* out_fname, uint32_t do_append, __maybe_unused
   __maybe_unused size_t retval = ZSTD_CCtx_setParameter(css_ptr->cctx, ZSTD_c_compressionLevel, g_zst_level);
   assert(!ZSTD_isError(retval));
 #ifdef ZSTD_MULTITHREAD
-  retval = ZSTD_CCtx_setParameter(css_ptr->cctx, ZSTD_c_nbWorkers, thread_ct);
-  if (unlikely(ZSTD_isError(retval))) {
-    ZSTD_freeCCtx(css_ptr->cctx);
-    return kPglRetNomem;
-  }
+  // ignore failure; if zstd is dynamically linked and was built without MT
+  // support, so be it
+  ZSTD_CCtx_setParameter(css_ptr->cctx, ZSTD_c_nbWorkers, thread_ct);
 #endif
   css_ptr->outfile = fopen(out_fname, do_append? FOPEN_AB : FOPEN_WB);
   if (unlikely(!css_ptr->outfile)) {

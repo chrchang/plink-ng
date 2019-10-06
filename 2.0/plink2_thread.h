@@ -117,8 +117,7 @@ typedef struct ThreadGroupStruct {
   uint16_t is_active;
 
 #ifndef _WIN32
-  // 1 = sync_mutex, 2 = cur_block_done_condvar, 4 = start_next_condvar
-  uint32_t sync_init_bits;
+  uint32_t sync_init_state;
 #endif
 } ThreadGroup;
 

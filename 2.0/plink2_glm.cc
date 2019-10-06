@@ -9653,9 +9653,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
   unsigned char* bigstack_end_mark = g_bigstack_end;
   PglErr reterr = kPglRetSuccess;
   TextStream local_covar_txs;
-  TokenBatchStream tbs;
+  TokenStream tks;
   PreinitTextStream(&local_covar_txs);
-  PreinitTBstream(&tbs);
+  PreinitTokenStream(&tks);
   {
     if (unlikely(!pheno_ct)) {
       logerrputs("Error: No phenotypes loaded.\n");
@@ -9874,9 +9874,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           if (unlikely(bigstack_calloc_w(raw_variant_ctl, &already_seen))) {
             goto GlmMain_ret_NOMEM;
           }
-          reterr = InitTBstreamRaw(glm_info_ptr->condition_list_fname, &tbs);
+          reterr = InitTokenStream(glm_info_ptr->condition_list_fname, MAXV(max_thread_ct - 1, 1), &tks);
           if (unlikely(reterr)) {
-            goto GlmMain_ret_1;
+            goto GlmMain_ret_TKSTREAM_FAIL;
           }
           uint32_t* variant_id_htable = nullptr;
           uint32_t variant_id_htable_size;
@@ -9892,7 +9892,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           uintptr_t duplicate_ct = 0;
           while (1) {
             char* shard_boundaries[2];
-            reterr = TbsNext(&tbs, 1, shard_boundaries);
+            reterr = TksNext(&tks, 1, shard_boundaries);
             if (reterr) {
               break;
             }
@@ -9929,10 +9929,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             }
           }
           if (unlikely(reterr != kPglRetEof)) {
-            goto GlmMain_ret_READ_TBSTREAM;
+            goto GlmMain_ret_TKSTREAM_FAIL;
           }
-          reterr = CleanupTBstream(&tbs);
-          if (unlikely(reterr)) {
+          if (CleanupTokenStream3("--condition-list file", &tks, &reterr)) {
             goto GlmMain_ret_1;
           }
           if (skip_ct || duplicate_ct) {
@@ -9946,7 +9945,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           }
           logprintf("--condition-list: %u variant ID%s loaded.\n", condition_ct, (condition_ct == 1)? "" : "s");
 
-          // free hash table, duplicate tracker, TBstream
+          // free hash table, duplicate tracker, TokenStream
           BigstackReset(already_seen);
         }
         raw_covar_ct += condition_ct;
@@ -11385,8 +11384,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
   GlmMain_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  GlmMain_ret_READ_TBSTREAM:
-    TBstreamErrPrint("--condition-list file", &tbs, &reterr);
+  GlmMain_ret_TKSTREAM_FAIL:
+    TokenStreamErrPrint("--condition-list file", &tks);
     break;
   GlmMain_ret_INVALID_CMDLINE:
     reterr = kPglRetInvalidCmdline;
@@ -11402,7 +11401,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     break;
   }
  GlmMain_ret_1:
-  CleanupTBstream(&tbs);
+  CleanupTokenStream2("--condition-list file", &tks, &reterr);
   CleanupTextStream2(local_covar_fname, &local_covar_txs, &reterr);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;

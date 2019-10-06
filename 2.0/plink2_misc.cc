@@ -2518,21 +2518,17 @@ PglErr ProcessBoundaryToken(const char* tok_start, const char* tok_end, const ch
 
 PglErr InitHistogramFromFileOrCommalist(const char* binstr, uint32_t is_fname, double** freq_bounds_ptr, uint64_t** dosage_bounds_ptr, uint32_t* boundary_ct_ptr, uint32_t** histogram_ptr) {
   unsigned char* bigstack_end_mark = g_bigstack_end;
-  TokenBatchStream tbs;
-  PreinitTBstream(&tbs);
+  TokenStream tks;
+  PreinitTokenStream(&tks);
   uint32_t max_boundary_ct = 0;
   PglErr reterr = kPglRetSuccess;
   {
     if (is_fname) {
       // we want to accept >100000 numbers on a single line.  this will reject
       // "000...{a million more zeroes}...1"; pretty sure that's okay.
-      reterr = gzopen_read_checked(binstr, &tbs.rls.gz_infile);
+      reterr = InitTokenStreamEx(binstr, 1, 1, &tks);
       if (unlikely(reterr)) {
-        goto InitHistogramFromFileOrCommalist_ret_1;
-      }
-      reterr = InitTBstreamEx(1, &tbs);
-      if (unlikely(reterr)) {
-        goto InitHistogramFromFileOrCommalist_ret_1;
+        goto InitHistogramFromFileOrCommalist_ret_TKSTREAM_FAIL;
       }
     }
     uintptr_t ulii = RoundDownPow2(bigstack_left(), kCacheline);
@@ -2556,7 +2552,7 @@ PglErr InitHistogramFromFileOrCommalist(const char* binstr, uint32_t is_fname, d
     if (is_fname) {
       while (1) {
         char* shard_boundaries[2];
-        reterr = TbsNext(&tbs, 1, shard_boundaries);
+        reterr = TksNext(&tks, 1, shard_boundaries);
         if (reterr) {
           break;
         }
@@ -2576,10 +2572,9 @@ PglErr InitHistogramFromFileOrCommalist(const char* binstr, uint32_t is_fname, d
         }
       }
       if (unlikely(reterr != kPglRetEof)) {
-        goto InitHistogramFromFileOrCommalist_ret_READ_TBSTREAM;
+        goto InitHistogramFromFileOrCommalist_ret_TKSTREAM_FAIL;
       }
-      reterr = CleanupTBstream(&tbs);
-      if (unlikely(reterr)) {
+      if (CleanupTokenStream3("--freq {ref|alt1}bins-file= file", &tks, &reterr)) {
         goto InitHistogramFromFileOrCommalist_ret_1;
       }
     } else {
@@ -2605,12 +2600,12 @@ PglErr InitHistogramFromFileOrCommalist(const char* binstr, uint32_t is_fname, d
   InitHistogramFromFileOrCommalist_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  InitHistogramFromFileOrCommalist_ret_READ_TBSTREAM:
-    TBstreamErrPrint("--freq {ref|alt1}bins-file= file", &tbs, &reterr);
+  InitHistogramFromFileOrCommalist_ret_TKSTREAM_FAIL:
+    TokenStreamErrPrint("--freq {ref|alt1}bins-file= file", &tks);
     break;
   }
  InitHistogramFromFileOrCommalist_ret_1:
-  CleanupTBstream(&tbs);
+  CleanupTokenStream2("--freq {ref|alt1}bins-file= file", &tks, &reterr);
   BigstackEndReset(bigstack_end_mark);
   return reterr;
 }

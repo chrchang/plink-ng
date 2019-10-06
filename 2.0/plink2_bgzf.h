@@ -164,6 +164,78 @@ HEADER_INLINE PglErr BgzfRawMtStreamRewind(BgzfRawMtDecompressStream* bgzfp, con
 void CleanupBgzfRawMtStream(BgzfRawMtDecompressStream* bgzfp);
 
 
+// Compression strategy:
+// If there are n compressor threads numbered 0..(n-1), thread k compresses
+// (0-based) blocks k, n+k, 2n+k, ...
+// 1. worker waits on produced_event
+// 2. producer fills ucbuf, signals produced_event
+// 3. worker compresses
+// 4. worker signals compressed_event
+// 5. worker waits on prev_write_event (unless thread_ct == 1)
+// 6. worker writes
+// 7. worker signals next_write_event (unless thread_ct == 1)
+// (todo: check if it's better to have a dedicated writer thread)
+
+CONSTI32(kMaxBgzfCompressThreads, 12);
+CONSTI32(kBgzfInputBlockSize, 0xff00);  // htslib BGZF_BLOCK_SIZE
+
+typedef struct BgzfCompressCommWithPStruct {
+  // Producer -> worker.
+  char ucbuf[kBgzfInputBlockSize];
+
+#ifdef _WIN32
+  HANDLE produced_event;
+  HANDLE compressed_event;
+#else
+  pthread_mutex_t pw_mutex;
+  pthread_cond_t produced_condvar;
+  pthread_cond_t compressed_condvar;
+#endif
+  // Initially UINT32_MAX; this indicates ucbuf is available to be filled.  If
+  // this is set less than kBgzfInputBlockSize, the worker will close the file
+  // and terminate after compressing the block.  (The error-cleanup routine
+  // sets this to zero.)
+  uint32_t uc_nbytes;
+} BgzfCompressCommWithP;
+
+typedef struct BgzfCompressCommBetweenWStruct {
+#ifdef _WIN32
+  HANDLE written_event;
+#else
+  pthread_mutex_t ww_mutex;
+  pthread_cond_t ww_condvar;
+  uint32_t is_written;  // set back to zero when next worker thread sees this
+#endif
+} BgzfCompressCommBetweenW;
+
+typedef struct BgzfCompressWorkerStruct {
+  struct libdeflate_compressor* lc;
+  unsigned char cbuf[kMaxBgzfCompressedBlockSize];
+} BgzfCompressWorker;
+
+typedef struct BgzfCompressStreamStruct {
+  NONCOPYABLE(BgzfCompressStreamStruct);
+  FILE* ff;
+  BgzfCompressWorker* cw;
+  BgzfCompressCommWithP* cwp;
+  BgzfCompressCommBetweenW* cbw;
+
+  int32_t write_errno;
+
+  uint16_t thread_ct;
+  uint16_t partial_write_tidx;
+  uint16_t partial_write_nbytes;  // always < kBgzfInputBlockSize
+  uint16_t eof;
+#ifndef _WIN32
+  uint16_t sync_init_thread_ct;
+  uint16_t sync_init_state;
+#endif
+} BgzfCompressStream;
+
+void PreinitBgzfCompressStream(BgzfCompressStream* bgzfp);
+
+BoolErr CleanupBgzfCompressStream(BgzfCompressStream* bgzfp, PglErr* reterrp);
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

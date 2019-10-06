@@ -539,6 +539,60 @@ void CleanupBgzfRawMtStream(BgzfRawMtDecompressStream* bgzfp) {
   }
 }
 
+
+void PreinitBgzfCompressStream(BgzfCompressStream* bgzfp) {
+  bgzfp->ff = nullptr;
+  bgzfp->write_errno = 0;
+  bgzfp->thread_ct = 0;
+  bgzfp->eof = 0;
+}
+
+BoolErr CleanupBgzfCompressStream(BgzfCompressStream* bgzfp, PglErr* reterrp) {
+  const uint32_t thread_ct = bgzfp->thread_ct;
+  if (thread_ct) {
+    uint32_t tidx_stop = bgzfp->partial_write_tidx;
+    uint32_t tidx = tidx_stop;
+    if (!tidx_stop) {
+      tidx_stop = thread_ct - 1;
+    } else {
+      --tidx_stop;
+    }
+    if (!bgzfp->eof) {
+      // todo: send zero bytes, regardless of partial_write_nbytes value;
+      // caller is responsible for flushing earlier in non-error case
+      if (++tidx == thread_ct) {
+        tidx = 0;
+      }
+    }
+    do {
+      // todo: send zero bytes to remaining threads in sequence
+      if (++tidx == thread_ct) {
+        tidx = 0;
+      }
+    } while (tidx != tidx_stop);
+#ifdef _WIN32
+    // destroy handles
+#else
+    // destroy mutexes/condvars
+#endif
+    bgzfp->thread_ct = 0;
+    errno = bgzfp->write_errno;
+    bgzfp->write_errno = 0;
+    bgzfp->eof = 0;
+    assert(!bgzfp->ff);  // should be closed and set to nullptr by worker
+  } else if (bgzfp->ff) {
+    if (unlikely(fclose(bgzfp->ff))) {
+      if (*reterrp == kPglRetSuccess) {
+        bgzfp->ff = nullptr;
+        *reterrp = kPglRetWriteFail;
+        return 1;
+      }
+    }
+    bgzfp->ff = nullptr;
+  }
+  return 0;
+}
+
 #ifdef __cplusplus
 }
 #endif

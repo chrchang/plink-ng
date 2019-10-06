@@ -1802,6 +1802,34 @@ BoolErr CleanupTextStream(TextStream* txsp, PglErr* reterrp) {
   return 0;
 }
 
+
+PglErr TksNext(TokenStream* tksp, uint32_t shard_ct, char** shard_boundaries) {
+  tksp->txs.base.consume_iter = tksp->txs.base.consume_stop;
+  PglErr reterr = TextAdvance(&(tksp->txs));
+  if (reterr) { // not unlikely due to eof
+    return reterr;
+  }
+  char* consume_iter = tksp->txs.base.consume_iter;
+  char* consume_stop = tksp->txs.base.consume_stop;
+  shard_boundaries[0] = consume_iter;
+  shard_boundaries[shard_ct] = consume_stop;
+  if (shard_ct > 1) {
+    const uintptr_t shard_size_target = S_CAST(uintptr_t, consume_stop - consume_iter) / shard_ct;
+    char* boundary_min = consume_iter;
+    char* cur_boundary = consume_iter;
+    for (uint32_t boundary_idx = 1; boundary_idx < shard_ct; ++boundary_idx) {
+      boundary_min = &(boundary_min[shard_size_target]);
+      if (boundary_min > cur_boundary) {
+        // last character must be token separator
+        cur_boundary = FirstSpaceOrEoln(boundary_min);
+        ++cur_boundary;
+      }
+      shard_boundaries[boundary_idx] = cur_boundary;
+    }
+  }
+  return kPglRetSuccess;
+}
+
 #ifdef __cplusplus
 }
 #endif
