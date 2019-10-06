@@ -31,9 +31,6 @@ CC ?=		gcc
 CXX ?=		g++
 CFLAGS ?=	-Wall -O2
 CXXFLAGS ?=	-Wall -O2
-BLASFLAGS ?=	-L/usr/lib64/atlas -llapack -lblas -lcblas -latlas
-LDFLAGS ?=	-lm -lpthread -ldl
-ZLIB ?=		../zlib-1.2.11/libz.so.1.2.11
 
 PREFIX ?=	/usr/local
 DESTDIR ?=	.
@@ -60,6 +57,11 @@ ifeq ($(SYS), WIN)
   LDFLAGS ?= -lm -static-libgcc
   ZLIB ?= ../zlib-1.2.11/libz.a
 endif
+
+# These must appear after the MAC/WIN-specific ?= statements.
+BLASFLAGS ?=	-L/usr/lib64/atlas -llapack -lblas -lcblas -latlas
+LDFLAGS ?=	-lm -lpthread -ldl
+ZLIB ?=		../zlib-1.2.11/libz.so.1.2.11
 
 ifdef NO_LAPACK
   BLASFLAGS=

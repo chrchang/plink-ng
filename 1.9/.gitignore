@@ -8,5 +8,4 @@ bazel-out
 bazel-testlogs
 *~
 *.tmp
-*.old
 *.o

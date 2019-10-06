@@ -1,106 +1,104 @@
-# This is a bit of a mess.  Work with Makefile.std instead.
+# General-purpose Makefile for PLINK 1.90
+#
+# Compilation options:
+#   Do not link to LAPACK                    NO_LAPACK
 
-CFLAGS=-Wall -O2
-BLASFLAGS=-L/usr/lib64/atlas -llapack -lcblas -latlas
-BLASFLAGS64=-L/usr/lib64/atlas -llapack -lcblas -latlas
-LINKFLAGS=-lm -lpthread
-ZLIB=../zlib-1.2.11/libz.so.1.2.11
+# Leave blank after "=" to disable; put "= 1" to enable
+# (when enabled, "#define NOLAPACK" must be uncommented in plink_common.h)
+NO_LAPACK =
 
-UNAME := $(shell uname)
-ifeq ($(UNAME), Darwin)
-  CFLAGS=-Wall -O2 -mmacosx-version-min=10.7 -stdlib=libc++
-  GCC_GTEQ_43 := $(shell expr `g++ -dumpversion | sed -e 's/\.\([0-9][0-9]\)/\1/g' -e 's/\.\([0-9]\)/0\1/g' -e 's/^[0-9]\{3,4\}$$/&00/'` \>= 40300)
-  ifeq "$(GCC_GTEQ_43)" "1"
-    CFLAGS=-Wall -O2 -flax-vector-conversions -mmacosx-version-min=10.7
-  endif
-  BLASFLAGS=-framework Accelerate
-  BLASFLAGS64=-framework Accelerate
-  LINKFLAGS=-ldl
-  ZLIB=../zlib-1.2.11/libz-32.a
-  ZLIB64=../zlib-1.2.11/libz-64.a
+# Variable that allows additional linker flags (e.g., "-L/path/to/libs") to be
+# passed into the linker; to use this, invoke 'make LDFLAGS_EXTRA="<opts>"'.
+LDFLAGS_EXTRA =
+
+.PHONY: clean install
+
+# should autodetect system
+SYS = UNIX
+ifdef SystemRoot
+  SYS = WIN
 else
-  ifeq ($(UNAME), MINGW32_NT-6.2)
-    BLASFLAGS=-Wl,-Bstatic -L. lapack/liblapack.a -L. lapack/librefblas.a
-    BLASFLAGS64=-Wl,-Bstatic -L. lapack/liblapack-64.a -L. lapack/librefblas-64.a
-    LINKFLAGS=-lm -static-libgcc
-    ZLIB=../zlib-1.2.11/libz-32.a
-    ZLIB64=../zlib-1.2.11/libz-64.a
+  UNAME := $(shell uname)
+  ifeq ($(UNAME), Darwin)
+    SYS = MAC
   endif
 endif
 
-CSRC = plink.c plink_assoc.c plink_calc.c plink_cluster.c plink_cnv.c plink_common.c plink_data.c plink_dosage.c plink_family.c plink_filter.c plink_glm.c plink_help.c plink_homozyg.c plink_lasso.c plink_ld.c plink_matrix.c plink_misc.c plink_perm.c plink_rserve.c plink_set.c plink_stats.c SFMT.c dcdflib.c pigz.c yarn.c hfile.c bgzf.c
+# Allow these to be overridden by make arguments or env variables, so people
+# don't have to edit the Makefile to build in a different environment.
+BIN ?=		plink
+CC ?=		gcc
+CXX ?=		g++
+CFLAGS ?=	-Wall -O2
+CXXFLAGS ?=	-Wall -O2
 
-CCSRC = Rconnection.cc
+PREFIX ?=	/usr/local
+DESTDIR ?=	.
+INSTALL ?=	install
+STRIP ?=	strip
 
-SRC = $(CSRC) $(CCSRC)
+ifeq ($(SYS), MAC)
+  GCC_GTEQ_43 := $(shell expr `g++ -dumpversion | sed -e 's/\.\([0-9][0-9]\)/\1/g' -e 's/\.\([0-9]\)/0\1/g' -e 's/^[0-9]\{3,4\}$$/&00/'` \>= 40300)
+  ifeq "$(GCC_GTEQ_43)" "1"
+    CFLAGS ?= -Wall -O2 -flax-vector-conversions
+  endif
+  BLASFLAGS ?= -framework Accelerate
+  LDFLAGS ?= -ldl
+  ZLIB ?= ../zlib-1.2.11/libz.1.2.11.dylib
+endif
 
-OBJ = $(CSRC:.c=.o) $(CCSRC:.cc=.o)
+ifeq ($(SYS), WIN)
+# Note that, unlike the Linux and Mac build processes, this STATICALLY links
+# LAPACK, since we have not gotten around to trying dynamically-linked LAPACK
+# on Windows.
+# If you don't already have LAPACK built, you'll probably want to turn on
+# NO_LAPACK.
+  BLASFLAGS ?= -L. lapack/liblapack.a -L. lapack/librefblas.a
+  LDFLAGS ?= -lm -static-libgcc
+  ZLIB ?= ../zlib-1.2.11/libz.a
+endif
 
+# These must appear after the MAC/WIN-specific ?= statements.
+BLASFLAGS ?=	-L/usr/lib64/atlas -llapack -lblas -lcblas -latlas
+LDFLAGS ?=	-lm -lpthread -ldl
+ZLIB ?=		../zlib-1.2.11/libz.so.1.2.11
+
+ifdef NO_LAPACK
+  BLASFLAGS=
+endif
+
+OBJS = plink.o plink_assoc.o plink_calc.o plink_cluster.o plink_cnv.o plink_common.o plink_data.o plink_dosage.o plink_family.o plink_filter.o plink_glm.o plink_help.o plink_homozyg.o plink_lasso.o plink_ld.o plink_matrix.o plink_misc.o plink_perm.o plink_rserve.o plink_set.o plink_stats.o SFMT.o dcdflib.o pigz.o yarn.o Rconnection.o hfile.o bgzf.o
+
+# In the event that you are still concurrently using PLINK 1.07, we suggest
+# renaming that binary to "plink107", and this one to "plink" or "plink1".
+
+all:	$(BIN)
+
+plink: $(OBJS)
+	$(CXX) $(OBJS) $(LDFLAGS_EXTRA) $(BLASFLAGS) $(LDFLAGS) -L. $(ZLIB) -o $@
+
+plinkw: $(OBJS)
+	gfortran -O2 $(OBJS) $(LDFLAGS_EXTRA) -Wl,-Bstatic $(BLASFLAGS) $(LDFLAGS) -L. $(ZLIB) -o $@
+
+install:
+	$(INSTALL) -d $(DESTDIR)$(PREFIX)/bin
+	$(INSTALL) -c $(BIN) $(DESTDIR)$(PREFIX)/bin
+
+install-strip: install
+	$(STRIP) $(DESTDIR)$(PREFIX)/bin/$(BIN)
+
+clean:
+	rm -f $(OBJS) plink plinkw
+
+# Pattern-based rules for compiling object (.o) files; basically identical to
+# GNU make's built-in rules, except we explicitly use "g++" instead of $(CC).
+
+# Compiling C files with a C++ compiler is deprecated, but the code needs
+# to be cleaned up before we can switch to cc.  E.g. plink_rserve.c
+# includes a C++ header and exposed functions will need to be declared with
+# extern "C".
 %.o: %.c
-	g++ -x c++ -c $(CFLAGS) -o $@ $<
+	$(CXX) -c $(CPPFLAGS) $(CFLAGS) $< -o $@
 
 %.o: %.cc
-	g++ -x c++ -c $(CFLAGS) -o $@ $<
-
-plink64: $(OBJ)
-	g++ $(CFLAGS) $(OBJ) -o plink $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
-# for clean build, "make clobber" first
-
-plink: $(SRC)
-	g++ -x c++ $(CFLAGS) $(SRC) -m32 -x none -o plink $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
-
-plinkw: $(SRC)
-	g++ $(CFLAGS) $(SRC) -c
-	gfortran -O2 $(OBJ) -o plink $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
-
-plinkc: $(SRC)
-	gcc $(CFLAGS) $(CSRC) -std=c99 -m32 -x none -o plink $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
-
-plinks: $(SRC)
-	g++ $(CFLAGS) $(SRC) -o plink_linux_s -Wl,-Bstatic $(BLASFLAGS) -Wl,-Bdynamic $(LINKFLAGS) -L. $(ZLIB)
-
-plinkd: $(SRC)
-	g++ $(CFLAGS) $(SRC) -o plink_linux $(BLASFLAGS) -Wl,-Bdynamic $(LINKFLAGS) -L. $(ZLIB)
-
-plinknl: $(SRC)
-	g++ $(CFLAGS) $(SRC) -o plink $(LINKFLAGS) -Wl,-Bstatic -L. $(ZLIB)
-
-plink64w: $(SRC)
-	g++ $(CFLAGS) $(SRC) -c
-	gfortran -O2 $(OBJ) -o plink64 $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
-
-plink64c: $(SRC)
-	gcc $(CFLAGS) $(CSRC) -std=c99 -x none -o plink $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
-
-plink64nl: $(SRC)
-	g++ $(CFLAGS) $(SRC) -o plink $(LINKFLAGS) -L. $(ZLIB64)
-
-pigz_test: pigz_test.c pigz.c yarn.c
-	g++ -Wall -O2 pigz_test.c pigz.c yarn.c -o pigz_test -L. $(ZLIB64)
-
-prettify: prettify.c
-	gcc -Wall -O2 prettify.c -o prettify
-
-prettifyw: prettify.c
-	gcc -Wall -O2 prettify.c -o prettify
-
-dbl2txt: dbl2txt.c
-	gcc -Wall -O2 dbl2txt.c -o dbl2txt
-
-nsort: nsort.c
-	gcc -Wall -O2 nsort.c -o nsort
-
-interval_merge: interval_merge.c
-	gcc -Wall -O2 interval_merge.c -o interval_merge
-
-dose2plink32: dose2plink.c
-	g++ -Wall -O2 -lm -m32 dose2plink.c -o dose2plink -L. $(ZLIB)
-
-dose2plink: dose2plink.c
-	g++ -Wall -O2 -lm dose2plink.c -o dose2plink -L. $(ZLIB64)
-
-bgen_to_gen: bgen_to_gen.c plink_common.c SFMT.c pigz.c yarn.c
-	g++ -x c++ -Wall -O2 -DDYNAMIC_ZLIB bgen_to_gen.c plink_common.c SFMT.c pigz.c yarn.c -o bgen_to_gen $(BLASFLAGS64) $(LINKFLAGS) -lz
-
-clobber:
-	rm -f *.o
+	$(CXX) -x c++ -c $(CPPFLAGS) $(CXXFLAGS) $< -o $@
