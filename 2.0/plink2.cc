@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (6 Oct 2019)";
+  " (9 Oct 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -263,9 +263,7 @@ PglErr PgenInfoStandalone(const char* pgenname) {
     PgenInfoPrint(pgenname, &pgfi, header_ctrl, max_allele_ct);
   }
  PgenInfoStandalone_ret_1:
-  if (CleanupPgfi(&pgfi) && (!reterr)) {
-    reterr = kPglRetReadFail;
-  }
+  CleanupPgfi2(pgenname, &pgfi, &reterr);
   // no BigstackReset() needed?
   return reterr;
 }
@@ -943,10 +941,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         // detect and autoconvert plink 1 sample-major files, instead of
         // failing (don't bother supporting plink 0.99 files any more)
         if (unlikely(reterr != kPglRetSampleMajorBed)) {
-          if (reterr != kPglRetReadFail) {
-            WordWrapB(0);
-            logerrputsb();
-          }
+          WordWrapB(0);
+          logerrputsb();
           goto Plink2Core_ret_1;
         }
         char* pgenname_end = memcpya(pgenname, outname, outname_end - outname);
@@ -986,10 +982,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       // DivUp(max_vrec_width, kCacheline).
       reterr = PgfiInitPhase2(header_ctrl, 1, nonref_flags_already_loaded, 1, 0, raw_variant_ct, &max_vrec_width, &pgfi, pgfi_alloc, &pgr_alloc_cacheline_ct, g_logbuf);
       if (unlikely(reterr)) {
-        if (reterr != kPglRetReadFail) {
-          WordWrapB(0);
-          logerrputsb();
-        }
+        WordWrapB(0);
+        logerrputsb();
         goto Plink2Core_ret_1;
       }
       if (unlikely((!allele_idx_offsets) && (pgfi.gflags & kfPgenGlobalMultiallelicHardcallFound))) {
@@ -1028,8 +1022,10 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         if (unlikely(reterr)) {
           if (reterr == kPglRetOpenFail) {
             logerrprintfww(kErrprintfFopen, pgenname, strerror(errno));
+          } else {
+            assert(reterr == kPglRetReadFail);
+            logerrprintfww(kErrprintfFread, pgenname, strerror(errno));
           }
-          // only other possibility is kPglRetReadFail
           goto Plink2Core_ret_1;
         }
         pgfi.shared_ff = shared_ff_copy;
@@ -1043,11 +1039,9 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           fflush(stdout);
           reterr = PgrValidate(&simple_pgr, genovec_buf, g_logbuf);
           if (unlikely(reterr)) {
-            if (reterr != kPglRetReadFail) {
-              logputs("\n");
-              WordWrapB(0);
-              logerrputsb();
-            }
+            logputs("\n");
+            WordWrapB(0);
+            logerrputsb();
             goto Plink2Core_ret_1;
           }
           logputs("done.\n");
@@ -1075,7 +1069,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       pgfi.nonref_flags = nonref_flags;
     }
     if (pcp->pheno_fname) {
-      reterr = LoadPhenos(pcp->pheno_fname, &(pcp->pheno_range_list), sample_include, pii.sii.sample_ids, raw_sample_ct, sample_ct, pii.sii.max_sample_id_blen, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, (pcp->misc_flags / kfMiscPhenoColNums) & 1, pcp->max_thread_ct, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
+      reterr = LoadPhenos(pcp->pheno_fname, &(pcp->pheno_range_list), sample_include, pii.sii.sample_ids, raw_sample_ct, sample_ct, pii.sii.max_sample_id_blen, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, (pcp->misc_flags / kfMiscPhenoIidOnly) & 1, (pcp->misc_flags / kfMiscPhenoColNums) & 1, pcp->max_thread_ct, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
       }
@@ -1442,7 +1436,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
       if (pcp->covar_fname || pcp->covar_range_list.name_ct) {
         const char* cur_covar_fname = pcp->covar_fname? pcp->covar_fname : (pcp->pheno_fname? pcp->pheno_fname : psamname);
-        reterr = LoadPhenos(cur_covar_fname, &(pcp->covar_range_list), sample_include, pii.sii.sample_ids, raw_sample_ct, sample_ct, pii.sii.max_sample_id_blen, pcp->missing_pheno, 2, (pcp->misc_flags / kfMiscCovarColNums) & 1, pcp->max_thread_ct, &covar_cols, &covar_names, &covar_ct, &max_covar_name_blen);
+        reterr = LoadPhenos(cur_covar_fname, &(pcp->covar_range_list), sample_include, pii.sii.sample_ids, raw_sample_ct, sample_ct, pii.sii.max_sample_id_blen, pcp->missing_pheno, 2, (pcp->misc_flags / kfMiscCovarColNums) & 1, (pcp->misc_flags / kfMiscCovarIidOnly), pcp->max_thread_ct, &covar_cols, &covar_names, &covar_ct, &max_covar_name_blen);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -2551,12 +2545,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
   CleanupPhenoCols(pheno_ct, pheno_cols);
   free_cond(covar_names);
   free_cond(pheno_names);
-  if (CleanupPgr(&simple_pgr) && (!reterr)) {
-    reterr = kPglRetReadFail;
-  }
-  if (CleanupPgfi(&pgfi) && (!reterr)) {
-    reterr = kPglRetReadFail;
-  }
+  CleanupPgr2(".pgen file", &simple_pgr, &reterr);
+  CleanupPgfi2(".pgen file", &pgfi, &reterr);
   // no BigstackReset() needed?
   return reterr;
 }
@@ -2636,7 +2626,7 @@ PglErr ZstDecompress(const char* in_fname, const char* out_fname) {
     fclose_cond(outfile);
   }
   if (unlikely(CleanupZstRfile(&zrf, &reterr))) {
-    fputs(kErrstrRead, stderr);
+    fprintf(stderr, kErrprintfFread, in_fname, strerror(errno));
   }
   return reterr;
 }
@@ -3932,10 +3922,17 @@ int main(int argc, char** argv) {
           }
           chr_info.is_include_stack = 1;
         } else if (strequal_k_unsafe(flagname_p2, "ovar")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.covar_fname);
+          uint32_t fname_idx = 1;
+          if (param_ct == 2) {
+            if (unlikely(CheckExtraParam(&(argvk[arg_idx]), "iid-only", &fname_idx))) {
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            pc.misc_flags |= kfMiscCovarIidOnly;
+          }
+          reterr = AllocFname(argvk[arg_idx + fname_idx], flagname_p, 0, &pc.covar_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
@@ -7438,10 +7435,17 @@ int main(int argc, char** argv) {
           }
           memcpy(pvarname, fname, slen + 1);
         } else if (strequal_k_unsafe(flagname_p2, "heno")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.pheno_fname);
+          uint32_t fname_idx = 1;
+          if (param_ct == 2) {
+            if (unlikely(CheckExtraParam(&(argvk[arg_idx]), "iid-only", &fname_idx))) {
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            pc.misc_flags |= kfMiscPhenoIidOnly;
+          }
+          reterr = AllocFname(argvk[arg_idx + fname_idx], flagname_p, 0, &pc.pheno_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }

@@ -3080,9 +3080,6 @@ const char kErrstrWrite[] = "Error: File write failure: %s.\n";
 const char kErrstrThreadCreate[] = "Error: Failed to create thread.\n";
 const char kErrstrVarRecordTooLarge[] = "Error: Variant record size exceeds ~4 GiB limit.\n";
 
-// This will soon propagate strerror(errno).
-const char kErrstrRead[] = "Error: File read failure.\n";
-
 // assumes logfile is open
 void DispExitMsg(PglErr reterr) {
   if (reterr) {
@@ -3092,9 +3089,9 @@ void DispExitMsg(PglErr reterr) {
       if (g_failed_alloc_attempt_size) {
         logerrprintf("Failed allocation size: %" PRIuPTR "\n", g_failed_alloc_attempt_size);
       }
-    } else if (reterr == kPglRetReadFail) {
-      logputs("\n");
-      logerrputs(kErrstrRead);
+      // kPglRetReadFail no longer gets a message here, for the same reason
+      // kPglRetOpenFail doesn't: it's important to know which file we failed
+      // to read.
     } else if (reterr == kPglRetWriteFail) {
       logputs("\n");
       if (errno) {
@@ -3427,10 +3424,16 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
           goto CmdlineParsePhase1_ret_OPEN_FAIL;
         }
         if (unlikely(fseeko(scriptfile, 0, SEEK_END))) {
+          fputs(ver_str, stdout);
+          fputs(ver_str2, stdout);
+          fprintf(stderr, kErrprintfFread, argvk[arg_idx + 1], strerror(errno));
           goto CmdlineParsePhase1_ret_READ_FAIL;
         }
         int64_t fsize = ftello(scriptfile);
         if (unlikely(fsize < 0)) {
+          fputs(ver_str, stdout);
+          fputs(ver_str2, stdout);
+          fprintf(stderr, kErrprintfFread, argvk[arg_idx + 1], strerror(errno));
           goto CmdlineParsePhase1_ret_READ_FAIL;
         }
         if (unlikely(fsize > 0x7ffffffe)) {
@@ -3449,6 +3452,9 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
         }
         char* script_buf = pcmp->script_buf;
         if (unlikely(!fread_unlocked(script_buf, fsize_ui, 1, scriptfile))) {
+          fputs(ver_str, stdout);
+          fputs(ver_str2, stdout);
+          fprintf(stderr, kErrprintfFread, argvk[arg_idx + 1], strerror(errno));
           goto CmdlineParsePhase1_ret_READ_FAIL;
         }
         script_buf[fsize_ui] = '\0';
@@ -3630,9 +3636,6 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
     reterr = kPglRetOpenFail;
     break;
   CmdlineParsePhase1_ret_READ_FAIL:
-    fputs(ver_str, stdout);
-    fputs(ver_str2, stdout);
-    fputs(kErrstrRead, stderr);
     reterr = kPglRetReadFail;
     break;
   CmdlineParsePhase1_ret_INVALID_CMDLINE:
@@ -3744,7 +3747,10 @@ PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const 
     }
     logputs_silent("\nWorking directory: ");
     if (unlikely(!getcwd(g_textbuf, kPglFnamesize))) {
-      goto CmdlineParsePhase2_ret_READ_FAIL;
+      logputs_silent("\n");
+      logerrprintfww("Error: Failed to get current working directory: %s.\n", strerror(errno));
+      // debatable what error code applies here
+      goto CmdlineParsePhase2_ret_OPEN_FAIL;
     }
     logputs_silent(g_textbuf);
     logputs_silent("\n");
@@ -3782,10 +3788,6 @@ PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const 
     break;
   CmdlineParsePhase2_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
-    break;
-  CmdlineParsePhase2_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
-    DispExitMsg(reterr);
     break;
   CmdlineParsePhase2_ret_INVALID_CMDLINE:
     reterr = kPglRetInvalidCmdline;

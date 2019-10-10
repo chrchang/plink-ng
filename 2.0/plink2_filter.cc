@@ -3267,19 +3267,16 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
             break;
           }
         }
-        if (unlikely(PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_loaded_variant_ct, pgfip))) {
-          goto LoadSampleMissingCts_ret_READ_FAIL;
+        reterr = PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_loaded_variant_ct, pgfip);
+        if (unlikely(reterr)) {
+          goto LoadSampleMissingCts_ret_PGR_FAIL;
         }
       }
       if (variant_idx) {
         JoinThreads3z(&ts);
         reterr = g_error_ret;
         if (unlikely(reterr)) {
-          if (reterr == kPglRetMalformedInput) {
-            logputs("\n");
-            logerrputs("Error: Malformed .pgen file.\n");
-          }
-          goto LoadSampleMissingCts_ret_1;
+          goto LoadSampleMissingCts_ret_PGR_FAIL;
         }
       }
       if (!ts.is_last_block) {
@@ -3360,11 +3357,11 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
   LoadSampleMissingCts_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  LoadSampleMissingCts_ret_READ_FAIL:
-    reterr = kPglRetNomem;
+  LoadSampleMissingCts_ret_PGR_FAIL:
+    PgenErrPrintN(reterr);
     break;
   LoadSampleMissingCts_ret_THREAD_CREATE_FAIL:
-    reterr = kPglRetNomem;
+    reterr = kPglRetThreadCreateFail;
     break;
   }
  LoadSampleMissingCts_ret_1:

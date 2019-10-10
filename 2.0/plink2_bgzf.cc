@@ -53,7 +53,7 @@ CONSTI32(kBgzfRawMtStreamMaxCapacity, 0x7fffffc0);
 //   bgzfp->body.cwr[1 - bgzfp->consumer_parity]->overflow[0] should be
 //   appended.
 // - Thread-group is unjoined, and bgzfp->eof must be false.
-PglErr BgzfJoinAndRespawn(unsigned char* dst_end, BgzfRawMtDecompressStream* bgzfp, unsigned char** dst_iterp, const char** errmsgp) {
+PglErr BgzfReadJoinAndRespawn(unsigned char* dst_end, BgzfRawMtDecompressStream* bgzfp, unsigned char** dst_iterp, const char** errmsgp) {
   PglErr reterr = kPglRetSuccess;
   ThreadGroup* tgp = &bgzfp->tg;
   unsigned char* dst_iter = nullptr;
@@ -70,13 +70,13 @@ PglErr BgzfJoinAndRespawn(unsigned char* dst_end, BgzfRawMtDecompressStream* bgz
     BgzfMtReadBody* bodyp = &bgzfp->body;
     BgzfMtReadCommWithD* cwd = bodyp->cwd[prev_producer_parity];
     if (unlikely(cwd->invalid_bgzf)) {
-      goto BgzfJoinAndRespawn_ret_INVALID_BGZF;
+      goto BgzfReadJoinAndRespawn_ret_INVALID_BGZF;
     }
     BgzfMtReadCommWithR* cwr = bodyp->cwr[prev_producer_parity];
     if (unlikely(cwr->reterr != kPglRetSuccess)) {
       *errmsgp = cwr->errmsg;
       reterr = S_CAST(PglErr, cwr->reterr);
-      goto BgzfJoinAndRespawn_ret_1;
+      goto BgzfReadJoinAndRespawn_ret_1;
     }
 
     // 2. Determine amount of remaining dst space after existing-overflow-copy.
@@ -133,30 +133,30 @@ PglErr BgzfJoinAndRespawn(unsigned char* dst_end, BgzfRawMtDecompressStream* bgz
           const uint32_t n_inbytes = in_end - in_iter;
           if (n_inbytes <= 25) {
             if (unlikely(remaining_end_is_eof && n_inbytes)) {
-              goto BgzfJoinAndRespawn_ret_INVALID_BGZF;
+              goto BgzfReadJoinAndRespawn_ret_INVALID_BGZF;
             }
             break;
           }
           if (unlikely(!IsBgzfHeader(in_iter))) {
-            goto BgzfJoinAndRespawn_ret_INVALID_BGZF;
+            goto BgzfReadJoinAndRespawn_ret_INVALID_BGZF;
           }
 #  ifdef __arm__
-#    error "Unaligned accesses in BgzfJoinAndRespawn()."
+#    error "Unaligned accesses in BgzfReadJoinAndRespawn()."
 #  endif
           const uint32_t bsize_minus1 = *R_CAST(uint16_t*, &(in_iter[16]));
           if (unlikely(bsize_minus1 < 25)) {
-            goto BgzfJoinAndRespawn_ret_INVALID_BGZF;
+            goto BgzfReadJoinAndRespawn_ret_INVALID_BGZF;
           }
           if (bsize_minus1 >= n_inbytes) {
             if (unlikely(remaining_end_is_eof)) {
-              goto BgzfJoinAndRespawn_ret_INVALID_BGZF;
+              goto BgzfReadJoinAndRespawn_ret_INVALID_BGZF;
             }
             break;
           }
           const uint32_t in_size = bsize_minus1 - 25;
           const uint32_t out_size = *R_CAST(uint32_t*, &(in_iter[in_size + 22]));
           if (unlikely(out_size > 65536)) {
-            goto BgzfJoinAndRespawn_ret_INVALID_BGZF;
+            goto BgzfReadJoinAndRespawn_ret_INVALID_BGZF;
           }
           in_iter = &(in_iter[bsize_minus1 + 1]);
           write_offset += out_size;
@@ -219,12 +219,12 @@ PglErr BgzfJoinAndRespawn(unsigned char* dst_end, BgzfRawMtDecompressStream* bgz
     *dst_iterp = dst_iter;
   }
   while (0) {
-  BgzfJoinAndRespawn_ret_INVALID_BGZF:
+  BgzfReadJoinAndRespawn_ret_INVALID_BGZF:
     *errmsgp = kShortErrInvalidBgzf;
     reterr = kPglRetDecompressFail;
     break;
   }
- BgzfJoinAndRespawn_ret_1:
+ BgzfReadJoinAndRespawn_ret_1:
   return reterr;
 }
 
@@ -352,6 +352,7 @@ PglErr BgzfRawMtStreamInit(const char* header, uint32_t decompress_thread_ct, FI
   PglErr reterr = kPglRetSuccess;
   {
     PreinitBgzfRawMtStream(bgzfp);
+    assert(decompress_thread_ct);
     if (decompress_thread_ct > kMaxBgzfDecompressThreads) {
       decompress_thread_ct = kMaxBgzfDecompressThreads;
     }
@@ -438,7 +439,7 @@ PglErr BgzfRawMtStreamInit(const char* header, uint32_t decompress_thread_ct, FI
     // Bottleneck is usually decompression, so we want it to be happening in
     // the background when BgzfRawMtStreamInit() returns.  This
     // currently requires a join-and-respawn.
-    reterr = BgzfJoinAndRespawn(nullptr, bgzfp, nullptr, errmsgp);
+    reterr = BgzfReadJoinAndRespawn(nullptr, bgzfp, nullptr, errmsgp);
   }
   while (0) {
   BgzfRawMtStreamInit_ret_NOMEM:
@@ -469,7 +470,7 @@ PglErr BgzfRawMtStreamRead(unsigned char* dst_end, BgzfRawMtDecompressStream* bg
   if (bgzfp->eof) {
     return kPglRetSuccess;
   }
-  return BgzfJoinAndRespawn(dst_end, bgzfp, dst_iterp, errmsgp);
+  return BgzfReadJoinAndRespawn(dst_end, bgzfp, dst_iterp, errmsgp);
 }
 
 PglErr BgzfRawMtStreamRetarget(const char* header, BgzfRawMtDecompressStream* bgzfp, FILE* next_ff, const char** errmsgp) {
@@ -514,7 +515,7 @@ PglErr BgzfRawMtStreamRetarget(const char* header, BgzfRawMtDecompressStream* bg
   SpawnThreads(tgp);
   bgzfp->eof = 0;
   // Turn the crank once, for the same reason we do so during stream creation.
-  return BgzfJoinAndRespawn(nullptr, bgzfp, nullptr, errmsgp);
+  return BgzfReadJoinAndRespawn(nullptr, bgzfp, nullptr, errmsgp);
 }
 
 void CleanupBgzfRawMtStream(BgzfRawMtDecompressStream* bgzfp) {
@@ -542,45 +543,528 @@ void CleanupBgzfRawMtStream(BgzfRawMtDecompressStream* bgzfp) {
 
 void PreinitBgzfCompressStream(BgzfCompressStream* bgzfp) {
   bgzfp->ff = nullptr;
+  bgzfp->threads = nullptr;
+}
+
+static const unsigned char kBgzfEofBlock[] = "\37\213\10\4\0\0\0\0\0\377\6\0\102\103\2\0\33\0\3\0\0\0\0\0\0\0\0";
+
+THREAD_FUNC_DECL BgzfCompressorThread(void* raw_arg) {
+  BgzfCompressorContext* context = S_CAST(BgzfCompressorContext*, raw_arg);
+  struct libdeflate_compressor* compressor = context->lc;
+  BgzfCompressStream* bgzfp = context->parent;
+  const uint32_t slot_mask = bgzfp->slot_ct - 1;
+  BgzfCompressCommWithP** cwps = bgzfp->cwps;
+  BgzfCompressCommWithW** cwws = bgzfp->cwws;
+  uintptr_t* next_job_idxp = bgzfp->next_job_idxp;
+  while (1) {
+    // make this depend on gcc version?
+    const uint32_t slot_idx = __sync_fetch_and_add(next_job_idxp, 1) & slot_mask;
+    BgzfCompressCommWithP* cwp = cwps[slot_idx];
+    BgzfCompressCommWithW* cww = cwws[slot_idx];
+#ifdef _WIN32
+    HANDLE wait_pair[2];
+    wait_pair[0] = cwp->ucbuf_filled_event;
+    wait_pair[1] = cww->cbuf_open_event;
+    WaitForMultipleObjects(2, wait_pair, 1, INFINITE);
+#else
+    pthread_mutex_lock(&(cww->cbuf_mutex));
+    while (cww->nbytes != UINT32_MAX) {
+      pthread_cond_wait(&(cww->cbuf_open_condvar), &(cww->cbuf_mutex));
+    }
+    pthread_mutex_lock(&(cwp->ucbuf_mutex));
+    while (cwp->nbytes == UINT32_MAX) {
+      pthread_cond_wait(&(cwp->ucbuf_filled_condvar), &(cwp->ucbuf_mutex));
+    }
+    // hold both mutexes during compress operation
+#endif
+    uint32_t src_byte_ct = cwp->nbytes;
+    uint32_t nwrite = 0;
+    if (src_byte_ct) {
+      char* src = cwp->ucbuf;
+      // 0..15 = prefilled header
+      // 16..17 = compressed size + 25
+      // 18..(compressed size + 17) = compressed data
+      // (compressed size + 18..21) = crc32
+      // (compressed size + 22..25) = src_byte_ct
+      unsigned char* dst = cww->cbuf;
+      uint16_t bsize = libdeflate_deflate_compress(compressor, src, src_byte_ct, &(dst[18]), kMaxBgzfCompressedBlockSize - 26) + 25;
+      const uint32_t crc = libdeflate_crc32(0, src, src_byte_ct);
+      memcpy(&(dst[16]), &bsize, 2);
+      memcpy(&(dst[bsize - 7]), &crc, 4);
+      memcpy(&(dst[bsize - 3]), &src_byte_ct, 4);
+      nwrite = S_CAST(uint32_t, bsize) + 1;
+    }
+    cww->nbytes = nwrite;
+    const uint32_t eof = (src_byte_ct != kBgzfInputBlockSize);
+    cww->eof = eof;
+    cwp->nbytes = UINT32_MAX;
+#ifdef _WIN32
+    SetEvent(cwp->ucbuf_open_event);
+    SetEvent(cww->cbuf_filled_event);
+#else
+    pthread_cond_signal(&(cwp->ucbuf_open_condvar));
+    pthread_mutex_unlock(&(cwp->ucbuf_mutex));
+    pthread_cond_signal(&(cww->cbuf_filled_condvar));
+    pthread_mutex_unlock(&(cww->cbuf_mutex));
+#endif
+    if (eof) {
+      THREAD_RETURN;
+    }
+  }
+}
+
+THREAD_FUNC_DECL BgzfCompressWriterThread(void* raw_arg) {
+  BgzfCompressStream* context = S_CAST(BgzfCompressStream*, raw_arg);
+  const uint32_t slot_ct = context->slot_ct;
+  FILE* ff = context->ff;
+  BgzfCompressCommWithW** cwws = context->cwws;
+  for (uint32_t slot_idx = 0; ; ++slot_idx) {
+    if (slot_idx == slot_ct) {
+      slot_idx = 0;
+    }
+    BgzfCompressCommWithW* cww = cwws[slot_idx];
+#ifdef _WIN32
+    WaitForSingleObject(cww->cbuf_filled_event, INFINITE);
+#else
+    pthread_mutex_lock(&(cww->cbuf_mutex));
+    while (cww->nbytes == UINT32_MAX) {
+      pthread_cond_wait(&(cww->cbuf_filled_condvar), &(cww->cbuf_mutex));
+    }
+    // hold mutex during write operation
+#endif
+    if (ff) {
+      const uint32_t nbytes = cww->nbytes;
+      if (nbytes) {
+        if (unlikely(!fwrite_unlocked(cww->cbuf, nbytes, 1, ff))) {
+          context->write_errno = errno;
+          fclose(ff);
+          ff = nullptr;
+          context->ff = nullptr;
+        }
+      }
+    }
+    const uint32_t eof = cww->eof;
+    cww->nbytes = UINT32_MAX;
+#ifdef _WIN32
+    SetEvent(cww->cbuf_open_event);
+#else
+    pthread_cond_signal(&(cww->cbuf_open_condvar));
+    pthread_mutex_unlock(&(cww->cbuf_mutex));
+#endif
+    if (eof) {
+      if (ff) {
+        if (unlikely(!fwrite_unlocked(kBgzfEofBlock, 28, 1, ff))) {
+          context->write_errno = errno;
+        }
+        fclose(ff);
+        ff = nullptr;
+        context->ff = nullptr;
+      }
+      THREAD_RETURN;
+    }
+  }
+}
+
+// smallest power of 2 larger than kMaxBgzfCompressThreads * 4
+CONSTI32(kMaxBgzfSlotCt, 64);
+static_assert(kMaxBgzfCompressThreads < 16, "InitBgzfCompressStreamEx and CleanupBgzfCompressStream must be updated.");
+
+PglErr InitBgzfCompressStreamEx(const char* out_fname, uint32_t do_append, uint32_t clvl, uint32_t compressor_thread_ct, BgzfCompressStream* bgzfp) {
+  if (bgzfp->ff || bgzfp->threads || (clvl > 12)) {
+    // Unlike BgzfRawMtDecompressStream (which should be wrapped by
+    // TextStream), this is designed for direct use in application code, so we
+    // include defensive checks.
+    return kPglRetImproperFunctionCall;
+  }
+  bgzfp->slot_ct = 0;
+  bgzfp->ff = fopen(out_fname, do_append? FOPEN_AB : FOPEN_WB);
+  if (unlikely(!bgzfp->ff)) {
+    // slot_ct set to 0, so we'll immediately segfault on write attempt
+    return kPglRetOpenFail;
+  }
+  if (!clvl) {
+    bgzfp->write_errno = 0;
+    return kPglRetSuccess;
+  }
+  if (compressor_thread_ct > kMaxBgzfCompressThreads) {
+    compressor_thread_ct = kMaxBgzfCompressThreads;
+  } else if (!compressor_thread_ct) {
+    compressor_thread_ct = 1;
+  }
+  // smallest power of 2 >= (compressor_thread_ct * 4)
+  const uint32_t slot_ct = 1 << bsru32(compressor_thread_ct * 8 - 1);
+  bgzfp->slot_ct = slot_ct;
+  bgzfp->compressor_thread_ct = compressor_thread_ct;
+  bgzfp->write_errno = -1;  // in case of initialization failure early-exit
+
+  const uintptr_t ptrs_aligned_size = RoundUpPow2((compressor_thread_ct + 1 + 2 * slot_ct) * sizeof(intptr_t), kCacheline);
+  const uintptr_t compressor_args_aligned_size = RoundUpPow2(compressor_thread_ct * sizeof(BgzfCompressorContext), kCacheline);
+  const uintptr_t cwp_aligned_size = RoundUpPow2(sizeof(BgzfCompressCommWithP), kCacheline);
+  const uintptr_t cww_aligned_size = RoundUpPow2(sizeof(BgzfCompressCommWithW), kCacheline);
+  unsigned char* raw_alloc;
+  if (cachealigned_malloc(ptrs_aligned_size + compressor_args_aligned_size + kCacheline + slot_ct * (cwp_aligned_size + cww_aligned_size), &raw_alloc)) {
+    return kPglRetNomem;
+  }
+  bgzfp->threads = R_CAST(pthread_t*, raw_alloc);
+  ZeroPtrArr(compressor_thread_ct + 1 + 2 * slot_ct, bgzfp->threads);
+  bgzfp->cwps = R_CAST(BgzfCompressCommWithP**, &(bgzfp->threads[compressor_thread_ct + 1]));
+  bgzfp->cwws = R_CAST(BgzfCompressCommWithW**, &(bgzfp->cwps[slot_ct]));
+  raw_alloc = &(raw_alloc[ptrs_aligned_size]);
+
+  bgzfp->compressor_args = R_CAST(BgzfCompressorContext*, raw_alloc);
+  raw_alloc = &(raw_alloc[compressor_args_aligned_size]);
+
+  bgzfp->next_job_idxp = R_CAST(uintptr_t*, raw_alloc);
+  raw_alloc = &(raw_alloc[kCacheline]);
+
+  for (uint32_t slot_idx = 0; slot_idx != slot_ct; ++slot_idx) {
+    BgzfCompressCommWithP* cwp = R_CAST(BgzfCompressCommWithP*, raw_alloc);
+    bgzfp->cwps[slot_idx] = cwp;
+    raw_alloc = &(raw_alloc[cwp_aligned_size]);
+
+#ifdef _WIN32
+    HANDLE new_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+    if (unlikely(!new_event)) {
+      bgzfp->unfinished_init_state = (slot_idx << 3) | 2;
+      return kPglRetThreadCreateFail;
+    }
+    cwp->ucbuf_filled_event = new_event;
+
+    new_event = CreateEvent(nullptr, FALSE, slot_idx? TRUE : FALSE, nullptr);
+    if (unlikely(!new_event)) {
+      bgzfp->unfinished_init_state = (slot_idx << 3) | 3;
+      return kPglRetThreadCreateFail;
+    }
+    cwp->ucbuf_open_event = new_event;
+#else
+    if (unlikely(pthread_mutex_init(&cwp->ucbuf_mutex, nullptr))) {
+      bgzfp->unfinished_init_state = (slot_idx << 3) | 1;
+      return kPglRetThreadCreateFail;
+    }
+    if (unlikely(pthread_cond_init(&cwp->ucbuf_filled_condvar, nullptr))) {
+      bgzfp->unfinished_init_state = (slot_idx << 3) | 2;
+      return kPglRetThreadCreateFail;
+    }
+    if (unlikely(pthread_cond_init(&cwp->ucbuf_open_condvar, nullptr))) {
+      bgzfp->unfinished_init_state = (slot_idx << 3) | 3;
+      return kPglRetThreadCreateFail;
+    }
+#endif
+    cwp->nbytes = UINT32_MAX;
+
+    BgzfCompressCommWithW* cww = R_CAST(BgzfCompressCommWithW*, raw_alloc);
+    bgzfp->cwws[slot_idx] = cww;
+    raw_alloc = &(raw_alloc[cww_aligned_size]);
+#ifdef _WIN32
+    new_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+    if (unlikely(!new_event)) {
+      bgzfp->unfinished_init_state = (slot_idx << 3) | 5;
+      return kPglRetThreadCreateFail;
+    }
+    cww->cbuf_filled_event = new_event;
+    new_event = CreateEvent(nullptr, FALSE, TRUE, nullptr);
+    if (unlikely(!new_event)) {
+      bgzfp->unfinished_init_state = (slot_idx << 3) | 6;
+      return kPglRetThreadCreateFail;
+    }
+    cww->cbuf_open_event = new_event;
+#else
+    if (unlikely(pthread_mutex_init(&cww->cbuf_mutex, nullptr))) {
+      bgzfp->unfinished_init_state = (slot_idx << 3) | 4;
+      return kPglRetThreadCreateFail;
+    }
+    if (unlikely(pthread_cond_init(&cww->cbuf_filled_condvar, nullptr))) {
+      bgzfp->unfinished_init_state = (slot_idx << 3) | 5;
+      return kPglRetThreadCreateFail;
+    }
+    if (unlikely(pthread_cond_init(&cww->cbuf_open_condvar, nullptr))) {
+      bgzfp->unfinished_init_state = (slot_idx << 3) | 6;
+      return kPglRetThreadCreateFail;
+    }
+#endif
+    memcpy(cww->cbuf, kBgzfEofBlock, 16);
+    cww->nbytes = UINT32_MAX;
+    cww->eof = 0;
+  }
+
+  for (uint32_t tidx = 0; tidx != compressor_thread_ct; ++tidx) {
+    struct libdeflate_compressor* lc = libdeflate_alloc_compressor(clvl);
+    if (unlikely(!lc)) {
+      bgzfp->unfinished_init_state = (kMaxBgzfSlotCt << 3) | tidx;
+      return kPglRetNomem;
+    }
+    bgzfp->compressor_args[tidx].parent = bgzfp;
+    bgzfp->compressor_args[tidx].lc = lc;
+  }
+  *(bgzfp->next_job_idxp) = 0;
+  bgzfp->partial_slot_idx = 0;
+  bgzfp->partial_nbytes = 0;
+#ifndef _WIN32
+#  ifndef __cplusplus
+  pthread_attr_t smallstack_thread_attr;
+  if (unlikely(pthread_attr_init(&smallstack_thread_attr))) {
+    bgzfp->unfinished_init_state = (kMaxBgzfSlotCt << 3);
+    return kPglRetThreadCreateFail;
+  }
+#  endif
+#endif
+  for (uint32_t tidx = 0; tidx != compressor_thread_ct; ++tidx) {
+#ifdef _WIN32
+    bgzfp->threads[tidx] = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStack, BgzfCompressorThread, &(bgzfp->compressor_args[tidx]), 0, nullptr));
+    if (unlikely(!bgzfp->threads[tidx])) {
+      bgzfp->unfinished_init_state = (kMaxBgzfSlotCt << 4) | tidx;
+      return kPglRetThreadCreateFail;
+    }
+#else
+    if (unlikely(pthread_create(&(bgzfp->threads[tidx]),
+#  ifdef __cplusplus
+                                &g_thread_startup.smallstack_thread_attr,
+#  else
+                                &smallstack_thread_attr,
+#  endif
+                                BgzfCompressorThread, &(bgzfp->compressor_args[tidx])))) {
+#  ifndef __cplusplus
+      pthread_attr_destroy(&smallstack_thread_attr);
+#  endif
+      bgzfp->unfinished_init_state = (kMaxBgzfSlotCt << 4) | tidx;
+      return kPglRetThreadCreateFail;
+    }
+#endif
+  }
+#ifdef _WIN32
+  bgzfp->threads[compressor_thread_ct] = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStack, BgzfCompressWriterThread, bgzfp, 0, nullptr));
+  if (unlikely(!bgzfp->threads[compressor_thread_ct])) {
+    bgzfp->unfinished_init_state = (kMaxBgzfSlotCt << 4) | compressor_thread_ct;
+    return kPglRetThreadCreateFail;
+  }
+#else
+  if (unlikely(pthread_create(&(bgzfp->threads[compressor_thread_ct]),
+#  ifdef __cplusplus
+                              &g_thread_startup.smallstack_thread_attr,
+#  else
+                              &smallstack_thread_attr,
+#  endif
+                              BgzfCompressWriterThread, bgzfp))) {
+#  ifndef __cplusplus
+    pthread_attr_destroy(&smallstack_thread_attr);
+#  endif
+    bgzfp->unfinished_init_state = (kMaxBgzfSlotCt << 4) | compressor_thread_ct;
+    return kPglRetThreadCreateFail;
+  }
+#  if !defined(__cplusplus)
+  pthread_attr_destroy(&smallstack_thread_attr);
+#  endif
+#endif
   bgzfp->write_errno = 0;
-  bgzfp->thread_ct = 0;
-  bgzfp->eof = 0;
+  bgzfp->unfinished_init_state = 0;
+  return kPglRetSuccess;
+}
+
+BoolErr BgzfWrite(const char* buf, uintptr_t len, BgzfCompressStream* bgzfp) {
+  const uint32_t slot_ct = bgzfp->slot_ct;
+  if (!slot_ct) {
+    // No compression.
+    if (unlikely(fwrite_checked(buf, len, bgzfp->ff))) {
+      // If caller ignores error-return and keeps trying to write, force
+      // segfault instead of silently proceeding.
+      fclose(bgzfp->ff);
+      bgzfp->ff = nullptr;
+      return 1;
+    }
+    return 0;
+  }
+  if (bgzfp->write_errno) {
+    errno = bgzfp->write_errno;
+    return 1;
+  }
+  uint32_t slot_idx = bgzfp->partial_slot_idx;
+  BgzfCompressCommWithP* cwp = bgzfp->cwps[slot_idx];
+  uint32_t dst_offset = bgzfp->partial_nbytes;
+  while (dst_offset + len >= kBgzfInputBlockSize) {
+    const uint32_t ncopy = kBgzfInputBlockSize - dst_offset;
+    memcpy(&(cwp->ucbuf[dst_offset]), buf, ncopy);
+#ifdef _WIN32
+    cwp->nbytes = kBgzfInputBlockSize;
+    SetEvent(cwp->ucbuf_filled_event);
+#else
+    pthread_mutex_lock(&(cwp->ucbuf_mutex));
+    cwp->nbytes = kBgzfInputBlockSize;
+    pthread_cond_signal(&(cwp->ucbuf_filled_condvar));
+    pthread_mutex_unlock(&(cwp->ucbuf_mutex));
+#endif
+    if (++slot_idx == slot_ct) {
+      slot_idx = 0;
+    }
+    cwp = bgzfp->cwps[slot_idx];
+#ifdef _WIN32
+    WaitForSingleObject(cwp->ucbuf_open_event, INFINITE);
+#else
+    pthread_mutex_lock(&(cwp->ucbuf_mutex));
+    while (cwp->nbytes != UINT32_MAX) {
+      pthread_cond_wait(&(cwp->ucbuf_open_condvar), &(cwp->ucbuf_mutex));
+    }
+    pthread_mutex_unlock(&(cwp->ucbuf_mutex));
+#endif
+    if (bgzfp->write_errno) {
+      errno = bgzfp->write_errno;
+      bgzfp->partial_slot_idx = slot_idx;
+      bgzfp->partial_nbytes = 0;
+      return 1;
+    }
+    len -= ncopy;
+    buf = &(buf[ncopy]);
+    dst_offset = 0;
+  }
+  memcpy(&(cwp->ucbuf[dst_offset]), buf, len);
+  bgzfp->partial_slot_idx = slot_idx;
+  bgzfp->partial_nbytes = dst_offset + len;
+  return 0;
 }
 
 BoolErr CleanupBgzfCompressStream(BgzfCompressStream* bgzfp, PglErr* reterrp) {
-  const uint32_t thread_ct = bgzfp->thread_ct;
-  if (thread_ct) {
-    uint32_t tidx_stop = bgzfp->partial_write_tidx;
-    uint32_t tidx = tidx_stop;
-    if (!tidx_stop) {
-      tidx_stop = thread_ct - 1;
-    } else {
-      --tidx_stop;
-    }
-    if (!bgzfp->eof) {
-      // todo: send zero bytes, regardless of partial_write_nbytes value;
-      // caller is responsible for flushing earlier in non-error case
-      if (++tidx == thread_ct) {
-        tidx = 0;
+  pthread_t* threads = bgzfp->threads;
+  if (threads) {
+    uint32_t slot_ct = bgzfp->slot_ct;
+    const uint32_t unfinished_init = bgzfp->unfinished_init_state;
+    if ((!unfinished_init) || (unfinished_init >= (kMaxBgzfSlotCt << 3))) {
+      const uint32_t cthread_ct = bgzfp->compressor_thread_ct;
+      uint32_t launched_cthread_ct = 0;
+      uint32_t launched_thread_ct = 0;
+      if (!unfinished_init) {
+        launched_cthread_ct = cthread_ct;
+        launched_thread_ct = cthread_ct + 1;
+      } else if (unfinished_init >= (kMaxBgzfSlotCt << 4)) {
+        launched_cthread_ct = unfinished_init - (kMaxBgzfSlotCt << 4);
+        launched_thread_ct = launched_cthread_ct;
       }
-    }
-    do {
-      // todo: send zero bytes to remaining threads in sequence
-      if (++tidx == thread_ct) {
-        tidx = 0;
-      }
-    } while (tidx != tidx_stop);
+      if (launched_cthread_ct) {
+        uint32_t slot_idx = bgzfp->partial_slot_idx;
+        uint32_t slot_idx_stop = slot_idx + launched_cthread_ct;
+        if (slot_idx_stop >= slot_ct) {
+          slot_idx_stop -= slot_ct;
+        }
+        uint32_t nbytes = bgzfp->partial_nbytes;
+        BgzfCompressCommWithP* cwp = bgzfp->cwps[slot_idx];
+        do {
+          // ok to send nbytes > 0 even in error-return case: the precise value
+          // will be ignored, the worker will just see that it's less than
+          // kBgzfInputBlockSize and return
 #ifdef _WIN32
-    // destroy handles
+          cwp->nbytes = nbytes;
+          SetEvent(cwp->ucbuf_filled_event);
 #else
-    // destroy mutexes/condvars
+          pthread_mutex_lock(&(cwp->ucbuf_mutex));
+          cwp->nbytes = nbytes;
+          pthread_cond_signal(&(cwp->ucbuf_filled_condvar));
+          pthread_mutex_unlock(&(cwp->ucbuf_mutex));
 #endif
-    bgzfp->thread_ct = 0;
-    errno = bgzfp->write_errno;
-    bgzfp->write_errno = 0;
-    bgzfp->eof = 0;
-    assert(!bgzfp->ff);  // should be closed and set to nullptr by worker
-  } else if (bgzfp->ff) {
+          if (++slot_idx == slot_ct) {
+            slot_idx = 0;
+          }
+          cwp = bgzfp->cwps[slot_idx];
+#ifdef _WIN32
+          WaitForSingleObject(cwp->ucbuf_open_event, INFINITE);
+#else
+          pthread_mutex_lock(&(cwp->ucbuf_mutex));
+          while (cwp->nbytes != UINT32_MAX) {
+            pthread_cond_wait(&(cwp->ucbuf_open_condvar), &(cwp->ucbuf_mutex));
+          }
+          pthread_mutex_unlock(&(cwp->ucbuf_mutex));
+#endif
+          nbytes = 0;
+        } while (slot_idx != slot_idx_stop);
+#ifdef _WIN32
+        WaitForMultipleObjects(launched_thread_ct, threads, 1, INFINITE);
+        for (uint32_t tidx = 0; tidx != launched_thread_ct; ++tidx) {
+          CloseHandle(threads[tidx]);
+        }
+#else
+        for (uint32_t tidx = 0; tidx != launched_thread_ct; ++tidx) {
+          pthread_join(threads[tidx], nullptr);
+        }
+#endif
+      }
+      uint32_t compressor_ct = cthread_ct;
+      if (unfinished_init & (kMaxBgzfSlotCt << 3)) {
+        compressor_ct = unfinished_init - (kMaxBgzfSlotCt << 3);
+      }
+      for (uint32_t tidx = 0; tidx != compressor_ct; ++tidx) {
+        libdeflate_free_compressor(bgzfp->compressor_args[tidx].lc);
+      }
+    } else {
+      slot_ct = unfinished_init >> 3;
+      const uint32_t slot_partial_init = unfinished_init & 7;
+      do {
+#ifdef _WIN32
+        if (slot_partial_init == 2) {
+          break;
+        }
+        BgzfCompressCommWithP* cwp = bgzfp->cwps[slot_ct];
+        CloseHandle(cwp->ucbuf_filled_event);
+        if (slot_partial_init == 3) {
+          break;
+        }
+        CloseHandle(cwp->ucbuf_open_event);
+        if (slot_partial_init == 5) {
+          break;
+        }
+        BgzfCompressCommWithW* cww = bgzfp->cwws[slot_ct];
+        CloseHandle(cww->cbuf_filled_event);
+#else
+        if (slot_partial_init == 1) {
+          break;
+        }
+        BgzfCompressCommWithP* cwp = bgzfp->cwps[slot_ct];
+        pthread_mutex_destroy(&cwp->ucbuf_mutex);
+        if (slot_partial_init == 2) {
+          break;
+        }
+        pthread_cond_destroy(&cwp->ucbuf_filled_condvar);
+        if (slot_partial_init == 3) {
+          break;
+        }
+        pthread_cond_destroy(&cwp->ucbuf_open_condvar);
+        if (slot_partial_init == 4) {
+          break;
+        }
+        BgzfCompressCommWithW* cww = bgzfp->cwws[slot_ct];
+        pthread_mutex_destroy(&cww->cbuf_mutex);
+        if (slot_partial_init == 5) {
+          break;
+        }
+        pthread_cond_destroy(&cww->cbuf_filled_condvar);
+#endif
+        assert(slot_partial_init == 6);
+      } while (0);
+    }
+    for (uint32_t slot_idx = 0; slot_idx != slot_ct; ++slot_idx) {
+      BgzfCompressCommWithP* cwp = bgzfp->cwps[slot_idx];
+      BgzfCompressCommWithW* cww = bgzfp->cwws[slot_idx];
+#ifdef _WIN32
+      CloseHandle(cwp->ucbuf_filled_event);
+      CloseHandle(cwp->ucbuf_open_event);
+      CloseHandle(cww->cbuf_filled_event);
+      CloseHandle(cww->cbuf_open_event);
+#else
+      pthread_mutex_destroy(&cwp->ucbuf_mutex);
+      pthread_cond_destroy(&cwp->ucbuf_filled_condvar);
+      pthread_cond_destroy(&cwp->ucbuf_open_condvar);
+      pthread_mutex_destroy(&cww->cbuf_mutex);
+      pthread_cond_destroy(&cww->cbuf_filled_condvar);
+      pthread_cond_destroy(&cww->cbuf_open_condvar);
+#endif
+    }
+    aligned_free(threads);
+    bgzfp->threads = nullptr;
+    if (unfinished_init) {
+      assert(*reterrp != kPglRetSuccess);
+      fclose(bgzfp->ff);
+      bgzfp->ff = nullptr;
+      // don't need to clear bgzfp->unfinished_init_state
+    } else {
+      errno = bgzfp->write_errno;
+    }
+  } else if (bgzfp->ff) {  // uncompressed case
     if (unlikely(fclose(bgzfp->ff))) {
       if (*reterrp == kPglRetSuccess) {
         bgzfp->ff = nullptr;

@@ -206,9 +206,9 @@ int32_t main(int32_t argc, char** argv) {
     break;
   }
  main_ret_1:
-  CleanupPgr(&pgr);
+  CleanupPgr(&pgr, &reterr);
 #ifndef NO_MMAP
-  CleanupPgfi(&pgfi);
+  CleanupPgfi(&pgfi, &reterr);
 #endif
   SpgwCleanup(&spgw);
   if (pgfi_alloc) {

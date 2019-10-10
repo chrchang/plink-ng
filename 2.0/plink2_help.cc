@@ -138,7 +138,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("bfile\0fam\0no-fid\0no-parents\0no-sex\0", &help_ctrl, 1,
 "  --no-fid           : .fam file does not contain column 1 (family ID).\n"
 "  --no-parents       : .fam file does not contain columns 3-4 (parents).\n"
-"  --no-sex           : .fam file does not contain column 5 (sex).\n"
+"  --no-sex           : .fam file does not contain column 5 (sex).\n\n"
                );
     // probable todo: dosage=AD mode.
     HelpPrint("vcf\0bcf\0psam\0fam\0", &help_ctrl, 1,
@@ -180,7 +180,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      'ref-last': The last allele for each variant is REF.\n"
 "      'ref-unknown' (default): The last allele for each variant is treated as\n"
 "                               provisional-REF.\n"
-"      This parameter will be required instead of optional in alpha 3.\n"
+"      This parameter will be required instead of optional in alpha 3.\n\n"
                );
     // todo: make 'per' prefix modifiable
     HelpPrint("haps\0legend\0", &help_ctrl, 1,
@@ -741,7 +741,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      halfmiss: Number of variants with exactly 1 missing genotype/dosage.\n"
 "                Ignored without 'include-missing'.\n"
 "      diff: Total number of differences.\n"
-"    The default is maybefid,maybesid,nobs,halfmiss,diff.\n"
+"    The default is maybefid,maybesid,nobs,halfmiss,diff.\n\n"
               );
     // for kinship estimation, LD pruning isn't really advisable (if more speed
     // is needed, the humble --bp-space may lead to a better approximation?
@@ -1270,18 +1270,19 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                       is treated as nonexistence.\n"
                );
     HelpPrint("pheno\0pheno-name\0pheno-col-nums\0mpheno\0", &help_ctrl, 0,
-"  --pheno <filename>     : Specify additional phenotype/covariate file.\n"
-"                           Comma-delimited files with a header line are now\n"
-"                           permitted.\n"
-"  --pheno-name <...>     : Only load the designated phenotype(s) from the\n"
-"                           --pheno (if one was specified) or .psam (if no\n"
-"                           --pheno) file.  Separate multiple names with spaces\n"
-"                           or commas, and use dashes to designate ranges.\n"
-"  --pheno-col-nums <...> : Only load the phenotype(s) in the designated column\n"
-"                           number(s) from the --pheno file.\n"
+"  --pheno ['iid-only'] <f> : Specify additional phenotype/covariate file.\n"
+"                             Comma-delimited files with a header line are now\n"
+"                             permitted.\n"
+"  --pheno-name <name...>   : Only load the designated phenotype(s) from the\n"
+"                             --pheno (if one was specified) or .psam (if no\n"
+"                             --pheno) file.  Separate multiple names with\n"
+"                             spaces or commas, and use dashes to designate\n"
+"                             ranges.\n"
+"  --pheno-col-nums <#...>  : Only load the phenotype(s) in the designated\n"
+"                             column number(s) from the --pheno file.\n"
                );
     HelpPrint("bfile\0fam\0psam\0no-psam-pheno\0no-fam-pheno\0no-pheno\0pheno\0pheno-name\0", &help_ctrl, 0,
-"  --no-psam-pheno        : Ignore phenotype(s) in .psam/.fam file.\n"
+"  --no-psam-pheno          : Ignore phenotype(s) in .psam/.fam file.\n"
                );
     HelpPrint("strict-sid0\0", &help_ctrl, 0,
 "  --strict-sid0      : By default, if there is no SID column in the .psam/.fam\n"
@@ -1306,14 +1307,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                  (case-sensitive, default 'NONE').\n"
                );
     HelpPrint("covar\0covar-name\0covar-col-nums\0covar-number\0", &help_ctrl, 0,
-"  --covar <filename>     : Specify additional covariate file.  Comma-delimited\n"
-"                           files with a header line are now permitted.\n"
-"  --covar-name <...>     : Only load the designated covariate(s) from the\n"
-"                           --covar (if one was specified), --pheno (if no\n"
-"                           --covar), or .psam (if no --covar or --pheno) file.\n"
-"  --covar-col-nums <...> : Only load the covariate(s) in the designated column\n"
-"                           number(s) from the --covar (if one was specified) or\n"
-"                           --pheno (if no --covar) file.\n"
+"  --covar ['iid-only'] <f> : Specify additional covariate file.\n"
+"                             Comma-delimited files with a header line are now\n"
+"                             permitted.\n"
+"  --covar-name <name...>   : Only load the designated covariate(s) from the\n"
+"                             --covar (if one was specified), --pheno (if no\n"
+"                             --covar), or .psam (if no --covar or --pheno)\n"
+"                             file.\n"
+"  --covar-col-nums <#...>  : Only load the covariate(s) in the designated\n"
+"                             column number(s) from the --covar (if one was\n"
+"                             specified) or --pheno (if no --covar) file.\n"
                );
     HelpPrint("within\0mwithin\0family\0family-missing-catname\0", &help_ctrl, 0,
 "  --within <f> [new pheno name] : Import a PLINK 1.x categorical phenotype.\n"

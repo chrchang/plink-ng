@@ -134,7 +134,9 @@ FLAGSET64_DEF_START()
   kfMiscBiallelicOnlyList = (1LLU << 36),
   kfMiscStrictSid0 = (1LLU << 37),
   kfMiscAllowBadFreqs = (1LLU << 38),
-  kfMiscIidSid = (1LLU << 39)
+  kfMiscIidSid = (1LLU << 39),
+  kfMiscPhenoIidOnly = (1LLU << 40),
+  kfMiscCovarIidOnly = (1LLU << 41)
 FLAGSET64_DEF_END(MiscFlags);
 
 FLAGSET64_DEF_START()
@@ -972,6 +974,36 @@ ENUM_U31_DEF_START()
 ENUM_U31_DEF_END(VfilterType);
 
 extern const char g_vft_names[3][18];
+
+HEADER_INLINE BoolErr CleanupPgfi2(const char* file_descrip, PgenFileInfo* pgfip, PglErr* reterrp) {
+  if (CleanupPgfi(pgfip, reterrp)) {
+    logerrprintfww(kErrprintfFread, file_descrip, strerror(errno));
+    return 1;
+  }
+  return 0;
+}
+
+HEADER_INLINE BoolErr CleanupPgr2(const char* file_descrip, PgenReader* pgrp, PglErr* reterrp) {
+  if (CleanupPgr(pgrp, reterrp)) {
+    logerrprintfww(kErrprintfFread, file_descrip, strerror(errno));
+    return 1;
+  }
+  return 0;
+}
+
+HEADER_INLINE void PgenErrPrintNEx(const char* file_descrip, PglErr reterr) {
+  if (reterr == kPglRetReadFail) {
+    logputs("\n");
+    logerrprintfww(kErrprintfFread, file_descrip, strerror(errno));
+  } else if (reterr == kPglRetMalformedInput) {
+    logputs("\n");
+    logerrprintfww("Error: Malformed %s.\n", file_descrip);
+  }
+}
+
+HEADER_INLINE void PgenErrPrintN(PglErr reterr) {
+  PgenErrPrintNEx(".pgen file", reterr);
+}
 
 #ifdef __cplusplus
 }  // namespace plink2

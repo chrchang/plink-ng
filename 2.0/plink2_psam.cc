@@ -855,7 +855,7 @@ typedef struct PhenoInfoLlStruct {
 
 // also for loading covariates.  set affection_01 to 2 to prohibit case/control
 // and make unnamed variables start with "COVAR" instead of "PHENO"
-PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, int32_t missing_pheno, uint32_t affection_01, uint32_t numeric_ranges, uint32_t max_thread_ct, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
+PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, int32_t missing_pheno, uint32_t affection_01, uint32_t iid_only, uint32_t numeric_ranges, uint32_t max_thread_ct, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* pheno_names = nullptr;
   uintptr_t line_idx = 0;
@@ -905,6 +905,10 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
       }
       const char* iid_end;
       if (xid_mode == kfXidModeFidIid) {
+        if (iid_only) {
+          snprintf(g_logbuf, kLogbufSize, "Error: \"--%s iid-only\" file has a FID column.\n", (affection_01 == 2)? "covar" : "pheno");
+          goto LoadPhenos_ret_INCONSISTENT_INPUT_2;
+        }
         iid_end = CommaOrTspaceTokenEnd(linebuf_iter, comma_delim);
         const uintptr_t token_slen = iid_end - linebuf_iter;
         if (unlikely(!strequal_k(linebuf_iter, "IID", token_slen))) {
@@ -1003,11 +1007,11 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
       line_iter = AdvToDelim(linebuf_iter, '\n');
     } else {
       // no header line
-      xid_mode = kfXidModeFidIid;
+      xid_mode = iid_only? kfXidModeIid : kfXidModeFidIid;
       // don't support comma delimiter here, since we don't have guaranteed
       // leading FID/IID to distinguish it
       const uint32_t col_ct = CountTokens(line_iter);
-      if (unlikely(col_ct < 3)) {
+      if (unlikely(col_ct < 3 - iid_only)) {
         // todo: tolerate col_ct == 2 with --allow-no-phenos
         goto LoadPhenos_ret_MISSING_TOKENS;
       }
@@ -1016,12 +1020,12 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
           snprintf(g_logbuf, kLogbufSize, "Error: Header line expected in %s, due to --pheno-name/--covar-name. (This line must start with '#FID', 'FID', '#IID', or 'IID'.)\n", pheno_fname);
           goto LoadPhenos_ret_INCONSISTENT_INPUT_WW;
         }
-        const uint32_t bitarr_size = col_ct - 2;
+        const uint32_t bitarr_size = col_ct + iid_only - 2;
         uintptr_t* bitarr;
         if (unlikely(bigstack_calloc_w(BitCtToWordCt(bitarr_size), &bitarr))) {
           goto LoadPhenos_ret_NOMEM;
         }
-        if (unlikely(NumericRangeListToBitarr(pheno_range_list_ptr, bitarr_size, 3, 0, bitarr))) {
+        if (unlikely(NumericRangeListToBitarr(pheno_range_list_ptr, bitarr_size, 3 - iid_only, 0, bitarr))) {
           snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s-col-nums argument for %s.\n", (affection_01 == 2)? "covar" : "pheno", pheno_fname);
           goto LoadPhenos_ret_INCONSISTENT_INPUT_WW;
         }
@@ -1042,7 +1046,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
           prev_col_uidx = col_uidx;
         }
       } else {
-        new_pheno_ct = col_ct - 2;
+        new_pheno_ct = col_ct + iid_only - 2;
         // bugfix (11 Mar 2018): forgot to initialize col_types here
         if (unlikely(
                 bigstack_alloc_u32(new_pheno_ct, &col_types) ||
@@ -1455,6 +1459,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
     break;
   LoadPhenos_ret_INCONSISTENT_INPUT_WW:
     WordWrapB(0);
+  LoadPhenos_ret_INCONSISTENT_INPUT_2:
     logerrputsb();
   LoadPhenos_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;

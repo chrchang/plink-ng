@@ -165,74 +165,114 @@ void CleanupBgzfRawMtStream(BgzfRawMtDecompressStream* bgzfp);
 
 
 // Compression strategy:
-// If there are n compressor threads numbered 0..(n-1), thread k compresses
-// (0-based) blocks k, n+k, 2n+k, ...
-// 1. worker waits on produced_event
-// 2. producer fills ucbuf, signals produced_event
-// 3. worker compresses
-// 4. worker signals compressed_event
-// 5. worker waits on prev_write_event (unless thread_ct == 1)
-// 6. worker writes
-// 7. worker signals next_write_event (unless thread_ct == 1)
-// (todo: check if it's better to have a dedicated writer thread)
+// - We have N compression-job memory slots, where N is the smallest power of 2
+//   >= 4 * compressor_thread_ct.  (This could be adjusted and/or separately
+//   configurable, any value >= 2 * compressor_thread_ct is reasonable.)
+// - For the most common plink2 use case (VCF export), compression is over 90%
+//   of the compute cost.  Thus, a good implementation must be optimized around
+//   minimizing compressor-thread waits, in a setting where one core's workload
+//   is split between production and compression and the other cores are
+//   compressing all the time.
+//   I first implemented the trivial load-balancing strategy (compressor thread
+//   k processes blocks k, n+k, 2n+k, ..., where n is the number of compressor
+//   threads), but that proved to be slightly slower than htslib's bgzf writer
+//   in my testing; it didn't do a good enough job of managing the
+//   split-between-production-and-compression core.
+//   So I've switched to a more flexible thread pool using
+//   __sync_fetch_and_add() to distribute compression jobs.
+// - There's a dedicated writer thread which flushes the compression results.
+// I will look into adding direct support for this parallelization pattern to
+// plink2_thread; the benefit is small (~5%), but applies to a lot of
+// workloads.
+//
+// I tried making this less granular (each job contains two blocks instead of
+// one) to see if there was still meaningful room for improvement re: reducing
+// thread-synchronization overhead; that didn't seem to make any better use of
+// the extra memory than keeping the basic granularity level and doubling the
+// number of slots.
 
-CONSTI32(kMaxBgzfCompressThreads, 12);
+CONSTI32(kMaxBgzfCompressThreads, 15);
 CONSTI32(kBgzfInputBlockSize, 0xff00);  // htslib BGZF_BLOCK_SIZE
 
-typedef struct BgzfCompressCommWithPStruct {
-  // Producer -> worker.
-  char ucbuf[kBgzfInputBlockSize];
+typedef struct BgzfCompressStreamStruct BgzfCompressStream;
 
+typedef struct BgzfCompressCommWithWStruct {
+  // Compressor -> writer.  One per block slot.
+  unsigned char cbuf[kMaxBgzfCompressedBlockSize];
+  uint32_t nbytes;  // UINT32_MAX = open
+  uint32_t eof;
 #ifdef _WIN32
-  HANDLE produced_event;
-  HANDLE compressed_event;
+  HANDLE cbuf_filled_event;
+  HANDLE cbuf_open_event;
 #else
-  pthread_mutex_t pw_mutex;
-  pthread_cond_t produced_condvar;
-  pthread_cond_t compressed_condvar;
+  pthread_mutex_t cbuf_mutex;
+  pthread_cond_t cbuf_filled_condvar;
+  pthread_cond_t cbuf_open_condvar;
 #endif
-  // Initially UINT32_MAX; this indicates ucbuf is available to be filled.  If
-  // this is set less than kBgzfInputBlockSize, the worker will close the file
-  // and terminate after compressing the block.  (The error-cleanup routine
-  // sets this to zero.)
-  uint32_t uc_nbytes;
+} BgzfCompressCommWithW;
+
+typedef struct BgzfCompressCommWithPStruct {
+  // Producer -> compressor.  One per block slot.
+  char ucbuf[kBgzfInputBlockSize];
+#ifdef _WIN32
+  HANDLE ucbuf_filled_event;
+  HANDLE ucbuf_open_event;
+#else
+  pthread_mutex_t ucbuf_mutex;
+  pthread_cond_t ucbuf_filled_condvar;
+  pthread_cond_t ucbuf_open_condvar;
+#endif
+  uint32_t nbytes;  // UINT32_MAX = open
 } BgzfCompressCommWithP;
 
-typedef struct BgzfCompressCommBetweenWStruct {
-#ifdef _WIN32
-  HANDLE written_event;
-#else
-  pthread_mutex_t ww_mutex;
-  pthread_cond_t ww_condvar;
-  uint32_t is_written;  // set back to zero when next worker thread sees this
-#endif
-} BgzfCompressCommBetweenW;
-
-typedef struct BgzfCompressWorkerStruct {
+typedef struct BgzfCompressorContextStruct {
+  BgzfCompressStream* parent;
   struct libdeflate_compressor* lc;
-  unsigned char cbuf[kMaxBgzfCompressedBlockSize];
-} BgzfCompressWorker;
+  // don't need tidx any more...
+} BgzfCompressorContext;
 
-typedef struct BgzfCompressStreamStruct {
+struct BgzfCompressStreamStruct {
   NONCOPYABLE(BgzfCompressStreamStruct);
   FILE* ff;
-  BgzfCompressWorker* cw;
-  BgzfCompressCommWithP* cwp;
-  BgzfCompressCommBetweenW* cbw;
+  pthread_t* threads;  // n+1 elements, last element is writer
+  BgzfCompressCommWithP** cwps;  // N elements
+  BgzfCompressCommWithW** cwws;  // N elements
+
+  BgzfCompressorContext* compressor_args;  // n elements
+
+  // Atomically read/updated, guaranteed to be on its own cacheline.
+  uintptr_t* next_job_idxp;
 
   int32_t write_errno;
 
-  uint16_t thread_ct;
-  uint16_t partial_write_tidx;
-  uint16_t partial_write_nbytes;  // always < kBgzfInputBlockSize
-  uint16_t eof;
-#ifndef _WIN32
-  uint16_t sync_init_thread_ct;
-  uint16_t sync_init_state;
-#endif
-} BgzfCompressStream;
+  uint16_t slot_ct;
+  uint16_t compressor_thread_ct;  // 0 if no compression
+  uint16_t partial_slot_idx;  // this ucbuf must be open
+  uint16_t partial_nbytes;  // always < kBgzfInputBlockSize
+
+  // If nonzero, initialization didn't complete, and this value contains enough
+  // (platform-specific) information to clean up properly.
+  // Not an enum since we perform a bit of arithmetic on it.
+  uint16_t unfinished_init_state;
+};
 
 void PreinitBgzfCompressStream(BgzfCompressStream* bgzfp);
+
+CONSTI32(kBgzfDefaultClvl, 6);
+
+// - Compression level 0 = plaintext (not a BGZF file at all), so application
+//   code no longer has to explicitly branch on bgzf/non-bgzf output.
+// - thread_ct only applies when clvl != 0.  When that's true, it's internally
+//   clipped to [2, kMaxBgzfCompressThreads].
+// - errno is set on open-fail.
+PglErr InitBgzfCompressStreamEx(const char* out_fname, uint32_t do_append, uint32_t clvl, uint32_t thread_ct, BgzfCompressStream* bgzfp);
+
+HEADER_INLINE PglErr InitBgzfCompressStream(const char* out_fname, uint32_t thread_ct, BgzfCompressStream* bgzfp) {
+  return InitBgzfCompressStreamEx(out_fname, 0, kBgzfDefaultClvl, thread_ct, bgzfp);
+}
+
+// errno is set on write-fail.
+BoolErr BgzfWrite(const char* buf, uintptr_t len, BgzfCompressStream* bgzfp);
 
 BoolErr CleanupBgzfCompressStream(BgzfCompressStream* bgzfp, PglErr* reterrp);
 

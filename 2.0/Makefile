@@ -6,9 +6,9 @@
 
 # Does not currently support -DCPU_CHECK_...
 
-BASEFLAGS=-g -mavx2 -mbmi -mbmi2 -mlzcnt -DSTATIC_ZSTD -DZSTD_MULTITHREAD
-# BASEFLAGS=-g -msse4.2 -DSTATIC_ZSTD -DZSTD_MULTITHREAD
-# BASEFLAGS=-g -DSTATIC_ZSTD -DZSTD_MULTITHREAD
+BASEFLAGS=-g -mavx2 -mbmi -mbmi2 -mlzcnt -DZSTD_MULTITHREAD
+# BASEFLAGS=-g -msse4.2 -DZSTD_MULTITHREAD
+# BASEFLAGS=-g -DZSTD_MULTITHREAD
 
 include Makefile.src
 
@@ -23,9 +23,9 @@ BLASFLAGS64	?= -llapack -lf77blas -latlas
 ARCH32		?=
 
 # Mandatory flags added to defaults or env settings
-CFLAGS		+= -std=gnu99 $(BASEFLAGS) $(CWARN) $(CINCLUDE) $(ZSTD_INCLUDE)
+CFLAGS		+= -std=gnu99 $(BASEFLAGS) $(CWARN) $(CINCLUDE)
 CXXFLAGS	+= -std=c++14 $(BASEFLAGS) $(CXXWARN)
-LDFLAGS		+= -lm -lpthread -L. $(ZLIB)
+LDFLAGS		+= -lm -lpthread -L. $(ZLIB) -lzstd
 
 # Installation defaults
 MKDIR		?= mkdir
@@ -38,7 +38,7 @@ UNAME := $(shell uname)
 ifeq ($(UNAME), Darwin)
   BLASFLAGS=-framework Accelerate
   BLASFLAGS64=-framework Accelerate
-  LDFLAGS=-ldl -lpthread -lz
+  LDFLAGS=-ldl -lpthread -lz -lzstd
 endif
 
 %.o: %.c
@@ -52,9 +52,9 @@ all: plink2 pgen_compress
 # for clean build, "make clean" first
 # Run mkdir for both plink2 and pgen_compress as we don't know which
 # target will run first
-plink2: $(OBJ)
+plink2: $(OBJ_NO_ZSTD)
 	$(MKDIR) -p bin
-	$(CXX) $(ARCH32) $(OBJ) -o bin/plink2 $(BLASFLAGS64) $(LDFLAGS)
+	$(CXX) $(ARCH32) $(OBJ_NO_ZSTD) -o bin/plink2 $(BLASFLAGS64) $(LDFLAGS)
 
 # basic pgenlib_internal.h usage example; also needed for tests
 pgen_compress: plink2_base.o pgenlib_internal.o pgen_compress.o

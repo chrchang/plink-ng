@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1201
+#define PGENLIB_INTERNAL_VERNUM 1300
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -1466,10 +1466,11 @@ PglErr PgrGetMissingness(const uintptr_t* __restrict sample_include, const uint3
 PglErr PgrGetMissingnessD(const uintptr_t* __restrict sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict missingness_hc, uintptr_t* __restrict missingness_dosage, uintptr_t* __restrict hets, uintptr_t* __restrict genovec_buf);
 
 
-// failure = kPglRetReadFail
-BoolErr CleanupPgfi(PgenFileInfo* pgfip);
+// error-return iff reterr was success and was changed to kPglRetReadFail (i.e.
+// an error message should be printed).
+BoolErr CleanupPgfi(PgenFileInfo* pgfip, PglErr* reterrp);
 
-BoolErr CleanupPgr(PgenReader* pgrp);
+BoolErr CleanupPgr(PgenReader* pgrp, PglErr* reterrp);
 
 
 struct PgenWriterCommonStruct {
@@ -1519,8 +1520,6 @@ struct PgenWriterCommonStruct {
 };
 
 typedef struct PgenWriterCommonStruct PgenWriterCommon;
-
-CONSTI32(kPglFwriteBlockSize, 131072);
 
 // Given packed arrays of unphased biallelic genotypes in uncompressed plink2
 // binary format (00 = hom ref, 01 = het ref/alt1, 10 = hom alt1, 11 =

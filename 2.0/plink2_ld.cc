@@ -1124,11 +1124,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
               }
             }
             if (unlikely(reterr)) {
-              if (reterr != kPglRetReadFail) {
-                logputs("\n");
-                logerrputs("Error: Malformed .pgen file.\n");
-              }
-              goto IndepPairwise_ret_1;
+              goto IndepPairwise_ret_PGR_FAIL;
             }
           }
           thread_last_tvidx[cur_thread_idx] = tvidx_end;
@@ -1175,6 +1171,9 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
   IndepPairwise_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
+  IndepPairwise_ret_PGR_FAIL:
+    PgenErrPrintN(reterr);
+    break;
   IndepPairwise_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
     break;
@@ -1182,7 +1181,6 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     reterr = kPglRetNotYetSupported;
     break;
   }
- IndepPairwise_ret_1:
   CleanupThreads3z(&ts, &g_cur_batch_size);
   // caller will free memory
   return reterr;

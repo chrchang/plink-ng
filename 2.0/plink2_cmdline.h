@@ -1730,7 +1730,6 @@ void HelpPrint(const char* cur_params, HelpCtrl* help_ctrl_ptr, uint32_t postpri
 
 extern const char kErrstrNomem[];
 extern const char kErrstrWrite[];
-extern const char kErrstrRead[];
 extern const char kErrstrThreadCreate[];
 
 // assumes logfile is open

@@ -2326,19 +2326,16 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
             break;
           }
         }
-        if (unlikely(PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_write_ct, pgfip))) {
-          goto LoadAlleleAndGenoCounts_ret_READ_FAIL;
+        reterr = PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_write_ct, pgfip);
+        if (unlikely(reterr)) {
+          goto LoadAlleleAndGenoCounts_ret_PGR_FAIL;
         }
       }
       if (variant_idx) {
         JoinThreads3z(&ts);
         reterr = g_error_ret;
         if (unlikely(reterr)) {
-          if (reterr == kPglRetMalformedInput) {
-            logputs("\n");
-            logerrputs("Error: Malformed .pgen file.\n");
-          }
-          goto LoadAlleleAndGenoCounts_ret_1;
+          goto LoadAlleleAndGenoCounts_ret_PGR_FAIL;
         }
       }
       if (!ts.is_last_block) {
@@ -2409,8 +2406,8 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
   LoadAlleleAndGenoCounts_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  LoadAlleleAndGenoCounts_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
+  LoadAlleleAndGenoCounts_ret_PGR_FAIL:
+    PgenErrPrintN(reterr);
     break;
   LoadAlleleAndGenoCounts_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
@@ -6458,8 +6455,9 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
               break;
             }
           }
-          if (unlikely(PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_write_ct, pgfip))) {
-            goto MakePlink2NoVsort_ret_READ_FAIL;
+          reterr = PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_write_ct, pgfip);
+          if (unlikely(reterr)) {
+            goto MakePlink2NoVsort_ret_PGR_FAIL;
           }
         }
         if (variant_idx) {
@@ -6468,12 +6466,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
           if (unlikely(reterr)) {
             // this should only be possible in MakePgenRobust()
             assert(reterr != kPglRetWriteFail);
-
-            if (reterr == kPglRetMalformedInput) {
-              logputs("\n");
-              logerrputs("Error: Malformed .pgen file.\n");
-            }
-            goto MakePlink2NoVsort_ret_1;
+            goto MakePlink2NoVsort_ret_PGR_FAIL;
           }
         }
         if (!ts.is_last_block) {
@@ -6940,11 +6933,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
             const uintptr_t read_variant_uidx = BitIter1(variant_include, &read_variant_uidx_base, &cur_bits);
             reterr = PgrGetRaw(read_variant_uidx, read_gflags, simple_pgrp, &loadbuf_iter, cur_loaded_vrtypes? (&(cur_loaded_vrtypes[uii])) : nullptr);
             if (unlikely(reterr)) {
-              if (reterr == kPglRetMalformedInput) {
-                logputs("\n");
-                logerrputs("Error: Malformed .pgen file.\n");
-              }
-              goto MakePlink2NoVsort_ret_1;
+              goto MakePlink2NoVsort_ret_PGR_FAIL;
             }
           }
         }
@@ -7003,8 +6992,8 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
   MakePlink2NoVsort_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  MakePlink2NoVsort_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
+  MakePlink2NoVsort_ret_PGR_FAIL:
+    PgenErrPrintN(reterr);
     break;
   MakePlink2NoVsort_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;

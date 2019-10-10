@@ -5066,8 +5066,9 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
             break;
           }
         }
-        if (unlikely(PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, pgfip))) {
-          goto GlmLogistic_ret_READ_FAIL;
+        reterr = PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, pgfip);
+        if (unlikely(reterr)) {
+          goto GlmLogistic_ret_PGR_FAIL;
         }
         if (local_covar_ct) {
           reterr = ReadLocalCovarBlock(g_sample_include, g_sample_include_x, g_sample_include_y, g_sample_include_cumulative_popcounts, g_sample_include_x_cumulative_popcounts, g_sample_include_y_cumulative_popcounts, cip, variant_include, local_sample_uidx_order, local_variant_include, sample_ct, sample_ct_x, sample_ct_y, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, local_sample_ct, local_covar_ct, (glm_info_ptr->flags / kfGlmLocalOmitLast) & 1, glm_info_ptr->local_cat_ct, local_covar_txsp, &local_line_idx, &local_xy, g_local_covars_vcmaj_f[parity], nullptr, local_sample_idx_order);
@@ -5080,11 +5081,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
         JoinThreads3z(&ts);
         reterr = g_error_ret;
         if (unlikely(reterr)) {
-          if (reterr == kPglRetMalformedInput) {
-            logputs("\n");
-            logerrputs("Error: Malformed .pgen file.\n");
-          }
-          goto GlmLogistic_ret_1;
+          goto GlmLogistic_ret_PGR_FAIL;
         }
       }
       if (!ts.is_last_block) {
@@ -5565,8 +5562,8 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
   GlmLogistic_ret_TSTREAM_FAIL:
     TextStreamErrPrint("--glm local-covar= file", local_covar_txsp);
     break;
-  GlmLogistic_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
+  GlmLogistic_ret_PGR_FAIL:
+    PgenErrPrintN(reterr);
     break;
   GlmLogistic_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -7087,8 +7084,9 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
             break;
           }
         }
-        if (unlikely(PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, pgfip))) {
-          goto GlmLinear_ret_READ_FAIL;
+        reterr = PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, pgfip);
+        if (unlikely(reterr)) {
+          goto GlmLinear_ret_PGR_FAIL;
         }
         if (local_covar_ct) {
           reterr = ReadLocalCovarBlock(g_sample_include, g_sample_include_x, g_sample_include_y, g_sample_include_cumulative_popcounts, g_sample_include_x_cumulative_popcounts, g_sample_include_y_cumulative_popcounts, cip, variant_include, local_sample_uidx_order, local_variant_include, sample_ct, sample_ct_x, sample_ct_y, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, local_sample_ct, local_covar_ct, (glm_info_ptr->flags / kfGlmLocalOmitLast) & 1, glm_info_ptr->local_cat_ct, local_covar_txsp, &local_line_idx, &local_xy, nullptr, g_local_covars_vcmaj_d[parity], local_sample_idx_order);
@@ -7101,11 +7099,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
         JoinThreads3z(&ts);
         reterr = g_error_ret;
         if (unlikely(reterr)) {
-          if (reterr == kPglRetMalformedInput) {
-            logputs("\n");
-            logerrputs("Error: Malformed .pgen file.\n");
-          }
-          goto GlmLinear_ret_1;
+          goto GlmLinear_ret_PGR_FAIL;
         }
       }
       if (!ts.is_last_block) {
@@ -7522,8 +7516,8 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
   GlmLinear_ret_TSTREAM_FAIL:
     TextStreamErrPrint("--glm local-covar= file", local_covar_txsp);
     break;
-  GlmLinear_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
+  GlmLinear_ret_PGR_FAIL:
+    PgenErrPrintN(reterr);
     break;
   GlmLinear_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -9170,8 +9164,9 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
               break;
             }
           }
-          if (unlikely(PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, pgfip))) {
-            goto GlmLinearBatch_ret_READ_FAIL;
+          reterr = PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, pgfip);
+          if (unlikely(reterr)) {
+            goto GlmLinearBatch_ret_PGR_FAIL;
           }
           if (local_covar_ct) {
             reterr = ReadLocalCovarBlock(g_sample_include, g_sample_include_x, g_sample_include_y, g_sample_include_cumulative_popcounts, g_sample_include_x_cumulative_popcounts, g_sample_include_y_cumulative_popcounts, cip, variant_include, local_sample_uidx_order, local_variant_include, sample_ct, sample_ct_x, sample_ct_y, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, local_sample_ct, local_covar_ct, (glm_info_ptr->flags / kfGlmLocalOmitLast) & 1, glm_info_ptr->local_cat_ct, local_covar_txsp, &local_line_idx, &local_xy, nullptr, g_local_covars_vcmaj_d[parity], local_sample_idx_order);
@@ -9184,11 +9179,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
           JoinThreads3z(&ts);
           reterr = g_error_ret;
           if (unlikely(reterr)) {
-            if (reterr == kPglRetMalformedInput) {
-              logputs("\n");
-              logerrputs("Error: Malformed .pgen file.\n");
-            }
-            goto GlmLinearBatch_ret_1;
+            goto GlmLinearBatch_ret_PGR_FAIL;
           }
         }
         if (!ts.is_last_block) {
@@ -9604,8 +9595,8 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
   GlmLinearBatch_ret_TSTREAM_FAIL:
     TextStreamErrPrint("--glm local-covar= file", local_covar_txsp);
     break;
-  GlmLinearBatch_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
+  GlmLinearBatch_ret_PGR_FAIL:
+    PgenErrPrintN(reterr);
     break;
   GlmLinearBatch_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;

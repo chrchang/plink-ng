@@ -8277,6 +8277,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     reterr = kPglRetOpenFail;
     break;
   OxBgenToPgen_ret_READ_FAIL:
+    logerrprintfww(kErrprintfFread, bgenname, strerror(errno));
     reterr = kPglRetReadFail;
     break;
   OxBgenToPgen_ret_WRITE_FAIL:
@@ -11006,6 +11007,7 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, uintptr_t variant_ct, uintp
     reterr = kPglRetNomem;
     break;
   Plink1SampleMajorToPgen_ret_READ_FAIL:
+    logerrprintfww(kErrprintfFread, ".bed file", strerror(errno));
     reterr = kPglRetReadFail;
     break;
   Plink1SampleMajorToPgen_ret_WRITE_FAIL:

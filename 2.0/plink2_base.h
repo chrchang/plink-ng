@@ -1342,6 +1342,8 @@ CONSTI32(kVecsPerCacheline, kCacheline / kBytesPerVec);
 // parameter to e.g. PgfiMultiread()
 CONSTI32(kDiskBlockSize, 4096);
 
+CONSTI32(kPglFwriteBlockSize, 131072);
+
 // unsafe to fread or fwrite more bytes than this on e.g. OS X
 CONSTI32(kMaxBytesPerIO, 0x7ffff000);
 

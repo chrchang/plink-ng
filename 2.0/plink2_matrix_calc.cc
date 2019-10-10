@@ -278,6 +278,7 @@ PglErr KinshipPruneDestructive(uintptr_t* kinship_table, uintptr_t* sample_inclu
 PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double king_cutoff, uintptr_t* sample_include, char* king_cutoff_fprefix, uint32_t* sample_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* binfile = nullptr;
+  char* fprefix_end = &(king_cutoff_fprefix[strlen(king_cutoff_fprefix)]);
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
   TextStream txs;
@@ -293,7 +294,6 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
       goto KingCutoffBatch_ret_NOMEM;
     }
 
-    char* fprefix_end = &(king_cutoff_fprefix[strlen(king_cutoff_fprefix)]);
     snprintf(fprefix_end, 9, ".king.id");
     reterr = InitTextStream(king_cutoff_fprefix, kTextStreamBlenFast, 1, &txs);
     if (unlikely(reterr)) {
@@ -495,6 +495,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
     reterr = kPglRetOpenFail;
     break;
   KingCutoffBatch_ret_READ_FAIL:
+    logerrprintfww(kErrprintfFread, king_cutoff_fprefix, strerror(errno));
     reterr = kPglRetReadFail;
     break;
   KingCutoffBatch_ret_MISSING_TOKENS:
@@ -518,7 +519,6 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
  KingCutoffBatch_ret_1:
   fclose_cond(binfile);
   if (CleanupTextStream(&txs, &reterr)) {
-    char* fprefix_end = &(king_cutoff_fprefix[strlen(king_cutoff_fprefix)]);
     snprintf(fprefix_end, 9, ".king.id");
     logerrprintfww(kErrprintfFread, king_cutoff_fprefix, strerror(errno));
   }
@@ -1668,9 +1668,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
     reterr = kPglRetOpenFail;
     break;
   CalcKing_ret_PGR_FAIL:
-    if (reterr != kPglRetReadFail) {
-      logerrputs("Error: Malformed .pgen file.\n");
-    }
+    PgenErrPrintN(reterr);
     break;
   CalcKing_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -2582,12 +2580,10 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     TextStreamErrPrint("--king-table-subset file", &txs);
     break;
   CalcKingTableSubset_ret_PGR_FAIL:
-    if (reterr != kPglRetReadFail) {
-      logerrputs("Error: Malformed .pgen file.\n");
-    }
+    PgenErrPrintN(reterr);
     break;
   CalcKingTableSubset_ret_WRITE_FAIL:
-    reterr = kPglRetReadFail;
+    reterr = kPglRetWriteFail;
     break;
   CalcKingTableSubset_ret_INVALID_HEADER:
     logerrputs("Error: Invalid header line in --king-table-subset file.\n");
@@ -2880,11 +2876,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
           const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
           reterr = PgrGetMissingnessD(sample_include, sample_include_cumulative_popcounts, row_end_idx, variant_uidx, simple_pgrp, nullptr, missing_vmaj_iter, nullptr, genovec_buf);
           if (unlikely(reterr)) {
-            if (reterr == kPglRetMalformedInput) {
-              logputs("\n");
-              logerrputs("Error: Malformed .pgen file.\n");
-            }
-            goto CalcMissingMatrix_ret_1;
+            goto CalcMissingMatrix_ret_PGR_FAIL;
           }
           missing_vmaj_iter = &(missing_vmaj_iter[row_end_idxaw]);
         }
@@ -2957,11 +2949,13 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
   CalcMissingMatrix_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
+  CalcMissingMatrix_ret_PGR_FAIL:
+    PgenErrPrintN(reterr);
+    break;
   CalcMissingMatrix_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
     break;
   }
- CalcMissingMatrix_ret_1:
   CleanupThreads3z(&ts, &g_cur_batch_size);
   BigstackReset(bigstack_mark);
   return reterr;
@@ -4066,11 +4060,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
               uint32_t dosage_ct;
               reterr = PgrGetInv1D(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx, maj_allele_idx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
               if (unlikely(reterr)) {
-                if (reterr == kPglRetMalformedInput) {
-                  logputs("\n");
-                  logerrputs("Error: Malformed .pgen file.\n");
-                }
-                goto CalcPca_ret_1;
+                goto CalcPca_ret_PGR_FAIL;
               }
               ZeroTrailingQuaters(pca_sample_ct, genovec_iter);
               genovec_iter = &(genovec_iter[pca_sample_ctaw2]);
@@ -4179,7 +4169,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             uint32_t dosage_ct;
             reterr = PgrGetInv1D(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx, maj_allele_idx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
             if (unlikely(reterr)) {
-              goto CalcPca_ret_READ_FAIL;
+              goto CalcPca_ret_PGR_FAIL;
             }
             ZeroTrailingQuaters(pca_sample_ct, genovec_iter);
             genovec_iter = &(genovec_iter[pca_sample_ctaw2]);
@@ -4202,7 +4192,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           if (unlikely(g_error_ret)) {
             // this error *didn't* happen on an earlier pass, so assign blame
             // to I/O instead
-            goto CalcPca_ret_READ_FAIL;
+            goto CalcPca_ret_REWIND_FAIL;
           }
           if (ts.is_last_block) {
             break;
@@ -4448,7 +4438,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             uint32_t dosage_ct;
             reterr = PgrGetInv1D(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx_load, maj_allele_idx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
             if (unlikely(reterr)) {
-              goto CalcPca_ret_READ_FAIL;
+              goto CalcPca_ret_PGR_FAIL;
             }
             ZeroTrailingQuaters(pca_sample_ct, genovec_iter);
             genovec_iter = &(genovec_iter[pca_sample_ctaw2]);
@@ -4469,7 +4459,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         if (cur_variant_idx_start) {
           JoinThreads3z(&ts);
           if (unlikely(g_error_ret)) {
-            goto CalcPca_ret_READ_FAIL;
+            goto CalcPca_ret_REWIND_FAIL;
           }
         }
         if (!ts.is_last_block) {
@@ -4650,8 +4640,11 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
   CalcPca_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  CalcPca_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
+  CalcPca_ret_PGR_FAIL:
+    PgenErrPrintN(reterr);
+    break;
+  CalcPca_ret_REWIND_FAIL:
+    logerrprintfww(kErrprintfRewind, ".pgen file");
     break;
   CalcPca_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -5032,11 +5025,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             uint32_t dosage_ct;
             reterr = PgrGet1D(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, cur_allele_idx, simple_pgrp, genovec_buf, dosage_present_buf, dosage_main_buf, &dosage_ct);
             if (unlikely(reterr)) {
-              if (reterr == kPglRetMalformedInput) {
-                logputs("\n");
-                logerrputs("Error: Malformed .pgen file.\n");
-              }
-              goto ScoreReport_ret_1;
+              goto ScoreReport_ret_PGR_FAIL;
             }
             const uint32_t chr_idx = GetVariantChr(cip, variant_uidx);
             uint32_t is_nonx_haploid = IsSet(cip->haploid_mask, chr_idx);
@@ -5546,8 +5535,11 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
   ScoreReport_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
+  ScoreReport_ret_PGR_FAIL:
+    PgenErrPrintN(reterr);
+    break;
   ScoreReport_ret_WRITE_FAIL:
-    reterr = kPglRetReadFail;
+    reterr = kPglRetWriteFail;
     break;
   ScoreReport_ret_INVALID_CMDLINE:
     reterr = kPglRetInvalidCmdline;
