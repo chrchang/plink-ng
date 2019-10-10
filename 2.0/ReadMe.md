@@ -12,16 +12,14 @@ notes:
   details.
 * Instead of 00 = hom minor, 01 = missing, 10 = het, 11 = hom major, the basic
   2-bit encoding is 00 = hom ref, 01 = het ref/alt1, 10 = hom alt1,
-  11 = missing/other.  
+  11 = missing/other.
   PLINK 1 .bed files are grandfathered in as valid .pgen files; there is a tiny
   efficiency penalty associated with accessing them via this library (since,
   after the data is loaded, it is rotated to the new 2-bit encoding).  The
-  pgr_plink2_to_plink1_inplace_unsafe() function can be used to rotate the new
+  PgrPlink2ToPlink1InplaceUnsafe() function can be used to rotate the new
   representation back to PLINK 1-format, to simplify porting of existing code.
 * The rest of the core format is essentially an extension of SNPack ideas to
-  multiallelic data.  (Multiallelic support is not actually implemented yet,
-  but it has been baked in from the start, and close to half the necessary
-  pgenlib_internal code has been written.)
+  multiallelic data.
 * The variant and sample counts are now stored in the file (unless it's a
   .bed).  Also, there are two optional data tracks in the header:
     1. Alt allele counts.  Presumably, these can also be inferred from the
@@ -32,8 +30,7 @@ notes:
        reference-allele-unknown variants.
 * Phased data is now supported; see UNIT_TEST_PHASED_VCF for plink2 usage, and
   the Python interface's read_phased() function.
-* Basic dosage data is also supported, and phased dosage support will be added
-  within the next few weeks.
+* Dosage data is also supported.  It can be phased.
 
 build_dynamic/ contains a Makefile suitable for producing Linux and OS X
 dynamic builds.  On Linux, if Intel MKL is installed using the instructions at
@@ -42,7 +39,7 @@ https://software.intel.com/en-us/articles/installing-intel-free-libs-and-python-
 you can dynamically link to it.
 
 build_win/ contains a Makefile for producing static Windows builds.  This
-requires MinGW{-w64} and zlib; a prebuilt OpenBLAS package from
+requires MinGW[-w64] and zlib; a prebuilt OpenBLAS package from
 sourceforge.net/projects/openblas/files/ is also strongly recommended.
 
 More documentation is at www.cog-genomics.org/plink/2.0/ .
