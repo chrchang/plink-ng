@@ -10414,7 +10414,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         }
         // May want to use 64-bit XXH3 hashes instead.  But let's get this
         // working first.
-        pheno_nm_hashes[pheno_uidx] = MurmurHash3U32(cur_sample_include, raw_sample_ctl * sizeof(intptr_t));
+        pheno_nm_hashes[pheno_uidx] = Hash32(cur_sample_include, raw_sample_ctl * sizeof(intptr_t));
       }
       unsigned char* bigstack_mark3 = g_bigstack_base;
 

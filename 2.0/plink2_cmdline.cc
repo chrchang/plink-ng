@@ -1183,7 +1183,7 @@ CSINLINE2 uint32_t fmix32(uint32_t h) {
   return h;
 }
 
-uint32_t MurmurHash3U32(const void* key, uint32_t len) {
+uint32_t Hash32(const void* key, uint32_t len) {
   const uint8_t* data = S_CAST(const uint8_t*, key);
   const int32_t nblocks = len / 4;
 

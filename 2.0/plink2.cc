@@ -66,10 +66,10 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (9 Oct 2019)";
+  " (11 Oct 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -424,7 +424,7 @@ typedef struct Plink2CmdlineStruct {
 
 // er, probably time to just always initialize this...
 uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_thresh) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff)) || ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) || ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) || (rmdup_mode != kRmDup0) || (hwe_thresh != 1.0);
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff)) || ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) || ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) || (rmdup_mode != kRmDup0) || (hwe_thresh != 0.0);
 }
 
 
@@ -500,11 +500,11 @@ uint32_t VariantMissingDosageCtsAreNeeded(Command1Flags command_flags1, MiscFlag
 // can simplify --geno-counts all-biallelic case, but let's first make sure the
 // general case works for multiallelic variants
 uint32_t RawGenoCtsAreNeeded(Command1Flags command_flags1, MiscFlags misc_flags, double hwe_thresh) {
-  return (command_flags1 & kfCommand1GenoCounts) || ((misc_flags & kfMiscNonfounders) && ((command_flags1 & kfCommand1Hardy) || (hwe_thresh != 1.0)));
+  return (command_flags1 & kfCommand1GenoCounts) || ((misc_flags & kfMiscNonfounders) && ((command_flags1 & kfCommand1Hardy) || (hwe_thresh != 0.0)));
 }
 
 uint32_t FounderRawGenoCtsAreNeeded(Command1Flags command_flags1, MiscFlags misc_flags, double hwe_thresh) {
-  return (!(misc_flags & kfMiscNonfounders)) && ((command_flags1 & kfCommand1Hardy) || (hwe_thresh != 1.0));
+  return (!(misc_flags & kfMiscNonfounders)) && ((command_flags1 & kfCommand1Hardy) || (hwe_thresh != 0.0));
 }
 
 uint32_t InfoReloadIsNeeded(Command1Flags command_flags1, PvarPsamFlags pvar_psam_flags, ExportfFlags exportf_flags, RmDupMode rmdup_mode) {
@@ -1730,7 +1730,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           x_start = cip->chr_fo_vidx_start[x_chr_fo_idx];
           const uint32_t x_end = cip->chr_fo_vidx_start[x_chr_fo_idx + 1];
           x_len = x_end - x_start;
-          if (x_len && ((pcp->command_flags1 & kfCommand1Hardy) || (pcp->hwe_thresh != 1.0)) && (!AllBitsAreZero(variant_include, x_start, x_end))) {
+          if (x_len && ((pcp->command_flags1 & kfCommand1Hardy) || (pcp->hwe_thresh != 0.0)) && (!AllBitsAreZero(variant_include, x_start, x_end))) {
             if (nonfounders) {
               hwe_x_probs_needed = (sample_ct > nosex_ct);
             } else {
@@ -1944,13 +1944,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           EnforceGenoThresh(cip, (pcp->misc_flags & kfMiscGenoDosage)? variant_missing_dosage_cts : variant_missing_hc_cts, geno_hh_missing? variant_hethap_cts : nullptr, sample_ct, male_ct, geno_hh_missing? first_hap_uidx : 0x7fffffff, pcp->geno_thresh, variant_include, &variant_ct);
         }
 
-        if ((pcp->command_flags1 & kfCommand1Hardy) || (pcp->hwe_thresh != 1.0)) {
+        if ((pcp->command_flags1 & kfCommand1Hardy) || (pcp->hwe_thresh != 0.0)) {
           if (cip->haploid_mask[0] & 1) {
             if (unlikely(pcp->command_flags1 & kfCommand1Hardy)) {
               logerrputs("Error: --hardy is pointless on an all-haploid genome.\n");
               goto Plink2Core_ret_INCONSISTENT_INPUT;
             }
-            // could make hwe_thresh non-const and set it to 1.0 earlier on in
+            // could make hwe_thresh non-const and set it to 0.0 earlier on in
             // this case
             logerrputs("Warning: --hwe has no effect since entire genome is haploid.\n");
           } else {
@@ -2017,13 +2017,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             }
 
             double* hwe_x_pvals = nullptr;
-            if (hwe_x_ct && ((pcp->hwe_thresh != 1.0) || (pcp->hardy_flags & kfHardyColP))) {
+            if (hwe_x_ct && ((pcp->hwe_thresh != 0.0) || (pcp->hardy_flags & kfHardyColP))) {
               // support suppression of --hardy p column (with a gigantic
               // dataset, maybe it's reasonable to stick to femalep, etc.)
               uint32_t hwe_midp;
               if (pcp->command_flags1 & kfCommand1Hardy) {
                 hwe_midp = (pcp->hardy_flags / kfHardyMidp) & 1;
-                if (pcp->hwe_thresh != 1.0) {
+                if (pcp->hwe_thresh != 0.0) {
                   const uint32_t hwe_midp2 = (pcp->misc_flags / kfMiscHweMidp) & 1;
                   if (unlikely(hwe_midp != hwe_midp2)) {
                     // could support this efficiently, but why bother...
@@ -2048,7 +2048,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
                 continue;
               }
             }
-            if (pcp->hwe_thresh != 1.0) {
+            if (pcp->hwe_thresh != 0.0) {
               // assumes no filtering between hwe_x_pvals[] computation and
               // here
               EnforceHweThresh(cip, allele_idx_offsets, hwe_geno_cts, autosomal_xgeno_cts, hwe_x_male_geno_cts, hwe_x_nosex_geno_cts, x_knownsex_xgeno_cts, x_male_xgeno_cts, hwe_x_pvals, pcp->misc_flags, pcp->hwe_thresh, nonfounders, variant_include, &variant_ct);
@@ -3391,7 +3391,7 @@ int main(int argc, char** argv) {
     pc.vif_thresh = 50.0;
     pc.mind_thresh = 1.0;
     pc.geno_thresh = 1.0;
-    pc.hwe_thresh = 1.0;
+    pc.hwe_thresh = 0.0;
     pc.mach_r2_min = 0.0;
     pc.mach_r2_max = 0.0;
     pc.minimac3_r2_min = 0.0;
@@ -5168,7 +5168,7 @@ int main(int argc, char** argv) {
             } else if (!strcmp(cur_modif, "keep-fewhet")) {
               pc.misc_flags |= kfMiscHweKeepFewhet;
             } else {
-              if (unlikely((pc.hwe_thresh != 1.0) || (ScanDoublex(cur_modif, &pc.hwe_thresh)))) {
+              if (unlikely((pc.hwe_thresh != 0.0) || (ScanDoublex(cur_modif, &pc.hwe_thresh)))) {
                 logerrputs("Error: Invalid --hwe parameter sequence.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
@@ -5177,10 +5177,6 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
             }
-          }
-          if (unlikely(pc.hwe_thresh == 1.0)) {
-            logerrputs("Error: --hwe requires a p-value threshold.\n");
-            goto main_ret_INVALID_CMDLINE_A;
           }
           if ((pc.misc_flags & kfMiscHweMidp) && (pc.hwe_thresh >= 0.5)) {
             logerrputs("Error: --hwe threshold must be smaller than 0.5 when using mid-p adjustment.\n");

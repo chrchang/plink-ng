@@ -569,11 +569,11 @@ THREAD_FUNC_DECL BgzfCompressorThread(void* raw_arg) {
 #else
     pthread_mutex_lock(&(cww->cbuf_mutex));
     while (cww->nbytes != UINT32_MAX) {
-      pthread_cond_wait(&(cww->cbuf_open_condvar), &(cww->cbuf_mutex));
+      pthread_cond_wait(&(cww->cbuf_condvar), &(cww->cbuf_mutex));
     }
     pthread_mutex_lock(&(cwp->ucbuf_mutex));
     while (cwp->nbytes == UINT32_MAX) {
-      pthread_cond_wait(&(cwp->ucbuf_filled_condvar), &(cwp->ucbuf_mutex));
+      pthread_cond_wait(&(cwp->ucbuf_condvar), &(cwp->ucbuf_mutex));
     }
     // hold both mutexes during compress operation
 #endif
@@ -602,9 +602,9 @@ THREAD_FUNC_DECL BgzfCompressorThread(void* raw_arg) {
     SetEvent(cwp->ucbuf_open_event);
     SetEvent(cww->cbuf_filled_event);
 #else
-    pthread_cond_signal(&(cwp->ucbuf_open_condvar));
+    pthread_cond_signal(&(cwp->ucbuf_condvar));
     pthread_mutex_unlock(&(cwp->ucbuf_mutex));
-    pthread_cond_signal(&(cww->cbuf_filled_condvar));
+    pthread_cond_signal(&(cww->cbuf_condvar));
     pthread_mutex_unlock(&(cww->cbuf_mutex));
 #endif
     if (eof) {
@@ -628,7 +628,7 @@ THREAD_FUNC_DECL BgzfCompressWriterThread(void* raw_arg) {
 #else
     pthread_mutex_lock(&(cww->cbuf_mutex));
     while (cww->nbytes == UINT32_MAX) {
-      pthread_cond_wait(&(cww->cbuf_filled_condvar), &(cww->cbuf_mutex));
+      pthread_cond_wait(&(cww->cbuf_condvar), &(cww->cbuf_mutex));
     }
     // hold mutex during write operation
 #endif
@@ -648,7 +648,7 @@ THREAD_FUNC_DECL BgzfCompressWriterThread(void* raw_arg) {
 #ifdef _WIN32
     SetEvent(cww->cbuf_open_event);
 #else
-    pthread_cond_signal(&(cww->cbuf_open_condvar));
+    pthread_cond_signal(&(cww->cbuf_condvar));
     pthread_mutex_unlock(&(cww->cbuf_mutex));
 #endif
     if (eof) {
@@ -725,14 +725,14 @@ PglErr InitBgzfCompressStreamEx(const char* out_fname, uint32_t do_append, uint3
 #ifdef _WIN32
     HANDLE new_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     if (unlikely(!new_event)) {
-      bgzfp->unfinished_init_state = (slot_idx << 3) | 2;
+      bgzfp->unfinished_init_state = (slot_idx << 3) | 1;
       return kPglRetThreadCreateFail;
     }
     cwp->ucbuf_filled_event = new_event;
 
     new_event = CreateEvent(nullptr, FALSE, slot_idx? TRUE : FALSE, nullptr);
     if (unlikely(!new_event)) {
-      bgzfp->unfinished_init_state = (slot_idx << 3) | 3;
+      bgzfp->unfinished_init_state = (slot_idx << 3) | 2;
       return kPglRetThreadCreateFail;
     }
     cwp->ucbuf_open_event = new_event;
@@ -741,12 +741,8 @@ PglErr InitBgzfCompressStreamEx(const char* out_fname, uint32_t do_append, uint3
       bgzfp->unfinished_init_state = (slot_idx << 3) | 1;
       return kPglRetThreadCreateFail;
     }
-    if (unlikely(pthread_cond_init(&cwp->ucbuf_filled_condvar, nullptr))) {
+    if (unlikely(pthread_cond_init(&cwp->ucbuf_condvar, nullptr))) {
       bgzfp->unfinished_init_state = (slot_idx << 3) | 2;
-      return kPglRetThreadCreateFail;
-    }
-    if (unlikely(pthread_cond_init(&cwp->ucbuf_open_condvar, nullptr))) {
-      bgzfp->unfinished_init_state = (slot_idx << 3) | 3;
       return kPglRetThreadCreateFail;
     }
 #endif
@@ -758,27 +754,23 @@ PglErr InitBgzfCompressStreamEx(const char* out_fname, uint32_t do_append, uint3
 #ifdef _WIN32
     new_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     if (unlikely(!new_event)) {
-      bgzfp->unfinished_init_state = (slot_idx << 3) | 5;
+      bgzfp->unfinished_init_state = (slot_idx << 3) | 3;
       return kPglRetThreadCreateFail;
     }
     cww->cbuf_filled_event = new_event;
     new_event = CreateEvent(nullptr, FALSE, TRUE, nullptr);
     if (unlikely(!new_event)) {
-      bgzfp->unfinished_init_state = (slot_idx << 3) | 6;
+      bgzfp->unfinished_init_state = (slot_idx << 3) | 4;
       return kPglRetThreadCreateFail;
     }
     cww->cbuf_open_event = new_event;
 #else
     if (unlikely(pthread_mutex_init(&cww->cbuf_mutex, nullptr))) {
+      bgzfp->unfinished_init_state = (slot_idx << 3) | 3;
+      return kPglRetThreadCreateFail;
+    }
+    if (unlikely(pthread_cond_init(&cww->cbuf_condvar, nullptr))) {
       bgzfp->unfinished_init_state = (slot_idx << 3) | 4;
-      return kPglRetThreadCreateFail;
-    }
-    if (unlikely(pthread_cond_init(&cww->cbuf_filled_condvar, nullptr))) {
-      bgzfp->unfinished_init_state = (slot_idx << 3) | 5;
-      return kPglRetThreadCreateFail;
-    }
-    if (unlikely(pthread_cond_init(&cww->cbuf_open_condvar, nullptr))) {
-      bgzfp->unfinished_init_state = (slot_idx << 3) | 6;
       return kPglRetThreadCreateFail;
     }
 #endif
@@ -889,7 +881,7 @@ BoolErr BgzfWrite(const char* buf, uintptr_t len, BgzfCompressStream* bgzfp) {
 #else
     pthread_mutex_lock(&(cwp->ucbuf_mutex));
     cwp->nbytes = kBgzfInputBlockSize;
-    pthread_cond_signal(&(cwp->ucbuf_filled_condvar));
+    pthread_cond_signal(&(cwp->ucbuf_condvar));
     pthread_mutex_unlock(&(cwp->ucbuf_mutex));
 #endif
     if (++slot_idx == slot_ct) {
@@ -901,7 +893,7 @@ BoolErr BgzfWrite(const char* buf, uintptr_t len, BgzfCompressStream* bgzfp) {
 #else
     pthread_mutex_lock(&(cwp->ucbuf_mutex));
     while (cwp->nbytes != UINT32_MAX) {
-      pthread_cond_wait(&(cwp->ucbuf_open_condvar), &(cwp->ucbuf_mutex));
+      pthread_cond_wait(&(cwp->ucbuf_condvar), &(cwp->ucbuf_mutex));
     }
     pthread_mutex_unlock(&(cwp->ucbuf_mutex));
 #endif
@@ -955,7 +947,7 @@ BoolErr CleanupBgzfCompressStream(BgzfCompressStream* bgzfp, PglErr* reterrp) {
 #else
           pthread_mutex_lock(&(cwp->ucbuf_mutex));
           cwp->nbytes = nbytes;
-          pthread_cond_signal(&(cwp->ucbuf_filled_condvar));
+          pthread_cond_signal(&(cwp->ucbuf_condvar));
           pthread_mutex_unlock(&(cwp->ucbuf_mutex));
 #endif
           if (++slot_idx == slot_ct) {
@@ -967,7 +959,7 @@ BoolErr CleanupBgzfCompressStream(BgzfCompressStream* bgzfp, PglErr* reterrp) {
 #else
           pthread_mutex_lock(&(cwp->ucbuf_mutex));
           while (cwp->nbytes != UINT32_MAX) {
-            pthread_cond_wait(&(cwp->ucbuf_open_condvar), &(cwp->ucbuf_mutex));
+            pthread_cond_wait(&(cwp->ucbuf_condvar), &(cwp->ucbuf_mutex));
           }
           pthread_mutex_unlock(&(cwp->ucbuf_mutex));
 #endif
@@ -995,46 +987,34 @@ BoolErr CleanupBgzfCompressStream(BgzfCompressStream* bgzfp, PglErr* reterrp) {
       slot_ct = unfinished_init >> 3;
       const uint32_t slot_partial_init = unfinished_init & 7;
       do {
-#ifdef _WIN32
-        if (slot_partial_init == 2) {
+        if (slot_partial_init == 1) {
           break;
         }
         BgzfCompressCommWithP* cwp = bgzfp->cwps[slot_ct];
+#ifdef _WIN32
         CloseHandle(cwp->ucbuf_filled_event);
-        if (slot_partial_init == 3) {
+        if (slot_partial_init == 2) {
           break;
         }
         CloseHandle(cwp->ucbuf_open_event);
-        if (slot_partial_init == 5) {
+        if (slot_partial_init == 3) {
           break;
         }
         BgzfCompressCommWithW* cww = bgzfp->cwws[slot_ct];
         CloseHandle(cww->cbuf_filled_event);
 #else
-        if (slot_partial_init == 1) {
-          break;
-        }
-        BgzfCompressCommWithP* cwp = bgzfp->cwps[slot_ct];
         pthread_mutex_destroy(&cwp->ucbuf_mutex);
         if (slot_partial_init == 2) {
           break;
         }
-        pthread_cond_destroy(&cwp->ucbuf_filled_condvar);
+        pthread_cond_destroy(&cwp->ucbuf_condvar);
         if (slot_partial_init == 3) {
-          break;
-        }
-        pthread_cond_destroy(&cwp->ucbuf_open_condvar);
-        if (slot_partial_init == 4) {
           break;
         }
         BgzfCompressCommWithW* cww = bgzfp->cwws[slot_ct];
         pthread_mutex_destroy(&cww->cbuf_mutex);
-        if (slot_partial_init == 5) {
-          break;
-        }
-        pthread_cond_destroy(&cww->cbuf_filled_condvar);
 #endif
-        assert(slot_partial_init == 6);
+        assert(slot_partial_init == 4);
       } while (0);
     }
     for (uint32_t slot_idx = 0; slot_idx != slot_ct; ++slot_idx) {
@@ -1047,11 +1027,9 @@ BoolErr CleanupBgzfCompressStream(BgzfCompressStream* bgzfp, PglErr* reterrp) {
       CloseHandle(cww->cbuf_open_event);
 #else
       pthread_mutex_destroy(&cwp->ucbuf_mutex);
-      pthread_cond_destroy(&cwp->ucbuf_filled_condvar);
-      pthread_cond_destroy(&cwp->ucbuf_open_condvar);
+      pthread_cond_destroy(&cwp->ucbuf_condvar);
       pthread_mutex_destroy(&cww->cbuf_mutex);
-      pthread_cond_destroy(&cww->cbuf_filled_condvar);
-      pthread_cond_destroy(&cww->cbuf_open_condvar);
+      pthread_cond_destroy(&cww->cbuf_condvar);
 #endif
     }
     aligned_free(threads);

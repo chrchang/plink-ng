@@ -1200,15 +1200,13 @@ int32_t GetVariantUidxWithoutHtable(const char* idstr, const char* const* varian
 // followed by a for loop
 
 
-// Tried to replace this with a faster hash function, but turns out it's hard
-// to meaningfully beat (and multithreading parts of hash table construction
-// solved most of the initialization time issue, anyway)
-// Probable todo: revisit this.  e.g.
-//   https://aras-p.info/blog/2016/08/02/Hash-Functions-all-the-way-down/
-// implies that xxHash-32 should be faster.
-// eventually want this to be a constexpr?  seems painful to make that work,
+// Benchmark results justify replacing this with XXH3 when the latter is ready.
+// Not considering it ready yet since the development XXH_INLINE_ALL setup
+// isn't very friendly.
+//
+// Eventually want this to be a constexpr?  Seems painful to make that work,
 // though.
-uint32_t MurmurHash3U32(const void* key, uint32_t len);
+uint32_t Hash32(const void* key, uint32_t len);
 
 // see http://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/
 // Note that this is a bit more vulnerable to adversarial input: modulo
@@ -1217,7 +1215,7 @@ uint32_t MurmurHash3U32(const void* key, uint32_t len);
 // size.  But it doesn't really matter; either way, you'd need to add something
 // like a randomly generated salt if you care about defending.
 HEADER_INLINE uint32_t Hashceil(const char* idstr, uint32_t idlen, uint32_t htable_size) {
-  return (S_CAST(uint64_t, MurmurHash3U32(idstr, idlen)) * htable_size) >> 32;
+  return (S_CAST(uint64_t, Hash32(idstr, idlen)) * htable_size) >> 32;
 }
 
 // uintptr_t geqprime(uintptr_t floor);

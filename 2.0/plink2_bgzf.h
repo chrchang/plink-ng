@@ -199,15 +199,14 @@ typedef struct BgzfCompressStreamStruct BgzfCompressStream;
 typedef struct BgzfCompressCommWithWStruct {
   // Compressor -> writer.  One per block slot.
   unsigned char cbuf[kMaxBgzfCompressedBlockSize];
-  uint32_t nbytes;  // UINT32_MAX = open
+  uint32_t nbytes;  // UINT32_MAX = open, otherwise filled
   uint32_t eof;
 #ifdef _WIN32
   HANDLE cbuf_filled_event;
   HANDLE cbuf_open_event;
 #else
   pthread_mutex_t cbuf_mutex;
-  pthread_cond_t cbuf_filled_condvar;
-  pthread_cond_t cbuf_open_condvar;
+  pthread_cond_t cbuf_condvar;
 #endif
 } BgzfCompressCommWithW;
 
@@ -219,10 +218,9 @@ typedef struct BgzfCompressCommWithPStruct {
   HANDLE ucbuf_open_event;
 #else
   pthread_mutex_t ucbuf_mutex;
-  pthread_cond_t ucbuf_filled_condvar;
-  pthread_cond_t ucbuf_open_condvar;
+  pthread_cond_t ucbuf_condvar;
 #endif
-  uint32_t nbytes;  // UINT32_MAX = open
+  uint32_t nbytes;  // UINT32_MAX = open, otherwise filled
 } BgzfCompressCommWithP;
 
 typedef struct BgzfCompressorContextStruct {

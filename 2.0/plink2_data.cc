@@ -3877,7 +3877,7 @@ PglErr MakeFilterHtable(const uintptr_t* variant_include, const uintptr_t* filte
         while (1) {
           const char* token_end = strchrnul(filter_iter, ';');
           const uint32_t cur_id_slen = token_end - filter_iter;
-          for (uint32_t hashval = MurmurHash3U32(filter_iter, cur_id_slen) >> hash_shift; ; ) {
+          for (uint32_t hashval = Hash32(filter_iter, cur_id_slen) >> hash_shift; ; ) {
             char* cur_token_ptr = filter_tokens[hashval];
             if (!cur_token_ptr) {
               char* storage_loc = R_CAST(char*, tmp_alloc_base);
@@ -3915,7 +3915,7 @@ PglErr MakeFilterHtable(const uintptr_t* variant_include, const uintptr_t* filte
               for (uint32_t uii = 0; uii != filter_key_ct; ++uii) {
                 char* rehash_token_end = strnul(rehash_iter);
                 const uint32_t rehash_id_slen = rehash_token_end - rehash_iter;
-                for (uint32_t rehashval = MurmurHash3U32(rehash_iter, rehash_id_slen) >> hash_shift; ; ) {
+                for (uint32_t rehashval = Hash32(rehash_iter, rehash_id_slen) >> hash_shift; ; ) {
                   if (!filter_tokens[rehashval]) {
                     filter_tokens[rehashval] = rehash_iter;
                     break;
