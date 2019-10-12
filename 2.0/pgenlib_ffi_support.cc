@@ -261,7 +261,7 @@ double LinearCombinationMeanimpute(const double* weights, const uintptr_t* genoa
     }
     result += 0.00006103515625 * resultx;
   }
-  if (miss_weight) {
+  if (miss_weight != 0.0) {
     result = result * weight_sum / (weight_sum - miss_weight);
   }
   return result;
