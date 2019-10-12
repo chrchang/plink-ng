@@ -32,73 +32,86 @@ double RandNormal(sfmt_t* sfmtp, double* secondval_ptr) {
   return dxx * sin(dyy);
 }
 
-sfmt_t** g_sfmtp_arr;
-
-BoolErr InitAllocSfmtpArr(uint32_t thread_ct, uint32_t use_main_sfmt_as_element_zero) {
-  if (unlikely(BIGSTACK_ALLOC_X(sfmt_t*, thread_ct, &g_sfmtp_arr))) {
+BoolErr InitAllocSfmtpArr(uint32_t thread_ct, uint32_t use_main_sfmt_as_element_zero, sfmt_t*** sfmtp_arrp) {
+  if (unlikely(BIGSTACK_ALLOC_X(sfmt_t*, thread_ct, sfmtp_arrp))) {
     return 1;
   }
+  sfmt_t** sfmtp_arr = *sfmtp_arrp;
   if (use_main_sfmt_as_element_zero) {
-    g_sfmtp_arr[0] = &g_sfmt;
+    sfmtp_arr[0] = &g_sfmt;
   }
   if (thread_ct > use_main_sfmt_as_element_zero) {
     uint32_t uibuf[4];
     for (uint32_t tidx = use_main_sfmt_as_element_zero; tidx != thread_ct; ++tidx) {
-      if (unlikely(BIGSTACK_ALLOC_X(sfmt_t, 1, &(g_sfmtp_arr[tidx])))) {
+      if (unlikely(BIGSTACK_ALLOC_X(sfmt_t, 1, &(sfmtp_arr[tidx])))) {
         return 1;
       }
       for (uint32_t uii = 0; uii != 4; ++uii) {
         uibuf[uii] = sfmt_genrand_uint32(&g_sfmt);
       }
-      sfmt_init_by_array(g_sfmtp_arr[tidx], uibuf, 4);
+      sfmt_init_by_array(sfmtp_arr[tidx], uibuf, 4);
     }
   }
   return 0;
 }
 
-// multithread globals
-static double* g_darray = nullptr;
-static uint32_t g_calc_thread_ct = 0;
-static uintptr_t g_entry_pair_ct = 0;
+typedef struct FillGaussianDArrCtxStruct {
+  ThreadGroup tg;
 
-THREAD_FUNC_DECL FillGaussianDArrThread(void* arg) {
-  const uintptr_t tidx = R_CAST(uintptr_t, arg);
-  const uintptr_t entry_pair_ct = g_entry_pair_ct;
-  const uint32_t calc_thread_ct = g_calc_thread_ct;
-  sfmt_t* sfmtp = g_sfmtp_arr[tidx];
-  uintptr_t idx_start = (tidx * entry_pair_ct) / calc_thread_ct;
-  uintptr_t idx_ct = (((tidx + 1) * entry_pair_ct) / calc_thread_ct) - idx_start;
-  double* darray_iter = &(g_darray[idx_start * 2]);
+  sfmt_t** sfmtp_arr;
+  uintptr_t entry_pair_ct;
+
+  double* dst;
+} FillGaussianDArrCtx;
+
+void FillGaussianDArrMain(uintptr_t tidx, uintptr_t thread_ct, FillGaussianDArrCtxStruct* ctx) {
+  const uintptr_t entry_pair_ct = ctx->entry_pair_ct;
+  sfmt_t* sfmtp = ctx->sfmtp_arr[tidx];
+  // 32-bit overflow fix (12 Oct 2019): forgot to cast to uint64_t
+  const uintptr_t idx_start = (S_CAST(uint64_t, tidx) * entry_pair_ct) / thread_ct;
+  const uintptr_t idx_ct = ((S_CAST(uint64_t, tidx + 1) * entry_pair_ct) / thread_ct) - idx_start;
+  double* dst_iter = &(ctx->dst[idx_start * 2]);
   for (uintptr_t ulii = 0; ulii != idx_ct; ++ulii) {
     double dxx;
-    *darray_iter++ = RandNormal(sfmtp, &dxx);
-    *darray_iter++ = dxx;
+    *dst_iter++ = RandNormal(sfmtp, &dxx);
+    *dst_iter++ = dxx;
   }
+}
+
+THREAD_FUNC_DECL FillGaussianDArrThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  FillGaussianDArrCtx* ctx = S_CAST(FillGaussianDArrCtx*, arg->sharedp->context);
+  FillGaussianDArrMain(arg->tidx, GetThreadCt(&ctx->tg) + 1, ctx);
   THREAD_RETURN;
 }
 
 PglErr FillGaussianDArr(uintptr_t entry_pair_ct, uint32_t thread_ct, double* darray) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
+  FillGaussianDArrCtx ctx;
+  ThreadGroup* tgp = &ctx.tg;
+  PreinitThreads(tgp);
   {
     const uintptr_t max_useful_thread_ct = DivUp(entry_pair_ct, 262144);
     if (thread_ct > max_useful_thread_ct) {
       thread_ct = max_useful_thread_ct;
     }
-    pthread_t* threads;
     if (unlikely(
-            InitAllocSfmtpArr(thread_ct, 1) ||
-            bigstack_alloc_thread(thread_ct, &threads))) {
+            SetThreadCt0(thread_ct - 1, tgp) ||
+            InitAllocSfmtpArr(thread_ct, 1, &ctx.sfmtp_arr))) {
       goto FillGaussianDArr_ret_NOMEM;
     }
-    g_darray = darray;
-    g_entry_pair_ct = entry_pair_ct;
-    g_calc_thread_ct = thread_ct;
-    if (unlikely(SpawnThreadsOld(FillGaussianDArrThread, thread_ct, threads))) {
-      goto FillGaussianDArr_ret_THREAD_CREATE_FAIL;
+    ctx.dst = darray;
+    ctx.entry_pair_ct = entry_pair_ct;
+    if (thread_ct > 1) {
+      SetThreadFuncAndData(FillGaussianDArrThread, &ctx, tgp);
+      DeclareLastThreadBlock(tgp);
+      if (unlikely(SpawnThreads(tgp))) {
+        goto FillGaussianDArr_ret_THREAD_CREATE_FAIL;
+      }
     }
-    FillGaussianDArrThread(S_CAST(void*, 0));
-    JoinThreadsOld(thread_ct, threads);
+    FillGaussianDArrMain(thread_ct - 1, thread_ct, &ctx);
+    JoinThreads0(tgp);
   }
   while (0) {
   FillGaussianDArr_ret_NOMEM:
@@ -108,46 +121,74 @@ PglErr FillGaussianDArr(uintptr_t entry_pair_ct, uint32_t thread_ct, double* dar
     reterr = kPglRetThreadCreateFail;
     break;
   }
+  CleanupThreads(tgp);
   BigstackReset(bigstack_mark);
   return reterr;
 }
 
+// extern multithread global
+sfmt_t** g_sfmtp_arr;
 
-THREAD_FUNC_DECL RandomizeBigstackThread(void* arg) {
-  const uintptr_t tidx = R_CAST(uintptr_t, arg);
-  const uint32_t calc_thread_ct = g_calc_thread_ct;
-  const uint64_t bigstack_int64_ct = S_CAST(uintptr_t, g_bigstack_end - g_bigstack_base) / sizeof(int64_t);
-  uint64_t* bigstack_int64 = R_CAST(uint64_t*, g_bigstack_base);
-  assert(bigstack_int64_ct >= calc_thread_ct);
-  const uint64_t start_idx = RoundDownPow2((tidx * bigstack_int64_ct) / calc_thread_ct, kInt64PerCacheline);
-  uint64_t end_idx = ((tidx + 1) * bigstack_int64_ct) / calc_thread_ct;
-  if (tidx + 1 != calc_thread_ct) {
+typedef struct RandomizeArenaCtxStruct {
+  ThreadGroup tg;
+
+  sfmt_t** sfmtp_arr;
+
+  // assumed to be at least 8-byte-aligned
+  unsigned char* arena_bottom;
+  unsigned char* arena_top;
+} RandomizeArenaCtx;
+
+void RandomizeArenaMain(uintptr_t tidx, uintptr_t thread_ct, RandomizeArenaCtx* ctx) {
+  unsigned char* arena_bottom = ctx->arena_bottom;
+  unsigned char* arena_top = ctx->arena_top;
+  const uint64_t arena_int64_ct = S_CAST(uintptr_t, arena_top - arena_bottom) / sizeof(int64_t);
+  uint64_t* arena_bottom_alias = R_CAST(uint64_t*, arena_bottom);
+  assert(arena_int64_ct >= thread_ct);
+  const uint64_t start_idx = RoundDownPow2((tidx * arena_int64_ct) / thread_ct, kInt64PerCacheline);
+  uint64_t end_idx = ((tidx + 1) * arena_int64_ct) / thread_ct;
+  if (tidx + 1 != thread_ct) {
     end_idx = RoundDownPow2(end_idx, kInt64PerCacheline);
   }
-  sfmt_t* sfmtp = g_sfmtp_arr[tidx];
+  sfmt_t* sfmtp = ctx->sfmtp_arr[tidx];
   for (uintptr_t ulii = start_idx; ulii != end_idx; ++ulii) {
-    bigstack_int64[ulii] = sfmt_genrand_uint64(sfmtp);
+    arena_bottom_alias[ulii] = sfmt_genrand_uint64(sfmtp);
   }
+}
+
+THREAD_FUNC_DECL RandomizeArenaThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  RandomizeArenaCtx* ctx = S_CAST(RandomizeArenaCtx*, arg->sharedp->context);
+  RandomizeArenaMain(arg->tidx, GetThreadCt(&ctx->tg) + 1, ctx);
   THREAD_RETURN;
 }
 
 PglErr RandomizeBigstack(uint32_t thread_ct) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
+  RandomizeArenaCtx ctx;
+  ThreadGroup* tgp = &ctx.tg;
+  PreinitThreads(tgp);
   {
     if (thread_ct > 16) {
       thread_ct = 16;
     }
-    if (unlikely(InitAllocSfmtpArr(thread_ct, 1))) {
+    if (unlikely(
+            SetThreadCt0(thread_ct - 1, tgp) ||
+            InitAllocSfmtpArr(thread_ct, 1, &ctx.sfmtp_arr))) {
       goto RandomizeBigstack_ret_NOMEM;
     }
-    g_calc_thread_ct = thread_ct;
-    pthread_t threads[16];
-    if (unlikely(SpawnThreadsOld(RandomizeBigstackThread, thread_ct, threads))) {
-      goto RandomizeBigstack_ret_THREAD_CREATE_FAIL;
+    ctx.arena_bottom = g_bigstack_base;
+    ctx.arena_top = g_bigstack_end;
+    if (thread_ct > 1) {
+      SetThreadFuncAndData(RandomizeArenaThread, &ctx, tgp);
+      DeclareLastThreadBlock(tgp);
+      if (unlikely(SpawnThreads(tgp))) {
+        goto RandomizeBigstack_ret_THREAD_CREATE_FAIL;
+      }
     }
-    RandomizeBigstackThread(S_CAST(void*, 0));
-    JoinThreadsOld(thread_ct, threads);
+    RandomizeArenaMain(thread_ct - 1, thread_ct, &ctx);
+    JoinThreads0(tgp);
     // now ensure the bytes reserved by InitAllocSfmtpArr() are also properly
     // randomized (some of them already are, but there are gaps)
     uint64_t* initial_segment_end = R_CAST(uint64_t*, g_bigstack_base);
@@ -163,6 +204,7 @@ PglErr RandomizeBigstack(uint32_t thread_ct) {
     reterr = kPglRetThreadCreateFail;
     break;
   }
+  CleanupThreads(tgp);
   BigstackReset(bigstack_mark);
   return reterr;
 }

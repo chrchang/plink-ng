@@ -10548,7 +10548,7 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
     if (calc_thread_ct > 4) {
       calc_thread_ct = 4;
     }
-    if (unlikely(InitAllocSfmtpArr(calc_thread_ct, 0))) {
+    if (unlikely(InitAllocSfmtpArr(calc_thread_ct, 0, &g_sfmtp_arr))) {
       goto GenerateDummy_ret_NOMEM;
     }
     if (unlikely(bigstack_alloc_thread(calc_thread_ct, &ts.threads))) {

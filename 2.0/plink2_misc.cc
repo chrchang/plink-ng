@@ -4182,47 +4182,47 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
   return reterr;
 }
 
-// multithread globals
-static const uintptr_t* g_variant_include = nullptr;
+typedef struct ComputeHweXPvalsCtxStruct {
+  ThreadGroup tg;
 
-static const STD_ARRAY_PTR_DECL(uint32_t, 3, g_founder_raw_geno_cts) = nullptr;
-static const STD_ARRAY_PTR_DECL(uint32_t, 3, g_founder_x_male_geno_cts) = nullptr;
-static const STD_ARRAY_PTR_DECL(uint32_t, 3, g_founder_x_nosex_geno_cts) = nullptr;
-static const STD_ARRAY_PTR_DECL(uint32_t, 2, g_x_knownsex_xgeno_cts) = nullptr;
-static const STD_ARRAY_PTR_DECL(uint32_t, 2, g_x_male_xgeno_cts) = nullptr;
+  const uintptr_t* variant_include;
+  const uintptr_t* allele_idx_offsets;
+  const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts);
+  const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts);
+  const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts);
+  const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts);
+  const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts);
+  uint32_t* variant_uidx_starts;
+  uintptr_t* extra_aidx_starts;
+  uint32_t x_start;
+  uint32_t hwe_x_start;
+  uint32_t hwe_midp;
+  uint32_t hwe_x_ct;
 
-static uint32_t* g_variant_uidx_starts = nullptr;
-static const uintptr_t* g_allele_idx_offsets = nullptr;
-static uintptr_t* g_extra_aidx_starts = nullptr;
-static double* g_hwe_x_pvals = nullptr;
-static uint32_t g_x_start = 0;
-static uint32_t g_hwe_x_ct = 0;
-static uint32_t g_calc_thread_ct = 0;
-static uint32_t g_hwe_midp = 0;
+  double* hwe_x_pvals;
+} ComputeHweXPvalsCtx;
 
-THREAD_FUNC_DECL ComputeHweXPvalsThread(void* arg) {
-  const uintptr_t tidx = R_CAST(uintptr_t, arg);
-  const uintptr_t* variant_include = g_variant_include;
-  const uintptr_t* allele_idx_offsets = g_allele_idx_offsets;
-  const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts) = g_founder_raw_geno_cts;
-  const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts) = g_founder_x_male_geno_cts;
-  const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts) = g_founder_x_nosex_geno_cts;
-  const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts) = g_x_knownsex_xgeno_cts;
-  const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts) = g_x_male_xgeno_cts;
-  const uint32_t calc_thread_ct = g_calc_thread_ct;
-  const uint32_t x_start = g_x_start;
-  const uint32_t hwe_x_ct = g_hwe_x_ct;
-  const uint32_t hwe_midp = g_hwe_midp;
+void ComputeHweXPvalsMain(uintptr_t tidx, uintptr_t thread_ct, ComputeHweXPvalsCtx* ctx) {
+  const uintptr_t* variant_include = ctx->variant_include;
+  const uintptr_t* allele_idx_offsets = ctx->allele_idx_offsets;
+  const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts) = ctx->founder_raw_geno_cts;
+  const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts) = ctx->founder_x_male_geno_cts;
+  const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts) = ctx->founder_x_nosex_geno_cts;
+  const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts) = ctx->x_knownsex_xgeno_cts;
+  const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts) = ctx->x_male_xgeno_cts;
+  const uint32_t x_start = ctx->x_start;
+  const uint32_t hwe_x_ct = ctx->hwe_x_ct;
+  const uint32_t hwe_midp = ctx->hwe_midp;
 
   // this needs to be aligned with ComputeUidxStartPartition()
-  const uint32_t variant_idx_end = (hwe_x_ct * (S_CAST(uint64_t, tidx) + 1)) / calc_thread_ct;
-  uint32_t variant_idx = (hwe_x_ct * S_CAST(uint64_t, tidx)) / calc_thread_ct;
+  const uint32_t variant_idx_end = (hwe_x_ct * (S_CAST(uint64_t, tidx) + 1)) / thread_ct;
+  uint32_t variant_idx = (hwe_x_ct * S_CAST(uint64_t, tidx)) / thread_ct;
 
-  uintptr_t xgeno_idx = g_extra_aidx_starts[tidx];
-  double* hwe_x_pvals_iter = &(g_hwe_x_pvals[variant_idx + xgeno_idx]);
+  uintptr_t xgeno_idx = ctx->extra_aidx_starts[tidx];
+  double* hwe_x_pvals_iter = &(ctx->hwe_x_pvals[variant_idx + xgeno_idx]);
   uintptr_t variant_uidx_base;
   uintptr_t cur_bits;
-  BitIter1Start(variant_include, g_variant_uidx_starts[tidx], &variant_uidx_base, &cur_bits);
+  BitIter1Start(variant_include, ctx->variant_uidx_starts[tidx], &variant_uidx_base, &cur_bits);
   uint32_t pct = 0;
   uint32_t next_print_variant_idx = variant_idx_end;
   if (!tidx) {
@@ -4288,60 +4288,71 @@ THREAD_FUNC_DECL ComputeHweXPvalsThread(void* arg) {
   if (pct > 10) {
     putc_unlocked('\b', stdout);
   }
+}
+
+THREAD_FUNC_DECL ComputeHweXPvalsThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  ComputeHweXPvalsCtx* ctx = S_CAST(ComputeHweXPvalsCtx*, arg->sharedp->context);
+  ComputeHweXPvalsMain(arg->tidx, GetThreadCt(&ctx->tg) + 1, ctx);
   THREAD_RETURN;
 }
 
 PglErr ComputeHweXPvals(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), uint32_t x_start, uint32_t hwe_x_ct, uintptr_t x_xallele_ct, uint32_t hwe_midp, uint32_t calc_thread_ct, double** hwe_x_pvals_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
+  ComputeHweXPvalsCtx ctx;
+  ThreadGroup* tgp = &ctx.tg;
+  PreinitThreads(tgp);
   {
     assert(hwe_x_ct);
     if (unlikely(bigstack_alloc_d(hwe_x_ct + x_xallele_ct, hwe_x_pvals_ptr))) {
       goto ComputeHweXPvals_ret_NOMEM;
     }
     bigstack_mark = g_bigstack_base;
-    g_hwe_x_pvals = *hwe_x_pvals_ptr;
+    ctx.hwe_x_pvals = *hwe_x_pvals_ptr;
 
     if (calc_thread_ct > hwe_x_ct) {
       calc_thread_ct = hwe_x_ct;
     }
-    pthread_t* threads;
     if (unlikely(
-            bigstack_alloc_thread(calc_thread_ct, &threads) ||
-            bigstack_alloc_u32(calc_thread_ct, &g_variant_uidx_starts) ||
-            bigstack_alloc_w(calc_thread_ct, &g_extra_aidx_starts))) {
+            SetThreadCt0(calc_thread_ct - 1, tgp) ||
+            bigstack_alloc_u32(calc_thread_ct, &ctx.variant_uidx_starts) ||
+            bigstack_alloc_w(calc_thread_ct, &ctx.extra_aidx_starts))) {
       goto ComputeHweXPvals_ret_NOMEM;
     }
     // possible todo: extra-allele-based load balancer
-    ComputeUidxStartPartition(variant_include, hwe_x_ct, calc_thread_ct, x_start, g_variant_uidx_starts);
-    g_extra_aidx_starts[0] = 0;
+    ComputeUidxStartPartition(variant_include, hwe_x_ct, calc_thread_ct, x_start, ctx.variant_uidx_starts);
+    ctx.extra_aidx_starts[0] = 0;
     uintptr_t extra_aidx = 0;
-    uint32_t prev_variant_uidx = g_variant_uidx_starts[0];
+    uint32_t prev_variant_uidx = ctx.variant_uidx_starts[0];
     for (uint32_t tidx = 1; tidx != calc_thread_ct; ++tidx) {
-      const uint32_t cur_variant_uidx = g_variant_uidx_starts[tidx];
+      const uint32_t cur_variant_uidx = ctx.variant_uidx_starts[tidx];
       extra_aidx += CountExtraAlleles(variant_include, allele_idx_offsets, prev_variant_uidx, cur_variant_uidx, 1);
-      g_extra_aidx_starts[tidx] = extra_aidx;
+      ctx.extra_aidx_starts[tidx] = extra_aidx;
       prev_variant_uidx = cur_variant_uidx;
     }
-    g_variant_include = variant_include;
-    g_allele_idx_offsets = allele_idx_offsets;
-    g_founder_raw_geno_cts = founder_raw_geno_cts;
-    g_founder_x_male_geno_cts = founder_x_male_geno_cts;
-    g_founder_x_nosex_geno_cts = founder_x_nosex_geno_cts;
-    g_x_knownsex_xgeno_cts = x_knownsex_xgeno_cts;
-    g_x_male_xgeno_cts = x_male_xgeno_cts;
-    g_calc_thread_ct = calc_thread_ct;
-    g_x_start = x_start;
-    g_hwe_x_ct = hwe_x_ct;
-    g_hwe_midp = hwe_midp;
+    ctx.variant_include = variant_include;
+    ctx.allele_idx_offsets = allele_idx_offsets;
+    ctx.founder_raw_geno_cts = founder_raw_geno_cts;
+    ctx.founder_x_male_geno_cts = founder_x_male_geno_cts;
+    ctx.founder_x_nosex_geno_cts = founder_x_nosex_geno_cts;
+    ctx.x_knownsex_xgeno_cts = x_knownsex_xgeno_cts;
+    ctx.x_male_xgeno_cts = x_male_xgeno_cts;
+    ctx.x_start = x_start;
+    ctx.hwe_x_ct = hwe_x_ct;
+    ctx.hwe_midp = hwe_midp;
     logprintf("Computing chrX Hardy-Weinberg %sp-values... ", hwe_midp? "mid" : "");
     fputs("0%", stdout);
     fflush(stdout);
-    if (unlikely(SpawnThreadsOld(ComputeHweXPvalsThread, calc_thread_ct, threads))) {
-      goto ComputeHweXPvals_ret_THREAD_CREATE_FAIL;
+    if (calc_thread_ct > 1) {
+      SetThreadFuncAndData(ComputeHweXPvalsThread, &ctx, tgp);
+      DeclareLastThreadBlock(tgp);
+      if (unlikely(SpawnThreads(tgp))) {
+        goto ComputeHweXPvals_ret_THREAD_CREATE_FAIL;
+      }
     }
-    ComputeHweXPvalsThread(S_CAST(void*, 0));
-    JoinThreadsOld(calc_thread_ct, threads);
+    ComputeHweXPvalsMain(calc_thread_ct - 1, calc_thread_ct, &ctx);
+    JoinThreads0(tgp);
     fputs("\b\b", stdout);
     logputs("done.\n");
   }
@@ -4353,6 +4364,7 @@ PglErr ComputeHweXPvals(const uintptr_t* variant_include, const uintptr_t* allel
     reterr = kPglRetThreadCreateFail;
     break;
   }
+  CleanupThreads(tgp);
   BigstackReset(bigstack_mark);
   return reterr;
 }

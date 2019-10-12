@@ -1549,17 +1549,9 @@ PglErr ParseNameRanges(const char* const* argvk, const char* errstr_append, uint
 uint32_t CubicRealRoots(double coef_a, double coef_b, double coef_c, STD_ARRAY_REF(double, 3) solutions);
 
 
-// For pure computations, where the launcher thread joins in as thread 0.
-// threads[] is second rather than first parameter since, on Windows, we may
-// need to call CloseHandle.
-void JoinThreadsOld(uint32_t ctp1, pthread_t* threads);
-
 #ifndef _WIN32
 extern pthread_attr_t g_smallstack_thread_attr_old;
 #endif
-
-BoolErr SpawnThreadsOld(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthread_t* threads);
-
 
 // For double-buffering workloads where we don't want to respawn/join the
 // threads on every block, and (unlike plink 1.9) the launcher thread does not

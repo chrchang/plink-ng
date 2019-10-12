@@ -2396,44 +2396,9 @@ uint32_t CubicRealRoots(double coef_a, double coef_b, double coef_c, STD_ARRAY_R
 }
 
 
-void JoinThreadsOld(uint32_t ctp1, pthread_t* threads) {
-  if (!(--ctp1)) {
-    return;
-  }
-#ifdef _WIN32
-  WaitForMultipleObjects(ctp1, threads, 1, INFINITE);
-  for (uint32_t uii = 0; uii != ctp1; ++uii) {
-    // fix handle leak?
-    CloseHandle(threads[uii]);
-  }
-#else
-  for (uint32_t uii = 0; uii != ctp1; ++uii) {
-    pthread_join(threads[uii], nullptr);
-  }
-#endif
-}
-
 #ifndef _WIN32
 pthread_attr_t g_smallstack_thread_attr_old;
 #endif
-
-BoolErr SpawnThreadsOld(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthread_t* threads) {
-  for (uintptr_t ulii = 1; ulii != ct; ++ulii) {
-#ifdef _WIN32
-    threads[ulii - 1] = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStack, start_routine, R_CAST(void*, ulii), 0, nullptr));
-    if (unlikely(!threads[ulii - 1])) {
-      JoinThreadsOld(ulii, threads);
-      return 1;
-    }
-#else
-    if (unlikely(pthread_create(&(threads[ulii - 1]), &g_smallstack_thread_attr_old, start_routine, R_CAST(void*, ulii)))) {
-      JoinThreadsOld(ulii, threads);
-      return 1;
-    }
-#endif
-  }
-  return 0;
-}
 
 // Main plink 2.0 threading framework:
 // * On all operating systems, g_is_last_thread_block indicates whether all
