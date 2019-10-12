@@ -3379,7 +3379,7 @@ int main(int argc, char** argv) {
 
     // Default value is 1638 = 32768 / 20, and that's applied to imported
     // dosages when --hard-call-threshold is not specified.
-    // However, when --make-{b}pgen is run on a dosage-containing dataset,
+    // However, when --make-[b]pgen is run on a dosage-containing dataset,
     // explicit --hard-call-threshold will cause the hardcall set to be
     // regenerated, and that won't happen without --hard-call-threshold.  So we
     // need to distinguish between --hard-call-threshold 0.1 and no flag.
@@ -6085,7 +6085,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(make_plink2_flags & (kfMakeBim | kfMakeFam | kfMakePvar | kfMakePsam))) {
-            logerrputs("Error: --make-just-... cannot be used with --make-bed/--make-{b}pgen.\n");
+            logerrputs("Error: --make-just-... cannot be used with --make-bed/--make-[b]pgen.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(import_flags & kfImportKeepAutoconv)) {
@@ -6223,7 +6223,7 @@ int main(int argc, char** argv) {
           pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "ake-just-bim")) {
           if (unlikely(make_plink2_flags & (kfMakeBed | kfMakePgen))) {
-            logerrputs("Error: --make-just-... cannot be used with --make-bed/--make-{b}pgen.\n");
+            logerrputs("Error: --make-just-... cannot be used with --make-bed/--make-[b]pgen.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
@@ -6243,7 +6243,7 @@ int main(int argc, char** argv) {
           pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "ake-just-fam")) {
           if (unlikely(make_plink2_flags & (kfMakeBed | kfMakePgen))) {
-            logerrputs("Error: --make-just-... cannot be used with --make-bed/--make-{b}pgen.\n");
+            logerrputs("Error: --make-just-... cannot be used with --make-bed/--make-[b]pgen.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           make_plink2_flags |= kfMakeFam;
@@ -6252,7 +6252,7 @@ int main(int argc, char** argv) {
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "ake-just-pvar")) {
           if (unlikely(make_plink2_flags & (kfMakeBed | kfMakePgen))) {
-            logerrputs("Error: --make-just-... cannot be used with --make-bed/--make-{b}pgen.\n");
+            logerrputs("Error: --make-just-... cannot be used with --make-bed/--make-[b]pgen.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
@@ -6294,7 +6294,7 @@ int main(int argc, char** argv) {
           pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "ake-just-psam")) {
           if (unlikely(make_plink2_flags & (kfMakeBed | kfMakePgen))) {
-            logerrputs("Error: --make-just-... cannot be used with --make-bed/--make-{b}pgen.\n");
+            logerrputs("Error: --make-just-... cannot be used with --make-bed/--make-[b]pgen.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
@@ -6751,7 +6751,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (pc.exportf_info.flags & kfExportfVcf) {
-            logerrputs("Warning: --merge-x should not be used in the same run as VCF export; this\ncauses some ploidies to be wrong.  Instead, use --merge-x + --sort-vars +\n--make-{b}pgen in one run, and follow up with --split-par + --export vcf.\n");
+            logerrputs("Warning: --merge-x should not be used in the same run as VCF export; this\ncauses some ploidies to be wrong.  Instead, use --merge-x + --sort-vars +\n--make-[b]pgen in one run, and follow up with --split-par + --export vcf.\n");
           }
           pc.misc_flags |= kfMiscMergeX;
           pc.dependency_flags |= kfFilterPvarReq;
@@ -7971,7 +7971,7 @@ int main(int argc, char** argv) {
           pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "et-hh-missing")) {
           if (unlikely(!(pc.command_flags1 & kfCommand1MakePlink2))) {
-            logerrputs("Error: --set-hh-missing must be used with --make-{b}pgen/--make-bed.\n");
+            logerrputs("Error: --set-hh-missing must be used with --make-[b]pgen/--make-bed.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
@@ -7981,7 +7981,7 @@ int main(int argc, char** argv) {
             const char* cur_modif = argvk[arg_idx + 1];
             if (likely(!strcmp(cur_modif, "keep-dosage"))) {
               if (unlikely(make_plink2_flags & kfMakePgenEraseDosage)) {
-                logerrputs("Error: --set-hh-missing 'keep-dosage' modifier cannot be used with\n--make-{b}pgen erase-dosage.\n");
+                logerrputs("Error: --set-hh-missing 'keep-dosage' modifier cannot be used with\n--make-[b]pgen erase-dosage.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               make_plink2_flags |= kfMakePlink2SetHhMissingKeepDosage;
@@ -7993,7 +7993,7 @@ int main(int argc, char** argv) {
           make_plink2_flags |= kfMakePlink2SetHhMissing;
         } else if (strequal_k_unsafe(flagname_p2, "et-mixed-mt-missing")) {
           if (unlikely(!(pc.command_flags1 & kfCommand1MakePlink2))) {
-            logerrputs("Error: --set-mixed-mt-missing must be used with --make-{b}pgen/--make-bed.\n");
+            logerrputs("Error: --set-mixed-mt-missing must be used with --make-[b]pgen/--make-bed.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
@@ -8003,7 +8003,7 @@ int main(int argc, char** argv) {
             const char* cur_modif = argvk[arg_idx + 1];
             if (likely(!strcmp(cur_modif, "keep-dosage"))) {
               if (unlikely(make_plink2_flags & kfMakePgenEraseDosage)) {
-                logerrputs("Error: --set-mixed-mt-missing 'keep-dosage' modifier cannot be used with\n--make-{b}pgen erase-dosage.\n");
+                logerrputs("Error: --set-mixed-mt-missing 'keep-dosage' modifier cannot be used with\n--make-[b]pgen erase-dosage.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               make_plink2_flags |= kfMakePlink2SetMixedMtMissingKeepDosage;
@@ -8234,7 +8234,7 @@ int main(int argc, char** argv) {
         } else if (strequal_k_unsafe(flagname_p2, "ort-vars")) {
           if (unlikely(!(pc.command_flags1 & kfCommand1MakePlink2))) {
             // todo: permit merge
-            logerrputs("Error: --sort-vars must be used with --make-{b}pgen/--make-bed or dataset\nmerging.\n");
+            logerrputs("Error: --sort-vars must be used with --make-[b]pgen/--make-bed or dataset\nmerging.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
@@ -9109,30 +9109,30 @@ int main(int argc, char** argv) {
     }
     if (unlikely((pc.sample_sort_flags != kfSort0) && (!(pc.command_flags1 & (kfCommand1MakePlink2 | kfCommand1WriteCovar))))) {
       // todo: permit merge
-      logerrputs("Error: --indiv-sort must be used with --make-{b}pgen/--make-bed/--write-covar\nor dataset merging.\n");
+      logerrputs("Error: --indiv-sort must be used with --make-[b]pgen/--make-bed/--write-covar\nor dataset merging.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
     if (unlikely((make_plink2_flags & (kfMakePlink2MMask | kfMakePlink2TrimAlts | kfMakePlink2EraseAlt2Plus | kfMakePgenErasePhase | kfMakePgenEraseDosage)) && (pc.command_flags1 & (~kfCommand1MakePlink2)))) {
-      logerrputs("Error: When the 'multiallelics=', 'trim-alts', and/or 'erase-...' modifier is\npresent, --make-bed/--make-{b}pgen cannot be combined with other commands.\n(Other filters are fine.)\n");
+      logerrputs("Error: When the 'multiallelics=', 'trim-alts', and/or 'erase-...' modifier is\npresent, --make-bed/--make-[b]pgen cannot be combined with other commands.\n(Other filters are fine.)\n");
       goto main_ret_INVALID_CMDLINE;
     }
     if (make_plink2_flags & kfMakePlink2MMask) {
       if (unlikely((pc.misc_flags & kfMiscMajRef) || pc.ref_allele_flag || pc.alt1_allele_flag || (pc.fa_flags & kfFaRefFrom))) {
-        logerrputs("Error: --make-bed/--make-{b}pgen 'multiallelics=' cannot be used with\n'trim-alts'.\n");
+        logerrputs("Error: --make-bed/--make-[b]pgen 'multiallelics=' cannot be used with\n'trim-alts'.\n");
         goto main_ret_INVALID_CMDLINE;
       }
       if (unlikely((pc.misc_flags & kfMiscMajRef) || pc.ref_allele_flag || pc.alt1_allele_flag || (pc.fa_flags & kfFaRefFrom))) {
-        logerrputs("Error: When the 'multiallelics=' modifier is present, --make-bed/--make-{b}pgen\ncannot be used with a flag which alters REF/ALT1 allele settings.\n");
+        logerrputs("Error: When the 'multiallelics=' modifier is present, --make-bed/--make-[b]pgen\ncannot be used with a flag which alters REF/ALT1 allele settings.\n");
         goto main_ret_INVALID_CMDLINE;
       }
     }
     if (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Exportf))) {
       if (unlikely((pc.misc_flags & kfMiscMajRef) || pc.ref_allele_flag || pc.alt1_allele_flag || (pc.fa_flags & kfFaRefFrom))) {
-        logerrputs("Error: Flags which alter REF/ALT1 allele settings (--maj-ref, --ref-allele,\n--alt1-allele, --ref-from-fa) must be used with\n--make-bed/--make-{b}pgen/--export and no other commands.\n");
+        logerrputs("Error: Flags which alter REF/ALT1 allele settings (--maj-ref, --ref-allele,\n--alt1-allele, --ref-from-fa) must be used with\n--make-bed/--make-[b]pgen/--export and no other commands.\n");
         goto main_ret_INVALID_CMDLINE;
       }
       if (unlikely(pc.fa_flags & kfFaNormalize)) {
-        logerrputs("Error: --normalize must be used with --make-bed/--make-{b}pgen/--export and no\nother commands.\n");
+        logerrputs("Error: --normalize must be used with --make-bed/--make-[b]pgen/--export and no\nother commands.\n");
         goto main_ret_INVALID_CMDLINE;
       }
     }
@@ -9266,7 +9266,7 @@ int main(int argc, char** argv) {
       reterr = PgenInfoStandalone(pgenname);
     } else {
       if (unlikely(pc.dependency_flags && (!pc.command_flags1))) {
-        logerrputs("Error: Basic file conversions do not support regular filter or transform\noperations.  Rerun your command with --make-bed/--make-{b}pgen.\n");
+        logerrputs("Error: Basic file conversions do not support regular filter or transform\noperations.  Rerun your command with --make-bed/--make-[b]pgen.\n");
         goto main_ret_INVALID_CMDLINE;
       }
       if (xload) {
@@ -9427,7 +9427,7 @@ int main(int argc, char** argv) {
     break;
   main_ret_NULL_CALC:
     if (pc.dependency_flags) {
-      logerrputs("Warning: No output requested.  (Did you forget --make-bed/--make-{b}pgen?)\nExiting.\n");
+      logerrputs("Warning: No output requested.  (Did you forget --make-bed/--make-[b]pgen?)\nExiting.\n");
     } else {
       logerrputs("Warning: No output requested.  Exiting.\n");
     }

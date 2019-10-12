@@ -2658,8 +2658,18 @@ static const uintptr_t* g_subset_mask = nullptr;
 static const char* const* g_item_ids;
 static uint32_t* g_id_htable = nullptr;
 
-// currently by item_idx, not item_uidx
-static uint32_t* g_item_id_hashes = nullptr;
+#ifdef _WIN32
+static HANDLE g_hash_fill_event = nullptr;
+#else
+static pthread_mutex_t g_hash_fill_mutex;
+static pthread_cond_t g_hash_fill_condvar;
+#endif
+static uintptr_t g_unfinished_hash_thread_ct = 0;
+
+// [2n] = final hashval (after linear probing), [2n+1] = duplicate item_uidx
+static uint32_t* g_dup_lists[16];
+static uint32_t g_dup_cts[16];
+
 static uint32_t g_item_ct = 0;
 static uint32_t g_id_htable_size = 0;
 static uint32_t g_calc_thread_ct = 0;
@@ -2669,7 +2679,6 @@ THREAD_FUNC_DECL CalcIdHashThread(void* arg) {
   const uintptr_t tidx = R_CAST(uintptr_t, arg);
   const uintptr_t* subset_mask = g_subset_mask;
   const char* const* item_ids = g_item_ids;
-  uint32_t* item_id_hashes = g_item_id_hashes;
   const uint32_t id_htable_size = g_id_htable_size;
   const uint32_t calc_thread_ct = g_calc_thread_ct;
   const uint32_t fill_start = RoundDownPow2((id_htable_size * S_CAST(uint64_t, tidx)) / calc_thread_ct, kInt32PerCacheline);
@@ -2679,23 +2688,89 @@ THREAD_FUNC_DECL CalcIdHashThread(void* arg) {
   } else {
     fill_end = id_htable_size;
   }
-  SetAllU32Arr(fill_end - fill_start, &(g_id_htable[fill_start]));
+  uint32_t* id_htable = g_id_htable;
+  SetAllU32Arr(fill_end - fill_start, &(id_htable[fill_start]));
+  // wait for other threads to be done
+#ifdef _WIN32
+  if (__sync_sub_and_fetch(&g_unfinished_hash_thread_ct, 1)) {
+    WaitForSingleObject(g_hash_fill_event, INFINITE);
+  } else {
+    SetEvent(g_hash_fill_event);
+  }
+#else
+  pthread_mutex_lock(&g_hash_fill_mutex);
+  if (!(--g_unfinished_hash_thread_ct)) {
+    pthread_cond_broadcast(&g_hash_fill_condvar);
+  } else {
+    do {
+      pthread_cond_wait(&g_hash_fill_condvar, &g_hash_fill_mutex);
+    } while (g_unfinished_hash_thread_ct);
+  }
+  pthread_mutex_unlock(&g_hash_fill_mutex);
+#endif
 
   const uint32_t item_ct = g_item_ct;
+  const uint32_t item_idx_start = (item_ct * S_CAST(uint64_t, tidx)) / calc_thread_ct;
   const uint32_t item_idx_end = (item_ct * (S_CAST(uint64_t, tidx) + 1)) / calc_thread_ct;
+
+  // nullptr in !store_all_dups case
+  uint32_t* dup_list_witer = g_dup_lists[tidx];
+
   uintptr_t cur_bits;
   uintptr_t item_uidx_base;
   BitIter1Start(subset_mask, g_item_uidx_starts[tidx], &item_uidx_base, &cur_bits);
-  for (uint32_t item_idx = (item_ct * S_CAST(uint64_t, tidx)) / calc_thread_ct; item_idx != item_idx_end; ++item_idx) {
-    const uintptr_t item_uidx = BitIter1(subset_mask, &item_uidx_base, &cur_bits);
-    const char* sptr = item_ids[item_uidx];
-    const uint32_t slen = strlen(sptr);
-    item_id_hashes[item_idx] = Hashceil(sptr, slen, id_htable_size);
+  if (dup_list_witer) {
+    for (uint32_t item_idx = item_idx_start; item_idx != item_idx_end; ++item_idx) {
+      const uintptr_t item_uidx = BitIter1(subset_mask, &item_uidx_base, &cur_bits);
+      const char* sptr = item_ids[item_uidx];
+      const uint32_t slen = strlen(sptr);
+      for (uint32_t hashval = Hashceil(sptr, slen, id_htable_size); ; ) {
+        const uint32_t old_htable_entry = __sync_val_compare_and_swap(&(id_htable[hashval]), UINT32_MAX, item_uidx);
+        if (old_htable_entry == UINT32_MAX) {
+          break;
+        }
+        if (strequal_overread(sptr, item_ids[old_htable_entry])) {
+          *dup_list_witer++ = hashval;
+          *dup_list_witer++ = item_uidx;
+          break;
+        }
+        if (++hashval == id_htable_size) {
+          hashval = 0;
+        }
+      }
+    }
+    uint32_t* dup_list_start = g_dup_lists[tidx];
+    g_dup_cts[tidx] = S_CAST(uintptr_t, dup_list_witer - dup_list_start) / 2;
+  } else {
+    for (uint32_t item_idx = item_idx_start; item_idx != item_idx_end; ++item_idx) {
+      const uintptr_t item_uidx = BitIter1(subset_mask, &item_uidx_base, &cur_bits);
+      const char* sptr = item_ids[item_uidx];
+      const uint32_t slen = strlen(sptr);
+      for (uint32_t hashval = Hashceil(sptr, slen, id_htable_size); ; ) {
+        const uint32_t old_htable_entry = __sync_val_compare_and_swap(&(id_htable[hashval]), UINT32_MAX, item_uidx);
+        if (old_htable_entry == UINT32_MAX) {
+          break;
+        }
+        if (strequal_overread(sptr, item_ids[old_htable_entry & 0x7fffffff])) {
+          if (!(old_htable_entry & 0x80000000U)) {
+            // ok if multiple threads do this
+            id_htable[hashval] = old_htable_entry | 0x80000000U;
+          }
+          break;
+        }
+        if (++hashval == id_htable_size) {
+          hashval = 0;
+        }
+      }
+    }
   }
   THREAD_RETURN;
 }
 
 // dup_ct assumed to be initialized to 0 when dup_ct_ptr != nullptr
+//
+// todo: this is now a sufficiently powerful component to be worth making
+// usable without arena allocation
 PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t store_all_dups, uint32_t id_htable_size, uint32_t thread_ct, uint32_t* id_htable, uint32_t* dup_ct_ptr) {
   // Change from plink 1.9: if store_all_dups is false, we don't error out on
   // the first encountered duplicate ID; instead, we just flag it in the hash
@@ -2709,8 +2784,11 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
   }
   unsigned char* bigstack_end_mark = g_bigstack_end;
   PglErr reterr = kPglRetSuccess;
+  uint32_t hash_fill_init_state = 0;
   {
     // this seems to be a sweet spot
+    // todo: re-benchmark this, now that we're making heavy use of atomic
+    // operations
     if (thread_ct > 16) {
       thread_ct = 16;
     }
@@ -2720,9 +2798,30 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
         thread_ct = 1;
       }
     }
-    if (unlikely(bigstack_end_alloc_u32(item_ct, &g_item_id_hashes))) {
-      goto PopulateIdHtableMt_ret_NOMEM;
+    uint32_t* dup_list = nullptr;
+    if (store_all_dups) {
+      if (unlikely(bigstack_end_alloc_u32(2 * item_ct, &dup_list))) {
+        goto PopulateIdHtableMt_ret_NOMEM;
+      }
     }
+#ifdef _WIN32
+    // manual-reset
+    g_hash_fill_event = CreateEvent(nullptr, TRUE, FALSE, nullptr);
+    if (unlikely(!g_hash_fill_event)) {
+      goto PopulateIdHtableMt_ret_THREAD_CREATE_FAIL;
+    }
+    hash_fill_init_state = 1;
+#else
+    if (unlikely(pthread_mutex_init(&g_hash_fill_mutex, nullptr))) {
+      goto PopulateIdHtableMt_ret_THREAD_CREATE_FAIL;
+    }
+    if (unlikely(pthread_cond_init(&g_hash_fill_condvar, nullptr))) {
+      hash_fill_init_state = 1;
+      goto PopulateIdHtableMt_ret_THREAD_CREATE_FAIL;
+    }
+    hash_fill_init_state = 2;
+#endif
+    g_unfinished_hash_thread_ct = thread_ct;
     g_subset_mask = subset_mask;
     g_item_ids = item_ids;
     g_id_htable = id_htable;
@@ -2734,10 +2833,16 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
       uint32_t item_uidx = AdvTo1Bit(subset_mask, 0);
       uint32_t item_idx = 0;
       g_item_uidx_starts[0] = item_uidx;
+      g_dup_lists[0] = dup_list;
       for (uintptr_t tidx = 1; tidx != thread_ct; ++tidx) {
         const uint32_t item_idx_new = (item_ct * S_CAST(uint64_t, tidx)) / thread_ct;
         item_uidx = FindNth1BitFrom(subset_mask, item_uidx + 1, item_idx_new - item_idx);
         g_item_uidx_starts[tidx] = item_uidx;
+        if (dup_list) {
+          g_dup_lists[tidx] = &(dup_list[2 * item_idx_new]);
+        } else {
+          g_dup_lists[tidx] = nullptr;
+        }
         item_idx = item_idx_new;
       }
     }
@@ -2746,41 +2851,7 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
     }
     CalcIdHashThread(R_CAST(void*, 0));
     JoinThreadsOld(thread_ct, threads);
-    // could also partial-sort and actually fill the hash table in a
-    // multithreaded manner, but I'll postpone that for now since it's tricky
-    // to make that work with duplicate ID handling, and it also is a
-    // substantially smaller bottleneck than hash value computation.
-    uintptr_t item_uidx_base = 0;
-    uintptr_t cur_bits = subset_mask[0];
-    if (!store_all_dups) {
-      for (uint32_t item_idx = 0; item_idx != item_ct; ++item_idx) {
-        const uintptr_t item_uidx = BitIter1(subset_mask, &item_uidx_base, &cur_bits);
-        const uint32_t hashval_base = g_item_id_hashes[item_idx];
-        uint32_t cur_htable_entry = id_htable[hashval_base];
-        if (cur_htable_entry == UINT32_MAX) {
-          id_htable[hashval_base] = item_uidx;
-        } else {
-          const char* sptr = item_ids[item_uidx];
-          for (uint32_t hashval = hashval_base; ; ) {
-            // guaranteed to be safe due to where variant IDs are allocated
-            if (strequal_overread(sptr, item_ids[cur_htable_entry & 0x7fffffff])) {
-              if (!(cur_htable_entry >> 31)) {
-                id_htable[hashval] |= 0x80000000U;
-              }
-              break;
-            }
-            if (++hashval == id_htable_size) {
-              hashval = 0;
-            }
-            cur_htable_entry = id_htable[hashval];
-            if (cur_htable_entry == UINT32_MAX) {
-              id_htable[hashval] = item_uidx;
-              break;
-            }
-          }
-        }
-      }
-    } else {
+    if (store_all_dups) {
       const uintptr_t cur_bigstack_left = bigstack_left();
       uint32_t max_extra_alloc_m4;
 #ifdef __LP64__
@@ -2797,53 +2868,31 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
       }
 #endif
       uint32_t extra_alloc = 0;
-      uint32_t prev_llidx = 0;
       // needs to be synced with ExtractExcludeFlagNorange()
-      // multithread this?
       uint32_t* htable_dup_base = R_CAST(uint32_t*, g_bigstack_base);
-      for (uint32_t item_idx = 0; item_idx != item_ct; ++item_idx) {
-        const uintptr_t item_uidx = BitIter1(subset_mask, &item_uidx_base, &cur_bits);
-        const uint32_t hashval_base = g_item_id_hashes[item_idx];
-        uint32_t cur_htable_entry = id_htable[hashval_base];
-        if (cur_htable_entry == UINT32_MAX) {
-          id_htable[hashval_base] = item_uidx;
-        } else {
-          const char* sptr = item_ids[item_uidx];
-          for (uint32_t hashval = hashval_base; ; ) {
-            const uint32_t cur_dup = cur_htable_entry >> 31;
-            uint32_t prev_uidx;
-            if (cur_dup) {
-              prev_llidx = cur_htable_entry * 2;
-              prev_uidx = htable_dup_base[prev_llidx];
-            } else {
-              prev_uidx = cur_htable_entry;
-            }
-            if (strequal_overread(sptr, item_ids[prev_uidx])) {
-              if (unlikely(extra_alloc > max_extra_alloc_m4)) {
-                goto PopulateIdHtableMt_ret_NOMEM;
-              }
-              // point to linked list entry instead
-              if (!cur_dup) {
-                htable_dup_base[extra_alloc] = cur_htable_entry;
-                htable_dup_base[extra_alloc + 1] = UINT32_MAX;  // list end
-                prev_llidx = extra_alloc;
-                extra_alloc += 2;
-              }
-              htable_dup_base[extra_alloc] = item_uidx;
-              htable_dup_base[extra_alloc + 1] = prev_llidx;
-              id_htable[hashval] = 0x80000000U | (extra_alloc >> 1);
-              extra_alloc += 2;
-              break;  // bugfix
-            }
-            if (++hashval == id_htable_size) {
-              hashval = 0;
-            }
-            cur_htable_entry = id_htable[hashval];
-            if (cur_htable_entry == UINT32_MAX) {
-              id_htable[hashval] = item_uidx;
-              break;
-            }
+      for (uint32_t tidx = 0; tidx != thread_ct; ++tidx) {
+        const uint32_t dup_ct = g_dup_cts[tidx];
+        const uint32_t* dup_list_iter = g_dup_lists[tidx];
+        for (uint32_t dup_idx = 0; dup_idx != dup_ct; ++dup_idx) {
+          if (unlikely(extra_alloc > max_extra_alloc_m4)) {
+            goto PopulateIdHtableMt_ret_NOMEM;
           }
+          const uint32_t hashval = *dup_list_iter++;
+          const uint32_t item_uidx = *dup_list_iter++;
+          uint32_t cur_htable_entry = id_htable[hashval];
+          uint32_t prev_llidx;
+          if (!(cur_htable_entry >> 31)) {  // not marked as duplicate
+            htable_dup_base[extra_alloc] = cur_htable_entry;
+            htable_dup_base[extra_alloc + 1] = UINT32_MAX;  // list end
+            prev_llidx = extra_alloc;
+            extra_alloc += 2;
+          } else {
+            prev_llidx = cur_htable_entry * 2;
+          }
+          htable_dup_base[extra_alloc] = item_uidx;
+          htable_dup_base[extra_alloc + 1] = prev_llidx;
+          id_htable[hashval] = 0x80000000U | (extra_alloc >> 1);
+          extra_alloc += 2;
         }
       }
       if (extra_alloc) {
@@ -2863,17 +2912,29 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
     reterr = kPglRetThreadCreateFail;
     break;
   }
+  if (hash_fill_init_state) {
+#ifdef _WIN32
+    CloseHandle(g_hash_fill_event);
+#else
+    pthread_mutex_destroy(&g_hash_fill_mutex);
+    if (hash_fill_init_state == 2) {
+      pthread_cond_destroy(&g_hash_fill_condvar);
+    }
+#endif
+  }
   BigstackEndReset(bigstack_end_mark);
   return reterr;
 }
 
 PglErr AllocAndPopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uintptr_t fast_size_min_extra_bytes, uint32_t max_thread_ct, uint32_t** id_htable_ptr, uint32_t** htable_dup_base_ptr, uint32_t* id_htable_size_ptr, uint32_t* dup_ct_ptr) {
   uint32_t id_htable_size = GetHtableFastSize(item_ct);
-  // 4 bytes per variant for hash buffer
   // if store_all_dups, up to 8 bytes per variant in extra_alloc for duplicate
-  //   tracking
+  //   tracking, as well as 8 bytes per variant temporary storage
   const uint32_t store_all_dups = (htable_dup_base_ptr != nullptr);
-  const uintptr_t nonhtable_alloc = RoundUpPow2(item_ct * sizeof(int32_t), kCacheline) + store_all_dups * RoundUpPow2(item_ct * 2 * sizeof(int32_t), kCacheline);
+  uintptr_t nonhtable_alloc = 0;
+  if (store_all_dups) {
+    nonhtable_alloc = 2 * RoundUpPow2(item_ct * 2 * sizeof(int32_t), kCacheline);
+  }
   uintptr_t max_bytes = RoundDownPow2(bigstack_left(), kCacheline);
   // force max_bytes >= 5 so leqprime() doesn't fail
   // (not actually relevant any more, but whatever)

@@ -187,6 +187,86 @@ void Dosage16ToDoubles(const double* geno_double_pair_table, const uintptr_t* ge
   }
 }
 
+double LinearCombinationMeanimpute(const double* weights, const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct) {
+  const uint32_t word_ct = DivUp(sample_ct, kBitsPerWordD2);
+  uint32_t nmiss = 0;
+  double result = 0.0;
+  double result2 = 0.0;
+  if (!dosage_ct) {
+    for (uint32_t widx = 0; widx != word_ct; ++widx) {
+      const uintptr_t geno_word = genoarr[widx];
+      if (!geno_word) {
+        continue;
+      }
+      const double* cur_weights = &(weights[widx * kBitsPerWordD2]);
+      uintptr_t geno_word1 = geno_word & kMask5555;
+      uintptr_t geno_word2 = (geno_word >> 1) & kMask5555;
+      const uintptr_t geno_missing_word = geno_word1 & geno_word2;
+#ifdef USE_SSE42
+      nmiss += PopcountWord(geno_missing_word);
+#else
+      nmiss += QuatersumWord(geno_missing_word);
+#endif
+      geno_word1 ^= geno_missing_word;
+      while (geno_word1) {
+        const uint32_t sample_idx_lowbits = ctzw(geno_word1) / 2;
+        result += cur_weights[sample_idx_lowbits];
+        geno_word1 &= geno_word1 - 1;
+      }
+      geno_word2 ^= geno_missing_word;
+      while (geno_word2) {
+        const uint32_t sample_idx_lowbits = ctzw(geno_word2) / 2;
+        result2 += cur_weights[sample_idx_lowbits];
+        geno_word2 &= geno_word2 - 1;
+      }
+    }
+    result += 2 * result2;
+  } else {
+    const Halfword* dosage_present_hws = R_CAST(const Halfword*, dosage_present);
+    for (uint32_t widx = 0; widx != word_ct; ++widx) {
+      const uintptr_t geno_word = genoarr[widx];
+      if (geno_word) {
+        const double* cur_weights = &(weights[widx * kBitsPerWordD2]);
+        uintptr_t geno_word1 = geno_word & kMask5555;
+        uintptr_t geno_word2 = (geno_word >> 1) & kMask5555;
+        const uintptr_t geno_missing_word = geno_word1 & geno_word2;
+#ifdef USE_SSE42
+        nmiss += PopcountWord(geno_missing_word);
+#else
+        nmiss += QuatersumWord(geno_missing_word);
+#endif
+        const uintptr_t mask_word = ~(geno_missing_word | UnpackHalfwordToWord(dosage_present_hws[widx]));
+        geno_word1 &= mask_word;
+        while (geno_word1) {
+          const uint32_t sample_idx_lowbits = ctzw(geno_word1) / 2;
+          result += cur_weights[sample_idx_lowbits];
+          geno_word1 &= geno_word1 - 1;
+        }
+        geno_word2 &= mask_word;
+        while (geno_word2) {
+          const uint32_t sample_idx_lowbits = ctzw(geno_word2) / 2;
+          result2 += cur_weights[sample_idx_lowbits];
+          geno_word2 &= geno_word2 - 1;
+        }
+      }
+    }
+    result += result2 * 2;
+    const uint16_t* dosage_main_iter = dosage_main;
+    double resultx = 0.0;
+    uintptr_t sample_uidx_base = 0;
+    uintptr_t cur_bits = dosage_present[0];
+    for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+      const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &cur_bits);
+      resultx += S_CAST(double, *dosage_main_iter++) * weights[sample_uidx];
+    }
+    result += 0.00006103515625 * resultx;
+  }
+  if (nmiss) {
+    result = result * S_CAST(double, sample_ct) / S_CAST(double, sample_ct - nmiss);
+  }
+  return result;
+}
+
 void BytesToBitsUnsafe(const uint8_t* boolbytes, uint32_t sample_ct, uintptr_t* bitarr) {
   const uint32_t ull_ct_m1 = (sample_ct - 1) / 8;
   const uint64_t* read_alias = R_CAST(const uint64_t*, boolbytes);

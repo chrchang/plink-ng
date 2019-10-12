@@ -521,7 +521,7 @@ PglErr BgzfRawMtStreamRetarget(const char* header, BgzfRawMtDecompressStream* bg
 void CleanupBgzfRawMtStream(BgzfRawMtDecompressStream* bgzfp) {
   uint32_t decompress_thread_ct = 0;
   if (bgzfp->tg.threads) {
-    decompress_thread_ct = bgzfp->tg.shared.cb.thread_ct - 1;
+    decompress_thread_ct = GetThreadCt(&bgzfp->tg) - 1;
   }
   CleanupThreads(&bgzfp->tg);
   BgzfMtReadBody* bodyp = &bgzfp->body;
@@ -966,7 +966,7 @@ BoolErr CleanupBgzfCompressStream(BgzfCompressStream* bgzfp, PglErr* reterrp) {
           nbytes = 0;
         } while (slot_idx != slot_idx_stop);
 #ifdef _WIN32
-        WaitForMultipleObjects(launched_thread_ct, threads, 1, INFINITE);
+        WaitForAllObjects(launched_thread_ct, threads);
         for (uint32_t tidx = 0; tidx != launched_thread_ct; ++tidx) {
           CloseHandle(threads[tidx]);
         }

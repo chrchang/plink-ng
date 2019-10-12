@@ -25,6 +25,17 @@
 namespace plink2 {
 #endif
 
+#ifdef _WIN32
+void WaitForAllObjects(uint32_t ct, HANDLE* objs) {
+  while (ct > 64) {
+    WaitForMultipleObjects(64, objs, 1, INFINITE);
+    objs = &(objs[64]);
+    ct -= 64;
+  }
+  WaitForMultipleObjects(ct, objs, 1, INFINITE);
+}
+#endif
+
 void PreinitThreads(ThreadGroup* tgp) {
   tgp->shared.cb.is_last_block = 0;
   tgp->thread_func_ptr = nullptr;
@@ -60,27 +71,25 @@ BoolErr SetThreadCt(uint32_t thread_ct, ThreadGroup* tgp) {
   }
   assert(thread_ct && (thread_ct <= kMaxThreads));
 #ifdef _WIN32
-  unsigned char* memptr = S_CAST(unsigned char*, malloc(thread_ct * (sizeof(ThreadGroupFuncArg) + 3 * sizeof(HANDLE))));
+  unsigned char* memptr = S_CAST(unsigned char*, malloc(thread_ct * (sizeof(ThreadGroupFuncArg) + sizeof(HANDLE))));
   if (unlikely(!memptr)) {
     return 1;
   }
   tgp->threads = R_CAST(HANDLE*, memptr);
-  tgp->shared.cb.start_next_events = &(tgp->threads[thread_ct]);
-  tgp->shared.cb.cur_block_done_events = &(tgp->shared.cb.start_next_events[thread_ct]);
-  memset(tgp->threads, 0, thread_ct * (3 * sizeof(HANDLE)));
-  memptr = &(memptr[thread_ct * (3 * sizeof(HANDLE))]);
+  memset(tgp->threads, 0, thread_ct * sizeof(HANDLE));
+  memptr = &(memptr[thread_ct * sizeof(HANDLE)]);
 #else
   unsigned char* memptr = S_CAST(unsigned char*, malloc(thread_ct * (sizeof(pthread_t) + sizeof(ThreadGroupFuncArg))));
   if (unlikely(!memptr)) {
     return 1;
   }
   tgp->threads = R_CAST(pthread_t*, memptr);
-  // !is_active currently guarantees that the sync mutex/condvars are not
-  // initialized.  Could change this later.
-  tgp->shared.cb.active_ct = 0;
+  // !is_active currently guarantees that the sync events/mutex/condvars are
+  // not initialized.  Could change this later.
   tgp->sync_init_state = 0;
   memptr = &(memptr[thread_ct * sizeof(pthread_t)]);
 #endif
+  tgp->shared.cb.active_ct = 0;
   tgp->thread_args = R_CAST(ThreadGroupFuncArg*, memptr);
 
   tgp->shared.cb.thread_ct = thread_ct;
@@ -92,18 +101,16 @@ BoolErr SetThreadCt(uint32_t thread_ct, ThreadGroup* tgp) {
 void JoinThreadsInternal(uint32_t thread_ct, ThreadGroup* tgp) {
 #ifdef _WIN32
   if (!tgp->shared.cb.is_last_block) {
-    WaitForMultipleObjects(thread_ct, tgp->shared.cb.cur_block_done_events, 1, INFINITE);
+    WaitForSingleObject(tgp->shared.cb.cur_block_done_event, INFINITE);
   } else {
-    WaitForMultipleObjects(thread_ct, tgp->threads, 1, INFINITE);
+    WaitForAllObjects(thread_ct, tgp->threads);
     for (uint32_t tidx = 0; tidx != thread_ct; ++tidx) {
       CloseHandle(tgp->threads[tidx]);
     }
-    const uint32_t orig_thread_ct = tgp->shared.cb.thread_ct;
-    for (uint32_t tidx = 0; tidx != orig_thread_ct; ++tidx) {
-      CloseHandle(tgp->shared.cb.start_next_events[tidx]);
-      CloseHandle(tgp->shared.cb.cur_block_done_events[tidx]);
-    }
-    memset(tgp->threads, 0, orig_thread_ct * (3 * sizeof(HANDLE)));
+    CloseHandle(tgp->shared.cb.start_next_events[0]);
+    CloseHandle(tgp->shared.cb.start_next_events[1]);
+    CloseHandle(tgp->shared.cb.cur_block_done_event);
+    memset(tgp->threads, 0, thread_ct * sizeof(HANDLE));
     tgp->is_active = 0;
   }
 #else
@@ -141,18 +148,26 @@ BoolErr SpawnThreads(ThreadGroup* tgp) {
 #ifdef _WIN32
   if (!was_active) {
     cbp->spawn_ct = 0;
-    for (uint32_t tidx = 0; tidx != thread_ct; ++tidx) {
-      HANDLE cur_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-      if (unlikely(!cur_event)) {
-        return 1;
-      }
-      cbp->start_next_events[tidx] = cur_event;
-      cur_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-      if (unlikely(!cur_event)) {
-        return 1;
-      }
-      cbp->cur_block_done_events[tidx] = cur_event;
+    // manual-reset broadcast event
+    HANDLE cur_event = CreateEvent(nullptr, TRUE, FALSE, nullptr);
+    if (unlikely(!cur_event)) {
+      return 1;
     }
+    cbp->start_next_events[0] = cur_event;
+    cur_event = CreateEvent(nullptr, TRUE, FALSE, nullptr);
+    if (unlikely(!cur_event)) {
+      CloseHandle(cbp->start_next_events[0]);
+      return 1;
+    }
+    cbp->start_next_events[1] = cur_event;
+    cur_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+    if (unlikely(!cur_event)) {
+      CloseHandle(cbp->start_next_events[0]);
+      CloseHandle(cbp->start_next_events[1]);
+      return 1;
+    }
+    cbp->cur_block_done_event = cur_event;
+    cbp->active_ct = thread_ct;
     for (uint32_t tidx = 0; tidx != thread_ct; ++tidx) {
       ThreadGroupFuncArg* arg_slot = &(tgp->thread_args[tidx]);
       arg_slot->sharedp = &(tgp->shared);
@@ -160,16 +175,21 @@ BoolErr SpawnThreads(ThreadGroup* tgp) {
       threads[tidx] = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStack, tgp->thread_func_ptr, arg_slot, 0, nullptr));
       if (unlikely(!threads[tidx])) {
         if (tidx) {
+          if (!is_last_block) {
+            // not sure the old TerminateThread() code ever worked properly in
+            // the first place...
+            // anyway, new contract makes clean error-shutdown easy
+            if (!__sync_sub_and_fetch(&cbp->active_ct, thread_ct - tidx)) {
+              SetEvent(cbp->cur_block_done_event);
+            }
+            JoinThreadsInternal(tidx, tgp);
+            cbp->is_last_block = 2;
+            const uint32_t start_next_parity = cbp->spawn_ct & 1;
+            // no need to reset start_prev_parity
+            cbp->spawn_ct += 1;
+            SetEvent(cbp->start_next_events[start_next_parity]);
+          }
           JoinThreadsInternal(tidx, tgp);
-        }
-        if (!is_last_block) {
-          for (uint32_t tidx2 = 0; tidx2 != tidx; ++tidx2) {
-            TerminateThread(threads[tidx2], 0);
-          }
-          for (uint32_t tidx2 = 0; tidx2 != tidx; ++tidx2) {
-            CloseHandle(threads[tidx2]);
-            threads[tidx2] = nullptr;
-          }
         }
         return 1;
       }
@@ -177,9 +197,10 @@ BoolErr SpawnThreads(ThreadGroup* tgp) {
     tgp->is_active = 1;
   } else {
     cbp->spawn_ct += 1;
-    for (uintptr_t tidx = 0; tidx != thread_ct; ++tidx) {
-      SetEvent(cbp->start_next_events[tidx]);
-    }
+    cbp->active_ct = thread_ct;
+    const uint32_t start_prev_parity = cbp->spawn_ct & 1;
+    ResetEvent(cbp->start_next_events[start_prev_parity]);
+    SetEvent(cbp->start_next_events[start_prev_parity ^ 1]);
   }
 #else
   if (!is_last_block) {
@@ -219,21 +240,20 @@ BoolErr SpawnThreads(ThreadGroup* tgp) {
 #  endif
                                   tgp->thread_func_ptr, arg_slot))) {
         if (tidx) {
-          if (is_last_block) {
+          if (!is_last_block) {
             JoinThreadsInternal(tidx, tgp);
-          } else {
             const uint32_t unstarted_thread_ct = thread_ct - tidx;
             pthread_mutex_lock(&cbp->sync_mutex);
             cbp->active_ct -= unstarted_thread_ct;
             while (cbp->active_ct) {
               pthread_cond_wait(&cbp->cur_block_done_condvar, &cbp->sync_mutex);
             }
-            // not worth the trouble of demanding that all callers handle
-            // pthread_create() failure cleanly
-            for (uint32_t tidx2 = 0; tidx2 != tidx; ++tidx2) {
-              pthread_cancel(threads[tidx2]);
-            }
+            cbp->is_last_block = 2;
+            cbp->spawn_ct += 1;
+            pthread_cond_broadcast(&cbp->start_next_condvar);
+            pthread_mutex_unlock(&cbp->sync_mutex);
           }
+          JoinThreadsInternal(tidx, tgp);
         } else {
           cbp->active_ct = 0;
         }
@@ -250,8 +270,8 @@ BoolErr SpawnThreads(ThreadGroup* tgp) {
   } else {
     cbp->spawn_ct += 1;
     // still holding mutex
-    pthread_mutex_unlock(&cbp->sync_mutex);
     pthread_cond_broadcast(&cbp->start_next_condvar);
+    pthread_mutex_unlock(&cbp->sync_mutex);
   }
 #endif
   tgp->is_unjoined = 1;
@@ -275,28 +295,24 @@ void CleanupThreads(ThreadGroup* tgp) {
         SpawnThreads(tgp);
         JoinThreadsInternal(thread_ct, tgp);
       }
+#ifndef _WIN32
     } else {
-#ifdef _WIN32
-      for (uint32_t tidx = 0; tidx != thread_ct; ++tidx) {
-        if (cbp->start_next_events[tidx]) {
-          CloseHandle(cbp->start_next_events[tidx]);
+      do {
+        const uint32_t sync_init_state = tgp->sync_init_state;
+        if (!sync_init_state) {
+          break;
         }
-        if (cbp->cur_block_done_events[tidx]) {
-          CloseHandle(cbp->cur_block_done_events[tidx]);
-        }
-      }
-#else
-      const uint32_t sync_init_state = tgp->sync_init_state;
-      if (sync_init_state) {
         pthread_mutex_destroy(&cbp->sync_mutex);
-        if (sync_init_state >= 2) {
-          pthread_cond_destroy(&cbp->cur_block_done_condvar);
-          if (sync_init_state >= 3) {
-            pthread_cond_destroy(&cbp->start_next_condvar);
-          }
+        if (sync_init_state == 1) {
+          break;
         }
-        tgp->sync_init_state = 0;
-      }
+        pthread_cond_destroy(&cbp->cur_block_done_condvar);
+        if (sync_init_state == 2) {
+          break;
+        }
+        pthread_cond_destroy(&cbp->start_next_condvar);
+      } while (0);
+      tgp->sync_init_state = 0;
 #endif
     }
 #ifndef _WIN32

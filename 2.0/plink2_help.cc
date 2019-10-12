@@ -1766,7 +1766,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
               );
     HelpPrint("indiv-sort\0", &help_ctrl, 0,
 "  --indiv-sort <mode> [f] : Specify sample ID sort order for merge and\n"
-"                            --make-{b}pgen/--make-bed.  The following four\n"
+"                            --make-[b]pgen/--make-bed.  The following four\n"
 "                            modes are supported:\n"
 "                            * 'none'/'0' keeps samples in the order they were\n"
 "                              loaded.  Default for non-merge.\n"

@@ -7817,7 +7817,7 @@ PglErr MakePlink2Vsort(const char* xheader, const uintptr_t* sample_include, con
     if (make_plink2_flags & (kfMakeBed | kfMakePgen)) {
       // boilerplate from start of MakePlink2NoVsort()
       if (make_plink2_flags & kfMakePlink2MMask) {
-        logerrputs("Error: --make-bed/--make-{b}pgen multiallelics= is currently under development.\n");
+        logerrputs("Error: --make-bed/--make-[b]pgen multiallelics= is currently under development.\n");
         reterr = kPglRetNotYetSupported;
         goto MakePlink2Vsort_ret_1;
       }

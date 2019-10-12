@@ -66,6 +66,8 @@ void Dosage16ToFloatsMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_pr
 
 void Dosage16ToDoubles(const double* geno_double_pair_table, const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, double* geno_double);
 
+double LinearCombinationMeanimpute(const double* weights, const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct);
+
 HEADER_INLINE void Dosage16ToDoublesMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, double* geno_double) {
   Dosage16ToDoubles(kGenoDoublePairs, genoarr, dosage_present, dosage_main, sample_ct, dosage_ct, geno_double);
 }

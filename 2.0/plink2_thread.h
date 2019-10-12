@@ -56,8 +56,11 @@ namespace plink2 {
 #endif
 
 #ifdef _WIN32
-// If kMaxThreads > 64, single WaitForMultipleObjects calls must be converted
-// into loops.  Which isn't a big deal, but let's keep things simpler for now.
+void WaitForAllObjects(uint32_t ct, HANDLE* objs);
+#endif
+
+#ifdef _WIN32
+// This should be increased once the old-style threads code has been purged.
 CONSTI32(kMaxThreads, 64);
 #else
 // currently assumed to be less than 2^16 (otherwise some multiply overflows
@@ -78,14 +81,14 @@ typedef struct ThreadGroupControlBlockStruct {
   // variables directly.
   uintptr_t spawn_ct;
 #ifdef _WIN32
-  HANDLE* start_next_events;
-  HANDLE* cur_block_done_events;
+  HANDLE start_next_events[2];  // uses parity of spawn_ct
+  HANDLE cur_block_done_event;
 #else
   pthread_mutex_t sync_mutex;
   pthread_cond_t cur_block_done_condvar;
   pthread_cond_t start_next_condvar;
-  uint32_t active_ct;
 #endif
+  uint32_t active_ct;
 
   // Thread-functions can safely read from these.
   uint32_t thread_ct;
@@ -193,9 +196,11 @@ HEADER_INLINE BoolErr THREAD_BLOCK_FINISH(ThreadGroupFuncArg* tgfap) {
   if (cbp->is_last_block) {
     return 1;
   }
-  const uint32_t tidx = tgfap->tidx;
-  SetEvent(cbp->cur_block_done_events[tidx]);
-  WaitForSingleObject(cbp->start_next_events[tidx], INFINITE);
+  const uint32_t start_next_parity = cbp->spawn_ct & 1;
+  if (!__sync_sub_and_fetch(&cbp->active_ct, 1)) {
+    SetEvent(cbp->cur_block_done_event);
+  }
+  WaitForSingleObject(cbp->start_next_events[start_next_parity], INFINITE);
   return (cbp->is_last_block == 2);
 }
 #else

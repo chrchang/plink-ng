@@ -104,8 +104,7 @@ namespace plink2 {
 #endif
 
 #ifdef _WIN32
-// if kMaxThreads > 64, single WaitForMultipleObjects calls must be converted
-// into loops
+// WaitForMultipleObjects limited to 64
 CONSTI32(kMaxThreadsOld, 64);
 #else
 // currently assumed to be less than 2^16 (otherwise some multiply overflows
@@ -1703,6 +1702,8 @@ HEADER_INLINE void CleanupThreads3z(ThreadsState* tsp, uint32_t* cur_block_sizep
 }
 
 
+// store_all_dups currently must be true for dup_ct to be set, but this is easy
+// to change
 PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t store_all_dups, uint32_t id_htable_size, uint32_t thread_ct, uint32_t* id_htable, uint32_t* dup_ct_ptr);
 
 // pass in htable_dup_base_ptr == nullptr if just flagging duplicate IDs rather

@@ -525,12 +525,14 @@ void RPgenReader::Close() {
     if (_info_ptr->vrtypes) {
       plink2::aligned_free(_info_ptr->vrtypes);
     }
-    plink2::CleanupPgfi(_info_ptr);
+    plink2::PglErr reterr = plink2::kPglRetSuccess;
+    plink2::CleanupPgfi(_info_ptr, &reterr);
     free(_info_ptr);
     _info_ptr = nullptr;
   }
   if (_state_ptr) {
-    plink2::CleanupPgr(_state_ptr);
+    plink2::PglErr reterr = plink2::kPglRetSuccess;
+    plink2::CleanupPgr(_state_ptr, &reterr);
     if (_state_ptr->fread_buf) {
       plink2::aligned_free(_state_ptr->fread_buf);
     }
