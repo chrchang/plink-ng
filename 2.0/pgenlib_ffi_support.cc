@@ -187,11 +187,11 @@ void Dosage16ToDoubles(const double* geno_double_pair_table, const uintptr_t* ge
   }
 }
 
-double LinearCombinationMeanimpute(const double* weights, const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct) {
+double LinearCombinationMeanimpute(const double* weights, const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, double weight_sum) {
   const uint32_t word_ct = DivUp(sample_ct, kBitsPerWordD2);
-  uint32_t nmiss = 0;
   double result = 0.0;
   double result2 = 0.0;
+  double miss_weight = 0.0;
   if (!dosage_ct) {
     for (uint32_t widx = 0; widx != word_ct; ++widx) {
       const uintptr_t geno_word = genoarr[widx];
@@ -201,12 +201,7 @@ double LinearCombinationMeanimpute(const double* weights, const uintptr_t* genoa
       const double* cur_weights = &(weights[widx * kBitsPerWordD2]);
       uintptr_t geno_word1 = geno_word & kMask5555;
       uintptr_t geno_word2 = (geno_word >> 1) & kMask5555;
-      const uintptr_t geno_missing_word = geno_word1 & geno_word2;
-#ifdef USE_SSE42
-      nmiss += PopcountWord(geno_missing_word);
-#else
-      nmiss += QuatersumWord(geno_missing_word);
-#endif
+      uintptr_t geno_missing_word = geno_word1 & geno_word2;
       geno_word1 ^= geno_missing_word;
       while (geno_word1) {
         const uint32_t sample_idx_lowbits = ctzw(geno_word1) / 2;
@@ -219,6 +214,11 @@ double LinearCombinationMeanimpute(const double* weights, const uintptr_t* genoa
         result2 += cur_weights[sample_idx_lowbits];
         geno_word2 &= geno_word2 - 1;
       }
+      while (geno_missing_word) {
+        const uint32_t sample_idx_lowbits = ctzw(geno_missing_word) / 2;
+        miss_weight += cur_weights[sample_idx_lowbits];
+        geno_missing_word &= geno_missing_word - 1;
+      }
     }
     result += 2 * result2;
   } else {
@@ -229,12 +229,7 @@ double LinearCombinationMeanimpute(const double* weights, const uintptr_t* genoa
         const double* cur_weights = &(weights[widx * kBitsPerWordD2]);
         uintptr_t geno_word1 = geno_word & kMask5555;
         uintptr_t geno_word2 = (geno_word >> 1) & kMask5555;
-        const uintptr_t geno_missing_word = geno_word1 & geno_word2;
-#ifdef USE_SSE42
-        nmiss += PopcountWord(geno_missing_word);
-#else
-        nmiss += QuatersumWord(geno_missing_word);
-#endif
+        uintptr_t geno_missing_word = geno_word1 & geno_word2;
         const uintptr_t mask_word = ~(geno_missing_word | UnpackHalfwordToWord(dosage_present_hws[widx]));
         geno_word1 &= mask_word;
         while (geno_word1) {
@@ -247,6 +242,11 @@ double LinearCombinationMeanimpute(const double* weights, const uintptr_t* genoa
           const uint32_t sample_idx_lowbits = ctzw(geno_word2) / 2;
           result2 += cur_weights[sample_idx_lowbits];
           geno_word2 &= geno_word2 - 1;
+        }
+        while (geno_missing_word) {
+          const uint32_t sample_idx_lowbits = ctzw(geno_missing_word) / 2;
+          miss_weight += cur_weights[sample_idx_lowbits];
+          geno_missing_word &= geno_missing_word - 1;
         }
       }
     }
@@ -261,8 +261,8 @@ double LinearCombinationMeanimpute(const double* weights, const uintptr_t* genoa
     }
     result += 0.00006103515625 * resultx;
   }
-  if (nmiss) {
-    result = result * S_CAST(double, sample_ct) / S_CAST(double, sample_ct - nmiss);
+  if (miss_weight) {
+    result = result * weight_sum / (weight_sum - miss_weight);
   }
   return result;
 }

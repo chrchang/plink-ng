@@ -1706,8 +1706,11 @@ HEADER_INLINE void CleanupThreads3z(ThreadsState* tsp, uint32_t* cur_block_sizep
 // to change
 PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t store_all_dups, uint32_t id_htable_size, uint32_t thread_ct, uint32_t* id_htable, uint32_t* dup_ct_ptr);
 
-// pass in htable_dup_base_ptr == nullptr if just flagging duplicate IDs rather
-// than tracking all their positions in item_ids
+// - Pass in htable_dup_base_ptr == nullptr if just flagging duplicate IDs
+//   rather than tracking all their positions in item_ids.
+// - Order of duplicate entries is currently nondeterministic.  Might want to
+//   switch back to something like the pre-11 Oct 2019 implementation if this
+//   ever creates any problems.
 PglErr AllocAndPopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uintptr_t fast_size_min_extra_bytes, uint32_t max_thread_ct, uint32_t** id_htable_ptr, uint32_t** htable_dup_base_ptr, uint32_t* id_htable_size_ptr, uint32_t* dup_ct_ptr);
 
 
