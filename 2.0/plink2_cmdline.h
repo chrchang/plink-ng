@@ -23,18 +23,13 @@
 // constants.
 
 #include "plink2_string.h"
+#include "plink2_thread.h"
 
 #include <errno.h>
 #include <stdarg.h>
 
 #ifndef _WIN32
 #  include <sys/stat.h>
-#endif
-
-#ifdef _WIN32
-#  include <process.h>
-#else
-#  include <pthread.h>
 #endif
 
 #ifdef DYNAMIC_MKL
@@ -81,19 +76,6 @@ extern "C" {
 #endif
 
 #ifdef _WIN32
-#  define pthread_t HANDLE
-#  define THREAD_FUNC_DECL unsigned __stdcall
-#  define THREAD_FUNCPTR_T(func_ptr) unsigned (__stdcall *func_ptr)(void*)
-  // #define THREAD_FUNCPP_T(func_pp) unsigned (__stdcall **func_pp)(void*)
-#  define THREAD_RETURN return 0
-#else
-#  define THREAD_FUNC_DECL void*
-#  define THREAD_FUNCPTR_T(func_ptr) void* (*func_ptr)(void*)
-  // #define THREAD_FUNCPP_T(func_pp) void* (**func_pp)(void*)
-#  define THREAD_RETURN return nullptr
-#endif
-
-#ifdef _WIN32
 #  define NULL_STREAM_NAME "nul"
 #else
 #  define NULL_STREAM_NAME "/dev/null"
@@ -101,23 +83,6 @@ extern "C" {
 
 #ifdef __cplusplus
 namespace plink2 {
-#endif
-
-#ifdef _WIN32
-// WaitForMultipleObjects limited to 64
-CONSTI32(kMaxThreadsOld, 64);
-#else
-// currently assumed to be less than 2^16 (otherwise some multiply overflows
-// are theoretically possible, at least in the 32-bit build)
-CONSTI32(kMaxThreadsOld, 512);
-#endif
-
-#ifdef __APPLE__
-// cblas_dgemm may fail with 128k
-CONSTI32(kDefaultThreadStackOld, 524288);
-#else
-// asserts didn't seem to work properly with a setting much smaller than this
-CONSTI32(kDefaultThreadStackOld, 131072);
 #endif
 
 CONSTI32(kLogbufSize, 2 * kMaxMediumLine);
@@ -1704,13 +1669,13 @@ HEADER_INLINE void CleanupThreads3z(ThreadsState* tsp, uint32_t* cur_block_sizep
 
 // store_all_dups currently must be true for dup_ct to be set, but this is easy
 // to change
-PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t store_all_dups, uint32_t id_htable_size, uint32_t thread_ct, uint32_t* id_htable, uint32_t* dup_ct_ptr);
+PglErr PopulateIdHtableMt(unsigned char* arena_top, const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t store_all_dups, uint32_t id_htable_size, uint32_t thread_ct, unsigned char** arena_bottom_ptr, uint32_t* id_htable, uint32_t* dup_ct_ptr);
 
-// - Pass in htable_dup_base_ptr == nullptr if just flagging duplicate IDs
-//   rather than tracking all their positions in item_ids.
-// - Order of duplicate entries is currently nondeterministic.  Might want to
-//   switch back to something like the pre-11 Oct 2019 implementation if this
-//   ever creates any problems.
+// Pass in htable_dup_base_ptr == nullptr if just flagging duplicate IDs rather
+// than tracking all their positions in item_ids.
+// Otherwise, htable_dup_base entries are guaranteed to be filled in increasing
+// order (briefly made that nondeterministic on 11 Oct 2019 and broke --rm-dup,
+// not doing that again).
 PglErr AllocAndPopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uintptr_t fast_size_min_extra_bytes, uint32_t max_thread_ct, uint32_t** id_htable_ptr, uint32_t** htable_dup_base_ptr, uint32_t* id_htable_size_ptr, uint32_t* dup_ct_ptr);
 
 

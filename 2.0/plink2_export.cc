@@ -68,7 +68,7 @@ PglErr ExportAlleleLoad(const char* fname, const uintptr_t* variant_include, con
     if (unlikely(bigstack_alloc_u32(variant_id_htable_size * sizeof(int32_t), &variant_id_htable))) {
       goto ExportAlleleLoad_ret_NOMEM;
     }
-    reterr = PopulateIdHtableMt(variant_include, variant_ids, variant_ct, 0, variant_id_htable_size, max_thread_ct, variant_id_htable, nullptr);
+    reterr = PopulateIdHtableMt(g_bigstack_end, variant_include, variant_ids, variant_ct, 0, variant_id_htable_size, max_thread_ct, &g_bigstack_base, variant_id_htable, nullptr);
     if (unlikely(reterr)) {
       goto ExportAlleleLoad_ret_1;
     }

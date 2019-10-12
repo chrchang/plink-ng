@@ -1005,6 +1005,18 @@ HEADER_INLINE void PgenErrPrintN(PglErr reterr) {
   PgenErrPrintNEx(".pgen file", reterr);
 }
 
+HEADER_INLINE void PgenErrPrintEx(const char* file_descrip, PglErr reterr) {
+  if (reterr == kPglRetReadFail) {
+    logerrprintfww(kErrprintfFread, file_descrip, strerror(errno));
+  } else if (reterr == kPglRetMalformedInput) {
+    logerrprintfww("Error: Malformed %s.\n", file_descrip);
+  }
+}
+
+HEADER_INLINE void PgenErrPrint(PglErr reterr) {
+  PgenErrPrintEx(".pgen file", reterr);
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

@@ -3351,11 +3351,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
       } else {
         reterr = PgrGetM(cur_sample_include, cur_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, &pgv);
         if (unlikely(reterr)) {
-          if (reterr == kPglRetMalformedInput) {
-            logputs("\n");
-            logerrputs("Error: Malformed .pgen file.\n");
-          }
-          goto WriteGenoCounts_ret_1;
+          goto WriteGenoCounts_ret_PGR_FAIL;
         }
         // Usually don't care about contents of genovec, patch_01_set, and
         // patch_10_set, but chrX is an exception.
@@ -3564,6 +3560,9 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
   while (0) {
   WriteGenoCounts_ret_NOMEM:
     reterr = kPglRetNomem;
+    break;
+  WriteGenoCounts_ret_PGR_FAIL:
+    PgenErrPrintN(reterr);
     break;
   WriteGenoCounts_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -4018,11 +4017,7 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
         if (allele_ct > 2) {
           reterr = PgrGetM(founder_info, cumulative_popcounts, founder_ct, variant_uidx, simple_pgrp, &pgv);
           if (unlikely(reterr)) {
-            if (reterr == kPglRetMalformedInput) {
-              logputs("\n");
-              logerrputs("Error: Malformed .pgen file.\n");
-            }
-            goto GetMultiallelicMarginalCounts_ret_1;
+            goto GetMultiallelicMarginalCounts_ret_PGR_FAIL;
           }
           ZeroTrailingQuaters(founder_ct, pgv.genovec);
           ZeroU32Arr(allele_ct, one_cts);
@@ -4093,11 +4088,7 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
         if (allele_ct > 2) {
           reterr = PgrGetM(founder_knownsex, cumulative_popcounts, founder_x_ct, variant_uidx, simple_pgrp, &pgv);
           if (unlikely(reterr)) {
-            if (reterr == kPglRetMalformedInput) {
-              logputs("\n");
-              logerrputs("Error: Malformed .pgen file.\n");
-            }
-            goto GetMultiallelicMarginalCounts_ret_1;
+            goto GetMultiallelicMarginalCounts_ret_PGR_FAIL;
           }
           ZeroTrailingQuaters(founder_x_ct, pgv.genovec);
           ZeroU32Arr(allele_ct, one_cts);
@@ -4183,8 +4174,10 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
   GetMultiallelicMarginalCounts_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
+  GetMultiallelicMarginalCounts_ret_PGR_FAIL:
+    PgenErrPrintN(reterr);
+    break;
   }
- GetMultiallelicMarginalCounts_ret_1:
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -4961,11 +4954,7 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
         }
       }
       if (unlikely(reterr)) {
-        if (reterr == kPglRetMalformedInput) {
-          logputs("\n");
-          logerrputs("Error: Malformed .pgen file.\n");
-        }
-        goto SdiffCountsOnly_ret_1;
+        goto SdiffCountsOnly_ret_PGR_FAIL;
       }
       if (variant_idx >= next_print_variant_idx) {
         if (pct > 10) {
@@ -5271,8 +5260,10 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
   SdiffCountsOnly_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
+  SdiffCountsOnly_ret_PGR_FAIL:
+    PgenErrPrintN(reterr);
+    break;
   }
- SdiffCountsOnly_ret_1:
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -5595,11 +5586,7 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
         }
       }
       if (unlikely(reterr)) {
-        if (reterr == kPglRetMalformedInput) {
-          logputs("\n");
-          logerrputs("Error: Malformed .pgen file.\n");
-        }
-        goto SdiffMainBatch_ret_1;
+        goto SdiffMainBatch_ret_PGR_FAIL;
       }
       if (variant_idx >= next_print_variant_idx) {
         if (pct > 10) {
@@ -5881,6 +5868,9 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
   while (0) {
   SdiffMainBatch_ret_NOMEM:
     reterr = kPglRetNomem;
+    break;
+  SdiffMainBatch_ret_PGR_FAIL:
+    PgenErrPrintN(reterr);
     break;
   SdiffMainBatch_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;

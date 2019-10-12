@@ -2877,11 +2877,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       PgenVariant* pgvp = &(pgvs[var_idx]);
       reterr = PgrGetInv1Dp(founder_info, founder_info_cumulative_popcounts, founder_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, pgvp);
       if (unlikely(reterr)) {
-        if (reterr == kPglRetMalformedInput) {
-          logputs("\n");
-          logerrputs("Error: Malformed .pgen file.\n");
-        }
-        goto LdConsole_ret_1;
+        goto LdConsole_ret_PGR_FAIL;
       }
       ZeroTrailingQuaters(founder_ct, pgvp->genovec);
       if (is_nonx_haploids[var_idx]) {
@@ -3530,6 +3526,9 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
   while (0) {
   LdConsole_ret_NOMEM:
     reterr = kPglRetNomem;
+    break;
+  LdConsole_ret_PGR_FAIL:
+    PgenErrPrintN(reterr);
     break;
   LdConsole_ret_INCONSISTENT_INPUT_WW:
     WordWrapB(0);

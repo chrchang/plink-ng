@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (11 Oct 2019)";
+  " (12 Oct 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -8454,9 +8454,9 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --threads parameter '%s'.\n", argvk[arg_idx + 1]);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-          if (pc.max_thread_ct > kMaxThreadsOld) {
-            logprintf("Note: Reducing --threads parameter to %u.  (If this is not large enough,\nrecompile with a larger kMaxThreads setting.)\n", kMaxThreadsOld);
-            pc.max_thread_ct = kMaxThreadsOld;
+          if (pc.max_thread_ct > kMaxThreads) {
+            logprintf("Note: Reducing --threads parameter to %u.  (If this is not large enough,\nrecompile with a larger kMaxThreads setting.)\n", kMaxThreads);
+            pc.max_thread_ct = kMaxThreads;
           } else if (known_procs == -1) {
             // trigger BLAS/LAPACK warning?
             known_procs = 0;

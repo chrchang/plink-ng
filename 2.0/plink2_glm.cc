@@ -9970,10 +9970,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             uint32_t dosage_ct;
             reterr = PgrGetD(nullptr, nullptr, raw_sample_ct, cur_variant_uidx, simple_pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
             if (unlikely(reterr)) {
-              if (reterr == kPglRetMalformedInput) {
-                logerrputs("Error: Malformed .pgen file.\n");
-              }
-              goto GlmMain_ret_1;
+              goto GlmMain_ret_PGR_FAIL;
             }
             // alpha 2 update: default to major allele, respect omit-ref
             if (g_omitted_alleles && g_omitted_alleles[cur_variant_uidx]) {
@@ -11377,6 +11374,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     break;
   GlmMain_ret_TKSTREAM_FAIL:
     TokenStreamErrPrint("--condition-list file", &tks);
+    break;
+  GlmMain_ret_PGR_FAIL:
+    PgenErrPrint(reterr);
     break;
   GlmMain_ret_INVALID_CMDLINE:
     reterr = kPglRetInvalidCmdline;

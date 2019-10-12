@@ -5716,11 +5716,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
             if (cur_read_allele_ct == cur_write_allele_ct) {
               reterr = PgrGetRaw(read_variant_uidx, read_gflags, simple_pgrp, &loadbuf_iter, cur_loaded_vrtypes? (&(cur_loaded_vrtypes[block_widx])) : nullptr);
               if (unlikely(reterr)) {
-                if (reterr == kPglRetMalformedInput) {
-                  logputs("\n");
-                  logerrputs("Error: Malformed .pgen file.\n");
-                }
-                goto MakePgenRobust_ret_1;
+                goto MakePgenRobust_ret_PGR_FAIL;
               }
               ++block_widx;
               continue;
@@ -5733,11 +5729,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
                   reterr = PgrGetMD(nullptr, nullptr, raw_sample_ct, read_variant_uidx, simple_pgrp, &pgv);
                 }
                 if (unlikely(reterr)) {
-                  if (reterr == kPglRetMalformedInput) {
-                    logputs("\n");
-                    logerrputs("Error: Malformed .pgen file.\n");
-                  }
-                  goto MakePgenRobust_ret_1;
+                  goto MakePgenRobust_ret_PGR_FAIL;
                 }
 
                 // 2a. count # of each alt
@@ -6124,6 +6116,9 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
   while (0) {
   MakePgenRobust_ret_NOMEM:
     reterr = kPglRetNomem;
+    break;
+  MakePgenRobust_ret_PGR_FAIL:
+    PgenErrPrintN(reterr);
     break;
   MakePgenRobust_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;

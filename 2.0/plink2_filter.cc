@@ -793,11 +793,7 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
         // Avoid loading genotypes when possible.
         reterr = PgrGetMDp(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, &first_pgv);
         if (unlikely(reterr)) {
-          if (reterr == kPglRetMalformedInput) {
-            logputs("\n");
-            logerrputs("Error: Malformed .pgen file.\n");
-          }
-          goto RmDup_ret_1;
+          goto RmDup_ret_PGR_FAIL;
         }
         ZeroTrailingQuaters(sample_ct, first_pgv.genovec);
         if (first_pgv.phasepresent_ct) {
@@ -809,11 +805,7 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
           if ((variant_uidx != ll_variant_uidx) && IsSet(orig_dups, ll_variant_uidx)) {
             reterr = PgrGetMDp(sample_include, sample_include_cumulative_popcounts, sample_ct, ll_variant_uidx, simple_pgrp, &cur_pgv);
             if (unlikely(reterr)) {
-              if (reterr == kPglRetMalformedInput) {
-                logputs("\n");
-                logerrputs("Error: Malformed .pgen file.\n");
-              }
-              goto RmDup_ret_1;
+              goto RmDup_ret_PGR_FAIL;
             }
             // todo: multidosage, multidphase
             if ((first_pgv.patch_01_ct != cur_pgv.patch_01_ct) ||
@@ -924,6 +916,9 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
     break;
   RmDup_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
+    break;
+  RmDup_ret_PGR_FAIL:
+    PgenErrPrintN(reterr);
     break;
   RmDup_ret_TSTREAM_REWIND_FAIL:
     TextStreamErrPrintRewind(pvar_info_reload, &pvar_txs, &reterr);

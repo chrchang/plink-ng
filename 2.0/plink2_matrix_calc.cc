@@ -3123,11 +3123,8 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             if (reterr == kPglRetDegenerateData) {
               logputs("\n");
               logerrputs("Error: Zero-MAF variant is not actually monomorphic.  (This is possible when\ne.g. MAF is estimated from founders, but the minor allele was only observed in\nnonfounders.  In any case, you should be using e.g. --maf to filter out all\nvery-low-MAF variants, since the relationship matrix distance formula does not\nhandle them well.)\n");
-            } else if (reterr == kPglRetMalformedInput) {
-              logputs("\n");
-              logerrputs("Error: Malformed .pgen file.\n");
             }
-            goto CalcGrm_ret_1;
+            goto CalcGrm_ret_PGR_FAIL;
           }
           if (missing_present) {
             SetBit(variant_uidx, variant_include_has_missing);
@@ -3562,6 +3559,9 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     break;
   CalcGrm_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
+    break;
+  CalcGrm_ret_PGR_FAIL:
+    PgenErrPrintN(reterr);
     break;
   CalcGrm_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;

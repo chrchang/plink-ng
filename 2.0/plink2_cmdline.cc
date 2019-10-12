@@ -2420,7 +2420,7 @@ pthread_attr_t g_smallstack_thread_attr_old;
 BoolErr SpawnThreadsOld(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthread_t* threads) {
   for (uintptr_t ulii = 1; ulii != ct; ++ulii) {
 #ifdef _WIN32
-    threads[ulii - 1] = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStackOld, start_routine, R_CAST(void*, ulii), 0, nullptr));
+    threads[ulii - 1] = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStack, start_routine, R_CAST(void*, ulii), 0, nullptr));
     if (unlikely(!threads[ulii - 1])) {
       JoinThreadsOld(ulii, threads);
       return 1;
@@ -2484,8 +2484,8 @@ BoolErr SpawnThreadsOld(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthread_t
 uintptr_t g_thread_spawn_ct;
 uint32_t g_is_last_thread_block = 0;
 #ifdef _WIN32
-HANDLE g_thread_start_next_event[kMaxThreadsOld];
-HANDLE g_thread_cur_block_done_events[kMaxThreadsOld];
+HANDLE g_thread_start_next_event[kMaxThreads];
+HANDLE g_thread_cur_block_done_events[kMaxThreads];
 #else
 static pthread_mutex_t g_thread_sync_mutex;
 static pthread_cond_t g_thread_cur_block_done_condvar;
@@ -2560,7 +2560,7 @@ BoolErr SpawnThreads2z(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, uint32_t i
       g_thread_cur_block_done_events[ulii] = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     }
     for (uintptr_t ulii = 0; ulii != ct; ++ulii) {
-      threads[ulii] = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStackOld, start_routine, R_CAST(void*, ulii), 0, nullptr));
+      threads[ulii] = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStack, start_routine, R_CAST(void*, ulii), 0, nullptr));
       if (unlikely(!threads[ulii])) {
         if (ulii) {
           JoinThreads2z(ulii, is_last_block, threads);
@@ -2653,125 +2653,234 @@ void ErrorCleanupThreads2z(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthrea
 }
 
 
-// multithread globals
-static const uintptr_t* g_subset_mask = nullptr;
-static const char* const* g_item_ids;
-static uint32_t* g_id_htable = nullptr;
+CONSTI32(kMaxDupflagThreads, 16);
 
-#ifdef _WIN32
-static HANDLE g_hash_fill_event = nullptr;
-#else
-static pthread_mutex_t g_hash_fill_mutex;
-static pthread_cond_t g_hash_fill_condvar;
-#endif
-static uintptr_t g_unfinished_hash_thread_ct = 0;
+typedef struct DupflagHtableMakerStruct {
+  ThreadGroup tg;
 
-// [2n] = final hashval (after linear probing), [2n+1] = duplicate item_uidx
-static uint32_t* g_dup_lists[16];
-static uint32_t g_dup_cts[16];
+  const uintptr_t* subset_mask;
+  const char* const* item_ids;
+  uint32_t item_ct;
+  uint32_t id_htable_size;
+  uint32_t item_uidx_starts[kMaxDupflagThreads];
 
-static uint32_t g_item_ct = 0;
-static uint32_t g_id_htable_size = 0;
-static uint32_t g_calc_thread_ct = 0;
-static uint32_t g_item_uidx_starts[16];
+  uint32_t* id_htable;
+} DupflagHtableMaker;
 
-THREAD_FUNC_DECL CalcIdHashThread(void* arg) {
-  const uintptr_t tidx = R_CAST(uintptr_t, arg);
-  const uintptr_t* subset_mask = g_subset_mask;
-  const char* const* item_ids = g_item_ids;
-  const uint32_t id_htable_size = g_id_htable_size;
-  const uint32_t calc_thread_ct = g_calc_thread_ct;
-  const uint32_t fill_start = RoundDownPow2((id_htable_size * S_CAST(uint64_t, tidx)) / calc_thread_ct, kInt32PerCacheline);
-  uint32_t fill_end;
-  if (tidx + 1 < calc_thread_ct) {
-    fill_end = RoundDownPow2((id_htable_size * (S_CAST(uint64_t, tidx) + 1)) / calc_thread_ct, kInt32PerCacheline);
-  } else {
-    fill_end = id_htable_size;
-  }
-  uint32_t* id_htable = g_id_htable;
-  SetAllU32Arr(fill_end - fill_start, &(id_htable[fill_start]));
-  // wait for other threads to be done
-#ifdef _WIN32
-  if (__sync_sub_and_fetch(&g_unfinished_hash_thread_ct, 1)) {
-    WaitForSingleObject(g_hash_fill_event, INFINITE);
-  } else {
-    SetEvent(g_hash_fill_event);
-  }
-#else
-  pthread_mutex_lock(&g_hash_fill_mutex);
-  if (!(--g_unfinished_hash_thread_ct)) {
-    pthread_cond_broadcast(&g_hash_fill_condvar);
-  } else {
-    do {
-      pthread_cond_wait(&g_hash_fill_condvar, &g_hash_fill_mutex);
-    } while (g_unfinished_hash_thread_ct);
-  }
-  pthread_mutex_unlock(&g_hash_fill_mutex);
-#endif
-
-  const uint32_t item_ct = g_item_ct;
-  const uint32_t item_idx_start = (item_ct * S_CAST(uint64_t, tidx)) / calc_thread_ct;
-  const uint32_t item_idx_end = (item_ct * (S_CAST(uint64_t, tidx) + 1)) / calc_thread_ct;
-
-  // nullptr in !store_all_dups case
-  uint32_t* dup_list_witer = g_dup_lists[tidx];
+void DupflagHtableMakerMain(uint32_t tidx, uint32_t thread_ct, DupflagHtableMaker* ctx) {
+  const uint32_t id_htable_size = ctx->id_htable_size;
+  const uintptr_t* subset_mask = ctx->subset_mask;
+  const char* const* item_ids = ctx->item_ids;
+  const uint32_t item_ct = ctx->item_ct;
+  const uint32_t item_uidx_start = ctx->item_uidx_starts[tidx];
+  const uint32_t item_idx_start = (item_ct * S_CAST(uint64_t, tidx)) / thread_ct;
+  const uint32_t item_idx_end = (item_ct * (S_CAST(uint64_t, tidx) + 1)) / thread_ct;
+  uint32_t* id_htable = ctx->id_htable;
 
   uintptr_t cur_bits;
   uintptr_t item_uidx_base;
-  BitIter1Start(subset_mask, g_item_uidx_starts[tidx], &item_uidx_base, &cur_bits);
-  if (dup_list_witer) {
-    for (uint32_t item_idx = item_idx_start; item_idx != item_idx_end; ++item_idx) {
-      const uintptr_t item_uidx = BitIter1(subset_mask, &item_uidx_base, &cur_bits);
-      const char* sptr = item_ids[item_uidx];
-      const uint32_t slen = strlen(sptr);
-      for (uint32_t hashval = Hashceil(sptr, slen, id_htable_size); ; ) {
-        const uint32_t old_htable_entry = __sync_val_compare_and_swap(&(id_htable[hashval]), UINT32_MAX, item_uidx);
-        if (old_htable_entry == UINT32_MAX) {
-          break;
+  BitIter1Start(subset_mask, item_uidx_start, &item_uidx_base, &cur_bits);
+  for (uint32_t item_idx = item_idx_start; item_idx != item_idx_end; ++item_idx) {
+    const uintptr_t item_uidx = BitIter1(subset_mask, &item_uidx_base, &cur_bits);
+    const char* sptr = item_ids[item_uidx];
+    const uint32_t slen = strlen(sptr);
+    for (uint32_t hashval = Hashceil(sptr, slen, id_htable_size); ; ) {
+      const uint32_t old_htable_entry = __sync_val_compare_and_swap(&(id_htable[hashval]), UINT32_MAX, item_uidx);
+      if (old_htable_entry == UINT32_MAX) {
+        break;
+      }
+      if (strequal_overread(sptr, item_ids[old_htable_entry & 0x7fffffff])) {
+        if (!(old_htable_entry & 0x80000000U)) {
+          // ok if multiple threads do this
+          id_htable[hashval] = old_htable_entry | 0x80000000U;
         }
-        if (strequal_overread(sptr, item_ids[old_htable_entry])) {
-          *dup_list_witer++ = hashval;
-          *dup_list_witer++ = item_uidx;
-          break;
-        }
-        if (++hashval == id_htable_size) {
-          hashval = 0;
-        }
+        break;
+      }
+      if (++hashval == id_htable_size) {
+        hashval = 0;
       }
     }
-    uint32_t* dup_list_start = g_dup_lists[tidx];
-    g_dup_cts[tidx] = S_CAST(uintptr_t, dup_list_witer - dup_list_start) / 2;
-  } else {
-    for (uint32_t item_idx = item_idx_start; item_idx != item_idx_end; ++item_idx) {
-      const uintptr_t item_uidx = BitIter1(subset_mask, &item_uidx_base, &cur_bits);
+  }
+}
+
+THREAD_FUNC_DECL DupflagHtableMakerThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uint32_t tidx = arg->tidx;
+  DupflagHtableMaker* ctx = S_CAST(DupflagHtableMaker*, arg->sharedp->context);
+
+  // 1. Initialize id_htable with 1-bits in parallel.
+  const uint32_t id_htable_size = ctx->id_htable_size;
+  const uint32_t thread_ct = GetThreadCt(&ctx->tg) + 1;
+  uint32_t* id_htable = ctx->id_htable;
+  const uint32_t fill_start = RoundDownPow2((id_htable_size * S_CAST(uint64_t, tidx)) / thread_ct, kInt32PerCacheline);
+  const uint32_t fill_end = RoundDownPow2((id_htable_size * (S_CAST(uint64_t, tidx) + 1)) / thread_ct, kInt32PerCacheline);
+  SetAllU32Arr(fill_end - fill_start, &(id_htable[fill_start]));
+
+  // 2. sync.Once
+  if (THREAD_BLOCK_FINISH(arg)) {
+    THREAD_RETURN;
+  }
+
+  // 3. Fill hash table in parallel, and then return.
+  DupflagHtableMakerMain(tidx, thread_ct, ctx);
+  THREAD_RETURN;
+}
+
+PglErr MakeDupflagHtable(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t id_htable_size, uint32_t max_thread_ct, uint32_t* id_htable) {
+  PglErr reterr = kPglRetSuccess;
+  DupflagHtableMaker ctx;
+  ThreadGroup* tgp = &ctx.tg;
+  PreinitThreads(tgp);
+  {
+    uint32_t thread_ct = item_ct / 65536;
+    if (thread_ct > max_thread_ct) {
+      thread_ct = max_thread_ct;
+    } else if (!thread_ct) {
+      thread_ct = 1;
+    }
+    if (unlikely(SetThreadCt0(thread_ct - 1, tgp))) {
+      goto MakeDupflagHtable_ret_NOMEM;
+    }
+
+    ctx.subset_mask = subset_mask;
+    ctx.item_ids = item_ids;
+    ctx.item_ct = item_ct;
+    ctx.id_htable_size = id_htable_size;
+    ctx.id_htable = id_htable;
+
+    uint32_t item_uidx = AdvTo1Bit(subset_mask, 0);
+    uint32_t item_idx = 0;
+    ctx.item_uidx_starts[0] = item_uidx;
+    for (uintptr_t tidx = 1; tidx != thread_ct; ++tidx) {
+      const uint32_t item_idx_new = (item_ct * S_CAST(uint64_t, tidx)) / thread_ct;
+      item_uidx = FindNth1BitFrom(subset_mask, item_uidx + 1, item_idx_new - item_idx);
+      ctx.item_uidx_starts[tidx] = item_uidx;
+      item_idx = item_idx_new;
+    }
+
+    if (thread_ct > 1) {
+      SetThreadFuncAndData(DupflagHtableMakerThread, &ctx, tgp);
+      if (unlikely(SpawnThreads(tgp))) {
+        goto MakeDupflagHtable_ret_THREAD_CREATE_FAIL;
+      }
+    }
+    const uint32_t fill_start = RoundDownPow2((id_htable_size * S_CAST(uint64_t, thread_ct - 1)) / thread_ct, kInt32PerCacheline);
+    SetAllU32Arr(id_htable_size - fill_start, &(id_htable[fill_start]));
+    if (thread_ct > 1) {
+      JoinThreads(tgp);
+      DeclareLastThreadBlock(tgp);
+      SpawnThreads(tgp);
+    }
+    DupflagHtableMakerMain(thread_ct - 1, thread_ct, &ctx);
+    JoinThreads0(tgp);
+  }
+  while (0) {
+  MakeDupflagHtable_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  MakeDupflagHtable_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
+    break;
+  }
+  CleanupThreads(tgp);
+  return reterr;
+}
+
+CONSTI32(kMaxDupstoreThreads, 15);  // probably reduce this after switching to XXH3
+CONSTI32(kDupstoreBlockSize, 65536);
+CONSTI32(kDupstoreThreadWkspace, kDupstoreBlockSize * 2 * sizeof(int32_t));
+
+typedef struct DupstoreHtableMakerStruct {
+  ThreadGroup tg;
+
+  const uintptr_t* subset_mask;
+  const char* const* item_ids;
+  uint32_t item_ct;
+  uint32_t id_htable_size;
+  uint32_t* id_htable;
+
+  uint32_t item_uidx_start[2];
+  uint32_t* hashes[2];
+} DupstoreHtableMaker;
+
+THREAD_FUNC_DECL DupstoreHtableMakerThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uint32_t tidx = arg->tidx;
+  DupstoreHtableMaker* ctx = S_CAST(DupstoreHtableMaker*, arg->sharedp->context);
+
+  // 1. Initialize id_htable with 1-bits in parallel.
+  const uint32_t id_htable_size = ctx->id_htable_size;
+  const uint32_t thread_ct = GetThreadCt(&ctx->tg);
+  uint32_t* id_htable = ctx->id_htable;
+  // Add 1 to thread_ct in denominator, since unlike the DupflagHtableMaker
+  // case, the parent thread has separate logic to help out here.
+  const uint32_t fill_start = RoundDownPow2((id_htable_size * S_CAST(uint64_t, tidx)) / (thread_ct + 1), kInt32PerCacheline);
+  uint32_t fill_end = RoundDownPow2((id_htable_size * (S_CAST(uint64_t, tidx) + 1)) / (thread_ct + 1), kInt32PerCacheline);
+  SetAllU32Arr(fill_end - fill_start, &(id_htable[fill_start]));
+
+  const uintptr_t* subset_mask = ctx->subset_mask;
+  const char* const* item_ids = ctx->item_ids;
+  uint32_t items_left = ctx->item_ct;
+  const uint32_t idx_start_offset = tidx * kDupstoreBlockSize;
+  uint32_t idx_stop_offset = idx_start_offset + kDupstoreBlockSize;
+  const uint32_t is_last_thread = (tidx + 1 == thread_ct);
+  uint32_t parity = 0;
+  while (!THREAD_BLOCK_FINISH(arg)) {
+    // 2. Compute up to kDupstoreBlockSize hashes.  (Parent thread is
+    //    responsible for using them to update the hash table.)
+    if (items_left < idx_stop_offset) {
+      if (items_left <= idx_start_offset) {
+        // Must be last iteration.  Don't need to update parity.
+        // (Could load-balance this iteration differently, but it shouldn't
+        // really matter.)
+        continue;
+      }
+      idx_stop_offset = items_left;
+    }
+    uint32_t* hashes = ctx->hashes[parity];
+    uintptr_t item_uidx = ctx->item_uidx_start[parity];
+    if (idx_start_offset) {
+      item_uidx = FindNth1BitFrom(subset_mask, item_uidx + 1, idx_start_offset);
+    }
+    uintptr_t cur_bits;
+    uintptr_t item_uidx_base;
+    BitIter1Start(subset_mask, item_uidx, &item_uidx_base, &cur_bits);
+    for (uint32_t item_idx = idx_start_offset; item_idx != idx_stop_offset; ++item_idx) {
+      item_uidx = BitIter1(subset_mask, &item_uidx_base, &cur_bits);
       const char* sptr = item_ids[item_uidx];
       const uint32_t slen = strlen(sptr);
-      for (uint32_t hashval = Hashceil(sptr, slen, id_htable_size); ; ) {
-        const uint32_t old_htable_entry = __sync_val_compare_and_swap(&(id_htable[hashval]), UINT32_MAX, item_uidx);
-        if (old_htable_entry == UINT32_MAX) {
-          break;
-        }
-        if (strequal_overread(sptr, item_ids[old_htable_entry & 0x7fffffff])) {
-          if (!(old_htable_entry & 0x80000000U)) {
-            // ok if multiple threads do this
-            id_htable[hashval] = old_htable_entry | 0x80000000U;
-          }
-          break;
-        }
-        if (++hashval == id_htable_size) {
-          hashval = 0;
-        }
-      }
+      hashes[item_idx] = Hashceil(sptr, slen, id_htable_size);
+    }
+    items_left -= thread_ct * kDupstoreBlockSize;  // final-iteration underflow ok
+    parity = 1 - parity;
+    if (is_last_thread) {
+      ctx->item_uidx_start[parity] = item_uidx + 1;
     }
   }
   THREAD_RETURN;
 }
 
-// dup_ct assumed to be initialized to 0 when dup_ct_ptr != nullptr
+uint32_t PopulateIdHtableMtDupstoreThreadCt(uint32_t max_thread_ct, uint32_t item_ct) {
+  uint32_t thread_ct = item_ct / (2 * kDupstoreBlockSize);
+  if (thread_ct >= max_thread_ct) {
+    // parent thread is sufficiently busy
+    thread_ct = max_thread_ct - 1;
+  }
+  if (!thread_ct) {
+    return 1;
+  }
+  return MINV(thread_ct, kMaxDupstoreThreads);
+}
+
+// dup_ct assumed to be initialized to 0 when dup_ct_ptr != nullptr.
 //
-// todo: this is now a sufficiently powerful component to be worth making
-// usable without arena allocation
-PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t store_all_dups, uint32_t id_htable_size, uint32_t thread_ct, uint32_t* id_htable, uint32_t* dup_ct_ptr) {
+// This currently has totally separate code paths for the store_all_dups and
+// !store_all_dups cases.  However, the table formats are nearly identical, so
+// the code may re-converge, and it's reasonable to have just this API entry
+// point.
+//
+// It will probably be moved out of plink2_cmdline soon.
+PglErr PopulateIdHtableMt(unsigned char* arena_top, const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t store_all_dups, uint32_t id_htable_size, uint32_t thread_ct, unsigned char** arena_bottom_ptr, uint32_t* id_htable, uint32_t* dup_ct_ptr) {
   // Change from plink 1.9: if store_all_dups is false, we don't error out on
   // the first encountered duplicate ID; instead, we just flag it in the hash
   // table.  So if '.' is the only duplicate ID, and it never appears in a
@@ -2782,158 +2891,171 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
   if (!item_ct) {
     return kPglRetSuccess;
   }
-  unsigned char* bigstack_end_mark = g_bigstack_end;
+  if (!store_all_dups) {
+    return MakeDupflagHtable(subset_mask, item_ids, item_ct, id_htable_size, thread_ct, id_htable);
+  }
   PglErr reterr = kPglRetSuccess;
-  uint32_t hash_fill_init_state = 0;
+  unsigned char* arena_bottom_mark = *arena_bottom_ptr;
+  DupstoreHtableMaker ctx;
+  ThreadGroup* tgp = &ctx.tg;
+  PreinitThreads(tgp);
   {
-    // this seems to be a sweet spot
-    // todo: re-benchmark this, now that we're making heavy use of atomic
-    // operations
-    if (thread_ct > 16) {
-      thread_ct = 16;
+    thread_ct = PopulateIdHtableMtDupstoreThreadCt(thread_ct, item_ct);
+    uint32_t item_idx_stop = thread_ct * kDupstoreBlockSize;
+    if (arena_end_alloc_u32(arena_bottom_mark, item_idx_stop, &arena_top, &ctx.hashes[0]) ||
+        arena_end_alloc_u32(arena_bottom_mark, item_idx_stop, &arena_top, &ctx.hashes[1]) ||
+        SetThreadCt(thread_ct, tgp)) {
+      goto PopulateIdHtableMt_ret_NOMEM;
     }
-    if (thread_ct > item_ct / 65536) {
-      thread_ct = item_ct / 65536;
-      if (!thread_ct) {
-        thread_ct = 1;
-      }
-    }
-    uint32_t* dup_list = nullptr;
-    if (store_all_dups) {
-      if (unlikely(bigstack_end_alloc_u32(2 * item_ct, &dup_list))) {
+    uintptr_t cur_arena_left = arena_top - arena_bottom_mark;
+    // We only want to check for out-of-memory once per sync-iteration.  The
+    // maximum number of 2x-uint32 entries that might be added per iteration is
+    // thread_ct * kDupstoreBlockSize * 2 (*2 is because, when we find the
+    // first duplicate of a string, we need to add two new entries instead of
+    // just one).
+    // htable_dup_base grows from the bottom of the arena, and during the main
+    // loop, extra_alloc is the next htable_dup_base[] array index that'll be
+    // written to (i.e. it's always an even number).  So if extra_alloc plus
+    // twice the aforementioned limit isn't larger than cur_arena_left /
+    // sizeof(int32_t), we can't run out of arena space.
+    uint32_t extra_alloc_stop;
+#ifdef __LP64__
+    if (cur_arena_left >= 0x400000000LLU + item_idx_stop * 4 * sizeof(int32_t)) {
+      // this can never be hit
+      extra_alloc_stop = 0xfffffffe;
+    } else {
+#endif
+      if (unlikely(cur_arena_left < item_idx_stop * 4 * sizeof(int32_t))) {
         goto PopulateIdHtableMt_ret_NOMEM;
       }
-    }
-#ifdef _WIN32
-    // manual-reset
-    g_hash_fill_event = CreateEvent(nullptr, TRUE, FALSE, nullptr);
-    if (unlikely(!g_hash_fill_event)) {
-      goto PopulateIdHtableMt_ret_THREAD_CREATE_FAIL;
-    }
-    hash_fill_init_state = 1;
-#else
-    if (unlikely(pthread_mutex_init(&g_hash_fill_mutex, nullptr))) {
-      goto PopulateIdHtableMt_ret_THREAD_CREATE_FAIL;
-    }
-    if (unlikely(pthread_cond_init(&g_hash_fill_condvar, nullptr))) {
-      hash_fill_init_state = 1;
-      goto PopulateIdHtableMt_ret_THREAD_CREATE_FAIL;
-    }
-    hash_fill_init_state = 2;
-#endif
-    g_unfinished_hash_thread_ct = thread_ct;
-    g_subset_mask = subset_mask;
-    g_item_ids = item_ids;
-    g_id_htable = id_htable;
-    g_item_ct = item_ct;
-    g_id_htable_size = id_htable_size;
-    g_calc_thread_ct = thread_ct;
-    pthread_t threads[16];
-    {
-      uint32_t item_uidx = AdvTo1Bit(subset_mask, 0);
-      uint32_t item_idx = 0;
-      g_item_uidx_starts[0] = item_uidx;
-      g_dup_lists[0] = dup_list;
-      for (uintptr_t tidx = 1; tidx != thread_ct; ++tidx) {
-        const uint32_t item_idx_new = (item_ct * S_CAST(uint64_t, tidx)) / thread_ct;
-        item_uidx = FindNth1BitFrom(subset_mask, item_uidx + 1, item_idx_new - item_idx);
-        g_item_uidx_starts[tidx] = item_uidx;
-        if (dup_list) {
-          g_dup_lists[tidx] = &(dup_list[2 * item_idx_new]);
-        } else {
-          g_dup_lists[tidx] = nullptr;
-        }
-        item_idx = item_idx_new;
-      }
-    }
-    if (unlikely(SpawnThreadsOld(CalcIdHashThread, thread_ct, threads))) {
-      goto PopulateIdHtableMt_ret_THREAD_CREATE_FAIL;
-    }
-    CalcIdHashThread(R_CAST(void*, 0));
-    JoinThreadsOld(thread_ct, threads);
-    if (store_all_dups) {
-      const uintptr_t cur_bigstack_left = bigstack_left();
-      uint32_t max_extra_alloc_m4;
+      extra_alloc_stop = (cur_arena_left / sizeof(int32_t)) - item_idx_stop * 4;
 #ifdef __LP64__
-      if (cur_bigstack_left >= 0x400000000LLU) {
-        // this can never be hit
-        max_extra_alloc_m4 = 0xfffffffaU;
+    }
+#endif
+
+    ctx.subset_mask = subset_mask;
+    ctx.item_ids = item_ids;
+    ctx.item_ct = item_ct;
+    ctx.id_htable_size = id_htable_size;
+    ctx.id_htable = id_htable;
+    SetThreadFuncAndData(DupstoreHtableMakerThread, &ctx, tgp);
+    if (unlikely(SpawnThreads(tgp))) {
+      goto PopulateIdHtableMt_ret_THREAD_CREATE_FAIL;
+    }
+
+    const uint32_t fill_start = RoundDownPow2((id_htable_size * S_CAST(uint64_t, thread_ct)) / (thread_ct + 1), kInt32PerCacheline);
+    SetAllU32Arr(id_htable_size - fill_start, &(id_htable[fill_start]));
+
+    const uint32_t item_uidx_start = AdvTo1Bit(subset_mask, 0);
+    JoinThreads(tgp);
+    ctx.item_uidx_start[0] = item_uidx_start;
+    if (item_idx_stop >= item_ct) {
+      DeclareLastThreadBlock(tgp);
+      item_idx_stop = item_ct;
+    }
+    SpawnThreads(tgp);
+    uint32_t items_left = item_ct;
+    uint32_t* htable_dup_base = R_CAST(uint32_t*, arena_bottom_mark);
+    uint32_t extra_alloc = 0;
+    uint32_t prev_llidx = 0;
+    uintptr_t cur_bits;
+    uintptr_t item_uidx_base;
+    BitIter1Start(subset_mask, item_uidx_start, &item_uidx_base, &cur_bits);
+    uint32_t parity = 0;
+    do {
+      JoinThreads(tgp);
+      if (extra_alloc > extra_alloc_stop) {
+        goto PopulateIdHtableMt_ret_NOMEM;
+      }
+      if (item_idx_stop < items_left) {
+        if (item_idx_stop * 2 >= items_left) {
+          DeclareLastThreadBlock(tgp);
+        }
+        SpawnThreads(tgp);
       } else {
-#endif
-        if (unlikely(cur_bigstack_left < 4 * sizeof(int32_t))) {
-          goto PopulateIdHtableMt_ret_NOMEM;
-        }
-        max_extra_alloc_m4 = (cur_bigstack_left / sizeof(int32_t)) - 4;
-#ifdef __LP64__
+        item_idx_stop = items_left;
       }
-#endif
-      uint32_t extra_alloc = 0;
-      // needs to be synced with ExtractExcludeFlagNorange()
-      uint32_t* htable_dup_base = R_CAST(uint32_t*, g_bigstack_base);
-      for (uint32_t tidx = 0; tidx != thread_ct; ++tidx) {
-        const uint32_t dup_ct = g_dup_cts[tidx];
-        const uint32_t* dup_list_iter = g_dup_lists[tidx];
-        for (uint32_t dup_idx = 0; dup_idx != dup_ct; ++dup_idx) {
-          if (unlikely(extra_alloc > max_extra_alloc_m4)) {
-            goto PopulateIdHtableMt_ret_NOMEM;
-          }
-          const uint32_t hashval = *dup_list_iter++;
-          const uint32_t item_uidx = *dup_list_iter++;
-          uint32_t cur_htable_entry = id_htable[hashval];
-          uint32_t prev_llidx;
-          if (!(cur_htable_entry >> 31)) {  // not marked as duplicate
-            htable_dup_base[extra_alloc] = cur_htable_entry;
-            htable_dup_base[extra_alloc + 1] = UINT32_MAX;  // list end
-            prev_llidx = extra_alloc;
-            extra_alloc += 2;
+      uint32_t* hashes = ctx.hashes[parity];
+      for (uint32_t item_idx = 0; item_idx != item_idx_stop; ++item_idx) {
+        const uintptr_t item_uidx = BitIter1(subset_mask, &item_uidx_base, &cur_bits);
+        const uint32_t hashval_base = hashes[item_idx];
+        uint32_t old_htable_entry = id_htable[hashval_base];
+        if (old_htable_entry == UINT32_MAX) {
+          id_htable[hashval_base] = item_uidx;
+          continue;
+        }
+        const char* sptr = item_ids[item_uidx];
+        for (uint32_t hashval = hashval_base; ; ) {
+          const uint32_t was_dup = old_htable_entry >> 31;
+          uint32_t prev_uidx;
+          if (was_dup) {
+            prev_llidx = old_htable_entry * 2;
+            prev_uidx = htable_dup_base[prev_llidx];
           } else {
-            prev_llidx = cur_htable_entry * 2;
+            prev_uidx = old_htable_entry;
           }
-          htable_dup_base[extra_alloc] = item_uidx;
-          htable_dup_base[extra_alloc + 1] = prev_llidx;
-          id_htable[hashval] = 0x80000000U | (extra_alloc >> 1);
-          extra_alloc += 2;
+          if (strequal_overread(sptr, item_ids[prev_uidx])) {
+            // point to linked list entry instead
+            if (!was_dup) {
+              htable_dup_base[extra_alloc] = old_htable_entry;
+              htable_dup_base[extra_alloc + 1] = UINT32_MAX;
+              prev_llidx = extra_alloc;
+              extra_alloc += 2;
+            }
+            htable_dup_base[extra_alloc] = item_uidx;
+            htable_dup_base[extra_alloc + 1] = prev_llidx;
+            id_htable[hashval] = 0x80000000U | (extra_alloc >> 1);
+            extra_alloc += 2;
+            break;  // bugfix
+          }
+          if (++hashval == id_htable_size) {
+            hashval = 0;
+          }
+          // duplicate this code since we want to avoid the item_ids[item_uidx]
+          // read when possible
+          old_htable_entry = id_htable[hashval];
+          if (old_htable_entry == UINT32_MAX) {
+            id_htable[hashval] = item_uidx;
+            break;
+          }
         }
       }
-      if (extra_alloc) {
-        // bugfix: forgot to align this
-        bigstack_alloc_raw_rd(extra_alloc * sizeof(int32_t));
-        if (dup_ct_ptr) {
-          *dup_ct_ptr = extra_alloc / 2;
-        }
+      items_left -= item_idx_stop;
+      parity = 1 - parity;
+    } while (items_left);
+    JoinThreads(tgp);
+    if (extra_alloc) {
+      // bugfix: forgot to align this
+      *arena_bottom_ptr += RoundUpPow2(extra_alloc * sizeof(int32_t), kCacheline);
+      if (dup_ct_ptr) {
+        *dup_ct_ptr = extra_alloc / 2;
       }
     }
   }
   while (0) {
   PopulateIdHtableMt_ret_NOMEM:
+    *arena_bottom_ptr = arena_bottom_mark;
     reterr = kPglRetNomem;
     break;
   PopulateIdHtableMt_ret_THREAD_CREATE_FAIL:
+    // not currently possible for this to happen after *arena_bottom_ptr moved
     reterr = kPglRetThreadCreateFail;
     break;
   }
-  if (hash_fill_init_state) {
-#ifdef _WIN32
-    CloseHandle(g_hash_fill_event);
-#else
-    pthread_mutex_destroy(&g_hash_fill_mutex);
-    if (hash_fill_init_state == 2) {
-      pthread_cond_destroy(&g_hash_fill_condvar);
-    }
-#endif
-  }
-  BigstackEndReset(bigstack_end_mark);
+  CleanupThreads(tgp);
   return reterr;
 }
 
 PglErr AllocAndPopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uintptr_t fast_size_min_extra_bytes, uint32_t max_thread_ct, uint32_t** id_htable_ptr, uint32_t** htable_dup_base_ptr, uint32_t* id_htable_size_ptr, uint32_t* dup_ct_ptr) {
   uint32_t id_htable_size = GetHtableFastSize(item_ct);
   // if store_all_dups, up to 8 bytes per variant in extra_alloc for duplicate
-  //   tracking, as well as 8 bytes per variant temporary storage
+  //   tracking, as well as a small amount of per-thread temporary workspace
   const uint32_t store_all_dups = (htable_dup_base_ptr != nullptr);
   uintptr_t nonhtable_alloc = 0;
   if (store_all_dups) {
-    nonhtable_alloc = 2 * RoundUpPow2(item_ct * 2 * sizeof(int32_t), kCacheline);
+    const uint32_t actual_thread_ct = PopulateIdHtableMtDupstoreThreadCt(max_thread_ct, item_ct);
+    // "2 *" in front of second term is temporary
+    nonhtable_alloc = actual_thread_ct * kDupstoreThreadWkspace + 2 * RoundUpPow2(item_ct * 2 * sizeof(int32_t), kCacheline);
   }
   uintptr_t max_bytes = RoundDownPow2(bigstack_left(), kCacheline);
   // force max_bytes >= 5 so leqprime() doesn't fail
@@ -2955,7 +3077,7 @@ PglErr AllocAndPopulateIdHtableMt(const uintptr_t* subset_mask, const char* cons
     *htable_dup_base_ptr = &((*id_htable_ptr)[RoundUpPow2(id_htable_size, kInt32PerCacheline)]);
   }
   *id_htable_size_ptr = id_htable_size;
-  return PopulateIdHtableMt(subset_mask, item_ids, item_ct, store_all_dups, id_htable_size, max_thread_ct, *id_htable_ptr, dup_ct_ptr);
+  return PopulateIdHtableMt(g_bigstack_end, subset_mask, item_ids, item_ct, store_all_dups, id_htable_size, max_thread_ct, &g_bigstack_base, *id_htable_ptr, dup_ct_ptr);
 }
 
 
@@ -3822,21 +3944,13 @@ PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const 
     // ctime string always has a newline at the end
     logputs_silent("\n");
 
-#ifdef _WIN32
-    SYSTEM_INFO sysinfo;
-    GetSystemInfo(&sysinfo);
-    *max_thread_ct_ptr = sysinfo.dwNumberOfProcessors;
-    *known_procs_ptr = *max_thread_ct_ptr;
-#else
-    *known_procs_ptr = sysconf(_SC_NPROCESSORS_ONLN);
-    *max_thread_ct_ptr = ((*known_procs_ptr) == -1)? 1 : *known_procs_ptr;
-#endif
+    *max_thread_ct_ptr = NumCpu(known_procs_ptr);
     // don't subtract 1 any more since, when max_thread_ct > 2, one of the
     // (virtual) cores will be dedicated to I/O and have lots of downtime.
     //
     // may make kMaxThreads a parameter later.
-    if (*max_thread_ct_ptr > kMaxThreadsOld) {
-      *max_thread_ct_ptr = kMaxThreadsOld;
+    if (*max_thread_ct_ptr > kMaxThreads) {
+      *max_thread_ct_ptr = kMaxThreads;
     }
   }
   while (0) {
@@ -3920,7 +4034,7 @@ PglErr CmdlineParsePhase3(uintptr_t max_default_mib, uintptr_t malloc_size_mib, 
 
 #ifndef _WIN32
     pthread_attr_init(&g_smallstack_thread_attr_old);
-    pthread_attr_setstacksize(&g_smallstack_thread_attr_old, kDefaultThreadStackOld);
+    pthread_attr_setstacksize(&g_smallstack_thread_attr_old, kDefaultThreadStack);
 #endif
   }
   while (0) {

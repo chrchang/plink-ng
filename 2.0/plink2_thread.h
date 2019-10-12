@@ -28,7 +28,7 @@
 #  include <pthread.h>
 #endif
 
-// Thread functions are expected to be of the form
+// Most thread functions should be of the form
 //   THREAD_FUNC_DECL function_name(void* raw_arg) {
 //     ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
 //     uint32_t tidx = arg->tidx;
@@ -36,6 +36,18 @@
 //     do {
 //       ... // process current block
 //     } while (!THREAD_BLOCK_FINISH(arg));
+//     THREAD_RETURN;
+//   }
+// or
+//   THREAD_FUNC_DECL function_name(void* raw_arg) {
+//     ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+//     uint32_t tidx = arg->tidx;
+//     ...
+//     // parallelized initialization code, must wait for other threads to also
+//     // finish this before proceeding to main loop
+//     while (!THREAD_BLOCK_FINISH(arg)) {
+//       ... // process current block
+//     }
 //     THREAD_RETURN;
 //   }
 #ifdef _WIN32
@@ -152,6 +164,8 @@ HEADER_INLINE void ReinitThreads(ThreadGroup* tgp) {
   tgp->shared.cb.is_last_block = 0;
 }
 
+// Technically unnecessary to call this, but it does save one sync cycle.
+//
 // Note that, if there's only one block of work-shards, this should be called
 // before the first SpawnThreads() call.
 HEADER_INLINE void DeclareLastThreadBlock(ThreadGroup* tgp) {
@@ -206,6 +220,22 @@ HEADER_INLINE BoolErr THREAD_BLOCK_FINISH(ThreadGroupFuncArg* tgfap) {
 #else
 BoolErr THREAD_BLOCK_FINISH(ThreadGroupFuncArg* tgfap);
 #endif
+
+// Convenience functions for potentially-small-and-frequent jobs where
+// thread_ct == 0 corresponds to not wanting to launch threads at all; see
+// MakeDupflagHtable in plink2_cmdline for a typical use case.
+HEADER_INLINE BoolErr SetThreadCt0(uint32_t thread_ct, ThreadGroup* tgp) {
+  if (!thread_ct) {
+    return 0;
+  }
+  return SetThreadCt(thread_ct, tgp);
+}
+
+HEADER_INLINE void JoinThreads0(ThreadGroup* tgp) {
+  if (tgp->threads) {
+    JoinThreads(tgp);
+  }
+}
 
 #ifdef __cplusplus
 }  // namespace plink2
