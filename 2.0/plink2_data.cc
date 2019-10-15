@@ -909,9 +909,6 @@ PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const Ped
   return reterr;
 }
 
-// a few multithread globals
-static PglErr g_error_ret = kPglRetSuccess;
-
 /*
 #ifdef __arm__
 #  error "Unaligned accesses in BitvecResort()."
