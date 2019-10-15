@@ -763,6 +763,15 @@ void ReadAlleles(List pgen, SEXP acbuf, int variant_num, Nullable<LogicalVector>
 }
 
 // [[Rcpp::export]]
+void VariantScores(List pgen) {
+  if (strcmp_r_c(pgen[0], "pgen")) {
+    stop("pgen is not a pgen object")
+  }
+  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pgen[1]);
+  ;;;
+}
+
+// [[Rcpp::export]]
 void ClosePgen(List pgen) {
   if (strcmp_r_c(pgen[0], "pgen")) {
     stop("pgen is not a pgen object");

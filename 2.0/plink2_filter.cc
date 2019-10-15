@@ -935,7 +935,7 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
   return reterr;
 }
 
-void RandomThinProb(const char* flagname_p, const char* unitname, double thin_keep_prob, uint32_t raw_item_ct, uintptr_t* item_include, uint32_t* item_ct_ptr) {
+void RandomThinProb(const char* flagname_p, const char* unitname, double thin_keep_prob, uint32_t raw_item_ct, sfmt_t* sfmtp, uintptr_t* item_include, uint32_t* item_ct_ptr) {
   // possible todo: try using truncated geometric distribution, like --dummy
   // can also parallelize this
   const uint32_t orig_item_ct = *item_ct_ptr;
@@ -947,7 +947,7 @@ void RandomThinProb(const char* flagname_p, const char* unitname, double thin_ke
   uintptr_t cur_bits = item_include[0];
   for (uint32_t item_idx = 0; item_idx != orig_item_ct; ++item_idx) {
     const uintptr_t lowbit = BitIter1y(item_include, &item_widx, &cur_bits);
-    if (sfmt_genrand_uint32(&g_sfmt) >= uint32_thresh) {
+    if (sfmt_genrand_uint32(sfmtp) >= uint32_thresh) {
       item_include[item_widx] ^= lowbit;
     }
   }
@@ -958,7 +958,7 @@ void RandomThinProb(const char* flagname_p, const char* unitname, double thin_ke
   return;
 }
 
-PglErr RandomThinCt(const char* flagname_p, const char* unitname, uint32_t thin_keep_ct, uint32_t raw_item_ct, uintptr_t* item_include, uint32_t* item_ct_ptr) {
+PglErr RandomThinCt(const char* flagname_p, const char* unitname, uint32_t thin_keep_ct, uint32_t raw_item_ct, sfmt_t* sfmtp, uintptr_t* item_include, uint32_t* item_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
   {
@@ -978,7 +978,7 @@ PglErr RandomThinCt(const char* flagname_p, const char* unitname, uint32_t thin_
     }
     // no actual interleaving here, but may as well use this function
     // note that this requires marker_ct >= 2
-    GeneratePerm1Interleaved(orig_item_ct, thin_keep_ct, 0, 1, perm_buf, &g_sfmt);
+    GeneratePerm1Interleaved(orig_item_ct, thin_keep_ct, 0, 1, perm_buf, sfmtp);
     ExpandBytearr(perm_buf, item_include, raw_item_ctl, orig_item_ct, 0, new_item_include);
     memcpy(item_include, new_item_include, raw_item_ctl * sizeof(intptr_t));
     *item_ct_ptr = thin_keep_ct;

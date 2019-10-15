@@ -25,21 +25,17 @@
 namespace plink2 {
 #endif
 
-extern sfmt_t g_sfmt;
-
 HEADER_INLINE double RandUnif(sfmt_t* sfmtp) {
   return (sfmt_genrand_uint32(sfmtp) + 0.5) * kRecip2m32;
 }
 
 double RandNormal(sfmt_t* sfmtp, double* secondval_ptr);
 
-BoolErr InitAllocSfmtpArr(uint32_t thread_ct, uint32_t use_main_sfmt_as_element_zero, sfmt_t*** sfmtp_arrp);
+BoolErr InitAllocSfmtpArr(uint32_t thread_ct, uint32_t use_main_sfmt_as_element_zero, sfmt_t* sfmtp, sfmt_t*** sfmtp_arrp);
 
-PglErr FillGaussianDArr(uintptr_t entry_pair_ct, uint32_t thread_ct, double* darray);
+PglErr FillGaussianDArr(uintptr_t entry_pair_ct, uint32_t thread_ct, sfmt_t* sfmtp, double* darray);
 
-extern sfmt_t** g_sfmtp_arr;
-
-PglErr RandomizeBigstack(uint32_t thread_ct);
+PglErr RandomizeBigstack(uint32_t thread_ct, sfmt_t* sfmtp);
 
 // might not need plink 1.9-style interleaving, but I'll postpone ripping that
 // out.

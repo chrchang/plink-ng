@@ -2650,9 +2650,12 @@ void DupflagHtableMakerMain(uint32_t tidx, uint32_t thread_ct, DupflagHtableMake
     const char* sptr = item_ids[item_uidx];
     const uint32_t slen = strlen(sptr);
     for (uint32_t hashval = Hashceil(sptr, slen, id_htable_size); ; ) {
-      const uint32_t old_htable_entry = __sync_val_compare_and_swap(&(id_htable[hashval]), UINT32_MAX, item_uidx);
+      uint32_t old_htable_entry = id_htable[hashval];
       if (old_htable_entry == UINT32_MAX) {
-        break;
+        old_htable_entry = __sync_val_compare_and_swap(&(id_htable[hashval]), UINT32_MAX, item_uidx);
+        if (old_htable_entry == UINT32_MAX) {
+          break;
+        }
       }
       if (strequal_overread(sptr, item_ids[old_htable_entry & 0x7fffffff])) {
         if (!(old_htable_entry & 0x80000000U)) {
@@ -2988,7 +2991,7 @@ PglErr PopulateIdHtableMt(unsigned char* arena_top, const uintptr_t* subset_mask
       items_left -= item_idx_stop;
       parity = 1 - parity;
     } while (items_left);
-    JoinThreads(tgp);
+    // bugfix (15 Oct 2019): no threads to join here!
     if (extra_alloc) {
       // bugfix: forgot to align this
       *arena_bottom_ptr += RoundUpPow2(extra_alloc * sizeof(int32_t), kCacheline);

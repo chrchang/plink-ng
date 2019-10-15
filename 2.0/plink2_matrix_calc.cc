@@ -3817,7 +3817,7 @@ THREAD_FUNC_DECL CalcPcaVarWtsThread(void* arg) {
   }
 }
 
-PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t pc_ct, PcaFlags pca_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, double* grm, char* outname, char* outname_end) {
+PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t pc_ct, PcaFlags pca_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, sfmt_t* sfmtp, double* grm, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -4010,7 +4010,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         g_y_transpose_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(yy_alloc));
         g_g2_bb_part_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(g2_bb_part_alloc));
       }
-      FillGaussianDArr(g_size / 2, max_thread_ct, g1);
+      FillGaussianDArr(g_size / 2, max_thread_ct, sfmtp, g1);
       g_g1 = g1;
 #ifdef __APPLE__
       fputs("Projecting random vectors... ", stdout);

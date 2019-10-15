@@ -1053,7 +1053,6 @@ HEADER_INLINE void SetAllI32Arr(uintptr_t entry_ct, int32_t* i32arr) {
   }
 }
 
-// todo: verify the compiler properly optimizes this for 64-bit
 HEADER_INLINE void SetAllU32Arr(uintptr_t entry_ct, uint32_t* u32arr) {
   for (uintptr_t ulii = 0; ulii != entry_ct; ulii++) {
     *u32arr++ = ~0U;
@@ -1188,24 +1187,17 @@ HEADER_INLINE uint32_t Hashceil(const char* idstr, uint32_t idlen, uint32_t htab
 // uintptr_t leqprime(uintptr_t ceil);
 
 HEADER_INLINE uint32_t GetHtableMinSize(uintptr_t item_ct) {
-  if (item_ct > 6) {
-    // Don't actually need primes any more.
-    // return geqprime(item_ct * 2 + 1);
-    return item_ct * 2;
-  }
-  return 13;
+  // Don't need primes any more.
+  return item_ct * 2;
 }
 
-// load factor ~20% seems to yield the best speed/space tradeoff on my test
+// load factor ~22% seems to yield the best speed/space tradeoff on my test
 // machines
 HEADER_INLINE uint32_t GetHtableFastSize(uint32_t item_ct) {
-  // if (item_ct < 858993456) {
-  //   return geqprime(RoundUpPow2(item_ct * 5, 2) + 1);
-  // }
-  if (item_ct < 858993459) {
-    return item_ct * 5;
+  if (item_ct < 954437176) {
+    return (item_ct * 9LLU) / 2;
   }
-  return 4294967291U;
+  return 4294967290U;
 }
 
 BoolErr HtableGoodSizeAlloc(uint32_t item_ct, uintptr_t bytes_avail, uint32_t** htable_ptr, uint32_t* htable_size_ptr);
@@ -1779,6 +1771,7 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
 
 // this is technically application-dependent, but let's keep this simple for
 // now
+// todo: recalibrate these numbers before each beta release
 #ifndef __LP64__
   // 2047 seems to consistently fail on both OS X and Windows
 #  ifdef _WIN32

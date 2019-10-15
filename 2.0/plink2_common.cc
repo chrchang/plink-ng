@@ -2243,6 +2243,7 @@ uintptr_t GetMhcWordCt(uintptr_t sample_ct) {
   return RoundUpPow2(patch_01_max_word_ct, kWordsPerVec) + RoundUpPow2(patch_10_max_word_ct, kWordsPerVec);
 }
 
+// todo: phase out threads_ptr argument
 PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t bytes_avail, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, uintptr_t per_alt_allele_xalloc_byte_ct, PgenFileInfo* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** mhc_ptr, uintptr_t*** phasepresent_ptr, uintptr_t*** phaseinfo_ptr, uintptr_t*** dosage_present_ptr, Dosage*** dosage_mains_ptr, uintptr_t*** dphase_present_ptr, SDosage*** dphase_delta_ptr, uint32_t* read_block_size_ptr, uintptr_t* max_alt_allele_block_size_ptr, STD_ARRAY_REF(unsigned char*, 2) main_loadbufs, pthread_t** threads_ptr, PgenReader*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr) {
   uintptr_t cachelines_avail = bytes_avail / kCacheline;
   uint32_t read_block_size = kPglVblockSize;
@@ -2332,7 +2333,10 @@ PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint
 
   const uint32_t array_of_ptrs_alloc = RoundUpPow2(calc_thread_ct * sizeof(intptr_t), kCacheline);
   *pgr_pps = S_CAST(PgenReader**, bigstack_alloc_raw(array_of_ptrs_alloc));
-  *threads_ptr = S_CAST(pthread_t*, bigstack_alloc_raw(array_of_ptrs_alloc));
+  if (threads_ptr) {
+    // this will soon be defunct
+    *threads_ptr = S_CAST(pthread_t*, bigstack_alloc_raw(array_of_ptrs_alloc));
+  }
   *read_variant_uidx_starts_ptr = S_CAST(uint32_t*, bigstack_alloc_raw_rd(calc_thread_ct * sizeof(int32_t)));
   for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
     (*pgr_pps)[tidx] = S_CAST(PgenReader*, bigstack_alloc_raw(pgr_struct_alloc));

@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (12 Oct 2019)";
+  " (15 Oct 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -660,7 +660,7 @@ void UpdateSampleSubsets(const uintptr_t* sample_include, uint32_t raw_sample_ct
 
 // command_flags2 will probably be needed before we're done
 static_assert(kPglMaxAltAlleleCt == 254, "Plink2Core() --maj-ref needs to be updated.");
-PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, char* king_cutoff_fprefix, ChrInfo* cip) {
+PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, char* king_cutoff_fprefix, ChrInfo* cip, sfmt_t* sfmtp) {
   PhenoCol* pheno_cols = nullptr;
   PhenoCol* covar_cols = nullptr;
   PhenoCol* loop_cats_pheno_col = nullptr;
@@ -1274,9 +1274,9 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     const char** allele_storage = K_CAST(const char**, allele_storage_mutable);
 
     if (pcp->thin_keep_prob != 1.0) {
-      RandomThinProb("thin", "variant", pcp->thin_keep_prob, raw_variant_ct, variant_include, &variant_ct);
+      RandomThinProb("thin", "variant", pcp->thin_keep_prob, raw_variant_ct, sfmtp, variant_include, &variant_ct);
     } else if (pcp->thin_keep_ct != UINT32_MAX) {
-      reterr = RandomThinCt("thin-count", "variant", pcp->thin_keep_ct, raw_variant_ct, variant_include, &variant_ct);
+      reterr = RandomThinCt("thin-count", "variant", pcp->thin_keep_ct, raw_variant_ct, sfmtp, variant_include, &variant_ct);
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
       }
@@ -1387,9 +1387,9 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pcp->thin_keep_sample_prob != 1.0) {
-        RandomThinProb("thin-indiv", "sample", pcp->thin_keep_sample_prob, raw_sample_ct, sample_include, &sample_ct);
+        RandomThinProb("thin-indiv", "sample", pcp->thin_keep_sample_prob, raw_sample_ct, sfmtp, sample_include, &sample_ct);
       } else if (pcp->thin_keep_sample_ct != UINT32_MAX) {
-        reterr = RandomThinCt("thin-indiv-count", "sample", pcp->thin_keep_sample_ct, raw_sample_ct, sample_include, &sample_ct);
+        reterr = RandomThinCt("thin-indiv-count", "sample", pcp->thin_keep_sample_ct, raw_sample_ct, sfmtp, sample_include, &sample_ct);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -2223,7 +2223,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 #ifndef NOLAPACK
       if (pcp->command_flags1 & kfCommand1Pca) {
         // if the GRM is on the stack, this always frees it
-        reterr = CalcPca(sample_include, &pii.sii, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, pcp->pca_ct, pcp->pca_flags, pcp->max_thread_ct, &simple_pgr, grm, outname, outname_end);
+        reterr = CalcPca(sample_include, &pii.sii, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, pcp->pca_ct, pcp->pca_flags, pcp->max_thread_ct, &simple_pgr, sfmtp, grm, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -9203,16 +9203,17 @@ int main(int argc, char** argv) {
       }
     }
 
+    sfmt_t main_sfmt;
     if (!rseeds) {
       uint32_t seed = S_CAST(uint32_t, time(nullptr));
       snprintf(g_logbuf, kLogbufSize, "Random number seed: %u\n", seed);
       logputs_silent(g_logbuf);
-      sfmt_init_gen_rand(&g_sfmt, seed);
+      sfmt_init_gen_rand(&main_sfmt, seed);
     } else {
       if (rseed_ct == 1) {
-        sfmt_init_gen_rand(&g_sfmt, rseeds[0]);
+        sfmt_init_gen_rand(&main_sfmt, rseeds[0]);
       } else {
-        sfmt_init_by_array(&g_sfmt, rseeds, rseed_ct);
+        sfmt_init_by_array(&main_sfmt, rseeds, rseed_ct);
       }
       free(rseeds);
       rseeds = nullptr;
@@ -9236,7 +9237,7 @@ int main(int argc, char** argv) {
       logprintf("Using %s%u compute thread%s.\n", (pc.max_thread_ct > 1)? "up to " : "", pc.max_thread_ct, (pc.max_thread_ct == 1)? "" : "s");
     }
     if (randmem) {
-      reterr = RandomizeBigstack(pc.max_thread_ct);
+      reterr = RandomizeBigstack(pc.max_thread_ct, &main_sfmt);
       if (unlikely(reterr)) {
         goto main_ret_1;
       }
@@ -9323,7 +9324,7 @@ int main(int argc, char** argv) {
         } else if (xload & kfXloadPlink1Dosage) {
           reterr = Plink1DosageToPgen(pgenname, psamname, (xload & kfXloadMap)? pvarname : nullptr, import_single_chr_str, &plink1_dosage_info, pc.misc_flags, import_flags, pc.fam_cols, pc.missing_pheno, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, pc.max_thread_ct, outname, convname_end, &chr_info);
         } else if (xload & kfXloadGenDummy) {
-          reterr = GenerateDummy(&gendummy_info, pc.misc_flags, import_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, pc.max_thread_ct, outname, convname_end, &chr_info);
+          reterr = GenerateDummy(&gendummy_info, pc.misc_flags, import_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, pc.max_thread_ct, &main_sfmt, outname, convname_end, &chr_info);
         }
         if (reterr || (!pc.command_flags1)) {
           goto main_ret_1;
@@ -9396,7 +9397,7 @@ int main(int argc, char** argv) {
       }
 
       BLAS_SET_NUM_THREADS(1);
-      reterr = Plink2Core(&pc, make_plink2_flags, pgenname, psamname, pvarname, outname, outname_end, king_cutoff_fprefix, &chr_info);
+      reterr = Plink2Core(&pc, make_plink2_flags, pgenname, psamname, pvarname, outname, outname_end, king_cutoff_fprefix, &chr_info, &main_sfmt);
     }
   }
   while (0) {

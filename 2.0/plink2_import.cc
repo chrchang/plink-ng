@@ -10178,6 +10178,7 @@ static STD_ARRAY_DECL(uint64_t, kBitsPerWordD2, g_geno_missing_geomdist);
 static STD_ARRAY_DECL(uint64_t, kBitsPerWordD2, g_dosage_geomdist);
 static uint32_t g_geno_missing_invert = 0;
 static uint32_t g_dosage_geomdist_max = 0;
+static sfmt_t** g_sfmtp_arr;
 
 static_assert(sizeof(Dosage) == 2, "GenerateDummyThread() needs to be updated.");
 THREAD_FUNC_DECL GenerateDummyThread(void* arg) {
@@ -10294,7 +10295,7 @@ THREAD_FUNC_DECL GenerateDummyThread(void* arg) {
 }
 
 static_assert(sizeof(Dosage) == 2, "GenerateDummy() needs to be updated.");
-PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags, ImportFlags import_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags, ImportFlags import_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t max_thread_ct, sfmt_t* sfmtp, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   ThreadsState ts;
@@ -10353,7 +10354,7 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
             goto GenerateDummy_ret_WRITE_FAIL;
           }
           do {
-            urand = sfmt_genrand_uint32(&g_sfmt);
+            urand = sfmt_genrand_uint32(sfmtp);
           } while (urand < 425132032U);  // 2^32 - 12^8
         }
         const uint32_t quotient = urand / 12;
@@ -10373,7 +10374,7 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
           if (unlikely(fwrite_ck(textbuf_flush, outfile, &write_iter))) {
             goto GenerateDummy_ret_WRITE_FAIL;
           }
-          urand = sfmt_genrand_uint32(&g_sfmt);
+          urand = sfmt_genrand_uint32(sfmtp);
         }
         const uint32_t remainder = urand & 1;
         urand >>= 1;
@@ -10432,14 +10433,14 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
         write_iter = strcpya_k(write_iter, "\t2");
         for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
           *write_iter++ = '\t';
-          if (pheno_m_check && (sfmt_genrand_uint32(&g_sfmt) <= pheno_m32)) {
+          if (pheno_m_check && (sfmt_genrand_uint32(sfmtp) <= pheno_m32)) {
             write_iter = memcpya(write_iter, output_missing_pheno, omp_slen);
           } else {
             double dxx;
             if (saved_rnormal) {
               dxx = saved_rnormal_val;
             } else {
-              dxx = RandNormal(&g_sfmt, &saved_rnormal_val);
+              dxx = RandNormal(sfmtp, &saved_rnormal_val);
             }
             saved_rnormal_val = 1 - saved_rnormal_val;
             write_iter = dtoa_g(dxx, write_iter);
@@ -10448,7 +10449,7 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
         AppendBinaryEoln(&write_iter);
       }
     } else {
-      uint32_t urand = sfmt_genrand_uint32(&g_sfmt);
+      uint32_t urand = sfmt_genrand_uint32(sfmtp);
       uint32_t urand_bits_left = 32;
       for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
         if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
@@ -10460,11 +10461,11 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
         write_iter = strcpya_k(write_iter, "\t2");
         for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
           *write_iter++ = '\t';
-          if (pheno_m_check && (sfmt_genrand_uint32(&g_sfmt) <= pheno_m32)) {
+          if (pheno_m_check && (sfmt_genrand_uint32(sfmtp) <= pheno_m32)) {
             write_iter = memcpya(write_iter, output_missing_pheno, omp_slen);
           } else {
             if (!urand_bits_left) {
-              urand = sfmt_genrand_uint32(&g_sfmt);
+              urand = sfmt_genrand_uint32(sfmtp);
               urand_bits_left = 32;
             }
             *write_iter++ = (urand & 1) + '1';
@@ -10548,7 +10549,7 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
     if (calc_thread_ct > 4) {
       calc_thread_ct = 4;
     }
-    if (unlikely(InitAllocSfmtpArr(calc_thread_ct, 0, &g_sfmtp_arr))) {
+    if (unlikely(InitAllocSfmtpArr(calc_thread_ct, 0, sfmtp, &g_sfmtp_arr))) {
       goto GenerateDummy_ret_NOMEM;
     }
     if (unlikely(bigstack_alloc_thread(calc_thread_ct, &ts.threads))) {
