@@ -449,9 +449,6 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
 }
 
 PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const TwoColParams* flag_params, const char* match_flattened, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t htable_size, double val_min, double val_max, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
-  logerrputs("Error: --extract-fcol is under development.\n");
-  return kPglRetNotYetSupported;
-  /*
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
@@ -467,7 +464,14 @@ PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_ht
             bigstack_calloc_w(raw_variant_ctl, &already_seen))) {
       goto ExtractFcol_ret_NOMEM;
     }
-    // todo: flattened htable
+    uint32_t str_ct = 0;
+    char* sorted_strbox;
+    uintptr_t max_str_blen;
+    if (match_flattened) {
+      if (unlikely(MultistrToStrboxDedupAlloc(match_flattened, &sorted_strbox, &str_ct, &max_str_blen))) {
+        goto ExtractFcol_ret_NOMEM;
+      }
+    }
     reterr = SizeAndInitTextStream(flag_params->fname, bigstack_left(), MAXV(max_thread_ct - 1, 1), &txs);
     if (unlikely(reterr)) {
       goto ExtractFcol_ret_TSTREAM_FAIL;
@@ -492,12 +496,11 @@ PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_ht
       coldiff = flag_params->colid - flag_params->colx;
     }
     const char skipchar = flag_params->skipchar;
-    uintptr_t miss_ct;
-    uint32_t hit_ct;
+    uintptr_t miss_ct = 0;
     while (1) {
       ++line_idx;
       const char* line_start;
-      reterr = TextNextLineLstripK(&txs, &line_iter);
+      reterr = TextNextLineLstripK(&txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
@@ -537,9 +540,35 @@ PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_ht
         goto ExtractFcol_ret_INCONSISTENT_INPUT_WW;
       }
       SetBit(variant_uidx, already_seen);
+      if (str_ct) {
+        // --extract-fcol-match
+        const char* token_end = CurTokenEnd(colval_ptr);
+        const int32_t ii = bsearch_str(colval_ptr, sorted_strbox, token_end - colval_ptr, max_str_blen, str_ct);
+        if (ii == -1) {
+          continue;
+        }
+      } else {
+        // min-max
+        double val;
+        if ((!ScanadvDouble(colval_ptr, &val)) || (val < val_min) || (val > val_max)) {
+          continue;
+        }
+      }
+      for (; ; cur_llidx = htable_dup_base[cur_llidx + 1]) {
+        SetBit(variant_uidx, variant_include_new);
+        if (cur_llidx == UINT32_MAX) {
+          break;
+        }
+        variant_uidx = htable_dup_base[cur_llidx];
+      }
     }
     BitvecAnd(variant_include_new, raw_variant_ctl, variant_include);
     const uint32_t new_variant_ct = PopcountWords(variant_include, raw_variant_ctl);
+    if (miss_ct) {
+      logprintfww("--extract-fcol: %u variant%s remaining, %" PRIuPTR " ID%s missing.\n", new_variant_ct, (new_variant_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+    } else {
+      logprintf("--extract-fcol: %u variant%s remaining.\n", new_variant_ct, (new_variant_ct == 1)? "" : "s");
+    }
     *variant_ct_ptr = new_variant_ct;
   }
   while (0) {
@@ -563,7 +592,6 @@ PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_ht
   CleanupTextStream2(flag_params->fname, &txs, &reterr);
   BigstackReset(bigstack_mark);
   return reterr;
-  */
 }
 
 // could permit split-chromosome here
