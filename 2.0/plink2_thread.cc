@@ -99,6 +99,7 @@ BoolErr SetThreadCt(uint32_t thread_ct, ThreadGroup* tgp) {
 // Note that thread_ct is permitted to be less than tgp->shared.cb.thread_ct,
 // to support the SpawnThreads() error cases.
 void JoinThreadsInternal(uint32_t thread_ct, ThreadGroup* tgp) {
+  assert(tgp->is_active);
 #ifdef _WIN32
   if (!tgp->shared.cb.is_last_block) {
     WaitForSingleObject(tgp->shared.cb.cur_block_done_event, INFINITE);

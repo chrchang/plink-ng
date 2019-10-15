@@ -346,6 +346,8 @@ typedef struct Plink2CmdlineStruct {
   double max_maf;
   double thin_keep_prob;
   double thin_keep_sample_prob;
+  double extract_fcol_min;
+  double extract_fcol_max;
   uint64_t min_allele_dosage;
   uint64_t max_allele_dosage;
   int32_t missing_pheno;
@@ -416,10 +418,12 @@ typedef struct Plink2CmdlineStruct {
   char* update_alleles_fname;
   char* update_sample_ids_fname;
   char* update_parental_ids_fname;
+  char* extract_fcol_match_flattened;
   TwoColParams* ref_allele_flag;
   TwoColParams* alt1_allele_flag;
   TwoColParams* update_map_flag;
   TwoColParams* update_name_flag;
+  TwoColParams* extract_fcol_flag;
 } Plink2Cmdline;
 
 // er, probably time to just always initialize this...
@@ -1137,7 +1141,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     // Otherwise, it may be very advantageous to apply the position-based
     // filters before constructing the variant ID hash table.  So we split this
     // into two cases.
-    const uint32_t full_variant_id_htable_needed = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_fname || (pcp->rmdup_mode != kRmDup0));
+    const uint32_t full_variant_id_htable_needed = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_fname || (pcp->rmdup_mode != kRmDup0) || pcp->extract_fcol_flag);
     if (!full_variant_id_htable_needed) {
       reterr = ApplyVariantBpFilters(pcp->extract_fnames, pcp->extract_intersect_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, pcp->max_thread_ct, variant_include, &variant_ct);
       if (unlikely(reterr)) {
@@ -1242,6 +1246,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
         if (pcp->exclude_fnames && (!(pcp->filter_flags & (kfFilterExcludeBed0 | kfFilterExcludeBed1)))) {
           reterr = ExtractExcludeFlagNorange(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, pcp->exclude_fnames, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, kVfilterExclude, pcp->max_thread_ct, variant_include, &variant_ct);
+          if (unlikely(reterr)) {
+            goto Plink2Core_ret_1;
+          }
+        }
+        if (pcp->extract_fcol_flag) {
+          reterr = ExtractFcol(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, pcp->extract_fcol_flag, pcp->extract_fcol_match_flattened, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, pcp->extract_fcol_min, pcp->extract_fcol_max, pcp->max_thread_ct, variant_include, &variant_ct);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -3075,6 +3085,8 @@ int main(int argc, char** argv) {
   pc.update_name_flag = nullptr;
   pc.update_sample_ids_fname = nullptr;
   pc.update_parental_ids_fname = nullptr;
+  pc.extract_fcol_flag = nullptr;
+  pc.extract_fcol_match_flattened = nullptr;
   InitRangeList(&pc.snps_range_list);
   InitRangeList(&pc.exclude_snps_range_list);
   InitRangeList(&pc.pheno_range_list);
@@ -3261,6 +3273,17 @@ int main(int argc, char** argv) {
             goto main_flag_copy;
           }
           break;
+        case 'q':
+          if (strequal_k(flagname_p, "qual-scores", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "extract-fcol");
+          } else if (strequal_k(flagname_p, "qual-threshold", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "extract-fcol-min");
+          } else if (strequal_k(flagname_p, "qual-max-threshold", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "extract-fcol-max");
+          } else {
+            goto main_flag_copy;
+          }
+          break;
         case 'r':
           if (strequal_k(flagname_p, "recode", flag_slen)) {
             // special case: translate to "export ped" if no format specified
@@ -3422,6 +3445,8 @@ int main(int argc, char** argv) {
     pc.keep_fcol_num = 0;
     pc.filter_min_allele_ct = 0;
     pc.filter_max_allele_ct = UINT32_MAX;
+    pc.extract_fcol_min = 0;
+    pc.extract_fcol_max = DBL_MAX;
     double import_dosage_certainty = 0.0;
     int32_t vcf_min_gq = -1;
     int32_t vcf_min_dp = -1;
@@ -4593,7 +4618,7 @@ int main(int argc, char** argv) {
           pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "xport-allele")) {
           if (unlikely((!(pc.command_flags1 & kfCommand1Exportf)) || (!(pc.exportf_info.flags & (kfExportfA | kfExportfATranspose | kfExportfAD))))) {
-            logerrputs("Error: --export-allele must be used with --export A/A-transpose/AD..\n");
+            logerrputs("Error: --export-allele must be used with --export A/A-transpose/AD.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -4618,6 +4643,61 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPvarReq;
+        } else if (strequal_k_unsafe(flagname_p2, "xtract-fcol")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 4))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = Alloc2col(&(argvk[arg_idx + 1]), flagname_p, param_ct, &pc.extract_fcol_flag);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          pc.dependency_flags |= kfFilterPvarReq;
+        } else if (strequal_k_unsafe(flagname_p2, "xtract-fcol-match")) {
+          if (unlikely(!pc.extract_fcol_flag)) {
+            logerrputs("Error: --extract-fcol-match must be used with --extract-fcol.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, kMaxIdBlen, &pc.extract_fcol_match_flattened);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "xtract-fcol-max")) {
+          if (unlikely(!pc.extract_fcol_flag)) {
+            logerrputs("Error: --extract-fcol-match must be used with --extract-fcol.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(pc.extract_fcol_match_flattened)) {
+            logerrputs("Error: --extract-fcol-max cannot be used with --extract-fcol-match.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          if (unlikely(ScanDoublex(cur_modif, &pc.extract_fcol_max))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --extract-fcol-max parameter '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "xtract-fcol-min")) {
+          if (unlikely(!pc.extract_fcol_flag)) {
+            logerrputs("Error: --extract-fcol-match must be used with --extract-fcol.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(pc.extract_fcol_match_flattened)) {
+            logerrputs("Error: --extract-fcol-min cannot be used with --extract-fcol-match.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          if (unlikely(ScanDoublex(cur_modif, &pc.extract_fcol_min))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --extract-fcol-min parameter '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
         } else if (strequal_k_unsafe(flagname_p2, "xtract-if-info")) {
           reterr = ValidateAndAllocCmpExpr(&(argvk[arg_idx + 1]), argvk[arg_idx], param_ct, &pc.extract_if_info_expr);
           if (unlikely(reterr)) {
@@ -9183,6 +9263,10 @@ int main(int argc, char** argv) {
     }
     if ((pc.grm_flags & kfGrmMatrixShapemask) && (pc.misc_flags & kfMiscNoIdHeader)) {
       pc.grm_flags |= kfGrmNoIdHeader;
+    }
+    if (unlikely(pc.extract_fcol_max < pc.extract_fcol_min)) {
+      logerrputs("Error: --extract-fcol-max value can't be smaller than --extract-fcol-min value.\n");
+      goto main_ret_INVALID_CMDLINE_A;
     }
     if (!permit_multiple_inclusion_filters) {
       // Permit only one position- or ID-based variant inclusion filter, since

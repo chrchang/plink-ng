@@ -1257,7 +1257,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --var-min-qual <val>             : Skip variants with low/missing QUAL.\n"
 "  --var-filter [exception(s)...]   : Skip variants which have FILTER failures.\n"
                );
-    HelpPrint("extract-if-info\0exclude-if-info\0require-info\0require-no-info\0extract-if\0exclude-if\0keep-if-info\0remove-if-info\0var-min-qual\0var-filter\0vcf-min-qual\0vcf-filter\0", &help_ctrl, 0,
+    HelpPrint("extract-if-info\0exclude-if-info\0require-info\0require-no-info\0extract-if\0exclude-if\0extract-fcol\0keep-if-info\0remove-if-info\0var-min-qual\0var-filter\0vcf-min-qual\0vcf-filter\0qual-scores\0qual-threshold\0qual-max-threshold\0", &help_ctrl, 0,
 "  --extract-if-info <key> <op> <val> : Exclude variants which don't/do satisfy\n"
 "  --exclude-if-info <key> <op> <val>   a comparison predicate on an INFO key,\n"
 "  (aliases: --extract-if,              e.g.\n"
@@ -1268,7 +1268,15 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --require-info <key(s)...>         : Exclude variants based on nonexistence\n"
 "  --require-no-info <key(s)...>        or existence of an INFO key.  \"<key>=.\"\n"
 "                                       is treated as nonexistence.\n"
-               );
+"  --extract-fcol <f> [valcol] [IDcol] [skip]\n"
+"  --extract-fcol-match <vals...>\n"
+"  --extract-fcol-min <min>\n"
+"  --extract-fcol-max <max> :\n"
+"    Exclude all variants without a value-column entry exactly matching a\n"
+"    --extract-fcol-match string; or if no match-strings were provided, the\n"
+"    <min>-<max> range (default min=0, max=DBL_MAX).  By default, values are\n"
+"    read from column 2 and IDs from column 1.\n"
+              );
     HelpPrint("pheno\0pheno-name\0pheno-col-nums\0mpheno\0", &help_ctrl, 0,
 "  --pheno ['iid-only'] <f> : Specify additional phenotype/covariate file.\n"
 "                             Comma-delimited files with a header line are now\n"

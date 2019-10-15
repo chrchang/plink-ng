@@ -173,6 +173,10 @@ HEADER_INLINE void DeclareLastThreadBlock(ThreadGroup* tgp) {
   tgp->shared.cb.is_last_block = 1;
 }
 
+HEADER_INLINE uint32_t IsLastBlock(ThreadGroup* tgp) {
+  return tgp->shared.cb.is_last_block;
+}
+
 #if defined(__cplusplus) && !defined(_WIN32)
 class Plink2ThreadStartup {
 public:

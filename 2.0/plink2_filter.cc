@@ -448,6 +448,124 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
   return reterr;
 }
 
+PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const TwoColParams* flag_params, const char* match_flattened, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t htable_size, double val_min, double val_max, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+  logerrputs("Error: --extract-fcol is under development.\n");
+  return kPglRetNotYetSupported;
+  /*
+  unsigned char* bigstack_mark = g_bigstack_base;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    // Very similar to e.g. UpdateVarBps().
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    uintptr_t* variant_include_new;
+    uintptr_t* already_seen;
+    if (unlikely(
+            bigstack_calloc_w(raw_variant_ctl, &variant_include_new) ||
+            bigstack_calloc_w(raw_variant_ctl, &already_seen))) {
+      goto ExtractFcol_ret_NOMEM;
+    }
+    // todo: flattened htable
+    reterr = SizeAndInitTextStream(flag_params->fname, bigstack_left(), MAXV(max_thread_ct - 1, 1), &txs);
+    if (unlikely(reterr)) {
+      goto ExtractFcol_ret_TSTREAM_FAIL;
+    }
+    reterr = TextSkip(flag_params->skip_ct, &txs);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetEof) {
+        logerrputs("Error: Fewer lines than expected in --extract-fcol file.\n");
+        goto ExtractFcol_ret_INCONSISTENT_INPUT;
+      }
+      goto ExtractFcol_ret_TSTREAM_FAIL;
+    }
+    line_idx = flag_params->skip_ct;
+    const uint32_t colid_first = (flag_params->colid < flag_params->colx);
+    uint32_t colmin;
+    uint32_t coldiff;
+    if (colid_first) {
+      colmin = flag_params->colid - 1;
+      coldiff = flag_params->colx - flag_params->colid;
+    } else {
+      colmin = flag_params->colx - 1;
+      coldiff = flag_params->colid - flag_params->colx;
+    }
+    const char skipchar = flag_params->skipchar;
+    uintptr_t miss_ct;
+    uint32_t hit_ct;
+    while (1) {
+      ++line_idx;
+      const char* line_start;
+      reterr = TextNextLineLstripK(&txs, &line_iter);
+      if (reterr) {
+        if (likely(reterr == kPglRetEof)) {
+          reterr = kPglRetSuccess;
+          break;
+        }
+        goto ExtractFcol_ret_TSTREAM_FAIL;
+      }
+      char cc = *line_start;
+      if (IsEolnKns(cc) || (cc == skipchar)) {
+        continue;
+      }
+      const char* colid_ptr;
+      const char* colval_ptr;
+      if (colid_first) {
+        colid_ptr = NextTokenMult0(line_start, colmin);
+        colval_ptr = NextTokenMult(colid_ptr, coldiff);
+        if (unlikely(!colval_ptr)) {
+          goto ExtractFcol_ret_MISSING_TOKENS;
+        }
+      } else {
+        colval_ptr = NextTokenMult0(line_start, colmin);
+        colid_ptr = NextTokenMult(colval_ptr, coldiff);
+        if (unlikely(!colid_ptr)) {
+          goto ExtractFcol_ret_MISSING_TOKENS;
+        }
+      }
+      const uint32_t varid_slen = strlen_se(colid_ptr);
+      uint32_t cur_llidx;
+      uint32_t variant_uidx = VariantIdDupHtableFind(colid_ptr, variant_ids, variant_id_htable, htable_dup_base, varid_slen, htable_size, max_variant_id_slen, &cur_llidx);
+      if (variant_uidx == UINT32_MAX) {
+        ++miss_ct;
+        continue;
+      }
+      const char* cur_var_id = variant_ids[variant_uidx];
+      if (unlikely(IsSet(already_seen, variant_uidx))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Variant ID '%s' appears multiple times in --extract-fcol file.\n", cur_var_id);
+        goto ExtractFcol_ret_INCONSISTENT_INPUT_WW;
+      }
+      SetBit(variant_uidx, already_seen);
+    }
+    BitvecAnd(variant_include_new, raw_variant_ctl, variant_include);
+    const uint32_t new_variant_ct = PopcountWords(variant_include, raw_variant_ctl);
+    *variant_ct_ptr = new_variant_ct;
+  }
+  while (0) {
+  ExtractFcol_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  ExtractFcol_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(flag_params->fname, &txs);
+    break;
+  ExtractFcol_ret_MISSING_TOKENS:
+    logerrprintf("Error: Line %" PRIuPTR " of --extract-fcol file has fewer tokens than expected.\n", line_idx);
+    reterr = kPglRetMalformedInput;
+    break;
+  ExtractFcol_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+  ExtractFcol_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+  CleanupTextStream2(flag_params->fname, &txs, &reterr);
+  BigstackReset(bigstack_mark);
+  return reterr;
+  */
+}
+
 // could permit split-chromosome here
 PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* missing_varid_match, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t orig_dup_ct, RmDupMode rmdup_mode, uint32_t save_list, uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* variant_include, uint32_t* variant_ct_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;

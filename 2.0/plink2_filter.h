@@ -33,6 +33,8 @@ PglErr SnpsFlag(const char* const* variant_ids, const uint32_t* variant_id_htabl
 
 PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* fnames, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, VfilterType vft, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
 
+PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const TwoColParams* flag_params, const char* match_flattened, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t htable_size, double val_min, double val_max, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
+
 ENUM_U31_DEF_START()
   kRmDup0,
   kRmDupError,

@@ -62,7 +62,7 @@ PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const ui
     }
     // This could be pointed at a file containing allele codes, so don't limit
     // line length to minimum value.
-    reterr = SizeAndInitTextStream(params->fname, bigstack_left() / 4, MAXV(max_thread_ct - 1, 1), &txs);
+    reterr = SizeAndInitTextStream(params->fname, bigstack_left(), MAXV(max_thread_ct - 1, 1), &txs);
     if (unlikely(reterr)) {
       goto UpdateVarBps_ret_TSTREAM_FAIL;
     }

@@ -941,9 +941,9 @@ HEADER_INLINE char* ScanadvLn(char* str_iter, double* ln_ptr) {
 // These provide the same interface as ScanPosintCapped(), etc., but there are
 // two differences in behavior to make these more suitable for parsing of
 // command-line parameters:
-// - The strings are initially parsed as floating-point, and then the function
-//   errors out if the result isn't an exact integer.  This allows exponential
-//   notation to be used.
+// - The strings are initially parsed as floating-point, and then (if an
+//   integer is expected) the function errors out if the result isn't an exact
+//   integer.  This allows exponential notation to be used.
 // - Unlike atoi()/ScanPosintCapped(), the function errors out if parsing stops
 //   at non-whitespace.
 // The performance cost of this behavior is relatively high: these functions
