@@ -1286,6 +1286,10 @@ HEADER_INLINE VecW vecw_bytesum(VecW src, __maybe_unused VecW m0) {
   src = (src & 0x00ff00ff) + ((src >> 8) & 0x00ff00ff);
   return (src + (src >> 16)) & 0xffff;
 }
+
+HEADER_INLINE VecW vecw_and_notfirst(VecW excl, VecW main) {
+  return (~excl) & main;
+}
 #endif  // !__LP64__
 
 // Unfortunately, we need to spell out S_CAST(uintptr_t, 0) instead of just
