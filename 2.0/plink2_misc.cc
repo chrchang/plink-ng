@@ -5143,10 +5143,10 @@ void UpdateDenseSampleCounts3(const uintptr_t* genovec, uint32_t acc2_vec_ct, ui
     // Yes, it sucks to have all these reinterpret-casts.
     const VecW vv = *R_CAST(const VecW*, &(genovec[widx]));
     const VecW vv_hi = vecw_srli(vv, 1);
-    const VecW vv_lo_0 = m1 & (~vv);
-    *R_CAST(VecW*, &(acc2_0[widx])) += vv_lo_0 & (~vv_hi);
+    const VecW vv_lo_0 = vecw_and_notfirst(vv, m1);
+    *R_CAST(VecW*, &(acc2_0[widx])) += vecw_and_notfirst(vv_hi, vv_lo_0);
     *R_CAST(VecW*, &(acc2_2[widx])) += vv_lo_0 & vv_hi;
-    *R_CAST(VecW*, &(acc2_1[widx])) += (vv & (~vv_hi)) & m1;
+    *R_CAST(VecW*, &(acc2_1[widx])) += vecw_and_notfirst(vv_hi, vv) & m1;
   }
   remainders[0] -= 1;
   if (!remainders[0]) {
@@ -5194,8 +5194,8 @@ void UpdateDenseSampleCounts2(const uintptr_t* genovec, uint32_t acc2_vec_ct, ui
     // Yes, it sucks to have all these reinterpret-casts.
     const VecW vv = *R_CAST(const VecW*, &(genovec[widx]));
     const VecW vv_hi = vecw_srli(vv, 1);
-    const VecW vv_lo_0 = m1 & (~vv);
-    *R_CAST(VecW*, &(acc2_0[widx])) += vv_lo_0 & (~vv_hi);
+    const VecW vv_lo_0 = vecw_and_notfirst(vv, m1);
+    *R_CAST(VecW*, &(acc2_0[widx])) += vecw_and_notfirst(vv_hi, vv_lo_0);
     *R_CAST(VecW*, &(acc2_2[widx])) += vv_lo_0 & vv_hi;
   }
   remainders[0] -= 1;
@@ -6573,9 +6573,9 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     //            |
     //            v
     //   het2alt reported sum + refalt -> het
-    //                   |                   \
-    //                   |                    --> missing
-    //                   v                   /
+    //                   |                 |
+    //                   |                  ---> missing
+    //                   v                 |
     //                 homalt + homref -> hom
     uint32_t* het2alt_reported_vals = nullptr;
     if (mhc_needed) {

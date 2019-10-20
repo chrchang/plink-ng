@@ -1488,9 +1488,9 @@ void InterleavedMaskMissing(const uintptr_t* __restrict interleaved_mask, uintpt
   VecW* genovvec_iter = R_CAST(VecW*, genovec);
   for (uintptr_t twovec_idx = 0; twovec_idx != twovec_ct; ++twovec_idx) {
     const VecW mask_vvec = *interleaved_mask_iter++;
-    VecW set_first = (~mask_vvec) & m1;
+    VecW set_first = vecw_and_notfirst(mask_vvec, m1);
     set_first = set_first | vecw_slli(set_first, 1);
-    VecW set_second = (~mask_vvec) & inv_m1;
+    VecW set_second = vecw_and_notfirst(mask_vvec, inv_m1);
     set_second = set_second | vecw_srli(set_second, 1);
     *genovvec_iter = (*genovvec_iter) | set_first;
     ++genovvec_iter;
@@ -1498,7 +1498,7 @@ void InterleavedMaskMissing(const uintptr_t* __restrict interleaved_mask, uintpt
     ++genovvec_iter;
   }
   if (vec_ct & 1) {
-    VecW set_first = (~(*interleaved_mask_iter)) & m1;
+    VecW set_first = vecw_and_notfirst(*interleaved_mask_iter, m1);
     set_first = set_first | vecw_slli(set_first, 1);
     *genovvec_iter = (*genovvec_iter) | set_first;
   }
@@ -1529,7 +1529,7 @@ void InterleavedSetMissing(const uintptr_t* __restrict interleaved_set, uintptr_
     const VecW set_vvec = *interleaved_set_iter++;
     VecW set_first = set_vvec & m1;
     set_first = set_first | vecw_slli(set_first, 1);
-    VecW set_second = (~m1) & set_vvec;
+    VecW set_second = vecw_and_notfirst(m1, set_vvec);
     set_second = set_second | vecw_srli(set_second, 1);
     *genovvec_iter = (*genovvec_iter) | set_first;
     ++genovvec_iter;
@@ -1594,7 +1594,7 @@ void SetMaleHetMissing(const uintptr_t* __restrict sex_male_interleaved, uint32_
     const VecW sex_male_vvec = *sex_male_interleaved_iter++;
     // we wish to bitwise-or with (sex_male_quatervec_01 & genovec) << 1
     const VecW sex_male_first = sex_male_vvec & m1;
-    const VecW sex_male_second_shifted = (~m1) & sex_male_vvec;
+    const VecW sex_male_second_shifted = vecw_and_notfirst(m1, sex_male_vvec);
     VecW cur_geno_vword = *genovvec_iter;
 
     const VecW missing_male_vword = sex_male_first & cur_geno_vword;
