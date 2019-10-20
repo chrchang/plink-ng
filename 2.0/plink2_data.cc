@@ -1407,8 +1407,6 @@ void GetMCounts64(const uintptr_t* __restrict sample_include, const uintptr_t* _
 }
 
 typedef struct LoadAlleleAndGenoCountsCtxStruct {
-  ThreadGroup tg;
-
   const uintptr_t* variant_include;
   const ChrInfo* cip;
   const uintptr_t* allele_idx_offsets;
@@ -1449,7 +1447,7 @@ typedef struct LoadAlleleAndGenoCountsCtxStruct {
   // only possible error for now
   PglErr reterr;
 
-  uint32_t cur_block_write_ct;
+  uint32_t cur_block_size;
 
   unsigned char* allele_presents_bytearr;
   uint64_t* allele_dosages;
@@ -1474,7 +1472,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
   const uintptr_t* variant_include = ctx->variant_include;
   const ChrInfo* cip = ctx->cip;
   const uintptr_t* allele_idx_offsets = ctx->allele_idx_offsets;
-  const uint32_t thread_ct = GetThreadCt(&ctx->tg);
+  const uint32_t thread_ct = GetThreadCt(arg->sharedp);
   const uint32_t subset_ct = (ctx->founder_info != nullptr) + 1;
   const uint32_t raw_sample_ct = ctx->raw_sample_ct;
   const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
@@ -1484,18 +1482,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
   PgenReader* pgrp = ctx->pgr_ptrs[tidx];
   PgenVariant pgv;
   pgv.genovec = ctx->genovecs[tidx];
-  pgv.patch_01_set = nullptr;
-  pgv.patch_01_vals = nullptr;
-  pgv.patch_10_set = nullptr;
-  pgv.patch_10_vals = nullptr;
-  if (ctx->thread_read_mhc) {
-    pgv.patch_01_set = ctx->thread_read_mhc[tidx];
-    pgv.patch_01_vals = R_CAST(AlleleCode*, &(pgv.patch_01_set[raw_sample_ctl]));
-    AlleleCode* patch_01_vals_end = &(pgv.patch_01_vals[raw_sample_ct]);
-    VecAlignUp(&patch_01_vals_end);
-    pgv.patch_10_set = R_CAST(uintptr_t*, patch_01_vals_end);
-    pgv.patch_10_vals = R_CAST(AlleleCode*, &(pgv.patch_10_set[raw_sample_ctl]));
-  }
+  SetPgvThreadMhcNull(raw_sample_ct, tidx, ctx->thread_read_mhc, &pgv);
   pgv.dosage_present = nullptr;
   pgv.dosage_main = nullptr;
   if (ctx->dosage_presents) {
@@ -1516,9 +1503,9 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
   }
   uint32_t allele_ct = 2;
   do {
-    const uintptr_t cur_block_write_ct = ctx->cur_block_write_ct;
-    // no overflow danger since cur_block_write_ct <= 2^16, tidx < (2^16 - 1)
-    const uint32_t cur_idx_end = ((tidx + 1) * cur_block_write_ct) / thread_ct;
+    const uintptr_t cur_block_size = ctx->cur_block_size;
+    // no overflow danger since cur_block_size <= 2^16, tidx < (2^16 - 1)
+    const uint32_t cur_idx_end = ((tidx + 1) * cur_block_size) / thread_ct;
     const uintptr_t* sample_include = ctx->sample_include;
     const uintptr_t* sample_include_interleaved_vec = ctx->sample_include_interleaved_vec;
     const uint32_t* sample_include_cumulative_popcounts = ctx->sample_include_cumulative_popcounts;
@@ -1541,7 +1528,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
     const uint32_t no_multiallelic_branch = (!variant_hethap_cts) && (!allele_presents_bytearr) && (!allele_dosages) && (!imp_r2_vals);
     pgv.dosage_ct = 0;
     for (uint32_t subset_idx = 0; ; ) {
-      uint32_t cur_idx = (tidx * cur_block_write_ct) / thread_ct;
+      uint32_t cur_idx = (tidx * cur_block_size) / thread_ct;
       uintptr_t variant_uidx_base;
       uintptr_t variant_include_bits;
       BitIter1Start(variant_include, ctx->read_variant_uidx_starts[tidx], &variant_uidx_base, &variant_include_bits);
@@ -2064,10 +2051,10 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
 PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t male_ct, uint32_t nosex_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t first_hap_uidx, uint32_t is_minimac3_r2, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uintptr_t* allele_presents, uint64_t* allele_dosages, uint64_t* founder_allele_dosages, uint32_t* variant_missing_hc_cts, uint32_t* variant_missing_dosage_cts, uint32_t* variant_hethap_cts, STD_ARRAY_PTR_DECL(uint32_t, 3, raw_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, x_male_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, x_nosex_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), double* imp_r2_vals) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
-  LoadAlleleAndGenoCountsCtx ctx;
-  ThreadGroup* tgp = &ctx.tg;
-  PreinitThreads(tgp);
   PglErr reterr = kPglRetSuccess;
+  ThreadGroup tg;
+  PreinitThreads(&tg);
+  LoadAlleleAndGenoCountsCtx ctx;
   {
     if (!variant_ct) {
       goto LoadAlleleAndGenoCounts_ret_1;
@@ -2282,13 +2269,13 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     if (unlikely(PgenMtLoadInit(variant_include, raw_sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, 0, 0, 0, pgfip, &calc_thread_ct, &ctx.genovecs, mhc_needed? (&ctx.thread_read_mhc) : nullptr, nullptr, nullptr, xy_dosages_needed? (&ctx.dosage_presents) : nullptr, xy_dosages_needed? (&ctx.dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, nullptr, &ctx.pgr_ptrs, &ctx.read_variant_uidx_starts))) {
       goto LoadAlleleAndGenoCounts_ret_NOMEM;
     }
-    if (unlikely(SetThreadCt(calc_thread_ct, tgp))) {
+    if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
       goto LoadAlleleAndGenoCounts_ret_NOMEM;
     }
     ctx.variant_include = variant_include;
     ctx.allele_idx_offsets = allele_idx_offsets;
     ctx.reterr = kPglRetSuccess;
-    SetThreadFuncAndData(LoadAlleleAndGenoCountsThread, &ctx, tgp);
+    SetThreadFuncAndData(LoadAlleleAndGenoCountsThread, &ctx, &tg);
 
     logputs("Calculating allele frequencies... ");
     fputs("0%", stdout);
@@ -2302,44 +2289,44 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     uint32_t cur_read_block_size = read_block_size;
     uint32_t next_print_variant_idx = variant_ct / 100;
     for (uint32_t variant_idx = 0; ; ) {
-      uintptr_t cur_block_write_ct = 0;
-      if (!IsLastBlock(tgp)) {
+      uintptr_t cur_block_size = 0;
+      if (!IsLastBlock(&tg)) {
         for (; ; ++read_block_idx) {
           if (read_block_idx == read_block_ct_m1) {
             cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
-            cur_block_write_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), BitCtToWordCt(cur_read_block_size));
+            cur_block_size = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), BitCtToWordCt(cur_read_block_size));
             break;
           }
-          // this uses multithread_load_init's guarantee that read_block_size
-          // is either raw_variant_ct or a multiple of kBitsPerVec
-          cur_block_write_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), read_block_sizel);
-          if (cur_block_write_ct) {
+          // this uses PgenMtLoadInit()'s guarantee that read_block_size is
+          // either raw_variant_ct or a multiple of kBitsPerVec
+          cur_block_size = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), read_block_sizel);
+          if (cur_block_size) {
             break;
           }
         }
-        reterr = PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_write_ct, pgfip);
+        reterr = PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_size, pgfip);
         if (unlikely(reterr)) {
           goto LoadAlleleAndGenoCounts_ret_PGR_FAIL;
         }
       }
       if (variant_idx) {
-        JoinThreads(tgp);
+        JoinThreads(&tg);
         reterr = ctx.reterr;
         if (unlikely(reterr)) {
           goto LoadAlleleAndGenoCounts_ret_PGR_FAIL;
         }
       }
-      if (!IsLastBlock(tgp)) {
-        ctx.cur_block_write_ct = cur_block_write_ct;
-        ComputeUidxStartPartition(variant_include, cur_block_write_ct, calc_thread_ct, read_block_idx * read_block_size, ctx.read_variant_uidx_starts);
+      if (!IsLastBlock(&tg)) {
+        ctx.cur_block_size = cur_block_size;
+        ComputeUidxStartPartition(variant_include, cur_block_size, calc_thread_ct, read_block_idx * read_block_size, ctx.read_variant_uidx_starts);
         for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
           ctx.pgr_ptrs[tidx]->fi.block_base = pgfip->block_base;
           ctx.pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
         }
-        if (variant_idx + cur_block_write_ct == variant_ct) {
-          DeclareLastThreadBlock(tgp);
+        if (variant_idx + cur_block_size == variant_ct) {
+          DeclareLastThreadBlock(&tg);
         }
-        if (unlikely(SpawnThreads(tgp))) {
+        if (unlikely(SpawnThreads(&tg))) {
           goto LoadAlleleAndGenoCounts_ret_THREAD_CREATE_FAIL;
         }
       }
@@ -2359,7 +2346,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
       }
 
       ++read_block_idx;
-      variant_idx += cur_block_write_ct;
+      variant_idx += cur_block_size;
       // crucially, this is independent of the PgenReader block_base
       // pointers
       pgfip->block_base = main_loadbufs[parity];
@@ -2406,7 +2393,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     break;
   }
  LoadAlleleAndGenoCounts_ret_1:
-  CleanupThreads(tgp);
+  CleanupThreads(&tg);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   pgfip->block_base = nullptr;
   return reterr;
@@ -4435,8 +4422,6 @@ typedef struct MakeCommonStruct {
 } MakeCommon;
 
 typedef struct MakeBedlikeCtxStruct {
-  ThreadGroup tg;
-
   const MakeCommon* mcp;
 
   const uintptr_t* variant_include;
@@ -4488,7 +4473,7 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* raw_arg) {
   const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
   const uint32_t sample_ctv2 = QuaterCtToVecCt(sample_ct);
   const uint32_t sample_ct4 = QuaterCtToByteCt(sample_ct);
-  const uint32_t calc_thread_ct = GetThreadCt(&ctx->tg);
+  const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
   const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select) = mcp->refalt1_select;
   const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
   const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
@@ -4602,9 +4587,9 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* raw_arg) {
 PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_thread_ct, uint32_t hard_call_thresh, MakePlink2Flags make_plink2_flags, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, MakeCommon* mcp, char* outname, char* outname_end) {
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
+  ThreadGroup tg;
+  PreinitThreads(&tg);
   MakeBedlikeCtx ctx;
-  ThreadGroup* tgp = &ctx.tg;
-  PreinitThreads(tgp);
   {
     assert(variant_ct);
     const uint32_t sample_ct = mcp->sample_ct;
@@ -4713,7 +4698,7 @@ PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_samp
       // shouldn't be possible for this to fail
       goto MakeBedlikeMain_ret_NOMEM;
     }
-    if (unlikely(SetThreadCt(calc_thread_ct, tgp))) {
+    if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
       goto MakeBedlikeMain_ret_NOMEM;
     }
 
@@ -4723,7 +4708,7 @@ PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_samp
     mcp->sample_ct = sample_ct;
     ctx.mcp = mcp;
     ctx.reterr = kPglRetSuccess;
-    SetThreadFuncAndData(MakeBedlikeThread, &ctx, tgp);
+    SetThreadFuncAndData(MakeBedlikeThread, &ctx, &tg);
 
     // Main workflow:
     // 1. Set n=0, load/skip block 0
@@ -4746,7 +4731,7 @@ PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_samp
     uint32_t next_print_variant_idx = variant_ct / 100;
     for (uint32_t variant_idx = 0; ; ) {
       uintptr_t cur_block_write_ct = 0;
-      if (!IsLastBlock(tgp)) {
+      if (!IsLastBlock(&tg)) {
         for (; ; ++read_block_idx) {
           if (read_block_idx == read_block_ct_m1) {
             cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
@@ -4764,7 +4749,7 @@ PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_samp
         }
       }
       if (variant_idx) {
-        JoinThreads(tgp);
+        JoinThreads(&tg);
         reterr = ctx.reterr;
         if (unlikely(reterr)) {
           // this should only be possible in MakePgenRobust()
@@ -4772,7 +4757,7 @@ PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_samp
           goto MakeBedlikeMain_ret_PGR_FAIL;
         }
       }
-      if (!IsLastBlock(tgp)) {
+      if (!IsLastBlock(&tg)) {
         ctx.cur_block_write_ct = cur_block_write_ct;
         ComputeUidxStartPartition(variant_include, cur_block_write_ct, calc_thread_ct, read_block_idx * read_block_size, ctx.read_variant_uidx_starts);
         for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
@@ -4780,9 +4765,9 @@ PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_samp
           ctx.pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
         }
         if (variant_idx + cur_block_write_ct == variant_ct) {
-          DeclareLastThreadBlock(tgp);
+          DeclareLastThreadBlock(&tg);
         }
-        if (unlikely(SpawnThreads(tgp))) {
+        if (unlikely(SpawnThreads(&tg))) {
           goto MakeBedlikeMain_ret_THREAD_CREATE_FAIL;
         }
       }
@@ -4839,15 +4824,13 @@ PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_samp
     break;
   }
  MakeBedlikeMain_ret_1:
-  CleanupThreads(tgp);
+  CleanupThreads(&tg);
   fclose_cond(outfile);
   // parent will free memory
   return reterr;
 }
 
 typedef struct MakePgenCtxStruct {
-  ThreadGroup tg;
-
   MakeCommon* mcp;
 
   const uint32_t* new_sample_idx_to_old;
@@ -4951,12 +4934,7 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
   uintptr_t* write_patch_10_set = nullptr;
   AlleleCode* write_patch_10_vals = nullptr;
   if (ctx->thread_write_mhc) {
-    write_patch_01_set = ctx->thread_write_mhc[tidx];
-    write_patch_01_vals = R_CAST(AlleleCode*, &(write_patch_01_set[sample_ctl]));
-    AlleleCode* write_patch_01_vals_end = &(write_patch_01_vals[sample_ct]);
-    VecAlignUp(&write_patch_01_vals_end);
-    write_patch_10_set = R_CAST(uintptr_t*, write_patch_01_vals_end);
-    write_patch_10_vals = R_CAST(AlleleCode*, &(write_patch_10_set[sample_ctl]));
+    ExpandMhc(sample_ct, ctx->thread_write_mhc[tidx], &write_patch_01_set, &write_patch_01_vals, &write_patch_10_set, &write_patch_10_vals);
   }
   uintptr_t* write_phasepresent = nullptr;
   uintptr_t* write_phaseinfo = nullptr;
@@ -5565,18 +5543,18 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
 
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
-  MakePgenCtx ctx;
-  ThreadGroup* tgp = &ctx.tg;
-  PreinitThreads(tgp);
+  ThreadGroup tg;
+  PreinitThreads(&tg);
   STPgenWriter spgw;
   PreinitSpgw(&spgw);
+  MakePgenCtx ctx;
   {
     // plink2_write_flags assumed to include --set-hh-missing and
     //   --set-mixed-mt-missing
     // sex_{fe}male_collapsed_interleaved assumed to be initialized if
     //   necessary
 
-    if (unlikely(SetThreadCt(1, tgp))) {
+    if (unlikely(SetThreadCt(1, &tg))) {
       goto MakePgenRobust_ret_NOMEM;
     }
     ctx.spgwp = &spgw;
@@ -5934,7 +5912,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
         ctx.loaded_vrtypes[0] = nullptr;
         ctx.loaded_vrtypes[1] = nullptr;
       }
-      SetThreadFuncAndData(MakePgenThread, &ctx, tgp);
+      SetThreadFuncAndData(MakePgenThread, &ctx, &tg);
 
       logprintfww5("Writing %s ... ", outname);
       fputs("0%", stdout);
@@ -5968,7 +5946,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       uintptr_t cur_bits = variant_include[0];
       PgrClearLdCache(simple_pgrp);
       for (uint32_t read_batch_idx = 0; ; ++read_batch_idx) {
-        if (!IsLastBlock(tgp)) {
+        if (!IsLastBlock(&tg)) {
           if (read_batch_idx == batch_ct_m1) {
             cur_batch_size = write_variant_ct - (read_batch_idx * write_block_size);
           }
@@ -6359,7 +6337,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
           }
         }
         if (read_batch_idx) {
-          JoinThreads(tgp);
+          JoinThreads(&tg);
           reterr = ctx.write_reterr;
           if (unlikely(reterr)) {
             if (reterr == kPglRetWriteFail) {
@@ -6368,12 +6346,12 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
             goto MakePgenRobust_ret_1;
           }
         }
-        if (!IsLastBlock(tgp)) {
+        if (!IsLastBlock(&tg)) {
           ctx.cur_block_write_ct = cur_batch_size;
           if (read_batch_idx == batch_ct_m1) {
-            DeclareLastThreadBlock(tgp);
+            DeclareLastThreadBlock(&tg);
           }
-          if (unlikely(SpawnThreads(tgp))) {
+          if (unlikely(SpawnThreads(&tg))) {
             goto MakePgenRobust_ret_THREAD_CREATE_FAIL;
           }
         }
@@ -6414,7 +6392,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
     break;
   }
  MakePgenRobust_ret_1:
-  CleanupThreads(tgp);
+  CleanupThreads(&tg);
   if (SpgwCleanup(&spgw) && (!reterr)) {
     reterr = kPglRetWriteFail;
   }
@@ -6425,12 +6403,12 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
 // allele_presents should be nullptr iff trim_alts not true
 PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* varid_template_str, __maybe_unused const char* varid_multi_template_str, __maybe_unused const char* varid_multi_nonsnp_template_str, const char* missing_varid_match, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t max_thread_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t new_variant_id_max_allele_slen, MiscFlags misc_flags, MakePlink2Flags make_plink2_flags, PvarPsamFlags pvar_psam_flags, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  MakePgenCtx ctx;
-  ThreadGroup* tgp = &ctx.tg;
-  PreinitThreads(tgp);
-  MTPgenWriter* mpgwp = nullptr;
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
+  ThreadGroup tg;
+  PreinitThreads(&tg);
+  MTPgenWriter* mpgwp = nullptr;
+  MakePgenCtx ctx;
   {
     if (make_plink2_flags & kfMakeFam) {
       snprintf(outname_end, kMaxOutfnameExtBlen, ".fam");
@@ -6966,14 +6944,14 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
         }
         goto MakePlink2NoVsort_ret_1;
       }
-      if (unlikely(SetThreadCt(calc_thread_ct, tgp))) {
+      if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
         goto MakePlink2NoVsort_ret_NOMEM;
       }
       mc.sample_include = subsetting_required? sample_include : nullptr;
       ctx.mcp = &mc;
       ctx.spgwp = nullptr;
       ctx.write_reterr = kPglRetSuccess;
-      SetThreadFuncAndData(MakePgenThread, &ctx, tgp);
+      SetThreadFuncAndData(MakePgenThread, &ctx, &tg);
 
       // Main workflow:
       // 1. Set n=0, load first calc_thread_ct * kPglVblockSize
@@ -7002,13 +6980,13 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
         if (read_batch_idx) {
           ctx.cur_block_write_ct = cur_batch_size;
           if (write_idx_end == variant_ct) {
-            DeclareLastThreadBlock(tgp);
+            DeclareLastThreadBlock(&tg);
           }
-          if (unlikely(SpawnThreads(tgp))) {
+          if (unlikely(SpawnThreads(&tg))) {
             goto MakePlink2NoVsort_ret_THREAD_CREATE_FAIL;
           }
         }
-        if (!IsLastBlock(tgp)) {
+        if (!IsLastBlock(&tg)) {
           if (read_batch_idx == batch_ct_m1) {
             cur_batch_size = variant_ct - (read_batch_idx * kPglVblockSize * calc_thread_ct);
           }
@@ -7027,7 +7005,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
           }
         }
         if (read_batch_idx) {
-          JoinThreads(tgp);
+          JoinThreads(&tg);
           reterr = ctx.write_reterr;
           if (unlikely(reterr)) {
             // only possible error is kPglRetVarRecordTooLarge?
@@ -7096,7 +7074,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
   if (MpgwCleanup(mpgwp) && (!reterr)) {
     reterr = kPglRetWriteFail;
   }
-  CleanupThreads(tgp);
+  CleanupThreads(&tg);
   fclose_cond(outfile);
   pgfip->block_base = nullptr;
   BigstackReset(bigstack_mark);

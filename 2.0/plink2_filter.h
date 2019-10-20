@@ -25,6 +25,20 @@
 namespace plink2 {
 #endif
 
+typedef struct ExtractFcolStruct {
+  NONCOPYABLE(ExtractFcolStruct);
+  TwoColParams* params;
+  char* match_flattened;
+  char* mismatch_flattened;
+  uint32_t match_substr;
+  double min;
+  double max;
+} ExtractFcolInfo;
+
+void InitExtractFcol(ExtractFcolInfo* efip);
+
+void CleanupExtractFcol(ExtractFcolInfo* efip);
+
 PglErr FromToFlag(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* varid_from, const char* varid_to, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uintptr_t* variant_include, ChrInfo* cip, uint32_t* variant_ct_ptr);
 
 PglErr SnpFlag(const uint32_t* variant_bps, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* varid_snp, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t do_exclude, int32_t window_bp, uintptr_t* variant_include, ChrInfo* cip, uint32_t* variant_ct_ptr);
@@ -33,7 +47,7 @@ PglErr SnpsFlag(const char* const* variant_ids, const uint32_t* variant_id_htabl
 
 PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* fnames, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, VfilterType vft, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
 
-PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const TwoColParams* flag_params, const char* match_flattened, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t htable_size, double val_min, double val_max, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
+PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const ExtractFcolInfo* efip, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t htable_size, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
 
 ENUM_U31_DEF_START()
   kRmDup0,

@@ -212,35 +212,6 @@ PglErr ExportAlleleLoad(const char* fname, const uintptr_t* variant_include, con
   return reterr;
 }
 
-// a few multithread globals
-static uint32_t g_sample_ct = 0;
-static uint32_t g_calc_thread_ct = 0;
-static uint32_t g_cur_block_write_ct = 0;
-static PglErr g_error_ret = kPglRetSuccess;
-
-// more multithread globals
-static PgenReader** g_pgr_ptrs = nullptr;
-static uintptr_t** g_genovecs = nullptr;
-static uintptr_t** g_dosage_presents = nullptr;
-static Dosage** g_dosage_mains = nullptr;
-static uint32_t* g_read_variant_uidx_starts = nullptr;  // size calc_thread_ct
-
-static unsigned char* g_writebufs[2] = {nullptr, nullptr};
-
-static const uintptr_t* g_variant_include = nullptr;
-static const ChrInfo* g_cip = nullptr;
-static const uintptr_t* g_sample_include = nullptr;
-static uint32_t* g_sample_include_cumulative_popcounts = nullptr;
-static const uintptr_t* g_allele_idx_offsets = nullptr;
-static const STD_ARRAY_PTR_DECL(AlleleCode, 2, g_refalt1_select) = nullptr;
-
-static uintptr_t** g_thread_write_genovecs = nullptr;
-static uintptr_t** g_thread_write_dosagepresents = nullptr;
-static Dosage** g_thread_write_dosagevals = nullptr;
-
-static uint32_t g_stride = 0;
-
-
 #ifdef __arm__
 #  error "Unaligned accesses in Export012Vmaj()."
 #endif
@@ -506,8 +477,6 @@ PglErr Export012Vmaj(const char* outname, const uintptr_t* sample_include, const
 }
 
 typedef struct TransposeToSmajReadCtxStruct {
-  ThreadGroup tg;
-
   const uintptr_t* variant_include;
   const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select);
   const uintptr_t* sample_include;
@@ -531,7 +500,7 @@ THREAD_FUNC_DECL TransposeToSmajReadThread(void* raw_arg) {
 
   const uintptr_t* variant_include = ctx->variant_include;
   const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select) = ctx->refalt1_select;
-  const uint32_t calc_thread_ct = GetThreadCt(&ctx->tg);
+  const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
   const uintptr_t* sample_include = ctx->sample_include;
   const uint32_t* sample_include_cumulative_popcounts = ctx->sample_include_cumulative_popcounts;
   const uint32_t read_sample_ct = ctx->sample_ct;
@@ -591,7 +560,7 @@ THREAD_FUNC_DECL TransposeToPlink1SmajWriteThread(void* raw_arg) {
   const uint32_t variant_ct = ctx->variant_ct;
   const uintptr_t variant_batch_ct = DivUp(variant_ct, kPglQuaterTransposeBatch);
   const uintptr_t variant_batch_word_ct = variant_batch_ct * kPglQuaterTransposeWords;
-  const uint32_t calc_thread_ct = GetThreadCt(&ctx->tg);
+  const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
   const uintptr_t variant_batch_idx_start = (S_CAST(uint64_t, tidx) * variant_batch_ct) / calc_thread_ct;
   VecW* vecaligned_buf = ctx->thread_vecaligned_bufs[tidx];
   uintptr_t variant_batch_idx_full_end = ((S_CAST(uint64_t, tidx) + 1) * variant_batch_ct) / calc_thread_ct;
@@ -645,10 +614,12 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
+  ThreadGroup read_tg;
+  ThreadGroup write_tg;
+  PreinitThreads(&read_tg);
+  PreinitThreads(&write_tg);
   TransposeToSmajReadCtx read_ctx;
   TransposeToPlink1SmajWriteCtx write_ctx;
-  PreinitThreads(&read_ctx.tg);
-  PreinitThreads(&write_ctx.tg);
   {
     // Possible special case: if the input file is a variant-major .bed, we do
     // not have enough memory to just load the whole file at once, and there
@@ -674,14 +645,14 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
       if (unlikely(PgenMtLoadInit(variant_include, sample_ct, variant_ct, bigstack_left() / 2, pgr_alloc_cacheline_ct, 0, 0, 0, pgfip, &calc_thread_ct, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, nullptr, &read_ctx.pgr_ptrs, &read_ctx.variant_uidx_starts))) {
         goto ExportIndMajorBed_ret_NOMEM;
       }
-      if (unlikely(SetThreadCt(calc_thread_ct, &read_ctx.tg))) {
+      if (unlikely(SetThreadCt(calc_thread_ct, &read_tg))) {
         goto ExportIndMajorBed_ret_NOMEM;
       }
       read_ctx.variant_include = variant_include;
       // read_ctx.allele_idx_offsets = allele_idx_offsets;
       read_ctx.refalt1_select = refalt1_select;
       read_ctx.reterr = kPglRetSuccess;
-      SetThreadFuncAndData(TransposeToSmajReadThread, &read_ctx, &read_ctx.tg);
+      SetThreadFuncAndData(TransposeToSmajReadThread, &read_ctx, &read_tg);
 
       const uintptr_t variant_cacheline_ct = QuaterCtToCachelineCt(variant_ct);
       uint32_t output_calc_thread_ct = MINV(calc_thread_ct, variant_cacheline_ct);
@@ -692,7 +663,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
       uintptr_t* sample_include;
       uint32_t* sample_include_cumulative_popcounts;
       if (unlikely(
-              SetThreadCt(output_calc_thread_ct, &write_ctx.tg) ||
+              SetThreadCt(output_calc_thread_ct, &write_tg) ||
               bigstack_alloc_w(raw_sample_ctl, &sample_include) ||
               bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
               bigstack_alloc_vp(output_calc_thread_ct, &write_ctx.thread_vecaligned_bufs))) {
@@ -730,7 +701,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
       write_ctx.variant_include = variant_include;
       write_ctx.variant_ct = variant_ct;
       write_ctx.vmaj_readbuf = vmaj_readbuf;
-      SetThreadFuncAndData(TransposeToPlink1SmajWriteThread, &write_ctx, &write_ctx.tg);
+      SetThreadFuncAndData(TransposeToPlink1SmajWriteThread, &write_ctx, &write_tg);
       uint32_t sample_uidx_start = AdvTo1Bit(orig_sample_include, 0);
       const uintptr_t variant_ct4 = QuaterCtToByteCt(variant_ct);
       const uintptr_t variant_ctaclw2 = variant_cacheline_ct * kWordsPerCacheline;
@@ -767,7 +738,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
         uint32_t parity = 0;
         uint32_t read_block_idx = 0;
         uint32_t cur_read_block_size = read_block_size;
-        ReinitThreads(&read_ctx.tg);
+        ReinitThreads(&read_tg);
         uint32_t pct = 0;
         uint32_t next_print_idx = variant_ct / 100;
         putc_unlocked('\r', stdout);
@@ -775,7 +746,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
         fflush(stdout);
         for (uint32_t variant_idx = 0; ; ) {
           uintptr_t cur_block_write_ct = 0;
-          if (!IsLastBlock(&read_ctx.tg)) {
+          if (!IsLastBlock(&read_tg)) {
             for (; ; ++read_block_idx) {
               if (read_block_idx == read_block_ct_m1) {
                 cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
@@ -793,13 +764,13 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
             }
           }
           if (variant_idx) {
-            JoinThreads(&read_ctx.tg);
+            JoinThreads(&read_tg);
             reterr = read_ctx.reterr;
             if (unlikely(reterr)) {
               goto ExportIndMajorBed_ret_PGR_FAIL;
             }
           }
-          if (!IsLastBlock(&read_ctx.tg)) {
+          if (!IsLastBlock(&read_tg)) {
             read_ctx.cur_block_write_ct = cur_block_write_ct;
             ComputeUidxStartPartition(variant_include, cur_block_write_ct, calc_thread_ct, read_block_idx * read_block_size, read_ctx.variant_uidx_starts);
             for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
@@ -807,9 +778,9 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
               read_ctx.pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
             }
             if (variant_idx + cur_block_write_ct == variant_ct) {
-              DeclareLastThreadBlock(&read_ctx.tg);
+              DeclareLastThreadBlock(&read_tg);
             }
-            if (unlikely(SpawnThreads(&read_ctx.tg))) {
+            if (unlikely(SpawnThreads(&read_tg))) {
               goto ExportIndMajorBed_ret_THREAD_CREATE_FAIL;
             }
           }
@@ -835,7 +806,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
         //    with the read loop, but since we can't write a single row until
         //    the read loop is done, and both write speed and write buffer
         //    space are bottlenecks, that can't be expected to help much.)
-        ReinitThreads(&write_ctx.tg);
+        ReinitThreads(&write_tg);
         write_ctx.sample_batch_size = sample_batch_size;
         parity = 0;
         if (pct > 10) {
@@ -847,12 +818,12 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
         uint32_t flush_sample_idx = 0;
         next_print_idx = read_sample_ct / 100;
         for (uint32_t flush_sample_idx_end = 0; ; ) {
-          if (!IsLastBlock(&write_ctx.tg)) {
+          if (!IsLastBlock(&write_tg)) {
             if (flush_sample_idx_end + sample_batch_size >= read_sample_ct) {
-              DeclareLastThreadBlock(&write_ctx.tg);
+              DeclareLastThreadBlock(&write_tg);
               write_ctx.sample_batch_size = read_sample_ct - flush_sample_idx_end;
             }
-            if (unlikely(SpawnThreads(&write_ctx.tg))) {
+            if (unlikely(SpawnThreads(&write_tg))) {
               goto ExportIndMajorBed_ret_THREAD_CREATE_FAIL;
             }
           }
@@ -878,7 +849,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
               next_print_idx = (pct * S_CAST(uint64_t, read_sample_ct)) / 100;
             }
           }
-          JoinThreads(&write_ctx.tg);
+          JoinThreads(&write_tg);
           parity = 1 - parity;
           flush_sample_idx_end += sample_batch_size;
           if (flush_sample_idx_end > read_sample_ct) {
@@ -914,8 +885,8 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
     reterr = kPglRetThreadCreateFail;
     break;
   }
-  CleanupThreads(&write_ctx.tg);
-  CleanupThreads(&read_ctx.tg);
+  CleanupThreads(&write_tg);
+  CleanupThreads(&read_tg);
   fclose_cond(outfile);
   pgfip->block_base = nullptr;
   BigstackReset(bigstack_mark);
@@ -1559,17 +1530,6 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
   return reterr;
 }
 
-// more multithread globals
-static struct libdeflate_compressor** g_libdeflate_compressors = nullptr;
-
-static uintptr_t* g_sex_male_collapsed = nullptr;
-static uintptr_t** g_missing_acc1 = nullptr;
-static uint32_t* g_variant_bytects[2] = {nullptr, nullptr};
-static uint32_t g_ref_allele_last = 0;
-static uint32_t g_bgen_compressed_buf_max = 0;
-static uint32_t g_y_start = 0;
-static uint32_t g_y_end = 0;
-
 static const uint16_t kBgen11HardcallUsis[16] = {
   32768, 0, 0, 0,
   0, 32768, 0, 0,
@@ -1577,8 +1537,6 @@ static const uint16_t kBgen11HardcallUsis[16] = {
   0, 0, 0, 0};
 
 typedef struct ExportBgen11CtxStruct {
-  ThreadGroup tg;
-
   const uintptr_t* variant_include;
   const uintptr_t* allele_idx_offsets;
   const uintptr_t* sample_include;
@@ -1635,7 +1593,7 @@ THREAD_FUNC_DECL ExportBgen11Thread(void* raw_arg) {
   const uintptr_t* sample_include = ctx->sample_include;
   const uint32_t* sample_include_cumulative_popcounts = ctx->sample_include_cumulative_popcounts;
   const uintptr_t* sex_male_collapsed = ctx->sex_male_collapsed;
-  const uint32_t calc_thread_ct = GetThreadCt(&ctx->tg);
+  const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
   const uint32_t sample_ctl2_m1 = QuaterCtToWordCt(sample_ct) - 1;
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
   const uint32_t bgen_geno_buf_blen = 6 * sample_ct;
@@ -1650,6 +1608,7 @@ THREAD_FUNC_DECL ExportBgen11Thread(void* raw_arg) {
   uint32_t ref_allele_idx = 0;
   uint32_t parity = 0;
   ZeroWArr(acc1_vec_ct * kWordsPerVec * 45, missing_acc1);
+  uint64_t new_err_info = 0;
   do {
     const uintptr_t cur_block_write_ct = ctx->cur_block_write_ct;
     uint32_t write_idx = (tidx * cur_block_write_ct) / calc_thread_ct;
@@ -1675,31 +1634,15 @@ THREAD_FUNC_DECL ExportBgen11Thread(void* raw_arg) {
       }
       if (allele_idx_offsets) {
         if (allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx] != 2) {
-          const uint64_t our_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, kPglRetInconsistentInput);
-          uint64_t old_err_info = ctx->err_info;
-          while (old_err_info > our_err_info) {
-            const uint64_t rechecked_old_err_info = __sync_val_compare_and_swap(&ctx->err_info, old_err_info, our_err_info);
-            if (rechecked_old_err_info == old_err_info) {
-              break;
-            }
-            old_err_info = rechecked_old_err_info;
-          }
-          break;
+          new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, kPglRetInconsistentInput);
+          goto ExportBgen11Thread_err;
         }
       }
       uint32_t dosage_ct;
       PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
       if (unlikely(reterr)) {
-        const uint64_t our_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
-        uint64_t old_err_info = ctx->err_info;
-        while (old_err_info > our_err_info) {
-          const uint64_t rechecked_old_err_info = __sync_val_compare_and_swap(&ctx->err_info, old_err_info, our_err_info);
-          if (rechecked_old_err_info == old_err_info) {
-            break;
-          }
-          old_err_info = rechecked_old_err_info;
-        }
-        break;
+        new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+        goto ExportBgen11Thread_err;
       }
       if (ref_allele_idx + ref_allele_last == 1) {
         GenovecInvertUnsafe(sample_ct, genovec);
@@ -1789,6 +1732,11 @@ THREAD_FUNC_DECL ExportBgen11Thread(void* raw_arg) {
         }
       }
     }
+    while (0) {
+    ExportBgen11Thread_err:
+      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+      break;
+    }
     parity = 1 - parity;
   } while (!THREAD_BLOCK_FINISH(arg));
   VcountIncr4To8(missing_acc4, acc4_vec_ct, missing_acc8);
@@ -1801,9 +1749,10 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
   assert(sample_ct);
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
-  ExportBgen11Ctx ctx;
-  PreinitThreads(&ctx.tg);
   PglErr reterr = kPglRetSuccess;
+  ThreadGroup tg;
+  PreinitThreads(&tg);
+  ExportBgen11Ctx ctx;
   {
     const uint32_t max_chr_slen = GetMaxChrSlen(cip);
     if (unlikely(BIGSTACK_ALLOC_X(struct libdeflate_compressor*, max_thread_ct, &ctx.libdeflate_compressors))) {
@@ -1913,14 +1862,14 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
     ctx.allele_idx_offsets = allele_idx_offsets;
     ctx.sample_include = sample_include;
     ctx.sample_include_cumulative_popcounts = sample_include_cumulative_popcounts;
-    if (unlikely(SetThreadCt(calc_thread_ct, &ctx.tg))) {
+    if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
       goto ExportBgen11_ret_NOMEM;
     }
     ctx.refalt1_select = refalt1_select;
     GetXymtStartAndEnd(cip, kChrOffsetY, &ctx.y_start, &ctx.y_end);
     ctx.ref_allele_last = ref_allele_last;
     ctx.err_info = (~0LLU) << 32;
-    SetThreadFuncAndData(ExportBgen11Thread, &ctx, &ctx.tg);
+    SetThreadFuncAndData(ExportBgen11Thread, &ctx, &tg);
 
     // 6 bytes present at start of every bgen-1.1 variant record
     memcpy(writebuf, &sample_ct, 4);
@@ -1958,7 +1907,7 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
     uint32_t alt1_allele_idx = 1;
     for (uint32_t variant_idx = 0; ; ) {
       uintptr_t cur_block_write_ct = 0;
-      if (!IsLastBlock(&ctx.tg)) {
+      if (!IsLastBlock(&tg)) {
         for (; ; ++read_block_idx) {
           if (read_block_idx == read_block_ct_m1) {
             cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
@@ -1976,7 +1925,7 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
         }
       }
       if (variant_idx) {
-        JoinThreads(&ctx.tg);
+        JoinThreads(&tg);
         memcpy(&reterr, &ctx.err_info, 4);
         if (unlikely(reterr)) {
           if (reterr == kPglRetInconsistentInput) {
@@ -1986,7 +1935,7 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
           goto ExportBgen11_ret_PGR_FAIL;
         }
       }
-      if (!IsLastBlock(&ctx.tg)) {
+      if (!IsLastBlock(&tg)) {
         ctx.cur_block_write_ct = cur_block_write_ct;
         ComputeUidxStartPartition(variant_include, cur_block_write_ct, calc_thread_ct, read_block_idx * read_block_size, ctx.read_variant_uidx_starts);
         for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
@@ -1994,9 +1943,9 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
           ctx.pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
         }
         if (variant_idx + cur_block_write_ct == variant_ct) {
-          DeclareLastThreadBlock(&ctx.tg);
+          DeclareLastThreadBlock(&tg);
         }
-        if (unlikely(SpawnThreads(&ctx.tg))) {
+        if (unlikely(SpawnThreads(&tg))) {
           goto ExportBgen11_ret_THREAD_CREATE_FAIL;
         }
       }
@@ -2120,7 +2069,7 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
     reterr = kPglRetThreadCreateFail;
     break;
   }
-  CleanupThreads(&ctx.tg);
+  CleanupThreads(&tg);
   if (ctx.libdeflate_compressors) {
     for (uint32_t tidx = 0; tidx != max_thread_ct; ++tidx) {
       if (!ctx.libdeflate_compressors[tidx]) {
@@ -2128,7 +2077,6 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
       }
       libdeflate_free_compressor(ctx.libdeflate_compressors[tidx]);
     }
-    ctx.libdeflate_compressors = nullptr;
   }
   fclose_cond(outfile);
   BigstackReset(bigstack_mark);
@@ -2238,38 +2186,33 @@ static inline void Append0Bits(uint32_t bit_ct, uintptr_t* cur_write_bits_ptr, u
   *cur_write_bit_idx_ptr = cur_write_bit_idx;
 }
 
-static unsigned char** g_thread_wkspaces = nullptr;
-static uintptr_t** g_phasepresents = nullptr;
-static uintptr_t** g_phaseinfos = nullptr;
-static uintptr_t** g_dphase_presents = nullptr;
-static SDosage** g_dphase_deltas = nullptr;
-static uintptr_t* g_sex_female_collapsed = nullptr;
+typedef struct Bgen13TablesStruct {
+  // Precomputed 1-genotype-at-a-time tables (4 entries)
+  uint32_t* diploid_basic_table;
+  uint16_t* haploid_basic_table;
 
-static uint32_t g_bgen_bit_precision = 0;
+  // Precomputed 4-genotype-at-a-time tables (256 entries; multiply index by
+  // two and copy two values at a time for table16).
+  uint64_t* diploid_hardcall_table8;
+  uint64_t* diploid_hardcall_table16;
 
-// Precomputed 1-genotype-at-a-time tables (4 entries)
-static uint32_t* g_bgen_diploid_basic_table = nullptr;
-static uint16_t* g_bgen_haploid_basic_table = nullptr;
+  // Precomputed 1-genotype-at-a-time table (16 entries: phasepresent = bit 2,
+  // phaseinfo = bit 3)
+  uint32_t* diploid_phased_hardcall_table;
 
-// Precomputed 4-genotype-at-a-time tables (256 entries; multiply index by two
-// and copy two values at a time for table16).
-static uint64_t* g_bgen_diploid_hardcall_table8 = nullptr;
-static uint64_t* g_bgen_diploid_hardcall_table16 = nullptr;
+  // 4-genotype-at-a-time tables.
+  uint32_t* haploid_hardcall_table8;
+  uint64_t* haploid_hardcall_table16;
 
-// Precomputed 1-genotype-at-a-time table (16 entries: phasepresent = bit 2,
-// phaseinfo = bit 3)
-static uint32_t* g_bgen_diploid_phased_hardcall_table = nullptr;
+  uint32_t bit_precision;
+} Bgen13Tables;
 
-// 4-genotype-at-a-time tables.
-static uint32_t* g_bgen_haploid_hardcall_table8 = nullptr;
-static uint64_t* g_bgen_haploid_hardcall_table16 = nullptr;
-
-BoolErr ConstructBgen13LookupTables(uint32_t exportf_bits) {
+BoolErr ConstructBgen13LookupTables(uint32_t exportf_bits, Bgen13Tables* tablesp) {
   const uint32_t max_val = (1U << exportf_bits) - 1;
   const uint32_t half_val_roundeven = ((max_val + 1) / 2) & (~1);
-  if (bigstack_alloc_u32(4, &g_bgen_diploid_basic_table) ||
-      bigstack_alloc_u32(16, &g_bgen_diploid_phased_hardcall_table) ||
-      bigstack_alloc_u16(4, &g_bgen_haploid_basic_table)) {
+  if (bigstack_alloc_u32(4, &tablesp->diploid_basic_table) ||
+      bigstack_alloc_u32(16, &tablesp->diploid_phased_hardcall_table) ||
+      bigstack_alloc_u16(4, &tablesp->haploid_basic_table)) {
     return 1;
   }
   // reference allele is exported as second allele so default import and
@@ -2280,10 +2223,10 @@ BoolErr ConstructBgen13LookupTables(uint32_t exportf_bits) {
   //   [1] = 0, max
   //   [2] = max, 0
   //   [3] = 0, 0
-  g_bgen_diploid_basic_table[0] = 0;
-  g_bgen_diploid_basic_table[1] = max_val << exportf_bits;
-  g_bgen_diploid_basic_table[2] = max_val;
-  g_bgen_diploid_basic_table[3] = 0;
+  tablesp->diploid_basic_table[0] = 0;
+  tablesp->diploid_basic_table[1] = max_val << exportf_bits;
+  tablesp->diploid_basic_table[2] = max_val;
+  tablesp->diploid_basic_table[3] = 0;
 
   // phased diploid:
   //   [0] = 0, 0
@@ -2292,158 +2235,203 @@ BoolErr ConstructBgen13LookupTables(uint32_t exportf_bits) {
   //   [1] phased, phaseinfo set = max, 0
   //   [2] = max, max
   //   [3] = 0, 0
-  g_bgen_diploid_phased_hardcall_table[0] = 0;
-  g_bgen_diploid_phased_hardcall_table[1] = half_val_roundeven * ((1U << exportf_bits) + 1);
-  g_bgen_diploid_phased_hardcall_table[2] = max_val * ((1U << exportf_bits) + 1);
-  g_bgen_diploid_phased_hardcall_table[3] = 0;
+  tablesp->diploid_phased_hardcall_table[0] = 0;
+  tablesp->diploid_phased_hardcall_table[1] = half_val_roundeven * ((1U << exportf_bits) + 1);
+  tablesp->diploid_phased_hardcall_table[2] = max_val * ((1U << exportf_bits) + 1);
+  tablesp->diploid_phased_hardcall_table[3] = 0;
   // might need to defend against garbage phaseinfo
   // cheap to defend against garbage phasepresent
-  memcpy(&(g_bgen_diploid_phased_hardcall_table[4]), g_bgen_diploid_phased_hardcall_table, 4 * sizeof(int32_t));
-  memcpy(&(g_bgen_diploid_phased_hardcall_table[8]), g_bgen_diploid_phased_hardcall_table, 8 * sizeof(int32_t));
-  g_bgen_diploid_phased_hardcall_table[5] = max_val << exportf_bits;
-  g_bgen_diploid_phased_hardcall_table[13] = max_val;
+  memcpy(&(tablesp->diploid_phased_hardcall_table[4]), tablesp->diploid_phased_hardcall_table, 4 * sizeof(int32_t));
+  memcpy(&(tablesp->diploid_phased_hardcall_table[8]), tablesp->diploid_phased_hardcall_table, 8 * sizeof(int32_t));
+  tablesp->diploid_phased_hardcall_table[5] = max_val << exportf_bits;
+  tablesp->diploid_phased_hardcall_table[13] = max_val;
 
   // haploid:
   //   [0] = 0
   //   [1] = half, may as well round-to-even
   //   [2] = max
   //   [3] = 0
-  g_bgen_haploid_basic_table[0] = 0;
-  g_bgen_haploid_basic_table[1] = half_val_roundeven;
-  g_bgen_haploid_basic_table[2] = max_val;
-  g_bgen_haploid_basic_table[3] = 0;
+  tablesp->haploid_basic_table[0] = 0;
+  tablesp->haploid_basic_table[1] = half_val_roundeven;
+  tablesp->haploid_basic_table[2] = max_val;
+  tablesp->haploid_basic_table[3] = 0;
 
   if (exportf_bits <= 8) {
     // can conditionally skip some of these tables, but whatever
     if (unlikely(
-            bigstack_alloc_u64(256, &g_bgen_diploid_hardcall_table8) ||
-            bigstack_alloc_u32(256, &g_bgen_haploid_hardcall_table8))) {
+            bigstack_alloc_u64(256, &tablesp->diploid_hardcall_table8) ||
+            bigstack_alloc_u32(256, &tablesp->haploid_hardcall_table8))) {
       return 1;
     }
-    uint64_t* write64_iter = g_bgen_diploid_hardcall_table8;
+    tablesp->diploid_hardcall_table16 = nullptr;
+    tablesp->haploid_hardcall_table16 = nullptr;
+    uint64_t* write64_iter = tablesp->diploid_hardcall_table8;
     for (uint32_t uii = 0; uii != 4; ++uii) {
-      const uint64_t entry3 = S_CAST(uint64_t, g_bgen_diploid_basic_table[uii]) << (exportf_bits * 6);
+      const uint64_t entry3 = S_CAST(uint64_t, tablesp->diploid_basic_table[uii]) << (exportf_bits * 6);
       for (uint32_t ujj = 0; ujj != 4; ++ujj) {
-        const uint64_t entry23 = entry3 | (S_CAST(uint64_t, g_bgen_diploid_basic_table[ujj]) << (exportf_bits * 4));
+        const uint64_t entry23 = entry3 | (S_CAST(uint64_t, tablesp->diploid_basic_table[ujj]) << (exportf_bits * 4));
         for (uint32_t ukk = 0; ukk != 4; ++ukk) {
-          const uint64_t entry123 = entry23 | (S_CAST(uint64_t, g_bgen_diploid_basic_table[ukk]) << (exportf_bits * 2));
+          const uint64_t entry123 = entry23 | (S_CAST(uint64_t, tablesp->diploid_basic_table[ukk]) << (exportf_bits * 2));
           for (uint32_t umm = 0; umm != 4; ++umm) {
-            *write64_iter++ = entry123 | g_bgen_diploid_basic_table[umm];
+            *write64_iter++ = entry123 | tablesp->diploid_basic_table[umm];
           }
         }
       }
     }
 
-    uint32_t* write32_iter = g_bgen_haploid_hardcall_table8;
+    uint32_t* write32_iter = tablesp->haploid_hardcall_table8;
     for (uint32_t uii = 0; uii != 4; ++uii) {
-      const uint32_t entry3 = S_CAST(uint32_t, g_bgen_haploid_basic_table[uii]) << (exportf_bits * 3);
+      const uint32_t entry3 = S_CAST(uint32_t, tablesp->haploid_basic_table[uii]) << (exportf_bits * 3);
       for (uint32_t ujj = 0; ujj != 4; ++ujj) {
-        const uint32_t entry23 = entry3 | (S_CAST(uint32_t, g_bgen_haploid_basic_table[ujj]) << (exportf_bits * 2));
+        const uint32_t entry23 = entry3 | (S_CAST(uint32_t, tablesp->haploid_basic_table[ujj]) << (exportf_bits * 2));
         for (uint32_t ukk = 0; ukk != 4; ++ukk) {
-          const uint32_t entry123 = entry23 | (S_CAST(uint32_t, g_bgen_haploid_basic_table[ukk]) << exportf_bits);
+          const uint32_t entry123 = entry23 | (S_CAST(uint32_t, tablesp->haploid_basic_table[ukk]) << exportf_bits);
           for (uint32_t umm = 0; umm != 4; ++umm) {
-            *write32_iter++ = entry123 | g_bgen_haploid_basic_table[umm];
+            *write32_iter++ = entry123 | tablesp->haploid_basic_table[umm];
           }
         }
       }
     }
   } else {
     if (unlikely(
-            bigstack_alloc_u64(512, &g_bgen_diploid_hardcall_table16) ||
-            bigstack_alloc_u64(256, &g_bgen_haploid_hardcall_table16))) {
+            bigstack_alloc_u64(512, &tablesp->diploid_hardcall_table16) ||
+            bigstack_alloc_u64(256, &tablesp->haploid_hardcall_table16))) {
       return 1;
     }
-    uint64_t* write64_iter = g_bgen_diploid_hardcall_table16;
+    tablesp->diploid_hardcall_table8 = nullptr;
+    tablesp->haploid_hardcall_table8 = nullptr;
+    uint64_t* write64_iter = tablesp->diploid_hardcall_table16;
     uint64_t entry23_low = 0;
     for (uint32_t uii = 0; uii != 4; ++uii) {
-      const uint64_t entry3 = S_CAST(uint64_t, g_bgen_diploid_basic_table[uii]) << (exportf_bits * 2);
+      const uint64_t entry3 = S_CAST(uint64_t, tablesp->diploid_basic_table[uii]) << (exportf_bits * 2);
       for (uint32_t ujj = 0; ujj != 4; ++ujj) {
-        uint64_t entry23_high = entry3 | g_bgen_diploid_basic_table[ujj];
+        uint64_t entry23_high = entry3 | tablesp->diploid_basic_table[ujj];
         if (exportf_bits < 16) {
           entry23_low = entry23_high << (4 * exportf_bits);
           entry23_high = entry23_high >> (64 - 4 * exportf_bits);
         }
         for (uint32_t ukk = 0; ukk != 4; ++ukk) {
-          const uint64_t entry123_low = entry23_low | (S_CAST(uint64_t, g_bgen_diploid_basic_table[ukk]) << (exportf_bits * 2));
+          const uint64_t entry123_low = entry23_low | (S_CAST(uint64_t, tablesp->diploid_basic_table[ukk]) << (exportf_bits * 2));
           for (uint32_t umm = 0; umm != 4; ++umm) {
-            *write64_iter++ = entry123_low | g_bgen_diploid_basic_table[umm];
+            *write64_iter++ = entry123_low | tablesp->diploid_basic_table[umm];
             *write64_iter++ = entry23_high;
           }
         }
       }
     }
 
-    write64_iter = g_bgen_haploid_hardcall_table16;
+    write64_iter = tablesp->haploid_hardcall_table16;
     for (uint32_t uii = 0; uii != 4; ++uii) {
-      const uint64_t entry3 = S_CAST(uint64_t, g_bgen_haploid_basic_table[uii]) << (exportf_bits * 3);
+      const uint64_t entry3 = S_CAST(uint64_t, tablesp->haploid_basic_table[uii]) << (exportf_bits * 3);
       for (uint32_t ujj = 0; ujj != 4; ++ujj) {
-        const uint64_t entry23 = entry3 | (S_CAST(uint64_t, g_bgen_haploid_basic_table[ujj]) << (exportf_bits * 2));
+        const uint64_t entry23 = entry3 | (S_CAST(uint64_t, tablesp->haploid_basic_table[ujj]) << (exportf_bits * 2));
         for (uint32_t ukk = 0; ukk != 4; ++ukk) {
-          const uint64_t entry123 = entry23 | (S_CAST(uint64_t, g_bgen_haploid_basic_table[ukk]) << exportf_bits);
+          const uint64_t entry123 = entry23 | (S_CAST(uint64_t, tablesp->haploid_basic_table[ukk]) << exportf_bits);
           for (uint32_t umm = 0; umm != 4; ++umm) {
-            *write64_iter++ = entry123 | g_bgen_haploid_basic_table[umm];
+            *write64_iter++ = entry123 | tablesp->haploid_basic_table[umm];
           }
         }
       }
     }
   }
-  g_bgen_bit_precision = exportf_bits;
+  tablesp->bit_precision = exportf_bits;
   return 0;
 }
 
-THREAD_FUNC_DECL ExportBgen13Thread(void* arg) {
-  const uintptr_t tidx = R_CAST(uintptr_t, arg);
-  PgenReader* pgrp = g_pgr_ptrs[tidx];
+typedef struct ExportBgen13CtxStruct {
+  const uintptr_t* variant_include;
+  const ChrInfo* cip;
+  const uintptr_t* allele_idx_offsets;
+  const uintptr_t* sample_include;
+  const uint32_t* sample_include_cumulative_popcounts;
+  const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select);
+  uintptr_t* sex_male_collapsed;
+  uintptr_t* sex_female_collapsed;
+  Bgen13Tables tables;
+  uint32_t sample_ct;
+  uint32_t ref_allele_last;
+
+  PgenReader** pgr_ptrs;
+  uintptr_t** genovecs;
+  uintptr_t** phasepresents;
+  uintptr_t** phaseinfos;
+  uintptr_t** dosage_presents;
+  Dosage** dosage_mains;
+  uintptr_t** dphase_presents;
+  SDosage** dphase_deltas;
+  uint32_t* read_variant_uidx_starts;
+
+  uint32_t cur_block_write_ct;
+
+  struct libdeflate_compressor** libdeflate_compressors;
+  uintptr_t** missing_acc1;
+  unsigned char** uncompressed_bgen_geno_bufs;
+  uint32_t bgen_compressed_buf_max;
+
+  unsigned char* writebufs[2];
+  uint32_t* variant_bytects[2];
+
+  // high 32 bits = variant_uidx, earlier one takes precedence
+  // low 32 bits = uint32_t(PglErr)
+  uint64_t err_info;
+} ExportBgen13Ctx;
+
+THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  ExportBgen13Ctx* ctx = S_CAST(ExportBgen13Ctx*, arg->sharedp->context);
+
+  PgenReader* pgrp = ctx->pgr_ptrs[tidx];
   PgenVariant pgv;
-  pgv.genovec = g_genovecs[tidx];
-  const uint32_t sample_ct = g_sample_ct;
+  pgv.genovec = ctx->genovecs[tidx];
+  const uint32_t sample_ct = ctx->sample_ct;
   const uint32_t acc1_vec_ct = BitCtToVecCt(sample_ct);
   const uint32_t acc4_vec_ct = acc1_vec_ct * 4;
   const uint32_t acc8_vec_ct = acc1_vec_ct * 8;
-  uintptr_t* missing_acc1 = g_missing_acc1[tidx];
+  uintptr_t* missing_acc1 = ctx->missing_acc1[tidx];
   uintptr_t* missing_acc4 = &(missing_acc1[acc1_vec_ct * kWordsPerVec]);
   uintptr_t* missing_acc8 = &(missing_acc4[acc4_vec_ct * kWordsPerVec]);
   uintptr_t* missing_acc32 = &(missing_acc8[acc8_vec_ct * kWordsPerVec]);
   // todo: multiallelic support
   pgv.phasepresent = nullptr;
   pgv.phaseinfo = nullptr;
-  if (g_phasepresents) {
-    pgv.phasepresent = g_phasepresents[tidx];
-    pgv.phaseinfo = g_phaseinfos[tidx];
+  if (ctx->phasepresents) {
+    pgv.phasepresent = ctx->phasepresents[tidx];
+    pgv.phaseinfo = ctx->phaseinfos[tidx];
   }
-  pgv.dosage_present = g_dosage_presents? g_dosage_presents[tidx] : nullptr;
-  pgv.dosage_main = pgv.dosage_present? g_dosage_mains[tidx] : nullptr;
-  pgv.dphase_present = g_dphase_presents? g_dphase_presents[tidx] : nullptr;
-  pgv.dphase_delta = pgv.dphase_present? g_dphase_deltas[tidx] : nullptr;
+  pgv.dosage_present = ctx->dosage_presents? ctx->dosage_presents[tidx] : nullptr;
+  pgv.dosage_main = pgv.dosage_present? ctx->dosage_mains[tidx] : nullptr;
+  pgv.dphase_present = ctx->dphase_presents? ctx->dphase_presents[tidx] : nullptr;
+  pgv.dphase_delta = pgv.dphase_present? ctx->dphase_deltas[tidx] : nullptr;
   // Note that we may write up to 12 bytes past the end
-  unsigned char* uncompressed_bgen_geno_buf = g_thread_wkspaces[tidx];
-  struct libdeflate_compressor* compressor = g_libdeflate_compressors? g_libdeflate_compressors[tidx] : nullptr;
+  unsigned char* uncompressed_bgen_geno_buf = ctx->uncompressed_bgen_geno_bufs[tidx];
+  struct libdeflate_compressor* compressor = ctx->libdeflate_compressors? ctx->libdeflate_compressors[tidx] : nullptr;
   const uint32_t zst_level = g_zst_level;
-  const uintptr_t* variant_include = g_variant_include;
-  const ChrInfo* cip = g_cip;
-  const uintptr_t* allele_idx_offsets = g_allele_idx_offsets;
-  const uintptr_t* sample_include = g_sample_include;
-  const uint32_t* sample_include_cumulative_popcounts = g_sample_include_cumulative_popcounts;
-  const uintptr_t* sex_male_collapsed = g_sex_male_collapsed;
-  const uintptr_t* sex_female_collapsed = g_sex_female_collapsed;
-  const uint16_t* bgen_haploid_basic_table = g_bgen_haploid_basic_table;
-  const uint32_t* bgen_diploid_basic_table = g_bgen_diploid_basic_table;
-  const uint64_t* bgen_diploid_hardcall_table8 = g_bgen_diploid_hardcall_table8;
-  const uint64_t* bgen_diploid_hardcall_table16 = g_bgen_diploid_hardcall_table16;
-  const uint32_t* bgen_diploid_phased_hardcall_table = g_bgen_diploid_phased_hardcall_table;
-  const uint32_t* bgen_haploid_hardcall_table8 = g_bgen_haploid_hardcall_table8;
-  const uint64_t* bgen_haploid_hardcall_table16 = g_bgen_haploid_hardcall_table16;
-  const uint32_t calc_thread_ct = g_calc_thread_ct;
+  const uintptr_t* variant_include = ctx->variant_include;
+  const ChrInfo* cip = ctx->cip;
+  const uintptr_t* allele_idx_offsets = ctx->allele_idx_offsets;
+  const uintptr_t* sample_include = ctx->sample_include;
+  const uint32_t* sample_include_cumulative_popcounts = ctx->sample_include_cumulative_popcounts;
+  const uintptr_t* sex_male_collapsed = ctx->sex_male_collapsed;
+  const uintptr_t* sex_female_collapsed = ctx->sex_female_collapsed;
+  const uint16_t* bgen_haploid_basic_table = ctx->tables.haploid_basic_table;
+  const uint32_t* bgen_diploid_basic_table = ctx->tables.diploid_basic_table;
+  const uint64_t* bgen_diploid_hardcall_table8 = ctx->tables.diploid_hardcall_table8;
+  const uint64_t* bgen_diploid_hardcall_table16 = ctx->tables.diploid_hardcall_table16;
+  const uint32_t* bgen_diploid_phased_hardcall_table = ctx->tables.diploid_phased_hardcall_table;
+  const uint32_t* bgen_haploid_hardcall_table8 = ctx->tables.haploid_hardcall_table8;
+  const uint64_t* bgen_haploid_hardcall_table16 = ctx->tables.haploid_hardcall_table16;
+  const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
   const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
   const uint32_t sample_ctl2_m1 = sample_ctl2 - 1;
   const uint32_t sample_ct4 = DivUp(sample_ct, 4);
-  const uint32_t bit_precision = g_bgen_bit_precision;
+  const uint32_t bit_precision = ctx->tables.bit_precision;
   // note that this assumes bit_precision <= 16
   const uint32_t two_byte_probs = (bit_precision > 8);
   const uint32_t max_output_val = (1U << bit_precision) - 1;
-  const uint32_t bgen_compressed_buf_max = g_bgen_compressed_buf_max;
-  const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select) = g_refalt1_select;
+  const uint32_t bgen_compressed_buf_max = ctx->bgen_compressed_buf_max;
+  const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select) = ctx->refalt1_select;
   uint32_t chr_fo_idx = UINT32_MAX;  // deliberate overflow
   uint32_t chr_end = 0;
   uint32_t is_x = 0;
@@ -2459,23 +2447,23 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* arg) {
   const uint32_t female_ct = PopcountWords(sex_female_collapsed, sample_ctl);
   const uint32_t x_code = (male_ct != sample_ct)? cip->xymt_codes[kChrOffsetX] : UINT32_MAXM1;
   const uint32_t y_code = female_ct? cip->xymt_codes[kChrOffsetY] : UINT32_MAXM1;
-  const uint32_t ref_allele_last = g_ref_allele_last;
+  const uint32_t ref_allele_last = ctx->ref_allele_last;
   uint32_t vidx_rem15 = 15;
   uint32_t vidx_rem255d15 = 17;
   uint32_t ref_allele_idx = 0;
   uint32_t parity = 0;
   ZeroWArr(acc1_vec_ct * kWordsPerVec * 45, missing_acc1);
-  while (1) {
-    const uint32_t is_last_block = g_is_last_thread_block;
-    const uintptr_t cur_block_write_ct = g_cur_block_write_ct;
+  uint64_t new_err_info = 0;
+  do {
+    const uintptr_t cur_block_write_ct = ctx->cur_block_write_ct;
     uint32_t write_idx = (tidx * cur_block_write_ct) / calc_thread_ct;
     const uint32_t write_idx_end = ((tidx + 1) * cur_block_write_ct) / calc_thread_ct;
-    unsigned char* writebuf_iter = &(g_writebufs[parity][write_idx * S_CAST(uintptr_t, bgen_compressed_buf_max)]);
+    unsigned char* writebuf_iter = &(ctx->writebufs[parity][write_idx * S_CAST(uintptr_t, bgen_compressed_buf_max)]);
     // [2n] = 4 + compressed_len, [2n + 1] = uncompressed_len
-    uint32_t* variant_bytect_iter = &(g_variant_bytects[parity][2 * write_idx]);
+    uint32_t* variant_bytect_iter = &(ctx->variant_bytects[parity][2 * write_idx]);
     uintptr_t variant_uidx_base;
     uintptr_t variant_include_bits;
-    BitIter1Start(variant_include, g_read_variant_uidx_starts[tidx], &variant_uidx_base, &variant_include_bits);
+    BitIter1Start(variant_include, ctx->read_variant_uidx_starts[tidx], &variant_uidx_base, &variant_include_bits);
     for (; write_idx != write_idx_end; ++write_idx) {
       const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
       if (variant_uidx >= chr_end) {
@@ -2502,8 +2490,8 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* arg) {
       if (allele_idx_offsets) {
         // todo: multiallelic cases
         if (allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx] != 2) {
-          g_error_ret = kPglRetInconsistentInput;
-          break;
+          new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, kPglRetInconsistentInput);
+          goto ExportBgen13Thread_err;
         }
       }
       // (note that multiallelic variants should always be stored using the
@@ -2511,8 +2499,8 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* arg) {
       // unphased.  this way there's no O([allele count]^2) bloat problem.)
       PglErr reterr = PgrGetDp(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, &pgv);
       if (unlikely(reterr)) {
-        g_error_ret = reterr;
-        break;
+        new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+        goto ExportBgen13Thread_err;
       }
       // note that this is inverted from bgen-1.1
       // todo: switch to allele-rotation function call
@@ -3195,19 +3183,10 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* arg) {
       uintptr_t compressed_bytect;
       if (compressor) {
         compressed_bytect = libdeflate_zlib_compress(compressor, uncompressed_bgen_geno_buf, uncompressed_bytect, writebuf_iter, bgen_compressed_buf_max);
-        if (unlikely(!compressed_bytect)) {
-          // is this actually possible?
-          g_error_ret = kPglRetNomem;
-          break;
-        }
       } else {
         compressed_bytect = ZSTD_compress(writebuf_iter, bgen_compressed_buf_max, uncompressed_bgen_geno_buf, uncompressed_bytect, zst_level);
-        if (unlikely(ZSTD_isError(compressed_bytect))) {
-          // is this actually possible?
-          g_error_ret = kPglRetNomem;
-          break;
-        }
       }
+      assert(compressed_bytect);
       *variant_bytect_iter++ = 4 + compressed_bytect;
       *variant_bytect_iter++ = uncompressed_bytect;
       writebuf_iter = &(writebuf_iter[bgen_compressed_buf_max]);
@@ -3229,14 +3208,16 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* arg) {
         }
       }
     }
-    if (is_last_block) {
-      VcountIncr4To8(missing_acc4, acc4_vec_ct, missing_acc8);
-      VcountIncr8To32(missing_acc8, acc8_vec_ct, missing_acc32);
-      THREAD_RETURN;
+    while (0) {
+    ExportBgen13Thread_err:
+      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+      break;
     }
-    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
-  }
+  } while (!THREAD_BLOCK_FINISH(arg));
+  VcountIncr4To8(missing_acc4, acc4_vec_ct, missing_acc8);
+  VcountIncr8To32(missing_acc8, acc8_vec_ct, missing_acc32);
+  THREAD_RETURN;
 }
 
 // This allocates exported_sample_ids on top.
@@ -3316,19 +3297,20 @@ BoolErr ExportIdpaste(const uintptr_t* sample_include, const SampleIdInfo* siip,
 
 PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_thread_ct, ExportfFlags exportf_flags, uint32_t exportf_bits, IdpasteFlags exportf_id_paste, char exportf_id_delim, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uint32_t* sample_missing_geno_cts) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  ThreadsState ts;
-  InitThreads3z(&ts);
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
+  ThreadGroup tg;
+  PreinitThreads(&tg);
+  ExportBgen13Ctx ctx;
   {
     const uint32_t use_zstd_compression = !(exportf_flags & kfExportfBgen12);
     if (use_zstd_compression) {
-      g_libdeflate_compressors = nullptr;
+      ctx.libdeflate_compressors = nullptr;
     } else {
-      if (unlikely(BIGSTACK_ALLOC_X(struct libdeflate_compressor*, max_thread_ct, &g_libdeflate_compressors))) {
+      if (unlikely(BIGSTACK_ALLOC_X(struct libdeflate_compressor*, max_thread_ct, &ctx.libdeflate_compressors))) {
         goto ExportBgen13_ret_NOMEM;
       }
-      ZeroPtrArr(max_thread_ct, g_libdeflate_compressors);
+      ZeroPtrArr(max_thread_ct, ctx.libdeflate_compressors);
     }
     const uint32_t phase_is_present = pgfip->gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePhasePresent);
     if (!exportf_bits) {
@@ -3349,7 +3331,7 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
         }
       }
     }
-    if (unlikely(ConstructBgen13LookupTables(exportf_bits))) {
+    if (unlikely(ConstructBgen13LookupTables(exportf_bits, &ctx.tables))) {
       goto ExportBgen13_ret_NOMEM;
     }
     const uint32_t max_chr_slen = GetMaxChrSlen(cip);
@@ -3372,7 +3354,7 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
       bgen_geno_buf_size += 14;
       bgen_geno_cacheline_ct = DivUp(bgen_geno_buf_size, kCacheline);
     }
-    g_bgen_compressed_buf_max = bgen_compressed_buf_max;
+    ctx.bgen_compressed_buf_max = bgen_compressed_buf_max;
     // When writing sample ID block, we flush-check after each sample ID.
     // When writing variant data blocks, we flush-check at the beginning of
     // each allele, and at the beginning and end of each genotype data block.
@@ -3390,13 +3372,13 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
     if (unlikely(
             bigstack_alloc_c(max_chr_slen, &chr_buf) ||
             bigstack_alloc_uc(writebuf_len, &writebuf) ||
-            bigstack_alloc_w(sample_ctl, &g_sex_male_collapsed) ||
-            bigstack_alloc_w(sample_ctl, &g_sex_female_collapsed))) {
+            bigstack_alloc_w(sample_ctl, &ctx.sex_male_collapsed) ||
+            bigstack_alloc_w(sample_ctl, &ctx.sex_female_collapsed))) {
       goto ExportBgen13_ret_NOMEM;
     }
-    CopyBitarrSubset(sex_male, sample_include, sample_ct, g_sex_male_collapsed);
-    CopyBitarrSubset(sex_nm, sample_include, sample_ct, g_sex_female_collapsed);
-    BitvecInvmask(g_sex_male_collapsed, sample_ctl, g_sex_female_collapsed);
+    CopyBitarrSubset(sex_male, sample_include, sample_ct, ctx.sex_male_collapsed);
+    CopyBitarrSubset(sex_nm, sample_include, sample_ct, ctx.sex_female_collapsed);
+    BitvecInvmask(ctx.sex_male_collapsed, sample_ctl, ctx.sex_female_collapsed);
 
     if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
       goto ExportBgen13_ret_OPEN_FAIL;
@@ -3480,12 +3462,12 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
     }
 
     if (unlikely(
-            bigstack_alloc_uc(bgen_compressed_buf_max * max_write_block_size, &(g_writebufs[0])) ||
-            bigstack_alloc_uc(bgen_compressed_buf_max * max_write_block_size, &(g_writebufs[1])) ||
-            bigstack_alloc_u32(max_write_block_size * 2, &(g_variant_bytects[0])) ||
-            bigstack_alloc_u32(max_write_block_size * 2, &(g_variant_bytects[1])) ||
-            bigstack_alloc_wp(calc_thread_ct, &g_missing_acc1) ||
-            bigstack_alloc_ucp(calc_thread_ct, &g_thread_wkspaces))) {
+            bigstack_alloc_uc(bgen_compressed_buf_max * max_write_block_size, &(ctx.writebufs[0])) ||
+            bigstack_alloc_uc(bgen_compressed_buf_max * max_write_block_size, &(ctx.writebufs[1])) ||
+            bigstack_alloc_u32(max_write_block_size * 2, &(ctx.variant_bytects[0])) ||
+            bigstack_alloc_u32(max_write_block_size * 2, &(ctx.variant_bytects[1])) ||
+            bigstack_alloc_wp(calc_thread_ct, &ctx.missing_acc1) ||
+            bigstack_alloc_ucp(calc_thread_ct, &ctx.uncompressed_bgen_geno_bufs))) {
       goto ExportBgen13_ret_NOMEM;
     }
 
@@ -3494,39 +3476,52 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
     const uintptr_t track_missing_cacheline_ct = VecCtToCachelineCt(acc1_vec_ct * 45);
     const uintptr_t thread_xalloc_cacheline_ct = track_missing_cacheline_ct + bgen_geno_cacheline_ct;
     STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
+    ctx.phasepresents = nullptr;
+    ctx.phaseinfos = nullptr;
+    ctx.dosage_presents = nullptr;
+    ctx.dosage_mains = nullptr;
+    ctx.dphase_presents = nullptr;
+    ctx.dphase_deltas = nullptr;
     uint32_t read_block_size;
-    if (unlikely(PgenMtLoadInit(variant_include, sample_ct, raw_variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, &g_genovecs, nullptr, phase_is_present? (&g_phasepresents) : nullptr, phase_is_present? (&g_phaseinfos) : nullptr, dosage_is_present? (&g_dosage_presents) : nullptr, dosage_is_present? (&g_dosage_mains) : nullptr, phase_is_present? (&g_dphase_presents) : nullptr, phase_is_present? (&g_dphase_deltas) : nullptr, &read_block_size, nullptr, main_loadbufs, &ts.threads, &g_pgr_ptrs, &g_read_variant_uidx_starts))) {
+    if (unlikely(PgenMtLoadInit(variant_include, sample_ct, raw_variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, &ctx.genovecs, nullptr, phase_is_present? (&ctx.phasepresents) : nullptr, phase_is_present? (&ctx.phaseinfos) : nullptr, dosage_is_present? (&ctx.dosage_presents) : nullptr, dosage_is_present? (&ctx.dosage_mains) : nullptr, phase_is_present? (&ctx.dphase_presents) : nullptr, phase_is_present? (&ctx.dphase_deltas) : nullptr, &read_block_size, nullptr, main_loadbufs, nullptr, &ctx.pgr_ptrs, &ctx.read_variant_uidx_starts))) {
       goto ExportBgen13_ret_NOMEM;
     }
+    // Ran this with and without --memory 640 on a 1000G phase 1 dataset
+    // (chosen since it has dosages), and there was zero performance penalty in
+    // the former case.
+    //
+    // So it probably makes sense to default to a much smaller chunk size, and
+    // use the same type of thread-pool logic as the new bgzf writer.
     if (read_block_size > max_write_block_size) {
       read_block_size = max_write_block_size;
     }
 
     const uint32_t ref_allele_last = !(exportf_flags & kfExportfRefFirst);
     for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-      g_missing_acc1[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(track_missing_cacheline_ct * kCacheline));
-      g_thread_wkspaces[tidx] = S_CAST(unsigned char*, bigstack_alloc_raw(bgen_geno_cacheline_ct * kCacheline));
+      ctx.missing_acc1[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(track_missing_cacheline_ct * kCacheline));
+      ctx.uncompressed_bgen_geno_bufs[tidx] = S_CAST(unsigned char*, bigstack_alloc_raw(bgen_geno_cacheline_ct * kCacheline));
     }
-    g_sample_ct = sample_ct;
-    g_variant_include = variant_include;
-    g_allele_idx_offsets = allele_idx_offsets;
-    g_sample_include = sample_include;
-    g_sample_include_cumulative_popcounts = sample_include_cumulative_popcounts;
-    g_calc_thread_ct = calc_thread_ct;
-    ts.calc_thread_ct = calc_thread_ct;
-    g_refalt1_select = refalt1_select;
-    GetXymtStartAndEnd(cip, kChrOffsetY, &g_y_start, &g_y_end);
-    g_ref_allele_last = ref_allele_last;
-    g_cip = cip;
-    g_error_ret = kPglRetSuccess;
+    ctx.sample_ct = sample_ct;
+    ctx.variant_include = variant_include;
+    ctx.allele_idx_offsets = allele_idx_offsets;
+    ctx.sample_include = sample_include;
+    ctx.sample_include_cumulative_popcounts = sample_include_cumulative_popcounts;
+    if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
+      goto ExportBgen13_ret_NOMEM;
+    }
+    ctx.refalt1_select = refalt1_select;
+    ctx.ref_allele_last = ref_allele_last;
+    ctx.cip = cip;
+    ctx.err_info = (~0LLU) << 32;
     if (!use_zstd_compression) {
       for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-        g_libdeflate_compressors[tidx] = libdeflate_alloc_compressor(6);
-        if (unlikely(!g_libdeflate_compressors[tidx])) {
+        ctx.libdeflate_compressors[tidx] = libdeflate_alloc_compressor(6);
+        if (unlikely(!ctx.libdeflate_compressors[tidx])) {
           goto ExportBgen13_ret_NOMEM;
         }
       }
     }
+    SetThreadFuncAndData(ExportBgen13Thread, &ctx, &tg);
 
     // Main workflow:
     // 1. Set n=0, load/skip block 0
@@ -3561,7 +3556,7 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
     uint32_t allele_ct = 2;
     for (uint32_t variant_idx = 0; ; ) {
       uintptr_t cur_block_write_ct = 0;
-      if (!ts.is_last_block) {
+      if (!IsLastBlock(&tg)) {
         for (; ; ++read_block_idx) {
           if (read_block_idx == read_block_ct_m1) {
             cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
@@ -3579,8 +3574,8 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
         }
       }
       if (variant_idx) {
-        JoinThreads3z(&ts);
-        reterr = g_error_ret;
+        JoinThreads(&tg);
+        memcpy(&reterr, &ctx.err_info, 4);
         if (unlikely(reterr)) {
           if (reterr == kPglRetInconsistentInput) {
             // temporary
@@ -3590,24 +3585,25 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
           goto ExportBgen13_ret_PGR_FAIL;
         }
       }
-      if (!ts.is_last_block) {
-        g_cur_block_write_ct = cur_block_write_ct;
-        ComputeUidxStartPartition(variant_include, cur_block_write_ct, calc_thread_ct, read_block_idx * read_block_size, g_read_variant_uidx_starts);
+      if (!IsLastBlock(&tg)) {
+        ctx.cur_block_write_ct = cur_block_write_ct;
+        ComputeUidxStartPartition(variant_include, cur_block_write_ct, calc_thread_ct, read_block_idx * read_block_size, ctx.read_variant_uidx_starts);
         for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-          g_pgr_ptrs[tidx]->fi.block_base = pgfip->block_base;
-          g_pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
+          ctx.pgr_ptrs[tidx]->fi.block_base = pgfip->block_base;
+          ctx.pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
         }
-        ts.is_last_block = (variant_idx + cur_block_write_ct == variant_ct);
-        ts.thread_func_ptr = ExportBgen13Thread;
-        if (unlikely(SpawnThreads3z(variant_idx, &ts))) {
+        if (variant_idx + cur_block_write_ct == variant_ct) {
+          DeclareLastThreadBlock(&tg);
+        }
+        if (unlikely(SpawnThreads(&tg))) {
           goto ExportBgen13_ret_THREAD_CREATE_FAIL;
         }
       }
       parity = 1 - parity;
       if (variant_idx) {
         // write *previous* block results
-        const unsigned char* compressed_data_iter = g_writebufs[parity];
-        const uint32_t* variant_bytect_iter = g_variant_bytects[parity];
+        const unsigned char* compressed_data_iter = ctx.writebufs[parity];
+        const uint32_t* variant_bytect_iter = ctx.variant_bytects[parity];
         for (uint32_t variant_bidx = 0; variant_bidx != prev_block_write_ct; ++variant_bidx) {
           const uint32_t write_variant_uidx = BitIter1(variant_include, &write_variant_uidx_base, &cur_bits);
           if (write_variant_uidx >= chr_end) {
@@ -3717,9 +3713,9 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
     logputs("done.\n");
     const uint32_t sample_ctav = acc1_vec_ct * kBitsPerVec;
     const uintptr_t acc32_offset = acc1_vec_ct * (13 * k1LU * kWordsPerVec);
-    uint32_t* scrambled_missing_cts = R_CAST(uint32_t*, &(g_missing_acc1[0][acc32_offset]));
+    uint32_t* scrambled_missing_cts = R_CAST(uint32_t*, &(ctx.missing_acc1[0][acc32_offset]));
     for (uint32_t tidx = 1; tidx != calc_thread_ct; ++tidx) {
-      const uint32_t* thread_scrambled_missing_cts = R_CAST(uint32_t*, &(g_missing_acc1[tidx][acc32_offset]));
+      const uint32_t* thread_scrambled_missing_cts = R_CAST(uint32_t*, &(ctx.missing_acc1[tidx][acc32_offset]));
       for (uint32_t uii = 0; uii != sample_ctav; ++uii) {
         scrambled_missing_cts[uii] += thread_scrambled_missing_cts[uii];
       }
@@ -3749,15 +3745,14 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
     reterr = kPglRetThreadCreateFail;
     break;
   }
-  CleanupThreads3z(&ts, &g_cur_block_write_ct);
-  if (g_libdeflate_compressors) {
+  CleanupThreads(&tg);
+  if (ctx.libdeflate_compressors) {
     for (uint32_t tidx = 0; tidx != max_thread_ct; ++tidx) {
-      if (!g_libdeflate_compressors[tidx]) {
+      if (!ctx.libdeflate_compressors[tidx]) {
         break;
       }
-      libdeflate_free_compressor(g_libdeflate_compressors[tidx]);
+      libdeflate_free_compressor(ctx.libdeflate_compressors[tidx]);
     }
-    g_libdeflate_compressors = nullptr;
   }
   fclose_cond(outfile);
   BigstackReset(bigstack_mark);
@@ -6071,42 +6066,64 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
   return reterr;
 }
 
-// more multithread globals
-static Dosage* g_smaj_dosagebuf = nullptr;
-static uint32_t* g_write_vidx_starts = nullptr;
-static const char* const* g_export_allele_missing = nullptr;
 static const Dosage kGenoToDosage[4] = {0, 16384, 32768, 65535};
 
-THREAD_FUNC_DECL DosageTransposeThread(void* arg) {
-  const uintptr_t tidx = R_CAST(uintptr_t, arg);
-  const uint32_t sample_ct = g_sample_ct;
+typedef struct DosageTransposeCtxStruct {
+  const uintptr_t* variant_include;
+  const char* const* export_allele_missing;
+  const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select);
+  const uintptr_t* sample_include;
+  const uint32_t* sample_include_cumulative_popcounts;
+  uint32_t sample_ct;
+  uintptr_t stride;
+
+  PgenReader** pgr_ptrs;
+  uint32_t* read_variant_uidx_starts;
+  uint32_t* write_vidx_starts;
+  Dosage* smaj_dosagebuf;
+
+  uint32_t cur_block_write_ct;
+
+  uintptr_t** thread_write_genovecs;
+  uintptr_t** thread_write_dosagepresents;
+  Dosage** thread_write_dosagevals;
+
+  uint64_t err_info;
+} DosageTransposeCtx;
+
+THREAD_FUNC_DECL DosageTransposeThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  DosageTransposeCtx* ctx = S_CAST(DosageTransposeCtx*, arg->sharedp->context);
+
+  const uint32_t sample_ct = ctx->sample_ct;
   const uint32_t sample_ctd4 = sample_ct / 4;
   const uint32_t sample_rem = sample_ct % 4;
   const uintptr_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
   const uint32_t sample_ctaw2 = QuaterCtToAlignedWordCt(sample_ct);
   const uint32_t sample_ctab2 = kBytesPerWord * sample_ctaw2;
-  const uintptr_t stride = g_stride;
-  const uintptr_t* variant_include = g_variant_include;
-  const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select) = g_refalt1_select;
-  const char* const* export_allele_missing = g_export_allele_missing;
-  const uintptr_t* sample_include = g_sample_include;
-  const uint32_t* sample_include_cumulative_popcounts = g_sample_include_cumulative_popcounts;
+  const uintptr_t stride = ctx->stride;
+  const uintptr_t* variant_include = ctx->variant_include;
+  const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select) = ctx->refalt1_select;
+  const char* const* export_allele_missing = ctx->export_allele_missing;
+  const uintptr_t* sample_include = ctx->sample_include;
+  const uint32_t* sample_include_cumulative_popcounts = ctx->sample_include_cumulative_popcounts;
 
-  PgenReader* pgrp = g_pgr_ptrs[tidx];
-  uintptr_t* genovec_buf = g_thread_write_genovecs[tidx];
-  uintptr_t* dosagepresent_buf = g_thread_write_dosagepresents[tidx];
-  Dosage* dosagevals_buf = g_thread_write_dosagevals[tidx];
+  PgenReader* pgrp = ctx->pgr_ptrs[tidx];
+  uintptr_t* genovec_buf = ctx->thread_write_genovecs[tidx];
+  uintptr_t* dosagepresent_buf = ctx->thread_write_dosagepresents[tidx];
+  Dosage* dosagevals_buf = ctx->thread_write_dosagevals[tidx];
   uint32_t ref_allele_idx = 0;
-  while (1) {
-    const uint32_t is_last_block = g_is_last_thread_block;
-    const uint32_t cur_block_write_ct = g_cur_block_write_ct;
-    const uint32_t vidx_end = g_write_vidx_starts[tidx + 1];
-    uint32_t vidx_start = g_write_vidx_starts[tidx];
+  uint64_t new_err_info;
+  do {
+    const uint32_t cur_block_write_ct = ctx->cur_block_write_ct;
+    const uint32_t vidx_end = ctx->write_vidx_starts[tidx + 1];
+    uint32_t vidx_start = ctx->write_vidx_starts[tidx];
     if (cur_block_write_ct && (vidx_end != vidx_start)) {
       uintptr_t variant_uidx_base;
       uintptr_t variant_include_bits;
-      BitIter1Start(variant_include, g_read_variant_uidx_starts[tidx], &variant_uidx_base, &variant_include_bits);
-      Dosage* smaj_dosagebuf_iter = &(g_smaj_dosagebuf[vidx_start]);
+      BitIter1Start(variant_include, ctx->read_variant_uidx_starts[tidx], &variant_uidx_base, &variant_include_bits);
+      Dosage* smaj_dosagebuf_iter = &(ctx->smaj_dosagebuf[vidx_start]);
       uint32_t dosage_cts[kDosagePerCacheline];
       do {
         uint32_t vidx_block_end = RoundDownPow2(vidx_start, kDosagePerCacheline) + kDosagePerCacheline;
@@ -6127,8 +6144,8 @@ THREAD_FUNC_DECL DosageTransposeThread(void* arg) {
           uint32_t dosage_ct;
           const PglErr reterr = PgrGet1D(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, ref_allele_idx, pgrp, genovec_iter, dosage_present_iter, R_CAST(uint16_t*, dosage_main_iter), &dosage_ct);
           if (unlikely(reterr)) {
-            g_error_ret = reterr;
-            goto DosageTransposeThread_fail;
+            new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+            goto DosageTransposeThread_err;
           }
           if (export_allele_missing && export_allele_missing[variant_uidx]) {
             // only keep missing vs. nonmissing distinction, zero everything
@@ -6204,21 +6221,23 @@ THREAD_FUNC_DECL DosageTransposeThread(void* arg) {
         smaj_dosagebuf_iter = &(smaj_dosagebuf_iter[vidx_block_size]);
       } while (vidx_start != vidx_end);
     }
-  DosageTransposeThread_fail:
-    if (is_last_block) {
-      THREAD_RETURN;
+    while (0) {
+    DosageTransposeThread_err:
+      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+      break;
     }
-    THREAD_BLOCK_FINISH_OLD(tidx);
-  }
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
 }
 
 static_assert(sizeof(Dosage) == 2, "Export012Smaj() needs to be updated.");
 PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(AlleleCode, 2, export_allele), const char* const* export_allele_missing, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t include_dom, uint32_t include_uncounted, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, char exportf_delim, PgenFileInfo* pgfip) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  ThreadsState ts;
-  InitThreads3z(&ts);
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
+  ThreadGroup tg;
+  PreinitThreads(&tg);
+  DosageTransposeCtx ctx;
   {
     // Write header line; then fully load-and-transpose the first X samples,
     // flush them, load-and-transpose the next X, etc.
@@ -6376,7 +6395,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
     uint32_t read_block_size;
 
     // note that we only allow this to use 1/4 of remaining memory
-    if (unlikely(PgenMtLoadInit(variant_include, raw_sample_ct, variant_ct, bigstack_left() / 4, pgr_alloc_cacheline_ct, 0, 0, 0, pgfip, &calc_thread_ct, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &ts.threads, &g_pgr_ptrs, &g_read_variant_uidx_starts))) {
+    if (unlikely(PgenMtLoadInit(variant_include, raw_sample_ct, variant_ct, bigstack_left() / 4, pgr_alloc_cacheline_ct, 0, 0, 0, pgfip, &calc_thread_ct, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, nullptr, &ctx.pgr_ptrs, &ctx.read_variant_uidx_starts))) {
       goto Export012Smaj_ret_NOMEM;
     }
 
@@ -6386,10 +6405,10 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
     if (unlikely(
             bigstack_alloc_w(raw_sample_ctl, &sample_include) ||
             bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
-            bigstack_alloc_u32(calc_thread_ct + 1, &g_write_vidx_starts) ||
-            bigstack_alloc_wp(calc_thread_ct, &g_thread_write_genovecs) ||
-            bigstack_alloc_wp(calc_thread_ct, &g_thread_write_dosagepresents) ||
-            bigstack_alloc_dosagep(calc_thread_ct, &g_thread_write_dosagevals))) {
+            bigstack_alloc_u32(calc_thread_ct + 1, &ctx.write_vidx_starts) ||
+            bigstack_alloc_wp(calc_thread_ct, &ctx.thread_write_genovecs) ||
+            bigstack_alloc_wp(calc_thread_ct, &ctx.thread_write_dosagepresents) ||
+            bigstack_alloc_dosagep(calc_thread_ct, &ctx.thread_write_dosagevals))) {
       goto Export012Smaj_ret_NOMEM;
     }
 
@@ -6401,11 +6420,10 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
     //   calc_thread_ct * kDosagePerCacheline * read_sample_ct *
     //     sizeof(Dosage) for per-thread dosage_main buffers
     //   (dosage_ct buffers just go on the thread stacks)
-    //   read_sample_ct * variant_ct * sizeof(Dosage) for g_smaj_dosagebuf
+    //   read_sample_ct * variant_ct * sizeof(Dosage) for ctx.smaj_dosagebuf
     // This is about
     //   read_sample_ct *
     //     (calc_thread_ct * kDosagePerCacheline * 2.375 + variant_ct * 2)
-    ts.calc_thread_ct = calc_thread_ct;
     uintptr_t bytes_avail = bigstack_left();
     // account for rounding
     if (unlikely(bytes_avail < kCacheline + calc_thread_ct * kDosagePerCacheline * (2 * kCacheline))) {
@@ -6428,18 +6446,21 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
     uintptr_t read_sample_ctaw = BitCtToAlignedWordCt(read_sample_ct);
     uintptr_t read_sample_ctaw2 = QuaterCtToAlignedWordCt(read_sample_ct);
     for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-      g_thread_write_genovecs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(kDosagePerCacheline * sizeof(intptr_t) * read_sample_ctaw2));
-      g_thread_write_dosagepresents[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(kDosagePerCacheline * sizeof(intptr_t) * read_sample_ctaw));
-      g_thread_write_dosagevals[tidx] = S_CAST(Dosage*, bigstack_alloc_raw(kDosagePerCacheline * sizeof(Dosage) * read_sample_ct));
+      ctx.thread_write_genovecs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(kDosagePerCacheline * sizeof(intptr_t) * read_sample_ctaw2));
+      ctx.thread_write_dosagepresents[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(kDosagePerCacheline * sizeof(intptr_t) * read_sample_ctaw));
+      ctx.thread_write_dosagevals[tidx] = S_CAST(Dosage*, bigstack_alloc_raw(kDosagePerCacheline * sizeof(Dosage) * read_sample_ct));
     }
-    g_variant_include = variant_include;
-    g_refalt1_select = export_allele;
-    g_export_allele_missing = export_allele_missing;
-    g_calc_thread_ct = calc_thread_ct;
-    g_sample_ct = read_sample_ct;
-    g_stride = RoundUpPow2(variant_ct, kDosagePerCacheline);
-    g_smaj_dosagebuf = S_CAST(Dosage*, bigstack_alloc_raw_rd(read_sample_ct * S_CAST(uintptr_t, g_stride) * sizeof(Dosage)));
-    g_error_ret = kPglRetSuccess;
+    ctx.variant_include = variant_include;
+    ctx.refalt1_select = export_allele;
+    ctx.export_allele_missing = export_allele_missing;
+    if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
+      goto Export012Smaj_ret_NOMEM;
+    }
+    ctx.sample_ct = read_sample_ct;
+    ctx.stride = RoundUpPow2(variant_ct, kDosagePerCacheline);
+    ctx.smaj_dosagebuf = S_CAST(Dosage*, bigstack_alloc_raw_rd(read_sample_ct * S_CAST(uintptr_t, ctx.stride) * sizeof(Dosage)));
+    ctx.err_info = (~0LLU) << 32;
+    SetThreadFuncAndData(DosageTransposeThread, &ctx, &tg);
 
     const char* sample_ids = piip->sii.sample_ids;
     const char* paternal_ids = piip->parental_id_info.paternal_ids;
@@ -6458,7 +6479,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
       uint32_t sample_uidx_end;
       if (pass_idx + 1 == pass_ct) {
         read_sample_ct = sample_ct - pass_idx * read_sample_ct;
-        g_sample_ct = read_sample_ct;
+        ctx.sample_ct = read_sample_ct;
         sample_uidx_end = raw_sample_ct;
         read_sample_ctaw = BitCtToAlignedWordCt(read_sample_ct);
         read_sample_ctaw2 = QuaterCtToAlignedWordCt(read_sample_ct);
@@ -6467,15 +6488,15 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
         ClearBitsNz(sample_uidx_end, raw_sample_ct, sample_include);
       }
       FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
-      g_sample_include = sample_include;
-      g_sample_include_cumulative_popcounts = sample_include_cumulative_popcounts;
+      ctx.sample_include = sample_include;
+      ctx.sample_include_cumulative_popcounts = sample_include_cumulative_popcounts;
       if (pass_idx) {
-        ReinitThreads3z(&ts);
+        ReinitThreads(&tg);
         pgfip->block_base = main_loadbufs[0];
         for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-          PgrClearLdCache(g_pgr_ptrs[tidx]);
-          g_pgr_ptrs[tidx]->fi.block_base = main_loadbufs[0];
-          g_pgr_ptrs[tidx]->fi.block_offset = 0;
+          PgrClearLdCache(ctx.pgr_ptrs[tidx]);
+          ctx.pgr_ptrs[tidx]->fi.block_base = main_loadbufs[0];
+          ctx.pgr_ptrs[tidx]->fi.block_offset = 0;
         }
       }
       putc_unlocked('\r', stdout);
@@ -6497,7 +6518,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
       uint32_t next_print_idx = variant_ct / 100;
       for (uint32_t variant_idx = 0; ; ) {
         uintptr_t cur_block_write_ct = 0;
-        if (!ts.is_last_block) {
+        if (!IsLastBlock(&tg)) {
           for (; ; ++read_block_idx) {
             if (read_block_idx == read_block_ct_m1) {
               cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
@@ -6515,22 +6536,23 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
           }
         }
         if (variant_idx) {
-          JoinThreads3z(&ts);
-          reterr = g_error_ret;
+          JoinThreads(&tg);
+          memcpy(&reterr, &ctx.err_info, 4);
           if (unlikely(reterr)) {
             goto Export012Smaj_ret_PGR_FAIL;
           }
         }
-        if (!ts.is_last_block) {
-          g_cur_block_write_ct = cur_block_write_ct;
-          ComputePartitionAligned(variant_include, calc_thread_ct, read_block_idx * read_block_size, variant_idx, cur_block_write_ct, kDosagePerCacheline, g_read_variant_uidx_starts, g_write_vidx_starts);
+        if (!IsLastBlock(&tg)) {
+          ctx.cur_block_write_ct = cur_block_write_ct;
+          ComputePartitionAligned(variant_include, calc_thread_ct, read_block_idx * read_block_size, variant_idx, cur_block_write_ct, kDosagePerCacheline, ctx.read_variant_uidx_starts, ctx.write_vidx_starts);
           for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-            g_pgr_ptrs[tidx]->fi.block_base = pgfip->block_base;
-            g_pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
+            ctx.pgr_ptrs[tidx]->fi.block_base = pgfip->block_base;
+            ctx.pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
           }
-          ts.is_last_block = (variant_idx + cur_block_write_ct == variant_ct);
-          ts.thread_func_ptr = DosageTransposeThread;
-          if (unlikely(SpawnThreads3z(read_block_idx, &ts))) {
+          if (variant_idx + cur_block_write_ct == variant_ct) {
+            DeclareLastThreadBlock(&tg);
+          }
+          if (unlikely(SpawnThreads(&tg))) {
             goto Export012Smaj_ret_THREAD_CREATE_FAIL;
           }
         }
@@ -6562,7 +6584,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
       uintptr_t sample_uidx_base;
       uintptr_t sample_include_bits;
       BitIter1Start(sample_include, sample_uidx_start, &sample_uidx_base, &sample_include_bits);
-      const Dosage* cur_dosage_row = g_smaj_dosagebuf;
+      const Dosage* cur_dosage_row = ctx.smaj_dosagebuf;
       for (uint32_t sample_idx = 0; sample_idx != read_sample_ct; ++sample_idx) {
         const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
         const char* cur_sample_fid = &(sample_ids[sample_uidx * max_sample_id_blen]);
@@ -6605,7 +6627,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
           }
         }
         AppendBinaryEoln(&write_iter);
-        cur_dosage_row = &(cur_dosage_row[g_stride]);
+        cur_dosage_row = &(cur_dosage_row[ctx.stride]);
         if (sample_idx >= next_print_idx) {
           if (pct > 10) {
             putc_unlocked('\b', stdout);
@@ -6648,7 +6670,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
     reterr = kPglRetThreadCreateFail;
     break;
   }
-  CleanupThreads3z(&ts, &g_cur_block_write_ct);
+  CleanupThreads(&tg);
   fclose_cond(outfile);
   pgfip->block_base = nullptr;
   BigstackReset(bigstack_mark);

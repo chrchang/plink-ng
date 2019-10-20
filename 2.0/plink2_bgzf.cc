@@ -117,7 +117,7 @@ PglErr BgzfReadJoinAndRespawn(unsigned char* dst_end, BgzfRawMtDecompressStream*
       //    decompression, taking advantage of any remaining dst space.  (If
       //    there's no dst space left, the overflow buffer still lets us
       //    decompress the next decompress_thread_ct blocks in the background.)
-      const uint32_t decompress_thread_ct = GetThreadCt(tgp) - 1;
+      const uint32_t decompress_thread_ct = GetThreadCt(&tgp->shared) - 1;
       // We actually iterate through the blocks twice.  The first iteration
       // counts the number of blocks that target_capacity allows for, and the
       // second iteration fills next_cwd->{in_offsets, out_offsets}.
@@ -244,7 +244,7 @@ THREAD_FUNC_DECL BgzfRawMtStreamThread(void* raw_arg) {
     // in[] has space for kDecompressChunkSize bytes.
     // The current buffer-usage logic assumes that thresh1 <= 1/3 of the buffer
     // size, and thresh2 >= 2/3.
-    const uint32_t thresh1 = (GetThreadCt(&context->tg) - 1) * (26 + kMaxBgzfCompressedBlockSize);
+    const uint32_t thresh1 = (GetThreadCt(&context->tg.shared) - 1) * (26 + kMaxBgzfCompressedBlockSize);
     const uint32_t thresh2 = kDecompressChunkSize - thresh1;
     uint32_t remaining_read_start = bodyp->initial_compressed_byte_ct;
     uint32_t is_eof = 0;
@@ -521,7 +521,7 @@ PglErr BgzfRawMtStreamRetarget(const char* header, BgzfRawMtDecompressStream* bg
 void CleanupBgzfRawMtStream(BgzfRawMtDecompressStream* bgzfp) {
   uint32_t decompress_thread_ct = 0;
   if (bgzfp->tg.threads) {
-    decompress_thread_ct = GetThreadCt(&bgzfp->tg) - 1;
+    decompress_thread_ct = GetThreadCt(&bgzfp->tg.shared) - 1;
   }
   CleanupThreads(&bgzfp->tg);
   BgzfMtReadBody* bodyp = &bgzfp->body;

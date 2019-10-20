@@ -1306,6 +1306,8 @@ static const uintptr_t kMask000F = (~S_CAST(uintptr_t, 0)) / 4369;
 static const uintptr_t kMask0303 = (~S_CAST(uintptr_t, 0)) / 85;
 
 CONSTI32(kBitsPerVec, kBytesPerVec * CHAR_BIT);
+
+// probable todo: change Quater/Nibble to Knuth's Nyp/Nybble.
 CONSTI32(kQuatersPerVec, kBytesPerVec * 4);
 
 CONSTI32(kBitsPerWordD2, kBitsPerWord / 2);

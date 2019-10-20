@@ -2621,8 +2621,6 @@ void ErrorCleanupThreads2z(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthrea
 CONSTI32(kMaxDupflagThreads, 16);
 
 typedef struct DupflagHtableMakerStruct {
-  ThreadGroup tg;
-
   const uintptr_t* subset_mask;
   const char* const* item_ids;
   uint32_t item_ct;
@@ -2678,7 +2676,7 @@ THREAD_FUNC_DECL DupflagHtableMakerThread(void* raw_arg) {
 
   // 1. Initialize id_htable with 1-bits in parallel.
   const uint32_t id_htable_size = ctx->id_htable_size;
-  const uint32_t thread_ct = GetThreadCt(&ctx->tg) + 1;
+  const uint32_t thread_ct = GetThreadCt(arg->sharedp) + 1;
   uint32_t* id_htable = ctx->id_htable;
   const uint32_t fill_start = RoundDownPow2((id_htable_size * S_CAST(uint64_t, tidx)) / thread_ct, kInt32PerCacheline);
   const uint32_t fill_end = RoundDownPow2((id_htable_size * (S_CAST(uint64_t, tidx) + 1)) / thread_ct, kInt32PerCacheline);
@@ -2696,9 +2694,9 @@ THREAD_FUNC_DECL DupflagHtableMakerThread(void* raw_arg) {
 
 PglErr MakeDupflagHtable(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t id_htable_size, uint32_t max_thread_ct, uint32_t* id_htable) {
   PglErr reterr = kPglRetSuccess;
+  ThreadGroup tg;
+  PreinitThreads(&tg);
   DupflagHtableMaker ctx;
-  ThreadGroup* tgp = &ctx.tg;
-  PreinitThreads(tgp);
   {
     uint32_t thread_ct = item_ct / 65536;
     if (thread_ct > max_thread_ct) {
@@ -2706,7 +2704,7 @@ PglErr MakeDupflagHtable(const uintptr_t* subset_mask, const char* const* item_i
     } else if (!thread_ct) {
       thread_ct = 1;
     }
-    if (unlikely(SetThreadCt0(thread_ct - 1, tgp))) {
+    if (unlikely(SetThreadCt0(thread_ct - 1, &tg))) {
       goto MakeDupflagHtable_ret_NOMEM;
     }
 
@@ -2727,20 +2725,20 @@ PglErr MakeDupflagHtable(const uintptr_t* subset_mask, const char* const* item_i
     }
 
     if (thread_ct > 1) {
-      SetThreadFuncAndData(DupflagHtableMakerThread, &ctx, tgp);
-      if (unlikely(SpawnThreads(tgp))) {
+      SetThreadFuncAndData(DupflagHtableMakerThread, &ctx, &tg);
+      if (unlikely(SpawnThreads(&tg))) {
         goto MakeDupflagHtable_ret_THREAD_CREATE_FAIL;
       }
     }
     const uint32_t fill_start = RoundDownPow2((id_htable_size * S_CAST(uint64_t, thread_ct - 1)) / thread_ct, kInt32PerCacheline);
     SetAllU32Arr(id_htable_size - fill_start, &(id_htable[fill_start]));
     if (thread_ct > 1) {
-      JoinThreads(tgp);
-      DeclareLastThreadBlock(tgp);
-      SpawnThreads(tgp);
+      JoinThreads(&tg);
+      DeclareLastThreadBlock(&tg);
+      SpawnThreads(&tg);
     }
     DupflagHtableMakerMain(thread_ct - 1, thread_ct, &ctx);
-    JoinThreads0(tgp);
+    JoinThreads0(&tg);
   }
   while (0) {
   MakeDupflagHtable_ret_NOMEM:
@@ -2750,7 +2748,7 @@ PglErr MakeDupflagHtable(const uintptr_t* subset_mask, const char* const* item_i
     reterr = kPglRetThreadCreateFail;
     break;
   }
-  CleanupThreads(tgp);
+  CleanupThreads(&tg);
   return reterr;
 }
 
@@ -2759,8 +2757,6 @@ CONSTI32(kDupstoreBlockSize, 65536);
 CONSTI32(kDupstoreThreadWkspace, kDupstoreBlockSize * 2 * sizeof(int32_t));
 
 typedef struct DupstoreHtableMakerStruct {
-  ThreadGroup tg;
-
   const uintptr_t* subset_mask;
   const char* const* item_ids;
   uint32_t item_ct;
@@ -2778,7 +2774,7 @@ THREAD_FUNC_DECL DupstoreHtableMakerThread(void* raw_arg) {
 
   // 1. Initialize id_htable with 1-bits in parallel.
   const uint32_t id_htable_size = ctx->id_htable_size;
-  const uint32_t thread_ct = GetThreadCt(&ctx->tg);
+  const uint32_t thread_ct = GetThreadCt(arg->sharedp);
   uint32_t* id_htable = ctx->id_htable;
   // Add 1 to thread_ct in denominator, since unlike the DupflagHtableMaker
   // case, the parent thread has separate logic to help out here.
@@ -2864,15 +2860,15 @@ PglErr PopulateIdHtableMt(unsigned char* arena_top, const uintptr_t* subset_mask
   }
   PglErr reterr = kPglRetSuccess;
   unsigned char* arena_bottom_mark = *arena_bottom_ptr;
+  ThreadGroup tg;
+  PreinitThreads(&tg);
   DupstoreHtableMaker ctx;
-  ThreadGroup* tgp = &ctx.tg;
-  PreinitThreads(tgp);
   {
     thread_ct = PopulateIdHtableMtDupstoreThreadCt(thread_ct, item_ct);
     uint32_t item_idx_stop = thread_ct * kDupstoreBlockSize;
     if (arena_end_alloc_u32(arena_bottom_mark, item_idx_stop, &arena_top, &ctx.hashes[0]) ||
         arena_end_alloc_u32(arena_bottom_mark, item_idx_stop, &arena_top, &ctx.hashes[1]) ||
-        SetThreadCt(thread_ct, tgp)) {
+        SetThreadCt(thread_ct, &tg)) {
       goto PopulateIdHtableMt_ret_NOMEM;
     }
     uintptr_t cur_arena_left = arena_top - arena_bottom_mark;
@@ -2906,8 +2902,8 @@ PglErr PopulateIdHtableMt(unsigned char* arena_top, const uintptr_t* subset_mask
     ctx.item_ct = item_ct;
     ctx.id_htable_size = id_htable_size;
     ctx.id_htable = id_htable;
-    SetThreadFuncAndData(DupstoreHtableMakerThread, &ctx, tgp);
-    if (unlikely(SpawnThreads(tgp))) {
+    SetThreadFuncAndData(DupstoreHtableMakerThread, &ctx, &tg);
+    if (unlikely(SpawnThreads(&tg))) {
       goto PopulateIdHtableMt_ret_THREAD_CREATE_FAIL;
     }
 
@@ -2915,13 +2911,13 @@ PglErr PopulateIdHtableMt(unsigned char* arena_top, const uintptr_t* subset_mask
     SetAllU32Arr(id_htable_size - fill_start, &(id_htable[fill_start]));
 
     const uint32_t item_uidx_start = AdvTo1Bit(subset_mask, 0);
-    JoinThreads(tgp);
+    JoinThreads(&tg);
     ctx.item_uidx_start[0] = item_uidx_start;
     if (item_idx_stop >= item_ct) {
-      DeclareLastThreadBlock(tgp);
+      DeclareLastThreadBlock(&tg);
       item_idx_stop = item_ct;
     }
-    SpawnThreads(tgp);
+    SpawnThreads(&tg);
     uint32_t items_left = item_ct;
     uint32_t* htable_dup_base = R_CAST(uint32_t*, arena_bottom_mark);
     uint32_t extra_alloc = 0;
@@ -2931,15 +2927,15 @@ PglErr PopulateIdHtableMt(unsigned char* arena_top, const uintptr_t* subset_mask
     BitIter1Start(subset_mask, item_uidx_start, &item_uidx_base, &cur_bits);
     uint32_t parity = 0;
     do {
-      JoinThreads(tgp);
+      JoinThreads(&tg);
       if (extra_alloc > extra_alloc_stop) {
         goto PopulateIdHtableMt_ret_NOMEM;
       }
       if (item_idx_stop < items_left) {
         if (item_idx_stop * 2 >= items_left) {
-          DeclareLastThreadBlock(tgp);
+          DeclareLastThreadBlock(&tg);
         }
-        SpawnThreads(tgp);
+        SpawnThreads(&tg);
       } else {
         item_idx_stop = items_left;
       }
@@ -3010,7 +3006,7 @@ PglErr PopulateIdHtableMt(unsigned char* arena_top, const uintptr_t* subset_mask
     reterr = kPglRetThreadCreateFail;
     break;
   }
-  CleanupThreads(tgp);
+  CleanupThreads(&tg);
   return reterr;
 }
 

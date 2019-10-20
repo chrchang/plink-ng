@@ -1414,7 +1414,7 @@ uint32_t TextDecompressThreadCt(const TextStream* txsp) {
   if (file_type != kFileBgzf) {
     return 1;
   }
-  return GetThreadCt(&txsp->rds.bgzf.tg);
+  return GetThreadCt(&txsp->rds.bgzf.tg.shared);
 }
 
 PglErr TextAdvance(TextStream* txsp) {

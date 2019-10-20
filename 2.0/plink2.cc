@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (15 Oct 2019)";
+  " (20 Oct 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -87,9 +87,9 @@ static const char ver_str2[] =
 static const char errstr_append[] = "For more info, try \"" PROG_NAME_STR " --help <flag name>\" or \"" PROG_NAME_STR " --help | more\".\n";
 
 #ifndef NOLAPACK
-static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--missing, --hardy, --indep-pairwise, --ld, --sample-diff, --make-king,\n--king-cutoff, --write-samples, --write-snplist, --make-grm-list, --pca, --glm,\n--adjust-file, --score, --genotyping-rate, --pgen-info, --validate, and\n--zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --indep-pairwise, --ld, --sample-diff,\n--make-king, --king-cutoff, --write-samples, --write-snplist, --make-grm-list,\n--pca, --glm, --adjust-file, --score, --genotyping-rate, --pgen-info,\n--validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
 #else
-static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--missing, --hardy, --indep-pairwise, --ld, --sample-diff, --make-king,\n--king-cutoff, --write-samples, --write-snplist, --make-grm-list, --glm,\n--adjust-file, --score, --genotyping-rate, --pgen-info, --validate, and\n--zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --indep-pairwise, --ld, --sample-diff,\n--make-king, --king-cutoff, --write-samples, --write-snplist, --make-grm-list,\n--glm, --adjust-file, --score, --genotyping-rate, --pgen-info, --validate, and\n--zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
 #endif
 
 // covar-variance-standardize + terminating null
@@ -167,7 +167,8 @@ FLAGSET64_DEF_START()
   kfCommand1Ld = (1 << 18),
   kfCommand1PgenInfo = (1 << 19),
   kfCommand1RmDupList = (1 << 20),
-  kfCommand1Sdiff = (1 << 21)
+  kfCommand1Sdiff = (1 << 21),
+  kfCommand1SampleCounts = (1 << 22)
 FLAGSET64_DEF_END(Command1Flags);
 
 // this is a hybrid, only kfSortFileSid is actually a flag
@@ -308,6 +309,7 @@ typedef struct Plink2CmdlineStruct {
   MissingRptFlags missing_rpt_flags;
   GenoCountsFlags geno_counts_flags;
   HardyFlags hardy_flags;
+  SampleCountsFlags sample_counts_flags;
   RmDupMode rmdup_mode;
   STD_ARRAY_DECL(FreqFilterMode, 4, filter_modes);
   GlmInfo glm_info;
@@ -318,6 +320,7 @@ typedef struct Plink2CmdlineStruct {
   CmpExpr remove_if_expr;
   CmpExpr extract_if_info_expr;
   CmpExpr exclude_if_info_expr;
+  ExtractFcolInfo extract_fcol_info;
   ExportfInfo exportf_info;
   double ci_size;
   float var_min_qual;
@@ -346,8 +349,6 @@ typedef struct Plink2CmdlineStruct {
   double max_maf;
   double thin_keep_prob;
   double thin_keep_sample_prob;
-  double extract_fcol_min;
-  double extract_fcol_max;
   uint64_t min_allele_dosage;
   uint64_t max_allele_dosage;
   int32_t missing_pheno;
@@ -418,12 +419,10 @@ typedef struct Plink2CmdlineStruct {
   char* update_alleles_fname;
   char* update_sample_ids_fname;
   char* update_parental_ids_fname;
-  char* extract_fcol_match_flattened;
   TwoColParams* ref_allele_flag;
   TwoColParams* alt1_allele_flag;
   TwoColParams* update_map_flag;
   TwoColParams* update_name_flag;
-  TwoColParams* extract_fcol_flag;
 } Plink2Cmdline;
 
 // er, probably time to just always initialize this...
@@ -1141,7 +1140,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     // Otherwise, it may be very advantageous to apply the position-based
     // filters before constructing the variant ID hash table.  So we split this
     // into two cases.
-    const uint32_t full_variant_id_htable_needed = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_fname || (pcp->rmdup_mode != kRmDup0) || pcp->extract_fcol_flag);
+    const uint32_t full_variant_id_htable_needed = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_fname || (pcp->rmdup_mode != kRmDup0) || pcp->extract_fcol_info.params);
     if (!full_variant_id_htable_needed) {
       reterr = ApplyVariantBpFilters(pcp->extract_fnames, pcp->extract_intersect_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, pcp->max_thread_ct, variant_include, &variant_ct);
       if (unlikely(reterr)) {
@@ -1250,8 +1249,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             goto Plink2Core_ret_1;
           }
         }
-        if (pcp->extract_fcol_flag) {
-          reterr = ExtractFcol(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, pcp->extract_fcol_flag, pcp->extract_fcol_match_flattened, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, pcp->extract_fcol_min, pcp->extract_fcol_max, pcp->max_thread_ct, variant_include, &variant_ct);
+        if (pcp->extract_fcol_info.params) {
+          reterr = ExtractFcol(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, &pcp->extract_fcol_info, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, pcp->max_thread_ct, variant_include, &variant_ct);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -2096,6 +2095,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_DEGENERATE_DATA;
         }
         logprintf("%u variant%s remaining after main filters.\n", variant_ct, (variant_ct == 1)? "" : "s");
+      }
+
+      if (pcp->command_flags1 & kfCommand1SampleCounts) {
+        reterr = SampleCounts(sample_include, &pii.sii, sex_nm, sex_male, variant_include, cip, allele_idx_offsets, allele_storage, raw_sample_ct, sample_ct, male_ct, raw_variant_ct, variant_ct, max_allele_ct, pcp->sample_counts_flags, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
       }
 
       if (pcp->command_flags1 & kfCommand1Sdiff) {
@@ -3085,8 +3091,6 @@ int main(int argc, char** argv) {
   pc.update_name_flag = nullptr;
   pc.update_sample_ids_fname = nullptr;
   pc.update_parental_ids_fname = nullptr;
-  pc.extract_fcol_flag = nullptr;
-  pc.extract_fcol_match_flattened = nullptr;
   InitRangeList(&pc.snps_range_list);
   InitRangeList(&pc.exclude_snps_range_list);
   InitRangeList(&pc.pheno_range_list);
@@ -3100,6 +3104,7 @@ int main(int argc, char** argv) {
   InitCmpExpr(&pc.remove_if_expr);
   InitCmpExpr(&pc.extract_if_info_expr);
   InitCmpExpr(&pc.exclude_if_info_expr);
+  InitExtractFcol(&pc.extract_fcol_info);
   InitExportf(&pc.exportf_info);
   AdjustFileInfo adjust_file_info;
   InitAdjust(&pc.adjust_info, &adjust_file_info);
@@ -3388,6 +3393,7 @@ int main(int argc, char** argv) {
     pc.missing_rpt_flags = kfMissingRpt0;
     pc.geno_counts_flags = kfGenoCounts0;
     pc.hardy_flags = kfHardy0;
+    pc.sample_counts_flags = kfSampleCounts0;
     pc.rmdup_mode = kRmDup0;
     for (uint32_t uii = 0; uii != 4; ++uii) {
       pc.filter_modes[uii] = kFreqFilterNonmajor;
@@ -3445,8 +3451,6 @@ int main(int argc, char** argv) {
     pc.keep_fcol_num = 0;
     pc.filter_min_allele_ct = 0;
     pc.filter_max_allele_ct = UINT32_MAX;
-    pc.extract_fcol_min = 0;
-    pc.extract_fcol_max = DBL_MAX;
     double import_dosage_certainty = 0.0;
     int32_t vcf_min_gq = -1;
     int32_t vcf_min_dp = -1;
@@ -4647,29 +4651,54 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 4))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = Alloc2col(&(argvk[arg_idx + 1]), flagname_p, param_ct, &pc.extract_fcol_flag);
+          reterr = Alloc2col(&(argvk[arg_idx + 1]), flagname_p, param_ct, &pc.extract_fcol_info.params);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
-          pc.dependency_flags |= kfFilterPvarReq;
+          pc.filter_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "xtract-fcol-match")) {
-          if (unlikely(!pc.extract_fcol_flag)) {
+          if (unlikely(!pc.extract_fcol_info.params)) {
             logerrputs("Error: --extract-fcol-match must be used with --extract-fcol.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, kMaxIdBlen, &pc.extract_fcol_match_flattened);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, kMaxIdBlen, &pc.extract_fcol_info.match_flattened);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
+        } else if (strequal_k_unsafe(flagname_p2, "xtract-fcol-mismatch")) {
+          if (unlikely(!pc.extract_fcol_info.params)) {
+            logerrputs("Error: --extract-fcol-mismatch must be used with --extract-fcol.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          // could make this check airtight?  right now, there's no error if
+          // the user also specifies "--extract-fcol-min 0"
+          if (unlikely((pc.extract_fcol_info.min != 0.0) || (pc.extract_fcol_info.max != DBL_MAX))) {
+            logerrputs("Error: --extract-fcol-mismatch cannot be used with --extract-fcol-max or\n--extract-fcol-min.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, kMaxIdBlen, &pc.extract_fcol_info.mismatch_flattened);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "xtract-fcol-substr")) {
+          if (unlikely((!pc.extract_fcol_info.match_flattened) && (!pc.extract_fcol_info.mismatch_flattened))) {
+            logerrputs("Error: --extract-fcol-substr must be used with --extract-fcol-match and/or\n--extract-fcol-mismatch.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          pc.extract_fcol_info.match_substr = 1;
+          goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "xtract-fcol-max")) {
-          if (unlikely(!pc.extract_fcol_flag)) {
+          if (unlikely(!pc.extract_fcol_info.params)) {
             logerrputs("Error: --extract-fcol-match must be used with --extract-fcol.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (unlikely(pc.extract_fcol_match_flattened)) {
+          if (unlikely(pc.extract_fcol_info.match_flattened)) {
             logerrputs("Error: --extract-fcol-max cannot be used with --extract-fcol-match.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
@@ -4677,16 +4706,16 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (unlikely(ScanDoublex(cur_modif, &pc.extract_fcol_max))) {
+          if (unlikely(ScanDoublex(cur_modif, &pc.extract_fcol_info.max))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --extract-fcol-max parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else if (strequal_k_unsafe(flagname_p2, "xtract-fcol-min")) {
-          if (unlikely(!pc.extract_fcol_flag)) {
+          if (unlikely(!pc.extract_fcol_info.params)) {
             logerrputs("Error: --extract-fcol-match must be used with --extract-fcol.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (unlikely(pc.extract_fcol_match_flattened)) {
+          if (unlikely(pc.extract_fcol_info.match_flattened)) {
             logerrputs("Error: --extract-fcol-min cannot be used with --extract-fcol-match.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
@@ -4694,7 +4723,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (unlikely(ScanDoublex(cur_modif, &pc.extract_fcol_min))) {
+          if (unlikely(ScanDoublex(cur_modif, &pc.extract_fcol_info.min))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --extract-fcol-min parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -8517,6 +8546,34 @@ int main(int argc, char** argv) {
           }
           pc.command_flags1 |= kfCommand1Sdiff;
           pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "ample-counts")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.sample_counts_flags |= kfSampleCountsZs;
+            } else if (likely(StrStartsWith(cur_modif, "cols=", cur_modif_slen))) {
+              if (unlikely(pc.sample_counts_flags & kfGenoCountsColAll)) {
+                logerrputs("Error: Multiple --sample-counts cols= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0maybesid\0sid\0sex\0hom\0homref\0homalt\0homaltsnp\0het\0refalt\0het2alt\0hetsnp\0dipts\0ts\0diptv\0tv\0dipnonsnpsymb\0nonsnpsymb\0symbolic\0nonsnp\0dipsingle\0single\0haprefwfemaley\0hapref\0hapaltwfemaley\0hapalt\0missingwithfemaley\0missing\0", "sample-counts", kfSampleCountsColMaybefid, kfSampleCountsColDefault, 1, &pc.sample_counts_flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --sample-counts parameter '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          if (!(pc.sample_counts_flags & kfSampleCountsColAll)) {
+            pc.sample_counts_flags |= kfSampleCountsColDefault;
+          }
+          pc.command_flags1 |= kfCommand1SampleCounts;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "trict-sid0")) {
           pc.misc_flags |= kfMiscStrictSid0;
           goto main_param_zero;
@@ -9264,9 +9321,15 @@ int main(int argc, char** argv) {
     if ((pc.grm_flags & kfGrmMatrixShapemask) && (pc.misc_flags & kfMiscNoIdHeader)) {
       pc.grm_flags |= kfGrmNoIdHeader;
     }
-    if (unlikely(pc.extract_fcol_max < pc.extract_fcol_min)) {
-      logerrputs("Error: --extract-fcol-max value can't be smaller than --extract-fcol-min value.\n");
-      goto main_ret_INVALID_CMDLINE_A;
+    if (pc.extract_fcol_info.params) {
+      if (unlikely((!pc.extract_fcol_info.match_substr) && pc.extract_fcol_info.match_flattened && pc.extract_fcol_info.mismatch_flattened)) {
+        logerrputs("Error: --extract-fcol-match and --extract-fcol-mismatch can only be used\ntogether when --extract-fcol-substr is specified.\n");
+        goto main_ret_INVALID_CMDLINE_A;
+      }
+      if (unlikely(pc.extract_fcol_info.max < pc.extract_fcol_info.min)) {
+        logerrputs("Error: --extract-fcol-max value can't be smaller than --extract-fcol-min value.\n");
+        goto main_ret_INVALID_CMDLINE_A;
+      }
     }
     if (!permit_multiple_inclusion_filters) {
       // Permit only one position- or ID-based variant inclusion filter, since
@@ -9609,6 +9672,7 @@ int main(int argc, char** argv) {
   }
   CleanupChrInfo(&chr_info);
   CleanupExportf(&pc.exportf_info);
+  CleanupExtractFcol(&pc.extract_fcol_info);
   CleanupCmpExpr(&pc.exclude_if_info_expr);
   CleanupCmpExpr(&pc.extract_if_info_expr);
   CleanupCmpExpr(&pc.remove_if_expr);

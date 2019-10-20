@@ -627,6 +627,8 @@ uint32_t GetMaxChrSlen(const ChrInfo* cip);
 
 uint32_t IsHaploidChrPresent(const ChrInfo* cip);
 
+uint32_t IsAutosomalDiploidChrPresent(const ChrInfo* cip);
+
 // any character <= ' ' is considered a terminator
 // maps chrX -> kChrRawX, etc.
 uint32_t GetChrCodeRaw(const char* str_iter);
@@ -700,6 +702,9 @@ uint32_t AllGenoEqual(const uintptr_t* genovec, uint32_t sample_ct);
 // zeroes out samples not in the mask
 void InterleavedMaskZero(const uintptr_t* __restrict interleaved_mask, uintptr_t vec_ct, uintptr_t* __restrict genovec);
 
+// sets samples outside the mask to missing (0b11)
+void InterleavedMaskMissing(const uintptr_t* __restrict interleaved_set, uintptr_t vec_ct, uintptr_t* __restrict genovec);
+
 // sets samples in the mask to missing (0b11)
 void InterleavedSetMissing(const uintptr_t* __restrict interleaved_set, uintptr_t vec_ct, uintptr_t* __restrict genovec);
 
@@ -722,7 +727,6 @@ void MaskGenovecHetsMultiallelicUnsafe(const uintptr_t* __restrict genovec, cons
 
 // vertical popcount support
 // VcountScramble1() and friends in plink2_cmdline
-/*
 #ifdef __LP64__
 #  ifdef USE_AVX2
 // 2->4: 0 2 ... 126 1 3 ... 127
@@ -774,7 +778,6 @@ HEADER_INLINE void Vcount0Incr2To4(uint32_t acc2_vec_ct, uintptr_t* acc2, uintpt
     ++acc4v_iter;
   }
 }
-*/
 
 
 // uint32_t chr_window_max(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_pos, uint32_t chr_fo_idx, uint32_t ct_max, uint32_t bp_max, uint32_t cur_window_max);
@@ -938,6 +941,24 @@ uintptr_t GetMhcWordCt(uintptr_t sample_ct);
 
 // sample_ct not relevant if genovecs_ptr == nullptr
 PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t bytes_avail, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, uintptr_t per_alt_allele_xalloc_byte_ct, PgenFileInfo* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** mhc_ptr, uintptr_t*** phasepresent_ptr, uintptr_t*** phaseinfo_ptr, uintptr_t*** dosage_present_ptr, Dosage*** dosage_mains_ptr, uintptr_t*** dphase_present_ptr, SDosage*** dphase_delta_ptr, uint32_t* read_block_size_ptr, uintptr_t* max_alt_allele_block_size_ptr, STD_ARRAY_REF(unsigned char*, 2) main_loadbufs, pthread_t** threads_ptr, PgenReader*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr);
+
+// Assumes mhc != nullptr, and is vector-aligned.
+void ExpandMhc(uint32_t sample_ct, uintptr_t* mhc, uintptr_t** patch_01_set_ptr, AlleleCode** patch_01_vals_ptr, uintptr_t** patch_10_set_ptr, AlleleCode** patch_10_vals_ptr);
+
+HEADER_INLINE void SetPgvMhc(uint32_t sample_ct, uintptr_t* mhc, PgenVariant* pgvp) {
+  ExpandMhc(sample_ct, mhc, &(pgvp->patch_01_set), &(pgvp->patch_01_vals), &(pgvp->patch_10_set), &(pgvp->patch_10_vals));
+}
+
+HEADER_INLINE void SetPgvThreadMhcNull(uint32_t sample_ct, uint32_t tidx, uintptr_t** thread_mhc, PgenVariant* pgvp) {
+  if (!thread_mhc) {
+    pgvp->patch_01_set = nullptr;
+    pgvp->patch_01_vals = nullptr;
+    pgvp->patch_10_set = nullptr;
+    pgvp->patch_10_vals = nullptr;
+  } else {
+    ExpandMhc(sample_ct, thread_mhc[tidx], &(pgvp->patch_01_set), &(pgvp->patch_01_vals), &(pgvp->patch_10_set), &(pgvp->patch_10_vals));
+  }
+}
 
 
 // These use g_textbuf.

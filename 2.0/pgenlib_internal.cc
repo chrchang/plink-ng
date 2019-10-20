@@ -4948,9 +4948,15 @@ PglErr ReadDifflistOrGenovecSubsetUnsafe(const uintptr_t* __restrict sample_incl
       }
       return kPglRetSuccess;
     }
-    assert(pgrp->ldbase_stypes & kfPgrLdcacheQuater);
+    if (pgrp->ldbase_stypes & kfPgrLdcacheQuater) {
+      CopyQuaterarr(pgrp->ldbase_genovec, sample_ct, genovec);
+    } else {
+      assert(pgrp->ldbase_stypes & kfPgrLdcacheRawQuater);
+      CopyQuaterarrNonemptySubset(pgrp->ldbase_raw_genovec, sample_include, raw_sample_ct, sample_ct, genovec);
+      CopyQuaterarr(genovec, sample_ct, pgrp->ldbase_genovec);
+      pgrp->ldbase_stypes |= kfPgrLdcacheQuater;
+    }
     *difflist_common_geno_ptr = UINT32_MAX;
-    CopyQuaterarr(pgrp->ldbase_genovec, sample_ct, genovec);
     reterr = ParseAndApplyDifflistSubset(fread_end, sample_include, sample_include_cumulative_popcounts, sample_ct, &fread_ptr, pgrp, genovec);
     if (unlikely(reterr)) {
       return reterr;

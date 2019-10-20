@@ -192,6 +192,45 @@ typedef struct UpdateSexStruct {
 } UpdateSexInfo;
 
 FLAGSET_DEF_START()
+  kfSampleCounts0,
+  kfSampleCountsZs = (1 << 0),
+
+  kfSampleCountsColMaybefid = (1 << 1),
+  kfSampleCountsColFid = (1 << 2),
+  kfSampleCountsColMaybesid = (1 << 3),
+  kfSampleCountsColSid = (1 << 4),
+  kfSampleCountsColSex = (1 << 5),
+  kfSampleCountsColHom = (1 << 6),
+  kfSampleCountsColHomref = (1 << 7),
+  kfSampleCountsColHomalt = (1 << 8),
+  kfSampleCountsColHomaltSnp = (1 << 9),
+  kfSampleCountsColHet = (1 << 10),
+  kfSampleCountsColRefalt = (1 << 11),
+  kfSampleCountsColHet2alt = (1 << 12),
+
+  kfSampleCountsColHetSnp = (1 << 13),
+  kfSampleCountsColDiploidTs = (1 << 14),
+  kfSampleCountsColTs = (1 << 15),
+  kfSampleCountsColDiploidTv = (1 << 16),
+  kfSampleCountsColTv = (1 << 17),
+  kfSampleCountsColDiploidNonsnpsymb = (1 << 18),
+  kfSampleCountsColNonsnpsymb = (1 << 19),
+  kfSampleCountsColSymbolic = (1 << 20),
+  kfSampleCountsColNonsnp = (1 << 21),
+
+  kfSampleCountsColDiploidSingle = (1 << 22),
+  kfSampleCountsColSingle = (1 << 23),
+  kfSampleCountsColHaprefWithFemaleY = (1 << 24),
+  kfSampleCountsColHapref = (1 << 25),
+  kfSampleCountsColHapaltWithFemaleY = (1 << 26),
+  kfSampleCountsColHapalt = (1 << 27),
+  kfSampleCountsColMissingWithFemaleY = (1 << 28),
+  kfSampleCountsColMissing = (1 << 29),
+  kfSampleCountsColDefault = (kfSampleCountsColMaybefid | kfSampleCountsColMaybesid | kfSampleCountsColHomref | kfSampleCountsColHomaltSnp | kfSampleCountsColHetSnp | kfSampleCountsColDiploidTs | kfSampleCountsColDiploidTv | kfSampleCountsColDiploidNonsnpsymb | kfSampleCountsColDiploidSingle | kfSampleCountsColHaprefWithFemaleY | kfSampleCountsColHapaltWithFemaleY | kfSampleCountsColMissingWithFemaleY),
+  kfSampleCountsColAll = ((kfSampleCountsColMissing * 2) - kfSampleCountsColMaybefid)
+FLAGSET_DEF_END(SampleCountsFlags);
+
+FLAGSET_DEF_START()
   kfSdiff0,
   kfSdiffIncludeMissing = (1 << 0),
   kfSdiffPairwise = (1 << 1),
@@ -285,6 +324,8 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
 PglErr ComputeHweXPvals(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), uint32_t x_start, uint32_t hwe_x_ct, uintptr_t x_xallele_ct, uint32_t hwe_midp, uint32_t calc_thread_ct, double** hwe_x_pvals_ptr);
 
 PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, autosomal_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_nosex_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_knownsex_xgeno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 2, x_male_xgeno_cts), const double* hwe_x_pvals, uint32_t variant_ct, uint32_t hwe_x_ct, uint32_t max_allele_slen, double output_min_ln, HardyFlags hardy_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end);
+
+PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, SampleCountsFlags flags, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end);
 
 PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const SdiffInfo* sdip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t variant_ct, uint32_t iid_sid, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 

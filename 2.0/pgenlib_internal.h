@@ -1279,8 +1279,7 @@ void PgrDifflistToGenovecUnsafe(const uintptr_t* __restrict raregeno, const uint
 //   sample_ct where [k] has that sample's start index in the payload arrays.)
 // * PgrGetDifflistOrGenovec() opportunistically returns the sparse genotype
 //   representation ('difflist'), for functions capable of taking advantage of
-//   it.  I don't plan to use this in plink2 before at least 2019, but the
-//   pgen_compress demo program illustrates its usage.
+//   it.  See SampleCountsThread() in plink2_misc for a usage example.
 // * PgrGetCounts() is equivalent to calling PgrGet() and then counting the
 //   number of 00s, 01s, 10s, and 11s, without the overhead of fully expanding
 //   the compressed data, etc.

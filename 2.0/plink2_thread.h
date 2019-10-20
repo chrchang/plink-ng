@@ -146,8 +146,8 @@ uint32_t NumCpu(int32_t* known_procs_ptr);
 // Also allocates, returning 1 on failure.
 BoolErr SetThreadCt(uint32_t thread_ct, ThreadGroup* tgp);
 
-HEADER_INLINE uint32_t GetThreadCt(const ThreadGroup* tgp) {
-  return tgp->shared.cb.thread_ct;
+HEADER_INLINE uint32_t GetThreadCt(const ThreadGroupShared* sharedp) {
+  return sharedp->cb.thread_ct;
 }
 
 HEADER_INLINE void SetThreadFuncAndData(THREAD_FUNCPTR_T(start_routine), void* shared_context, ThreadGroup* tgp) {
@@ -240,6 +240,10 @@ HEADER_INLINE void JoinThreads0(ThreadGroup* tgp) {
     JoinThreads(tgp);
   }
 }
+
+// This comes in handy a lot in multithreaded error-reporting code when
+// deterministic behavior is desired.
+void UpdateU64IfSmaller(uint64_t newval, uint64_t* oldval_ptr);
 
 #ifdef __cplusplus
 }  // namespace plink2

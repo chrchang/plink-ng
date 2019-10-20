@@ -23,6 +23,21 @@
 namespace plink2 {
 #endif
 
+void InitExtractFcol(ExtractFcolInfo* efip) {
+  efip->params = nullptr;
+  efip->match_flattened = nullptr;
+  efip->mismatch_flattened = nullptr;
+  efip->match_substr = 0;
+  efip->min = 0.0;
+  efip->max = DBL_MAX;
+}
+
+void CleanupExtractFcol(ExtractFcolInfo* efip) {
+  free_cond(efip->params);
+  free_cond(efip->match_flattened);
+  free_cond(efip->mismatch_flattened);
+}
+
 PglErr FromToFlag(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* varid_from, const char* varid_to, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uintptr_t* variant_include, ChrInfo* cip, uint32_t* variant_ct_ptr) {
   PglErr reterr = kPglRetSuccess;
   {
@@ -293,52 +308,49 @@ void ExtractExcludeProcessTokens(const char* const* variant_ids, const uint32_t*
 
 CONSTI32(kMaxExtractExcludeThreads, 8);
 
-// multithread globals
-static uint32_t g_calc_thread_ct = 0;
-static char* g_shard_boundaries[kMaxExtractExcludeThreads + 1];
-static uintptr_t* g_already_seens[kMaxExtractExcludeThreads];
+typedef struct ExtractExcludeCtxStruct {
+  const char* const* variant_ids;
+  const uint32_t* variant_id_htable;
+  const uint32_t* htable_dup_base;
+  uintptr_t variant_id_htable_size;
+  uint32_t max_variant_id_slen;
 
-static const char* const* g_variant_ids = nullptr;
-static const uint32_t* g_variant_id_htable = nullptr;
-static const uint32_t* g_htable_dup_base = nullptr;
-static uintptr_t g_variant_id_htable_size = 0;
-static uint32_t g_max_variant_id_slen = 0;
-static uint32_t g_cur_block_size = 0; // just used as termination signal
+  char* shard_boundaries[kMaxExtractExcludeThreads + 1];
+  uintptr_t* already_seens[kMaxExtractExcludeThreads];
+} ExtractExcludeCtx;
 
-THREAD_FUNC_DECL ExtractExcludeThread(void* arg) {
-  const uintptr_t tidx = R_CAST(uintptr_t, arg);
-  const uintptr_t tidx_p1 = tidx + 1;
-  const char* const* variant_ids = g_variant_ids;
-  const uint32_t* variant_id_htable = g_variant_id_htable;
-  const uint32_t* htable_dup_base = g_htable_dup_base;
-  const uintptr_t variant_id_htable_size = g_variant_id_htable_size;
-  const uint32_t max_variant_id_slen = g_max_variant_id_slen;
-  uintptr_t* already_seen = g_already_seens[tidx_p1];
-  while (1) {
-    const uint32_t is_last_block = g_is_last_thread_block;
-    const uint32_t no_error = g_cur_block_size;
-    if (no_error) {
-      ExtractExcludeProcessTokens(variant_ids, variant_id_htable, htable_dup_base, g_shard_boundaries[tidx_p1], g_shard_boundaries[tidx_p1 + 1], variant_id_htable_size, max_variant_id_slen, already_seen);
-    }
-    if (is_last_block) {
-      THREAD_RETURN;
-    }
-    THREAD_BLOCK_FINISH_OLD(tidx);
-  }
+THREAD_FUNC_DECL ExtractExcludeThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx_p1 = arg->tidx + 1;
+  ExtractExcludeCtx* ctx = S_CAST(ExtractExcludeCtx*, arg->sharedp->context);
+
+  const char* const* variant_ids = ctx->variant_ids;
+  const uint32_t* variant_id_htable = ctx->variant_id_htable;
+  const uint32_t* htable_dup_base = ctx->htable_dup_base;
+  const uintptr_t variant_id_htable_size = ctx->variant_id_htable_size;
+  const uint32_t max_variant_id_slen = ctx->max_variant_id_slen;
+  uintptr_t* already_seen = ctx->already_seens[tidx_p1];
+  do {
+    ExtractExcludeProcessTokens(variant_ids, variant_id_htable, htable_dup_base, ctx->shard_boundaries[tidx_p1], ctx->shard_boundaries[tidx_p1 + 1], variant_id_htable_size, max_variant_id_slen, already_seen);
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
 }
 
 PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* fnames, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, VfilterType vft, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   const char* vft_name = g_vft_names[vft];
   const char* fname_tks = nullptr;
-  TokenStream tks;
-  ThreadsState ts;
   PglErr reterr = kPglRetSuccess;
+  TokenStream tks;
+  ThreadGroup tg;
   PreinitTokenStream(&tks);
-  InitThreads3z(&ts);
+  PreinitThreads(&tg);
+  ExtractExcludeCtx ctx;
   {
-    const uint32_t calc_thread_ct_m1 = ((max_thread_ct > 2)? MINV(max_thread_ct - 1, kMaxExtractExcludeThreads) : max_thread_ct) - 1;
-    ts.calc_thread_ct = calc_thread_ct_m1;
+    const uint32_t calc_thread_ct_m1 = MINV(max_thread_ct, kMaxExtractExcludeThreads) - 1;
+    if (unlikely(SetThreadCt0(calc_thread_ct_m1, &tg))) {
+      goto ExtractExcludeFlagNorange_ret_NOMEM;
+    }
     if (!(*variant_ct_ptr)) {
       goto ExtractExcludeFlagNorange_ret_1;
     }
@@ -348,24 +360,19 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
     }
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     for (uint32_t tidx = 0; tidx <= calc_thread_ct_m1; ++tidx) {
-      if (unlikely(bigstack_calloc_w(raw_variant_ctl, &(g_already_seens[tidx])))) {
+      if (unlikely(bigstack_calloc_w(raw_variant_ctl, &(ctx.already_seens[tidx])))) {
         goto ExtractExcludeFlagNorange_ret_NOMEM;
       }
     }
     if (calc_thread_ct_m1) {
-      if (unlikely(bigstack_alloc_thread(calc_thread_ct_m1, &ts.threads))) {
-        goto ExtractExcludeFlagNorange_ret_NOMEM;
-      }
-      ts.thread_func_ptr = ExtractExcludeThread;
-      g_variant_ids = variant_ids;
-      g_variant_id_htable = variant_id_htable;
-      g_htable_dup_base = htable_dup_base;
-      g_variant_id_htable_size = variant_id_htable_size;
-      g_max_variant_id_slen = max_variant_id_slen;
-      g_cur_block_size = 1;
+      ctx.variant_ids = variant_ids;
+      ctx.variant_id_htable = variant_id_htable;
+      ctx.htable_dup_base = htable_dup_base;
+      ctx.variant_id_htable_size = variant_id_htable_size;
+      ctx.max_variant_id_slen = max_variant_id_slen;
+      SetThreadFuncAndData(ExtractExcludeThread, &ctx, &tg);
     }
     const char* fnames_iter = fnames;
-    uint32_t is_not_first_block = 0;
     do {
       if (fnames_iter == fnames) {
         fname_tks = fnames_iter;
@@ -381,49 +388,43 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
         fname_tks = fnames_iter;
       }
       while (1) {
-        reterr = TksNext(&tks, calc_thread_ct_m1 + 1, g_shard_boundaries);
+        reterr = TksNext(&tks, calc_thread_ct_m1 + 1, ctx.shard_boundaries);
         if (reterr) {
           break;
         }
         if (calc_thread_ct_m1) {
-          if (unlikely(SpawnThreads3z(is_not_first_block, &ts))) {
+          if (unlikely(SpawnThreads(&tg))) {
             goto ExtractExcludeFlagNorange_ret_THREAD_CREATE_FAIL;
           }
-          is_not_first_block = 1;
         }
-        ExtractExcludeProcessTokens(variant_ids, variant_id_htable, htable_dup_base, g_shard_boundaries[0], g_shard_boundaries[1], variant_id_htable_size, max_variant_id_slen, g_already_seens[0]);
-        if (calc_thread_ct_m1) {
-          JoinThreads3z(&ts);
-        }
+        ExtractExcludeProcessTokens(variant_ids, variant_id_htable, htable_dup_base, ctx.shard_boundaries[0], ctx.shard_boundaries[1], variant_id_htable_size, max_variant_id_slen, ctx.already_seens[0]);
+        JoinThreads0(&tg);
       }
       if (unlikely(reterr != kPglRetEof)) {
         goto ExtractExcludeFlagNorange_ret_TKSTREAM_FAIL;
       }
       if (vft == kVfilterExtractIntersect) {
         for (uint32_t tidx = 1; tidx <= calc_thread_ct_m1; ++tidx) {
-          BitvecOr(g_already_seens[tidx], raw_variant_ctl, g_already_seens[0]);
-          ZeroWArr(raw_variant_ctl, g_already_seens[tidx]);
+          BitvecOr(ctx.already_seens[tidx], raw_variant_ctl, ctx.already_seens[0]);
+          ZeroWArr(raw_variant_ctl, ctx.already_seens[tidx]);
         }
-        BitvecAnd(g_already_seens[0], raw_variant_ctl, variant_include);
-        ZeroWArr(raw_variant_ctl, g_already_seens[0]);
+        BitvecAnd(ctx.already_seens[0], raw_variant_ctl, variant_include);
+        ZeroWArr(raw_variant_ctl, ctx.already_seens[0]);
       }
       fnames_iter = strnul(fnames_iter);
       ++fnames_iter;
     } while (*fnames_iter);
     reterr = kPglRetSuccess;
-    if (calc_thread_ct_m1) {
-      StopThreads3z(&ts, &g_cur_block_size);
-    }
     if (vft == kVfilterExclude) {
       for (uint32_t tidx = 1; tidx <= calc_thread_ct_m1; ++tidx) {
-        BitvecOr(g_already_seens[tidx], raw_variant_ctl, g_already_seens[0]);
+        BitvecOr(ctx.already_seens[tidx], raw_variant_ctl, ctx.already_seens[0]);
       }
-      BitvecInvmask(g_already_seens[0], raw_variant_ctl, variant_include);
+      BitvecInvmask(ctx.already_seens[0], raw_variant_ctl, variant_include);
     } else if (vft == kVfilterExtract) {
       for (uint32_t tidx = 1; tidx <= calc_thread_ct_m1; ++tidx) {
-        BitvecOr(g_already_seens[tidx], raw_variant_ctl, g_already_seens[0]);
+        BitvecOr(ctx.already_seens[tidx], raw_variant_ctl, ctx.already_seens[0]);
       }
-      BitvecAnd(g_already_seens[0], raw_variant_ctl, variant_include);
+      BitvecAnd(ctx.already_seens[0], raw_variant_ctl, variant_include);
     }
     const uint32_t new_variant_ct = PopcountWords(variant_include, raw_variant_ctl);
     logprintf("--%s: %u variant%s remaining.\n", vft_name, new_variant_ct, (new_variant_ct == 1)? "" : "s");
@@ -440,7 +441,7 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
     reterr = kPglRetThreadCreateFail;
   }
  ExtractExcludeFlagNorange_ret_1:
-  CleanupThreads3z(&ts, &g_cur_block_size);
+  CleanupThreads(&tg);
   if (fname_tks) {
     CleanupTokenStream2(fname_tks, &tks, &reterr);
   }
@@ -448,7 +449,7 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
   return reterr;
 }
 
-PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const TwoColParams* flag_params, const char* match_flattened, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t htable_size, double val_min, double val_max, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const ExtractFcolInfo* efip, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t htable_size, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
@@ -464,19 +465,29 @@ PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_ht
             bigstack_calloc_w(raw_variant_ctl, &already_seen))) {
       goto ExtractFcol_ret_NOMEM;
     }
-    uint32_t str_ct = 0;
-    char* sorted_strbox;
-    uintptr_t max_str_blen;
-    if (match_flattened) {
-      if (unlikely(MultistrToStrboxDedupAlloc(match_flattened, &sorted_strbox, &str_ct, &max_str_blen))) {
+    char* match_strbox = nullptr;
+    uint32_t match_str_ct = 0;
+    uintptr_t max_match_blen = 0;
+    // We don't actually need to sort in the substring-match case, but
+    // additional cost is negligible.
+    if (efip->match_flattened) {
+      if (unlikely(MultistrToStrboxDedupAlloc(efip->match_flattened, &match_strbox, &match_str_ct, &max_match_blen))) {
         goto ExtractFcol_ret_NOMEM;
       }
     }
-    reterr = SizeAndInitTextStream(flag_params->fname, bigstack_left(), MAXV(max_thread_ct - 1, 1), &txs);
+    char* mismatch_strbox = nullptr;
+    uint32_t mismatch_str_ct = 0;
+    uintptr_t max_mismatch_blen = 0;
+    if (efip->mismatch_flattened) {
+      if (unlikely(MultistrToStrboxDedupAlloc(efip->mismatch_flattened, &mismatch_strbox, &mismatch_str_ct, &max_mismatch_blen))) {
+        goto ExtractFcol_ret_NOMEM;
+      }
+    }
+    reterr = SizeAndInitTextStream(efip->params->fname, bigstack_left(), MAXV(max_thread_ct - 1, 1), &txs);
     if (unlikely(reterr)) {
       goto ExtractFcol_ret_TSTREAM_FAIL;
     }
-    reterr = TextSkip(flag_params->skip_ct, &txs);
+    reterr = TextSkip(efip->params->skip_ct, &txs);
     if (unlikely(reterr)) {
       if (reterr == kPglRetEof) {
         logerrputs("Error: Fewer lines than expected in --extract-fcol file.\n");
@@ -484,23 +495,26 @@ PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_ht
       }
       goto ExtractFcol_ret_TSTREAM_FAIL;
     }
-    line_idx = flag_params->skip_ct;
-    const uint32_t colid_first = (flag_params->colid < flag_params->colx);
+    line_idx = efip->params->skip_ct;
+    const uint32_t colid_first = (efip->params->colid < efip->params->colx);
     uint32_t colmin;
     uint32_t coldiff;
     if (colid_first) {
-      colmin = flag_params->colid - 1;
-      coldiff = flag_params->colx - flag_params->colid;
+      colmin = efip->params->colid - 1;
+      coldiff = efip->params->colx - efip->params->colid;
     } else {
-      colmin = flag_params->colx - 1;
-      coldiff = flag_params->colid - flag_params->colx;
+      colmin = efip->params->colx - 1;
+      coldiff = efip->params->colid - efip->params->colx;
     }
-    const char skipchar = flag_params->skipchar;
+    const char skipchar = efip->params->skipchar;
+    const uint32_t match_substr = efip->match_substr;
+    double val_min = efip->min;
+    double val_max = efip->max;
     uintptr_t miss_ct = 0;
     while (1) {
       ++line_idx;
-      const char* line_start;
-      reterr = TextNextLineLstripK(&txs, &line_start);
+      char* line_start;
+      reterr = TextNextLineLstrip(&txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
@@ -512,8 +526,8 @@ PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_ht
       if (IsEolnKns(cc) || (cc == skipchar)) {
         continue;
       }
-      const char* colid_ptr;
-      const char* colval_ptr;
+      char* colid_ptr;
+      char* colval_ptr;
       if (colid_first) {
         colid_ptr = NextTokenMult0(line_start, colmin);
         colval_ptr = NextTokenMult(colid_ptr, coldiff);
@@ -540,12 +554,55 @@ PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_ht
         goto ExtractFcol_ret_INCONSISTENT_INPUT_WW;
       }
       SetBit(variant_uidx, already_seen);
-      if (str_ct) {
+      if (mismatch_str_ct) {
+        char* token_end = CurTokenEnd(colval_ptr);
+        if (!match_substr) {
+          const int32_t ii = bsearch_str(colval_ptr, mismatch_strbox, token_end - colval_ptr, max_mismatch_blen, mismatch_str_ct);
+          if (ii != -1) {
+            continue;
+          }
+        } else {
+          // todo: benchmark memmem, use it when it's available and better
+          *token_end = '\0';
+          uint32_t uii = 0;
+          for (; uii != mismatch_str_ct; ++uii) {
+            if (strstr(colval_ptr, &(mismatch_strbox[uii * max_mismatch_blen]))) {
+              break;
+            }
+          }
+          if (uii != mismatch_str_ct) {
+            continue;
+          }
+          if (match_str_ct) {
+            for (uii = 0; uii != match_str_ct; ++uii) {
+              if (strstr(colval_ptr, &(match_strbox[uii * max_match_blen]))) {
+                break;
+              }
+            }
+            if (uii == match_str_ct) {
+              continue;
+            }
+          }
+        }
+      } else if (match_str_ct) {
         // --extract-fcol-match
-        const char* token_end = CurTokenEnd(colval_ptr);
-        const int32_t ii = bsearch_str(colval_ptr, sorted_strbox, token_end - colval_ptr, max_str_blen, str_ct);
-        if (ii == -1) {
-          continue;
+        char* token_end = CurTokenEnd(colval_ptr);
+        if (!match_substr) {
+          const int32_t ii = bsearch_str(colval_ptr, match_strbox, token_end - colval_ptr, max_match_blen, match_str_ct);
+          if (ii == -1) {
+            continue;
+          }
+        } else {
+          *token_end = '\0';
+          uint32_t uii = 0;
+          for (; uii != match_str_ct; ++uii) {
+            if (strstr(colval_ptr, &(match_strbox[uii * max_match_blen]))) {
+              break;
+            }
+          }
+          if (uii == match_str_ct) {
+            continue;
+          }
         }
       } else {
         // min-max
@@ -576,7 +633,7 @@ PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_ht
     reterr = kPglRetNomem;
     break;
   ExtractFcol_ret_TSTREAM_FAIL:
-    TextStreamErrPrint(flag_params->fname, &txs);
+    TextStreamErrPrint(efip->params->fname, &txs);
     break;
   ExtractFcol_ret_MISSING_TOKENS:
     logerrprintf("Error: Line %" PRIuPTR " of --extract-fcol file has fewer tokens than expected.\n", line_idx);
@@ -589,7 +646,7 @@ PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_ht
     reterr = kPglRetInconsistentInput;
     break;
   }
-  CleanupTextStream2(flag_params->fname, &txs, &reterr);
+  CleanupTextStream2(efip->params->fname, &txs, &reterr);
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -3180,36 +3237,42 @@ void ComputeMajAlleles(const uintptr_t* variant_include, const uintptr_t* allele
   }
 }
 
+typedef struct LoadSampleMissingCtsCtxStruct {
+  const uintptr_t* variant_include;
+  const ChrInfo* cip;
+  const uintptr_t* sex_male;
+  uint32_t raw_sample_ct;
 
-// more multithread globals
-static PgenReader** g_pgr_ptrs = nullptr;
-static uintptr_t** g_genovecs = nullptr;
-static uint32_t* g_read_variant_uidx_starts = nullptr;
-static uintptr_t** g_missing_hc_acc1 = nullptr;
-static uintptr_t** g_missing_dosage_acc1 = nullptr;
-static uintptr_t** g_hethap_acc1 = nullptr;
+  PgenReader** pgr_ptrs;
+  uintptr_t** genovecs;
+  uint32_t* read_variant_uidx_starts;
+  uint32_t cur_block_size;
 
-static const uintptr_t* g_variant_include = nullptr;
-static const ChrInfo* g_cip = nullptr;
-static const uintptr_t* g_sex_male = nullptr;
-static uint32_t g_raw_sample_ct = 0;
-static PglErr g_error_ret = kPglRetSuccess;
+  uintptr_t** missing_hc_acc1;
+  uintptr_t** missing_dosage_acc1;
+  uintptr_t** hethap_acc1;
 
-THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* arg) {
-  const uintptr_t tidx = R_CAST(uintptr_t, arg);
-  const uintptr_t* variant_include = g_variant_include;
-  const ChrInfo* cip = g_cip;
-  const uintptr_t* sex_male = g_sex_male;
-  const uint32_t raw_sample_ct = g_raw_sample_ct;
+  uint64_t err_info;
+} LoadSampleMissingCtsCtx;
+
+THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  LoadSampleMissingCtsCtx* ctx = S_CAST(LoadSampleMissingCtsCtx*, arg->sharedp->context);
+
+  const uintptr_t* variant_include = ctx->variant_include;
+  const ChrInfo* cip = ctx->cip;
+  const uintptr_t* sex_male = ctx->sex_male;
+  const uint32_t raw_sample_ct = ctx->raw_sample_ct;
   const uint32_t raw_sample_ctaw = BitCtToAlignedWordCt(raw_sample_ct);
   const uint32_t acc1_vec_ct = BitCtToVecCt(raw_sample_ct);
   const uint32_t acc4_vec_ct = acc1_vec_ct * 4;
   const uint32_t acc8_vec_ct = acc1_vec_ct * 8;
-  const uint32_t calc_thread_ct = g_calc_thread_ct;
+  const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
   const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
   const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
-  uintptr_t* genovec_buf = g_genovecs[tidx];
-  uintptr_t* missing_hc_acc1 = g_missing_hc_acc1[tidx];
+  uintptr_t* genovec_buf = ctx->genovecs[tidx];
+  uintptr_t* missing_hc_acc1 = ctx->missing_hc_acc1[tidx];
   uintptr_t* missing_hc_acc4 = &(missing_hc_acc1[acc1_vec_ct * kWordsPerVec]);
   uintptr_t* missing_hc_acc8 = &(missing_hc_acc4[acc4_vec_ct * kWordsPerVec]);
   uintptr_t* missing_hc_acc32 = &(missing_hc_acc8[acc8_vec_ct * kWordsPerVec]);
@@ -3218,8 +3281,8 @@ THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* arg) {
   uintptr_t* missing_dosage_acc4 = nullptr;
   uintptr_t* missing_dosage_acc8 = nullptr;
   uintptr_t* missing_dosage_acc32 = nullptr;
-  if (g_missing_dosage_acc1) {
-    missing_dosage_acc1 = g_missing_dosage_acc1[tidx];
+  if (ctx->missing_dosage_acc1) {
+    missing_dosage_acc1 = ctx->missing_dosage_acc1[tidx];
     missing_dosage_acc4 = &(missing_dosage_acc1[acc1_vec_ct * kWordsPerVec]);
     missing_dosage_acc8 = &(missing_dosage_acc4[acc4_vec_ct * kWordsPerVec]);
     missing_dosage_acc32 = &(missing_dosage_acc8[acc8_vec_ct * kWordsPerVec]);
@@ -3227,7 +3290,7 @@ THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* arg) {
   }
   // could make this optional
   // (could technically make missing_hc optional too...)
-  uintptr_t* hethap_acc1 = g_hethap_acc1[tidx];
+  uintptr_t* hethap_acc1 = ctx->hethap_acc1[tidx];
   uintptr_t* hethap_acc4 = &(hethap_acc1[acc1_vec_ct * kWordsPerVec]);
   uintptr_t* hethap_acc8 = &(hethap_acc4[acc4_vec_ct * kWordsPerVec]);
   uintptr_t* hethap_acc32 = &(hethap_acc8[acc8_vec_ct * kWordsPerVec]);
@@ -3236,14 +3299,14 @@ THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* arg) {
   uint32_t all_ct_rem255d15 = 17;
   uint32_t hap_ct_rem15 = 15;
   uint32_t hap_ct_rem255d15 = 17;
-  while (1) {
-    PgenReader* pgrp = g_pgr_ptrs[tidx];
-    const uint32_t is_last_block = g_is_last_thread_block;
-    const uint32_t cur_block_size = g_cur_block_size;
+  uint64_t new_err_info = 0;
+  do {
+    PgenReader* pgrp = ctx->pgr_ptrs[tidx];
+    const uint32_t cur_block_size = ctx->cur_block_size;
     const uint32_t cur_idx_ct = (((tidx + 1) * cur_block_size) / calc_thread_ct) - ((tidx * cur_block_size) / calc_thread_ct);
     uintptr_t variant_uidx_base;
     uintptr_t cur_bits;
-    BitIter1Start(variant_include, g_read_variant_uidx_starts[tidx], &variant_uidx_base, &cur_bits);
+    BitIter1Start(variant_include, ctx->read_variant_uidx_starts[tidx], &variant_uidx_base, &cur_bits);
     uint32_t chr_end = 0;
     uintptr_t* cur_hets = nullptr;
     uint32_t is_diploid_x = 0;
@@ -3272,8 +3335,8 @@ THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* arg) {
       // operations when the variant is all hardcalls.
       PglErr reterr = PgrGetMissingnessD(nullptr, nullptr, raw_sample_ct, variant_uidx, pgrp, missing_hc_acc1, missing_dosage_acc1, cur_hets, genovec_buf);
       if (unlikely(reterr)) {
-        g_error_ret = reterr;
-        break;
+        new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+        goto LoadSampleMissingCtsThread_err;
       }
       if (is_y) {
         BitvecAnd(sex_male, raw_sample_ctaw, missing_hc_acc1);
@@ -3314,27 +3377,30 @@ THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* arg) {
         }
       }
     }
-    if (is_last_block) {
-      VcountIncr4To8(missing_hc_acc4, acc4_vec_ct, missing_hc_acc8);
-      VcountIncr8To32(missing_hc_acc8, acc8_vec_ct, missing_hc_acc32);
-      if (missing_dosage_acc1) {
-        VcountIncr4To8(missing_dosage_acc4, acc4_vec_ct, missing_dosage_acc8);
-        VcountIncr8To32(missing_dosage_acc8, acc8_vec_ct, missing_dosage_acc32);
-      }
-      VcountIncr4To8(hethap_acc4, acc4_vec_ct, hethap_acc8);
-      VcountIncr8To32(hethap_acc8, acc8_vec_ct, hethap_acc32);
-      THREAD_RETURN;
+    while (0) {
+    LoadSampleMissingCtsThread_err:
+      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+      break;
     }
-    THREAD_BLOCK_FINISH_OLD(tidx);
+  } while (!THREAD_BLOCK_FINISH(arg));
+  VcountIncr4To8(missing_hc_acc4, acc4_vec_ct, missing_hc_acc8);
+  VcountIncr8To32(missing_hc_acc8, acc8_vec_ct, missing_hc_acc32);
+  if (missing_dosage_acc1) {
+    VcountIncr4To8(missing_dosage_acc4, acc4_vec_ct, missing_dosage_acc8);
+    VcountIncr8To32(missing_dosage_acc8, acc8_vec_ct, missing_dosage_acc32);
   }
+  VcountIncr4To8(hethap_acc4, acc4_vec_ct, hethap_acc8);
+  VcountIncr8To32(hethap_acc8, acc8_vec_ct, hethap_acc32);
+  THREAD_RETURN;
 }
 
 PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uint32_t* sample_missing_hc_cts, uint32_t* sample_missing_dosage_cts, uint32_t* sample_hethap_cts) {
   assert(sample_missing_hc_cts || sample_missing_dosage_cts);
   unsigned char* bigstack_mark = g_bigstack_base;
-  ThreadsState ts;
-  InitThreads3z(&ts);
   PglErr reterr = kPglRetSuccess;
+  ThreadGroup tg;
+  PreinitThreads(&tg);
+  LoadSampleMissingCtsCtx ctx;
   {
     if (!variant_ct) {
       ZeroU32Arr(raw_sample_ct, sample_missing_hc_cts);
@@ -3348,38 +3414,41 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
     uint32_t calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
     const uint32_t acc1_vec_ct = BitCtToVecCt(raw_sample_ct);
     const uintptr_t acc1_alloc_cacheline_ct = DivUp(acc1_vec_ct * (45 * k1LU * kBytesPerVec), kCacheline);
-    g_sex_male = sex_male;
+    ctx.sex_male = sex_male;
     uintptr_t thread_alloc_cacheline_ct = 2 * acc1_alloc_cacheline_ct;
-    g_missing_dosage_acc1 = nullptr;
+    ctx.missing_dosage_acc1 = nullptr;
     if (sample_missing_dosage_cts) {
-      if (unlikely(bigstack_alloc_wp(calc_thread_ct, &g_missing_dosage_acc1))) {
+      if (unlikely(bigstack_alloc_wp(calc_thread_ct, &ctx.missing_dosage_acc1))) {
         goto LoadSampleMissingCts_ret_NOMEM;
       }
       thread_alloc_cacheline_ct += acc1_alloc_cacheline_ct;
     }
     if (unlikely(
-            bigstack_alloc_wp(calc_thread_ct, &g_missing_hc_acc1) ||
-            bigstack_alloc_wp(calc_thread_ct, &g_hethap_acc1))) {
+            bigstack_alloc_wp(calc_thread_ct, &ctx.missing_hc_acc1) ||
+            bigstack_alloc_wp(calc_thread_ct, &ctx.hethap_acc1))) {
       goto LoadSampleMissingCts_ret_NOMEM;
     }
     STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
     uint32_t read_block_size;
-    if (unlikely(PgenMtLoadInit(variant_include, raw_sample_ct, raw_variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_alloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, &g_genovecs, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &ts.threads, &g_pgr_ptrs, &g_read_variant_uidx_starts))) {
+    if (unlikely(PgenMtLoadInit(variant_include, raw_sample_ct, raw_variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_alloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, &ctx.genovecs, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, nullptr, &ctx.pgr_ptrs, &ctx.read_variant_uidx_starts))) {
       goto LoadSampleMissingCts_ret_NOMEM;
     }
     const uintptr_t acc1_alloc = acc1_alloc_cacheline_ct * kCacheline;
     for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-      g_missing_hc_acc1[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(acc1_alloc));
-      if (g_missing_dosage_acc1) {
-        g_missing_dosage_acc1[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(acc1_alloc));
+      ctx.missing_hc_acc1[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(acc1_alloc));
+      if (ctx.missing_dosage_acc1) {
+        ctx.missing_dosage_acc1[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(acc1_alloc));
       }
-      g_hethap_acc1[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(acc1_alloc));
+      ctx.hethap_acc1[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(acc1_alloc));
     }
-    g_variant_include = variant_include;
-    g_cip = cip;
-    g_raw_sample_ct = raw_sample_ct;
-    g_calc_thread_ct = calc_thread_ct;
-    ts.calc_thread_ct = calc_thread_ct;
+    ctx.variant_include = variant_include;
+    ctx.cip = cip;
+    ctx.raw_sample_ct = raw_sample_ct;
+    ctx.err_info = (~0LLU) << 32;
+    if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
+      goto LoadSampleMissingCts_ret_NOMEM;
+    }
+    SetThreadFuncAndData(LoadSampleMissingCtsThread, &ctx, &tg);
 
     // nearly identical to LoadAlleleAndGenoCounts()
     logputs("Calculating sample missingness rates... ");
@@ -3396,7 +3465,7 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
 
     for (uint32_t variant_idx = 0; ; ) {
       uintptr_t cur_loaded_variant_ct = 0;
-      if (!ts.is_last_block) {
+      if (!IsLastBlock(&tg)) {
         for (; ; ++read_block_idx) {
           if (read_block_idx == read_block_ct_m1) {
             cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
@@ -3414,22 +3483,23 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
         }
       }
       if (variant_idx) {
-        JoinThreads3z(&ts);
-        reterr = g_error_ret;
+        JoinThreads(&tg);
+        memcpy(&reterr, &ctx.err_info, 4);
         if (unlikely(reterr)) {
           goto LoadSampleMissingCts_ret_PGR_FAIL;
         }
       }
-      if (!ts.is_last_block) {
-        g_cur_block_size = cur_loaded_variant_ct;
-        ComputeUidxStartPartition(variant_include, cur_loaded_variant_ct, calc_thread_ct, read_block_idx * read_block_size, g_read_variant_uidx_starts);
+      if (!IsLastBlock(&tg)) {
+        ctx.cur_block_size = cur_loaded_variant_ct;
+        ComputeUidxStartPartition(variant_include, cur_loaded_variant_ct, calc_thread_ct, read_block_idx * read_block_size, ctx.read_variant_uidx_starts);
         for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-          g_pgr_ptrs[tidx]->fi.block_base = pgfip->block_base;
-          g_pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
+          ctx.pgr_ptrs[tidx]->fi.block_base = pgfip->block_base;
+          ctx.pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
         }
-        ts.is_last_block = (variant_idx + cur_loaded_variant_ct == variant_ct);
-        ts.thread_func_ptr = LoadSampleMissingCtsThread;
-        if (unlikely(SpawnThreads3z(variant_idx, &ts))) {
+        if (variant_idx + cur_loaded_variant_ct == variant_ct) {
+          DeclareLastThreadBlock(&tg);
+        }
+        if (unlikely(SpawnThreads(&tg))) {
           goto LoadSampleMissingCts_ret_THREAD_CREATE_FAIL;
         }
       }
@@ -3459,23 +3529,23 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
     uint32_t* scrambled_missing_hc_cts = nullptr;
     uint32_t* scrambled_missing_dosage_cts = nullptr;
     uint32_t* scrambled_hethap_cts = nullptr;
-    scrambled_missing_hc_cts = R_CAST(uint32_t*, &(g_missing_hc_acc1[0][acc32_offset]));
-    if (g_missing_dosage_acc1) {
-      scrambled_missing_dosage_cts = R_CAST(uint32_t*, &(g_missing_dosage_acc1[0][acc32_offset]));
+    scrambled_missing_hc_cts = R_CAST(uint32_t*, &(ctx.missing_hc_acc1[0][acc32_offset]));
+    if (ctx.missing_dosage_acc1) {
+      scrambled_missing_dosage_cts = R_CAST(uint32_t*, &(ctx.missing_dosage_acc1[0][acc32_offset]));
     }
-    scrambled_hethap_cts = R_CAST(uint32_t*, &(g_hethap_acc1[0][acc32_offset]));
+    scrambled_hethap_cts = R_CAST(uint32_t*, &(ctx.hethap_acc1[0][acc32_offset]));
     for (uint32_t tidx = 1; tidx != calc_thread_ct; ++tidx) {
-      uint32_t* thread_scrambled_missing_hc_cts = R_CAST(uint32_t*, &(g_missing_hc_acc1[tidx][acc32_offset]));
+      uint32_t* thread_scrambled_missing_hc_cts = R_CAST(uint32_t*, &(ctx.missing_hc_acc1[tidx][acc32_offset]));
       for (uint32_t uii = 0; uii != sample_ctv; ++uii) {
         scrambled_missing_hc_cts[uii] += thread_scrambled_missing_hc_cts[uii];
       }
       if (scrambled_missing_dosage_cts) {
-        uint32_t* thread_scrambled_missing_dosage_cts = R_CAST(uint32_t*, &(g_missing_dosage_acc1[tidx][acc32_offset]));
+        uint32_t* thread_scrambled_missing_dosage_cts = R_CAST(uint32_t*, &(ctx.missing_dosage_acc1[tidx][acc32_offset]));
         for (uint32_t uii = 0; uii != sample_ctv; ++uii) {
           scrambled_missing_dosage_cts[uii] += thread_scrambled_missing_dosage_cts[uii];
         }
       }
-      uint32_t* thread_scrambled_hethap_cts = R_CAST(uint32_t*, &(g_hethap_acc1[tidx][acc32_offset]));
+      uint32_t* thread_scrambled_hethap_cts = R_CAST(uint32_t*, &(ctx.hethap_acc1[tidx][acc32_offset]));
       for (uint32_t uii = 0; uii != sample_ctv; ++uii) {
         scrambled_hethap_cts[uii] += thread_scrambled_hethap_cts[uii];
       }
@@ -3506,7 +3576,7 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
     break;
   }
  LoadSampleMissingCts_ret_1:
-  CleanupThreads3z(&ts, &g_cur_block_size);
+  CleanupThreads(&tg);
   BigstackReset(bigstack_mark);
   return reterr;
 }

@@ -138,7 +138,7 @@ int32_t main(int32_t argc, char** argv) {
     SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
 
     const uint32_t max_simple_difflist_len = sample_ct / kBitsPerWordD2;
-    const uint32_t max_returned_difflist_len = max_simple_difflist_len + (sample_ct / kPglMaxDifflistLenDivisor);
+    const uint32_t max_returned_difflist_len = 2 * (sample_ct / kPglMaxDifflistLenDivisor);
     const uint32_t max_difflist_len = 2 * (write_sample_ct / kPglMaxDifflistLenDivisor);
     if (cachealigned_malloc(RoundUpPow2((max_returned_difflist_len + 3) / 4, kCacheline), &raregeno) ||
         cachealigned_malloc(RoundUpPow2((sample_ct + 7) / 8, kCacheline), &sample_include) ||

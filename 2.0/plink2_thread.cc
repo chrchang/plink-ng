@@ -347,6 +347,17 @@ BoolErr THREAD_BLOCK_FINISH(ThreadGroupFuncArg* tgfap) {
 }
 #endif
 
+void UpdateU64IfSmaller(uint64_t newval, uint64_t* oldval_ptr) {
+  uint64_t oldval = *oldval_ptr;
+  while (oldval > newval) {
+    const uint64_t rechecked_oldval = __sync_val_compare_and_swap(oldval_ptr, oldval, newval);
+    if (rechecked_oldval == oldval) {
+      break;
+    }
+    oldval = rechecked_oldval;
+  }
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

@@ -602,6 +602,17 @@ HEADER_INLINE BoolErr bigstack_alloc_vp(uintptr_t ct, VecW*** vp_arr_ptr) {
   return !(*vp_arr_ptr);
 }
 
+HEADER_INLINE BoolErr bigstack_alloc_wpp(uintptr_t ct, uintptr_t**** wpp_arr_ptr) {
+  *wpp_arr_ptr = S_CAST(uintptr_t***, bigstack_alloc(ct * sizeof(intptr_t)));
+  return !(*wpp_arr_ptr);
+}
+
+HEADER_INLINE BoolErr bigstack_alloc_u32pp(uintptr_t ct, uint32_t**** u32pp_arr_ptr) {
+  *u32pp_arr_ptr = S_CAST(uint32_t***, bigstack_alloc(ct * sizeof(intptr_t)));
+  return !(*u32pp_arr_ptr);
+}
+
+// this should be deleted once SpawnThreads3z is eliminated
 HEADER_INLINE BoolErr bigstack_alloc_thread(uintptr_t ct, pthread_t** thread_arr_ptr) {
   *thread_arr_ptr = S_CAST(pthread_t*, bigstack_alloc(ct * sizeof(pthread_t)));
   return !(*thread_arr_ptr);
@@ -716,8 +727,7 @@ HEADER_INLINE void BigstackShrinkTop(const void* rebase, uintptr_t new_size) {
   g_bigstack_base = R_CAST(unsigned char*, RoundUpPow2(R_CAST(uintptr_t, rebase) + new_size, kCacheline));
 }
 
-// simpler to have these allocations automatically AVX2-aligned when the time
-// comes
+// ensure vector-alignment
 CONSTI32(kEndAllocAlign, MAXV(kBytesPerVec, 16));
 
 HEADER_INLINE void BigstackEndSet(const void* unaligned_end) {

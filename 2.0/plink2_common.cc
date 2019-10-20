@@ -1109,6 +1109,24 @@ uint32_t IsHaploidChrPresent(const ChrInfo* cip) {
   return 0;
 }
 
+uint32_t IsAutosomalDiploidChrPresent(const ChrInfo* cip) {
+  const uintptr_t* haploid_mask = cip->haploid_mask;
+  if (haploid_mask[0] & 1) {
+    return 0;
+  }
+  const uint32_t max_code_p1 = cip->max_code + 1;
+  const uint32_t name_ct = cip->name_ct;
+  const uint32_t chr_code_end = max_code_p1 + name_ct;
+  const uint32_t word_ct = BitCtToWordCt(chr_code_end);
+  const uintptr_t* chr_mask = cip->chr_mask;
+  for (uint32_t widx = 0; widx != word_ct; ++widx) {
+    if (chr_mask[widx] & (~haploid_mask[widx])) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
 static inline uint32_t SingleCapLetterChrCode(uint32_t cap_letter) {
   if (cap_letter == 'X') {
     return kChrRawX;
@@ -1457,6 +1475,46 @@ void InterleavedMaskZero(const uintptr_t* __restrict interleaved_mask, uintptr_t
   if (vec_ct & 1) {
     const uintptr_t mask_word = *interleaved_mask_iter;
     *genovec_iter &= mask_word * 3;
+  }
+#endif
+}
+
+void InterleavedMaskMissing(const uintptr_t* __restrict interleaved_mask, uintptr_t vec_ct, uintptr_t* __restrict genovec) {
+  const uintptr_t twovec_ct = vec_ct / 2;
+#ifdef __LP64__
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW inv_m1 = VCONST_W(kMaskAAAA);
+  const VecW* interleaved_mask_iter = R_CAST(const VecW*, interleaved_mask);
+  VecW* genovvec_iter = R_CAST(VecW*, genovec);
+  for (uintptr_t twovec_idx = 0; twovec_idx != twovec_ct; ++twovec_idx) {
+    const VecW mask_vvec = *interleaved_mask_iter++;
+    VecW set_first = (~mask_vvec) & m1;
+    set_first = set_first | vecw_slli(set_first, 1);
+    VecW set_second = (~mask_vvec) & inv_m1;
+    set_second = set_second | vecw_srli(set_second, 1);
+    *genovvec_iter = (*genovvec_iter) | set_first;
+    ++genovvec_iter;
+    *genovvec_iter = (*genovvec_iter) | set_second;
+    ++genovvec_iter;
+  }
+  if (vec_ct & 1) {
+    VecW set_first = (~(*interleaved_mask_iter)) & m1;
+    set_first = set_first | vecw_slli(set_first, 1);
+    *genovvec_iter = (*genovvec_iter) | set_first;
+  }
+#else
+  const uintptr_t* interleaved_mask_iter = interleaved_mask;
+  uintptr_t* genovec_iter = genovec;
+  for (uintptr_t twovec_idx = 0; twovec_idx != twovec_ct; ++twovec_idx) {
+    const uintptr_t set_invword = *interleaved_mask_iter++;
+    *genovec_iter |= ((~set_invword) & kMask5555) * 3;
+    ++genovec_iter;
+    *genovec_iter |= (((~set_invword) >> 1) & kMask5555) * 3;
+    ++genovec_iter;
+  }
+  if (vec_ct & 1) {
+    const uintptr_t set_invword = *interleaved_mask_iter;
+    *genovec_iter |= ((~set_invword) & kMask5555) * 3;
   }
 #endif
 }
@@ -2386,6 +2444,18 @@ PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint
     }
   }
   return kPglRetSuccess;
+}
+
+void ExpandMhc(uint32_t sample_ct, uintptr_t* mhc, uintptr_t** patch_01_set_ptr, AlleleCode** patch_01_vals_ptr, uintptr_t** patch_10_set_ptr, AlleleCode** patch_10_vals_ptr) {
+  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  *patch_01_set_ptr = mhc;
+  AlleleCode* patch_01_vals = R_CAST(AlleleCode*, &(mhc[sample_ctl]));
+  *patch_01_vals_ptr = patch_01_vals;
+  AlleleCode* patch_01_vals_end = &(patch_01_vals[sample_ct]);
+  VecAlignUp(&patch_01_vals_end);
+  uintptr_t* patch_10_set = R_CAST(uintptr_t*, patch_01_vals_end);
+  *patch_10_set_ptr = patch_10_set;
+  *patch_10_vals_ptr = R_CAST(AlleleCode*, &(patch_10_set[sample_ctl]));
 }
 
 PglErr WriteSampleIdsOverride(const uintptr_t* sample_include, const SampleIdInfo* siip, const char* outname, uint32_t sample_ct, SampleIdFlags override_flags) {
