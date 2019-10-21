@@ -57,6 +57,10 @@ ReadAlleles <- function(pgen, acbuf, variant_num, phasepresent_buf = NULL) {
     invisible(.Call(`_pgenlibr_ReadAlleles`, pgen, acbuf, variant_num, phasepresent_buf))
 }
 
+VariantScores <- function(pgen, weights, variant_subset = NULL) {
+    .Call(`_pgenlibr_VariantScores`, pgen, weights, variant_subset)
+}
+
 ClosePgen <- function(pgen) {
     invisible(.Call(`_pgenlibr_ClosePgen`, pgen))
 }

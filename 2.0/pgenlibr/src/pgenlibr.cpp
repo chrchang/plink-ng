@@ -39,6 +39,8 @@ public:
                           Nullable<LogicalVector> phasepresent_buf,
                           int variant_idx);
 
+  void FillVariantScores(NumericVector result, NumericVector weights, Nullable<IntegerVector> variant_subset);
+
   void Close();
 
   ~RPgenReader();
@@ -594,6 +596,49 @@ void RPgenReader::ReadAllelesPhasedInternal(int variant_idx) {
   }
 }
 
+void RPgenReader::FillVariantScores(NumericVector result, NumericVector weights, Nullable<IntegerVector> variant_subset) {
+  if (!_info_ptr) {
+    stop("pgen is closed");
+  }
+  if (weights.size() != _subset_size) {
+    char errstr_buf[256];
+    sprintf(errstr_buf, "weights.size()=%td doesn't match pgen sample-subset size=%d", weights.size(), _subset_size);
+    stop(errstr_buf);
+  }
+  const double* wts = &(weights[0]);
+  double wt_sum = 0;
+  for (uint32_t uii = 0; uii != _subset_size; ++uii) {
+    wt_sum += wts[uii];
+  }
+  const int raw_variant_ct = _info_ptr->raw_variant_ct;
+  const int* variant_idx_ints = nullptr;
+  uintptr_t variant_ct = raw_variant_ct;
+  if (variant_subset.isNotNull()) {
+    IntegerVector vs = as<IntegerVector>(variant_subset);
+    variant_idx_ints = &(vs[0]);
+    variant_ct = vs.size();
+  }
+  for (uintptr_t ulii = 0; ulii != variant_ct; ++ulii) {
+    int variant_idx = ulii;
+    if (variant_idx_ints) {
+      variant_idx = variant_idx_ints[ulii] - 1;
+      if ((variant_idx < 0) || (variant_idx >= raw_variant_ct)) {
+        char errstr_buf[256];
+        sprintf(errstr_buf, "variant_num out of range (%d; must be 1..%u)", variant_idx + 1, raw_variant_ct);
+        stop(errstr_buf);
+      }
+    }
+    uint32_t dosage_ct;
+    plink2::PglErr reterr = plink2::PgrGetD(_subset_include_vec, _subset_cumulative_popcounts, _subset_size, variant_idx, _state_ptr, _pgv.genovec, _pgv.dosage_present, _pgv.dosage_main, &dosage_ct);
+    if (reterr != plink2::kPglRetSuccess) {
+      char errstr_buf[256];
+      sprintf(errstr_buf, "PgrGetD() error %d", static_cast<int>(reterr));
+      stop(errstr_buf);
+    }
+    result[ulii] = plink2::LinearCombinationMeanimpute(wts, _pgv.genovec, _pgv.dosage_present, _pgv.dosage_main, _subset_size, dosage_ct, wt_sum);
+  }
+}
+
 RPgenReader::~RPgenReader() {
   Close();
 }
@@ -763,12 +808,21 @@ void ReadAlleles(List pgen, SEXP acbuf, int variant_num, Nullable<LogicalVector>
 }
 
 // [[Rcpp::export]]
-void VariantScores(List pgen) {
+NumericVector VariantScores(List pgen, NumericVector weights,
+                            Nullable<IntegerVector> variant_subset = R_NilValue) {
   if (strcmp_r_c(pgen[0], "pgen")) {
-    stop("pgen is not a pgen object")
+    stop("pgen is not a pgen object");
   }
   XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pgen[1]);
-  ;;;
+  int variant_ct;
+  if (variant_subset.isNotNull()) {
+    variant_ct = as<IntegerVector>(variant_subset).size();
+  } else {
+    variant_ct = rp->GetVariantCt();
+  }
+  NumericVector result(variant_ct);
+  rp->FillVariantScores(result, weights, variant_subset);
+  return result;
 }
 
 // [[Rcpp::export]]
