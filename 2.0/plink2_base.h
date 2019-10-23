@@ -759,7 +759,7 @@ HEADER_INLINE VecW vecw_and_notfirst(VecW excl, VecW main) {
 }
 
 HEADER_INLINE VecU32 vecu32_and_notfirst(VecU32 excl, VecU32 main) {
-  return R_CAST(VecW, _mm256_andnot_si256(R_CAST(__m256i, excl), R_CAST(__m256i, main)));
+  return R_CAST(VecU32, _mm256_andnot_si256(R_CAST(__m256i, excl), R_CAST(__m256i, main)));
 }
 
 HEADER_INLINE VecW vecw_set1(uintptr_t ulii) {

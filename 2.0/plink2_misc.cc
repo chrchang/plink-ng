@@ -680,7 +680,6 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
     // function for this
     uint32_t col_skips[4];
     uint32_t col_types[4];
-    uint32_t alt_col_idx = 4;
     uint32_t strict_allele_order = 1;
     const uint32_t is_bim = !(line_start[0] == '#');
     if (!is_bim) {
@@ -761,7 +760,6 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
       linebuf_iter = NextToken(linebuf_iter);
       if (!linebuf_iter) {
         col_skips[1] = 1;
-        alt_col_idx = 3;
       } else {
         col_skips[1] = 2;
       }
