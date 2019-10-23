@@ -3865,7 +3865,8 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       }
       logerrputsb();
     }
-    const uint32_t var_wts = (pca_flags / kfPcaVarWts) & 1;
+    const uint32_t var_wts = (pca_flags / kfPcaBiallelicVarWts) & 1;
+    const uint32_t require_biallelic = var_wts && (!(pca_flags & kfPcaIgnoreBiallelicVarWtsRestriction));
     const uint32_t chr_col = pca_flags & kfPcaVcolChrom;
     const uint32_t ref_col = pca_flags & kfPcaVcolRef;
     const uint32_t alt1_col = pca_flags & kfPcaVcolAlt1;
@@ -4073,6 +4074,11 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
               } else {
                 allele_idx_base = allele_idx_offsets[variant_uidx];
                 cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_base;
+                if (require_biallelic && (cur_allele_ct != 2)) {
+                  logputs("\n");
+                  logerrputs("Error: Multiallelic variant present in \"--pca biallelic-var-wts\" run.\n");
+                  goto CalcPca_ret_INCONSISTENT_INPUT;
+                }
                 allele_idx_base -= variant_uidx;
               }
               // bugfix (23 Jul 2017): we already subtracted variant_uidx
@@ -4240,6 +4246,12 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         }
       }
     } else {
+      if (require_biallelic) {
+        if (unlikely(MultiallelicVariantPresent(variant_include, allele_idx_offsets, variant_ct))) {
+          logerrputs("Error: Multiallelic variant present in \"--pca biallelic-var-wts\" run.\n");
+          goto CalcPca_ret_INCONSISTENT_INPUT;
+        }
+      }
       __CLPK_integer lwork;
       __CLPK_integer liwork;
       uintptr_t wkspace_byte_ct;
@@ -4649,11 +4661,9 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
   CalcPca_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
-#ifndef LAPACK_ILP64
   CalcPca_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
-#endif
   CalcPca_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
     break;

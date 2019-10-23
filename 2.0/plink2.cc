@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (22 Oct 2019)";
+  " (23 Oct 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -7668,6 +7668,10 @@ int main(int argc, char** argv) {
             } else if (strequal_k(cur_modif, "meanimpute", cur_modif_slen)) {
               pc.pca_flags |= kfPcaMeanimpute;
             } else if (strequal_k(cur_modif, "var-wts", cur_modif_slen)) {
+              logerrputs("Warning: The 'var-wts' modifier is deprecated, and will stop working in alpha\n3.  Switch to the forward-compatible 'biallelic-var-wts' modifier if you are\nworking with only biallelic variants and want one-line-per-variant output.\n");
+              is_var_wts = 1;
+              pc.pca_flags |= kfPcaIgnoreBiallelicVarWtsRestriction;
+            } else if (strequal_k(cur_modif, "biallelic-var-wts", cur_modif_slen)) {
               is_var_wts = 1;
             } else if (strequal_k(cur_modif, "vzs", cur_modif_slen)) {
               pc.pca_flags |= kfPcaVarZs;
@@ -7693,8 +7697,8 @@ int main(int argc, char** argv) {
             } else if (unlikely(strequal_k(cur_modif, "sid", cur_modif_slen))) {
               logerrputs("Error: --pca 'sid' modifier retired.  Use --pca scols= instead.\n");
               goto main_ret_INVALID_CMDLINE_A;
-            } else if (unlikely(strequal_k(cur_modif, "multiallelic-var-wts", cur_modif_slen))) {
-              logerrputs("Error: --pca 'multiallelic-var-wts' modifier requires alpha 3 or later.\n");
+            } else if (unlikely(strequal_k(cur_modif, "allele-wts", cur_modif_slen))) {
+              logerrputs("Error: --pca 'allele-wts' modifier requires alpha 3 or later.\n");
               goto main_ret_INVALID_CMDLINE_A;
             } else {
               if (unlikely(pc.pca_ct || ScanPosintDefcapx(cur_modif, &pc.pca_ct))) {
@@ -7749,13 +7753,13 @@ int main(int argc, char** argv) {
               pc.pca_flags |= kfPcaVcolDefault;
             }
           } else if (unlikely(!is_var_wts)) {
-            logerrputs("Error: --pca 'vcols=' has no effect without 'var-wts'.\n");
+            logerrputs("Error: --pca 'vcols=' has no effect when variant/allele weights have not been\nrequested.\n");
             goto main_ret_INVALID_CMDLINE;
           }
           if (is_var_wts) {
-            pc.pca_flags |= kfPcaVarWts;
+            pc.pca_flags |= kfPcaBiallelicVarWts;
           } else if (unlikely(pc.pca_flags & kfPcaVarZs)) {
-            logerrputs("Error: --pca 'vzs' modifier has no effect without 'var-wts'.\n");
+            logerrputs("Error: --pca 'vzs' modifier has no effect when variant/allele weights have not\nbeen requested.\n");
             goto main_ret_INVALID_CMDLINE;
           }
           pc.command_flags1 |= kfCommand1Pca;

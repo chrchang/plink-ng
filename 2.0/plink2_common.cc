@@ -2202,6 +2202,21 @@ PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const ch
 }
 
 
+uint32_t MultiallelicVariantPresent(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, uint32_t variant_ct) {
+  if (!allele_idx_offsets) {
+    return 0;
+  }
+  uintptr_t variant_uidx_base = 0;
+  uintptr_t cur_bits = variant_include[0];
+  for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+    const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+    if (allele_idx_offsets[variant_uidx + 1] != allele_idx_offsets[variant_uidx] + 2) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
 /*
 uintptr_t GetMaxAlleleBlockSize(const uintptr_t* __restrict variant_include, const uintptr_t* __restrict allele_idx_offsets, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t read_block_size) {
   uintptr_t max_allele_block_size = 2 * read_block_size;

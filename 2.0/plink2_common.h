@@ -923,6 +923,8 @@ void CleanupPhenoCols(uint32_t pheno_ct, PhenoCol* pheno_cols);
 PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const char* errstr_append, uint32_t param_ct, uint32_t allow_extra_chrs, uint32_t xymt_subtract, char range_delim, ChrInfo* cip, uintptr_t* chr_mask);
 
 
+uint32_t MultiallelicVariantPresent(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, uint32_t variant_ct);
+
 // This can be an overestimate (it won't return a value smaller than
 // read_block_size).
 uintptr_t GetMaxAltAlleleBlockSize(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t read_block_size);

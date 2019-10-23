@@ -886,8 +886,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     //   but probably not, don't see any real application for that many PCs?
     HelpPrint("pca\0", &help_ctrl, 1,
 "  --pca [count] [{approx | meanimpute}] ['scols='<col set descriptor>]\n"
-"  --pca var-wts [count] [{approx | meanimpute}] ['scols='<col set descriptor>]\n"
-"                ['vzs'] ['vcols='<col set descriptor>]\n"
+"  --pca [{biallelic-var-wts | var-wts}] [count] [{approx | meanimpute}] ['vzs']\n"
+"        ['scols='<col set descriptor>] ['vcols='<col set descriptor>]\n"
 "    Extracts top principal components from the variance-standardized\n"
 "    relationship matrix.\n"
 "    * It is usually best to perform this calculation on a variant set in\n"
@@ -908,9 +908,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * 'scols=' can be used to customize how sample IDs appear in the .eigenvec\n"
 "      file.  (maybefid, fid, maybesid, and sid supported; default is\n"
 "      maybefid,maybesid.)\n"
-"    * The 'var-wts' modifier requests an additional .eigenvec.var file with PCs\n"
-"      expressed as variant weights instead of sample weights.  When it's\n"
-"      present, 'vzs' causes the .eigenvec.var file to be Zstd-compressed.\n"
+"    * The 'biallelic-var-wts' modifier requests an additional\n"
+"      one-line-per-variant .eigenvec.var file with PCs expressed as variant\n"
+"      weights instead of sample weights, with the condition that all variants\n"
+"      must be biallelic.  When it's present, 'vzs' causes the .eigenvec.var\n"
+"      file to be Zstd-compressed.\n"
 "      'vcols' can be used to customize the report columns; supported column\n"
 "      sets are:\n"
 "        chrom: Chromosome ID.\n"
@@ -923,7 +925,13 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "        nonmaj: All nonmajor alleles, comma-separated.\n"
 "        (PCs are always present, and positioned here.  Signs are w.r.t. the\n"
 "        major, not necessarily reference, allele.)\n"
-"      Default is chrom,maj,nonmaj.\n\n"
+"      Default is chrom,maj,nonmaj.\n"
+"    * In this build, 'var-wts' generates the same report as biallelic-var-wts,\n"
+"      except with the \"all variants must be biallelic\" restriction lifted.\n"
+"      This is temporary.  It will no longer be supported as of alpha 3;\n"
+"      instead, there will be an 'allele-wts' mode which seamlessly handles\n"
+"      multiallelic variants, at the cost of generating more verbose\n"
+"      one-line-per-allele output.\n\n"
                );
 #endif
     HelpPrint("king-cutoff\0make-king\0make-king-table\0rel-cutoff\0grm-cutoff\0", &help_ctrl, 1,
