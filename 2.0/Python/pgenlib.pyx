@@ -135,8 +135,8 @@ cdef extern from "../pgenlib_ffi_support.h" namespace "plink2":
 
     PglErr PgrGetCounts(const uintptr_t* sample_include, const uintptr_t* sample_include_interleaved_vec, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgrp, uint32_t* genocounts)
 
-    BoolErr CleanupPgfi(PgenFileInfo* pgfip)
-    BoolErr CleanupPgr(PgenReaderStruct* pgrp)
+    BoolErr CleanupPgfi(PgenFileInfo* pgfip, PglErr* reterrp)
+    BoolErr CleanupPgr(PgenReaderStruct* pgrp, PglErr* reterrp)
 
     cdef cppclass PgenWriterCommon:
         uint32_t variant_ct
@@ -1099,19 +1099,21 @@ cdef class PgenReader:
 
 
     cpdef close(self):
-        # don't bother propagating file close errors for now
+        cdef PglErr reterr = kPglRetSuccess
         if self._info_ptr:
-            CleanupPgfi(self._info_ptr)
+            CleanupPgfi(self._info_ptr, &reterr)
             if self._info_ptr[0].vrtypes:
                 aligned_free(self._info_ptr[0].vrtypes)
                 if self._state_ptr:
-                    CleanupPgr(self._state_ptr)
+                    CleanupPgr(self._state_ptr, &reterr)
                     if self._state_ptr[0].fread_buf:
                         aligned_free(self._state_ptr[0].fread_buf)
                     PyMem_Free(self._state_ptr)
                     self._state_ptr = NULL
             PyMem_Free(self._info_ptr)
             self._info_ptr = NULL
+            if reterr != kPglRetSuccess:
+                raise RuntimeError("close() error " + str(reterr))
         return
 
 
@@ -1121,12 +1123,13 @@ cdef class PgenReader:
 
 
     def __dealloc__(self):
+        cdef PglErr reterr = kPglRetSuccess
         if self._info_ptr:
-            CleanupPgfi(self._info_ptr)
+            CleanupPgfi(self._info_ptr, &reterr)
             if self._info_ptr[0].vrtypes:
                 aligned_free(self._info_ptr[0].vrtypes)
                 if self._state_ptr:
-                    CleanupPgr(self._state_ptr)
+                    CleanupPgr(self._state_ptr, &reterr)
                     if self._state_ptr[0].fread_buf:
                         aligned_free(self._state_ptr[0].fread_buf)
                     PyMem_Free(self._state_ptr)

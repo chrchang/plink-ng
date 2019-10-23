@@ -111,6 +111,11 @@ typedef struct ThreadGroupControlBlockStruct {
 
 typedef struct ThreadGroupSharedStruct {
   void* context;
+#ifdef __cplusplus
+  ThreadGroupControlBlock& GET_PRIVATE_cb() { return cb; }
+  const ThreadGroupControlBlock& GET_PRIVATE_cb() const { return cb; }
+ private:
+#endif
   ThreadGroupControlBlock cb;
 } ThreadGroupShared;
 
@@ -147,13 +152,13 @@ uint32_t NumCpu(int32_t* known_procs_ptr);
 BoolErr SetThreadCt(uint32_t thread_ct, ThreadGroup* tgp);
 
 HEADER_INLINE uint32_t GetThreadCt(const ThreadGroupShared* sharedp) {
-  return sharedp->cb.thread_ct;
+  return GET_PRIVATE(*sharedp, cb).thread_ct;
 }
 
 HEADER_INLINE void SetThreadFuncAndData(THREAD_FUNCPTR_T(start_routine), void* shared_context, ThreadGroup* tgp) {
   assert(!tgp->is_active);
   tgp->shared.context = shared_context;
-  tgp->shared.cb.is_last_block = 0;
+  GET_PRIVATE(tgp->shared, cb).is_last_block = 0;
   tgp->thread_func_ptr = start_routine;
 }
 
@@ -161,7 +166,7 @@ HEADER_INLINE void SetThreadFuncAndData(THREAD_FUNCPTR_T(start_routine), void* s
 // start_routine/shared_context.  Ok to call this "unnecessarily".
 HEADER_INLINE void ReinitThreads(ThreadGroup* tgp) {
   assert(!tgp->is_active);
-  tgp->shared.cb.is_last_block = 0;
+  GET_PRIVATE(tgp->shared, cb).is_last_block = 0;
 }
 
 // Technically unnecessary to call this, but it does save one sync cycle.
@@ -170,11 +175,11 @@ HEADER_INLINE void ReinitThreads(ThreadGroup* tgp) {
 // before the first SpawnThreads() call.
 HEADER_INLINE void DeclareLastThreadBlock(ThreadGroup* tgp) {
   assert(!tgp->is_unjoined);
-  tgp->shared.cb.is_last_block = 1;
+  GET_PRIVATE(tgp->shared, cb).is_last_block = 1;
 }
 
 HEADER_INLINE uint32_t IsLastBlock(ThreadGroup* tgp) {
-  return tgp->shared.cb.is_last_block;
+  return GET_PRIVATE(tgp->shared, cb).is_last_block;
 }
 
 #if defined(__cplusplus) && !defined(_WIN32)

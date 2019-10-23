@@ -37,7 +37,7 @@ void WaitForAllObjects(uint32_t ct, HANDLE* objs) {
 #endif
 
 void PreinitThreads(ThreadGroup* tgp) {
-  tgp->shared.cb.is_last_block = 0;
+  GET_PRIVATE(tgp->shared, cb).is_last_block = 0;
   tgp->thread_func_ptr = nullptr;
   tgp->threads = nullptr;
   tgp->is_unjoined = 0;
@@ -89,10 +89,10 @@ BoolErr SetThreadCt(uint32_t thread_ct, ThreadGroup* tgp) {
   tgp->sync_init_state = 0;
   memptr = &(memptr[thread_ct * sizeof(pthread_t)]);
 #endif
-  tgp->shared.cb.active_ct = 0;
+  GET_PRIVATE(tgp->shared, cb).active_ct = 0;
   tgp->thread_args = R_CAST(ThreadGroupFuncArg*, memptr);
 
-  tgp->shared.cb.thread_ct = thread_ct;
+  GET_PRIVATE(tgp->shared, cb).thread_ct = thread_ct;
   return 0;
 }
 
@@ -100,34 +100,35 @@ BoolErr SetThreadCt(uint32_t thread_ct, ThreadGroup* tgp) {
 // to support the SpawnThreads() error cases.
 void JoinThreadsInternal(uint32_t thread_ct, ThreadGroup* tgp) {
   assert(tgp->is_active);
+  ThreadGroupControlBlock* cbp = &GET_PRIVATE(tgp->shared, cb);
 #ifdef _WIN32
-  if (!tgp->shared.cb.is_last_block) {
-    WaitForSingleObject(tgp->shared.cb.cur_block_done_event, INFINITE);
+  if (!cbp->is_last_block) {
+    WaitForSingleObject(cbp->cur_block_done_event, INFINITE);
   } else {
     WaitForAllObjects(thread_ct, tgp->threads);
     for (uint32_t tidx = 0; tidx != thread_ct; ++tidx) {
       CloseHandle(tgp->threads[tidx]);
     }
-    CloseHandle(tgp->shared.cb.start_next_events[0]);
-    CloseHandle(tgp->shared.cb.start_next_events[1]);
-    CloseHandle(tgp->shared.cb.cur_block_done_event);
+    CloseHandle(cbp->start_next_events[0]);
+    CloseHandle(cbp->start_next_events[1]);
+    CloseHandle(cbp->cur_block_done_event);
     memset(tgp->threads, 0, thread_ct * sizeof(HANDLE));
     tgp->is_active = 0;
   }
 #else
-  if (!tgp->shared.cb.is_last_block) {
-    pthread_mutex_lock(&tgp->shared.cb.sync_mutex);
-    while (tgp->shared.cb.active_ct) {
-      pthread_cond_wait(&tgp->shared.cb.cur_block_done_condvar, &tgp->shared.cb.sync_mutex);
+  if (!cbp->is_last_block) {
+    pthread_mutex_lock(&cbp->sync_mutex);
+    while (cbp->active_ct) {
+      pthread_cond_wait(&cbp->cur_block_done_condvar, &cbp->sync_mutex);
     }
     // keep mutex until next block loaded
   } else {
     for (uint32_t tidx = 0; tidx != thread_ct; ++tidx) {
       pthread_join(tgp->threads[tidx], nullptr);
     }
-    pthread_mutex_destroy(&tgp->shared.cb.sync_mutex);
-    pthread_cond_destroy(&tgp->shared.cb.cur_block_done_condvar);
-    pthread_cond_destroy(&tgp->shared.cb.start_next_condvar);
+    pthread_mutex_destroy(&cbp->sync_mutex);
+    pthread_cond_destroy(&cbp->cur_block_done_condvar);
+    pthread_cond_destroy(&cbp->start_next_condvar);
     tgp->is_active = 0;
     tgp->sync_init_state = 0;
   }
@@ -140,7 +141,7 @@ Plink2ThreadStartup g_thread_startup;
 #endif
 
 BoolErr SpawnThreads(ThreadGroup* tgp) {
-  ThreadGroupControlBlock* cbp = &(tgp->shared.cb);
+  ThreadGroupControlBlock* cbp = &GET_PRIVATE(tgp->shared, cb);
   const uint32_t thread_ct = cbp->thread_ct;
   const uint32_t was_active = tgp->is_active;
   const uint32_t is_last_block = cbp->is_last_block;
@@ -280,12 +281,12 @@ BoolErr SpawnThreads(ThreadGroup* tgp) {
 }
 
 void JoinThreads(ThreadGroup* tgp) {
-  JoinThreadsInternal(tgp->shared.cb.thread_ct, tgp);
+  JoinThreadsInternal(GET_PRIVATE(tgp->shared, cb).thread_ct, tgp);
 }
 
 void CleanupThreads(ThreadGroup* tgp) {
+  ThreadGroupControlBlock* cbp = &GET_PRIVATE(tgp->shared, cb);
   if (tgp->threads) {
-    ThreadGroupControlBlock* cbp = &(tgp->shared.cb);
     const uint32_t thread_ct = cbp->thread_ct;
     if (tgp->is_active) {
       if (tgp->is_unjoined) {
@@ -317,19 +318,19 @@ void CleanupThreads(ThreadGroup* tgp) {
 #endif
     }
 #ifndef _WIN32
-    assert(!tgp->shared.cb.active_ct);
+    assert(!cbp->active_ct);
 #endif
     cbp->thread_ct = 0;
     free(tgp->threads);
     tgp->threads = nullptr;
   }
-  tgp->shared.cb.is_last_block = 0;
+  cbp->is_last_block = 0;
   tgp->thread_func_ptr = nullptr;
 }
 
 #ifndef _WIN32
 BoolErr THREAD_BLOCK_FINISH(ThreadGroupFuncArg* tgfap) {
-  ThreadGroupControlBlock* cbp = &(tgfap->sharedp->cb);
+  ThreadGroupControlBlock* cbp = &GET_PRIVATE(*tgfap->sharedp, cb);
   if (cbp->is_last_block) {
     return 1;
   }

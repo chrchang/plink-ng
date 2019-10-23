@@ -91,7 +91,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 502
+#define PLINK2_BASE_VERNUM 600
 
 
 #define _FILE_OFFSET_BITS 64
@@ -3399,6 +3399,19 @@ typedef uint64_t tname
 #  define ENUM_U31_DEF_END(tname) } tname ## _PLINK2_BASE_DO_NOT_USE__ ; \
 typedef uint32_t tname
 
+#endif
+
+// We define a few strategically-placed private struct members to make
+// accidental misuse of the main struct-based APIs more difficult without
+// giving up either performance or C compatibility.
+// Internal code should access these members with GET_PRIVATE(), and define a
+// pair of public C++-only GET_PRIVATE_...() member functions (one const and
+// one non-const) that each return a reference to the member; see plink2_thread
+// for examples.
+#ifdef __cplusplus
+#  define GET_PRIVATE(par, member) (par).GET_PRIVATE_ ## member()
+#else
+#  define GET_PRIVATE(par, member) (par).member
 #endif
 
 #ifdef __cplusplus
