@@ -537,8 +537,6 @@ THREAD_FUNC_DECL TransposeToSmajReadThread(void* raw_arg) {
 }
 
 typedef struct TransposeToPlink1SmajWriteCtxStruct {
-  ThreadGroup tg;
-
   const uintptr_t* variant_include;
   uint32_t variant_ct;
   uint32_t sample_ct;
@@ -988,9 +986,9 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
     }
     const uint32_t acc4_vec_ct = acc1_vec_ct * 4;
     const uint32_t acc8_vec_ct = acc1_vec_ct * 8;
-    uintptr_t* missing_acc4 = &(missing_acc1[acc1_vec_ct * kWordsPerVec]);
-    uintptr_t* missing_acc8 = &(missing_acc4[acc4_vec_ct * kWordsPerVec]);
-    uintptr_t* missing_acc32 = &(missing_acc8[acc8_vec_ct * kWordsPerVec]);
+    VecW* missing_acc4 = &(R_CAST(VecW*, missing_acc1)[acc1_vec_ct]);
+    VecW* missing_acc8 = &(missing_acc4[acc4_vec_ct]);
+    VecW* missing_acc32 = &(missing_acc8[acc8_vec_ct]);
 
     uintptr_t* dosage_present = nullptr;
     Dosage* dosage_main = nullptr;
@@ -1581,9 +1579,9 @@ THREAD_FUNC_DECL ExportBgen11Thread(void* raw_arg) {
   const uint32_t acc4_vec_ct = acc1_vec_ct * 4;
   const uint32_t acc8_vec_ct = acc1_vec_ct * 8;
   uintptr_t* missing_acc1 = ctx->missing_acc1[tidx];
-  uintptr_t* missing_acc4 = &(missing_acc1[acc1_vec_ct * kWordsPerVec]);
-  uintptr_t* missing_acc8 = &(missing_acc4[acc4_vec_ct * kWordsPerVec]);
-  uintptr_t* missing_acc32 = &(missing_acc8[acc8_vec_ct * kWordsPerVec]);
+  VecW* missing_acc4 = &(R_CAST(VecW*, missing_acc1)[acc1_vec_ct]);
+  VecW* missing_acc8 = &(missing_acc4[acc4_vec_ct]);
+  VecW* missing_acc32 = &(missing_acc8[acc8_vec_ct]);
   uintptr_t* dosage_present = ctx->dosage_presents? ctx->dosage_presents[tidx] : nullptr;
   Dosage* dosage_main = dosage_present? ctx->dosage_mains[tidx] : nullptr;
   uint16_t* bgen_geno_buf = ctx->bgen_geno_bufs[tidx];
@@ -2389,9 +2387,9 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
   const uint32_t acc4_vec_ct = acc1_vec_ct * 4;
   const uint32_t acc8_vec_ct = acc1_vec_ct * 8;
   uintptr_t* missing_acc1 = ctx->missing_acc1[tidx];
-  uintptr_t* missing_acc4 = &(missing_acc1[acc1_vec_ct * kWordsPerVec]);
-  uintptr_t* missing_acc8 = &(missing_acc4[acc4_vec_ct * kWordsPerVec]);
-  uintptr_t* missing_acc32 = &(missing_acc8[acc8_vec_ct * kWordsPerVec]);
+  VecW* missing_acc4 = &(R_CAST(VecW*, missing_acc1)[acc1_vec_ct]);
+  VecW* missing_acc8 = &(missing_acc4[acc4_vec_ct]);
+  VecW* missing_acc32 = &(missing_acc8[acc8_vec_ct]);
   // todo: multiallelic support
   pgv.phasepresent = nullptr;
   pgv.phaseinfo = nullptr;

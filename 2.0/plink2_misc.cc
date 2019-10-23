@@ -632,6 +632,506 @@ PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, con
   return reterr;
 }
 
+PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* missing_varid, uint32_t raw_variant_ct, uint32_t variant_ct, RecoverVarIdsFlags flags, uint32_t max_thread_ct, char** variant_ids, uint32_t* max_variant_id_slen_ptr, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* alloc_end = R_CAST(char*, g_bigstack_end);
+  uintptr_t line_idx = 0;
+  FILE* errfile = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    // Significant overlap with UpdateVarNames().
+    const uint32_t chr_code_end = cip->max_code + 1 + cip->name_ct;
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    char** variant_ids_copy;
+    uintptr_t* chr_already_seen;
+    uintptr_t* already_seen;
+    uintptr_t* conflict_bitarr;
+    char** orig_alt_starts;
+    if (unlikely(
+            bigstack_alloc_cp(raw_variant_ct, &variant_ids_copy) ||
+            bigstack_calloc_w(BitCtToWordCt(chr_code_end), &chr_already_seen) ||
+            bigstack_calloc_w(raw_variant_ctl, &already_seen) ||
+            bigstack_calloc_w(raw_variant_ctl, &conflict_bitarr) ||
+            bigstack_alloc_cp(kPglMaxAltAlleleCt, &orig_alt_starts))) {
+      goto RecoverVarIds_ret_NOMEM;
+    }
+    // need this to be able to write original variant IDs in conflict case
+    memcpy(variant_ids_copy, variant_ids, raw_variant_ct * sizeof(intptr_t));
+
+    reterr = SizeAndInitTextStream(fname, bigstack_left() / 4, MAXV(max_thread_ct - 1, 1), &txs);
+    if (unlikely(reterr)) {
+      goto RecoverVarIds_ret_TSTREAM_FAIL;
+    }
+    char* line_start;
+    do {
+      ++line_idx;
+      reterr = TextNextLineLstrip(&txs, &line_start);
+      if (unlikely(reterr)) {
+        if (reterr == kPglRetEof) {
+          logerrputs("Error: Empty --recover-var-ids file.\n");
+          goto RecoverVarIds_ret_1;
+        }
+        goto RecoverVarIds_ret_TSTREAM_FAIL;
+      }
+    } while (IsEolnKns(*line_start) || ((*line_start == '#') && (!tokequal_k(line_start, "#CHROM"))));
+    // simplified copy of plink2_pvar code, probably want to write a library
+    // function for this
+    uint32_t col_skips[4];
+    uint32_t col_types[4];
+    uint32_t alt_col_idx = 4;
+    uint32_t strict_allele_order = 1;
+    const uint32_t is_bim = !(line_start[0] == '#');
+    if (!is_bim) {
+      // parse header
+      // [-1] = #CHROM (must be first column)
+      // [0] = POS
+      // [1] = ID
+      // [2] = REF
+      // [3] = ALT
+      char* token_end = &(line_start[6]);
+      uint32_t found_header_bitset = 0;
+      uint32_t relevant_postchr_col_ct = 0;
+      char* linebuf_iter;
+      for (uint32_t col_idx = 1; ; ++col_idx) {
+        linebuf_iter = FirstNonTspace(token_end);
+        if (IsEolnKns(*linebuf_iter)) {
+          break;
+        }
+        token_end = CurTokenEnd(linebuf_iter);
+        const uint32_t token_slen = token_end - linebuf_iter;
+        uint32_t cur_col_type;
+        if (token_slen == 3) {
+          if (memequal_k(linebuf_iter, "POS", 3)) {
+            cur_col_type = 0;
+          } else if (memequal_k(linebuf_iter, "REF", 3)) {
+            cur_col_type = 2;
+          } else if (memequal_k(linebuf_iter, "ALT", 3)) {
+            cur_col_type = 3;
+          } else {
+            continue;
+          }
+        } else if (token_slen == 2) {
+          if (memequal_k(linebuf_iter, "ID", 2)) {
+            cur_col_type = 1;
+          } else {
+            continue;
+          }
+        } else {
+          continue;
+        }
+        const uint32_t cur_col_type_shifted = 1 << cur_col_type;
+        if (unlikely(found_header_bitset & cur_col_type_shifted)) {
+          // known token, so no overflow danger
+          char* write_iter = strcpya_k(g_logbuf, "Error: Duplicate column header '");
+          write_iter = memcpya(write_iter, linebuf_iter, token_slen);
+          write_iter = strcpya_k(write_iter, "' on line ");
+          write_iter = wtoa(line_idx, write_iter);
+          strcpy_k(write_iter, " of --recover-var-ids file.\n");
+          goto RecoverVarIds_ret_MALFORMED_INPUT_WW;
+        }
+        found_header_bitset |= cur_col_type_shifted;
+        col_skips[relevant_postchr_col_ct] = col_idx;
+        col_types[relevant_postchr_col_ct++] = cur_col_type;
+      }
+      if (unlikely(relevant_postchr_col_ct != 4)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Missing column header(s) on line %" PRIuPTR " of --recover-var-ids file. (POS, ID, REF, and ALT are required.)\n", line_idx);
+        goto RecoverVarIds_ret_MALFORMED_INPUT_WW;
+      }
+      for (uint32_t rpc_col_idx = 3; rpc_col_idx; --rpc_col_idx) {
+        col_skips[rpc_col_idx] -= col_skips[rpc_col_idx - 1];
+      }
+      // skip this line in main loop
+      line_start = AdvToDelim(linebuf_iter, '\n');
+    } else {
+      // .bim.  Interpret as #CHROM ID POS ALT REF if there are exactly 5
+      // columns, otherwise #CHROM ID CM POS ALT REF.
+      col_skips[0] = 1;
+      col_skips[2] = 1;
+      col_skips[3] = 1;
+      col_types[0] = 1;
+      col_types[1] = 0;
+      col_types[2] = 3;
+      col_types[3] = 2;
+      char* linebuf_iter = NextTokenMult(line_start, 4);
+      if (unlikely(!linebuf_iter)) {
+        goto RecoverVarIds_ret_MISSING_TOKENS;
+      }
+      linebuf_iter = NextToken(linebuf_iter);
+      if (!linebuf_iter) {
+        col_skips[1] = 1;
+        alt_col_idx = 3;
+      } else {
+        col_skips[1] = 2;
+      }
+      strict_allele_order = (flags / kfRecoverVarIdsStrictBimOrder) & 1;
+    }
+    // Only nonzero if we're actually replacing existing IDs with the missing
+    // ID in the conflict case.
+    uint32_t missing_varid_blen = 0;
+    if (flags & kfRecoverVarIdsForce) {
+      if (!missing_varid) {
+        missing_varid = &(g_one_char_strs[92]);  // '.'
+      }
+      missing_varid_blen = 1 + strlen(missing_varid);
+    }
+    const uint32_t is_rigid = (flags / kfRecoverVarIdsRigid) & 1;
+    uint32_t max_variant_id_slen = *max_variant_id_slen_ptr;
+    char* alloc_base = R_CAST(char*, g_bigstack_base);
+    uint32_t is_unsorted = 0;
+    uint32_t prev_chr = UINT32_MAX;
+    uint32_t prev_chr_vidx_end = 0;
+    uint32_t prev_chr_vidx_start = 0;
+    uint32_t prev_bp = 0;
+    uint32_t prev_vidx_start = 0;
+    uint32_t prev_vidx_end = 0;
+    uint32_t rm_dup_warning = 0;
+    uintptr_t record_uidx = ~k0LU;  // deliberate overflow
+    uint32_t cur_allele_ct = 2;
+    char* line_iter = AdvToDelim(line_start, '\n');
+    while (1) {
+      do {
+        if (IsEolnKns(*line_start)) {
+          break;
+        }
+        ++record_uidx;
+        line_iter = CurTokenEnd(line_start);
+        uint32_t cur_chr_code = GetChrCodeCounted(cip, line_iter - line_start, line_start);
+        if (IsI32Neg(cur_chr_code)) {
+          break;
+        }
+        // Could add some special handling of chrX/PAR1/PAR2(/XY?) later, if
+        // that proves to be a pain point; this does operate on VCF input,
+        // after all.  It's a bit annoying to implement, though, so I'm
+        // excluding it from the first version.
+        if (cur_chr_code == prev_chr) {
+          if (!prev_chr_vidx_end) {
+            break;
+          }
+        } else {
+          prev_chr = cur_chr_code;
+          if (!is_unsorted) {
+            if (IsSet(chr_already_seen, cur_chr_code)) {
+              is_unsorted = 1;
+            } else {
+              SetBit(cur_chr_code, chr_already_seen);
+              prev_bp = 0;
+            }
+          }
+          if (!IsSet(cip->chr_mask, cur_chr_code)) {
+            prev_chr_vidx_end = 0;
+            break;
+          }
+          const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[cur_chr_code];
+          prev_chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+          prev_chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+          prev_vidx_start = prev_chr_vidx_start;
+          prev_vidx_end = prev_chr_vidx_start;
+        }
+        char* token_ptrs[4];
+        uint32_t token_slens[4];
+        line_iter = TokenLex(line_iter, col_types, col_skips, 4, token_ptrs, token_slens);
+        if (unlikely(!line_iter)) {
+          putc_unlocked('\n', stdout);
+          goto RecoverVarIds_ret_MISSING_TOKENS;
+        }
+        // Usually, everything is sorted by position, so we use exponential
+        // search over binary search unless we've detected unsorted data.
+        int32_t cur_bp_signed;
+        if (unlikely(ScanIntAbsDefcap(token_ptrs[0], &cur_bp_signed))) {
+          putc_unlocked('\n', stdout);
+          snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of --recover-var-ids file.\n", line_idx);
+          goto RecoverVarIds_ret_MALFORMED_INPUT_WW;
+        }
+        if (cur_bp_signed < 0) {
+          break;
+        }
+        const uint32_t cur_bp = cur_bp_signed;
+        if (cur_bp < prev_bp) {
+          is_unsorted = 1;
+        }
+        if (!is_unsorted) {
+          if (prev_vidx_end == prev_chr_vidx_end) {
+            break;
+          }
+          if (is_rigid || (cur_bp > prev_bp)) {
+            const uint32_t arr_length = prev_chr_vidx_end - prev_vidx_end;
+            const uint32_t incr = ExpsearchU32(&(variant_bps[prev_vidx_end]), arr_length, cur_bp);
+            if (incr == arr_length) {
+              prev_vidx_end = prev_chr_vidx_end;
+              break;
+            }
+            prev_vidx_start = incr + prev_vidx_end;
+          }
+          prev_bp = cur_bp;
+        } else {
+          const uint32_t arr_length = prev_chr_vidx_end - prev_chr_vidx_start;
+          const uint32_t incr = CountSortedSmallerU32(&(variant_bps[prev_chr_vidx_start]), arr_length, cur_bp);
+          if (incr == arr_length) {
+            break;
+          }
+          prev_vidx_start = incr + prev_chr_vidx_start;
+        }
+        prev_vidx_start = AdvBoundedTo1Bit(variant_include, prev_vidx_start, prev_chr_vidx_end);
+
+        // variant_bps[prev_vidx_start] is the first element >= cur_bp that
+        // hasn't been filtered out.
+        if (variant_bps[prev_vidx_start] != cur_bp) {
+          prev_vidx_end = prev_vidx_start;
+          break;
+        }
+        if (is_rigid) {
+          if (unlikely(record_uidx >= raw_variant_ct)) {
+            putc_unlocked('\n', stdout);
+            logerrputs("Error: \"--recover-var-ids rigid\" file does not match the main dataset.\n");
+            goto RecoverVarIds_ret_INCONSISTENT_INPUT;
+          }
+          if (!IsSet(variant_include, record_uidx)) {
+            break;
+          }
+          if (record_uidx != prev_vidx_start) {
+            putc_unlocked('\n', stdout);
+            logerrputs("Error: \"--recover-var-ids rigid\" file does not match the main dataset.\n");
+            goto RecoverVarIds_ret_INCONSISTENT_INPUT;
+          }
+        }
+        char* orig_alt_start = token_ptrs[3];
+        const uint32_t orig_alt_slen = token_slens[3];
+        const uint32_t extra_orig_alt_ct = CountByte(orig_alt_start, ',', orig_alt_slen);
+        if (unlikely(extra_orig_alt_ct && is_bim)) {
+          // probably want to enforce this in main .pvar loader too...
+          putc_unlocked('\n', stdout);
+          snprintf(g_logbuf, kLogbufSize, "Error: Multiple ALT alleles on line %" PRIuPTR " of headerless --recover-var-ids file.\n", line_idx);
+          goto RecoverVarIds_ret_MALFORMED_INPUT_WW;
+        }
+        // Null-terminate all allele codes so we can use strequal_overread();
+        // and make sure to reset the final null terminator so that unsafe
+        // line_iter advancement works.
+        const char line_iter_char = *line_iter;
+        char* orig_ref_start = token_ptrs[2];
+        orig_ref_start[token_slens[2]] = '\0';
+        {
+          char* orig_alt_iter = orig_alt_start;
+          for (uint32_t alt_idx = 0; alt_idx != extra_orig_alt_ct; ++alt_idx) {
+            orig_alt_starts[alt_idx] = orig_alt_iter;
+            orig_alt_iter = AdvToDelim(orig_alt_iter, ',');
+            *orig_alt_iter++ = '\0';
+          }
+          orig_alt_starts[extra_orig_alt_ct] = orig_alt_iter;
+        }
+        char* orig_alt_end = &(orig_alt_start[orig_alt_slen]);
+        *orig_alt_end = '\0';
+        const uint32_t orig_alt_ct = extra_orig_alt_ct + 1;
+
+        uint32_t cur_vidx = prev_vidx_start;
+        // Multiple variants in the current dataset may have this position;
+        // check them all for allele-code concordance.  If there are multiple
+        // matches, allow this but print a warning suggesting --rm-dup.  In the
+        // usual subcase where there are multiple instances in the original
+        // file, we'll error out instead unless 'force' was specified.
+        uint32_t already_matched = 0;
+        do {
+          do {
+            uintptr_t allele_idx_offset_base = cur_vidx * 2;
+            if (allele_idx_offsets) {
+              allele_idx_offset_base = allele_idx_offsets[cur_vidx];
+              cur_allele_ct = allele_idx_offsets[cur_vidx + 1] - allele_idx_offset_base;
+            }
+            if (cur_allele_ct != orig_alt_ct + 1) {
+              break;
+            }
+            const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+            const char* ref_allele = cur_alleles[0];
+            if (strict_allele_order) {
+              if (!strequal_overread(ref_allele, orig_ref_start)) {
+                break;
+              }
+              const char* const* cur_alt_alleles = &(cur_alleles[1]);
+              for (uint32_t alt_idx = 0; alt_idx != orig_alt_ct; ++alt_idx) {
+                if (!strequal_overread(cur_alt_alleles[alt_idx], orig_alt_starts[alt_idx])) {
+                  goto RecoverVarIds_ret_mismatch_found;
+                }
+              }
+            } else {
+              // cur_allele_ct == 2 guaranteed.
+              const char* other_allele = cur_alleles[1];
+              if (!strequal_overread(ref_allele, orig_ref_start)) {
+                if ((!strequal_overread(ref_allele, orig_alt_start)) || (!strequal_overread(other_allele, orig_ref_start))) {
+                  break;
+                }
+              } else if (!strequal_overread(other_allele, orig_alt_start)) {
+                break;
+              }
+            }
+            char* old_id = variant_ids[cur_vidx];
+            const uint32_t old_id_slen = strlen(old_id);
+            const char* new_id = token_ptrs[1];
+            const uint32_t new_id_slen = token_slens[1];
+            if (IsSet(already_seen, cur_vidx)) {
+              if ((new_id_slen != old_id_slen) || (!memequal(new_id, old_id, old_id_slen))) {
+                SetBit(cur_vidx, conflict_bitarr);
+                rm_dup_warning = 1;
+              }
+              break;
+            }
+            // Okay, chr/pos/alleles match, and there's no conflict with a
+            // previous entry.  Update the variant ID.
+            SetBit(cur_vidx, already_seen);
+            if (new_id_slen <= old_id_slen) {
+              const uint32_t old_id_blen = old_id_slen + 1;
+              if (unlikely(S_CAST(uintptr_t, alloc_end - alloc_base) < old_id_blen)) {
+                goto RecoverVarIds_ret_NOMEM;
+              }
+              memcpy(alloc_base, old_id, old_id_blen);
+              variant_ids_copy[cur_vidx] = alloc_base;
+              alloc_base = &(alloc_base[old_id_blen]);
+              memcpyx(old_id, new_id, new_id_slen, '\0');
+            } else {
+              if (new_id_slen > max_variant_id_slen) {
+                max_variant_id_slen = new_id_slen;
+              }
+              const uint32_t new_id_blen = new_id_slen + 1;
+              if (unlikely(S_CAST(uintptr_t, alloc_end - alloc_base) < new_id_blen)) {
+                goto RecoverVarIds_ret_NOMEM;
+              }
+              alloc_end -= new_id_blen;
+              memcpyx(alloc_end, new_id, new_id_slen, '\0');
+              variant_ids[cur_vidx] = alloc_end;
+            }
+            rm_dup_warning |= already_matched;
+            already_matched = 1;
+          } while (0);
+        RecoverVarIds_ret_mismatch_found:
+          cur_vidx = AdvBoundedTo1Bit(variant_include, cur_vidx + 1, prev_chr_vidx_end);
+        } while ((!is_rigid) && (cur_vidx != prev_chr_vidx_end) && (variant_bps[cur_vidx] == cur_bp));
+        *line_iter = line_iter_char;
+        prev_vidx_end = cur_vidx;
+      } while (0);
+      line_iter = AdvPastDelim(line_iter, '\n');
+      reterr = TextNextLineLstripUnsafe(&txs, &line_iter);
+      if (reterr) {
+        if (likely(reterr == kPglRetEof)) {
+          reterr = kPglRetSuccess;
+          break;
+        }
+        goto RecoverVarIds_ret_TSTREAM_FAIL;
+      }
+      if (!(line_idx % 1000000)) {
+        printf("\r--recover-var-ids: %" PRIuPTR "m lines scanned.", line_idx / 1000000);
+        fflush(stdout);
+      }
+      ++line_idx;
+      line_start = line_iter;
+      if (unlikely(line_start[0] == '#')) {
+        putc_unlocked('\n', stdout);
+        snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --recover-var-ids file starts with a '#'. (This is only permitted before the first nonheader line, and if a #CHROM header line is present it must denote the end of the header block.)\n", line_idx);
+        goto RecoverVarIds_ret_MALFORMED_INPUT_WW;
+      }
+    }
+    putc_unlocked('\r', stdout);
+    logprintf("--recover-var-ids: %" PRIuPTR " line%s scanned.\n", line_idx, (line_idx == 1)? "" : "s");
+    const uint32_t conflict_ct = PopcountWords(conflict_bitarr, raw_variant_ctl);
+    if (conflict_ct) {
+      strcpy(outname_end, ".recoverid.dup");
+      if (fopen_checked(outname, FOPEN_WB, &errfile)) {
+        goto RecoverVarIds_ret_OPEN_FAIL;
+      }
+      // Simply a list of affected variant IDs, one per line, sorted
+      // in order of original-file appearance.
+      // The reported variant IDs will usually be duplicated, since
+      // --set-all-var-ids makes them a function of CHROM/POS/REF/ALT, and
+      // that's what old-variant-ID recovery is based on.  (But one could e.g.
+      // set the IDs to zero-based indexes before calling --recover-var-ids, if
+      // they wanted every .recoverid.dup entry to be unambiguous.)
+      char* textbuf = g_textbuf;
+      char* textbuf_flush = &(textbuf[kMaxMediumLine]);
+      char* write_iter = textbuf;
+      uintptr_t variant_uidx_base = 0;
+      uintptr_t cur_bits = conflict_bitarr[0];
+      for (uint32_t conflict_idx = 0; conflict_idx != conflict_ct; ++conflict_idx) {
+        const uint32_t variant_uidx = BitIter1(conflict_bitarr, &variant_uidx_base, &cur_bits);
+        write_iter = strcpya(write_iter, variant_ids_copy[variant_uidx]);
+        AppendBinaryEoln(&write_iter);
+        if (unlikely(fwrite_ck(textbuf_flush, errfile, &write_iter))) {
+          goto RecoverVarIds_ret_WRITE_FAIL;
+        }
+        if (missing_varid_blen) {
+          char* cur_id = variant_ids[variant_uidx];
+          const uint32_t cur_id_slen = strlen(cur_id);
+          if (missing_varid_blen <= cur_id_slen + 1) {
+            memcpy(cur_id, missing_varid, missing_varid_blen);
+          } else {
+            if (unlikely(S_CAST(uintptr_t, alloc_end - alloc_base) < missing_varid_blen)) {
+              goto RecoverVarIds_ret_NOMEM;
+            }
+            alloc_end -= missing_varid_blen;
+            memcpy(alloc_end, missing_varid, missing_varid_blen);
+            variant_ids[variant_uidx] = alloc_end;
+          }
+        }
+      }
+      if (unlikely(fclose_flush_null(textbuf_flush, write_iter, &errfile))) {
+        goto RecoverVarIds_ret_WRITE_FAIL;
+      }
+      if (!missing_varid_blen) {
+        // not really unlikely, conditional on being in this branch...
+        snprintf(g_logbuf, kLogbufSize, "Error: %u variant%s had conflicting matching-position-and-alleles records in the --recover-var-ids file; affected ID%s been written to %s . (Add the 'force' modifier if you just want to set %s to the missing code.)\n", conflict_ct, (conflict_ct == 1)? "" : "s", (conflict_ct == 1)? "" : "s", outname, (conflict_ct == 1)? "it" : "them");
+        goto RecoverVarIds_ret_INCONSISTENT_INPUT_WW;
+      }
+      logerrprintfww("Warning: %u variant ID%s set to '%s' by \"--recover-var-ids force\". Previous ID%s been written to %s .\n", conflict_ct, (conflict_ct == 1)? "" : "s", missing_varid, (conflict_ct == 1)? " has" : "s have", outname);
+    }
+    const uint32_t update_ct = PopcountWords(already_seen, raw_variant_ctl);
+    const uint32_t unupdated_ct = variant_ct - update_ct;
+    if (unupdated_ct && (!(flags & kfRecoverVarIdsPartial))) {
+      snprintf(g_logbuf, kLogbufSize, "Error: %u/%u variant%s had no matching-position-and-alleles records in the --recover-var-ids file. (Add the 'partial' modifier when this is expected.)\n", unupdated_ct, variant_ct, (unupdated_ct == 1)? "" : "s");
+      goto RecoverVarIds_ret_INCONSISTENT_INPUT_WW;
+    }
+    logprintf("--recover-var-ids: %u/%u ID%s updated.\n", update_ct, variant_ct, (update_ct == 1)? "" : "s");
+    if (rm_dup_warning) {
+      logerrputs("Warning: Some variants had identical positions and alleles, and therefore were\nassigned the same ID.  Consider deduplicating your data with --rm-dup.\n");
+    }
+    *max_variant_id_slen_ptr = max_variant_id_slen;
+  }
+  while (0) {
+  RecoverVarIds_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  RecoverVarIds_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  RecoverVarIds_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  RecoverVarIds_ret_TSTREAM_FAIL:
+    putc_unlocked('\n', stdout);
+    TextStreamErrPrint("--recover-var-ids file", &txs);
+    break;
+  RecoverVarIds_ret_MISSING_TOKENS:
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --recover-var-ids file has fewer tokens than expected.\n", line_idx);
+  RecoverVarIds_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetMalformedInput;
+    break;
+  RecoverVarIds_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+  RecoverVarIds_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ RecoverVarIds_ret_1:
+  CleanupTextStream2("--recover-var-ids file", &txs, &reterr);
+  fclose_cond(errfile);
+
+  // doesn't hurt to ensure all replaced variant_ids[] entries are valid in the
+  // error case...
+  BigstackEndSet(alloc_end);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, const char* family_missing_catname, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uint32_t mwithin_val, uint32_t max_thread_ct, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
@@ -5132,49 +5632,47 @@ void UpdateSampleSingletonCountSparseY(const uintptr_t* sex_male, const uintptr_
   }
 }
 
-void UpdateDenseSampleCounts3(const uintptr_t* genovec, uint32_t acc2_vec_ct, uintptr_t* acc2_0, uint16_t* remainders) {
+void UpdateDenseSampleCounts3(const uintptr_t* genovec, uint32_t acc2_vec_ct, VecW* acc2_0, uint16_t* remainders) {
   const VecW m1 = VCONST_W(kMask5555);
-  const uint32_t acc2_word_ct = acc2_vec_ct * kWordsPerVec;
-  uintptr_t* acc2_2 = &(acc2_0[acc2_word_ct * 23]);
-  uintptr_t* acc2_1 = &(acc2_2[acc2_word_ct * 23]);
-  for (uint32_t widx = 0; widx != acc2_word_ct; widx += kWordsPerVec) {
-    // LEA instruction can only multiply by 1/2/4/8, not 16 or 32.  So looping
-    // over word-indexes may work better than vector-indexes.
-    // Yes, it sucks to have all these reinterpret-casts.
-    const VecW vv = *R_CAST(const VecW*, &(genovec[widx]));
+  const VecW* genovvec = R_CAST(const VecW*, genovec);
+  VecW* acc2_2 = &(acc2_0[acc2_vec_ct * 23]);
+  VecW* acc2_1 = &(acc2_2[acc2_vec_ct * 23]);
+  for (uint32_t vidx = 0; vidx != acc2_vec_ct; ++vidx) {
+    // Tried iterating over word-indexes instead (since LEA instruction can
+    // only multiply by 1/2/4/8, not 16 or 32), but that doesn't help, it just
+    // makes the code messier.
+    const VecW vv = genovvec[vidx];
     const VecW vv_hi = vecw_srli(vv, 1);
     const VecW vv_lo_0 = vecw_and_notfirst(vv, m1);
-    *R_CAST(VecW*, &(acc2_0[widx])) += vecw_and_notfirst(vv_hi, vv_lo_0);
-    *R_CAST(VecW*, &(acc2_2[widx])) += vv_lo_0 & vv_hi;
-    *R_CAST(VecW*, &(acc2_1[widx])) += vecw_and_notfirst(vv_hi, vv) & m1;
+    acc2_0[vidx] += vecw_and_notfirst(vv_hi, vv_lo_0);
+    acc2_2[vidx] += vv_lo_0 & vv_hi;
+    acc2_1[vidx] += vecw_and_notfirst(vv_hi, vv) & m1;
   }
   remainders[0] -= 1;
   if (!remainders[0]) {
-    uintptr_t* acc4_0 = &(acc2_0[acc2_word_ct]);
+    VecW* acc4_0 = &(acc2_0[acc2_vec_ct]);
     Vcount0Incr2To4(acc2_vec_ct, acc2_0, acc4_0);
-    uintptr_t* acc4_2 = &(acc2_2[acc2_word_ct]);
+    VecW* acc4_2 = &(acc2_2[acc2_vec_ct]);
     Vcount0Incr2To4(acc2_vec_ct, acc2_2, acc4_2);
-    uintptr_t* acc4_1 = &(acc2_1[acc2_word_ct]);
+    VecW* acc4_1 = &(acc2_1[acc2_vec_ct]);
     Vcount0Incr2To4(acc2_vec_ct, acc2_1, acc4_1);
     remainders[1] -= 1;
     if (!remainders[1]) {
       const uint32_t acc4_vec_ct = acc2_vec_ct * 2;
-      const uint32_t acc4_word_ct = acc2_word_ct * 2;
-      uintptr_t* acc8_0 = &(acc4_0[acc4_word_ct]);
+      VecW* acc8_0 = &(acc4_0[acc4_vec_ct]);
       Vcount0Incr4To8(acc4_vec_ct, acc4_0, acc8_0);
-      uintptr_t* acc8_2 = &(acc4_2[acc4_word_ct]);
+      VecW* acc8_2 = &(acc4_2[acc4_vec_ct]);
       Vcount0Incr4To8(acc4_vec_ct, acc4_2, acc8_2);
-      uintptr_t* acc8_1 = &(acc4_1[acc4_word_ct]);
+      VecW* acc8_1 = &(acc4_1[acc4_vec_ct]);
       Vcount0Incr4To8(acc4_vec_ct, acc4_1, acc8_1);
       remainders[2] -= 1;
       if (!remainders[2]) {
         const uint32_t acc8_vec_ct = acc4_vec_ct * 2;
-        const uint32_t acc8_word_ct = acc4_word_ct * 2;
-        uintptr_t* acc32_0 = &(acc8_0[acc8_word_ct]);
+        VecW* acc32_0 = &(acc8_0[acc8_vec_ct]);
         Vcount0Incr8To32(acc8_vec_ct, acc8_0, acc32_0);
-        uintptr_t* acc32_2 = &(acc8_2[acc8_word_ct]);
+        VecW* acc32_2 = &(acc8_2[acc8_vec_ct]);
         Vcount0Incr8To32(acc8_vec_ct, acc8_2, acc32_2);
-        uintptr_t* acc32_1 = &(acc8_1[acc8_word_ct]);
+        VecW* acc32_1 = &(acc8_1[acc8_vec_ct]);
         Vcount0Incr8To32(acc8_vec_ct, acc8_1, acc32_1);
         remainders[2] = 17;
       }
@@ -5184,41 +5682,36 @@ void UpdateDenseSampleCounts3(const uintptr_t* genovec, uint32_t acc2_vec_ct, ui
   }
 }
 
-void UpdateDenseSampleCounts2(const uintptr_t* genovec, uint32_t acc2_vec_ct, uintptr_t* acc2_0, uint16_t* remainders) {
+void UpdateDenseSampleCounts2(const uintptr_t* genovec, uint32_t acc2_vec_ct, VecW* acc2_0, uint16_t* remainders) {
   const VecW m1 = VCONST_W(kMask5555);
-  const uint32_t acc2_word_ct = acc2_vec_ct * kWordsPerVec;
-  uintptr_t* acc2_2 = &(acc2_0[acc2_word_ct * 23]);
-  for (uint32_t widx = 0; widx != acc2_word_ct; widx += kWordsPerVec) {
-    // LEA instruction can only multiply by 1/2/4/8, not 16 or 32.  So looping
-    // over word-indexes may work better than vector-indexes.
-    // Yes, it sucks to have all these reinterpret-casts.
-    const VecW vv = *R_CAST(const VecW*, &(genovec[widx]));
+  const VecW* genovvec = R_CAST(const VecW*, genovec);
+  VecW* acc2_2 = &(acc2_0[acc2_vec_ct * 23]);
+  for (uint32_t vidx = 0; vidx != acc2_vec_ct; ++vidx) {
+    const VecW vv = genovvec[vidx];
     const VecW vv_hi = vecw_srli(vv, 1);
     const VecW vv_lo_0 = vecw_and_notfirst(vv, m1);
-    *R_CAST(VecW*, &(acc2_0[widx])) += vecw_and_notfirst(vv_hi, vv_lo_0);
-    *R_CAST(VecW*, &(acc2_2[widx])) += vv_lo_0 & vv_hi;
+    acc2_0[vidx] += vecw_and_notfirst(vv_hi, vv_lo_0);
+    acc2_2[vidx] += vv_lo_0 & vv_hi;
   }
   remainders[0] -= 1;
   if (!remainders[0]) {
-    uintptr_t* acc4_0 = &(acc2_0[acc2_word_ct]);
+    VecW* acc4_0 = &(acc2_0[acc2_vec_ct]);
     Vcount0Incr2To4(acc2_vec_ct, acc2_0, acc4_0);
-    uintptr_t* acc4_2 = &(acc2_2[acc2_word_ct]);
+    VecW* acc4_2 = &(acc2_2[acc2_vec_ct]);
     Vcount0Incr2To4(acc2_vec_ct, acc2_2, acc4_2);
     remainders[1] -= 1;
     if (!remainders[1]) {
       const uint32_t acc4_vec_ct = acc2_vec_ct * 2;
-      const uint32_t acc4_word_ct = acc2_word_ct * 2;
-      uintptr_t* acc8_0 = &(acc4_0[acc4_word_ct]);
+      VecW* acc8_0 = &(acc4_0[acc4_vec_ct]);
       Vcount0Incr4To8(acc4_vec_ct, acc4_0, acc8_0);
-      uintptr_t* acc8_2 = &(acc4_2[acc4_word_ct]);
+      VecW* acc8_2 = &(acc4_2[acc4_vec_ct]);
       Vcount0Incr4To8(acc4_vec_ct, acc4_2, acc8_2);
       remainders[2] -= 1;
       if (!remainders[2]) {
         const uint32_t acc8_vec_ct = acc4_vec_ct * 2;
-        const uint32_t acc8_word_ct = acc4_word_ct * 2;
-        uintptr_t* acc32_0 = &(acc8_0[acc8_word_ct]);
+        VecW* acc32_0 = &(acc8_0[acc8_vec_ct]);
         Vcount0Incr8To32(acc8_vec_ct, acc8_0, acc32_0);
-        uintptr_t* acc32_2 = &(acc8_2[acc8_word_ct]);
+        VecW* acc32_2 = &(acc8_2[acc8_vec_ct]);
         Vcount0Incr8To32(acc8_vec_ct, acc8_2, acc32_2);
         remainders[2] = 17;
       }
@@ -5260,7 +5753,7 @@ typedef struct SampleCountsCtxStruct {
   // bottom level: acc2 partial counts, then acc4, then acc8, then acc32 for
   //               genotype=0.  Then the same for genotype=2, and finally (in
   //               autosomal-diploid/chrX cases) genotype=1.
-  uintptr_t*** thread_dense_counts;
+  VecW*** thread_dense_counts;
 
   // top-level: length calc_thread_ct array
   // second level: length-32 arrays, corresponding to chr_type x common_geno x
@@ -5324,15 +5817,15 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
 
   const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
   const uint32_t acc2_vec_ct = QuaterCtToVecCt(sample_ct);
-  const uintptr_t dense_counts_wstride = acc2_vec_ct * kWordsPerVec * 23;
+  const uintptr_t dense_counts_vstride = acc2_vec_ct * 23;
   const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
-  uintptr_t** dense_counts = ctx->thread_dense_counts[tidx];
+  VecW** dense_counts = ctx->thread_dense_counts[tidx];
   // 4 chr_types, 3 remainders per variant_type
   // uint16_t instead of uint8_t to avoid aliasing paranoia
   uint16_t dense_remainders[12 * kSubstCodeCt];
   for (uint32_t dense_vtype = 0; dense_vtype != 4 * kSubstCodeCt; ++dense_vtype) {
     if (dense_counts[dense_vtype]) {
-      ZeroWArr(dense_counts_wstride * (2 + (dense_vtype < 2 * kSubstCodeCt)), dense_counts[dense_vtype]);
+      ZeroVecArr(dense_counts_vstride * (2 + (dense_vtype < 2 * kSubstCodeCt)), dense_counts[dense_vtype]);
       dense_remainders[3 * dense_vtype] = 3;
       dense_remainders[3 * dense_vtype + 1] = 5;
       dense_remainders[3 * dense_vtype + 2] = 17;
@@ -5754,34 +6247,31 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
       }
     }
   } while (!THREAD_BLOCK_FINISH(arg));
-  const uintptr_t acc2_word_ct = acc2_vec_ct * kWordsPerVec;
   const uintptr_t acc4_vec_ct = acc2_vec_ct * 2;
-  const uintptr_t acc4_word_ct = acc2_vec_ct * 2 * kWordsPerVec;
   const uintptr_t acc8_vec_ct = acc2_vec_ct * 4;
-  const uintptr_t acc8_word_ct = acc2_vec_ct * 4 * kWordsPerVec;
   for (uint32_t dense_vtype = 0; dense_vtype != 4 * kSubstCodeCt; ++dense_vtype) {
-    uintptr_t* acc2_0 = dense_counts[dense_vtype];
+    VecW* acc2_0 = dense_counts[dense_vtype];
     if (acc2_0) {
-      uintptr_t* acc4_0 = &(acc2_0[acc2_word_ct]);
+      VecW* acc4_0 = &(acc2_0[acc2_vec_ct]);
       VcountIncr2To4(acc2_0, acc2_vec_ct, acc4_0);
-      uintptr_t* acc8_0 = &(acc4_0[acc4_word_ct]);
+      VecW* acc8_0 = &(acc4_0[acc4_vec_ct]);
       VcountIncr4To8(acc4_0, acc4_vec_ct, acc8_0);
-      VcountIncr8To32(acc8_0, acc8_vec_ct, &(acc8_0[acc8_word_ct]));
+      VcountIncr8To32(acc8_0, acc8_vec_ct, &(acc8_0[acc8_vec_ct]));
 
-      uintptr_t* acc2_2 = &(acc2_0[dense_counts_wstride]);
-      uintptr_t* acc4_2 = &(acc2_2[acc2_word_ct]);
+      VecW* acc2_2 = &(acc2_0[dense_counts_vstride]);
+      VecW* acc4_2 = &(acc2_2[acc2_vec_ct]);
       VcountIncr2To4(acc2_2, acc2_vec_ct, acc4_2);
-      uintptr_t* acc8_2 = &(acc4_2[acc4_word_ct]);
+      VecW* acc8_2 = &(acc4_2[acc4_vec_ct]);
       VcountIncr4To8(acc4_2, acc4_vec_ct, acc8_2);
-      VcountIncr8To32(acc8_2, acc8_vec_ct, &(acc8_2[acc8_word_ct]));
+      VcountIncr8To32(acc8_2, acc8_vec_ct, &(acc8_2[acc8_vec_ct]));
 
       if (dense_vtype < 2 * kSubstCodeCt) {
-        uintptr_t* acc2_1 = &(acc2_2[dense_counts_wstride]);
-        uintptr_t* acc4_1 = &(acc2_1[acc2_word_ct]);
+        VecW* acc2_1 = &(acc2_2[dense_counts_vstride]);
+        VecW* acc4_1 = &(acc2_1[acc2_vec_ct]);
         VcountIncr2To4(acc2_1, acc2_vec_ct, acc4_1);
-        uintptr_t* acc8_1 = &(acc4_1[acc4_word_ct]);
+        VecW* acc8_1 = &(acc4_1[acc4_vec_ct]);
         VcountIncr4To8(acc4_1, acc4_vec_ct, acc8_1);
-        VcountIncr8To32(acc8_1, acc8_vec_ct, &(acc8_1[acc8_word_ct]));
+        VcountIncr8To32(acc8_1, acc8_vec_ct, &(acc8_1[acc8_vec_ct]));
       }
     }
   }
@@ -5798,39 +6288,33 @@ void Unscramble2(uint32_t sample_ct, uint32_t* dst, uint32_t* unscramble_buf) {
 }
 
 // diploid-only if haploid_counts_subst == nullptr
-void IncrSubstType(const SampleCountsCtx* ctx, const uint32_t* const* diploid_counts_subst, const uint32_t* const* haploid_counts_subst, uint32_t sample_ct, uint32_t subst_code, uint32_t* dst) {
+void IncrSubstType(const SampleCountsCtx* ctx, const uint32_t* const* diploid_counts_subst, const uint32_t* const* haploid_counts_subst, uint32_t sample_ct_i32v, uint32_t subst_code, uint32_t* dst) {
   {
     const uint32_t* dip_src1 = diploid_counts_subst[1];
     const uint32_t* dip_src2 = diploid_counts_subst[2];
-    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-      dst[sample_idx] += dip_src1[sample_idx] + dip_src2[sample_idx];
-    }
+    U32CastVecAdd2(dip_src1, dip_src2, sample_ct_i32v, dst);
     if (haploid_counts_subst) {
       const uint32_t* hap_src = haploid_counts_subst[1];
       if (hap_src) {
-        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-          dst[sample_idx] += hap_src[sample_idx];
-        }
+        U32CastVecAdd(hap_src, sample_ct_i32v, dst);
       }
     }
   }
   if (ctx->thread_het2alt_cts) {
-    const uintptr_t sample_ct_i32av = RoundUpPow2(sample_ct, kInt32PerVec);
+    const uintptr_t sample_ct_i32av = sample_ct_i32v * kInt32PerVec;
     const uint32_t* sub_src = &(ctx->thread_het2alt_cts[0][subst_code * sample_ct_i32av]);
     const uint32_t* add_src = &(sub_src[kSubstCodeCt * sample_ct_i32av]);
-    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-      dst[sample_idx] += add_src[sample_idx] - sub_src[sample_idx];
-    }
+    U32CastVecAddSub(add_src, sub_src, sample_ct_i32v, dst);
   }
 }
 
-uint32_t* AllocAndCountSubstType(const SampleCountsCtx* ctx, const uint32_t* const* diploid_counts_subst, const uint32_t* const* haploid_counts_subst, uint32_t sample_ct, uint32_t subst_code) {
-  uint32_t* dst = S_CAST(uint32_t*, bigstack_alloc(sample_ct * sizeof(int32_t)));
+uint32_t* AllocAndCountSubstType(const SampleCountsCtx* ctx, const uint32_t* const* diploid_counts_subst, const uint32_t* const* haploid_counts_subst, uint32_t sample_ct_i32v, uint32_t subst_code) {
+  uint32_t* dst = S_CAST(uint32_t*, bigstack_alloc(sample_ct_i32v * sizeof(VecU32)));
   if (unlikely(!dst)) {
     return nullptr;
   }
-  ZeroU32Arr(sample_ct, dst);
-  IncrSubstType(ctx, diploid_counts_subst, haploid_counts_subst, sample_ct, subst_code, dst);
+  ZeroU32Arr(sample_ct_i32v * kInt32PerVec, dst);
+  IncrSubstType(ctx, diploid_counts_subst, haploid_counts_subst, sample_ct_i32v, subst_code, dst);
   return dst;
 }
 
@@ -5979,7 +6463,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     if (unlikely(
              bigstack_alloc_wp(calc_thread_ct, &ctx.raregenos) ||
              bigstack_alloc_u32p(calc_thread_ct, &ctx.difflist_sample_id_bufs) ||
-             bigstack_alloc_wpp(calc_thread_ct, &ctx.thread_dense_counts) ||
+             bigstack_alloc_vpp(calc_thread_ct, &ctx.thread_dense_counts) ||
              bigstack_alloc_u32pp(calc_thread_ct, &ctx.thread_sparse_counts) ||
              bigstack_alloc_u32p(calc_thread_ct, &ctx.thread_sparse_common0_cts))) {
       goto SampleCounts_ret_NOMEM;
@@ -6101,7 +6585,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
       if (!tidx) {
         bigstack_end_mark2 = cur_alloc;
       }
-      ctx.thread_dense_counts[tidx] = R_CAST(uintptr_t**, cur_alloc);
+      ctx.thread_dense_counts[tidx] = R_CAST(VecW**, cur_alloc);
       cur_alloc = &(cur_alloc[dense_counts_middle_vec_ct * kBytesPerVec]);
       ZeroPtrArr(4 * kSubstCodeCt, ctx.thread_dense_counts[tidx]);
       for (uint32_t cur_chr_type = 0; cur_chr_type != 4; ++cur_chr_type) {
@@ -6110,7 +6594,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
         }
         const uintptr_t record_byte_ct = (dense_counts_vstride * (2 + (cur_chr_type < 2))) * kBytesPerVec;
         for (uint32_t subst_code = 0; subst_code != kSubstCodeCt; ++subst_code) {
-          ctx.thread_dense_counts[tidx][cur_chr_type * kSubstCodeCt + subst_code] = R_CAST(uintptr_t*, cur_alloc);
+          ctx.thread_dense_counts[tidx][cur_chr_type * kSubstCodeCt + subst_code] = R_CAST(VecW*, cur_alloc);
           cur_alloc = &(cur_alloc[record_byte_ct]);
         }
       }
@@ -6230,37 +6714,26 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
       // pointers
       pgfip->block_base = main_loadbufs[parity];
     }
-    if (pct > 10) {
-      putc_unlocked('\b', stdout);
-    }
-    fputs("\b\b", stdout);
-    logputs("done.\n");
-    const uintptr_t acc32_woffset = acc2_vec_ct * kWordsPerVec * 7;
-    const uintptr_t acc32_u32_ct = acc2_vec_ct * kInt32PerVec * 16;
+    const uintptr_t acc32_voffset = acc2_vec_ct * 7;
+    const uintptr_t acc32_vec_ct = acc2_vec_ct * 16;
     for (uint32_t tidx = 1; tidx != calc_thread_ct; ++tidx) {
       // any reasonable compiler should vectorize the inner loops
       // could also multithread this (unscramble first, then split by sample
       // ranges), but computation time here should be negligible
       for (uint32_t dense_vtype = 0; dense_vtype != 4 * kSubstCodeCt; ++dense_vtype) {
-        uintptr_t* dst_acc2_0 = ctx.thread_dense_counts[0][dense_vtype];
+        VecW* dst_acc2_0 = ctx.thread_dense_counts[0][dense_vtype];
         if (dst_acc2_0) {
-          const uintptr_t* src_acc2_0 = ctx.thread_dense_counts[tidx][dense_vtype];
-          const uint32_t* src_acc32_0 = R_CAST(const uint32_t*, &(src_acc2_0[acc32_woffset]));
-          uint32_t* dst_acc32_0 = R_CAST(uint32_t*, &(dst_acc2_0[acc32_woffset]));
-          for (uint32_t uii = 0; uii != acc32_u32_ct; ++uii) {
-            dst_acc32_0[uii] += src_acc32_0[uii];
-          }
-          const uint32_t* src_acc32_2 = &(src_acc32_0[acc2_vec_ct * 23 * kInt32PerVec]);
-          uint32_t* dst_acc32_2 = &(dst_acc32_0[acc2_vec_ct * 23 * kInt32PerVec]);
-          for (uint32_t uii = 0; uii != acc32_u32_ct; ++uii) {
-            dst_acc32_2[uii] += src_acc32_2[uii];
-          }
+          const VecW* src_acc2_0 = ctx.thread_dense_counts[tidx][dense_vtype];
+          const VecU32* src_acc32_0 = R_CAST(const VecU32*, &(src_acc2_0[acc32_voffset]));
+          VecU32* dst_acc32_0 = R_CAST(VecU32*, &(dst_acc2_0[acc32_voffset]));
+          U32VecAdd(src_acc32_0, acc32_vec_ct, dst_acc32_0);
+          const VecU32* src_acc32_2 = &(src_acc32_0[acc2_vec_ct * 23]);
+          VecU32* dst_acc32_2 = &(dst_acc32_0[acc2_vec_ct * 23]);
+          U32VecAdd(src_acc32_2, acc32_vec_ct, dst_acc32_2);
           if (dense_vtype < 2 * kSubstCodeCt) {
-            const uint32_t* src_acc32_1 = &(src_acc32_2[acc2_vec_ct * 23 * kInt32PerVec]);
-            uint32_t* dst_acc32_1 = &(dst_acc32_2[acc2_vec_ct * 23 * kInt32PerVec]);
-            for (uint32_t uii = 0; uii != acc32_u32_ct; ++uii) {
-              dst_acc32_1[uii] += src_acc32_1[uii];
-            }
+            const VecU32* src_acc32_1 = &(src_acc32_2[acc2_vec_ct * 23]);
+            VecU32* dst_acc32_1 = &(dst_acc32_2[acc2_vec_ct * 23]);
+            U32VecAdd(src_acc32_1, acc32_vec_ct, dst_acc32_1);
           }
         }
       }
@@ -6268,10 +6741,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
         uint32_t* dst = ctx.thread_sparse_counts[0][sparse_vtype];
         if (dst) {
           const uint32_t* src = ctx.thread_sparse_counts[tidx][sparse_vtype];
-          const uintptr_t loop_stop = sample_ct_i32av * (3 * k1LU);
-          for (uintptr_t ulii = 0; ulii != loop_stop; ++ulii) {
-            dst[ulii] += src[ulii];
-          }
+          U32CastVecAdd(src, sample_ct_i32v * 3, dst);
         }
       }
       {
@@ -6284,45 +6754,31 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
       if (ctx.thread_diploid_singleton_cts) {
         const uint32_t* src = ctx.thread_diploid_singleton_cts[tidx];
         uint32_t* dst = ctx.thread_diploid_singleton_cts[0];
-        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-          dst[sample_idx] += src[sample_idx];
-        }
+        U32CastVecAdd(src, sample_ct_i32v, dst);
       }
       if (ctx.thread_singleton_cts) {
         const uint32_t* src = ctx.thread_singleton_cts[tidx];
         uint32_t* dst = ctx.thread_singleton_cts[0];
-        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-          dst[sample_idx] += src[sample_idx];
-        }
+        U32CastVecAdd(src, sample_ct_i32v, dst);
       }
       if (mhc_needed) {
-        uintptr_t loop_stop = sample_ct_i32av * (2 * kSubstCodeCt * k1LU);
         {
           uint32_t* dst = ctx.thread_het2alt_cts[0];
           const uint32_t* src = ctx.thread_het2alt_cts[tidx];
-          for (uintptr_t ulii = 0; ulii != loop_stop; ++ulii) {
-            dst[ulii] += src[ulii];
-          }
+          U32CastVecAdd(src, sample_ct_i32v * 2 * kSubstCodeCt, dst);
         }
 
-        loop_stop = loop_stop / 2;
         int32_t* dst = ctx.thread_het_rarealt_cts[0];
         const int32_t* src = ctx.thread_het_rarealt_cts[tidx];
-        for (uintptr_t ulii = 0; ulii != loop_stop; ++ulii) {
-          dst[ulii] += src[ulii];
-        }
+        I32CastVecAdd(src, sample_ct_i32v * kSubstCodeCt, dst);
         dst = ctx.thread_hom_rarealt_cts[0];
         src = ctx.thread_hom_rarealt_cts[tidx];
-        for (uintptr_t ulii = 0; ulii != loop_stop; ++ulii) {
-          dst[ulii] += src[ulii];
-        }
+        I32CastVecAdd(src, sample_ct_i32v * kSubstCodeCt, dst);
 
         if (ctx.thread_hap_rarealt_cts) {
           dst = ctx.thread_hap_rarealt_cts[0];
           src = ctx.thread_hap_rarealt_cts[tidx];
-          for (uintptr_t ulii = 0; ulii != loop_stop; ++ulii) {
-            dst[ulii] += src[ulii];
-          }
+          I32CastVecAdd(src, sample_ct_i32v * kSubstCodeCt, dst);
         }
       }
     }
@@ -6331,7 +6787,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     // 1. Unscramble the final dense raw counts.
     uint32_t* unscramble_buf;
     if (unlikely(
-            bigstack_alloc_u32(acc32_u32_ct, &unscramble_buf))) {
+            bigstack_alloc_u32(acc32_vec_ct * kInt32PerVec, &unscramble_buf))) {
       goto SampleCounts_ret_NOMEM;
     }
     uint32_t* male_u32_mask = nullptr;
@@ -6351,8 +6807,8 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
           continue;
         }
         for (uint32_t vtype = kSubstCodeCt * cur_chr_type; vtype != vtype_stop; ++vtype) {
-          uintptr_t* dst_acc2_0 = ctx.thread_dense_counts[0][vtype];
-          uint32_t* dst_0 = R_CAST(uint32_t*, &(dst_acc2_0[acc32_woffset]));
+          VecW* dst_acc2_0 = ctx.thread_dense_counts[0][vtype];
+          uint32_t* dst_0 = R_CAST(uint32_t*, &(dst_acc2_0[acc32_voffset]));
           Unscramble2(sample_ct, dst_0, unscramble_buf);
           unscrambled_dense_counts[vtype][0] = dst_0;
 
@@ -6390,42 +6846,28 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
             dense0[sample_idx] += base0 - src[sample_idx];
           }
           if (dense1) {
-            for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-              dense1[sample_idx] += src[sample_idx];
-            }
+            U32CastVecAdd(src, sample_ct_i32v, dense1);
           }
           // 0->2
           src = &(src[sample_ct_i32av]);
-          for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-            dense0[sample_idx] -= src[sample_idx];
-          }
-          for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-            dense2[sample_idx] += src[sample_idx];
-          }
+          U32CastVecSub(src, sample_ct_i32v, dense0);
+          U32CastVecAdd(src, sample_ct_i32v, dense2);
           // 0->3
           src = &(src[sample_ct_i32av]);
-          for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-            dense0[sample_idx] -= src[sample_idx];
-          }
+          U32CastVecSub(src, sample_ct_i32v, dense0);
 
           sparse_vtype += kSubstCodeCt;
           src = ctx.thread_sparse_counts[0][sparse_vtype];
           // 3->2
-          for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-            dense2[sample_idx] += src[sample_idx];
-          }
+          U32CastVecAdd(src, sample_ct_i32v, dense2);
           // 3->1
           src = &(src[sample_ct_i32av]);
           if (dense1) {
-            for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-              dense1[sample_idx] += src[sample_idx];
-            }
+            U32CastVecAdd(src, sample_ct_i32v, dense1);
           }
           // 3->0
           src = &(src[sample_ct_i32av]);
-          for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-            dense0[sample_idx] += src[sample_idx];
-          }
+          U32CastVecAdd(src, sample_ct_i32v, dense0);
         }
       }
 
@@ -6452,7 +6894,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
           // benchmark vector-based ways of doing this (including a simple
           // 16- or 256-element lookup table)
           if (unlikely(
-                  bigstack_end_calloc_u32(sample_ct, &male_u32_mask))) {
+                  bigstack_end_calloc_u32(sample_ct_i32av, &male_u32_mask))) {
             goto SampleCounts_ret_NOMEM;
           }
           const uintptr_t* sex_male_collapsed = ctx.sex_male_collapsed;
@@ -6466,7 +6908,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
         uint32_t* female_y_dst = nullptr;
         for (uint32_t alt_ct = 0; alt_ct != 2; ++alt_ct) {
           if (y_nonmale_needed) {
-            if (unlikely(bigstack_end_calloc_u32(sample_ct, &female_y_dst))) {
+            if (unlikely(bigstack_end_calloc_u32(sample_ct_i32av, &female_y_dst))) {
               goto SampleCounts_ret_NOMEM;
             }
             y_nonmale_counts[alt_ct] = female_y_dst;
@@ -6477,7 +6919,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
               dst = unscrambled_dense_counts[3 * kSubstCodeCt + subst_code][alt_ct * 2];
             } else {
               if (unlikely(
-                      bigstack_end_calloc_u32(sample_ct, &dst))) {
+                      bigstack_end_calloc_u32(sample_ct_i32av, &dst))) {
                 goto SampleCounts_ret_NOMEM;
               }
             }
@@ -6486,25 +6928,17 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
               if (chr_types & 4) {
                 const uint32_t* src2 = unscrambled_dense_counts[2 * kSubstCodeCt + subst_code][alt_ct * 2];
                 if (female_y_dst) {
-                  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-                    female_y_dst[sample_idx] += src2[sample_idx] & (~male_u32_mask[sample_idx]);
-                  }
+                  U32CastVecInvmaskedAdd(male_u32_mask, src2, sample_ct_i32v, female_y_dst);
                 }
                 if (chr_types & 2) {
                   const uint32_t* src1 = unscrambled_dense_counts[kSubstCodeCt + subst_code][alt_ct * 2];
-                  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-                    dst[sample_idx] += (src1[sample_idx] + src2[sample_idx]) & male_u32_mask[sample_idx];
-                  }
+                  U32CastVecMaskedAdd2(male_u32_mask, src1, src2, sample_ct_i32v, dst);
                 } else {
-                  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-                    dst[sample_idx] += src2[sample_idx] & male_u32_mask[sample_idx];
-                  }
+                  U32CastVecMaskedAdd(male_u32_mask, src2, sample_ct_i32v, dst);
                 }
               } else {
                 const uint32_t* src1 = unscrambled_dense_counts[kSubstCodeCt + subst_code][alt_ct * 2];
-                for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-                  dst[sample_idx] += src1[sample_idx] & male_u32_mask[sample_idx];
-                }
+                U32CastVecMaskedAdd(male_u32_mask, src1, sample_ct_i32v, dst);
               }
             }
           }
@@ -6517,7 +6951,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
             dst = unscrambled_dense_counts[subst_code][alt_ct];
           } else {
             if (unlikely(
-                    bigstack_end_calloc_u32(sample_ct, &dst))) {
+                    bigstack_end_calloc_u32(sample_ct_i32av, &dst))) {
               goto SampleCounts_ret_NOMEM;
             }
           }
@@ -6525,11 +6959,8 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
           diploid_counts[subst_code][alt_ct] = dst;
           if (chr_types & 2) {
             // chrX nonmales
-            // todo: verify this vectorizes well
             const uint32_t* src = unscrambled_dense_counts[subst_code + kSubstCodeCt][alt_ct];
-            for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-              dst[sample_idx] += (~male_u32_mask[sample_idx]) & src[sample_idx];
-            }
+            U32CastVecInvmaskedAdd(male_u32_mask, src, sample_ct_i32v, dst);
           }
         }
       }
@@ -6542,26 +6973,20 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
           // earlier on it's less likely to be a nightmare
           const uint32_t* src = R_CAST(uint32_t*, &(ctx.thread_het_rarealt_cts[0][subst_code * sample_ct_i32av]));
           uint32_t* dst = diploid_counts[subst_code][1];
-          for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-            dst[sample_idx] += src[sample_idx];
-          }
+          U32CastVecAdd(src, sample_ct_i32v, dst);
         }
 
         for (uint32_t subst_code = 0; subst_code != kSubstCodeCt; ++subst_code) {
           const uint32_t* src = R_CAST(uint32_t*, &(ctx.thread_hom_rarealt_cts[0][subst_code * sample_ct_i32av]));
           uint32_t* dst = diploid_counts[subst_code][2];
-          for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-            dst[sample_idx] += src[sample_idx];
-          }
+          U32CastVecAdd(src, sample_ct_i32v, dst);
         }
 
         if (ctx.thread_hap_rarealt_cts) {
           for (uint32_t subst_code = 0; subst_code != kSubstCodeCt; ++subst_code) {
             const uint32_t* src = R_CAST(uint32_t*, &(ctx.thread_hap_rarealt_cts[0][subst_code * sample_ct_i32av]));
             uint32_t* dst = haploid_counts[subst_code][1];
-            for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-              dst[sample_idx] += src[sample_idx];
-            }
+            U32CastVecAdd(src, sample_ct_i32v, dst);
           }
         }
 
@@ -6580,7 +7005,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     uint32_t* het2alt_reported_vals = nullptr;
     if (mhc_needed) {
       if (unlikely(
-              bigstack_alloc_u32(sample_ct, &het2alt_reported_vals))) {
+              bigstack_alloc_u32(sample_ct_i32av, &het2alt_reported_vals))) {
         goto SampleCounts_ret_NOMEM;
       }
       const uint32_t* src0 = ctx.thread_het2alt_cts[0];
@@ -6588,19 +7013,17 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
       const uint32_t* src2 = &(src1[sample_ct_i32av]);
       const uint32_t* src3 = &(src2[sample_ct_i32av]);
       const uint32_t* src4 = &(src3[sample_ct_i32av]);
-      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-        het2alt_reported_vals[sample_idx] = src0[sample_idx] + src1[sample_idx] + src2[sample_idx] + src3[sample_idx] + src4[sample_idx];
-      }
+      U32CastVecAssignAdd5(src0, src1, src2, src3, src4, sample_ct_i32v, het2alt_reported_vals);
     }
     uint32_t* refalt_vals;
     uint32_t* homalt_vals;
     uint32_t* homref_vals;
     uint32_t* hom_vals;
     if (unlikely(
-            bigstack_alloc_u32(sample_ct, &refalt_vals) ||
-            bigstack_alloc_u32(sample_ct, &homalt_vals) ||
-            bigstack_alloc_u32(sample_ct, &homref_vals) ||
-            bigstack_alloc_u32(sample_ct, &hom_vals))) {
+            bigstack_alloc_u32(sample_ct_i32av, &refalt_vals) ||
+            bigstack_alloc_u32(sample_ct_i32av, &homalt_vals) ||
+            bigstack_alloc_u32(sample_ct_i32av, &homref_vals) ||
+            bigstack_alloc_u32(sample_ct_i32av, &hom_vals))) {
       goto SampleCounts_ret_NOMEM;
     }
     {
@@ -6609,21 +7032,17 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
       const uint32_t* src2 = diploid_counts[2][1];
       const uint32_t* src3 = diploid_counts[3][1];
       const uint32_t* src4 = diploid_counts[4][1];
-      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-        refalt_vals[sample_idx] = src0[sample_idx] + src1[sample_idx] + src2[sample_idx] + src3[sample_idx] + src4[sample_idx];
-      }
+      U32CastVecAssignAdd5(src0, src1, src2, src3, src4, sample_ct_i32v, refalt_vals);
     }
     uint32_t* het_vals;
     if (!mhc_needed) {
       het_vals = refalt_vals;
     } else {
       if (unlikely(
-              bigstack_alloc_u32(sample_ct, &het_vals))) {
+              bigstack_alloc_u32(sample_ct_i32av, &het_vals))) {
         goto SampleCounts_ret_NOMEM;
       }
-      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-        het_vals[sample_idx] = het2alt_reported_vals[sample_idx] + refalt_vals[sample_idx];
-      }
+      U32CastVecAssignAdd2(het2alt_reported_vals, refalt_vals, sample_ct_i32v, het_vals);
     }
     {
       const uint32_t* src0 = diploid_counts[0][2];
@@ -6631,13 +7050,9 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
       const uint32_t* src2 = diploid_counts[2][2];
       const uint32_t* src3 = diploid_counts[3][2];
       const uint32_t* src4 = diploid_counts[4][2];
-      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-        homalt_vals[sample_idx] = src0[sample_idx] + src1[sample_idx] + src2[sample_idx] + src3[sample_idx] + src4[sample_idx];
-      }
+      U32CastVecAssignAdd5(src0, src1, src2, src3, src4, sample_ct_i32v, homalt_vals);
       if (het2alt_reported_vals) {
-        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-          homalt_vals[sample_idx] -= het2alt_reported_vals[sample_idx];
-        }
+        U32CastVecSub(het2alt_reported_vals, sample_ct_i32v, homalt_vals);
       }
 
       src0 = diploid_counts[0][0];
@@ -6645,19 +7060,14 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
       src2 = diploid_counts[2][0];
       src3 = diploid_counts[3][0];
       src4 = diploid_counts[4][0];
-      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-        homref_vals[sample_idx] = src0[sample_idx] + src1[sample_idx] + src2[sample_idx] + src3[sample_idx] + src4[sample_idx];
-      }
-
-      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-        hom_vals[sample_idx] = homref_vals[sample_idx] + homalt_vals[sample_idx];
-      }
+      U32CastVecAssignAdd5(src0, src1, src2, src3, src4, sample_ct_i32v, homref_vals);
+      U32CastVecAssignAdd2(homref_vals, homalt_vals, sample_ct_i32v, hom_vals);
     }
     uint32_t* hapref_vals;
     uint32_t* hapalt_vals;
     if (unlikely(
-            bigstack_alloc_u32(sample_ct, &hapref_vals) ||
-            bigstack_alloc_u32(sample_ct, &hapalt_vals))) {
+            bigstack_alloc_u32(sample_ct_i32av, &hapref_vals) ||
+            bigstack_alloc_u32(sample_ct_i32av, &hapalt_vals))) {
       goto SampleCounts_ret_NOMEM;
     }
     {
@@ -6667,17 +7077,13 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
         const uint32_t* src2 = haploid_counts[2][0];
         const uint32_t* src3 = haploid_counts[3][0];
         const uint32_t* src4 = haploid_counts[4][0];
-        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-          hapref_vals[sample_idx] = src0[sample_idx] + src1[sample_idx] + src2[sample_idx] + src3[sample_idx] + src4[sample_idx];
-        }
+        U32CastVecAssignAdd5(src0, src1, src2, src3, src4, sample_ct_i32v, hapref_vals);
         src0 = haploid_counts[0][1];
         src1 = haploid_counts[1][1];
         src2 = haploid_counts[2][1];
         src3 = haploid_counts[3][1];
         src4 = haploid_counts[4][1];
-        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-          hapalt_vals[sample_idx] = src0[sample_idx] + src1[sample_idx] + src2[sample_idx] + src3[sample_idx] + src4[sample_idx];
-        }
+        U32CastVecAssignAdd5(src0, src1, src2, src3, src4, sample_ct_i32v, hapalt_vals);
       } else {
         ZeroU32Arr(sample_ct, hapref_vals);
         ZeroU32Arr(sample_ct, hapalt_vals);
@@ -6698,24 +7104,20 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     if (flags & kfSampleCountsColHomaltSnp) {
       uint32_t* dst;
       if (unlikely(
-              bigstack_alloc_u32(sample_ct, &dst))) {
+              bigstack_alloc_u32(sample_ct_i32av, &dst))) {
         goto SampleCounts_ret_NOMEM;
       }
       final_counts[kSampleCountHomaltSnp] = dst;
       const uint32_t* src1 = diploid_counts[kSubstCodeTs][2];
       const uint32_t* src2 = diploid_counts[kSubstCodeTv][2];
       const uint32_t* src3 = diploid_counts[kSubstCodeWeirdSnp][2];
-      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-        dst[sample_idx] = src1[sample_idx] + src2[sample_idx] + src3[sample_idx];
-      }
+      U32CastVecAssignAdd3(src1, src2, src3, sample_ct_i32v, dst);
       if (mhc_needed) {
         const uint32_t* src_base = ctx.thread_het2alt_cts[0];
         src1 = &(src_base[sample_ct_i32av * kSubstCodeTs]);
         src2 = &(src_base[sample_ct_i32av * kSubstCodeTv]);
         src3 = &(src_base[sample_ct_i32av * kSubstCodeWeirdSnp]);
-        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-          dst[sample_idx] -= src1[sample_idx] + src2[sample_idx] + src3[sample_idx];
-        }
+        U32CastVecSub3(src1, src2, src3, sample_ct_i32v, dst);
       }
     }
     if (flags & kfSampleCountsColHet) {
@@ -6729,7 +7131,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
         final_counts[kSampleCountHet2alt] = het2alt_reported_vals;
       } else {
         if (unlikely(
-                bigstack_calloc_u32(sample_ct, &(final_counts[kSampleCountHet2alt])))) {
+                bigstack_calloc_u32(sample_ct_i32av, &(final_counts[kSampleCountHet2alt])))) {
           goto SampleCounts_ret_NOMEM;
         }
       }
@@ -6738,74 +7140,70 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     if (flags & kfSampleCountsColHetSnp) {
       uint32_t* dst;
       if (unlikely(
-              bigstack_alloc_u32(sample_ct, &dst))) {
+              bigstack_alloc_u32(sample_ct_i32av, &dst))) {
         goto SampleCounts_ret_NOMEM;
       }
       final_counts[kSampleCountHetSnp] = dst;
       const uint32_t* src1 = diploid_counts[kSubstCodeTs][1];
       const uint32_t* src2 = diploid_counts[kSubstCodeTv][1];
       const uint32_t* src3 = diploid_counts[kSubstCodeWeirdSnp][1];
-      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-        dst[sample_idx] = src1[sample_idx] + src2[sample_idx] + src3[sample_idx];
-      }
+      U32CastVecAssignAdd3(src1, src2, src3, sample_ct_i32v, dst);
       if (mhc_needed) {
         const uint32_t* src_base = &(ctx.thread_het2alt_cts[0][kSubstCodeCt * sample_ct_i32av]);
         src1 = &(src_base[kSubstCodeTs * sample_ct_i32av]);
         src2 = &(src_base[kSubstCodeTv * sample_ct_i32av]);
         src3 = &(src_base[kSubstCodeWeirdSnp * sample_ct_i32av]);
-        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-          dst[sample_idx] += src1[sample_idx] + src2[sample_idx] + src3[sample_idx];
-        }
+        U32CastVecAdd3(src1, src2, src3, sample_ct_i32v, dst);
       }
     }
     if (flags & kfSampleCountsColDiploidTs) {
-      final_counts[kSampleCountDiploidTs] = AllocAndCountSubstType(&ctx, diploid_counts[kSubstCodeTs], nullptr, sample_ct, kSubstCodeTs);
+      final_counts[kSampleCountDiploidTs] = AllocAndCountSubstType(&ctx, diploid_counts[kSubstCodeTs], nullptr, sample_ct_i32v, kSubstCodeTs);
       if (unlikely(!final_counts[kSampleCountDiploidTs])) {
         goto SampleCounts_ret_NOMEM;
       }
     }
     if (flags & kfSampleCountsColTs) {
-      final_counts[kSampleCountTs] = AllocAndCountSubstType(&ctx, diploid_counts[kSubstCodeTs], haploid_counts[kSubstCodeTs], sample_ct, kSubstCodeTs);
+      final_counts[kSampleCountTs] = AllocAndCountSubstType(&ctx, diploid_counts[kSubstCodeTs], haploid_counts[kSubstCodeTs], sample_ct_i32v, kSubstCodeTs);
       if (unlikely(!final_counts[kSampleCountTs])) {
         goto SampleCounts_ret_NOMEM;
       }
     }
     if (flags & kfSampleCountsColDiploidTv) {
-      final_counts[kSampleCountDiploidTv] = AllocAndCountSubstType(&ctx, diploid_counts[kSubstCodeTv], nullptr, sample_ct, kSubstCodeTv);
+      final_counts[kSampleCountDiploidTv] = AllocAndCountSubstType(&ctx, diploid_counts[kSubstCodeTv], nullptr, sample_ct_i32v, kSubstCodeTv);
       if (unlikely(!final_counts[kSampleCountDiploidTv])) {
         goto SampleCounts_ret_NOMEM;
       }
     }
     if (flags & kfSampleCountsColTv) {
-      final_counts[kSampleCountTv] = AllocAndCountSubstType(&ctx, diploid_counts[kSubstCodeTv], haploid_counts[kSubstCodeTv], sample_ct, kSubstCodeTv);
+      final_counts[kSampleCountTv] = AllocAndCountSubstType(&ctx, diploid_counts[kSubstCodeTv], haploid_counts[kSubstCodeTv], sample_ct_i32v, kSubstCodeTv);
       if (unlikely(!final_counts[kSampleCountTv])) {
         goto SampleCounts_ret_NOMEM;
       }
     }
     if (flags & kfSampleCountsColDiploidNonsnpsymb) {
-      final_counts[kSampleCountDiploidNonsnpsymb] = AllocAndCountSubstType(&ctx, diploid_counts[kSubstCodeNonsnpsymb], nullptr, sample_ct, kSubstCodeNonsnpsymb);
+      final_counts[kSampleCountDiploidNonsnpsymb] = AllocAndCountSubstType(&ctx, diploid_counts[kSubstCodeNonsnpsymb], nullptr, sample_ct_i32v, kSubstCodeNonsnpsymb);
       if (unlikely(!final_counts[kSampleCountDiploidNonsnpsymb])) {
         goto SampleCounts_ret_NOMEM;
       }
     }
     if (flags & kfSampleCountsColNonsnpsymb) {
-      final_counts[kSampleCountNonsnpsymb] = AllocAndCountSubstType(&ctx, diploid_counts[kSubstCodeNonsnpsymb], haploid_counts[kSubstCodeNonsnpsymb], sample_ct, kSubstCodeNonsnpsymb);
+      final_counts[kSampleCountNonsnpsymb] = AllocAndCountSubstType(&ctx, diploid_counts[kSubstCodeNonsnpsymb], haploid_counts[kSubstCodeNonsnpsymb], sample_ct_i32v, kSubstCodeNonsnpsymb);
       if (unlikely(!final_counts[kSampleCountNonsnpsymb])) {
         goto SampleCounts_ret_NOMEM;
       }
     }
     if (flags & kfSampleCountsColSymbolic) {
-      final_counts[kSampleCountSymbolic] = AllocAndCountSubstType(&ctx, diploid_counts[kSubstCodeSymbolic], haploid_counts[kSubstCodeSymbolic], sample_ct, kSubstCodeSymbolic);
+      final_counts[kSampleCountSymbolic] = AllocAndCountSubstType(&ctx, diploid_counts[kSubstCodeSymbolic], haploid_counts[kSubstCodeSymbolic], sample_ct_i32v, kSubstCodeSymbolic);
       if (unlikely(!final_counts[kSampleCountSymbolic])) {
         goto SampleCounts_ret_NOMEM;
       }
     }
     if (flags & kfSampleCountsColNonsnp) {
-      final_counts[kSampleCountNonsnp] = AllocAndCountSubstType(&ctx, diploid_counts[kSubstCodeNonsnpsymb], haploid_counts[kSubstCodeNonsnpsymb], sample_ct, kSubstCodeNonsnpsymb);
+      final_counts[kSampleCountNonsnp] = AllocAndCountSubstType(&ctx, diploid_counts[kSubstCodeNonsnpsymb], haploid_counts[kSubstCodeNonsnpsymb], sample_ct_i32v, kSubstCodeNonsnpsymb);
       if (unlikely(!final_counts[kSampleCountNonsnp])) {
         goto SampleCounts_ret_NOMEM;
       }
-      IncrSubstType(&ctx, diploid_counts[kSubstCodeSymbolic], haploid_counts[kSubstCodeSymbolic], sample_ct, kSubstCodeSymbolic, final_counts[kSampleCountNonsnp]);
+      IncrSubstType(&ctx, diploid_counts[kSubstCodeSymbolic], haploid_counts[kSubstCodeSymbolic], sample_ct_i32v, kSubstCodeSymbolic, final_counts[kSampleCountNonsnp]);
     }
 
     if (flags & kfSampleCountsColDiploidSingle) {
@@ -6817,16 +7215,14 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     if (flags & kfSampleCountsColHaprefWithFemaleY) {
       uint32_t* dst;
       if (unlikely(
-              bigstack_alloc_u32(sample_ct, &dst))) {
+              bigstack_alloc_u32(sample_ct_i32av, &dst))) {
         goto SampleCounts_ret_NOMEM;
       }
       final_counts[kSampleCountHaprefWithFemaleY] = dst;
       memcpy(dst, hapref_vals, sample_ct * sizeof(int32_t));
       if (chr_types & 4) {
         const uint32_t* src = y_nonmale_counts[0];
-        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-          dst[sample_idx] += src[sample_idx];
-        }
+        U32CastVecAdd(src, sample_ct_i32v, dst);
       }
     }
     if (flags & kfSampleCountsColHapref) {
@@ -6835,16 +7231,14 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     if (flags & kfSampleCountsColHapaltWithFemaleY) {
       uint32_t* dst;
       if (unlikely(
-              bigstack_alloc_u32(sample_ct, &dst))) {
+              bigstack_alloc_u32(sample_ct_i32av, &dst))) {
         goto SampleCounts_ret_NOMEM;
       }
       final_counts[kSampleCountHapaltWithFemaleY] = dst;
       memcpy(dst, hapalt_vals, sample_ct * sizeof(int32_t));
       if (chr_types & 4) {
         const uint32_t* src = y_nonmale_counts[1];
-        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-          dst[sample_idx] += src[sample_idx];
-        }
+        U32CastVecAdd(src, sample_ct_i32v, dst);
       }
     }
     if (flags & kfSampleCountsColHapalt) {
@@ -6853,7 +7247,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     if (flags & kfSampleCountsColMissingWithFemaleY) {
       uint32_t* dst;
       if (unlikely(
-              bigstack_alloc_u32(sample_ct, &dst))) {
+              bigstack_alloc_u32(sample_ct_i32av, &dst))) {
         goto SampleCounts_ret_NOMEM;
       }
       final_counts[kSampleCountMissingWithFemaleY] = dst;
@@ -6872,7 +7266,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     if (flags & kfSampleCountsColMissing) {
       uint32_t* dst;
       if (unlikely(
-              bigstack_alloc_u32(sample_ct, &dst))) {
+              bigstack_alloc_u32(sample_ct_i32av, &dst))) {
         goto SampleCounts_ret_NOMEM;
       }
       final_counts[kSampleCountMissing] = dst;
@@ -6888,6 +7282,11 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     }
 
     // Ready to write to disk.
+    if (pct > 10) {
+      putc_unlocked('\b', stdout);
+    }
+    fputs("\b\b", stdout);
+    logputs("done.\n");
     BigstackEndReset(bigstack_end_mark2);
     const uintptr_t overflow_buf_size = RoundUpPow2(kCompressStreamBlock + 3 * kMaxIdSlen + 512, kCacheline);
     const uint32_t output_zst = flags & kfSampleCountsZs;

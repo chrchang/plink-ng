@@ -758,6 +758,10 @@ HEADER_INLINE VecW vecw_and_notfirst(VecW excl, VecW main) {
   return R_CAST(VecW, _mm256_andnot_si256(R_CAST(__m256i, excl), R_CAST(__m256i, main)));
 }
 
+HEADER_INLINE VecU32 vecu32_and_notfirst(VecU32 excl, VecU32 main) {
+  return R_CAST(VecW, _mm256_andnot_si256(R_CAST(__m256i, excl), R_CAST(__m256i, main)));
+}
+
 HEADER_INLINE VecW vecw_set1(uintptr_t ulii) {
   return R_CAST(VecW, _mm256_set1_epi64x(ulii));
 }
@@ -996,6 +1000,10 @@ HEADER_INLINE VecW vecw_slli(VecW vv, uint32_t ct) {
 
 HEADER_INLINE VecW vecw_and_notfirst(VecW excl, VecW main) {
   return R_CAST(VecW, _mm_andnot_si128(R_CAST(__m128i, excl), R_CAST(__m128i, main)));
+}
+
+HEADER_INLINE VecU32 vecu32_and_notfirst(VecU32 excl, VecU32 main) {
+  return R_CAST(VecU32, _mm_andnot_si128(R_CAST(__m128i, excl), R_CAST(__m128i, main)));
 }
 
 HEADER_INLINE VecW vecw_set1(uintptr_t ulii) {
@@ -1257,6 +1265,7 @@ typedef uint16_t Halfword;
 typedef uint8_t Quarterword;
 
 typedef uintptr_t VecW;
+typedef uintptr_t VecU32;
 typedef float VecF;
 // VecI16 and VecC aren't worth the trouble of scaling down to 32-bit
 
@@ -1288,6 +1297,10 @@ HEADER_INLINE VecW vecw_bytesum(VecW src, __maybe_unused VecW m0) {
 }
 
 HEADER_INLINE VecW vecw_and_notfirst(VecW excl, VecW main) {
+  return (~excl) & main;
+}
+
+HEADER_INLINE VecU32 vecu32_and_notfirst(VecU32 excl, VecU32 main) {
   return (~excl) & main;
 }
 #endif  // !__LP64__
@@ -3086,19 +3099,8 @@ HEADER_INLINE void ZeroTrailingWords(__maybe_unused uint32_t word_ct, __maybe_un
 HEADER_INLINE void vecset(void* target_vec, uintptr_t ww, uintptr_t vec_ct) {
   VecW* target_vec_iter = S_CAST(VecW*, target_vec);
 #ifdef __LP64__
-  // manual unroll helps in smaller cases
   const VecW payload = VCONST_W(ww);
-  if (vec_ct & 1) {
-    *target_vec_iter++ = payload;
-  }
-  if (vec_ct & 2) {
-    *target_vec_iter++ = payload;
-    *target_vec_iter++ = payload;
-  }
-  for (uintptr_t vec_idx = 3; vec_idx < vec_ct; vec_idx += 4) {
-    *target_vec_iter++ = payload;
-    *target_vec_iter++ = payload;
-    *target_vec_iter++ = payload;
+  for (uintptr_t vec_idx = 0; vec_idx != vec_ct; ++vec_idx) {
     *target_vec_iter++ = payload;
   }
 #else

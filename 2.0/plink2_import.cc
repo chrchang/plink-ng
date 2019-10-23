@@ -2466,38 +2466,55 @@ static GparseRecord* g_gparse[2] = {nullptr, nullptr};
 static const uintptr_t* g_block_allele_idx_offsets[2] = {nullptr, nullptr};
 
 static PglErr g_error_ret = kPglRetSuccess;
-static VcfParseErr* g_vcf_parse_errs = nullptr;
-static uintptr_t* g_err_line_idxs = nullptr;
 
 static uint32_t g_sample_ct = 0;
 static uint32_t g_hard_call_halfdist = 0;
 static uint32_t g_dosage_erase_halfdist = 0;
-static double g_import_dosage_certainty = 0.0;
-static VcfHalfCall g_halfcall_mode = kVcfHalfCallReference;
-static STD_ARRAY_DECL(int32_t, 2, g_qual_mins) = STD_ARRAY_INIT_START() {0, 0} STD_ARRAY_INIT_END();
-static STD_ARRAY_DECL(int32_t, 2, g_qual_maxs) = STD_ARRAY_INIT_START() {0, 0} STD_ARRAY_INIT_END();
-static uint32_t g_dosage_is_gp = 0;
-static GparseFlags g_gparse_flags = kfGparse0;
 
 static uint32_t g_cur_block_write_ct = 0;
 
-THREAD_FUNC_DECL VcfGenoToPgenThread(void* arg) {
-  const uintptr_t tidx = R_CAST(uintptr_t, arg);
+typedef struct VcfGenoToPgenCtxStruct {
+  uint32_t sample_ct;
+  uint32_t hard_call_halfdist;
+  uint32_t dosage_erase_halfdist;
+  double import_dosage_certainty;
+  VcfHalfCall halfcall_mode;
+  uint32_t dosage_is_gp;
+  STD_ARRAY_DECL(int32_t, 2, qual_mins);
+  STD_ARRAY_DECL(int32_t, 2, qual_maxs);
+
+  unsigned char** thread_wkspaces;
+
+  uint32_t* thread_bidxs[2];
+  GparseRecord* gparse[2];
+  const uintptr_t* block_allele_idx_offsets[2];
+
+  // PglErr set by main thread
+  VcfParseErr* vcf_parse_errs;
+  uintptr_t* err_line_idxs;
+  uint32_t parse_failed;
+} VcfGenoToPgenCtx;
+
+THREAD_FUNC_DECL VcfGenoToPgenThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  VcfGenoToPgenCtx* ctx = S_CAST(VcfGenoToPgenCtx*, arg->sharedp->context);
+
   VcfImportContext vic;
-  const uint32_t sample_ct = g_sample_ct;
+  const uint32_t sample_ct = ctx->sample_ct;
   const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
   vic.vibc.sample_ct = sample_ct;
-  vic.vibc.halfcall_mode = g_halfcall_mode;
-  vic.dosage_is_gp = g_dosage_is_gp;
-  vic.dosage_erase_halfdist = g_dosage_erase_halfdist;
-  vic.import_dosage_certainty = g_import_dosage_certainty;
-  const uint32_t hard_call_halfdist = g_hard_call_halfdist;
+  vic.vibc.halfcall_mode = ctx->halfcall_mode;
+  vic.dosage_is_gp = ctx->dosage_is_gp;
+  vic.dosage_erase_halfdist = ctx->dosage_erase_halfdist;
+  vic.import_dosage_certainty = ctx->import_dosage_certainty;
+  const uint32_t hard_call_halfdist = ctx->hard_call_halfdist;
   STD_ARRAY_DECL(int32_t, 2, qual_mins);
   STD_ARRAY_DECL(int32_t, 2, qual_maxs);
-  STD_ARRAY_COPY(g_qual_mins, 2, qual_mins);
-  STD_ARRAY_COPY(g_qual_maxs, 2, qual_maxs);
-  unsigned char* thread_wkspace = g_thread_wkspaces[tidx];
+  STD_ARRAY_COPY(ctx->qual_mins, 2, qual_mins);
+  STD_ARRAY_COPY(ctx->qual_maxs, 2, qual_maxs);
+  unsigned char* thread_wkspace = ctx->thread_wkspaces[tidx];
   uintptr_t* patch_01_set = nullptr;
   AlleleCode* patch_01_vals = nullptr;
   uintptr_t* patch_10_set = nullptr;
@@ -2524,123 +2541,114 @@ THREAD_FUNC_DECL VcfGenoToPgenThread(void* arg) {
   uint32_t parity = 0;
   VcfParseErr vcf_parse_err = kVcfParseOk;
   uintptr_t line_idx = 0;
-  while (1) {
-    const uint32_t is_last_block = g_is_last_thread_block;
-    // this is just used as a no-error flag
-    const uintptr_t cur_block_write_ct = g_cur_block_write_ct;
-    if (cur_block_write_ct) {
-      const uintptr_t* block_allele_idx_offsets = g_block_allele_idx_offsets[parity];
-      const uint32_t bidx_end = g_thread_bidxs[parity][tidx + 1];
-      uint32_t bidx = g_thread_bidxs[parity][tidx];
-      GparseRecord* cur_gparse = g_gparse[parity];
+  do {
+    const uintptr_t* block_allele_idx_offsets = ctx->block_allele_idx_offsets[parity];
+    const uint32_t bidx_end = ctx->thread_bidxs[parity][tidx + 1];
+    GparseRecord* cur_gparse = ctx->gparse[parity];
 
-      for (; bidx != bidx_end; ++bidx) {
-        GparseRecord* grp = &(cur_gparse[bidx]);
-        uint32_t patch_01_ct = 0;
-        uint32_t patch_10_ct = 0;
-        uint32_t cur_phasepresent_exists = 0;
-        uint32_t dosage_ct = 0;
-        uint32_t dphase_ct = 0;
-        GparseFlags gparse_flags = grp->flags;
-        if (gparse_flags == kfGparseNull) {
-          SetAllBits(2 * sample_ct, R_CAST(uintptr_t*, grp->record_start));
-        } else {
-          if (block_allele_idx_offsets) {
-            cur_allele_ct = block_allele_idx_offsets[bidx + 1] - block_allele_idx_offsets[bidx];
-          }
-          uintptr_t* genovec = GparseGetPointers(thread_wkspace, sample_ct, cur_allele_ct, gparse_flags, &patch_01_set, &patch_01_vals, &patch_10_set, &patch_10_vals, &phasepresent, &phaseinfo, &dosage_present, &dosage_main, &dphase_present, &dphase_delta);
-          uintptr_t* write_genovec = GparseGetPointers(grp->record_start, sample_ct, cur_allele_ct, gparse_flags, &write_patch_01_set, &write_patch_01_vals, &write_patch_10_set, &write_patch_10_vals, &write_phasepresent, &write_phaseinfo, &write_dosage_present, &write_dosage_main, &write_dphase_present, &write_dphase_delta);
-          char* genotext_start = R_CAST(char*, grp->record_start);
-          ++genotext_start;
-          uint32_t qual_field_ct = grp->metadata.read_vcf.qual_present;
-          if (qual_field_ct) {
-            qual_field_ct = VcfQualScanInit2(grp->metadata.read_vcf.qual_field_idxs, qual_mins, qual_maxs, vic.vibc.qual_field_skips, vic.vibc.qual_line_mins, vic.vibc.qual_line_maxs);
-          }
-          vic.vibc.gt_present = grp->metadata.read_vcf.gt_present;
-          vic.vibc.qual_field_ct = qual_field_ct;
-          vic.dosage_field_idx = grp->metadata.read_vcf.dosage_field_idx;
-          vic.hds_field_idx = grp->metadata.read_vcf.hds_field_idx;
-          if ((vic.hds_field_idx == UINT32_MAX) && (vic.dosage_field_idx == UINT32_MAX)) {
-            if (!(gparse_flags & kfGparseHphase)) {
-              if (cur_allele_ct == 2) {
-                vcf_parse_err = VcfConvertUnphasedBiallelicLine(&(vic.vibc), genotext_start, genovec);
-              } else {
-                vcf_parse_err = VcfConvertUnphasedMultiallelicLine(&(vic.vibc), genotext_start, cur_allele_ct, &patch_01_ct, &patch_10_ct, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals);
-              }
+    for (uint32_t bidx = ctx->thread_bidxs[parity][tidx]; bidx != bidx_end; ++bidx) {
+      GparseRecord* grp = &(cur_gparse[bidx]);
+      uint32_t patch_01_ct = 0;
+      uint32_t patch_10_ct = 0;
+      uint32_t cur_phasepresent_exists = 0;
+      uint32_t dosage_ct = 0;
+      uint32_t dphase_ct = 0;
+      GparseFlags gparse_flags = grp->flags;
+      if (gparse_flags == kfGparseNull) {
+        SetAllBits(2 * sample_ct, R_CAST(uintptr_t*, grp->record_start));
+      } else {
+        if (block_allele_idx_offsets) {
+          cur_allele_ct = block_allele_idx_offsets[bidx + 1] - block_allele_idx_offsets[bidx];
+        }
+        uintptr_t* genovec = GparseGetPointers(thread_wkspace, sample_ct, cur_allele_ct, gparse_flags, &patch_01_set, &patch_01_vals, &patch_10_set, &patch_10_vals, &phasepresent, &phaseinfo, &dosage_present, &dosage_main, &dphase_present, &dphase_delta);
+        uintptr_t* write_genovec = GparseGetPointers(grp->record_start, sample_ct, cur_allele_ct, gparse_flags, &write_patch_01_set, &write_patch_01_vals, &write_patch_10_set, &write_patch_10_vals, &write_phasepresent, &write_phaseinfo, &write_dosage_present, &write_dosage_main, &write_dphase_present, &write_dphase_delta);
+        char* genotext_start = R_CAST(char*, grp->record_start);
+        ++genotext_start;
+        uint32_t qual_field_ct = grp->metadata.read_vcf.qual_present;
+        if (qual_field_ct) {
+          qual_field_ct = VcfQualScanInit2(grp->metadata.read_vcf.qual_field_idxs, qual_mins, qual_maxs, vic.vibc.qual_field_skips, vic.vibc.qual_line_mins, vic.vibc.qual_line_maxs);
+        }
+        vic.vibc.gt_present = grp->metadata.read_vcf.gt_present;
+        vic.vibc.qual_field_ct = qual_field_ct;
+        vic.dosage_field_idx = grp->metadata.read_vcf.dosage_field_idx;
+        vic.hds_field_idx = grp->metadata.read_vcf.hds_field_idx;
+        if ((vic.hds_field_idx == UINT32_MAX) && (vic.dosage_field_idx == UINT32_MAX)) {
+          if (!(gparse_flags & kfGparseHphase)) {
+            if (cur_allele_ct == 2) {
+              vcf_parse_err = VcfConvertUnphasedBiallelicLine(&(vic.vibc), genotext_start, genovec);
             } else {
-              if (cur_allele_ct == 2) {
-                vcf_parse_err = VcfConvertPhasedBiallelicLine(&(vic.vibc), genotext_start, genovec, phasepresent, phaseinfo);
-              } else {
-                vcf_parse_err = VcfConvertPhasedMultiallelicLine(&(vic.vibc), genotext_start, cur_allele_ct, &patch_01_ct, &patch_10_ct, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, phasepresent, phaseinfo);
-              }
-              cur_phasepresent_exists = !AllWordsAreZero(phasepresent, sample_ctl);
-            }
-            if (unlikely(vcf_parse_err)) {
-              line_idx = grp->metadata.read_vcf.line_idx;
-              goto VcfGenoToPgenThread_malformed;
+              vcf_parse_err = VcfConvertUnphasedMultiallelicLine(&(vic.vibc), genotext_start, cur_allele_ct, &patch_01_ct, &patch_10_ct, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals);
             }
           } else {
-            Dosage* dosage_main_iter = dosage_main;
-            SDosage* dphase_delta_iter = dphase_delta;
             if (cur_allele_ct == 2) {
-              vcf_parse_err = VcfConvertPhasedBiallelicDosageLine(&vic, genotext_start, genovec, phasepresent, phaseinfo, dosage_present, dphase_present, &dosage_main_iter, &dphase_delta_iter);
+              vcf_parse_err = VcfConvertPhasedBiallelicLine(&(vic.vibc), genotext_start, genovec, phasepresent, phaseinfo);
             } else {
-              // multiallelic dosage: shouldn't be possible to get here yet
-              exit(S_CAST(int32_t, kPglRetInternalError));
-            }
-            if (unlikely(vcf_parse_err)) {
-              line_idx = grp->metadata.read_vcf.line_idx;
-              goto VcfGenoToPgenThread_malformed;
-            }
-            dosage_ct = dosage_main_iter - dosage_main;
-            if (dosage_ct) {
-              dphase_ct = ApplyHardCallThreshPhased(dosage_present, dosage_main, dosage_ct, hard_call_halfdist, genovec, phasepresent, phaseinfo, dphase_present, dphase_delta, tmp_dphase_delta);
-              memcpy(write_dosage_present, dosage_present, sample_ctl * sizeof(intptr_t));
-              memcpy(write_dosage_main, dosage_main, dosage_ct * sizeof(Dosage));
-              if (dphase_ct) {
-                memcpy(write_dphase_present, dphase_present, sample_ctl * sizeof(intptr_t));
-                memcpy(write_dphase_delta, dphase_delta, dphase_ct * sizeof(SDosage));
-              }
+              vcf_parse_err = VcfConvertPhasedMultiallelicLine(&(vic.vibc), genotext_start, cur_allele_ct, &patch_01_ct, &patch_10_ct, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, phasepresent, phaseinfo);
             }
             cur_phasepresent_exists = !AllWordsAreZero(phasepresent, sample_ctl);
           }
-          memcpy(write_genovec, genovec, sample_ctl2 * sizeof(intptr_t));
-          if (patch_01_ct) {
-            memcpy(write_patch_01_set, patch_01_set, sample_ctl * sizeof(intptr_t));
-            memcpy(write_patch_01_vals, patch_01_vals, patch_01_ct * sizeof(AlleleCode));
+          if (unlikely(vcf_parse_err)) {
+            line_idx = grp->metadata.read_vcf.line_idx;
+            goto VcfGenoToPgenThread_malformed;
           }
-          if (patch_10_ct) {
-            memcpy(write_patch_10_set, patch_10_set, sample_ctl * sizeof(intptr_t));
-            memcpy(write_patch_10_vals, patch_10_vals, patch_10_ct * sizeof(AlleleCode) * 2);
+        } else {
+          Dosage* dosage_main_iter = dosage_main;
+          SDosage* dphase_delta_iter = dphase_delta;
+          if (cur_allele_ct == 2) {
+            vcf_parse_err = VcfConvertPhasedBiallelicDosageLine(&vic, genotext_start, genovec, phasepresent, phaseinfo, dosage_present, dphase_present, &dosage_main_iter, &dphase_delta_iter);
+          } else {
+            // multiallelic dosage: shouldn't be possible to get here yet
+            exit(S_CAST(int32_t, kPglRetInternalError));
           }
-          if (cur_phasepresent_exists || dphase_ct) {
-            memcpy(write_phasepresent, phasepresent, sample_ctl * sizeof(intptr_t));
-            memcpy(write_phaseinfo, phaseinfo, sample_ctl * sizeof(intptr_t));
+          if (unlikely(vcf_parse_err)) {
+            line_idx = grp->metadata.read_vcf.line_idx;
+            goto VcfGenoToPgenThread_malformed;
           }
+          dosage_ct = dosage_main_iter - dosage_main;
+          if (dosage_ct) {
+            dphase_ct = ApplyHardCallThreshPhased(dosage_present, dosage_main, dosage_ct, hard_call_halfdist, genovec, phasepresent, phaseinfo, dphase_present, dphase_delta, tmp_dphase_delta);
+            memcpy(write_dosage_present, dosage_present, sample_ctl * sizeof(intptr_t));
+            memcpy(write_dosage_main, dosage_main, dosage_ct * sizeof(Dosage));
+            if (dphase_ct) {
+              memcpy(write_dphase_present, dphase_present, sample_ctl * sizeof(intptr_t));
+              memcpy(write_dphase_delta, dphase_delta, dphase_ct * sizeof(SDosage));
+            }
+          }
+          cur_phasepresent_exists = !AllWordsAreZero(phasepresent, sample_ctl);
         }
-
-        grp->metadata.write.patch_01_ct = patch_01_ct;
-        grp->metadata.write.patch_10_ct = patch_10_ct;
-        grp->metadata.write.phasepresent_exists = cur_phasepresent_exists;
-        grp->metadata.write.dosage_ct = dosage_ct;
-        grp->metadata.write.multiallelic_dosage_ct = 0;
-        grp->metadata.write.dphase_ct = dphase_ct;
-        grp->metadata.write.multiallelic_dphase_ct = 0;
+        memcpy(write_genovec, genovec, sample_ctl2 * sizeof(intptr_t));
+        if (patch_01_ct) {
+          memcpy(write_patch_01_set, patch_01_set, sample_ctl * sizeof(intptr_t));
+          memcpy(write_patch_01_vals, patch_01_vals, patch_01_ct * sizeof(AlleleCode));
+        }
+        if (patch_10_ct) {
+          memcpy(write_patch_10_set, patch_10_set, sample_ctl * sizeof(intptr_t));
+          memcpy(write_patch_10_vals, patch_10_vals, patch_10_ct * sizeof(AlleleCode) * 2);
+        }
+        if (cur_phasepresent_exists || dphase_ct) {
+          memcpy(write_phasepresent, phasepresent, sample_ctl * sizeof(intptr_t));
+          memcpy(write_phaseinfo, phaseinfo, sample_ctl * sizeof(intptr_t));
+        }
       }
+
+      grp->metadata.write.patch_01_ct = patch_01_ct;
+      grp->metadata.write.patch_10_ct = patch_10_ct;
+      grp->metadata.write.phasepresent_exists = cur_phasepresent_exists;
+      grp->metadata.write.dosage_ct = dosage_ct;
+      grp->metadata.write.multiallelic_dosage_ct = 0;
+      grp->metadata.write.dphase_ct = dphase_ct;
+      grp->metadata.write.multiallelic_dphase_ct = 0;
     }
     while (0) {
     VcfGenoToPgenThread_malformed:
-      g_error_ret = kPglRetMalformedInput;
-      g_vcf_parse_errs[tidx] = vcf_parse_err;
-      g_err_line_idxs[tidx] = line_idx;
+      ctx->vcf_parse_errs[tidx] = vcf_parse_err;
+      ctx->err_line_idxs[tidx] = line_idx;
+      ctx->parse_failed = 1;
       break;
     }
-    if (is_last_block) {
-      THREAD_RETURN;
-    }
-    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
-  }
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
 }
 
 static const char kGpText[] = "GP";
@@ -2660,10 +2668,11 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
   const uint32_t half_call_explicit_error = (halfcall_mode == kVcfHalfCallError);
   PglErr reterr = kPglRetSuccess;
   VcfParseErr vcf_parse_err = kVcfParseOk;
-  ThreadsState ts;
+  ThreadGroup tg;
+  PreinitThreads(&tg);
+  VcfGenoToPgenCtx ctx;
   TextStream vcf_txs;
   STPgenWriter spgw;
-  InitThreads3z(&ts);
   PreinitTextStream(&vcf_txs);
   PreinitSpgw(&spgw);
   {
@@ -2698,7 +2707,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     uint32_t unforced_gp = 0;
     if (dosage_import_field) {
       dosage_import_field_slen = strlen(dosage_import_field);
-      g_dosage_is_gp = 0;
+      ctx.dosage_is_gp = 0;
       if (strequal_k(dosage_import_field, "HDS", dosage_import_field_slen)) {
         format_hds_search = 1;
         // special case: search for DS and HDS
@@ -2707,23 +2716,23 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       } else if (strequal_k(dosage_import_field, "GP-force", dosage_import_field_slen)) {
         dosage_import_field = kGpText;
         dosage_import_field_slen = 2;
-        g_dosage_is_gp = 1;
+        ctx.dosage_is_gp = 1;
       } else if (strequal_k(dosage_import_field, "GP", dosage_import_field_slen)) {
         unforced_gp = (import_dosage_certainty == 0.0);
-        // bugfix (20 Aug 2018): forgot to initialize g_dosage_is_gp
-        g_dosage_is_gp = 1;
+        // bugfix (20 Aug 2018): forgot to initialize dosage_is_gp
+        ctx.dosage_is_gp = 1;
       }
     }
 
-    g_qual_mins[0] = vcf_min_gq;
-    g_qual_mins[1] = vcf_min_dp;
-    g_qual_maxs[0] = 0x7fffffff;
-    g_qual_maxs[1] = vcf_max_dp;
+    ctx.qual_mins[0] = vcf_min_gq;
+    ctx.qual_mins[1] = vcf_min_dp;
+    ctx.qual_maxs[0] = 0x7fffffff;
+    ctx.qual_maxs[1] = vcf_max_dp;
     VcfImportContext vic;
     // sample_ct set later
     vic.vibc.halfcall_mode = halfcall_mode;
 
-    vic.dosage_is_gp = g_dosage_is_gp;
+    vic.dosage_is_gp = ctx.dosage_is_gp;
 
     // always positive
     vic.dosage_erase_halfdist = kDosage4th - dosage_erase_thresh;
@@ -3131,7 +3140,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           // bugfix (5 Jun 2018): must initialize qual_field_ct to zero
           vic.vibc.qual_field_ct = 0;
           if (qual_field_ct) {
-            vic.vibc.qual_field_ct = VcfQualScanInit2(qual_field_idxs, g_qual_mins, g_qual_maxs, vic.vibc.qual_field_skips, vic.vibc.qual_line_mins, vic.vibc.qual_line_maxs);
+            vic.vibc.qual_field_ct = VcfQualScanInit2(qual_field_idxs, ctx.qual_mins, ctx.qual_maxs, vic.vibc.qual_field_skips, vic.vibc.qual_line_mins, vic.vibc.qual_line_maxs);
           }
         }
 
@@ -3336,7 +3345,6 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         gparse_flags = kfGparseHphase | kfGparseDosage | kfGparseDphase;
       }
     }
-    g_gparse_flags = gparse_flags;
     uint32_t nonref_flags_storage = 1;
     if (nonref_flags) {
       const uint32_t variant_ctl_m1 = variant_ctl - 1;
@@ -3413,22 +3421,26 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
 
       if (unlikely(
-              bigstack_alloc_thread(calc_thread_ct, &ts.threads) ||
-              bigstack_alloc_ucp(calc_thread_ct, &g_thread_wkspaces) ||
-              bigstack_alloc_u32(calc_thread_ct + 1, &(g_thread_bidxs[0])) ||
-              bigstack_alloc_u32(calc_thread_ct + 1, &(g_thread_bidxs[1])) ||
-              bigstack_alloc_w(calc_thread_ct, &g_err_line_idxs))) {
+              bigstack_alloc_ucp(calc_thread_ct, &ctx.thread_wkspaces) ||
+              bigstack_alloc_u32(calc_thread_ct + 1, &(ctx.thread_bidxs[0])) ||
+              bigstack_alloc_u32(calc_thread_ct + 1, &(ctx.thread_bidxs[1])) ||
+              bigstack_calloc_w(calc_thread_ct, &ctx.err_line_idxs))) {
         goto VcfToPgen_ret_NOMEM;
       }
-      g_vcf_parse_errs = S_CAST(VcfParseErr*, bigstack_alloc_raw_rd(calc_thread_ct * sizeof(VcfParseErr)));
-      if (unlikely(!g_vcf_parse_errs)) {
+      ctx.vcf_parse_errs = S_CAST(VcfParseErr*, bigstack_alloc_raw_rd(calc_thread_ct * sizeof(VcfParseErr)));
+      if (unlikely(!ctx.vcf_parse_errs)) {
         goto VcfToPgen_ret_NOMEM;
       }
-      g_sample_ct = sample_ct;
-      g_hard_call_halfdist = hard_call_halfdist;
-      g_dosage_erase_halfdist = vic.dosage_erase_halfdist;
-      g_import_dosage_certainty = import_dosage_certainty;
-      g_cur_block_write_ct = 1;  // just used as a flag
+      ctx.sample_ct = sample_ct;
+      ctx.hard_call_halfdist = hard_call_halfdist;
+      ctx.dosage_erase_halfdist = vic.dosage_erase_halfdist;
+      ctx.import_dosage_certainty = import_dosage_certainty;
+      ctx.parse_failed = 0;
+      // defensive
+      ctx.gparse[0] = nullptr;
+      ctx.gparse[1] = nullptr;
+      ctx.block_allele_idx_offsets[0] = nullptr;
+      ctx.block_allele_idx_offsets[1] = nullptr;
       // Finished with all other memory allocations, so all remaining workspace
       // can be spent on multithreaded parsing.  Spend up to 1/6 on
       // g_thread_wkspaces (tune this fraction later).
@@ -3445,8 +3457,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         calc_thread_ct = cachelines_avail / thread_wkspace_cl_ct;
       }
       for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-        g_thread_wkspaces[tidx] = S_CAST(unsigned char*, bigstack_alloc_raw(thread_wkspace_cl_ct * kCacheline));
-        g_vcf_parse_errs[tidx] = kVcfParseOk;
+        ctx.thread_wkspaces[tidx] = S_CAST(unsigned char*, bigstack_alloc_raw(thread_wkspace_cl_ct * kCacheline));
+        ctx.vcf_parse_errs[tidx] = kVcfParseOk;
       }
 
       // be pessimistic re: rounding
@@ -3470,10 +3482,12 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       // may as well guarantee divisibility
       per_thread_block_limit = main_block_size / calc_thread_ct;
       main_block_size = per_thread_block_limit * calc_thread_ct;
-      ts.calc_thread_ct = calc_thread_ct;
-      // g_calc_thread_ct = calc_thread_ct;
-      g_gparse[0] = S_CAST(GparseRecord*, bigstack_alloc_raw_rd(main_block_size * sizeof(GparseRecord)));
-      g_gparse[1] = S_CAST(GparseRecord*, bigstack_alloc_raw_rd(main_block_size * sizeof(GparseRecord)));
+      if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
+        goto VcfToPgen_ret_NOMEM;
+      }
+      ctx.gparse[0] = S_CAST(GparseRecord*, bigstack_alloc_raw_rd(main_block_size * sizeof(GparseRecord)));
+      ctx.gparse[1] = S_CAST(GparseRecord*, bigstack_alloc_raw_rd(main_block_size * sizeof(GparseRecord)));
+      SetThreadFuncAndData(VcfGenoToPgenThread, &ctx, &tg);
       cachelines_avail = bigstack_left() / (kCacheline * 2);
       geno_bufs[0] = S_CAST(unsigned char*, bigstack_alloc_raw(cachelines_avail * kCacheline));
       geno_bufs[1] = S_CAST(unsigned char*, bigstack_alloc_raw(cachelines_avail * kCacheline));
@@ -3506,15 +3520,15 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     uint32_t parity = 0;
     for (uint32_t vidx_start = 0; ; ) {
       uint32_t cur_block_write_ct = 0;
-      if (!ts.is_last_block) {
+      if (!IsLastBlock(&tg)) {
         const uint32_t block_vidx_limit = variant_ct - vidx_start;
         cur_thread_block_vidx_limit = MINV(block_vidx_limit, per_thread_block_limit);
         uint32_t cur_thread_fill_idx = 0;
         if (sample_ct) {
-          thread_bidxs = g_thread_bidxs[parity];
-          cur_gparse = g_gparse[parity];
+          thread_bidxs = ctx.thread_bidxs[parity];
+          cur_gparse = ctx.gparse[parity];
           if (allele_idx_offsets) {
-            g_block_allele_idx_offsets[parity] = &(spgw.pwc.allele_idx_offsets[vidx_start]);
+            ctx.block_allele_idx_offsets[parity] = &(spgw.pwc.allele_idx_offsets[vidx_start]);
           }
           geno_buf_iter = geno_bufs[parity];
           cur_thread_byte_stop = &(geno_buf_iter[per_thread_byte_limit]);
@@ -3709,23 +3723,23 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       }
       if (sample_ct) {
         if (vidx_start) {
-          JoinThreads3z(&ts);
-          reterr = g_error_ret;
-          if (unlikely(reterr)) {
+          JoinThreads(&tg);
+          if (unlikely(ctx.parse_failed)) {
             goto VcfToPgen_ret_THREAD_PARSE;
           }
         }
-        if (!ts.is_last_block) {
-          ts.is_last_block = (vidx_start + cur_block_write_ct == variant_ct);
-          ts.thread_func_ptr = VcfGenoToPgenThread;
-          if (unlikely(SpawnThreads3z(vidx_start, &ts))) {
+        if (!IsLastBlock(&tg)) {
+          if (vidx_start + cur_block_write_ct == variant_ct) {
+            DeclareLastThreadBlock(&tg);
+          }
+          if (unlikely(SpawnThreads(&tg))) {
             goto VcfToPgen_ret_THREAD_CREATE_FAIL;
           }
         }
         parity = 1 - parity;
         if (vidx_start) {
           // write *previous* block results
-          reterr = GparseFlush(g_gparse[parity], prev_block_write_ct, &spgw);
+          reterr = GparseFlush(ctx.gparse[parity], prev_block_write_ct, &spgw);
           if (unlikely(reterr)) {
             goto VcfToPgen_ret_1;
           }
@@ -3802,9 +3816,9 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       // converter threads error out in the same block, though we can't
       // generally guarantee that we'll report the first error in the file.
       for (uint32_t tidx = 0; ; ++tidx) {
-        vcf_parse_err = g_vcf_parse_errs[tidx];
+        vcf_parse_err = ctx.vcf_parse_errs[tidx];
         if (vcf_parse_err) {
-          line_idx = g_err_line_idxs[tidx];
+          line_idx = ctx.err_line_idxs[tidx];
           break;
         }
       }
@@ -3856,7 +3870,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
   if (SpgwCleanup(&spgw) && (!reterr)) {
     reterr = kPglRetWriteFail;
   }
-  CleanupThreads3z(&ts, &g_cur_block_write_ct);
+  CleanupThreads(&tg);
   CleanupTextStream2("--vcf file", &vcf_txs, &reterr);
   fclose_cond(pvarfile);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
@@ -5016,6 +5030,23 @@ static uint32_t g_prov_ref_allele_second = 0;
 
 // static uint32_t* g_error_vidxs = nullptr;  // per-thread
 
+typedef struct Bgen11DosageScanCtxStruct {
+  uint32_t sample_ct;
+
+  uint16_t** bgen_geno_bufs;
+  struct libdeflate_compresssor** libdeflate_decompressors;
+  uint32_t dosage_erase_halfdist;
+  uint32_t import_dosage_certainty_int;
+  uint32_t compression_mode;
+
+  uint32_t cur_block_size;
+
+  unsigned char** compressed_geno_starts[2];
+
+  uint32_t dosage_is_present;
+  PglErr reterr;  // only kPglRetMalformedInput possible for now
+} Bgen11DosageScanCtx;
+
 THREAD_FUNC_DECL Bgen11DosageScanThread(void* arg) {
   // this bails as soon as a single non-hardcall is detected.  still
   // multithreaded due to relatively low speed of zlib_decompress() call,
@@ -5097,6 +5128,17 @@ THREAD_FUNC_DECL Bgen11DosageScanThread(void* arg) {
     parity = 1 - parity;
   }
 }
+
+typedef struct Bgen11GenoToPgenCtxStruct {
+  Bgen11DosageScanCtx scan_ctx;
+  uint32_t hard_call_halfdist;
+  uint32_t prov_ref_allele_second;
+
+  uintptr_t* write_genovecs[2];
+  uint32_t* write_dosage_cts[2];
+  uintptr_t* write_dosage_presents[2];
+  Dosage* write_dosage_mains[2];
+} Bgen11GenoToPgenCtx;
 
 static_assert(sizeof(Dosage) == 2, "Bgen11GenoToPgenThread() needs to be updated.");
 THREAD_FUNC_DECL Bgen11GenoToPgenThread(void* arg) {
@@ -5435,6 +5477,25 @@ static const BgenMagicNum kBgenMagicNums[kMaxBgenImportBits + 1] = {
   // ,{35184372187136LLU, 1073741825, 46}
   // ,{140737488551936LLU, 2147483649U, 48}
 };
+
+typedef struct Bgen13DosageOrPhaseScanCtxStruct {
+  uint32_t sample_ct;
+  uint32_t dosage_erase_halfdist;
+  uint32_t* bgen_import_dosage_certainty_thresholds;
+  uint32_t compression_mode;
+  struct libdeflate_decompressor* libdeflate_decompressors;
+
+  unsigned char** thread_wkspaces;
+
+  uint32_t* thread_bidxs[2];
+  unsigned char** compressed_geno_starts[2];
+  uint16_t* bgen_allele_cts[2];
+  uint32_t* uncompressed_genodata_byte_cts[2];
+  uint32_t cur_block_size;
+
+  uint64_t err_info;
+  uint32_t dosage_is_present;
+} Bgen13DosageOrPhaseScanCtx;
 
 // todo: rewrite this to use Gparse
 static_assert(sizeof(Dosage) == 2, "Bgen13DosageOrPhaseScanThread() needs to be updated.");

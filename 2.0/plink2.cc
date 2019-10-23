@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (20 Oct 2019)";
+  " (22 Oct 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -310,6 +310,7 @@ typedef struct Plink2CmdlineStruct {
   GenoCountsFlags geno_counts_flags;
   HardyFlags hardy_flags;
   SampleCountsFlags sample_counts_flags;
+  RecoverVarIdsFlags recover_var_ids_flags;
   RmDupMode rmdup_mode;
   STD_ARRAY_DECL(FreqFilterMode, 4, filter_modes);
   GlmInfo glm_info;
@@ -419,6 +420,7 @@ typedef struct Plink2CmdlineStruct {
   char* update_alleles_fname;
   char* update_sample_ids_fname;
   char* update_parental_ids_fname;
+  char* recover_var_ids_fname;
   TwoColParams* ref_allele_flag;
   TwoColParams* alt1_allele_flag;
   TwoColParams* update_map_flag;
@@ -1140,7 +1142,17 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     // Otherwise, it may be very advantageous to apply the position-based
     // filters before constructing the variant ID hash table.  So we split this
     // into two cases.
-    const uint32_t full_variant_id_htable_needed = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_fname || (pcp->rmdup_mode != kRmDup0) || pcp->extract_fcol_info.params);
+    // (Actually, hash table construction is now usually fast enough, even with
+    // >80m variants, that this optimization isn't a big deal.  But it's
+    // already implemented, so let's keep it around until/unless it creates
+    // some sort of conflict.)
+
+    // Additional minor optimization: --recover-var-ids doesn't actually need
+    // the ID hash table; it's just positioned in this code block anyway
+    // because it would be too weird for it to be in a different position than
+    // --update-name in the order of operations.
+    const uint32_t htable_needed_early = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct);
+    const uint32_t full_variant_id_htable_needed = variant_ct && (htable_needed_early || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_fname || (pcp->rmdup_mode != kRmDup0) || pcp->extract_fcol_info.params);
     if (!full_variant_id_htable_needed) {
       reterr = ApplyVariantBpFilters(pcp->extract_fnames, pcp->extract_intersect_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, pcp->max_thread_ct, variant_include, &variant_ct);
       if (unlikely(reterr)) {
@@ -1148,19 +1160,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
     }
     const uint32_t extract_exclude_by_id = (pcp->extract_fnames && (!(pcp->filter_flags & (kfFilterExtractBed0 | kfFilterExtractBed1)))) || (pcp->extract_intersect_fnames && (!(pcp->filter_flags & (kfFilterExtractIntersectBed0 | kfFilterExtractIntersectBed1)))) || (pcp->exclude_fnames && (!(pcp->filter_flags & (kfFilterExcludeBed0 | kfFilterExcludeBed1))));
-    if (variant_ct && (full_variant_id_htable_needed || extract_exclude_by_id)) {
-      // don't bother with having different allow_dups vs. no allow_dups hash
-      // table structures, just check specific IDs for duplication in the
-      // no-duplicates-allowed cases
-      unsigned char* bigstack_mark = g_bigstack_base;
-      uint32_t* variant_id_htable = nullptr;
-      uint32_t* htable_dup_base = nullptr;
-      uint32_t dup_ct = 0;
-      uint32_t variant_id_htable_size;
-      reterr = AllocAndPopulateIdHtableMt(variant_include, TO_CONSTCPCONSTP(variant_ids_mutable), variant_ct, bigstack_left() / 8, pcp->max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size, &dup_ct);
-      if (unlikely(reterr)) {
-        goto Plink2Core_ret_1;
-      }
+    if (variant_ct && (full_variant_id_htable_needed || extract_exclude_by_id || pcp->recover_var_ids_fname)) {
       if (vpos_sortstatus & kfUnsortedVarBp) {
         if (unlikely(pcp->varid_from || pcp->varid_to)) {
           logerrputs("Error: --from/--to require a sorted .pvar/.bim.  Retry this command after using\n--make-pgen/--make-bed + --sort-vars to sort your data.\n");
@@ -1169,6 +1169,24 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         if (unlikely(pcp->window_bp != -1)) {
           logerrputs("Error: --window requires a sorted .pvar/.bim.  Retry this command after using\n--make-pgen/--make-bed + --sort-vars to sort your data.\n");
           goto Plink2Core_ret_INCONSISTENT_INPUT;
+        }
+        if (unlikely(pcp->recover_var_ids_fname)) {
+          logerrputs("Error: --recover-var-ids requires a sorted .pvar/.bim.  Retry this command\nafter using --make-pgen/--make-bed + --sort-vars to sort your data.\n");
+          goto Plink2Core_ret_INCONSISTENT_INPUT;
+        }
+      }
+      // don't bother with having different allow_dups vs. no allow_dups hash
+      // table structures, just check specific IDs for duplication in the
+      // no-duplicates-allowed cases
+      unsigned char* bigstack_mark = g_bigstack_base;
+      uint32_t* variant_id_htable = nullptr;
+      uint32_t* htable_dup_base = nullptr;
+      uint32_t dup_ct = 0;
+      uint32_t variant_id_htable_size = 0;
+      if ((!pcp->recover_var_ids_fname) || htable_needed_early) {
+        reterr = AllocAndPopulateIdHtableMt(variant_include, TO_CONSTCPCONSTP(variant_ids_mutable), variant_ct, bigstack_left() / 8, pcp->max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size, &dup_ct);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
         }
       }
       if (pcp->varid_from || pcp->varid_to) {
@@ -1208,13 +1226,17 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
-        } else if (pcp->update_name_flag) {
-          reterr = UpdateVarNames(variant_include, variant_id_htable, htable_dup_base, pcp->update_name_flag, raw_variant_ct, variant_id_htable_size, pcp->max_thread_ct, variant_ids_mutable, &max_variant_id_slen);
+        } else if (pcp->update_name_flag || pcp->recover_var_ids_fname) {
+          if (pcp->update_name_flag) {
+            reterr = UpdateVarNames(variant_include, variant_id_htable, htable_dup_base, pcp->update_name_flag, raw_variant_ct, variant_id_htable_size, pcp->max_thread_ct, variant_ids_mutable, &max_variant_id_slen);
+          } else {
+            reterr = RecoverVarIds(pcp->recover_var_ids_fname, variant_include, cip, variant_bps, allele_idx_offsets, TO_CONSTCPCONSTP(allele_storage_mutable), pcp->missing_varid_match, raw_variant_ct, variant_ct, pcp->recover_var_ids_flags, pcp->max_thread_ct, variant_ids_mutable, &max_variant_id_slen, outname, outname_end);
+          }
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
-          if (extract_exclude_by_id || pcp->update_alleles_fname) {
-            // Must reconstruct the hash table in this case.
+          if (extract_exclude_by_id || pcp->update_alleles_fname || (pcp->rmdup_mode != kRmDup0)) {
+            // Must (re)construct the hash table in this case.
             BigstackReset(bigstack_mark);
             dup_ct = 0;
             reterr = AllocAndPopulateIdHtableMt(variant_include, TO_CONSTCPCONSTP(variant_ids_mutable), variant_ct, bigstack_left() / 8, pcp->max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size, &dup_ct);
@@ -3091,6 +3113,7 @@ int main(int argc, char** argv) {
   pc.update_name_flag = nullptr;
   pc.update_sample_ids_fname = nullptr;
   pc.update_parental_ids_fname = nullptr;
+  pc.recover_var_ids_fname = nullptr;
   InitRangeList(&pc.snps_range_list);
   InitRangeList(&pc.exclude_snps_range_list);
   InitRangeList(&pc.pheno_range_list);
@@ -3394,6 +3417,7 @@ int main(int argc, char** argv) {
     pc.geno_counts_flags = kfGenoCounts0;
     pc.hardy_flags = kfHardy0;
     pc.sample_counts_flags = kfSampleCounts0;
+    pc.recover_var_ids_flags = kfRecoverVarIds0;
     pc.rmdup_mode = kRmDup0;
     for (uint32_t uii = 0; uii != 4; ++uii) {
       pc.filter_modes[uii] = kFreqFilterNonmajor;
@@ -3765,7 +3789,7 @@ int main(int argc, char** argv) {
           if (!strcmp(sources[0], "force")) {
             --param_ct;
             if (unlikely(!param_ct)) {
-              logputs("Error: Invalid --alt1-allele parameter sequence.\n");
+              logerrputs("Error: Invalid --alt1-allele parameter sequence.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
             pc.misc_flags |= kfMiscAlt1AlleleForce;
@@ -7669,6 +7693,9 @@ int main(int argc, char** argv) {
             } else if (unlikely(strequal_k(cur_modif, "sid", cur_modif_slen))) {
               logerrputs("Error: --pca 'sid' modifier retired.  Use --pca scols= instead.\n");
               goto main_ret_INVALID_CMDLINE_A;
+            } else if (unlikely(strequal_k(cur_modif, "multiallelic-var-wts", cur_modif_slen))) {
+              logerrputs("Error: --pca 'multiallelic-var-wts' modifier requires alpha 3 or later.\n");
+              goto main_ret_INVALID_CMDLINE_A;
             } else {
               if (unlikely(pc.pca_ct || ScanPosintDefcapx(cur_modif, &pc.pca_ct))) {
                 logerrputs("Error: Invalid --pca parameter sequence.\n");
@@ -7901,7 +7928,7 @@ int main(int argc, char** argv) {
           if (!strcmp(sources[0], "force")) {
             --param_ct;
             if (unlikely(!param_ct)) {
-              logputs("Error: Invalid --ref-allele parameter sequence.\n");
+              logerrputs("Error: Invalid --ref-allele parameter sequence.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
             pc.misc_flags |= kfMiscRefAlleleForce;
@@ -7981,6 +8008,43 @@ int main(int argc, char** argv) {
             pc.dependency_flags |= kfFilterOpportunisticPgen;
           }
           pc.rmdup_mode = rmdup_mode;
+          pc.dependency_flags |= kfFilterPvarReq;
+        } else if (strequal_k_unsafe(flagname_p2, "ecover-var-ids")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 4))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t fname_idx = 0;
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "strict-bim-order", cur_modif_slen)) {
+              pc.recover_var_ids_flags |= kfRecoverVarIdsStrictBimOrder;
+            } else if (strequal_k(cur_modif, "rigid", cur_modif_slen)) {
+              pc.recover_var_ids_flags |= kfRecoverVarIdsRigid;
+            } else if (strequal_k(cur_modif, "force", cur_modif_slen)) {
+              pc.recover_var_ids_flags |= kfRecoverVarIdsForce;
+            } else if (strequal_k(cur_modif, "partial", cur_modif_slen)) {
+              pc.recover_var_ids_flags |= kfRecoverVarIdsPartial;
+            } else {
+              if (unlikely(fname_idx)) {
+                logerrputs("Error: Invalid --recover-var-ids parameter sequence.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              fname_idx = param_idx;
+            }
+          }
+          if (unlikely(!fname_idx)) {
+            logerrputs("Error: No filename provided for --recover-var-ids.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely((pc.recover_var_ids_flags & (kfRecoverVarIdsRigid | kfRecoverVarIdsForce)) == (kfRecoverVarIdsRigid | kfRecoverVarIdsForce))) {
+            logerrputs("Error: --recover-var-ids 'rigid' and 'force' modifiers cannot be used\ntogether.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          reterr = AllocFname(argvk[arg_idx + fname_idx], flagname_p, 0, &pc.recover_var_ids_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
           pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "andmem")) {
           randmem = 1;
@@ -8780,6 +8844,10 @@ int main(int argc, char** argv) {
           }
           pc.dependency_flags |= kfFilterPsamReq;
         } else if (strequal_k_unsafe(flagname_p2, "pdate-map")) {
+          if (unlikely(pc.recover_var_ids_fname)) {
+            logerrputs("Error: --update-map cannot be used with --recover-var-ids or --update-name.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 4))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -8789,8 +8857,11 @@ int main(int argc, char** argv) {
           }
           pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "pdate-name")) {
-          if (pc.update_map_flag) {
-            logerrputs("Error: --update-name cannot be used with --update-map.\n");
+          if (unlikely(pc.recover_var_ids_fname)) {
+            logerrputs("Error: --update-name cannot be used with --recover-var-ids.\n");
+          }
+          if (unlikely(pc.update_map_flag)) {
+            logerrputs("Error: --update-map cannot be used with --recover-var-ids or --update-name.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 4))) {
@@ -9607,6 +9678,7 @@ int main(int argc, char** argv) {
   CleanupPlink2CmdlineMeta(&pcm);
   CleanupAdjust(&adjust_file_info);
   free_cond(king_cutoff_fprefix);
+  free_cond(pc.recover_var_ids_fname);
   free_cond(pc.update_parental_ids_fname);
   free_cond(pc.update_sample_ids_fname);
   free_cond(pc.update_name_flag);

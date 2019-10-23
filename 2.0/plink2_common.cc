@@ -606,7 +606,7 @@ BoolErr SortedXidboxReadMultifind(const char* __restrict sorted_xidbox, uintptr_
   }
   const uint32_t lb_idx = bsearch_str_lb(idbuf, sorted_xidbox, slen_final, max_xid_blen, xid_ct);
   idbuf[slen_final] = ' ';
-  const uint32_t ub_idx = FwdsearchStrLb(idbuf, sorted_xidbox, slen_final + 1, max_xid_blen, xid_ct, lb_idx);
+  const uint32_t ub_idx = ExpsearchStrLb(idbuf, sorted_xidbox, slen_final + 1, max_xid_blen, xid_ct, lb_idx);
   if (lb_idx == ub_idx) {
     return 1;
   }
@@ -1450,7 +1450,7 @@ void InterleavedMaskZero(const uintptr_t* __restrict interleaved_mask, uintptr_t
     const VecW mask_vvec = *interleaved_mask_iter++;
     VecW mask_first = mask_vvec & m1;
     mask_first = mask_first | vecw_slli(mask_first, 1);
-    VecW mask_second = (~m1) & mask_vvec;
+    VecW mask_second = vecw_and_notfirst(m1, mask_vvec);
     mask_second = mask_second | vecw_srli(mask_second, 1);
     *genovvec_iter = (*genovvec_iter) & mask_first;
     ++genovvec_iter;

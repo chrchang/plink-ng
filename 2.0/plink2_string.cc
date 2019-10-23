@@ -3044,7 +3044,7 @@ uintptr_t bsearch_str_lb(const char* idbuf, const char* sorted_strbox, uintptr_t
   return start_idx;
 }
 
-uintptr_t FwdsearchStrLb(const char* idbuf, const char* sorted_strbox, uintptr_t cur_id_slen, uintptr_t max_id_blen, uintptr_t end_idx, uintptr_t cur_idx) {
+uintptr_t ExpsearchStrLb(const char* idbuf, const char* sorted_strbox, uintptr_t cur_id_slen, uintptr_t max_id_blen, uintptr_t end_idx, uintptr_t cur_idx) {
   uintptr_t next_incr = 1;
   uintptr_t start_idx = cur_idx;
   while (cur_idx < end_idx) {
@@ -3195,6 +3195,21 @@ CXXCONST_CP LastSpaceOrEoln(const char* str_start, uintptr_t slen) {
   }
 }
 #endif  // __LP64__
+
+/*
+void ReplaceAllInstances(char old_char, char new_char, uint32_t slen, char* dst) {
+  // probable todo: add SIMD version
+  while (1) {
+    char* strchr_result = memchr(dst, old_char, slen);
+    if (!strchr_result) {
+      return;
+    }
+    *strchr_result++ = new_char;
+    slen -= strchr_result - dst;
+    dst = strchr_result;
+  }
+}
+*/
 
 void TabsToSpaces(char* ss_iter) {
   while (1) {

@@ -361,14 +361,20 @@ BoolErr SortStrboxIndexed(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use
 // BoolErr strptr_arr_indexed_sort(const char* const* unsorted_strptrs, uint32_t str_ct, uint32_t use_nsort, uint32_t* id_map);
 
 // Offset of std::lower_bound.
-uint32_t CountSortedSmallerU32(const uint32_t* sorted_uint32_arr, uint32_t arr_length, uint32_t uii);
+// Requires 0 < arr_length < 2^31.
+uint32_t CountSortedSmallerU32(const uint32_t* sorted_u32_arr, uint32_t arr_length, uint32_t needle);
 
-uintptr_t CountSortedSmallerU64(const uint64_t* sorted_uint64_arr, uintptr_t arr_length, uint64_t ullii);
+// Same as above, but optimized for case where result is probably close to the
+// front, and tolerates end_idx (== arr_length) == 0.
+uint32_t ExpsearchU32(const uint32_t* sorted_u32_arr, uint32_t end_idx, uint32_t needle);
 
-uintptr_t CountSortedSmallerD(const double* sorted_dbl_arr, uintptr_t arr_length, double dxx);
+uintptr_t CountSortedSmallerU64(const uint64_t* sorted_u64_arr, uintptr_t arr_length, uint64_t needle);
+
+uintptr_t CountSortedSmallerD(const double* sorted_dbl_arr, uintptr_t arr_length, double needle);
 
 
-uintptr_t CountSortedLeqU64(const uint64_t* sorted_uint64_arr, uintptr_t arr_length, uint64_t ullii);
+uintptr_t CountSortedLeqU64(const uint64_t* sorted_u64_arr, uintptr_t arr_length, uint64_t needle);
+
 
 HEADER_INLINE uint32_t IsCmdlineFlag(const char* param) {
   unsigned char ucc = param[1];
@@ -610,6 +616,11 @@ HEADER_INLINE BoolErr bigstack_alloc_wpp(uintptr_t ct, uintptr_t**** wpp_arr_ptr
 HEADER_INLINE BoolErr bigstack_alloc_u32pp(uintptr_t ct, uint32_t**** u32pp_arr_ptr) {
   *u32pp_arr_ptr = S_CAST(uint32_t***, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*u32pp_arr_ptr);
+}
+
+HEADER_INLINE BoolErr bigstack_alloc_vpp(uintptr_t ct, VecW**** vpp_arr_ptr) {
+  *vpp_arr_ptr = S_CAST(VecW***, bigstack_alloc(ct * sizeof(VecW)));
+  return !(*vpp_arr_ptr);
 }
 
 // this should be deleted once SpawnThreads3z is eliminated
@@ -1155,6 +1166,132 @@ void BitvecInvertAndMask(const uintptr_t* __restrict include_bitvec, uintptr_t w
 
 // void BitvecOrNot(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec);
 
+HEADER_INLINE void U32VecAdd(const VecU32* arg_u32vec, uintptr_t vec_ct, VecU32* main_u32vec) {
+  for (uintptr_t vidx = 0; vidx != vec_ct; ++vidx) {
+    main_u32vec[vidx] += arg_u32vec[vidx];
+  }
+}
+
+HEADER_INLINE void U32CastVecAdd(const uint32_t* arg_u32arr, uintptr_t vec_ct, uint32_t* main_u32arr) {
+  U32VecAdd(R_CAST(const VecU32*, arg_u32arr), vec_ct, R_CAST(VecU32*, main_u32arr));
+}
+
+HEADER_INLINE void I32CastVecAdd(const int32_t* arg_i32arr, uintptr_t vec_ct, int32_t* main_i32arr) {
+  U32VecAdd(R_CAST(const VecU32*, arg_i32arr), vec_ct, R_CAST(VecU32*, main_i32arr));
+}
+
+HEADER_INLINE void U32VecSub(const VecU32* arg_u32vec, uintptr_t vec_ct, VecU32* main_u32vec) {
+  for (uintptr_t vidx = 0; vidx != vec_ct; ++vidx) {
+    main_u32vec[vidx] -= arg_u32vec[vidx];
+  }
+}
+
+HEADER_INLINE void U32CastVecSub(const uint32_t* arg_u32arr, uintptr_t vec_ct, uint32_t* main_u32arr) {
+  U32VecSub(R_CAST(const VecU32*, arg_u32arr), vec_ct, R_CAST(VecU32*, main_u32arr));
+}
+
+HEADER_INLINE void U32VecMaskedAdd(const VecU32* mask_u32vec, const VecU32* arg_u32vec, uintptr_t vec_ct, VecU32* main_u32vec) {
+  for (uintptr_t vidx = 0; vidx != vec_ct; ++vidx) {
+    main_u32vec[vidx] += mask_u32vec[vidx] & arg_u32vec[vidx];
+  }
+}
+
+HEADER_INLINE void U32CastVecMaskedAdd(const uint32_t* mask_u32arr, const uint32_t* arg_u32arr, uintptr_t vec_ct, uint32_t* main_u32arr) {
+  U32VecMaskedAdd(R_CAST(const VecU32*, mask_u32arr), R_CAST(const VecU32*, arg_u32arr), vec_ct, R_CAST(VecU32*, main_u32arr));
+}
+
+HEADER_INLINE void U32VecInvmaskedAdd(const VecU32* invmask_u32vec, const VecU32* arg_u32vec, uintptr_t vec_ct, VecU32* main_u32vec) {
+  for (uintptr_t vidx = 0; vidx != vec_ct; ++vidx) {
+    main_u32vec[vidx] += vecu32_and_notfirst(invmask_u32vec[vidx], arg_u32vec[vidx]);
+  }
+}
+
+HEADER_INLINE void U32CastVecInvmaskedAdd(const uint32_t* invmask_u32arr, const uint32_t* arg_u32arr, uintptr_t vec_ct, uint32_t* main_u32arr) {
+  U32VecInvmaskedAdd(R_CAST(const VecU32*, invmask_u32arr), R_CAST(const VecU32*, arg_u32arr), vec_ct, R_CAST(VecU32*, main_u32arr));
+}
+
+
+HEADER_INLINE void U32VecAdd2(const VecU32* arg1_u32vec, const VecU32* arg2_u32vec, uintptr_t vec_ct, VecU32* main_u32vec) {
+  for (uintptr_t vidx = 0; vidx != vec_ct; ++vidx) {
+    main_u32vec[vidx] += arg1_u32vec[vidx] + arg2_u32vec[vidx];
+  }
+}
+
+HEADER_INLINE void U32CastVecAdd2(const uint32_t* arg1_u32arr, const uint32_t* arg2_u32arr, uintptr_t vec_ct, uint32_t* main_u32arr) {
+  U32VecAdd2(R_CAST(const VecU32*, arg1_u32arr), R_CAST(const VecU32*, arg2_u32arr), vec_ct, R_CAST(VecU32*, main_u32arr));
+}
+
+HEADER_INLINE void U32VecAssignAdd2(const VecU32* arg1_u32vec, const VecU32* arg2_u32vec, uintptr_t vec_ct, VecU32* main_u32vec) {
+  for (uintptr_t vidx = 0; vidx != vec_ct; ++vidx) {
+    main_u32vec[vidx] = arg1_u32vec[vidx] + arg2_u32vec[vidx];
+  }
+}
+
+HEADER_INLINE void U32CastVecAssignAdd2(const uint32_t* arg1_u32arr, const uint32_t* arg2_u32arr, uintptr_t vec_ct, uint32_t* main_u32arr) {
+  U32VecAssignAdd2(R_CAST(const VecU32*, arg1_u32arr), R_CAST(const VecU32*, arg2_u32arr), vec_ct, R_CAST(VecU32*, main_u32arr));
+}
+
+HEADER_INLINE void U32VecMaskedAdd2(const VecU32* mask_u32vec, const VecU32* arg1_u32vec, const VecU32* arg2_u32vec, uintptr_t vec_ct, VecU32* main_u32vec) {
+  for (uintptr_t vidx = 0; vidx != vec_ct; ++vidx) {
+    main_u32vec[vidx] += mask_u32vec[vidx] & (arg1_u32vec[vidx] + arg2_u32vec[vidx]);
+  }
+}
+
+HEADER_INLINE void U32CastVecMaskedAdd2(const uint32_t* mask_u32arr, const uint32_t* arg1_u32arr, const uint32_t* arg2_u32arr, uintptr_t vec_ct, uint32_t* main_u32arr) {
+  U32VecMaskedAdd2(R_CAST(const VecU32*, mask_u32arr), R_CAST(const VecU32*, arg1_u32arr), R_CAST(const VecU32*, arg2_u32arr), vec_ct, R_CAST(VecU32*, main_u32arr));
+}
+
+HEADER_INLINE void U32VecAddSub(const VecU32* add_u32vec, const VecU32* sub_u32vec, uintptr_t vec_ct, VecU32* main_u32vec) {
+  for (uintptr_t vidx = 0; vidx != vec_ct; ++vidx) {
+    main_u32vec[vidx] += add_u32vec[vidx] - sub_u32vec[vidx];
+  }
+}
+
+HEADER_INLINE void U32CastVecAddSub(const uint32_t* add_u32arr, const uint32_t* sub_u32arr, uintptr_t vec_ct, uint32_t* main_u32arr) {
+  U32VecAddSub(R_CAST(const VecU32*, add_u32arr), R_CAST(const VecU32*, sub_u32arr), vec_ct, R_CAST(VecU32*, main_u32arr));
+}
+
+
+HEADER_INLINE void U32VecAdd3(const VecU32* arg1_u32vec, const VecU32* arg2_u32vec, const VecU32* arg3_u32vec, uintptr_t vec_ct, VecU32* main_u32vec) {
+  for (uintptr_t vidx = 0; vidx != vec_ct; ++vidx) {
+    main_u32vec[vidx] += arg1_u32vec[vidx] + arg2_u32vec[vidx] + arg3_u32vec[vidx];
+  }
+}
+
+HEADER_INLINE void U32CastVecAdd3(const uint32_t* arg1_u32arr, const uint32_t* arg2_u32arr, const uint32_t* arg3_u32arr, uintptr_t vec_ct, uint32_t* main_u32arr) {
+  U32VecAdd3(R_CAST(const VecU32*, arg1_u32arr), R_CAST(const VecU32*, arg2_u32arr), R_CAST(const VecU32*, arg3_u32arr), vec_ct, R_CAST(VecU32*, main_u32arr));
+}
+
+HEADER_INLINE void U32VecAssignAdd3(const VecU32* arg1_u32vec, const VecU32* arg2_u32vec, const VecU32* arg3_u32vec, uintptr_t vec_ct, VecU32* main_u32vec) {
+  for (uintptr_t vidx = 0; vidx != vec_ct; ++vidx) {
+    main_u32vec[vidx] = arg1_u32vec[vidx] + arg2_u32vec[vidx] + arg3_u32vec[vidx];
+  }
+}
+
+HEADER_INLINE void U32CastVecAssignAdd3(const uint32_t* arg1_u32arr, const uint32_t* arg2_u32arr, const uint32_t* arg3_u32arr, uintptr_t vec_ct, uint32_t* main_u32arr) {
+  U32VecAssignAdd3(R_CAST(const VecU32*, arg1_u32arr), R_CAST(const VecU32*, arg2_u32arr), R_CAST(const VecU32*, arg3_u32arr), vec_ct, R_CAST(VecU32*, main_u32arr));
+}
+
+HEADER_INLINE void U32VecSub3(const VecU32* arg1_u32vec, const VecU32* arg2_u32vec, const VecU32* arg3_u32vec, uintptr_t vec_ct, VecU32* main_u32vec) {
+  for (uintptr_t vidx = 0; vidx != vec_ct; ++vidx) {
+    main_u32vec[vidx] -= arg1_u32vec[vidx] + arg2_u32vec[vidx] + arg3_u32vec[vidx];
+  }
+}
+
+HEADER_INLINE void U32CastVecSub3(const uint32_t* arg1_u32arr, const uint32_t* arg2_u32arr, const uint32_t* arg3_u32arr, uintptr_t vec_ct, uint32_t* main_u32arr) {
+  U32VecSub3(R_CAST(const VecU32*, arg1_u32arr), R_CAST(const VecU32*, arg2_u32arr), R_CAST(const VecU32*, arg3_u32arr), vec_ct, R_CAST(VecU32*, main_u32arr));
+}
+
+HEADER_INLINE void U32VecAssignAdd5(const VecU32* arg1_u32vec, const VecU32* arg2_u32vec, const VecU32* arg3_u32vec, const VecU32* arg4_u32vec, const VecU32* arg5_u32vec, uintptr_t vec_ct, VecU32* main_u32vec) {
+  for (uintptr_t vidx = 0; vidx != vec_ct; ++vidx) {
+    main_u32vec[vidx] = arg1_u32vec[vidx] + arg2_u32vec[vidx] + arg3_u32vec[vidx] + arg4_u32vec[vidx] + arg5_u32vec[vidx];
+  }
+}
+
+HEADER_INLINE void U32CastVecAssignAdd5(const uint32_t* arg1_u32arr, const uint32_t* arg2_u32arr, const uint32_t* arg3_u32arr, const uint32_t* arg4_u32arr, const uint32_t* arg5_u32arr, uintptr_t vec_ct, uint32_t* main_u32arr) {
+  U32VecAssignAdd5(R_CAST(const VecU32*, arg1_u32arr), R_CAST(const VecU32*, arg2_u32arr), R_CAST(const VecU32*, arg3_u32arr), R_CAST(const VecU32*, arg4_u32arr), R_CAST(const VecU32*, arg5_u32arr), vec_ct, R_CAST(VecU32*, main_u32arr));
+}
+
 
 // basic linear scan
 // returns -1 on failure to find, -2 if duplicate
@@ -1404,116 +1541,107 @@ HEADER_INLINE uint32_t VcountScramble1(uint32_t orig_idx) {
 }
 #endif
 
-HEADER_INLINE void VcountIncr1To4(const uintptr_t* acc1, uint32_t acc1_vec_ct, uintptr_t* acc4) {
+// change acc1 type to const void* if a VecW* use case arises
+HEADER_INLINE void VcountIncr1To4(const uintptr_t* acc1, uint32_t acc1_vec_ct, VecW* acc4_iter) {
   const VecW m1x4 = VCONST_W(kMask1111);
-  const VecW* acc1v_iter = R_CAST(const VecW*, acc1);
-  VecW* acc4v_iter = R_CAST(VecW*, acc4);
+  const VecW* acc1_iter = R_CAST(const VecW*, acc1);
   for (uint32_t vidx = 0; vidx != acc1_vec_ct; ++vidx) {
-    VecW loader = *acc1v_iter++;
-    *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
-    ++acc4v_iter;
+    VecW loader = *acc1_iter++;
+    *acc4_iter = (*acc4_iter) + (loader & m1x4);
+    ++acc4_iter;
     loader = vecw_srli(loader, 1);
-    *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
-    ++acc4v_iter;
+    *acc4_iter = (*acc4_iter) + (loader & m1x4);
+    ++acc4_iter;
     loader = vecw_srli(loader, 1);
-    *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
-    ++acc4v_iter;
+    *acc4_iter = (*acc4_iter) + (loader & m1x4);
+    ++acc4_iter;
     loader = vecw_srli(loader, 1);
-    *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
-    ++acc4v_iter;
+    *acc4_iter = (*acc4_iter) + (loader & m1x4);
+    ++acc4_iter;
   }
 }
 
-HEADER_INLINE void Vcount0Incr1To4(uint32_t acc1_vec_ct, uintptr_t* acc1, uintptr_t* acc4) {
+HEADER_INLINE void Vcount0Incr1To4(uint32_t acc1_vec_ct, uintptr_t* acc1, VecW* acc4_iter) {
   const VecW m1x4 = VCONST_W(kMask1111);
-  VecW* acc1v_iter = R_CAST(VecW*, acc1);
-  VecW* acc4v_iter = R_CAST(VecW*, acc4);
+  VecW* acc1_iter = R_CAST(VecW*, acc1);
   for (uint32_t vidx = 0; vidx != acc1_vec_ct; ++vidx) {
-    VecW loader = *acc1v_iter;
-    *acc1v_iter++ = vecw_setzero();
-    *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
-    ++acc4v_iter;
+    VecW loader = *acc1_iter;
+    *acc1_iter++ = vecw_setzero();
+    *acc4_iter = (*acc4_iter) + (loader & m1x4);
+    ++acc4_iter;
     loader = vecw_srli(loader, 1);
-    *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
-    ++acc4v_iter;
+    *acc4_iter = (*acc4_iter) + (loader & m1x4);
+    ++acc4_iter;
     loader = vecw_srli(loader, 1);
-    *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
-    ++acc4v_iter;
+    *acc4_iter = (*acc4_iter) + (loader & m1x4);
+    ++acc4_iter;
     loader = vecw_srli(loader, 1);
-    *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
-    ++acc4v_iter;
+    *acc4_iter = (*acc4_iter) + (loader & m1x4);
+    ++acc4_iter;
   }
 }
 
 // er, should this just be the same function as unroll_incr_2_4 with extra
 // parameters?...
-HEADER_INLINE void VcountIncr4To8(const uintptr_t* acc4, uint32_t acc4_vec_ct, uintptr_t* acc8) {
+HEADER_INLINE void VcountIncr4To8(const VecW* acc4_iter, uint32_t acc4_vec_ct, VecW* acc8_iter) {
   const VecW m4 = VCONST_W(kMask0F0F);
-  const VecW* acc4v_iter = R_CAST(const VecW*, acc4);
-  VecW* acc8v_iter = R_CAST(VecW*, acc8);
   for (uint32_t vidx = 0; vidx != acc4_vec_ct; ++vidx) {
-    VecW loader = *acc4v_iter++;
-    *acc8v_iter = (*acc8v_iter) + (loader & m4);
-    ++acc8v_iter;
+    VecW loader = *acc4_iter++;
+    *acc8_iter = (*acc8_iter) + (loader & m4);
+    ++acc8_iter;
     loader = vecw_srli(loader, 4);
-    *acc8v_iter = (*acc8v_iter) + (loader & m4);
-    ++acc8v_iter;
+    *acc8_iter = (*acc8_iter) + (loader & m4);
+    ++acc8_iter;
   }
 }
 
-HEADER_INLINE void Vcount0Incr4To8(uint32_t acc4_vec_ct, uintptr_t* acc4, uintptr_t* acc8) {
+HEADER_INLINE void Vcount0Incr4To8(uint32_t acc4_vec_ct, VecW* acc4_iter, VecW* acc8_iter) {
   const VecW m4 = VCONST_W(kMask0F0F);
-  VecW* acc4v_iter = R_CAST(VecW*, acc4);
-  VecW* acc8v_iter = R_CAST(VecW*, acc8);
   for (uint32_t vidx = 0; vidx != acc4_vec_ct; ++vidx) {
-    VecW loader = *acc4v_iter;
-    *acc4v_iter++ = vecw_setzero();
-    *acc8v_iter = (*acc8v_iter) + (loader & m4);
-    ++acc8v_iter;
+    VecW loader = *acc4_iter;
+    *acc4_iter++ = vecw_setzero();
+    *acc8_iter = (*acc8_iter) + (loader & m4);
+    ++acc8_iter;
     loader = vecw_srli(loader, 4);
-    *acc8v_iter = (*acc8v_iter) + (loader & m4);
-    ++acc8v_iter;
+    *acc8_iter = (*acc8_iter) + (loader & m4);
+    ++acc8_iter;
   }
 }
 
-HEADER_INLINE void VcountIncr8To32(const uintptr_t* acc8, uint32_t acc8_vec_ct, uintptr_t* acc32) {
+HEADER_INLINE void VcountIncr8To32(const VecW* acc8_iter, uint32_t acc8_vec_ct, VecW* acc32_iter) {
   const VecW m8x32 = VCONST_W(kMask000000FF);
-  const VecW* acc8v_iter = R_CAST(const VecW*, acc8);
-  VecW* acc32v_iter = R_CAST(VecW*, acc32);
   for (uint32_t vidx = 0; vidx != acc8_vec_ct; ++vidx) {
-    VecW loader = *acc8v_iter++;
-    *acc32v_iter = (*acc32v_iter) + (loader & m8x32);
-    ++acc32v_iter;
+    VecW loader = *acc8_iter++;
+    *acc32_iter = (*acc32_iter) + (loader & m8x32);
+    ++acc32_iter;
     loader = vecw_srli(loader, 8);
-    *acc32v_iter = (*acc32v_iter) + (loader & m8x32);
-    ++acc32v_iter;
+    *acc32_iter = (*acc32_iter) + (loader & m8x32);
+    ++acc32_iter;
     loader = vecw_srli(loader, 8);
-    *acc32v_iter = (*acc32v_iter) + (loader & m8x32);
-    ++acc32v_iter;
+    *acc32_iter = (*acc32_iter) + (loader & m8x32);
+    ++acc32_iter;
     loader = vecw_srli(loader, 8);
-    *acc32v_iter = (*acc32v_iter) + (loader & m8x32);
-    ++acc32v_iter;
+    *acc32_iter = (*acc32_iter) + (loader & m8x32);
+    ++acc32_iter;
   }
 }
 
-HEADER_INLINE void Vcount0Incr8To32(uint32_t acc8_vec_ct, uintptr_t* acc8, uintptr_t* acc32) {
+HEADER_INLINE void Vcount0Incr8To32(uint32_t acc8_vec_ct, VecW* acc8_iter, VecW* acc32_iter) {
   const VecW m8x32 = VCONST_W(kMask000000FF);
-  VecW* acc8v_iter = R_CAST(VecW*, acc8);
-  VecW* acc32v_iter = R_CAST(VecW*, acc32);
   for (uint32_t vidx = 0; vidx != acc8_vec_ct; ++vidx) {
-    VecW loader = *acc8v_iter;
-    *acc8v_iter++ = vecw_setzero();
-    *acc32v_iter = (*acc32v_iter) + (loader & m8x32);
-    ++acc32v_iter;
+    VecW loader = *acc8_iter;
+    *acc8_iter++ = vecw_setzero();
+    *acc32_iter = (*acc32_iter) + (loader & m8x32);
+    ++acc32_iter;
     loader = vecw_srli(loader, 8);
-    *acc32v_iter = (*acc32v_iter) + (loader & m8x32);
-    ++acc32v_iter;
+    *acc32_iter = (*acc32_iter) + (loader & m8x32);
+    ++acc32_iter;
     loader = vecw_srli(loader, 8);
-    *acc32v_iter = (*acc32v_iter) + (loader & m8x32);
-    ++acc32v_iter;
+    *acc32_iter = (*acc32_iter) + (loader & m8x32);
+    ++acc32_iter;
     loader = vecw_srli(loader, 8);
-    *acc32v_iter = (*acc32v_iter) + (loader & m8x32);
-    ++acc32v_iter;
+    *acc32_iter = (*acc32_iter) + (loader & m8x32);
+    ++acc32_iter;
   }
 }
 

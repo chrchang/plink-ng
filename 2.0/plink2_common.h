@@ -749,33 +749,26 @@ HEADER_INLINE uint32_t VcountScramble2(uint32_t orig_idx) {
 }
 #endif
 
-// probable todo: switch to VecW* parameters
-HEADER_INLINE void VcountIncr2To4(const uintptr_t* acc2, uint32_t acc2_vec_ct, uintptr_t* acc4) {
+HEADER_INLINE void VcountIncr2To4(const VecW* acc2_iter, uint32_t acc2_vec_ct, VecW* acc4_iter) {
   const VecW m2 = VCONST_W(kMask3333);
-  const VecW* acc2v_iter = R_CAST(const VecW*, acc2);
-  VecW* acc4v_iter = R_CAST(VecW*, acc4);
   for (uint32_t vidx = 0; vidx != acc2_vec_ct; ++vidx) {
-    VecW loader = *acc2v_iter++;
-    *acc4v_iter = (*acc4v_iter) + (loader & m2);
-    ++acc4v_iter;
-    loader = vecw_srli(loader, 2);
-    *acc4v_iter = (*acc4v_iter) + (loader & m2);
-    ++acc4v_iter;
+    VecW loader = *acc2_iter++;
+    *acc4_iter += loader & m2;
+    ++acc4_iter;
+    *acc4_iter += vecw_srli(loader, 2) & m2;
+    ++acc4_iter;
   }
 }
 
-HEADER_INLINE void Vcount0Incr2To4(uint32_t acc2_vec_ct, uintptr_t* acc2, uintptr_t* acc4) {
+HEADER_INLINE void Vcount0Incr2To4(uint32_t acc2_vec_ct, VecW* acc2_iter, VecW* acc4_iter) {
   const VecW m2 = VCONST_W(kMask3333);
-  VecW* acc2v_iter = R_CAST(VecW*, acc2);
-  VecW* acc4v_iter = R_CAST(VecW*, acc4);
   for (uint32_t vidx = 0; vidx != acc2_vec_ct; ++vidx) {
-    VecW loader = *acc2v_iter;
-    *acc2v_iter++ = vecw_setzero();
-    *acc4v_iter = (*acc4v_iter) + (loader & m2);
-    ++acc4v_iter;
-    loader = vecw_srli(loader, 2);
-    *acc4v_iter = (*acc4v_iter) + (loader & m2);
-    ++acc4v_iter;
+    VecW loader = *acc2_iter;
+    *acc2_iter++ = vecw_setzero();
+    *acc4_iter += loader & m2;
+    ++acc4_iter;
+    *acc4_iter += vecw_srli(loader, 2) & m2;
+    ++acc4_iter;
   }
 }
 

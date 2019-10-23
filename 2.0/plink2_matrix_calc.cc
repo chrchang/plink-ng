@@ -651,8 +651,8 @@ void IncrKing(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t
         VecW hom2 = second_hom[vec_idx];
         VecW ref2het1 = first_ref2het_iter[vec_idx];
         VecW ref2het2 = second_ref2het[vec_idx];
-        VecW het1 = ref2het1 & (~hom1);
-        VecW het2 = ref2het2 & (~hom2);
+        VecW het1 = vecw_and_notfirst(hom1, ref2het1);
+        VecW het2 = vecw_and_notfirst(hom2, ref2het2);
         VecW agg_ibs0 = (ref2het1 ^ ref2het2) & (hom1 & hom2);
         VecW agg_hethet = het1 & het2;
         VecW agg_het2hom1 = hom1 & het2;
@@ -671,8 +671,8 @@ void IncrKing(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t
           hom2 = second_hom[vec_idx + offset];
           ref2het1 = first_ref2het_iter[vec_idx + offset];
           ref2het2 = second_ref2het[vec_idx + offset];
-          het1 = ref2het1 & (~hom1);
-          het2 = ref2het2 & (~hom2);
+          het1 = vecw_and_notfirst(hom1, ref2het1);
+          het2 = vecw_and_notfirst(hom2, ref2het2);
           VecW cur_ibs0 = (ref2het1 ^ ref2het2) & (hom1 & hom2);
           VecW cur_hethet = het1 & het2;
           VecW cur_het2hom1 = hom1 & het2;
@@ -735,8 +735,8 @@ void IncrKingHomhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, ui
         VecW ref2het1 = first_ref2het_iter[vec_idx];
         VecW ref2het2 = second_ref2het[vec_idx];
         VecW agg_homhom = hom1 & hom2;
-        VecW het1 = ref2het1 & (~hom1);
-        VecW het2 = ref2het2 & (~hom2);
+        VecW het1 = vecw_and_notfirst(hom1, ref2het1);
+        VecW het2 = vecw_and_notfirst(hom2, ref2het2);
         VecW agg_ibs0 = (ref2het1 ^ ref2het2) & agg_homhom;
         VecW agg_hethet = het1 & het2;
         VecW agg_het2hom1 = hom1 & het2;
@@ -758,8 +758,8 @@ void IncrKingHomhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, ui
           ref2het1 = first_ref2het_iter[vec_idx + offset];
           ref2het2 = second_ref2het[vec_idx + offset];
           VecW cur_homhom = hom1 & hom2;
-          het1 = ref2het1 & (~hom1);
-          het2 = ref2het2 & (~hom2);
+          het1 = vecw_and_notfirst(hom1, ref2het1);
+          het2 = vecw_and_notfirst(hom2, ref2het2);
           VecW cur_ibs0 = (ref2het1 ^ ref2het2) & cur_homhom;
           VecW cur_hethet = het1 & het2;
           VecW cur_het2hom1 = hom1 & het2;
@@ -1796,8 +1796,8 @@ void IncrKingSubset(const uint32_t* loaded_sample_idx_pairs, const uintptr_t* sm
       VecW hom2 = second_hom[vec_idx];
       VecW ref2het1 = first_ref2het[vec_idx];
       VecW ref2het2 = second_ref2het[vec_idx];
-      VecW het1 = ref2het1 & (~hom1);
-      VecW het2 = ref2het2 & (~hom2);
+      VecW het1 = vecw_and_notfirst(hom1, ref2het1);
+      VecW het2 = vecw_and_notfirst(hom2, ref2het2);
       VecW agg_ibs0 = (ref2het1 ^ ref2het2) & (hom1 & hom2);
       VecW agg_hethet = het1 & het2;
       VecW agg_het2hom1 = hom1 & het2;
@@ -1816,8 +1816,8 @@ void IncrKingSubset(const uint32_t* loaded_sample_idx_pairs, const uintptr_t* sm
         hom2 = second_hom[vec_idx + offset];
         ref2het1 = first_ref2het[vec_idx + offset];
         ref2het2 = second_ref2het[vec_idx + offset];
-        het1 = ref2het1 & (~hom1);
-        het2 = ref2het2 & (~hom2);
+        het1 = vecw_and_notfirst(hom1, ref2het1);
+        het2 = vecw_and_notfirst(hom2, ref2het2);
         VecW cur_ibs0 = (ref2het1 ^ ref2het2) & (hom1 & hom2);
         VecW cur_hethet = het1 & het2;
         VecW cur_het2hom1 = hom1 & het2;
@@ -1879,8 +1879,8 @@ void IncrKingSubsetHomhom(const uint32_t* loaded_sample_idx_pairs, const uintptr
       VecW ref2het1 = first_ref2het[vec_idx];
       VecW ref2het2 = second_ref2het[vec_idx];
       VecW agg_homhom = hom1 & hom2;
-      VecW het1 = ref2het1 & (~hom1);
-      VecW het2 = ref2het2 & (~hom2);
+      VecW het1 = vecw_and_notfirst(hom1, ref2het1);
+      VecW het2 = vecw_and_notfirst(hom2, ref2het2);
       VecW agg_ibs0 = (ref2het1 ^ ref2het2) & agg_homhom;
       VecW agg_hethet = het1 & het2;
       VecW agg_het2hom1 = hom1 & het2;
@@ -1902,8 +1902,8 @@ void IncrKingSubsetHomhom(const uint32_t* loaded_sample_idx_pairs, const uintptr
         ref2het1 = first_ref2het[vec_idx + offset];
         ref2het2 = second_ref2het[vec_idx + offset];
         VecW cur_homhom = hom1 & hom2;
-        het1 = ref2het1 & (~hom1);
-        het2 = ref2het2 & (~hom2);
+        het1 = vecw_and_notfirst(hom1, ref2het1);
+        het2 = vecw_and_notfirst(hom2, ref2het2);
         VecW cur_ibs0 = (ref2het1 ^ ref2het2) & cur_homhom;
         VecW cur_hethet = het1 & het2;
         VecW cur_het2hom1 = hom1 & het2;
@@ -3924,10 +3924,10 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     char* writebuf;
     if (is_approx) {
       if (pca_sample_ct <= 5000) {
-        logerrputs("Warning: --pca approx is only recommended for analysis of >5000 samples.\n");
+        logerrputs("Warning: \"--pca approx\" is only recommended for analysis of >5000 samples.\n");
       }
       if (variant_ct > 5000000) {
-        logerrputs("Warning: Use of --pca approx on >5m variants is not advisable.  Apply a MAF\nfilter if you haven't done so yet, and consider LD-pruning your variant set as\nwell.\n");
+        logerrputs("Warning: Use of \"--pca approx\" on >5m variants is not advisable.  Apply a MAF\nfilter if you haven't done so yet, and consider LD-pruning your variant set as\nwell.\n");
       }
       // This is ported from EIGENSOFT 6 src/ksrc/kjg_fpca.c , which is in turn
       // primarily based on Halko N, Martinsson P, Shkolnisky Y, Tygert M
@@ -3942,12 +3942,12 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       // Simplest solution is to force the user to request fewer PCs, since the
       // final PCs wouldn't be accurate anyway.
       if (qq_col_ct > variant_ct) {
-        logerrprintfww("Error: Too few variants to compute %u PCs with --pca approx (%u required).\n", pc_ct, qq_col_ct);
+        logerrprintfww("Error: Too few variants to compute %u PCs with \"--pca approx\" (%u required).\n", pc_ct, qq_col_ct);
         goto CalcPca_ret_DEGENERATE_DATA;
       }
 #ifndef LAPACK_ILP64
       if (unlikely((variant_ct * S_CAST(uint64_t, qq_col_ct)) > 0x7effffff)) {
-        logerrputs("Error: --pca approx problem instance too large for this " PROG_NAME_STR " build.  If this\nis really the computation you want, use a " PROG_NAME_STR " build with large-matrix\nsupport.\n");
+        logerrputs("Error: \"--pca approx\" problem instance too large for this " PROG_NAME_STR " build.  If\nthis is really the computation you want, use a " PROG_NAME_STR " build with large-matrix\nsupport.\n");
         goto CalcPca_ret_INCONSISTENT_INPUT;
       }
 #endif
@@ -3959,7 +3959,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       GetSvdRectLwork(MAXV(pca_sample_ct, variant_ct), qq_col_ct, &svd_rect_lwork);
 #else
       if (unlikely(GetSvdRectLwork(MAXV(pca_sample_ct, variant_ct), qq_col_ct, &svd_rect_lwork))) {
-        logerrputs("Error: --pca approx problem instance too large for this " PROG_NAME_STR " build.  If this\nis really the computation you want, use a " PROG_NAME_STR " build with large-matrix\nsupport.\n");
+        logerrputs("Error: \"--pca approx\" problem instance too large for this " PROG_NAME_STR " build.  If\nthis is really the computation you want, use a " PROG_NAME_STR " build with large-matrix\nsupport.\n");
         goto CalcPca_ret_INCONSISTENT_INPUT;
       }
 #endif
@@ -4912,18 +4912,18 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             bigstack_alloc_c(overflow_buf_alloc, &overflow_buf))) {
       goto ScoreReport_ret_NOMEM;
     }
-    uintptr_t* missing_diploid_acc4 = &(missing_acc1[acc1_vec_ct * kWordsPerVec]);
-    uintptr_t* missing_diploid_acc8 = &(missing_diploid_acc4[acc4_vec_ct * kWordsPerVec]);
-    uintptr_t* missing_diploid_acc32 = &(missing_diploid_acc8[acc8_vec_ct * kWordsPerVec]);
-    uintptr_t* missing_haploid_acc4 = &(missing_male_acc1[acc1_vec_ct * kWordsPerVec]);
-    uintptr_t* missing_haploid_acc8 = &(missing_haploid_acc4[acc4_vec_ct * kWordsPerVec]);
-    uintptr_t* missing_haploid_acc32 = &(missing_haploid_acc8[acc8_vec_ct * kWordsPerVec]);
-    ZeroWArr(acc4_vec_ct * kWordsPerVec, missing_diploid_acc4);
-    ZeroWArr(acc8_vec_ct * kWordsPerVec, missing_diploid_acc8);
-    ZeroWArr(acc8_vec_ct * (4 * kWordsPerVec), missing_diploid_acc32);
-    ZeroWArr(acc4_vec_ct * kWordsPerVec, missing_haploid_acc4);
-    ZeroWArr(acc8_vec_ct * kWordsPerVec, missing_haploid_acc8);
-    ZeroWArr(acc8_vec_ct * (4 * kWordsPerVec), missing_haploid_acc32);
+    VecW* missing_diploid_acc4 = &(R_CAST(VecW*, missing_acc1)[acc1_vec_ct]);
+    VecW* missing_diploid_acc8 = &(missing_diploid_acc4[acc4_vec_ct]);
+    VecW* missing_diploid_acc32 = &(missing_diploid_acc8[acc8_vec_ct]);
+    VecW* missing_haploid_acc4 = &(R_CAST(VecW*, missing_male_acc1)[acc1_vec_ct]);
+    VecW* missing_haploid_acc8 = &(missing_haploid_acc4[acc4_vec_ct]);
+    VecW* missing_haploid_acc32 = &(missing_haploid_acc8[acc8_vec_ct]);
+    ZeroVecArr(acc4_vec_ct, missing_diploid_acc4);
+    ZeroVecArr(acc8_vec_ct, missing_diploid_acc8);
+    ZeroVecArr(acc8_vec_ct * 4, missing_diploid_acc32);
+    ZeroVecArr(acc4_vec_ct, missing_haploid_acc4);
+    ZeroVecArr(acc8_vec_ct, missing_haploid_acc8);
+    ZeroVecArr(acc8_vec_ct * 4, missing_haploid_acc32);
     FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
     CopyBitarrSubset(sex_male, sample_include, sample_ct, sex_nonmale_collapsed);
     AlignedBitarrInvert(sample_ct, sex_nonmale_collapsed);
@@ -4991,9 +4991,12 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         const uint32_t variant_id_slen = variant_id_token_end - variant_id_start;
         uint32_t variant_uidx = VariantIdDupflagHtableFind(variant_id_start, variant_ids, variant_id_htable, variant_id_slen, variant_id_htable_size, max_variant_id_slen);
         if (!(variant_uidx >> 31)) {
-          // possible todo: Add a multiallelic mode which supports a different
-          // score for each allele (must be on consecutive input lines).
           if (unlikely(IsSet(already_seen, variant_uidx))) {
+            // todo for first alpha 3 build: Support --pca multiallelic
+            // .var.wts output.  Scores for a single variant can be split
+            // across multiple lines, as long as they're all consecutive.
+            // Variant isn't loaded from .pgen and scored until we've seen the
+            // next variant ID, or have reached EOF.
             snprintf(g_logbuf, kLogbufSize, "Error: Variant ID '%s' appears multiple times in --score file.\n", variant_ids[variant_uidx]);
             goto ScoreReport_ret_MALFORMED_INPUT_WW;
           }
@@ -5215,7 +5218,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
               // Gaussians.  Then the variance of the final score average is
               // the sum of the variances of the individual terms, divided by
               // (T^2) where T is the number of terms.  These individual
-              // variances are of the form ([genotype value] * [stdev])^2.
+              // variances are of the form (<genotype value> * <stdev>)^2.
               //
               // Thus, we can use the same inner loop to compute standard
               // errors, as long as

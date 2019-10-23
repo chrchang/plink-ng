@@ -3273,28 +3273,28 @@ THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* raw_arg) {
   const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
   uintptr_t* genovec_buf = ctx->genovecs[tidx];
   uintptr_t* missing_hc_acc1 = ctx->missing_hc_acc1[tidx];
-  uintptr_t* missing_hc_acc4 = &(missing_hc_acc1[acc1_vec_ct * kWordsPerVec]);
-  uintptr_t* missing_hc_acc8 = &(missing_hc_acc4[acc4_vec_ct * kWordsPerVec]);
-  uintptr_t* missing_hc_acc32 = &(missing_hc_acc8[acc8_vec_ct * kWordsPerVec]);
   ZeroWArr(acc1_vec_ct * kWordsPerVec * 45, missing_hc_acc1);
+  VecW* missing_hc_acc4 = &(R_CAST(VecW*, missing_hc_acc1)[acc1_vec_ct]);
+  VecW* missing_hc_acc8 = &(missing_hc_acc4[acc4_vec_ct]);
+  VecW* missing_hc_acc32 = &(missing_hc_acc8[acc8_vec_ct]);
   uintptr_t* missing_dosage_acc1 = nullptr;
-  uintptr_t* missing_dosage_acc4 = nullptr;
-  uintptr_t* missing_dosage_acc8 = nullptr;
-  uintptr_t* missing_dosage_acc32 = nullptr;
+  VecW* missing_dosage_acc4 = nullptr;
+  VecW* missing_dosage_acc8 = nullptr;
+  VecW* missing_dosage_acc32 = nullptr;
   if (ctx->missing_dosage_acc1) {
     missing_dosage_acc1 = ctx->missing_dosage_acc1[tidx];
-    missing_dosage_acc4 = &(missing_dosage_acc1[acc1_vec_ct * kWordsPerVec]);
-    missing_dosage_acc8 = &(missing_dosage_acc4[acc4_vec_ct * kWordsPerVec]);
-    missing_dosage_acc32 = &(missing_dosage_acc8[acc8_vec_ct * kWordsPerVec]);
     ZeroWArr(acc1_vec_ct * kWordsPerVec * 45, missing_dosage_acc1);
+    missing_dosage_acc4 = &(R_CAST(VecW*, missing_dosage_acc1)[acc1_vec_ct]);
+    missing_dosage_acc8 = &(missing_dosage_acc4[acc4_vec_ct]);
+    missing_dosage_acc32 = &(missing_dosage_acc8[acc8_vec_ct]);
   }
   // could make this optional
   // (could technically make missing_hc optional too...)
   uintptr_t* hethap_acc1 = ctx->hethap_acc1[tidx];
-  uintptr_t* hethap_acc4 = &(hethap_acc1[acc1_vec_ct * kWordsPerVec]);
-  uintptr_t* hethap_acc8 = &(hethap_acc4[acc4_vec_ct * kWordsPerVec]);
-  uintptr_t* hethap_acc32 = &(hethap_acc8[acc8_vec_ct * kWordsPerVec]);
   ZeroWArr(acc1_vec_ct * kWordsPerVec * 45, hethap_acc1);
+  VecW* hethap_acc4 = &(R_CAST(VecW*, hethap_acc1)[acc1_vec_ct]);
+  VecW* hethap_acc8 = &(hethap_acc4[acc4_vec_ct]);
+  VecW* hethap_acc32 = &(hethap_acc8[acc8_vec_ct]);
   uint32_t all_ct_rem15 = 15;
   uint32_t all_ct_rem255d15 = 17;
   uint32_t hap_ct_rem15 = 15;

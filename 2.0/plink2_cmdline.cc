@@ -304,72 +304,97 @@ BoolErr StrptrArrIndexedSort(const char* const* unsorted_strptrs, uint32_t str_c
 */
 
 
-uint32_t CountSortedSmallerU32(const uint32_t* sorted_uint32_arr, uint32_t arr_length, uint32_t uii) {
+uint32_t CountSortedSmallerU32(const uint32_t* sorted_u32_arr, uint32_t arr_length, uint32_t needle) {
   // (strangely, this seems to be equal to or better than std::lower_bound with
   // -O2 optimization, but can become much slower with -O3?)
 
-  // assumes arr_length is nonzero, and sorted_uint32_arr is in nondecreasing
+  // assumes arr_length is nonzero, and sorted_u32_arr is in nondecreasing
   // order.  (useful for searching variant_bps[].)
-  // also assumes arr_length < 2^31.
-  // uii guaranteed to be larger than sorted_uint32_arr[min_idx - 1] if it
-  // exists, but NOT necessarily sorted_uint32_arr[min_idx].
+  // needle guaranteed to be larger than sorted_u32_arr[min_idx - 1] if it
+  // exists, but NOT necessarily sorted_u32_arr[min_idx].
   int32_t min_idx = 0;
-  // similarly, uii guaranteed to be no greater than
-  // sorted_uint32_arr[max_idx + 1] if it exists, but not necessarily
-  // sorted_uint32_arr[max_idx].  Signed integer since it could become -1, and
+  // similarly, needle guaranteed to be no greater than
+  // sorted_u32_arr[max_idx + 1] if it exists, but not necessarily
+  // sorted_u32_arr[max_idx].  Signed integer since it could become -1, and
   // min_idx in turn is signed so comparisons are safe.
   int32_t max_idx = arr_length - 1;
   while (min_idx < max_idx) {
     const uint32_t mid_idx = (S_CAST(uint32_t, min_idx) + S_CAST(uint32_t, max_idx)) / 2;
-    if (uii > sorted_uint32_arr[mid_idx]) {
+    if (needle > sorted_u32_arr[mid_idx]) {
       min_idx = mid_idx + 1;
     } else {
       max_idx = mid_idx - 1;
     }
   }
-  return min_idx + (uii > sorted_uint32_arr[S_CAST(uint32_t, min_idx)]);
+  return min_idx + (needle > sorted_u32_arr[S_CAST(uint32_t, min_idx)]);
 }
 
-uintptr_t CountSortedSmallerU64(const uint64_t* sorted_uint64_arr, uintptr_t arr_length, uint64_t ullii) {
+uint32_t ExpsearchU32(const uint32_t* sorted_u32_arr, uint32_t end_idx, uint32_t needle) {
+  uint32_t next_incr = 1;
+  uint32_t start_idx = 0;
+  uint32_t cur_idx = 0;
+  while (cur_idx < end_idx) {
+    if (sorted_u32_arr[cur_idx] >= needle) {
+      end_idx = cur_idx;
+      break;
+    }
+    start_idx = cur_idx + 1;
+    cur_idx += next_incr;
+    next_incr *= 2;
+  }
+  while (start_idx < end_idx) {
+    // this breaks if arr_length > 2^31
+    const uint32_t mid_idx = (start_idx + end_idx) / 2;
+
+    if (sorted_u32_arr[mid_idx] < needle) {
+      start_idx = mid_idx + 1;
+    } else {
+      end_idx = mid_idx;
+    }
+  }
+  return start_idx;
+}
+
+uintptr_t CountSortedSmallerU64(const uint64_t* sorted_u64_arr, uintptr_t arr_length, uint64_t needle) {
   intptr_t min_idx = 0;
   intptr_t max_idx = arr_length - 1;
   while (min_idx < max_idx) {
     const uintptr_t mid_idx = (S_CAST(uintptr_t, min_idx) + S_CAST(uintptr_t, max_idx)) / 2;
-    if (ullii > sorted_uint64_arr[mid_idx]) {
+    if (needle > sorted_u64_arr[mid_idx]) {
       min_idx = mid_idx + 1;
     } else {
       max_idx = mid_idx - 1;
     }
   }
-  return min_idx + (ullii > sorted_uint64_arr[S_CAST(uintptr_t, min_idx)]);
+  return min_idx + (needle > sorted_u64_arr[S_CAST(uintptr_t, min_idx)]);
 }
 
-uintptr_t CountSortedSmallerD(const double* sorted_dbl_arr, uintptr_t arr_length, double dxx) {
+uintptr_t CountSortedSmallerD(const double* sorted_dbl_arr, uintptr_t arr_length, double needle) {
   intptr_t min_idx = 0;
   intptr_t max_idx = arr_length - 1;
   while (min_idx < max_idx) {
     const uintptr_t mid_idx = (S_CAST(uintptr_t, min_idx) + S_CAST(uintptr_t, max_idx)) / 2;
-    if (dxx > sorted_dbl_arr[mid_idx]) {
+    if (needle > sorted_dbl_arr[mid_idx]) {
       min_idx = mid_idx + 1;
     } else {
       max_idx = mid_idx - 1;
     }
   }
-  return min_idx + (dxx > sorted_dbl_arr[S_CAST(uintptr_t, min_idx)]);
+  return min_idx + (needle > sorted_dbl_arr[S_CAST(uintptr_t, min_idx)]);
 }
 
-uintptr_t CountSortedLeqU64(const uint64_t* sorted_uint64_arr, uintptr_t arr_length, uint64_t ullii) {
+uintptr_t CountSortedLeqU64(const uint64_t* sorted_u64_arr, uintptr_t arr_length, uint64_t needle) {
   intptr_t min_idx = 0;
   intptr_t max_idx = arr_length - 1;
   while (min_idx < max_idx) {
     const uintptr_t mid_idx = (S_CAST(uintptr_t, min_idx) + S_CAST(uintptr_t, max_idx)) / 2;
-    if (ullii >= sorted_uint64_arr[mid_idx]) {
+    if (needle >= sorted_u64_arr[mid_idx]) {
       min_idx = mid_idx + 1;
     } else {
       max_idx = mid_idx - 1;
     }
   }
-  return min_idx + (ullii >= sorted_uint64_arr[S_CAST(uintptr_t, min_idx)]);
+  return min_idx + (needle >= sorted_u64_arr[S_CAST(uintptr_t, min_idx)]);
 }
 
 uint32_t GetParamCt(const char* const* argvk, uint32_t argc, uint32_t flag_idx) {
@@ -955,13 +980,13 @@ void BitvecInvmaskCopy(const uintptr_t* __restrict source_bitvec, const uintptr_
   const VecW* exclude_bitvvec = R_CAST(const VecW*, exclude_bitvec);
   const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
   for (uintptr_t ulii = 0; ulii != full_vec_ct; ++ulii) {
-    target_bitvvec[ulii] = source_bitvvec[ulii] & (~exclude_bitvvec[ulii]);
+    target_bitvvec[ulii] = vecw_and_notfirst(exclude_bitvvec[ulii], source_bitvvec[ulii]);
   }
 #  ifdef USE_AVX2
   if (word_ct & 2) {
     const uintptr_t base_idx = full_vec_ct * kWordsPerVec;
-    target_bitvec[base_idx] = source_bitvec[base_idx] & (~exclude_bitvec[base_idx]);
-    target_bitvec[base_idx + 1] = source_bitvec[base_idx + 1] & (~exclude_bitvec[base_idx + 1]);
+    target_bitvec[base_idx] = (~exclude_bitvec[base_idx]) & source_bitvec[base_idx];
+    target_bitvec[base_idx + 1] = (~exclude_bitvec[base_idx + 1]) & source_bitvec[base_idx + 1];
   }
 #  endif
   if (word_ct & 1) {
@@ -980,6 +1005,9 @@ void BitvecInvertCopy(const uintptr_t* __restrict source_bitvec, uintptr_t word_
   VecW* target_bitvvec_iter = R_CAST(VecW*, target_bitvec);
   const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
   const VecW all1 = VCONST_W(~k0LU);
+  // As of Apple clang 11, this manual unroll is no longer relevant.  todo:
+  // check Linux performance, and remove all of these unrolls if perf is good
+  // enough without them.
   if (full_vec_ct & 1) {
     *target_bitvvec_iter++ = (*source_bitvvec_iter++) ^ all1;
   }
@@ -1056,23 +1084,23 @@ void BitvecInvertAndMask(const uintptr_t* __restrict include_bitvec, uintptr_t w
   const VecW* include_bitvvec_iter = R_CAST(const VecW*, include_bitvec);
   const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
   if (full_vec_ct & 1) {
-    *main_bitvvec_iter = (~(*main_bitvvec_iter)) & (*include_bitvvec_iter++);
+    *main_bitvvec_iter = vecw_and_notfirst(*main_bitvvec_iter, *include_bitvvec_iter++);
     ++main_bitvvec_iter;
   }
   if (full_vec_ct & 2) {
-    *main_bitvvec_iter = (~(*main_bitvvec_iter)) & (*include_bitvvec_iter++);
+    *main_bitvvec_iter = vecw_and_notfirst(*main_bitvvec_iter, *include_bitvvec_iter++);
     ++main_bitvvec_iter;
-    *main_bitvvec_iter = (~(*main_bitvvec_iter)) & (*include_bitvvec_iter++);
+    *main_bitvvec_iter = vecw_and_notfirst(*main_bitvvec_iter, *include_bitvvec_iter++);
     ++main_bitvvec_iter;
   }
   for (uintptr_t ulii = 3; ulii < full_vec_ct; ulii += 4) {
-    *main_bitvvec_iter = (~(*main_bitvvec_iter)) & (*include_bitvvec_iter++);
+    *main_bitvvec_iter = vecw_and_notfirst(*main_bitvvec_iter, *include_bitvvec_iter++);
     ++main_bitvvec_iter;
-    *main_bitvvec_iter = (~(*main_bitvvec_iter)) & (*include_bitvvec_iter++);
+    *main_bitvvec_iter = vecw_and_notfirst(*main_bitvvec_iter, *include_bitvvec_iter++);
     ++main_bitvvec_iter;
-    *main_bitvvec_iter = (~(*main_bitvvec_iter)) & (*include_bitvvec_iter++);
+    *main_bitvvec_iter = vecw_and_notfirst(*main_bitvvec_iter, *include_bitvvec_iter++);
     ++main_bitvvec_iter;
-    *main_bitvvec_iter = (~(*main_bitvvec_iter)) & (*include_bitvvec_iter++);
+    *main_bitvvec_iter = vecw_and_notfirst(*main_bitvvec_iter, *include_bitvvec_iter++);
     ++main_bitvvec_iter;
   }
 #  ifdef USE_AVX2

@@ -396,17 +396,24 @@ void BitvecInvmask(const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct
   const VecW* exclude_bitvvec_iter = R_CAST(const VecW*, exclude_bitvec);
   const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
   if (full_vec_ct & 1) {
-    *main_bitvvec_iter++ &= ~(*exclude_bitvvec_iter++);
+    *main_bitvvec_iter = vecw_and_notfirst(*exclude_bitvvec_iter++, *main_bitvvec_iter);
+    ++main_bitvvec_iter;
   }
   if (full_vec_ct & 2) {
-    *main_bitvvec_iter++ &= ~(*exclude_bitvvec_iter++);
-    *main_bitvvec_iter++ &= ~(*exclude_bitvvec_iter++);
+    *main_bitvvec_iter = vecw_and_notfirst(*exclude_bitvvec_iter++, *main_bitvvec_iter);
+    ++main_bitvvec_iter;
+    *main_bitvvec_iter = vecw_and_notfirst(*exclude_bitvvec_iter++, *main_bitvvec_iter);
+    ++main_bitvvec_iter;
   }
   for (uintptr_t ulii = 3; ulii < full_vec_ct; ulii += 4) {
-    *main_bitvvec_iter++ &= ~(*exclude_bitvvec_iter++);
-    *main_bitvvec_iter++ &= ~(*exclude_bitvvec_iter++);
-    *main_bitvvec_iter++ &= ~(*exclude_bitvvec_iter++);
-    *main_bitvvec_iter++ &= ~(*exclude_bitvvec_iter++);
+    *main_bitvvec_iter = vecw_and_notfirst(*exclude_bitvvec_iter++, *main_bitvvec_iter);
+    ++main_bitvvec_iter;
+    *main_bitvvec_iter = vecw_and_notfirst(*exclude_bitvvec_iter++, *main_bitvvec_iter);
+    ++main_bitvvec_iter;
+    *main_bitvvec_iter = vecw_and_notfirst(*exclude_bitvvec_iter++, *main_bitvvec_iter);
+    ++main_bitvvec_iter;
+    *main_bitvvec_iter = vecw_and_notfirst(*exclude_bitvvec_iter++, *main_bitvvec_iter);
+    ++main_bitvvec_iter;
   }
 #  ifdef USE_AVX2
   if (word_ct & 2) {

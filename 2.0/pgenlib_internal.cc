@@ -410,8 +410,8 @@ void Count2FreqVec3(const VecW* geno_vvec, uint32_t vec_ct, uint32_t* __restrict
       // 00 -> 00; 01 -> 01; 10 -> 10; 11 -> 01
       // note that _mm_andnot_si128 flips the *first* argument before the AND
       // operation.
-      VecW alt1_plus_bothset1 = (~cur_geno_vword_low_lshifted1) & cur_geno_vword1;
-      VecW alt1_plus_bothset2 = (~cur_geno_vword_low_lshifted2) & cur_geno_vword2;
+      VecW alt1_plus_bothset1 = vecw_and_notfirst(cur_geno_vword_low_lshifted1, cur_geno_vword1);
+      VecW alt1_plus_bothset2 = vecw_and_notfirst(cur_geno_vword_low_lshifted2, cur_geno_vword2);
 
       VecW bothset1 = vecw_srli(cur_geno_vword_low_lshifted1 & cur_geno_vword1, 1);
       VecW bothset2 = vecw_srli(cur_geno_vword_low_lshifted2 & cur_geno_vword2, 1);
@@ -428,7 +428,7 @@ void Count2FreqVec3(const VecW* geno_vvec, uint32_t vec_ct, uint32_t* __restrict
       // (todo: check whether this is faster if we use double_bothsetx
       // variables instead of bothset1/bothset2)
       bothset1 = vecw_srli(cur_geno_vword_low_lshifted1 & cur_geno_vword1, 1);
-      alt1_plus_bothset1 = (~cur_geno_vword_low_lshifted1) & cur_geno_vword1;
+      alt1_plus_bothset1 = vecw_and_notfirst(cur_geno_vword_low_lshifted1, cur_geno_vword1);
       bothset2 = bothset1 + bothset2;
       alt1_plus_bothset1 = (alt1_plus_bothset1 & m2) + (vecw_srli(alt1_plus_bothset1, 2) & m2);
 
@@ -1278,7 +1278,7 @@ void GenovecInvertUnsafe(uint32_t sample_ct, uintptr_t* genovec) {
   for (uint32_t vidx = 0; vidx != vec_ct; ++vidx) {
     VecW cur_vec = vptr[vidx];
     // flip high bit iff low bit is unset
-    vptr[vidx] = cur_vec ^ ((~vecw_slli(cur_vec, 1)) & not_m1);
+    vptr[vidx] = cur_vec ^ vecw_and_notfirst(vecw_slli(cur_vec, 1), not_m1);
   }
 }
 
@@ -1293,7 +1293,7 @@ void GenovecInvertCopyUnsafe(const uintptr_t* __restrict genovec, uint32_t sampl
   for (uint32_t vidx = 0; vidx != vec_ct; ++vidx) {
     const VecW cur_vec = vin_ptr[vidx];
     // flip high bit iff low bit is unset
-    vout_ptr[vidx] = cur_vec ^ ((~vecw_slli(cur_vec, 1)) & not_m1);
+    vout_ptr[vidx] = cur_vec ^ vecw_and_notfirst(vecw_slli(cur_vec, 1), not_m1);
   }
 }
 
@@ -1335,7 +1335,7 @@ void GenovecNontwoToMissingUnsafe(uint32_t sample_ct, uintptr_t* genovec) {
   VecW* vptr = R_CAST(VecW*, genovec);
   for (uint32_t vidx = 0; vidx != vec_ct; ++vidx) {
     const VecW cur_vec = vptr[vidx];
-    const VecW cur_vec_hi = not_m1 & (~cur_vec);
+    const VecW cur_vec_hi = vecw_and_notfirst(cur_vec, not_m1);
     const VecW cur_or = cur_vec_hi | vecw_srli(cur_vec_hi, 1);
     vptr[vidx] = cur_vec | cur_or;
   }
@@ -1362,7 +1362,7 @@ void GenovecInvertThenNonzeroToMissingUnsafe(uint32_t sample_ct, uintptr_t* geno
   for (uint32_t vidx = 0; vidx != vec_ct; ++vidx) {
     const VecW cur_vec = vptr[vidx];
     const VecW cur_vec_rshifted = vecw_srli(cur_vec, 1);
-    const VecW not2 = m1 & (~(cur_vec_rshifted & (~cur_vec)));
+    const VecW not2 = vecw_and_notfirst(vecw_and_notfirst(cur_vec, cur_vec_rshifted), m1);
     vptr[vidx] = not2 | vecw_slli(not2, 1);
   }
 }
@@ -3130,7 +3130,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
               const VecW cur_vvec_bit2 = vecw_slli(cur_vvec, 5);
               const VecW cur_vvec_bit1 = vecw_slli(cur_vvec, 6);
               // check if any vrtype has bit 1 set and bit 2 clear
-              if (vecw_movemask(cur_vvec_bit1 & (~cur_vvec_bit2))) {
+              if (vecw_movemask(vecw_and_notfirst(cur_vvec_bit2, cur_vvec_bit1))) {
                 new_gflags |= kfPgenGlobalLdCompressionPresent | kfPgenGlobalDifflistOrLdPresent;
                 break;
               }
@@ -3142,7 +3142,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
 #else
               const uintptr_t cur_vvec_shifted = cur_vvec >> 1;
               // check if any vrtype has bit 1 set and bit 2 clear
-              if (cur_vvec & (~cur_vvec_shifted) & (2 * kMask0101)) {
+              if (vecw_and_notfirst(cur_vvec_shifted, cur_vvec) & (2 * kMask0101)) {
                 new_gflags |= kfPgenGlobalLdCompressionPresent | kfPgenGlobalDifflistOrLdPresent;
                 break;
               }
@@ -3886,8 +3886,8 @@ void PgrPlink1ToPlink2InplaceUnsafe(uint32_t sample_ct, uintptr_t* genovec) {
   const VecW not_m1 = VCONST_W(kMaskAAAA);
   VecW* vptr = R_CAST(VecW*, genovec);
   for (uint32_t vidx = 0; vidx != vec_ct; vidx++) {
-    const VecW not_cur_vec_high = (~vptr[vidx]) & not_m1;
-    vptr[vidx] = (((~vptr[vidx]) & m1) ^ vecw_srli(not_cur_vec_high, 1)) | not_cur_vec_high;
+    const VecW not_cur_vec_high = vecw_and_notfirst(vptr[vidx], not_m1);
+    vptr[vidx] = (vecw_and_notfirst(vptr[vidx], m1) ^ vecw_srli(not_cur_vec_high, 1)) | not_cur_vec_high;
   }
 }
 
@@ -3900,8 +3900,8 @@ void PgrPlink2ToPlink1InplaceUnsafe(uint32_t sample_ct, uintptr_t* genovec) {
   VecW* vptr = R_CAST(VecW*, genovec);
   for (uint32_t vidx = 0; vidx != vec_ct; vidx++) {
     VecW cur_vec = vptr[vidx];
-    VecW not_cur_vec_high = (~cur_vec) & not_m1;
-    vptr[vidx] = (((~not_m1) & cur_vec) ^ vecw_srli(not_cur_vec_high, 1)) | not_cur_vec_high;
+    VecW not_cur_vec_high = vecw_and_notfirst(cur_vec, not_m1);
+    vptr[vidx] = (vecw_and_notfirst(not_m1, cur_vec) ^ vecw_srli(not_cur_vec_high, 1)) | not_cur_vec_high;
   }
 }
 
@@ -5521,18 +5521,18 @@ uint32_t CountQuaterVec6(const VecW* quater_vvec, uintptr_t quater_word, uint32_
     do {
       VecW loader1 = vecw_loadu(quater_vvec_iter++) ^ xor_vvec;
       VecW loader2 = vecw_loadu(quater_vvec_iter++) ^ xor_vvec;
-      VecW count1 = (~(vecw_srli(loader1, 1) | loader1)) & m1;
-      VecW count2 = (~(vecw_srli(loader2, 1) | loader2)) & m1;
+      VecW count1 = vecw_and_notfirst(vecw_srli(loader1, 1) | loader1, m1);
+      VecW count2 = vecw_and_notfirst(vecw_srli(loader2, 1) | loader2, m1);
 
       loader1 = vecw_loadu(quater_vvec_iter++) ^ xor_vvec;
       loader2 = vecw_loadu(quater_vvec_iter++) ^ xor_vvec;
-      count1 = count1 + ((~(vecw_srli(loader1, 1) | loader1)) & m1);
-      count2 = count2 + ((~(vecw_srli(loader2, 1) | loader2)) & m1);
+      count1 = count1 + vecw_and_notfirst(vecw_srli(loader1, 1) | loader1, m1);
+      count2 = count2 + vecw_and_notfirst(vecw_srli(loader2, 1) | loader2, m1);
 
       loader1 = vecw_loadu(quater_vvec_iter++) ^ xor_vvec;
       loader2 = vecw_loadu(quater_vvec_iter++) ^ xor_vvec;
-      count1 = count1 + ((~(vecw_srli(loader1, 1) | loader1)) & m1);
-      count2 = count2 + ((~(vecw_srli(loader2, 1) | loader2)) & m1);
+      count1 = count1 + vecw_and_notfirst(vecw_srli(loader1, 1) | loader1, m1);
+      count2 = count2 + vecw_and_notfirst(vecw_srli(loader2, 1) | loader2, m1);
 
       count1 = (count1 & m2) + (vecw_srli(count1, 2) & m2);
       count1 = count1 + (count2 & m2) + (vecw_srli(count2, 2) & m2);
@@ -5594,24 +5594,24 @@ uint32_t CountQuaterSubsetVec6(const VecW* __restrict quater_vvec, const VecW* _
       VecW mask2 = vecw_srli(mask1, 1) & m1;
       VecW loader2 = vecw_loadu(quater_vvec_iter++) ^ xor_vvec;
       mask1 = mask1 & m1;
-      VecW count1 = (~(vecw_srli(loader1, 1) | loader1)) & mask1;
-      VecW count2 = (~(vecw_srli(loader2, 1) | loader2)) & mask2;
+      VecW count1 = vecw_and_notfirst(vecw_srli(loader1, 1) | loader1, mask1);
+      VecW count2 = vecw_and_notfirst(vecw_srli(loader2, 1) | loader2, mask2);
 
       mask1 = *interleaved_mask_vvec_iter++;
       loader1 = vecw_loadu(quater_vvec_iter++) ^ xor_vvec;
       mask2 = vecw_srli(mask1, 1) & m1;
       loader2 = vecw_loadu(quater_vvec_iter++) ^ xor_vvec;
       mask1 = mask1 & m1;
-      count1 = count1 + ((~(vecw_srli(loader1, 1) | loader1)) & mask1);
-      count2 = count2 + ((~(vecw_srli(loader2, 1) | loader2)) & mask2);
+      count1 = count1 + vecw_and_notfirst(vecw_srli(loader1, 1) | loader1, mask1);
+      count2 = count2 + vecw_and_notfirst(vecw_srli(loader2, 1) | loader2, mask2);
 
       mask1 = *interleaved_mask_vvec_iter++;
       loader1 = vecw_loadu(quater_vvec_iter++) ^ xor_vvec;
       mask2 = vecw_srli(mask2, 1) & m1;
       loader2 = vecw_loadu(quater_vvec_iter++) ^ xor_vvec;
       mask1 = mask1 & m1;
-      count1 = count1 + ((~(vecw_srli(loader1, 1) | loader1)) & mask1);
-      count2 = count2 + ((~(vecw_srli(loader2, 1) | loader2)) & mask2);
+      count1 = count1 + vecw_and_notfirst(vecw_srli(loader1, 1) | loader1, mask1);
+      count2 = count2 + vecw_and_notfirst(vecw_srli(loader2, 1) | loader2, mask2);
 
       count1 = (count1 & m2) + (vecw_srli(count1, 2) & m2);
       count1 = count1 + (count2 & m2) + (vecw_srli(count2, 2) & m2);
@@ -5744,7 +5744,7 @@ uint32_t CountNibbleVec(const VecW* nibble_vvec, uintptr_t nibble_word, uint32_t
       // operations, can see if that's any faster in practice
       loader = vecw_srli(loader, 1) | loader;
       loader = vecw_srli(loader, 2) | loader;
-      inner_acc = inner_acc + ((~loader) & alld15);
+      inner_acc = inner_acc + vecw_and_notfirst(loader, alld15);
     } while (nibble_vvec_iter < nibble_vvec_stop);
     inner_acc = (inner_acc & m4) + (vecw_srli(inner_acc, 4) & m4);
     acc = acc + prev_sad_result;
@@ -13131,7 +13131,7 @@ void OnebitPreprocessBuf(const uintptr_t* __restrict genovec, uint32_t sample_ct
       //       at a time
       do {
         const VecW cur_geno = *geno_vvec_iter++;
-        *write_iter++ = (~(m1 & vecw_srli(cur_geno, 1))) & cur_geno;
+        *write_iter++ = vecw_and_notfirst(m1 & vecw_srli(cur_geno, 1), cur_geno);
       } while (geno_vvec_iter < geno_vvec_end);
     } else if (common2_code == 3) {
       // 00 -> 00, 01 -> 10, 10 -> 10, 11 -> 01
@@ -13158,7 +13158,7 @@ void OnebitPreprocessBuf(const uintptr_t* __restrict genovec, uint32_t sample_ct
       do {
         const VecW cur_geno = *geno_vvec_iter++;
         const VecW cur_geno_rshift = vecw_srli(cur_geno, 1);
-        const VecW cur_geno_not_xor_masked = (~(cur_geno ^ cur_geno_rshift)) & m1;
+        const VecW cur_geno_not_xor_masked = vecw_and_notfirst(cur_geno ^ cur_geno_rshift, m1);
         const VecW cur_geno_rshift_masked = cur_geno_rshift & m1;
         *write_iter++ = cur_geno_not_xor_masked + (cur_geno_not_xor_masked | cur_geno_rshift_masked);
       } while (geno_vvec_iter < geno_vvec_end);
@@ -13167,14 +13167,14 @@ void OnebitPreprocessBuf(const uintptr_t* __restrict genovec, uint32_t sample_ct
       const VecW not_m1 = VCONST_W(kMaskAAAA);
       do {
         const VecW cur_geno = *geno_vvec_iter++;
-        *write_iter++ = (cur_geno ^ not_m1) - ((~not_m1) & ((~vecw_srli(cur_geno, 1)) & cur_geno));
+        *write_iter++ = (cur_geno ^ not_m1) - vecw_and_notfirst(not_m1, vecw_and_notfirst(vecw_srli(cur_geno, 1), cur_geno));
       } while (geno_vvec_iter < geno_vvec_end);
     } else {
       assert(common2_code == 6);
       // 00 -> 10, 01 -> 00, 10 -> 10, 11 -> 01
       do {
         const VecW cur_geno = *geno_vvec_iter++;
-        const VecW cur_geno_not_lowbits = (~cur_geno) & m1;
+        const VecW cur_geno_not_lowbits = vecw_and_notfirst(cur_geno, m1);
         const VecW cur_geno_rshift_masked = vecw_srli(cur_geno, 1) & m1;
         *write_iter++ = cur_geno_not_lowbits + (cur_geno_not_lowbits | cur_geno_rshift_masked);
       } while (geno_vvec_iter < geno_vvec_end);

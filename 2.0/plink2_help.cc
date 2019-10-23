@@ -578,7 +578,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --sample-counts ['zs'] ['cols='<column set descriptor>]\n"
 "    Sample-based hardcall genotype count report.\n"
 "    * Unknown-sex samples are treated as female.\n"
-"    * Heterozygous haploid calls are treated as missing.\n"
+"    * Heterozygous haploid calls (MT included) are treated as missing.\n"
 "    * As with other plink2 commands, SNPs that have not been left-normalized\n"
 "      are counted as non-SNP non-symbolic.  (Use e.g. --normalize when that's a\n"
 "      problem.)\n"
@@ -1778,13 +1778,33 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    in new variant IDs, and behavior on longer codes (defaults 23, error).\n"
               );
     HelpPrint("missing-var-code\0rm-dup\0set-all-var-ids\0set-missing-var-ids\0", &help_ctrl, 0,
-"  --missing-var-code <str>   : Change unnamed variant code for --rm-dup and\n"
-"                               --set-{missing|all}-var-ids (default '.').\n"
+"  --missing-var-code <str>   : Change unnamed variant code for --rm-dup,\n"
+"                               --set-{missing|all}-var-ids, and\n"
+"                               --recover-var-ids (default '.').\n"
                );
     HelpPrint("update-map\0update-name\0", &help_ctrl, 0,
 "  --update-map  <f> [bpcol]  [IDcol]  [skip] : Update variant bp positions.\n"
 "  --update-name <f> [newcol] [oldcol] [skip] : Update variant IDs.\n"
                );
+    HelpPrint("recover-var-ids\0set-all-var-ids\0update-name\0", &help_ctrl, 0,
+"  --recover-var-ids <filename> ['strict-bim-order'] ['rigid' | 'force']\n"
+"                    ['partial'] :\n"
+"    Undo --set-all-var-ids, given the original .pvar/VCF/.bim file.  Original\n"
+"    IDs are looked up by position and allele codes.\n"
+"    * By default, if the original-ID file is a .bim, allele order is ignored.\n"
+"      Use 'strict-bim-order' to force A1=ALT, A2=REF.\n"
+"    * If any variant has multiple matching records in the original-ID file, and\n"
+"      the IDs conflict, --recover-var-ids writes the affected (current) ID(s)\n"
+"      to <output prefix>.recoverid.dup, and normally errors out.  If the\n"
+"      original-ID file has the same number of variants in the same order, you\n"
+"      can still recover the old IDs with the 'rigid' modifier in this case.\n"
+"      Alternatively, to proceed and assign the missing-ID code to these\n"
+"      variants, add the 'force' modifier.  (The .recoverid.dup file is still\n"
+"      written when 'rigid' or 'force' is specified.)\n"
+"    * --recover-var-ids normally expects to replace all variant IDs, and errors\n"
+"      out if any are left untouched.  Add the 'partial' modifier when you\n"
+"      actually want to update just a proper subset.\n"
+              );
     HelpPrint("update-alleles\0", &help_ctrl, 0,
 "  --update-alleles <fname>   : Update variant allele codes.\n"
               );
