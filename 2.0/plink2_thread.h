@@ -113,7 +113,7 @@ typedef struct ThreadGroupSharedStruct {
   void* context;
 #ifdef __cplusplus
   ThreadGroupControlBlock& GET_PRIVATE_cb() { return cb; }
-  const ThreadGroupControlBlock& GET_PRIVATE_cb() const { return cb; }
+  ThreadGroupControlBlock const& GET_PRIVATE_cb() const { return cb; }
  private:
 #endif
   ThreadGroupControlBlock cb;
@@ -124,7 +124,7 @@ typedef struct ThreadGroupFuncArgStruct {
   uint32_t tidx;
 } ThreadGroupFuncArg;
 
-typedef struct ThreadGroupStruct {
+typedef struct ThreadGroupMainStruct {
   ThreadGroupShared shared;
   THREAD_FUNCPTR_T(thread_func_ptr);
   pthread_t* threads;
@@ -139,9 +139,18 @@ typedef struct ThreadGroupStruct {
 #ifndef _WIN32
   uint32_t sync_init_state;
 #endif
+} ThreadGroupMain;
+
+typedef struct ThreadGroupStruct {
+#ifdef __cplusplus
+  ThreadGroupMain& GET_PRIVATE_m() { return m; }
+  ThreadGroupMain const& GET_PRIVATE_m() const { return m; }
+ private:
+#endif
+  ThreadGroupMain m;
 } ThreadGroup;
 
-void PreinitThreads(ThreadGroup* tgp);
+void PreinitThreads(ThreadGroup* tg_ptr);
 
 // Return value is clipped to 1..kMaxThreads.
 // If known_procs_ptr is non-null, it's set to the raw unclipped value (which
@@ -149,13 +158,19 @@ void PreinitThreads(ThreadGroup* tgp);
 uint32_t NumCpu(int32_t* known_procs_ptr);
 
 // Also allocates, returning 1 on failure.
-BoolErr SetThreadCt(uint32_t thread_ct, ThreadGroup* tgp);
+BoolErr SetThreadCt(uint32_t thread_ct, ThreadGroup* tg_ptr);
 
 HEADER_INLINE uint32_t GetThreadCt(const ThreadGroupShared* sharedp) {
   return GET_PRIVATE(*sharedp, cb).thread_ct;
 }
 
-HEADER_INLINE void SetThreadFuncAndData(THREAD_FUNCPTR_T(start_routine), void* shared_context, ThreadGroup* tgp) {
+HEADER_INLINE uint32_t GetThreadCtTg(const ThreadGroup* tg_ptr) {
+  const ThreadGroupMain* tgp = &GET_PRIVATE(*tg_ptr, m);
+  return GET_PRIVATE(tgp->shared, cb).thread_ct;
+}
+
+HEADER_INLINE void SetThreadFuncAndData(THREAD_FUNCPTR_T(start_routine), void* shared_context, ThreadGroup* tg_ptr) {
+  ThreadGroupMain* tgp = &GET_PRIVATE(*tg_ptr, m);
   assert(!tgp->is_active);
   tgp->shared.context = shared_context;
   GET_PRIVATE(tgp->shared, cb).is_last_block = 0;
@@ -164,7 +179,8 @@ HEADER_INLINE void SetThreadFuncAndData(THREAD_FUNCPTR_T(start_routine), void* s
 
 // Equivalent to SetThreadFuncAndData() with unchanged
 // start_routine/shared_context.  Ok to call this "unnecessarily".
-HEADER_INLINE void ReinitThreads(ThreadGroup* tgp) {
+HEADER_INLINE void ReinitThreads(ThreadGroup* tg_ptr) {
+  ThreadGroupMain* tgp = &GET_PRIVATE(*tg_ptr, m);
   assert(!tgp->is_active);
   GET_PRIVATE(tgp->shared, cb).is_last_block = 0;
 }
@@ -173,12 +189,14 @@ HEADER_INLINE void ReinitThreads(ThreadGroup* tgp) {
 //
 // Note that, if there's only one block of work-shards, this should be called
 // before the first SpawnThreads() call.
-HEADER_INLINE void DeclareLastThreadBlock(ThreadGroup* tgp) {
+HEADER_INLINE void DeclareLastThreadBlock(ThreadGroup* tg_ptr) {
+  ThreadGroupMain* tgp = &GET_PRIVATE(*tg_ptr, m);
   assert(!tgp->is_unjoined);
   GET_PRIVATE(tgp->shared, cb).is_last_block = 1;
 }
 
-HEADER_INLINE uint32_t IsLastBlock(ThreadGroup* tgp) {
+HEADER_INLINE uint32_t IsLastBlock(ThreadGroup* tg_ptr) {
+  ThreadGroupMain* tgp = &GET_PRIVATE(*tg_ptr, m);
   return GET_PRIVATE(tgp->shared, cb).is_last_block;
 }
 
@@ -207,15 +225,15 @@ public:
 extern Plink2ThreadStartup g_thread_startup;
 #endif
 
-BoolErr SpawnThreads(ThreadGroup* tgp);
+BoolErr SpawnThreads(ThreadGroup* tg_ptr);
 
-void JoinThreads(ThreadGroup* tgp);
+void JoinThreads(ThreadGroup* tg_ptr);
 
-void CleanupThreads(ThreadGroup* tgp);
+void CleanupThreads(ThreadGroup* tg_ptr);
 
 #ifdef _WIN32
 HEADER_INLINE BoolErr THREAD_BLOCK_FINISH(ThreadGroupFuncArg* tgfap) {
-  ThreadGroupControlBlock* cbp = &(tgfap->sharedp->cb);
+  ThreadGroupControlBlock* cbp = &(GET_PRIVATE(*tgfap->sharedp, cb));
   if (cbp->is_last_block) {
     return 1;
   }
@@ -233,16 +251,16 @@ BoolErr THREAD_BLOCK_FINISH(ThreadGroupFuncArg* tgfap);
 // Convenience functions for potentially-small-and-frequent jobs where
 // thread_ct == 0 corresponds to not wanting to launch threads at all; see
 // MakeDupflagHtable in plink2_cmdline for a typical use case.
-HEADER_INLINE BoolErr SetThreadCt0(uint32_t thread_ct, ThreadGroup* tgp) {
+HEADER_INLINE BoolErr SetThreadCt0(uint32_t thread_ct, ThreadGroup* tg_ptr) {
   if (!thread_ct) {
     return 0;
   }
-  return SetThreadCt(thread_ct, tgp);
+  return SetThreadCt(thread_ct, tg_ptr);
 }
 
-HEADER_INLINE void JoinThreads0(ThreadGroup* tgp) {
-  if (tgp->threads) {
-    JoinThreads(tgp);
+HEADER_INLINE void JoinThreads0(ThreadGroup* tg_ptr) {
+  if (GET_PRIVATE(*tg_ptr, m).threads) {
+    JoinThreads(tg_ptr);
   }
 }
 

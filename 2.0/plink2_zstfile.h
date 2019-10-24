@@ -51,48 +51,57 @@ HEADER_INLINE uint32_t IsZstdFrame(uint32_t magic4) {
   return (magic4 == ZSTD_MAGICNUMBER) || ((magic4 & ZSTD_MAGIC_SKIPPABLE_MASK) == ZSTD_MAGIC_SKIPPABLE_START);
 }
 
-// (yes, it might be better to make this opaque at some point.)
-typedef struct zstRFILEStruct {
+typedef struct zstRFILEMainStruct {
   FILE* ff;
   ZSTD_DStream* zds;
   ZSTD_inBuffer zib;
   const char* errmsg;
   PglErr reterr;  // kPglRetSkipped == ordinary eof
+} zstRFILEMain;
+
+typedef struct zstRFILEStruct {
+#ifdef __cplusplus
+  zstRFILEMain& GET_PRIVATE_m() { return m; }
+  zstRFILEMain const& GET_PRIVATE_m() const { return m; }
+ private:
+#endif
+  zstRFILEMain m;
 } zstRFILE;
 
-void PreinitZstRfile(zstRFILE* zrfp);
+void PreinitZstRfile(zstRFILE* zrf_ptr);
 
 extern const char kShortErrZstdPrefixUnknown[];
 extern const char kShortErrZstdCorruptionDetected[];
 
 // Assumes file type is already known to be kFileZstd.
 // Can return nomem, open-fail, or read-fail.
-PglErr ZstRfileOpen(const char* fname, zstRFILE* zrfp);
+PglErr ZstRfileOpen(const char* fname, zstRFILE* zrf_ptr);
 
 // This has essentially the same behavior as gzread.  (to determine: can we use
 // zlib's negative error codes, or is it necessary to make those
 // zstd-specific?)
-int32_t zstread(zstRFILE* zrfp, void* dst, uint32_t len);
+int32_t zstread(zstRFILE* zrf_ptr, void* dst, uint32_t len);
 
-void zstrewind(zstRFILE* zrfp);
+void zstrewind(zstRFILE* zrf_ptr);
 
-HEADER_INLINE int32_t ZstRfileIsOpen(const zstRFILE* zrfp) {
-  return (zrfp->ff != nullptr);
+HEADER_INLINE int32_t ZstRfileIsOpen(const zstRFILE* zrf_ptr) {
+  return (GET_PRIVATE(*zrf_ptr, m).ff != nullptr);
 }
 
-HEADER_INLINE int32_t zsteof(const zstRFILE* zrfp) {
-  return (zrfp->reterr == kPglRetEof);
+HEADER_INLINE int32_t zsteof(const zstRFILE* zrf_ptr) {
+  return (GET_PRIVATE(*zrf_ptr, m).reterr == kPglRetEof);
 }
 
-HEADER_INLINE const char* zsterror(const zstRFILE* zrfp) {
-  return zrfp->errmsg;
+HEADER_INLINE const char* zsterror(const zstRFILE* zrf_ptr) {
+  return GET_PRIVATE(*zrf_ptr, m).errmsg;
 }
 
-HEADER_INLINE PglErr ZstRfileErrcode(const zstRFILE* zrfp) {
-  if (zrfp->reterr == kPglRetEof) {
+HEADER_INLINE PglErr ZstRfileErrcode(const zstRFILE* zrf_ptr) {
+  const PglErr reterr = GET_PRIVATE(*zrf_ptr, m).reterr;
+  if (reterr == kPglRetEof) {
     return kPglRetSuccess;
   }
-  return zrfp->reterr;
+  return reterr;
 }
 
 // If you need clearerr functionality, call CleanupZstRfile().  (Could provide
@@ -105,7 +114,7 @@ HEADER_INLINE PglErr ZstRfileErrcode(const zstRFILE* zrfp) {
 // kPglRetReadFail.  (Note that this does *not* retrieve the existing
 // zrfp->reterr value; caller is responsible for checking ZstRfileErrcode()
 // first when they care.)
-BoolErr CleanupZstRfile(zstRFILE* zrfp, PglErr* reterrp);
+BoolErr CleanupZstRfile(zstRFILE* zrf_ptr, PglErr* reterrp);
 
 #ifdef __cplusplus
 }  // namespace plink2

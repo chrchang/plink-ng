@@ -1166,6 +1166,13 @@ void BitvecInvertAndMask(const uintptr_t* __restrict include_bitvec, uintptr_t w
 
 // void BitvecOrNot(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec);
 
+// Address C-only incompatible-pointer-types-discards-qualifiers warning.
+#ifdef __cplusplus
+#  define TO_CONSTU32PCONSTP(u32_pp) (u32_pp)
+#else
+#  define TO_CONSTU32PCONSTP(u32_pp) ((const uint32_t* const*)(u32_pp))
+#endif
+
 HEADER_INLINE void U32VecAdd(const VecU32* arg_u32vec, uintptr_t vec_ct, VecU32* main_u32vec) {
   for (uintptr_t vidx = 0; vidx != vec_ct; ++vidx) {
     main_u32vec[vidx] += arg_u32vec[vidx];

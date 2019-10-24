@@ -25,6 +25,14 @@
 namespace plink2 {
 #endif
 
+static inline ThreadGroupMain* GetTgp(ThreadGroup* tg_ptr) {
+  return &GET_PRIVATE(*tg_ptr, m);
+}
+
+static inline ThreadGroupControlBlock* GetCbp(ThreadGroupShared* sharedp) {
+  return &GET_PRIVATE(*sharedp, cb);
+}
+
 #ifdef _WIN32
 void WaitForAllObjects(uint32_t ct, HANDLE* objs) {
   while (ct > 64) {
@@ -36,8 +44,9 @@ void WaitForAllObjects(uint32_t ct, HANDLE* objs) {
 }
 #endif
 
-void PreinitThreads(ThreadGroup* tgp) {
-  GET_PRIVATE(tgp->shared, cb).is_last_block = 0;
+void PreinitThreads(ThreadGroup* tg_ptr) {
+  ThreadGroupMain* tgp = GetTgp(tg_ptr);
+  GetCbp(&tgp->shared)->is_last_block = 0;
   tgp->thread_func_ptr = nullptr;
   tgp->threads = nullptr;
   tgp->is_unjoined = 0;
@@ -63,7 +72,8 @@ uint32_t NumCpu(int32_t* known_procs_ptr) {
   return max_thread_ct;
 }
 
-BoolErr SetThreadCt(uint32_t thread_ct, ThreadGroup* tgp) {
+BoolErr SetThreadCt(uint32_t thread_ct, ThreadGroup* tg_ptr) {
+  ThreadGroupMain* tgp = GetTgp(tg_ptr);
   assert(!tgp->is_active);
   if (tgp->threads) {
     free(tgp->threads);
@@ -89,18 +99,19 @@ BoolErr SetThreadCt(uint32_t thread_ct, ThreadGroup* tgp) {
   tgp->sync_init_state = 0;
   memptr = &(memptr[thread_ct * sizeof(pthread_t)]);
 #endif
-  GET_PRIVATE(tgp->shared, cb).active_ct = 0;
+  ThreadGroupControlBlock* cbp = GetCbp(&tgp->shared);
+  cbp->active_ct = 0;
   tgp->thread_args = R_CAST(ThreadGroupFuncArg*, memptr);
 
-  GET_PRIVATE(tgp->shared, cb).thread_ct = thread_ct;
+  cbp->thread_ct = thread_ct;
   return 0;
 }
 
 // Note that thread_ct is permitted to be less than tgp->shared.cb.thread_ct,
 // to support the SpawnThreads() error cases.
-void JoinThreadsInternal(uint32_t thread_ct, ThreadGroup* tgp) {
+void JoinThreadsInternal(uint32_t thread_ct, ThreadGroupMain* tgp) {
   assert(tgp->is_active);
-  ThreadGroupControlBlock* cbp = &GET_PRIVATE(tgp->shared, cb);
+  ThreadGroupControlBlock* cbp = GetCbp(&tgp->shared);
 #ifdef _WIN32
   if (!cbp->is_last_block) {
     WaitForSingleObject(cbp->cur_block_done_event, INFINITE);
@@ -140,8 +151,9 @@ void JoinThreadsInternal(uint32_t thread_ct, ThreadGroup* tgp) {
 Plink2ThreadStartup g_thread_startup;
 #endif
 
-BoolErr SpawnThreads(ThreadGroup* tgp) {
-  ThreadGroupControlBlock* cbp = &GET_PRIVATE(tgp->shared, cb);
+BoolErr SpawnThreads(ThreadGroup* tg_ptr) {
+  ThreadGroupMain* tgp = GetTgp(tg_ptr);
+  ThreadGroupControlBlock* cbp = GetCbp(&tgp->shared);
   const uint32_t thread_ct = cbp->thread_ct;
   const uint32_t was_active = tgp->is_active;
   const uint32_t is_last_block = cbp->is_last_block;
@@ -280,12 +292,14 @@ BoolErr SpawnThreads(ThreadGroup* tgp) {
   return 0;
 }
 
-void JoinThreads(ThreadGroup* tgp) {
-  JoinThreadsInternal(GET_PRIVATE(tgp->shared, cb).thread_ct, tgp);
+void JoinThreads(ThreadGroup* tg_ptr) {
+  ThreadGroupMain* tgp = GetTgp(tg_ptr);
+  JoinThreadsInternal(GetCbp(&tgp->shared)->thread_ct, tgp);
 }
 
-void CleanupThreads(ThreadGroup* tgp) {
-  ThreadGroupControlBlock* cbp = &GET_PRIVATE(tgp->shared, cb);
+void CleanupThreads(ThreadGroup* tg_ptr) {
+  ThreadGroupMain* tgp = GetTgp(tg_ptr);
+  ThreadGroupControlBlock* cbp = GetCbp(&tgp->shared);
   if (tgp->threads) {
     const uint32_t thread_ct = cbp->thread_ct;
     if (tgp->is_active) {
@@ -294,7 +308,7 @@ void CleanupThreads(ThreadGroup* tgp) {
       }
       if (!cbp->is_last_block) {
         cbp->is_last_block = 2;
-        SpawnThreads(tgp);
+        SpawnThreads(tg_ptr);
         JoinThreadsInternal(thread_ct, tgp);
       }
 #ifndef _WIN32
@@ -330,7 +344,7 @@ void CleanupThreads(ThreadGroup* tgp) {
 
 #ifndef _WIN32
 BoolErr THREAD_BLOCK_FINISH(ThreadGroupFuncArg* tgfap) {
-  ThreadGroupControlBlock* cbp = &GET_PRIVATE(*tgfap->sharedp, cb);
+  ThreadGroupControlBlock* cbp = GetCbp(tgfap->sharedp);
   if (cbp->is_last_block) {
     return 1;
   }

@@ -3401,13 +3401,19 @@ typedef uint32_t tname
 
 #endif
 
-// We define a few strategically-placed private struct members to make
-// accidental misuse of the main struct-based APIs more difficult without
-// giving up either performance or C compatibility.
+// This supports private struct members in code that still compiles as C.
+//
 // Internal code should access these members with GET_PRIVATE(), and define a
 // pair of public C++-only GET_PRIVATE_...() member functions (one const and
 // one non-const) that each return a reference to the member; see plink2_thread
-// for examples.
+// for examples.  In addition, .cc API code should define a small number of
+// standard GET_PRIVATE() accessors at the top of the file, and practically all
+// private-member access should occur through those file-scope accessors; this
+// keeps the surface area under control.
+//
+// (Tried to define a DECLARE_PRIVATE(typ, member) macro as well, but didn't
+// get that to work.  This is already pretty painless if it's restricted to key
+// APIs, though.)
 #ifdef __cplusplus
 #  define GET_PRIVATE(par, member) (par).GET_PRIVATE_ ## member()
 #else
