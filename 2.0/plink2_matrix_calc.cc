@@ -2029,7 +2029,7 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, u
       ++pair_idx;
       if (pair_idx == pair_idx_stop) {
         if (!is_first_parallel_scan) {
-          txsp->base.consume_iter = AdvPastDelim(line_iter, '\n');
+          TextSetPos(AdvPastDelim(line_iter, '\n'), txsp);
           break;
         }
         // large --parallel job, first pass: count number of valid pairs, don't

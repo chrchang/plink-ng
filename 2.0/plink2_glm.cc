@@ -599,8 +599,8 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       enforced_max_line_blen = kDecompressMinBlen;
     }
     uint32_t dst_capacity = enforced_max_line_blen + kDecompressChunkSize;
-    if (local_covar_txf.base.dst_len > dst_capacity) {
-      dst_capacity = local_covar_txf.base.dst_len;
+    if (TextFileLinebufLen(&local_covar_txf) > dst_capacity) {
+      dst_capacity = TextFileLinebufLen(&local_covar_txf);
     }
     dst_capacity = RoundUpPow2(dst_capacity, kCacheline);
     if (bigstack_left() < dst_capacity) {

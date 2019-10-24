@@ -21,6 +21,10 @@
 namespace plink2 {
 #endif
 
+static inline BgzfCompressStreamMain* GetBgzfp(BgzfCompressStream* cstream_ptr) {
+  return &GET_PRIVATE(*cstream_ptr, m);
+}
+
 void PreinitBgzfRawMtStream(BgzfRawMtDecompressStream* bgzfp) {
   PreinitThreads(&bgzfp->tg);
   bgzfp->body.in = nullptr;
@@ -117,7 +121,7 @@ PglErr BgzfReadJoinAndRespawn(unsigned char* dst_end, BgzfRawMtDecompressStream*
       //    decompression, taking advantage of any remaining dst space.  (If
       //    there's no dst space left, the overflow buffer still lets us
       //    decompress the next decompress_thread_ct blocks in the background.)
-      const uint32_t decompress_thread_ct = GetThreadCt(&tgp->shared) - 1;
+      const uint32_t decompress_thread_ct = GetThreadCtTg(tgp) - 1;
       // We actually iterate through the blocks twice.  The first iteration
       // counts the number of blocks that target_capacity allows for, and the
       // second iteration fills next_cwd->{in_offsets, out_offsets}.
@@ -244,7 +248,7 @@ THREAD_FUNC_DECL BgzfRawMtStreamThread(void* raw_arg) {
     // in[] has space for kDecompressChunkSize bytes.
     // The current buffer-usage logic assumes that thresh1 <= 1/3 of the buffer
     // size, and thresh2 >= 2/3.
-    const uint32_t thresh1 = (GetThreadCt(&context->tg.shared) - 1) * (26 + kMaxBgzfCompressedBlockSize);
+    const uint32_t thresh1 = (GetThreadCtTg(&context->tg) - 1) * (26 + kMaxBgzfCompressedBlockSize);
     const uint32_t thresh2 = kDecompressChunkSize - thresh1;
     uint32_t remaining_read_start = bodyp->initial_compressed_byte_ct;
     uint32_t is_eof = 0;
@@ -519,9 +523,9 @@ PglErr BgzfRawMtStreamRetarget(const char* header, BgzfRawMtDecompressStream* bg
 }
 
 void CleanupBgzfRawMtStream(BgzfRawMtDecompressStream* bgzfp) {
-  uint32_t decompress_thread_ct = 0;
-  if (bgzfp->tg.threads) {
-    decompress_thread_ct = GetThreadCt(&bgzfp->tg.shared) - 1;
+  uint32_t decompress_thread_ct = GetThreadCtTg(&bgzfp->tg);
+  if (decompress_thread_ct) {
+    --decompress_thread_ct;
   }
   CleanupThreads(&bgzfp->tg);
   BgzfMtReadBody* bodyp = &bgzfp->body;
@@ -541,7 +545,8 @@ void CleanupBgzfRawMtStream(BgzfRawMtDecompressStream* bgzfp) {
 }
 
 
-void PreinitBgzfCompressStream(BgzfCompressStream* bgzfp) {
+void PreinitBgzfCompressStream(BgzfCompressStream* cstream_ptr) {
+  BgzfCompressStreamMain* bgzfp = GetBgzfp(cstream_ptr);
   bgzfp->ff = nullptr;
   bgzfp->threads = nullptr;
 }
@@ -551,7 +556,7 @@ static const unsigned char kBgzfEofBlock[] = "\37\213\10\4\0\0\0\0\0\377\6\0\102
 THREAD_FUNC_DECL BgzfCompressorThread(void* raw_arg) {
   BgzfCompressorContext* context = S_CAST(BgzfCompressorContext*, raw_arg);
   struct libdeflate_compressor* compressor = context->lc;
-  BgzfCompressStream* bgzfp = context->parent;
+  BgzfCompressStreamMain* bgzfp = context->parent;
   const uint32_t slot_mask = bgzfp->slot_ct - 1;
   BgzfCompressCommWithP** cwps = bgzfp->cwps;
   BgzfCompressCommWithW** cwws = bgzfp->cwws;
@@ -614,7 +619,7 @@ THREAD_FUNC_DECL BgzfCompressorThread(void* raw_arg) {
 }
 
 THREAD_FUNC_DECL BgzfCompressWriterThread(void* raw_arg) {
-  BgzfCompressStream* context = S_CAST(BgzfCompressStream*, raw_arg);
+  BgzfCompressStreamMain* context = S_CAST(BgzfCompressStreamMain*, raw_arg);
   const uint32_t slot_ct = context->slot_ct;
   FILE* ff = context->ff;
   BgzfCompressCommWithW** cwws = context->cwws;
@@ -669,7 +674,8 @@ THREAD_FUNC_DECL BgzfCompressWriterThread(void* raw_arg) {
 CONSTI32(kMaxBgzfSlotCt, 64);
 static_assert(kMaxBgzfCompressThreads < 16, "InitBgzfCompressStreamEx and CleanupBgzfCompressStream must be updated.");
 
-PglErr InitBgzfCompressStreamEx(const char* out_fname, uint32_t do_append, uint32_t clvl, uint32_t compressor_thread_ct, BgzfCompressStream* bgzfp) {
+PglErr InitBgzfCompressStreamEx(const char* out_fname, uint32_t do_append, uint32_t clvl, uint32_t compressor_thread_ct, BgzfCompressStream* cstream_ptr) {
+  BgzfCompressStreamMain* bgzfp = GetBgzfp(cstream_ptr);
   if (bgzfp->ff || bgzfp->threads || (clvl > 12)) {
     // Unlike BgzfRawMtDecompressStream (which should be wrapped by
     // TextStream), this is designed for direct use in application code, so we
@@ -852,7 +858,8 @@ PglErr InitBgzfCompressStreamEx(const char* out_fname, uint32_t do_append, uint3
   return kPglRetSuccess;
 }
 
-BoolErr BgzfWrite(const char* buf, uintptr_t len, BgzfCompressStream* bgzfp) {
+BoolErr BgzfWrite(const char* buf, uintptr_t len, BgzfCompressStream* cstream_ptr) {
+  BgzfCompressStreamMain* bgzfp = GetBgzfp(cstream_ptr);
   const uint32_t slot_ct = bgzfp->slot_ct;
   if (!slot_ct) {
     // No compression.
@@ -913,7 +920,8 @@ BoolErr BgzfWrite(const char* buf, uintptr_t len, BgzfCompressStream* bgzfp) {
   return 0;
 }
 
-BoolErr CleanupBgzfCompressStream(BgzfCompressStream* bgzfp, PglErr* reterrp) {
+BoolErr CleanupBgzfCompressStream(BgzfCompressStream* cstream_ptr, PglErr* reterrp) {
+  BgzfCompressStreamMain* bgzfp = GetBgzfp(cstream_ptr);
   pthread_t* threads = bgzfp->threads;
   if (threads) {
     uint32_t slot_ct = bgzfp->slot_ct;

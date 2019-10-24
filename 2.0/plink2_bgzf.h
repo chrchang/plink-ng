@@ -194,7 +194,7 @@ void CleanupBgzfRawMtStream(BgzfRawMtDecompressStream* bgzfp);
 CONSTI32(kMaxBgzfCompressThreads, 15);
 CONSTI32(kBgzfInputBlockSize, 0xff00);  // htslib BGZF_BLOCK_SIZE
 
-typedef struct BgzfCompressStreamStruct BgzfCompressStream;
+typedef struct BgzfCompressStreamMainStruct BgzfCompressStreamMain;
 
 typedef struct BgzfCompressCommWithWStruct {
   // Compressor -> writer.  One per block slot.
@@ -224,13 +224,13 @@ typedef struct BgzfCompressCommWithPStruct {
 } BgzfCompressCommWithP;
 
 typedef struct BgzfCompressorContextStruct {
-  BgzfCompressStream* parent;
+  BgzfCompressStreamMain* parent;
   struct libdeflate_compressor* lc;
   // don't need tidx any more...
 } BgzfCompressorContext;
 
-struct BgzfCompressStreamStruct {
-  NONCOPYABLE(BgzfCompressStreamStruct);
+struct BgzfCompressStreamMainStruct {
+  NONCOPYABLE(BgzfCompressStreamMainStruct);
   FILE* ff;
   pthread_t* threads;  // n+1 elements, last element is writer
   BgzfCompressCommWithP** cwps;  // N elements
@@ -254,7 +254,17 @@ struct BgzfCompressStreamStruct {
   uint16_t unfinished_init_state;
 };
 
-void PreinitBgzfCompressStream(BgzfCompressStream* bgzfp);
+typedef struct BgzfCompressStreamStruct {
+  NONCOPYABLE(BgzfCompressStreamStruct);
+#ifdef __cplusplus
+  BgzfCompressStreamMain& GET_PRIVATE_m() { return m; }
+  BgzfCompressStreamMain const& GET_PRIVATE_m() const { return m; }
+ private:
+#endif
+  BgzfCompressStreamMain m;
+} BgzfCompressStream;
+
+void PreinitBgzfCompressStream(BgzfCompressStream* cstream_ptr);
 
 CONSTI32(kBgzfDefaultClvl, 6);
 
@@ -263,16 +273,16 @@ CONSTI32(kBgzfDefaultClvl, 6);
 // - thread_ct only applies when clvl != 0.  When that's true, it's internally
 //   clipped to [2, kMaxBgzfCompressThreads].
 // - errno is set on open-fail.
-PglErr InitBgzfCompressStreamEx(const char* out_fname, uint32_t do_append, uint32_t clvl, uint32_t thread_ct, BgzfCompressStream* bgzfp);
+PglErr InitBgzfCompressStreamEx(const char* out_fname, uint32_t do_append, uint32_t clvl, uint32_t thread_ct, BgzfCompressStream* cstream_ptr);
 
-HEADER_INLINE PglErr InitBgzfCompressStream(const char* out_fname, uint32_t thread_ct, BgzfCompressStream* bgzfp) {
-  return InitBgzfCompressStreamEx(out_fname, 0, kBgzfDefaultClvl, thread_ct, bgzfp);
+HEADER_INLINE PglErr InitBgzfCompressStream(const char* out_fname, uint32_t thread_ct, BgzfCompressStream* cstream_ptr) {
+  return InitBgzfCompressStreamEx(out_fname, 0, kBgzfDefaultClvl, thread_ct, cstream_ptr);
 }
 
 // errno is set on write-fail.
-BoolErr BgzfWrite(const char* buf, uintptr_t len, BgzfCompressStream* bgzfp);
+BoolErr BgzfWrite(const char* buf, uintptr_t len, BgzfCompressStream* cstream_ptr);
 
-BoolErr CleanupBgzfCompressStream(BgzfCompressStream* bgzfp, PglErr* reterrp);
+BoolErr CleanupBgzfCompressStream(BgzfCompressStream* cstream_ptr, PglErr* reterrp);
 
 #ifdef __cplusplus
 }  // namespace plink2

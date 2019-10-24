@@ -21,7 +21,12 @@
 namespace plink2 {
 #endif
 
-void PreinitZstRfile(zstRFILE* zrfp) {
+static inline zstRFILEMain* GetZrfp(zstRFILE* zrf_ptr) {
+  return &GET_PRIVATE(*zrf_ptr, m);
+}
+
+void PreinitZstRfile(zstRFILE* zrf_ptr) {
+  zstRFILEMain* zrfp = GetZrfp(zrf_ptr);
   zrfp->ff = nullptr;
   zrfp->zds = nullptr;
   zrfp->zib.src = nullptr;
@@ -35,7 +40,8 @@ const char kShortErrZstdCorruptionDetected[] = "Corrupted block detected";
 
 const char kShortErrZstAlreadyOpen[] = "ZstRfileOpen can't be called on an already-open file";
 
-PglErr ZstRfileOpen(const char* fname, zstRFILE* zrfp) {
+PglErr ZstRfileOpen(const char* fname, zstRFILE* zrf_ptr) {
+  zstRFILEMain* zrfp = GetZrfp(zrf_ptr);
   PglErr reterr = kPglRetSuccess;
   {
     if (unlikely(zrfp->ff)) {
@@ -92,7 +98,8 @@ PglErr ZstRfileOpen(const char* fname, zstRFILE* zrfp) {
   return reterr;
 }
 
-int32_t zstread(zstRFILE* zrfp, void* dst, uint32_t len) {
+int32_t zstread(zstRFILE* zrf_ptr, void* dst, uint32_t len) {
+  zstRFILEMain* zrfp = GetZrfp(zrf_ptr);
   if (zrfp->reterr) {
     return 0;
   }
@@ -161,7 +168,8 @@ int32_t zstread(zstRFILE* zrfp, void* dst, uint32_t len) {
   return wpos;
 }
 
-void zstrewind(zstRFILE* zrfp) {
+void zstrewind(zstRFILE* zrf_ptr) {
+  zstRFILEMain* zrfp = GetZrfp(zrf_ptr);
   if ((zrfp->reterr == kPglRetSuccess) || (zrfp->reterr == kPglRetEof)) {
     rewind(zrfp->ff);
     ZSTD_DCtx_reset(zrfp->zds, ZSTD_reset_session_only);
@@ -171,7 +179,8 @@ void zstrewind(zstRFILE* zrfp) {
   }
 }
 
-BoolErr CleanupZstRfile(zstRFILE* zrfp, PglErr* reterrp) {
+BoolErr CleanupZstRfile(zstRFILE* zrf_ptr, PglErr* reterrp) {
+  zstRFILEMain* zrfp = GetZrfp(zrf_ptr);
   zrfp->reterr = kPglRetEof;
   zrfp->errmsg = nullptr;
   if (zrfp->zib.src) {

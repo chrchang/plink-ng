@@ -7155,53 +7155,53 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
       }
     }
     if (flags & kfSampleCountsColDiploidTs) {
-      final_counts[kSampleCountDiploidTs] = AllocAndCountSubstType(&ctx, diploid_counts[kSubstCodeTs], nullptr, sample_ct_i32v, kSubstCodeTs);
+      final_counts[kSampleCountDiploidTs] = AllocAndCountSubstType(&ctx, TO_CONSTU32PCONSTP(diploid_counts[kSubstCodeTs]), nullptr, sample_ct_i32v, kSubstCodeTs);
       if (unlikely(!final_counts[kSampleCountDiploidTs])) {
         goto SampleCounts_ret_NOMEM;
       }
     }
     if (flags & kfSampleCountsColTs) {
-      final_counts[kSampleCountTs] = AllocAndCountSubstType(&ctx, diploid_counts[kSubstCodeTs], haploid_counts[kSubstCodeTs], sample_ct_i32v, kSubstCodeTs);
+      final_counts[kSampleCountTs] = AllocAndCountSubstType(&ctx, TO_CONSTU32PCONSTP(diploid_counts[kSubstCodeTs]), TO_CONSTU32PCONSTP(haploid_counts[kSubstCodeTs]), sample_ct_i32v, kSubstCodeTs);
       if (unlikely(!final_counts[kSampleCountTs])) {
         goto SampleCounts_ret_NOMEM;
       }
     }
     if (flags & kfSampleCountsColDiploidTv) {
-      final_counts[kSampleCountDiploidTv] = AllocAndCountSubstType(&ctx, diploid_counts[kSubstCodeTv], nullptr, sample_ct_i32v, kSubstCodeTv);
+      final_counts[kSampleCountDiploidTv] = AllocAndCountSubstType(&ctx, TO_CONSTU32PCONSTP(diploid_counts[kSubstCodeTv]), nullptr, sample_ct_i32v, kSubstCodeTv);
       if (unlikely(!final_counts[kSampleCountDiploidTv])) {
         goto SampleCounts_ret_NOMEM;
       }
     }
     if (flags & kfSampleCountsColTv) {
-      final_counts[kSampleCountTv] = AllocAndCountSubstType(&ctx, diploid_counts[kSubstCodeTv], haploid_counts[kSubstCodeTv], sample_ct_i32v, kSubstCodeTv);
+      final_counts[kSampleCountTv] = AllocAndCountSubstType(&ctx, TO_CONSTU32PCONSTP(diploid_counts[kSubstCodeTv]), TO_CONSTU32PCONSTP(haploid_counts[kSubstCodeTv]), sample_ct_i32v, kSubstCodeTv);
       if (unlikely(!final_counts[kSampleCountTv])) {
         goto SampleCounts_ret_NOMEM;
       }
     }
     if (flags & kfSampleCountsColDiploidNonsnpsymb) {
-      final_counts[kSampleCountDiploidNonsnpsymb] = AllocAndCountSubstType(&ctx, diploid_counts[kSubstCodeNonsnpsymb], nullptr, sample_ct_i32v, kSubstCodeNonsnpsymb);
+      final_counts[kSampleCountDiploidNonsnpsymb] = AllocAndCountSubstType(&ctx, TO_CONSTU32PCONSTP(diploid_counts[kSubstCodeNonsnpsymb]), nullptr, sample_ct_i32v, kSubstCodeNonsnpsymb);
       if (unlikely(!final_counts[kSampleCountDiploidNonsnpsymb])) {
         goto SampleCounts_ret_NOMEM;
       }
     }
     if (flags & kfSampleCountsColNonsnpsymb) {
-      final_counts[kSampleCountNonsnpsymb] = AllocAndCountSubstType(&ctx, diploid_counts[kSubstCodeNonsnpsymb], haploid_counts[kSubstCodeNonsnpsymb], sample_ct_i32v, kSubstCodeNonsnpsymb);
+      final_counts[kSampleCountNonsnpsymb] = AllocAndCountSubstType(&ctx, TO_CONSTU32PCONSTP(diploid_counts[kSubstCodeNonsnpsymb]), TO_CONSTU32PCONSTP(haploid_counts[kSubstCodeNonsnpsymb]), sample_ct_i32v, kSubstCodeNonsnpsymb);
       if (unlikely(!final_counts[kSampleCountNonsnpsymb])) {
         goto SampleCounts_ret_NOMEM;
       }
     }
     if (flags & kfSampleCountsColSymbolic) {
-      final_counts[kSampleCountSymbolic] = AllocAndCountSubstType(&ctx, diploid_counts[kSubstCodeSymbolic], haploid_counts[kSubstCodeSymbolic], sample_ct_i32v, kSubstCodeSymbolic);
+      final_counts[kSampleCountSymbolic] = AllocAndCountSubstType(&ctx, TO_CONSTU32PCONSTP(diploid_counts[kSubstCodeSymbolic]), TO_CONSTU32PCONSTP(haploid_counts[kSubstCodeSymbolic]), sample_ct_i32v, kSubstCodeSymbolic);
       if (unlikely(!final_counts[kSampleCountSymbolic])) {
         goto SampleCounts_ret_NOMEM;
       }
     }
     if (flags & kfSampleCountsColNonsnp) {
-      final_counts[kSampleCountNonsnp] = AllocAndCountSubstType(&ctx, diploid_counts[kSubstCodeNonsnpsymb], haploid_counts[kSubstCodeNonsnpsymb], sample_ct_i32v, kSubstCodeNonsnpsymb);
+      final_counts[kSampleCountNonsnp] = AllocAndCountSubstType(&ctx, TO_CONSTU32PCONSTP(diploid_counts[kSubstCodeNonsnpsymb]), TO_CONSTU32PCONSTP(haploid_counts[kSubstCodeNonsnpsymb]), sample_ct_i32v, kSubstCodeNonsnpsymb);
       if (unlikely(!final_counts[kSampleCountNonsnp])) {
         goto SampleCounts_ret_NOMEM;
       }
-      IncrSubstType(&ctx, diploid_counts[kSubstCodeSymbolic], haploid_counts[kSubstCodeSymbolic], sample_ct_i32v, kSubstCodeSymbolic, final_counts[kSampleCountNonsnp]);
+      IncrSubstType(&ctx, TO_CONSTU32PCONSTP(diploid_counts[kSubstCodeSymbolic]), TO_CONSTU32PCONSTP(haploid_counts[kSubstCodeSymbolic]), sample_ct_i32v, kSubstCodeSymbolic, final_counts[kSampleCountNonsnp]);
     }
 
     if (flags & kfSampleCountsColDiploidSingle) {

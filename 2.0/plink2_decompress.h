@@ -84,8 +84,10 @@ HEADER_INLINE PglErr SizeAndInitTextStream(const char* fname, uintptr_t unstanda
   return InitTextStream(fname, max_line_blen, decompress_thread_ct, txsp);
 }
 
-HEADER_INLINE unsigned char* TextStreamMemStart(TextStream* txsp) {
-  return R_CAST(unsigned char*, txsp->base.dst);
+HEADER_INLINE unsigned char* TextStreamMemStart(TextStream* txs_ptr) {
+  // placed here instead of plink2_text.h since it's pretty specific to arena
+  // memory-management
+  return R_CAST(unsigned char*, GET_PRIVATE(*txs_ptr, m).base.dst);
 }
 
 void TextErrPrint(const char* file_descrip, const char* errmsg, PglErr reterr);

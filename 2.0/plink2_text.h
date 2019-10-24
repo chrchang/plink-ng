@@ -168,12 +168,21 @@ typedef union {
   ZstRawDecompressStream zst;
 } RawDecompressStream;
 
-typedef struct textFILEStruct {
+typedef struct textFILEMainStruct {
   TextFileBase base;
   RawDecompressStream rds;
+} textFILEMain;
+
+typedef struct textFILEStruct {
+#ifdef __cplusplus
+  textFILEMain& GET_PRIVATE_m() { return m; }
+  textFILEMain const& GET_PRIVATE_m() const { return m; }
+ private:
+#endif
+  textFILEMain m;
 } textFILE;
 
-void PreinitTextFile(textFILE* txfp);
+void PreinitTextFile(textFILE* txf_ptr);
 
 // kDecompressChunkSize = 1 MiB currently declared in plink2_bgzf.h, may move
 // somewhere closer to the base later.
@@ -197,59 +206,66 @@ CONSTI32(kDecompressMinCapacity, kDecompressMinBlen + kDecompressChunkSize);
 // * enforced_max_line_blen must be >= dst_capacity - kDecompressChunkSize.
 //   It's the point at which long-line errors instead of out-of-memory errors
 //   are reported.  It isn't permitted to be less than 1 MiB.
-PglErr TextFileOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, char* dst, textFILE* txfp);
+PglErr TextFileOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, char* dst, textFILE* txf_ptr);
 
-HEADER_INLINE PglErr TextFileOpen(const char* fname, textFILE* txfp) {
-  return TextFileOpenEx(fname, kMaxLongLine, 0, nullptr, txfp);
+HEADER_INLINE PglErr TextFileOpen(const char* fname, textFILE* txf_ptr) {
+  return TextFileOpenEx(fname, kMaxLongLine, 0, nullptr, txf_ptr);
 }
 
 extern const char kShortErrLongLine[];
 
-PglErr TextFileAdvance(textFILE* txfp);
+PglErr TextFileAdvance(textFILE* txf_ptr);
 
-HEADER_INLINE PglErr TextFileNextLine(textFILE* txfp, char** line_startp) {
-  if (txfp->base.consume_iter == txfp->base.consume_stop) {
-    PglErr reterr = TextFileAdvance(txfp);
+HEADER_INLINE PglErr TextFileNextLine(textFILE* txf_ptr, char** line_startp) {
+  TextFileBase* basep = &GET_PRIVATE(*txf_ptr, m).base;
+  if (basep->consume_iter == basep->consume_stop) {
+    PglErr reterr = TextFileAdvance(txf_ptr);
     // not unlikely() due to eof
     if (reterr) {
       return reterr;
     }
   }
-  *line_startp = txfp->base.consume_iter;
-  txfp->base.consume_iter = AdvPastDelim(txfp->base.consume_iter, '\n');
+  *line_startp = basep->consume_iter;
+  basep->consume_iter = AdvPastDelim(basep->consume_iter, '\n');
   return kPglRetSuccess;
 }
 
-HEADER_INLINE char* TextFileLineEnd(textFILE* txfp) {
-  return txfp->base.consume_iter;
+HEADER_INLINE char* TextFileLineEnd(textFILE* txf_ptr) {
+  return GET_PRIVATE(*txf_ptr, m).base.consume_iter;
 }
 
-void TextFileRewind(textFILE* txfp);
+void TextFileRewind(textFILE* txf_ptr);
 
-HEADER_INLINE int32_t TextFileIsOpen(const textFILE* txfp) {
-  return (txfp->base.ff != nullptr);
+HEADER_INLINE int32_t TextFileIsOpen(const textFILE* txf_ptr) {
+  return (GET_PRIVATE(*txf_ptr, m).base.ff != nullptr);
 }
 
-HEADER_INLINE int32_t TextFileEof(const textFILE* txfp) {
-  return (txfp->base.reterr == kPglRetEof);
+HEADER_INLINE int32_t TextFileEof(const textFILE* txf_ptr) {
+  return (GET_PRIVATE(*txf_ptr, m).base.reterr == kPglRetEof);
 }
 
-HEADER_INLINE const char* TextFileError(const textFILE* txfp) {
-  return txfp->base.errmsg;
+HEADER_INLINE const char* TextFileError(const textFILE* txf_ptr) {
+  return GET_PRIVATE(*txf_ptr, m).base.errmsg;
 }
 
-HEADER_INLINE PglErr TextFileErrcode(const textFILE* txfp) {
-  if (txfp->base.reterr == kPglRetEof) {
+HEADER_INLINE PglErr TextFileErrcode(const textFILE* txf_ptr) {
+  const PglErr reterr = GET_PRIVATE(*txf_ptr, m).base.reterr;
+  if (reterr == kPglRetEof) {
     return kPglRetSuccess;
   }
-  return txfp->base.reterr;
+  return reterr;
+}
+
+// Relevant when about to move-construct a TextStream; see plink2_glm.
+HEADER_INLINE uint32_t TextFileLinebufLen(const textFILE* txf_ptr) {
+  return GET_PRIVATE(*txf_ptr, m).base.dst_len;
 }
 
 // Ok to pass reterrp == nullptr.
 // Returns nonzero iff file-close fails, and either reterrp == nullptr or
 // *reterrp == kPglRetSuccess; this is intended to be followed by logging of
 // strerror(errno).  In the latter case, *reterrp is set to kPglRetReadFail.
-BoolErr CleanupTextFile(textFILE* txfp, PglErr* reterrp);
+BoolErr CleanupTextFile(textFILE* txf_ptr, PglErr* reterrp);
 
 
 // consumer -> reader message
@@ -302,163 +318,182 @@ typedef union {
   ZstRawDecompressStream zst;
 } RawMtDecompressStream;
 
-typedef struct TextStreamStruct {
+typedef struct TextStreamMainStruct {
   TextFileBase base;
   RawMtDecompressStream rds;
   uint32_t decompress_thread_ct;
   TextStreamSync* syncp;
+} TextStreamMain;
+
+typedef struct TextStreamStruct {
+#ifdef __cplusplus
+  TextStreamMain& GET_PRIVATE_m() { return m; }
+  TextStreamMain const& GET_PRIVATE_m() const { return m; }
+ private:
+#endif
+  TextStreamMain m;
 } TextStream;
 
-void PreinitTextStream(TextStream* txsp);
+void PreinitTextStream(TextStream* txs_ptr);
 
 // * Can return nomem, open-fail, read-fail, or thread-create-fail.
-// * Exactly one of fname and txfp must be nullptr.  If txfp is null, fname is
-//   opened.  Otherwise, the returned stream is "move-constructed" from txfp.
+// * Exactly one of fname and txf_ptr must be nullptr.  If txf_ptr is null,
+//   fname is opened.  Otherwise, the returned stream is "move-constructed"
+//   from txf_ptr.
 //   When not move-constructing, enforced_max_line_blen, dst_capacity, and dst
 //   are interpreted the same way as TextFileOpenEx().
 //   When move-constructing, enforced_max_line_blen and dst_capacity may be
 //   smaller than what the textFILE was opened with.
-PglErr TextStreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, uint32_t decompress_thread_ct, textFILE* txfp, char* dst, TextStream* txsp);
+PglErr TextStreamOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32_t dst_capacity, uint32_t decompress_thread_ct, textFILE* txf_ptr, char* dst, TextStream* txs_ptr);
 
-HEADER_INLINE PglErr TextStreamOpen(const char* fname, TextStream* txsp) {
-  return TextStreamOpenEx(fname, kMaxLongLine, 0, NumCpu(nullptr), nullptr, nullptr, txsp);
+HEADER_INLINE PglErr TextStreamOpen(const char* fname, TextStream* txs_ptr) {
+  return TextStreamOpenEx(fname, kMaxLongLine, 0, NumCpu(nullptr), nullptr, nullptr, txs_ptr);
 }
 
 // We drop 'Stream' from the function names outside of open/close, to emphasize
 // that this is the default choice.
 // (Originally this was named 'TextRstream', but then I realized that the write
 // case doesn't really care about whether the input is text or binary.)
-HEADER_INLINE char* TextLineEnd(TextStream* txsp) {
-  return txsp->base.consume_iter;
+HEADER_INLINE char* TextLineEnd(TextStream* txs_ptr) {
+  return GET_PRIVATE(*txs_ptr, m).base.consume_iter;
 }
 
-HEADER_INLINE int32_t TextIsOpen(const TextStream* txsp) {
-  return (txsp->base.ff != nullptr);
+HEADER_INLINE int32_t TextIsOpen(const TextStream* txs_ptr) {
+  return (GET_PRIVATE(*txs_ptr, m).base.ff != nullptr);
 }
 
-HEADER_INLINE int32_t TextEof(const TextStream* txsp) {
-  return (txsp->base.reterr == kPglRetEof);
+HEADER_INLINE int32_t TextEof(const TextStream* txs_ptr) {
+  return (GET_PRIVATE(*txs_ptr, m).base.reterr == kPglRetEof);
 }
 
-uint32_t TextDecompressThreadCt(const TextStream* txsp);
+uint32_t TextDecompressThreadCt(const TextStream* txs_ptr);
 
-PglErr TextAdvance(TextStream* txsp);
+PglErr TextAdvance(TextStream* txs_ptr);
 
-HEADER_INLINE PglErr TextNextLine(TextStream* txsp, char** line_startp) {
-  if (txsp->base.consume_iter == txsp->base.consume_stop) {
-    PglErr reterr = TextAdvance(txsp);
+HEADER_INLINE PglErr TextNextLine(TextStream* txs_ptr, char** line_startp) {
+  TextFileBase* basep = &GET_PRIVATE(*txs_ptr, m).base;
+  if (basep->consume_iter == basep->consume_stop) {
+    PglErr reterr = TextAdvance(txs_ptr);
     // not unlikely() due to eof
     if (reterr) {
       return reterr;
     }
   }
-  *line_startp = txsp->base.consume_iter;
-  txsp->base.consume_iter = AdvPastDelim(txsp->base.consume_iter, '\n');
+  *line_startp = basep->consume_iter;
+  basep->consume_iter = AdvPastDelim(basep->consume_iter, '\n');
   return kPglRetSuccess;
 }
 
-HEADER_INLINE PglErr TextNextLineK(TextStream* txsp, const char** line_startp) {
-  return TextNextLine(txsp, K_CAST(char**, line_startp));
+HEADER_INLINE PglErr TextNextLineK(TextStream* txs_ptr, const char** line_startp) {
+  return TextNextLine(txs_ptr, K_CAST(char**, line_startp));
 }
 
-HEADER_INLINE PglErr TextNextLineLstrip(TextStream* txsp, char** line_startp) {
-  if (txsp->base.consume_iter == txsp->base.consume_stop) {
-    PglErr reterr = TextAdvance(txsp);
+HEADER_INLINE PglErr TextNextLineLstrip(TextStream* txs_ptr, char** line_startp) {
+  TextFileBase* basep = &GET_PRIVATE(*txs_ptr, m).base;
+  if (basep->consume_iter == basep->consume_stop) {
+    PglErr reterr = TextAdvance(txs_ptr);
     // not unlikely() due to eof
     if (reterr) {
       return reterr;
     }
   }
-  *line_startp = FirstNonTspace(txsp->base.consume_iter);
-  txsp->base.consume_iter = AdvPastDelim(*line_startp, '\n');
+  *line_startp = FirstNonTspace(basep->consume_iter);
+  basep->consume_iter = AdvPastDelim(*line_startp, '\n');
   return kPglRetSuccess;
 }
 
-HEADER_INLINE PglErr TextNextLineLstripK(TextStream* txsp, const char** line_startp) {
-  return TextNextLineLstrip(txsp, K_CAST(char**, line_startp));
+HEADER_INLINE PglErr TextNextLineLstripK(TextStream* txs_ptr, const char** line_startp) {
+  return TextNextLineLstrip(txs_ptr, K_CAST(char**, line_startp));
 }
 
 // these do not update line_idx on eof.
-PglErr TextNextNonemptyLineLstrip(TextStream* txsp, uintptr_t* line_idx_ptr, char** line_startp);
+PglErr TextNextNonemptyLineLstrip(TextStream* txs_ptr, uintptr_t* line_idx_ptr, char** line_startp);
 
-HEADER_INLINE PglErr TextNextNonemptyLineLstripK(TextStream* txsp, uintptr_t* line_idx_ptr, const char** line_startp) {
-  return TextNextNonemptyLineLstrip(txsp, line_idx_ptr, K_CAST(char**, line_startp));
+HEADER_INLINE PglErr TextNextNonemptyLineLstripK(TextStream* txs_ptr, uintptr_t* line_idx_ptr, const char** line_startp) {
+  return TextNextNonemptyLineLstrip(txs_ptr, line_idx_ptr, K_CAST(char**, line_startp));
 }
 
-PglErr TextSkipNz(uintptr_t skip_ct, TextStream* txsp);
+PglErr TextSkipNz(uintptr_t skip_ct, TextStream* txs_ptr);
 
-HEADER_INLINE PglErr TextSkip(uintptr_t skip_ct, TextStream* txsp) {
+HEADER_INLINE PglErr TextSkip(uintptr_t skip_ct, TextStream* txs_ptr) {
   if (skip_ct == 0) {
     return kPglRetSuccess;
   }
-  return TextSkipNz(skip_ct, txsp);
+  return TextSkipNz(skip_ct, txs_ptr);
 }
 
 
 // 'Unsafe' functions require line_iter to already point to the start of the
 // line, and don't update txsp->base.consume_iter; they primarily wrap the
 // TextAdvance() call.
-HEADER_INLINE PglErr TextNextLineUnsafe(TextStream* txsp, char** line_iterp) {
-  if (*line_iterp != txsp->base.consume_stop) {
+HEADER_INLINE PglErr TextNextLineUnsafe(TextStream* txs_ptr, char** line_iterp) {
+  TextFileBase* basep = &GET_PRIVATE(*txs_ptr, m).base;
+  if (*line_iterp != basep->consume_stop) {
     return kPglRetSuccess;
   }
-  txsp->base.consume_iter = *line_iterp;
-  PglErr reterr = TextAdvance(txsp);
+  basep->consume_iter = *line_iterp;
+  PglErr reterr = TextAdvance(txs_ptr);
   // not unlikely() due to eof
   if (reterr) {
     return reterr;
   }
-  *line_iterp = txsp->base.consume_iter;
+  *line_iterp = basep->consume_iter;
   return kPglRetSuccess;
 }
 
 
-HEADER_INLINE PglErr TextNextLineLstripUnsafe(TextStream* txsp, char** line_iterp) {
+HEADER_INLINE PglErr TextNextLineLstripUnsafe(TextStream* txs_ptr, char** line_iterp) {
   char* line_iter = *line_iterp;
-  if (line_iter == txsp->base.consume_stop) {
-    txsp->base.consume_iter = line_iter;
-    PglErr reterr = TextAdvance(txsp);
+  TextFileBase* basep = &GET_PRIVATE(*txs_ptr, m).base;
+  if (line_iter == basep->consume_stop) {
+    basep->consume_iter = line_iter;
+    PglErr reterr = TextAdvance(txs_ptr);
     // not unlikely() due to eof
     if (reterr) {
       return reterr;
     }
-    line_iter = txsp->base.consume_iter;
+    line_iter = basep->consume_iter;
   }
   *line_iterp = FirstNonTspace(line_iter);
   return kPglRetSuccess;
 }
 
-HEADER_INLINE PglErr TextNextLineLstripUnsafeK(TextStream* txsp, const char** line_iterp) {
-  return TextNextLineLstripUnsafe(txsp, K_CAST(char**, line_iterp));
+HEADER_INLINE PglErr TextNextLineLstripUnsafeK(TextStream* txs_ptr, const char** line_iterp) {
+  return TextNextLineLstripUnsafe(txs_ptr, K_CAST(char**, line_iterp));
 }
 
-PglErr TextNextNonemptyLineLstripUnsafe(TextStream* txsp, uintptr_t* line_idx_ptr, char** line_iterp);
+PglErr TextNextNonemptyLineLstripUnsafe(TextStream* txs_ptr, uintptr_t* line_idx_ptr, char** line_iterp);
 
-HEADER_INLINE PglErr TextNextNonemptyLineLstripUnsafeK(TextStream* txsp, uintptr_t* line_idx_ptr, const char** line_iterp) {
-  return TextNextNonemptyLineLstripUnsafe(txsp, line_idx_ptr, K_CAST(char**, line_iterp));
+HEADER_INLINE PglErr TextNextNonemptyLineLstripUnsafeK(TextStream* txs_ptr, uintptr_t* line_idx_ptr, const char** line_iterp) {
+  return TextNextNonemptyLineLstripUnsafe(txs_ptr, line_idx_ptr, K_CAST(char**, line_iterp));
+}
+
+HEADER_INLINE void TextSetPos(char* new_consume_iter, TextStream* txs_ptr) {
+  GET_PRIVATE(*txs_ptr, m).base.consume_iter = new_consume_iter;
 }
 
 
-HEADER_INLINE uint32_t TextIsMt(const TextStream* txsp) {
+HEADER_INLINE uint32_t TextIsMt(const TextStream* txs_ptr) {
   // Only bgzf decoder is multithreaded for now.
-  return (txsp->base.file_type == kFileBgzf);
+  return (GET_PRIVATE(*txs_ptr, m).base.file_type == kFileBgzf);
 }
 
-PglErr TextRetarget(const char* new_fname, TextStream* txsp);
+PglErr TextRetarget(const char* new_fname, TextStream* txs_ptr);
 
-HEADER_INLINE PglErr TextRewind(TextStream* txsp) {
-  return TextRetarget(nullptr, txsp);
+HEADER_INLINE PglErr TextRewind(TextStream* txs_ptr) {
+  return TextRetarget(nullptr, txs_ptr);
 }
 
-HEADER_INLINE const char* TextStreamError(const TextStream* txsp) {
-  return txsp->base.errmsg;
+HEADER_INLINE const char* TextStreamError(const TextStream* txs_ptr) {
+  return GET_PRIVATE(*txs_ptr, m).base.errmsg;
 }
 
-HEADER_INLINE PglErr TextStreamErrcode(const TextStream* txsp) {
-  if (txsp->base.reterr == kPglRetEof) {
+HEADER_INLINE PglErr TextStreamErrcode(const TextStream* txs_ptr) {
+  const PglErr reterr = GET_PRIVATE(*txs_ptr, m).base.reterr;
+  if (reterr == kPglRetEof) {
     return kPglRetSuccess;
   }
-  return txsp->base.reterr;
+  return reterr;
 }
 
 // Ok to pass reterrp == nullptr.
@@ -467,7 +502,7 @@ HEADER_INLINE PglErr TextStreamErrcode(const TextStream* txsp) {
 // kPglRetReadFail.  (Note that this does *not* retrieve the existing
 // txsp->reterr value; caller is responsible for checking TextStreamErrcode()
 // first when they care.)
-BoolErr CleanupTextStream(TextStream* txsp, PglErr* reterrp);
+BoolErr CleanupTextStream(TextStream* txs_ptr, PglErr* reterrp);
 
 
 // Low-level token-batch-reading interface, using the extra TextStream mode
@@ -493,14 +528,15 @@ HEADER_INLINE PglErr TokenRewind(TokenStream* tksp) {
 }
 
 HEADER_INLINE const char* TokenStreamError(const TokenStream* tksp) {
-  return tksp->txs.base.errmsg;
+  return GET_PRIVATE(tksp->txs, m).base.errmsg;
 }
 
 HEADER_INLINE PglErr TokenStreamErrcode(const TokenStream* tksp) {
-  if (tksp->txs.base.reterr == kPglRetEof) {
+  const PglErr reterr = GET_PRIVATE(tksp->txs, m).base.reterr;
+  if (reterr == kPglRetEof) {
     return kPglRetSuccess;
   }
-  return tksp->txs.base.reterr;
+  return reterr;
 }
 
 HEADER_INLINE BoolErr CleanupTokenStream(TokenStream* tksp, PglErr* reterrp) {
