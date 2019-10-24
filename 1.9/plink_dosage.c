@@ -1135,10 +1135,12 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       goto plink1_dosage_ret_1;
     }
     if (qrange_ct) {
+      // bugfix (24 Oct 2019): score_range_obs_cts and score_miss_cts need to
+      // be zero-initialized
       if (bigstack_calloc_d(sample_ct * qrange_ct, &cur_scores) ||
           bigstack_calloc_d(qrange_ct, &score_bases) ||
-          bigstack_alloc_ui(qrange_ct, &score_range_obs_cts) ||
-          bigstack_alloc_ui(sample_ct * qrange_ct, &score_miss_cts)) {
+          bigstack_calloc_ui(qrange_ct, &score_range_obs_cts) ||
+          bigstack_calloc_ui(sample_ct * qrange_ct, &score_miss_cts)) {
 	goto plink1_dosage_ret_NOMEM;
       }
       *outname_end = '.';
