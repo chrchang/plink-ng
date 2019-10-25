@@ -526,14 +526,6 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
   return reterr;
 }
 
-// multithread globals
-static uintptr_t* g_smaj_hom[2] = {nullptr, nullptr};
-static uintptr_t* g_smaj_ref2het[2] = {nullptr, nullptr};
-static uint32_t* g_thread_start = nullptr;
-static uint32_t* g_king_counts = nullptr;
-static uint32_t* g_loaded_sample_idx_pairs = nullptr;
-static uint32_t g_homhom_needed = 0;
-
 #ifdef USE_SSE42
 CONSTI32(kKingMultiplex, 1024);
 CONSTI32(kKingMultiplexWords, kKingMultiplex / kBitsPerWord);
@@ -801,26 +793,35 @@ void IncrKingHomhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, ui
 #endif
 static_assert(!(kKingMultiplexWords % 2), "kKingMultiplexWords must be even for safe bit-transpose.");
 
-THREAD_FUNC_DECL CalcKingThread(void* arg) {
-  const uintptr_t tidx = R_CAST(uintptr_t, arg);
-  const uint64_t mem_start_idx = g_thread_start[0];
-  const uint64_t start_idx = g_thread_start[tidx];
-  const uint32_t end_idx = g_thread_start[tidx + 1];
-  const uint32_t homhom_needed = g_homhom_needed;
+typedef struct CalcKingCtxStruct {
+  uintptr_t* smaj_hom[2];
+  uintptr_t* smaj_ref2het[2];
+  uint32_t homhom_needed;
+
+  uint32_t* thread_start;
+
+  uint32_t* king_counts;
+} CalcKingCtx;
+
+THREAD_FUNC_DECL CalcKingThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  CalcKingCtx* ctx = S_CAST(CalcKingCtx*, arg->sharedp->context);
+
+  const uint64_t mem_start_idx = ctx->thread_start[0];
+  const uint64_t start_idx = ctx->thread_start[tidx];
+  const uint32_t end_idx = ctx->thread_start[tidx + 1];
+  const uint32_t homhom_needed = ctx->homhom_needed;
   uint32_t parity = 0;
-  while (1) {
-    const uint32_t is_last_block = g_is_last_thread_block;
+  do {
     if (homhom_needed) {
-      IncrKingHomhom(g_smaj_hom[parity], g_smaj_ref2het[parity], start_idx, end_idx, &(g_king_counts[((start_idx * (start_idx - 1) - mem_start_idx * (mem_start_idx - 1)) / 2) * 5]));
+      IncrKingHomhom(ctx->smaj_hom[parity], ctx->smaj_ref2het[parity], start_idx, end_idx, &(ctx->king_counts[((start_idx * (start_idx - 1) - mem_start_idx * (mem_start_idx - 1)) / 2) * 5]));
     } else {
-      IncrKing(g_smaj_hom[parity], g_smaj_ref2het[parity], start_idx, end_idx, &(g_king_counts[(start_idx * (start_idx - 1) - mem_start_idx * (mem_start_idx - 1)) * 2]));
+      IncrKing(ctx->smaj_hom[parity], ctx->smaj_ref2het[parity], start_idx, end_idx, &(ctx->king_counts[(start_idx * (start_idx - 1) - mem_start_idx * (mem_start_idx - 1)) * 2]));
     }
-    if (is_last_block) {
-      THREAD_RETURN;
-    }
-    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
-  }
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
 }
 
 /*
@@ -927,11 +928,11 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
   char* cswritetp = nullptr;
   CompressStreamState css;
   CompressStreamState csst;
-  ThreadsState ts;
+  ThreadGroup tg;
   PglErr reterr = kPglRetSuccess;
   PreinitCstream(&css);
   PreinitCstream(&csst);
-  InitThreads3z(&ts);
+  PreinitThreads(&tg);
   {
     const KingFlags matrix_shape = king_flags & kfKingMatrixShapemask;
     const char* flagname = matrix_shape? "--make-king" : ((king_flags & kfKingColAll)? "--make-king-table" : "--king-cutoff");
@@ -978,6 +979,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
       ExcludeNonAutosomalVariants(cip, variant_include);
     }
 
+    // possible todo: allow this to change between passes
     uint32_t calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
     if (calc_thread_ct > sample_ct / 32) {
       calc_thread_ct = sample_ct / 32;
@@ -985,11 +987,11 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
     if (!calc_thread_ct) {
       calc_thread_ct = 1;
     }
-    // possible todo: allow this to change between passes
-    ts.calc_thread_ct = calc_thread_ct;
+
+    CalcKingCtx ctx;
     if (unlikely(
-            bigstack_alloc_u32(calc_thread_ct + 1, &g_thread_start) ||
-            bigstack_alloc_thread(calc_thread_ct, &ts.threads))) {
+            SetThreadCt(calc_thread_ct, &tg) ||
+            bigstack_alloc_u32(calc_thread_ct + 1, &ctx.thread_start))) {
       goto CalcKing_ret_NOMEM;
     }
     const uintptr_t sample_ctl = BitCtToWordCt(sample_ct);
@@ -1002,12 +1004,12 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
     const uint32_t sample_ctaw2 = QuaterCtToAlignedWordCt(sample_ct);
-    g_homhom_needed = (king_flags & kfKingColNsnp) || ((!(king_flags & kfKingCounts)) && (king_flags & (kfKingColHethet | kfKingColIbs0 | kfKingColIbs1)));
+    ctx.homhom_needed = (king_flags & kfKingColNsnp) || ((!(king_flags & kfKingCounts)) && (king_flags & (kfKingColHethet | kfKingColIbs0 | kfKingColIbs1)));
     uint32_t grand_row_start_idx;
     uint32_t grand_row_end_idx;
     ParallelBounds(sample_ct, 1, parallel_idx, parallel_tot, R_CAST(int32_t*, &grand_row_start_idx), R_CAST(int32_t*, &grand_row_end_idx));
     const uint32_t king_bufsizew = kKingMultiplexWords * grand_row_end_idx;
-    const uint32_t homhom_needed_p4 = g_homhom_needed + 4;
+    const uint32_t homhom_needed_p4 = ctx.homhom_needed + 4;
     uintptr_t* cur_sample_include;
     uint32_t* sample_include_cumulative_popcounts;
     uintptr_t* loadbuf;
@@ -1020,10 +1022,10 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
             bigstack_alloc_w(sample_ctaw2, &loadbuf) ||
             bigstack_alloc_w(kPglBitTransposeBatch * sample_ctaw, &splitbuf_hom) ||
             bigstack_alloc_w(kPglBitTransposeBatch * sample_ctaw, &splitbuf_ref2het) ||
-            bigstack_alloc_w(king_bufsizew, &(g_smaj_hom[0])) ||
-            bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[0])) ||
-            bigstack_alloc_w(king_bufsizew, &(g_smaj_hom[1])) ||
-            bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[1])) ||
+            bigstack_alloc_w(king_bufsizew, &(ctx.smaj_hom[0])) ||
+            bigstack_alloc_w(king_bufsizew, &(ctx.smaj_ref2het[0])) ||
+            bigstack_alloc_w(king_bufsizew, &(ctx.smaj_hom[1])) ||
+            bigstack_alloc_w(king_bufsizew, &(ctx.smaj_ref2het[1])) ||
             bigstack_alloc_v(kPglBitTransposeBufvecs, &vecaligned_buf))) {
       goto CalcKing_ret_NOMEM;
     }
@@ -1087,7 +1089,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
               }
             }
           }
-        } else if ((genocounts[3] >= sample_ct_m1) || ((!g_homhom_needed) && ((genocounts[0] + genocounts[3] == sample_ct) || (genocounts[2] + genocounts[3] == sample_ct)))) {
+        } else if ((genocounts[3] >= sample_ct_m1) || ((!ctx.homhom_needed) && ((genocounts[0] + genocounts[3] == sample_ct) || (genocounts[2] + genocounts[3] == sample_ct)))) {
           ++skip_ct;
         } else {
           continue;
@@ -1159,13 +1161,14 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
       goto CalcKing_ret_NOMEM;
     }
     uint32_t row_end_idx = grand_row_start_idx;
-    g_king_counts = R_CAST(uint32_t*, g_bigstack_base);
+    ctx.king_counts = R_CAST(uint32_t*, g_bigstack_base);
+    SetThreadFuncAndData(CalcKingThread, &ctx, &tg);
     for (uint32_t pass_idx_p1 = 1; pass_idx_p1 <= pass_ct; ++pass_idx_p1) {
       const uint32_t row_start_idx = row_end_idx;
       row_end_idx = NextTrianglePass(row_start_idx, grand_row_end_idx, 1, cells_avail);
-      TriangleLoadBalance(calc_thread_ct, row_start_idx, row_end_idx, 1, g_thread_start);
+      TriangleLoadBalance(calc_thread_ct, row_start_idx, row_end_idx, 1, ctx.thread_start);
       const uintptr_t tot_cells = (S_CAST(uint64_t, row_end_idx) * (row_end_idx - 1) - S_CAST(uint64_t, row_start_idx) * (row_start_idx - 1)) / 2;
-      ZeroU32Arr(tot_cells * homhom_needed_p4, g_king_counts);
+      ZeroU32Arr(tot_cells * homhom_needed_p4, ctx.king_counts);
 
       if (variant_ct) {
         // possible todo: doubleton optimization
@@ -1173,10 +1176,10 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
         const uint32_t row_end_idxaw2 = QuaterCtToAlignedWordCt(row_end_idx);
         if (row_end_idxaw % 2) {
           const uint32_t cur_king_bufsizew = kKingMultiplexWords * row_end_idx;
-          uintptr_t* smaj_hom0_last = &(g_smaj_hom[0][kKingMultiplexWords - 1]);
-          uintptr_t* smaj_ref2het0_last = &(g_smaj_ref2het[0][kKingMultiplexWords - 1]);
-          uintptr_t* smaj_hom1_last = &(g_smaj_hom[1][kKingMultiplexWords - 1]);
-          uintptr_t* smaj_ref2het1_last = &(g_smaj_ref2het[1][kKingMultiplexWords - 1]);
+          uintptr_t* smaj_hom0_last = &(ctx.smaj_hom[0][kKingMultiplexWords - 1]);
+          uintptr_t* smaj_ref2het0_last = &(ctx.smaj_ref2het[0][kKingMultiplexWords - 1]);
+          uintptr_t* smaj_hom1_last = &(ctx.smaj_hom[1][kKingMultiplexWords - 1]);
+          uintptr_t* smaj_ref2het1_last = &(ctx.smaj_ref2het[1][kKingMultiplexWords - 1]);
           for (uint32_t offset = 0; offset < cur_king_bufsizew; offset += kKingMultiplexWords) {
             smaj_hom0_last[offset] = 0;
             smaj_ref2het0_last[offset] = 0;
@@ -1191,7 +1194,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
         }
         FillCumulativePopcounts(cur_sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
         if (pass_idx_p1 != 1) {
-          ReinitThreads3z(&ts);
+          ReinitThreads(&tg);
         }
         uintptr_t variant_uidx_base = 0;
         uintptr_t cur_bits = variant_include[0];
@@ -1224,8 +1227,8 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
         PgrClearLdCache(simple_pgrp);
         do {
           const uint32_t cur_block_size = MINV(variant_ct - variants_completed, kKingMultiplex);
-          uintptr_t* cur_smaj_hom = g_smaj_hom[parity];
-          uintptr_t* cur_smaj_ref2het = g_smaj_ref2het[parity];
+          uintptr_t* cur_smaj_hom = ctx.smaj_hom[parity];
+          uintptr_t* cur_smaj_ref2het = ctx.smaj_ref2het[parity];
           // "block" = distance computation granularity, usually 1024 or 1536
           //           variants
           // "batch" = variant-major-to-sample-major transpose granularity,
@@ -1307,22 +1310,22 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
             }
           }
           if (variants_completed) {
-            JoinThreads3z(&ts);
+            JoinThreads(&tg);
             // CalcKingThread() never errors out
-          } else {
-            ts.thread_func_ptr = CalcKingThread;
           }
-          // this update must occur after JoinThreads3z() call
-          ts.is_last_block = (variants_completed + cur_block_size == variant_ct);
-          if (unlikely(SpawnThreads3z(variants_completed, &ts))) {
+          // this update must occur after JoinThreads() call
+          if (variants_completed + cur_block_size == variant_ct) {
+            DeclareLastThreadBlock(&tg);
+          }
+          if (unlikely(SpawnThreads(&tg))) {
             goto CalcKing_ret_THREAD_CREATE_FAIL;
           }
           printf("\r%s pass %u/%u: %u variants complete.", flagname, pass_idx_p1, pass_ct, variants_completed);
           fflush(stdout);
           variants_completed += cur_block_size;
           parity = 1 - parity;
-        } while (!ts.is_last_block);
-        JoinThreads3z(&ts);
+        } while (!IsLastBlock(&tg));
+        JoinThreads(&tg);
       }
       if (matrix_shape || (king_flags & kfKingColAll)) {
         printf("\r%s pass %u/%u: Writing...                   \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b", flagname, pass_idx_p1, pass_ct);
@@ -1332,7 +1335,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
           if (!(king_flags & (kfKingMatrixBin | kfKingMatrixBin4))) {
             const uint32_t is_squarex = king_flags & (kfKingMatrixSq | kfKingMatrixSq0);
             const uint32_t is_square0 = king_flags & kfKingMatrixSq0;
-            uint32_t* results_iter = g_king_counts;
+            uint32_t* results_iter = ctx.king_counts;
             uint32_t sample_idx1 = row_start_idx;
             if (is_squarex && (!parallel_idx) && (pass_idx_p1)) {
               // dump "empty" first row
@@ -1399,7 +1402,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
             // from text matrix output...
             const uint32_t is_squarex = king_flags & (kfKingMatrixSq | kfKingMatrixSq0);
             const uint32_t is_square0 = king_flags & kfKingMatrixSq0;
-            uint32_t* results_iter = g_king_counts;
+            uint32_t* results_iter = ctx.king_counts;
             uint32_t sample_idx1 = row_start_idx;
             if (is_squarex && (!parallel_idx)) {
               sample_idx1 = 0;
@@ -1489,7 +1492,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
           const uint32_t king_col_ibs1 = king_flags & kfKingColIbs1;
           const uint32_t king_col_kinship = king_flags & kfKingColKinship;
           const uint32_t report_counts = king_flags & kfKingCounts;
-          uint32_t* results_iter = g_king_counts;
+          uint32_t* results_iter = ctx.king_counts;
           double nonmiss_recip = 0.0;
           for (uint32_t sample_idx1 = row_start_idx; sample_idx1 != row_end_idx; ++sample_idx1) {
             const char* sample_fmtid1 = &(collapsed_sample_fmtids[max_sample_fmtid_blen * sample_idx1]);
@@ -1576,7 +1579,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
       } else {
         printf("\r%s pass %u/%u: Condensing...                \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b", flagname, pass_idx_p1, pass_ct);
         fflush(stdout);
-        uint32_t* results_iter = g_king_counts;
+        uint32_t* results_iter = ctx.king_counts;
         for (uint32_t sample_idx1 = row_start_idx; sample_idx1 != row_end_idx; ++sample_idx1) {
           const uint32_t singleton_het1_ct = singleton_het_cts[sample_idx1];
           const uint32_t singleton_hom1_ct = singleton_hom_cts[sample_idx1];
@@ -1684,7 +1687,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
     break;
   }
  CalcKing_ret_1:
-  CleanupThreads3z(&ts, nullptr);
+  CleanupThreads(&tg);
   CswriteCloseCond(&csst, cswritetp);
   CswriteCloseCond(&css, cswritep);
   fclose_cond(outfile);
@@ -1940,28 +1943,38 @@ void IncrKingSubsetHomhom(const uint32_t* loaded_sample_idx_pairs, const uintptr
 }
 #endif
 
-THREAD_FUNC_DECL CalcKingTableSubsetThread(void* arg) {
-  const uintptr_t tidx = R_CAST(uintptr_t, arg);
-  const uint32_t start_idx = g_thread_start[tidx];
-  const uint32_t end_idx = g_thread_start[tidx + 1];
-  const uint32_t homhom_needed = g_homhom_needed;
+typedef struct CalcKingTableSubsetCtxStruct {
+  uintptr_t* smaj_hom[2];
+  uintptr_t* smaj_ref2het[2];
+  uint32_t* loaded_sample_idx_pairs;
+  uint32_t homhom_needed;
+
+  uint32_t* thread_start;
+
+  uint32_t* king_counts;
+} CalcKingTableSubsetCtx;
+
+THREAD_FUNC_DECL CalcKingTableSubsetThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  CalcKingTableSubsetCtx* ctx = S_CAST(CalcKingTableSubsetCtx*, arg->sharedp->context);
+
+  const uint32_t start_idx = ctx->thread_start[tidx];
+  const uint32_t end_idx = ctx->thread_start[tidx + 1];
+  const uint32_t homhom_needed = ctx->homhom_needed;
   uint32_t parity = 0;
-  while (1) {
-    const uint32_t is_last_block = g_is_last_thread_block;
+  do {
     if (homhom_needed) {
-      IncrKingSubsetHomhom(g_loaded_sample_idx_pairs, g_smaj_hom[parity], g_smaj_ref2het[parity], start_idx, end_idx, g_king_counts);
+      IncrKingSubsetHomhom(ctx->loaded_sample_idx_pairs, ctx->smaj_hom[parity], ctx->smaj_ref2het[parity], start_idx, end_idx, ctx->king_counts);
     } else {
-      IncrKingSubset(g_loaded_sample_idx_pairs, g_smaj_hom[parity], g_smaj_ref2het[parity], start_idx, end_idx, g_king_counts);
+      IncrKingSubset(ctx->loaded_sample_idx_pairs, ctx->smaj_hom[parity], ctx->smaj_ref2het[parity], start_idx, end_idx, ctx->king_counts);
     }
-    if (is_last_block) {
-      THREAD_RETURN;
-    }
-    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
-  }
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
 }
 
-PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, double king_table_subset_thresh, XidMode xid_mode, uint32_t skip_sid, uint32_t kinship_skip, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, uintptr_t line_idx, TextStream* txsp, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
+PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, double king_table_subset_thresh, XidMode xid_mode, uint32_t skip_sid, uint32_t rel_check, uint32_t kinship_skip, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, uintptr_t line_idx, TextStream* txsp, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
   PglErr reterr = kPglRetSuccess;
   {
     uint64_t pair_idx = *pair_idx_ptr;
@@ -1992,6 +2005,16 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, u
           goto KingTableSubsetLoad_ret_MISSING_TOKENS;
         }
         linebuf_iter = FirstNonTspace(CurTokenEnd(linebuf_iter));
+      }
+      if (rel_check) {
+        // linebuf_iter must point to the start of the second FID, while
+        // line_iter points to the start of the first.
+        const uint32_t first_fid_slen = CurTokenEnd(line_iter) - line_iter;
+        const uint32_t second_fid_slen = CurTokenEnd(linebuf_iter) - linebuf_iter;
+        if ((first_fid_slen != second_fid_slen) || (!memequal(line_iter, linebuf_iter, first_fid_slen))) {
+          line_iter = K_CAST(char*, linebuf_iter);
+          continue;
+        }
       }
       uint32_t sample_uidx2;
       if (SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx2, idbuf)) {
@@ -2054,17 +2077,107 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, u
   return reterr;
 }
 
-PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const char* subset_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+typedef struct FidPairIteratorStruct {
+  uint32_t block_start_idx;
+  uint32_t block_end_idx;
+  uint32_t idx1;
+  uint32_t idx2;
+} FidPairIterator;
+
+void InitFidPairIterator(FidPairIterator* fpip) {
+  fpip->block_start_idx = UINT32_MAX;  // deliberate overflow
+  fpip->block_end_idx = 0;
+  fpip->idx1 = 0;
+  fpip->idx2 = 0;  // defensive
+}
+
+uint64_t CountRelCheckPairs(const char* sorted_xidbox, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, char* idbuf) {
+  uint64_t total = 0;
+  for (uintptr_t block_start_idx = 0; block_start_idx != orig_sample_ct; ) {
+    const char* fid_start = &(sorted_xidbox[block_start_idx * max_xid_blen]);
+    const uint32_t fid_slen = AdvToDelim(fid_start, '\t') - fid_start;
+    memcpy(idbuf, fid_start, fid_slen);
+    idbuf[fid_slen] = ' ';
+    const uintptr_t block_end_idx = ExpsearchStrLb(idbuf, sorted_xidbox, fid_slen + 1, max_xid_blen, orig_sample_ct, block_start_idx + 1);
+    const uint64_t cur_block_size = block_end_idx - block_start_idx;
+    total += (cur_block_size * (cur_block_size - 1)) / 2;
+    block_start_idx = block_end_idx;
+  }
+  return total;
+}
+
+void GetRelCheckPairs(const char* sorted_xidbox, const uint32_t* xid_map, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, FidPairIterator* fpip, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
+  // Support "--make-king-table rel-check" without an actual subset-file.
+  uint32_t block_start_idx = fpip->block_start_idx;
+  uint32_t block_end_idx = fpip->block_end_idx;
+  uint32_t idx1 = fpip->idx1;
+  uint32_t idx2 = fpip->idx2;
+  uint64_t pair_idx = *pair_idx_ptr;
+  uint32_t* loaded_sample_idx_pairs_iter = loaded_sample_idx_pairs;
+  while (1) {
+    for (; idx1 != block_end_idx; ++idx1) {
+      // idx1 >= idx2.
+      uint32_t cur_pair_ct = idx1 - idx2;
+      uint32_t idx2_stop = idx1;
+      if (pair_idx_stop - pair_idx < cur_pair_ct) {
+        cur_pair_ct = pair_idx_stop - pair_idx;
+        idx2_stop = idx2 + cur_pair_ct;
+      }
+      if (pair_idx < pair_idx_start) {
+        const uint64_t skip_ct = pair_idx_start - pair_idx;
+        if (skip_ct >= cur_pair_ct) {
+          idx2 = idx2_stop;
+        } else {
+          idx2 += skip_ct;
+        }
+        // pair_idx is updated correctly after the inner loop
+      }
+      const uint32_t sample_uidx1 = xid_map[idx1];
+      for (; idx2 != idx2_stop; ++idx2) {
+        const uint32_t sample_uidx2 = xid_map[idx2];
+        *loaded_sample_idx_pairs_iter++ = sample_uidx1;
+        *loaded_sample_idx_pairs_iter++ = sample_uidx2;
+      }
+      pair_idx += cur_pair_ct;
+      if (pair_idx == pair_idx_stop) {
+        if (is_first_parallel_scan) {
+          pair_idx = CountRelCheckPairs(sorted_xidbox, max_xid_blen, orig_sample_ct, idbuf);
+        }
+        goto GetRelCheckPairs_early_exit;
+      }
+      idx2 = block_start_idx;
+    }
+    block_start_idx = block_end_idx;
+    if (block_start_idx == orig_sample_ct) {
+      break;
+    }
+    idx2 = block_start_idx;
+    const char* fid_start = &(sorted_xidbox[block_start_idx * max_xid_blen]);
+    const uint32_t fid_slen = AdvToDelim(fid_start, '\t') - fid_start;
+    memcpy(idbuf, fid_start, fid_slen);
+    idbuf[fid_slen] = ' ';
+    block_end_idx = ExpsearchStrLb(idbuf, sorted_xidbox, fid_slen + 1, max_xid_blen, orig_sample_ct, block_start_idx + 1);
+  }
+ GetRelCheckPairs_early_exit:
+  *pair_idx_ptr = pair_idx;
+  fpip->block_start_idx = block_start_idx;
+  fpip->block_end_idx = block_end_idx;
+  fpip->idx1 = idx1;
+  fpip->idx2 = idx2;
+}
+
+PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const char* subset_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, uint32_t rel_check, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+  // subset_fname permitted to be nullptr when rel_check is true.
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
   PglErr reterr = kPglRetSuccess;
   TextStream txs;
   CompressStreamState css;
-  ThreadsState ts;
+  ThreadGroup tg;
   PreinitTextStream(&txs);
   PreinitCstream(&css);
-  InitThreads3z(&ts);
+  PreinitThreads(&tg);
   {
     if (unlikely(IsSet(cip->haploid_mask, 0))) {
       logerrputs("Error: --make-king-table cannot be used on haploid genomes.\n");
@@ -2105,41 +2218,44 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     uintptr_t* splitbuf_ref2het;
     VecW* vecaligned_buf;
     // ok if allocations are a bit oversized
+    CalcKingTableSubsetCtx ctx;
     if (unlikely(
             bigstack_alloc_w(raw_sample_ctl, &cur_sample_include) ||
             bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
             bigstack_alloc_w(sample_ctaw2, &loadbuf) ||
             bigstack_alloc_w(kPglBitTransposeBatch * sample_ctaw, &splitbuf_hom) ||
             bigstack_alloc_w(kPglBitTransposeBatch * sample_ctaw, &splitbuf_ref2het) ||
-            bigstack_alloc_w(king_bufsizew, &(g_smaj_hom[0])) ||
-            bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[0])) ||
-            bigstack_alloc_w(king_bufsizew, &(g_smaj_hom[1])) ||
-            bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[1])) ||
+            bigstack_alloc_w(king_bufsizew, &(ctx.smaj_hom[0])) ||
+            bigstack_alloc_w(king_bufsizew, &(ctx.smaj_ref2het[0])) ||
+            bigstack_alloc_w(king_bufsizew, &(ctx.smaj_hom[1])) ||
+            bigstack_alloc_w(king_bufsizew, &(ctx.smaj_ref2het[1])) ||
             bigstack_alloc_v(kPglBitTransposeBufvecs, &vecaligned_buf))) {
       goto CalcKingTableSubset_ret_NOMEM;
     }
     SetKingTableFname(king_flags, parallel_idx, parallel_tot, outname_end);
-    uint32_t fname_slen;
+    if (subset_fname) {
+      uint32_t fname_slen;
 #ifdef _WIN32
-    fname_slen = GetFullPathName(subset_fname, kPglFnamesize, g_textbuf, nullptr);
-    if (unlikely((!fname_slen) || (fname_slen > kPglFnamesize)))
+      fname_slen = GetFullPathName(subset_fname, kPglFnamesize, g_textbuf, nullptr);
+      if (unlikely((!fname_slen) || (fname_slen > kPglFnamesize)))
 #else
-    if (unlikely(!realpath(subset_fname, g_textbuf)))
+      if (unlikely(!realpath(subset_fname, g_textbuf)))
 #endif
-    {
-      logerrprintfww(kErrprintfFopen, subset_fname, strerror(errno));
-      goto CalcKingTableSubset_ret_OPEN_FAIL;
-    }
-    if (RealpathIdentical(outname, g_textbuf, &(g_textbuf[kPglFnamesize + 64]))) {
-      logerrputs("Warning: --king-table-subset input filename matches --make-king-table output\nfilename.  Appending '~' to input filename.\n");
-      fname_slen = strlen(subset_fname);
-      memcpy(g_textbuf, subset_fname, fname_slen);
-      strcpy_k(&(g_textbuf[fname_slen]), "~");
-      if (unlikely(rename(subset_fname, g_textbuf))) {
-        logerrputs("Error: Failed to append '~' to --king-table-subset input filename.\n");
+      {
+        logerrprintfww(kErrprintfFopen, subset_fname, strerror(errno));
         goto CalcKingTableSubset_ret_OPEN_FAIL;
       }
-      subset_fname = g_textbuf;
+      if (RealpathIdentical(outname, g_textbuf, &(g_textbuf[kPglFnamesize + 64]))) {
+        logerrputs("Warning: --king-table-subset input filename matches --make-king-table output\nfilename.  Appending '~' to input filename.\n");
+        fname_slen = strlen(subset_fname);
+        memcpy(g_textbuf, subset_fname, fname_slen);
+        strcpy_k(&(g_textbuf[fname_slen]), "~");
+        if (unlikely(rename(subset_fname, g_textbuf))) {
+          logerrputs("Error: Failed to append '~' to --king-table-subset input filename.\n");
+          goto CalcKingTableSubset_ret_OPEN_FAIL;
+        }
+        subset_fname = g_textbuf;
+      }
     }
 
     // Safe to "write" the header line now, if necessary.
@@ -2157,6 +2273,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     if (unlikely(bigstack_alloc_c(max_sample_fmtid_blen * orig_sample_ct, &collapsed_sample_fmtids))) {
       goto CalcKingTableSubset_ret_NOMEM;
     }
+    // possible todo: allow this to change between passes
     uint32_t calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
     if (calc_thread_ct > orig_sample_ct / 32) {
       calc_thread_ct = orig_sample_ct / 32;
@@ -2164,108 +2281,111 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     if (!calc_thread_ct) {
       calc_thread_ct = 1;
     }
-    // possible todo: allow this to change between passes
-    ts.calc_thread_ct = calc_thread_ct;
     // could eventually have 64-bit g_thread_start?
     if (unlikely(
-            bigstack_alloc_u32(calc_thread_ct + 1, &g_thread_start) ||
-            bigstack_alloc_thread(calc_thread_ct, &ts.threads))) {
+            SetThreadCt(calc_thread_ct, &tg) ||
+            bigstack_alloc_u32(calc_thread_ct + 1, &ctx.thread_start))) {
       goto CalcKingTableSubset_ret_NOMEM;
     }
 
-    reterr = InitTextStream(subset_fname, kTextStreamBlenFast, 1, &txs);
-    if (unlikely(reterr)) {
-      if (reterr == kPglRetEof) {
-        logerrputs("Error: Empty --king-table-subset file.\n");
-        goto CalcKingTableSubset_ret_MALFORMED_INPUT;
-      }
-      goto CalcKingTableSubset_ret_TSTREAM_FAIL;
-    }
-    const char* linebuf_iter;
     uintptr_t line_idx = 0;
-    reterr = TextNextNonemptyLineLstripK(&txs, &line_idx, &linebuf_iter);
-    if (unlikely(reterr)) {
-      if (reterr == kPglRetEof) {
-        logerrputs("Error: Empty --king-table-subset file.\n");
-        goto CalcKingTableSubset_ret_MALFORMED_INPUT;
-      }
-      goto CalcKingTableSubset_ret_TSTREAM_FAIL;
-    }
-    const char* token_end = CurTokenEnd(linebuf_iter);
-    uint32_t token_slen = token_end - linebuf_iter;
-    // Make this work with both KING- and plink2-generated .kin0 files.
-    uint32_t fid_present = strequal_k(linebuf_iter, "#FID1", token_slen) || strequal_k(linebuf_iter, "FID", token_slen);
-    if (fid_present) {
-      linebuf_iter = FirstNonTspace(token_end);
-      token_end = CurTokenEnd(linebuf_iter);
-      token_slen = token_end - linebuf_iter;
-    } else {
-      if (unlikely(*linebuf_iter != '#')) {
-        goto CalcKingTableSubset_ret_INVALID_HEADER;
-      }
-      ++linebuf_iter;
-      --token_slen;
-    }
-    if (unlikely(!strequal_k(linebuf_iter, "ID1", token_slen))) {
-      goto CalcKingTableSubset_ret_INVALID_HEADER;
-    }
-    linebuf_iter = FirstNonTspace(token_end);
-    token_end = CurTokenEnd(linebuf_iter);
-    token_slen = token_end - linebuf_iter;
-    uint32_t skip_sid = 0;
-    XidMode xid_mode = fid_present? kfXidModeFidIid : kfXidModeIid;
-    if (strequal_k(linebuf_iter, "SID1", token_slen)) {
-      if (siip->sids) {
-        xid_mode = fid_present? kfXidModeFidIidSid : kfXidModeIidSid;
-      } else {
-        skip_sid = 1;
-      }
-      linebuf_iter = FirstNonTspace(token_end);
-      token_end = CurTokenEnd(linebuf_iter);
-      token_slen = token_end - linebuf_iter;
-    }
-    if (fid_present) {
-      if (unlikely(!strequal_k(linebuf_iter, "FID2", token_slen))) {
-        goto CalcKingTableSubset_ret_INVALID_HEADER;
-      }
-      linebuf_iter = FirstNonTspace(token_end);
-      token_end = CurTokenEnd(linebuf_iter);
-      token_slen = token_end - linebuf_iter;
-    }
-    if (unlikely(!strequal_k(linebuf_iter, "ID2", token_slen))) {
-      goto CalcKingTableSubset_ret_INVALID_HEADER;
-    }
-    if (xid_mode == kfXidModeFidIidSid) {
-      // technically don't need to check this in skip_sid case
-      linebuf_iter = FirstNonTspace(token_end);
-      token_end = CurTokenEnd(linebuf_iter);
-      token_slen = token_end - linebuf_iter;
-      if (unlikely(!strequal_k(linebuf_iter, "SID2", token_slen))) {
-        goto CalcKingTableSubset_ret_INVALID_HEADER;
-      }
-    }
     uint32_t kinship_skip = 0;
-    if (king_table_subset_thresh != -DBL_MAX) {
-      king_table_subset_thresh *= 1.0 - kSmallEpsilon;
-      while (1) {
+    uint32_t skip_sid = 0;
+    XidMode xid_mode = siip->sids? kfXidModeFidIidSid : kfXidModeIidSid;
+    if (subset_fname) {
+      reterr = InitTextStream(subset_fname, kTextStreamBlenFast, 1, &txs);
+      if (unlikely(reterr)) {
+        if (reterr == kPglRetEof) {
+          logerrputs("Error: Empty --king-table-subset file.\n");
+          goto CalcKingTableSubset_ret_MALFORMED_INPUT;
+        }
+        goto CalcKingTableSubset_ret_TSTREAM_FAIL;
+      }
+      const char* linebuf_iter;
+      reterr = TextNextNonemptyLineLstripK(&txs, &line_idx, &linebuf_iter);
+      if (unlikely(reterr)) {
+        if (reterr == kPglRetEof) {
+          logerrputs("Error: Empty --king-table-subset file.\n");
+          goto CalcKingTableSubset_ret_MALFORMED_INPUT;
+        }
+        goto CalcKingTableSubset_ret_TSTREAM_FAIL;
+      }
+      const char* token_end = CurTokenEnd(linebuf_iter);
+      uint32_t token_slen = token_end - linebuf_iter;
+      // Make this work with both KING- and plink2-generated .kin0 files.
+      uint32_t fid_present = strequal_k(linebuf_iter, "#FID1", token_slen) || strequal_k(linebuf_iter, "FID", token_slen);
+      if (fid_present) {
         linebuf_iter = FirstNonTspace(token_end);
         token_end = CurTokenEnd(linebuf_iter);
         token_slen = token_end - linebuf_iter;
-        if (unlikely(!token_slen)) {
-          logerrputs("Error: No kinship-coefficient column in --king-table-subset file.\n");
-          goto CalcKingTableSubset_ret_INCONSISTENT_INPUT;
+        xid_mode = kfXidModeFidIid;
+      } else {
+        if (unlikely(*linebuf_iter != '#')) {
+          goto CalcKingTableSubset_ret_INVALID_HEADER;
         }
-        if (strequal_k(linebuf_iter, "KINSHIP", token_slen) || strequal_k(linebuf_iter, "Kinship", token_slen)) {
-          break;
+        ++linebuf_iter;
+        --token_slen;
+        xid_mode = kfXidModeIid;
+      }
+      if (unlikely(!strequal_k(linebuf_iter, "ID1", token_slen))) {
+        goto CalcKingTableSubset_ret_INVALID_HEADER;
+      }
+      linebuf_iter = FirstNonTspace(token_end);
+      token_end = CurTokenEnd(linebuf_iter);
+      token_slen = token_end - linebuf_iter;
+      if (strequal_k(linebuf_iter, "SID1", token_slen)) {
+        if (siip->sids) {
+          xid_mode = fid_present? kfXidModeFidIidSid : kfXidModeIidSid;
+        } else {
+          skip_sid = 1;
         }
-        ++kinship_skip;
+        linebuf_iter = FirstNonTspace(token_end);
+        token_end = CurTokenEnd(linebuf_iter);
+        token_slen = token_end - linebuf_iter;
+      }
+      if (fid_present) {
+        if (unlikely(!strequal_k(linebuf_iter, "FID2", token_slen))) {
+          goto CalcKingTableSubset_ret_INVALID_HEADER;
+        }
+        linebuf_iter = FirstNonTspace(token_end);
+        token_end = CurTokenEnd(linebuf_iter);
+        token_slen = token_end - linebuf_iter;
+      }
+      if (unlikely(!strequal_k(linebuf_iter, "ID2", token_slen))) {
+        goto CalcKingTableSubset_ret_INVALID_HEADER;
+      }
+      if (xid_mode == kfXidModeFidIidSid) {
+        // technically don't need to check this in skip_sid case
+        linebuf_iter = FirstNonTspace(token_end);
+        token_end = CurTokenEnd(linebuf_iter);
+        token_slen = token_end - linebuf_iter;
+        if (unlikely(!strequal_k(linebuf_iter, "SID2", token_slen))) {
+          goto CalcKingTableSubset_ret_INVALID_HEADER;
+        }
+      }
+      if (king_table_subset_thresh != -DBL_MAX) {
+        king_table_subset_thresh *= 1.0 - kSmallEpsilon;
+        while (1) {
+          linebuf_iter = FirstNonTspace(token_end);
+          token_end = CurTokenEnd(linebuf_iter);
+          token_slen = token_end - linebuf_iter;
+          if (unlikely(!token_slen)) {
+            logerrputs("Error: No kinship-coefficient column in --king-table-subset file.\n");
+            goto CalcKingTableSubset_ret_INCONSISTENT_INPUT;
+          }
+          if (strequal_k(linebuf_iter, "KINSHIP", token_slen) || strequal_k(linebuf_iter, "Kinship", token_slen)) {
+            break;
+          }
+          ++kinship_skip;
+        }
       }
     }
 
     uint32_t* xid_map;  // IDs not collapsed
     char* sorted_xidbox;
     uintptr_t max_xid_blen;
-    reterr = SortedXidboxInitAlloc(orig_sample_include, siip, orig_sample_ct, 0, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+    // may as well use natural-sort order in rel-check-only case
+    reterr = SortedXidboxInitAlloc(orig_sample_include, siip, orig_sample_ct, 0, xid_mode, (!subset_fname), &sorted_xidbox, &xid_map, &max_xid_blen);
     if (unlikely(reterr)) {
       goto CalcKingTableSubset_ret_1;
     }
@@ -2274,27 +2394,36 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       goto CalcKingTableSubset_ret_NOMEM;
     }
 
-    g_homhom_needed = (king_flags & kfKingColNsnp) || ((!(king_flags & kfKingCounts)) && (king_flags & (kfKingColHethet | kfKingColIbs0 | kfKingColIbs1)));
-    const uint32_t homhom_needed_p4 = g_homhom_needed + 4;
+    ctx.homhom_needed = (king_flags & kfKingColNsnp) || ((!(king_flags & kfKingCounts)) && (king_flags & (kfKingColHethet | kfKingColIbs0 | kfKingColIbs1)));
+    const uint32_t homhom_needed_p4 = ctx.homhom_needed + 4;
     // if homhom_needed, 8 + 20 bytes per pair, otherwise 8 + 16
     uintptr_t pair_buf_capacity = bigstack_left();
     if (unlikely(pair_buf_capacity < 2 * kCacheline)) {
       goto CalcKingTableSubset_ret_NOMEM;
     }
     // adverse rounding
-    pair_buf_capacity = (pair_buf_capacity - 2 * kCacheline) / (24 + 4 * g_homhom_needed);
+    pair_buf_capacity = (pair_buf_capacity - 2 * kCacheline) / (24 + 4 * ctx.homhom_needed);
     if (pair_buf_capacity > 0xffffffffU) {
-      // 32-bit g_thread_start[] for now
+      // 32-bit ctx.thread_start[] for now
       pair_buf_capacity = 0xffffffffU;
     }
-    g_loaded_sample_idx_pairs = S_CAST(uint32_t*, bigstack_alloc_raw_rd(pair_buf_capacity * 2 * sizeof(int32_t)));
-    g_king_counts = R_CAST(uint32_t*, g_bigstack_base);
+    ctx.loaded_sample_idx_pairs = S_CAST(uint32_t*, bigstack_alloc_raw_rd(pair_buf_capacity * 2 * sizeof(int32_t)));
+    ctx.king_counts = R_CAST(uint32_t*, g_bigstack_base);
+    SetThreadFuncAndData(CalcKingTableSubsetThread, &ctx, &tg);
+
+    FidPairIterator fpi;
+    InitFidPairIterator(&fpi);
+
     uint64_t pair_idx = 0;
-    fputs("Scanning --king-table-subset file...", stdout);
-    fflush(stdout);
-    reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, (parallel_tot != 1), 0, pair_buf_capacity, line_idx, &txs, &pair_idx, g_loaded_sample_idx_pairs, idbuf);
-    if (unlikely(reterr)) {
-      goto CalcKingTableSubset_ret_1;
+    if (!subset_fname) {
+      GetRelCheckPairs(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, (parallel_tot != 1), 0, pair_buf_capacity, &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+    } else {
+      fputs("Scanning --king-table-subset file...", stdout);
+      fflush(stdout);
+      reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, rel_check, kinship_skip, (parallel_tot != 1), 0, pair_buf_capacity, line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+      if (unlikely(reterr)) {
+        goto CalcKingTableSubset_ret_1;
+      }
     }
     uint64_t pair_idx_global_start = 0;
     uint64_t pair_idx_global_stop = ~0LLU;
@@ -2305,38 +2434,48 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       if (pair_idx > pair_buf_capacity) {
         // may as well document possible overflow
         if (unlikely(parallel_pair_ct > ((~0LLU) / kParallelMax))) {
-          logerrputs("Error: Too many --king-table-subset sample pairs for this " PROG_NAME_STR " build.\n");
+          if (!subset_fname) {
+            // This is easy to support if there's ever a need, of course.
+            logerrputs("Error: Too many \"--make-king-table rel-check\" sample pairs for this " PROG_NAME_STR "\nbuild.\n");
+          } else {
+            logerrputs("Error: Too many --king-table-subset sample pairs for this " PROG_NAME_STR " build.\n");
+          }
           reterr = kPglRetNotYetSupported;
           goto CalcKingTableSubset_ret_1;
         }
         if (pair_idx_global_stop > pair_buf_capacity) {
           // large --parallel job
-          reterr = TextRewind(&txs);
-          if (unlikely(reterr)) {
-            goto CalcKingTableSubset_ret_TSTREAM_FAIL;
-          }
-          // bugfix (4 Oct 2019): forgot a bunch of reinitialization here
-          line_idx = 0;
-          char* header_throwaway;
-          reterr = TextNextNonemptyLineLstrip(&txs, &line_idx, &header_throwaway);
-          if (unlikely(reterr)) {
-            goto CalcKingTableSubset_ret_TSTREAM_REWIND_FAIL;
-          }
           pair_idx = 0;
-          reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), line_idx, &txs, &pair_idx, g_loaded_sample_idx_pairs, idbuf);
-          if (unlikely(reterr)) {
-            goto CalcKingTableSubset_ret_1;
+          if (!subset_fname) {
+            InitFidPairIterator(&fpi);
+            GetRelCheckPairs(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+          } else {
+            reterr = TextRewind(&txs);
+            if (unlikely(reterr)) {
+              goto CalcKingTableSubset_ret_TSTREAM_FAIL;
+            }
+            // bugfix (4 Oct 2019): forgot a bunch of reinitialization here
+            line_idx = 0;
+            char* header_throwaway;
+            reterr = TextNextNonemptyLineLstrip(&txs, &line_idx, &header_throwaway);
+            if (unlikely(reterr)) {
+              goto CalcKingTableSubset_ret_TSTREAM_REWIND_FAIL;
+            }
+            reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, rel_check, kinship_skip, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+            if (unlikely(reterr)) {
+              goto CalcKingTableSubset_ret_1;
+            }
           }
         } else {
           pair_idx = pair_idx_global_stop;
           if (pair_idx_global_start) {
-            memmove(g_loaded_sample_idx_pairs, &(g_loaded_sample_idx_pairs[pair_idx_global_start * 2]), (pair_idx_global_stop - pair_idx_global_start) * 2 * sizeof(int32_t));
+            memmove(ctx.loaded_sample_idx_pairs, &(ctx.loaded_sample_idx_pairs[pair_idx_global_start * 2]), (pair_idx_global_stop - pair_idx_global_start) * 2 * sizeof(int32_t));
           }
         }
       } else {
         pair_idx = pair_idx_global_stop;
         if (pair_idx_global_start) {
-          memmove(g_loaded_sample_idx_pairs, &(g_loaded_sample_idx_pairs[pair_idx_global_start * 2]), (pair_idx_global_stop - pair_idx_global_start) * 2 * sizeof(int32_t));
+          memmove(ctx.loaded_sample_idx_pairs, &(ctx.loaded_sample_idx_pairs[pair_idx_global_start * 2]), (pair_idx_global_stop - pair_idx_global_start) * 2 * sizeof(int32_t));
         }
       }
     }
@@ -2348,7 +2487,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       const uintptr_t cur_pair_ct = pair_idx - pair_idx_cur_start;
       const uintptr_t cur_pair_ct_x2 = 2 * cur_pair_ct;
       for (uintptr_t ulii = 0; ulii != cur_pair_ct_x2; ++ulii) {
-        SetBit(g_loaded_sample_idx_pairs[ulii], cur_sample_include);
+        SetBit(ctx.loaded_sample_idx_pairs[ulii], cur_sample_include);
       }
       FillCumulativePopcounts(cur_sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
       const uint32_t cur_sample_ct = sample_include_cumulative_popcounts[raw_sample_ctl - 1] + PopcountWord(cur_sample_include[raw_sample_ctl - 1]);
@@ -2356,17 +2495,19 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       const uint32_t cur_sample_ctaw2 = QuaterCtToAlignedWordCt(cur_sample_ct);
       if (cur_sample_ct != raw_sample_ct) {
         for (uintptr_t ulii = 0; ulii != cur_pair_ct_x2; ++ulii) {
-          g_loaded_sample_idx_pairs[ulii] = RawToSubsettedPos(cur_sample_include, sample_include_cumulative_popcounts, g_loaded_sample_idx_pairs[ulii]);
+          ctx.loaded_sample_idx_pairs[ulii] = RawToSubsettedPos(cur_sample_include, sample_include_cumulative_popcounts, ctx.loaded_sample_idx_pairs[ulii]);
         }
       }
-      ZeroU32Arr(cur_pair_ct * homhom_needed_p4, g_king_counts);
+      ZeroU32Arr(cur_pair_ct * homhom_needed_p4, ctx.king_counts);
       CollapsedSampleFmtidInit(cur_sample_include, siip, cur_sample_ct, king_col_fid, king_col_sid, max_sample_fmtid_blen, collapsed_sample_fmtids);
       for (uint32_t tidx = 0; tidx <= calc_thread_ct; ++tidx) {
-        g_thread_start[tidx] = (tidx * S_CAST(uint64_t, cur_pair_ct)) / calc_thread_ct;
+        ctx.thread_start[tidx] = (tidx * S_CAST(uint64_t, cur_pair_ct)) / calc_thread_ct;
       }
       if (pass_idx != 1) {
-        ReinitThreads3z(&ts);
+        ReinitThreads(&tg);
       }
+      // possible todo: singleton/monomorphic optimization for sufficiently
+      // large jobs
       uintptr_t variant_uidx_base = 0;
       uintptr_t cur_bits = variant_include[0];
       uint32_t variants_completed = 0;
@@ -2375,8 +2516,8 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       PgrClearLdCache(simple_pgrp);
       do {
         const uint32_t cur_block_size = MINV(variant_ct - variants_completed, kKingMultiplex);
-        uintptr_t* cur_smaj_hom = g_smaj_hom[parity];
-        uintptr_t* cur_smaj_ref2het = g_smaj_ref2het[parity];
+        uintptr_t* cur_smaj_hom = ctx.smaj_hom[parity];
+        uintptr_t* cur_smaj_ref2het = ctx.smaj_ref2het[parity];
         // "block" = distance computation granularity, usually 1024 or 1536
         //           variants
         // "batch" = variant-major-to-sample-major transpose granularity,
@@ -2450,22 +2591,22 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
           }
         }
         if (variants_completed) {
-          JoinThreads3z(&ts);
+          JoinThreads(&tg);
           // CalcKingTableSubsetThread() never errors out
-        } else {
-          ts.thread_func_ptr = CalcKingTableSubsetThread;
         }
-        // this update must occur after JoinThreads3z() call
-        ts.is_last_block = (variants_completed + cur_block_size == variant_ct);
-        if (unlikely(SpawnThreads3z(variants_completed, &ts))) {
+        // this update must occur after JoinThreads() call
+        if (variants_completed + cur_block_size == variant_ct) {
+          DeclareLastThreadBlock(&tg);
+        }
+        if (unlikely(SpawnThreads(&tg))) {
           goto CalcKingTableSubset_ret_THREAD_CREATE_FAIL;
         }
         printf("\r--make-king-table pass %" PRIuPTR ": %u variants complete.", pass_idx, variants_completed);
         fflush(stdout);
         variants_completed += cur_block_size;
         parity = 1 - parity;
-      } while (!ts.is_last_block);
-      JoinThreads3z(&ts);
+      } while (!IsLastBlock(&tg));
+      JoinThreads(&tg);
       printf("\r--make-king-table pass %" PRIuPTR ": Writing...                   \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b", pass_idx);
       fflush(stdout);
 
@@ -2476,7 +2617,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       const uint32_t king_col_ibs1 = king_flags & kfKingColIbs1;
       const uint32_t king_col_kinship = king_flags & kfKingColKinship;
       const uint32_t report_counts = king_flags & kfKingCounts;
-      uint32_t* results_iter = g_king_counts;
+      uint32_t* results_iter = ctx.king_counts;
       double nonmiss_recip = 0.0;
       for (uintptr_t cur_pair_idx = 0; cur_pair_idx != cur_pair_ct; ++cur_pair_idx, results_iter = &(results_iter[homhom_needed_p4])) {
         const uint32_t ibs0_ct = results_iter[0];
@@ -2489,8 +2630,8 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
           ++king_table_filter_ct;
           continue;
         }
-        const uint32_t sample_idx1 = g_loaded_sample_idx_pairs[2 * cur_pair_idx];
-        const uint32_t sample_idx2 = g_loaded_sample_idx_pairs[2 * cur_pair_idx + 1];
+        const uint32_t sample_idx1 = ctx.loaded_sample_idx_pairs[2 * cur_pair_idx];
+        const uint32_t sample_idx2 = ctx.loaded_sample_idx_pairs[2 * cur_pair_idx + 1];
         if (king_col_id) {
           cswritep = strcpyax(cswritep, &(collapsed_sample_fmtids[max_sample_fmtid_blen * sample_idx1]), '\t');
           cswritep = strcpyax(cswritep, &(collapsed_sample_fmtids[max_sample_fmtid_blen * sample_idx2]), '\t');
@@ -2549,11 +2690,15 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
         break;
       }
       pair_idx_cur_start = pair_idx;
-      fputs("Scanning --king-table-subset file...", stdout);
-      fflush(stdout);
-      reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, 0, pair_idx_cur_start, MINV(pair_idx_global_stop, pair_idx_cur_start + pair_buf_capacity), line_idx, &txs, &pair_idx, g_loaded_sample_idx_pairs, idbuf);
-      if (unlikely(reterr)) {
-        goto CalcKingTableSubset_ret_1;
+      if (!subset_fname) {
+        GetRelCheckPairs(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &fpi, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+      } else {
+        fputs("Scanning --king-table-subset file...", stdout);
+        fflush(stdout);
+        reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, rel_check, kinship_skip, 0, pair_idx_cur_start, MINV(pair_idx_global_stop, pair_idx_cur_start + pair_buf_capacity), line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+        if (unlikely(reterr)) {
+          goto CalcKingTableSubset_ret_1;
+        }
       }
       ++pass_idx;
     }
@@ -2598,7 +2743,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     break;
   }
  CalcKingTableSubset_ret_1:
-  CleanupThreads3z(&ts, nullptr);
+  CleanupThreads(&tg);
   CleanupTextStream2("--king-table-subset file", &txs, &reterr);
   CswriteCloseCond(&css, cswritep);
   fclose_cond(outfile);
@@ -2676,146 +2821,141 @@ PglErr LoadCenteredVarmaj(const uintptr_t* sample_include, const uint32_t* sampl
   return ExpandCenteredVarmaj(genovec_buf, dosage_present_buf, dosage_main_buf, variance_standardize, is_haploid, sample_ct, dosage_ct, maj_freq, normed_dosages);
 }
 
-// multithread globals
-static double* g_normed_dosage_vmaj_bufs[2] = {nullptr, nullptr};
-static double* g_normed_dosage_smaj_bufs[2] = {nullptr, nullptr};
-
-static double* g_grm = nullptr;
-
-static uint32_t g_pca_sample_ct = 0;
-static uint32_t g_cur_batch_size = 0;
-
 CONSTI32(kGrmVariantBlockSize, 144);
 
+typedef struct CalcGrmPartCtxStruct {
+  uint32_t* thread_start;
+  uint32_t sample_ct;
+
+  uint32_t cur_batch_size;
+  double* normed_dosage_vmaj_bufs[2];
+  double* normed_dosage_smaj_bufs[2];
+
+  double* grm;
+} CalcGrmPartCtx;
+
 // turns out dsyrk_ does exactly what we want here
-THREAD_FUNC_DECL CalcGrmThread(void* arg) {
-  const uintptr_t tidx = R_CAST(uintptr_t, arg);
-  assert(!tidx);
-  const uint32_t sample_ct = g_pca_sample_ct;
-  double* grm = g_grm;
+THREAD_FUNC_DECL CalcGrmThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  assert(!arg->tidx);
+  CalcGrmPartCtx* ctx = S_CAST(CalcGrmPartCtx*, arg->sharedp->context);
+  const uint32_t sample_ct = ctx->sample_ct;
+  double* grm = ctx->grm;
   uint32_t parity = 0;
-  while (1) {
-    const uint32_t is_last_batch = g_is_last_thread_block;
-    const uint32_t cur_batch_size = g_cur_batch_size;
+  do {
+    const uint32_t cur_batch_size = ctx->cur_batch_size;
     if (cur_batch_size) {
-      TransposeMultiplySelfIncr(g_normed_dosage_vmaj_bufs[parity], sample_ct, cur_batch_size, grm);
+      TransposeMultiplySelfIncr(ctx->normed_dosage_vmaj_bufs[parity], sample_ct, cur_batch_size, grm);
     }
-    if (is_last_batch) {
-      THREAD_RETURN;
-    }
-    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
-  }
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
 }
 
 // can't use dsyrk_, so we manually partition the GRM piece we need to compute
 // into an appropriate number of sub-pieces
-THREAD_FUNC_DECL CalcGrmPartThread(void* arg) {
-  const uintptr_t tidx = R_CAST(uintptr_t, arg);
-  const uintptr_t sample_ct = g_pca_sample_ct;
-  const uintptr_t first_thread_row_start_idx = g_thread_start[0];
-  const uintptr_t row_start_idx = g_thread_start[tidx];
-  const uintptr_t row_ct = g_thread_start[tidx + 1] - row_start_idx;
-  double* grm_piece = &(g_grm[(row_start_idx - first_thread_row_start_idx) * sample_ct]);
+THREAD_FUNC_DECL CalcGrmPartThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  CalcGrmPartCtx* ctx = S_CAST(CalcGrmPartCtx*, arg->sharedp->context);
+
+  const uintptr_t sample_ct = ctx->sample_ct;
+  const uintptr_t first_thread_row_start_idx = ctx->thread_start[0];
+  const uintptr_t row_start_idx = ctx->thread_start[tidx];
+  const uintptr_t row_ct = ctx->thread_start[tidx + 1] - row_start_idx;
+  double* grm_piece = &(ctx->grm[(row_start_idx - first_thread_row_start_idx) * sample_ct]);
   uint32_t parity = 0;
-  while (1) {
-    const uint32_t is_last_batch = g_is_last_thread_block;
-    const uintptr_t cur_batch_size = g_cur_batch_size;
+  do {
+    const uintptr_t cur_batch_size = ctx->cur_batch_size;
     if (cur_batch_size) {
-      double* normed_vmaj = g_normed_dosage_vmaj_bufs[parity];
-      double* normed_smaj = g_normed_dosage_smaj_bufs[parity];
+      double* normed_vmaj = ctx->normed_dosage_vmaj_bufs[parity];
+      double* normed_smaj = ctx->normed_dosage_smaj_bufs[parity];
       RowMajorMatrixMultiplyIncr(&(normed_smaj[row_start_idx * cur_batch_size]), normed_vmaj, row_ct, sample_ct, cur_batch_size, grm_piece);
     }
-    if (is_last_batch) {
-      THREAD_RETURN;
-    }
-    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
-  }
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
 }
-
-// missing_nz bit is set iff that sample has at least one missing entry in
-// current block
-static uintptr_t* g_missing_nz[2] = {nullptr, nullptr};
-static uintptr_t* g_missing_smaj[2] = {nullptr, nullptr};
-static uint32_t* g_missing_dbl_exclude_cts = nullptr;
 
 CONSTI32(kDblMissingBlockWordCt, 2);
 CONSTI32(kDblMissingBlockSize, kDblMissingBlockWordCt * kBitsPerWord);
 
-THREAD_FUNC_DECL CalcDblMissingThread(void* arg) {
-  const uintptr_t tidx = R_CAST(uintptr_t, arg);
-  const uint64_t first_thread_row_start_idx = g_thread_start[0];
-  const uint64_t dbl_exclude_offset = (first_thread_row_start_idx * (first_thread_row_start_idx - 1)) / 2;
-  const uint32_t row_start_idx = g_thread_start[tidx];
-  const uintptr_t row_end_idx = g_thread_start[tidx + 1];
-  uint32_t* missing_dbl_exclude_cts = g_missing_dbl_exclude_cts;
-  uint32_t parity = 0;
-  while (1) {
-    const uint32_t is_last_batch = g_is_last_thread_block;
+typedef struct CalcDblMissingCtxStruct {
+  uint32_t* thread_start;
+  // missing_nz bit is set iff that sample has at least one missing entry in
+  // current block
+  uintptr_t* missing_nz[2];
+  uintptr_t* missing_smaj[2];
+  uint32_t* missing_dbl_exclude_cts;
+} CalcDblMissingCtx;
 
-    // currently only care about zero vs. nonzero (I/O error)
-    const uint32_t cur_batch_size = g_cur_batch_size;
-    if (cur_batch_size) {
-      const uintptr_t* missing_nz = g_missing_nz[parity];
-      const uintptr_t* missing_smaj = g_missing_smaj[parity];
-      const uint32_t first_idx = AdvBoundedTo1Bit(missing_nz, 0, row_end_idx);
-      uint32_t sample_idx = first_idx;
-      uint32_t prev_missing_nz_ct = 0;
-      if (sample_idx < row_start_idx) {
-        sample_idx = AdvBoundedTo1Bit(missing_nz, row_start_idx, row_end_idx);
-        if (sample_idx != row_end_idx) {
-          prev_missing_nz_ct = PopcountBitRange(missing_nz, 0, row_start_idx);
-        }
+THREAD_FUNC_DECL CalcDblMissingThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  CalcDblMissingCtx* ctx = S_CAST(CalcDblMissingCtx*, arg->sharedp->context);
+
+  const uint64_t first_thread_row_start_idx = ctx->thread_start[0];
+  const uint64_t dbl_exclude_offset = (first_thread_row_start_idx * (first_thread_row_start_idx - 1)) / 2;
+  const uint32_t row_start_idx = ctx->thread_start[tidx];
+  const uintptr_t row_end_idx = ctx->thread_start[tidx + 1];
+  uint32_t* missing_dbl_exclude_cts = ctx->missing_dbl_exclude_cts;
+  uint32_t parity = 0;
+  do {
+    const uintptr_t* missing_nz = ctx->missing_nz[parity];
+    const uintptr_t* missing_smaj = ctx->missing_smaj[parity];
+    const uint32_t first_idx = AdvBoundedTo1Bit(missing_nz, 0, row_end_idx);
+    uint32_t sample_idx = first_idx;
+    uint32_t prev_missing_nz_ct = 0;
+    if (sample_idx < row_start_idx) {
+      sample_idx = AdvBoundedTo1Bit(missing_nz, row_start_idx, row_end_idx);
+      if (sample_idx != row_end_idx) {
+        prev_missing_nz_ct = PopcountBitRange(missing_nz, 0, row_start_idx);
       }
-      while (sample_idx < row_end_idx) {
-        // todo: compare this explicit unroll with ordinary iteration over a
-        // cur_words[] array
-        // todo: try 1 word at a time, and 30 words at a time
-        const uintptr_t cur_word0 = missing_smaj[sample_idx * kDblMissingBlockWordCt];
-        const uintptr_t cur_word1 = missing_smaj[sample_idx * kDblMissingBlockWordCt + 1];
+    }
+    while (sample_idx < row_end_idx) {
+      // todo: compare this explicit unroll with ordinary iteration over a
+      // cur_words[] array
+      // todo: try 1 word at a time, and 30 words at a time
+      const uintptr_t cur_word0 = missing_smaj[sample_idx * kDblMissingBlockWordCt];
+      const uintptr_t cur_word1 = missing_smaj[sample_idx * kDblMissingBlockWordCt + 1];
 #ifndef __LP64__
-        const uintptr_t cur_word2 = missing_smaj[sample_idx * kDblMissingBlockWordCt + 2];
-        const uintptr_t cur_word3 = missing_smaj[sample_idx * kDblMissingBlockWordCt + 3];
+      const uintptr_t cur_word2 = missing_smaj[sample_idx * kDblMissingBlockWordCt + 2];
+      const uintptr_t cur_word3 = missing_smaj[sample_idx * kDblMissingBlockWordCt + 3];
 #endif
-        uintptr_t sample_idx2_base;
-        uintptr_t cur_bits;
-        BitIter1Start(missing_nz, first_idx, &sample_idx2_base, &cur_bits);
-        // (sample_idx - 1) underflow ok
-        uint32_t* write_base = &(missing_dbl_exclude_cts[((S_CAST(uint64_t, sample_idx) * (sample_idx - 1)) / 2) - dbl_exclude_offset]);
-        for (uint32_t uii = 0; uii != prev_missing_nz_ct; ++uii) {
-          const uint32_t sample_idx2 = BitIter1(missing_nz, &sample_idx2_base, &cur_bits);
-          const uintptr_t* cur_missing_smaj_base = &(missing_smaj[sample_idx2 * kDblMissingBlockWordCt]);
-          const uintptr_t cur_and0 = cur_word0 & cur_missing_smaj_base[0];
-          const uintptr_t cur_and1 = cur_word1 & cur_missing_smaj_base[1];
+      uintptr_t sample_idx2_base;
+      uintptr_t cur_bits;
+      BitIter1Start(missing_nz, first_idx, &sample_idx2_base, &cur_bits);
+      // (sample_idx - 1) underflow ok
+      uint32_t* write_base = &(missing_dbl_exclude_cts[((S_CAST(uint64_t, sample_idx) * (sample_idx - 1)) / 2) - dbl_exclude_offset]);
+      for (uint32_t uii = 0; uii != prev_missing_nz_ct; ++uii) {
+        const uint32_t sample_idx2 = BitIter1(missing_nz, &sample_idx2_base, &cur_bits);
+        const uintptr_t* cur_missing_smaj_base = &(missing_smaj[sample_idx2 * kDblMissingBlockWordCt]);
+        const uintptr_t cur_and0 = cur_word0 & cur_missing_smaj_base[0];
+        const uintptr_t cur_and1 = cur_word1 & cur_missing_smaj_base[1];
 #ifdef __LP64__
-          if (cur_and0 || cur_and1) {
-            write_base[sample_idx2] += Popcount2Words(cur_and0, cur_and1);
-          }
-#else
-          const uintptr_t cur_and2 = cur_word2 & cur_missing_smaj_base[2];
-          const uintptr_t cur_and3 = cur_word3 & cur_missing_smaj_base[3];
-          if (cur_and0 || cur_and1 || cur_and2 || cur_and3) {
-            write_base[sample_idx2] += Popcount4Words(cur_and0, cur_and1, cur_and2, cur_and3);
-          }
-#endif
+        if (cur_and0 || cur_and1) {
+          write_base[sample_idx2] += Popcount2Words(cur_and0, cur_and1);
         }
-        ++prev_missing_nz_ct;
-        sample_idx = AdvBoundedTo1Bit(missing_nz, sample_idx + 1, row_end_idx);
+#else
+        const uintptr_t cur_and2 = cur_word2 & cur_missing_smaj_base[2];
+        const uintptr_t cur_and3 = cur_word3 & cur_missing_smaj_base[3];
+        if (cur_and0 || cur_and1 || cur_and2 || cur_and3) {
+          write_base[sample_idx2] += Popcount4Words(cur_and0, cur_and1, cur_and2, cur_and3);
+        }
+#endif
       }
+      ++prev_missing_nz_ct;
+      sample_idx = AdvBoundedTo1Bit(missing_nz, sample_idx + 1, row_end_idx);
     }
-    if (is_last_batch) {
-      THREAD_RETURN;
-    }
-    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
-  }
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
 }
 
 PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t row_start_idx, uintptr_t row_end_idx, uint32_t max_thread_ct, PgenReader* simple_pgrp, uint32_t** missing_cts_ptr, uint32_t** missing_dbl_exclude_cts_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  ThreadsState ts;
-  InitThreads3z(&ts);
+  ThreadGroup tg;
+  PreinitThreads(&tg);
   PglErr reterr = kPglRetSuccess;
   {
     const uintptr_t row_end_idxl = BitCtToWordCt(row_end_idx);
@@ -2823,32 +2963,34 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
     const uintptr_t row_end_idxaw = BitCtToAlignedWordCt(row_end_idx);
     uintptr_t* missing_vmaj = nullptr;
     uintptr_t* genovec_buf = nullptr;
+    CalcDblMissingCtx ctx;
     if (bigstack_calloc_u32(row_end_idx, missing_cts_ptr) ||
         bigstack_calloc_u32((S_CAST(uint64_t, row_end_idx) * (row_end_idx - 1) - S_CAST(uint64_t, row_start_idx) * (row_start_idx - 1)) / 2, missing_dbl_exclude_cts_ptr) ||
-        bigstack_calloc_w(row_end_idxl, &g_missing_nz[0]) ||
-        bigstack_calloc_w(row_end_idxl, &g_missing_nz[1]) ||
+        bigstack_calloc_w(row_end_idxl, &ctx.missing_nz[0]) ||
+        bigstack_calloc_w(row_end_idxl, &ctx.missing_nz[1]) ||
         bigstack_alloc_w(QuaterCtToWordCt(row_end_idx), &genovec_buf) ||
         bigstack_alloc_w(row_end_idxaw * (k1LU * kDblMissingBlockSize), &missing_vmaj) ||
-        bigstack_alloc_w(RoundUpPow2(row_end_idx, 2) * kDblMissingBlockWordCt, &g_missing_smaj[0]) ||
-        bigstack_alloc_w(RoundUpPow2(row_end_idx, 2) * kDblMissingBlockWordCt, &g_missing_smaj[1])) {
+        bigstack_alloc_w(RoundUpPow2(row_end_idx, 2) * kDblMissingBlockWordCt, &ctx.missing_smaj[0]) ||
+        bigstack_alloc_w(RoundUpPow2(row_end_idx, 2) * kDblMissingBlockWordCt, &ctx.missing_smaj[1])) {
       goto CalcMissingMatrix_ret_NOMEM;
     }
     uint32_t* missing_cts = *missing_cts_ptr;
     uint32_t* missing_dbl_exclude_cts = *missing_dbl_exclude_cts_ptr;
-    g_missing_dbl_exclude_cts = missing_dbl_exclude_cts;
+    ctx.missing_dbl_exclude_cts = missing_dbl_exclude_cts;
     VecW* transpose_bitblock_wkspace = S_CAST(VecW*, bigstack_alloc_raw(kPglBitTransposeBufbytes));
     uint32_t calc_thread_ct = (max_thread_ct > 8)? (max_thread_ct - 1) : max_thread_ct;
-    ts.calc_thread_ct = calc_thread_ct;
-    if (bigstack_alloc_u32(calc_thread_ct + 1, &g_thread_start) ||
-        bigstack_alloc_thread(calc_thread_ct, &ts.threads)) {
+    if (unlikely(
+            SetThreadCt(calc_thread_ct, &tg) ||
+            bigstack_alloc_u32(calc_thread_ct + 1, &ctx.thread_start))) {
       goto CalcMissingMatrix_ret_NOMEM;
     }
-    // note that this g_thread_start[] may have different values than the one
+    // note that this ctx.thread_start[] may have different values than the one
     // computed by CalcGrm(), since calc_thread_ct changes in the MTBLAS and
     // OS X cases.
-    TriangleFill(sample_ct, calc_thread_ct, parallel_idx, parallel_tot, 0, 1, g_thread_start);
-    assert(g_thread_start[0] == row_start_idx);
-    assert(g_thread_start[calc_thread_ct] == row_end_idx);
+    TriangleFill(sample_ct, calc_thread_ct, parallel_idx, parallel_tot, 0, 1, ctx.thread_start);
+    assert(ctx.thread_start[0] == row_start_idx);
+    assert(ctx.thread_start[calc_thread_ct] == row_end_idx);
+    SetThreadFuncAndData(CalcDblMissingThread, &ctx, &tg);
     const uint32_t sample_transpose_batch_ct_m1 = (row_end_idx - 1) / kPglBitTransposeBatch;
 
     uintptr_t variant_uidx_base = 0;
@@ -2863,7 +3005,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
     PgrClearLdCache(simple_pgrp);
     for (uint32_t cur_variant_idx_start = 0; ; ) {
       uint32_t cur_batch_size = 0;
-      if (!ts.is_last_block) {
+      if (!IsLastBlock(&tg)) {
         cur_batch_size = kDblMissingBlockSize;
         uint32_t cur_variant_idx_end = cur_variant_idx_start + cur_batch_size;
         if (cur_variant_idx_end > variant_ct) {
@@ -2880,7 +3022,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
           }
           missing_vmaj_iter = &(missing_vmaj_iter[row_end_idxaw]);
         }
-        uintptr_t* cur_missing_smaj_iter = g_missing_smaj[parity];
+        uintptr_t* cur_missing_smaj_iter = ctx.missing_smaj[parity];
         uint32_t sample_batch_size = kPglBitTransposeBatch;
         for (uint32_t sample_transpose_batch_idx = 0; ; ++sample_transpose_batch_idx) {
           if (sample_transpose_batch_idx >= sample_transpose_batch_ct_m1) {
@@ -2893,7 +3035,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
           // increases
           TransposeBitblock(&(missing_vmaj[sample_transpose_batch_idx * kPglBitTransposeWords]), row_end_idxaw, kDblMissingBlockWordCt, kDblMissingBlockSize, sample_batch_size, &(cur_missing_smaj_iter[sample_transpose_batch_idx * kPglBitTransposeBatch * kDblMissingBlockWordCt]), transpose_bitblock_wkspace);
         }
-        uintptr_t* cur_missing_nz = g_missing_nz[parity];
+        uintptr_t* cur_missing_nz = ctx.missing_nz[parity];
         ZeroWArr(row_end_idxl, cur_missing_nz);
         for (uint32_t sample_idx = 0; sample_idx != row_end_idx; ++sample_idx) {
           const uintptr_t cur_word0 = *cur_missing_smaj_iter++;
@@ -2914,9 +3056,9 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
         }
       }
       if (cur_variant_idx_start) {
-        JoinThreads3z(&ts);
+        JoinThreads(&tg);
         // CalcDblMissingThread() never errors out
-        if (ts.is_last_block) {
+        if (IsLastBlock(&tg)) {
           break;
         }
         if (cur_variant_idx_start >= next_print_variant_idx) {
@@ -2929,10 +3071,10 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
           next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
         }
       }
-      ts.is_last_block = (cur_variant_idx_start + cur_batch_size == variant_ct);
-      g_cur_batch_size = cur_batch_size;
-      ts.thread_func_ptr = CalcDblMissingThread;
-      if (unlikely(SpawnThreads3z(cur_variant_idx_start, &ts))) {
+      if (cur_variant_idx_start + cur_batch_size == variant_ct) {
+        DeclareLastThreadBlock(&tg);
+      }
+      if (unlikely(SpawnThreads(&tg))) {
         goto CalcMissingMatrix_ret_THREAD_CREATE_FAIL;
       }
       cur_variant_idx_start += cur_batch_size;
@@ -2943,7 +3085,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
     }
     fputs("\b\b", stdout);
     logputs("done.\n");
-    bigstack_mark = R_CAST(unsigned char*, g_missing_nz[0]);
+    bigstack_mark = R_CAST(unsigned char*, ctx.missing_nz[0]);
   }
   while (0) {
   CalcMissingMatrix_ret_NOMEM:
@@ -2956,7 +3098,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
     reterr = kPglRetThreadCreateFail;
     break;
   }
-  CleanupThreads3z(&ts, &g_cur_batch_size);
+  CleanupThreads(&tg);
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -2967,10 +3109,10 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
   CompressStreamState css;
-  ThreadsState ts;
+  ThreadGroup tg;
   PglErr reterr = kPglRetSuccess;
   PreinitCstream(&css);
-  InitThreads3z(&ts);
+  PreinitThreads(&tg);
   {
     assert(variant_ct);
 #if defined(__APPLE__) || defined(USE_MTBLAS)
@@ -2984,7 +3126,6 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       }
     }
 #endif
-    ts.calc_thread_ct = calc_thread_ct;
     if (unlikely(sample_ct < 2)) {
       logerrputs("Error: GRM construction requires at least two samples.\n");
       goto CalcGrm_ret_DEGENERATE_DATA;
@@ -3027,13 +3168,17 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         sample_include = new_sample_include;
       }
     }
-    g_thread_start = thread_start;
+
+    CalcGrmPartCtx ctx;
+    ctx.thread_start = thread_start;
     double* grm;
-    if (unlikely(bigstack_calloc_d((row_end_idx - row_start_idx) * row_end_idx, &grm))) {
+    if (unlikely(
+            SetThreadCt(calc_thread_ct, &tg) ||
+            bigstack_calloc_d((row_end_idx - row_start_idx) * row_end_idx, &grm))) {
       goto CalcGrm_ret_NOMEM;
     }
-    g_pca_sample_ct = row_end_idx;
-    g_grm = grm;
+    ctx.sample_ct = row_end_idx;
+    ctx.grm = grm;
     const uint32_t row_end_idxl2 = QuaterCtToWordCt(row_end_idx);
     const uint32_t row_end_idxl = BitCtToWordCt(row_end_idx);
     uint32_t* sample_include_cumulative_popcounts;
@@ -3042,7 +3187,6 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     Dosage* dosage_main_buf;
     if (unlikely(
             bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
-            bigstack_alloc_thread(calc_thread_ct, &ts.threads) ||
             bigstack_alloc_w(row_end_idxl2, &genovec_buf) ||
             bigstack_alloc_w(row_end_idxl, &dosage_present_buf) ||
             bigstack_alloc_dosage(row_end_idx, &dosage_main_buf))) {
@@ -3054,8 +3198,8 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       goto CalcGrm_ret_1;
     }
     if (unlikely(
-            bigstack_alloc_d(row_end_idx * kGrmVariantBlockSize, &g_normed_dosage_vmaj_bufs[0]) ||
-            bigstack_alloc_d(row_end_idx * kGrmVariantBlockSize, &g_normed_dosage_vmaj_bufs[1]))) {
+            bigstack_alloc_d(row_end_idx * kGrmVariantBlockSize, &ctx.normed_dosage_vmaj_bufs[0]) ||
+            bigstack_alloc_d(row_end_idx * kGrmVariantBlockSize, &ctx.normed_dosage_vmaj_bufs[1]))) {
       goto CalcGrm_ret_NOMEM;
     }
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
@@ -3067,10 +3211,16 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     }
     if (thread_start) {
       if (unlikely(
-              bigstack_alloc_d(row_end_idx * kGrmVariantBlockSize, &g_normed_dosage_smaj_bufs[0]) ||
-              bigstack_alloc_d(row_end_idx * kGrmVariantBlockSize, &g_normed_dosage_smaj_bufs[1]))) {
+              bigstack_alloc_d(row_end_idx * kGrmVariantBlockSize, &ctx.normed_dosage_smaj_bufs[0]) ||
+              bigstack_alloc_d(row_end_idx * kGrmVariantBlockSize, &ctx.normed_dosage_smaj_bufs[1]))) {
         goto CalcGrm_ret_NOMEM;
       }
+      SetThreadFuncAndData(CalcGrmPartThread, &ctx, &tg);
+    } else {
+      // defensive
+      ctx.normed_dosage_smaj_bufs[0] = nullptr;
+      ctx.normed_dosage_smaj_bufs[1] = nullptr;
+      SetThreadFuncAndData(CalcGrmThread, &ctx, &tg);
     }
 #ifdef USE_MTBLAS
     const uint32_t blas_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
@@ -3098,14 +3248,14 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     PgrClearLdCache(simple_pgrp);
     for (uint32_t cur_variant_idx_start = 0; ; ) {
       uint32_t cur_batch_size = 0;
-      if (!ts.is_last_block) {
+      if (!IsLastBlock(&tg)) {
         cur_batch_size = kGrmVariantBlockSize;
         uint32_t cur_variant_idx_end = cur_variant_idx_start + cur_batch_size;
         if (cur_variant_idx_end > variant_ct) {
           cur_batch_size = variant_ct - cur_variant_idx_start;
           cur_variant_idx_end = variant_ct;
         }
-        double* normed_vmaj_iter = g_normed_dosage_vmaj_bufs[parity];
+        double* normed_vmaj_iter = ctx.normed_dosage_vmaj_bufs[parity];
         for (uint32_t variant_idx = cur_variant_idx_start; variant_idx != cur_variant_idx_end; ++variant_idx) {
           const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
           const uint32_t maj_allele_idx = maj_alleles[variant_uidx];
@@ -3132,13 +3282,13 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           normed_vmaj_iter = &(normed_vmaj_iter[row_end_idx]);
         }
         if (thread_start) {
-          MatrixTransposeCopy(g_normed_dosage_vmaj_bufs[parity], cur_batch_size, row_end_idx, g_normed_dosage_smaj_bufs[parity]);
+          MatrixTransposeCopy(ctx.normed_dosage_vmaj_bufs[parity], cur_batch_size, row_end_idx, ctx.normed_dosage_smaj_bufs[parity]);
         }
       }
       if (cur_variant_idx_start) {
-        JoinThreads3z(&ts);
+        JoinThreads(&tg);
         // CalcGrmPartThread() and CalcGrmThread() never error out
-        if (ts.is_last_block) {
+        if (IsLastBlock(&tg)) {
           break;
         }
         if (cur_variant_idx_start >= next_print_variant_idx) {
@@ -3151,16 +3301,11 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
         }
       }
-      ts.is_last_block = (cur_variant_idx_start + cur_batch_size == variant_ct);
-      g_cur_batch_size = cur_batch_size;
-      if (!ts.thread_func_ptr) {
-        if (thread_start) {
-          ts.thread_func_ptr = CalcGrmPartThread;
-        } else {
-          ts.thread_func_ptr = CalcGrmThread;
-        }
+      if (cur_variant_idx_start + cur_batch_size == variant_ct) {
+        DeclareLastThreadBlock(&tg);
       }
-      if (unlikely(SpawnThreads3z(cur_variant_idx_start, &ts))) {
+      ctx.cur_batch_size = cur_batch_size;
+      if (unlikely(SpawnThreads(&tg))) {
         goto CalcGrm_ret_THREAD_CREATE_FAIL;
       }
       cur_variant_idx_start += cur_batch_size;
@@ -3576,7 +3721,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
  CalcGrm_ret_1:
   CswriteCloseCond(&css, cswritep);
   fclose_cond(outfile);
-  CleanupThreads3z(&ts, &g_cur_batch_size);
+  CleanupThreads(&tg);
   BLAS_SET_NUM_THREADS(1);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
@@ -3590,231 +3735,252 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
 // (still want this to be a multiple of 8, for cleaner multithreading)
 CONSTI32(kPcaVariantBlockSize, 240);
 
-// multithread globals
-static uintptr_t* g_genovecs[2] = {nullptr, nullptr};
-static uint32_t* g_dosage_cts[2] = {nullptr, nullptr};
-static uintptr_t* g_dosage_presents[2] = {nullptr, nullptr};
-static Dosage* g_dosage_mains[2] = {nullptr, nullptr};
-static double* g_cur_maj_freqs[2] = {nullptr, nullptr};
-static double** g_yy_bufs = nullptr;
-static double** g_y_transpose_bufs = nullptr;
-static double** g_g2_bb_part_bufs = nullptr;
-static double* g_g1 = nullptr;
-static double* g_qq = nullptr;
+typedef struct CalcPcaCtxStruct {
+  uint32_t sample_ct;
+  uint32_t pc_ct;
 
-static uint32_t g_pc_ct = 0;
-static uint32_t g_is_haploid = 0;
-static PglErr g_error_ret = kPglRetSuccess;
+  uintptr_t* genovecs[2];
+  uint32_t* dosage_cts[2];
+  uintptr_t* dosage_presents[2];
+  Dosage* dosage_mains[2];
+  double* cur_maj_freqs[2];
 
-THREAD_FUNC_DECL CalcPcaXtxaThread(void* arg) {
-  const uintptr_t tidx = R_CAST(uintptr_t, arg);
-  const uint32_t pca_sample_ct = g_pca_sample_ct;
-  const uintptr_t pca_sample_ctaw2 = QuaterCtToAlignedWordCt(pca_sample_ct);
-  const uintptr_t pca_sample_ctaw = BitCtToAlignedWordCt(pca_sample_ct);
-  const uint32_t pc_ct_x2 = g_pc_ct * 2;
-  const uintptr_t qq_col_ct = (g_pc_ct + 1) * pc_ct_x2;
+  uint32_t cur_batch_size;
+
+  double* g1;
+  double* qq;
+  double** yy_bufs;
+  double** y_transpose_bufs;
+  double** g2_bb_part_bufs;
+
+  PglErr reterr;
+} CalcPcaCtx;
+
+THREAD_FUNC_DECL CalcPcaXtxaThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  CalcPcaCtx* ctx = S_CAST(CalcPcaCtx*, arg->sharedp->context);
+
+  const uint32_t sample_ct = ctx->sample_ct;
+  const uintptr_t sample_ctaw2 = QuaterCtToAlignedWordCt(sample_ct);
+  const uintptr_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
+  const uint32_t pc_ct_x2 = ctx->pc_ct * 2;
+  const uintptr_t qq_col_ct = (ctx->pc_ct + 1) * pc_ct_x2;
   const uint32_t vidx_offset = tidx * kPcaVariantBlockSize;
-  const double* g1 = g_g1;
-  double* qq_iter = g_qq;
-  double* yy_buf = g_yy_bufs[tidx];
-  double* y_transpose_buf = g_y_transpose_bufs[tidx];
-  double* g2_part_buf = g_g2_bb_part_bufs[tidx];
+  const double* g1 = ctx->g1;
+  double* qq_iter = ctx->qq;
+  double* yy_buf = ctx->yy_bufs[tidx];
+  double* y_transpose_buf = ctx->y_transpose_bufs[tidx];
+  double* g2_part_buf = ctx->g2_bb_part_bufs[tidx];
   uint32_t parity = 0;
-  while (1) {
-    const uint32_t is_last_batch = g_is_last_thread_block;
-    const uint32_t cur_batch_size = g_cur_batch_size;
+  do {
+    const uint32_t cur_batch_size = ctx->cur_batch_size;
     if (vidx_offset < cur_batch_size) {
       uint32_t cur_thread_batch_size = cur_batch_size - vidx_offset;
       if (cur_thread_batch_size > kPcaVariantBlockSize) {
         cur_thread_batch_size = kPcaVariantBlockSize;
       }
-      const uintptr_t* genovec_iter = &(g_genovecs[parity][vidx_offset * pca_sample_ctaw2]);
-      const uint32_t* cur_dosage_cts = &(g_dosage_cts[parity][vidx_offset]);
-      const uintptr_t* dosage_present_iter = &(g_dosage_presents[parity][vidx_offset * pca_sample_ctaw]);
-      const Dosage* dosage_main_iter = &(g_dosage_mains[parity][vidx_offset * pca_sample_ct]);
-      const double* cur_maj_freqs_iter = &(g_cur_maj_freqs[parity][vidx_offset]);
+      const uintptr_t* genovec_iter = &(ctx->genovecs[parity][vidx_offset * sample_ctaw2]);
+      const uint32_t* cur_dosage_cts = &(ctx->dosage_cts[parity][vidx_offset]);
+      const uintptr_t* dosage_present_iter = &(ctx->dosage_presents[parity][vidx_offset * sample_ctaw]);
+      const Dosage* dosage_main_iter = &(ctx->dosage_mains[parity][vidx_offset * sample_ct]);
+      const double* cur_maj_freqs_iter = &(ctx->cur_maj_freqs[parity][vidx_offset]);
       double* yy_iter = yy_buf;
       for (uint32_t uii = 0; uii != cur_thread_batch_size; ++uii) {
         // instead of setting is_haploid here, we just divide eigenvalues by 2
         // at the end if necessary
-        PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, 0, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
+        PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, 0, sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
         if (unlikely(reterr)) {
-          g_error_ret = reterr;
+          ctx->reterr = reterr;  // only DegenerateData possible for now
           break;
         }
-        yy_iter = &(yy_iter[pca_sample_ct]);
-        genovec_iter = &(genovec_iter[pca_sample_ctaw2]);
-        dosage_present_iter = &(dosage_present_iter[pca_sample_ctaw]);
-        dosage_main_iter = &(dosage_main_iter[pca_sample_ct]);
+        yy_iter = &(yy_iter[sample_ct]);
+        genovec_iter = &(genovec_iter[sample_ctaw2]);
+        dosage_present_iter = &(dosage_present_iter[sample_ctaw]);
+        dosage_main_iter = &(dosage_main_iter[sample_ct]);
       }
       double* cur_qq = &(qq_iter[vidx_offset * qq_col_ct]);
-      RowMajorMatrixMultiplyStrided(yy_buf, g1, cur_thread_batch_size, pca_sample_ct, pc_ct_x2, pc_ct_x2, pca_sample_ct, qq_col_ct, cur_qq);
-      MatrixTransposeCopy(yy_buf, cur_thread_batch_size, pca_sample_ct, y_transpose_buf);
-      RowMajorMatrixMultiplyStridedIncr(y_transpose_buf, cur_qq, pca_sample_ct, cur_thread_batch_size, pc_ct_x2, qq_col_ct, cur_thread_batch_size, pc_ct_x2, g2_part_buf);
+      RowMajorMatrixMultiplyStrided(yy_buf, g1, cur_thread_batch_size, sample_ct, pc_ct_x2, pc_ct_x2, sample_ct, qq_col_ct, cur_qq);
+      MatrixTransposeCopy(yy_buf, cur_thread_batch_size, sample_ct, y_transpose_buf);
+      RowMajorMatrixMultiplyStridedIncr(y_transpose_buf, cur_qq, sample_ct, cur_thread_batch_size, pc_ct_x2, qq_col_ct, cur_thread_batch_size, pc_ct_x2, g2_part_buf);
       qq_iter = &(qq_iter[cur_batch_size * qq_col_ct]);
     }
-    if (is_last_batch) {
-      THREAD_RETURN;
-    }
-    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
-  }
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
 }
 
-THREAD_FUNC_DECL CalcPcaXaThread(void* arg) {
-  const uintptr_t tidx = R_CAST(uintptr_t, arg);
-  const uint32_t pca_sample_ct = g_pca_sample_ct;
-  const uintptr_t pca_sample_ctaw2 = QuaterCtToAlignedWordCt(pca_sample_ct);
-  const uintptr_t pca_sample_ctaw = BitCtToAlignedWordCt(pca_sample_ct);
-  const uint32_t pc_ct_x2 = g_pc_ct * 2;
-  const uintptr_t qq_col_ct = (g_pc_ct + 1) * pc_ct_x2;
+THREAD_FUNC_DECL CalcPcaXaThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  CalcPcaCtx* ctx = S_CAST(CalcPcaCtx*, arg->sharedp->context);
+
+  const uint32_t sample_ct = ctx->sample_ct;
+  const uintptr_t sample_ctaw2 = QuaterCtToAlignedWordCt(sample_ct);
+  const uintptr_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
+  const uint32_t pc_ct_x2 = ctx->pc_ct * 2;
+  const uintptr_t qq_col_ct = (ctx->pc_ct + 1) * pc_ct_x2;
   const uint32_t vidx_offset = tidx * kPcaVariantBlockSize;
-  const double* g1 = g_g1;
-  double* qq_iter = g_qq;
-  double* yy_buf = g_yy_bufs[tidx];
+  const double* g1 = ctx->g1;
+  double* qq_iter = ctx->qq;
+  double* yy_buf = ctx->yy_bufs[tidx];
   uint32_t parity = 0;
-  while (1) {
-    const uint32_t is_last_batch = g_is_last_thread_block;
-    const uint32_t cur_batch_size = g_cur_batch_size;
+  do {
+    const uint32_t cur_batch_size = ctx->cur_batch_size;
     if (vidx_offset < cur_batch_size) {
       uint32_t cur_thread_batch_size = cur_batch_size - vidx_offset;
       if (cur_thread_batch_size > kPcaVariantBlockSize) {
         cur_thread_batch_size = kPcaVariantBlockSize;
       }
-      const uintptr_t* genovec_iter = &(g_genovecs[parity][vidx_offset * pca_sample_ctaw2]);
-      const uint32_t* cur_dosage_cts = &(g_dosage_cts[parity][vidx_offset]);
-      const uintptr_t* dosage_present_iter = &(g_dosage_presents[parity][vidx_offset * pca_sample_ctaw]);
-      const Dosage* dosage_main_iter = &(g_dosage_mains[parity][vidx_offset * pca_sample_ct]);
-      const double* cur_maj_freqs_iter = &(g_cur_maj_freqs[parity][vidx_offset]);
+      const uintptr_t* genovec_iter = &(ctx->genovecs[parity][vidx_offset * sample_ctaw2]);
+      const uint32_t* cur_dosage_cts = &(ctx->dosage_cts[parity][vidx_offset]);
+      const uintptr_t* dosage_present_iter = &(ctx->dosage_presents[parity][vidx_offset * sample_ctaw]);
+      const Dosage* dosage_main_iter = &(ctx->dosage_mains[parity][vidx_offset * sample_ct]);
+      const double* cur_maj_freqs_iter = &(ctx->cur_maj_freqs[parity][vidx_offset]);
       double* yy_iter = yy_buf;
       for (uint32_t uii = 0; uii != cur_thread_batch_size; ++uii) {
-        PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, 0, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
+        PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, 0, sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
         if (unlikely(reterr)) {
-          g_error_ret = reterr;
+          ctx->reterr = reterr;  // only DegenerateData possible for now
           break;
         }
-        yy_iter = &(yy_iter[pca_sample_ct]);
-        genovec_iter = &(genovec_iter[pca_sample_ctaw2]);
-        dosage_present_iter = &(dosage_present_iter[pca_sample_ctaw]);
-        dosage_main_iter = &(dosage_main_iter[pca_sample_ct]);
+        yy_iter = &(yy_iter[sample_ct]);
+        genovec_iter = &(genovec_iter[sample_ctaw2]);
+        dosage_present_iter = &(dosage_present_iter[sample_ctaw]);
+        dosage_main_iter = &(dosage_main_iter[sample_ct]);
       }
       double* cur_qq = &(qq_iter[vidx_offset * qq_col_ct]);
-      RowMajorMatrixMultiplyStrided(yy_buf, g1, cur_thread_batch_size, pca_sample_ct, pc_ct_x2, pc_ct_x2, pca_sample_ct, qq_col_ct, cur_qq);
+      RowMajorMatrixMultiplyStrided(yy_buf, g1, cur_thread_batch_size, sample_ct, pc_ct_x2, pc_ct_x2, sample_ct, qq_col_ct, cur_qq);
       qq_iter = &(qq_iter[cur_batch_size * qq_col_ct]);
     }
-    if (is_last_batch) {
-      THREAD_RETURN;
-    }
-    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
-  }
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
 }
 
-THREAD_FUNC_DECL CalcPcaXtbThread(void* arg) {
-  const uintptr_t tidx = R_CAST(uintptr_t, arg);
-  const uint32_t pca_sample_ct = g_pca_sample_ct;
-  const uintptr_t pca_sample_ctaw2 = QuaterCtToAlignedWordCt(pca_sample_ct);
-  const uintptr_t pca_sample_ctaw = BitCtToAlignedWordCt(pca_sample_ct);
-  const uint32_t pc_ct_x2 = g_pc_ct * 2;
-  const uintptr_t qq_col_ct = (g_pc_ct + 1) * pc_ct_x2;
+THREAD_FUNC_DECL CalcPcaXtbThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  CalcPcaCtx* ctx = S_CAST(CalcPcaCtx*, arg->sharedp->context);
+
+  const uint32_t sample_ct = ctx->sample_ct;
+  const uintptr_t sample_ctaw2 = QuaterCtToAlignedWordCt(sample_ct);
+  const uintptr_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
+  const uint32_t pc_ct_x2 = ctx->pc_ct * 2;
+  const uintptr_t qq_col_ct = (ctx->pc_ct + 1) * pc_ct_x2;
   const uint32_t vidx_offset = tidx * kPcaVariantBlockSize;
-  const double* qq_iter = &(g_qq[vidx_offset * qq_col_ct]);
-  double* yy_buf = g_yy_bufs[tidx];
-  double* y_transpose_buf = g_y_transpose_bufs[tidx];
-  double* bb_part_buf = g_g2_bb_part_bufs[tidx];
+  const double* qq_iter = &(ctx->qq[vidx_offset * qq_col_ct]);
+  double* yy_buf = ctx->yy_bufs[tidx];
+  double* y_transpose_buf = ctx->y_transpose_bufs[tidx];
+  double* bb_part_buf = ctx->g2_bb_part_bufs[tidx];
   uint32_t parity = 0;
-  while (1) {
-    const uint32_t is_last_batch = g_is_last_thread_block;
-    const uint32_t cur_batch_size = g_cur_batch_size;
+  do {
+    const uint32_t cur_batch_size = ctx->cur_batch_size;
     if (vidx_offset < cur_batch_size) {
       uint32_t cur_thread_batch_size = cur_batch_size - vidx_offset;
       if (cur_thread_batch_size > kPcaVariantBlockSize) {
         cur_thread_batch_size = kPcaVariantBlockSize;
       }
-      const uintptr_t* genovec_iter = &(g_genovecs[parity][vidx_offset * pca_sample_ctaw2]);
-      const uint32_t* cur_dosage_cts = &(g_dosage_cts[parity][vidx_offset]);
-      const uintptr_t* dosage_present_iter = &(g_dosage_presents[parity][vidx_offset * pca_sample_ctaw]);
-      const Dosage* dosage_main_iter = &(g_dosage_mains[parity][vidx_offset * pca_sample_ct]);
-      const double* cur_maj_freqs_iter = &(g_cur_maj_freqs[parity][vidx_offset]);
+      const uintptr_t* genovec_iter = &(ctx->genovecs[parity][vidx_offset * sample_ctaw2]);
+      const uint32_t* cur_dosage_cts = &(ctx->dosage_cts[parity][vidx_offset]);
+      const uintptr_t* dosage_present_iter = &(ctx->dosage_presents[parity][vidx_offset * sample_ctaw]);
+      const Dosage* dosage_main_iter = &(ctx->dosage_mains[parity][vidx_offset * sample_ct]);
+      const double* cur_maj_freqs_iter = &(ctx->cur_maj_freqs[parity][vidx_offset]);
       double* yy_iter = yy_buf;
       for (uint32_t uii = 0; uii != cur_thread_batch_size; ++uii) {
-        PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, 0, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
+        PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, 0, sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
         if (unlikely(reterr)) {
-          g_error_ret = reterr;
+          ctx->reterr = reterr;  // only DegenerateData possible for now
           break;
         }
-        yy_iter = &(yy_iter[pca_sample_ct]);
-        genovec_iter = &(genovec_iter[pca_sample_ctaw2]);
-        dosage_present_iter = &(dosage_present_iter[pca_sample_ctaw]);
-        dosage_main_iter = &(dosage_main_iter[pca_sample_ct]);
+        yy_iter = &(yy_iter[sample_ct]);
+        genovec_iter = &(genovec_iter[sample_ctaw2]);
+        dosage_present_iter = &(dosage_present_iter[sample_ctaw]);
+        dosage_main_iter = &(dosage_main_iter[sample_ct]);
       }
-      MatrixTransposeCopy(yy_buf, cur_thread_batch_size, pca_sample_ct, y_transpose_buf);
-      RowMajorMatrixMultiplyIncr(y_transpose_buf, qq_iter, pca_sample_ct, qq_col_ct, cur_thread_batch_size, bb_part_buf);
+      MatrixTransposeCopy(yy_buf, cur_thread_batch_size, sample_ct, y_transpose_buf);
+      RowMajorMatrixMultiplyIncr(y_transpose_buf, qq_iter, sample_ct, qq_col_ct, cur_thread_batch_size, bb_part_buf);
       qq_iter = &(qq_iter[cur_batch_size * qq_col_ct]);
     }
-    if (is_last_batch) {
-      THREAD_RETURN;
-    }
-    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
-  }
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
 }
 
-THREAD_FUNC_DECL CalcPcaVarWtsThread(void* arg) {
-  const uintptr_t tidx = R_CAST(uintptr_t, arg);
-  const uint32_t pca_sample_ct = g_pca_sample_ct;
-  const uintptr_t pca_sample_ctaw2 = QuaterCtToAlignedWordCt(pca_sample_ct);
-  const uintptr_t pca_sample_ctaw = BitCtToAlignedWordCt(pca_sample_ct);
-  const uint32_t pc_ct = g_pc_ct;
-  const uint32_t is_haploid = g_is_haploid;
+typedef struct CalcPcaVarWtsCtxStruct {
+  uint32_t sample_ct;
+  uint32_t pc_ct;
+  uint32_t is_haploid;
+
+  uintptr_t* genovecs[2];
+  uint32_t* dosage_cts[2];
+  uintptr_t* dosage_presents[2];
+  Dosage* dosage_mains[2];
+  double* cur_maj_freqs[2];
+
+  uint32_t cur_batch_size;
+
+  double* sample_wts_smaj;
+  double* var_wts;
+  double** yy_bufs;
+
+  PglErr reterr;
+} CalcPcaVarWtsCtx;
+
+THREAD_FUNC_DECL CalcPcaVarWtsThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  CalcPcaVarWtsCtx* ctx = S_CAST(CalcPcaVarWtsCtx*, arg->sharedp->context);
+
+  const uint32_t sample_ct = ctx->sample_ct;
+  const uintptr_t sample_ctaw2 = QuaterCtToAlignedWordCt(sample_ct);
+  const uintptr_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
+  const uint32_t pc_ct = ctx->pc_ct;
+  const uint32_t is_haploid = ctx->is_haploid;
   const uint32_t vidx_offset = tidx * kPcaVariantBlockSize;
 
   // either first batch size is calc_thread_ct * kPcaVariantBlockSize, or there
   // is only one batch
-  const uintptr_t var_wts_part_size = S_CAST(uintptr_t, pc_ct) * g_cur_batch_size;
+  const uintptr_t var_wts_part_size = S_CAST(uintptr_t, pc_ct) * ctx->cur_batch_size;
 
-  const double* sample_wts = g_g1;  // sample-major, pc_ct columns
-  double* yy_buf = g_yy_bufs[tidx];
+  const double* sample_wts = ctx->sample_wts_smaj;  // sample-major, pc_ct columns
+  double* yy_buf = ctx->yy_bufs[tidx];
   uint32_t parity = 0;
-  while (1) {
-    const uint32_t is_last_batch = g_is_last_thread_block;
-    const uint32_t cur_batch_size = g_cur_batch_size;
+  do {
+    const uint32_t cur_batch_size = ctx->cur_batch_size;
     if (vidx_offset < cur_batch_size) {
       uint32_t cur_thread_batch_size = cur_batch_size - vidx_offset;
       if (cur_thread_batch_size > kPcaVariantBlockSize) {
         cur_thread_batch_size = kPcaVariantBlockSize;
       }
-      const uintptr_t* genovec_iter = &(g_genovecs[parity][vidx_offset * pca_sample_ctaw2]);
-      const uint32_t* cur_dosage_cts = &(g_dosage_cts[parity][vidx_offset]);
-      const uintptr_t* dosage_present_iter = &(g_dosage_presents[parity][vidx_offset * pca_sample_ctaw]);
-      const Dosage* dosage_main_iter = &(g_dosage_mains[parity][vidx_offset * pca_sample_ct]);
-      const double* cur_maj_freqs_iter = &(g_cur_maj_freqs[parity][vidx_offset]);
+      const uintptr_t* genovec_iter = &(ctx->genovecs[parity][vidx_offset * sample_ctaw2]);
+      const uint32_t* cur_dosage_cts = &(ctx->dosage_cts[parity][vidx_offset]);
+      const uintptr_t* dosage_present_iter = &(ctx->dosage_presents[parity][vidx_offset * sample_ctaw]);
+      const Dosage* dosage_main_iter = &(ctx->dosage_mains[parity][vidx_offset * sample_ct]);
+      const double* cur_maj_freqs_iter = &(ctx->cur_maj_freqs[parity][vidx_offset]);
       double* yy_iter = yy_buf;
       for (uint32_t uii = 0; uii != cur_thread_batch_size; ++uii) {
-        PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, is_haploid, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
+        PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, is_haploid, sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
         if (unlikely(reterr)) {
-          g_error_ret = reterr;
+          ctx->reterr = reterr;  // only DegenerateData possible for now
           break;
         }
-        yy_iter = &(yy_iter[pca_sample_ct]);
-        genovec_iter = &(genovec_iter[pca_sample_ctaw2]);
-        dosage_present_iter = &(dosage_present_iter[pca_sample_ctaw]);
-        dosage_main_iter = &(dosage_main_iter[pca_sample_ct]);
+        yy_iter = &(yy_iter[sample_ct]);
+        genovec_iter = &(genovec_iter[sample_ctaw2]);
+        dosage_present_iter = &(dosage_present_iter[sample_ctaw]);
+        dosage_main_iter = &(dosage_main_iter[sample_ct]);
       }
       // Variant weight matrix = X^T * S * D^{-1/2}, where X^T is the
       // variance-standardized genotype matrix, S is the sample weight matrix,
       // and D is a diagonal eigenvalue matrix.
       // We postpone the D^{-1/2} part for now, but it's straightforward to
       // switch to using precomputed (S * D^{-1/2}).
-      double* cur_var_wts_part = &(g_qq[parity * var_wts_part_size + vidx_offset * S_CAST(uintptr_t, pc_ct)]);
-      RowMajorMatrixMultiply(yy_buf, sample_wts, cur_thread_batch_size, pc_ct, pca_sample_ct, cur_var_wts_part);
+      double* cur_var_wts_part = &(ctx->var_wts[parity * var_wts_part_size + vidx_offset * S_CAST(uintptr_t, pc_ct)]);
+      RowMajorMatrixMultiply(yy_buf, sample_wts, cur_thread_batch_size, pc_ct, sample_ct, cur_var_wts_part);
     }
-    if (is_last_batch) {
-      THREAD_RETURN;
-    }
-    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
-  }
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
 }
 
 PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t pc_ct, PcaFlags pca_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, sfmt_t* sfmtp, double* grm, char* outname, char* outname_end) {
@@ -3822,8 +3988,8 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
   CompressStreamState css;
-  ThreadsState ts;
-  InitThreads3z(&ts);
+  ThreadGroup tg;
+  PreinitThreads(&tg);
   PglErr reterr = kPglRetSuccess;
   PreinitCstream(&css);
   {
@@ -3850,7 +4016,6 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       calc_thread_ct = 1 + (variant_ct - 1) / kPcaVariantBlockSize;
     }
 #endif
-    ts.calc_thread_ct = calc_thread_ct;
     if (pc_ct > pca_sample_ct) {
       if (pca_sample_ct <= variant_ct) {
         pc_ct = pca_sample_ct;
@@ -3865,8 +4030,8 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       }
       logerrputsb();
     }
-    const uint32_t var_wts = (pca_flags / kfPcaBiallelicVarWts) & 1;
-    const uint32_t require_biallelic = var_wts && (!(pca_flags & kfPcaIgnoreBiallelicVarWtsRestriction));
+    const uint32_t var_wts_requested = (pca_flags / kfPcaBiallelicVarWts) & 1;
+    const uint32_t require_biallelic = var_wts_requested && (!(pca_flags & kfPcaIgnoreBiallelicVarWtsRestriction));
     const uint32_t chr_col = pca_flags & kfPcaVcolChrom;
     const uint32_t ref_col = pca_flags & kfPcaVcolRef;
     const uint32_t alt1_col = pca_flags & kfPcaVcolAlt1;
@@ -3877,7 +4042,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     double* eigval_inv_sqrts = nullptr;
     char* chr_buf = nullptr;
     uintptr_t overflow_buf_size = 3 * kMaxMediumLine;
-    if (var_wts) {
+    if (var_wts_requested) {
       if (unlikely(
               bigstack_alloc_d(pc_ct, &cur_var_wts) ||
               bigstack_alloc_d(pc_ct, &eigval_inv_sqrts))) {
@@ -3907,18 +4072,19 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     const uint32_t pca_sample_ctaw = BitCtToAlignedWordCt(pca_sample_ct);
     uint32_t* pca_sample_include_cumulative_popcounts;
     double* eigvals;
+    CalcPcaCtx ctx;
     if (unlikely(
             bigstack_alloc_u32(raw_sample_ctl, &pca_sample_include_cumulative_popcounts) ||
             bigstack_alloc_d(pc_ct, &eigvals) ||
-            bigstack_alloc_thread(calc_thread_ct, &ts.threads) ||
-            bigstack_alloc_dp(calc_thread_ct, &g_yy_bufs))) {
+            SetThreadCt(calc_thread_ct, &tg) ||
+            bigstack_alloc_dp(calc_thread_ct, &ctx.yy_bufs))) {
       goto CalcPca_ret_NOMEM;
     }
     FillCumulativePopcounts(pca_sample_include, raw_sample_ctl, pca_sample_include_cumulative_popcounts);
-    g_pca_sample_ct = pca_sample_ct;
-    g_pc_ct = pc_ct;
-    g_error_ret = kPglRetSuccess;
-    g_is_haploid = cip->haploid_mask[0] & 1;
+    ctx.sample_ct = pca_sample_ct;
+    ctx.pc_ct = pc_ct;
+    ctx.reterr = kPglRetSuccess;
+    const uint32_t is_haploid = cip->haploid_mask[0] & 1;
     uint32_t cur_allele_ct = 2;
     double* qq = nullptr;
     double* eigvecs_smaj;
@@ -3954,7 +4120,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
 #endif
       const double variant_ct_recip = 1.0 / u31tod(variant_ct);
 
-      const uintptr_t g_size = pca_sample_ct * pc_ct_x2;
+      const uintptr_t gg_size = pca_sample_ct * pc_ct_x2;
       __CLPK_integer svd_rect_lwork;
 #ifdef LAPACK_ILP64
       GetSvdRectLwork(MAXV(pca_sample_ct, variant_ct), qq_col_ct, &svd_rect_lwork);
@@ -3976,10 +4142,10 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       if (unlikely(
               bigstack_alloc_d(qq_col_ct, &ss) ||
               bigstack_alloc_d(variant_ct * qq_col_ct, &qq) ||
-              bigstack_alloc_dp(calc_thread_ct, &g_y_transpose_bufs) ||
-              bigstack_alloc_dp(calc_thread_ct, &g_g2_bb_part_bufs) ||
+              bigstack_alloc_dp(calc_thread_ct, &ctx.y_transpose_bufs) ||
+              bigstack_alloc_dp(calc_thread_ct, &ctx.g2_bb_part_bufs) ||
               bigstack_alloc_uc(svd_rect_wkspace_size, &svd_rect_wkspace) ||
-              bigstack_alloc_d(g_size, &g1))) {
+              bigstack_alloc_d(gg_size, &g1))) {
         goto CalcPca_ret_NOMEM;
       }
       const uintptr_t genovecs_alloc = RoundUpPow2(pca_sample_ctaw2 * kPcaVariantBlockSize * sizeof(intptr_t), kCacheline);
@@ -4000,19 +4166,19 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         calc_thread_ct = bigstack_avail / per_thread_alloc;
       }
       for (uint32_t parity = 0; parity != 2; ++parity) {
-        g_genovecs[parity] = S_CAST(uintptr_t*, bigstack_alloc_raw(genovecs_alloc * calc_thread_ct));
-        g_dosage_cts[parity] = S_CAST(uint32_t*, bigstack_alloc_raw(dosage_cts_alloc * calc_thread_ct));
-        g_dosage_presents[parity] = S_CAST(uintptr_t*, bigstack_alloc_raw(dosage_presents_alloc * calc_thread_ct));
-        g_dosage_mains[parity] = S_CAST(Dosage*, bigstack_alloc_raw(dosage_main_alloc * calc_thread_ct));
-        g_cur_maj_freqs[parity] = S_CAST(double*, bigstack_alloc_raw(cur_maj_freqs_alloc * calc_thread_ct));
+        ctx.genovecs[parity] = S_CAST(uintptr_t*, bigstack_alloc_raw(genovecs_alloc * calc_thread_ct));
+        ctx.dosage_cts[parity] = S_CAST(uint32_t*, bigstack_alloc_raw(dosage_cts_alloc * calc_thread_ct));
+        ctx.dosage_presents[parity] = S_CAST(uintptr_t*, bigstack_alloc_raw(dosage_presents_alloc * calc_thread_ct));
+        ctx.dosage_mains[parity] = S_CAST(Dosage*, bigstack_alloc_raw(dosage_main_alloc * calc_thread_ct));
+        ctx.cur_maj_freqs[parity] = S_CAST(double*, bigstack_alloc_raw(cur_maj_freqs_alloc * calc_thread_ct));
       }
       for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-        g_yy_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(yy_alloc));
-        g_y_transpose_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(yy_alloc));
-        g_g2_bb_part_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(g2_bb_part_alloc));
+        ctx.yy_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(yy_alloc));
+        ctx.y_transpose_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(yy_alloc));
+        ctx.g2_bb_part_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(g2_bb_part_alloc));
       }
-      FillGaussianDArr(g_size / 2, max_thread_ct, sfmtp, g1);
-      g_g1 = g1;
+      FillGaussianDArr(gg_size / 2, max_thread_ct, sfmtp, g1);
+      ctx.g1 = g1;
 #ifdef __APPLE__
       fputs("Projecting random vectors... ", stdout);
 #else
@@ -4022,11 +4188,16 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       PgrClearLdCache(simple_pgrp);
       for (uint32_t iter_idx = 0; iter_idx <= pc_ct; ++iter_idx) {
         // kjg_fpca_XTXA(), kjg_fpca_XA()
+        if (iter_idx < pc_ct) {
+          SetThreadFuncAndData(CalcPcaXtxaThread, &ctx, &tg);
+        } else {
+          SetThreadFuncAndData(CalcPcaXaThread, &ctx, &tg);
+        }
         for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-          ZeroDArr(g_size, g_g2_bb_part_bufs[tidx]);
+          ZeroDArr(gg_size, ctx.g2_bb_part_bufs[tidx]);
         }
         double* qq_iter = &(qq[iter_idx * pc_ct_x2]);  // offset on first row
-        g_qq = qq_iter;
+        ctx.qq = qq_iter;
 
         // Main workflow:
         // 1. Set n=0, load batch 0
@@ -4043,18 +4214,18 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         uint32_t parity = 0;
         for (uint32_t cur_variant_idx_start = 0; ; ) {
           uint32_t cur_batch_size = 0;
-          if (!ts.is_last_block) {
+          if (!IsLastBlock(&tg)) {
             cur_batch_size = calc_thread_ct * kPcaVariantBlockSize;
             uint32_t cur_variant_idx_end = cur_variant_idx_start + cur_batch_size;
             if (cur_variant_idx_end > variant_ct) {
               cur_batch_size = variant_ct - cur_variant_idx_start;
               cur_variant_idx_end = variant_ct;
             }
-            uintptr_t* genovec_iter = g_genovecs[parity];
-            uint32_t* dosage_ct_iter = g_dosage_cts[parity];
-            uintptr_t* dosage_present_iter = g_dosage_presents[parity];
-            Dosage* dosage_main_iter = g_dosage_mains[parity];
-            double* maj_freqs_write_iter = g_cur_maj_freqs[parity];
+            uintptr_t* genovec_iter = ctx.genovecs[parity];
+            uint32_t* dosage_ct_iter = ctx.dosage_cts[parity];
+            uintptr_t* dosage_present_iter = ctx.dosage_presents[parity];
+            Dosage* dosage_main_iter = ctx.dosage_mains[parity];
+            double* maj_freqs_write_iter = ctx.cur_maj_freqs[parity];
             for (uint32_t variant_idx = cur_variant_idx_start; variant_idx != cur_variant_idx_end; ++variant_idx) {
               const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
               const uint32_t maj_allele_idx = maj_alleles[variant_uidx];
@@ -4086,41 +4257,36 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             }
           }
           if (cur_variant_idx_start) {
-            JoinThreads3z(&ts);
-            reterr = g_error_ret;
+            JoinThreads(&tg);
+            reterr = ctx.reterr;
             if (unlikely(reterr)) {
               logputs("\n");
               logerrputs("Error: Zero-MAF variant is not actually monomorphic.  (This is possible when\ne.g. MAF is estimated from founders, but the minor allele was only observed in\nnonfounders.  In any case, you should be using e.g. --maf to filter out all\nvery-low-MAF variants, since the relationship matrix distance formula does not\nhandle them well.)\n");
               goto CalcPca_ret_1;
             }
-            if (ts.is_last_block) {
+            if (IsLastBlock(&tg)) {
               break;
             }
           }
-          if (!cur_variant_idx_start) {
-            if (iter_idx < pc_ct) {
-              ts.thread_func_ptr = CalcPcaXtxaThread;
-            } else {
-              ts.thread_func_ptr = CalcPcaXaThread;
-            }
+          if (cur_variant_idx_start + cur_batch_size == variant_ct) {
+            DeclareLastThreadBlock(&tg);
           }
-          ts.is_last_block = (cur_variant_idx_start + cur_batch_size == variant_ct);
-          g_cur_batch_size = cur_batch_size;
-          if (unlikely(SpawnThreads3z(cur_variant_idx_start, &ts))) {
+          ctx.cur_batch_size = cur_batch_size;
+          if (unlikely(SpawnThreads(&tg))) {
             goto CalcPca_ret_THREAD_CREATE_FAIL;
           }
           cur_variant_idx_start += cur_batch_size;
           parity = 1 - parity;
         }
         if (iter_idx < pc_ct) {
-          memcpy(g1, g_g2_bb_part_bufs[0], g_size * sizeof(double));
+          memcpy(g1, ctx.g2_bb_part_bufs[0], gg_size * sizeof(double));
           for (uint32_t tidx = 1; tidx != calc_thread_ct; ++tidx) {
-            const double* cur_g2_part = g_g2_bb_part_bufs[tidx];
-            for (uintptr_t ulii = 0; ulii != g_size; ++ulii) {
+            const double* cur_g2_part = ctx.g2_bb_part_bufs[tidx];
+            for (uintptr_t ulii = 0; ulii != gg_size; ++ulii) {
               g1[ulii] += cur_g2_part[ulii];
             }
           }
-          for (uintptr_t ulii = 0; ulii != g_size; ++ulii) {
+          for (uintptr_t ulii = 0; ulii != gg_size; ++ulii) {
             g1[ulii] *= variant_ct_recip;
           }
         }
@@ -4147,16 +4313,16 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
 
       // kjg_fpca_XTB()
       for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-        ZeroDArr(b_size, g_g2_bb_part_bufs[tidx]);
+        ZeroDArr(b_size, ctx.g2_bb_part_bufs[tidx]);
       }
       uintptr_t variant_uidx_base = 0;
       uintptr_t cur_bits = variant_include[0];
       uint32_t parity = 0;
-      ReinitThreads3z(&ts);
-      g_qq = qq;
+      SetThreadFuncAndData(CalcPcaXtbThread, &ctx, &tg);
+      ctx.qq = qq;
       for (uint32_t cur_variant_idx_start = 0; ; ) {
         uint32_t cur_batch_size = 0;
-        if (!ts.is_last_block) {
+        if (!IsLastBlock(&tg)) {
           // probable todo: move this boilerplate in its own function
           cur_batch_size = calc_thread_ct * kPcaVariantBlockSize;
           uint32_t cur_variant_idx_end = cur_variant_idx_start + cur_batch_size;
@@ -4164,11 +4330,11 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             cur_batch_size = variant_ct - cur_variant_idx_start;
             cur_variant_idx_end = variant_ct;
           }
-          uintptr_t* genovec_iter = g_genovecs[parity];
-          uint32_t* dosage_ct_iter = g_dosage_cts[parity];
-          uintptr_t* dosage_present_iter = g_dosage_presents[parity];
-          Dosage* dosage_main_iter = g_dosage_mains[parity];
-          double* maj_freqs_write_iter = g_cur_maj_freqs[parity];
+          uintptr_t* genovec_iter = ctx.genovecs[parity];
+          uint32_t* dosage_ct_iter = ctx.dosage_cts[parity];
+          uintptr_t* dosage_present_iter = ctx.dosage_presents[parity];
+          Dosage* dosage_main_iter = ctx.dosage_mains[parity];
+          double* maj_freqs_write_iter = ctx.cur_maj_freqs[parity];
           for (uint32_t variant_idx = cur_variant_idx_start; variant_idx != cur_variant_idx_end; ++variant_idx) {
             const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
             const uint32_t maj_allele_idx = maj_alleles[variant_uidx];
@@ -4194,28 +4360,29 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           }
         }
         if (cur_variant_idx_start) {
-          JoinThreads3z(&ts);
-          if (unlikely(g_error_ret)) {
+          JoinThreads(&tg);
+          if (unlikely(ctx.reterr)) {
             // this error *didn't* happen on an earlier pass, so assign blame
             // to I/O instead
             goto CalcPca_ret_REWIND_FAIL;
           }
-          if (ts.is_last_block) {
+          if (IsLastBlock(&tg)) {
             break;
           }
         }
-        ts.is_last_block = (cur_variant_idx_start + cur_batch_size == variant_ct);
-        g_cur_batch_size = cur_batch_size;
-        ts.thread_func_ptr = CalcPcaXtbThread;
-        if (unlikely(SpawnThreads3z(cur_variant_idx_start, &ts))) {
+        if (cur_variant_idx_start + cur_batch_size == variant_ct) {
+          DeclareLastThreadBlock(&tg);
+        }
+        ctx.cur_batch_size = cur_batch_size;
+        if (unlikely(SpawnThreads(&tg))) {
           goto CalcPca_ret_THREAD_CREATE_FAIL;
         }
         cur_variant_idx_start += cur_batch_size;
         parity = 1 - parity;
       }
-      double* bb = g_g2_bb_part_bufs[0];
+      double* bb = ctx.g2_bb_part_bufs[0];
       for (uint32_t tidx = 1; tidx != calc_thread_ct; ++tidx) {
-        const double* cur_bb_part = g_g2_bb_part_bufs[tidx];
+        const double* cur_bb_part = ctx.g2_bb_part_bufs[tidx];
         for (uintptr_t ulii = 0; ulii != b_size; ++ulii) {
           bb[ulii] += cur_bb_part[ulii];
         }
@@ -4240,7 +4407,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       // bugfix (25 Jun 2018): eigvals[] computation was missing a divide-by-2
       // somewhere, in both diploid and haploid cases.
       // update (30 Jan 2019): er, actually, no.
-      if (g_is_haploid) {
+      if (is_haploid) {
         for (uint32_t pc_idx = 0; pc_idx != pc_ct; ++pc_idx) {
           eigvals[pc_idx] *= 0.5;
         }
@@ -4307,8 +4474,13 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     // (later: --pca-cluster-names, --pca-clusters)
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
 
-    if (var_wts) {
-      g_g1 = eigvecs_smaj;
+    if (var_wts_requested) {
+      CalcPcaVarWtsCtx vwctx;
+      vwctx.sample_ct = pca_sample_ct;
+      vwctx.pc_ct = pc_ct;
+      vwctx.is_haploid = is_haploid;
+      vwctx.sample_wts_smaj = eigvecs_smaj;
+      vwctx.reterr = kPglRetSuccess;
       for (uint32_t pc_idx = 0; pc_idx != pc_ct; ++pc_idx) {
         eigval_inv_sqrts[pc_idx] = 1.0 / sqrt(eigvals[pc_idx]);
       }
@@ -4366,12 +4538,21 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       if (output_zst) {
         // compression is relatively expensive?
         calc_thread_ct = 1;
-        ts.calc_thread_ct = 1;
       }
 #endif
       uintptr_t var_wts_part_size;
-      if (qq) {
+      vwctx.yy_bufs = ctx.yy_bufs;
+      double* var_wts = qq;
+      if (var_wts) {
         var_wts_part_size = (MINV(variant_ct, calc_thread_ct * kPcaVariantBlockSize)) * S_CAST(uintptr_t, pc_ct);
+        for (uint32_t parity = 0; parity != 2; ++parity) {
+          vwctx.genovecs[parity] = ctx.genovecs[parity];
+          vwctx.dosage_cts[parity] = ctx.dosage_cts[parity];
+          vwctx.dosage_presents[parity] = ctx.dosage_presents[parity];
+          vwctx.dosage_mains[parity] = ctx.dosage_mains[parity];
+          vwctx.cur_maj_freqs[parity] = ctx.cur_maj_freqs[parity];
+        }
+        vwctx.var_wts = ctx.qq;
       } else {
         // non-approximate PCA, bunch of buffers have not been allocated yet
 
@@ -4399,20 +4580,19 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           }
           calc_thread_ct = arena_avail / per_thread_alloc;
         }
-        ts.calc_thread_ct = calc_thread_ct;
         for (uint32_t parity = 0; parity != 2; ++parity) {
-          g_genovecs[parity] = S_CAST(uintptr_t*, arena_alloc_raw(genovecs_alloc * calc_thread_ct, &arena_bottom));
-          g_dosage_cts[parity] = S_CAST(uint32_t*, arena_alloc_raw(dosage_cts_alloc * calc_thread_ct, &arena_bottom));
-          g_dosage_presents[parity] = S_CAST(uintptr_t*, arena_alloc_raw(dosage_presents_alloc * calc_thread_ct, &arena_bottom));
-          g_dosage_mains[parity] = S_CAST(Dosage*, arena_alloc_raw(dosage_main_alloc * calc_thread_ct, &arena_bottom));
-          g_cur_maj_freqs[parity] = S_CAST(double*, arena_alloc_raw(cur_maj_freqs_alloc * calc_thread_ct, &arena_bottom));
+          vwctx.genovecs[parity] = S_CAST(uintptr_t*, arena_alloc_raw(genovecs_alloc * calc_thread_ct, &arena_bottom));
+          vwctx.dosage_cts[parity] = S_CAST(uint32_t*, arena_alloc_raw(dosage_cts_alloc * calc_thread_ct, &arena_bottom));
+          vwctx.dosage_presents[parity] = S_CAST(uintptr_t*, arena_alloc_raw(dosage_presents_alloc * calc_thread_ct, &arena_bottom));
+          vwctx.dosage_mains[parity] = S_CAST(Dosage*, arena_alloc_raw(dosage_main_alloc * calc_thread_ct, &arena_bottom));
+          vwctx.cur_maj_freqs[parity] = S_CAST(double*, arena_alloc_raw(cur_maj_freqs_alloc * calc_thread_ct, &arena_bottom));
         }
         for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-          g_yy_bufs[tidx] = S_CAST(double*, arena_alloc_raw(yy_alloc, &arena_bottom));
+          vwctx.yy_bufs[tidx] = S_CAST(double*, arena_alloc_raw(yy_alloc, &arena_bottom));
         }
         var_wts_part_size = (MINV(variant_ct, calc_thread_ct * kPcaVariantBlockSize)) * S_CAST(uintptr_t, pc_ct);
-        qq = S_CAST(double*, arena_alloc_raw_rd(2 * var_wts_part_size * sizeof(double), &arena_bottom));
-        g_qq = qq;
+        var_wts = S_CAST(double*, arena_alloc_raw_rd(2 * var_wts_part_size * sizeof(double), &arena_bottom));
+        vwctx.var_wts = var_wts;
 #ifndef NDEBUG
         if (arena_top == g_bigstack_end) {
           // we shouldn't make any more allocations, but just in case...
@@ -4420,30 +4600,33 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         }
 #endif
       }
+      if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
+        goto CalcPca_ret_NOMEM;
+      }
+      SetThreadFuncAndData(CalcPcaVarWtsThread, &vwctx, &tg);
       uint32_t prev_batch_size = 0;
       uintptr_t variant_uidx_load_base = 0;
       uintptr_t load_bits = variant_include[0];
       uintptr_t variant_uidx_write_base = 0;
       uintptr_t write_bits = variant_include[0];
       uint32_t parity = 0;
-      ReinitThreads3z(&ts);
       uint32_t chr_fo_idx = UINT32_MAX;
       uint32_t chr_end = 0;
       uint32_t chr_buf_blen = 0;
       for (uint32_t cur_variant_idx_start = 0; ; ) {
         uint32_t cur_batch_size = 0;
-        if (!ts.is_last_block) {
+        if (!IsLastBlock(&tg)) {
           cur_batch_size = calc_thread_ct * kPcaVariantBlockSize;
           uint32_t cur_variant_idx_end = cur_variant_idx_start + cur_batch_size;
           if (cur_variant_idx_end > variant_ct) {
             cur_batch_size = variant_ct - cur_variant_idx_start;
             cur_variant_idx_end = variant_ct;
           }
-          uintptr_t* genovec_iter = g_genovecs[parity];
-          uint32_t* dosage_ct_iter = g_dosage_cts[parity];
-          uintptr_t* dosage_present_iter = g_dosage_presents[parity];
-          Dosage* dosage_main_iter = g_dosage_mains[parity];
-          double* maj_freqs_write_iter = g_cur_maj_freqs[parity];
+          uintptr_t* genovec_iter = vwctx.genovecs[parity];
+          uint32_t* dosage_ct_iter = vwctx.dosage_cts[parity];
+          uintptr_t* dosage_present_iter = vwctx.dosage_presents[parity];
+          Dosage* dosage_main_iter = vwctx.dosage_mains[parity];
+          double* maj_freqs_write_iter = vwctx.cur_maj_freqs[parity];
           for (uint32_t variant_idx = cur_variant_idx_start; variant_idx != cur_variant_idx_end; ++variant_idx) {
             const uintptr_t variant_uidx_load = BitIter1(variant_include, &variant_uidx_load_base, &load_bits);
             const uint32_t maj_allele_idx = maj_alleles[variant_uidx_load];
@@ -4469,23 +4652,24 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           }
         }
         if (cur_variant_idx_start) {
-          JoinThreads3z(&ts);
-          if (unlikely(g_error_ret)) {
+          JoinThreads(&tg);
+          if (unlikely(vwctx.reterr)) {
             goto CalcPca_ret_REWIND_FAIL;
           }
         }
-        if (!ts.is_last_block) {
-          g_cur_batch_size = cur_batch_size;
-          ts.is_last_block = (cur_variant_idx_start + cur_batch_size == variant_ct);
-          ts.thread_func_ptr = CalcPcaVarWtsThread;
-          if (unlikely(SpawnThreads3z(cur_variant_idx_start, &ts))) {
+        if (!IsLastBlock(&tg)) {
+          vwctx.cur_batch_size = cur_batch_size;
+          if (cur_variant_idx_start + cur_batch_size == variant_ct) {
+            DeclareLastThreadBlock(&tg);
+          }
+          if (unlikely(SpawnThreads(&tg))) {
             goto CalcPca_ret_THREAD_CREATE_FAIL;
           }
         }
         parity = 1 - parity;
         if (cur_variant_idx_start) {
           // write *previous* block results
-          const double* var_wts_iter = &(qq[parity * var_wts_part_size]);
+          const double* var_wts_iter = &(var_wts[parity * var_wts_part_size]);
           // (todo: update projection here)
           for (uint32_t vidx = cur_variant_idx_start - prev_batch_size; vidx != cur_variant_idx_start; ++vidx) {
             const uint32_t variant_uidx_write = BitIter1(variant_include, &variant_uidx_write_base, &write_bits);
@@ -4674,7 +4858,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     break;
   }
  CalcPca_ret_1:
-  CleanupThreads3z(&ts, &g_cur_batch_size);
+  CleanupThreads(&tg);
   BLAS_SET_NUM_THREADS(1);
   CswriteCloseCond(&css, cswritep);
   fclose_cond(outfile);
@@ -4711,32 +4895,37 @@ void FillCurDosageInts(const uintptr_t* genovec_buf, const uintptr_t* dosage_pre
 }
 
 CONSTI32(kScoreVariantBlockSize, 240);
-static double* g_dosages_vmaj[2] = {nullptr, nullptr};
-static double* g_score_coefs_cmaj[2] = {nullptr, nullptr};
-// don't bother to explicitly multithread for now
-static double* g_final_scores_cmaj = nullptr;
-static uint32_t g_score_col_ct = 0;
-static uint32_t g_sample_ct = 0;
 
-THREAD_FUNC_DECL CalcScoreThread(void* arg) {
-  const uintptr_t tidx = R_CAST(uintptr_t, arg);
-  assert(!tidx);
-  double* final_scores_cmaj = g_final_scores_cmaj;
-  const uint32_t score_col_ct = g_score_col_ct;
-  const uint32_t sample_ct = g_sample_ct;
+typedef struct CalcScoreCtxStruct {
+  uint32_t score_col_ct;
+  uint32_t sample_ct;
+
+  double* dosages_vmaj[2];
+  double* score_coefs_cmaj[2];
+
+  uint32_t cur_batch_size;
+
+  double* final_scores_cmaj;
+} CalcScoreCtx;
+
+THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  // don't bother to explicitly multithread for now
+  assert(!arg->tidx);
+  CalcScoreCtx* ctx = S_CAST(CalcScoreCtx*, arg->sharedp->context);
+
+  double* final_scores_cmaj = ctx->final_scores_cmaj;
+  const uint32_t score_col_ct = ctx->score_col_ct;
+  const uint32_t sample_ct = ctx->sample_ct;
   uint32_t parity = 0;
-  while (1) {
-    const uint32_t is_last_batch = g_is_last_thread_block;
-    const uint32_t cur_batch_size = g_cur_batch_size;
+  do {
+    const uint32_t cur_batch_size = ctx->cur_batch_size;
     if (cur_batch_size) {
-      RowMajorMatrixMultiplyStridedIncr(g_score_coefs_cmaj[parity], g_dosages_vmaj[parity], score_col_ct, kScoreVariantBlockSize, sample_ct, sample_ct, cur_batch_size, sample_ct, final_scores_cmaj);
+      RowMajorMatrixMultiplyStridedIncr(ctx->score_coefs_cmaj[parity], ctx->dosages_vmaj[parity], score_col_ct, kScoreVariantBlockSize, sample_ct, sample_ct, cur_batch_size, sample_ct, final_scores_cmaj);
     }
-    if (is_last_batch) {
-      THREAD_RETURN;
-    }
-    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
-  }
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
 }
 
 PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const ScoreInfo* score_info_ptr, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t xchr_model, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
@@ -4746,10 +4935,10 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
   char* cswritep = nullptr;
   PglErr reterr = kPglRetSuccess;
   TextStream score_txs;
-  ThreadsState ts;
+  ThreadGroup tg;
   CompressStreamState css;
   PreinitTextStream(&score_txs);
-  InitThreads3z(&ts);
+  PreinitThreads(&tg);
   PreinitCstream(&css);
   {
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
@@ -4873,10 +5062,13 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     }
     BigstackBaseSet(write_iter);
 
-    g_score_col_ct = score_col_ct;
-    g_sample_ct = sample_ct;
-    g_cur_batch_size = kScoreVariantBlockSize;
-    ts.calc_thread_ct = 1;
+    CalcScoreCtx ctx;
+    ctx.score_col_ct = score_col_ct;
+    ctx.sample_ct = sample_ct;
+    ctx.cur_batch_size = kScoreVariantBlockSize;
+    if (unlikely(SetThreadCt(1, &tg))) {
+      goto ScoreReport_ret_NOMEM;
+    }
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
@@ -4902,12 +5094,11 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     uintptr_t* already_seen;
     char* overflow_buf = nullptr;
     if (unlikely(
-            bigstack_alloc_thread(1, &ts.threads) ||
-            bigstack_alloc_d((kScoreVariantBlockSize * k1LU) * sample_ct, &(g_dosages_vmaj[0])) ||
-            bigstack_alloc_d((kScoreVariantBlockSize * k1LU) * sample_ct, &(g_dosages_vmaj[1])) ||
-            bigstack_alloc_d(kScoreVariantBlockSize * score_col_ct, &(g_score_coefs_cmaj[0])) ||
-            bigstack_alloc_d(kScoreVariantBlockSize * score_col_ct, &(g_score_coefs_cmaj[1])) ||
-            bigstack_calloc_d(score_col_ct * sample_ct, &g_final_scores_cmaj) ||
+            bigstack_alloc_d((kScoreVariantBlockSize * k1LU) * sample_ct, &(ctx.dosages_vmaj[0])) ||
+            bigstack_alloc_d((kScoreVariantBlockSize * k1LU) * sample_ct, &(ctx.dosages_vmaj[1])) ||
+            bigstack_alloc_d(kScoreVariantBlockSize * score_col_ct, &(ctx.score_coefs_cmaj[0])) ||
+            bigstack_alloc_d(kScoreVariantBlockSize * score_col_ct, &(ctx.score_coefs_cmaj[1])) ||
+            bigstack_calloc_d(score_col_ct * sample_ct, &ctx.final_scores_cmaj) ||
             // bugfix (4 Nov 2017): need raw_sample_ctl here, not sample_ctl
             bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
             bigstack_alloc_w(sample_ctl, &sex_nonmale_collapsed) ||
@@ -4922,6 +5113,8 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             bigstack_alloc_c(overflow_buf_alloc, &overflow_buf))) {
       goto ScoreReport_ret_NOMEM;
     }
+    SetThreadFuncAndData(CalcScoreThread, &ctx, &tg);
+
     VecW* missing_diploid_acc4 = &(R_CAST(VecW*, missing_acc1)[acc1_vec_ct]);
     VecW* missing_diploid_acc8 = &(missing_diploid_acc4[acc4_vec_ct]);
     VecW* missing_diploid_acc32 = &(missing_diploid_acc8[acc8_vec_ct]);
@@ -4970,8 +5163,8 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     uint32_t block_vidx = 0;
     uint32_t parity = 0;
     uint32_t cur_allele_ct = 2;
-    double* cur_dosages_vmaj_iter = g_dosages_vmaj[0];
-    double* cur_score_coefs_cmaj = g_score_coefs_cmaj[0];
+    double* cur_dosages_vmaj_iter = ctx.dosages_vmaj[0];
+    double* cur_score_coefs_cmaj = ctx.score_coefs_cmaj[0];
     double geno_slope = kRecipDosageMax;
     double geno_intercept = 0.0;
     double cur_allele_freq = 0.0;
@@ -5279,18 +5472,16 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
                 }
               }
               parity = 1 - parity;
-              const uint32_t is_not_first_block = (ts.thread_func_ptr != nullptr);
+              const uint32_t is_not_first_block = ThreadsAreActive(&tg);
               if (is_not_first_block) {
-                JoinThreads3z(&ts);
+                JoinThreads(&tg);
                 // CalcScoreThread() never errors out
-              } else {
-                ts.thread_func_ptr = CalcScoreThread;
               }
-              if (unlikely(SpawnThreads3z(is_not_first_block, &ts))) {
+              if (unlikely(SpawnThreads(&tg))) {
                 goto ScoreReport_ret_THREAD_CREATE_FAIL;
               }
-              cur_dosages_vmaj_iter = g_dosages_vmaj[parity];
-              cur_score_coefs_cmaj = g_score_coefs_cmaj[parity];
+              cur_dosages_vmaj_iter = ctx.dosages_vmaj[parity];
+              cur_score_coefs_cmaj = ctx.score_coefs_cmaj[parity];
               block_vidx = 0;
             }
           } else {
@@ -5304,6 +5495,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
               goto ScoreReport_ret_INCONSISTENT_INPUT_WW;
             }
             ++duplicated_var_id_ct;
+            // subtract this from missing_var_id_ct later
           }
         }
       }
@@ -5321,11 +5513,14 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     VcountIncr8To32(missing_diploid_acc8, acc8_vec_ct, missing_diploid_acc32);
     VcountIncr4To8(missing_haploid_acc4, acc4_vec_ct, missing_haploid_acc8);
     VcountIncr8To32(missing_haploid_acc8, acc8_vec_ct, missing_haploid_acc32);
-    const uint32_t is_not_first_block = (ts.thread_func_ptr != nullptr);
+    const uint32_t is_not_first_block = ThreadsAreActive(&tg);
     putc_unlocked('\r', stdout);
     if (missing_var_id_ct || missing_allele_code_ct || duplicated_var_id_ct) {
+      missing_var_id_ct -= duplicated_var_id_ct;
       if (!missing_var_id_ct) {
-        snprintf(g_logbuf, kLogbufSize, "Warning: %" PRIuPTR " --score file entr%s.\n", missing_allele_code_ct, (missing_allele_code_ct == 1)? "y was skipped due to a mismatching allele code" : "ies were skipped due to mismatching allele codes");
+        if (missing_allele_code_ct) {
+          snprintf(g_logbuf, kLogbufSize, "Warning: %" PRIuPTR " --score file entr%s.\n", missing_allele_code_ct, (missing_allele_code_ct == 1)? "y was skipped due to a mismatching allele code" : "ies were skipped due to mismatching allele codes");
+        }
       } else if (!missing_allele_code_ct) {
         snprintf(g_logbuf, kLogbufSize, "Warning: %" PRIuPTR " --score file entr%s.\n", missing_var_id_ct, (missing_var_id_ct == 1)? "y was skipped due to a missing variant ID" : "ies were skipped due to missing variant IDs");
       } else {
@@ -5342,18 +5537,16 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     }
     if (block_vidx) {
       if (is_not_first_block) {
-        JoinThreads3z(&ts);
-      } else {
-        ts.thread_func_ptr = CalcScoreThread;
+        JoinThreads(&tg);
       }
     } else if (unlikely(!valid_variant_ct)) {
       logerrputs("Error: No valid variants in --score file.\n");
       goto ScoreReport_ret_DEGENERATE_DATA;
     } else {
-      JoinThreads3z(&ts);
+      JoinThreads(&tg);
     }
-    ts.is_last_block = 1;
-    g_cur_batch_size = block_vidx;
+    DeclareLastThreadBlock(&tg);
+    ctx.cur_batch_size = block_vidx;
     if (se_mode) {
       for (uintptr_t score_col_idx = 0; score_col_idx != score_col_ct; ++score_col_idx) {
         double* cur_score_coefs_row = &(cur_score_coefs_cmaj[score_col_idx * kScoreVariantBlockSize]);
@@ -5362,14 +5555,14 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         }
       }
     }
-    if (unlikely(SpawnThreads3z(is_not_first_block, &ts))) {
+    if (unlikely(SpawnThreads(&tg))) {
       goto ScoreReport_ret_THREAD_CREATE_FAIL;
     }
-    JoinThreads3z(&ts);
+    JoinThreads(&tg);
     if (se_mode) {
       // sample_ct * score_col_ct
       for (uintptr_t ulii = 0; ulii != sample_ct * score_col_ct; ++ulii) {
-        g_final_scores_cmaj[ulii] = sqrt(g_final_scores_cmaj[ulii]);
+        ctx.final_scores_cmaj[ulii] = sqrt(ctx.final_scores_cmaj[ulii]);
       }
     }
     logprintf("--score: %u variant%s processed.\n", valid_variant_ct, (valid_variant_ct == 1)? "" : "s");
@@ -5517,7 +5710,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         *cswritep++ = '\t';
         cswritep = dosagetoa(dosage_sums[sample_idx], cswritep);
       }
-      const double* final_score_col = &(g_final_scores_cmaj[sample_idx]);
+      const double* final_score_col = &(ctx.final_scores_cmaj[sample_idx]);
       if (write_score_avgs) {
         const double denom_recip = 1.0 / S_CAST(double, denom);
         for (uint32_t score_col_idx = 0; score_col_idx != score_col_ct; ++score_col_idx) {
@@ -5590,7 +5783,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
   }
  ScoreReport_ret_1:
   CswriteCloseCond(&css, cswritep);
-  CleanupThreads3z(&ts, &g_cur_batch_size);
+  CleanupThreads(&tg);
   BLAS_SET_NUM_THREADS(1);
   CleanupTextStream2("--score file", &score_txs, &reterr);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);

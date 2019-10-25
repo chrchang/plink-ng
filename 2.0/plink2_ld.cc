@@ -609,73 +609,78 @@ void FillVaggs(const uintptr_t* hom_vec, const uintptr_t* ref2het_vec, uintptr_t
   *minusone_ct_ptr = alt2_ct;
 }
 
-// multithread globals
-static const uint32_t* g_subcontig_info = nullptr;
-static const uint32_t* g_subcontig_thread_assignments = nullptr;
-static const uintptr_t* g_variant_include = nullptr;
-static const uintptr_t* g_allele_idx_offsets = nullptr;
-static const AlleleCode* g_maj_alleles = nullptr;
-static const double* g_all_allele_freqs = nullptr;
-static const uint32_t* g_variant_bps = nullptr;
-static uint32_t* g_tvidx_end = nullptr;
-static uint32_t g_x_start = 0;
-static uint32_t g_x_len = 0;
-static uint32_t g_y_start = 0;
-static uint32_t g_y_len = 0;
-static uint32_t g_founder_ct = 0;
-static uint32_t g_founder_male_ct = 0;
-static uint32_t g_prune_window_size = 0;
-static uint32_t g_window_maxl = 0;
-static double g_prune_ld_thresh = 0.0;
-static uint32_t g_window_incr = 0;
-static uint32_t g_cur_batch_size = 0;
-static uintptr_t** g_genobufs = nullptr;
-static uintptr_t** g_occupied_window_slots = nullptr;
-static uintptr_t** g_cur_window_removed = nullptr;
-static double** g_cur_maj_freqs = nullptr;
-static uintptr_t** g_removed_variants_write = nullptr;
-static VariantAggs** g_vaggs = nullptr;
-static VariantAggs** g_nonmale_vaggs = nullptr;
-static uint32_t** g_winpos_to_slot_idx = nullptr;
-static uint32_t** g_tvidxs = nullptr;
-static uint32_t** g_first_unchecked_tvidx = nullptr;
-static uintptr_t** g_raw_tgenovecs[2] = {nullptr, nullptr};
+typedef struct IndepPairwiseCtxStruct {
+  const uint32_t* subcontig_info;
+  const uint32_t* subcontig_thread_assignments;
+  const uintptr_t* variant_include;
+  const uintptr_t* allele_idx_offsets;
+  const AlleleCode* maj_alleles;
+  const double* all_allele_freqs;
+  const uint32_t* variant_bps;
+  uint32_t* tvidx_end;
+  uint32_t x_start;
+  uint32_t x_len;
+  uint32_t y_start;
+  uint32_t y_len;
+  uint32_t founder_ct;
+  uint32_t founder_male_ct;
+  uint32_t prune_window_size;
+  uint32_t window_maxl;
+  double prune_ld_thresh;
+  uint32_t window_incr;
+  uint32_t cur_batch_size;
 
-THREAD_FUNC_DECL IndepPairwiseThread(void* arg) {
-  const uintptr_t tidx = R_CAST(uintptr_t, arg);
-  const uint32_t* subcontig_info = g_subcontig_info;
-  const uint32_t* subcontig_thread_assignments = g_subcontig_thread_assignments;
-  const uintptr_t* variant_include = g_variant_include;
-  const uint32_t x_start = g_x_start;
-  const uint32_t x_len = g_x_len;
-  const uint32_t y_start = g_y_start;
-  const uint32_t y_len = g_y_len;
-  const uintptr_t* allele_idx_offsets = g_allele_idx_offsets;
-  const AlleleCode* maj_alleles = g_maj_alleles;
-  const double* all_allele_freqs = g_all_allele_freqs;
-  const uint32_t* variant_bps = g_variant_bps;
-  const uint32_t founder_ct = g_founder_ct;
-  const uint32_t founder_male_ct = g_founder_male_ct;
+  uintptr_t** genobufs;
+  uintptr_t** occupied_window_slots;
+  uintptr_t** cur_window_removed;
+  double** cur_maj_freqs;
+  uintptr_t** removed_variants_write;
+  VariantAggs** vaggs;
+  VariantAggs** nonmale_vaggs;
+  uint32_t** winpos_to_slot_idx;
+  uint32_t** tvidxs;
+  uint32_t** first_unchecked_tvidx;
+  uintptr_t** raw_tgenovecs[2];
+} IndepPairwiseCtx;
+
+THREAD_FUNC_DECL IndepPairwiseThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  IndepPairwiseCtx* ctx = S_CAST(IndepPairwiseCtx*, arg->sharedp->context);
+
+  const uint32_t* subcontig_info = ctx->subcontig_info;
+  const uint32_t* subcontig_thread_assignments = ctx->subcontig_thread_assignments;
+  const uintptr_t* variant_include = ctx->variant_include;
+  const uint32_t x_start = ctx->x_start;
+  const uint32_t x_len = ctx->x_len;
+  const uint32_t y_start = ctx->y_start;
+  const uint32_t y_len = ctx->y_len;
+  const uintptr_t* allele_idx_offsets = ctx->allele_idx_offsets;
+  const AlleleCode* maj_alleles = ctx->maj_alleles;
+  const double* all_allele_freqs = ctx->all_allele_freqs;
+  const uint32_t* variant_bps = ctx->variant_bps;
+  const uint32_t founder_ct = ctx->founder_ct;
+  const uint32_t founder_male_ct = ctx->founder_male_ct;
   const uint32_t founder_male_ctl2 = QuaterCtToWordCt(founder_male_ct);
   const uint32_t nonmale_ct = founder_ct - founder_male_ct;
   const uint32_t nonmale_ctaw = BitCtToAlignedWordCt(nonmale_ct);
   const uint32_t nonmale_ctl = BitCtToWordCt(nonmale_ct);
   const uintptr_t raw_tgenovec_single_variant_word_ct = RoundUpPow2(QuaterCtToWordCt(nonmale_ct) + founder_male_ctl2, kWordsPerVec);
-  const uint32_t prune_window_size = g_prune_window_size;
-  const uint32_t window_maxl = g_window_maxl;
-  const double prune_ld_thresh = g_prune_ld_thresh;
-  const uint32_t window_incr = g_window_incr;
-  const uint32_t tvidx_end = g_tvidx_end[tidx];
-  uintptr_t* genobufs = g_genobufs[tidx];
-  uintptr_t* occupied_window_slots = g_occupied_window_slots[tidx];
-  uintptr_t* cur_window_removed = g_cur_window_removed[tidx];
-  uintptr_t* removed_variants_write = g_removed_variants_write[tidx];
-  double* cur_maj_freqs = g_cur_maj_freqs[tidx];
-  VariantAggs* vaggs = g_vaggs[tidx];
-  VariantAggs* nonmale_vaggs = g_nonmale_vaggs[tidx];
-  uint32_t* winpos_to_slot_idx = g_winpos_to_slot_idx[tidx];
-  uint32_t* tvidxs = g_tvidxs[tidx];
-  uint32_t* first_unchecked_tvidx = g_first_unchecked_tvidx[tidx];
+  const uint32_t prune_window_size = ctx->prune_window_size;
+  const uint32_t window_maxl = ctx->window_maxl;
+  const double prune_ld_thresh = ctx->prune_ld_thresh;
+  const uint32_t window_incr = ctx->window_incr;
+  const uint32_t tvidx_end = ctx->tvidx_end[tidx];
+  uintptr_t* genobufs = ctx->genobufs[tidx];
+  uintptr_t* occupied_window_slots = ctx->occupied_window_slots[tidx];
+  uintptr_t* cur_window_removed = ctx->cur_window_removed[tidx];
+  uintptr_t* removed_variants_write = ctx->removed_variants_write[tidx];
+  double* cur_maj_freqs = ctx->cur_maj_freqs[tidx];
+  VariantAggs* vaggs = ctx->vaggs[tidx];
+  VariantAggs* nonmale_vaggs = ctx->nonmale_vaggs[tidx];
+  uint32_t* winpos_to_slot_idx = ctx->winpos_to_slot_idx[tidx];
+  uint32_t* tvidxs = ctx->tvidxs[tidx];
+  uint32_t* first_unchecked_tvidx = ctx->first_unchecked_tvidx[tidx];
 
   uint32_t subcontig_end_tvidx = 0;
   uint32_t subcontig_idx = UINT32_MAX;  // deliberate overflow
@@ -696,15 +701,14 @@ THREAD_FUNC_DECL IndepPairwiseThread(void* arg) {
   uintptr_t entire_variant_buf_word_ct = 2 * cur_founder_ctaw;
   uint32_t cur_allele_ct = 2;
   uint32_t parity = 0;
-  while (1) {
-    const uint32_t is_last_block = g_is_last_thread_block;
-    const uint32_t cur_batch_size = g_cur_batch_size;
+  do {
+    const uint32_t cur_batch_size = ctx->cur_batch_size;
     const uint32_t tvidx_stop = MINV(tvidx_start + cur_batch_size, tvidx_end);
     // main loop has to be variant-, not window-, based due to how datasets too
     // large to fit in memory are handled: we may have to halt in the middle of
     // unpacking data for a window, waiting until the current I/O pass is
     // complete before proceeding
-    const uintptr_t* raw_tgenovecs = g_raw_tgenovecs[parity][tidx];
+    const uintptr_t* raw_tgenovecs = ctx->raw_tgenovecs[parity][tidx];
     for (uint32_t cur_tvidx = tvidx_start; cur_tvidx < tvidx_stop; ) {
       if (cur_tvidx == subcontig_end_tvidx) {
         LdPruneNextSubcontig(variant_include, variant_bps, subcontig_info, subcontig_thread_assignments, x_start, x_len, y_start, y_len, founder_ct, founder_male_ct, prune_window_size, tidx, &subcontig_idx, &subcontig_end_tvidx, &next_window_end_tvidx, &is_x, &is_y, &cur_founder_ct, &cur_founder_ctaw, &cur_founder_ctl, &entire_variant_buf_word_ct, &variant_uidx_winstart, &variant_uidx_winend);
@@ -872,18 +876,15 @@ THREAD_FUNC_DECL IndepPairwiseThread(void* arg) {
         write_slot_idx = 0;
       }
     }
-    if (is_last_block) {
-      THREAD_RETURN;
-    }
-    THREAD_BLOCK_FINISH_OLD(tidx);
     parity = 1 - parity;
     tvidx_start = tvidx_stop;
-  }
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
 }
 
 PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uint32_t* founder_info_cumulative_popcounts, const uintptr_t* founder_nonmale, const uintptr_t* founder_male, const LdInfo* ldip, const uint32_t* subcontig_info, const uint32_t* subcontig_thread_assignments, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t founder_male_ct, uint32_t subcontig_ct, uintptr_t window_max, uint32_t calc_thread_ct, uint32_t max_load, PgenReader* simple_pgrp, uintptr_t* removed_variants_collapsed) {
-  ThreadsState ts;
-  InitThreads3z(&ts);
+  ThreadGroup tg;
+  PreinitThreads(&tg);
   PglErr reterr = kPglRetSuccess;
   {
     const uint32_t founder_nonmale_ct = founder_ct - founder_male_ct;
@@ -913,6 +914,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     // - window_max * sizeof(int32_t) for live_indices (variant_idxs?)
     // - window_max * sizeof(int32_t) for start_arr (first uncompared
     //     variant_idx)
+    IndepPairwiseCtx ctx;
     uintptr_t* tmp_genovec;
     uint32_t* thread_last_subcontig;
     uint32_t* thread_subcontig_start_tvidx;
@@ -920,29 +922,28 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     uint32_t* thread_last_uidx;
     if (unlikely(
             bigstack_alloc_w(QuaterCtToWordCt(raw_sample_ct), &tmp_genovec) ||
-            bigstack_calloc_u32(calc_thread_ct, &g_tvidx_end) ||
+            bigstack_calloc_u32(calc_thread_ct, &ctx.tvidx_end) ||
             bigstack_calloc_u32(calc_thread_ct, &thread_last_subcontig) ||
             bigstack_calloc_u32(calc_thread_ct, &thread_subcontig_start_tvidx) ||
             bigstack_calloc_u32(calc_thread_ct, &thread_last_tvidx) ||
             bigstack_calloc_u32(calc_thread_ct, &thread_last_uidx) ||
-            bigstack_alloc_wp(calc_thread_ct, &g_genobufs) ||
-            bigstack_alloc_wp(calc_thread_ct, &g_occupied_window_slots) ||
-            bigstack_alloc_wp(calc_thread_ct, &g_cur_window_removed) ||
-            bigstack_alloc_dp(calc_thread_ct, &g_cur_maj_freqs) ||
-            bigstack_alloc_wp(calc_thread_ct, &g_removed_variants_write) ||
-            BIGSTACK_ALLOC_X(VariantAggs*, calc_thread_ct, &g_vaggs) ||
-            BIGSTACK_ALLOC_X(VariantAggs*, calc_thread_ct, &g_nonmale_vaggs) ||
-            bigstack_alloc_u32p(calc_thread_ct, &g_winpos_to_slot_idx) ||
-            bigstack_alloc_u32p(calc_thread_ct, &g_tvidxs) ||
-            bigstack_alloc_u32p(calc_thread_ct, &g_first_unchecked_tvidx) ||
-            bigstack_alloc_wp(calc_thread_ct, &(g_raw_tgenovecs[0])) ||
-            bigstack_alloc_wp(calc_thread_ct, &(g_raw_tgenovecs[1])) ||
-            bigstack_alloc_thread(calc_thread_ct, &ts.threads))) {
+            bigstack_alloc_wp(calc_thread_ct, &ctx.genobufs) ||
+            bigstack_alloc_wp(calc_thread_ct, &ctx.occupied_window_slots) ||
+            bigstack_alloc_wp(calc_thread_ct, &ctx.cur_window_removed) ||
+            bigstack_alloc_dp(calc_thread_ct, &ctx.cur_maj_freqs) ||
+            bigstack_alloc_wp(calc_thread_ct, &ctx.removed_variants_write) ||
+            BIGSTACK_ALLOC_X(VariantAggs*, calc_thread_ct, &ctx.vaggs) ||
+            BIGSTACK_ALLOC_X(VariantAggs*, calc_thread_ct, &ctx.nonmale_vaggs) ||
+            bigstack_alloc_u32p(calc_thread_ct, &ctx.winpos_to_slot_idx) ||
+            bigstack_alloc_u32p(calc_thread_ct, &ctx.tvidxs) ||
+            bigstack_alloc_u32p(calc_thread_ct, &ctx.first_unchecked_tvidx) ||
+            bigstack_alloc_wp(calc_thread_ct, &(ctx.raw_tgenovecs[0])) ||
+            bigstack_alloc_wp(calc_thread_ct, &(ctx.raw_tgenovecs[1])))) {
       goto IndepPairwise_ret_NOMEM;
     }
     for (uint32_t subcontig_idx = 0; subcontig_idx != subcontig_ct; ++subcontig_idx) {
       const uint32_t cur_thread_idx = subcontig_thread_assignments[subcontig_idx];
-      g_tvidx_end[cur_thread_idx] += subcontig_info[3 * subcontig_idx];
+      ctx.tvidx_end[cur_thread_idx] += subcontig_info[3 * subcontig_idx];
     }
     const uintptr_t entire_variant_buf_word_ct = 2 * (founder_nonmale_ctaw + founder_male_ctaw);
     const uint32_t window_maxl = BitCtToWordCt(window_max);
@@ -982,37 +983,40 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
       tvidx_batch_size = bigstack_avail_per_thread / RoundUpPow2(raw_tgenovec_single_variant_word_ct * 2 * sizeof(intptr_t), kCacheline);
     }
     for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-      g_genobufs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(genobuf_alloc));
-      g_occupied_window_slots[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(occupied_window_slots_alloc));
-      ZeroWArr(window_maxl, g_occupied_window_slots[tidx]);
-      g_cur_window_removed[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(cur_window_removed_alloc));
-      ZeroWArr(1 + window_max / kBitsPerWord, g_cur_window_removed[tidx]);
-      g_cur_maj_freqs[tidx] = S_CAST(double*, bigstack_alloc_raw(cur_maj_freqs_alloc));
-      g_removed_variants_write[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(removed_variants_write_alloc));
-      ZeroWArr(max_loadl, g_removed_variants_write[tidx]);
-      g_vaggs[tidx] = S_CAST(VariantAggs*, bigstack_alloc_raw(vaggs_alloc));
-      g_nonmale_vaggs[tidx] = S_CAST(VariantAggs*, bigstack_alloc_raw(vaggs_alloc));
-      g_winpos_to_slot_idx[tidx] = S_CAST(uint32_t*, bigstack_alloc_raw(window_int32_alloc));
-      g_tvidxs[tidx] = S_CAST(uint32_t*, bigstack_alloc_raw(window_int32_alloc));
-      g_first_unchecked_tvidx[tidx] = S_CAST(uint32_t*, bigstack_alloc_raw(window_int32_alloc));
-      g_raw_tgenovecs[0][tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(tvidx_batch_size * raw_tgenovec_single_variant_word_ct * sizeof(intptr_t)));
-      g_raw_tgenovecs[1][tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(tvidx_batch_size * raw_tgenovec_single_variant_word_ct * sizeof(intptr_t)));
+      ctx.genobufs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(genobuf_alloc));
+      ctx.occupied_window_slots[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(occupied_window_slots_alloc));
+      ZeroWArr(window_maxl, ctx.occupied_window_slots[tidx]);
+      ctx.cur_window_removed[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(cur_window_removed_alloc));
+      ZeroWArr(1 + window_max / kBitsPerWord, ctx.cur_window_removed[tidx]);
+      ctx.cur_maj_freqs[tidx] = S_CAST(double*, bigstack_alloc_raw(cur_maj_freqs_alloc));
+      ctx.removed_variants_write[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(removed_variants_write_alloc));
+      ZeroWArr(max_loadl, ctx.removed_variants_write[tidx]);
+      ctx.vaggs[tidx] = S_CAST(VariantAggs*, bigstack_alloc_raw(vaggs_alloc));
+      ctx.nonmale_vaggs[tidx] = S_CAST(VariantAggs*, bigstack_alloc_raw(vaggs_alloc));
+      ctx.winpos_to_slot_idx[tidx] = S_CAST(uint32_t*, bigstack_alloc_raw(window_int32_alloc));
+      ctx.tvidxs[tidx] = S_CAST(uint32_t*, bigstack_alloc_raw(window_int32_alloc));
+      ctx.first_unchecked_tvidx[tidx] = S_CAST(uint32_t*, bigstack_alloc_raw(window_int32_alloc));
+      ctx.raw_tgenovecs[0][tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(tvidx_batch_size * raw_tgenovec_single_variant_word_ct * sizeof(intptr_t)));
+      ctx.raw_tgenovecs[1][tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(tvidx_batch_size * raw_tgenovec_single_variant_word_ct * sizeof(intptr_t)));
     }
-    g_subcontig_info = subcontig_info;
-    g_subcontig_thread_assignments = subcontig_thread_assignments;
-    g_variant_include = variant_include;
-    g_allele_idx_offsets = allele_idx_offsets;
-    g_maj_alleles = maj_alleles;
-    g_all_allele_freqs = allele_freqs;
-    g_variant_bps = variant_bps;
-    g_founder_ct = founder_ct;
-    g_founder_male_ct = founder_male_ct;
-    g_prune_ld_thresh = ldip->prune_last_param * (1 + kSmallEpsilon);
-    g_prune_window_size = ldip->prune_window_size;
-    g_window_maxl = window_maxl;
-    g_window_incr = ldip->prune_window_incr;
-    g_cur_batch_size = tvidx_batch_size;
-    ts.calc_thread_ct = calc_thread_ct;
+    ctx.subcontig_info = subcontig_info;
+    ctx.subcontig_thread_assignments = subcontig_thread_assignments;
+    ctx.variant_include = variant_include;
+    ctx.allele_idx_offsets = allele_idx_offsets;
+    ctx.maj_alleles = maj_alleles;
+    ctx.all_allele_freqs = allele_freqs;
+    ctx.variant_bps = variant_bps;
+    ctx.founder_ct = founder_ct;
+    ctx.founder_male_ct = founder_male_ct;
+    ctx.prune_window_size = ldip->prune_window_size;
+    ctx.window_maxl = window_maxl;
+    ctx.prune_ld_thresh = ldip->prune_last_param * (1 + kSmallEpsilon);
+    ctx.window_incr = ldip->prune_window_incr;
+    ctx.cur_batch_size = tvidx_batch_size;
+    if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
+      goto IndepPairwise_ret_NOMEM;
+    }
+    SetThreadFuncAndData(IndepPairwiseThread, &ctx, &tg);
 
     const uint32_t all_haploid = IsSet(cip->haploid_mask, 0);
     uint32_t x_start = 0;
@@ -1023,10 +1027,10 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     GetXymtStartAndEnd(cip, kChrOffsetY, &y_start, &y_end);
     const uint32_t x_len = x_end - x_start;
     const uint32_t y_len = y_end - y_start;
-    g_x_start = x_start;
-    g_x_len = x_len;
-    g_y_start = y_start;
-    g_y_len = y_len;
+    ctx.x_start = x_start;
+    ctx.x_len = x_len;
+    ctx.y_start = y_start;
+    ctx.y_len = y_len;
     // Main workflow:
     // 1. Set n=0, load batch 0
 
@@ -1044,9 +1048,9 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     fputs("0%", stdout);
     fflush(stdout);
     for (uint32_t cur_tvidx_start = 0; ; cur_tvidx_start += tvidx_batch_size) {
-      if (!ts.is_last_block) {
+      if (!IsLastBlock(&tg)) {
         PgrClearLdCache(simple_pgrp);
-        uintptr_t** cur_raw_tgenovecs = g_raw_tgenovecs[parity];
+        uintptr_t** cur_raw_tgenovecs = ctx.raw_tgenovecs[parity];
         const uint32_t cur_tvidx_end = cur_tvidx_start + tvidx_batch_size;
         uint32_t is_x_or_y = 0;
         for (uint32_t subcontig_idx = 0; subcontig_idx != subcontig_ct; ++subcontig_idx) {
@@ -1132,8 +1136,8 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
         }
       }
       if (cur_tvidx_start) {
-        JoinThreads3z(&ts);
-        if (ts.is_last_block) {
+        JoinThreads(&tg);
+        if (IsLastBlock(&tg)) {
           break;
         }
         if (cur_tvidx_start >= next_print_tvidx_start) {
@@ -1146,9 +1150,10 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
           next_print_tvidx_start = (pct * S_CAST(uint64_t, max_load)) / 100;
         }
       }
-      ts.is_last_block = (cur_tvidx_start + tvidx_batch_size >= max_load);
-      ts.thread_func_ptr = IndepPairwiseThread;
-      if (unlikely(SpawnThreads3z(cur_tvidx_start, &ts))) {
+      if (cur_tvidx_start + tvidx_batch_size >= max_load) {
+        DeclareLastThreadBlock(&tg);
+      }
+      if (unlikely(SpawnThreads(&tg))) {
         goto IndepPairwise_ret_THREAD_CREATE_FAIL;
       }
       parity = 1 - parity;
@@ -1156,7 +1161,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     ZeroU32Arr(calc_thread_ct, thread_subcontig_start_tvidx);
     for (uint32_t subcontig_idx = 0; subcontig_idx != subcontig_ct; ++subcontig_idx) {
       const uint32_t cur_thread_idx = subcontig_thread_assignments[subcontig_idx];
-      const uintptr_t* cur_removed_variants = g_removed_variants_write[cur_thread_idx];
+      const uintptr_t* cur_removed_variants = ctx.removed_variants_write[cur_thread_idx];
       const uint32_t subcontig_len = subcontig_info[3 * subcontig_idx];
       const uint32_t subcontig_idx_start = subcontig_info[3 * subcontig_idx + 1];
       CopyBitarrRange(cur_removed_variants, thread_subcontig_start_tvidx[cur_thread_idx], subcontig_idx_start, subcontig_len, removed_variants_collapsed);
@@ -1181,7 +1186,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     reterr = kPglRetNotYetSupported;
     break;
   }
-  CleanupThreads3z(&ts, &g_cur_batch_size);
+  CleanupThreads(&tg);
   // caller will free memory
   return reterr;
 }

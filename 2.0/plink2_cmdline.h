@@ -623,12 +623,6 @@ HEADER_INLINE BoolErr bigstack_alloc_vpp(uintptr_t ct, VecW**** vpp_arr_ptr) {
   return !(*vpp_arr_ptr);
 }
 
-// this should be deleted once SpawnThreads3z is eliminated
-HEADER_INLINE BoolErr bigstack_alloc_thread(uintptr_t ct, pthread_t** thread_arr_ptr) {
-  *thread_arr_ptr = S_CAST(pthread_t*, bigstack_alloc(ct * sizeof(pthread_t)));
-  return !(*thread_arr_ptr);
-}
-
 BoolErr bigstack_calloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr);
 
 BoolErr bigstack_calloc_d(uintptr_t ct, double** d_arr_ptr);
@@ -845,11 +839,6 @@ HEADER_INLINE BoolErr bigstack_end_alloc_kcp(uintptr_t ct, const char*** kcp_arr
 HEADER_INLINE BoolErr bigstack_end_alloc_ucp(uintptr_t ct, unsigned char*** ucp_arr_ptr) {
   *ucp_arr_ptr = S_CAST(unsigned char**, bigstack_end_alloc(ct * sizeof(intptr_t)));
   return !(*ucp_arr_ptr);
-}
-
-HEADER_INLINE BoolErr bigstack_end_alloc_thread(uintptr_t ct, pthread_t** thread_arr_ptr) {
-  *thread_arr_ptr = S_CAST(pthread_t*, bigstack_end_alloc(ct * sizeof(pthread_t)));
-  return !(*thread_arr_ptr);
 }
 
 BoolErr bigstack_end_calloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr);
@@ -1684,116 +1673,6 @@ PglErr ParseNameRanges(const char* const* argvk, const char* errstr_append, uint
 // solutions[] (sorted from smallest to largest), and returning the count.
 // Multiple roots are only returned/counted once.
 uint32_t CubicRealRoots(double coef_a, double coef_b, double coef_c, STD_ARRAY_REF(double, 3) solutions);
-
-
-#ifndef _WIN32
-extern pthread_attr_t g_smallstack_thread_attr_old;
-#endif
-
-// For double-buffering workloads where we don't want to respawn/join the
-// threads on every block, and (unlike plink 1.9) the launcher thread does not
-// participate.  (Function names end with "2z" instead of "2" since launched
-// threads start with index 0 instead of 1.)
-//
-// ...actually, the 2z interface is being retired due to the messy
-// error-cleanup interface.  Use 3z instead...
-// ...that's being thrown out too, in favor of plink2_thread, which is much
-// more usable in other programs.
-extern uintptr_t g_thread_spawn_ct;
-extern uint32_t g_is_last_thread_block;
-
-#ifdef _WIN32
-extern HANDLE g_thread_start_next_event[];
-extern HANDLE g_thread_cur_block_done_events[];
-
-HEADER_INLINE void THREAD_BLOCK_FINISH_OLD(uintptr_t tidx) {
-  SetEvent(g_thread_cur_block_done_events[tidx]);
-  WaitForSingleObject(g_thread_start_next_event[tidx], INFINITE);
-}
-#else
-void THREAD_BLOCK_FINISH_OLD(uintptr_t tidx);
-#endif
-
-void JoinThreads2z(uint32_t ct, uint32_t is_last_block, pthread_t* threads);
-
-BoolErr SpawnThreads2z(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, uint32_t is_last_block, pthread_t* threads);
-
-// if a thread sets g_error_ret, and is_last_block wasn't true, caller should
-// initialize globals to tell threads to stop, then call this function
-void ErrorCleanupThreads2z(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthread_t* threads);
-
-
-// this interface simplifies error handling.
-typedef struct ThreadsStateStruct {
-  NONCOPYABLE(ThreadsStateStruct);
-  THREAD_FUNCPTR_T(thread_func_ptr);
-  pthread_t* threads;
-  uint32_t calc_thread_ct;
-  uint32_t is_last_block;
-  uint32_t is_unjoined;
-} ThreadsState;
-
-HEADER_INLINE void InitThreads3z(ThreadsState* tsp) {
-  tsp->thread_func_ptr = nullptr;
-  tsp->threads = nullptr;
-  tsp->is_last_block = 0;
-  tsp->is_unjoined = 0;
-}
-
-// ok to call this "unnecessarily".
-HEADER_INLINE void ReinitThreads3z(ThreadsState* tsp) {
-  assert(!tsp->is_unjoined);
-  tsp->is_last_block = 0;
-}
-
-HEADER_INLINE BoolErr SpawnThreads3z(uint32_t is_not_first_block, ThreadsState* tsp) {
-  if (SpawnThreads2z(tsp->thread_func_ptr, tsp->calc_thread_ct, tsp->is_last_block, tsp->threads)) {
-    if (!is_not_first_block) {
-      tsp->thread_func_ptr = nullptr;
-    }
-    return 1;
-  }
-  tsp->is_unjoined = 1;
-  return 0;
-}
-
-HEADER_INLINE void JoinThreads3z(ThreadsState* tsp) {
-  JoinThreads2z(tsp->calc_thread_ct, tsp->is_last_block, tsp->threads);
-  tsp->is_unjoined = 0;
-  if (tsp->is_last_block) {
-    tsp->thread_func_ptr = nullptr;
-  }
-}
-
-HEADER_INLINE void StopThreads3z(ThreadsState* tsp, uint32_t* cur_block_sizep) {
-  assert(tsp->thread_func_ptr);
-  if (tsp->is_unjoined) {
-    JoinThreads2z(tsp->calc_thread_ct, tsp->is_last_block, tsp->threads);
-  }
-  tsp->is_unjoined = 0;
-  if (!tsp->is_last_block) {
-    tsp->is_last_block = 1;
-    if (cur_block_sizep) {
-      *cur_block_sizep = 0;
-    }
-    ErrorCleanupThreads2z(tsp->thread_func_ptr, tsp->calc_thread_ct, tsp->threads);
-  }
-  tsp->thread_func_ptr = nullptr;
-}
-
-HEADER_INLINE void CleanupThreads3z(ThreadsState* tsp, uint32_t* cur_block_sizep) {
-  if (tsp->thread_func_ptr) {
-    if (tsp->is_unjoined) {
-      JoinThreads2z(tsp->calc_thread_ct, tsp->is_last_block, tsp->threads);
-    }
-    if (!tsp->is_last_block) {
-      if (cur_block_sizep) {
-        *cur_block_sizep = 0;
-      }
-      ErrorCleanupThreads2z(tsp->thread_func_ptr, tsp->calc_thread_ct, tsp->threads);
-    }
-  }
-}
 
 
 // store_all_dups currently must be true for dup_ct to be set, but this is easy

@@ -257,7 +257,6 @@ BoolErr SpawnThreads(ThreadGroup* tg_ptr) {
           if (!is_last_block) {
             JoinThreadsInternal(tidx, tgp);
             const uint32_t unstarted_thread_ct = thread_ct - tidx;
-            pthread_mutex_lock(&cbp->sync_mutex);
             cbp->active_ct -= unstarted_thread_ct;
             while (cbp->active_ct) {
               pthread_cond_wait(&cbp->cur_block_done_condvar, &cbp->sync_mutex);
@@ -297,6 +296,14 @@ void JoinThreads(ThreadGroup* tg_ptr) {
   JoinThreadsInternal(GetCbp(&tgp->shared)->thread_ct, tgp);
 }
 
+void StopThreads(ThreadGroup* tg_ptr) {
+  ThreadGroupMain* tgp = GetTgp(tg_ptr);
+  ThreadGroupControlBlock* cbp = GetCbp(&tgp->shared);
+  cbp->is_last_block = 2;
+  SpawnThreads(tg_ptr);
+  JoinThreadsInternal(cbp->thread_ct, tgp);
+}
+
 void CleanupThreads(ThreadGroup* tg_ptr) {
   ThreadGroupMain* tgp = GetTgp(tg_ptr);
   ThreadGroupControlBlock* cbp = GetCbp(&tgp->shared);
@@ -307,9 +314,7 @@ void CleanupThreads(ThreadGroup* tg_ptr) {
         JoinThreadsInternal(thread_ct, tgp);
       }
       if (!cbp->is_last_block) {
-        cbp->is_last_block = 2;
-        SpawnThreads(tg_ptr);
-        JoinThreadsInternal(thread_ct, tgp);
+        StopThreads(tg_ptr);
       }
 #ifndef _WIN32
     } else {

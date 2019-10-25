@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (23 Oct 2019)";
+  " (25 Oct 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -2142,11 +2142,20 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
           memcpy(prev_sample_include, sample_include, raw_sample_ctl * sizeof(intptr_t));
         }
-        if (pcp->king_table_subset_fname) {
-          // command-line parser currently guarantees --king-table-subset
-          // isn't used with --king-cutoff or --make-king
+        uint32_t rel_check = 0;
+        if (pcp->king_flags & kfKingRelCheck) {
+          if (OnlyOneFid(sample_include, &pii.sii, sample_ct)) {
+            logerrputs("Warning: --make-king-table 'rel-check' modifier has no effect since only one\nFID is present.\n");
+          } else {
+            rel_check = 1;
+          }
+        }
+        if (pcp->king_table_subset_fname || rel_check) {
+          // command-line parser currently guarantees --king-table-subset and
+          // "--make-king-table rel-check" aren't used with --king-cutoff or
+          // --make-king
           // probable todo: --king-cutoff-table which can use .kin0 as input
-          reterr = CalcKingTableSubset(sample_include, &pii.sii, variant_include, cip, pcp->king_table_subset_fname, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, pcp->king_table_filter, pcp->king_table_subset_thresh, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+          reterr = CalcKingTableSubset(sample_include, &pii.sii, variant_include, cip, pcp->king_table_subset_fname, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, pcp->king_table_filter, pcp->king_table_subset_thresh, rel_check, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -6524,7 +6533,7 @@ int main(int argc, char** argv) {
             logerrputs("Error: --make-king-table cannot be used with a --king-cutoff input fileset.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 4))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
@@ -6534,6 +6543,12 @@ int main(int argc, char** argv) {
               pc.king_flags |= kfKingTableZs;
             } else if (strequal_k(cur_modif, "counts", cur_modif_slen)) {
               pc.king_flags |= kfKingCounts;
+            } else if (strequal_k(cur_modif, "rel-check", cur_modif_slen)) {
+              if (unlikely(pc.king_cutoff != -1)) {
+                logerrputs("Error: --make-king-table 'rel-check' modifier cannot be used with\n--king-cutoff.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              pc.king_flags |= kfKingRelCheck;
             } else if (likely(StrStartsWith(cur_modif, "cols=", cur_modif_slen))) {
               if (unlikely(pc.king_flags & kfKingColAll)) {
                 logerrputs("Error: Multiple --make-king-table cols= modifiers.\n");

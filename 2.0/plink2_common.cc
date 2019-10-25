@@ -373,6 +373,27 @@ BoolErr CollapsedSampleFmtidInitAlloc(const uintptr_t* sample_include, const Sam
   return 0;
 }
 
+uint32_t OnlyOneFid(const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t sample_ct) {
+  if (!(siip->flags & kfSampleIdFidPresent)) {
+    return 1;
+  }
+  const char* sample_ids = siip->sample_ids;
+  const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = sample_include[0];
+  const uintptr_t first_sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+  const char* fid_start = &(sample_ids[first_sample_uidx * max_sample_id_blen]);
+  const uintptr_t fid_blen = AdvPastDelim(fid_start, '\t') - fid_start;
+  for (uint32_t sample_idx = 1; sample_idx != sample_ct; ++sample_idx) {
+    const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+    const char* cur_fid_start = &(sample_ids[sample_uidx * max_sample_id_blen]);
+    if (!memequal(fid_start, cur_fid_start, fid_blen)) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
 uint32_t GetMajIdxMulti(const double* cur_allele_freqs, uint32_t cur_allele_ct) {
   assert(cur_allele_ct > 2);
   double max_freq = cur_allele_freqs[1];

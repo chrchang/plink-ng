@@ -185,6 +185,11 @@ HEADER_INLINE void ReinitThreads(ThreadGroup* tg_ptr) {
   GET_PRIVATE(tgp->shared, cb).is_last_block = 0;
 }
 
+HEADER_INLINE uint32_t ThreadsAreActive(ThreadGroup* tg_ptr) {
+  ThreadGroupMain* tgp = &GET_PRIVATE(*tg_ptr, m);
+  return tgp->is_active;
+}
+
 // Technically unnecessary to call this, but it does save one sync cycle.
 //
 // Note that, if there's only one block of work-shards, this should be called
@@ -228,6 +233,9 @@ extern Plink2ThreadStartup g_thread_startup;
 BoolErr SpawnThreads(ThreadGroup* tg_ptr);
 
 void JoinThreads(ThreadGroup* tg_ptr);
+
+// Assumes threads are joined.
+void StopThreads(ThreadGroup* tg_ptr);
 
 void CleanupThreads(ThreadGroup* tg_ptr);
 

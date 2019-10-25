@@ -355,6 +355,9 @@ HEADER_INLINE uintptr_t GetMaxSampleFmtidBlen(const SampleIdInfo* siip, uint32_t
 
 BoolErr CollapsedSampleFmtidInitAlloc(const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t sample_ct, uint32_t include_fid, uint32_t include_sid, char** collapsed_sample_fmtids_ptr, uintptr_t* max_sample_fmtid_blen_ptr);
 
+// Assumes sample_ct > 0.
+uint32_t OnlyOneFid(const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t sample_ct);
+
 uint32_t GetMajIdxMulti(const double* cur_allele_freqs, uint32_t cur_allele_ct);
 
 HEADER_INLINE uint32_t GetMajIdx(const double* cur_allele_freqs, uint32_t cur_allele_ct) {

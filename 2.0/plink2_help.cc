@@ -835,11 +835,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * The computation can be subdivided with --parallel.\n"
               );
     HelpPrint("make-king\0make-king-table\0genome\0", &help_ctrl, 1,
-"  --make-king-table ['zs'] ['counts'] ['cols='<column set descriptor>]\n"
+"  --make-king-table ['zs'] ['counts'] ['rel-check'] ['cols='<col set descrip.>]\n"
 "    Similar to --make-king, except results are reported in the original .kin0\n"
 "    text table format (with minor changes, e.g. row order is more friendly to\n"
-"    incremental addition of samples), and --king-table-filter can be used to\n"
-"    restrict the report to high kinship values.\n"
+"    incremental addition of samples), --king-table-filter can be used to\n"
+"    restrict the report to high kinship values, and the 'rel-check' modifier\n"
+"    can be used to restrict to same-FID pairs.\n"
 "    Supported column sets are:\n"
 "      maybefid: FID1/FID2, if that column was in the input.  Requires 'id'.\n"
 "      fid: Force FID1/FID2 even when FID was absent in the input.\n"
@@ -1792,8 +1793,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --update-name <f> [newcol] [oldcol] [skip] : Update variant IDs.\n"
                );
     HelpPrint("recover-var-ids\0set-all-var-ids\0update-name\0", &help_ctrl, 0,
-"  --recover-var-ids <filename> ['strict-bim-order'] ['rigid' | 'force']\n"
-"                    ['partial'] :\n"
+"  --recover-var-ids <file> ['strict-bim-order'] [{rigid | force}] ['partial'] :\n"
 "    Undo --set-all-var-ids, given the original .pvar/VCF/.bim file.  Original\n"
 "    IDs are looked up by position and allele codes.\n"
 "    * By default, if the original-ID file is a .bim, allele order is ignored.\n"
