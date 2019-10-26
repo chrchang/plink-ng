@@ -2,35 +2,38 @@ This is a library for reading and querying PLINK 2.x genotype files (".pgen"),
 along with an alpha version of PLINK 2.0 built on top of the library.  A few
 notes:
 
-* pgenlib_internal.h/pgenlib_internal.cpp is lowest-common-denominator code
-  designed to compile on every conceivably relevant platform (e.g. Windows;
+* The draft .pgen specification is under ../pgen_spec/ .  Important properties:
+    1. A PLINK 1 .bed is a valid .pgen.
+    2. In addition, .pgen can represent multiallelic, phased, and/or dosage
+       information.  As of this writing, software support for multiallelic
+       dosages does not exist yet, but it does for any other combination of
+       these attributes (e.g. multiallelic+phased or phased+dosage).
+    3. .pgen CANNOT represent genotype probability triplets.  It also cannot
+       store read depths, per-call quality scores, etc.  While plink2 can
+       *filter* on the aforementioned BGEN/VCF/BCF fields during import, it
+       cannot re-export or do anything else with them.  Use other software,
+       such as bcftools (https://samtools.github.io/bcftools/bcftools.html ) or
+       qctool2 (https://www.well.ox.ac.uk/~gav/qctool_v2/ ) when you must
+       retain any of these fields.
+    4. .pgen is compressed, but in a manner that supports very fast compression
+       and decompression.  It is even practical to perform several key
+       computations (e.g. allele frequency) directly on the compressed
+       representation, and this capability is exposed by the pgenlib library.
+* The same specification document describes the .pvar (variant info) and .psam
+  (sample info) formats understood by plink2.  The most important thing to know
+  is that a typical VCF file is a valid .pvar, and so is a PLINK 1 .bim file.
+* pgenlib_{misc,read,write}.{h,cpp} is lowest-common-denominator code designed
+  to compile on every plausibly relevant platform (e.g. Windows;
   incompatibilities with ARM are also flagged now).  It has three modes:
     1. fread()-based one-variant-at-a-time,
-    2. mmap()-based one-variant-at-a-time, and
+    2. mmap()-based one-variant-at-a-time (warning: not tested recently), and
     3. fread()-based large blocks (most commonly 64k variants at a time).
-* Python/pgenlib.pyx is the Python wrapper.  See Python/python_api.txt for
-  details.
-* Instead of 00 = hom minor, 01 = missing, 10 = het, 11 = hom major, the basic
-  2-bit encoding is 00 = hom ref, 01 = het ref/alt1, 10 = hom alt1,
-  11 = missing/other.
-  PLINK 1 .bed files are grandfathered in as valid .pgen files; there is a tiny
-  efficiency penalty associated with accessing them via this library (since,
-  after the data is loaded, it is rotated to the new 2-bit encoding).  The
-  PgrPlink2ToPlink1InplaceUnsafe() function can be used to rotate the new
-  representation back to PLINK 1-format, to simplify porting of existing code.
-* The rest of the core format is essentially an extension of SNPack ideas to
-  multiallelic data.
-* The variant and sample counts are now stored in the file (unless it's a
-  .bed).  Also, there are two optional data tracks in the header:
-    1. Alt allele counts.  Presumably, these can also be inferred from the
-       variant info file, but occasionally it may be convenient to work with
-       the .pgen without loading all the variant info.
-    2. Untrusted reference allele flags.  If you merge .bed and VCF data, it's
-       nice to distinguish reference alleles known from the VCF vs.
-       reference-allele-unknown variants.
-* Phased data is now supported; see UNIT_TEST_PHASED_VCF for plink2 usage, and
-  the Python interface's read_phased() function.
-* Dosage data is also supported.  It can be phased.
+* Python/pgenlib.pyx is the Python wrapper (see Python/python_api.txt for
+  details), and pgenlibr/ is the R wrapper.  These are somewhat incomplete as
+  of this writing, but it would not take much effort to fill in key components;
+  that work is scheduled for roughly the time of the beta release, but if you
+  could really use a specific feature before then you have good odds of getting
+  it by asking on plink2-users.
 
 build_dynamic/ contains a Makefile suitable for producing Linux and OS X
 dynamic builds.  On Linux, if Intel MKL is installed using the instructions at
