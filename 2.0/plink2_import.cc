@@ -7543,7 +7543,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
         scan_ctx.thread_wkspaces[tidx] = S_CAST(unsigned char*, bigstack_alloc_raw(thread_wkspace_size));
       }
-      scan_ctx.err_info = (~k0LU) << 32;
+      scan_ctx.err_info = (~0LLU) << 32;
       SetThreadFuncAndData(Bgen13DosageOrPhaseScanThread, &scan_ctx, &tg);
 
       uint32_t variant_ct = 0;
@@ -8091,7 +8091,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       ctx.gparse[1] = S_CAST(GparseRecord*, bigstack_alloc_raw_rd(main_block_size * sizeof(GparseRecord)));
       ctx.block_allele_idx_offsets[0] = nullptr;  // defensive
       ctx.block_allele_idx_offsets[1] = nullptr;
-      ctx.err_info = (~k0LU) << 32;
+      ctx.err_info = (~0LLU) << 32;
       SetThreadFuncAndData(Bgen13GenoToPgenThread, &ctx, &tg);
       cachelines_avail = bigstack_left() / (kCacheline * 2);
       if (unlikely(
