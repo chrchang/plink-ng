@@ -57,10 +57,12 @@ As for the PLINK 2.0 application:
   requires MinGW[-w64] and zlib; a prebuilt OpenBLAS package from
   sourceforge.net/projects/openblas/files/ is also strongly recommended.
 * The LGPL3-licensed plink2_stats component may be of independent interest.  It
-  includes a function for computing the Fisher's exact test p-value in
-  approximately O(sqrt(n)) time, as well as several log-p-value computations
-  (Z-score/chi-square, T-test, F-test) that remain accurate well beyond the
-  limits of most other statistical library functions.  (No, you don't want to
-  take a 10^{-1000000} p-value literally, but it can be useful to distinguish
-  it from 10^{-325}.)
+  includes a function for computing the 2x2 Fisher's exact test p-value in
+  approximately O(sqrt(n)) time--much faster than the O(n) algorithms employed
+  by practically all other libraries as of this writing--as well as several
+  log-p-value computations (Z-score/chi-square, T-test, F-test) that remain
+  accurate well beyond the limits of most other statistical library functions.
+  (No, you don't want to take a 10^{-1000000} p-value literally, but it can be
+  useful to distinguish it from 10^{-325}, and both of these numbers can
+  naturally arise when analyzing biobank-scale data.)
 * More documentation is at www.cog-genomics.org/plink/2.0/ .
