@@ -30,7 +30,7 @@ lines.  Key properties:
   it has been incredibly useful for speeding up the basic job of scanning basic
   printf("%g")-formatted output.  (Note that you lose roughly a billion times
   as much accuracy to %g's 6-digit limit as you do to imperfect string->double
-  conversion here.)
+  conversion in that setting.)
 
 The second library is pgenlib.  This supports reading and writing of PLINK 2.x
 genotype files (".pgen").  A draft specification for this format is under
