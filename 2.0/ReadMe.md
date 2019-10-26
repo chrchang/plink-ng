@@ -35,9 +35,9 @@ genotype files (".pgen").  A draft specification for this format is under
   (https://samtools.github.io/bcftools/bcftools.html ) or qctool2
   (https://www.well.ox.ac.uk/~gav/qctool_v2/ ) when you must retain any of
   these fields.
-* .pgen is compressed, but in a custom manner (based on SNPack) that supports
-  very fast compression and decompression.  It is even practical to perform
-  several key computations (e.g. allele frequency) directly on the compressed
+* .pgen is compressed, but in a custom manner that supports very fast
+  compression and decompression.  It is even practical to perform several key
+  computations (e.g. allele frequency) directly on the compressed
   representation, and this capability is exposed by the pgenlib library.
 * Python/pgenlib.pyx is the Python wrapper (see Python/python_api.txt for
   details), and pgenlibr/ is the R wrapper.  These are somewhat incomplete as
@@ -48,9 +48,8 @@ genotype files (".pgen").  A draft specification for this format is under
   questions about any of this code.)
 
 As for the PLINK 2.0 application:
-* build_dynamic/ contains a Makefile suitable for producing Linux and OS X
-  dynamic builds.  On Linux, if Intel MKL is installed using the instructions
-  at e.g.
+* build_dynamic/ contains a Makefile suitable for Linux and macOS dynamic
+  builds.  On Linux, if Intel MKL is installed using the instructions at e.g.
   https://software.intel.com/en-us/articles/installing-intel-free-libs-and-python-apt-repo ,
   you can dynamically link to it.
 * build_win/ contains a Makefile for producing static Windows builds.  This
