@@ -27,14 +27,22 @@ namespace plink2 {
 void InitScore(ScoreInfo* score_info_ptr) {
   score_info_ptr->flags = kfScore0;
   score_info_ptr->varid_col_p1 = 1;
-  score_info_ptr->allele_col_p1 = 0;
+  score_info_ptr->allele_col_p1 = 0;  // defensive
   score_info_ptr->input_fname = nullptr;
   InitRangeList(&(score_info_ptr->input_col_idx_range_list));
+
+  score_info_ptr->qsr_range_fname = nullptr;
+  score_info_ptr->qsr_data_fname = nullptr;
+  score_info_ptr->qsr_varid_col_p1 = 1;
+  score_info_ptr->qsr_val_col_p1 = 0;  // defensive
 }
 
 void CleanupScore(ScoreInfo* score_info_ptr) {
   free_cond(score_info_ptr->input_fname);
   CleanupRangeList(&(score_info_ptr->input_col_idx_range_list));
+
+  free_cond(score_info_ptr->qsr_range_fname);
+  free_cond(score_info_ptr->qsr_data_fname);
 }
 
 

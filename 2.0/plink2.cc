@@ -7801,7 +7801,7 @@ int main(int argc, char** argv) {
         break;
 
       case 'q':
-        if (likely(strequal_k_unsafe(flagname_p2, "uantile-normalize"))) {
+        if (strequal_k_unsafe(flagname_p2, "uantile-normalize")) {
           if (unlikely(pc.pheno_transform_flags & (kfPhenoTransformQuantnormPheno | kfPhenoTransformQuantnormCovar))) {
             logerrputs("Error: --quantile-normalize cannot be used with --pheno-quantile-normalize or\n--covar-quantile-normalize.\n");
             goto main_ret_INVALID_CMDLINE;
@@ -7814,6 +7814,44 @@ int main(int argc, char** argv) {
           }
           pc.pheno_transform_flags |= kfPhenoTransformQuantnormAll;
           pc.dependency_flags |= kfFilterPsamReq;
+        } else if (likely(strequal_k_unsafe(flagname_p2, "-score-range"))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 5))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.score_info.qsr_range_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          reterr = AllocFname(argvk[arg_idx + 2], flagname_p, 0, &pc.score_info.qsr_data_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          uint32_t numeric_param_ct = 0;
+          uint32_t qsr_cols[3];
+          for (uint32_t param_idx = 3; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            if (!strcmp(cur_modif, "header")) {
+              pc.score_info.flags |= kfScoreQsrHeader;
+            } else {
+              if (unlikely(ScanPosintCappedx(cur_modif, kMaxLongLine / 2, &(qsr_cols[numeric_param_ct])))) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --q-score-range parameter '%s'.\n", cur_modif);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+              if (unlikely(numeric_param_ct == 2)) {
+                logerrputs("Error: --q-score-range takes at most two numeric parameters.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              if (unlikely(numeric_param_ct && (qsr_cols[0] == qsr_cols[1]))) {
+                logerrputs("Error: Identical --q-score-range column indexes.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              ++numeric_param_ct;
+            }
+          }
+          logerrputs("Error: --q-score-range is under development.\n");
+          reterr = kPglRetNotYetSupported;
+          goto main_ret_1;
+          // no dependencies since we enforce --score requirement later
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
@@ -8282,7 +8320,7 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           uint32_t numeric_param_ct = 0;
-          uint32_t score_cols[3];
+          uint32_t score_cols[4];
           for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
@@ -9411,6 +9449,10 @@ int main(int argc, char** argv) {
     if ((pc.grm_flags & kfGrmMatrixShapemask) && (pc.misc_flags & kfMiscNoIdHeader)) {
       pc.grm_flags |= kfGrmNoIdHeader;
     }
+    if (unlikely(pc.score_info.qsr_range_fname && (!pc.score_info.input_fname))) {
+      logerrputs("Error: --q-score-range cannot be used without --score.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
     if (pc.extract_fcol_info.params) {
       if (unlikely((!pc.extract_fcol_info.match_substr) && pc.extract_fcol_info.match_flattened && pc.extract_fcol_info.mismatch_flattened)) {
         logerrputs("Error: --extract-fcol-match and --extract-fcol-mismatch can only be used\ntogether when --extract-fcol-substr is specified.\n");
@@ -9429,13 +9471,14 @@ int main(int argc, char** argv) {
       // --autosome{-par}/--chr is exempted since it's more obvious how they
       // interact with other filters.)
       const uint32_t inclusion_filter_extract = (pc.extract_fnames != nullptr);
+      const uint32_t inclusion_filter_extract_fcol = (pc.extract_fcol_info.params != nullptr);
       const uint32_t inclusion_filter_extract_intersect = (pc.extract_intersect_fnames != nullptr);
       const uint32_t inclusion_filter_fromto_id = pc.varid_from || pc.varid_to;
       const uint32_t inclusion_filter_fromto_bp = (pc.from_bp != -1) || (pc.to_bp != -1);
       const uint32_t inclusion_filter_snpflag = (pc.varid_snp != nullptr);
       const uint32_t inclusion_filter_snpsflag = !!pc.snps_range_list.name_ct;
-      if (unlikely(inclusion_filter_extract + inclusion_filter_extract_intersect + inclusion_filter_fromto_id + inclusion_filter_fromto_bp + inclusion_filter_snpflag + inclusion_filter_snpsflag > 1)) {
-        logerrputs("Error: Multiple variant inclusion filters specified (--extract,\n--extract-intersect, --from/--to, --from-bp/--to-bp, --snp, --snps).  Add\n--force-intersect if you really want the intersection of these sets.  (If your\nvariant IDs are unique, you can extract the union by e.g. running\n--write-snplist for each set, followed by --extract on all the .snplist files.)\n");
+      if (unlikely(inclusion_filter_extract + inclusion_filter_extract_fcol + inclusion_filter_extract_intersect + inclusion_filter_fromto_id + inclusion_filter_fromto_bp + inclusion_filter_snpflag + inclusion_filter_snpsflag > 1)) {
+        logerrputs("Error: Multiple variant inclusion filters specified (--extract, --extract-fcol,\n--extract-intersect, --from/--to, --from-bp/--to-bp, --snp, --snps).  Add\n--force-intersect if you really want the intersection of these sets.  (If your\nvariant IDs are unique, you can extract the union by e.g. running\n--write-snplist for each set, followed by --extract on all the .snplist files.)\n");
         goto main_ret_INVALID_CMDLINE_A;
       }
     }

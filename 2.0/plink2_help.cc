@@ -109,7 +109,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 , stdout);
     fputs(kCmdlineFormatStr, stdout);
     fputs(
-"Most plink2 runs require exactly one main input fileset.  The following flags\n"
+"Most PLINK runs require exactly one main input fileset.  The following flags\n"
 "are available for defining its form and location:\n\n"
 , stdout);
   }
@@ -152,13 +152,13 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      DS+HDS phased dosage, add 'dosage=HDS'.  'dosage=DS' (or anything else\n"
 "      for now) causes the named field to be interpreted as a Minimac3-style\n"
 "      dosage.\n"
-"      Note that, in the dosage=GP case, plink2 collapses the probabilities down\n"
-"      to dosages; you cannot use plink2 to losslessly convert VCF FORMAT:GP\n"
-"      data to e.g. BGEN format.  To make this more obvious, plink2 now errors\n"
-"      out when dosage=GP is used on a file with a FORMAT:DS header line and\n"
-"      --import-dosage-certainty wasn't specified, since dosage=DS extracts the\n"
-"      same information more quickly in this situation.  You can suppress this\n"
-"      error with 'dosage=GP-force'.\n"
+"      Note that, in the dosage=GP case, PLINK 2 collapses the probabilities\n"
+"      down to dosages; you cannot use PLINK 2 to losslessly convert VCF\n"
+"      FORMAT:GP data to e.g. BGEN format.  To make this more obvious, PLINK 2\n"
+"      now errors out when dosage=GP is used on a file with a FORMAT:DS header\n"
+"      line and --import-dosage-certainty wasn't specified, since dosage=DS\n"
+"      extracts the same information more quickly in this situation.  You can\n"
+"      suppress this error with 'dosage=GP-force'.\n"
 "      In all of these cases, hardcalls are regenerated from scratch from the\n"
 "      dosages.  As a consequence, variants with no GT field can now be\n"
 "      imported; they will be assumed to contain only diploid calls when HDS is\n"
@@ -303,7 +303,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    Create a new PLINK binary fileset (--make-pgen = .pgen + .pvar{|.zst} +\n"
 "    .psam, --make-bpgen = .pgen + .bim{|.zst} + .fam).\n"
 "    * Unlike the automatic text-to-binary converters (which only heed\n"
-"      chromosome filters), this supports all of plink2's filtering flags.\n"
+"      chromosome filters), this supports all of PLINK's filtering flags.\n"
 "    * The 'vzs' modifier causes the variant file (.pvar/.bim) to be\n"
 "      Zstd-compressed.\n"
 "    * The 'format' modifier requests an uncompressed fixed-variant-width .pgen\n"
@@ -579,7 +579,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    Sample-based hardcall genotype count report.\n"
 "    * Unknown-sex samples are treated as female.\n"
 "    * Heterozygous haploid calls (MT included) are treated as missing.\n"
-"    * As with other plink2 commands, SNPs that have not been left-normalized\n"
+"    * As with other PLINK 2 commands, SNPs that have not been left-normalized\n"
 "      are counted as non-SNP non-symbolic.  (Use e.g. --normalize when that's a\n"
 "      problem.)\n"
 "    * Supported column sets are:\n"
@@ -715,7 +715,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      same effect.)\n"
 "    * The step size now defaults to 1 if it's unspecified, and *must* be 1 if\n"
 "      the window is in kilobase units.\n"
-"    Note that you need to rerun plink2 using --extract or --exclude on the\n"
+"    Note that you need to rerun PLINK using --extract or --exclude on the\n"
 "    .prune.in/.prune.out file to apply the list to another computation.\n\n"
               );
     // todo: implement --indep-pairphase with new --ld approach.  (eventually
@@ -1272,14 +1272,15 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     HelpPrint("dosage-erase-threshold\0import-dosage-certainty\0gen\0bgen\0data\0vcf\0bcf\0import-dosage\0", &help_ctrl, 0,
 "  --dosage-erase-threshold <val>  : --hard-call-threshold normally preserves\n"
-"                                    the original dosages, and several PLINK 2.x\n"
+"                                    the original dosages, and several PLINK 2\n"
 "                                    commands use them when they're available.\n"
 "                                    Use --dosage-erase-threshold to make PLINK\n"
-"                                    erase dosages and keep only hardcalls when\n"
-"                                    distance-from-hardcall <= the given level.\n"
-"  --import-dosage-certainty <val> : The PLINK 2.0 file format currently\n"
-"                                    supports a single dosage for each allele.\n"
-"                                    Some other dosage file formats include a\n"
+"                                    2 erase dosages and keep only hardcalls\n"
+"                                    when distance-from-hardcall <= the given\n"
+"                                    level.\n"
+"  --import-dosage-certainty <val> : The PLINK 2 file format currently supports\n"
+"                                    a single dosage for each allele.  Some\n"
+"                                    other dosage file formats include a\n"
 "                                    separate probability for every possible\n"
 "                                    genotype, e.g. {P(0/0)=0.2, P(0/1)=0.52,\n"
 "                                    P(1/1)=0.28}, a highly uncertain call that\n"
@@ -1552,10 +1553,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     HelpPrint("force-intersect\0extract\0extract-intersect\0from\0to\0snp\0from-bp\0to-bp\0from-kb\0to-kb\0from-mb\0to-mb\0extract-snp\0snps\0", &help_ctrl, 0,
 "  --force-intersect    : PLINK 2 normally errors out when multiple variant\n"
-"                         inclusion filters (--extract, --extract-intersect,\n"
-"                         --from/--to, --from-bp/--to-bp, --snp, --snps) are\n"
-"                         specified.  --force-intersect allows the run to\n"
-"                         proceed; the set intersection will be taken.\n"
+"                         inclusion filters (--extract, --extract-fcol,\n"
+"                         --extract-intersect, --from/--to, --from-bp/--to-bp,\n"
+"                         --snp, --snps) are specified.  --force-intersect\n"
+"                         allows the run to proceed; the set intersection will\n"
+"                         be taken.\n"
                );
     HelpPrint("thin\0thin-count\0", &help_ctrl, 0,
 "  --thin <p>           : Randomly remove variants, retaining each with prob. p.\n"
@@ -1990,6 +1992,20 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --score-col-nums <...> : Process all the specified coefficient columns in the\n"
 "                           --score file, identified by 1-based indexes and/or\n"
 "                           ranges of them.\n"
+               );
+    HelpPrint("q-score-range\0score\0", &help_ctrl, 0,
+"  --q-score-range <range file> <data file> [i] [j] ['header'] :\n"
+"    Apply --score to subset(s) of variants in the primary score list(s) based\n"
+"    on e.g. p-value ranges.\n"
+"    * The first file should have range labels in the first column, p-value\n"
+"      lower bounds in the second column, and upper bounds in the third column.\n"
+"      Lines with too few entries, or nonnumeric values in the second or third\n"
+"      column, are ignored.\n"
+"    * The second file should contain a variant ID and a p-value on each line\n"
+"      (except possibly the first).  Variant IDs are read from column #i and\n"
+"      p-values are read from column #j, where i defaults to 1 and j defaults to\n"
+"      i+1.  The 'header' modifier causes the first nonempty line of this file\n"
+"      to be skipped.\n"
                );
     HelpPrint("parallel\0", &help_ctrl, 0,
 "  --parallel <k> <n> : Divide the output matrix into n pieces, and only compute\n"

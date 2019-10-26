@@ -116,17 +116,19 @@ FLAGSET_DEF_START()
   kfScoreListVariants = (1 << 10),
   kfScoreListVariantsZs = (1 << 11),
 
-  kfScoreColMaybefid = (1 << 12),
-  kfScoreColFid = (1 << 13),
-  kfScoreColMaybesid = (1 << 14),
-  kfScoreColSid = (1 << 15),
-  kfScoreColPheno1 = (1 << 16),
-  kfScoreColPhenos = (1 << 17),
-  kfScoreColNmissAllele = (1 << 18),
-  kfScoreColDenom = (1 << 19),
-  kfScoreColDosageSum = (1 << 20),
-  kfScoreColScoreAvgs = (1 << 21),
-  kfScoreColScoreSums = (1 << 22),
+  kfScoreQsrHeader = (1 << 12),
+
+  kfScoreColMaybefid = (1 << 13),
+  kfScoreColFid = (1 << 14),
+  kfScoreColMaybesid = (1 << 15),
+  kfScoreColSid = (1 << 16),
+  kfScoreColPheno1 = (1 << 17),
+  kfScoreColPhenos = (1 << 18),
+  kfScoreColNmissAllele = (1 << 19),
+  kfScoreColDenom = (1 << 20),
+  kfScoreColDosageSum = (1 << 21),
+  kfScoreColScoreAvgs = (1 << 22),
+  kfScoreColScoreSums = (1 << 23),
   kfScoreColDefault = (kfScoreColMaybefid | kfScoreColMaybesid | kfScoreColPhenos | kfScoreColNmissAllele | kfScoreColDosageSum | kfScoreColScoreAvgs),
   kfScoreColAll = ((kfScoreColScoreSums * 2) - kfScoreColMaybefid)
 FLAGSET_DEF_END(ScoreFlags);
@@ -138,6 +140,12 @@ typedef struct ScoreInfoStruct {
   uint32_t allele_col_p1;
   char* input_fname;
   RangeList input_col_idx_range_list;
+
+  // --q-score-range
+  char* qsr_range_fname;
+  char* qsr_data_fname;
+  uint32_t qsr_varid_col_p1;
+  uint32_t qsr_val_col_p1;
 } ScoreInfo;
 
 void InitScore(ScoreInfo* score_info_ptr);
