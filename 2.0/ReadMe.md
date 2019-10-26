@@ -23,6 +23,14 @@ lines.  Key properties:
 * It does not support network input as of this writing, but that would not be
   difficult to add.  The existing code uses FILE* in a very straightforward
   manner.
+* The ScanadvDouble() function in the plink2_string component is a very
+  efficient string-to-double converter.  While it does not support perfect
+  string<->double round-trips (we recommend https://github.com/ulfjack/ryu for
+  that purpose), or long-tail features like locale-specific decimal separators,
+  it has been incredibly useful for speeding up the basic job of scanning basic
+  printf("%g")-formatted output.  (Note that you lose roughly a billion times
+  as much accuracy to %g's 6-digit limit as you do to imperfect string->double
+  conversion here.)
 
 The second library is pgenlib.  This supports reading and writing of PLINK 2.x
 genotype files (".pgen").  A draft specification for this format is under
