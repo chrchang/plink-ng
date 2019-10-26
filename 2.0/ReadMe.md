@@ -8,18 +8,21 @@ The first library is plink2_text.  This is a text file reader that is designed
 to replace std::getline(), fgets(), and similar ways of iterating over text
 lines.  Key properties:
 * Instead of copying every line to your buffer, one at a time, it just returns
-  a pointer to the beginning of each line, and gives you access to a pointer to
-  the end.  In exchange, the line is invalidated when you iterate to the next
-  one; it's like being forced to pass the same string to std::getline(), or the
-  same buffer to fgets(), on every call.  But whenever that's problematic, you
-  can always copy the line before iterating to the next; on all systems I've
-  seen, this is *still* faster than using getline/fgets.  And in the many
-  situations where there's no need to copy, you get a fundamentally
-  lower-latency abstraction.
+  a pointer to the beginning of each line in the underlying binary stream, and
+  gives you access to a pointer to the end.  In exchange, the line is
+  invalidated when you iterate to the next one; it's like being forced to pass
+  the same string to std::getline(), or the same buffer to fgets(), on every
+  call.  But whenever that's problematic, you can always copy the line before
+  iterating to the next; on all systems I've seen, this is *still* faster than
+  using getline/fgets.  And in the many situations where there's no need to
+  copy, you get a fundamentally lower-latency abstraction.
 * It automatically detects and decompresses gzipped and Zstd-compressed files.
   This works with streams.
 * It automatically reads AND DECOMPRESSES ahead for you.  Decompression is even
   multithreaded by default when the file is BGZF-compressed.
+* It does not support network input as of this writing, but that would not be
+  difficult to add.  The existing code uses FILE* in a very straightforward
+  manner.
 
 The second library is pgenlib.  This supports reading and writing of PLINK 2.x
 genotype files (".pgen").  A draft specification for this format is under
