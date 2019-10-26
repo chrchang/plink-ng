@@ -12,9 +12,10 @@ lines.  Key properties:
   the end.  In exchange, the line is invalidated when you iterate to the next
   one; it's like being forced to pass the same string to std::getline(), or the
   same buffer to fgets(), on every call.  But whenever that's problematic, you
-  can always copy the line before iterating to the next.  And in the many
-  situations where there's no need to copy, you get a substantially lower-cost
-  abstraction than the aforementioned standard library functions.
+  can always copy the line before iterating to the next; on all systems I've
+  seen, this is *still* faster than using getline/fgets.  And in the many
+  situations where there's no need to copy, you get a fundamentally
+  lower-latency abstraction.
 * It automatically detects and decompresses gzipped and Zstd-compressed files.
   This works with streams.
 * It automatically reads AND DECOMPRESSES ahead for you.  Decompression is even
