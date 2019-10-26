@@ -1,8 +1,8 @@
 This directory contains two major libraries, as well as the PLINK 2.0
 application built on top of them.  These are carefully written to be valid C99
 (from gcc and clang's perspective, anyway) to simplify FFI development, while
-still taking advantage of quite a few C++-only affordances to improve safety
-and occasionally performance.
+still taking advantage of quite a few C++-specific affordances to improve
+safety and occasionally performance.
 
 The first library is plink2_text.  This is a text file reader that is designed
 to replace std::getline(), fgets(), and similar ways of iterating over text
@@ -11,9 +11,9 @@ lines.  Key properties:
   a pointer to the beginning of each line, and gives you access to a pointer to
   the end.  In exchange, the line is invalidated when you iterate to the next
   one; it's like being forced to pass the same string to std::getline(), or the
-  same buffer to fgets(), on every call.  But when that's problematic, you can
-  just copy the line before iterating.  In the many situations where this
-  behavior is just fine, it yields a substantially lower-cost abstraction than
+  same buffer to fgets(), on every call.  But whenever that's problematic, you
+  can always just copy the line before iterating.  In the many situations where
+  there's no need to copy, you have a substantially lower-cost abstraction than
   the aforementioned standard library functions.
 * It automatically detects and decompresses gzipped and Zstd-compressed files.
   This works with streams.
@@ -49,8 +49,8 @@ genotype files (".pgen").  A draft specification for this format is under
 
 As for the PLINK 2.0 application:
 * build_dynamic/ contains a Makefile suitable for producing Linux and OS X
-  dynamic builds of the plink2 application.  On Linux, if Intel MKL is
-  installed using the instructions at e.g.
+  dynamic builds.  On Linux, if Intel MKL is installed using the instructions
+  at e.g.
   https://software.intel.com/en-us/articles/installing-intel-free-libs-and-python-apt-repo ,
   you can dynamically link to it.
 * build_win/ contains a Makefile for producing static Windows builds.  This
