@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
+#include "pgenlib_write.h"
 #include "plink2_import.h"
 #include "plink2_psam.h"
 #include "plink2_pvar.h"
@@ -107,7 +108,7 @@ typedef struct GparseReadVcfMetadataStruct {
 
 uint64_t GparseWriteByteCt(uint32_t sample_ct, uint32_t allele_ct, GparseFlags flags) {
   const uint32_t is_multiallelic = (allele_ct > 2);
-  uint64_t vec_ct = QuaterCtToVecCt(sample_ct);
+  uint64_t vec_ct = NypCtToVecCt(sample_ct);
   if ((flags & (kfGparseHphase | kfGparseDosage | kfGparseDphase)) || is_multiallelic) {
     const uint32_t sample_ctv = BitCtToVecCt(sample_ct);
     if (is_multiallelic) {
@@ -162,7 +163,7 @@ uintptr_t* GparseGetPointers(unsigned char* record_start, uint32_t sample_ct, ui
   const uint32_t is_multiallelic = (allele_ct > 2);
   uintptr_t* genovec = R_CAST(uintptr_t*, record_start);
   if ((flags & (kfGparseHphase | kfGparseDosage | kfGparseDphase)) || is_multiallelic) {
-    uintptr_t* record_iter = &(genovec[QuaterCtToAlignedWordCt(sample_ct)]);
+    uintptr_t* record_iter = &(genovec[NypCtToAlignedWordCt(sample_ct)]);
     const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
     if (is_multiallelic) {
       *patch_01_set_ptr = record_iter;
@@ -206,11 +207,11 @@ uintptr_t* GparseGetPointers(unsigned char* record_start, uint32_t sample_ct, ui
 PglErr GparseFlush(const GparseRecord* grp, uint32_t write_block_size, STPgenWriter* spgwp) {
   PglErr reterr = kPglRetSuccess;
   {
-    const uintptr_t* allele_idx_offsets = spgwp->pwc.allele_idx_offsets;
+    const uintptr_t* allele_idx_offsets = SpgwGetAlleleIdxOffsets(spgwp);
     if (allele_idx_offsets) {
-      allele_idx_offsets = &(allele_idx_offsets[spgwp->pwc.vidx]);
+      allele_idx_offsets = &(allele_idx_offsets[SpgwGetVidx(spgwp)]);
     }
-    const uint32_t sample_ct = spgwp->pwc.sample_ct;
+    const uint32_t sample_ct = SpgwGetSampleCt(spgwp);
     uint32_t allele_ct = 2;
     uintptr_t* patch_01_set = nullptr;
     AlleleCode* patch_01_vals = nullptr;
@@ -2489,7 +2490,7 @@ THREAD_FUNC_DECL VcfGenoToPgenThread(void* raw_arg) {
 
   VcfImportContext vic;
   const uint32_t sample_ct = ctx->sample_ct;
-  const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
   vic.vibc.sample_ct = sample_ct;
   vic.vibc.halfcall_mode = ctx->halfcall_mode;
@@ -3515,7 +3516,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           thread_bidxs = ctx.thread_bidxs[parity];
           cur_gparse = ctx.gparse[parity];
           if (allele_idx_offsets) {
-            ctx.block_allele_idx_offsets[parity] = &(spgw.pwc.allele_idx_offsets[vidx_start]);
+            ctx.block_allele_idx_offsets[parity] = &(SpgwGetAlleleIdxOffsets(&spgw)[vidx_start]);
           }
           geno_buf_iter = geno_bufs[parity];
           cur_thread_byte_stop = &(geno_buf_iter[per_thread_byte_limit]);
@@ -3854,9 +3855,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     break;
   }
  VcfToPgen_ret_1:
-  if (SpgwCleanup(&spgw) && (!reterr)) {
-    reterr = kPglRetWriteFail;
-  }
+  CleanupSpgw(&spgw, &reterr);
   CleanupThreads(&tg);
   CleanupTextStream2("--vcf file", &vcf_txs, &reterr);
   fclose_cond(pvarfile);
@@ -4775,7 +4774,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
     }
     SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
 
-    const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     uintptr_t* genovec;
     uintptr_t* dosage_present;
@@ -4913,7 +4912,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
       }
       if (prov_ref_allele_second) {
         GenovecInvertUnsafe(sample_ct, genovec);
-        ZeroTrailingQuaters(sample_ct, genovec);
+        ZeroTrailingNyps(sample_ct, genovec);
       }
       if (dosage_main_iter != dosage_main) {
         const uint32_t dosage_ct = dosage_main_iter - dosage_main;
@@ -4988,9 +4987,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
     break;
   }
  OxGenToPgen_ret_1:
-  if (SpgwCleanup(&spgw) && (!reterr)) {
-    reterr = kPglRetWriteFail;
-  }
+  CleanupSpgw(&spgw, &reterr);
   CleanupTextStream2(".gen file", &gen_txs, &reterr);
   fclose_cond(pvarfile);
   BigstackReset(bigstack_mark);
@@ -5134,7 +5131,7 @@ THREAD_FUNC_DECL Bgen11GenoToPgenThread(void* raw_arg) {
   const uint32_t dosage_int_sum_thresh = 3 * (import_dosage_certainty_int - 1);
   const uint32_t compression_mode = bicp->compression_mode;
   const uint32_t prov_ref_allele_second = ctx->prov_ref_allele_second;
-  const uintptr_t sample_ctaw2 = QuaterCtToAlignedWordCt(sample_ct);
+  const uintptr_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
   const uintptr_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
   // uint32_t vidx_base = 0;
@@ -5211,7 +5208,7 @@ THREAD_FUNC_DECL Bgen11GenoToPgenThread(void* raw_arg) {
       const uint32_t dosage_ct = cur_dosage_main_iter - write_dosage_main_iter;
       if (prov_ref_allele_second) {
         GenovecInvertUnsafe(sample_ct, write_genovec_iter);
-        ZeroTrailingQuaters(sample_ct, write_genovec_iter);
+        ZeroTrailingNyps(sample_ct, write_genovec_iter);
         if (dosage_ct) {
           BiallelicDosage16Invert(dosage_ct, write_dosage_main_iter);
         }
@@ -6393,7 +6390,7 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
         // note that this is inverted from bgen-1.1
         if (!prov_ref_allele_second) {
           GenovecInvertUnsafe(sample_ct, genovec);
-          ZeroTrailingQuaters(sample_ct, genovec);
+          ZeroTrailingNyps(sample_ct, genovec);
           if (dosage_ct) {
             BiallelicDosage16Invert(dosage_ct, dosage_main);
             if (dphase_ct) {
@@ -6759,7 +6756,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     if (hard_call_thresh == UINT32_MAX) {
       hard_call_thresh = kDosageMid / 10;
     }
-    const uint32_t sample_ctaw2 = QuaterCtToAlignedWordCt(sample_ct);
+    const uint32_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
     const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
     uint32_t dosage_is_present = 0;
     common.sample_ct = sample_ct;
@@ -8130,7 +8127,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           thread_bidxs = ctx.thread_bidxs[parity];
           GparseRecord* cur_gparse = ctx.gparse[parity];
           if (allele_idx_offsets) {
-            ctx.block_allele_idx_offsets[parity] = &(spgw.pwc.allele_idx_offsets[vidx_start]);
+            ctx.block_allele_idx_offsets[parity] = &(SpgwGetAlleleIdxOffsets(&spgw)[vidx_start]);
           }
           bgen_geno_iter = compressed_geno_bufs[parity];
           unsigned char* cur_thread_byte_stop = &(bgen_geno_iter[per_thread_byte_limit]);
@@ -8390,10 +8387,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     }
     // common.libdeflate_decompressors = nullptr;
   }
-  // todo: two-argument SpgwCleanup
-  if (SpgwCleanup(&spgw) && (!reterr)) {
-    reterr = kPglRetWriteFail;
-  }
+  CleanupSpgw(&spgw, &reterr);
   CleanupThreads(&tg);
   fclose_cond(bgenfile);
   fclose_cond(psamfile);
@@ -8792,7 +8786,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       goto OxHapslegendToPgen_ret_NOMEM;
     }
     SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
-    const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     const uint32_t sample_ctl2_m1 = sample_ctl2 - 1;
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     const uint32_t phaseinfo_match_4char = prov_ref_allele_second? 0x20312030 : 0x20302031;
@@ -9003,7 +8997,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       }
       if (prov_ref_allele_second) {
         GenovecInvertUnsafe(sample_ct, genovec);
-        ZeroTrailingQuaters(sample_ct, genovec);
+        ZeroTrailingNyps(sample_ct, genovec);
       }
       if (genovec_word_or & kMask5555) {
         if (unlikely(SpgwAppendBiallelicGenovecHphase(genovec, nullptr, phaseinfo, &spgw))) {
@@ -9093,7 +9087,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     break;
   }
  OxHapslegendToPgen_ret_1:
-  SpgwCleanup(&spgw);
+  CleanupSpgw(&spgw, &reterr);
   CleanupTextStream2(legendname, &legend_txs, &reterr);
   CleanupTextStream2(hapsname, &haps_txs, &reterr);
   fclose_cond(outfile);
@@ -9998,7 +9992,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     }
     SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
 
-    const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     uintptr_t* genovec;
     uintptr_t* dosage_present;
@@ -10150,7 +10144,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
       }
       if (!prov_ref_allele_second) {
         GenovecInvertUnsafe(sample_ct, genovec);
-        ZeroTrailingQuaters(sample_ct, genovec);
+        ZeroTrailingNyps(sample_ct, genovec);
       }
       if (dosage_main_iter != dosage_main) {
         const uint32_t dosage_ct = dosage_main_iter - dosage_main;
@@ -10233,9 +10227,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     break;
   }
  Plink1DosageToPgen_ret_1:
-  if (SpgwCleanup(&spgw) && (!reterr)) {
-    reterr = kPglRetWriteFail;
-  }
+  CleanupSpgw(&spgw, &reterr);
   ForgetExtraChrNames(1, cip);
   fclose_cond(outfile);
   CleanupTextFile2(dosagename, &dosage_txf, &reterr);
@@ -10284,7 +10276,7 @@ THREAD_FUNC_DECL GenerateDummyThread(void* raw_arg) {
   const uint32_t dosage_is_present = (dosage_geomdist_max != kBitsPerWord);
   const uint32_t hard_call_halfdist = ctx->hard_call_halfdist;
   const uint32_t dosage_erase_halfdist = ctx->dosage_erase_halfdist;
-  const uintptr_t sample_ctaw2 = QuaterCtToAlignedWordCt(sample_ct);
+  const uintptr_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
   const uintptr_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
   sfmt_t* sfmtp = ctx->sfmtp_arr[tidx];
@@ -10369,7 +10361,7 @@ THREAD_FUNC_DECL GenerateDummyThread(void* raw_arg) {
         write_genovec_iter[widx] = genovec_word;
         R_CAST(Halfword*, write_dosage_present_iter)[widx] = dosage_present_hw;
       }
-      ZeroTrailingQuaters(sample_ct, write_genovec_iter);
+      ZeroTrailingNyps(sample_ct, write_genovec_iter);
       const uint32_t dosage_ct = cur_dosage_main_iter - write_dosage_main_iter;
       *write_dosage_ct_iter++ = dosage_ct;
       write_genovec_iter = &(write_genovec_iter[sample_ctaw2]);
@@ -10637,7 +10629,7 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
     if (unlikely(InitAllocSfmtpArr(calc_thread_ct, 0, sfmtp, &ctx.sfmtp_arr))) {
       goto GenerateDummy_ret_NOMEM;
     }
-    const uint32_t sample_ctaw2 = QuaterCtToAlignedWordCt(sample_ct);
+    const uint32_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
     const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
     uintptr_t cachelines_avail_m8 = bigstack_left() / kCacheline;
     if (unlikely(cachelines_avail_m8 < 8)) {
@@ -10769,9 +10761,7 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
     break;
   }
  GenerateDummy_ret_1:
-  if (SpgwCleanup(&spgw) && (!reterr)) {
-    reterr = kPglRetWriteFail;
-  }
+  CleanupSpgw(&spgw, &reterr);
   CleanupThreads(&tg);
   fclose_cond(outfile);
   BigstackReset(bigstack_mark);
@@ -10794,8 +10784,8 @@ typedef struct Plink1SmajTransposeCtxStruct {
 
 void Plink1SmajTransposeMain(uint32_t tidx, Plink1SmajTransposeCtx* ctx) {
   const uint32_t sample_ct = ctx->sample_ct;
-  const uint32_t sample_ctaw2 = QuaterCtToAlignedWordCt(sample_ct);
-  const uint32_t write_batch_ct_m1 = (sample_ct - 1) / kPglQuaterTransposeBatch;
+  const uint32_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
+  const uint32_t write_batch_ct_m1 = (sample_ct - 1) / kPglNypTransposeBatch;
   PgenWriterCommon* pwcp = ctx->pwcs[tidx];
   VecW* vecaligned_buf = ctx->thread_vecaligned_bufs[tidx];
   uintptr_t* write_genovec = ctx->thread_write_genovecs[tidx];
@@ -10807,26 +10797,26 @@ void Plink1SmajTransposeMain(uint32_t tidx, Plink1SmajTransposeCtx* ctx) {
   while (write_idx < write_idx_end) {
     const uintptr_t* read_iter2 = read_iter;
     // uintptr_t* write_iter = write_genovec;
-    const uint32_t vblock_size = MINV(kPglQuaterTransposeBatch, write_idx_end - write_idx);
-    uint32_t read_batch_size = kPglQuaterTransposeBatch;
+    const uint32_t vblock_size = MINV(kPglNypTransposeBatch, write_idx_end - write_idx);
+    uint32_t read_batch_size = kPglNypTransposeBatch;
     for (uint32_t write_batch_idx = 0; ; ++write_batch_idx) {
       if (write_batch_idx >= write_batch_ct_m1) {
         if (write_batch_idx > write_batch_ct_m1) {
           break;
         }
-        read_batch_size = ModNz(sample_ct, kPglQuaterTransposeBatch);
+        read_batch_size = ModNz(sample_ct, kPglNypTransposeBatch);
       }
-      TransposeQuaterblock(read_iter2, loadbuf_ul_stride, sample_ctaw2, read_batch_size, vblock_size, &(write_genovec[write_batch_idx * kPglQuaterTransposeWords]), vecaligned_buf);
-      read_iter2 = &(read_iter2[kPglQuaterTransposeBatch * loadbuf_ul_stride]);
+      TransposeNypblock(read_iter2, loadbuf_ul_stride, sample_ctaw2, read_batch_size, vblock_size, &(write_genovec[write_batch_idx * kPglNypTransposeWords]), vecaligned_buf);
+      read_iter2 = &(read_iter2[kPglNypTransposeBatch * loadbuf_ul_stride]);
     }
     for (uint32_t uii = 0; uii != vblock_size; ++uii) {
       uintptr_t* cur_write_genovec = &(write_genovec[uii * sample_ctaw2]);
       PgrPlink1ToPlink2InplaceUnsafe(sample_ct, cur_write_genovec);
-      ZeroTrailingQuaters(sample_ct, cur_write_genovec);
+      ZeroTrailingNyps(sample_ct, cur_write_genovec);
       PwcAppendBiallelicGenovec(cur_write_genovec, pwcp);
     }
     write_idx += vblock_size;
-    read_iter = &(read_iter[kPglQuaterTransposeWords]);
+    read_iter = &(read_iter[kPglNypTransposeWords]);
   }
 }
 
@@ -10857,7 +10847,7 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, uintptr_t variant_ct, uintp
       logerrputs("Error: Zero-variant/zero-sample .pgen writing is not supported.\n");
       goto Plink1SampleMajorToPgen_ret_INCONSISTENT_INPUT;
     }
-    const uint32_t variant_ct4 = QuaterCtToByteCt(variant_ct);
+    const uint32_t variant_ct4 = NypCtToByteCt(variant_ct);
     unsigned char* raw_loadbuf = nullptr;
     uint32_t raw_load_batch_size = 1;
     if (variant_ct4 < 5120) {
@@ -10902,14 +10892,14 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, uintptr_t variant_ct, uintp
     }
     ctx.pwcs = &(mpgwp->pwcs[0]);
     uintptr_t cachelines_avail = bigstack_left() / kCacheline;
-    // inner loop transposes kPglQuaterTransposeBatch variants at a time
-    const uintptr_t transpose_thread_cacheline_ct = kPglQuaterTransposeBufbytes / kCacheline + QuaterCtToVecCt(sample_ct) * (kPglQuaterTransposeBatch / kVecsPerCacheline);
+    // inner loop transposes kPglNypTransposeBatch variants at a time
+    const uintptr_t transpose_thread_cacheline_ct = kPglNypTransposeBufbytes / kCacheline + NypCtToVecCt(sample_ct) * (kPglNypTransposeBatch / kVecsPerCacheline);
     if (unlikely(cachelines_avail < calc_thread_ct * S_CAST(uint64_t, transpose_thread_cacheline_ct))) {
       goto Plink1SampleMajorToPgen_ret_NOMEM;
     }
     for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-      ctx.thread_vecaligned_bufs[tidx] = S_CAST(VecW*, bigstack_alloc_raw(kPglQuaterTransposeBufbytes));
-      ctx.thread_write_genovecs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(QuaterCtToVecCt(sample_ct) * kBytesPerVec * kPglQuaterTransposeBatch));
+      ctx.thread_vecaligned_bufs[tidx] = S_CAST(VecW*, bigstack_alloc_raw(kPglNypTransposeBufbytes));
+      ctx.thread_write_genovecs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(NypCtToVecCt(sample_ct) * kBytesPerVec * kPglNypTransposeBatch));
     }
     cachelines_avail = bigstack_left() / kCacheline;
     // Main workflow:
@@ -10952,7 +10942,7 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, uintptr_t variant_ct, uintp
     }
 
     cachelines_avail = bigstack_left() / kCacheline;
-    const uint64_t full_load_vecs_req = sample_ct * S_CAST(uint64_t, QuaterCtToAlignedWordCt(variant_ct));
+    const uint64_t full_load_vecs_req = sample_ct * S_CAST(uint64_t, NypCtToAlignedWordCt(variant_ct));
     uintptr_t* plink1_smaj_loadbuf;
     uint32_t load_multiplier;
     uint32_t cur_vidx_ct;
@@ -10973,11 +10963,11 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, uintptr_t variant_ct, uintp
       cur_vidx_ct = variant_ct;
       plink1_smaj_loadbuf = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(full_load_vecs_req * kBytesPerVec));
     }
-    uint32_t cur_vidx_ct4 = QuaterCtToByteCt(cur_vidx_ct);
-    uint32_t cur_vidx_ctaw2 = QuaterCtToAlignedWordCt(cur_vidx_ct);
+    uint32_t cur_vidx_ct4 = NypCtToByteCt(cur_vidx_ct);
+    uint32_t cur_vidx_ctaw2 = NypCtToAlignedWordCt(cur_vidx_ct);
     const uint32_t pass_ct = 1 + (variant_ct - 1) / cur_vidx_ct;
     ctx.sample_ct = sample_ct;
-    ctx.loadbuf_ul_stride = QuaterCtToVecCt(cur_vidx_ct) * kWordsPerVec;
+    ctx.loadbuf_ul_stride = NypCtToVecCt(cur_vidx_ct) * kWordsPerVec;
     if (unlikely(SetThreadCt0(calc_thread_ct - 1, &tg))) {
       goto Plink1SampleMajorToPgen_ret_NOMEM;
     }
@@ -11083,9 +11073,9 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, uintptr_t variant_ct, uintp
       }
       if (variant_ct - cur_vidx_base <= cur_vidx_ct) {
         cur_vidx_ct = variant_ct - cur_vidx_base;
-        cur_vidx_ct4 = QuaterCtToByteCt(cur_vidx_ct);
-        cur_vidx_ctaw2 = QuaterCtToAlignedWordCt(cur_vidx_ct);
-        ctx.loadbuf_ul_stride = QuaterCtToVecCt(cur_vidx_ct) * kWordsPerVec;
+        cur_vidx_ct4 = NypCtToByteCt(cur_vidx_ct);
+        cur_vidx_ctaw2 = NypCtToAlignedWordCt(cur_vidx_ct);
+        ctx.loadbuf_ul_stride = NypCtToVecCt(cur_vidx_ct) * kWordsPerVec;
         load_multiplier = 1 + (cur_vidx_ct - 1) / (kPglVblockSize * calc_thread_ct);
       }
     }
@@ -11113,9 +11103,7 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, uintptr_t variant_ct, uintp
   }
  Plink1SampleMajorToPgen_ret_1:
   CleanupThreads(&tg);
-  if (MpgwCleanup(mpgwp) && (!reterr)) {
-    reterr = kPglRetWriteFail;
-  }
+  CleanupMpgw(mpgwp, &reterr);
   BigstackReset(bigstack_mark);
   return reterr;
 }

@@ -55,8 +55,8 @@
 //   high statistical reliability, by inserting checks whenever it occurs to me
 //   that overflow is especially likely (e.g. when multiplying two potentially
 //   large 32-bit numbers).
-// - Bitarrays and 'quaterarrays' (packed arrays of 2-bit elements, such as a
-//   row of a plink 1.x .bed file) are usually uintptr_t*, to encourage
+// - Bitarrays and 'nyparrays' (packed arrays of 2-bit elements, such as a row
+//   of a plink 1.x .bed file) are usually uintptr_t*, to encourage
 //   word-at-a-time iteration without requiring vector-alignment.  Quite a few
 //   low-level library functions cast them to VecW*; as mentioned above, the
 //   affected function parameter names should end in 'vec' to document the
@@ -1324,8 +1324,9 @@ static const uintptr_t kMask0303 = (~S_CAST(uintptr_t, 0)) / 85;
 
 CONSTI32(kBitsPerVec, kBytesPerVec * CHAR_BIT);
 
-// probable todo: change Quater/Nibble to Knuth's Nyp/Nybble.
-CONSTI32(kQuatersPerVec, kBytesPerVec * 4);
+// We now use Knuth's Nyp/Nybble vocabulary for 2-bit and 4-bit elements,
+// respectively.
+CONSTI32(kNypsPerVec, kBytesPerVec * 4);
 
 CONSTI32(kBitsPerWordD2, kBitsPerWord / 2);
 CONSTI32(kBitsPerWordD4, kBitsPerWord / 4);
@@ -1350,7 +1351,7 @@ CONSTI32(kFloatPerFVec, kBytesPerFVec / 4);
 CONSTI32(kCacheline, 64);
 
 CONSTI32(kBitsPerCacheline, kCacheline * CHAR_BIT);
-CONSTI32(kQuatersPerCacheline, kCacheline * 4);
+CONSTI32(kNypsPerCacheline, kCacheline * 4);
 CONSTI32(kInt32PerCacheline, kCacheline / sizeof(int32_t));
 CONSTI32(kInt64PerCacheline, kCacheline / sizeof(int64_t));
 CONSTI32(kWordsPerCacheline, kCacheline / kBytesPerWord);
@@ -2040,11 +2041,11 @@ HEADER_INLINE uint32_t AllBitsAreOne(const uintptr_t* bitarr, uintptr_t bit_ct) 
 }
 
 #ifdef USE_SSE42
-HEADER_CINLINE uint32_t QuatersumWord(uintptr_t val) {
+HEADER_CINLINE uint32_t NypsumWord(uintptr_t val) {
   return __builtin_popcountll(val) + __builtin_popcountll(val & kMaskAAAA);
 }
 #else
-HEADER_CINLINE2 uint32_t QuatersumWord(uintptr_t val) {
+HEADER_CINLINE2 uint32_t NypsumWord(uintptr_t val) {
   val = (val & kMask3333) + ((val >> 2) & kMask3333);
   return (((val + (val >> 4)) & kMask0F0F) * kMask0101) >> (kBitsPerWord - 8);
 }
@@ -2062,7 +2063,7 @@ HEADER_CINLINE uint32_t PopcountWord(uintptr_t val) {
 HEADER_CINLINE2 uint32_t PopcountWord(uintptr_t val) {
   // Sadly, this was still faster than the LLVM implementation of the intrinsic
   // as of 2016.
-  return QuatersumWord(val - ((val >> 1) & kMask5555));
+  return NypsumWord(val - ((val >> 1) & kMask5555));
 }
 #endif
 
@@ -3036,7 +3037,7 @@ HEADER_INLINE uintptr_t BitIter0NoAdv(const uintptr_t* __restrict bitarr, uintpt
 // todo: test this against extracting a nonmissing bitarr first
 /*
 HEADER_INLINE void NextNonmissingUnsafeCk32(const uintptr_t* __restrict genoarr, uint32_t* __restrict loc_ptr) {
-  if (GetQuaterarrEntry(genoarr, *loc_ptr) == 3) {
+  if (GetNyparrEntry(genoarr, *loc_ptr) == 3) {
     *loc_ptr = NextNonmissingUnsafe(genoarr, *loc_ptr);
   }
 }
@@ -3159,8 +3160,7 @@ uintptr_t PopcountBytes(const void* bitarr, uintptr_t byte_ct);
 uintptr_t PopcountBytesMasked(const void* bitarr, const uintptr_t* mask_arr, uintptr_t byte_ct);
 
 
-// transpose_quaterblock(), which is more plink-specific, is in
-// pgenlib_internal
+// TransposeNypblock(), which is more plink-specific, is in pgenlib_misc
 CONSTI32(kPglBitTransposeBatch, kBitsPerCacheline);
 CONSTI32(kPglBitTransposeWords, kWordsPerCacheline);
 // * Up to 512x512; vecaligned_buf must have size 64k
@@ -3194,28 +3194,28 @@ HEADER_INLINE void TransposeBitblock(const uintptr_t* read_iter, uintptr_t read_
 CONSTI32(kPglBitTransposeBufwords, kPglBitTransposeBufbytes / kBytesPerWord);
 CONSTI32(kPglBitTransposeBufvecs, kPglBitTransposeBufbytes / kBytesPerVec);
 
-CONSTI32(kNibblesPerWord, 2 * kBytesPerWord);
-CONSTI32(kNibblesPerCacheline, 2 * kCacheline);
+CONSTI32(kNybblesPerWord, 2 * kBytesPerWord);
+CONSTI32(kNybblesPerCacheline, 2 * kCacheline);
 
-HEADER_CINLINE uintptr_t NibbleCtToByteCt(uintptr_t val) {
+HEADER_CINLINE uintptr_t NybbleCtToByteCt(uintptr_t val) {
   return DivUp(val, 2);
 }
 
-HEADER_CINLINE uintptr_t NibbleCtToWordCt(uintptr_t val) {
-  return DivUp(val, kNibblesPerWord);
+HEADER_CINLINE uintptr_t NybbleCtToWordCt(uintptr_t val) {
+  return DivUp(val, kNybblesPerWord);
 }
 
-CONSTI32(kPglNibbleTransposeBatch, kNibblesPerCacheline);
-CONSTI32(kPglNibbleTransposeWords, kWordsPerCacheline);
+CONSTI32(kPglNybbleTransposeBatch, kNybblesPerCacheline);
+CONSTI32(kPglNybbleTransposeWords, kWordsPerCacheline);
 
-CONSTI32(kPglNibbleTransposeBufbytes, (kPglNibbleTransposeBatch * kPglNibbleTransposeBatch) / 2);
+CONSTI32(kPglNybbleTransposeBufbytes, (kPglNybbleTransposeBatch * kPglNybbleTransposeBatch) / 2);
 
 // up to 128x128; vecaligned_buf must have size 8k
 // now ok for write_iter to not be padded when write_batch_size odd
-void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, VecW* vecaligned_buf);
+void TransposeNybbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, VecW* vecaligned_buf);
 
-HEADER_INLINE uintptr_t GetNibbleArrEntry(const uintptr_t* nibblearr, uint32_t idx) {
-  return (nibblearr[idx / kBitsPerWordD4] >> (4 * (idx % kBitsPerWordD4))) & 15;
+HEADER_INLINE uintptr_t GetNybbleArrEntry(const uintptr_t* nybblearr, uint32_t idx) {
+  return (nybblearr[idx / kBitsPerWordD4] >> (4 * (idx % kBitsPerWordD4))) & 15;
 }
 
 #ifdef __LP64__
@@ -3245,7 +3245,7 @@ HEADER_INLINE uintptr_t DetectAllZeroBytes(uintptr_t ww) {
   return (kMask0101 * 0x80) & (~(ww | ((ww | (kMask0101 * 0x80)) - kMask0101)));
 }
 
-HEADER_INLINE uintptr_t DetectAllZeroNibbles(uintptr_t ww) {
+HEADER_INLINE uintptr_t DetectAllZeroNybbles(uintptr_t ww) {
   return (kMask1111 * 8) & (~(ww | ((ww | (kMask1111 * 8)) - kMask1111)));
 }
 

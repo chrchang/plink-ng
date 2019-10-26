@@ -809,7 +809,7 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
     double first_cm = 0.0;
 
     uint32_t* sample_include_cumulative_popcounts = nullptr;
-    const uint32_t sample_ctb2 = QuaterCtToWordCt(sample_ct) * sizeof(intptr_t);
+    const uint32_t sample_ctb2 = NypCtToWordCt(sample_ct) * sizeof(intptr_t);
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     const uint32_t sample_ctb = sample_ctl * sizeof(intptr_t);
     PgenVariant first_pgv;
@@ -820,8 +820,8 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
       const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
       if (unlikely(
               bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
-              BigstackAllocPgv(sample_ct, allele_idx_offsets != nullptr, simple_pgrp->fi.gflags, &first_pgv) ||
-              BigstackAllocPgv(sample_ct, allele_idx_offsets != nullptr, simple_pgrp->fi.gflags, &cur_pgv))) {
+              BigstackAllocPgv(sample_ct, allele_idx_offsets != nullptr, PgrGetGflags(simple_pgrp), &first_pgv) ||
+              BigstackAllocPgv(sample_ct, allele_idx_offsets != nullptr, PgrGetGflags(simple_pgrp), &cur_pgv))) {
         goto RmDup_ret_NOMEM;
       }
       FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
@@ -998,7 +998,7 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
         if (unlikely(reterr)) {
           goto RmDup_ret_PGR_FAIL;
         }
-        ZeroTrailingQuaters(sample_ct, first_pgv.genovec);
+        ZeroTrailingNyps(sample_ct, first_pgv.genovec);
         if (first_pgv.phasepresent_ct) {
           BitvecAnd(first_pgv.phasepresent, sample_ctl, first_pgv.phaseinfo);
         }
@@ -1018,7 +1018,7 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
                 (first_pgv.dphase_ct != cur_pgv.dphase_ct)) {
               break;
             }
-            ZeroTrailingQuaters(sample_ct, cur_pgv.genovec);
+            ZeroTrailingNyps(sample_ct, cur_pgv.genovec);
             if (!memequal(first_pgv.genovec, cur_pgv.genovec, sample_ctb2)) {
               break;
             }
@@ -3492,10 +3492,7 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
       if (!IsLastBlock(&tg)) {
         ctx.cur_block_size = cur_loaded_variant_ct;
         ComputeUidxStartPartition(variant_include, cur_loaded_variant_ct, calc_thread_ct, read_block_idx * read_block_size, ctx.read_variant_uidx_starts);
-        for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-          ctx.pgr_ptrs[tidx]->fi.block_base = pgfip->block_base;
-          ctx.pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
-        }
+        PgrCopyBaseAndOffset(pgfip, calc_thread_ct, ctx.pgr_ptrs);
         if (variant_idx + cur_loaded_variant_ct == variant_ct) {
           DeclareLastThreadBlock(&tg);
         }

@@ -23,7 +23,7 @@
 // 2-bit genotypes).  More generic library code has been moved to plink2_base
 // and plink2_cmdline.
 
-#include "pgenlib_internal.h"
+#include "pgenlib_read.h"
 #include "plink2_decompress.h"
 
 #ifdef __cplusplus

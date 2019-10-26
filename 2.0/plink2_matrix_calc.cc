@@ -1011,7 +1011,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
     }
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
-    const uint32_t sample_ctaw2 = QuaterCtToAlignedWordCt(sample_ct);
+    const uint32_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
     ctx.homhom_needed = (king_flags & kfKingColNsnp) || ((!(king_flags & kfKingCounts)) && (king_flags & (kfKingColHethet | kfKingColIbs0 | kfKingColIbs1)));
     uint32_t grand_row_start_idx;
     uint32_t grand_row_end_idx;
@@ -1055,7 +1055,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
         if (unlikely(reterr)) {
           goto CalcKing_ret_PGR_FAIL;
         }
-        ZeroTrailingQuaters(sample_ct, loadbuf);
+        ZeroTrailingNyps(sample_ct, loadbuf);
         STD_ARRAY_DECL(uint32_t, 4, genocounts);
         GenovecCountFreqsUnsafe(loadbuf, sample_ct, genocounts);
         if (genocounts[0] >= sample_ct_m1) {
@@ -1181,7 +1181,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
       if (variant_ct) {
         // possible todo: doubleton optimization
         const uint32_t row_end_idxaw = BitCtToAlignedWordCt(row_end_idx);
-        const uint32_t row_end_idxaw2 = QuaterCtToAlignedWordCt(row_end_idx);
+        const uint32_t row_end_idxaw2 = NypCtToAlignedWordCt(row_end_idx);
         if (row_end_idxaw % 2) {
           const uint32_t cur_king_bufsizew = kKingMultiplexWords * row_end_idx;
           uintptr_t* smaj_hom0_last = &(ctx.smaj_hom[0][kKingMultiplexWords - 1]);
@@ -1276,7 +1276,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
               if (unlikely(reterr)) {
                 goto CalcKing_ret_PGR_FAIL;
               }
-              SetTrailingQuaters(row_end_idx, loadbuf);
+              SetTrailingNyps(row_end_idx, loadbuf);
               SplitHomRef2hetUnsafeW(loadbuf, row_end_idxaw2, hom_iter, ref2het_iter);
               hom_iter = &(hom_iter[row_end_idxaw]);
               ref2het_iter = &(ref2het_iter[row_end_idxaw]);
@@ -2217,7 +2217,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     // space bloat for now.
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     uint32_t sample_ctaw = BitCtToAlignedWordCt(orig_sample_ct);
-    uint32_t sample_ctaw2 = QuaterCtToAlignedWordCt(orig_sample_ct);
+    uint32_t sample_ctaw2 = NypCtToAlignedWordCt(orig_sample_ct);
     uint32_t king_bufsizew = kKingMultiplexWords * orig_sample_ct;
     uintptr_t* cur_sample_include;
     uint32_t* sample_include_cumulative_popcounts;
@@ -2500,7 +2500,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       FillCumulativePopcounts(cur_sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
       const uint32_t cur_sample_ct = sample_include_cumulative_popcounts[raw_sample_ctl - 1] + PopcountWord(cur_sample_include[raw_sample_ctl - 1]);
       const uint32_t cur_sample_ctaw = BitCtToAlignedWordCt(cur_sample_ct);
-      const uint32_t cur_sample_ctaw2 = QuaterCtToAlignedWordCt(cur_sample_ct);
+      const uint32_t cur_sample_ctaw2 = NypCtToAlignedWordCt(cur_sample_ct);
       if (cur_sample_ct != raw_sample_ct) {
         for (uintptr_t ulii = 0; ulii != cur_pair_ct_x2; ++ulii) {
           ctx.loaded_sample_idx_pairs[ulii] = RawToSubsettedPos(cur_sample_include, sample_include_cumulative_popcounts, ctx.loaded_sample_idx_pairs[ulii]);
@@ -2557,7 +2557,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
               goto CalcKingTableSubset_ret_PGR_FAIL;
             }
             // may want to support some sort of low-MAF optimization here
-            SetTrailingQuaters(cur_sample_ct, loadbuf);
+            SetTrailingNyps(cur_sample_ct, loadbuf);
             SplitHomRef2hetUnsafeW(loadbuf, cur_sample_ctaw2, hom_iter, ref2het_iter);
             hom_iter = &(hom_iter[cur_sample_ctaw]);
             ref2het_iter = &(ref2het_iter[cur_sample_ctaw]);
@@ -2800,11 +2800,11 @@ PglErr LoadCenteredVarmaj(const uintptr_t* sample_include, const uint32_t* sampl
     // from multithreaded loops
     return reterr;
   }
-  ZeroTrailingQuaters(sample_ct, genovec_buf);
+  ZeroTrailingNyps(sample_ct, genovec_buf);
   if (missing_presentp) {
     // missing_present assumed to be initialized to 0
     // this should probably be a library function...
-    const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     if (!dosage_ct) {
       for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
         const uintptr_t detect_11 = Word11(genovec_buf[widx]);
@@ -2976,7 +2976,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
         bigstack_calloc_u32((S_CAST(uint64_t, row_end_idx) * (row_end_idx - 1) - S_CAST(uint64_t, row_start_idx) * (row_start_idx - 1)) / 2, missing_dbl_exclude_cts_ptr) ||
         bigstack_calloc_w(row_end_idxl, &ctx.missing_nz[0]) ||
         bigstack_calloc_w(row_end_idxl, &ctx.missing_nz[1]) ||
-        bigstack_alloc_w(QuaterCtToWordCt(row_end_idx), &genovec_buf) ||
+        bigstack_alloc_w(NypCtToWordCt(row_end_idx), &genovec_buf) ||
         bigstack_alloc_w(row_end_idxaw * (k1LU * kDblMissingBlockSize), &missing_vmaj) ||
         bigstack_alloc_w(RoundUpPow2(row_end_idx, 2) * kDblMissingBlockWordCt, &ctx.missing_smaj[0]) ||
         bigstack_alloc_w(RoundUpPow2(row_end_idx, 2) * kDblMissingBlockWordCt, &ctx.missing_smaj[1])) {
@@ -3187,7 +3187,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     }
     ctx.sample_ct = row_end_idx;
     ctx.grm = grm;
-    const uint32_t row_end_idxl2 = QuaterCtToWordCt(row_end_idx);
+    const uint32_t row_end_idxl2 = NypCtToWordCt(row_end_idx);
     const uint32_t row_end_idxl = BitCtToWordCt(row_end_idx);
     uint32_t* sample_include_cumulative_popcounts;
     uintptr_t* genovec_buf;
@@ -3770,7 +3770,7 @@ THREAD_FUNC_DECL CalcPcaXtxaThread(void* raw_arg) {
   CalcPcaCtx* ctx = S_CAST(CalcPcaCtx*, arg->sharedp->context);
 
   const uint32_t sample_ct = ctx->sample_ct;
-  const uintptr_t sample_ctaw2 = QuaterCtToAlignedWordCt(sample_ct);
+  const uintptr_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
   const uintptr_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
   const uint32_t pc_ct_x2 = ctx->pc_ct * 2;
   const uintptr_t qq_col_ct = (ctx->pc_ct + 1) * pc_ct_x2;
@@ -3824,7 +3824,7 @@ THREAD_FUNC_DECL CalcPcaXaThread(void* raw_arg) {
   CalcPcaCtx* ctx = S_CAST(CalcPcaCtx*, arg->sharedp->context);
 
   const uint32_t sample_ct = ctx->sample_ct;
-  const uintptr_t sample_ctaw2 = QuaterCtToAlignedWordCt(sample_ct);
+  const uintptr_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
   const uintptr_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
   const uint32_t pc_ct_x2 = ctx->pc_ct * 2;
   const uintptr_t qq_col_ct = (ctx->pc_ct + 1) * pc_ct_x2;
@@ -3872,7 +3872,7 @@ THREAD_FUNC_DECL CalcPcaXtbThread(void* raw_arg) {
   CalcPcaCtx* ctx = S_CAST(CalcPcaCtx*, arg->sharedp->context);
 
   const uint32_t sample_ct = ctx->sample_ct;
-  const uintptr_t sample_ctaw2 = QuaterCtToAlignedWordCt(sample_ct);
+  const uintptr_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
   const uintptr_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
   const uint32_t pc_ct_x2 = ctx->pc_ct * 2;
   const uintptr_t qq_col_ct = (ctx->pc_ct + 1) * pc_ct_x2;
@@ -3941,7 +3941,7 @@ THREAD_FUNC_DECL CalcPcaVarWtsThread(void* raw_arg) {
   CalcPcaVarWtsCtx* ctx = S_CAST(CalcPcaVarWtsCtx*, arg->sharedp->context);
 
   const uint32_t sample_ct = ctx->sample_ct;
-  const uintptr_t sample_ctaw2 = QuaterCtToAlignedWordCt(sample_ct);
+  const uintptr_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
   const uintptr_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
   const uint32_t pc_ct = ctx->pc_ct;
   const uint32_t is_haploid = ctx->is_haploid;
@@ -4076,7 +4076,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     // todo: additional --pca-clusters allocations
     const uintptr_t* pca_sample_include = sample_include;
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
-    const uint32_t pca_sample_ctaw2 = QuaterCtToAlignedWordCt(pca_sample_ct);
+    const uint32_t pca_sample_ctaw2 = NypCtToAlignedWordCt(pca_sample_ct);
     const uint32_t pca_sample_ctaw = BitCtToAlignedWordCt(pca_sample_ct);
     uint32_t* pca_sample_include_cumulative_popcounts;
     double* eigvals;
@@ -4242,7 +4242,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
               if (unlikely(reterr)) {
                 goto CalcPca_ret_PGR_FAIL;
               }
-              ZeroTrailingQuaters(pca_sample_ct, genovec_iter);
+              ZeroTrailingNyps(pca_sample_ct, genovec_iter);
               genovec_iter = &(genovec_iter[pca_sample_ctaw2]);
               *dosage_ct_iter++ = dosage_ct;
               dosage_present_iter = &(dosage_present_iter[pca_sample_ctaw]);
@@ -4351,7 +4351,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             if (unlikely(reterr)) {
               goto CalcPca_ret_PGR_FAIL;
             }
-            ZeroTrailingQuaters(pca_sample_ct, genovec_iter);
+            ZeroTrailingNyps(pca_sample_ct, genovec_iter);
             genovec_iter = &(genovec_iter[pca_sample_ctaw2]);
             *dosage_ct_iter++ = dosage_ct;
             dosage_present_iter = &(dosage_present_iter[pca_sample_ctaw]);
@@ -4643,7 +4643,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             if (unlikely(reterr)) {
               goto CalcPca_ret_PGR_FAIL;
             }
-            ZeroTrailingQuaters(pca_sample_ct, genovec_iter);
+            ZeroTrailingNyps(pca_sample_ct, genovec_iter);
             genovec_iter = &(genovec_iter[pca_sample_ctaw2]);
             *dosage_ct_iter++ = dosage_ct;
             dosage_present_iter = &(dosage_present_iter[pca_sample_ctaw]);
@@ -5078,7 +5078,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       goto ScoreReport_ret_NOMEM;
     }
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
-    const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     const uint32_t acc1_vec_ct = BitCtToVecCt(sample_ct);
     const uint32_t acc4_vec_ct = acc1_vec_ct * 4;
@@ -5258,7 +5258,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             is_relevant_x = is_relevant_x && xchr_model;
 
             const uint32_t is_y = (chr_idx == y_code);
-            ZeroTrailingQuaters(sample_ct, genovec_buf);
+            ZeroTrailingNyps(sample_ct, genovec_buf);
             GenovecToMissingnessUnsafe(genovec_buf, sample_ct, missing_acc1);
             if (dosage_ct) {
               BitvecInvmask(dosage_present_buf, sample_ctl, missing_acc1);
@@ -5359,7 +5359,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
               if (variance_standardize) {
                 const double variance = ploidy_d * cur_allele_freq * (1.0 - cur_allele_freq);
                 if (variance < kSmallEpsilon) {
-                  // ZeroTrailingQuaters(sample_ct, genovec_buf);
+                  // ZeroTrailingNyps(sample_ct, genovec_buf);
                   STD_ARRAY_DECL(uint32_t, 4, genocounts);
                   GenovecCountFreqsUnsafe(genovec_buf, sample_ct, genocounts);
                   if (unlikely(dosage_ct || genocounts[1] || genocounts[2])) {

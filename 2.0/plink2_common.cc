@@ -43,7 +43,7 @@ void InitPedigreeIdInfo(MiscFlags misc_flags, PedigreeIdInfo* piip) {
 }
 
 BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenGlobalFlags gflags, PgenVariant* pgvp) {
-  const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
   if (unlikely(
           bigstack_alloc_w(sample_ctl2, &(pgvp->genovec)))) {
     return 1;
@@ -225,12 +225,12 @@ void SetHetMissingCleardosage(uintptr_t word_ct, uintptr_t* __restrict genovec, 
     uintptr_t cur_bits = dosagepresent[0];
     for (uint32_t dosage_read_idx = 0; dosage_read_idx != orig_write_dosage_ct; ++dosage_read_idx) {
       const uintptr_t sample_uidx = BitIter1(dosagepresent, &sample_uidx_base, &cur_bits);
-      if (GetQuaterarrEntry(genovec, sample_uidx) == 1) {
+      if (GetNyparrEntry(genovec, sample_uidx) == 1) {
         ClearBit(sample_uidx, dosagepresent);
         uint32_t dosage_write_idx = dosage_read_idx++;
         for (; dosage_read_idx == orig_write_dosage_ct; ++dosage_read_idx) {
           const uintptr_t sample_uidx2 = BitIter1(dosagepresent, &sample_uidx_base, &cur_bits);
-          if (GetQuaterarrEntry(genovec, sample_uidx2) == 1) {
+          if (GetNyparrEntry(genovec, sample_uidx2) == 1) {
             ClearBit(sample_uidx2, dosagepresent);
           } else {
             dosage_main[dosage_write_idx++] = dosage_main[dosage_read_idx];
@@ -294,7 +294,7 @@ void SetHetMissingKeepdosage(uintptr_t word_ct, uintptr_t* __restrict genovec, u
 
 // todo: try vectorizing this
 void GenoarrToNonmissing(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* nonmissing_bitarr) {
-  const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
   const uintptr_t* genoarr_iter = genoarr;
   Halfword* nonmissing_bitarr_iter = R_CAST(Halfword*, nonmissing_bitarr);
   for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
@@ -317,7 +317,7 @@ void GenoarrToNonmissing(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t
 
 // todo: try vectorizing this
 uint32_t GenoarrCountMissingInvsubsetUnsafe(const uintptr_t* genoarr, const uintptr_t* exclude_mask, uint32_t sample_ct) {
-  const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
   const uintptr_t* genoarr_iter = genoarr;
   const Halfword* exclude_alias_iter = R_CAST(const Halfword*, exclude_mask);
   uint32_t missing_ct = 0;
@@ -1613,7 +1613,7 @@ void SetMaleHetMissing(const uintptr_t* __restrict sex_male_interleaved, uint32_
   VecW* genovvec_iter = R_CAST(VecW*, genovec);
   for (uint32_t twovec_idx = 0; twovec_idx != twovec_ct; ++twovec_idx) {
     const VecW sex_male_vvec = *sex_male_interleaved_iter++;
-    // we wish to bitwise-or with (sex_male_quatervec_01 & genovec) << 1
+    // we wish to bitwise-or with (sex_male_nypvec_01 & genovec) << 1
     const VecW sex_male_first = sex_male_vvec & m1;
     const VecW sex_male_second_shifted = vecw_and_notfirst(m1, sex_male_vvec);
     VecW cur_geno_vword = *genovvec_iter;
@@ -1657,12 +1657,12 @@ void EraseMaleHetDosages(const uintptr_t* __restrict sex_male, const uintptr_t* 
   uintptr_t cur_bits = dosagepresent[0];
   for (uint32_t dosage_read_idx = 0; dosage_read_idx != orig_write_dosage_ct; ++dosage_read_idx) {
     const uintptr_t sample_uidx = BitIter1(dosagepresent, &sample_uidx_base, &cur_bits);
-    if (IsSet(sex_male, sample_uidx) && (GetQuaterarrEntry(genovec, sample_uidx) == 1)) {
+    if (IsSet(sex_male, sample_uidx) && (GetNyparrEntry(genovec, sample_uidx) == 1)) {
       ClearBit(sample_uidx, dosagepresent);
       uint32_t dosage_write_idx = dosage_read_idx++;
       for (; dosage_read_idx != orig_write_dosage_ct; ++dosage_read_idx) {
         const uintptr_t sample_uidx2 = BitIter1(dosagepresent, &sample_uidx_base, &cur_bits);
-        if (IsSet(sex_male, sample_uidx2) && (GetQuaterarrEntry(genovec, sample_uidx2) == 1)) {
+        if (IsSet(sex_male, sample_uidx2) && (GetNyparrEntry(genovec, sample_uidx2) == 1)) {
           ClearBit(sample_uidx2, dosagepresent);
         } else {
           dosage_main[dosage_write_idx++] = dosage_main[dosage_read_idx];
@@ -2392,7 +2392,7 @@ PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint
   const uintptr_t pgr_struct_alloc = RoundUpPow2(sizeof(PgenReader), kCacheline);
   uintptr_t thread_alloc_cacheline_ct = 1 + 1 + 1 + (pgr_struct_alloc / kCacheline) + pgr_alloc_cacheline_ct + thread_xalloc_cacheline_ct;
 
-  const uint32_t sample_ctcl2 = QuaterCtToCachelineCt(sample_ct);
+  const uint32_t sample_ctcl2 = NypCtToCachelineCt(sample_ct);
   const uint32_t sample_ctcl = BitCtToCachelineCt(sample_ct);
 
   // todo: multiallelic dosage

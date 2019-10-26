@@ -661,11 +661,11 @@ THREAD_FUNC_DECL IndepPairwiseThread(void* raw_arg) {
   const uint32_t* variant_bps = ctx->variant_bps;
   const uint32_t founder_ct = ctx->founder_ct;
   const uint32_t founder_male_ct = ctx->founder_male_ct;
-  const uint32_t founder_male_ctl2 = QuaterCtToWordCt(founder_male_ct);
+  const uint32_t founder_male_ctl2 = NypCtToWordCt(founder_male_ct);
   const uint32_t nonmale_ct = founder_ct - founder_male_ct;
   const uint32_t nonmale_ctaw = BitCtToAlignedWordCt(nonmale_ct);
   const uint32_t nonmale_ctl = BitCtToWordCt(nonmale_ct);
-  const uintptr_t raw_tgenovec_single_variant_word_ct = RoundUpPow2(QuaterCtToWordCt(nonmale_ct) + founder_male_ctl2, kWordsPerVec);
+  const uintptr_t raw_tgenovec_single_variant_word_ct = RoundUpPow2(NypCtToWordCt(nonmale_ct) + founder_male_ctl2, kWordsPerVec);
   const uint32_t prune_window_size = ctx->prune_window_size;
   const uint32_t window_maxl = ctx->window_maxl;
   const double prune_ld_thresh = ctx->prune_ld_thresh;
@@ -921,7 +921,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     uint32_t* thread_last_tvidx;
     uint32_t* thread_last_uidx;
     if (unlikely(
-            bigstack_alloc_w(QuaterCtToWordCt(raw_sample_ct), &tmp_genovec) ||
+            bigstack_alloc_w(NypCtToWordCt(raw_sample_ct), &tmp_genovec) ||
             bigstack_calloc_u32(calc_thread_ct, &ctx.tvidx_end) ||
             bigstack_calloc_u32(calc_thread_ct, &thread_last_subcontig) ||
             bigstack_calloc_u32(calc_thread_ct, &thread_subcontig_start_tvidx) ||
@@ -962,9 +962,9 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
 
     const uintptr_t thread_alloc_base = genobuf_alloc + occupied_window_slots_alloc + cur_window_removed_alloc + cur_maj_freqs_alloc + removed_variants_write_alloc + 2 * vaggs_alloc + 3 * window_int32_alloc;
 
-    const uint32_t founder_ctl2 = QuaterCtToWordCt(founder_ct);
-    const uint32_t founder_male_ctl2 = QuaterCtToWordCt(founder_male_ct);
-    const uint32_t founder_nonmale_ctl2 = QuaterCtToWordCt(founder_nonmale_ct);
+    const uint32_t founder_ctl2 = NypCtToWordCt(founder_ct);
+    const uint32_t founder_male_ctl2 = NypCtToWordCt(founder_male_ct);
+    const uint32_t founder_nonmale_ctl2 = NypCtToWordCt(founder_nonmale_ct);
     const uintptr_t raw_tgenovec_single_variant_word_ct = RoundUpPow2(founder_nonmale_ctl2 + founder_male_ctl2, kWordsPerVec);
     // round down
     uintptr_t bigstack_avail_per_thread = RoundDownPow2(bigstack_left() / calc_thread_ct, kCacheline);
@@ -1114,11 +1114,11 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
             } else {
               reterr = PgrGetInv1(nullptr, nullptr, raw_sample_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, tmp_genovec);
               if (founder_male_ct) {
-                CopyQuaterarrNonemptySubset(tmp_genovec, founder_male, raw_sample_ct, founder_male_ct, cur_raw_tgenovec);
+                CopyNyparrNonemptySubset(tmp_genovec, founder_male, raw_sample_ct, founder_male_ct, cur_raw_tgenovec);
                 SetHetMissing(founder_male_ctl2, cur_raw_tgenovec);
               }
               if (is_x) {
-                CopyQuaterarrNonemptySubset(tmp_genovec, founder_nonmale, raw_sample_ct, founder_nonmale_ct, &(cur_raw_tgenovec[founder_male_ctl2]));
+                CopyNyparrNonemptySubset(tmp_genovec, founder_nonmale, raw_sample_ct, founder_nonmale_ct, &(cur_raw_tgenovec[founder_male_ctl2]));
                 if (all_haploid) {
                   // don't just treat chrX identically to autosomes, since for
                   // doubled haploids we still want to give females 2x the
@@ -1727,7 +1727,7 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
 void GenoarrSplit12Nm(const uintptr_t* __restrict genoarr, uint32_t sample_ct, uintptr_t* __restrict one_bitarr, uintptr_t* __restrict two_bitarr, uintptr_t* __restrict nm_bitarr) {
   // ok if trailing bits of genoarr are not zeroed out
   // trailing bits of {one,two,nm}_bitarr are zeroed out
-  const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
   Halfword* one_bitarr_alias = R_CAST(Halfword*, one_bitarr);
   Halfword* two_bitarr_alias = R_CAST(Halfword*, two_bitarr);
   Halfword* nm_bitarr_alias = R_CAST(Halfword*, nm_bitarr);
@@ -2839,7 +2839,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       }
     }
     const uint32_t founder_ctl = BitCtToWordCt(founder_ct);
-    const uint32_t founder_ctl2 = QuaterCtToWordCt(founder_ct);
+    const uint32_t founder_ctl2 = NypCtToWordCt(founder_ct);
     uint32_t* founder_info_cumulative_popcounts;
     PgenVariant pgvs[2];
     PreinitPgv(&(pgvs[0]));
@@ -2884,7 +2884,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       if (unlikely(reterr)) {
         goto LdConsole_ret_PGR_FAIL;
       }
-      ZeroTrailingQuaters(founder_ct, pgvp->genovec);
+      ZeroTrailingNyps(founder_ct, pgvp->genovec);
       if (is_nonx_haploids[var_idx]) {
         if (!use_dosage) {
           SetHetMissing(founder_ctl2, pgvp->genovec);

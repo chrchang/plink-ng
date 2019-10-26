@@ -3474,7 +3474,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
           new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
           goto GlmLogisticThread_err;
         }
-        ZeroTrailingQuaters(cur_sample_ct, pgv.genovec);
+        ZeroTrailingNyps(cur_sample_ct, pgv.genovec);
         GenovecCountFreqsUnsafe(pgv.genovec, cur_sample_ct, genocounts);
         uint32_t missing_ct = genocounts[3];
         if (!missing_ct) {
@@ -3513,7 +3513,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
         if (!allele_ct_m2) {
           if (omitted_allele_idx) {
             GenovecInvertUnsafe(cur_sample_ct, pgv.genovec);
-            // ZeroTrailingQuaters(cur_sample_ct, pgv.genovec);
+            // ZeroTrailingNyps(cur_sample_ct, pgv.genovec);
             if (pgv.dosage_ct) {
               BiallelicDosage16Invert(pgv.dosage_ct, pgv.dosage_main);
             }
@@ -3538,7 +3538,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
                 genotype_vals[sample_idx] = kRecipDosageMidf * u31tof(dosage_val);
                 dosage_sum += dosage_val;
                 dosage_ssq += dosage_val * dosage_val;
-                const uintptr_t cur_geno = GetQuaterarrEntry(pgv.genovec, sample_idx);
+                const uintptr_t cur_geno = GetNyparrEntry(pgv.genovec, sample_idx);
                 if (cur_geno && (cur_geno != 3)) {
                   const uintptr_t prev_val = cur_geno * kDosageMid;
                   dosage_sum -= prev_val;
@@ -3555,7 +3555,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
               uint32_t dosage_idx = 0;
               for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
                 const uintptr_t sample_midx = BitIter1(sample_nm, &sample_midx_base, &sample_nm_bits);
-                const uintptr_t cur_geno = GetQuaterarrEntry(pgv.genovec, sample_midx);
+                const uintptr_t cur_geno = GetNyparrEntry(pgv.genovec, sample_midx);
                 float cur_val;
                 if (IsSet(pgv.dosage_present, sample_midx)) {
                   const uint32_t dosage_val = pgv.dosage_main[dosage_idx++];
@@ -5074,10 +5074,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
         common->cur_block_variant_ct = cur_block_variant_ct;
         const uint32_t uidx_start = read_block_idx * read_block_size;
         ComputeUidxStartPartition(variant_include, cur_block_variant_ct, calc_thread_ct, uidx_start, common->read_variant_uidx_starts);
-        for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-          common->pgr_ptrs[tidx]->fi.block_base = pgfip->block_base;
-          common->pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
-        }
+        PgrCopyBaseAndOffset(pgfip, calc_thread_ct, common->pgr_ptrs);
         ctx->block_aux = logistic_block_aux_bufs[parity];
         common->block_beta_se = block_beta_se_bufs[parity];
         if (variant_idx + cur_block_variant_ct == variant_ct) {
@@ -5821,7 +5818,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
         cur_constraint_ct = common->constraint_ct;
       }
       const uint32_t sample_ctl = BitCtToWordCt(cur_sample_ct);
-      const uint32_t sample_ctl2 = QuaterCtToWordCt(cur_sample_ct);
+      const uint32_t sample_ctl2 = NypCtToWordCt(cur_sample_ct);
       const uint32_t cur_biallelic_predictor_ct_base = 2 + domdev_present + cur_covar_ct * (1 + add_interactions * domdev_present_p1);
       uint32_t cur_biallelic_predictor_ct = cur_biallelic_predictor_ct_base;
       uint32_t literal_covar_ct = cur_covar_ct;
@@ -5956,7 +5953,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
           new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
           goto GlmLinearThread_err;
         }
-        ZeroTrailingQuaters(cur_sample_ct, pgv.genovec);
+        ZeroTrailingNyps(cur_sample_ct, pgv.genovec);
         GenovecCountFreqsUnsafe(pgv.genovec, cur_sample_ct, genocounts);
         uint32_t missing_ct = genocounts[3];
         if (!missing_ct) {
@@ -6008,7 +6005,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
           // case.
           if (omitted_allele_idx) {
             GenovecInvertUnsafe(cur_sample_ct, pgv.genovec);
-            ZeroTrailingQuaters(cur_sample_ct, pgv.genovec);
+            ZeroTrailingNyps(cur_sample_ct, pgv.genovec);
             if (pgv.dosage_ct) {
               BiallelicDosage16Invert(pgv.dosage_ct, pgv.dosage_main);
             }
@@ -6038,7 +6035,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
                   genotype_vals[sample_idx] = kRecipDosageMid * swtod(dosage_val);
                   dosage_sum += dosage_val;
                   dosage_ssq += dosage_val * dosage_val;
-                  const uintptr_t cur_geno = GetQuaterarrEntry(pgv.genovec, sample_idx);
+                  const uintptr_t cur_geno = GetNyparrEntry(pgv.genovec, sample_idx);
                   if (cur_geno && (cur_geno != 3)) {
                     const uintptr_t prev_val = cur_geno * kDosageMid;
                     dosage_sum -= prev_val;
@@ -6056,7 +6053,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
               uint32_t dosage_idx = 0;
               for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
                 const uintptr_t sample_midx = BitIter1(sample_nm, &sample_midx_base, &sample_nm_bits);
-                const uintptr_t cur_geno = GetQuaterarrEntry(pgv.genovec, sample_midx);
+                const uintptr_t cur_geno = GetNyparrEntry(pgv.genovec, sample_midx);
                 double cur_val;
                 if (IsSet(pgv.dosage_present, sample_midx)) {
                   const uintptr_t dosage_val = pgv.dosage_main[dosage_idx++];
@@ -7119,10 +7116,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
         common->cur_block_variant_ct = cur_block_variant_ct;
         const uint32_t uidx_start = read_block_idx * read_block_size;
         ComputeUidxStartPartition(variant_include, cur_block_variant_ct, calc_thread_ct, uidx_start, common->read_variant_uidx_starts);
-        for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-          common->pgr_ptrs[tidx]->fi.block_base = pgfip->block_base;
-          common->pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
-        }
+        PgrCopyBaseAndOffset(pgfip, calc_thread_ct, common->pgr_ptrs);
         ctx->block_aux = linear_block_aux_bufs[parity];
         common->block_beta_se = block_beta_se_bufs[parity];
         if (variant_idx + cur_block_variant_ct == variant_ct) {
@@ -7759,7 +7753,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
         cur_constraint_ct = common->constraint_ct;
       }
       const uint32_t sample_ctl = BitCtToWordCt(cur_sample_ct);
-      const uint32_t sample_ctl2 = QuaterCtToWordCt(cur_sample_ct);
+      const uint32_t sample_ctl2 = NypCtToWordCt(cur_sample_ct);
       const uint32_t cur_biallelic_predictor_ct_base = 2 + domdev_present + cur_covar_ct * (1 + add_interactions * domdev_present_p1);
       uint32_t cur_biallelic_predictor_ct = cur_biallelic_predictor_ct_base;
       uint32_t literal_covar_ct = cur_covar_ct;
@@ -7901,7 +7895,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
           new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
           goto GlmLinearSubbatchThread_err;
         }
-        ZeroTrailingQuaters(cur_sample_ct, pgv.genovec);
+        ZeroTrailingNyps(cur_sample_ct, pgv.genovec);
         GenovecCountFreqsUnsafe(pgv.genovec, cur_sample_ct, genocounts);
         uint32_t missing_ct = genocounts[3];
         if (!missing_ct) {
@@ -7946,7 +7940,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
           // case.
           if (omitted_allele_idx) {
             GenovecInvertUnsafe(cur_sample_ct, pgv.genovec);
-            ZeroTrailingQuaters(cur_sample_ct, pgv.genovec);
+            ZeroTrailingNyps(cur_sample_ct, pgv.genovec);
             if (pgv.dosage_ct) {
               BiallelicDosage16Invert(pgv.dosage_ct, pgv.dosage_main);
             }
@@ -7976,7 +7970,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
                   genotype_vals[sample_idx] = kRecipDosageMid * swtod(dosage_val);
                   dosage_sum += dosage_val;
                   dosage_ssq += dosage_val * dosage_val;
-                  const uintptr_t cur_geno = GetQuaterarrEntry(pgv.genovec, sample_idx);
+                  const uintptr_t cur_geno = GetNyparrEntry(pgv.genovec, sample_idx);
                   if (cur_geno && (cur_geno != 3)) {
                     const uintptr_t prev_val = cur_geno * kDosageMid;
                     dosage_sum -= prev_val;
@@ -7994,7 +7988,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
               uint32_t dosage_idx = 0;
               for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
                 const uintptr_t sample_midx = BitIter1(sample_nm, &sample_midx_base, &sample_nm_bits);
-                const uintptr_t cur_geno = GetQuaterarrEntry(pgv.genovec, sample_midx);
+                const uintptr_t cur_geno = GetNyparrEntry(pgv.genovec, sample_midx);
                 double cur_val;
                 if (IsSet(pgv.dosage_present, sample_midx)) {
                   const uintptr_t dosage_val = pgv.dosage_main[dosage_idx++];
@@ -9209,10 +9203,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
           common->cur_block_variant_ct = cur_block_variant_ct;
           const uint32_t uidx_start = read_block_idx * read_block_size;
           ComputeUidxStartPartition(variant_include, cur_block_variant_ct, calc_thread_ct, uidx_start, common->read_variant_uidx_starts);
-          for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-            common->pgr_ptrs[tidx]->fi.block_base = pgfip->block_base;
-            common->pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
-          }
+          PgrCopyBaseAndOffset(pgfip, calc_thread_ct, common->pgr_ptrs);
           ctx->block_aux = linear_block_aux_bufs[parity];
           common->block_beta_se = block_beta_se_bufs[parity];
           if (variant_idx + cur_block_variant_ct == variant_ct) {
@@ -9980,7 +9971,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           uintptr_t* dosage_present;
           Dosage* dosage_main;
           if (unlikely(
-                  bigstack_end_alloc_w(QuaterCtToWordCt(raw_sample_ct), &genovec) ||
+                  bigstack_end_alloc_w(NypCtToWordCt(raw_sample_ct), &genovec) ||
                   bigstack_end_alloc_w(raw_sample_ctl, &dosage_present) ||
                   bigstack_end_alloc_dosage(raw_sample_ct, &dosage_main))) {
             goto GlmMain_ret_NOMEM;
@@ -10176,7 +10167,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     // multiallelic case: one more predictor per extra allele
     const uint32_t biallelic_raw_predictor_ct = 2 + domdev_present + raw_covar_ct * (1 + add_interactions * domdev_present_p1);
 
-    const uint32_t max_extra_allele_ct = MaxAlleleCtSubset(early_variant_include, allele_idx_offsets, raw_variant_ct, variant_ct, simple_pgrp->fi.max_allele_ct) - 2;
+    const uint32_t max_extra_allele_ct = MaxAlleleCtSubset(early_variant_include, allele_idx_offsets, raw_variant_ct, variant_ct, PgrGetMaxAlleleCt(simple_pgrp)) - 2;
     if (unlikely(biallelic_raw_predictor_ct + max_extra_allele_ct > 46340)) {
       logerrputs("Error: Too many predictors for --glm.\n");
       if ((biallelic_raw_predictor_ct > 46000) && (max_extra_allele_ct < 23170)) {

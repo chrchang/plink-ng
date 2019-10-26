@@ -221,7 +221,7 @@ PglErr Export012Vmaj(const char* outname, const uintptr_t* sample_include, const
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
   {
-    const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     const uint32_t max_chr_blen = 1 + GetMaxChrSlen(cip);
     char* chr_buf;  // includes trailing tab
@@ -235,7 +235,7 @@ PglErr Export012Vmaj(const char* outname, const uintptr_t* sample_include, const
       goto Export012Vmaj_ret_NOMEM;
     }
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
-    const uint32_t dosage_is_present = simple_pgrp->fi.gflags & kfPgenGlobalDosagePresent;
+    const uint32_t dosage_is_present = PgrGetGflags(simple_pgrp) & kfPgenGlobalDosagePresent;
     uintptr_t* dosage_present = nullptr;
     Dosage* dosage_main = nullptr;
     if (dosage_is_present) {
@@ -504,7 +504,7 @@ THREAD_FUNC_DECL TransposeToSmajReadThread(void* raw_arg) {
   const uintptr_t* sample_include = ctx->sample_include;
   const uint32_t* sample_include_cumulative_popcounts = ctx->sample_include_cumulative_popcounts;
   const uint32_t read_sample_ct = ctx->sample_ct;
-  const uintptr_t read_sample_ctaw2 = QuaterCtToAlignedWordCt(read_sample_ct);
+  const uintptr_t read_sample_ctaw2 = NypCtToAlignedWordCt(read_sample_ct);
   PgenReader* pgrp = ctx->pgr_ptrs[tidx];
   uintptr_t prev_copy_ct = 0;
   do {
@@ -527,7 +527,7 @@ THREAD_FUNC_DECL TransposeToSmajReadThread(void* raw_arg) {
       }
       if (refalt1_select && (refalt1_select[variant_uidx][0] == 1)) {
         GenovecInvertUnsafe(read_sample_ct, vmaj_readbuf_iter);
-        // don't need ZeroTrailingQuaters()
+        // don't need ZeroTrailingNyps()
       }
       vmaj_readbuf_iter = &(vmaj_readbuf_iter[read_sample_ctaw2]);
     }
@@ -556,50 +556,50 @@ THREAD_FUNC_DECL TransposeToPlink1SmajWriteThread(void* raw_arg) {
   TransposeToPlink1SmajWriteCtx* ctx = S_CAST(TransposeToPlink1SmajWriteCtx*, arg->sharedp->context);
 
   const uint32_t variant_ct = ctx->variant_ct;
-  const uintptr_t variant_batch_ct = DivUp(variant_ct, kPglQuaterTransposeBatch);
-  const uintptr_t variant_batch_word_ct = variant_batch_ct * kPglQuaterTransposeWords;
+  const uintptr_t variant_batch_ct = DivUp(variant_ct, kPglNypTransposeBatch);
+  const uintptr_t variant_batch_word_ct = variant_batch_ct * kPglNypTransposeWords;
   const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
   const uintptr_t variant_batch_idx_start = (S_CAST(uint64_t, tidx) * variant_batch_ct) / calc_thread_ct;
   VecW* vecaligned_buf = ctx->thread_vecaligned_bufs[tidx];
   uintptr_t variant_batch_idx_full_end = ((S_CAST(uint64_t, tidx) + 1) * variant_batch_ct) / calc_thread_ct;
   uint32_t variant_idx_end;
   if (tidx + 1 < calc_thread_ct) {
-    variant_idx_end = variant_batch_idx_full_end * kPglQuaterTransposeBatch;
+    variant_idx_end = variant_batch_idx_full_end * kPglNypTransposeBatch;
   } else {
     variant_idx_end = variant_ct;
-    if (variant_ct % kPglQuaterTransposeBatch) {
+    if (variant_ct % kPglNypTransposeBatch) {
       --variant_batch_idx_full_end;
     }
   }
-  const uint32_t thread_variant_ct = variant_idx_end - variant_batch_idx_start * kPglQuaterTransposeBatch;
+  const uint32_t thread_variant_ct = variant_idx_end - variant_batch_idx_start * kPglNypTransposeBatch;
   const uint32_t read_sample_ct = ctx->sample_ct;
-  const uintptr_t read_sample_ctaw2 = QuaterCtToAlignedWordCt(read_sample_ct);
+  const uintptr_t read_sample_ctaw2 = NypCtToAlignedWordCt(read_sample_ct);
   const uintptr_t* vmaj_readbuf = ctx->vmaj_readbuf;
   uint32_t sample_widx = 0;
   uint32_t parity = 0;
   do {
     const uint32_t sample_batch_size = ctx->sample_batch_size;
-    const uintptr_t* vmaj_readbuf_iter = &(vmaj_readbuf[variant_batch_idx_start * kPglQuaterTransposeBatch * read_sample_ctaw2 + sample_widx]);
-    uintptr_t* smaj_writebuf_start = &(ctx->smaj_writebufs[parity][variant_batch_idx_start * kPglQuaterTransposeWords]);
+    const uintptr_t* vmaj_readbuf_iter = &(vmaj_readbuf[variant_batch_idx_start * kPglNypTransposeBatch * read_sample_ctaw2 + sample_widx]);
+    uintptr_t* smaj_writebuf_start = &(ctx->smaj_writebufs[parity][variant_batch_idx_start * kPglNypTransposeWords]);
     uintptr_t* smaj_writebuf_iter = smaj_writebuf_start;
-    uint32_t variant_batch_size = kPglQuaterTransposeBatch;
+    uint32_t variant_batch_size = kPglNypTransposeBatch;
     for (uintptr_t variant_batch_idx = variant_batch_idx_start; ; ++variant_batch_idx) {
       if (variant_batch_idx >= variant_batch_idx_full_end) {
-        if (variant_batch_idx * kPglQuaterTransposeBatch >= variant_idx_end) {
+        if (variant_batch_idx * kPglNypTransposeBatch >= variant_idx_end) {
           break;
         }
-        variant_batch_size = variant_idx_end - variant_batch_idx * kPglQuaterTransposeBatch;
+        variant_batch_size = variant_idx_end - variant_batch_idx * kPglNypTransposeBatch;
       }
-      TransposeQuaterblock(vmaj_readbuf_iter, read_sample_ctaw2, variant_batch_word_ct, variant_batch_size, sample_batch_size, smaj_writebuf_iter, vecaligned_buf);
-      smaj_writebuf_iter = &(smaj_writebuf_iter[kPglQuaterTransposeWords]);
+      TransposeNypblock(vmaj_readbuf_iter, read_sample_ctaw2, variant_batch_word_ct, variant_batch_size, sample_batch_size, smaj_writebuf_iter, vecaligned_buf);
+      smaj_writebuf_iter = &(smaj_writebuf_iter[kPglNypTransposeWords]);
       vmaj_readbuf_iter = &(vmaj_readbuf_iter[variant_batch_size * read_sample_ctaw2]);
     }
     smaj_writebuf_iter = smaj_writebuf_start;
     for (uint32_t sample_idx = 0; sample_idx != sample_batch_size; ++sample_idx) {
-      // could fold this into TransposeQuaterblock(), but I won't bother,
+      // could fold this into TransposeNypblock(), but I won't bother,
       // we're already saturating at ~3 threads
       PgrPlink2ToPlink1InplaceUnsafe(thread_variant_ct, smaj_writebuf_iter);
-      ZeroTrailingQuaters(thread_variant_ct, smaj_writebuf_iter);
+      ZeroTrailingNyps(thread_variant_ct, smaj_writebuf_iter);
       smaj_writebuf_iter = &(smaj_writebuf_iter[variant_batch_word_ct]);
     }
     parity = 1 - parity;
@@ -652,7 +652,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
       read_ctx.reterr = kPglRetSuccess;
       SetThreadFuncAndData(TransposeToSmajReadThread, &read_ctx, &read_tg);
 
-      const uintptr_t variant_cacheline_ct = QuaterCtToCachelineCt(variant_ct);
+      const uintptr_t variant_cacheline_ct = NypCtToCachelineCt(variant_ct);
       uint32_t output_calc_thread_ct = MINV(calc_thread_ct, variant_cacheline_ct);
       // 4 still seems to be best in AVX2 case
       if (output_calc_thread_ct > 4) {
@@ -668,13 +668,13 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
         goto ExportIndMajorBed_ret_NOMEM;
       }
       for (uint32_t tidx = 0; tidx != output_calc_thread_ct; ++tidx) {
-        write_ctx.thread_vecaligned_bufs[tidx] = S_CAST(VecW*, bigstack_alloc_raw(kPglQuaterTransposeBufbytes));
+        write_ctx.thread_vecaligned_bufs[tidx] = S_CAST(VecW*, bigstack_alloc_raw(kPglNypTransposeBufbytes));
       }
       // each of the two write buffers should use <= 1/8 of the remaining
       // workspace
       const uintptr_t writebuf_cachelines_avail = bigstack_left() / (kCacheline * 8);
-      uint32_t sample_batch_size = kPglQuaterTransposeBatch;
-      if (variant_cacheline_ct * kPglQuaterTransposeBatch > writebuf_cachelines_avail) {
+      uint32_t sample_batch_size = kPglNypTransposeBatch;
+      if (variant_cacheline_ct * kPglNypTransposeBatch > writebuf_cachelines_avail) {
         sample_batch_size = RoundDownPow2(writebuf_cachelines_avail / variant_cacheline_ct, kBitsPerWordD2);
         if (unlikely(!sample_batch_size)) {
           goto ExportIndMajorBed_ret_NOMEM;
@@ -688,12 +688,12 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
       }
       uintptr_t read_sample_ctv2 = readbuf_vecs_avail / variant_ct;
       uint32_t read_sample_ct;
-      if (read_sample_ctv2 >= QuaterCtToVecCt(sample_ct)) {
+      if (read_sample_ctv2 >= NypCtToVecCt(sample_ct)) {
         read_sample_ct = sample_ct;
       } else {
-        read_sample_ct = read_sample_ctv2 * kQuatersPerVec;
+        read_sample_ct = read_sample_ctv2 * kNypsPerVec;
       }
-      uintptr_t read_sample_ctaw2 = QuaterCtToAlignedWordCt(read_sample_ct);
+      uintptr_t read_sample_ctaw2 = NypCtToAlignedWordCt(read_sample_ct);
       uintptr_t* vmaj_readbuf = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(variant_ct * read_sample_ctaw2 * kBytesPerWord));
       read_ctx.vmaj_readbuf = vmaj_readbuf;
       write_ctx.variant_include = variant_include;
@@ -701,7 +701,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
       write_ctx.vmaj_readbuf = vmaj_readbuf;
       SetThreadFuncAndData(TransposeToPlink1SmajWriteThread, &write_ctx, &write_tg);
       uint32_t sample_uidx_start = AdvTo1Bit(orig_sample_include, 0);
-      const uintptr_t variant_ct4 = QuaterCtToByteCt(variant_ct);
+      const uintptr_t variant_ct4 = NypCtToByteCt(variant_ct);
       const uintptr_t variant_ctaclw2 = variant_cacheline_ct * kWordsPerCacheline;
       const uint32_t read_block_sizel = BitCtToWordCt(read_block_size);
       const uint32_t read_block_ct_m1 = (raw_variant_ct - 1) / read_block_size;
@@ -714,7 +714,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
         uint32_t sample_uidx_end;
         if (pass_idx + 1 == pass_ct) {
           read_sample_ct = sample_ct - pass_idx * read_sample_ct;
-          read_sample_ctaw2 = QuaterCtToAlignedWordCt(read_sample_ct);
+          read_sample_ctaw2 = NypCtToAlignedWordCt(read_sample_ct);
           sample_uidx_end = raw_sample_ct;
         } else {
           sample_uidx_end = FindNth1BitFrom(orig_sample_include, sample_uidx_start + 1, read_sample_ct);
@@ -727,11 +727,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
         write_ctx.sample_ct = read_sample_ct;
         if (pass_idx) {
           pgfip->block_base = main_loadbufs[0];
-          for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-            PgrClearLdCache(read_ctx.pgr_ptrs[tidx]);
-            read_ctx.pgr_ptrs[tidx]->fi.block_base = main_loadbufs[0];
-            read_ctx.pgr_ptrs[tidx]->fi.block_offset = 0;
-          }
+          PgrSetBaseAndOffset0(main_loadbufs[0], calc_thread_ct, read_ctx.pgr_ptrs);
         }
         uint32_t parity = 0;
         uint32_t read_block_idx = 0;
@@ -771,10 +767,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
           if (!IsLastBlock(&read_tg)) {
             read_ctx.cur_block_write_ct = cur_block_write_ct;
             ComputeUidxStartPartition(variant_include, cur_block_write_ct, calc_thread_ct, read_block_idx * read_block_size, read_ctx.variant_uidx_starts);
-            for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-              read_ctx.pgr_ptrs[tidx]->fi.block_base = pgfip->block_base;
-              read_ctx.pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
-            }
+            PgrCopyBaseAndOffset(pgfip, calc_thread_ct, read_ctx.pgr_ptrs);
             if (variant_idx + cur_block_write_ct == variant_ct) {
               DeclareLastThreadBlock(&read_tg);
             }
@@ -963,7 +956,7 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
   BgzfCompressStream bgzf;
   PreinitBgzfCompressStream(&bgzf);
   {
-    const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     uintptr_t* genovec;
     uintptr_t* sex_male_collapsed;
@@ -992,7 +985,7 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
 
     uintptr_t* dosage_present = nullptr;
     Dosage* dosage_main = nullptr;
-    if (simple_pgrp->fi.gflags & kfPgenGlobalDosagePresent) {
+    if (PgrGetGflags(simple_pgrp) & kfPgenGlobalDosagePresent) {
       const uint32_t multiallelic_present = (allele_idx_offsets != nullptr);
       if (unlikely(
               bigstack_alloc_dosage(sample_ct * (1 + multiallelic_present), &dosage_main) ||
@@ -1333,7 +1326,7 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
     }
     writebuf_alloc += kMaxMediumLine + (4 * k1LU) * sample_ct + kCacheline;
     const uint32_t sample_ctv = BitCtToVecCt(sample_ct);
-    const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     char* writebuf;
     uintptr_t* sex_male_collapsed_interleaved;
     uintptr_t* genovec;
@@ -1434,7 +1427,7 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
       if (unlikely(reterr)) {
         goto ExportOxHapslegend_ret_PGR_FAIL;
       }
-      ZeroTrailingQuaters(sample_ct, genovec);
+      ZeroTrailingNyps(sample_ct, genovec);
       STD_ARRAY_DECL(uint32_t, 4, genocounts);
       GenovecCountFreqsUnsafe(genovec, sample_ct, genocounts);
       if (unlikely(phasepresent_ct != genocounts[1])) {
@@ -1592,7 +1585,7 @@ THREAD_FUNC_DECL ExportBgen11Thread(void* raw_arg) {
   const uint32_t* sample_include_cumulative_popcounts = ctx->sample_include_cumulative_popcounts;
   const uintptr_t* sex_male_collapsed = ctx->sex_male_collapsed;
   const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
-  const uint32_t sample_ctl2_m1 = QuaterCtToWordCt(sample_ct) - 1;
+  const uint32_t sample_ctl2_m1 = NypCtToWordCt(sample_ct) - 1;
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
   const uint32_t bgen_geno_buf_blen = 6 * sample_ct;
   const uint32_t bgen_compressed_buf_max = ctx->bgen_compressed_buf_max;
@@ -1936,10 +1929,7 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
       if (!IsLastBlock(&tg)) {
         ctx.cur_block_write_ct = cur_block_write_ct;
         ComputeUidxStartPartition(variant_include, cur_block_write_ct, calc_thread_ct, read_block_idx * read_block_size, ctx.read_variant_uidx_starts);
-        for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-          ctx.pgr_ptrs[tidx]->fi.block_base = pgfip->block_base;
-          ctx.pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
-        }
+        PgrCopyBaseAndOffset(pgfip, calc_thread_ct, ctx.pgr_ptrs);
         if (variant_idx + cur_block_write_ct == variant_ct) {
           DeclareLastThreadBlock(&tg);
         }
@@ -2421,7 +2411,7 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
   const uint64_t* bgen_haploid_hardcall_table16 = ctx->tables.haploid_hardcall_table16;
   const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
-  const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
   const uint32_t sample_ctl2_m1 = sample_ctl2 - 1;
   const uint32_t sample_ct4 = DivUp(sample_ct, 4);
   const uint32_t bit_precision = ctx->tables.bit_precision;
@@ -3586,10 +3576,7 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
       if (!IsLastBlock(&tg)) {
         ctx.cur_block_write_ct = cur_block_write_ct;
         ComputeUidxStartPartition(variant_include, cur_block_write_ct, calc_thread_ct, read_block_idx * read_block_size, ctx.read_variant_uidx_starts);
-        for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-          ctx.pgr_ptrs[tidx]->fi.block_base = pgfip->block_base;
-          ctx.pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
-        }
+        PgrCopyBaseAndOffset(pgfip, calc_thread_ct, ctx.pgr_ptrs);
         if (variant_idx + cur_block_write_ct == variant_ct) {
           DeclareLastThreadBlock(&tg);
         }
@@ -4250,7 +4237,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         output_bytes_per_sample = 4;
       }
     } else {
-      const uint32_t max_allele_ct = simple_pgrp->fi.max_allele_ct;
+      const uint32_t max_allele_ct = PgrGetMaxAlleleCt(simple_pgrp);
       output_bytes_per_sample = 2 + 2 * UintSlen(max_allele_ct + 1);
       if (write_some_dosage) {
         if (write_ds) {
@@ -4473,7 +4460,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     // includes trailing tab
     char* chr_buf;
 
-    const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     PgenVariant pgv;
     if (unlikely(
@@ -6098,7 +6085,7 @@ THREAD_FUNC_DECL DosageTransposeThread(void* raw_arg) {
   const uint32_t sample_ctd4 = sample_ct / 4;
   const uint32_t sample_rem = sample_ct % 4;
   const uintptr_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
-  const uint32_t sample_ctaw2 = QuaterCtToAlignedWordCt(sample_ct);
+  const uint32_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
   const uint32_t sample_ctab2 = kBytesPerWord * sample_ctaw2;
   const uintptr_t stride = ctx->stride;
   const uintptr_t* variant_include = ctx->variant_include;
@@ -6148,7 +6135,7 @@ THREAD_FUNC_DECL DosageTransposeThread(void* raw_arg) {
           if (export_allele_missing && export_allele_missing[variant_uidx]) {
             // only keep missing vs. nonmissing distinction, zero everything
             // else out
-            const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
+            const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
             if (dosage_ct) {
               const Halfword* dosage_present_hw = R_CAST(const Halfword*, dosage_present_iter);
               for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
@@ -6442,7 +6429,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
       pass_ct = 1 + (sample_ct - 1) / read_sample_ct;
     }
     uintptr_t read_sample_ctaw = BitCtToAlignedWordCt(read_sample_ct);
-    uintptr_t read_sample_ctaw2 = QuaterCtToAlignedWordCt(read_sample_ct);
+    uintptr_t read_sample_ctaw2 = NypCtToAlignedWordCt(read_sample_ct);
     for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
       ctx.thread_write_genovecs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(kDosagePerCacheline * sizeof(intptr_t) * read_sample_ctaw2));
       ctx.thread_write_dosagepresents[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(kDosagePerCacheline * sizeof(intptr_t) * read_sample_ctaw));
@@ -6480,7 +6467,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
         ctx.sample_ct = read_sample_ct;
         sample_uidx_end = raw_sample_ct;
         read_sample_ctaw = BitCtToAlignedWordCt(read_sample_ct);
-        read_sample_ctaw2 = QuaterCtToAlignedWordCt(read_sample_ct);
+        read_sample_ctaw2 = NypCtToAlignedWordCt(read_sample_ct);
       } else {
         sample_uidx_end = FindNth1BitFrom(orig_sample_include, sample_uidx_start + 1, read_sample_ct);
         ClearBitsNz(sample_uidx_end, raw_sample_ct, sample_include);
@@ -6491,11 +6478,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
       if (pass_idx) {
         ReinitThreads(&tg);
         pgfip->block_base = main_loadbufs[0];
-        for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-          PgrClearLdCache(ctx.pgr_ptrs[tidx]);
-          ctx.pgr_ptrs[tidx]->fi.block_base = main_loadbufs[0];
-          ctx.pgr_ptrs[tidx]->fi.block_offset = 0;
-        }
+        PgrSetBaseAndOffset0(main_loadbufs[0], calc_thread_ct, ctx.pgr_ptrs);
       }
       putc_unlocked('\r', stdout);
       printf("--export A%s pass %u/%u: loading... 0%%", include_dom? "D" : "", pass_idx + 1, pass_ct);
@@ -6543,10 +6526,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
         if (!IsLastBlock(&tg)) {
           ctx.cur_block_write_ct = cur_block_write_ct;
           ComputePartitionAligned(variant_include, calc_thread_ct, read_block_idx * read_block_size, variant_idx, cur_block_write_ct, kDosagePerCacheline, ctx.read_variant_uidx_starts, ctx.write_vidx_starts);
-          for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-            ctx.pgr_ptrs[tidx]->fi.block_base = pgfip->block_base;
-            ctx.pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
-          }
+          PgrCopyBaseAndOffset(pgfip, calc_thread_ct, ctx.pgr_ptrs);
           if (variant_idx + cur_block_write_ct == variant_ct) {
             DeclareLastThreadBlock(&tg);
           }

@@ -80,8 +80,8 @@ plink2: $(CSRC2) $(ZCSRC2) $(CCSRC2) ../plink2_cpu.cc
 	g++ $(CPUCHECK_FLAGS) ../plink2_cpu.cc -c
 	gfortran $(OBJ2) plink2_cpu.o -o plink2 $(BLASFLAGS) $(LINKFLAGS)
 
-pgen_compress: ../plink2_base.cc ../pgenlib_internal.cc ../pgen_compress.cc
-	g++ $(CXXFLAGS) ../plink2_base.cc ../pgenlib_internal.cc ../pgen_compress.cc -o pgen_compress
+pgen_compress: $(PGCSRC2)
+	g++ $(CXXFLAGS) $(PGCSRC2) -o pgen_compress
 
 .PHONY: clean
 clean:

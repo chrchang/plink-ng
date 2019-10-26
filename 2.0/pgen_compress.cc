@@ -1,4 +1,5 @@
-#include "pgenlib_internal.h"
+#include "pgenlib_read.h"
+#include "pgenlib_write.h"
 
 // #define SUBSET_TEST
 
@@ -85,7 +86,7 @@ int32_t main(int32_t argc, char** argv) {
     } else {
       printf("%u variant%s and %u sample%s detected.\n", variant_ct, (variant_ct == 1)? "" : "s", sample_ct, (sample_ct == 1)? "" : "s");
     }
-    if (cachealigned_malloc(QuaterCtToVecCt(sample_ct) * kBytesPerVec, &genovec)) {
+    if (cachealigned_malloc(NypCtToVecCt(sample_ct) * kBytesPerVec, &genovec)) {
       goto main_ret_NOMEM;
     }
     if (decompress) {
@@ -94,7 +95,7 @@ int32_t main(int32_t argc, char** argv) {
         goto main_ret_OPEN_FAIL;
       }
       const uintptr_t final_mask = (k1LU << ((sample_ct % kBitsPerWordD2) * 2)) - k1LU;
-      const uint32_t final_widx = QuaterCtToWordCt(sample_ct) - 1;
+      const uint32_t final_widx = NypCtToWordCt(sample_ct) - 1;
       const uint32_t variant_byte_ct = (sample_ct + 3) / 4;
       fwrite("l\x1b\x01", 3, 1, outfile);
       for (uint32_t vidx = 0; vidx < variant_ct; ) {
@@ -210,7 +211,7 @@ int32_t main(int32_t argc, char** argv) {
 #ifndef NO_MMAP
   CleanupPgfi(&pgfi, &reterr);
 #endif
-  SpgwCleanup(&spgw);
+  CleanupSpgw(&spgw, &reterr);
   if (pgfi_alloc) {
     aligned_free(pgfi_alloc);
   }

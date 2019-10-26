@@ -1,4 +1,5 @@
 #include "pgenlib_ffi_support.h"
+#include "pgenlib_read.h"
 #include "pvar.h"  // includes Rcpp
 
 class RPgenReader {
@@ -58,7 +59,7 @@ private:
   plink2::PgenVariant _pgv;
 
   plink2::VecW* _transpose_batch_buf;
-  // kPglQuaterTransposeBatch (= 256) variants at a time, and then transpose
+  // kPglNypTransposeBatch (= 256) variants at a time, and then transpose
   uintptr_t* _multivar_vmaj_geno_buf;
   uintptr_t* _multivar_vmaj_phasepresent_buf;
   uintptr_t* _multivar_vmaj_phaseinfo_buf;
@@ -157,11 +158,11 @@ void RPgenReader::Load(String filename, Nullable<List> pvar,
     stop("Out of memory");
   }
   plink2::PreinitPgr(_state_ptr);
-  _state_ptr->fread_buf = nullptr;
+  plink2::PgrSetFreadBuf(nullptr, _state_ptr);
   const uintptr_t pgr_alloc_main_byte_ct = pgr_alloc_cacheline_ct * plink2::kCacheline;
   const uintptr_t sample_subset_byte_ct = plink2::DivUp(file_sample_ct, plink2::kBitsPerVec) * plink2::kBytesPerVec;
   const uintptr_t cumulative_popcounts_byte_ct = plink2::DivUp(file_sample_ct, plink2::kBitsPerWord * plink2::kInt32PerVec) * plink2::kBytesPerVec;
-  const uintptr_t genovec_byte_ct = plink2::DivUp(file_sample_ct, plink2::kQuatersPerVec) * plink2::kBytesPerVec;
+  const uintptr_t genovec_byte_ct = plink2::DivUp(file_sample_ct, plink2::kNypsPerVec) * plink2::kBytesPerVec;
   const uintptr_t ac_byte_ct = plink2::RoundUpPow2(file_sample_ct * sizeof(plink2::AlleleCode), plink2::kBytesPerVec);
   const uintptr_t ac2_byte_ct = plink2::RoundUpPow2(file_sample_ct * 2 * sizeof(plink2::AlleleCode), plink2::kBytesPerVec);
   uintptr_t multiallelic_hc_byte_ct = 0;
@@ -170,12 +171,12 @@ void RPgenReader::Load(String filename, Nullable<List> pvar,
   }
   const uintptr_t dosage_main_byte_ct = plink2::DivUp(file_sample_ct, (2 * plink2::kInt32PerVec)) * plink2::kBytesPerVec;
   unsigned char* pgr_alloc;
-  if (plink2::cachealigned_malloc(pgr_alloc_main_byte_ct + (2 * plink2::kPglQuaterTransposeBatch + 5) * sample_subset_byte_ct + cumulative_popcounts_byte_ct + (1 + plink2::kPglQuaterTransposeBatch) * genovec_byte_ct + multiallelic_hc_byte_ct + dosage_main_byte_ct + plink2::kPglBitTransposeBufbytes + 4 * (plink2::kPglQuaterTransposeBatch * plink2::kPglQuaterTransposeBatch / 8), &pgr_alloc)) {
+  if (plink2::cachealigned_malloc(pgr_alloc_main_byte_ct + (2 * plink2::kPglNypTransposeBatch + 5) * sample_subset_byte_ct + cumulative_popcounts_byte_ct + (1 + plink2::kPglNypTransposeBatch) * genovec_byte_ct + multiallelic_hc_byte_ct + dosage_main_byte_ct + plink2::kPglBitTransposeBufbytes + 4 * (plink2::kPglNypTransposeBatch * plink2::kPglNypTransposeBatch / 8), &pgr_alloc)) {
     stop("Out of memory");
   }
   plink2::PglErr reterr = PgrInit(fname, max_vrec_width, _info_ptr, _state_ptr, pgr_alloc);
   if (reterr != plink2::kPglRetSuccess) {
-    if (!_state_ptr->fread_buf) {
+    if (!plink2::PgrGetFreadBuf(_state_ptr)) {
       plink2::aligned_free(pgr_alloc);
     }
     sprintf(errstr_buf, "PgrInit() error %d", static_cast<int>(reterr));
@@ -228,17 +229,17 @@ void RPgenReader::Load(String filename, Nullable<List> pvar,
   _transpose_batch_buf = reinterpret_cast<plink2::VecW*>(pgr_alloc_iter);
   pgr_alloc_iter = &(pgr_alloc_iter[plink2::kPglBitTransposeBufbytes]);
   _multivar_vmaj_geno_buf = reinterpret_cast<uintptr_t*>(pgr_alloc_iter);
-  pgr_alloc_iter = &(pgr_alloc_iter[plink2::kPglQuaterTransposeBatch * genovec_byte_ct]);
+  pgr_alloc_iter = &(pgr_alloc_iter[plink2::kPglNypTransposeBatch * genovec_byte_ct]);
   _multivar_vmaj_phasepresent_buf = reinterpret_cast<uintptr_t*>(pgr_alloc_iter);
-  pgr_alloc_iter = &(pgr_alloc_iter[plink2::kPglQuaterTransposeBatch * sample_subset_byte_ct]);
+  pgr_alloc_iter = &(pgr_alloc_iter[plink2::kPglNypTransposeBatch * sample_subset_byte_ct]);
   _multivar_vmaj_phaseinfo_buf = reinterpret_cast<uintptr_t*>(pgr_alloc_iter);
-  pgr_alloc_iter = &(pgr_alloc_iter[plink2::kPglQuaterTransposeBatch * sample_subset_byte_ct]);
+  pgr_alloc_iter = &(pgr_alloc_iter[plink2::kPglNypTransposeBatch * sample_subset_byte_ct]);
   _multivar_smaj_geno_batch_buf = reinterpret_cast<uintptr_t*>(pgr_alloc_iter);
-  pgr_alloc_iter = &(pgr_alloc_iter[plink2::kPglQuaterTransposeBatch * plink2::kPglQuaterTransposeBatch / 4]);
+  pgr_alloc_iter = &(pgr_alloc_iter[plink2::kPglNypTransposeBatch * plink2::kPglNypTransposeBatch / 4]);
   _multivar_smaj_phaseinfo_batch_buf = reinterpret_cast<uintptr_t*>(pgr_alloc_iter);
-  pgr_alloc_iter = &(pgr_alloc_iter[plink2::kPglQuaterTransposeBatch * plink2::kPglQuaterTransposeBatch / 8]);
+  pgr_alloc_iter = &(pgr_alloc_iter[plink2::kPglNypTransposeBatch * plink2::kPglNypTransposeBatch / 8]);
   _multivar_smaj_phasepresent_batch_buf = reinterpret_cast<uintptr_t*>(pgr_alloc_iter);
-  // pgr_alloc_iter = &(pgr_alloc_iter[plink2::kPglQuaterTransposeBatch * plink2::kPglQuaterTransposeBatch / 8]);
+  // pgr_alloc_iter = &(pgr_alloc_iter[plink2::kPglNypTransposeBatch * plink2::kPglNypTransposeBatch / 8]);
 }
 
 uint32_t RPgenReader::GetRawSampleCt() const {
@@ -535,8 +536,8 @@ void RPgenReader::Close() {
   if (_state_ptr) {
     plink2::PglErr reterr = plink2::kPglRetSuccess;
     plink2::CleanupPgr(_state_ptr, &reterr);
-    if (_state_ptr->fread_buf) {
-      plink2::aligned_free(_state_ptr->fread_buf);
+    if (PgrGetFreadBuf(_state_ptr)) {
+      plink2::aligned_free(PgrGetFreadBuf(_state_ptr));
     }
     free(_state_ptr);
     _state_ptr = nullptr;

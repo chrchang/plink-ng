@@ -9,7 +9,7 @@ CSRC = SFMT.c libdeflate/lib/adler32.c libdeflate/lib/aligned_malloc.c libdeflat
 
 ZCSRC = zstd/lib/common/debug.c zstd/lib/common/entropy_common.c zstd/lib/common/zstd_common.c zstd/lib/common/error_private.c zstd/lib/common/xxhash.c zstd/lib/common/fse_decompress.c zstd/lib/common/pool.c zstd/lib/common/threading.c zstd/lib/compress/fse_compress.c zstd/lib/compress/hist.c zstd/lib/compress/huf_compress.c zstd/lib/compress/zstd_double_fast.c zstd/lib/compress/zstd_fast.c zstd/lib/compress/zstd_lazy.c zstd/lib/compress/zstd_ldm.c zstd/lib/compress/zstd_opt.c zstd/lib/compress/zstd_compress.c zstd/lib/compress/zstdmt_compress.c zstd/lib/decompress/huf_decompress.c zstd/lib/decompress/zstd_decompress.c zstd/lib/decompress/zstd_ddict.c zstd/lib/decompress/zstd_decompress_block.c
 
-CCSRC = plink2_base.cc pgenlib_internal.cc plink2.cc plink2_adjust.cc plink2_bgzf.cc plink2_cmdline.cc plink2_common.cc plink2_compress_stream.cc plink2_data.cc plink2_decompress.cc plink2_export.cc plink2_fasta.cc plink2_filter.cc plink2_glm.cc plink2_help.cc plink2_import.cc plink2_ld.cc plink2_matrix.cc plink2_matrix_calc.cc plink2_misc.cc plink2_psam.cc plink2_pvar.cc plink2_random.cc plink2_set.cc plink2_stats.cc plink2_string.cc plink2_text.cc plink2_thread.cc plink2_zstfile.cc
+CCSRC = plink2_base.cc pgenlib_misc.cc pgenlib_read.cc pgenlib_write.cc plink2.cc plink2_adjust.cc plink2_bgzf.cc plink2_cmdline.cc plink2_common.cc plink2_compress_stream.cc plink2_data.cc plink2_decompress.cc plink2_export.cc plink2_fasta.cc plink2_filter.cc plink2_glm.cc plink2_help.cc plink2_import.cc plink2_ld.cc plink2_matrix.cc plink2_matrix_calc.cc plink2_misc.cc plink2_psam.cc plink2_pvar.cc plink2_random.cc plink2_set.cc plink2_stats.cc plink2_string.cc plink2_text.cc plink2_thread.cc plink2_zstfile.cc
 
 OBJ_NO_ZSTD = $(CSRC:.c=.o) $(CCSRC:.cc=.o)
 OBJ = $(CSRC:.c=.o) $(ZCSRC:.c=.o) $(CCSRC:.cc=.o)
@@ -25,6 +25,10 @@ CINCLUDE = -Ilibdeflate -Ilibdeflate/common
 CINCLUDE2 = -I../libdeflate -I../libdeflate/common
 ZSTD_INCLUDE = -Izstd/lib -Izstd/lib/common
 ZSTD_INCLUDE2 = -I../zstd/lib -I../zstd/lib/common
+
+PGCSRC = plink2_base.cc pgenlib_misc.cc pgenlib_read.cc pgenlib_write.cc pgen_compress.cc
+PGCOBJ = $(PGCSRC:.c=.o)
+PGCSRC2 = $(foreach fname,$(PGCSRC),../$(fname))
 
 CLEAN = *.o libdeflate/lib/*.o libdeflate/lib/x86/*.o zstd/lib/common/*.o zstd/lib/compress/*.o zstd/lib/decompress/*.o bin/plink2 bin/pgen_compress
 CLEAN3 = $(foreach expr,$(CLEAN),../$(expr))

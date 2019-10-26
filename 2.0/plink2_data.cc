@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
+#include "pgenlib_write.h"
 #include "plink2_compress_stream.h"
 #include "plink2_data.h"
 #include "plink2_pvar.h"
@@ -942,14 +943,14 @@ void BitvecResort(const uintptr_t* bitvec, const uint32_t* new_sample_idx_to_old
 #endif
 void GenovecResort(const uintptr_t* genovec, const uint32_t* new_sample_idx_to_old, uint32_t sample_ct, void* writebuf) {
   // writebuf need not be word-aligned
-  const uint32_t sample_ctl2_m1 = QuaterCtToWordCt(sample_ct) - 1;
+  const uint32_t sample_ctl2_m1 = NypCtToWordCt(sample_ct) - 1;
   const uint32_t* new_sample_idx_to_old_iter = new_sample_idx_to_old;
   uintptr_t* writebuf_walias = S_CAST(uintptr_t*, writebuf);
   for (uint32_t widx = 0; widx != sample_ctl2_m1; ++widx) {
     uintptr_t cur_word = 0;
     // this is noticeably better than the ascending loop
     for (uint32_t uii = kBitsPerWordD2 - 1; ; --uii) {
-      cur_word |= GetQuaterarrEntry(genovec, new_sample_idx_to_old_iter[uii]);
+      cur_word |= GetNyparrEntry(genovec, new_sample_idx_to_old_iter[uii]);
       if (!uii) {
         break;
       }
@@ -961,13 +962,13 @@ void GenovecResort(const uintptr_t* genovec, const uint32_t* new_sample_idx_to_o
   const uint32_t cur_word_entry_ct = ModNz(sample_ct, kBitsPerWordD2);
   uintptr_t cur_word = 0;
   for (uint32_t uii = cur_word_entry_ct - 1; ; --uii) {
-    cur_word |= GetQuaterarrEntry(genovec, new_sample_idx_to_old_iter[uii]);
+    cur_word |= GetNyparrEntry(genovec, new_sample_idx_to_old_iter[uii]);
     if (!uii) {
       break;
     }
     cur_word = cur_word << 2;
   }
-  SubwordStore(cur_word, QuaterCtToByteCt(cur_word_entry_ct), &(writebuf_walias[sample_ctl2_m1]));
+  SubwordStore(cur_word, NypCtToByteCt(cur_word_entry_ct), &(writebuf_walias[sample_ctl2_m1]));
 }
 
 // Revised phaseraw:
@@ -1651,7 +1652,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
                 // possible todo: use a specialized function which just checks
                 // which alleles exist
                 if (sample_ct == raw_sample_ct) {
-                  ZeroTrailingQuaters(raw_sample_ct, pgv.genovec);
+                  ZeroTrailingNyps(raw_sample_ct, pgv.genovec);
                   GenovecCountFreqsUnsafe(pgv.genovec, sample_ct, genocounts);
                 } else {
                   GenovecCountSubsetFreqs(pgv.genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
@@ -1681,7 +1682,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
                     const uintptr_t cur_dosage_val = pgv.dosage_main[dosage_idx];
                     alt1_dosage += cur_dosage_val;
                     alt1_dosage_sq_sum += cur_dosage_val * cur_dosage_val;
-                    const uintptr_t hardcall_code = GetQuaterarrEntry(pgv.genovec, sample_uidx);
+                    const uintptr_t hardcall_code = GetNyparrEntry(pgv.genovec, sample_uidx);
                     if (hardcall_code != 3) {
                       alt1_ct_x2 -= hardcall_code;
                       alt1_sq_sum_x4 -= hardcall_code * hardcall_code;
@@ -1716,7 +1717,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
               break;
             }
             if (sample_ct == raw_sample_ct) {
-              ZeroTrailingQuaters(raw_sample_ct, pgv.genovec);
+              ZeroTrailingNyps(raw_sample_ct, pgv.genovec);
               GenovecCountFreqsUnsafe(pgv.genovec, sample_ct, genocounts);
             } else {
               GenovecCountSubsetFreqs(pgv.genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
@@ -1764,7 +1765,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
                     // could call GenoarrCountSubsetIntersectFreqs() twice
                     // instead, but since we've already manually extracted the
                     // sex bit it probably doesn't help?
-                    const uintptr_t hardcall_code = GetQuaterarrEntry(pgv.genovec, sample_uidx);
+                    const uintptr_t hardcall_code = GetNyparrEntry(pgv.genovec, sample_uidx);
                     if (hardcall_code != 3) {
                       alt1_ct -= hardcall_code * sex_multiplier;
                     } else {
@@ -1778,7 +1779,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
                       const uintptr_t cur_dosage_val = pgv.dosage_main[dosage_idx];
                       const uintptr_t sex_multiplier = 2 - IsSet(sex_male, sample_uidx);
                       alt1_dosage += cur_dosage_val * sex_multiplier;
-                      const uintptr_t hardcall_code = GetQuaterarrEntry(pgv.genovec, sample_uidx);
+                      const uintptr_t hardcall_code = GetNyparrEntry(pgv.genovec, sample_uidx);
                       if (hardcall_code != 3) {
                         alt1_ct -= hardcall_code * sex_multiplier;
                       } else {
@@ -1819,7 +1820,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
               missing_dosage_ct = male_ct - ((cur_dosages[0] + cur_dosages[1]) / kDosageMax);
             } else {
               if (pgv.dosage_ct) {
-                ZeroTrailingQuaters(raw_sample_ct, pgv.genovec);
+                ZeroTrailingNyps(raw_sample_ct, pgv.genovec);
                 missing_dosage_ct = GenoarrCountMissingInvsubsetUnsafe(pgv.genovec, pgv.dosage_present, raw_sample_ct);
               } else {
                 missing_dosage_ct = genocounts[3];
@@ -1887,7 +1888,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
               }
               // possible todo: use a specialized function which just checks
               // which alleles exist
-              ZeroTrailingQuaters(raw_sample_ct, pgv.genovec);
+              ZeroTrailingNyps(raw_sample_ct, pgv.genovec);
               GetMFlatCounts64(sample_include, sample_include_interleaved_vec, &pgv, raw_sample_ct, sample_ct, allele_ct, genocounts, all_dosages);
               for (uintptr_t aidx = 0; aidx != allele_ct; ++aidx) {
                 if (all_dosages[aidx]) {
@@ -1927,7 +1928,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
               ctx->reterr = reterr;
               break;
             }
-            ZeroTrailingQuaters(raw_sample_ct, pgv.genovec);
+            ZeroTrailingNyps(raw_sample_ct, pgv.genovec);
             // We don't attempt to compute imp_r2 on chrX, so flat counts are
             // fine.
             GetMFlatCounts64(sample_include, sample_include_interleaved_vec, &pgv, raw_sample_ct, sample_ct, allele_ct, genocounts, all_dosages);
@@ -2319,10 +2320,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
       if (!IsLastBlock(&tg)) {
         ctx.cur_block_size = cur_block_size;
         ComputeUidxStartPartition(variant_include, cur_block_size, calc_thread_ct, read_block_idx * read_block_size, ctx.read_variant_uidx_starts);
-        for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-          ctx.pgr_ptrs[tidx]->fi.block_base = pgfip->block_base;
-          ctx.pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
-        }
+        PgrCopyBaseAndOffset(pgfip, calc_thread_ct, ctx.pgr_ptrs);
         if (variant_idx + cur_block_size == variant_ct) {
           DeclareLastThreadBlock(&tg);
         }
@@ -4470,9 +4468,9 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* raw_arg) {
   const uint32_t set_mixed_mt_missing = plink2_write_flags & kfPlink2WriteSetMixedMtMissing;
   const uint32_t write_plink1 = plink2_write_flags & kfPlink2WritePlink1;
   const uint32_t sample_ct = mcp->sample_ct;
-  const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
-  const uint32_t sample_ctv2 = QuaterCtToVecCt(sample_ct);
-  const uint32_t sample_ct4 = QuaterCtToByteCt(sample_ct);
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+  const uint32_t sample_ctv2 = NypCtToVecCt(sample_ct);
+  const uint32_t sample_ct4 = NypCtToByteCt(sample_ct);
   const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
   const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select) = mcp->refalt1_select;
   const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
@@ -4568,7 +4566,7 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* raw_arg) {
         PgrPlink2ToPlink1InplaceUnsafe(sample_ct, genovec);
       }
       // trailing bytes don't matter, but trailing bits of last byte may
-      ZeroTrailingQuaters(sample_ct, genovec);
+      ZeroTrailingNyps(sample_ct, genovec);
       if (!collapsed_sort_map) {
         writebuf_iter = memcpyua(writebuf_iter, genovec, sample_ct4);
       } else {
@@ -4638,7 +4636,7 @@ PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_samp
     uint32_t pct = 0;
     const uint32_t raw_sample_ct = mcp->raw_sample_ct;
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
-    const uintptr_t sample_ct4 = QuaterCtToByteCt(sample_ct);
+    const uintptr_t sample_ct4 = NypCtToByteCt(sample_ct);
     if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &ctx.sample_include_cumulative_popcounts))) {
       goto MakeBedlikeMain_ret_NOMEM;
     }
@@ -4650,7 +4648,7 @@ PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_samp
     if (!new_sample_idx_to_old) {
       // Without BMI2 instructions, subsetting is most expensive with
       // sample_ct near 2/3 of raw_sample_ct; up to ~7 compute threads are
-      // useful in that case.  (See CopyQuaterarrNonemptySubset().)
+      // useful in that case.  (See CopyNyparrNonemptySubset().)
       // With them, 1-2 compute threads appear to suffice.
 #ifdef USE_AVX2
       const uint32_t calc_thread_max = 2;
@@ -4760,10 +4758,7 @@ PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_samp
       if (!IsLastBlock(&tg)) {
         ctx.cur_block_write_ct = cur_block_write_ct;
         ComputeUidxStartPartition(variant_include, cur_block_write_ct, calc_thread_ct, read_block_idx * read_block_size, ctx.read_variant_uidx_starts);
-        for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-          ctx.pgr_ptrs[tidx]->fi.block_base = pgfip->block_base;
-          ctx.pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
-        }
+        PgrCopyBaseAndOffset(pgfip, calc_thread_ct, ctx.pgr_ptrs);
         if (variant_idx + cur_block_write_ct == variant_ct) {
           DeclareLastThreadBlock(&tg);
         }
@@ -4895,9 +4890,9 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
   const uintptr_t* sex_female_collapsed_interleaved = mcp->sex_female_collapsed_interleaved;
   const uint32_t raw_sample_ct = mcp->raw_sample_ct;
   const uint32_t sample_ct = mcp->sample_ct;
-  const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
-  const uint32_t sample_ctv2 = QuaterCtToVecCt(sample_ct);
-  const uint32_t raw_sample_ctaw2 = QuaterCtToAlignedWordCt(raw_sample_ct);
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+  const uint32_t sample_ctv2 = NypCtToVecCt(sample_ct);
+  const uint32_t raw_sample_ctaw2 = NypCtToAlignedWordCt(raw_sample_ct);
   const uint32_t raw_sample_ctaw = BitCtToAlignedWordCt(raw_sample_ct);
   const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
@@ -4919,7 +4914,8 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
   STPgenWriter* spgwp = ctx->spgwp;
   PgenWriterCommon* pwcp;
   if (spgwp) {
-    pwcp = &(spgwp->pwc);
+    // make this function stand out as an intrusive one
+    pwcp = &GET_PRIVATE(*spgwp, pwc);
   } else {
     pwcp = ctx->pwcs[tidx];
   }
@@ -5096,7 +5092,7 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
           }
         }
       } else if (sample_include) {
-        CopyQuaterarrNonemptySubset(loadbuf_iter, sample_include, raw_sample_ct, sample_ct, write_genovec);
+        CopyNyparrNonemptySubset(loadbuf_iter, sample_include, raw_sample_ct, sample_ct, write_genovec);
         if (is_mhc) {
           write_rare01_ct = Copy1bit8Subset(read_patch_01_set, read_patch_01_vals, sample_include, read_rare01_ct, sample_ct, write_patch_01_set, write_patch_01_vals);
           write_rare10_ct = Copy1bit16Subset(read_patch_10_set, read_patch_10_vals, sample_include, read_rare10_ct, sample_ct, write_patch_10_set, write_patch_10_vals);
@@ -5393,12 +5389,12 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
         }
         write_dphase_ct = 0;
       }
-      ZeroTrailingQuaters(sample_ct, write_genovec);
+      ZeroTrailingNyps(sample_ct, write_genovec);
       // todo: --set-me-missing, --zero-cluster, --fill-missing-with-ref
       if (spgwp) {
         if (pwcp->fwrite_bufp >= &(pwcp->fwrite_buf[kPglFwriteBlockSize])) {
           const uintptr_t cur_byte_ct = pwcp->fwrite_bufp - pwcp->fwrite_buf;
-          if (unlikely(fwrite_checked(pwcp->fwrite_buf, cur_byte_ct, spgwp->pgen_outfile))) {
+          if (unlikely(fwrite_checked(pwcp->fwrite_buf, cur_byte_ct, GET_PRIVATE(*spgwp, pgen_outfile)))) {
             ctx->write_reterr = kPglRetWriteFail;
             ctx->write_errno = errno;
             break;
@@ -5582,7 +5578,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
           goto MakePgenRobust_ret_NOMEM;
         }
       }
-      PgenGlobalFlags read_gflags = simple_pgrp->fi.gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent);
+      PgenGlobalFlags read_gflags = PgrGetGflags(simple_pgrp) & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent);
       if (make_plink2_flags & (kfMakePlink2MJoin | kfMakePlink2EraseAlt2Plus)) {
         logerrputs("Error: multiallelic-join and 'erase-alt2+' modifiers are under development.\n");
         reterr = kPglRetNotYetSupported;
@@ -5600,7 +5596,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
         }
       }
       if (read_gflags && (variant_ct < raw_variant_ct)) {
-        read_gflags &= GflagsVfilter(variant_include, simple_pgrp->fi.vrtypes, raw_variant_ct, simple_pgrp->fi.gflags);
+        read_gflags &= GflagsVfilter(variant_include, PgrGetVrtypes(simple_pgrp), raw_variant_ct, PgrGetGflags(simple_pgrp));
       }
       if (!input_biallelic) {
         // todo: conditional erase-alt2+ exception
@@ -5648,9 +5644,9 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       }
 
       uint32_t nonref_flags_storage = 3;
-      uintptr_t* nonref_flags_write = simple_pgrp->fi.nonref_flags;
+      uintptr_t* nonref_flags_write = PgrGetNonrefFlags(simple_pgrp);
       if (!nonref_flags_write) {
-        nonref_flags_storage = (simple_pgrp->fi.gflags & kfPgenGlobalAllNonref)? 2 : 1;
+        nonref_flags_storage = (PgrGetGflags(simple_pgrp) & kfPgenGlobalAllNonref)? 2 : 1;
       } else if (variant_ct < raw_variant_ct) {
         const uint32_t write_variant_ctl = BitCtToWordCt(write_variant_ct);
         uintptr_t* old_nonref_flags = nonref_flags_write;
@@ -5705,7 +5701,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       }
       SpgwInitPhase2(max_vrec_len, ctx.spgwp, spgw_alloc);
 
-      const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
+      const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
       const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
       ctx.thread_write_genovecs = nullptr;
       uint32_t write_mhc_needed = 0;
@@ -5813,7 +5809,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
         }
       }
       ctx.mcp = mcp;
-      const uint32_t raw_sample_ctl2 = QuaterCtToWordCt(raw_sample_ct);
+      const uint32_t raw_sample_ctl2 = NypCtToWordCt(raw_sample_ct);
       PgenVariant pgv;
       PreinitPgv(&pgv);
       uint32_t* alt_regular_one_cts = nullptr;
@@ -5855,7 +5851,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
         }
       }
 
-      const uint32_t raw_sample_ctv2 = QuaterCtToVecCt(raw_sample_ct);
+      const uint32_t raw_sample_ctv2 = NypCtToVecCt(raw_sample_ct);
       uintptr_t load_variant_vec_ct = raw_sample_ctv2;
       uint32_t loaded_vrtypes_needed = (read_gflags & kfPgenGlobalMultiallelicHardcallFound)? 1 : 0;
       if (read_hphase_present || read_dosage_present) {
@@ -6001,7 +5997,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
                 // 2a. count # of each alt
                 // 2b. create het and hom lists for each alt
                 uintptr_t* genovec = pgv.genovec;
-                ZeroTrailingQuaters(raw_sample_ct, genovec);
+                ZeroTrailingNyps(raw_sample_ct, genovec);
                 uint32_t raw_01_ct;
                 uint32_t raw_10_ct;
                 GenovecCount12Unsafe(genovec, raw_sample_ct, &raw_01_ct, &raw_10_ct);
@@ -6393,9 +6389,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
   }
  MakePgenRobust_ret_1:
   CleanupThreads(&tg);
-  if (SpgwCleanup(&spgw) && (!reterr)) {
-    reterr = kPglRetWriteFail;
-  }
+  CleanupSpgw(&spgw, &reterr);
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -6661,7 +6655,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
 
       // bugfix: each variant currently needs to be vector-aligned
       // bugfix?: need to use raw_sample_ct here, not sample_ct
-      const uint32_t raw_sample_ctv2 = QuaterCtToVecCt(raw_sample_ct);
+      const uint32_t raw_sample_ctv2 = NypCtToVecCt(raw_sample_ct);
       const uint32_t max_vblock_size = MINV(kPglVblockSize, variant_ct);
       uint64_t load_vblock_cacheline_ct = VecCtToCachelineCtU64(S_CAST(uint64_t, raw_sample_ctv2) * max_vblock_size);
 
@@ -6816,7 +6810,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
           }
         }
         // ctx.thread_write_genovecs
-        other_per_thread_cacheline_ct += QuaterCtToCachelineCt(sample_ct);
+        other_per_thread_cacheline_ct += NypCtToCachelineCt(sample_ct);
         write_mhc_needed = 1;
       }
       uintptr_t write_mhcraw_cacheline_ct = 0;
@@ -6918,7 +6912,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
         }
       }
       if (new_sample_idx_to_old || subsetting_required) {
-        uintptr_t writebuf_byte_ct = input_biallelic? QuaterCtToByteCt(sample_ct) : (2 * sample_ct * sizeof(AlleleCode));
+        uintptr_t writebuf_byte_ct = input_biallelic? NypCtToByteCt(sample_ct) : (2 * sample_ct * sizeof(AlleleCode));
         writebuf_byte_ct = RoundUpPow2(writebuf_byte_ct, kCacheline);
         for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
           ctx.thread_write_genovecs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(writebuf_byte_ct));
@@ -7071,9 +7065,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
     break;
   }
  MakePlink2NoVsort_ret_1:
-  if (MpgwCleanup(mpgwp) && (!reterr)) {
-    reterr = kPglRetWriteFail;
-  }
+  CleanupMpgw(mpgwp, &reterr);
   CleanupThreads(&tg);
   fclose_cond(outfile);
   pgfip->block_base = nullptr;
@@ -7850,10 +7842,10 @@ PglErr MakePlink2Vsort(const char* xheader, const uintptr_t* sample_include, con
       logprintfww5("Writing %s ... ", outname);
       fflush(stdout);
       uint32_t nonref_flags_storage = 3;
-      if (!simple_pgrp->fi.nonref_flags) {
-        nonref_flags_storage = (simple_pgrp->fi.gflags & kfPgenGlobalAllNonref)? 2 : 1;
+      if (!PgrGetNonrefFlags(simple_pgrp)) {
+        nonref_flags_storage = (PgrGetGflags(simple_pgrp) & kfPgenGlobalAllNonref)? 2 : 1;
       }
-      reterr = WritePvarResorted(outname, xheader, variant_include, &write_chr_info, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, simple_pgrp->fi.nonref_flags, pvar_info_reload, variant_cms, new_variant_idx_to_old, raw_variant_ct, variant_ct, max_allele_slen, xheader_blen, info_flags, nonref_flags_storage, max_filter_slen, info_reload_slen, pvar_psam_flags, max_thread_ct);
+      reterr = WritePvarResorted(outname, xheader, variant_include, &write_chr_info, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, PgrGetNonrefFlags(simple_pgrp), pvar_info_reload, variant_cms, new_variant_idx_to_old, raw_variant_ct, variant_ct, max_allele_slen, xheader_blen, info_flags, nonref_flags_storage, max_filter_slen, info_reload_slen, pvar_psam_flags, max_thread_ct);
       if (unlikely(reterr)) {
         goto MakePlink2Vsort_ret_1;
       }

@@ -1720,8 +1720,8 @@ void Expand1bitTo8(const void* __restrict bytearr, uint32_t input_bit_ct, uint32
 void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint32_t incr, uintptr_t* __restrict dst) {
   const unsigned char* bytearr_uc = S_CAST(const unsigned char*, bytearr);
 #ifdef USE_SSE42
-  const uint32_t input_nibble_ct = DivUp(input_bit_ct, 4);
-  const uint32_t fullvec_ct = input_nibble_ct / (kBytesPerVec / 8);
+  const uint32_t input_nybble_ct = DivUp(input_bit_ct, 4);
+  const uint32_t fullvec_ct = input_nybble_ct / (kBytesPerVec / 8);
   uint32_t byte_idx = 0;
   if (fullvec_ct) {
     const Vec16thUint* bytearr_alias = R_CAST(const Vec16thUint*, bytearr);
@@ -1752,7 +1752,7 @@ void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint3
     byte_idx = fullvec_ct * (kBytesPerVec / 16);
   }
   const uintptr_t incr_word = incr * kMask0001;
-  const uint32_t fullbyte_ct = input_nibble_ct / 2;
+  const uint32_t fullbyte_ct = input_nybble_ct / 2;
   for (; byte_idx != fullbyte_ct; ++byte_idx) {
     const uintptr_t input_byte = bytearr_uc[byte_idx];
     const uintptr_t input_byte_scatter = input_byte * 0x200040008001LLU;
@@ -1761,16 +1761,16 @@ void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint3
     dst[2 * byte_idx] = incr_word + write0;
     dst[2 * byte_idx + 1] = incr_word + write1;
   }
-  if (input_nibble_ct % 2) {
+  if (input_nybble_ct % 2) {
     const uintptr_t input_byte = bytearr_uc[byte_idx];
     const uintptr_t write0 = (input_byte * 0x200040008001LLU) & kMask0001;
-    dst[input_nibble_ct - 1] = incr_word + write0;
+    dst[input_nybble_ct - 1] = incr_word + write0;
   }
 #else
   const uintptr_t incr_word = incr * kMask0001;
 #  ifdef __LP64__
-  const uint32_t input_nibble_ct = DivUp(input_bit_ct, 4);
-  const uint32_t fullbyte_ct = input_nibble_ct / 2;
+  const uint32_t input_nybble_ct = DivUp(input_bit_ct, 4);
+  const uint32_t fullbyte_ct = input_nybble_ct / 2;
   for (uint32_t uii = 0; uii != fullbyte_ct; ++uii) {
     const uintptr_t input_byte = bytearr_uc[uii];
     const uintptr_t input_byte_scatter = input_byte * 0x200040008001LLU;
@@ -1779,10 +1779,10 @@ void Expand1bitTo16(const void* __restrict bytearr, uint32_t input_bit_ct, uint3
     dst[2 * uii] = incr_word + write0;
     dst[2 * uii + 1] = incr_word + write1;
   }
-  if (input_nibble_ct % 2) {
+  if (input_nybble_ct % 2) {
     const uintptr_t input_byte = bytearr_uc[fullbyte_ct];
     const uintptr_t write0 = (input_byte * 0x200040008001LLU) & kMask0001;
-    dst[input_nibble_ct - 1] = incr_word + write0;
+    dst[input_nybble_ct - 1] = incr_word + write0;
   }
 #  else
   const uint32_t fullbyte_ct = input_bit_ct / 8;
@@ -2299,8 +2299,8 @@ void TransposeBitblock32(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
 #endif  // !__LP64__
 
 #ifdef __LP64__
-void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, VecW* vecaligned_buf) {
-  // Very similar to TransposeQuaterblock64() in pgenlib_internal.
+void TransposeNybbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, VecW* vecaligned_buf) {
+  // Very similar to TransposeNypblock64() in pgenlib_internal.
   // vecaligned_buf must be vector-aligned and have size 8k
   const uint32_t buf_row_ct = DivUp(write_batch_size, 8);
   // fold the first 4 shuffles into the initial ingestion loop
@@ -2308,7 +2308,7 @@ void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
   const uint32_t* initial_read_end = &(initial_read_iter[buf_row_ct]);
   uint32_t* initial_target_iter = R_CAST(uint32_t*, vecaligned_buf);
   const uint32_t read_u32_stride = read_ul_stride * (kBytesPerWord / 4);
-  const uint32_t read_batch_rem = kNibblesPerCacheline - read_batch_size;
+  const uint32_t read_batch_rem = kNybblesPerCacheline - read_batch_size;
   for (; initial_read_iter != initial_read_end; ++initial_read_iter) {
     const uint32_t* read_iter_tmp = initial_read_iter;
     for (uint32_t ujj = 0; ujj != read_batch_size; ++ujj) {
@@ -2356,16 +2356,16 @@ void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
     for (uint32_t dvidx = 0; dvidx != eightword_ct; ++dvidx) {
       const VecW loader0 = source_iter[dvidx * 2];
       const VecW loader1 = source_iter[dvidx * 2 + 1];
-      VecW even_nibbles0 = loader0 & m4;
-      VecW odd_nibbles0 = vecw_and_notfirst(m4, loader0);
-      VecW even_nibbles1 = loader1 & m4;
-      VecW odd_nibbles1 = vecw_and_notfirst(m4, loader1);
-      even_nibbles0 = even_nibbles0 | vecw_srli(even_nibbles0, 28);
-      odd_nibbles0 = vecw_slli(odd_nibbles0, 28) | odd_nibbles0;
-      even_nibbles1 = even_nibbles1 | vecw_srli(even_nibbles1, 28);
-      odd_nibbles1 = vecw_slli(odd_nibbles1, 28) | odd_nibbles1;
-      // Label the bytes in even_nibbles0 (0, 1, 2, ..., 31), and the bytes in
-      // even_nibbles1 (32, 33, ..., 63).  We wish to generate the following
+      VecW even_nybbles0 = loader0 & m4;
+      VecW odd_nybbles0 = vecw_and_notfirst(m4, loader0);
+      VecW even_nybbles1 = loader1 & m4;
+      VecW odd_nybbles1 = vecw_and_notfirst(m4, loader1);
+      even_nybbles0 = even_nybbles0 | vecw_srli(even_nybbles0, 28);
+      odd_nybbles0 = vecw_slli(odd_nybbles0, 28) | odd_nybbles0;
+      even_nybbles1 = even_nybbles1 | vecw_srli(even_nybbles1, 28);
+      odd_nybbles1 = vecw_slli(odd_nybbles1, 28) | odd_nybbles1;
+      // Label the bytes in even_nybbles0 (0, 1, 2, ..., 31), and the bytes in
+      // even_nybbles1 (32, 33, ..., 63).  We wish to generate the following
       // lane-and-vector-crossing permutation:
       //   (0, 8, 16, 24, 32, 40, 48, 56, 1, 9, 17, 25, 33, 41, 49, 57)
       //   (2, 10, 18, 26, 34, 42, 50, 58, 3, 11, 19, 27, 35, 43, 51, 59)
@@ -2386,13 +2386,13 @@ void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
       //    2, 10, 34, 42, 3, 11, 35, 43, 18, 26, 50, 58, 19, 27, 51, 59)
       //
       // final shuffle gives us what we want.
-      even_nibbles0 = vecw_shuffle8(even_nibbles0, gather_u16s);
-      odd_nibbles0 = vecw_shuffle8(odd_nibbles0, gather_u16s);
-      even_nibbles1 = vecw_shuffle8(even_nibbles1, gather_u16s);
-      odd_nibbles1 = vecw_shuffle8(odd_nibbles1, gather_u16s);
+      even_nybbles0 = vecw_shuffle8(even_nybbles0, gather_u16s);
+      odd_nybbles0 = vecw_shuffle8(odd_nybbles0, gather_u16s);
+      even_nybbles1 = vecw_shuffle8(even_nybbles1, gather_u16s);
+      odd_nybbles1 = vecw_shuffle8(odd_nybbles1, gather_u16s);
 
-      VecW target_even = vecw_unpacklo16(even_nibbles0, even_nibbles1);
-      VecW target_odd = vecw_unpackhi16(odd_nibbles0, odd_nibbles1);
+      VecW target_even = vecw_unpacklo16(even_nybbles0, even_nybbles1);
+      VecW target_odd = vecw_unpackhi16(odd_nybbles0, odd_nybbles1);
 
       target_even = vecw_permute0xd8_if_avx2(target_even);
       target_odd = vecw_permute0xd8_if_avx2(target_odd);
@@ -2427,7 +2427,7 @@ void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
           target_iter0[dvidx] = vecw_extract64_0(target_even);
       }
     }
-    source_iter = &(source_iter[(4 * kPglNibbleTransposeBatch) / kBytesPerVec]);
+    source_iter = &(source_iter[(4 * kPglNybbleTransposeBatch) / kBytesPerVec]);
     target_iter0 = &(target_iter7[write_ul_stride]);
   }
 #  else  // !USE_AVX2
@@ -2450,24 +2450,24 @@ void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
       const VecW loader1 = source_iter[qvidx * 4 + 1];
       const VecW loader2 = source_iter[qvidx * 4 + 2];
       const VecW loader3 = source_iter[qvidx * 4 + 3];
-      VecW even_nibbles0 = loader0 & m4;
-      VecW odd_nibbles0 = vecw_and_notfirst(m4, loader0);
-      VecW even_nibbles1 = loader1 & m4;
-      VecW odd_nibbles1 = vecw_and_notfirst(m4, loader1);
-      VecW even_nibbles2 = loader2 & m4;
-      VecW odd_nibbles2 = vecw_and_notfirst(m4, loader2);
-      VecW even_nibbles3 = loader3 & m4;
-      VecW odd_nibbles3 = vecw_and_notfirst(m4, loader3);
-      even_nibbles0 = even_nibbles0 | vecw_srli(even_nibbles0, 28);
-      odd_nibbles0 = vecw_slli(odd_nibbles0, 28) | odd_nibbles0;
-      even_nibbles1 = even_nibbles1 | vecw_srli(even_nibbles1, 28);
-      odd_nibbles1 = vecw_slli(odd_nibbles1, 28) | odd_nibbles1;
-      even_nibbles2 = even_nibbles2 | vecw_srli(even_nibbles2, 28);
-      odd_nibbles2 = vecw_slli(odd_nibbles2, 28) | odd_nibbles2;
-      even_nibbles3 = even_nibbles3 | vecw_srli(even_nibbles3, 28);
-      odd_nibbles3 = vecw_slli(odd_nibbles3, 28) | odd_nibbles3;
-      // Label the bytes in even_nibbles0 (0, 1, 2, ..., 15), the bytes in
-      // even_nibbles1 (16, 17, ..., 31), ..., up to even_nibbles3 being (48,
+      VecW even_nybbles0 = loader0 & m4;
+      VecW odd_nybbles0 = vecw_and_notfirst(m4, loader0);
+      VecW even_nybbles1 = loader1 & m4;
+      VecW odd_nybbles1 = vecw_and_notfirst(m4, loader1);
+      VecW even_nybbles2 = loader2 & m4;
+      VecW odd_nybbles2 = vecw_and_notfirst(m4, loader2);
+      VecW even_nybbles3 = loader3 & m4;
+      VecW odd_nybbles3 = vecw_and_notfirst(m4, loader3);
+      even_nybbles0 = even_nybbles0 | vecw_srli(even_nybbles0, 28);
+      odd_nybbles0 = vecw_slli(odd_nybbles0, 28) | odd_nybbles0;
+      even_nybbles1 = even_nybbles1 | vecw_srli(even_nybbles1, 28);
+      odd_nybbles1 = vecw_slli(odd_nybbles1, 28) | odd_nybbles1;
+      even_nybbles2 = even_nybbles2 | vecw_srli(even_nybbles2, 28);
+      odd_nybbles2 = vecw_slli(odd_nybbles2, 28) | odd_nybbles2;
+      even_nybbles3 = even_nybbles3 | vecw_srli(even_nybbles3, 28);
+      odd_nybbles3 = vecw_slli(odd_nybbles3, 28) | odd_nybbles3;
+      // Label the bytes in even_nybbles0 (0, 1, 2, ..., 15), the bytes in
+      // even_nybbles1 (16, 17, ..., 31), ..., up to even_nybbles3 being (48,
       // 49, ..., 63).  We wish to generate the following vector-crossing
       // permutation:
       //   (0, 8, 16, 24, 32, 40, 48, 56, 1, 9, 17, 25, 33, 41, 49, 57)
@@ -2485,37 +2485,37 @@ void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
       //
       // finish with _mm_unpack{lo,hi}_epi32
 #    ifdef USE_SSE42
-      even_nibbles0 = vecw_shuffle8(even_nibbles0, gather_u16s);
-      odd_nibbles0 = vecw_shuffle8(odd_nibbles0, gather_u16s);
-      even_nibbles1 = vecw_shuffle8(even_nibbles1, gather_u16s);
-      odd_nibbles1 = vecw_shuffle8(odd_nibbles1, gather_u16s);
-      even_nibbles2 = vecw_shuffle8(even_nibbles2, gather_u16s);
-      odd_nibbles2 = vecw_shuffle8(odd_nibbles2, gather_u16s);
-      even_nibbles3 = vecw_shuffle8(even_nibbles3, gather_u16s);
-      odd_nibbles3 = vecw_shuffle8(odd_nibbles3, gather_u16s);
+      even_nybbles0 = vecw_shuffle8(even_nybbles0, gather_u16s);
+      odd_nybbles0 = vecw_shuffle8(odd_nybbles0, gather_u16s);
+      even_nybbles1 = vecw_shuffle8(even_nybbles1, gather_u16s);
+      odd_nybbles1 = vecw_shuffle8(odd_nybbles1, gather_u16s);
+      even_nybbles2 = vecw_shuffle8(even_nybbles2, gather_u16s);
+      odd_nybbles2 = vecw_shuffle8(odd_nybbles2, gather_u16s);
+      even_nybbles3 = vecw_shuffle8(even_nybbles3, gather_u16s);
+      odd_nybbles3 = vecw_shuffle8(odd_nybbles3, gather_u16s);
 #    else
-      VecW tmp_lo = vecw_unpacklo8(even_nibbles0, odd_nibbles0);
-      VecW tmp_hi = vecw_unpackhi8(even_nibbles0, odd_nibbles0);
-      even_nibbles0 = (tmp_lo & m8) | vecw_and_notfirst(m8, vecw_slli(tmp_hi, 8));
-      odd_nibbles0 = (vecw_srli(tmp_lo, 8) & m8) | vecw_and_notfirst(m8, tmp_hi);
-      tmp_lo = vecw_unpacklo8(even_nibbles1, odd_nibbles1);
-      tmp_hi = vecw_unpackhi8(even_nibbles1, odd_nibbles1);
-      even_nibbles1 = (tmp_lo & m8) | vecw_and_notfirst(m8, vecw_slli(tmp_hi, 8));
-      odd_nibbles1 = (vecw_srli(tmp_lo, 8) & m8) | vecw_and_notfirst(m8, tmp_hi);
-      tmp_lo = vecw_unpacklo8(even_nibbles2, odd_nibbles2);
-      tmp_hi = vecw_unpackhi8(even_nibbles2, odd_nibbles2);
-      even_nibbles2 = (tmp_lo & m8) | vecw_and_notfirst(m8, vecw_slli(tmp_hi, 8));
-      odd_nibbles2 = (vecw_srli(tmp_lo, 8) & m8) | vecw_and_notfirst(m8, tmp_hi);
-      tmp_lo = vecw_unpacklo8(even_nibbles3, odd_nibbles3);
-      tmp_hi = vecw_unpackhi8(even_nibbles3, odd_nibbles3);
-      even_nibbles3 = (tmp_lo & m8) | vecw_and_notfirst(m8, vecw_slli(tmp_hi, 8));
-      odd_nibbles3 = (vecw_srli(tmp_lo, 8) & m8) | vecw_and_notfirst(m8, tmp_hi);
+      VecW tmp_lo = vecw_unpacklo8(even_nybbles0, odd_nybbles0);
+      VecW tmp_hi = vecw_unpackhi8(even_nybbles0, odd_nybbles0);
+      even_nybbles0 = (tmp_lo & m8) | vecw_and_notfirst(m8, vecw_slli(tmp_hi, 8));
+      odd_nybbles0 = (vecw_srli(tmp_lo, 8) & m8) | vecw_and_notfirst(m8, tmp_hi);
+      tmp_lo = vecw_unpacklo8(even_nybbles1, odd_nybbles1);
+      tmp_hi = vecw_unpackhi8(even_nybbles1, odd_nybbles1);
+      even_nybbles1 = (tmp_lo & m8) | vecw_and_notfirst(m8, vecw_slli(tmp_hi, 8));
+      odd_nybbles1 = (vecw_srli(tmp_lo, 8) & m8) | vecw_and_notfirst(m8, tmp_hi);
+      tmp_lo = vecw_unpacklo8(even_nybbles2, odd_nybbles2);
+      tmp_hi = vecw_unpackhi8(even_nybbles2, odd_nybbles2);
+      even_nybbles2 = (tmp_lo & m8) | vecw_and_notfirst(m8, vecw_slli(tmp_hi, 8));
+      odd_nybbles2 = (vecw_srli(tmp_lo, 8) & m8) | vecw_and_notfirst(m8, tmp_hi);
+      tmp_lo = vecw_unpacklo8(even_nybbles3, odd_nybbles3);
+      tmp_hi = vecw_unpackhi8(even_nybbles3, odd_nybbles3);
+      even_nybbles3 = (tmp_lo & m8) | vecw_and_notfirst(m8, vecw_slli(tmp_hi, 8));
+      odd_nybbles3 = (vecw_srli(tmp_lo, 8) & m8) | vecw_and_notfirst(m8, tmp_hi);
 #    endif
 
-      const VecW even_lo = vecw_unpacklo16(even_nibbles0, even_nibbles1);
-      const VecW odd_lo = vecw_unpackhi16(odd_nibbles0, odd_nibbles1);
-      const VecW even_hi = vecw_unpacklo16(even_nibbles2, even_nibbles3);
-      const VecW odd_hi = vecw_unpackhi16(odd_nibbles2, odd_nibbles3);
+      const VecW even_lo = vecw_unpacklo16(even_nybbles0, even_nybbles1);
+      const VecW odd_lo = vecw_unpackhi16(odd_nybbles0, odd_nybbles1);
+      const VecW even_hi = vecw_unpacklo16(even_nybbles2, even_nybbles3);
+      const VecW odd_hi = vecw_unpackhi16(odd_nybbles2, odd_nybbles3);
 
       const VecW final02 = vecw_unpacklo32(even_lo, even_hi);
       const VecW final13 = vecw_unpacklo32(odd_lo, odd_hi);
@@ -2547,23 +2547,23 @@ void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
           target_iter0[qvidx] = vecw_extract64_0(final02);
       }
     }
-    source_iter = &(source_iter[(4 * kPglNibbleTransposeBatch) / kBytesPerVec]);
+    source_iter = &(source_iter[(4 * kPglNybbleTransposeBatch) / kBytesPerVec]);
     target_iter0 = &(target_iter7[write_ul_stride]);
   }
 #  endif  // !USE_AVX2
 }
 #else  // !__LP64__
-static_assert(kWordsPerVec == 1, "TransposeNibbleblock() needs to be updated.");
-void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, VecW* vecaligned_buf) {
-  // Very similar to TransposeQuaterblock32() in pgenlib_internal.
+static_assert(kWordsPerVec == 1, "TransposeNybbleblock() needs to be updated.");
+void TransposeNybbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, VecW* vecaligned_buf) {
+  // Very similar to TransposeNypblock32() in pgenlib_internal.
   // vecaligned_buf must be vector-aligned and have size 8k
-  const uint32_t buf_row_ct = NibbleCtToByteCt(write_batch_size);
+  const uint32_t buf_row_ct = NybbleCtToByteCt(write_batch_size);
   // fold the first 6 shuffles into the initial ingestion loop
   const unsigned char* initial_read_iter = R_CAST(const unsigned char*, read_iter);
   const unsigned char* initial_read_end = &(initial_read_iter[buf_row_ct]);
   unsigned char* initial_target_iter = R_CAST(unsigned char*, vecaligned_buf);
   const uint32_t read_byte_stride = read_ul_stride * kBytesPerWord;
-  const uint32_t read_batch_rem = kNibblesPerCacheline - read_batch_size;
+  const uint32_t read_batch_rem = kNybblesPerCacheline - read_batch_size;
   for (; initial_read_iter != initial_read_end; ++initial_read_iter) {
     const unsigned char* read_iter_tmp = initial_read_iter;
     for (uint32_t ujj = 0; ujj != read_batch_size; ++ujj) {
@@ -2577,7 +2577,7 @@ void TransposeNibbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
   const VecW* source_iter = vecaligned_buf;
   uintptr_t* target_iter0 = write_iter;
   const uint32_t buf_fullrow_ct = write_batch_size / 2;
-  const uint32_t write_word_ct = NibbleCtToWordCt(read_batch_size);
+  const uint32_t write_word_ct = NybbleCtToWordCt(read_batch_size);
   for (uint32_t uii = 0; uii != buf_fullrow_ct; ++uii) {
     uintptr_t* target_iter1 = &(target_iter0[write_ul_stride]);
     for (uint32_t ujj = 0; ujj != write_word_ct; ++ujj) {

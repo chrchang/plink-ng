@@ -3536,7 +3536,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
     }
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
-    const uint32_t max_allele_ct = simple_pgrp->fi.max_allele_ct;
+    const uint32_t max_allele_ct = PgrGetMaxAlleleCt(simple_pgrp);
     uint32_t* sample_include_cumulative_popcounts = nullptr;
     uintptr_t* sex_male_collapsed = nullptr;  // chrX
     uint32_t* sex_male_cumulative_popcounts = nullptr;  // chrY
@@ -3554,7 +3554,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
               bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
               bigstack_alloc_w(sample_ctl, &sex_male_collapsed) ||
               bigstack_alloc_u32(raw_sample_ctl, &sex_male_cumulative_popcounts) ||
-              bigstack_alloc_w(QuaterCtToWordCt(raw_sample_ct), &pgv.genovec) ||
+              bigstack_alloc_w(NypCtToWordCt(raw_sample_ct), &pgv.genovec) ||
               bigstack_alloc_w(sample_ctl, &pgv.patch_01_set) ||
               bigstack_alloc_ac(sample_ct, &pgv.patch_01_vals) ||
               bigstack_alloc_w(sample_ctl, &pgv.patch_10_set) ||
@@ -4476,9 +4476,9 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
     }
     FillCumulativePopcounts(founder_info, raw_sample_ctl, cumulative_popcounts);
     const uint32_t founder_ct = cumulative_popcounts[raw_sample_ctl - 1] + PopcountWord(founder_info[raw_sample_ctl - 1]);
-    const uint32_t founder_ctl2 = QuaterCtToWordCt(founder_ct);
+    const uint32_t founder_ctl2 = NypCtToWordCt(founder_ct);
     const uint32_t founder_ctl = BitCtToWordCt(founder_ct);
-    const uint32_t max_allele_ct = simple_pgrp->fi.max_allele_ct;
+    const uint32_t max_allele_ct = PgrGetMaxAlleleCt(simple_pgrp);
     PgenVariant pgv;
     uint32_t* one_cts;
     uint32_t* two_cts;
@@ -4517,7 +4517,7 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
           if (unlikely(reterr)) {
             goto GetMultiallelicMarginalCounts_ret_PGR_FAIL;
           }
-          ZeroTrailingQuaters(founder_ct, pgv.genovec);
+          ZeroTrailingNyps(founder_ct, pgv.genovec);
           ZeroU32Arr(allele_ct, one_cts);
           ZeroU32Arr(allele_ct, two_cts);
           // const uint32_t hom_ref_ct = hwe_geno_cts[variant_uidx][0];
@@ -4588,7 +4588,7 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
           if (unlikely(reterr)) {
             goto GetMultiallelicMarginalCounts_ret_PGR_FAIL;
           }
-          ZeroTrailingQuaters(founder_x_ct, pgv.genovec);
+          ZeroTrailingNyps(founder_x_ct, pgv.genovec);
           ZeroU32Arr(allele_ct, one_cts);
           ZeroU32Arr(allele_ct, two_cts);
           STD_ARRAY_DECL(uint32_t, 4, genocounts);
@@ -5410,7 +5410,7 @@ SubstCode GetSubstCode(const char* ref, const char* alt) {
 // Assumes trailing bits have been zeroed or filled.
 // Returns UINT32_MAX if no singleton.
 uint32_t GetSingletonIdx(const uintptr_t* genovec, uint32_t sample_ct) {
-  const uint32_t word_ct = QuaterCtToWordCt(sample_ct);
+  const uint32_t word_ct = NypCtToWordCt(sample_ct);
   uint32_t singleton_idx = UINT32_MAX;
   for (uint32_t widx = 0; widx != word_ct; ++widx) {
     uintptr_t geno_word = genovec[widx];
@@ -5433,7 +5433,7 @@ uint32_t GetSingletonIdx(const uintptr_t* genovec, uint32_t sample_ct) {
 // one male, bcftools counts it as a singleton for the female.  Default to
 // replicating this weird behavior.
 void UpdateSampleDiploidSingletonCountX(const uintptr_t* sex_male, const uintptr_t* genovec, uint32_t sample_ct, uint32_t* diploid_singleton_cts) {
-  const uint32_t word_ct = QuaterCtToWordCt(sample_ct);
+  const uint32_t word_ct = NypCtToWordCt(sample_ct);
   const Halfword* sex_male_alias = R_CAST(const Halfword*, sex_male);
   uint32_t singleton_idx = UINT32_MAX;
   for (uint32_t widx = 0; widx != word_ct; ++widx) {
@@ -5460,7 +5460,7 @@ void UpdateSampleDiploidSingletonCountX(const uintptr_t* sex_male, const uintptr
 }
 
 void UpdateSampleSingletonCountX(const uintptr_t* sex_male, const uintptr_t* genovec, uint32_t sample_ct, uint32_t* singleton_cts) {
-  const uint32_t word_ct = QuaterCtToWordCt(sample_ct);
+  const uint32_t word_ct = NypCtToWordCt(sample_ct);
   const Halfword* sex_male_alias = R_CAST(const Halfword*, sex_male);
   uint32_t singleton_idx = UINT32_MAX;
   for (uint32_t widx = 0; widx != word_ct; ++widx) {
@@ -5492,7 +5492,7 @@ void UpdateSampleSingletonCountX(const uintptr_t* sex_male, const uintptr_t* gen
 }
 
 void UpdateSampleSingletonCountY(const uintptr_t* sex_male, const uintptr_t* genovec, uint32_t sample_ct, uint32_t* singleton_cts) {
-  const uint32_t word_ct = QuaterCtToWordCt(sample_ct);
+  const uint32_t word_ct = NypCtToWordCt(sample_ct);
   const Halfword* sex_male_alias = R_CAST(const Halfword*, sex_male);
   uint32_t singleton_idx = UINT32_MAX;
   for (uint32_t widx = 0; widx != word_ct; ++widx) {
@@ -5517,7 +5517,7 @@ void UpdateSampleSingletonCountY(const uintptr_t* sex_male, const uintptr_t* gen
 }
 
 uint32_t GetSingletonIdxSparse(const uintptr_t* raregeno, const uint32_t* difflist_sample_ids, uint32_t difflist_len) {
-  const uint32_t word_ct = QuaterCtToWordCt(difflist_len);
+  const uint32_t word_ct = NypCtToWordCt(difflist_len);
   uint32_t singleton_idx = UINT32_MAX;
   for (uint32_t widx = 0; widx != word_ct; ++widx) {
     uintptr_t raregeno_word = raregeno[widx];
@@ -5537,7 +5537,7 @@ uint32_t GetSingletonIdxSparse(const uintptr_t* raregeno, const uint32_t* diffli
 }
 
 void UpdateSampleDiploidSingletonCountSparseX(const uintptr_t* sex_male, const uintptr_t* raregeno, const uint32_t* difflist_sample_ids, uint32_t difflist_len, uint32_t* diploid_singleton_cts) {
-  const uint32_t word_ct = QuaterCtToWordCt(difflist_len);
+  const uint32_t word_ct = NypCtToWordCt(difflist_len);
   uint32_t singleton_idx = UINT32_MAX;
   for (uint32_t widx = 0; widx != word_ct; ++widx) {
     uintptr_t raregeno_word = raregeno[widx];
@@ -5567,7 +5567,7 @@ void UpdateSampleDiploidSingletonCountSparseX(const uintptr_t* sex_male, const u
 }
 
 void UpdateSampleSingletonCountSparseX(const uintptr_t* sex_male, const uintptr_t* raregeno, const uint32_t* difflist_sample_ids, uint32_t difflist_len, uint32_t* singleton_cts) {
-  const uint32_t word_ct = QuaterCtToWordCt(difflist_len);
+  const uint32_t word_ct = NypCtToWordCt(difflist_len);
   uint32_t singleton_idx = UINT32_MAX;
   for (uint32_t widx = 0; widx != word_ct; ++widx) {
     const uintptr_t raregeno_word = raregeno[widx];
@@ -5601,7 +5601,7 @@ void UpdateSampleSingletonCountSparseX(const uintptr_t* sex_male, const uintptr_
 }
 
 void UpdateSampleSingletonCountSparseY(const uintptr_t* sex_male, const uintptr_t* raregeno, const uint32_t* difflist_sample_ids, uint32_t difflist_len, uint32_t* singleton_cts) {
-  const uint32_t word_ct = QuaterCtToWordCt(difflist_len);
+  const uint32_t word_ct = NypCtToWordCt(difflist_len);
   uint32_t singleton_idx = UINT32_MAX;
   for (uint32_t widx = 0; widx != word_ct; ++widx) {
     uintptr_t raregeno_word = raregeno[widx];
@@ -5813,8 +5813,8 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
   // todo: tune this threshold
   const uint32_t max_simple_difflist_len = sample_ct / 32;
 
-  const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
-  const uint32_t acc2_vec_ct = QuaterCtToVecCt(sample_ct);
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+  const uint32_t acc2_vec_ct = NypCtToVecCt(sample_ct);
   const uintptr_t dense_counts_vstride = acc2_vec_ct * 23;
   const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
   VecW** dense_counts = ctx->thread_dense_counts[tidx];
@@ -5951,7 +5951,7 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
             UpdateDenseSampleCounts2(genovec, acc2_vec_ct, dense_counts[dense_vtype], &(dense_remainders[dense_vtype * 3]));
           }
           if (diploid_singleton_cts || singleton_cts) {
-            ZeroTrailingQuaters(sample_ct, genovec);
+            ZeroTrailingNyps(sample_ct, genovec);
             if (is_haploid) {
               if (is_diploid_x) {
                 if (diploid_singleton_cts) {
@@ -6020,7 +6020,7 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
           }
         }
         if (diploid_singleton_cts || singleton_cts) {
-          ZeroTrailingQuaters(difflist_len, raregeno);
+          ZeroTrailingNyps(difflist_len, raregeno);
           if (is_haploid) {
             if (is_diploid_x) {
               if (diploid_singleton_cts) {
@@ -6038,7 +6038,7 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
               UpdateSampleSingletonCountSparseY(sex_male_collapsed, raregeno, difflist_sample_ids, difflist_len, singleton_cts);
               continue;
             }
-            const uint32_t difflist_word_ct = QuaterCtToWordCt(difflist_len);
+            const uint32_t difflist_word_ct = NypCtToWordCt(difflist_len);
             SetHetMissing(difflist_word_ct, raregeno);
             const uint32_t singleton_idx = GetSingletonIdxSparse(raregeno, difflist_sample_ids, difflist_len);
             if (singleton_idx != UINT32_MAX) {
@@ -6208,7 +6208,7 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
       if (diploid_singleton_cts || singleton_cts) {
         // this logic is completely unchanged, basic dense case should fall
         // through to this?
-        ZeroTrailingQuaters(sample_ct, genovec);
+        ZeroTrailingNyps(sample_ct, genovec);
         if (is_haploid) {
           if (is_diploid_x) {
             if (diploid_singleton_cts) {
@@ -6277,7 +6277,7 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
 }
 
 void Unscramble2(uint32_t sample_ct, uint32_t* dst, uint32_t* unscramble_buf) {
-  const uint32_t acc2_vec_ct = QuaterCtToWordCt(sample_ct);
+  const uint32_t acc2_vec_ct = NypCtToWordCt(sample_ct);
   memcpy(unscramble_buf, dst, acc2_vec_ct * 16 * kBytesPerVec);
   for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
     const uint32_t scrambled_idx = VcountScramble2(sample_idx);
@@ -6468,10 +6468,10 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     }
     const uint32_t max_returned_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
 
-    const uintptr_t raregeno_vec_ct = DivUp(max_returned_difflist_len, kQuatersPerVec);
+    const uintptr_t raregeno_vec_ct = DivUp(max_returned_difflist_len, kNypsPerVec);
     const uintptr_t difflist_sample_id_vec_ct = DivUp(max_returned_difflist_len, kInt32PerVec);
 
-    const uintptr_t acc2_vec_ct = QuaterCtToVecCt(sample_ct);
+    const uintptr_t acc2_vec_ct = NypCtToVecCt(sample_ct);
     const uintptr_t dense_counts_vstride = acc2_vec_ct * 23;
     // - need (0, 1, 2) genotype counts in diploid-chromosome case, only need
     //   (0, 1) for haploid
@@ -6680,10 +6680,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
       if (!IsLastBlock(&tg)) {
         ctx.cur_block_size = cur_block_size;
         ComputeUidxStartPartition(variant_include, cur_block_size, calc_thread_ct, read_block_idx * read_block_size, ctx.read_variant_uidx_starts);
-        for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-          ctx.pgr_ptrs[tidx]->fi.block_base = pgfip->block_base;
-          ctx.pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
-        }
+        PgrCopyBaseAndOffset(pgfip, calc_thread_ct, ctx.pgr_ptrs);
         if (variant_idx + cur_block_size == variant_ct) {
           DeclareLastThreadBlock(&tg);
         }
@@ -7413,7 +7410,7 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
   PglErr reterr = kPglRetSuccess;
   {
     const uint32_t dosage_hap_tol = sdip->dosage_hap_tol;
-    const uint32_t dosage_needed = (simple_pgrp->fi.gflags & kfPgenGlobalDosagePresent) && (dosage_hap_tol != kDosageMissing);
+    const uint32_t dosage_needed = (PgrGetGflags(simple_pgrp) & kfPgenGlobalDosagePresent) && (dosage_hap_tol != kDosageMissing);
 
     // values unimportant if dosage_hap_tol == kDosageMissing
     const uint32_t dosage_dip_tol = dosage_hap_tol / 2;
@@ -7512,8 +7509,8 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
             for (uintptr_t pair_idx = 0; pair_idx != id_pair_ct; ++pair_idx) {
               const uint32_t sample_idx1 = *id_pair_iter++;
               const uint32_t sample_idx2 = *id_pair_iter++;
-              const uintptr_t hc1 = GetQuaterarrEntry(pgv.genovec, sample_idx1);
-              const uintptr_t hc2 = GetQuaterarrEntry(pgv.genovec, sample_idx2);
+              const uintptr_t hc1 = GetNyparrEntry(pgv.genovec, sample_idx1);
+              const uintptr_t hc2 = GetNyparrEntry(pgv.genovec, sample_idx2);
               if (hc1 == hc2) {
                 if (hc1 == 3) {
                   sdiff_counts[pair_idx].missing_ct += 1;
@@ -7534,8 +7531,8 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
             for (uintptr_t pair_idx = 0; pair_idx != id_pair_ct; ++pair_idx) {
               const uint32_t sample_idx1 = *id_pair_iter++;
               const uint32_t sample_idx2 = *id_pair_iter++;
-              const uintptr_t hc1 = GetQuaterarrEntry(pgv.genovec, sample_idx1);
-              const uintptr_t hc2 = GetQuaterarrEntry(pgv.genovec, sample_idx2);
+              const uintptr_t hc1 = GetNyparrEntry(pgv.genovec, sample_idx1);
+              const uintptr_t hc2 = GetNyparrEntry(pgv.genovec, sample_idx2);
               if (hc1 == hc2) {
                 if (hc1 == 3) {
                   sdiff_counts[pair_idx].missing_ct += 1;
@@ -7564,8 +7561,8 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
               }
               const uint32_t sample_idx1 = id_pairs[2 * pair_idx];
               const uint32_t sample_idx2 = id_pairs[2 * pair_idx + 1];
-              const uintptr_t hc1 = GetQuaterarrEntry(pgv.genovec, sample_idx1);
-              const uintptr_t hc2 = GetQuaterarrEntry(pgv.genovec, sample_idx2);
+              const uintptr_t hc1 = GetNyparrEntry(pgv.genovec, sample_idx1);
+              const uintptr_t hc2 = GetNyparrEntry(pgv.genovec, sample_idx2);
               if (hc1 == hc2) {
                 if (hc1 == 3) {
                   sdiff_counts[pair_idx].missing_ct += 1;
@@ -7585,7 +7582,7 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
           const Dosage* dosage_read_iter = pgv.dosage_main;
           for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
             if (!IsSet(pgv.dosage_present, sample_idx)) {
-              dosage_buf[sample_idx] = kGenoToDosage[GetQuaterarrEntry(pgv.genovec, sample_idx)];
+              dosage_buf[sample_idx] = kGenoToDosage[GetNyparrEntry(pgv.genovec, sample_idx)];
             } else {
               dosage_buf[sample_idx] = *dosage_read_iter++;
             }
@@ -7618,8 +7615,8 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
               if (!ibs_needed) {
                 continue;
               }
-              const uintptr_t hc1 = GetQuaterarrEntry(pgv.genovec, sample_idx1);
-              const uintptr_t hc2 = GetQuaterarrEntry(pgv.genovec, sample_idx2);
+              const uintptr_t hc1 = GetNyparrEntry(pgv.genovec, sample_idx1);
+              const uintptr_t hc2 = GetNyparrEntry(pgv.genovec, sample_idx2);
               if (hc1 == hc2) {
                 continue;
               }
@@ -7656,8 +7653,8 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
               if ((!ibs_needed) || is_male) {
                 continue;
               }
-              const uintptr_t hc1 = GetQuaterarrEntry(pgv.genovec, sample_idx1);
-              const uintptr_t hc2 = GetQuaterarrEntry(pgv.genovec, sample_idx2);
+              const uintptr_t hc1 = GetNyparrEntry(pgv.genovec, sample_idx1);
+              const uintptr_t hc2 = GetNyparrEntry(pgv.genovec, sample_idx2);
               if (hc1 == hc2) {
                 continue;
               }
@@ -7942,7 +7939,7 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
     const char fname_id_delim = sdip->fname_id_delim;
     const uint32_t dosage_hap_tol = sdip->dosage_hap_tol;
     const uint32_t dosage_reported = (dosage_hap_tol != kDosageMissing);
-    const uint32_t dosage_needed = (simple_pgrp->fi.gflags & kfPgenGlobalDosagePresent) && dosage_reported;
+    const uint32_t dosage_needed = (PgrGetGflags(simple_pgrp) & kfPgenGlobalDosagePresent) && dosage_reported;
     if (is_pairwise) {
       const uint32_t* id_pair_iter = id_pairs;
       const uint32_t stream_thread_ct = (max_thread_ct > (2 * id_pair_ct))? ((max_thread_ct - 1) / id_pair_ct) : 1;
@@ -8146,8 +8143,8 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
             if (is_y && (!IsSet(pair_sex_male, pair_idx))) {
               continue;
             }
-            const uintptr_t hc1 = GetQuaterarrEntry(pgv.genovec, sample_idx1);
-            const uintptr_t hc2 = GetQuaterarrEntry(pgv.genovec, sample_idx2);
+            const uintptr_t hc1 = GetNyparrEntry(pgv.genovec, sample_idx1);
+            const uintptr_t hc2 = GetNyparrEntry(pgv.genovec, sample_idx2);
             if (hc1 == hc2) {
               if (hc1 == 3) {
                 sdiff_counts[pair_idx].missing_ct += 1;
@@ -8202,7 +8199,7 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
           const Dosage* dosage_read_iter = pgv.dosage_main;
           for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
             if (!IsSet(pgv.dosage_present, sample_idx)) {
-              dosage_buf[sample_idx] = kGenoToDosage[GetQuaterarrEntry(pgv.genovec, sample_idx)];
+              dosage_buf[sample_idx] = kGenoToDosage[GetNyparrEntry(pgv.genovec, sample_idx)];
             } else {
               dosage_buf[sample_idx] = *dosage_read_iter++;
             }
@@ -8233,8 +8230,8 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
               }
             } else {
               if (ibs_needed && is_diploid_pair) {
-                const uintptr_t hc1 = GetQuaterarrEntry(pgv.genovec, sample_idx1);
-                const uintptr_t hc2 = GetQuaterarrEntry(pgv.genovec, sample_idx2);
+                const uintptr_t hc1 = GetNyparrEntry(pgv.genovec, sample_idx1);
+                const uintptr_t hc2 = GetNyparrEntry(pgv.genovec, sample_idx2);
                 if (hc1 != hc2) {
                   if ((hc1 == 3) || (hc2 == 3)) {
                     cur_counts->ibsmiss_ct += 1;

@@ -1037,7 +1037,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         // todo: make this execute after --pmerge
         if (pcp->command_flags1 & kfCommand1Validate) {
           uintptr_t* genovec_buf;
-          if (unlikely(bigstack_alloc_w(QuaterCtToWordCt(raw_sample_ct), &genovec_buf))) {
+          if (unlikely(bigstack_alloc_w(NypCtToWordCt(raw_sample_ct), &genovec_buf))) {
             goto Plink2Core_ret_NOMEM;
           }
           logprintfww5("Validating %s... ", pgenname);
@@ -2349,7 +2349,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
                 goto Plink2Core_ret_NOMEM;
               }
               pgfi.nonref_flags = nonref_flags;
-              simple_pgr.fi.nonref_flags = nonref_flags;
+              // make it clear that this is probably worth cleaning up a bit...
+              GET_PRIVATE(simple_pgr, m).fi.nonref_flags = nonref_flags;
               if (not_all_nonref) {
                 ZeroWArr(raw_variant_ctl, nonref_flags);
               } else {
@@ -2525,7 +2526,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         } else if (nonref_flags_was_null) {
           nonref_flags = nullptr;
           pgfi.nonref_flags = nullptr;
-          simple_pgr.fi.nonref_flags = nullptr;
+          GET_PRIVATE(simple_pgr, m).fi.nonref_flags = nullptr;
         }
       }
       BigstackReset(bigstack_mark_allele_dosages);

@@ -56,10 +56,10 @@ plink2: $(OBJ_NO_ZSTD)
 	$(MKDIR) -p bin
 	$(CXX) $(ARCH32) $(OBJ_NO_ZSTD) -o bin/plink2 $(BLASFLAGS64) $(LDFLAGS)
 
-# basic pgenlib_internal.h usage example; also needed for tests
-pgen_compress: plink2_base.o pgenlib_internal.o pgen_compress.o
+# basic pgenlib usage example; also needed for tests
+pgen_compress: $(PGCOBJ)
 	$(MKDIR) -p bin
-	$(CXX) plink2_base.o pgenlib_internal.o pgen_compress.o \
+	$(CXX) $(PGCOBJ) \
 		-o bin/pgen_compress
 
 .PHONY: install-strip install clean

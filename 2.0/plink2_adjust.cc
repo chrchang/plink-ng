@@ -725,7 +725,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     } while (strequal_k_unsafe(header_start, "##"));
 
     const uintptr_t entry_ctl = BitCtToWordCt(entry_ct);
-    const uintptr_t entry_ctl2 = QuaterCtToWordCt(entry_ct);
+    const uintptr_t entry_ctl2 = NypCtToWordCt(entry_ct);
     uintptr_t* variant_include_dummy;
     uintptr_t* allele_include_dummy;
     if (unlikely(
