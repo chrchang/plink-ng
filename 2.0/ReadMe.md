@@ -2,35 +2,42 @@ This directory contains two (LGPL3-licensed) major libraries, as well as the
 PLINK 2.0 application built on top of them.  These are carefully written to be
 valid C99 (from gcc and clang's perspective, anyway) to simplify FFI
 development, while still taking advantage of quite a few C++-specific
-affordances to improve safety and occasionally performance.
+affordances to improve safety and occasionally performance.  They are currently
+x86-specific, but there are annotations to facilitate a possible future port to
+ARM.
 
-The first library is plink2_text.  This is a text file reader that is designed
-to replace std::getline(), fgets(), and similar ways of iterating over text
-lines.  Key properties:
-* Instead of copying every line to your buffer, one at a time, it just returns
-  a pointer to the beginning of each line in the underlying binary stream, and
-  gives you access to a pointer to the end.  In exchange, the line is
-  invalidated when you iterate to the next one; it's like being forced to pass
-  the same string to std::getline(), or the same buffer to fgets(), on every
-  call.  But whenever that's problematic, you can always copy the line before
-  iterating to the next; on all systems I've seen, this is *still* faster than
-  using getline/fgets.  And in the many situations where there's no need to
-  copy, you get a fundamentally lower-latency abstraction.
-* It automatically detects and decompresses gzipped and Zstd-compressed files.
-  This works with streams.
-* It automatically reads AND DECOMPRESSES ahead for you.  Decompression is even
-  multithreaded by default when the file is BGZF-compressed.
-* It does not support network input as of this writing, but that would not be
+The first library is plink2_text, which provides a pair of classes designed to
+replace std::getline(), fgets(), and similar ways of iterating over text lines.
+Key properties:
+* Instead of copying every line to your buffer, one at a time, these classes
+  just return a pointer to the beginning of each line in the underlying binary
+  stream, and give you access to a pointer to the end.  In exchange, the line
+  is invalidated when you iterate to the next one; it's like being forced to
+  pass the same string to std::getline(), or the same buffer to fgets(), on
+  every call.  But whenever that's problematic, you can always copy the line
+  before iterating to the next; on all systems I've seen, this *still* exhibits
+  better throughput than getline/fgets.  And in the many situations where
+  there's no need to copy, you get a fundamentally lower-latency abstraction.
+* They automatically detect and decompress gzipped and Zstd-compressed files,
+  in a manner that works with pipe file descriptors.
+* The primary TextStream class automatically reads AND DECOMPRESSES ahead for
+  you.  Decompression is even multithreaded by default when the file is
+  BGZF-compressed.  (And the textFILE class covers the setting where you don't
+  want to launch any more threads.)
+* They do not support network input as of this writing, but that would not be
   difficult to add.  The existing code uses FILE* in a very straightforward
   manner.
-* The ScanadvDouble() function in the plink2_string component is a very
-  efficient string-to-double converter.  While it does not support perfect
-  string<->double round-trips (we recommend https://github.com/ulfjack/ryu for
-  that purpose), or long-tail features like locale-specific decimal separators,
-  it has been incredibly useful for speeding up the basic job of scanning basic
-  printf("%g")-formatted output.  (Note that you lose roughly a billion times
-  as much accuracy to %g's 6-digit limit as you do to imperfect string->double
+* As for text parsing, the ScanadvDouble() utility function in the
+  plink2_string component is a very efficient string-to-double converter.
+  While it does not support perfect string<->double round-trips (I recommend
+  https://github.com/ulfjack/ryu for that purpose), or long-tail features like
+  locale-specific decimal separators, it has been incredibly useful for
+  speeding up the basic job of scanning standard-locale printf("%g")-formatted
+  and similar output.  (Note that you lose roughly a billion times as much
+  accuracy to %g's 6-digit limit as you do to imperfect string->double
   conversion in that setting.)
+
+(Coming soon: example text-processing programs using plink2_text.)
 
 The second library is pgenlib.  This supports reading and writing of PLINK 2.x
 genotype files (".pgen").  A draft specification for this format is under
