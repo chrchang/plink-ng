@@ -29,13 +29,12 @@ Key properties:
   manner.
 * As for text parsing, the ScanadvDouble() utility function in the
   plink2_string component is a very efficient string-to-double converter.
-  While it does not support perfect string<->double round-trips (I recommend
-  https://github.com/ulfjack/ryu for that purpose), or long-tail features like
-  locale-specific decimal separators, it has been incredibly useful for
-  speeding up the basic job of scanning standard-locale printf("%g")-formatted
-  and similar output.  (Note that you lose roughly a billion times as much
-  accuracy to %g's 6-digit limit as you do to imperfect string->double
-  conversion in that setting.)
+  While it does not support perfect string<->double round-trips, or long-tail
+  features like locale-specific decimal separators, it has been incredibly
+  useful for speeding up the basic job of scanning standard-locale
+  printf("%g")-formatted and similar output.  (Note that you lose roughly a
+  billion times as much accuracy to %g's 6-digit limit as you do to imperfect
+  string->double conversion in that setting.)
 
 (Coming soon: example text-processing programs using plink2_text.)
 
