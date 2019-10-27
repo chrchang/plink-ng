@@ -5160,7 +5160,7 @@ PglErr Get1Multiallelic(const uintptr_t* __restrict sample_include, const uint32
   return kPglRetSuccess;
 }
 
-PglErr Get1(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReaderMain* pgrp, uintptr_t* __restrict allele_countvec) {
+PglErr IMPLPgrGet1(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReaderMain* pgrp, uintptr_t* __restrict allele_countvec) {
   if (!sample_ct) {
     return kPglRetSuccess;
   }
@@ -5179,7 +5179,7 @@ PglErr Get1(const uintptr_t* __restrict sample_include, const uint32_t* __restri
   return Get1Multiallelic(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx, pgrp, nullptr, nullptr, nullptr, allele_countvec, nullptr);
 }
 
-PglErr GetInv1(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReaderMain* pgrp, uintptr_t* __restrict allele_invcountvec) {
+PglErr IMPLPgrGetInv1(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReaderMain* pgrp, uintptr_t* __restrict allele_invcountvec) {
   if (!sample_ct) {
     return kPglRetSuccess;
   }
@@ -5621,7 +5621,7 @@ PglErr GenovecAux1bUpdate2(const unsigned char* fread_end, const uintptr_t* __re
   }
 }
 
-PglErr Get2(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx0, uint32_t allele_idx1, PgenReaderMain* pgrp, uintptr_t* __restrict genovec) {
+PglErr IMPLPgrGet2(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx0, uint32_t allele_idx1, PgenReaderMain* pgrp, uintptr_t* __restrict genovec) {
   assert(allele_idx0 != allele_idx1);
   if (!sample_ct) {
     return kPglRetSuccess;
@@ -6787,7 +6787,7 @@ PglErr Get1MP(const uintptr_t* __restrict sample_include, const uint32_t* __rest
   const uint32_t vrtype = pgrp->fi.vrtypes[vidx];
   if (!VrtypeHphase(vrtype)) {
     *phasepresent_ct_ptr = 0;
-    return Get1(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx, pgrp, allele_countvec);
+    return IMPLPgrGet1(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx, pgrp, allele_countvec);
   }
   uintptr_t* all_hets = pgrp->workspace_all_hets;
   uintptr_t* subsetted_10het = nullptr;
@@ -6837,7 +6837,7 @@ PglErr PgrGet1P(const uintptr_t* __restrict sample_include, const uint32_t* __re
   return Get1MP(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx, pgrp, allele_countvec, phasepresent, phaseinfo, phasepresent_ct_ptr);
 }
 
-PglErr GetInv1P(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReaderMain* pgrp, uintptr_t* __restrict allele_invcountvec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* __restrict phasepresent_ct_ptr) {
+PglErr IMPLPgrGetInv1P(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReaderMain* pgrp, uintptr_t* __restrict allele_invcountvec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* __restrict phasepresent_ct_ptr) {
   if (!sample_ct) {
     *phasepresent_ct_ptr = 0;
     return kPglRetSuccess;
@@ -6870,7 +6870,7 @@ PglErr PgrGet2P(const uintptr_t* __restrict sample_include, const uint32_t* __re
   const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
   if (!VrtypeHphase(vrtype)) {
     *phasepresent_ct_ptr = 0;
-    return Get2(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx0, allele_idx1, pgrp, genovec);
+    return IMPLPgrGet2(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx0, allele_idx1, pgrp, genovec);
   }
   if (!sample_ct) {
     *phasepresent_ct_ptr = 0;
@@ -7275,7 +7275,7 @@ PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_
   return kPglRetSuccess;
 }
 
-PglErr GetD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderMain* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr) {
+PglErr IMPLPgrGetD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderMain* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr) {
   assert(vidx < pgrp->fi.raw_variant_ct);
   if (!sample_ct) {
     *dosage_ct_ptr = 0;
@@ -7304,7 +7304,7 @@ PglErr PgrGet1D(const uintptr_t* __restrict sample_include, const uint32_t* __re
   const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
   if ((allele_ct == 2) || (!allele_idx)) {
     uint32_t dosage_ct;
-    PglErr reterr = GetD(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, allele_countvec, dosage_present, dosage_main, &dosage_ct);
+    PglErr reterr = IMPLPgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, allele_countvec, dosage_present, dosage_main, &dosage_ct);
     if (!allele_idx) {
       GenovecInvertUnsafe(sample_ct, allele_countvec);
       if (dosage_ct) {
@@ -7317,7 +7317,7 @@ PglErr PgrGet1D(const uintptr_t* __restrict sample_include, const uint32_t* __re
   const uint32_t vrtype = pgrp->fi.vrtypes[vidx];
   if (!VrtypeDosage(vrtype)) {
     *dosage_ct_ptr = 0;
-    return Get1(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx, pgrp, allele_countvec);
+    return IMPLPgrGet1(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx, pgrp, allele_countvec);
   }
   fputs("multiallelic variants not yet supported by PgrGet1D()\n", stderr);
   exit(S_CAST(int32_t, kPglRetNotYetSupported));
@@ -7330,7 +7330,7 @@ PglErr PgrGetInv1D(const uintptr_t* __restrict sample_include, const uint32_t* _
   const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
   if ((allele_ct == 2) || (!allele_idx)) {
     uint32_t dosage_ct;
-    PglErr reterr = GetD(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, allele_invcountvec, dosage_present, dosage_main, &dosage_ct);
+    PglErr reterr = IMPLPgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, allele_invcountvec, dosage_present, dosage_main, &dosage_ct);
     if (allele_idx) {
       GenovecInvertUnsafe(sample_ct, allele_invcountvec);
       if (dosage_ct) {
@@ -7343,7 +7343,7 @@ PglErr PgrGetInv1D(const uintptr_t* __restrict sample_include, const uint32_t* _
   const uint32_t vrtype = pgrp->fi.vrtypes[vidx];
   if (!VrtypeDosage(vrtype)) {
     *dosage_ct_ptr = 0;
-    return GetInv1(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx, pgrp, allele_invcountvec);
+    return IMPLPgrGetInv1(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx, pgrp, allele_invcountvec);
   }
   fputs("multiallelic variants not yet supported by PgrGetInv1D()\n", stderr);
   exit(S_CAST(int32_t, kPglRetNotYetSupported));
@@ -8756,7 +8756,7 @@ PglErr PgrGetMD(const uintptr_t* __restrict sample_include, const uint32_t* __re
   const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
   const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
   if ((allele_ct == 2) || (!(vrtype & 0x68))) {
-    return GetD(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, pgvp->genovec, pgvp->dosage_present, pgvp->dosage_main, &(pgvp->dosage_ct));
+    return IMPLPgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, pgvp->genovec, pgvp->dosage_present, pgvp->dosage_main, &(pgvp->dosage_ct));
   }
   const unsigned char* fread_ptr;
   const unsigned char* fread_end;
@@ -8774,7 +8774,7 @@ PglErr PgrGetMD(const uintptr_t* __restrict sample_include, const uint32_t* __re
   return kPglRetSuccess;
 }
 
-PglErr GetDp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderMain* pgrp, PgenVariant* pgvp) {
+PglErr IMPLPgrGetDp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderMain* pgrp, PgenVariant* pgvp) {
   assert(vidx < pgrp->fi.raw_variant_ct);
   if (!sample_ct) {
     pgvp->phasepresent_ct = 0;
@@ -8802,7 +8802,7 @@ PglErr PgrGetInv1Dp(const uintptr_t* __restrict sample_include, const uint32_t* 
   const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
   const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
   if ((allele_ct == 2) || (!allele_idx)) {
-    PglErr reterr = GetDp(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, pgvp);
+    PglErr reterr = IMPLPgrGetDp(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, pgvp);
     if (allele_idx) {
       GenovecInvertUnsafe(sample_ct, pgvp->genovec);
       if (pgvp->phasepresent_ct) {
@@ -8821,7 +8821,7 @@ PglErr PgrGetInv1Dp(const uintptr_t* __restrict sample_include, const uint32_t* 
   if (!VrtypeDosage(vrtype)) {
     pgvp->dosage_ct = 0;
     pgvp->dphase_ct = 0;
-    return GetInv1P(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx, pgrp, pgvp->genovec, pgvp->phasepresent, pgvp->phaseinfo, &(pgvp->phasepresent_ct));
+    return IMPLPgrGetInv1P(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx, pgrp, pgvp->genovec, pgvp->phasepresent, pgvp->phaseinfo, &(pgvp->phasepresent_ct));
   }
   fputs("multiallelic dosage not yet supported by GetInv1Dp()\n", stderr);
   exit(S_CAST(int32_t, kPglRetNotYetSupported));
@@ -8844,7 +8844,7 @@ PglErr PgrGetMDp(const uintptr_t* __restrict sample_include, const uint32_t* __r
   const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
   const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
   if ((allele_ct == 2) || (!(vrtype & 0x68))) {
-    return GetDp(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, pgvp);
+    return IMPLPgrGetDp(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, pgvp);
   }
   const unsigned char* fread_ptr;
   const unsigned char* fread_end;

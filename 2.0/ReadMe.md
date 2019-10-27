@@ -18,8 +18,9 @@ Key properties:
   before iterating to the next; on all systems I've seen, this *still* exhibits
   better throughput than getline/fgets.  And in the many situations where
   there's no need to copy, you get a fundamentally lower-latency abstraction.
-* They automatically detect and decompress gzipped and Zstd-compressed files,
-  in a manner that works with pipe file descriptors.
+* They automatically detect and decompress gzipped and Zstd-compressed
+  (https://facebook.github.io/zstd/ ) files, in a manner that works with pipe
+  file descriptors.
 * The primary TextStream class automatically reads AND DECOMPRESSES ahead for
   you.  Decompression is even multithreaded by default when the file is
   BGZF-compressed.  (And the textFILE class covers the setting where you don't
@@ -29,18 +30,21 @@ Key properties:
   manner.
 * As for text parsing, the ScanadvDouble() utility function in the
   plink2_string component is a very efficient string-to-double converter.
-  While it does not support perfect string<->double round-trips, or long-tail
-  features like locale-specific decimal separators, it has been incredibly
-  useful for speeding up the basic job of scanning standard-locale
-  printf("%g")-formatted and similar output.  (Note that you lose roughly a
-  billion times as much accuracy to %g's 6-digit limit as you do to imperfect
-  string->double conversion in that setting.)
+  While it does not support perfect string<->double round-trips (that's what
+  C++17 std::from_chars is for; https://abseil.io/ has a working implementation
+  while we wait for gcc/clang...), or long-tail features like locale-specific
+  decimal separators or hex floats, it has been incredibly useful for speeding
+  up the basic job of scanning standard-locale printf("%g")-formatted and
+  similar output.  (Note that you lose roughly a billion times as much accuracy
+  to %g's 6-digit limit as you do to imperfect string->double conversion in
+  that setting.)
 
 (Coming soon: example text-processing programs using plink2_text.)
 
 The second library is pgenlib.  This supports reading and writing of PLINK 2.x
 genotype files (".pgen").  A draft specification for this format is under
-../pgen_spec/ ; here are some key properties:
+https://github.com/chrchang/plink-ng/tree/master/pgen_spec ; here are some key
+properties:
 * A PLINK 1 .bed is a valid .pgen.
 * In addition, .pgen can represent multiallelic, phased, and/or dosage
   information.  As of this writing, software support for multiallelic dosages
@@ -51,9 +55,9 @@ genotype files (".pgen").  A draft specification for this format is under
   aforementioned BGEN/VCF fields during import, it cannot re-export or do
   anything else with them.  Use other software, such as bcftools
   (https://samtools.github.io/bcftools/bcftools.html ) or qctool2
-  (https://www.well.ox.ac.uk/~gav/qctool_v2/ ) when you must retain any of
-  these fields.
-* .pgen is compressed, but in a custom manner that supports very fast
+  (www.well.ox.ac.uk/~gav/qctool_v2/ ) when you must retain any of these
+  fields.
+* .pgen is compressed, but in a domain-specific manner that supports very fast
   compression and decompression.  It is even practical to perform several key
   computations (e.g. allele frequency) directly on the compressed
   representation, and this capability is exposed by the pgenlib library.
@@ -62,8 +66,8 @@ genotype files (".pgen").  A draft specification for this format is under
   of this writing, but it would not take much effort to fill in key components;
   that work is scheduled for roughly the time of the beta release, but if you
   could really use a specific feature earlier, you have good odds of getting it
-  by asking on plink2-dev.  (plink2-dev is also the place to ask other
-  questions about any of this code.)
+  by asking at https://groups.google.com/forum/#!forum/plink2-dev .
+  (plink2-dev is also the place to ask other questions about any of this code.)
 
 As for the PLINK 2.0 application:
 * build_dynamic/ contains a Makefile suitable for Linux and macOS dynamic
@@ -72,7 +76,8 @@ As for the PLINK 2.0 application:
   you can dynamically link to it.
 * build_win/ contains a Makefile for producing static Windows builds.  This
   requires MinGW[-w64] and zlib; a prebuilt OpenBLAS package from
-  sourceforge.net/projects/openblas/files/ is also strongly recommended.
+  https://sourceforge.net/projects/openblas/files/ is also strongly
+  recommended.
 * The LGPL3-licensed plink2_stats component may be of independent interest.  It
   includes a function for computing the 2x2 Fisher's exact test p-value in
   approximately O(sqrt(n)) time--much faster than the O(n) algorithms employed
