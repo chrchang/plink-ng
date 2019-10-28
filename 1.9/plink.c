@@ -9481,7 +9481,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_NOMEM;
 	}
-      } else if (!memcmp(argptr2, "eta-analysis-se-field", 21)) {
+      } else if (!memcmp(argptr2, "eta-analysis-se-field", 22)) {
         if (!metaanal_fnames) {
 	  logerrprint("Error: --meta-analysis-se-field must be used with --meta-analysis.\n");
           goto main_ret_INVALID_CMDLINE;
