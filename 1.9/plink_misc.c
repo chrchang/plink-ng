@@ -4930,6 +4930,7 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
   uint32_t token_ct = *token_ct_ptr;
   uint32_t best_var_id = 0x7fffffff;
   uint32_t best_p_id = 0x7fffffff;
+  uint32_t best_se_id = 0x7fffffff;
   uint32_t best_ess_id = 0x7fffffff;
   uint32_t best_a1_id = 0x7fffffff;
   uint32_t best_a2_id = 0x7fffffff;
@@ -4999,6 +5000,15 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
 	}
 	break;
       case 2:
+	// SE
+	if (uii < best_se_id) {
+	  best_p_id = uii;
+	  parse_table[2] = (colnum * 16) | 2;
+	} else if (uii == best_se_id) {
+	  goto meta_analysis_open_and_read_header_ret_DUPLICATE_HEADER_COL;
+	}
+	break;
+      case 3:
 	// P
 	if (uii < best_p_id) {
 	  best_p_id = uii;
@@ -5007,7 +5017,7 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
 	  goto meta_analysis_open_and_read_header_ret_DUPLICATE_HEADER_COL;
 	}
 	break;
-      case 3:
+      case 4:
 	// effective sample size
 	if (uii < best_ess_id) {
 	  best_ess_id = uii;
@@ -5016,7 +5026,7 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
 	  goto meta_analysis_open_and_read_header_ret_DUPLICATE_HEADER_COL;
 	}
 	break;
-      case 4:
+      case 5:
 	// A1
 	if (uii < best_a1_id) {
 	  best_a1_id = uii;
@@ -5025,7 +5035,7 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
 	  goto meta_analysis_open_and_read_header_ret_DUPLICATE_HEADER_COL;
 	}
 	break;
-      case 5:
+      case 6:
 	// A2
 	if (uii < best_a2_id) {
 	  best_a2_id = uii;
@@ -5152,7 +5162,7 @@ static inline uint32_t uint32_decode_5_hi_uchar(const char* start) {
   return uii;
 }
 
-int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1field_search_order, char* a2field_search_order, char* pfield_search_order, char* essfield_search_order, uint32_t flags, char* extractname, char* outname, char* outname_end, double output_min_p, Chrom_info* chrom_info_ptr) {
+int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1field_search_order, char* a2field_search_order, char* pfield_search_order, char* sefield_search_order, char* essfield_search_order, uint32_t flags, char* extractname, char* outname, char* outname_end, double output_min_p, Chrom_info* chrom_info_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   gzFile gz_infile = nullptr;
@@ -5162,7 +5172,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   char* sorted_extract_ids = nullptr;
   uintptr_t* duplicate_id_bitfield = nullptr;
   Ll_str** duplicate_id_htable = nullptr;
-  uintptr_t header_dict_ct = 2; // 'SE', BETA/OR
+  uintptr_t header_dict_ct = 1; // BETA/OR
   uintptr_t max_header_len = 3;
   uintptr_t extract_ct = 0;
   uintptr_t max_extract_id_len = 0;
@@ -5289,6 +5299,11 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
       max_header_len = 4; // 'SNP' + null terminator
       header_dict_ct++;
     }
+    if (sefield_search_order) {
+      header_dict_ct += count_and_measure_multistr(sefield_search_order, &max_header_len);
+    } else {
+      header_dict_ct++;
+    }
     if (input_beta && (max_header_len < 5)) {
       max_header_len = 5;
     }
@@ -5354,25 +5369,22 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
       memcpy(&(sorted_header_dict[ulii * max_header_len]), "BETA", 5);
     }
     header_id_map[ulii++] = 1;
-    memcpyl3(&(sorted_header_dict[ulii * max_header_len]), "SE");
-    header_id_map[ulii++] = 2;
+    if (sefield_search_order) {
+      bufptr = sefield_search_order;
+      uii = 0x20000000;
+      do {
+	slen = strlen(bufptr) + 1;
+	memcpy(&(sorted_header_dict[ulii * max_header_len]), bufptr, slen);
+	header_id_map[ulii++] = uii++;
+	bufptr = &(bufptr[slen]);
+      } while (*bufptr);
+    } else {
+      memcpyl3(&(sorted_header_dict[ulii * max_header_len]), "SE");
+      header_id_map[ulii++] = 0x20000000;
+    }
     if (weighted_z) {
       if (pfield_search_order) {
 	bufptr = pfield_search_order;
-	uii = 0x20000000;
-	do {
-	  slen = strlen(bufptr) + 1;
-	  memcpy(&(sorted_header_dict[ulii * max_header_len]), bufptr, slen);
-	  header_id_map[ulii++] = uii++;
-	  bufptr = &(bufptr[slen]);
-	} while (*bufptr);
-      } else {
-	memcpy(&(sorted_header_dict[ulii * max_header_len]), "P", 2);
-	header_id_map[ulii++] = 0x20000000;
-      }
-      if (essfield_search_order) {
-        // bugfix (3 Nov 2017): had pfield_search_order here
-	bufptr = essfield_search_order;
 	uii = 0x30000000;
 	do {
 	  slen = strlen(bufptr) + 1;
@@ -5381,8 +5393,22 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	  bufptr = &(bufptr[slen]);
 	} while (*bufptr);
       } else {
-	memcpy(&(sorted_header_dict[ulii * max_header_len]), "NMISS", 6);
+	memcpy(&(sorted_header_dict[ulii * max_header_len]), "P", 2);
 	header_id_map[ulii++] = 0x30000000;
+      }
+      if (essfield_search_order) {
+        // bugfix (3 Nov 2017): had pfield_search_order here
+	bufptr = essfield_search_order;
+	uii = 0x40000000;
+	do {
+	  slen = strlen(bufptr) + 1;
+	  memcpy(&(sorted_header_dict[ulii * max_header_len]), bufptr, slen);
+	  header_id_map[ulii++] = uii++;
+	  bufptr = &(bufptr[slen]);
+	} while (*bufptr);
+      } else {
+	memcpy(&(sorted_header_dict[ulii * max_header_len]), "NMISS", 6);
+	header_id_map[ulii++] = 0x40000000;
       }
     }
     if (use_map) {
@@ -5393,19 +5419,6 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
       if (!no_allele) {
 	if (a1field_search_order) {
 	  bufptr = a1field_search_order;
-	  uii = 0x40000000;
-	  do {
-	    slen = strlen(bufptr) + 1;
-	    memcpy(&(sorted_header_dict[ulii * max_header_len]), bufptr, slen);
-	    header_id_map[ulii++] = uii++;
-	    bufptr = &(bufptr[slen]);
-	  } while (*bufptr);
-	} else {
-	  memcpyl3(&(sorted_header_dict[ulii * max_header_len]), "A1");
-	  header_id_map[ulii++] = 0x40000000;
-	}
-	if (a2field_search_order) {
-	  bufptr = a2field_search_order;
 	  uii = 0x50000000;
 	  do {
 	    slen = strlen(bufptr) + 1;
@@ -5414,8 +5427,21 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	    bufptr = &(bufptr[slen]);
 	  } while (*bufptr);
 	} else {
+	  memcpyl3(&(sorted_header_dict[ulii * max_header_len]), "A1");
+	  header_id_map[ulii++] = 0x50000000;
+	}
+	if (a2field_search_order) {
+	  bufptr = a2field_search_order;
+	  uii = 0x60000000;
+	  do {
+	    slen = strlen(bufptr) + 1;
+	    memcpy(&(sorted_header_dict[ulii * max_header_len]), bufptr, slen);
+	    header_id_map[ulii++] = uii++;
+	    bufptr = &(bufptr[slen]);
+	  } while (*bufptr);
+	} else {
 	  memcpyl3(&(sorted_header_dict[ulii * max_header_len]), "A2");
-	  header_id_map[ulii] = 0x50000000;
+	  header_id_map[ulii] = 0x60000000;
 	}
       }
     }

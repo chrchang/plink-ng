@@ -93,7 +93,7 @@
 
 static const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b6.11"
+  "PLINK v1.90b6.12"
 #else
   "PLINK v1.90p"
 #endif
@@ -105,7 +105,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (24 Oct 2019)";
+  " (28 Oct 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -3167,6 +3167,7 @@ int32_t main(int32_t argc, char** argv) {
   char* metaanal_a1field_search_order = nullptr;
   char* metaanal_a2field_search_order = nullptr;
   char* metaanal_pfield_search_order = nullptr;
+  char* metaanal_sefield_search_order = nullptr;
   char* metaanal_essfield_search_order = nullptr;
   char* rplugin_fname = nullptr;
   char* rplugin_host_or_socket = nullptr;
@@ -9480,6 +9481,18 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_NOMEM;
 	}
+      } else if (!memcmp(argptr2, "eta-analysis-se-field", 21)) {
+        if (!metaanal_fnames) {
+	  logerrprint("Error: --meta-analysis-se-field must be used with --meta-analysis.\n");
+          goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x10000000)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+        retval = alloc_and_flatten(&metaanal_sefield_search_order, &(argv[cur_arg + 1]), param_ct);
+	if (retval) {
+	  goto main_ret_NOMEM;
+	}
       } else if (!memcmp(argptr2, "eta-analysis-ess-field", 23)) {
         if ((!metaanal_fnames) || (!(metaanal_flags & METAANAL_WEIGHTED_Z))) {
 	  logerrprint("Error: --meta-analysis-ess-field must be used with --meta-analysis + weighted-z.\n");
@@ -13369,7 +13382,7 @@ int32_t main(int32_t argc, char** argv) {
   if (metaanal_fnames) {
     // possible todo: make this support --aec (takes a bit of work since
     // chromosome byte in data structure must be widened)
-    retval = meta_analysis(metaanal_fnames, metaanal_snpfield_search_order, metaanal_a1field_search_order, metaanal_a2field_search_order, metaanal_pfield_search_order, metaanal_essfield_search_order, metaanal_flags, (misc_flags & MISC_EXTRACT_RANGE)? nullptr : extractname, outname, outname_end, output_min_p, &chrom_info);
+    retval = meta_analysis(metaanal_fnames, metaanal_snpfield_search_order, metaanal_a1field_search_order, metaanal_a2field_search_order, metaanal_pfield_search_order, metaanal_sefield_search_order, metaanal_essfield_search_order, metaanal_flags, (misc_flags & MISC_EXTRACT_RANGE)? nullptr : extractname, outname, outname_end, output_min_p, &chrom_info);
     if (retval) {
       goto main_ret_1;
     }
@@ -13634,6 +13647,7 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(metaanal_a1field_search_order);
   free_cond(metaanal_a2field_search_order);
   free_cond(metaanal_pfield_search_order);
+  free_cond(metaanal_sefield_search_order);
   free_cond(metaanal_essfield_search_order);
   free_cond(rplugin_fname);
   free_cond(rplugin_host_or_socket);
