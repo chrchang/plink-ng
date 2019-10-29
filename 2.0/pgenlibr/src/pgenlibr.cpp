@@ -606,11 +606,6 @@ void RPgenReader::FillVariantScores(NumericVector result, NumericVector weights,
     sprintf(errstr_buf, "weights.size()=%td doesn't match pgen sample-subset size=%d", weights.size(), _subset_size);
     stop(errstr_buf);
   }
-  const double* wts = &(weights[0]);
-  double wt_sum = 0;
-  for (uint32_t uii = 0; uii != _subset_size; ++uii) {
-    wt_sum += wts[uii];
-  }
   const int raw_variant_ct = _info_ptr->raw_variant_ct;
   const int* variant_idx_ints = nullptr;
   uintptr_t variant_ct = raw_variant_ct;
@@ -636,7 +631,9 @@ void RPgenReader::FillVariantScores(NumericVector result, NumericVector weights,
       sprintf(errstr_buf, "PgrGetD() error %d", static_cast<int>(reterr));
       stop(errstr_buf);
     }
-    result[ulii] = plink2::LinearCombinationMeanimpute(wts, _pgv.genovec, _pgv.dosage_present, _pgv.dosage_main, _subset_size, dosage_ct, wt_sum);
+    plink2::ZeroTrailingNyps(_subset_size, _pgv.genovec);
+    const double* wts = &(weights[0]);
+    result[ulii] = plink2::LinearCombinationMeanimpute(wts, _pgv.genovec, _pgv.dosage_present, _pgv.dosage_main, _subset_size, dosage_ct);
   }
 }
 

@@ -1305,7 +1305,6 @@ int32_t GetVariantUidxWithoutHtable(const char* idstr, const char* const* varian
 // similarly, copy_when_nonmissing() retired in favor of genoarr_to_nonmissing
 // followed by a for loop
 
-
 // Benchmark results justify replacing this with XXH3 when the latter is ready.
 // Not considering it ready yet since the development XXH_INLINE_ALL setup
 // isn't very friendly.

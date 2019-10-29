@@ -187,7 +187,7 @@ void Dosage16ToDoubles(const double* geno_double_pair_table, const uintptr_t* ge
   }
 }
 
-double LinearCombinationMeanimpute(const double* weights, const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, double weight_sum) {
+double LinearCombinationMeanimpute(const double* weights, const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct) {
   const uint32_t word_ct = DivUp(sample_ct, kBitsPerWordD2);
   double result = 0.0;
   double result2 = 0.0;
@@ -221,49 +221,78 @@ double LinearCombinationMeanimpute(const double* weights, const uintptr_t* genoa
       }
     }
     result += 2 * result2;
-  } else {
-    const Halfword* dosage_present_hws = R_CAST(const Halfword*, dosage_present);
-    for (uint32_t widx = 0; widx != word_ct; ++widx) {
-      const uintptr_t geno_word = genoarr[widx];
-      if (geno_word) {
-        const double* cur_weights = &(weights[widx * kBitsPerWordD2]);
-        uintptr_t geno_word1 = geno_word & kMask5555;
-        uintptr_t geno_word2 = (geno_word >> 1) & kMask5555;
-        uintptr_t geno_missing_word = geno_word1 & geno_word2;
-        const uintptr_t mask_word = ~(geno_missing_word | UnpackHalfwordToWord(dosage_present_hws[widx]));
-        geno_word1 &= mask_word;
-        while (geno_word1) {
-          const uint32_t sample_idx_lowbits = ctzw(geno_word1) / 2;
-          result += cur_weights[sample_idx_lowbits];
-          geno_word1 &= geno_word1 - 1;
-        }
-        geno_word2 &= mask_word;
-        while (geno_word2) {
-          const uint32_t sample_idx_lowbits = ctzw(geno_word2) / 2;
-          result2 += cur_weights[sample_idx_lowbits];
-          geno_word2 &= geno_word2 - 1;
-        }
-        while (geno_missing_word) {
-          const uint32_t sample_idx_lowbits = ctzw(geno_missing_word) / 2;
-          miss_weight += cur_weights[sample_idx_lowbits];
-          geno_missing_word &= geno_missing_word - 1;
-        }
+    if (miss_weight != 0.0) {
+      // bugfix (29 Oct 2019): previous mean-imputation formula was based on
+      // *weighted* MAF, which was obviously nonsense when negative weights
+      // were present.
+      STD_ARRAY_DECL(uint32_t, 4, genocounts);
+      GenovecCountFreqsUnsafe(genoarr, sample_ct, genocounts);
+      const double numer = u63tod(genocounts[1] + 2 * genocounts[2]);
+      const double denom = u31tod(sample_ct - genocounts[3]);
+      result += miss_weight * (numer / denom);
+    }
+    return result;
+  }
+  const Halfword* dosage_present_hws = R_CAST(const Halfword*, dosage_present);
+  uint32_t onealt_ct = 0;
+  uint32_t twoalt_ct = 0;
+  uint32_t missing_ct = 0;
+  for (uint32_t widx = 0; widx != word_ct; ++widx) {
+    const uintptr_t geno_word = genoarr[widx];
+    if (geno_word) {
+      const double* cur_weights = &(weights[widx * kBitsPerWordD2]);
+      uintptr_t geno_word1 = geno_word & kMask5555;
+      uintptr_t geno_word2 = (geno_word >> 1) & kMask5555;
+      uintptr_t geno_missing_word = geno_word1 & geno_word2;
+      const uintptr_t mask_word = ~(geno_missing_word | UnpackHalfwordToWord(dosage_present_hws[widx]));
+      geno_word1 &= mask_word;
+      while (geno_word1) {
+        const uint32_t sample_idx_lowbits = ctzw(geno_word1) / 2;
+        result += cur_weights[sample_idx_lowbits];
+        // probably sparse enough that this is faster than popcount?
+        ++onealt_ct;
+        geno_word1 &= geno_word1 - 1;
+      }
+      geno_word2 &= mask_word;
+      while (geno_word2) {
+        const uint32_t sample_idx_lowbits = ctzw(geno_word2) / 2;
+        result2 += cur_weights[sample_idx_lowbits];
+        ++twoalt_ct;
+        geno_word2 &= geno_word2 - 1;
+      }
+      while (geno_missing_word) {
+        const uint32_t sample_idx_lowbits = ctzw(geno_missing_word) / 2;
+        miss_weight += cur_weights[sample_idx_lowbits];
+        ++missing_ct;
+        geno_missing_word &= geno_missing_word - 1;
       }
     }
-    result += result2 * 2;
-    const uint16_t* dosage_main_iter = dosage_main;
-    double resultx = 0.0;
-    uintptr_t sample_uidx_base = 0;
-    uintptr_t cur_bits = dosage_present[0];
+  }
+  result += result2 * 2;
+  const uint16_t* dosage_main_iter = dosage_main;
+  double resultx = 0.0;
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = dosage_present[0];
+  if (miss_weight == 0.0) {
     for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
       const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &cur_bits);
       resultx += S_CAST(double, *dosage_main_iter++) * weights[sample_uidx];
     }
     result += 0.00006103515625 * resultx;
+    return result;
   }
-  if (miss_weight != 0.0) {
-    result = result * weight_sum / (weight_sum - miss_weight);
+  // Also need to track dosage-sum for mean-imputation.
+  uint64_t dosage_sum = 0;
+  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+    const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &cur_bits);
+    const uint32_t cur_dosage = *dosage_main_iter++;
+    dosage_sum += cur_dosage;
+    resultx += u31tod(cur_dosage) * weights[sample_uidx];
   }
+  result += 0.00006103515625 * resultx;
+  const double numer = u63tod(16384 * S_CAST(uint64_t, onealt_ct + 2 * twoalt_ct) + dosage_sum);
+  const double denom = 16384 * u31tod(sample_ct - missing_ct);
+  result += miss_weight * (numer / denom);
   return result;
 }
 

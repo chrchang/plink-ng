@@ -4936,6 +4936,13 @@ THREAD_FUNC_DECL CalcScoreThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
+typedef struct LlQscoreRangeStruct {
+  struct LlQscoreRangeStruct* next;
+  char* range_name;
+  double lbound;
+  double ubound;
+} LlQscoreRange;
+
 PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const ScoreInfo* score_info_ptr, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t xchr_model, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -4971,12 +4978,83 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     }
     // now xchr_model is set iff it's 1
 
-    const ScoreFlags score_flags = score_info_ptr->flags;
+    const ScoreFlags flags = score_info_ptr->flags;
+    uint32_t* variant_include_cumulative_popcounts = nullptr;
+    uintptr_t* qsr_include = nullptr;
+    char** range_labels = nullptr;
+    uintptr_t qsr_ct = 0;
+    if (score_info_ptr->qsr_range_fname) {
+      logerrputs("Error: --q-score-range is under development.\n");
+      reterr = kPglRetNotYetSupported;
+      goto ScoreReport_ret_1;
+
+      // strictly speaking, textFILE would be more appropriate here since this
+      // file should be tiny, but it doesn't really matter.
+      reterr = InitTextStream(score_info_ptr->qsr_range_fname, kTextStreamBlenFast, 1, &score_txs);
+      if (unlikely(reterr)) {
+        goto ScoreReport_ret_QSR_RANGE_TSTREAM_FAIL;
+      }
+      LlQscoreRange* ll_range = nullptr;
+      while (1) {
+        ++line_idx;
+        const char* line_start;
+        reterr = TextNextLineLstripK(&score_txs, &line_start);
+        if (reterr) {
+          if (likely(reterr == kPglRetEof)) {
+            // reterr = kPglRetSuccess;
+            break;
+          }
+          goto ScoreReport_ret_QSR_RANGE_TSTREAM_FAIL;
+        }
+        // range label, p-value lower bound, p-value upper bound
+        const char* range_label_end = CurTokenEnd(line_start);
+        // TODO: create new linked list entry
+        ;;;
+        ++qsr_ct;
+      }
+      if (unlikely(
+              bigstack_end_alloc_u32(raw_variant_ctl, &variant_include_cumulative_popcounts) ||
+              bigstack_end_calloc_w(BitCtToWordCt(qsr_ct * variant_ct), &qsr_include))) {
+        goto ScoreReport_ret_NOMEM;
+      }
+      unsigned char* bigstack_end_mark2 = g_bigstack_end;
+      const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
+      uintptr_t* already_seen;
+      if (unlikely(
+              bigstack_end_calloc_w(variant_ctl, &already_seen))) {
+        goto ScoreReport_ret_NOMEM;
+      }
+      FillCumulativePopcounts(variant_include, raw_variant_ctl, variant_include_cumulative_popcounts);
+      reterr = TextRetarget(score_info_ptr->qsr_data_fname, &score_txs);
+      if (unlikely(reterr)) {
+        goto ScoreReport_ret_QSR_RANGE_TSTREAM_FAIL;
+      }
+      line_idx = 0;
+      while (1) {
+        ++line_idx;
+        const char* line_start;
+        reterr = TextNextLineLstripK(&score_txs, &line_start);
+        if (reterr) {
+          if (likely(reterr == kPglRetEof)) {
+            break;
+          }
+        }
+        // todo: process lines
+      }
+      if (CleanupTextStream2("--q-score-range data file", &score_txs, &reterr)) {
+        goto ScoreReport_ret_1;
+      }
+      // possible todo: replace variant_include with already_seen, and compact
+      // qsr_include.
+      // but for now, we just free already_seen.
+      BigstackEndReset(bigstack_end_mark2);
+      line_idx = 0;
+    }
     reterr = SizeAndInitTextStream(score_info_ptr->input_fname, bigstack_left() / 8, 1, &score_txs);
     if (unlikely(reterr)) {
       goto ScoreReport_ret_TSTREAM_FAIL;
     }
-    uint32_t nonempty_lines_to_skip_p1 = 1 + ((score_flags / kfScoreHeaderIgnore) & 1);
+    uint32_t nonempty_lines_to_skip_p1 = 1 + ((flags / kfScoreHeaderIgnore) & 1);
     char* line_start;
     for (uint32_t uii = 0; uii != nonempty_lines_to_skip_p1; ++uii) {
       reterr = TextNextNonemptyLineLstrip(&score_txs, &line_idx, &line_start);
@@ -5010,6 +5088,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       }
       score_col_idx_deltas[0] = allele_col_idx + 1;
     } else {
+      unsigned char* bigstack_end_mark2 = g_bigstack_end;
       const uint32_t last_col_idxl = BitCtToWordCt(last_col_idx);
       uintptr_t* score_col_bitarr;
       if (unlikely(bigstack_end_calloc_w(last_col_idxl, &score_col_bitarr))) {
@@ -5040,7 +5119,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       for (uintptr_t score_col_idx = score_col_ct - 1; score_col_idx; --score_col_idx) {
         score_col_idx_deltas[score_col_idx] -= score_col_idx_deltas[score_col_idx - 1];
       }
-      BigstackEndReset(bigstack_end_mark);
+      BigstackEndReset(bigstack_end_mark2);
     }
     char** score_col_names;
     if (unlikely(bigstack_alloc_cp(score_col_ct, &score_col_names))) {
@@ -5049,7 +5128,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     char* write_iter = R_CAST(char*, g_bigstack_base);
     // don't have to worry about overflow, since linebuf was limited to 1/8
     // of available workspace.
-    if (score_flags & kfScoreHeaderRead) {
+    if (flags & kfScoreHeaderRead) {
       char* read_iter = line_start;
       for (uintptr_t score_col_idx = 0; score_col_idx != score_col_ct; ++score_col_idx) {
         read_iter = NextTokenMult0(read_iter, score_col_idx_deltas[score_col_idx]);
@@ -5083,11 +5162,11 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     const uint32_t acc1_vec_ct = BitCtToVecCt(sample_ct);
     const uint32_t acc4_vec_ct = acc1_vec_ct * 4;
     const uint32_t acc8_vec_ct = acc1_vec_ct * 8;
-    const uint32_t write_score_avgs = (score_flags / kfScoreColScoreAvgs) & 1;
-    const uint32_t write_score_sums = (score_flags / kfScoreColScoreSums) & 1;
+    const uint32_t write_score_avgs = (flags / kfScoreColScoreAvgs) & 1;
+    const uint32_t write_score_sums = (flags / kfScoreColScoreSums) & 1;
     const uintptr_t overflow_buf_size = RoundUpPow2((score_col_ct * (write_score_avgs + write_score_sums) + pheno_ct) * 16 + 3 * kMaxIdSlen + kCompressStreamBlock + 64, kCacheline);
     uintptr_t overflow_buf_alloc = overflow_buf_size;
-    if (score_flags & (kfScoreZs | kfScoreListVariantsZs)) {
+    if (flags & (kfScoreZs | kfScoreListVariantsZs)) {
       overflow_buf_alloc += CstreamWkspaceReq(overflow_buf_size);
     }
     uint32_t* sample_include_cumulative_popcounts = nullptr;
@@ -5147,10 +5226,10 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       goto ScoreReport_ret_1;
     }
 
-    const uint32_t ignore_dup_ids = (score_flags / kfScoreIgnoreDupIds) & 1;
-    const uint32_t list_variants = (score_flags / kfScoreListVariants) & 1;
+    const uint32_t ignore_dup_ids = (flags / kfScoreIgnoreDupIds) & 1;
+    const uint32_t list_variants = (flags / kfScoreListVariants) & 1;
     if (list_variants) {
-      const uint32_t output_zst = (score_flags / kfScoreListVariantsZs) & 1;
+      const uint32_t output_zst = (flags / kfScoreListVariantsZs) & 1;
       OutnameZstSet(".sscore.vars", output_zst, outname_end);
       reterr = InitCstream(outname, 0, output_zst, max_thread_ct, overflow_buf_size, overflow_buf, R_CAST(unsigned char*, &(overflow_buf[overflow_buf_size])), &css);
       if (unlikely(reterr)) {
@@ -5162,12 +5241,12 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
     const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
     const uint32_t mt_code = cip->xymt_codes[kChrOffsetMT];
-    const uint32_t model_dominant = (score_flags / kfScoreDominant) & 1;
-    const uint32_t domrec = model_dominant || (score_flags & kfScoreRecessive);
-    const uint32_t variance_standardize = (score_flags / kfScoreVarianceStandardize) & 1;
-    const uint32_t center = variance_standardize || (score_flags & kfScoreCenter);
-    const uint32_t no_meanimpute = (score_flags / kfScoreNoMeanimpute) & 1;
-    const uint32_t se_mode = (score_flags / kfScoreSe) & 1;
+    const uint32_t model_dominant = (flags / kfScoreDominant) & 1;
+    const uint32_t domrec = model_dominant || (flags & kfScoreRecessive);
+    const uint32_t variance_standardize = (flags / kfScoreVarianceStandardize) & 1;
+    const uint32_t center = variance_standardize || (flags & kfScoreCenter);
+    const uint32_t no_meanimpute = (flags / kfScoreNoMeanimpute) & 1;
+    const uint32_t se_mode = (flags / kfScoreSe) & 1;
     uint32_t block_vidx = 0;
     uint32_t parity = 0;
     uint32_t cur_allele_ct = 2;
@@ -5582,22 +5661,22 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       logprintf("Variant list written to %s .\n", outname);
     }
 
-    const uint32_t output_zst = (score_flags / kfScoreZs) & 1;
+    const uint32_t output_zst = (flags / kfScoreZs) & 1;
     OutnameZstSet(".sscore", output_zst, outname_end);
     reterr = InitCstream(outname, 0, output_zst, max_thread_ct, overflow_buf_size, overflow_buf, R_CAST(unsigned char*, &(overflow_buf[overflow_buf_size])), &css);
     if (unlikely(reterr)) {
       goto ScoreReport_ret_1;
     }
     cswritep = overflow_buf;
-    const uint32_t write_fid = FidColIsRequired(siip, score_flags / kfScoreColMaybefid);
+    const uint32_t write_fid = FidColIsRequired(siip, flags / kfScoreColMaybefid);
     const char* sample_ids = siip->sample_ids;
     const char* sids = siip->sids;
     const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
     const uintptr_t max_sid_blen = siip->max_sid_blen;
-    const uint32_t write_sid = SidColIsRequired(sids, score_flags / kfScoreColMaybesid);
-    const uint32_t write_empty_pheno = (score_flags & kfScoreColPheno1) && (!pheno_ct);
-    const uint32_t write_phenos = (score_flags & (kfScoreColPheno1 | kfScoreColPhenos)) && pheno_ct;
-    if (write_phenos && (!(score_flags & kfScoreColPhenos))) {
+    const uint32_t write_sid = SidColIsRequired(sids, flags / kfScoreColMaybesid);
+    const uint32_t write_empty_pheno = (flags & kfScoreColPheno1) && (!pheno_ct);
+    const uint32_t write_phenos = (flags & (kfScoreColPheno1 | kfScoreColPhenos)) && pheno_ct;
+    if (write_phenos && (!(flags & kfScoreColPhenos))) {
       pheno_ct = 1;
     }
     *cswritep++ = '#';
@@ -5619,15 +5698,15 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     } else if (write_empty_pheno) {
       cswritep = strcpya_k(cswritep, "\tPHENO1");
     }
-    const uint32_t write_nmiss_allele = (score_flags / kfScoreColNmissAllele) & 1;
+    const uint32_t write_nmiss_allele = (flags / kfScoreColNmissAllele) & 1;
     if (write_nmiss_allele) {
       cswritep = strcpya_k(cswritep, "\tNMISS_ALLELE_CT");
     }
-    const uint32_t write_denom = (score_flags / kfScoreColDenom) & 1;
+    const uint32_t write_denom = (flags / kfScoreColDenom) & 1;
     if (write_denom) {
       cswritep = strcpya_k(cswritep, "\tDENOM");
     }
-    const uint32_t write_dosage_sum = (score_flags / kfScoreColDosageSum) & 1;
+    const uint32_t write_dosage_sum = (flags / kfScoreColDosageSum) & 1;
     if (write_dosage_sum) {
       cswritep = strcpya_k(cswritep, "\tNAMED_ALLELE_DOSAGE_SUM");
     }
@@ -5745,6 +5824,12 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
   while (0) {
   ScoreReport_ret_TSTREAM_FAIL:
     TextStreamErrPrint("--score file", &score_txs);
+    break;
+  ScoreReport_ret_QSR_RANGE_TSTREAM_FAIL:
+    TextStreamErrPrint("--q-score-range range file", &score_txs);
+    break;
+  ScoreReport_ret_QSR_DATA_TSTREAM_FAIL:
+    TextStreamErrPrint("--q-score-range data file", &score_txs);
     break;
   ScoreReport_ret_NOMEM:
     reterr = kPglRetNomem;

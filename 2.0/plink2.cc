@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (27 Oct 2019)";
+  " (28 Oct 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -7849,9 +7849,14 @@ int main(int argc, char** argv) {
               ++numeric_param_ct;
             }
           }
-          logerrputs("Error: --q-score-range is under development.\n");
-          reterr = kPglRetNotYetSupported;
-          goto main_ret_1;
+          if (numeric_param_ct) {
+            pc.score_info.qsr_varid_col_p1 = qsr_cols[0];
+          }
+          if (numeric_param_ct == 2) {
+            pc.score_info.qsr_val_col_p1 = qsr_cols[1];
+          } else {
+            pc.score_info.qsr_val_col_p1 = pc.score_info.qsr_varid_col_p1 + 1;
+          }
           // no dependencies since we enforce --score requirement later
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
