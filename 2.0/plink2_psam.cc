@@ -506,7 +506,8 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
           const uint32_t col_type_idx = pheno_idx + 5;
           const char* cur_phenostr = token_ptrs[col_type_idx];
           double dxx;
-          if (!ScanadvDouble(cur_phenostr, &dxx)) {
+          const char* cur_phenostr_end = ScanadvDouble(cur_phenostr, &dxx);
+          if (!cur_phenostr_end) {
             // possible todo: defend against out-of-range numbers like 1e1000;
             // right now they get treated as categorical variables...
             const uint32_t slen = token_slens[col_type_idx];
@@ -561,6 +562,12 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
               ++cat_pheno_idx;
               continue;
             }
+          }
+          if (unlikely(!IsSpaceOrEoln(*cur_phenostr_end))) {
+            cur_phenostr_end = CurTokenEnd(cur_phenostr_end);
+            *K_CAST(char*, cur_phenostr_end) = '\0';
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid numeric token '%s' on line %" PRIuPTR " of %s.\n", cur_phenostr, line_idx, psamname);
+            goto LoadPsam_ret_MALFORMED_INPUT_WW;
           }
           if (unlikely(IsSet(categorical_phenos, pheno_idx))) {
             assert(psam_info_reverse_ll->next);
@@ -1234,7 +1241,8 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
           for (uint32_t new_pheno_idx = 0; new_pheno_idx != new_pheno_ct; ++new_pheno_idx) {
             const char* cur_phenostr = token_ptrs[new_pheno_idx];
             double dxx;
-            if (!ScanadvDouble(cur_phenostr, &dxx)) {
+            const char* cur_phenostr_end = ScanadvDouble(cur_phenostr, &dxx);
+            if (!cur_phenostr_end) {
               const uint32_t slen = token_slens[new_pheno_idx];
               if (IsNanStr(cur_phenostr, slen)) {
                 // note that, in CSVs, empty string is interpreted as a
@@ -1288,6 +1296,12 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
                 ++cat_pheno_idx;
                 continue;
               }
+            }
+            if (unlikely(!IsSpaceOrEoln(*cur_phenostr_end))) {
+              cur_phenostr_end = CurTokenEnd(cur_phenostr_end);
+              *K_CAST(char*, cur_phenostr_end) = '\0';
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid numeric token '%s' on line %" PRIuPTR " of %s.\n", cur_phenostr, line_idx, pheno_fname);
+              goto LoadPhenos_ret_MALFORMED_INPUT_WW;
             }
             if (unlikely(IsSet(categorical_phenos, new_pheno_idx))) {
               assert(pheno_info_reverse_ll);

@@ -863,7 +863,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       const char* pval_str = token_ptrs[7];
       double ln_pval;
       if (!input_log10) {
-        if (!ScanadvLn(pval_str, &ln_pval)) {
+        if (!ScantokLn(pval_str, &ln_pval)) {
           uint32_t cur_slen;
         AdjustFile_alphabetic_pval:
           cur_slen = token_slens[7];
@@ -881,7 +881,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
         }
       } else {
         double neglog10_pval;
-        if (!ScanadvDouble(pval_str, &neglog10_pval)) {
+        if (!ScantokDouble(pval_str, &neglog10_pval)) {
           goto AdjustFile_alphabetic_pval;
         }
         ln_pval = neglog10_pval * (-kLn10);

@@ -904,15 +904,29 @@ HEADER_INLINE BoolErr ScanmovUintDefcap(const char** str_iterp, uint32_t* valp) 
 // This has different semantics from ScanmovPosintCapped, etc. since integer
 // readers don't take much code (so it's fine to have a bunch of similar
 // functions, optimized for slightly different use cases), but we only want one
-// floating point reader.
+// core floating point reader.
 // (update, 3 Feb 2018: renamed the integer readers above to start with
 // scanmov_ instead of scanadv_, to reflect the interface difference between
 // returning a pointer and moving the input pointer forward.)
 CXXCONST_CP ScanadvDouble(const char* str_iter, double* valp);
 
+// Thin wrapper that verifies the token ends with whitespace/eoln; should be
+// used whenever comma/semicolon/etc. delimiters are not ok.
+HEADER_INLINE CXXCONST_CP ScantokDouble(const char* str_iter, double* valp) {
+  CXXCONST_CP parsed_end = ScanadvDouble(str_iter, valp);
+  if ((!parsed_end) || (!IsSpaceOrEoln(*parsed_end))) {
+    return nullptr;
+  }
+  return parsed_end;
+}
+
 #ifdef __cplusplus
 HEADER_INLINE char* ScanadvDouble(char* str_iter, double* valp) {
   return const_cast<char*>(ScanadvDouble(const_cast<const char*>(str_iter), valp));
+}
+
+HEADER_INLINE char* ScantokDouble(char* str_iter, double* valp) {
+  return const_cast<char*>(ScantokDouble(const_cast<const char*>(str_iter), valp));
 }
 #endif
 
@@ -920,7 +934,7 @@ HEADER_INLINE char* ScanadvDouble(char* str_iter, double* valp) {
 // something else in error case (this is a valid ScanadvDouble() use case)
 HEADER_INLINE BoolErr ScanFloat(const char* ss, float* valp) {
   double dxx;
-  if (unlikely(!ScanadvDouble(ss, &dxx))) {
+  if (unlikely(!ScantokDouble(ss, &dxx))) {
     return 1;
   }
   if (unlikely(fabs(dxx) > 3.4028235677973362e38)) {
@@ -932,9 +946,21 @@ HEADER_INLINE BoolErr ScanFloat(const char* ss, float* valp) {
 
 CXXCONST_CP ScanadvLn(const char* str_iter, double* ln_ptr);
 
+HEADER_INLINE CXXCONST_CP ScantokLn(const char* str_iter, double* ln_ptr) {
+  CXXCONST_CP parsed_end = ScanadvLn(str_iter, ln_ptr);
+  if ((!parsed_end) || (!IsSpaceOrEoln(*parsed_end))) {
+    return nullptr;
+  }
+  return parsed_end;
+}
+
 #ifdef __cplusplus
 HEADER_INLINE char* ScanadvLn(char* str_iter, double* ln_ptr) {
   return const_cast<char*>(ScanadvLn(const_cast<const char*>(str_iter), ln_ptr));
+}
+
+HEADER_INLINE char* ScantokLn(char* str_iter, double* ln_ptr) {
+  return const_cast<char*>(ScantokLn(const_cast<const char*>(str_iter), ln_ptr));
 }
 #endif
 
@@ -948,11 +974,6 @@ HEADER_INLINE char* ScanadvLn(char* str_iter, double* ln_ptr) {
 //   at non-whitespace.
 // The performance cost of this behavior is relatively high: these functions
 // shouldn't be used for internal file-reading loops.
-HEADER_INLINE BoolErr ScanDoublex(const char* str_iter, double* valp) {
-  str_iter = ScanadvDouble(str_iter, valp);
-  return (!str_iter) || (!IsSpaceOrEoln(str_iter[0]));
-}
-
 BoolErr ScanPosintCappedx(const char* str_iter, uint64_t cap, uint32_t* valp);
 
 BoolErr ScanUintCappedx(const char* str_iter, uint64_t cap, uint32_t* valp);
@@ -960,7 +981,7 @@ BoolErr ScanUintCappedx(const char* str_iter, uint64_t cap, uint32_t* valp);
 BoolErr ScanIntAbsBoundedx(const char* str_iter, int64_t bound, int32_t* valp);
 
 HEADER_INLINE BoolErr ScanInt32x(const char* str, int32_t* valp) {
-  return ScanIntAbsBounded(str, 0x7fffffff, valp);
+  return ScanIntAbsBoundedx(str, 0x7fffffff, valp);
 }
 
 HEADER_INLINE BoolErr ScanPosintDefcapx(const char* str, uint32_t* valp) {
@@ -972,11 +993,6 @@ HEADER_INLINE BoolErr ScanUintDefcapx(const char* str, uint32_t* valp) {
 }
 
 BoolErr ScanPosintptrx(const char* str_iter, uintptr_t* valp);
-
-HEADER_INLINE BoolErr ScanLnx(const char* str_iter, double* ln_ptr) {
-  str_iter = ScanadvLn(str_iter, ln_ptr);
-  return (!str_iter) || (!IsSpaceOrEoln(str_iter[0]));
-}
 
 
 HEADER_INLINE void AppendBinaryEoln(char** dst_ptr) {

@@ -4610,7 +4610,7 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
             float* local_covars_f_iter2 = &(local_covars_vcmaj_f_iter[cur_sample_idx]);
             for (uint32_t covar_idx = 0; covar_idx != local_covar_ct; ++covar_idx) {
               double dxx;
-              linebuf_iter = ScanadvDouble(linebuf_iter, &dxx);
+              linebuf_iter = ScantokDouble(linebuf_iter, &dxx);
               if (unlikely((!linebuf_iter) || (fabs(dxx) > 3.4028235677973362e38))) {
                 logputs("\n");
                 logerrprintf("Error: Invalid or missing token on line %u of --glm local-covar= file.\n", local_line_idx);
@@ -4618,13 +4618,13 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
               }
               *local_covars_f_iter2 = S_CAST(float, dxx);
               local_covars_f_iter2 = &(local_covars_f_iter2[max_sample_ct]);
-              linebuf_iter = FirstNonTspace(FirstSpaceOrEoln(linebuf_iter));
+              linebuf_iter = FirstNonTspace(linebuf_iter);
             }
           } else {
             double* local_covars_d_iter2 = &(local_covars_vcmaj_d_iter[cur_sample_idx]);
             for (uint32_t covar_idx = 0; covar_idx != local_covar_ct; ++covar_idx) {
               double dxx;
-              linebuf_iter = ScanadvDouble(linebuf_iter, &dxx);
+              linebuf_iter = ScantokDouble(linebuf_iter, &dxx);
               if (unlikely(!linebuf_iter)) {
                 logputs("\n");
                 logerrprintf("Error: Invalid or missing token on line %u of --glm local-covar= file.\n", local_line_idx);
@@ -4632,7 +4632,7 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
               }
               *local_covars_d_iter2 = dxx;
               local_covars_d_iter2 = &(local_covars_d_iter2[max_sample_ct]);
-              linebuf_iter = FirstNonTspace(FirstSpaceOrEoln(linebuf_iter));
+              linebuf_iter = FirstNonTspace(linebuf_iter);
             }
           }
           if (omit_last) {

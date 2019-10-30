@@ -607,7 +607,7 @@ PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_ht
       } else {
         // min-max
         double val;
-        if ((!ScanadvDouble(colval_ptr, &val)) || (val < val_min) || (val > val_max)) {
+        if ((!ScantokDouble(colval_ptr, &val)) || (val < val_min) || (val > val_max)) {
           continue;
         }
       }
@@ -1687,7 +1687,7 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
     const uint32_t val_slen = strlen(cur_val_str);
     if (cur_pheno_col->type_code == kPhenoDtypeQt) {
       double val;
-      if (unlikely(!ScanadvDouble(cur_val_str, &val))) {
+      if (unlikely(!ScantokDouble(cur_val_str, &val))) {
         snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s-if value (finite number expected).\n", is_remove? "remove" : "keep");
         goto KeepRemoveIf_ret_INCONSISTENT_INPUT_2;
       }
@@ -2818,8 +2818,8 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
               if (internal0 != UINT32_MAX) {
                 const char* hom_ref_str = token_ptrs[kfReadFreqColHomRefCt];
                 double dxx;
-                const char* hom_ref_end = ScanadvDouble(hom_ref_str, &dxx);
-                if (unlikely((!hom_ref_end) || (hom_ref_end != &(hom_ref_str[token_slens[kfReadFreqColHomRefCt]])) || (dxx < 0.0) || (dxx > 4294967295.0))) {
+                const char* hom_ref_end = ScantokDouble(hom_ref_str, &dxx);
+                if (unlikely((!hom_ref_end) || (dxx < 0.0) || (dxx > 4294967295.0))) {
                   goto ReadAlleleFreqs_ret_INVALID_FREQS;
                 }
                 cur_allele_freqs[internal0] += 2 * dxx;
@@ -2882,8 +2882,8 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
             if ((header_cols & kfReadFreqColsetHapRefCt) && (internal0 != UINT32_MAX)) {
               const char* hap_ref_str = token_ptrs[kfReadFreqColHapRefCt];
               double dxx;
-              const char* hap_ref_end = ScanadvDouble(hap_ref_str, &dxx);
-              if (unlikely((!hap_ref_end) || (hap_ref_end != &(hap_ref_str[token_slens[kfReadFreqColHapRefCt]])) || (dxx < 0.0) || (dxx > 4294967295.0))) {
+              const char* hap_ref_end = ScantokDouble(hap_ref_str, &dxx);
+              if (unlikely((!hap_ref_end) || (dxx < 0.0) || (dxx > 4294967295.0))) {
                 goto ReadAlleleFreqs_ret_INVALID_FREQS;
               }
               cur_allele_freqs[internal0] += dxx;
@@ -2913,7 +2913,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           if ((header_cols & kfReadFreqColsetRefFreq) && IsSet(matched_loaded_alleles, 0)) {
             const char* ref_freq_str = token_ptrs[kfReadFreqColRefFreq];
             double dxx;
-            if (!ScanadvDouble(ref_freq_str, &dxx)) {
+            if (!ScantokDouble(ref_freq_str, &dxx)) {
               if (likely(IsNanStr(ref_freq_str, token_slens[kfReadFreqColRefFreq]))) {
                 goto ReadAlleleFreqs_skip_variant;
               }
@@ -2989,14 +2989,14 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                       }
                       ++alt_freq_iter;
                       double dxx;
-                      const char* cur_freq_end = ScanadvDouble(alt_freq_iter, &dxx);
+                      const char* cur_freq_end = ScantokDouble(alt_freq_iter, &dxx);
                       if (!cur_freq_end) {
                         if (likely(IsNanStr(alt_freq_iter, cur_entry_end - alt_freq_iter))) {
                           goto ReadAlleleFreqs_skip_variant;
                         }
                         goto ReadAlleleFreqs_ret_INVALID_FREQS;
                       }
-                      if (unlikely((cur_freq_end != cur_entry_end) || (dxx < 0.0) || (dxx > freq_max))) {
+                      if (unlikely((dxx < 0.0) || (dxx > freq_max))) {
                         goto ReadAlleleFreqs_ret_INVALID_FREQS;
                       }
                       cur_allele_freqs[internal_allele_idx] = dxx;
@@ -3031,14 +3031,14 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                         }
                         alt_freq_iter = eq_ptr;
                         double dxx;
-                        const char* cur_freq_end = ScanadvDouble(alt_freq_iter, &dxx);
+                        const char* cur_freq_end = ScantokDouble(alt_freq_iter, &dxx);
                         if (!cur_freq_end) {
                           if (likely(IsNanStr(alt_freq_iter, cur_entry_end - alt_freq_iter))) {
                             goto ReadAlleleFreqs_skip_variant;
                           }
                           goto ReadAlleleFreqs_ret_INVALID_FREQS;
                         }
-                        if (unlikely((cur_freq_end != cur_entry_end) || (dxx < 0.0) || (dxx > freq_max))) {
+                        if (unlikely((dxx < 0.0) || (dxx > freq_max))) {
                           goto ReadAlleleFreqs_ret_INVALID_FREQS;
                         }
                         cur_allele_freqs[internal_allele_idx] = dxx;

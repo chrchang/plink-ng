@@ -1994,7 +1994,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                           ranges of them.\n"
                );
     HelpPrint("q-score-range\0score\0", &help_ctrl, 0,
-"  --q-score-range <range file> <data file> [i] [j] ['header'] :\n"
+"  --q-score-range <range file> <data file> [i] [j] ['header'] ['min'] :\n"
 "    Apply --score to subset(s) of variants in the primary score list(s) based\n"
 "    on e.g. p-value ranges.\n"
 "    * The first file should have range labels in the first column, p-value\n"
@@ -2006,6 +2006,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      p-values are read from column #j, where i defaults to 1 and j defaults to\n"
 "      i+1.  The 'header' modifier causes the first nonempty line of this file\n"
 "      to be skipped.\n"
+"    * By default, --q-score-range errors out when a variant ID appears multiple\n"
+"      times in the data file (and is also present in the main dataset).  To use\n"
+"      the minimum p-value in this case instead, add the 'min' modifier.\n"
                );
     HelpPrint("parallel\0", &help_ctrl, 0,
 "  --parallel <k> <n> : Divide the output matrix into n pieces, and only compute\n"

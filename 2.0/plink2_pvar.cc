@@ -673,7 +673,7 @@ uint32_t InfoConditionSatisfied(const char* info_token, const InfoFilter* filter
     return mismatch ^ (binary_op != kCmpOperatorNoteq);
   }
   double dxx;
-  if (!ScanadvDouble(possible_hit, &dxx)) {
+  if (!ScantokDouble(possible_hit, &dxx)) {
     return (binary_op == kCmpOperatorNoteq);
   }
   const double val = filterp->val;
@@ -1709,7 +1709,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
             const char* cm_token = token_ptrs[7];
             if ((cm_token[0] != '0') || (cm_token[1] > ' ')) {
               double cur_cm;
-              if (unlikely(!ScanadvDouble(cm_token, &cur_cm))) {
+              if (unlikely(!ScantokDouble(cm_token, &cur_cm))) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid centimorgan position on line %" PRIuPTR " of %s.\n", line_idx, pvarname);
                 goto LoadPvar_ret_MALFORMED_INPUT_WW;
               }

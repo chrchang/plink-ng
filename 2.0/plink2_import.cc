@@ -4291,8 +4291,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
           } else if (!is_missing) {
             if (IsSet(col_is_qt, col_idx)) {
               double dxx = 0.0;
-              char* num_end = ScanadvDouble(linebuf_iter, &dxx);
-              if (unlikely(num_end != token_end)) {
+              if (unlikely(!ScantokDouble(linebuf_iter, &dxx))) {
                 *token_end = '\0';
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid quantitative phenotype '%s' on line %" PRIuPTR ", column %u of .sample file (non-infinite number or --missing-code value expected).\n", linebuf_iter, line_idx, col_idx + 1);
                 goto OxSampleToPsam_ret_INCONSISTENT_INPUT_WW;
@@ -4684,8 +4683,8 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
             goto OxGenToPgen_ret_MISSING_TOKENS;
           }
           double prob_1alt;
-          linebuf_iter = ScanadvDouble(linebuf_iter, &prob_1alt);
-          if (unlikely((!linebuf_iter) || (ctou32(*linebuf_iter) > ' '))) {
+          linebuf_iter = ScantokDouble(linebuf_iter, &prob_1alt);
+          if (unlikely(!linebuf_iter)) {
             goto OxGenToPgen_ret_INVALID_DOSAGE;
           }
           linebuf_iter = FirstNonTspace(linebuf_iter);
@@ -4693,8 +4692,8 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
             goto OxGenToPgen_ret_MISSING_TOKENS;
           }
           double prob_2alt;
-          linebuf_iter = ScanadvDouble(linebuf_iter, &prob_2alt);
-          if (unlikely((!linebuf_iter) || (ctou32(*linebuf_iter) > ' '))) {
+          linebuf_iter = ScantokDouble(linebuf_iter, &prob_2alt);
+          if (unlikely(!linebuf_iter)) {
             goto OxGenToPgen_ret_INVALID_DOSAGE;
           }
           // bugfix: forgot the "multiply by 32768" part of "multiply by 32768
@@ -4881,8 +4880,8 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
             goto OxGenToPgen_ret_MISSING_TOKENS;
           }
           double prob_1alt;
-          linebuf_iter = ScanadvDouble(linebuf_iter, &prob_1alt);
-          if (unlikely((!linebuf_iter) || (ctou32(*linebuf_iter) > ' '))) {
+          linebuf_iter = ScantokDouble(linebuf_iter, &prob_1alt);
+          if (unlikely(!linebuf_iter)) {
             goto OxGenToPgen_ret_INVALID_DOSAGE;
           }
           linebuf_iter = FirstNonTspace(linebuf_iter);
@@ -4890,8 +4889,8 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
             goto OxGenToPgen_ret_MISSING_TOKENS;
           }
           double prob_2alt;
-          linebuf_iter = ScanadvDouble(linebuf_iter, &prob_2alt);
-          if (unlikely((!linebuf_iter) || (ctou32(*linebuf_iter) > ' '))) {
+          linebuf_iter = ScantokDouble(linebuf_iter, &prob_2alt);
+          if (unlikely(!linebuf_iter)) {
             goto OxGenToPgen_ret_INVALID_DOSAGE;
           }
           // bugfix
@@ -9202,7 +9201,7 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
         }
 
         if (map_cols == 4) {
-          char* cm_end = ScanadvDouble(linebuf_iter, &cur_cm);
+          char* cm_end = ScantokDouble(linebuf_iter, &cur_cm);
           if (unlikely(!cm_end)) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid centimorgan position on line %" PRIuPTR " of %s.\n", line_idx, mapname);
             goto LoadMap_ret_MALFORMED_INPUT_WW;
@@ -9886,6 +9885,12 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
               linebuf_iter = NextToken(linebuf_iter);
               continue;
             }
+            if (unlikely(!IsSpaceOrEoln(*str_end))) {
+              str_end = CurTokenEnd(str_end);
+              *str_end = '\0';
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid numeric token '%s' on line %" PRIuPTR " of --import-dosage file.\n", linebuf_iter, line_idx);
+              goto Plink1DosageToPgen_ret_MALFORMED_INPUT_WW;
+            }
             a1_dosage *= dosage_multiplier;
             const uint32_t dosage_int = S_CAST(int32_t, a1_dosage + 0.5);
             const uint32_t halfdist = BiallelicDosageHalfdist(dosage_int);
@@ -9893,7 +9898,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
               dosage_is_present = 1;
               break;
             }
-            linebuf_iter = NextToken(str_end);
+            linebuf_iter = FirstNonTspace(str_end);
           }
         } else {
           // for compatibility with plink 1.x, do not actually parse third
@@ -9908,8 +9913,14 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
               linebuf_iter = NextTokenMult(linebuf_iter, 2 + format_triple);
               continue;
             }
-            linebuf_iter = NextToken(str_end);
-            if (unlikely(!linebuf_iter)) {
+            if (unlikely(!IsSpaceOrEoln(*str_end))) {
+              str_end = CurTokenEnd(str_end);
+              *str_end = '\0';
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid numeric token '%s' on line %" PRIuPTR " of --import-dosage file.\n", linebuf_iter, line_idx);
+              goto Plink1DosageToPgen_ret_MALFORMED_INPUT_WW;
+            }
+            linebuf_iter = FirstNonTspace(str_end);
+            if (unlikely(IsEolnKns(*linebuf_iter))) {
               goto Plink1DosageToPgen_ret_MISSING_TOKENS;
             }
             double prob_1a1;
@@ -9917,6 +9928,12 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
             if (!str_end) {
               linebuf_iter = NextTokenMult(linebuf_iter, 1 + format_triple);
               continue;
+            }
+            if (unlikely(!IsSpaceOrEoln(*str_end))) {
+              str_end = CurTokenEnd(str_end);
+              *str_end = '\0';
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid numeric token '%s' on line %" PRIuPTR " of --import-dosage file.\n", linebuf_iter, line_idx);
+              goto Plink1DosageToPgen_ret_MALFORMED_INPUT_WW;
             }
             linebuf_iter = NextTokenMult(str_end, 1 + format_triple);
             double prob_one_or_two_a1 = prob_2a1 + prob_1a1;
@@ -10043,6 +10060,9 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
       } else {
         line_iter = NextTokenMult(line_iter, first_data_col_idx);
       }
+      if (!line_iter) {
+        goto Plink1DosageToPgen_ret_MISSING_TOKENS;
+      }
       uint32_t inner_loop_last = kBitsPerWordD2 - 1;
       Dosage* dosage_main_iter = dosage_main;
       char* linebuf_iter = line_iter;
@@ -10057,17 +10077,23 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
         uint32_t dosage_present_hw = 0;
         if (flags & kfPlink1DosageFormatSingle) {
           for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
-            if (unlikely(!linebuf_iter)) {
+            if (unlikely(IsEolnKns(*linebuf_iter))) {
               goto Plink1DosageToPgen_ret_MISSING_TOKENS;
             }
             double a1_dosage;
             char* str_end = ScanadvDouble(linebuf_iter, &a1_dosage);
             if ((!str_end) || (a1_dosage < 0.0) || (a1_dosage > dosage_ceil)) {
               genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
-              linebuf_iter = NextToken(linebuf_iter);
+              linebuf_iter = FirstNonTspace(CurTokenEnd(linebuf_iter));
               continue;
             }
-            linebuf_iter = NextToken(str_end);
+            if (unlikely(!IsSpaceOrEoln(*str_end))) {
+              str_end = CurTokenEnd(str_end);
+              *str_end = '\0';
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid numeric token '%s' on line %" PRIuPTR " of --import-dosage file.\n", linebuf_iter, line_idx);
+              goto Plink1DosageToPgen_ret_MALFORMED_INPUT_WW;
+            }
+            linebuf_iter = FirstNonTspace(str_end);
             uint32_t dosage_int = S_CAST(int32_t, a1_dosage * dosage_multiplier + 0.5);
             if (dosage_int > kDosageMax) {
               dosage_int = kDosageMax;
@@ -10099,8 +10125,14 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
               linebuf_iter = NextTokenMult(linebuf_iter, 2 + format_triple);
               continue;
             }
-            linebuf_iter = NextToken(str_end);
-            if (unlikely(!linebuf_iter)) {
+            if (unlikely(!IsSpaceOrEoln(*str_end))) {
+              str_end = CurTokenEnd(str_end);
+              *str_end = '\0';
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid numeric token '%s' on line %" PRIuPTR " of --import-dosage file.\n", linebuf_iter, line_idx);
+              goto Plink1DosageToPgen_ret_MALFORMED_INPUT_WW;
+            }
+            linebuf_iter = FirstNonTspace(str_end);
+            if (unlikely(IsEolnKns(*linebuf_iter))) {
               goto Plink1DosageToPgen_ret_MISSING_TOKENS;
             }
             double prob_1a1;
@@ -10109,6 +10141,12 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
               genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
               linebuf_iter = NextTokenMult(linebuf_iter, 1 + format_triple);
               continue;
+            }
+            if (unlikely(!IsSpaceOrEoln(*str_end))) {
+              str_end = CurTokenEnd(str_end);
+              *str_end = '\0';
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid numeric token '%s' on line %" PRIuPTR " of --import-dosage file.\n", linebuf_iter, line_idx);
+              goto Plink1DosageToPgen_ret_MALFORMED_INPUT_WW;
             }
             linebuf_iter = NextTokenMult(str_end, 1 + format_triple);
             double prob_one_or_two_a1 = prob_2a1 + prob_1a1;

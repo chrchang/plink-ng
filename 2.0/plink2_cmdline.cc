@@ -3987,7 +3987,7 @@ PglErr ValidateAndAllocCmpExpr(const char* const* sources, const char* flag_name
     }
     if ((cmp_expr_ptr->binary_op != kCmpOperatorNoteq) && (cmp_expr_ptr->binary_op != kCmpOperatorEq)) {
       double dxx;
-      if (unlikely(ScanDoublex(pheno_val_start, &dxx))) {
+      if (unlikely(!ScantokDouble(pheno_val_start, &dxx))) {
         logerrprintfww("Error: Invalid %s value '%s' (finite number expected).\n", flag_name, pheno_val_start);
         goto ValidateAndAllocCmpExpr_ret_INVALID_CMDLINE;
       }

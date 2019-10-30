@@ -1617,7 +1617,7 @@ CXXCONST_CP ScanadvLn(const char* str_iter, double* ln_ptr) {
 
 BoolErr ScanPosintCappedx(const char* str_iter, uint64_t cap, uint32_t* valp) {
   double val;
-  if (ScanDoublex(str_iter, &val) || (val < 1.0) || (val > S_CAST(double, cap))) {
+  if ((!ScantokDouble(str_iter, &val)) || (val < 1.0) || (val > S_CAST(double, cap))) {
     return 1;
   }
   *valp = S_CAST(uint32_t, val);
@@ -1626,7 +1626,7 @@ BoolErr ScanPosintCappedx(const char* str_iter, uint64_t cap, uint32_t* valp) {
 
 BoolErr ScanUintCappedx(const char* str_iter, uint64_t cap, uint32_t* valp) {
   double val;
-  if (ScanDoublex(str_iter, &val) || (val < 0.0) || (val > S_CAST(double, cap))) {
+  if ((!ScantokDouble(str_iter, &val)) || (val < 0.0) || (val > S_CAST(double, cap))) {
     return 1;
   }
   *valp = S_CAST(uint32_t, val);
@@ -1636,7 +1636,7 @@ BoolErr ScanUintCappedx(const char* str_iter, uint64_t cap, uint32_t* valp) {
 BoolErr ScanIntAbsBoundedx(const char* str_iter, int64_t bound, int32_t* valp) {
   const double bound_d = S_CAST(double, bound);
   double val;
-  if (ScanDoublex(str_iter, &val) || (val < -bound_d) || (val > bound_d)) {
+  if ((!ScantokDouble(str_iter, &val)) || (val < -bound_d) || (val > bound_d)) {
     return 1;
   }
   *valp = S_CAST(int32_t, val);
@@ -1645,7 +1645,7 @@ BoolErr ScanIntAbsBoundedx(const char* str_iter, int64_t bound, int32_t* valp) {
 
 BoolErr ScanPosintptrx(const char* str_iter, uintptr_t* valp) {
   double val;
-  if (ScanDoublex(str_iter, &val) || (val < 1.0) || (val > S_CAST(double, ~k0LU))) {
+  if ((!ScantokDouble(str_iter, &val)) || (val < 1.0) || (val > S_CAST(double, ~k0LU))) {
     return 1;
   }
   *valp = S_CAST(uintptr_t, val);

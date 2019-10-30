@@ -57,6 +57,14 @@ ReadAlleles <- function(pgen, acbuf, variant_num, phasepresent_buf = NULL) {
     invisible(.Call(`_pgenlibr_ReadAlleles`, pgen, acbuf, variant_num, phasepresent_buf))
 }
 
+ReadIntList <- function(pgen, variant_subset) {
+    .Call(`_pgenlibr_ReadIntList`, pgen, variant_subset)
+}
+
+ReadList <- function(pgen, variant_subset) {
+    .Call(`_pgenlibr_ReadList`, pgen, variant_subset)
+}
+
 VariantScores <- function(pgen, weights, variant_subset = NULL) {
     .Call(`_pgenlibr_VariantScores`, pgen, weights, variant_subset)
 }
