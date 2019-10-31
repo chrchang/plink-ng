@@ -269,8 +269,8 @@ HEADER_INLINE PglErr TextFileNextLineLstripNoempty(textFILE* txf_ptr, char** lin
   }
   char* line_start = FirstNonTspace(basep->consume_iter);
   basep->consume_iter = AdvPastDelim(line_start, '\n');
+  *line_startp = line_start;
   if (!IsEolnKns(*line_start)) {
-    *line_startp = line_start;
     return kPglRetSuccess;
   }
   return TextFileOnlyEmptyLinesLeft(txf_ptr);
@@ -466,8 +466,8 @@ HEADER_INLINE PglErr TextNextLineLstripNoempty(TextStream* txs_ptr, char** line_
   }
   char* line_start = FirstNonTspace(basep->consume_iter);
   basep->consume_iter = AdvPastDelim(line_start, '\n');
+  *line_startp = line_start;
   if (!IsEolnKns(*line_start)) {
-    *line_startp = line_start;
     return kPglRetSuccess;
   }
   return TextOnlyEmptyLinesLeft(txs_ptr);
@@ -539,8 +539,8 @@ HEADER_INLINE PglErr TextNextLineLstripNoemptyUnsafe(TextStream* txs_ptr, char**
     line_iter = basep->consume_iter;
   }
   line_iter = FirstNonTspace(line_iter);
+  *line_iterp = line_iter;
   if (!IsEolnKns(*line_iter)) {
-    *line_iterp = line_iter;
     return kPglRetSuccess;
   }
   return TextOnlyEmptyLinesLeft(txs_ptr);
