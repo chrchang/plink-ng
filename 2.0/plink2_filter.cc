@@ -513,7 +513,7 @@ PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_ht
     uintptr_t miss_ct = 0;
     while (1) {
       ++line_idx;
-      char* line_start;
+      char* line_start = nullptr;
       reterr = TextNextLineLstripNoempty(&txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
@@ -2235,7 +2235,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
     if (unlikely(reterr)) {
       goto ReadAlleleFreqs_ret_1;
     }
-    char* line_start;
+    char* line_start = nullptr;
     do {
       ++line_idx;
       reterr = TextNextLineLstripNoempty(&read_freq_txs, &line_start);
@@ -4145,7 +4145,7 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
     uint32_t cur_allele_ct = 2;
     while (1) {
       ++line_idx;
-      char* line_start;
+      char* line_start = nullptr;
       reterr = TextNextLineLstripNoempty(&txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {

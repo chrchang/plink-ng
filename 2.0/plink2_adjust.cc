@@ -576,7 +576,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       goto AdjustFile_ret_1;
     }
 
-    const char* header_start;
+    const char* header_start = nullptr;
     do {
       ++line_idx;
       reterr = TextNextLineLstripNoemptyK(&adjust_txs, &header_start);
@@ -680,7 +680,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     uintptr_t entry_ct = 0;
     while (1) {
       ++line_idx;
-      const char* line_start;
+      const char* line_start = nullptr;
       reterr = TextNextLineLstripNoemptyK(&adjust_txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {

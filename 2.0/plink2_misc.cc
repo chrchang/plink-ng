@@ -91,7 +91,7 @@ PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const ui
     uint32_t hit_ct = 0;
     while (1) {
       ++line_idx;
-      const char* line_start;
+      const char* line_start = nullptr;
       reterr = TextNextLineLstripNoemptyK(&txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
@@ -267,7 +267,7 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
     uint32_t hit_ct = 0;
     while (1) {
       ++line_idx;
-      const char* line_start;
+      const char* line_start = nullptr;
       reterr = TextNextLineLstripNoemptyK(&txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
@@ -665,7 +665,7 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
     if (unlikely(reterr)) {
       goto RecoverVarIds_ret_TSTREAM_FAIL;
     }
-    char* line_start;
+    char* line_start = nullptr;
     do {
       ++line_idx;
       reterr = TextNextLineLstripNoempty(&txs, &line_start);
@@ -1585,7 +1585,7 @@ PglErr PrescanSampleIds(const char* fname, SampleIdInfo* siip) {
       goto PrescanSampleIds_ret_TSTREAM_FAIL;
     }
     uint32_t is_header_line;
-    const char* line_iter;
+    const char* line_iter = nullptr;
     do {
       ++line_idx;
       reterr = TextNextLineLstripNoemptyK(&txs, &line_iter);
@@ -1738,7 +1738,7 @@ PglErr PrescanParentalIds(const char* fname, uint32_t max_thread_ct, ParentalIdI
     }
 
     uint32_t is_header_line;
-    const char* line_iter;
+    const char* line_iter = nullptr;
     do {
       ++line_idx;
       reterr = TextNextLineLstripNoemptyK(&txs, &line_iter);
@@ -1861,7 +1861,7 @@ PglErr UpdateSampleIds(const char* fname, const uintptr_t* sample_include, uint3
     if (unlikely(reterr)) {
       goto UpdateSampleIds_ret_TSTREAM_REWIND_FAIL;
     }
-    const char* line_iter;
+    const char* line_iter = nullptr;
     uint32_t is_header_line;
     do {
       ++line_idx;
@@ -2050,7 +2050,7 @@ PglErr UpdateSampleParents(const char* fname, const SampleIdInfo* siip, const ui
     if (unlikely(reterr)) {
       goto UpdateSampleParents_ret_TSTREAM_REWIND_FAIL;
     }
-    const char* line_iter;
+    const char* line_iter = nullptr;
     uint32_t is_header_line;
     do {
       ++line_idx;

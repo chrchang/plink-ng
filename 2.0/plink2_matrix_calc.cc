@@ -2326,7 +2326,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
         goto CalcKingTableSubset_ret_TSTREAM_FAIL;
       }
       ++line_idx;
-      const char* linebuf_iter;
+      const char* linebuf_iter = nullptr;
       reterr = TextNextLineLstripNoemptyK(&txs, &linebuf_iter);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
@@ -5040,7 +5040,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       uintptr_t miss_ct = 0;
       while (1) {
         ++line_idx;
-        const char* line_start;
+        const char* line_start = nullptr;
         reterr = TextNextLineLstripNoemptyK(&score_txs, &line_start);
         if (reterr) {
           if (likely(reterr == kPglRetEof)) {
@@ -5160,7 +5160,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       }
       while (1) {
         ++line_idx;
-        const char* line_start;
+        const char* line_start = nullptr;
         reterr = TextNextLineLstripNoemptyK(&score_txs, &line_start);
         if (reterr) {
           if (likely(reterr == kPglRetEof)) {
@@ -5251,7 +5251,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       }
     }
     uint32_t lines_to_skip_p1 = 1 + ((flags / kfScoreHeaderIgnore) & 1);
-    char* line_start;
+    char* line_start = nullptr;
     for (uint32_t uii = 0; uii != lines_to_skip_p1; ++uii) {
       reterr = TextNextLineLstripNoempty(&score_txs, &line_start);
       if (unlikely(reterr)) {

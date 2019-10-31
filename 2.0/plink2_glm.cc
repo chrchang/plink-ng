@@ -150,7 +150,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       goto GlmLocalOpen_ret_TSTREAM_FAIL;
     }
     uint32_t is_header_line;
-    char* line_start;
+    char* line_start = nullptr;
     do {
       ++line_idx;
       reterr = TextNextLineLstripNoempty(&txs, &line_start);

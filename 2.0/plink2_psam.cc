@@ -68,7 +68,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     if (unlikely(reterr)) {
       goto LoadPsam_ret_TSTREAM_FAIL;
     }
-    const char* line_iter;
+    const char* line_iter = nullptr;
     do {
       ++line_idx;
       reterr = TextNextLineLstripNoemptyK(&psam_txs, &line_iter);

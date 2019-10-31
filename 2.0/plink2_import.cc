@@ -615,7 +615,7 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Mi
         goto VcfSampleLine_ret_TSTREAM_FAIL;
       }
       uint32_t sample_line_eoln = (ctou32(sample_line_iter[0]) < 32);
-      char* psam_line_start;
+      char* psam_line_start = nullptr;
       do {
         ++line_idx;
         reterr = TextNextLineLstripNoempty(&psam_txs, &psam_line_start);
@@ -3956,7 +3956,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     uint32_t header_lines_left = 2;
     while (1) {
       ++line_idx;
-      char* line_start;
+      char* line_start = nullptr;
       reterr = TextNextLineLstripNoempty(&sample_txs, &line_start);
       if (reterr) {
         // bugfix (16 Feb 2018): don't check this if we break out of the loop
@@ -8550,7 +8550,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     }
     char* write_iter = strcpya_k(writebuf, "#CHROM\tPOS\tID\tREF\tALT" EOLN_STR);
     ++line_idx_haps;
-    char* haps_line_start;
+    char* haps_line_start = nullptr;
     reterr = TextNextLineLstripNoempty(&haps_txs, &haps_line_start);
     if (unlikely(reterr)) {
       if (reterr == kPglRetEof) {
@@ -8623,7 +8623,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         goto OxHapslegendToPgen_ret_1;
       }
       ++line_idx_legend;
-      char* legend_line_start;
+      char* legend_line_start = nullptr;
       reterr = TextNextLineLstripNoempty(&legend_txs, &legend_line_start);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
@@ -9118,7 +9118,7 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
     if (unlikely(reterr)) {
       goto LoadMap_ret_TSTREAM_FAIL;
     }
-    char* line_start;
+    char* line_start = nullptr;
     do {
       ++line_idx;
       reterr = TextNextLineLstripNoempty(&map_txs, &line_start);
@@ -9439,7 +9439,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
         goto Plink1DosageToPgen_ret_TFILE_FAIL2;
       }
       ++line_idx;
-      char* line_start;
+      char* line_start = nullptr;
       reterr = TextFileNextLineLstripNoempty(&dosage_txf, &line_start);
       if (unlikely(reterr)) {
         goto Plink1DosageToPgen_ret_TFILE_FAIL2;
