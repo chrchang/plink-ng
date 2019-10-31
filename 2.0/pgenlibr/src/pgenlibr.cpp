@@ -869,7 +869,7 @@ IntegerMatrix ReadIntList(List pgen, IntegerVector variant_subset) {
     stop("pgen is not a pgen object");
   }
   XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pgen[1]);
-  IntegerMatrix result(rp->GetRawSampleCt(), variant_subset.size());
+  IntegerMatrix result(rp->GetSubsetSize(), variant_subset.size());
   rp->ReadIntList(result, variant_subset);
   return result;
 }
@@ -880,7 +880,7 @@ NumericMatrix ReadList(List pgen, IntegerVector variant_subset) {
     stop("pgen is not a pgen object");
   }
   XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pgen[1]);
-  NumericMatrix result(rp->GetRawSampleCt(), variant_subset.size());
+  NumericMatrix result(rp->GetSubsetSize(), variant_subset.size());
   rp->ReadList(result, variant_subset);
   return result;
 }
