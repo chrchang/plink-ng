@@ -84,7 +84,7 @@ PglErr ExportAlleleLoad(const char* fname, const uintptr_t* variant_include, con
     uint32_t cur_allele_ct = 2;
     while (1) {
       ++line_idx;
-      char* line_start;
+      char* line_start = nullptr;
       reterr = TextNextLineLstripNoempty(&txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
