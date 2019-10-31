@@ -187,6 +187,64 @@ void Dosage16ToDoubles(const double* geno_double_pair_table, const uintptr_t* ge
   }
 }
 
+BoolErr Dosage16ToDoublesMeanimpute(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, double* geno_double) {
+  STD_ARRAY_DECL(uint32_t, 4, genocounts);
+  double geno_double_pair_buf[32];
+  if (!dosage_ct) {
+    GenoarrCountFreqsUnsafe(genoarr, sample_ct, genocounts);
+    const double* geno_double_pair_table = kGenoDoublePairs;
+    if (genocounts[3]) {
+      const uint32_t denom = sample_ct - genocounts[3];
+      if (!denom) {
+        return 1;
+      }
+      const uint32_t numer = genocounts[1] + 2 * genocounts[2];
+      const double missing_val = u63tod(numer) / u31tod(denom);
+      geno_double_pair_buf[0] = 0.0;
+      geno_double_pair_buf[2] = 1.0;
+      geno_double_pair_buf[4] = 2.0;
+      geno_double_pair_buf[6] = missing_val;
+      InitLookup16x8bx2(geno_double_pair_buf);
+      geno_double_pair_table = geno_double_pair_buf;
+    }
+    GenoarrLookup16x8bx2(genoarr, geno_double_pair_table, sample_ct, geno_double);
+    return 0;
+  }
+  // In the generic case, it may be faster to check for the existence of a
+  // missing value before calling GenoarrCountInvsubsetFreqs2() (since if there
+  // are no missing values, we don't need to count at all).  However, we assume
+  // the caller is using this function over Dosage16ToDoubles() for a reason.
+  GenoarrCountInvsubsetFreqs2(genoarr, dosage_present, sample_ct, sample_ct - dosage_ct, genocounts);
+  const double* geno_double_pair_table = kGenoDoublePairs;
+  if (genocounts[3]) {
+    uint64_t denom = sample_ct - genocounts[3];
+    if (!denom) {
+      return 1;
+    }
+    denom *= 16384LLU;
+    uint64_t numer = 0;
+    for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+      numer += dosage_main[dosage_idx];
+    }
+    numer += 16384LLU * (genocounts[1] + 2 * genocounts[2]);
+    const double missing_val = u63tod(numer) / u63tod(denom);
+    geno_double_pair_buf[0] = 0.0;
+    geno_double_pair_buf[2] = 1.0;
+    geno_double_pair_buf[4] = 2.0;
+    geno_double_pair_buf[6] = missing_val;
+    InitLookup16x8bx2(geno_double_pair_buf);
+    geno_double_pair_table = geno_double_pair_buf;
+  }
+  GenoarrLookup16x8bx2(genoarr, geno_double_pair_table, sample_ct, geno_double);
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = dosage_present[0];
+  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+    const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &cur_bits);
+    geno_double[sample_uidx] = S_CAST(double, dosage_main[dosage_idx]) * 0.00006103515625;
+  }
+  return 0;
+}
+
 double LinearCombinationMeanimpute(const double* weights, const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct) {
   const uint32_t word_ct = DivUp(sample_ct, kBitsPerWordD2);
   double result = 0.0;
@@ -226,7 +284,7 @@ double LinearCombinationMeanimpute(const double* weights, const uintptr_t* genoa
       // *weighted* MAF, which was obviously nonsense when negative weights
       // were present.
       STD_ARRAY_DECL(uint32_t, 4, genocounts);
-      GenovecCountFreqsUnsafe(genoarr, sample_ct, genocounts);
+      GenoarrCountFreqsUnsafe(genoarr, sample_ct, genocounts);
       const double numer = u63tod(genocounts[1] + 2 * genocounts[2]);
       const double denom = u31tod(sample_ct - genocounts[3]);
       result += miss_weight * (numer / denom);

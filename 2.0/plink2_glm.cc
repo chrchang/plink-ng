@@ -3480,7 +3480,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
           goto GlmLogisticThread_err;
         }
         ZeroTrailingNyps(cur_sample_ct, pgv.genovec);
-        GenovecCountFreqsUnsafe(pgv.genovec, cur_sample_ct, genocounts);
+        GenoarrCountFreqsUnsafe(pgv.genovec, cur_sample_ct, genocounts);
         uint32_t missing_ct = genocounts[3];
         if (!missing_ct) {
           SetAllBits(cur_sample_ct, sample_nm);
@@ -5959,7 +5959,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
           goto GlmLinearThread_err;
         }
         ZeroTrailingNyps(cur_sample_ct, pgv.genovec);
-        GenovecCountFreqsUnsafe(pgv.genovec, cur_sample_ct, genocounts);
+        GenoarrCountFreqsUnsafe(pgv.genovec, cur_sample_ct, genocounts);
         uint32_t missing_ct = genocounts[3];
         if (!missing_ct) {
           SetAllBits(cur_sample_ct, sample_nm);
@@ -7901,7 +7901,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
           goto GlmLinearSubbatchThread_err;
         }
         ZeroTrailingNyps(cur_sample_ct, pgv.genovec);
-        GenovecCountFreqsUnsafe(pgv.genovec, cur_sample_ct, genocounts);
+        GenoarrCountFreqsUnsafe(pgv.genovec, cur_sample_ct, genocounts);
         uint32_t missing_ct = genocounts[3];
         if (!missing_ct) {
           SetAllBits(cur_sample_ct, sample_nm);

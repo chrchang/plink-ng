@@ -61,8 +61,8 @@ ReadIntList <- function(pgen, variant_subset) {
     .Call(`_pgenlibr_ReadIntList`, pgen, variant_subset)
 }
 
-ReadList <- function(pgen, variant_subset) {
-    .Call(`_pgenlibr_ReadList`, pgen, variant_subset)
+ReadList <- function(pgen, variant_subset, meanimpute = FALSE) {
+    .Call(`_pgenlibr_ReadList`, pgen, variant_subset, meanimpute)
 }
 
 VariantScores <- function(pgen, weights, variant_subset = NULL) {

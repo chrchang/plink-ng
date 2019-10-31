@@ -1426,7 +1426,7 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
       }
       ZeroTrailingNyps(sample_ct, genovec);
       STD_ARRAY_DECL(uint32_t, 4, genocounts);
-      GenovecCountFreqsUnsafe(genovec, sample_ct, genocounts);
+      GenoarrCountFreqsUnsafe(genovec, sample_ct, genocounts);
       if (unlikely(phasepresent_ct != genocounts[1])) {
         logputs("\n");
         logerrprintf("Error: '--export haps%s' must be used with a fully phased dataset.\n", just_haps? "" : "legend");

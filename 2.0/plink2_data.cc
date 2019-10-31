@@ -1311,7 +1311,7 @@ uint32_t CopyAndResort16bit(const uintptr_t* __restrict src_subset, const void* 
 // "Flat" = don't separate one_cts and two_cts.
 void GetMFlatCounts64(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const PgenVariant* pgvp, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t allele_ct, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* all_dosages) {
   if (sample_ct == raw_sample_ct) {
-    GenovecCountFreqsUnsafe(pgvp->genovec, sample_ct, genocounts);
+    GenoarrCountFreqsUnsafe(pgvp->genovec, sample_ct, genocounts);
   } else {
     GenovecCountSubsetFreqs(pgvp->genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
   }
@@ -1367,7 +1367,7 @@ void GetMFlatCounts64(const uintptr_t* __restrict sample_include, const uintptr_
 void GetMCounts64(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const PgenVariant* pgvp, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t allele_ct, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict one_cts, uint64_t* __restrict two_cts) {
   // This mirrors GetMultiallelicCountsAndDosage16s().
   if (sample_ct == raw_sample_ct) {
-    GenovecCountFreqsUnsafe(pgvp->genovec, sample_ct, genocounts);
+    GenoarrCountFreqsUnsafe(pgvp->genovec, sample_ct, genocounts);
   } else {
     GenovecCountSubsetFreqs(pgvp->genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
   }
@@ -1683,7 +1683,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
                 // which alleles exist
                 if (sample_ct == raw_sample_ct) {
                   ZeroTrailingNyps(raw_sample_ct, pgv.genovec);
-                  GenovecCountFreqsUnsafe(pgv.genovec, sample_ct, genocounts);
+                  GenoarrCountFreqsUnsafe(pgv.genovec, sample_ct, genocounts);
                 } else {
                   GenovecCountSubsetFreqs(pgv.genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
                 }
@@ -1748,7 +1748,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
             }
             if (sample_ct == raw_sample_ct) {
               ZeroTrailingNyps(raw_sample_ct, pgv.genovec);
-              GenovecCountFreqsUnsafe(pgv.genovec, sample_ct, genocounts);
+              GenoarrCountFreqsUnsafe(pgv.genovec, sample_ct, genocounts);
             } else {
               GenovecCountSubsetFreqs(pgv.genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
             }

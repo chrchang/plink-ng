@@ -252,7 +252,7 @@ void GenoarrCountSubsetFreqs(const unsigned char* genoarr, const uintptr_t* __re
 void GenovecCountFreqs(const uintptr_t* genovec, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts) {
   // this masks out trailing genovec bits
   const uint32_t sample_ct_remainder = sample_ct % kBitsPerWordD2;
-  GenovecCountFreqsUnsafe(genovec, sample_ct - sample_ct_remainder, genocounts);
+  GenoarrCountFreqsUnsafe(genovec, sample_ct - sample_ct_remainder, genocounts);
   if (sample_ct_remainder) {
     uintptr_t cur_geno_word = bzhi(genovec[sample_ct / kBitsPerWordD2], 2 * sample_ct_remainder);
     const uintptr_t cur_geno_word_high = kMask5555 & (cur_geno_word >> 1);
@@ -3047,7 +3047,7 @@ PglErr CountparseDifflistSubset(const unsigned char* fread_end, const uintptr_t*
   }
   if (raw_sample_ct == sample_ct) {
     ZeroTrailingNyps(difflist_len, raregeno_workspace);
-    GenovecCountFreqsUnsafe(raregeno_workspace, difflist_len, genocounts);
+    GenoarrCountFreqsUnsafe(raregeno_workspace, difflist_len, genocounts);
     genocounts[common_geno] = sample_ct - difflist_len;
     // bugfix (26 Mar 2019): forgot to advance fread_pp
     return SkipDeltalistIds(fread_end, group_info_iter, difflist_len, raw_sample_ct, 1, fread_pp);
@@ -3128,7 +3128,7 @@ PglErr CountparseOnebitSubset(const unsigned char* fread_end, const uintptr_t* _
   }
   if (raw_sample_ct == sample_ct) {
     ZeroTrailingNyps(difflist_len, raregeno_workspace);
-    GenovecCountFreqsUnsafe(raregeno_workspace, difflist_len, genocounts);
+    GenoarrCountFreqsUnsafe(raregeno_workspace, difflist_len, genocounts);
     genocounts[geno_code_low] = sample_ct - difflist_len - high_geno_ct;
     genocounts[geno_code_high] = high_geno_ct;
     // bugfix (26 Mar 2019): forgot to advance fread_pp
@@ -3236,7 +3236,7 @@ PglErr GetBasicGenotypeCounts(const uintptr_t* __restrict sample_include, const 
     }
     if (!(pgrp->ldbase_stypes & kfPgrLdcacheBasicGenocounts)) {
       ZeroTrailingNyps(sample_ct, pgrp->ldbase_genovec);
-      GenovecCountFreqsUnsafe(pgrp->ldbase_genovec, sample_ct, pgrp->ldbase_basic_genocounts);
+      GenoarrCountFreqsUnsafe(pgrp->ldbase_genovec, sample_ct, pgrp->ldbase_basic_genocounts);
       pgrp->ldbase_stypes |= kfPgrLdcacheBasicGenocounts;
     }
     STD_ARRAY_COPY(pgrp->ldbase_basic_genocounts, 4, genocounts);
@@ -3263,7 +3263,7 @@ PglErr GetBasicGenotypeCounts(const uintptr_t* __restrict sample_include, const 
       // this may be slowed down by the LD caching change.
       reterr = ParseNonLdGenovecSubsetUnsafe(fread_end, sample_include, sample_include_cumulative_popcounts, sample_ct, vrtype, &fread_ptr, pgrp, pgrp->ldbase_genovec);
       ZeroTrailingNyps(sample_ct, pgrp->ldbase_genovec);
-      GenovecCountFreqsUnsafe(pgrp->ldbase_genovec, sample_ct, genocounts);
+      GenoarrCountFreqsUnsafe(pgrp->ldbase_genovec, sample_ct, genocounts);
       STD_ARRAY_COPY(genocounts, 4, pgrp->ldbase_basic_genocounts);
       pgrp->ldbase_stypes = (subsetting_required && (!(vrtype & 4)))? (kfPgrLdcacheNyp | kfPgrLdcacheRawNyp | kfPgrLdcacheBasicGenocounts) : (kfPgrLdcacheNyp | kfPgrLdcacheBasicGenocounts);
     } else if (vrtype & 4) {
@@ -4357,7 +4357,7 @@ PglErr PgrGetInv1Counts(const uintptr_t* __restrict sample_include, const uintpt
   uint32_t raw_01_ct = 0;
   uint32_t raw_10_ct = 0;
   if ((!subsetting_required) || (!aux1a_mode) || (!aux1b_mode)) {
-    GenovecCountFreqsUnsafe(tmp_genovec, raw_sample_ct, genocounts);
+    GenoarrCountFreqsUnsafe(tmp_genovec, raw_sample_ct, genocounts);
     raw_01_ct = genocounts[1];
     raw_10_ct = genocounts[2];
   }
@@ -7597,7 +7597,7 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
   }
   ZeroTrailingNyps(raw_sample_ct, raw_genovec);
   if (!subsetting_required) {
-    GenovecCountFreqsUnsafe(raw_genovec, raw_sample_ct, genocounts);
+    GenoarrCountFreqsUnsafe(raw_genovec, raw_sample_ct, genocounts);
   } else {
     GenovecCountSubsetFreqs(raw_genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
   }
@@ -8600,7 +8600,7 @@ PglErr GetMultiallelicCountsAndDosage16s(const uintptr_t* __restrict sample_incl
   }
   ZeroTrailingNyps(raw_sample_ct, raw_genovec);
   if (!subsetting_required) {
-    GenovecCountFreqsUnsafe(raw_genovec, raw_sample_ct, genocounts);
+    GenoarrCountFreqsUnsafe(raw_genovec, raw_sample_ct, genocounts);
     sample_include = nullptr;
   } else {
     GenovecCountSubsetFreqs(raw_genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);

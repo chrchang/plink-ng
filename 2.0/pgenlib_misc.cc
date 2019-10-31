@@ -705,10 +705,10 @@ void GenovecAlleleCtsUnsafe(const uintptr_t* genovec, uint32_t sample_ct, uint32
 }
 */
 
-void GenovecCountFreqsUnsafe(const uintptr_t* genovec, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts) {
+void GenoarrCountFreqsUnsafe(const uintptr_t* genoarr, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts) {
   // fills genocounts[0] with the number of 00s, genocounts[1] with the number
   // of 01s, etc.
-  // assumes trailing bits of last genovec word are zeroed out.
+  // assumes trailing bits of last genoarr word are zeroed out.
   // sample_ct == 0 ok.
   // no longer requires vector-alignment.
   const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
@@ -716,9 +716,9 @@ void GenovecCountFreqsUnsafe(const uintptr_t* genovec, uint32_t sample_ct, STD_A
   uint32_t odd_ct;
   uint32_t bothset_ct;
   uint32_t word_idx = sample_ctl2 - (sample_ctl2 % (6 * kWordsPerVec));
-  Count3FreqVec6(R_CAST(const VecW*, genovec), word_idx / kWordsPerVec, &even_ct, &odd_ct, &bothset_ct);
+  Count3FreqVec6(R_CAST(const VecW*, genoarr), word_idx / kWordsPerVec, &even_ct, &odd_ct, &bothset_ct);
   for (; word_idx != sample_ctl2; ++word_idx) {
-    const uintptr_t cur_geno_word = genovec[word_idx];
+    const uintptr_t cur_geno_word = genoarr[word_idx];
     const uintptr_t cur_geno_word_high = kMask5555 & (cur_geno_word >> 1);
     even_ct += Popcount01Word(cur_geno_word & kMask5555);
     odd_ct += Popcount01Word(cur_geno_word_high);
@@ -975,6 +975,55 @@ void GenovecCountSubsetFreqs2(const uintptr_t* __restrict genovec, const uintptr
       even_ct += Popcount01Word(geno_word_masked);
       odd_ct += Popcount01Word(geno_word_shifted & mask_word);
       bothset_ct += Popcount01Word(geno_word_masked & geno_word_shifted);
+    }
+  }
+  genocounts[0] = sample_ct + bothset_ct - even_ct - odd_ct;
+  genocounts[1] = even_ct - bothset_ct;
+  genocounts[2] = odd_ct - bothset_ct;
+  genocounts[3] = bothset_ct;
+}
+
+void GenoarrCountInvsubsetFreqs2(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict sample_exclude, uint32_t raw_sample_ct, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts) {
+  // {raw_}sample_ct == 0 ok.
+  // ugh, 'fullword' is overloaded.  probable todo: keep halfword/fullword,
+  // switch more common use case to bodyword/trailword.
+  const uint32_t bodyword_ct = raw_sample_ct / kBitsPerWord;
+  uint32_t even_ct = 0;
+  uint32_t odd_ct = 0;
+  uint32_t bothset_ct = 0;
+  for (uint32_t widx = 0; widx != bodyword_ct; ++widx) {
+    // possible todo: try vectorizing this loop in SSE4.2+ high-sample-ct case
+    // with shuffle-based dynamic unpacking of sample_exclude?
+    const uintptr_t mask_word = ~sample_exclude[widx];
+    if (mask_word) {
+      uintptr_t geno_word = genoarr[2 * widx];
+      uintptr_t geno_even = PackWordToHalfwordMask5555(geno_word);
+      uintptr_t geno_odd = PackWordToHalfwordMaskAAAA(geno_word);
+      geno_word = genoarr[2 * widx + 1];
+      geno_even |= S_CAST(uintptr_t, PackWordToHalfwordMask5555(geno_word)) << kBitsPerWordD2;
+      geno_odd |= S_CAST(uintptr_t, PackWordToHalfwordMaskAAAA(geno_word)) << kBitsPerWordD2;
+      const uintptr_t geno_even_masked = geno_even & mask_word;
+      even_ct += PopcountWord(geno_even_masked);
+      odd_ct += PopcountWord(geno_odd & mask_word);
+      bothset_ct += PopcountWord(geno_odd & geno_even_masked);
+    }
+  }
+  const uint32_t remainder = raw_sample_ct % kBitsPerWord;
+  if (remainder) {
+    const uintptr_t mask_word = bzhi(~sample_exclude[bodyword_ct], remainder);
+    if (mask_word) {
+      uintptr_t geno_word = genoarr[2 * bodyword_ct];
+      uintptr_t geno_even = PackWordToHalfwordMask5555(geno_word);
+      uintptr_t geno_odd = PackWordToHalfwordMaskAAAA(geno_word);
+      if (remainder > kBitsPerWordD2) {
+        geno_word = genoarr[2 * bodyword_ct + 1];
+        geno_even |= S_CAST(uintptr_t, PackWordToHalfwordMask5555(geno_word)) << kBitsPerWordD2;
+        geno_odd |= S_CAST(uintptr_t, PackWordToHalfwordMaskAAAA(geno_word)) << kBitsPerWordD2;
+      }
+      const uintptr_t geno_even_masked = geno_even & mask_word;
+      even_ct += PopcountWord(geno_even_masked);
+      odd_ct += PopcountWord(geno_odd & mask_word);
+      bothset_ct += PopcountWord(geno_odd & geno_even_masked);
     }
   }
   genocounts[0] = sample_ct + bothset_ct - even_ct - odd_ct;

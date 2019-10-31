@@ -182,14 +182,15 @@ BEGIN_RCPP
 END_RCPP
 }
 // ReadList
-NumericMatrix ReadList(List pgen, IntegerVector variant_subset);
-RcppExport SEXP _pgenlibr_ReadList(SEXP pgenSEXP, SEXP variant_subsetSEXP) {
+NumericMatrix ReadList(List pgen, IntegerVector variant_subset, bool meanimpute);
+RcppExport SEXP _pgenlibr_ReadList(SEXP pgenSEXP, SEXP variant_subsetSEXP, SEXP meanimputeSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< List >::type pgen(pgenSEXP);
     Rcpp::traits::input_parameter< IntegerVector >::type variant_subset(variant_subsetSEXP);
-    rcpp_result_gen = Rcpp::wrap(ReadList(pgen, variant_subset));
+    Rcpp::traits::input_parameter< bool >::type meanimpute(meanimputeSEXP);
+    rcpp_result_gen = Rcpp::wrap(ReadList(pgen, variant_subset, meanimpute));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -279,7 +280,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pgenlibr_Read", (DL_FUNC) &_pgenlibr_Read, 4},
     {"_pgenlibr_ReadAlleles", (DL_FUNC) &_pgenlibr_ReadAlleles, 4},
     {"_pgenlibr_ReadIntList", (DL_FUNC) &_pgenlibr_ReadIntList, 2},
-    {"_pgenlibr_ReadList", (DL_FUNC) &_pgenlibr_ReadList, 2},
+    {"_pgenlibr_ReadList", (DL_FUNC) &_pgenlibr_ReadList, 3},
     {"_pgenlibr_VariantScores", (DL_FUNC) &_pgenlibr_VariantScores, 3},
     {"_pgenlibr_ClosePgen", (DL_FUNC) &_pgenlibr_ClosePgen, 1},
     {"_pgenlibr_NewPvar", (DL_FUNC) &_pgenlibr_NewPvar, 1},

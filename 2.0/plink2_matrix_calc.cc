@@ -1058,7 +1058,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
         }
         ZeroTrailingNyps(sample_ct, loadbuf);
         STD_ARRAY_DECL(uint32_t, 4, genocounts);
-        GenovecCountFreqsUnsafe(loadbuf, sample_ct, genocounts);
+        GenoarrCountFreqsUnsafe(loadbuf, sample_ct, genocounts);
         if (genocounts[0] >= sample_ct_m1) {
           if (genocounts[0] == sample_ct_m1) {
             for (uint32_t widx = 0; ; ++widx) {
@@ -2784,7 +2784,7 @@ PglErr ExpandCenteredVarmaj(const uintptr_t* genovec, const uintptr_t* dosage_pr
     const double variance = 2 * maj_freq * nonmaj_freq;
     if (variance < kSmallEpsilon) {
       STD_ARRAY_DECL(uint32_t, 4, genocounts);
-      GenovecCountFreqsUnsafe(genovec, sample_ct, genocounts);
+      GenoarrCountFreqsUnsafe(genovec, sample_ct, genocounts);
       // remove unlikely() if any caller ever handles this case gracefully
       if (unlikely(dosage_ct || (genocounts[0] && (genocounts[1] || genocounts[2])) || (genocounts[1] && genocounts[2]))) {
         return kPglRetDegenerateData;
@@ -5659,7 +5659,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
                 if (variance < kSmallEpsilon) {
                   // ZeroTrailingNyps(sample_ct, genovec_buf);
                   STD_ARRAY_DECL(uint32_t, 4, genocounts);
-                  GenovecCountFreqsUnsafe(genovec_buf, sample_ct, genocounts);
+                  GenoarrCountFreqsUnsafe(genovec_buf, sample_ct, genocounts);
                   if (unlikely(dosage_ct || genocounts[1] || genocounts[2])) {
                     snprintf(g_logbuf, kLogbufSize, "Error: --score variance-standardize failure for ID '%s': estimated allele frequency is zero, but not all dosages are zero. (This is possible when e.g. allele frequencies are estimated from founders, but the allele is only observed in nonfounders.)\n", variant_ids[variant_uidx]);
                     goto ScoreReport_ret_DEGENERATE_DATA_WW;

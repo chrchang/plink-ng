@@ -4613,7 +4613,7 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
           ZeroU32Arr(allele_ct, one_cts);
           ZeroU32Arr(allele_ct, two_cts);
           STD_ARRAY_DECL(uint32_t, 4, genocounts);
-          GenovecCountFreqsUnsafe(pgv.genovec, founder_x_ct, genocounts);
+          GenoarrCountFreqsUnsafe(pgv.genovec, founder_x_ct, genocounts);
           // const uint32_t hom_ref_ct = genocounts[0];
           const uint32_t het_ref_ct = genocounts[1];
           const uint32_t altxy_ct = genocounts[2];

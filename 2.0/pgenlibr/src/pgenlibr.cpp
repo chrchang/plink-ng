@@ -42,7 +42,7 @@ public:
 
   void ReadIntList(IntegerMatrix buf, IntegerVector variant_subset);
 
-  void ReadList(NumericMatrix buf, IntegerVector variant_subset);
+  void ReadList(NumericMatrix buf, IntegerVector variant_subset, bool meanimpute);
 
   void FillVariantScores(NumericVector result, NumericVector weights, Nullable<IntegerVector> variant_subset);
 
@@ -550,7 +550,7 @@ void RPgenReader::ReadIntList(IntegerMatrix buf, IntegerVector variant_subset) {
   }
 }
 
-void RPgenReader::ReadList(NumericMatrix buf, IntegerVector variant_subset) {
+void RPgenReader::ReadList(NumericMatrix buf, IntegerVector variant_subset, bool meanimpute) {
   if (!_info_ptr) {
     stop("pgen is closed");
   }
@@ -572,7 +572,16 @@ void RPgenReader::ReadList(NumericMatrix buf, IntegerVector variant_subset) {
       sprintf(errstr_buf, "PgrGetD() error %d", static_cast<int>(reterr));
       stop(errstr_buf);
     }
-    plink2::Dosage16ToDoubles(kGenoRDoublePairs, _pgv.genovec, _pgv.dosage_present, _pgv.dosage_main, _subset_size, dosage_ct, buf_iter);
+    if (!meanimpute) {
+      plink2::Dosage16ToDoubles(kGenoRDoublePairs, _pgv.genovec, _pgv.dosage_present, _pgv.dosage_main, _subset_size, dosage_ct, buf_iter);
+    } else {
+      plink2::ZeroTrailingNyps(_subset_size, _pgv.genovec);
+      if (plink2::Dosage16ToDoublesMeanimpute(_pgv.genovec, _pgv.dosage_present, _pgv.dosage_main, _subset_size, dosage_ct, buf_iter)) {
+        char errstr_buf[256];
+        sprintf(errstr_buf, "variant %d has only missing dosages", variant_idx + 1);
+        stop(errstr_buf);
+      }
+    }
     buf_iter = &(buf_iter[_subset_size]);
   }
 }
@@ -875,13 +884,13 @@ IntegerMatrix ReadIntList(List pgen, IntegerVector variant_subset) {
 }
 
 // [[Rcpp::export]]
-NumericMatrix ReadList(List pgen, IntegerVector variant_subset) {
+NumericMatrix ReadList(List pgen, IntegerVector variant_subset, bool meanimpute = false) {
   if (strcmp_r_c(pgen[0], "pgen")) {
     stop("pgen is not a pgen object");
   }
   XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pgen[1]);
   NumericMatrix result(rp->GetSubsetSize(), variant_subset.size());
-  rp->ReadList(result, variant_subset);
+  rp->ReadList(result, variant_subset, meanimpute);
   return result;
 }
 

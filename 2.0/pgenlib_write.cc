@@ -810,7 +810,7 @@ uint32_t PwcAppendBiallelicGenovecMain(const uintptr_t* __restrict genovec, uint
   const uint32_t sample_ct = pwcp->sample_ct;
   assert((!(sample_ct % kBitsPerWordD2)) || (!(genovec[sample_ct / kBitsPerWordD2] >> (2 * (sample_ct % kBitsPerWordD2)))));
   STD_ARRAY_DECL(uint32_t, 4, genocounts);
-  GenovecCountFreqsUnsafe(genovec, sample_ct, genocounts);
+  GenoarrCountFreqsUnsafe(genovec, sample_ct, genocounts);
   if (het_ct_ptr) {
     *het_ct_ptr = genocounts[1];
     if (altxy_ct_ptr) {
@@ -1095,7 +1095,7 @@ uint32_t PwcAppendBiallelicDifflistLimitedMain(const uintptr_t* __restrict rareg
   assert((!(difflist_len % kBitsPerWordD2)) || (!(raregeno[difflist_len / kBitsPerWordD2] >> (2 * (difflist_len % kBitsPerWordD2)))));
   assert(difflist_sample_ids[difflist_len] == sample_ct);
   STD_ARRAY_DECL(uint32_t, 4, genocounts);
-  GenovecCountFreqsUnsafe(raregeno, difflist_len, genocounts);
+  GenoarrCountFreqsUnsafe(raregeno, difflist_len, genocounts);
   assert(!genocounts[difflist_common_geno]);
   genocounts[difflist_common_geno] = sample_ct - difflist_len;
   uint32_t second_most_common_geno = difflist_common_geno? 0 : 1;

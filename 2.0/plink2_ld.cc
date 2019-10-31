@@ -3348,7 +3348,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         for (uint32_t var_idx = 0; var_idx != 2; ++var_idx) {
           const uintptr_t* cur_genovec = pgvs[var_idx].genovec;
           STD_ARRAY_DECL(uint32_t, 4, genocounts);
-          GenovecCountFreqsUnsafe(cur_genovec, founder_ct, genocounts);
+          GenoarrCountFreqsUnsafe(cur_genovec, founder_ct, genocounts);
           double hwe_pval;
           if (!is_xs[var_idx]) {
             hwe_pval = HweP(genocounts[1], genocounts[0], genocounts[2], hwe_midp);

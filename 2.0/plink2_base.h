@@ -2783,7 +2783,7 @@ template <uint32_t N> struct MemcpyKImpl<N, TRange<(25 <= N) && (N <= 31)> > {
 };
 
 // Note that there's no difference between memcpy() and memcpy_k() for common
-// 'well-behaved' sizes like 1, 4, and 8, and 16.  It's the funny numbers in
+// 'well-behaved' sizes like 1, 4, 8, and 16.  It's the funny numbers in
 // between, which often arise with constant strings, which this template is
 // targeting.
 #  define memcpy_k(dst, src, ct) plink2::MemcpyKImpl<ct>::MemcpyK(dst, src)
