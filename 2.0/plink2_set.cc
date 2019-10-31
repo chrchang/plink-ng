@@ -48,7 +48,8 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
     if (track_set_names) {
       uintptr_t line_idx = 0;
       for (char* line_iter = TextLineEnd(txsp); ; ) {
-        reterr = TextNextNonemptyLineLstripUnsafe(txsp, &line_idx, &line_iter);
+        ++line_idx;
+        reterr = TextNextLineLstripNoemptyUnsafe(txsp, &line_iter);
         if (reterr) {
           if (likely(reterr == kPglRetEof)) {
             reterr = kPglRetSuccess;
@@ -176,7 +177,8 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
     for (char* line_iter = &(TextLineEnd(txsp)[-1]); ; line_iter = AdvToDelim(line_iter, '\n')) {
     LoadIntervalBed_LINE_ITER_ALREADY_ADVANCED:
       ++line_iter;
-      reterr = TextNextNonemptyLineLstripUnsafe(txsp, &line_idx, &line_iter);
+      ++line_idx;
+      reterr = TextNextLineLstripNoemptyUnsafe(txsp, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           if (unlikely(track_set_names && (line_idx == 1))) {

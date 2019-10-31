@@ -45,8 +45,12 @@ void TextErrPrint(const char* file_descrip, const char* errmsg, PglErr reterr) {
   } else if (reterr == kPglRetDecompressFail) {
     logerrprintfww(kErrprintfDecompress, file_descrip, errmsg);
   } else if (reterr == kPglRetMalformedInput) {
-    assert(errmsg == kShortErrLongLine);
-    logerrprintfww("Error: Pathologically long line in %s.\n", file_descrip);
+    if (errmsg == kShortErrInteriorEmptyLine) {
+      logerrprintfww("Error: Unexpected interior empty line in %s.\n", file_descrip);
+    } else {
+      assert(errmsg == kShortErrLongLine);
+      logerrprintfww("Error: Pathologically long line in %s.\n", file_descrip);
+    }
   } else if (reterr == kPglRetRewindFail) {
     // Not produced directly by TextStream, but it's inserted in between by
     // some consumers.

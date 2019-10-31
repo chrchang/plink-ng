@@ -40,13 +40,14 @@ FLAGSET_DEF_END(UpdateSexFlags);
 FLAGSET_DEF_START()
   kfPhenoTransform0,
   kfPhenoTransformSplitCat = (1 << 0),
-  kfPhenoTransformSplitCatOmitLast = (1 << 1),
-  kfPhenoTransformSplitCatCovar01 = (1 << 2),
-  kfPhenoTransformVstdCovar = (1 << 3),
-  kfPhenoTransformVstdAll = (1 << 4),
-  kfPhenoTransformQuantnormPheno = (1 << 5),
-  kfPhenoTransformQuantnormCovar = (1 << 6),
-  kfPhenoTransformQuantnormAll = (1 << 7)
+  kfPhenoTransformSplitCatOmitMost = (1 << 1),
+  kfPhenoTransformSplitCatOmitLast = (1 << 2),
+  kfPhenoTransformSplitCatCovar01 = (1 << 3),
+  kfPhenoTransformVstdCovar = (1 << 4),
+  kfPhenoTransformVstdAll = (1 << 5),
+  kfPhenoTransformQuantnormPheno = (1 << 6),
+  kfPhenoTransformQuantnormCovar = (1 << 7),
+  kfPhenoTransformQuantnormAll = (1 << 8)
 FLAGSET_DEF_END(PhenoTransformFlags);
 
 FLAGSET_DEF_START()

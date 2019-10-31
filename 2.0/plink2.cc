@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (29 Oct 2019)";
+  " (30 Oct 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -1467,7 +1467,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
       if (pcp->covar_fname || pcp->covar_range_list.name_ct) {
         const char* cur_covar_fname = pcp->covar_fname? pcp->covar_fname : (pcp->pheno_fname? pcp->pheno_fname : psamname);
-        reterr = LoadPhenos(cur_covar_fname, &(pcp->covar_range_list), sample_include, pii.sii.sample_ids, raw_sample_ct, sample_ct, pii.sii.max_sample_id_blen, pcp->missing_pheno, 2, (pcp->misc_flags / kfMiscCovarColNums) & 1, (pcp->misc_flags / kfMiscCovarIidOnly), pcp->max_thread_ct, &covar_cols, &covar_names, &covar_ct, &max_covar_name_blen);
+        reterr = LoadPhenos(cur_covar_fname, &(pcp->covar_range_list), sample_include, pii.sii.sample_ids, raw_sample_ct, sample_ct, pii.sii.max_sample_id_blen, pcp->missing_pheno, 2, (pcp->misc_flags / kfMiscCovarIidOnly) & 1, (pcp->misc_flags / kfMiscCovarColNums) & 1, pcp->max_thread_ct, &covar_cols, &covar_names, &covar_ct, &max_covar_name_blen);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -8441,13 +8441,23 @@ int main(int argc, char** argv) {
           uint32_t first_phenoname_idx = 1;
           for (; first_phenoname_idx <= param_ct; ++first_phenoname_idx) {
             const char* cur_modif = argvk[arg_idx + first_phenoname_idx];
-            if (!strcmp(cur_modif, "omit-last")) {
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "omit-most", cur_modif_slen)) {
+              logerrputs("Error: --split-pheno-cat 'omit-most' is under development.\n");
+              reterr = kPglRetNotYetSupported;
+              goto main_ret_1;
+              pc.pheno_transform_flags |= kfPhenoTransformSplitCatOmitMost;
+            } else if (strequal_k(cur_modif, "omit-last", cur_modif_slen)) {
               pc.pheno_transform_flags |= kfPhenoTransformSplitCatOmitLast;
-            } else if (!strcmp(cur_modif, "covar-01")) {
+            } else if (strequal_k(cur_modif, "covar-01", cur_modif_slen)) {
               pc.pheno_transform_flags |= kfPhenoTransformSplitCatCovar01;
             } else {
               break;
             }
+          }
+          if ((pc.pheno_transform_flags & (kfPhenoTransformSplitCatOmitMost | kfPhenoTransformSplitCatOmitLast)) == (kfPhenoTransformSplitCatOmitMost | kfPhenoTransformSplitCatOmitLast)) {
+            logerrputs("Error: --split-cat-pheno 'omit-most' and 'omit-last' modifiers cannot be used\ntogether.\n");
+            goto main_ret_INVALID_CMDLINE_A;
           }
           if (first_phenoname_idx <= param_ct) {
             reterr = AllocAndFlatten(&(argvk[arg_idx + first_phenoname_idx]), param_ct + 1 - first_phenoname_idx, kMaxIdSlen - 1, &pc.split_cat_phenonames_flattened);

@@ -843,7 +843,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     char* line_start;
     while (1) {
       ++line_idx;
-      reterr = TextNextLineLstripUnsafe(&pvar_txs, &line_iter);
+      reterr = TextNextLineLstripNoemptyUnsafe(&pvar_txs, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           line_start = K_CAST(char*, &(g_one_char_strs[0]));
@@ -854,14 +854,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         goto LoadPvar_ret_TSTREAM_FAIL;
       }
       line_start = line_iter;
-      if (*line_start != '#') {
-        if (IsEolnKns(*line_start)) {
-          line_iter = AdvPastDelim(line_start, '\n');
-          continue;
-        }
-        break;
-      }
-      if (tokequal_k(line_start, "#CHROM")) {
+      if ((*line_start != '#') || tokequal_k(line_start, "#CHROM")) {
         break;
       }
       if (StrStartsWithUnsafe(line_start, "##INFO=<ID=PR,Number=")) {
@@ -1047,6 +1040,9 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       // CM column is formally optional in headerless .pvar files (and it was
       // "secretly" optional for the standard plink 1.9 standard .bim loader).
       // If the line has exactly 5 columns, assume CM is omitted.
+
+      // Note that this doesn't break in the line_start = &(g_one_char_strs[0])
+      // case.
       const char* linebuf_iter = NextTokenMult(line_start, 4);
       if (unlikely(!linebuf_iter)) {
         goto LoadPvar_ret_MISSING_TOKENS;
@@ -1274,8 +1270,11 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     uint32_t is_split_chr = 0;
     UnsortedVar vpos_sortstatus = kfUnsortedVar0;
 
+    if (IsEolnKns(*line_start)) {
+      goto LoadPvar_skip_header;
+    }
     while (1) {
-      if (!IsEolnKns(*line_start)) {
+      {
 #ifdef __LP64__
         // maximum prime < 2^32 is 4294967291; quadratic hashing guarantee
         // breaks down past that divided by 2.
@@ -1770,12 +1769,11 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           }
         }
         ++raw_variant_ct;
-      } else {
-        line_iter = AdvToDelim(line_iter, '\n');
       }
+    LoadPvar_skip_header:
       ++line_iter;
       ++line_idx;
-      reterr = TextNextLineLstripUnsafe(&pvar_txs, &line_iter);
+      reterr = TextNextLineLstripNoemptyUnsafe(&pvar_txs, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;

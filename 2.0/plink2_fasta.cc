@@ -549,7 +549,7 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
       if (ucc < 'A') {
         // > = ascii 62
         // ; = ascii 59
-        if ((ucc == ';') || (ucc <= '\r')) {
+        if (ucc == ';') {
           continue;
         }
         is_first_noncomment_line = 0;

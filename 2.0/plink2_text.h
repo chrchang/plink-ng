@@ -115,6 +115,8 @@
 namespace plink2 {
 #endif
 
+extern uint32_t g_debug_print;
+
 PglErr GetFileType(const char* fname, FileCompressionType* ftype_ptr);
 
 typedef struct TextFileBaseStruct {
@@ -213,6 +215,7 @@ HEADER_INLINE PglErr TextFileOpen(const char* fname, textFILE* txf_ptr) {
 }
 
 extern const char kShortErrLongLine[];
+extern const char kShortErrInteriorEmptyLine[];
 
 PglErr TextFileAdvance(textFILE* txf_ptr);
 
@@ -226,12 +229,51 @@ HEADER_INLINE PglErr TextFileNextLine(textFILE* txf_ptr, char** line_startp) {
     }
   }
   *line_startp = basep->consume_iter;
-  basep->consume_iter = AdvPastDelim(basep->consume_iter, '\n');
+  basep->consume_iter = AdvPastDelim(*line_startp, '\n');
   return kPglRetSuccess;
 }
 
 HEADER_INLINE char* TextFileLineEnd(textFILE* txf_ptr) {
   return GET_PRIVATE(*txf_ptr, m).base.consume_iter;
+}
+
+HEADER_INLINE PglErr TextFileNextLineLstrip(textFILE* txf_ptr, char** line_startp) {
+  TextFileBase* basep = &GET_PRIVATE(*txf_ptr, m).base;
+  if (basep->consume_iter == basep->consume_stop) {
+    PglErr reterr = TextFileAdvance(txf_ptr);
+    if (reterr) {
+      return reterr;
+    }
+  }
+  *line_startp = FirstNonTspace(basep->consume_iter);
+  basep->consume_iter = AdvPastDelim(*line_startp, '\n');
+  return kPglRetSuccess;
+}
+
+PglErr TextFileOnlyEmptyLinesLeft(textFILE* txf_ptr);
+
+// API fix (30 Oct 2019): While we want to tolerate *trailing* empty lines (as
+// well as lack of a final newline), since those arise from manual text-editing
+// every once in a while, there's usually no good reason to tolerate *interior*
+// empty lines like we were previously doing.  So the generic
+// empty-line-skipping interface has been replaced with one that reports an
+// "Unexpected empty line" error with a kPglRetMalformedInput error code unless
+// the empty line(s) are at EOF.
+HEADER_INLINE PglErr TextFileNextLineLstripNoempty(textFILE* txf_ptr, char** line_startp) {
+  TextFileBase* basep = &GET_PRIVATE(*txf_ptr, m).base;
+  if (basep->consume_iter == basep->consume_stop) {
+    PglErr reterr = TextFileAdvance(txf_ptr);
+    if (reterr) {
+      return reterr;
+    }
+  }
+  char* line_start = FirstNonTspace(basep->consume_iter);
+  basep->consume_iter = AdvPastDelim(line_start, '\n');
+  if (!IsEolnKns(*line_start)) {
+    *line_startp = line_start;
+    return kPglRetSuccess;
+  }
+  return TextFileOnlyEmptyLinesLeft(txf_ptr);
 }
 
 void TextFileRewind(textFILE* txf_ptr);
@@ -388,6 +430,9 @@ HEADER_INLINE PglErr TextNextLineK(TextStream* txs_ptr, const char** line_startp
   return TextNextLine(txs_ptr, K_CAST(char**, line_startp));
 }
 
+// plink2 functions strip leading whitespace by default (unless there's a clear
+// reason not to, e.g. it isn't allowed in VCF files), since plink 1.x inserts
+// it so often.
 HEADER_INLINE PglErr TextNextLineLstrip(TextStream* txs_ptr, char** line_startp) {
   TextFileBase* basep = &GET_PRIVATE(*txs_ptr, m).base;
   if (basep->consume_iter == basep->consume_stop) {
@@ -406,11 +451,30 @@ HEADER_INLINE PglErr TextNextLineLstripK(TextStream* txs_ptr, const char** line_
   return TextNextLineLstrip(txs_ptr, K_CAST(char**, line_startp));
 }
 
-// these do not update line_idx on eof.
-PglErr TextNextNonemptyLineLstrip(TextStream* txs_ptr, uintptr_t* line_idx_ptr, char** line_startp);
+// returns kPglRetEof if true, otherwise kPglRetMalformedInput and sets
+// errmsg.
+PglErr TextOnlyEmptyLinesLeft(TextStream* txs_ptr);
 
-HEADER_INLINE PglErr TextNextNonemptyLineLstripK(TextStream* txs_ptr, uintptr_t* line_idx_ptr, const char** line_startp) {
-  return TextNextNonemptyLineLstrip(txs_ptr, line_idx_ptr, K_CAST(char**, line_startp));
+HEADER_INLINE PglErr TextNextLineLstripNoempty(TextStream* txs_ptr, char** line_startp) {
+  TextFileBase* basep = &GET_PRIVATE(*txs_ptr, m).base;
+  if (basep->consume_iter == basep->consume_stop) {
+    PglErr reterr = TextAdvance(txs_ptr);
+    // not unlikely() due to eof
+    if (reterr) {
+      return reterr;
+    }
+  }
+  char* line_start = FirstNonTspace(basep->consume_iter);
+  basep->consume_iter = AdvPastDelim(line_start, '\n');
+  if (!IsEolnKns(*line_start)) {
+    *line_startp = line_start;
+    return kPglRetSuccess;
+  }
+  return TextOnlyEmptyLinesLeft(txs_ptr);
+}
+
+HEADER_INLINE PglErr TextNextLineLstripNoemptyK(TextStream* txs_ptr, const char** line_startp) {
+  return TextNextLineLstripNoempty(txs_ptr, K_CAST(char**, line_startp));
 }
 
 PglErr TextSkipNz(uintptr_t skip_ct, TextStream* txs_ptr);
@@ -462,10 +526,28 @@ HEADER_INLINE PglErr TextNextLineLstripUnsafeK(TextStream* txs_ptr, const char**
   return TextNextLineLstripUnsafe(txs_ptr, K_CAST(char**, line_iterp));
 }
 
-PglErr TextNextNonemptyLineLstripUnsafe(TextStream* txs_ptr, uintptr_t* line_idx_ptr, char** line_iterp);
+HEADER_INLINE PglErr TextNextLineLstripNoemptyUnsafe(TextStream* txs_ptr, char** line_iterp) {
+  char* line_iter = *line_iterp;
+  TextFileBase* basep = &GET_PRIVATE(*txs_ptr, m).base;
+  if (line_iter == basep->consume_stop) {
+    basep->consume_iter = line_iter;
+    PglErr reterr = TextAdvance(txs_ptr);
+    // not unlikely() due to eof
+    if (reterr) {
+      return reterr;
+    }
+    line_iter = basep->consume_iter;
+  }
+  line_iter = FirstNonTspace(line_iter);
+  if (!IsEolnKns(*line_iter)) {
+    *line_iterp = line_iter;
+    return kPglRetSuccess;
+  }
+  return TextOnlyEmptyLinesLeft(txs_ptr);
+}
 
-HEADER_INLINE PglErr TextNextNonemptyLineLstripUnsafeK(TextStream* txs_ptr, uintptr_t* line_idx_ptr, const char** line_iterp) {
-  return TextNextNonemptyLineLstripUnsafe(txs_ptr, line_idx_ptr, K_CAST(char**, line_iterp));
+HEADER_INLINE PglErr TextNextLineLstripNoemptyUnsafeK(TextStream* txs_ptr, const char** line_iterp) {
+  return TextNextLineLstripNoemptyUnsafe(txs_ptr, K_CAST(char**, line_iterp));
 }
 
 HEADER_INLINE void TextSetPos(char* new_consume_iter, TextStream* txs_ptr) {

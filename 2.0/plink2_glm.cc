@@ -153,7 +153,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
     char* line_start;
     do {
       ++line_idx;
-      reterr = TextNextLineLstrip(&txs, &line_start);
+      reterr = TextNextLineLstripNoempty(&txs, &line_start);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", local_psam_fname);
@@ -162,13 +162,12 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
         goto GlmLocalOpen_ret_TSTREAM_FAIL;
       }
       is_header_line = (line_start[0] == '#');
-    } while (IsEolnKns(*line_start) || (is_header_line && (!tokequal_k(&(line_start[1]), "FID")) && (!tokequal_k(&(line_start[1]), "IID"))));
+    } while (is_header_line && (!tokequal_k(&(line_start[1]), "FID")) && (!tokequal_k(&(line_start[1]), "IID")));
     XidMode xid_mode = kfXidModeFidIid;
     if (is_header_line) {
       if (line_start[1] == 'I') {
         xid_mode = kfXidModeIid;
       }
-      *line_start = '\0';
     }
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     const uint32_t orig_sample_ct = *sample_ct_ptr;
@@ -197,8 +196,11 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
     }
 #endif
     uintptr_t local_sample_ct = 0;
+    if (is_header_line) {
+      goto GlmLocalOpen_skip_header_1;
+    }
     while (1) {
-      if (!IsEolnKns(*line_start)) {
+      {
         if (unlikely(local_sample_ct == max_local_sample_ct)) {
 #ifdef __LP64__
           if (local_sample_ct == kMaxLongLine / 2) {
@@ -228,8 +230,9 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
         }
         ++local_sample_ct;
       }
+    GlmLocalOpen_skip_header_1:
       ++line_idx;
-      reterr = TextNextLineLstrip(&txs, &line_start);
+      reterr = TextNextLineLstripNoempty(&txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           // reterr = kPglRetSuccess;
@@ -283,7 +286,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
     line_idx = 0;
     do {
       ++line_idx;
-      reterr = TextNextLineLstrip(&txs, &line_start);
+      reterr = TextNextLineLstripNoempty(&txs, &line_start);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", local_pvar_fname);
@@ -292,7 +295,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
         goto GlmLocalOpen_ret_TSTREAM_FAIL;
       }
       is_header_line = (line_start[0] == '#');
-    } while (IsEolnKns(*line_start) || (is_header_line && (!tokequal_k(line_start, "#CHROM"))));
+    } while (is_header_line && (!tokequal_k(line_start, "#CHROM")));
     uint32_t col_skips[2];
     uint32_t col_types[2];
     // uint32_t relevant_postchr_col_ct = 2;
@@ -345,7 +348,6 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       for (uint32_t rpc_col_idx = relevant_postchr_col_ct - 1; rpc_col_idx; --rpc_col_idx) {
         col_skips[rpc_col_idx] -= col_skips[rpc_col_idx - 1];
       }
-      line_start = K_CAST(char*, linebuf_iter);
     } else {
       col_types[0] = 1;
       col_types[1] = 0;
@@ -383,8 +385,11 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
     uint32_t prev_chr_code = cip->chr_file_order[chr_fo_idx];
     uint32_t prev_bp = variant_bps[prev_variant_uidx];
     uint32_t chr_end = cip->chr_fo_vidx_start[cip->chr_idx_to_foidx[prev_chr_code] + 1];
+    if (is_header_line) {
+      goto GlmLocalOpen_skip_header_2;
+    }
     while (1) {
-      if (!IsEolnKns(*line_start)) {
+      {
         if (unlikely(local_variant_ct == max_local_variant_ct)) {
           if (max_local_variant_ct == 0x7ffffffd) {
             snprintf(g_logbuf, kLogbufSize, "Error: Too many samples in %s.\n", local_pvar_fname);
@@ -496,8 +501,9 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       GlmLocalOpen_skip_variant:
         ++local_variant_ct;
       }
+    GlmLocalOpen_skip_header_2:
       ++line_idx;
-      reterr = TextNextLineLstrip(&txs, &line_start);
+      reterr = TextNextLineLstripNoempty(&txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           // reterr = kPglRetSuccess;
@@ -546,7 +552,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
     uint32_t local_covar_ct;
     if (!glm_info_ptr->local_cat_ct) {
       line_idx = 1;
-      reterr = TextFileNextLine(&local_covar_txf, &line_start);
+      reterr = TextFileNextLineLstripNoempty(&local_covar_txf, &line_start);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", local_covar_fname);
@@ -554,7 +560,6 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
         }
         goto GlmLocalOpen_ret_RFILE_FAIL;
       }
-      line_start = FirstNonTspace(line_start);
       const uint32_t token_ct = CountTokens(line_start);
       local_covar_ct = token_ct / local_sample_ct;
       if (unlikely(local_covar_ct * local_sample_ct != token_ct)) {
@@ -4565,7 +4570,7 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
       }
       ++local_line_idx;
       char* local_covar_line_start;
-      PglErr reterr = TextNextLineLstrip(local_covar_txsp, &local_covar_line_start);
+      PglErr reterr = TextNextLineLstripNoempty(local_covar_txsp, &local_covar_line_start);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
           logputs("\n");

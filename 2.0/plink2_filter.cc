@@ -514,7 +514,7 @@ PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_ht
     while (1) {
       ++line_idx;
       char* line_start;
-      reterr = TextNextLineLstrip(&txs, &line_start);
+      reterr = TextNextLineLstripNoempty(&txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
@@ -523,7 +523,7 @@ PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_ht
         goto ExtractFcol_ret_TSTREAM_FAIL;
       }
       char cc = *line_start;
-      if (IsEolnKns(cc) || (cc == skipchar)) {
+      if (cc == skipchar) {
         continue;
       }
       char* colid_ptr;
@@ -1268,7 +1268,10 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
       char* line_start;
       XidMode xid_mode;
       line_idx = 0;
-      if (!families_only) {
+      if (families_only) {
+        goto KeepOrRemove_skip_header;
+      }
+      {
         reterr = LoadXidHeader(flag_name, (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeader0 : kfXidHeaderIgnoreSid, &line_idx, &txs, &xid_mode, &line_start, nullptr);
         if (reterr) {
           if (likely(reterr == kPglRetEof)) {
@@ -1286,13 +1289,11 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
           goto KeepOrRemove_ret_NOMEM;
         }
         if (*line_start == '#') {
-          *line_start = '\0';
+          goto KeepOrRemove_skip_header;
         }
-      } else {
-        line_start = K_CAST(char*, &(g_one_char_strs[0]));
       }
       while (1) {
-        if (!IsEolnKns(*line_start)) {
+        {
           if (!families_only) {
             const char* linebuf_iter = line_start;
             uint32_t xid_idx_start;
@@ -1339,8 +1340,9 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
             // *token_end = orig_token_end_char;
           }
         }
+      KeepOrRemove_skip_header:
         ++line_idx;
-        reterr = TextNextLineLstrip(&txs, &line_start);
+        reterr = TextNextLineLstripNoempty(&txs, &line_start);
         if (reterr) {
           if (likely(reterr == kPglRetEof)) {
             // reterr = kPglRetSuccess;
@@ -1495,10 +1497,10 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
       goto KeepFcol_ret_NOMEM;
     }
     if (*line_start == '#') {
-      *line_start = '\0';
+      goto KeepFcol_skip_header;
     }
     while (1) {
-      if (!IsEolnKns(*line_start)) {
+      {
         const char* linebuf_iter = line_start;
         uint32_t xid_idx_start;
         uint32_t xid_idx_end;
@@ -1524,8 +1526,9 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
           goto KeepFcol_ret_MISSING_TOKENS;
         }
       }
+    KeepFcol_skip_header:
       ++line_idx;
-      reterr = TextNextLineLstrip(&txs, &line_start);
+      reterr = TextNextLineLstripNoempty(&txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
@@ -2235,7 +2238,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
     char* line_start;
     do {
       ++line_idx;
-      reterr = TextNextLineLstrip(&read_freq_txs, &line_start);
+      reterr = TextNextLineLstripNoempty(&read_freq_txs, &line_start);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
           logerrputs("Error: Empty --read-freq file.\n");
@@ -2244,7 +2247,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         goto ReadAlleleFreqs_ret_TSTREAM_FAIL;
       }
       // automatically skip header lines that start with '##' or '# '
-    } while (IsEolnKns(*line_start) || ((*line_start == '#') && (ctou32(line_start[1]) <= '#')));
+    } while ((*line_start == '#') && (ctou32(line_start[1]) <= '#'));
     uint32_t col_skips[kfReadFreqColNull];
     ReadFreqColidx col_types[kfReadFreqColNull];
     uint32_t overrideable_pos[kfReadFreqColNull - kfReadFreqColAlt1Allele];
@@ -2275,6 +2278,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
     uint32_t biallelic_only = 0;
 
     ReadFreqColFlags header_cols = kfReadFreqColset0;
+    uint32_t skip_header = 1;
     if (*line_start == '#') {
       // PLINK 2.0
       // guaranteed nonspace
@@ -2444,7 +2448,8 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           // or
           //   A=0.5,G=0.2
           // Look at the first nonheader line to distinguish between these two.
-          reterr = TextNextNonemptyLineLstrip(&read_freq_txs, &line_idx, &line_start);
+          ++line_idx;
+          reterr = TextNextLineLstripNoempty(&read_freq_txs, &line_start);
           if (unlikely(reterr)) {
             if (reterr == kPglRetEof) {
               logerrputs("Error: Empty --read-freq file.\n");
@@ -2473,9 +2478,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
             }
             header_cols &= ~header_cols_exempt;
           }
-        } else {
-          // may as well not reprocess header line
-          line_start = &(TextLineEnd(&read_freq_txs)[-1]);
+          skip_header = 0;
         }
         if (unlikely(((header_cols & kfReadFreqColsetBase) | header_cols_exempt) != kfReadFreqColsetBase)) {
           logerrputs("Error: Missing column(s) in --read-freq file (ID, REF, ALT[1] usually\nrequired).\n");
@@ -2537,7 +2540,6 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         }
         geno_counts = 1;
         logputs("--read-freq: PLINK 2 --geno-counts file detected.\n");
-        line_start = &(TextLineEnd(&read_freq_txs)[-1]);
       } else {
         logerrputs("Error: Missing column(s) in --read-freq file (no frequencies/counts).\n");
         goto ReadAlleleFreqs_ret_MALFORMED_INPUT;
@@ -2638,7 +2640,6 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           logputs("--read-freq: PLINK 1.x '--freq counts' file detected.\n");
         }
       }
-      line_start = &(TextLineEnd(&read_freq_txs)[-1]);
     }
     assert(relevant_col_ct <= 8);
 
@@ -2651,9 +2652,13 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
     uint32_t loaded_variant_ct = 0;
     uint32_t cur_allele_ct = 2;
     uint32_t variant_uidx = 0;
-    char* line_iter = &(TextLineEnd(&read_freq_txs)[-1]);
+    char* line_iter;
+    if (skip_header) {
+      line_iter = &(TextLineEnd(&read_freq_txs)[-1]);
+      goto ReadAlleleFreqs_skip_header;
+    }
     while (1) {
-      if (!IsEolnKns(*line_start)) {
+      {
         // not const since tokens may be null-terminated or comma-terminated
         // later
         char* token_ptrs[12];
@@ -3153,8 +3158,6 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           printf("\r--read-freq: Frequencies for %uk variants loaded.", loaded_variant_ct / 1000);
           fflush(stdout);
         }
-      } else {
-        line_iter = AdvToDelim(line_iter, '\n');
       }
       while (0) {
       ReadAlleleFreqs_skip_variant:
@@ -3162,9 +3165,10 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
       ReadAlleleFreqs_skip_missing_variant:
         ++skipped_variant_ct;
       }
+    ReadAlleleFreqs_skip_header:
       ++line_iter;
       ++line_idx;
-      reterr = TextNextLineLstripUnsafe(&read_freq_txs, &line_iter);
+      reterr = TextNextLineLstripNoemptyUnsafe(&read_freq_txs, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
@@ -4142,7 +4146,7 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
     while (1) {
       ++line_idx;
       char* line_start;
-      reterr = TextNextLineLstrip(&txs, &line_start);
+      reterr = TextNextLineLstripNoempty(&txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
@@ -4151,7 +4155,7 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
         goto SetRefalt1FromFile_ret_TSTREAM_FAIL;
       }
       char cc = *line_start;
-      if (IsEolnKns(cc) || (cc == skipchar)) {
+      if (cc == skipchar) {
         continue;
       }
       // er, replace this with TokenLex0()...

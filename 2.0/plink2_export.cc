@@ -85,16 +85,13 @@ PglErr ExportAlleleLoad(const char* fname, const uintptr_t* variant_include, con
     while (1) {
       ++line_idx;
       char* line_start;
-      reterr = TextNextLine(&txs, &line_start);
+      reterr = TextNextLineLstripNoempty(&txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
           break;
         }
         goto ExportAlleleLoad_ret_TSTREAM_FAIL;
-      }
-      if (IsEolnKns(*line_start)) {
-        continue;
       }
       char* token_end = CurTokenEnd(line_start);
       const uint32_t variant_uidx = VariantIdDupflagHtableFind(line_start, variant_ids, variant_id_htable, token_end - line_start, variant_id_htable_size, max_variant_id_slen);

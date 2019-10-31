@@ -92,7 +92,7 @@ PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const ui
     while (1) {
       ++line_idx;
       const char* line_start;
-      reterr = TextNextLineLstripK(&txs, &line_start);
+      reterr = TextNextLineLstripNoemptyK(&txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
@@ -101,7 +101,7 @@ PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const ui
         goto UpdateVarBps_ret_TSTREAM_FAIL;
       }
       char cc = *line_start;
-      if (IsEolnKns(cc) || (cc == skipchar)) {
+      if (cc == skipchar) {
         continue;
       }
       const char* colid_ptr;
@@ -268,7 +268,7 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
     while (1) {
       ++line_idx;
       const char* line_start;
-      reterr = TextNextLineLstripK(&txs, &line_start);
+      reterr = TextNextLineLstripNoemptyK(&txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
@@ -277,7 +277,7 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
         goto UpdateVarNames_ret_TSTREAM_FAIL;
       }
       char cc = *line_start;
-      if (IsEolnKns(cc) || (cc == skipchar)) {
+      if (cc == skipchar) {
         continue;
       }
       const char* colold_ptr;
@@ -406,7 +406,8 @@ PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, con
     uint32_t cur_allele_ct = 2;
     const char* line_iter = TextLineEnd(&txs);
     for (; ; line_iter = AdvPastDelim(line_iter, '\n')) {
-      reterr = TextNextNonemptyLineLstripUnsafeK(&txs, &line_idx, &line_iter);
+      ++line_idx;
+      reterr = TextNextLineLstripNoemptyUnsafeK(&txs, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
@@ -667,7 +668,7 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
     char* line_start;
     do {
       ++line_idx;
-      reterr = TextNextLineLstrip(&txs, &line_start);
+      reterr = TextNextLineLstripNoempty(&txs, &line_start);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
           logerrputs("Error: Empty --recover-var-ids file.\n");
@@ -675,13 +676,14 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
         }
         goto RecoverVarIds_ret_TSTREAM_FAIL;
       }
-    } while (IsEolnKns(*line_start) || ((*line_start == '#') && (!tokequal_k(line_start, "#CHROM"))));
+    } while ((*line_start == '#') && (!tokequal_k(line_start, "#CHROM")));
     // simplified copy of plink2_pvar code, probably want to write a library
     // function for this
     uint32_t col_skips[4];
     uint32_t col_types[4];
     uint32_t strict_allele_order = 1;
     const uint32_t is_bim = !(line_start[0] == '#');
+    char* line_iter = nullptr;
     if (!is_bim) {
       // parse header
       // [-1] = #CHROM (must be first column)
@@ -741,8 +743,7 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
       for (uint32_t rpc_col_idx = 3; rpc_col_idx; --rpc_col_idx) {
         col_skips[rpc_col_idx] -= col_skips[rpc_col_idx - 1];
       }
-      // skip this line in main loop
-      line_start = AdvToDelim(linebuf_iter, '\n');
+      line_iter = AdvToDelim(linebuf_iter, '\n');
     } else {
       // .bim.  Interpret as #CHROM ID POS ALT REF if there are exactly 5
       // columns, otherwise #CHROM ID CM POS ALT REF.
@@ -787,12 +788,11 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
     uint32_t rm_dup_warning = 0;
     uintptr_t record_uidx = ~k0LU;  // deliberate overflow
     uint32_t cur_allele_ct = 2;
-    char* line_iter = AdvToDelim(line_start, '\n');
+    if (!is_bim) {
+      goto RecoverVarIds_skip_header;
+    }
     while (1) {
       do {
-        if (IsEolnKns(*line_start)) {
-          break;
-        }
         ++record_uidx;
         line_iter = CurTokenEnd(line_start);
         uint32_t cur_chr_code = GetChrCodeCounted(cip, line_iter - line_start, line_start);
@@ -1006,8 +1006,9 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
         *line_iter = line_iter_char;
         prev_vidx_end = cur_vidx;
       } while (0);
+    RecoverVarIds_skip_header:
       line_iter = AdvPastDelim(line_iter, '\n');
-      reterr = TextNextLineLstripUnsafe(&txs, &line_iter);
+      reterr = TextNextLineLstripNoemptyUnsafe(&txs, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
@@ -1255,7 +1256,8 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
         // need this since we may clobber \n
       Plink1ClusterImport_LINE_ITER_ALREADY_ADVANCED:
         ++line_iter;
-        reterr = TextNextNonemptyLineLstripUnsafe(&within_txs, &line_idx, &line_iter);
+        ++line_idx;
+        reterr = TextNextLineLstripNoemptyUnsafe(&within_txs, &line_iter);
         if (reterr) {
           if (likely(reterr == kPglRetEof)) {
             reterr = kPglRetSuccess;
@@ -1585,10 +1587,11 @@ PglErr PrescanSampleIds(const char* fname, SampleIdInfo* siip) {
     uint32_t is_header_line;
     const char* line_iter;
     do {
-      reterr = TextNextNonemptyLineLstripK(&txs, &line_idx, &line_iter);
+      ++line_idx;
+      reterr = TextNextLineLstripNoemptyK(&txs, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
-          // permit empty file, but signal this to caller
+          // permit empty file here, but signal this to caller
           // (reterr == kPglRetSuccess when file is nonempty, so we can detect
           // rewind-fail)
           goto PrescanSampleIds_ret_1;
@@ -1647,8 +1650,12 @@ PglErr PrescanSampleIds(const char* fname, SampleIdInfo* siip) {
     const uint32_t initial_skip_ct = 1 + old_fid_present + old_sid_present;
     uintptr_t max_sample_id_blen = 0;
     uintptr_t max_sid_blen = 0;
+    if (is_header_line) {
+      line_iter = AdvToDelim(line_iter, '\n');
+      goto PrescanSampleIds_skip_header;
+    }
     do {
-      if (!IsEolnKns(*line_iter)) {
+      {
         line_iter = NextTokenMult(line_iter, initial_skip_ct);
         if (unlikely(!line_iter)) {
           goto PrescanSampleIds_ret_MISSING_TOKENS;
@@ -1683,9 +1690,10 @@ PglErr PrescanSampleIds(const char* fname, SampleIdInfo* siip) {
           goto PrescanSampleIds_ret_MALFORMED_INPUT_WW;
         }
       }
+    PrescanSampleIds_skip_header:
       ++line_idx;
       line_iter = AdvPastDelim(line_iter, '\n');
-      reterr = TextNextLineLstripUnsafeK(&txs, &line_iter);
+      reterr = TextNextLineLstripNoemptyUnsafeK(&txs, &line_iter);
     } while (!reterr);
     if (unlikely(reterr != kPglRetEof)) {
       goto PrescanSampleIds_ret_TSTREAM_FAIL;
@@ -1733,10 +1741,10 @@ PglErr PrescanParentalIds(const char* fname, uint32_t max_thread_ct, ParentalIdI
     const char* line_iter;
     do {
       ++line_idx;
-      reterr = TextNextNonemptyLineLstripK(&txs, &line_idx, &line_iter);
+      reterr = TextNextLineLstripNoemptyK(&txs, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
-          // permit empty file, but signal this to caller
+          // permit empty file here, but signal this to caller
           // (reterr == kPglRetSuccess when file is nonempty, so we can detect
           // rewind-fail)
           goto PrescanParentalIds_ret_1;
@@ -1745,6 +1753,8 @@ PglErr PrescanParentalIds(const char* fname, uint32_t max_thread_ct, ParentalIdI
       }
       is_header_line = (*line_iter == '#');
     } while (is_header_line && (!tokequal_k(&(line_iter[1]), "FID")) && (!tokequal_k(&(line_iter[1]), "IID")));
+    uintptr_t max_paternal_id_blen = 0;
+    uintptr_t max_maternal_id_blen = 0;
     uint32_t pat_col_idx;
     if (is_header_line) {
       // Search for 'PAT' column.  Require all-caps.
@@ -1774,7 +1784,9 @@ PglErr PrescanParentalIds(const char* fname, uint32_t max_thread_ct, ParentalIdI
         goto PrescanParentalIds_ret_MALFORMED_INPUT;
       }
       line_iter = AdvToDelim(line_iter, '\n');
-    } else {
+      goto PrescanParentalIds_skip_header;
+    }
+    {
       const uint32_t token_ct = CountTokens(line_iter);
       if (unlikely(token_ct < 3)) {
         logerrputs("Error: Invalid --update-parents file (3+ columns expected).\n");
@@ -1782,11 +1794,8 @@ PglErr PrescanParentalIds(const char* fname, uint32_t max_thread_ct, ParentalIdI
       }
       pat_col_idx = (token_ct == 3)? 1 : 2;
     }
-
-    uintptr_t max_paternal_id_blen = 0;
-    uintptr_t max_maternal_id_blen = 0;
     do {
-      if (!IsEolnKns(*line_iter)) {
+      {
         line_iter = NextTokenMult(line_iter, pat_col_idx);
         if (unlikely(!line_iter)) {
           goto PrescanParentalIds_ret_MISSING_TOKENS;
@@ -1807,9 +1816,10 @@ PglErr PrescanParentalIds(const char* fname, uint32_t max_thread_ct, ParentalIdI
           max_maternal_id_blen = cur_maternal_id_slen + 1;
         }
       }
+    PrescanParentalIds_skip_header:
       ++line_idx;
       line_iter = AdvPastDelim(line_iter, '\n');
-      reterr = TextNextLineLstripUnsafeK(&txs, &line_iter);
+      reterr = TextNextLineLstripNoemptyUnsafeK(&txs, &line_iter);
     } while (!reterr);
     if (unlikely(reterr != kPglRetEof)) {
       goto PrescanParentalIds_ret_TSTREAM_FAIL;
@@ -1854,7 +1864,8 @@ PglErr UpdateSampleIds(const char* fname, const uintptr_t* sample_include, uint3
     const char* line_iter;
     uint32_t is_header_line;
     do {
-      reterr = TextNextNonemptyLineLstripK(&txs, &line_idx, &line_iter);
+      ++line_idx;
+      reterr = TextNextLineLstripNoemptyK(&txs, &line_iter);
       if (unlikely(reterr)) {
         // This function is no longer called when the original file is empty.
         goto UpdateSampleIds_ret_TSTREAM_REWIND_FAIL;
@@ -1928,8 +1939,12 @@ PglErr UpdateSampleIds(const char* fname, const uintptr_t* sample_include, uint3
     }
     uint32_t hit_ct = 0;
     uintptr_t miss_ct = 0;
+    if (is_header_line) {
+      line_iter = AdvToDelim(line_iter, '\n');
+      goto UpdateSampleIds_skip_header;
+    }
     do {
-      if (!IsEolnKns(*line_iter)) {
+      {
         const char* linebuf_iter = line_iter;
         uint32_t xid_idx;
         uint32_t xid_idx_end;
@@ -1984,9 +1999,10 @@ PglErr UpdateSampleIds(const char* fname, const uintptr_t* sample_include, uint3
           ++miss_ct;
         }
       }
+    UpdateSampleIds_skip_header:
       ++line_idx;
       line_iter = AdvPastDelim(line_iter, '\n');
-      reterr = TextNextLineLstripUnsafeK(&txs, &line_iter);
+      reterr = TextNextLineLstripNoemptyUnsafeK(&txs, &line_iter);
     } while (!reterr);
     if (unlikely(reterr != kPglRetEof)) {
       goto UpdateSampleIds_ret_TSTREAM_REWIND_FAIL;
@@ -2037,7 +2053,8 @@ PglErr UpdateSampleParents(const char* fname, const SampleIdInfo* siip, const ui
     const char* line_iter;
     uint32_t is_header_line;
     do {
-      reterr = TextNextNonemptyLineLstripK(&txs, &line_idx, &line_iter);
+      ++line_idx;
+      reterr = TextNextLineLstripNoemptyK(&txs, &line_iter);
       if (unlikely(reterr)) {
         goto UpdateSampleParents_ret_TSTREAM_REWIND_FAIL;
       }
@@ -2076,7 +2093,6 @@ PglErr UpdateSampleParents(const char* fname, const SampleIdInfo* siip, const ui
         }
         ++postid_pat_col_idx;
       }
-      line_iter = AdvToDelim(line_iter, '\n');
     } else {
       const uint32_t token_ct = CountTokens(line_iter);
       if (unlikely(token_ct < 3)) {
@@ -2107,8 +2123,12 @@ PglErr UpdateSampleParents(const char* fname, const SampleIdInfo* siip, const ui
     char* maternal_ids = parental_id_infop->maternal_ids;
     uint32_t hit_ct = 0;
     uintptr_t miss_ct = 0;
+    if (is_header_line) {
+      line_iter = AdvToDelim(line_iter, '\n');
+      goto UpdateSampleParents_skip_header;
+    }
     do {
-      if (!IsEolnKns(*line_iter)) {
+      {
         const char* linebuf_iter = line_iter;
         uint32_t xid_idx;
         uint32_t xid_idx_end;
@@ -2144,9 +2164,10 @@ PglErr UpdateSampleParents(const char* fname, const SampleIdInfo* siip, const ui
           ++miss_ct;
         }
       }
+    UpdateSampleParents_skip_header:
       ++line_idx;
       line_iter = AdvPastDelim(line_iter, '\n');
-      reterr = TextNextLineLstripUnsafeK(&txs, &line_iter);
+      reterr = TextNextLineLstripNoemptyUnsafeK(&txs, &line_iter);
     } while (!reterr);
     if (unlikely(reterr != kPglRetEof)) {
       goto UpdateSampleParents_ret_TSTREAM_REWIND_FAIL;
@@ -2239,10 +2260,6 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
       }
       postid_col_idx = col_num - id_col_ct;
     }
-    if (*line_start == '#') {
-      // advance to next line
-      *line_start = '\0';
-    }
 
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     uint32_t* xid_map = nullptr;
@@ -2265,8 +2282,11 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
     uint32_t hit_ct = 0;
     uintptr_t miss_ct = 0;
     uintptr_t duplicate_ct = 0;
+    if (*line_start == '#') {
+      goto UpdateSampleSexes_skip_header;
+    }
     while (1) {
-      if (!IsEolnKns(*line_start)) {
+      {
         const char* linebuf_iter = line_start;
         uint32_t xid_idx_start;
         uint32_t xid_idx_end;
@@ -2337,8 +2357,9 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
           ++miss_ct;
         }
       }
+    UpdateSampleSexes_skip_header:
       ++line_idx;
-      reterr = TextNextLineLstrip(&txs, &line_start);
+      reterr = TextNextLineLstripNoempty(&txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
@@ -8476,9 +8497,6 @@ PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, con
         }
         goto Sdiff_ret_TSTREAM_XID_FAIL;
       }
-      if (*line_start == '#') {
-        *line_start = '\0';
-      }
     }
     unsigned char* bigstack_mark2 = g_bigstack_base;
     // May as well have --strict-sid0 or lack of it apply to base=/ids= too.
@@ -8565,8 +8583,11 @@ PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, con
       uint32_t* sample_pair_uidxs_end = R_CAST(uint32_t*, bigstack_end_mark);
       uint32_t* sample_pair_uidxs_iter = sample_pair_uidxs_end;
       uint32_t* sample_pair_uidxs_oom = R_CAST(uint32_t*, g_bigstack_base);
+      if (*line_start == '#') {
+        goto Sdiff_skip_header;
+      }
       while (1) {
-        if (!IsEolnKns(*line_start)) {
+        {
           const char* linebuf_iter = line_start;
           uint32_t sample_uidx1;
           if (unlikely(SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx1, idbuf))) {
@@ -8596,9 +8617,10 @@ PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, con
           *(--sample_pair_uidxs_iter) = sample_uidx2;
           line_iter = K_CAST(char*, linebuf_iter);
         }
+      Sdiff_skip_header:
         ++line_idx;
         line_iter = AdvPastDelim(line_iter, '\n');
-        reterr = TextNextLineLstripUnsafe(&txs, &line_iter);
+        reterr = TextNextLineLstripNoemptyUnsafe(&txs, &line_iter);
         if (reterr) {
           if (likely(reterr == kPglRetEof)) {
             // reterr = kPglRetSuccess;

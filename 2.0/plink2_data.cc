@@ -204,19 +204,24 @@ void PvarInfoWrite(uint32_t info_pr_flag_present, uint32_t is_pr, char* info_tok
 
 PglErr PvarInfoReload(uint32_t info_col_idx, uint32_t variant_uidx, TextStream* pvar_reload_txsp, char** line_iterp, uint32_t* trs_variant_uidx_ptr) {
   uint32_t trs_variant_uidx = *trs_variant_uidx_ptr;
-  char* line_iter = *line_iterp;
-  do {
-    do {
-      line_iter = AdvPastDelim(line_iter, '\n');
-      PglErr reterr = TextNextLineLstripUnsafe(pvar_reload_txsp, &line_iter);
-      if (unlikely(reterr)) {
-        return reterr;
-      }
-    } while (IsEolnKns(*line_iter));
-    ++trs_variant_uidx;
-  } while (trs_variant_uidx <= variant_uidx);
+  char* line_iter = AdvPastDelim(*line_iterp, '\n');
+  if (trs_variant_uidx < variant_uidx) {
+    TextSetPos(line_iter, pvar_reload_txsp);
+    PglErr reterr = TextSkipNz(variant_uidx - trs_variant_uidx, pvar_reload_txsp);
+    if (unlikely(reterr)) {
+      return reterr;
+    }
+    line_iter = TextLineEnd(pvar_reload_txsp);
+    trs_variant_uidx = variant_uidx;
+  }
+  PglErr reterr = TextNextLineLstripUnsafe(pvar_reload_txsp, &line_iter);
+  if (unlikely(reterr)) {
+    return reterr;
+  }
   *line_iterp = NextTokenMultFar(line_iter, info_col_idx);
-  *trs_variant_uidx_ptr = trs_variant_uidx;
+
+  // index *after* just-loaded line.
+  *trs_variant_uidx_ptr = trs_variant_uidx + 1;
   return kPglRetSuccess;
 }
 
@@ -302,19 +307,50 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
       goto WritePvar_ret_INCONSISTENT_INPUT;
     }
 
+    uint32_t write_filter = 0;
+    if (pvar_psam_flags & kfPvarColFilter) {
+      write_filter = 1;
+    } else if ((pvar_psam_flags & kfPvarColMaybefilter) && filter_present) {
+      write_filter = !IntersectionIsEmpty(variant_include, filter_present, raw_variant_ctl);
+    }
     char* pvar_info_line_iter = nullptr;
     uint32_t info_col_idx = 0;  // could save this during first load instead
     const uint32_t info_pr_flag_present = (info_flags / kfInfoPrFlagPresent) & 1;
     if (pvar_psam_flags & kfPvarColXheader) {
-      if (unlikely(CsputsStd(xheader, xheader_blen, &css, &cswritep))) {
-        goto WritePvar_ret_WRITE_FAIL;
+      if (write_filter && write_info) {
+        if (unlikely(CsputsStd(xheader, xheader_blen, &css, &cswritep))) {
+          goto WritePvar_ret_WRITE_FAIL;
+        }
+      } else {
+        // Filter out FILTER/INFO definitions iff the corresponding column has
+        // been removed.
+        const char* copy_start = xheader;
+        const char* xheader_end = &(xheader[xheader_blen]);
+        for (const char* xheader_iter = xheader; xheader_iter != xheader_end; ) {
+          const char* next_line_start = AdvPastDelim(xheader_iter, '\n');
+          if (((!write_filter) && StrStartsWithUnsafe(xheader_iter, "##FILTER=<ID=")) ||
+              ((!write_info) && StrStartsWithUnsafe(xheader_iter, "##INFO=<ID="))) {
+            if (copy_start != xheader_iter) {
+              if (unlikely(CsputsStd(copy_start, xheader_iter - copy_start, &css, &cswritep))) {
+                goto WritePvar_ret_WRITE_FAIL;
+              }
+            }
+            copy_start = next_line_start;
+          }
+          xheader_iter = next_line_start;
+        }
+        if (copy_start != xheader_end) {
+          if (unlikely(CsputsStd(copy_start, xheader_end - copy_start, &css, &cswritep))) {
+            goto WritePvar_ret_WRITE_FAIL;
+          }
+        }
       }
       if (write_info_pr && (!info_pr_flag_present)) {
         cswritep = strcpya_k(cswritep, "##INFO=<ID=PR,Number=0,Type=Flag,Description=\"Provisional reference allele, may not be based on real reference genome\">" EOLN_STR);
       }
     }
     // bugfix (30 Jul 2017): may be necessary to reload INFO when no ## lines
-    // are in the header
+    // are in the header... er, should we still allow this?
     if (pvar_info_reload) {
       reterr = PvarInfoOpenAndReloadHeader(pvar_info_reload, 1 + (thread_ct > 1), &pvar_reload_txs, &pvar_info_line_iter, &info_col_idx);
       if (unlikely(reterr)) {
@@ -336,12 +372,6 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
       cswritep = strcpya_k(cswritep, "\tQUAL");
     }
 
-    uint32_t write_filter = 0;
-    if (pvar_psam_flags & kfPvarColFilter) {
-      write_filter = 1;
-    } else if ((pvar_psam_flags & kfPvarColMaybefilter) && filter_present) {
-      write_filter = !IntersectionIsEmpty(variant_include, filter_present, raw_variant_ctl);
-    }
     if (write_filter) {
       cswritep = strcpya_k(cswritep, "\tFILTER");
     }
@@ -7281,12 +7311,10 @@ PglErr PvarInfoReloadInterval(const uint32_t* old_variant_uidx_to_new, uint32_t 
   }
   uint32_t variant_idx = 0;
   for (uint32_t variant_uidx = 0; ; ++variant_uidx) {
-    do {
-      reterr = TextNextLineLstrip(pvar_reload_txsp, &line_iter);
-      if (unlikely(reterr)) {
-        return reterr;
-      }
-    } while (IsEolnKns(*line_iter));
+    reterr = TextNextLineLstrip(pvar_reload_txsp, &line_iter);
+    if (unlikely(reterr)) {
+      return reterr;
+    }
     const uint32_t new_variant_idx_offset = old_variant_uidx_to_new[variant_uidx] - variant_idx_start;
     // exploit wraparound, UINT32_MAX null value
     if (new_variant_idx_offset >= cur_batch_size) {
@@ -7990,10 +8018,10 @@ PglErr SampleSortFileMap(const uintptr_t* sample_include, const SampleIdInfo* si
     }
     uint32_t* new_sample_idx_to_old_iter = *new_sample_idx_to_old_ptr;
     if (*line_start == '#') {
-      *line_start = '\0';
+      goto SampleSortFileMap_skip_header;
     }
     while (1) {
-      if (!IsEolnKns(*line_start)) {
+      {
         const char* linebuf_iter = line_start;
         uint32_t sample_uidx;
         if (!SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx, idbuf)) {
@@ -8012,8 +8040,9 @@ PglErr SampleSortFileMap(const uintptr_t* sample_include, const SampleIdInfo* si
           goto SampleSortFileMap_ret_MISSING_TOKENS;
         }
       }
+    SampleSortFileMap_skip_header:
       ++line_idx;
-      reterr = TextNextLineLstrip(&txs, &line_start);
+      reterr = TextNextLineLstripNoempty(&txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;

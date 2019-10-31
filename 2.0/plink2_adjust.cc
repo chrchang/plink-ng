@@ -579,7 +579,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     const char* header_start;
     do {
       ++line_idx;
-      reterr = TextNextLineLstripK(&adjust_txs, &header_start);
+      reterr = TextNextLineLstripNoemptyK(&adjust_txs, &header_start);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", in_fname);
@@ -679,8 +679,9 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
 
     uintptr_t entry_ct = 0;
     while (1) {
+      ++line_idx;
       const char* line_start;
-      reterr = TextNextNonemptyLineLstripK(&adjust_txs, &line_idx, &line_start);
+      reterr = TextNextLineLstripNoemptyK(&adjust_txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           // reterr = kPglRetSuccess;
@@ -714,7 +715,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     if (unlikely(reterr)) {
       goto AdjustFile_ret_TSTREAM_FAIL;
     }
-    const uintptr_t line_ct = line_idx;
+    const uintptr_t line_ct = line_idx - 1;
     line_idx = 0;
     do {
       ++line_idx;
@@ -790,9 +791,6 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       reterr = TextNextLineLstripK(&adjust_txs, &line_start);
       if (unlikely(reterr)) {
         goto AdjustFile_ret_TSTREAM_REWIND_FAIL;
-      }
-      if (IsEolnKns(*line_start)) {
-        continue;
       }
       const char* token_ptrs[8];
       uint32_t token_slens[8];

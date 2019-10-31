@@ -332,12 +332,12 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
       goto KingCutoffBatch_ret_NOMEM;
     }
     SetAllU32Arr(raw_sample_ct, sample_uidx_to_king_uidx);
-    if (*line_start == '#') {
-      *line_start = '\0';
-    }
     uintptr_t king_id_ct = 0;
+    if (*line_start == '#') {
+      goto KingCutoffBatch_skip_header;
+    }
     while (1) {
-      if (!IsEolnKns(*line_start)) {
+      {
         const char* linebuf_iter = line_start;
         uint32_t sample_uidx;
         if (!SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx, idbuf)) {
@@ -359,8 +359,9 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
           }
         }
       }
+    KingCutoffBatch_skip_header:
       ++line_idx;
-      reterr = TextNextLineLstrip(&txs, &line_start);
+      reterr = TextNextLineLstripNoempty(&txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
@@ -1990,7 +1991,8 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, u
     // positive, we're that far into the file.
     uint32_t* loaded_sample_idx_pairs_iter = loaded_sample_idx_pairs;
     for (char* line_iter = TextLineEnd(txsp); ; line_iter = AdvPastDelim(line_iter, '\n')) {
-      reterr = TextNextNonemptyLineLstripUnsafe(txsp, &line_idx, &line_iter);
+      ++line_idx;
+      reterr = TextNextLineLstripNoemptyUnsafe(txsp, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
@@ -2323,8 +2325,9 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
         }
         goto CalcKingTableSubset_ret_TSTREAM_FAIL;
       }
+      ++line_idx;
       const char* linebuf_iter;
-      reterr = TextNextNonemptyLineLstripK(&txs, &line_idx, &linebuf_iter);
+      reterr = TextNextLineLstripNoemptyK(&txs, &linebuf_iter);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
           logerrputs("Error: Empty --king-table-subset file.\n");
@@ -2477,9 +2480,9 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
               goto CalcKingTableSubset_ret_TSTREAM_FAIL;
             }
             // bugfix (4 Oct 2019): forgot a bunch of reinitialization here
-            line_idx = 0;
+            line_idx = 1;
             char* header_throwaway;
-            reterr = TextNextNonemptyLineLstrip(&txs, &line_idx, &header_throwaway);
+            reterr = TextNextLineLstrip(&txs, &header_throwaway);
             if (unlikely(reterr)) {
               goto CalcKingTableSubset_ret_TSTREAM_REWIND_FAIL;
             }
@@ -5019,13 +5022,17 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       if (unlikely(reterr)) {
         goto ScoreReport_ret_1;
       }
-      unsigned char* bigstack_mark2 = g_bigstack_base;
-      // strictly speaking, textFILE would be more appropriate here since this
-      // file should be tiny, but it doesn't really matter.
-      reterr = InitTextStream(score_info_ptr->qsr_range_fname, kTextStreamBlenFast, 1, &score_txs);
+      // Strictly speaking, textFILE would be more appropriate for the range
+      // file since it should be tiny, but it doesn't really matter.
+      // We still reserve bigstack_left() / 8 for the line-buffer since the
+      // data file usually contains allele codes, and we use TextRetarget()
+      // below to use the buffer allocated here for the data file too (and for
+      // the score file later).
+      reterr = SizeAndInitTextStream(score_info_ptr->qsr_range_fname, bigstack_left() / 8, 1, &score_txs);
       if (unlikely(reterr)) {
         goto ScoreReport_ret_QSR_RANGE_TSTREAM_FAIL;
       }
+      unsigned char* bigstack_mark2 = g_bigstack_base;
       // strlen("<prefix>.<range name>.sscore[.zst]") < kPglFnamesize
       const uint32_t max_name_slen = kPglFnamesize - S_CAST(uintptr_t, outname_end - outname) - 9 - output_zst * 4;
       ParsedQscoreRange* parsed_qscore_ranges = R_CAST(ParsedQscoreRange*, g_bigstack_base);
@@ -5034,7 +5041,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       while (1) {
         ++line_idx;
         const char* line_start;
-        reterr = TextNextLineLstripK(&score_txs, &line_start);
+        reterr = TextNextLineLstripNoemptyK(&score_txs, &line_start);
         if (reterr) {
           if (likely(reterr == kPglRetEof)) {
             // reterr = kPglRetSuccess;
@@ -5130,8 +5137,9 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       line_idx = 0;
       miss_ct = 0;
       if (flags & kfScoreQsrHeader) {
+        ++line_idx;
         const char* dummy;
-        reterr = TextNextNonemptyLineLstripK(&score_txs, &line_idx, &dummy);
+        reterr = TextNextLineLstripNoemptyK(&score_txs, &dummy);
         if (unlikely(reterr)) {
           if (reterr == kPglRetEof) {
             logerrputs("Error: Empty --q-score-range data file.\n");
@@ -5151,8 +5159,9 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         }
       }
       while (1) {
+        ++line_idx;
         const char* line_start;
-        reterr = TextNextNonemptyLineLstripK(&score_txs, &line_idx, &line_start);
+        reterr = TextNextLineLstripNoemptyK(&score_txs, &line_start);
         if (reterr) {
           if (likely(reterr == kPglRetEof)) {
             break;
@@ -5225,24 +5234,26 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       if (miss_ct) {
         logerrprintf("Warning: %" PRIuPTR " line%s skipped in --q-score-range data file.\n", miss_ct, (miss_ct == 1)? "" : "s");
       }
-      if (CleanupTextStream2("--q-score-range data file", &score_txs, &reterr)) {
-        goto ScoreReport_ret_1;
-      }
       // possible todo: replace variant_include with already_seen, and compact
       // qsr_include.
       // but for now, we just free already_seen, and in the common use cases
       // this should be fine.
+      reterr = TextRetarget(score_info_ptr->input_fname, &score_txs);
+      if (unlikely(reterr)) {
+        goto ScoreReport_ret_QSR_DATA_TSTREAM_FAIL;
+      }
       BigstackReset(bigstack_mark2);
       line_idx = 0;
+    } else {
+      reterr = SizeAndInitTextStream(score_info_ptr->input_fname, bigstack_left() / 8, 1, &score_txs);
+      if (unlikely(reterr)) {
+        goto ScoreReport_ret_TSTREAM_FAIL;
+      }
     }
-    reterr = SizeAndInitTextStream(score_info_ptr->input_fname, bigstack_left() / 8, 1, &score_txs);
-    if (unlikely(reterr)) {
-      goto ScoreReport_ret_TSTREAM_FAIL;
-    }
-    uint32_t nonempty_lines_to_skip_p1 = 1 + ((flags / kfScoreHeaderIgnore) & 1);
+    uint32_t lines_to_skip_p1 = 1 + ((flags / kfScoreHeaderIgnore) & 1);
     char* line_start;
-    for (uint32_t uii = 0; uii != nonempty_lines_to_skip_p1; ++uii) {
-      reterr = TextNextNonemptyLineLstrip(&score_txs, &line_idx, &line_start);
+    for (uint32_t uii = 0; uii != lines_to_skip_p1; ++uii) {
+      reterr = TextNextLineLstripNoempty(&score_txs, &line_start);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
           logerrputs("Error: Empty --score file.\n");
@@ -5322,9 +5333,6 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         const uint32_t slen = token_end - read_iter;
         write_iter = memcpyax(write_iter, read_iter, slen, '\0');
       }
-
-      // don't reparse this line
-      line_start = K_CAST(char*, &(g_one_char_strs[0]));
     } else {
       for (uintptr_t score_col_idx = 0; score_col_idx != score_col_ct; ++score_col_idx) {
         score_col_names[score_col_idx] = write_iter;
@@ -5478,8 +5486,11 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     BLAS_SET_NUM_THREADS(matrix_multiply_thread_ct);
 #endif
     PgrClearLdCache(simple_pgrp);
+    if (flags & kfScoreHeaderRead) {
+      goto ScoreReport_skip_header;
+    }
     while (1) {
-      if (!IsEolnKns(*line_start)) {
+      {
         // varid_col_idx and allele_col_idx will almost always be very small
         char* variant_id_start = NextTokenMult0(line_start, varid_col_idx);
         if (unlikely(!variant_id_start)) {
@@ -5803,8 +5814,9 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
           }
         }
       }
+    ScoreReport_skip_header:
       ++line_idx;
-      reterr = TextNextLineLstrip(&score_txs, &line_start);
+      reterr = TextNextLineLstripNoempty(&score_txs, &line_start);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;

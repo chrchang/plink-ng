@@ -70,7 +70,8 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     }
     const char* line_iter;
     do {
-      reterr = TextNextNonemptyLineLstripK(&psam_txs, &line_idx, &line_iter);
+      ++line_idx;
+      reterr = TextNextLineLstripNoemptyK(&psam_txs, &line_iter);
       if (unlikely(reterr)) {
         if (reterr == kPglRetEof) {
           logerrprintfww("Error: No samples in %s.\n", psamname);
@@ -90,6 +91,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     unsigned char* tmp_bigstack_end = g_bigstack_end;
     unsigned char* bigstack_mark2;
     uint32_t fid_present = 1;
+    uint32_t skip_header = 0;
     if (line_iter[0] == '#') {
       // parse header
       // [-1] = #FID (if present, must be first column)
@@ -243,9 +245,9 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
         col_skips[rpf_col_idx] -= col_skips[rpf_col_idx - 1];
       }
 
-      // force line to be skipped by main loop
       line_iter = linebuf_iter;
-    } else if (line_iter[0]) {
+      skip_header = 1;
+    } else {
       if (unlikely(pheno_name_subset)) {
         logerrputs("Error: --pheno-name requires a --pheno or .psam file with a header.\n");
         goto LoadPsam_ret_INCONSISTENT_INPUT;
@@ -359,8 +361,11 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     CatnameLl2** catname_htable = nullptr;
     CatnameLl2** pheno_catname_last = nullptr;
     uintptr_t* total_catname_blens = nullptr;
+    if (skip_header) {
+      goto LoadPsam_skip_header;
+    }
     while (1) {
-      if (!IsEolnKns(*line_iter)) {
+      {
         if (unlikely(raw_sample_ct == 0x7ffffffe)) {
           logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 2 samples.\n");
           goto LoadPsam_ret_MALFORMED_INPUT;
@@ -584,9 +589,10 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
         }
         ++raw_sample_ct;
       }
+    LoadPsam_skip_header:
       ++line_idx;
       line_iter = AdvPastDelim(line_iter, '\n');
-      reterr = TextNextLineLstripUnsafeK(&psam_txs, &line_iter);
+      reterr = TextNextLineLstripNoemptyUnsafeK(&psam_txs, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
@@ -879,7 +885,8 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
     }
     const char* line_iter;
     do {
-      reterr = TextNextNonemptyLineLstripK(&pheno_txs, &line_idx, &line_iter);
+      ++line_idx;
+      reterr = TextNextLineLstripNoemptyK(&pheno_txs, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;
@@ -898,6 +905,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
     XidMode xid_mode = (line_iter[0] == 'I')? kfXidModeIid : kfXidModeFidIid;
     uint32_t* col_types = nullptr;
     uint32_t* col_skips = nullptr;
+    uint32_t skip_header = 0;
     uint32_t new_pheno_ct;
     uint32_t final_pheno_ct;
     uintptr_t final_pheno_names_byte_ct;
@@ -1010,8 +1018,8 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         pheno_names_iter = &(pheno_names_iter[max_pheno_name_blen]);
         linebuf_iter = token_end;
       }
-      // force line to be skipped by main loop
       line_iter = AdvToDelim(linebuf_iter, '\n');
+      skip_header = 1;
     } else {
       // no header line
       xid_mode = iid_only? kfXidModeIid : kfXidModeFidIid;
@@ -1164,8 +1172,11 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
     CatnameLl2** catname_htable = nullptr;
     CatnameLl2** pheno_catname_last = nullptr;
     uintptr_t* total_catname_blens = nullptr;
+    if (skip_header) {
+      goto LoadPhenos_skip_header;
+    }
     while (1) {
-      if (!IsEolnKns(*line_iter)) {
+      {
         uint32_t sample_uidx;
         if (SortedXidboxReadFind(sorted_sample_ids, sample_id_map, max_sample_id_blen, sample_ct, comma_delim, xid_mode, &line_iter, &sample_uidx, id_buf)) {
           if (unlikely(!line_iter)) {
@@ -1319,9 +1330,10 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
           pheno_info_reverse_ll = new_pheno_info;
         }
       }
+    LoadPhenos_skip_header:
       ++line_idx;
       line_iter = AdvPastDelim(line_iter, '\n');
-      reterr = TextNextLineLstripUnsafeK(&pheno_txs, &line_iter);
+      reterr = TextNextLineLstripNoemptyUnsafeK(&pheno_txs, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           reterr = kPglRetSuccess;

@@ -369,8 +369,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                */
 "    * The first five columns of a .pvar file are always #CHROM/POS/ID/REF/ALT.\n"
 "      Supported optional .pvar column sets are:\n"
-"        xheader: All ## header lines (yeah, this is technically not a column).\n"
-"                 Without this, only the #CHROM header line is kept.\n"
+"        xheader: All ## header lines (yeah, this is technically not a column),\n"
+"                 except for possibly FILTER/INFO definitions when those\n"
+"                 column(s) have been removed.  Without this, only the #CHROM\n"
+"                 header line is kept.\n"
 "        maybequal: QUAL.  Omitted if all remaining values are missing.\n"
 "        qual: Force QUAL column to be written even when empty.\n"
 "        maybefilter: FILTER.  Omitted if all remaining values are missing.\n"
@@ -1467,10 +1469,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --remove-cat-pheno <phe> : Specify pheno for --remove-cats/remove-cat-names.\n"
                );
     HelpPrint("split-cat-pheno\0dummy-coding\0loop-assoc\0", &help_ctrl, 0,
-"  --split-cat-pheno ['omit-last'] ['covar-01'] [cat. pheno/covar name(s)...] :\n"
-"    Split n-category phenotype(s) into n (or n-1, with 'omit-last') binary\n"
-"    phenotypes, with names of the form <orig. pheno name>=<category name>.  (As\n"
-"    a consequence, affected phenotypes and categories are not permitted to\n"
+"  --split-cat-pheno [{omit-most | omit-last}] ['covar-01']\n"
+"                    [cat. pheno/covar name(s)...] :\n"
+"    Split n-category phenotype(s) into n (or n-1, with 'omit-most'/'omit-last')\n"
+"    binary phenotypes, with names of the form <orig. pheno name>=<cat. name>.\n"
+"    (As a consequence, affected phenotypes and categories are not permitted to\n"
 "    contain the '=' character.)\n"
 "    * This happens after all sample filters.\n"
 "    * If no phenotype or covariate names are provided, all categorical\n"

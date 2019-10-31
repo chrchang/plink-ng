@@ -266,8 +266,7 @@ PglErr TextFileOpenEx(const char* fname, uint32_t enforced_max_line_blen, uint32
 }
 
 // Set enforced_max_line_blen == 0 in the token-reading case.
-// trailing 'X' is temporary, to avoid duplicate-symbol error
-BoolErr IsPathologicallyLongLineOrTokenX(const char* line_start, const char* load_start, const char* known_line_end, uint32_t enforced_max_line_blen) {
+BoolErr IsPathologicallyLongLineOrToken(const char* line_start, const char* load_start, const char* known_line_end, uint32_t enforced_max_line_blen) {
   if (enforced_max_line_blen) {
     // Preconditions:
     // * No \n in [line_start, load_start).
@@ -406,6 +405,7 @@ PglErr ZstRawStreamRead(char* dst_end, FILE* ff, ZstRawDecompressStream* zstp, c
 }
 
 const char kShortErrLongLine[] = "Pathologically long line";
+const char kShortErrInteriorEmptyLine[] = "Unexpected interior empty line";
 
 PglErr TextFileAdvance(textFILE* txf_ptr) {
   textFILEMain* txfp = GetTxfp(txf_ptr);
@@ -613,7 +613,7 @@ PglErr TextFileAdvance(textFILE* txf_ptr) {
         goto TextFileAdvance_ret_LONG_LINE;
       }
     }
-    if (unlikely(IsPathologicallyLongLineOrTokenX(dst, dst_load_start, basep->consume_stop, basep->enforced_max_line_blen))) {
+    if (unlikely(IsPathologicallyLongLineOrToken(dst, dst_load_start, basep->consume_stop, basep->enforced_max_line_blen))) {
       goto TextFileAdvance_ret_LONG_LINE;
     }
   }
@@ -640,6 +640,28 @@ PglErr TextFileAdvance(textFILE* txf_ptr) {
  TextFileAdvance_ret_1:
   basep->reterr = reterr;
   return reterr;
+}
+
+PglErr TextFileOnlyEmptyLinesLeft(textFILE* txf_ptr) {
+  TextFileBase* basep = &GetTxfp(txf_ptr)->base;
+  char* line_start = basep->consume_iter;
+  while (1) {
+    if (line_start == basep->consume_stop) {
+      basep->consume_iter = line_start;
+      PglErr reterr = TextFileAdvance(txf_ptr);
+      if (reterr) {
+        return reterr;
+      }
+      line_start = basep->consume_iter;
+    }
+    line_start = FirstNonTspace(line_start);
+    if (unlikely(!IsEolnKns(*line_start))) {
+      basep->reterr = kPglRetMalformedInput;
+      basep->errmsg = kShortErrInteriorEmptyLine;
+      return kPglRetMalformedInput;
+    }
+    line_start = AdvPastDelim(line_start, '\n');
+  }
 }
 
 void TextFileRewind(textFILE* txf_ptr) {
@@ -971,7 +993,7 @@ THREAD_FUNC_DECL TextStreamThread(void* raw_arg) {
           }
         }
         // Still want to consistently enforce max line/token length.
-        if (unlikely(IsPathologicallyLongLineOrTokenX(cur_block_start, read_head, final_read_head, enforced_max_line_blen))) {
+        if (unlikely(IsPathologicallyLongLineOrToken(cur_block_start, read_head, final_read_head, enforced_max_line_blen))) {
           goto TextStreamThread_LONG_LINE;
         }
         read_head = final_read_head;
@@ -985,7 +1007,7 @@ THREAD_FUNC_DECL TextStreamThread(void* raw_arg) {
       }
       if (last_byte_ptr) {
         char* next_available_end = &(last_byte_ptr[1]);
-        if (unlikely(IsPathologicallyLongLineOrTokenX(cur_block_start, read_head, next_available_end, enforced_max_line_blen))) {
+        if (unlikely(IsPathologicallyLongLineOrToken(cur_block_start, read_head, next_available_end, enforced_max_line_blen))) {
           goto TextStreamThread_LONG_LINE;
         }
 #ifdef _WIN32
@@ -1575,25 +1597,25 @@ PglErr TextAdvance(TextStream* txs_ptr) {
 #endif
 }
 
-PglErr TextNextNonemptyLineLstrip(TextStream* txs_ptr, uintptr_t* line_idx_ptr, char** line_startp) {
+PglErr TextOnlyEmptyLinesLeft(TextStream* txs_ptr) {
   TextFileBase* basep = &GetTxsp(txs_ptr)->base;
-  uintptr_t line_idx = *line_idx_ptr;
+  char* line_start = basep->consume_iter;
   while (1) {
-    ++line_idx;
-    if (basep->consume_iter == basep->consume_stop) {
+    if (line_start == basep->consume_stop) {
+      basep->consume_iter = line_start;
       PglErr reterr = TextAdvance(txs_ptr);
-      // not unlikely() due to eof
       if (reterr) {
         return reterr;
       }
+      line_start = basep->consume_iter;
     }
-    char* line_start = FirstNonTspace(basep->consume_iter);
-    basep->consume_iter = AdvPastDelim(line_start, '\n');
-    if (!IsEolnKns(*line_start)) {
-      *line_idx_ptr = line_idx;
-      *line_startp = line_start;
-      return kPglRetSuccess;
+    line_start = FirstNonTspace(line_start);
+    if (unlikely(!IsEolnKns(*line_start))) {
+      basep->reterr = kPglRetMalformedInput;
+      basep->errmsg = kShortErrInteriorEmptyLine;
+      return kPglRetMalformedInput;
     }
+    line_start = AdvPastDelim(line_start, '\n');
   }
 }
 
@@ -1638,7 +1660,8 @@ PglErr TextSkipNz(uintptr_t skip_ct, TextStream* txs_ptr) {
       return kPglRetSuccess;
     }
     skip_ct -= cur_lf_ct;
-    basep->consume_iter = consume_iter;
+    // bugfix (30 Oct 2019)
+    basep->consume_iter = basep->consume_stop;
     PglErr reterr = TextAdvance(txs_ptr);
     // not unlikely() due to eof
     if (reterr) {
@@ -1664,31 +1687,6 @@ PglErr TextSkipNz(uintptr_t skip_ct, TextStream* txs_ptr) {
   basep->consume_iter = consume_iter;
   return kPglRetSuccess;
 #endif
-}
-
-PglErr TextNextNonemptyLineLstripUnsafe(TextStream* txs_ptr, uintptr_t* line_idx_ptr, char** line_iterp) {
-  TextFileBase* basep = &GetTxsp(txs_ptr)->base;
-  char* line_iter = *line_iterp;
-  uintptr_t line_idx = *line_idx_ptr;
-  while (1) {
-    ++line_idx;
-    if (line_iter == basep->consume_stop) {
-      basep->consume_iter = line_iter;
-      PglErr reterr = TextAdvance(txs_ptr);
-      // not unlikely() due to eof
-      if (reterr) {
-        return reterr;
-      }
-      line_iter = basep->consume_iter;
-    }
-    line_iter = FirstNonTspace(line_iter);
-    if (!IsEolnKns(*line_iter)) {
-      *line_idx_ptr = line_idx;
-      *line_iterp = line_iter;
-      return kPglRetSuccess;
-    }
-    line_iter = AdvPastDelim(line_iter, '\n');
-  }
 }
 
 PglErr TextRetarget(const char* new_fname, TextStream* txs_ptr) {
