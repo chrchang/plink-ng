@@ -150,12 +150,12 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       goto GlmLocalOpen_ret_TSTREAM_FAIL;
     }
     uint32_t is_header_line;
-    char* line_start = nullptr;
+    char* line_start;
     do {
       ++line_idx;
-      reterr = TextNextLineLstripNoempty(&txs, &line_start);
-      if (unlikely(reterr)) {
-        if (reterr == kPglRetEof) {
+      line_start = TextGet(&txs);
+      if (unlikely(!line_start)) {
+        if (!TextStreamErrcode2(&txs, &reterr)) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", local_psam_fname);
           goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
         }
@@ -197,53 +197,44 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
 #endif
     uintptr_t local_sample_ct = 0;
     if (is_header_line) {
-      goto GlmLocalOpen_skip_header_1;
-    }
-    while (1) {
-      {
-        if (unlikely(local_sample_ct == max_local_sample_ct)) {
-#ifdef __LP64__
-          if (local_sample_ct == kMaxLongLine / 2) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Too many samples in %s.\n", local_psam_fname);
-            goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
-          }
-#endif
-          goto GlmLocalOpen_ret_NOMEM;
-        }
-        const char* read_ptr = line_start;
-        uint32_t sample_uidx;
-        if (!SortedXidboxReadFind(sorted_sample_idbox, sample_id_map, max_sample_id_blen, orig_sample_ct, 0, xid_mode, &read_ptr, &sample_uidx, idbuf)) {
-          if (unlikely(IsSet(new_sample_include, sample_uidx))) {
-            char* first_tab = AdvToDelim(idbuf, '\t');
-            *first_tab = ' ';
-            snprintf(g_logbuf, kLogbufSize, "Error: Duplicate ID '%s' in %s.\n", idbuf, local_psam_fname);
-            goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
-          }
-          SetBit(sample_uidx, new_sample_include);
-          local_sample_uidx_order[local_sample_ct] = sample_uidx;
-        } else {
-          if (unlikely(!read_ptr)) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Fewer tokens than expected on line %" PRIuPTR " of %s.\n", line_idx, local_psam_fname);
-            goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
-          }
-          local_sample_uidx_order[local_sample_ct] = UINT32_MAX;
-        }
-        ++local_sample_ct;
-      }
-    GlmLocalOpen_skip_header_1:
       ++line_idx;
-      reterr = TextNextLineLstripNoempty(&txs, &line_start);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          // reterr = kPglRetSuccess;
-          break;
-        }
-        goto GlmLocalOpen_ret_TSTREAM_FAIL;
-      }
+      line_start = TextGet(&txs);
+    }
+    for (; line_start; ++local_sample_ct, ++line_idx, line_start = TextGet(&txs)) {
       if (unlikely(line_start[0] == '#')) {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and if a #FID/IID header line is present it must denote the end of the header block.)\n", line_idx, local_psam_fname);
         goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
       }
+      if (unlikely(local_sample_ct == max_local_sample_ct)) {
+#ifdef __LP64__
+        if (local_sample_ct == kMaxLongLine / 2) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Too many samples in %s.\n", local_psam_fname);
+          goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
+        }
+#endif
+        goto GlmLocalOpen_ret_NOMEM;
+      }
+      const char* read_ptr = line_start;
+      uint32_t sample_uidx;
+      if (!SortedXidboxReadFind(sorted_sample_idbox, sample_id_map, max_sample_id_blen, orig_sample_ct, 0, xid_mode, &read_ptr, &sample_uidx, idbuf)) {
+        if (unlikely(IsSet(new_sample_include, sample_uidx))) {
+          char* first_tab = AdvToDelim(idbuf, '\t');
+          *first_tab = ' ';
+          snprintf(g_logbuf, kLogbufSize, "Error: Duplicate ID '%s' in %s.\n", idbuf, local_psam_fname);
+          goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
+        }
+        SetBit(sample_uidx, new_sample_include);
+        local_sample_uidx_order[local_sample_ct] = sample_uidx;
+      } else {
+        if (unlikely(!read_ptr)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Fewer tokens than expected on line %" PRIuPTR " of %s.\n", line_idx, local_psam_fname);
+          goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
+        }
+        local_sample_uidx_order[local_sample_ct] = UINT32_MAX;
+      }
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto GlmLocalOpen_ret_TSTREAM_FAIL;
     }
     BigstackFinalizeU32(local_sample_uidx_order, local_sample_ct);
     *local_sample_uidx_order_ptr = local_sample_uidx_order;
@@ -286,9 +277,9 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
     line_idx = 0;
     do {
       ++line_idx;
-      reterr = TextNextLineLstripNoempty(&txs, &line_start);
-      if (unlikely(reterr)) {
-        if (reterr == kPglRetEof) {
+      line_start = TextGet(&txs);
+      if (unlikely(!line_start)) {
+        if (!TextStreamErrcode2(&txs, &reterr)) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", local_pvar_fname);
           goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
         }
@@ -386,135 +377,120 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
     uint32_t prev_bp = variant_bps[prev_variant_uidx];
     uint32_t chr_end = cip->chr_fo_vidx_start[cip->chr_idx_to_foidx[prev_chr_code] + 1];
     if (is_header_line) {
-      goto GlmLocalOpen_skip_header_2;
-    }
-    while (1) {
-      {
-        if (unlikely(local_variant_ct == max_local_variant_ct)) {
-          if (max_local_variant_ct == 0x7ffffffd) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Too many samples in %s.\n", local_pvar_fname);
-            goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
-          }
-          goto GlmLocalOpen_ret_NOMEM;
-        }
-        if (!(local_variant_ct % kBitsPerWord)) {
-          local_variant_include[local_variant_ct / kBitsPerWord] = 0;
-        }
-        char* line_iter = CurTokenEnd(line_start);
-        // #CHROM
-        if (unlikely((*line_iter != '\t') && (*line_iter != ' '))) {
-          goto GlmLocalOpen_ret_MISSING_TOKENS_PVAR;
-        }
-        {
-          const uint32_t cur_chr_code = GetChrCodeCounted(cip, line_iter - line_start, line_start);
-          if (IsI32Neg(cur_chr_code)) {
-            goto GlmLocalOpen_skip_variant;
-          }
-          const uint32_t cur_chr_code_u = cur_chr_code;
-          if (cur_chr_code_u != prev_chr_code) {
-            uint32_t first_variant_uidx_in_chr = cip->chr_fo_vidx_start[cip->chr_idx_to_foidx[cur_chr_code_u]];
-            if (first_variant_uidx_in_chr < prev_variant_uidx) {
-              if (unlikely(new_variant_ct)) {
-                // not worth the trouble of handling this
-                snprintf(g_logbuf, kLogbufSize, "Error: Chromosome order in %s is different from chromosome order in main dataset.\n", local_pvar_fname);
-                goto GlmLocalOpen_ret_INCONSISTENT_INPUT_WW;
-              }
-              goto GlmLocalOpen_skip_variant;
-            }
-            prev_variant_uidx = AdvBoundedTo1Bit(orig_variant_include, first_variant_uidx_in_chr, raw_variant_ct);
-            if (prev_variant_uidx == raw_variant_ct) {
-              break;
-            }
-            chr_fo_idx = GetVariantChrFoIdx(cip, prev_variant_uidx);
-            prev_chr_code = cip->chr_file_order[chr_fo_idx];
-            prev_bp = variant_bps[prev_variant_uidx];
-            chr_end = cip->chr_fo_vidx_start[cip->chr_idx_to_foidx[prev_chr_code] + 1];
-            if (cur_chr_code_u != prev_chr_code) {
-              goto GlmLocalOpen_skip_variant;
-            }
-          }
-          char* token_ptrs[2];
-          uint32_t token_slens[2];
-          if (unlikely(!TokenLex(line_iter, col_types, col_skips, 2, token_ptrs, token_slens))) {
-            goto GlmLocalOpen_ret_MISSING_TOKENS_PVAR;
-          }
-          // POS
-          int32_t cur_bp;
-          if (unlikely(ScanIntAbsDefcap(token_ptrs[0], &cur_bp))) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, local_pvar_fname);
-            goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
-          }
-          if (cur_bp < S_CAST(int32_t, prev_bp)) {
-            goto GlmLocalOpen_skip_variant;
-          }
-          const uint32_t cur_bp_u = cur_bp;
-          if (cur_bp_u > prev_bp) {
-            do {
-              prev_variant_uidx = AdvBoundedTo1Bit(orig_variant_include, prev_variant_uidx + 1, raw_variant_ct);
-            } while ((prev_variant_uidx < chr_end) && (cur_bp_u > variant_bps[prev_variant_uidx]));
-            if (prev_variant_uidx >= chr_end) {
-              goto GlmLocalOpen_skip_variant_and_update_chr;
-            }
-            prev_bp = variant_bps[prev_variant_uidx];
-          }
-          if (cur_bp_u == prev_bp) {
-            // ID
-            // note that if there are two same-position variants which appear
-            // in a different order in the main dataset and the local-pvar
-            // file, one will be skipped.  (probably want to add a warning in
-            // this case.)
-            const uint32_t variant_id_slen = token_slens[1];
-            char* cur_variant_id = token_ptrs[1];
-            cur_variant_id[variant_id_slen] = '\0';
-            const uint32_t variant_id_blen = variant_id_slen + 1;
-            do {
-              const char* loaded_variant_id = variant_ids[prev_variant_uidx];
-              if (memequal(cur_variant_id, loaded_variant_id, variant_id_blen)) {
-                if (unlikely(IsSet(new_variant_include, prev_variant_uidx))) {
-                  snprintf(g_logbuf, kLogbufSize, "Error: Duplicate ID (with duplicate CHROM/POS) '%s' in %s.\n", cur_variant_id, local_pvar_fname);
-                  goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
-                }
-                SetBit(prev_variant_uidx, new_variant_include);
-                ++new_variant_ct;
-                SetBit(local_variant_ct, local_variant_include);
-                break;
-              }
-              prev_variant_uidx = AdvBoundedTo1Bit(orig_variant_include, prev_variant_uidx + 1, raw_variant_ct);
-              if (prev_variant_uidx >= chr_end) {
-                goto GlmLocalOpen_skip_variant_and_update_chr;
-              }
-              prev_bp = variant_bps[prev_variant_uidx];
-            } while (cur_bp_u == prev_bp);
-          }
-        }
-        while (0) {
-        GlmLocalOpen_skip_variant_and_update_chr:
-          if (prev_variant_uidx == raw_variant_ct) {
-            break;
-          }
-          chr_fo_idx = GetVariantChrFoIdx(cip, prev_variant_uidx);
-          prev_chr_code = cip->chr_file_order[chr_fo_idx];
-          prev_bp = variant_bps[prev_variant_uidx];
-          chr_end = cip->chr_fo_vidx_start[cip->chr_idx_to_foidx[prev_chr_code] + 1];
-          break;
-        }
-      GlmLocalOpen_skip_variant:
-        ++local_variant_ct;
-      }
-    GlmLocalOpen_skip_header_2:
       ++line_idx;
-      reterr = TextNextLineLstripNoempty(&txs, &line_start);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          // reterr = kPglRetSuccess;
-          break;
-        }
-        goto GlmLocalOpen_ret_TSTREAM_FAIL;
-      }
+      line_start = TextGet(&txs);
+    }
+    for (; line_start; ++local_variant_ct, ++line_idx, line_start = TextGet(&txs)) {
       if (unlikely(line_start[0] == '#')) {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and if a #CHROM header line is present it must denote the end of the header block.)\n", line_idx, local_pvar_fname);
         goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
       }
+      if (unlikely(local_variant_ct == max_local_variant_ct)) {
+        if (max_local_variant_ct == 0x7ffffffd) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Too many samples in %s.\n", local_pvar_fname);
+          goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
+        }
+        goto GlmLocalOpen_ret_NOMEM;
+      }
+      if (!(local_variant_ct % kBitsPerWord)) {
+        local_variant_include[local_variant_ct / kBitsPerWord] = 0;
+      }
+      char* line_iter = CurTokenEnd(line_start);
+      // #CHROM
+      if (unlikely((*line_iter != '\t') && (*line_iter != ' '))) {
+        goto GlmLocalOpen_ret_MISSING_TOKENS_PVAR;
+      }
+      const uint32_t cur_chr_code = GetChrCodeCounted(cip, line_iter - line_start, line_start);
+      if (IsI32Neg(cur_chr_code)) {
+        continue;
+      }
+      const uint32_t cur_chr_code_u = cur_chr_code;
+      if (cur_chr_code_u != prev_chr_code) {
+        uint32_t first_variant_uidx_in_chr = cip->chr_fo_vidx_start[cip->chr_idx_to_foidx[cur_chr_code_u]];
+        if (first_variant_uidx_in_chr < prev_variant_uidx) {
+          if (unlikely(new_variant_ct)) {
+            // not worth the trouble of handling this
+            snprintf(g_logbuf, kLogbufSize, "Error: Chromosome order in %s is different from chromosome order in main dataset.\n", local_pvar_fname);
+            goto GlmLocalOpen_ret_INCONSISTENT_INPUT_WW;
+          }
+          continue;
+        }
+        prev_variant_uidx = AdvBoundedTo1Bit(orig_variant_include, first_variant_uidx_in_chr, raw_variant_ct);
+        if (prev_variant_uidx == raw_variant_ct) {
+          break;
+        }
+        chr_fo_idx = GetVariantChrFoIdx(cip, prev_variant_uidx);
+        prev_chr_code = cip->chr_file_order[chr_fo_idx];
+        prev_bp = variant_bps[prev_variant_uidx];
+        chr_end = cip->chr_fo_vidx_start[cip->chr_idx_to_foidx[prev_chr_code] + 1];
+        if (cur_chr_code_u != prev_chr_code) {
+          continue;
+        }
+      }
+      char* token_ptrs[2];
+      uint32_t token_slens[2];
+      if (unlikely(!TokenLex(line_iter, col_types, col_skips, 2, token_ptrs, token_slens))) {
+        goto GlmLocalOpen_ret_MISSING_TOKENS_PVAR;
+      }
+      // POS
+      int32_t cur_bp;
+      if (unlikely(ScanIntAbsDefcap(token_ptrs[0], &cur_bp))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, local_pvar_fname);
+        goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
+      }
+      if (cur_bp < S_CAST(int32_t, prev_bp)) {
+        continue;
+      }
+      const uint32_t cur_bp_u = cur_bp;
+      if (cur_bp_u > prev_bp) {
+        do {
+          prev_variant_uidx = AdvBoundedTo1Bit(orig_variant_include, prev_variant_uidx + 1, raw_variant_ct);
+        } while ((prev_variant_uidx < chr_end) && (cur_bp_u > variant_bps[prev_variant_uidx]));
+        if (prev_variant_uidx >= chr_end) {
+          goto GlmLocalOpen_skip_variant_and_update_chr;
+        }
+        prev_bp = variant_bps[prev_variant_uidx];
+      }
+      if (cur_bp_u == prev_bp) {
+        // ID
+        // note that if there are two same-position variants which appear in
+        // a different order in the main dataset and the local-pvar file, one
+        // will be skipped.  (probably want to add a warning in this case.)
+        const uint32_t variant_id_slen = token_slens[1];
+        char* cur_variant_id = token_ptrs[1];
+        cur_variant_id[variant_id_slen] = '\0';
+        const uint32_t variant_id_blen = variant_id_slen + 1;
+        do {
+          const char* loaded_variant_id = variant_ids[prev_variant_uidx];
+          if (memequal(cur_variant_id, loaded_variant_id, variant_id_blen)) {
+            if (unlikely(IsSet(new_variant_include, prev_variant_uidx))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Duplicate ID (with duplicate CHROM/POS) '%s' in %s.\n", cur_variant_id, local_pvar_fname);
+              goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
+            }
+            SetBit(prev_variant_uidx, new_variant_include);
+            ++new_variant_ct;
+            SetBit(local_variant_ct, local_variant_include);
+            break;
+          }
+          prev_variant_uidx = AdvBoundedTo1Bit(orig_variant_include, prev_variant_uidx + 1, raw_variant_ct);
+          if (prev_variant_uidx >= chr_end) {
+            goto GlmLocalOpen_skip_variant_and_update_chr;
+          }
+          prev_bp = variant_bps[prev_variant_uidx];
+        } while (cur_bp_u == prev_bp);
+      }
+      continue;
+    GlmLocalOpen_skip_variant_and_update_chr:
+      if (prev_variant_uidx == raw_variant_ct) {
+        continue;
+      }
+      chr_fo_idx = GetVariantChrFoIdx(cip, prev_variant_uidx);
+      prev_chr_code = cip->chr_file_order[chr_fo_idx];
+      prev_bp = variant_bps[prev_variant_uidx];
+      chr_end = cip->chr_fo_vidx_start[cip->chr_idx_to_foidx[prev_chr_code] + 1];
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto GlmLocalOpen_ret_TSTREAM_FAIL;
     }
     BigstackFinalizeW(local_variant_include, BitCtToWordCt(local_variant_ct));
     *local_variant_ctl_ptr = BitCtToWordCt(local_variant_ct);
@@ -552,9 +528,9 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
     uint32_t local_covar_ct;
     if (!glm_info_ptr->local_cat_ct) {
       line_idx = 1;
-      reterr = TextFileNextLineLstripNoempty(&local_covar_txf, &line_start);
-      if (unlikely(reterr)) {
-        if (reterr == kPglRetEof) {
+      line_start = TextFileGet(&local_covar_txf);
+      if (unlikely(!line_start)) {
+        if (!TextFileErrcode2(&local_covar_txf, &reterr)) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", local_covar_fname);
           goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
         }
@@ -3587,7 +3563,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
           if (cur_gcount_case_interleaved_vec) {
             // gcountcc
             STD_ARRAY_REF(uint32_t, 6) cur_geno_hardcall_cts = block_aux_iter->geno_hardcall_cts;
-            GenovecCountSubsetFreqs(pgv.genovec, cur_gcount_case_interleaved_vec, cur_sample_ct, cur_case_ct, R_CAST(STD_ARRAY_REF(uint32_t, 4), cur_geno_hardcall_cts));
+            GenoarrCountSubsetFreqs(pgv.genovec, cur_gcount_case_interleaved_vec, cur_sample_ct, cur_case_ct, R_CAST(STD_ARRAY_REF(uint32_t, 4), cur_geno_hardcall_cts));
             for (uint32_t geno_hardcall_idx = 0; geno_hardcall_idx != 3; ++geno_hardcall_idx) {
               cur_geno_hardcall_cts[3 + geno_hardcall_idx] = genocounts[geno_hardcall_idx] - cur_geno_hardcall_cts[geno_hardcall_idx];
             }
@@ -3760,7 +3736,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
             // gcountcc.  Need case-specific one_cts and two_cts for each
             // allele.
             STD_ARRAY_DECL(uint32_t, 4, case_hardcall_cts);
-            GenovecCountSubsetFreqs(pgv.genovec, cur_gcount_case_interleaved_vec, cur_sample_ct, cur_case_ct, case_hardcall_cts);
+            GenoarrCountSubsetFreqs(pgv.genovec, cur_gcount_case_interleaved_vec, cur_sample_ct, cur_case_ct, case_hardcall_cts);
             ZeroU32Arr(allele_ct, case_one_cts);
             ZeroU32Arr(allele_ct, case_two_cts);
             uint32_t case_alt1_het_ct = case_hardcall_cts[1];
@@ -4569,10 +4545,10 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
         local_line_idx = local_line_idx_target_m1;
       }
       ++local_line_idx;
-      char* local_covar_line_start;
-      PglErr reterr = TextNextLineLstripNoempty(local_covar_txsp, &local_covar_line_start);
-      if (unlikely(reterr)) {
-        if (reterr == kPglRetEof) {
+      PglErr reterr = kPglRetSuccess;
+      char* local_covar_line_start = TextGet(local_covar_txsp);
+      if (unlikely(!local_covar_line_start)) {
+        if (!TextStreamErrcode2(local_covar_txsp, &reterr)) {
           logputs("\n");
           logerrputs("Error: --glm local-covar= file has fewer lines than local-pvar= file.\n");
           return kPglRetInconsistentInput;

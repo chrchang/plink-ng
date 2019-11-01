@@ -68,12 +68,12 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     if (unlikely(reterr)) {
       goto LoadPsam_ret_TSTREAM_FAIL;
     }
-    const char* line_iter = nullptr;
+    const char* line_iter;
     do {
       ++line_idx;
-      reterr = TextNextLineLstripNoemptyK(&psam_txs, &line_iter);
-      if (unlikely(reterr)) {
-        if (reterr == kPglRetEof) {
+      line_iter = TextGet(&psam_txs);
+      if (unlikely(!line_iter)) {
+        if (!TextStreamErrcode2(&psam_txs, &reterr)) {
           logerrprintfww("Error: No samples in %s.\n", psamname);
           goto LoadPsam_ret_MALFORMED_INPUT;
         }
@@ -91,7 +91,6 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     unsigned char* tmp_bigstack_end = g_bigstack_end;
     unsigned char* bigstack_mark2;
     uint32_t fid_present = 1;
-    uint32_t skip_header = 0;
     if (line_iter[0] == '#') {
       // parse header
       // [-1] = #FID (if present, must be first column)
@@ -245,8 +244,8 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
         col_skips[rpf_col_idx] -= col_skips[rpf_col_idx - 1];
       }
 
-      line_iter = linebuf_iter;
-      skip_header = 1;
+      line_iter = AdvPastDelim(linebuf_iter, '\n');
+      ++line_idx;
     } else {
       if (unlikely(pheno_name_subset)) {
         logerrputs("Error: --pheno-name requires a --pheno or .psam file with a header.\n");
@@ -361,250 +360,238 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     CatnameLl2** catname_htable = nullptr;
     CatnameLl2** pheno_catname_last = nullptr;
     uintptr_t* total_catname_blens = nullptr;
-    if (skip_header) {
-      goto LoadPsam_skip_header;
-    }
-    while (1) {
-      {
-        if (unlikely(raw_sample_ct == 0x7ffffffe)) {
-          logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 2 samples.\n");
-          goto LoadPsam_ret_MALFORMED_INPUT;
-        }
-        const char* line_start = line_iter;
-        const char* iid_ptr;
-        uint32_t iid_slen;
-        if (relevant_postfid_col_ct) {
-          // bugfix (3 Jul 2018): didn't handle no-other-columns case correctly
-          line_iter = TokenLexK0(line_start, col_types, col_skips, relevant_postfid_col_ct, token_ptrs, token_slens);
-          if (unlikely(!line_iter)) {
-            goto LoadPsam_ret_MISSING_TOKENS;
-          }
-          iid_ptr = token_ptrs[0];
-          iid_slen = token_slens[0];
-        } else {
-          iid_ptr = line_start;
-          iid_slen = CurTokenEnd(line_start) - line_start;
-        }
-        uint32_t fid_slen = 2;
-        if (fid_present) {
-          fid_slen = CurTokenEnd(line_start) - line_start;
-        }
-        const uint32_t sid_slen = sids_present? token_slens[1] : 0;
-        const uint32_t paternal_id_slen = paternal_ids_present? token_slens[2] : 1;
-        const uint32_t maternal_id_slen = maternal_ids_present? token_slens[3] : 1;
-        // phenotypes
-        if (!raw_sample_ct) {
-          for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
-            if (IsCategoricalPhenostrNocsv(token_ptrs[pheno_idx + 5])) {
-              SetBit(pheno_idx, categorical_phenos);
-            }
-          }
-          categorical_pheno_ct = PopcountWords(categorical_phenos, pheno_ctl);
-          if (categorical_pheno_ct) {
-            // initialize hash table
-            const uint32_t cat_ul_byte_ct = categorical_pheno_ct * sizeof(intptr_t);
-            const uint32_t htable_byte_ct = kCatHtableSize * sizeof(uintptr_t);
-            const uintptr_t entry_byte_ct = RoundUpPow2(offsetof(CatnameLl2, str) + missing_catname_blen, sizeof(intptr_t));
-            if (unlikely(S_CAST(uintptr_t, tmp_bigstack_end - tmp_bigstack_base) < htable_byte_ct + categorical_pheno_ct * entry_byte_ct + 2 * cat_ul_byte_ct)) {
-              goto LoadPsam_ret_NOMEM;
-            }
-            pheno_catname_last = R_CAST(CatnameLl2**, tmp_bigstack_base);
-            tmp_bigstack_base += cat_ul_byte_ct;
-            total_catname_blens = R_CAST(uintptr_t*, tmp_bigstack_base);
-            tmp_bigstack_base += cat_ul_byte_ct;
-            ZeroWArr(categorical_pheno_ct, total_catname_blens);
-            catname_htable = R_CAST(CatnameLl2**, tmp_bigstack_base);
-            tmp_bigstack_base += htable_byte_ct;
-            for (uint32_t uii = 0; uii != kCatHtableSize; ++uii) {
-              catname_htable[uii] = nullptr;
-            }
-            uint32_t cur_hval = missing_catname_hval;
-            for (uint32_t cat_pheno_idx = 0; cat_pheno_idx != categorical_pheno_ct; ++cat_pheno_idx) {
-              CatnameLl2* new_entry = R_CAST(CatnameLl2*, tmp_bigstack_base);
-              tmp_bigstack_base += entry_byte_ct;
-              pheno_catname_last[cat_pheno_idx] = new_entry;
-              new_entry->cat_idx = 0;
-              new_entry->htable_next = nullptr;
-              new_entry->pheno_next = nullptr;
-              memcpy(new_entry->str, missing_catname, missing_catname_blen);
-              catname_htable[cur_hval++] = new_entry;
-              if (cur_hval == kCatHtableSize) {
-                cur_hval = 0;
-              }
-            }
-          }
-        }
-        // 1 extra byte for tab between FID and IID; this gets absorbed into
-        // the "+ sizeof(intptr_t)" at the end, since that would normally be
-        // "+ (sizeof(intptr_t) - 1)"
-        // bugfix: pheno_ct * sizeof(intptr_t) -> pheno_ct * 8
-        const uint32_t alloc_byte_ct = sizeof(PsamInfoLl) + sizeof(intptr_t) + RoundDownPow2(fid_slen + iid_slen + sid_slen + paternal_id_slen + maternal_id_slen + pheno_ct * 8, sizeof(intptr_t));
-        PsamInfoLl* new_psam_info = R_CAST(PsamInfoLl*, tmp_bigstack_base);
-        tmp_bigstack_base += alloc_byte_ct;
-        if (unlikely(tmp_bigstack_base > tmp_bigstack_end)) {
-          goto LoadPsam_ret_NOMEM;
-        }
-        new_psam_info->next = psam_info_reverse_ll;
-        char* sample_id_storage = R_CAST(char*, &(new_psam_info->vardata[pheno_ct * 8]));
-        char* ss_iter = sample_id_storage;
-        if (fid_present) {
-          ss_iter = memcpya(ss_iter, line_start, fid_slen);
-        } else {
-          *ss_iter++ = '0';
-        }
-        *ss_iter++ = '\t';
-        psam_info_reverse_ll = new_psam_info;
-        if (unlikely((iid_slen == 1) && (iid_ptr[0] == '0'))) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Invalid IID '0' on line %" PRIuPTR " of %s.\n", line_idx, psamname);
-          goto LoadPsam_ret_MALFORMED_INPUT_WW;
-        }
-        ss_iter = memcpya(ss_iter, iid_ptr, iid_slen);
-        const uint32_t sample_id_slen = ss_iter - sample_id_storage;
-        if (sample_id_slen >= max_sample_id_blen) {
-          max_sample_id_blen = sample_id_slen + 1;
-        }
-        new_psam_info->sample_id_slen = sample_id_slen;
-        if (sids_present) {
-          ss_iter = memcpya(ss_iter, token_ptrs[1], sid_slen);
-          if (sid_slen >= max_sid_blen) {
-            max_sid_blen = sid_slen + 1;
-          }
-          // bugfix (3 Oct 2019): forgot this
-          new_psam_info->sid_slen = sid_slen;
-        }
-        if (paternal_ids_present) {
-          if (paternal_id_slen >= max_paternal_id_blen) {
-            max_paternal_id_blen = paternal_id_slen + 1;
-          }
-          ss_iter = memcpya(ss_iter, token_ptrs[2], paternal_id_slen);
-        } else {
-          *ss_iter++ = '0';
-        }
-        new_psam_info->paternal_id_slen = paternal_id_slen;
-        if (maternal_ids_present) {
-          if (maternal_id_slen >= max_maternal_id_blen) {
-            max_maternal_id_blen = maternal_id_slen + 1;
-          }
-          ss_iter = memcpya(ss_iter, token_ptrs[3], maternal_id_slen);
-        } else {
-          *ss_iter++ = '0';
-        }
-        new_psam_info->maternal_id_slen = maternal_id_slen;
-        uint32_t cur_sex_code = 0;
-        // accept 'M'/'F'/'m'/'f' since that's more readable without being any
-        // less efficient
-        // don't accept "male"/"female", that's overkill
-        if (sex_present && (token_slens[4] == 1)) {
-          const unsigned char sex_ucc = token_ptrs[4][0];
-          const unsigned char sex_ucc_upcase = sex_ucc & 0xdfU;
-          if ((sex_ucc == '1') || (sex_ucc_upcase == 'M')) {
-            cur_sex_code = 1;
-          } else if ((sex_ucc == '2') || (sex_ucc_upcase == 'F')) {
-            cur_sex_code = 2;
-          }
-        }
-        new_psam_info->sex_code = cur_sex_code;
-        // phenotypes
-        unsigned char* pheno_data = new_psam_info->vardata;
-        uint32_t cat_pheno_idx = 0;
-        for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
-          const uint32_t col_type_idx = pheno_idx + 5;
-          const char* cur_phenostr = token_ptrs[col_type_idx];
-          double dxx;
-          const char* cur_phenostr_end = ScanadvDouble(cur_phenostr, &dxx);
-          if (!cur_phenostr_end) {
-            // possible todo: defend against out-of-range numbers like 1e1000;
-            // right now they get treated as categorical variables...
-            const uint32_t slen = token_slens[col_type_idx];
-            if (IsNanStr(cur_phenostr, slen)) {
-              dxx = missing_phenod;
-            } else {
-              if (unlikely(!IsSet(categorical_phenos, pheno_idx))) {
-                assert(psam_info_reverse_ll->next);
-                const uint32_t is_second_relevant_line = !(psam_info_reverse_ll->next->next);
-                logerrprintfww("Error: '%s' entry on line %" PRIuPTR " of %s is categorical, while %s not.\n", &((*pheno_names_ptr)[pheno_idx * max_pheno_name_blen]), line_idx, psamname, is_second_relevant_line? "an earlier entry is" : "earlier entries are");
-                goto LoadPsam_ret_INCOMPATIBLE_PHENOSTRS;
-              }
-              if (unlikely(slen > kMaxIdSlen)) {
-                logerrputs("Error: Categorical phenotypes are limited to " MAX_ID_SLEN_STR " characters.\n");
-                goto LoadPsam_ret_MALFORMED_INPUT;
-              }
-              uint32_t hashval = Hashceil(cur_phenostr, slen, kCatHtableSize) + cat_pheno_idx;
-              if (hashval >= kCatHtableSize) {
-                hashval -= kCatHtableSize;
-              }
-              uintptr_t htable_idx = 0;
-              for (CatnameLl2** cur_entry_ptr = &(catname_htable[hashval]); ; ) {
-                CatnameLl2* cur_entry = *cur_entry_ptr;
-                if (!cur_entry) {
-                  const uint32_t entry_byte_ct = RoundUpPow2(offsetof(CatnameLl2, str) + slen + 1, sizeof(intptr_t));
-                  htable_idx = pheno_catname_last[cat_pheno_idx]->cat_idx + 1;
-                  CatnameLl2* new_entry = R_CAST(CatnameLl2*, tmp_bigstack_base);
-                  tmp_bigstack_base += entry_byte_ct;
-                  if (unlikely(tmp_bigstack_base > tmp_bigstack_end)) {
-                    goto LoadPsam_ret_NOMEM;
-                  }
-                  new_entry->htable_next = nullptr;
-                  new_entry->pheno_next = nullptr;
-                  pheno_catname_last[cat_pheno_idx]->pheno_next = new_entry;
-                  pheno_catname_last[cat_pheno_idx] = new_entry;
-                  *cur_entry_ptr = new_entry;
-                  new_entry->cat_idx = htable_idx;
-                  memcpyx(new_entry->str, cur_phenostr, slen, '\0');
-                  total_catname_blens[cat_pheno_idx] += slen + 1;
-                  break;
-                }
-                // safe since we guarantee kMaxIdSlen spare bytes at the end
-                // of bigstack
-                if (memequal(cur_entry->str, cur_phenostr, slen) && (!cur_entry->str[slen])) {
-                  htable_idx = cur_entry->cat_idx;
-                  break;
-                }
-                cur_entry_ptr = &(cur_entry->htable_next);
-              }
-              // don't bother writing top 4 bytes in 32-bit build
-              memcpy(&(pheno_data[pheno_idx * 8]), &htable_idx, sizeof(intptr_t));
-              ++cat_pheno_idx;
-              continue;
-            }
-          }
-          if (unlikely(!IsSpaceOrEoln(*cur_phenostr_end))) {
-            cur_phenostr_end = CurTokenEnd(cur_phenostr_end);
-            *K_CAST(char*, cur_phenostr_end) = '\0';
-            snprintf(g_logbuf, kLogbufSize, "Error: Invalid numeric token '%s' on line %" PRIuPTR " of %s.\n", cur_phenostr, line_idx, psamname);
-            goto LoadPsam_ret_MALFORMED_INPUT_WW;
-          }
-          if (unlikely(IsSet(categorical_phenos, pheno_idx))) {
-            assert(psam_info_reverse_ll->next);
-            const uint32_t is_second_relevant_line = !(psam_info_reverse_ll->next->next);
-            logerrprintfww("Error: '%s' entry on line %" PRIuPTR " of %s is numeric/'NA', while %s categorical.\n", &((*pheno_names_ptr)[pheno_idx * max_pheno_name_blen]), line_idx, psamname, is_second_relevant_line? "an earlier entry is" : "earlier entries are");
-            goto LoadPsam_ret_INCOMPATIBLE_PHENOSTRS;
-          }
-          if (!IsSet(quantitative_phenos, pheno_idx)) {
-            if ((dxx != missing_phenod) && (dxx != pheno_ctrld) && (dxx != pheno_cased) && (dxx != 0.0)) {
-              SetBit(pheno_idx, quantitative_phenos);
-            }
-          }
-          memcpy(&(pheno_data[pheno_idx * 8]), &dxx, sizeof(double));
-        }
-        ++raw_sample_ct;
-      }
-    LoadPsam_skip_header:
-      ++line_idx;
-      line_iter = AdvPastDelim(line_iter, '\n');
-      reterr = TextNextLineLstripNoemptyUnsafeK(&psam_txs, &line_iter);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          reterr = kPglRetSuccess;
-          break;
-        }
-        goto LoadPsam_ret_TSTREAM_FAIL;
-      }
+    for (; TextGetUnsafe2K(&psam_txs, &line_iter); line_iter = AdvPastDelim(line_iter, '\n'), ++line_idx) {
       if (unlikely(line_iter[0] == '#')) {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and if a #FID/IID header line is present it must denote the end of the header block.)\n", line_idx, psamname);
         goto LoadPsam_ret_MALFORMED_INPUT_WW;
       }
+      if (unlikely(raw_sample_ct == 0x7ffffffe)) {
+        logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 2 samples.\n");
+        goto LoadPsam_ret_MALFORMED_INPUT;
+      }
+      const char* line_start = line_iter;
+      const char* iid_ptr;
+      uint32_t iid_slen;
+      if (relevant_postfid_col_ct) {
+        // bugfix (3 Jul 2018): didn't handle no-other-columns case correctly
+        line_iter = TokenLexK0(line_start, col_types, col_skips, relevant_postfid_col_ct, token_ptrs, token_slens);
+        if (unlikely(!line_iter)) {
+          goto LoadPsam_ret_MISSING_TOKENS;
+        }
+        iid_ptr = token_ptrs[0];
+        iid_slen = token_slens[0];
+      } else {
+        iid_ptr = line_start;
+        iid_slen = CurTokenEnd(line_start) - line_start;
+      }
+      uint32_t fid_slen = 2;
+      if (fid_present) {
+        fid_slen = CurTokenEnd(line_start) - line_start;
+      }
+      const uint32_t sid_slen = sids_present? token_slens[1] : 0;
+      const uint32_t paternal_id_slen = paternal_ids_present? token_slens[2] : 1;
+      const uint32_t maternal_id_slen = maternal_ids_present? token_slens[3] : 1;
+      // phenotypes
+      if (!raw_sample_ct) {
+        for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+          if (IsCategoricalPhenostrNocsv(token_ptrs[pheno_idx + 5])) {
+            SetBit(pheno_idx, categorical_phenos);
+          }
+        }
+        categorical_pheno_ct = PopcountWords(categorical_phenos, pheno_ctl);
+        if (categorical_pheno_ct) {
+          // initialize hash table
+          const uint32_t cat_ul_byte_ct = categorical_pheno_ct * sizeof(intptr_t);
+          const uint32_t htable_byte_ct = kCatHtableSize * sizeof(uintptr_t);
+          const uintptr_t entry_byte_ct = RoundUpPow2(offsetof(CatnameLl2, str) + missing_catname_blen, sizeof(intptr_t));
+          if (unlikely(S_CAST(uintptr_t, tmp_bigstack_end - tmp_bigstack_base) < htable_byte_ct + categorical_pheno_ct * entry_byte_ct + 2 * cat_ul_byte_ct)) {
+            goto LoadPsam_ret_NOMEM;
+          }
+          pheno_catname_last = R_CAST(CatnameLl2**, tmp_bigstack_base);
+          tmp_bigstack_base += cat_ul_byte_ct;
+          total_catname_blens = R_CAST(uintptr_t*, tmp_bigstack_base);
+          tmp_bigstack_base += cat_ul_byte_ct;
+          ZeroWArr(categorical_pheno_ct, total_catname_blens);
+          catname_htable = R_CAST(CatnameLl2**, tmp_bigstack_base);
+          tmp_bigstack_base += htable_byte_ct;
+          for (uint32_t uii = 0; uii != kCatHtableSize; ++uii) {
+            catname_htable[uii] = nullptr;
+          }
+          uint32_t cur_hval = missing_catname_hval;
+          for (uint32_t cat_pheno_idx = 0; cat_pheno_idx != categorical_pheno_ct; ++cat_pheno_idx) {
+            CatnameLl2* new_entry = R_CAST(CatnameLl2*, tmp_bigstack_base);
+            tmp_bigstack_base += entry_byte_ct;
+            pheno_catname_last[cat_pheno_idx] = new_entry;
+            new_entry->cat_idx = 0;
+            new_entry->htable_next = nullptr;
+            new_entry->pheno_next = nullptr;
+            memcpy(new_entry->str, missing_catname, missing_catname_blen);
+            catname_htable[cur_hval++] = new_entry;
+            if (cur_hval == kCatHtableSize) {
+              cur_hval = 0;
+            }
+          }
+        }
+      }
+      // 1 extra byte for tab between FID and IID; this gets absorbed into
+      // the "+ sizeof(intptr_t)" at the end, since that would normally be
+      // "+ (sizeof(intptr_t) - 1)"
+      // bugfix: pheno_ct * sizeof(intptr_t) -> pheno_ct * 8
+      const uint32_t alloc_byte_ct = sizeof(PsamInfoLl) + sizeof(intptr_t) + RoundDownPow2(fid_slen + iid_slen + sid_slen + paternal_id_slen + maternal_id_slen + pheno_ct * 8, sizeof(intptr_t));
+      PsamInfoLl* new_psam_info = R_CAST(PsamInfoLl*, tmp_bigstack_base);
+      tmp_bigstack_base += alloc_byte_ct;
+      if (unlikely(tmp_bigstack_base > tmp_bigstack_end)) {
+        goto LoadPsam_ret_NOMEM;
+      }
+      new_psam_info->next = psam_info_reverse_ll;
+      char* sample_id_storage = R_CAST(char*, &(new_psam_info->vardata[pheno_ct * 8]));
+      char* ss_iter = sample_id_storage;
+      if (fid_present) {
+        ss_iter = memcpya(ss_iter, line_start, fid_slen);
+      } else {
+        *ss_iter++ = '0';
+      }
+      *ss_iter++ = '\t';
+      psam_info_reverse_ll = new_psam_info;
+      if (unlikely((iid_slen == 1) && (iid_ptr[0] == '0'))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Invalid IID '0' on line %" PRIuPTR " of %s.\n", line_idx, psamname);
+        goto LoadPsam_ret_MALFORMED_INPUT_WW;
+      }
+      ss_iter = memcpya(ss_iter, iid_ptr, iid_slen);
+      const uint32_t sample_id_slen = ss_iter - sample_id_storage;
+      if (sample_id_slen >= max_sample_id_blen) {
+        max_sample_id_blen = sample_id_slen + 1;
+      }
+      new_psam_info->sample_id_slen = sample_id_slen;
+      if (sids_present) {
+        ss_iter = memcpya(ss_iter, token_ptrs[1], sid_slen);
+        if (sid_slen >= max_sid_blen) {
+          max_sid_blen = sid_slen + 1;
+        }
+        // bugfix (3 Oct 2019): forgot this
+        new_psam_info->sid_slen = sid_slen;
+      }
+      if (paternal_ids_present) {
+        if (paternal_id_slen >= max_paternal_id_blen) {
+          max_paternal_id_blen = paternal_id_slen + 1;
+        }
+        ss_iter = memcpya(ss_iter, token_ptrs[2], paternal_id_slen);
+      } else {
+        *ss_iter++ = '0';
+      }
+      new_psam_info->paternal_id_slen = paternal_id_slen;
+      if (maternal_ids_present) {
+        if (maternal_id_slen >= max_maternal_id_blen) {
+          max_maternal_id_blen = maternal_id_slen + 1;
+        }
+        ss_iter = memcpya(ss_iter, token_ptrs[3], maternal_id_slen);
+      } else {
+        *ss_iter++ = '0';
+      }
+      new_psam_info->maternal_id_slen = maternal_id_slen;
+      uint32_t cur_sex_code = 0;
+      // accept 'M'/'F'/'m'/'f' since that's more readable without being any
+      // less efficient
+      // don't accept "male"/"female", that's overkill
+      if (sex_present && (token_slens[4] == 1)) {
+        const unsigned char sex_ucc = token_ptrs[4][0];
+        const unsigned char sex_ucc_upcase = sex_ucc & 0xdfU;
+        if ((sex_ucc == '1') || (sex_ucc_upcase == 'M')) {
+          cur_sex_code = 1;
+        } else if ((sex_ucc == '2') || (sex_ucc_upcase == 'F')) {
+          cur_sex_code = 2;
+        }
+      }
+      new_psam_info->sex_code = cur_sex_code;
+      // phenotypes
+      unsigned char* pheno_data = new_psam_info->vardata;
+      uint32_t cat_pheno_idx = 0;
+      for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+        const uint32_t col_type_idx = pheno_idx + 5;
+        const char* cur_phenostr = token_ptrs[col_type_idx];
+        double dxx;
+        const char* cur_phenostr_end = ScanadvDouble(cur_phenostr, &dxx);
+        if (!cur_phenostr_end) {
+          // possible todo: defend against out-of-range numbers like 1e1000;
+          // right now they get treated as categorical variables...
+          const uint32_t slen = token_slens[col_type_idx];
+          if (IsNanStr(cur_phenostr, slen)) {
+            dxx = missing_phenod;
+          } else {
+            if (unlikely(!IsSet(categorical_phenos, pheno_idx))) {
+              assert(psam_info_reverse_ll->next);
+              const uint32_t is_second_relevant_line = !(psam_info_reverse_ll->next->next);
+              logerrprintfww("Error: '%s' entry on line %" PRIuPTR " of %s is categorical, while %s not.\n", &((*pheno_names_ptr)[pheno_idx * max_pheno_name_blen]), line_idx, psamname, is_second_relevant_line? "an earlier entry is" : "earlier entries are");
+              goto LoadPsam_ret_INCOMPATIBLE_PHENOSTRS;
+            }
+            if (unlikely(slen > kMaxIdSlen)) {
+              logerrputs("Error: Categorical phenotypes are limited to " MAX_ID_SLEN_STR " characters.\n");
+              goto LoadPsam_ret_MALFORMED_INPUT;
+            }
+            uint32_t hashval = Hashceil(cur_phenostr, slen, kCatHtableSize) + cat_pheno_idx;
+            if (hashval >= kCatHtableSize) {
+              hashval -= kCatHtableSize;
+            }
+            uintptr_t htable_idx = 0;
+            for (CatnameLl2** cur_entry_ptr = &(catname_htable[hashval]); ; ) {
+              CatnameLl2* cur_entry = *cur_entry_ptr;
+              if (!cur_entry) {
+                const uint32_t entry_byte_ct = RoundUpPow2(offsetof(CatnameLl2, str) + slen + 1, sizeof(intptr_t));
+                htable_idx = pheno_catname_last[cat_pheno_idx]->cat_idx + 1;
+                CatnameLl2* new_entry = R_CAST(CatnameLl2*, tmp_bigstack_base);
+                tmp_bigstack_base += entry_byte_ct;
+                if (unlikely(tmp_bigstack_base > tmp_bigstack_end)) {
+                  goto LoadPsam_ret_NOMEM;
+                }
+                new_entry->htable_next = nullptr;
+                new_entry->pheno_next = nullptr;
+                pheno_catname_last[cat_pheno_idx]->pheno_next = new_entry;
+                pheno_catname_last[cat_pheno_idx] = new_entry;
+                *cur_entry_ptr = new_entry;
+                new_entry->cat_idx = htable_idx;
+                memcpyx(new_entry->str, cur_phenostr, slen, '\0');
+                total_catname_blens[cat_pheno_idx] += slen + 1;
+                break;
+              }
+              // safe since we guarantee kMaxIdSlen spare bytes at the end
+              // of bigstack
+              if (memequal(cur_entry->str, cur_phenostr, slen) && (!cur_entry->str[slen])) {
+                htable_idx = cur_entry->cat_idx;
+                break;
+              }
+              cur_entry_ptr = &(cur_entry->htable_next);
+            }
+            // don't bother writing top 4 bytes in 32-bit build
+            memcpy(&(pheno_data[pheno_idx * 8]), &htable_idx, sizeof(intptr_t));
+            ++cat_pheno_idx;
+            continue;
+          }
+        }
+        if (unlikely(!IsSpaceOrEoln(*cur_phenostr_end))) {
+          cur_phenostr_end = CurTokenEnd(cur_phenostr_end);
+          *K_CAST(char*, cur_phenostr_end) = '\0';
+          snprintf(g_logbuf, kLogbufSize, "Error: Invalid numeric token '%s' on line %" PRIuPTR " of %s.\n", cur_phenostr, line_idx, psamname);
+          goto LoadPsam_ret_MALFORMED_INPUT_WW;
+        }
+        if (unlikely(IsSet(categorical_phenos, pheno_idx))) {
+          assert(psam_info_reverse_ll->next);
+          const uint32_t is_second_relevant_line = !(psam_info_reverse_ll->next->next);
+          logerrprintfww("Error: '%s' entry on line %" PRIuPTR " of %s is numeric/'NA', while %s categorical.\n", &((*pheno_names_ptr)[pheno_idx * max_pheno_name_blen]), line_idx, psamname, is_second_relevant_line? "an earlier entry is" : "earlier entries are");
+          goto LoadPsam_ret_INCOMPATIBLE_PHENOSTRS;
+        }
+        if (!IsSet(quantitative_phenos, pheno_idx)) {
+          if ((dxx != missing_phenod) && (dxx != pheno_ctrld) && (dxx != pheno_cased) && (dxx != 0.0)) {
+            SetBit(pheno_idx, quantitative_phenos);
+          }
+        }
+        memcpy(&(pheno_data[pheno_idx * 8]), &dxx, sizeof(double));
+      }
+      ++raw_sample_ct;
     }
+    if (unlikely(TextStreamErrcode2(&psam_txs, &reterr))) {
+      goto LoadPsam_ret_TSTREAM_FAIL;
+    }
+    reterr = kPglRetSuccess;
     if (unlikely((max_sample_id_blen > 2 * kMaxIdBlen) || (max_paternal_id_blen > kMaxIdBlen) || (max_maternal_id_blen > kMaxIdBlen))) {
       logerrputs("Error: FIDs and IIDs are limited to " MAX_ID_SLEN_STR " characters.\n");
       goto LoadPsam_ret_MALFORMED_INPUT;
@@ -886,10 +873,9 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
     const char* line_iter;
     do {
       ++line_idx;
-      reterr = TextNextLineLstripNoemptyK(&pheno_txs, &line_iter);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          reterr = kPglRetSuccess;
+      line_iter = TextGet(&pheno_txs);
+      if (!line_iter) {
+        if (likely(!TextStreamErrcode2(&pheno_txs, &reterr))) {
           goto LoadPhenos_ret_1;
         }
         goto LoadPhenos_ret_TSTREAM_FAIL;
@@ -905,7 +891,6 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
     XidMode xid_mode = (line_iter[0] == 'I')? kfXidModeIid : kfXidModeFidIid;
     uint32_t* col_types = nullptr;
     uint32_t* col_skips = nullptr;
-    uint32_t skip_header = 0;
     uint32_t new_pheno_ct;
     uint32_t final_pheno_ct;
     uintptr_t final_pheno_names_byte_ct;
@@ -1018,8 +1003,8 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         pheno_names_iter = &(pheno_names_iter[max_pheno_name_blen]);
         linebuf_iter = token_end;
       }
-      line_iter = AdvToDelim(linebuf_iter, '\n');
-      skip_header = 1;
+      line_iter = AdvPastDelim(linebuf_iter, '\n');
+      ++line_idx;
     } else {
       // no header line
       xid_mode = iid_only? kfXidModeIid : kfXidModeFidIid;
@@ -1172,180 +1157,167 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
     CatnameLl2** catname_htable = nullptr;
     CatnameLl2** pheno_catname_last = nullptr;
     uintptr_t* total_catname_blens = nullptr;
-    if (skip_header) {
-      goto LoadPhenos_skip_header;
-    }
-    while (1) {
-      {
-        uint32_t sample_uidx;
-        if (SortedXidboxReadFind(sorted_sample_ids, sample_id_map, max_sample_id_blen, sample_ct, comma_delim, xid_mode, &line_iter, &sample_uidx, id_buf)) {
-          if (unlikely(!line_iter)) {
-            goto LoadPhenos_ret_MISSING_TOKENS;
-          }
-        } else {
-          if (unlikely(IsSet(already_seen, sample_uidx))) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID in %s.\n", pheno_fname);
-            goto LoadPhenos_ret_MALFORMED_INPUT_WW;
-          }
-          SetBit(sample_uidx, already_seen);
-          if (!comma_delim) {
-            line_iter = TokenLexK(line_iter, col_types, col_skips, new_pheno_ct, token_ptrs, token_slens);
-          } else {
-            line_iter = CsvLexK(line_iter, col_types, col_skips, new_pheno_ct, token_ptrs, token_slens);
-          }
-          if (unlikely(!line_iter)) {
-            goto LoadPhenos_ret_MISSING_TOKENS;
-          }
-          if (!pheno_info_reverse_ll) {
-            // first relevant line, detect categorical phenotypes
-            for (uint32_t new_pheno_idx = 0; new_pheno_idx != new_pheno_ct; ++new_pheno_idx) {
-              if (IsCategoricalPhenostr(token_ptrs[new_pheno_idx])) {
-                SetBit(new_pheno_idx, categorical_phenos);
-              } else if (affection_01 == 2) {
-                SetBit(new_pheno_idx, quantitative_phenos);
-              }
-            }
-            categorical_pheno_ct = PopcountWords(categorical_phenos, new_pheno_ctl);
-            if (categorical_pheno_ct) {
-              // initialize hash table
-              const uint32_t cat_ul_byte_ct = categorical_pheno_ct * sizeof(intptr_t);
-              const uint32_t htable_byte_ct = kCatHtableSize * sizeof(uintptr_t);
-              const uintptr_t entry_byte_ct = RoundUpPow2(offsetof(CatnameLl2, str) + missing_catname_blen, sizeof(intptr_t));
-
-              if (unlikely(S_CAST(uintptr_t, tmp_bigstack_end - bigstack_base_copy) < htable_byte_ct + categorical_pheno_ct * entry_byte_ct + 2 * cat_ul_byte_ct)) {
-                goto LoadPhenos_ret_NOMEM;
-              }
-              tmp_bigstack_end -= cat_ul_byte_ct;
-              total_catname_blens = R_CAST(uintptr_t*, tmp_bigstack_end);
-              tmp_bigstack_end -= cat_ul_byte_ct;
-              pheno_catname_last = R_CAST(CatnameLl2**, tmp_bigstack_end);
-              ZeroWArr(categorical_pheno_ct, total_catname_blens);
-              tmp_bigstack_end -= htable_byte_ct;
-              catname_htable = R_CAST(CatnameLl2**, tmp_bigstack_end);
-              ZeroPtrArr(kCatHtableSize, catname_htable);
-              uint32_t cur_hval = missing_catname_hval;
-              for (uint32_t cat_pheno_idx = 0; cat_pheno_idx != categorical_pheno_ct; ++cat_pheno_idx) {
-                tmp_bigstack_end -= entry_byte_ct;
-                CatnameLl2* new_entry = R_CAST(CatnameLl2*, tmp_bigstack_end);
-                pheno_catname_last[cat_pheno_idx] = new_entry;
-                new_entry->cat_idx = 0;
-                new_entry->htable_next = nullptr;
-                new_entry->pheno_next = nullptr;
-                memcpy(new_entry->str, missing_catname, missing_catname_blen);
-                catname_htable[cur_hval++] = new_entry;
-                if (cur_hval == kCatHtableSize) {
-                  cur_hval = 0;
-                }
-              }
-            }
-          }
-          if (unlikely(S_CAST(uintptr_t, tmp_bigstack_end - bigstack_base_copy) < pheno_info_alloc_byte_ct)) {
-            goto LoadPhenos_ret_NOMEM;
-          }
-          tmp_bigstack_end -= pheno_info_alloc_byte_ct;
-
-          PhenoInfoLl* new_pheno_info = R_CAST(PhenoInfoLl*, tmp_bigstack_end);
-          new_pheno_info->next = pheno_info_reverse_ll;
-          new_pheno_info->sample_uidx = sample_uidx;
-          double* pheno_data = new_pheno_info->phenodata;
-          uint32_t cat_pheno_idx = 0;
-          for (uint32_t new_pheno_idx = 0; new_pheno_idx != new_pheno_ct; ++new_pheno_idx) {
-            const char* cur_phenostr = token_ptrs[new_pheno_idx];
-            double dxx;
-            const char* cur_phenostr_end = ScanadvDouble(cur_phenostr, &dxx);
-            if (!cur_phenostr_end) {
-              const uint32_t slen = token_slens[new_pheno_idx];
-              if (IsNanStr(cur_phenostr, slen)) {
-                // note that, in CSVs, empty string is interpreted as a
-                // missing non-categorical phenotype; explicit "NONE" is needed
-                // to denote a missing category
-                dxx = missing_phenod;
-              } else {
-                if (unlikely(!IsSet(categorical_phenos, new_pheno_idx))) {
-                  assert(pheno_info_reverse_ll);
-                  const uint32_t is_second_relevant_line = !(pheno_info_reverse_ll->next);
-                  logerrprintfww("Error: '%s' entry on line %" PRIuPTR " of %s is categorical, while %s not.\n", &(pheno_names[(old_pheno_ct + new_pheno_idx) * max_pheno_name_blen]), line_idx, pheno_fname, is_second_relevant_line? "an earlier entry is" : "earlier entries are");
-                  goto LoadPhenos_ret_INCOMPATIBLE_PHENOSTRS;
-                }
-                uint32_t hashval;
-                hashval = Hashceil(cur_phenostr, slen, kCatHtableSize) + cat_pheno_idx;
-                if (hashval >= kCatHtableSize) {
-                  hashval -= kCatHtableSize;
-                }
-                uintptr_t htable_idx = 0;
-                CatnameLl2** cur_entry_ptr = &(catname_htable[hashval]);
-                while (1) {
-                  CatnameLl2* cur_entry = *cur_entry_ptr;
-                  if (!cur_entry) {
-                    const uint32_t entry_byte_ct = RoundUpPow2(offsetof(CatnameLl2, str) + slen + 1, sizeof(intptr_t));
-                    if (unlikely(S_CAST(uintptr_t, tmp_bigstack_end - bigstack_base_copy) < entry_byte_ct)) {
-                      goto LoadPhenos_ret_NOMEM;
-                    }
-                    tmp_bigstack_end -= entry_byte_ct;
-                    htable_idx = pheno_catname_last[cat_pheno_idx]->cat_idx + 1;
-                    CatnameLl2* new_entry = R_CAST(CatnameLl2*, tmp_bigstack_end);
-                    new_entry->htable_next = nullptr;
-                    new_entry->pheno_next = nullptr;
-                    pheno_catname_last[cat_pheno_idx]->pheno_next = new_entry;
-                    pheno_catname_last[cat_pheno_idx] = new_entry;
-                    *cur_entry_ptr = new_entry;
-                    new_entry->cat_idx = htable_idx;
-                    memcpyx(new_entry->str, cur_phenostr, slen, '\0');
-                    total_catname_blens[cat_pheno_idx] += slen + 1;
-                    break;
-                  }
-                  // safe since hash table entries are in the middle of
-                  // bigstack
-                  if (memequal(cur_entry->str, cur_phenostr, slen) && (!cur_entry->str[slen])) {
-                    htable_idx = cur_entry->cat_idx;
-                    break;
-                  }
-                  cur_entry_ptr = &(cur_entry->htable_next);
-                }
-                // don't bother writing top 4 bytes in 32-bit build
-                memcpy(&(pheno_data[new_pheno_idx]), &htable_idx, sizeof(intptr_t));
-                ++cat_pheno_idx;
-                continue;
-              }
-            }
-            if (unlikely(!IsSpaceOrEoln(*cur_phenostr_end))) {
-              cur_phenostr_end = CurTokenEnd(cur_phenostr_end);
-              *K_CAST(char*, cur_phenostr_end) = '\0';
-              snprintf(g_logbuf, kLogbufSize, "Error: Invalid numeric token '%s' on line %" PRIuPTR " of %s.\n", cur_phenostr, line_idx, pheno_fname);
-              goto LoadPhenos_ret_MALFORMED_INPUT_WW;
-            }
-            if (unlikely(IsSet(categorical_phenos, new_pheno_idx))) {
-              assert(pheno_info_reverse_ll);
-              const uint32_t is_second_relevant_line = !(pheno_info_reverse_ll->next);
-              logerrprintfww("Error: '%s' entry on line %" PRIuPTR " of %s is numeric/'NA', while %s categorical.\n", &(pheno_names[(old_pheno_ct + new_pheno_idx) * max_pheno_name_blen]), line_idx, pheno_fname, is_second_relevant_line? "an earlier entry is" : "earlier entries are");
-              goto LoadPhenos_ret_INCOMPATIBLE_PHENOSTRS;
-            }
-            if (!IsSet(quantitative_phenos, new_pheno_idx)) {
-              if ((dxx != missing_phenod) && (dxx != pheno_ctrld) && (dxx != pheno_cased) && (dxx != 0.0)) {
-                SetBit(new_pheno_idx, quantitative_phenos);
-              }
-            }
-            pheno_data[new_pheno_idx] = dxx;
-          }
-          pheno_info_reverse_ll = new_pheno_info;
-        }
-      }
-    LoadPhenos_skip_header:
-      ++line_idx;
-      line_iter = AdvPastDelim(line_iter, '\n');
-      reterr = TextNextLineLstripNoemptyUnsafeK(&pheno_txs, &line_iter);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          reterr = kPglRetSuccess;
-          break;
-        }
-        goto LoadPhenos_ret_TSTREAM_FAIL;
-      }
+    for (; TextGetUnsafe2K(&pheno_txs, &line_iter); line_iter = AdvPastDelim(line_iter, '\n'), ++line_idx) {
       if (unlikely(line_iter[0] == '#')) {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and if a #FID/IID header line is present it must denote the end of the header block.)\n", line_idx, pheno_fname);
         goto LoadPhenos_ret_MALFORMED_INPUT_WW;
       }
+      uint32_t sample_uidx;
+      if (SortedXidboxReadFind(sorted_sample_ids, sample_id_map, max_sample_id_blen, sample_ct, comma_delim, xid_mode, &line_iter, &sample_uidx, id_buf)) {
+        if (unlikely(!line_iter)) {
+          goto LoadPhenos_ret_MISSING_TOKENS;
+        }
+        continue;
+      }
+      if (unlikely(IsSet(already_seen, sample_uidx))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID in %s.\n", pheno_fname);
+        goto LoadPhenos_ret_MALFORMED_INPUT_WW;
+      }
+      SetBit(sample_uidx, already_seen);
+      if (!comma_delim) {
+        line_iter = TokenLexK(line_iter, col_types, col_skips, new_pheno_ct, token_ptrs, token_slens);
+      } else {
+        line_iter = CsvLexK(line_iter, col_types, col_skips, new_pheno_ct, token_ptrs, token_slens);
+      }
+      if (unlikely(!line_iter)) {
+        goto LoadPhenos_ret_MISSING_TOKENS;
+      }
+      if (!pheno_info_reverse_ll) {
+        // first relevant line, detect categorical phenotypes
+        for (uint32_t new_pheno_idx = 0; new_pheno_idx != new_pheno_ct; ++new_pheno_idx) {
+          if (IsCategoricalPhenostr(token_ptrs[new_pheno_idx])) {
+            SetBit(new_pheno_idx, categorical_phenos);
+          } else if (affection_01 == 2) {
+            SetBit(new_pheno_idx, quantitative_phenos);
+          }
+        }
+        categorical_pheno_ct = PopcountWords(categorical_phenos, new_pheno_ctl);
+        if (categorical_pheno_ct) {
+          // initialize hash table
+          const uint32_t cat_ul_byte_ct = categorical_pheno_ct * sizeof(intptr_t);
+          const uint32_t htable_byte_ct = kCatHtableSize * sizeof(uintptr_t);
+          const uintptr_t entry_byte_ct = RoundUpPow2(offsetof(CatnameLl2, str) + missing_catname_blen, sizeof(intptr_t));
+
+          if (unlikely(S_CAST(uintptr_t, tmp_bigstack_end - bigstack_base_copy) < htable_byte_ct + categorical_pheno_ct * entry_byte_ct + 2 * cat_ul_byte_ct)) {
+            goto LoadPhenos_ret_NOMEM;
+          }
+          tmp_bigstack_end -= cat_ul_byte_ct;
+          total_catname_blens = R_CAST(uintptr_t*, tmp_bigstack_end);
+          tmp_bigstack_end -= cat_ul_byte_ct;
+          pheno_catname_last = R_CAST(CatnameLl2**, tmp_bigstack_end);
+          ZeroWArr(categorical_pheno_ct, total_catname_blens);
+          tmp_bigstack_end -= htable_byte_ct;
+          catname_htable = R_CAST(CatnameLl2**, tmp_bigstack_end);
+          ZeroPtrArr(kCatHtableSize, catname_htable);
+          uint32_t cur_hval = missing_catname_hval;
+          for (uint32_t cat_pheno_idx = 0; cat_pheno_idx != categorical_pheno_ct; ++cat_pheno_idx) {
+            tmp_bigstack_end -= entry_byte_ct;
+            CatnameLl2* new_entry = R_CAST(CatnameLl2*, tmp_bigstack_end);
+            pheno_catname_last[cat_pheno_idx] = new_entry;
+            new_entry->cat_idx = 0;
+            new_entry->htable_next = nullptr;
+            new_entry->pheno_next = nullptr;
+            memcpy(new_entry->str, missing_catname, missing_catname_blen);
+            catname_htable[cur_hval++] = new_entry;
+            if (cur_hval == kCatHtableSize) {
+              cur_hval = 0;
+            }
+          }
+        }
+      }
+      if (unlikely(S_CAST(uintptr_t, tmp_bigstack_end - bigstack_base_copy) < pheno_info_alloc_byte_ct)) {
+        goto LoadPhenos_ret_NOMEM;
+      }
+      tmp_bigstack_end -= pheno_info_alloc_byte_ct;
+
+      PhenoInfoLl* new_pheno_info = R_CAST(PhenoInfoLl*, tmp_bigstack_end);
+      new_pheno_info->next = pheno_info_reverse_ll;
+      new_pheno_info->sample_uidx = sample_uidx;
+      double* pheno_data = new_pheno_info->phenodata;
+      uint32_t cat_pheno_idx = 0;
+      for (uint32_t new_pheno_idx = 0; new_pheno_idx != new_pheno_ct; ++new_pheno_idx) {
+        const char* cur_phenostr = token_ptrs[new_pheno_idx];
+        double dxx;
+        const char* cur_phenostr_end = ScanadvDouble(cur_phenostr, &dxx);
+        if (!cur_phenostr_end) {
+          const uint32_t slen = token_slens[new_pheno_idx];
+          if (IsNanStr(cur_phenostr, slen)) {
+            // note that, in CSVs, empty string is interpreted as a missing
+            // non-categorical phenotype; explicit "NONE" is needed to denote
+            // a missing category
+            dxx = missing_phenod;
+          } else {
+            if (unlikely(!IsSet(categorical_phenos, new_pheno_idx))) {
+              assert(pheno_info_reverse_ll);
+              const uint32_t is_second_relevant_line = !(pheno_info_reverse_ll->next);
+              logerrprintfww("Error: '%s' entry on line %" PRIuPTR " of %s is categorical, while %s not.\n", &(pheno_names[(old_pheno_ct + new_pheno_idx) * max_pheno_name_blen]), line_idx, pheno_fname, is_second_relevant_line? "an earlier entry is" : "earlier entries are");
+              goto LoadPhenos_ret_INCOMPATIBLE_PHENOSTRS;
+            }
+            uint32_t hashval;
+            hashval = Hashceil(cur_phenostr, slen, kCatHtableSize) + cat_pheno_idx;
+            if (hashval >= kCatHtableSize) {
+              hashval -= kCatHtableSize;
+            }
+            uintptr_t htable_idx = 0;
+            CatnameLl2** cur_entry_ptr = &(catname_htable[hashval]);
+            while (1) {
+              CatnameLl2* cur_entry = *cur_entry_ptr;
+              if (!cur_entry) {
+                const uint32_t entry_byte_ct = RoundUpPow2(offsetof(CatnameLl2, str) + slen + 1, sizeof(intptr_t));
+                if (unlikely(S_CAST(uintptr_t, tmp_bigstack_end - bigstack_base_copy) < entry_byte_ct)) {
+                  goto LoadPhenos_ret_NOMEM;
+                }
+                tmp_bigstack_end -= entry_byte_ct;
+                htable_idx = pheno_catname_last[cat_pheno_idx]->cat_idx + 1;
+                CatnameLl2* new_entry = R_CAST(CatnameLl2*, tmp_bigstack_end);
+                new_entry->htable_next = nullptr;
+                new_entry->pheno_next = nullptr;
+                pheno_catname_last[cat_pheno_idx]->pheno_next = new_entry;
+                pheno_catname_last[cat_pheno_idx] = new_entry;
+                *cur_entry_ptr = new_entry;
+                new_entry->cat_idx = htable_idx;
+                memcpyx(new_entry->str, cur_phenostr, slen, '\0');
+                total_catname_blens[cat_pheno_idx] += slen + 1;
+                break;
+              }
+              // safe since hash table entries are in the middle of bigstack
+              if (memequal(cur_entry->str, cur_phenostr, slen) && (!cur_entry->str[slen])) {
+                htable_idx = cur_entry->cat_idx;
+                break;
+              }
+              cur_entry_ptr = &(cur_entry->htable_next);
+            }
+            // don't bother writing top 4 bytes in 32-bit build
+            memcpy(&(pheno_data[new_pheno_idx]), &htable_idx, sizeof(intptr_t));
+            ++cat_pheno_idx;
+            continue;
+          }
+        }
+        if (unlikely(!IsSpaceOrEoln(*cur_phenostr_end))) {
+          cur_phenostr_end = CurTokenEnd(cur_phenostr_end);
+          *K_CAST(char*, cur_phenostr_end) = '\0';
+          snprintf(g_logbuf, kLogbufSize, "Error: Invalid numeric token '%s' on line %" PRIuPTR " of %s.\n", cur_phenostr, line_idx, pheno_fname);
+          goto LoadPhenos_ret_MALFORMED_INPUT_WW;
+        }
+        if (unlikely(IsSet(categorical_phenos, new_pheno_idx))) {
+          assert(pheno_info_reverse_ll);
+          const uint32_t is_second_relevant_line = !(pheno_info_reverse_ll->next);
+          logerrprintfww("Error: '%s' entry on line %" PRIuPTR " of %s is numeric/'NA', while %s categorical.\n", &(pheno_names[(old_pheno_ct + new_pheno_idx) * max_pheno_name_blen]), line_idx, pheno_fname, is_second_relevant_line? "an earlier entry is" : "earlier entries are");
+          goto LoadPhenos_ret_INCOMPATIBLE_PHENOSTRS;
+        }
+        if (!IsSet(quantitative_phenos, new_pheno_idx)) {
+          if ((dxx != missing_phenod) && (dxx != pheno_ctrld) && (dxx != pheno_cased) && (dxx != 0.0)) {
+            SetBit(new_pheno_idx, quantitative_phenos);
+          }
+        }
+        pheno_data[new_pheno_idx] = dxx;
+      }
+      pheno_info_reverse_ll = new_pheno_info;
     }
+    if (unlikely(TextStreamErrcode2(&pheno_txs, &reterr))) {
+      goto LoadPhenos_ret_TSTREAM_FAIL;
+    }
+    reterr = kPglRetSuccess;
     if (unlikely(!pheno_info_reverse_ll)) {
       if (line_idx == 1) {
         snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", pheno_fname);

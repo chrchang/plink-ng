@@ -78,7 +78,7 @@ void CopyNyparrNonemptySubset(const uintptr_t* __restrict raw_nyparr, const uint
 }
 
 // bit_idx_start assumed to be < kBitsPerWord
-void CopyGenomatchSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genovec, uintptr_t match_word, uint32_t write_bit_idx_start, uint32_t bit_ct, uintptr_t* __restrict output_bitarr) {
+void CopyGenomatchSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genoarr, uintptr_t match_word, uint32_t write_bit_idx_start, uint32_t bit_ct, uintptr_t* __restrict output_bitarr) {
   const uint32_t bit_idx_end = bit_ct + write_bit_idx_start;
   const uint32_t bit_idx_end_lowbits = bit_idx_end % kBitsPerWord;
   const Halfword* raw_bitarr_alias = R_CAST(const Halfword*, raw_bitarr);
@@ -89,14 +89,14 @@ void CopyGenomatchSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t
   uint32_t write_idx_lowbits = write_bit_idx_start;
   while ((output_bitarr_iter != output_bitarr_last) || (write_idx_lowbits != bit_idx_end_lowbits)) {
     uintptr_t cur_mask_word;
-    // sparse genovec optimization
+    // sparse genoarr optimization
     // guaranteed to terminate since there's at least one more set bit
     do {
-      // todo: try reading two genovec words at a time.  would need to be very
+      // todo: try reading two genoarr words at a time.  would need to be very
       // careful with the possible trailing word, though.
       // more important to optimize this function now that regular phased-call
       // handling code is using it.
-      cur_mask_word = genovec[++read_widx] ^ match_word;
+      cur_mask_word = genoarr[++read_widx] ^ match_word;
       cur_mask_word = (~(cur_mask_word | (cur_mask_word >> 1))) & kMask5555;
     } while (!cur_mask_word);
     uintptr_t extracted_bits = raw_bitarr_alias[read_widx];
@@ -124,7 +124,7 @@ void CopyGenomatchSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t
 // Variant of ExpandBytearr() which is based off a target 2-bit value instead
 // of single expand_mask bits.  expand_size must be the number of instance of
 // the target value in genovec.
-void ExpandBytearrFromGenovec(const void* __restrict compact_bitarr, const uintptr_t* __restrict genovec, uintptr_t match_word, uint32_t genoword_ct, uint32_t expand_size, uint32_t read_start_bit, uintptr_t* __restrict target) {
+void ExpandBytearrFromGenoarr(const void* __restrict compact_bitarr, const uintptr_t* __restrict genoarr, uintptr_t match_word, uint32_t genoword_ct, uint32_t expand_size, uint32_t read_start_bit, uintptr_t* __restrict target) {
   const uint32_t expand_sizex_m1 = expand_size + read_start_bit - 1;
   const uint32_t leading_byte_ct = 1 + (expand_sizex_m1 % kBitsPerWord) / CHAR_BIT;
   const uint32_t genoword_ct_m1 = genoword_ct - 1;
@@ -139,11 +139,11 @@ void ExpandBytearrFromGenovec(const void* __restrict compact_bitarr, const uintp
       }
       mask_word = 0;
     } else {
-      const uintptr_t geno_word1 = genovec[widx + 1] ^ match_word;
+      const uintptr_t geno_word1 = genoarr[widx + 1] ^ match_word;
       mask_word = PackWordToHalfwordMask5555(~(geno_word1 | (geno_word1 >> 1)));
       mask_word = mask_word << 32;
     }
-    const uintptr_t geno_word0 = genovec[widx] ^ match_word;
+    const uintptr_t geno_word0 = genoarr[widx] ^ match_word;
     mask_word |= PackWordToHalfwordMask5555(~(geno_word0 | (geno_word0 >> 1)));
     uintptr_t write_word = 0;
     if (mask_word) {
@@ -159,7 +159,7 @@ void ExpandBytearrFromGenovec(const void* __restrict compact_bitarr, const uintp
         }
       } else {
 #  ifdef __arm__
-#    error "Unaligned accesses in ExpandBytearrFromGenovec()."
+#    error "Unaligned accesses in ExpandBytearrFromGenoarr()."
 #  endif
         uintptr_t next_compact_word = *compact_bitarr_iter++;
         next_compact_idx_lowbits -= kBitsPerWord;
@@ -314,7 +314,7 @@ void CopyGenomatchSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t
   }
 }
 
-void ExpandBytearrFromGenovec(const void* __restrict compact_bitarr, const uintptr_t* __restrict genovec, uintptr_t match_word, uint32_t genoword_ct, uint32_t expand_size, uint32_t read_start_bit, uintptr_t* __restrict target) {
+void ExpandBytearrFromGenoarr(const void* __restrict compact_bitarr, const uintptr_t* __restrict genoarr, uintptr_t match_word, uint32_t genoword_ct, uint32_t expand_size, uint32_t read_start_bit, uintptr_t* __restrict target) {
   Halfword* target_alias = R_CAST(Halfword*, target);
   ZeroHwArr(RoundUpPow2(genoword_ct, 2), target_alias);
   const uintptr_t* compact_bitarr_alias = S_CAST(const uintptr_t*, compact_bitarr);
@@ -323,7 +323,7 @@ void ExpandBytearrFromGenovec(const void* __restrict compact_bitarr, const uintp
   uint32_t compact_idx_lowbits = read_start_bit;
   uint32_t loop_len = kBitsPerWord;
   uintptr_t write_hwidx = 0;
-  uintptr_t genomatch_bits = genovec[0] ^ match_word;
+  uintptr_t genomatch_bits = genoarr[0] ^ match_word;
   genomatch_bits = (~(genomatch_bits | (genomatch_bits >> 1))) & kMask5555;
   for (uint32_t compact_widx = 0; ; ++compact_widx) {
     uintptr_t compact_word;
@@ -336,13 +336,13 @@ void ExpandBytearrFromGenovec(const void* __restrict compact_bitarr, const uintp
       compact_word = SubwordLoad(&(compact_bitarr_alias[compact_widx]), DivUp(loop_len, CHAR_BIT));
     } else {
 #ifdef __arm__
-#  error "Unaligned accesses in ExpandBytearrFromGenovec()."
+#  error "Unaligned accesses in ExpandBytearrFromGenoarr()."
 #endif
       compact_word = compact_bitarr_alias[compact_widx];
     }
     for (; compact_idx_lowbits != loop_len; ++compact_idx_lowbits) {
       while (!genomatch_bits) {
-        genomatch_bits = genovec[++write_hwidx] ^ match_word;
+        genomatch_bits = genoarr[++write_hwidx] ^ match_word;
         genomatch_bits = (~(genomatch_bits | (genomatch_bits >> 1))) & kMask5555;
       }
       if (compact_word & (k1LU << compact_idx_lowbits)) {
@@ -648,10 +648,6 @@ void FillInterleavedMaskVec(const uintptr_t* __restrict subset_mask, uint32_t ba
     // I'll assume the compiler can handle this register allocation job.
     VecW cur_vec = subset_mask_valias[vidx];
 
-    // This is the critical lane-crossing operation.  May wrap this (in a way
-    // that reduces to a null-op in the SSE4.2 case?), but let's first see how
-    // often we use it, and in what ways.
-    //   0xd8: {0, 2, 1, 3}
     cur_vec = vecw_permute0xd8_if_avx2(cur_vec);
     const VecW vec_even = cur_vec & m4;
     const VecW vec_odd = vecw_srli(cur_vec, 4) & m4;
@@ -829,7 +825,7 @@ void CountSubset3FreqVec6(const VecW* __restrict geno_vvec, const VecW* __restri
   }
 }
 
-void GenovecCountSubsetFreqs(const uintptr_t* __restrict genovec, const uintptr_t* __restrict sample_include_interleaved_vec, uint32_t raw_sample_ct, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts) {
+void GenoarrCountSubsetFreqs(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict sample_include_interleaved_vec, uint32_t raw_sample_ct, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts) {
   // fills genocounts[0] with the number of 00s, genocounts[1] with the number
   // of 01s, etc.
   // {raw_}sample_ct == 0 ok.
@@ -839,8 +835,8 @@ void GenovecCountSubsetFreqs(const uintptr_t* __restrict genovec, const uintptr_
   uint32_t bothset_ct;
 #ifdef __LP64__
   uint32_t vec_idx = raw_sample_ctv2 - (raw_sample_ctv2 % 6);
-  CountSubset3FreqVec6(R_CAST(const VecW*, genovec), R_CAST(const VecW*, sample_include_interleaved_vec), vec_idx, &even_ct, &odd_ct, &bothset_ct);
-  const uintptr_t* genovec_iter = &(genovec[kWordsPerVec * vec_idx]);
+  CountSubset3FreqVec6(R_CAST(const VecW*, genoarr), R_CAST(const VecW*, sample_include_interleaved_vec), vec_idx, &even_ct, &odd_ct, &bothset_ct);
+  const uintptr_t* genoarr_iter = &(genoarr[kWordsPerVec * vec_idx]);
   const uintptr_t* interleaved_mask_iter = &(sample_include_interleaved_vec[(kWordsPerVec / 2) * vec_idx]);
 #  ifdef USE_AVX2
   uintptr_t mask_base1 = 0;
@@ -868,8 +864,8 @@ void GenovecCountSubsetFreqs(const uintptr_t* __restrict genovec, const uintptr_
       mask_word4 = (mask_base4 >> 1) & kMask5555;
     }
     for (uint32_t vechalf_idx = 0; ; ++vechalf_idx) {
-      const uintptr_t cur_geno_word1 = *genovec_iter++;
-      const uintptr_t cur_geno_word2 = *genovec_iter++;
+      const uintptr_t cur_geno_word1 = *genoarr_iter++;
+      const uintptr_t cur_geno_word2 = *genoarr_iter++;
       const uintptr_t cur_geno_word1_high_masked = mask_word1 & (cur_geno_word1 >> 1);
       const uintptr_t cur_geno_word2_high_masked = mask_word2 & (cur_geno_word2 >> 1);
       even_ct += PopcountWord(((cur_geno_word1 & mask_word1) << 1) | (cur_geno_word2 & mask_word2));
@@ -897,8 +893,8 @@ void GenovecCountSubsetFreqs(const uintptr_t* __restrict genovec, const uintptr_
       mask_word1 = (mask_base1 >> 1) & kMask5555;
       mask_word2 = (mask_base2 >> 1) & kMask5555;
     }
-    const uintptr_t cur_geno_word1 = *genovec_iter++;
-    const uintptr_t cur_geno_word2 = *genovec_iter++;
+    const uintptr_t cur_geno_word1 = *genoarr_iter++;
+    const uintptr_t cur_geno_word2 = *genoarr_iter++;
     const uintptr_t cur_geno_word1_high_masked = mask_word1 & (cur_geno_word1 >> 1);
     const uintptr_t cur_geno_word2_high_masked = mask_word2 & (cur_geno_word2 >> 1);
 #    ifdef USE_SSE42
@@ -914,7 +910,7 @@ void GenovecCountSubsetFreqs(const uintptr_t* __restrict genovec, const uintptr_
 #  endif  // not USE_AVX2
 #else  // not __LP64__
   uint32_t word_idx = raw_sample_ctv2 - (raw_sample_ctv2 % 6);
-  CountSubset3FreqVec6(R_CAST(const VecW*, genovec), R_CAST(const VecW*, sample_include_interleaved_vec), word_idx, &even_ct, &odd_ct, &bothset_ct);
+  CountSubset3FreqVec6(R_CAST(const VecW*, genoarr), R_CAST(const VecW*, sample_include_interleaved_vec), word_idx, &even_ct, &odd_ct, &bothset_ct);
   const uintptr_t* interleaved_mask_iter = &(sample_include_interleaved_vec[word_idx / 2]);
   uintptr_t mask_base = 0;
   for (; word_idx != raw_sample_ctv2; ++word_idx) {
@@ -925,7 +921,7 @@ void GenovecCountSubsetFreqs(const uintptr_t* __restrict genovec, const uintptr_
     } else {
       mask_word = (mask_base >> 1) & kMask5555;
     }
-    const uintptr_t cur_geno_word = genovec[word_idx];
+    const uintptr_t cur_geno_word = genoarr[word_idx];
     const uintptr_t cur_geno_word_high_masked = mask_word & (cur_geno_word >> 1);
     even_ct += Popcount01Word(cur_geno_word & mask_word);
     odd_ct += Popcount01Word(cur_geno_word_high_masked);
@@ -938,8 +934,8 @@ void GenovecCountSubsetFreqs(const uintptr_t* __restrict genovec, const uintptr_
   genocounts[3] = bothset_ct;
 }
 
-void GenovecCountSubsetFreqs2(const uintptr_t* __restrict genovec, const uintptr_t* __restrict sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts) {
-  // slower GenovecCountSubsetFreqs() which does not require
+void GenoarrCountSubsetFreqs2(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts) {
+  // slower GenoarrCountSubsetFreqs() which does not require
   // sample_include_interleaved_vec to be precomputed.
   // {raw_}sample_ct == 0 ok.
   const uint32_t raw_sample_ctl2 = NypCtToWordCt(raw_sample_ct);
@@ -952,10 +948,10 @@ void GenovecCountSubsetFreqs2(const uintptr_t* __restrict genovec, const uintptr
     // with shuffle-based dynamic unpacking of sample_include?
     const uintptr_t mask_word = sample_include[widx];
     if (mask_word) {
-      uintptr_t geno_word = genovec[2 * widx];
+      uintptr_t geno_word = genoarr[2 * widx];
       uintptr_t geno_even = PackWordToHalfwordMask5555(geno_word);
       uintptr_t geno_odd = PackWordToHalfwordMaskAAAA(geno_word);
-      geno_word = genovec[2 * widx + 1];
+      geno_word = genoarr[2 * widx + 1];
       geno_even |= S_CAST(uintptr_t, PackWordToHalfwordMask5555(geno_word)) << kBitsPerWordD2;
       geno_odd |= S_CAST(uintptr_t, PackWordToHalfwordMaskAAAA(geno_word)) << kBitsPerWordD2;
       const uintptr_t geno_even_masked = geno_even & mask_word;
@@ -967,7 +963,7 @@ void GenovecCountSubsetFreqs2(const uintptr_t* __restrict genovec, const uintptr
   if (raw_sample_ctl2 % 2) {
     const uintptr_t mask_hw = sample_include[fullword_ct];
     if (mask_hw) {
-      const uintptr_t geno_word = genovec[2 * fullword_ct];
+      const uintptr_t geno_word = genoarr[2 * fullword_ct];
       // todo: benchmark main loop unpack vs. pack
       const uintptr_t mask_word = UnpackHalfwordToWord(mask_hw);
       const uintptr_t geno_word_shifted = geno_word >> 1;
@@ -1374,11 +1370,11 @@ void BiallelicDphase16Invert(uint32_t dphase_ct, int16_t* dphase_delta) {
   }
 }
 
-void GenovecToMissingnessUnsafe(const uintptr_t* __restrict genovec, uint32_t sample_ct, uintptr_t* __restrict missingness) {
+void GenoarrToMissingnessUnsafe(const uintptr_t* __restrict genoarr, uint32_t sample_ct, uintptr_t* __restrict missingness) {
   const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
   Halfword* missingness_alias = R_CAST(Halfword*, missingness);
   for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
-    const uintptr_t cur_geno_word = genovec[widx];
+    const uintptr_t cur_geno_word = genoarr[widx];
     missingness_alias[widx] = PackWordToHalfwordMask5555(cur_geno_word & (cur_geno_word >> 1));
   }
   if (sample_ctl2 % 2) {
@@ -1386,11 +1382,11 @@ void GenovecToMissingnessUnsafe(const uintptr_t* __restrict genovec, uint32_t sa
   }
 }
 
-void GenovecToNonmissingnessUnsafe(const uintptr_t* __restrict genovec, uint32_t sample_ct, uintptr_t* __restrict nonmissingness) {
+void GenoarrToNonmissingnessUnsafe(const uintptr_t* __restrict genoarr, uint32_t sample_ct, uintptr_t* __restrict nonmissingness) {
   const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
   Halfword* nonmissingness_alias = R_CAST(Halfword*, nonmissingness);
   for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
-    const uintptr_t cur_geno_word = genovec[widx];
+    const uintptr_t cur_geno_word = genoarr[widx];
     nonmissingness_alias[widx] = PackWordToHalfwordMask5555(~(cur_geno_word & (cur_geno_word >> 1)));
   }
 }
@@ -1929,7 +1925,7 @@ void GenoarrSexLookup4b(const uintptr_t* genoarr, const uintptr_t* sex_male, con
   }
 }
 
-void ClearGenovecMissing1bit8Unsafe(const uintptr_t* __restrict genovec, uint32_t* subset_sizep, uintptr_t* __restrict subset, void* __restrict sparse_vals) {
+void ClearGenoarrMissing1bit8Unsafe(const uintptr_t* __restrict genoarr, uint32_t* subset_sizep, uintptr_t* __restrict subset, void* __restrict sparse_vals) {
   const uint32_t orig_subset_size = *subset_sizep;
   Halfword* subset_alias = R_CAST(Halfword*, subset);
   uint32_t read_idx = 0;
@@ -1939,7 +1935,7 @@ void ClearGenovecMissing1bit8Unsafe(const uintptr_t* __restrict genovec, uint32_
     do {
       subset_bits = subset_alias[++read_widx];
     } while (!subset_bits);
-    uintptr_t detect_11 = genovec[read_widx];
+    uintptr_t detect_11 = genoarr[read_widx];
     detect_11 = detect_11 & (detect_11 >> 1) & kMask5555;
     if (detect_11) {
       uint32_t detect_11_hw = PackWordToHalfword(detect_11);
@@ -1959,7 +1955,7 @@ void ClearGenovecMissing1bit8Unsafe(const uintptr_t* __restrict genovec, uint32_
               subset_bits = subset_alias[++read_widx];
             } while (!subset_bits);
             subset_bits_write = subset_bits;
-            detect_11 = genovec[read_widx];
+            detect_11 = genoarr[read_widx];
             detect_11 = detect_11 & (detect_11 >> 1);
             detect_11_hw = PackWordToHalfwordMask5555(detect_11);
           }
@@ -1976,7 +1972,7 @@ void ClearGenovecMissing1bit8Unsafe(const uintptr_t* __restrict genovec, uint32_
               subset_bits = subset_alias[++read_widx];
             } while (!subset_bits);
             subset_bits_write = subset_bits;
-            detect_11 = genovec[read_widx];
+            detect_11 = genoarr[read_widx];
             detect_11 = detect_11 & (detect_11 >> 1);
           }
           lowbit = subset_bits & (-subset_bits);
@@ -2000,7 +1996,7 @@ void ClearGenovecMissing1bit8Unsafe(const uintptr_t* __restrict genovec, uint32_
   }
 }
 
-void ClearGenovecMissing1bit16Unsafe(const uintptr_t* __restrict genovec, uint32_t* subset_sizep, uintptr_t* __restrict subset, void* __restrict sparse_vals) {
+void ClearGenoarrMissing1bit16Unsafe(const uintptr_t* __restrict genoarr, uint32_t* subset_sizep, uintptr_t* __restrict subset, void* __restrict sparse_vals) {
   const uint32_t orig_subset_size = *subset_sizep;
   Halfword* subset_alias = R_CAST(Halfword*, subset);
   uint32_t read_idx = 0;
@@ -2010,7 +2006,7 @@ void ClearGenovecMissing1bit16Unsafe(const uintptr_t* __restrict genovec, uint32
     do {
       subset_bits = subset_alias[++read_widx];
     } while (!subset_bits);
-    uintptr_t detect_11 = genovec[read_widx];
+    uintptr_t detect_11 = genoarr[read_widx];
     detect_11 = detect_11 & (detect_11 >> 1) & kMask5555;
     if (detect_11) {
       uint32_t detect_11_hw = PackWordToHalfword(detect_11);
@@ -2030,7 +2026,7 @@ void ClearGenovecMissing1bit16Unsafe(const uintptr_t* __restrict genovec, uint32
               subset_bits = subset_alias[++read_widx];
             } while (!subset_bits);
             subset_bits_write = subset_bits;
-            detect_11 = genovec[read_widx];
+            detect_11 = genoarr[read_widx];
             detect_11 = detect_11 & (detect_11 >> 1);
             detect_11_hw = PackWordToHalfwordMask5555(detect_11);
           }
@@ -2047,7 +2043,7 @@ void ClearGenovecMissing1bit16Unsafe(const uintptr_t* __restrict genovec, uint32
               subset_bits = subset_alias[++read_widx];
             } while (!subset_bits);
             subset_bits_write = subset_bits;
-            detect_11 = genovec[read_widx];
+            detect_11 = genoarr[read_widx];
             detect_11 = detect_11 & (detect_11 >> 1);
           }
           lowbit = subset_bits & (-subset_bits);

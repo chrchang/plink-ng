@@ -1313,7 +1313,7 @@ void GetMFlatCounts64(const uintptr_t* __restrict sample_include, const uintptr_
   if (sample_ct == raw_sample_ct) {
     GenoarrCountFreqsUnsafe(pgvp->genovec, sample_ct, genocounts);
   } else {
-    GenovecCountSubsetFreqs(pgvp->genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
+    GenoarrCountSubsetFreqs(pgvp->genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
   }
   all_dosages[0] = 2 * genocounts[0] + genocounts[1];
   all_dosages[1] = 2 * genocounts[2] + genocounts[1];
@@ -1369,7 +1369,7 @@ void GetMCounts64(const uintptr_t* __restrict sample_include, const uintptr_t* _
   if (sample_ct == raw_sample_ct) {
     GenoarrCountFreqsUnsafe(pgvp->genovec, sample_ct, genocounts);
   } else {
-    GenovecCountSubsetFreqs(pgvp->genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
+    GenoarrCountSubsetFreqs(pgvp->genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
   }
   one_cts[0] = genocounts[1];
   one_cts[1] = genocounts[1];
@@ -1685,7 +1685,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
                   ZeroTrailingNyps(raw_sample_ct, pgv.genovec);
                   GenoarrCountFreqsUnsafe(pgv.genovec, sample_ct, genocounts);
                 } else {
-                  GenovecCountSubsetFreqs(pgv.genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
+                  GenoarrCountSubsetFreqs(pgv.genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
                 }
                 if (genocounts[0] || genocounts[1]) {
                   allele_presents_bytearr[cur_allele_idx_offset] = 128;
@@ -1694,7 +1694,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
                   allele_presents_bytearr[cur_allele_idx_offset + 1] = 128;
                 }
               }
-              GenovecCountSubsetFreqs(pgv.genovec, sex_male_interleaved_vec, raw_sample_ct, male_ct, genocounts);
+              GenoarrCountSubsetFreqs(pgv.genovec, sex_male_interleaved_vec, raw_sample_ct, male_ct, genocounts);
               hethap_ct = genocounts[1];
               // x2, x4 since this is haploid
               uintptr_t alt1_ct_x2 = genocounts[2] * 2 + hethap_ct;
@@ -1750,9 +1750,9 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
               ZeroTrailingNyps(raw_sample_ct, pgv.genovec);
               GenoarrCountFreqsUnsafe(pgv.genovec, sample_ct, genocounts);
             } else {
-              GenovecCountSubsetFreqs(pgv.genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
+              GenoarrCountSubsetFreqs(pgv.genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
             }
-            GenovecCountSubsetFreqs(pgv.genovec, sex_male_interleaved_vec, raw_sample_ct, male_ct, sex_specific_genocounts);
+            GenoarrCountSubsetFreqs(pgv.genovec, sex_male_interleaved_vec, raw_sample_ct, male_ct, sex_specific_genocounts);
             hethap_ct = sex_specific_genocounts[1];
             // Could compute imputation r2 iff there are no unknown-sex
             // samples, but probably not worth it since larger datasets could
@@ -1834,7 +1834,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
               cur_x_male_geno_cts[1] = sex_specific_genocounts[1];
               cur_x_male_geno_cts[2] = sex_specific_genocounts[2];
               if (x_nosex_geno_cts) {
-                GenovecCountSubsetFreqs(pgv.genovec, nosex_interleaved_vec, raw_sample_ct, nosex_ct, sex_specific_genocounts);
+                GenoarrCountSubsetFreqs(pgv.genovec, nosex_interleaved_vec, raw_sample_ct, nosex_ct, sex_specific_genocounts);
                 STD_ARRAY_REF(uint32_t, 3) cur_nosex_geno_cts = x_nosex_geno_cts[variant_uidx - x_start];
                 cur_nosex_geno_cts[0] = sex_specific_genocounts[0];
                 cur_nosex_geno_cts[1] = sex_specific_genocounts[1];
@@ -1967,7 +1967,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
             for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
               all_dosages[aidx] *= 2;
             }
-            GenovecCountSubsetFreqs(pgv.genovec, sex_male_interleaved_vec, raw_sample_ct, male_ct, sex_specific_genocounts);
+            GenoarrCountSubsetFreqs(pgv.genovec, sex_male_interleaved_vec, raw_sample_ct, male_ct, sex_specific_genocounts);
             hethap_ct = sex_specific_genocounts[1];
             if (male_ct) {
               all_dosages[0] -= 2 * sex_specific_genocounts[0] + hethap_ct;
@@ -2024,7 +2024,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
               cur_x_male_geno_cts[1] = sex_specific_genocounts[1];
               cur_x_male_geno_cts[2] = sex_specific_genocounts[2];
               if (x_nosex_geno_cts) {
-                GenovecCountSubsetFreqs(pgv.genovec, nosex_interleaved_vec, raw_sample_ct, nosex_ct, sex_specific_genocounts);
+                GenoarrCountSubsetFreqs(pgv.genovec, nosex_interleaved_vec, raw_sample_ct, nosex_ct, sex_specific_genocounts);
                 STD_ARRAY_REF(uint32_t, 3) cur_nosex_geno_cts = x_nosex_geno_cts[variant_uidx - x_start];
                 cur_nosex_geno_cts[0] = sex_specific_genocounts[0];
                 cur_nosex_geno_cts[1] = sex_specific_genocounts[1];
@@ -5056,9 +5056,9 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
         // tried skipping this and using ExpandThenSubsetBytearr in simplest
         // case, not worthwhile
         if (!read_rare10_ct) {
-          PgrDetectGenovecHets(loadbuf_iter, raw_sample_ct, all_hets);
+          PgrDetectGenoarrHets(loadbuf_iter, raw_sample_ct, all_hets);
         } else {
-          PgrDetectGenovecHetsMultiallelic(loadbuf_iter, read_patch_10_set, read_patch_10_vals, raw_sample_ct, all_hets);
+          PgrDetectGenoarrHetsMultiallelic(loadbuf_iter, read_patch_10_set, read_patch_10_vals, raw_sample_ct, all_hets);
         }
         cur_phaseraw = cur_genovec_end;
         const uint32_t het_ct = S_CAST(uint32_t, cur_phaseraw[0]);
@@ -5204,7 +5204,7 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
             cur_write_phasepresent = write_phasepresent;
             // unsafe to just copy all_hets, because we may have resorted
             // todo: multiallelic dosage
-            PgrDetectGenovecHets(write_genovec, sample_ct, write_phasepresent);
+            PgrDetectGenoarrHets(write_genovec, sample_ct, write_phasepresent);
           }
           if (write_dphasepresent && is_hphase && (!write_dphase_ct)) {
             // bugfix (29 Apr 2019): write_dphasepresent not guaranteed to be
@@ -5375,17 +5375,17 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
             // bugfix (28 Jul 2018): I was on crack when I moved this code
             // before SetMaleHetMissing{Clear,Keep}dosage() on 31 Mar
             if (!write_rare10_ct) {
-              MaskGenovecHetsUnsafe(write_genovec, sample_ctl2, cur_write_phasepresent);
+              MaskGenoarrHetsUnsafe(write_genovec, sample_ctl2, cur_write_phasepresent);
             } else {
-              MaskGenovecHetsMultiallelicUnsafe(write_genovec, write_patch_10_set, write_patch_10_vals, sample_ctl2, cur_write_phasepresent);
+              MaskGenoarrHetsMultiallelicUnsafe(write_genovec, write_patch_10_set, write_patch_10_vals, sample_ctl2, cur_write_phasepresent);
             }
             is_hphase = !AllWordsAreZero(write_phasepresent, sample_ctl);
           }
           if (write_rare01_ct) {
-            ClearGenovecMissing1bit8Unsafe(write_genovec, &write_rare01_ct, write_patch_01_set, write_patch_01_vals);
+            ClearGenoarrMissing1bit8Unsafe(write_genovec, &write_rare01_ct, write_patch_01_set, write_patch_01_vals);
           }
           if (write_rare10_ct) {
-            ClearGenovecMissing1bit16Unsafe(write_genovec, &write_rare10_ct, write_patch_10_set, write_patch_10_vals);
+            ClearGenoarrMissing1bit16Unsafe(write_genovec, &write_rare10_ct, write_patch_10_set, write_patch_10_vals);
           }
         } else {
           // all hets to missing
@@ -5401,7 +5401,7 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
           is_hphase = 0;
           write_rare01_ct = 0;
           if (write_rare10_ct) {
-            ClearGenovecMissing1bit16Unsafe(write_genovec, &write_rare10_ct, write_patch_10_set, write_patch_10_vals);
+            ClearGenoarrMissing1bit16Unsafe(write_genovec, &write_rare10_ct, write_patch_10_set, write_patch_10_vals);
           }
           write_dphase_ct = 0;
         }
@@ -5415,7 +5415,7 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
         is_hphase = 0;
         write_rare01_ct = 0;
         if (write_rare10_ct) {
-          ClearGenovecMissing1bit16Unsafe(write_genovec, &write_rare10_ct, write_patch_10_set, write_patch_10_vals);
+          ClearGenoarrMissing1bit16Unsafe(write_genovec, &write_rare10_ct, write_patch_10_set, write_patch_10_vals);
         }
         write_dphase_ct = 0;
       }
@@ -8018,44 +8018,35 @@ PglErr SampleSortFileMap(const uintptr_t* sample_include, const SampleIdInfo* si
     }
     uint32_t* new_sample_idx_to_old_iter = *new_sample_idx_to_old_ptr;
     if (*line_start == '#') {
-      goto SampleSortFileMap_skip_header;
-    }
-    while (1) {
-      {
-        const char* linebuf_iter = line_start;
-        uint32_t sample_uidx;
-        if (!SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx, idbuf)) {
-          if (unlikely(IsSet(already_seen, sample_uidx))) {
-            char* tab_iter = AdvToDelim(idbuf, '\t');
-            *tab_iter = ' ';
-            if (xid_mode & kfXidModeFlagSid) {
-              *AdvToDelim(&(tab_iter[1]), '\t') = ' ';
-            }
-            snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID '%s' in --indiv-sort file.\n", idbuf);
-            goto SampleSortFileMap_ret_MALFORMED_INPUT_WW;
-          }
-          SetBit(sample_uidx, already_seen);
-          *new_sample_idx_to_old_iter++ = sample_uidx;
-        } else if (unlikely(!linebuf_iter)) {
-          goto SampleSortFileMap_ret_MISSING_TOKENS;
-        }
-      }
-    SampleSortFileMap_skip_header:
       ++line_idx;
-      reterr = TextNextLineLstripNoempty(&txs, &line_start);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          reterr = kPglRetSuccess;
-          break;
-        }
-        goto SampleSortFileMap_ret_TSTREAM_FAIL;
-      }
+      line_start = TextGet(&txs);
+    }
+    for (; line_start; ++line_idx, line_start = TextGet(&txs)) {
       if (unlikely(line_start[0] == '#')) {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --indiv-sort file starts with a '#'. (This is only permitted before the first nonheader line, and if a #FID/IID header line is present it must denote the end of the header block.)\n", line_idx);
         goto SampleSortFileMap_ret_MALFORMED_INPUT_WW;
       }
+      const char* linebuf_iter = line_start;
+      uint32_t sample_uidx;
+      if (!SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx, idbuf)) {
+        if (unlikely(IsSet(already_seen, sample_uidx))) {
+          char* tab_iter = AdvToDelim(idbuf, '\t');
+          *tab_iter = ' ';
+          if (xid_mode & kfXidModeFlagSid) {
+            *AdvToDelim(&(tab_iter[1]), '\t') = ' ';
+          }
+          snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID '%s' in --indiv-sort file.\n", idbuf);
+          goto SampleSortFileMap_ret_MALFORMED_INPUT_WW;
+        }
+        SetBit(sample_uidx, already_seen);
+        *new_sample_idx_to_old_iter++ = sample_uidx;
+      } else if (unlikely(!linebuf_iter)) {
+        goto SampleSortFileMap_ret_MISSING_TOKENS;
+      }
     }
-
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto SampleSortFileMap_ret_TSTREAM_FAIL;
+    }
     if (unlikely(S_CAST(uintptr_t, new_sample_idx_to_old_iter - (*new_sample_idx_to_old_ptr)) != sample_ct)) {
       logerrputs("Error: --indiv-sort file does not contain all loaded sample IDs.\n");
       goto SampleSortFileMap_ret_INCONSISTENT_INPUT;

@@ -252,28 +252,28 @@ HEADER_INLINE PglErr TextFileNextLineLstrip(textFILE* txf_ptr, char** line_start
 
 PglErr TextFileOnlyEmptyLinesLeft(textFILE* txf_ptr);
 
-// API fix (30 Oct 2019): While we want to tolerate *trailing* empty lines (as
-// well as lack of a final newline), since those arise from manual text-editing
-// every once in a while, there's usually no good reason to tolerate *interior*
-// empty lines like we were previously doing.  So the generic
-// empty-line-skipping interface has been replaced with one that reports an
-// "Unexpected empty line" error with a kPglRetMalformedInput error code unless
-// the empty line(s) are at EOF.
-HEADER_INLINE PglErr TextFileNextLineLstripNoempty(textFILE* txf_ptr, char** line_startp) {
+// API fix (30-31 Oct 2019): While we want to tolerate *trailing* empty lines
+// (as well as lack of a final newline), since those arise from manual
+// text-editing every once in a while, there's usually no good reason to
+// tolerate *interior* empty lines like we were previously doing.  So the
+// generic empty-line-skipping interface has been replaced with one that
+// reports an "Unexpected empty line" error with a kPglRetMalformedInput error
+// code unless the empty line(s) are at EOF.
+HEADER_INLINE char* TextFileGet(textFILE* txf_ptr) {
   TextFileBase* basep = &GET_PRIVATE(*txf_ptr, m).base;
   if (basep->consume_iter == basep->consume_stop) {
-    PglErr reterr = TextFileAdvance(txf_ptr);
-    if (reterr) {
-      return reterr;
+    // not unlikely() due to eof
+    if (TextFileAdvance(txf_ptr)) {
+      return nullptr;
     }
   }
   char* line_start = FirstNonTspace(basep->consume_iter);
   basep->consume_iter = AdvPastDelim(line_start, '\n');
-  *line_startp = line_start;
   if (!IsEolnKns(*line_start)) {
-    return kPglRetSuccess;
+    return line_start;
   }
-  return TextFileOnlyEmptyLinesLeft(txf_ptr);
+  TextFileOnlyEmptyLinesLeft(txf_ptr);
+  return nullptr;
 }
 
 void TextFileRewind(textFILE* txf_ptr);
@@ -296,6 +296,21 @@ HEADER_INLINE PglErr TextFileErrcode(const textFILE* txf_ptr) {
     return kPglRetSuccess;
   }
   return reterr;
+}
+
+// Note that this does not assign to *reterrp at all in the usual eof case.
+HEADER_INLINE BoolErr TextFileErrcode2(const textFILE* txf_ptr, PglErr* reterrp) {
+  const PglErr reterr = GET_PRIVATE(*txf_ptr, m).base.reterr;
+  if (reterr == kPglRetEof) {
+    return 0;
+  }
+  *reterrp = reterr;
+  return 1;
+}
+
+// Does not convert kPglRetEof -> kPglRetSuccess.
+HEADER_INLINE PglErr TextFileRawErrcode(const textFILE* txf_ptr) {
+  return GET_PRIVATE(*txf_ptr, m).base.reterr;
 }
 
 // Relevant when about to move-construct a TextStream; see plink2_glm.
@@ -455,26 +470,27 @@ HEADER_INLINE PglErr TextNextLineLstripK(TextStream* txs_ptr, const char** line_
 // errmsg.
 PglErr TextOnlyEmptyLinesLeft(TextStream* txs_ptr);
 
-HEADER_INLINE PglErr TextNextLineLstripNoempty(TextStream* txs_ptr, char** line_startp) {
+// This was previously named TextNextLineLstripNoempty, and returned a PglErr,
+// but some compilers were (i) not inlining it and (ii) spamming spurious
+// uninitialized-variable warnings as a side effect.  And it's plink2's most
+// common use case.
+// So we'll use a different interface here (and a shorter name).  User is
+// expected to call TextStream[Raw]Errcode when nullptr is returned.
+HEADER_INLINE char* TextGet(TextStream* txs_ptr) {
   TextFileBase* basep = &GET_PRIVATE(*txs_ptr, m).base;
   if (basep->consume_iter == basep->consume_stop) {
-    PglErr reterr = TextAdvance(txs_ptr);
     // not unlikely() due to eof
-    if (reterr) {
-      return reterr;
+    if (TextAdvance(txs_ptr)) {
+      return nullptr;
     }
   }
   char* line_start = FirstNonTspace(basep->consume_iter);
   basep->consume_iter = AdvPastDelim(line_start, '\n');
-  *line_startp = line_start;
   if (!IsEolnKns(*line_start)) {
-    return kPglRetSuccess;
+    return line_start;
   }
-  return TextOnlyEmptyLinesLeft(txs_ptr);
-}
-
-HEADER_INLINE PglErr TextNextLineLstripNoemptyK(TextStream* txs_ptr, const char** line_startp) {
-  return TextNextLineLstripNoempty(txs_ptr, K_CAST(char**, line_startp));
+  TextOnlyEmptyLinesLeft(txs_ptr);
+  return nullptr;
 }
 
 PglErr TextSkipNz(uintptr_t skip_ct, TextStream* txs_ptr);
@@ -526,7 +542,7 @@ HEADER_INLINE PglErr TextNextLineLstripUnsafeK(TextStream* txs_ptr, const char**
   return TextNextLineLstripUnsafe(txs_ptr, K_CAST(char**, line_iterp));
 }
 
-HEADER_INLINE PglErr TextNextLineLstripNoemptyUnsafe(TextStream* txs_ptr, char** line_iterp) {
+HEADER_INLINE PglErr TextGetUnsafe(TextStream* txs_ptr, char** line_iterp) {
   char* line_iter = *line_iterp;
   TextFileBase* basep = &GET_PRIVATE(*txs_ptr, m).base;
   if (line_iter == basep->consume_stop) {
@@ -539,15 +555,43 @@ HEADER_INLINE PglErr TextNextLineLstripNoemptyUnsafe(TextStream* txs_ptr, char**
     line_iter = basep->consume_iter;
   }
   line_iter = FirstNonTspace(line_iter);
-  *line_iterp = line_iter;
   if (!IsEolnKns(*line_iter)) {
+    *line_iterp = line_iter;
     return kPglRetSuccess;
   }
   return TextOnlyEmptyLinesLeft(txs_ptr);
 }
 
-HEADER_INLINE PglErr TextNextLineLstripNoemptyUnsafeK(TextStream* txs_ptr, const char** line_iterp) {
-  return TextNextLineLstripNoemptyUnsafe(txs_ptr, K_CAST(char**, line_iterp));
+/*
+HEADER_INLINE PglErr TextGetUnsafeK(TextStream* txs_ptr, const char** line_iterp) {
+  return TextGetUnsafe(txs_ptr, K_CAST(char**, line_iterp));
+}
+*/
+
+// Returns *zero* when it's time to stop iterating.  Designed to be the middle
+// argument in a for (; ; ) loop.
+HEADER_INLINE uint32_t TextGetUnsafe2(TextStream* txs_ptr, char** line_iterp) {
+  char* line_iter = *line_iterp;
+  TextFileBase* basep = &GET_PRIVATE(*txs_ptr, m).base;
+  if (line_iter == basep->consume_stop) {
+    basep->consume_iter = line_iter;
+    // not unlikely() due to eof
+    if (TextAdvance(txs_ptr)) {
+      return 0;
+    }
+    line_iter = basep->consume_iter;
+  }
+  line_iter = FirstNonTspace(line_iter);
+  if (!IsEolnKns(*line_iter)) {
+    *line_iterp = line_iter;
+    return 1;
+  }
+  TextOnlyEmptyLinesLeft(txs_ptr);
+  return 0;
+}
+
+HEADER_INLINE uint32_t TextGetUnsafe2K(TextStream* txs_ptr, const char** line_iterp) {
+  return TextGetUnsafe2(txs_ptr, K_CAST(char**, line_iterp));
 }
 
 HEADER_INLINE void TextSetPos(char* new_consume_iter, TextStream* txs_ptr) {
@@ -576,6 +620,21 @@ HEADER_INLINE PglErr TextStreamErrcode(const TextStream* txs_ptr) {
     return kPglRetSuccess;
   }
   return reterr;
+}
+
+// Note that this does not assign to *reterrp at all in the usual eof case.
+HEADER_INLINE BoolErr TextStreamErrcode2(const TextStream* txs_ptr, PglErr* reterrp) {
+  const PglErr reterr = GET_PRIVATE(*txs_ptr, m).base.reterr;
+  if (reterr == kPglRetEof) {
+    return 0;
+  }
+  *reterrp = reterr;
+  return 1;
+}
+
+// Does not convert kPglRetEof -> kPglRetSuccess.
+HEADER_INLINE PglErr TextStreamRawErrcode(const TextStream* txs_ptr) {
+  return GET_PRIVATE(*txs_ptr, m).base.reterr;
 }
 
 // Ok to pass reterrp == nullptr.

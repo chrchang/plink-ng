@@ -643,10 +643,10 @@ PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, uin
   uint32_t is_header_line;
   do {
     ++line_idx;
-    PglErr reterr = TextNextLineLstripNoempty(txsp, &line_iter);
+    line_iter = TextGet(txsp);
     // eof may be ok
-    if (reterr) {
-      return reterr;
+    if (!line_iter) {
+      return TextStreamRawErrcode(txsp);
     }
     is_header_line = (line_iter[0] == '#');
   } while (is_header_line && (!tokequal_k(&(line_iter[1]), "FID")) && (!tokequal_k(&(line_iter[1]), "IID")));
@@ -706,10 +706,10 @@ PglErr LoadXidHeaderPair(const char* flag_name, uint32_t sid_over_fid, uintptr_t
   uint32_t is_header_line;
   do {
     ++line_idx;
-    PglErr reterr = TextNextLineLstripNoempty(txsp, &line_iter);
+    line_iter = TextGet(txsp);
     // eof may be ok
-    if (reterr) {
-      return reterr;
+    if (!line_iter) {
+      return TextStreamRawErrcode(txsp);
     }
     is_header_line = (line_iter[0] == '#');
   } while (is_header_line && (!tokequal_k(&(line_iter[1]), "FID1")) && (!tokequal_k(&(line_iter[1]), "ID1")) && (!tokequal_k(&(line_iter[1]), "IID1")));
@@ -1450,16 +1450,16 @@ uintptr_t count_11_longs(const uintptr_t* genovec, uintptr_t word_ct) {
 }
 */
 
-uint32_t AllGenoEqual(const uintptr_t* genovec, uint32_t sample_ct) {
+uint32_t AllGenoEqual(const uintptr_t* genoarr, uint32_t sample_ct) {
   const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
-  const uintptr_t match_word = (genovec[0] & 3) * kMask5555;
+  const uintptr_t match_word = (genoarr[0] & 3) * kMask5555;
   for (uint32_t widx = 0; widx != word_ct_m1; ++widx) {
-    if (genovec[widx] != match_word) {
+    if (genoarr[widx] != match_word) {
       return 0;
     }
   }
   const uint32_t remainder = ModNz(sample_ct, kBitsPerWordD2);
-  return !bzhi_max(genovec[word_ct_m1] ^ match_word, 2 * remainder);
+  return !bzhi_max(genoarr[word_ct_m1] ^ match_word, 2 * remainder);
 }
 
 void InterleavedMaskZero(const uintptr_t* __restrict interleaved_mask, uintptr_t vec_ct, uintptr_t* __restrict genovec) {
@@ -1649,7 +1649,7 @@ void SetMaleHetMissing(const uintptr_t* __restrict sex_male_interleaved, uint32_
 #endif
 }
 
-void EraseMaleHetDosages(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main) {
+void EraseMaleHetDosages(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict genoarr, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main) {
   const uint32_t orig_write_dosage_ct = *write_dosage_ct_ptr;
   if (!orig_write_dosage_ct) {
     return;
@@ -1658,12 +1658,12 @@ void EraseMaleHetDosages(const uintptr_t* __restrict sex_male, const uintptr_t* 
   uintptr_t cur_bits = dosagepresent[0];
   for (uint32_t dosage_read_idx = 0; dosage_read_idx != orig_write_dosage_ct; ++dosage_read_idx) {
     const uintptr_t sample_uidx = BitIter1(dosagepresent, &sample_uidx_base, &cur_bits);
-    if (IsSet(sex_male, sample_uidx) && (GetNyparrEntry(genovec, sample_uidx) == 1)) {
+    if (IsSet(sex_male, sample_uidx) && (GetNyparrEntry(genoarr, sample_uidx) == 1)) {
       ClearBit(sample_uidx, dosagepresent);
       uint32_t dosage_write_idx = dosage_read_idx++;
       for (; dosage_read_idx != orig_write_dosage_ct; ++dosage_read_idx) {
         const uintptr_t sample_uidx2 = BitIter1(dosagepresent, &sample_uidx_base, &cur_bits);
-        if (IsSet(sex_male, sample_uidx2) && (GetNyparrEntry(genovec, sample_uidx2) == 1)) {
+        if (IsSet(sex_male, sample_uidx2) && (GetNyparrEntry(genoarr, sample_uidx2) == 1)) {
           ClearBit(sample_uidx2, dosagepresent);
         } else {
           dosage_main[dosage_write_idx++] = dosage_main[dosage_read_idx];
@@ -1760,25 +1760,25 @@ void SetMaleHetMissingKeepdosage(const uintptr_t* __restrict sex_male, const uin
 // Assumes that either trailing bits of bitarr are already zero, or trailing
 // bits of genovec are zero.
 //
-// Similar to PgrDetectGenovecHetsUnsafe().
+// Similar to PgrDetectGenoarrHetsUnsafe().
 //
 // todo: try vectorizing this
-void MaskGenovecHetsUnsafe(const uintptr_t* __restrict genovec, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr) {
+void MaskGenoarrHetsUnsafe(const uintptr_t* __restrict genoarr, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr) {
   Halfword* bitarr_alias = R_CAST(Halfword*, bitarr);
   for (uint32_t widx = 0; widx != raw_sample_ctl2; ++widx) {
-    const uintptr_t cur_word = genovec[widx];
+    const uintptr_t cur_word = genoarr[widx];
     uintptr_t ww = (~(cur_word >> 1)) & cur_word;  // low 1, high 0
     bitarr_alias[widx] &= PackWordToHalfwordMask5555(ww);
   }
 }
 
-void MaskGenovecHetsMultiallelicUnsafe(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr) {
-  // Related to PgrDetectGenovecHetsMultiallelic().
+void MaskGenoarrHetsMultiallelicUnsafe(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr) {
+  // Related to PgrDetectGenoarrHetsMultiallelic().
   const Halfword* patch_10_set_alias = R_CAST(const Halfword*, patch_10_set);
   const AlleleCode* patch_10_vals_iter = patch_10_vals;
   Halfword* bitarr_alias = R_CAST(Halfword*, bitarr);
   for (uint32_t widx = 0; widx != raw_sample_ctl2; ++widx) {
-    const uintptr_t cur_word = genovec[widx];
+    const uintptr_t cur_word = genoarr[widx];
     uint32_t patch_10_hw = patch_10_set_alias[widx];
     uint32_t cur_hets = Pack01ToHalfword(cur_word);
     while (patch_10_hw) {
@@ -2131,6 +2131,8 @@ uint32_t IdentifyRemainingCatsAndMostCommon(const uintptr_t* sample_include, con
     SetBit(covar_cats[sample_uidx], observed_cat_bitarr);
   }
   if (cat_obs_buf[0]) {
+    // don't actually need this for now since we're only calling this with the
+    // missing category excluded, but let's be consistent.
     SetBit(0, observed_cat_bitarr);
   }
   uint32_t best_cat_idx = 0;

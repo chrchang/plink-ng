@@ -84,11 +84,9 @@ PglErr ExportAlleleLoad(const char* fname, const uintptr_t* variant_include, con
     uint32_t cur_allele_ct = 2;
     while (1) {
       ++line_idx;
-      char* line_start = nullptr;
-      reterr = TextNextLineLstripNoempty(&txs, &line_start);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          reterr = kPglRetSuccess;
+      char* line_start = TextGet(&txs);
+      if (!line_start) {
+        if (likely(!TextStreamErrcode2(&txs, &reterr))) {
           break;
         }
         goto ExportAlleleLoad_ret_TSTREAM_FAIL;
@@ -1165,7 +1163,7 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
       }
       // bugfix (13 Apr 2018): this missingness calculation was only taking
       // hardcalls into account, which is inappropriate for .gen/.bgen
-      GenovecToMissingnessUnsafe(genovec, sample_ct, missing_acc1);
+      GenoarrToMissingnessUnsafe(genovec, sample_ct, missing_acc1);
       if (dosage_ct) {
         BitvecInvmask(dosage_present, sample_ctl, missing_acc1);
       }
@@ -1439,7 +1437,7 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
       if (is_haploid) {
         // verify that there are no het haploids/mixed MTs
         if (is_x) {
-          GenovecCountSubsetFreqs(genovec, sex_male_collapsed_interleaved, sample_ct, male_ct, genocounts);
+          GenoarrCountSubsetFreqs(genovec, sex_male_collapsed_interleaved, sample_ct, male_ct, genocounts);
         }
         if (unlikely(genocounts[1])) {
           logputs("\n");
@@ -1703,7 +1701,7 @@ THREAD_FUNC_DECL ExportBgen11Thread(void* raw_arg) {
       writebuf_iter = &(writebuf_iter[bgen_compressed_buf_max]);
       // bugfix (13 Apr 2018): this missingness calculation was only taking
       // hardcalls into account, which is inappropriate for .gen/.bgen
-      GenovecToMissingnessUnsafe(genovec, sample_ct, missing_acc1);
+      GenoarrToMissingnessUnsafe(genovec, sample_ct, missing_acc1);
       if (dosage_ct) {
         BitvecInvmask(dosage_present, sample_ctl, missing_acc1);
       }
@@ -3175,7 +3173,7 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
       *variant_bytect_iter++ = 4 + compressed_bytect;
       *variant_bytect_iter++ = uncompressed_bytect;
       writebuf_iter = &(writebuf_iter[bgen_compressed_buf_max]);
-      GenovecToMissingnessUnsafe(pgv.genovec, sample_ct, missing_acc1);
+      GenoarrToMissingnessUnsafe(pgv.genovec, sample_ct, missing_acc1);
       if (pgv.dosage_ct) {
         BitvecInvmask(pgv.dosage_present, sample_ctl, missing_acc1);
       }

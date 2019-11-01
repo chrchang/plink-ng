@@ -576,11 +576,12 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       goto AdjustFile_ret_1;
     }
 
-    const char* header_start = nullptr;
+    const char* header_start;
     do {
       ++line_idx;
-      reterr = TextNextLineLstripNoemptyK(&adjust_txs, &header_start);
-      if (unlikely(reterr)) {
+      header_start = TextGet(&adjust_txs);
+      if (unlikely(!header_start)) {
+        reterr = TextStreamRawErrcode(&adjust_txs);
         if (reterr == kPglRetEof) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", in_fname);
           goto AdjustFile_ret_MALFORMED_INPUT_WW;
@@ -680,11 +681,9 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     uintptr_t entry_ct = 0;
     while (1) {
       ++line_idx;
-      const char* line_start = nullptr;
-      reterr = TextNextLineLstripNoemptyK(&adjust_txs, &line_start);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          // reterr = kPglRetSuccess;
+      const char* line_start = TextGet(&adjust_txs);
+      if (!line_start) {
+        if (likely(!TextStreamErrcode2(&adjust_txs, &reterr))) {
           break;
         }
         goto AdjustFile_ret_TSTREAM_FAIL;

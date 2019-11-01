@@ -554,26 +554,26 @@ PglErr PgrGetM(const uintptr_t* __restrict sample_include, const uint32_t* __res
 // low-MAF variants without actually loading the genotype data, since the size
 // of the record puts an upper bound on the alt allele frequency.
 
-// requires trailing bits of genovec to be zeroed out, AND does not update high
+// requires trailing bits of genoarr to be zeroed out, AND does not update high
 // bits of last word if raw_sample_ctl2 is odd.
-void DetectGenovecHetsHw(const uintptr_t*__restrict genovec, uint32_t raw_sample_ctl2, Halfword* __restrict all_hets_hw);
+void DetectGenoarrHetsHw(const uintptr_t*__restrict genoarr, uint32_t raw_sample_ctl2, Halfword* __restrict all_hets_hw);
 
-// requires trailing bits of genovec to be zeroed out.
-HEADER_INLINE void PgrDetectGenovecHetsUnsafe(const uintptr_t*__restrict genovec, uint32_t raw_sample_ctl2, uintptr_t* __restrict all_hets) {
+// requires trailing bits of genoarr to be zeroed out.
+HEADER_INLINE void PgrDetectGenoarrHetsUnsafe(const uintptr_t*__restrict genoarr, uint32_t raw_sample_ctl2, uintptr_t* __restrict all_hets) {
   Halfword* all_hets_alias = R_CAST(Halfword*, all_hets);
-  DetectGenovecHetsHw(genovec, raw_sample_ctl2, all_hets_alias);
+  DetectGenoarrHetsHw(genoarr, raw_sample_ctl2, all_hets_alias);
   if (raw_sample_ctl2 % 2) {
     all_hets_alias[raw_sample_ctl2] = 0;
   }
 }
 
-HEADER_INLINE void PgrDetectGenovecHets(const uintptr_t* __restrict genovec, uint32_t raw_sample_ct, uintptr_t* __restrict all_hets) {
-  DetectGenovecHetsHw(genovec, NypCtToWordCt(raw_sample_ct), R_CAST(Halfword*, all_hets));
+HEADER_INLINE void PgrDetectGenoarrHets(const uintptr_t* __restrict genoarr, uint32_t raw_sample_ct, uintptr_t* __restrict all_hets) {
+  DetectGenoarrHetsHw(genoarr, NypCtToWordCt(raw_sample_ct), R_CAST(Halfword*, all_hets));
   ZeroTrailingBits(raw_sample_ct, all_hets);
 }
 
-// sample_ct > 0.  ok for trailing bits of genovec to not be zeroed out.
-void PgrDetectGenovecHetsMultiallelic(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t raw_sample_ct, uintptr_t* __restrict all_hets);
+// sample_ct > 0.  ok for trailing bits of genoarr to not be zeroed out.
+void PgrDetectGenoarrHetsMultiallelic(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t raw_sample_ct, uintptr_t* __restrict all_hets);
 
 // cannot assume phaseinfo bit is clear when phasepresent is clear.
 PglErr PgrGetP(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* __restrict phasepresent_ct_ptr);

@@ -843,15 +843,13 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     char* line_start;
     while (1) {
       ++line_idx;
-      reterr = TextNextLineLstripNoemptyUnsafe(&pvar_txs, &line_iter);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          line_start = K_CAST(char*, &(g_one_char_strs[0]));
-          --line_iter;
-          reterr = kPglRetSuccess;
-          break;
+      if (!TextGetUnsafe2(&pvar_txs, &line_iter)) {
+        if (unlikely(TextStreamErrcode2(&pvar_txs, &reterr))) {
+          goto LoadPvar_ret_TSTREAM_FAIL;
         }
-        goto LoadPvar_ret_TSTREAM_FAIL;
+        line_start = K_CAST(char*, &(g_one_char_strs[0]));
+        --line_iter;
+        break;
       }
       line_start = line_iter;
       if ((*line_start != '#') || tokequal_k(line_start, "#CHROM")) {
@@ -1271,522 +1269,515 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     UnsortedVar vpos_sortstatus = kfUnsortedVar0;
 
     if (IsEolnKns(*line_start)) {
-      goto LoadPvar_skip_header;
-    }
-    while (1) {
-      {
-#ifdef __LP64__
-        // maximum prime < 2^32 is 4294967291; quadratic hashing guarantee
-        // breaks down past that divided by 2.
-        if (unlikely(raw_variant_ct == 0x7ffffffd)) {
-          logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
-          goto LoadPvar_ret_MALFORMED_INPUT;
-        }
-#endif
-        const uint32_t variant_idx_lowbits = raw_variant_ct % kLoadPvarBlockSize;
-        if (!variant_idx_lowbits) {
-          if (unlikely(
-                  (S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) <=
-                    kLoadPvarBlockSize *
-                      (sizeof(int32_t) +
-                       2 * sizeof(intptr_t) +
-                       at_least_one_nzero_cm * sizeof(double)) +
-                    is_split_chr * sizeof(ChrIdx) +
-                    (1 + info_pr_present) * (kLoadPvarBlockSize / CHAR_BIT) +
-                    (load_qual_col? ((kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(float)) : 0) +
-                    (load_filter_col? (2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)) : 0)) ||
-                  (allele_storage_iter >= allele_storage_limit))) {
-            goto LoadPvar_ret_NOMEM;
-          }
-          cur_bps = R_CAST(uint32_t*, tmp_alloc_base);
-          cur_allele_idxs = R_CAST(uintptr_t*, &(tmp_alloc_base[kLoadPvarBlockSize * sizeof(int32_t)]));
-          cur_ids = R_CAST(char**, &(tmp_alloc_base[kLoadPvarBlockSize * (sizeof(int32_t) + sizeof(intptr_t))]));
-          cur_include = R_CAST(uintptr_t*, &(tmp_alloc_base[kLoadPvarBlockSize * (sizeof(int32_t) + 2 * sizeof(intptr_t))]));
-          SetAllWArr(kLoadPvarBlockSize / kBitsPerWord, cur_include);
-          tmp_alloc_base = &(tmp_alloc_base[kLoadPvarBlockSize * (sizeof(int32_t) + 2 * sizeof(intptr_t)) + (kLoadPvarBlockSize / CHAR_BIT)]);
-          if (load_qual_col > 1) {
-            cur_qual_present = R_CAST(uintptr_t*, tmp_alloc_base);
-            ZeroWArr(kLoadPvarBlockSize / kBitsPerWord, cur_qual_present);
-            cur_quals = R_CAST(float*, &(tmp_alloc_base[kLoadPvarBlockSize / CHAR_BIT]));
-            tmp_alloc_base = &(tmp_alloc_base[kLoadPvarBlockSize * sizeof(float) + (kLoadPvarBlockSize / CHAR_BIT)]);
-          }
-          if (load_filter_col > 1) {
-            cur_filter_present = R_CAST(uintptr_t*, tmp_alloc_base);
-            cur_filter_npass = R_CAST(uintptr_t*, &(tmp_alloc_base[kLoadPvarBlockSize / CHAR_BIT]));
-            cur_filter_storage = R_CAST(char**, &(tmp_alloc_base[2 * (kLoadPvarBlockSize / CHAR_BIT)]));
-            ZeroWArr(kLoadPvarBlockSize / kBitsPerWord, cur_filter_present);
-            ZeroWArr(kLoadPvarBlockSize / kBitsPerWord, cur_filter_npass);
-            tmp_alloc_base = &(tmp_alloc_base[2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)]);
-          }
-          if (info_pr_present) {
-            cur_nonref_flags = R_CAST(uintptr_t*, tmp_alloc_base);
-            ZeroWArr(kLoadPvarBlockSize / kBitsPerWord, cur_nonref_flags);
-            tmp_alloc_base = &(tmp_alloc_base[kLoadPvarBlockSize / CHAR_BIT]);
-          }
-          if (at_least_one_nzero_cm) {
-            cur_cms = R_CAST(double*, tmp_alloc_base);
-            ZeroDArr(kLoadPvarBlockSize, cur_cms);
-            tmp_alloc_base = R_CAST(unsigned char*, &(cur_cms[kLoadPvarBlockSize]));
-          }
-          if (is_split_chr) {
-            cur_chr_idxs = R_CAST(ChrIdx*, tmp_alloc_base);
-            tmp_alloc_base = R_CAST(unsigned char*, &(cur_chr_idxs[kLoadPvarBlockSize]));
-          }
-        }
-        char* linebuf_iter = CurTokenEnd(line_start);
-        // #CHROM
-        if (unlikely(*linebuf_iter == '\n')) {
-          goto LoadPvar_ret_MISSING_TOKENS;
-        }
-        uint32_t cur_chr_code;
-        reterr = GetOrAddChrCodeDestructive(".pvar file", line_idx, allow_extra_chrs, line_start, linebuf_iter, cip, &cur_chr_code);
-        if (unlikely(reterr)) {
-          goto LoadPvar_ret_1;
-        }
-        if (merge_par) {
-          if (cur_chr_code == par2_code) {
-            // don't permit PAR1 variants after PAR2
-            parx_code = par2_code;
-          }
-          if (cur_chr_code == parx_code) {
-            ++merge_par_ct;
-            cur_chr_code = x_code;
-          }
-        }
-        if (cur_chr_code != prev_chr_code) {
-          prev_chr_code = cur_chr_code;
-          if (!is_split_chr) {
-            if (IsSet(loaded_chr_mask, cur_chr_code)) {
-              if (unlikely(!split_chr_ok)) {
-                snprintf(g_logbuf, kLogbufSize, "Error: %s has a split chromosome. Use --make-pgen + --sort-vars to remedy this.\n", pvarname);
-                goto LoadPvar_ret_MALFORMED_INPUT_WW;
-              }
-              if (unlikely(S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) < kLoadPvarBlockSize * sizeof(ChrIdx))) {
-                goto LoadPvar_ret_NOMEM;
-              }
-              cur_chr_idxs = R_CAST(ChrIdx*, tmp_alloc_base);
-              tmp_alloc_base = R_CAST(unsigned char*, &(cur_chr_idxs[kLoadPvarBlockSize]));
-              // may want to track the first problem variant index
-              // cip->chr_fo_vidx_start[chrs_encountered_m1] = raw_variant_ct;
-              BackfillChrIdxs(cip, chrs_encountered_m1, RoundDownPow2(raw_variant_ct, kLoadPvarBlockSize), raw_variant_ct, cur_chr_idxs);
-              chr_idxs_start_block = raw_variant_ct / kLoadPvarBlockSize;
-              is_split_chr = 1;
-              vpos_sortstatus |= kfUnsortedVarBp | kfUnsortedVarCm | kfUnsortedVarSplitChr;
-            } else {
-              // how much of this do we need in split-chrom case?
-              cip->chr_file_order[++chrs_encountered_m1] = cur_chr_code;
-              cip->chr_fo_vidx_start[chrs_encountered_m1] = raw_variant_ct;
-              cip->chr_idx_to_foidx[cur_chr_code] = chrs_encountered_m1;
-              last_bp = 0;
-              last_cm = -DBL_MAX;
-            }
-          }
-          SetBit(cur_chr_code, loaded_chr_mask);
-          if (chr_output_name_buf) {
-            char* chr_name_end = chrtoa(cip, cur_chr_code, chr_output_name_buf);
-            const uint32_t chr_slen = chr_name_end - chr_output_name_buf;
-            if (chr_slen > max_chr_slen) {
-              max_chr_slen = chr_slen;
-            }
-            const int32_t chr_slen_delta = chr_slen - varid_templatep->chr_slen;
-            varid_templatep->chr_slen = chr_slen;
-            varid_templatep->base_len += chr_slen_delta;
-            if (varid_multi_templatep) {
-              varid_multi_templatep->chr_slen = chr_slen;
-              varid_multi_templatep->base_len += chr_slen_delta;
-            }
-            if (varid_multi_nonsnp_templatep) {
-              varid_multi_nonsnp_templatep->chr_slen = chr_slen;
-              varid_multi_nonsnp_templatep->base_len += chr_slen_delta;
-            }
-          }
-        }
-        *linebuf_iter = '\t';
-
-        // could make this store (and cur_allele_idxs[] allocation) conditional
-        // on a multiallelic variant being sighted, but unlike the CM column
-        // this should become common
-        cur_allele_idxs[variant_idx_lowbits] = allele_storage_iter - allele_storage;
-
-        char* token_ptrs[8];
-        uint32_t token_slens[8];
-        uint32_t extra_alt_ct;
-        if (IsSet(chr_mask, cur_chr_code) || info_pr_present) {
-          linebuf_iter = TokenLex(linebuf_iter, col_types, col_skips, relevant_postchr_col_ct, token_ptrs, token_slens);
-          if (unlikely(!linebuf_iter)) {
-            goto LoadPvar_ret_MISSING_TOKENS;
-          }
-
-          extra_alt_ct = CountByte(token_ptrs[3], ',', token_slens[3]);
-          if (extra_alt_ct > max_extra_alt_ct) {
-            max_extra_alt_ct = extra_alt_ct;
-          }
-
-          // It is possible for the info_token[info_slen] assignment below to
-          // clobber the line terminator, so we advance line_iter to eoln here
-          // and never reference it again before the next line.
-          line_iter = AdvToDelim(linebuf_iter, '\n');
-          if (info_col_present) {
-            const uint32_t info_slen = token_slens[6];
-            if (info_slen > info_reload_slen) {
-              info_reload_slen = info_slen;
-            }
-            char* info_token = token_ptrs[6];
-            info_token[info_slen] = '\0';
-            if (info_pr_present) {
-              // always load all nonref_flags entries so (i) --ref-from-fa +
-              // --make-just-pvar works and (ii) they can be compared against
-              // the .pgen.
-              if ((memequal_k(info_token, "PR", 2) && ((info_slen == 2) || (info_token[2] == ';'))) || memequal_k(&(info_token[S_CAST(int32_t, info_slen) - 3]), ";PR", 3)) {
-                SetBit(variant_idx_lowbits, cur_nonref_flags);
-              } else {
-                const char* first_info_end = strchr(info_token, ';');
-                if (first_info_end && strstr(first_info_end, ";PR;")) {
-                  SetBit(variant_idx_lowbits, cur_nonref_flags);
-                }
-              }
-              if (!IsSet(chr_mask, cur_chr_code)) {
-                goto LoadPvar_skip_variant;
-              }
-            }
-            if (info_existp) {
-              if (!InfoExistCheck(info_token, info_existp)) {
-                goto LoadPvar_skip_variant;
-              }
-            }
-            if (info_nonexistp) {
-              if (!InfoNonexistCheck(info_token, info_nonexistp)) {
-                goto LoadPvar_skip_variant;
-              }
-            }
-            if (info_keep.prekey) {
-              if (!InfoConditionSatisfied(info_token, &info_keep)) {
-                goto LoadPvar_skip_variant;
-              }
-            }
-            if (info_remove.prekey) {
-              if (InfoConditionSatisfied(info_token, &info_remove)) {
-                goto LoadPvar_skip_variant;
-              }
-            }
-          }
-          // POS
-          int32_t cur_bp;
-          if (unlikely(ScanIntAbsDefcap(token_ptrs[0], &cur_bp))) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, pvarname);
-            goto LoadPvar_ret_MALFORMED_INPUT_WW;
-          }
-
-          if (cur_bp < 0) {
-            goto LoadPvar_skip_variant;
-          }
-
-          // QUAL
-          if (load_qual_col) {
-            const char* qual_token = token_ptrs[4];
-            if ((qual_token[0] != '.') || (qual_token[1] > ' ')) {
-              float cur_qual;
-              if (unlikely(ScanFloat(qual_token, &cur_qual))) {
-                snprintf(g_logbuf, kLogbufSize, "Error: Invalid QUAL value on line %" PRIuPTR " of %s.\n", line_idx, pvarname);
-                goto LoadPvar_ret_MALFORMED_INPUT_WW;
-              }
-              if ((load_qual_col & 1) && (cur_qual < var_min_qual)) {
-                goto LoadPvar_skip_variant;
-              }
-              if (load_qual_col > 1) {
-                SetBit(variant_idx_lowbits, cur_qual_present);
-                // possible todo: optimize all-quals-same case
-                // possible todo: conditionally allocate, like cur_cms
-                cur_quals[variant_idx_lowbits] = cur_qual;
-              }
-            } else if (load_qual_col & 1) {
-              goto LoadPvar_skip_variant;
-            }
-          }
-
-          // avoid repeating the ALT string split in --set-...-var-ids case
-          linebuf_iter = token_ptrs[3];
-          uint32_t remaining_alt_char_ct = token_slens[3];
-          // handle --snps-only here instead of later, since it reduces the
-          // amount of data we need to load
-          if (snps_only) {
-            if ((token_slens[2] != 1) || (remaining_alt_char_ct != 2 * extra_alt_ct + 1)) {
-              goto LoadPvar_skip_variant;
-            }
-            if (snps_only > 1) {
-              // just-acgt
-              if (!acgtm_bool_table[ctou32(token_ptrs[2][0])]) {
-                goto LoadPvar_skip_variant;
-              }
-              for (uint32_t uii = 0; uii <= extra_alt_ct; ++uii) {
-                if (!acgtm_bool_table[ctou32(linebuf_iter[2 * uii])]) {
-                  goto LoadPvar_skip_variant;
-                }
-              }
-            }
-          }
-
-          // also handle --min-alleles/--max-alleles here
-          if (filter_min_allele_ct || (filter_max_allele_ct <= kPglMaxAltAlleleCt)) {
-            uint32_t allele_ct = extra_alt_ct + 2;
-            if (!extra_alt_ct) {
-              // allele_ct == 1 or 2 for filtering purposes, depending on
-              // whether ALT allele matches a missing code.
-              if ((remaining_alt_char_ct == 1) && ((linebuf_iter[0] == '.') || (linebuf_iter[0] == input_missing_geno_char))) {
-                allele_ct = 1;
-              }
-            }
-            if ((allele_ct < filter_min_allele_ct) || (allele_ct > filter_max_allele_ct)) {
-              goto LoadPvar_skip_variant;
-            }
-          }
-
-          // FILTER
-          if (load_filter_col) {
-            const char* filter_token = token_ptrs[5];
-            const uint32_t filter_slen = token_slens[5];
-            if ((filter_slen > 1) || (filter_token[0] != '.')) {
-              if (!strequal_k(filter_token, "PASS", filter_slen)) {
-                if (load_filter_col & 1) {
-                  if (!fexcept_ct) {
-                    goto LoadPvar_skip_variant;
-                  }
-                  const char* filter_token_end = &(filter_token[filter_slen]);
-                  for (const char* filter_token_iter = filter_token; ; ) {
-                    const char* cur_filter_name_end = AdvToDelimOrEnd(filter_token_iter, filter_token_end, ';');
-                    uint32_t cur_slen = cur_filter_name_end - filter_token_iter;
-                    // possible todo: error out on "PASS", since that
-                    // shouldn't coexist with other filters
-                    // possible todo: maintain a dictionary of FILTER
-                    // strings, analogous to what BCF2 does on disk
-                    if (bsearch_str(filter_token_iter, sorted_fexcepts, cur_slen, max_fexcept_blen, fexcept_ct) == -1) {
-                      goto LoadPvar_skip_variant;
-                    }
-                    if (cur_filter_name_end == filter_token_end) {
-                      break;
-                    }
-                    filter_token_iter = &(cur_filter_name_end[1]);
-                  }
-                }
-                if (load_filter_col > 1) {
-                  SetBit(variant_idx_lowbits, cur_filter_npass);
-                  at_least_one_npass_filter = 1;
-                  // possible todo: detect repeated filter values, store more
-                  // compactly
-                  if (filter_slen > max_filter_slen) {
-                    max_filter_slen = filter_slen;
-                  }
-                  tmp_alloc_end -= filter_slen + 1;
-                  if (unlikely(tmp_alloc_end < tmp_alloc_base)) {
-                    goto LoadPvar_ret_NOMEM;
-                  }
-                  cur_filter_storage[variant_idx_lowbits] = R_CAST(char*, tmp_alloc_end);
-                  memcpyx(tmp_alloc_end, filter_token, filter_slen, '\0');
-                }
-              }
-              if (load_filter_col > 1) {
-                SetBit(variant_idx_lowbits, cur_filter_present);
-              }
-            }
-          }
-
-          if (cur_chr_idxs) {
-            cur_chr_idxs[variant_idx_lowbits] = cur_chr_code;
-          }
-          if (cur_bp < last_bp) {
-            vpos_sortstatus |= kfUnsortedVarBp;
-          }
-          cur_bps[variant_idx_lowbits] = cur_bp;
-          last_bp = cur_bp;
-          const uint32_t ref_slen = token_slens[2];
-          uint32_t id_slen;
-          if ((!varid_templatep) || (missing_varid_match_slen && ((token_slens[1] != missing_varid_match_slen) || (!memequal(token_ptrs[1], missing_varid_match, missing_varid_match_slen))))) {
-            id_slen = token_slens[1];
-            tmp_alloc_end -= id_slen + 1;
-            if (unlikely(tmp_alloc_end < tmp_alloc_base)) {
-              goto LoadPvar_ret_NOMEM;
-            }
-            memcpyx(tmp_alloc_end, token_ptrs[1], id_slen, '\0');
-          } else {
-            VaridTemplate* cur_varid_templatep = varid_templatep;
-            if (extra_alt_ct && (varid_multi_templatep || varid_multi_nonsnp_templatep)) {
-              if (varid_multi_templatep) {
-                cur_varid_templatep = varid_multi_templatep;
-              }
-              if (varid_multi_nonsnp_templatep) {
-                if ((ref_slen > 1) || (remaining_alt_char_ct != 2 * extra_alt_ct + 1)) {
-                  cur_varid_templatep = varid_multi_nonsnp_templatep;
-                }
-              }
-            }
-            if (unlikely(VaridTemplateApply(tmp_alloc_base, cur_varid_templatep, token_ptrs[2], linebuf_iter, cur_bp, token_slens[2], extra_alt_ct, remaining_alt_char_ct, &tmp_alloc_end, &new_variant_id_allele_len_overflow, &id_slen))) {
-              goto LoadPvar_ret_NOMEM;
-            }
-          }
-          if (id_slen > max_variant_id_slen) {
-            max_variant_id_slen = id_slen;
-          }
-          cur_ids[variant_idx_lowbits] = R_CAST(char*, tmp_alloc_end);
-
-          // REF
-          const char* ref_allele = token_ptrs[2];
-          if (ref_slen == 1) {
-            char geno_char = ref_allele[0];
-            if (geno_char == input_missing_geno_char) {
-              geno_char = '.';
-            }
-            *allele_storage_iter = &(g_one_char_strs[2 * ctou32(geno_char)]);
-          } else {
-            tmp_alloc_end -= ref_slen + 1;
-            if (unlikely(tmp_alloc_end < tmp_alloc_base)) {
-              goto LoadPvar_ret_NOMEM;
-            }
-            memcpyx(tmp_alloc_end, ref_allele, ref_slen, '\0');
-            *allele_storage_iter = R_CAST(char*, tmp_alloc_end);
-            if (ref_slen > max_allele_slen) {
-              max_allele_slen = ref_slen;
-            }
-          }
-          ++allele_storage_iter;
-
-          // ALT
-          if (extra_alt_ct) {
-            if (PtrCheck(allele_storage_limit, allele_storage_iter, extra_alt_ct * sizeof(intptr_t))) {
-              goto LoadPvar_ret_NOMEM;
-            }
-            char* alt_token_end = &(linebuf_iter[remaining_alt_char_ct]);
-            for (uint32_t alt_idx = 0; alt_idx != extra_alt_ct; ++alt_idx) {
-              char* cur_alt_end = AdvToDelim(linebuf_iter, ',');
-              const uint32_t cur_allele_slen = cur_alt_end - linebuf_iter;
-              if (cur_allele_slen == 1) {
-                char geno_char = linebuf_iter[0];
-                if (geno_char == input_missing_geno_char) {
-                  geno_char = '.';
-                }
-                *allele_storage_iter = &(g_one_char_strs[2 * ctou32(geno_char)]);
-              } else {
-                if (unlikely(!cur_allele_slen)) {
-                  goto LoadPvar_ret_EMPTY_ALLELE_CODE;
-                }
-                if (PtrWSubCk(tmp_alloc_base, cur_allele_slen + 1, &tmp_alloc_end)) {
-                  goto LoadPvar_ret_NOMEM;
-                }
-                memcpyx(tmp_alloc_end, linebuf_iter, cur_allele_slen, '\0');
-                *allele_storage_iter = R_CAST(char*, tmp_alloc_end);
-                if (cur_allele_slen > max_allele_slen) {
-                  max_allele_slen = cur_allele_slen;
-                }
-              }
-              ++allele_storage_iter;
-              linebuf_iter = &(cur_alt_end[1]);
-            }
-            remaining_alt_char_ct = alt_token_end - linebuf_iter;
-            if (unlikely(!remaining_alt_char_ct)) {
-              goto LoadPvar_ret_EMPTY_ALLELE_CODE;
-            }
-          }
-          if (remaining_alt_char_ct == 1) {
-            char geno_char = linebuf_iter[0];
-            if (geno_char == input_missing_geno_char) {
-              geno_char = '.';
-            }
-            *allele_storage_iter = &(g_one_char_strs[2 * ctou32(geno_char)]);
-          } else {
-            if (PtrWSubCk(tmp_alloc_base, remaining_alt_char_ct + 1, &tmp_alloc_end)) {
-              goto LoadPvar_ret_NOMEM;
-            }
-            memcpyx(tmp_alloc_end, linebuf_iter, remaining_alt_char_ct, '\0');
-            *allele_storage_iter = R_CAST(char*, tmp_alloc_end);
-            if (remaining_alt_char_ct > max_allele_slen) {
-              max_allele_slen = remaining_alt_char_ct;
-            }
-          }
-          ++allele_storage_iter;
-
-          // CM
-          if (cm_col_present) {
-            const char* cm_token = token_ptrs[7];
-            if ((cm_token[0] != '0') || (cm_token[1] > ' ')) {
-              double cur_cm;
-              if (unlikely(!ScantokDouble(cm_token, &cur_cm))) {
-                snprintf(g_logbuf, kLogbufSize, "Error: Invalid centimorgan position on line %" PRIuPTR " of %s.\n", line_idx, pvarname);
-                goto LoadPvar_ret_MALFORMED_INPUT_WW;
-              }
-              if (cur_cm < last_cm) {
-                vpos_sortstatus |= kfUnsortedVarCm;
-              } else {
-                last_cm = cur_cm;
-              }
-              if (cur_cm != 0.0) {
-                if (!at_least_one_nzero_cm) {
-                  if (unlikely(S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) < kLoadPvarBlockSize * sizeof(double))) {
-                    goto LoadPvar_ret_NOMEM;
-                  }
-                  if (cur_chr_idxs) {
-                    // reposition cur_chr_idxs[] after cur_cms[]
-                    cur_cms = R_CAST(double*, cur_chr_idxs);
-                    cur_chr_idxs = R_CAST(ChrIdx*, &(cur_cms[kLoadPvarBlockSize]));
-                    memcpy(cur_chr_idxs, cur_cms, kLoadPvarBlockSize * sizeof(ChrIdx));
-                    tmp_alloc_base = R_CAST(unsigned char*, &(cur_chr_idxs[kLoadPvarBlockSize]));
-                  } else {
-                    cur_cms = R_CAST(double*, tmp_alloc_base);
-                    tmp_alloc_base = R_CAST(unsigned char*, &(cur_cms[kLoadPvarBlockSize]));
-                  }
-                  ZeroDArr(kLoadPvarBlockSize, cur_cms);
-                  cms_start_block = raw_variant_ct / kLoadPvarBlockSize;
-                  at_least_one_nzero_cm = 1;
-                }
-                cur_cms[variant_idx_lowbits] = cur_cm;
-              }
-            }
-          }
-        } else {
-          {
-            // linebuf_iter guaranteed to be at '\t' after chromosome code
-            char* alt_col_start = NextTokenMult(linebuf_iter, alt_col_idx);
-            if (unlikely(!alt_col_start)) {
-              goto LoadPvar_ret_MISSING_TOKENS;
-            }
-            char* alt_col_end = CurTokenEnd(alt_col_start);
-            extra_alt_ct = CountByte(alt_col_start, ',', alt_col_end - alt_col_start);
-            line_iter = AdvToDelim(alt_col_end, '\n');
-          }
-        LoadPvar_skip_variant:
-          ++exclude_ct;
-          ClearBit(variant_idx_lowbits, cur_include);
-          cur_bps[variant_idx_lowbits] = last_bp;
-          // need to advance allele_storage_iter for later allele_idx_offsets
-          // lookups to work properly
-          *allele_storage_iter++ = missing_allele_str;
-          *allele_storage_iter++ = missing_allele_str;
-          if (extra_alt_ct) {
-            if (PtrCheck(allele_storage_limit, allele_storage_iter, extra_alt_ct * sizeof(intptr_t))) {
-              goto LoadPvar_ret_NOMEM;
-            }
-            for (uint32_t uii = 0; uii != extra_alt_ct; ++uii) {
-              *allele_storage_iter++ = missing_allele_str;
-            }
-          }
-        }
-        ++raw_variant_ct;
-      }
-    LoadPvar_skip_header:
       ++line_iter;
       ++line_idx;
-      reterr = TextNextLineLstripNoemptyUnsafe(&pvar_txs, &line_iter);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          reterr = kPglRetSuccess;
-          break;
-        }
-        goto LoadPvar_ret_TSTREAM_FAIL;
-      }
-      line_start = line_iter;
-      if (unlikely(line_start[0] == '#')) {
+    } else {
+      line_iter = line_start;
+    }
+    for (; TextGetUnsafe2(&pvar_txs, &line_iter); ++line_iter, ++line_idx) {
+      if (unlikely(line_iter[0] == '#')) {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and if a #CHROM header line is present it must denote the end of the header block.)\n", line_idx, pvarname);
         goto LoadPvar_ret_MALFORMED_INPUT_WW;
       }
+#ifdef __LP64__
+      // maximum prime < 2^32 is 4294967291; quadratic hashing guarantee
+      // breaks down past that divided by 2.
+      if (unlikely(raw_variant_ct == 0x7ffffffd)) {
+        logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
+        goto LoadPvar_ret_MALFORMED_INPUT;
+      }
+#endif
+      const uint32_t variant_idx_lowbits = raw_variant_ct % kLoadPvarBlockSize;
+      if (!variant_idx_lowbits) {
+        if (unlikely(
+                (S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) <=
+                  kLoadPvarBlockSize *
+                    (sizeof(int32_t) +
+                     2 * sizeof(intptr_t) +
+                     at_least_one_nzero_cm * sizeof(double)) +
+                  is_split_chr * sizeof(ChrIdx) +
+                  (1 + info_pr_present) * (kLoadPvarBlockSize / CHAR_BIT) +
+                  (load_qual_col? ((kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(float)) : 0) +
+                  (load_filter_col? (2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)) : 0)) ||
+                (allele_storage_iter >= allele_storage_limit))) {
+          goto LoadPvar_ret_NOMEM;
+        }
+        cur_bps = R_CAST(uint32_t*, tmp_alloc_base);
+        cur_allele_idxs = R_CAST(uintptr_t*, &(tmp_alloc_base[kLoadPvarBlockSize * sizeof(int32_t)]));
+        cur_ids = R_CAST(char**, &(tmp_alloc_base[kLoadPvarBlockSize * (sizeof(int32_t) + sizeof(intptr_t))]));
+        cur_include = R_CAST(uintptr_t*, &(tmp_alloc_base[kLoadPvarBlockSize * (sizeof(int32_t) + 2 * sizeof(intptr_t))]));
+        SetAllWArr(kLoadPvarBlockSize / kBitsPerWord, cur_include);
+        tmp_alloc_base = &(tmp_alloc_base[kLoadPvarBlockSize * (sizeof(int32_t) + 2 * sizeof(intptr_t)) + (kLoadPvarBlockSize / CHAR_BIT)]);
+        if (load_qual_col > 1) {
+          cur_qual_present = R_CAST(uintptr_t*, tmp_alloc_base);
+          ZeroWArr(kLoadPvarBlockSize / kBitsPerWord, cur_qual_present);
+          cur_quals = R_CAST(float*, &(tmp_alloc_base[kLoadPvarBlockSize / CHAR_BIT]));
+          tmp_alloc_base = &(tmp_alloc_base[kLoadPvarBlockSize * sizeof(float) + (kLoadPvarBlockSize / CHAR_BIT)]);
+        }
+        if (load_filter_col > 1) {
+          cur_filter_present = R_CAST(uintptr_t*, tmp_alloc_base);
+          cur_filter_npass = R_CAST(uintptr_t*, &(tmp_alloc_base[kLoadPvarBlockSize / CHAR_BIT]));
+          cur_filter_storage = R_CAST(char**, &(tmp_alloc_base[2 * (kLoadPvarBlockSize / CHAR_BIT)]));
+          ZeroWArr(kLoadPvarBlockSize / kBitsPerWord, cur_filter_present);
+          ZeroWArr(kLoadPvarBlockSize / kBitsPerWord, cur_filter_npass);
+          tmp_alloc_base = &(tmp_alloc_base[2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)]);
+        }
+        if (info_pr_present) {
+          cur_nonref_flags = R_CAST(uintptr_t*, tmp_alloc_base);
+          ZeroWArr(kLoadPvarBlockSize / kBitsPerWord, cur_nonref_flags);
+          tmp_alloc_base = &(tmp_alloc_base[kLoadPvarBlockSize / CHAR_BIT]);
+        }
+        if (at_least_one_nzero_cm) {
+          cur_cms = R_CAST(double*, tmp_alloc_base);
+          ZeroDArr(kLoadPvarBlockSize, cur_cms);
+          tmp_alloc_base = R_CAST(unsigned char*, &(cur_cms[kLoadPvarBlockSize]));
+        }
+        if (is_split_chr) {
+          cur_chr_idxs = R_CAST(ChrIdx*, tmp_alloc_base);
+          tmp_alloc_base = R_CAST(unsigned char*, &(cur_chr_idxs[kLoadPvarBlockSize]));
+        }
+      }
+      char* linebuf_iter = CurTokenEnd(line_iter);
+      // #CHROM
+      if (unlikely(*linebuf_iter == '\n')) {
+        goto LoadPvar_ret_MISSING_TOKENS;
+      }
+      uint32_t cur_chr_code;
+      reterr = GetOrAddChrCodeDestructive(".pvar file", line_idx, allow_extra_chrs, line_iter, linebuf_iter, cip, &cur_chr_code);
+      if (unlikely(reterr)) {
+        goto LoadPvar_ret_1;
+      }
+      if (merge_par) {
+        if (cur_chr_code == par2_code) {
+          // don't permit PAR1 variants after PAR2
+          parx_code = par2_code;
+        }
+        if (cur_chr_code == parx_code) {
+          ++merge_par_ct;
+          cur_chr_code = x_code;
+        }
+      }
+      if (cur_chr_code != prev_chr_code) {
+        prev_chr_code = cur_chr_code;
+        if (!is_split_chr) {
+          if (IsSet(loaded_chr_mask, cur_chr_code)) {
+            if (unlikely(!split_chr_ok)) {
+              snprintf(g_logbuf, kLogbufSize, "Error: %s has a split chromosome. Use --make-pgen + --sort-vars to remedy this.\n", pvarname);
+              goto LoadPvar_ret_MALFORMED_INPUT_WW;
+            }
+            if (unlikely(S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) < kLoadPvarBlockSize * sizeof(ChrIdx))) {
+              goto LoadPvar_ret_NOMEM;
+            }
+            cur_chr_idxs = R_CAST(ChrIdx*, tmp_alloc_base);
+            tmp_alloc_base = R_CAST(unsigned char*, &(cur_chr_idxs[kLoadPvarBlockSize]));
+            // may want to track the first problem variant index
+            // cip->chr_fo_vidx_start[chrs_encountered_m1] = raw_variant_ct;
+            BackfillChrIdxs(cip, chrs_encountered_m1, RoundDownPow2(raw_variant_ct, kLoadPvarBlockSize), raw_variant_ct, cur_chr_idxs);
+            chr_idxs_start_block = raw_variant_ct / kLoadPvarBlockSize;
+            is_split_chr = 1;
+            vpos_sortstatus |= kfUnsortedVarBp | kfUnsortedVarCm | kfUnsortedVarSplitChr;
+          } else {
+            // how much of this do we need in split-chrom case?
+            cip->chr_file_order[++chrs_encountered_m1] = cur_chr_code;
+            cip->chr_fo_vidx_start[chrs_encountered_m1] = raw_variant_ct;
+            cip->chr_idx_to_foidx[cur_chr_code] = chrs_encountered_m1;
+            last_bp = 0;
+            last_cm = -DBL_MAX;
+          }
+        }
+        SetBit(cur_chr_code, loaded_chr_mask);
+        if (chr_output_name_buf) {
+          char* chr_name_end = chrtoa(cip, cur_chr_code, chr_output_name_buf);
+          const uint32_t chr_slen = chr_name_end - chr_output_name_buf;
+          if (chr_slen > max_chr_slen) {
+            max_chr_slen = chr_slen;
+          }
+          const int32_t chr_slen_delta = chr_slen - varid_templatep->chr_slen;
+          varid_templatep->chr_slen = chr_slen;
+          varid_templatep->base_len += chr_slen_delta;
+          if (varid_multi_templatep) {
+            varid_multi_templatep->chr_slen = chr_slen;
+            varid_multi_templatep->base_len += chr_slen_delta;
+          }
+          if (varid_multi_nonsnp_templatep) {
+            varid_multi_nonsnp_templatep->chr_slen = chr_slen;
+            varid_multi_nonsnp_templatep->base_len += chr_slen_delta;
+          }
+        }
+      }
+      *linebuf_iter = '\t';
+
+      // could make this store (and cur_allele_idxs[] allocation) conditional
+      // on a multiallelic variant being sighted, but unlike the CM column
+      // this should become common
+      cur_allele_idxs[variant_idx_lowbits] = allele_storage_iter - allele_storage;
+
+      char* token_ptrs[8];
+      uint32_t token_slens[8];
+      uint32_t extra_alt_ct;
+      if (IsSet(chr_mask, cur_chr_code) || info_pr_present) {
+        linebuf_iter = TokenLex(linebuf_iter, col_types, col_skips, relevant_postchr_col_ct, token_ptrs, token_slens);
+        if (unlikely(!linebuf_iter)) {
+          goto LoadPvar_ret_MISSING_TOKENS;
+        }
+
+        extra_alt_ct = CountByte(token_ptrs[3], ',', token_slens[3]);
+        if (extra_alt_ct > max_extra_alt_ct) {
+          max_extra_alt_ct = extra_alt_ct;
+        }
+
+        // It is possible for the info_token[info_slen] assignment below to
+        // clobber the line terminator, so we advance line_iter to eoln here
+        // and never reference it again before the next line.
+        line_iter = AdvToDelim(linebuf_iter, '\n');
+        if (info_col_present) {
+          const uint32_t info_slen = token_slens[6];
+          if (info_slen > info_reload_slen) {
+            info_reload_slen = info_slen;
+          }
+          char* info_token = token_ptrs[6];
+          info_token[info_slen] = '\0';
+          if (info_pr_present) {
+            // always load all nonref_flags entries so (i) --ref-from-fa +
+            // --make-just-pvar works and (ii) they can be compared against
+            // the .pgen.
+            if ((memequal_k(info_token, "PR", 2) && ((info_slen == 2) || (info_token[2] == ';'))) || memequal_k(&(info_token[S_CAST(int32_t, info_slen) - 3]), ";PR", 3)) {
+              SetBit(variant_idx_lowbits, cur_nonref_flags);
+            } else {
+              const char* first_info_end = strchr(info_token, ';');
+              if (first_info_end && strstr(first_info_end, ";PR;")) {
+                SetBit(variant_idx_lowbits, cur_nonref_flags);
+              }
+            }
+            if (!IsSet(chr_mask, cur_chr_code)) {
+              goto LoadPvar_skip_variant;
+            }
+          }
+          if (info_existp) {
+            if (!InfoExistCheck(info_token, info_existp)) {
+              goto LoadPvar_skip_variant;
+            }
+          }
+          if (info_nonexistp) {
+            if (!InfoNonexistCheck(info_token, info_nonexistp)) {
+              goto LoadPvar_skip_variant;
+            }
+          }
+          if (info_keep.prekey) {
+            if (!InfoConditionSatisfied(info_token, &info_keep)) {
+              goto LoadPvar_skip_variant;
+            }
+          }
+          if (info_remove.prekey) {
+            if (InfoConditionSatisfied(info_token, &info_remove)) {
+              goto LoadPvar_skip_variant;
+            }
+          }
+        }
+        // POS
+        int32_t cur_bp;
+        if (unlikely(ScanIntAbsDefcap(token_ptrs[0], &cur_bp))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, pvarname);
+          goto LoadPvar_ret_MALFORMED_INPUT_WW;
+        }
+
+        if (cur_bp < 0) {
+          goto LoadPvar_skip_variant;
+        }
+
+        // QUAL
+        if (load_qual_col) {
+          const char* qual_token = token_ptrs[4];
+          if ((qual_token[0] != '.') || (qual_token[1] > ' ')) {
+            float cur_qual;
+            if (unlikely(ScanFloat(qual_token, &cur_qual))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid QUAL value on line %" PRIuPTR " of %s.\n", line_idx, pvarname);
+              goto LoadPvar_ret_MALFORMED_INPUT_WW;
+            }
+            if ((load_qual_col & 1) && (cur_qual < var_min_qual)) {
+              goto LoadPvar_skip_variant;
+            }
+            if (load_qual_col > 1) {
+              SetBit(variant_idx_lowbits, cur_qual_present);
+              // possible todo: optimize all-quals-same case
+              // possible todo: conditionally allocate, like cur_cms
+              cur_quals[variant_idx_lowbits] = cur_qual;
+            }
+          } else if (load_qual_col & 1) {
+            goto LoadPvar_skip_variant;
+          }
+        }
+
+        // avoid repeating the ALT string split in --set-...-var-ids case
+        linebuf_iter = token_ptrs[3];
+        uint32_t remaining_alt_char_ct = token_slens[3];
+        // handle --snps-only here instead of later, since it reduces the
+        // amount of data we need to load
+        if (snps_only) {
+          if ((token_slens[2] != 1) || (remaining_alt_char_ct != 2 * extra_alt_ct + 1)) {
+            goto LoadPvar_skip_variant;
+          }
+          if (snps_only > 1) {
+            // just-acgt
+            if (!acgtm_bool_table[ctou32(token_ptrs[2][0])]) {
+              goto LoadPvar_skip_variant;
+            }
+            for (uint32_t uii = 0; uii <= extra_alt_ct; ++uii) {
+              if (!acgtm_bool_table[ctou32(linebuf_iter[2 * uii])]) {
+                goto LoadPvar_skip_variant;
+              }
+            }
+          }
+        }
+
+        // also handle --min-alleles/--max-alleles here
+        if (filter_min_allele_ct || (filter_max_allele_ct <= kPglMaxAltAlleleCt)) {
+          uint32_t allele_ct = extra_alt_ct + 2;
+          if (!extra_alt_ct) {
+            // allele_ct == 1 or 2 for filtering purposes, depending on
+            // whether ALT allele matches a missing code.
+            if ((remaining_alt_char_ct == 1) && ((linebuf_iter[0] == '.') || (linebuf_iter[0] == input_missing_geno_char))) {
+              allele_ct = 1;
+            }
+          }
+          if ((allele_ct < filter_min_allele_ct) || (allele_ct > filter_max_allele_ct)) {
+            goto LoadPvar_skip_variant;
+          }
+        }
+
+        // FILTER
+        if (load_filter_col) {
+          const char* filter_token = token_ptrs[5];
+          const uint32_t filter_slen = token_slens[5];
+          if ((filter_slen > 1) || (filter_token[0] != '.')) {
+            if (!strequal_k(filter_token, "PASS", filter_slen)) {
+              if (load_filter_col & 1) {
+                if (!fexcept_ct) {
+                  goto LoadPvar_skip_variant;
+                }
+                const char* filter_token_end = &(filter_token[filter_slen]);
+                for (const char* filter_token_iter = filter_token; ; ) {
+                  const char* cur_filter_name_end = AdvToDelimOrEnd(filter_token_iter, filter_token_end, ';');
+                  uint32_t cur_slen = cur_filter_name_end - filter_token_iter;
+                  // possible todo: error out on "PASS", since that
+                  // shouldn't coexist with other filters
+                  // possible todo: maintain a dictionary of FILTER
+                  // strings, analogous to what BCF2 does on disk
+                  if (bsearch_str(filter_token_iter, sorted_fexcepts, cur_slen, max_fexcept_blen, fexcept_ct) == -1) {
+                    goto LoadPvar_skip_variant;
+                  }
+                  if (cur_filter_name_end == filter_token_end) {
+                    break;
+                  }
+                  filter_token_iter = &(cur_filter_name_end[1]);
+                }
+              }
+              if (load_filter_col > 1) {
+                SetBit(variant_idx_lowbits, cur_filter_npass);
+                at_least_one_npass_filter = 1;
+                // possible todo: detect repeated filter values, store more
+                // compactly
+                if (filter_slen > max_filter_slen) {
+                  max_filter_slen = filter_slen;
+                }
+                tmp_alloc_end -= filter_slen + 1;
+                if (unlikely(tmp_alloc_end < tmp_alloc_base)) {
+                  goto LoadPvar_ret_NOMEM;
+                }
+                cur_filter_storage[variant_idx_lowbits] = R_CAST(char*, tmp_alloc_end);
+                memcpyx(tmp_alloc_end, filter_token, filter_slen, '\0');
+              }
+            }
+            if (load_filter_col > 1) {
+              SetBit(variant_idx_lowbits, cur_filter_present);
+            }
+          }
+        }
+
+        if (cur_chr_idxs) {
+          cur_chr_idxs[variant_idx_lowbits] = cur_chr_code;
+        }
+        if (cur_bp < last_bp) {
+          vpos_sortstatus |= kfUnsortedVarBp;
+        }
+        cur_bps[variant_idx_lowbits] = cur_bp;
+        last_bp = cur_bp;
+        const uint32_t ref_slen = token_slens[2];
+        uint32_t id_slen;
+        if ((!varid_templatep) || (missing_varid_match_slen && ((token_slens[1] != missing_varid_match_slen) || (!memequal(token_ptrs[1], missing_varid_match, missing_varid_match_slen))))) {
+          id_slen = token_slens[1];
+          tmp_alloc_end -= id_slen + 1;
+          if (unlikely(tmp_alloc_end < tmp_alloc_base)) {
+            goto LoadPvar_ret_NOMEM;
+          }
+          memcpyx(tmp_alloc_end, token_ptrs[1], id_slen, '\0');
+        } else {
+          VaridTemplate* cur_varid_templatep = varid_templatep;
+          if (extra_alt_ct && (varid_multi_templatep || varid_multi_nonsnp_templatep)) {
+            if (varid_multi_templatep) {
+              cur_varid_templatep = varid_multi_templatep;
+            }
+            if (varid_multi_nonsnp_templatep) {
+              if ((ref_slen > 1) || (remaining_alt_char_ct != 2 * extra_alt_ct + 1)) {
+                cur_varid_templatep = varid_multi_nonsnp_templatep;
+              }
+            }
+          }
+          if (unlikely(VaridTemplateApply(tmp_alloc_base, cur_varid_templatep, token_ptrs[2], linebuf_iter, cur_bp, token_slens[2], extra_alt_ct, remaining_alt_char_ct, &tmp_alloc_end, &new_variant_id_allele_len_overflow, &id_slen))) {
+            goto LoadPvar_ret_NOMEM;
+          }
+        }
+        if (id_slen > max_variant_id_slen) {
+          max_variant_id_slen = id_slen;
+        }
+        cur_ids[variant_idx_lowbits] = R_CAST(char*, tmp_alloc_end);
+
+        // REF
+        const char* ref_allele = token_ptrs[2];
+        if (ref_slen == 1) {
+          char geno_char = ref_allele[0];
+          if (geno_char == input_missing_geno_char) {
+            geno_char = '.';
+          }
+          *allele_storage_iter = &(g_one_char_strs[2 * ctou32(geno_char)]);
+        } else {
+          tmp_alloc_end -= ref_slen + 1;
+          if (unlikely(tmp_alloc_end < tmp_alloc_base)) {
+            goto LoadPvar_ret_NOMEM;
+          }
+          memcpyx(tmp_alloc_end, ref_allele, ref_slen, '\0');
+          *allele_storage_iter = R_CAST(char*, tmp_alloc_end);
+          if (ref_slen > max_allele_slen) {
+            max_allele_slen = ref_slen;
+          }
+        }
+        ++allele_storage_iter;
+
+        // ALT
+        if (extra_alt_ct) {
+          if (PtrCheck(allele_storage_limit, allele_storage_iter, extra_alt_ct * sizeof(intptr_t))) {
+            goto LoadPvar_ret_NOMEM;
+          }
+          char* alt_token_end = &(linebuf_iter[remaining_alt_char_ct]);
+          for (uint32_t alt_idx = 0; alt_idx != extra_alt_ct; ++alt_idx) {
+            char* cur_alt_end = AdvToDelim(linebuf_iter, ',');
+            const uint32_t cur_allele_slen = cur_alt_end - linebuf_iter;
+            if (cur_allele_slen == 1) {
+              char geno_char = linebuf_iter[0];
+              if (geno_char == input_missing_geno_char) {
+                geno_char = '.';
+              }
+              *allele_storage_iter = &(g_one_char_strs[2 * ctou32(geno_char)]);
+            } else {
+              if (unlikely(!cur_allele_slen)) {
+                goto LoadPvar_ret_EMPTY_ALLELE_CODE;
+              }
+              if (PtrWSubCk(tmp_alloc_base, cur_allele_slen + 1, &tmp_alloc_end)) {
+                goto LoadPvar_ret_NOMEM;
+              }
+              memcpyx(tmp_alloc_end, linebuf_iter, cur_allele_slen, '\0');
+              *allele_storage_iter = R_CAST(char*, tmp_alloc_end);
+              if (cur_allele_slen > max_allele_slen) {
+                max_allele_slen = cur_allele_slen;
+              }
+            }
+            ++allele_storage_iter;
+            linebuf_iter = &(cur_alt_end[1]);
+          }
+          remaining_alt_char_ct = alt_token_end - linebuf_iter;
+          if (unlikely(!remaining_alt_char_ct)) {
+            goto LoadPvar_ret_EMPTY_ALLELE_CODE;
+          }
+        }
+        if (remaining_alt_char_ct == 1) {
+          char geno_char = linebuf_iter[0];
+          if (geno_char == input_missing_geno_char) {
+            geno_char = '.';
+          }
+          *allele_storage_iter = &(g_one_char_strs[2 * ctou32(geno_char)]);
+        } else {
+          if (PtrWSubCk(tmp_alloc_base, remaining_alt_char_ct + 1, &tmp_alloc_end)) {
+            goto LoadPvar_ret_NOMEM;
+          }
+          memcpyx(tmp_alloc_end, linebuf_iter, remaining_alt_char_ct, '\0');
+          *allele_storage_iter = R_CAST(char*, tmp_alloc_end);
+          if (remaining_alt_char_ct > max_allele_slen) {
+            max_allele_slen = remaining_alt_char_ct;
+          }
+        }
+        ++allele_storage_iter;
+
+        // CM
+        if (cm_col_present) {
+          const char* cm_token = token_ptrs[7];
+          if ((cm_token[0] != '0') || (cm_token[1] > ' ')) {
+            double cur_cm;
+            if (unlikely(!ScantokDouble(cm_token, &cur_cm))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid centimorgan position on line %" PRIuPTR " of %s.\n", line_idx, pvarname);
+              goto LoadPvar_ret_MALFORMED_INPUT_WW;
+            }
+            if (cur_cm < last_cm) {
+              vpos_sortstatus |= kfUnsortedVarCm;
+            } else {
+              last_cm = cur_cm;
+            }
+            if (cur_cm != 0.0) {
+              if (!at_least_one_nzero_cm) {
+                if (unlikely(S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) < kLoadPvarBlockSize * sizeof(double))) {
+                  goto LoadPvar_ret_NOMEM;
+                }
+                if (cur_chr_idxs) {
+                  // reposition cur_chr_idxs[] after cur_cms[]
+                  cur_cms = R_CAST(double*, cur_chr_idxs);
+                  cur_chr_idxs = R_CAST(ChrIdx*, &(cur_cms[kLoadPvarBlockSize]));
+                  memcpy(cur_chr_idxs, cur_cms, kLoadPvarBlockSize * sizeof(ChrIdx));
+                  tmp_alloc_base = R_CAST(unsigned char*, &(cur_chr_idxs[kLoadPvarBlockSize]));
+                } else {
+                  cur_cms = R_CAST(double*, tmp_alloc_base);
+                  tmp_alloc_base = R_CAST(unsigned char*, &(cur_cms[kLoadPvarBlockSize]));
+                }
+                ZeroDArr(kLoadPvarBlockSize, cur_cms);
+                cms_start_block = raw_variant_ct / kLoadPvarBlockSize;
+                at_least_one_nzero_cm = 1;
+              }
+              cur_cms[variant_idx_lowbits] = cur_cm;
+            }
+          }
+        }
+      } else {
+        {
+          // linebuf_iter guaranteed to be at '\t' after chromosome code
+          char* alt_col_start = NextTokenMult(linebuf_iter, alt_col_idx);
+          if (unlikely(!alt_col_start)) {
+            goto LoadPvar_ret_MISSING_TOKENS;
+          }
+          char* alt_col_end = CurTokenEnd(alt_col_start);
+          extra_alt_ct = CountByte(alt_col_start, ',', alt_col_end - alt_col_start);
+          line_iter = AdvToDelim(alt_col_end, '\n');
+        }
+      LoadPvar_skip_variant:
+        ++exclude_ct;
+        ClearBit(variant_idx_lowbits, cur_include);
+        cur_bps[variant_idx_lowbits] = last_bp;
+        // need to advance allele_storage_iter for later allele_idx_offsets
+        // lookups to work properly
+        *allele_storage_iter++ = missing_allele_str;
+        *allele_storage_iter++ = missing_allele_str;
+        if (extra_alt_ct) {
+          if (PtrCheck(allele_storage_limit, allele_storage_iter, extra_alt_ct * sizeof(intptr_t))) {
+            goto LoadPvar_ret_NOMEM;
+          }
+          for (uint32_t uii = 0; uii != extra_alt_ct; ++uii) {
+            *allele_storage_iter++ = missing_allele_str;
+          }
+        }
+      }
+      ++raw_variant_ct;
     }
+    if (unlikely(TextStreamErrcode2(&pvar_txs, &reterr))) {
+      goto LoadPvar_ret_TSTREAM_FAIL;
+    }
+    reterr = kPglRetSuccess;
     if (unlikely(max_variant_id_slen > kMaxIdSlen)) {
       logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
       goto LoadPvar_ret_MALFORMED_INPUT;

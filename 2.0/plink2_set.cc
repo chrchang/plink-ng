@@ -46,17 +46,8 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
     uintptr_t max_set_id_blen = 0;
     // if we need to track set names, put together a sorted list
     if (track_set_names) {
-      uintptr_t line_idx = 0;
-      for (char* line_iter = TextLineEnd(txsp); ; ) {
-        ++line_idx;
-        reterr = TextNextLineLstripNoemptyUnsafe(txsp, &line_iter);
-        if (reterr) {
-          if (likely(reterr == kPglRetEof)) {
-            reterr = kPglRetSuccess;
-            break;
-          }
-          goto LoadIntervalBed_ret_TSTREAM_FAIL;
-        }
+      uintptr_t line_idx = 1;
+      for (char* line_iter = TextLineEnd(txsp); TextGetUnsafe(txsp, &line_iter); ++line_idx) {
         char* line_start = line_iter;
         char* first_token_end = CurTokenEnd(line_start);
         char* cur_set_id = NextTokenMult(first_token_end, 3);
@@ -113,6 +104,9 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
         }
         make_set_ll = ll_tmp;
         ++set_ct;
+      }
+      if (unlikely(TextStreamErrcode2(txsp, &reterr))) {
+        goto LoadIntervalBed_ret_TSTREAM_FAIL;
       }
       if (!set_ct) {
         if (unlikely(fail_on_no_sets)) {
@@ -178,7 +172,7 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
     LoadIntervalBed_LINE_ITER_ALREADY_ADVANCED:
       ++line_iter;
       ++line_idx;
-      reterr = TextNextLineLstripNoemptyUnsafe(txsp, &line_iter);
+      reterr = TextGetUnsafe(txsp, &line_iter);
       if (reterr) {
         if (likely(reterr == kPglRetEof)) {
           if (unlikely(track_set_names && (line_idx == 1))) {

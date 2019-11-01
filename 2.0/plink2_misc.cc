@@ -91,11 +91,9 @@ PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const ui
     uint32_t hit_ct = 0;
     while (1) {
       ++line_idx;
-      const char* line_start = nullptr;
-      reterr = TextNextLineLstripNoemptyK(&txs, &line_start);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          reterr = kPglRetSuccess;
+      const char* line_start = TextGet(&txs);
+      if (!line_start) {
+        if (likely(!TextStreamErrcode2(&txs, &reterr))) {
           break;
         }
         goto UpdateVarBps_ret_TSTREAM_FAIL;
@@ -267,11 +265,9 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
     uint32_t hit_ct = 0;
     while (1) {
       ++line_idx;
-      const char* line_start = nullptr;
-      reterr = TextNextLineLstripNoemptyK(&txs, &line_start);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          reterr = kPglRetSuccess;
+      const char* line_start = TextGet(&txs);
+      if (!line_start) {
+        if (likely(TextStreamErrcode2(&txs, &reterr))) {
           break;
         }
         goto UpdateVarNames_ret_TSTREAM_FAIL;
@@ -405,16 +401,8 @@ PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, con
     uint32_t max_allele_slen = *max_allele_slen_ptr;
     uint32_t cur_allele_ct = 2;
     const char* line_iter = TextLineEnd(&txs);
-    for (; ; line_iter = AdvPastDelim(line_iter, '\n')) {
-      ++line_idx;
-      reterr = TextNextLineLstripNoemptyUnsafeK(&txs, &line_iter);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          reterr = kPglRetSuccess;
-          break;
-        }
-        goto UpdateVarAlleles_ret_TSTREAM_FAIL;
-      }
+    ++line_idx;
+    for (; TextGetUnsafe2K(&txs, &line_iter); line_iter = AdvPastDelim(line_iter, '\n'), ++line_idx) {
       const char* varid_start = line_iter;
       const char* varid_end = CurTokenEnd(varid_start);
       uint32_t cur_llidx;
@@ -585,6 +573,9 @@ PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, con
       }
       ++hit_ct;
     }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto UpdateVarAlleles_ret_TSTREAM_FAIL;
+    }
     *max_allele_slen_ptr = max_allele_slen;
     if (miss_ct) {
       snprintf(g_logbuf, kLogbufSize, "--update-alleles: %u variant%s updated, %" PRIuPTR " ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
@@ -665,12 +656,12 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
     if (unlikely(reterr)) {
       goto RecoverVarIds_ret_TSTREAM_FAIL;
     }
-    char* line_start = nullptr;
+    char* line_start;
     do {
       ++line_idx;
-      reterr = TextNextLineLstripNoempty(&txs, &line_start);
-      if (unlikely(reterr)) {
-        if (reterr == kPglRetEof) {
+      line_start = TextGet(&txs);
+      if (unlikely(!line_start)) {
+        if (!TextStreamErrcode2(&txs, &reterr)) {
           logerrputs("Error: Empty --recover-var-ids file.\n");
           goto RecoverVarIds_ret_1;
         }
@@ -743,7 +734,7 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
       for (uint32_t rpc_col_idx = 3; rpc_col_idx; --rpc_col_idx) {
         col_skips[rpc_col_idx] -= col_skips[rpc_col_idx - 1];
       }
-      line_iter = AdvToDelim(linebuf_iter, '\n');
+      line_iter = AdvPastDelim(linebuf_iter, '\n');
     } else {
       // .bim.  Interpret as #CHROM ID POS ALT REF if there are exactly 5
       // columns, otherwise #CHROM ID CM POS ALT REF.
@@ -765,6 +756,7 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
         col_skips[1] = 2;
       }
       strict_allele_order = (flags / kfRecoverVarIdsStrictBimOrder) & 1;
+      line_iter = line_start;
     }
     // Only nonzero if we're actually replacing existing IDs with the missing
     // ID in the conflict case.
@@ -788,234 +780,7 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
     uint32_t rm_dup_warning = 0;
     uintptr_t record_uidx = ~k0LU;  // deliberate overflow
     uint32_t cur_allele_ct = 2;
-    if (!is_bim) {
-      goto RecoverVarIds_skip_header;
-    }
-    while (1) {
-      do {
-        ++record_uidx;
-        line_iter = CurTokenEnd(line_start);
-        uint32_t cur_chr_code = GetChrCodeCounted(cip, line_iter - line_start, line_start);
-        if (IsI32Neg(cur_chr_code)) {
-          break;
-        }
-        // Could add some special handling of chrX/PAR1/PAR2(/XY?) later, if
-        // that proves to be a pain point; this does operate on VCF input,
-        // after all.  It's a bit annoying to implement, though, so I'm
-        // excluding it from the first version.
-        if (cur_chr_code == prev_chr) {
-          if (!prev_chr_vidx_end) {
-            break;
-          }
-        } else {
-          prev_chr = cur_chr_code;
-          if (!is_unsorted) {
-            if (IsSet(chr_already_seen, cur_chr_code)) {
-              is_unsorted = 1;
-            } else {
-              SetBit(cur_chr_code, chr_already_seen);
-              prev_bp = 0;
-            }
-          }
-          if (!IsSet(cip->chr_mask, cur_chr_code)) {
-            prev_chr_vidx_end = 0;
-            break;
-          }
-          const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[cur_chr_code];
-          prev_chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
-          prev_chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-          prev_vidx_start = prev_chr_vidx_start;
-          prev_vidx_end = prev_chr_vidx_start;
-        }
-        char* token_ptrs[4];
-        uint32_t token_slens[4];
-        line_iter = TokenLex(line_iter, col_types, col_skips, 4, token_ptrs, token_slens);
-        if (unlikely(!line_iter)) {
-          putc_unlocked('\n', stdout);
-          goto RecoverVarIds_ret_MISSING_TOKENS;
-        }
-        // Usually, everything is sorted by position, so we use exponential
-        // search over binary search unless we've detected unsorted data.
-        int32_t cur_bp_signed;
-        if (unlikely(ScanIntAbsDefcap(token_ptrs[0], &cur_bp_signed))) {
-          putc_unlocked('\n', stdout);
-          snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of --recover-var-ids file.\n", line_idx);
-          goto RecoverVarIds_ret_MALFORMED_INPUT_WW;
-        }
-        if (cur_bp_signed < 0) {
-          break;
-        }
-        const uint32_t cur_bp = cur_bp_signed;
-        if (cur_bp < prev_bp) {
-          is_unsorted = 1;
-        }
-        if (!is_unsorted) {
-          if (prev_vidx_end == prev_chr_vidx_end) {
-            break;
-          }
-          if (is_rigid || (cur_bp > prev_bp)) {
-            const uint32_t arr_length = prev_chr_vidx_end - prev_vidx_end;
-            const uint32_t incr = ExpsearchU32(&(variant_bps[prev_vidx_end]), arr_length, cur_bp);
-            if (incr == arr_length) {
-              prev_vidx_end = prev_chr_vidx_end;
-              break;
-            }
-            prev_vidx_start = incr + prev_vidx_end;
-          }
-          prev_bp = cur_bp;
-        } else {
-          const uint32_t arr_length = prev_chr_vidx_end - prev_chr_vidx_start;
-          const uint32_t incr = CountSortedSmallerU32(&(variant_bps[prev_chr_vidx_start]), arr_length, cur_bp);
-          if (incr == arr_length) {
-            break;
-          }
-          prev_vidx_start = incr + prev_chr_vidx_start;
-        }
-        prev_vidx_start = AdvBoundedTo1Bit(variant_include, prev_vidx_start, prev_chr_vidx_end);
-
-        // variant_bps[prev_vidx_start] is the first element >= cur_bp that
-        // hasn't been filtered out.
-        if (variant_bps[prev_vidx_start] != cur_bp) {
-          prev_vidx_end = prev_vidx_start;
-          break;
-        }
-        if (is_rigid) {
-          if (unlikely(record_uidx >= raw_variant_ct)) {
-            putc_unlocked('\n', stdout);
-            logerrputs("Error: \"--recover-var-ids rigid\" file does not match the main dataset.\n");
-            goto RecoverVarIds_ret_INCONSISTENT_INPUT;
-          }
-          if (!IsSet(variant_include, record_uidx)) {
-            break;
-          }
-          if (record_uidx != prev_vidx_start) {
-            putc_unlocked('\n', stdout);
-            logerrputs("Error: \"--recover-var-ids rigid\" file does not match the main dataset.\n");
-            goto RecoverVarIds_ret_INCONSISTENT_INPUT;
-          }
-        }
-        char* orig_alt_start = token_ptrs[3];
-        const uint32_t orig_alt_slen = token_slens[3];
-        const uint32_t extra_orig_alt_ct = CountByte(orig_alt_start, ',', orig_alt_slen);
-        if (unlikely(extra_orig_alt_ct && is_bim)) {
-          // probably want to enforce this in main .pvar loader too...
-          putc_unlocked('\n', stdout);
-          snprintf(g_logbuf, kLogbufSize, "Error: Multiple ALT alleles on line %" PRIuPTR " of headerless --recover-var-ids file.\n", line_idx);
-          goto RecoverVarIds_ret_MALFORMED_INPUT_WW;
-        }
-        // Null-terminate all allele codes so we can use strequal_overread();
-        // and make sure to reset the final null terminator so that unsafe
-        // line_iter advancement works.
-        const char line_iter_char = *line_iter;
-        char* orig_ref_start = token_ptrs[2];
-        orig_ref_start[token_slens[2]] = '\0';
-        {
-          char* orig_alt_iter = orig_alt_start;
-          for (uint32_t alt_idx = 0; alt_idx != extra_orig_alt_ct; ++alt_idx) {
-            orig_alt_starts[alt_idx] = orig_alt_iter;
-            orig_alt_iter = AdvToDelim(orig_alt_iter, ',');
-            *orig_alt_iter++ = '\0';
-          }
-          orig_alt_starts[extra_orig_alt_ct] = orig_alt_iter;
-        }
-        char* orig_alt_end = &(orig_alt_start[orig_alt_slen]);
-        *orig_alt_end = '\0';
-        const uint32_t orig_alt_ct = extra_orig_alt_ct + 1;
-
-        uint32_t cur_vidx = prev_vidx_start;
-        // Multiple variants in the current dataset may have this position;
-        // check them all for allele-code concordance.  If there are multiple
-        // matches, allow this but print a warning suggesting --rm-dup.  In the
-        // usual subcase where there are multiple instances in the original
-        // file, we'll error out instead unless 'force' was specified.
-        uint32_t already_matched = 0;
-        do {
-          do {
-            uintptr_t allele_idx_offset_base = cur_vidx * 2;
-            if (allele_idx_offsets) {
-              allele_idx_offset_base = allele_idx_offsets[cur_vidx];
-              cur_allele_ct = allele_idx_offsets[cur_vidx + 1] - allele_idx_offset_base;
-            }
-            if (cur_allele_ct != orig_alt_ct + 1) {
-              break;
-            }
-            const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
-            const char* ref_allele = cur_alleles[0];
-            if (strict_allele_order) {
-              if (!strequal_overread(ref_allele, orig_ref_start)) {
-                break;
-              }
-              const char* const* cur_alt_alleles = &(cur_alleles[1]);
-              for (uint32_t alt_idx = 0; alt_idx != orig_alt_ct; ++alt_idx) {
-                if (!strequal_overread(cur_alt_alleles[alt_idx], orig_alt_starts[alt_idx])) {
-                  goto RecoverVarIds_ret_mismatch_found;
-                }
-              }
-            } else {
-              // cur_allele_ct == 2 guaranteed.
-              const char* other_allele = cur_alleles[1];
-              if (!strequal_overread(ref_allele, orig_ref_start)) {
-                if ((!strequal_overread(ref_allele, orig_alt_start)) || (!strequal_overread(other_allele, orig_ref_start))) {
-                  break;
-                }
-              } else if (!strequal_overread(other_allele, orig_alt_start)) {
-                break;
-              }
-            }
-            char* old_id = variant_ids[cur_vidx];
-            const uint32_t old_id_slen = strlen(old_id);
-            const char* new_id = token_ptrs[1];
-            const uint32_t new_id_slen = token_slens[1];
-            if (IsSet(already_seen, cur_vidx)) {
-              if ((new_id_slen != old_id_slen) || (!memequal(new_id, old_id, old_id_slen))) {
-                SetBit(cur_vidx, conflict_bitarr);
-                rm_dup_warning = 1;
-              }
-              break;
-            }
-            // Okay, chr/pos/alleles match, and there's no conflict with a
-            // previous entry.  Update the variant ID.
-            SetBit(cur_vidx, already_seen);
-            if (new_id_slen <= old_id_slen) {
-              const uint32_t old_id_blen = old_id_slen + 1;
-              if (unlikely(S_CAST(uintptr_t, alloc_end - alloc_base) < old_id_blen)) {
-                goto RecoverVarIds_ret_NOMEM;
-              }
-              memcpy(alloc_base, old_id, old_id_blen);
-              variant_ids_copy[cur_vidx] = alloc_base;
-              alloc_base = &(alloc_base[old_id_blen]);
-              memcpyx(old_id, new_id, new_id_slen, '\0');
-            } else {
-              if (new_id_slen > max_variant_id_slen) {
-                max_variant_id_slen = new_id_slen;
-              }
-              const uint32_t new_id_blen = new_id_slen + 1;
-              if (unlikely(S_CAST(uintptr_t, alloc_end - alloc_base) < new_id_blen)) {
-                goto RecoverVarIds_ret_NOMEM;
-              }
-              alloc_end -= new_id_blen;
-              memcpyx(alloc_end, new_id, new_id_slen, '\0');
-              variant_ids[cur_vidx] = alloc_end;
-            }
-            rm_dup_warning |= already_matched;
-            already_matched = 1;
-          } while (0);
-        RecoverVarIds_ret_mismatch_found:
-          cur_vidx = AdvBoundedTo1Bit(variant_include, cur_vidx + 1, prev_chr_vidx_end);
-        } while ((!is_rigid) && (cur_vidx != prev_chr_vidx_end) && (variant_bps[cur_vidx] == cur_bp));
-        *line_iter = line_iter_char;
-        prev_vidx_end = cur_vidx;
-      } while (0);
-    RecoverVarIds_skip_header:
-      line_iter = AdvPastDelim(line_iter, '\n');
-      reterr = TextNextLineLstripNoemptyUnsafe(&txs, &line_iter);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          reterr = kPglRetSuccess;
-          break;
-        }
-        goto RecoverVarIds_ret_TSTREAM_FAIL;
-      }
+    for (; TextGetUnsafe2(&txs, &line_iter); line_iter = AdvPastDelim(line_iter, '\n')) {
       if (!(line_idx % 1000000)) {
         printf("\r--recover-var-ids: %" PRIuPTR "m lines scanned.", line_idx / 1000000);
         fflush(stdout);
@@ -1027,6 +792,223 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --recover-var-ids file starts with a '#'. (This is only permitted before the first nonheader line, and if a #CHROM header line is present it must denote the end of the header block.)\n", line_idx);
         goto RecoverVarIds_ret_MALFORMED_INPUT_WW;
       }
+      ++record_uidx;
+      line_iter = CurTokenEnd(line_start);
+      uint32_t cur_chr_code = GetChrCodeCounted(cip, line_iter - line_start, line_start);
+      if (IsI32Neg(cur_chr_code)) {
+        continue;
+      }
+      // Could add some special handling of chrX/PAR1/PAR2(/XY?) later, if
+      // that proves to be a pain point; this does operate on VCF input,
+      // after all.  It's a bit annoying to implement, though, so I'm
+      // excluding it from the first version.
+      if (cur_chr_code == prev_chr) {
+        if (!prev_chr_vidx_end) {
+          continue;
+        }
+      } else {
+        prev_chr = cur_chr_code;
+        if (!is_unsorted) {
+          if (IsSet(chr_already_seen, cur_chr_code)) {
+            is_unsorted = 1;
+          } else {
+            SetBit(cur_chr_code, chr_already_seen);
+            prev_bp = 0;
+          }
+        }
+        if (!IsSet(cip->chr_mask, cur_chr_code)) {
+          prev_chr_vidx_end = 0;
+          continue;
+        }
+        const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[cur_chr_code];
+        prev_chr_vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+        prev_chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+        prev_vidx_start = prev_chr_vidx_start;
+        prev_vidx_end = prev_chr_vidx_start;
+      }
+      char* token_ptrs[4];
+      uint32_t token_slens[4];
+      line_iter = TokenLex(line_iter, col_types, col_skips, 4, token_ptrs, token_slens);
+      if (unlikely(!line_iter)) {
+        putc_unlocked('\n', stdout);
+        goto RecoverVarIds_ret_MISSING_TOKENS;
+      }
+      // Usually, everything is sorted by position, so we use exponential
+      // search over binary search unless we've detected unsorted data.
+      int32_t cur_bp_signed;
+      if (unlikely(ScanIntAbsDefcap(token_ptrs[0], &cur_bp_signed))) {
+        putc_unlocked('\n', stdout);
+        snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of --recover-var-ids file.\n", line_idx);
+        goto RecoverVarIds_ret_MALFORMED_INPUT_WW;
+      }
+      if (cur_bp_signed < 0) {
+        continue;
+      }
+      const uint32_t cur_bp = cur_bp_signed;
+      if (cur_bp < prev_bp) {
+        is_unsorted = 1;
+      }
+      if (!is_unsorted) {
+        if (prev_vidx_end == prev_chr_vidx_end) {
+          continue;
+        }
+        if (is_rigid || (cur_bp > prev_bp)) {
+          const uint32_t arr_length = prev_chr_vidx_end - prev_vidx_end;
+          const uint32_t incr = ExpsearchU32(&(variant_bps[prev_vidx_end]), arr_length, cur_bp);
+          if (incr == arr_length) {
+            prev_vidx_end = prev_chr_vidx_end;
+            continue;
+          }
+          prev_vidx_start = incr + prev_vidx_end;
+        }
+        prev_bp = cur_bp;
+      } else {
+        const uint32_t arr_length = prev_chr_vidx_end - prev_chr_vidx_start;
+        const uint32_t incr = CountSortedSmallerU32(&(variant_bps[prev_chr_vidx_start]), arr_length, cur_bp);
+        if (incr == arr_length) {
+          continue;
+        }
+        prev_vidx_start = incr + prev_chr_vidx_start;
+      }
+      prev_vidx_start = AdvBoundedTo1Bit(variant_include, prev_vidx_start, prev_chr_vidx_end);
+
+      // variant_bps[prev_vidx_start] is the first element >= cur_bp that
+      // hasn't been filtered out.
+      if (variant_bps[prev_vidx_start] != cur_bp) {
+        prev_vidx_end = prev_vidx_start;
+        continue;
+      }
+      if (is_rigid) {
+        if (unlikely(record_uidx >= raw_variant_ct)) {
+          putc_unlocked('\n', stdout);
+          logerrputs("Error: \"--recover-var-ids rigid\" file does not match the main dataset.\n");
+          goto RecoverVarIds_ret_INCONSISTENT_INPUT;
+        }
+        if (!IsSet(variant_include, record_uidx)) {
+          continue;
+        }
+        if (record_uidx != prev_vidx_start) {
+          putc_unlocked('\n', stdout);
+          logerrputs("Error: \"--recover-var-ids rigid\" file does not match the main dataset.\n");
+          goto RecoverVarIds_ret_INCONSISTENT_INPUT;
+        }
+      }
+      char* orig_alt_start = token_ptrs[3];
+      const uint32_t orig_alt_slen = token_slens[3];
+      const uint32_t extra_orig_alt_ct = CountByte(orig_alt_start, ',', orig_alt_slen);
+      if (unlikely(extra_orig_alt_ct && is_bim)) {
+        // probably want to enforce this in main .pvar loader too...
+        putc_unlocked('\n', stdout);
+        snprintf(g_logbuf, kLogbufSize, "Error: Multiple ALT alleles on line %" PRIuPTR " of headerless --recover-var-ids file.\n", line_idx);
+        goto RecoverVarIds_ret_MALFORMED_INPUT_WW;
+      }
+      // Null-terminate all allele codes so we can use strequal_overread();
+      // and make sure to reset the final null terminator so that unsafe
+      // line_iter advancement works.
+      const char line_iter_char = *line_iter;
+      char* orig_ref_start = token_ptrs[2];
+      orig_ref_start[token_slens[2]] = '\0';
+      {
+        char* orig_alt_iter = orig_alt_start;
+        for (uint32_t alt_idx = 0; alt_idx != extra_orig_alt_ct; ++alt_idx) {
+          orig_alt_starts[alt_idx] = orig_alt_iter;
+          orig_alt_iter = AdvToDelim(orig_alt_iter, ',');
+          *orig_alt_iter++ = '\0';
+        }
+        orig_alt_starts[extra_orig_alt_ct] = orig_alt_iter;
+      }
+      char* orig_alt_end = &(orig_alt_start[orig_alt_slen]);
+      *orig_alt_end = '\0';
+      const uint32_t orig_alt_ct = extra_orig_alt_ct + 1;
+
+      uint32_t cur_vidx = prev_vidx_start;
+      // Multiple variants in the current dataset may have this position;
+      // check them all for allele-code concordance.  If there are multiple
+      // matches, allow this but print a warning suggesting --rm-dup.  In the
+      // usual subcase where there are multiple instances in the original
+      // file, we'll error out instead unless 'force' was specified.
+      uint32_t already_matched = 0;
+      goto RecoverVarIds_first_iter;
+      for (; (!is_rigid) && (cur_vidx != prev_chr_vidx_end) && (variant_bps[cur_vidx] == cur_bp); cur_vidx = AdvBoundedTo1Bit(variant_include, cur_vidx + 1, prev_chr_vidx_end)) {
+      RecoverVarIds_first_iter: ;
+        uintptr_t allele_idx_offset_base = cur_vidx * 2;
+        if (allele_idx_offsets) {
+          allele_idx_offset_base = allele_idx_offsets[cur_vidx];
+          cur_allele_ct = allele_idx_offsets[cur_vidx + 1] - allele_idx_offset_base;
+        }
+        if (cur_allele_ct != orig_alt_ct + 1) {
+          continue;
+        }
+        const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+        const char* ref_allele = cur_alleles[0];
+        if (strict_allele_order) {
+          if (!strequal_overread(ref_allele, orig_ref_start)) {
+            continue;
+          }
+          const char* const* cur_alt_alleles = &(cur_alleles[1]);
+          uint32_t alt_idx = 0;
+          for (; alt_idx != orig_alt_ct; ++alt_idx) {
+            if (!strequal_overread(cur_alt_alleles[alt_idx], orig_alt_starts[alt_idx])) {
+              break;
+            }
+          }
+          if (alt_idx != orig_alt_ct) {
+            continue;
+          }
+        } else {
+          // cur_allele_ct == 2 guaranteed.
+          const char* other_allele = cur_alleles[1];
+          if (!strequal_overread(ref_allele, orig_ref_start)) {
+            if ((!strequal_overread(ref_allele, orig_alt_start)) || (!strequal_overread(other_allele, orig_ref_start))) {
+              continue;
+            }
+          } else if (!strequal_overread(other_allele, orig_alt_start)) {
+            continue;
+          }
+        }
+        char* old_id = variant_ids[cur_vidx];
+        const uint32_t old_id_slen = strlen(old_id);
+        const char* new_id = token_ptrs[1];
+        const uint32_t new_id_slen = token_slens[1];
+        if (IsSet(already_seen, cur_vidx)) {
+          if ((new_id_slen != old_id_slen) || (!memequal(new_id, old_id, old_id_slen))) {
+            SetBit(cur_vidx, conflict_bitarr);
+            rm_dup_warning = 1;
+          }
+          continue;
+        }
+        // Okay, chr/pos/alleles match, and there's no conflict with a
+        // previous entry.  Update the variant ID.
+        SetBit(cur_vidx, already_seen);
+        if (new_id_slen <= old_id_slen) {
+          const uint32_t old_id_blen = old_id_slen + 1;
+          if (unlikely(S_CAST(uintptr_t, alloc_end - alloc_base) < old_id_blen)) {
+            goto RecoverVarIds_ret_NOMEM;
+          }
+          memcpy(alloc_base, old_id, old_id_blen);
+          variant_ids_copy[cur_vidx] = alloc_base;
+          alloc_base = &(alloc_base[old_id_blen]);
+          memcpyx(old_id, new_id, new_id_slen, '\0');
+        } else {
+          if (new_id_slen > max_variant_id_slen) {
+            max_variant_id_slen = new_id_slen;
+          }
+          const uint32_t new_id_blen = new_id_slen + 1;
+          if (unlikely(S_CAST(uintptr_t, alloc_end - alloc_base) < new_id_blen)) {
+            goto RecoverVarIds_ret_NOMEM;
+          }
+          alloc_end -= new_id_blen;
+          memcpyx(alloc_end, new_id, new_id_slen, '\0');
+          variant_ids[cur_vidx] = alloc_end;
+        }
+        rm_dup_warning |= already_matched;
+        already_matched = 1;
+      }
+      *line_iter = line_iter_char;
+      prev_vidx_end = cur_vidx;
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto RecoverVarIds_ret_TSTREAM_FAIL;
     }
     putc_unlocked('\r', stdout);
     logprintf("--recover-var-ids: %" PRIuPTR " line%s scanned.\n", line_idx, (line_idx == 1)? "" : "s");
@@ -1257,10 +1239,8 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
       Plink1ClusterImport_LINE_ITER_ALREADY_ADVANCED:
         ++line_iter;
         ++line_idx;
-        reterr = TextNextLineLstripNoemptyUnsafe(&within_txs, &line_iter);
-        if (reterr) {
-          if (likely(reterr == kPglRetEof)) {
-            reterr = kPglRetSuccess;
+        if (!TextGetUnsafe2(&within_txs, &line_iter)) {
+          if (likely(!TextStreamErrcode2(&within_txs, &reterr))) {
             break;
           }
           goto Plink1ClusterImport_ret_TSTREAM_FAIL;
@@ -1585,11 +1565,12 @@ PglErr PrescanSampleIds(const char* fname, SampleIdInfo* siip) {
       goto PrescanSampleIds_ret_TSTREAM_FAIL;
     }
     uint32_t is_header_line;
-    const char* line_iter = nullptr;
+    const char* line_iter;
     do {
       ++line_idx;
-      reterr = TextNextLineLstripNoemptyK(&txs, &line_iter);
-      if (reterr) {
+      line_iter = TextGet(&txs);
+      if (!line_iter) {
+        reterr = TextStreamRawErrcode(&txs);
         if (likely(reterr == kPglRetEof)) {
           // permit empty file here, but signal this to caller
           // (reterr == kPglRetSuccess when file is nonempty, so we can detect
@@ -1651,54 +1632,47 @@ PglErr PrescanSampleIds(const char* fname, SampleIdInfo* siip) {
     uintptr_t max_sample_id_blen = 0;
     uintptr_t max_sid_blen = 0;
     if (is_header_line) {
-      line_iter = AdvToDelim(line_iter, '\n');
-      goto PrescanSampleIds_skip_header;
+      line_iter = AdvPastDelim(line_iter, '\n');
+      ++line_idx;
     }
-    do {
-      {
-        line_iter = NextTokenMult(line_iter, initial_skip_ct);
-        if (unlikely(!line_iter)) {
+    for (; TextGetUnsafe2K(&txs, &line_iter); line_iter = AdvPastDelim(line_iter, '\n'), ++line_idx) {
+      line_iter = NextTokenMult(line_iter, initial_skip_ct);
+      if (unlikely(!line_iter)) {
+        goto PrescanSampleIds_ret_MISSING_TOKENS;
+      }
+      const char* id_start = line_iter;
+      line_iter = CurTokenEnd(id_start);
+      uintptr_t cur_sample_id_blen = 1 + S_CAST(uintptr_t, line_iter - id_start);
+      if (new_fid_present) {
+        const char* iid_start = FirstNonTspace(line_iter);
+        if (unlikely(IsEolnKns(*iid_start))) {
           goto PrescanSampleIds_ret_MISSING_TOKENS;
         }
-        const char* id_start = line_iter;
-        line_iter = CurTokenEnd(id_start);
-        uintptr_t cur_sample_id_blen = 1 + S_CAST(uintptr_t, line_iter - id_start);
-        if (new_fid_present) {
-          const char* iid_start = FirstNonTspace(line_iter);
-          if (unlikely(IsEolnKns(*iid_start))) {
-            goto PrescanSampleIds_ret_MISSING_TOKENS;
-          }
-          line_iter = CurTokenEnd(iid_start);
-          cur_sample_id_blen += 1 + S_CAST(uintptr_t, line_iter - iid_start);
+        line_iter = CurTokenEnd(iid_start);
+        cur_sample_id_blen += 1 + S_CAST(uintptr_t, line_iter - iid_start);
+      }
+      if (cur_sample_id_blen > max_sample_id_blen) {
+        max_sample_id_blen = cur_sample_id_blen;
+      }
+      if (new_sid_present) {
+        const char* sid_start = FirstNonTspace(line_iter);
+        if (unlikely(IsEolnKns(*sid_start))) {
+          goto PrescanSampleIds_ret_MISSING_TOKENS;
         }
-        if (cur_sample_id_blen > max_sample_id_blen) {
-          max_sample_id_blen = cur_sample_id_blen;
-        }
-        if (new_sid_present) {
-          const char* sid_start = FirstNonTspace(line_iter);
-          if (unlikely(IsEolnKns(*sid_start))) {
-            goto PrescanSampleIds_ret_MISSING_TOKENS;
-          }
-          line_iter = CurTokenEnd(sid_start);
-          const uintptr_t sid_slen = line_iter - sid_start;
-          if (sid_slen >= max_sid_blen) {
-            max_sid_blen = sid_slen + 1;
-          }
-        }
-        if (unlikely(!IsEolnKns(*line_iter))) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --update-ids file has more tokens than expected.\n", line_idx);
-          goto PrescanSampleIds_ret_MALFORMED_INPUT_WW;
+        line_iter = CurTokenEnd(sid_start);
+        const uintptr_t sid_slen = line_iter - sid_start;
+        if (sid_slen >= max_sid_blen) {
+          max_sid_blen = sid_slen + 1;
         }
       }
-    PrescanSampleIds_skip_header:
-      ++line_idx;
-      line_iter = AdvPastDelim(line_iter, '\n');
-      reterr = TextNextLineLstripNoemptyUnsafeK(&txs, &line_iter);
-    } while (!reterr);
-    if (unlikely(reterr != kPglRetEof)) {
+      if (unlikely(!IsEolnKns(*line_iter))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --update-ids file has more tokens than expected.\n", line_idx);
+        goto PrescanSampleIds_ret_MALFORMED_INPUT_WW;
+      }
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
       goto PrescanSampleIds_ret_TSTREAM_FAIL;
     }
-    reterr = kPglRetSuccess;
     siip->max_sample_id_blen = max_sample_id_blen;
     if (new_sid_present) {
       siip->max_sid_blen = max_sid_blen;
@@ -1738,11 +1712,12 @@ PglErr PrescanParentalIds(const char* fname, uint32_t max_thread_ct, ParentalIdI
     }
 
     uint32_t is_header_line;
-    const char* line_iter = nullptr;
+    const char* line_iter;
     do {
       ++line_idx;
-      reterr = TextNextLineLstripNoemptyK(&txs, &line_iter);
-      if (reterr) {
+      line_iter = TextGet(&txs);
+      if (!line_iter) {
+        reterr = TextStreamRawErrcode(&txs);
         if (likely(reterr == kPglRetEof)) {
           // permit empty file here, but signal this to caller
           // (reterr == kPglRetSuccess when file is nonempty, so we can detect
@@ -1783,10 +1758,9 @@ PglErr PrescanParentalIds(const char* fname, uint32_t max_thread_ct, ParentalIdI
         logerrputs("Error: Invalid --update-parents file (no MAT column immediately following PAT\ncolumn).\n");
         goto PrescanParentalIds_ret_MALFORMED_INPUT;
       }
-      line_iter = AdvToDelim(line_iter, '\n');
-      goto PrescanParentalIds_skip_header;
-    }
-    {
+      line_iter = AdvPastDelim(line_iter, '\n');
+      ++line_idx;
+    } else {
       const uint32_t token_ct = CountTokens(line_iter);
       if (unlikely(token_ct < 3)) {
         logerrputs("Error: Invalid --update-parents file (3+ columns expected).\n");
@@ -1794,34 +1768,28 @@ PglErr PrescanParentalIds(const char* fname, uint32_t max_thread_ct, ParentalIdI
       }
       pat_col_idx = (token_ct == 3)? 1 : 2;
     }
-    do {
-      {
-        line_iter = NextTokenMult(line_iter, pat_col_idx);
-        if (unlikely(!line_iter)) {
-          goto PrescanParentalIds_ret_MISSING_TOKENS;
-        }
-        const char* pat_start = line_iter;
-        line_iter = CurTokenEnd(pat_start);
-        const uintptr_t cur_paternal_id_slen = line_iter - pat_start;
-        if (cur_paternal_id_slen >= max_paternal_id_blen) {
-          max_paternal_id_blen = cur_paternal_id_slen + 1;
-        }
-        const char* mat_start = FirstNonTspace(line_iter);
-        if (unlikely(IsEolnKns(*mat_start))) {
-          goto PrescanParentalIds_ret_MISSING_TOKENS;
-        }
-        line_iter = CurTokenEnd(mat_start);
-        uintptr_t cur_maternal_id_slen = line_iter - mat_start;
-        if (cur_maternal_id_slen >= max_maternal_id_blen) {
-          max_maternal_id_blen = cur_maternal_id_slen + 1;
-        }
+    for (; TextGetUnsafe2K(&txs, &line_iter); line_iter = AdvPastDelim(line_iter, '\n'), ++line_idx) {
+      line_iter = NextTokenMult(line_iter, pat_col_idx);
+      if (unlikely(!line_iter)) {
+        goto PrescanParentalIds_ret_MISSING_TOKENS;
       }
-    PrescanParentalIds_skip_header:
-      ++line_idx;
-      line_iter = AdvPastDelim(line_iter, '\n');
-      reterr = TextNextLineLstripNoemptyUnsafeK(&txs, &line_iter);
-    } while (!reterr);
-    if (unlikely(reterr != kPglRetEof)) {
+      const char* pat_start = line_iter;
+      line_iter = CurTokenEnd(pat_start);
+      const uintptr_t cur_paternal_id_slen = line_iter - pat_start;
+      if (cur_paternal_id_slen >= max_paternal_id_blen) {
+        max_paternal_id_blen = cur_paternal_id_slen + 1;
+      }
+      const char* mat_start = FirstNonTspace(line_iter);
+      if (unlikely(IsEolnKns(*mat_start))) {
+        goto PrescanParentalIds_ret_MISSING_TOKENS;
+      }
+      line_iter = CurTokenEnd(mat_start);
+      uintptr_t cur_maternal_id_slen = line_iter - mat_start;
+      if (cur_maternal_id_slen >= max_maternal_id_blen) {
+        max_maternal_id_blen = cur_maternal_id_slen + 1;
+      }
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
       goto PrescanParentalIds_ret_TSTREAM_FAIL;
     }
     reterr = kPglRetSuccess;
@@ -1861,12 +1829,13 @@ PglErr UpdateSampleIds(const char* fname, const uintptr_t* sample_include, uint3
     if (unlikely(reterr)) {
       goto UpdateSampleIds_ret_TSTREAM_REWIND_FAIL;
     }
-    const char* line_iter = nullptr;
+    const char* line_iter;
     uint32_t is_header_line;
     do {
       ++line_idx;
-      reterr = TextNextLineLstripNoemptyK(&txs, &line_iter);
-      if (unlikely(reterr)) {
+      line_iter = TextGet(&txs);
+      if (unlikely(!line_iter)) {
+        reterr = TextStreamRawErrcode(&txs);
         // This function is no longer called when the original file is empty.
         goto UpdateSampleIds_ret_TSTREAM_REWIND_FAIL;
       }
@@ -1940,71 +1909,66 @@ PglErr UpdateSampleIds(const char* fname, const uintptr_t* sample_include, uint3
     uint32_t hit_ct = 0;
     uintptr_t miss_ct = 0;
     if (is_header_line) {
-      line_iter = AdvToDelim(line_iter, '\n');
-      goto UpdateSampleIds_skip_header;
-    }
-    do {
-      {
-        const char* linebuf_iter = line_iter;
-        uint32_t xid_idx;
-        uint32_t xid_idx_end;
-        if (!SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &xid_idx, &xid_idx_end, idbuf)) {
-          uint32_t sample_uidx = xid_map[xid_idx];
-          if (IsSet(already_seen, sample_uidx)) {
-            // possible todo: tolerate duplicates if payload matches, like
-            // --update-sex does
-            logerrprintfww("Error: Sample ID on line %" PRIuPTR " of --update-ids file duplicates one earlier in the file.\n", line_idx);
-            goto UpdateSampleIds_ret_MALFORMED_INPUT;
-          }
-          SetBit(sample_uidx, already_seen);
-          char* new_sample_id = &(siip->sample_ids[sample_uidx * max_sample_id_blen]);
-          char* new_sample_id_iter = new_sample_id;
-          if (new_fid_present) {
-            const char* sample_id_start = FirstNonTspace(linebuf_iter);
-            linebuf_iter = CurTokenEnd(sample_id_start);
-            new_sample_id_iter = memcpya(new_sample_id_iter, sample_id_start, linebuf_iter - sample_id_start);
-          } else {
-            *new_sample_id_iter++ = '0';
-          }
-          *new_sample_id_iter++ = '\t';
-          const char* iid_start = FirstNonTspace(linebuf_iter);
-          linebuf_iter = CurTokenEnd(iid_start);
-          new_sample_id_iter = memcpyax(new_sample_id_iter, iid_start, linebuf_iter - iid_start, '\0');
-          char* new_sid = nullptr;
-          uint32_t new_sid_blen = 0;
-          if (new_sid_present) {
-            new_sid = &(siip->sids[sample_uidx * max_sid_blen]);
-            const char* sid_start = FirstNonTspace(linebuf_iter);
-            linebuf_iter = CurTokenEnd(sid_start);
-            const uint32_t new_sid_slen = linebuf_iter - sid_start;
-            memcpyx(new_sid, sid_start, new_sid_slen, '\0');
-            new_sid_blen = new_sid_slen + 1;
-          }
-          line_iter = linebuf_iter;
-          hit_ct += xid_idx_end - xid_idx;
-          if (++xid_idx != xid_idx_end) {
-            uintptr_t new_sample_id_blen = new_sample_id_iter - new_sample_id;
-            do {
-              sample_uidx = xid_map[xid_idx];
-              memcpy(&(siip->sample_ids[sample_uidx * max_sample_id_blen]), new_sample_id, new_sample_id_blen);
-              if (new_sid) {
-                // now possible since NEW_SID may be present without OLD_SID
-                memcpy(&(siip->sids[sample_uidx * max_sid_blen]), new_sid, new_sid_blen);
-              }
-            } while (++xid_idx != xid_idx_end);
-          }
-        } else if (unlikely(!linebuf_iter)) {
-          goto UpdateSampleIds_ret_REWIND_FAIL;
-        } else {
-          ++miss_ct;
-        }
-      }
-    UpdateSampleIds_skip_header:
-      ++line_idx;
       line_iter = AdvPastDelim(line_iter, '\n');
-      reterr = TextNextLineLstripNoemptyUnsafeK(&txs, &line_iter);
-    } while (!reterr);
-    if (unlikely(reterr != kPglRetEof)) {
+      ++line_idx;
+    }
+    for (; TextGetUnsafe2K(&txs, &line_iter); line_iter = AdvPastDelim(line_iter, '\n'), ++line_idx) {
+      const char* linebuf_iter = line_iter;
+      uint32_t xid_idx;
+      uint32_t xid_idx_end;
+      if (SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &xid_idx, &xid_idx_end, idbuf)) {
+        if (unlikely(!linebuf_iter)) {
+          goto UpdateSampleIds_ret_REWIND_FAIL;
+        }
+        ++miss_ct;
+        continue;
+      }
+      uint32_t sample_uidx = xid_map[xid_idx];
+      if (unlikely(IsSet(already_seen, sample_uidx))) {
+        // possible todo: tolerate duplicates if payload matches, like
+        // --update-sex does
+        logerrprintfww("Error: Sample ID on line %" PRIuPTR " of --update-ids file duplicates one earlier in the file.\n", line_idx);
+        goto UpdateSampleIds_ret_MALFORMED_INPUT;
+      }
+      SetBit(sample_uidx, already_seen);
+      char* new_sample_id = &(siip->sample_ids[sample_uidx * max_sample_id_blen]);
+      char* new_sample_id_iter = new_sample_id;
+      if (new_fid_present) {
+        const char* sample_id_start = FirstNonTspace(linebuf_iter);
+        linebuf_iter = CurTokenEnd(sample_id_start);
+        new_sample_id_iter = memcpya(new_sample_id_iter, sample_id_start, linebuf_iter - sample_id_start);
+      } else {
+        *new_sample_id_iter++ = '0';
+      }
+      *new_sample_id_iter++ = '\t';
+      const char* iid_start = FirstNonTspace(linebuf_iter);
+      linebuf_iter = CurTokenEnd(iid_start);
+      new_sample_id_iter = memcpyax(new_sample_id_iter, iid_start, linebuf_iter - iid_start, '\0');
+      char* new_sid = nullptr;
+      uint32_t new_sid_blen = 0;
+      if (new_sid_present) {
+        new_sid = &(siip->sids[sample_uidx * max_sid_blen]);
+        const char* sid_start = FirstNonTspace(linebuf_iter);
+        linebuf_iter = CurTokenEnd(sid_start);
+        const uint32_t new_sid_slen = linebuf_iter - sid_start;
+        memcpyx(new_sid, sid_start, new_sid_slen, '\0');
+        new_sid_blen = new_sid_slen + 1;
+      }
+      line_iter = linebuf_iter;
+      hit_ct += xid_idx_end - xid_idx;
+      if (++xid_idx != xid_idx_end) {
+        uintptr_t new_sample_id_blen = new_sample_id_iter - new_sample_id;
+        do {
+          sample_uidx = xid_map[xid_idx];
+          memcpy(&(siip->sample_ids[sample_uidx * max_sample_id_blen]), new_sample_id, new_sample_id_blen);
+          if (new_sid) {
+            // now possible since NEW_SID may be present without OLD_SID
+            memcpy(&(siip->sids[sample_uidx * max_sid_blen]), new_sid, new_sid_blen);
+          }
+        } while (++xid_idx != xid_idx_end);
+      }
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
       goto UpdateSampleIds_ret_TSTREAM_REWIND_FAIL;
     }
     reterr = kPglRetSuccess;
@@ -2050,12 +2014,13 @@ PglErr UpdateSampleParents(const char* fname, const SampleIdInfo* siip, const ui
     if (unlikely(reterr)) {
       goto UpdateSampleParents_ret_TSTREAM_REWIND_FAIL;
     }
-    const char* line_iter = nullptr;
+    const char* line_iter;
     uint32_t is_header_line;
     do {
       ++line_idx;
-      reterr = TextNextLineLstripNoemptyK(&txs, &line_iter);
-      if (unlikely(reterr)) {
+      line_iter = TextGet(&txs);
+      if (unlikely(!line_iter)) {
+        reterr = TextStreamRawErrcode(&txs);
         goto UpdateSampleParents_ret_TSTREAM_REWIND_FAIL;
       }
       is_header_line = (*line_iter == '#');
@@ -2124,52 +2089,47 @@ PglErr UpdateSampleParents(const char* fname, const SampleIdInfo* siip, const ui
     uint32_t hit_ct = 0;
     uintptr_t miss_ct = 0;
     if (is_header_line) {
-      line_iter = AdvToDelim(line_iter, '\n');
-      goto UpdateSampleParents_skip_header;
-    }
-    do {
-      {
-        const char* linebuf_iter = line_iter;
-        uint32_t xid_idx;
-        uint32_t xid_idx_end;
-        if (!SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &xid_idx, &xid_idx_end, idbuf)) {
-          uint32_t sample_uidx = xid_map[xid_idx];
-          if (IsSet(already_seen, sample_uidx)) {
-            // possible todo: tolerate duplicates if payload matches, like
-            // --update-sex does
-            logerrprintfww("Error: Sample ID on line %" PRIuPTR " of --update-parents file duplicates one earlier in the file.\n", line_idx);
-            goto UpdateSampleParents_ret_MALFORMED_INPUT;
-          }
-          SetBit(sample_uidx, already_seen);
-          const char* pat_start = NextTokenMult(linebuf_iter, postid_pat_col_idx);
-          const char* pat_end = CurTokenEnd(pat_start);
-          const char* mat_start = FirstNonTspace(pat_end);
-          line_iter = CurTokenEnd(mat_start);
-          const uint32_t plen = pat_end - pat_start;
-          const uint32_t mlen = line_iter - mat_start;
-          const uint32_t is_founder = (plen == 1) && (*pat_start == '0') && (mlen == 1) && (*mat_start == '0');
-          hit_ct += xid_idx_end - xid_idx;
-          while (1) {
-            memcpyx(&(paternal_ids[sample_uidx * max_paternal_id_blen]), pat_start, plen, '\0');
-            memcpyx(&(maternal_ids[sample_uidx * max_maternal_id_blen]), mat_start, mlen, '\0');
-            AssignBit(sample_uidx, is_founder, founder_info);
-            if (++xid_idx == xid_idx_end) {
-              break;
-            }
-            sample_uidx = xid_map[xid_idx];
-          }
-        } else if (unlikely(!linebuf_iter)) {
-          goto UpdateSampleParents_ret_REWIND_FAIL;
-        } else {
-          ++miss_ct;
-        }
-      }
-    UpdateSampleParents_skip_header:
-      ++line_idx;
       line_iter = AdvPastDelim(line_iter, '\n');
-      reterr = TextNextLineLstripNoemptyUnsafeK(&txs, &line_iter);
-    } while (!reterr);
-    if (unlikely(reterr != kPglRetEof)) {
+      ++line_idx;
+    }
+    for (; TextGetUnsafe2K(&txs, &line_iter); line_iter = AdvPastDelim(line_iter, '\n'), ++line_idx) {
+      const char* linebuf_iter = line_iter;
+      uint32_t xid_idx;
+      uint32_t xid_idx_end;
+      if (SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &xid_idx, &xid_idx_end, idbuf)) {
+        if (unlikely(!linebuf_iter)) {
+          goto UpdateSampleParents_ret_REWIND_FAIL;
+        }
+        ++miss_ct;
+        continue;
+      }
+      uint32_t sample_uidx = xid_map[xid_idx];
+      if (unlikely(IsSet(already_seen, sample_uidx))) {
+        // possible todo: tolerate duplicates if payload matches, like
+        // --update-sex does
+        logerrprintfww("Error: Sample ID on line %" PRIuPTR " of --update-parents file duplicates one earlier in the file.\n", line_idx);
+        goto UpdateSampleParents_ret_MALFORMED_INPUT;
+      }
+      SetBit(sample_uidx, already_seen);
+      const char* pat_start = NextTokenMult(linebuf_iter, postid_pat_col_idx);
+      const char* pat_end = CurTokenEnd(pat_start);
+      const char* mat_start = FirstNonTspace(pat_end);
+      line_iter = CurTokenEnd(mat_start);
+      const uint32_t plen = pat_end - pat_start;
+      const uint32_t mlen = line_iter - mat_start;
+      const uint32_t is_founder = (plen == 1) && (*pat_start == '0') && (mlen == 1) && (*mat_start == '0');
+      hit_ct += xid_idx_end - xid_idx;
+      while (1) {
+        memcpyx(&(paternal_ids[sample_uidx * max_paternal_id_blen]), pat_start, plen, '\0');
+        memcpyx(&(maternal_ids[sample_uidx * max_maternal_id_blen]), mat_start, mlen, '\0');
+        AssignBit(sample_uidx, is_founder, founder_info);
+        if (++xid_idx == xid_idx_end) {
+          break;
+        }
+        sample_uidx = xid_map[xid_idx];
+      }
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
       goto UpdateSampleParents_ret_TSTREAM_REWIND_FAIL;
     }
     reterr = kPglRetSuccess;
@@ -2283,90 +2243,82 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
     uintptr_t miss_ct = 0;
     uintptr_t duplicate_ct = 0;
     if (*line_start == '#') {
-      goto UpdateSampleSexes_skip_header;
-    }
-    while (1) {
-      {
-        const char* linebuf_iter = line_start;
-        uint32_t xid_idx_start;
-        uint32_t xid_idx_end;
-        if (!SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &xid_idx_start, &xid_idx_end, idbuf)) {
-          const char* sex_start = NextTokenMult(linebuf_iter, postid_col_idx);
-          if (unlikely(!sex_start)) {
-            goto UpdateSampleSexes_ret_MISSING_TOKENS;
-          }
-          uint32_t sexval = ctou32(*sex_start);
-          const uint32_t ujj = sexval & 0xdfU;
-          sexval -= 48;
-          if (sexval > 2) {
-            if (ujj == 77) {
-              // 'M'/'m'
-              sexval = 1;
-            } else if (ujj == 70) {
-              // 'F'/'f'
-              sexval = 2;
-            } else if (unlikely((!male0) && (sexval != 30))) {
-              // allow 'N' = missing to make 1/2/NA work
-              // don't permit 'n' for now
-              snprintf(g_logbuf, kLogbufSize, "Error: Invalid sex value on line %" PRIuPTR " of --update-sex file. (Acceptable values: 1/M/m = male, 2/F/f = female, 0/N = missing.)\n", line_idx);
-              goto UpdateSampleSexes_ret_MALFORMED_INPUT_WW;
-            } else {
-              // with 'male0', everything else is treated as missing
-              sexval = 0;
-            }
-          } else if (male0) {
-            if (unlikely(sexval == 2)) {
-              snprintf(g_logbuf, kLogbufSize, "Error: Invalid sex value on line %" PRIuPTR " of --update-sex file. ('2' is prohibited when the 'male0' modifier is present.)\n", line_idx);
-              goto UpdateSampleSexes_ret_MALFORMED_INPUT_WW;
-            }
-            ++sexval;
-          }
-          uint32_t sample_uidx = xid_map[xid_idx_start];
-          if (IsSet(already_seen, sample_uidx)) {
-            // permit duplicates iff sex value is identical
-            const uint32_t old_sexval = IsSet(sex_nm, sample_uidx) * (2 - IsSet(sex_male, sample_uidx));
-            if (unlikely(sexval != old_sexval)) {
-              snprintf(g_logbuf, kLogbufSize, "Error: Sample ID on line %" PRIuPTR " of --update-sex file duplicates one earlier in the file, and sex values don't match.\n", line_idx);
-              goto UpdateSampleSexes_ret_MALFORMED_INPUT_WW;
-            }
-            ++duplicate_ct;
-            continue;
-          }
-          SetBit(sample_uidx, already_seen);
-          hit_ct += xid_idx_end - xid_idx_start;
-          for (uint32_t xid_idx = xid_idx_start; ; ) {
-            if (sexval) {
-              SetBit(sample_uidx, sex_nm);
-              if (sexval == 1) {
-                SetBit(sample_uidx, sex_male);
-              } else {
-                ClearBit(sample_uidx, sex_male);
-              }
-            } else {
-              ClearBit(sample_uidx, sex_nm);
-              ClearBit(sample_uidx, sex_male);
-            }
-            if (++xid_idx == xid_idx_end) {
-              break;
-            }
-            sample_uidx = xid_map[xid_idx];
-          }
-        } else if (unlikely(!linebuf_iter)) {
-          goto UpdateSampleSexes_ret_MISSING_TOKENS;
-        } else {
-          ++miss_ct;
-        }
-      }
-    UpdateSampleSexes_skip_header:
       ++line_idx;
-      reterr = TextNextLineLstripNoempty(&txs, &line_start);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          reterr = kPglRetSuccess;
+      line_start = TextGet(&txs);
+    }
+    for (; line_start; ++line_idx, line_start = TextGet(&txs)) {
+      const char* linebuf_iter = line_start;
+      uint32_t xid_idx_start;
+      uint32_t xid_idx_end;
+      if (SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &xid_idx_start, &xid_idx_end, idbuf)) {
+        if (unlikely(!linebuf_iter)) {
+          goto UpdateSampleSexes_ret_MISSING_TOKENS;
+        }
+        ++miss_ct;
+        continue;
+      }
+      const char* sex_start = NextTokenMult(linebuf_iter, postid_col_idx);
+      if (unlikely(!sex_start)) {
+        goto UpdateSampleSexes_ret_MISSING_TOKENS;
+      }
+      uint32_t sexval = ctou32(*sex_start);
+      const uint32_t ujj = sexval & 0xdfU;
+      sexval -= 48;
+      if (sexval > 2) {
+        if (ujj == 77) {
+          // 'M'/'m'
+          sexval = 1;
+        } else if (ujj == 70) {
+          // 'F'/'f'
+          sexval = 2;
+        } else if (unlikely((!male0) && (sexval != 30))) {
+          // allow 'N' = missing to make 1/2/NA work
+          // don't permit 'n' for now
+          snprintf(g_logbuf, kLogbufSize, "Error: Invalid sex value on line %" PRIuPTR " of --update-sex file. (Acceptable values: 1/M/m = male, 2/F/f = female, 0/N = missing.)\n", line_idx);
+          goto UpdateSampleSexes_ret_MALFORMED_INPUT_WW;
+        } else {
+          // with 'male0', everything else is treated as missing
+          sexval = 0;
+        }
+      } else if (male0) {
+        if (unlikely(sexval == 2)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Invalid sex value on line %" PRIuPTR " of --update-sex file. ('2' is prohibited when the 'male0' modifier is present.)\n", line_idx);
+          goto UpdateSampleSexes_ret_MALFORMED_INPUT_WW;
+        }
+        ++sexval;
+      }
+      uint32_t sample_uidx = xid_map[xid_idx_start];
+      if (IsSet(already_seen, sample_uidx)) {
+        // permit duplicates iff sex value is identical
+        const uint32_t old_sexval = IsSet(sex_nm, sample_uidx) * (2 - IsSet(sex_male, sample_uidx));
+        if (unlikely(sexval != old_sexval)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Sample ID on line %" PRIuPTR " of --update-sex file duplicates one earlier in the file, and sex values don't match.\n", line_idx);
+          goto UpdateSampleSexes_ret_MALFORMED_INPUT_WW;
+        }
+        ++duplicate_ct;
+        continue;
+      }
+      SetBit(sample_uidx, already_seen);
+      hit_ct += xid_idx_end - xid_idx_start;
+      for (uint32_t xid_idx = xid_idx_start; ; sample_uidx = xid_map[xid_idx]) {
+        if (sexval) {
+          SetBit(sample_uidx, sex_nm);
+          if (sexval == 1) {
+            SetBit(sample_uidx, sex_male);
+          } else {
+            ClearBit(sample_uidx, sex_male);
+          }
+        } else {
+          ClearBit(sample_uidx, sex_nm);
+          ClearBit(sample_uidx, sex_male);
+        }
+        if (++xid_idx == xid_idx_end) {
           break;
         }
-        goto UpdateSampleSexes_ret_TSTREAM_FAIL;
       }
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto UpdateSampleSexes_ret_TSTREAM_FAIL;
     }
     if (duplicate_ct) {
       logprintfww("Note: %" PRIuPTR " duplicate sample ID%s) in --update-sex file.\n", duplicate_ct, (duplicate_ct == 1)? " (with a consistent sex assignment" : "s (with consistent sex assignments");
@@ -2413,7 +2365,8 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
   uint32_t doomed_pheno_ct = 0;
   PglErr reterr = kPglRetSuccess;
   {
-    const uint32_t omit_last = (pheno_transform_flags / kfPhenoTransformSplitCatOmitLast) & 1;
+    const uint32_t is_omit = ((pheno_transform_flags & (kfPhenoTransformSplitCatOmitMost | kfPhenoTransformSplitCatOmitLast)) != 0);
+    const uint32_t omit_most = (pheno_transform_flags / kfPhenoTransformSplitCatOmitMost) & 1;
     uint32_t qt_12 = 0;
     uint32_t at_least_one_cat_pheno_processed = 0;
     for (uint32_t is_covar = 0; is_covar != 2; ++is_covar) {
@@ -2493,7 +2446,10 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
       // first pass: determine new memory allocation sizes
       const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
       uintptr_t new_max_pheno_name_blen = old_max_pheno_name_blen;
-      uint32_t* observed_cat_cts;  // excludes null, excludes last if omit-last
+
+      // excludes null; also excludes one other category if omit-most/omit-last
+      uint32_t* observed_cat_cts;
+
       uintptr_t** observed_cats;
       uintptr_t* sample_include_intersect;
       if (unlikely(
@@ -2502,6 +2458,13 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
               bigstack_alloc_w(raw_sample_ctl, &sample_include_intersect))) {
         goto SplitCatPheno_ret_NOMEM;
       }
+      uint32_t* omitted_cat_uidxs = nullptr;
+      if (is_omit) {
+        if (unlikely(bigstack_alloc_u32(split_pheno_ct, &omitted_cat_uidxs))) {
+          goto SplitCatPheno_ret_NOMEM;
+        }
+      }
+      uint32_t* cat_obs_buf = nullptr;
       uintptr_t create_pheno_ct = 0;
       uintptr_t split_pheno_uidx_base = 0;
       uintptr_t phenos_to_split_bits = phenos_to_split[0];
@@ -2516,11 +2479,32 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
         if (unlikely(bigstack_alloc_w(cur_cat_ctl, &cur_observed_cats))) {
           goto SplitCatPheno_ret_NOMEM;
         }
+        if (omit_most) {
+          if (unlikely(bigstack_alloc_u32(cur_cat_ct, &cat_obs_buf))) {
+            goto SplitCatPheno_ret_NOMEM;
+          }
+        }
         observed_cats[split_pheno_idx] = cur_observed_cats;
         const uint32_t cur_nmiss_ct = PopcountWords(sample_include_intersect, raw_sample_ctl);
-        uint32_t cur_observed_cat_ct = IdentifyRemainingCats(sample_include_intersect, cur_pheno_col, cur_nmiss_ct, cur_observed_cats);
-        if (cur_observed_cat_ct > omit_last) {
-          cur_observed_cat_ct -= omit_last;
+        uint32_t cur_observed_cat_ct;
+        if (!omit_most) {
+          cur_observed_cat_ct = IdentifyRemainingCats(sample_include_intersect, cur_pheno_col, cur_nmiss_ct, cur_observed_cats);
+          if (is_omit && cur_observed_cat_ct) {
+            const uint32_t last_cat_uidx = FindLast1BitBefore(cur_observed_cats, cur_cat_ct + 1);
+            omitted_cat_uidxs[split_pheno_idx] = last_cat_uidx;
+            ClearBit(last_cat_uidx, cur_observed_cats);
+            --cur_observed_cat_ct;
+          }
+        } else {
+          const uint32_t largest_cat_uidx = IdentifyRemainingCatsAndMostCommon(sample_include_intersect, cur_pheno_col, cur_nmiss_ct, cur_observed_cats, cat_obs_buf);
+          cur_observed_cat_ct = PopcountWords(cur_observed_cats, cur_cat_ctl);
+          if (cur_observed_cat_ct) {
+            omitted_cat_uidxs[split_pheno_idx] = largest_cat_uidx;
+            ClearBit(largest_cat_uidx, cur_observed_cats);
+            --cur_observed_cat_ct;
+          }
+        }
+        if (cur_observed_cat_ct) {
           // old phenotype name, '=' character, null terminator
           const uintptr_t blen_base = strlen(&(old_pheno_names[split_pheno_uidx * old_max_pheno_name_blen])) + 2;
           const char* const* cat_names = cur_pheno_col->category_names;
@@ -2543,11 +2527,12 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
           if (cat_uidx > max_cat_uidx) {
             max_cat_uidx = cat_uidx;
           }
-        } else {
-          cur_observed_cat_ct = 0;
         }
         observed_cat_cts[split_pheno_idx] = cur_observed_cat_ct;
         create_pheno_ct += cur_observed_cat_ct;
+        if (cat_obs_buf) {
+          BigstackReset(cat_obs_buf);
+        }
       }
       if (unlikely(new_max_pheno_name_blen > kMaxIdBlen)) {
         logerrputs("Error: New --split-cat-pheno phenotype name too long.  Shorten your phenotype\nor your category names.\n");
@@ -2570,9 +2555,9 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
       if (is_covar) {
         new_data_word_ct = DblCtToVecCt(raw_sample_ct) * kWordsPerVec;
       }
-      uintptr_t* omit_last_dummy = nullptr;
-      if (omit_last) {
-        if (unlikely(bigstack_alloc_w(new_data_word_ct, &omit_last_dummy))) {
+      uintptr_t* omit_dummy = nullptr;
+      if (is_omit) {
+        if (unlikely(bigstack_alloc_w(new_data_word_ct, &omit_dummy))) {
           goto SplitCatPheno_ret_NOMEM;
         }
       }
@@ -2660,9 +2645,8 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
             }
           }
         }
-        if (omit_last) {
-          const uintptr_t orig_cat_idx = BitIter1(cur_observed_cats, &orig_cat_idx_base, &cur_observed_cats_bits);
-          write_data_ptrs[orig_cat_idx] = omit_last_dummy;
+        if (is_omit) {
+          write_data_ptrs[omitted_cat_uidxs[split_pheno_idx]] = omit_dummy;
         }
 
         const uint32_t cur_nmiss_ct = PopcountWords(sample_include_intersect, raw_sample_ctl);
@@ -4643,7 +4627,7 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
           if (x_male_xgeno_cts) {
             ZeroU32Arr(allele_ct, one_cts);
             ZeroU32Arr(allele_ct, two_cts);
-            GenovecCountSubsetFreqs(pgv.genovec, founder_male_interleaved_vec, founder_x_ct, founder_male_ct, genocounts);
+            GenoarrCountSubsetFreqs(pgv.genovec, founder_male_interleaved_vec, founder_x_ct, founder_male_ct, genocounts);
             const uint32_t male_het_ref_ct = genocounts[1];
             const uint32_t male_altxy_ct = genocounts[2];
             one_cts[1] = male_het_ref_ct;
@@ -8584,51 +8568,43 @@ PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, con
       uint32_t* sample_pair_uidxs_iter = sample_pair_uidxs_end;
       uint32_t* sample_pair_uidxs_oom = R_CAST(uint32_t*, g_bigstack_base);
       if (*line_start == '#') {
-        goto Sdiff_skip_header;
-      }
-      while (1) {
-        {
-          const char* linebuf_iter = line_start;
-          uint32_t sample_uidx1;
-          if (unlikely(SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx1, idbuf))) {
-            TabsToSpaces(idbuf);
-            logerrprintfww("Error: --sample-diff sample ID '%s' (on line %" PRIuPTR " of file) not found.\n", idbuf, line_idx);
-            goto Sdiff_ret_INCONSISTENT_INPUT;
-          }
-          linebuf_iter = FirstNonTspace(linebuf_iter);
-          if (skip_sid1) {
-            linebuf_iter = FirstNonTspace(FirstSpaceOrEoln(linebuf_iter));
-          }
-          uint32_t sample_uidx2;
-          if (unlikely(SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx2, idbuf))) {
-            TabsToSpaces(idbuf);
-            logerrprintfww("Error: --sample-diff sample ID '%s' (on line %" PRIuPTR " of file) not found.\n", idbuf, line_idx);
-            goto Sdiff_ret_INCONSISTENT_INPUT;
-          }
-          if (unlikely(sample_uidx1 == sample_uidx2)) {
-            TabsToSpaces(idbuf);
-            logerrprintfww("Error: Duplicate sample ID '%s' on line %" PRIuPTR " of --sample-diff file.\n", idbuf, line_idx);
-            goto Sdiff_ret_MALFORMED_INPUT;
-          }
-          if (unlikely(sample_pair_uidxs_iter == sample_pair_uidxs_oom)) {
-            goto Sdiff_ret_NOMEM;
-          }
-          *(--sample_pair_uidxs_iter) = sample_uidx1;
-          *(--sample_pair_uidxs_iter) = sample_uidx2;
-          line_iter = K_CAST(char*, linebuf_iter);
-        }
-      Sdiff_skip_header:
-        ++line_idx;
         line_iter = AdvPastDelim(line_iter, '\n');
-        reterr = TextNextLineLstripNoemptyUnsafe(&txs, &line_iter);
-        if (reterr) {
-          if (likely(reterr == kPglRetEof)) {
-            // reterr = kPglRetSuccess;
-            break;
-          }
-          goto Sdiff_ret_TSTREAM_FAIL;
+        ++line_idx;
+      } else {
+        line_iter = line_start;
+      }
+      for (; TextGetUnsafe2(&txs, &line_iter); line_iter = AdvPastDelim(line_iter, '\n'), ++line_idx) {
+        const char* linebuf_iter = line_iter;
+        uint32_t sample_uidx1;
+        if (unlikely(SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx1, idbuf))) {
+          TabsToSpaces(idbuf);
+          logerrprintfww("Error: --sample-diff sample ID '%s' (on line %" PRIuPTR " of file) not found.\n", idbuf, line_idx);
+          goto Sdiff_ret_INCONSISTENT_INPUT;
         }
-        line_start = line_iter;
+        linebuf_iter = FirstNonTspace(linebuf_iter);
+        if (skip_sid1) {
+          linebuf_iter = FirstNonTspace(FirstSpaceOrEoln(linebuf_iter));
+        }
+        uint32_t sample_uidx2;
+        if (unlikely(SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx2, idbuf))) {
+          TabsToSpaces(idbuf);
+          logerrprintfww("Error: --sample-diff sample ID '%s' (on line %" PRIuPTR " of file) not found.\n", idbuf, line_idx);
+          goto Sdiff_ret_INCONSISTENT_INPUT;
+        }
+        if (unlikely(sample_uidx1 == sample_uidx2)) {
+          TabsToSpaces(idbuf);
+          logerrprintfww("Error: Duplicate sample ID '%s' on line %" PRIuPTR " of --sample-diff file.\n", idbuf, line_idx);
+          goto Sdiff_ret_MALFORMED_INPUT;
+        }
+        if (unlikely(sample_pair_uidxs_iter == sample_pair_uidxs_oom)) {
+          goto Sdiff_ret_NOMEM;
+        }
+        *(--sample_pair_uidxs_iter) = sample_uidx1;
+        *(--sample_pair_uidxs_iter) = sample_uidx2;
+        line_iter = K_CAST(char*, linebuf_iter);
+      }
+      if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+        goto Sdiff_ret_TSTREAM_FAIL;
       }
       const uintptr_t id_ct = sample_pair_uidxs_end - sample_pair_uidxs_iter;
       if (unlikely(!id_ct)) {

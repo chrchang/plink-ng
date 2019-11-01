@@ -615,12 +615,12 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Mi
         goto VcfSampleLine_ret_TSTREAM_FAIL;
       }
       uint32_t sample_line_eoln = (ctou32(sample_line_iter[0]) < 32);
-      char* psam_line_start = nullptr;
+      char* psam_line_start;
       do {
         ++line_idx;
-        reterr = TextNextLineLstripNoempty(&psam_txs, &psam_line_start);
-        if (reterr) {
-          if (unlikely(reterr != kPglRetEof)) {
+        psam_line_start = TextGet(&psam_txs);
+        if (!psam_line_start) {
+          if (TextStreamErrcode2(&psam_txs, &reterr)) {
             goto VcfSampleLine_ret_TSTREAM_FAIL;
           }
           if (unlikely(!sample_line_eoln)) {
@@ -628,7 +628,6 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Mi
             goto VcfSampleLine_ret_INCONSISTENT_INPUT_WW;
           }
           *sample_ct_ptr = 0;
-          reterr = kPglRetSuccess;
           goto VcfSampleLine_ret_1;
         }
       } while ((psam_line_start[0] == '#') && (!tokequal_k(&(psam_line_start[1]), "FID")) && (!tokequal_k(&(psam_line_start[1]), "IID")));
@@ -637,51 +636,44 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Mi
         // only check for matching IIDs for now.
         fid_present = (psam_line_start[1] == 'F');
         // bugfix (12 Apr 2018): forgot to skip this line
-        goto VcfSampleLine_skip_header;
-      }
-      fid_present = fam_cols & kfFamCol1;
-      while (1) {
-        {
-          const char* psam_iid_start = psam_line_start;
-          if (fid_present) {
-            psam_iid_start = FirstNonTspace(CurTokenEnd(psam_iid_start));
-            if (unlikely(IsEolnKns(*psam_iid_start))) {
-              goto VcfSampleLine_ret_MISSING_TOKENS;
-            }
-          }
-          if (unlikely(sample_line_eoln)) {
-            snprintf(g_logbuf, kLogbufSize, "Error: --%ccf file contains fewer sample IDs than %s.\n", flag_char, preexisting_psamname);
-            goto VcfSampleLine_ret_INCONSISTENT_INPUT_WW;
-          }
-          ++sample_ct;
-          const char* sample_line_token_end = NextPrespace(sample_line_iter);
-          const char* sample_line_iid_start;
-          uint32_t sample_line_iid_slen;
-          reterr = ImportIidFromSampleId(sample_line_iter, sample_line_token_end, &isic, &sample_line_iid_start, &sample_line_iid_slen);
-          if (unlikely(reterr)) {
-            goto VcfSampleLine_ret_1;
-          }
-          if (unlikely(!memequal(sample_line_iid_start, psam_iid_start, sample_line_iid_slen) || (ctou32(psam_iid_start[sample_line_iid_slen]) > 32))) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Mismatched IDs between --%ccf file and %s.\n", flag_char, preexisting_psamname);
-            goto VcfSampleLine_ret_INCONSISTENT_INPUT_WW;
-          }
-          sample_line_eoln = (*sample_line_token_end != '\t');
-          sample_line_iter = &(sample_line_token_end[1]);
-        }
-      VcfSampleLine_skip_header:
         ++line_idx;
-        reterr = TextNextLineLstripNoempty(&psam_txs, &psam_line_start);
-        if (reterr) {
-          if (likely(reterr == kPglRetEof)) {
-            reterr = kPglRetSuccess;
-            break;
-          }
-          goto VcfSampleLine_ret_TSTREAM_FAIL;
-        }
+        psam_line_start = TextGet(&psam_txs);
+      } else {
+        fid_present = fam_cols & kfFamCol1;
+      }
+      for (; psam_line_start; ++line_idx, psam_line_start = TextGet(&psam_txs)) {
         if (unlikely(psam_line_start[0] == '#')) {
           snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and a #FID/IID header line is present it must denote the end of the header block.)\n", line_idx, preexisting_psamname);
           goto VcfSampleLine_ret_MALFORMED_INPUT_WW;
         }
+        const char* psam_iid_start = psam_line_start;
+        if (fid_present) {
+          psam_iid_start = FirstNonTspace(CurTokenEnd(psam_iid_start));
+          if (unlikely(IsEolnKns(*psam_iid_start))) {
+            goto VcfSampleLine_ret_MISSING_TOKENS;
+          }
+        }
+        if (unlikely(sample_line_eoln)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: --%ccf file contains fewer sample IDs than %s.\n", flag_char, preexisting_psamname);
+          goto VcfSampleLine_ret_INCONSISTENT_INPUT_WW;
+        }
+        ++sample_ct;
+        const char* sample_line_token_end = NextPrespace(sample_line_iter);
+        const char* sample_line_iid_start;
+        uint32_t sample_line_iid_slen;
+        reterr = ImportIidFromSampleId(sample_line_iter, sample_line_token_end, &isic, &sample_line_iid_start, &sample_line_iid_slen);
+        if (unlikely(reterr)) {
+          goto VcfSampleLine_ret_1;
+        }
+        if (unlikely(!memequal(sample_line_iid_start, psam_iid_start, sample_line_iid_slen) || (ctou32(psam_iid_start[sample_line_iid_slen]) > 32))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Mismatched IDs between --%ccf file and %s.\n", flag_char, preexisting_psamname);
+          goto VcfSampleLine_ret_INCONSISTENT_INPUT_WW;
+        }
+        sample_line_eoln = (*sample_line_token_end != '\t');
+        sample_line_iter = &(sample_line_token_end[1]);
+      }
+      if (unlikely(TextStreamErrcode2(&psam_txs, &reterr))) {
+        goto VcfSampleLine_ret_TSTREAM_FAIL;
       }
       if (unlikely(!sample_line_eoln)) {
         snprintf(g_logbuf, kLogbufSize, "Error: --%ccf file contains more sample IDs than %s.\n", flag_char, preexisting_psamname);
@@ -3956,12 +3948,11 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     uint32_t header_lines_left = 2;
     while (1) {
       ++line_idx;
-      char* line_start = nullptr;
-      reterr = TextNextLineLstripNoempty(&sample_txs, &line_start);
-      if (reterr) {
+      char* line_start = TextGet(&sample_txs);
+      if (!line_start) {
         // bugfix (16 Feb 2018): don't check this if we break out of the loop
         // on non-0 FID
-        if (unlikely(reterr != kPglRetEof)) {
+        if (unlikely(TextStreamErrcode2(&sample_txs, &reterr))) {
           goto OxSampleToPsam_ret_TSTREAM_FAIL;
         }
         if (unlikely(header_lines_left)) {
@@ -3984,10 +3975,10 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
       goto OxSampleToPsam_ret_TSTREAM_FAIL;
     }
     line_idx = 1;
-    char* line_start;
-    reterr = TextNextLineLstripNoempty(&sample_txs, &line_start);
-    if (unlikely(reterr)) {
-      goto OxSampleToPsam_ret_TSTREAM_FAIL;
+    char* line_start = TextGet(&sample_txs);
+    if (unlikely(!line_start)) {
+      reterr = TextStreamRawErrcode(&sample_txs);
+      goto OxSampleToPsam_ret_TSTREAM_REWIND_FAIL;
     }
     char* token_end = CurTokenEnd(line_start);
     // todo: allow arbitrary first column name, and ID_2/missing to be absent,
@@ -4053,9 +4044,9 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     }
 
     ++line_idx;
-    reterr = TextNextLineLstripNoempty(&sample_txs, &line_start);
-    if (unlikely(reterr)) {
-      if (reterr == kPglRetEof) {
+    line_start = TextGet(&sample_txs);
+    if (unlikely(!line_start)) {
+      if (!TextStreamErrcode2(&sample_txs, &reterr)) {
         logerrputs("Error: Only one line in .sample file.\n");
         goto OxSampleToPsam_ret_MALFORMED_INPUT;
       }
@@ -4139,11 +4130,9 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     }
     while (uncertain_col_ct) {
       ++line_idx;
-      char* line_iter = line_start;
-      reterr = TextNextLineLstripNoempty(&sample_txs, &line_iter);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          // reterr = kPglRetSuccess;
+      char* line_iter = TextGet(&sample_txs);
+      if (!line_iter) {
+        if (likely(!TextStreamErrcode2(&sample_txs, &reterr))) {
           break;
         }
         goto OxSampleToPsam_ret_TSTREAM_FAIL;
@@ -4179,10 +4168,9 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     uint32_t sample_ct_p2 = 0;
     while (1) {
       ++line_idx;
-      reterr = TextNextLineLstripNoempty(&sample_txs, &line_start);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          reterr = kPglRetSuccess;
+      line_start = TextGet(&sample_txs);
+      if (!line_start) {
+        if (likely(!TextStreamErrcode2(&sample_txs, &reterr))) {
           break;
         }
         goto OxSampleToPsam_ret_TSTREAM_FAIL;
@@ -4338,6 +4326,9 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
   while (0) {
   OxSampleToPsam_ret_TSTREAM_FAIL:
     TextStreamErrPrint(".sample file", &sample_txs);
+    break;
+  OxSampleToPsam_ret_TSTREAM_REWIND_FAIL:
+    TextStreamErrPrintRewind(".sample file", &sample_txs, &reterr);
     break;
   OxSampleToPsam_ret_NOMEM:
     reterr = kPglRetNomem;
@@ -4558,16 +4549,8 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
     uint32_t variant_ct = 0;
     uintptr_t variant_skip_ct = 0;
     char* line_iter = TextLineEnd(&gen_txs);
-    while (1) {
-      ++line_idx;
-      reterr = TextNextLineLstripNoemptyUnsafe(&gen_txs, &line_iter);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          // reterr = kPglRetSuccess;
-          break;
-        }
-        goto OxGenToPgen_ret_TSTREAM_FAIL;
-      }
+    ++line_idx;
+    for (; TextGetUnsafe2(&gen_txs, &line_iter); ++line_idx) {
       char* chr_code_str = line_iter;
       char* chr_code_end = CurTokenEnd(chr_code_str);
       const char* variant_id_str = FirstNonTspace(chr_code_end);
@@ -4707,7 +4690,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
 
           // now treat this identically to bgen-1.1
           // Compare with 65535.4999999999 instead of 65535.5 since 0.5 +
-          // [first floating point number below 65535.5] may evaluate to 65536.
+          // <first floating point number below 65535.5> may evaluate to 65536.
           if (unlikely((prob_0alt < 0.0) || (prob_0alt >= 65535.4999999999) || (prob_1alt < 0.0) || (prob_1alt >= 65535.4999999999) || (prob_2alt < 0.0) || (prob_2alt >= 65535.4999999999))) {
             goto OxGenToPgen_ret_INVALID_DOSAGE;
           }
@@ -4725,6 +4708,9 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
         fflush(stdout);
       }
       line_iter = AdvPastDelim(K_CAST(char*, linebuf_iter), '\n');
+    }
+    if (unlikely(TextStreamErrcode2(&gen_txs, &reterr))) {
+      goto OxGenToPgen_ret_TSTREAM_FAIL;
     }
     putc_unlocked('\r', stdout);
     if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &pvarfile))) {
@@ -4801,7 +4787,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
     uint32_t vidx = 0;
     line_iter = TextLineEnd(&gen_txs);
     for (line_idx = 1; line_idx <= line_ct; ++line_idx) {
-      reterr = TextNextLineLstripNoemptyUnsafe(&gen_txs, &line_iter);
+      reterr = TextGetUnsafe(&gen_txs, &line_iter);
       if (unlikely(reterr)) {
         goto OxGenToPgen_ret_TSTREAM_REWIND_FAIL;
       }
@@ -8550,10 +8536,9 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     }
     char* write_iter = strcpya_k(writebuf, "#CHROM\tPOS\tID\tREF\tALT" EOLN_STR);
     ++line_idx_haps;
-    char* haps_line_start = nullptr;
-    reterr = TextNextLineLstripNoempty(&haps_txs, &haps_line_start);
-    if (unlikely(reterr)) {
-      if (reterr == kPglRetEof) {
+    char* haps_line_start = TextGet(&haps_txs);
+    if (unlikely(!haps_line_start)) {
+      if (!TextStreamErrcode2(&haps_txs, &reterr)) {
         snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", hapsname);
         goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
       }
@@ -8623,10 +8608,9 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         goto OxHapslegendToPgen_ret_1;
       }
       ++line_idx_legend;
-      char* legend_line_start = nullptr;
-      reterr = TextNextLineLstripNoempty(&legend_txs, &legend_line_start);
-      if (unlikely(reterr)) {
-        if (reterr == kPglRetEof) {
+      char* legend_line_start = TextGet(&legend_txs);
+      if (unlikely(!legend_line_start)) {
+        if (!TextStreamErrcode2(&legend_txs, &reterr)) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", legendname);
           goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
         }
@@ -8639,10 +8623,9 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       }
       while (1) {
         ++line_idx_legend;
-        reterr = TextNextLineLstripNoempty(&legend_txs, &legend_line_start);
-        if (reterr) {
-          if (likely(reterr == kPglRetEof)) {
-            // reterr = kPglRetSuccess;
+        legend_line_start = TextGet(&legend_txs);
+        if (!legend_line_start) {
+          if (likely(!TextStreamErrcode2(&legend_txs, &reterr))) {
             break;
           }
           goto OxHapslegendToPgen_ret_TSTREAM_FAIL_LEGEND;
@@ -8657,9 +8640,9 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         }
         if (!at_least_one_het) {
           ++line_idx_haps;
-          reterr = TextNextLineLstripNoempty(&haps_txs, &haps_line_start);
-          if (unlikely(reterr)) {
-            if (reterr == kPglRetEof) {
+          haps_line_start = TextGet(&haps_txs);
+          if (unlikely(!haps_line_start)) {
+            if (!TextStreamErrcode2(&haps_txs, &reterr)) {
               if (line_idx_haps == 1) {
                 goto OxHapslegendToPgen_ret_TSTREAM_REWIND_FAIL_HAPS;
               }
@@ -8725,10 +8708,8 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         }
         haps_line_iter = AdvPastDelim(linebuf_iter, '\n');
         ++line_idx_haps;
-        reterr = TextNextLineLstripNoemptyUnsafe(&haps_txs, &haps_line_iter);
-        if (reterr) {
-          if (likely(reterr == kPglRetEof)) {
-            // reterr = kPglRetSuccess;
+        if (!TextGetUnsafe2(&haps_txs, &haps_line_iter)) {
+          if (likely(!TextStreamErrcode2(&haps_txs, &reterr))) {
             break;
           }
           goto OxHapslegendToPgen_ret_TSTREAM_FAIL_HAPS;
@@ -8800,7 +8781,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     char* haps_line_iter = TextLineEnd(&haps_txs);
     for (uint32_t vidx = 0; vidx != variant_ct; ) {
       ++line_idx_haps;
-      reterr = TextNextLineLstripNoemptyUnsafe(&haps_txs, &haps_line_iter);
+      reterr = TextGetUnsafe(&haps_txs, &haps_line_iter);
       if (unlikely(reterr)) {
         if ((reterr == kPglRetEof) && (line_idx_haps > 1) && (legendname[0])) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s has fewer nonheader lines than %s.\n", hapsname, legendname);
@@ -9118,12 +9099,12 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
     if (unlikely(reterr)) {
       goto LoadMap_ret_TSTREAM_FAIL;
     }
-    char* line_start = nullptr;
+    char* line_start;
     do {
       ++line_idx;
-      reterr = TextNextLineLstripNoempty(&map_txs, &line_start);
-      if (unlikely(reterr)) {
-        if (reterr == kPglRetEof) {
+      line_start = TextGet(&map_txs);
+      if (unlikely(!line_start)) {
+        if (!TextStreamErrcode2(&map_txs, &reterr)) {
           logerrputs("Error: Empty .map file.\n");
           goto LoadMap_ret_INCONSISTENT_INPUT;
         }
@@ -9245,11 +9226,8 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
     LoadMap_skip_variant:
       ++line_idx;
       line_iter = AdvPastDelim(line_iter, '\n');
-      reterr = TextNextLineLstripNoemptyUnsafe(&map_txs, &line_iter);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          reterr = kPglRetSuccess;
-          // bugfix (18 May 2018): forgot break here
+      if (!TextGetUnsafe2(&map_txs, &line_iter)) {
+        if (!TextStreamErrcode2(&map_txs, &reterr)) {
           break;
         }
         goto LoadMap_ret_TSTREAM_FAIL;
@@ -9438,10 +9416,10 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
       if (unlikely(reterr)) {
         goto Plink1DosageToPgen_ret_TFILE_FAIL2;
       }
-      ++line_idx;
-      char* line_start = nullptr;
-      reterr = TextFileNextLineLstripNoempty(&dosage_txf, &line_start);
-      if (unlikely(reterr)) {
+      line_idx = 1;
+      char* line_start = TextFileGet(&dosage_txf);
+      if (unlikely(!line_start)) {
+        reterr = TextFileRawErrcode(&dosage_txf);
         goto Plink1DosageToPgen_ret_TFILE_FAIL2;
       }
       char* loadbuf_iter = NextTokenMult(line_start, first_data_col_idx);
@@ -9503,6 +9481,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
       if (CleanupTextFile2(dosagename, &dosage_txf, &reterr)) {
         goto Plink1DosageToPgen_ret_1;
       }
+      line_idx = 0;
     }
 
     snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
@@ -9761,22 +9740,14 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     if (!(flags & kfPlink1DosageNoheader)) {
       // Skip header line.
       line_idx = 1;
-      reterr = TextNextLineLstripNoemptyUnsafe(&dosage_txs, &line_iter);
+      reterr = TextGetUnsafe(&dosage_txs, &line_iter);
       if (unlikely(reterr)) {
         goto Plink1DosageToPgen_ret_TSTREAM_REWIND1_FAIL;
       }
       line_iter = AdvPastDelim(line_iter, '\n');
     }
-    for (; ; line_iter = AdvPastDelim(line_iter, '\n')) {
-      ++line_idx;
-      reterr = TextNextLineLstripNoemptyUnsafe(&dosage_txs, &line_iter);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          reterr = kPglRetSuccess;
-          break;
-        }
-        goto Plink1DosageToPgen_ret_TSTREAM_REWIND1_FAIL;
-      }
+    ++line_idx;
+    for (; TextGetUnsafe2(&dosage_txs, &line_iter); line_iter = AdvPastDelim(line_iter, '\n'), ++line_idx) {
       char* token_ptrs[6];
       uint32_t token_slens[6];
       line_iter = TokenLex0(line_iter, col_types, col_skips, relevant_initial_col_ct, token_ptrs, token_slens);
@@ -9959,6 +9930,9 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
         fflush(stdout);
       }
     }
+    if (TextStreamErrcode2(&dosage_txs, &reterr)) {
+      goto Plink1DosageToPgen_ret_TSTREAM_REWIND1_FAIL;
+    }
     putc_unlocked('\r', stdout);
     if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &outfile))) {
       goto Plink1DosageToPgen_ret_WRITE_FAIL;
@@ -9985,7 +9959,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     if (!(flags & kfPlink1DosageNoheader)) {
       // skip header line again
       ++line_idx;
-      reterr = TextNextLineLstripNoemptyUnsafe(&dosage_txs, &line_iter);
+      reterr = TextGetUnsafe(&dosage_txs, &line_iter);
       if (unlikely(reterr)) {
         goto Plink1DosageToPgen_ret_TSTREAM_REWIND2_FAIL;
       }
@@ -10034,7 +10008,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     uint32_t vidx = 0;
     for (; line_idx < line_ct; line_iter = AdvPastDelim(line_iter, '\n')) {
       ++line_idx;
-      reterr = TextNextLineLstripNoemptyUnsafe(&dosage_txs, &line_iter);
+      reterr = TextGetUnsafe(&dosage_txs, &line_iter);
       if (unlikely(reterr)) {
         goto Plink1DosageToPgen_ret_TSTREAM_REWIND2_FAIL;
       }

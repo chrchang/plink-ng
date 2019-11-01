@@ -513,11 +513,9 @@ PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_ht
     uintptr_t miss_ct = 0;
     while (1) {
       ++line_idx;
-      char* line_start = nullptr;
-      reterr = TextNextLineLstripNoempty(&txs, &line_start);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          reterr = kPglRetSuccess;
+      char* line_start = TextGet(&txs);
+      if (!line_start) {
+        if (likely(!TextStreamErrcode2(&txs, &reterr))) {
           break;
         }
         goto ExtractFcol_ret_TSTREAM_FAIL;
@@ -1202,11 +1200,11 @@ static const char kKeepRemoveFlagStrs[4][11] = {"keep", "remove", "keep-fam", "r
 PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_sample_ct, KeepFlags flags, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   const char* flag_name = kKeepRemoveFlagStrs[flags % 4];
-  uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
   const char* fname_txs = nullptr;
   TextStream txs;
   PreinitTextStream(&txs);
+  uintptr_t line_idx;
   {
     const uint32_t orig_sample_ct = *sample_ct_ptr;
     if (!orig_sample_ct) {
@@ -1268,10 +1266,10 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
       char* line_start;
       XidMode xid_mode;
       line_idx = 0;
+      uint32_t skip_header = 0;
       if (families_only) {
-        goto KeepOrRemove_skip_header;
-      }
-      {
+        skip_header = 1;
+      } else {
         reterr = LoadXidHeader(flag_name, (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeader0 : kfXidHeaderIgnoreSid, &line_idx, &txs, &xid_mode, &line_start, nullptr);
         if (reterr) {
           if (likely(reterr == kPglRetEof)) {
@@ -1289,67 +1287,62 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
           goto KeepOrRemove_ret_NOMEM;
         }
         if (*line_start == '#') {
-          goto KeepOrRemove_skip_header;
+          skip_header = 1;
         }
       }
-      while (1) {
-        {
-          if (!families_only) {
-            const char* linebuf_iter = line_start;
-            uint32_t xid_idx_start;
-            uint32_t xid_idx_end;
-            if (!SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &xid_idx_start, &xid_idx_end, idbuf)) {
-              uint32_t sample_uidx = xid_map[xid_idx_start];
-              if (IsSet(seen_uidxs, sample_uidx)) {
-                ++duplicate_ct;
-              } else {
-                for (uint32_t xid_idx = xid_idx_start; ; ) {
-                  SetBit(sample_uidx, seen_uidxs);
-                  if (++xid_idx == xid_idx_end) {
-                    break;
-                  }
-                  sample_uidx = xid_map[xid_idx];
-                }
-              }
-            } else if (unlikely(!linebuf_iter)) {
-              goto KeepOrRemove_ret_MISSING_TOKENS;
-            }
-          } else {
-            char* token_end = CurTokenEnd(line_start);
-            // bugfix (28 Oct 2018): \n was being clobbered and not replaced
-            // const char orig_token_end_char = *token_end;
-            *token_end = '\t';
-            const uint32_t slen = 1 + S_CAST(uintptr_t, token_end - line_start);
-            uint32_t lb_idx = bsearch_str_lb(line_start, sorted_xidbox, slen, max_xid_blen, orig_sample_ct);
-            *token_end = ' ';
-            const uint32_t ub_idx = bsearch_str_lb(line_start, sorted_xidbox, slen, max_xid_blen, orig_sample_ct);
-            if (ub_idx != lb_idx) {
-              uint32_t sample_uidx = xid_map[lb_idx];
-              if (IsSet(seen_uidxs, sample_uidx)) {
-                ++duplicate_ct;
-              } else {
-                for (uint32_t xid_map_idx = lb_idx; ; ) {
-                  SetBit(sample_uidx, seen_uidxs);
-                  if (++xid_map_idx == ub_idx) {
-                    break;
-                  }
-                  sample_uidx = xid_map[xid_map_idx];
-                }
-              }
-            }
-            // *token_end = orig_token_end_char;
-          }
-        }
-      KeepOrRemove_skip_header:
+      if (skip_header) {
         ++line_idx;
-        reterr = TextNextLineLstripNoempty(&txs, &line_start);
-        if (reterr) {
-          if (likely(reterr == kPglRetEof)) {
-            // reterr = kPglRetSuccess;
-            break;
+        line_start = TextGet(&txs);
+      }
+      for (; line_start; ++line_idx, line_start = TextGet(&txs)) {
+        if (!families_only) {
+          const char* linebuf_iter = line_start;
+          uint32_t xid_idx_start;
+          uint32_t xid_idx_end;
+          if (!SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &xid_idx_start, &xid_idx_end, idbuf)) {
+            uint32_t sample_uidx = xid_map[xid_idx_start];
+            if (IsSet(seen_uidxs, sample_uidx)) {
+              ++duplicate_ct;
+            } else {
+              for (uint32_t xid_idx = xid_idx_start; ; ) {
+                SetBit(sample_uidx, seen_uidxs);
+                if (++xid_idx == xid_idx_end) {
+                  break;
+                }
+                sample_uidx = xid_map[xid_idx];
+              }
+            }
+          } else if (unlikely(!linebuf_iter)) {
+            goto KeepOrRemove_ret_MISSING_TOKENS;
           }
-          goto KeepOrRemove_ret_TSTREAM_FAIL;
+        } else {
+          char* token_end = CurTokenEnd(line_start);
+          // bugfix (28 Oct 2018): \n was being clobbered and not replaced
+          // const char orig_token_end_char = *token_end;
+          *token_end = '\t';
+          const uint32_t slen = 1 + S_CAST(uintptr_t, token_end - line_start);
+          uint32_t lb_idx = bsearch_str_lb(line_start, sorted_xidbox, slen, max_xid_blen, orig_sample_ct);
+          *token_end = ' ';
+          const uint32_t ub_idx = bsearch_str_lb(line_start, sorted_xidbox, slen, max_xid_blen, orig_sample_ct);
+          if (ub_idx != lb_idx) {
+            uint32_t sample_uidx = xid_map[lb_idx];
+            if (IsSet(seen_uidxs, sample_uidx)) {
+              ++duplicate_ct;
+            } else {
+              for (uint32_t xid_map_idx = lb_idx; ; ) {
+                SetBit(sample_uidx, seen_uidxs);
+                if (++xid_map_idx == ub_idx) {
+                  break;
+                }
+                sample_uidx = xid_map[xid_map_idx];
+              }
+            }
+          }
+          // *token_end = orig_token_end_char;
         }
+      }
+      if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+        goto KeepOrRemove_ret_TSTREAM_FAIL;
       }
     KeepOrRemove_empty_file:
       BigstackReset(bigstack_mark2);
@@ -1466,20 +1459,20 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
         goto KeepFcol_ret_INCONSISTENT_INPUT;
       }
       const uint32_t col_name_slen = strlen(col_name);
-      uint32_t already_found = 0;
+      uint32_t cur_col_idx = 0;
       do {
-        ++postid_col_idx;
+        ++cur_col_idx;
         const char* token_end = CurTokenEnd(linebuf_iter);
         if ((S_CAST(uintptr_t, token_end - linebuf_iter) == col_name_slen) && memequal(linebuf_iter, col_name, col_name_slen)) {
-          if (unlikely(already_found)) {
+          if (unlikely(postid_col_idx)) {
             snprintf(g_logbuf, kLogbufSize, "Error: Multiple columns in --keep-fcol file are named '%s'.\n", col_name);
             goto KeepFcol_ret_INCONSISTENT_INPUT_WW;
           }
-          already_found = 1;
+          postid_col_idx = cur_col_idx;
         }
         linebuf_iter = FirstNonTspace(token_end);
       } while (!IsEolnKns(*linebuf_iter));
-      if (unlikely(!already_found)) {
+      if (unlikely(!postid_col_idx)) {
         logerrputs("Error: --keep-fcol-name column not found in --keep-fcol file.\n");
         goto KeepFcol_ret_INCONSISTENT_INPUT;
       }
@@ -1497,45 +1490,39 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
       goto KeepFcol_ret_NOMEM;
     }
     if (*line_start == '#') {
-      goto KeepFcol_skip_header;
+      ++line_idx;
+      line_start = TextGet(&txs);
     }
-    while (1) {
-      {
-        const char* linebuf_iter = line_start;
-        uint32_t xid_idx_start;
-        uint32_t xid_idx_end;
-        if (!SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &xid_idx_start, &xid_idx_end, idbuf)) {
-          if (unlikely(IsSet(seen_xid_idxs, xid_idx_start))) {
-            logerrprintfww("Error: Sample ID on line %" PRIuPTR " of --keep-fcol file duplicates one earlier in the file.\n", line_idx);
-            goto KeepFcol_ret_MALFORMED_INPUT;
-          }
-          SetBit(xid_idx_start, seen_xid_idxs);
-          linebuf_iter = NextTokenMult(linebuf_iter, postid_col_idx);
-          if (unlikely(!linebuf_iter)) {
-            goto KeepFcol_ret_MISSING_TOKENS;
-          }
-          const char* token_end = CurTokenEnd(linebuf_iter);
-          const int32_t ii = bsearch_str(linebuf_iter, sorted_strbox, token_end - linebuf_iter, max_str_blen, str_ct);
-          if (ii != -1) {
-            for (; xid_idx_start != xid_idx_end; ++xid_idx_start) {
-              const uint32_t sample_uidx = xid_map[xid_idx_start];
-              SetBit(sample_uidx, keep_uidxs);
-            }
-          }
-        } else if (unlikely(!linebuf_iter)) {
+    for (; line_start; ++line_idx, line_start = TextGet(&txs)) {
+      const char* linebuf_iter = line_start;
+      uint32_t xid_idx_start;
+      uint32_t xid_idx_end;
+      if (SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &xid_idx_start, &xid_idx_end, idbuf)) {
+        if (unlikely(!linebuf_iter)) {
           goto KeepFcol_ret_MISSING_TOKENS;
         }
+        continue;
       }
-    KeepFcol_skip_header:
-      ++line_idx;
-      reterr = TextNextLineLstripNoempty(&txs, &line_start);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          reterr = kPglRetSuccess;
-          break;
+      if (unlikely(IsSet(seen_xid_idxs, xid_idx_start))) {
+        logerrprintfww("Error: Sample ID on line %" PRIuPTR " of --keep-fcol file duplicates one earlier in the file.\n", line_idx);
+        goto KeepFcol_ret_MALFORMED_INPUT;
+      }
+      SetBit(xid_idx_start, seen_xid_idxs);
+      linebuf_iter = NextTokenMult(linebuf_iter, postid_col_idx);
+      if (unlikely(!linebuf_iter)) {
+        goto KeepFcol_ret_MISSING_TOKENS;
+      }
+      const char* token_end = CurTokenEnd(linebuf_iter);
+      const int32_t ii = bsearch_str(linebuf_iter, sorted_strbox, token_end - linebuf_iter, max_str_blen, str_ct);
+      if (ii != -1) {
+        for (; xid_idx_start != xid_idx_end; ++xid_idx_start) {
+          const uint32_t sample_uidx = xid_map[xid_idx_start];
+          SetBit(sample_uidx, keep_uidxs);
         }
-        goto KeepFcol_ret_TSTREAM_FAIL;
       }
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto KeepFcol_ret_TSTREAM_FAIL;
     }
     memcpy(sample_include, keep_uidxs, raw_sample_ctl * sizeof(intptr_t));
     const uint32_t sample_ct = PopcountWords(sample_include, raw_sample_ctl);
@@ -2235,12 +2222,12 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
     if (unlikely(reterr)) {
       goto ReadAlleleFreqs_ret_1;
     }
-    char* line_start = nullptr;
+    char* line_start;
     do {
       ++line_idx;
-      reterr = TextNextLineLstripNoempty(&read_freq_txs, &line_start);
-      if (unlikely(reterr)) {
-        if (reterr == kPglRetEof) {
+      line_start = TextGet(&read_freq_txs);
+      if (unlikely(!line_start)) {
+        if (!TextStreamErrcode2(&read_freq_txs, &reterr)) {
           logerrputs("Error: Empty --read-freq file.\n");
           goto ReadAlleleFreqs_ret_MALFORMED_INPUT;
         }
@@ -2449,9 +2436,9 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           //   A=0.5,G=0.2
           // Look at the first nonheader line to distinguish between these two.
           ++line_idx;
-          reterr = TextNextLineLstripNoempty(&read_freq_txs, &line_start);
-          if (unlikely(reterr)) {
-            if (reterr == kPglRetEof) {
+          line_start = TextGet(&read_freq_txs);
+          if (unlikely(!line_start)) {
+            if (!TextStreamErrcode2(&read_freq_txs, &reterr)) {
               logerrputs("Error: Empty --read-freq file.\n");
               goto ReadAlleleFreqs_ret_MALFORMED_INPUT;
             }
@@ -2652,30 +2639,31 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
     uint32_t loaded_variant_ct = 0;
     uint32_t cur_allele_ct = 2;
     uint32_t variant_uidx = 0;
-    char* line_iter;
+    char* line_iter = line_start;
     if (skip_header) {
-      line_iter = &(TextLineEnd(&read_freq_txs)[-1]);
-      goto ReadAlleleFreqs_skip_header;
+      line_iter = TextLineEnd(&read_freq_txs);
+      ++line_idx;
     }
-    while (1) {
+    for (; TextGetUnsafe2(&read_freq_txs, &line_iter); ++line_idx) {
       {
         // not const since tokens may be null-terminated or comma-terminated
         // later
         char* token_ptrs[12];
         uint32_t token_slens[12];
-        line_iter = TokenLex0(line_start, R_CAST(uint32_t*, col_types), col_skips, relevant_col_ct, token_ptrs, token_slens);
+        line_iter = TokenLex0(line_iter, R_CAST(uint32_t*, col_types), col_skips, relevant_col_ct, token_ptrs, token_slens);
         if (unlikely(!line_iter)) {
           goto ReadAlleleFreqs_ret_MISSING_TOKENS;
         }
         // characters may be modified, so better find the \n now just in case
         // it gets clobbered
-        line_iter = AdvToDelim(line_iter, '\n');
+        line_iter = AdvPastDelim(line_iter, '\n');
         const char* variant_id_start = token_ptrs[kfReadFreqColVarId];
         const uint32_t variant_id_slen = token_slens[kfReadFreqColVarId];
         variant_uidx = VariantIdDupflagHtableFind(variant_id_start, variant_ids, variant_id_htable, variant_id_slen, variant_id_htable_size, max_variant_id_slen);
         if (variant_uidx >> 31) {
           if (likely(variant_uidx == UINT32_MAX)) {
-            goto ReadAlleleFreqs_skip_missing_variant;
+            ++skipped_variant_ct;
+            continue;
           }
           snprintf(g_logbuf, kLogbufSize, "Error: --read-freq variant ID '%s' appears multiple times in main dataset.\n", variant_ids[variant_uidx & 0x7fffffff]);
           goto ReadAlleleFreqs_ret_MALFORMED_INPUT_WW;
@@ -3162,21 +3150,11 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
       while (0) {
       ReadAlleleFreqs_skip_variant:
         SetBit(variant_uidx, *variant_afreqcalcp);
-      ReadAlleleFreqs_skip_missing_variant:
         ++skipped_variant_ct;
       }
-    ReadAlleleFreqs_skip_header:
-      ++line_iter;
-      ++line_idx;
-      reterr = TextNextLineLstripNoemptyUnsafe(&read_freq_txs, &line_iter);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          reterr = kPglRetSuccess;
-          break;
-        }
-        goto ReadAlleleFreqs_ret_TSTREAM_FAIL;
-      }
-      line_start = line_iter;
+    }
+    if (unlikely(TextStreamErrcode2(&read_freq_txs, &reterr))) {
+      goto ReadAlleleFreqs_ret_TSTREAM_FAIL;
     }
     // Set variant_afreqcalc to the set of variants in variant_include, but
     // without loaded frequencies.
@@ -4145,11 +4123,9 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
     uint32_t cur_allele_ct = 2;
     while (1) {
       ++line_idx;
-      char* line_start = nullptr;
-      reterr = TextNextLineLstripNoempty(&txs, &line_start);
-      if (reterr) {
-        if (likely(reterr == kPglRetEof)) {
-          reterr = kPglRetSuccess;
+      char* line_start = TextGet(&txs);
+      if (!line_start) {
+        if (likely(!TextStreamErrcode2(&txs, &reterr))) {
           break;
         }
         goto SetRefalt1FromFile_ret_TSTREAM_FAIL;

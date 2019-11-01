@@ -67,7 +67,8 @@
 // - "nypvec_01" indicates a packed, vector-aligned array of 2-bit values where
 //   each value is zero or one.  This data structure was used quite a bit by
 //   plink 1.9 for operating on a subset of a 2-bit-genotype array.
-// - "genovec" indicates a nypvec containing genotype information.
+// - "genoarr"/"genovec" indicates a nyparr/nypvec containing genotype
+//   information.
 // - "interleaved_vec" is plink 2.0's preferred alternative to nypvec_01: we
 //   basically stack pairs of adjacent vectors on top of each other and unpack
 //   on the fly, since that tends to be faster than having to access twice as
@@ -209,11 +210,11 @@ HEADER_INLINE void CopyNyparr(const uintptr_t* __restrict source_nyparr, uint32_
 // need for some explicit end-of-bitarray checks.
 void CopyNyparrNonemptySubset(const uintptr_t* __restrict raw_nyparr, const uintptr_t* __restrict subset_mask, uint32_t raw_nyparr_entry_ct, uint32_t subset_entry_ct, uintptr_t* __restrict output_nyparr);
 
-// Copies a bit from raw_bitarr for each genovec entry matching match_word.
+// Copies a bit from raw_bitarr for each genoarr entry matching match_word.
 // (match_word must be a multiple of kMask5555.)
-void CopyGenomatchSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genovec, uintptr_t match_word, uint32_t write_bit_idx_start, uint32_t bit_ct, uintptr_t* __restrict output_bitarr);
+void CopyGenomatchSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genoarr, uintptr_t match_word, uint32_t write_bit_idx_start, uint32_t bit_ct, uintptr_t* __restrict output_bitarr);
 
-void ExpandBytearrFromGenovec(const void* __restrict compact_bitarr, const uintptr_t* __restrict genovec, uintptr_t match_word, uint32_t genoword_ct, uint32_t expand_size, uint32_t read_start_bit, uintptr_t* __restrict target);
+void ExpandBytearrFromGenoarr(const void* __restrict compact_bitarr, const uintptr_t* __restrict genoarr, uintptr_t match_word, uint32_t genoword_ct, uint32_t expand_size, uint32_t read_start_bit, uintptr_t* __restrict target);
 
 
 // These functions are "unsafe" since they assume trailing bits of last
@@ -222,16 +223,18 @@ void GenovecCount12Unsafe(const uintptr_t* genovec, uint32_t sample_ct, uint32_t
 
 void Count3FreqVec6(const VecW* geno_vvec, uint32_t vec_ct, uint32_t* __restrict even_ctp, uint32_t* __restrict odd_ctp, uint32_t* __restrict bothset_ctp);
 
-void GenoarrCountFreqsUnsafe(const uintptr_t* genovec, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts);
+// vector-alignment preferred.
+void GenoarrCountFreqsUnsafe(const uintptr_t* genoarr, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts);
 
 // geno_vvec now allowed to be unaligned.
 void CountSubset3FreqVec6(const VecW* __restrict geno_vvec, const VecW* __restrict interleaved_mask_vvec, uint32_t vec_ct, uint32_t* __restrict even_ctp, uint32_t* __restrict odd_ctp, uint32_t* __restrict bothset_ctp);
 
-void GenovecCountSubsetFreqs(const uintptr_t* __restrict genovec, const uintptr_t* __restrict sample_include_interleaved_vec, uint32_t raw_sample_ct, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts);
+// genoarr vector-alignment preferred.
+void GenoarrCountSubsetFreqs(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict sample_include_interleaved_vec, uint32_t raw_sample_ct, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts);
 
-// slower GenovecCountSubsetFreqs() which does not require
+// slower GenoarrCountSubsetFreqs() which does not require
 // sample_include_interleaved_vec to be precomputed
-void GenovecCountSubsetFreqs2(const uintptr_t* __restrict genovec, const uintptr_t* __restrict sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts);
+void GenoarrCountSubsetFreqs2(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts);
 
 void GenoarrCountInvsubsetFreqs2(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict sample_exclude, uint32_t raw_sample_ct, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts);
 
@@ -445,10 +448,10 @@ void BiallelicDosage16Invert(uint32_t dosage_ct, uint16_t* dosage_main);
 void BiallelicDphase16Invert(uint32_t dphase_ct, int16_t* dphase_delta);
 
 // currently does zero trailing halfword
-void GenovecToMissingnessUnsafe(const uintptr_t* __restrict genovec, uint32_t sample_ct, uintptr_t* __restrict missingness);
+void GenoarrToMissingnessUnsafe(const uintptr_t* __restrict genoarr, uint32_t sample_ct, uintptr_t* __restrict missingness);
 
 // currently does not zero trailing halfword
-void GenovecToNonmissingnessUnsafe(const uintptr_t* __restrict genovec, uint32_t sample_ct, uintptr_t* __restrict nonmissingness);
+void GenoarrToNonmissingnessUnsafe(const uintptr_t* __restrict genoarr, uint32_t sample_ct, uintptr_t* __restrict nonmissingness);
 
 // hom_buf gets set bits when genoarr value is 0 or 2.
 // ref2het_buf gets set bits when genoarr value is 0 or 1.
@@ -541,11 +544,11 @@ HEADER_INLINE uint32_t GenoIter1x(const uintptr_t* __restrict genoarr, uintptr_t
   return ctzw(cur_bits);
 }
 
-// For every missing entry in genovec, clear the corresponding subset and
+// For every missing entry in genoarr, clear the corresponding subset and
 // sparse_vals entries.
-void ClearGenovecMissing1bit8Unsafe(const uintptr_t* __restrict genovec, uint32_t* subset_sizep, uintptr_t* __restrict subset, void* __restrict sparse_vals);
+void ClearGenoarrMissing1bit8Unsafe(const uintptr_t* __restrict genoarr, uint32_t* subset_sizep, uintptr_t* __restrict subset, void* __restrict sparse_vals);
 
-void ClearGenovecMissing1bit16Unsafe(const uintptr_t* __restrict genovec, uint32_t* subset_sizep, uintptr_t* __restrict subset, void* __restrict sparse_vals);
+void ClearGenoarrMissing1bit16Unsafe(const uintptr_t* __restrict genoarr, uint32_t* subset_sizep, uintptr_t* __restrict subset, void* __restrict sparse_vals);
 
 double MultiallelicDiploidMinimac3R2(const uint64_t* __restrict sums, const uint64_t* __restrict hap_ssqs_x2, uint32_t nm_sample_ct, uint32_t allele_ct, uint32_t extra_phased_het_ct);
 

@@ -3022,7 +3022,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         PopulateDenseDosage(pgvs[var_idx].genovec, pgvs[var_idx].dosage_present, pgvs[var_idx].dosage_main, founder_ct, pgvs[var_idx].dosage_ct, dosage_vecs[var_idx]);
         nmaj_dosages[var_idx] = DenseDosageSum(dosage_vecs[var_idx], founder_dosagev_ct);
         FillDosageUhet(dosage_vecs[var_idx], founder_dosagev_ct, dosage_uhets[var_idx]);
-        GenovecToNonmissingnessUnsafe(pgvs[var_idx].genovec, founder_ct, nm_bitvecs[var_idx]);
+        GenoarrToNonmissingnessUnsafe(pgvs[var_idx].genovec, founder_ct, nm_bitvecs[var_idx]);
         ZeroTrailingBits(founder_ct, nm_bitvecs[var_idx]);
         BitvecOr(pgvs[var_idx].dosage_present, founder_ctl, nm_bitvecs[var_idx]);
         nm_cts[var_idx] = PopcountWords(nm_bitvecs[var_idx], founder_ctl);
@@ -3354,11 +3354,11 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
             hwe_pval = HweP(genocounts[1], genocounts[0], genocounts[2], hwe_midp);
           } else {
             STD_ARRAY_DECL(uint32_t, 4, male_genocounts);
-            GenovecCountSubsetFreqs(cur_genovec, sex_male_collapsed_interleaved, founder_ct, x_male_ct, male_genocounts);
+            GenoarrCountSubsetFreqs(cur_genovec, sex_male_collapsed_interleaved, founder_ct, x_male_ct, male_genocounts);
             assert(!male_genocounts[1]);
             if (x_nosex_ct) {
               STD_ARRAY_DECL(uint32_t, 4, nosex_genocounts);
-              GenovecCountSubsetFreqs2(cur_genovec, nosex_collapsed, founder_ct, x_nosex_ct, nosex_genocounts);
+              GenoarrCountSubsetFreqs2(cur_genovec, nosex_collapsed, founder_ct, x_nosex_ct, nosex_genocounts);
               genocounts[0] -= nosex_genocounts[0];
               genocounts[1] -= nosex_genocounts[1];
               genocounts[2] -= nosex_genocounts[2];

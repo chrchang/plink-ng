@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (30 Oct 2019)";
+  " (31 Oct 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -8443,9 +8443,6 @@ int main(int argc, char** argv) {
             const char* cur_modif = argvk[arg_idx + first_phenoname_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "omit-most", cur_modif_slen)) {
-              logerrputs("Error: --split-pheno-cat 'omit-most' is under development.\n");
-              reterr = kPglRetNotYetSupported;
-              goto main_ret_1;
               pc.pheno_transform_flags |= kfPhenoTransformSplitCatOmitMost;
             } else if (strequal_k(cur_modif, "omit-last", cur_modif_slen)) {
               pc.pheno_transform_flags |= kfPhenoTransformSplitCatOmitLast;

@@ -1709,7 +1709,7 @@ BoolErr PwcAppendMultiallelicSparse(const uintptr_t* __restrict genovec, const u
   return 0;
 }
 
-void PglMultiallelicDenseToSparse(const AlleleCode* __restrict wide_codes, uint32_t sample_ct, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals, uint32_t* __restrict patch_01_ct_ptr, uint32_t* __restrict patch_10_ct_ptr) {
+void PglMultiallelicDenseToSparse(const AlleleCode* __restrict wide_codes, uint32_t sample_ct, uintptr_t* __restrict genoarr, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals, uint32_t* __restrict patch_01_ct_ptr, uint32_t* __restrict patch_10_ct_ptr) {
   const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
   const AlleleCode* wide_codes_iter = wide_codes;
   Halfword* patch_01_set_alias = R_CAST(Halfword*, patch_01_set);
@@ -1764,19 +1764,19 @@ void PglMultiallelicDenseToSparse(const AlleleCode* __restrict wide_codes, uint3
       }
       geno_word |= cur_geno << (2 * sample_idx_lowbits);
     }
-    genovec[widx] = geno_word;
+    genoarr[widx] = geno_word;
     patch_01_set_alias[widx] = patch_01_hw;
     patch_10_set_alias[widx] = patch_10_hw;
   }
 }
 
 static_assert(sizeof(AlleleCode) == 1, "PglMultiallelicSparseToDense() needs to be updated.");
-void PglMultiallelicSparseToDense(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, const AlleleCode* __restrict remap, uint32_t sample_ct, uint32_t patch_01_ct, uint32_t patch_10_ct, uintptr_t* __restrict flipped, AlleleCode* __restrict wide_codes) {
+void PglMultiallelicSparseToDense(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, const AlleleCode* __restrict remap, uint32_t sample_ct, uint32_t patch_01_ct, uint32_t patch_10_ct, uintptr_t* __restrict flipped, AlleleCode* __restrict wide_codes) {
   if (flipped) {
     ZeroWArr(BitCtToWordCt(sample_ct), flipped);
   }
   if ((!remap) || ((!remap[0]) && (remap[1] == 1))) {
-    GenoarrLookup256x2bx4(genovec, kHcToAlleleCodes, sample_ct, wide_codes);
+    GenoarrLookup256x2bx4(genoarr, kHcToAlleleCodes, sample_ct, wide_codes);
     if (!remap) {
       if (patch_01_ct) {
         uintptr_t sample_idx_base = 0;
@@ -1818,11 +1818,11 @@ void PglMultiallelicSparseToDense(const uintptr_t* __restrict genovec, const uin
     if (remap1 < remap0) {
       table4[1] = remap1 + remap0 * 256;
       if (flipped) {
-        // See GenovecToMissingnessUnsafe().
+        // See GenoarrToMissingnessUnsafe().
         const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
         Halfword* flipped_alias = R_CAST(Halfword*, flipped);
         for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
-          const uintptr_t cur_geno_word = genovec[widx];
+          const uintptr_t cur_geno_word = genoarr[widx];
           flipped_alias[widx] = PackWordToHalfwordMask5555(cur_geno_word & (~(cur_geno_word >> 1)));
         }
       }
@@ -1837,16 +1837,16 @@ void PglMultiallelicSparseToDense(const uintptr_t* __restrict genovec, const uin
       }
     }
     const uint32_t sample_ctd4 = sample_ct / 4;
-    const unsigned char* genovec_alias = R_CAST(const unsigned char*, genovec);
+    const unsigned char* genoarr_alias = R_CAST(const unsigned char*, genoarr);
     uint32_t* wide_codes_alias_iter = R_CAST(uint32_t*, wide_codes);
     for (uint32_t byte_idx = 0; byte_idx != sample_ctd4; ++byte_idx) {
-      const uint32_t geno_byte = genovec_alias[byte_idx];
+      const uint32_t geno_byte = genoarr_alias[byte_idx];
       *wide_codes_alias_iter++ = table16[geno_byte & 15];
       *wide_codes_alias_iter++ = table16[geno_byte >> 4];
     }
     const uint32_t remainder = sample_ct % 4;
     if (remainder) {
-      uint32_t geno_byte = genovec_alias[sample_ctd4];
+      uint32_t geno_byte = genoarr_alias[sample_ctd4];
       if (remainder & 2) {
         *wide_codes_alias_iter++ = table16[geno_byte & 15];
         geno_byte = geno_byte >> 4;
@@ -1943,7 +1943,7 @@ void PglMultiallelicSparseToDense(const uintptr_t* __restrict genovec, const uin
 }
 
 // tolerates extraneous phaseinfo bits
-BoolErr AppendHphase(const uintptr_t* __restrict genovec_hets, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, uint32_t het_ct, uint32_t phasepresent_ct, PgenWriterCommon* pwcp, unsigned char* vrtype_ptr, uint32_t* vrec_len_ptr) {
+BoolErr AppendHphase(const uintptr_t* __restrict genoarr_hets, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, uint32_t het_ct, uint32_t phasepresent_ct, PgenWriterCommon* pwcp, unsigned char* vrtype_ptr, uint32_t* vrec_len_ptr) {
   assert(phasepresent_ct);
   const uint32_t sample_ct = pwcp->sample_ct;
   *vrtype_ptr += 16;
@@ -1961,7 +1961,7 @@ BoolErr AppendHphase(const uintptr_t* __restrict genovec_hets, const uintptr_t* 
     if (unlikely(CheckedVrecLenIncr(het_ctp1_8, vrec_len_ptr))) {
       return 1;
     }
-    CopyGenomatchSubset(phaseinfo, genovec_hets, kMask5555, 1, het_ct, fwrite_bufp_alias);
+    CopyGenomatchSubset(phaseinfo, genoarr_hets, kMask5555, 1, het_ct, fwrite_bufp_alias);
     fwrite_bufp_final = &(pwcp->fwrite_bufp[het_ctp1_8]);
   } else {
     // this is a minor variant of ExpandThenSubsetBytearr()
@@ -1975,7 +1975,7 @@ BoolErr AppendHphase(const uintptr_t* __restrict genovec_hets, const uintptr_t* 
     phaseinfo_write_idx_lowbits = 0;
     uintptr_t phasepresent_write_word = 1;  // first bit set
     for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
-      const uintptr_t geno_word = genovec_hets[widx];
+      const uintptr_t geno_word = genoarr_hets[widx];
       uintptr_t geno_hets = Word01(geno_word);
       if (geno_hets) {
         const uint32_t phasepresent_halfword = R_CAST(const Halfword*, phasepresent)[widx];

@@ -315,7 +315,7 @@ HEADER_INLINE void SetAllDosageArr(uintptr_t entry_ct, Dosage* dosage_arr) {
   memset(dosage_arr, 255, entry_ct * sizeof(Dosage));
 }
 
-void PopulateDenseDosage(const uintptr_t* genovec, const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, Dosage* dense_dosage);
+void PopulateDenseDosage(const uintptr_t* genoarr, const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, Dosage* dense_dosage);
 
 void PopulateRescaledDosage(const uintptr_t* genoarr, const uintptr_t* dosage_present, const Dosage* dosage_main, double slope, double intercept, double missing_val, uint32_t sample_ct, uint32_t dosage_ct, double* expanded_dosages);
 
@@ -700,7 +700,7 @@ HEADER_INLINE PglErr GetOrAddChrCodeDestructive(const char* file_descrip, uintpt
 }
 
 // Assumes sample_ct positive.  Does not require trailing bits to be clear.
-uint32_t AllGenoEqual(const uintptr_t* genovec, uint32_t sample_ct);
+uint32_t AllGenoEqual(const uintptr_t* genoarr, uint32_t sample_ct);
 
 // zeroes out samples not in the mask
 void InterleavedMaskZero(const uintptr_t* __restrict interleaved_mask, uintptr_t vec_ct, uintptr_t* __restrict genovec);
@@ -724,9 +724,9 @@ void SetMaleHetMissingKeepdosage(const uintptr_t* __restrict sex_male, const uin
 // Clears each bit in bitarr which doesn't correspond to a genovec het.
 // Assumes that either trailing bits of bitarr are already zero, or trailing
 // bits of genovec are zero.
-void MaskGenovecHetsUnsafe(const uintptr_t* __restrict genovec, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr);
+void MaskGenoarrHetsUnsafe(const uintptr_t* __restrict genoarr, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr);
 
-void MaskGenovecHetsMultiallelicUnsafe(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr);
+void MaskGenoarrHetsMultiallelicUnsafe(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr);
 
 // vertical popcount support
 // VcountScramble1() and friends in plink2_cmdline

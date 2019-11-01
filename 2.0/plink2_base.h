@@ -3096,7 +3096,8 @@ HEADER_INLINE void ZeroTrailingWords(__maybe_unused uint32_t word_ct, __maybe_un
 
 // analogous to memset()
 // this can be slightly slower if e.g. system supports AVX2 but non-AVX2 plink2
-// build is in use; fine to pay that price given the small-array advantage
+// build is in use; fine to pay that price given the small-array advantage for
+// now.  Should revisit this after next build-machine Ubuntu upgrade, though.
 HEADER_INLINE void vecset(void* target_vec, uintptr_t ww, uintptr_t vec_ct) {
   VecW* target_vec_iter = S_CAST(VecW*, target_vec);
 #ifdef __LP64__

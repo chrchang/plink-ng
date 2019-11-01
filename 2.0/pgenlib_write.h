@@ -211,7 +211,7 @@ HEADER_INLINE PglErr SpgwAppendMultiallelicSparse(const uintptr_t* __restrict ge
 }
 
 // This may not zero out trailing halfword of patch_{01,10}_set.
-void PglMultiallelicDenseToSparse(const AlleleCode* __restrict wide_codes, uint32_t sample_ct, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals, uint32_t* __restrict patch_01_ct_ptr, uint32_t* __restrict patch_10_ct_ptr);
+void PglMultiallelicDenseToSparse(const AlleleCode* __restrict wide_codes, uint32_t sample_ct, uintptr_t* __restrict genoarr, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals, uint32_t* __restrict patch_01_ct_ptr, uint32_t* __restrict patch_10_ct_ptr);
 
 // If remap is not nullptr, this simultaneously performs a rotation operation:
 // wide_codes[2n] and [2n+1] are set to remap[geno[n]] rather than geno[n], and
