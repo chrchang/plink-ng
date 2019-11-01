@@ -5807,11 +5807,8 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
   const uint32_t skip_y = (!male_ct) && (!ctx->y_nonmale_needed);
   uintptr_t* genovec = ctx->genovecs[tidx];
   PgenVariant pgv;
-  memset(&pgv, 0, sizeof(pgv));
   pgv.genovec = genovec;
-  if (ctx->thread_read_mhc) {
-    SetPgvMhc(sample_ct, ctx->thread_read_mhc[tidx], &pgv);
-  }
+  SetPgvThreadMhcNull(sample_ct, tidx, ctx->thread_read_mhc, &pgv);
   uintptr_t* raregeno = ctx->raregenos[tidx];
   uint32_t* difflist_sample_ids = ctx->difflist_sample_id_bufs[tidx];
 

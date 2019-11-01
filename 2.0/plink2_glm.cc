@@ -5046,7 +5046,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
       }
       if (variant_idx) {
         JoinThreads(&tg);
-        memcpy(&reterr, &common->err_info, 4);
+        reterr = S_CAST(PglErr, common->err_info);
         if (unlikely(reterr)) {
           goto GlmLogistic_ret_PGR_FAIL;
         }
@@ -5453,9 +5453,9 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                   if (allele_is_valid) {
                     *cswritep++ = '.';
                   } else {
-                    GlmErr glm_err;
-                    memcpy(&glm_err, &(beta_se_iter[2 * test_idx]), 8);
-                    cswritep = AppendGlmErrstr(glm_err, cswritep);
+                    uint64_t glm_errcode;
+                    memcpy(&glm_errcode, &(beta_se_iter[2 * test_idx]), 8);
+                    cswritep = AppendGlmErrstr(glm_errcode, cswritep);
                   }
                 }
                 AppendBinaryEoln(&cswritep);
@@ -7088,7 +7088,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
       }
       if (variant_idx) {
         JoinThreads(&tg);
-        memcpy(&reterr, &common->err_info, 4);
+        reterr = S_CAST(PglErr, common->err_info);
         if (unlikely(reterr)) {
           goto GlmLinear_ret_PGR_FAIL;
         }
@@ -7434,9 +7434,9 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                   if (allele_is_valid) {
                     *cswritep++ = '.';
                   } else {
-                    GlmErr glm_err;
-                    memcpy(&glm_err, &(beta_se_iter[2 * test_idx]), 8);
-                    cswritep = AppendGlmErrstr(glm_err, cswritep);
+                    uint64_t glm_errcode;
+                    memcpy(&glm_errcode, &(beta_se_iter[2 * test_idx]), 8);
+                    cswritep = AppendGlmErrstr(glm_errcode, cswritep);
                   }
                 }
                 AppendBinaryEoln(&cswritep);
@@ -9175,7 +9175,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
         }
         if (variant_idx) {
           JoinThreads(&tg);
-          memcpy(&reterr, &common->err_info, 4);
+          reterr = S_CAST(PglErr, common->err_info);
           if (unlikely(reterr)) {
             goto GlmLinearBatch_ret_PGR_FAIL;
           }
@@ -9523,9 +9523,9 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
                       if (allele_is_valid) {
                         *cswritep++ = '.';
                       } else {
-                        GlmErr glm_err;
-                        memcpy(&glm_err, &(beta_se_iter[2 * test_idx]), 8);
-                        cswritep = AppendGlmErrstr(glm_err, cswritep);
+                        uint64_t glm_errcode;
+                        memcpy(&glm_errcode, &(beta_se_iter[2 * test_idx]), 8);
+                        cswritep = AppendGlmErrstr(glm_errcode, cswritep);
                       }
                     }
                     AppendBinaryEoln(&cswritep);

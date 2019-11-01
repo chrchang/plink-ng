@@ -456,7 +456,7 @@ PglErr MpgwInitPhase2(const char* __restrict fname, const uintptr_t* __restrict 
   }
   mpgwp->thread_ct = thread_ct;
   for (uint32_t tidx = 1; tidx != thread_ct; ++tidx) {
-    memcpy(mpgwp->pwcs[tidx], mpgwp->pwcs[0], sizeof(PgenWriterCommon));
+    mpgwp->pwcs[tidx] = mpgwp->pwcs[0];
     mpgwp->pwcs[tidx]->vidx = tidx * kPglVblockSize;
   }
   PwcInitPhase2(vblock_cacheline_ct, thread_ct, mpgwp->pwcs, &(mpgw_alloc[thread_ct * pwc_byte_ct]));

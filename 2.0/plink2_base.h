@@ -359,6 +359,14 @@ typedef enum
 
   PglErr(ec source) : value_(source) {}
 
+  // Allow explicit conversion from uint64_t, and NOT uint32_t, to this error
+  // type, to support reproducible multithreaded error reporting (where
+  // multiple threads may atomically attempt to modify a single uint64_t with
+  // the error code in the low 32 bits and a priority number in the high bits).
+  explicit PglErr(uint64_t source) : value_(static_cast<ec>(source)) {}
+
+  PglErr& operator=(const PglErr&) = default;
+
   operator ec() const {
     return value_;
   }
@@ -3321,6 +3329,8 @@ struct tname { \
     return *this; \
   } \
   \
+  tname& operator=(const tname& rhs) = default; \
+  \
 private: \
   uint32_t value_; \
 }
@@ -3371,6 +3381,8 @@ struct tname { \
     value_ ^= rhs; \
     return *this; \
   } \
+  \
+  tname& operator=(const tname& rhs) = default; \
   \
 private: \
   uint64_t value_; \

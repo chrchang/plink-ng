@@ -27,7 +27,9 @@ namespace plink2 {
 #endif
 
 typedef struct PgenWriterCommonStruct {
-  NONCOPYABLE(PgenWriterCommonStruct);
+  // was marked noncopyable, but, well, gcc 9 caught me cheating (memcpying the
+  // whole struct) in the multithreaded writer implementation.  So, copyable
+  // now.
   uint32_t variant_ct;
   uint32_t sample_ct;
   PgenGlobalFlags phase_dosage_gflags;  // subset of gflags

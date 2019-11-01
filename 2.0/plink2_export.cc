@@ -1912,7 +1912,7 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
       }
       if (variant_idx) {
         JoinThreads(&tg);
-        memcpy(&reterr, &ctx.err_info, 4);
+        reterr = S_CAST(PglErr, ctx.err_info);
         if (unlikely(reterr)) {
           if (reterr == kPglRetInconsistentInput) {
             logputs("\n");
@@ -3558,7 +3558,7 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
       }
       if (variant_idx) {
         JoinThreads(&tg);
-        memcpy(&reterr, &ctx.err_info, 4);
+        reterr = S_CAST(PglErr, ctx.err_info);
         if (unlikely(reterr)) {
           if (reterr == kPglRetInconsistentInput) {
             // temporary
@@ -6513,7 +6513,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
         }
         if (variant_idx) {
           JoinThreads(&tg);
-          memcpy(&reterr, &ctx.err_info, 4);
+          reterr = S_CAST(PglErr, ctx.err_info);
           if (unlikely(reterr)) {
             goto Export012Smaj_ret_PGR_FAIL;
           }

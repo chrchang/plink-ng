@@ -7857,7 +7857,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             if (ThreadsAreActive(&tg)) {
               // process *previous* block results
               JoinThreads(&tg);
-              memcpy(&reterr, &scan_ctx.err_info, 4);
+              reterr = S_CAST(PglErr, scan_ctx.err_info);
               if (unlikely(reterr)) {
                 goto OxBgenToPgen_ret_bgen13_thread_fail;
               }
@@ -7937,7 +7937,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       chr_filter_present = (variant_ct + multiallelic_skip_ct != raw_variant_ct);
       if (ThreadsAreActive(&tg)) {
         JoinThreads(&tg);
-        memcpy(&reterr, &scan_ctx.err_info, 4);
+        reterr = S_CAST(PglErr, scan_ctx.err_info);
         if (unlikely(reterr)) {
           goto OxBgenToPgen_ret_bgen13_thread_fail;
         }
@@ -7953,7 +7953,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           DeclareLastThreadBlock(&tg);
           SpawnThreads(&tg);
           JoinThreads(&tg);
-          memcpy(&reterr, &scan_ctx.err_info, 4);
+          reterr = S_CAST(PglErr, scan_ctx.err_info);
           if (unlikely(reterr)) {
             goto OxBgenToPgen_ret_bgen13_thread_fail;
           }
@@ -8265,7 +8265,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         }
         if (vidx_start) {
           JoinThreads(&tg);
-          memcpy(&reterr, &ctx.err_info, 4);
+          reterr = S_CAST(PglErr, ctx.err_info);
           if (unlikely(reterr)) {
             goto OxBgenToPgen_ret_bgen13_thread_fail;
           }

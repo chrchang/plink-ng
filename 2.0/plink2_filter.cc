@@ -3466,7 +3466,7 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
       }
       if (variant_idx) {
         JoinThreads(&tg);
-        memcpy(&reterr, &ctx.err_info, 4);
+        reterr = S_CAST(PglErr, ctx.err_info);
         if (unlikely(reterr)) {
           goto LoadSampleMissingCts_ret_PGR_FAIL;
         }

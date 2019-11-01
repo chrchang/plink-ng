@@ -8893,7 +8893,7 @@ uintptr_t CountAux1bHets(const AlleleCode* patch_10_vals, uintptr_t rare10_ct) {
     for (uint32_t uii = 0; uii != 255; ++uii) {
       const VecUc cur_vvec = vecuc_loadu(bytearr_uc_iter);
       bytearr_uc_iter = &(bytearr_uc_iter[kBytesPerVec]);
-      const VecUc shifted_vvec = R_CAST(const VecUc, vecw_srli(R_CAST(const VecW, cur_vvec), 8));
+      const VecUc shifted_vvec = R_CAST(VecUc, vecw_srli(R_CAST(VecW, cur_vvec), 8));
       inner_acc = inner_acc - (cur_vvec == shifted_vvec);
     }
     const VecW partial_sums = R_CAST(VecW, inner_acc) & m8;
@@ -8905,12 +8905,12 @@ uintptr_t CountAux1bHets(const AlleleCode* patch_10_vals, uintptr_t rare10_ct) {
   while (bytearr_uc_iter < bytearr_uc_final) {
     const VecUc cur_vvec = vecuc_loadu(bytearr_uc_iter);
     bytearr_uc_iter = &(bytearr_uc_iter[kBytesPerVec]);
-    const VecUc shifted_vvec = R_CAST(const VecUc, vecw_srli(R_CAST(const VecW, cur_vvec), 8));
+    const VecUc shifted_vvec = R_CAST(VecUc, vecw_srli(R_CAST(VecW, cur_vvec), 8));
     inner_acc = inner_acc - (cur_vvec == shifted_vvec);
   }
   VecUc cur_vvec = vecuc_loadu(bytearr_uc_final);
   const uintptr_t overlap_byte_ct = bytearr_uc_iter - bytearr_uc_final;
-  const VecUc shifted_vvec = R_CAST(const VecUc, vecw_srli(R_CAST(const VecW, cur_vvec), 8));
+  const VecUc shifted_vvec = R_CAST(VecUc, vecw_srli(R_CAST(VecW, cur_vvec), 8));
   const VecUc mask_vvec = vecuc_loadu(&(kLeadMask[kBytesPerVec - overlap_byte_ct]));
   cur_vvec = (cur_vvec == shifted_vvec) & mask_vvec;
   inner_acc = inner_acc - cur_vvec;

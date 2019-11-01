@@ -884,7 +884,6 @@ typedef union {
 } PhenoData;
 
 typedef struct PhenoColStruct {
-  NONCOPYABLE(PhenoColStruct);
   // * If categorical phenotype, [0] points to g_missing_catname, while [1],
   //   [2], etc. point to category names.  These are part of the same
   //   allocation as nonmiss, so no separate free is needed.
