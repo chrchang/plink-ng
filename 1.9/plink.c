@@ -105,10 +105,10 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (28 Oct 2019)";
+  " (2 Nov 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has two trailing digits)
 #else
@@ -4720,7 +4720,7 @@ int32_t main(int32_t argc, char** argv) {
 	for (uii = 1; uii <= param_ct; uii++) {
 	  if (!strcmp(argv[cur_arg + uii], "perm")) {
 	    if (cluster.modifier & CLUSTER_CMH_MPERM) {
-	      logerrprint("Error: --bd 'mperm' and 'perm{,-bd}' cannot be used together.\n");
+	      logerrprint("Error: --bd 'mperm' and 'perm[-bd]' cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE_A;
 	    } else if (cluster.modifier & CLUSTER_CMH_PERM_BD) {
 	      logerrprint("Error: --bd 'perm' and 'perm-bd' modifiers cannot be used together.\n");
@@ -4729,7 +4729,7 @@ int32_t main(int32_t argc, char** argv) {
 	    cluster.modifier |= CLUSTER_CMH_PERM;
 	  } else if (!strcmp(argv[cur_arg + uii], "perm-bd")) {
 	    if (cluster.modifier & CLUSTER_CMH_MPERM) {
-	      logerrprint("Error: --bd 'mperm' and 'perm{,-bd}' cannot be used together.\n");
+	      logerrprint("Error: --bd 'mperm' and 'perm[-bd]' cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE_A;
 	    } else if ((cluster.modifier & (CLUSTER_CMH_PERM | CLUSTER_CMH_PERM_BD)) == CLUSTER_CMH_PERM) {
 	      logerrprint("Error: --bd 'perm' and 'perm-bd' modifiers cannot be used together.\n");
@@ -4741,7 +4741,7 @@ int32_t main(int32_t argc, char** argv) {
 	    cluster.modifier |= CLUSTER_CMH_PERM_BD;
 	  } else if ((strlen(argv[cur_arg + uii]) > 6) && (!memcmp(argv[cur_arg + uii], "mperm=", 6))) {
 	    if (cluster.modifier & CLUSTER_CMH_PERM) {
-	      logerrprint("Error: --bd 'mperm' and 'perm{,-bd}' cannot be used together.\n");
+	      logerrprint("Error: --bd 'mperm' and 'perm[-bd]' cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE_A;
 	    } else if (cluster.modifier & CLUSTER_CMH_MPERM) {
 	      logerrprint("Error: Duplicate --bd 'mperm' modifier.\n");
@@ -4959,7 +4959,7 @@ int32_t main(int32_t argc, char** argv) {
     case 'c':
       if (!memcmp(argptr2, "hr", 3)) {
 	if (chrom_flag_present) {
-	  logerrprint("Error: --chr cannot be used with --autosome{,-xy}.\n");
+	  logerrprint("Error: --chr cannot be used with --autosome[-xy].\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
         retval = parse_chrom_ranges(param_ct, '-', &(argv[cur_arg]), chrom_info.chrom_mask, &chrom_info, (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1, argptr);
@@ -6680,7 +6680,7 @@ int32_t main(int32_t argc, char** argv) {
 	misc_flags |= MISC_FREQX;
       } else if (!memcmp(argptr2, "rom", 4)) {
 	if (chrom_flag_present) {
-	  logerrprint("Error: --from cannot be used with --autosome{,-xy} or --{,not-}chr.\n");
+	  logerrprint("Error: --from cannot be used with --autosome[-xy] or --[not-]chr.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -9593,7 +9593,7 @@ int32_t main(int32_t argc, char** argv) {
         calculation_type |= CALC_NEIGHBOR;
       } else if (!memcmp(argptr2, "ot-chr", 7)) {
 	if (markername_from) {
-	  logerrprint("Error: --from cannot be used with --autosome{,-xy} or --{,not-}chr.\n");
+	  logerrprint("Error: --from cannot be used with --autosome[-xy] or --[not-]chr.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	// allowed:
@@ -9603,7 +9603,7 @@ int32_t main(int32_t argc, char** argv) {
 	// does not make sense, disallowed:
 	//   --allow-extra-chr --chr 5-22 --not-chr bobs_chrom
 
-	// --allow-extra-chr present, --chr/--autosome{,-xy} not present
+	// --allow-extra-chr present, --chr/--autosome[-xy] not present
 	uii = ((misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1) && (!chrom_info.is_include_stack);
 	retval = parse_chrom_ranges(param_ct, '-', &(argv[cur_arg]), chrom_exclude, &chrom_info, uii, argptr);
 	if (retval) {
@@ -9870,13 +9870,13 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --parallel cannot be used with \"--distance square\".  Use \"--distance\nsquare0\" or plain --distance instead.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if ((dist_calc_type & (DISTANCE_BIN | DISTANCE_BIN4)) && (!(dist_calc_type & DISTANCE_SHAPEMASK))) {
-	  logerrprint("Error: --parallel cannot be used with plain \"--distance bin{,4}\".  Use e.g.\n\"--distance bin square0\" or \"--distance bin triangle\" instead.\n");
+	  logerrprint("Error: --parallel cannot be used with plain \"--distance bin[4]\".  Use e.g.\n\"--distance bin square0\" or \"--distance bin triangle\" instead.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if ((rel_info.modifier & REL_CALC_SHAPEMASK) == REL_CALC_SQ) {
 	  logerrprint("Error: --parallel cannot be used with \"--make-rel square\".  Use \"--make-rel\nsquare0\" or plain --make-rel instead.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if ((rel_info.modifier & (REL_CALC_BIN | REL_CALC_BIN4)) && (!(rel_info.modifier & (REL_CALC_SHAPEMASK | REL_CALC_GRM_BIN)))) {
-	  logerrprint("Error: --parallel cannot be used with plain \"--make-rel bin{,4}\".  Use e.g.\n\"--make-rel bin square0\" or \"--make-rel bin triangle\" instead.\n");
+	  logerrprint("Error: --parallel cannot be used with plain \"--make-rel bin[4]\".  Use e.g.\n\"--make-rel bin square0\" or \"--make-rel bin triangle\" instead.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (calculation_type & CALC_PLINK1_DISTANCE_MATRIX) {
 	  logerrprint("Error: --parallel and --distance-matrix cannot be used together.  Use\n--distance instead.\n");
@@ -10828,7 +10828,7 @@ int32_t main(int32_t argc, char** argv) {
 	      logerrprint("Error: Conflicting --r/--r2 modifiers.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    } else if (ld_info.modifier & LD_MATRIX_SPACES) {
-	      logerrprint("Error: --r/--r2 'bin{,4}' and 'spaces' modifiers cannot be used together.\n");
+	      logerrprint("Error: --r/--r2 'bin[4]' and 'spaces' modifiers cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    ld_info.modifier |= LD_MATRIX_BIN;
@@ -10839,7 +10839,7 @@ int32_t main(int32_t argc, char** argv) {
 	      logerrprint("Error: Conflicting --r/--r2 modifiers.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    } else if (ld_info.modifier & LD_MATRIX_SPACES) {
-	      logerrprint("Error: --r/--r2 'bin{,4}' and 'spaces' modifiers cannot be used together.\n");
+	      logerrprint("Error: --r/--r2 'bin[4]' and 'spaces' modifiers cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    ld_info.modifier |= LD_MATRIX_BIN4;
@@ -10850,7 +10850,7 @@ int32_t main(int32_t argc, char** argv) {
 	    if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DX | LD_WITH_FREQS)) {
 	      goto main_r2_matrix_conflict;
 	    } else if (ld_info.modifier & (LD_MATRIX_BIN | LD_MATRIX_BIN4)) {
-	      logerrprint("Error: --r/--r2 'bin{,4}' and 'spaces' modifiers cannot be used together.\n");
+	      logerrprint("Error: --r/--r2 'bin[4]' and 'spaces' modifiers cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    ld_info.modifier |= LD_MATRIX_SPACES;
@@ -10974,7 +10974,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --snp cannot be used with --from-bp/-kb/-mb.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if ((!are_all_words_zero(chrom_info.chrom_mask, CHROM_MASK_INITIAL_WORDS)) || chrom_info.incl_excl_name_stack) {
-	  logerrprint("Error: --snp cannot be used with --autosome{,-xy} or --{,not-}chr.\n");
+	  logerrprint("Error: --snp cannot be used with --autosome[-xy] or --[not-]chr.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (markername_snp) {
           logerrprint("Error: --snp cannot be used with --exclude-snp.\n");
@@ -11704,7 +11704,7 @@ int32_t main(int32_t argc, char** argv) {
 	load_rare |= LOAD_RARE_TPED;
       } else if (!memcmp(argptr2, "o", 2)) {
 	if ((!are_all_words_zero(chrom_info.chrom_mask, CHROM_MASK_INITIAL_WORDS)) || chrom_info.incl_excl_name_stack) {
-	  logerrprint("Error: --to cannot be used with --autosome{,-xy} or --{,not-}chr.\n");
+	  logerrprint("Error: --to cannot be used with --autosome[-xy] or --[not-]chr.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (markername_snp) {
 	  logerrprint("Error: --to cannot be used with --snp.\n");
