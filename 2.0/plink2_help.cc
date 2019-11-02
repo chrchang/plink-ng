@@ -317,7 +317,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "        4: phased dosage data\n"
 "    * The 'trim-alts' modifier causes alternate alleles not present in the\n"
 "      dataset after sample filtering to be removed.  (This occurs before any\n"
-"      genotype/dosage erasure performed by --make-{,b}pgen/--make-bed.)\n"
+"      genotype/dosage erasure performed by --make-[b]pgen/--make-bed.)\n"
                */
     // Commented out since, while this is on the roadmap, it isn't fully
     // implemented yet.  (This also applies to other commented-out help text.)
@@ -364,7 +364,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      are set to missing, and slightly affected dosages are rescaled.  This is\n"
 "      applied after 'multiallelics=' merge.\n"
 "    * When the 'trim-alts', 'multiallelics=', and/or 'erase-...' modifier is\n"
-"      present, --make-bed/--make-{,b}pgen cannot be combined with other\n"
+"      present, --make-bed/--make-[b]pgen cannot be combined with other\n"
 "      commands.  (They can be combined with other filters.)\n"
                */
 "    * The first five columns of a .pvar file are always #CHROM/POS/ID/REF/ALT.\n"
@@ -406,7 +406,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    file.  These don't always require an input genotype file.\n"
 "    USE THESE CAUTIOUSLY.  It is very easy to desynchronize your binary\n"
 "    genotype data and your sample/variant indexes if you use these commands\n"
-"    improperly.  If you have any doubt, stick with --make-{,b}pgen/--make-bed.\n\n"
+"    improperly.  If you have any doubt, stick with --make-[b]pgen/--make-bed.\n\n"
               );
     HelpPrint("export\0recode\0", &help_ctrl, 1,
 "  --export <output format(s)...> [{01 | 12}] ['bgz'] ['id-delim='<char>]\n"
@@ -440,7 +440,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                   .chr-<chr #>.phase.inp filename extensions.\n"
 "    * 'fastphase-1chr': Single .phase.inp file.  Does not support\n"
 "                        multiple chromosomes.\n"
-"    * 'haps', 'hapslegend': Oxford-format .haps + .sample{, + .legend}.  All\n"
+"    * 'haps', 'hapslegend': Oxford-format .haps + .sample[ + .legend].  All\n"
 "                            data must be biallelic and phased.  When the 'bgz'\n"
 "                            modifier is present, the .haps file is\n"
 "                            block-gzipped.\n"
@@ -510,7 +510,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "         ['alt1bins='<comma-separated bin boundaries> | 'alt1bins-file='<file>]\n"
 "    Empirical allele frequency report.  By default, only founders are\n"
 "    considered.  Dosages are taken into account (e.g. heterozygous haploid\n"
-"    calls count as 0.5).  chrM dosages are scaled to sum to 2.\n"
+"    calls count as 0.5).\n"
 "    Supported column sets are:\n"
 "      chrom: Chromosome ID.\n"
 "      pos: Base-pair coordinate.\n"
@@ -1021,7 +1021,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      statistics are reported for all nonconstant predictors; 'hide-covar'\n"
 "      suppresses covariate-only results, while 'intercept' causes intercepts\n"
 "      to be reported.\n"
-"    * For logistic regression, when the phenotype {,quasi-}separates the\n"
+"    * For logistic regression, when the phenotype [quasi-]separates the\n"
 "      genotype, an NA result is currently reported by default.  To fall back on\n"
 "      Firth logistic regression instead when the basic logistic regression\n"
 "      fails to converge, add the 'firth-fallback' modifier (highly recommended,\n"
@@ -1121,7 +1121,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      multiple times in the main dataset.  Use the 'ignore-dup-ids' modifier to\n"
 "      skip them instead (a warning is still printed if such variants are\n"
 "      present).\n"
-"    * The 'list-variants{,-zs}' modifier causes variant IDs used for scoring to\n"
+"    * The 'list-variants[-zs]' modifier causes variant IDs used for scoring to\n"
 "      be written to <output prefix>.sscore.vars{|.zst}.\n"
 "    The main report supports the following column sets:\n"
 "      maybefid: FID, if that column was in the input.\n"
@@ -1267,7 +1267,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                    is not greater than 0.1.  You can adjust\n"
 "                                    this threshold by providing a numeric\n"
 "                                    parameter to --hard-call-threshold.\n"
-"                                    You can also use this with --make-{,b}pgen\n"
+"                                    You can also use this with --make-[b]pgen\n"
 "                                    to alter the saved hardcalls while leaving\n"
 "                                    the dosages untouched, or --make-bed to\n"
 "                                    tweak hardcall export.\n"
@@ -1740,10 +1740,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                            ID.  The following string orders are supported:\n"
 "                            * 'natural'/'n': Natural sort (default).\n"
 "                            * 'ascii'/'a': ASCII.\n"
-"                            This must be used with --make-{,b}pgen/--make-bed.\n"
+"                            This must be used with --make-[b]pgen/--make-bed.\n"
                );
     HelpPrint("set-hh-missing\0set-mixed-mt-missing\0", &help_ctrl, 0,
-"  --set-hh-missing ['keep-dosage'] : Make --make-{,b}pgen/--make-bed set non-MT\n"
+"  --set-hh-missing ['keep-dosage'] : Make --make-[b]pgen/--make-bed set non-MT\n"
 "                                     heterozygous haploid hardcalls, and all\n"
 "                                     female chrY calls, to missing.  (Unlike\n"
 "                                     PLINK 1.x, this treats unknown-sex chrY\n"
@@ -1751,7 +1751,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                     By default, all associated dosages are\n"
 "                                     also erased; use 'keep-dosage' to keep\n"
 "                                     them all.\n"
-"  --set-mixed-mt-missing ['keep-dosage'] : Make --make-{,b}pgen/--make-bed set\n"
+"  --set-mixed-mt-missing ['keep-dosage'] : Make --make-[b]pgen/--make-bed set\n"
 "                                           mixed MT hardcalls to missing.\n"
                );
     HelpPrint("split-par\0merge-par\0split-x\0merge-x\0", &help_ctrl, 0,
@@ -1844,7 +1844,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                        rather than opt-out; --keep-allele-order is no longer\n"
 "                        necessary to prevent allele-swapping.)\n"
 "                        * This can only be used in runs with\n"
-"                          --make-bed/--make-{,b}pgen/--export and no other\n"
+"                          --make-bed/--make-[b]pgen/--export and no other\n"
 "                          commands.\n"
 "                        * By default, this only affects variants marked as\n"
 "                          having 'provisional' reference alleles.  Add 'force'\n"
@@ -1854,7 +1854,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --alt1-allele ['force'] <filename> [alt1col] [IDcol] [skip] :\n"
 "    These set the alleles specified in the file to ref (--ref-allele) or alt1\n"
 "    (--alt1-allele).  They can be combined in the same run.\n"
-"    * These can only be used in runs with --make-bed/--make-{,b}pgen/--export\n"
+"    * These can only be used in runs with --make-bed/--make-[b]pgen/--export\n"
 "      and no other commands.\n"
 "    * \"--ref-allele <VCF filename> 4 3 '#'\", which scrapes reference allele\n"
 "      assignments from a VCF file, is especially useful.\n"
@@ -1938,7 +1938,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       (default 0.999).\n"
                );
     HelpPrint("glm\0linear\0logistic\0score\0xchr-model\0", &help_ctrl, 0,
-"  --xchr-model <m>   : Set the chrX --glm/--condition{,-list}/--score model.\n"
+"  --xchr-model <m>   : Set the chrX --glm/--condition[-list]/--score model.\n"
 "                       * '0' = skip chrX.\n"
 "                       * '1' = add sex as a covar on chrX, code males 0..1.\n"
 "                       * '2' (default) = chrX sex covar, code males 0..2.\n"
@@ -1952,7 +1952,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    way as they do on --adjust-file.\n"
                );
     HelpPrint("adjust\0adjust-file\0lambda\0", &help_ctrl, 0,
-"  --lambda                   : Set genomic control lambda for --adjust{,-file}.\n"
+"  --lambda                   : Set genomic control lambda for --adjust[-file].\n"
                );
     HelpPrint("adjust-chr-field\0adjust-pos-field\0adjust-id-field\0adjust-ref-field\0adjust-alt-field\0adjust-a1-field\0adjust-test-field\0adjust-p-field\0adjust-file\0", &help_ctrl, 0,
 "  --adjust-chr-field <n...>  : Set --adjust-file input field names.  When\n"

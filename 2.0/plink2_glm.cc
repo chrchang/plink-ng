@@ -9680,7 +9680,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     const uint32_t output_zst = (glm_flags / kfGlmZs) & 1;
     const uint32_t perm_adapt = (glm_flags / kfGlmPerm) & 1;
     const uint32_t perms_total = perm_adapt? aperm_ptr->max : glm_info_ptr->mperm_ct;
-    // <output prefix>.<pheno name>.glm.logistic.hybrid{,.perm,.mperm}{,.zst}
+    // <output prefix>.<pheno name>.glm.logistic.hybrid{,.perm,.mperm}[.zst]
     uint32_t pheno_name_blen_capacity = kPglFnamesize - 21 - (4 * output_zst) - S_CAST(uintptr_t, outname_end - outname);
     if (perms_total) {
       pheno_name_blen_capacity -= 6 - perm_adapt;
@@ -9832,7 +9832,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         assert(g_bigstack_end == bigstack_end_mark);
         const uint32_t condition_multiallelic = (glm_flags / kfGlmConditionMultiallelic) & 1;
         if (condition_multiallelic) {
-          logerrputs("Error: --condition{,-list} 'multiallelic' implementation is under development.\n");
+          logerrputs("Error: --condition[-list] 'multiallelic' implementation is under development.\n");
           reterr = kPglRetNotYetSupported;
           goto GlmMain_ret_1;
         }
@@ -9964,7 +9964,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             if (allele_idx_offsets) {
               allele_ct = allele_idx_offsets[cur_variant_uidx + 1] - allele_idx_offsets[cur_variant_uidx];
               if ((allele_ct != 2) && (!condition_multiallelic)) {
-                logerrputs("Error: --condition{,-list} includes a multiallelic variant, but 'multiallelic'\nmodifier was not specified.\n");
+                logerrputs("Error: --condition[-list] includes a multiallelic variant, but 'multiallelic'\nmodifier was not specified.\n");
                 goto GlmMain_ret_INCONSISTENT_INPUT;
               }
             }
@@ -10028,7 +10028,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               if (chr_idx == cip->xymt_codes[kChrOffsetX]) {
                 if (xchr_model == 1) {
                   if (unlikely(glm_flags & (kfGlmConditionDominant | kfGlmConditionRecessive))) {
-                    logerrputs("Error: --condition{,-list} 'dominant'/'recessive' cannot be used with a chrX\nvariant when \"--xchr-model 1\" is in effect.\n");
+                    logerrputs("Error: --condition[-list] 'dominant'/'recessive' cannot be used with a chrX\nvariant when \"--xchr-model 1\" is in effect.\n");
                     goto GlmMain_ret_INCONSISTENT_INPUT;
                   }
                   uintptr_t sample_uidx_base = 0;
@@ -10040,7 +10040,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
                 }
               } else {
                 if (unlikely(glm_flags & (kfGlmConditionDominant | kfGlmConditionRecessive))) {
-                  logerrputs("Error: --condition{,-list} 'dominant'/'recessive' cannot be used with haploid\nvariants.\n");
+                  logerrputs("Error: --condition[-list] 'dominant'/'recessive' cannot be used with haploid\nvariants.\n");
                   goto GlmMain_ret_INCONSISTENT_INPUT;
                 }
                 for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
@@ -10062,7 +10062,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       memcpy(&(new_covar_cols[condition_ct + local_covar_ct]), covar_cols, orig_covar_ct * sizeof(PhenoCol));
       const char* covar_names_read_iter = covar_names;
       // bugfix (11 May 2017): local covar names come before, not after,
-      //   --condition{,-list} covar names
+      //   --condition[-list] covar names
       char* covar_names_write_iter = new_covar_names;
       for (uint32_t local_covar_idx = 0; local_covar_idx != local_covar_ct; ++local_covar_idx) {
         memcpy_k(covar_names_write_iter, "LOCAL", 5);
