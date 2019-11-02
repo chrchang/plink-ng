@@ -4595,6 +4595,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     uint32_t ref_allele_idx = 0;
     uint32_t alt1_allele_idx = 1;
     uint32_t allele_ct = 2;
+    uint32_t invalid_allele_code_seen = 0;
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
       // a lot of this is redundant with write_pvar(), may want to factor the
       // commonalities out
@@ -4658,11 +4659,17 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       }
       if (cur_alleles[ref_allele_idx] != dot_ptr) {
         write_iter = strcpya(write_iter, cur_alleles[ref_allele_idx]);
+        if (!invalid_allele_code_seen) {
+          invalid_allele_code_seen = !ValidVcfAlleleCode(cur_alleles[ref_allele_idx]);
+        }
       } else {
         *write_iter++ = 'N';
       }
       *write_iter++ = '\t';
       write_iter = strcpya(write_iter, cur_alleles[alt1_allele_idx]);
+      if (!invalid_allele_code_seen) {
+        invalid_allele_code_seen = !ValidVcfAlleleCode(cur_alleles[alt1_allele_idx]);
+      }
       if (unlikely(bgzfwrite_ck(writebuf_flush, &bgzf, &write_iter))) {
         goto ExportVcf_ret_WRITE_FAIL;
       }
@@ -4676,6 +4683,9 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
           }
           *write_iter++ = ',';
           write_iter = strcpya(write_iter, cur_alleles[cur_allele_uidx]);
+          if (!invalid_allele_code_seen) {
+            invalid_allele_code_seen = !ValidVcfAlleleCode(cur_alleles[cur_allele_uidx]);
+          }
           if (unlikely(bgzfwrite_ck(writebuf_flush, &bgzf, &write_iter))) {
             goto ExportVcf_ret_WRITE_FAIL;
           }
@@ -6018,6 +6028,9 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     }
     fputs("\b\b", stdout);
     logputs("done.\n");
+    if (invalid_allele_code_seen) {
+      logerrputs("Warning: At least one VCF allele code violates the official specification;\nother tools may not accept the file.  (Valid codes must either start with a\n'<', only contain characters in {A,C,G,T,N,a,c,g,t,n}, be an isolated '*', or\nrepresent a breakend.)\n");
+    }
   }
   while (0) {
   ExportVcf_ret_NOMEM:
