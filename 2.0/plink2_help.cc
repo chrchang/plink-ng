@@ -118,7 +118,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     // decompression was too slow
     // Zstd should have the necessary x86 performance characteristics, though
     HelpPrint("pfile\0pgen\0bfile\0bed\0", &help_ctrl, 1,
-"  --pfile <prefix> ['vzs']  : Specify .pgen + .pvar{|.zst} + .psam prefix.\n"
+"  --pfile <prefix> ['vzs']  : Specify .pgen + .pvar[.zst] + .psam prefix.\n"
 "  --pgen <filename>         : Specify full name of .pgen/.bed file.\n"
                );
     HelpPrint("pfile\0pgen\0pvar\0psam\0bfile\0bed\0bim\0fam\0dosage\0", &help_ctrl, 1,
@@ -128,8 +128,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --psam <filename>         : Specify full name of .psam/.fam file.\n\n"
                );
     HelpPrint("bfile\0bpfile\0bed\0bim\0fam\0", &help_ctrl, 1,
-"  --bfile  <prefix> ['vzs'] : Specify .bed + .bim{|.zst} + .fam prefix.\n"
-"  --bpfile <prefix> ['vzs'] : Specify .pgen + .bim{|.zst} + .fam prefix.\n\n"
+"  --bfile  <prefix> ['vzs'] : Specify .bed + .bim[.zst] + .fam prefix.\n"
+"  --bpfile <prefix> ['vzs'] : Specify .pgen + .bim[.zst] + .fam prefix.\n\n"
                );
     HelpPrint("vcf\0bcf\0keep-autoconv\0", &help_ctrl, 1,
 "  --keep-autoconv    : When importing non-PLINK-binary data, don't delete\n"
@@ -169,7 +169,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --bgen <filename> [REF/ALT mode] ['snpid-chr']\n"
 "  --gen <filename> [REF/ALT mode]\n"
 "  --sample <filename> :\n"
-"    Specify an Oxford-format dataset to import.  --data specifies a .gen{|.zst}\n"
+"    Specify an Oxford-format dataset to import.  --data specifies a .gen[.zst]\n"
 "    + .sample pair, while --bgen specifies a BGEN v1.1+ file.\n"
 "    * If a BGEN v1.2+ file contains sample IDs, it may be imported without a\n"
 "      companion .sample file.\n"
@@ -300,8 +300,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --make-bed ['vzs'] [{trim-alts | erase-alt2+}]\n"
 "             ['multiallelics='<split mode>]\n"
                */
-"    Create a new PLINK binary fileset (--make-pgen = .pgen + .pvar{|.zst} +\n"
-"    .psam, --make-bpgen = .pgen + .bim{|.zst} + .fam).\n"
+"    Create a new PLINK binary fileset (--make-pgen = .pgen + .pvar[.zst] +\n"
+"    .psam, --make-bpgen = .pgen + .bim[.zst] + .fam).\n"
 "    * Unlike the automatic text-to-binary converters (which only heed\n"
 "      chromosome filters), this supports all of PLINK's filtering flags.\n"
 "    * The 'vzs' modifier causes the variant file (.pvar/.bim) to be\n"
@@ -763,7 +763,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * By default, if one genotype is missing and the other isn't, that doesn't\n"
 "      count as a difference; this can be changed with 'include-missing'.\n"
 "    * By default, a single main report is written to\n"
-"      <output prefix>{|.<base ID>}.sdiff.  To write separate pairwise\n"
+"      <output prefix>[.<base ID>].sdiff.  To write separate pairwise\n"
 "      <output prefix>.<ID1>.<ID2>.sdiff reports for each compared ID pair, add\n"
 "      the 'pairwise' modifier.  To omit the main report, add the 'counts-only'\n"
 "      modifier.  (Note that, if you're only interested in nonmissing autosomal\n"
@@ -1122,7 +1122,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      skip them instead (a warning is still printed if such variants are\n"
 "      present).\n"
 "    * The 'list-variants[-zs]' modifier causes variant IDs used for scoring to\n"
-"      be written to <output prefix>.sscore.vars{|.zst}.\n"
+"      be written to <output prefix>.sscore.vars[.zst].\n"
 "    The main report supports the following column sets:\n"
 "      maybefid: FID, if that column was in the input.\n"
 "      fid: Force FID column to be written even when absent in the input.\n"
