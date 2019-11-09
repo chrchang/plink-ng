@@ -375,7 +375,7 @@ void RPgenReader::ReadAlleles(IntegerMatrix acbuf, Nullable<LogicalVector> phase
   if (!_info_ptr) {
     stop("pgen is closed");
   }
-  if ((acbuf.nrow() != 2) || (acbuf.ncol() != _subset_size)) {
+  if ((acbuf.nrow() != 2) || (acbuf.ncol() != static_cast<int>(_subset_size))) {
     char errstr_buf[256];
     sprintf(errstr_buf, "acbuf has wrong size (%dx%d; 2x%u expected)", acbuf.nrow(), acbuf.ncol(), _subset_size);
     stop(errstr_buf);
@@ -457,7 +457,7 @@ void RPgenReader::ReadAllelesNumeric(NumericMatrix acbuf, Nullable<LogicalVector
   if (!_info_ptr) {
     stop("pgen is closed");
   }
-  if ((acbuf.nrow() != 2) || (acbuf.ncol() != _subset_size)) {
+  if ((acbuf.nrow() != 2) || (acbuf.ncol() != static_cast<int>(_subset_size))) {
     char errstr_buf[256];
     sprintf(errstr_buf, "acbuf has wrong size (%dx%d; 2x%u expected)", acbuf.nrow(), acbuf.ncol(), _subset_size);
     stop(errstr_buf);

@@ -4822,7 +4822,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     common->dosage_mains = nullptr;
     uint32_t read_block_size;
     uintptr_t max_alt_allele_block_size;
-    if (unlikely(PgenMtLoadInit(variant_include, max_sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, per_variant_xalloc_byte_ct, per_alt_allele_xalloc_byte_ct, pgfip, &calc_thread_ct, &common->genovecs, max_extra_allele_ct? (&common->thread_mhc) : nullptr, nullptr, nullptr, dosage_is_present? (&common->dosage_presents) : nullptr, dosage_is_present? (&common->dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, &max_alt_allele_block_size, main_loadbufs, nullptr, &common->pgr_ptrs, &common->read_variant_uidx_starts))) {
+    if (unlikely(PgenMtLoadInit(variant_include, max_sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, per_variant_xalloc_byte_ct, per_alt_allele_xalloc_byte_ct, pgfip, &calc_thread_ct, &common->genovecs, max_extra_allele_ct? (&common->thread_mhc) : nullptr, nullptr, nullptr, dosage_is_present? (&common->dosage_presents) : nullptr, dosage_is_present? (&common->dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, &max_alt_allele_block_size, main_loadbufs, &common->pgr_ptrs, &common->read_variant_uidx_starts))) {
       goto GlmLogistic_ret_NOMEM;
     }
     if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
@@ -4993,8 +4993,6 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     // 7. Goto step 2 unless eof
     //
     // 8, Write results for last block
-    const uint32_t read_block_sizel = BitCtToWordCt(read_block_size);
-    const uint32_t read_block_ct_m1 = (raw_variant_ct - 1) / read_block_size;
     uintptr_t write_variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
     uint32_t parity = 0;
@@ -5010,7 +5008,6 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
 
     const char* const* cur_test_names = nullptr;
     uint32_t prev_block_variant_ct = 0;
-    uint32_t cur_read_block_size = read_block_size;
     uint32_t pct = 0;
     uint32_t next_print_variant_idx = variant_ct / 100;
     uint32_t allele_ct = 2;
@@ -5020,28 +5017,16 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     fputs("0%", stdout);
     fflush(stdout);
     for (uint32_t variant_idx = 0; ; ) {
-      uintptr_t cur_block_variant_ct = 0;
-      if (!IsLastBlock(&tg)) {
-        for (; ; ++read_block_idx) {
-          if (read_block_idx == read_block_ct_m1) {
-            cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
-            cur_block_variant_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), BitCtToWordCt(cur_read_block_size));
-            break;
-          }
-          cur_block_variant_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), read_block_sizel);
-          if (cur_block_variant_ct) {
-            break;
-          }
-        }
-        reterr = PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, pgfip);
+      const uint32_t cur_block_variant_ct = MultireadNonempty(variant_include, &tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
+      if (unlikely(reterr)) {
+        goto GlmLogistic_ret_PGR_FAIL;
+      }
+      if (local_covar_ct && cur_block_variant_ct) {
+        const uint32_t uidx_start = read_block_idx * read_block_size;
+        const uint32_t uidx_end = MINV(raw_variant_ct, uidx_start + read_block_size);
+        reterr = ReadLocalCovarBlock(common->sample_include, common->sample_include_x, common->sample_include_y, common->sample_include_cumulative_popcounts, common->sample_include_x_cumulative_popcounts, common->sample_include_y_cumulative_popcounts, cip, variant_include, local_sample_uidx_order, local_variant_include, sample_ct, sample_ct_x, sample_ct_y, uidx_start, uidx_end, cur_block_variant_ct, local_sample_ct, local_covar_ct, (glm_info_ptr->flags / kfGlmLocalOmitLast) & 1, glm_info_ptr->local_cat_ct, local_covar_txsp, &local_line_idx, &local_xy, ctx->local_covars_vcmaj_f[parity], nullptr, local_sample_idx_order);
         if (unlikely(reterr)) {
-          goto GlmLogistic_ret_PGR_FAIL;
-        }
-        if (local_covar_ct) {
-          reterr = ReadLocalCovarBlock(common->sample_include, common->sample_include_x, common->sample_include_y, common->sample_include_cumulative_popcounts, common->sample_include_x_cumulative_popcounts, common->sample_include_y_cumulative_popcounts, cip, variant_include, local_sample_uidx_order, local_variant_include, sample_ct, sample_ct_x, sample_ct_y, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, local_sample_ct, local_covar_ct, (glm_info_ptr->flags / kfGlmLocalOmitLast) & 1, glm_info_ptr->local_cat_ct, local_covar_txsp, &local_line_idx, &local_xy, ctx->local_covars_vcmaj_f[parity], nullptr, local_sample_idx_order);
-          if (unlikely(reterr)) {
-            goto GlmLogistic_ret_1;
-          }
+          goto GlmLogistic_ret_1;
         }
       }
       if (variant_idx) {
@@ -6895,7 +6880,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     common->dosage_mains = nullptr;
     uint32_t read_block_size;
     uintptr_t max_alt_allele_block_size;
-    if (unlikely(PgenMtLoadInit(variant_include, max_sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, per_variant_xalloc_byte_ct, per_alt_allele_xalloc_byte_ct, pgfip, &calc_thread_ct, &common->genovecs, max_extra_allele_ct? (&common->thread_mhc) : nullptr, nullptr, nullptr, dosage_is_present? (&common->dosage_presents) : nullptr, dosage_is_present? (&common->dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, &max_alt_allele_block_size, main_loadbufs, nullptr, &common->pgr_ptrs, &common->read_variant_uidx_starts))) {
+    if (unlikely(PgenMtLoadInit(variant_include, max_sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, per_variant_xalloc_byte_ct, per_alt_allele_xalloc_byte_ct, pgfip, &calc_thread_ct, &common->genovecs, max_extra_allele_ct? (&common->thread_mhc) : nullptr, nullptr, nullptr, dosage_is_present? (&common->dosage_presents) : nullptr, dosage_is_present? (&common->dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, &max_alt_allele_block_size, main_loadbufs, &common->pgr_ptrs, &common->read_variant_uidx_starts))) {
       goto GlmLinear_ret_NOMEM;
     }
     if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
@@ -7034,8 +7019,6 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     // 7. Goto step 2 unless eof
     //
     // 8, Write results for last block
-    const uint32_t read_block_sizel = BitCtToWordCt(read_block_size);
-    const uint32_t read_block_ct_m1 = (raw_variant_ct - 1) / read_block_size;
     uintptr_t write_variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
     uint32_t parity = 0;
@@ -7052,7 +7035,6 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
 
     const char* const* cur_test_names = nullptr;
     uint32_t prev_block_variant_ct = 0;
-    uint32_t cur_read_block_size = read_block_size;
     uint32_t pct = 0;
     uint32_t next_print_variant_idx = variant_ct / 100;
     uint32_t allele_ct = 2;
@@ -7062,28 +7044,16 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     fputs("0%", stdout);
     fflush(stdout);
     for (uint32_t variant_idx = 0; ; ) {
-      uintptr_t cur_block_variant_ct = 0;
-      if (!IsLastBlock(&tg)) {
-        for (; ; ++read_block_idx) {
-          if (read_block_idx == read_block_ct_m1) {
-            cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
-            cur_block_variant_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), BitCtToWordCt(cur_read_block_size));
-            break;
-          }
-          cur_block_variant_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), read_block_sizel);
-          if (cur_block_variant_ct) {
-            break;
-          }
-        }
-        reterr = PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, pgfip);
+      const uint32_t cur_block_variant_ct = MultireadNonempty(variant_include, &tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
+      if (unlikely(reterr)) {
+        goto GlmLinear_ret_PGR_FAIL;
+      }
+      if (local_covar_ct && cur_block_variant_ct) {
+        const uint32_t uidx_start = read_block_idx * read_block_size;
+        const uint32_t uidx_end = MINV(raw_variant_ct, uidx_start + read_block_size);
+        reterr = ReadLocalCovarBlock(common->sample_include, common->sample_include_x, common->sample_include_y, common->sample_include_cumulative_popcounts, common->sample_include_x_cumulative_popcounts, common->sample_include_y_cumulative_popcounts, cip, variant_include, local_sample_uidx_order, local_variant_include, sample_ct, sample_ct_x, sample_ct_y, uidx_start, uidx_end, cur_block_variant_ct, local_sample_ct, local_covar_ct, (glm_info_ptr->flags / kfGlmLocalOmitLast) & 1, glm_info_ptr->local_cat_ct, local_covar_txsp, &local_line_idx, &local_xy, nullptr, ctx->local_covars_vcmaj_d[parity], local_sample_idx_order);
         if (unlikely(reterr)) {
-          goto GlmLinear_ret_PGR_FAIL;
-        }
-        if (local_covar_ct) {
-          reterr = ReadLocalCovarBlock(common->sample_include, common->sample_include_x, common->sample_include_y, common->sample_include_cumulative_popcounts, common->sample_include_x_cumulative_popcounts, common->sample_include_y_cumulative_popcounts, cip, variant_include, local_sample_uidx_order, local_variant_include, sample_ct, sample_ct_x, sample_ct_y, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, local_sample_ct, local_covar_ct, (glm_info_ptr->flags / kfGlmLocalOmitLast) & 1, glm_info_ptr->local_cat_ct, local_covar_txsp, &local_line_idx, &local_xy, nullptr, ctx->local_covars_vcmaj_d[parity], local_sample_idx_order);
-          if (unlikely(reterr)) {
-            goto GlmLinear_ret_1;
-          }
+          goto GlmLinear_ret_1;
         }
       }
       if (variant_idx) {
@@ -8937,7 +8907,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
         continue;
       }
       bytes_avail -= cstream_alloc_size * subbatch_size;
-      if (!PgenMtLoadInit(variant_include, max_sample_ct, variant_ct, bytes_avail, pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, per_variant_xalloc_byte_ct, per_alt_allele_xalloc_byte_ct, pgfip, &calc_thread_ct, &common->genovecs, max_extra_allele_ct? (&common->thread_mhc) : nullptr, nullptr, nullptr, dosage_is_present? (&common->dosage_presents) : nullptr, dosage_is_present? (&common->dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, &max_alt_allele_block_size, main_loadbufs, nullptr, &common->pgr_ptrs, &common->read_variant_uidx_starts)) {
+      if (!PgenMtLoadInit(variant_include, max_sample_ct, variant_ct, bytes_avail, pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, per_variant_xalloc_byte_ct, per_alt_allele_xalloc_byte_ct, pgfip, &calc_thread_ct, &common->genovecs, max_extra_allele_ct? (&common->thread_mhc) : nullptr, nullptr, nullptr, dosage_is_present? (&common->dosage_presents) : nullptr, dosage_is_present? (&common->dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, &max_alt_allele_block_size, main_loadbufs, &common->pgr_ptrs, &common->read_variant_uidx_starts)) {
         break;
       }
     }
@@ -9115,8 +9085,6 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
       // 7. Goto step 2 unless eof
       //
       // 8, Write results for last block
-      const uint32_t read_block_sizel = BitCtToWordCt(read_block_size);
-      const uint32_t read_block_ct_m1 = (raw_variant_ct - 1) / read_block_size;
       uintptr_t write_variant_uidx_base = 0;
       uintptr_t cur_bits = variant_include[0];
       uint32_t parity = 0;
@@ -9133,7 +9101,6 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
 
       const char* const* cur_test_names = nullptr;
       uint32_t prev_block_variant_ct = 0;
-      uint32_t cur_read_block_size = read_block_size;
       uint32_t pct = 0;
       uint32_t next_print_variant_idx = variant_ct / 100;
       uint32_t allele_ct = 2;
@@ -9149,28 +9116,16 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
       pgfip->block_base = main_loadbufs[0];
       ReinitThreads(&tg);
       for (uint32_t variant_idx = 0; ; ) {
-        uintptr_t cur_block_variant_ct = 0;
-        if (!IsLastBlock(&tg)) {
-          for (; ; ++read_block_idx) {
-            if (read_block_idx == read_block_ct_m1) {
-              cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
-              cur_block_variant_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), BitCtToWordCt(cur_read_block_size));
-              break;
-            }
-            cur_block_variant_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), read_block_sizel);
-            if (cur_block_variant_ct) {
-              break;
-            }
-          }
-          reterr = PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, pgfip);
+        const uint32_t cur_block_variant_ct = MultireadNonempty(variant_include, &tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
+        if (unlikely(reterr)) {
+          goto GlmLinearBatch_ret_PGR_FAIL;
+        }
+        if (local_covar_ct && cur_block_variant_ct) {
+          const uint32_t uidx_start = read_block_idx * read_block_size;
+          const uint32_t uidx_end = MINV(raw_variant_ct, uidx_start + read_block_size);
+          reterr = ReadLocalCovarBlock(common->sample_include, common->sample_include_x, common->sample_include_y, common->sample_include_cumulative_popcounts, common->sample_include_x_cumulative_popcounts, common->sample_include_y_cumulative_popcounts, cip, variant_include, local_sample_uidx_order, local_variant_include, sample_ct, sample_ct_x, sample_ct_y, uidx_start, uidx_end, cur_block_variant_ct, local_sample_ct, local_covar_ct, (glm_info_ptr->flags / kfGlmLocalOmitLast) & 1, glm_info_ptr->local_cat_ct, local_covar_txsp, &local_line_idx, &local_xy, nullptr, ctx->local_covars_vcmaj_d[parity], local_sample_idx_order);
           if (unlikely(reterr)) {
-            goto GlmLinearBatch_ret_PGR_FAIL;
-          }
-          if (local_covar_ct) {
-            reterr = ReadLocalCovarBlock(common->sample_include, common->sample_include_x, common->sample_include_y, common->sample_include_cumulative_popcounts, common->sample_include_x_cumulative_popcounts, common->sample_include_y_cumulative_popcounts, cip, variant_include, local_sample_uidx_order, local_variant_include, sample_ct, sample_ct_x, sample_ct_y, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_variant_ct, local_sample_ct, local_covar_ct, (glm_info_ptr->flags / kfGlmLocalOmitLast) & 1, glm_info_ptr->local_cat_ct, local_covar_txsp, &local_line_idx, &local_xy, nullptr, ctx->local_covars_vcmaj_d[parity], local_sample_idx_order);
-            if (unlikely(reterr)) {
-              goto GlmLinearBatch_ret_1;
-            }
+            goto GlmLinearBatch_ret_1;
           }
         }
         if (variant_idx) {

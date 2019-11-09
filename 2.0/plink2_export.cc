@@ -635,7 +635,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
       STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
       uint32_t read_block_size;
       // note that this is restricted to half of available workspace
-      if (unlikely(PgenMtLoadInit(variant_include, sample_ct, variant_ct, bigstack_left() / 2, pgr_alloc_cacheline_ct, 0, 0, 0, pgfip, &calc_thread_ct, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, nullptr, &read_ctx.pgr_ptrs, &read_ctx.variant_uidx_starts))) {
+      if (unlikely(PgenMtLoadInit(variant_include, sample_ct, variant_ct, bigstack_left() / 2, pgr_alloc_cacheline_ct, 0, 0, 0, pgfip, &calc_thread_ct, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &read_ctx.pgr_ptrs, &read_ctx.variant_uidx_starts))) {
         goto ExportIndMajorBed_ret_NOMEM;
       }
       if (unlikely(SetThreadCt(calc_thread_ct, &read_tg))) {
@@ -698,8 +698,6 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
       uint32_t sample_uidx_start = AdvTo1Bit(orig_sample_include, 0);
       const uintptr_t variant_ct4 = NypCtToByteCt(variant_ct);
       const uintptr_t variant_ctaclw2 = variant_cacheline_ct * kWordsPerCacheline;
-      const uint32_t read_block_sizel = BitCtToWordCt(read_block_size);
-      const uint32_t read_block_ct_m1 = (raw_variant_ct - 1) / read_block_size;
       const uint32_t pass_ct = 1 + (sample_ct - 1) / read_sample_ct;
       for (uint32_t pass_idx = 0; pass_idx != pass_ct; ++pass_idx) {
         memcpy(sample_include, orig_sample_include, raw_sample_ctl * sizeof(intptr_t));
@@ -726,7 +724,6 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
         }
         uint32_t parity = 0;
         uint32_t read_block_idx = 0;
-        uint32_t cur_read_block_size = read_block_size;
         ReinitThreads(&read_tg);
         uint32_t pct = 0;
         uint32_t next_print_idx = variant_ct / 100;
@@ -734,23 +731,9 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
         printf("--export ind-major-bed pass %u/%u: loading... 0%%", pass_idx + 1, pass_ct);
         fflush(stdout);
         for (uint32_t variant_idx = 0; ; ) {
-          uintptr_t cur_block_write_ct = 0;
-          if (!IsLastBlock(&read_tg)) {
-            for (; ; ++read_block_idx) {
-              if (read_block_idx == read_block_ct_m1) {
-                cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
-                cur_block_write_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), BitCtToWordCt(cur_read_block_size));
-                break;
-              }
-              cur_block_write_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), read_block_sizel);
-              if (cur_block_write_ct) {
-                break;
-              }
-            }
-            reterr = PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_write_ct, pgfip);
-            if (unlikely(reterr)) {
-              goto ExportIndMajorBed_ret_PGR_FAIL;
-            }
+          const uint32_t cur_block_write_ct = MultireadNonempty(variant_include, &read_tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
+          if (unlikely(reterr)) {
+            goto ExportIndMajorBed_ret_PGR_FAIL;
           }
           if (variant_idx) {
             JoinThreads(&read_tg);
@@ -1817,7 +1800,7 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
     ctx.dosage_presents = nullptr;
     ctx.dosage_mains = nullptr;
     uint32_t read_block_size;
-    if (unlikely(PgenMtLoadInit(variant_include, sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, &ctx.genovecs, nullptr, nullptr, nullptr, dosage_is_present? (&ctx.dosage_presents) : nullptr, dosage_is_present? (&ctx.dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, nullptr, &ctx.pgr_ptrs, &ctx.read_variant_uidx_starts))) {
+    if (unlikely(PgenMtLoadInit(variant_include, sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, &ctx.genovecs, nullptr, nullptr, nullptr, dosage_is_present? (&ctx.dosage_presents) : nullptr, dosage_is_present? (&ctx.dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &ctx.pgr_ptrs, &ctx.read_variant_uidx_starts))) {
       goto ExportBgen11_ret_NOMEM;
     }
     if (read_block_size > max_write_block_size) {
@@ -1872,8 +1855,6 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
     // 7. Goto step 2 unless eof
     //
     // 8. Write results for last block
-    const uint32_t read_block_sizel = BitCtToWordCt(read_block_size);
-    const uint32_t read_block_ct_m1 = (raw_variant_ct - 1) / read_block_size;
     uintptr_t write_variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
     uint32_t parity = 0;
@@ -1883,7 +1864,6 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
     uint32_t chr_slen = 0;
 
     uint32_t prev_block_write_ct = 0;
-    uint32_t cur_read_block_size = read_block_size;
     uint32_t pct = 0;
     uint32_t next_print_variant_idx = variant_ct / 100;
     logprintfww5("Writing %s ... ", outname);
@@ -1892,23 +1872,9 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
     uint32_t ref_allele_idx = 0;
     uint32_t alt1_allele_idx = 1;
     for (uint32_t variant_idx = 0; ; ) {
-      uintptr_t cur_block_write_ct = 0;
-      if (!IsLastBlock(&tg)) {
-        for (; ; ++read_block_idx) {
-          if (read_block_idx == read_block_ct_m1) {
-            cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
-            cur_block_write_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), BitCtToWordCt(cur_read_block_size));
-            break;
-          }
-          cur_block_write_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), read_block_sizel);
-          if (cur_block_write_ct) {
-            break;
-          }
-        }
-        reterr = PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_write_ct, pgfip);
-        if (unlikely(reterr)) {
-          goto ExportBgen11_ret_PGR_FAIL;
-        }
+      const uint32_t cur_block_write_ct = MultireadNonempty(variant_include, &tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
+      if (unlikely(reterr)) {
+        goto ExportBgen11_ret_PGR_FAIL;
       }
       if (variant_idx) {
         JoinThreads(&tg);
@@ -3466,7 +3432,7 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
     ctx.dphase_presents = nullptr;
     ctx.dphase_deltas = nullptr;
     uint32_t read_block_size;
-    if (unlikely(PgenMtLoadInit(variant_include, sample_ct, raw_variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, &ctx.genovecs, nullptr, phase_is_present? (&ctx.phasepresents) : nullptr, phase_is_present? (&ctx.phaseinfos) : nullptr, dosage_is_present? (&ctx.dosage_presents) : nullptr, dosage_is_present? (&ctx.dosage_mains) : nullptr, phase_is_present? (&ctx.dphase_presents) : nullptr, phase_is_present? (&ctx.dphase_deltas) : nullptr, &read_block_size, nullptr, main_loadbufs, nullptr, &ctx.pgr_ptrs, &ctx.read_variant_uidx_starts))) {
+    if (unlikely(PgenMtLoadInit(variant_include, sample_ct, raw_variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, &ctx.genovecs, nullptr, phase_is_present? (&ctx.phasepresents) : nullptr, phase_is_present? (&ctx.phaseinfos) : nullptr, dosage_is_present? (&ctx.dosage_presents) : nullptr, dosage_is_present? (&ctx.dosage_mains) : nullptr, phase_is_present? (&ctx.dphase_presents) : nullptr, phase_is_present? (&ctx.dphase_deltas) : nullptr, &read_block_size, nullptr, main_loadbufs, &ctx.pgr_ptrs, &ctx.read_variant_uidx_starts))) {
       goto ExportBgen13_ret_NOMEM;
     }
     // Ran this with and without --memory 640 on a 1000G phase 1 dataset
@@ -3517,8 +3483,6 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
     // 7. Goto step 2 unless eof
     //
     // 8. Write results for last block
-    const uint32_t read_block_sizel = BitCtToWordCt(read_block_size);
-    const uint32_t read_block_ct_m1 = (raw_variant_ct - 1) / read_block_size;
     uintptr_t write_variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
     uint32_t parity = 0;
@@ -3528,7 +3492,6 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
     uint32_t chr_slen = 0;
 
     uint32_t prev_block_write_ct = 0;
-    uint32_t cur_read_block_size = read_block_size;
     uint32_t pct = 0;
     uint32_t next_print_variant_idx = variant_ct / 100;
     logprintfww5("Writing %s ... ", outname);
@@ -3538,23 +3501,9 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
     uint32_t alt1_allele_idx = 1;
     uint32_t allele_ct = 2;
     for (uint32_t variant_idx = 0; ; ) {
-      uintptr_t cur_block_write_ct = 0;
-      if (!IsLastBlock(&tg)) {
-        for (; ; ++read_block_idx) {
-          if (read_block_idx == read_block_ct_m1) {
-            cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
-            cur_block_write_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), BitCtToWordCt(cur_read_block_size));
-            break;
-          }
-          cur_block_write_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), read_block_sizel);
-          if (cur_block_write_ct) {
-            break;
-          }
-        }
-        reterr = PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_write_ct, pgfip);
-        if (unlikely(reterr)) {
-          goto ExportBgen13_ret_PGR_FAIL;
-        }
+      const uint32_t cur_block_write_ct = MultireadNonempty(variant_include, &tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
+      if (unlikely(reterr)) {
+        goto ExportBgen13_ret_PGR_FAIL;
       }
       if (variant_idx) {
         JoinThreads(&tg);
@@ -6388,7 +6337,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
     uint32_t read_block_size;
 
     // note that we only allow this to use 1/4 of remaining memory
-    if (unlikely(PgenMtLoadInit(variant_include, raw_sample_ct, variant_ct, bigstack_left() / 4, pgr_alloc_cacheline_ct, 0, 0, 0, pgfip, &calc_thread_ct, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, nullptr, &ctx.pgr_ptrs, &ctx.read_variant_uidx_starts))) {
+    if (unlikely(PgenMtLoadInit(variant_include, raw_sample_ct, variant_ct, bigstack_left() / 4, pgr_alloc_cacheline_ct, 0, 0, 0, pgfip, &calc_thread_ct, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &ctx.pgr_ptrs, &ctx.read_variant_uidx_starts))) {
       goto Export012Smaj_ret_NOMEM;
     }
 
@@ -6461,8 +6410,6 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
     const uintptr_t max_sample_id_blen = piip->sii.max_sample_id_blen;
     const uintptr_t max_paternal_id_blen = piip->parental_id_info.max_paternal_id_blen;
     const uintptr_t max_maternal_id_blen = piip->parental_id_info.max_maternal_id_blen;
-    const uint32_t read_block_sizel = BitCtToWordCt(read_block_size);
-    const uint32_t read_block_ct_m1 = (raw_variant_ct - 1) / read_block_size;
     uint32_t sample_uidx_start = AdvTo1Bit(orig_sample_include, 0);
     for (uint32_t pass_idx = 0; pass_idx != pass_ct; ++pass_idx) {
       memcpy(sample_include, orig_sample_include, raw_sample_ctl * sizeof(intptr_t));
@@ -6502,27 +6449,12 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
       // 6. Goto step 2 unless eof
       uint32_t parity = 0;
       uint32_t read_block_idx = 0;
-      uint32_t cur_read_block_size = read_block_size;
       uint32_t pct = 0;
       uint32_t next_print_idx = variant_ct / 100;
       for (uint32_t variant_idx = 0; ; ) {
-        uintptr_t cur_block_write_ct = 0;
-        if (!IsLastBlock(&tg)) {
-          for (; ; ++read_block_idx) {
-            if (read_block_idx == read_block_ct_m1) {
-              cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
-              cur_block_write_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), BitCtToWordCt(cur_read_block_size));
-              break;
-            }
-            cur_block_write_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), read_block_sizel);
-            if (cur_block_write_ct) {
-              break;
-            }
-          }
-          reterr = PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_write_ct, pgfip);
-          if (unlikely(reterr)) {
-            goto Export012Smaj_ret_PGR_FAIL;
-          }
+        const uint32_t cur_block_write_ct = MultireadNonempty(variant_include, &tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
+        if (unlikely(reterr)) {
+          goto Export012Smaj_ret_PGR_FAIL;
         }
         if (variant_idx) {
           JoinThreads(&tg);

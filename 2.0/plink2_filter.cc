@@ -3412,7 +3412,7 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
     }
     STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
     uint32_t read_block_size;
-    if (unlikely(PgenMtLoadInit(variant_include, raw_sample_ct, raw_variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_alloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, &ctx.genovecs, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, nullptr, &ctx.pgr_ptrs, &ctx.read_variant_uidx_starts))) {
+    if (unlikely(PgenMtLoadInit(variant_include, raw_sample_ct, raw_variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_alloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, &ctx.genovecs, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &ctx.pgr_ptrs, &ctx.read_variant_uidx_starts))) {
       goto LoadSampleMissingCts_ret_NOMEM;
     }
     const uintptr_t acc1_alloc = acc1_alloc_cacheline_ct * kCacheline;
@@ -3438,31 +3438,13 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
     fflush(stdout);
     uint32_t pct = 0;
 
-    const uint32_t read_block_sizel = BitCtToWordCt(read_block_size);
-    const uint32_t read_block_ct_m1 = (raw_variant_ct - 1) / read_block_size;
     uint32_t parity = 0;
     uint32_t read_block_idx = 0;
-    uint32_t cur_read_block_size = read_block_size;
     uint32_t next_print_variant_idx = variant_ct / 100;
-
     for (uint32_t variant_idx = 0; ; ) {
-      uintptr_t cur_loaded_variant_ct = 0;
-      if (!IsLastBlock(&tg)) {
-        for (; ; ++read_block_idx) {
-          if (read_block_idx == read_block_ct_m1) {
-            cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
-            cur_loaded_variant_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), BitCtToWordCt(cur_read_block_size));
-            break;
-          }
-          cur_loaded_variant_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), read_block_sizel);
-          if (cur_loaded_variant_ct) {
-            break;
-          }
-        }
-        reterr = PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_loaded_variant_ct, pgfip);
-        if (unlikely(reterr)) {
-          goto LoadSampleMissingCts_ret_PGR_FAIL;
-        }
+      const uint32_t cur_loaded_variant_ct = MultireadNonempty(variant_include, &tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
+      if (unlikely(reterr)) {
+        goto LoadSampleMissingCts_ret_PGR_FAIL;
       }
       if (variant_idx) {
         JoinThreads(&tg);

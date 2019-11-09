@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (4 Nov 2019)";
+  " (8 Nov 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -87,9 +87,9 @@ static const char ver_str2[] =
 static const char errstr_append[] = "For more info, try \"" PROG_NAME_STR " --help <flag name>\" or \"" PROG_NAME_STR " --help | more\".\n";
 
 #ifndef NOLAPACK
-static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --indep-pairwise, --ld, --sample-diff,\n--make-king, --king-cutoff, --write-samples, --write-snplist, --make-grm-list,\n--pca, --glm, --adjust-file, --score, --genotyping-rate, --pgen-info,\n--validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --indep-pairwise, --ld, --sample-diff,\n--make-king, --king-cutoff, --write-samples, --write-snplist, --make-grm-list,\n--pca, --glm, --adjust-file, --score, --variant-score, --genotyping-rate,\n--pgen-info, --validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
 #else
-static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --indep-pairwise, --ld, --sample-diff,\n--make-king, --king-cutoff, --write-samples, --write-snplist, --make-grm-list,\n--glm, --adjust-file, --score, --genotyping-rate, --pgen-info, --validate, and\n--zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --indep-pairwise, --ld, --sample-diff,\n--make-king, --king-cutoff, --write-samples, --write-snplist, --make-grm-list,\n--glm, --adjust-file, --score, --variant-score, --genotyping-rate, --pgen-info,\n--validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
 #endif
 
 // covar-variance-standardize + terminating null
@@ -168,7 +168,8 @@ FLAGSET64_DEF_START()
   kfCommand1PgenInfo = (1 << 19),
   kfCommand1RmDupList = (1 << 20),
   kfCommand1Sdiff = (1 << 21),
-  kfCommand1SampleCounts = (1 << 22)
+  kfCommand1SampleCounts = (1 << 22),
+  kfCommand1Vscore = (1 << 23)
 FLAGSET64_DEF_END(Command1Flags);
 
 // this is a hybrid, only kfSortFileSid is actually a flag
@@ -297,6 +298,7 @@ typedef struct Plink2CmdlineStruct {
   RangeList exclude_snps_range_list;
   RangeList pheno_range_list;
   RangeList covar_range_list;
+  RangeList vscore_col_idx_range_list;
   FamCol fam_cols;
   UpdateSexInfo update_sex_info;
   LdInfo ld_info;
@@ -311,6 +313,7 @@ typedef struct Plink2CmdlineStruct {
   HardyFlags hardy_flags;
   SampleCountsFlags sample_counts_flags;
   RecoverVarIdsFlags recover_var_ids_flags;
+  VscoreFlags vscore_flags;
   RmDupMode rmdup_mode;
   STD_ARRAY_DECL(FreqFilterMode, 4, filter_modes);
   GlmInfo glm_info;
@@ -421,6 +424,7 @@ typedef struct Plink2CmdlineStruct {
   char* update_sample_ids_fname;
   char* update_parental_ids_fname;
   char* recover_var_ids_fname;
+  char* vscore_fname;
   TwoColParams* ref_allele_flag;
   TwoColParams* alt1_allele_flag;
   TwoColParams* update_map_flag;
@@ -446,7 +450,8 @@ uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, GlmFlags glm_flags) {
 // only needs to cover cases not captured by DecentAlleleFreqsAreNeeded() or
 // MajAllelesAreNeeded()
 uint32_t IndecentAlleleFreqsAreNeeded(Command1Flags command_flags1, double min_maf, double max_maf) {
-  return (command_flags1 & kfCommand1AlleleFreq) || (min_maf != 0.0) || (max_maf != 1.0);
+  // Vscore could go either here or in the decent bucket
+  return (command_flags1 & (kfCommand1AlleleFreq | kfCommand1Vscore)) || (min_maf != 0.0) || (max_maf != 1.0);
 }
 
 
@@ -2555,6 +2560,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_1;
         }
       }
+      if (pcp->command_flags1 & kfCommand1Vscore) {
+        reterr = Vscore(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, sample_include, &pii.sii, sex_male, allele_freqs, pcp->vscore_fname, &(pcp->vscore_col_idx_range_list), raw_variant_ct, variant_ct, raw_sample_ct, sample_ct, max_allele_slen, pcp->vscore_flags, pcp->xchr_model, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
       // eventually check for nonzero pheno_ct here?
 
       if (pcp->command_flags1 & kfCommand1Glm) {
@@ -3124,10 +3135,12 @@ int main(int argc, char** argv) {
   pc.update_sample_ids_fname = nullptr;
   pc.update_parental_ids_fname = nullptr;
   pc.recover_var_ids_fname = nullptr;
+  pc.vscore_fname = nullptr;
   InitRangeList(&pc.snps_range_list);
   InitRangeList(&pc.exclude_snps_range_list);
   InitRangeList(&pc.pheno_range_list);
   InitRangeList(&pc.covar_range_list);
+  InitRangeList(&pc.vscore_col_idx_range_list);
   InitUpdateSex(&pc.update_sex_info);
   InitLd(&pc.ld_info);
   InitSdiff(&pc.sdiff_info);
@@ -3377,6 +3390,8 @@ int main(int argc, char** argv) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "var-filter");
           } else if (strequal_k(flagname_p, "vcf-min-qual", flag_slen)) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "var-min-qual");
+          } else if (strequal_k(flagname_p, "vscore", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "variant-score");
           } else {
             goto main_flag_copy;
           }
@@ -3428,6 +3443,7 @@ int main(int argc, char** argv) {
     pc.hardy_flags = kfHardy0;
     pc.sample_counts_flags = kfSampleCounts0;
     pc.recover_var_ids_flags = kfRecoverVarIds0;
+    pc.vscore_flags = kfVscore0;
     pc.rmdup_mode = kRmDup0;
     for (uint32_t uii = 0; uii != 4; ++uii) {
       pc.filter_modes[uii] = kFreqFilterNonmajor;
@@ -8365,6 +8381,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --score cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
+              // TODO (alpha 3): nmissallele -> nallele
               reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0maybesid\0sid\0pheno1\0phenos\0nmissallele\0denom\0dosagesum\0scoreavgs\0scoresums\0", "score", kfScoreColMaybefid, kfScoreColDefault, 1, &pc.score_info.flags);
               if (unlikely(reterr)) {
                 goto main_ret_1;
@@ -9191,6 +9208,49 @@ int main(int argc, char** argv) {
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
+        } else if (strequal_k_unsafe(flagname_p2, "ariant-score")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.vscore_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          uint32_t explicit_cols = 0;
+          for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.vscore_flags |= kfVscoreZs;
+            } else if (likely(StrStartsWith(cur_modif, "cols=", cur_modif_slen))) {
+              if (unlikely(explicit_cols)) {
+                logerrputs("Error: Multiple --variant-score cols= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              explicit_cols = 1;
+              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0altfreq\0nmiss\0nobs\0", "variant-score", kfVscoreColChrom, kfVscoreColDefault, 0, &pc.vscore_flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --variant-score parameter '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          if (!explicit_cols) {
+            pc.vscore_flags |= kfVscoreColDefault;
+          }
+          pc.command_flags1 |= kfCommand1Vscore;
+          pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "score-col-nums")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Vscore))) {
+            logerrputs("Error: --vscore-col-nums must be used with --variant-score.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          reterr = ParseNameRanges(&(argvk[arg_idx]), errstr_append, param_ct, 1, '-', &pc.vscore_col_idx_range_list);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
         } else if (likely(strequal_k_unsafe(flagname_p2, "alidate"))) {
           pc.command_flags1 |= kfCommand1Validate;
           pc.dependency_flags |= kfFilterAllReq;
@@ -9311,8 +9371,8 @@ int main(int argc, char** argv) {
 
       case 'x':
         if (likely(strequal_k_unsafe(flagname_p2, "chr-model"))) {
-          if (unlikely(!(pc.command_flags1 & (kfCommand1Glm | kfCommand1Score)))) {
-            logerrputs("Error: --xchr-model must be used with --glm or --score.\n");
+          if (unlikely(!(pc.command_flags1 & (kfCommand1Glm | kfCommand1Score | kfCommand1Vscore)))) {
+            logerrputs("Error: --xchr-model must be used with --glm, --score, or --variant-score.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(pc.glm_info.flags & (kfGlmGenotypic | kfGlmHethom | kfGlmDominant | kfGlmRecessive))) {
@@ -9756,6 +9816,7 @@ int main(int argc, char** argv) {
   CleanupPlink2CmdlineMeta(&pcm);
   CleanupAdjust(&adjust_file_info);
   free_cond(king_cutoff_fprefix);
+  free_cond(pc.vscore_fname);
   free_cond(pc.recover_var_ids_fname);
   free_cond(pc.update_parental_ids_fname);
   free_cond(pc.update_sample_ids_fname);
@@ -9832,6 +9893,7 @@ int main(int argc, char** argv) {
   CleanupSdiff(&pc.sdiff_info);
   CleanupLd(&pc.ld_info);
   CleanupUpdateSex(&pc.update_sex_info);
+  CleanupRangeList(&pc.vscore_col_idx_range_list);
   CleanupRangeList(&pc.covar_range_list);
   CleanupRangeList(&pc.pheno_range_list);
   CleanupRangeList(&pc.exclude_snps_range_list);

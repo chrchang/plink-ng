@@ -315,7 +315,231 @@ void GenoarrToNonmissing(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t
   }
 }
 
-// todo: try vectorizing this
+// These functions may move to pgenlib_misc later.
+uint32_t CountMissingVec6(const VecW* __restrict geno_vvec, uint32_t vec_ct) {
+  assert(!(vec_ct % 6));
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW* geno_vvec_iter = geno_vvec;
+  VecW acc_bothset = vecw_setzero();
+  uintptr_t cur_incr = 60;
+  for (; ; vec_ct -= cur_incr) {
+    if (vec_ct < 60) {
+      if (!vec_ct) {
+        return HsumW(acc_bothset);
+      }
+      cur_incr = vec_ct;
+    }
+    VecW inner_acc_bothset = vecw_setzero();
+    const VecW* geno_vvec_stop = &(geno_vvec_iter[cur_incr]);
+    do {
+      VecW cur_geno_vword = vecw_loadu(geno_vvec_iter);
+      ++geno_vvec_iter;
+      VecW bothset1 = m1 & cur_geno_vword & vecw_srli(cur_geno_vword, 1);
+
+      cur_geno_vword = vecw_loadu(geno_vvec_iter);
+      ++geno_vvec_iter;
+      bothset1 = bothset1 + (m1 & cur_geno_vword & vecw_srli(cur_geno_vword, 1));
+
+      cur_geno_vword = vecw_loadu(geno_vvec_iter);
+      ++geno_vvec_iter;
+      bothset1 = bothset1 + (m1 & cur_geno_vword & vecw_srli(cur_geno_vword, 1));
+      bothset1 = (bothset1 & m2) + (vecw_srli(bothset1, 2) & m2);
+
+      cur_geno_vword = vecw_loadu(geno_vvec_iter);
+      ++geno_vvec_iter;
+      VecW bothset2 = m1 & cur_geno_vword & vecw_srli(cur_geno_vword, 1);
+
+      cur_geno_vword = vecw_loadu(geno_vvec_iter);
+      ++geno_vvec_iter;
+      bothset2 = bothset2 + (m1 & cur_geno_vword & vecw_srli(cur_geno_vword, 1));
+
+      cur_geno_vword = vecw_loadu(geno_vvec_iter);
+      ++geno_vvec_iter;
+      bothset2 = bothset2 + (m1 & cur_geno_vword & vecw_srli(cur_geno_vword, 1));
+
+      bothset1 = bothset1 + (bothset2 & m2) + (vecw_srli(bothset2, 2) & m2);
+      // these now contain 4-bit values from 0-12
+
+      inner_acc_bothset = inner_acc_bothset + (bothset1 & m4) + (vecw_srli(bothset1, 4) & m4);
+    } while (geno_vvec_iter < geno_vvec_stop);
+    const VecW m0 = vecw_setzero();
+    acc_bothset = acc_bothset + vecw_bytesum(inner_acc_bothset, m0);
+  }
+}
+
+uint32_t GenoarrCountMissingUnsafe(const uintptr_t* genoarr, uint32_t sample_ct) {
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+  uint32_t word_idx = sample_ctl2 - (sample_ctl2 % (6 * kWordsPerVec));
+  uint32_t missing_ct = CountMissingVec6(R_CAST(const VecW*, genoarr), word_idx / kWordsPerVec);
+  for (; word_idx != sample_ctl2; ++word_idx) {
+    uintptr_t ww = genoarr[word_idx];
+    ww = ww & (ww >> 1);
+    missing_ct += Popcount01Word(ww);
+  }
+  return missing_ct;
+}
+
+// geno_vvec allowed to be unaligned.
+uint32_t CountMissingMaskedVec6(const VecW* __restrict geno_vvec, const VecW* __restrict interleaved_mask_vvec, uint32_t vec_ct) {
+  assert(!(vec_ct % 6));
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW* geno_vvec_iter = geno_vvec;
+  const VecW* interleaved_mask_vvec_iter = interleaved_mask_vvec;
+  VecW acc_bothset = vecw_setzero();
+  uintptr_t cur_incr = 60;
+  for (; ; vec_ct -= cur_incr) {
+    if (vec_ct < 60) {
+      if (!vec_ct) {
+        return HsumW(acc_bothset);
+      }
+      cur_incr = vec_ct;
+    }
+    VecW inner_acc_bothset = vecw_setzero();
+    const VecW* geno_vvec_stop = &(geno_vvec_iter[cur_incr]);
+    do {
+      VecW interleaved_mask_vword = *interleaved_mask_vvec_iter++;
+      VecW cur_geno_vword = vecw_loadu(geno_vvec_iter);
+      ++geno_vvec_iter;
+      VecW cur_mask = interleaved_mask_vword & m1;
+      VecW bothset1 = cur_mask & cur_geno_vword & vecw_srli(cur_geno_vword, 1);
+
+      cur_mask = vecw_srli(interleaved_mask_vword, 1) & m1;
+      cur_geno_vword = vecw_loadu(geno_vvec_iter);
+      ++geno_vvec_iter;
+      bothset1 = bothset1 + (cur_mask & cur_geno_vword & vecw_srli(cur_geno_vword, 1));
+
+      interleaved_mask_vword = *interleaved_mask_vvec_iter++;
+      cur_mask = interleaved_mask_vword & m1;
+      cur_geno_vword = vecw_loadu(geno_vvec_iter);
+      ++geno_vvec_iter;
+      bothset1 = bothset1 + (cur_mask & cur_geno_vword & vecw_srli(cur_geno_vword, 1));
+      bothset1 = (bothset1 & m2) + (vecw_srli(bothset1, 2) & m2);
+
+      cur_mask = vecw_srli(interleaved_mask_vword, 1) & m1;
+      cur_geno_vword = vecw_loadu(geno_vvec_iter);
+      ++geno_vvec_iter;
+      VecW bothset2 = cur_mask & cur_geno_vword & vecw_srli(cur_geno_vword, 1);
+
+      interleaved_mask_vword = *interleaved_mask_vvec_iter++;
+      cur_mask = interleaved_mask_vword & m1;
+      cur_geno_vword = vecw_loadu(geno_vvec_iter);
+      ++geno_vvec_iter;
+      bothset2 = bothset2 + (cur_mask & cur_geno_vword & vecw_srli(cur_geno_vword, 1));
+
+      cur_mask = vecw_srli(interleaved_mask_vword, 1) & m1;
+      cur_geno_vword = vecw_loadu(geno_vvec_iter);
+      ++geno_vvec_iter;
+      bothset2 = bothset2 + (cur_mask & cur_geno_vword & vecw_srli(cur_geno_vword, 1));
+
+      bothset1 = bothset1 + (bothset2 & m2) + (vecw_srli(bothset2, 2) & m2);
+      // these now contain 4-bit values from 0-12
+
+      inner_acc_bothset = inner_acc_bothset + (bothset1 & m4) + (vecw_srli(bothset1, 4) & m4);
+    } while (geno_vvec_iter < geno_vvec_stop);
+    const VecW m0 = vecw_setzero();
+    acc_bothset = acc_bothset + vecw_bytesum(inner_acc_bothset, m0);
+  }
+}
+
+uint32_t GenoarrCountMissingSubset(const uintptr_t* genoarr, const uintptr_t* interleaved_vec, uint32_t sample_ct) {
+  // See GenoarrCountSubsetFreqs().
+  const uint32_t sample_ctv2 = NypCtToVecCt(sample_ct);
+  uint32_t missing_ct;
+#ifdef __LP64__
+  uint32_t vec_idx = sample_ctv2 - (sample_ctv2 % 6);
+  missing_ct = CountMissingMaskedVec6(R_CAST(const VecW*, genoarr), R_CAST(const VecW*, interleaved_vec), vec_idx);
+  const uintptr_t* genoarr_iter = &(genoarr[kWordsPerVec * vec_idx]);
+  const uintptr_t* interleaved_mask_iter = &(interleaved_vec[(kWordsPerVec / 2) * vec_idx]);
+#  ifdef USE_AVX2
+  uintptr_t mask_base1 = 0;
+  uintptr_t mask_base2 = 0;
+  uintptr_t mask_base3 = 0;
+  uintptr_t mask_base4 = 0;
+  for (; vec_idx != sample_ctv2; ++vec_idx) {
+    uintptr_t mask_word1;
+    uintptr_t mask_word2;
+    uintptr_t mask_word3;
+    uintptr_t mask_word4;
+    if (!(vec_idx % 2)) {
+      mask_base1 = *interleaved_mask_iter++;
+      mask_base2 = *interleaved_mask_iter++;
+      mask_base3 = *interleaved_mask_iter++;
+      mask_base4 = *interleaved_mask_iter++;
+      mask_word1 = mask_base1 & kMask5555;
+      mask_word2 = mask_base2 & kMask5555;
+      mask_word3 = mask_base3 & kMask5555;
+      mask_word4 = mask_base4 & kMask5555;
+    } else {
+      mask_word1 = (mask_base1 >> 1) & kMask5555;
+      mask_word2 = (mask_base2 >> 1) & kMask5555;
+      mask_word3 = (mask_base3 >> 1) & kMask5555;
+      mask_word4 = (mask_base4 >> 1) & kMask5555;
+    }
+    for (uint32_t vechalf_idx = 0; ; ++vechalf_idx) {
+      const uintptr_t cur_geno_word1 = *genoarr_iter++;
+      const uintptr_t cur_geno_word2 = *genoarr_iter++;
+      const uintptr_t cur_geno_word1_high_masked = mask_word1 & (cur_geno_word1 >> 1);
+      const uintptr_t cur_geno_word2_high_masked = mask_word2 & (cur_geno_word2 >> 1);
+      missing_ct += PopcountWord(((cur_geno_word1 & cur_geno_word1_high_masked) << 1) | (cur_geno_word2 & cur_geno_word2_high_masked));
+      if (vechalf_idx) {
+        break;
+      }
+      mask_word1 = mask_word3;
+      mask_word2 = mask_word4;
+    }
+  }
+#  else  // not USE_AVX2
+  uintptr_t mask_base1 = 0;
+  uintptr_t mask_base2 = 0;
+  for (; vec_idx != sample_ctv2; ++vec_idx) {
+    uintptr_t mask_word1;
+    uintptr_t mask_word2;
+    if (!(vec_idx % 2)) {
+      mask_base1 = *interleaved_mask_iter++;
+      mask_base2 = *interleaved_mask_iter++;
+      mask_word1 = mask_base1 & kMask5555;
+      mask_word2 = mask_base2 & kMask5555;
+    } else {
+      mask_word1 = (mask_base1 >> 1) & kMask5555;
+      mask_word2 = (mask_base2 >> 1) & kMask5555;
+    }
+    const uintptr_t cur_geno_word1 = *genoarr_iter++;
+    const uintptr_t cur_geno_word2 = *genoarr_iter++;
+    const uintptr_t cur_geno_word1_high_masked = mask_word1 & (cur_geno_word1 >> 1);
+    const uintptr_t cur_geno_word2_high_masked = mask_word2 & (cur_geno_word2 >> 1);
+#    ifdef USE_SSE42
+    missing_ct += PopcountWord(((cur_geno_word1 & cur_geno_word1_high_masked) << 1) | (cur_geno_word2 & cur_geno_word2_high_masked));
+#    else
+    missing_ct += NypsumWord((cur_geno_word1 & cur_geno_word1_high_masked) + (cur_geno_word2 & cur_geno_word2_high_masked));
+#    endif
+  }
+#  endif  // not USE_AVX2
+#else  // not __LP64__
+  uint32_t word_idx = sample_ctv2 - (sample_ctv2 % 6);
+  missing_ct = CountMissingMaskedVec6(R_CAST(const VecW*, genoarr), R_CAST(const VecW*, interleaved_vec), word_idx);
+  const uintptr_t* interleaved_mask_iter = &(interleaved_vec[word_idx / 2]);
+  uintptr_t mask_base = 0;
+  for (; word_idx != sample_ctv2; ++word_idx) {
+    uintptr_t mask_word;
+    if (!(word_idx % 2)) {
+      mask_base = *interleaved_mask_iter++;
+      mask_word = mask_base & kMask5555;
+    } else {
+      mask_word = (mask_base >> 1) & kMask5555;
+    }
+    const uintptr_t cur_geno_word = genoarr[word_idx];
+    const uintptr_t cur_geno_word_high_masked = mask_word & (cur_geno_word >> 1);
+    missing_ct += Popcount01Word(cur_geno_word & cur_geno_word_high_masked);
+  }
+#endif
+  return missing_ct;
+}
+
+// counts post-dosage missing, for which we don't have an interleaved mask
 uint32_t GenoarrCountMissingInvsubsetUnsafe(const uintptr_t* genoarr, const uintptr_t* exclude_mask, uint32_t sample_ct) {
   const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
   const uintptr_t* genoarr_iter = genoarr;
@@ -677,6 +901,8 @@ PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, uin
         xid_mode |= kfXidModeFlagSid;
       }
       linebuf_iter = FirstNonTspace(&(linebuf_iter[3]));
+    } else if (xid_mode == kfXidModeFlagNeverFid) {
+      xid_mode = kfXidModeIid;
     }
     line_iter = linebuf_iter;
   } else {
@@ -2373,8 +2599,7 @@ uintptr_t GetMhcWordCt(uintptr_t sample_ct) {
   return RoundUpPow2(patch_01_max_word_ct, kWordsPerVec) + RoundUpPow2(patch_10_max_word_ct, kWordsPerVec);
 }
 
-// todo: phase out threads_ptr argument
-PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t bytes_avail, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, uintptr_t per_alt_allele_xalloc_byte_ct, PgenFileInfo* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** mhc_ptr, uintptr_t*** phasepresent_ptr, uintptr_t*** phaseinfo_ptr, uintptr_t*** dosage_present_ptr, Dosage*** dosage_mains_ptr, uintptr_t*** dphase_present_ptr, SDosage*** dphase_delta_ptr, uint32_t* read_block_size_ptr, uintptr_t* max_alt_allele_block_size_ptr, STD_ARRAY_REF(unsigned char*, 2) main_loadbufs, pthread_t** threads_ptr, PgenReader*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr) {
+PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t bytes_avail, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, uintptr_t per_alt_allele_xalloc_byte_ct, PgenFileInfo* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** mhc_ptr, uintptr_t*** phasepresent_ptr, uintptr_t*** phaseinfo_ptr, uintptr_t*** dosage_present_ptr, Dosage*** dosage_mains_ptr, uintptr_t*** dphase_present_ptr, SDosage*** dphase_delta_ptr, uint32_t* read_block_size_ptr, uintptr_t* max_alt_allele_block_size_ptr, STD_ARRAY_REF(unsigned char*, 2) main_loadbufs, PgenReader*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr) {
   uintptr_t cachelines_avail = bytes_avail / kCacheline;
   uint32_t read_block_size = kPglVblockSize;
   uint64_t multiread_cacheline_ct;
@@ -2423,10 +2648,10 @@ PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint
     *calc_thread_ct_ptr = calc_thread_ct;
   }
 
-  // pgr_pps, threads_ptr, read_variant_uidx_starts_ptr, (*pgr_pps)[tidx],
-  //   pgr_alloc; deliberately a slight overestimate
+  // pgr_pps, read_variant_uidx_starts_ptr, (*pgr_pps)[tidx], pgr_alloc;
+  //   deliberately a slight overestimate
   const uintptr_t pgr_struct_alloc = RoundUpPow2(sizeof(PgenReader), kCacheline);
-  uintptr_t thread_alloc_cacheline_ct = 1 + 1 + 1 + (pgr_struct_alloc / kCacheline) + pgr_alloc_cacheline_ct + thread_xalloc_cacheline_ct;
+  uintptr_t thread_alloc_cacheline_ct = 1 + 1 + (pgr_struct_alloc / kCacheline) + pgr_alloc_cacheline_ct + thread_xalloc_cacheline_ct;
 
   const uint32_t sample_ctcl2 = NypCtToCachelineCt(sample_ct);
   const uint32_t sample_ctcl = BitCtToCachelineCt(sample_ct);
@@ -2463,10 +2688,6 @@ PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint
 
   const uint32_t array_of_ptrs_alloc = RoundUpPow2(calc_thread_ct * sizeof(intptr_t), kCacheline);
   *pgr_pps = S_CAST(PgenReader**, bigstack_alloc_raw(array_of_ptrs_alloc));
-  if (threads_ptr) {
-    // this will soon be defunct
-    *threads_ptr = S_CAST(pthread_t*, bigstack_alloc_raw(array_of_ptrs_alloc));
-  }
   *read_variant_uidx_starts_ptr = S_CAST(uint32_t*, bigstack_alloc_raw_rd(calc_thread_ct * sizeof(int32_t)));
   for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
     (*pgr_pps)[tidx] = S_CAST(PgenReader*, bigstack_alloc_raw(pgr_struct_alloc));
@@ -2516,6 +2737,36 @@ PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint
     }
   }
   return kPglRetSuccess;
+}
+
+uint32_t MultireadNonempty(const uintptr_t* variant_include, const ThreadGroup* tgp, uint32_t raw_variant_ct, uint32_t read_block_size, PgenFileInfo* pgfip, uint32_t* read_block_idxp, PglErr* reterrp) {
+  if (IsLastBlock(tgp)) {
+    return 0;
+  }
+  // This condition ensures the PopcountWords() calls are valid.  If it's
+  // ever inconvenient, PopcountBitRange() can be used instead.
+  assert((!(read_block_size % kBitsPerVec)) || (raw_variant_ct <= read_block_size));
+
+  const uint32_t read_block_sizel = read_block_size / kBitsPerWord;
+  uint32_t read_block_idx = *read_block_idxp;
+  uint32_t offset = read_block_idx * read_block_size;
+  uint32_t cur_read_block_size = read_block_size;
+  uint32_t cur_block_write_ct;
+  for (; ; ++read_block_idx, offset += read_block_size) {
+    if (offset + read_block_size >= raw_variant_ct) {
+      cur_read_block_size = raw_variant_ct - offset;
+      cur_block_write_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), BitCtToWordCt(cur_read_block_size));
+      assert(cur_block_write_ct);  // otherwise, IsLastBlock should be set
+      break;
+    }
+    cur_block_write_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), read_block_sizel);
+    if (cur_block_write_ct) {
+      break;
+    }
+  }
+  *read_block_idxp = read_block_idx;
+  *reterrp = PgfiMultiread(variant_include, offset, offset + cur_read_block_size, cur_block_write_ct, pgfip);
+  return cur_block_write_ct;
 }
 
 void ExpandMhc(uint32_t sample_ct, uintptr_t* mhc, uintptr_t** patch_01_set_ptr, AlleleCode** patch_01_vals_ptr, uintptr_t** patch_10_set_ptr, AlleleCode** patch_10_vals_ptr) {

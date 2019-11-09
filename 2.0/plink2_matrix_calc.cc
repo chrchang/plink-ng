@@ -364,7 +364,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
     }
 
     BigstackReset(TextStreamMemStart(&txs));
-    if (CleanupTextStream2(king_cutoff_fprefix, &txs, &reterr)) {
+    if (unlikely(CleanupTextStream2(king_cutoff_fprefix, &txs, &reterr))) {
       goto KingCutoffBatch_ret_1;
     }
     uintptr_t* king_include;
@@ -5910,8 +5910,9 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       } else if (write_empty_pheno) {
         cswritep = strcpya_k(cswritep, "\tPHENO1");
       }
-      const uint32_t write_nmiss_allele = (flags / kfScoreColNmissAllele) & 1;
-      if (write_nmiss_allele) {
+      const uint32_t write_nallele = (flags / kfScoreColNallele) & 1;
+      if (write_nallele) {
+        // TODO (alpha 3): change to ALLELE_CT
         cswritep = strcpya_k(cswritep, "\tNMISS_ALLELE_CT");
       }
       const uint32_t write_denom = (flags / kfScoreColDenom) & 1;
@@ -5993,13 +5994,13 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         }
         const uint32_t scrambled_idx = VcountScramble1(sample_idx);
         uint32_t denom = allele_ct_base + IsSet(sex_male, sample_uidx) * male_allele_ct_delta;
-        const uint32_t nmiss_allele_ct = denom - 2 * scrambled_missing_diploid_cts[scrambled_idx] - scrambled_missing_haploid_cts[scrambled_idx];
-        if (write_nmiss_allele) {
+        const uint32_t nallele = denom - 2 * scrambled_missing_diploid_cts[scrambled_idx] - scrambled_missing_haploid_cts[scrambled_idx];
+        if (write_nallele) {
           *cswritep++ = '\t';
-          cswritep = u32toa(nmiss_allele_ct, cswritep);
+          cswritep = u32toa(nallele, cswritep);
         }
         if (no_meanimpute) {
-          denom = nmiss_allele_ct;
+          denom = nallele;
         }
         if (write_denom) {
           *cswritep++ = '\t';
@@ -6101,6 +6102,787 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
   CleanupThreads(&tg);
   BLAS_SET_NUM_THREADS(1);
   CleanupTextStream2("--score file", &score_txs, &reterr);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
+  return reterr;
+}
+
+typedef struct VscoreCtxStruct {
+  const uintptr_t* variant_include;
+  const ChrInfo* cip;
+  const uintptr_t* allele_idx_offsets;
+  const double* allele_freqs;
+  const uintptr_t* sample_include;
+  const uint32_t* sample_include_cumulative_popcounts;
+  const uintptr_t* sex_male_collapsed;
+  const uintptr_t* sex_male_interleaved_vec;
+  const double* wts_smaj;
+  uint32_t vscore_ct;
+  uint32_t sample_ct;
+  uint32_t male_ct;
+  uint32_t x_code;  // UINT32_MAX unless xchr_model 1
+
+  PgenReader** pgr_ptrs;
+  uintptr_t** genovecs;
+  uintptr_t** dosage_presents;
+  Dosage** dosage_mains;
+  uint32_t* read_variant_uidx_starts;
+
+  uint32_t cur_block_size;
+
+  double** dosage_vmaj_bufs;
+
+  // variant-major
+  double* results[2];
+
+  uint32_t* missing_cts[2];
+
+  // only kPglRetMalformedInput possible, no atomic ops needed
+  PglErr reterr;
+} VscoreCtx;
+
+THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  VscoreCtx* ctx = S_CAST(VscoreCtx*, arg->sharedp->context);
+
+  const uintptr_t* variant_include = ctx->variant_include;
+  const ChrInfo* cip = ctx->cip;
+  const uintptr_t* allele_idx_offsets = ctx->allele_idx_offsets;
+  const double* allele_freqs = ctx->allele_freqs;
+  const uintptr_t* sample_include = ctx->sample_include;
+  const uint32_t* sample_include_cumulative_popcounts = ctx->sample_include_cumulative_popcounts;
+  const uintptr_t* sex_male = ctx->sex_male_collapsed;
+  const uintptr_t* sex_male_interleaved_vec = ctx->sex_male_interleaved_vec;
+  const double* wts_smaj = ctx->wts_smaj;
+
+  PgenReader* pgrp = ctx->pgr_ptrs[tidx];
+  uintptr_t* genovec = ctx->genovecs[tidx];
+  uintptr_t* dosage_present = nullptr;
+  Dosage* dosage_main = nullptr;
+  if (ctx->dosage_presents) {
+    dosage_present = ctx->dosage_presents[tidx];
+    dosage_main = ctx->dosage_mains[tidx];
+  }
+
+  const uintptr_t vscore_ct = ctx->vscore_ct;
+  const uintptr_t sample_ct = ctx->sample_ct;
+  const uint32_t male_ct = ctx->male_ct;
+  const uint32_t nonmale_ct = sample_ct - male_ct;
+  const uint32_t x_code = ctx->x_code;
+  const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
+  const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
+
+  double* dosage_vmaj = ctx->dosage_vmaj_bufs[tidx];
+
+  uint32_t is_y = 0;
+  uint32_t is_x_or_y = 0;
+  uint32_t is_nonxy_haploid = 0;
+  uint32_t chr_end = 0;
+
+  uint32_t parity = 0;
+  do {
+    const uintptr_t cur_block_size = ctx->cur_block_size;
+    const uint32_t bidx_end = ((tidx + 1) * cur_block_size) / calc_thread_ct;
+    double* cur_results = ctx->results[parity];
+    uint32_t* missing_cts = ctx->missing_cts[parity];
+    double slope = 0.0;
+    uintptr_t bidx_start = (tidx * cur_block_size) / calc_thread_ct;
+    uintptr_t variant_uidx_base;
+    uintptr_t variant_include_bits;
+    BitIter1Start(variant_include, ctx->read_variant_uidx_starts[tidx], &variant_uidx_base, &variant_include_bits);
+    for (uint32_t variant_bidx = bidx_start; variant_bidx != bidx_end; ++variant_bidx) {
+      const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
+      if (variant_uidx >= chr_end) {
+        const uint32_t chr_fo_idx = GetVariantChrFoIdx(cip, variant_uidx);
+        const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+        chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+        is_y = 0;
+        is_nonxy_haploid = 0;
+        if (chr_idx == x_code) {
+          is_x_or_y = 1;
+          PgrClearLdCache(pgrp);
+        } else if (chr_idx == y_code) {
+          is_x_or_y = 1;
+          is_y = 1;
+          PgrClearLdCache(pgrp);
+        } else {
+          if (is_x_or_y) {
+            PgrClearLdCache(pgrp);
+          }
+          is_x_or_y = 0;
+          is_nonxy_haploid = IsSet(cip->haploid_mask, chr_idx);
+        }
+        slope = (is_nonxy_haploid || is_y)? 0.5 : 1.0;
+      }
+      // possible todo: if no dosages in file, use PgrGetDifflistOrGenovec()
+      // instead with sparse optimization
+      // (this would require an intermediate extra matrix-multiply destination
+      // buffer, maybe not worth the trouble)
+      uint32_t dosage_ct;
+      PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
+      if (unlikely(reterr)) {
+        ctx->reterr = reterr;
+        goto VscoreThread_err;
+      }
+      double ref_freq;
+      if (!allele_idx_offsets) {
+        ref_freq = allele_freqs[variant_uidx];
+      } else {
+        ref_freq = allele_freqs[allele_idx_offsets[variant_uidx] - variant_uidx];
+      }
+      uintptr_t row_idx = variant_bidx - bidx_start;
+      if (row_idx == kScoreVariantBlockSize) {
+        RowMajorMatrixMultiply(dosage_vmaj, wts_smaj, kScoreVariantBlockSize, vscore_ct, sample_ct, &(cur_results[bidx_start * vscore_ct]));
+        bidx_start = variant_bidx;
+        row_idx = 0;
+      }
+      double* cur_row = &(dosage_vmaj[row_idx * sample_ct]);
+      PopulateRescaledDosage(genovec, dosage_present, dosage_main, slope, 0.0, slope * (1.0 - ref_freq), sample_ct, dosage_ct, cur_row);
+      if (is_x_or_y) {
+        // Instead of doing this for every variant, we could precompute
+        // chrX/chrY weight matrices with male weights halved/nonmale weights
+        // zeroed out.  But the number of chrY variants is typically small
+        // enough (and how often will --xchr-model 1 be used, anyway?) that I
+        // don't think it's worth it.
+        uintptr_t sample_uidx_base = 0;
+        if (is_y) {
+          // zero out nonmale values
+          uintptr_t sex_male_invbits = ~sex_male[0];
+          for (uint32_t nonmale_idx = 0; nonmale_idx != nonmale_ct; ++nonmale_idx) {
+            const uintptr_t sample_uidx = BitIter0(sex_male, &sample_uidx_base, &sex_male_invbits);
+            cur_row[sample_uidx] = 0.0;
+          }
+        } else {
+          // xchr_model 1: halve male values
+          uintptr_t sex_male_bits = sex_male[0];
+          for (uint32_t male_idx = 0; male_idx != male_ct; ++male_idx) {
+            const uintptr_t sample_uidx = BitIter1(sex_male, &sample_uidx_base, &sex_male_bits);
+            cur_row[sample_uidx] *= 0.5;
+          }
+        }
+      }
+      if (missing_cts) {
+        ZeroTrailingNyps(sample_ct, genovec);
+        uint32_t missing_ct;
+        if (!dosage_ct) {
+          if (!is_y) {
+            missing_ct = GenoarrCountMissingUnsafe(genovec, sample_ct);
+          } else {
+            missing_ct = GenoarrCountMissingSubset(genovec, sex_male_interleaved_vec, sample_ct);
+          }
+        } else {
+          if (!is_y) {
+            missing_ct = GenoarrCountMissingInvsubsetUnsafe(genovec, dosage_present, sample_ct);
+          } else {
+            // include males, exclude dosages
+            const uint32_t fullword_ct = (sample_ct + kBitsPerWordD2 - 1) / kBitsPerWord;
+            missing_ct = 0;
+            for (uint32_t widx = 0; widx != fullword_ct; ++widx) {
+              uintptr_t w1 = genovec[2 * widx];
+              uintptr_t w2 = genovec[2 * widx + 1];
+              w1 = w1 & (w1 >> 1);
+              w2 = w2 & (w2 >> 1);
+              w1 = PackWordToHalfwordMask5555(w1);
+              w2 = PackWordToHalfwordMask5555(w2);
+              const uintptr_t ww = w1 | (w2 << kBitsPerWordD2);
+              missing_ct += PopcountWord(ww & sex_male[widx] & (~dosage_present[widx]));
+            }
+            if (sample_ct > fullword_ct * kBitsPerWord) {
+              uintptr_t w1 = genovec[2 * fullword_ct];
+              w1 = w1 & (w1 >> 1);
+              w1 = PackWordToHalfwordMask5555(w1);
+              missing_ct += PopcountWord(w1 & sex_male[fullword_ct] & (~dosage_present[fullword_ct]));
+            }
+          }
+        }
+        missing_cts[variant_bidx] = missing_ct;
+      }
+    }
+    {
+      const uintptr_t row_ct = bidx_end - bidx_start;
+      if (row_ct) {
+        RowMajorMatrixMultiply(dosage_vmaj, wts_smaj, row_ct, vscore_ct, sample_ct, &(cur_results[bidx_start * vscore_ct]));
+      }
+    }
+  VscoreThread_err:
+    parity = 1 - parity;
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
+}
+
+PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const double* allele_freqs, const char* in_fname, const RangeList* col_idx_range_listp, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t max_allele_slen, VscoreFlags flags, uint32_t xchr_model, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  uintptr_t line_idx = 0;
+  char* cswritep = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  ThreadGroup tg;
+  CompressStreamState css;
+  PreinitTextStream(&txs);
+  PreinitThreads(&tg);
+  PreinitCstream(&css);
+  {
+    // unsurprisingly, lots of overlap with --score
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    if (!xchr_model) {
+      uint32_t x_code;
+      if (XymtExists(cip, kChrOffsetX, &x_code)) {
+        uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[x_code];
+        uint32_t x_start = cip->chr_fo_vidx_start[x_chr_fo_idx];
+        uint32_t x_end = cip->chr_fo_vidx_start[x_chr_fo_idx + 1];
+        if (!AllBitsAreZero(variant_include, x_start, x_end)) {
+          uintptr_t* variant_include_no_x;
+          if (unlikely(bigstack_alloc_w(raw_variant_ctl, &variant_include_no_x))) {
+            goto Vscore_ret_NOMEM;
+          }
+          memcpy(variant_include_no_x, variant_include, raw_variant_ctl * sizeof(intptr_t));
+          variant_ct -= PopcountBitRange(variant_include, x_start, x_end);
+          if (!variant_ct) {
+            logerrputs("Error: No --variant-score variants remaining after --xchr-model 0.\n");
+            goto Vscore_ret_INCONSISTENT_INPUT;
+          }
+          ClearBitsNz(x_start, x_end, variant_include_no_x);
+          variant_include = variant_include_no_x;
+        }
+      }
+    } else if (xchr_model == 2) {
+      xchr_model = 0;
+    }
+    // now xchr_model is set iff it's 1
+
+    // see KeepFcol() and SampleSortFileMap()
+    char* line_start;
+    XidMode xid_mode;
+    reterr = OpenAndLoadXidHeader(in_fname, "variant-score", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, kTextStreamBlenFast, &txs, &xid_mode, &line_idx, &line_start, nullptr);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetEof) {
+        logerrputs("Error: Empty --variant-score file.\n");
+        reterr = kPglRetMalformedInput;
+      }
+      goto Vscore_ret_1;
+    }
+    const uint32_t id_col_ct = GetXidColCt(xid_mode);
+    const uint32_t col_ct = CountTokens(line_start);
+    if (unlikely(id_col_ct == col_ct)) {
+      logerrputs("Error: No score columns in --variant-score file.\n");
+      goto Vscore_ret_MALFORMED_INPUT;
+    }
+    uintptr_t vscore_ct;
+    uint32_t* col_idx_deltas;
+    if (!col_idx_range_listp->name_ct) {
+      vscore_ct = col_ct - id_col_ct;
+      if (unlikely(bigstack_alloc_u32(vscore_ct, &col_idx_deltas))) {
+        goto Vscore_ret_NOMEM;
+      }
+      for (uint32_t uii = 0; uii != vscore_ct; ++uii) {
+        col_idx_deltas[uii] = 1;
+      }
+    } else {
+      const uint32_t col_ctl = BitCtToWordCt(col_ct);
+      uintptr_t* vscore_col_bitarr;
+      if (unlikely(bigstack_calloc_w(col_ctl, &vscore_col_bitarr))) {
+        goto Vscore_ret_NOMEM;
+      }
+      if (unlikely(NumericRangeListToBitarr(col_idx_range_listp, col_ct, 1, 0, vscore_col_bitarr))) {
+        goto Vscore_ret_MISSING_TOKENS;
+      }
+      if (vscore_col_bitarr[0] & ((1 << id_col_ct) - 1)) {
+        logerrputs("Error: --vscore-col-nums argument overlaps with ID columns.\n");
+        goto Vscore_ret_INCONSISTENT_INPUT;
+      }
+      vscore_ct = PopcountWords(vscore_col_bitarr, col_ctl);
+      // since we don't allow overflow, this should be guaranteed to be
+      // positive
+      assert(vscore_ct);
+      if (unlikely(bigstack_alloc_u32(vscore_ct, &col_idx_deltas))) {
+        goto Vscore_ret_NOMEM;
+      }
+      uintptr_t col_uidx_base = 0;
+      uintptr_t vscore_col_bitarr_bits = vscore_col_bitarr[0];
+      for (uintptr_t vscore_idx = 0; vscore_idx != vscore_ct; ++vscore_idx) {
+        const uint32_t col_uidx = BitIter1(vscore_col_bitarr, &col_uidx_base, &vscore_col_bitarr_bits);
+        col_idx_deltas[vscore_idx] = col_uidx;
+      }
+      // now convert to deltas
+      for (uintptr_t vscore_idx = vscore_ct - 1; vscore_idx; --vscore_idx) {
+        col_idx_deltas[vscore_idx] -= col_idx_deltas[vscore_idx - 1];
+      }
+      col_idx_deltas[0] -= id_col_ct - 1;
+    }
+    char** vscore_names;
+    if (unlikely(bigstack_end_alloc_cp(vscore_ct, &vscore_names))) {
+      goto Vscore_ret_NOMEM;
+    }
+    const uint32_t is_header_line = (line_start[0] == '#');
+    unsigned char* tmp_alloc_base = g_bigstack_base;
+    unsigned char* tmp_alloc_end = g_bigstack_end;
+    if (is_header_line) {
+      const char* name_iter = NextTokenMult0(line_start, id_col_ct - 1);
+      for (uintptr_t vscore_idx = 0; vscore_idx != vscore_ct; ++vscore_idx) {
+        name_iter = NextTokenMult(name_iter, col_idx_deltas[vscore_idx]);
+        const char* name_end = CurTokenEnd(name_iter);
+        // don't actually need to enforce unique names, though we could print a
+        // warning later
+        const uint32_t cur_slen = name_end - name_iter;
+        if (cur_slen > kMaxIdSlen) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Variant-score name in column %" PRIuPTR " of %s is too long.\n", vscore_idx + id_col_ct + 1, in_fname);
+          goto Vscore_ret_MALFORMED_INPUT_WW;
+        }
+        if (unlikely(S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) <= cur_slen)) {
+          goto Vscore_ret_NOMEM;
+        }
+        tmp_alloc_end -= cur_slen + 1;
+        char* cur_name = R_CAST(char*, tmp_alloc_end);
+        vscore_names[vscore_idx] = cur_name;
+        memcpyx(cur_name, name_iter, cur_slen, '\0');
+        name_iter = name_end;
+      }
+      ++line_idx;
+      line_start = TextGet(&txs);
+    } else {
+      for (uintptr_t vscore_num = 1; vscore_num <= vscore_ct; ++vscore_num) {
+        const uint32_t cur_blen = 7 + UintSlen(vscore_num);
+        if (unlikely(S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) < cur_blen)) {
+          goto Vscore_ret_NOMEM;
+        }
+        tmp_alloc_end -= cur_blen;
+        char* cur_name_iter = R_CAST(char*, tmp_alloc_end);
+        vscore_names[vscore_num - 1] = cur_name_iter;
+        cur_name_iter = strcpya_k(cur_name_iter, "VSCORE");
+        cur_name_iter = u32toa(vscore_num, cur_name_iter);
+        *cur_name_iter = '\0';
+      }
+    }
+    BigstackEndSet(tmp_alloc_end);
+    uint32_t* xid_map;
+    char* sorted_xidbox;
+    uintptr_t max_xid_blen;
+    reterr = SortedXidboxInitAlloc(sample_include, siip, sample_ct, 0, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+    if (unlikely(reterr)) {
+      goto Vscore_ret_1;
+    }
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+#ifndef __LP64__
+    if (sample_ct * S_CAST(uint64_t, vscore_ct) >= 0x80000000U / sizeof(double)) {
+      goto Vscore_ret_NOMEM;
+    }
+#endif
+    char* idbuf;
+    uintptr_t* already_seen;
+    double* raw_wts;
+    uint32_t* sample_uidx_order;
+    if (unlikely(
+            bigstack_alloc_c(siip->max_sample_id_blen, &idbuf) ||
+            bigstack_alloc_u32(sample_ct, &sample_uidx_order) ||
+            bigstack_alloc_d(sample_ct * vscore_ct, &raw_wts) ||
+            bigstack_end_calloc_w(raw_sample_ctl, &already_seen))) {
+      goto Vscore_ret_NOMEM;
+    }
+    uintptr_t miss_ct = 0;
+    uint32_t hit_ct = 0;
+
+    for (double* raw_wts_iter = raw_wts; line_start; ++line_idx, line_start = TextGet(&txs)) {
+      if (unlikely(line_start[0] == '#')) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --variant-score file starts with a '#'. (This is only permitted before the first nonheader line, and if a #FID/IID header line is present it must denote the end of the header block.)\n", line_idx);
+        goto Vscore_ret_MALFORMED_INPUT_WW;
+      }
+      const char* linebuf_iter = line_start;
+      uint32_t sample_uidx;
+      if (SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx, idbuf)) {
+        if (unlikely(!linebuf_iter)) {
+          goto Vscore_ret_MISSING_TOKENS;
+        }
+        ++miss_ct;
+        continue;
+      }
+      if (unlikely(IsSet(already_seen, sample_uidx))) {
+        char* tab_iter = AdvToDelim(idbuf, '\t');
+        *tab_iter = ' ';
+        if (xid_mode & kfXidModeFlagSid) {
+          *AdvToDelim(&(tab_iter[1]), '\t') = ' ';
+        }
+        snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID '%s' in --variant-score file.\n", idbuf);
+        goto Vscore_ret_MALFORMED_INPUT_WW;
+      }
+      SetBit(sample_uidx, already_seen);
+      sample_uidx_order[hit_ct] = sample_uidx;
+      for (uintptr_t vscore_idx = 0; vscore_idx != vscore_ct; ++vscore_idx, ++raw_wts_iter) {
+        linebuf_iter = NextTokenMult(linebuf_iter, col_idx_deltas[vscore_idx]);
+        if (unlikely(!linebuf_iter)) {
+          goto Vscore_ret_MISSING_TOKENS;
+        }
+        const char* token_end = ScantokDouble(linebuf_iter, raw_wts_iter);
+        if (unlikely(!token_end)) {
+          token_end = CurTokenEnd(linebuf_iter);
+          *K_CAST(char*, token_end) = '\0';
+          snprintf(g_logbuf, kLogbufSize, "Error: Invalid coefficient '%s' on line %" PRIuPTR " of --variant-score file.\n", linebuf_iter, line_idx);
+          goto Vscore_ret_MALFORMED_INPUT_WW;
+        }
+        linebuf_iter = token_end;
+      }
+      ++hit_ct;
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto Vscore_ret_TSTREAM_FAIL;
+    }
+    if (unlikely(CleanupTextStream2(in_fname, &txs, &reterr))) {
+      goto Vscore_ret_1;
+    }
+    if (!hit_ct) {
+      logerrputs("Error: No valid entries in --variant-score file.\n");
+      goto Vscore_ret_INCONSISTENT_INPUT;
+    }
+    sample_include = already_seen;
+    sample_ct = hit_ct;
+#if defined(__LP64__) && !defined(LAPACK_ILP64)
+    if (sample_ct * vscore_ct > 0x7fffffff) {
+      logerrputs("Error: --variant-score input matrix too large for this " PROG_NAME_STR " build.  If this\nis really the computation you want, use a " PROG_NAME_STR " build with large-matrix\nsupport.\n");
+      goto Vscore_ret_INCONSISTENT_INPUT;
+    }
+#endif
+    VscoreCtx ctx;
+    ctx.variant_include = variant_include;
+    ctx.cip = cip;
+    ctx.allele_idx_offsets = allele_idx_offsets;
+    ctx.allele_freqs = allele_freqs;
+    ctx.sample_include = sample_include;
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    {
+      uint32_t* sample_include_cumulative_popcounts;
+      double* wts_smaj;
+      if (unlikely(
+              bigstack_end_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+              bigstack_end_alloc_d(sample_ct * vscore_ct, &wts_smaj))) {
+        goto Vscore_ret_NOMEM;
+      }
+      FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+      ctx.sample_include_cumulative_popcounts = sample_include_cumulative_popcounts;
+      logprintfww("--variant-score: %" PRIuPTR " score-vector%s loaded for %u sample%s.\n", vscore_ct, (vscore_ct == 1)? "" : "s", sample_ct, (sample_ct == 1)? "" : "s");
+      if (miss_ct) {
+        logerrprintf("Warning: %" PRIuPTR " line%s skipped in --variant-score file.\n", miss_ct, (miss_ct == 1)? "" : "s");
+      }
+      const double* wts_read_iter = raw_wts;
+      for (uint32_t uii = 0; uii != sample_ct; ++uii) {
+        const uint32_t sample_uidx = sample_uidx_order[uii];
+        const uint32_t sample_idx = RawToSubsettedPos(sample_include, sample_include_cumulative_popcounts, sample_uidx);
+        memcpy(&(wts_smaj[sample_idx * vscore_ct]), wts_read_iter, vscore_ct * sizeof(double));
+        wts_read_iter = &(wts_read_iter[vscore_ct]);
+      }
+      ctx.wts_smaj = wts_smaj;
+      BigstackReset(bigstack_mark);
+      const uint32_t sample_ctv = BitCtToVecCt(sample_ct);
+      uintptr_t* sex_male_collapsed;
+      uintptr_t* sex_male_interleaved_vec;
+      if (unlikely(
+              bigstack_alloc_w(sample_ctl, &sex_male_collapsed) ||
+              bigstack_alloc_w(sample_ctv * kWordsPerVec, &sex_male_interleaved_vec) ||
+              bigstack_alloc_dp(max_thread_ct, &ctx.dosage_vmaj_bufs))) {
+        goto Vscore_ret_NOMEM;
+      }
+      CopyBitarrSubset(sex_male, sample_include, sample_ct, sex_male_collapsed);
+      FillInterleavedMaskVec(sex_male_collapsed, sample_ctv, sex_male_interleaved_vec);
+      ctx.sex_male_collapsed = sex_male_collapsed;
+      ctx.sex_male_interleaved_vec = sex_male_interleaved_vec;
+    }
+    ctx.vscore_ct = vscore_ct;
+    ctx.sample_ct = sample_ct;
+    const uint32_t male_ct = PopcountWords(ctx.sex_male_collapsed, sample_ctl);
+    ctx.male_ct = male_ct;
+    ctx.x_code = UINT32_MAX;
+    if (xchr_model) {
+      ctx.x_code = cip->xymt_codes[kChrOffsetX];
+    }
+
+    const uint32_t chr_col = (flags / kfVscoreColChrom) & 1;
+    char* chr_buf = nullptr;
+    uint32_t max_chr_blen = 0;
+    if (chr_col) {
+      max_chr_blen = GetMaxChrSlen(cip) + 1;
+      if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
+        goto Vscore_ret_NOMEM;
+      }
+    }
+    const uint32_t ref_col = (flags / kfVscoreColRef) & 1;
+    const uint32_t alt1_col = (flags / kfVscoreColAlt1) & 1;
+    const uint32_t alt_col = (flags / kfVscoreColAlt) & 1;
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen * chr_col + kMaxIdSlen + 128 + (24 * k1LU) * vscore_ct + MAXV(ref_col + alt1_col, alt_col) * max_allele_slen;
+    const uint32_t output_zst = (flags / kfVscoreZs) & 1;
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".vscore");
+    uint32_t calc_thread_ct = max_thread_ct;
+    uint32_t compress_thread_ct = 1;
+    if (output_zst) {
+      snprintf(&(outname_end[7]), kMaxOutfnameExtBlen - 7, ".zst");
+      // can tune this more later
+      if (max_thread_ct > 1) {
+        compress_thread_ct += (max_thread_ct > 4);
+        calc_thread_ct = max_thread_ct - compress_thread_ct;
+      }
+    }
+    reterr = InitCstreamAlloc(outname, 0, output_zst, compress_thread_ct, overflow_buf_size, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto Vscore_ret_1;
+    }
+    *cswritep++ = '#';
+    if (chr_col) {
+      cswritep = strcpya_k(cswritep, "CHROM\t");
+    }
+    if (flags & kfVscoreColPos) {
+      cswritep = strcpya_k(cswritep, "POS\t");
+    } else {
+      variant_bps = nullptr;
+    }
+    cswritep = strcpya_k(cswritep, "ID");
+    if (ref_col) {
+      cswritep = strcpya_k(cswritep, "\tREF");
+    }
+    if (alt1_col) {
+      cswritep = strcpya_k(cswritep, "\tALT1");
+    }
+    if (alt_col) {
+      cswritep = strcpya_k(cswritep, "\tALT");
+    }
+    if (flags & kfVscoreColAltfreq) {
+      cswritep = strcpya_k(cswritep, "\tALT_FREQ");
+    } else {
+      allele_freqs = nullptr;
+    }
+    const uint32_t nmiss_col = (flags / kfVscoreColNmiss) & 1;
+    if (nmiss_col) {
+      cswritep = strcpya_k(cswritep, "\tMISSING_CT");
+    }
+    const uint32_t nobs_col = (flags / kfVscoreColNobs) & 1;
+    if (nobs_col) {
+      cswritep = strcpya_k(cswritep, "\tOBS_CT");
+    }
+    for (uintptr_t vscore_idx = 0; vscore_idx != vscore_ct; ++vscore_idx) {
+      *cswritep++ = '\t';
+      cswritep = strcpya(cswritep, vscore_names[vscore_idx]);
+      if (unlikely(Cswrite(&css, &cswritep))) {
+        goto Vscore_ret_WRITE_FAIL;
+      }
+    }
+    AppendBinaryEoln(&cswritep);
+
+    if (nmiss_col || nobs_col) {
+      if (unlikely(
+              bigstack_alloc_u32(kPglVblockSize, &ctx.missing_cts[0]) ||
+              bigstack_alloc_u32(kPglVblockSize, &ctx.missing_cts[1]))) {
+        goto Vscore_ret_NOMEM;
+      }
+    } else {
+      ctx.missing_cts[0] = nullptr;
+      ctx.missing_cts[1] = nullptr;
+    }
+
+    // Per-thread dosage_vmaj buffers must have space for
+    // kScoreVariantBlockSize * sample_ct elements.
+    const uintptr_t thread_xalloc_cacheline_ct = DivUp(kScoreVariantBlockSize * S_CAST(uintptr_t, sample_ct) * sizeof(double), kCacheline);
+
+    // ctx.results must have space for 2 * vscore_ct * read_block_size doubles.
+    const uintptr_t per_variant_xalloc_byte_ct = 2 * vscore_ct * sizeof(double);
+    const uint32_t dosage_is_present = pgfip->gflags & kfPgenGlobalDosagePresent;
+    STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
+    // defensive
+    ctx.dosage_presents = nullptr;
+    ctx.dosage_mains = nullptr;
+    uint32_t read_block_size;
+    if (unlikely(PgenMtLoadInit(variant_include, sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, per_variant_xalloc_byte_ct, 0, pgfip, &calc_thread_ct, &ctx.genovecs, nullptr, nullptr, nullptr, dosage_is_present? (&ctx.dosage_presents) : nullptr, dosage_is_present? (&ctx.dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &ctx.pgr_ptrs, &ctx.read_variant_uidx_starts))) {
+      goto Vscore_ret_NOMEM;
+    }
+    if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
+      goto Vscore_ret_NOMEM;
+    }
+    for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
+      ctx.dosage_vmaj_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(thread_xalloc_cacheline_ct * kCacheline));
+    }
+    const uintptr_t results_byte_ct = RoundUpPow2(per_variant_xalloc_byte_ct * read_block_size, kCacheline);
+    ctx.results[0] = S_CAST(double*, bigstack_alloc_raw(results_byte_ct));
+    ctx.results[1] = S_CAST(double*, bigstack_alloc_raw(results_byte_ct));
+    assert(g_bigstack_base <= g_bigstack_end);
+    ctx.reterr = kPglRetSuccess;
+    SetThreadFuncAndData(VscoreThread, &ctx, &tg);
+
+    fputs("--variant-score: 0%", stdout);
+    fflush(stdout);
+    const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
+    // Main workflow:
+    // 1. Set n=0, load/skip block 0
+    //
+    // 2. Spawn threads processing block n
+    // 3. If n>0, write results for block (n-1)
+    // 4. Increment n by 1
+    // 5. Load/skip block n unless eof
+    // 6. Join threads
+    // 7. Goto step 2 unless eof
+    //
+    // 8. Write results for last block
+    uintptr_t write_variant_uidx_base = 0;
+    uintptr_t cur_bits = variant_include[0];
+    uint32_t prev_block_size = 0;
+    uint32_t pct = 0;
+    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t parity = 0;
+    uint32_t read_block_idx = 0;
+    uint32_t chr_fo_idx = UINT32_MAX;
+    uint32_t chr_end = 0;
+    uint32_t chr_buf_blen = 0;
+    uint32_t prev_variant_idx = 0;
+    uint32_t cur_sample_ct = 0;
+    uint32_t cur_allele_ct = 2;
+    for (uint32_t variant_idx = 0; ; ++read_block_idx) {
+      const uint32_t cur_block_size = MultireadNonempty(variant_include, &tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
+      if (unlikely(reterr)) {
+        goto Vscore_ret_PGR_FAIL;
+      }
+      if (variant_idx) {
+        JoinThreads(&tg);
+        reterr = ctx.reterr;
+        if (unlikely(reterr)) {
+          goto Vscore_ret_PGR_FAIL;
+        }
+      }
+      if (!IsLastBlock(&tg)) {
+        // it may make sense to put this boilerplate into its own function,
+        // too...
+        ctx.cur_block_size = cur_block_size;
+        ComputeUidxStartPartition(variant_include, cur_block_size, calc_thread_ct, read_block_idx * read_block_size, ctx.read_variant_uidx_starts);
+        PgrCopyBaseAndOffset(pgfip, calc_thread_ct, ctx.pgr_ptrs);
+        if (variant_idx + cur_block_size == variant_ct) {
+          DeclareLastThreadBlock(&tg);
+        }
+        if (unlikely(SpawnThreads(&tg))) {
+          goto Vscore_ret_THREAD_CREATE_FAIL;
+        }
+      }
+      parity = 1 - parity;
+      if (variant_idx) {
+        // write *previous* block results
+        const double* cur_results_iter = ctx.results[parity];
+        const uint32_t* cur_missing_cts = ctx.missing_cts[parity];
+        for (uint32_t variant_bidx = 0; variant_bidx != prev_block_size; ++variant_bidx) {
+          const uint32_t write_variant_uidx = BitIter1(variant_include, &write_variant_uidx_base, &cur_bits);
+          if (write_variant_uidx >= chr_end) {
+            do {
+              ++chr_fo_idx;
+              chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+            } while (write_variant_uidx >= chr_end);
+            const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+            cur_sample_ct = (chr_idx == y_code)? male_ct : sample_ct;
+            if (chr_buf) {
+              char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
+              *chr_name_end = '\t';
+              chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
+            }
+          }
+          if (chr_col) {
+            cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
+          }
+          if (variant_bps) {
+            cswritep = u32toa_x(variant_bps[write_variant_uidx], '\t', cswritep);
+          }
+          cswritep = strcpya(cswritep, variant_ids[write_variant_uidx]);
+          uintptr_t allele_idx_offset_base = write_variant_uidx * 2;
+          if (allele_idx_offsets) {
+            allele_idx_offset_base = allele_idx_offsets[write_variant_uidx];
+            cur_allele_ct = allele_idx_offsets[write_variant_uidx + 1] - allele_idx_offset_base;
+          }
+          const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+          if (ref_col) {
+            *cswritep++ = '\t';
+            cswritep = strcpya(cswritep, cur_alleles[0]);
+          }
+          if (alt1_col) {
+            *cswritep++ = '\t';
+            cswritep = strcpya(cswritep, cur_alleles[1]);
+          }
+          if (alt_col) {
+            *cswritep++ = '\t';
+            for (uint32_t allele_idx = 1; allele_idx != cur_allele_ct; ++allele_idx) {
+              if (unlikely(Cswrite(&css, &cswritep))) {
+                goto Vscore_ret_WRITE_FAIL;
+              }
+              cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
+            }
+            --cswritep;
+          }
+          if (allele_freqs) {
+            *cswritep++ = '\t';
+            cswritep = dtoa_g(1.0 - allele_freqs[allele_idx_offset_base - write_variant_uidx], cswritep);
+          }
+          if (nmiss_col) {
+            *cswritep++ = '\t';
+            cswritep = u32toa(cur_missing_cts[variant_bidx], cswritep);
+          }
+          if (nobs_col) {
+            *cswritep++ = '\t';
+            cswritep = u32toa(cur_sample_ct - cur_missing_cts[variant_bidx], cswritep);
+          }
+          for (uintptr_t vscore_idx = 0; vscore_idx != vscore_ct; ++vscore_idx) {
+            *cswritep++ = '\t';
+            cswritep = dtoa_g(*cur_results_iter++, cswritep);
+          }
+          AppendBinaryEoln(&cswritep);
+          if (unlikely(Cswrite(&css, &cswritep))) {
+            goto Vscore_ret_WRITE_FAIL;
+          }
+        }
+        if (variant_idx == variant_ct) {
+          break;
+        }
+        if (variant_idx >= next_print_variant_idx) {
+          if (pct > 10) {
+            putc_unlocked('\b', stdout);
+          }
+          pct = (variant_idx * 100LLU) / variant_ct;
+          printf("\b\b%u%%", pct++);
+          fflush(stdout);
+          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+        }
+      }
+      prev_block_size = cur_block_size;
+      prev_variant_idx = variant_idx;
+      variant_idx += cur_block_size;
+      pgfip->block_base = main_loadbufs[parity];
+    }
+    if (unlikely(CswriteCloseNull(&css, cswritep))) {
+      goto Vscore_ret_WRITE_FAIL;
+    }
+    putc_unlocked('\r', stdout);
+    logprintfww("--variant-score: Results written to %s .\n", outname);
+  }
+  while (0) {
+  Vscore_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  Vscore_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--variant-score file", &txs);
+    break;
+  Vscore_ret_PGR_FAIL:
+    PgenErrPrintN(reterr);
+    break;
+  Vscore_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  Vscore_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+  Vscore_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  Vscore_ret_MISSING_TOKENS:
+    logerrprintfww("Error: Line %" PRIuPTR " of --variant-score file has fewer tokens than expected.\n", line_idx);
+  Vscore_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  Vscore_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
+    break;
+  }
+ Vscore_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  CleanupThreads(&tg);
+  CleanupTextStream2("--variant-score file", &txs, &reterr);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }

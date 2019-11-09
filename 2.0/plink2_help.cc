@@ -747,7 +747,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                ['include-missing'] [{pairwise | counts-only}]\n"
 "                ['fname-id-delim='<c>] ['zs'] ['cols='<column set descriptor>]\n"
 "                ['counts-cols='<column set descriptor>] file=<ID-pair file>\n"
-"  (alias: --sdiff)\n"
+"    (alias: --sdiff)\n"
 "    Report discordances and discordance-counts between pairs of samples.  If\n"
 "    chrX or chrY is present, sex must be defined and consistent.\n"
 "    * There are three ways to specify which sample pairs to compare.  To\n"
@@ -1084,6 +1084,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      err: Error code for NA results.\n"
 "    The default is chrom,pos,ref,alt,firth,test,nobs,orbeta,se,ci,tz,p.\n\n"
                );
+    // todo: nmissallele -> nallele in alpha 3
     HelpPrint("score\0", &help_ctrl, 1,
 "  --score <filename> [i] [j] [k] [{header | header-read}]\n"
 "          [{center | variance-standardize | dominant | recessive}]\n"
@@ -1141,6 +1142,29 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    For more sophisticated polygenic risk scoring, we recommend the PRSice-2\n"
 "    software package (https://www.prsice.info/ ).\n\n"
                );
+    HelpPrint("variant-score\0vscore\0", &help_ctrl, 1,
+"  --variant-score <filename> ['zs'] ['cols='<col set descriptor>]\n"
+"    (alias: --vscore)\n"
+"    Apply linear scoring system(s) to each variant.  Each reported variant\n"
+"    score is the dot product of a sample-weight vector with the\n"
+"    total-ALT-dosage vector, with MAF-based mean imputation applied to missing\n"
+"    dosages.\n"
+"    Input file format: one line per sample, each starting with an ID and\n"
+"    followed by scoring weight(s); it can also have a header line with the\n"
+"    sample ID representation and the score name(s).\n"
+"    The main report supports the following column sets:\n"
+"      chrom: Chromosome ID.\n"
+"      pos: Base-pair coordinate.\n"
+"      (ID is always present, and positioned here.)\n"
+"      ref: Reference allele.\n"
+"      alt1: Alternate allele 1.\n"
+"      alt: All alternate alleles, comma-separated.\n"
+"      altfreq: ALT allele frequency used for mean-imputation.\n"
+"      nmiss: Number of missing (and thus mean-imputed) dosages.\n"
+"      nobs: Number of (nonmissing) sample observations.\n"
+"      (Variant scores are always present, and positioned here.)\n"
+"    Default is chrom,pos,ref,alt.\n\n"
+              );
     HelpPrint("adjust-file\0adjust\0", &help_ctrl, 1,
 "  --adjust-file <filename> ['zs'] ['gc'] ['cols='<column set descriptor>]\n"
 "                ['log10'] ['input-log10'] ['test='<test name, case-sensitive>]\n"
@@ -1194,7 +1218,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     HelpPrint("zst-decompress\0zd\0", &help_ctrl, 1,
 "  --zst-decompress <.zst file> [output filename]\n"
-"  (alias: --zd)\n"
+"    (alias: --zd)\n"
 "    Decompress a Zstd-compressed file.  If no output filename is specified, the\n"
 "    file is decompressed to standard output.\n"
 "    This cannot be used with any other flags, and does not cause a log file to\n"
@@ -1254,7 +1278,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     HelpPrint("missing-code\0missing_code\0data\0sample\0", &help_ctrl, 0,
 "  --missing-code [string list]    : Comma-delimited list of missing phenotype\n"
-"  (alias: --missing_code)           values for Oxford-format import (default\n"
+"    (alias: --missing_code)         values for Oxford-format import (default\n"
 "                                    'NA').\n"
                );
     // any need to keep --hard-call-threshold random?  postpone it for now...
@@ -1615,17 +1639,17 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     // and kind of forces the underlying flag to be renamed
     HelpPrint("maf\0min-af\0max-maf\0max-af\0mac\0min-ac\0max-mac\0max-ac\0", &help_ctrl, 0,
 "  --maf [freq] [mode]     : Exclude variants with allele frequency lower than a\n"
-"  (alias: --min-af)         threshold (default 0.01).  By default, the nonmajor\n"
+"    (alias: --min-af)       threshold (default 0.01).  By default, the nonmajor\n"
 "                            allele frequency is used; the other supported modes\n"
 "                            are 'nref' (non-reference), 'alt1', and 'minor'\n"
 "                            (least frequent).  bcftools freq:mode notation is\n"
 "                            permitted.\n"
 "  --max-maf <freq> [mode] : Exclude variants with MAF greater than the\n"
-"  (alias: --max-af)         threshold.\n"
+"    (alias: --max-af)       threshold.\n"
 "  --mac <ct> [mode]       : Exclude variants with allele dosage lower than the\n"
-"  (alias: --min-ac)         given threshold.\n"
+"    (alias: --min-ac)       given threshold.\n"
 "  --max-mac <ct> [mode]   : Exclude variants with allele dosage greater than\n"
-"  (alias: --max-ac)         the given threshold.\n"
+"    (alias: --max-ac)       the given threshold.\n"
                );
     HelpPrint("maf-succ\0", &help_ctrl, 0,
 "  --maf-succ         : Rule of succession allele frequency estimation (used in\n"
@@ -1874,7 +1898,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     HelpPrint("normalize\0norm\0fa\0", &help_ctrl, 0,
 "  --normalize ['list']    : Left-normalize all variants, using the --fa file.\n"
-"  (alias: --norm)           (Assumes no differences in capitalization.)  The\n"
+"    (alias: --norm)         (Assumes no differences in capitalization.)  The\n"
 "                            'list' modifier causes a list of affected variant\n"
 "                            IDs to be written to <output prefix>.normalized.\n"
               );
@@ -1937,8 +1961,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       correlation between two predictors exceeds this value\n"
 "                       (default 0.999).\n"
                );
-    HelpPrint("glm\0linear\0logistic\0score\0xchr-model\0", &help_ctrl, 0,
-"  --xchr-model <m>   : Set the chrX --glm/--condition[-list]/--score model.\n"
+    HelpPrint("xchr-model\0glm\0linear\0logistic\0score\0vscore\0", &help_ctrl, 0,
+"  --xchr-model <m>   : Set the chrX --glm/--condition[-list]/--[v]score model.\n"
 "                       * '0' = skip chrX.\n"
 "                       * '1' = add sex as a covar on chrX, code males 0..1.\n"
 "                       * '2' (default) = chrX sex covar, code males 0..2.\n"
@@ -2012,6 +2036,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * By default, --q-score-range errors out when a variant ID appears multiple\n"
 "      times in the data file (and is also present in the main dataset).  To use\n"
 "      the minimum p-value in this case instead, add the 'min' modifier.\n"
+               );
+    HelpPrint("vscore-col-nums\0variant-score\0vscore\0", &help_ctrl, 0,
+"  --vscore-col-nums <...> : Process all the specified coefficient columns in\n"
+"                            the --variant-score file, identified by 1-based\n"
+"                            indexes and/or ranges of them.\n"
                );
     HelpPrint("parallel\0", &help_ctrl, 0,
 "  --parallel <k> <n> : Divide the output matrix into n pieces, and only compute\n"

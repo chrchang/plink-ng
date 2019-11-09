@@ -72,11 +72,9 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
     uint32_t col_skips[3];
     uint32_t col_types[3];
     const char* line_iter;
-    while (!TextNextLineLstripK(&txs, &line_iter)) {
+    while (1) {
       ++line_idx;
-      if (IsEolnKns(*line_iter)) {
-        continue;
-      }
+      line_iter = TextGet(&txs);
       if (*line_iter != '#') {
         // .bim:
         //   5 columns: #CHROM ID POS ALT REF

@@ -2866,7 +2866,8 @@ uint32_t Edit1Match(const char* s1, const char* s2, uint32_t len1, uint32_t len2
   }
   uintptr_t mismatch_pos = FirstUnequal(s1, s2, len1);
   if (mismatch_pos == len1) {
-    return 0;
+    // bugfix (5 Nov 2019): this was backwards...
+    return 1;
   }
   if (len1 != len2) {
     // At least one mismatch guaranteed.

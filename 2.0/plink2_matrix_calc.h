@@ -125,14 +125,30 @@ FLAGSET_DEF_START()
   kfScoreColSid = (1 << 17),
   kfScoreColPheno1 = (1 << 18),
   kfScoreColPhenos = (1 << 19),
-  kfScoreColNmissAllele = (1 << 20),
+  kfScoreColNallele = (1 << 20),
   kfScoreColDenom = (1 << 21),
   kfScoreColDosageSum = (1 << 22),
   kfScoreColScoreAvgs = (1 << 23),
   kfScoreColScoreSums = (1 << 24),
-  kfScoreColDefault = (kfScoreColMaybefid | kfScoreColMaybesid | kfScoreColPhenos | kfScoreColNmissAllele | kfScoreColDosageSum | kfScoreColScoreAvgs),
+  kfScoreColDefault = (kfScoreColMaybefid | kfScoreColMaybesid | kfScoreColPhenos | kfScoreColNallele | kfScoreColDosageSum | kfScoreColScoreAvgs),
   kfScoreColAll = ((kfScoreColScoreSums * 2) - kfScoreColMaybefid)
 FLAGSET_DEF_END(ScoreFlags);
+
+FLAGSET_DEF_START()
+  kfVscore0,
+  kfVscoreZs = (1 << 0),
+
+  kfVscoreColChrom = (1 << 1),
+  kfVscoreColPos = (1 << 2),
+  kfVscoreColRef = (1 << 3),
+  kfVscoreColAlt1 = (1 << 4),
+  kfVscoreColAlt = (1 << 5),
+  kfVscoreColAltfreq = (1 << 6),
+  kfVscoreColNmiss = (1 << 7),
+  kfVscoreColNobs = (1 << 8),
+  kfVscoreColDefault = (kfVscoreColChrom | kfVscoreColPos | kfVscoreColRef | kfVscoreColAlt),
+  kfVscoreColAll = ((kfVscoreColNobs * 2) - kfVscoreColChrom)
+FLAGSET_DEF_END(VscoreFlags);
 
 typedef struct ScoreInfoStruct {
   NONCOPYABLE(ScoreInfoStruct);
@@ -166,6 +182,8 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
 #endif
 
 PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const ScoreInfo* score_info_ptr, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t xchr_model, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
+
+PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const double* allele_freqs, const char* in_fname, const RangeList* col_idx_range_listp, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t max_allele_slen, VscoreFlags flags, uint32_t xchr_model, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end);
 
 #ifdef __cplusplus
 }  // namespace plink2

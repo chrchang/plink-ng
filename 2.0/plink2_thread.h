@@ -200,8 +200,8 @@ HEADER_INLINE void DeclareLastThreadBlock(ThreadGroup* tg_ptr) {
   GET_PRIVATE(tgp->shared, cb).is_last_block = 1;
 }
 
-HEADER_INLINE uint32_t IsLastBlock(ThreadGroup* tg_ptr) {
-  ThreadGroupMain* tgp = &GET_PRIVATE(*tg_ptr, m);
+HEADER_INLINE uint32_t IsLastBlock(const ThreadGroup* tg_ptr) {
+  const ThreadGroupMain* tgp = &GET_PRIVATE(*tg_ptr, m);
   return GET_PRIVATE(tgp->shared, cb).is_last_block;
 }
 

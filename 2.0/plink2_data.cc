@@ -1589,7 +1589,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
               PgrClearLdCache(pgrp);
             }
             is_x_or_y = 0;
-            // no way for this to happen now unless everything is haploid?
+            // true for MT
             is_nonxy_haploid = IsSet(cip->haploid_mask, chr_idx);
           }
         }
@@ -2297,7 +2297,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     ctx.dosage_mains = nullptr;
     uint32_t read_block_size;
     // todo: check if raw_sample_ct should be replaced with sample_ct here
-    if (unlikely(PgenMtLoadInit(variant_include, raw_sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, 0, 0, 0, pgfip, &calc_thread_ct, &ctx.genovecs, mhc_needed? (&ctx.thread_read_mhc) : nullptr, nullptr, nullptr, xy_dosages_needed? (&ctx.dosage_presents) : nullptr, xy_dosages_needed? (&ctx.dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, nullptr, &ctx.pgr_ptrs, &ctx.read_variant_uidx_starts))) {
+    if (unlikely(PgenMtLoadInit(variant_include, raw_sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, 0, 0, 0, pgfip, &calc_thread_ct, &ctx.genovecs, mhc_needed? (&ctx.thread_read_mhc) : nullptr, nullptr, nullptr, xy_dosages_needed? (&ctx.dosage_presents) : nullptr, xy_dosages_needed? (&ctx.dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &ctx.pgr_ptrs, &ctx.read_variant_uidx_starts))) {
       goto LoadAlleleAndGenoCounts_ret_NOMEM;
     }
     if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
@@ -2313,32 +2313,13 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     fflush(stdout);
     uint32_t pct = 0;
 
-    const uint32_t read_block_sizel = BitCtToWordCt(read_block_size);
-    const uint32_t read_block_ct_m1 = (raw_variant_ct - 1) / read_block_size;
     uint32_t parity = 0;
     uint32_t read_block_idx = 0;
-    uint32_t cur_read_block_size = read_block_size;
     uint32_t next_print_variant_idx = variant_ct / 100;
     for (uint32_t variant_idx = 0; ; ) {
-      uintptr_t cur_block_size = 0;
-      if (!IsLastBlock(&tg)) {
-        for (; ; ++read_block_idx) {
-          if (read_block_idx == read_block_ct_m1) {
-            cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
-            cur_block_size = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), BitCtToWordCt(cur_read_block_size));
-            break;
-          }
-          // this uses PgenMtLoadInit()'s guarantee that read_block_size is
-          // either raw_variant_ct or a multiple of kBitsPerVec
-          cur_block_size = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), read_block_sizel);
-          if (cur_block_size) {
-            break;
-          }
-        }
-        reterr = PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_size, pgfip);
-        if (unlikely(reterr)) {
-          goto LoadAlleleAndGenoCounts_ret_PGR_FAIL;
-        }
+      const uint32_t cur_block_size = MultireadNonempty(variant_include, &tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
+      if (unlikely(reterr)) {
+        goto LoadAlleleAndGenoCounts_ret_PGR_FAIL;
       }
       if (variant_idx) {
         JoinThreads(&tg);
@@ -4717,7 +4698,7 @@ PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_samp
     ctx.dosage_presents = nullptr;
     ctx.dosage_mains = nullptr;
     uint32_t read_block_size;
-    if (unlikely(PgenMtLoadInit(variant_include, sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, 0, 2 * (sample_ct4 + 1), 0, pgfip, &calc_thread_ct, &ctx.genovecs, nullptr, nullptr, nullptr, mcp->hard_call_halfdist? (&ctx.dosage_presents) : nullptr, mcp->hard_call_halfdist? (&ctx.dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, nullptr, &ctx.pgr_ptrs, &ctx.read_variant_uidx_starts))) {
+    if (unlikely(PgenMtLoadInit(variant_include, sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, 0, 2 * (sample_ct4 + 1), 0, pgfip, &calc_thread_ct, &ctx.genovecs, nullptr, nullptr, nullptr, mcp->hard_call_halfdist? (&ctx.dosage_presents) : nullptr, mcp->hard_call_halfdist? (&ctx.dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &ctx.pgr_ptrs, &ctx.read_variant_uidx_starts))) {
       goto MakeBedlikeMain_ret_NOMEM;
     }
     if (unlikely(
@@ -4749,32 +4730,14 @@ PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_samp
     // 7. Goto step 2 unless eof
     //
     // 8. Write results for last block
-
-    const uint32_t read_block_sizel = BitCtToWordCt(read_block_size);
-    const uint32_t read_block_ct_m1 = (raw_variant_ct - 1) / read_block_size;
     uint32_t parity = 0;
     uint32_t read_block_idx = 0;
     uint32_t prev_variant_idx = 0;
-    uint32_t cur_read_block_size = read_block_size;
     uint32_t next_print_variant_idx = variant_ct / 100;
     for (uint32_t variant_idx = 0; ; ) {
-      uintptr_t cur_block_write_ct = 0;
-      if (!IsLastBlock(&tg)) {
-        for (; ; ++read_block_idx) {
-          if (read_block_idx == read_block_ct_m1) {
-            cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
-            cur_block_write_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), BitCtToWordCt(cur_read_block_size));
-            break;
-          }
-          cur_block_write_ct = PopcountWords(&(variant_include[read_block_idx * read_block_sizel]), read_block_sizel);
-          if (cur_block_write_ct) {
-            break;
-          }
-        }
-        reterr = PgfiMultiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_write_ct, pgfip);
-        if (unlikely(reterr)) {
-          goto MakeBedlikeMain_ret_PGR_FAIL;
-        }
+      const uint32_t cur_block_write_ct = MultireadNonempty(variant_include, &tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
+      if (unlikely(reterr)) {
+        goto MakeBedlikeMain_ret_PGR_FAIL;
       }
       if (variant_idx) {
         JoinThreads(&tg);
