@@ -6727,7 +6727,6 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
     uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t chr_end = 0;
     uint32_t chr_buf_blen = 0;
-    uint32_t prev_variant_idx = 0;
     uint32_t cur_sample_ct = 0;
     uint32_t cur_allele_ct = 2;
     for (uint32_t variant_idx = 0; ; ++read_block_idx) {
@@ -6841,7 +6840,6 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
         }
       }
       prev_block_size = cur_block_size;
-      prev_variant_idx = variant_idx;
       variant_idx += cur_block_size;
       pgfip->block_base = main_loadbufs[parity];
     }
