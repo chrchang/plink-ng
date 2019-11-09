@@ -6119,7 +6119,7 @@ typedef struct VscoreCtxStruct {
   uint32_t vscore_ct;
   uint32_t sample_ct;
   uint32_t male_ct;
-  uint32_t x_code;  // UINT32_MAX unless xchr_model 1
+  uint32_t xchr_model_1;
 
   PgenReader** pgr_ptrs;
   uintptr_t** genovecs;
@@ -6177,10 +6177,10 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
   const uintptr_t sample_ct = ctx->sample_ct;
   const uint32_t male_ct = ctx->male_ct;
   const uint32_t nonmale_ct = sample_ct - male_ct;
-  const uint32_t x_code = ctx->x_code;
+  const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
   const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
+  const uint32_t xchr_model_1 = ctx->xchr_model_1;
   const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
-
 
   // todo: tune this threshold
   const uint32_t max_simple_difflist_len = sample_ct / 32;
@@ -6217,8 +6217,12 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
         is_y = 0;
         is_nonxy_haploid = 0;
         if (chr_idx == x_code) {
-          is_x_or_y = 1;
-          PgrClearLdCache(pgrp);
+          if (!xchr_model_1) {
+            is_x_or_y = 0;
+          } else {
+            is_x_or_y = 1;
+            PgrClearLdCache(pgrp);
+          }
         } else if (chr_idx == y_code) {
           is_x_or_y = 1;
           is_y = 1;
@@ -6655,7 +6659,7 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
         if (sample_ct < 8192) {
           compress_thread_ct = calc_thread_ct / 2;
         } else {
-          const uint64_t log2_sample_ct_m10 = bsru32(sample_ct) - 10;
+          const uint32_t log2_sample_ct_m10 = bsru32(sample_ct) - 10;
           // 3/8, 4/16, 5/24, ...
           compress_thread_ct = (calc_thread_ct * log2_sample_ct_m10) / (8 * (log2_sample_ct_m10 - 2));
           if (!compress_thread_ct) {
@@ -6709,10 +6713,7 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
     ctx.sample_ct = sample_ct;
     const uint32_t male_ct = PopcountWords(ctx.sex_male_collapsed, sample_ctl);
     ctx.male_ct = male_ct;
-    ctx.x_code = UINT32_MAX;
-    if (xchr_model) {
-      ctx.x_code = cip->xymt_codes[kChrOffsetX];
-    }
+    ctx.xchr_model_1 = xchr_model;
 
     const uint32_t chr_col = (flags / kfVscoreColChrom) & 1;
     char* chr_buf = nullptr;
