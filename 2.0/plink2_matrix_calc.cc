@@ -6182,8 +6182,7 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
   const uint32_t xchr_model_1 = ctx->xchr_model_1;
   const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
 
-  // todo: tune this threshold
-  const uint32_t max_simple_difflist_len = sample_ct / 32;
+  const uint32_t max_sparse = sample_ct / 9;
 
   double* tmp_result_buf = ctx->tmp_result_bufs[tidx];
   uint16_t cur_bidxs[kVscoreBlockSize];
@@ -6218,6 +6217,9 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
         is_nonxy_haploid = 0;
         if (chr_idx == x_code) {
           if (!xchr_model_1) {
+            if (is_x_or_y) {
+              PgrClearLdCache(pgrp);
+            }
             is_x_or_y = 0;
           } else {
             is_x_or_y = 1;
@@ -6246,7 +6248,7 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
       if (!dosage_present) {
         uint32_t difflist_common_geno;
         uint32_t difflist_len;
-        PglErr reterr = PgrGetDifflistOrGenovec(sample_include, sample_include_cumulative_popcounts, sample_ct, max_simple_difflist_len, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+        PglErr reterr = PgrGetDifflistOrGenovec(sample_include, sample_include_cumulative_popcounts, sample_ct, max_sparse, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
         if (unlikely(reterr)) {
           ctx->reterr = reterr;
           goto VscoreThread_err;

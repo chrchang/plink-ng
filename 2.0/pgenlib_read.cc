@@ -1959,7 +1959,7 @@ PglErr ParseLdAndMergeDifflistSubset(const unsigned char* fread_end, const uintp
   // process the current variant as a difflist.
   // * Assumes ldbase_difflist_sample_ids[ldbase_difflist_len]==sample_ct.
   // * Assumes sample_include == nullptr if no subsetting needed.  (Otherwise,
-  //   it'll still work, but performance will be worseslowerw.)
+  //   it'll still work, but performance will be worse.)
   // Trailing bits of merged_raregeno may not be zeroed out.
   // Caller is responsible for inverting ldbase_common_geno and merged_raregeno
   // afterward if necessary.
