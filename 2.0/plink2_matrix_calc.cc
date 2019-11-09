@@ -6119,7 +6119,7 @@ typedef struct VscoreCtxStruct {
   uint32_t vscore_ct;
   uint32_t sample_ct;
   uint32_t male_ct;
-  uint32_t xchr_model_1;
+  uint32_t is_xchr_model_1;
 
   PgenReader** pgr_ptrs;
   uintptr_t** genovecs;
@@ -6179,7 +6179,7 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
   const uint32_t nonmale_ct = sample_ct - male_ct;
   const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
   const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
-  const uint32_t xchr_model_1 = ctx->xchr_model_1;
+  const uint32_t is_xchr_model_1 = ctx->is_xchr_model_1;
   const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
 
   const uint32_t max_sparse = sample_ct / 9;
@@ -6216,23 +6216,11 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
         is_y = 0;
         is_nonxy_haploid = 0;
         if (chr_idx == x_code) {
-          if (!xchr_model_1) {
-            if (is_x_or_y) {
-              PgrClearLdCache(pgrp);
-            }
-            is_x_or_y = 0;
-          } else {
-            is_x_or_y = 1;
-            PgrClearLdCache(pgrp);
-          }
+          is_x_or_y = is_xchr_model_1;
         } else if (chr_idx == y_code) {
           is_x_or_y = 1;
           is_y = 1;
-          PgrClearLdCache(pgrp);
         } else {
-          if (is_x_or_y) {
-            PgrClearLdCache(pgrp);
-          }
           is_x_or_y = 0;
           is_nonxy_haploid = IsSet(cip->haploid_mask, chr_idx);
         }
@@ -6315,7 +6303,76 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
           ctx->reterr = reterr;
           goto VscoreThread_err;
         }
-        // todo: sparse-optimization
+        if ((!is_x_or_y) && (dosage_ct <= max_sparse)) {
+          STD_ARRAY_DECL(uint32_t, 4, genocounts);
+          ZeroTrailingNyps(sample_ct, genovec);
+          if (!dosage_ct) {
+            // dosage_present contains garbage if dosage_ct == 0; might want to
+            // append 'Unsafe' to PgrGetD and similar function names...
+            ZeroWArr(BitCtToWordCt(sample_ct), dosage_present);
+          }
+          GenoarrCountInvsubsetFreqs2(genovec, dosage_present, sample_ct, sample_ct - dosage_ct, genocounts);
+          if (genocounts[0] >= sample_ct - max_sparse) {
+            double* target = &(cur_results[variant_bidx * vscore_ct]);
+            if (genocounts[0] == sample_ct) {
+              ZeroDArr(vscore_ct, target);
+            } else {
+              ZeroDArr(vscore_ct * 3, tmp_result_buf);
+              const Halfword* dosage_present_alias = R_CAST(Halfword*, dosage_present);
+              const uint32_t sample_ctl2 = DivUp(sample_ct, kBitsPerWordD2);
+              for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
+                uintptr_t geno_word = genovec[widx];
+                if (!geno_word) {
+                  continue;
+                }
+                const uintptr_t dosage_mask = UnpackHalfwordToWord(dosage_present_alias[widx]);
+                geno_word = geno_word & (~(dosage_mask * 3));
+                if (!geno_word) {
+                  continue;
+                }
+                const double* cur_wts_smaj = &(wts_smaj[widx * kBitsPerWordD2 * vscore_ct]);
+                do {
+                  const uint32_t shift_ct = ctzw(geno_word) & (~1);
+                  const uintptr_t cur_invgeno = 3 & (~(geno_word >> shift_ct));
+                  const double* incr_src = &(cur_wts_smaj[(shift_ct / 2) * vscore_ct]);
+                  double* incr_dst = &(tmp_result_buf[cur_invgeno * vscore_ct]);
+                  for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                    incr_dst[ulii] += incr_src[ulii];
+                  }
+                  geno_word &= ~((3 * k1LU) << shift_ct);
+                } while (geno_word);
+              }
+              if (!is_nonxy_haploid) {
+                for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                  target[ulii] = 2 * tmp_result_buf[ulii + vscore_ct] + tmp_result_buf[ulii + 2 * vscore_ct];
+                }
+              } else {
+                for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                  target[ulii] = tmp_result_buf[ulii + vscore_ct] + 0.5 * tmp_result_buf[ulii + 2 * vscore_ct];
+                }
+              }
+              if (genocounts[3]) {
+                for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                  target[ulii] += missing_val * tmp_result_buf[ulii];
+                }
+              }
+              uintptr_t sample_idx_base = 0;
+              uintptr_t dosage_present_bits = dosage_present[0];
+              for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+                const uintptr_t sample_idx = BitIter1(dosage_present, &sample_idx_base, &dosage_present_bits);
+                const double* incr_src = &(wts_smaj[sample_idx * vscore_ct]);
+                const double cur_dosage = slope * kRecipDosageMid * u31tod(dosage_main[dosage_idx]);
+                for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                  target[ulii] += cur_dosage * incr_src[ulii];
+                }
+              }
+            }
+            if (missing_cts) {
+              missing_cts[variant_bidx] = genocounts[3];
+            }
+            continue;
+          }
+        }
       }
 
       if (row_idx == kVscoreBlockSize) {
@@ -6715,7 +6772,7 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
     ctx.sample_ct = sample_ct;
     const uint32_t male_ct = PopcountWords(ctx.sex_male_collapsed, sample_ctl);
     ctx.male_ct = male_ct;
-    ctx.xchr_model_1 = xchr_model;
+    ctx.is_xchr_model_1 = xchr_model;
 
     const uint32_t chr_col = (flags / kfVscoreColChrom) & 1;
     char* chr_buf = nullptr;
