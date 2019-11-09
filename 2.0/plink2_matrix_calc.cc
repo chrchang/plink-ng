@@ -6123,6 +6123,8 @@ typedef struct VscoreCtxStruct {
 
   PgenReader** pgr_ptrs;
   uintptr_t** genovecs;
+  uintptr_t** raregenos;
+  uint32_t** difflist_sample_id_bufs;
   uintptr_t** dosage_presents;
   Dosage** dosage_mains;
   uint32_t* read_variant_uidx_starts;
@@ -6130,6 +6132,7 @@ typedef struct VscoreCtxStruct {
   uint32_t cur_block_size;
 
   double** dosage_vmaj_bufs;
+  double** tmp_result_bufs;
 
   // variant-major
   double* results[2];
@@ -6139,6 +6142,10 @@ typedef struct VscoreCtxStruct {
   // only kPglRetMalformedInput possible, no atomic ops needed
   PglErr reterr;
 } VscoreCtx;
+
+// This setting seems optimal on my Mac (smaller doesn't take full advantage of
+// AVX, larger creates cache problems?).
+CONSTI32(kVscoreBlockSize, 32);
 
 THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
   ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
@@ -6157,6 +6164,8 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
 
   PgenReader* pgrp = ctx->pgr_ptrs[tidx];
   uintptr_t* genovec = ctx->genovecs[tidx];
+  uintptr_t* raregeno = ctx->raregenos[tidx];
+  uint32_t* difflist_sample_ids = ctx->difflist_sample_id_bufs[tidx];
   uintptr_t* dosage_present = nullptr;
   Dosage* dosage_main = nullptr;
   if (ctx->dosage_presents) {
@@ -6172,12 +6181,22 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
   const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
   const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
 
+
+  // todo: tune this threshold
+  const uint32_t max_simple_difflist_len = sample_ct / 32;
+
+  double* tmp_result_buf = ctx->tmp_result_bufs[tidx];
+  uint16_t cur_bidxs[kVscoreBlockSize];
+
   double* dosage_vmaj = ctx->dosage_vmaj_bufs[tidx];
 
   uint32_t is_y = 0;
   uint32_t is_x_or_y = 0;
   uint32_t is_nonxy_haploid = 0;
   uint32_t chr_end = 0;
+  double slope = 0.0;
+
+  uint32_t dosage_ct = 0;
 
   uint32_t parity = 0;
   do {
@@ -6185,12 +6204,11 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
     const uint32_t bidx_end = ((tidx + 1) * cur_block_size) / calc_thread_ct;
     double* cur_results = ctx->results[parity];
     uint32_t* missing_cts = ctx->missing_cts[parity];
-    double slope = 0.0;
-    uintptr_t bidx_start = (tidx * cur_block_size) / calc_thread_ct;
+    uintptr_t row_idx = 0;
     uintptr_t variant_uidx_base;
     uintptr_t variant_include_bits;
     BitIter1Start(variant_include, ctx->read_variant_uidx_starts[tidx], &variant_uidx_base, &variant_include_bits);
-    for (uint32_t variant_bidx = bidx_start; variant_bidx != bidx_end; ++variant_bidx) {
+    for (uint32_t variant_bidx = (tidx * cur_block_size) / calc_thread_ct; variant_bidx != bidx_end; ++variant_bidx) {
       const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
       if (variant_uidx >= chr_end) {
         const uint32_t chr_fo_idx = GetVariantChrFoIdx(cip, variant_uidx);
@@ -6214,30 +6232,100 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
         }
         slope = (is_nonxy_haploid || is_y)? 0.5 : 1.0;
       }
-      // possible todo: if no dosages in file, use PgrGetDifflistOrGenovec()
-      // instead with sparse optimization
-      // (this would require an intermediate extra matrix-multiply destination
-      // buffer, maybe not worth the trouble)
-      uint32_t dosage_ct;
-      PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
-      if (unlikely(reterr)) {
-        ctx->reterr = reterr;
-        goto VscoreThread_err;
-      }
       double ref_freq;
       if (!allele_idx_offsets) {
         ref_freq = allele_freqs[variant_uidx];
       } else {
         ref_freq = allele_freqs[allele_idx_offsets[variant_uidx] - variant_uidx];
       }
-      uintptr_t row_idx = variant_bidx - bidx_start;
-      if (row_idx == kScoreVariantBlockSize) {
-        RowMajorMatrixMultiply(dosage_vmaj, wts_smaj, kScoreVariantBlockSize, vscore_ct, sample_ct, &(cur_results[bidx_start * vscore_ct]));
-        bidx_start = variant_bidx;
+      const double missing_val = slope * 2 * (1.0 - ref_freq);
+      if (!dosage_present) {
+        uint32_t difflist_common_geno;
+        uint32_t difflist_len;
+        PglErr reterr = PgrGetDifflistOrGenovec(sample_include, sample_include_cumulative_popcounts, sample_ct, max_simple_difflist_len, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+        if (unlikely(reterr)) {
+          ctx->reterr = reterr;
+          goto VscoreThread_err;
+        }
+        if (difflist_common_geno != UINT32_MAX) {
+          if ((!is_x_or_y) && (!difflist_common_geno)) {
+            double* target = &(cur_results[variant_bidx * vscore_ct]);
+            uint32_t missing_ct = 0;
+            if (!difflist_len) {
+              ZeroDArr(vscore_ct, target);
+            } else {
+              ZeroTrailingNyps(difflist_len, raregeno);
+              ZeroDArr(vscore_ct * 3, tmp_result_buf);
+              const uint32_t word_ct_m1 = (difflist_len - 1) / kBitsPerWordD2;
+              uint32_t loop_len = kBitsPerWordD2;
+              for (uint32_t widx = 0; ; ++widx) {
+                if (widx >= word_ct_m1) {
+                  if (widx > word_ct_m1) {
+                    break;
+                  }
+                  loop_len = ModNz(difflist_len, kBitsPerWordD2);
+                }
+                // slightly nicer to work with 2..0 than 1..3 row-indexes
+                uintptr_t raregeno_word = raregeno[widx];
+                uintptr_t raregeno_invword = ~raregeno_word;
+                missing_ct += Popcount01Word(raregeno_word & (raregeno_word >> 1) & kMask5555);
+                const uint32_t* cur_difflist_sample_ids = &(difflist_sample_ids[widx * kBitsPerWordD2]);
+                for (uint32_t uii = 0; uii != loop_len; ++uii) {
+                  const uintptr_t sample_idx = cur_difflist_sample_ids[uii];
+                  const uint32_t cur_invgeno = raregeno_invword & 3;
+                  const double* incr_src = &(wts_smaj[sample_idx * vscore_ct]);
+                  double* incr_dst = &(tmp_result_buf[cur_invgeno * vscore_ct]);
+                  for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                    incr_dst[ulii] += incr_src[ulii];
+                  }
+                  raregeno_invword = raregeno_invword >> 2;
+                }
+              }
+              if (!is_nonxy_haploid) {
+                for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                  target[ulii] = 2 * tmp_result_buf[ulii + vscore_ct] + tmp_result_buf[ulii + 2 * vscore_ct];
+                }
+              } else {
+                for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                  target[ulii] = tmp_result_buf[ulii + vscore_ct] + 0.5 * tmp_result_buf[ulii + 2 * vscore_ct];
+                }
+              }
+              if (missing_ct) {
+                for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                  target[ulii] += missing_val * tmp_result_buf[ulii];
+                }
+              }
+            }
+            if (missing_cts) {
+              missing_cts[variant_bidx] = missing_ct;
+            }
+            continue;
+          }
+          PgrDifflistToGenovecUnsafe(raregeno, difflist_sample_ids, difflist_common_geno, sample_ct, difflist_len, genovec);
+        }
+      } else {
+        PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
+        if (unlikely(reterr)) {
+          ctx->reterr = reterr;
+          goto VscoreThread_err;
+        }
+        // todo: sparse-optimization
+      }
+
+      if (row_idx == kVscoreBlockSize) {
+        RowMajorMatrixMultiply(dosage_vmaj, wts_smaj, kVscoreBlockSize, vscore_ct, sample_ct, tmp_result_buf);
+        const double* tmp_result_iter = tmp_result_buf;
+        for (uintptr_t ulii = 0; ulii != kVscoreBlockSize; ++ulii) {
+          const uintptr_t cur_bidx = cur_bidxs[ulii];
+          memcpy(&(cur_results[cur_bidx * vscore_ct]), tmp_result_iter, vscore_ct * sizeof(double));
+          tmp_result_iter = &(tmp_result_iter[vscore_ct]);
+        }
         row_idx = 0;
       }
+      cur_bidxs[row_idx] = variant_bidx;
       double* cur_row = &(dosage_vmaj[row_idx * sample_ct]);
-      PopulateRescaledDosage(genovec, dosage_present, dosage_main, slope, 0.0, slope * 2 * (1.0 - ref_freq), sample_ct, dosage_ct, cur_row);
+      ++row_idx;
+      PopulateRescaledDosage(genovec, dosage_present, dosage_main, slope, 0.0, missing_val, sample_ct, dosage_ct, cur_row);
       if (is_x_or_y) {
         // Instead of doing this for every variant, we could precompute
         // chrX/chrY weight matrices with male weights halved/nonmale weights
@@ -6298,10 +6386,13 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
         missing_cts[variant_bidx] = missing_ct;
       }
     }
-    {
-      const uintptr_t row_ct = bidx_end - bidx_start;
-      if (row_ct) {
-        RowMajorMatrixMultiply(dosage_vmaj, wts_smaj, row_ct, vscore_ct, sample_ct, &(cur_results[bidx_start * vscore_ct]));
+    if (row_idx) {
+      RowMajorMatrixMultiply(dosage_vmaj, wts_smaj, row_idx, vscore_ct, sample_ct, tmp_result_buf);
+      const double* tmp_result_iter = tmp_result_buf;
+      for (uintptr_t ulii = 0; ulii != row_idx; ++ulii) {
+        uintptr_t cur_bidx = cur_bidxs[ulii];
+        memcpy(&(cur_results[cur_bidx * vscore_ct]), tmp_result_iter, vscore_ct * sizeof(double));
+        tmp_result_iter = &(tmp_result_iter[vscore_ct]);
       }
     }
   VscoreThread_err:
@@ -6548,6 +6639,32 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
     ctx.allele_freqs = allele_freqs;
     ctx.sample_include = sample_include;
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    const uint32_t dosage_is_present = pgfip->gflags & kfPgenGlobalDosagePresent;
+    uint32_t calc_thread_ct = max_thread_ct;
+    uint32_t compress_thread_ct = 1;
+    const uint32_t output_zst = (flags / kfVscoreZs) & 1;
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".vscore");
+    if (output_zst) {
+      snprintf(&(outname_end[7]), kMaxOutfnameExtBlen - 7, ".zst");
+      if (calc_thread_ct > 1) {
+        // The more samples there are, the higher the compute:compress ratio we
+        // want, though this is not a linear relationship due to the sparse
+        // optimization.
+        // 1:1 split seems to work well for a few thousand samples; I'm
+        // guessing that ~7:1 is better for hundreds of thousands.
+        if (sample_ct < 8192) {
+          compress_thread_ct = calc_thread_ct / 2;
+        } else {
+          const uint64_t log2_sample_ct_m10 = bsru32(sample_ct) - 10;
+          // 3/8, 4/16, 5/24, ...
+          compress_thread_ct = (calc_thread_ct * log2_sample_ct_m10) / (8 * (log2_sample_ct_m10 - 2));
+          if (!compress_thread_ct) {
+            compress_thread_ct = 1;
+          }
+        }
+        calc_thread_ct -= compress_thread_ct;
+      }
+    }
     {
       uint32_t* sample_include_cumulative_popcounts;
       double* wts_smaj;
@@ -6577,7 +6694,10 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
       if (unlikely(
               bigstack_alloc_w(sample_ctl, &sex_male_collapsed) ||
               bigstack_alloc_w(sample_ctv * kWordsPerVec, &sex_male_interleaved_vec) ||
-              bigstack_alloc_dp(max_thread_ct, &ctx.dosage_vmaj_bufs))) {
+              bigstack_alloc_wp(calc_thread_ct, &ctx.raregenos) ||
+              bigstack_alloc_u32p(calc_thread_ct, &ctx.difflist_sample_id_bufs) ||
+              bigstack_alloc_dp(calc_thread_ct, &ctx.dosage_vmaj_bufs) ||
+              bigstack_alloc_dp(calc_thread_ct, &ctx.tmp_result_bufs))) {
         goto Vscore_ret_NOMEM;
       }
       CopyBitarrSubset(sex_male, sample_include, sample_ct, sex_male_collapsed);
@@ -6607,18 +6727,6 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
     const uint32_t alt1_col = (flags / kfVscoreColAlt1) & 1;
     const uint32_t alt_col = (flags / kfVscoreColAlt) & 1;
     const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen * chr_col + kMaxIdSlen + 128 + (24 * k1LU) * vscore_ct + MAXV(ref_col + alt1_col, alt_col) * max_allele_slen;
-    const uint32_t output_zst = (flags / kfVscoreZs) & 1;
-    snprintf(outname_end, kMaxOutfnameExtBlen, ".vscore");
-    uint32_t calc_thread_ct = max_thread_ct;
-    uint32_t compress_thread_ct = 1;
-    if (output_zst) {
-      snprintf(&(outname_end[7]), kMaxOutfnameExtBlen - 7, ".zst");
-      // can tune this more later
-      if (max_thread_ct > 1) {
-        compress_thread_ct += (max_thread_ct > 4);
-        calc_thread_ct = max_thread_ct - compress_thread_ct;
-      }
-    }
     reterr = InitCstreamAlloc(outname, 0, output_zst, compress_thread_ct, overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
       goto Vscore_ret_1;
@@ -6675,13 +6783,18 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
       ctx.missing_cts[1] = nullptr;
     }
 
-    // Per-thread dosage_vmaj buffers must have space for
-    // kScoreVariantBlockSize * sample_ct elements.
-    const uintptr_t thread_xalloc_cacheline_ct = DivUp(kScoreVariantBlockSize * S_CAST(uintptr_t, sample_ct) * sizeof(double), kCacheline);
+    const uint32_t max_returned_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
+    // * Per-thread raregeno buffers must have space for
+    //   max_returned_difflist_len nyps, and difflist_sample_ids buffers need
+    //   space for that many uint32s.
+    // * Per-thread dosage_vmaj buffers must have space for
+    //   kVscoreBlockSize * sample_ct elements.
+    // * Per-thread result buffers must have space for kVscoreBlockSize *
+    //   vscore_ct elements.
+    const uintptr_t thread_xalloc_cacheline_ct = DivUp(max_returned_difflist_len, kNypsPerCacheline) + DivUp(max_returned_difflist_len, kInt32PerCacheline) + DivUp(kVscoreBlockSize * S_CAST(uintptr_t, sample_ct) * sizeof(double), kCacheline) + DivUp(kVscoreBlockSize * vscore_ct * sizeof(double), kCacheline);
 
     // ctx.results must have space for 2 * vscore_ct * read_block_size doubles.
     const uintptr_t per_variant_xalloc_byte_ct = 2 * vscore_ct * sizeof(double);
-    const uint32_t dosage_is_present = pgfip->gflags & kfPgenGlobalDosagePresent;
     STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
     // defensive
     ctx.dosage_presents = nullptr;
@@ -6693,8 +6806,19 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
     if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
       goto Vscore_ret_NOMEM;
     }
-    for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-      ctx.dosage_vmaj_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(thread_xalloc_cacheline_ct * kCacheline));
+    {
+      // could vector-align individual allocations and only cacheline-align at
+      // thread boundaries, but the savings are microscopic
+      const uintptr_t raregeno_alloc = kCacheline * DivUp(max_returned_difflist_len, kNypsPerCacheline);
+      const uintptr_t difflist_sample_ids_alloc = RoundUpPow2(max_returned_difflist_len * sizeof(int32_t), kCacheline);
+      const uintptr_t dosage_vmaj_alloc = RoundUpPow2(kVscoreBlockSize * S_CAST(uintptr_t, sample_ct) * sizeof(double), kCacheline);
+      const uintptr_t tmp_result_alloc = RoundUpPow2(kVscoreBlockSize * vscore_ct * sizeof(double), kCacheline);
+      for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
+        ctx.raregenos[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(raregeno_alloc));
+        ctx.difflist_sample_id_bufs[tidx] = S_CAST(uint32_t*, bigstack_alloc_raw(difflist_sample_ids_alloc));
+        ctx.dosage_vmaj_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(dosage_vmaj_alloc));
+        ctx.tmp_result_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(tmp_result_alloc));
+      }
     }
     const uintptr_t results_byte_ct = RoundUpPow2(per_variant_xalloc_byte_ct * read_block_size, kCacheline);
     ctx.results[0] = S_CAST(double*, bigstack_alloc_raw(results_byte_ct));

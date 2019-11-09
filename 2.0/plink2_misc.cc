@@ -6013,7 +6013,7 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
             loop_len = ModNz(difflist_len, kBitsPerWordD2);
           }
           uintptr_t raregeno_xor_word = raregeno[widx] ^ difflist_common_geno_word;
-          uint32_t* cur_difflist_sample_ids = &(difflist_sample_ids[widx * kBitsPerWordD2]);
+          const uint32_t* cur_difflist_sample_ids = &(difflist_sample_ids[widx * kBitsPerWordD2]);
           for (uint32_t uii = 0; uii != loop_len; ++uii) {
             const uintptr_t sample_idx = cur_difflist_sample_ids[uii];
             const uint32_t cur_geno_xor = raregeno_xor_word & 3;
