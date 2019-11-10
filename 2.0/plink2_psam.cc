@@ -566,12 +566,13 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
             ++cat_pheno_idx;
             continue;
           }
-        }
-        if (unlikely(!IsSpaceOrEoln(*cur_phenostr_end))) {
-          cur_phenostr_end = CurTokenEnd(cur_phenostr_end);
-          *K_CAST(char*, cur_phenostr_end) = '\0';
-          snprintf(g_logbuf, kLogbufSize, "Error: Invalid numeric token '%s' on line %" PRIuPTR " of %s.\n", cur_phenostr, line_idx, psamname);
-          goto LoadPsam_ret_MALFORMED_INPUT_WW;
+        } else {
+          if (unlikely(!IsSpaceOrEoln(*cur_phenostr_end))) {
+            cur_phenostr_end = CurTokenEnd(cur_phenostr_end);
+            *K_CAST(char*, cur_phenostr_end) = '\0';
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid numeric token '%s' on line %" PRIuPTR " of %s.\n", cur_phenostr, line_idx, psamname);
+            goto LoadPsam_ret_MALFORMED_INPUT_WW;
+          }
         }
         if (unlikely(IsSet(categorical_phenos, pheno_idx))) {
           assert(psam_info_reverse_ll->next);
@@ -1292,12 +1293,13 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
             ++cat_pheno_idx;
             continue;
           }
-        }
-        if (unlikely(!IsSpaceOrEoln(*cur_phenostr_end))) {
-          cur_phenostr_end = CurTokenEnd(cur_phenostr_end);
-          *K_CAST(char*, cur_phenostr_end) = '\0';
-          snprintf(g_logbuf, kLogbufSize, "Error: Invalid numeric token '%s' on line %" PRIuPTR " of %s.\n", cur_phenostr, line_idx, pheno_fname);
-          goto LoadPhenos_ret_MALFORMED_INPUT_WW;
+        } else {
+          if (unlikely(!IsSpaceOrEoln(*cur_phenostr_end))) {
+            cur_phenostr_end = CurTokenEnd(cur_phenostr_end);
+            *K_CAST(char*, cur_phenostr_end) = '\0';
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid numeric token '%s' on line %" PRIuPTR " of %s.\n", cur_phenostr, line_idx, pheno_fname);
+            goto LoadPhenos_ret_MALFORMED_INPUT_WW;
+          }
         }
         if (unlikely(IsSet(categorical_phenos, new_pheno_idx))) {
           assert(pheno_info_reverse_ll);
