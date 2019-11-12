@@ -838,11 +838,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
               );
     HelpPrint("make-king\0make-king-table\0genome\0", &help_ctrl, 1,
 "  --make-king-table ['zs'] ['counts'] ['rel-check'] ['cols='<col set descrip.>]\n"
-"    Similar to --make-king, except results are reported in the original .kin0\n"
-"    text table format (with minor changes, e.g. row order is more friendly to\n"
-"    incremental addition of samples), --king-table-filter can be used to\n"
-"    restrict the report to high kinship values, and the 'rel-check' modifier\n"
-"    can be used to restrict to same-FID pairs.\n"
+"    Similar to --make-king, except results are reported in KING's original\n"
+"    .kin0 text table format (with minor changes, e.g. row order is more\n"
+"    friendly to incremental addition of samples), --king-table-filter can be\n"
+"    used to restrict the report to high kinship values, and the 'rel-check'\n"
+"    modifier can be used to restrict to same-FID pairs.\n"
 "    Supported column sets are:\n"
 "      maybefid: FID1/FID2, if that column was in the input.  Requires 'id'.\n"
 "      fid: Force FID1/FID2 even when FID was absent in the input.\n"

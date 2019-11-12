@@ -527,6 +527,12 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
   return reterr;
 }
 
+CONSTI32(kKingOffsetIbs0, 0);
+CONSTI32(kKingOffsetHethet, 1);
+CONSTI32(kKingOffsetHet2Hom1, 2);
+CONSTI32(kKingOffsetHet1Hom2, 3);
+CONSTI32(kKingOffsetHomhom, 4);
+
 typedef struct CalcKingSparseCtxStruct {
   const uintptr_t* variant_include_orig;
   uintptr_t* sample_include;
@@ -543,7 +549,7 @@ typedef struct CalcKingSparseCtxStruct {
   uintptr_t** genovecs;
   uint32_t* read_variant_uidx_starts;
 
-  // this has length >= 3 * (row_end_idx - min_common_ct)
+  // this has length >= 3 * max_sparse_ct
   uint32_t** thread_idx_bufs;
 
   uint32_t cur_block_size;
@@ -604,8 +610,7 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
 
   uint32_t* king_counts = ctx->king_counts;
   {
-    // This matrix is huge; multithreaded zero-initialization is likely to be
-    // worth it.
+    // This matrix can be huge, so we multithread zero-initialization.
     const uint64_t entry_ct = homhom_needed_p4 * (((sample_ct - 1) * S_CAST(uint64_t, sample_ct)) / 2 - tri_start);
     const uintptr_t fill_start = RoundDownPow2((tidx * entry_ct) / calc_thread_ct, kInt32PerCacheline);
     uintptr_t fill_end = entry_ct;
@@ -627,7 +632,7 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
     ZeroWArr(read_block_sizel, sparse_exclude);
     for (uint32_t cur_idx = (tidx * cur_block_size) / calc_thread_ct; cur_idx != idx_end; ++cur_idx) {
       const uint32_t variant_uidx = BitIter1(variant_include_orig, &variant_uidx_base, &variant_include_bits);
-      // todo: DifflistOrGenovec
+      // possible todo: DifflistOrGenovec
       PglErr reterr = PgrGet(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec);
       if (unlikely(reterr)) {
         ctx->reterr = reterr;
@@ -687,286 +692,207 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
       //    straightforward.
       const uint32_t* het_idxs = idx_bufs[common_idx ^ 1];
       const uint32_t het_ct = genocounts[1];
-      uint32_t het_mid_idx = 0;
       if (common_idx != 3) {
         const uint32_t* other_hom_idxs = idx_bufs[2];
         const uint32_t* missing_idxs = idx_bufs[common_idx ^ 3];
         const uint32_t other_hom_ct = idx_buf_iters[2] - other_hom_idxs;
         const uint32_t missing_ct = genocounts[3];
-        uint32_t other_hom_mid_idx = 0;
-        uint32_t missing_mid_idx = 0;
-        // In --parallel/multipass case, determine which affected king_counts[]
-        // cells are actually in the current pass.
-        if (row_start_idx) {
-          if (het_ct) {
-            het_mid_idx = CountSortedSmallerU32(het_idxs, het_ct, row_start_idx);
-          }
-          if (other_hom_ct) {
-            other_hom_mid_idx = CountSortedSmallerU32(other_hom_idxs, other_hom_ct, row_start_idx);
-          }
-          if (missing_ct) {
-            missing_mid_idx = CountSortedSmallerU32(other_hom_idxs, other_hom_ct, row_start_idx);
-          }
-        }
-        uint32_t other_hom_restart_idx = other_hom_mid_idx;
-        uint32_t missing_restart_idx = missing_mid_idx;
         for (uint32_t uii = 0; uii != het_ct; ++uii) {
-          const uintptr_t sample_idx1 = het_idxs[uii];
-          singleton_het_cts[sample_idx1] += 1;
-          const int64_t tri_subtract = tri_start - S_CAST(uint64_t, sample_idx1);
-          // probable todo: revise these loops so that outer-loop index >
-          // inner-loop index.  This should result in better memory-access
-          // locality.
-          for (uint32_t ujj = MAXV(uii + 1, het_mid_idx); ujj != het_ct; ++ujj) {
-            const uint64_t sample_idx2 = het_idxs[ujj];
-            const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
-            uint32_t* king_counts_iter = &(king_counts[tri_coord * homhom_needed_p4 + 1]);
-            __sync_fetch_and_add(king_counts_iter, 1);  // +hethet
-            ++king_counts_iter;
-            __sync_fetch_and_sub(king_counts_iter, 1);  // -het2hom1
-            ++king_counts_iter;
-            __sync_fetch_and_sub(king_counts_iter, 1);  // -het1hom2
-            if (homhom_needed) {
-              __sync_fetch_and_add(&(king_counts_iter[1]), 1);  // +homhom
-            }
+          // We want to iterate over one row at a time, for better
+          // memory-access locality.  So the outer loop must correspond to the
+          // larger sample-index.
+          const uintptr_t sample_idx_hi = het_idxs[uii];
+          singleton_het_cts[sample_idx_hi] += 1;
+          if (sample_idx_hi < row_start_idx) {
+            continue;
           }
-          for (; other_hom_restart_idx != other_hom_ct; ++other_hom_restart_idx) {
-            if (other_hom_idxs[other_hom_restart_idx] > sample_idx1) {
-              for (uint32_t ujj = other_hom_restart_idx; ujj != other_hom_ct; ++ujj) {
-                const uint64_t sample_idx2 = other_hom_idxs[ujj];
-                const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
-                uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
-                __sync_fetch_and_sub(king_counts_ptr, 1);  // -ibs0
-              }
-              break;
-            }
-          }
-          for (; missing_restart_idx != missing_ct; ++missing_restart_idx) {
-            if (missing_idxs[missing_restart_idx] > sample_idx1) {
-              for (uint32_t ujj = missing_restart_idx; ujj != missing_ct; ++ujj) {
-                const uint64_t sample_idx2 = missing_idxs[ujj];
-                const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
-                uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4 + 3]);
-                __sync_fetch_and_sub(king_counts_ptr, 1);  // -het1hom2
-                if (homhom_needed) {
-                  __sync_fetch_and_add(&(king_counts_ptr[1]), 1);  // +homhom
-                }
-              }
-              break;
-            }
-          }
-        }
-        uint32_t het_restart_idx = het_mid_idx;
-        missing_restart_idx = missing_mid_idx;
-        for (uint32_t uii = 0; uii != other_hom_ct; ++uii) {
-          const uintptr_t sample_idx1 = other_hom_idxs[uii];
-          singleton_hom_cts[sample_idx1] += 1;
-          const int64_t tri_subtract = tri_start - S_CAST(uint64_t, sample_idx1);
-          for (uint32_t ujj = MAXV(uii + 1, other_hom_mid_idx); ujj != other_hom_ct; ++ujj) {
-            const uint64_t sample_idx2 = other_hom_idxs[ujj];
-            const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
+          const uintptr_t tri_base = (S_CAST(uint64_t, sample_idx_hi) * (sample_idx_hi - 1)) / 2 - tri_start;
+          for (uint32_t ujj = 0; ujj != uii; ++ujj) {
+            const uintptr_t sample_idx_lo = het_idxs[ujj];
+            const uintptr_t tri_coord = tri_base + sample_idx_lo;
             uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
-            __sync_fetch_and_sub(king_counts_ptr, 2);  // -2 ibs0
-          }
-          for (; het_restart_idx != het_ct; ++het_restart_idx) {
-            if (het_idxs[het_restart_idx] > sample_idx1) {
-              for (uint32_t ujj = het_restart_idx; ujj != het_ct; ++ujj) {
-                const uint64_t sample_idx2 = het_idxs[ujj];
-                const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
-                uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
-                __sync_fetch_and_sub(king_counts_ptr, 1);  // -ibs0
-              }
-              break;
+            __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHethet]), 1);
+            __sync_fetch_and_sub(&(king_counts_ptr[kKingOffsetHet2Hom1]), 1);
+            __sync_fetch_and_sub(&(king_counts_ptr[kKingOffsetHet1Hom2]), 1);
+            if (homhom_needed) {
+              __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHomhom]), 1);
             }
           }
-          for (; missing_restart_idx != missing_ct; ++missing_restart_idx) {
-            if (missing_idxs[missing_restart_idx] > sample_idx1) {
-              for (uint32_t ujj = missing_restart_idx; ujj != missing_ct; ++ujj) {
-                const uint64_t sample_idx2 = missing_idxs[ujj];
-                const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
-                uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
-                __sync_fetch_and_sub(king_counts_ptr, 1);  // -ibs0
-                if (homhom_needed) {
-                  __sync_fetch_and_add(&(king_counts_ptr[4]), 1);  // +homhom
-                }
-              }
+          for (uint32_t ujj = 0; ujj != other_hom_ct; ++ujj) {
+            const uintptr_t sample_idx_lo = other_hom_idxs[ujj];
+            if (sample_idx_lo > sample_idx_hi) {
               break;
+            }
+            const uintptr_t tri_coord = tri_base + sample_idx_lo;
+            uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
+            __sync_fetch_and_sub(&(king_counts_ptr[kKingOffsetIbs0]), 1);
+          }
+          for (uint32_t ujj = 0; ujj != missing_ct; ++ujj) {
+            const uintptr_t sample_idx_lo = missing_idxs[ujj];
+            if (sample_idx_lo > sample_idx_hi) {
+              break;
+            }
+            const uintptr_t tri_coord = tri_base + sample_idx_lo;
+            uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
+            __sync_fetch_and_sub(&(king_counts_ptr[kKingOffsetHet2Hom1]), 1);
+            if (homhom_needed) {
+              __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHomhom]), 1);
             }
           }
         }
-        het_restart_idx = het_mid_idx;
-        other_hom_restart_idx = other_hom_mid_idx;
+        for (uint32_t uii = 0; uii != other_hom_ct; ++uii) {
+          const uintptr_t sample_idx_hi = other_hom_idxs[uii];
+          singleton_hom_cts[sample_idx_hi] += 1;
+          if (sample_idx_hi < row_start_idx) {
+            continue;
+          }
+          const uintptr_t tri_base = (S_CAST(uint64_t, sample_idx_hi) * (sample_idx_hi - 1)) / 2 - tri_start;
+          for (uint32_t ujj = 0; ujj != uii; ++ujj) {
+            const uintptr_t sample_idx_lo = other_hom_idxs[ujj];
+            const uintptr_t tri_coord = tri_base + sample_idx_lo;
+            uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
+            __sync_fetch_and_sub(&(king_counts_ptr[kKingOffsetIbs0]), 2);
+          }
+          for (uint32_t ujj = 0; ujj != het_ct; ++ujj) {
+            const uintptr_t sample_idx_lo = het_idxs[ujj];
+            if (sample_idx_lo > sample_idx_hi) {
+              break;
+            }
+            const uintptr_t tri_coord = tri_base + sample_idx_lo;
+            uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
+            __sync_fetch_and_sub(&(king_counts_ptr[kKingOffsetIbs0]), 1);
+          }
+          for (uint32_t ujj = 0; ujj != missing_ct; ++ujj) {
+            const uintptr_t sample_idx_lo = missing_idxs[ujj];
+            if (sample_idx_lo > sample_idx_hi) {
+              break;
+            }
+            const uintptr_t tri_coord = tri_base + sample_idx_lo;
+            uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
+            __sync_fetch_and_sub(&(king_counts_ptr[kKingOffsetIbs0]), 1);
+            if (homhom_needed) {
+              __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHomhom]), 1);
+            }
+          }
+        }
         for (uint32_t uii = 0; uii != missing_ct; ++uii) {
-          const uintptr_t sample_idx1 = missing_idxs[uii];
-          singleton_missing_cts[sample_idx1] += 1;
-          const int64_t tri_subtract = tri_start - S_CAST(uint64_t, sample_idx1);
+          const uintptr_t sample_idx_hi = missing_idxs[uii];
+          singleton_missing_cts[sample_idx_hi] += 1;
+          if (sample_idx_hi < row_start_idx) {
+            continue;
+          }
+          const uintptr_t tri_base = (S_CAST(uint64_t, sample_idx_hi) * (sample_idx_hi - 1)) / 2 - tri_start;
           if (homhom_needed) {
-            for (uint32_t ujj = MAXV(uii + 1, missing_mid_idx); ujj != missing_ct; ++ujj) {
-              const uint64_t sample_idx2 = missing_idxs[ujj];
-              const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
-              uint32_t* king_counts_ptr = &(king_counts[tri_coord * 5 + 4]);
-              __sync_fetch_and_add(&(king_counts_ptr[4]), 1);  // +homhom
+            for (uint32_t ujj = 0; ujj != uii; ++ujj) {
+              const uintptr_t sample_idx_lo = missing_idxs[ujj];
+              const uintptr_t tri_coord = tri_base + sample_idx_lo;
+              // bugfix (12 Nov 2019): added 4 twice
+              uint32_t* king_counts_ptr = &(king_counts[tri_coord * 5]);
+              __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHomhom]), 1);
             }
           }
-          for (; het_restart_idx != het_ct; ++het_restart_idx) {
-            if (het_idxs[het_restart_idx] > sample_idx1) {
-              for (uint32_t ujj = het_restart_idx; ujj != het_ct; ++ujj) {
-                const uint64_t sample_idx2 = het_idxs[ujj];
-                const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
-                uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4 + 2]);
-                __sync_fetch_and_sub(king_counts_ptr, 1);  // -het2hom1
-                if (homhom_needed) {
-                  __sync_fetch_and_add(&(king_counts_ptr[2]), 1);  // +homhom
-                }
-              }
+          for (uint32_t ujj = 0; ujj != het_ct; ++ujj) {
+            const uintptr_t sample_idx_lo = het_idxs[ujj];
+            if (sample_idx_lo > sample_idx_hi) {
               break;
             }
+            const uintptr_t tri_coord = tri_base + sample_idx_lo;
+            uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
+            __sync_fetch_and_sub(&(king_counts_ptr[kKingOffsetHet1Hom2]), 1);
+            if (homhom_needed) {
+              __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHomhom]), 1);
+            }
           }
-          for (; other_hom_restart_idx != other_hom_ct; ++other_hom_restart_idx) {
-            if (other_hom_idxs[other_hom_restart_idx] > sample_idx1) {
-              for (uint32_t ujj = other_hom_restart_idx; ujj != other_hom_ct; ++ujj) {
-                const uint64_t sample_idx2 = other_hom_idxs[ujj];
-                const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
-                uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
-                __sync_fetch_and_sub(king_counts_ptr, 1);  // -ibs0
-                if (homhom_needed) {
-                  __sync_fetch_and_add(&(king_counts_ptr[4]), 1);  // +homhom
-                }
-              }
+          for (uint32_t ujj = 0; ujj != other_hom_ct; ++ujj) {
+            const uintptr_t sample_idx_lo = other_hom_idxs[ujj];
+            if (sample_idx_lo > sample_idx_hi) {
               break;
+            }
+            const uintptr_t tri_coord = tri_base + sample_idx_lo;
+            uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
+            __sync_fetch_and_sub(&(king_counts_ptr[kKingOffsetIbs0]), 1);
+            if (homhom_needed) {
+              __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHomhom]), 1);
             }
           }
         }
       } else {
+        // merge hom0 and hom2 cases.
+        for (uint32_t hom_geno = 0; hom_geno != 4; hom_geno += 2) {
+          const uint32_t* cur_hom_idxs = idx_bufs[3 - hom_geno];
+          const uint32_t* opp_hom_idxs = idx_bufs[1 + hom_geno];
+          const uint32_t cur_hom_ct = genocounts[hom_geno];
+          const uint32_t opp_hom_ct = genocounts[2 - hom_geno];
+          for (uint32_t uii = 0; uii != cur_hom_ct; ++uii) {
+            const uintptr_t sample_idx_hi = cur_hom_idxs[uii];
+            if (sample_idx_hi < row_start_idx) {
+              continue;
+            }
+            const uintptr_t tri_base = (S_CAST(uint64_t, sample_idx_hi) * (sample_idx_hi - 1)) / 2 - tri_start;
+            if (homhom_needed) {
+              for (uint32_t ujj = 0; ujj != uii; ++ujj) {
+                const uintptr_t sample_idx_lo = cur_hom_idxs[ujj];
+                const uintptr_t tri_coord = tri_base + sample_idx_lo;
+                uint32_t* king_counts_ptr = &(king_counts[tri_coord * 5]);
+                __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHomhom]), 1);
+              }
+            }
+            for (uint32_t ujj = 0; ujj != het_ct; ++ujj) {
+              const uintptr_t sample_idx_lo = het_idxs[ujj];
+              if (sample_idx_lo > sample_idx_hi) {
+                break;
+              }
+              const uintptr_t tri_coord = tri_base + sample_idx_lo;
+              uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
+              __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHet1Hom2]), 1);
+            }
+            for (uint32_t ujj = 0; ujj != opp_hom_ct; ++ujj) {
+              const uintptr_t sample_idx_lo = opp_hom_idxs[ujj];
+              if (sample_idx_lo > sample_idx_hi) {
+                break;
+              }
+              const uintptr_t tri_coord = tri_base + sample_idx_lo;
+              uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
+              __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetIbs0]), 1);
+              if (homhom_needed) {
+                __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHomhom]), 1);
+              }
+            }
+          }
+        }
         const uint32_t* hom0_idxs = idx_bufs[3];
         const uint32_t* hom2_idxs = idx_bufs[1];
         const uint32_t hom0_ct = genocounts[0];
         const uint32_t hom2_ct = genocounts[2];
-        uint32_t hom0_mid_idx = 0;
-        uint32_t hom2_mid_idx = 0;
-        if (row_start_idx) {
-          if (hom0_ct) {
-            hom0_mid_idx = CountSortedSmallerU32(hom0_idxs, hom0_ct, row_start_idx);
-          }
-          if (het_ct) {
-            het_mid_idx = CountSortedSmallerU32(het_idxs, het_ct, row_start_idx);
-          }
-          if (hom2_ct) {
-            hom2_mid_idx = CountSortedSmallerU32(hom2_idxs, hom2_ct, row_start_idx);
-          }
-        }
-        // could mostly merge hom0 and hom2 cases?  but let's get this working
-        // first.
-        uint32_t het_restart_idx = het_mid_idx;
-        uint32_t hom2_restart_idx = hom2_mid_idx;
-        for (uint32_t uii = 0; uii != hom0_ct; ++uii) {
-          const uintptr_t sample_idx1 = hom0_idxs[uii];
-          const int64_t tri_subtract = tri_start - S_CAST(uint64_t, sample_idx1);
-          if (homhom_needed) {
-            for (uint32_t ujj = MAXV(uii + 1, hom0_mid_idx); ujj != hom0_ct; ++ujj) {
-              const uint64_t sample_idx2 = hom0_idxs[ujj];
-              const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
-              uint32_t* king_counts_ptr = &(king_counts[tri_coord * 5 + 4]);
-              __sync_fetch_and_add(king_counts_ptr, 1);  // +homhom
-            }
-          }
-          for (; het_restart_idx != het_ct; ++het_restart_idx) {
-            if (het_idxs[het_restart_idx] > sample_idx1) {
-              for (uint32_t ujj = het_restart_idx; ujj != het_ct; ++ujj) {
-                const uint64_t sample_idx2 = het_idxs[ujj];
-                const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
-                uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4 + 2]);
-                __sync_fetch_and_add(king_counts_ptr, 1);  // +het2hom1
-              }
-              break;
-            }
-          }
-          for (; hom2_restart_idx != hom2_ct; ++hom2_restart_idx) {
-            if (hom2_idxs[hom2_restart_idx] > sample_idx1) {
-              for (uint32_t ujj = hom2_restart_idx; ujj != hom2_ct; ++ujj) {
-                const uint64_t sample_idx2 = hom2_idxs[ujj];
-                const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
-                uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
-                __sync_fetch_and_add(king_counts_ptr, 1);  // +ibs0
-                if (homhom_needed) {
-                  __sync_fetch_and_add(&(king_counts_ptr[4]), 1);  // +homhom
-                }
-              }
-              break;
-            }
-          }
-        }
-        uint32_t hom0_restart_idx = hom0_mid_idx;
-        hom2_restart_idx = hom2_mid_idx;
         for (uint32_t uii = 0; uii != het_ct; ++uii) {
-          const uintptr_t sample_idx1 = het_idxs[uii];
-          const int64_t tri_subtract = tri_start - S_CAST(uint64_t, sample_idx1);
-          for (uint32_t ujj = MAXV(uii + 1, het_mid_idx); ujj != het_ct; ++ujj) {
-            const uint64_t sample_idx2 = het_idxs[ujj];
-            const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
-            uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4 + 1]);
-            __sync_fetch_and_add(king_counts_ptr, 1);  // +hethet
+          const uintptr_t sample_idx_hi = het_idxs[uii];
+          if (sample_idx_hi < row_start_idx) {
+            continue;
           }
-          for (; hom0_restart_idx != hom0_ct; ++hom0_restart_idx) {
-            if (hom0_idxs[hom0_restart_idx] > sample_idx1) {
-              for (uint32_t ujj = hom0_restart_idx; ujj != hom0_ct; ++ujj) {
-                const uint64_t sample_idx2 = hom0_idxs[ujj];
-                const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
-                uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4 + 3]);
-                __sync_fetch_and_add(king_counts_ptr, 1);  // +het1hom2
-              }
+          const uintptr_t tri_base = (S_CAST(uint64_t, sample_idx_hi) * (sample_idx_hi - 1)) / 2 - tri_start;
+          for (uint32_t ujj = 0; ujj != uii; ++ujj) {
+            const uintptr_t sample_idx_lo = het_idxs[ujj];
+            const uintptr_t tri_coord = tri_base + sample_idx_lo;
+            uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
+            __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHethet]), 1);
+          }
+          for (uint32_t ujj = 0; ujj != hom0_ct; ++ujj) {
+            const uintptr_t sample_idx_lo = hom0_idxs[ujj];
+            if (sample_idx_lo > sample_idx_hi) {
               break;
             }
+            const uintptr_t tri_coord = tri_base + sample_idx_lo;
+            uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
+            __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHet2Hom1]), 1);
           }
-          for (; hom2_restart_idx != hom2_ct; ++hom2_restart_idx) {
-            if (hom2_idxs[hom2_restart_idx] > sample_idx1) {
-              for (uint32_t ujj = hom2_restart_idx; ujj != hom2_ct; ++ujj) {
-                const uint64_t sample_idx2 = hom2_idxs[ujj];
-                const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
-                uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4 + 3]);
-                __sync_fetch_and_add(king_counts_ptr, 1);  // +het1hom2
-              }
+          for (uint32_t ujj = 0; ujj != hom2_ct; ++ujj) {
+            const uintptr_t sample_idx_lo = hom2_idxs[ujj];
+            if (sample_idx_lo > sample_idx_hi) {
               break;
             }
-          }
-        }
-        hom0_restart_idx = hom0_mid_idx;
-        het_restart_idx = het_mid_idx;
-        for (uint32_t uii = 0; uii != hom2_ct; ++uii) {
-          const uintptr_t sample_idx1 = hom2_idxs[uii];
-          const int64_t tri_subtract = tri_start - S_CAST(uint64_t, sample_idx1);
-          if (homhom_needed) {
-            for (uint32_t ujj = MAXV(uii + 1, hom2_mid_idx); ujj != hom2_ct; ++ujj) {
-              const uint64_t sample_idx2 = hom2_idxs[ujj];
-              const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
-              uint32_t* king_counts_ptr = &(king_counts[tri_coord * 5 + 4]);
-              __sync_fetch_and_add(king_counts_ptr, 1);  // +homhom
-            }
-          }
-          for (; hom0_restart_idx != hom0_ct; ++hom0_restart_idx) {
-            if (hom0_idxs[hom0_restart_idx] > sample_idx1) {
-              for (uint32_t ujj = hom0_restart_idx; ujj != hom0_ct; ++ujj) {
-                const uint64_t sample_idx2 = hom0_idxs[ujj];
-                const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
-                uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
-                __sync_fetch_and_add(king_counts_ptr, 1);  // +ibs0
-                if (homhom_needed) {
-                  __sync_fetch_and_add(&(king_counts_ptr[4]), 1);  // +homhom
-                }
-              }
-              break;
-            }
-          }
-          for (; het_restart_idx != het_ct; ++het_restart_idx) {
-            if (het_idxs[het_restart_idx] > sample_idx1) {
-              for (uint32_t ujj = het_restart_idx; ujj != het_ct; ++ujj) {
-                const uint64_t sample_idx2 = het_idxs[ujj];
-                const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
-                uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4 + 2]);
-                __sync_fetch_and_add(king_counts_ptr, 1);  // +het2hom1
-              }
-              break;
-            }
+            const uintptr_t tri_coord = tri_base + sample_idx_lo;
+            uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
+            __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHet2Hom1]), 1);
           }
         }
       }
@@ -1373,14 +1299,7 @@ char* AppendKingTableHeader(KingFlags king_flags, uint32_t king_col_fid, uint32_
   return cswritep;
 }
 
-CONSTI32(kKingSparseMin, 65);
-
 uint32_t KingMaxSparseCt(uint32_t row_end_idx) {
-  if (row_end_idx < kKingSparseMin) {
-    // Below this sample count, a two-pass algorithm is unlikely to outperform
-    // single-pass regardless of sparsity.
-    return 0;
-  }
 #ifdef USE_AVX2
   return row_end_idx / 33;
 #else
@@ -1474,7 +1393,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
     uint32_t* singleton_het_cts;
     uint32_t* singleton_hom_cts;
     uint32_t* singleton_missing_cts;
-    if (grand_row_end_idx >= kKingSparseMin) {
+    {
       sparse_ctx.variant_include_orig = variant_include_orig;
       sparse_ctx.homhom_needed = homhom_needed;
       const uint32_t max_sparse_ct = KingMaxSparseCt(grand_row_end_idx);
@@ -1511,13 +1430,6 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
       singleton_het_cts = sparse_ctx.thread_singleton_het_cts[0];
       singleton_hom_cts = sparse_ctx.thread_singleton_hom_cts[0];
       singleton_missing_cts = sparse_ctx.thread_singleton_missing_cts[0];
-    } else {
-      if (unlikely(
-              bigstack_alloc_u32(sample_ct, &singleton_het_cts) ||
-              bigstack_alloc_u32(sample_ct, &singleton_hom_cts) ||
-              bigstack_alloc_u32(sample_ct, &singleton_missing_cts))) {
-        goto CalcKing_ret_NOMEM;
-      }
     }
 
     CalcKingDenseCtx dense_ctx;
@@ -1622,25 +1534,22 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
       PgrClearLdCache(simple_pgrp);
       // Update (9 Nov 2019): The one-time singleton/monomorphic scan has been
       // replaced with a more effective sparse-variant scan which happens on
-      // every pass: we can preprocess variants with difflist_len up to
-      // ~sqrt(row_end_idx) in time linear in the genotype matrix size.
-      uint32_t sparse_variant_ct = 0;
-      uint32_t skip_ct = 0;
-      if (row_end_idx >= kKingSparseMin) {
-        sparse_ctx.sample_include = cur_sample_include;
-        sparse_ctx.sample_include_cumulative_popcounts = sample_include_cumulative_popcounts;
-        sparse_ctx.row_start_idx = row_start_idx;
-        sparse_ctx.row_end_idx = row_end_idx;
-        sparse_ctx.max_sparse_ct = KingMaxSparseCt(row_end_idx);
-        logprintf("%s pass %u/%u: Scanning for rare variants... ", flagname, pass_idx_p1, pass_ct);
-        fputs("0%", stdout);
-        fflush(stdout);
-        SetThreadFuncAndData(CalcKingSparseThread, &sparse_ctx, &tg);
-        if (unlikely(SpawnThreads(&tg))) {
-          goto CalcKing_ret_THREAD_CREATE_FAIL;
-        }
-        memcpy(variant_include, variant_include_orig, raw_variant_ctl * sizeof(intptr_t));
+      // every pass.
+      sparse_ctx.sample_include = cur_sample_include;
+      sparse_ctx.sample_include_cumulative_popcounts = sample_include_cumulative_popcounts;
+      sparse_ctx.row_start_idx = row_start_idx;
+      sparse_ctx.row_end_idx = row_end_idx;
+      sparse_ctx.max_sparse_ct = KingMaxSparseCt(row_end_idx);
+      logprintf("%s pass %u/%u: Scanning for rare variants... ", flagname, pass_idx_p1, pass_ct);
+      fputs("0%", stdout);
+      fflush(stdout);
+      SetThreadFuncAndData(CalcKingSparseThread, &sparse_ctx, &tg);
+      if (unlikely(SpawnThreads(&tg))) {
+        goto CalcKing_ret_THREAD_CREATE_FAIL;
+      }
+      memcpy(variant_include, variant_include_orig, raw_variant_ctl * sizeof(intptr_t));
 
+      {
         const uint32_t read_block_sizel = sparse_read_block_size / kBitsPerWord;
         uint32_t prev_read_block_idx = 0;
         uint32_t read_block_idx = 0;
@@ -1693,28 +1602,20 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
         if (pct > 10) {
           putc_unlocked('\b', stdout);
         }
-        fputs("\b\b", stdout);
-        logputs("done.\n");
-        sparse_variant_ct = variant_ct - PopcountWords(variant_include, raw_variant_ctl);
-        logprintf("%u variant%s handled by initial scan.\n", sparse_variant_ct, (sparse_variant_ct == 1)? "" : "s");
-        skip_ct = sparse_ctx.thread_skip_cts[0];
-        const uint32_t vec_ct = DivUp(row_end_idx, kInt32PerVec);
-        for (uint32_t tidx = 1; tidx != calc_thread_ct; ++tidx) {
-          U32CastVecAdd(sparse_ctx.thread_singleton_het_cts[tidx], vec_ct, singleton_het_cts);
-          U32CastVecAdd(sparse_ctx.thread_singleton_hom_cts[tidx], vec_ct, singleton_hom_cts);
-          U32CastVecAdd(sparse_ctx.thread_singleton_missing_cts[tidx], vec_ct, singleton_missing_cts);
-          skip_ct += sparse_ctx.thread_skip_cts[tidx];
-        }
-      } else {
-        memcpy(variant_include, variant_include_orig, raw_variant_ctl * sizeof(intptr_t));
-
-        const uintptr_t tot_cells = (S_CAST(uint64_t, row_end_idx) * (row_end_idx - 1) - S_CAST(uint64_t, row_start_idx) * (row_start_idx - 1)) / 2;
-        ZeroU32Arr(tot_cells * homhom_needed_p4, dense_ctx.king_counts);
-        ZeroU32Arr(row_end_idx, singleton_het_cts);
-        ZeroU32Arr(row_end_idx, singleton_hom_cts);
-        ZeroU32Arr(row_end_idx, singleton_missing_cts);
       }
-      const uint32_t cur_variant_ct = variant_ct - sparse_variant_ct;
+      fputs("\b\b", stdout);
+      logputs("done.\n");
+      const uint32_t cur_variant_ct = PopcountWords(variant_include, raw_variant_ctl);
+      uint32_t sparse_variant_ct = variant_ct - cur_variant_ct;
+      logprintf("%u variant%s handled by initial scan (%u remaining).\n", sparse_variant_ct, (sparse_variant_ct == 1)? "" : "s", cur_variant_ct);
+      uint32_t skip_ct = sparse_ctx.thread_skip_cts[0];
+      const uint32_t vec_ct = DivUp(row_end_idx, kInt32PerVec);
+      for (uint32_t tidx = 1; tidx != calc_thread_ct; ++tidx) {
+        U32CastVecAdd(sparse_ctx.thread_singleton_het_cts[tidx], vec_ct, singleton_het_cts);
+        U32CastVecAdd(sparse_ctx.thread_singleton_hom_cts[tidx], vec_ct, singleton_hom_cts);
+        U32CastVecAdd(sparse_ctx.thread_singleton_missing_cts[tidx], vec_ct, singleton_missing_cts);
+        skip_ct += sparse_ctx.thread_skip_cts[tidx];
+      }
       sparse_variant_ct -= skip_ct;
       if (cur_variant_ct) {
         SetThreadFuncAndData(CalcKingDenseThread, &dense_ctx, &tg);
