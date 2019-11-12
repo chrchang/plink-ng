@@ -105,7 +105,7 @@ python3 pca_compare.py -1 plink1_pca -2 plink2_pca_approx -t 0.005
 # TODO: TEST_MULTIALLELIC_VCF fixture, etc.
 
 $1/plink2 --dummy 2504 1 --seed 1 --out pheno_cc
-$1/plink2 --dummy 2504 1 scalar-pheno --seed 1 --out pheno_qt
+$1/plink2 --dummy 2504 1 0.01 0.01 scalar-pheno --seed 1 --out pheno_qt
 cat pheno_cc.psam | tail -n +2 | cut -f 3 > pheno_cc_col.txt
 cat pheno_qt.psam | tail -n +2 | cut -f 3 > pheno_qt_col.txt
 cat plink1_data.fam | cut -f 1-2 > sample_ids.txt
