@@ -527,6 +527,457 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
   return reterr;
 }
 
+typedef struct CalcKingSparseCtxStruct {
+  const uintptr_t* variant_include_orig;
+  uintptr_t* sample_include;
+  uint32_t* sample_include_cumulative_popcounts;
+  uint32_t row_start_idx;
+  uint32_t row_end_idx;
+  uint32_t homhom_needed;
+
+  uint32_t max_sparse_ct;
+
+  uint32_t read_block_size;  // guaranteed to be power of 2
+
+  PgenReader** pgr_ptrs;
+  uintptr_t** genovecs;
+  uint32_t* read_variant_uidx_starts;
+
+  // this has length >= 3 * (row_end_idx - min_common_ct)
+  uint32_t** thread_idx_bufs;
+
+  uint32_t cur_block_size;
+
+  uint32_t** thread_singleton_het_cts;
+  uint32_t** thread_singleton_hom_cts;
+  uint32_t** thread_singleton_missing_cts;
+  uint32_t* thread_skip_cts;
+
+  // single global copy
+  uint32_t* king_counts;
+
+  uintptr_t** thread_sparse_excludes[2];
+
+  PglErr reterr;
+} CalcKingSparseCtx;
+
+THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uintptr_t tidx = arg->tidx;
+  CalcKingSparseCtx* ctx = S_CAST(CalcKingSparseCtx*, arg->sharedp->context);
+
+  const uintptr_t* variant_include_orig = ctx->variant_include_orig;
+  const uintptr_t* sample_include = ctx->sample_include;
+  const uint32_t* sample_include_cumulative_popcounts = ctx->sample_include_cumulative_popcounts;
+
+  PgenReader* pgrp = ctx->pgr_ptrs[tidx];
+  uintptr_t* genovec = ctx->genovecs[tidx];
+  uint32_t row_start_idx = ctx->row_start_idx;
+  const uint64_t tri_start = ((row_start_idx - 1) * S_CAST(uint64_t, row_start_idx)) / 2;
+  if (row_start_idx == 1) {
+    row_start_idx = 0;
+  }
+  const uint32_t sample_ct = ctx->row_end_idx;
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+  const uint32_t remainder = sample_ct % kBitsPerWordD2;
+  const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
+  const uint32_t homhom_needed = ctx->homhom_needed;
+  const uintptr_t homhom_needed_p4 = homhom_needed + 4;
+  const uint32_t max_sparse_ct = ctx->max_sparse_ct;
+  const uint32_t read_block_size_mask = ctx->read_block_size - 1;
+  const uint32_t read_block_sizel = ctx->read_block_size / kBitsPerWord;
+
+  uint32_t* idx_bufs[4];
+  idx_bufs[0] = nullptr;
+  idx_bufs[1] = ctx->thread_idx_bufs[tidx];
+  idx_bufs[2] = &(idx_bufs[1][max_sparse_ct]);
+  idx_bufs[3] = &(idx_bufs[2][max_sparse_ct]);
+  const uint32_t min_common_ct = sample_ct - max_sparse_ct;
+
+  uint32_t* singleton_het_cts = ctx->thread_singleton_het_cts[tidx];
+  uint32_t* singleton_hom_cts = ctx->thread_singleton_hom_cts[tidx];
+  uint32_t* singleton_missing_cts = ctx->thread_singleton_missing_cts[tidx];
+  ZeroU32Arr(sample_ct, singleton_het_cts);
+  ZeroU32Arr(sample_ct, singleton_hom_cts);
+  ZeroU32Arr(sample_ct, singleton_missing_cts);
+  uint32_t skip_ct = 0;
+
+  uint32_t* king_counts = ctx->king_counts;
+  {
+    // This matrix is huge; multithreaded zero-initialization is likely to be
+    // worth it.
+    const uint64_t entry_ct = homhom_needed_p4 * (((sample_ct - 1) * S_CAST(uint64_t, sample_ct)) / 2 - tri_start);
+    const uintptr_t fill_start = RoundDownPow2((tidx * entry_ct) / calc_thread_ct, kInt32PerCacheline);
+    uintptr_t fill_end = entry_ct;
+    if (tidx + 1 != calc_thread_ct) {
+      fill_end = RoundDownPow2(((tidx + 1) * entry_ct) / calc_thread_ct, kInt32PerCacheline);
+    }
+    ZeroU32Arr(fill_end - fill_start, &(king_counts[fill_start]));
+  }
+  uint32_t parity = 0;
+  // sync.Once before main loop; we need the other threads to be done with
+  // their zero-initialization jobs before we can proceed.
+  while (!THREAD_BLOCK_FINISH(arg)) {
+    const uint32_t cur_block_size = ctx->cur_block_size;
+    const uint32_t idx_end = ((tidx + 1) * cur_block_size) / calc_thread_ct;
+    uintptr_t variant_uidx_base;
+    uintptr_t variant_include_bits;
+    BitIter1Start(variant_include_orig, ctx->read_variant_uidx_starts[tidx], &variant_uidx_base, &variant_include_bits);
+    uintptr_t* sparse_exclude = ctx->thread_sparse_excludes[parity][tidx];
+    ZeroWArr(read_block_sizel, sparse_exclude);
+    for (uint32_t cur_idx = (tidx * cur_block_size) / calc_thread_ct; cur_idx != idx_end; ++cur_idx) {
+      const uint32_t variant_uidx = BitIter1(variant_include_orig, &variant_uidx_base, &variant_include_bits);
+      // todo: DifflistOrGenovec
+      PglErr reterr = PgrGet(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec);
+      if (unlikely(reterr)) {
+        ctx->reterr = reterr;
+        goto CalcKingSparseThread_err;
+      }
+      STD_ARRAY_DECL(uint32_t, 4, genocounts);
+      ZeroTrailingNyps(sample_ct, genovec);
+      GenoarrCountFreqsUnsafe(genovec, sample_ct, genocounts);
+      uintptr_t mask_word;
+      uintptr_t common_idx;
+      if (genocounts[0] >= min_common_ct) {
+        common_idx = 0;
+        mask_word = 0;
+      } else if (genocounts[2] >= min_common_ct) {
+        common_idx = 2;
+        mask_word = kMaskAAAA;
+      } else if (genocounts[3] >= min_common_ct) {
+        common_idx = 3;
+        mask_word = ~k0LU;
+        ++skip_ct;
+      } else {
+        if ((!homhom_needed) && ((genocounts[0] + genocounts[3] == sample_ct) || (genocounts[2] + genocounts[3] == sample_ct))) {
+          SetBit(variant_uidx & read_block_size_mask, sparse_exclude);
+          ++skip_ct;
+        }
+        continue;
+      }
+      SetBit(variant_uidx & read_block_size_mask, sparse_exclude);
+      if (genocounts[common_idx] == sample_ct) {
+        continue;
+      }
+      if (remainder) {
+        genovec[sample_ctl2 - 1] |= mask_word << (2 * remainder);
+      }
+      uint32_t* idx_buf_iters[4];
+      memcpy(idx_buf_iters, idx_bufs, 4 * sizeof(intptr_t));
+      for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
+        uintptr_t xor_word = genovec[widx] ^ mask_word;
+        if (xor_word) {
+          const uint32_t offset_base = widx * kBitsPerWordD2;
+          do {
+            const uint32_t shift_ct = ctzw(xor_word) & (~1);
+            const uint32_t cur_xor = (xor_word >> shift_ct) & 3;
+            *(idx_buf_iters[cur_xor])++ = offset_base + (shift_ct / 2);
+            xor_word &= ~((3 * k1LU) << shift_ct);
+          } while (xor_word);
+        }
+      }
+      // We do two things here.
+      // 1. Update singleton_{het,hom,missing}_cts for every observed rare
+      //    genotype.  This is enough for correct accounting for any pair
+      //    involving only one (or none) of these rare genotypes, and the
+      //    arrays are small enough that each thread can keep its own copy
+      //    (they're added up at the end).
+      // 2. For each pair of rare genotypes, atomically correct the main
+      //    king_counts[] array.  This is messy (9x2 cases) but conceptually
+      //    straightforward.
+      const uint32_t* het_idxs = idx_bufs[common_idx ^ 1];
+      const uint32_t het_ct = genocounts[1];
+      uint32_t het_mid_idx = 0;
+      if (common_idx != 3) {
+        const uint32_t* other_hom_idxs = idx_bufs[2];
+        const uint32_t* missing_idxs = idx_bufs[common_idx ^ 3];
+        const uint32_t other_hom_ct = idx_buf_iters[2] - other_hom_idxs;
+        const uint32_t missing_ct = genocounts[3];
+        uint32_t other_hom_mid_idx = 0;
+        uint32_t missing_mid_idx = 0;
+        // In --parallel/multipass case, determine which affected king_counts[]
+        // cells are actually in the current pass.
+        if (row_start_idx) {
+          if (het_ct) {
+            het_mid_idx = CountSortedSmallerU32(het_idxs, het_ct, row_start_idx);
+          }
+          if (other_hom_ct) {
+            other_hom_mid_idx = CountSortedSmallerU32(other_hom_idxs, other_hom_ct, row_start_idx);
+          }
+          if (missing_ct) {
+            missing_mid_idx = CountSortedSmallerU32(other_hom_idxs, other_hom_ct, row_start_idx);
+          }
+        }
+        uint32_t other_hom_restart_idx = other_hom_mid_idx;
+        uint32_t missing_restart_idx = missing_mid_idx;
+        for (uint32_t uii = 0; uii != het_ct; ++uii) {
+          const uintptr_t sample_idx1 = het_idxs[uii];
+          singleton_het_cts[sample_idx1] += 1;
+          const int64_t tri_subtract = tri_start - S_CAST(uint64_t, sample_idx1);
+          // probable todo: revise these loops so that outer-loop index >
+          // inner-loop index.  This should result in better memory-access
+          // locality.
+          for (uint32_t ujj = MAXV(uii + 1, het_mid_idx); ujj != het_ct; ++ujj) {
+            const uint64_t sample_idx2 = het_idxs[ujj];
+            const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
+            uint32_t* king_counts_iter = &(king_counts[tri_coord * homhom_needed_p4 + 1]);
+            __sync_fetch_and_add(king_counts_iter, 1);  // +hethet
+            ++king_counts_iter;
+            __sync_fetch_and_sub(king_counts_iter, 1);  // -het2hom1
+            ++king_counts_iter;
+            __sync_fetch_and_sub(king_counts_iter, 1);  // -het1hom2
+            if (homhom_needed) {
+              __sync_fetch_and_add(&(king_counts_iter[1]), 1);  // +homhom
+            }
+          }
+          for (; other_hom_restart_idx != other_hom_ct; ++other_hom_restart_idx) {
+            if (other_hom_idxs[other_hom_restart_idx] > sample_idx1) {
+              for (uint32_t ujj = other_hom_restart_idx; ujj != other_hom_ct; ++ujj) {
+                const uint64_t sample_idx2 = other_hom_idxs[ujj];
+                const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
+                uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
+                __sync_fetch_and_sub(king_counts_ptr, 1);  // -ibs0
+              }
+              break;
+            }
+          }
+          for (; missing_restart_idx != missing_ct; ++missing_restart_idx) {
+            if (missing_idxs[missing_restart_idx] > sample_idx1) {
+              for (uint32_t ujj = missing_restart_idx; ujj != missing_ct; ++ujj) {
+                const uint64_t sample_idx2 = missing_idxs[ujj];
+                const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
+                uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4 + 3]);
+                __sync_fetch_and_sub(king_counts_ptr, 1);  // -het1hom2
+                if (homhom_needed) {
+                  __sync_fetch_and_add(&(king_counts_ptr[1]), 1);  // +homhom
+                }
+              }
+              break;
+            }
+          }
+        }
+        uint32_t het_restart_idx = het_mid_idx;
+        missing_restart_idx = missing_mid_idx;
+        for (uint32_t uii = 0; uii != other_hom_ct; ++uii) {
+          const uintptr_t sample_idx1 = other_hom_idxs[uii];
+          singleton_hom_cts[sample_idx1] += 1;
+          const int64_t tri_subtract = tri_start - S_CAST(uint64_t, sample_idx1);
+          for (uint32_t ujj = MAXV(uii + 1, other_hom_mid_idx); ujj != other_hom_ct; ++ujj) {
+            const uint64_t sample_idx2 = other_hom_idxs[ujj];
+            const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
+            uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
+            __sync_fetch_and_sub(king_counts_ptr, 2);  // -2 ibs0
+          }
+          for (; het_restart_idx != het_ct; ++het_restart_idx) {
+            if (het_idxs[het_restart_idx] > sample_idx1) {
+              for (uint32_t ujj = het_restart_idx; ujj != het_ct; ++ujj) {
+                const uint64_t sample_idx2 = het_idxs[ujj];
+                const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
+                uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
+                __sync_fetch_and_sub(king_counts_ptr, 1);  // -ibs0
+              }
+              break;
+            }
+          }
+          for (; missing_restart_idx != missing_ct; ++missing_restart_idx) {
+            if (missing_idxs[missing_restart_idx] > sample_idx1) {
+              for (uint32_t ujj = missing_restart_idx; ujj != missing_ct; ++ujj) {
+                const uint64_t sample_idx2 = missing_idxs[ujj];
+                const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
+                uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
+                __sync_fetch_and_sub(king_counts_ptr, 1);  // -ibs0
+                if (homhom_needed) {
+                  __sync_fetch_and_add(&(king_counts_ptr[4]), 1);  // +homhom
+                }
+              }
+              break;
+            }
+          }
+        }
+        het_restart_idx = het_mid_idx;
+        other_hom_restart_idx = other_hom_mid_idx;
+        for (uint32_t uii = 0; uii != missing_ct; ++uii) {
+          const uintptr_t sample_idx1 = missing_idxs[uii];
+          singleton_missing_cts[sample_idx1] += 1;
+          const int64_t tri_subtract = tri_start - S_CAST(uint64_t, sample_idx1);
+          if (homhom_needed) {
+            for (uint32_t ujj = MAXV(uii + 1, missing_mid_idx); ujj != missing_ct; ++ujj) {
+              const uint64_t sample_idx2 = missing_idxs[ujj];
+              const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
+              uint32_t* king_counts_ptr = &(king_counts[tri_coord * 5 + 4]);
+              __sync_fetch_and_add(&(king_counts_ptr[4]), 1);  // +homhom
+            }
+          }
+          for (; het_restart_idx != het_ct; ++het_restart_idx) {
+            if (het_idxs[het_restart_idx] > sample_idx1) {
+              for (uint32_t ujj = het_restart_idx; ujj != het_ct; ++ujj) {
+                const uint64_t sample_idx2 = het_idxs[ujj];
+                const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
+                uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4 + 2]);
+                __sync_fetch_and_sub(king_counts_ptr, 1);  // -het2hom1
+                if (homhom_needed) {
+                  __sync_fetch_and_add(&(king_counts_ptr[2]), 1);  // +homhom
+                }
+              }
+              break;
+            }
+          }
+          for (; other_hom_restart_idx != other_hom_ct; ++other_hom_restart_idx) {
+            if (other_hom_idxs[other_hom_restart_idx] > sample_idx1) {
+              for (uint32_t ujj = other_hom_restart_idx; ujj != other_hom_ct; ++ujj) {
+                const uint64_t sample_idx2 = other_hom_idxs[ujj];
+                const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
+                uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
+                __sync_fetch_and_sub(king_counts_ptr, 1);  // -ibs0
+                if (homhom_needed) {
+                  __sync_fetch_and_add(&(king_counts_ptr[4]), 1);  // +homhom
+                }
+              }
+              break;
+            }
+          }
+        }
+      } else {
+        const uint32_t* hom0_idxs = idx_bufs[3];
+        const uint32_t* hom2_idxs = idx_bufs[1];
+        const uint32_t hom0_ct = genocounts[0];
+        const uint32_t hom2_ct = genocounts[2];
+        uint32_t hom0_mid_idx = 0;
+        uint32_t hom2_mid_idx = 0;
+        if (row_start_idx) {
+          if (hom0_ct) {
+            hom0_mid_idx = CountSortedSmallerU32(hom0_idxs, hom0_ct, row_start_idx);
+          }
+          if (het_ct) {
+            het_mid_idx = CountSortedSmallerU32(het_idxs, het_ct, row_start_idx);
+          }
+          if (hom2_ct) {
+            hom2_mid_idx = CountSortedSmallerU32(hom2_idxs, hom2_ct, row_start_idx);
+          }
+        }
+        // could mostly merge hom0 and hom2 cases?  but let's get this working
+        // first.
+        uint32_t het_restart_idx = het_mid_idx;
+        uint32_t hom2_restart_idx = hom2_mid_idx;
+        for (uint32_t uii = 0; uii != hom0_ct; ++uii) {
+          const uintptr_t sample_idx1 = hom0_idxs[uii];
+          const int64_t tri_subtract = tri_start - S_CAST(uint64_t, sample_idx1);
+          if (homhom_needed) {
+            for (uint32_t ujj = MAXV(uii + 1, hom0_mid_idx); ujj != hom0_ct; ++ujj) {
+              const uint64_t sample_idx2 = hom0_idxs[ujj];
+              const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
+              uint32_t* king_counts_ptr = &(king_counts[tri_coord * 5 + 4]);
+              __sync_fetch_and_add(king_counts_ptr, 1);  // +homhom
+            }
+          }
+          for (; het_restart_idx != het_ct; ++het_restart_idx) {
+            if (het_idxs[het_restart_idx] > sample_idx1) {
+              for (uint32_t ujj = het_restart_idx; ujj != het_ct; ++ujj) {
+                const uint64_t sample_idx2 = het_idxs[ujj];
+                const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
+                uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4 + 2]);
+                __sync_fetch_and_add(king_counts_ptr, 1);  // +het2hom1
+              }
+              break;
+            }
+          }
+          for (; hom2_restart_idx != hom2_ct; ++hom2_restart_idx) {
+            if (hom2_idxs[hom2_restart_idx] > sample_idx1) {
+              for (uint32_t ujj = hom2_restart_idx; ujj != hom2_ct; ++ujj) {
+                const uint64_t sample_idx2 = hom2_idxs[ujj];
+                const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
+                uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
+                __sync_fetch_and_add(king_counts_ptr, 1);  // +ibs0
+                if (homhom_needed) {
+                  __sync_fetch_and_add(&(king_counts_ptr[4]), 1);  // +homhom
+                }
+              }
+              break;
+            }
+          }
+        }
+        uint32_t hom0_restart_idx = hom0_mid_idx;
+        hom2_restart_idx = hom2_mid_idx;
+        for (uint32_t uii = 0; uii != het_ct; ++uii) {
+          const uintptr_t sample_idx1 = het_idxs[uii];
+          const int64_t tri_subtract = tri_start - S_CAST(uint64_t, sample_idx1);
+          for (uint32_t ujj = MAXV(uii + 1, het_mid_idx); ujj != het_ct; ++ujj) {
+            const uint64_t sample_idx2 = het_idxs[ujj];
+            const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
+            uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4 + 1]);
+            __sync_fetch_and_add(king_counts_ptr, 1);  // +hethet
+          }
+          for (; hom0_restart_idx != hom0_ct; ++hom0_restart_idx) {
+            if (hom0_idxs[hom0_restart_idx] > sample_idx1) {
+              for (uint32_t ujj = hom0_restart_idx; ujj != hom0_ct; ++ujj) {
+                const uint64_t sample_idx2 = hom0_idxs[ujj];
+                const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
+                uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4 + 3]);
+                __sync_fetch_and_add(king_counts_ptr, 1);  // +het1hom2
+              }
+              break;
+            }
+          }
+          for (; hom2_restart_idx != hom2_ct; ++hom2_restart_idx) {
+            if (hom2_idxs[hom2_restart_idx] > sample_idx1) {
+              for (uint32_t ujj = hom2_restart_idx; ujj != hom2_ct; ++ujj) {
+                const uint64_t sample_idx2 = hom2_idxs[ujj];
+                const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
+                uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4 + 3]);
+                __sync_fetch_and_add(king_counts_ptr, 1);  // +het1hom2
+              }
+              break;
+            }
+          }
+        }
+        hom0_restart_idx = hom0_mid_idx;
+        het_restart_idx = het_mid_idx;
+        for (uint32_t uii = 0; uii != hom2_ct; ++uii) {
+          const uintptr_t sample_idx1 = hom2_idxs[uii];
+          const int64_t tri_subtract = tri_start - S_CAST(uint64_t, sample_idx1);
+          if (homhom_needed) {
+            for (uint32_t ujj = MAXV(uii + 1, hom2_mid_idx); ujj != hom2_ct; ++ujj) {
+              const uint64_t sample_idx2 = hom2_idxs[ujj];
+              const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
+              uint32_t* king_counts_ptr = &(king_counts[tri_coord * 5 + 4]);
+              __sync_fetch_and_add(king_counts_ptr, 1);  // +homhom
+            }
+          }
+          for (; hom0_restart_idx != hom0_ct; ++hom0_restart_idx) {
+            if (hom0_idxs[hom0_restart_idx] > sample_idx1) {
+              for (uint32_t ujj = hom0_restart_idx; ujj != hom0_ct; ++ujj) {
+                const uint64_t sample_idx2 = hom0_idxs[ujj];
+                const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
+                uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
+                __sync_fetch_and_add(king_counts_ptr, 1);  // +ibs0
+                if (homhom_needed) {
+                  __sync_fetch_and_add(&(king_counts_ptr[4]), 1);  // +homhom
+                }
+              }
+              break;
+            }
+          }
+          for (; het_restart_idx != het_ct; ++het_restart_idx) {
+            if (het_idxs[het_restart_idx] > sample_idx1) {
+              for (uint32_t ujj = het_restart_idx; ujj != het_ct; ++ujj) {
+                const uint64_t sample_idx2 = het_idxs[ujj];
+                const uintptr_t tri_coord = (sample_idx2 * (sample_idx2 - 1)) / 2 - tri_subtract;
+                uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4 + 2]);
+                __sync_fetch_and_add(king_counts_ptr, 1);  // +het2hom1
+              }
+              break;
+            }
+          }
+        }
+      }
+    }
+  CalcKingSparseThread_err:
+    parity = 1 - parity;
+  }
+  ctx->thread_skip_cts[tidx] = skip_ct;
+  THREAD_RETURN;
+}
+
 #ifdef USE_SSE42
 CONSTI32(kKingMultiplex, 1024);
 CONSTI32(kKingMultiplexWords, kKingMultiplex / kBitsPerWord);
@@ -794,7 +1245,7 @@ void IncrKingHomhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, ui
 #endif
 static_assert(!(kKingMultiplexWords % 2), "kKingMultiplexWords must be even for safe bit-transpose.");
 
-typedef struct CalcKingCtxStruct {
+typedef struct CalcKingDenseCtxStruct {
   uintptr_t* smaj_hom[2];
   uintptr_t* smaj_ref2het[2];
   uint32_t homhom_needed;
@@ -802,12 +1253,12 @@ typedef struct CalcKingCtxStruct {
   uint32_t* thread_start;
 
   uint32_t* king_counts;
-} CalcKingCtx;
+} CalcKingDenseCtx;
 
-THREAD_FUNC_DECL CalcKingThread(void* raw_arg) {
+THREAD_FUNC_DECL CalcKingDenseThread(void* raw_arg) {
   ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
   const uintptr_t tidx = arg->tidx;
-  CalcKingCtx* ctx = S_CAST(CalcKingCtx*, arg->sharedp->context);
+  CalcKingDenseCtx* ctx = S_CAST(CalcKingDenseCtx*, arg->sharedp->context);
 
   const uint64_t mem_start_idx = ctx->thread_start[0];
   const uint64_t start_idx = ctx->thread_start[tidx];
@@ -922,7 +1373,22 @@ char* AppendKingTableHeader(KingFlags king_flags, uint32_t king_col_fid, uint32_
   return cswritep;
 }
 
-PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig, const ChrInfo* cip, uint32_t raw_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
+CONSTI32(kKingSparseMin, 65);
+
+uint32_t KingMaxSparseCt(uint32_t row_end_idx) {
+  if (row_end_idx < kKingSparseMin) {
+    // Below this sample count, a two-pass algorithm is unlikely to outperform
+    // single-pass regardless of sparsity.
+    return 0;
+  }
+#ifdef USE_AVX2
+  return row_end_idx / 33;
+#else
+  return row_end_idx / 30;
+#endif
+}
+
+PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig, const ChrInfo* cip, uint32_t raw_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -956,29 +1422,40 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
       goto CalcKing_ret_1;
     }
 #endif
-    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
-    uintptr_t* variant_include;
-    uint32_t* singleton_het_cts;
-    uint32_t* singleton_hom_cts;
-    uint32_t* singleton_missing_cts;
-    if (unlikely(
-            bigstack_alloc_w(raw_variant_ctl, &variant_include) ||
-            bigstack_calloc_u32(sample_ct, &singleton_het_cts) ||
-            bigstack_calloc_u32(sample_ct, &singleton_hom_cts) ||
-            bigstack_calloc_u32(sample_ct, &singleton_missing_cts))) {
-      goto CalcKing_ret_NOMEM;
+    const uintptr_t sample_ctl = BitCtToWordCt(sample_ct);
+    uintptr_t* kinship_table = nullptr;
+    if (king_cutoff != -1) {
+      if (unlikely(bigstack_calloc_w(sample_ct * sample_ctl, &kinship_table))) {
+        goto CalcKing_ret_NOMEM;
+      }
     }
-    memcpy(variant_include, variant_include_orig, raw_variant_ctl * sizeof(intptr_t));
-    const uint32_t non_autosomal_variant_ct = CountNonAutosomalVariants(variant_include, cip, 1, 1);
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    const uint32_t non_autosomal_variant_ct = CountNonAutosomalVariants(variant_include_orig, cip, 1, 1);
     if (non_autosomal_variant_ct) {
+      uintptr_t* variant_include_next;
+      if (unlikely(bigstack_alloc_w(raw_variant_ctl, &variant_include_next))) {
+        goto CalcKing_ret_NOMEM;
+      }
       logprintf("Excluding %u variant%s on non-autosomes from KING-robust calculation.\n", non_autosomal_variant_ct, (non_autosomal_variant_ct == 1)? "" : "s");
       variant_ct -= non_autosomal_variant_ct;
       if (!variant_ct) {
         logerrprintf("Error: No variants remaining for KING-robust calculation.\n");
         goto CalcKing_ret_DEGENERATE_DATA;
       }
-      ExcludeNonAutosomalVariants(cip, variant_include);
+      memcpy(variant_include_next, variant_include_orig, raw_variant_ctl * sizeof(intptr_t));
+      ExcludeNonAutosomalVariants(cip, variant_include_next);
+      variant_include_orig = variant_include_next;
     }
+    uintptr_t* variant_include;
+
+    if (unlikely(
+            bigstack_alloc_w(raw_variant_ctl, &variant_include))) {
+      goto CalcKing_ret_NOMEM;
+    }
+
+    uint32_t grand_row_start_idx;
+    uint32_t grand_row_end_idx;
+    ParallelBounds(sample_ct, 1, parallel_idx, parallel_tot, R_CAST(int32_t*, &grand_row_start_idx), R_CAST(int32_t*, &grand_row_end_idx));
 
     // possible todo: allow this to change between passes
     uint32_t calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
@@ -988,29 +1465,73 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
     if (!calc_thread_ct) {
       calc_thread_ct = 1;
     }
-
-    CalcKingCtx ctx;
-    if (unlikely(
-            SetThreadCt(calc_thread_ct, &tg) ||
-            bigstack_alloc_u32(calc_thread_ct + 1, &ctx.thread_start))) {
-      goto CalcKing_ret_NOMEM;
-    }
-    const uintptr_t sample_ctl = BitCtToWordCt(sample_ct);
-    uintptr_t* kinship_table = nullptr;
-    if (king_cutoff != -1) {
-      if (unlikely(bigstack_calloc_w(sample_ct * sample_ctl, &kinship_table))) {
+    const uint32_t homhom_needed = (king_flags & kfKingColNsnp) || ((!(king_flags & kfKingCounts)) && (king_flags & (kfKingColHethet | kfKingColIbs0 | kfKingColIbs1)));
+    CalcKingSparseCtx sparse_ctx;
+    uint32_t sparse_read_block_size = 0;
+    STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
+    // These values are now permitted to underflow from sparse-optimization.
+    // Might want to change them to int32_t*.
+    uint32_t* singleton_het_cts;
+    uint32_t* singleton_hom_cts;
+    uint32_t* singleton_missing_cts;
+    if (grand_row_end_idx >= kKingSparseMin) {
+      sparse_ctx.variant_include_orig = variant_include_orig;
+      sparse_ctx.homhom_needed = homhom_needed;
+      const uint32_t max_sparse_ct = KingMaxSparseCt(grand_row_end_idx);
+      // Ok for this to be a slight underestimate, since bigstack_left()/8 is
+      // an arbitrary limit anyway.
+      const uintptr_t thread_xalloc_cacheline_ct = DivUp((3 * k1LU) * (max_sparse_ct + grand_row_end_idx), kInt32PerCacheline) + ((kPglVblockSize * 2) / kBitsPerCacheline);
+      if (unlikely(PgenMtLoadInit(variant_include_orig, grand_row_end_idx, variant_ct, bigstack_left() / 8, pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, &sparse_ctx.genovecs, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &sparse_read_block_size, nullptr, main_loadbufs, &sparse_ctx.pgr_ptrs, &sparse_ctx.read_variant_uidx_starts))) {
+        goto CalcKing_ret_NOMEM;
+      }
+      sparse_ctx.read_block_size = sparse_read_block_size;
+      sparse_ctx.reterr = kPglRetSuccess;
+      if (unlikely(
+              bigstack_alloc_u32p(calc_thread_ct, &sparse_ctx.thread_idx_bufs) ||
+              bigstack_alloc_u32p(calc_thread_ct, &sparse_ctx.thread_singleton_het_cts) ||
+              bigstack_alloc_u32p(calc_thread_ct, &sparse_ctx.thread_singleton_hom_cts) ||
+              bigstack_alloc_u32p(calc_thread_ct, &sparse_ctx.thread_singleton_missing_cts) ||
+              bigstack_alloc_u32(calc_thread_ct, &sparse_ctx.thread_skip_cts) ||
+              bigstack_alloc_wp(calc_thread_ct, &sparse_ctx.thread_sparse_excludes[0]) ||
+              bigstack_alloc_wp(calc_thread_ct, &sparse_ctx.thread_sparse_excludes[1]))) {
+        goto CalcKing_ret_NOMEM;
+      }
+      const uint32_t read_block_sizel = sparse_read_block_size / kBitsPerWord;
+      for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
+        if (unlikely(
+                bigstack_alloc_u32(3 * max_sparse_ct, &(sparse_ctx.thread_idx_bufs[tidx])) ||
+                bigstack_alloc_u32(grand_row_end_idx, &(sparse_ctx.thread_singleton_het_cts[tidx])) ||
+                bigstack_alloc_u32(grand_row_end_idx, &(sparse_ctx.thread_singleton_hom_cts[tidx])) ||
+                bigstack_alloc_u32(grand_row_end_idx, &(sparse_ctx.thread_singleton_missing_cts[tidx])) ||
+                bigstack_alloc_w(read_block_sizel, &(sparse_ctx.thread_sparse_excludes[0][tidx])) ||
+                bigstack_alloc_w(read_block_sizel, &(sparse_ctx.thread_sparse_excludes[1][tidx])))) {
+          goto CalcKing_ret_NOMEM;
+        }
+      }
+      singleton_het_cts = sparse_ctx.thread_singleton_het_cts[0];
+      singleton_hom_cts = sparse_ctx.thread_singleton_hom_cts[0];
+      singleton_missing_cts = sparse_ctx.thread_singleton_missing_cts[0];
+    } else {
+      if (unlikely(
+              bigstack_alloc_u32(sample_ct, &singleton_het_cts) ||
+              bigstack_alloc_u32(sample_ct, &singleton_hom_cts) ||
+              bigstack_alloc_u32(sample_ct, &singleton_missing_cts))) {
         goto CalcKing_ret_NOMEM;
       }
     }
+
+    CalcKingDenseCtx dense_ctx;
+    if (unlikely(
+            SetThreadCt(calc_thread_ct, &tg) ||
+            bigstack_alloc_u32(calc_thread_ct + 1, &dense_ctx.thread_start))) {
+      goto CalcKing_ret_NOMEM;
+    }
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
-    const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
-    const uint32_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
-    ctx.homhom_needed = (king_flags & kfKingColNsnp) || ((!(king_flags & kfKingCounts)) && (king_flags & (kfKingColHethet | kfKingColIbs0 | kfKingColIbs1)));
-    uint32_t grand_row_start_idx;
-    uint32_t grand_row_end_idx;
-    ParallelBounds(sample_ct, 1, parallel_idx, parallel_tot, R_CAST(int32_t*, &grand_row_start_idx), R_CAST(int32_t*, &grand_row_end_idx));
+    const uint32_t grei_ctaw = BitCtToAlignedWordCt(grand_row_end_idx);
+    const uint32_t grei_ctaw2 = NypCtToAlignedWordCt(grand_row_end_idx);
+    dense_ctx.homhom_needed = homhom_needed;
     const uint32_t king_bufsizew = kKingMultiplexWords * grand_row_end_idx;
-    const uint32_t homhom_needed_p4 = ctx.homhom_needed + 4;
+    const uint32_t homhom_needed_p4 = dense_ctx.homhom_needed + 4;
     uintptr_t* cur_sample_include;
     uint32_t* sample_include_cumulative_popcounts;
     uintptr_t* loadbuf;
@@ -1020,92 +1541,15 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
     if (unlikely(
             bigstack_alloc_w(raw_sample_ctl, &cur_sample_include) ||
             bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
-            bigstack_alloc_w(sample_ctaw2, &loadbuf) ||
-            bigstack_alloc_w(kPglBitTransposeBatch * sample_ctaw, &splitbuf_hom) ||
-            bigstack_alloc_w(kPglBitTransposeBatch * sample_ctaw, &splitbuf_ref2het) ||
-            bigstack_alloc_w(king_bufsizew, &(ctx.smaj_hom[0])) ||
-            bigstack_alloc_w(king_bufsizew, &(ctx.smaj_ref2het[0])) ||
-            bigstack_alloc_w(king_bufsizew, &(ctx.smaj_hom[1])) ||
-            bigstack_alloc_w(king_bufsizew, &(ctx.smaj_ref2het[1])) ||
+            bigstack_alloc_w(grei_ctaw2, &loadbuf) ||
+            bigstack_alloc_w(kPglBitTransposeBatch * grei_ctaw, &splitbuf_hom) ||
+            bigstack_alloc_w(kPglBitTransposeBatch * grei_ctaw, &splitbuf_ref2het) ||
+            bigstack_alloc_w(king_bufsizew, &(dense_ctx.smaj_hom[0])) ||
+            bigstack_alloc_w(king_bufsizew, &(dense_ctx.smaj_ref2het[0])) ||
+            bigstack_alloc_w(king_bufsizew, &(dense_ctx.smaj_hom[1])) ||
+            bigstack_alloc_w(king_bufsizew, &(dense_ctx.smaj_ref2het[1])) ||
             bigstack_alloc_v(kPglBitTransposeBufvecs, &vecaligned_buf))) {
       goto CalcKing_ret_NOMEM;
-    }
-    uint32_t sparse_variant_ct = 0;
-    // Count singleton/monomorphic variants, record all relevant statistics,
-    // and remove them from the main loop.
-    {
-      FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
-      PgrClearLdCache(simple_pgrp);
-      logprintf("%s: Scanning for singletons and monomorphic variants...", flagname);
-      fflush(stdout);
-      const uint32_t sample_ct_m1 = sample_ct - 1;
-      uint32_t skip_ct = 0;
-      uintptr_t variant_uidx_base = 0;
-      uintptr_t cur_bits = variant_include[0];
-      for (uint32_t uii = 0; uii != variant_ct; ++uii) {
-        const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
-        reterr = PgrGet(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, loadbuf);
-        if (unlikely(reterr)) {
-          goto CalcKing_ret_PGR_FAIL;
-        }
-        ZeroTrailingNyps(sample_ct, loadbuf);
-        STD_ARRAY_DECL(uint32_t, 4, genocounts);
-        GenoarrCountFreqsUnsafe(loadbuf, sample_ct, genocounts);
-        if (genocounts[0] >= sample_ct_m1) {
-          if (genocounts[0] == sample_ct_m1) {
-            for (uint32_t widx = 0; ; ++widx) {
-              uintptr_t geno_word = loadbuf[widx];
-              if (geno_word) {
-                const uint32_t sample_idx_lowbits = ctzw(geno_word) / 2;
-                // no need to mask out high bits, they're guaranteed to be zero
-                geno_word = geno_word >> (sample_idx_lowbits * 2);
-                const uint32_t sample_idx = widx * kBitsPerWordD2 + sample_idx_lowbits;
-                if (geno_word == 1) {
-                  singleton_het_cts[sample_idx] += 1;
-                } else if (geno_word == 2) {
-                  singleton_hom_cts[sample_idx] += 1;
-                } else {
-                  singleton_missing_cts[sample_idx] += 1;
-                }
-                break;
-              }
-            }
-          }
-        } else if (genocounts[2] >= sample_ct_m1) {
-          if (genocounts[2] == sample_ct_m1) {
-            for (uint32_t widx = 0; ; ++widx) {
-              uintptr_t xor_word = loadbuf[widx] ^ kMaskAAAA;
-              if (xor_word) {
-                const uint32_t sample_idx_lowbits = ctzw(xor_word) / 2;
-                xor_word = (xor_word >> (sample_idx_lowbits * 2)) & 3;
-                const uint32_t sample_idx = widx * kBitsPerWordD2 + sample_idx_lowbits;
-                if (xor_word == 3) {
-                  singleton_het_cts[sample_idx] += 1;
-                } else if (xor_word == 2) {
-                  singleton_hom_cts[sample_idx] += 1;
-                } else {
-                  singleton_missing_cts[sample_idx] += 1;
-                }
-                break;
-              }
-            }
-          }
-        } else if ((genocounts[3] >= sample_ct_m1) || ((!ctx.homhom_needed) && ((genocounts[0] + genocounts[3] == sample_ct) || (genocounts[2] + genocounts[3] == sample_ct)))) {
-          ++skip_ct;
-        } else {
-          continue;
-        }
-        ++sparse_variant_ct;
-        ClearBit(variant_uidx, variant_include);
-      }
-      logputs(" done.\n");
-      if (!sparse_variant_ct) {
-        logputs("No singletons/monomorphics found.\n");
-      } else {
-        logprintf("%u variant%s handled by initial scan.\n", sparse_variant_ct, (sparse_variant_ct == 1)? "" : "s");
-      }
-      variant_ct -= sparse_variant_ct;
-      sparse_variant_ct -= skip_ct;
     }
 
     // Make this automatically multipass when there's insufficient memory.  So
@@ -1162,40 +1606,132 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
       goto CalcKing_ret_NOMEM;
     }
     uint32_t row_end_idx = grand_row_start_idx;
-    ctx.king_counts = R_CAST(uint32_t*, g_bigstack_base);
-    SetThreadFuncAndData(CalcKingThread, &ctx, &tg);
+    sparse_ctx.king_counts = R_CAST(uint32_t*, g_bigstack_base);
+    dense_ctx.king_counts = sparse_ctx.king_counts;
     for (uint32_t pass_idx_p1 = 1; pass_idx_p1 <= pass_ct; ++pass_idx_p1) {
       const uint32_t row_start_idx = row_end_idx;
       row_end_idx = NextTrianglePass(row_start_idx, grand_row_end_idx, 1, cells_avail);
-      TriangleLoadBalance(calc_thread_ct, row_start_idx, row_end_idx, 1, ctx.thread_start);
-      const uintptr_t tot_cells = (S_CAST(uint64_t, row_end_idx) * (row_end_idx - 1) - S_CAST(uint64_t, row_start_idx) * (row_start_idx - 1)) / 2;
-      ZeroU32Arr(tot_cells * homhom_needed_p4, ctx.king_counts);
+      TriangleLoadBalance(calc_thread_ct, row_start_idx, row_end_idx, 1, dense_ctx.thread_start);
+      memcpy(cur_sample_include, sample_include, raw_sample_ctl * sizeof(intptr_t));
+      if (row_end_idx != grand_row_end_idx) {
+        uint32_t sample_uidx_end = IdxToUidxBasic(sample_include, row_end_idx);
+        ClearBitsNz(sample_uidx_end, raw_sample_ct, cur_sample_include);
+      }
+      FillCumulativePopcounts(cur_sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+      pgfip->block_base = main_loadbufs[0];  // needed after first pass
+      PgrClearLdCache(simple_pgrp);
+      // Update (9 Nov 2019): The one-time singleton/monomorphic scan has been
+      // replaced with a more effective sparse-variant scan which happens on
+      // every pass: we can preprocess variants with difflist_len up to
+      // ~sqrt(row_end_idx) in time linear in the genotype matrix size.
+      uint32_t sparse_variant_ct = 0;
+      uint32_t skip_ct = 0;
+      if (row_end_idx >= kKingSparseMin) {
+        sparse_ctx.sample_include = cur_sample_include;
+        sparse_ctx.sample_include_cumulative_popcounts = sample_include_cumulative_popcounts;
+        sparse_ctx.row_start_idx = row_start_idx;
+        sparse_ctx.row_end_idx = row_end_idx;
+        sparse_ctx.max_sparse_ct = KingMaxSparseCt(row_end_idx);
+        logprintf("%s pass %u/%u: Scanning for rare variants... ", flagname, pass_idx_p1, pass_ct);
+        fputs("0%", stdout);
+        fflush(stdout);
+        SetThreadFuncAndData(CalcKingSparseThread, &sparse_ctx, &tg);
+        if (unlikely(SpawnThreads(&tg))) {
+          goto CalcKing_ret_THREAD_CREATE_FAIL;
+        }
+        memcpy(variant_include, variant_include_orig, raw_variant_ctl * sizeof(intptr_t));
 
-      if (variant_ct) {
-        // possible todo: doubleton optimization
+        const uint32_t read_block_sizel = sparse_read_block_size / kBitsPerWord;
+        uint32_t prev_read_block_idx = 0;
+        uint32_t read_block_idx = 0;
+        uint32_t pct = 0;
+        uint32_t next_print_variant_idx = variant_ct / 100;
+        uint32_t parity = 0;
+        for (uint32_t variant_idx = 0; ; ) {
+          const uint32_t cur_block_size = MultireadNonempty(variant_include_orig, &tg, raw_variant_ct, sparse_read_block_size, pgfip, &read_block_idx, &reterr);
+          if (unlikely(reterr)) {
+            goto CalcKing_ret_PGR_FAIL;
+          }
+          JoinThreads(&tg);
+          reterr = sparse_ctx.reterr;
+          if (unlikely(reterr)) {
+            goto CalcKing_ret_PGR_FAIL;
+          }
+          if (!IsLastBlock(&tg)) {
+            sparse_ctx.cur_block_size = cur_block_size;
+            ComputeUidxStartPartition(variant_include_orig, cur_block_size, calc_thread_ct, read_block_idx * sparse_read_block_size, sparse_ctx.read_variant_uidx_starts);
+            PgrCopyBaseAndOffset(pgfip, calc_thread_ct, sparse_ctx.pgr_ptrs);
+            if (variant_idx + cur_block_size == variant_ct) {
+              DeclareLastThreadBlock(&tg);
+            }
+            SpawnThreads(&tg);
+          }
+          parity = 1 - parity;
+          if (variant_idx) {
+            uintptr_t* variant_include_update = &(variant_include[prev_read_block_idx * read_block_sizel]);
+            for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
+              BitvecInvmask(sparse_ctx.thread_sparse_excludes[parity][tidx], read_block_sizel, variant_include_update);
+            }
+            if (variant_idx == variant_ct) {
+              break;
+            }
+            if (variant_idx >= next_print_variant_idx) {
+              if (pct > 10) {
+                putc_unlocked('\b', stdout);
+              }
+              pct = (variant_idx * 100LLU) / variant_ct;
+              printf("\b\b%u%%", pct++);
+              fflush(stdout);
+              next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
+            }
+          }
+          prev_read_block_idx = read_block_idx;
+          ++read_block_idx;
+          variant_idx += cur_block_size;
+          pgfip->block_base = main_loadbufs[parity];
+        }
+        if (pct > 10) {
+          putc_unlocked('\b', stdout);
+        }
+        fputs("\b\b", stdout);
+        logputs("done.\n");
+        sparse_variant_ct = variant_ct - PopcountWords(variant_include, raw_variant_ctl);
+        logprintf("%u variant%s handled by initial scan.\n", sparse_variant_ct, (sparse_variant_ct == 1)? "" : "s");
+        skip_ct = sparse_ctx.thread_skip_cts[0];
+        const uint32_t vec_ct = DivUp(row_end_idx, kInt32PerVec);
+        for (uint32_t tidx = 1; tidx != calc_thread_ct; ++tidx) {
+          U32CastVecAdd(sparse_ctx.thread_singleton_het_cts[tidx], vec_ct, singleton_het_cts);
+          U32CastVecAdd(sparse_ctx.thread_singleton_hom_cts[tidx], vec_ct, singleton_hom_cts);
+          U32CastVecAdd(sparse_ctx.thread_singleton_missing_cts[tidx], vec_ct, singleton_missing_cts);
+          skip_ct += sparse_ctx.thread_skip_cts[tidx];
+        }
+      } else {
+        memcpy(variant_include, variant_include_orig, raw_variant_ctl * sizeof(intptr_t));
+
+        const uintptr_t tot_cells = (S_CAST(uint64_t, row_end_idx) * (row_end_idx - 1) - S_CAST(uint64_t, row_start_idx) * (row_start_idx - 1)) / 2;
+        ZeroU32Arr(tot_cells * homhom_needed_p4, dense_ctx.king_counts);
+        ZeroU32Arr(row_end_idx, singleton_het_cts);
+        ZeroU32Arr(row_end_idx, singleton_hom_cts);
+        ZeroU32Arr(row_end_idx, singleton_missing_cts);
+      }
+      const uint32_t cur_variant_ct = variant_ct - sparse_variant_ct;
+      sparse_variant_ct -= skip_ct;
+      if (cur_variant_ct) {
+        SetThreadFuncAndData(CalcKingDenseThread, &dense_ctx, &tg);
         const uint32_t row_end_idxaw = BitCtToAlignedWordCt(row_end_idx);
         const uint32_t row_end_idxaw2 = NypCtToAlignedWordCt(row_end_idx);
         if (row_end_idxaw % 2) {
           const uint32_t cur_king_bufsizew = kKingMultiplexWords * row_end_idx;
-          uintptr_t* smaj_hom0_last = &(ctx.smaj_hom[0][kKingMultiplexWords - 1]);
-          uintptr_t* smaj_ref2het0_last = &(ctx.smaj_ref2het[0][kKingMultiplexWords - 1]);
-          uintptr_t* smaj_hom1_last = &(ctx.smaj_hom[1][kKingMultiplexWords - 1]);
-          uintptr_t* smaj_ref2het1_last = &(ctx.smaj_ref2het[1][kKingMultiplexWords - 1]);
+          uintptr_t* smaj_hom0_last = &(dense_ctx.smaj_hom[0][kKingMultiplexWords - 1]);
+          uintptr_t* smaj_ref2het0_last = &(dense_ctx.smaj_ref2het[0][kKingMultiplexWords - 1]);
+          uintptr_t* smaj_hom1_last = &(dense_ctx.smaj_hom[1][kKingMultiplexWords - 1]);
+          uintptr_t* smaj_ref2het1_last = &(dense_ctx.smaj_ref2het[1][kKingMultiplexWords - 1]);
           for (uint32_t offset = 0; offset < cur_king_bufsizew; offset += kKingMultiplexWords) {
             smaj_hom0_last[offset] = 0;
             smaj_ref2het0_last[offset] = 0;
             smaj_hom1_last[offset] = 0;
             smaj_ref2het1_last[offset] = 0;
           }
-        }
-        memcpy(cur_sample_include, sample_include, raw_sample_ctl * sizeof(intptr_t));
-        if (row_end_idx != grand_row_end_idx) {
-          uint32_t sample_uidx_end = IdxToUidxBasic(sample_include, row_end_idx);
-          ClearBitsNz(sample_uidx_end, raw_sample_ct, cur_sample_include);
-        }
-        FillCumulativePopcounts(cur_sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
-        if (pass_idx_p1 != 1) {
-          ReinitThreads(&tg);
         }
         uintptr_t variant_uidx_base = 0;
         uintptr_t cur_bits = variant_include[0];
@@ -1227,9 +1763,9 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
         // with incremental addition of samples.
         PgrClearLdCache(simple_pgrp);
         do {
-          const uint32_t cur_block_size = MINV(variant_ct - variants_completed, kKingMultiplex);
-          uintptr_t* cur_smaj_hom = ctx.smaj_hom[parity];
-          uintptr_t* cur_smaj_ref2het = ctx.smaj_ref2het[parity];
+          const uint32_t cur_block_size = MINV(cur_variant_ct - variants_completed, kKingMultiplex);
+          uintptr_t* cur_smaj_hom = dense_ctx.smaj_hom[parity];
+          uintptr_t* cur_smaj_ref2het = dense_ctx.smaj_ref2het[parity];
           // "block" = distance computation granularity, usually 1024 or 1536
           //           variants
           // "batch" = variant-major-to-sample-major transpose granularity,
@@ -1315,7 +1851,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
             // CalcKingThread() never errors out
           }
           // this update must occur after JoinThreads() call
-          if (variants_completed + cur_block_size == variant_ct) {
+          if (variants_completed + cur_block_size == cur_variant_ct) {
             DeclareLastThreadBlock(&tg);
           }
           if (unlikely(SpawnThreads(&tg))) {
@@ -1336,7 +1872,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
           if (!(king_flags & (kfKingMatrixBin | kfKingMatrixBin4))) {
             const uint32_t is_squarex = king_flags & (kfKingMatrixSq | kfKingMatrixSq0);
             const uint32_t is_square0 = king_flags & kfKingMatrixSq0;
-            uint32_t* results_iter = ctx.king_counts;
+            uint32_t* results_iter = dense_ctx.king_counts;
             uint32_t sample_idx1 = row_start_idx;
             if (is_squarex && (!parallel_idx) && (pass_idx_p1)) {
               // dump "empty" first row
@@ -1403,7 +1939,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
             // from text matrix output...
             const uint32_t is_squarex = king_flags & (kfKingMatrixSq | kfKingMatrixSq0);
             const uint32_t is_square0 = king_flags & kfKingMatrixSq0;
-            uint32_t* results_iter = ctx.king_counts;
+            uint32_t* results_iter = dense_ctx.king_counts;
             uint32_t sample_idx1 = row_start_idx;
             if (is_squarex && (!parallel_idx)) {
               sample_idx1 = 0;
@@ -1493,7 +2029,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
           const uint32_t king_col_ibs1 = king_flags & kfKingColIbs1;
           const uint32_t king_col_kinship = king_flags & kfKingColKinship;
           const uint32_t report_counts = king_flags & kfKingCounts;
-          uint32_t* results_iter = ctx.king_counts;
+          uint32_t* results_iter = dense_ctx.king_counts;
           double nonmiss_recip = 0.0;
           for (uint32_t sample_idx1 = row_start_idx; sample_idx1 != row_end_idx; ++sample_idx1) {
             const char* sample_fmtid1 = &(collapsed_sample_fmtids[max_sample_fmtid_blen * sample_idx1]);
@@ -1526,6 +2062,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
                 cswritetp = strcpyax(cswritetp, &(collapsed_sample_fmtids[max_sample_fmtid_blen * sample_idx2]), '\t');
               }
               if (homhom_needed_p4 == 5) {
+                ;;;
                 const uint32_t homhom_ct = results_iter[4] + sparse_variant_ct - singleton_het2_ct - singleton_missing_cts[sample_idx2] - singleton_het1_ct - singleton_missing_cts[sample_idx1];
                 const uint32_t nonmiss_ct = het1hom2_ct + het2hom1_ct + homhom_ct + hethet_ct;
                 if (king_col_nsnp) {
@@ -1580,7 +2117,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
       } else {
         printf("\r%s pass %u/%u: Condensing...                \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b", flagname, pass_idx_p1, pass_ct);
         fflush(stdout);
-        uint32_t* results_iter = ctx.king_counts;
+        uint32_t* results_iter = dense_ctx.king_counts;
         for (uint32_t sample_idx1 = row_start_idx; sample_idx1 != row_end_idx; ++sample_idx1) {
           const uint32_t singleton_het1_ct = singleton_het_cts[sample_idx1];
           const uint32_t singleton_hom1_ct = singleton_hom_cts[sample_idx1];
@@ -1594,9 +2131,9 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
           }
         }
       }
+      fputs(" done.\n", stdout);
     }
-    putc_unlocked('\n', stdout);
-    logprintf("%s: %u variant%s processed by main pass.\n", flagname, variant_ct, (variant_ct == 1)? "" : "s");
+    logprintf("%s: %u variant%s processed.\n", flagname, variant_ct, (variant_ct == 1)? "" : "s");
     // end-of-loop operations
     if (matrix_shape) {
       if (!(king_flags & (kfKingMatrixBin | kfKingMatrixBin4))) {

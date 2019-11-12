@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (10 Nov 2019)";
+  " (11 Nov 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -2168,7 +2168,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (king_cutoff_fprefix) {
             reterr = KingCutoffBatch(&pii.sii, raw_sample_ct, pcp->king_cutoff, sample_include, king_cutoff_fprefix, &sample_ct);
           } else {
-            reterr = CalcKing(&pii.sii, variant_include, cip, raw_sample_ct, raw_variant_ct, variant_ct, pcp->king_cutoff, pcp->king_table_filter, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, sample_include, &sample_ct, outname, outname_end);
+            reterr = CalcKing(&pii.sii, variant_include, cip, raw_sample_ct, raw_variant_ct, variant_ct, pcp->king_cutoff, pcp->king_table_filter, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, sample_include, &sample_ct, outname, outname_end);
           }
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
@@ -7419,6 +7419,13 @@ int main(int argc, char** argv) {
           }
           pc.fa_flags |= kfFaNormalize;
           pc.dependency_flags |= kfFilterPvarReq;
+        } else if (strequal_k_unsafe(flagname_p2, "o-input-missing-phenotype")) {
+          if (pc.missing_pheno != -9) {
+            logerrputs("Error: --input-missing-phenotype and --no-input-missing-phenotype don't make\nsense together.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          pc.missing_pheno = 0;
+          goto main_param_zero;
         } else if (likely(strequal_k_unsafe(flagname_p2, "o-id-header"))) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;

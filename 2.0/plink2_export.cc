@@ -720,6 +720,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
         write_ctx.sample_ct = read_sample_ct;
         if (pass_idx) {
           pgfip->block_base = main_loadbufs[0];
+          // er, don't need SetBaseAndOffset0?
           PgrSetBaseAndOffset0(main_loadbufs[0], calc_thread_ct, read_ctx.pgr_ptrs);
         }
         uint32_t parity = 0;

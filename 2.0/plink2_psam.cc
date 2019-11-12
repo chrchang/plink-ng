@@ -332,7 +332,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     const uint32_t sex_present = psam_cols_mask & 0x10;
     const uint32_t col_type_end = 5 + pheno_ct;
     const uint32_t pheno_ctl = BitCtToWordCt(pheno_ct);
-    const double missing_phenod = S_CAST(double, missing_pheno);
+    const double missing_phenod = missing_pheno? S_CAST(double, missing_pheno) : HUGE_VAL;
     const double pheno_ctrld = u31tod(1 - affection_01);
     const double pheno_cased = pheno_ctrld + 1.0;
     uintptr_t max_sample_id_blen = piip->sii.max_sample_id_blen;
@@ -1133,7 +1133,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
     PhenoInfoLl* pheno_info_reverse_ll = nullptr;
     const uint32_t pheno_info_alloc_byte_ct = sizeof(PhenoInfoLl) + new_pheno_ct * sizeof(double);
     const uint32_t new_pheno_ctl = BitCtToWordCt(new_pheno_ct);
-    const double missing_phenod = S_CAST(double, missing_pheno);
+    const double missing_phenod = missing_pheno? S_CAST(double, missing_pheno) : HUGE_VAL;
 
     // affection_01 can be 2, so don't use u31tod()
     const double pheno_ctrld = S_CAST(int32_t, 1 - affection_01);
