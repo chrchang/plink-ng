@@ -630,9 +630,11 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
     BitIter1Start(variant_include_orig, ctx->read_variant_uidx_starts[tidx], &variant_uidx_base, &variant_include_bits);
     uintptr_t* sparse_exclude = ctx->thread_sparse_excludes[parity][tidx];
     ZeroWArr(read_block_sizel, sparse_exclude);
+    // probable todo: better load-balancing
     for (uint32_t cur_idx = (tidx * cur_block_size) / calc_thread_ct; cur_idx != idx_end; ++cur_idx) {
       const uint32_t variant_uidx = BitIter1(variant_include_orig, &variant_uidx_base, &variant_include_bits);
-      // possible todo: DifflistOrGenovec
+      // tried DifflistOrGenovec, difference was negligible.  Not really worth
+      // considering it when calculation is inherently >O(mn).
       PglErr reterr = PgrGet(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec);
       if (unlikely(reterr)) {
         ctx->reterr = reterr;
@@ -935,10 +937,11 @@ void IncrKing(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t
         acc_het2hom1 += PopcountWord(hom1 & het2);
         acc_het1hom2 += PopcountWord(hom2 & het1);
       }
-      *king_counts_iter++ += acc_ibs0;
-      *king_counts_iter++ += acc_hethet;
-      *king_counts_iter++ += acc_het2hom1;
-      *king_counts_iter++ += acc_het1hom2;
+      king_counts_iter[kKingOffsetIbs0] += acc_ibs0;
+      king_counts_iter[kKingOffsetHethet] += acc_hethet;
+      king_counts_iter[kKingOffsetHet2Hom1] += acc_het2hom1;
+      king_counts_iter[kKingOffsetHet1Hom2] += acc_het1hom2;
+      king_counts_iter = &(king_counts_iter[4]);
 
       first_hom_iter = &(first_hom_iter[kKingMultiplexWords]);
       first_ref2het_iter = &(first_ref2het_iter[kKingMultiplexWords]);
@@ -974,11 +977,12 @@ void IncrKingHomhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, ui
         acc_het2hom1 += PopcountWord(hom1 & het2);
         acc_het1hom2 += PopcountWord(hom2 & het1);
       }
-      *king_counts_iter++ += acc_ibs0;
-      *king_counts_iter++ += acc_hethet;
-      *king_counts_iter++ += acc_het2hom1;
-      *king_counts_iter++ += acc_het1hom2;
-      *king_counts_iter++ += acc_homhom;
+      king_counts_iter[kKingOffsetIbs0] += acc_ibs0;
+      king_counts_iter[kKingOffsetHethet] += acc_hethet;
+      king_counts_iter[kKingOffsetHet2Hom1] += acc_het2hom1;
+      king_counts_iter[kKingOffsetHet1Hom2] += acc_het1hom2;
+      king_counts_iter[kKingOffsetHomhom] += acc_homhom;
+      king_counts_iter = &(king_counts_iter[5]);
 
       first_hom_iter = &(first_hom_iter[kKingMultiplexWords]);
       first_ref2het_iter = &(first_ref2het_iter[kKingMultiplexWords]);
@@ -1066,10 +1070,11 @@ void IncrKing(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t
       acc_hethet.vw = (acc_hethet.vw & m8) + (vecw_srli(acc_hethet.vw, 8) & m8);
       acc_het2hom1.vw = (acc_het2hom1.vw & m8) + (vecw_srli(acc_het2hom1.vw, 8) & m8);
       acc_het1hom2.vw = (acc_het1hom2.vw & m8) + (vecw_srli(acc_het1hom2.vw, 8) & m8);
-      *king_counts_iter++ += UniVecHsum16(acc_ibs0);
-      *king_counts_iter++ += UniVecHsum16(acc_hethet);
-      *king_counts_iter++ += UniVecHsum16(acc_het2hom1);
-      *king_counts_iter++ += UniVecHsum16(acc_het1hom2);
+      king_counts_iter[kKingOffsetIbs0] += UniVecHsum16(acc_ibs0);
+      king_counts_iter[kKingOffsetHethet] += UniVecHsum16(acc_hethet);
+      king_counts_iter[kKingOffsetHet2Hom1] += UniVecHsum16(acc_het2hom1);
+      king_counts_iter[kKingOffsetHet1Hom2] += UniVecHsum16(acc_het1hom2);
+      king_counts_iter = &(king_counts_iter[4]);
 
       first_hom_iter = &(first_hom_iter[kKingMultiplexVecs]);
       first_ref2het_iter = &(first_ref2het_iter[kKingMultiplexVecs]);
@@ -1157,11 +1162,12 @@ void IncrKingHomhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, ui
       acc_hethet.vw = (acc_hethet.vw & m8) + (vecw_srli(acc_hethet.vw, 8) & m8);
       acc_het2hom1.vw = (acc_het2hom1.vw & m8) + (vecw_srli(acc_het2hom1.vw, 8) & m8);
       acc_het1hom2.vw = (acc_het1hom2.vw & m8) + (vecw_srli(acc_het1hom2.vw, 8) & m8);
-      *king_counts_iter++ += UniVecHsum16(acc_ibs0);
-      *king_counts_iter++ += UniVecHsum16(acc_hethet);
-      *king_counts_iter++ += UniVecHsum16(acc_het2hom1);
-      *king_counts_iter++ += UniVecHsum16(acc_het1hom2);
-      *king_counts_iter++ += UniVecHsum16(acc_homhom);
+      king_counts_iter[kKingOffsetIbs0] += UniVecHsum16(acc_ibs0);
+      king_counts_iter[kKingOffsetHethet] += UniVecHsum16(acc_hethet);
+      king_counts_iter[kKingOffsetHet2Hom1] += UniVecHsum16(acc_het2hom1);
+      king_counts_iter[kKingOffsetHet1Hom2] += UniVecHsum16(acc_het1hom2);
+      king_counts_iter[kKingOffsetHomhom] += UniVecHsum16(acc_homhom);
+      king_counts_iter = &(king_counts_iter[5]);
 
       first_hom_iter = &(first_hom_iter[kKingMultiplexVecs]);
       first_ref2het_iter = &(first_ref2het_iter[kKingMultiplexVecs]);
@@ -1204,11 +1210,10 @@ THREAD_FUNC_DECL CalcKingDenseThread(void* raw_arg) {
 
 /*
 double ComputeKinship(const uint32_t* king_counts_entry) {
-  const uint32_t ibs0_ct = king_counts_entry[0];
-  const uint32_t hethet_ct = king_counts_entry[1];
-  const uint32_t het2hom1_ct = king_counts_entry[2];
-  const uint32_t het1hom2_ct = king_counts_entry[3];
-  // const uint32_t homhom_ct = king_counts_entry[4];
+  const uint32_t ibs0_ct = king_counts_entry[kKingOffsetIbs0];
+  const uint32_t hethet_ct = king_counts_entry[kKingOffsetHethet];
+  const uint32_t het2hom1_ct = king_counts_entry[kKingOffsetHet2Hom1];
+  const uint32_t het1hom2_ct = king_counts_entry[kKingOffsetHet1Hom2];
   const intptr_t smaller_het_ct = hethet_ct + MINV(het1hom2_ct, het2hom1_ct);
   return 0.5 - (S_CAST(double, 4 * S_CAST(intptr_t, ibs0_ct) + het1hom2_ct + het2hom1_ct) / S_CAST(double, 4 * smaller_het_ct));
 }
@@ -1216,11 +1221,10 @@ double ComputeKinship(const uint32_t* king_counts_entry) {
 
 // '2' refers to the larger index here
 double ComputeKinship(const uint32_t* king_counts_entry, uint32_t singleton_het1_ct, uint32_t singleton_hom1_ct, uint32_t singleton_het2_ct, uint32_t singleton_hom2_ct) {
-  const uint32_t ibs0_ct = king_counts_entry[0] + singleton_hom1_ct + singleton_hom2_ct;
-  const uint32_t hethet_ct = king_counts_entry[1];
-  const uint32_t het2hom1_ct = king_counts_entry[2] + singleton_het2_ct;
-  const uint32_t het1hom2_ct = king_counts_entry[3] + singleton_het1_ct;
-  // const uint32_t homhom_ct = king_counts_entry[4];
+  const uint32_t ibs0_ct = king_counts_entry[kKingOffsetIbs0] + singleton_hom1_ct + singleton_hom2_ct;
+  const uint32_t hethet_ct = king_counts_entry[kKingOffsetHethet];
+  const uint32_t het2hom1_ct = king_counts_entry[kKingOffsetHet2Hom1] + singleton_het2_ct;
+  const uint32_t het1hom2_ct = king_counts_entry[kKingOffsetHet1Hom2] + singleton_het1_ct;
   const intptr_t smaller_het_ct = hethet_ct + MINV(het1hom2_ct, het2hom1_ct);
   return 0.5 - (S_CAST(double, 4 * S_CAST(intptr_t, ibs0_ct) + het1hom2_ct + het2hom1_ct) / S_CAST(double, 4 * smaller_het_ct));
 }
@@ -1940,11 +1944,11 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
             for (uint32_t sample_idx2 = 0; sample_idx2 != sample_idx1; ++sample_idx2, results_iter = &(results_iter[homhom_needed_p4])) {
               const uint32_t singleton_het2_ct = singleton_het_cts[sample_idx2];
               const uint32_t singleton_hom2_ct = singleton_hom_cts[sample_idx2];
-              const uint32_t ibs0_ct = results_iter[0] + singleton_hom2_ct + singleton_hom1_ct;
-              const uint32_t hethet_ct = results_iter[1];
+              const uint32_t ibs0_ct = results_iter[kKingOffsetIbs0] + singleton_hom2_ct + singleton_hom1_ct;
+              const uint32_t hethet_ct = results_iter[kKingOffsetHethet];
               // '2' here refers to the larger index, so this is swapped
-              const uint32_t het2hom1_ct = results_iter[2] + singleton_het1_ct;
-              const uint32_t het1hom2_ct = results_iter[3] + singleton_het2_ct;
+              const uint32_t het2hom1_ct = results_iter[kKingOffsetHet2Hom1] + singleton_het1_ct;
+              const uint32_t het1hom2_ct = results_iter[kKingOffsetHet1Hom2] + singleton_het2_ct;
               const intptr_t smaller_het_ct = hethet_ct + MINV(het1hom2_ct, het2hom1_ct);
               const double kinship_coeff = 0.5 - (S_CAST(double, 4 * S_CAST(intptr_t, ibs0_ct) + het1hom2_ct + het2hom1_ct) / S_CAST(double, 4 * smaller_het_ct));
               if (kinship_table && (kinship_coeff > king_cutoff)) {
@@ -1963,8 +1967,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
                 cswritetp = strcpyax(cswritetp, &(collapsed_sample_fmtids[max_sample_fmtid_blen * sample_idx2]), '\t');
               }
               if (homhom_needed_p4 == 5) {
-                ;;;
-                const uint32_t homhom_ct = results_iter[4] + sparse_variant_ct - singleton_het2_ct - singleton_missing_cts[sample_idx2] - singleton_het1_ct - singleton_missing_cts[sample_idx1];
+                const uint32_t homhom_ct = results_iter[kKingOffsetHomhom] + sparse_variant_ct - singleton_het2_ct - singleton_missing_cts[sample_idx2] - singleton_het1_ct - singleton_missing_cts[sample_idx1];
                 const uint32_t nonmiss_ct = het1hom2_ct + het2hom1_ct + homhom_ct + hethet_ct;
                 if (king_col_nsnp) {
                   cswritetp = u32toa_x(nonmiss_ct, '\t', cswritetp);
@@ -3070,10 +3073,10 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       uint32_t* results_iter = ctx.king_counts;
       double nonmiss_recip = 0.0;
       for (uintptr_t cur_pair_idx = 0; cur_pair_idx != cur_pair_ct; ++cur_pair_idx, results_iter = &(results_iter[homhom_needed_p4])) {
-        const uint32_t ibs0_ct = results_iter[0];
-        const uint32_t hethet_ct = results_iter[1];
-        const uint32_t het2hom1_ct = results_iter[2];
-        const uint32_t het1hom2_ct = results_iter[3];
+        const uint32_t ibs0_ct = results_iter[kKingOffsetIbs0];
+        const uint32_t hethet_ct = results_iter[kKingOffsetHethet];
+        const uint32_t het2hom1_ct = results_iter[kKingOffsetHet2Hom1];
+        const uint32_t het1hom2_ct = results_iter[kKingOffsetHet1Hom2];
         const intptr_t smaller_het_ct = hethet_ct + MINV(het1hom2_ct, het2hom1_ct);
         const double kinship_coeff = 0.5 - (S_CAST(double, 4 * S_CAST(intptr_t, ibs0_ct) + het1hom2_ct + het2hom1_ct) / S_CAST(double, 4 * smaller_het_ct));
         if ((king_table_filter != -DBL_MAX) && (kinship_coeff < king_table_filter)) {
@@ -3087,7 +3090,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
           cswritep = strcpyax(cswritep, &(collapsed_sample_fmtids[max_sample_fmtid_blen * sample_idx2]), '\t');
         }
         if (homhom_needed_p4 == 5) {
-          const uint32_t homhom_ct = results_iter[4];
+          const uint32_t homhom_ct = results_iter[kKingOffsetHomhom];
           const uint32_t nonmiss_ct = het1hom2_ct + het2hom1_ct + homhom_ct + hethet_ct;
           if (king_col_nsnp) {
             cswritep = u32toa_x(nonmiss_ct, '\t', cswritep);
