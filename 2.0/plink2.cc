@@ -9229,6 +9229,11 @@ int main(int argc, char** argv) {
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.vscore_flags |= kfVscoreZs;
+            } else if (strequal_k(cur_modif, "bin", cur_modif_slen)) {
+              // 'zs' and 'bin' *are* allowed together, since the variant-ID
+              // (.vscore.vars) file accompanying the .vscore.bin can be large
+              // enough to deserve compression.
+              pc.vscore_flags |= kfVscoreBin;
             } else if (likely(StrStartsWith(cur_modif, "cols=", cur_modif_slen))) {
               if (unlikely(explicit_cols)) {
                 logerrputs("Error: Multiple --variant-score cols= modifiers.\n");
@@ -9246,6 +9251,9 @@ int main(int argc, char** argv) {
           }
           if (!explicit_cols) {
             pc.vscore_flags |= kfVscoreColDefault;
+          } else if (pc.vscore_flags & kfVscoreBin) {
+            logerrputs("Error: --variant-score 'bin' and 'cols=' modifiers cannot be used together.\n");
+            goto main_ret_INVALID_CMDLINE_A;
           }
           pc.command_flags1 |= kfCommand1Vscore;
           pc.dependency_flags |= kfFilterAllReq;

@@ -137,15 +137,16 @@ FLAGSET_DEF_END(ScoreFlags);
 FLAGSET_DEF_START()
   kfVscore0,
   kfVscoreZs = (1 << 0),
+  kfVscoreBin = (1 << 1),
 
-  kfVscoreColChrom = (1 << 1),
-  kfVscoreColPos = (1 << 2),
-  kfVscoreColRef = (1 << 3),
-  kfVscoreColAlt1 = (1 << 4),
-  kfVscoreColAlt = (1 << 5),
-  kfVscoreColAltfreq = (1 << 6),
-  kfVscoreColNmiss = (1 << 7),
-  kfVscoreColNobs = (1 << 8),
+  kfVscoreColChrom = (1 << 2),
+  kfVscoreColPos = (1 << 3),
+  kfVscoreColRef = (1 << 4),
+  kfVscoreColAlt1 = (1 << 5),
+  kfVscoreColAlt = (1 << 6),
+  kfVscoreColAltfreq = (1 << 7),
+  kfVscoreColNmiss = (1 << 8),
+  kfVscoreColNobs = (1 << 9),
   kfVscoreColDefault = (kfVscoreColChrom | kfVscoreColPos | kfVscoreColRef | kfVscoreColAlt),
   kfVscoreColAll = ((kfVscoreColNobs * 2) - kfVscoreColChrom)
 FLAGSET_DEF_END(VscoreFlags);

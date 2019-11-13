@@ -1143,7 +1143,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    software package (https://www.prsice.info/ ).\n\n"
                );
     HelpPrint("variant-score\0vscore\0", &help_ctrl, 1,
-"  --variant-score <filename> ['zs'] ['cols='<col set descriptor>]\n"
+"  --variant-score <filename> ['zs'] ['bin' | 'cols='<col set descriptor>]\n"
 "    (alias: --vscore)\n"
 "    Apply linear scoring system(s) to each variant.  Each reported variant\n"
 "    score is the dot product of a sample-weight vector with the\n"
@@ -1152,7 +1152,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    Input file format: one line per sample, each starting with an ID and\n"
 "    followed by scoring weight(s); it can also have a header line with the\n"
 "    sample ID representation and the score name(s).\n"
-"    The main report supports the following column sets:\n"
+"    The usual .vscore text report supports the following column sets:\n"
 "      chrom: Chromosome ID.\n"
 "      pos: Base-pair coordinate.\n"
 "      (ID is always present, and positioned here.)\n"
@@ -1163,7 +1163,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      nmiss: Number of missing (and thus mean-imputed) dosages.\n"
 "      nobs: Number of (nonmissing) sample observations.\n"
 "      (Variant scores are always present, and positioned here.)\n"
-"    Default is chrom,pos,ref,alt.\n\n"
+"    Default is chrom,pos,ref,alt.\n"
+"    If binary output is requested instead, the main .vscore.bin matrix contains\n"
+"    double-precision floating-point values, column (score) ID(s) are saved to a\n"
+"    .vscore.cols, and variant IDs are saved to .vscore.vars[.zst].\n\n"
               );
     HelpPrint("adjust-file\0adjust\0", &help_ctrl, 1,
 "  --adjust-file <filename> ['zs'] ['gc'] ['cols='<column set descriptor>]\n"

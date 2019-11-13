@@ -6910,6 +6910,7 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
   unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t line_idx = 0;
   char* cswritep = nullptr;
+  FILE* binfile = nullptr;
   PglErr reterr = kPglRetSuccess;
   TextStream txs;
   ThreadGroup tg;
@@ -7148,7 +7149,30 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
     uint32_t compress_thread_ct = 1;
     const uint32_t output_zst = (flags / kfVscoreZs) & 1;
     snprintf(outname_end, kMaxOutfnameExtBlen, ".vscore");
-    if (output_zst) {
+    if (flags & kfVscoreBin) {
+      snprintf(&(outname_end[7]), kMaxOutfnameExtBlen - 7, ".cols");
+      if (unlikely(fopen_checked(outname, FOPEN_WB, &binfile))) {
+        goto Vscore_ret_OPEN_FAIL;
+      }
+      for (uintptr_t vscore_idx = 0; vscore_idx != vscore_ct; ++vscore_idx) {
+        fputs(vscore_names[vscore_idx], binfile);
+#ifdef _WIN32
+        putc_unlocked('\r', binfile);
+#endif
+        putc_unlocked('\n', binfile);
+      }
+      if (unlikely(fclose_null(&binfile))) {
+        goto Vscore_ret_WRITE_FAIL;
+      }
+      snprintf(&(outname_end[7]), kMaxOutfnameExtBlen - 7, ".bin");
+      if (unlikely(fopen_checked(outname, FOPEN_WB, &binfile))) {
+        goto Vscore_ret_OPEN_FAIL;
+      }
+      snprintf(&(outname_end[7]), kMaxOutfnameExtBlen - 7, ".vars");
+      if (output_zst) {
+        snprintf(&(outname_end[12]), kMaxOutfnameExtBlen - 12, ".zst");
+      }
+    } else if (output_zst) {
       snprintf(&(outname_end[7]), kMaxOutfnameExtBlen - 7, ".zst");
       if (calc_thread_ct > 1) {
         // The more samples there are, the higher the compute:compress ratio we
@@ -7227,51 +7251,58 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
     const uint32_t ref_col = (flags / kfVscoreColRef) & 1;
     const uint32_t alt1_col = (flags / kfVscoreColAlt1) & 1;
     const uint32_t alt_col = (flags / kfVscoreColAlt) & 1;
-    const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen * chr_col + kMaxIdSlen + 128 + (24 * k1LU) * vscore_ct + MAXV(ref_col + alt1_col, alt_col) * max_allele_slen;
+    uintptr_t overflow_buf_size;
+    if (binfile) {
+      overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 16;
+    } else {
+      overflow_buf_size = kCompressStreamBlock + max_chr_blen * chr_col + kMaxIdSlen + 128 + (24 * k1LU) * vscore_ct + MAXV(ref_col + alt1_col, alt_col) * max_allele_slen;
+    }
     reterr = InitCstreamAlloc(outname, 0, output_zst, compress_thread_ct, overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
       goto Vscore_ret_1;
     }
-    *cswritep++ = '#';
-    if (chr_col) {
-      cswritep = strcpya_k(cswritep, "CHROM\t");
-    }
-    if (flags & kfVscoreColPos) {
-      cswritep = strcpya_k(cswritep, "POS\t");
-    } else {
-      variant_bps = nullptr;
-    }
-    cswritep = strcpya_k(cswritep, "ID");
-    if (ref_col) {
-      cswritep = strcpya_k(cswritep, "\tREF");
-    }
-    if (alt1_col) {
-      cswritep = strcpya_k(cswritep, "\tALT1");
-    }
-    if (alt_col) {
-      cswritep = strcpya_k(cswritep, "\tALT");
-    }
-    if (flags & kfVscoreColAltfreq) {
-      cswritep = strcpya_k(cswritep, "\tALT_FREQ");
-    } else {
-      allele_freqs = nullptr;
-    }
     const uint32_t nmiss_col = (flags / kfVscoreColNmiss) & 1;
-    if (nmiss_col) {
-      cswritep = strcpya_k(cswritep, "\tMISSING_CT");
-    }
     const uint32_t nobs_col = (flags / kfVscoreColNobs) & 1;
-    if (nobs_col) {
-      cswritep = strcpya_k(cswritep, "\tOBS_CT");
-    }
-    for (uintptr_t vscore_idx = 0; vscore_idx != vscore_ct; ++vscore_idx) {
-      *cswritep++ = '\t';
-      cswritep = strcpya(cswritep, vscore_names[vscore_idx]);
-      if (unlikely(Cswrite(&css, &cswritep))) {
-        goto Vscore_ret_WRITE_FAIL;
+    if (!binfile) {
+      *cswritep++ = '#';
+      if (chr_col) {
+        cswritep = strcpya_k(cswritep, "CHROM\t");
       }
+      if (flags & kfVscoreColPos) {
+        cswritep = strcpya_k(cswritep, "POS\t");
+      } else {
+        variant_bps = nullptr;
+      }
+      cswritep = strcpya_k(cswritep, "ID");
+      if (ref_col) {
+        cswritep = strcpya_k(cswritep, "\tREF");
+      }
+      if (alt1_col) {
+        cswritep = strcpya_k(cswritep, "\tALT1");
+      }
+      if (alt_col) {
+        cswritep = strcpya_k(cswritep, "\tALT");
+      }
+      if (flags & kfVscoreColAltfreq) {
+        cswritep = strcpya_k(cswritep, "\tALT_FREQ");
+      } else {
+        allele_freqs = nullptr;
+      }
+      if (nmiss_col) {
+        cswritep = strcpya_k(cswritep, "\tMISSING_CT");
+      }
+      if (nobs_col) {
+        cswritep = strcpya_k(cswritep, "\tOBS_CT");
+      }
+      for (uintptr_t vscore_idx = 0; vscore_idx != vscore_ct; ++vscore_idx) {
+        *cswritep++ = '\t';
+        cswritep = strcpya(cswritep, vscore_names[vscore_idx]);
+        if (unlikely(Cswrite(&css, &cswritep))) {
+          goto Vscore_ret_WRITE_FAIL;
+        }
+      }
+      AppendBinaryEoln(&cswritep);
     }
-    AppendBinaryEoln(&cswritep);
 
     if (nmiss_col || nobs_col) {
       if (unlikely(
@@ -7399,6 +7430,15 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
               chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
             }
           }
+          if (binfile) {
+            // may as well write variant-ID file in this loop
+            cswritep = strcpya(cswritep, variant_ids[write_variant_uidx]);
+            AppendBinaryEoln(&cswritep);
+            if (unlikely(Cswrite(&css, &cswritep))) {
+              goto Vscore_ret_WRITE_FAIL;
+            }
+            continue;
+          }
           if (chr_col) {
             cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
           }
@@ -7451,6 +7491,11 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
             goto Vscore_ret_WRITE_FAIL;
           }
         }
+        if (binfile) {
+          if (unlikely(fwrite_checked(cur_results_iter, vscore_ct * prev_block_size * sizeof(double), binfile))) {
+            goto Vscore_ret_WRITE_FAIL;
+          }
+        }
         if (variant_idx == variant_ct) {
           break;
         }
@@ -7472,11 +7517,22 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
       goto Vscore_ret_WRITE_FAIL;
     }
     putc_unlocked('\r', stdout);
-    logprintfww("--variant-score: Results written to %s .\n", outname);
+    if (!binfile) {
+      logprintfww("--variant-score: Results written to %s .\n", outname);
+    } else {
+      if (unlikely(fclose_null(&binfile))) {
+        goto Vscore_ret_WRITE_FAIL;
+      }
+      outname_end[8] = '\0';
+      logprintfww("--variant-score: Score matrix written to %sbin , and associated column and variant ID labels written to %scols and %svars%s .\n", outname, outname, outname, output_zst? ".zst" : "");
+    }
   }
   while (0) {
   Vscore_ret_NOMEM:
     reterr = kPglRetNomem;
+    break;
+  Vscore_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
     break;
   Vscore_ret_TSTREAM_FAIL:
     TextStreamErrPrint("--variant-score file", &txs);
@@ -7503,6 +7559,7 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
     break;
   }
  Vscore_ret_1:
+  fclose_cond(binfile);
   CswriteCloseCond(&css, cswritep);
   CleanupThreads(&tg);
   CleanupTextStream2("--variant-score file", &txs, &reterr);
