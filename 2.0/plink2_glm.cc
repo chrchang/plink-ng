@@ -5439,7 +5439,9 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                     *cswritep++ = '.';
                   } else {
                     uint64_t glm_errcode;
-                    memcpy(&glm_errcode, &(beta_se_iter[2 * test_idx]), 8);
+                    // bugfix (15 Nov 2019): errcode is only set for primary
+                    // test
+                    memcpy(&glm_errcode, &(beta_se_iter[2 * primary_reported_test_idx]), 8);
                     cswritep = AppendGlmErrstr(glm_errcode, cswritep);
                   }
                 }
@@ -7405,7 +7407,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                     *cswritep++ = '.';
                   } else {
                     uint64_t glm_errcode;
-                    memcpy(&glm_errcode, &(beta_se_iter[2 * test_idx]), 8);
+                    memcpy(&glm_errcode, &(beta_se_iter[2 * primary_reported_test_idx]), 8);
                     cswritep = AppendGlmErrstr(glm_errcode, cswritep);
                   }
                 }
@@ -9479,7 +9481,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
                         *cswritep++ = '.';
                       } else {
                         uint64_t glm_errcode;
-                        memcpy(&glm_errcode, &(beta_se_iter[2 * test_idx]), 8);
+                        memcpy(&glm_errcode, &(beta_se_iter[2 * primary_reported_test_idx]), 8);
                         cswritep = AppendGlmErrstr(glm_errcode, cswritep);
                       }
                     }

@@ -158,7 +158,8 @@ void WordWrap(uint32_t suffix_len, char* strbuf) {
   // Effect: Spaces are replaced with newlines in a manner that plays well with
   //         80 column terminal windows.  (Multi-space blocks are never
   //         collapsed.)
-  // possible todo: UTF-8 awareness
+  // Considered UTF-8 awareness, but then decided against it after reading
+  //   https://denisbider.blogspot.com/2015/09/when-monospace-fonts-arent-unicode.html .
   char* token_start = strbuf;
   char* line_end = &(strbuf[79]);
   char* token_end;

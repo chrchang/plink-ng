@@ -916,7 +916,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      weights instead of sample weights, with the condition that all variants\n"
 "      must be biallelic.  When it's present, 'vzs' causes the .eigenvec.var\n"
 "      file to be Zstd-compressed.\n"
-"      'vcols' can be used to customize the report columns; supported column\n"
+"      'vcols=' can be used to customize the report columns; supported column\n"
 "      sets are:\n"
 "        chrom: Chromosome ID.\n"
 "        pos: Base-pair coordinate.\n"
