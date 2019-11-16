@@ -3219,13 +3219,6 @@ int main(int argc, char** argv) {
             goto main_flag_copy;
           }
           break;
-        case 'c':
-          if (strequal_k(flagname_p, "covar-number", flag_slen)) {
-            snprintf(flagname_write_iter, kMaxFlagBlen, "covar-col-nums");
-          } else {
-            goto main_flag_copy;
-          }
-          break;
         case 'e':
           if (strequal_k(flagname_p, "extract-if", flag_slen)) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "keep-if-info");
@@ -4222,6 +4215,9 @@ int main(int argc, char** argv) {
           }
           pc.pheno_transform_flags |= kfPhenoTransformQuantnormCovar;
           pc.dependency_flags |= kfFilterPsamReq;
+        } else if (strequal_k_unsafe(flagname_p2, "ovar-number")) {
+          logerrputs("Error: --covar-number is retired.  Use --covar-col-nums instead (and add 2 to\nconvert from PLINK 1.x covariate-indexes to covariate-column-numbers).\n");
+          goto main_ret_INVALID_CMDLINE_A;
         } else if (likely(strequal_k_unsafe(flagname_p2, "ovar-variance-standardize"))) {
           if (param_ct) {
             reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.vstd_flattened);
