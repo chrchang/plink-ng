@@ -1311,7 +1311,7 @@ uint32_t KingMaxSparseCt(uint32_t row_end_idx) {
 #endif
 }
 
-PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig, const ChrInfo* cip, uint32_t raw_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
+PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig, const ChrInfo* cip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -1529,7 +1529,9 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
       row_end_idx = NextTrianglePass(row_start_idx, grand_row_end_idx, 1, cells_avail);
       TriangleLoadBalance(calc_thread_ct, row_start_idx, row_end_idx, 1, dense_ctx.thread_start);
       memcpy(cur_sample_include, sample_include, raw_sample_ctl * sizeof(intptr_t));
-      if (row_end_idx != grand_row_end_idx) {
+      // bugfix (20 Nov 2019): forgot that --parallel could cause the old
+      // row_end_idx != grand_row_end_idx comparison not work
+      if (row_end_idx != orig_sample_ct) {
         uint32_t sample_uidx_end = IdxToUidxBasic(sample_include, row_end_idx);
         ClearBitsNz(sample_uidx_end, raw_sample_ct, cur_sample_include);
       }
