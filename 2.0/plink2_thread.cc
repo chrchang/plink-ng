@@ -193,7 +193,7 @@ BoolErr SpawnThreads(ThreadGroup* tg_ptr) {
             // not sure the old TerminateThread() code ever worked properly in
             // the first place...
             // anyway, new contract makes clean error-shutdown easy
-            if (!__sync_sub_and_fetch(&cbp->active_ct, thread_ct - tidx)) {
+            if (!__atomic_sub_fetch(&cbp->active_ct, thread_ct - tidx, __ATOMIC_ACQ_REL)) {
               SetEvent(cbp->cur_block_done_event);
             }
             JoinThreadsInternal(tidx, tgp);
@@ -370,11 +370,9 @@ BoolErr THREAD_BLOCK_FINISH(ThreadGroupFuncArg* tgfap) {
 void UpdateU64IfSmaller(uint64_t newval, uint64_t* oldval_ptr) {
   uint64_t oldval = *oldval_ptr;
   while (oldval > newval) {
-    const uint64_t rechecked_oldval = __sync_val_compare_and_swap(oldval_ptr, oldval, newval);
-    if (rechecked_oldval == oldval) {
+    if (ATOMIC_COMPARE_EXCHANGE_N_U64(oldval_ptr, &oldval, newval, 1, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {
       break;
     }
-    oldval = rechecked_oldval;
   }
 }
 

@@ -3289,7 +3289,10 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
           *cswritep++ = '\t';
           const uint64_t ref_dosage = cur_allele_dosages[0];
           if (counts) {
-            cswritep = dosagetoa(ref_dosage, cswritep);
+            // update (22 Nov 2019): we want --read-freq to be able to exactly
+            // replicate the original frequency.  dosagetoa() is not good
+            // enough for this purpose.
+            cswritep = dosagetoa_full(ref_dosage, cswritep);
           } else {
             cswritep = dtoa_g(u63tod(ref_dosage) * tot_allele_dosage_recip, cswritep);
           }
@@ -3298,7 +3301,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
           *cswritep++ = '\t';
           const uint64_t alt1_dosage = cur_allele_dosages[1];
           if (counts) {
-            cswritep = dosagetoa(alt1_dosage, cswritep);
+            cswritep = dosagetoa_full(alt1_dosage, cswritep);
           } else {
             cswritep = dtoa_g(u63tod(alt1_dosage) * tot_allele_dosage_recip, cswritep);
           }
@@ -3308,7 +3311,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
           for (uint32_t allele_idx = commalist_exclude_ref; allele_idx != cur_allele_ct; ++allele_idx) {
             const uint64_t cur_allele_dosage = cur_allele_dosages[allele_idx];
             if (counts) {
-              cswritep = dosagetoa(cur_allele_dosage, cswritep);
+              cswritep = dosagetoa_full(cur_allele_dosage, cswritep);
             } else {
               cswritep = dtoa_g(u63tod(cur_allele_dosage) * tot_allele_dosage_recip, cswritep);
             }
@@ -3337,7 +3340,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
               }
               *cswritep++ = '=';
               if (counts) {
-                cswritep = dosagetoa(cur_allele_dosage, cswritep);
+                cswritep = dosagetoa_full(cur_allele_dosage, cswritep);
               } else {
                 cswritep = dtoa_g(u63tod(cur_allele_dosage) * tot_allele_dosage_recip, cswritep);
               }
@@ -3361,7 +3364,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
         }
         if (nobs_col) {
           *cswritep++ = '\t';
-          cswritep = dosagetoa(tot_allele_dosage, cswritep);
+          cswritep = u32toa(tot_allele_dosage / kDosageMid, cswritep);
         }
         AppendBinaryEoln(&cswritep);
         if (unlikely(Cswrite(&css, &cswritep))) {

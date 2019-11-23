@@ -2181,6 +2181,12 @@ FLAGSET_DEF_START()
   kfReadFreqColsetHapAlt1Ct = (1 << kfReadFreqColHapAlt1Ct)
 FLAGSET_DEF_END(ReadFreqColFlags);
 
+// Support exact reconstruction of original allele frequencies in --freq counts
+// case.
+static inline double ForceCountToDosage(double raw_count) {
+  return u63tod(S_CAST(int64_t, raw_count * kDosageMid + 0.5)) * kRecipDosageMid;
+}
+
 PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* read_freq_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t maf_succ, uint32_t max_thread_ct, double* allele_freqs, uintptr_t** variant_afreqcalcp) {
   // support PLINK 1.9 --freq/--freqx, and 2.0 --freq/--geno-counts.
   // GCTA-format no longer supported since it inhibits the allele consistency
@@ -2790,6 +2796,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                 if (unlikely((!cur_ct_end) || (*cur_ct_end != ',') || (dxx < 0.0) || (dxx > 4294967295.0))) {
                   goto ReadAlleleFreqs_ret_INVALID_FREQS;
                 }
+                dxx = ForceCountToDosage(dxx);
                 if (IsSet(matched_loaded_alleles, first_loaded_allele_idx)) {
                   cur_allele_freqs[loaded_to_internal_allele_idx[first_loaded_allele_idx]] += dxx;
                 }
@@ -2815,6 +2822,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                 if (unlikely((!hom_ref_end) || (dxx < 0.0) || (dxx > 4294967295.0))) {
                   goto ReadAlleleFreqs_ret_INVALID_FREQS;
                 }
+                dxx = ForceCountToDosage(dxx);
                 cur_allele_freqs[internal0] += 2 * dxx;
               }
 
@@ -2832,6 +2840,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                 if (unlikely((!cur_entry_end) || (*cur_entry_end != ',') || (dxx < 0.0) || (dxx > 4294967295.0))) {
                   goto ReadAlleleFreqs_ret_INVALID_FREQS;
                 }
+                dxx = ForceCountToDosage(dxx);
                 if (internal0 != UINT32_MAX) {
                   cur_allele_freqs[internal0] += dxx;
                 }
@@ -2862,6 +2871,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                 if (unlikely((!cur_entry_end) || (*cur_entry_end != ',') || (dxx < 0.0) || (dxx > 4294967295.0))) {
                   goto ReadAlleleFreqs_ret_INVALID_FREQS;
                 }
+                dxx = ForceCountToDosage(dxx);
                 if (IsSet(matched_loaded_alleles, first_allele_idx)) {
                   cur_allele_freqs[loaded_to_internal_allele_idx[first_allele_idx]] += dxx;
                 }
@@ -2879,6 +2889,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
               if (unlikely((!hap_ref_end) || (dxx < 0.0) || (dxx > 4294967295.0))) {
                 goto ReadAlleleFreqs_ret_INVALID_FREQS;
               }
+              dxx = ForceCountToDosage(dxx);
               cur_allele_freqs[internal0] += dxx;
             }
             // ColHapAltCts required
@@ -2897,6 +2908,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                 goto ReadAlleleFreqs_ret_INVALID_FREQS;
               }
               if (IsSet(matched_loaded_alleles, alt_allele_idx)) {
+                dxx = ForceCountToDosage(dxx);
                 cur_allele_freqs[loaded_to_internal_allele_idx[alt_allele_idx]] += dxx;
               }
               hap_alt_iter = &(cur_entry_end[1]);
@@ -2916,6 +2928,9 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
             if (unlikely((dxx < 0.0) || (dxx > freq_max))) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid REF frequency/count on line %" PRIuPTR " of --read-freq file.\n", line_idx);
               goto ReadAlleleFreqs_ret_MALFORMED_INPUT_WW;
+            }
+            if (!is_frac) {
+              dxx = ForceCountToDosage(dxx);
             }
             cur_allele_freqs[loaded_to_internal_allele_idx[0]] = dxx;
           }
@@ -2945,6 +2960,9 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                 }
                 if (unlikely((*cur_freq_end != ',') || (dxx < 0.0) || (dxx > freq_max))) {
                   goto ReadAlleleFreqs_ret_INVALID_FREQS;
+                }
+                if (!is_frac) {
+                  dxx = ForceCountToDosage(dxx);
                 }
                 alt_freq_iter = cur_freq_end;
                 cur_allele_freqs[loaded_to_internal_allele_idx[allele_idx]] = dxx;
@@ -2992,6 +3010,9 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                       if (unlikely((dxx < 0.0) || (dxx > freq_max))) {
                         goto ReadAlleleFreqs_ret_INVALID_FREQS;
                       }
+                      if (!is_frac) {
+                        dxx = ForceCountToDosage(dxx);
+                      }
                       cur_allele_freqs[internal_allele_idx] = dxx;
                     }
                     alt_freq_iter = cur_entry_end;
@@ -3033,6 +3054,9 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                         }
                         if (unlikely((dxx < 0.0) || (dxx > freq_max))) {
                           goto ReadAlleleFreqs_ret_INVALID_FREQS;
+                        }
+                        if (!is_frac) {
+                          dxx = ForceCountToDosage(dxx);
                         }
                         cur_allele_freqs[internal_allele_idx] = dxx;
                         break;

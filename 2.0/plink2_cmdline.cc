@@ -2456,8 +2456,7 @@ void DupflagHtableMakerMain(uint32_t tidx, uint32_t thread_ct, DupflagHtableMake
     for (uint32_t hashval = Hashceil(sptr, slen, id_htable_size); ; ) {
       uint32_t old_htable_entry = id_htable[hashval];
       if (old_htable_entry == UINT32_MAX) {
-        old_htable_entry = __sync_val_compare_and_swap(&(id_htable[hashval]), UINT32_MAX, item_uidx);
-        if (old_htable_entry == UINT32_MAX) {
+        if (ATOMIC_COMPARE_EXCHANGE_N_U32(&(id_htable[hashval]), &old_htable_entry, item_uidx, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
           break;
         }
       }

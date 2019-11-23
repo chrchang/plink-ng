@@ -77,6 +77,12 @@
 //   valid input types, NOT counting VecW*.
 
 
+#if (__GNUC__ < 4)
+// may eventually add MSVC support to gain access to MKL on Windows, but can't
+// justify doing that before all major features are implemented.
+#  error "gcc 4.x+ or clang equivalent required."
+#endif
+
 // The -Wshorten-64-to-32 diagnostic forces the code to be cluttered with
 // meaningless uintptr_t -> uint32_t static casts (number known to be < 2^32,
 // just stored in a uintptr_t because there's no speed penalty and we generally
@@ -91,7 +97,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 600
+#define PLINK2_BASE_VERNUM 601
 
 
 #define _FILE_OFFSET_BITS 64
@@ -208,7 +214,7 @@ namespace plink2 {
 #  define CSINLINE static inline
 #  define CSINLINE2 static inline
   // _Static_assert() should work in gcc 4.6+
-#  if (__GNUC__ <= 4) && (__GNUC_MINOR__ < 6)
+#  if (__GNUC__ == 4) && (__GNUC_MINOR__ < 6)
 #    if defined(__clang__) && defined(__has_feature) && defined(__has_extension)
 #      if __has_feature(c_static_assert) || __has_extension(c_static_assert)
 #        define static_assert _Static_assert
@@ -568,7 +574,7 @@ HEADER_INLINE uint32_t bsrw(unsigned long ulii) {
 }
 #  ifndef __LP64__
     // needed to prevent GCC 6 build failure
-#    if (__GNUC__ <= 4) && (__GNUC_MINOR__ < 8)
+#    if (__GNUC__ == 4) && (__GNUC_MINOR__ < 8)
 #      if (__cplusplus < 201103L) && !defined(__APPLE__)
 #        ifndef uintptr_t
 #          define uintptr_t unsigned long
@@ -607,7 +613,7 @@ HEADER_INLINE uint32_t bsrw(unsigned long ulii) {
   // without this, we get ridiculous warning spew...
   // not 100% sure this is the right cutoff, but this has been tested on 4.7
   // and 4.8 build machines, so it plausibly is.
-#  if (__GNUC__ <= 4) && (__GNUC_MINOR__ < 8) && (__cplusplus < 201103L)
+#  if (__GNUC__ == 4) && (__GNUC_MINOR__ < 8) && (__cplusplus < 201103L)
 #    undef PRIuPTR
 #    undef PRIdPTR
 #    define PRIuPTR "lu"
@@ -1810,7 +1816,7 @@ extern uintptr_t g_failed_alloc_attempt_size;
 // number is printed as well; see e.g.
 //   https://stackoverflow.com/questions/15884793/how-to-get-the-name-or-file-and-line-of-caller-method
 
-#if (__GNUC__ <= 4) && (__GNUC_MINOR__ < 7) && !defined(__APPLE__)
+#if (__GNUC__ == 4) && (__GNUC_MINOR__ < 7) && !defined(__APPLE__)
 // putting this in the header file caused a bunch of gcc 4.4 strict-aliasing
 // warnings, while not doing so seems to inhibit some malloc-related compiler
 // optimizations, bleah
@@ -2123,7 +2129,7 @@ HEADER_INLINE uint32_t VecIsAligned(const void* ptr) {
 
 HEADER_INLINE void VecAlignUp(void* pp) {
   uintptr_t addr = *S_CAST(uintptr_t*, pp);
-#if (__GNUC__ <= 4) && (__GNUC_MINOR__ < 7) && !defined(__APPLE__)
+#if (__GNUC__ == 4) && (__GNUC_MINOR__ < 7) && !defined(__APPLE__)
   // bleah, need to write this way to avoid gcc 4.4 strict-aliasing warning
   addr = RoundUpPow2(addr, kBytesPerVec);
   memcpy(pp, &addr, sizeof(intptr_t));

@@ -301,7 +301,32 @@ HEADER_INLINE BoolErr bigstack_end_alloc_dphase(uintptr_t ct, SDosage** dphase_a
 
 BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenGlobalFlags gflags, PgenVariant* pgvp);
 
+// 3 decimal places.
 char* dosagetoa(uint64_t dosage, char* start);
+
+// remainder must be in [1, kDosageMid - 1].
+char* PrintDosageDecimal(uint32_t remainder, char* start);
+
+// 5 decimal places.  Only used when it is important to be able to reconstruct
+// the exact original value.
+HEADER_INLINE char* dosagetoa_full(uint64_t dosage, char* start) {
+  start = u32toa(dosage / kDosageMid, start);
+  const uint32_t remainder = dosage % kDosageMid;
+  if (!remainder) {
+    return start;
+  }
+  return PrintDosageDecimal(remainder, start);
+}
+
+// small_dosage must be in [0, kDosageMid * 10 - 1].
+HEADER_INLINE char* PrintSmallDosage(uint32_t small_dosage, char* start) {
+  *start++ = '0' + (small_dosage / kDosageMid);
+  const uint32_t remainder = small_dosage % kDosageMid;
+  if (!remainder) {
+    return start;
+  }
+  return PrintDosageDecimal(remainder, start);
+}
 
 HEADER_INLINE void ZeroDosageArr(uintptr_t entry_ct, Dosage* dosage_arr) {
   memset(dosage_arr, 0, entry_ct * sizeof(Dosage));
@@ -979,8 +1004,6 @@ HEADER_INLINE PglErr WriteSampleIds(const uintptr_t* sample_include, const Sampl
 
 // read_realpath must be a buffer of size >= kPglFnamesize bytes
 uint32_t RealpathIdentical(const char* outname, const char* read_realpath, char* write_realpath_buf);
-
-char* PrintSmallDosage(uint32_t rawval, char* start);
 
 char* PrintHaploidNonintDosage(uint32_t rawval, char* start);
 

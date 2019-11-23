@@ -122,6 +122,46 @@ char* dosagetoa(uint64_t dosage, char* start) {
   return start;
 }
 
+static_assert(kDosageMid == 16384, "PrintDosageDecimal() needs to be updated.");
+char* PrintDosageDecimal(uint32_t remainder, char* start) {
+  // Instead of constant 5-digit precision, we print fewer digits whenever that
+  // doesn't interfere with proper round-tripping.  I.e. we search for the
+  // shortest string in
+  //   ((n - 0.5)/16384, (n + 0.5)/16384).
+  // E.g. 3277/16384 is 0.20001 when printed with 5-digit precision, but we'd
+  // print that as 0.2 since that's still in (3276.5/16384, 3277.5/16384).
+  *start++ = '.';
+  // (remainder * 2) is in 32768ths
+  // 32768 * 625 = 20480k, smallest common denominator with 10^4
+
+  const uint32_t range_top_20480k = (remainder * 2 + 1) * 625;
+  // this is technically checking a half-open rather than a fully-open
+  // interval, but that's fine since we never hit the boundary points
+  if ((range_top_20480k % 2048) < 1250) {
+    // when this is true, the four-decimal-place approximation is in the range
+    // which round-trips back to our original number.
+    const uint32_t four_decimal_places = range_top_20480k / 2048;
+    return u32toa_trunc4(four_decimal_places, start);
+  }
+
+  // we wish to print (100000 * remainder + 8192) / 16384, left-0-padded.  and
+  // may as well banker's round too.
+  //
+  // banker's rounding yields a different result than regular rounding for n/64
+  // when n is congruent to 1 mod 4:
+  //   1/64 = .015625 -> print 0.01562
+  //   3/64 = .046875 -> print 0.04688
+  //   5/64 = .078125 -> print 0.07812
+  const uint32_t five_decimal_places = ((3125 * remainder + 256) / 512) - ((remainder % 1024) == 256);
+  const uint32_t first_decimal_place = five_decimal_places / 10000;
+  *start++ = '0' + first_decimal_place;
+  const uint32_t last_four_digits = five_decimal_places - first_decimal_place * 10000;
+  if (last_four_digits) {
+    return u32toa_trunc4(last_four_digits, start);
+  }
+  return start;
+}
+
 static const uint16_t kHcToDosage[1024] = QUAD_TABLE256(0, kDosageMid, kDosageMax, kDosageMissing);
 
 void PopulateDenseDosage(const uintptr_t* genoarr, const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, Dosage* dense_dosage) {
@@ -2852,52 +2892,6 @@ uint32_t RealpathIdentical(const char* outname, const char* read_realpath, char*
 #else
   return (realpath(outname, write_realpath_buf) && strequal_overread(read_realpath, write_realpath_buf));
 #endif
-}
-
-// assumes rawval is in [0, 163839]
-static_assert(kDosageMid == 16384, "print_small_dosage() needs to be updated.");
-char* PrintSmallDosage(uint32_t rawval, char* start) {
-  // Instead of constant 5-digit precision, we print fewer digits whenever that
-  // doesn't interfere with proper round-tripping.  I.e. we search for the
-  // shortest string in
-  //   ((n - 0.5)/16384, (n + 0.5)/16384).
-  // E.g. 3277/16384 is 0.20001 when printed with 5-digit precision, but we'd
-  // print that as 0.2 since that's still in (3276.5/16384, 3277.5/16384).
-  *start++ = '0' + (rawval / 16384);
-  rawval = rawval % 16384;
-  if (!rawval) {
-    return start;
-  }
-  *start++ = '.';
-  // (rawval * 2) is in 32768ths
-  // 32768 * 625 = 20480k, smallest common denominator with 10^4
-
-  const uint32_t range_top_20480k = (rawval * 2 + 1) * 625;
-  // this is technically checking a half-open rather than a fully-open
-  // interval, but that's fine since we never hit the boundary points
-  if ((range_top_20480k % 2048) < 1250) {
-    // when this is true, the four-decimal-place approximation is in the range
-    // which round-trips back to our original number.
-    const uint32_t four_decimal_places = range_top_20480k / 2048;
-    return u32toa_trunc4(four_decimal_places, start);
-  }
-
-  // we wish to print (100000 * remainder + 8192) / 16384, left-0-padded.  and
-  // may as well banker's round too.
-  //
-  // banker's rounding yields a different result than regular rounding for n/64
-  // when n is congruent to 1 mod 4:
-  //   1/64 = .015625 -> print 0.01562
-  //   3/64 = .046875 -> print 0.04688
-  //   5/64 = .078125 -> print 0.07812
-  const uint32_t five_decimal_places = ((3125 * rawval + 256) / 512) - ((rawval % 1024) == 256);
-  const uint32_t first_decimal_place = five_decimal_places / 10000;
-  *start++ = '0' + first_decimal_place;
-  const uint32_t last_four_digits = five_decimal_places - first_decimal_place * 10000;
-  if (last_four_digits) {
-    return u32toa_trunc4(last_four_digits, start);
-  }
-  return start;
 }
 
 // assumes rawval is in [1, 32767]

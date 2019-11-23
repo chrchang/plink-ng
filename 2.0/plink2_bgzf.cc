@@ -562,8 +562,7 @@ THREAD_FUNC_DECL BgzfCompressorThread(void* raw_arg) {
   BgzfCompressCommWithW** cwws = bgzfp->cwws;
   uintptr_t* next_job_idxp = bgzfp->next_job_idxp;
   while (1) {
-    // make this depend on gcc version?
-    const uint32_t slot_idx = __sync_fetch_and_add(next_job_idxp, 1) & slot_mask;
+    const uint32_t slot_idx = __atomic_fetch_add(next_job_idxp, 1, __ATOMIC_ACQ_REL) & slot_mask;
     BgzfCompressCommWithP* cwp = cwps[slot_idx];
     BgzfCompressCommWithW* cww = cwws[slot_idx];
 #ifdef _WIN32

@@ -713,11 +713,11 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
             const uintptr_t sample_idx_lo = het_idxs[ujj];
             const uintptr_t tri_coord = tri_base + sample_idx_lo;
             uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
-            __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHethet]), 1);
-            __sync_fetch_and_sub(&(king_counts_ptr[kKingOffsetHet2Hom1]), 1);
-            __sync_fetch_and_sub(&(king_counts_ptr[kKingOffsetHet1Hom2]), 1);
+            __atomic_fetch_add(&(king_counts_ptr[kKingOffsetHethet]), 1, __ATOMIC_RELAXED);
+            __atomic_fetch_sub(&(king_counts_ptr[kKingOffsetHet2Hom1]), 1, __ATOMIC_RELAXED);
+            __atomic_fetch_sub(&(king_counts_ptr[kKingOffsetHet1Hom2]), 1, __ATOMIC_RELAXED);
             if (homhom_needed) {
-              __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHomhom]), 1);
+              __atomic_fetch_add(&(king_counts_ptr[kKingOffsetHomhom]), 1, __ATOMIC_RELAXED);
             }
           }
           for (uint32_t ujj = 0; ujj != other_hom_ct; ++ujj) {
@@ -727,7 +727,7 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
             }
             const uintptr_t tri_coord = tri_base + sample_idx_lo;
             uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
-            __sync_fetch_and_sub(&(king_counts_ptr[kKingOffsetIbs0]), 1);
+            __atomic_fetch_sub(&(king_counts_ptr[kKingOffsetIbs0]), 1, __ATOMIC_RELAXED);
           }
           for (uint32_t ujj = 0; ujj != missing_ct; ++ujj) {
             const uintptr_t sample_idx_lo = missing_idxs[ujj];
@@ -736,9 +736,9 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
             }
             const uintptr_t tri_coord = tri_base + sample_idx_lo;
             uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
-            __sync_fetch_and_sub(&(king_counts_ptr[kKingOffsetHet2Hom1]), 1);
+            __atomic_fetch_sub(&(king_counts_ptr[kKingOffsetHet2Hom1]), 1, __ATOMIC_RELAXED);
             if (homhom_needed) {
-              __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHomhom]), 1);
+              __atomic_fetch_add(&(king_counts_ptr[kKingOffsetHomhom]), 1, __ATOMIC_RELAXED);
             }
           }
         }
@@ -753,7 +753,7 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
             const uintptr_t sample_idx_lo = other_hom_idxs[ujj];
             const uintptr_t tri_coord = tri_base + sample_idx_lo;
             uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
-            __sync_fetch_and_sub(&(king_counts_ptr[kKingOffsetIbs0]), 2);
+            __atomic_fetch_sub(&(king_counts_ptr[kKingOffsetIbs0]), 2, __ATOMIC_RELAXED);
           }
           for (uint32_t ujj = 0; ujj != het_ct; ++ujj) {
             const uintptr_t sample_idx_lo = het_idxs[ujj];
@@ -762,7 +762,7 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
             }
             const uintptr_t tri_coord = tri_base + sample_idx_lo;
             uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
-            __sync_fetch_and_sub(&(king_counts_ptr[kKingOffsetIbs0]), 1);
+            __atomic_fetch_sub(&(king_counts_ptr[kKingOffsetIbs0]), 1, __ATOMIC_RELAXED);
           }
           for (uint32_t ujj = 0; ujj != missing_ct; ++ujj) {
             const uintptr_t sample_idx_lo = missing_idxs[ujj];
@@ -771,9 +771,9 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
             }
             const uintptr_t tri_coord = tri_base + sample_idx_lo;
             uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
-            __sync_fetch_and_sub(&(king_counts_ptr[kKingOffsetIbs0]), 1);
+            __atomic_fetch_sub(&(king_counts_ptr[kKingOffsetIbs0]), 1, __ATOMIC_RELAXED);
             if (homhom_needed) {
-              __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHomhom]), 1);
+              __atomic_fetch_add(&(king_counts_ptr[kKingOffsetHomhom]), 1, __ATOMIC_RELAXED);
             }
           }
         }
@@ -790,7 +790,7 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
               const uintptr_t tri_coord = tri_base + sample_idx_lo;
               // bugfix (12 Nov 2019): added 4 twice
               uint32_t* king_counts_ptr = &(king_counts[tri_coord * 5]);
-              __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHomhom]), 1);
+              __atomic_fetch_add(&(king_counts_ptr[kKingOffsetHomhom]), 1, __ATOMIC_RELAXED);
             }
           }
           for (uint32_t ujj = 0; ujj != het_ct; ++ujj) {
@@ -800,9 +800,9 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
             }
             const uintptr_t tri_coord = tri_base + sample_idx_lo;
             uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
-            __sync_fetch_and_sub(&(king_counts_ptr[kKingOffsetHet1Hom2]), 1);
+            __atomic_fetch_sub(&(king_counts_ptr[kKingOffsetHet1Hom2]), 1, __ATOMIC_RELAXED);
             if (homhom_needed) {
-              __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHomhom]), 1);
+              __atomic_fetch_add(&(king_counts_ptr[kKingOffsetHomhom]), 1, __ATOMIC_RELAXED);
             }
           }
           for (uint32_t ujj = 0; ujj != other_hom_ct; ++ujj) {
@@ -812,9 +812,9 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
             }
             const uintptr_t tri_coord = tri_base + sample_idx_lo;
             uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
-            __sync_fetch_and_sub(&(king_counts_ptr[kKingOffsetIbs0]), 1);
+            __atomic_fetch_sub(&(king_counts_ptr[kKingOffsetIbs0]), 1, __ATOMIC_RELAXED);
             if (homhom_needed) {
-              __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHomhom]), 1);
+              __atomic_fetch_add(&(king_counts_ptr[kKingOffsetHomhom]), 1, __ATOMIC_RELAXED);
             }
           }
         }
@@ -836,7 +836,7 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
                 const uintptr_t sample_idx_lo = cur_hom_idxs[ujj];
                 const uintptr_t tri_coord = tri_base + sample_idx_lo;
                 uint32_t* king_counts_ptr = &(king_counts[tri_coord * 5]);
-                __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHomhom]), 1);
+                __atomic_fetch_add(&(king_counts_ptr[kKingOffsetHomhom]), 1, __ATOMIC_RELAXED);
               }
             }
             for (uint32_t ujj = 0; ujj != het_ct; ++ujj) {
@@ -846,7 +846,7 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
               }
               const uintptr_t tri_coord = tri_base + sample_idx_lo;
               uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
-              __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHet1Hom2]), 1);
+              __atomic_fetch_add(&(king_counts_ptr[kKingOffsetHet1Hom2]), 1, __ATOMIC_RELAXED);
             }
             for (uint32_t ujj = 0; ujj != opp_hom_ct; ++ujj) {
               const uintptr_t sample_idx_lo = opp_hom_idxs[ujj];
@@ -855,9 +855,9 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
               }
               const uintptr_t tri_coord = tri_base + sample_idx_lo;
               uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
-              __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetIbs0]), 1);
+              __atomic_fetch_add(&(king_counts_ptr[kKingOffsetIbs0]), 1, __ATOMIC_RELAXED);
               if (homhom_needed) {
-                __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHomhom]), 1);
+                __atomic_fetch_add(&(king_counts_ptr[kKingOffsetHomhom]), 1, __ATOMIC_RELAXED);
               }
             }
           }
@@ -876,7 +876,7 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
             const uintptr_t sample_idx_lo = het_idxs[ujj];
             const uintptr_t tri_coord = tri_base + sample_idx_lo;
             uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
-            __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHethet]), 1);
+            __atomic_fetch_add(&(king_counts_ptr[kKingOffsetHethet]), 1, __ATOMIC_RELAXED);
           }
           for (uint32_t ujj = 0; ujj != hom0_ct; ++ujj) {
             const uintptr_t sample_idx_lo = hom0_idxs[ujj];
@@ -885,7 +885,7 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
             }
             const uintptr_t tri_coord = tri_base + sample_idx_lo;
             uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
-            __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHet2Hom1]), 1);
+            __atomic_fetch_add(&(king_counts_ptr[kKingOffsetHet2Hom1]), 1, __ATOMIC_RELAXED);
           }
           for (uint32_t ujj = 0; ujj != hom2_ct; ++ujj) {
             const uintptr_t sample_idx_lo = hom2_idxs[ujj];
@@ -894,7 +894,7 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
             }
             const uintptr_t tri_coord = tri_base + sample_idx_lo;
             uint32_t* king_counts_ptr = &(king_counts[tri_coord * homhom_needed_p4]);
-            __sync_fetch_and_add(&(king_counts_ptr[kKingOffsetHet2Hom1]), 1);
+            __atomic_fetch_add(&(king_counts_ptr[kKingOffsetHet2Hom1]), 1, __ATOMIC_RELAXED);
           }
         }
       }

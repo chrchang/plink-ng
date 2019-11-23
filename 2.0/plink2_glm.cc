@@ -2521,7 +2521,7 @@ double ComputeLoglik(const float* yy, const float* pp, uint32_t sample_ct) {
   double loglik = 0.0;
   for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
     const double new_pi = S_CAST(double, pp[sample_idx]);
-    loglik += (yy[sample_idx] != S_CAST(float, 0.0))? log(new_pi) : log(1.0 - new_pi);
+    loglik += (yy[sample_idx] != S_CAST(float, 0.0))? log(new_pi) : log1p(-new_pi);
   }
   return loglik;
 }

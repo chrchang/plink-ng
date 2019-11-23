@@ -115,7 +115,7 @@ static_assert(sizeof(MKL_INT) == 8, "Unexpected MKL_INT size.");
 #          elif !defined(CBLAS_F77_ON_OLD_GCC)
 #            include <cblas.h>
 #          else
-#            if (__GNUC__ <= 4)
+#            if (__GNUC__ == 4)
 #              include <cblas_f77.h>
 #            else
 #              if __has_include(<cblas.h>)

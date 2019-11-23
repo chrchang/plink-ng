@@ -178,8 +178,8 @@ void CleanupBgzfRawMtStream(BgzfRawMtDecompressStream* bgzfp);
 //   threads), but that proved to be slightly slower than htslib's bgzf writer
 //   in my testing; it didn't do a good enough job of managing the
 //   split-between-production-and-compression core.
-//   So I've switched to a more flexible thread pool using
-//   __sync_fetch_and_add() to distribute compression jobs.
+//   So I've switched to a more flexible thread pool using __atomic_fetch_add()
+//   to distribute compression jobs.
 // - There's a dedicated writer thread which flushes the compression results.
 // I will look into adding direct support for this parallelization pattern to
 // plink2_thread; the benefit is small (~5%), but applies to a lot of
