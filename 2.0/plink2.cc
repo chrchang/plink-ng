@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (22 Nov 2019)";
+  " (25 Nov 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -324,7 +324,7 @@ typedef struct Plink2CmdlineStruct {
   CmpExpr remove_if_expr;
   CmpExpr extract_if_info_expr;
   CmpExpr exclude_if_info_expr;
-  ExtractFcolInfo extract_fcol_info;
+  ExtractColCondInfo extract_col_cond_info;
   ExportfInfo exportf_info;
   double ci_size;
   float var_min_qual;
@@ -368,7 +368,7 @@ typedef struct Plink2CmdlineStruct {
   uint32_t min_bp_space;
   uint32_t thin_keep_ct;
   uint32_t thin_keep_sample_ct;
-  uint32_t keep_fcol_num;
+  uint32_t keep_col_match_num;
   uint32_t filter_min_allele_ct;
   uint32_t filter_max_allele_ct;
 
@@ -417,9 +417,9 @@ typedef struct Plink2CmdlineStruct {
   char* king_table_subset_fname;
   char* require_info_flattened;
   char* require_no_info_flattened;
-  char* keep_fcol_fname;
-  char* keep_fcol_flattened;
-  char* keep_fcol_name;
+  char* keep_col_match_fname;
+  char* keep_col_match_flattened;
+  char* keep_col_match_name;
   char* update_alleles_fname;
   char* update_sample_ids_fname;
   char* update_parental_ids_fname;
@@ -1157,7 +1157,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     // because it would be too weird for it to be in a different position than
     // --update-name in the order of operations.
     const uint32_t htable_needed_early = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct);
-    const uint32_t full_variant_id_htable_needed = variant_ct && (htable_needed_early || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_fname || (pcp->rmdup_mode != kRmDup0) || pcp->extract_fcol_info.params);
+    const uint32_t full_variant_id_htable_needed = variant_ct && (htable_needed_early || pcp->update_map_flag || pcp->update_name_flag || pcp->update_alleles_fname || (pcp->rmdup_mode != kRmDup0) || pcp->extract_col_cond_info.params);
     if (!full_variant_id_htable_needed) {
       reterr = ApplyVariantBpFilters(pcp->extract_fnames, pcp->extract_intersect_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, pcp->max_thread_ct, variant_include, &variant_ct);
       if (unlikely(reterr)) {
@@ -1276,8 +1276,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             goto Plink2Core_ret_1;
           }
         }
-        if (pcp->extract_fcol_info.params) {
-          reterr = ExtractFcol(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, &pcp->extract_fcol_info, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, pcp->max_thread_ct, variant_include, &variant_ct);
+        if (pcp->extract_col_cond_info.params) {
+          reterr = ExtractColCond(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, htable_dup_base, &pcp->extract_col_cond_info, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, pcp->max_thread_ct, variant_include, &variant_ct);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -1380,8 +1380,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
       // todo: --attrib-indiv
 
-      if (pcp->keep_fcol_fname) {
-        reterr = KeepFcol(pcp->keep_fcol_fname, &pii.sii, pcp->keep_fcol_flattened, pcp->keep_fcol_name, raw_sample_ct, pcp->keep_fcol_num, sample_include, &sample_ct);
+      if (pcp->keep_col_match_fname) {
+        reterr = KeepColMatch(pcp->keep_col_match_fname, &pii.sii, pcp->keep_col_match_flattened, pcp->keep_col_match_name, raw_sample_ct, pcp->keep_col_match_num, sample_include, &sample_ct);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -3124,9 +3124,9 @@ int main(int argc, char** argv) {
   pc.king_table_subset_fname = nullptr;
   pc.require_info_flattened = nullptr;
   pc.require_no_info_flattened = nullptr;
-  pc.keep_fcol_fname = nullptr;
-  pc.keep_fcol_flattened = nullptr;
-  pc.keep_fcol_name = nullptr;
+  pc.keep_col_match_fname = nullptr;
+  pc.keep_col_match_flattened = nullptr;
+  pc.keep_col_match_name = nullptr;
   pc.update_alleles_fname = nullptr;
   pc.ref_allele_flag = nullptr;
   pc.alt1_allele_flag = nullptr;
@@ -3150,7 +3150,7 @@ int main(int argc, char** argv) {
   InitCmpExpr(&pc.remove_if_expr);
   InitCmpExpr(&pc.extract_if_info_expr);
   InitCmpExpr(&pc.exclude_if_info_expr);
-  InitExtractFcol(&pc.extract_fcol_info);
+  InitExtractColCond(&pc.extract_col_cond_info);
   InitExportf(&pc.exportf_info);
   AdjustFileInfo adjust_file_info;
   InitAdjust(&pc.adjust_info, &adjust_file_info);
@@ -3221,9 +3221,21 @@ int main(int argc, char** argv) {
           break;
         case 'e':
           if (strequal_k(flagname_p, "extract-if", flag_slen)) {
-            snprintf(flagname_write_iter, kMaxFlagBlen, "keep-if-info");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "extract-if-info");
           } else if (strequal_k(flagname_p, "exclude-if", flag_slen)) {
-            snprintf(flagname_write_iter, kMaxFlagBlen, "remove-if-info");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "exclude-if-info");
+          } else if (strequal_k(flagname_p, "extract-fcol", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "extract-col-cond");
+          } else if (strequal_k(flagname_p, "extract-fcol-match", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "extract-col-cond-match");
+          } else if (strequal_k(flagname_p, "extract-fcol-mismatch", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "extract-col-cond-mismatch");
+          } else if (strequal_k(flagname_p, "extract-fcol-substr", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "extract-col-cond-substr");
+          } else if (strequal_k(flagname_p, "extract-fcol-min", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "extract-col-cond-min");
+          } else if (strequal_k(flagname_p, "extract-fcol-max", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "extract-col-cond-max");
           } else {
             goto main_flag_copy;
           }
@@ -3241,7 +3253,7 @@ int main(int argc, char** argv) {
           } else if (strequal_k(flagname_p, "filter-nonfounders", flag_slen)) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "keep-nonfounders");
           } else if (strequal_k(flagname_p, "filter", flag_slen)) {
-            snprintf(flagname_write_iter, kMaxFlagBlen, "keep-fcol");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "keep-col-match");
           } else {
             goto main_flag_copy;
           }
@@ -3264,6 +3276,12 @@ int main(int argc, char** argv) {
           } else if (strequal_k(flagname_p, "keep-if-info", flag_slen)) {
             fputs("Note: --keep-if-info renamed to --extract-if-info, for consistency with other\nsample/variant filters (keep/remove = sample filter; extract/exclude = variant\nfilter).\n", stdout);
             snprintf(flagname_write_iter, kMaxFlagBlen, "extract-if-info");
+          } else if (strequal_k(flagname_p, "keep-fcol", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "keep-col-match");
+          } else if (strequal_k(flagname_p, "keep-fcol-name", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "keep-col-match-name");
+          } else if (strequal_k(flagname_p, "keep-fcol-num", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "keep-col-match-num");
           } else {
             goto main_flag_copy;
           }
@@ -3319,11 +3337,11 @@ int main(int argc, char** argv) {
           break;
         case 'q':
           if (strequal_k(flagname_p, "qual-scores", flag_slen)) {
-            snprintf(flagname_write_iter, kMaxFlagBlen, "extract-fcol");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "extract-col-cond");
           } else if (strequal_k(flagname_p, "qual-threshold", flag_slen)) {
-            snprintf(flagname_write_iter, kMaxFlagBlen, "extract-fcol-min");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "extract-col-cond-min");
           } else if (strequal_k(flagname_p, "qual-max-threshold", flag_slen)) {
-            snprintf(flagname_write_iter, kMaxFlagBlen, "extract-fcol-max");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "extract-col-cond-max");
           } else {
             goto main_flag_copy;
           }
@@ -3491,7 +3509,7 @@ int main(int argc, char** argv) {
     pc.min_bp_space = 0;
     pc.thin_keep_ct = UINT32_MAX;
     pc.thin_keep_sample_ct = UINT32_MAX;
-    pc.keep_fcol_num = 0;
+    pc.keep_col_match_num = 0;
     pc.filter_min_allele_ct = 0;
     pc.filter_max_allele_ct = UINT32_MAX;
     double import_dosage_certainty = 0.0;
@@ -4693,84 +4711,84 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPvarReq;
-        } else if (strequal_k_unsafe(flagname_p2, "xtract-fcol")) {
+        } else if (strequal_k_unsafe(flagname_p2, "xtract-col-cond")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 4))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = Alloc2col(&(argvk[arg_idx + 1]), flagname_p, param_ct, &pc.extract_fcol_info.params);
+          reterr = Alloc2col(&(argvk[arg_idx + 1]), flagname_p, param_ct, &pc.extract_col_cond_info.params);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPvarReq;
-        } else if (strequal_k_unsafe(flagname_p2, "xtract-fcol-match")) {
-          if (unlikely(!pc.extract_fcol_info.params)) {
-            logerrputs("Error: --extract-fcol-match must be used with --extract-fcol.\n");
+        } else if (strequal_k_unsafe(flagname_p2, "xtract-col-cond-match")) {
+          if (unlikely(!pc.extract_col_cond_info.params)) {
+            logerrputs("Error: --extract-col-cond-match must be used with --extract-col-cond.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, kMaxIdBlen, &pc.extract_fcol_info.match_flattened);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, kMaxIdBlen, &pc.extract_col_cond_info.match_flattened);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
-        } else if (strequal_k_unsafe(flagname_p2, "xtract-fcol-mismatch")) {
-          if (unlikely(!pc.extract_fcol_info.params)) {
-            logerrputs("Error: --extract-fcol-mismatch must be used with --extract-fcol.\n");
+        } else if (strequal_k_unsafe(flagname_p2, "xtract-col-cond-mismatch")) {
+          if (unlikely(!pc.extract_col_cond_info.params)) {
+            logerrputs("Error: --extract-col-cond-mismatch must be used with --extract-col-cond.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           // could make this check airtight?  right now, there's no error if
-          // the user also specifies "--extract-fcol-min 0"
-          if (unlikely((pc.extract_fcol_info.min != 0.0) || (pc.extract_fcol_info.max != DBL_MAX))) {
-            logerrputs("Error: --extract-fcol-mismatch cannot be used with --extract-fcol-max or\n--extract-fcol-min.\n");
+          // the user also specifies "--extract-col-cond-min 0"
+          if (unlikely((pc.extract_col_cond_info.min != 0.0) || (pc.extract_col_cond_info.max != DBL_MAX))) {
+            logerrputs("Error: --extract-col-cond-mismatch cannot be used with --extract-col-cond-max\nor --extract-col-cond-min.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, kMaxIdBlen, &pc.extract_fcol_info.mismatch_flattened);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, kMaxIdBlen, &pc.extract_col_cond_info.mismatch_flattened);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
-        } else if (strequal_k_unsafe(flagname_p2, "xtract-fcol-substr")) {
-          if (unlikely((!pc.extract_fcol_info.match_flattened) && (!pc.extract_fcol_info.mismatch_flattened))) {
-            logerrputs("Error: --extract-fcol-substr must be used with --extract-fcol-match and/or\n--extract-fcol-mismatch.\n");
+        } else if (strequal_k_unsafe(flagname_p2, "xtract-col-cond-substr")) {
+          if (unlikely((!pc.extract_col_cond_info.match_flattened) && (!pc.extract_col_cond_info.mismatch_flattened))) {
+            logerrputs("Error: --extract-col-cond-substr must be used with --extract-col-cond-match\nand/or --extract-col-cond-mismatch.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          pc.extract_fcol_info.match_substr = 1;
+          pc.extract_col_cond_info.match_substr = 1;
           goto main_param_zero;
-        } else if (strequal_k_unsafe(flagname_p2, "xtract-fcol-max")) {
-          if (unlikely(!pc.extract_fcol_info.params)) {
-            logerrputs("Error: --extract-fcol-match must be used with --extract-fcol.\n");
+        } else if (strequal_k_unsafe(flagname_p2, "xtract-col-cond-max")) {
+          if (unlikely(!pc.extract_col_cond_info.params)) {
+            logerrputs("Error: --extract-col-cond-match must be used with --extract-col-cond.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (unlikely(pc.extract_fcol_info.match_flattened)) {
-            logerrputs("Error: --extract-fcol-max cannot be used with --extract-fcol-match.\n");
+          if (unlikely(pc.extract_col_cond_info.match_flattened)) {
+            logerrputs("Error: --extract-col-cond-max cannot be used with --extract-col-cond-match.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (unlikely(!ScantokDouble(cur_modif, &pc.extract_fcol_info.max))) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --extract-fcol-max parameter '%s'.\n", cur_modif);
+          if (unlikely(!ScantokDouble(cur_modif, &pc.extract_col_cond_info.max))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --extract-col-cond-max parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-        } else if (strequal_k_unsafe(flagname_p2, "xtract-fcol-min")) {
-          if (unlikely(!pc.extract_fcol_info.params)) {
-            logerrputs("Error: --extract-fcol-match must be used with --extract-fcol.\n");
+        } else if (strequal_k_unsafe(flagname_p2, "xtract-col-cond-min")) {
+          if (unlikely(!pc.extract_col_cond_info.params)) {
+            logerrputs("Error: --extract-col-cond-match must be used with --extract-col-cond.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (unlikely(pc.extract_fcol_info.match_flattened)) {
-            logerrputs("Error: --extract-fcol-min cannot be used with --extract-fcol-match.\n");
+          if (unlikely(pc.extract_col_cond_info.match_flattened)) {
+            logerrputs("Error: --extract-col-cond-min cannot be used with --extract-col-cond-match.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (unlikely(!ScantokDouble(cur_modif, &pc.extract_fcol_info.min))) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --extract-fcol-min parameter '%s'.\n", cur_modif);
+          if (unlikely(!ScantokDouble(cur_modif, &pc.extract_col_cond_info.min))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --extract-col-cond-min parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else if (strequal_k_unsafe(flagname_p2, "xtract-if-info")) {
@@ -5886,46 +5904,46 @@ int main(int argc, char** argv) {
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
-        } else if (strequal_k_unsafe(flagname_p2, "eep-fcol")) {
+        } else if (strequal_k_unsafe(flagname_p2, "eep-col-match")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 0x7fffffff))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.keep_fcol_fname);
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.keep_col_match_fname);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 2]), param_ct - 1, kMaxIdBlen, &pc.keep_fcol_flattened);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 2]), param_ct - 1, kMaxIdBlen, &pc.keep_col_match_flattened);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPsamReq;
-        } else if (strequal_k_unsafe(flagname_p2, "eep-fcol-name")) {
-          if (unlikely(!pc.keep_fcol_fname)) {
-            logerrputs("Error: --keep-fcol-name must be used with --keep-fcol.\n");
+        } else if (strequal_k_unsafe(flagname_p2, "eep-col-match-name")) {
+          if (unlikely(!pc.keep_col_match_fname)) {
+            logerrputs("Error: --keep-col-match-name must be used with --keep-col-match.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = CmdlineAllocString(argvk[arg_idx + 1], argvk[arg_idx], kMaxIdSlen, &pc.keep_fcol_name);
+          reterr = CmdlineAllocString(argvk[arg_idx + 1], argvk[arg_idx], kMaxIdSlen, &pc.keep_col_match_name);
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
-        } else if (strequal_k_unsafe(flagname_p2, "eep-fcol-num")) {
-          if (unlikely(!pc.keep_fcol_fname)) {
-            logerrputs("Error: --keep-fcol-num must be used with --keep-fcol.\n");
+        } else if (strequal_k_unsafe(flagname_p2, "eep-col-match-num")) {
+          if (unlikely(!pc.keep_col_match_fname)) {
+            logerrputs("Error: --keep-col-match-num must be used with --keep-col-match.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (unlikely(pc.keep_fcol_name)) {
-            logerrputs("Error: --keep-fcol-num can't be used with --keep-fcol-name.\n");
+          if (unlikely(pc.keep_col_match_name)) {
+            logerrputs("Error: --keep-col-match-num can't be used with --keep-col-match-name.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (unlikely(ScanPosintDefcapx(cur_modif, &pc.keep_fcol_num) || (pc.keep_fcol_num == 1))) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --keep-fcol-num parameter '%s'.\n", cur_modif);
+          if (unlikely(ScanPosintDefcapx(cur_modif, &pc.keep_col_match_num) || (pc.keep_col_match_num == 1))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --keep-col-match-num parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else if (likely(strequal_k_unsafe(flagname_p2, "eep-allele-order"))) {
@@ -7246,19 +7264,19 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else if (strequal_k_unsafe(flagname_p2, "filter")) {
-          if (unlikely(!pc.keep_fcol_fname)) {
-            logerrputs("Error: --mfilter must be used with --keep-fcol.\n");
+          if (unlikely(!pc.keep_col_match_fname)) {
+            logerrputs("Error: --mfilter must be used with --keep-col-match.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (unlikely(pc.keep_fcol_name)) {
-            logerrputs("Error: --mfilter can't be used with --keep-fcol-name.\n");
+          if (unlikely(pc.keep_col_match_name)) {
+            logerrputs("Error: --mfilter can't be used with --keep-col-match-name.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (unlikely(pc.keep_fcol_num)) {
-            logerrputs("Error: --mfilter can't be used with --keep-fcol-num.\n");
+          if (unlikely(pc.keep_col_match_num)) {
+            logerrputs("Error: --mfilter can't be used with --keep-col-match-num.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          logerrputs("Warning: --mfilter flag deprecated.  Use --keep-fcol-num or --keep-fcol-name\ninstead.  (Note that --keep-fcol-num does not add 2 to the column number.)\n");
+          logerrputs("Warning: --mfilter flag deprecated.  Use --keep-col-match-num or\n--keep-col-match-name instead.  (Note that --keep-col-match-num does not add 2\nto the column number.)\n");
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -7268,7 +7286,7 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mfilter parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-          pc.keep_fcol_num = mfilter_arg + 2;
+          pc.keep_col_match_num = mfilter_arg + 2;
         } else if (strequal_k_unsafe(flagname_p2, "ax-alleles")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -9540,13 +9558,13 @@ int main(int argc, char** argv) {
       logerrputs("Error: --q-score-range cannot be used without --score.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
-    if (pc.extract_fcol_info.params) {
-      if (unlikely((!pc.extract_fcol_info.match_substr) && pc.extract_fcol_info.match_flattened && pc.extract_fcol_info.mismatch_flattened)) {
-        logerrputs("Error: --extract-fcol-match and --extract-fcol-mismatch can only be used\ntogether when --extract-fcol-substr is specified.\n");
+    if (pc.extract_col_cond_info.params) {
+      if (unlikely((!pc.extract_col_cond_info.match_substr) && pc.extract_col_cond_info.match_flattened && pc.extract_col_cond_info.mismatch_flattened)) {
+        logerrputs("Error: --extract-col-cond-match and --extract-col-cond-mismatch can only be\nused together when --extract-col-cond-substr is specified.\n");
         goto main_ret_INVALID_CMDLINE_A;
       }
-      if (unlikely(pc.extract_fcol_info.max < pc.extract_fcol_info.min)) {
-        logerrputs("Error: --extract-fcol-max value can't be smaller than --extract-fcol-min value.\n");
+      if (unlikely(pc.extract_col_cond_info.max < pc.extract_col_cond_info.min)) {
+        logerrputs("Error: --extract-col-cond-max value can't be smaller than\n--extract-col-cond-min value.\n");
         goto main_ret_INVALID_CMDLINE_A;
       }
     }
@@ -9558,14 +9576,14 @@ int main(int argc, char** argv) {
       // --autosome{-par}/--chr is exempted since it's more obvious how they
       // interact with other filters.)
       const uint32_t inclusion_filter_extract = (pc.extract_fnames != nullptr);
-      const uint32_t inclusion_filter_extract_fcol = (pc.extract_fcol_info.params != nullptr);
+      const uint32_t inclusion_filter_extract_col_cond = (pc.extract_col_cond_info.params != nullptr);
       const uint32_t inclusion_filter_extract_intersect = (pc.extract_intersect_fnames != nullptr);
       const uint32_t inclusion_filter_fromto_id = pc.varid_from || pc.varid_to;
       const uint32_t inclusion_filter_fromto_bp = (pc.from_bp != -1) || (pc.to_bp != -1);
       const uint32_t inclusion_filter_snpflag = (pc.varid_snp != nullptr);
       const uint32_t inclusion_filter_snpsflag = !!pc.snps_range_list.name_ct;
-      if (unlikely(inclusion_filter_extract + inclusion_filter_extract_fcol + inclusion_filter_extract_intersect + inclusion_filter_fromto_id + inclusion_filter_fromto_bp + inclusion_filter_snpflag + inclusion_filter_snpsflag > 1)) {
-        logerrputs("Error: Multiple variant inclusion filters specified (--extract, --extract-fcol,\n--extract-intersect, --from/--to, --from-bp/--to-bp, --snp, --snps).  Add\n--force-intersect if you really want the intersection of these sets.  (If your\nvariant IDs are unique, you can extract the union by e.g. running\n--write-snplist for each set, followed by --extract on all the .snplist files.)\n");
+      if (unlikely(inclusion_filter_extract + inclusion_filter_extract_col_cond + inclusion_filter_extract_intersect + inclusion_filter_fromto_id + inclusion_filter_fromto_bp + inclusion_filter_snpflag + inclusion_filter_snpsflag > 1)) {
+        logerrputs("Error: Multiple variant inclusion filters specified (--extract,\n--extract-col-cond, --extract-intersect, --from/--to, --from-bp/--to-bp, --snp,\n--snps).  Add --force-intersect if you really want the intersection of these\nsets.  (If your variant IDs are unique, you can extract the union by e.g.\nrunning --write-snplist for each set, followed by --extract on all the .snplist\nfiles.)\n");
         goto main_ret_INVALID_CMDLINE_A;
       }
     }
@@ -9836,9 +9854,9 @@ int main(int argc, char** argv) {
   free_cond(pc.alt1_allele_flag);
   free_cond(pc.ref_allele_flag);
   free_cond(pc.update_alleles_fname);
-  free_cond(pc.keep_fcol_name);
-  free_cond(pc.keep_fcol_flattened);
-  free_cond(pc.keep_fcol_fname);
+  free_cond(pc.keep_col_match_name);
+  free_cond(pc.keep_col_match_flattened);
+  free_cond(pc.keep_col_match_fname);
   free_cond(pc.require_no_info_flattened);
   free_cond(pc.require_info_flattened);
   free_cond(pc.king_table_subset_fname);
@@ -9894,7 +9912,7 @@ int main(int argc, char** argv) {
   }
   CleanupChrInfo(&chr_info);
   CleanupExportf(&pc.exportf_info);
-  CleanupExtractFcol(&pc.extract_fcol_info);
+  CleanupExtractColCond(&pc.extract_col_cond_info);
   CleanupCmpExpr(&pc.exclude_if_info_expr);
   CleanupCmpExpr(&pc.extract_if_info_expr);
   CleanupCmpExpr(&pc.remove_if_expr);

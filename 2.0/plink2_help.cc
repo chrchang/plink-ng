@@ -186,7 +186,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("haps\0legend\0", &help_ctrl, 1,
 "  --haps <filename> [{ref-first | ref-last}]\n"
 "  --legend <filename> <chr code> :\n"
-"    Specify .haps {+ .legend} file(s) to import.\n"
+"    Specify .haps [+ .legend] file(s) to import.\n"
 "    * When --legend is specified, it's assumed that the --haps file doesn't\n"
 "      contain header columns.\n"
 "    * On chrX, the second male column may contain dummy '-' entries.  (However,\n"
@@ -1244,7 +1244,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --version           : Display only version number before exiting.\n"
                );
     HelpPrint("silent\0", &help_ctrl, 0,
-"  --silent            : Suppress output to console.\n"
+"  --silent            : Suppress regular output to console.  (Error-output is\n"
+"                        not suppressed.)\n"
                );
     HelpPrint("vcf\0bcf\0bgen\0double-id\0const-fid\0id-delim\0", &help_ctrl, 0,
 "  --double-id         : Set both FIDs and IIDs to the VCF/.bgen sample ID.\n"
@@ -1368,26 +1369,26 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --require-no-info <key(s)...>        or existence of an INFO key.  \"<key>=.\"\n"
 "                                       is treated as nonexistence.\n"
               );
-    HelpPrint("extract-fcol\0extract-fcol-match\0extract-fcol-mismatch\0extract-fcol-substr\0extract-fcol-min\0extract-fcol-max\0qual-scores\0qual-threshold\0qual-max-threshold\0attrib\0", &help_ctrl, 0,
-"  --extract-fcol <f> [valcol] [IDcol] [skip] :\n"
-"  --extract-fcol-match <(sub)string(s)...>\n"
-"  --extract-fcol-mismatch <(sub)string(s)...>\n"
-"  --extract-fcol-substr\n"
-"  --extract-fcol-min <min>\n"
-"  --extract-fcol-max <max> :\n"
+    HelpPrint("extract-col-cond\0extract-col-cond-match\0extract-col-cond-mismatch\0extract-col-cond-substr\0extract-col-cond-min\0extract-col-cond-max\0extract-fcol\0extract-fcol-match\0extract-fcol-mismatch\0extract-fcol-substr\0extract-fcol-min\0extract-fcol-max\0qual-scores\0qual-threshold\0qual-max-threshold\0attrib\0", &help_ctrl, 0,
+"  --extract-col-cond <f> [valcol] [IDcol] [skip] :\n"
+"  --extract-col-cond-match <(sub)string(s)...>\n"
+"  --extract-col-cond-mismatch <(sub)string(s)...>\n"
+"  --extract-col-cond-substr\n"
+"  --extract-col-cond-min <min>\n"
+"  --extract-col-cond-max <max> :\n"
 "    Exclude all variants without a value-column entry satisfying a condition.\n"
 "    * By default, values are read from column 2 of the file, and variant IDs\n"
 "      are read from column 1.\n"
 "    * Three types of conditions are supported:\n"
-"      * When --extract-fcol-match is specified without --extract-fcol-substr,\n"
-"        the value is checked for equality with the given strings, and kept iff\n"
-"        one of them matches.  Similarly, --extract-fcol-mismatch without\n"
-"        --extract-fcol-substr causes the variant to be kept iff the value\n"
-"        matches none of the given strings.\n"
-"      * When --extract-fcol-match and/or -mismatch are specified with\n"
-"        --extract-fcol-substr, the variant is kept iff none of the\n"
-"        --extract-fcol-mismatch substrings are contained in the value, and\n"
-"        either --extract-fcol-match was unspecified or at least one of its\n"
+"      * When --extract-col-cond-match is specified without\n"
+"        --extract-col-cond-substr, the value is checked for equality with the\n"
+"        given strings, and kept iff one of them matches.  Similarly,\n"
+"        --extract-col-cond-mismatch without --extract-col-cond-substr causes\n"
+"        the variant to be kept iff the value matches none of the given strings.\n"
+"      * When --extract-col-cond-match and/or -mismatch are specified with\n"
+"        --extract-col-cond-substr, the variant is kept iff none of the\n"
+"        --extract-col-cond-mismatch substrings are contained in the value, and\n"
+"        either --extract-col-cond-match was unspecified or at least one of its\n"
 "        substrings is contained.\n"
 "      * Otherwise, the value is interpreted as a number, and the variant is\n"
 "        kept if the number is in [<min>, <max>] (default min=0, max=DBL_MAX).\n"
@@ -1501,7 +1502,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --remove-cat-names <...> : Exclude named categories.\n"
 "  --remove-cat-pheno <phe> : Specify pheno for --remove-cats/remove-cat-names.\n"
                );
-    HelpPrint("split-cat-pheno\0dummy-coding\0loop-assoc\0", &help_ctrl, 0,
+    HelpPrint("split-cat-pheno\0dummy-coding\0", &help_ctrl, 0,
 "  --split-cat-pheno [{omit-most | omit-last}] ['covar-01']\n"
 "                    [cat. pheno/covar name(s)...] :\n"
 "    Split n-category phenotype(s) into n (or n-1, with 'omit-most'/'omit-last')\n"
@@ -1589,7 +1590,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     HelpPrint("force-intersect\0extract\0extract-intersect\0from\0to\0snp\0from-bp\0to-bp\0from-kb\0to-kb\0from-mb\0to-mb\0extract-snp\0snps\0", &help_ctrl, 0,
 "  --force-intersect    : PLINK 2 normally errors out when multiple variant\n"
-"                         inclusion filters (--extract, --extract-fcol,\n"
+"                         inclusion filters (--extract, --extract-col-cond,\n"
 "                         --extract-intersect, --from/--to, --from-bp/--to-bp,\n"
 "                         --snp, --snps) are specified.  --force-intersect\n"
 "                         allows the run to proceed; the set intersection will\n"
@@ -1607,13 +1608,13 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --thin-indiv <p>       : Randomly remove samples, retaining with prob. p.\n"
 "  --thin-indiv-count <n> : Randomly remove samples until n of them remain.\n"
                );
-    HelpPrint("keep-fcol\0keep-fcol-name\0keep-fcol-num\0filter\0mfilter\0", &help_ctrl, 0,
-"  --keep-fcol <f> <val(s)...> : Exclude all samples without a 3rd column entry\n"
-"                                in the given file exactly matching one of the\n"
-"                                given strings.  (Separate multiple strings with\n"
-"                                spaces.)\n"
-"  --keep-fcol-name <col name> : Check column with given name instead.\n"
-"  --keep-fcol-num <n>         : Check nth column instead.\n"
+    HelpPrint("keep-col-match\0keep-col-match-name\0keep-col-match-num\0keep-fcol\0keep-fcol-name\0keep-fcol-num\0filter\0mfilter\0", &help_ctrl, 0,
+"  --keep-col-match <f> <val(s)...> : Exclude all samples without a 3rd column\n"
+"                                     entry in the given file exactly matching\n"
+"                                     one of the given strings.  (Separate\n"
+"                                     multiple strings with spaces.)\n"
+"  --keep-col-match-name <col name> : Check column with given name instead.\n"
+"  --keep-col-match-num <n>         : Check nth column instead.\n"
                );
     HelpPrint("geno\0mind\0oblig-clusters\0oblig-missing\0", &help_ctrl, 0,
 "  --geno [val] [{dosage | hh-missing}]\n"

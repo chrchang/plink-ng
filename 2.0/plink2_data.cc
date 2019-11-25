@@ -7080,8 +7080,9 @@ BoolErr SortChr(const ChrInfo* cip, const uint32_t* chr_idx_to_size, uint32_t us
       ++new_chr_ct;
     }
   }
+  // bugfix (25 Nov 2019): must add 1 for chr_fo_vidx_start
   if (bigstack_alloc_u32(new_chr_ct, &(write_cip->chr_file_order)) ||
-      bigstack_alloc_u32(new_chr_ct, &(write_cip->chr_fo_vidx_start))) {
+      bigstack_alloc_u32(new_chr_ct + 1, &(write_cip->chr_fo_vidx_start))) {
     return 1;
   }
   write_cip->chr_ct = new_chr_ct;
@@ -7768,7 +7769,6 @@ PglErr MakePlink2Vsort(const char* xheader, const uintptr_t* sample_include, con
       const uint64_t post_entry = pos_vidx_sort_buf[vidx_end];
       pos_vidx_sort_buf[vidx_end] = ~0LLU;  // simplify end-of-chromosome logic
       uint64_t* pos_vidx_sort_chr = &(pos_vidx_sort_buf[vidx_start]);
-
       STD_SORT_PAR_UNSEQ(chr_size, u64cmp, pos_vidx_sort_chr);
       uint32_t prev_pos = pos_vidx_sort_chr[0] >> 32;
       uint32_t prev_variant_uidx = S_CAST(uint32_t, pos_vidx_sort_chr[0]);

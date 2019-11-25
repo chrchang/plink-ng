@@ -25,19 +25,19 @@
 namespace plink2 {
 #endif
 
-typedef struct ExtractFcolStruct {
-  NONCOPYABLE(ExtractFcolStruct);
+typedef struct ExtractColCondStruct {
+  NONCOPYABLE(ExtractColCondStruct);
   TwoColParams* params;
   char* match_flattened;
   char* mismatch_flattened;
   uint32_t match_substr;
   double min;
   double max;
-} ExtractFcolInfo;
+} ExtractColCondInfo;
 
-void InitExtractFcol(ExtractFcolInfo* efip);
+void InitExtractColCond(ExtractColCondInfo* efip);
 
-void CleanupExtractFcol(ExtractFcolInfo* efip);
+void CleanupExtractColCond(ExtractColCondInfo* efip);
 
 PglErr FromToFlag(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* varid_from, const char* varid_to, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uintptr_t* variant_include, ChrInfo* cip, uint32_t* variant_ct_ptr);
 
@@ -47,7 +47,7 @@ PglErr SnpsFlag(const char* const* variant_ids, const uint32_t* variant_id_htabl
 
 PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* fnames, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, VfilterType vft, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
 
-PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const ExtractFcolInfo* efip, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t htable_size, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
+PglErr ExtractColCond(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const ExtractColCondInfo* eccip, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t htable_size, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
 
 ENUM_U31_DEF_START()
   kRmDup0,
@@ -72,7 +72,7 @@ FLAGSET_DEF_END(KeepFlags);
 
 PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_sample_ct, KeepFlags flags, uintptr_t* sample_include, uint32_t* sample_ct_ptr);
 
-PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_flattened, const char* col_name, uint32_t raw_sample_ct, uint32_t col_num, uintptr_t* sample_include, uint32_t* sample_ct_ptr);
+PglErr KeepColMatch(const char* fname, const SampleIdInfo* siip, const char* strs_flattened, const char* col_name, uint32_t raw_sample_ct, uint32_t col_num, uintptr_t* sample_include, uint32_t* sample_ct_ptr);
 
 PglErr RequirePheno(const PhenoCol* pheno_cols, const char* pheno_names, const char* require_pheno_flattened, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t is_covar, uintptr_t* sample_include, uint32_t* sample_ct_ptr);
 

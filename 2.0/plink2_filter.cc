@@ -23,19 +23,19 @@
 namespace plink2 {
 #endif
 
-void InitExtractFcol(ExtractFcolInfo* efip) {
-  efip->params = nullptr;
-  efip->match_flattened = nullptr;
-  efip->mismatch_flattened = nullptr;
-  efip->match_substr = 0;
-  efip->min = 0.0;
-  efip->max = DBL_MAX;
+void InitExtractColCond(ExtractColCondInfo* eccip) {
+  eccip->params = nullptr;
+  eccip->match_flattened = nullptr;
+  eccip->mismatch_flattened = nullptr;
+  eccip->match_substr = 0;
+  eccip->min = 0.0;
+  eccip->max = DBL_MAX;
 }
 
-void CleanupExtractFcol(ExtractFcolInfo* efip) {
-  free_cond(efip->params);
-  free_cond(efip->match_flattened);
-  free_cond(efip->mismatch_flattened);
+void CleanupExtractColCond(ExtractColCondInfo* eccip) {
+  free_cond(eccip->params);
+  free_cond(eccip->match_flattened);
+  free_cond(eccip->mismatch_flattened);
 }
 
 PglErr FromToFlag(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* varid_from, const char* varid_to, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t variant_id_htable_size, uintptr_t* variant_include, ChrInfo* cip, uint32_t* variant_ct_ptr) {
@@ -449,7 +449,7 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
   return reterr;
 }
 
-PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const ExtractFcolInfo* efip, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t htable_size, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+PglErr ExtractColCond(const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const ExtractColCondInfo* eccip, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uintptr_t htable_size, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
@@ -463,53 +463,53 @@ PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_ht
     if (unlikely(
             bigstack_calloc_w(raw_variant_ctl, &variant_include_new) ||
             bigstack_calloc_w(raw_variant_ctl, &already_seen))) {
-      goto ExtractFcol_ret_NOMEM;
+      goto ExtractColCond_ret_NOMEM;
     }
     char* match_strbox = nullptr;
     uint32_t match_str_ct = 0;
     uintptr_t max_match_blen = 0;
     // We don't actually need to sort in the substring-match case, but
     // additional cost is negligible.
-    if (efip->match_flattened) {
-      if (unlikely(MultistrToStrboxDedupAlloc(efip->match_flattened, &match_strbox, &match_str_ct, &max_match_blen))) {
-        goto ExtractFcol_ret_NOMEM;
+    if (eccip->match_flattened) {
+      if (unlikely(MultistrToStrboxDedupAlloc(eccip->match_flattened, &match_strbox, &match_str_ct, &max_match_blen))) {
+        goto ExtractColCond_ret_NOMEM;
       }
     }
     char* mismatch_strbox = nullptr;
     uint32_t mismatch_str_ct = 0;
     uintptr_t max_mismatch_blen = 0;
-    if (efip->mismatch_flattened) {
-      if (unlikely(MultistrToStrboxDedupAlloc(efip->mismatch_flattened, &mismatch_strbox, &mismatch_str_ct, &max_mismatch_blen))) {
-        goto ExtractFcol_ret_NOMEM;
+    if (eccip->mismatch_flattened) {
+      if (unlikely(MultistrToStrboxDedupAlloc(eccip->mismatch_flattened, &mismatch_strbox, &mismatch_str_ct, &max_mismatch_blen))) {
+        goto ExtractColCond_ret_NOMEM;
       }
     }
-    reterr = SizeAndInitTextStream(efip->params->fname, bigstack_left(), MAXV(max_thread_ct - 1, 1), &txs);
+    reterr = SizeAndInitTextStream(eccip->params->fname, bigstack_left(), MAXV(max_thread_ct - 1, 1), &txs);
     if (unlikely(reterr)) {
-      goto ExtractFcol_ret_TSTREAM_FAIL;
+      goto ExtractColCond_ret_TSTREAM_FAIL;
     }
-    reterr = TextSkip(efip->params->skip_ct, &txs);
+    reterr = TextSkip(eccip->params->skip_ct, &txs);
     if (unlikely(reterr)) {
       if (reterr == kPglRetEof) {
-        logerrputs("Error: Fewer lines than expected in --extract-fcol file.\n");
-        goto ExtractFcol_ret_INCONSISTENT_INPUT;
+        logerrputs("Error: Fewer lines than expected in --extract-col-cond file.\n");
+        goto ExtractColCond_ret_INCONSISTENT_INPUT;
       }
-      goto ExtractFcol_ret_TSTREAM_FAIL;
+      goto ExtractColCond_ret_TSTREAM_FAIL;
     }
-    line_idx = efip->params->skip_ct;
-    const uint32_t colid_first = (efip->params->colid < efip->params->colx);
+    line_idx = eccip->params->skip_ct;
+    const uint32_t colid_first = (eccip->params->colid < eccip->params->colx);
     uint32_t colmin;
     uint32_t coldiff;
     if (colid_first) {
-      colmin = efip->params->colid - 1;
-      coldiff = efip->params->colx - efip->params->colid;
+      colmin = eccip->params->colid - 1;
+      coldiff = eccip->params->colx - eccip->params->colid;
     } else {
-      colmin = efip->params->colx - 1;
-      coldiff = efip->params->colid - efip->params->colx;
+      colmin = eccip->params->colx - 1;
+      coldiff = eccip->params->colid - eccip->params->colx;
     }
-    const char skipchar = efip->params->skipchar;
-    const uint32_t match_substr = efip->match_substr;
-    double val_min = efip->min;
-    double val_max = efip->max;
+    const char skipchar = eccip->params->skipchar;
+    const uint32_t match_substr = eccip->match_substr;
+    double val_min = eccip->min;
+    double val_max = eccip->max;
     uintptr_t miss_ct = 0;
     while (1) {
       ++line_idx;
@@ -518,7 +518,7 @@ PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_ht
         if (likely(!TextStreamErrcode2(&txs, &reterr))) {
           break;
         }
-        goto ExtractFcol_ret_TSTREAM_FAIL;
+        goto ExtractColCond_ret_TSTREAM_FAIL;
       }
       char cc = *line_start;
       if (cc == skipchar) {
@@ -530,13 +530,13 @@ PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_ht
         colid_ptr = NextTokenMult0(line_start, colmin);
         colval_ptr = NextTokenMult(colid_ptr, coldiff);
         if (unlikely(!colval_ptr)) {
-          goto ExtractFcol_ret_MISSING_TOKENS;
+          goto ExtractColCond_ret_MISSING_TOKENS;
         }
       } else {
         colval_ptr = NextTokenMult0(line_start, colmin);
         colid_ptr = NextTokenMult(colval_ptr, coldiff);
         if (unlikely(!colid_ptr)) {
-          goto ExtractFcol_ret_MISSING_TOKENS;
+          goto ExtractColCond_ret_MISSING_TOKENS;
         }
       }
       const uint32_t varid_slen = strlen_se(colid_ptr);
@@ -548,8 +548,8 @@ PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_ht
       }
       const char* cur_var_id = variant_ids[variant_uidx];
       if (unlikely(IsSet(already_seen, variant_uidx))) {
-        snprintf(g_logbuf, kLogbufSize, "Error: Variant ID '%s' appears multiple times in --extract-fcol file.\n", cur_var_id);
-        goto ExtractFcol_ret_INCONSISTENT_INPUT_WW;
+        snprintf(g_logbuf, kLogbufSize, "Error: Variant ID '%s' appears multiple times in --extract-col-cond file.\n", cur_var_id);
+        goto ExtractColCond_ret_INCONSISTENT_INPUT_WW;
       }
       SetBit(variant_uidx, already_seen);
       if (mismatch_str_ct) {
@@ -583,7 +583,7 @@ PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_ht
           }
         }
       } else if (match_str_ct) {
-        // --extract-fcol-match
+        // --extract-col-cond-match
         char* token_end = CurTokenEnd(colval_ptr);
         if (!match_substr) {
           const int32_t ii = bsearch_str(colval_ptr, match_strbox, token_end - colval_ptr, max_match_blen, match_str_ct);
@@ -620,31 +620,31 @@ PglErr ExtractFcol(const char* const* variant_ids, const uint32_t* variant_id_ht
     BitvecAnd(variant_include_new, raw_variant_ctl, variant_include);
     const uint32_t new_variant_ct = PopcountWords(variant_include, raw_variant_ctl);
     if (miss_ct) {
-      logprintfww("--extract-fcol: %u variant%s remaining, %" PRIuPTR " ID%s missing.\n", new_variant_ct, (new_variant_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+      logprintfww("--extract-col-cond: %u variant%s remaining, %" PRIuPTR " ID%s missing.\n", new_variant_ct, (new_variant_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
     } else {
-      logprintf("--extract-fcol: %u variant%s remaining.\n", new_variant_ct, (new_variant_ct == 1)? "" : "s");
+      logprintf("--extract-col-cond: %u variant%s remaining.\n", new_variant_ct, (new_variant_ct == 1)? "" : "s");
     }
     *variant_ct_ptr = new_variant_ct;
   }
   while (0) {
-  ExtractFcol_ret_NOMEM:
+  ExtractColCond_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  ExtractFcol_ret_TSTREAM_FAIL:
-    TextStreamErrPrint(efip->params->fname, &txs);
+  ExtractColCond_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(eccip->params->fname, &txs);
     break;
-  ExtractFcol_ret_MISSING_TOKENS:
-    logerrprintf("Error: Line %" PRIuPTR " of --extract-fcol file has fewer tokens than expected.\n", line_idx);
+  ExtractColCond_ret_MISSING_TOKENS:
+    logerrprintfww("Error: Line %" PRIuPTR " of --extract-col-cond file has fewer tokens than expected.\n", line_idx);
     reterr = kPglRetMalformedInput;
     break;
-  ExtractFcol_ret_INCONSISTENT_INPUT_WW:
+  ExtractColCond_ret_INCONSISTENT_INPUT_WW:
     WordWrapB(0);
     logerrputsb();
-  ExtractFcol_ret_INCONSISTENT_INPUT:
+  ExtractColCond_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
   }
-  CleanupTextStream2(efip->params->fname, &txs, &reterr);
+  CleanupTextStream2(eccip->params->fname, &txs, &reterr);
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -1390,9 +1390,9 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
 
 // Minor extension of PLINK 1.x --filter.  (Renamed since --filter is not
 // sufficiently self-describing; PLINK has lots of other filters on both
-// samples and variants.  --filter is automatically be converted to --keep-fcol
-// for backward compatibility, though.)
-PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_flattened, const char* col_name, uint32_t raw_sample_ct, uint32_t col_num, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
+// samples and variants.  --filter is automatically be converted to
+// --keep-col-match for backward compatibility, though.)
+PglErr KeepColMatch(const char* fname, const SampleIdInfo* siip, const char* strs_flattened, const char* col_name, uint32_t raw_sample_ct, uint32_t col_num, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
@@ -1401,7 +1401,7 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
   {
     const uint32_t orig_sample_ct = *sample_ct_ptr;
     if (!orig_sample_ct) {
-      goto KeepFcol_ret_1;
+      goto KeepColMatch_ret_1;
     }
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     uintptr_t* seen_xid_idxs;
@@ -1409,54 +1409,54 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
     if (unlikely(
             bigstack_calloc_w(BitCtToWordCt(orig_sample_ct), &seen_xid_idxs) ||
             bigstack_calloc_w(raw_sample_ctl, &keep_uidxs))) {
-      goto KeepFcol_ret_NOMEM;
+      goto KeepColMatch_ret_NOMEM;
     }
 
     char* sorted_strbox;
     uintptr_t max_str_blen;
     uint32_t str_ct;
     if (unlikely(MultistrToStrboxDedupAlloc(strs_flattened, &sorted_strbox, &str_ct, &max_str_blen))) {
-      goto KeepFcol_ret_NOMEM;
+      goto KeepColMatch_ret_NOMEM;
     }
 
     reterr = SizeAndInitTextStream(fname, bigstack_left() - (bigstack_left() / 4), 1, &txs);
     if (unlikely(reterr)) {
-      goto KeepFcol_ret_TSTREAM_FAIL;
+      goto KeepColMatch_ret_TSTREAM_FAIL;
     }
     char* line_start;
     XidMode xid_mode;
-    reterr = LoadXidHeader("keep-fcol", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, &line_idx, &txs, &xid_mode, &line_start, nullptr);
+    reterr = LoadXidHeader("keep-col-match", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, &line_idx, &txs, &xid_mode, &line_start, nullptr);
     if (unlikely(reterr)) {
       if (reterr == kPglRetEof) {
-        logerrputs("Error: Empty --keep-fcol file.\n");
-        goto KeepFcol_ret_MALFORMED_INPUT;
+        logerrputs("Error: Empty --keep-col-match file.\n");
+        goto KeepColMatch_ret_MALFORMED_INPUT;
       }
-      goto KeepFcol_ret_TSTREAM_XID_FAIL;
+      goto KeepColMatch_ret_TSTREAM_XID_FAIL;
     }
     const uint32_t id_col_ct = GetXidColCt(xid_mode);
     uint32_t postid_col_idx = 0;
     if (!col_name) {
       if (!col_num) {
         if (unlikely(id_col_ct == 3)) {
-          logerrputs("Error: You must specify a --keep-fcol column with --keep-fcol-name or\n--keep-fcol-num.\n");
-          goto KeepFcol_ret_INCONSISTENT_INPUT;
+          logerrputs("Error: You must specify a --keep-col-match column with --keep-col-match-name or\n--keep-col-match-num.\n");
+          goto KeepColMatch_ret_INCONSISTENT_INPUT;
         }
         col_num = 3;
       }
       if (unlikely(id_col_ct >= col_num)) {
-        logerrputs("Error: --keep-fcol-num parameter too small (it refers to a sample ID column in\nthe --keep-fcol file).\n");
-        goto KeepFcol_ret_INCONSISTENT_INPUT;
+        logerrputs("Error: --keep-col-match-num parameter too small (it refers to a sample ID\ncolumn in the --keep-col-match file).\n");
+        goto KeepColMatch_ret_INCONSISTENT_INPUT;
       }
       postid_col_idx = col_num - id_col_ct;
     } else {
       if (unlikely(*line_start != '#')) {
-        logerrputs("Error: --keep-fcol-name requires the --keep-fcol file to have a header line\nstarting with #FID or #IID.\n");
-        goto KeepFcol_ret_INCONSISTENT_INPUT;
+        logerrputs("Error: --keep-col-match-name requires the --keep-col-match file to have a\nheader line starting with #FID or #IID.\n");
+        goto KeepColMatch_ret_INCONSISTENT_INPUT;
       }
       const char* linebuf_iter = NextTokenMult(line_start, id_col_ct);
       if (unlikely(!linebuf_iter)) {
-        logerrputs("Error: --keep-fcol-name column not found in --keep-fcol file.\n");
-        goto KeepFcol_ret_INCONSISTENT_INPUT;
+        logerrputs("Error: --keep-col-match-name column not found in --keep-col-match file.\n");
+        goto KeepColMatch_ret_INCONSISTENT_INPUT;
       }
       const uint32_t col_name_slen = strlen(col_name);
       uint32_t cur_col_idx = 0;
@@ -1465,16 +1465,16 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
         const char* token_end = CurTokenEnd(linebuf_iter);
         if ((S_CAST(uintptr_t, token_end - linebuf_iter) == col_name_slen) && memequal(linebuf_iter, col_name, col_name_slen)) {
           if (unlikely(postid_col_idx)) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Multiple columns in --keep-fcol file are named '%s'.\n", col_name);
-            goto KeepFcol_ret_INCONSISTENT_INPUT_WW;
+            snprintf(g_logbuf, kLogbufSize, "Error: Multiple columns in --keep-col-match file are named '%s'.\n", col_name);
+            goto KeepColMatch_ret_INCONSISTENT_INPUT_WW;
           }
           postid_col_idx = cur_col_idx;
         }
         linebuf_iter = FirstNonTspace(token_end);
       } while (!IsEolnKns(*linebuf_iter));
       if (unlikely(!postid_col_idx)) {
-        logerrputs("Error: --keep-fcol-name column not found in --keep-fcol file.\n");
-        goto KeepFcol_ret_INCONSISTENT_INPUT;
+        logerrputs("Error: --keep-col-match-name column not found in --keep-col-match file.\n");
+        goto KeepColMatch_ret_INCONSISTENT_INPUT;
       }
     }
     uint32_t* xid_map = nullptr;
@@ -1483,11 +1483,11 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
     uintptr_t max_xid_blen;
     reterr = SortedXidboxInitAlloc(sample_include, siip, orig_sample_ct, allow_dups, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
     if (unlikely(reterr)) {
-      goto KeepFcol_ret_1;
+      goto KeepColMatch_ret_1;
     }
     char* idbuf = nullptr;
     if (unlikely(bigstack_alloc_c(max_xid_blen, &idbuf))) {
-      goto KeepFcol_ret_NOMEM;
+      goto KeepColMatch_ret_NOMEM;
     }
     if (*line_start == '#') {
       ++line_idx;
@@ -1499,18 +1499,18 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
       uint32_t xid_idx_end;
       if (SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &xid_idx_start, &xid_idx_end, idbuf)) {
         if (unlikely(!linebuf_iter)) {
-          goto KeepFcol_ret_MISSING_TOKENS;
+          goto KeepColMatch_ret_MISSING_TOKENS;
         }
         continue;
       }
       if (unlikely(IsSet(seen_xid_idxs, xid_idx_start))) {
-        logerrprintfww("Error: Sample ID on line %" PRIuPTR " of --keep-fcol file duplicates one earlier in the file.\n", line_idx);
-        goto KeepFcol_ret_MALFORMED_INPUT;
+        logerrprintfww("Error: Sample ID on line %" PRIuPTR " of --keep-col-match file duplicates one earlier in the file.\n", line_idx);
+        goto KeepColMatch_ret_MALFORMED_INPUT;
       }
       SetBit(xid_idx_start, seen_xid_idxs);
       linebuf_iter = NextTokenMult(linebuf_iter, postid_col_idx);
       if (unlikely(!linebuf_iter)) {
-        goto KeepFcol_ret_MISSING_TOKENS;
+        goto KeepColMatch_ret_MISSING_TOKENS;
       }
       const char* token_end = CurTokenEnd(linebuf_iter);
       const int32_t ii = bsearch_str(linebuf_iter, sorted_strbox, token_end - linebuf_iter, max_str_blen, str_ct);
@@ -1522,39 +1522,39 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
       }
     }
     if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
-      goto KeepFcol_ret_TSTREAM_FAIL;
+      goto KeepColMatch_ret_TSTREAM_FAIL;
     }
     memcpy(sample_include, keep_uidxs, raw_sample_ctl * sizeof(intptr_t));
     const uint32_t sample_ct = PopcountWords(sample_include, raw_sample_ctl);
     *sample_ct_ptr = sample_ct;
-    logprintf("--keep-fcol: %u sample%s remaining.\n", sample_ct, (sample_ct == 1)? "" : "s");
+    logprintf("--keep-col-match: %u sample%s remaining.\n", sample_ct, (sample_ct == 1)? "" : "s");
   }
   while (0) {
-  KeepFcol_ret_NOMEM:
+  KeepColMatch_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  KeepFcol_ret_TSTREAM_XID_FAIL:
+  KeepColMatch_ret_TSTREAM_XID_FAIL:
     if (!TextStreamErrcode(&txs)) {
       break;
     }
-  KeepFcol_ret_TSTREAM_FAIL:
-    TextStreamErrPrint("--keep-fcol file", &txs);
+  KeepColMatch_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--keep-col-match file", &txs);
     break;
-  KeepFcol_ret_MALFORMED_INPUT:
+  KeepColMatch_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
-  KeepFcol_ret_MISSING_TOKENS:
-    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --keep-fcol file has fewer tokens than expected.\n", line_idx);
-  KeepFcol_ret_INCONSISTENT_INPUT_WW:
+  KeepColMatch_ret_MISSING_TOKENS:
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --keep-col-match file has fewer tokens than expected.\n", line_idx);
+  KeepColMatch_ret_INCONSISTENT_INPUT_WW:
     WordWrapB(0);
     logerrputsb();
-  KeepFcol_ret_INCONSISTENT_INPUT:
+  KeepColMatch_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
   }
- KeepFcol_ret_1:
+ KeepColMatch_ret_1:
   BigstackReset(bigstack_mark);
-  CleanupTextStream2("--keep-fcol file", &txs, &reterr);
+  CleanupTextStream2("--keep-col-match file", &txs, &reterr);
   return reterr;
 }
 

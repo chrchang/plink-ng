@@ -1022,6 +1022,10 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         snprintf(g_logbuf, kLogbufSize, "Error: Missing column header(s) on line %" PRIuPTR " of %s. (POS, ID, REF, and ALT are required.)\n", line_idx, pvarname);
         goto LoadPvar_ret_MALFORMED_INPUT_WW;
       }
+      if ((var_min_qual != -1) && (!(found_header_bitset & 0x10))) {
+        logerrputs("Error: --var-min-qual used on a variant file with no QUAL column.\n");
+        goto LoadPvar_ret_INCONSISTENT_INPUT;
+      }
       for (uint32_t rpc_col_idx = relevant_postchr_col_ct - 1; rpc_col_idx; --rpc_col_idx) {
         col_skips[rpc_col_idx] -= col_skips[rpc_col_idx - 1];
       }
@@ -1029,6 +1033,10 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       line_iter = K_CAST(char*, AdvToDelim(linebuf_iter, '\n'));
       line_start = line_iter;
     } else if (line_start[0] != '\n') {
+      if (var_min_qual != -1) {
+        logerrputs("Error: --var-min-qual used on a variant file with no QUAL column.\n");
+        goto LoadPvar_ret_INCONSISTENT_INPUT;
+      }
       *info_flags_ptr = kfInfoPrNonrefDefault;
       col_skips[0] = 1;
       col_skips[1] = 1;
