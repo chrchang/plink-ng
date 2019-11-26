@@ -2504,10 +2504,16 @@ PglErr MakeDupflagHtable(const uintptr_t* subset_mask, const char* const* item_i
   DupflagHtableMaker ctx;
   {
     uint32_t thread_ct = item_ct / 65536;
-    if (thread_ct > max_thread_ct) {
-      thread_ct = max_thread_ct;
-    } else if (!thread_ct) {
+    if (!thread_ct) {
       thread_ct = 1;
+    } else {
+      if (thread_ct > max_thread_ct) {
+        thread_ct = max_thread_ct;
+      }
+      // bugfix (26 Nov 2019): forgot to force this
+      if (thread_ct > kMaxDupflagThreads) {
+        thread_ct = kMaxDupflagThreads;
+      }
     }
     if (unlikely(SetThreadCt0(thread_ct - 1, &tg))) {
       goto MakeDupflagHtable_ret_NOMEM;
