@@ -183,7 +183,8 @@ void CleanupBgzfRawMtStream(BgzfRawMtDecompressStream* bgzfp);
 // - There's a dedicated writer thread which flushes the compression results.
 // I will look into adding direct support for this parallelization pattern to
 // plink2_thread; the benefit is small (~5%), but applies to a lot of
-// workloads.
+// workloads.  It may also be worthwhile to implement some form of
+// work-stealing.
 //
 // I tried making this less granular (each job contains two blocks instead of
 // one) to see if there was still meaningful room for improvement re: reducing

@@ -713,12 +713,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      computation.\n"
 "    * With the 'kb' modifier, the window size is in kilobase instead of variant\n"
 "      count units.  (Pre-'kb' space is optional, i.e.\n"
-"      '--indep-pairwise 500 kb 0.5' and '--indep-pairwise 500kb 0.5' have the\n"
+"      \"--indep-pairwise 500 kb 0.5\" and \"--indep-pairwise 500kb 0.5\" have the\n"
 "      same effect.)\n"
 "    * The step size now defaults to 1 if it's unspecified, and *must* be 1 if\n"
 "      the window is in kilobase units.\n"
-"    Note that you need to rerun PLINK using --extract or --exclude on the\n"
-"    .prune.in/.prune.out file to apply the list to another computation.\n\n"
+"    * Note that you need to rerun PLINK using --extract or --exclude on the\n"
+"      .prune.in/.prune.out file to apply the list to another computation... and\n"
+"      as with other applications of --extract/--exclude, duplicate variant IDs\n"
+"      are a problem.  --indep-pairwise still runs to completion for now when\n"
+"      duplicate variant IDs are present, but that will become an error in alpha\n"
+"      3.\n\n"
               );
     // todo: implement --indep-pairphase with new --ld approach.  (eventually
     // add an option to take dosages into account?  but not a priority.)
