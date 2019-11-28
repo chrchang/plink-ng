@@ -2710,6 +2710,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     ctx.qual_maxs[1] = vcf_max_dp;
     VcfImportContext vic;
     // sample_ct set later
+    ctx.halfcall_mode = halfcall_mode;  // bugfix (28 Nov 2019)
     vic.vibc.halfcall_mode = halfcall_mode;
 
     vic.dosage_is_gp = ctx.dosage_is_gp;
