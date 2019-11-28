@@ -2710,6 +2710,9 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     ctx.qual_maxs[1] = vcf_max_dp;
     VcfImportContext vic;
     // sample_ct set later
+    if (halfcall_mode == kVcfHalfCallDefault) {
+      halfcall_mode = kVcfHalfCallError;
+    }
     ctx.halfcall_mode = halfcall_mode;  // bugfix (28 Nov 2019)
     vic.vibc.halfcall_mode = halfcall_mode;
 
@@ -2934,9 +2937,6 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     }
     uintptr_t* nonref_flags_iter = nonref_flags;
     uintptr_t* allele_idx_offsets = R_CAST(uintptr_t*, g_bigstack_base);
-    if (halfcall_mode == kVcfHalfCallDefault) {
-      halfcall_mode = kVcfHalfCallError;
-    }
     uintptr_t max_postformat_blen = 1;  // starting from tab at end of FORMAT
     uintptr_t variant_skip_ct = 0;
     uintptr_t nonref_word = 0;
