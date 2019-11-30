@@ -78,12 +78,12 @@ As for the PLINK 2.0 application:
   requires MinGW[-w64] and zlib; a prebuilt OpenBLAS package from
   https://sourceforge.net/projects/openblas/files/ is also strongly
   recommended.
-* GPUs are not exploited, and there are currently no plans to write a
-  significant amount of GPU-specific code before PLINK 2.0's core function set
-  is completed around 2021.  However, a few linear-algebra-heavy workloads may
-  benefit significantly from a simple replacement of Intel MKL by cuBLAS +
-  cuSOLVER.  This can probably be supported earlier; feel free to open a GitHub
-  issue about it if it would make a big difference to you.
+* GPUs are not exploited, and there are currently no plans to write much
+  GPU-specific code before PLINK 2.0's core function set is completed around
+  2021.  However, a few linear-algebra-heavy workloads may benefit
+  significantly from a simple replacement of Intel MKL by cuBLAS + cuSOLVER.
+  This can probably be supported earlier; feel free to open a GitHub issue
+  about it if it would make a big difference to you.
 * The LGPL3-licensed plink2_stats component may be of independent interest.  It
   includes a function for computing the 2x2 Fisher's exact test p-value in
   approximately O(sqrt(n)) time--much faster than the O(n) algorithms employed
