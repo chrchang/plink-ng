@@ -15,13 +15,13 @@ Key properties:
   is invalidated when you iterate to the next one; it's like being forced to
   pass the same string to std::getline(), or the same buffer to fgets(), on
   every call.  But whenever that's problematic, you can always copy the line
-  before iterating to the next; on all systems I've seen, this *still* exhibits
+  before iterating to the next; on all systems I've seen, that *still* exhibits
   better throughput than getline/fgets.  And in the many situations where
   there's no need to copy, you get a fundamentally lower-latency abstraction.
 * They automatically detect and decompress gzipped and Zstd-compressed
   (https://facebook.github.io/zstd/ ) files, in a manner that works with pipe
   file descriptors.
-* The primary TextStream class automatically reads AND DECOMPRESSES ahead for
+* The primary TextStream class automatically reads *and decompresses* ahead for
   you.  Decompression is even multithreaded by default when the file is
   BGZF-compressed.  (And the textFILE class covers the setting where you don't
   want to launch any more threads.)
@@ -48,11 +48,11 @@ properties:
 * A PLINK 1 .bed is a valid .pgen.
 * In addition, .pgen can represent multiallelic, phased, and/or dosage
   information.  As of this writing, software support for multiallelic dosages
-  does not exist yet, but it does for any other combination of these attributes
-  (e.g. multiallelic+phased or phased+dosage).
-* .pgen CANNOT represent genotype probability triplets.  It also cannot store
-  read depths, per-call quality scores, etc.  While plink2 can *filter* on the
-  aforementioned BGEN/VCF fields during import, it cannot re-export or do
+  does not exist yet, but it does for the other attribute pairs
+  (multiallelic+phased, phased+dosage).
+* **.pgen CANNOT represent genotype probability triplets.  It also cannot store
+  read depths, per-call quality scores, etc.**  While plink2 can *filter* on
+  the aforementioned BGEN/VCF fields during import, it cannot re-export or do
   anything else with them.  Use other software, such as bcftools
   (https://samtools.github.io/bcftools/bcftools.html ) or qctool2
   (www.well.ox.ac.uk/~gav/qctool_v2/ ) when you must retain any of these
@@ -78,6 +78,12 @@ As for the PLINK 2.0 application:
   requires MinGW[-w64] and zlib; a prebuilt OpenBLAS package from
   https://sourceforge.net/projects/openblas/files/ is also strongly
   recommended.
+* GPUs are not exploited, and there are currently no plans to write a
+  significant amount of GPU-specific code before PLINK 2.0's core function set
+  is completed around 2021.  However, a few linear-algebra-heavy workloads may
+  benefit significantly from a simple replacement of Intel MKL by cuBLAS +
+  cuSOLVER.  This can probably be supported earlier; feel free to open a GitHub
+  issue about it if it would make a big difference to you.
 * The LGPL3-licensed plink2_stats component may be of independent interest.  It
   includes a function for computing the 2x2 Fisher's exact test p-value in
   approximately O(sqrt(n)) time--much faster than the O(n) algorithms employed
