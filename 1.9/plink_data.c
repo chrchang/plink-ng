@@ -14221,7 +14221,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   }
 
   // bugfix: stop generating a .map file when Oxford-format requested
-  if (recode_modifier & (RECODE_COMPOUND | RECODE_LGEN | RECODE_LGEN_REF | RECODE_PED)) {
+  if (recode_modifier & (RECODE_COMPOUND | RECODE_LGEN | RECODE_LGEN_REF | RECODE_PED | RECODE_RLIST)) {
     strcpy(outname_end, ".map");
     retval = write_map_or_bim(outname, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_cms, marker_pos, nullptr, ((recode_modifier & (RECODE_TAB | RECODE_DELIMX)) == RECODE_DELIMX)? ' ' : '\t', chrom_info_ptr);
     if (retval) {
