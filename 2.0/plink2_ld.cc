@@ -15,8 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
+#include "include/plink2_stats.h"
 #include "plink2_ld.h"
-#include "plink2_stats.h"
 
 #ifdef __cplusplus
 #  include <functional>  // std::greater
@@ -1049,7 +1049,8 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     fflush(stdout);
     for (uint32_t cur_tvidx_start = 0; ; cur_tvidx_start += tvidx_batch_size) {
       if (!IsLastBlock(&tg)) {
-        PgrClearLdCache(simple_pgrp);
+        PgrSampleSubsetIndex pssi;
+        PgrSetSampleSubsetIndex(founder_info_cumulative_popcounts, simple_pgrp, &pssi);
         uintptr_t** cur_raw_tgenovecs = ctx.raw_tgenovecs[parity];
         const uint32_t cur_tvidx_end = cur_tvidx_start + tvidx_batch_size;
         uint32_t is_x_or_y = 0;
@@ -1086,7 +1087,11 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
           is_x = is_x && founder_nonmale_ct;
           if (is_x_or_y != new_is_x_or_y) {
             is_x_or_y = new_is_x_or_y;
-            PgrClearLdCache(simple_pgrp);
+            if (is_x_or_y) {
+              PgrClearSampleSubsetIndex(simple_pgrp, &pssi);
+            } else {
+              PgrSetSampleSubsetIndex(founder_info_cumulative_popcounts, simple_pgrp, &pssi);
+            }
           }
           uintptr_t* cur_thread_raw_tgenovec = cur_raw_tgenovecs[cur_thread_idx];
           uintptr_t variant_uidx_base;
@@ -1107,12 +1112,12 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
             // important because knowledgeable users will have already filtered
             // out the lowest-MAF variants before starting the LD-prune job.
             if (!is_x_or_y) {
-              reterr = PgrGetInv1(founder_info, founder_info_cumulative_popcounts, founder_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, cur_raw_tgenovec);
+              reterr = PgrGetInv1(founder_info, pssi, founder_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, cur_raw_tgenovec);
               if (is_haploid) {
                 SetHetMissing(founder_ctl2, cur_raw_tgenovec);
               }
             } else {
-              reterr = PgrGetInv1(nullptr, nullptr, raw_sample_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, tmp_genovec);
+              reterr = PgrGetInv1(nullptr, pssi, raw_sample_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, tmp_genovec);
               if (founder_male_ct) {
                 CopyNyparrNonemptySubset(tmp_genovec, founder_male, raw_sample_ct, founder_male_ct, cur_raw_tgenovec);
                 SetHetMissing(founder_male_ctl2, cur_raw_tgenovec);
@@ -2871,7 +2876,8 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     FillCumulativePopcounts(founder_info, founder_ctl, founder_info_cumulative_popcounts);
     uint32_t use_dosage = ldip->ld_console_flags & kfLdConsoleDosage;
 
-    PgrClearLdCache(simple_pgrp);
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(founder_info_cumulative_popcounts, simple_pgrp, &pssi);
     for (uint32_t var_idx = 0; var_idx != 2; ++var_idx) {
       const uint32_t variant_uidx = var_uidxs[var_idx];
       // (unconditionally allocating phaseinfo/dosage_main and using the most
@@ -2880,7 +2886,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       // context.)
 
       PgenVariant* pgvp = &(pgvs[var_idx]);
-      reterr = PgrGetInv1Dp(founder_info, founder_info_cumulative_popcounts, founder_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, pgvp);
+      reterr = PgrGetInv1Dp(founder_info, pssi, founder_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, pgvp);
       if (unlikely(reterr)) {
         goto LdConsole_ret_PGR_FAIL;
       }

@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-#include "pgenlib_write.h"
+#include "include/pgenlib_write.h"
 #include "plink2_import.h"
 #include "plink2_psam.h"
 #include "plink2_pvar.h"

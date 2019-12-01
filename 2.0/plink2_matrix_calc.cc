@@ -574,9 +574,10 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
 
   const uintptr_t* variant_include_orig = ctx->variant_include_orig;
   const uintptr_t* sample_include = ctx->sample_include;
-  const uint32_t* sample_include_cumulative_popcounts = ctx->sample_include_cumulative_popcounts;
 
   PgenReader* pgrp = ctx->pgr_ptrs[tidx];
+  PgrSampleSubsetIndex pssi;
+  PgrSetSampleSubsetIndex(ctx->sample_include_cumulative_popcounts, pgrp, &pssi);
   uintptr_t* genovec = ctx->genovecs[tidx];
   uint32_t row_start_idx = ctx->row_start_idx;
   const uint64_t tri_start = ((row_start_idx - 1) * S_CAST(uint64_t, row_start_idx)) / 2;
@@ -635,7 +636,7 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
       const uint32_t variant_uidx = BitIter1(variant_include_orig, &variant_uidx_base, &variant_include_bits);
       // tried DifflistOrGenovec, difference was negligible.  Not really worth
       // considering it when calculation is inherently >O(mn).
-      PglErr reterr = PgrGet(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec);
+      PglErr reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, pgrp, genovec);
       if (unlikely(reterr)) {
         ctx->reterr = reterr;
         goto CalcKingSparseThread_err;
@@ -1537,7 +1538,6 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
       }
       FillCumulativePopcounts(cur_sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
       pgfip->block_base = main_loadbufs[0];  // needed after first pass
-      PgrClearLdCache(simple_pgrp);
       // Update (9 Nov 2019): The one-time singleton/monomorphic scan has been
       // replaced with a more effective sparse-variant scan which happens on
       // every pass.
@@ -1668,7 +1668,8 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
         // Results are always reported in lower-triangular order, rather than
         // KING's upper-triangular order, since the former plays more nicely
         // with incremental addition of samples.
-        PgrClearLdCache(simple_pgrp);
+        PgrSampleSubsetIndex pssi;
+        PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
         do {
           const uint32_t cur_block_size = MINV(cur_variant_ct - variants_completed, kKingMultiplex);
           uintptr_t* cur_smaj_hom = dense_ctx.smaj_hom[parity];
@@ -1708,7 +1709,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
               // independent of estimated allele frequencies.  And the accuracy
               // improvement we'd get in return is microscopic.  So we stick to
               // REF/ALT allele counts instead.
-              reterr = PgrGet(cur_sample_include, sample_include_cumulative_popcounts, row_end_idx, variant_uidx, simple_pgrp, loadbuf);
+              reterr = PgrGet(cur_sample_include, pssi, row_end_idx, variant_uidx, simple_pgrp, loadbuf);
               if (unlikely(reterr)) {
                 goto CalcKing_ret_PGR_FAIL;
               }
@@ -2968,7 +2969,8 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       uint32_t variants_completed = 0;
       uint32_t parity = 0;
       const uint32_t sample_batch_ct_m1 = (cur_sample_ct - 1) / kPglBitTransposeBatch;
-      PgrClearLdCache(simple_pgrp);
+      PgrSampleSubsetIndex pssi;
+      PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
       do {
         const uint32_t cur_block_size = MINV(variant_ct - variants_completed, kKingMultiplex);
         uintptr_t* cur_smaj_hom = ctx.smaj_hom[parity];
@@ -2999,7 +3001,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
           uintptr_t* ref2het_iter = splitbuf_ref2het;
           for (uint32_t uii = 0; uii != variant_batch_size; ++uii) {
             const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
-            reterr = PgrGet(cur_sample_include, sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, simple_pgrp, loadbuf);
+            reterr = PgrGet(cur_sample_include, pssi, cur_sample_ct, variant_uidx, simple_pgrp, loadbuf);
             if (unlikely(reterr)) {
               goto CalcKingTableSubset_ret_PGR_FAIL;
             }
@@ -3239,9 +3241,11 @@ PglErr ExpandCenteredVarmaj(const uintptr_t* genovec, const uintptr_t* dosage_pr
   return kPglRetSuccess;
 }
 
-PglErr LoadCenteredVarmaj(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t variance_standardize, uint32_t is_haploid, uint32_t sample_ct, uint32_t variant_uidx, AlleleCode maj_allele_idx, double maj_freq, PgenReader* simple_pgrp, uint32_t* missing_presentp, double* normed_dosages, uintptr_t* genovec_buf, uintptr_t* dosage_present_buf, Dosage* dosage_main_buf) {
+// This breaks the "don't pass pssi between functions" rule since it's a thin
+// wrapper around PgrGetInv1D().
+PglErr LoadCenteredVarmaj(const uintptr_t* sample_include, PgrSampleSubsetIndex pssi, uint32_t variance_standardize, uint32_t is_haploid, uint32_t sample_ct, uint32_t variant_uidx, AlleleCode maj_allele_idx, double maj_freq, PgenReader* simple_pgrp, uint32_t* missing_presentp, double* normed_dosages, uintptr_t* genovec_buf, uintptr_t* dosage_present_buf, Dosage* dosage_main_buf) {
   uint32_t dosage_ct;
-  PglErr reterr = PgrGetInv1D(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, maj_allele_idx, simple_pgrp, genovec_buf, dosage_present_buf, dosage_main_buf, &dosage_ct);
+  PglErr reterr = PgrGetInv1D(sample_include, pssi, sample_ct, variant_uidx, maj_allele_idx, simple_pgrp, genovec_buf, dosage_present_buf, dosage_main_buf, &dosage_ct);
   if (unlikely(reterr)) {
     // don't print malformed-.pgen error message here, since this is called
     // from multithreaded loops
@@ -3457,7 +3461,8 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
     // logputs("Correcting for missingness: ");
     fputs("0%", stdout);
     fflush(stdout);
-    PgrClearLdCache(simple_pgrp);
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
     for (uint32_t cur_variant_idx_start = 0; ; ) {
       uint32_t cur_batch_size = 0;
       if (!IsLastBlock(&tg)) {
@@ -3471,7 +3476,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
         uintptr_t* missing_vmaj_iter = missing_vmaj;
         for (uint32_t variant_idx = cur_variant_idx_start; variant_idx != cur_variant_idx_end; ++variant_idx) {
           const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
-          reterr = PgrGetMissingnessD(sample_include, sample_include_cumulative_popcounts, row_end_idx, variant_uidx, simple_pgrp, nullptr, missing_vmaj_iter, nullptr, genovec_buf);
+          reterr = PgrGetMissingnessD(sample_include, pssi, row_end_idx, variant_uidx, simple_pgrp, nullptr, missing_vmaj_iter, nullptr, genovec_buf);
           if (unlikely(reterr)) {
             goto CalcMissingMatrix_ret_PGR_FAIL;
           }
@@ -3700,7 +3705,8 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     logputs("Constructing GRM: ");
     fputs("0%", stdout);
     fflush(stdout);
-    PgrClearLdCache(simple_pgrp);
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
     for (uint32_t cur_variant_idx_start = 0; ; ) {
       uint32_t cur_batch_size = 0;
       if (!IsLastBlock(&tg)) {
@@ -3723,7 +3729,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_base;
             allele_idx_base -= variant_uidx;
           }
-          reterr = LoadCenteredVarmaj(sample_include, sample_include_cumulative_popcounts, variance_standardize, is_haploid, row_end_idx, variant_uidx, maj_allele_idx, GetAlleleFreq(&(allele_freqs[allele_idx_base]), maj_allele_idx, cur_allele_ct), simple_pgrp, variant_include_has_missing? (&missing_present) : nullptr, normed_vmaj_iter, genovec_buf, dosage_present_buf, dosage_main_buf);
+          reterr = LoadCenteredVarmaj(sample_include, pssi, variance_standardize, is_haploid, row_end_idx, variant_uidx, maj_allele_idx, GetAlleleFreq(&(allele_freqs[allele_idx_base]), maj_allele_idx, cur_allele_ct), simple_pgrp, variant_include_has_missing? (&missing_present) : nullptr, normed_vmaj_iter, genovec_buf, dosage_present_buf, dosage_main_buf);
           if (unlikely(reterr)) {
             if (reterr == kPglRetDegenerateData) {
               logputs("\n");
@@ -4536,6 +4542,8 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       goto CalcPca_ret_NOMEM;
     }
     FillCumulativePopcounts(pca_sample_include, raw_sample_ctl, pca_sample_include_cumulative_popcounts);
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(pca_sample_include_cumulative_popcounts, simple_pgrp, &pssi);
     ctx.sample_ct = pca_sample_ct;
     ctx.pc_ct = pc_ct;
     ctx.reterr = kPglRetSuccess;
@@ -4640,7 +4648,6 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       printf("Projecting random vectors (%u compute thread%s)... ", calc_thread_ct, (calc_thread_ct == 1)? "" : "s");
 #endif
       fflush(stdout);
-      PgrClearLdCache(simple_pgrp);
       for (uint32_t iter_idx = 0; iter_idx <= pc_ct; ++iter_idx) {
         // kjg_fpca_XTXA(), kjg_fpca_XA()
         if (iter_idx < pc_ct) {
@@ -4685,7 +4692,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
               const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
               const uint32_t maj_allele_idx = maj_alleles[variant_uidx];
               uint32_t dosage_ct;
-              reterr = PgrGetInv1D(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx, maj_allele_idx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
+              reterr = PgrGetInv1D(pca_sample_include, pssi, pca_sample_ct, variant_uidx, maj_allele_idx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
               if (unlikely(reterr)) {
                 goto CalcPca_ret_PGR_FAIL;
               }
@@ -4794,7 +4801,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
             const uint32_t maj_allele_idx = maj_alleles[variant_uidx];
             uint32_t dosage_ct;
-            reterr = PgrGetInv1D(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx, maj_allele_idx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
+            reterr = PgrGetInv1D(pca_sample_include, pssi, pca_sample_ct, variant_uidx, maj_allele_idx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
             if (unlikely(reterr)) {
               goto CalcPca_ret_PGR_FAIL;
             }
@@ -5086,7 +5093,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             const uintptr_t variant_uidx_load = BitIter1(variant_include, &variant_uidx_load_base, &load_bits);
             const uint32_t maj_allele_idx = maj_alleles[variant_uidx_load];
             uint32_t dosage_ct;
-            reterr = PgrGetInv1D(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx_load, maj_allele_idx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
+            reterr = PgrGetInv1D(pca_sample_include, pssi, pca_sample_ct, variant_uidx_load, maj_allele_idx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
             if (unlikely(reterr)) {
               goto CalcPca_ret_PGR_FAIL;
             }
@@ -5910,7 +5917,8 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     const uint32_t matrix_multiply_thread_ct = (max_thread_ct > 1)? (max_thread_ct - 1) : 1;
     BLAS_SET_NUM_THREADS(matrix_multiply_thread_ct);
 #endif
-    PgrClearLdCache(simple_pgrp);
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
     if (flags & kfScoreHeaderRead) {
       ++line_idx;
       line_start = TextGet(&score_txs);
@@ -5977,7 +5985,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
 
       // okay, the variant and allele are in our dataset.  Load it.
       uint32_t dosage_ct;
-      reterr = PgrGet1D(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, cur_allele_idx, simple_pgrp, genovec_buf, dosage_present_buf, dosage_main_buf, &dosage_ct);
+      reterr = PgrGet1D(sample_include, pssi, sample_ct, variant_uidx, cur_allele_idx, simple_pgrp, genovec_buf, dosage_present_buf, dosage_main_buf, &dosage_ct);
       if (unlikely(reterr)) {
         goto ScoreReport_ret_PGR_FAIL;
       }
@@ -6600,12 +6608,13 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
   const uintptr_t* allele_idx_offsets = ctx->allele_idx_offsets;
   const double* allele_freqs = ctx->allele_freqs;
   const uintptr_t* sample_include = ctx->sample_include;
-  const uint32_t* sample_include_cumulative_popcounts = ctx->sample_include_cumulative_popcounts;
   const uintptr_t* sex_male = ctx->sex_male_collapsed;
   const uintptr_t* sex_male_interleaved_vec = ctx->sex_male_interleaved_vec;
   const double* wts_smaj = ctx->wts_smaj;
 
   PgenReader* pgrp = ctx->pgr_ptrs[tidx];
+  PgrSampleSubsetIndex pssi;
+  PgrSetSampleSubsetIndex(ctx->sample_include_cumulative_popcounts, pgrp, &pssi);
   uintptr_t* genovec = ctx->genovecs[tidx];
   uintptr_t* raregeno = ctx->raregenos[tidx];
   uint32_t* difflist_sample_ids = ctx->difflist_sample_id_bufs[tidx];
@@ -6679,7 +6688,7 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
       if (!dosage_present) {
         uint32_t difflist_common_geno;
         uint32_t difflist_len;
-        PglErr reterr = PgrGetDifflistOrGenovec(sample_include, sample_include_cumulative_popcounts, sample_ct, max_sparse, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+        PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_sparse, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
         if (unlikely(reterr)) {
           ctx->reterr = reterr;
           goto VscoreThread_err;
@@ -6741,7 +6750,7 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
           PgrDifflistToGenovecUnsafe(raregeno, difflist_sample_ids, difflist_common_geno, sample_ct, difflist_len, genovec);
         }
       } else {
-        PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
+        PglErr reterr = PgrGetD(sample_include, pssi, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
         if (unlikely(reterr)) {
           ctx->reterr = reterr;
           goto VscoreThread_err;

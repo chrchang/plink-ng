@@ -17,7 +17,7 @@
 #include <errno.h>
 #include <zlib.h>
 #include "pvar_ffi_support.h"
-#include "plink2_text.h"
+#include "include/plink2_text.h"
 
 namespace plink2 {
 

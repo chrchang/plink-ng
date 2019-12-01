@@ -14,10 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#include "include/plink2_stats.h"
 #include "plink2_compress_stream.h"
 #include "plink2_glm.h"
 #include "plink2_matrix.h"
-#include "plink2_stats.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -257,12 +257,6 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       BitvecAndCopy(sample_include_copy, *sex_male_ptr, raw_sample_ctl, sex_male_copy);
       *sex_male_ptr = sex_male_copy;
       *sample_include_ptr = sample_include_copy;
-      BigstackEndReset(TextStreamMemStart(&txs));
-      uint32_t* sample_include_cumulative_popcounts;
-      if (unlikely(bigstack_end_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts))) {
-        goto GlmLocalOpen_ret_NOMEM;
-      }
-      FillCumulativePopcounts(sample_include_copy, raw_sample_ctl, sample_include_cumulative_popcounts);
       *sample_ct_ptr = new_sample_ct;
     }
     BigstackEndReset(TextStreamMemStart(&txs));
@@ -3423,7 +3417,8 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
         memcpy(semicomputed_biallelic_corr_matrix, nm_precomp->corr_image, nonintercept_biallelic_pred_ct * nonintercept_biallelic_pred_ct * sizeof(double));
         memcpy(&(semicomputed_biallelic_inv_corr_sqrts[domdev_present_p1]), nm_precomp->corr_inv_sqrts, nongeno_pred_ct * sizeof(double));
       }
-      PgrClearLdCache(pgrp);
+      PgrSampleSubsetIndex pssi;
+      PgrSetSampleSubsetIndex(cur_sample_include_cumulative_popcounts, pgrp, &pssi);
       // when this is set, the last fully-processed variant had no missing
       // genotypes, and if the current variant also has no missing genotypes we
       // may be able to skip reinitialization of most of
@@ -3446,9 +3441,9 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
         const uint32_t cur_predictor_ctavp1 = cur_predictor_ctav + 1;
         PglErr reterr;
         if (!allele_ct_m2) {
-          reterr = PgrGetD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &(pgv.dosage_ct));
+          reterr = PgrGetD(cur_sample_include, pssi, cur_sample_ct, variant_uidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &(pgv.dosage_ct));
         } else {
-          reterr = PgrGetMD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, &pgv);
+          reterr = PgrGetMD(cur_sample_include, pssi, cur_sample_ct, variant_uidx, pgrp, &pgv);
           // todo: proper multiallelic dosage support
         }
         if (unlikely(reterr)) {
@@ -5892,7 +5887,8 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
         memcpy(&(semicomputed_biallelic_inv_corr_sqrts[domdev_present_p1]), nm_precomp->corr_inv_sqrts, nongeno_pred_ct * sizeof(double));
         xt_y_image = nm_precomp->xt_y_image;
       }
-      PgrClearLdCache(pgrp);
+      PgrSampleSubsetIndex pssi;
+      PgrSetSampleSubsetIndex(cur_sample_include_cumulative_popcounts, pgrp, &pssi);
       // when this is set, the last fully-processed variant had no missing
       // genotypes, and if the current variant also has no missing genotypes we
       // may be able to skip reinitialization of most of
@@ -5912,9 +5908,9 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
         const uint32_t cur_predictor_ct = cur_biallelic_predictor_ct + allele_ct_m2;
         PglErr reterr;
         if (!allele_ct_m2) {
-          reterr = PgrGetD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &(pgv.dosage_ct));
+          reterr = PgrGetD(cur_sample_include, pssi, cur_sample_ct, variant_uidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &(pgv.dosage_ct));
         } else {
-          reterr = PgrGetMD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, &pgv);
+          reterr = PgrGetMD(cur_sample_include, pssi, cur_sample_ct, variant_uidx, pgrp, &pgv);
           // todo: proper multiallelic dosage support
         }
         if (unlikely(reterr)) {
@@ -7819,7 +7815,8 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
         memcpy(&(semicomputed_biallelic_inv_corr_sqrts[domdev_present_p1]), nm_precomp->corr_inv_sqrts, nongeno_pred_ct * sizeof(double));
         xt_y_image = nm_precomp->xt_y_image;
       }
-      PgrClearLdCache(pgrp);
+      PgrSampleSubsetIndex pssi;
+      PgrSetSampleSubsetIndex(cur_sample_include_cumulative_popcounts, pgrp, &pssi);
       // when this is set, the last fully-processed variant had no missing
       // genotypes, and if the current variant also has no missing genotypes we
       // may be able to skip reinitialization of most of
@@ -7839,9 +7836,9 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
         const uint32_t cur_predictor_ct = cur_biallelic_predictor_ct + allele_ct_m2;
         PglErr reterr;
         if (!allele_ct_m2) {
-          reterr = PgrGetD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &(pgv.dosage_ct));
+          reterr = PgrGetD(cur_sample_include, pssi, cur_sample_ct, variant_uidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &(pgv.dosage_ct));
         } else {
-          reterr = PgrGetMD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, &pgv);
+          reterr = PgrGetMD(cur_sample_include, pssi, cur_sample_ct, variant_uidx, pgrp, &pgv);
           // todo: proper multiallelic dosage support
         }
         if (unlikely(reterr)) {
@@ -9914,7 +9911,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
                   bigstack_end_alloc_dosage(raw_sample_ct, &dosage_main))) {
             goto GlmMain_ret_NOMEM;
           }
-          PgrClearLdCache(simple_pgrp);
+          PgrSampleSubsetIndex null_pssi;
+          PgrClearSampleSubsetIndex(simple_pgrp, &null_pssi);
           uint32_t allele_ct = 2;
           for (uint32_t condition_idx = 0; condition_idx != condition_ct; ++condition_idx) {
             const uint32_t cur_variant_uidx = condition_uidxs[condition_idx];
@@ -9926,7 +9924,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               }
             }
             uint32_t dosage_ct;
-            reterr = PgrGetD(nullptr, nullptr, raw_sample_ct, cur_variant_uidx, simple_pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
+            reterr = PgrGetD(nullptr, null_pssi, raw_sample_ct, cur_variant_uidx, simple_pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
             if (unlikely(reterr)) {
               goto GlmMain_ret_PGR_FAIL;
             }

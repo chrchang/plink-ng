@@ -1,5 +1,5 @@
-#include "pgenlib_read.h"
-#include "pgenlib_write.h"
+#include "include/pgenlib_read.h"
+#include "include/pgenlib_write.h"
 
 // #define SUBSET_TEST
 
@@ -94,12 +94,14 @@ int32_t main(int32_t argc, char** argv) {
       if (!outfile) {
         goto main_ret_OPEN_FAIL;
       }
+      PgrSampleSubsetIndex pssi;
+      PgrClearSampleSubsetIndex(&pgr, &pssi);
       const uintptr_t final_mask = (k1LU << ((sample_ct % kBitsPerWordD2) * 2)) - k1LU;
       const uint32_t final_widx = NypCtToWordCt(sample_ct) - 1;
       const uint32_t variant_byte_ct = (sample_ct + 3) / 4;
       fwrite("l\x1b\x01", 3, 1, outfile);
       for (uint32_t vidx = 0; vidx < variant_ct; ) {
-        reterr = PgrGet(nullptr, nullptr, sample_ct, vidx, &pgr, genovec);
+        reterr = PgrGet(nullptr, pssi, sample_ct, vidx, &pgr, genovec);
         if (reterr) {
           fprintf(stderr, "\nread error %u, vidx=%u\n", S_CAST(uint32_t, reterr), vidx);
           goto main_ret_1;
@@ -147,7 +149,6 @@ int32_t main(int32_t argc, char** argv) {
         cachealigned_malloc(RoundUpPow2((max_returned_difflist_len + 1) * sizeof(int32_t), kCacheline), &difflist_sample_ids)) {
       goto main_ret_NOMEM;
     }
-    SetAllBits(sample_ct, sample_include);
 #ifdef SUBSET_TEST
     fill_ulong_zero(BitCtToWordCt(sample_ct), sample_include);
     SetBit(123, sample_include);
@@ -156,12 +157,16 @@ int32_t main(int32_t argc, char** argv) {
     // ClearBit(123, sample_include);
     // ClearBit(127, sample_include);
     // ClearBit(320, sample_include);
-    FillCumulativePopcounts(sample_include, 1 + (sample_ct / kBitsPerWord), sample_include_cumulative_popcounts);
+#else
+    SetAllBits(sample_ct, sample_include);
 #endif
+    FillCumulativePopcounts(sample_include, 1 + (sample_ct / kBitsPerWord), sample_include_cumulative_popcounts);
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, &pgr, &pssi);
     for (uint32_t vidx = 0; vidx < variant_ct; ) {
       uint32_t difflist_common_geno;
       uint32_t difflist_len;
-      reterr = PgrGetDifflistOrGenovec(sample_include, sample_include_cumulative_popcounts, write_sample_ct, max_simple_difflist_len, vidx, &pgr, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+      reterr = PgrGetDifflistOrGenovec(sample_include, pssi, write_sample_ct, max_simple_difflist_len, vidx, &pgr, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
       if (reterr) {
         fprintf(stderr, "\nread error %u, vidx=%u\n", S_CAST(uint32_t, reterr), vidx);
         goto main_ret_1;

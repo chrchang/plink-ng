@@ -22,8 +22,8 @@
 // initialization/allocation, basic multithreading code, and a few numeric
 // constants.
 
-#include "plink2_string.h"
-#include "plink2_thread.h"
+#include "include/plink2_string.h"
+#include "include/plink2_thread.h"
 
 #include <errno.h>
 #include <stdarg.h>
@@ -408,28 +408,9 @@ CONSTI32(kNonBigstackMin, 67108864);
 CONSTI32(kBigstackMinMib, 640);
 CONSTI32(kBigstackDefaultMib, 2048);
 
-static const double kE = 2.7182818284590452;
-static const double kPi = 3.1415926535897932;
-static const double kSqrt2 = 1.4142135623730951;
-static const double kRecipE = 0.36787944117144233;
-static const double kLn2 = 0.6931471805599453;
-static const double kRecip2m53 = 0.00000000000000011102230246251565404236316680908203125;
+static const double kSmallishEpsilon = 0.00000000002910383045673370361328125;
 static const double kRecip2m32 = 0.00000000023283064365386962890625;
 static const double k2m64 = 18446744073709551616.0;
-
-// floating point comparison-to-nonzero tolerance, currently 2^{-30}
-static const double kEpsilon = 0.000000000931322574615478515625;
-// less tolerant versions (2^{-35}, 2^{-44}) for some exact calculations
-static const double kSmallishEpsilon = 0.00000000002910383045673370361328125;
-static const double kSmallEpsilon = 0.00000000000005684341886080801486968994140625;
-
-// 2^{-21}, must be >= sqrt(kSmallEpsilon)
-static const double kBigEpsilon = 0.000000476837158203125;
-
-// 2^{-83} bias to give exact tests maximum ability to determine tiny p-values.
-// (~2^{-53} is necessary to take advantage of denormalized small numbers, then
-// allow tail sum to be up to 2^30.)
-static const double kExactTestBias = 0.00000000000000000000000010339757656912845935892608650874535669572651386260986328125;
 
 static const double kLnPvalError = 9.0;
 

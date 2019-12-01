@@ -15,10 +15,10 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
+#include "include/plink2_stats.h"
 #include "plink2_compress_stream.h"
 #include "plink2_data.h"
 #include "plink2_misc.h"
-#include "plink2_stats.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -3574,8 +3574,6 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
       FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
       CopyBitarrSubset(sex_male, sample_include, sample_ct, sex_male_collapsed);
       FillCumulativePopcounts(sex_male, raw_sample_ctl, sex_male_cumulative_popcounts);
-      // currently clear in front of every chromosome
-      // PgrClearLdCache(simple_pgrp);
     }
     // Will need to remove quadratic dependency on max_allele_ct if
     // sizeof(AlleleCode) > 1.
@@ -3676,7 +3674,6 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
     const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
     const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
     const uintptr_t* cur_sample_include = nullptr;
-    const uint32_t* cur_cumulative_popcounts = nullptr;
     uintptr_t variant_uidx_base = 0;
     uintptr_t cur_bits = variant_include[0];
     uint32_t is_autosomal_diploid = 0;
@@ -3694,6 +3691,8 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
     uint32_t next_print_variant_idx = variant_ct / 100;
     printf("--geno-counts%s: 0%%", output_zst? " zs" : "");
     fflush(stdout);
+    PgrSampleSubsetIndex pssi;
+    PgrClearSampleSubsetIndex(simple_pgrp, &pssi);
     uint32_t allele_ct = 2;
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
       const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
@@ -3710,8 +3709,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
         nobs_base = sample_ct;
         is_x = (chr_idx == x_code);
         cur_sample_include = sample_include;
-        cur_cumulative_popcounts = sample_include_cumulative_popcounts;
-        PgrClearLdCache(simple_pgrp);
+        const uint32_t* cur_cumulative_popcounts = sample_include_cumulative_popcounts;
         if (!is_autosomal_diploid) {
           if (chr_idx == y_code) {
             cur_sample_include = sex_male;
@@ -3719,6 +3717,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
             nobs_base = male_ct;
           }
         }
+        PgrSetSampleSubsetIndex(cur_cumulative_popcounts, simple_pgrp, &pssi);
         homref_ct = 0;
         het_ct = 0;
         homalt1_ct = 0;
@@ -3855,7 +3854,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
           }
         }
       } else {
-        reterr = PgrGetM(cur_sample_include, cur_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, &pgv);
+        reterr = PgrGetM(cur_sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
         if (unlikely(reterr)) {
           goto WriteGenoCounts_ret_PGR_FAIL;
         }
@@ -4500,8 +4499,9 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
             bigstack_alloc_u32(max_allele_ct, &two_cts))) {
       goto GetMultiallelicMarginalCounts_ret_NOMEM;
     }
-    PgrClearLdCache(simple_pgrp);
     if (autosomal_xallele_ct) {
+      PgrSampleSubsetIndex pssi;
+      PgrSetSampleSubsetIndex(cumulative_popcounts, simple_pgrp, &pssi);
       uint32_t chr_fo_idx = UINT32_MAX;
       uint32_t chr_end = 0;
       uintptr_t variant_uidx_base = 0;
@@ -4521,7 +4521,7 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
         }
         const uint32_t allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
         if (allele_ct > 2) {
-          reterr = PgrGetM(founder_info, cumulative_popcounts, founder_ct, variant_uidx, simple_pgrp, &pgv);
+          reterr = PgrGetM(founder_info, pssi, founder_ct, variant_uidx, simple_pgrp, &pgv);
           if (unlikely(reterr)) {
             goto GetMultiallelicMarginalCounts_ret_PGR_FAIL;
           }
@@ -4560,7 +4560,6 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
     }
     if (x_xallele_ct) {
       // Related to multiallelic-chrX --geno-counts implementation.
-      PgrClearLdCache(simple_pgrp);
       uintptr_t* founder_knownsex;
       if (unlikely(bigstack_alloc_w(raw_sample_ctl, &founder_knownsex))) {
         goto GetMultiallelicMarginalCounts_ret_NOMEM;
@@ -4569,6 +4568,8 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
       FillCumulativePopcounts(founder_knownsex, raw_sample_ctl, cumulative_popcounts);
       const uint32_t founder_x_ct = cumulative_popcounts[raw_sample_ctl - 1] + PopcountWord(founder_knownsex[raw_sample_ctl - 1]);
       const uint32_t founder_x_ctaw = BitCtToAlignedWordCt(founder_x_ct);
+      PgrSampleSubsetIndex pssi;
+      PgrSetSampleSubsetIndex(cumulative_popcounts, simple_pgrp, &pssi);
       uintptr_t* founder_male_collapsed;
       uintptr_t* founder_male_interleaved_vec;
       if (unlikely(
@@ -4592,7 +4593,7 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
         const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
         const uint32_t allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
         if (allele_ct > 2) {
-          reterr = PgrGetM(founder_knownsex, cumulative_popcounts, founder_x_ct, variant_uidx, simple_pgrp, &pgv);
+          reterr = PgrGetM(founder_knownsex, pssi, founder_x_ct, variant_uidx, simple_pgrp, &pgv);
           if (unlikely(reterr)) {
             goto GetMultiallelicMarginalCounts_ret_PGR_FAIL;
           }
@@ -5803,7 +5804,9 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
   const uintptr_t* allele_idx_offsets = ctx->allele_idx_offsets;
   const char* const* allele_storage = ctx->allele_storage;
   const uintptr_t* sample_include = ctx->sample_include;
-  const uint32_t* sample_include_cumulative_popcounts = ctx->sample_include_cumulative_popcounts;
+  PgenReader* pgrp = ctx->pgr_ptrs[tidx];
+  PgrSampleSubsetIndex pssi;
+  PgrSetSampleSubsetIndex(ctx->sample_include_cumulative_popcounts, pgrp, &pssi);
   const uintptr_t* sex_male_collapsed = ctx->sex_male_collapsed;
   const uintptr_t sample_ct = ctx->sample_ct;
   const uint32_t male_ct = ctx->male_ct;
@@ -5881,7 +5884,6 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
 
   uint32_t cur_allele_ct = 2;
   do {
-    PgenReader* pgrp = ctx->pgr_ptrs[tidx];
     const uint32_t cur_block_size = ctx->cur_block_size;
     const uint32_t cur_idx_ct = (((tidx + 1) * cur_block_size) / calc_thread_ct) - ((tidx * cur_block_size) / calc_thread_ct);
     uintptr_t variant_uidx_base;
@@ -5936,7 +5938,7 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
         // Finally, a scenario where exposing this capability really pays off.
         uint32_t difflist_common_geno;
         uint32_t difflist_len;
-        PglErr reterr = PgrGetDifflistOrGenovec(sample_include, sample_include_cumulative_popcounts, sample_ct, max_simple_difflist_len, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+        PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_simple_difflist_len, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
         if (unlikely(reterr)) {
           ctx->reterr = reterr;
           break;
@@ -6064,7 +6066,7 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
         continue;
       }
       // Multiallelic case.
-      PglErr reterr = PgrGetM(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, &pgv);
+      PglErr reterr = PgrGetM(sample_include, pssi, sample_ct, variant_uidx, pgrp, &pgv);
       if (unlikely(reterr)) {
         ctx->reterr = reterr;
         break;
@@ -7439,7 +7441,8 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
     uint32_t allele_ct = 2;
     fputs("--sample-diff counts-only: 0%", stdout);
     fflush(stdout);
-    PgrClearLdCache(simple_pgrp);
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
       const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
       if (variant_uidx >= chr_end) {
@@ -7457,15 +7460,15 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
       }
       if (allele_ct == 2) {
         if (!dosage_needed) {
-          reterr = PgrGet(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, pgv.genovec);
+          reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, pgv.genovec);
         } else {
-          reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &pgv.dosage_ct);
+          reterr = PgrGetD(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &pgv.dosage_ct);
         }
       } else {
         if (!dosage_needed) {
-          reterr = PgrGetM(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, &pgv);
+          reterr = PgrGetM(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
         } else {
-          reterr = PgrGetMD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, &pgv);
+          reterr = PgrGetMD(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
         }
         if ((!pgv.patch_01_ct) && (!pgv.patch_10_ct)) {
           // todo: also check for multidosage
@@ -8064,7 +8067,8 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
     uint32_t pct = 0;
     uint32_t next_print_variant_idx = variant_ct / 100;
     uint32_t allele_ct = 2;
-    PgrClearLdCache(simple_pgrp);
+    PgrSampleSubsetIndex pssi;
+    PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
       const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
       if (variant_uidx >= chr_end) {
@@ -8089,15 +8093,15 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
       }
       if (allele_ct == 2) {
         if (!dosage_needed) {
-          reterr = PgrGet(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, pgv.genovec);
+          reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, pgv.genovec);
         } else {
-          reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &pgv.dosage_ct);
+          reterr = PgrGetD(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &pgv.dosage_ct);
         }
       } else {
         if (!dosage_needed) {
-          reterr = PgrGetM(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, &pgv);
+          reterr = PgrGetM(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
         } else {
-          reterr = PgrGetMD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, &pgv);
+          reterr = PgrGetMD(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
         }
         if ((!pgv.patch_01_ct) && (!pgv.patch_10_ct)) {
           // todo: also check for multidosage

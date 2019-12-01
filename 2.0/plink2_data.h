@@ -57,35 +57,6 @@ FLAGSET_DEF_START()
   kfMakePgenEraseDosage = (1 << 21)
 FLAGSET_DEF_END(MakePlink2Flags);
 
-FLAGSET_DEF_START()
-  kfPvarPsam0,
-  kfPvarZs = (1 << 0),
-
-  kfPvarColXheader = (1 << 1),
-  kfPvarColMaybequal = (1 << 2),
-  kfPvarColQual = (1 << 3),
-  kfPvarColMaybefilter = (1 << 4),
-  kfPvarColFilter = (1 << 5),
-  kfPvarColMaybeinfo = (1 << 6),
-  kfPvarColInfo = (1 << 7),
-  kfPvarColXinfo = (kfPvarColInfo * 2) - kfPvarColMaybeinfo,
-  kfPvarColMaybecm = (1 << 8),
-  kfPvarColCm = (1 << 9),
-  kfPvarColDefault = (kfPvarColXheader | kfPvarColMaybequal | kfPvarColMaybefilter | kfPvarColMaybeinfo | kfPvarColMaybecm),
-  kfPvarColAll = ((kfPvarColCm * 2) - kfPvarColXheader),
-  kfPsamColMaybefid = (1 << 10),
-  kfPsamColFid = (1 << 11),
-  kfPsamColMaybesid = (1 << 12),
-  kfPsamColSid = (1 << 13),
-  kfPsamColMaybeparents = (1 << 14),
-  kfPsamColParents = (1 << 15),
-  kfPsamColSex = (1 << 16),
-  kfPsamColPheno1 = (1 << 17),
-  kfPsamColPhenos = (1 << 18),
-  kfPsamColDefault = (kfPsamColMaybefid | kfPsamColMaybesid | kfPsamColMaybeparents | kfPsamColSex | kfPsamColPhenos),
-  kfPsamColAll = ((kfPsamColPhenos * 2) - kfPsamColMaybefid)
-FLAGSET_DEF_END(PvarPsamFlags);
-
 CONSTI32(kMaxInfoKeySlen, kMaxIdSlen);
 #define MAX_INFO_KEY_SLEN_STR MAX_ID_SLEN_STR
 

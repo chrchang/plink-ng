@@ -19,7 +19,7 @@
 
 
 #include "plink2_common.h"
-#include "SFMT.h"
+#include "include/SFMT.h"
 
 #ifdef __cplusplus
 namespace plink2 {

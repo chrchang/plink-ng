@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-#include "pgenlib_write.h"
+#include "include/pgenlib_write.h"
 #include "plink2_compress_stream.h"
 #include "plink2_data.h"
 #include "plink2_pvar.h"
@@ -796,7 +796,7 @@ PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const Ped
                   // [1, 2] (could be reasonable to represent XXY, etc. with
                   // decimals).
                   if (unlikely(((dxx < 1.0) && (dxx != -9.0) && (dxx != 0.0)) || (dxx > 2.0))) {
-                    logerrputs("Error: .psam SEX values are expected to be in {-9, 0, 1, 2}.\n");
+                    logerrputs("Error: .psam numeric SEX values are expected to be in {-9, 0, 1, 2}.\n");
                     goto WritePsam_ret_INCONSISTENT_INPUT;
                   }
                 }
@@ -838,7 +838,7 @@ PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const Ped
                     if (IsSet(pheno_nm, sample_uidx)) {
                       const uint32_t cur_cat_idx = pheno_vals[sample_uidx];
                       if (unlikely((cur_cat_idx != male_cat_idx1) && (cur_cat_idx != female_cat_idx1) && (cur_cat_idx != male_cat_idx2) && (cur_cat_idx != female_cat_idx2))) {
-                        logerrputs("Error: .psam SEX values are expected to be in {'F', 'f', 'M', 'm'}.\n");
+                        logerrputs("Error: .psam alphabetic SEX values are expected to be in {'F', 'f', 'M', 'm'}.\n");
                         goto WritePsam_ret_INCONSISTENT_INPUT;
                       }
                     }
@@ -1559,6 +1559,8 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
     const uint32_t no_multiallelic_branch = (!variant_hethap_cts) && (!allele_presents_bytearr) && (!allele_dosages) && (!imp_r2_vals);
     pgv.dosage_ct = 0;
     for (uint32_t subset_idx = 0; ; ) {
+      PgrSampleSubsetIndex pssi;
+      PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, pgrp, &pssi);
       uint32_t cur_idx = (tidx * cur_block_size) / thread_ct;
       uintptr_t variant_uidx_base;
       uintptr_t variant_include_bits;
@@ -1579,14 +1581,19 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
           is_nonxy_haploid = 0;
           if (chr_idx == x_code) {
             is_x_or_y = 1;
-            PgrClearLdCache(pgrp);
+            PgrClearSampleSubsetIndex(pgrp, &pssi);
           } else if (chr_idx == y_code) {
             is_x_or_y = 1;
             is_y = 1;
-            PgrClearLdCache(pgrp);
+            // ugh
+            if ((!allele_presents_bytearr) || (sample_ct == male_ct)) {
+              PgrSetSampleSubsetIndex(sex_male_cumulative_popcounts, pgrp, &pssi);
+            } else {
+              PgrClearSampleSubsetIndex(pgrp, &pssi);
+            }
           } else {
             if (is_x_or_y) {
-              PgrClearLdCache(pgrp);
+              PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, pgrp, &pssi);
             }
             is_x_or_y = 0;
             // true for MT
@@ -1604,7 +1611,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
         if ((allele_ct == 2) || no_multiallelic_branch) {
           uint64_t cur_dosages[2];
           if (!is_x_or_y) {
-            reterr = PgrGetDCounts(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, variant_uidx, is_minimac3_r2, pgrp, imp_r2_vals? (&(imp_r2_vals[variant_uidx])) : nullptr, genocounts, cur_dosages);
+            reterr = PgrGetDCounts(sample_include, sample_include_interleaved_vec, pssi, sample_ct, variant_uidx, is_minimac3_r2, pgrp, imp_r2_vals? (&(imp_r2_vals[variant_uidx])) : nullptr, genocounts, cur_dosages);
             if (unlikely(reterr)) {
               ctx->reterr = reterr;
               break;
@@ -1640,7 +1647,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
             }
           } else if (is_y) {
             if ((!allele_presents_bytearr) || (sample_ct == male_ct)) {
-              reterr = PgrGetDCounts(sex_male, sex_male_interleaved_vec, sex_male_cumulative_popcounts, male_ct, variant_uidx, 0, pgrp, imp_r2_vals? (&(imp_r2_vals[variant_uidx])) : nullptr, genocounts, cur_dosages);
+              reterr = PgrGetDCounts(sex_male, sex_male_interleaved_vec, pssi, male_ct, variant_uidx, 0, pgrp, imp_r2_vals? (&(imp_r2_vals[variant_uidx])) : nullptr, genocounts, cur_dosages);
               if (unlikely(reterr)) {
                 ctx->reterr = reterr;
                 break;
@@ -1665,7 +1672,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
             } else {
               // ugh, need to count female/unknown-sex for allele_presents and
               // ignore elsewhere
-              reterr = PgrGetD(nullptr, nullptr, raw_sample_ct, variant_uidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &pgv.dosage_ct);
+              reterr = PgrGetD(nullptr, pssi, raw_sample_ct, variant_uidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &pgv.dosage_ct);
               if (unlikely(reterr)) {
                 ctx->reterr = reterr;
                 break;
@@ -1741,7 +1748,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
             }
           } else {
             // chrX
-            reterr = PgrGetD(nullptr, nullptr, raw_sample_ct, variant_uidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &pgv.dosage_ct);
+            reterr = PgrGetD(nullptr, pssi, raw_sample_ct, variant_uidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &pgv.dosage_ct);
             if (unlikely(reterr)) {
               ctx->reterr = reterr;
               break;
@@ -1861,7 +1868,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
         } else {
           // multiallelic cases
           if (!is_x_or_y) {
-            reterr = PgrGetMDCounts(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, variant_uidx, is_minimac3_r2, pgrp, imp_r2_vals? (&(imp_r2_vals[variant_uidx])) : nullptr, &hethap_ct, genocounts, all_dosages);
+            reterr = PgrGetMDCounts(sample_include, sample_include_interleaved_vec, pssi, sample_ct, variant_uidx, is_minimac3_r2, pgrp, imp_r2_vals? (&(imp_r2_vals[variant_uidx])) : nullptr, &hethap_ct, genocounts, all_dosages);
             if (unlikely(reterr)) {
               ctx->reterr = reterr;
               break;
@@ -1890,7 +1897,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
             }
           } else if (is_y) {
             if ((!allele_presents_bytearr) || (sample_ct == male_ct)) {
-              reterr = PgrGetMDCounts(sex_male, sex_male_interleaved_vec, sex_male_cumulative_popcounts, male_ct, variant_uidx, 0, pgrp, imp_r2_vals? (&(imp_r2_vals[variant_uidx])) : nullptr, &hethap_ct, genocounts, all_dosages);
+              reterr = PgrGetMDCounts(sex_male, sex_male_interleaved_vec, pssi, male_ct, variant_uidx, 0, pgrp, imp_r2_vals? (&(imp_r2_vals[variant_uidx])) : nullptr, &hethap_ct, genocounts, all_dosages);
               if (unlikely(reterr)) {
                 ctx->reterr = reterr;
                 break;
@@ -1911,7 +1918,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
             } else {
               // need to count female/unknown-sex for allele_presents and
               // ignore elsewhere
-              reterr = PgrGetM(nullptr, nullptr, raw_sample_ct, variant_uidx, pgrp, &pgv);
+              reterr = PgrGetM(nullptr, pssi, raw_sample_ct, variant_uidx, pgrp, &pgv);
               if (unlikely(reterr)) {
                 ctx->reterr = reterr;
                 break;
@@ -1953,7 +1960,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
           } else {
             // chrX
             // multiallelic dosages not supported yet
-            reterr = PgrGetM(nullptr, nullptr, raw_sample_ct, variant_uidx, pgrp, &pgv);
+            reterr = PgrGetM(nullptr, pssi, raw_sample_ct, variant_uidx, pgrp, &pgv);
             if (unlikely(reterr)) {
               ctx->reterr = reterr;
               break;
@@ -2073,7 +2080,6 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
       x_male_geno_cts = ctx->founder_x_male_geno_cts;
       x_nosex_geno_cts = ctx->founder_x_nosex_geno_cts;
       imp_r2_vals = nullptr;
-      PgrClearLdCache(pgrp);
     }
   } while (!THREAD_BLOCK_FINISH(arg));
   THREAD_RETURN;
@@ -4470,7 +4476,8 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* raw_arg) {
   const uintptr_t* variant_include = ctx->variant_include;
   const ChrInfo* cip = mcp->cip;
   const uintptr_t* sample_include = mcp->sample_include;
-  const uint32_t* sample_include_cumulative_popcounts = ctx->sample_include_cumulative_popcounts;
+  PgrSampleSubsetIndex pssi;
+  PgrSetSampleSubsetIndex(ctx->sample_include_cumulative_popcounts, pgrp, &pssi);
   const uintptr_t* sex_male_collapsed_interleaved = mcp->sex_male_collapsed_interleaved;
   const uintptr_t* sex_female_collapsed_interleaved = mcp->sex_female_collapsed_interleaved;
   const uint32_t* collapsed_sort_map = ctx->collapsed_sort_map;
@@ -4530,7 +4537,7 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* raw_arg) {
         //   if split: call PgrGet1()
         //   otherwise, if erase-alt2+: call PgrGet2()
         //   otherwise, error out
-        PglErr reterr = PgrGet(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec);
+        PglErr reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, pgrp, genovec);
         if (unlikely(reterr)) {
           ctx->reterr = reterr;
           break;
@@ -4546,7 +4553,7 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* raw_arg) {
         //    otherwise, if refalt1_select + erase-alt2+: call PgrGetMD(),
         //      rescale
         //    otherwise, error out
-        PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
+        PglErr reterr = PgrGetD(sample_include, pssi, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
         if (unlikely(reterr)) {
           ctx->reterr = reterr;
           break;
@@ -5933,7 +5940,8 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       uint32_t write_aidx = 1;
 
       uintptr_t cur_bits = variant_include[0];
-      PgrClearLdCache(simple_pgrp);
+      PgrSampleSubsetIndex null_pssi;
+      PgrClearSampleSubsetIndex(simple_pgrp, &null_pssi);
       for (uint32_t read_batch_idx = 0; ; ++read_batch_idx) {
         if (!IsLastBlock(&tg)) {
           if (read_batch_idx == batch_ct_m1) {
@@ -5979,9 +5987,9 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
               if (write_aidx == 1) {
                 // 1. read into normal, not raw representation
                 if (read_hphase_present) {
-                  reterr = PgrGetMDp(nullptr, nullptr, raw_sample_ct, read_variant_uidx, simple_pgrp, &pgv);
+                  reterr = PgrGetMDp(nullptr, null_pssi, raw_sample_ct, read_variant_uidx, simple_pgrp, &pgv);
                 } else {
-                  reterr = PgrGetMD(nullptr, nullptr, raw_sample_ct, read_variant_uidx, simple_pgrp, &pgv);
+                  reterr = PgrGetMD(nullptr, null_pssi, raw_sample_ct, read_variant_uidx, simple_pgrp, &pgv);
                 }
                 if (unlikely(reterr)) {
                   goto MakePgenRobust_ret_PGR_FAIL;

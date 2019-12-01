@@ -15,9 +15,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
+#include "include/plink2_stats.h"  // HweThresh(), etc.
 #include "plink2_filter.h"
 #include "plink2_random.h"
-#include "plink2_stats.h"  // HweThresh(), etc.
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -806,7 +806,6 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
     const char* first_info_str = nullptr;
     double first_cm = 0.0;
 
-    uint32_t* sample_include_cumulative_popcounts = nullptr;
     const uint32_t sample_ctb2 = NypCtToWordCt(sample_ct) * sizeof(intptr_t);
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     const uint32_t sample_ctb = sample_ctl * sizeof(intptr_t);
@@ -814,8 +813,10 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
     PreinitPgv(&first_pgv);
     PgenVariant cur_pgv;
     PreinitPgv(&cur_pgv);
+    PgrSampleSubsetIndex pssi;
     if (simple_pgrp && (rmdup_mode < kRmDupExcludeAll)) {
       const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+      uint32_t* sample_include_cumulative_popcounts;
       if (unlikely(
               bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
               BigstackAllocPgv(sample_ct, allele_idx_offsets != nullptr, PgrGetGflags(simple_pgrp), &first_pgv) ||
@@ -823,7 +824,9 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
         goto RmDup_ret_NOMEM;
       }
       FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
-      PgrClearLdCache(simple_pgrp);
+      PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
+    } else {
+      PgrClearSampleSubsetIndex(simple_pgrp, &pssi);
     }
     for (uint32_t variant_idx = 0; variant_idx != orig_dup_ct; ++variant_idx) {
       const uint32_t variant_uidx = BitIter1(orig_dups, &variant_uidx_base, &cur_bits);
@@ -992,7 +995,7 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
       }
       if ((!is_mismatch) && first_pgv.genovec) {
         // Avoid loading genotypes when possible.
-        reterr = PgrGetMDp(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, &first_pgv);
+        reterr = PgrGetMDp(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &first_pgv);
         if (unlikely(reterr)) {
           goto RmDup_ret_PGR_FAIL;
         }
@@ -1004,7 +1007,7 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
         is_mismatch = 1;
         for (uint32_t ll_variant_uidx = variant_uidx_ll_first; ; ll_variant_uidx = htable_dup_base[cur_llidx], cur_llidx = htable_dup_base[cur_llidx + 1]) {
           if ((variant_uidx != ll_variant_uidx) && IsSet(orig_dups, ll_variant_uidx)) {
-            reterr = PgrGetMDp(sample_include, sample_include_cumulative_popcounts, sample_ct, ll_variant_uidx, simple_pgrp, &cur_pgv);
+            reterr = PgrGetMDp(sample_include, pssi, sample_ct, ll_variant_uidx, simple_pgrp, &cur_pgv);
             if (unlikely(reterr)) {
               goto RmDup_ret_PGR_FAIL;
             }
@@ -3308,6 +3311,8 @@ THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* raw_arg) {
   uint64_t new_err_info = 0;
   do {
     PgenReader* pgrp = ctx->pgr_ptrs[tidx];
+    PgrSampleSubsetIndex null_pssi;
+    PgrClearSampleSubsetIndex(pgrp, &null_pssi);
     const uint32_t cur_block_size = ctx->cur_block_size;
     const uint32_t cur_idx_ct = (((tidx + 1) * cur_block_size) / calc_thread_ct) - ((tidx * cur_block_size) / calc_thread_ct);
     uintptr_t variant_uidx_base;
@@ -3339,7 +3344,7 @@ THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* raw_arg) {
       // could instead have missing_hc and (missing_hc - missing_dosage); that
       // has the advantage of letting you skip one of the two increment
       // operations when the variant is all hardcalls.
-      PglErr reterr = PgrGetMissingnessD(nullptr, nullptr, raw_sample_ct, variant_uidx, pgrp, missing_hc_acc1, missing_dosage_acc1, cur_hets, genovec_buf);
+      PglErr reterr = PgrGetMissingnessD(nullptr, null_pssi, raw_sample_ct, variant_uidx, pgrp, missing_hc_acc1, missing_dosage_acc1, cur_hets, genovec_buf);
       if (unlikely(reterr)) {
         new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
         goto LoadSampleMissingCtsThread_err;

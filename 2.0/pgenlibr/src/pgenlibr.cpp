@@ -1,5 +1,5 @@
 #include "pgenlib_ffi_support.h"
-#include "pgenlib_read.h"
+#include "include/pgenlib_read.h"
 #include "pvar.h"  // includes Rcpp
 
 class RPgenReader {
@@ -58,6 +58,7 @@ private:
   uintptr_t* _subset_include_vec;
   uintptr_t* _subset_include_interleaved_vec;
   uint32_t* _subset_cumulative_popcounts;
+  plink2::PgrSampleSubsetIndex _subset_index;
   uint32_t _subset_size;
 
   plink2::PgenVariant _pgv;
@@ -310,7 +311,7 @@ void RPgenReader::ReadIntHardcalls(IntegerVector buf, int variant_idx, int allel
     sprintf(errstr_buf, "buf has wrong length (%" PRIdPTR "; %u expected)", buf.size(), _subset_size);
     stop(errstr_buf);
   }
-  plink2::PglErr reterr = PgrGet1(_subset_include_vec, _subset_cumulative_popcounts, _subset_size, variant_idx, allele_idx, _state_ptr, _pgv.genovec);
+  plink2::PglErr reterr = PgrGet1(_subset_include_vec, _subset_index, _subset_size, variant_idx, allele_idx, _state_ptr, _pgv.genovec);
   if (reterr != plink2::kPglRetSuccess) {
     char errstr_buf[256];
     sprintf(errstr_buf, "PgrGet1() error %d", static_cast<int>(reterr));
@@ -335,7 +336,7 @@ void RPgenReader::ReadHardcalls(NumericVector buf, int variant_idx, int allele_i
     sprintf(errstr_buf, "buf has wrong length (%" PRIdPTR "; %u expected)", buf.size(), _subset_size);
     stop(errstr_buf);
   }
-  plink2::PglErr reterr = PgrGet1(_subset_include_vec, _subset_cumulative_popcounts, _subset_size, variant_idx, allele_idx, _state_ptr, _pgv.genovec);
+  plink2::PglErr reterr = PgrGet1(_subset_include_vec, _subset_index, _subset_size, variant_idx, allele_idx, _state_ptr, _pgv.genovec);
   if (reterr != plink2::kPglRetSuccess) {
     char errstr_buf[256];
     sprintf(errstr_buf, "PgrGet1() error %d", static_cast<int>(reterr));
@@ -359,7 +360,7 @@ void RPgenReader::Read(NumericVector buf, int variant_idx, int allele_idx) {
     stop(errstr_buf);
   }
   uint32_t dosage_ct;
-  plink2::PglErr reterr = PgrGet1D(_subset_include_vec, _subset_cumulative_popcounts, _subset_size, variant_idx, allele_idx, _state_ptr, _pgv.genovec, _pgv.dosage_present, _pgv.dosage_main, &dosage_ct);
+  plink2::PglErr reterr = PgrGet1D(_subset_include_vec, _subset_index, _subset_size, variant_idx, allele_idx, _state_ptr, _pgv.genovec, _pgv.dosage_present, _pgv.dosage_main, &dosage_ct);
   if (reterr != plink2::kPglRetSuccess) {
     char errstr_buf[256];
     sprintf(errstr_buf, "PgrGet1D() error %d", static_cast<int>(reterr));
@@ -539,7 +540,7 @@ void RPgenReader::ReadIntList(IntegerMatrix buf, IntegerVector variant_subset) {
       sprintf(errstr_buf, "variant_subset element out of range (%d; must be 1..%u)", variant_idx + 1, raw_variant_ct);
       stop(errstr_buf);
     }
-    plink2::PglErr reterr = PgrGet(_subset_include_vec, _subset_cumulative_popcounts, _subset_size, variant_idx, _state_ptr, _pgv.genovec);
+    plink2::PglErr reterr = PgrGet(_subset_include_vec, _subset_index, _subset_size, variant_idx, _state_ptr, _pgv.genovec);
     if (reterr != plink2::kPglRetSuccess) {
       char errstr_buf[256];
       sprintf(errstr_buf, "PgrGet() error %d", static_cast<int>(reterr));
@@ -566,7 +567,7 @@ void RPgenReader::ReadList(NumericMatrix buf, IntegerVector variant_subset, bool
       stop(errstr_buf);
     }
     uint32_t dosage_ct;
-    plink2::PglErr reterr = PgrGetD(_subset_include_vec, _subset_cumulative_popcounts, _subset_size, variant_idx, _state_ptr, _pgv.genovec, _pgv.dosage_present, _pgv.dosage_main, &dosage_ct);
+    plink2::PglErr reterr = PgrGetD(_subset_include_vec, _subset_index, _subset_size, variant_idx, _state_ptr, _pgv.genovec, _pgv.dosage_present, _pgv.dosage_main, &dosage_ct);
     if (reterr != plink2::kPglRetSuccess) {
       char errstr_buf[256];
       sprintf(errstr_buf, "PgrGetD() error %d", static_cast<int>(reterr));
@@ -614,7 +615,7 @@ void RPgenReader::FillVariantScores(NumericVector result, NumericVector weights,
       }
     }
     uint32_t dosage_ct;
-    plink2::PglErr reterr = plink2::PgrGetD(_subset_include_vec, _subset_cumulative_popcounts, _subset_size, variant_idx, _state_ptr, _pgv.genovec, _pgv.dosage_present, _pgv.dosage_main, &dosage_ct);
+    plink2::PglErr reterr = plink2::PgrGetD(_subset_include_vec, _subset_index, _subset_size, variant_idx, _state_ptr, _pgv.genovec, _pgv.dosage_present, _pgv.dosage_main, &dosage_ct);
     if (reterr != plink2::kPglRetSuccess) {
       char errstr_buf[256];
       sprintf(errstr_buf, "PgrGetD() error %d", static_cast<int>(reterr));
@@ -686,6 +687,7 @@ void RPgenReader::SetSampleSubsetInternal(IntegerVector sample_subset_1based) {
   plink2::FillInterleavedMaskVec(sample_include, raw_sample_ctv, _subset_include_interleaved_vec);
   const uint32_t raw_sample_ctl = plink2::DivUp(raw_sample_ct, plink2::kBitsPerWord);
   plink2::FillCumulativePopcounts(sample_include, raw_sample_ctl, _subset_cumulative_popcounts);
+  plink2::PgrSetSampleSubsetIndex(_subset_cumulative_popcounts, _state_ptr, &_subset_index);
   _subset_size = subset_size;
 }
 
@@ -695,7 +697,7 @@ void RPgenReader::ReadAllelesPhasedInternal(int variant_idx) {
     sprintf(errstr_buf, "variant_num out of range (%d; must be 1..%u)", variant_idx + 1, _info_ptr->raw_variant_ct);
     stop(errstr_buf);
   }
-  plink2::PglErr reterr = plink2::PgrGetMP(_subset_include_vec, _subset_cumulative_popcounts, _subset_size, variant_idx, _state_ptr, &_pgv);
+  plink2::PglErr reterr = plink2::PgrGetMP(_subset_include_vec, _subset_index, _subset_size, variant_idx, _state_ptr, &_pgv);
   if (reterr != plink2::kPglRetSuccess) {
     char errstr_buf[256];
     sprintf(errstr_buf, "PgrGetMP() error %d", static_cast<int>(reterr));

@@ -23,7 +23,7 @@
 // 2-bit genotypes).  More generic library code has been moved to plink2_base
 // and plink2_cmdline.
 
-#include "pgenlib_read.h"
+#include "include/pgenlib_read.h"
 #include "plink2_decompress.h"
 
 #ifdef __cplusplus
@@ -182,15 +182,6 @@ FLAGSET64_DEF_START()
 FLAGSET64_DEF_END(ExportfFlags);
 
 FLAGSET_DEF_START()
-  kfSampleId0,
-  kfSampleIdFidPresent = (1 << 0),
-  kfSampleIdParentsPresent = (1 << 1),
-  kfSampleIdNoIdHeader = (1 << 2),
-  kfSampleIdNoIdHeaderIidOnly = (1 << 3),
-  kfSampleIdStrictSid0 = (1 << 4)
-FLAGSET_DEF_END(SampleIdFlags);
-
-FLAGSET_DEF_START()
   kfInfo0,
   kfInfoPrFlagPresent = (1 << 0),
   kfInfoPrNonflagPresent = (1 << 1),
@@ -199,6 +190,44 @@ FLAGSET_DEF_START()
   // this is set in the .bim case
   kfInfoPrNonrefDefault = (1 << 3),
 FLAGSET_DEF_END(InfoFlags);
+
+FLAGSET_DEF_START()
+  kfPvarPsam0,
+  kfPvarZs = (1 << 0),
+
+  kfPvarColXheader = (1 << 1),
+  kfPvarColMaybequal = (1 << 2),
+  kfPvarColQual = (1 << 3),
+  kfPvarColMaybefilter = (1 << 4),
+  kfPvarColFilter = (1 << 5),
+  kfPvarColMaybeinfo = (1 << 6),
+  kfPvarColInfo = (1 << 7),
+  kfPvarColXinfo = (kfPvarColInfo * 2) - kfPvarColMaybeinfo,
+  kfPvarColMaybecm = (1 << 8),
+  kfPvarColCm = (1 << 9),
+  kfPvarColDefault = (kfPvarColXheader | kfPvarColMaybequal | kfPvarColMaybefilter | kfPvarColMaybeinfo | kfPvarColMaybecm),
+  kfPvarColAll = ((kfPvarColCm * 2) - kfPvarColXheader),
+  kfPsamColMaybefid = (1 << 10),
+  kfPsamColFid = (1 << 11),
+  kfPsamColMaybesid = (1 << 12),
+  kfPsamColSid = (1 << 13),
+  kfPsamColMaybeparents = (1 << 14),
+  kfPsamColParents = (1 << 15),
+  kfPsamColSex = (1 << 16),
+  kfPsamColPheno1 = (1 << 17),
+  kfPsamColPhenos = (1 << 18),
+  kfPsamColDefault = (kfPsamColMaybefid | kfPsamColMaybesid | kfPsamColMaybeparents | kfPsamColSex | kfPsamColPhenos),
+  kfPsamColAll = ((kfPsamColPhenos * 2) - kfPsamColMaybefid)
+FLAGSET_DEF_END(PvarPsamFlags);
+
+FLAGSET_DEF_START()
+  kfSampleId0,
+  kfSampleIdFidPresent = (1 << 0),
+  kfSampleIdParentsPresent = (1 << 1),
+  kfSampleIdNoIdHeader = (1 << 2),
+  kfSampleIdNoIdHeaderIidOnly = (1 << 3),
+  kfSampleIdStrictSid0 = (1 << 4)
+FLAGSET_DEF_END(SampleIdFlags);
 
 // These structs are small enough and ownership of the pointed-to arrays is
 // generall clear enough that the noncopyable annotation is just intended to be

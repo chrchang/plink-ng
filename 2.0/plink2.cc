@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
+#include "include/plink2_zstfile.h"
 #include "plink2_compress_stream.h"
 #include "plink2_export.h"
 #include "plink2_fasta.h"
@@ -29,7 +30,6 @@
 #include "plink2_pvar.h"
 #include "plink2_random.h"
 #include "plink2_set.h"
-#include "plink2_zstfile.h"
 
 #include <time.h>  // time()
 #include <unistd.h>  // unlink()
@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (28 Nov 2019)";
+  " (30 Nov 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""

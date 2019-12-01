@@ -35,7 +35,7 @@
 
 #include "plink2_string.h"
 #include "plink2_thread.h"
-#include "libdeflate/libdeflate.h"
+#include "../libdeflate/libdeflate.h"
 
 #ifdef __cplusplus
 namespace plink2 {

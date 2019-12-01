@@ -317,6 +317,45 @@ HEADER_INLINE void PgrClearLdCache(PgenReader* pgr_ptr) {
   pgrp->ldbase_vidx = 0x80000000U;
 }
 
+// Design change (30 Nov 2019): It is easy to forget to call PgrClearLdCache
+// when changing sample_include.  However, each sample_include change must be
+// accompanied by a sample_include_cumulative_popcounts update.  So, if we
+// define a sample_include_cumulative_popcounts wrapper-type which can only be
+// initialized by a function that also clears a PgenReader LD cache, and modify
+// all PgrGet... functions to require this wrapper-type, the frequency of
+// foot-shooting should go down.
+//
+// The key usage rule is: only use this as a local variable type, and define
+// only one of these per function (unless you're using multiple PgenReaders
+// simultaneously, anyway).  If you're changing the sample-subset when entering
+// and exiting chrY, call PgrSetSampleSubsetIndex on your single
+// PgrSampleSubsetIndex at the time you're crossing a chrY boundary.  Don't
+// define two preinitialized PgrSetSampleSubsetIndexes...
+// (possible todo: if compiling as C++ and NDEBUG isn't defined, add a counter
+// field to PgenReader which is initialized to zero, asserted to be zero and
+// then incremented by PgrSetSampleSubsetIndex, and decremented by the
+// PgrSampleSubsetIndex destructor.)
+typedef struct PgrSampleSubsetIndexStruct {
+#ifdef __cplusplus
+  const uint32_t*& GET_PRIVATE_cumulative_popcounts() { return cumulative_popcounts; }
+  const uint32_t* const& GET_PRIVATE_cumulative_popcounts() const { return cumulative_popcounts; }
+ private:
+#endif
+  const uint32_t* cumulative_popcounts;
+} PgrSampleSubsetIndex;
+
+HEADER_INLINE void PgrSetSampleSubsetIndex(const uint32_t* sample_include_cumulative_popcounts, PgenReader* pgr_ptr, PgrSampleSubsetIndex* pssi_ptr) {
+  GET_PRIVATE(*pssi_ptr, cumulative_popcounts) = sample_include_cumulative_popcounts;
+  PgrClearLdCache(pgr_ptr);
+}
+
+HEADER_INLINE void PgrClearSampleSubsetIndex(PgenReader* pgr_ptr, PgrSampleSubsetIndex* pssi_ptr) {
+  GET_PRIVATE(*pssi_ptr, cumulative_popcounts) = nullptr;
+  if (pgr_ptr) {
+    PgrClearLdCache(pgr_ptr);
+  }
+}
+
 HEADER_INLINE void PgrSetBaseAndOffset0(unsigned char* block_base, uint32_t thread_ct, PgenReader** pgr_ptr_arr) {
   for (uint32_t tidx = 0; tidx != thread_ct; ++tidx) {
     PgenReader* pgr_ptr = pgr_ptr_arr[tidx];
@@ -496,7 +535,7 @@ void PgrPlink2ToPlink1InplaceUnsafe(uint32_t sample_ct, uintptr_t* genovec);
 // nullptr).
 // sample_ct cannot be zero.  Trailing bits of genovec are not zeroed out.
 // Ok if genovec only has space for sample_ct values.
-PglErr PgrGet(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, uintptr_t* __restrict genovec);
+PglErr PgrGet(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, uintptr_t* __restrict genovec);
 
 // Loads the specified variant as a difflist if that's more efficient, setting
 // difflist_common_geno to the common genotype value in that case.  Otherwise,
@@ -507,16 +546,16 @@ PglErr PgrGet(const uintptr_t* __restrict sample_include, const uint32_t* __rest
 // Note that the returned difflist_len can be much larger than
 // max_simple_difflist_len when the variant is LD-encoded; it's bounded by
 //   2 * (raw_sample_ct / kPglMaxDifflistLenDivisor).
-PglErr PgrGetDifflistOrGenovec(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t max_simple_difflist_len, uint32_t vidx, PgenReader* pgr_ptr, uintptr_t* __restrict genovec, uint32_t* difflist_common_geno_ptr, uintptr_t* __restrict main_raregeno, uint32_t* __restrict difflist_sample_ids, uint32_t* __restrict difflist_len_ptr);
+PglErr PgrGetDifflistOrGenovec(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t max_simple_difflist_len, uint32_t vidx, PgenReader* pgr_ptr, uintptr_t* __restrict genovec, uint32_t* difflist_common_geno_ptr, uintptr_t* __restrict main_raregeno, uint32_t* __restrict difflist_sample_ids, uint32_t* __restrict difflist_len_ptr);
 
 // genocounts[0] = # hom ref, [1] = # het ref, [2] = two alts, [3] = missing
-PglErr PgrGetCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts);
+PglErr PgrGetCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts);
 
 // genocounts[0] = # of hardcalls with two copies of specified allele
 // genocounts[1] = # of hardcalls with exactly one copy of specified allele
 // genocounts[2] = # of hardcalls with no copies
 // genocounts[3] = missing
-PglErr PgrGetInv1Counts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgr_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts);
+PglErr PgrGetInv1Counts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgr_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts);
 
 PglErr IMPLPgrGet1(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReaderMain* pgrp, uintptr_t* __restrict allele_countvec);
 
@@ -526,28 +565,31 @@ PglErr IMPLPgrGet1(const uintptr_t* __restrict sample_include, const uint32_t* _
 // Note that calling this with allele_idx == 0 is similar to a plink1 load
 // (except with missing == 0b11, of course).
 // todo: provide a difflist interface once anyone wants it.
-HEADER_INLINE PglErr PgrGet1(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgr_ptr, uintptr_t* __restrict allele_countvec) {
+HEADER_INLINE PglErr PgrGet1(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgr_ptr, uintptr_t* __restrict allele_countvec) {
   PgenReaderMain* pgrp = &GET_PRIVATE(*pgr_ptr, m);
+  const uint32_t* sample_include_cumulative_popcounts = GET_PRIVATE(pssi, cumulative_popcounts);
   return IMPLPgrGet1(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx, pgrp, allele_countvec);
 }
 
 PglErr IMPLPgrGetInv1(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReaderMain* pgrp, uintptr_t* __restrict allele_invcountvec);
 
-HEADER_INLINE PglErr PgrGetInv1(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgr_ptr, uintptr_t* __restrict allele_invcountvec) {
+HEADER_INLINE PglErr PgrGetInv1(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgr_ptr, uintptr_t* __restrict allele_invcountvec) {
   PgenReaderMain* pgrp = &GET_PRIVATE(*pgr_ptr, m);
+  const uint32_t* sample_include_cumulative_popcounts = GET_PRIVATE(pssi, cumulative_popcounts);
   return IMPLPgrGetInv1(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx, pgrp, allele_invcountvec);
 }
 
 PglErr IMPLPgrGet2(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx0, uint32_t allele_idx1, PgenReaderMain* pgrp, uintptr_t* __restrict genovec);
 
-HEADER_INLINE PglErr PgrGet2(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx0, uint32_t allele_idx1, PgenReader* pgr_ptr, uintptr_t* __restrict genovec) {
+HEADER_INLINE PglErr PgrGet2(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx0, uint32_t allele_idx1, PgenReader* pgr_ptr, uintptr_t* __restrict genovec) {
   PgenReaderMain* pgrp = &GET_PRIVATE(*pgr_ptr, m);
+  const uint32_t* sample_include_cumulative_popcounts = GET_PRIVATE(pssi, cumulative_popcounts);
   return IMPLPgrGet2(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx0, allele_idx1, pgrp, genovec);
 }
 
 void PreinitPgv(PgenVariant* pgvp);
 
-PglErr PgrGetM(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, PgenVariant* pgvp);
+PglErr PgrGetM(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, PgenVariant* pgvp);
 
 // possible todo: add functions which directly support MAF-based queries.  Note
 // that when the difflist representation is used, we can disqualify some
@@ -576,42 +618,44 @@ HEADER_INLINE void PgrDetectGenoarrHets(const uintptr_t* __restrict genoarr, uin
 void PgrDetectGenoarrHetsMultiallelic(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t raw_sample_ct, uintptr_t* __restrict all_hets);
 
 // cannot assume phaseinfo bit is clear when phasepresent is clear.
-PglErr PgrGetP(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* __restrict phasepresent_ct_ptr);
+PglErr PgrGetP(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* __restrict phasepresent_ct_ptr);
 
-PglErr PgrGet1P(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgr_ptr, uintptr_t* __restrict allele_countvec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* __restrict phasepresent_ct_ptr);
+PglErr PgrGet1P(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgr_ptr, uintptr_t* __restrict allele_countvec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* __restrict phasepresent_ct_ptr);
 
 PglErr IMPLPgrGetInv1P(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReaderMain* pgrp, uintptr_t* __restrict allele_invcountvec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* __restrict phasepresent_ct_ptr);
 
-HEADER_INLINE PglErr PgrGetInv1P(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgr_ptr, uintptr_t* __restrict allele_invcountvec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* __restrict phasepresent_ct_ptr) {
+HEADER_INLINE PglErr PgrGetInv1P(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgr_ptr, uintptr_t* __restrict allele_invcountvec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* __restrict phasepresent_ct_ptr) {
   PgenReaderMain* pgrp = &GET_PRIVATE(*pgr_ptr, m);
+  const uint32_t* sample_include_cumulative_popcounts = GET_PRIVATE(pssi, cumulative_popcounts);
   return IMPLPgrGetInv1P(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, allele_idx, pgrp, allele_invcountvec, phasepresent, phaseinfo, phasepresent_ct_ptr);
 }
 
-PglErr PgrGet2P(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx0, uint32_t allele_idx1, PgenReader* pgr_ptr, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* __restrict phasepresent_ct_ptr);
+PglErr PgrGet2P(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx0, uint32_t allele_idx1, PgenReader* pgr_ptr, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* __restrict phasepresent_ct_ptr);
 
-PglErr PgrGetMP(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, PgenVariant* pgvp);
+PglErr PgrGetMP(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, PgenVariant* pgvp);
 
 PglErr IMPLPgrGetD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderMain* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr);
 
 // if dosage_present and dosage_main are nullptr, dosage data is ignored
-HEADER_INLINE PglErr PgrGetD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr) {
+HEADER_INLINE PglErr PgrGetD(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr) {
   PgenReaderMain* pgrp = &GET_PRIVATE(*pgr_ptr, m);
+  const uint32_t* sample_include_cumulative_popcounts = GET_PRIVATE(pssi, cumulative_popcounts);
   return IMPLPgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, genovec, dosage_present, dosage_main, dosage_ct_ptr);
 }
 
-PglErr PgrGet1D(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgr_ptr, uintptr_t* __restrict allele_countvec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr);
+PglErr PgrGet1D(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgr_ptr, uintptr_t* __restrict allele_countvec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr);
 
-PglErr PgrGetInv1D(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgr_ptr, uintptr_t* __restrict allele_invcountvec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr);
+PglErr PgrGetInv1D(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgr_ptr, uintptr_t* __restrict allele_invcountvec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr);
 
 // When computing either form of imputation-r2, this function requires the
 // variant to be biallelic; PgrGetMDCounts must be called in that multiallelic
 // case.
 // imp_r2_ptr must be non-null when is_minimac3_r2 is set.
-PglErr PgrGetDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t is_minimac3_r2, PgenReader* pgr_ptr, double* imp_r2_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages);
+PglErr PgrGetDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, uint32_t is_minimac3_r2, PgenReader* pgr_ptr, double* imp_r2_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages);
 
-PglErr PgrGetMDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t is_minimac3_r2, PgenReader* pgr_ptr, double* __restrict imp_r2_ptr, uint32_t* __restrict het_ctp, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages);
+PglErr PgrGetMDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, uint32_t is_minimac3_r2, PgenReader* pgr_ptr, double* __restrict imp_r2_ptr, uint32_t* __restrict het_ctp, STD_ARRAY_REF(uint32_t, 4) genocounts, uint64_t* __restrict all_dosages);
 
-PglErr PgrGetMD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, PgenVariant* pgvp);
+PglErr PgrGetMD(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, PgenVariant* pgvp);
 
 PglErr IMPLPgrGetDp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderMain* pgrp, PgenVariant* pgvp);
 
@@ -619,15 +663,16 @@ PglErr IMPLPgrGetDp(const uintptr_t* __restrict sample_include, const uint32_t* 
 // is present
 // ok for dphase_present/dphase_delta to be nullptr; dphase_ct always set to 0
 // in that case
-HEADER_INLINE PglErr PgrGetDp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, PgenVariant* pgvp) {
+HEADER_INLINE PglErr PgrGetDp(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, PgenVariant* pgvp) {
   PgenReaderMain* pgrp = &GET_PRIVATE(*pgr_ptr, m);
+  const uint32_t* sample_include_cumulative_popcounts = GET_PRIVATE(pssi, cumulative_popcounts);
   return IMPLPgrGetDp(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, pgvp);
 }
 
 // pgvp->genovec filled with inverse-counts for specified allele
-PglErr PgrGetInv1Dp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgr_ptr, PgenVariant* pgvp);
+PglErr PgrGetInv1Dp(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgr_ptr, PgenVariant* pgvp);
 
-PglErr PgrGetMDp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, PgenVariant* pgvp);
+PglErr PgrGetMDp(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, PgenVariant* pgvp);
 
 // interface used by --make-pgen, just performs basic LD/difflist decompression
 // to maximize parallelism
@@ -637,12 +682,12 @@ PglErr PgrValidate(PgenReader* pgr_ptr, uintptr_t* genovec_buf, char* errstr_buf
 
 // missingness bit is set iff hardcall is not present (even if dosage info *is*
 // present)
-PglErr PgrGetMissingness(const uintptr_t* __restrict sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, uintptr_t* __restrict missingness, uintptr_t* __restrict genovec_buf);
+PglErr PgrGetMissingness(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, uintptr_t* __restrict missingness, uintptr_t* __restrict genovec_buf);
 
 // either missingness_hc (hardcall) or missingness_dosage must be non-null for
 // now
 // missingness_dosage must be vector-aligned
-PglErr PgrGetMissingnessD(const uintptr_t* __restrict sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, uintptr_t* __restrict missingness_hc, uintptr_t* __restrict missingness_dosage, uintptr_t* __restrict hets, uintptr_t* __restrict genovec_buf);
+PglErr PgrGetMissingnessD(const uintptr_t* __restrict sample_include, PgrSampleSubsetIndex pssi, uint32_t sample_ct, uint32_t vidx, PgenReader* pgr_ptr, uintptr_t* __restrict missingness_hc, uintptr_t* __restrict missingness_dosage, uintptr_t* __restrict hets, uintptr_t* __restrict genovec_buf);
 
 
 // error-return iff reterr was success and was changed to kPglRetReadFail (i.e.

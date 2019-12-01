@@ -18,12 +18,10 @@
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
 
-// This is in the process of being mostly swallowed by plink2_text.
-
 // This has been separated from plink2_cmdline due to the relatively
 // heavyweight dependence on zstd.
+#include "include/plink2_text.h"
 #include "plink2_cmdline.h"
-#include "plink2_text.h"
 
 #ifdef __cplusplus
 namespace plink2 {

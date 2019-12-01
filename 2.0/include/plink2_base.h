@@ -3443,4 +3443,4 @@ typedef uint32_t tname
 }  // namespace plink2
 #endif
 
-#endif  // __PGENLIB_INTERNAL_H__
+#endif  // __PLINK2_BASE_H__

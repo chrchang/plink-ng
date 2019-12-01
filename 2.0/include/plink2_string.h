@@ -72,6 +72,28 @@ CONSTI32(kMaxMediumLine, 131072);
 #  define FLT_MAX S_CAST(float, 3.40282347e38)
 #endif
 
+// These are needed by plink2_stats.  May want to define these elsewhere, but
+// they can't live in plink2_cmdline any more.
+static const double kE = 2.7182818284590452;
+static const double kPi = 3.1415926535897932;
+static const double kSqrt2 = 1.4142135623730951;
+static const double kRecipE = 0.36787944117144233;
+static const double kLn2 = 0.6931471805599453;
+static const double kRecip2m53 = 0.00000000000000011102230246251565404236316680908203125;
+
+// floating point comparison-to-nonzero tolerance, currently 2^{-30}
+static const double kEpsilon = 0.000000000931322574615478515625;
+// less tolerant versions (2^{-35}, 2^{-44}) for some exact calculations
+static const double kSmallEpsilon = 0.00000000000005684341886080801486968994140625;
+
+// 2^{-21}, must be >= sqrt(kSmallEpsilon)
+static const double kBigEpsilon = 0.000000476837158203125;
+
+// 2^{-83} bias to give exact tests maximum ability to determine tiny p-values.
+// (~2^{-53} is necessary to take advantage of denormalized small numbers, then
+// allow tail sum to be up to 2^30.)
+static const double kExactTestBias = 0.00000000000000000000000010339757656912845935892608650874535669572651386260986328125;
+
 #ifdef __cplusplus
 #  define STD_SORT(ct, fallback_cmp, arr) std::sort(&((arr)[0]), (&((arr)[ct])))
 #  if __cplusplus >= 201902L
