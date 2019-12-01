@@ -1,10 +1,10 @@
-This directory contains two (LGPL3-licensed) major libraries, as well as the
-PLINK 2.0 application built on top of them.  These are carefully written to be
-valid C99 (from gcc and clang's perspective, anyway) to simplify FFI
-development, while still taking advantage of quite a few C++-specific
-affordances to improve safety and occasionally performance.  They are currently
-x86-specific, but there are annotations to facilitate a possible future port to
-ARM.
+The include/ subdirectory contains two (LGPL3-licensed) major libraries, while
+the immediate directory contains the PLINK 2.0 application built on top of
+them.  These are carefully written to be valid C99 (from gcc and clang's
+perspective, anyway) to simplify FFI development, while still taking advantage
+of quite a few C++-specific affordances to improve safety and occasionally
+performance.  They are currently x86-specific, but there are annotations to
+facilitate a possible future port to ARM.
 
 The first library is plink2_text, which provides a pair of classes designed to
 replace std::getline(), fgets(), and similar ways of iterating over text lines.
