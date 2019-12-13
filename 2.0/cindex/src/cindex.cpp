@@ -101,7 +101,7 @@ double CIndex(NumericVector yhat, NumericVector y, SEXP status) {
   if (TYPEOF(status) == INTSXP) {
     IntegerVector status_iv = as<IntegerVector>(status);
     if (size != static_cast<uintptr_t>(status_iv.size())) {
-      plink2::vecaligned_free(wkspace);
+      plink2::aligned_free(wkspace);
       stop("y and status must have the same length");
     }
     const int32_t* status_ivi = &(status_iv[0]);
@@ -109,7 +109,7 @@ double CIndex(NumericVector yhat, NumericVector y, SEXP status) {
       recs[ulii].key = yd[ulii];
       const uint32_t uii = status_ivi[ulii];
       if (uii & (~1)) {
-        plink2::vecaligned_free(wkspace);
+        plink2::aligned_free(wkspace);
         stop("all status values must be 0 or 1");
       }
       recs[ulii].status = uii;
@@ -117,7 +117,7 @@ double CIndex(NumericVector yhat, NumericVector y, SEXP status) {
   } else {
     NumericVector status_nv = as<NumericVector>(status);
     if (size != static_cast<uintptr_t>(status_nv.size())) {
-      plink2::vecaligned_free(wkspace);
+      plink2::aligned_free(wkspace);
       stop("y and status must have the same length");
     }
     const double* status_nvd = &(status_nv[0]);
@@ -129,7 +129,7 @@ double CIndex(NumericVector yhat, NumericVector y, SEXP status) {
       } else if (dxx == 1.0) {
         recs[ulii].status = 1;
       } else {
-        plink2::vecaligned_free(wkspace);
+        plink2::aligned_free(wkspace);
         stop("all status values must be 0 or 1");
       }
     }
