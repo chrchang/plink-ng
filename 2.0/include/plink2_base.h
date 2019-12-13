@@ -24,6 +24,9 @@
 // or making extension of pgenlib/plink2 code more difficult than the old
 // type-unsafe style.
 //
+// (probable todo: move bitarray code not transitively needed by plink2_text
+// into a separate plink2_bits file pair.)
+//
 // Parameter conventions:
 // - Input parameters, then in/out, then pure outputs, then temporary buffers.
 //   Reference-style input parameters tend to go in the very front, to make it
@@ -58,9 +61,9 @@
 // - Bitarrays and 'nyparrays' (packed arrays of 2-bit elements, such as a row
 //   of a plink 1.x .bed file) are usually uintptr_t*, to encourage
 //   word-at-a-time iteration without requiring vector-alignment.  Quite a few
-//   low-level library functions cast them to VecW*; as mentioned above, the
-//   affected function parameter names should end in 'vec' to document the
-//   alignment requirements.
+//   low-level library functions cast them to VecW*.  As mentioned above, the
+//   affected function parameter names must end in 'vec' when this creates an
+//   alignment requirement.
 // - A buffer/iterator expected to contain only UTF-8 text should be char*.
 //   unsigned char* should be reserved for byte-array buffers and iterators
 //   which are expected to interact with some non-text bytes, and generic
@@ -69,8 +72,8 @@
 //   signedness of char is platform-dependent, it becomes necessary to use e.g.
 //   ctou32() a fair bit.)
 // - unsigned char is an acceptable argument type for functions intended to
-//   process a single text character, thanks to the automatic cast; it's just
-//   unsigned char* that should be avoided.
+//   process a single text character, thanks to implicit char -> unsigned char
+//   conversion; it's just unsigned char* that should be avoided.
 // - void* return values should be restricted to generic pointers which are
 //   *not* expected to be subject to pointer arithmetic.  void* as input
 //   parameter type should only be used when there are at least two equally
@@ -87,7 +90,7 @@
 // meaningless uintptr_t -> uint32_t static casts (number known to be < 2^32,
 // just stored in a uintptr_t because there's no speed penalty and we generally
 // want to think in terms of word-based operations).  The code is more readable
-// if S_CAST(uint32_t, [potentially wider value]) is reserved for situations
+// if S_CAST(uint32_t, <potentially wider value>) is reserved for situations
 // where a higher bit may actually be set.  This pragma can always be commented
 // out on the few occasions where inappropriate silent truncation is suspected.
 #ifdef __clang__
@@ -97,7 +100,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 601
+#define PLINK2_BASE_VERNUM 602
 
 
 #define _FILE_OFFSET_BITS 64
@@ -135,8 +138,10 @@
 
 #ifdef __LP64__
 #  ifndef __SSE2__
-    // todo: remove this requirement, the 32-bit VecW-using code does most of
-    // what we need
+// possible todo: remove this requirement, the 32-bit VecW-using code does most
+// of what we need.  But little point in doing this before we have e.g. an
+// ARM-based machine to test with that scientists would plausibly want to run
+// plink2 on.
 #    error "64-bit builds currently require SSE2.  Try producing a 32-bit build instead."
 #  endif
 #  include <emmintrin.h>
@@ -1348,6 +1353,8 @@ CONSTI32(kBitsPerWordD4, kBitsPerWord / 4);
 // number of bytes in a word
 CONSTI32(kBytesPerWord, kBitsPerWord / CHAR_BIT);
 
+CONSTI32(kInt16PerWord, kBytesPerWord / 2);
+
 static_assert(CHAR_BIT == 8, "plink2_base requires CHAR_BIT == 8.");
 static_assert(sizeof(int8_t) == 1, "plink2_base requires sizeof(int8_t) == 1.");
 static_assert(sizeof(int16_t) == 2, "plink2_base requires sizeof(int16_t) == 2.");
@@ -1366,6 +1373,7 @@ CONSTI32(kCacheline, 64);
 
 CONSTI32(kBitsPerCacheline, kCacheline * CHAR_BIT);
 CONSTI32(kNypsPerCacheline, kCacheline * 4);
+CONSTI32(kInt16PerCacheline, kCacheline / sizeof(int16_t));
 CONSTI32(kInt32PerCacheline, kCacheline / sizeof(int32_t));
 CONSTI32(kInt64PerCacheline, kCacheline / sizeof(int64_t));
 CONSTI32(kWordsPerCacheline, kCacheline / kBytesPerWord);

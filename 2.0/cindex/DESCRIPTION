@@ -1,0 +1,11 @@
+Package: cindex
+Type: Package
+Title: C-index
+Version: 0.1
+Date: 2019-12-12
+Author: Christopher Chang
+Maintainer: Christopher Chang <chrchang@alumni.caltech.edu>
+Description: Supports fast concordance-index computation.
+License: LGPL (>= 3)
+Imports: Rcpp (>= 1.0.1)
+LinkingTo: Rcpp
