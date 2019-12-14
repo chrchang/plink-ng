@@ -5337,14 +5337,14 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
 // to test: do we actually want cur_dosage_ints to be uint64_t* instead of
 // uint32_t*?
 // also, should this be moved to plink2_common?
-void FillCurDosageInts(const uintptr_t* genovec_buf, const uintptr_t* dosage_present, const Dosage* dosage_main_buf, uint32_t sample_ct, uint32_t dosage_ct, uint32_t is_diploid_p1, uint64_t* cur_dosage_ints) {
+void FillCurDdosageInts(const uintptr_t* genovec_buf, const uintptr_t* dosage_present, const Dosage* dosage_main_buf, uint32_t sample_ct, uint32_t dosage_ct, uint32_t is_diploid_p1, uint64_t* cur_ddosage_ints) {
   uint64_t lookup_table[32] ALIGNV16;
   lookup_table[0] = 0;
   lookup_table[2] = is_diploid_p1 * kDosageMid;
   lookup_table[4] = is_diploid_p1 * kDosageMax;
   lookup_table[6] = 0;
   InitLookup16x8bx2(lookup_table);
-  GenoarrLookup16x8bx2(genovec_buf, lookup_table, sample_ct, cur_dosage_ints);
+  GenoarrLookup16x8bx2(genovec_buf, lookup_table, sample_ct, cur_ddosage_ints);
   if (!dosage_ct) {
     return;
   }
@@ -5352,7 +5352,7 @@ void FillCurDosageInts(const uintptr_t* genovec_buf, const uintptr_t* dosage_pre
   uintptr_t cur_bits = dosage_present[0];
   for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
     const uintptr_t sample_idx = BitIter1(dosage_present, &sample_idx_base, &cur_bits);
-    cur_dosage_ints[sample_idx] = dosage_main_buf[dosage_idx] * is_diploid_p1;
+    cur_ddosage_ints[sample_idx] = dosage_main_buf[dosage_idx] * is_diploid_p1;
   }
 }
 
@@ -5824,8 +5824,8 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     Dosage* dosage_main_buf = nullptr;
     uintptr_t* missing_acc1 = nullptr;
     uintptr_t* missing_male_acc1 = nullptr;
-    uint64_t* dosage_sums;
-    uint64_t* dosage_incrs;
+    uint64_t* ddosage_sums;
+    uint64_t* ddosage_incrs;
     uintptr_t* already_seen;
     char* overflow_buf = nullptr;
     if (unlikely(
@@ -5842,8 +5842,8 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             bigstack_alloc_dosage(sample_ct, &dosage_main_buf) ||
             bigstack_alloc_w(45 * acc1_vec_ct * kWordsPerVec, &missing_acc1) ||
             bigstack_alloc_w(45 * acc1_vec_ct * kWordsPerVec, &missing_male_acc1) ||
-            bigstack_calloc_u64(sample_ct, &dosage_sums) ||
-            bigstack_calloc_u64(sample_ct, &dosage_incrs) ||
+            bigstack_calloc_u64(sample_ct, &ddosage_sums) ||
+            bigstack_calloc_u64(sample_ct, &ddosage_incrs) ||
             bigstack_calloc_w(raw_variant_ctl, &already_seen) ||
             bigstack_alloc_c(overflow_buf_alloc, &overflow_buf))) {
       goto ScoreReport_ret_NOMEM;
@@ -6011,7 +6011,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       if (dosage_ct) {
         BitvecInvmask(dosage_present_buf, sample_ctl, missing_acc1);
       }
-      FillCurDosageInts(genovec_buf, dosage_present_buf, dosage_main_buf, sample_ct, dosage_ct, 2 - is_nonx_haploid, dosage_incrs);
+      FillCurDdosageInts(genovec_buf, dosage_present_buf, dosage_main_buf, sample_ct, dosage_ct, 2 - is_nonx_haploid, ddosage_incrs);
       double ploidy_d;
       if (is_nonx_haploid) {
         if (is_y) {
@@ -6019,7 +6019,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
           uintptr_t sex_nonmale_collapsed_bits = sex_nonmale_collapsed[0];
           for (uint32_t nonmale_idx = 0; nonmale_idx != nonmale_ct; ++nonmale_idx) {
             const uintptr_t sample_idx = BitIter1(sex_nonmale_collapsed, &sample_idx_base, &sex_nonmale_collapsed_bits);
-            dosage_incrs[sample_idx] = 0;
+            ddosage_incrs[sample_idx] = 0;
           }
           ++male_allele_ct_delta;
           BitvecInvmask(sex_nonmale_collapsed, sample_ctl, missing_acc1);
@@ -6046,7 +6046,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
           uintptr_t sex_nonmale_collapsed_inv_bits = ~sex_nonmale_collapsed[0];
           for (uint32_t male_idx = 0; male_idx != male_ct; ++male_idx) {
             const uintptr_t sample_idx = BitIter0(sex_nonmale_collapsed, &sample_idx_base, &sex_nonmale_collapsed_inv_bits);
-            dosage_incrs[sample_idx] /= 2;
+            ddosage_incrs[sample_idx] /= 2;
           }
           BitvecInvmaskCopy(missing_acc1, sex_nonmale_collapsed, sample_ctl, missing_male_acc1);
           BitvecAnd(sex_nonmale_collapsed, sample_ctl, missing_acc1);
@@ -6079,26 +6079,26 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         } else {
           if (model_dominant) {
             for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-              if (dosage_incrs[sample_idx] > kDosageMax) {
-                dosage_incrs[sample_idx] = kDosageMax;
+              if (ddosage_incrs[sample_idx] > kDosageMax) {
+                ddosage_incrs[sample_idx] = kDosageMax;
               }
             }
           } else {
             for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-              uint64_t cur_dosage_incr = dosage_incrs[sample_idx];
-              if (cur_dosage_incr <= kDosageMax) {
-                cur_dosage_incr = 0;
+              uint64_t cur_ddosage_incr = ddosage_incrs[sample_idx];
+              if (cur_ddosage_incr <= kDosageMax) {
+                cur_ddosage_incr = 0;
               } else {
-                cur_dosage_incr -= kDosageMax;
+                cur_ddosage_incr -= kDosageMax;
               }
-              dosage_incrs[sample_idx] = cur_dosage_incr;
+              ddosage_incrs[sample_idx] = cur_ddosage_incr;
             }
           }
           ploidy_d = 1.0;
         }
       }
       for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-        dosage_sums[sample_idx] += dosage_incrs[sample_idx];
+        ddosage_sums[sample_idx] += ddosage_incrs[sample_idx];
       }
       if (allele_freqs) {
         cur_allele_freq = GetAlleleFreq(&(allele_freqs[allele_idx_offset_base - variant_uidx]), cur_allele_idx, cur_allele_ct);
@@ -6170,7 +6170,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       uintptr_t missing_acc1_inv_bits = ~missing_acc1[0];
       for (uint32_t nm_sample_idx = 0; nm_sample_idx != nm_sample_ct; ++nm_sample_idx) {
         const uintptr_t sample_idx = BitIter0(missing_acc1, &sample_idx_base, &missing_acc1_inv_bits);
-        cur_dosages_vmaj_iter[sample_idx] = u63tod(dosage_incrs[sample_idx]) * geno_slope + geno_intercept;
+        cur_dosages_vmaj_iter[sample_idx] = u63tod(ddosage_incrs[sample_idx]) * geno_slope + geno_intercept;
       }
       if (se_mode) {
         // Suppose our score coefficients are drawn from independent Gaussians.
@@ -6459,7 +6459,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         }
         if (write_dosage_sum) {
           *cswritep++ = '\t';
-          cswritep = dosagetoa(dosage_sums[sample_idx], cswritep);
+          cswritep = ddosagetoa(ddosage_sums[sample_idx], cswritep);
         }
         const double* final_score_col = &(ctx.final_scores_cmaj[sample_idx]);
         if (write_score_avgs) {

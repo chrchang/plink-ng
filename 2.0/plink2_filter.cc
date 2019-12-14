@@ -2067,9 +2067,9 @@ PglErr KeepRemoveCats(const char* cats_fname, const char* cat_names_flattened, c
   return reterr;
 }
 
-void ComputeAlleleFreqs(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const uint64_t* founder_allele_dosages, uint32_t variant_ct, uint32_t maf_succ, double* allele_freqs) {
+void ComputeAlleleFreqs(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const uint64_t* founder_allele_ddosages, uint32_t variant_ct, uint32_t maf_succ, double* allele_freqs) {
   // ok for maj_alleles or allele_freqs to be nullptr
-  // note that founder_allele_dosages is in 32768ths
+  // note that founder_allele_ddosages is in 32768ths
   uint32_t cur_allele_ct = 2;
   uintptr_t variant_uidx_base = 0;
   uintptr_t cur_bits = variant_include[0];
@@ -2082,10 +2082,10 @@ void ComputeAlleleFreqs(const uintptr_t* variant_include, const uintptr_t* allel
       allele_idx_offset_base = allele_idx_offsets[variant_uidx];
       cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
     }
-    const uint64_t* cur_founder_allele_dosages = &(founder_allele_dosages[allele_idx_offset_base]);
+    const uint64_t* cur_founder_allele_ddosages = &(founder_allele_ddosages[allele_idx_offset_base]);
     uint64_t tot_dosage = 0;
     for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct; ++allele_idx) {
-      tot_dosage += cur_founder_allele_dosages[allele_idx];
+      tot_dosage += cur_founder_allele_ddosages[allele_idx];
     }
     // todo: try changing this expression
     const uint64_t cur_maf_succ_dosage = (maf_succ | (!tot_dosage)) * kDosageMax;
@@ -2095,7 +2095,7 @@ void ComputeAlleleFreqs(const uintptr_t* variant_include, const uintptr_t* allel
     const double tot_dosage_recip = 1.0 / u63tod(tot_dosage);
     const uint32_t cur_allele_ct_m1 = cur_allele_ct - 1;
     for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct_m1; ++allele_idx) {
-      const double cur_dosage = u63tod(cur_founder_allele_dosages[allele_idx] + cur_maf_succ_dosage);
+      const double cur_dosage = u63tod(cur_founder_allele_ddosages[allele_idx] + cur_maf_succ_dosage);
       cur_allele_freqs_base[allele_idx] = cur_dosage * tot_dosage_recip;
     }
   }
@@ -2187,7 +2187,7 @@ FLAGSET_DEF_END(ReadFreqColFlags);
 // Support exact reconstruction of original allele frequencies in --freq counts
 // case.
 static inline double ForceCountToDosage(double raw_count) {
-  return u63tod(S_CAST(int64_t, raw_count * kDosageMid + 0.5)) * kRecipDosageMid;
+  return u63tod(S_CAST(int64_t, raw_count * kDosageMax + 0.5)) * kRecipDosageMax;
 }
 
 PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* read_freq_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t maf_succ, uint32_t max_thread_ct, double* allele_freqs, uintptr_t** variant_afreqcalcp) {
@@ -3876,44 +3876,44 @@ double GetTypedFreq(const double* cur_allele_freqs, uint32_t allele_ct, FreqFilt
   return MINV(min_freq, last_freq);
 }
 
-uint64_t GetTypedDosage(const uint64_t* cur_allele_dosages, uint32_t allele_ct, FreqFilterMode mode) {
+uint64_t GetTypedDdosage(const uint64_t* cur_allele_ddosages, uint32_t allele_ct, FreqFilterMode mode) {
   if (mode == kFreqFilterAlt1) {
-    return cur_allele_dosages[1];
+    return cur_allele_ddosages[1];
   }
   if (mode == kFreqFilterNref) {
-    uint64_t nref_dosage = cur_allele_dosages[1];
+    uint64_t nref_ddosage = cur_allele_ddosages[1];
     for (uint32_t allele_idx = 2; allele_idx != allele_ct; ++allele_idx) {
-      nref_dosage += cur_allele_dosages[allele_idx];
+      nref_ddosage += cur_allele_ddosages[allele_idx];
     }
-    return nref_dosage;
+    return nref_ddosage;
   }
   if (allele_ct == 2) {
-    return MINV(cur_allele_dosages[0], cur_allele_dosages[1]);
+    return MINV(cur_allele_ddosages[0], cur_allele_ddosages[1]);
   }
   if (mode == kFreqFilterNonmajor) {
-    uint64_t max_dosage = cur_allele_dosages[0];
-    uint64_t tot_dosage = max_dosage;
+    uint64_t max_ddosage = cur_allele_ddosages[0];
+    uint64_t tot_ddosage = max_ddosage;
     for (uint32_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
-      const uint64_t cur_dosage = cur_allele_dosages[allele_idx];
-      tot_dosage += cur_dosage;
-      if (cur_dosage > max_dosage) {
-        max_dosage = cur_dosage;
+      const uint64_t cur_ddosage = cur_allele_ddosages[allele_idx];
+      tot_ddosage += cur_ddosage;
+      if (cur_ddosage > max_ddosage) {
+        max_ddosage = cur_ddosage;
       }
     }
-    return (tot_dosage - max_dosage);
+    return (tot_ddosage - max_ddosage);
   }
   // minor
-  uint64_t min_dosage = cur_allele_dosages[0];
+  uint64_t min_ddosage = cur_allele_ddosages[0];
   for (uint32_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
-    const uint64_t cur_dosage = cur_allele_dosages[allele_idx];
-    if (cur_dosage < min_dosage) {
-      min_dosage = cur_dosage;
+    const uint64_t cur_ddosage = cur_allele_ddosages[allele_idx];
+    if (cur_ddosage < min_ddosage) {
+      min_ddosage = cur_ddosage;
     }
   }
-  return min_dosage;
+  return min_ddosage;
 }
 
-void EnforceFreqConstraints(const uintptr_t* allele_idx_offsets, const uint64_t* founder_allele_dosages, const double* allele_freqs, STD_ARRAY_KREF(FreqFilterMode, 4) filter_modes, double min_maf, double max_maf, uint64_t min_allele_dosage, uint64_t max_allele_dosage, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+void EnforceFreqConstraints(const uintptr_t* allele_idx_offsets, const uint64_t* founder_allele_ddosages, const double* allele_freqs, STD_ARRAY_KREF(FreqFilterMode, 4) filter_modes, double min_maf, double max_maf, uint64_t min_allele_ddosage, uint64_t max_allele_ddosage, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   const uint32_t prefilter_variant_ct = *variant_ct_ptr;
   uint32_t removed_ct = 0;
   if ((min_maf != 0.0) || (max_maf != 1.0)) {
@@ -3923,7 +3923,7 @@ void EnforceFreqConstraints(const uintptr_t* allele_idx_offsets, const uint64_t*
   } else {
     allele_freqs = nullptr;
   }
-  const uint32_t dosage_filter = min_allele_dosage || (max_allele_dosage != (~0LLU));
+  const uint32_t dosage_filter = min_allele_ddosage || (max_allele_ddosage != (~0LLU));
 
   uintptr_t variant_uidx_base = 0;
   uintptr_t cur_bits = variant_include[0];
@@ -3954,16 +3954,16 @@ void EnforceFreqConstraints(const uintptr_t* allele_idx_offsets, const uint64_t*
       }
     }
     if (dosage_filter) {
-      const uint64_t* cur_founder_allele_dosages = &(founder_allele_dosages[allele_idx_offset_base]);
-      if (min_allele_dosage) {
-        const uint64_t cur_typed_dosage = GetTypedDosage(cur_founder_allele_dosages, allele_ct, filter_modes[2]);
-        if (cur_typed_dosage < min_allele_dosage) {
+      const uint64_t* cur_founder_allele_ddosages = &(founder_allele_ddosages[allele_idx_offset_base]);
+      if (min_allele_ddosage) {
+        const uint64_t cur_typed_ddosage = GetTypedDdosage(cur_founder_allele_ddosages, allele_ct, filter_modes[2]);
+        if (cur_typed_ddosage < min_allele_ddosage) {
           goto EnforceFreqConstraints_remove;
         }
       }
-      if (max_allele_dosage != (~0LLU)) {
-        const uint64_t cur_typed_dosage = GetTypedDosage(cur_founder_allele_dosages, allele_ct, filter_modes[3]);
-        if (cur_typed_dosage > max_allele_dosage) {
+      if (max_allele_ddosage != (~0LLU)) {
+        const uint64_t cur_typed_ddosage = GetTypedDdosage(cur_founder_allele_ddosages, allele_ct, filter_modes[3]);
+        if (cur_typed_ddosage > max_allele_ddosage) {
           goto EnforceFreqConstraints_remove;
         }
       }

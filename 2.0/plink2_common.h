@@ -330,22 +330,8 @@ HEADER_INLINE BoolErr bigstack_end_alloc_dphase(uintptr_t ct, SDosage** dphase_a
 
 BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenGlobalFlags gflags, PgenVariant* pgvp);
 
-// 3 decimal places.
-char* dosagetoa(uint64_t dosage, char* start);
-
-// remainder must be in [1, kDosageMid - 1].
+// remainder must be in [1, 16383].
 char* PrintDosageDecimal(uint32_t remainder, char* start);
-
-// 5 decimal places.  Only used when it is important to be able to reconstruct
-// the exact original value.
-HEADER_INLINE char* dosagetoa_full(uint64_t dosage, char* start) {
-  start = u32toa(dosage / kDosageMid, start);
-  const uint32_t remainder = dosage % kDosageMid;
-  if (!remainder) {
-    return start;
-  }
-  return PrintDosageDecimal(remainder, start);
-}
 
 // small_dosage must be in [0, kDosageMid * 10 - 1].
 HEADER_INLINE char* PrintSmallDosage(uint32_t small_dosage, char* start) {
@@ -355,6 +341,24 @@ HEADER_INLINE char* PrintSmallDosage(uint32_t small_dosage, char* start) {
     return start;
   }
   return PrintDosageDecimal(remainder, start);
+}
+
+// 3 decimal places.  dosage on /kDosageMax rather than /kDosageMid scale
+// (hence the extra 'd')
+char* ddosagetoa(uint64_t dosage, char* start);
+
+// remainder must be in [1, 32767].
+char* PrintDdosageDecimal(uint32_t remainder, char* start);
+
+// 5 decimal places.  Only used when it is important to be able to reconstruct
+// the exact original value.
+HEADER_INLINE char* ddosagetoa_full(uint64_t dosage, char* start) {
+  start = u32toa(dosage / kDosageMax, start);
+  const uint32_t remainder = dosage % kDosageMax;
+  if (!remainder) {
+    return start;
+  }
+  return PrintDdosageDecimal(remainder, start);
 }
 
 HEADER_INLINE void ZeroDosageArr(uintptr_t entry_ct, Dosage* dosage_arr) {

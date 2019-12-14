@@ -66,7 +66,7 @@ double CIndex(NumericVector yhat, NumericVector y, SEXP status) {
   if (plink2::cachealigned_malloc(vec_ct * plink2::kBytesPerVec, &wkspace)) {
     stop("Out of memory");
   }
-  memset(wkspace, 0, vec_ct * plink2::kBytesPerVec);
+  memset(wkspace, 0, (vec_ct - recs_vec_ct) * plink2::kBytesPerVec);
   unsigned char* wkspace_iter = wkspace;
   // Put new_yhat arrays first to guarantee cacheline alignment, since it
   // matters there.
@@ -85,7 +85,7 @@ double CIndex(NumericVector yhat, NumericVector y, SEXP status) {
       recs[ulii].status = ulii;
     }
     std::sort(recs, &(recs[size]));
-    // recs[recs[0].status].yhat_int = 0;  // not needed due to zero-init
+    recs[recs[0].status].yhat_int = 0;
     double prev_yhat = recs[0].key;
     uint32_t prev_idx = 0;
     for (uintptr_t ulii = 1; ulii != size; ++ulii) {

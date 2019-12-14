@@ -1481,12 +1481,12 @@ typedef struct LoadAlleleAndGenoCountsCtxStruct {
   uint32_t cur_block_size;
 
   unsigned char* allele_presents_bytearr;
-  uint64_t* allele_dosages;
+  uint64_t* allele_ddosages;
   STD_ARRAY_PTR_DECL(uint32_t, 3, raw_geno_cts);
   uint32_t* variant_missing_hc_cts;
   uint32_t* variant_missing_dosage_cts;
   uint32_t* variant_hethap_cts;
-  uint64_t* founder_allele_dosages;
+  uint64_t* founder_allele_ddosages;
   STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts);
   STD_ARRAY_PTR_DECL(uint32_t, 3, x_male_geno_cts);
   STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts);
@@ -1548,7 +1548,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
     uint32_t male_ct = ctx->male_ct;
     uint32_t nosex_ct = ctx->nosex_ct;
     unsigned char* allele_presents_bytearr = ctx->allele_presents_bytearr;
-    uint64_t* allele_dosages = ctx->allele_dosages;
+    uint64_t* allele_ddosages = ctx->allele_ddosages;
     STD_ARRAY_PTR_DECL(uint32_t, 3, raw_geno_cts) = ctx->raw_geno_cts;
     uint32_t* variant_missing_hc_cts = ctx->variant_missing_hc_cts;
     uint32_t* variant_missing_dosage_cts = ctx->variant_missing_dosage_cts;
@@ -1556,7 +1556,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
     STD_ARRAY_PTR_DECL(uint32_t, 3, x_male_geno_cts) = ctx->x_male_geno_cts;
     STD_ARRAY_PTR_DECL(uint32_t, 3, x_nosex_geno_cts) = ctx->x_nosex_geno_cts;
     double* imp_r2_vals = ctx->imp_r2_vals;
-    const uint32_t no_multiallelic_branch = (!variant_hethap_cts) && (!allele_presents_bytearr) && (!allele_dosages) && (!imp_r2_vals);
+    const uint32_t no_multiallelic_branch = (!variant_hethap_cts) && (!allele_presents_bytearr) && (!allele_ddosages) && (!imp_r2_vals);
     pgv.dosage_ct = 0;
     for (uint32_t subset_idx = 0; ; ) {
       PgrSampleSubsetIndex pssi;
@@ -1626,10 +1626,10 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
             }
             if (!is_nonxy_haploid) {
               hethap_ct = 0;
-              if (allele_dosages) {
+              if (allele_ddosages) {
                 // ...but save all allele counts here.
-                allele_dosages[cur_allele_idx_offset] = cur_dosages[0] * 2;
-                allele_dosages[cur_allele_idx_offset + 1] = cur_dosages[1] * 2;
+                allele_ddosages[cur_allele_idx_offset] = cur_dosages[0] * 2;
+                allele_ddosages[cur_allele_idx_offset + 1] = cur_dosages[1] * 2;
               }
             } else {
               // this hethap_ct can be inaccurate in multiallelic case
@@ -1640,9 +1640,9 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
                 // mach-r2 requires a haploid correction.
                 imp_r2_vals[variant_uidx] *= 0.5;
               }
-              if (allele_dosages) {
-                allele_dosages[cur_allele_idx_offset] = cur_dosages[0];
-                allele_dosages[cur_allele_idx_offset + 1] = cur_dosages[1];
+              if (allele_ddosages) {
+                allele_ddosages[cur_allele_idx_offset] = cur_dosages[0];
+                allele_ddosages[cur_allele_idx_offset + 1] = cur_dosages[1];
               }
             }
           } else if (is_y) {
@@ -1665,9 +1665,9 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
                   allele_presents_bytearr[cur_allele_idx_offset + 1] = 128;
                 }
               }
-              if (allele_dosages) {
-                allele_dosages[cur_allele_idx_offset] = cur_dosages[0];
-                allele_dosages[cur_allele_idx_offset + 1] = cur_dosages[1];
+              if (allele_ddosages) {
+                allele_ddosages[cur_allele_idx_offset] = cur_dosages[0];
+                allele_ddosages[cur_allele_idx_offset + 1] = cur_dosages[1];
               }
             } else {
               // ugh, need to count female/unknown-sex for allele_presents and
@@ -1706,8 +1706,8 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
               // x2, x4 since this is haploid
               uintptr_t alt1_ct_x2 = genocounts[2] * 2 + hethap_ct;
               uintptr_t alt1_sq_sum_x4 = genocounts[2] * (4 * k1LU) + hethap_ct;
-              uint64_t alt1_dosage = 0;  // in 32768ths
-              uint64_t alt1_dosage_sq_sum = 0;
+              uint64_t alt1_ddosage = 0;  // in 32768ths
+              uint64_t alt1_ddosage_sq_sum = 0;
               uint32_t additional_dosage_ct = 0;
               if (dosage_is_relevant) {
                 uintptr_t sample_widx = 0;
@@ -1717,8 +1717,8 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
                   const uintptr_t lowbit = BitIter1y(pgv.dosage_present, &sample_widx, &dosage_present_bits);
                   if (sample_include[sample_widx] & lowbit) {
                     const uintptr_t cur_dosage_val = pgv.dosage_main[dosage_idx];
-                    alt1_dosage += cur_dosage_val;
-                    alt1_dosage_sq_sum += cur_dosage_val * cur_dosage_val;
+                    alt1_ddosage += cur_dosage_val;
+                    alt1_ddosage_sq_sum += cur_dosage_val * cur_dosage_val;
                     const uintptr_t hardcall_code = GetNyparrEntry(pgv.genovec, sample_uidx);
                     if (hardcall_code != 3) {
                       alt1_ct_x2 -= hardcall_code;
@@ -1730,20 +1730,20 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
                 }
               }
               const uintptr_t obs_ct = male_ct + additional_dosage_ct - genocounts[3];
-              alt1_dosage += alt1_ct_x2 * S_CAST(uint64_t, kDosageMid);
-              alt1_dosage_sq_sum += alt1_sq_sum_x4 * 0x10000000LLU;
-              cur_dosages[0] = obs_ct * S_CAST(uint64_t, kDosageMax) - alt1_dosage;
-              cur_dosages[1] = alt1_dosage;
+              alt1_ddosage += alt1_ct_x2 * S_CAST(uint64_t, kDosageMid);
+              alt1_ddosage_sq_sum += alt1_sq_sum_x4 * 0x10000000LLU;
+              cur_dosages[0] = obs_ct * S_CAST(uint64_t, kDosageMax) - alt1_ddosage;
+              cur_dosages[1] = alt1_ddosage;
               if (imp_r2_vals) {
                 // minimac3-r2 and mach-r2 are identical in haploid case
-                const double dosage_sumd = u63tod(alt1_dosage);
+                const double dosage_sumd = u63tod(alt1_ddosage);
                 const double dosage_avg = dosage_sumd / u31tod(obs_ct);
-                const double dosage_variance = u63tod(alt1_dosage_sq_sum) - dosage_sumd * dosage_avg;
+                const double dosage_variance = u63tod(alt1_ddosage_sq_sum) - dosage_sumd * dosage_avg;
                 imp_r2_vals[variant_uidx] = dosage_variance / (dosage_sumd * (32768 - dosage_avg));
               }
-              if (allele_dosages) {
-                allele_dosages[cur_allele_idx_offset] = cur_dosages[0];
-                allele_dosages[cur_allele_idx_offset + 1] = alt1_dosage;
+              if (allele_ddosages) {
+                allele_ddosages[cur_allele_idx_offset] = cur_dosages[0];
+                allele_ddosages[cur_allele_idx_offset + 1] = alt1_ddosage;
               }
             }
           } else {
@@ -1783,9 +1783,9 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
                 }
               }
             }
-            if (allele_dosages) {
+            if (allele_ddosages) {
               uintptr_t alt1_ct = 4 * genocounts[2] + 2 * genocounts[1] - 2 * sex_specific_genocounts[2] - hethap_ct;  // nonmales count twice
-              uint64_t alt1_dosage = 0;  // in 32768ths, nonmales count twice
+              uint64_t alt1_ddosage = 0;  // in 32768ths, nonmales count twice
               uint32_t additional_dosage_ct = 0;  // missing hardcalls only; nonmales count twice
               // bugfix (12 Jul 2018): dosage_present may be null if dosage_ct
               // == 0
@@ -1797,7 +1797,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
                     const uintptr_t sample_uidx = BitIter1(pgv.dosage_present, &sample_uidx_base, &dosage_present_bits);
                     const uintptr_t cur_dosage_val = pgv.dosage_main[dosage_idx];
                     const uintptr_t sex_multiplier = 2 - IsSet(sex_male, sample_uidx);
-                    alt1_dosage += cur_dosage_val * sex_multiplier;
+                    alt1_ddosage += cur_dosage_val * sex_multiplier;
 
                     // could call GenoarrCountSubsetIntersectFreqs() twice
                     // instead, but since we've already manually extracted the
@@ -1815,7 +1815,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
                     if (IsSet(sample_include, sample_uidx)) {
                       const uintptr_t cur_dosage_val = pgv.dosage_main[dosage_idx];
                       const uintptr_t sex_multiplier = 2 - IsSet(sex_male, sample_uidx);
-                      alt1_dosage += cur_dosage_val * sex_multiplier;
+                      alt1_ddosage += cur_dosage_val * sex_multiplier;
                       const uintptr_t hardcall_code = GetNyparrEntry(pgv.genovec, sample_uidx);
                       if (hardcall_code != 3) {
                         alt1_ct -= hardcall_code * sex_multiplier;
@@ -1826,14 +1826,14 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
                   }
                 }
               }
-              alt1_dosage += alt1_ct * S_CAST(uint64_t, kDosageMid);
+              alt1_ddosage += alt1_ct * S_CAST(uint64_t, kDosageMid);
 
               // bugfix (14 May 2018): this didn't correctly distinguish
               // between missing vs. 'replaced' hardcalls
               const uintptr_t weighted_obs_ct = (2 * (sample_ct - genocounts[3]) - male_ct + sex_specific_genocounts[3] + additional_dosage_ct) * (2 * k1LU);
 
-              allele_dosages[cur_allele_idx_offset] = weighted_obs_ct * S_CAST(uint64_t, kDosageMid) - alt1_dosage;
-              allele_dosages[cur_allele_idx_offset + 1] = alt1_dosage;
+              allele_ddosages[cur_allele_idx_offset] = weighted_obs_ct * S_CAST(uint64_t, kDosageMid) - alt1_ddosage;
+              allele_ddosages[cur_allele_idx_offset + 1] = alt1_ddosage;
             }
             if (x_male_geno_cts) {
               STD_ARRAY_REF(uint32_t, 3) cur_x_male_geno_cts = x_male_geno_cts[variant_uidx - x_start];
@@ -1882,17 +1882,17 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
             }
             if (!is_nonxy_haploid) {
               hethap_ct = 0;
-              if (allele_dosages) {
+              if (allele_ddosages) {
                 for (uintptr_t aidx = 0; aidx != allele_ct; ++aidx) {
-                  allele_dosages[cur_allele_idx_offset + aidx] = all_dosages[aidx] * 2;
+                  allele_ddosages[cur_allele_idx_offset + aidx] = all_dosages[aidx] * 2;
                 }
               }
             } else {
               if (imp_r2_vals && (!is_minimac3_r2)) {
                 imp_r2_vals[variant_uidx] *= 0.5;
               }
-              if (allele_dosages) {
-                memcpy(&(allele_dosages[cur_allele_idx_offset]), all_dosages, allele_ct * sizeof(int64_t));
+              if (allele_ddosages) {
+                memcpy(&(allele_ddosages[cur_allele_idx_offset]), all_dosages, allele_ct * sizeof(int64_t));
               }
             }
           } else if (is_y) {
@@ -1912,8 +1912,8 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
                   }
                 }
               }
-              if (allele_dosages) {
-                memcpy(&(allele_dosages[cur_allele_idx_offset]), all_dosages, allele_ct * sizeof(int64_t));
+              if (allele_ddosages) {
+                memcpy(&(allele_ddosages[cur_allele_idx_offset]), all_dosages, allele_ct * sizeof(int64_t));
               }
             } else {
               // need to count female/unknown-sex for allele_presents and
@@ -1940,17 +1940,17 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
                 hethap_x2 += all_dosages[aidx];
               }
               hethap_ct = hethap_x2 / 2;
-              if (allele_dosages) {
+              if (allele_ddosages) {
                 for (uintptr_t aidx = 0; aidx != allele_ct; ++aidx) {
-                  allele_dosages[cur_allele_idx_offset + aidx] = all_dosages[aidx] * kDosageMid + two_cts[aidx] * kDosageMax;
+                  allele_ddosages[cur_allele_idx_offset + aidx] = all_dosages[aidx] * kDosageMid + two_cts[aidx] * kDosageMax;
                 }
               }
               if (imp_r2_vals) {
                 for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
-                  const uint64_t one_ct = allele_dosages[aidx];
+                  const uint64_t one_ct = allele_ddosages[aidx];
                   const uint64_t two_ct = two_cts[aidx];
                   // now sums
-                  allele_dosages[aidx] = one_ct * kDosageMid + two_ct * kDosageMax;
+                  allele_ddosages[aidx] = one_ct * kDosageMid + two_ct * kDosageMax;
                   // now ssqs
                   two_cts[aidx] = one_ct * kDosageMid * kDosageMid + two_ct * kDosageMax * kDosageMax;
                 }
@@ -2020,9 +2020,9 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
                 }
               }
             }
-            if (allele_dosages) {
+            if (allele_ddosages) {
               for (uintptr_t aidx = 0; aidx != allele_ct; ++aidx) {
-                allele_dosages[cur_allele_idx_offset + aidx] = all_dosages[aidx] * kDosageMid;
+                allele_ddosages[cur_allele_idx_offset + aidx] = all_dosages[aidx] * kDosageMid;
               }
             }
             if (x_male_geno_cts) {
@@ -2073,7 +2073,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
       male_ct = ctx->founder_male_ct;
       nosex_ct = ctx->founder_nosex_ct;
       allele_presents_bytearr = nullptr;
-      allele_dosages = ctx->founder_allele_dosages;
+      allele_ddosages = ctx->founder_allele_ddosages;
       variant_missing_hc_cts = nullptr;
       variant_missing_dosage_cts = nullptr;
       raw_geno_cts = ctx->founder_raw_geno_cts;
@@ -2085,7 +2085,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t male_ct, uint32_t nosex_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t first_hap_uidx, uint32_t is_minimac3_r2, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uintptr_t* allele_presents, uint64_t* allele_dosages, uint64_t* founder_allele_dosages, uint32_t* variant_missing_hc_cts, uint32_t* variant_missing_dosage_cts, uint32_t* variant_hethap_cts, STD_ARRAY_PTR_DECL(uint32_t, 3, raw_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, x_male_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, x_nosex_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), double* imp_r2_vals) {
+PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t male_ct, uint32_t nosex_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t first_hap_uidx, uint32_t is_minimac3_r2, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uintptr_t* allele_presents, uint64_t* allele_ddosages, uint64_t* founder_allele_ddosages, uint32_t* variant_missing_hc_cts, uint32_t* variant_missing_dosage_cts, uint32_t* variant_hethap_cts, STD_ARRAY_PTR_DECL(uint32_t, 3, raw_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, x_male_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, x_nosex_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), double* imp_r2_vals) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   PglErr reterr = kPglRetSuccess;
@@ -2098,22 +2098,22 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     }
 
     // four cases:
-    // 1. allele_dosages, raw_geno_cts, and/or variant_missing_{hc,dosage}_cts
+    // 1. allele_ddosages, raw_geno_cts, and/or variant_missing_{hc,dosage}_cts
     //    required, and that's it
-    // 2. founder_allele_dosages and/or founder_raw_geno_cts required, and
+    // 2. founder_allele_ddosages and/or founder_raw_geno_cts required, and
     //    that's it
     // 3. both required, and founder_ct != sample_ct.
     // 4. both required, and founder_ct == sample_ct.  caller is expected to
-    //    make founder_allele_dosages and allele_dosages point to the same
+    //    make founder_allele_ddosages and allele_ddosages point to the same
     //    memory, ditto for founder_raw_geno_cts/raw_geno_cts.
-    const uint32_t only_founder_cts_required = (!allele_presents) && (!allele_dosages) && (!raw_geno_cts) && (!variant_missing_hc_cts) && (!variant_missing_dosage_cts);
-    const uint32_t two_subsets_required = (founder_ct != sample_ct) && (!only_founder_cts_required) && (founder_allele_dosages || founder_raw_geno_cts);
+    const uint32_t only_founder_cts_required = (!allele_presents) && (!allele_ddosages) && (!raw_geno_cts) && (!variant_missing_hc_cts) && (!variant_missing_dosage_cts);
+    const uint32_t two_subsets_required = (founder_ct != sample_ct) && (!only_founder_cts_required) && (founder_allele_ddosages || founder_raw_geno_cts);
     ctx.cip = cip;
     ctx.sample_include = only_founder_cts_required? founder_info : sample_include;
     ctx.raw_sample_ct = raw_sample_ct;
     ctx.sample_ct = only_founder_cts_required? founder_ct : sample_ct;
     ctx.male_ct = male_ct;
-    ctx.allele_dosages = only_founder_cts_required? founder_allele_dosages : allele_dosages;
+    ctx.allele_ddosages = only_founder_cts_required? founder_allele_ddosages : allele_ddosages;
     ctx.raw_geno_cts = only_founder_cts_required? founder_raw_geno_cts : raw_geno_cts;
     ctx.x_male_geno_cts = only_founder_cts_required? founder_x_male_geno_cts : x_male_geno_cts;
     ctx.x_nosex_geno_cts = only_founder_cts_required? founder_x_nosex_geno_cts : x_nosex_geno_cts;
@@ -2176,7 +2176,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     ctx.founder_ct = 0;
     ctx.founder_male_ct = 0;
     ctx.founder_nosex_ct = 0;
-    ctx.founder_allele_dosages = nullptr;
+    ctx.founder_allele_ddosages = nullptr;
     ctx.founder_raw_geno_cts = nullptr;
     ctx.founder_x_male_geno_cts = nullptr;
     ctx.founder_x_nosex_geno_cts = nullptr;
@@ -2199,7 +2199,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
         FillCumulativePopcounts(ctx.founder_male, raw_sample_ctl, ctx.founder_male_cumulative_popcounts);
         ctx.founder_ct = founder_ct;
         ctx.founder_male_ct = ctx.founder_male_cumulative_popcounts[raw_sample_ctl - 1] + PopcountWord(ctx.founder_male[raw_sample_ctl - 1]);
-        ctx.founder_allele_dosages = founder_allele_dosages;
+        ctx.founder_allele_ddosages = founder_allele_ddosages;
         ctx.founder_raw_geno_cts = founder_raw_geno_cts;
         ctx.founder_x_male_geno_cts = founder_x_male_geno_cts;
         if (nosex_ct) {
@@ -2217,8 +2217,8 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
           ctx.founder_x_nosex_geno_cts = founder_x_nosex_geno_cts;
         }
       } else {
-        if (founder_allele_dosages) {
-          ZeroU64Arr(allele_idx_offsets? allele_idx_offsets[raw_variant_ct] : (2 * raw_variant_ct), founder_allele_dosages);
+        if (founder_allele_ddosages) {
+          ZeroU64Arr(allele_idx_offsets? allele_idx_offsets[raw_variant_ct] : (2 * raw_variant_ct), founder_allele_ddosages);
         }
         if (founder_raw_geno_cts) {
           memset(founder_raw_geno_cts, 0, raw_variant_ct * (3 * sizeof(int32_t)));
@@ -2226,8 +2226,8 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
       }
     } else if (founder_ct == sample_ct) {
       // bugfix: some founder and some nonfounder counts required
-      if ((!ctx.allele_dosages) && founder_allele_dosages) {
-        ctx.allele_dosages = founder_allele_dosages;
+      if ((!ctx.allele_ddosages) && founder_allele_ddosages) {
+        ctx.allele_ddosages = founder_allele_ddosages;
       }
       if ((!ctx.raw_geno_cts) && founder_raw_geno_cts) {
         ctx.raw_geno_cts = founder_raw_geno_cts;
@@ -2249,8 +2249,8 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
       if (allele_presents) {
         ZeroWArr(BitCtToWordCt(raw_allele_ct), allele_presents);
       }
-      if (ctx.allele_dosages) {
-        ZeroU64Arr(raw_allele_ct, ctx.allele_dosages);
+      if (ctx.allele_ddosages) {
+        ZeroU64Arr(raw_allele_ct, ctx.allele_ddosages);
       }
       if (ctx.raw_geno_cts) {
         memset(ctx.raw_geno_cts, 0, raw_variant_ct * (3 * sizeof(int32_t)));
@@ -2273,7 +2273,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
 
     uint32_t unused_chr_code;
     uint32_t unused_chr_code2;
-    uint32_t xy_complications_present = ((allele_presents || allele_dosages || founder_allele_dosages || variant_missing_dosage_cts) && XymtExists(cip, kChrOffsetX, &unused_chr_code)) || (allele_presents && (sample_ct != male_ct) && XymtExists(cip, kChrOffsetY, &unused_chr_code2));
+    uint32_t xy_complications_present = ((allele_presents || allele_ddosages || founder_allele_ddosages || variant_missing_dosage_cts) && XymtExists(cip, kChrOffsetX, &unused_chr_code)) || (allele_presents && (sample_ct != male_ct) && XymtExists(cip, kChrOffsetY, &unused_chr_code2));
     const uint32_t xy_dosages_needed = (pgfip->gflags & kfPgenGlobalDosagePresent) && xy_complications_present;
 
     // todo: check when this saturates
@@ -2281,7 +2281,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     const uint32_t max_allele_ct = pgfip->max_allele_ct;
     uint32_t mhc_needed = 0;
     ctx.thread_read_mhc = nullptr;
-    if ((max_allele_ct > 2) && (variant_hethap_cts || allele_presents || allele_dosages || founder_allele_dosages || imp_r2_vals)) {
+    if ((max_allele_ct > 2) && (variant_hethap_cts || allele_presents || allele_ddosages || founder_allele_ddosages || imp_r2_vals)) {
       if (unlikely(
               bigstack_alloc_u64p(calc_thread_ct, &ctx.all_dosages))) {
         goto LoadAlleleAndGenoCounts_ret_NOMEM;

@@ -3264,11 +3264,11 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
           write_iter = strcpya_k(write_iter, "no het pairs present");
         }
       } else {
-        // print_dosage assumes kDosageMax rather than kDosageMid multiplier
-        const uint64_t unknown_hethet_int_dosage = S_CAST(int64_t, unknown_hethet_d * kDosageMax);
-        write_iter = dosagetoa(unknown_hethet_int_dosage, write_iter);
+        // ddosagetoa() assumes kDosageMax rather than kDosageMid multiplier
+        const uint64_t unknown_hethet_int_ddosage = S_CAST(int64_t, unknown_hethet_d * kDosageMax);
+        write_iter = ddosagetoa(unknown_hethet_int_ddosage, write_iter);
         write_iter = strcpya_k(write_iter, " het pair");
-        if (unknown_hethet_int_dosage != kDosageMax) {
+        if (unknown_hethet_int_ddosage != kDosageMax) {
           *write_iter++ = 's';
         }
         write_iter = strcpya_k(write_iter, " statistically phased");

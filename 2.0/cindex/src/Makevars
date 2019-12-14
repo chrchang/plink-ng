@@ -1,2 +1,2 @@
 OBJECTS = include/plink2_base.o cindex.o RcppExports.o
-PKG_CPPFLAGS = -mavx2 -mbmi -mbmi2 -mlzcnt
+PKG_CPPFLAGS = -march=native

@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (12 Dec 2019)";
+  " (13 Dec 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -353,8 +353,8 @@ typedef struct Plink2CmdlineStruct {
   double max_maf;
   double thin_keep_prob;
   double thin_keep_sample_prob;
-  uint64_t min_allele_dosage;
-  uint64_t max_allele_dosage;
+  uint64_t min_allele_ddosage;
+  uint64_t max_allele_ddosage;
   int32_t missing_pheno;
   int32_t from_bp;
   int32_t to_bp;
@@ -469,22 +469,22 @@ uint32_t GetFirstHaploidUidx(const ChrInfo* cip, UnsortedVar vpos_sortstatus) {
   return 0x7fffffff;
 }
 
-uint32_t AlleleDosagesAreNeeded(MiscFlags misc_flags, uint32_t afreq_needed, uint64_t min_allele_dosage, uint64_t max_allele_dosage, uint32_t* regular_freqcounts_neededp) {
+uint32_t AlleleDosagesAreNeeded(MiscFlags misc_flags, uint32_t afreq_needed, uint64_t min_allele_ddosage, uint64_t max_allele_ddosage, uint32_t* regular_freqcounts_neededp) {
   if (!(misc_flags & kfMiscNonfounders)) {
     return 0;
   }
-  if ((misc_flags & kfMiscMajRef) || min_allele_dosage || (max_allele_dosage != UINT32_MAX)) {
+  if ((misc_flags & kfMiscMajRef) || min_allele_ddosage || (max_allele_ddosage != UINT32_MAX)) {
     *regular_freqcounts_neededp = 1;
     return 1;
   }
   return afreq_needed;
 }
 
-uint32_t FounderAlleleDosagesAreNeeded(MiscFlags misc_flags, uint32_t afreq_needed, uint64_t min_allele_dosage, uint64_t max_allele_dosage, uint32_t* regular_freqcounts_neededp) {
+uint32_t FounderAlleleDosagesAreNeeded(MiscFlags misc_flags, uint32_t afreq_needed, uint64_t min_allele_ddosage, uint64_t max_allele_ddosage, uint32_t* regular_freqcounts_neededp) {
   if (misc_flags & kfMiscNonfounders) {
     return 0;
   }
-  if ((misc_flags & kfMiscMajRef) || min_allele_dosage || (max_allele_dosage != (~0LLU))) {
+  if ((misc_flags & kfMiscMajRef) || min_allele_ddosage || (max_allele_ddosage != (~0LLU))) {
     *regular_freqcounts_neededp = 1;
     return 1;
   }
@@ -1611,12 +1611,20 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               logerrprintfww("Error: '%s' is not a categorical phenotype.\n", loop_cats_phenoname);
               goto Plink2Core_ret_INCONSISTENT_INPUT;
             }
-            loop_cats_pheno_col = cur_pheno_col;
+            // bugfix (13 Dec 2019): we need to copy the contents of
+            // pheno_cols[pheno_idx] when pheno_idx != pheno_ct - 1.
+            // Also note that this makes pheno_ct == 0 and pheno_cols !=
+            // nullptr possible simultaneously.
             --pheno_ct;
-            for (uint32_t pheno_idx2 = pheno_idx; pheno_idx2 != pheno_ct; ++pheno_idx2) {
-              pheno_cols[pheno_idx2] = pheno_cols[pheno_idx2 + 1];
-              memcpy(&(pheno_names[pheno_idx2 * max_pheno_name_blen]), &(pheno_names[(pheno_idx2 + 1) * max_pheno_name_blen]), max_pheno_name_blen);
+            if (pheno_idx < pheno_ct) {
+              PhenoCol pheno_col_copy = *cur_pheno_col;
+              for (uint32_t pheno_idx2 = pheno_idx; pheno_idx2 != pheno_ct; ++pheno_idx2) {
+                pheno_cols[pheno_idx2] = pheno_cols[pheno_idx2 + 1];
+                memcpy(&(pheno_names[pheno_idx2 * max_pheno_name_blen]), &(pheno_names[(pheno_idx2 + 1) * max_pheno_name_blen]), max_pheno_name_blen);
+              }
+              pheno_cols[pheno_ct] = pheno_col_copy;
             }
+            loop_cats_pheno_col = &(pheno_cols[pheno_ct]);
             break;
           }
         }
@@ -1629,12 +1637,16 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               logerrprintfww("Error: '%s' is not a categorical covariate.\n", loop_cats_phenoname);
               goto Plink2Core_ret_INCONSISTENT_INPUT;
             }
-            loop_cats_pheno_col = cur_covar_col;
             --covar_ct;
-            for (uint32_t covar_idx2 = covar_idx; covar_idx2 != covar_ct; ++covar_idx2) {
-              covar_cols[covar_idx2] = covar_cols[covar_idx2 + 1];
-              memcpy(&(covar_names[covar_idx2 * max_covar_name_blen]), &(covar_names[(covar_idx2 + 1) * max_covar_name_blen]), max_covar_name_blen);
+            if (covar_idx < covar_ct) {
+              PhenoCol covar_col_copy = *cur_covar_col;
+              for (uint32_t covar_idx2 = covar_idx; covar_idx2 != covar_ct; ++covar_idx2) {
+                covar_cols[covar_idx2] = covar_cols[covar_idx2 + 1];
+                memcpy(&(covar_names[covar_idx2 * max_covar_name_blen]), &(covar_names[(covar_idx2 + 1) * max_covar_name_blen]), max_covar_name_blen);
+              }
+              covar_cols[covar_ct] = covar_col_copy;
             }
+            loop_cats_pheno_col = &(covar_cols[covar_ct]);
             break;
           }
         }
@@ -1660,6 +1672,9 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       BitvecAndCopy(sample_include, loop_cats_pheno_col->nonmiss, raw_sample_ctl, loop_cats_sample_include_backup);
       loop_cats_sample_ct = PopcountWords(loop_cats_sample_include_backup, raw_sample_ctl);
       loop_cats_ct = IdentifyRemainingCats(sample_include, loop_cats_pheno_col, sample_ct, loop_cats_cat_include);
+      // bugfix (13 Dec 2019): --loop-cats does not iterate over the null
+      // category.  Don't include it in the count.
+      loop_cats_ct -= loop_cats_cat_include[0] & 1;
       if (unlikely(!loop_cats_ct)) {
         logerrputs("Error: All --loop-cats categories are empty.\n");
         goto Plink2Core_ret_INCONSISTENT_INPUT;
@@ -1700,18 +1715,18 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
       uintptr_t* allele_presents = nullptr;
 
-      // dosages are currently in 32768ths
+      // dosages are currently in 32768ths, hence the extra 'd'
       // same indexes as allele_storage.  We can't omit the last allele (in the
       // way allele_freqs does) because the sum isn't constant (missing
       // values).
-      uint64_t* allele_dosages = nullptr;
-      uint64_t* founder_allele_dosages = nullptr;
+      uint64_t* allele_ddosages = nullptr;
+      uint64_t* founder_allele_ddosages = nullptr;
 
       AlleleCode* maj_alleles = nullptr;
       double* allele_freqs = nullptr;
       STD_ARRAY_PTR_DECL(uint32_t, 3, raw_geno_cts) = nullptr;
       STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts) = nullptr;
-      unsigned char* bigstack_mark_allele_dosages = g_bigstack_base;
+      unsigned char* bigstack_mark_allele_ddosages = g_bigstack_base;
       const uint32_t keep_grm = GrmKeepIsNeeded(pcp->command_flags1, pcp->pca_flags);
       double* grm = nullptr;
 
@@ -1781,18 +1796,18 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             goto Plink2Core_ret_NOMEM;
           }
         }
-        bigstack_mark_allele_dosages = g_bigstack_base;
+        bigstack_mark_allele_ddosages = g_bigstack_base;
         uint32_t regular_freqcounts_needed = (allele_presents != nullptr);
-        if (AlleleDosagesAreNeeded(pcp->misc_flags, (allele_freqs != nullptr), pcp->min_allele_dosage, pcp->max_allele_dosage, &regular_freqcounts_needed)) {
-          if (unlikely(bigstack_alloc_u64(raw_allele_ct, &allele_dosages))) {
+        if (AlleleDosagesAreNeeded(pcp->misc_flags, (allele_freqs != nullptr), pcp->min_allele_ddosage, pcp->max_allele_ddosage, &regular_freqcounts_needed)) {
+          if (unlikely(bigstack_alloc_u64(raw_allele_ct, &allele_ddosages))) {
             goto Plink2Core_ret_NOMEM;
           }
         }
-        if (FounderAlleleDosagesAreNeeded(pcp->misc_flags, (allele_freqs != nullptr), pcp->min_allele_dosage, pcp->max_allele_dosage, &regular_freqcounts_needed)) {
-          if ((founder_ct == sample_ct) && allele_dosages) {
-            founder_allele_dosages = allele_dosages;
+        if (FounderAlleleDosagesAreNeeded(pcp->misc_flags, (allele_freqs != nullptr), pcp->min_allele_ddosage, pcp->max_allele_ddosage, &regular_freqcounts_needed)) {
+          if ((founder_ct == sample_ct) && allele_ddosages) {
+            founder_allele_ddosages = allele_ddosages;
           } else {
-            if (unlikely(bigstack_alloc_u64(raw_allele_ct, &founder_allele_dosages))) {
+            if (unlikely(bigstack_alloc_u64(raw_allele_ct, &founder_allele_ddosages))) {
               goto Plink2Core_ret_NOMEM;
             }
           }
@@ -1920,7 +1935,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           // hardcall-missing-count slot... and it's NOT fine to pass in
           // nullptrs for both missing-count arrays...
           const uint32_t dosageless_file = !(pgfi.gflags & kfPgenGlobalDosagePresent);
-          reterr = LoadAlleleAndGenoCounts(sample_include, founder_info, sex_nm, sex_male, regular_freqcounts_needed? variant_include : variant_afreqcalc, cip, allele_idx_offsets, raw_sample_ct, sample_ct, founder_ct, male_ct, nosex_ct, raw_variant_ct, regular_freqcounts_needed? variant_ct : afreqcalc_variant_ct, first_hap_uidx, is_minimac3_r2, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, allele_presents, allele_dosages, founder_allele_dosages, ((!variant_missing_hc_cts) && dosageless_file)? variant_missing_dosage_cts : variant_missing_hc_cts, dosageless_file? nullptr : variant_missing_dosage_cts, variant_hethap_cts, raw_geno_cts, founder_raw_geno_cts, x_male_geno_cts, founder_x_male_geno_cts, x_nosex_geno_cts, founder_x_nosex_geno_cts, imp_r2_vals);
+          reterr = LoadAlleleAndGenoCounts(sample_include, founder_info, sex_nm, sex_male, regular_freqcounts_needed? variant_include : variant_afreqcalc, cip, allele_idx_offsets, raw_sample_ct, sample_ct, founder_ct, male_ct, nosex_ct, raw_variant_ct, regular_freqcounts_needed? variant_ct : afreqcalc_variant_ct, first_hap_uidx, is_minimac3_r2, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, allele_presents, allele_ddosages, founder_allele_ddosages, ((!variant_missing_hc_cts) && dosageless_file)? variant_missing_dosage_cts : variant_missing_hc_cts, dosageless_file? nullptr : variant_missing_dosage_cts, variant_hethap_cts, raw_geno_cts, founder_raw_geno_cts, x_male_geno_cts, founder_x_male_geno_cts, x_nosex_geno_cts, founder_x_nosex_geno_cts, imp_r2_vals);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -1938,7 +1953,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         if (allele_freqs) {
           if (afreqcalc_variant_ct) {
             const uint32_t maf_succ = (pcp->misc_flags / kfMiscMafSucc) & 1;
-            ComputeAlleleFreqs(variant_afreqcalc, allele_idx_offsets, nonfounders? allele_dosages : founder_allele_dosages, afreqcalc_variant_ct, maf_succ, allele_freqs);
+            ComputeAlleleFreqs(variant_afreqcalc, allele_idx_offsets, nonfounders? allele_ddosages : founder_allele_ddosages, afreqcalc_variant_ct, maf_succ, allele_freqs);
           }
           if (maj_alleles) {
             ComputeMajAlleles(variant_include, allele_idx_offsets, allele_freqs, variant_ct, maj_alleles);
@@ -1947,7 +1962,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         BigstackReset(bigstack_mark_read_freqs);
 
         if (pcp->command_flags1 & kfCommand1AlleleFreq) {
-          reterr = WriteAlleleFreqs(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonfounders? allele_dosages : founder_allele_dosages, imp_r2_vals, pcp->freq_ref_binstr, pcp->freq_alt1_binstr, variant_ct, max_allele_ct, max_allele_slen, pcp->freq_rpt_flags, pcp->max_thread_ct, nonfounders, outname, outname_end);
+          reterr = WriteAlleleFreqs(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nonfounders? allele_ddosages : founder_allele_ddosages, imp_r2_vals, pcp->freq_ref_binstr, pcp->freq_alt1_binstr, variant_ct, max_allele_ct, max_allele_slen, pcp->freq_rpt_flags, pcp->max_thread_ct, nonfounders, outname, outname_end);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
           }
@@ -2094,8 +2109,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         // raw_geno_cts/founder_raw_geno_cts/hwe_x_pvals no longer needed
         BigstackReset(bigstack_mark_geno_cts);
 
-        if ((pcp->min_maf != 0.0) || (pcp->max_maf != 1.0) || pcp->min_allele_dosage || (pcp->max_allele_dosage != (~0LLU))) {
-          EnforceFreqConstraints(allele_idx_offsets, nonfounders? allele_dosages : founder_allele_dosages, allele_freqs, pcp->filter_modes, pcp->min_maf, pcp->max_maf, pcp->min_allele_dosage, pcp->max_allele_dosage, variant_include, &variant_ct);
+        if ((pcp->min_maf != 0.0) || (pcp->max_maf != 1.0) || pcp->min_allele_ddosage || (pcp->max_allele_ddosage != (~0LLU))) {
+          EnforceFreqConstraints(allele_idx_offsets, nonfounders? allele_ddosages : founder_allele_ddosages, allele_freqs, pcp->filter_modes, pcp->min_maf, pcp->max_maf, pcp->min_allele_ddosage, pcp->max_allele_ddosage, variant_include, &variant_ct);
         }
 
         if (imp_r2_vals) {
@@ -2399,7 +2414,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (pcp->misc_flags & kfMiscMajRef) {
             // Since this also sets ALT1 to the second-most-common allele, it
             // can't just subscribe to maj_alleles[].
-            const uint64_t* main_allele_dosages = nonfounders? allele_dosages : founder_allele_dosages;
+            const uint64_t* main_allele_ddosages = nonfounders? allele_ddosages : founder_allele_ddosages;
             const uint32_t skip_real_ref = not_all_nonref && (!(pcp->misc_flags & kfMiscMajRefForce));
             if (skip_real_ref && (!nonref_flags)) {
               logerrputs("Warning: --maj-ref has no effect, since no provisional reference alleles are\npresent.  (Did you forget to add the 'force' modifier?)\n");
@@ -2411,23 +2426,23 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
                 if (skip_real_ref && IsSet(nonref_flags, variant_uidx)) {
                   continue;
                 }
-                const uint64_t* cur_allele_dosages = &(main_allele_dosages[allele_idx_offsets? allele_idx_offsets[variant_uidx] : (2 * variant_uidx)]);
+                const uint64_t* cur_allele_ddosages = &(main_allele_ddosages[allele_idx_offsets? allele_idx_offsets[variant_uidx] : (2 * variant_uidx)]);
                 const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx]) : 2;
                 if (allele_ct == 2) {
                   // optimize common case: only make one assignment
-                  if (cur_allele_dosages[1] > cur_allele_dosages[0]) {
+                  if (cur_allele_ddosages[1] > cur_allele_ddosages[0]) {
                     R_CAST(DoubleAlleleCode*, refalt1_select)[variant_uidx] = 1;
                     if (nonref_flags) {
                       SetBit(variant_uidx, nonref_flags);
                     }
                   }
                 } else {
-                  uint32_t new_ref_idx = (cur_allele_dosages[1] > cur_allele_dosages[0]);
+                  uint32_t new_ref_idx = (cur_allele_ddosages[1] > cur_allele_ddosages[0]);
                   uint32_t new_alt1_idx = 1 - new_ref_idx;
-                  uint64_t ref_dosage = cur_allele_dosages[new_ref_idx];
-                  uint64_t alt1_dosage = cur_allele_dosages[new_alt1_idx];
+                  uint64_t ref_dosage = cur_allele_ddosages[new_ref_idx];
+                  uint64_t alt1_dosage = cur_allele_ddosages[new_alt1_idx];
                   for (uint32_t alt_idx = 2; alt_idx != allele_ct; ++alt_idx) {
-                    const uint64_t cur_alt_dosage = cur_allele_dosages[alt_idx];
+                    const uint64_t cur_alt_dosage = cur_allele_ddosages[alt_idx];
                     if (cur_alt_dosage > alt1_dosage) {
                       if (cur_alt_dosage > ref_dosage) {
                         alt1_dosage = ref_dosage;
@@ -2452,7 +2467,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             }
           }
         }
-        BigstackReset(bigstack_mark_allele_dosages);
+        BigstackReset(bigstack_mark_allele_ddosages);
 
         uint32_t* new_sample_idx_to_old = nullptr;
         if (pcp->sample_sort_flags & (kfSortNatural | kfSortAscii | kfSortFile)) {
@@ -2534,7 +2549,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           GET_PRIVATE(simple_pgr, m).fi.nonref_flags = nullptr;
         }
       }
-      BigstackReset(bigstack_mark_allele_dosages);
+      BigstackReset(bigstack_mark_allele_ddosages);
 
       if (pcp->command_flags1 & kfCommand1LdPrune) {
         if (unlikely((pcp->ld_info.prune_flags & kfLdPruneWindowBp) && (vpos_sortstatus & kfUnsortedVarBp))) {
@@ -2598,6 +2613,9 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
   }
  Plink2Core_ret_1:
   if (loop_cats_pheno_col) {
+    // Current implementation requires this to happen before CleanupPhenoCols()
+    // on pheno_cols/covar_cols, since loop_cats_pheno_col actually points to
+    // the last element of one of those arrays.
     vecaligned_free_cond(loop_cats_pheno_col->nonmiss);
   }
   CleanupPhenoCols(covar_ct, covar_cols);
@@ -3490,8 +3508,8 @@ int main(int argc, char** argv) {
     pc.max_maf = 1.0;
     pc.thin_keep_prob = 1.0;
     pc.thin_keep_sample_prob = 1.0;
-    pc.min_allele_dosage = 0;
-    pc.max_allele_dosage = (~0LLU);
+    pc.min_allele_ddosage = 0;
+    pc.max_allele_ddosage = (~0LLU);
     pc.var_min_qual = -1;
     pc.update_sex_colm2 = 1;
     pc.new_variant_id_max_allele_slen = 23;
@@ -6808,9 +6826,9 @@ int main(int argc, char** argv) {
             // round up, but keep as much precision as possible
             int32_t int_part = S_CAST(int32_t, dxx);
             dxx -= int_part;
-            pc.min_allele_dosage = int_part * S_CAST(uint64_t, kDosageMax);
+            pc.min_allele_ddosage = int_part * S_CAST(uint64_t, kDosageMax);
             if (dxx > 0.0) {
-              pc.min_allele_dosage += 1 + S_CAST(uint64_t, dxx * (kDosageMax * (1 - kSmallEpsilon)));
+              pc.min_allele_ddosage += 1 + S_CAST(uint64_t, dxx * (kDosageMax * (1 - kSmallEpsilon)));
             }
             // yeah, this should be its own function...
             if (mode_str[0] == ':') {
@@ -6849,7 +6867,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           // round down
-          pc.max_allele_dosage = S_CAST(int64_t, dxx * kDosageMax);
+          pc.max_allele_ddosage = S_CAST(int64_t, dxx * kDosageMax);
           if (mode_str[0] == ':') {
             if (unlikely(param_ct == 2)) {
               logerrputs("Error: Invalid --max-mac parameter sequence.\n");
@@ -6871,7 +6889,7 @@ int main(int argc, char** argv) {
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
-          if (unlikely((pc.filter_modes[2] == pc.filter_modes[3]) && (pc.max_allele_dosage < pc.min_allele_dosage))) {
+          if (unlikely((pc.filter_modes[2] == pc.filter_modes[3]) && (pc.max_allele_ddosage < pc.min_allele_ddosage))) {
             // yeah, --mac 0.1 --max-mac 0.1 also isn't allowed
             logerrputs("Error: --max-mac parameter cannot be smaller than --mac parameter when modes\nare identical.\n");
             goto main_ret_INVALID_CMDLINE;

@@ -89,39 +89,6 @@ BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenG
   return 0;
 }
 
-static_assert(kDosageMax == 32768, "dosagetoa() needs to be updated.");
-char* dosagetoa(uint64_t dosage, char* start) {
-  // 3 digit precision seems like the best compromise between accuracy and
-  // avoidance of rounding ugliness
-  // (Rounding ugliness is not actually hidden for e.g. 1000 Genomes phase 1,
-  // since there are lots of 0.05 and 0.1 dosages which all get rounded in the
-  // same direction; oh well.)
-
-  // +16 since we need to round .99951 up to 1
-  const uint64_t dosage_p16 = dosage + 16;
-  start = u32toa(dosage_p16 / kDosageMax, start);
-  const uint32_t remainder_p16 = S_CAST(uint32_t, dosage_p16) % kDosageMax;
-  if (remainder_p16 < 33) {
-    return start;
-  }
-  // (1000 * remainder + 16384) / 32768
-  //   1/16 = .0625 -> print 0.062
-  //   3/16 = .1875 -> print 0.188
-  //   5/16 = .3125 -> print 0.312
-  // const uint32_t three_decimal_places = ((125 * remainder + 2048) / 4096) - ((remainder % 8192) == 2048);
-  const uint32_t three_decimal_places = ((125 * remainder_p16 + 48) / 4096) - ((remainder_p16 % 8192) == 4048);
-  // three_decimal_places guaranteed to be nonzero here
-  *start++ = '.';
-  const uint32_t first_decimal_place = three_decimal_places / 100;
-  *start++ = '0' + first_decimal_place;
-  const uint32_t last_two_digits = three_decimal_places - first_decimal_place * 100;
-  if (last_two_digits) {
-    memcpy_k(start, &(kDigitPair[last_two_digits]), 2);
-    return &(start[1 + (start[1] != '0')]);
-  }
-  return start;
-}
-
 static_assert(kDosageMid == 16384, "PrintDosageDecimal() needs to be updated.");
 char* PrintDosageDecimal(uint32_t remainder, char* start) {
   // Instead of constant 5-digit precision, we print fewer digits whenever that
@@ -153,6 +120,81 @@ char* PrintDosageDecimal(uint32_t remainder, char* start) {
   //   3/64 = .046875 -> print 0.04688
   //   5/64 = .078125 -> print 0.07812
   const uint32_t five_decimal_places = ((3125 * remainder + 256) / 512) - ((remainder % 1024) == 256);
+  const uint32_t first_decimal_place = five_decimal_places / 10000;
+  *start++ = '0' + first_decimal_place;
+  const uint32_t last_four_digits = five_decimal_places - first_decimal_place * 10000;
+  if (last_four_digits) {
+    return u32toa_trunc4(last_four_digits, start);
+  }
+  return start;
+}
+
+static_assert(kDosageMax == 32768, "ddosagetoa() needs to be updated.");
+char* ddosagetoa(uint64_t dosage, char* start) {
+  // 3 digit precision seems like the best compromise between accuracy and
+  // avoidance of rounding ugliness
+  // (Rounding ugliness is not actually hidden for e.g. 1000 Genomes phase 1,
+  // since there are lots of 0.05 and 0.1 dosages which all get rounded in the
+  // same direction; oh well.)
+
+  // +16 since we need to round .99951 up to 1
+  const uint64_t dosage_p16 = dosage + 16;
+  start = u32toa(dosage_p16 / kDosageMax, start);
+  const uint32_t remainder_p16 = S_CAST(uint32_t, dosage_p16) % kDosageMax;
+  if (remainder_p16 < 33) {
+    return start;
+  }
+  // (1000 * remainder + 16384) / 32768
+  //   1/16 = .0625 -> print 0.062
+  //   3/16 = .1875 -> print 0.188
+  //   5/16 = .3125 -> print 0.312
+  // const uint32_t three_decimal_places = ((125 * remainder + 2048) / 4096) - ((remainder % 8192) == 2048);
+  const uint32_t three_decimal_places = ((125 * remainder_p16 + 48) / 4096) - ((remainder_p16 % 8192) == 4048);
+  // three_decimal_places guaranteed to be nonzero here
+  *start++ = '.';
+  const uint32_t first_decimal_place = three_decimal_places / 100;
+  *start++ = '0' + first_decimal_place;
+  const uint32_t last_two_digits = three_decimal_places - first_decimal_place * 100;
+  if (last_two_digits) {
+    memcpy_k(start, &(kDigitPair[last_two_digits]), 2);
+    return &(start[1 + (start[1] != '0')]);
+  }
+  return start;
+}
+
+static_assert(kDosageMax == 32768, "PrintDdosageDecimal() needs to be updated.");
+char* PrintDdosageDecimal(uint32_t remainder, char* start) {
+  // Instead of constant 5-digit precision, we print fewer digits whenever that
+  // doesn't interfere with proper round-tripping.  I.e. we search for the
+  // shortest string in
+  //   ((n - 0.5)/32768, (n + 0.5)/32768).
+  // E.g. 6554/32768 is 0.20001 when printed with 5-digit precision, but we'd
+  // print that as 0.2 since that's still in (6553.5/32768, 6554.5/32768).
+  // (This is more precise than necessary for most chromosomes, but it's
+  // necessary for chrX.)
+  *start++ = '.';
+  // (remainder * 2) is in 65536ths
+  // 65536 * 625 = 40960k, smallest common denominator with 10^4
+
+  const uint32_t range_top_40960k = (remainder * 2 + 1) * 625;
+  // this is technically checking a half-open rather than a fully-open
+  // interval, but that's fine since we never hit the boundary points
+  if ((range_top_40960k % 4096) < 1250) {
+    // when this is true, the four-decimal-place approximation is in the range
+    // which round-trips back to our original number.
+    const uint32_t four_decimal_places = range_top_40960k / 4096;
+    return u32toa_trunc4(four_decimal_places, start);
+  }
+
+  // we wish to print (100000 * remainder + 16384) / 32768, left-0-padded.  and
+  // may as well banker's round too.
+  //
+  // banker's rounding yields a different result than regular rounding for n/64
+  // when n is congruent to 1 mod 4:
+  //   1/64 = .015625 -> print 0.01562
+  //   3/64 = .046875 -> print 0.04688
+  //   5/64 = .078125 -> print 0.07812
+  const uint32_t five_decimal_places = ((3125 * remainder + 512) / 1024) - ((remainder % 2048) == 512);
   const uint32_t first_decimal_place = five_decimal_places / 10000;
   *start++ = '0' + first_decimal_place;
   const uint32_t last_four_digits = five_decimal_places - first_decimal_place * 10000;

@@ -2969,7 +2969,7 @@ PglErr PhenoQuantileNormalize(const char* quantnorm_flattened, const uintptr_t* 
 }
 
 
-PglErr ProcessBoundaryToken(const char* tok_start, const char* tok_end, const char* token_source_str, uint32_t max_boundary_ct, PglErr err_type, double* prev_boundary_ptr, uint32_t* boundary_ct_ptr, double** freq_bounds_ptr, uint64_t** dosage_bounds_ptr) {
+PglErr ProcessBoundaryToken(const char* tok_start, const char* tok_end, const char* token_source_str, uint32_t max_boundary_ct, PglErr err_type, double* prev_boundary_ptr, uint32_t* boundary_ct_ptr, double** freq_bounds_ptr, uint64_t** ddosage_bounds_ptr) {
   double cur_boundary;
   const char* scan_end = ScanadvDouble(tok_start, &cur_boundary);
   if (unlikely((!scan_end) || (scan_end != tok_end))) {
@@ -3009,9 +3009,9 @@ PglErr ProcessBoundaryToken(const char* tok_start, const char* tok_end, const ch
     const double cur_boundary_frac_part = cur_boundary - int_part;
     const int64_t int_part_scaled = int_part * kDosageMax;
     if (cur_boundary_frac_part == 0.0) {
-      (*dosage_bounds_ptr)[boundary_ct] = int_part_scaled - 1;
+      (*ddosage_bounds_ptr)[boundary_ct] = int_part_scaled - 1;
     } else {
-      (*dosage_bounds_ptr)[boundary_ct] = int_part_scaled + S_CAST(int64_t, cur_boundary_frac_part * (kDosageMax * (1 - kSmallEpsilon)));
+      (*ddosage_bounds_ptr)[boundary_ct] = int_part_scaled + S_CAST(int64_t, cur_boundary_frac_part * (kDosageMax * (1 - kSmallEpsilon)));
     }
   }
   *prev_boundary_ptr = cur_boundary;
@@ -3019,7 +3019,7 @@ PglErr ProcessBoundaryToken(const char* tok_start, const char* tok_end, const ch
   return kPglRetSuccess;
 }
 
-PglErr InitHistogramFromFileOrCommalist(const char* binstr, uint32_t is_fname, double** freq_bounds_ptr, uint64_t** dosage_bounds_ptr, uint32_t* boundary_ct_ptr, uint32_t** histogram_ptr) {
+PglErr InitHistogramFromFileOrCommalist(const char* binstr, uint32_t is_fname, double** freq_bounds_ptr, uint64_t** ddosage_bounds_ptr, uint32_t* boundary_ct_ptr, uint32_t** histogram_ptr) {
   unsigned char* bigstack_end_mark = g_bigstack_end;
   TokenStream tks;
   PreinitTokenStream(&tks);
@@ -3048,7 +3048,7 @@ PglErr InitHistogramFromFileOrCommalist(const char* binstr, uint32_t is_fname, d
     if (freq_bounds_ptr) {
       *freq_bounds_ptr = R_CAST(double*, g_bigstack_base);
     } else {
-      *dosage_bounds_ptr = R_CAST(uint64_t*, g_bigstack_base);
+      *ddosage_bounds_ptr = R_CAST(uint64_t*, g_bigstack_base);
     }
     uint32_t boundary_ct = 0;
     double prev_boundary = 0.0;
@@ -3067,7 +3067,7 @@ PglErr InitHistogramFromFileOrCommalist(const char* binstr, uint32_t is_fname, d
             break;
           }
           char* token_end = CurTokenEnd(shard_iter);
-          reterr = ProcessBoundaryToken(shard_iter, token_end, binstr, max_boundary_ct, kPglRetMalformedInput, &prev_boundary, &boundary_ct, freq_bounds_ptr, dosage_bounds_ptr);
+          reterr = ProcessBoundaryToken(shard_iter, token_end, binstr, max_boundary_ct, kPglRetMalformedInput, &prev_boundary, &boundary_ct, freq_bounds_ptr, ddosage_bounds_ptr);
           if (unlikely(reterr)) {
             goto InitHistogramFromFileOrCommalist_ret_1;
           }
@@ -3084,7 +3084,7 @@ PglErr InitHistogramFromFileOrCommalist(const char* binstr, uint32_t is_fname, d
       const char* binstr_iter = binstr;
       while (1) {
         const char* tok_end = strchrnul(binstr_iter, ',');
-        reterr = ProcessBoundaryToken(binstr_iter, tok_end, "--freq {ref,alt1}bins= list", max_boundary_ct, kPglRetInvalidCmdline, &prev_boundary, &boundary_ct, freq_bounds_ptr, dosage_bounds_ptr);
+        reterr = ProcessBoundaryToken(binstr_iter, tok_end, "--freq {ref,alt1}bins= list", max_boundary_ct, kPglRetInvalidCmdline, &prev_boundary, &boundary_ct, freq_bounds_ptr, ddosage_bounds_ptr);
         if (unlikely(reterr)) {
           goto InitHistogramFromFileOrCommalist_ret_1;
         }
@@ -3113,7 +3113,7 @@ PglErr InitHistogramFromFileOrCommalist(const char* binstr, uint32_t is_fname, d
   return reterr;
 }
 
-PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uint64_t* founder_allele_dosages, const double* imp_r2_vals, const char* ref_binstr, const char* alt1_binstr, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, FreqRptFlags freq_rpt_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end) {
+PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uint64_t* founder_allele_ddosages, const double* imp_r2_vals, const char* ref_binstr, const char* alt1_binstr, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, FreqRptFlags freq_rpt_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -3276,44 +3276,44 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
           }
           --cswritep;
         }
-        const uint64_t* cur_allele_dosages = &(founder_allele_dosages[allele_idx_offset_base]);
-        uint64_t tot_allele_dosage = cur_allele_dosages[0];
+        const uint64_t* cur_allele_ddosages = &(founder_allele_ddosages[allele_idx_offset_base]);
+        uint64_t tot_allele_ddosage = cur_allele_ddosages[0];
         for (uint32_t allele_idx = 1; allele_idx != cur_allele_ct; ++allele_idx) {
-          tot_allele_dosage += cur_allele_dosages[allele_idx];
+          tot_allele_ddosage += cur_allele_ddosages[allele_idx];
         }
-        double tot_allele_dosage_recip = 0.0;
+        double tot_allele_ddosage_recip = 0.0;
         if (!counts) {
-          tot_allele_dosage_recip = 1.0 / u63tod(tot_allele_dosage);
+          tot_allele_ddosage_recip = 1.0 / u63tod(tot_allele_ddosage);
         }
         if (reffreq_col) {
           *cswritep++ = '\t';
-          const uint64_t ref_dosage = cur_allele_dosages[0];
+          const uint64_t ref_ddosage = cur_allele_ddosages[0];
           if (counts) {
             // update (22 Nov 2019): we want --read-freq to be able to exactly
             // replicate the original frequency.  dosagetoa() is not good
             // enough for this purpose.
-            cswritep = dosagetoa_full(ref_dosage, cswritep);
+            cswritep = ddosagetoa_full(ref_ddosage, cswritep);
           } else {
-            cswritep = dtoa_g(u63tod(ref_dosage) * tot_allele_dosage_recip, cswritep);
+            cswritep = dtoa_g(u63tod(ref_ddosage) * tot_allele_ddosage_recip, cswritep);
           }
         }
         if (alt1freq_col) {
           *cswritep++ = '\t';
-          const uint64_t alt1_dosage = cur_allele_dosages[1];
+          const uint64_t alt1_ddosage = cur_allele_ddosages[1];
           if (counts) {
-            cswritep = dosagetoa_full(alt1_dosage, cswritep);
+            cswritep = ddosagetoa_full(alt1_ddosage, cswritep);
           } else {
-            cswritep = dtoa_g(u63tod(alt1_dosage) * tot_allele_dosage_recip, cswritep);
+            cswritep = dtoa_g(u63tod(alt1_ddosage) * tot_allele_ddosage_recip, cswritep);
           }
         }
         if (freq_col) {
           *cswritep++ = '\t';
           for (uint32_t allele_idx = commalist_exclude_ref; allele_idx != cur_allele_ct; ++allele_idx) {
-            const uint64_t cur_allele_dosage = cur_allele_dosages[allele_idx];
+            const uint64_t cur_allele_ddosage = cur_allele_ddosages[allele_idx];
             if (counts) {
-              cswritep = dosagetoa_full(cur_allele_dosage, cswritep);
+              cswritep = ddosagetoa_full(cur_allele_ddosage, cswritep);
             } else {
-              cswritep = dtoa_g(u63tod(cur_allele_dosage) * tot_allele_dosage_recip, cswritep);
+              cswritep = dtoa_g(u63tod(cur_allele_ddosage) * tot_allele_ddosage_recip, cswritep);
             }
             *cswritep++ = ',';
           }
@@ -3322,8 +3322,8 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
           *cswritep++ = '\t';
           uint32_t at_least_one_entry = 0;
           for (uint32_t allele_idx = commalist_exclude_ref; allele_idx != cur_allele_ct; ++allele_idx) {
-            const uint64_t cur_allele_dosage = cur_allele_dosages[allele_idx];
-            if (eq_includez || cur_allele_dosage) {
+            const uint64_t cur_allele_ddosage = cur_allele_ddosages[allele_idx];
+            if (eq_includez || cur_allele_ddosage) {
               if (eq_num) {
                 cswritep = u32toa(allele_idx, cswritep);
               } else {
@@ -3340,9 +3340,9 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
               }
               *cswritep++ = '=';
               if (counts) {
-                cswritep = dosagetoa_full(cur_allele_dosage, cswritep);
+                cswritep = ddosagetoa_full(cur_allele_ddosage, cswritep);
               } else {
-                cswritep = dtoa_g(u63tod(cur_allele_dosage) * tot_allele_dosage_recip, cswritep);
+                cswritep = dtoa_g(u63tod(cur_allele_ddosage) * tot_allele_ddosage_recip, cswritep);
               }
               *cswritep++ = ',';
               at_least_one_entry = 1;
@@ -3364,7 +3364,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
         }
         if (nobs_col) {
           *cswritep++ = '\t';
-          cswritep = u32toa(tot_allele_dosage / kDosageMid, cswritep);
+          cswritep = u32toa(tot_allele_ddosage / kDosageMax, cswritep);
         }
         AppendBinaryEoln(&cswritep);
         if (unlikely(Cswrite(&css, &cswritep))) {
@@ -3390,21 +3390,21 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
     if (ref_binstr || alt1_binstr) {
       BigstackReset(bigstack_mark);
       double* ref_freq_bounds = nullptr;
-      uint64_t* ref_dosage_bounds = nullptr;
+      uint64_t* ref_ddosage_bounds = nullptr;
       uint32_t* ref_histogram = nullptr;
       uint32_t ref_boundary_ct = 0;
       if (ref_binstr) {
-        reterr = InitHistogramFromFileOrCommalist(ref_binstr, (freq_rpt_flags / kfAlleleFreqBinsRefFname) & 1, counts? nullptr : (&ref_freq_bounds), counts? (&ref_dosage_bounds) : nullptr, &ref_boundary_ct, &ref_histogram);
+        reterr = InitHistogramFromFileOrCommalist(ref_binstr, (freq_rpt_flags / kfAlleleFreqBinsRefFname) & 1, counts? nullptr : (&ref_freq_bounds), counts? (&ref_ddosage_bounds) : nullptr, &ref_boundary_ct, &ref_histogram);
         if (unlikely(reterr)) {
           goto WriteAlleleFreqs_ret_1;
         }
       }
       double* alt1_freq_bounds = nullptr;
-      uint64_t* alt1_dosage_bounds = nullptr;
+      uint64_t* alt1_ddosage_bounds = nullptr;
       uint32_t* alt1_histogram = nullptr;
       uint32_t alt1_boundary_ct = 0;
       if (alt1_binstr) {
-        reterr = InitHistogramFromFileOrCommalist(alt1_binstr, (freq_rpt_flags / kfAlleleFreqBinsAlt1Fname) & 1, counts? nullptr : (&alt1_freq_bounds), counts? (&alt1_dosage_bounds) : nullptr, &alt1_boundary_ct, &alt1_histogram);
+        reterr = InitHistogramFromFileOrCommalist(alt1_binstr, (freq_rpt_flags / kfAlleleFreqBinsAlt1Fname) & 1, counts? nullptr : (&alt1_freq_bounds), counts? (&alt1_ddosage_bounds) : nullptr, &alt1_boundary_ct, &alt1_histogram);
         if (unlikely(reterr)) {
           goto WriteAlleleFreqs_ret_1;
         }
@@ -3420,19 +3420,19 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
             allele_idx_offset_base = allele_idx_offsets[variant_uidx];
             cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
           }
-          const uint64_t* cur_allele_dosages = &(founder_allele_dosages[allele_idx_offset_base]);
-          const uint64_t ref_allele_dosage = cur_allele_dosages[0];
-          const uint64_t alt1_allele_dosage = cur_allele_dosages[1];
-          uint64_t tot_allele_dosage = ref_allele_dosage + alt1_allele_dosage;
+          const uint64_t* cur_allele_ddosages = &(founder_allele_ddosages[allele_idx_offset_base]);
+          const uint64_t ref_allele_ddosage = cur_allele_ddosages[0];
+          const uint64_t alt1_allele_ddosage = cur_allele_ddosages[1];
+          uint64_t tot_allele_ddosage = ref_allele_ddosage + alt1_allele_ddosage;
           for (uint32_t allele_idx = 2; allele_idx != cur_allele_ct; ++allele_idx) {
-            tot_allele_dosage += cur_allele_dosages[allele_idx];
+            tot_allele_ddosage += cur_allele_ddosages[allele_idx];
           }
-          const double tot_allele_dosage_recip = 1.0 / u63tod(tot_allele_dosage);
+          const double tot_allele_ddosage_recip = 1.0 / u63tod(tot_allele_ddosage);
           if (ref_histogram) {
-            ref_histogram[CountSortedSmallerD(ref_freq_bounds, ref_boundary_ct, ref_allele_dosage * tot_allele_dosage_recip)] += 1;
+            ref_histogram[CountSortedSmallerD(ref_freq_bounds, ref_boundary_ct, ref_allele_ddosage * tot_allele_ddosage_recip)] += 1;
           }
           if (alt1_histogram) {
-            alt1_histogram[CountSortedSmallerD(alt1_freq_bounds, alt1_boundary_ct, alt1_allele_dosage * tot_allele_dosage_recip)] += 1;
+            alt1_histogram[CountSortedSmallerD(alt1_freq_bounds, alt1_boundary_ct, alt1_allele_ddosage * tot_allele_ddosage_recip)] += 1;
           }
         }
       } else {
@@ -3442,12 +3442,12 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
           if (allele_idx_offsets) {
             allele_idx_offset_base = allele_idx_offsets[variant_uidx];
           }
-          const uint64_t* cur_allele_dosages = &(founder_allele_dosages[allele_idx_offset_base]);
+          const uint64_t* cur_allele_ddosages = &(founder_allele_ddosages[allele_idx_offset_base]);
           if (ref_histogram) {
-            ref_histogram[CountSortedSmallerU64(ref_dosage_bounds, ref_boundary_ct, cur_allele_dosages[0])] += 1;
+            ref_histogram[CountSortedSmallerU64(ref_ddosage_bounds, ref_boundary_ct, cur_allele_ddosages[0])] += 1;
           }
           if (alt1_histogram) {
-            alt1_histogram[CountSortedSmallerU64(alt1_dosage_bounds, alt1_boundary_ct, cur_allele_dosages[1])] += 1;
+            alt1_histogram[CountSortedSmallerU64(alt1_ddosage_bounds, alt1_boundary_ct, cur_allele_ddosages[1])] += 1;
           }
         }
       }
@@ -3486,12 +3486,12 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
             }
           }
         } else {
-          const uint64_t* cur_dosage_bounds = is_alt1? alt1_dosage_bounds : ref_dosage_bounds;
+          const uint64_t* cur_ddosage_bounds = is_alt1? alt1_ddosage_bounds : ref_ddosage_bounds;
           for (uint32_t bin_idx = 0; bin_idx <= cur_boundary_ct; ++bin_idx) {
             if (!bin_idx) {
               *write_iter++ = '0';
             } else {
-              write_iter = dosagetoa(1 + cur_dosage_bounds[bin_idx - 1], write_iter);
+              write_iter = ddosagetoa(1 + cur_ddosage_bounds[bin_idx - 1], write_iter);
             }
             *write_iter++ = '\t';
             write_iter = u32toa(cur_histogram[bin_idx], write_iter);
