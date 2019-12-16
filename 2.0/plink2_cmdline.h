@@ -22,6 +22,7 @@
 // initialization/allocation, basic multithreading code, and a few numeric
 // constants.
 
+#include "include/plink2_bits.h"
 #include "include/plink2_string.h"
 #include "include/plink2_thread.h"
 
