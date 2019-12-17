@@ -157,7 +157,7 @@ double CIndex(NumericVector yhat, NumericVector y, SEXP status) {
   // to a slightly different approach, which is usually slower but avoids
   // sequential scans in case of ties.
   const uint64_t tie_burden = (static_cast<uint64_t>(size) * (size - 1)) / 2 - yhat_int_sum;
-  if (tie_burden > 32 * static_cast<uint64_t>(size) * plink2::bsrw(size)) {
+  if (tie_burden > 512 * static_cast<uint64_t>(size)) {
     return CIndexTieheavyMain(recs, size, wkspace, new_yhat_present, new_yhat_64b_popcounts, new_yhat_2048b_popcounts, new_yhat_64kib_popcounts);
   }
 
