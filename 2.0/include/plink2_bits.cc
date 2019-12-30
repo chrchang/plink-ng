@@ -284,22 +284,23 @@ uint32_t AdvBoundedTo1Bit(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil) 
   return MINV(rval, ceil);
 }
 
-uint32_t AdvBoundedTo0Bit(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil) {
-  const uintptr_t* bitarr_iter = &(bitarr[loc / kBitsPerWord]);
-  uintptr_t ulii = (~(*bitarr_iter)) >> (loc % kBitsPerWord);
+uintptr_t AdvBoundedTo0Bit(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil) {
+  assert(ceil >= 1);
+  const uintptr_t* bitarr_ptr = &(bitarr[loc / kBitsPerWord]);
+  uintptr_t ulii = (~(*bitarr_ptr)) >> (loc % kBitsPerWord);
   if (ulii) {
-    const uint32_t rval = loc + ctzw(ulii);
-    return MINV(rval, ceil);
+    loc += ctzw(ulii);
+    return MINV(loc, ceil);
   }
   const uintptr_t* bitarr_last = &(bitarr[(ceil - 1) / kBitsPerWord]);
   do {
-    if (bitarr_iter >= bitarr_last) {
+    if (bitarr_ptr >= bitarr_last) {
       return ceil;
     }
-    ulii = *(++bitarr_iter);
+    ulii = *(++bitarr_ptr);
   } while (ulii == ~k0LU);
-  const uint32_t rval = S_CAST(uintptr_t, bitarr_iter - bitarr) * kBitsPerWord + ctzw(~ulii);
-  return MINV(rval, ceil);
+  loc = S_CAST(uintptr_t, bitarr_ptr - bitarr) * kBitsPerWord + ctzw(~ulii);
+  return MINV(loc, ceil);
 }
 
 uint32_t FindLast1BitBefore(const uintptr_t* bitarr, uint32_t loc) {

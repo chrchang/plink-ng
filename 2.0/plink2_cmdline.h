@@ -1089,8 +1089,6 @@ HEADER_INLINE void FlipBit(uintptr_t loc, uintptr_t* bitarr) {
 void FillBitsNz(uintptr_t start_idx, uintptr_t end_idx, uintptr_t* bitarr);
 void ClearBitsNz(uintptr_t start_idx, uintptr_t end_idx, uintptr_t* bitarr);
 
-uintptr_t AdvBoundedTo0Bit(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil);
-
 // floor permitted to be -1, though not smaller than that.
 int32_t FindLast1BitBeforeBounded(const uintptr_t* bitarr, uint32_t loc, int32_t floor);
 

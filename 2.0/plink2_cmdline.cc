@@ -904,25 +904,6 @@ void ClearBitsNz(uintptr_t start_idx, uintptr_t end_idx, uintptr_t* bitarr) {
   }
 }
 
-uintptr_t AdvBoundedTo0Bit(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil) {
-  assert(ceil >= 1);
-  const uintptr_t* bitarr_ptr = &(bitarr[loc / kBitsPerWord]);
-  uintptr_t ulii = (~(*bitarr_ptr)) >> (loc % kBitsPerWord);
-  if (ulii) {
-    loc += ctzw(ulii);
-    return MINV(loc, ceil);
-  }
-  const uintptr_t* bitarr_last = &(bitarr[(ceil - 1) / kBitsPerWord]);
-  do {
-    if (bitarr_ptr >= bitarr_last) {
-      return ceil;
-    }
-    ulii = *(++bitarr_ptr);
-  } while (ulii == ~k0LU);
-  loc = S_CAST(uintptr_t, bitarr_ptr - bitarr) * kBitsPerWord + ctzw(~ulii);
-  return MINV(loc, ceil);
-}
-
 // floor permitted to be -1, though not smaller than that.
 int32_t FindLast1BitBeforeBounded(const uintptr_t* bitarr, uint32_t loc, int32_t floor) {
   const uintptr_t* bitarr_ptr = &(bitarr[loc / kBitsPerWord]);
