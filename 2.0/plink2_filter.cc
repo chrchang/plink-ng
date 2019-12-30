@@ -2089,7 +2089,6 @@ void ComputeAlleleFreqs(const uintptr_t* variant_include, const uintptr_t* allel
     }
     // todo: try changing this expression
     const uint64_t cur_maf_succ_dosage = (maf_succ | (!tot_dosage)) * kDosageMax;
-
     tot_dosage += cur_maf_succ_dosage * cur_allele_ct;
     double* cur_allele_freqs_base = &(allele_freqs[allele_idx_offset_base - variant_uidx]);
     const double tot_dosage_recip = 1.0 / u63tod(tot_dosage);

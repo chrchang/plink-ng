@@ -4493,6 +4493,12 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     }
     const uint32_t var_wts_requested = (pca_flags / kfPcaBiallelicVarWts) & 1;
     const uint32_t require_biallelic = var_wts_requested && (!(pca_flags & kfPcaIgnoreBiallelicVarWtsRestriction));
+    if (require_biallelic) {
+      if (unlikely(MultiallelicVariantPresent(variant_include, allele_idx_offsets, variant_ct))) {
+        logerrputs("Error: Multiallelic variant present in \"--pca biallelic-var-wts\" run.\n");
+        goto CalcPca_ret_INCONSISTENT_INPUT;
+      }
+    }
     const uint32_t chr_col = pca_flags & kfPcaVcolChrom;
     const uint32_t ref_col = pca_flags & kfPcaVcolRef;
     const uint32_t alt1_col = pca_flags & kfPcaVcolAlt1;
@@ -4875,12 +4881,6 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         }
       }
     } else {
-      if (require_biallelic) {
-        if (unlikely(MultiallelicVariantPresent(variant_include, allele_idx_offsets, variant_ct))) {
-          logerrputs("Error: Multiallelic variant present in \"--pca biallelic-var-wts\" run.\n");
-          goto CalcPca_ret_INCONSISTENT_INPUT;
-        }
-      }
       __CLPK_integer lwork;
       __CLPK_integer liwork;
       uintptr_t wkspace_byte_ct;
@@ -5685,6 +5685,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     uint32_t lines_to_skip_p1 = 1 + ((flags / kfScoreHeaderIgnore) & 1);
     char* line_start;
     for (uint32_t uii = 0; uii != lines_to_skip_p1; ++uii) {
+      ++line_idx;
       line_start = TextGet(&score_txs);
       if (unlikely(!line_start)) {
         if (!TextStreamErrcode2(&score_txs, &reterr)) {

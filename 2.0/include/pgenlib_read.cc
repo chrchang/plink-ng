@@ -4044,7 +4044,7 @@ uint32_t GetAux1bConsts(uint32_t allele_ct, uintptr_t* detect_hom_mask_lo_ptr) {
 // altx-alty genotypes in aux1b and sample_include with one allele ==
 // allele_idx; and sets *hom_ctp to the number of such hom-allele_idx genotypes
 // present.  (For allele_idx == 1, *hom_ctp is equal to raw_10_ct -
-// [# of aux1b entries] when there's no subsetting.)
+// <# of aux1b entries> when there's no subsetting.)
 // Trailing bits of raw_genoarr must be cleared.
 // Ok for subsetted_10_ct to be uninitialized if not subsetting, or allele_idx
 // != 1.
@@ -4064,6 +4064,7 @@ PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sa
   }
   uintptr_t detect_hom_mask_lo;
   const uint32_t allele_code_logwidth = GetAux1bConsts(allele_ct, &detect_hom_mask_lo);
+  const uint32_t allele_code_width = 1U << allele_code_logwidth;
   const uint32_t code10_logwidth = allele_code_logwidth + (allele_code_logwidth != 0);
   const uint32_t code10_width = 1U << code10_logwidth;
   const uint32_t allele_idx_m1 = allele_idx - 1;
@@ -4095,9 +4096,10 @@ PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sa
     uint32_t fvals_widx = 0;
     uint32_t loop_len = kBitsPerWord;
     if ((!allele_idx_m1) || (allele_ct == 3)) {
-      const uintptr_t detect_hom_mask_hi = detect_hom_mask_lo << (code10_width - 1);
+      // bugfix (29 Dec 2019)
+      const uintptr_t detect_alt1_mask_hi = detect_hom_mask_lo << (allele_code_width - 1);
       uint32_t subsetted_rare10_ct = 0;
-      uint32_t het_incr = 0;
+      uint32_t het_1x_ct = 0;
       for (uint32_t fset_widx = 0; ; ++fset_widx) {
         uintptr_t fset_bits;
         if (fset_widx >= fset_word_ct_m1) {
@@ -4120,9 +4122,9 @@ PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sa
               } else {
                 fvals_bits = patch_10_fvalsw[fvals_widx];
               }
-              if (!allele_idx_m1) {
-                fvals_bits = (detect_hom_mask_hi & (~(fvals_bits | ((fvals_bits | detect_hom_mask_hi) - detect_hom_mask_lo)))) >> (code10_width - 1);
-              }
+              // This sets each fvals_bits entry to 1 iff the patch genotype is
+              // ALT1-ALTx, i.e. the original low bits were zero.
+              fvals_bits = (detect_alt1_mask_hi & (~(fvals_bits | ((fvals_bits | detect_alt1_mask_hi) - detect_hom_mask_lo)))) >> (allele_code_width - 1);
               // unnecessary to apply bzhi here
               ++fvals_widx;
               rare10_lowbits = 0;
@@ -4130,7 +4132,7 @@ PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sa
             const uint32_t sample_uidx_lowbits = ctzw(cur_raw_genoarr_xys) / 2;
             if (sample_include_hw[sample_hwidx] & (1U << sample_uidx_lowbits)) {
               ++subsetted_rare10_ct;
-              het_incr += (fvals_bits >> rare10_lowbits) & 1;
+              het_1x_ct += (fvals_bits >> rare10_lowbits) & 1;
             }
             rare10_lowbits += code10_width;
           }
@@ -4140,18 +4142,16 @@ PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sa
       }
       if (allele_ct == 3) {
         if (allele_idx_m1) {
-          *hom_ctp = het_incr;
-          *het_ctp += subsetted_rare10_ct - het_incr;
+          *hom_ctp = subsetted_rare10_ct - het_1x_ct;
+          *het_ctp += het_1x_ct;
           return kPglRetSuccess;
         }
-        het_incr = subsetted_rare10_ct - het_incr;
       }
       *hom_ctp = subsetted_10_ct - subsetted_rare10_ct;
-      *het_ctp += het_incr;
+      *het_ctp += het_1x_ct;
       return kPglRetSuccess;
     }
     // allele_idx > 1, allele_ct > 3
-    const uint32_t allele_code_width = 1U << allele_code_logwidth;
     const uintptr_t detect_all_mask_lo = detect_hom_mask_lo | (detect_hom_mask_lo << allele_code_width);
     const uintptr_t detect_all_mask_hi = detect_all_mask_lo << (allele_code_width - 1);
     const uintptr_t xor_word = allele_idx_m1 * detect_all_mask_lo;
@@ -4239,9 +4239,9 @@ PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sa
   }
   const uint32_t fvals_word_ct_m1 = (fvals_byte_ct - 1) / kBytesPerWord;
   if ((!allele_idx_m1) || (allele_ct == 3)) {
-    const uintptr_t detect_hom_mask_hi = detect_hom_mask_lo << (code10_width - 1);
+    const uintptr_t detect_alt1_mask_hi = detect_hom_mask_lo << (allele_code_width - 1);
     uint32_t subsetted_rare10_ct = 0;
-    uint32_t het_incr = 0;
+    uint32_t het_1x_ct = 0;
     uint32_t loop_len = kBitsPerWord >> code10_logwidth;
     for (uint32_t fvals_widx = 0; ; ++fvals_widx) {
       uintptr_t fvals_bits;
@@ -4254,32 +4254,28 @@ PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sa
       } else {
         fvals_bits = patch_10_fvalsw[fvals_widx];
       }
-      if (!allele_idx_m1) {
-        fvals_bits = (detect_hom_mask_hi & (~(fvals_bits | ((fvals_bits | detect_hom_mask_hi) - detect_hom_mask_lo)))) >> (code10_width - 1);
-      }
+      fvals_bits = (detect_alt1_mask_hi & (~(fvals_bits | ((fvals_bits | detect_alt1_mask_hi) - detect_hom_mask_lo)))) >> (allele_code_width - 1);
       const uint32_t* cur_deltalist_base = &(deltalist_workspace[fvals_widx << (kBitsPerWordLog2 - code10_logwidth)]);
       for (uint32_t uii = 0; uii != loop_len; ++uii) {
         const uint32_t sample_uidx = cur_deltalist_base[uii];
         if (IsSet(sample_include, sample_uidx)) {
           ++subsetted_rare10_ct;
-          het_incr += (fvals_bits >> (uii << code10_logwidth)) & 1;
+          het_1x_ct += (fvals_bits >> (uii << code10_logwidth)) & 1;
         }
       }
     }
     if (allele_ct == 3) {
       if (allele_idx_m1) {
-        *hom_ctp = het_incr;
-        *het_ctp += subsetted_rare10_ct - het_incr;
+        *hom_ctp = subsetted_rare10_ct - het_1x_ct;
+        *het_ctp += het_1x_ct;
         return kPglRetSuccess;
       }
-      het_incr = subsetted_rare10_ct - het_incr;
     }
     *hom_ctp = subsetted_10_ct - subsetted_rare10_ct;
-    *het_ctp += het_incr;
+    *het_ctp += het_1x_ct;
     return kPglRetSuccess;
   }
   // allele_idx > 1, allele_ct > 3
-  const uint32_t allele_code_width = 1U << allele_code_logwidth;
   const uintptr_t detect_all_mask_lo = detect_hom_mask_lo | (detect_hom_mask_lo << allele_code_width);
   const uintptr_t detect_all_mask_hi = detect_all_mask_lo << (allele_code_width - 1);
   detect_hom_mask_lo = detect_hom_mask_lo * 3;
@@ -4624,6 +4620,7 @@ PglErr GenoarrAux1bStandardUpdate(const unsigned char* fread_end, const uintptr_
   const uint32_t allele_idx_m1 = allele_idx - 1;
   uintptr_t detect_hom_mask_lo;
   const uint32_t allele_code_logwidth = GetAux1bConsts(allele_ct, &detect_hom_mask_lo);
+  const uint32_t allele_code_width = 1U << allele_code_logwidth;
   const uint32_t code10_logwidth = allele_code_logwidth + (allele_code_logwidth != 0);
   const uint32_t code10_width = 1U << code10_logwidth;
   uint32_t rare10_lowbits = kBitsPerWord;
@@ -4648,7 +4645,19 @@ PglErr GenoarrAux1bStandardUpdate(const unsigned char* fread_end, const uintptr_
     uint32_t fvals_widx = 0;
     uint32_t loop_len = kBitsPerWord;
     if ((!allele_idx_m1) || (allele_ct == 3)) {
-      const uintptr_t detect_hom_mask_hi = detect_hom_mask_lo << (code10_width - 1);
+      // bugfix (29 Dec 2019)
+      const uintptr_t detect_alt1_mask_hi = detect_hom_mask_lo << (allele_code_width - 1);
+      // If allele_ct == 3:
+      //   code10_width = 1
+      //   0 -> 1/2, 1 -> 2/2
+      //   if allele_idx == 1:
+      //     we want to convert 2 -> 1 for 1/2 genotypes, and 2 -> 0 for 2/2.
+      //   if allele_idx == 2:
+      //     we want to convert 0 -> 1 for 1/2 genotypes, and 0 -> 2 for 2/2.
+      // If allele_ct == 4 (allele_idx == 1 forced):
+      //   allele_code_width = 2
+      //   code10_width = 4
+      //   we want to convert 2 -> 1 for 1/x genotypes, and 2 -> 0 otherwise.
       const uint32_t lowcode_add = 2 - allele_idx_m1;
       for (uint32_t fset_widx = 0; ; ++fset_widx) {
         uintptr_t fset_bits;
@@ -4676,7 +4685,7 @@ PglErr GenoarrAux1bStandardUpdate(const unsigned char* fread_end, const uintptr_
                 // modify to het 1/x = 1, otherwise 0, except in allele_idx ==
                 // 2 special case.
                 if (!allele_idx_m1) {
-                  fvals_bits = (detect_hom_mask_hi & (~(fvals_bits | ((fvals_bits | detect_hom_mask_hi) - detect_hom_mask_lo)))) >> (code10_width - 1);
+                  fvals_bits = (detect_alt1_mask_hi & (~(fvals_bits | ((fvals_bits | detect_alt1_mask_hi) - detect_hom_mask_lo)))) >> (allele_code_width - 1);
                 }
                 // unnecessary to apply bzhi here
                 ++fvals_widx;
@@ -4706,7 +4715,7 @@ PglErr GenoarrAux1bStandardUpdate(const unsigned char* fread_end, const uintptr_
                 // modify to het 1/x = 1, otherwise 0, except in allele_idx ==
                 // 2 special case
                 if (!allele_idx_m1) {
-                  fvals_bits = (detect_hom_mask_hi & (~(fvals_bits | ((fvals_bits | detect_hom_mask_hi) - detect_hom_mask_lo)))) >> (code10_width - 1);
+                  fvals_bits = (detect_alt1_mask_hi & (~(fvals_bits | ((fvals_bits | detect_alt1_mask_hi) - detect_hom_mask_lo)))) >> (allele_code_width - 1);
                 }
                 // unnecessary to apply bzhi here
                 ++fvals_widx;
@@ -4729,7 +4738,6 @@ PglErr GenoarrAux1bStandardUpdate(const unsigned char* fread_end, const uintptr_
       return kPglRetSuccess;
     }
     // allele_idx > 1, allele_ct > 3
-    const uint32_t allele_code_width = 1U << allele_code_logwidth;
     const uintptr_t detect_all_mask_lo = detect_hom_mask_lo | (detect_hom_mask_lo << allele_code_width);
     const uintptr_t detect_all_mask_hi = detect_all_mask_lo << (allele_code_width - 1);
     const uintptr_t xor_word = allele_idx_m1 * detect_all_mask_lo;
@@ -4826,7 +4834,8 @@ PglErr GenoarrAux1bStandardUpdate(const unsigned char* fread_end, const uintptr_
   }
   const uint32_t fvals_word_ct_m1 = (fvals_byte_ct - 1) / kBytesPerWord;
   if ((!allele_idx_m1) || (allele_ct == 3)) {
-    const uintptr_t detect_hom_mask_hi = detect_hom_mask_lo << (code10_width - 1);
+    // bugfix (29 Dec 2019)
+    const uintptr_t detect_alt1_mask_hi = detect_hom_mask_lo << (allele_code_width - 1);
     const uintptr_t lowcode_add = 2 - allele_idx_m1;
     uint32_t loop_len = kBitsPerWord >> code10_logwidth;
     for (uint32_t fvals_widx = 0; ; ++fvals_widx) {
@@ -4841,7 +4850,7 @@ PglErr GenoarrAux1bStandardUpdate(const unsigned char* fread_end, const uintptr_
         fvals_bits = patch_10_fvalsw[fvals_widx];
       }
       if (!allele_idx_m1) {
-        fvals_bits = (detect_hom_mask_hi & (~(fvals_bits | ((fvals_bits | detect_hom_mask_hi) - detect_hom_mask_lo)))) >> (code10_width - 1);
+        fvals_bits = (detect_alt1_mask_hi & (~(fvals_bits | ((fvals_bits | detect_alt1_mask_hi) - detect_hom_mask_lo)))) >> (allele_code_width - 1);
       }
       const uint32_t* cur_deltalist_base = &(deltalist_workspace[fvals_widx << (kBitsPerWordLog2 - code10_logwidth)]);
       if (!sample_include) {
@@ -4871,7 +4880,6 @@ PglErr GenoarrAux1bStandardUpdate(const unsigned char* fread_end, const uintptr_
     return kPglRetSuccess;
   }
   // allele_idx > 1, allele_ct > 3
-  const uint32_t allele_code_width = 1U << allele_code_logwidth;
   const uintptr_t detect_all_mask_lo = detect_hom_mask_lo | (detect_hom_mask_lo << allele_code_width);
   const uintptr_t detect_all_mask_hi = detect_all_mask_lo << (allele_code_width - 1);
   detect_hom_mask_lo = detect_hom_mask_lo * 3;

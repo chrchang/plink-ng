@@ -1291,6 +1291,10 @@ int32_t GetVariantUidxWithoutHtable(const char* idstr, const char* const* varian
 // Not considering it ready yet since the development XXH_INLINE_ALL setup
 // isn't very friendly.
 //
+// (Can also try using _mm_aesenc_si128() in a similar manner to the Golang
+// runtime when SSE4.2+ is available, and otherwise keeping Murmurhash.  See
+// aeshashbody() in https://golang.org/src/runtime/asm_amd64.s .)
+//
 // Eventually want this to be a constexpr?  Seems painful to make that work,
 // though.
 uint32_t Hash32(const void* key, uint32_t len);

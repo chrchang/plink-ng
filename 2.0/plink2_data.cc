@@ -1556,9 +1556,10 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
     STD_ARRAY_PTR_DECL(uint32_t, 3, x_male_geno_cts) = ctx->x_male_geno_cts;
     STD_ARRAY_PTR_DECL(uint32_t, 3, x_nosex_geno_cts) = ctx->x_nosex_geno_cts;
     double* imp_r2_vals = ctx->imp_r2_vals;
-    const uint32_t no_multiallelic_branch = (!variant_hethap_cts) && (!allele_presents_bytearr) && (!allele_ddosages) && (!imp_r2_vals);
     pgv.dosage_ct = 0;
     for (uint32_t subset_idx = 0; ; ) {
+      // bugfix (29 Dec 2019): this boolean can change with subset_idx
+      const uint32_t no_multiallelic_branch = (!variant_hethap_cts) && (!allele_presents_bytearr) && (!allele_ddosages) && (!imp_r2_vals);
       PgrSampleSubsetIndex pssi;
       PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, pgrp, &pssi);
       uint32_t cur_idx = (tidx * cur_block_size) / thread_ct;
