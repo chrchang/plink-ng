@@ -42,7 +42,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.00a2"
+static const char ver_str[] = "PLINK v2.00a3"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (29 Dec 2019)";
+  " (30 Dec 2019)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -443,8 +443,8 @@ uint32_t DecentAlleleFreqsAreNeeded(Command1Flags command_flags1, ScoreFlags sco
 
 // not actually needed for e.g. --hardy, --hwe, etc. if no multiallelic
 // variants are retained, but let's keep this simpler for now
-uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, GlmFlags glm_flags) {
-  return (command_flags1 & (kfCommand1LdPrune | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Ld)) || ((command_flags1 & kfCommand1Glm) && (!(glm_flags & kfGlmOmitRef)));
+uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, PcaFlags pca_flags, GlmFlags glm_flags) {
+  return (command_flags1 & (kfCommand1LdPrune | kfCommand1Ld)) || ((command_flags1 & kfCommand1Pca) && (pca_flags & kfPcaBiallelicVarWts)) || ((command_flags1 & kfCommand1Glm) && (!(glm_flags & kfGlmOmitRef)));
 }
 
 // only needs to cover cases not captured by DecentAlleleFreqsAreNeeded() or
@@ -1743,8 +1743,16 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pgenname[0]) {
+        if (unlikely((pcp->command_flags1 & (kfCommand1LdPrune | kfCommand1Ld)) && (founder_ct < 50) && (!(pcp->misc_flags & kfMiscAllowBadLd)))) {
+          if (sample_ct < 50) {
+            logerrputs("Error: This run estimates linkage disequilibrium between variants, but there\nare less than 50 samples to estimate from.  You should perform this operation\non a larger dataset.\n(Strictly speaking, you can also override this error with --bad-ld, but this is\nalmost always a bad idea.)\n");
+          } else {
+            logerrputs("Error: This run estimates linkage disequilibrium between variants, but there\nare less than 50 founders to estimate from.  PLINK 1.9 --make-founders may\nhelp.\n(Strictly speaking, you can also override this error with --bad-ld, but this is\nalmost always a bad idea.)\n");
+          }
+          goto Plink2Core_ret_DEGENERATE_DATA;
+        }
         const uint32_t decent_afreqs_needed = DecentAlleleFreqsAreNeeded(pcp->command_flags1, pcp->score_info.flags);
-        const uint32_t maj_alleles_needed = MajAllelesAreNeeded(pcp->command_flags1, pcp->glm_info.flags);
+        const uint32_t maj_alleles_needed = MajAllelesAreNeeded(pcp->command_flags1, pcp->pca_flags, pcp->glm_info.flags);
         if (decent_afreqs_needed || maj_alleles_needed || IndecentAlleleFreqsAreNeeded(pcp->command_flags1, pcp->min_maf, pcp->max_maf)) {
           if (unlikely((!pcp->read_freq_fname) && ((sample_ct < 50) || ((!nonfounders) && (founder_ct < 50))) && decent_afreqs_needed && (!(pcp->misc_flags & kfMiscAllowBadFreqs)))) {
             if ((!nonfounders) && (sample_ct >= 50)) {
@@ -2209,7 +2217,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
       if ((pcp->command_flags1 & kfCommand1MakeRel) || keep_grm) {
-        reterr = CalcGrm(sample_include, &pii.sii, variant_include, cip, allele_idx_offsets, maj_alleles, allele_freqs, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, pcp->grm_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end, keep_grm? (&grm) : nullptr);
+        reterr = CalcGrm(sample_include, &pii.sii, variant_include, cip, allele_idx_offsets, allele_freqs, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, max_allele_ct, pcp->grm_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end, keep_grm? (&grm) : nullptr);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -2290,7 +2298,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 #ifndef NOLAPACK
       if (pcp->command_flags1 & kfCommand1Pca) {
         // if the GRM is on the stack, this always frees it
-        reterr = CalcPca(sample_include, &pii.sii, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, pcp->pca_ct, pcp->pca_flags, pcp->max_thread_ct, &simple_pgr, sfmtp, grm, outname, outname_end);
+        reterr = CalcPca(sample_include, &pii.sii, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, allele_freqs, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, max_allele_ct, max_allele_slen, pcp->pca_ct, pcp->pca_flags, pcp->max_thread_ct, &simple_pgr, sfmtp, grm, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -2298,7 +2306,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 #endif
 
       if (pcp->command_flags1 & kfCommand1WriteSnplist) {
-        reterr = WriteSnplist(variant_include, variant_ids, variant_ct, (pcp->misc_flags / kfMiscWriteSnplistZs) & 1, pcp->max_thread_ct, outname, outname_end);
+        reterr = WriteSnplist(variant_include, variant_ids, variant_ct, (pcp->misc_flags / kfMiscWriteSnplistZs) & 1, (pcp->misc_flags / kfMiscWriteSnplistAllowDups) & 1, pcp->max_thread_ct, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -3964,7 +3972,7 @@ int main(int argc, char** argv) {
           if (unlikely(load_params || xload)) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
@@ -3987,7 +3995,7 @@ int main(int argc, char** argv) {
             }
           }
           if (!(oxford_import_flags & kfOxfordImportRefAll)) {
-            logerrputs("Warning: No --bgen REF/ALT mode specified ('ref-first', 'ref-last', or\n'ref-unknown').  This will be required as of alpha 3.\n");
+            logerrputs("Error: No --bgen REF/ALT mode specified ('ref-first', 'ref-last', or\n'ref-unknown'); this is now required.\n");
           }
           const char* cur_fname = argvk[arg_idx + 1];
           const uint32_t slen = strlen(cur_fname);
@@ -4007,6 +4015,9 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.filter_flags |= kfFilterPvarReq | kfFilterNoSplitChr;
+        } else if (strequal_k_unsafe(flagname_p2, "ad-ld")) {
+          pc.misc_flags |= kfMiscAllowBadLd;
+          goto main_param_zero;
         } else if (likely(strequal_k_unsafe(flagname_p2, "ad-freqs"))) {
           pc.misc_flags |= kfMiscAllowBadFreqs;
           goto main_param_zero;
@@ -4283,7 +4294,7 @@ int main(int argc, char** argv) {
           if (unlikely(load_params || (xload & (~kfXloadOxBgen)))) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t is_gzs = 0;
@@ -4310,7 +4321,7 @@ int main(int argc, char** argv) {
             }
           }
           if (!(oxford_import_flags & kfOxfordImportRefAll)) {
-            logerrputs("Warning: No --data REF/ALT mode specified ('ref-first', 'ref-last', or\n'ref-unknown').  This will be required as of alpha 3.\n");
+            logerrputs("Error: No --data REF/ALT mode specified ('ref-first', 'ref-last', or\n'ref-unknown'); this is now required.\n");
           }
           const char* fname_prefix = argvk[arg_idx + 1];
           const uint32_t slen = strlen(fname_prefix);
@@ -5096,7 +5107,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 18))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          uint32_t explicit_no_firth = 0;
+          uint32_t explicit_firth_fallback = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
@@ -5127,10 +5138,12 @@ int main(int argc, char** argv) {
               pc.glm_info.flags |= kfGlmHideCovar;
             } else if (strequal_k(cur_modif, "intercept", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmIntercept;
+            } else if (strequal_k(cur_modif, "skip", cur_modif_slen)) {
+              pc.glm_info.flags |= kfGlmSkip;
             } else if (strequal_k(cur_modif, "no-firth", cur_modif_slen)) {
-              explicit_no_firth = 1;
+              pc.glm_info.flags |= kfGlmNoFirth;
             } else if (strequal_k(cur_modif, "firth-fallback", cur_modif_slen)) {
-              pc.glm_info.flags |= kfGlmFirthFallback;
+              explicit_firth_fallback = 1;
             } else if (strequal_k(cur_modif, "firth", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmFirth;
             } else if (unlikely(strequal_k(cur_modif, "standard-beta", cur_modif_slen))) {
@@ -5213,7 +5226,7 @@ int main(int argc, char** argv) {
           if (!pc.glm_info.cols) {
             pc.glm_info.cols = kfGlmColDefault;
           }
-          if (unlikely(explicit_no_firth && (pc.glm_info.flags & (kfGlmFirthFallback | kfGlmFirth)))) {
+          if (unlikely((explicit_firth_fallback && (pc.glm_info.flags & (kfGlmNoFirth | kfGlmFirth))) || ((pc.glm_info.flags & (kfGlmNoFirth | kfGlmFirth)) == (kfGlmNoFirth | kfGlmFirth)))) {
             logerrputs("Error: Conflicting --glm parameters.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
@@ -5262,27 +5275,22 @@ int main(int argc, char** argv) {
           if (unlikely(load_params || (xload & (~kfXloadOxSample)))) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          if (param_ct == 2) {
-            const char* cur_modif = argvk[arg_idx + 2];
-            const uint32_t cur_modif_slen = strlen(cur_modif);
-            if (strequal_k(cur_modif, "ref-first", cur_modif_slen)) {
-              oxford_import_flags |= kfOxfordImportRefFirst;
-            } else if (strequal_k(cur_modif, "ref-unknown", cur_modif_slen)) {
-              oxford_import_flags |= kfOxfordImportRefUnknown;
-            } else if (likely(
-                strequal_k(cur_modif, "ref-last", cur_modif_slen) ||
-                strequal_k(cur_modif, "ref-second", cur_modif_slen))) {
-              oxford_import_flags |= kfOxfordImportRefLast;
-            } else {
-              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --gen parameter '%s'.\n", cur_modif);
-              goto main_ret_INVALID_CMDLINE_WWA;
-            }
-          }
-          if (!(oxford_import_flags & kfOxfordImportRefAll)) {
-            logerrputs("Warning: No --gen REF/ALT mode specified ('ref-first', 'ref-last', or\n'ref-unknown').  This will be required as of alpha 3.\n");
+          const char* cur_modif = argvk[arg_idx + 2];
+          const uint32_t cur_modif_slen = strlen(cur_modif);
+          if (strequal_k(cur_modif, "ref-first", cur_modif_slen)) {
+            oxford_import_flags |= kfOxfordImportRefFirst;
+          } else if (strequal_k(cur_modif, "ref-unknown", cur_modif_slen)) {
+            oxford_import_flags |= kfOxfordImportRefUnknown;
+          } else if (likely(
+              strequal_k(cur_modif, "ref-last", cur_modif_slen) ||
+              strequal_k(cur_modif, "ref-second", cur_modif_slen))) {
+            oxford_import_flags |= kfOxfordImportRefLast;
+          } else {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --gen parameter '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
           }
           const char* cur_fname = argvk[arg_idx + 1];
           const uint32_t slen = strlen(cur_fname);
@@ -7730,7 +7738,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t explicit_scols = 0;
-          uint32_t is_var_wts = 0;
+          uint32_t vcols_idx = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
@@ -7738,12 +7746,10 @@ int main(int argc, char** argv) {
               pc.pca_flags |= kfPcaApprox;
             } else if (strequal_k(cur_modif, "meanimpute", cur_modif_slen)) {
               pc.pca_flags |= kfPcaMeanimpute;
-            } else if (strequal_k(cur_modif, "var-wts", cur_modif_slen)) {
-              logerrputs("Warning: The 'var-wts' modifier is deprecated, and will stop working in alpha\n3.  Switch to the forward-compatible 'biallelic-var-wts' modifier if you are\nworking with only biallelic variants and want one-line-per-variant output.\n");
-              is_var_wts = 1;
-              pc.pca_flags |= kfPcaIgnoreBiallelicVarWtsRestriction;
+            } else if (strequal_k(cur_modif, "allele-wts", cur_modif_slen)) {
+              pc.pca_flags |= kfPcaAlleleWts;
             } else if (strequal_k(cur_modif, "biallelic-var-wts", cur_modif_slen)) {
-              is_var_wts = 1;
+              pc.pca_flags |= kfPcaBiallelicVarWts;
             } else if (strequal_k(cur_modif, "vzs", cur_modif_slen)) {
               pc.pca_flags |= kfPcaVarZs;
             } else if (StrStartsWith(cur_modif, "scols=", cur_modif_slen)) {
@@ -7757,19 +7763,16 @@ int main(int argc, char** argv) {
               }
               explicit_scols = 1;
             } else if (StrStartsWith(cur_modif, "vcols=", cur_modif_slen)) {
-              if (unlikely(pc.pca_flags & kfPcaVcolAll)) {
+              if (unlikely(vcols_idx)) {
                 logerrputs("Error: Multiple --pca vcols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[strlen("vcols=")]), "chrom\0pos\0ref\0alt1\0alt\0maj\0nonmaj\0", "pca vcols", kfPcaVcolChrom, kfPcaVcolDefault, 1, &pc.pca_flags);
-              if (unlikely(reterr)) {
-                goto main_ret_1;
-              }
+              vcols_idx = param_idx;
+            } else if (unlikely(strequal_k(cur_modif, "var-wts", cur_modif_slen))) {
+              logerrputs("Error: --pca 'var-wts' modifier retired.  If your dataset contains no\nmultiallelic variants, the 'biallelic-var-wts' modifier has the same effect.\nOtherwise, migrate to 'allele-wts'.\n");
+              goto main_ret_INVALID_CMDLINE_A;
             } else if (unlikely(strequal_k(cur_modif, "sid", cur_modif_slen))) {
               logerrputs("Error: --pca 'sid' modifier retired.  Use --pca scols= instead.\n");
-              goto main_ret_INVALID_CMDLINE_A;
-            } else if (unlikely(strequal_k(cur_modif, "allele-wts", cur_modif_slen))) {
-              logerrputs("Error: --pca 'allele-wts' modifier requires alpha 3 or later.\n");
               goto main_ret_INVALID_CMDLINE_A;
             } else {
               if (unlikely(pc.pca_ct || ScanPosintDefcapx(cur_modif, &pc.pca_ct))) {
@@ -7778,8 +7781,6 @@ int main(int argc, char** argv) {
               }
               if (unlikely(pc.pca_ct > 8000)) {
                 // this slightly simplifies output buffering.
-                // lower limit for randomized algorithm?
-                // (just let memory allocation fail for now...)
                 logerrputs("Error: --pca does not support more than 8000 PCs.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
@@ -7819,19 +7820,44 @@ int main(int argc, char** argv) {
           if (!explicit_scols) {
             pc.pca_flags |= kfPcaScolDefault;
           }
-          if (!(pc.pca_flags & kfPcaVcolAll)) {
-            if (is_var_wts) {
-              pc.pca_flags |= kfPcaVcolDefault;
+          const PcaFlags wts_flags = pc.pca_flags & (kfPcaAlleleWts | kfPcaBiallelicVarWts);
+          if (wts_flags) {
+            if (wts_flags == (kfPcaAlleleWts | kfPcaBiallelicVarWts)) {
+              // could support this, but don't see the point
+              logerrputs("Error: --pca 'allele-wts' and 'biallelic-var-wts' modifiers cannot be used\ntogether.\n");
+              goto main_ret_INVALID_CMDLINE_A;
             }
-          } else if (unlikely(!is_var_wts)) {
-            logerrputs("Error: --pca 'vcols=' has no effect when variant/allele weights have not been\nrequested.\n");
-            goto main_ret_INVALID_CMDLINE;
-          }
-          if (is_var_wts) {
-            pc.pca_flags |= kfPcaBiallelicVarWts;
-          } else if (unlikely(pc.pca_flags & kfPcaVarZs)) {
-            logerrputs("Error: --pca 'vzs' modifier has no effect when variant/allele weights have not\nbeen requested.\n");
-            goto main_ret_INVALID_CMDLINE;
+            const uint32_t is_var_wts = (wts_flags / kfPcaBiallelicVarWts) & 1;
+            const PcaFlags default_cols = is_var_wts? kfPcaVcolDefaultB : kfPcaVcolDefaultA;
+            if (!vcols_idx) {
+              pc.pca_flags |= default_cols;
+            } else {
+              const char* cur_modif = argvk[arg_idx + vcols_idx];
+              reterr = ParseColDescriptor(&(cur_modif[strlen("vcols=")]), "chrom\0pos\0ref\0alt1\0alt\0ax\0maj\0nonmaj\0", "pca vcols", kfPcaVcolChrom, default_cols, is_var_wts, &pc.pca_flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+              if (is_var_wts) {
+                if (pc.pca_flags & kfPcaVcolAx) {
+                  logerrputs("Error: \"--pca biallelic-allele-wts\" doesn't support the 'ax' column set.\n");
+                  goto main_ret_INVALID_CMDLINE;
+                }
+              } else {
+                if (pc.pca_flags & (kfPcaVcolMaj | kfPcaVcolNonmaj)) {
+                  logerrputs("Error: \"--pca allele-wts\" doesn't support the 'maj' and 'nonmaj' column sets.\n");
+                  goto main_ret_INVALID_CMDLINE;
+                }
+              }
+            }
+          } else {
+            if (unlikely(pc.pca_flags & kfPcaVarZs)) {
+              logerrputs("Error: --pca 'vzs' modifier has no effect when variant/allele weights have not\nbeen requested.\n");
+              goto main_ret_INVALID_CMDLINE;
+            }
+            if (unlikely(vcols_idx)) {
+              logerrputs("Error: --pca 'vcols=' has no effect when variant/allele weights have not been\nrequested.\n");
+              goto main_ret_INVALID_CMDLINE;
+            }
           }
           pc.command_flags1 |= kfCommand1Pca;
           pc.dependency_flags |= kfFilterAllReq;
@@ -8420,8 +8446,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --score cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              // TODO (alpha 3): nmissallele -> nallele
-              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0maybesid\0sid\0pheno1\0phenos\0nmissallele\0denom\0dosagesum\0scoreavgs\0scoresums\0", "score", kfScoreColMaybefid, kfScoreColDefault, 1, &pc.score_info.flags);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0maybesid\0sid\0pheno1\0phenos\0nallele\0denom\0dosagesum\0scoreavgs\0scoresums\0", "score", kfScoreColMaybefid, kfScoreColDefault, 1, &pc.score_info.flags);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
@@ -9309,16 +9334,20 @@ int main(int argc, char** argv) {
 
       case 'w':
         if (strequal_k_unsafe(flagname_p2, "rite-snplist")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          if (param_ct) {
-            const char* cur_modif = argvk[arg_idx + 1];
-            if (unlikely(strcmp(cur_modif, "zs"))) {
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.misc_flags |= kfMiscWriteSnplistZs;
+            } else if (likely(strequal_k(cur_modif, "allow-dups", cur_modif_slen))) {
+              pc.misc_flags |= kfMiscWriteSnplistAllowDups;
+            } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --write-snplist parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
-            pc.misc_flags |= kfMiscWriteSnplistZs;
           }
           pc.command_flags1 |= kfCommand1WriteSnplist;
           pc.dependency_flags |= kfFilterPvarReq;
@@ -9549,9 +9578,12 @@ int main(int argc, char** argv) {
         goto main_ret_INVALID_CMDLINE_A;
       }
     }
-    if (unlikely((oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefLast | kfOxfordImportRefUnknown)) == (kfOxfordImportRefFirst | kfOxfordImportRefLast | kfOxfordImportRefUnknown))) {
-      logerrputs("Error: --data/--{b}gen 'ref-first', 'ref-last', and 'ref-unknown' modifiers\ncannot be used together.\n");
-      goto main_ret_INVALID_CMDLINE;
+    {
+      const uint32_t mode_flag = oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefLast | kfOxfordImportRefUnknown);
+      if (unlikely(mode_flag & (mode_flag - 1))) {
+        logerrputs("Error: --data/--{b}gen 'ref-first', 'ref-last', and 'ref-unknown' modifiers\ncannot be used together.\n");
+        goto main_ret_INVALID_CMDLINE;
+      }
     }
     if (unlikely(!strcmp(g_missing_catname, g_output_missing_pheno))) {
       logerrputs("Error: --missing-catname and --output-missing-phenotype strings can't match.\n");

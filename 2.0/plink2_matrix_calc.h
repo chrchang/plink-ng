@@ -79,8 +79,8 @@ FLAGSET_DEF_START()
   kfPca0,
   kfPcaApprox = (1 << 0),
   kfPcaMeanimpute = (1 << 1),
-  kfPcaBiallelicVarWts = (1 << 2),
-  kfPcaIgnoreBiallelicVarWtsRestriction = (1 << 3),  // temporary
+  kfPcaAlleleWts = (1 << 2),
+  kfPcaBiallelicVarWts = (1 << 3),
   kfPcaVarZs = (1 << 4),
 
   kfPcaScolMaybefid = (1 << 5),
@@ -95,9 +95,11 @@ FLAGSET_DEF_START()
   kfPcaVcolRef = (1 << 11),
   kfPcaVcolAlt1 = (1 << 12),
   kfPcaVcolAlt = (1 << 13),
-  kfPcaVcolMaj = (1 << 14),
-  kfPcaVcolNonmaj = (1 << 15),
-  kfPcaVcolDefault = (kfPcaVcolChrom | kfPcaVcolMaj | kfPcaVcolNonmaj),
+  kfPcaVcolAx = (1 << 14),
+  kfPcaVcolMaj = (1 << 15),
+  kfPcaVcolNonmaj = (1 << 16),
+  kfPcaVcolDefaultA = (kfPcaVcolChrom | kfPcaVcolRef | kfPcaVcolAlt),
+  kfPcaVcolDefaultB = (kfPcaVcolChrom | kfPcaVcolMaj | kfPcaVcolNonmaj),
   kfPcaVcolAll = ((kfPcaVcolNonmaj * 2) - kfPcaVcolChrom)
 FLAGSET_DEF_END(PcaFlags);
 
@@ -176,10 +178,10 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
 
 PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const char* subset_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, uint32_t rel_check, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
-PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, GrmFlags grm_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end, double** grm_ptr);
+PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, GrmFlags grm_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end, double** grm_ptr);
 
 #ifndef NOLAPACK
-PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t pc_ct, PcaFlags pca_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, sfmt_t* sfmtp, double* grm, char* outname, char* outname_end);
+PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t pc_ct, PcaFlags pca_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, sfmt_t* sfmtp, double* grm, char* outname, char* outname_end);
 #endif
 
 PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const ScoreInfo* score_info_ptr, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t xchr_model, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);

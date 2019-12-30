@@ -57,6 +57,12 @@ BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenG
             bigstack_alloc_ac(sample_ct * 2, &(pgvp->patch_10_vals)))) {
       return 1;
     }
+  } else {
+    // defensive
+    pgvp->patch_01_set = nullptr;
+    pgvp->patch_01_vals = nullptr;
+    pgvp->patch_10_set = nullptr;
+    pgvp->patch_10_vals = nullptr;
   }
   if (gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePhasePresent)) {
     if (unlikely(
@@ -64,6 +70,9 @@ BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenG
             bigstack_alloc_w(sample_ctl, &(pgvp->phaseinfo)))) {
       return 1;
     }
+  } else {
+    pgvp->phasepresent = nullptr;
+    pgvp->phaseinfo = nullptr;
   }
   if (gflags & kfPgenGlobalDosagePresent) {
     if (unlikely(
@@ -84,8 +93,13 @@ BoolErr BigstackAllocPgv(uint32_t sample_ct, uint32_t multiallelic_needed, PgenG
         // todo
       }
     }
+  } else {
+    pgvp->dosage_present = nullptr;
+    pgvp->dosage_main = nullptr;
+    pgvp->dphase_present = nullptr;
+    pgvp->dphase_delta = nullptr;
+    // todo: multiallelic-dosage buffers
   }
-
   return 0;
 }
 
@@ -2566,7 +2580,7 @@ PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const ch
   return reterr;
 }
 
-
+/*
 uint32_t MultiallelicVariantPresent(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, uint32_t variant_ct) {
   if (!allele_idx_offsets) {
     return 0;
@@ -2580,6 +2594,39 @@ uint32_t MultiallelicVariantPresent(const uintptr_t* variant_include, const uint
     }
   }
   return 0;
+}
+*/
+
+uint32_t CountBiallelicVariants(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, uint32_t variant_ct) {
+  if (!allele_idx_offsets) {
+    return variant_ct;
+  }
+  uint32_t biallelic_variant_ct = 0;
+  uintptr_t variant_uidx_base = 0;
+  uintptr_t cur_bits = variant_include[0];
+  for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+    const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
+    biallelic_variant_ct += (allele_idx_offsets[variant_uidx + 1] == allele_idx_offsets[variant_uidx] + 2);
+  }
+  return biallelic_variant_ct;
+}
+
+uintptr_t CountAlleles(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, uint32_t raw_variant_ct, uint32_t variant_ct) {
+  if (!allele_idx_offsets) {
+    return variant_ct * 2;
+  }
+  if (raw_variant_ct == variant_ct) {
+    return allele_idx_offsets[raw_variant_ct];
+  }
+  uintptr_t allele_ct = 0;
+  uint32_t variant_uidx = 0;
+  while (variant_ct) {
+    const uint32_t variant_uidx_start = AdvTo1Bit(variant_include, variant_uidx);
+    variant_uidx = AdvBoundedTo0Bit(variant_include, variant_uidx_start + 1, raw_variant_ct);
+    allele_ct += allele_idx_offsets[variant_uidx] - allele_idx_offsets[variant_uidx_start];
+    variant_ct -= variant_uidx - variant_uidx_start;
+  }
+  return allele_ct;
 }
 
 /*

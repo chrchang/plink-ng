@@ -8899,13 +8899,30 @@ PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, con
   return reterr;
 }
 
-PglErr WriteSnplist(const uintptr_t* variant_include, const char* const* variant_ids, uint32_t variant_ct, uint32_t output_zst, uint32_t max_thread_ct, char* outname, char* outname_end) {
+PglErr WriteSnplist(const uintptr_t* variant_include, const char* const* variant_ids, uint32_t variant_ct, uint32_t output_zst, uint32_t allow_dups, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
   PglErr reterr = kPglRetSuccess;
   PreinitCstream(&css);
   {
+    if (!allow_dups) {
+      uint32_t dup_found;
+      reterr = CheckIdUniqueness(g_bigstack_base, g_bigstack_end, variant_include, variant_ids, variant_ct, max_thread_ct, &dup_found);
+      if (unlikely(reterr)) {
+        goto WriteSnplist_ret_1;
+      }
+      if (dup_found) {
+        // I estimate that this corresponds to a pipeline bug (or, at minimum,
+        // inefficiency) >90% of the time.
+        // --extract[-intersect] could be modified in a similar manner, but my
+        // working hypothesis is that interception of suspect --write-snplist
+        // operations is enough to stop most duplicate-related --extract
+        // misuses.
+        logerrputs("Error: --write-snplist normally shouldn't be used with duplicate variant IDs.\n(--set-all-var-ids helps with ID deduplication, and --rm-dup addresses actual\nduplicate data.)  However, if you've already accounted for them, you can\nsuppress this error with the 'allow-dups' modifier.\n");
+        goto WriteSnplist_ret_INCONSISTENT_INPUT;
+      }
+    }
     OutnameZstSet(".snplist", output_zst, outname_end);
     reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, kCompressStreamBlock + kMaxIdSlen + 2, &css, &cswritep);
     if (unlikely(reterr)) {
@@ -8924,11 +8941,14 @@ PglErr WriteSnplist(const uintptr_t* variant_include, const char* const* variant
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
       goto WriteSnplist_ret_WRITE_FAIL;
     }
-    logprintfww("--write-snplist%s: Variant IDs written to %s .\n", output_zst? " zs" : "", outname);
+    logprintfww("--write-snplist%s%s: Variant IDs written to %s .\n", output_zst? " zs" : "", allow_dups? " allow-dups" : "", outname);
   }
   while (0) {
   WriteSnplist_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
+    break;
+  WriteSnplist_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
     break;
   }
  WriteSnplist_ret_1:

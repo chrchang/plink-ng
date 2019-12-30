@@ -625,6 +625,121 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
   return reterr;
 }
 
+uint32_t CheckForSeparatedQtCovar(const uintptr_t* pheno_cc, const uintptr_t* cur_sample_include, const double* covar_vals, uint32_t sample_ct, double* covar_val_keep_ptr) {
+  const uint32_t first_sample_uidx = AdvTo1Bit(cur_sample_include, 0);
+  double cur_covar_val = covar_vals[first_sample_uidx];
+  double ctrl_min;
+  double ctrl_max;
+  double case_min;
+  double case_max;
+  if (IsSet(pheno_cc, first_sample_uidx)) {
+    ctrl_min = DBL_MAX;
+    ctrl_max = -DBL_MAX;
+    case_min = cur_covar_val;
+    case_max = cur_covar_val;
+  } else {
+    ctrl_min = cur_covar_val;
+    ctrl_max = cur_covar_val;
+    case_min = DBL_MAX;
+    case_max = -DBL_MAX;
+  }
+  uintptr_t sample_uidx_base;
+  uintptr_t cur_bits;
+  BitIter1Start(cur_sample_include, first_sample_uidx + 1, &sample_uidx_base, &cur_bits);
+  for (uint32_t sample_idx = 1; sample_idx != sample_ct; ++sample_idx) {
+    const uintptr_t sample_uidx = BitIter1(cur_sample_include, &sample_uidx_base, &cur_bits);
+    cur_covar_val = covar_vals[sample_uidx];
+    if (IsSet(pheno_cc, sample_uidx)) {
+      if (cur_covar_val < case_min) {
+        if ((ctrl_min < case_max) && (cur_covar_val < ctrl_max)) {
+          return 0;
+        }
+        case_min = cur_covar_val;
+      } else if (cur_covar_val > case_max) {
+        if ((ctrl_max > case_min) && (cur_covar_val > ctrl_min)) {
+          return 0;
+        }
+        case_max = cur_covar_val;
+      }
+    } else {
+      if (cur_covar_val < ctrl_min) {
+        if ((case_min < ctrl_max) && (cur_covar_val < case_max)) {
+          return 0;
+        }
+        ctrl_min = cur_covar_val;
+      } else if (cur_covar_val > ctrl_max) {
+        if ((case_max > ctrl_min) && (cur_covar_val > case_min)) {
+          return 0;
+        }
+        ctrl_max = cur_covar_val;
+      }
+    }
+  }
+  if ((case_min > ctrl_max) || (ctrl_min > case_max)) {
+    return 2;
+  }
+  if (covar_val_keep_ptr) {
+    *covar_val_keep_ptr = (case_min == ctrl_max)? case_min : case_max;
+  }
+  return 1;
+}
+
+uint32_t CheckForSeparatedCatCovar(const uintptr_t* pheno_cc, const uintptr_t* cur_sample_include, const PhenoCol* covar_col, uint32_t sample_ct, uint32_t* case_and_ctrl_cat_ct_ptr, uintptr_t* cat_covar_wkspace) {
+  const uint32_t first_sample_uidx = AdvTo1Bit(cur_sample_include, 0);
+  const uint32_t nonnull_cat_ct = covar_col->nonnull_category_ct;
+  const uint32_t cur_word_ct = 1 + nonnull_cat_ct / kBitsPerWordD2;
+  ZeroWArr(cur_word_ct, cat_covar_wkspace);
+  const uint32_t* covar_cats = covar_col->data.cat;
+  // If no remaining categories have both cases and controls, we have complete
+  // separation.
+  // If some do and some do not, we have quasi-complete separation, and when
+  // performing ordinary logistic regression, we must remove samples in the
+  // all-case and/or all-control categories.
+  uintptr_t sample_uidx_base;
+  uintptr_t cur_bits;
+  BitIter1Start(cur_sample_include, first_sample_uidx, &sample_uidx_base, &cur_bits);
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    const uintptr_t sample_uidx = BitIter1(cur_sample_include, &sample_uidx_base, &cur_bits);
+    const uint32_t cur_cat_idx = covar_cats[sample_uidx];
+    // Odd bits represent presence of a case, even bits represent presence of a
+    // control.
+    const uint32_t is_case = IsSet(pheno_cc, sample_uidx);
+    SetBit(cur_cat_idx * 2 + is_case, cat_covar_wkspace);
+  }
+  uint32_t case_and_ctrl_cat_ct = 0;
+  uint32_t pheno_by_cat_ct = 0;
+  for (uint32_t widx = 0; widx != cur_word_ct; ++widx) {
+    const uintptr_t cur_word = cat_covar_wkspace[widx];
+    case_and_ctrl_cat_ct += Popcount01Word(Word11(cur_word));
+    pheno_by_cat_ct += PopcountWord(cur_word);
+  }
+  if (!case_and_ctrl_cat_ct) {
+    return 2;
+  }
+  if (case_and_ctrl_cat_ct == pheno_by_cat_ct * 2) {
+    // all categories contain both cases and controls.
+    return 0;
+  }
+  if (case_and_ctrl_cat_ct_ptr) {
+    *case_and_ctrl_cat_ct_ptr = case_and_ctrl_cat_ct;
+  }
+  return 1;
+}
+
+// Returns 0 if not separated, 1 if quasi-separated, 2 if fully separated.
+uint32_t CheckForSeparatedCovar(const uintptr_t* pheno_cc, const uintptr_t* cur_sample_include, const PhenoCol* covar_col, uint32_t sample_ct, uintptr_t* cat_covar_wkspace) {
+  if (sample_ct < 2) {
+    return 2;
+  }
+  if (covar_col->type_code == kPhenoDtypeOther) {
+    // local covariate, no precomputation possible
+    return 0;
+  }
+  if (covar_col->type_code == kPhenoDtypeQt) {
+    return CheckForSeparatedQtCovar(pheno_cc, cur_sample_include, covar_col->data.qt, sample_ct, nullptr);
+  }
+  return CheckForSeparatedCatCovar(pheno_cc, cur_sample_include, covar_col, sample_ct, nullptr, cat_covar_wkspace);
+}
 
 // Returns 1 if phenotype fully separates the covariate, and the non-Firth
 // logistic regression should be aborted.
@@ -645,60 +760,13 @@ BoolErr CheckForAndHandleSeparatedCovar(const uintptr_t* pheno_cc, const PhenoCo
   const uint32_t first_sample_uidx = AdvTo1Bit(cur_sample_include, 0);
   if (cur_covar_col->type_code == kPhenoDtypeQt) {
     const double* covar_vals = cur_covar_col->data.qt;
-    double cur_covar_val = covar_vals[first_sample_uidx];
-    double ctrl_min;
-    double ctrl_max;
-    double case_min;
-    double case_max;
-    if (IsSet(pheno_cc, first_sample_uidx)) {
-      ctrl_min = DBL_MAX;
-      ctrl_max = -DBL_MAX;
-      case_min = cur_covar_val;
-      case_max = cur_covar_val;
-    } else {
-      ctrl_min = cur_covar_val;
-      ctrl_max = cur_covar_val;
-      case_min = DBL_MAX;
-      case_max = -DBL_MAX;
+    double covar_val_keep;
+    const uint32_t separation_type = CheckForSeparatedQtCovar(pheno_cc, cur_sample_include, covar_vals, sample_ct, &covar_val_keep);
+    if (separation_type != 1) {
+      return separation_type / 2;
     }
     uintptr_t sample_uidx_base;
     uintptr_t cur_bits;
-    BitIter1Start(cur_sample_include, first_sample_uidx + 1, &sample_uidx_base, &cur_bits);
-    for (uint32_t sample_idx = 1; sample_idx != sample_ct; ++sample_idx) {
-      const uintptr_t sample_uidx = BitIter1(cur_sample_include, &sample_uidx_base, &cur_bits);
-      cur_covar_val = covar_vals[sample_uidx];
-      if (IsSet(pheno_cc, sample_uidx)) {
-        if (cur_covar_val < case_min) {
-          if ((ctrl_min < case_max) && (cur_covar_val < ctrl_max)) {
-            return 0;
-          }
-          case_min = cur_covar_val;
-        } else if (cur_covar_val > case_max) {
-          if ((ctrl_max > case_min) && (cur_covar_val > ctrl_min)) {
-            return 0;
-          }
-          case_max = cur_covar_val;
-        }
-      } else {
-        if (cur_covar_val < ctrl_min) {
-          if ((case_min < ctrl_max) && (cur_covar_val < case_max)) {
-            return 0;
-          }
-          ctrl_min = cur_covar_val;
-        } else if (cur_covar_val > ctrl_max) {
-          if ((case_max > ctrl_min) && (cur_covar_val > case_min)) {
-            return 0;
-          }
-          ctrl_max = cur_covar_val;
-        }
-      }
-    }
-    if ((case_min > ctrl_max) || (ctrl_min > case_max)) {
-      // fully separated
-      return 1;
-    }
-    // quasi-separated
-    const double covar_val_keep = (case_min == ctrl_max)? case_min : case_max;
     BitIter1Start(cur_sample_include, first_sample_uidx, &sample_uidx_base, &cur_bits);
     for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
       const uintptr_t sample_uidx = BitIter1(cur_sample_include, &sample_uidx_base, &cur_bits);
@@ -710,48 +778,24 @@ BoolErr CheckForAndHandleSeparatedCovar(const uintptr_t* pheno_cc, const PhenoCo
     ClearBit(covar_uidx, covar_include);
     return 0;
   }
-  const uint32_t nonnull_cat_ct = cur_covar_col->nonnull_category_ct;
-  const uint32_t cur_word_ct = 1 + nonnull_cat_ct / kBitsPerWordD2;
-  ZeroWArr(cur_word_ct, cat_covar_wkspace);
-  const uint32_t* covar_cats = cur_covar_col->data.cat;
-  // If no remaining categories have both cases and controls, we have complete
-  // separation.
-  // If some do and some do not, we have quasi-complete separation, and must
-  // remove samples in the all-case and all-control categories.
-  uintptr_t sample_uidx_base;
-  uintptr_t cur_bits;
-  BitIter1Start(cur_sample_include, first_sample_uidx, &sample_uidx_base, &cur_bits);
-  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-    const uintptr_t sample_uidx = BitIter1(cur_sample_include, &sample_uidx_base, &cur_bits);
-    const uint32_t cur_cat_idx = covar_cats[sample_uidx];
-    // Odd bits represent presence of a case, even bits represent presence of a
-    // control.
-    const uint32_t is_case = IsSet(pheno_cc, sample_uidx);
-    SetBit(cur_cat_idx * 2 + is_case, cat_covar_wkspace);
-  }
-  uint32_t case_and_ctrl_cat_ct = 0;
-  uint32_t pheno_by_cat_ct = 0;
-  for (uint32_t widx = 0; widx != cur_word_ct; ++widx) {
-    const uintptr_t cur_word = cat_covar_wkspace[widx];
-    case_and_ctrl_cat_ct += Popcount01Word(Word11(cur_word));
-    pheno_by_cat_ct += PopcountWord(cur_word);
-  }
-  if (!case_and_ctrl_cat_ct) {
-    // fully separated
-    return 1;
-  }
-  if ((case_and_ctrl_cat_ct > 1) && (case_and_ctrl_cat_ct == pheno_by_cat_ct * 2)) {
-    // all categories contain both cases and controls.
-    return 0;
+  uint32_t case_and_ctrl_cat_ct;
+  const uint32_t separation_type = CheckForSeparatedCatCovar(pheno_cc, cur_sample_include, cur_covar_col, sample_ct, &case_and_ctrl_cat_ct, cat_covar_wkspace);
+  if (separation_type != 1) {
+    return separation_type / 2;
   }
   // more than one category contains both cases and controls (so we don't need
   // to remove the categorical covariate), but at least one does not, so we
   // still have to prune some samples.
+  const uint32_t nonnull_cat_ct = cur_covar_col->nonnull_category_ct;
+  const uint32_t cur_word_ct = 1 + nonnull_cat_ct / kBitsPerWordD2;
   for (uint32_t widx = 0; widx != cur_word_ct; ++widx) {
     const uintptr_t cur_word = cat_covar_wkspace[widx];
     cat_covar_wkspace[widx] = Word11(cur_word);
   }
+  uintptr_t sample_uidx_base;
+  uintptr_t cur_bits;
   BitIter1Start(cur_sample_include, first_sample_uidx, &sample_uidx_base, &cur_bits);
+  const uint32_t* covar_cats = cur_covar_col->data.cat;
   // bugfix (7 Jul 2018): this needs to check sample_idx, not sample_uidx
   for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
     const uintptr_t sample_uidx = BitIter1(cur_sample_include, &sample_uidx_base, &cur_bits);
@@ -766,7 +810,7 @@ BoolErr CheckForAndHandleSeparatedCovar(const uintptr_t* pheno_cc, const PhenoCo
   return 0;
 }
 
-BoolErr GlmDetermineCovars(const uintptr_t* pheno_cc, const uintptr_t* initial_covar_include, const PhenoCol* covar_cols, uint32_t raw_sample_ct, uint32_t raw_covar_ctl, uint32_t initial_covar_ct, uint32_t covar_max_nonnull_cat_ct, uint32_t is_sometimes_firth, uintptr_t* cur_sample_include, uintptr_t* covar_include, uint32_t* sample_ct_ptr, uint32_t* covar_ct_ptr, uint32_t* extra_cat_ct_ptr, uint32_t* separation_warning_ptr) {
+BoolErr GlmDetermineCovars(const uintptr_t* pheno_cc, const uintptr_t* initial_covar_include, const PhenoCol* covar_cols, uint32_t raw_sample_ct, uint32_t raw_covar_ctl, uint32_t initial_covar_ct, uint32_t covar_max_nonnull_cat_ct, uint32_t is_sometimes_firth, uint32_t is_always_firth, uintptr_t* cur_sample_include, uintptr_t* covar_include, uint32_t* sample_ct_ptr, uint32_t* covar_ct_ptr, uint32_t* extra_cat_ct_ptr, uint16_t* separation_found_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   BoolErr reterr = 0;
   {
@@ -981,22 +1025,30 @@ BoolErr GlmDetermineCovars(const uintptr_t* pheno_cc, const uintptr_t* initial_c
       if (unlikely(bigstack_alloc_w(1 + (covar_max_nonnull_cat_ct / kBitsPerWordD2), &cat_covar_wkspace))) {
         goto GlmDetermineCovars_ret_NOMEM;
       }
-      if (!is_sometimes_firth) {
-        // todo: in firth-fallback case, automatically switch to always-Firth
-        // if separated covariate is detected
-        do {
-          prev_sample_ct = sample_ct;
-          covar_uidx_base = 0;
-          cur_bits = covar_include[0];
+      if (!is_always_firth) {
+        covar_uidx_base = 0;
+        cur_bits = covar_include[0];
+        if (!is_sometimes_firth) {
+          do {
+            prev_sample_ct = sample_ct;
+            for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
+              const uintptr_t covar_uidx = BitIter1(covar_include, &covar_uidx_base, &cur_bits);
+              if (CheckForAndHandleSeparatedCovar(pheno_cc, covar_cols, raw_sample_ctl, covar_uidx, cur_sample_include, covar_include, &sample_ct, cat_covar_wkspace)) {
+                *separation_found_ptr = 1;
+                goto GlmDetermineCovars_ret_SKIP;
+              }
+            }
+            covar_ct = PopcountWords(covar_include, raw_covar_ctl);
+          } while (sample_ct < prev_sample_ct);
+        } else {
           for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx) {
             const uintptr_t covar_uidx = BitIter1(covar_include, &covar_uidx_base, &cur_bits);
-            if (CheckForAndHandleSeparatedCovar(pheno_cc, covar_cols, raw_sample_ctl, covar_uidx, cur_sample_include, covar_include, &sample_ct, cat_covar_wkspace)) {
-              *separation_warning_ptr = 1;
-              goto GlmDetermineCovars_ret_SKIP;
+            if (CheckForSeparatedCovar(pheno_cc, cur_sample_include, &(covar_cols[covar_uidx]), sample_ct, cat_covar_wkspace)) {
+              *separation_found_ptr = 1;
+              break;
             }
           }
-          covar_ct = PopcountWords(covar_include, raw_covar_ctl);
-        } while (sample_ct < prev_sample_ct);
+        }
       }
 
       // now count extra categories
@@ -1237,23 +1289,28 @@ GlmErr CheckMaxCorrAndVif(const double* predictor_dotprods, uint32_t first_predi
   return 0;
 }
 
-void PrintPrescanErrmsg(const char* domain_str, const char* pheno_name, const char** covar_names, GlmErr glm_err, uint32_t local_covar_ct, uint32_t is_batch) {
+void PrintPrescanErrmsg(const char* domain_str, const char* pheno_name, const char** covar_names, GlmErr glm_err, uint32_t local_covar_ct, uint32_t skip_modifier, uint32_t is_batch) {
   const GlmErrcode errcode = GetGlmErrCode(glm_err);
+  const char* msg_start = skip_modifier? "Note: Skipping " : "Error: Cannot proceed with ";
   if (errcode == kGlmErrcodeUnstableScale) {
-    logerrprintfww("Warning: Skipping %s--glm regression on phenotype '%s'%s, since genotype/covariate scales vary too widely for numerical stability of the current implementation. Try rescaling your covariates with e.g. --covar-variance-standardize.\n", domain_str, pheno_name, is_batch? ", and other(s) with identical missingness patterns" : "");
-    return;
+    snprintf(g_logbuf, kLogbufSize, "%s%s--glm regression on phenotype '%s'%s, since genotype/covariate scales vary too widely for numerical stability of the current implementation. Try rescaling your covariates with e.g. --covar-variance-standardize.\n", msg_start, domain_str, pheno_name, is_batch? ", and other(s) with identical missingness patterns" : "");
+  } else if (errcode == kGlmErrcodeVifInfinite) {
+    snprintf(g_logbuf, kLogbufSize, "%s%s--glm regression on phenotype '%s'%s, since covariate correlation matrix could not be inverted (VIF_INFINITE).%s\n", msg_start, domain_str, pheno_name, is_batch? ", and other(s) with identical missingness patterns" : "", domain_str[0]? "" : " You may want to remove redundant covariates and try again.");
+  } else {
+    const char* covar_name1 = covar_names[GetGlmErrArg1(glm_err) + local_covar_ct];
+    if (errcode == kGlmErrcodeVifTooHigh) {
+      snprintf(g_logbuf, kLogbufSize, "%s%s--glm regression on phenotype '%s'%s, since variance inflation factor for covariate '%s' is too high (VIF_TOO_HIGH).%s\n", msg_start, domain_str, pheno_name, is_batch? ", and other(s) with identical missingness patterns" : "", covar_name1, domain_str[0]? "" : " You may want to remove redundant covariates and try again.");
+    } else {
+      const char* covar_name2 = covar_names[GetGlmErrArg2(glm_err) + local_covar_ct];
+      snprintf(g_logbuf, kLogbufSize, "%s%s--glm regression on phenotype '%s'%s, since correlation between covariates '%s' and '%s' is too high (CORR_TOO_HIGH).%s\n", msg_start, domain_str, pheno_name, is_batch? ", and other(s) with identical missingness patterns" : "", covar_name1, covar_name2, domain_str[0]? "" : " You may want to remove redundant covariates and try again.");
+    }
   }
-  if (errcode == kGlmErrcodeVifInfinite) {
-    logerrprintfww("Warning: Skipping %s--glm regression on phenotype '%s'%s, since covariate correlation matrix could not be inverted (VIF_INFINITE).%s\n", domain_str, pheno_name, is_batch? ", and other(s) with identical missingness patterns" : "", domain_str[0]? "" : " You may want to remove redundant covariates and try again.");
-    return;
+  WordWrapB(0);
+  if (skip_modifier) {
+    logputsb();
+  } else {
+    logerrputsb();
   }
-  const char* covar_name1 = covar_names[GetGlmErrArg1(glm_err) + local_covar_ct];
-  if (errcode == kGlmErrcodeVifTooHigh) {
-    logerrprintfww("Warning: Skipping %s--glm regression on phenotype '%s'%s, since variance inflation factor for covariate '%s' is too high (VIF_TOO_HIGH).%s\n", domain_str, pheno_name, is_batch? ", and other(s) with identical missingness patterns" : "", covar_name1, domain_str[0]? "" : " You may want to remove redundant covariates and try again.");
-    return;
-  }
-  const char* covar_name2 = covar_names[GetGlmErrArg2(glm_err) + local_covar_ct];
-  logerrprintfww("Warning: Skipping %s--glm regression on phenotype '%s'%s, since correlation between covariates '%s' and '%s' is too high (CORR_TOO_HIGH).%s\n", domain_str, pheno_name, is_batch? ", and other(s) with identical missingness patterns" : "", covar_name1, covar_name2, domain_str[0]? "" : " You may want to remove redundant covariates and try again.");
 }
 
 // no-missing-genotype optimizations:
@@ -1429,14 +1486,22 @@ PglErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* co
   }
   const uintptr_t new_covar_ct = covar_ct + extra_cat_ct;
   const uintptr_t new_nonlocal_covar_ct = new_covar_ct - local_covar_ct;
+  const uint32_t covar_max_cat_ctl = 1 + (covar_max_nonnull_cat_ct / kBitsPerWord);
   MatrixInvertBuf1* matrix_invert_buf1;
   uintptr_t* cat_covar_wkspace;
   double* dbl_2d_buf;
   if (unlikely(
           BIGSTACK_ALLOC_X(MatrixInvertBuf1, kMatrixInvertBuf1CheckedAlloc * new_nonlocal_covar_ct, &matrix_invert_buf1) ||
-          bigstack_alloc_w(1 + (covar_max_nonnull_cat_ct / kBitsPerWord), &cat_covar_wkspace) ||
+          bigstack_alloc_w(covar_max_cat_ctl, &cat_covar_wkspace) ||
           bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &dbl_2d_buf))) {
     return kPglRetNomem;
+  }
+  uint32_t* cat_obs_buf = nullptr;
+  if (extra_cat_ct) {
+    if (unlikely(
+                 bigstack_alloc_u32(covar_max_nonnull_cat_ct + 1, &cat_obs_buf))) {
+      return kPglRetNomem;
+    }
   }
   unsigned char* alloc_base = g_bigstack_base;
   unsigned char* new_covar_name_alloc = g_bigstack_end;
@@ -1488,18 +1553,21 @@ PglErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* co
         min_ssq_minus_sqmean = covar_ssq;
       }
     } else {
-      const uint32_t remaining_cat_ct = IdentifyRemainingCats(sample_include, cur_covar_col, sample_ct, cat_covar_wkspace);
+      // this is equivalent to "--split-cat-pheno omit-most covar-01"
+      const uint32_t cur_cat_ct = cur_covar_col->nonnull_category_ct + 1;
+      const uint32_t cur_cat_ctl = BitCtToWordCt(cur_cat_ct);
+      const uint32_t largest_cat_uidx = IdentifyRemainingCatsAndMostCommon(sample_include, cur_covar_col, sample_ct, cat_covar_wkspace, cat_obs_buf);
+      const uint32_t remaining_cat_ct = PopcountWords(cat_covar_wkspace, cur_cat_ctl);
       assert(remaining_cat_ct >= 2);
+      ClearBit(largest_cat_uidx, cat_covar_wkspace);
       const uint32_t* covar_vals = cur_covar_col->data.cat;
       const char* const* cur_category_names = cur_covar_col->category_names;
       const uint32_t covar_name_base_slen = strlen(covar_name_base);
       uintptr_t cat_uidx_base;
       uintptr_t cat_covar_wkspace_bits;
       BitIter1Start(cat_covar_wkspace, 1, &cat_uidx_base, &cat_covar_wkspace_bits);
-      // this is equivalent to "--split-cat-pheno omit-last covar-01"
       for (uint32_t cat_idx = 1; cat_idx != remaining_cat_ct; ++cat_idx) {
         const uintptr_t cat_uidx = BitIter1(cat_covar_wkspace, &cat_uidx_base, &cat_covar_wkspace_bits);
-
         const char* catname = cur_category_names[cat_uidx];
         const uint32_t catname_slen = strlen(catname);
         new_covar_name_alloc -= covar_name_base_slen + catname_slen + 2;
@@ -3144,6 +3212,9 @@ typedef struct GlmLogisticCtxStruct {
   const float* covars_cmaj_f;
   float* covars_cmaj_x_f;
   float* covars_cmaj_y_f;
+  uint16_t separation_found;
+  uint16_t separation_found_x;
+  uint16_t separation_found_y;
   float* local_covars_vcmaj_f[2];
   LogisticAuxResult* block_aux;
 } GlmLogisticCtx;
@@ -3175,7 +3246,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
   const uint32_t add_interactions = (glm_flags / kfGlmInteraction) & 1;
   const uint32_t hide_covar = (glm_flags / kfGlmHideCovar) & 1;
   const uint32_t include_intercept = (glm_flags / kfGlmIntercept) & 1;
-  const uint32_t is_sometimes_firth = (glm_flags & (kfGlmFirthFallback | kfGlmFirth))? 1 : 0;
+  const uint32_t is_sometimes_firth = !(glm_flags & kfGlmNoFirth);
   const uint32_t is_always_firth = (glm_flags / kfGlmFirth) & 1;
   const uint32_t model_dominant = (glm_flags / kfGlmDominant) & 1;
   const uint32_t model_recessive = (glm_flags / kfGlmRecessive) & 1;
@@ -3257,6 +3328,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
       uint32_t cur_sample_ct;
       uint32_t cur_covar_ct;
       uint32_t cur_constraint_ct;
+      uint32_t cur_is_always_firth;
       uint32_t primary_pred_idx = include_intercept;
       if (is_y && common->sample_include_y) {
         cur_sample_include = common->sample_include_y;
@@ -3271,6 +3343,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
         cur_sample_ct = common->sample_ct_y;
         cur_covar_ct = common->covar_ct_y;
         cur_constraint_ct = common->constraint_ct_y;
+        cur_is_always_firth = is_always_firth || ctx->separation_found_y;
       } else if (is_x && common->sample_include_x) {
         cur_sample_include = common->sample_include_x;
         cur_sample_include_cumulative_popcounts = common->sample_include_x_cumulative_popcounts;
@@ -3284,6 +3357,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
         cur_sample_ct = common->sample_ct_x;
         cur_covar_ct = common->covar_ct_x;
         cur_constraint_ct = common->constraint_ct_x;
+        cur_is_always_firth = is_always_firth || ctx->separation_found_x;
       } else {
         cur_sample_include = common->sample_include;
         cur_sample_include_cumulative_popcounts = common->sample_include_cumulative_popcounts;
@@ -3297,6 +3371,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
         cur_sample_ct = common->sample_ct;
         cur_covar_ct = common->covar_ct;
         cur_constraint_ct = common->constraint_ct;
+        cur_is_always_firth = is_always_firth || ctx->separation_found;
       }
       const uint32_t sample_ctl = BitCtToWordCt(cur_sample_ct);
       const uint32_t sample_ctav = RoundUpPow2(cur_sample_ct, kFloatPerFVec);
@@ -4108,7 +4183,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
               }
             }
             ZeroFArr(cur_predictor_ctav, coef_return);
-            if (!is_always_firth) {
+            if (!cur_is_always_firth) {
               // Does any genotype column have zero case or zero control
               // dosage?  If yes, faster to skip logistic regression than
               // wait for convergence failure.
@@ -4117,28 +4192,15 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
                 const double case_dosage = a1_case_dosages[allele_idx];
                 if ((case_dosage == 0.0) || (case_dosage == tot_dosage)) {
                   if (is_sometimes_firth) {
-                    block_aux_iter[extra_regression_idx].firth_fallback = 1;
-                    if (allele_ct_m2 && beta_se_multiallelic_fused) {
-                      for (uint32_t uii = 1; uii != allele_ct - 1; ++uii) {
-                        block_aux_iter[uii].firth_fallback = 1;
-                      }
-                    }
                     goto GlmLogisticThread_firth_fallback;
-                  } else {
-                    glm_err = SetGlmErr1(kGlmErrcodeSeparation, allele_idx);
-                    goto GlmLogisticThread_skip_allele;
                   }
+                  glm_err = SetGlmErr1(kGlmErrcodeSeparation, allele_idx);
+                  goto GlmLogisticThread_skip_allele;
                 }
               }
               if (LogisticRegression(nm_pheno_buf, nm_predictors_pmaj_buf, nm_sample_ct, cur_predictor_ct, coef_return, cholesky_decomp_return, pp_buf, sample_variance_buf, hh_return, gradient_buf, dcoef_buf)) {
                 if (is_sometimes_firth) {
                   ZeroFArr(cur_predictor_ctav, coef_return);
-                  block_aux_iter[extra_regression_idx].firth_fallback = 1;
-                  if (allele_ct_m2 && beta_se_multiallelic_fused) {
-                    for (uint32_t uii = 1; uii != allele_ct - 1; ++uii) {
-                      block_aux_iter[uii].firth_fallback = 1;
-                    }
-                  }
                   goto GlmLogisticThread_firth_fallback;
                 }
                 glm_err = SetGlmErr0(kGlmErrcodeLogisticConvergeFail);
@@ -4176,7 +4238,15 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
                 }
               }
             } else {
-            GlmLogisticThread_firth_fallback:
+              if (!is_always_firth) {
+              GlmLogisticThread_firth_fallback:
+                block_aux_iter[extra_regression_idx].firth_fallback = 1;
+                if (allele_ct_m2 && beta_se_multiallelic_fused) {
+                  for (uint32_t uii = 1; uii != allele_ct - 1; ++uii) {
+                    block_aux_iter[uii].firth_fallback = 1;
+                  }
+                }
+              }
               if (FirthRegression(nm_pheno_buf, nm_predictors_pmaj_buf, nm_sample_ct, cur_predictor_ct, coef_return, hh_return, inverse_corr_buf, inv_1d_buf, dbl_2d_buf, pp_buf, sample_variance_buf, gradient_buf, dcoef_buf, score_buf, tmpnxk_buf)) {
                 glm_err = SetGlmErr0(kGlmErrcodeFirthConvergeFail);
                 goto GlmLogisticThread_skip_allele;
@@ -4747,7 +4817,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     max_reported_test_ct += max_extra_allele_ct;
     common->max_reported_test_ct = max_reported_test_ct;
 
-    const uint32_t is_sometimes_firth = (glm_flags & (kfGlmFirthFallback | kfGlmFirth))? 1 : 0;
+    const uint32_t is_sometimes_firth = !(glm_flags & kfGlmNoFirth);
     const uint32_t is_always_firth = (glm_flags / kfGlmFirth) & 1;
 
     uint32_t x_code = UINT32_MAXM1;
@@ -10310,8 +10380,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     }
 
     const uint32_t report_adjust = (adjust_info_ptr->flags & kfAdjustColAll);
-    const uint32_t is_sometimes_firth = (glm_flags & (kfGlmFirthFallback | kfGlmFirth))? 1 : 0;
+    const uint32_t is_sometimes_firth = !(glm_flags & kfGlmNoFirth);
     const uint32_t is_always_firth = glm_flags & kfGlmFirth;
+    const uint32_t skip_modifier = (glm_flags / kfGlmSkip) & 1;
     const uint32_t glm_pos_col = glm_info_ptr->cols & kfGlmColPos;
     const uint32_t gcount_cc_col = glm_info_ptr->cols & kfGlmColGcountcc;
     const uint32_t xtx_state = (add_interactions || local_covar_ct)? 0 : domdev_present_p1;
@@ -10361,7 +10432,12 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         BitvecAndCopy(orig_sample_include, cur_pheno_col->nonmiss, raw_sample_ctl, cur_sample_include);
         const uint32_t sample_ct = PopcountWords(cur_sample_include, raw_sample_ctl);
         if (IsConstCovar(cur_pheno_col, cur_sample_include, sample_ct)) {
-          logprintfww("--glm: Skipping constant quantitative phenotype '%s'.\n", &(pheno_names[pheno_uidx * max_pheno_name_blen]));
+          const char* cur_pheno_name = &(pheno_names[pheno_uidx * max_pheno_name_blen]);
+          if (unlikely(!skip_modifier)) {
+            logerrprintfww("Error: --glm quantitative phenotype '%s' is constant.\n", cur_pheno_name);
+            goto GlmMain_ret_INCONSISTENT_INPUT;
+          }
+          logprintfww("--glm: Skipping constant quantitative phenotype '%s'.\n", cur_pheno_name);
           ClearBit(pheno_uidx, pheno_include);
           continue;
         }
@@ -10405,8 +10481,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         uint32_t extra_cat_ct = 0;
         BigstackDoubleReset(bigstack_mark3, bigstack_end_mark);
         if (initial_nonx_covar_ct) {
-          uint32_t dummy = 0;
-          if (unlikely(GlmDetermineCovars(nullptr, initial_covar_include, covar_cols, raw_sample_ct, raw_covar_ctl, initial_nonx_covar_ct, covar_max_nonnull_cat_ct, 0, cur_sample_include, covar_include, &sample_ct, &covar_ct, &extra_cat_ct, &dummy))) {
+          uint16_t dummy = 0;
+          if (unlikely(GlmDetermineCovars(nullptr, initial_covar_include, covar_cols, raw_sample_ct, raw_covar_ctl, initial_nonx_covar_ct, covar_max_nonnull_cat_ct, 0, 0, cur_sample_include, covar_include, &sample_ct, &covar_ct, &extra_cat_ct, &dummy))) {
             goto GlmMain_ret_NOMEM;
           }
         }
@@ -10424,20 +10500,32 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         }
         const char* first_pheno_name = &(pheno_names[pheno_uidx * max_pheno_name_blen]);
         if (sample_ct <= biallelic_predictor_ct) {
-          logerrprintfww("Warning: Skipping --glm regression on phenotype '%s', and other(s) with identical missingness patterns, since # samples <= # predictor columns.\n", first_pheno_name);
+          if (unlikely(!skip_modifier)) {
+            logerrprintfww("Error: # samples <= # predictor columns for --glm phenotype '%s'.\n", first_pheno_name);
+            goto GlmMain_ret_INCONSISTENT_INPUT;
+          }
+          logprintfww("Note: Skipping --glm regression on phenotype '%s', and other(s) with identical missingness patterns, since # samples <= # predictor columns.\n", first_pheno_name);
           BitvecInvmask(pheno_batch, pheno_ctl, pheno_include);
           continue;
         }
 #ifdef __LP64__
         if (RoundUpPow2(sample_ct, 4) * S_CAST(uint64_t, biallelic_predictor_ct + max_extra_allele_ct) > 0x7fffffff) {
           // todo: remove this constraint in LAPACK_ILP64 case?
-          logerrprintfww("Warning: Skipping --glm regression on phenotype '%s', and other(s) with identical missingness patterns, since there are too many samples or predictors (internal matrices limited to ~2^31 entries).\n", first_pheno_name);
+          if (unlikely(!skip_modifier)) {
+            logerrprintfww("Error: Too many samples or predictors for --glm regression on phenotype '%s' (internal matrices currently limited to ~2^31 entries).\n", first_pheno_name);
+            goto GlmMain_ret_INCONSISTENT_INPUT;
+          }
+          logerrprintfww("Warning: Skipping --glm regression on phenotype '%s', and other(s) with identical missingness patterns, since there are too many samples or predictors (internal matrices currently limited to ~2^31 entries).\n", first_pheno_name);
           BitvecInvmask(pheno_batch, pheno_ctl, pheno_include);
           continue;
         }
 #endif
         if (common.tests_flag && (!common.constraint_ct)) {
-          logerrprintfww("Warning: Skipping --glm regression on phenotype '%s', and other(s) with identical missingness patterns, since --tests predictor(s) are constant for all remaining samples.\n", first_pheno_name);
+          if (unlikely(!skip_modifier)) {
+            logerrprintfww("Error: --tests predictor(s) are constant for all remaining samples for --glm phenotype '%s'.\n", first_pheno_name);
+            goto GlmMain_ret_INCONSISTENT_INPUT;
+          }
+          logprintfww("Note: Skipping --glm regression on phenotype '%s', and other(s) with identical missingness patterns, since --tests predictor(s) are constant for all remaining samples.\n", first_pheno_name);
           BitvecInvmask(pheno_batch, pheno_ctl, pheno_include);
           continue;
         }
@@ -10467,8 +10555,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         uint32_t x_samples_are_different = 0;
         if (cur_sample_include_x) {
           BitvecAndCopy(orig_sample_include, cur_pheno_col->nonmiss, raw_sample_ctl, cur_sample_include_x);
-          uint32_t dummy = 0;
-          if (unlikely(GlmDetermineCovars(nullptr, initial_covar_include, covar_cols, raw_sample_ct, raw_covar_ctl, initial_nonx_covar_ct + 1, covar_max_nonnull_cat_ct, 0, cur_sample_include_x, covar_include_x, &sample_ct_x, &covar_ct_x, &extra_cat_ct_x, &dummy))) {
+          uint16_t dummy = 0;
+          if (unlikely(GlmDetermineCovars(nullptr, initial_covar_include, covar_cols, raw_sample_ct, raw_covar_ctl, initial_nonx_covar_ct + 1, covar_max_nonnull_cat_ct, 0, 0, cur_sample_include_x, covar_include_x, &sample_ct_x, &covar_ct_x, &extra_cat_ct_x, &dummy))) {
             goto GlmMain_ret_NOMEM;
           }
           x_samples_are_different = (sample_ct_x != sample_ct) || (!wordsequal(cur_sample_include, cur_sample_include_x, raw_sample_ctl));
@@ -10478,7 +10566,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             cur_sample_include_x = nullptr;
           } else {
             if (!sample_ct_x) {
-              logerrprintfww("Warning: Skipping chrX in --glm regression on phenotype '%s', and other(s) with identical missingness patterns.\n", first_pheno_name);
+              if (unlikely(!skip_modifier)) {
+                logerrprintfww("Error: --glm regression on phenotype '%s' is degenerate on chrX.\n", first_pheno_name);
+                goto GlmMain_ret_INCONSISTENT_INPUT;
+              }
+              logprintfww("Note: Skipping chrX in --glm regression on phenotype '%s', and other(s) with identical missingness patterns.\n", first_pheno_name);
             } else {
               biallelic_predictor_ct_x = 2 + domdev_present + (covar_ct_x + extra_cat_ct_x) * (1 + add_interactions * domdev_present_p1);
               if (raw_parameter_subset) {
@@ -10493,11 +10585,19 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
                 }
               }
               if (sample_ct_x <= biallelic_predictor_ct_x) {
-                logerrprintfww("Warning: Skipping chrX in --glm regression on phenotype '%s', and other(s) with identical missingness patterns, since # remaining samples <= # predictor columns.\n", first_pheno_name);
+                if (unlikely(!skip_modifier)) {
+                  logerrprintfww("Error: # samples <= # predictor columns for --glm phenotype '%s' on chrX.\n", first_pheno_name);
+                  goto GlmMain_ret_INCONSISTENT_INPUT;
+                }
+                logprintfww("Note: Skipping chrX in --glm regression on phenotype '%s', and other(s) with identical missingness patterns, since # remaining samples <= # predictor columns.\n", first_pheno_name);
                 sample_ct_x = 0;
 #ifdef __LP64__
               } else if (RoundUpPow2(sample_ct_x, 4) * S_CAST(uint64_t, biallelic_predictor_ct_x + max_extra_allele_ct) > 0x7fffffff) {
-                logerrprintfww("Warning: Skipping chrX in --glm regression on phenotype '%s', and other(s) with identical missingness patterns, since there are too many samples or predictors (internal matrices limited to ~2^31 entries).\n", first_pheno_name);
+                if (unlikely(!skip_modifier)) {
+                  logerrprintfww("Error: Too many samples or predictors for --glm regression on phenotype '%s' on chrX (internal matrices currently limited to ~2^31 entries).\n", first_pheno_name);
+                  goto GlmMain_ret_INCONSISTENT_INPUT;
+                }
+                logerrprintfww("Warning: Skipping chrX in --glm regression on phenotype '%s', and other(s) with identical missingness patterns, since there are too many samples or predictors (internal matrices currently limited to ~2^31 entries).\n", first_pheno_name);
                 sample_ct_x = 0;
 #endif
               } else {
@@ -10514,7 +10614,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
                 // possible todo: reset first_pheno_name here
               }
               if (sample_ct_x && common.tests_flag && (!common.constraint_ct_x)) {
-                logerrprintfww("Warning: Skipping chrX in --glm regression on phenotype '%s', and other(s) with identical missingness paterns, since --tests predictor(s) are constant for all remaining samples.\n", first_pheno_name);
+                if (unlikely(!skip_modifier)) {
+                  logerrprintfww("Error: --tests predictor(s) are constant for all remaining samples on chrX for --glm phenotype '%s'.\n", first_pheno_name);
+                  goto GlmMain_ret_INCONSISTENT_INPUT;
+                }
+                logprintfww("Note: Skipping chrX in --glm regression on phenotype '%s', and other(s) with identical missingness patterns, since --tests predictor(s) are constant for all remaining samples.\n", first_pheno_name);
                 sample_ct_x = 0;
               }
               if (sample_ct_x && (covar_ct_x < initial_nonx_covar_ct + 1)) {
@@ -10540,8 +10644,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         if (cur_sample_include_y) {
           BitvecAndCopy(orig_sample_include, sex_male, raw_sample_ctl, cur_sample_include_y);
           BitvecAnd(cur_pheno_col->nonmiss, raw_sample_ctl, cur_sample_include_y);
-          uint32_t dummy = 0;
-          if (unlikely(GlmDetermineCovars(nullptr, initial_covar_include, covar_cols, raw_sample_ct, raw_covar_ctl, initial_y_covar_ct, covar_max_nonnull_cat_ct, is_sometimes_firth, cur_sample_include_y, covar_include_y, &sample_ct_y, &covar_ct_y, &extra_cat_ct_y, &dummy))) {
+          uint16_t dummy = 0;
+          if (unlikely(GlmDetermineCovars(nullptr, initial_covar_include, covar_cols, raw_sample_ct, raw_covar_ctl, initial_y_covar_ct, covar_max_nonnull_cat_ct, 0, 0, cur_sample_include_y, covar_include_y, &sample_ct_y, &covar_ct_y, &extra_cat_ct_y, &dummy))) {
             goto GlmMain_ret_NOMEM;
           }
           y_samples_are_different = (sample_ct_y != sample_ct) || (!wordsequal(cur_sample_include, cur_sample_include_y, raw_sample_ctl));
@@ -10551,7 +10655,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             cur_sample_include_y = nullptr;
           } else {
             if (!sample_ct_y) {
-              logerrprintfww("Warning: Skipping chrY in --glm regression on phenotype '%s', and other(s) with identical missingness patterns.\n", first_pheno_name);
+              if (unlikely(!skip_modifier)) {
+                logerrprintfww("Error: --glm regression on phenotype '%s' is degenerate on chrY.\n", first_pheno_name);
+                goto GlmMain_ret_INCONSISTENT_INPUT;
+              }
+              logprintfww("Note: Skipping chrY in --glm regression on phenotype '%s', and other(s) with identical missingness patterns.\n", first_pheno_name);
             } else {
               biallelic_predictor_ct_y = 2 + domdev_present + (covar_ct_y + extra_cat_ct_y) * (1 + add_interactions * domdev_present_p1);
               if (raw_parameter_subset) {
@@ -10567,11 +10675,19 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
                 }
               }
               if (sample_ct_y <= biallelic_predictor_ct_y) {
-                logerrprintfww("Warning: Skipping chrY in --glm regression on phenotype '%s', and other(s) with identical missingness patterns, since # remaining samples <= # predictor columns.\n", first_pheno_name);
+                if (unlikely(!skip_modifier)) {
+                  logerrprintfww("Error: # samples <= # predictor columns for --glm phenotype '%s' on chrY.\n", first_pheno_name);
+                  goto GlmMain_ret_INCONSISTENT_INPUT;
+                }
+                logprintfww("Note: Skipping chrY in --glm regression on phenotype '%s', and other(s) with identical missingness patterns, since # remaining samples <= # predictor columns.\n", first_pheno_name);
                 sample_ct_y = 0;
 #ifdef __LP64__
               } else if (RoundUpPow2(sample_ct_y, 4) * S_CAST(uint64_t, biallelic_predictor_ct_y + max_extra_allele_ct) > 0x7fffffff) {
-                logerrprintfww("Warning: Skipping chrY in --glm regression on phenotype '%s', and other(s) with identical missingness patterns, since there are too many samples or predictors (internal matrices limited to ~2^31 entries).\n", first_pheno_name);
+                if (unlikely(!skip_modifier)) {
+                  logerrprintfww("Error: Too many samples or predictors for --glm regression on phenotype '%s' on chrY (internal matrices currently limited to ~2^31 entries).\n", first_pheno_name);
+                  goto GlmMain_ret_INCONSISTENT_INPUT;
+                }
+                logerrprintfww("Warning: Skipping chrY in --glm regression on phenotype '%s', and other(s) with identical missingness patterns, since there are too many samples or predictors (internal matrices currently limited to ~2^31 entries).\n", first_pheno_name);
                 sample_ct_y = 0;
 #endif
               } else {
@@ -10587,7 +10703,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
                 }
               }
               if (sample_ct_y && common.tests_flag && (!common.constraint_ct_y)) {
-                logerrprintfww("Warning: Skipping chrY in --glm regression on phenotype '%s', and other(s) with identical missingness patterns, since --tests predictor(s) are constant for all remaining samples.\n", first_pheno_name);
+                if (unlikely(!skip_modifier)) {
+                  logerrprintfww("Error: --tests predictor(s) are constant for all remaining samples on chrY for --glm phenotype '%s'.\n", first_pheno_name);
+                  goto GlmMain_ret_INCONSISTENT_INPUT;
+                }
+                logprintfww("Note: Skipping chrY in --glm regression on phenotype '%s', and other(s) with identical missingness patterns, since --tests predictor(s) are constant for all remaining samples.\n", first_pheno_name);
                 sample_ct_y = 0;
               }
               if (sample_ct_y && (covar_ct_y < initial_y_covar_ct)) {
@@ -10618,7 +10738,10 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           goto GlmMain_ret_NOMEM;
         }
         if (glm_err) {
-          PrintPrescanErrmsg("", first_pheno_name, cur_covar_names, glm_err, local_covar_ct, 1);
+          PrintPrescanErrmsg("", first_pheno_name, cur_covar_names, glm_err, local_covar_ct, skip_modifier, 1);
+          if (unlikely(!skip_modifier)) {
+            goto GlmMain_ret_INCONSISTENT_INPUT;
+          }
           BitvecInvmask(pheno_batch, pheno_ctl, pheno_include);
           continue;
         }
@@ -10630,7 +10753,10 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             goto GlmMain_ret_NOMEM;
           }
           if (glm_err) {
-            PrintPrescanErrmsg("chrX in ", first_pheno_name, cur_covar_names_x, glm_err, local_covar_ct, 1);
+            PrintPrescanErrmsg("chrX in ", first_pheno_name, cur_covar_names_x, glm_err, local_covar_ct, skip_modifier, 1);
+            if (unlikely(!skip_modifier)) {
+              goto GlmMain_ret_INCONSISTENT_INPUT;
+            }
             sample_ct_x = 0;
           }
         }
@@ -10642,7 +10768,10 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             goto GlmMain_ret_NOMEM;
           }
           if (glm_err) {
-            PrintPrescanErrmsg("chrY in ", first_pheno_name, cur_covar_names_y, glm_err, local_covar_ct, 1);
+            PrintPrescanErrmsg("chrY in ", first_pheno_name, cur_covar_names_y, glm_err, local_covar_ct, skip_modifier, 1);
+            if (unlikely(!skip_modifier)) {
+              goto GlmMain_ret_INCONSISTENT_INPUT;
+            }
             sample_ct_y = 0;
           }
         }
@@ -10824,21 +10953,29 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       if (is_logistic) {
         const uint32_t initial_case_ct = PopcountWordsIntersect(cur_sample_include, cur_pheno_col->data.cc, raw_sample_ctl);
         if ((!initial_case_ct) || (initial_case_ct == sample_ct)) {
+          if (unlikely(!skip_modifier)) {
+            logerrprintfww("Error: All samples for --glm phenotype '%s' are %s.\n", cur_pheno_name, initial_case_ct? "cases" : "controls");
+            goto GlmMain_ret_INCONSISTENT_INPUT;
+          }
           logprintfww("--glm: Skipping case/control phenotype '%s' since all samples are %s.\n", cur_pheno_name, initial_case_ct? "cases" : "controls");
           continue;
         }
       } else {
         if (IsConstCovar(cur_pheno_col, cur_sample_include, sample_ct)) {
+          if (unlikely(!skip_modifier)) {
+            logerrprintfww("Error: --glm quantitative phenotype '%s' is constant.\n", cur_pheno_name);
+            goto GlmMain_ret_INCONSISTENT_INPUT;
+          }
           logprintfww("--glm: Skipping constant quantitative phenotype '%s'.\n", cur_pheno_name);
           continue;
         }
       }
       uint32_t covar_ct = 0;
       uint32_t extra_cat_ct = 0;
-      uint32_t separation_warning = 0;
+      logistic_ctx.separation_found = 0;
       BigstackDoubleReset(bigstack_mark2, bigstack_end_mark);
       if (initial_nonx_covar_ct) {
-        if (unlikely(GlmDetermineCovars(is_logistic? cur_pheno_col->data.cc : nullptr, initial_covar_include, covar_cols, raw_sample_ct, raw_covar_ctl, initial_nonx_covar_ct, covar_max_nonnull_cat_ct, is_sometimes_firth, cur_sample_include, covar_include, &sample_ct, &covar_ct, &extra_cat_ct, &separation_warning))) {
+        if (unlikely(GlmDetermineCovars(is_logistic? cur_pheno_col->data.cc : nullptr, initial_covar_include, covar_cols, raw_sample_ct, raw_covar_ctl, initial_nonx_covar_ct, covar_max_nonnull_cat_ct, is_sometimes_firth, is_always_firth, cur_sample_include, covar_include, &sample_ct, &covar_ct, &extra_cat_ct, &logistic_ctx.separation_found))) {
           goto GlmMain_ret_NOMEM;
         }
       }
@@ -10857,16 +10994,29 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         }
       }
       if (sample_ct <= biallelic_predictor_ct) {
-        logerrprintfww("Warning: Skipping --glm regression on phenotype '%s' since # samples <= # predictor columns.\n", cur_pheno_name);
-        if (separation_warning) {
-          logerrputs("(Quasi-)separated covariate(s) were present.  Try removing inappropriate\ncovariates, and/or using Firth logistic regression.\n");
+        if (unlikely(!skip_modifier)) {
+          if ((!is_sometimes_firth) && logistic_ctx.separation_found) {
+            logerrprintfww("Error: (Quasi-)separated covariate(s) were present for --glm phenotype '%s'. Try removing inappropriate covariates, and/or using Firth logistic regression.\n", cur_pheno_name);
+          } else {
+            logerrprintfww("Error: # samples <= # predictor columns for --glm phenotype '%s'.\n", cur_pheno_name);
+          }
+          goto GlmMain_ret_INCONSISTENT_INPUT;
+        }
+        if ((!is_sometimes_firth) && logistic_ctx.separation_found) {
+          logerrprintfww("Warning: Skipping --glm regression on phenotype '%s' since (quasi-)separated covariate(s) were present. Try removing inappropriate covariates, and/or using Firth logistic regression.\n", cur_pheno_name);
+        } else {
+          logprintfww("Note: Skipping --glm regression on phenotype '%s' since # samples <= # predictor columns.\n", cur_pheno_name);
         }
         continue;
       }
 #ifdef __LP64__
       if (RoundUpPow2(sample_ct, 4) * S_CAST(uint64_t, biallelic_predictor_ct + max_extra_allele_ct) > 0x7fffffff) {
         // todo: remove this constraint in LAPACK_ILP64 case?
-        logerrprintfww("Warning: Skipping --glm regression on phenotype '%s' since there are too many samples or predictors (internal matrices limited to ~2^31 entries).\n", cur_pheno_name);
+        if (unlikely(!skip_modifier)) {
+          logerrprintfww("Error: Too many samples or predictors for --glm regression on phenotype '%s' (internal matrices currently limited to ~2^31 entries).\n", cur_pheno_name);
+          goto GlmMain_ret_INCONSISTENT_INPUT;
+        }
+        logprintfww("Note: Skipping --glm regression on phenotype '%s' since there are too many samples or predictors (internal matrices currently limited to ~2^31 entries).\n", cur_pheno_name);
         continue;
       }
 #endif
@@ -10874,6 +11024,10 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       if (is_logistic) {
         case_ct = PopcountWordsIntersect(cur_sample_include, cur_pheno_col->data.cc, raw_sample_ctl);
         if ((!case_ct) || (case_ct == sample_ct)) {
+          if (unlikely(!skip_modifier)) {
+            logerrprintfww("Error: All remaining samples for --glm phenotype '%s' are %s.\n", cur_pheno_name, case_ct? "cases" : "controls");
+            goto GlmMain_ret_INCONSISTENT_INPUT;
+          }
           logprintfww("--glm: Skipping case/control phenotype '%s' since all remaining samples are %s.\n", cur_pheno_name, case_ct? "cases" : "controls");
           // without any e.g. cases in the dataset, every single covariate
           // should fail the separation check, so covar_ct should be zero here
@@ -10892,12 +11046,20 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       } else {
         // verify phenotype is still nonconstant
         if (IsConstCovar(cur_pheno_col, cur_sample_include, sample_ct)) {
+          if (unlikely(!skip_modifier)) {
+            logerrprintfww("Error: --glm quantitative phenotype '%s' is constant for all remaining samples.\n", cur_pheno_name);
+            goto GlmMain_ret_INCONSISTENT_INPUT;
+          }
           logprintfww("--glm: Skipping quantitative phenotype '%s' since phenotype is constant for all remaining samples.\n", cur_pheno_name);
           continue;
         }
       }
       if (common.tests_flag && (!common.constraint_ct)) {
-        logerrprintfww("Warning: Skipping --glm regression on phenotype '%s' since --tests predictor(s) are constant for all remaining samples.\n", cur_pheno_name);
+        if (unlikely(!skip_modifier)) {
+          logerrprintfww("Error: --tests predictor(s) are constant for all remaining samples for --glm phenotype '%s'.\n", cur_pheno_name);
+          goto GlmMain_ret_INCONSISTENT_INPUT;
+        }
+        logprintfww("Note: Skipping --glm regression on phenotype '%s' since --tests predictor(s) are constant for all remaining samples.\n", cur_pheno_name);
         continue;
       }
       if (covar_ct < initial_nonx_covar_ct) {
@@ -10909,9 +11071,6 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             logerrprintfww("Warning: %sot including covariate '%s' in --glm regression on phenotype '%s'.\n", cur_sample_include_x_buf? (cur_sample_include_y_buf? "Outside of chrX, n" : "Outside of chrX and chrY, n") : (cur_sample_include_y_buf? "Outside of chrY, n" : "N"), &(covar_names[covar_uidx * max_covar_name_blen]), cur_pheno_name);
           }
         }
-      }
-      if (separation_warning) {
-        logerrputs("(Quasi-)separated covariate(s) were present.  Try removing inappropriate\ncovariates, and/or using Firth logistic regression.\n");
       }
 
       // cur_sample_include_x == nullptr: chrX uses same samples and covariates
@@ -10929,8 +11088,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       uint32_t x_samples_are_different = 0;
       if (cur_sample_include_x) {
         BitvecAndCopy(orig_sample_include, cur_pheno_col->nonmiss, raw_sample_ctl, cur_sample_include_x);
-        uint32_t separation_warning_x = 0;
-        if (unlikely(GlmDetermineCovars(is_logistic? cur_pheno_col->data.cc : nullptr, initial_covar_include, covar_cols, raw_sample_ct, raw_covar_ctl, initial_nonx_covar_ct + 1, covar_max_nonnull_cat_ct, is_sometimes_firth, cur_sample_include_x, covar_include_x, &sample_ct_x, &covar_ct_x, &extra_cat_ct_x, &separation_warning_x))) {
+        logistic_ctx.separation_found_x = 0;
+        if (unlikely(GlmDetermineCovars(is_logistic? cur_pheno_col->data.cc : nullptr, initial_covar_include, covar_cols, raw_sample_ct, raw_covar_ctl, initial_nonx_covar_ct + 1, covar_max_nonnull_cat_ct, is_sometimes_firth, is_always_firth, cur_sample_include_x, covar_include_x, &sample_ct_x, &covar_ct_x, &extra_cat_ct_x, &logistic_ctx.separation_found_x))) {
           goto GlmMain_ret_NOMEM;
         }
         x_samples_are_different = (sample_ct_x != sample_ct) || (!wordsequal(cur_sample_include, cur_sample_include_x, raw_sample_ctl));
@@ -10940,7 +11099,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           cur_sample_include_x = nullptr;
         } else {
           if (!sample_ct_x) {
-            logerrprintfww("Warning: Skipping chrX in --glm regression on phenotype '%s'.\n", cur_pheno_name);
+            if (unlikely(!skip_modifier)) {
+              logerrprintfww("Error: --glm regression on phenotype '%s' is degenerate on chrX.\n", cur_pheno_name);
+              goto GlmMain_ret_INCONSISTENT_INPUT;
+            }
+            logprintfww("Note: Skipping chrX in --glm regression on phenotype '%s'.\n", cur_pheno_name);
           } else {
             biallelic_predictor_ct_x = 2 + domdev_present + (covar_ct_x + extra_cat_ct_x) * (1 + add_interactions * domdev_present_p1);
             if (raw_parameter_subset) {
@@ -10955,27 +11118,55 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               }
             }
             if (sample_ct_x <= biallelic_predictor_ct_x) {
-              logerrprintfww("Warning: Skipping chrX in --glm regression on phenotype '%s', since # remaining samples <= # predictor columns.\n", cur_pheno_name);
+              if (unlikely(!skip_modifier)) {
+                if ((!is_sometimes_firth) && logistic_ctx.separation_found_x) {
+                  logerrprintfww("Error: (Quasi-)separated covariate(s) were present for --glm phenotype '%s' on chrX. Try removing inappropriate covariates, and/or using Firth logistic regression.\n", cur_pheno_name);
+                } else {
+                  logerrprintfww("Error: # samples <= # predictor columns for --glm phenotype '%s' on chrX.\n", cur_pheno_name);
+                }
+                goto GlmMain_ret_INCONSISTENT_INPUT;
+              }
+              if ((!is_sometimes_firth) && logistic_ctx.separation_found_x) {
+                logerrprintfww("Warning: Skipping --glm regression on phenotype '%s' on chrX, since (quasi-)separated covariate(s) were present. Try removing inappropriate covariates, and/or using Firth logistic regression.\n", cur_pheno_name);
+              } else {
+                logprintfww("Note: Skipping chrX in --glm regression on phenotype '%s', since # remaining samples <= # predictor columns.\n", cur_pheno_name);
+              }
               sample_ct_x = 0;
 #ifdef __LP64__
             } else if (RoundUpPow2(sample_ct_x, 4) * S_CAST(uint64_t, biallelic_predictor_ct_x + max_extra_allele_ct) > 0x7fffffff) {
-              logerrprintfww("Warning: Skipping chrX in --glm regression on phenotype '%s', since there are too many samples or predictors (internal matrices limited to ~2^31 entries).\n", cur_pheno_name);
+              if (unlikely(!skip_modifier)) {
+                logerrprintfww("Error: Too many samples or predictors for --glm regression on phenotype '%s' on chrX (internal matrices currently limited to ~2^31 entries).\n", cur_pheno_name);
+                goto GlmMain_ret_INCONSISTENT_INPUT;
+              }
+              logerrprintfww("Warning: Skipping chrX in --glm regression on phenotype '%s', since there are too many samples or predictors (internal matrices currently limited to ~2^31 entries).\n", cur_pheno_name);
               sample_ct_x = 0;
 #endif
             } else if (is_logistic) {
               const uint32_t case_ct_x = PopcountWordsIntersect(cur_sample_include_x, cur_pheno_col->data.cc, raw_sample_ctl);
               if ((!case_ct_x) || (case_ct_x == sample_ct_x)) {
-                logerrprintfww("Warning: Skipping chrX in --glm regression on phenotype '%s', since all remaining samples are %s.\n", cur_pheno_name, case_ct_x? "cases" : "controls");
+                if (unlikely(!skip_modifier)) {
+                  logerrprintfww("Error: All remaining samples on chrX for --glm phenotype '%s' are %s.\n", cur_pheno_name, case_ct? "cases" : "controls");
+                  goto GlmMain_ret_INCONSISTENT_INPUT;
+                }
+                logprintfww("Note: Skipping chrX in --glm regression on phenotype '%s', since all remaining samples are %s.\n", cur_pheno_name, case_ct_x? "cases" : "controls");
                 sample_ct_x = 0;
               }
             } else {
               if (IsConstCovar(cur_pheno_col, cur_sample_include_x, sample_ct_x)) {
-                logerrprintfww("Warning: Skipping chrX in --glm regression on phenotype '%s', since phenotype is constant for all remaining samples.\n", cur_pheno_name);
+                if (unlikely(!skip_modifier)) {
+                  logerrprintfww("Error: --glm quantitative phenotype '%s' is constant for all remaining samples on chrX.\n", cur_pheno_name);
+                  goto GlmMain_ret_INCONSISTENT_INPUT;
+                }
+                logprintfww("Note: Skipping chrX in --glm regression on phenotype '%s', since phenotype is constant for all remaining samples.\n", cur_pheno_name);
                 sample_ct_x = 0;
               }
             }
             if (sample_ct_x && common.tests_flag && (!common.constraint_ct_x)) {
-              logerrprintfww("Warning: Skipping chrX in --glm regression on phenotype '%s', since --tests predictor(s) are constant for all remaining samples.\n", cur_pheno_name);
+              if (unlikely(!skip_modifier)) {
+                logerrprintfww("Error: --tests predictor(s) are constant for all remaining samples on chrX for --glm phenotype '%s'.\n", cur_pheno_name);
+                goto GlmMain_ret_INCONSISTENT_INPUT;
+              }
+              logprintfww("Note: Skipping chrX in --glm regression on phenotype '%s', since --tests predictor(s) are constant for all remaining samples.\n", cur_pheno_name);
               sample_ct_x = 0;
             }
             if (sample_ct_x && (covar_ct_x < initial_nonx_covar_ct + 1)) {
@@ -10989,9 +11180,6 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               }
             }
           }
-          if (separation_warning_x && (!separation_warning)) {
-            logerrputs("(Quasi-)separated covariate(s) were present on chrX.  Try removing inappropriate\ncovariates, and/or using Firth logistic regression.\n");
-          }
         }
       }
 
@@ -11004,8 +11192,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       if (cur_sample_include_y) {
         BitvecAndCopy(orig_sample_include, sex_male, raw_sample_ctl, cur_sample_include_y);
         BitvecAnd(cur_pheno_col->nonmiss, raw_sample_ctl, cur_sample_include_y);
-        uint32_t separation_warning_y = 0;
-        if (unlikely(GlmDetermineCovars(is_logistic? cur_pheno_col->data.cc : nullptr, initial_covar_include, covar_cols, raw_sample_ct, raw_covar_ctl, initial_y_covar_ct, covar_max_nonnull_cat_ct, is_sometimes_firth, cur_sample_include_y, covar_include_y, &sample_ct_y, &covar_ct_y, &extra_cat_ct_y, &separation_warning_y))) {
+        logistic_ctx.separation_found_y = 0;
+        if (unlikely(GlmDetermineCovars(is_logistic? cur_pheno_col->data.cc : nullptr, initial_covar_include, covar_cols, raw_sample_ct, raw_covar_ctl, initial_y_covar_ct, covar_max_nonnull_cat_ct, is_sometimes_firth, is_always_firth, cur_sample_include_y, covar_include_y, &sample_ct_y, &covar_ct_y, &extra_cat_ct_y, &logistic_ctx.separation_found_y))) {
           goto GlmMain_ret_NOMEM;
         }
         y_samples_are_different = (sample_ct_y != sample_ct) || (!wordsequal(cur_sample_include, cur_sample_include_y, raw_sample_ctl));
@@ -11015,7 +11203,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           cur_sample_include_y = nullptr;
         } else {
           if (!sample_ct_y) {
-            logerrprintfww("Warning: Skipping chrY in --glm regression on phenotype '%s'.\n", cur_pheno_name);
+            if (unlikely(!skip_modifier)) {
+              logerrprintfww("Error: --glm regression on phenotype '%s' is degenerate on chrY.\n", cur_pheno_name);
+              goto GlmMain_ret_INCONSISTENT_INPUT;
+            }
+            logprintfww("Note: Skipping chrY in --glm regression on phenotype '%s'.\n", cur_pheno_name);
           } else {
             biallelic_predictor_ct_y = 2 + domdev_present + (covar_ct_y + extra_cat_ct_y) * (1 + add_interactions * domdev_present_p1);
             if (raw_parameter_subset) {
@@ -11031,27 +11223,55 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               }
             }
             if (sample_ct_y <= biallelic_predictor_ct_y) {
-              logerrprintfww("Warning: Skipping chrY in --glm regression on phenotype '%s', since # remaining samples <= # predictor columns.\n", cur_pheno_name);
+              if (unlikely(!skip_modifier)) {
+                if ((!is_sometimes_firth) && logistic_ctx.separation_found_x) {
+                  logerrprintfww("Error: (Quasi-)separated covariate(s) were present for --glm phenotype '%s' on chrY. Try removing inappropriate covariates, and/or using Firth logistic regression.\n", cur_pheno_name);
+                } else {
+                  logerrprintfww("Error: # samples <= # predictor columns for --glm phenotype '%s' on chrY.\n", cur_pheno_name);
+                }
+                goto GlmMain_ret_INCONSISTENT_INPUT;
+              }
+              if ((!is_sometimes_firth) && logistic_ctx.separation_found_x) {
+                logerrprintfww("Warning: Skipping --glm regression on phenotype '%s' on chrY, since (quasi-)separated covariate(s) were present. Try removing inappropriate covariates, and/or using Firth logistic regression.\n", cur_pheno_name);
+              } else {
+                logprintfww("Note: Skipping chrY in --glm regression on phenotype '%s', since # remaining samples <= # predictor columns.\n", cur_pheno_name);
+              }
               sample_ct_y = 0;
 #ifdef __LP64__
             } else if (RoundUpPow2(sample_ct_y, 4) * S_CAST(uint64_t, biallelic_predictor_ct_y + max_extra_allele_ct) > 0x7fffffff) {
-              logerrprintfww("Warning: Skipping chrY in --glm regression on phenotype '%s', since there are too many samples or predictors (internal matrices limited to ~2^31 entries).\n", cur_pheno_name);
+              if (unlikely(!skip_modifier)) {
+                logerrprintfww("Error: Too many samples or predictors for --glm regression on phenotype '%s' on chrY (internal matrices currently limited to ~2^31 entries).\n", cur_pheno_name);
+                goto GlmMain_ret_INCONSISTENT_INPUT;
+              }
+              logerrprintfww("Warning: Skipping chrY in --glm regression on phenotype '%s', since there are too many samples or predictors (internal matrices currently limited to ~2^31 entries).\n", cur_pheno_name);
               sample_ct_y = 0;
 #endif
             } else if (is_logistic) {
               const uint32_t case_ct_y = PopcountWordsIntersect(cur_sample_include_y, cur_pheno_col->data.cc, raw_sample_ctl);
               if ((!case_ct_y) || (case_ct_y == sample_ct_y)) {
-                logerrprintfww("Warning: Skipping chrY in --glm regression on phenotype '%s', since all remaining samples are %s.\n", cur_pheno_name, case_ct_y? "cases" : "controls");
+                if (unlikely(!skip_modifier)) {
+                  logerrprintfww("Error: All remaining samples on chrY for --glm phenotype '%s' are %s.\n", cur_pheno_name, case_ct? "cases" : "controls");
+                  goto GlmMain_ret_INCONSISTENT_INPUT;
+                }
+                logprintfww("Note: Skipping chrY in --glm regression on phenotype '%s', since all remaining samples are %s.\n", cur_pheno_name, case_ct_y? "cases" : "controls");
                 sample_ct_y = 0;
               }
             } else {
               if (IsConstCovar(cur_pheno_col, cur_sample_include_y, sample_ct_y)) {
-                logerrprintfww("Warning: Skipping chrY in --glm regression on phenotype '%s', since phenotype is constant for all remaining samples.\n", cur_pheno_name);
+                if (unlikely(!skip_modifier)) {
+                  logerrprintfww("Error: --glm quantitative phenotype '%s' is constant for all remaining samples on chrY.\n", cur_pheno_name);
+                  goto GlmMain_ret_INCONSISTENT_INPUT;
+                }
+                logprintfww("Note: Skipping chrY in --glm regression on phenotype '%s', since phenotype is constant for all remaining samples.\n", cur_pheno_name);
                 sample_ct_y = 0;
               }
             }
             if (sample_ct_y && common.tests_flag && (!common.constraint_ct_y)) {
-              logerrprintfww("Warning: Skipping chrY in --glm regression on phenotype '%s', since --tests predictor(s) are constant for all remaining samples.\n", cur_pheno_name);
+              if (unlikely(!skip_modifier)) {
+                logerrprintfww("Error: --tests predictor(s) are constant for all remaining samples on chrY for --glm phenotype '%s'.\n", cur_pheno_name);
+                goto GlmMain_ret_INCONSISTENT_INPUT;
+              }
+              logprintfww("Note: Skipping chrY in --glm regression on phenotype '%s', since --tests predictor(s) are constant for all remaining samples.\n", cur_pheno_name);
               sample_ct_y = 0;
             }
             if (sample_ct_y && (covar_ct_y < initial_y_covar_ct)) {
@@ -11064,9 +11284,6 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
                 }
               }
             }
-          }
-          if (separation_warning_y && (!separation_warning)) {
-            logerrputs("(Quasi-)separated covariate(s) were present on chrY.  Try removing inappropriate\ncovariates, and/or using Firth logistic regression.\n");
           }
         }
       }
@@ -11094,7 +11311,10 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         }
       }
       if (glm_err) {
-        PrintPrescanErrmsg("", cur_pheno_name, cur_covar_names, glm_err, local_covar_ct, 0);
+        PrintPrescanErrmsg("", cur_pheno_name, cur_covar_names, glm_err, local_covar_ct, skip_modifier, 0);
+        if (unlikely(!skip_modifier)) {
+          goto GlmMain_ret_INCONSISTENT_INPUT;
+        }
         continue;
       }
       const char** cur_covar_names_x = nullptr;
@@ -11117,7 +11337,10 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           }
         }
         if (glm_err) {
-          PrintPrescanErrmsg("chrX in ", cur_pheno_name, cur_covar_names_x, glm_err, local_covar_ct, 0);
+          PrintPrescanErrmsg("chrX in ", cur_pheno_name, cur_covar_names_x, glm_err, local_covar_ct, skip_modifier, 0);
+          if (unlikely(!skip_modifier)) {
+            goto GlmMain_ret_INCONSISTENT_INPUT;
+          }
           sample_ct_x = 0;
         }
       }
@@ -11140,7 +11363,10 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           }
         }
         if (glm_err) {
-          PrintPrescanErrmsg("chrY in ", cur_pheno_name, cur_covar_names_y, glm_err, local_covar_ct, 0);
+          PrintPrescanErrmsg("chrY in ", cur_pheno_name, cur_covar_names_y, glm_err, local_covar_ct, skip_modifier, 0);
+          if (unlikely(!skip_modifier)) {
+            goto GlmMain_ret_INCONSISTENT_INPUT;
+          }
           sample_ct_y = 0;
         }
       }

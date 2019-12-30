@@ -269,9 +269,8 @@ uint32_t AdvBoundedTo1Bit(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil) 
   // safe version.
   const uintptr_t* bitarr_iter = &(bitarr[loc / kBitsPerWord]);
   uintptr_t ulii = (*bitarr_iter) >> (loc % kBitsPerWord);
-  uint32_t rval;
   if (ulii) {
-    rval = loc + ctzw(ulii);
+    const uint32_t rval = loc + ctzw(ulii);
     return MINV(rval, ceil);
   }
   const uintptr_t* bitarr_last = &(bitarr[(ceil - 1) / kBitsPerWord]);
@@ -281,7 +280,25 @@ uint32_t AdvBoundedTo1Bit(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil) 
     }
     ulii = *(++bitarr_iter);
   } while (!ulii);
-  rval = S_CAST(uintptr_t, bitarr_iter - bitarr) * kBitsPerWord + ctzw(ulii);
+  const uint32_t rval = S_CAST(uintptr_t, bitarr_iter - bitarr) * kBitsPerWord + ctzw(ulii);
+  return MINV(rval, ceil);
+}
+
+uint32_t AdvBoundedTo0Bit(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil) {
+  const uintptr_t* bitarr_iter = &(bitarr[loc / kBitsPerWord]);
+  uintptr_t ulii = (~(*bitarr_iter)) >> (loc % kBitsPerWord);
+  if (ulii) {
+    const uint32_t rval = loc + ctzw(ulii);
+    return MINV(rval, ceil);
+  }
+  const uintptr_t* bitarr_last = &(bitarr[(ceil - 1) / kBitsPerWord]);
+  do {
+    if (bitarr_iter >= bitarr_last) {
+      return ceil;
+    }
+    ulii = *(++bitarr_iter);
+  } while (ulii == ~k0LU);
+  const uint32_t rval = S_CAST(uintptr_t, bitarr_iter - bitarr) * kBitsPerWord + ctzw(~ulii);
   return MINV(rval, ceil);
 }
 
@@ -301,6 +318,31 @@ uint32_t FindLast1BitBefore(const uintptr_t* bitarr, uint32_t loc) {
     ulii = *(--bitarr_iter);
   } while (!ulii);
   return S_CAST(uintptr_t, bitarr_iter - bitarr) * kBitsPerWord + bsrw(ulii);
+}
+
+uint32_t AllBytesAreX(const unsigned char* bytes, unsigned char match, uintptr_t byte_ct) {
+  if (byte_ct < kBytesPerWord) {
+    for (uint32_t uii = 0; uii != byte_ct; ++uii) {
+      if (bytes[uii] != match) {
+        return 0;
+      }
+    }
+    return 1;
+  }
+  const uintptr_t* bytes_alias = R_CAST(const uintptr_t*, bytes);
+  const uintptr_t word_match = S_CAST(uintptr_t, match) * kMask0101;
+  uintptr_t word_ct_m1 = (byte_ct - 1) / kBytesPerWord;
+  // todo: try movemask in AVX2 case
+  for (uintptr_t widx = 0; widx != word_ct_m1; ++widx) {
+    if (bytes_alias[widx] != word_match) {
+      return 0;
+    }
+  }
+  const uintptr_t last_word = *R_CAST(const uintptr_t*, &(bytes[byte_ct - kBytesPerWord]));
+  if (last_word != word_match) {
+    return 0;
+  }
+  return 1;
 }
 
 #ifdef USE_AVX2

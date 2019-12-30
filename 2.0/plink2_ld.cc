@@ -1624,12 +1624,25 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     uint32_t window_max;
     uint32_t subcontig_ct;
     if (LdPruneSubcontigSplitAll(variant_include, cip, variant_bps, prune_window_size, &window_max, &subcontig_info, &subcontig_ct)) {
-      return kPglRetNomem;
+      goto LdPrune_ret_NOMEM;
     }
     if (!subcontig_ct) {
       logerrprintf("Warning: Skipping --indep-pair%s since there are no pairs of variants to\nprocess.\n", is_pairphase? "phase" : "wise");
       goto LdPrune_ret_1;
     }
+
+    {
+      uint32_t dup_found;
+      reterr = CheckIdUniqueness(g_bigstack_base, g_bigstack_end, variant_include, variant_ids, variant_ct, max_thread_ct, &dup_found);
+      if (unlikely(reterr)) {
+        goto LdPrune_ret_1;
+      }
+      if (unlikely(dup_found)) {
+        logerrprintfww("Error: --indep-pair%s requires unique variant IDs. (--set-all-var-ids and/or --rm-dup may help.)\n", is_pairphase? "phase" : "wise");
+        goto LdPrune_ret_INCONSISTENT_INPUT;
+      }
+    }
+
     if (max_thread_ct > 2) {
       --max_thread_ct;
     }
@@ -1720,6 +1733,9 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
   while (0) {
   LdPrune_ret_NOMEM:
     reterr = kPglRetNomem;
+    break;
+  LdPrune_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
     break;
   }
  LdPrune_ret_1:

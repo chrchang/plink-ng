@@ -2083,19 +2083,20 @@ void ComputeAlleleFreqs(const uintptr_t* variant_include, const uintptr_t* allel
       cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
     }
     const uint64_t* cur_founder_allele_ddosages = &(founder_allele_ddosages[allele_idx_offset_base]);
-    uint64_t tot_dosage = 0;
+    uint64_t tot_ddosage = 0;
     for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct; ++allele_idx) {
-      tot_dosage += cur_founder_allele_ddosages[allele_idx];
+      tot_ddosage += cur_founder_allele_ddosages[allele_idx];
     }
     // todo: try changing this expression
-    const uint64_t cur_maf_succ_dosage = (maf_succ | (!tot_dosage)) * kDosageMax;
-    tot_dosage += cur_maf_succ_dosage * cur_allele_ct;
+    const uint64_t cur_maf_succ_ddosage = (maf_succ | (!tot_ddosage)) * kDosageMax;
+
+    tot_ddosage += cur_maf_succ_ddosage * cur_allele_ct;
     double* cur_allele_freqs_base = &(allele_freqs[allele_idx_offset_base - variant_uidx]);
-    const double tot_dosage_recip = 1.0 / u63tod(tot_dosage);
+    const double tot_ddosage_recip = 1.0 / u63tod(tot_ddosage);
     const uint32_t cur_allele_ct_m1 = cur_allele_ct - 1;
     for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct_m1; ++allele_idx) {
-      const double cur_dosage = u63tod(cur_founder_allele_ddosages[allele_idx] + cur_maf_succ_dosage);
-      cur_allele_freqs_base[allele_idx] = cur_dosage * tot_dosage_recip;
+      const double cur_ddosage = u63tod(cur_founder_allele_ddosages[allele_idx] + cur_maf_succ_ddosage);
+      cur_allele_freqs_base[allele_idx] = cur_ddosage * tot_ddosage_recip;
     }
   }
 }

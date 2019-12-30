@@ -45,16 +45,17 @@ FLAGSET_DEF_START()
   kfGlmInteraction = (1 << 9),
   kfGlmHideCovar = (1 << 10),
   kfGlmIntercept = (1 << 11),
-  kfGlmFirthFallback = (1 << 12),
-  kfGlmFirth = (1 << 13),
-  kfGlmPerm = (1 << 14),
-  kfGlmPermCount = (1 << 15),
-  kfGlmConditionDominant = (1 << 16),
-  kfGlmConditionRecessive = (1 << 17),
-  kfGlmConditionMultiallelic = (1 << 18),
-  kfGlmLocalOmitLast = (1 << 19),
-  kfGlmTestsAll = (1 << 20),
-  kfGlmPhenoIds = (1 << 21)
+  kfGlmSkip = (1 << 12),
+  kfGlmNoFirth = (1 << 13),
+  kfGlmFirth = (1 << 14),
+  kfGlmPerm = (1 << 15),
+  kfGlmPermCount = (1 << 16),
+  kfGlmConditionDominant = (1 << 17),
+  kfGlmConditionRecessive = (1 << 18),
+  kfGlmConditionMultiallelic = (1 << 19),
+  kfGlmLocalOmitLast = (1 << 20),
+  kfGlmTestsAll = (1 << 21),
+  kfGlmPhenoIds = (1 << 22)
 FLAGSET_DEF_END(GlmFlags);
 
 FLAGSET_DEF_START()
@@ -86,7 +87,7 @@ FLAGSET_DEF_START()
   kfGlmColTz = (1 << 21),
   kfGlmColP = (1 << 22),
   kfGlmColErr = (1 << 23),
-  kfGlmColDefault = (kfGlmColChrom | kfGlmColPos | kfGlmColRef | kfGlmColAlt | kfGlmColFirthYn | kfGlmColTest | kfGlmColNobs | kfGlmColOrbeta | kfGlmColSe | kfGlmColCi | kfGlmColTz | kfGlmColP)
+  kfGlmColDefault = (kfGlmColChrom | kfGlmColPos | kfGlmColRef | kfGlmColAlt | kfGlmColFirthYn | kfGlmColTest | kfGlmColNobs | kfGlmColOrbeta | kfGlmColSe | kfGlmColCi | kfGlmColTz | kfGlmColP | kfGlmColErr)
 FLAGSET_DEF_END(GlmColFlags);
 
 typedef struct GlmInfoStruct {
