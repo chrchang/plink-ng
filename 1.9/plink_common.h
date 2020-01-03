@@ -1,7 +1,7 @@
 #ifndef __PLINK_COMMON_H__
 #define __PLINK_COMMON_H__
 
-// This file is part of PLINK 1.90, copyright (C) 2005-2019 Shaun Purcell,
+// This file is part of PLINK 1.90, copyright (C) 2005-2020 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify
@@ -43,7 +43,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #define SPECIES_HUMAN 0
 #define SPECIES_COW 1
@@ -2521,6 +2521,7 @@ HEADER_INLINE uintptr_t popcount_chars(const uintptr_t* lptr, uintptr_t start_id
   return popcount_bit_idx(lptr, start_idx * 8, end_idx * 8);
 }
 
+// end_idx is in word, not bit, units
 uintptr_t popcount_longs_exclude(const uintptr_t* __restrict lptr, const uintptr_t* __restrict exclude_arr, uintptr_t end_idx);
 
 uintptr_t popcount_longs_intersect(const uintptr_t* __restrict lptr1, const uintptr_t* __restrict lptr2, uintptr_t word_ct);

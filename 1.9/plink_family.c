@@ -1,4 +1,4 @@
-// This file is part of PLINK 1.90, copyright (C) 2005-2019 Shaun Purcell,
+// This file is part of PLINK 1.90, copyright (C) 2005-2020 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify
@@ -3949,7 +3949,8 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     logerrprint("Error: DFAM test does not support haploid data.\n");
     goto dfam_ret_INVALID_CMDLINE;
   }
-  uii = popcount_longs_exclude(pheno_c, sample_exclude, unfiltered_sample_ct);
+  // bugfix (3 Jan 2020): last argument needs to be a word, not bit, count
+  uii = popcount_longs_exclude(pheno_c, sample_exclude, unfiltered_sample_ctl);
   if (!uii) {
     logerrprint("Error: DFAM test requires at least one case.\n");
     goto dfam_ret_INVALID_CMDLINE;
