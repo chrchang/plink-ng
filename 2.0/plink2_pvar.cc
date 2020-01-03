@@ -670,8 +670,11 @@ uint32_t InfoConditionSatisfied(const char* info_token, const InfoFilter* filter
     const uint32_t mismatch = ((!memequal(possible_hit, filterp->val_str, val_slen)) || (possible_hit[val_slen] && (possible_hit[val_slen] != ';')));
     return mismatch ^ (binary_op != kCmpOperatorNoteq);
   }
+  // bugfix (3 Jan 2020): semicolon (or \0) terminator expected, can't use
+  // ScantokDouble
   double dxx;
-  if (!ScantokDouble(possible_hit, &dxx)) {
+  const char* scan_end = ScanadvDouble(possible_hit, &dxx);
+  if ((!scan_end) || ((*scan_end != ';') && (*scan_end))) {
     return (binary_op == kCmpOperatorNoteq);
   }
   const double val = filterp->val;
