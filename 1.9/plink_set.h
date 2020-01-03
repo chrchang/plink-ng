@@ -1,7 +1,7 @@
 #ifndef __PLINK_SET_H__
 #define __PLINK_SET_H__
 
-// This file is part of PLINK 1.90, copyright (C) 2005-2019 Shaun Purcell,
+// This file is part of PLINK 1.90, copyright (C) 2005-2020 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify
