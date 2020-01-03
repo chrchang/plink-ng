@@ -9309,16 +9309,20 @@ int main(int argc, char** argv) {
 
       case 'w':
         if (strequal_k_unsafe(flagname_p2, "rite-snplist")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          if (param_ct) {
-            const char* cur_modif = argvk[arg_idx + 1];
-            if (unlikely(strcmp(cur_modif, "zs"))) {
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.misc_flags |= kfMiscWriteSnplistZs;
+            } else if (unlikely(!strequal_k(cur_modif, "allow-dups", cur_modif_slen))) {
+              // Make allow-dups a no-op instead of an error, to simplify a2 ->
+              // a3 migration.
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --write-snplist parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
-            pc.misc_flags |= kfMiscWriteSnplistZs;
           }
           pc.command_flags1 |= kfCommand1WriteSnplist;
           pc.dependency_flags |= kfFilterPvarReq;
