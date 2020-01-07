@@ -5004,7 +5004,8 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
       case 2:
 	// SE
 	if (uii < best_se_id) {
-	  best_p_id = uii;
+          // bugfix (7 Jan 2020): this incorrectly assigned to best_p_id
+	  best_se_id = uii;
 	  parse_table[2] = (colnum * 16) | 2;
 	} else if (uii == best_se_id) {
 	  goto meta_analysis_open_and_read_header_ret_DUPLICATE_HEADER_COL;
