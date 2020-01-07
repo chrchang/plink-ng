@@ -3163,7 +3163,9 @@ int32_t main(int32_t argc, char** argv) {
   char* gene_report_subset = nullptr;
   char* gene_report_snp_field = nullptr;
   char* metaanal_fnames = nullptr;
+  char* metaanal_chrfield_search_order = nullptr;
   char* metaanal_snpfield_search_order = nullptr;
+  char* metaanal_bpfield_search_order = nullptr;
   char* metaanal_a1field_search_order = nullptr;
   char* metaanal_a2field_search_order = nullptr;
   char* metaanal_pfield_search_order = nullptr;
@@ -9457,6 +9459,18 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_NOMEM;
 	}
+      } else if (!memcmp(argptr2, "eta-analysis-chr-field", 23)) {
+        if (!metaanal_fnames) {
+	  logerrprint("Error: --meta-analysis-chr-field must be used with --meta-analysis.\n");
+          goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x10000000)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+        retval = alloc_and_flatten(&metaanal_chrfield_search_order, &(argv[cur_arg + 1]), param_ct);
+	if (retval) {
+	  goto main_ret_NOMEM;
+	}
       } else if (!memcmp(argptr2, "eta-analysis-snp-field", 23)) {
         if (!metaanal_fnames) {
 	  logerrprint("Error: --meta-analysis-snp-field must be used with --meta-analysis.\n");
@@ -9466,6 +9480,18 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
         retval = alloc_and_flatten(&metaanal_snpfield_search_order, &(argv[cur_arg + 1]), param_ct);
+	if (retval) {
+	  goto main_ret_NOMEM;
+	}
+      } else if (!memcmp(argptr2, "eta-analysis-bp-field", 22)) {
+        if (!metaanal_fnames) {
+	  logerrprint("Error: --meta-analysis-bp-field must be used with --meta-analysis.\n");
+          goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x10000000)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+        retval = alloc_and_flatten(&metaanal_bpfield_search_order, &(argv[cur_arg + 1]), param_ct);
 	if (retval) {
 	  goto main_ret_NOMEM;
 	}
@@ -13382,7 +13408,7 @@ int32_t main(int32_t argc, char** argv) {
   if (metaanal_fnames) {
     // possible todo: make this support --aec (takes a bit of work since
     // chromosome byte in data structure must be widened)
-    retval = meta_analysis(metaanal_fnames, metaanal_snpfield_search_order, metaanal_a1field_search_order, metaanal_a2field_search_order, metaanal_pfield_search_order, metaanal_sefield_search_order, metaanal_essfield_search_order, metaanal_flags, (misc_flags & MISC_EXTRACT_RANGE)? nullptr : extractname, outname, outname_end, output_min_p, &chrom_info);
+    retval = meta_analysis(metaanal_fnames, metaanal_chrfield_search_order, metaanal_snpfield_search_order, metaanal_bpfield_search_order, metaanal_a1field_search_order, metaanal_a2field_search_order, metaanal_pfield_search_order, metaanal_sefield_search_order, metaanal_essfield_search_order, metaanal_flags, (misc_flags & MISC_EXTRACT_RANGE)? nullptr : extractname, outname, outname_end, output_min_p, &chrom_info);
     if (retval) {
       goto main_ret_1;
     }
@@ -13643,7 +13669,9 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(gene_report_subset);
   free_cond(gene_report_snp_field);
   free_cond(metaanal_fnames);
+  free_cond(metaanal_chrfield_search_order);
   free_cond(metaanal_snpfield_search_order);
+  free_cond(metaanal_bpfield_search_order);
   free_cond(metaanal_a1field_search_order);
   free_cond(metaanal_a2field_search_order);
   free_cond(metaanal_pfield_search_order);

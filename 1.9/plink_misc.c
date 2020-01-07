@@ -5162,7 +5162,7 @@ static inline uint32_t uint32_decode_5_hi_uchar(const char* start) {
   return uii;
 }
 
-int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1field_search_order, char* a2field_search_order, char* pfield_search_order, char* sefield_search_order, char* essfield_search_order, uint32_t flags, char* extractname, char* outname, char* outname_end, double output_min_p, Chrom_info* chrom_info_ptr) {
+int32_t meta_analysis(char* input_fnames, char* chrfield_search_order, char* snpfield_search_order, char* bpfield_search_order, char* a1field_search_order, char* a2field_search_order, char* pfield_search_order, char* sefield_search_order, char* essfield_search_order, uint32_t flags, char* extractname, char* outname, char* outname_end, double output_min_p, Chrom_info* chrom_info_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   gzFile gz_infile = nullptr;
