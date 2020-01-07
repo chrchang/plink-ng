@@ -2064,15 +2064,16 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("clump-best\tclump", &help_ctrl, 0,
 "  --clump-best              : Report best proxy for each --clump index var.\n"
 	       );
-    help_print("meta-analysis-snp-field\tmeta-analysis-a1-field\tmeta-analysis-a2-field\tmeta-analysis-p-field\tmeta-analysis-se-field\tmeta-analysis-ess-field\tmeta-analysis", &help_ctrl, 0,
-"  --meta-analysis-snp-field <n...> : Set --meta-analysis variant ID, A1/A2\n"
-"  --meta-analysis-a1-field <n...>    allele, p-value, standard error, and/or\n"
-"  --meta-analysis-a2-field <n...>    effective sample size field names.\n"
-"  --meta-analysis-p-field <n...>     Defaults are 'SNP', 'A1', 'A2', 'P', 'SE',\n"
-"  --meta-analysis-se-field <n...>    and 'NMISS', respectively.  When multiple\n"
-"  --meta-analysis-ess-field <n...>   parameters are given to these flags,\n"
-"                                     earlier names take precedence over later\n"
-"                                     ones.\n"
+    help_print("meta-analysis-chr-field\tmeta-analysis-snp-field\tmeta-analysis-bp-field\tmeta-analysis-a1-field\tmeta-analysis-a2-field\tmeta-analysis-p-field\tmeta-analysis-se-field\tmeta-analysis-ess-field\tmeta-analysis", &help_ctrl, 0,
+"  --meta-analysis-chr-field <n...> : Set --meta-analysis chromosome, variant\n"
+"  --meta-analysis-snp-field <n...>   ID, position, A1/A2 allele, p-value,\n"
+"  --meta-analysis-bp-field <n...>    standard error, and/or effective sample\n"
+"  --meta-analysis-a1-field <n...>    size field names.\n"
+"  --meta-analysis-a2-field <n...>    Defaults are 'CHR', 'SNP', 'BP', 'A1',\n"
+"  --meta-analysis-p-field <n...>     'A2', 'P', 'SE', and 'NMISS',\n"
+"  --meta-analysis-se-field <n...>    respectively.  When multiple parameters\n"
+"  --meta-analysis-ess-field <n...>   are given to these flags, earlier names\n"
+"                                     take precedence over later ones.\n"
 "                                     Note that, if the numbers of cases and\n"
 "                                     controls are unequal, effective sample\n"
 "                                     size should be\n"
