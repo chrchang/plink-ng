@@ -4928,12 +4928,14 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
   uint32_t line_max = 0;
   uint32_t colnum = 0; // 0-based
   uint32_t token_ct = *token_ct_ptr;
-  uint32_t best_var_id = 0x7fffffff;
-  uint32_t best_p_id = 0x7fffffff;
-  uint32_t best_se_id = 0x7fffffff;
-  uint32_t best_ess_id = 0x7fffffff;
-  uint32_t best_a1_id = 0x7fffffff;
-  uint32_t best_a2_id = 0x7fffffff;
+  uint32_t best_chr_id = 0x9fffffffU;
+  uint32_t best_var_id = 0x9fffffffU;
+  uint32_t best_bp_id = 0x9fffffffU;
+  uint32_t best_p_id = 0x9fffffffU;
+  uint32_t best_se_id = 0x9fffffffU;
+  uint32_t best_ess_id = 0x9fffffffU;
+  uint32_t best_a1_id = 0x9fffffffU;
+  uint32_t best_a2_id = 0x9fffffffU;
   int32_t retval = 0;
   uint32_t parse_table[9];
   char* bufptr;
@@ -5027,6 +5029,24 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
 	}
 	break;
       case 5:
+	// chr
+	if (uii < best_chr_id) {
+	  best_chr_id = uii;
+	  parse_table[5] = (colnum * 16) | 5;
+	} else if (uii == best_chr_id) {
+	  goto meta_analysis_open_and_read_header_ret_DUPLICATE_HEADER_COL;
+	}
+	break;
+      case 6:
+	// bp
+	if (uii < best_bp_id) {
+	  best_bp_id = uii;
+	  parse_table[6] = (colnum * 16) | 6;
+	} else if (uii == best_bp_id) {
+	  goto meta_analysis_open_and_read_header_ret_DUPLICATE_HEADER_COL;
+	}
+	break;
+      case 7:
 	// A1
 	if (uii < best_a1_id) {
 	  best_a1_id = uii;
@@ -5035,7 +5055,7 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
 	  goto meta_analysis_open_and_read_header_ret_DUPLICATE_HEADER_COL;
 	}
 	break;
-      case 6:
+      case 8:
 	// A2
 	if (uii < best_a2_id) {
 	  best_a2_id = uii;
@@ -5080,7 +5100,7 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
 	sprintf(g_logbuf, "Error: No CHR field found in %s.\n", fname);
 	goto meta_analysis_open_and_read_header_ret_INVALID_FORMAT_WW;
       } else if (parse_table[6] == 0xffffffffU) {
-	sprintf(g_logbuf, "Error: No POS field found in %s.\n", fname);
+	sprintf(g_logbuf, "Error: No BP field found in %s.\n", fname);
 	goto meta_analysis_open_and_read_header_ret_INVALID_FORMAT_WW;
       } else if ((token_ct > 7) && (parse_table[7] == 0xffffffffU)) {
 	sprintf(g_logbuf, "Error: No A1 allele field found in %s.\n", fname);
@@ -5088,13 +5108,9 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
       }
     }
   }
-#ifdef __cplusplus
   // suppress bogus gcc 4.4 warning, this is not performance-critical
   qsort(parse_table, token_ct, sizeof(int32_t), uintcmp);
-  // std::sort(parse_table, &(parse_table[token_ct]));
-#else
-  qsort(parse_table, token_ct, sizeof(int32_t), uintcmp);
-#endif
+
   // bugfix: this caused a segfault in no-map case
   if ((!weighted_z) && (token_ct > 5)) {
     token_ct -= 2;
@@ -5324,10 +5340,22 @@ int32_t meta_analysis(char* input_fnames, char* chrfield_search_order, char* snp
       }
     }
     if (use_map) {
-      if (max_header_len < 4) {
-	max_header_len = 4;
+      if (chrfield_search_order) {
+        header_dict_ct += count_and_measure_multistr(chrfield_search_order, &max_header_len);
+      } else {
+        if (max_header_len < 4) {
+          max_header_len = 4;
+        }
+        header_dict_ct++;
       }
-      header_dict_ct += 2;
+      if (bpfield_search_order) {
+        header_dict_ct += count_and_measure_multistr(bpfield_search_order, &max_header_len);
+      } else {
+        if (max_header_len < 3) {
+          max_header_len = 3;
+        }
+        header_dict_ct++;
+      }
       if (!no_allele) {
 	if (a1field_search_order) {
 	  header_dict_ct += count_and_measure_multistr(a1field_search_order, &max_header_len);
@@ -5412,14 +5440,36 @@ int32_t meta_analysis(char* input_fnames, char* chrfield_search_order, char* snp
       }
     }
     if (use_map) {
-      memcpy(&(sorted_header_dict[ulii * max_header_len]), "CHR", 4);
-      header_id_map[ulii++] = 5;
-      memcpyl3(&(sorted_header_dict[ulii * max_header_len]), "BP");
-      header_id_map[ulii++] = 6;
+      if (chrfield_search_order) {
+        bufptr = chrfield_search_order;
+        uii = 0x50000000;
+        do {
+          slen = strlen(bufptr) + 1;
+          memcpy(&(sorted_header_dict[ulii * max_header_len]), bufptr, slen);
+          header_id_map[ulii++] = uii++;
+          bufptr = &(bufptr[slen]);
+        } while (*bufptr);
+      } else {
+        memcpy(&(sorted_header_dict[ulii * max_header_len]), "CHR", 4);
+        header_id_map[ulii++] = 0x50000000;
+      }
+      if (bpfield_search_order) {
+        bufptr = bpfield_search_order;
+        uii = 0x60000000;
+        do {
+          slen = strlen(bufptr) + 1;
+          memcpy(&(sorted_header_dict[ulii * max_header_len]), bufptr, slen);
+          header_id_map[ulii++] = uii++;
+          bufptr = &(bufptr[slen]);
+        } while (*bufptr);
+      } else {
+        memcpyl3(&(sorted_header_dict[ulii * max_header_len]), "BP");
+        header_id_map[ulii++] = 0x60000000;
+      }
       if (!no_allele) {
 	if (a1field_search_order) {
 	  bufptr = a1field_search_order;
-	  uii = 0x50000000;
+	  uii = 0x70000000;
 	  do {
 	    slen = strlen(bufptr) + 1;
 	    memcpy(&(sorted_header_dict[ulii * max_header_len]), bufptr, slen);
@@ -5428,11 +5478,11 @@ int32_t meta_analysis(char* input_fnames, char* chrfield_search_order, char* snp
 	  } while (*bufptr);
 	} else {
 	  memcpyl3(&(sorted_header_dict[ulii * max_header_len]), "A1");
-	  header_id_map[ulii++] = 0x50000000;
+	  header_id_map[ulii++] = 0x70000000;
 	}
 	if (a2field_search_order) {
 	  bufptr = a2field_search_order;
-	  uii = 0x60000000;
+	  uii = 0x80000000U;
 	  do {
 	    slen = strlen(bufptr) + 1;
 	    memcpy(&(sorted_header_dict[ulii * max_header_len]), bufptr, slen);
@@ -5441,7 +5491,7 @@ int32_t meta_analysis(char* input_fnames, char* chrfield_search_order, char* snp
 	  } while (*bufptr);
 	} else {
 	  memcpyl3(&(sorted_header_dict[ulii * max_header_len]), "A2");
-	  header_id_map[ulii] = 0x60000000;
+	  header_id_map[ulii] = 0x80000000U;
 	}
       }
     }
