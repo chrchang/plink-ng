@@ -487,7 +487,11 @@ CONSTI32(kPglNybbleTransposeBufbytes, (kPglNybbleTransposeBatch * kPglNybbleTran
 void TransposeNybbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, VecW* vecaligned_buf);
 
 #ifdef __LP64__
+#  ifdef USE_AVX2
 extern const unsigned char kLeadMask[2 * kBytesPerVec] __attribute__ ((aligned (64)));
+#  else
+extern const unsigned char kLeadMask[2 * kBytesPerVec] __attribute__ ((aligned (32)));
+#  endif
 #endif
 
 uintptr_t BytesumArr(const void* bytearr, uintptr_t byte_ct);
