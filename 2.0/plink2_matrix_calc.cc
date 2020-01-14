@@ -2547,14 +2547,16 @@ void InitFidPairIterator(FidPairIterator* fpip) {
   fpip->idx2 = 0;  // defensive
 }
 
-uint64_t CountRelCheckPairs(const char* sorted_xidbox, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, char* idbuf) {
+uint64_t CountRelCheckPairs(const char* nsorted_xidbox, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, char* idbuf) {
   uint64_t total = 0;
   for (uintptr_t block_start_idx = 0; block_start_idx != orig_sample_ct; ) {
-    const char* fid_start = &(sorted_xidbox[block_start_idx * max_xid_blen]);
+    const char* fid_start = &(nsorted_xidbox[block_start_idx * max_xid_blen]);
     const uint32_t fid_slen = AdvToDelim(fid_start, '\t') - fid_start;
     memcpy(idbuf, fid_start, fid_slen);
     idbuf[fid_slen] = ' ';
-    const uintptr_t block_end_idx = ExpsearchStrLb(idbuf, sorted_xidbox, fid_slen + 1, max_xid_blen, orig_sample_ct, block_start_idx + 1);
+    // bugfix (14 Jan 2020): forgot that natural-sorting was used...
+    idbuf[fid_slen + 1] = '\0';
+    const uintptr_t block_end_idx = ExpsearchNsortStrLb(idbuf, nsorted_xidbox, max_xid_blen, orig_sample_ct, block_start_idx + 1);
     const uint64_t cur_block_size = block_end_idx - block_start_idx;
     total += (cur_block_size * (cur_block_size - 1)) / 2;
     block_start_idx = block_end_idx;
@@ -2562,7 +2564,7 @@ uint64_t CountRelCheckPairs(const char* sorted_xidbox, uintptr_t max_xid_blen, u
   return total;
 }
 
-void GetRelCheckPairs(const char* sorted_xidbox, const uint32_t* xid_map, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, FidPairIterator* fpip, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
+void GetRelCheckPairs(const char* nsorted_xidbox, const uint32_t* xid_map, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, FidPairIterator* fpip, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
   // Support "--make-king-table rel-check" without an actual subset-file.
   uint32_t block_start_idx = fpip->block_start_idx;
   uint32_t block_end_idx = fpip->block_end_idx;
@@ -2597,7 +2599,7 @@ void GetRelCheckPairs(const char* sorted_xidbox, const uint32_t* xid_map, uintpt
       pair_idx += cur_pair_ct;
       if (pair_idx == pair_idx_stop) {
         if (is_first_parallel_scan) {
-          pair_idx = CountRelCheckPairs(sorted_xidbox, max_xid_blen, orig_sample_ct, idbuf);
+          pair_idx = CountRelCheckPairs(nsorted_xidbox, max_xid_blen, orig_sample_ct, idbuf);
         }
         goto GetRelCheckPairs_early_exit;
       }
@@ -2608,11 +2610,12 @@ void GetRelCheckPairs(const char* sorted_xidbox, const uint32_t* xid_map, uintpt
       break;
     }
     idx2 = block_start_idx;
-    const char* fid_start = &(sorted_xidbox[block_start_idx * max_xid_blen]);
+    const char* fid_start = &(nsorted_xidbox[block_start_idx * max_xid_blen]);
     const uint32_t fid_slen = AdvToDelim(fid_start, '\t') - fid_start;
     memcpy(idbuf, fid_start, fid_slen);
     idbuf[fid_slen] = ' ';
-    block_end_idx = ExpsearchStrLb(idbuf, sorted_xidbox, fid_slen + 1, max_xid_blen, orig_sample_ct, block_start_idx + 1);
+    idbuf[fid_slen + 1] = '\0';
+    block_end_idx = ExpsearchNsortStrLb(idbuf, nsorted_xidbox, max_xid_blen, orig_sample_ct, block_start_idx + 1);
   }
  GetRelCheckPairs_early_exit:
   *pair_idx_ptr = pair_idx;

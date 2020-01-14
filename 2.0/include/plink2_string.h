@@ -1454,6 +1454,9 @@ uintptr_t bsearch_str_lb(const char* idbuf, const char* sorted_strbox, uintptr_t
 // binary search, and assumes cur_id_slen <= max_id_blen and end_idx > 0.
 uintptr_t ExpsearchStrLb(const char* idbuf, const char* sorted_strbox, uintptr_t cur_id_slen, uintptr_t max_id_blen, uintptr_t end_idx, uintptr_t cur_idx);
 
+// Null-terminated string required.
+uintptr_t ExpsearchNsortStrLb(const char* idbuf, const char* sorted_strbox, uintptr_t max_id_blen, uintptr_t end_idx, uintptr_t cur_idx);
+
 // this is frequently preferable to bsearch_str(), since it's way too easy to
 // forget to convert the sorted-stringbox index to the final index
 // sample_id_map == nullptr is permitted; in this case id will be an index into
