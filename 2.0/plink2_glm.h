@@ -55,7 +55,8 @@ FLAGSET_DEF_START()
   kfGlmConditionMultiallelic = (1 << 19),
   kfGlmLocalOmitLast = (1 << 20),
   kfGlmTestsAll = (1 << 21),
-  kfGlmPhenoIds = (1 << 22)
+  kfGlmPhenoIds = (1 << 22),
+  kfGlmLocalHaps = (1 << 23)
 FLAGSET_DEF_END(GlmFlags);
 
 FLAGSET_DEF_START()
@@ -96,6 +97,10 @@ typedef struct GlmInfoStruct {
   GlmColFlags cols;
   uint32_t mperm_ct;
   uint32_t local_cat_ct;
+  uint32_t local_header_line_ct;
+  uint32_t local_chrom_col;
+  uint32_t local_bp_col;
+  uint32_t local_first_covar_col;
   double max_corr;
   char* condition_varname;
   char* condition_list_fname;

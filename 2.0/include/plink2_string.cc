@@ -3068,6 +3068,29 @@ uintptr_t ExpsearchStrLb(const char* idbuf, const char* sorted_strbox, uintptr_t
   return start_idx;
 }
 
+uintptr_t ExpsearchNsortStrLb(const char* idbuf, const char* nsorted_strbox, uintptr_t max_id_blen, uintptr_t end_idx, uintptr_t cur_idx) {
+  uintptr_t next_incr = 1;
+  uintptr_t start_idx = cur_idx;
+  while (cur_idx < end_idx) {
+    if (strcmp_natural(idbuf, &(nsorted_strbox[cur_idx * max_id_blen])) <= 0) {
+      end_idx = cur_idx;
+      break;
+    }
+    start_idx = cur_idx + 1;
+    cur_idx += next_incr;
+    next_incr *= 2;
+  }
+  while (start_idx < end_idx) {
+    const uintptr_t mid_idx = (start_idx + end_idx) / 2;
+    if (strcmp_natural(idbuf, &(nsorted_strbox[mid_idx * max_id_blen])) > 0) {
+      start_idx = mid_idx + 1;
+    } else {
+      end_idx = mid_idx;
+    }
+  }
+  return start_idx;
+}
+
 
 #ifdef __LP64__
 CXXCONST_CP Memrchr(const char* str_start, char needle, uintptr_t slen) {

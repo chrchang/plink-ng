@@ -66,10 +66,10 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (3 Jan 2020)";
+  " (14 Jan 2020)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -2592,6 +2592,10 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       // eventually check for nonzero pheno_ct here?
 
       if (pcp->command_flags1 & kfCommand1Glm) {
+        if (unlikely(pcp->glm_info.local_first_covar_col && (vpos_sortstatus & kfUnsortedVarBp))) {
+          logerrputs("Error: --glm + local-pos-cols= requires a sorted .pvar/.bim.  Retry this\ncommand after using --make-pgen/--make-bed + --sort-vars to sort your data.\n");
+          goto Plink2Core_ret_INCONSISTENT_INPUT;
+        }
         reterr = GlmMain(sample_include, &pii.sii, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, maj_alleles, allele_storage, &(pcp->glm_info), &(pcp->adjust_info), &(pcp->aperm), pcp->glm_local_covar_fname, pcp->glm_local_pvar_fname, pcp->glm_local_psam_fname, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_slen, pcp->xchr_model, pcp->ci_size, pcp->vif_thresh, pcp->ln_pfilter, pcp->output_min_ln, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
@@ -3972,6 +3976,10 @@ int main(int argc, char** argv) {
           if (unlikely(load_params || xload)) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
+          if (unlikely(param_ct == 1)) {
+            logerrputs("Error: --bgen now requires a REF/ALT mode ('ref-first', 'ref-last', or\n'ref-unknown').  As of this writing, raw UK Biobank files are ref-first, while\nolder and PLINK-exported BGEN files are more likely to be ref-last.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -4293,6 +4301,10 @@ int main(int argc, char** argv) {
         } else if (strequal_k_unsafe(flagname_p2, "ata")) {
           if (unlikely(load_params || (xload & (~kfXloadOxBgen)))) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
+          }
+          if (unlikely(param_ct == 1)) {
+            logerrputs("Error: --data now requires a REF/ALT mode ('ref-first', 'ref-last', or\n'ref-unknown').\n");
+            goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -5208,6 +5220,39 @@ int main(int argc, char** argv) {
               }
             } else if (strequal_k(cur_modif, "local-omit-last", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmLocalOmitLast;
+            } else if (strequal_k(cur_modif, "local-haps", cur_modif_slen)) {
+              pc.glm_info.flags |= kfGlmLocalHaps;
+            } else if (StrStartsWith(cur_modif, "local-pos-cols=", cur_modif_slen)) {
+              logerrputs("Error: --glm local-pos-cols= is under development.\n");
+              goto main_ret_INVALID_CMDLINE;
+              const char* cur_modif_iter = &(cur_modif[strlen("local-pos-cols=")]);
+              uint32_t header_line_ct;
+              if (unlikely(ScanmovPosintCapped(0x7ffffffe, &cur_modif_iter, &header_line_ct) || (*cur_modif_iter != ','))) {
+                logerrputs("Error: Invalid local-pos-cols= value sequence.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              pc.glm_info.local_header_line_ct = header_line_ct;
+              ++cur_modif_iter;
+              uint32_t chrom_col_idx;
+              if (unlikely(ScanmovPosintCapped(kMaxLongLine / 2, &cur_modif_iter, &chrom_col_idx) || (*cur_modif_iter != ','))) {
+                logerrputs("Error: Invalid local-pos-cols= value sequence.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              pc.glm_info.local_chrom_col = chrom_col_idx;
+              ++cur_modif_iter;
+              uint32_t bp_col_idx;
+              if (unlikely(ScanmovPosintCapped(kMaxLongLine / 2, &cur_modif_iter, &bp_col_idx) || (bp_col_idx == chrom_col_idx) || (*cur_modif_iter != ','))) {
+                logerrputs("Error: Invalid local-pos-cols= value sequence.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              pc.glm_info.local_bp_col = bp_col_idx;
+              ++cur_modif_iter;
+              uint32_t first_covar_col;
+              if (unlikely(ScanmovPosintCapped(kMaxLongLine / 2, &cur_modif_iter, &first_covar_col) || (*cur_modif_iter) || (first_covar_col <= chrom_col_idx) || (first_covar_col <= bp_col_idx))) {
+                logerrputs("Error: Invalid local-pos-cols= value sequence.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              pc.glm_info.local_first_covar_col = first_covar_col;
             } else if (likely(StrStartsWith(cur_modif, "local-cats=", cur_modif_slen))) {
               if (unlikely(pc.glm_info.local_cat_ct)) {
                 logerrputs("Error: Multiple --glm local-cats= modifiers.\n");
@@ -5259,13 +5304,21 @@ int main(int argc, char** argv) {
               logerrputs("Error: --glm 'local-omit-last' must be used with 'local-covar='.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
+            if (unlikely(pc.glm_info.flags & kfGlmLocalHaps)) {
+              logerrputs("Error: --glm 'local-haps' must be used with 'local-covar='.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
             if (unlikely(pc.glm_info.local_cat_ct)) {
               logerrputs("Error: --glm 'local-cats=' must be used with 'local-covar='.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
           } else {
-            if (unlikely((!pc.glm_local_pvar_fname) || (!pc.glm_local_psam_fname))) {
-              logerrputs("Error: Either all three --glm local-covar filenames must be specified, or none\nof them.\n");
+            if (unlikely(pc.glm_local_pvar_fname && pc.glm_info.local_first_covar_col)) {
+              logerrputs("Error: --glm local-pvar= and local-pos-cols= cannot be used together.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            if (unlikely((!pc.glm_local_psam_fname) || ((!pc.glm_local_pvar_fname) && (!pc.glm_info.local_first_covar_col)))) {
+              logerrputs("Error: --glm local-covar= must be used with local-psam= and either local-pvar=\nor local-pos-cols=.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
           }
@@ -5274,6 +5327,10 @@ int main(int argc, char** argv) {
         } else if (strequal_k_unsafe(flagname_p2, "en")) {
           if (unlikely(load_params || (xload & (~kfXloadOxSample)))) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
+          }
+          if (unlikely(param_ct == 1)) {
+            logerrputs("Error: --gen now requires a REF/ALT mode ('ref-first', 'ref-last', or\n'ref-unknown').\n");
+            goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
