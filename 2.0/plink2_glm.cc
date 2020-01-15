@@ -4686,7 +4686,7 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
               --cat_idx;
               const uint32_t offset = cat_idx * max_sample_ct + cur_sample_idx;
               if (local_covars_vcmaj_f_iter) {
-                local_covars_vcmaj_f_iter[offset] += 0.5;
+                local_covars_vcmaj_f_iter[offset] += S_CAST(float, 0.5);
               } else {
                 local_covars_vcmaj_d_iter[offset] += 0.5;
               }
