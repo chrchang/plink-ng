@@ -5089,7 +5089,8 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       const uintptr_t yy_alloc_incr = RoundUpPow2(kPcaVariantBlockSize * pca_sample_ct * sizeof(double), kCacheline);
       const uintptr_t b_size = pca_sample_ct * qq_col_ct;
       const uintptr_t g2_bb_part_alloc = RoundUpPow2(b_size * sizeof(double), kCacheline);
-      const uintptr_t per_thread_alloc = 2 * yy_alloc_incr + g2_bb_part_alloc;
+      // bugfix (16 Jan 2020)
+      const uintptr_t per_thread_alloc = 3 * yy_alloc_incr + g2_bb_part_alloc;
 
       const uintptr_t bigstack_avail = bigstack_left();
       if (per_thread_alloc * calc_thread_ct > bigstack_avail) {
