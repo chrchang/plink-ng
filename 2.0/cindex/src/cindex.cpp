@@ -32,10 +32,10 @@ double CIndex(NumericVector yhat, NumericVector y, SEXP status) {
   }
 
   // We define C-index as:
-  //   sum_{all k where status[k]=1} [#(m: y[m]>y[j], yhat[m]<yhat[j]) +
+  //   sum_{all j where status[j]=1} [#(m: y[m]>y[j], yhat[m]<yhat[j]) +
   //                                  0.5 * #(m: y[m]>y[j], yhat[m]==yhat[j])]
   //   ------------------------------------------------------------------------
-  //   sum_{all k where status[k]=1} #(m: y[m]>y[j])
+  //   sum_{all j where status[j]=1} #(m: y[m]>y[j])
   //
   // The computation is organized as follows:
   // 1. Replace yhat with 0-based ranks ('yhat_int'); note that this has no
