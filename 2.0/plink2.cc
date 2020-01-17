@@ -5223,8 +5223,6 @@ int main(int argc, char** argv) {
             } else if (strequal_k(cur_modif, "local-haps", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmLocalHaps;
             } else if (StrStartsWith(cur_modif, "local-pos-cols=", cur_modif_slen)) {
-              logerrputs("Error: --glm local-pos-cols= is under development.\n");
-              goto main_ret_INVALID_CMDLINE;
               const char* cur_modif_iter = &(cur_modif[strlen("local-pos-cols=")]);
               uint32_t header_line_ct;
               if (unlikely(ScanmovPosintCapped(0x7ffffffe, &cur_modif_iter, &header_line_ct) || (*cur_modif_iter != ','))) {
@@ -5253,14 +5251,24 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.glm_info.local_first_covar_col = first_covar_col;
-            } else if (likely(StrStartsWith(cur_modif, "local-cats=", cur_modif_slen))) {
+            } else if (StrStartsWith(cur_modif, "local-cats=", cur_modif_slen)) {
               if (unlikely(pc.glm_info.local_cat_ct)) {
-                logerrputs("Error: Multiple --glm local-cats= modifiers.\n");
+                logerrputs("Error: Multiple --glm local-cats[0]= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
               // bugfix (7 Nov 2017): forgot to offset by strlen("local-cats=")
               if (unlikely(ScanPosintCappedx(&(cur_modif[strlen("local-cats=")]), 4095, &pc.glm_info.local_cat_ct) || (pc.glm_info.local_cat_ct == 1))) {
                 logerrputs("Error: Invalid --glm local-cats= category count (must be in [2, 4095]).\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              pc.glm_info.flags |= kfGlmLocalCats1based;
+            } else if (likely(StrStartsWith(cur_modif, "local-cats0=", cur_modif_slen))) {
+              if (unlikely(pc.glm_info.local_cat_ct)) {
+                logerrputs("Error: Multiple --glm local-cats[0]= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              if (unlikely(ScanPosintCappedx(&(cur_modif[strlen("local-cats0=")]), 4095, &pc.glm_info.local_cat_ct) || (pc.glm_info.local_cat_ct == 1))) {
+                logerrputs("Error: Invalid --glm local-cats0= category count (must be in [2, 4095]).\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
             } else {
@@ -5309,7 +5317,7 @@ int main(int argc, char** argv) {
               goto main_ret_INVALID_CMDLINE_A;
             }
             if (unlikely(pc.glm_info.local_cat_ct)) {
-              logerrputs("Error: --glm 'local-cats=' must be used with 'local-covar='.\n");
+              logerrputs("Error: --glm 'local-cats[0]=' must be used with 'local-covar='.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
           } else {

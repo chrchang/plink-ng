@@ -56,7 +56,8 @@ FLAGSET_DEF_START()
   kfGlmLocalOmitLast = (1 << 20),
   kfGlmTestsAll = (1 << 21),
   kfGlmPhenoIds = (1 << 22),
-  kfGlmLocalHaps = (1 << 23)
+  kfGlmLocalHaps = (1 << 23),
+  kfGlmLocalCats1based = (1 << 24)
 FLAGSET_DEF_END(GlmFlags);
 
 FLAGSET_DEF_START()

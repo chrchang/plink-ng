@@ -505,8 +505,8 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       }
     }
 
-    // 3. If not local-cats=, scan first line of local-covar= file to determine
-    //    covariate count.
+    // 3. If not local-cats[0]=, scan first line of local-covar= file to
+    //    determine covariate count.
     if (CleanupTextStream2(local_pvar_fname, &txs, &reterr)) {
       goto GlmLocalOpen_ret_1;
     }
@@ -562,7 +562,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       }
     } else {
       local_covar_ct = glm_info_ptr->local_cat_ct - 1;
-      if (unlikely(local_covar_ct * S_CAST(uint64_t, local_sample_or_hap_ct) > kMaxLongLine / 2) - skip_ct) {
+      if (unlikely(local_covar_ct * S_CAST(uint64_t, local_sample_or_hap_ct) > (kMaxLongLine / 2) - skip_ct)) {
         snprintf(g_logbuf, kLogbufSize, "Error: <# samples/haplotypes in %s> * <# categories - 1> too large (limited to %u).\n", local_covar_fname, kMaxLongLine / 2 - skip_ct);
         goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
       }
@@ -4546,14 +4546,186 @@ BoolErr AllocAndInitReportedTestNames(const uintptr_t* parameter_subset, const c
   return 0;
 }
 
-PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sample_include_x, const uintptr_t* sample_include_y, const uint32_t* sample_include_cumulative_popcounts, const uint32_t* sample_include_x_cumulative_popcounts, const uint32_t* sample_include_y_cumulative_popcounts, const ChrInfo* cip, const uintptr_t* variant_include, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, uint32_t sample_ct, uint32_t sample_ct_x, uint32_t sample_ct_y, uint32_t variant_uidx_start, uint32_t variant_uidx_end, uint32_t cur_block_variant_ct, uint32_t local_sample_ct, uint32_t local_covar_ct, uint32_t omit_last, uint32_t local_haps, uint32_t local_cat_ct, TextStream* local_covar_txsp, uint32_t* local_line_idx_ptr, uint32_t* local_xy_ptr, float* local_covars_vcmaj_f_iter, double* local_covars_vcmaj_d_iter, uint32_t* local_sample_idx_order) {
+typedef struct LocalCovarCoeffparseCtxStruct {
+  uint32_t* sample_idx_order;
+  uint32_t max_sample_ct;
+  uint32_t cur_sample_ct;
+  uint32_t tokens_per_sample;
+  uint32_t local_covar_ct;
+  uint32_t omit_last;
+  uint32_t local_haps;
+  uint32_t local_cat_ct;
+  uint32_t local_cats_1based;
+} LocalCovarCoeffparseCtx;
+
+// Processes a single line's worth of payload.
+PglErr LoadLocalCovarCoeffs(const LocalCovarCoeffparseCtx* ctx, const char* local_line_iter, uint32_t local_line_idx, float* local_covars_vcmaj_f_iter, double* local_covars_vcmaj_d_iter) {
+  const uint32_t* sample_idx_order = ctx->sample_idx_order;
+  const uint32_t max_sample_ct = ctx->max_sample_ct;
+  const uint32_t cur_sample_ct = ctx->cur_sample_ct;
+  const uint32_t tokens_per_sample = ctx->tokens_per_sample;
+  const uint32_t local_covar_ct = ctx->local_covar_ct;
+  const uint32_t omit_last = ctx->omit_last;
+  const uint32_t local_haps = ctx->local_haps;
+  const uint32_t local_cat_ct = ctx->local_cat_ct;
+  const uint32_t local_cats_1based = ctx->local_cats_1based;
+  const uint32_t max_cat_idx = local_cat_ct + local_cats_1based - 1;
+  uint32_t sample_idx = 0;
+  for (uint32_t local_sample_idx = 0; sample_idx != cur_sample_ct; ++local_sample_idx) {
+    const uint32_t cur_sample_idx = sample_idx_order[local_sample_idx];
+    if (cur_sample_idx == UINT32_MAX) {
+      local_line_iter = NextTokenMult(local_line_iter, tokens_per_sample);
+      if (unlikely(!local_line_iter)) {
+        logputs("\n");
+        logerrprintfww("Error: Fewer tokens than expected on line %u of --glm local-covar= file.\n", local_line_idx);
+        return kPglRetMalformedInput;
+      }
+      continue;
+    }
+    if (local_cat_ct) {
+      uint32_t cat_idx;
+      if (unlikely(ScanmovUintCapped(max_cat_idx, &local_line_iter, &cat_idx) || (cat_idx < local_cats_1based))) {
+        logputs("\n");
+        logerrprintf("Error: Invalid category index on line %u of --glm local-covar= file.\n", local_line_idx);
+        return kPglRetMalformedInput;
+      }
+      cat_idx -= local_cats_1based;
+      local_line_iter = FirstNonTspace(FirstSpaceOrEoln(local_line_iter));
+      if (!local_haps) {
+        if (cat_idx != max_cat_idx) {
+          const uint32_t offset = cat_idx * max_sample_ct + cur_sample_idx;
+          if (local_covars_vcmaj_f_iter) {
+            local_covars_vcmaj_f_iter[offset] = 1.0;
+          } else {
+            local_covars_vcmaj_d_iter[offset] = 1.0;
+          }
+        }
+      } else {
+        if (cat_idx != max_cat_idx) {
+          const uint32_t offset = cat_idx * max_sample_ct + cur_sample_idx;
+          if (local_covars_vcmaj_f_iter) {
+            local_covars_vcmaj_f_iter[offset] = 0.5;
+          } else {
+            local_covars_vcmaj_d_iter[offset] = 0.5;
+          }
+        }
+        if (unlikely(ScanmovUintCapped(max_cat_idx, &local_line_iter, &cat_idx) || (cat_idx < local_cats_1based))) {
+          logputs("\n");
+          logerrprintf("Error: Invalid category index on line %u of --glm local-covar= file.\n", local_line_idx);
+          return kPglRetMalformedInput;
+        }
+        cat_idx -= local_cats_1based;
+        local_line_iter = FirstNonTspace(FirstSpaceOrEoln(local_line_iter));
+        if (cat_idx != max_cat_idx) {
+          const uint32_t offset = cat_idx * max_sample_ct + cur_sample_idx;
+          if (local_covars_vcmaj_f_iter) {
+            local_covars_vcmaj_f_iter[offset] += S_CAST(float, 0.5);
+          } else {
+            local_covars_vcmaj_d_iter[offset] += 0.5;
+          }
+        }
+      }
+    } else {
+      if (local_covars_vcmaj_f_iter) {
+        float* local_covars_f_iter2 = &(local_covars_vcmaj_f_iter[cur_sample_idx]);
+        for (uint32_t covar_idx = 0; covar_idx != local_covar_ct; ++covar_idx) {
+          double dxx;
+          local_line_iter = ScantokDouble(local_line_iter, &dxx);
+          if (unlikely((!local_line_iter) || (fabs(dxx) > 3.4028235677973362e38))) {
+            logputs("\n");
+            logerrprintf("Error: Invalid or missing token on line %u of --glm local-covar= file.\n", local_line_idx);
+            return kPglRetMalformedInput;
+          }
+          *local_covars_f_iter2 = S_CAST(float, dxx);
+          local_covars_f_iter2 = &(local_covars_f_iter2[max_sample_ct]);
+          local_line_iter = FirstNonTspace(local_line_iter);
+        }
+      } else {
+        double* local_covars_d_iter2 = &(local_covars_vcmaj_d_iter[cur_sample_idx]);
+        for (uint32_t covar_idx = 0; covar_idx != local_covar_ct; ++covar_idx) {
+          double dxx;
+          local_line_iter = ScantokDouble(local_line_iter, &dxx);
+          if (unlikely(!local_line_iter)) {
+            logputs("\n");
+            logerrprintf("Error: Invalid or missing token on line %u of --glm local-covar= file.\n", local_line_idx);
+            return kPglRetMalformedInput;
+          }
+          *local_covars_d_iter2 = dxx;
+          local_covars_d_iter2 = &(local_covars_d_iter2[max_sample_ct]);
+          local_line_iter = FirstNonTspace(local_line_iter);
+        }
+      }
+      if (omit_last) {
+        local_line_iter = FirstNonTspace(FirstSpaceOrEoln(local_line_iter));
+      }
+      if (local_haps) {
+        if (local_covars_vcmaj_f_iter) {
+          float* local_covars_f_iter2 = &(local_covars_vcmaj_f_iter[cur_sample_idx]);
+          for (uint32_t covar_idx = 0; covar_idx != local_covar_ct; ++covar_idx) {
+            double dxx;
+            local_line_iter = ScantokDouble(local_line_iter, &dxx);
+            if (unlikely((!local_line_iter) || (fabs(dxx) > 3.4028235677973362e38))) {
+              logputs("\n");
+              logerrprintf("Error: Invalid or missing token on line %u of --glm local-covar= file.\n", local_line_idx);
+              return kPglRetMalformedInput;
+            }
+            *local_covars_f_iter2 = S_CAST(float, (S_CAST(double, *local_covars_f_iter2) + dxx) * 0.5);
+            local_covars_f_iter2 = &(local_covars_f_iter2[max_sample_ct]);
+            local_line_iter = FirstNonTspace(local_line_iter);
+          }
+        } else {
+          double* local_covars_d_iter2 = &(local_covars_vcmaj_d_iter[cur_sample_idx]);
+          for (uint32_t covar_idx = 0; covar_idx != local_covar_ct; ++covar_idx) {
+            double dxx;
+            local_line_iter = ScantokDouble(local_line_iter, &dxx);
+            if (unlikely(!local_line_iter)) {
+              logputs("\n");
+              logerrprintf("Error: Invalid or missing token on line %u of --glm local-covar= file.\n", local_line_idx);
+              return kPglRetMalformedInput;
+            }
+            // may as well defend against overflow
+            *local_covars_d_iter2 = (*local_covars_d_iter2) * 0.5 + dxx * 0.5;
+            local_covars_d_iter2 = &(local_covars_d_iter2[max_sample_ct]);
+            local_line_iter = FirstNonTspace(local_line_iter);
+          }
+        }
+        if (omit_last) {
+          local_line_iter = FirstNonTspace(FirstSpaceOrEoln(local_line_iter));
+        }
+      }
+    }
+    ++sample_idx;
+  }
+  return kPglRetSuccess;
+}
+
+PglErr ReadLocalCovarBlock(const GlmCtx* common, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, uint32_t variant_uidx_start, uint32_t variant_uidx_end, uint32_t cur_block_variant_ct, uint32_t local_sample_ct, uint32_t local_cat_ct, TextStream* local_covar_txsp, uint32_t* local_line_idx_ptr, uint32_t* local_xy_ptr, float* local_covars_vcmaj_f_iter, double* local_covars_vcmaj_d_iter, uint32_t* local_sample_idx_order) {
+  const ChrInfo* cip = common->cip;
+  const uintptr_t* variant_include = common->variant_include;
+  const uint32_t sample_ct = common->sample_ct;
+  const uint32_t sample_ct_x = common->sample_ct_x;
+  const uint32_t sample_ct_y = common->sample_ct_y;
+  const uint32_t local_covar_ct = common->local_covar_ct;
+  const GlmFlags flags = common->glm_flags;
+  const uint32_t omit_last = (flags / kfGlmLocalOmitLast) & 1;
+  const uint32_t local_haps = (flags / kfGlmLocalHaps) & 1;
+
   const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
   const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
-  const uint32_t tokens_per_sample = (local_cat_ct? 1 : (local_covar_ct + omit_last)) << local_haps;
   uint32_t max_sample_ct = MAXV(sample_ct, sample_ct_x);
   if (max_sample_ct < sample_ct_y) {
     max_sample_ct = sample_ct_y;
   }
+  LocalCovarCoeffparseCtx coeffparse_ctx;
+  coeffparse_ctx.sample_idx_order = local_sample_idx_order;
+  coeffparse_ctx.max_sample_ct = max_sample_ct;
+  // cur_sample_ct filled a bit later
+  coeffparse_ctx.tokens_per_sample = (local_cat_ct? 1 : (local_covar_ct + omit_last)) << local_haps;
+  coeffparse_ctx.local_covar_ct = local_covar_ct;
+  coeffparse_ctx.omit_last = omit_last;
+  coeffparse_ctx.local_haps = local_haps;
+  coeffparse_ctx.local_cat_ct = local_cat_ct;
+  coeffparse_ctx.local_cats_1based = (flags / kfGlmLocalCats1based) & 1;
   uint32_t variant_bidx = 0;
   if (local_cat_ct) {
     // assert(local_covar_ct == local_cat_ct - 1);
@@ -4581,19 +4753,18 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
     const uint32_t is_y = (chr_idx == y_code);
     const uintptr_t* cur_sample_include;
     const uint32_t* cur_sample_include_cumulative_popcounts;
-    uint32_t cur_sample_ct;
-    if (is_y && sample_include_y) {
-      cur_sample_include = sample_include_y;
-      cur_sample_include_cumulative_popcounts = sample_include_y_cumulative_popcounts;
-      cur_sample_ct = sample_ct_y;
-    } else if (is_x && sample_include_x) {
-      cur_sample_include = sample_include_x;
-      cur_sample_include_cumulative_popcounts = sample_include_x_cumulative_popcounts;
-      cur_sample_ct = sample_ct_x;
+    if (is_y && common->sample_include_y) {
+      cur_sample_include = common->sample_include_y;
+      cur_sample_include_cumulative_popcounts = common->sample_include_y_cumulative_popcounts;
+      coeffparse_ctx.cur_sample_ct = sample_ct_y;
+    } else if (is_x && common->sample_include_x) {
+      cur_sample_include = common->sample_include_x;
+      cur_sample_include_cumulative_popcounts = common->sample_include_x_cumulative_popcounts;
+      coeffparse_ctx.cur_sample_ct = sample_ct_x;
     } else {
-      cur_sample_include = sample_include;
-      cur_sample_include_cumulative_popcounts = sample_include_cumulative_popcounts;
-      cur_sample_ct = sample_ct;
+      cur_sample_include = common->sample_include;
+      cur_sample_include_cumulative_popcounts = common->sample_include_cumulative_popcounts;
+      coeffparse_ctx.cur_sample_ct = sample_ct;
     }
     const uint32_t new_local_xy = is_x + 2 * is_y;
     if (new_local_xy != *local_xy_ptr) {
@@ -4635,133 +4806,9 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
         TextStreamErrPrint("--glm local-covar= file", local_covar_txsp);
         return reterr;
       }
-      const char* linebuf_iter = local_covar_line_start;
-      uint32_t sample_idx = 0;
-      for (uint32_t local_sample_idx = 0; sample_idx != cur_sample_ct; ++local_sample_idx) {
-        const uint32_t cur_sample_idx = local_sample_idx_order[local_sample_idx];
-        if (cur_sample_idx == UINT32_MAX) {
-          linebuf_iter = NextTokenMult(linebuf_iter, tokens_per_sample);
-          if (unlikely(!linebuf_iter)) {
-            logputs("\n");
-            logerrprintfww("Error: Fewer tokens than expected on line %u of --glm local-covar= file.\n", local_line_idx);
-            return kPglRetMalformedInput;
-          }
-          continue;
-        }
-        if (local_cat_ct) {
-          uint32_t cat_idx;
-          if (unlikely(ScanmovPosintCapped(local_cat_ct, &linebuf_iter, &cat_idx))) {
-            logputs("\n");
-            logerrprintf("Error: Invalid category index on line %u of --glm local-covar= file.\n", local_line_idx);
-            return kPglRetMalformedInput;
-          }
-          linebuf_iter = FirstNonTspace(FirstSpaceOrEoln(linebuf_iter));
-          if (!local_haps) {
-            if (cat_idx != local_cat_ct) {
-              --cat_idx;
-              const uint32_t offset = cat_idx * max_sample_ct + cur_sample_idx;
-              if (local_covars_vcmaj_f_iter) {
-                local_covars_vcmaj_f_iter[offset] = 1.0;
-              } else {
-                local_covars_vcmaj_d_iter[offset] = 1.0;
-              }
-            }
-          } else {
-            if (cat_idx != local_cat_ct) {
-              --cat_idx;
-              const uint32_t offset = cat_idx * max_sample_ct + cur_sample_idx;
-              if (local_covars_vcmaj_f_iter) {
-                local_covars_vcmaj_f_iter[offset] = 0.5;
-              } else {
-                local_covars_vcmaj_d_iter[offset] = 0.5;
-              }
-            }
-            if (unlikely(ScanmovPosintCapped(local_cat_ct, &linebuf_iter, &cat_idx))) {
-              logputs("\n");
-              logerrprintf("Error: Invalid category index on line %u of --glm local-covar= file.\n", local_line_idx);
-              return kPglRetMalformedInput;
-            }
-            linebuf_iter = FirstNonTspace(FirstSpaceOrEoln(linebuf_iter));
-            if (cat_idx != local_cat_ct) {
-              --cat_idx;
-              const uint32_t offset = cat_idx * max_sample_ct + cur_sample_idx;
-              if (local_covars_vcmaj_f_iter) {
-                local_covars_vcmaj_f_iter[offset] += S_CAST(float, 0.5);
-              } else {
-                local_covars_vcmaj_d_iter[offset] += 0.5;
-              }
-            }
-          }
-        } else {
-          if (local_covars_vcmaj_f_iter) {
-            float* local_covars_f_iter2 = &(local_covars_vcmaj_f_iter[cur_sample_idx]);
-            for (uint32_t covar_idx = 0; covar_idx != local_covar_ct; ++covar_idx) {
-              double dxx;
-              linebuf_iter = ScantokDouble(linebuf_iter, &dxx);
-              if (unlikely((!linebuf_iter) || (fabs(dxx) > 3.4028235677973362e38))) {
-                logputs("\n");
-                logerrprintf("Error: Invalid or missing token on line %u of --glm local-covar= file.\n", local_line_idx);
-                return kPglRetMalformedInput;
-              }
-              *local_covars_f_iter2 = S_CAST(float, dxx);
-              local_covars_f_iter2 = &(local_covars_f_iter2[max_sample_ct]);
-              linebuf_iter = FirstNonTspace(linebuf_iter);
-            }
-          } else {
-            double* local_covars_d_iter2 = &(local_covars_vcmaj_d_iter[cur_sample_idx]);
-            for (uint32_t covar_idx = 0; covar_idx != local_covar_ct; ++covar_idx) {
-              double dxx;
-              linebuf_iter = ScantokDouble(linebuf_iter, &dxx);
-              if (unlikely(!linebuf_iter)) {
-                logputs("\n");
-                logerrprintf("Error: Invalid or missing token on line %u of --glm local-covar= file.\n", local_line_idx);
-                return kPglRetMalformedInput;
-              }
-              *local_covars_d_iter2 = dxx;
-              local_covars_d_iter2 = &(local_covars_d_iter2[max_sample_ct]);
-              linebuf_iter = FirstNonTspace(linebuf_iter);
-            }
-          }
-          if (omit_last) {
-            linebuf_iter = FirstNonTspace(FirstSpaceOrEoln(linebuf_iter));
-          }
-          if (local_haps) {
-            if (local_covars_vcmaj_f_iter) {
-              float* local_covars_f_iter2 = &(local_covars_vcmaj_f_iter[cur_sample_idx]);
-              for (uint32_t covar_idx = 0; covar_idx != local_covar_ct; ++covar_idx) {
-                double dxx;
-                linebuf_iter = ScantokDouble(linebuf_iter, &dxx);
-                if (unlikely((!linebuf_iter) || (fabs(dxx) > 3.4028235677973362e38))) {
-                  logputs("\n");
-                  logerrprintf("Error: Invalid or missing token on line %u of --glm local-covar= file.\n", local_line_idx);
-                  return kPglRetMalformedInput;
-                }
-                *local_covars_f_iter2 = S_CAST(float, (S_CAST(double, *local_covars_f_iter2) + dxx) * 0.5);
-                local_covars_f_iter2 = &(local_covars_f_iter2[max_sample_ct]);
-                linebuf_iter = FirstNonTspace(linebuf_iter);
-              }
-            } else {
-              double* local_covars_d_iter2 = &(local_covars_vcmaj_d_iter[cur_sample_idx]);
-              for (uint32_t covar_idx = 0; covar_idx != local_covar_ct; ++covar_idx) {
-                double dxx;
-                linebuf_iter = ScantokDouble(linebuf_iter, &dxx);
-                if (unlikely(!linebuf_iter)) {
-                  logputs("\n");
-                  logerrprintf("Error: Invalid or missing token on line %u of --glm local-covar= file.\n", local_line_idx);
-                  return kPglRetMalformedInput;
-                }
-                // may as well defend against overflow
-                *local_covars_d_iter2 = (*local_covars_d_iter2) * 0.5 + dxx * 0.5;
-                local_covars_d_iter2 = &(local_covars_d_iter2[max_sample_ct]);
-                linebuf_iter = FirstNonTspace(linebuf_iter);
-              }
-            }
-            if (omit_last) {
-              linebuf_iter = FirstNonTspace(FirstSpaceOrEoln(linebuf_iter));
-            }
-          }
-        }
-        ++sample_idx;
+      reterr = LoadLocalCovarCoeffs(&coeffparse_ctx, local_covar_line_start, local_line_idx, local_covars_vcmaj_f_iter, local_covars_vcmaj_d_iter);
+      if (unlikely(reterr)) {
+        return reterr;
       }
       if (local_covars_vcmaj_f_iter) {
         local_covars_vcmaj_f_iter += max_sample_ct * local_covar_ct;
@@ -4774,26 +4821,100 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
   return kPglRetSuccess;
 }
 
-/*
-PglErr ReadRfmix2Block(const uintptr_t* sample_include, const uintptr_t* sample_include_x, const uintptr_t* sample_include_y, const uint32_t* sample_include_cumulative_popcounts, const uint32_t* sample_include_x_cumulative_popcounts, const uint32_t* sample_include_y_cumulative_popcounts, const ChrInfo* cip, const uintptr_t* variant_include, const uint32_t* variant_bps, const uint32_t* local_sample_uidx_order, uint32_t sample_ct, uint32_t sample_ct_x, uint32_t sample_ct_y, uint32_t variant_uidx_start, uint32_t variant_uidx_end, uint32_t read_block_size, uint32_t cur_block_variant_ct, uint32_t local_sample_ct, uint32_t local_covar_ct, uint32_t omit_last, uint32_t local_haps, uint32_t local_cat_ct, uint32_t local_chrom_col, uint32_t local_bp_col, uint32_t local_first_covar_col, TextStream* local_covar_txsp, char** local_line_iterp, uint32_t* local_line_idx_ptr, uint32_t* local_chr_code_ptr, uint32_t* local_bp_ptr, float* local_covars_vcmaj_f_iter, double* local_covars_vcmaj_d_iter, uint32_t* local_sample_idx_order) {
+static inline void ZeroLocalCovarRows(uint32_t row_ct, uintptr_t row_width, uint32_t* variant_bidx_ptr, float** local_covars_vcmaj_f_iterp, double** local_covars_vcmaj_d_iterp) {
+  *variant_bidx_ptr += row_ct;
+  const uintptr_t elem_ct = row_ct * row_width;
+  if (*local_covars_vcmaj_f_iterp) {
+    ZeroFArr(elem_ct, *local_covars_vcmaj_f_iterp);
+    *local_covars_vcmaj_f_iterp += elem_ct;
+  } else {
+    ZeroDArr(elem_ct, *local_covars_vcmaj_d_iterp);
+    *local_covars_vcmaj_d_iterp += elem_ct;
+  }
+}
+
+void DuplicateLocalCovarRow(uint32_t row_ct, uintptr_t row_width, uint32_t* variant_bidx_ptr, float** local_covars_vcmaj_f_iterp, double** local_covars_vcmaj_d_iterp) {
+  if (*local_covars_vcmaj_f_iterp) {
+    float* local_covars_vcmaj_f_iter = *local_covars_vcmaj_f_iterp;
+    // Could also copy one row at a time, but I'd expect doubling to be
+    // slightly more efficient.
+    for (uint32_t row_idx = 1; row_idx < row_ct; row_idx *= 2) {
+      uint32_t row_copy_ct = row_ct - row_idx;
+      if (row_copy_ct > row_idx) {
+        row_copy_ct = row_idx;
+      }
+      memcpy(&(local_covars_vcmaj_f_iter[row_idx * row_width]), local_covars_vcmaj_f_iter, row_copy_ct * row_width * sizeof(float));
+    }
+    local_covars_vcmaj_f_iter = &(local_covars_vcmaj_f_iter[row_ct * row_width]);
+  } else {
+    double* local_covars_vcmaj_d_iter = *local_covars_vcmaj_d_iterp;
+    for (uint32_t row_idx = 1; row_idx < row_ct; row_idx *= 2) {
+      uint32_t row_copy_ct = row_ct - row_idx;
+      if (row_copy_ct > row_idx) {
+        row_copy_ct = row_idx;
+      }
+      memcpy(&(local_covars_vcmaj_d_iter[row_idx * row_width]), local_covars_vcmaj_d_iter, row_copy_ct * row_width * sizeof(double));
+    }
+    *local_covars_vcmaj_d_iterp = &(local_covars_vcmaj_d_iter[row_ct * row_width]);
+  }
+  *variant_bidx_ptr += row_ct;
+}
+
+
+PglErr ReadRfmix2Block(const GlmCtx* common, const uint32_t* variant_bps, const uint32_t* local_sample_uidx_order, const float* prev_local_covar_row_f, const double* prev_local_covar_row_d, uint32_t variant_uidx_start, uint32_t variant_uidx_end, uint32_t cur_block_variant_ct, uint32_t local_sample_ct, uint32_t local_cat_ct, uint32_t local_chrom_col, uint32_t local_bp_col, uint32_t local_first_covar_col, TextStream* local_covar_txsp, const char** local_line_iterp, uint32_t* local_line_idx_ptr, uint32_t* local_prev_chr_code_ptr, uint32_t* local_chr_code_ptr, uint32_t* local_bp_ptr, uint32_t* local_skip_chr_ptr, float* local_covars_vcmaj_f_iter, double* local_covars_vcmaj_d_iter, uint32_t* local_sample_idx_order) {
+  const ChrInfo* cip = common->cip;
+  const uintptr_t* variant_include = common->variant_include;
+  const uint32_t sample_ct = common->sample_ct;
+  const uint32_t sample_ct_x = common->sample_ct_x;
+  const uint32_t sample_ct_y = common->sample_ct_y;
+  const uint32_t local_covar_ct = common->local_covar_ct;
+  const GlmFlags flags = common->glm_flags;
+  const uint32_t omit_last = (flags / kfGlmLocalOmitLast) & 1;
+  const uint32_t local_haps = (flags / kfGlmLocalHaps) & 1;
+  // There are several complications here:
+  // 1. Until we've seen the beginning of the next line, we don't know the end
+  //    of the (possibly empty) variant range the current set of local
+  //    covariates applies to.
+  // 2. The aforementioned variant range may go past the end of the current
+  //    variant block.
+  // 3. There may be variants which aren't contained in any local-covar
+  //    interval (either before the first local-covar position on that
+  //    chromosome, or on a chromosome absent from the local-covar file).
+  // To address (1), we structure the main loop such that the first part
+  // duplicates row contents and advances the matrix-filling iterator when
+  // necessary, the second part speculatively parses local covariates to the
+  // next matrix row, and the last part reads the position fields on the next
+  // line.
+  // To manage (2), we track local_prev_chr_code, local_chr_code, local_bp, and
+  // prev_local_covar_row across function calls.  When local_prev_chr_code !=
+  // local_chr_code on function restart, we know we need to replicate
+  // prev_local_covar_row to the end of that chromosome, exiting early if the
+  // end of the chromosome is past variant_uidx_end; otherwise, we need to
+  // replicate it up to the first variant with position >= local_bp, possibly
+  // exiting early.  This is no different from within-variant-block iteration,
+  // so the main loop is written such that function reentry isn't
+  // special-cased outside of needing to know prev_local_covar_row.
+  // For (3), we zero-fill the affected local covariate rows.
   const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
   const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
-  const uint32_t tokens_per_sample = (local_cat_ct? 1 : (local_covar_ct + omit_last)) << local_haps;
   uint32_t max_sample_ct = MAXV(sample_ct, sample_ct_x);
   if (max_sample_ct < sample_ct_y) {
     max_sample_ct = sample_ct_y;
   }
-  char* local_line_iter = *local_line_iterp;
+
+  LocalCovarCoeffparseCtx coeffparse_ctx;
+  coeffparse_ctx.sample_idx_order = local_sample_idx_order;
+  coeffparse_ctx.max_sample_ct = max_sample_ct;
+  // cur_sample_ct filled a bit later
+  coeffparse_ctx.tokens_per_sample = (local_cat_ct? 1 : (local_covar_ct + omit_last)) << local_haps;
+  coeffparse_ctx.local_covar_ct = local_covar_ct;
+  coeffparse_ctx.omit_last = omit_last;
+  coeffparse_ctx.local_haps = local_haps;
+  coeffparse_ctx.local_cat_ct = local_cat_ct;
+  coeffparse_ctx.local_cats_1based = (flags / kfGlmLocalCats1based) & 1;
+
+  const char* local_line_iter = *local_line_iterp;
   uint32_t local_line_idx = *local_line_idx_ptr;
-  if ((!local_line_iter) && local_line_idx) {
-    // EOF
-    if (local_covars_vcmaj_f_iter) {
-      ZeroFArr(local_covar_ct * max_sample_ct * S_CAST(uintptr_t, cur_block_variant_ct), local_covars_vcmaj_f_iter);
-    } else {
-      ZeroDArr(local_covar_ct * max_sample_ct * S_CAST(uintptr_t, cur_block_variant_ct), local_covars_vcmaj_d_iter);
-    }
-    return kPglRetSuccess;
-  }
   uint32_t first_skip;
   uint32_t second_skip;
   uint32_t last_skip;
@@ -4806,323 +4927,281 @@ PglErr ReadRfmix2Block(const uintptr_t* sample_include, const uintptr_t* sample_
     second_skip = local_chrom_col - local_bp_col;
     last_skip = local_first_covar_col - local_chrom_col;
   }
-  uint32_t cur_chr_code = *local_chr_code_ptr;
-  uint32_t is_x = 0;
-  uint32_t is_y = 0;
-  uint32_t prev_bp = 0;
-  uint32_t cur_bp = *local_bp_ptr;
+  const uintptr_t row_width = local_covar_ct * max_sample_ct;
+  uint32_t local_prev_chr_code = *local_prev_chr_code_ptr;
+  uint32_t local_chr_code = *local_chr_code_ptr;
+  uint32_t local_bp = *local_bp_ptr;
+  uint32_t local_skip_chr = *local_skip_chr_ptr;
+  // might be inaccurate at file-start and EOF, but that's okay since these
+  // variables are reinitialized before use in the first case, and irrelevant
+  // in the second
+  uint32_t is_x = (local_chr_code == x_code);
+  uint32_t is_y = (local_chr_code == y_code);
+  uint32_t local_xy = is_x + 2 * is_y;
+  const uintptr_t* cur_sample_include;
+  const uint32_t* cur_sample_include_cumulative_popcounts;
+  if (is_y && common->sample_include_y) {
+    cur_sample_include = common->sample_include_y;
+    cur_sample_include_cumulative_popcounts = common->sample_include_y_cumulative_popcounts;
+    coeffparse_ctx.cur_sample_ct = sample_ct_y;
+  } else if (is_x && common->sample_include_x) {
+    cur_sample_include = common->sample_include_x;
+    cur_sample_include_cumulative_popcounts = common->sample_include_x_cumulative_popcounts;
+    coeffparse_ctx.cur_sample_ct = sample_ct_x;
+  } else {
+    cur_sample_include = common->sample_include;
+    cur_sample_include_cumulative_popcounts = common->sample_include_cumulative_popcounts;
+    coeffparse_ctx.cur_sample_ct = sample_ct;
+  }
+  // Necessary for cross-block duplication to work.
+  if (prev_local_covar_row_f) {
+    memcpy(local_covars_vcmaj_f_iter, prev_local_covar_row_f, row_width * sizeof(float));
+  } else if (prev_local_covar_row_d) {
+    memcpy(local_covars_vcmaj_d_iter, prev_local_covar_row_d, row_width * sizeof(double));
+  }
+
   uint32_t variant_bidx = 0;
-  uint32_t variant_uidx = AdvTo1Bit(variant_include, variant_uidx_base);
-  uint32_t chr_idx = GetVariantChr(cip, variant_uidx);
-  uint32_t chr_fo_idx = cip->chr_idx_to_foidx[chr_idx];
+  uint32_t variant_uidx = AdvTo1Bit(variant_include, variant_uidx_start);
+  uint32_t chr_fo_idx = GetVariantChrFoIdx(cip, variant_uidx);
+  uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
   uint32_t variant_uidx_chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
   if (variant_uidx_chr_end > variant_uidx_end) {
     variant_uidx_chr_end = variant_uidx_end;
   }
-  uint32_t variant_bp = variant_bps[variant_uidx];
-  if (local_line_iter) {
-    is_x = (cur_chr_code == x_code);
-    is_y = (cur_chr_code == y_code);
-    goto ReadRfmix2BlockRestart;
-  }
+  uint32_t variant_bp = (chr_idx == local_prev_chr_code)? variant_bps[variant_uidx] : UINT32_MAX;
   while (1) {
-    ++local_line_idx;
-    local_line_iter = TextGet(local_covar_txsp);
-    if (!local_line_iter) {
-      // EOF
-      const uintptr_t remaining_variant_ct = cur_block_variant_ct - variant_bidx;
-      if (local_covars_vcmaj_f_iter) {
-        ZeroFArr(local_covar_ct * max_sample_ct * remaining_variant_ct, local_covars_vcmaj_f_iter);
-      } else {
-        ZeroDArr(local_covar_ct * max_sample_ct * remaining_variant_ct, local_covars_vcmaj_d_iter);
+    // Loop invariants:
+    //   local_chr_code and local_bp are from the current line, if we're not at
+    //     the beginning or end of the file.  In the latter two cases,
+    //     local_chr_code is UINT32_MAX.
+    //   local_prev_chr_code is from the previous relevant line, or UINT32_MAX
+    //     at the beginning of the file.
+    //   variant_uidx = next variant we need to fill local covariates for.
+    //   chr_fo_idx and chr_idx correspond to variant_uidx.
+    //   variant_uidx_chr_end is min(end of chr_fo_idx, variant_uidx_end).
+    //   variant_bp is UINT32_MAX if we've already iterated through all
+    //     variants on local_prev_chr_code (or we're at the beginning of the
+    //     file); otherwise it also corresponds to variant_uidx.
+    //   local_skip_chr is set iff either all variants on local_chr_code were
+    //     filtered out, or local_chr_code == UINT32_MAX.
+    //   If local_skip_chr isn't true, variant_uidx is not before the start of
+    //     local_prev_chr_code, or after the end of local_chr_code.
+    if (!local_skip_chr) {
+      // Part 1.
+      const uint32_t backfill_stop_bp = (local_chr_code == chr_idx)? local_bp : UINT32_MAX;
+      if (backfill_stop_bp > variant_bp) {
+        // At least one variant in [prev pos, current pos) (or [prev pos, end
+        // of chromosome) if we're moving on to a new chromosome).  Count how
+        // many there are, and fill that many lines of the matrix.
+        const uint32_t next_variant_uidx = variant_uidx + ExpsearchU32(&(variant_bps[variant_uidx]), variant_uidx_chr_end - variant_uidx, backfill_stop_bp);
+        const uint32_t row_ct = PopcountBitRange(variant_include, variant_uidx, next_variant_uidx);
+        DuplicateLocalCovarRow(row_ct, row_width, &variant_bidx, &local_covars_vcmaj_f_iter, &local_covars_vcmaj_d_iter);
+        if (variant_bidx == cur_block_variant_ct) {
+          break;
+        }
+        variant_uidx = AdvTo1Bit(variant_include, next_variant_uidx);
+        if (variant_uidx >= variant_uidx_chr_end) {
+          // probable todo: helper function for this
+          chr_fo_idx = GetVariantChrFoIdx(cip, variant_uidx);
+          chr_idx = cip->chr_file_order[chr_fo_idx];
+          variant_uidx_chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+          if (variant_uidx_chr_end > variant_uidx_end) {
+            variant_uidx_chr_end = variant_uidx_end;
+          }
+          variant_bp = UINT32_MAX;
+        }
       }
+      if (local_chr_code != local_prev_chr_code) {
+        const uint32_t local_chr_fo_idx = cip->chr_idx_to_foidx[local_chr_code];
+        if (local_chr_code != chr_idx) {
+          // Some variants are on chromosomes entirely absent from the
+          // local-covar file.  Zero-fill the covariate values for these
+          // variants; NA results will be reported for them.
+          const uint32_t local_chr_start_vidx = cip->chr_fo_vidx_start[local_chr_fo_idx];
+          uint32_t row_ct;
+          if (local_chr_start_vidx >= variant_uidx_chr_end) {
+            row_ct = cur_block_variant_ct - variant_bidx;
+          } else {
+            // Verify that we aren't going backwards.  (This condition works
+            // since we don't enter the block in the local_skip_chr case.)
+            if (unlikely(local_chr_start_vidx < variant_uidx)) {
+              logputs("\n");
+              logerrputs("Error: --glm local-covar= file has a different chromosome order than the main\ndataset.\n");
+              return kPglRetInconsistentInput;
+            }
+            row_ct = PopcountBitRange(variant_include, variant_uidx, local_chr_start_vidx);
+          }
+          ZeroLocalCovarRows(row_ct, row_width, &variant_bidx, &local_covars_vcmaj_f_iter, &local_covars_vcmaj_d_iter);
+          if (variant_bidx == cur_block_variant_ct) {
+            break;
+          }
+          variant_uidx = AdvTo1Bit(variant_include, local_chr_start_vidx);
+          chr_fo_idx = local_chr_fo_idx;
+          chr_idx = local_chr_code;
+          variant_uidx_chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+          if (variant_uidx_chr_end > variant_uidx_end) {
+            variant_uidx_chr_end = variant_uidx_end;
+          }
+        }
+        variant_bp = variant_bps[variant_uidx];
+      }
+      if (local_cat_ct) {
+        if (local_covars_vcmaj_f_iter) {
+          ZeroFArr(local_covar_ct * max_sample_ct, local_covars_vcmaj_f_iter);
+        } else {
+          ZeroDArr(local_covar_ct * max_sample_ct, local_covars_vcmaj_d_iter);
+        }
+      }
+      // Part 2.
+      PglErr reterr = LoadLocalCovarCoeffs(&coeffparse_ctx, local_line_iter, local_line_idx, local_covars_vcmaj_f_iter, local_covars_vcmaj_d_iter);
+      if (unlikely(reterr)) {
+        return reterr;
+      }
+    }
+    // Part 3.
+
+    // Not const for now, due to limitation of GetChrCodeCounted().
+    char* line_start = TextGet(local_covar_txsp);
+    if (!line_start) {
+      PglErr reterr = TextStreamErrcode(local_covar_txsp);
+      if (unlikely(reterr)) {
+        return reterr;
+      }
+      // EOF.
+      local_line_iter = nullptr;
+      local_chr_code = UINT32_MAX;
+      local_skip_chr = 1;
+      if (local_prev_chr_code == chr_idx) {
+        uint32_t row_ct = cur_block_variant_ct - variant_bidx;
+        if (variant_uidx_chr_end < variant_uidx_end) {
+          row_ct = PopcountBitRange(variant_include, variant_uidx, variant_uidx_chr_end);
+        }
+        if (row_ct) {
+          DuplicateLocalCovarRow(row_ct, row_width, &variant_bidx, &local_covars_vcmaj_f_iter, &local_covars_vcmaj_d_iter);
+          if (variant_bidx == cur_block_variant_ct) {
+            break;
+          }
+        }
+        variant_uidx = AdvTo1Bit(variant_include, variant_uidx_chr_end);
+        chr_fo_idx = GetVariantChrFoIdx(cip, variant_uidx);
+        chr_idx = cip->chr_file_order[chr_fo_idx];
+        // no need to update variant_uidx_chr_end or variant_bp
+      }
+      const uintptr_t remaining_variant_ct = cur_block_variant_ct - variant_bidx;
+      ZeroLocalCovarRows(remaining_variant_ct, row_width, &variant_bidx, &local_covars_vcmaj_f_iter, &local_covars_vcmaj_d_iter);
       break;
     }
-    const char* tok1_start = NextTokenMult0(local_line_iter, first_skip);
+    ++local_line_idx;
+    char* tok1_start = NextTokenMult0(line_start, first_skip);
     if (unlikely(!tok1_start)) {
       logputs("\n");
       logerrprintf("Error: Line %u of --glm local-covar= file has fewer tokens than expected.\n", local_line_idx);
       return kPglRetMalformedInput;
     }
-    const char* tok1_end = CurTokenEnd(tok1_start);
-    const char* tok2_start = NextTokenMult(tok1_end, second_skip);
+    char* tok1_end = CurTokenEnd(tok1_start);
+    char* tok2_start = NextTokenMult(tok1_end, second_skip);
     if (unlikely(!tok2_start)) {
       logputs("\n");
       logerrprintf("Error: Line %u of --glm local-covar= file has fewer tokens than expected.\n", local_line_idx);
       return kPglRetMalformedInput;
     }
-    const char* tok2_end = CurTokenEnd(tok2_start);
-    const char* local_line_iter = NextTokenMult(tok2_end, last_skip);
+    char* tok2_end = CurTokenEnd(tok2_start);
+    local_line_iter = NextTokenMult(tok2_end, last_skip);
     if (unlikely(!local_line_iter)) {
       logputs("\n");
       logerrprintf("Error: Line %u of --glm local-covar= file has fewer tokens than expected.\n", local_line_idx);
       return kPglRetMalformedInput;
     }
-    const char* chr_code_start = tok1_start;
-    const char* chr_code_end = tok1_end;
-    const char* bp_col_start = tok2_start;
+    char* chr_code_start = tok1_start;
+    char* chr_code_end = tok1_end;
+    char* bp_col_start = tok2_start;
     if (local_chrom_col > local_bp_col) {
       chr_code_start = tok2_start;
       chr_code_end = tok2_end;
       bp_col_start = tok1_start;
     }
-    cur_chr_code = GetChrCodeCounted(cip, tok1_end - tok1_start, tok1_start);
-    if (IsI32Neg(cur_chr_code) || (!IsSet(cip->chr_mask, cur_chr_code))) {
-      // chromosome isn't in dataset, ignore this line
+    const uint32_t next_chr_code = GetChrCodeCounted(cip, chr_code_end - chr_code_start, chr_code_start);
+    if (next_chr_code != local_chr_code) {
+      local_skip_chr = IsI32Neg(next_chr_code) || (!IsSet(cip->chr_mask, next_chr_code));
+      if (local_skip_chr) {
+        continue;
+      }
+      // Still possible for all variants in this chromosome to have been
+      // filtered out.
+      const uint32_t new_chr_fo_idx = cip->chr_idx_to_foidx[next_chr_code];
+      if (local_chr_code != UINT32_MAX) {
+        // May as well sanity-check this.
+        const uint32_t old_chr_fo_idx = cip->chr_idx_to_foidx[local_chr_code];
+        if (unlikely(old_chr_fo_idx > new_chr_fo_idx)) {
+          logputs("\n");
+          logerrputs("Error: --glm local-covar= file has a different chromosome order than the main\ndataset.\n");
+          return kPglRetInconsistentInput;
+        }
+      }
+      const uint32_t chr_start_vidx = cip->chr_fo_vidx_start[new_chr_fo_idx];
+      const uint32_t chr_end_vidx = cip->chr_fo_vidx_start[new_chr_fo_idx + 1];
+      local_skip_chr = !PopcountBitRange(variant_include, chr_start_vidx, chr_end_vidx);
+      if (local_skip_chr) {
+        continue;
+      }
+      // May as well ensure that local_prev_chr_code is either UINT32_MAX,
+      // or corresponds to a not-totally-excluded chromosome, so failures
+      // of the sanity check above are more likely to be meaningful.
+      local_prev_chr_code = local_chr_code;
+      local_chr_code = next_chr_code;
+      local_bp = UINT32_MAX;
+      is_x = (local_chr_code == x_code);
+      is_y = (local_chr_code == y_code);
+      const uint32_t new_local_xy = is_x + 2 * is_y;
+      if (new_local_xy != local_xy) {
+        local_xy = new_local_xy;
+        if (is_y && common->sample_include_y) {
+          cur_sample_include = common->sample_include_y;
+          cur_sample_include_cumulative_popcounts = common->sample_include_y_cumulative_popcounts;
+          coeffparse_ctx.cur_sample_ct = sample_ct_y;
+        } else if (is_x && common->sample_include_x) {
+          cur_sample_include = common->sample_include_x;
+          cur_sample_include_cumulative_popcounts = common->sample_include_x_cumulative_popcounts;
+          coeffparse_ctx.cur_sample_ct = sample_ct_x;
+        } else {
+          cur_sample_include = common->sample_include;
+          cur_sample_include_cumulative_popcounts = common->sample_include_cumulative_popcounts;
+          coeffparse_ctx.cur_sample_ct = sample_ct;
+        }
+        for (uint32_t uii = 0; uii != local_sample_ct; ++uii) {
+          const uint32_t cur_uidx = local_sample_uidx_order[uii];
+          uint32_t cur_idx = UINT32_MAX;
+          if ((cur_uidx != UINT32_MAX) && IsSet(cur_sample_include, cur_uidx)) {
+            cur_idx = RawToSubsettedPos(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_uidx);
+          }
+          local_sample_idx_order[uii] = cur_idx;
+        }
+      }
+    } else if (local_skip_chr) {
       continue;
     }
-    if (unlikely(ScanPosintDefcap(bp_col_start, &cur_bp))) {
+    uint32_t next_bp;
+    if (unlikely(ScanPosintDefcap(bp_col_start, &next_bp))) {
       logputs("\n");
       logerrprintf("Error: Line %u of --glm local-covar= file has fewer tokens than expected.\n", local_line_idx);
       return kPglRetMalformedInput;
     }
-    if (cur_chr_code != prev_chr_code) {
-      is_x = (cur_chr_code == x_code);
-      is_y = (cur_chr_code == y_code);
-      chr_idx = GetVariantChr(cip, variant_uidx);
-      chr_fo_idx = cip->chr_idx_to_foidx[chr_idx];
-      variant_uidx_chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-      if (variant_uidx_chr_end > variant_uidx_end) {
-        variant_uidx_chr_end = variant_uidx_end;
-      }
-      variant_bp = variant_bps[variant_uidx];
-      prev_bp = 0xffffffffU;
-    }
-    if (unlikely(S_CAST(int32_t, cur_bp) <= S_CAST(int32_t, prev_bp))) {
+    // could conditionally prohibit duplicate positions
+    if (unlikely(S_CAST(int32_t, next_bp) < S_CAST(int32_t, local_bp))) {
       logputs("\n");
-      logerrputs("Error: Positions in --glm local-covar= file are not strictly increasing.\n");
+      logerrputs("Error: Positions in --glm local-covar= file are not sorted.\n");
       return kPglRetMalformedInput;
     }
-    prev_bp = cur_bp;
-    if (cur_bp > variant_bp) {
-      // At least one variant in [prev pos, current pos).  Count how many there
-      // are, and fill that many lines of the matrix.
-      const uint32_t next_variant_uidx = variant_uidx + ExpsearchU32(&(variant_bps[variant_uidx]), variant_uidx_chr_end - variant_uidx, cur_bp);
-      const uint32_t row_ct = PopcountBitRange(variant_include, variant_uidx, next_variant_uidx);
-      const uintptr_t entries_per_row = local_covar_ct * max_sample_ct;
-      if (local_covars_vcmaj_f_iter) {
-        if (!variant_bidx) {
-          memcpy(local_covars_vcmaj_f_iter, &(local_covars_vcmaj_f_iter[(read_block_size - 1) * entries_per_row]), entries_per_row * sizeof(float));
-        }
-        local_covars_vcmaj_f_iter = &(local_covars_vcmaj_f_iter[entries_per_row]);
-        for (uint32_t row_idx = 1; row_idx != row_ct; ++row_idx) {
-          memcpy(local_covars_vcmaj_f_iter, first_row, entries_per_row * sizeof(float));
-          local_covars_vcmaj_f_iter = &(local_covars_vcmaj_f_iter[entries_per_row]);
-        }
-      } else {
-        // same code for doubles
-      }
-      variant_bidx += row_ct;
-      if (variant_bidx == cur_block_variant_ct) {
-        break;
-      }
-    }
-  ReadRfmix2BlockRestart:
-    if (local_cat_ct) {
-      if (local_covars_vcmaj_f_iter) {
-        ZeroFArr(local_covar_ct * max_sample_ct, local_covars_vcmaj_f_iter);
-      } else {
-        ZeroDArr(local_covar_ct * max_sample_ct, local_covars_vcmaj_d_iter);
-      }
-    }
-  }
-  while (variant_bidx < cur_block_variant_ct) {
-    const uint32_t variant_uidx1 = BitIter1NoAdv(variant_include, &variant_uidx_base, &cur_bits);
-    const uint32_t chr_fo_idx = GetVariantChrFoIdx(cip, variant_uidx1);
-    const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
-    const uint32_t chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-    uint32_t cur_variant_bidx_end = cur_block_variant_ct;
-    if (chr_end < variant_uidx_end) {
-      cur_variant_bidx_end = variant_bidx + PopcountBitRange(variant_include, variant_uidx1, chr_end);
-      assert(cur_variant_bidx_end <= cur_block_variant_ct);
-    }
-    const uint32_t is_x = (chr_idx == x_code);
-    const uint32_t is_y = (chr_idx == y_code);
-    const uintptr_t* cur_sample_include;
-    const uint32_t* cur_sample_include_cumulative_popcounts;
-    uint32_t cur_sample_ct;
-    if (is_y && sample_include_y) {
-      cur_sample_include = sample_include_y;
-      cur_sample_include_cumulative_popcounts = sample_include_y_cumulative_popcounts;
-      cur_sample_ct = sample_ct_y;
-    } else if (is_x && sample_include_x) {
-      cur_sample_include = sample_include_x;
-      cur_sample_include_cumulative_popcounts = sample_include_x_cumulative_popcounts;
-      cur_sample_ct = sample_ct_x;
-    } else {
-      cur_sample_include = sample_include;
-      cur_sample_include_cumulative_popcounts = sample_include_cumulative_popcounts;
-      cur_sample_ct = sample_ct;
-    }
-    const uint32_t new_local_xy = is_x + 2 * is_y;
-    if (new_local_xy != *local_xy_ptr) {
-      for (uint32_t uii = 0; uii != local_sample_ct; ++uii) {
-        const uint32_t cur_uidx = local_sample_uidx_order[uii];
-        uint32_t cur_idx = UINT32_MAX;
-        if ((cur_uidx != UINT32_MAX) && IsSet(cur_sample_include, cur_uidx)) {
-          cur_idx = RawToSubsettedPos(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_uidx);
-        }
-        local_sample_idx_order[uii] = cur_idx;
-      }
-      *local_xy_ptr = new_local_xy;
-    }
-    for (; variant_bidx != cur_variant_bidx_end; ++variant_bidx) {
-      BitIter1(variant_include, &variant_uidx_base, &cur_bits);
-      ;;;
-      ++local_line_idx;
-      PglErr reterr = kPglRetSuccess;
-      char* local_covar_line_start = TextGet(local_covar_txsp);
-      if (unlikely(!local_covar_line_start)) {
-        if (!TextStreamErrcode2(local_covar_txsp, &reterr)) {
-          logputs("\n");
-          logerrputs("Error: --glm local-covar= file has fewer lines than local-pvar= file.\n");
-          return kPglRetInconsistentInput;
-        }
-        TextStreamErrPrint("--glm local-covar= file", local_covar_txsp);
-        return reterr;
-      }
-      const char* linebuf_iter = local_covar_line_start;
-      uint32_t sample_idx = 0;
-      for (uint32_t local_sample_idx = 0; sample_idx != cur_sample_ct; ++local_sample_idx) {
-        const uint32_t cur_sample_idx = local_sample_idx_order[local_sample_idx];
-        if (cur_sample_idx == UINT32_MAX) {
-          linebuf_iter = NextTokenMult(linebuf_iter, tokens_per_sample);
-          if (unlikely(!linebuf_iter)) {
-            logputs("\n");
-            logerrprintfww("Error: Fewer tokens than expected on line %u of --glm local-covar= file.\n", local_line_idx);
-            return kPglRetMalformedInput;
-          }
-          continue;
-        }
-        if (local_cat_ct) {
-          uint32_t cat_idx;
-          if (unlikely(ScanmovPosintCapped(local_cat_ct, &linebuf_iter, &cat_idx))) {
-            logputs("\n");
-            logerrprintf("Error: Invalid category index on line %u of --glm local-covar= file.\n", local_line_idx);
-            return kPglRetMalformedInput;
-          }
-          linebuf_iter = FirstNonTspace(FirstSpaceOrEoln(linebuf_iter));
-          if (!local_haps) {
-            if (cat_idx != local_cat_ct) {
-              --cat_idx;
-              const uint32_t offset = cat_idx * max_sample_ct + cur_sample_idx;
-              if (local_covars_vcmaj_f_iter) {
-                local_covars_vcmaj_f_iter[offset] = 1.0;
-              } else {
-                local_covars_vcmaj_d_iter[offset] = 1.0;
-              }
-            }
-          } else {
-            if (cat_idx != local_cat_ct) {
-              --cat_idx;
-              const uint32_t offset = cat_idx * max_sample_ct + cur_sample_idx;
-              if (local_covars_vcmaj_f_iter) {
-                local_covars_vcmaj_f_iter[offset] = 0.5;
-              } else {
-                local_covars_vcmaj_d_iter[offset] = 0.5;
-              }
-            }
-            if (unlikely(ScanmovPosintCapped(local_cat_ct, &linebuf_iter, &cat_idx))) {
-              logputs("\n");
-              logerrprintf("Error: Invalid category index on line %u of --glm local-covar= file.\n", local_line_idx);
-              return kPglRetMalformedInput;
-            }
-            linebuf_iter = FirstNonTspace(FirstSpaceOrEoln(linebuf_iter));
-            if (cat_idx != local_cat_ct) {
-              --cat_idx;
-              const uint32_t offset = cat_idx * max_sample_ct + cur_sample_idx;
-              if (local_covars_vcmaj_f_iter) {
-                local_covars_vcmaj_f_iter[offset] += 0.5;
-              } else {
-                local_covars_vcmaj_d_iter[offset] += 0.5;
-              }
-            }
-          }
-        } else {
-          if (local_covars_vcmaj_f_iter) {
-            float* local_covars_f_iter2 = &(local_covars_vcmaj_f_iter[cur_sample_idx]);
-            for (uint32_t covar_idx = 0; covar_idx != local_covar_ct; ++covar_idx) {
-              double dxx;
-              linebuf_iter = ScantokDouble(linebuf_iter, &dxx);
-              if (unlikely((!linebuf_iter) || (fabs(dxx) > 3.4028235677973362e38))) {
-                logputs("\n");
-                logerrprintf("Error: Invalid or missing token on line %u of --glm local-covar= file.\n", local_line_idx);
-                return kPglRetMalformedInput;
-              }
-              *local_covars_f_iter2 = S_CAST(float, dxx);
-              local_covars_f_iter2 = &(local_covars_f_iter2[max_sample_ct]);
-              linebuf_iter = FirstNonTspace(linebuf_iter);
-            }
-          } else {
-            double* local_covars_d_iter2 = &(local_covars_vcmaj_d_iter[cur_sample_idx]);
-            for (uint32_t covar_idx = 0; covar_idx != local_covar_ct; ++covar_idx) {
-              double dxx;
-              linebuf_iter = ScantokDouble(linebuf_iter, &dxx);
-              if (unlikely(!linebuf_iter)) {
-                logputs("\n");
-                logerrprintf("Error: Invalid or missing token on line %u of --glm local-covar= file.\n", local_line_idx);
-                return kPglRetMalformedInput;
-              }
-              *local_covars_d_iter2 = dxx;
-              local_covars_d_iter2 = &(local_covars_d_iter2[max_sample_ct]);
-              linebuf_iter = FirstNonTspace(linebuf_iter);
-            }
-          }
-          if (omit_last) {
-            linebuf_iter = FirstNonTspace(FirstSpaceOrEoln(linebuf_iter));
-          }
-          if (local_haps) {
-            if (local_covars_vcmaj_f_iter) {
-              float* local_covars_f_iter2 = &(local_covars_vcmaj_f_iter[cur_sample_idx]);
-              for (uint32_t covar_idx = 0; covar_idx != local_covar_ct; ++covar_idx) {
-                double dxx;
-                linebuf_iter = ScantokDouble(linebuf_iter, &dxx);
-                if (unlikely((!linebuf_iter) || (fabs(dxx) > 3.4028235677973362e38))) {
-                  logputs("\n");
-                  logerrprintf("Error: Invalid or missing token on line %u of --glm local-covar= file.\n", local_line_idx);
-                  return kPglRetMalformedInput;
-                }
-                *local_covars_f_iter2 = S_CAST(float, (S_CAST(double, *local_covars_f_iter2) + dxx) * 0.5);
-                local_covars_f_iter2 = &(local_covars_f_iter2[max_sample_ct]);
-                linebuf_iter = FirstNonTspace(linebuf_iter);
-              }
-            } else {
-              double* local_covars_d_iter2 = &(local_covars_vcmaj_d_iter[cur_sample_idx]);
-              for (uint32_t covar_idx = 0; covar_idx != local_covar_ct; ++covar_idx) {
-                double dxx;
-                linebuf_iter = ScantokDouble(linebuf_iter, &dxx);
-                if (unlikely(!linebuf_iter)) {
-                  logputs("\n");
-                  logerrprintf("Error: Invalid or missing token on line %u of --glm local-covar= file.\n", local_line_idx);
-                  return kPglRetMalformedInput;
-                }
-                // may as well defend against overflow
-                *local_covars_d_iter2 = (*local_covars_d_iter2) * 0.5 + dxx * 0.5;
-                local_covars_d_iter2 = &(local_covars_d_iter2[max_sample_ct]);
-                linebuf_iter = FirstNonTspace(linebuf_iter);
-              }
-            }
-            if (omit_last) {
-              linebuf_iter = FirstNonTspace(FirstSpaceOrEoln(linebuf_iter));
-            }
-          }
-        }
-        ++sample_idx;
-      }
-      if (local_covars_vcmaj_f_iter) {
-        local_covars_vcmaj_f_iter += max_sample_ct * local_covar_ct;
-      } else {
-        local_covars_vcmaj_d_iter += max_sample_ct * local_covar_ct;
-      }
-    }
+    local_bp = next_bp;
   }
   *local_line_iterp = local_line_iter;
   *local_line_idx_ptr = local_line_idx;
-  *local_chr_code_ptr = cur_chr_code;
-  *local_bp_ptr = cur_bp;
+  *local_prev_chr_code_ptr = local_prev_chr_code;
+  *local_chr_code_ptr = local_chr_code;
+  *local_bp_ptr = local_bp;
+  *local_skip_chr_ptr = local_skip_chr;
   return kPglRetSuccess;
 }
-*/
 
 // only pass the parameters which aren't also needed by the compute threads,
 // for now
@@ -5156,15 +5235,16 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     if (max_sample_ct < sample_ct_y) {
       max_sample_ct = sample_ct_y;
     }
+    // obvious todo: wrap these in structs
     uint32_t* local_sample_idx_order = nullptr;
     uint32_t local_line_idx = 0;
     uint32_t local_xy = 0;  // 1 = chrX, 2 = chrY
 
-    /*
-    char* local_line_iter = nullptr;
-    uint32_t local_chr_code = 0xffffffffU;
-    uint32_t local_bp = 0;
-    */
+    const char* local_line_iter = nullptr;
+    uint32_t local_prev_chr_code = UINT32_MAX;
+    uint32_t local_chr_code = UINT32_MAX;
+    uint32_t local_bp = UINT32_MAX;
+    uint32_t local_skip_chr = 1;
     if (local_covar_ct) {
       reterr = TextRewind(local_covar_txsp);
       if (unlikely(reterr)) {
@@ -5527,11 +5607,13 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
         const uint32_t uidx_start = read_block_idx * read_block_size;
         const uint32_t uidx_end = MINV(raw_variant_ct, uidx_start + read_block_size);
         if (local_variant_include) {
-          reterr = ReadLocalCovarBlock(common->sample_include, common->sample_include_x, common->sample_include_y, common->sample_include_cumulative_popcounts, common->sample_include_x_cumulative_popcounts, common->sample_include_y_cumulative_popcounts, cip, variant_include, local_sample_uidx_order, local_variant_include, sample_ct, sample_ct_x, sample_ct_y, uidx_start, uidx_end, cur_block_variant_ct, local_sample_ct, local_covar_ct, (glm_info_ptr->flags / kfGlmLocalOmitLast) & 1, (glm_info_ptr->flags / kfGlmLocalHaps) & 1, glm_info_ptr->local_cat_ct, local_covar_txsp, &local_line_idx, &local_xy, ctx->local_covars_vcmaj_f[parity], nullptr, local_sample_idx_order);
-          /*
+          reterr = ReadLocalCovarBlock(common, local_sample_uidx_order, local_variant_include, uidx_start, uidx_end, cur_block_variant_ct, local_sample_ct, glm_info_ptr->local_cat_ct, local_covar_txsp, &local_line_idx, &local_xy, ctx->local_covars_vcmaj_f[parity], nullptr, local_sample_idx_order);
         } else {
-          reterr = ReadRfmix2Block(common->sample_include, common->sample_include_x, common->sample_include_y, common->sample_include_cumulative_popcounts, common->sample_include_x_cumulative_popcounts, common->sample_include_y_cumulative_popcounts, cip, variant_include, variant_bps, local_sample_uidx_order, sample_ct, sample_ct_x, sample_ct_y, uidx_start, uidx_end, read_block_size, cur_block_variant_ct, local_sample_ct, local_covar_ct, (glm_info_ptr->flags / kfGlmLocalOmitLast) & 1, (glm_info_ptr->flags / kfGlmLocalHaps) & 1, glm_info_ptr->local_cat_ct, glm_info_ptr->local_chrom_col, glm_info_ptr->local_bp_col, glm_info_ptr->local_first_covar_col, local_covar_txsp, &local_line_iter, &local_line_idx, &local_chr_code, &local_bp, ctx->local_covars_vcmaj_f[parity], nullptr, local_sample_idx_order);
-          */
+          float* prev_local_covar_row_f = nullptr;
+          if (variant_idx) {
+            prev_local_covar_row_f = &(ctx->local_covars_vcmaj_f[1 - parity][S_CAST(uintptr_t, read_block_size - 1) * max_sample_ct * local_covar_ct]);
+          }
+          reterr = ReadRfmix2Block(common, variant_bps, local_sample_uidx_order, prev_local_covar_row_f, nullptr, uidx_start, uidx_end, cur_block_variant_ct, local_sample_ct, glm_info_ptr->local_cat_ct, glm_info_ptr->local_chrom_col, glm_info_ptr->local_bp_col, glm_info_ptr->local_first_covar_col, local_covar_txsp, &local_line_iter, &local_line_idx, &local_prev_chr_code, &local_chr_code, &local_bp, &local_skip_chr, ctx->local_covars_vcmaj_f[parity], nullptr, local_sample_idx_order);
         }
         if (unlikely(reterr)) {
           goto GlmLogistic_ret_1;
@@ -7241,8 +7323,19 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     uint32_t* local_sample_idx_order = nullptr;
     uint32_t local_line_idx = 0;
     uint32_t local_xy = 0;  // 1 = chrX, 2 = chrY
+
+    const char* local_line_iter = nullptr;
+    uint32_t local_prev_chr_code = UINT32_MAX;
+    uint32_t local_chr_code = UINT32_MAX;
+    uint32_t local_bp = UINT32_MAX;
+    uint32_t local_skip_chr = 1;
     if (local_covar_ct) {
       reterr = TextRewind(local_covar_txsp);
+      if (unlikely(reterr)) {
+        goto GlmLinear_ret_TSTREAM_FAIL;
+      }
+      local_line_idx = glm_info_ptr->local_header_line_ct;
+      reterr = TextSkip(local_line_idx, local_covar_txsp);
       if (unlikely(reterr)) {
         goto GlmLinear_ret_TSTREAM_FAIL;
       }
@@ -7562,7 +7655,22 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
       if (local_covar_ct && cur_block_variant_ct) {
         const uint32_t uidx_start = read_block_idx * read_block_size;
         const uint32_t uidx_end = MINV(raw_variant_ct, uidx_start + read_block_size);
-        reterr = ReadLocalCovarBlock(common->sample_include, common->sample_include_x, common->sample_include_y, common->sample_include_cumulative_popcounts, common->sample_include_x_cumulative_popcounts, common->sample_include_y_cumulative_popcounts, cip, variant_include, local_sample_uidx_order, local_variant_include, sample_ct, sample_ct_x, sample_ct_y, uidx_start, uidx_end, cur_block_variant_ct, local_sample_ct, local_covar_ct, (glm_info_ptr->flags / kfGlmLocalOmitLast) & 1, (glm_info_ptr->flags / kfGlmLocalHaps) & 1, glm_info_ptr->local_cat_ct, local_covar_txsp, &local_line_idx, &local_xy, nullptr, ctx->local_covars_vcmaj_d[parity], local_sample_idx_order);
+        if (local_variant_include) {
+          reterr = ReadLocalCovarBlock(common, local_sample_uidx_order, local_variant_include, uidx_start, uidx_end, cur_block_variant_ct, local_sample_ct, glm_info_ptr->local_cat_ct, local_covar_txsp, &local_line_idx, &local_xy, nullptr, ctx->local_covars_vcmaj_d[parity], local_sample_idx_order);
+        } else {
+          double* prev_local_covar_row_d = nullptr;
+          if (variant_idx) {
+            prev_local_covar_row_d = &(ctx->local_covars_vcmaj_d[1 - parity][S_CAST(uintptr_t, read_block_size - 1) * max_sample_ct * local_covar_ct]);
+          }
+          reterr = ReadRfmix2Block(common, variant_bps, local_sample_uidx_order, nullptr, prev_local_covar_row_d, uidx_start, uidx_end, cur_block_variant_ct, local_sample_ct, glm_info_ptr->local_cat_ct, glm_info_ptr->local_chrom_col, glm_info_ptr->local_bp_col, glm_info_ptr->local_first_covar_col, local_covar_txsp, &local_line_iter, &local_line_idx, &local_prev_chr_code, &local_chr_code, &local_bp, &local_skip_chr, nullptr, ctx->local_covars_vcmaj_d[parity], local_sample_idx_order);
+          /*
+          for (uint32_t uii = 0; uii < max_sample_ct; ++uii) {
+            printf("%g ", ctx->local_covars_vcmaj_d[parity][uii]);
+          }
+          printf("\n");
+          exit(1);
+          */
+        }
         if (unlikely(reterr)) {
           goto GlmLinear_ret_1;
         }
@@ -9215,8 +9323,19 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
     uint32_t* local_sample_idx_order = nullptr;
     uint32_t local_line_idx = 0;
     uint32_t local_xy = 0;  // 1 = chrX, 2 = chrY
+
+    const char* local_line_iter = nullptr;
+    uint32_t local_prev_chr_code = UINT32_MAX;
+    uint32_t local_chr_code = UINT32_MAX;
+    uint32_t local_bp = UINT32_MAX;
+    uint32_t local_skip_chr = 1;
     if (local_covar_ct) {
       reterr = TextRewind(local_covar_txsp);
+      if (unlikely(reterr)) {
+        goto GlmLinearBatch_ret_TSTREAM_FAIL;
+      }
+      local_line_idx = glm_info_ptr->local_header_line_ct;
+      reterr = TextSkip(local_line_idx, local_covar_txsp);
       if (unlikely(reterr)) {
         goto GlmLinearBatch_ret_TSTREAM_FAIL;
       }
@@ -9635,7 +9754,15 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
         if (local_covar_ct && cur_block_variant_ct) {
           const uint32_t uidx_start = read_block_idx * read_block_size;
           const uint32_t uidx_end = MINV(raw_variant_ct, uidx_start + read_block_size);
-          reterr = ReadLocalCovarBlock(common->sample_include, common->sample_include_x, common->sample_include_y, common->sample_include_cumulative_popcounts, common->sample_include_x_cumulative_popcounts, common->sample_include_y_cumulative_popcounts, cip, variant_include, local_sample_uidx_order, local_variant_include, sample_ct, sample_ct_x, sample_ct_y, uidx_start, uidx_end, cur_block_variant_ct, local_sample_ct, local_covar_ct, (glm_info_ptr->flags / kfGlmLocalOmitLast) & 1, (glm_info_ptr->flags / kfGlmLocalHaps) & 1, glm_info_ptr->local_cat_ct, local_covar_txsp, &local_line_idx, &local_xy, nullptr, ctx->local_covars_vcmaj_d[parity], local_sample_idx_order);
+          if (local_variant_include) {
+            reterr = ReadLocalCovarBlock(common, local_sample_uidx_order, local_variant_include, uidx_start, uidx_end, cur_block_variant_ct, local_sample_ct, glm_info_ptr->local_cat_ct, local_covar_txsp, &local_line_idx, &local_xy, nullptr, ctx->local_covars_vcmaj_d[parity], local_sample_idx_order);
+          } else {
+            double* prev_local_covar_row_d = nullptr;
+            if (variant_idx) {
+              prev_local_covar_row_d = &(ctx->local_covars_vcmaj_d[1 - parity][S_CAST(uintptr_t, read_block_size - 1) * max_sample_ct * local_covar_ct]);
+            }
+            reterr = ReadRfmix2Block(common, variant_bps, local_sample_uidx_order, nullptr, prev_local_covar_row_d, uidx_start, uidx_end, cur_block_variant_ct, local_sample_ct, glm_info_ptr->local_cat_ct, glm_info_ptr->local_chrom_col, glm_info_ptr->local_bp_col, glm_info_ptr->local_first_covar_col, local_covar_txsp, &local_line_iter, &local_line_idx, &local_prev_chr_code, &local_chr_code, &local_bp, &local_skip_chr, nullptr, ctx->local_covars_vcmaj_d[parity], local_sample_idx_order);
+          }
           if (unlikely(reterr)) {
             goto GlmLinearBatch_ret_1;
           }
