@@ -15,7 +15,7 @@ old_cindex=function(yhat,y,status,w=rep(1,length(y))){
     i=riskset
     rest=which(y>y[i])
     if(length(rest)>0){
-      ww=(w[rest]+w[i])/2
+      ww=w[rest]*w[i]
       total=sum(ww)
       concordant = 1.0*sum(ww*(yhat[rest]<yhat[i]))+0.5*sum(ww*(yhat[rest]==yhat[i]))
     }

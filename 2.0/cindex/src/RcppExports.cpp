@@ -6,21 +6,22 @@
 using namespace Rcpp;
 
 // CIndex
-double CIndex(NumericVector yhat, NumericVector y, SEXP status);
-RcppExport SEXP _cindex_CIndex(SEXP yhatSEXP, SEXP ySEXP, SEXP statusSEXP) {
+double CIndex(NumericVector yhat, NumericVector y, SEXP status, Nullable<NumericVector> w);
+RcppExport SEXP _cindex_CIndex(SEXP yhatSEXP, SEXP ySEXP, SEXP statusSEXP, SEXP wSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< NumericVector >::type yhat(yhatSEXP);
     Rcpp::traits::input_parameter< NumericVector >::type y(ySEXP);
     Rcpp::traits::input_parameter< SEXP >::type status(statusSEXP);
-    rcpp_result_gen = Rcpp::wrap(CIndex(yhat, y, status));
+    Rcpp::traits::input_parameter< Nullable<NumericVector> >::type w(wSEXP);
+    rcpp_result_gen = Rcpp::wrap(CIndex(yhat, y, status, w));
     return rcpp_result_gen;
 END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
-    {"_cindex_CIndex", (DL_FUNC) &_cindex_CIndex, 3},
+    {"_cindex_CIndex", (DL_FUNC) &_cindex_CIndex, 4},
     {NULL, NULL, 0}
 };
 
