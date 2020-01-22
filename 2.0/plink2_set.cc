@@ -59,7 +59,14 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
         const uint32_t chr_name_slen = first_token_end - line_start;
         *first_token_end = '\0';
         const uint32_t cur_chr_code = GetChrCode(line_start, cip, chr_name_slen);
-        if (unlikely(IsI32Neg(cur_chr_code))) {
+        if (IsI32Neg(cur_chr_code)) {
+          // kludge (21 Jan 2020): --extract/exclude range should not error out
+          // if a line mentions a chromosome code not in the dataset.
+          // TODO: better condition for skipping this line.  (not totally
+          // trivial since some future callers may need to track empty sets)
+          if (likely((!set_ct_ptr) && (cur_chr_code == UINT32_MAX))) {
+            continue;
+          }
           snprintf(g_logbuf, kLogbufSize, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
           goto LoadIntervalBed_ret_MALFORMED_INPUT_WW;
         }
@@ -193,7 +200,10 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
       const uint32_t chr_name_slen = first_token_end - line_start;
       *first_token_end = '\0';
       const uint32_t cur_chr_code = GetChrCode(line_start, cip, chr_name_slen);
-      if (unlikely(IsI32Neg(cur_chr_code))) {
+      if (IsI32Neg(cur_chr_code)) {
+        if (likely((!set_ct_ptr) && (cur_chr_code == UINT32_MAX))) {
+          continue;
+        }
         snprintf(g_logbuf, kLogbufSize, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
         goto LoadIntervalBed_ret_MALFORMED_INPUT_WW;
       }
