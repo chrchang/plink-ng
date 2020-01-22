@@ -323,8 +323,18 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
 	*first_token_end = '\0';
 	int32_t cur_chrom_code = get_chrom_code(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
 	if (cur_chrom_code < 0) {
-	  sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
-	  goto load_range_list_ret_INVALID_FORMAT_2;
+          // kludge (21 Jan 2020): in the --extract/exclude range case, we
+          // should just skip lines that mention a chromosome absent from the
+          // dataset instead of erroring out, if --allow-extra-chr is
+          // specified.  (And it's not obvious whether there's any value in
+          // erroring out when --allow-extra-chr isn't specified, for that
+          // matter; I won't bother for now since it would require adding
+          // another function argument.)
+          if ((!set_ct_ptr) && (cur_chrom_code == -1)) {
+            continue;
+          }
+          sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
+          goto load_range_list_ret_INVALID_FORMAT_2;
 	}
 	// chrom_mask check removed, we want to track empty sets
 	uii = strlen_se(bufptr2);
@@ -456,6 +466,9 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       *first_token_end = '\0';
       int32_t cur_chrom_code = get_chrom_code(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
+        if ((!set_ct_ptr) && (cur_chrom_code == -1)) {
+          continue;
+        }
 	sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
 	goto load_range_list_ret_INVALID_FORMAT_2;
       }
