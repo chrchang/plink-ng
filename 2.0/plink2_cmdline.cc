@@ -398,9 +398,8 @@ uintptr_t CountSortedLeqU64(const uint64_t* sorted_u64_arr, uintptr_t arr_length
 }
 
 uint32_t GetParamCt(const char* const* argvk, uint32_t argc, uint32_t flag_idx) {
-  // Counts the number of optional parameters given to the flag at position
-  // flag_idx, treating any nonnumeric parameter beginning with "-" as
-  // optional.
+  // Counts the number of optional arguments given to the flag at position
+  // flag_idx, treating any nonnumeric argument beginning with "-" as optional.
   ++flag_idx;
   uint32_t cur_idx = flag_idx;
   while ((cur_idx < argc) && (!IsCmdlineFlag(argvk[cur_idx]))) {
@@ -412,9 +411,9 @@ uint32_t GetParamCt(const char* const* argvk, uint32_t argc, uint32_t flag_idx) 
 BoolErr EnforceParamCtRange(const char* flag_name, uint32_t param_ct, uint32_t min_ct, uint32_t max_ct) {
   if (unlikely(param_ct > max_ct)) {
     if (max_ct > min_ct) {
-      snprintf(g_logbuf, kLogbufSize, "Error: %s accepts at most %u parameter%s.\n", flag_name, max_ct, (max_ct == 1)? "" : "s");
+      snprintf(g_logbuf, kLogbufSize, "Error: %s accepts at most %u argument%s.\n", flag_name, max_ct, (max_ct == 1)? "" : "s");
     } else {
-      snprintf(g_logbuf, kLogbufSize, "Error: %s only accepts %u parameter%s.\n", flag_name, max_ct, (max_ct == 1)? "" : "s");
+      snprintf(g_logbuf, kLogbufSize, "Error: %s only accepts %u argument%s.\n", flag_name, max_ct, (max_ct == 1)? "" : "s");
     }
     return 1;
   }
@@ -422,15 +421,15 @@ BoolErr EnforceParamCtRange(const char* flag_name, uint32_t param_ct, uint32_t m
     return 0;
   }
   if (min_ct == 1) {
-    snprintf(g_logbuf, kLogbufSize, "Error: Missing %s parameter.\n", flag_name);
+    snprintf(g_logbuf, kLogbufSize, "Error: Missing %s argument.\n", flag_name);
   } else {
-    snprintf(g_logbuf, kLogbufSize, "Error: %s requires %s%u parameters.\n", flag_name, (min_ct < max_ct)? "at least " : "", min_ct);
+    snprintf(g_logbuf, kLogbufSize, "Error: %s requires %s%u arguments.\n", flag_name, (min_ct < max_ct)? "at least " : "", min_ct);
   }
   return 1;
 }
 
 PglErr SortCmdlineFlags(uint32_t max_flag_blen, uint32_t flag_ct, char* flag_buf, uint32_t* flag_map) {
-  // Assumes flag_ct is the number of flag (as opposed to value) parameters,
+  // Assumes flag_ct is the number of flag (as opposed to value) arguments,
   // flag_buf[] points to a rectangular char* array (width max_flag_blen) of
   // flag names with leading dash(es) stripped, and flag_map[] maps flag_buf[]
   // entries to argv[] entries.
@@ -2236,13 +2235,13 @@ PglErr ParseNameRanges(const char* const* argvk, const char* errstr_append, uint
   unsigned char* cur_name_starts_range;
   uint32_t last_val;
   uint32_t cur_val;
-  // two passes.  first pass: count parameters, determine name_max_blen;
+  // two passes.  first pass: count arguments, determine name_max_blen;
   // then allocate memory; then fill it.
   if (param_ct) {
     cur_arg_ptr = argvk[1];
     while (1) {
       if (unlikely(ParseNextRange(argvk, param_ct, range_delim, &cur_param_idx, &cur_arg_ptr, &range_start, &rs_len, &range_end, &re_len))) {
-        logerrprintfww("Error: Invalid %s parameter '%s'.\n", argvk[0], argvk[cur_param_idx]);
+        logerrprintfww("Error: Invalid %s argument '%s'.\n", argvk[0], argvk[cur_param_idx]);
         logerrputs(errstr_append);
         return kPglRetInvalidCmdline;
       }
@@ -2286,12 +2285,12 @@ PglErr ParseNameRanges(const char* const* argvk, const char* errstr_append, uint
           const char* dup_check = cur_name_str;  // actually a numeric check
           do {
             if (unlikely(IsNotDigit(*dup_check))) {
-              logerrprintfww("Error: Invalid %s parameter '%s'.\n", argvk[0], cur_name_str);
+              logerrprintfww("Error: Invalid %s argument '%s'.\n", argvk[0], cur_name_str);
               return kPglRetInvalidCmdline;
             }
           } while (*(++dup_check));
           if (unlikely(ScanPosintDefcapx(cur_name_str, &cur_val))) {
-            logerrprintfww("Error: Invalid %s parameter '%s'.\n", argvk[0], cur_name_str);
+            logerrprintfww("Error: Invalid %s argument '%s'.\n", argvk[0], cur_name_str);
             return kPglRetInvalidCmdline;
           }
           if (range_list_ptr->starts_range[cur_param_idx]) {
@@ -2311,7 +2310,7 @@ PglErr ParseNameRanges(const char* const* argvk, const char* errstr_append, uint
     const char* dup_check = range_list_ptr->names;
     while (dup_check < cur_name_str) {
       if (unlikely(memequal(dup_check, cur_name_str, rs_len + 1))) {
-        logerrprintfww("Error: Duplicate %s parameter '%s'.\n", argvk[0], cur_name_str);
+        logerrprintfww("Error: Duplicate %s argument '%s'.\n", argvk[0], cur_name_str);
         return kPglRetInvalidCmdline;
       }
       dup_check = &(dup_check[name_max_blen]);
@@ -2323,7 +2322,7 @@ PglErr ParseNameRanges(const char* const* argvk, const char* errstr_append, uint
       dup_check = range_list_ptr->names;
       while (dup_check < cur_name_str) {
         if (unlikely(memequal(dup_check, cur_name_str, rs_len + 1))) {
-          logerrprintfww("Error: Duplicate %s parameter '%s'.\n", argvk[0], cur_name_str);
+          logerrprintfww("Error: Duplicate %s argument '%s'.\n", argvk[0], cur_name_str);
           return kPglRetInvalidCmdline;
         }
         dup_check = &(dup_check[name_max_blen]);
@@ -3222,7 +3221,7 @@ BoolErr CheckExtraParam(const char* const* argvk, const char* permitted_modif, u
   if (!strcmp(argvk[idx_base], permitted_modif)) {
     *other_idx_ptr = idx_base + 1;
   } else if (strcmp(argvk[idx_base + 1], permitted_modif)) {
-    logerrprintf("Error: Invalid %s parameter sequence.\n", argvk[0]);
+    logerrprintf("Error: Invalid %s argument sequence.\n", argvk[0]);
     return 1;
   }
   return 0;
@@ -3230,7 +3229,7 @@ BoolErr CheckExtraParam(const char* const* argvk, const char* permitted_modif, u
 
 char ExtractCharParam(const char* ss) {
   // maps c, 'c', and "c" to c, and anything else to the null char.  This is
-  // intended to support e.g. always using '#' to designate a # parameter
+  // intended to support e.g. always using '#' to designate a # argument
   // without worrying about differences between shells.
   const char cc = ss[0];
   if (((cc == '\'') || (cc == '"')) && (ss[1]) && (ss[2] == cc) && (!ss[3])) {
@@ -3245,7 +3244,7 @@ char ExtractCharParam(const char* ss) {
 PglErr CmdlineAllocString(const char* source, const char* flag_name, uint32_t max_slen, char** sbuf_ptr) {
   const uint32_t slen = strlen(source);
   if (slen > max_slen) {
-    logerrprintf("Error: %s parameter too long.\n", flag_name);
+    logerrprintf("Error: %s argument too long.\n", flag_name);
     return kPglRetInvalidCmdline;
   }
   const uint32_t blen = slen + 1;
@@ -3634,7 +3633,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
       }
     }
     if (unlikely((first_arg_idx < S_CAST(uint32_t, argc)) && (!IsCmdlineFlag(argvk[first_arg_idx])))) {
-      fputs("Error: First parameter must be a flag.\n", stderr);
+      fputs("Error: First argument must be a flag.\n", stderr);
       fputs(errstr_append, stderr);
       goto CmdlineParsePhase1_ret_INVALID_CMDLINE;
     }
@@ -3652,8 +3651,8 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
             fputs("--help present, ignoring other flags.\n", stdout);
           }
           if ((arg_idx == S_CAST(uint32_t, argc) - 1) && flag_ct) {
-            // make "plink [valid flags/parameters] --help" work, and skip the
-            // parameters
+            // make "plink [valid flags/arguments] --help" work, and skip the
+            // arguments
             const char** help_argv;
             if (unlikely(pgl_malloc(flag_ct * sizeof(intptr_t), &help_argv))) {
               goto CmdlineParsePhase1_ret_NOMEM2;
@@ -3675,7 +3674,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
         }
         if (strequal_k(flagname_p, "h", flagname_p_slen) ||
             strequal_k(flagname_p, "?", flagname_p_slen)) {
-          // these just act like the no-parameter case
+          // these just act like the no-argument case
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
           if ((!first_arg_idx) || (arg_idx != 1) || subst_argv) {
@@ -3781,11 +3780,11 @@ PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const 
         }
         const char cc = ExtractCharParam(argvk[arg_idx + 1]);
         if (unlikely(!cc)) {
-          fputs("Error: --d parameter too long (must be a single character).\n", stderr);
+          fputs("Error: --d argument too long (must be a single character).\n", stderr);
           goto CmdlineParsePhase2_ret_INVALID_CMDLINE;
         }
         if ((cc == '-') || (cc == ',')) {
-          fputs("Error: --d parameter cannot be '-' or ','.\n", stderr);
+          fputs("Error: --d argument cannot be '-' or ','.\n", stderr);
           goto CmdlineParsePhase2_ret_INVALID_CMDLINE;
         }
         *range_delim_ptr = cc;
@@ -3805,7 +3804,7 @@ PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const 
         }
         if (unlikely(strlen(argvk[arg_idx + 1]) > (kPglFnamesize - kMaxOutfnameExtBlen))) {
           fflush(stdout);
-          fputs("Error: --out parameter too long.\n", stderr);
+          fputs("Error: --out argument too long.\n", stderr);
           goto CmdlineParsePhase2_ret_OPEN_FAIL;
         }
         const uint32_t slen = strlen(argvk[arg_idx + 1]);

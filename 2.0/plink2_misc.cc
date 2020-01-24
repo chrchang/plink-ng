@@ -2215,7 +2215,7 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
         col_num = 3;
       }
       if (unlikely(id_col_ct >= col_num)) {
-        logerrputs("Error: --update-sex 'col-num=' parameter too small (it refers to a sample ID\ncolumn).\n");
+        logerrputs("Error: --update-sex 'col-num=' argument too small (it refers to a sample ID\ncolumn).\n");
         goto UpdateSampleSexes_ret_MALFORMED_INPUT;
       }
       postid_col_idx = col_num - id_col_ct;
@@ -7942,7 +7942,7 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
         const uint32_t slen2 = strlen(sample_fmtid2);
         if (unlikely(slen1 + slen2 + 2 > fname_extrachar_limit)) {
           logputs("\n");
-          logerrputs("Error: Sample ID and/or --out parameter too long for --sample-diff pairwise\nmode.\n");
+          logerrputs("Error: Sample ID and/or --out argument too long for --sample-diff pairwise\nmode.\n");
           goto SdiffMainBatch_ret_INCONSISTENT_INPUT;
         }
         char* fname_iter = &(outname_end[1]);
@@ -7988,7 +7988,7 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
         const uint32_t base_slen = strlen(sample_fmtid);
         if (unlikely(base_slen >= fname_extrachar_limit)) {
           logputs("\n");
-          logerrputs("Error: Sample ID and/or --out parameter too long for --sample-diff base= mode.\n");
+          logerrputs("Error: Sample ID and/or --out argument too long for --sample-diff base= mode.\n");
           goto SdiffMainBatch_ret_INCONSISTENT_INPUT;
         }
         *fname_iter++ = '.';

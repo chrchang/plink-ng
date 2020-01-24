@@ -99,7 +99,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    exclusive options.\n"
 "  * [square brackets without quotes or braces] denote an optional parameter,\n"
 "    where the text between the brackets describes its nature.\n"
-"  * An ellipsis (...) indicates that you may enter multiple parameters of the\n"
+"  * An ellipsis (...) indicates that you may enter multiple arguments of the\n"
 "    specified type.\n"
 "  * A \"column set descriptor\" is either\n"
 "    1. a comma-separated sequence of column set names; this is interpreted as\n"
@@ -234,7 +234,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    This generates a fake input dataset with the specified number of samples\n"
 "    and SNPs.\n"
 "    * By default, the missing dosage and phenotype frequencies are zero.\n"
-"      These can be changed by providing 3rd and 4th numeric parameters.\n"
+"      These can be changed by providing 3rd and 4th numeric arguments.\n"
 "    * By default, allele codes are As and Bs; this can be changed with the\n"
 "      'acgt', '1234', or '12' modifier.\n"
 "    * By default, one binary phenotype is generated.  'pheno-ct=' can be used\n"
@@ -899,7 +899,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * It is usually best to perform this calculation on a variant set in\n"
 "      approximate linkage equilibrium, with no very-low-MAF variants.\n"
 "    * By default, 10 PCs are extracted; you can adjust this by passing a\n"
-"      numeric parameter.  (Note that 10 is lower than the PLINK 1.9 default of\n"
+"      numeric argument.  (Note that 10 is lower than the PLINK 1.9 default of\n"
 "      20; this is due to the randomized algorithm's memory footprint growing\n"
 "      quadratically w.r.t. the PC count.)\n"
 "    * The 'approx' modifier causes the standard deterministic computation to be\n"
@@ -1316,7 +1316,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                    (where the x_i's are 0..2 allele dosages),\n"
 "                                    is not greater than 0.1.  You can adjust\n"
 "                                    this threshold by providing a numeric\n"
-"                                    parameter to --hard-call-threshold.\n"
+"                                    argument to --hard-call-threshold.\n"
 "                                    You can also use this with --make-[b]pgen\n"
 "                                    to alter the saved hardcalls while leaving\n"
 "                                    the dosages untouched, or --make-bed to\n"
@@ -1367,7 +1367,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --chr-override ['file'] : By default, if --chr-set/--autosome-num/--cow/etc.\n"
 "                            conflicts with an input file ##chrSet header line,\n"
 "                            PLINK 2 will error out.  --chr-override with no\n"
-"                            parameter causes the command line to take\n"
+"                            argument causes the command line to take\n"
 "                            precedence; '--chr-override file' defers to the\n"
 "                            file.\n"
                );
@@ -1504,6 +1504,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                               the union, of the files to\n"
 "                                               remain.\n"
               );
+    HelpPrint("bed-border-bp\0bed-border-kb\0make-set-border\0extract\0exclude\0extract-intersect\0range\0", &help_ctrl, 0,
+"  --bed-border-bp <n>      : Stretch BED intervals by the given amount on each\n"
+"  --bed-border-kb <n>        side.\n"
+              );
     HelpPrint("keep-cats\0keep-cat-names\0keep-cat-pheno\0remove-cats\0remove-cat-names\0remove-cat-pheno\0keep-clusters\0keep-cluster-names\0remove-clusters\0remove-cluster-names\0", &help_ctrl, 0,
 "  --keep-cats <filename>   : These can be used individually or in combination\n"
 "  --keep-cat-names <nm...>   to define a list of categories to keep; all\n"
@@ -1551,7 +1555,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --variance-standardize [pheno/covar name(s)...]\n"
 "  --covar-variance-standardize [covar name(s)...] :\n"
 "    Linearly transform named covariates (and quantitative phenotypes, if\n"
-"    --variance-standardize) to mean-zero, variance 1.  If no parameters are\n"
+"    --variance-standardize) to mean-zero, variance 1.  If no arguments are\n"
 "    provided, all possible phenotypes/covariates are affected.\n"
 "    This is frequently necessary to prevent multicollinearity when dealing with\n"
 "    covariates where abs(mean) is much larger than abs(standard deviation),\n"
@@ -1640,7 +1644,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --mind [val] [{dosage | hh-missing}] : \n"
 "    Exclude variants (--geno) and/or samples (--mind) with missing call\n"
 "    frequencies greater than a threshold (default 0.1).  (Note that the default\n"
-"    threshold is only applied if --geno/--mind is invoked without a parameter;\n"
+"    threshold is only applied if --geno/--mind is invoked without an argument;\n"
 "    when --geno/--mind is not invoked, no missing call frequency ceiling is\n""    enforced at all.  Other inclusion/exclusion default thresholds work the\n"
 "    same way.)\n"
 "    By default, when a dosage is present but a hardcall is not, the genotype is\n"
@@ -1660,7 +1664,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     */
     HelpPrint("require-pheno\0require-covar\0keep-if\0remove-if\0prune\0", &help_ctrl, 0,
 "  --require-pheno [name(s)...] : Remove samples missing any of the named\n"
-"  --require-covar [name(s)...]   phenotype(s)/covariate(s).  If no parameters\n"
+"  --require-covar [name(s)...]   phenotype(s)/covariate(s).  If no arguments\n"
 "                                 are provided, all phenotype(s)/covariate(s)\n"
 "                                 must be present.\n"
                );
@@ -1722,7 +1726,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                 variants, with r2 = nan, are not excluded.)\n"
 "                                 * This is NOT identical to the R2 metric\n"
 "                                   reported by Minimac3 0.1.13+; see below.\n"
-"                                 * If a single parameter is provided, it is\n"
+"                                 * If a single argument is provided, it is\n"
 "                                   treated as the minimum.\n"
 "                                 * The metric is not computed on chrX and MT.\n"
 "  --minimac3-r2-filter <min> [max] : Compute Minimac3 R2 values from scratch,\n"
@@ -1948,7 +1952,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                            * 'ascii'/'a' sorts in ASCII order, e.g.\n"
 "                              'ID3' < 'id10' < 'id2'.\n"
 "                            * 'file'/'f' uses the order in the given file\n"
-"                              (named in the last parameter).\n"
+"                              (named in the last argument).\n"
                );
     // todo: add citation for 2018 KING update paper, which should discuss the
     // two-stage screen + refine workflow supported by --king-table-subset,
@@ -1958,7 +1962,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                   inclusion in --make-king-table report.\n"
 "  --king-table-subset <f> [kmin] : Restrict current --make-king-table run to\n"
 "                                   sample pairs listed in the given .kin0 file.\n"
-"                                   If a second parameter is provided, only\n"
+"                                   If a second argument is provided, only\n"
 "                                   sample pairs with kinship >= that threshold\n"
 "                                   (in the input .kin0) are processed.\n"
                );
@@ -2015,7 +2019,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     HelpPrint("adjust-chr-field\0adjust-pos-field\0adjust-id-field\0adjust-ref-field\0adjust-alt-field\0adjust-a1-field\0adjust-test-field\0adjust-p-field\0adjust-file\0", &help_ctrl, 0,
 "  --adjust-chr-field <n...>  : Set --adjust-file input field names.  When\n"
-"  --adjust-pos-field <n...>    multiple parameters are given to these flags,\n"
+"  --adjust-pos-field <n...>    multiple arguments are given to these flags,\n"
 "  --adjust-id-field <n...>     earlier names take precedence over later ones.\n"
 "  --adjust-ref-field <n...>\n"
 "  --adjust-alt-field <n...>\n"
