@@ -2613,10 +2613,9 @@ THREAD_FUNC_DECL DupstoreHtableMakerThread(void* raw_arg) {
       idx_stop_offset = items_left;
     }
     uint32_t* hashes = ctx->hashes[parity];
-    uintptr_t item_uidx = ctx->item_uidx_start[parity];
-    if (idx_start_offset) {
-      item_uidx = FindNth1BitFrom(subset_mask, item_uidx + 1, idx_start_offset);
-    }
+    // bugfix (24 Jan 2020): IsSet(subset_mask, item_uidx) is not always true.
+    uintptr_t item_uidx = FindNth1BitFrom(subset_mask, ctx->item_uidx_start[parity], idx_start_offset + 1);
+
     uintptr_t cur_bits;
     uintptr_t item_uidx_base;
     BitIter1Start(subset_mask, item_uidx, &item_uidx_base, &cur_bits);

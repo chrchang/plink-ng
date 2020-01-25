@@ -42,7 +42,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.00a2.2"
+static const char ver_str[] = "PLINK v2.00a2.3"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a2.2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (14 Jan 2020)";
+  " (24 Jan 2020)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
