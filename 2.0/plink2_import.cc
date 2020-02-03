@@ -84,6 +84,15 @@ typedef struct GparseReadVcfMetadataStruct {
   uintptr_t line_idx;  // for error reporting
 } GparseReadVcfMetadata;
 
+typedef struct GparseReadBcfMetadataStruct {
+  // [0] = GQ, [1] = DP
+  STD_ARRAY_DECL(uint32_t, 2, qual_offsets);
+  uint32_t gt_offset;
+  uint32_t dosage_offset;
+  uint32_t hds_offset;
+  uintptr_t rec_idx;  // for error reporting
+} GparseReadBcfMetadata;
+
 // The "parsed form" is as follows (all arrays vector-aligned, vector counts in
 // parentheses):
 //   genovec (sample_ctv2)
@@ -148,6 +157,7 @@ typedef struct GparseWriteMetadataStruct {
 
 union GparseMetadata {
   GparseReadVcfMetadata read_vcf;
+  GparseReadBcfMetadata read_bcf;
   GparseReadBgenMetadata read_bgen;
   GparseWriteMetadata write;
 };
@@ -2789,7 +2799,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       //
       // Because of how ##contig is handled (we only keep the lines which
       // correspond to chromosomes/contigs actually present in the VCF, and not
-      // filtered out), we wait until second pass to write the .pvar.
+      // filtered out), we wait until the second pass to write the .pvar.
       if (StrStartsWithUnsafe(&(line_iter[2]), "chrSet=<")) {
         if (unlikely(chrset_present)) {
           logerrputs("Error: Multiple ##chrSet header lines in --vcf file.\n");
@@ -2881,7 +2891,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       --format_hds_search;
       if (!format_hds_search) {
         if (!format_dosage_relevant) {
-          logerrputs("Warning: No FORMAT:DS or :HDS field in --vcf file header. Dosages will not be\nimported.\n");
+          logerrputs("Warning: No FORMAT:DS or :HDS field in --vcf file header.  Dosages will not be\nimported.\n");
         } else {
           logerrputs("Warning: No FORMAT:HDS field in --vcf file header.  Dosages will be imported\n(from FORMAT:DS), but phase information will be limited or absent.\n");
         }
@@ -2890,8 +2900,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       logerrprintfww("Warning: No FORMAT:%s field in --vcf file header. Dosages will not be imported.\n", dosage_import_field);
     }
     FinalizeChrset(misc_flags, cip);
-    // don't call FinalizeChrInfo here, since this may be followed by
-    // --pmerge, etc.
+    // don't call FinalizeChrInfo here, since this may be followed by --pmerge,
+    // etc.
 
     if (unlikely(!StrStartsWithUnsafe(line_iter, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO"))) {
       snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of --vcf file does not have expected field sequence after #CHROM.\n", line_idx);
@@ -3850,6 +3860,1511 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
   CleanupThreads(&tg);
   CleanupTextStream2("--vcf file", &vcf_txs, &reterr);
   fclose_cond(pvarfile);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
+  return reterr;
+}
+
+PglErr BcfHeaderLineIdxCheck(const char* line_iter, uint32_t header_line_idx) {
+  while (1) {
+    const char* tag_start = &(line_iter[1]);
+    if (unlikely(memequal_k(tag_start, "IDX=", 4))) {
+      // Although this is text, it's not supposed to be human-edited, so we
+      // deliberately discourage spec-conforming behavior that's different from
+      // bcftools's straightforward approach of always putting IDX= at the end.
+      logerrprintfww("Error: Line %u in BCF text header block has IDX= in the center instead of the end of the line; this is not currently supported by " PROG_NAME_STR ". Contact us if you need this to work.\n", header_line_idx);
+      return kPglRetNotYetSupported;
+    }
+    line_iter = AdvPastDelim(tag_start, '=');
+    if (*line_iter != '"') {
+      line_iter = strchrnul_n(line_iter, ',');
+      if (*line_iter == ',') {
+        continue;
+      }
+      return kPglRetSuccess;
+    }
+    // Need to worry about backslash-escaped characters.
+    while (1) {
+      line_iter = strchrnul2_n(line_iter, '\\', '"');
+      const char cc = *line_iter;
+      if (cc == '"') {
+        break;
+      }
+      if (unlikely((cc == '\n') || (line_iter[1] == '\n'))) {
+        goto BcfHeaderLineIdxCheck_FAIL;
+      }
+      line_iter = &(line_iter[2]);
+    }
+    ++line_iter;
+    const char cc = *line_iter;
+    if (cc == ',') {
+      continue;
+    }
+    if (likely(cc == '\n')) {
+      return kPglRetSuccess;
+    }
+    break;
+  }
+ BcfHeaderLineIdxCheck_FAIL:
+  logerrprintf("Error: Line %u in BCF text header block is malformed.\n", header_line_idx);
+  return kPglRetMalformedInput;
+}
+
+// Unlike the VCF case, everything in BcfImportContext is constant across the
+// file.  Variation in FORMAT field presence and order is dealt with before the
+// handoff to BcfGenoToPgenThread, and UINT32_MAX offset values are used to
+// indicate missing fields.
+typedef struct BcfImportContextBaseStruct {
+  uint32_t sample_ct;
+  VcfHalfCall halfcall_mode;
+  // [0] = GQ, [1] = DP
+  STD_ARRAY_DECL(int32_t, 2, qual_mins);
+  STD_ARRAY_DECL(int32_t, 2, qual_maxs);
+} BcfImportBaseContext;
+
+typedef struct BcfImportContext {
+  BcfImportBaseContext bibc;
+  uint32_t dosage_is_gp;
+  uint32_t dosage_erase_halfdist;
+  double import_dosage_certainty;
+} BcfImportContext;
+
+typedef struct BcfGenoToPgenCtxStruct {
+  BcfImportContext bic;
+  uint32_t hard_call_halfdist;
+
+  unsigned char** thread_wkspaces;
+
+  uint32_t* thread_bidxs[2];
+  GparseRecord* gparse[2];
+  const uintptr_t* block_allele_idx_offsets[2];
+
+  // PglErr set by main thread
+  VcfParseErr* bcf_parse_errs;
+  uintptr_t* err_vrec_idxs;
+  uint32_t parse_failed;
+} BcfGenoToPgenCtx;
+
+PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, uint32_t no_samples_ok, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
+  // Yes, lots of this is copied-and-pasted from VcfToPgen(), but there are
+  // enough differences that I don't think trying to handle them with the same
+  // function is wise.
+  unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  FILE* bcffile = nullptr;
+  const char* bgzf_errmsg = nullptr;
+  FILE* pvarfile = nullptr;
+  uintptr_t vrec_idx = 1;  // 1-based since it's only used in error messages
+  const uint32_t half_call_explicit_error = (halfcall_mode == kVcfHalfCallError);
+  PglErr reterr = kPglRetSuccess;
+  VcfParseErr bcf_parse_err = kVcfParseOk;
+  ThreadGroup tg;
+  PreinitThreads(&tg);
+  BcfGenoToPgenCtx ctx;
+  BgzfRawMtDecompressStream bgzf;
+  PreinitBgzfRawMtStream(&bgzf);
+  STPgenWriter spgw;
+  PreinitSpgw(&spgw);
+  {
+    // See TextFileOpenInternal().
+    bcffile = fopen(bcfname, FOPEN_RB);
+    if (unlikely(!bcffile)) {
+      const uint32_t slen = strlen(bcfname);
+      if (!StrEndsWith(bcfname, ".bcf", slen)) {
+        logerrprintfww("Error: Failed to open %s : %s. (--bcf expects a complete filename; did you forget '.bcf' at the end?)\n", bcfname, strerror(errno));
+      } else {
+        logerrprintfww(kErrprintfFopen, bcfname, strerror(errno));
+      }
+      goto BcfToPgen_ret_OPEN_FAIL;
+    }
+    uint32_t header_size;
+    {
+      char bgzf_header[16];
+      uint32_t nbytes = fread_unlocked(bgzf_header, 1, 16, bcffile);
+      if (unlikely(ferror(bcffile))) {
+        reterr = kPglRetReadFail;
+        goto BcfToPgen_ret_BGZF_FAIL;
+      }
+      if (unlikely((nbytes != 16) || (!IsBgzfHeader(bgzf_header)))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: %s is not a BCF2 file.\n", bcfname);
+        goto BcfToPgen_ret_MALFORMED_INPUT_WW;
+      }
+      reterr = BgzfRawMtStreamInit(bgzf_header, ClipU32(max_thread_ct - 1, 1, 4), bcffile, nullptr, &bgzf, &bgzf_errmsg);
+      if (unlikely(reterr)) {
+        goto BcfToPgen_ret_BGZF_FAIL;
+      }
+      unsigned char prefix_buf[9];
+      unsigned char* prefix_end = &(prefix_buf[9]);
+      unsigned char* dummy = prefix_buf;
+      reterr = BgzfRawMtStreamRead(prefix_end, &bgzf, &dummy, &bgzf_errmsg);
+      if (unlikely(reterr)) {
+        goto BcfToPgen_ret_BGZF_FAIL;
+      }
+      if (unlikely((dummy != prefix_end) || (!memequal_k(prefix_buf, "BCF", 3)))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: %s is not a BCF2 file.\n", bcfname);
+        goto BcfToPgen_ret_MALFORMED_INPUT_WW;
+      }
+      if (unlikely(prefix_buf[3] != 2)) {
+        if (prefix_buf[3] == 4) {
+          snprintf(g_logbuf, kLogbufSize, "Error: %s appears to be a BCF1 file; --bcf only supports BCF2. Use 'bcftools view' to convert it to a PLINK-readable BCF.\n", bcfname);
+        } else {
+          snprintf(g_logbuf, kLogbufSize, "Error: %s is not a BCF2 file.\n", bcfname);
+        }
+        goto BcfToPgen_ret_MALFORMED_INPUT_WW;
+      }
+      if (unlikely(prefix_buf[4] > 2)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: %s appears to be formatted as BCFv2.%u; this " PROG_NAME_STR " build only supports v2.0-2.2. You may need to obtain an updated version of PLINK.\n", bcfname, prefix_buf[4]);
+        goto BcfToPgen_ret_MALFORMED_INPUT_WW;
+      }
+      memcpy(&header_size, &(prefix_buf[5]), sizeof(int32_t));
+      if (unlikely(header_size < 59)) {
+        goto BcfToPgen_ret_MALFORMED_INPUT_GENERIC;
+      }
+    }
+    // can't be const due to how --vcf-idspace-to is implemented
+    char* vcf_header;
+    if (unlikely(
+            bigstack_alloc_c(header_size, &vcf_header))) {
+      goto BcfToPgen_ret_NOMEM;
+    }
+    {
+      unsigned char* header_load_iter = R_CAST(unsigned char*, vcf_header);
+      unsigned char* header_load_end = &(header_load_iter[header_size]);
+      reterr = BgzfRawMtStreamRead(header_load_end, &bgzf, &header_load_iter, &bgzf_errmsg);
+      if (unlikely(reterr)) {
+        goto BcfToPgen_ret_BGZF_FAIL;
+      }
+      if (unlikely(header_load_iter != header_load_end)) {
+        goto BcfToPgen_ret_MALFORMED_INPUT_GENERIC;
+      }
+    }
+    if (unlikely(vcf_header[header_size - 1] != '\n')) {
+      goto BcfToPgen_ret_MALFORMED_TEXT_HEADER;
+    }
+    char* vcf_header_end = &(vcf_header[header_size]);
+    const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
+    uint32_t dosage_import_field_slen = 0;
+
+    // == 2 when searched for and found in header
+    // then becomes a boolean
+    uint32_t format_hds_search = 0;
+
+    uint32_t unforced_gp = 0;
+    if (dosage_import_field) {
+      dosage_import_field_slen = strlen(dosage_import_field);
+      ctx.bic.dosage_is_gp = 0;
+      if (strequal_k(dosage_import_field, "HDS", dosage_import_field_slen)) {
+        format_hds_search = 1;
+        // special case: search for DS and HDS
+        dosage_import_field = &(dosage_import_field[1]);
+        dosage_import_field_slen = 2;
+      } else if (strequal_k(dosage_import_field, "GP-force", dosage_import_field_slen)) {
+        dosage_import_field = kGpText;
+        dosage_import_field_slen = 2;
+        ctx.bic.dosage_is_gp = 1;
+      } else if (strequal_k(dosage_import_field, "GP", dosage_import_field_slen)) {
+        unforced_gp = (import_dosage_certainty == 0.0);
+        ctx.bic.dosage_is_gp = 1;
+      }
+    }
+
+    ctx.bic.bibc.qual_mins[0] = vcf_min_gq;
+    ctx.bic.bibc.qual_mins[1] = vcf_min_dp;
+    ctx.bic.bibc.qual_maxs[0] = 0x7fffffff;
+    ctx.bic.bibc.qual_maxs[1] = vcf_max_dp;
+    // sample_ct set later
+    if (halfcall_mode == kVcfHalfCallDefault) {
+      halfcall_mode = kVcfHalfCallError;
+    }
+    ctx.bic.bibc.halfcall_mode = halfcall_mode;
+
+    // always positive
+    ctx.bic.dosage_erase_halfdist = kDosage4th - dosage_erase_thresh;
+
+    ctx.bic.import_dosage_certainty = import_dosage_certainty;
+
+    // Scan the text header block.
+    // We perform the same validation as --vcf.  In addition, we need to
+    // construct the contig and generic-string dictionaries; the latter may
+    // require awareness of IDX keys (TODO: fix this in plink 1.9).
+    // (There is also a comment in the specification about explicitly
+    // specifying a dictionary with a ##dictionary line, but AFAICT that is
+    // left over from early brainstorming, is not consistent with the rest of
+    // the design, and is not supported by bcftools so I assume it's a spec
+    // error.)
+    // hrec_add_idx() in htslib's vcf.c always puts IDX at the end of the
+    // header line, so I'll be lazy and print a not-yet-supported error message
+    // if it's positioned elsewhere for now.
+    uint32_t format_gt_present = 0;
+    uint32_t format_gq_relevant = 0;
+    uint32_t format_dp_relevant = 0;
+    uint32_t format_dosage_relevant = 0;
+    uint32_t info_pr_present = 0;
+    uint32_t info_pr_nonflag_present = 0;
+    uint32_t info_nonpr_present = 0;
+    uint32_t chrset_present = 0;
+    uint32_t contig_string_idx_end = 0;
+    uint32_t fif_string_idx_end = 0;  // fif = filter, info, format
+    uint32_t fif_explicit_idx_keys = 0;
+    uint32_t header_line_idx = 1;  // uint32 ok since uncompressed size < 2^32
+    char* line_iter = vcf_header;
+    for (; ; ++header_line_idx) {
+      if (unlikely(line_iter == vcf_header_end)) {
+        logerrputs("Error: No #CHROM header line in BCF text header block.\n");
+        goto BcfToPgen_ret_MALFORMED_INPUT;
+      }
+      if (unlikely(*line_iter != '#')) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Line %u in BCF text header block does not start with '#'.\n", header_line_idx);
+        goto BcfToPgen_ret_MALFORMED_INPUT_WW;
+      }
+      if (line_iter[1] != '#') {
+        break;
+      }
+      char* line_end = AdvPastDelim(&(line_iter[2]), '\n');
+      // Recognized header lines:
+      // ##fileformat: discard (regenerate; todo: conditionally error out)
+      // ##fileDate: discard (regenerate)
+      // ##source: discard (regenerate)
+      // ##contig: ID added to contig dictionary, conditionally keep
+      // ##FILTER: ID added to dictionary, otherwise passed through unchanged
+      // ##INFO: note presence of INFO:PR, note presence of at least one non-PR
+      //         field, keep data (though, if INFO:PR is the *only* field,
+      //         omit it from the .pvar for consistency with --make-pgen
+      //         default); ID added to dictionary
+      //         update (8 Sep 2017): nonflag INFO:PR is noted, and not treated
+      //         specially unless provisional-reference INFO:PR output would
+      //         conflict with it
+      // ##FORMAT: note presence of FORMAT:GT and FORMAT:GP, discard
+      //           (regenerate); ID added to dictionary
+      // ##chrSet: if recognized, perform consistency check and/or update
+      //           chr_info
+      //
+      // Everything else (##reference, etc.) is passed through
+      // unchanged.
+      //
+      // Because of how ##contig is handled (we only keep the lines which
+      // correspond to chromosomes/contigs actually present in the BCF, and not
+      // filtered out), we wait until the second pass to write the .pvar.
+      if (StrStartsWithUnsafe(&(line_iter[2]), "chrSet=<")) {
+        if (unlikely(chrset_present)) {
+          logerrputs("Error: Multiple ##chrSet header lines in BCF text header block.\n");
+          goto BcfToPgen_ret_MALFORMED_INPUT;
+        }
+        chrset_present = 1;
+        // .pvar loader will print a warning if necessary
+        reterr = ReadChrsetHeaderLine(&(line_iter[10]), "--bcf file", misc_flags, header_line_idx, cip);
+        if (unlikely(reterr)) {
+          goto BcfToPgen_ret_1;
+        }
+      } else {
+        // don't check for subsequent '=' just in case IDX= appears first
+        const uint32_t is_filter_line = StrStartsWithUnsafe(&(line_iter[2]), "FILTER=<ID");
+        const uint32_t is_info_line = StrStartsWithUnsafe(&(line_iter[2]), "INFO=<ID");
+        const uint32_t is_format_line = StrStartsWithUnsafe(&(line_iter[2]), "FORMAT=<ID");
+        if (is_filter_line || is_info_line || is_format_line) {
+          char* line_last_iter = &(line_end[-1]);
+          if (*line_last_iter == '\r') {
+            --line_last_iter;
+          }
+          if (unlikely(*line_last_iter != '>')) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Line %u in BCF text header block is malformed.\n", header_line_idx);
+            goto BcfToPgen_ret_MALFORMED_INPUT_2;
+          }
+          --line_last_iter;
+          // Assuming for now that the IDX key is at the end when present, it's
+          // present iff:
+          // - Last character inside <> is a digit.
+          // - Last nondigit characters inside <> are ",IDX=".
+          uint32_t cur_explicit_idx_key = 0;
+          if (IsDigit(*line_last_iter)) {
+            do {
+              --line_last_iter;
+            } while (IsDigit(*line_last_iter));
+            cur_explicit_idx_key = memequal_k(&(line_last_iter[-4]), ",IDX=", 5);
+          }
+          const char* id_start = &(line_iter[13 - 2 * is_info_line]);
+          if (!fif_string_idx_end) {
+            fif_explicit_idx_keys = cur_explicit_idx_key;
+            if (!cur_explicit_idx_key) {
+              // The BCF specification does not require IDX= to be at the end
+              // of the line, but it does require it to be present on all
+              // FILTER/INFO/FORMAT lines if it's present on any.
+              // Thus, if a conforming writer puts IDX= in the middle of any
+              // lines, we'll detect that either here, or in the next
+              // cur_explicit_idx_key != fif_explicit_idx_keys check.
+              reterr = BcfHeaderLineIdxCheck(&(id_start[-4]), header_line_idx);
+              if (unlikely(reterr)) {
+                goto BcfToPgen_ret_1;
+              }
+            }
+          } else {
+            if (unlikely(cur_explicit_idx_key != fif_explicit_idx_keys)) {
+              reterr = BcfHeaderLineIdxCheck(&(id_start[-4]), header_line_idx);
+              if (reterr != kPglRetSuccess) {
+                goto BcfToPgen_ret_1;
+              }
+              logerrputs("Error: Some FILTER/INFO/FORMAT line(s) in the BCF text header block have IDX\nkeys, and others don't; this is not permitted by the specification.\n");
+              goto BcfToPgen_ret_MALFORMED_INPUT;
+            }
+          }
+          if (!cur_explicit_idx_key) {
+            ++fif_string_idx_end;
+          } else {
+            uint32_t val;
+            if (unlikely(ScanUintIcap(&(line_last_iter[1]), &val))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid IDX= value on line %u of BCF text header block.\n", header_line_idx);
+              goto BcfToPgen_ret_MALFORMED_INPUT_2;
+            }
+            // Easier to check for duplicates on the second pass.
+            if (val >= fif_string_idx_end) {
+              fif_string_idx_end = val + 1;
+            }
+          }
+          if (id_start[-1] != '=') {
+            snprintf(g_logbuf, kLogbufSize, "Error: Line %u in BCF text header block is malformed.\n", header_line_idx);
+            goto BcfToPgen_ret_MALFORMED_INPUT_2;
+          }
+          const char* id_end = strchrnul_n(id_start, ',');
+          if (*id_end == '\n') {
+            snprintf(g_logbuf, kLogbufSize, "Error: Line %u in BCF text header block is malformed.\n", header_line_idx);
+            goto BcfToPgen_ret_MALFORMED_INPUT_2;
+          }
+          // Don't need to do anything else in this pass for FILTER case.
+          if (is_info_line) {
+            if (StrStartsWithUnsafe(id_start, "PR,Number=")) {
+              if (unlikely(info_pr_present || info_pr_nonflag_present)) {
+                logerrputs("Error: Duplicate INFO:PR line in BCF text header block.\n");
+                goto BcfToPgen_ret_MALFORMED_INPUT;
+              }
+              info_pr_nonflag_present = !StrStartsWithUnsafe(&(line_iter[2 + strlen("INFO=<ID=PR,Number=")]), "0,Type=Flag,Description=");
+              info_pr_present = 1 - info_pr_nonflag_present;
+              if (info_pr_nonflag_present) {
+                logerrprintfww("Warning: Line %u of BCF text header block has an unexpected definition of INFO:PR. This interferes with a few merge and liftover operations.\n", header_line_idx);
+              }
+            } else {
+              info_nonpr_present = 1;
+            }
+          } else if (is_format_line) {
+            if (StrStartsWithUnsafe(id_start, "GT,Number=")) {
+              if (unlikely(format_gt_present)) {
+                logerrputs("Error: Duplicate FORMAT:GT line in BCF text header block.\n");
+                goto BcfToPgen_ret_MALFORMED_INPUT;
+              }
+              if (unlikely(!StrStartsWithUnsafe(&(id_start[strlen("GT,Number=")]), "1,Type=String,Description="))) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Line %u of BCF text header block does not have expected FORMAT:GT format.\n", header_line_idx);
+                goto BcfToPgen_ret_MALFORMED_INPUT_WW;
+              }
+              format_gt_present = 1;
+            } else if ((vcf_min_gq != -1) && StrStartsWithUnsafe(id_start, "GQ,Number=1,Type=")) {
+              if (unlikely(format_gq_relevant)) {
+                logerrputs("Error: Duplicate FORMAT:GQ header line in BCF text header block.\n");
+                goto BcfToPgen_ret_MALFORMED_INPUT;
+              }
+              format_gq_relevant = 1;
+            } else if (((vcf_min_dp != -1) || (vcf_max_dp != 0x7fffffff)) && StrStartsWithUnsafe(id_start, "DP,Number=1,Type=")) {
+              if (unlikely(format_dp_relevant)) {
+                logerrputs("Error: Duplicate FORMAT:DP header line in BCF text header block.\n");
+                goto BcfToPgen_ret_MALFORMED_INPUT;
+              }
+              format_dp_relevant = 1;
+            } else if (dosage_import_field) {
+              const uint32_t id_slen = id_end - id_start;
+              if ((id_slen == dosage_import_field_slen) && memequal(id_start, dosage_import_field, dosage_import_field_slen)) {
+                if (unlikely(format_dosage_relevant)) {
+                  snprintf(g_logbuf, kLogbufSize, "Error: Duplicate FORMAT:%s header line in BCF text header block.\n", dosage_import_field);
+                  goto BcfToPgen_ret_MALFORMED_INPUT_WW;
+                }
+                format_dosage_relevant = 1;
+              } else if (format_hds_search && memequal_k(id_start, "HDS,", 4)) {
+                if (unlikely(format_hds_search == 2)) {
+                  logerrputs("Error: Duplicate FORMAT:HDS header line in BCF text header block.\n");
+                  goto BcfToPgen_ret_MALFORMED_INPUT;
+                }
+                format_hds_search = 2;
+              } else if (unforced_gp && memequal_k(id_start, "DS,", 3)) {
+                logerrputs("Error: --bcf dosage=GP specified, but --import-dosage-certainty was not and\nFORMAT:DS header line is present.\nSince " PROG_NAME_STR " collapses genotype probabilities down to dosages (even when\nperforming simple operations like \"" PROG_NAME_STR " --bcf ... --export bgen-1.2 ...\"),\n'dosage=GP' almost never makes sense in this situation.  Either change it to\n'dosage=DS' (if dosages are good enough for your analysis), or use another\nprogram to work with the genotype probabilities.\nThere is one notable exception to the preceding recommendation: you are writing\na script to process VCF files that are guaranteed to have FORMAT:GP, but may or\nmay not have FORMAT:DS.  You can use 'dosage=GP-force' to suppress this error\nin that situation.\n");
+                goto BcfToPgen_ret_INCONSISTENT_INPUT;
+              }
+            }
+          }
+        } else if (StrStartsWithUnsafe(&(line_iter[2]), "contig=<ID=")) {
+          ++contig_string_idx_end;
+        }
+      }
+      line_iter = line_end;
+    }
+
+    const uint32_t require_gt = (import_flags / kfImportVcfRequireGt) & 1;
+    if (unlikely((!format_gt_present) && require_gt)) {
+      logerrputs("Error: No FORMAT:GT field in BCF text header block, when --vcf-require-gt was\nspecified.\n");
+      goto BcfToPgen_ret_INCONSISTENT_INPUT;
+    }
+    if ((!format_gq_relevant) && (vcf_min_gq != -1)) {
+      logerrputs("Warning: No FORMAT:GQ field in BCF text header block.  --vcf-min-gq ignored.\n");
+      vcf_min_gq = -1;
+    }
+    if ((!format_dp_relevant) && ((vcf_max_dp != 0x7fffffff) || (vcf_min_dp != -1))) {
+      logerrputs("Warning: No FORMAT:DP field in BCF text header block.  --vcf-{max,min}-dp\nignored.\n");
+      vcf_max_dp = 0x7fffffff;
+      vcf_min_dp = -1;
+    }
+    const uint32_t format_gq_or_dp_relevant = format_gq_relevant || format_dp_relevant;
+    if (format_hds_search) {
+      --format_hds_search;
+      if (!format_hds_search) {
+        if (!format_dosage_relevant) {
+          logerrputs("Warning: No FORMAT:DS or :HDS field in BCF text header block.  Dosages will not\nbe imported.\n");
+        } else {
+          logerrputs("Warning: No FORMAT:HDS field in BCF text header block.  Dosages will be\nimported (from FORMAT:DS), but phase information will be limited or absent.\n");
+        }
+      }
+    } else if ((!format_dosage_relevant) && dosage_import_field) {
+      logerrprintfww("Warning: No FORMAT:%s field in BCF text header block. Dosages will not be imported.\n", dosage_import_field);
+    }
+    FinalizeChrset(misc_flags, cip);
+    // don't call FinalizeChrInfo here, since this may be followed by --pmerge,
+    // etc.
+
+    if (unlikely(!StrStartsWithUnsafe(line_iter, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO"))) {
+      snprintf(g_logbuf, kLogbufSize, "Error: Header line %u of BCF text header block does not have expected field sequence after #CHROM.\n", header_line_idx);
+      goto BcfToPgen_ret_MALFORMED_INPUT_WW;
+    }
+    char* linebuf_iter = &(line_iter[strlen("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO")]);
+    uint32_t sample_ct = 0;
+    if (StrStartsWithUnsafe(linebuf_iter, "\tFORMAT\t")) {
+      reterr = VcfSampleLine(preexisting_psamname, const_fid, misc_flags, import_flags, fam_cols, id_delim, idspace_to, 'b', &(linebuf_iter[strlen("\tFORMAT\t")]), outname, outname_end, &sample_ct);
+      if (unlikely(reterr)) {
+        goto BcfToPgen_ret_1;
+      }
+    }
+    if (unlikely((!sample_ct) && (!no_samples_ok))) {
+      logerrputs("Error: No samples in BCF text header block.  (This is only permitted when you\nhaven't specified another operation which requires genotype or sample\ninformation.)\n");
+      goto BcfToPgen_ret_INCONSISTENT_INPUT;
+    }
+    ctx.bic.bibc.sample_ct = sample_ct;
+
+    // Rescan header to save FILTER/INFO/FORMAT and contig ID dictionaries.
+    // (We could also print a warning when an INFO key type declaration is
+    // inconsistent with any variant entry, but that's not essential for
+    // decoding; let's get this working first.)
+    uintptr_t* contigs_seen;
+    const char** contig_names;
+    const char** fif_strings;
+    if (unlikely(
+            bigstack_calloc_w(BitCtToWordCt(contig_string_idx_end), &contigs_seen) ||
+            bigstack_alloc_kcp(contig_string_idx_end, &contig_names) ||
+            bigstack_calloc_kcp(fif_string_idx_end, &fif_strings))) {
+      goto BcfToPgen_ret_NOMEM;
+    }
+    {
+      unsigned char* tmp_alloc_end = bigstack_end_mark;
+      if (StoreStringAtEndK(g_bigstack_base, "PASS", strlen("PASS"), &tmp_alloc_end, &(fif_strings[0]))) {
+        goto BcfToPgen_ret_NOMEM;
+      }
+      line_iter = vcf_header;
+      uint32_t contig_idx = 0;
+      uint32_t fif_idx = 0;
+      for (uint32_t rescan_line_idx = 1; rescan_line_idx != header_line_idx; ++rescan_line_idx) {
+        char* line_end = AdvPastDelim(&(line_iter[2]), '\n');
+        const uint32_t is_filter_line = StrStartsWithUnsafe(&(line_iter[2]), "FILTER=<ID");
+        const uint32_t is_info_line = StrStartsWithUnsafe(&(line_iter[2]), "INFO=<ID");
+        const uint32_t is_format_line = StrStartsWithUnsafe(&(line_iter[2]), "FORMAT=<ID");
+        if (is_filter_line || is_info_line || is_format_line) {
+          const char* id_start = &(line_iter[13 - 2 * is_info_line]);
+          if (fif_explicit_idx_keys) {
+            char* line_last_iter = &(line_end[-1]);
+            if (*line_last_iter == '\r') {
+              --line_last_iter;
+            }
+            --line_last_iter;
+            while (IsDigit(*line_last_iter)) {
+              --line_last_iter;
+            }
+            // previously validated
+            ScanUintIcap(&(line_last_iter[1]), &fif_idx);
+          } else {
+            ++fif_idx;
+          }
+          if (unlikely(fif_strings[fif_idx])) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Multiple lines in BCF text header block have IDX=%u.\n", fif_idx);
+            goto BcfToPgen_ret_MALFORMED_INPUT_2;
+          }
+          const char* id_end = strchrnul_n(id_start, ',');
+          if (StoreStringAtEndK(g_bigstack_base, id_start, id_end - id_start, &tmp_alloc_end, &(fif_strings[fif_idx]))) {
+            goto BcfToPgen_ret_NOMEM;
+          }
+        } else if (StrStartsWithUnsafe(&(line_iter[2]), "contig=<ID=")) {
+          const char* id_start = &(line_iter[13]);
+          const char* id_end = strchrnul_n(id_start, ',');
+          if (StoreStringAtEndK(g_bigstack_base, id_start, id_end - id_start, &tmp_alloc_end, &(contig_names[contig_idx]))) {
+            goto BcfToPgen_ret_NOMEM;
+          }
+          ++contig_idx;
+        }
+        line_iter = line_end;
+      }
+    }
+    ;;;
+    // silence unused-variable/param warnings
+    printf("%u %u %u %u %" PRIuPTR " %u %" PRIuPTR " %" PRIuPTR "\n", allow_extra_chrs, format_gq_or_dp_relevant, bcf_parse_err, half_call_explicit_error, vrec_idx, hard_call_thresh, R_CAST(uintptr_t, pgen_generated_ptr), R_CAST(uintptr_t, psam_generated_ptr));
+    /*
+    uint32_t variant_ct = 0;
+    uintptr_t max_variant_ct = bigstack_left() / sizeof(intptr_t);
+    if (info_pr_present) {
+      // nonref_flags
+      max_variant_ct -= BitCtToAlignedWordCt(max_variant_ct) * kWordsPerVec;
+    }
+#ifdef __LP64__
+    if (max_variant_ct > 0x7ffffffd) {
+      max_variant_ct = 0x7ffffffd;
+    }
+#endif
+    uintptr_t base_chr_present[kChrExcludeWords];
+    ZeroWArr(kChrExcludeWords, base_chr_present);
+
+    uint32_t max_observed_rec_blen = 1;
+    const uintptr_t header_line_ct = line_idx;
+    const uint32_t max_variant_ctaw = BitCtToAlignedWordCt(max_variant_ct);
+    // don't need dosage_flags or dphase_flags; dosage overrides GT so slow
+    // parse needed
+    uintptr_t* nonref_flags = nullptr;
+    if (info_pr_present) {
+      nonref_flags = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(max_variant_ctaw * sizeof(intptr_t)));
+    }
+    uintptr_t* nonref_flags_iter = nonref_flags;
+    uintptr_t* allele_idx_offsets = R_CAST(uintptr_t*, g_bigstack_base);
+    uintptr_t max_postformat_blen = 1;  // starting from tab at end of FORMAT
+    uintptr_t variant_skip_ct = 0;
+    uintptr_t nonref_word = 0;
+    uintptr_t allele_idx_end = 0;
+    uint32_t max_alt_ct = 1;
+    uint32_t max_allele_slen = 1;
+    uint32_t max_qualfilterinfo_slen = 6;
+    uint32_t phase_or_dosage_found = 0;
+
+    while (1) {
+      ++line_idx;
+      line_iter = AdvPastDelim(line_iter, '\n');
+      const uint32_t prev_line_blen = line_iter - prev_line_start;
+      if (prev_line_blen > max_line_blen) {
+        max_line_blen = prev_line_blen;
+      }
+      reterr = TextNextLineUnsafe(&vcf_txs, &line_iter);
+      if (reterr) {
+        if (likely(reterr == kPglRetEof)) {
+          // reterr = kPglRetSuccess;
+          break;
+        }
+        goto VcfToPgen_ret_TSTREAM_FAIL;
+      }
+      prev_line_start = line_iter;
+      // we were previously tolerating trailing newlines here, but there wasn't
+      // a good reason for doing so.
+      if (unlikely(ctou32(*line_iter) <= 32)) {
+        if ((*line_iter == ' ') || (*line_iter == '\t')) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Leading space or tab on line %" PRIuPTR " of --vcf file.\n", line_idx);
+          goto VcfToPgen_ret_MALFORMED_INPUT_2N;
+        }
+        goto VcfToPgen_ret_MISSING_TOKENS;
+      }
+      linebuf_iter = line_iter;
+      char* chr_code_end = NextPrespace(line_iter);
+      if (unlikely(*chr_code_end != '\t')) {
+        goto VcfToPgen_ret_MISSING_TOKENS;
+      }
+      // QUAL/FILTER enforcement is now postponed till .pvar loading.  only
+      // other things we do during the scanning pass are (i) count alt alleles,
+      // and (ii) check whether any phased genotype calls are present.
+
+      char* pos_end = NextPrespace(chr_code_end);
+      if (unlikely(*pos_end != '\t')) {
+        goto VcfToPgen_ret_MISSING_TOKENS;
+      }
+
+      // may as well check ID length here
+      // postpone POS validation till second pass so we only have to parse it
+      // once
+      char* id_end = NextPrespace(pos_end);
+      if (unlikely(*id_end != '\t')) {
+        goto VcfToPgen_ret_MISSING_TOKENS;
+      }
+      if (unlikely(S_CAST(uintptr_t, id_end - pos_end) > kMaxIdBlen)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Invalid ID on line %" PRIuPTR " of --vcf file (max " MAX_ID_SLEN_STR " chars).\n", line_idx);
+        goto VcfToPgen_ret_MALFORMED_INPUT_WW;
+      }
+
+      // note REF length
+      char* ref_allele_start = &(id_end[1]);
+      linebuf_iter = FirstPrespace(ref_allele_start);
+      if (unlikely(*linebuf_iter != '\t')) {
+        goto VcfToPgen_ret_MISSING_TOKENS;
+      }
+      uint32_t cur_max_allele_slen = linebuf_iter - ref_allele_start;
+
+      uint32_t alt_ct = 1;
+      unsigned char ucc;
+      // treat ALT=. as if it were an actual allele for now
+      for (; ; ++alt_ct) {
+        char* cur_allele_start = ++linebuf_iter;
+        ucc = *linebuf_iter;
+        if (unlikely((ucc <= ',') && (ucc != '*'))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Invalid alternate allele on line %" PRIuPTR " of --vcf file.\n", line_idx);
+          goto VcfToPgen_ret_MALFORMED_INPUT_2N;
+        }
+        do {
+          ucc = *(++linebuf_iter);
+          // allow GATK 3.4 <*:DEL> symbolic allele
+        } while ((ucc > ',') || (ucc == '*'));
+        const uint32_t cur_allele_slen = linebuf_iter - cur_allele_start;
+        if (cur_allele_slen > cur_max_allele_slen) {
+          cur_max_allele_slen = cur_allele_slen;
+        }
+        if (ucc != ',') {
+          break;
+        }
+      }
+
+      if (unlikely(ucc != '\t')) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Malformed ALT field on line %" PRIuPTR " of --vcf file.\n", line_idx);
+        goto VcfToPgen_ret_MALFORMED_INPUT_2N;
+      }
+      if (alt_ct > max_alt_ct) {
+        max_alt_ct = alt_ct;
+      }
+
+      // skip QUAL, FILTER
+      char* qual_start_m1 = linebuf_iter;
+      for (uint32_t uii = 0; uii != 2; ++uii) {
+        linebuf_iter = NextPrespace(linebuf_iter);
+        if (unlikely(*linebuf_iter != '\t')) {
+          goto VcfToPgen_ret_MISSING_TOKENS;
+        }
+      }
+
+      // --vcf-require-gt
+      char* info_start = &(linebuf_iter[1]);
+      char* info_end = FirstPrespace(info_start);
+      if (sample_ct) {
+        if (unlikely(*info_end != '\t')) {
+          goto VcfToPgen_ret_MISSING_TOKENS;
+        }
+        linebuf_iter = &(info_end[1]);
+        vic.vibc.gt_present = memequal_k(linebuf_iter, "GT", 2) && ((linebuf_iter[2] == ':') || (linebuf_iter[2] == '\t'));
+        if (require_gt && (!vic.vibc.gt_present)) {
+          ++variant_skip_ct;
+          line_iter = linebuf_iter;
+          continue;
+        }
+      }
+      const uint32_t cur_qualfilterinfo_slen = info_end - qual_start_m1;
+
+      // all converters *do* respect chromosome filters
+      // wait till this point to apply it, since we don't want to
+      // add a contig name to the hash table unless at least one variant on
+      // that contig wasn't filtered out for other reasons.
+      uint32_t cur_chr_code;
+      reterr = GetOrAddChrCodeDestructive("--vcf file", line_idx, allow_extra_chrs, line_iter, chr_code_end, cip, &cur_chr_code);
+      if (unlikely(reterr)) {
+        goto VcfToPgen_ret_1;
+      }
+      if (!IsSet(cip->chr_mask, cur_chr_code)) {
+        ++variant_skip_ct;
+        line_iter = info_end;
+        continue;
+      }
+      if (cur_max_allele_slen > max_allele_slen) {
+        max_allele_slen = cur_max_allele_slen;
+      }
+      if (cur_qualfilterinfo_slen > max_qualfilterinfo_slen) {
+        max_qualfilterinfo_slen = cur_qualfilterinfo_slen;
+      }
+      if (cur_chr_code <= cip->max_code) {
+        SetBit(cur_chr_code, base_chr_present);
+      }
+
+      allele_idx_offsets[variant_ct] = allele_idx_end;
+      allele_idx_end += alt_ct + 1;
+      const uint32_t variant_idx_lowbits = variant_ct % kBitsPerWord;
+      if (info_pr_present) {
+        if (PrInInfoToken(info_end - info_start, info_start)) {
+          nonref_word |= k1LU << variant_idx_lowbits;
+        }
+        if (variant_idx_lowbits == (kBitsPerWord - 1)) {
+          *nonref_flags_iter++ = nonref_word;
+          nonref_word = 0;
+        }
+      }
+      if (sample_ct) {
+        // linebuf_iter currently points to beginning of FORMAT field
+        const char* format_end = FirstPrespace(linebuf_iter);
+        if (unlikely(*format_end != '\t')) {
+          goto VcfToPgen_ret_MISSING_TOKENS;
+        }
+        if (phase_or_dosage_found) {
+          goto VcfToPgen_linescan_done;
+        }
+
+        if (format_dosage_relevant) {
+          vic.dosage_field_idx = GetVcfFormatPosition(dosage_import_field, linebuf_iter, format_end, dosage_import_field_slen);
+        }
+        if (format_hds_search) {
+          // theoretically possible for HDS to be in VCF header without
+          // accompanying DS
+          vic.hds_field_idx = GetVcfFormatPosition("HDS", linebuf_iter, format_end, 3);
+        }
+        if (format_gq_or_dp_relevant) {
+          STD_ARRAY_DECL(uint32_t, 2, qual_field_idxs);
+          uint32_t qual_field_ct = VcfQualScanInit1(linebuf_iter, format_end, vcf_min_gq, vcf_min_dp, vcf_max_dp, qual_field_idxs);
+          // bugfix (5 Jun 2018): must initialize qual_field_ct to zero
+          vic.vibc.qual_field_ct = 0;
+          if (qual_field_ct) {
+            vic.vibc.qual_field_ct = VcfQualScanInit2(qual_field_idxs, ctx.qual_mins, ctx.qual_maxs, vic.vibc.qual_field_skips, vic.vibc.qual_line_mins, vic.vibc.qual_line_maxs);
+          }
+        }
+
+        // Check if there's at least one phased het call, and/or at least one
+        // relevant dosage.
+        // Don't bother multithreading this since it's trivial.
+        if ((vic.hds_field_idx != UINT32_MAX) || (vic.dosage_field_idx != UINT32_MAX)) {
+          if (alt_ct == 1) {
+            vcf_parse_err = VcfScanBiallelicHdsLine(&vic, format_end, &phase_or_dosage_found, &line_iter);
+          } else {
+            logerrputs("Error: --vcf multiallelic dosage import is under development.\n");
+            reterr = kPglRetNotYetSupported;
+            goto VcfToPgen_ret_1;
+          }
+          if (unlikely(vcf_parse_err)) {
+            goto VcfToPgen_ret_PARSE;
+          }
+        } else {
+          if (!vic.vibc.gt_present) {
+            goto VcfToPgen_linescan_done;
+          }
+          if (alt_ct < 10) {
+            phase_or_dosage_found = VcfScanShortallelicLine(&(vic.vibc), format_end, &line_iter);
+          } else {
+            phase_or_dosage_found = VcfScanLongallelicLine(&(vic.vibc), format_end, &line_iter);
+          }
+        }
+      VcfToPgen_linescan_done:
+        line_iter = AdvToDelim(line_iter, '\n');
+        const uint32_t cur_postformat_slen = line_iter - format_end;
+        if (cur_postformat_slen >= max_postformat_blen) {
+          max_postformat_blen = cur_postformat_slen + 1;
+        }
+      }
+      if (unlikely(variant_ct++ == max_variant_ct)) {
+#ifdef __LP64__
+        if (variant_ct == 0x7ffffffd) {
+          logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
+          goto VcfToPgen_ret_MALFORMED_INPUT;
+        }
+#endif
+        goto VcfToPgen_ret_NOMEM;
+      }
+      if (!(variant_ct % 1000)) {
+        printf("\r--vcf: %uk variants scanned.", variant_ct / 1000);
+        fflush(stdout);
+      }
+    }
+    if (variant_ct % kBitsPerWord) {
+      if (nonref_flags_iter) {
+        *nonref_flags_iter = nonref_word;
+      }
+    } else if (unlikely(!variant_ct)) {
+      logerrputs("Error: No variants in --vcf file.\n");
+      goto VcfToPgen_ret_INCONSISTENT_INPUT;
+    }
+
+    putc_unlocked('\r', stdout);
+    if (!variant_skip_ct) {
+      logprintf("--vcf: %u variant%s scanned.\n", variant_ct, (variant_ct == 1)? "" : "s");
+    } else {
+      logprintf("--vcf: %u variant%s scanned (%" PRIuPTR " skipped).\n", variant_ct, (variant_ct == 1)? "" : "s", variant_skip_ct);
+    }
+
+    if (allele_idx_end > 2 * variant_ct) {
+      allele_idx_offsets[variant_ct] = allele_idx_end;
+      BigstackFinalizeW(allele_idx_offsets, variant_ct + 1);
+    } else {
+      allele_idx_offsets = nullptr;
+    }
+
+    uint32_t calc_thread_ct;
+    {
+      // Close file, then reopen with a smaller line-load buffer and (if bgzf)
+      // reduce decompression thread count.  2 is good in the simplest cases
+      // (no GQ/DP filter, no dosage), otherwise limit to 1.
+      uint32_t decompress_thread_ct = 1;
+      if ((vcf_min_gq != -1) || (vcf_min_dp != -1) || (phase_or_dosage_found && (format_dosage_relevant || format_hds_search))) {
+        // "are lines expensive to parse?"  will add a multiallelic condition
+        // to the disjunction soon
+        // this is based on a bunch of DS-force measurements
+        calc_thread_ct = 1 + (sample_ct > 5) + (sample_ct > 12) + (sample_ct > 32) + (sample_ct > 512);
+      } else {
+        if (TextIsMt(&vcf_txs) && (max_thread_ct > 1)) {
+          decompress_thread_ct = 2;
+        }
+        // this seems to saturate around 3 threads.
+        calc_thread_ct = 1 + (sample_ct > 40) + (sample_ct > 320);
+      }
+      if (CleanupTextStream2(vcfname, &vcf_txs, &reterr)) {
+        goto VcfToPgen_ret_1;
+      }
+      BigstackEndReset(bigstack_end_mark);
+      reterr = InitTextStreamEx(vcfname, 1, kMaxLongLine, MAXV(max_line_blen, kTextStreamBlenFast), decompress_thread_ct, &vcf_txs);
+      if (unlikely(reterr)) {
+        goto VcfToPgen_ret_TSTREAM_REWIND_FAIL;
+      }
+      if (calc_thread_ct + decompress_thread_ct > max_thread_ct) {
+        calc_thread_ct = MAXV(1, max_thread_ct - decompress_thread_ct);
+      }
+    }
+
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &pvarfile))) {
+      goto VcfToPgen_ret_OPEN_FAIL;
+    }
+    for (line_idx = 1, line_iter = TextLineEnd(&vcf_txs); ; ++line_idx, line_iter = AdvPastDelim(line_iter, '\n')) {
+      reterr = TextNextLineUnsafe(&vcf_txs, &line_iter);
+      if (unlikely(reterr)) {
+        goto VcfToPgen_ret_TSTREAM_REWIND_FAIL;
+      }
+      if (line_idx == header_line_ct) {
+        break;
+      }
+      if (StrStartsWithUnsafe(line_iter, "##fileformat=") || StrStartsWithUnsafe(line_iter, "##fileDate=") || StrStartsWithUnsafe(line_iter, "##source=") || StrStartsWithUnsafe(line_iter, "##FORMAT=") || StrStartsWithUnsafe(line_iter, "##chrSet=")) {
+        continue;
+      }
+      if (StrStartsWithUnsafe(line_iter, "##contig=<ID=")) {
+        char* contig_name_start = &(line_iter[strlen("##contig=<ID=")]);
+        char* contig_name_end = strchrnul_n(contig_name_start, ',');
+        if (*contig_name_end != ',') {
+          contig_name_end = Memrchr(contig_name_start, '>', contig_name_end - contig_name_start);
+          if (unlikely(!contig_name_end)) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of --vcf file does not have expected ##contig format.\n", line_idx);
+            goto VcfToPgen_ret_MALFORMED_INPUT_WW;
+          }
+        }
+        const uint32_t cur_chr_code = GetChrCodeCounted(cip, contig_name_end - contig_name_start, contig_name_start);
+        if (IsI32Neg(cur_chr_code)) {
+          continue;
+        }
+        if (cur_chr_code <= cip->max_code) {
+          if (!IsSet(base_chr_present, cur_chr_code)) {
+            continue;
+          }
+        } else {
+          if (!IsSet(cip->chr_mask, cur_chr_code)) {
+            continue;
+          }
+        }
+        // Note that, when --output-chr is specified, we don't update the
+        // ##contig header line chromosome code in the .pvar file, since
+        // ##contig is not an explicit part of the .pvar specification, it's
+        // just another blob of text as far as the main body of plink2 is
+        // concerned.  However, the codes are brought in sync during VCF/BCF
+        // export.
+      }
+      // force OS-appropriate eoln
+      char* line_end = AdvToDelim(line_iter, '\n');
+#ifdef _WIN32
+      if (line_end[-1] == '\r') {
+        --line_end;
+      }
+      // NOT safe to use AppendBinaryEoln here.
+      if (unlikely(fwrite_checked(line_iter, line_end - line_iter, pvarfile))) {
+        goto VcfToPgen_ret_WRITE_FAIL;
+      }
+      if (unlikely(fputs_checked("\r\n", pvarfile))) {
+        goto VcfToPgen_ret_WRITE_FAIL;
+      }
+#else
+      char* line_write_end;
+      if (line_end[-1] == '\r') {
+        line_write_end = line_end;
+        line_end[-1] = '\n';
+      } else {
+        line_write_end = &(line_end[1]);
+      }
+      if (unlikely(fwrite_checked(line_iter, line_write_end - line_iter, pvarfile))) {
+        goto VcfToPgen_ret_WRITE_FAIL;
+      }
+#endif
+      line_iter = line_end;
+    }
+    char* write_iter = g_textbuf;
+    if (cip->chrset_source) {
+      AppendChrsetLine(cip, &write_iter);
+    }
+    write_iter = strcpya_k(write_iter, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER");
+    if (info_nonpr_present) {
+      write_iter = strcpya_k(write_iter, "\tINFO");
+    }
+    AppendBinaryEoln(&write_iter);
+    if (unlikely(fwrite_checked(g_textbuf, write_iter - g_textbuf, pvarfile))) {
+      goto VcfToPgen_ret_WRITE_FAIL;
+    }
+
+    const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
+    PgenGlobalFlags phase_dosage_gflags = kfPgenGlobal0;
+    GparseFlags gparse_flags = kfGparse0;  // yeah, this is a bit redundant
+    // bugfix (22 Jun 2018): if dosage= was specified, we need to reserve
+    // phasepresent/dosage_present buffers for each variant even when we know
+    // they'll be irrelevant, since they're needed during conversion.
+    if (phase_or_dosage_found || format_hds_search || format_dosage_relevant) {
+      if ((!format_hds_search) && (!format_dosage_relevant)) {
+        phase_dosage_gflags = kfPgenGlobalHardcallPhasePresent;
+        gparse_flags = kfGparseHphase;
+      } else {
+        // thanks to automatic --hard-call-threshold, we may need to save
+        // dosage-phase even when there's no HDS field
+        phase_dosage_gflags = kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent;
+        gparse_flags = kfGparseHphase | kfGparseDosage | kfGparseDphase;
+      }
+    }
+    uint32_t nonref_flags_storage = 1;
+    if (nonref_flags) {
+      const uint32_t variant_ctl_m1 = variant_ctl - 1;
+      const uintptr_t last_nonref_flags_word = nonref_flags[variant_ctl_m1];
+      if (!last_nonref_flags_word) {
+        for (uint32_t widx = 0; widx != variant_ctl_m1; ++widx) {
+          if (nonref_flags[widx]) {
+            nonref_flags_storage = 3;
+            break;
+          }
+        }
+      } else if (!((~last_nonref_flags_word) << ((-variant_ct) & (kBitsPerWord - 1)))) {
+        nonref_flags_storage = 2;
+        for (uint32_t widx = 0; widx != variant_ctl_m1; ++widx) {
+          if (~nonref_flags[widx]) {
+            nonref_flags_storage = 3;
+            break;
+          }
+        }
+      } else {
+        nonref_flags_storage = 3;
+      }
+      if (nonref_flags_storage != 3) {
+        // yeah, we may now have a temporary "memory leak" here (if
+        // multiallelic variants are present, and thus allele_idx_offsets[]
+        // must be kept around), but this array is typically only 1/64 the size
+        // of allele_idx_offsets[].
+        if (!allele_idx_offsets) {
+          BigstackReset(nonref_flags);
+        }
+        nonref_flags = nullptr;
+      }
+    }
+    char* writebuf;
+    if (unlikely(bigstack_alloc_c(2 * max_allele_slen + max_qualfilterinfo_slen + kMaxMediumLine + kMaxIdSlen + 32, &writebuf))) {
+      goto VcfToPgen_ret_NOMEM;
+    }
+    write_iter = writebuf;
+    char* writebuf_flush = &(writebuf[kMaxMediumLine]);
+    if (max_alt_ct > kPglMaxAltAlleleCt) {
+      logerrprintfww("Error: VCF file has a variant with %u ALT alleles; this build of " PROG_NAME_STR " is limited to %u.\n", max_alt_ct, kPglMaxAltAlleleCt);
+      reterr = kPglRetNotYetSupported;
+      goto VcfToPgen_ret_1;
+    }
+    const uint32_t max_allele_ct = max_alt_ct + 1;
+    // may as well have a functional progress meter in no-samples case
+    uint32_t main_block_size = MINV(65536, variant_ct);
+    uint32_t per_thread_block_limit = main_block_size;
+    uint32_t cur_thread_block_vidx_limit = 1;
+    uintptr_t per_thread_byte_limit = 0;
+    unsigned char* geno_bufs[2];
+    // defensive
+    geno_bufs[0] = nullptr;
+    geno_bufs[1] = nullptr;
+    if (hard_call_thresh == UINT32_MAX) {
+      hard_call_thresh = kDosageMid / 10;
+    }
+    const uint32_t hard_call_halfdist = kDosage4th - hard_call_thresh;
+    if (sample_ct) {
+      snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
+      uintptr_t spgw_alloc_cacheline_ct;
+      uint32_t max_vrec_len;
+      reterr = SpgwInitPhase1(outname, allele_idx_offsets, nonref_flags, variant_ct, sample_ct, phase_dosage_gflags, nonref_flags_storage, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+      if (unlikely(reterr)) {
+        if (reterr == kPglRetOpenFail) {
+          logerrprintfww(kErrprintfFopen, outname, strerror(errno));
+        }
+        goto VcfToPgen_ret_1;
+      }
+      unsigned char* spgw_alloc;
+      if (unlikely(bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc))) {
+        goto VcfToPgen_ret_NOMEM;
+      }
+      SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
+
+      if (unlikely(
+              bigstack_alloc_ucp(calc_thread_ct, &ctx.thread_wkspaces) ||
+              bigstack_alloc_u32(calc_thread_ct + 1, &(ctx.thread_bidxs[0])) ||
+              bigstack_alloc_u32(calc_thread_ct + 1, &(ctx.thread_bidxs[1])) ||
+              bigstack_calloc_w(calc_thread_ct, &ctx.err_line_idxs))) {
+        goto VcfToPgen_ret_NOMEM;
+      }
+      ctx.vcf_parse_errs = S_CAST(VcfParseErr*, bigstack_alloc_raw_rd(calc_thread_ct * sizeof(VcfParseErr)));
+      if (unlikely(!ctx.vcf_parse_errs)) {
+        goto VcfToPgen_ret_NOMEM;
+      }
+      ctx.sample_ct = sample_ct;
+      ctx.hard_call_halfdist = hard_call_halfdist;
+      ctx.dosage_erase_halfdist = vic.dosage_erase_halfdist;
+      ctx.import_dosage_certainty = import_dosage_certainty;
+      ctx.parse_failed = 0;
+      // defensive
+      ctx.gparse[0] = nullptr;
+      ctx.gparse[1] = nullptr;
+      ctx.block_allele_idx_offsets[0] = nullptr;
+      ctx.block_allele_idx_offsets[1] = nullptr;
+      // Finished with all other memory allocations, so all remaining workspace
+      // can be spent on multithreaded parsing.  Spend up to 1/6 on
+      // g_thread_wkspaces (tune this fraction later).
+      // Probable todo: factor out common parts with bgen-1.3 initialization
+      // into separate function(s).
+      uint64_t max_write_byte_ct = GparseWriteByteCt(sample_ct, max_allele_ct, gparse_flags);
+      // always allocate tmp_dphase_delta for now
+      uint64_t thread_wkspace_cl_ct = DivUp(max_write_byte_ct + sample_ct * sizeof(SDosage), kCacheline);
+      uintptr_t cachelines_avail = bigstack_left() / (6 * kCacheline);
+      if (calc_thread_ct * thread_wkspace_cl_ct > cachelines_avail) {
+        if (unlikely(thread_wkspace_cl_ct > cachelines_avail)) {
+          goto VcfToPgen_ret_NOMEM;
+        }
+        calc_thread_ct = cachelines_avail / thread_wkspace_cl_ct;
+      }
+      for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
+        ctx.thread_wkspaces[tidx] = S_CAST(unsigned char*, bigstack_alloc_raw(thread_wkspace_cl_ct * kCacheline));
+        ctx.vcf_parse_errs[tidx] = kVcfParseOk;
+      }
+
+      // be pessimistic re: rounding
+      cachelines_avail = (bigstack_left() / kCacheline) - 4;
+      const uint64_t max_bytes_req_per_variant = sizeof(GparseRecord) + MAXV(max_postformat_blen, max_write_byte_ct) + calc_thread_ct;
+      if (unlikely(cachelines_avail * kCacheline < 2 * max_bytes_req_per_variant)) {
+        goto VcfToPgen_ret_NOMEM;
+      }
+      // use worst-case gparse_flags since lines will usually be similar
+      uintptr_t min_bytes_req_per_variant = sizeof(GparseRecord) + GparseWriteByteCt(sample_ct, 2, gparse_flags);
+      main_block_size = (cachelines_avail * kCacheline) / (min_bytes_req_per_variant * 2);
+      // this is arbitrary, there's no connection to kPglVblockSize
+      if (main_block_size > 65536) {
+        main_block_size = 65536;
+      }
+      // divide by 2 for better parallelism in small-variant-count case
+      // round up per_thread_block_limit so we only have two blocks
+      if (main_block_size > DivUp(variant_ct, 2)) {
+        main_block_size = DivUp(variant_ct, 2) + calc_thread_ct - 1;
+      }
+      // may as well guarantee divisibility
+      per_thread_block_limit = main_block_size / calc_thread_ct;
+      main_block_size = per_thread_block_limit * calc_thread_ct;
+      if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
+        goto VcfToPgen_ret_NOMEM;
+      }
+      ctx.gparse[0] = S_CAST(GparseRecord*, bigstack_alloc_raw_rd(main_block_size * sizeof(GparseRecord)));
+      ctx.gparse[1] = S_CAST(GparseRecord*, bigstack_alloc_raw_rd(main_block_size * sizeof(GparseRecord)));
+      SetThreadFuncAndData(VcfGenoToPgenThread, &ctx, &tg);
+      cachelines_avail = bigstack_left() / (kCacheline * 2);
+      geno_bufs[0] = S_CAST(unsigned char*, bigstack_alloc_raw(cachelines_avail * kCacheline));
+      geno_bufs[1] = S_CAST(unsigned char*, bigstack_alloc_raw(cachelines_avail * kCacheline));
+      // This is only used for comparison purposes, so it is unnecessary to
+      // round it down to a multiple of kBytesPerVec even though every actual
+      // record will be vector-aligned.
+      per_thread_byte_limit = (cachelines_avail * kCacheline) / calc_thread_ct;
+    }
+
+    // Main workflow:
+    // 1. Set n=0, load genotype data for first main_block_size variants
+    //    while writing .pvar
+    //
+    // 2. Spawn threads processing batch n genotype data
+    // 3. If n>0, write results for block (n-1)
+    // 4. Increment n by 1
+    // 5. Load/write-.pvar for batch (n+1) unless eof
+    // 6. Join threads
+    // 7. Goto step 2 unless eof
+    //
+    // 8. Write results for last block
+    uint32_t prev_block_write_ct = 0;
+    uint32_t genotext_byte_ct = 0;
+    uintptr_t record_byte_ct = 0;
+    uint32_t allele_ct = 0;
+    uint32_t* thread_bidxs = nullptr;
+    GparseRecord* cur_gparse = nullptr;
+    unsigned char* geno_buf_iter = nullptr;
+    unsigned char* cur_thread_byte_stop = nullptr;
+    uint32_t parity = 0;
+    for (uint32_t vidx_start = 0; ; ) {
+      uint32_t cur_block_write_ct = 0;
+      if (!IsLastBlock(&tg)) {
+        const uint32_t block_vidx_limit = variant_ct - vidx_start;
+        cur_thread_block_vidx_limit = MINV(block_vidx_limit, per_thread_block_limit);
+        uint32_t cur_thread_fill_idx = 0;
+        if (sample_ct) {
+          thread_bidxs = ctx.thread_bidxs[parity];
+          cur_gparse = ctx.gparse[parity];
+          if (allele_idx_offsets) {
+            ctx.block_allele_idx_offsets[parity] = &(SpgwGetAlleleIdxOffsets(&spgw)[vidx_start]);
+          }
+          geno_buf_iter = geno_bufs[parity];
+          cur_thread_byte_stop = &(geno_buf_iter[per_thread_byte_limit]);
+          thread_bidxs[0] = 0;
+        }
+        uint32_t block_vidx = 0;
+        GparseRecord* grp;
+        if (!genotext_byte_ct) {
+          goto VcfToPgen_load_start;
+        }
+        // we may stop before main_block_size due to insufficient space in
+        // geno_bufs[parity].  if so, we copy over the post-FORMAT part of the
+        // current line before proceeding.
+        while (1) {
+          grp = &(cur_gparse[block_vidx]);
+          grp->record_start = geno_buf_iter;
+          grp->flags = gparse_flags;
+          STD_ARRAY_COPY(vic.vibc.qual_field_skips, 2, grp->metadata.read_vcf.qual_field_idxs);
+          grp->metadata.read_vcf.gt_present = vic.vibc.gt_present;
+          grp->metadata.read_vcf.qual_present = vic.vibc.qual_field_ct;
+          grp->metadata.read_vcf.dosage_field_idx = vic.dosage_field_idx;
+          grp->metadata.read_vcf.hds_field_idx = vic.hds_field_idx;
+          grp->metadata.read_vcf.line_idx = line_idx;
+          if (gparse_flags != kfGparseNull) {
+            memcpy(geno_buf_iter, linebuf_iter, genotext_byte_ct);
+          }
+          geno_buf_iter = &(geno_buf_iter[record_byte_ct]);
+          ++block_vidx;
+
+          // true iff this is the last variant we're keeping in the entire
+          // file
+          if (block_vidx == block_vidx_limit) {
+            for (; cur_thread_fill_idx != calc_thread_ct; ) {
+              // save endpoint for current thread, and tell any leftover
+              // threads to do nothing
+              thread_bidxs[++cur_thread_fill_idx] = block_vidx;
+            }
+            break;
+          }
+        VcfToPgen_load_start:
+          ++line_idx;
+          line_iter = AdvPastDelim(line_iter, '\n');
+          // In principle, it shouldn't be necessary to check the exact value
+          // of reterr, but this may be useful for bug investigation.
+          reterr = TextNextLineUnsafe(&vcf_txs, &line_iter);
+          if (unlikely(reterr)) {
+            goto VcfToPgen_ret_TSTREAM_REWIND_FAIL;
+          }
+
+          // 1. check if we skip this variant.  chromosome filter and
+          //    require_gt can cause this.
+          char* chr_code_end = AdvToDelim(line_iter, '\t');
+          uint32_t chr_code_base = GetChrCodeRaw(line_iter);
+          if (chr_code_base == UINT32_MAX) {
+            // skip hash table lookup if we know we aren't skipping the variant
+            if (variant_skip_ct) {
+              *chr_code_end = '\0';
+              // can't overread, nonstd_names not in main workspace
+              const uint32_t chr_code = IdHtableFind(line_iter, TO_CONSTCPCONSTP(cip->nonstd_names), cip->nonstd_id_htable, chr_code_end - line_iter, kChrHtableSize);
+              if ((chr_code == UINT32_MAX) || (!IsSet(cip->chr_mask, chr_code))) {
+                line_iter = chr_code_end;
+                goto VcfToPgen_load_start;
+              }
+              *chr_code_end = '\t';
+            }
+          } else {
+            if (chr_code_base >= kMaxContigs) {
+              chr_code_base = cip->xymt_codes[chr_code_base - kMaxContigs];
+            }
+            if (IsI32Neg(chr_code_base) || (!IsSet(base_chr_present, chr_code_base))) {
+              assert(variant_skip_ct);
+              line_iter = chr_code_end;
+              goto VcfToPgen_load_start;
+            }
+          }
+          // chr_code_base is now a proper numeric chromosome index for
+          // non-contigs, and UINT32_MAX if it's a contig name
+          char* pos_str = &(chr_code_end[1]);
+          char* pos_str_end = AdvToDelim(pos_str, '\t');
+          // copy ID, REF verbatim
+          linebuf_iter = AdvToNthDelim(&(pos_str_end[1]), 2, '\t');
+
+          // ALT, QUAL, FILTER, INFO
+          char* filter_end = AdvToNthDelim(&(linebuf_iter[1]), 3, '\t');
+          char* format_start = nullptr;
+          char* info_end;
+          if (sample_ct) {
+            info_end = AdvToDelim(&(filter_end[1]), '\t');
+            format_start = &(info_end[1]);
+            vic.vibc.gt_present = memequal_k(format_start, "GT", 2) && ((format_start[2] == ':') || (format_start[2] == '\t'));
+            if (require_gt && (!vic.vibc.gt_present)) {
+              line_iter = format_start;
+              goto VcfToPgen_load_start;
+            }
+          } else {
+            info_end = NextPrespace(filter_end);
+          }
+
+          // make sure POS starts with an integer, apply --output-chr setting
+          uint32_t cur_bp;
+          if (unlikely(ScanUintDefcap(pos_str, &cur_bp))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid POS on line %" PRIuPTR " of --vcf file.\n", line_idx);
+            goto VcfToPgen_ret_MALFORMED_INPUT_2N;
+          }
+
+          if (chr_code_base == UINT32_MAX) {
+            write_iter = memcpya(write_iter, line_iter, chr_code_end - line_iter);
+          } else {
+            write_iter = chrtoa(cip, chr_code_base, write_iter);
+          }
+          *write_iter++ = '\t';
+          write_iter = u32toa(cur_bp, write_iter);
+
+          // first copy includes both REF and ALT1
+          char* copy_start = pos_str_end;
+          uint32_t alt_ct;
+          for (alt_ct = 1; ; ++alt_ct) {
+            ++linebuf_iter;
+            unsigned char ucc;
+            do {
+              ucc = *(++linebuf_iter);
+              // allow GATK 3.4 <*:DEL> symbolic allele
+            } while ((ucc > ',') || (ucc == '*'));
+            write_iter = memcpya(write_iter, copy_start, linebuf_iter - copy_start);
+            if (fwrite_ck(writebuf_flush, pvarfile, &write_iter)) {
+              goto VcfToPgen_ret_WRITE_FAIL;
+            }
+            if (ucc != ',') {
+              break;
+            }
+            copy_start = linebuf_iter;
+          }
+
+          if (info_nonpr_present) {
+            // VCF specification permits whitespace in INFO field, while PVAR
+            // does not.  Check for whitespace and error out if necessary.
+            if (unlikely(memchr(filter_end, ' ', info_end - filter_end))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: INFO field on line %" PRIuPTR " of --vcf file contains a space; this cannot be imported by " PROG_NAME_STR ".  Remove or reformat the field before reattempting import.\n", line_idx);
+              goto VcfToPgen_ret_MALFORMED_INPUT_2N;
+            }
+            write_iter = memcpya(write_iter, linebuf_iter, info_end - linebuf_iter);
+          } else {
+            write_iter = memcpya(write_iter, linebuf_iter, filter_end - linebuf_iter);
+          }
+          AppendBinaryEoln(&write_iter);
+          if (!sample_ct) {
+            if (++block_vidx == cur_thread_block_vidx_limit) {
+              break;
+            }
+            line_iter = info_end;
+            goto VcfToPgen_load_start;
+          }
+          if ((!vic.vibc.gt_present) && (!format_dosage_relevant) && (!format_hds_search)) {
+            gparse_flags = kfGparseNull;
+            genotext_byte_ct = 1;
+          } else {
+            linebuf_iter = AdvToDelim(format_start, '\t');
+            if (format_gq_or_dp_relevant) {
+              vic.vibc.qual_field_ct = VcfQualScanInit1(format_start, linebuf_iter, vcf_min_gq, vcf_min_dp, vcf_max_dp, vic.vibc.qual_field_skips);
+            }
+            if ((!phase_or_dosage_found) && (!format_dosage_relevant) && (!format_hds_search)) {
+              gparse_flags = kfGparse0;
+            } else {
+              if (format_dosage_relevant) {
+                vic.dosage_field_idx = GetVcfFormatPosition(dosage_import_field, format_start, linebuf_iter, dosage_import_field_slen);
+              }
+              if (format_hds_search) {
+                vic.hds_field_idx = GetVcfFormatPosition("HDS", format_start, linebuf_iter, 3);
+              }
+              gparse_flags = ((vic.dosage_field_idx != UINT32_MAX) || (vic.hds_field_idx != UINT32_MAX))? (kfGparseHphase | kfGparseDosage | kfGparseDphase) : kfGparseHphase;
+            }
+            line_iter = AdvToDelim(linebuf_iter, '\n');
+            genotext_byte_ct = 1 + S_CAST(uintptr_t, line_iter - linebuf_iter);
+          }
+          allele_ct = alt_ct + 1;
+          const uintptr_t write_byte_ct_limit = GparseWriteByteCt(sample_ct, allele_ct, gparse_flags);
+          record_byte_ct = MAXV(RoundUpPow2(genotext_byte_ct, kBytesPerVec), write_byte_ct_limit);
+
+          if ((block_vidx == cur_thread_block_vidx_limit) || (S_CAST(uintptr_t, cur_thread_byte_stop - geno_buf_iter) < record_byte_ct)) {
+            thread_bidxs[++cur_thread_fill_idx] = block_vidx;
+            if (cur_thread_fill_idx == calc_thread_ct) {
+              break;
+            }
+            cur_thread_byte_stop = &(cur_thread_byte_stop[per_thread_byte_limit]);
+            cur_thread_block_vidx_limit = MINV(cur_thread_block_vidx_limit + per_thread_block_limit, block_vidx_limit);
+          }
+        }
+        cur_block_write_ct = block_vidx;
+      }
+      if (sample_ct) {
+        if (vidx_start) {
+          JoinThreads(&tg);
+          if (unlikely(ctx.parse_failed)) {
+            goto VcfToPgen_ret_THREAD_PARSE;
+          }
+        }
+        if (!IsLastBlock(&tg)) {
+          if (vidx_start + cur_block_write_ct == variant_ct) {
+            DeclareLastThreadBlock(&tg);
+          }
+          if (unlikely(SpawnThreads(&tg))) {
+            goto VcfToPgen_ret_THREAD_CREATE_FAIL;
+          }
+        }
+        parity = 1 - parity;
+        if (vidx_start) {
+          // write *previous* block results
+          reterr = GparseFlush(ctx.gparse[parity], prev_block_write_ct, &spgw);
+          if (unlikely(reterr)) {
+            goto VcfToPgen_ret_1;
+          }
+        }
+      } else if (vidx_start + cur_block_write_ct == variant_ct) {
+        break;
+      }
+      if (vidx_start == variant_ct) {
+        break;
+      }
+      if (vidx_start) {
+        printf("\r--vcf: %uk variants converted.", vidx_start / 1000);
+        if (vidx_start <= main_block_size) {
+          fputs("    \b\b\b\b", stdout);
+        }
+        fflush(stdout);
+      }
+      vidx_start += cur_block_write_ct;
+      prev_block_write_ct = cur_block_write_ct;
+    }
+    if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &pvarfile))) {
+      goto VcfToPgen_ret_WRITE_FAIL;
+    }
+    if (sample_ct) {
+      SpgwFinish(&spgw);
+    }
+    putc_unlocked('\r', stdout);
+    write_iter = strcpya_k(g_logbuf, "--vcf: ");
+    const uint32_t outname_base_slen = outname_end - outname;
+    if (sample_ct) {
+      write_iter = memcpya(write_iter, outname, outname_base_slen + 5);
+      write_iter = strcpya_k(write_iter, " + ");
+    } else {
+      *pgen_generated_ptr = 0;
+    }
+    write_iter = memcpya(write_iter, outname, outname_base_slen);
+    write_iter = strcpya_k(write_iter, ".pvar");
+    if (sample_ct && (!preexisting_psamname)) {
+      write_iter = strcpya_k(write_iter, " + ");
+      write_iter = memcpya(write_iter, outname, outname_base_slen);
+      write_iter = strcpya_k(write_iter, ".psam");
+    } else {
+      *psam_generated_ptr = 0;
+    }
+    write_iter = strcpya_k(write_iter, " written");
+    if (!sample_ct) {
+      write_iter = strcpya_k(write_iter, " (no samples present)");
+    }
+    strcpy_k(write_iter, ".\n");
+    WordWrapB(0);
+    logputsb();
+    */
+  }
+  while (0) {
+  BcfToPgen_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  BcfToPgen_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+    /*
+  BcfToPgen_ret_READ_FAIL:
+    reterr = kPglRetReadFail;
+    break;
+  BcfToPgen_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+    */
+  BcfToPgen_ret_BGZF_FAIL:
+    // ReadFail, DecompressFail, and ThreadCreateFail possible.
+    if (reterr == kPglRetReadFail) {
+      logerrprintfww(kErrprintfFread, bcfname, strerror(errno));
+    } else if (reterr == kPglRetDecompressFail) {
+      logerrprintfww(kErrprintfDecompress, bcfname, bgzf_errmsg);
+    }
+    break;
+    /*
+  BcfToPgen_ret_THREAD_PARSE:
+    {
+      // Doesn't really cost us anything to report the first error if multiple
+      // converter threads error out in the same block, though we can't
+      // generally guarantee that we'll report the first error in the file.
+      for (uint32_t tidx = 0; ; ++tidx) {
+        bcf_parse_err = ctx.bcf_parse_errs[tidx];
+        if (bcf_parse_err) {
+          vrec_idx = ctx.err_vrec_idxs[tidx];
+          break;
+        }
+      }
+    }
+  BcfToPgen_ret_PARSE:
+    if (bcf_parse_err == kVcfParseInvalidGt) {
+      putc_unlocked('\n', stdout);
+      logerrprintf("Error: Variant record #%" PRIuPTR " of --bcf file has an invalid GT field.\n", vrec_idx);
+      reterr = kPglRetMalformedInput;
+      break;
+    } else if (bcf_parse_err == kVcfParseHalfCallError) {
+      putc_unlocked('\n', stdout);
+      logerrprintf("Error: Variant record #%" PRIuPTR " of --bcf file has a GT half-call.\n", vrec_idx);
+      if (!half_call_explicit_error) {
+        logerrputs("Use --vcf-half-call to specify how these should be processed.\n");
+      }
+      reterr = kPglRetMalformedInput;
+      break;
+    } else if (bcf_parse_err == kVcfParseInvalidDosage) {
+      putc_unlocked('\n', stdout);
+      logerrprintfww("Error: Variant record #%" PRIuPTR " of --bcf file has an invalid %s field.\n", vrec_idx, dosage_import_field);
+      reterr = kPglRetInconsistentInput;
+      break;
+    }
+  BcfToPgen_ret_VREC_GENERIC:
+    putc_unlocked('\n', stdout);
+    logerrprintf("Error: Variant record #%" PRIuPTR " of --bcf file is malformed.\n", vrec_idx);
+    reterr = kPglRetMalformedInput;
+    break;
+  BcfToPgen_ret_MALFORMED_INPUT_2N:
+    logputs("\n");
+    */
+  BcfToPgen_ret_MALFORMED_INPUT_2:
+    logerrputsb();
+  BcfToPgen_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  BcfToPgen_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+    reterr = kPglRetMalformedInput;
+    break;
+  BcfToPgen_ret_MALFORMED_INPUT_GENERIC:
+    logerrputs("Error: Malformed BCF file.\n");
+    reterr = kPglRetMalformedInput;
+    break;
+  BcfToPgen_ret_MALFORMED_TEXT_HEADER:
+    logerrputs("Error: Malformed BCF text header block.\n");
+    reterr = kPglRetMalformedInput;
+    break;
+  BcfToPgen_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+    /*
+  BcfToPgen_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
+    break;
+    */
+  }
+ BcfToPgen_ret_1:
+  CleanupSpgw(&spgw, &reterr);
+  CleanupThreads(&tg);
+  fclose_cond(pvarfile);
+  CleanupBgzfRawMtStream(&bgzf);
+  fclose_cond(bcffile);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }

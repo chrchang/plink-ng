@@ -3875,12 +3875,10 @@ PglErr MakeFilterHtable(const uintptr_t* variant_include, const uintptr_t* filte
           for (uint32_t hashval = Hash32(filter_iter, cur_id_slen) >> hash_shift; ; ) {
             char* cur_token_ptr = filter_tokens[hashval];
             if (!cur_token_ptr) {
-              char* storage_loc = R_CAST(char*, tmp_alloc_base);
-              tmp_alloc_base = &(tmp_alloc_base[cur_id_slen + 1]);
-              if (unlikely(tmp_alloc_base > tmp_alloc_end)) {
+              char* storage_loc;
+              if (StoreStringAtBase(tmp_alloc_end, filter_iter, cur_id_slen, &tmp_alloc_base, &storage_loc)) {
                 goto MakeFilterHtable_ret_NOMEM;
               }
-              memcpyx(storage_loc, filter_iter, cur_id_slen, '\0');
               ++filter_key_ct;
               if (filter_key_ct * 4 < table_size) {
                 filter_tokens[hashval] = storage_loc;

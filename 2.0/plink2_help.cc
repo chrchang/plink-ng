@@ -1159,8 +1159,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      scoreavgs: Score averages.\n"
 "      scoresums: Score sums.\n"
 "    The default is maybefid,maybesid,phenos,nallele,dosagesum,scoreavgs.\n"
-"    For more sophisticated polygenic risk scoring, we recommend the PRSice-2\n"
-"    software package (https://www.prsice.info/ ).\n\n"
+"    For more sophisticated polygenic risk scoring, we recommend looking at the\n"
+"    LDpred (https://github.com/bvilhjal/ldpred ) and PRSice-2\n"
+"    (https://www.prsice.info/ ) software packages.\n\n"
                );
     HelpPrint("variant-score\0vscore\0", &help_ctrl, 1,
 "  --variant-score <filename> ['zs'] ['bin' | 'cols='<col set descriptor>]\n"
@@ -1185,7 +1186,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      (Variant scores are always present, and positioned here.)\n"
 "    Default is chrom,pos,ref,alt.\n"
 "    If binary output is requested instead, the main .vscore.bin matrix contains\n"
-"    double-precision floating-point values, column (score) ID(s) are saved to a\n"
+"    double-precision floating-point values, column (score) ID(s) are saved to\n"
 "    <output prefix>.vscore.cols, and variant IDs are saved to\n"
 "    <output prefix>.vscore.vars[.zst].\n\n"
               );

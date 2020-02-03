@@ -209,7 +209,15 @@ HEADER_INLINE CXXCONST_CP strchrnul_n(const char* ss, unsigned char ucc1) {
   return S_CAST(CXXCONST_CP, rawmemchr2(ss, ucc1, '\n'));
 }
 
-CXXCONST_CP strchrnul2(const char* ss, unsigned char ucc1, unsigned char ucc2);
+CXXCONST_VOIDP rawmemchr3(const void* ss, unsigned char ucc1, unsigned char ucc2, unsigned char ucc3);
+
+HEADER_INLINE CXXCONST_CP strchrnul2(const char* ss, unsigned char ucc1, unsigned char ucc2) {
+  return S_CAST(CXXCONST_CP, rawmemchr3(ss, ucc1, ucc2, '\0'));
+}
+
+HEADER_INLINE CXXCONST_CP strchrnul2_n(const char* ss, unsigned char ucc1, unsigned char ucc2) {
+  return S_CAST(CXXCONST_CP, rawmemchr3(ss, ucc1, ucc2, '\n'));
+}
 
 CXXCONST_CP strchrnul3(const char* ss, unsigned char ucc1, unsigned char ucc2, unsigned char ucc3);
 
@@ -222,8 +230,16 @@ HEADER_INLINE char* strchrnul_n(char* ss, unsigned char ucc1) {
   return const_cast<char*>(strchrnul_n(const_cast<const char*>(ss), ucc1));
 }
 
+HEADER_INLINE void* rawmemchr3(void* ss, unsigned char ucc1, unsigned char ucc2, unsigned char ucc3) {
+  return const_cast<void*>(rawmemchr3(const_cast<const void*>(ss), ucc1, ucc2, ucc3));
+}
+
 HEADER_INLINE char* strchrnul2(char* ss, unsigned char ucc1, unsigned char ucc2) {
   return const_cast<char*>(strchrnul2(const_cast<const char*>(ss), ucc1, ucc2));
+}
+
+HEADER_INLINE char* strchrnul2_n(char* ss, unsigned char ucc1, unsigned char ucc2) {
+  return const_cast<char*>(strchrnul2_n(const_cast<const char*>(ss), ucc1, ucc2));
 }
 
 HEADER_INLINE char* strchrnul3(char* ss, unsigned char ucc1, unsigned char ucc2, unsigned char ucc3) {
@@ -752,8 +768,8 @@ HEADER_INLINE CXXCONST_CP FirstPrechar(const char* str_iter, uint32_t char_code)
 // trusted to use movemask:
 //   strlen, strchr, memchr
 //   rawmemchr, strchrnul
-//   rawmemchr2, strnul, strchrnul_n, strchrnul2, strchrnul3, strchrnul_n_mov,
-//     incr_strchrnul_n_mov
+//   rawmemchr2, rawmemchr3, strnul, strchrnul_n, strchrnul2, strchrnul3,
+//     strchrnul_n_mov, incr_strchrnul_n_mov
 //   NextTokenMultFar
 //   AdvToNthDelimChecked, AdvToNthDelim, AdvToDelimOrEnd, Memrchr,
 //     LastSpaceOrEoln

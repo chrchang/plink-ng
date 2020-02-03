@@ -287,16 +287,14 @@ BoolErr VaridTemplateApply(unsigned char* tmp_alloc_base, const VaridTemplate* v
     // er, do we really want to make a separate allocation here?  see if we can
     // remove this.  (that would impose more constraints on downstream
     // variant-ID-changing functions, though.)
-    *tmp_alloc_endp -= overflow_substitute_blen;
-    if (unlikely((*tmp_alloc_endp) < tmp_alloc_base)) {
+    if (PtrWSubCk(tmp_alloc_base, overflow_substitute_blen, tmp_alloc_endp)) {
       return 1;
     }
     memcpy(*tmp_alloc_endp, vtp->missing_id_match, overflow_substitute_blen);
     id_slen = 0;
     cur_overflow = 1;
   } else {
-    *tmp_alloc_endp -= id_slen + 1;
-    if (unlikely((*tmp_alloc_endp) < tmp_alloc_base)) {
+    if (PtrWSubCk(tmp_alloc_base, id_slen + 1, tmp_alloc_endp)) {
       return 1;
     }
     char* id_iter = R_CAST(char*, *tmp_alloc_endp);
@@ -1589,12 +1587,9 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
                 if (filter_slen > max_filter_slen) {
                   max_filter_slen = filter_slen;
                 }
-                tmp_alloc_end -= filter_slen + 1;
-                if (unlikely(tmp_alloc_end < tmp_alloc_base)) {
+                if (StoreStringAtEnd(tmp_alloc_base, filter_token, filter_slen, &tmp_alloc_end, &(cur_filter_storage[variant_idx_lowbits]))) {
                   goto LoadPvar_ret_NOMEM;
                 }
-                cur_filter_storage[variant_idx_lowbits] = R_CAST(char*, tmp_alloc_end);
-                memcpyx(tmp_alloc_end, filter_token, filter_slen, '\0');
               }
             }
             if (load_filter_col > 1) {
@@ -1615,8 +1610,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         uint32_t id_slen;
         if ((!varid_templatep) || (missing_varid_match_slen && ((token_slens[1] != missing_varid_match_slen) || (!memequal(token_ptrs[1], missing_varid_match, missing_varid_match_slen))))) {
           id_slen = token_slens[1];
-          tmp_alloc_end -= id_slen + 1;
-          if (unlikely(tmp_alloc_end < tmp_alloc_base)) {
+          if (PtrWSubCk(tmp_alloc_base, id_slen + 1, &tmp_alloc_end)) {
             goto LoadPvar_ret_NOMEM;
           }
           memcpyx(tmp_alloc_end, token_ptrs[1], id_slen, '\0');
@@ -1650,12 +1644,9 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           }
           *allele_storage_iter = &(g_one_char_strs[2 * ctou32(geno_char)]);
         } else {
-          tmp_alloc_end -= ref_slen + 1;
-          if (unlikely(tmp_alloc_end < tmp_alloc_base)) {
+          if (StoreStringAtEndK(tmp_alloc_base, ref_allele, ref_slen, &tmp_alloc_end, allele_storage_iter)) {
             goto LoadPvar_ret_NOMEM;
           }
-          memcpyx(tmp_alloc_end, ref_allele, ref_slen, '\0');
-          *allele_storage_iter = R_CAST(char*, tmp_alloc_end);
           if (ref_slen > max_allele_slen) {
             max_allele_slen = ref_slen;
           }
@@ -1681,11 +1672,9 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
               if (unlikely(!cur_allele_slen)) {
                 goto LoadPvar_ret_EMPTY_ALLELE_CODE;
               }
-              if (PtrWSubCk(tmp_alloc_base, cur_allele_slen + 1, &tmp_alloc_end)) {
+              if (StoreStringAtEndK(tmp_alloc_base, linebuf_iter, cur_allele_slen, &tmp_alloc_end, allele_storage_iter)) {
                 goto LoadPvar_ret_NOMEM;
               }
-              memcpyx(tmp_alloc_end, linebuf_iter, cur_allele_slen, '\0');
-              *allele_storage_iter = R_CAST(char*, tmp_alloc_end);
               if (cur_allele_slen > max_allele_slen) {
                 max_allele_slen = cur_allele_slen;
               }
@@ -1705,11 +1694,9 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           }
           *allele_storage_iter = &(g_one_char_strs[2 * ctou32(geno_char)]);
         } else {
-          if (PtrWSubCk(tmp_alloc_base, remaining_alt_char_ct + 1, &tmp_alloc_end)) {
+          if (StoreStringAtEndK(tmp_alloc_base, linebuf_iter, remaining_alt_char_ct, &tmp_alloc_end, allele_storage_iter)) {
             goto LoadPvar_ret_NOMEM;
           }
-          memcpyx(tmp_alloc_end, linebuf_iter, remaining_alt_char_ct, '\0');
-          *allele_storage_iter = R_CAST(char*, tmp_alloc_end);
           if (remaining_alt_char_ct > max_allele_slen) {
             max_allele_slen = remaining_alt_char_ct;
           }

@@ -762,12 +762,9 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
             char* info_start = NextTokenMult(line_iter, info_col_idx);
             line_iter = CurTokenEnd(info_start);
             const uint32_t info_slen = line_iter - info_start;
-            tmp_alloc_end -= info_slen + 1;
-            if (unlikely(tmp_alloc_end < tmp_alloc_base)) {
+            if (StoreStringAtEndK(tmp_alloc_base, info_start, info_slen, &tmp_alloc_end, &(dup_info_strs[dup_variant_idx]))) {
               goto RmDup_ret_NOMEM;
             }
-            memcpyx(tmp_alloc_end, info_start, info_slen, '\0');
-            dup_info_strs[dup_variant_idx] = R_CAST(char*, tmp_alloc_end);
           }
           ++dup_variant_idx;
           if (dup_variant_idx == orig_dup_ct) {

@@ -3994,9 +3994,22 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     ctx.thread_start = thread_start;
     double* grm;
     if (unlikely(
-            SetThreadCt(calc_thread_ct, &tg) ||
-            bigstack_calloc_d((row_end_idx - row_start_idx) * row_end_idx, &grm))) {
+            SetThreadCt(calc_thread_ct, &tg))) {
       goto CalcGrm_ret_NOMEM;
+    }
+    if (unlikely(
+            bigstack_calloc_d((row_end_idx - row_start_idx) * row_end_idx, &grm))) {
+      if (!grm_ptr) {
+        logerrputs("Error: Out of memory.  If you are SURE you are performing the right matrix\ncomputation, you can split it into smaller pieces with --parallel, and then\nconcatenate the results.  But before you try this, make sure the program you're\nproviding the matrix to can actually handle such a large input file.\n");
+      } else {
+        // Need to edit this if there are ever non-PCA ways to get here.
+        if (!(grm_flags & (kfGrmMatrixShapemask | kfGrmListmask | kfGrmBin))) {
+          logerrputs("Error: Out of memory.  Consider \"--pca approx\" instead.\n");
+        } else {
+          logerrputs("Error: Out of memory.  Consider \"--pca approx\" (and not writing the GRM to\ndisk) instead.\n");
+        }
+      }
+      goto CalcGrm_ret_NOMEM_CUSTOM;
     }
     ctx.sample_ct = row_end_idx;
     ctx.grm = grm;
@@ -4498,6 +4511,9 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
   while (0) {
   CalcGrm_ret_NOMEM:
     reterr = kPglRetNomem;
+    break;
+  CalcGrm_ret_NOMEM_CUSTOM:
+    reterr = kPglRetNomemCustomMsg;
     break;
   CalcGrm_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
@@ -7355,13 +7371,9 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
           snprintf(g_logbuf, kLogbufSize, "Error: Variant-score name in column %" PRIuPTR " of %s is too long.\n", vscore_idx + id_col_ct + 1, in_fname);
           goto Vscore_ret_MALFORMED_INPUT_WW;
         }
-        if (unlikely(S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) <= cur_slen)) {
+        if (StoreStringAtEnd(tmp_alloc_base, name_iter, cur_slen, &tmp_alloc_end, &(vscore_names[vscore_idx]))) {
           goto Vscore_ret_NOMEM;
         }
-        tmp_alloc_end -= cur_slen + 1;
-        char* cur_name = R_CAST(char*, tmp_alloc_end);
-        vscore_names[vscore_idx] = cur_name;
-        memcpyx(cur_name, name_iter, cur_slen, '\0');
         name_iter = name_end;
       }
       ++line_idx;
@@ -7369,10 +7381,9 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
     } else {
       for (uintptr_t vscore_num = 1; vscore_num <= vscore_ct; ++vscore_num) {
         const uint32_t cur_blen = 7 + UintSlen(vscore_num);
-        if (unlikely(S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) < cur_blen)) {
+        if (PtrWSubCk(tmp_alloc_base, cur_blen, &tmp_alloc_end)) {
           goto Vscore_ret_NOMEM;
         }
-        tmp_alloc_end -= cur_blen;
         char* cur_name_iter = R_CAST(char*, tmp_alloc_end);
         vscore_names[vscore_num - 1] = cur_name_iter;
         cur_name_iter = strcpya_k(cur_name_iter, "VSCORE");

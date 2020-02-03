@@ -535,10 +535,9 @@ PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, con
       } else {
         // reuse old storage if we can, allocate when we must
         if (old_slen1 < new_slen1) {
-          if (S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) <= new_slen1) {
+          if (PtrWSubCk(tmp_alloc_base, new_slen1 + 1, &tmp_alloc_end)) {
             goto UpdateVarAlleles_ret_NOMEM;
           }
-          tmp_alloc_end -= new_slen1 + 1;
           cur_alleles[old_allele1_match] = R_CAST(char*, tmp_alloc_end);
         }
         memcpyx(cur_alleles[old_allele1_match], new_allele1_start, new_slen1, '\0');
@@ -547,10 +546,9 @@ PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, con
         cur_alleles[old_allele2_match] = K_CAST(char*, &(g_one_char_strs[ctou32(new_allele2_start[0]) * 2]));
       } else {
         if (old_slen2 < new_slen2) {
-          if (S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) <= new_slen2) {
+          if (PtrWSubCk(tmp_alloc_base, new_slen2 + 1, &tmp_alloc_end)) {
             goto UpdateVarAlleles_ret_NOMEM;
           }
-          tmp_alloc_end -= new_slen2 + 1;
           cur_alleles[old_allele2_match] = R_CAST(char*, tmp_alloc_end);
         }
         memcpyx(cur_alleles[old_allele2_match], new_allele2_start, new_slen2, '\0');

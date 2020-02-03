@@ -1035,6 +1035,36 @@ HEADER_INLINE void SetPgvThreadMhcNull(uint32_t sample_ct, uint32_t tidx, uintpt
 }
 
 
+HEADER_INLINE BoolErr StoreStringAtBase(unsigned char* arena_top, const char* src, uintptr_t slen, unsigned char** arena_bottom_ptr, char** dst) {
+  if (unlikely(slen >= S_CAST(uintptr_t, arena_top - (*arena_bottom_ptr)))) {
+    return 1;
+  }
+  memcpyx(*arena_bottom_ptr, src, slen, '\0');
+  *dst = R_CAST(char*, *arena_bottom_ptr);
+  *arena_bottom_ptr += slen + 1;
+  return 0;
+}
+
+HEADER_INLINE BoolErr StoreStringAtEnd(unsigned char* arena_bottom, const char* src, uintptr_t slen, unsigned char** arena_top_ptr, char** dst) {
+  // minor todo: verify that the tiny amount of additional safety provided by
+  // PtrWSubCk has no/negligible performance cost
+  if (PtrWSubCk(arena_bottom, slen + 1, arena_top_ptr)) {
+    return 1;
+  }
+  memcpyx(*arena_top_ptr, src, slen, '\0');
+  *dst = R_CAST(char*, *arena_top_ptr);
+  return 0;
+}
+
+HEADER_INLINE BoolErr StoreStringAtEndK(unsigned char* arena_bottom, const char* src, uintptr_t slen, unsigned char** arena_top_ptr, const char** dst) {
+  if (PtrWSubCk(arena_bottom, slen + 1, arena_top_ptr)) {
+    return 1;
+  }
+  memcpyx(*arena_top_ptr, src, slen, '\0');
+  *dst = R_CAST(char*, *arena_top_ptr);
+  return 0;
+}
+
 // These use g_textbuf.
 PglErr WriteSampleIdsOverride(const uintptr_t* sample_include, const SampleIdInfo* siip, const char* outname, uint32_t sample_ct, SampleIdFlags override_flags);
 HEADER_INLINE PglErr WriteSampleIds(const uintptr_t* sample_include, const SampleIdInfo* siip, const char* outname, uint32_t sample_ct) {

@@ -162,14 +162,9 @@ PglErr ExportAlleleLoad(const char* fname, const uintptr_t* variant_include, con
         allele_missing[variant_uidx] = &(g_one_char_strs[2 * ctou32(allele_char)]);
         continue;
       }
-      // no underflow danger since allele must fit in line-buffer, which is
-      // positioned earlier in bigstack
-      tmp_alloc_end -= allele_slen + 1;
-      if (unlikely(tmp_alloc_end < tmp_alloc_base)) {
+      if (StoreStringAtEndK(tmp_alloc_base, allele_start, allele_slen, &tmp_alloc_end, &(allele_missing[variant_uidx]))) {
         goto ExportAlleleLoad_ret_NOMEM;
       }
-      memcpyx(tmp_alloc_end, allele_start, allele_slen, '\0');
-      allele_missing[variant_uidx] = R_CAST(char*, tmp_alloc_end);
     }
     if (duplicate_ct) {
       logerrprintfww("Warning: %" PRIuPTR " duplicate variant ID%s in --export-allele file (not an error since allele%s consistent).\n", duplicate_ct, (duplicate_ct == 1)? "" : "s", (duplicate_ct == 1)? " was" : "s were");

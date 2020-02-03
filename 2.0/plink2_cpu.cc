@@ -125,7 +125,7 @@ int main(int argc, char** argv) {
   return RealMain(argc, argv);
  CpuCheck_ret_SSE42_FAIL:
   fputs("Error: This plink2 build requires a processor which supports SSE4.2\ninstructions.  Try a plain 64-bit build instead.\n", stderr);
-  exit(13);  // 13 = kPglRetUnsupporedInstructions
+  exit(13);  // 13 = kPglRetUnsupportedInstructions
 #  ifdef CPU_CHECK_AVX2
  CpuCheck_ret_AVX2_FAIL:
   // SSE4.2 doesn't deliver enough of an advantage to justify more clutter on

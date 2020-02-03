@@ -67,26 +67,26 @@ CXXCONST_VOIDP rawmemchr2(const void* ss, unsigned char ucc1, unsigned char ucc2
   return &(R_CAST(CXXCONST_CP, ss_viter)[byte_offset_in_vec]);
 }
 
-CXXCONST_CP strchrnul2(const char* ss, unsigned char ucc1, unsigned char ucc2) {
+CXXCONST_VOIDP rawmemchr3(const void* ss, unsigned char ucc1, unsigned char ucc2, unsigned char ucc3) {
   const uintptr_t starting_addr = R_CAST(uintptr_t, ss);
   const VecC* ss_viter = R_CAST(const VecC*, RoundDownPow2(starting_addr, kBytesPerVec));
-  const VecC vvec_all_zero = vecc_setzero();
   const VecC vvec_all_ucc1 = vecc_set1(ucc1);
   const VecC vvec_all_ucc2 = vecc_set1(ucc2);
+  const VecC vvec_all_ucc3 = vecc_set1(ucc3);
   VecC cur_vvec = *ss_viter;
-  VecC zero_match_vvec = (cur_vvec == vvec_all_zero);
   VecC ucc1_match_vvec = (cur_vvec == vvec_all_ucc1);
   VecC ucc2_match_vvec = (cur_vvec == vvec_all_ucc2);
-  uint32_t matching_bytes = vecc_movemask(zero_match_vvec | ucc1_match_vvec | ucc2_match_vvec);
+  VecC ucc3_match_vvec = (cur_vvec == vvec_all_ucc3);
+  uint32_t matching_bytes = vecc_movemask(ucc1_match_vvec | ucc2_match_vvec | ucc3_match_vvec);
   const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, ss_viter);
   matching_bytes &= UINT32_MAX << leading_byte_ct;
   while (!matching_bytes) {
     ++ss_viter;
     cur_vvec = *ss_viter;
-    zero_match_vvec = (cur_vvec == vvec_all_zero);
     ucc1_match_vvec = (cur_vvec == vvec_all_ucc1);
     ucc2_match_vvec = (cur_vvec == vvec_all_ucc2);
-    matching_bytes = vecc_movemask(zero_match_vvec | ucc1_match_vvec | ucc2_match_vvec);
+    ucc3_match_vvec = (cur_vvec == vvec_all_ucc3);
+    matching_bytes = vecc_movemask(ucc1_match_vvec | ucc2_match_vvec | ucc3_match_vvec);
   }
   const uint32_t byte_offset_in_vec = ctzu32(matching_bytes);
   return &(R_CAST(CXXCONST_CP, ss_viter)[byte_offset_in_vec]);
@@ -129,11 +129,11 @@ CXXCONST_VOIDP rawmemchr2(const void* ss, unsigned char ucc1, unsigned char ucc2
   }
 }
 
-CXXCONST_CP strchrnul2(const char* ss, unsigned char ucc1, unsigned char ucc2) {
-  for (; ; ++ss) {
-    unsigned char ucc = *ss;
-    if ((!ucc) || (ucc == ucc1) || (ucc == ucc2)) {
-      return S_CAST(CXXCONST_CP, ss);
+CXXCONST_VOIDP rawmemchr3(const void* ss, unsigned char ucc1, unsigned char ucc2, unsigned char ucc3) {
+  for (const unsigned char* ss_iter = S_CAST(const unsigned char*, ss); ; ++ss_iter) {
+    unsigned char ucc = *ss_iter;
+    if ((ucc == ucc1) || (ucc == ucc2) || (ucc == ucc3)) {
+      return S_CAST(CXXCONST_VOIDP, ss_iter);
     }
   }
 }

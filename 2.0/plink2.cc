@@ -66,10 +66,10 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (24 Jan 2020)";
+  " (3 Feb 2020)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -7153,10 +7153,10 @@ int main(int argc, char** argv) {
           pc.filter_flags |= kfFilterPvarReq;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
         } else if (strequal_k_unsafe(flagname_p2, "issing-code")) {
-          if (unlikely(!(xload & (kfXloadOxGen | kfXloadOxBgen)))) {
+          if (unlikely(!(xload & (kfXloadOxGen | kfXloadOxBgen | kfXloadOxHaps)))) {
             // could technically support pure .sample -> .fam/.psam, but let's
             // keep this simple
-            logerrputs("Error: --missing-code must be used with --data/--gen/--bgen.\n");
+            logerrputs("Error: --missing-code must be used with --data/--gen/--bgen/--haps.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
@@ -7618,8 +7618,8 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else if (strequal_k_unsafe(flagname_p2, "xford-single-chr")) {
-          if (unlikely(!(xload & (kfXloadOxGen | kfXloadOxBgen)))) {
-            logerrputs("Error: --oxford-single-chr must be used with .gen/.bgen input.\n");
+          if (unlikely(!(xload & (kfXloadOxGen | kfXloadOxBgen | kfXloadOxHaps)))) {
+            logerrputs("Error: --oxford-single-chr must be used with .gen/.bgen/.haps input.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(oxford_import_flags & kfOxfordImportBgenSnpIdChr)) {
@@ -9836,19 +9836,22 @@ int main(int argc, char** argv) {
         const uint32_t convname_slen = convname_end - outname;
         uint32_t pgen_generated = 1;
         uint32_t psam_generated = 1;
-        if (xload & kfXloadVcf) {
+        if (xload & (kfXloadVcf | kfXloadBcf)) {
           const uint32_t no_samples_ok = !(pc.dependency_flags & (kfFilterAllReq | kfFilterPsamReq));
-          if (no_samples_ok && (!(import_flags & kfImportKeepAutoconv)) && pc.command_flags1) {
+          const uint32_t is_vcf = (xload / kfXloadVcf) & 1;
+          if (no_samples_ok && is_vcf && (!(import_flags & kfImportKeepAutoconv)) && pc.command_flags1) {
             // special case: just treat the VCF as a .pvar file
             strcpy(pvarname, pgenname);
             pgenname[0] = '\0';
             goto main_reinterpret_vcf_instead_of_converting;
-          } else {
+          } else if (is_vcf) {
             reterr = VcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, import_flags, no_samples_ok, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
+          } else {
+            logerrputs("Error: --bcf is under development.\n");
+            reterr = kPglRetNotYetSupported;
+            goto main_ret_1;
+            // reterr = BcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, import_flags, no_samples_ok, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_max_dp, vcf_half_call, pc.fam_cols, pc.max_thread_ct, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
           }
-        } else if (xload & kfXloadBcf) {
-          logerrputs("Error: --bcf is not implemented yet.\n");
-          reterr = kPglRetNotYetSupported;
         } else if (xload & kfXloadOxGen) {
           reterr = OxGenToPgen(pgenname, psamname, import_single_chr_str, ox_missing_code, pc.misc_flags, import_flags, oxford_import_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, pc.max_thread_ct, outname, convname_end, &chr_info);
         } else if (xload & kfXloadOxBgen) {
@@ -9973,7 +9976,14 @@ int main(int argc, char** argv) {
     break;
   }
  main_ret_1:
-  DispExitMsg(reterr);
+  if (reterr == kPglRetNomemCustomMsg) {
+    if (g_failed_alloc_attempt_size) {
+      logerrprintf("Failed allocation size: %" PRIuPTR "\n", g_failed_alloc_attempt_size);
+    }
+    reterr = kPglRetNomem;
+  } else {
+    DispExitMsg(reterr);
+  }
   while (0) {
   main_ret_NOMEM_NOLOG:
     PrintVer();

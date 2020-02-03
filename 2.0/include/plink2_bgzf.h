@@ -144,6 +144,8 @@ typedef struct BgzfRawMtDecompressStreamStruct {
 
 extern const char kShortErrInvalidBgzf[];
 
+void PreinitBgzfRawMtStream(BgzfRawMtDecompressStream* bgzfp);
+
 // Two modes:
 // - Regular: ff must point 16 bytes into the file, and header[] must contain
 //   the first 16 bytes.  bgzf_st_ptr must be nullptr.

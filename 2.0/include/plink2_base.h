@@ -347,6 +347,7 @@ typedef enum
   kPglRetDecompressFail, // also distinguish this from MalformedInput
   kPglRetRewindFail,
   kPglRetSampleMajorBed = 32,
+  kPglRetNomemCustomMsg = 59,
   kPglRetInternalError = 60,
   kPglRetWarningErrcode = 61,
   kPglRetImproperFunctionCall = 62,
@@ -414,6 +415,7 @@ const PglErr kPglRetDecompressFail = PglErr::ec::kPglRetDecompressFail;
 const PglErr kPglRetRewindFail = PglErr::ec::kPglRetRewindFail;
 const PglErr kPglRetSampleMajorBed = PglErr::ec::kPglRetSampleMajorBed;
 const PglErr kPglRetWarningErrcode = PglErr::ec::kPglRetWarningErrcode;
+const PglErr kPglRetNomemCustomMsg = PglErr::ec::kPglRetNomemCustomMsg;
 const PglErr kPglRetInternalError = PglErr::ec::kPglRetInternalError;
 const PglErr kPglRetImproperFunctionCall = PglErr::ec::kPglRetImproperFunctionCall;
 const PglErr kPglRetNotYetSupported = PglErr::ec::kPglRetNotYetSupported;

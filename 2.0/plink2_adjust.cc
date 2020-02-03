@@ -803,12 +803,9 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       }
       if (chr_ids) {
         const uint32_t cur_slen = token_slens[0];
-        if (unlikely(cur_slen >= S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base))) {
+        if (StoreStringAtBase(tmp_alloc_end, token_ptrs[0], cur_slen, &tmp_alloc_base, &(chr_ids[variant_idx]))) {
           goto AdjustFile_ret_NOMEM;
         }
-        chr_ids[variant_idx] = R_CAST(char*, tmp_alloc_base);
-        memcpyx(tmp_alloc_base, token_ptrs[0], cur_slen, '\0');
-        tmp_alloc_base = &(tmp_alloc_base[cur_slen + 1]);
       }
       if (variant_bps) {
         if (unlikely(ScanUintDefcap(token_ptrs[1], &(variant_bps[variant_idx])))) {
@@ -817,20 +814,14 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
         }
       }
       const uint32_t id_slen = token_slens[2];
-      if (unlikely(id_slen >= S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base))) {
+      if (StoreStringAtBase(tmp_alloc_end, token_ptrs[2], id_slen, &tmp_alloc_base, &(variant_ids[variant_idx]))) {
         goto AdjustFile_ret_NOMEM;
       }
-      variant_ids[variant_idx] = R_CAST(char*, tmp_alloc_base);
-      memcpyx(tmp_alloc_base, token_ptrs[2], id_slen, '\0');
-      tmp_alloc_base = &(tmp_alloc_base[id_slen + 1]);
       if (need_ref) {
         const uint32_t cur_slen = token_slens[3];
-        if (unlikely(cur_slen >= S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base))) {
+        if (StoreStringAtBase(tmp_alloc_end, token_ptrs[3], cur_slen, &tmp_alloc_base, &(allele_storage[2 * variant_idx]))) {
           goto AdjustFile_ret_NOMEM;
         }
-        allele_storage[2 * variant_idx] = R_CAST(char*, tmp_alloc_base);
-        memcpyx(tmp_alloc_base, token_ptrs[3], cur_slen, '\0');
-        tmp_alloc_base = &(tmp_alloc_base[cur_slen + 1]);
       }
       if (need_alt) {
         const char* alt_str = token_ptrs[4];
@@ -841,21 +832,15 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
             cur_slen = alt_comma - alt_str;
           }
         }
-        if (unlikely(cur_slen >= S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base))) {
+        if (StoreStringAtBase(tmp_alloc_end, alt_str, cur_slen, &tmp_alloc_base, &(allele_storage[2 * variant_idx + 1]))) {
           goto AdjustFile_ret_NOMEM;
         }
-        allele_storage[2 * variant_idx + 1] = R_CAST(char*, tmp_alloc_base);
-        memcpyx(tmp_alloc_base, alt_str, cur_slen, '\0');
-        tmp_alloc_base = &(tmp_alloc_base[cur_slen + 1]);
       }
       if (check_a1) {
         const uint32_t cur_slen = token_slens[5];
-        if (unlikely(cur_slen >= S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base))) {
+        if (StoreStringAtBase(tmp_alloc_end, token_ptrs[5], cur_slen, &tmp_alloc_base, &(a1_storage[variant_idx]))) {
           goto AdjustFile_ret_NOMEM;
         }
-        a1_storage[variant_idx] = R_CAST(char*, tmp_alloc_base);
-        memcpyx(tmp_alloc_base, token_ptrs[5], cur_slen, '\0');
-        tmp_alloc_base = &(tmp_alloc_base[cur_slen + 1]);
       }
       const char* pval_str = token_ptrs[7];
       double ln_pval;
