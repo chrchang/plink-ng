@@ -4037,10 +4037,10 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         goto BcfToPgen_ret_MALFORMED_INPUT_GENERIC;
       }
     }
-    if (unlikely(vcf_header[header_size - 1] != '\n')) {
+    if (unlikely(memequal_k(&(vcf_header[header_size - 2]), "\n", 2))) {
       goto BcfToPgen_ret_MALFORMED_TEXT_HEADER;
     }
-    char* vcf_header_end = &(vcf_header[header_size]);
+    char* vcf_header_end = &(vcf_header[header_size - 1]);
     const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
     uint32_t dosage_import_field_slen = 0;
 
@@ -4340,6 +4340,10 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       logerrputs("Error: No samples in BCF text header block.  (This is only permitted when you\nhaven't specified another operation which requires genotype or sample\ninformation.)\n");
       goto BcfToPgen_ret_INCONSISTENT_INPUT;
     }
+    if (unlikely(sample_ct >= (1 << 24))) {
+      snprintf(g_logbuf, kLogbufSize, "Error: BCF text header block has %u sample IDs, which is larger than the BCF limit of 2^24 - 1.\n", sample_ct);
+      goto BcfToPgen_ret_MALFORMED_INPUT_WW;
+    }
     ctx.bic.bibc.sample_ct = sample_ct;
 
     // Rescan header to save FILTER/INFO/FORMAT and contig ID dictionaries.
@@ -4355,6 +4359,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
             bigstack_calloc_kcp(fif_string_idx_end, &fif_strings))) {
       goto BcfToPgen_ret_NOMEM;
     }
+    const uint32_t header_line_ct = header_line_idx;
     {
       unsigned char* tmp_alloc_end = bigstack_end_mark;
       if (StoreStringAtEndK(g_bigstack_base, "PASS", strlen("PASS"), &tmp_alloc_end, &(fif_strings[0]))) {
@@ -4363,7 +4368,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       line_iter = vcf_header;
       uint32_t contig_idx = 0;
       uint32_t fif_idx = 0;
-      for (uint32_t rescan_line_idx = 1; rescan_line_idx != header_line_idx; ++rescan_line_idx) {
+      for (header_line_idx = 1; header_line_idx != header_line_ct; ++header_line_idx) {
         char* line_end = AdvPastDelim(&(line_iter[2]), '\n');
         const uint32_t is_filter_line = StrStartsWithUnsafe(&(line_iter[2]), "FILTER=<ID");
         const uint32_t is_info_line = StrStartsWithUnsafe(&(line_iter[2]), "INFO=<ID");
@@ -4403,10 +4408,27 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         line_iter = line_end;
       }
     }
-    ;;;
-    // silence unused-variable/param warnings
-    printf("%u %u %u %u %" PRIuPTR " %u %" PRIuPTR " %" PRIuPTR "\n", allow_extra_chrs, format_gq_or_dp_relevant, bcf_parse_err, half_call_explicit_error, vrec_idx, hard_call_thresh, R_CAST(uintptr_t, pgen_generated_ptr), R_CAST(uintptr_t, psam_generated_ptr));
-    /*
+
+    // TEMPORARY: silence unused-variable/param warnings
+    printf("%u %u %u %u %u %" PRIuPTR " %" PRIuPTR " %u %" PRIuPTR "\n", allow_extra_chrs, format_gq_or_dp_relevant, bcf_parse_err, half_call_explicit_error, hard_call_thresh, R_CAST(uintptr_t, pgen_generated_ptr), R_CAST(uintptr_t, psam_generated_ptr), info_nonpr_present, vrec_idx);
+
+      /*
+    uintptr_t loadbuf_size = RoundDownPow2(bigstack_left() / 2, kEndAllocAlign);
+#ifdef __LP64__
+    // l_shared and l_indiv are of type uint32_t, so we never need to look at
+    // more than 4 GiB at a time.
+    if (loadbuf_size > (k1LU << 32)) {
+      loadbuf_size = k1LU << 32;
+    }
+#endif
+    // fixed component of variant record header length
+    if (loadbuf_size < 32) {
+      goto BcfToPgen_ret_NOMEM;
+    }
+    // Placed at end of arena so we can shrink it before the second pass
+    // without fragmenting memory.
+    unsigned char* loadbuf = S_CAST(unsigned char*, bigstack_end_alloc_raw(loadbuf_size));
+
     uint32_t variant_ct = 0;
     uintptr_t max_variant_ct = bigstack_left() / sizeof(intptr_t);
     if (info_pr_present) {
@@ -4421,8 +4443,15 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     uintptr_t base_chr_present[kChrExcludeWords];
     ZeroWArr(kChrExcludeWords, base_chr_present);
 
-    uint32_t max_observed_rec_blen = 1;
-    const uintptr_t header_line_ct = line_idx;
+    // max(32, l_shared - 24, l_indiv)
+    uint32_t loadbuf_size_needed = 32;
+
+    // Main loop only needs to unpack one genotype vector at a time.
+    uint32_t max_gvector_blen = 0;
+
+    // Sum of GT, DS/GP, HDS, GQ, and DP vector lengths.
+    uint32_t max_observed_rec_blen = 0;
+
     const uint32_t max_variant_ctaw = BitCtToAlignedWordCt(max_variant_ct);
     // don't need dosage_flags or dphase_flags; dosage overrides GT so slow
     // parse needed
@@ -4432,17 +4461,46 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     }
     uintptr_t* nonref_flags_iter = nonref_flags;
     uintptr_t* allele_idx_offsets = R_CAST(uintptr_t*, g_bigstack_base);
-    uintptr_t max_postformat_blen = 1;  // starting from tab at end of FORMAT
     uintptr_t variant_skip_ct = 0;
     uintptr_t nonref_word = 0;
     uintptr_t allele_idx_end = 0;
     uint32_t max_alt_ct = 1;
     uint32_t max_allele_slen = 1;
-    uint32_t max_qualfilterinfo_slen = 6;
     uint32_t phase_or_dosage_found = 0;
 
     while (1) {
-      ++line_idx;
+      ++vrec_idx;
+      unsigned char* loadbuf_iter = loadbuf;
+      reterr = BgzfRawMtStreamRead(&(loadbuf[32]), &bgzf, &loadbuf_iter, &bgzf_errmsg);
+      if (unlikely(reterr)) {
+        goto BcfToPgen_ret_BGZF_FAIL;
+      }
+      if (&(loadbuf[32]) != loadbuf_iter) {
+        if (likely(loadbuf_iter == loadbuf)) {
+          // EOF
+          break;
+        }
+        goto BcfToPgen_ret_VREC_GENERIC;
+      }
+      const uint32_t* vrec_header = R_CAST(uint32_t*, loadbuf);
+      // IMPORTANT: Official specification is wrong about the ordering of these
+      // fields as of Feb 2020!!  The correct ordering can be inferred from
+      // bcf_read1_core() in htslib vcf.c:
+      //   [0]: l_shared
+      //   [1]: l_indiv
+      //   [2]: chrom
+      //   [3]: pos
+      //   [4]: rlen
+      //   [5]: qual, NOT n_allele_info
+      //   [6]: low 16 bits n_info, high 16 bits n_allele
+      //   [7]: low 24 bits n_sample, high 8 bits n_fmt
+      const uint32_t l_shared = vrec_header[0];
+      const uint32_t l_indiv = vrec_header[1];
+      const uint32_t chrom = vrec_header[2];
+      // can ignore pos and rlen on this pass
+
+      const uint32_t n_allele = vrec_header[6] >> 16;
+      ;;;
       line_iter = AdvPastDelim(line_iter, '\n');
       const uint32_t prev_line_blen = line_iter - prev_line_start;
       if (prev_line_blen > max_line_blen) {
