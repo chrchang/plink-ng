@@ -1094,7 +1094,7 @@ HEADER_INLINE VecU16 vecu16_set1(unsigned short usi) {
   return R_CAST(VecU16, _mm_set1_epi16(usi));
 }
 
-HEADER_INLINE VecI32 veci16_set1(short si) {
+HEADER_INLINE VecI16 veci16_set1(short si) {
   return R_CAST(VecI16, _mm_set1_epi16(si));
 }
 
