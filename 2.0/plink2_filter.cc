@@ -722,7 +722,7 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
       const uint32_t decompress_thread_ct = ClipU32(max_thread_ct - 1, 1, 4);
       reterr = SizeAndInitTextStream(pvar_info_reload, bigstack_left() / 4, decompress_thread_ct, &pvar_txs);
       if (unlikely(reterr)) {
-        goto RmDup_ret_TSTREAM_REWIND_FAIL;
+        goto RmDup_ret_TSTREAM_FAIL;
       }
       logputs("--rm-dup: Loading INFO field... ");
       fflush(stdout);
@@ -732,7 +732,7 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
       do {
         reterr = TextNextLineLstrip(&pvar_txs, &line_iter);
         if (unlikely(reterr)) {
-          goto RmDup_ret_TSTREAM_REWIND_FAIL;
+          goto RmDup_ret_TSTREAM_FAIL;
         }
       } while (!tokequal_k(line_iter, "#CHROM"));
       uint32_t info_col_idx = 1;
@@ -742,7 +742,8 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
           char* token_start = FirstNonTspace(line_iter);
           if (IsEolnKns(*token_start)) {
             reterr = kPglRetRewindFail;
-            goto RmDup_ret_TSTREAM_REWIND_FAIL;
+            logerrprintfww(kErrprintfRewind, pvar_info_reload);
+            goto RmDup_ret_1;
           }
           line_iter = CurTokenEnd(token_start);
           if (strequal_k(token_start, "INFO", line_iter - token_start)) {
@@ -755,7 +756,7 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
       for (uint32_t variant_uidx = 0; ; ++variant_uidx) {
         reterr = TextNextLineLstrip(&pvar_txs, &line_iter);
         if (unlikely(reterr)) {
-          goto RmDup_ret_TSTREAM_REWIND_FAIL;
+          goto RmDup_ret_TSTREAM_FAIL;
         }
         if (IsSet(orig_dups, variant_uidx)) {
           if (!memequal(variant_ids[variant_uidx], missing_varid_match, missing_varid_blen)) {
@@ -1121,8 +1122,8 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
   RmDup_ret_PGR_FAIL:
     PgenErrPrintN(reterr);
     break;
-  RmDup_ret_TSTREAM_REWIND_FAIL:
-    TextStreamErrPrintRewind(pvar_info_reload, &pvar_txs, &reterr);
+  RmDup_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(pvar_info_reload, &pvar_txs);
     break;
   RmDup_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;

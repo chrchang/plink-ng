@@ -1820,9 +1820,20 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     *raw_variant_ct_ptr = raw_variant_ct;
     uintptr_t allele_idx_end = allele_storage_iter - allele_storage;
     BigstackFinalizeCp(allele_storage, allele_idx_end);
-    // We may clobber this object soon, so close it now.
-    if (unlikely(CleanupTextStream(&pvar_txs, &reterr))) {
-      logerrprintfww(kErrprintfFread, pvarname, strerror(errno));
+    // We may clobber this object soon, so close it now (verifying
+    // rewindability first, if necessary).
+
+    // if only INFO:PR flag present, no need to reload
+    if (!(info_nonpr_present || info_pr_nonflag_present)) {
+      info_reload_slen = 0;
+    }
+    if (info_reload_slen) {
+      reterr = CloseRewindableTextStream(&pvar_txs);
+      if (unlikely(reterr)) {
+        TextStreamErrPrintRewind(pvarname, &pvar_txs, &reterr);
+        goto LoadPvar_ret_1;
+      }
+    } else if (unlikely(CleanupTextStream2(pvarname, &pvar_txs, &reterr))) {
       goto LoadPvar_ret_1;
     }
     uintptr_t* allele_idx_offsets = nullptr;
@@ -2044,8 +2055,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     *variant_ct_ptr = raw_variant_ct - exclude_ct;
     *vpos_sortstatus_ptr = vpos_sortstatus;
     *allele_storage_ptr = allele_storage;
-    // if only INFO:PR flag present, no need to reload
-    *info_reload_slen_ptr = (info_nonpr_present || info_pr_nonflag_present)? info_reload_slen : 0;
+    *info_reload_slen_ptr = info_reload_slen;
   }
 
   while (0) {

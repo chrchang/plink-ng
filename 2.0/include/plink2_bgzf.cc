@@ -510,6 +510,10 @@ PglErr BgzfRawMtStreamRetarget(const char* header, BgzfRawMtDecompressStream* bg
   next_cwr->locked_start = kBgzfRawMtStreamRetargetCode;
   if (next_ff == nullptr) {
     rewind(bodyp->ff);
+    // bugfix (8 Feb 2020): need to explicitly read the first 16 bytes.
+    if (unlikely(!fread_unlocked(bodyp->in, 16, 1, bodyp->ff))) {
+      return kPglRetRewindFail;
+    }
   } else {
     // Caller is responsible for closing previous bodyp->ff, etc.
     bodyp->ff = next_ff;

@@ -354,7 +354,7 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
     if (pvar_info_reload) {
       reterr = PvarInfoOpenAndReloadHeader(pvar_info_reload, 1 + (thread_ct > 1), &pvar_reload_txs, &pvar_info_line_iter, &info_col_idx);
       if (unlikely(reterr)) {
-        goto WritePvar_ret_TSTREAM_REWIND_FAIL;
+        goto WritePvar_ret_TSTREAM_FAIL;
       }
     }
     if (cip->chrset_source) {
@@ -498,7 +498,7 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
         if (pvar_info_line_iter) {
           reterr = PvarInfoReloadAndWrite(info_pr_flag_present, info_col_idx, variant_uidx, is_pr, &pvar_reload_txs, &pvar_info_line_iter, &cswritep, &trs_variant_uidx);
           if (unlikely(reterr)) {
-            goto WritePvar_ret_TSTREAM_REWIND_FAIL;
+            goto WritePvar_ret_TSTREAM_FAIL;
           }
         } else {
           if (is_pr) {
@@ -540,8 +540,8 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
   WritePvar_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  WritePvar_ret_TSTREAM_REWIND_FAIL:
-    TextStreamErrPrintRewind(pvar_info_reload, &pvar_reload_txs, &reterr);
+  WritePvar_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(pvar_info_reload, &pvar_reload_txs);
     break;
   WritePvar_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -3434,7 +3434,7 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
       }
       reterr = PvarInfoOpenAndReloadHeader(pvar_info_reload, 1 + (thread_ct > 1), &pvar_reload_txs, &pvar_info_line_iter, &info_col_idx);
       if (unlikely(reterr)) {
-        goto WritePvarSplit_ret_TSTREAM_REWIND_FAIL;
+        goto WritePvarSplit_ret_TSTREAM_FAIL;
       }
     }
     if (cip->chrset_source) {
@@ -3574,7 +3574,7 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
         if ((split_ct_p1 != 2) && pvar_info_line_iter) {
           reterr = PvarInfoReload(info_col_idx, variant_uidx, &pvar_reload_txs, &pvar_info_line_iter, &trs_variant_uidx);
           if (unlikely(reterr)) {
-            goto WritePvarSplit_ret_TSTREAM_REWIND_FAIL;
+            goto WritePvarSplit_ret_TSTREAM_FAIL;
           }
           char* info_subtoken_iter = pvar_info_line_iter;
           pvar_info_line_iter = CurTokenEnd(pvar_info_line_iter);
@@ -3715,7 +3715,7 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
             if (split_ct_p1 == 2) {
               reterr = PvarInfoReloadAndWrite(info_pr_flag_present, info_col_idx, variant_uidx, is_pr, &pvar_reload_txs, &pvar_info_line_iter, &cswritep, &trs_variant_uidx);
               if (unlikely(reterr)) {
-                goto WritePvarSplit_ret_TSTREAM_REWIND_FAIL;
+                goto WritePvarSplit_ret_TSTREAM_FAIL;
               }
             } else {
               if (!cur_info_key_ct) {
@@ -3813,8 +3813,8 @@ PglErr WritePvarSplit(const char* outname, const char* xheader, const uintptr_t*
   WritePvarSplit_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  WritePvarSplit_ret_TSTREAM_REWIND_FAIL:
-    TextStreamErrPrintRewind(pvar_info_reload, &pvar_reload_txs, &reterr);
+  WritePvarSplit_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(pvar_info_reload, &pvar_reload_txs);
     break;
   WritePvarSplit_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -4139,7 +4139,7 @@ PglErr WritePvarJoin(const char* outname, const char* xheader, const uintptr_t* 
       }
       reterr = PvarInfoOpenAndReloadHeader(pvar_info_reload, 1 + (thread_ct > 1), &pvar_reload_txs, &pvar_info_line_iter, &info_col_idx);
       if (unlikely(reterr)) {
-        goto WritePvarJoin_ret_TSTREAM_REWIND_FAIL;
+        goto WritePvarJoin_ret_TSTREAM_FAIL;
       }
     }
     if (write_info) {
@@ -4310,7 +4310,7 @@ PglErr WritePvarJoin(const char* outname, const char* xheader, const uintptr_t* 
           if (pvar_info_line_iter) {
             reterr = PvarInfoReloadAndWrite(info_pr_flag_present, info_col_idx, variant_uidx, is_pr, &pvar_reload_txs, &pvar_info_line_iter, &cswritep, &trs_variant_uidx);
             if (unlikely(reterr)) {
-              goto WritePvar_ret_TSTREAM_REWIND_FAIL;
+              goto WritePvar_ret_TSTREAM_FAIL;
             }
           } else {
             if (is_pr) {
@@ -4390,8 +4390,8 @@ PglErr WritePvarJoin(const char* outname, const char* xheader, const uintptr_t* 
   WritePvarJoin_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  WritePvarJoin_ret_TSTREAM_REWIND_FAIL:
-    TextStreamErrPrintRewind(pvar_info_reload, &pvar_reload_txs, &reterr);
+  WritePvarJoin_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(pvar_info_reload, &pvar_reload_txs, &reterr);
     break;
   WritePvarJoin_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -7563,7 +7563,7 @@ PglErr WritePvarResorted(const char* outname, const char* xheader, const uintptr
       }
       reterr = SizeAndInitTextStream(pvar_info_reload, bigstack_left() / 4, decompress_thread_ct, &pvar_reload_txs);
       if (unlikely(reterr)) {
-        goto WritePvarResorted_ret_TSTREAM_REWIND_FAIL;
+        goto WritePvarResorted_ret_TSTREAM_FAIL;
       }
 
       // subtract kCacheline to allow for rounding
@@ -7598,7 +7598,7 @@ PglErr WritePvarResorted(const char* outname, const char* xheader, const uintptr
       if (pvar_info_reload) {
         reterr = PvarInfoReloadInterval(old_variant_uidx_to_new, variant_idx_start, variant_idx_end, &pvar_reload_txs, pvar_info_strs);
         if (unlikely(reterr)) {
-          goto WritePvarResorted_ret_TSTREAM_REWIND_FAIL;
+          goto WritePvarResorted_ret_TSTREAM_FAIL;
         }
       }
       reterr = WritePvarResortedInterval(write_cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, qual_present, quals, filter_present, filter_npass, filter_storage, nonref_flags, variant_cms, new_variant_idx_to_old, variant_idx_start, variant_idx_end, info_pr_flag_present, write_qual, write_filter, write_info, all_nonref, write_cm, pvar_info_strs, &css, &cswritep, &chr_fo_idx, &chr_end, &chr_buf_blen, chr_buf);
@@ -7620,8 +7620,8 @@ PglErr WritePvarResorted(const char* outname, const char* xheader, const uintptr
   WritePvarResorted_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  WritePvarResorted_ret_TSTREAM_REWIND_FAIL:
-    TextStreamErrPrintRewind(pvar_info_reload, &pvar_reload_txs, &reterr);
+  WritePvarResorted_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(pvar_info_reload, &pvar_reload_txs);
     break;
   WritePvarResorted_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;

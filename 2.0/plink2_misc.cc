@@ -1675,6 +1675,10 @@ PglErr PrescanSampleIds(const char* fname, SampleIdInfo* siip) {
     if (new_sid_present) {
       siip->max_sid_blen = max_sid_blen;
     }
+    reterr = CloseRewindableTextStream(&txs);
+    if (unlikely(reterr)) {
+      logerrprintfww(kErrprintfRewind, "--update-ids file");
+    }
   }
   while (0) {
   PrescanSampleIds_ret_TSTREAM_FAIL:
@@ -1790,9 +1794,12 @@ PglErr PrescanParentalIds(const char* fname, uint32_t max_thread_ct, ParentalIdI
     if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
       goto PrescanParentalIds_ret_TSTREAM_FAIL;
     }
-    reterr = kPglRetSuccess;
     parental_id_infop->max_paternal_id_blen = max_paternal_id_blen;
     parental_id_infop->max_maternal_id_blen = max_maternal_id_blen;
+    reterr = CloseRewindableTextStream(&txs);
+    if (unlikely(reterr)) {
+      logerrprintfww(kErrprintfRewind, "--update-parents file");
+    }
   }
   while (0) {
   PrescanParentalIds_ret_TSTREAM_FAIL:
@@ -1825,7 +1832,7 @@ PglErr UpdateSampleIds(const char* fname, const uintptr_t* sample_include, uint3
     // probable todo: deduplicate shared code with PrescanSampleIds
     reterr = InitTextStream(fname, kTextStreamBlenFast, 1, &txs);
     if (unlikely(reterr)) {
-      goto UpdateSampleIds_ret_TSTREAM_REWIND_FAIL;
+      goto UpdateSampleIds_ret_TSTREAM_FAIL;
     }
     const char* line_iter;
     uint32_t is_header_line;
@@ -1835,7 +1842,7 @@ PglErr UpdateSampleIds(const char* fname, const uintptr_t* sample_include, uint3
       if (unlikely(!line_iter)) {
         reterr = TextStreamRawErrcode(&txs);
         // This function is no longer called when the original file is empty.
-        goto UpdateSampleIds_ret_TSTREAM_REWIND_FAIL;
+        goto UpdateSampleIds_ret_TSTREAM_FAIL;
       }
       is_header_line = (*line_iter == '#');
     } while (is_header_line && (!tokequal_k(&(line_iter[1]), "OLD_FID")) && (!tokequal_k(&(line_iter[1]), "OLD_IID")));
@@ -1967,7 +1974,7 @@ PglErr UpdateSampleIds(const char* fname, const uintptr_t* sample_include, uint3
       }
     }
     if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
-      goto UpdateSampleIds_ret_TSTREAM_REWIND_FAIL;
+      goto UpdateSampleIds_ret_TSTREAM_FAIL;
     }
     reterr = kPglRetSuccess;
     if (miss_ct) {
@@ -1981,10 +1988,12 @@ PglErr UpdateSampleIds(const char* fname, const uintptr_t* sample_include, uint3
   UpdateSampleIds_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
+  UpdateSampleIds_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--update-ids file", &txs);
+    break;
   UpdateSampleIds_ret_REWIND_FAIL:
+    logerrprintfww(kErrprintfRewind, "--update-ids file");
     reterr = kPglRetRewindFail;
-  UpdateSampleIds_ret_TSTREAM_REWIND_FAIL:
-    TextStreamErrPrintRewind("--update-ids file", &txs, &reterr);
     break;
   UpdateSampleIds_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
@@ -2010,7 +2019,7 @@ PglErr UpdateSampleParents(const char* fname, const SampleIdInfo* siip, const ui
     // into its own function.
     reterr = SizeAndInitTextStream(fname, bigstack_left() - (bigstack_left() / 4), MAXV(max_thread_ct - 1, 1), &txs);
     if (unlikely(reterr)) {
-      goto UpdateSampleParents_ret_TSTREAM_REWIND_FAIL;
+      goto UpdateSampleParents_ret_TSTREAM_FAIL;
     }
     const char* line_iter;
     uint32_t is_header_line;
@@ -2019,7 +2028,7 @@ PglErr UpdateSampleParents(const char* fname, const SampleIdInfo* siip, const ui
       line_iter = TextGet(&txs);
       if (unlikely(!line_iter)) {
         reterr = TextStreamRawErrcode(&txs);
-        goto UpdateSampleParents_ret_TSTREAM_REWIND_FAIL;
+        goto UpdateSampleParents_ret_TSTREAM_FAIL;
       }
       is_header_line = (*line_iter == '#');
     } while (is_header_line && (!tokequal_k(&(line_iter[1]), "FID")) && (!tokequal_k(&(line_iter[1]), "IID")));
@@ -2128,7 +2137,7 @@ PglErr UpdateSampleParents(const char* fname, const SampleIdInfo* siip, const ui
       }
     }
     if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
-      goto UpdateSampleParents_ret_TSTREAM_REWIND_FAIL;
+      goto UpdateSampleParents_ret_REWIND_FAIL;
     }
     reterr = kPglRetSuccess;
     if (miss_ct) {
@@ -2142,10 +2151,12 @@ PglErr UpdateSampleParents(const char* fname, const SampleIdInfo* siip, const ui
   UpdateSampleParents_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
+  UpdateSampleParents_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--update-parents file", &txs);
+    break;
   UpdateSampleParents_ret_REWIND_FAIL:
+    logerrprintfww(kErrprintfRewind, "--update-parents file");
     reterr = kPglRetRewindFail;
-  UpdateSampleParents_ret_TSTREAM_REWIND_FAIL:
-    TextStreamErrPrintRewind("--update-parents file", &txs, &reterr);
     break;
   UpdateSampleParents_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;

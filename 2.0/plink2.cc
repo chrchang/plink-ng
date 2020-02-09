@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (3 Feb 2020)";
+  " (8 Feb 2020)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -452,7 +452,9 @@ uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, PcaFlags pca_flags, G
 // MajAllelesAreNeeded()
 uint32_t IndecentAlleleFreqsAreNeeded(Command1Flags command_flags1, double min_maf, double max_maf) {
   // Vscore could go either here or in the decent bucket
-  return (command_flags1 & (kfCommand1AlleleFreq | kfCommand1Vscore)) || (min_maf != 0.0) || (max_maf != 1.0);
+  // bugfix (5 Feb 2020): --freq doesn't refer to allele_freqs at all at this
+  // point
+  return (command_flags1 & kfCommand1Vscore) || (min_maf != 0.0) || (max_maf != 1.0);
 }
 
 
@@ -470,22 +472,22 @@ uint32_t GetFirstHaploidUidx(const ChrInfo* cip, UnsortedVar vpos_sortstatus) {
   return 0x7fffffff;
 }
 
-uint32_t AlleleDosagesAreNeeded(MiscFlags misc_flags, uint32_t afreq_needed, uint64_t min_allele_ddosage, uint64_t max_allele_ddosage, uint32_t* regular_freqcounts_neededp) {
+uint32_t AlleleDosagesAreNeeded(Command1Flags command_flags1, MiscFlags misc_flags, uint32_t afreq_needed, uint64_t min_allele_ddosage, uint64_t max_allele_ddosage, uint32_t* regular_freqcounts_neededp) {
   if (!(misc_flags & kfMiscNonfounders)) {
     return 0;
   }
-  if ((misc_flags & kfMiscMajRef) || min_allele_ddosage || (max_allele_ddosage != UINT32_MAX)) {
+  if ((command_flags1 & kfCommand1AlleleFreq) || (misc_flags & kfMiscMajRef) || min_allele_ddosage || (max_allele_ddosage != UINT32_MAX)) {
     *regular_freqcounts_neededp = 1;
     return 1;
   }
   return afreq_needed;
 }
 
-uint32_t FounderAlleleDosagesAreNeeded(MiscFlags misc_flags, uint32_t afreq_needed, uint64_t min_allele_ddosage, uint64_t max_allele_ddosage, uint32_t* regular_freqcounts_neededp) {
+uint32_t FounderAlleleDosagesAreNeeded(Command1Flags command_flags1, MiscFlags misc_flags, uint32_t afreq_needed, uint64_t min_allele_ddosage, uint64_t max_allele_ddosage, uint32_t* regular_freqcounts_neededp) {
   if (misc_flags & kfMiscNonfounders) {
     return 0;
   }
-  if ((misc_flags & kfMiscMajRef) || min_allele_ddosage || (max_allele_ddosage != (~0LLU))) {
+  if ((command_flags1 & kfCommand1AlleleFreq) || (misc_flags & kfMiscMajRef) || min_allele_ddosage || (max_allele_ddosage != (~0LLU))) {
     *regular_freqcounts_neededp = 1;
     return 1;
   }
@@ -1807,18 +1809,18 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
         bigstack_mark_allele_ddosages = g_bigstack_base;
         uint32_t regular_freqcounts_needed = (allele_presents != nullptr);
-        if (AlleleDosagesAreNeeded(pcp->misc_flags, (allele_freqs != nullptr), pcp->min_allele_ddosage, pcp->max_allele_ddosage, &regular_freqcounts_needed)) {
+        if (AlleleDosagesAreNeeded(pcp->command_flags1, pcp->misc_flags, (allele_freqs != nullptr), pcp->min_allele_ddosage, pcp->max_allele_ddosage, &regular_freqcounts_needed)) {
           if (unlikely(bigstack_alloc_u64(raw_allele_ct, &allele_ddosages))) {
             goto Plink2Core_ret_NOMEM;
           }
         }
-        if (FounderAlleleDosagesAreNeeded(pcp->misc_flags, (allele_freqs != nullptr), pcp->min_allele_ddosage, pcp->max_allele_ddosage, &regular_freqcounts_needed)) {
-          if ((founder_ct == sample_ct) && allele_ddosages) {
-            founder_allele_ddosages = allele_ddosages;
-          } else {
-            if (unlikely(bigstack_alloc_u64(raw_allele_ct, &founder_allele_ddosages))) {
-              goto Plink2Core_ret_NOMEM;
-            }
+        if (FounderAlleleDosagesAreNeeded(pcp->command_flags1, pcp->misc_flags, (allele_freqs != nullptr), pcp->min_allele_ddosage, pcp->max_allele_ddosage, &regular_freqcounts_needed)) {
+          // For now, we never need allele_ddosages and founder_allele_ddosages
+          // at the same time.  If we ever do, we should just set
+          // founder_allele_ddosages = allele_ddosages when the latter is
+          // allocated and founder_ct == sample_ct.
+          if (unlikely(bigstack_alloc_u64(raw_allele_ct, &founder_allele_ddosages))) {
+            goto Plink2Core_ret_NOMEM;
           }
         }
         double* imp_r2_vals = nullptr;
@@ -7618,8 +7620,8 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else if (strequal_k_unsafe(flagname_p2, "xford-single-chr")) {
-          if (unlikely(!(xload & (kfXloadOxGen | kfXloadOxBgen | kfXloadOxHaps)))) {
-            logerrputs("Error: --oxford-single-chr must be used with .gen/.bgen/.haps input.\n");
+          if (unlikely(!(xload & (kfXloadOxGen | kfXloadOxBgen)))) {
+            logerrputs("Error: --oxford-single-chr must be used with .gen/.bgen input.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(oxford_import_flags & kfOxfordImportBgenSnpIdChr)) {
@@ -7851,7 +7853,7 @@ int main(int argc, char** argv) {
               pc.pca_flags |= kfPcaBiallelicVarWts;
             } else if (strequal_k(cur_modif, "vzs", cur_modif_slen)) {
               pc.pca_flags |= kfPcaVarZs;
-            } else if (StrStartsWith(cur_modif, "scols=", cur_modif_slen)) {
+            } else if (StrStartsWith0(cur_modif, "scols=", cur_modif_slen)) {
               if (unlikely(explicit_scols)) {
                 logerrputs("Error: Multiple --pca scols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
@@ -7861,7 +7863,7 @@ int main(int argc, char** argv) {
                 goto main_ret_1;
               }
               explicit_scols = 1;
-            } else if (StrStartsWith(cur_modif, "vcols=", cur_modif_slen)) {
+            } else if (StrStartsWith0(cur_modif, "vcols=", cur_modif_slen)) {
               if (unlikely(vcols_idx)) {
                 logerrputs("Error: Multiple --pca vcols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
@@ -8082,6 +8084,12 @@ int main(int argc, char** argv) {
           pc.filter_flags |= kfFilterPsamReq | kfFilterExclNosex;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "ead-freq")) {
+          if (unlikely(pc.command_flags1 & kfCommand1AlleleFreq)) {
+            // --read-freq can't promise OBS_CTs, so simplest to just continue
+            // disallowing this
+            logerrputs("Error: --freq and --read-freq cannot be used together.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -9231,9 +9239,8 @@ int main(int argc, char** argv) {
           logerrputs("Error: --vcf-min-gp is no longer supported.  Use --import-dosage-certainty\ninstead.\n");
           goto main_ret_INVALID_CMDLINE_A;
         } else if (strequal_k_unsafe(flagname_p2, "cf-min-gq") || strequal_k_unsafe(flagname_p2, "cf-min-dp")) {
-          if (unlikely(!(xload & kfXloadVcf))) {
-            // todo: support BCF too
-            logerrprintf("Error: --%s must be used with --vcf.\n", flagname_p);
+          if (unlikely(!(xload & (kfXloadVcf | kfXloadBcf)))) {
+            logerrprintf("Error: --%s must be used with --vcf/--bcf.\n", flagname_p);
             goto main_ret_INVALID_CMDLINE;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -9291,8 +9298,8 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
           }
         } else if (strequal_k_unsafe(flagname_p2, "cf-half-call")) {
-          if (unlikely(!(xload & kfXloadVcf))) {
-            logerrputs("Error: --vcf-half-call must be used with --vcf.\n");
+          if (unlikely(!(xload & (kfXloadVcf | kfXloadBcf)))) {
+            logerrputs("Error: --vcf-half-call must be used with --vcf/--bcf.\n");
             goto main_ret_INVALID_CMDLINE;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -9390,7 +9397,7 @@ int main(int argc, char** argv) {
               // (.vscore.vars) file accompanying the .vscore.bin can be large
               // enough to deserve compression.
               pc.vscore_flags |= kfVscoreBin;
-            } else if (likely(StrStartsWith(cur_modif, "cols=", cur_modif_slen))) {
+            } else if (likely(StrStartsWith0(cur_modif, "cols=", cur_modif_slen))) {
               if (unlikely(explicit_cols)) {
                 logerrputs("Error: Multiple --variant-score cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;

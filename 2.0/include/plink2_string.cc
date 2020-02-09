@@ -24,11 +24,11 @@ namespace plink2 {
 #if defined(__LP64__) && !defined(_GNU_SOURCE)
 CXXCONST_VOIDP rawmemchr(const void* ss, int cc) {
   const uintptr_t starting_addr = R_CAST(uintptr_t, ss);
-  const VecC* ss_viter = R_CAST(const VecC*, RoundDownPow2(starting_addr, kBytesPerVec));
-  const VecC vvec_all_needle = vecc_set1(cc);
-  VecC cur_vvec = *ss_viter;
-  VecC needle_match_vvec = (cur_vvec == vvec_all_needle);
-  uint32_t matching_bytes = vecc_movemask(needle_match_vvec);
+  const VecI8* ss_viter = R_CAST(const VecI8*, RoundDownPow2(starting_addr, kBytesPerVec));
+  const VecI8 vvec_all_needle = veci8_set1(cc);
+  VecI8 cur_vvec = *ss_viter;
+  VecI8 needle_match_vvec = (cur_vvec == vvec_all_needle);
+  uint32_t matching_bytes = veci8_movemask(needle_match_vvec);
   const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, ss_viter);
   matching_bytes &= UINT32_MAX << leading_byte_ct;
   // This is typically short-range, so the Memrchr() double-vector strategy is
@@ -37,7 +37,7 @@ CXXCONST_VOIDP rawmemchr(const void* ss, int cc) {
     ++ss_viter;
     cur_vvec = *ss_viter;
     needle_match_vvec = (cur_vvec == vvec_all_needle);
-    matching_bytes = vecc_movemask(needle_match_vvec);
+    matching_bytes = veci8_movemask(needle_match_vvec);
   }
   const uint32_t byte_offset_in_vec = ctzu32(matching_bytes);
   return R_CAST(CXXCONST_VOIDP, R_CAST(uintptr_t, ss_viter) + byte_offset_in_vec);
@@ -47,13 +47,13 @@ CXXCONST_VOIDP rawmemchr(const void* ss, int cc) {
 #ifdef __LP64__
 CXXCONST_VOIDP rawmemchr2(const void* ss, unsigned char ucc1, unsigned char ucc2) {
   const uintptr_t starting_addr = R_CAST(uintptr_t, ss);
-  const VecC* ss_viter = R_CAST(const VecC*, RoundDownPow2(starting_addr, kBytesPerVec));
-  const VecC vvec_all_ucc1 = vecc_set1(ucc1);
-  const VecC vvec_all_ucc2 = vecc_set1(ucc2);
-  VecC cur_vvec = *ss_viter;
-  VecC ucc1_match_vvec = (cur_vvec == vvec_all_ucc1);
-  VecC ucc2_match_vvec = (cur_vvec == vvec_all_ucc2);
-  uint32_t matching_bytes = vecc_movemask(ucc1_match_vvec | ucc2_match_vvec);
+  const VecI8* ss_viter = R_CAST(const VecI8*, RoundDownPow2(starting_addr, kBytesPerVec));
+  const VecI8 vvec_all_ucc1 = veci8_set1(ucc1);
+  const VecI8 vvec_all_ucc2 = veci8_set1(ucc2);
+  VecI8 cur_vvec = *ss_viter;
+  VecI8 ucc1_match_vvec = (cur_vvec == vvec_all_ucc1);
+  VecI8 ucc2_match_vvec = (cur_vvec == vvec_all_ucc2);
+  uint32_t matching_bytes = veci8_movemask(ucc1_match_vvec | ucc2_match_vvec);
   const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, ss_viter);
   matching_bytes &= UINT32_MAX << leading_byte_ct;
   while (!matching_bytes) {
@@ -61,7 +61,7 @@ CXXCONST_VOIDP rawmemchr2(const void* ss, unsigned char ucc1, unsigned char ucc2
     cur_vvec = *ss_viter;
     ucc1_match_vvec = (cur_vvec == vvec_all_ucc1);
     ucc2_match_vvec = (cur_vvec == vvec_all_ucc2);
-    matching_bytes = vecc_movemask(ucc1_match_vvec | ucc2_match_vvec);
+    matching_bytes = veci8_movemask(ucc1_match_vvec | ucc2_match_vvec);
   }
   const uint32_t byte_offset_in_vec = ctzu32(matching_bytes);
   return &(R_CAST(CXXCONST_CP, ss_viter)[byte_offset_in_vec]);
@@ -69,15 +69,15 @@ CXXCONST_VOIDP rawmemchr2(const void* ss, unsigned char ucc1, unsigned char ucc2
 
 CXXCONST_VOIDP rawmemchr3(const void* ss, unsigned char ucc1, unsigned char ucc2, unsigned char ucc3) {
   const uintptr_t starting_addr = R_CAST(uintptr_t, ss);
-  const VecC* ss_viter = R_CAST(const VecC*, RoundDownPow2(starting_addr, kBytesPerVec));
-  const VecC vvec_all_ucc1 = vecc_set1(ucc1);
-  const VecC vvec_all_ucc2 = vecc_set1(ucc2);
-  const VecC vvec_all_ucc3 = vecc_set1(ucc3);
-  VecC cur_vvec = *ss_viter;
-  VecC ucc1_match_vvec = (cur_vvec == vvec_all_ucc1);
-  VecC ucc2_match_vvec = (cur_vvec == vvec_all_ucc2);
-  VecC ucc3_match_vvec = (cur_vvec == vvec_all_ucc3);
-  uint32_t matching_bytes = vecc_movemask(ucc1_match_vvec | ucc2_match_vvec | ucc3_match_vvec);
+  const VecI8* ss_viter = R_CAST(const VecI8*, RoundDownPow2(starting_addr, kBytesPerVec));
+  const VecI8 vvec_all_ucc1 = veci8_set1(ucc1);
+  const VecI8 vvec_all_ucc2 = veci8_set1(ucc2);
+  const VecI8 vvec_all_ucc3 = veci8_set1(ucc3);
+  VecI8 cur_vvec = *ss_viter;
+  VecI8 ucc1_match_vvec = (cur_vvec == vvec_all_ucc1);
+  VecI8 ucc2_match_vvec = (cur_vvec == vvec_all_ucc2);
+  VecI8 ucc3_match_vvec = (cur_vvec == vvec_all_ucc3);
+  uint32_t matching_bytes = veci8_movemask(ucc1_match_vvec | ucc2_match_vvec | ucc3_match_vvec);
   const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, ss_viter);
   matching_bytes &= UINT32_MAX << leading_byte_ct;
   while (!matching_bytes) {
@@ -86,7 +86,7 @@ CXXCONST_VOIDP rawmemchr3(const void* ss, unsigned char ucc1, unsigned char ucc2
     ucc1_match_vvec = (cur_vvec == vvec_all_ucc1);
     ucc2_match_vvec = (cur_vvec == vvec_all_ucc2);
     ucc3_match_vvec = (cur_vvec == vvec_all_ucc3);
-    matching_bytes = vecc_movemask(ucc1_match_vvec | ucc2_match_vvec | ucc3_match_vvec);
+    matching_bytes = veci8_movemask(ucc1_match_vvec | ucc2_match_vvec | ucc3_match_vvec);
   }
   const uint32_t byte_offset_in_vec = ctzu32(matching_bytes);
   return &(R_CAST(CXXCONST_CP, ss_viter)[byte_offset_in_vec]);
@@ -94,17 +94,17 @@ CXXCONST_VOIDP rawmemchr3(const void* ss, unsigned char ucc1, unsigned char ucc2
 
 CXXCONST_CP strchrnul3(const char* ss, unsigned char ucc1, unsigned char ucc2, unsigned char ucc3) {
   const uintptr_t starting_addr = R_CAST(uintptr_t, ss);
-  const VecC* ss_viter = R_CAST(const VecC*, RoundDownPow2(starting_addr, kBytesPerVec));
-  const VecC vvec_all_zero = vecc_setzero();
-  const VecC vvec_all_ucc1 = vecc_set1(ucc1);
-  const VecC vvec_all_ucc2 = vecc_set1(ucc2);
-  const VecC vvec_all_ucc3 = vecc_set1(ucc3);
-  VecC cur_vvec = *ss_viter;
-  VecC zero_match_vvec = (cur_vvec == vvec_all_zero);
-  VecC ucc1_match_vvec = (cur_vvec == vvec_all_ucc1);
-  VecC ucc2_match_vvec = (cur_vvec == vvec_all_ucc2);
-  VecC ucc3_match_vvec = (cur_vvec == vvec_all_ucc3);
-  uint32_t matching_bytes = vecc_movemask(zero_match_vvec | ucc1_match_vvec | ucc2_match_vvec | ucc3_match_vvec);
+  const VecI8* ss_viter = R_CAST(const VecI8*, RoundDownPow2(starting_addr, kBytesPerVec));
+  const VecI8 vvec_all_zero = veci8_setzero();
+  const VecI8 vvec_all_ucc1 = veci8_set1(ucc1);
+  const VecI8 vvec_all_ucc2 = veci8_set1(ucc2);
+  const VecI8 vvec_all_ucc3 = veci8_set1(ucc3);
+  VecI8 cur_vvec = *ss_viter;
+  VecI8 zero_match_vvec = (cur_vvec == vvec_all_zero);
+  VecI8 ucc1_match_vvec = (cur_vvec == vvec_all_ucc1);
+  VecI8 ucc2_match_vvec = (cur_vvec == vvec_all_ucc2);
+  VecI8 ucc3_match_vvec = (cur_vvec == vvec_all_ucc3);
+  uint32_t matching_bytes = veci8_movemask(zero_match_vvec | ucc1_match_vvec | ucc2_match_vvec | ucc3_match_vvec);
   const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, ss_viter);
   matching_bytes &= UINT32_MAX << leading_byte_ct;
   while (!matching_bytes) {
@@ -114,7 +114,7 @@ CXXCONST_CP strchrnul3(const char* ss, unsigned char ucc1, unsigned char ucc2, u
     ucc1_match_vvec = (cur_vvec == vvec_all_ucc1);
     ucc2_match_vvec = (cur_vvec == vvec_all_ucc2);
     ucc3_match_vvec = (cur_vvec == vvec_all_ucc3);
-    matching_bytes = vecc_movemask(zero_match_vvec | ucc1_match_vvec | ucc2_match_vvec | ucc3_match_vvec);
+    matching_bytes = veci8_movemask(zero_match_vvec | ucc1_match_vvec | ucc2_match_vvec | ucc3_match_vvec);
   }
   const uint32_t byte_offset_in_vec = ctzu32(matching_bytes);
   return &(R_CAST(CXXCONST_CP, ss_viter)[byte_offset_in_vec]);
@@ -3094,10 +3094,10 @@ uintptr_t ExpsearchNsortStrLb(const char* idbuf, const char* nsorted_strbox, uin
 
 #ifdef __LP64__
 CXXCONST_CP Memrchr(const char* str_start, char needle, uintptr_t slen) {
-  const VecC vvec_all_needle = vecc_set1(needle);
+  const VecI8 vvec_all_needle = veci8_set1(needle);
   const uintptr_t str_end_addr = R_CAST(uintptr_t, str_start) + slen;
   const uint32_t trailing_byte_ct = str_end_addr % kBytesPerVec;
-  const VecC* str_rev_viter = R_CAST(const VecC*, RoundDownPow2(str_end_addr, kBytesPerVec));
+  const VecI8* str_rev_viter = R_CAST(const VecI8*, RoundDownPow2(str_end_addr, kBytesPerVec));
   if (trailing_byte_ct) {
     // This is a GNU vector extension parallel-equality check, which gets
     // translated to e.g. _mm256_cmpeq_epi8().
@@ -3105,8 +3105,8 @@ CXXCONST_CP Memrchr(const char* str_start, char needle, uintptr_t slen) {
     // beyond str_end as long as they're in the same vector; we only risk
     // violating process read permissions if we cross a page boundary.
     // (For this reason, I don't bother with AVX unaligned reads.)
-    const VecC match_vvec = (*str_rev_viter == vvec_all_needle);
-    uint32_t matching_bytes = vecc_movemask(match_vvec);
+    const VecI8 match_vvec = (*str_rev_viter == vvec_all_needle);
+    uint32_t matching_bytes = veci8_movemask(match_vvec);
     matching_bytes &= (1U << (trailing_byte_ct % kBytesPerVec)) - 1;
     if (str_start > R_CAST(const char*, str_rev_viter)) {
       const uint32_t leading_byte_ct = R_CAST(uintptr_t, str_start) % kBytesPerVec;
@@ -3126,12 +3126,12 @@ CXXCONST_CP Memrchr(const char* str_start, char needle, uintptr_t slen) {
     // For long lines, looping over two vectors at a time is most efficient on
     // my Mac (also tried 1 and 4).
     --str_rev_viter;
-    const VecC match_vvec1 = (*str_rev_viter == vvec_all_needle);
+    const VecI8 match_vvec1 = (*str_rev_viter == vvec_all_needle);
     --str_rev_viter;
-    const VecC match_vvec0 = (*str_rev_viter == vvec_all_needle);
-    const uint32_t matching_bytes = vecc_movemask(match_vvec1 | match_vvec0);
+    const VecI8 match_vvec0 = (*str_rev_viter == vvec_all_needle);
+    const uint32_t matching_bytes = veci8_movemask(match_vvec1 | match_vvec0);
     if (matching_bytes) {
-      const uint32_t matching_bytes1 = vecc_movemask(match_vvec1);
+      const uint32_t matching_bytes1 = veci8_movemask(match_vvec1);
       if (matching_bytes1) {
         const uint32_t byte_offset_in_vec = bsru32(matching_bytes1);
         return &(R_CAST(CXXCONST_CP, &(str_rev_viter[1]))[byte_offset_in_vec]);
@@ -3146,8 +3146,8 @@ CXXCONST_CP Memrchr(const char* str_start, char needle, uintptr_t slen) {
       return nullptr;
     }
     --str_rev_viter;
-    const VecC match_vvec = (*str_rev_viter == vvec_all_needle);
-    const uint32_t matching_bytes = vecc_movemask(match_vvec);
+    const VecI8 match_vvec = (*str_rev_viter == vvec_all_needle);
+    const uint32_t matching_bytes = veci8_movemask(match_vvec);
     if (matching_bytes) {
       const uint32_t byte_offset_in_vec = bsru32(matching_bytes);
       if (byte_offset_in_vec + remaining_byte_ct_underflow < kBytesPerVec) {

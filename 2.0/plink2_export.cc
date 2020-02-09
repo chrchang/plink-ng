@@ -4479,7 +4479,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     if (pvar_info_reload) {
       reterr = PvarInfoOpenAndReloadHeader(pvar_info_reload, 1 + (max_thread_ct > 1), &pvar_reload_txs, &pvar_reload_line_iter, &info_col_idx);
       if (unlikely(reterr)) {
-        goto ExportVcf_ret_TSTREAM_REWIND_FAIL;
+        goto ExportVcf_ret_TSTREAM_FAIL;
       }
     }
 
@@ -4672,7 +4672,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       if (pvar_reload_line_iter) {
         reterr = PvarInfoReloadAndWrite(info_pr_flag_present, info_col_idx, variant_uidx, is_pr, &pvar_reload_txs, &pvar_reload_line_iter, &write_iter, &rls_variant_uidx);
         if (unlikely(reterr)) {
-          goto ExportVcf_ret_TSTREAM_REWIND_FAIL;
+          goto ExportVcf_ret_TSTREAM_FAIL;
         }
       } else {
         if (is_pr) {
@@ -5992,8 +5992,8 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
   ExportVcf_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  ExportVcf_ret_TSTREAM_REWIND_FAIL:
-    TextStreamErrPrintRewind(pvar_info_reload, &pvar_reload_txs, &reterr);
+  ExportVcf_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(pvar_info_reload, &pvar_reload_txs);
     break;
   ExportVcf_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;

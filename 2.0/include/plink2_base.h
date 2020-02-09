@@ -97,7 +97,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 700
+#define PLINK2_BASE_VERNUM 702
 
 
 #define _FILE_OFFSET_BITS 64
@@ -710,7 +710,9 @@ typedef uint32_t VecU32 __attribute__ ((vector_size (32)));
 typedef int32_t VecI32 __attribute__ ((vector_size (32)));
 typedef unsigned short VecU16 __attribute__ ((vector_size (32)));
 typedef short VecI16 __attribute__ ((vector_size (32)));
-typedef char VecC __attribute__ ((vector_size (32)));
+// documentation says 'char', but int8_t works fine under gcc 4.4 and conveys
+// intent better (char not guaranteed to be signed)
+typedef int8_t VecI8 __attribute__ ((vector_size (32)));
 typedef unsigned char VecUc __attribute__ ((vector_size (32)));
 #  else
 CONSTI32(kBytesPerVec, 16);
@@ -719,7 +721,7 @@ typedef uint32_t VecU32 __attribute ((vector_size (16)));
 typedef int32_t VecI32 __attribute ((vector_size (16)));
 typedef unsigned short VecU16 __attribute__ ((vector_size (16)));
 typedef short VecI16 __attribute__ ((vector_size (16)));
-typedef char VecC __attribute__ ((vector_size (16)));
+typedef int8_t VecI8 __attribute__ ((vector_size (16)));
 typedef unsigned char VecUc __attribute__ ((vector_size (16)));
 #  endif
 CONSTI32(kBitsPerWord, 64);
@@ -757,8 +759,8 @@ HEADER_INLINE VecUc vecuc_setzero() {
   return R_CAST(VecUc, _mm256_setzero_si256());
 }
 
-HEADER_INLINE VecC vecc_setzero() {
-  return R_CAST(VecC, _mm256_setzero_si256());
+HEADER_INLINE VecI8 veci8_setzero() {
+  return R_CAST(VecI8, _mm256_setzero_si256());
 }
 
 // "vv >> ct" doesn't work, and Scientific Linux gcc 4.4 might not optimize
@@ -771,6 +773,22 @@ HEADER_INLINE VecW vecw_slli(VecW vv, uint32_t ct) {
   return R_CAST(VecW, _mm256_slli_epi64(R_CAST(__m256i, vv), ct));
 }
 
+HEADER_INLINE VecU32 vecu32_srli(VecU32 vv, uint32_t ct) {
+  return R_CAST(VecU32, _mm256_srli_epi32(R_CAST(__m256i, vv), ct));
+}
+
+HEADER_INLINE VecU32 vecu32_slli(VecU32 vv, uint32_t ct) {
+  return R_CAST(VecU32, _mm256_slli_epi32(R_CAST(__m256i, vv), ct));
+}
+
+HEADER_INLINE VecU16 vecu16_srli(VecU16 vv, uint32_t ct) {
+  return R_CAST(VecU16, _mm256_srli_epi16(R_CAST(__m256i, vv), ct));
+}
+
+HEADER_INLINE VecU16 vecu16_slli(VecU16 vv, uint32_t ct) {
+  return R_CAST(VecU16, _mm256_slli_epi16(R_CAST(__m256i, vv), ct));
+}
+
 // Compiler still doesn't seem to be smart enough to use andnot properly.
 HEADER_INLINE VecW vecw_and_notfirst(VecW excl, VecW main) {
   return R_CAST(VecW, _mm256_andnot_si256(R_CAST(__m256i, excl), R_CAST(__m256i, main)));
@@ -778,6 +796,10 @@ HEADER_INLINE VecW vecw_and_notfirst(VecW excl, VecW main) {
 
 HEADER_INLINE VecU32 vecu32_and_notfirst(VecU32 excl, VecU32 main) {
   return R_CAST(VecU32, _mm256_andnot_si256(R_CAST(__m256i, excl), R_CAST(__m256i, main)));
+}
+
+HEADER_INLINE VecU16 vecu16_and_notfirst(VecU16 excl, VecU16 main) {
+  return R_CAST(VecU16, _mm256_andnot_si256(R_CAST(__m256i, excl), R_CAST(__m256i, main)));
 }
 
 HEADER_INLINE VecW vecw_set1(uintptr_t ulii) {
@@ -804,8 +826,8 @@ HEADER_INLINE VecUc vecuc_set1(unsigned char ucc) {
   return R_CAST(VecUc, _mm256_set1_epi8(ucc));
 }
 
-HEADER_INLINE VecC vecc_set1(char cc) {
-  return R_CAST(VecC, _mm256_set1_epi8(cc));
+HEADER_INLINE VecI8 veci8_set1(char cc) {
+  return R_CAST(VecI8, _mm256_set1_epi8(cc));
 }
 
 HEADER_INLINE uint32_t vecw_movemask(VecW vv) {
@@ -816,11 +838,19 @@ HEADER_INLINE uint32_t vecu32_movemask(VecU32 vv) {
   return _mm256_movemask_epi8(R_CAST(__m256i, vv));
 }
 
+HEADER_INLINE uint32_t veci32_movemask(VecI32 vv) {
+  return _mm256_movemask_epi8(R_CAST(__m256i, vv));
+}
+
 HEADER_INLINE uint32_t vecu16_movemask(VecU16 vv) {
   return _mm256_movemask_epi8(R_CAST(__m256i, vv));
 }
 
-HEADER_INLINE uint32_t vecc_movemask(VecC vv) {
+HEADER_INLINE uint32_t veci16_movemask(VecI16 vv) {
+  return _mm256_movemask_epi8(R_CAST(__m256i, vv));
+}
+
+HEADER_INLINE uint32_t veci8_movemask(VecI8 vv) {
   return _mm256_movemask_epi8(R_CAST(__m256i, vv));
 }
 
@@ -941,6 +971,10 @@ HEADER_INLINE VecUc vecuc_loadu(const void* mem_addr) {
   return R_CAST(VecUc, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
 }
 
+HEADER_INLINE VecI8 veci8_loadu(const void* mem_addr) {
+  return R_CAST(VecI8, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
+}
+
 HEADER_INLINE void vecw_storeu(void* mem_addr, VecW vv) {
   _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), R_CAST(__m256i, vv));
 }
@@ -1004,8 +1038,8 @@ HEADER_INLINE VecUc vecuc_setzero() {
   return R_CAST(VecUc, _mm_setzero_si128());
 }
 
-HEADER_INLINE VecC vecc_setzero() {
-  return R_CAST(VecC, _mm_setzero_si128());
+HEADER_INLINE VecI8 veci8_setzero() {
+  return R_CAST(VecI8, _mm_setzero_si128());
 }
 
 HEADER_INLINE VecW vecw_srli(VecW vv, uint32_t ct) {
@@ -1016,12 +1050,32 @@ HEADER_INLINE VecW vecw_slli(VecW vv, uint32_t ct) {
   return R_CAST(VecW, _mm_slli_epi64(R_CAST(__m128i, vv), ct));
 }
 
+HEADER_INLINE VecU32 vecu32_srli(VecU32 vv, uint32_t ct) {
+  return R_CAST(VecU32, _mm_srli_epi32(R_CAST(__m128i, vv), ct));
+}
+
+HEADER_INLINE VecU32 vecu32_slli(VecU32 vv, uint32_t ct) {
+  return R_CAST(VecU32, _mm_slli_epi32(R_CAST(__m128i, vv), ct));
+}
+
+HEADER_INLINE VecU16 vecu16_srli(VecU16 vv, uint32_t ct) {
+  return R_CAST(VecU16, _mm_srli_epi16(R_CAST(__m128i, vv), ct));
+}
+
+HEADER_INLINE VecU16 vecu16_slli(VecU16 vv, uint32_t ct) {
+  return R_CAST(VecU16, _mm_slli_epi16(R_CAST(__m128i, vv), ct));
+}
+
 HEADER_INLINE VecW vecw_and_notfirst(VecW excl, VecW main) {
   return R_CAST(VecW, _mm_andnot_si128(R_CAST(__m128i, excl), R_CAST(__m128i, main)));
 }
 
 HEADER_INLINE VecU32 vecu32_and_notfirst(VecU32 excl, VecU32 main) {
   return R_CAST(VecU32, _mm_andnot_si128(R_CAST(__m128i, excl), R_CAST(__m128i, main)));
+}
+
+HEADER_INLINE VecU16 vecu16_and_notfirst(VecU16 excl, VecU16 main) {
+  return R_CAST(VecU16, _mm_andnot_si128(R_CAST(__m128i, excl), R_CAST(__m128i, main)));
 }
 
 HEADER_INLINE VecW vecw_set1(uintptr_t ulii) {
@@ -1048,8 +1102,8 @@ HEADER_INLINE VecUc vecuc_set1(unsigned char ucc) {
   return R_CAST(VecUc, _mm_set1_epi8(ucc));
 }
 
-HEADER_INLINE VecC vecc_set1(char cc) {
-  return R_CAST(VecC, _mm_set1_epi8(cc));
+HEADER_INLINE VecI8 veci8_set1(char cc) {
+  return R_CAST(VecI8, _mm_set1_epi8(cc));
 }
 
 HEADER_INLINE uint32_t vecw_movemask(VecW vv) {
@@ -1060,11 +1114,19 @@ HEADER_INLINE uint32_t vecu32_movemask(VecU32 vv) {
   return _mm_movemask_epi8(R_CAST(__m128i, vv));
 }
 
+HEADER_INLINE uint32_t veci32_movemask(VecI32 vv) {
+  return _mm_movemask_epi8(R_CAST(__m128i, vv));
+}
+
 HEADER_INLINE uint32_t vecu16_movemask(VecU16 vv) {
   return _mm_movemask_epi8(R_CAST(__m128i, vv));
 }
 
-HEADER_INLINE uint32_t vecc_movemask(VecC vv) {
+HEADER_INLINE uint32_t veci16_movemask(VecI16 vv) {
+  return _mm_movemask_epi8(R_CAST(__m128i, vv));
+}
+
+HEADER_INLINE uint32_t veci8_movemask(VecI8 vv) {
   return _mm_movemask_epi8(R_CAST(__m128i, vv));
 }
 
@@ -1106,6 +1168,10 @@ HEADER_INLINE VecI16 veci16_loadu(const void* mem_addr) {
 
 HEADER_INLINE VecUc vecuc_loadu(const void* mem_addr) {
   return R_CAST(VecUc, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
+}
+
+HEADER_INLINE VecI8 veci8_loadu(const void* mem_addr) {
+  return R_CAST(VecI8, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
 }
 
 HEADER_INLINE void vecw_storeu(void* mem_addr, VecW vv) {
@@ -1285,7 +1351,7 @@ typedef uint8_t Quarterword;
 typedef uintptr_t VecW;
 typedef uintptr_t VecU32;
 typedef float VecF;
-// VecI16 and VecC aren't worth the trouble of scaling down to 32-bit
+// VecI16 and VecI8 aren't worth the trouble of scaling down to 32-bit
 
 #  define VCONST_W(xx) (xx)
 

@@ -645,6 +645,11 @@ HEADER_INLINE PglErr TextStreamRawErrcode(const TextStream* txs_ptr) {
 // first when they care.)
 BoolErr CleanupTextStream(TextStream* txs_ptr, PglErr* reterrp);
 
+// Rewinds and reads 1 byte before closing; returns kPglRetRewindFail if that
+// doesn't work.  Designed to catch unsupported process-substitution/named-pipe
+// use.
+PglErr CloseRewindableTextStream(TextStream* txs_ptr);
+
 
 // Low-level token-batch-reading interface, using the extra TextStream mode
 // which cares about token rather than line endings.
