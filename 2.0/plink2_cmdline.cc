@@ -22,8 +22,11 @@
 #  include <sys/sysctl.h>
 #endif
 
+#include <sys/types.h>  // open()
+#include <sys/stat.h>  // open()
+#include <fcntl.h>  // open()
 #include <time.h>  // time(), ctime()
-#include <unistd.h>  // getcwd(), gethostname(), sysconf()
+#include <unistd.h>  // getcwd(), gethostname(), sysconf(), fstat()
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -105,6 +108,24 @@ void logerrputsb() {
   fflush(stdout);
   fputs(g_logbuf, stderr);
   g_stderr_written_to = 1;
+}
+
+PglErr ForceNonFifo(const char* fname) {
+  int32_t file_handle = open(fname, O_RDONLY);
+  if (unlikely(file_handle < 0)) {
+    return kPglRetOpenFail;
+  }
+  struct stat statbuf;
+  if (unlikely(fstat(file_handle, &statbuf) < 0)) {
+    close(file_handle);
+    return kPglRetOpenFail;
+  }
+  if (unlikely(S_ISFIFO(statbuf.st_mode))) {
+    close(file_handle);
+    return kPglRetRewindFail;
+  }
+  close(file_handle);
+  return kPglRetSuccess;
 }
 
 BoolErr fopen_checked(const char* fname, const char* mode, FILE** target_ptr) {

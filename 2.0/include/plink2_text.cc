@@ -1759,7 +1759,7 @@ PglErr TextRetarget(const char* new_fname, TextStream* txs_ptr) {
   return kPglRetSuccess;
 }
 
-BoolErr CleanupTextStreamInternal(TextStream* txs_ptr, uint32_t check_rewind, PglErr* reterrp) {
+BoolErr CleanupTextStream(TextStream* txs_ptr, PglErr* reterrp) {
   TextStreamMain* txsp = GetTxsp(txs_ptr);
   TextFileBase* basep = &txsp->base;
   TextStreamSync* syncp = txsp->syncp;
@@ -1834,15 +1834,6 @@ BoolErr CleanupTextStreamInternal(TextStream* txs_ptr, uint32_t check_rewind, Pg
       }
       basep->file_type = kFileUncompressed;
     }
-    if (check_rewind) {
-      rewind(basep->ff);
-      unsigned char buf[1];
-      if (unlikely(!fread_unlocked(buf, 1, 1, basep->ff))) {
-        // assume reterr == kPglRetSuccess in this case
-        *reterrp = kPglRetRewindFail;
-        return 1;
-      }
-    }
     if (unlikely(fclose_null(&basep->ff))) {
       if (!reterrp) {
         return 1;
@@ -1855,16 +1846,6 @@ BoolErr CleanupTextStreamInternal(TextStream* txs_ptr, uint32_t check_rewind, Pg
     }
   }
   return 0;
-}
-
-BoolErr CleanupTextStream(TextStream* txs_ptr, PglErr* reterrp) {
-  return CleanupTextStreamInternal(txs_ptr, 0, reterrp);
-}
-
-PglErr CloseRewindableTextStream(TextStream* txs_ptr) {
-  PglErr reterr = kPglRetSuccess;
-  CleanupTextStreamInternal(txs_ptr, 1, &reterr);
-  return reterr;
 }
 
 

@@ -2676,16 +2676,23 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     // reader can be very simple since *only* chromosome filters are supported
     // by import functions.)  Do the same for .bgen and .bcf files.
 
-    reterr = InitTextStreamEx(vcfname, 1, kMaxLongLine, max_line_blen, ClipU32(max_thread_ct - 1, 1, 4), &vcf_txs);
+    reterr = ForceNonFifo(vcfname);
     if (unlikely(reterr)) {
       if (reterr == kPglRetOpenFail) {
         const uint32_t slen = strlen(vcfname);
         if ((!StrEndsWith(vcfname, ".vcf", slen)) &&
             (!StrEndsWith(vcfname, ".vcf.gz", slen))) {
           logerrprintfww("Error: Failed to open %s : %s. (--vcf expects a complete filename; did you forget '.vcf' at the end?)\n", vcfname, strerror(errno));
-          goto VcfToPgen_ret_1;
+        } else {
+          logerrprintfww(kErrprintfFopen, vcfname, strerror(errno));
         }
+      } else {
+        logerrprintfww(kErrprintfRewind, vcfname);
       }
+      goto VcfToPgen_ret_1;
+    }
+    reterr = InitTextStreamEx(vcfname, 1, kMaxLongLine, max_line_blen, ClipU32(max_thread_ct - 1, 1, 4), &vcf_txs);
+    if (unlikely(reterr)) {
       goto VcfToPgen_ret_TSTREAM_FAIL;
     }
     const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
@@ -3226,12 +3233,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         // this seems to saturate around 3 threads.
         calc_thread_ct = 1 + (sample_ct > 40) + (sample_ct > 320);
       }
-      // error-handling fix (8 Feb 2020): in process-substitution/named-pipe
-      // case, we may hang forever if we just close and reopen.  Instead, we
-      // must e.g. rewind and read a byte.
-      reterr = CloseRewindableTextStream(&vcf_txs);
-      if (unlikely(reterr)) {
-        goto VcfToPgen_ret_TSTREAM_REWIND_FAIL;
+      if (CleanupTextStream2(vcfname, &vcf_txs, &reterr)) {
+        goto VcfToPgen_ret_1;
       }
       BigstackEndReset(bigstack_end_mark);
       reterr = InitTextStreamEx(vcfname, 1, kMaxLongLine, MAXV(max_line_blen, kTextStreamBlenFast), decompress_thread_ct, &vcf_txs);
@@ -3803,9 +3806,6 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
   VcfToPgen_ret_TSTREAM_FAIL:
     putc_unlocked('\n', stdout);
     TextStreamErrPrint("--vcf file", &vcf_txs);
-    break;
-  VcfToPgen_ret_TSTREAM_REWIND_FAIL:
-    TextStreamErrPrintRewind("--vcf file", &vcf_txs, &reterr);
     break;
   VcfToPgen_ret_THREAD_PARSE:
     {
@@ -7288,16 +7288,23 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
       goto OxGenToPgen_ret_NOMEM;
     }
     const uint32_t decompress_thread_ct = 1 + (max_thread_ct > 2);
-    reterr = InitTextStream(genname, max_line_blen, decompress_thread_ct, &gen_txs);
+    reterr = ForceNonFifo(genname);
     if (unlikely(reterr)) {
       if (reterr == kPglRetOpenFail) {
         const uint32_t slen = strlen(genname);
         if ((!StrEndsWith(genname, ".gen", slen)) &&
             (!StrEndsWith(genname, ".gen.gz", slen))) {
           logerrprintfww("Error: Failed to open %s : %s. (--gen expects a complete filename; did you forget '.gen' at the end?)\n", genname, strerror(errno));
-          goto OxGenToPgen_ret_1;
+        } else {
+          logerrprintfww(kErrprintfFopen, genname, strerror(errno));
         }
+      } else {
+        logerrprintfww(kErrprintfRewind, genname);
       }
+      goto OxGenToPgen_ret_1;
+    }
+    reterr = InitTextStream(genname, max_line_blen, decompress_thread_ct, &gen_txs);
+    if (unlikely(reterr)) {
       goto OxGenToPgen_ret_TSTREAM_FAIL;
     }
     const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
@@ -7525,9 +7532,9 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
     if (TextIsMt(&gen_txs) && (decompress_thread_ct > 1)) {
       // Close and reopen, so that we can reduce decompress_thread_ct to 1.
       char* dst = R_CAST(char*, TextStreamMemStart(&gen_txs));
-      reterr = CloseRewindableTextStream(&gen_txs);
-      if (unlikely(reterr)) {
-        goto OxGenToPgen_ret_TSTREAM_REWIND_FAIL;
+      if (unlikely(CleanupTextStream(&gen_txs, &reterr))) {
+        logerrprintfww(kErrprintfFread, ".gen file", strerror(errno));
+        goto OxGenToPgen_ret_1;
       }
       reterr = TextStreamOpenEx(genname, kMaxLongLine, max_line_blen, 1, nullptr, dst, &gen_txs);
       if (unlikely(reterr)) {
@@ -7726,9 +7733,6 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
   while (0) {
   OxGenToPgen_ret_TSTREAM_FAIL:
     TextStreamErrPrint(".gen file", &gen_txs);
-    break;
-  OxGenToPgen_ret_TSTREAM_REWIND_FAIL:
-    TextStreamErrPrintRewind(".gen file", &gen_txs, &reterr);
     break;
   OxGenToPgen_ret_NOMEM:
     reterr = kPglRetNomem;

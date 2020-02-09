@@ -1822,18 +1822,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     BigstackFinalizeCp(allele_storage, allele_idx_end);
     // We may clobber this object soon, so close it now (verifying
     // rewindability first, if necessary).
-
-    // if only INFO:PR flag present, no need to reload
-    if (!(info_nonpr_present || info_pr_nonflag_present)) {
-      info_reload_slen = 0;
-    }
-    if (info_reload_slen) {
-      reterr = CloseRewindableTextStream(&pvar_txs);
-      if (unlikely(reterr)) {
-        TextStreamErrPrintRewind(pvarname, &pvar_txs, &reterr);
-        goto LoadPvar_ret_1;
-      }
-    } else if (unlikely(CleanupTextStream2(pvarname, &pvar_txs, &reterr))) {
+    if (unlikely(CleanupTextStream2(pvarname, &pvar_txs, &reterr))) {
       goto LoadPvar_ret_1;
     }
     uintptr_t* allele_idx_offsets = nullptr;
@@ -2055,6 +2044,18 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     *variant_ct_ptr = raw_variant_ct - exclude_ct;
     *vpos_sortstatus_ptr = vpos_sortstatus;
     *allele_storage_ptr = allele_storage;
+    // if only INFO:PR flag present, no need to reload
+    if (!(info_nonpr_present || info_pr_nonflag_present)) {
+      info_reload_slen = 0;
+    }
+    if (info_reload_slen) {
+      // treat open-fail as rewind-fail here
+      if (unlikely(ForceNonFifo(pvarname))) {
+        logerrprintfww(kErrprintfRewind, pvarname);
+        reterr = kPglRetRewindFail;
+        goto LoadPvar_ret_1;
+      }
+    }
     *info_reload_slen_ptr = info_reload_slen;
   }
 

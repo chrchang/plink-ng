@@ -1558,6 +1558,15 @@ PglErr PrescanSampleIds(const char* fname, SampleIdInfo* siip) {
   TextStream txs;
   PreinitTextStream(&txs);
   {
+    reterr = ForceNonFifo(fname);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetOpenFail) {
+        logerrprintfww(kErrprintfFopen, "--update-ids file", strerror(errno));
+      } else {
+        logerrprintfww(kErrprintfRewind, "--update-ids file");
+      }
+      goto PrescanSampleIds_ret_1;
+    }
     reterr = InitTextStream(fname, kTextStreamBlenFast, 1, &txs);
     if (unlikely(reterr)) {
       goto PrescanSampleIds_ret_TSTREAM_FAIL;
@@ -1671,13 +1680,10 @@ PglErr PrescanSampleIds(const char* fname, SampleIdInfo* siip) {
     if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
       goto PrescanSampleIds_ret_TSTREAM_FAIL;
     }
+    reterr = kPglRetSuccess;
     siip->max_sample_id_blen = max_sample_id_blen;
     if (new_sid_present) {
       siip->max_sid_blen = max_sid_blen;
-    }
-    reterr = CloseRewindableTextStream(&txs);
-    if (unlikely(reterr)) {
-      logerrprintfww(kErrprintfRewind, "--update-ids file");
     }
   }
   while (0) {
@@ -1706,6 +1712,15 @@ PglErr PrescanParentalIds(const char* fname, uint32_t max_thread_ct, ParentalIdI
   TextStream txs;
   PreinitTextStream(&txs);
   {
+    reterr = ForceNonFifo(fname);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetOpenFail) {
+        logerrprintfww(kErrprintfFopen, "--update-parents file", strerror(errno));
+      } else {
+        logerrprintfww(kErrprintfRewind, "--update-parents file");
+      }
+      goto PrescanParentalIds_ret_1;
+    }
     // permit very long lines since this can be pointed at .ped files
     // possible minor todo: could save longest line length for later reference
     reterr = SizeAndInitTextStream(fname, bigstack_left() - (bigstack_left() / 4), MAXV(max_thread_ct - 1, 1), &txs);
@@ -1794,12 +1809,9 @@ PglErr PrescanParentalIds(const char* fname, uint32_t max_thread_ct, ParentalIdI
     if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
       goto PrescanParentalIds_ret_TSTREAM_FAIL;
     }
+    reterr = kPglRetSuccess;
     parental_id_infop->max_paternal_id_blen = max_paternal_id_blen;
     parental_id_infop->max_maternal_id_blen = max_maternal_id_blen;
-    reterr = CloseRewindableTextStream(&txs);
-    if (unlikely(reterr)) {
-      logerrprintfww(kErrprintfRewind, "--update-parents file");
-    }
   }
   while (0) {
   PrescanParentalIds_ret_TSTREAM_FAIL:

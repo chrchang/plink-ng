@@ -235,6 +235,10 @@ HEADER_INLINE void DPrintf(const char* fmt, ...) {
   }
 }
 
+// Returns kPglRetOpenFail if file doesn't exist, or kPglRetRewindFail if file
+// is process-substitution/named-pipe.  Does not print an error message.
+PglErr ForceNonFifo(const char* fname);
+
 BoolErr fopen_checked(const char* fname, const char* mode, FILE** target_ptr);
 
 HEADER_INLINE IntErr putc_checked(int32_t ii, FILE* outfile) {
