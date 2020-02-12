@@ -66,10 +66,10 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (8 Feb 2020)";
+  " (11 Feb 2020)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -3965,6 +3965,11 @@ int main(int argc, char** argv) {
             }
             if (unlikely(!strcmp(vcf_dosage_import_field, "GT"))) {
               logerrputs("Error: --bcf dosage= argument cannot be 'GT'.\n");
+              goto main_ret_INVALID_CMDLINE;
+            }
+            // rather not worry about string-index 0 here
+            if (unlikely(!strcmp(vcf_dosage_import_field, "PASS"))) {
+              logerrputs("Error: --bcf dosage= argument cannot be 'PASS'.\n");
               goto main_ret_INVALID_CMDLINE;
             }
           }
@@ -9320,7 +9325,7 @@ int main(int argc, char** argv) {
           } else if (likely(
               ((mode_slen == 1) && (first_char_upcase_match == 'R')) ||
               strequal_k(mode_str, "reference", mode_slen))) {
-            vcf_half_call = kVcfHalfCallError;
+            vcf_half_call = kVcfHalfCallReference;
           } else {
             snprintf(g_logbuf, kLogbufSize, "Error: '%s' is not a valid mode for --vcf-half-call.\n", mode_str);
             goto main_ret_INVALID_CMDLINE_WWA;

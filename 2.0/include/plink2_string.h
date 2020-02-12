@@ -1381,6 +1381,18 @@ HEADER_INLINE char* wtoa(uintptr_t ulii, char* start) {
 
 char* u32toa_trunc4(uint32_t uii, char* start);
 
+// Write-buffer-sizing constants, to support replacement of dtoa_g() with
+// higher-precision variants like dtoa_g_p8() or full-blown Ryu.
+
+// -0.000123456
+// -1.23456e-38
+CONSTI32(kMaxFloatGSlen, 12);
+
+CONSTI32(kMaxDoubleGSlen, 13);
+
+// 1.23456e-2147483647
+CONSTI32(kMaxLnGSlen, 19);
+
 char* dtoa_g(double dxx, char* start);
 
 // We try to avoid micromanaging floating point printing and just use %g
@@ -1433,6 +1445,12 @@ HEADER_INLINE char* ftoa_g(float fxx, char* start) {
 
 HEADER_INLINE char* u32toa_x(uint32_t uii, char extra_char, char* start) {
   char* penult = u32toa(uii, start);
+  *penult = extra_char;
+  return &(penult[1]);
+}
+
+HEADER_INLINE char* i32toa_x(int32_t ii, char extra_char, char* start) {
+  char* penult = i32toa(ii, start);
   *penult = extra_char;
   return &(penult[1]);
 }

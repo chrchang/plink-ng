@@ -3657,7 +3657,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
               // allow GATK 3.4 <*:DEL> symbolic allele
             } while ((ucc > ',') || (ucc == '*'));
             write_iter = memcpya(write_iter, copy_start, linebuf_iter - copy_start);
-            if (fwrite_ck(writebuf_flush, pvarfile, &write_iter)) {
+            if (unlikely(fwrite_ck(writebuf_flush, pvarfile, &write_iter))) {
               goto VcfToPgen_ret_WRITE_FAIL;
             }
             if (ucc != ',') {
@@ -3671,7 +3671,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
             // does not.  Check for whitespace and error out if necessary.
             if (unlikely(memchr(filter_end, ' ', info_end - filter_end))) {
               snprintf(g_logbuf, kLogbufSize, "Error: INFO field on line %" PRIuPTR " of --vcf file contains a space; this cannot be imported by " PROG_NAME_STR ".  Remove or reformat the field before reattempting import.\n", line_idx);
-              goto VcfToPgen_ret_MALFORMED_INPUT_2N;
+              goto VcfToPgen_ret_MALFORMED_INPUT_WWN;
             }
             write_iter = memcpya(write_iter, linebuf_iter, info_end - linebuf_iter);
           } else {
@@ -3846,11 +3846,13 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     reterr = kPglRetMalformedInput;
     break;
   VcfToPgen_ret_MALFORMED_INPUT_2N:
-    logputs("\n");
+    putc_unlocked('\n', stdout);
     logerrputsb();
   VcfToPgen_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
+  VcfToPgen_ret_MALFORMED_INPUT_WWN:
+    putc_unlocked('\n', stdout);
   VcfToPgen_ret_MALFORMED_INPUT_WW:
     WordWrapB(0);
     logerrputsb();
@@ -3974,13 +3976,6 @@ BoolErr ScanBcfTypedString(const unsigned char* vrec_end, const unsigned char** 
   *slen_ptr = slen;
   return 0;
 }
-
-// 1: int8
-// 2: int16
-// 3: int32
-// 5: float
-// 7: char
-// static const unsigned char kBcfBytesPerElem[16] = {0, 1, 2, 4, 0, 4, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0};
 
 // Unlike the VCF case, everything in BcfImportContext is constant across the
 // file.  Variation in FORMAT field presence and order is dealt with before the
@@ -4950,6 +4945,45 @@ BcfParseErr BcfScanBiallelicHds(const BcfImportContext* bicp, const unsigned cha
   return kBcfParseOk;
 }
 
+/*
+// 1: int8
+// 2: int16
+// 3: int32
+// 5: float
+// 7: char
+static const unsigned char kBcfBytesPerElem[16] = {0, 1, 2, 4, 0, 4, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0};
+
+// stubs
+BcfParseErr BcfConvertUnphasedBiallelic(const BcfImportBaseContext* bibcp, const GparseReadBcfMetadata* metap, const unsigned char* record_start, uintptr_t* __restrict genovec) {
+  fputs("under development\n", stderr);
+  exit(S_CAST(int32_t, kPglRetNotYetSupported));
+  return kBcfParseOk;
+}
+
+BcfParseErr BcfConvertUnphasedMultiallelic(const BcfImportBaseContext* bibcp, const GparseReadBcfMetadata* metap, const unsigned char* record_start, uint32_t allele_ct, uint32_t* __restrict patch_01_ctp, uint32_t* __restrict patch_10_ctp, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals) {
+  fputs("under development\n", stderr);
+  exit(S_CAST(int32_t, kPglRetNotYetSupported));
+  return kBcfParseOk;
+}
+
+BcfParseErr BcfConvertPhasedBiallelic(const BcfImportBaseContext* bibcp, const GparseReadBcfMetadata* metap, const unsigned char* record_start, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo) {
+  fputs("under development\n", stderr);
+  exit(S_CAST(int32_t, kPglRetNotYetSupported));
+  return kBcfParseOk;
+}
+
+BcfParseErr BcfConvertPhasedMultiallelic(const BcfImportBaseContext* bibcp, const GparseReadBcfMetadata* metap, const unsigned char* record_start, uint32_t allele_ct, uint32_t* __restrict patch_01_ctp, uint32_t* __restrict patch_10_ctp, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo) {
+  fputs("under development\n", stderr);
+  exit(S_CAST(int32_t, kPglRetNotYetSupported));
+  return kBcfParseOk;
+}
+
+BcfParseErr BcfConvertPhasedBiallelicDosage(const BcfImportContext* bicp, const GparseReadBcfMetadata* metap, const unsigned char* record_start, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uintptr_t* __restrict dosage_present, uintptr_t* __restrict dphase_present, Dosage** dosage_main_iter_ptr, SDosage** dphase_delta_iter_ptr) {
+  fputs("under development\n", stderr);
+  exit(S_CAST(int32_t, kPglRetNotYetSupported));
+  return kBcfParseOk;
+}
+
 typedef struct BcfGenoToPgenCtxStruct {
   BcfImportContext bic;
   uint32_t hard_call_halfdist;
@@ -4966,7 +5000,6 @@ typedef struct BcfGenoToPgenCtxStruct {
   uint32_t parse_failed;
 } BcfGenoToPgenCtx;
 
-/*
 THREAD_FUNC_DECL BcfGenoToPgenThread(void* raw_arg) {
   ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
   const uintptr_t tidx = arg->tidx;
@@ -5017,57 +5050,48 @@ THREAD_FUNC_DECL BcfGenoToPgenThread(void* raw_arg) {
       uint32_t cur_phasepresent_exists = 0;
       uint32_t dosage_ct = 0;
       uint32_t dphase_ct = 0;
+      unsigned char* record_start = grp->record_start;
       GparseFlags gparse_flags = grp->flags;
       if (gparse_flags == kfGparseNull) {
-        SetAllBits(2 * sample_ct, R_CAST(uintptr_t*, grp->record_start));
+        SetAllBits(2 * sample_ct, R_CAST(uintptr_t*, record_start));
       } else {
         if (block_allele_idx_offsets) {
           cur_allele_ct = block_allele_idx_offsets[bidx + 1] - block_allele_idx_offsets[bidx];
         }
         uintptr_t* genovec = GparseGetPointers(thread_wkspace, sample_ct, cur_allele_ct, gparse_flags, &patch_01_set, &patch_01_vals, &patch_10_set, &patch_10_vals, &phasepresent, &phaseinfo, &dosage_present, &dosage_main, &dphase_present, &dphase_delta);
-        uintptr_t* write_genovec = GparseGetPointers(grp->record_start, sample_ct, cur_allele_ct, gparse_flags, &write_patch_01_set, &write_patch_01_vals, &write_patch_10_set, &write_patch_10_vals, &write_phasepresent, &write_phaseinfo, &write_dosage_present, &write_dosage_main, &write_dphase_present, &write_dphase_delta);
-        ;;;;
-        char* genotext_start = R_CAST(char*, grp->record_start);
-        ++genotext_start;
-        uint32_t qual_field_ct = grp->metadata.read_vcf.qual_present;
-        if (qual_field_ct) {
-          qual_field_ct = VcfQualScanInit2(grp->metadata.read_vcf.qual_field_idxs, qual_mins, qual_maxs, vic.vibc.qual_field_skips, vic.vibc.qual_line_mins, vic.vibc.qual_line_maxs);
-        }
-        vic.vibc.gt_present = grp->metadata.read_vcf.gt_present;
-        vic.vibc.qual_field_ct = qual_field_ct;
-        vic.dosage_field_idx = grp->metadata.read_vcf.dosage_field_idx;
-        vic.hds_field_idx = grp->metadata.read_vcf.hds_field_idx;
-        if ((vic.hds_field_idx == UINT32_MAX) && (vic.dosage_field_idx == UINT32_MAX)) {
+        uintptr_t* write_genovec = GparseGetPointers(record_start, sample_ct, cur_allele_ct, gparse_flags, &write_patch_01_set, &write_patch_01_vals, &write_patch_10_set, &write_patch_10_vals, &write_phasepresent, &write_phaseinfo, &write_dosage_present, &write_dosage_main, &write_dphase_present, &write_dphase_delta);
+        const GparseReadBcfMetadata* metap = &(grp->metadata.read_bcf);
+        if ((metap->hds_offset == UINT32_MAX) && (metap->dosage_offset == UINT32_MAX)) {
           if (!(gparse_flags & kfGparseHphase)) {
             if (cur_allele_ct == 2) {
-              vcf_parse_err = VcfConvertUnphasedBiallelicLine(&(vic.vibc), genotext_start, genovec);
+              bcf_parse_err = BcfConvertUnphasedBiallelic(bibcp, metap, record_start, genovec);
             } else {
-              vcf_parse_err = VcfConvertUnphasedMultiallelicLine(&(vic.vibc), genotext_start, cur_allele_ct, &patch_01_ct, &patch_10_ct, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals);
+              bcf_parse_err = BcfConvertUnphasedMultiallelic(bibcp, metap, record_start, cur_allele_ct, &patch_01_ct, &patch_10_ct, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals);
             }
           } else {
             if (cur_allele_ct == 2) {
-              vcf_parse_err = VcfConvertPhasedBiallelicLine(&(vic.vibc), genotext_start, genovec, phasepresent, phaseinfo);
+              bcf_parse_err = BcfConvertPhasedBiallelic(bibcp, metap, record_start, genovec, phasepresent, phaseinfo);
             } else {
-              vcf_parse_err = VcfConvertPhasedMultiallelicLine(&(vic.vibc), genotext_start, cur_allele_ct, &patch_01_ct, &patch_10_ct, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, phasepresent, phaseinfo);
+              bcf_parse_err = BcfConvertPhasedMultiallelic(bibcp, metap, record_start, cur_allele_ct, &patch_01_ct, &patch_10_ct, genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, phasepresent, phaseinfo);
             }
             cur_phasepresent_exists = !AllWordsAreZero(phasepresent, sample_ctl);
           }
-          if (unlikely(vcf_parse_err)) {
-            line_idx = grp->metadata.read_vcf.line_idx;
-            goto VcfGenoToPgenThread_malformed;
+          if (unlikely(bcf_parse_err)) {
+            vrec_idx = metap->rec_idx;
+            goto BcfGenoToPgenThread_malformed;
           }
         } else {
           Dosage* dosage_main_iter = dosage_main;
           SDosage* dphase_delta_iter = dphase_delta;
           if (cur_allele_ct == 2) {
-            vcf_parse_err = VcfConvertPhasedBiallelicDosageLine(&vic, genotext_start, genovec, phasepresent, phaseinfo, dosage_present, dphase_present, &dosage_main_iter, &dphase_delta_iter);
+            bcf_parse_err = BcfConvertPhasedBiallelicDosage(bicp, metap, record_start, genovec, phasepresent, phaseinfo, dosage_present, dphase_present, &dosage_main_iter, &dphase_delta_iter);
           } else {
             // multiallelic dosage: shouldn't be possible to get here yet
             exit(S_CAST(int32_t, kPglRetInternalError));
           }
-          if (unlikely(vcf_parse_err)) {
-            line_idx = grp->metadata.read_vcf.line_idx;
-            goto VcfGenoToPgenThread_malformed;
+          if (unlikely(bcf_parse_err)) {
+            vrec_idx = metap->rec_idx;
+            goto BcfGenoToPgenThread_malformed;
           }
           dosage_ct = dosage_main_iter - dosage_main;
           if (dosage_ct) {
@@ -5081,7 +5105,6 @@ THREAD_FUNC_DECL BcfGenoToPgenThread(void* raw_arg) {
           }
           cur_phasepresent_exists = !AllWordsAreZero(phasepresent, sample_ctl);
         }
-        ;;;;
         memcpy(write_genovec, genovec, sample_ctl2 * sizeof(intptr_t));
         if (patch_01_ct) {
           memcpy(write_patch_01_set, patch_01_set, sample_ctl * sizeof(intptr_t));
@@ -5201,13 +5224,15 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     // can't be const due to how --vcf-idspace-to is implemented
     // we could free this before the main conversion loop, but unlikely to be
     // more than a few MB so I won't bother
-    // + 5 to simplify second pass
+    // + 9 to simplify second pass
     char* vcf_header;
-    if (unlikely(
-            bigstack_alloc_c(header_size + (5 * k1LU), &vcf_header))) {
-      goto BcfToPgen_ret_NOMEM;
-    }
     {
+      char* vcf_header_alloc;
+      if (unlikely(
+              bigstack_alloc_c(header_size + (9 * k1LU), &vcf_header_alloc))) {
+        goto BcfToPgen_ret_NOMEM;
+      }
+      vcf_header = &(vcf_header_alloc[9]);
       unsigned char* header_load_iter = R_CAST(unsigned char*, vcf_header);
       unsigned char* header_load_end = &(header_load_iter[header_size]);
       reterr = BgzfRawMtStreamRead(header_load_end, &bgzf, &header_load_iter, &bgzf_errmsg);
@@ -5409,10 +5434,6 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
             contig_string_idx_end = val + 1;
           }
         } else {
-          if (unlikely(!val)) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Invalid IDX= value on line %u of BCF text header block. (FILTER/INFO/FORMAT IDX=0 is reserved for FILTER:PASS.)\n", header_line_idx);
-            goto BcfToPgen_ret_MALFORMED_INPUT_WW;
-          }
           // Easier to check for duplicates on the second pass.
           if (val >= fif_string_idx_end) {
             fif_string_idx_end = val + 1;
@@ -5465,13 +5486,19 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     // decoding; let's get this working first.)
     uintptr_t* bcf_contig_keep;
     const char** contig_names;
+    uint32_t* contig_slens;
     const char** fif_strings;
+    uint32_t* fif_slens;
+    uintptr_t* info_flags;
     uintptr_t* bcf_contig_seen;
     uintptr_t* sample_bitbuf;
     if (unlikely(
             bigstack_calloc_w(BitCtToWordCt(contig_string_idx_end), &bcf_contig_keep) ||
             bigstack_calloc_kcp(contig_string_idx_end, &contig_names) ||
+            bigstack_calloc_u32(contig_string_idx_end, &contig_slens) ||
             bigstack_calloc_kcp(fif_string_idx_end, &fif_strings) ||
+            bigstack_calloc_u32(fif_string_idx_end, &fif_slens) ||
+            bigstack_calloc_w(BitCtToWordCt(fif_string_idx_end), &info_flags) ||
             bigstack_calloc_w(BitCtToWordCt(contig_string_idx_end), &bcf_contig_seen) ||
             bigstack_alloc_w(sample_ctl, &sample_bitbuf))) {
       goto BcfToPgen_ret_NOMEM;
@@ -5484,15 +5511,24 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     uint32_t dosage_sidx = 0;  // replaces format_dosage_relevant
     uint32_t hds_sidx = 0;  // replaces later uses of format_hds_search
 
-    uint32_t pr_sidx = 0;  // replaces info_pr_present
+    // replaces info_pr_present... except that UINT32_MAX is the not-present
+    // value, just in case there's an INFO:PASS field for some reason.
+    uint32_t pr_sidx = UINT32_MAX;
+
     uint32_t info_pr_nonflag_present = 0;
     uint32_t info_nonpr_present = 0;
-    uint32_t max_pvarstr_slen = 16;  // includes floating-point, can be overestimate
+
+    // we don't want to clutter the second pass with too many instances of
+    // fwrite_ck(), so we compute FILTER-column, INFO-column and allele length
+    // bounds, and then size the write buffer accordingly.
+    uint32_t other_slen_ubound = kMaxFloatGSlen;  // QUAL, alleles, etc.
+    uint64_t filter_info_slen_ubound = 1;
     {
       unsigned char* tmp_alloc_end = bigstack_end_mark;
       if (StoreStringAtEndK(g_bigstack_base, "PASS", strlen("PASS"), &tmp_alloc_end, &(fif_strings[0]))) {
         goto BcfToPgen_ret_NOMEM;
       }
+      fif_slens[0] = 4;
       line_iter = vcf_header;
       uint32_t contig_idx = 0;
       uint32_t fif_idx = 1;
@@ -5525,39 +5561,53 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
           ScanUintDefcap(&(line_last_iter[1]), &cur_header_idx);
         }
         const char** target;
+        uint32_t* slen_dst;
         if (is_contig_line) {
           if (!explicit_idx_keys) {
             cur_header_idx = contig_idx++;
           }
           target = &(contig_names[cur_header_idx]);
+          slen_dst = &(contig_slens[cur_header_idx]);
         } else {
           if (!explicit_idx_keys) {
             cur_header_idx = fif_idx++;
           }
           target = &(fif_strings[cur_header_idx]);
-        }
-        if (unlikely(*target)) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Multiple %s lines in BCF text header block have IDX=%u.\n", is_contig_line? "contig" : "FILTER/INFO/FORMAT", cur_header_idx);
-          goto BcfToPgen_ret_MALFORMED_INPUT_WW;
+          slen_dst = &(fif_slens[cur_header_idx]);
         }
         const char* id_end = strchrnul_n(id_start, ',');
         const uint32_t id_slen = id_end - id_start;
-        if (StoreStringAtEndK(g_bigstack_base, id_start, id_slen, &tmp_alloc_end, target)) {
-          goto BcfToPgen_ret_NOMEM;
-        }
-        if (id_slen > max_pvarstr_slen) {
-          max_pvarstr_slen = id_slen;
+        if (*target) {
+          // Duplicate IDX values are actually permitted, but only when the ID
+          // string is identical.
+          // (In the no-IDX case, if e.g. a FILTER and INFO key are identical,
+          // their implicit IDX values are still different.)
+          if (unlikely((id_slen != *slen_dst) || (!memequal(id_start, *target, id_slen)))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Multiple %s IDs in BCF text header block have IDX=%u.\n", is_contig_line? "contig" : "FILTER/INFO/FORMAT", cur_header_idx);
+            goto BcfToPgen_ret_MALFORMED_INPUT_WW;
+          }
+        } else {
+          // technically only need to null-terminate contig names
+          if (StoreStringAtEndK(g_bigstack_base, id_start, id_slen, &tmp_alloc_end, target)) {
+            goto BcfToPgen_ret_NOMEM;
+          }
+          *slen_dst = id_slen;
+          if (id_slen > other_slen_ubound) {
+            other_slen_ubound = id_slen;
+          }
         }
         if (is_contig_line || is_filter_line) {
           continue;
         }
         if (is_info_line) {
-          if (StrStartsWithUnsafe(id_start, "PR,Number=")) {
-            if (unlikely(pr_sidx || info_pr_nonflag_present)) {
+          const uintptr_t is_flag = StrStartsWithUnsafe(id_end, ",Number=0,Type=Flag,Description=");
+          info_flags[cur_header_idx / kBitsPerWord] |= is_flag << (cur_header_idx % kBitsPerWord);
+          if (strequal_k(id_start, "PR", id_slen)) {
+            if (unlikely((pr_sidx != UINT32_MAX) || info_pr_nonflag_present)) {
               logerrputs("Error: Duplicate INFO:PR line in BCF text header block.\n");
               goto BcfToPgen_ret_MALFORMED_INPUT;
             }
-            if (StrStartsWithUnsafe(&(line_iter[2 + strlen("INFO=<ID=PR,Number=")]), "0,Type=Flag,Description=")) {
+            if (is_flag) {
               pr_sidx = cur_header_idx;
             } else {
               info_pr_nonflag_present = 1;
@@ -5647,8 +5697,9 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       loadbuf_size = k1LU << 33;
     }
 #endif
-    // fixed component of variant record header length
-    if (loadbuf_size < 32) {
+    // guaranteeing at least this many bytes allocated at bigstack_end
+    // simplifies a bit of parsing logic
+    if (loadbuf_size < (1 << 18)) {
       goto BcfToPgen_ret_NOMEM;
     }
     // Placed at end of arena so we can shrink it before the second pass
@@ -5657,7 +5708,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
 
     uint32_t variant_ct = 0;
     uintptr_t max_variant_ct = bigstack_left() / sizeof(intptr_t);
-    if (pr_sidx) {
+    if (pr_sidx != UINT32_MAX) {
       // nonref_flags
       max_variant_ct -= BitCtToAlignedWordCt(max_variant_ct) * kWordsPerVec;
     }
@@ -5678,7 +5729,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     // don't need dosage_flags or dphase_flags; dosage overrides GT so slow
     // parse needed
     uintptr_t* nonref_flags = nullptr;
-    if (pr_sidx) {
+    if (pr_sidx != UINT32_MAX) {
       nonref_flags = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(max_variant_ctaw * sizeof(intptr_t)));
     }
     uintptr_t* nonref_flags_iter = nonref_flags;
@@ -5725,11 +5776,12 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       const uint32_t n_sample = vrec_header[7] & 0xffffff;
       const uint32_t n_fmt = vrec_header[7] >> 24;
 
-      if (unlikely((l_shared < 24) || (chrom >= contig_string_idx_end) || (!contig_names[chrom]) || (n_sample != sample_ct))) {
+      if (unlikely((l_shared < 24) || (chrom >= contig_string_idx_end) || (n_sample != sample_ct))) {
         goto BcfToPgen_ret_VREC_GENERIC;
       }
+      const uint32_t contig_slen = contig_slens[chrom];
       const uint64_t second_load_size = l_shared + S_CAST(uint64_t, l_indiv) - 24;
-      if (unlikely(second_load_size > loadbuf_size)) {
+      if (unlikely((!contig_slen) || (second_load_size > loadbuf_size))) {
         goto BcfToPgen_ret_NOMEM;
       }
       if (second_load_size > loadbuf_size_needed) {
@@ -5742,79 +5794,6 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         goto BcfToPgen_ret_BGZF_FAIL_N;
       }
       if (unlikely(indiv_end != loadbuf_read_iter)) {
-        goto BcfToPgen_ret_VREC_GENERIC;
-      }
-      // Remainder of l_shared:
-      //   ID (typed string)
-      //   REF+ALT (n_allele typed strings)
-      //   FILTER (typed vector of integers)
-      //   INFO (n_info (typed integer, typed vector) pairs)
-      // We scan all string-lengths in these fields to determine
-      // max_pvarstr_slen.  In the unlikely pr_sidx case, we also need to scan
-      // for presence of INFO:PR.
-      const unsigned char* shared_end = indiv_end - l_indiv;
-      uintptr_t info_pr_here = 0;
-      const unsigned char* parse_iter = loadbuf;
-      // ID, REF, ALT
-      const uint32_t str_ignore_ct = n_allele + 1;
-      for (uint32_t uii = 0; uii != str_ignore_ct; ++uii) {
-        const char* str_start;
-        uint32_t slen;
-        if (unlikely(ScanBcfTypedString(shared_end, &parse_iter, &str_start, &slen))) {
-          goto BcfToPgen_ret_VREC_GENERIC;
-        }
-        if (slen > max_pvarstr_slen) {
-          max_pvarstr_slen = slen;
-        }
-      }
-      // FILTER
-      uint32_t value_type;
-      uint32_t value_ct;
-      if (unlikely(ScanBcfType(&parse_iter, &value_type, &value_ct) || (parse_iter > shared_end))) {
-        goto BcfToPgen_ret_VREC_GENERIC;
-      }
-      const uint32_t value_type_m1 = value_type - 1;
-      {
-        uintptr_t vec_byte_ct = (1 << value_type_m1) * value_ct;
-        if (unlikely((value_type_m1 > 2) || (S_CAST(uintptr_t, shared_end - parse_iter) < vec_byte_ct))) {
-          goto BcfToPgen_ret_VREC_GENERIC;
-        }
-        parse_iter = &(parse_iter[vec_byte_ct]);
-      }
-      // INFO
-      uint32_t pr_already_seen = 0;
-      for (uint32_t uii = 0; uii != n_info; ++uii) {
-        uint32_t sidx;
-        if (unlikely(ScanBcfTypedInt(&parse_iter, &sidx) || (parse_iter > shared_end) || (sidx >= fif_string_idx_end) || (!fif_strings[sidx]))) {
-          goto BcfToPgen_ret_VREC_GENERIC;
-        }
-        if (unlikely(ScanBcfType(&parse_iter, &value_type, &value_ct) || (parse_iter > shared_end))) {
-          goto BcfToPgen_ret_VREC_GENERIC;
-        }
-        if (value_ct) {
-          // tolerate value_type == value_ct == 0 "untyped-missing" special
-          // case
-          const uint32_t bytes_per_elem = kBcfBytesPerElem[value_type];
-          const uint64_t vec_byte_ct = bytes_per_elem * S_CAST(uint64_t, value_ct);
-          if (unlikely((!bytes_per_elem) || (S_CAST(uint64_t, shared_end - parse_iter) < vec_byte_ct))) {
-            goto BcfToPgen_ret_VREC_GENERIC;
-          }
-          if ((value_type == 7) && (value_ct > max_pvarstr_slen)) {
-            max_pvarstr_slen = value_ct;
-          }
-          parse_iter = &(parse_iter[vec_byte_ct]);
-        }
-        if (sidx == pr_sidx) {
-          if (unlikely(pr_already_seen)) {
-            putc_unlocked('\n', stdout);
-            snprintf(g_logbuf, kLogbufSize, "Error: Variant record #%" PRIuPTR " in --bcf file has multiple INFO:PR entries.\n", vrec_idx);
-            goto BcfToPgen_ret_MALFORMED_INPUT_WW;
-          }
-          info_pr_here = (value_ct != 0);
-          pr_already_seen = 1;
-        }
-      }
-      if (unlikely(parse_iter != shared_end)) {
         goto BcfToPgen_ret_VREC_GENERIC;
       }
 
@@ -5830,7 +5809,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         // Don't want to mutate cip in require_gt case until we know the contig
         // is being kept.
         uint32_t cur_chr_code;
-        reterr = GetOrAddChrCode(contig_names[chrom], "--bcf file", 0, strlen(contig_names[chrom]), allow_extra_chrs, cip, &cur_chr_code);
+        reterr = GetOrAddChrCode(contig_names[chrom], "--bcf file", 0, contig_slen, allow_extra_chrs, cip, &cur_chr_code);
         if (unlikely(reterr)) {
           goto BcfToPgen_ret_1;
         }
@@ -5840,6 +5819,9 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         }
         SetBit(chrom, bcf_contig_keep);
       }
+      const unsigned char* shared_end = indiv_end - l_indiv;
+      const unsigned char* parse_iter = shared_end;
+
       const unsigned char* gt_start = nullptr;
       const unsigned char* qual_starts[2];
       qual_starts[0] = nullptr;
@@ -5852,11 +5834,14 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         // 2. shared type descriptor for each entry (usually a single byte)
         // 3. sample_ct entries
         uint32_t sidx;
-        if (unlikely(ScanBcfTypedInt(&parse_iter, &sidx) || (parse_iter > indiv_end) || (sidx >= fif_string_idx_end) || (!fif_strings[sidx]))) {
+        if (unlikely(ScanBcfTypedInt(&parse_iter, &sidx) || (parse_iter > indiv_end) || (sidx >= fif_string_idx_end))) {
           goto BcfToPgen_ret_VREC_GENERIC;
         }
+        const uint32_t key_slen = fif_slens[sidx];
         const unsigned char* type_start = parse_iter;
-        if (unlikely(ScanBcfType(&parse_iter, &value_type, &value_ct) || (parse_iter > indiv_end))) {
+        uint32_t value_type;
+        uint32_t value_ct;
+        if (unlikely((!key_slen) || ScanBcfType(&parse_iter, &value_type, &value_ct) || (parse_iter > indiv_end))) {
           goto BcfToPgen_ret_VREC_GENERIC;
         }
         if (value_ct) {
@@ -5866,6 +5851,10 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
             goto BcfToPgen_ret_VREC_GENERIC;
           }
           parse_iter = &(parse_iter[vec_byte_ct]);
+        }
+        // defend against FORMAT:PASS edge case
+        if (!sidx) {
+          continue;
         }
         if (sidx == gt_sidx) {
           gt_start = type_start;
@@ -5900,6 +5889,164 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         }
       }
       // We finally know for sure that we need to convert this variant.
+
+      // Remainder of l_shared:
+      //   ID (typed string)
+      //   REF+ALT (n_allele typed strings)
+      //   FILTER (typed vector of integers)
+      //   INFO (n_info (typed integer, typed vector) pairs)
+      // We scan these fields to compute an upper bound on the necessary .pvar
+      // write-buffer size.  In the unlikely pr_sidx != UINT32_MAX case, we
+      // also need to scan for presence of INFO:PR.
+      parse_iter = loadbuf;
+      // ID, REF, ALT
+      const uint32_t str_ignore_ct = n_allele + 1;
+      for (uint32_t uii = 0; uii != str_ignore_ct; ++uii) {
+        const char* str_start;
+        uint32_t slen;
+        if (unlikely(ScanBcfTypedString(shared_end, &parse_iter, &str_start, &slen))) {
+          goto BcfToPgen_ret_VREC_GENERIC;
+        }
+        if (slen > other_slen_ubound) {
+          other_slen_ubound = slen;
+        }
+      }
+      // FILTER
+      uint32_t value_type;
+      uint32_t value_ct;
+      if (unlikely(ScanBcfType(&parse_iter, &value_type, &value_ct) || (parse_iter > shared_end))) {
+        goto BcfToPgen_ret_VREC_GENERIC;
+      }
+      if (value_ct) {
+        const uint32_t value_type_m1 = value_type - 1;
+        const uintptr_t vec_byte_ct = S_CAST(uintptr_t, value_ct) << value_type_m1;
+        if (unlikely((value_type_m1 > 2) || (S_CAST(uintptr_t, shared_end - parse_iter) < vec_byte_ct))) {
+          goto BcfToPgen_ret_VREC_GENERIC;
+        }
+        uint64_t cur_filter_slen = value_ct - 1;  // delimiters
+        if (!value_type_m1) {
+          for (uint32_t filter_idx = 0; filter_idx != value_ct; ++filter_idx) {
+            const uint32_t cur_val = parse_iter[filter_idx];
+            if (cur_val == 0x80) {
+              // missing
+              ++cur_filter_slen;
+            } else {
+              const uint32_t key_slen = fif_slens[cur_val];
+              if (unlikely((cur_val >= fif_string_idx_end) || (cur_val > 0x80) || (!key_slen))) {
+                goto BcfToPgen_ret_VREC_GENERIC;
+              }
+              cur_filter_slen += key_slen;
+            }
+          }
+        } else if (value_type_m1 == 1) {
+#ifdef __arm__
+#  error "Unaligned accesses in BcfToPgen()."
+#endif
+          const uint16_t* filter_vec_alias = R_CAST(const uint16_t*, parse_iter);
+          for (uint32_t filter_idx = 0; filter_idx != value_ct; ++filter_idx) {
+            const uint32_t cur_val = filter_vec_alias[filter_idx];
+            if (cur_val == 0x8000) {
+              // missing
+              ++cur_filter_slen;
+            } else {
+              // loadbuf_size >= 2^18, so fif_slens[65535] won't segfault
+              const uint32_t key_slen = fif_slens[cur_val];
+              if (unlikely((cur_val >= fif_string_idx_end) || (cur_val > 0x8000) || (!key_slen))) {
+                goto BcfToPgen_ret_VREC_GENERIC;
+              }
+              cur_filter_slen += key_slen;
+            }
+          }
+        } else {
+          const uint32_t* filter_vec_alias = R_CAST(const uint32_t*, parse_iter);
+          for (uint32_t filter_idx = 0; filter_idx != value_ct; ++filter_idx) {
+            const uint32_t cur_val = filter_vec_alias[filter_idx];
+            if (cur_val == 0x80000000U) {
+              // missing
+              ++cur_filter_slen;
+            } else {
+              if (unlikely(cur_val >= fif_string_idx_end)) {
+                goto BcfToPgen_ret_VREC_GENERIC;
+              }
+              const uint32_t key_slen = fif_slens[cur_val];
+              if (unlikely(!key_slen)) {
+                goto BcfToPgen_ret_VREC_GENERIC;
+              }
+              cur_filter_slen += key_slen;
+            }
+          }
+        }
+        if (cur_filter_slen > filter_info_slen_ubound) {
+          filter_info_slen_ubound = cur_filter_slen;
+        }
+        parse_iter = &(parse_iter[vec_byte_ct]);
+      }
+      // INFO
+      uintptr_t info_pr_here = 0;
+      uint64_t cur_info_slen_ubound = n_info - 1;
+      for (uint32_t uii = 0; uii != n_info; ++uii) {
+        uint32_t sidx;
+        if (unlikely(ScanBcfTypedInt(&parse_iter, &sidx) || (parse_iter > shared_end) || (sidx >= fif_string_idx_end))) {
+          goto BcfToPgen_ret_VREC_GENERIC;
+        }
+        const uint32_t key_slen = fif_slens[sidx];
+        if (unlikely((!key_slen) || ScanBcfType(&parse_iter, &value_type, &value_ct) || (parse_iter > shared_end))) {
+          goto BcfToPgen_ret_VREC_GENERIC;
+        }
+        cur_info_slen_ubound += key_slen;
+        if (value_ct) {
+          const uint32_t bytes_per_elem = kBcfBytesPerElem[value_type];
+          const uint64_t vec_byte_ct = bytes_per_elem * S_CAST(uint64_t, value_ct);
+          if (unlikely((!bytes_per_elem) || (S_CAST(uint64_t, shared_end - parse_iter) < vec_byte_ct))) {
+            goto BcfToPgen_ret_VREC_GENERIC;
+          }
+          if (value_type == 1) {
+            // int8, max len 4 ("-127"), add 1 for comma
+            cur_info_slen_ubound += 5 * S_CAST(uint64_t, value_ct);
+          } else if (value_type == 2) {
+            // int16, max len 6
+            cur_info_slen_ubound += 7 * S_CAST(uint64_t, value_ct);
+          } else if (value_type == 3) {
+            // int32, max len 11
+            cur_info_slen_ubound += 12 * S_CAST(uint64_t, value_ct);
+          } else if (value_type == 5) {
+            cur_info_slen_ubound += (kMaxFloatGSlen + 1) * S_CAST(uint64_t, value_ct);
+          } else {
+            // string
+            cur_info_slen_ubound += value_ct + 1;
+          }
+          parse_iter = &(parse_iter[vec_byte_ct]);
+        } else {
+          // tolerate value_type == value_ct == 0 "untyped-missing" special
+          // case, but only if field is of type Flag.  Note that this means the
+          // flag IS present (and yes, bcftools emits this since it's compact).
+          //
+          // value_ct == 0, value_type == 7 is also valid (string, missing).
+          //
+          // Otherwise, value_ct == 0 should not happen.
+          if (!IsSet(info_flags, sidx)) {
+            if (unlikely(value_ct != 7)) {
+              goto BcfToPgen_ret_VREC_GENERIC;
+            }
+            cur_info_slen_ubound += 2;
+          }
+        }
+        if (sidx == pr_sidx) {
+          if (unlikely(info_pr_here)) {
+            putc_unlocked('\n', stdout);
+            snprintf(g_logbuf, kLogbufSize, "Error: Variant record #%" PRIuPTR " in --bcf file has multiple INFO:PR entries.\n", vrec_idx);
+            goto BcfToPgen_ret_MALFORMED_INPUT_WW;
+          }
+          info_pr_here = 1;
+        }
+      }
+      if (cur_info_slen_ubound > filter_info_slen_ubound) {
+        filter_info_slen_ubound = cur_info_slen_ubound;
+      }
+      if (unlikely(parse_iter != shared_end)) {
+        goto BcfToPgen_ret_VREC_GENERIC;
+      }
+
       if (max_allele_ct < n_allele) {
         if (n_allele > (kPglMaxAltAlleleCt + 1)) {
           putc_unlocked('\n', stdout);
@@ -5915,7 +6062,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       allele_idx_offsets[variant_ct] = allele_idx_end;
       allele_idx_end += n_allele;
       const uint32_t variant_idx_lowbits = variant_ct % kBitsPerWord;
-      if (pr_sidx) {
+      if (pr_sidx != UINT32_MAX) {
         nonref_word |= info_pr_here << variant_idx_lowbits;
         if (variant_idx_lowbits == (kBitsPerWord - 1)) {
           *nonref_flags_iter++ = nonref_word;
@@ -5983,19 +6130,20 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     }
 
     BigstackEndReset(bigstack_end_mark2);
+    loadbuf_size = RoundUpPow2(loadbuf_size_needed, kEndAllocAlign);
+    loadbuf = S_CAST(unsigned char*, bigstack_end_alloc_raw(loadbuf_size));
+
     reterr = BgzfRawMtStreamRewind(&bgzf, &bgzf_errmsg);
     if (unlikely(reterr)) {
       if (reterr == kPglRetDecompressFail) {
-        logerrprintfww(kErrprintfRewind, "--bcf file");
-        reterr = kPglRetRewindFail;
-        goto BcfToPgen_ret_1;
+        goto BcfToPgen_ret_REWIND_FAIL;
       }
       goto BcfToPgen_ret_BGZF_FAIL;
     }
     {
-      unsigned char* bcf_header_buf = R_CAST(unsigned char*, vcf_header);
+      unsigned char* bcf_header_buf = R_CAST(unsigned char*, &(vcf_header[-9]));
       unsigned char* bcf_iter = bcf_header_buf;
-      unsigned char* bcf_header_end = &(bcf_header_buf[header_size + 5 * k1LU]);
+      unsigned char* bcf_header_end = &(bcf_header_buf[header_size + 9 * k1LU]);
       reterr = BgzfRawMtStreamRead(bcf_header_end, &bgzf, &bcf_iter, &bgzf_errmsg);
       if (unlikely(reterr)) {
         goto BcfToPgen_ret_BGZF_FAIL;
@@ -6005,7 +6153,6 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         goto BcfToPgen_ret_BGZF_FAIL;
       }
     }
-    ;;;;
 
     uint32_t calc_thread_ct;
     // todo: tune this for BCF, these values were derived from VCF testing
@@ -6143,8 +6290,16 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       }
     }
     char* writebuf;
-    if (unlikely(bigstack_alloc_c(2 * S_CAST(uintptr_t, max_pvarstr_slen) + kMaxMediumLine + 32, &writebuf))) {
-      goto BcfToPgen_ret_NOMEM;
+    {
+      const uint64_t write_chunk_ubound = MAXV(other_slen_ubound, filter_info_slen_ubound);
+#ifndef __LP64__
+      if (write_chunk_ubound > 0x7ff00000) {
+        goto BcfToPgen_ret_NOMEM;
+      }
+#endif
+      if (unlikely(bigstack_alloc_c(write_chunk_ubound + kMaxMediumLine + 32, &writebuf))) {
+        goto BcfToPgen_ret_NOMEM;
+      }
     }
     write_iter = writebuf;
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
@@ -6253,6 +6408,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       per_thread_byte_limit = (cachelines_avail * kCacheline) / calc_thread_ct;
     }
 
+    vrec_idx = 0;
     // Main workflow:
     // 1. Set n=0, load genotype data for first main_block_size variants
     //    while writing .pvar
@@ -6266,13 +6422,36 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     //
     // 8. Write results for last block
     uint32_t prev_block_write_ct = 0;
-    uint32_t record_input_byte_ct = 0;
     uintptr_t record_byte_ct = 0;
-    uint32_t allele_ct = 0;
     uint32_t* thread_bidxs = nullptr;
     GparseRecord* cur_gparse = nullptr;
     unsigned char* geno_buf_iter = nullptr;
     unsigned char* cur_thread_byte_stop = nullptr;
+
+    // Placed here since these values need to persist to the next block
+    // iteration when we run out of geno_bufs[parity] space.
+    uint32_t chrom = 0;
+    uint32_t pos = 0;
+    uint32_t qual_bits = 0;
+    uint32_t n_allele = 0;
+    uint32_t n_info = 0;
+    uint32_t n_fmt = 0;
+    const unsigned char* shared_end = nullptr;
+
+    const unsigned char* gt_start = nullptr;
+    const unsigned char* qual_starts[2];
+    qual_starts[0] = nullptr;
+    qual_starts[1] = nullptr;
+    const unsigned char* dosage_start = nullptr;
+    const unsigned char* hds_start = nullptr;
+    uint32_t gt_blen = 0;
+    uint32_t qual_blens[2];
+    qual_blens[0] = 0;
+    qual_blens[1] = 0;
+    uint32_t dosage_blen = 0;
+    uint32_t hds_blen = 0;
+    uint32_t record_input_byte_ct = 0;
+
     uint32_t parity = 0;
     for (uint32_t vidx_start = 0; ; ) {
       uint32_t cur_block_write_ct = 0;
@@ -6292,24 +6471,372 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         }
         uint32_t block_vidx = 0;
         GparseRecord* grp;
-        if (!record_input_byte_ct) {
-          goto BcfToPgen_load_start;
+        if (record_input_byte_ct) {
+          // If the last block iteration ended due to insufficient space in
+          // geno_bufs[parity], we haven't actually written the current .pvar
+          // line or copied genotype/quality data over.
+          goto BcfToPgen_load_keep;
         }
-        // we may stop before main_block_size due to insufficient space in
-        // geno_bufs[parity].  if so, we copy over the post-FORMAT part of the
-        // current record before proceeding.
         while (1) {
+          {
+            ++vrec_idx;
+            unsigned char* loadbuf_read_iter = loadbuf;
+            reterr = BgzfRawMtStreamRead(&(loadbuf[32]), &bgzf, &loadbuf_read_iter, &bgzf_errmsg);
+            if (unlikely(reterr)) {
+              goto BcfToPgen_ret_BGZF_FAIL_N;
+            }
+            if (&(loadbuf[32]) != loadbuf_read_iter) {
+              goto BcfToPgen_ret_REWIND_FAIL_N;
+            }
+            // [0]: l_shared
+            // [1]: l_indiv
+            // [2]: chrom
+            // [3]: pos
+            // [4]: rlen
+            // [5]: qual, NOT n_allele_info
+            // [6]: low 16 bits n_info, high 16 bits n_allele
+            // [7]: low 24 bits n_sample, high 8 bits n_fmt
+            const uint32_t* vrec_header = R_CAST(uint32_t*, loadbuf);
+            const uint32_t l_shared = vrec_header[0];
+            const uint32_t l_indiv = vrec_header[1];
+            chrom = vrec_header[2];
+            pos = vrec_header[3];
+            qual_bits = vrec_header[5];
+            n_allele = vrec_header[6] >> 16;
+            n_info = vrec_header[6] & 0xffff;
+            n_fmt = vrec_header[7] >> 24;
+            // skip validation performed in first pass
+            const uint64_t second_load_size = l_shared + S_CAST(uint64_t, l_indiv) - 24;
+            loadbuf_read_iter = loadbuf;
+            unsigned char* indiv_end = &(loadbuf[second_load_size]);
+            reterr = BgzfRawMtStreamRead(indiv_end, &bgzf, &loadbuf_read_iter, &bgzf_errmsg);
+            if (unlikely(reterr)) {
+              goto BcfToPgen_ret_BGZF_FAIL_N;
+            }
+            if (unlikely(indiv_end != loadbuf_read_iter)) {
+              goto BcfToPgen_ret_REWIND_FAIL_N;
+            }
+
+            // 1. check if we skip this variant.  chromosome filter and
+            //    require_gt can cause this.
+            if (!IsSet(bcf_contig_keep, chrom)) {
+              continue;
+            }
+            // obvious todo: move duplicated code between first and second pass
+            // into separate functions
+            shared_end = indiv_end - l_indiv;
+            const unsigned char* parse_iter = shared_end;
+
+            gt_start = nullptr;
+            qual_starts[0] = nullptr;
+            qual_starts[1] = nullptr;
+            dosage_start = nullptr;
+            hds_start = nullptr;
+            record_input_byte_ct = 0;
+            for (uint32_t fmt_idx = 0; fmt_idx != n_fmt; ++fmt_idx) {
+              // 1. typed int indicating which FORMAT field
+              // 2. shared type descriptor for each entry (usually a single
+              //    byte)
+              // 3. sample_ct entries
+              uint32_t sidx;
+              // previously validated
+              ScanBcfTypedInt(&parse_iter, &sidx);
+              const unsigned char* type_start = parse_iter;
+              uint32_t value_type;
+              uint32_t value_ct;
+              ScanBcfType(&parse_iter, &value_type, &value_ct);
+              const uint32_t bytes_per_elem = kBcfBytesPerElem[value_type];
+              const uintptr_t vec_byte_ct = bytes_per_elem * sample_ct;
+              parse_iter = &(parse_iter[vec_byte_ct]);
+              const uint32_t cur_blen = parse_iter - type_start;
+              if (!sidx) {
+                continue;
+              }
+              if (sidx == gt_sidx) {
+                gt_start = type_start;
+                gt_blen = cur_blen;
+              } else if (sidx == gq_sidx) {
+                qual_starts[0] = type_start;
+                qual_blens[0] = cur_blen;
+              } else if (sidx == dp_sidx) {
+                qual_starts[1] = type_start;
+                qual_blens[1] = cur_blen;
+              } else if (sidx == dosage_sidx) {
+                dosage_start = type_start;
+                dosage_blen = cur_blen;
+              } else if (sidx == hds_sidx) {
+                hds_start = type_start;
+                hds_blen = cur_blen;
+              } else {
+                continue;
+              }
+              record_input_byte_ct += cur_blen;
+            }
+            if (require_gt && (!gt_start)) {
+              continue;
+            }
+            // We already have enough information to determine
+            // write_byte_ct_limit.
+            if ((!gt_start) && (!dosage_sidx) && (!hds_sidx)) {
+              gparse_flags = kfGparseNull;
+            } else {
+              if ((!phase_or_dosage_found) && (!dosage_sidx) && (!hds_sidx)) {
+                gparse_flags = kfGparse0;
+              } else {
+                gparse_flags = (dosage_start || hds_start)? (kfGparseHphase | kfGparseDosage | kfGparseDphase) : kfGparseHphase;
+              }
+            }
+            const uintptr_t write_byte_ct_limit = GparseWriteByteCt(sample_ct, n_allele, gparse_flags);
+            // probable todo: vector-align the beginning of each payload.
+            record_byte_ct = MAXV(RoundUpPow2(record_input_byte_ct, kBytesPerVec), write_byte_ct_limit);
+            if ((block_vidx == cur_thread_block_vidx_limit) || (S_CAST(uintptr_t, cur_thread_byte_stop - geno_buf_iter) < record_byte_ct)) {
+              thread_bidxs[++cur_thread_fill_idx] = block_vidx;
+              if (cur_thread_fill_idx == calc_thread_ct) {
+                break;
+              }
+              cur_thread_byte_stop = &(cur_thread_byte_stop[per_thread_byte_limit]);
+              cur_thread_block_vidx_limit = MINV(cur_thread_block_vidx_limit + per_thread_block_limit, block_vidx_limit);
+            }
+          }
+        BcfToPgen_load_keep:
+          // CHROM, POS
+          write_iter = memcpyax(write_iter, contig_names[chrom], contig_slens[chrom], '\t');
+          write_iter = u32toa_x(pos + 1, '\t', write_iter);
+          if (unlikely(fwrite_ck(writebuf_flush, pvarfile, &write_iter))) {
+            goto BcfToPgen_ret_WRITE_FAIL;
+          }
+
+          // ID
+          const unsigned char* parse_iter = loadbuf;
+          uint32_t slen;
+          {
+            const char* id_start;
+            ScanBcfTypedString(shared_end, &parse_iter, &id_start, &slen);
+            if (slen) {
+              write_iter = memcpya(write_iter, id_start, slen);
+            } else {
+              *write_iter++ = '.';
+            }
+            *write_iter++ = '\t';
+            if (unlikely(fwrite_ck(writebuf_flush, pvarfile, &write_iter))) {
+              goto BcfToPgen_ret_WRITE_FAIL;
+            }
+
+            // REF
+            const char* ref_start;
+            ScanBcfTypedString(shared_end, &parse_iter, &ref_start, &slen);
+            write_iter = memcpyax(write_iter, ref_start, slen, '\t');
+
+            // ALT
+            if (n_allele == 1) {
+              *write_iter++ = '.';
+            } else {
+              for (uint32_t allele_idx = 1; allele_idx != n_allele; ++allele_idx) {
+                if (unlikely(fwrite_ck(writebuf_flush, pvarfile, &write_iter))) {
+                  goto BcfToPgen_ret_WRITE_FAIL;
+                }
+                const char* cur_alt_start;
+                ScanBcfTypedString(shared_end, &parse_iter, &cur_alt_start, &slen);
+                write_iter = memcpyax(write_iter, cur_alt_start, slen, ',');
+              }
+              --write_iter;
+            }
+            *write_iter++ = '\t';
+
+            // QUAL
+            if (S_CAST(int32_t, qual_bits) >= 0x7f800000) {
+              // NaN or missing
+              *write_iter++ = '.';
+            } else {
+              float qual_f;
+              memcpy(&qual_f, &qual_bits, 4);
+              write_iter = ftoa_g(qual_f, write_iter);
+            }
+            *write_iter++ = '\t';
+            if (unlikely(fwrite_ck(writebuf_flush, pvarfile, &write_iter))) {
+              goto BcfToPgen_ret_WRITE_FAIL;
+            }
+
+            // FILTER
+            uint32_t value_type;
+            uint32_t value_ct;
+            ScanBcfType(&parse_iter, &value_type, &value_ct);
+            if (!value_ct) {
+              *write_iter++ = '.';
+            } else {
+              const uint32_t value_type_m1 = value_type - 1;
+              if (!value_type_m1) {
+                for (uint32_t filter_idx = 0; filter_idx != value_ct; ++filter_idx) {
+                  const uint32_t cur_sidx = parse_iter[filter_idx];
+                  if (cur_sidx == 0x80) {
+                    *write_iter++ = '.';
+                  } else {
+                    write_iter = memcpya(write_iter, fif_strings[cur_sidx], fif_slens[cur_sidx]);
+                  }
+                  *write_iter++ = ';';
+                }
+              } else if (value_type_m1 == 1) {
+                const uint16_t* filter_vec_alias = R_CAST(const uint16_t*, parse_iter);
+                for (uint32_t filter_idx = 0; filter_idx != value_ct; ++filter_idx) {
+                  const uint32_t cur_sidx = filter_vec_alias[filter_idx];
+                  if (cur_sidx == 0x8000) {
+                    *write_iter++ = '.';
+                  } else {
+                    write_iter = memcpya(write_iter, fif_strings[cur_sidx], fif_slens[cur_sidx]);
+                  }
+                  *write_iter++ = ';';
+                }
+              } else {
+                const uint32_t* filter_vec_alias = R_CAST(const uint32_t*, parse_iter);
+                for (uint32_t filter_idx = 0; filter_idx != value_ct; ++filter_idx) {
+                  const uint32_t cur_sidx = filter_vec_alias[filter_idx];
+                  if (cur_sidx == 0x80000000U) {
+                    *write_iter++ = '.';
+                  } else {
+                    write_iter = memcpya(write_iter, fif_strings[cur_sidx], fif_slens[cur_sidx]);
+                  }
+                  *write_iter++ = ';';
+                }
+              }
+              parse_iter = &(parse_iter[value_ct << value_type_m1]);
+              --write_iter;
+            }
+            *write_iter++ = '\t';
+            if (unlikely(fwrite_ck(writebuf_flush, pvarfile, &write_iter))) {
+              goto BcfToPgen_ret_WRITE_FAIL;
+            }
+
+            // INFO
+            if (!n_info) {
+              *write_iter++ = '.';
+            } else {
+              for (uint32_t info_idx = 0; info_idx != n_info; ++info_idx) {
+                uint32_t sidx;
+                ScanBcfTypedInt(&parse_iter, &sidx);
+                write_iter = strcpya(write_iter, fif_strings[sidx]);
+
+                ScanBcfType(&parse_iter, &value_type, &value_ct);
+                const uint32_t bytes_per_elem = kBcfBytesPerElem[value_type];
+                const uint32_t vec_byte_ct = bytes_per_elem * value_ct;
+                const unsigned char* cur_vec_start = parse_iter;
+                parse_iter = &(parse_iter[vec_byte_ct]);
+                if (!IsSet(info_flags, sidx)) {
+                  // value_ct guaranteed to be positive
+                  *write_iter++ = '=';
+                  // ugh.  not a separate function for now since no other code
+                  // needs to do this
+                  if (value_type == 7) {
+                    // string
+                    // Unlike most other VCF/BCF fields, spaces are actually
+                    // allowed here, so we need to detect them.  We error out
+                    // for now (possible todo: encode as "%20" instead).
+                    if (unlikely(memchr(cur_vec_start, ' ', value_ct))) {
+                      snprintf(g_logbuf, kLogbufSize, "Error: INFO field in variant record #" PRIuPTR " of --bcf file\n");
+                      goto BcfToPgen_ret_MALFORMED_INPUT_WWN;
+                    }
+                    write_iter = memcpya(write_iter, cur_vec_start, value_ct);
+                  } else {
+                    if (value_type == 1) {
+                      // int8
+                      for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
+                        const int8_t cur_val = S_CAST(int8_t, cur_vec_start[value_idx]);
+                        if (cur_val != -128) {
+                          write_iter = i32toa(cur_val, write_iter);
+                        } else {
+                          *write_iter++ = '.';
+                        }
+                        *write_iter++ = ',';
+                      }
+                    } else if (value_type == 2) {
+                      // int16
+                      const int16_t* cur_vec_alias = R_CAST(const int16_t*, cur_vec_start);
+                      for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
+                        const int16_t cur_val = cur_vec_alias[value_idx];
+                        if (cur_val != -32768) {
+                          write_iter = i32toa(cur_val, write_iter);
+                        } else {
+                          *write_iter++ = '.';
+                        }
+                        *write_iter++ = ',';
+                      }
+                    } else if (value_type == 3) {
+                      // int32
+                      const int32_t* cur_vec_alias = R_CAST(const int32_t*, cur_vec_start);
+                      for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
+                        const int32_t cur_val = cur_vec_alias[value_idx];
+                        if (cur_val != -2147483648) {
+                          write_iter = i32toa(cur_val, write_iter);
+                        } else {
+                          *write_iter++ = '.';
+                        }
+                        *write_iter++ = ',';
+                      }
+                    } else {
+                      // float
+                      const uint32_t* cur_vec_alias = R_CAST(const uint32_t*, cur_vec_start);
+                      for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
+                        uint32_t cur_bits = cur_vec_alias[value_idx];
+                        if (cur_bits != 0x7f800001) {
+                          float cur_float;
+                          memcpy(&cur_float, &cur_bits, 4);
+                          write_iter = ftoa_g(cur_float, write_iter);
+                        } else {
+                          *write_iter++ = '.';
+                        }
+                        *write_iter++ = ',';
+                      }
+                    }
+                    --write_iter;
+                  }
+                }
+                *write_iter++ = ';';
+              }
+              --write_iter;
+            }
+            AppendBinaryEoln(&write_iter);
+            if (unlikely(fwrite_ck(writebuf_flush, pvarfile, &write_iter))) {
+              goto BcfToPgen_ret_WRITE_FAIL;
+            }
+            if (!sample_ct) {
+              if (++block_vidx == cur_thread_block_vidx_limit) {
+                break;
+              }
+              continue;
+            }
+          }
+
           grp = &(cur_gparse[block_vidx]);
           grp->record_start = geno_buf_iter;
           grp->flags = gparse_flags;
-          grp->metadata.read_bcf.qual_offsets[0] = ;
-          grp->metadata.read_bcf.qual_offsets[1] = ;
-          grp->metadata.read_bcf.gt_offset = vic.vibc.gt_present;
-          grp->metadata.read_bcf.dosage_offset = vic.vibc.qual_field_ct;
-          grp->metadata.read_bcf.hds_offset = vic.dosage_field_idx;
-          grp->metadata.read_bcf.rec_idx = vrec_idx;
-          if (gparse_flags != kfGparseNull) {
-            memcpy(geno_buf_iter, bgzf_iter, record_input_byte_ct);
+          grp->metadata.read_bcf.qual_offsets[0] = UINT32_MAX;
+          grp->metadata.read_bcf.qual_offsets[1] = UINT32_MAX;
+          grp->metadata.read_bcf.gt_offset = UINT32_MAX;
+          grp->metadata.read_bcf.dosage_offset = UINT32_MAX;
+          grp->metadata.read_bcf.hds_offset = UINT32_MAX;
+          grp->metadata.read_bcf.hds_offset = UINT32_MAX;
+          uint32_t copy_offset = 0;
+          for (uint32_t qual_idx = 0; qual_idx != 2; ++qual_idx) {
+            if (qual_starts[qual_idx]) {
+              grp->metadata.read_bcf.qual_offsets[qual_idx] = copy_offset;
+              const uint32_t cur_blen = qual_blens[qual_idx];
+              memcpy(&(geno_buf_iter[copy_offset]), qual_starts[qual_idx], cur_blen);
+              copy_offset += cur_blen;
+            }
+          }
+          if (gt_start) {
+            grp->metadata.read_bcf.gt_offset = copy_offset;
+            memcpy(&(geno_buf_iter[copy_offset]), gt_start, gt_blen);
+            copy_offset += gt_blen;
+          }
+          if (dosage_start) {
+            grp->metadata.read_bcf.dosage_offset = copy_offset;
+            memcpy(&(geno_buf_iter[copy_offset]), dosage_start, dosage_blen);
+            copy_offset += dosage_blen;
+          }
+          if (hds_start) {
+            grp->metadata.read_bcf.hds_offset = copy_offset;
+            memcpy(&(geno_buf_iter[copy_offset]), hds_start, hds_blen);
+            // copy_offset += hds_blen;
           }
           geno_buf_iter = &(geno_buf_iter[record_byte_ct]);
           ++block_vidx;
@@ -6324,153 +6851,6 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
             }
             break;
           }
-        BcfToPgen_load_start:
-          ++vrec_idx;
-          line_iter = AdvPastDelim(line_iter, '\n');
-          // In principle, it shouldn't be necessary to check the exact value
-          // of reterr, but this may be useful for bug investigation.
-          reterr = TextNextLineUnsafe(&vcf_txs, &line_iter);
-          if (unlikely(reterr)) {
-            goto VcfToPgen_ret_TSTREAM_REWIND_FAIL;
-          }
-
-          // 1. check if we skip this variant.  chromosome filter and
-          //    require_gt can cause this.
-          char* chr_code_end = AdvToDelim(line_iter, '\t');
-          uint32_t chr_code_base = GetChrCodeRaw(line_iter);
-          if (chr_code_base == UINT32_MAX) {
-            // skip hash table lookup if we know we aren't skipping the variant
-            if (variant_skip_ct) {
-              *chr_code_end = '\0';
-              // can't overread, nonstd_names not in main workspace
-              const uint32_t chr_code = IdHtableFind(line_iter, TO_CONSTCPCONSTP(cip->nonstd_names), cip->nonstd_id_htable, chr_code_end - line_iter, kChrHtableSize);
-              if ((chr_code == UINT32_MAX) || (!IsSet(cip->chr_mask, chr_code))) {
-                line_iter = chr_code_end;
-                goto VcfToPgen_load_start;
-              }
-              *chr_code_end = '\t';
-            }
-          } else {
-            if (chr_code_base >= kMaxContigs) {
-              chr_code_base = cip->xymt_codes[chr_code_base - kMaxContigs];
-            }
-            if (IsI32Neg(chr_code_base) || (!IsSet(base_chr_present, chr_code_base))) {
-              assert(variant_skip_ct);
-              line_iter = chr_code_end;
-              goto VcfToPgen_load_start;
-            }
-          }
-          // chr_code_base is now a proper numeric chromosome index for
-          // non-contigs, and UINT32_MAX if it's a contig name
-          char* pos_str = &(chr_code_end[1]);
-          char* pos_str_end = AdvToDelim(pos_str, '\t');
-          // copy ID, REF verbatim
-          linebuf_iter = AdvToNthDelim(&(pos_str_end[1]), 2, '\t');
-
-          // ALT, QUAL, FILTER, INFO
-          char* filter_end = AdvToNthDelim(&(linebuf_iter[1]), 3, '\t');
-          char* format_start = nullptr;
-          char* info_end;
-          if (sample_ct) {
-            info_end = AdvToDelim(&(filter_end[1]), '\t');
-            format_start = &(info_end[1]);
-            vic.vibc.gt_present = memequal_k(format_start, "GT", 2) && ((format_start[2] == ':') || (format_start[2] == '\t'));
-            if (require_gt && (!vic.vibc.gt_present)) {
-              line_iter = format_start;
-              goto VcfToPgen_load_start;
-            }
-          } else {
-            info_end = NextPrespace(filter_end);
-          }
-
-          // make sure POS starts with an integer, apply --output-chr setting
-          uint32_t cur_bp;
-          if (unlikely(ScanUintDefcap(pos_str, &cur_bp))) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Invalid POS on line %" PRIuPTR " of --vcf file.\n", line_idx);
-            goto VcfToPgen_ret_MALFORMED_INPUT_2N;
-          }
-
-          if (chr_code_base == UINT32_MAX) {
-            write_iter = memcpya(write_iter, line_iter, chr_code_end - line_iter);
-          } else {
-            write_iter = chrtoa(cip, chr_code_base, write_iter);
-          }
-          *write_iter++ = '\t';
-          write_iter = u32toa(cur_bp, write_iter);
-
-          // first copy includes both REF and ALT1
-          char* copy_start = pos_str_end;
-          uint32_t alt_ct;
-          for (alt_ct = 1; ; ++alt_ct) {
-            ++linebuf_iter;
-            unsigned char ucc;
-            do {
-              ucc = *(++linebuf_iter);
-              // allow GATK 3.4 <*:DEL> symbolic allele
-            } while ((ucc > ',') || (ucc == '*'));
-            write_iter = memcpya(write_iter, copy_start, linebuf_iter - copy_start);
-            if (fwrite_ck(writebuf_flush, pvarfile, &write_iter)) {
-              goto VcfToPgen_ret_WRITE_FAIL;
-            }
-            if (ucc != ',') {
-              break;
-            }
-            copy_start = linebuf_iter;
-          }
-
-          if (info_nonpr_present) {
-            // VCF specification permits whitespace in INFO field, while PVAR
-            // does not.  Check for whitespace and error out if necessary.
-            if (unlikely(memchr(filter_end, ' ', info_end - filter_end))) {
-              snprintf(g_logbuf, kLogbufSize, "Error: INFO field on line %" PRIuPTR " of --vcf file contains a space; this cannot be imported by " PROG_NAME_STR ".  Remove or reformat the field before reattempting import.\n", line_idx);
-              goto VcfToPgen_ret_MALFORMED_INPUT_2N;
-            }
-            write_iter = memcpya(write_iter, linebuf_iter, info_end - linebuf_iter);
-          } else {
-            write_iter = memcpya(write_iter, linebuf_iter, filter_end - linebuf_iter);
-          }
-          AppendBinaryEoln(&write_iter);
-          if (!sample_ct) {
-            if (++block_vidx == cur_thread_block_vidx_limit) {
-              break;
-            }
-            line_iter = info_end;
-            goto VcfToPgen_load_start;
-          }
-          if ((!vic.vibc.gt_present) && (!format_dosage_relevant) && (!format_hds_search)) {
-            gparse_flags = kfGparseNull;
-            genotext_byte_ct = 1;
-          } else {
-            linebuf_iter = AdvToDelim(format_start, '\t');
-            if (format_gq_or_dp_relevant) {
-              vic.vibc.qual_field_ct = VcfQualScanInit1(format_start, linebuf_iter, vcf_min_gq, vcf_min_dp, vcf_max_dp, vic.vibc.qual_field_skips);
-            }
-            if ((!phase_or_dosage_found) && (!format_dosage_relevant) && (!format_hds_search)) {
-              gparse_flags = kfGparse0;
-            } else {
-              if (format_dosage_relevant) {
-                vic.dosage_field_idx = GetVcfFormatPosition(dosage_import_field, format_start, linebuf_iter, dosage_import_field_slen);
-              }
-              if (format_hds_search) {
-                vic.hds_field_idx = GetVcfFormatPosition("HDS", format_start, linebuf_iter, 3);
-              }
-              gparse_flags = ((vic.dosage_field_idx != UINT32_MAX) || (vic.hds_field_idx != UINT32_MAX))? (kfGparseHphase | kfGparseDosage | kfGparseDphase) : kfGparseHphase;
-            }
-            line_iter = AdvToDelim(linebuf_iter, '\n');
-            genotext_byte_ct = 1 + S_CAST(uintptr_t, line_iter - linebuf_iter);
-          }
-          allele_ct = alt_ct + 1;
-          const uintptr_t write_byte_ct_limit = GparseWriteByteCt(sample_ct, allele_ct, gparse_flags);
-          record_byte_ct = MAXV(RoundUpPow2(genotext_byte_ct, kBytesPerVec), write_byte_ct_limit);
-
-          if ((block_vidx == cur_thread_block_vidx_limit) || (S_CAST(uintptr_t, cur_thread_byte_stop - geno_buf_iter) < record_byte_ct)) {
-            thread_bidxs[++cur_thread_fill_idx] = block_vidx;
-            if (cur_thread_fill_idx == calc_thread_ct) {
-              break;
-            }
-            cur_thread_byte_stop = &(cur_thread_byte_stop[per_thread_byte_limit]);
-            cur_thread_block_vidx_limit = MINV(cur_thread_block_vidx_limit + per_thread_block_limit, block_vidx_limit);
-          }
         }
         cur_block_write_ct = block_vidx;
       }
@@ -6478,7 +6858,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         if (vidx_start) {
           JoinThreads(&tg);
           if (unlikely(ctx.parse_failed)) {
-            goto VcfToPgen_ret_THREAD_PARSE;
+            goto BcfToPgen_ret_THREAD_PARSE;
           }
         }
         if (!IsLastBlock(&tg)) {
@@ -6486,7 +6866,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
             DeclareLastThreadBlock(&tg);
           }
           if (unlikely(SpawnThreads(&tg))) {
-            goto VcfToPgen_ret_THREAD_CREATE_FAIL;
+            goto BcfToPgen_ret_THREAD_CREATE_FAIL;
           }
         }
         parity = 1 - parity;
@@ -6494,7 +6874,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
           // write *previous* block results
           reterr = GparseFlush(ctx.gparse[parity], prev_block_write_ct, &spgw);
           if (unlikely(reterr)) {
-            goto VcfToPgen_ret_1;
+            goto BcfToPgen_ret_1;
           }
         }
       } else if (vidx_start + cur_block_write_ct == variant_ct) {
@@ -6504,7 +6884,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         break;
       }
       if (vidx_start) {
-        printf("\r--vcf: %uk variants converted.", vidx_start / 1000);
+        printf("\r--bcf: %uk variants converted.", vidx_start / 1000);
         if (vidx_start <= main_block_size) {
           fputs("    \b\b\b\b", stdout);
         }
@@ -6514,13 +6894,13 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       prev_block_write_ct = cur_block_write_ct;
     }
     if (unlikely(fclose_flush_null(writebuf_flush, write_iter, &pvarfile))) {
-      goto VcfToPgen_ret_WRITE_FAIL;
+      goto BcfToPgen_ret_WRITE_FAIL;
     }
     if (sample_ct) {
       SpgwFinish(&spgw);
     }
     putc_unlocked('\r', stdout);
-    write_iter = strcpya_k(g_logbuf, "--vcf: ");
+    write_iter = strcpya_k(g_logbuf, "--bcf: ");
     const uint32_t outname_base_slen = outname_end - outname;
     if (sample_ct) {
       write_iter = memcpya(write_iter, outname, outname_base_slen + 5);
@@ -6564,6 +6944,12 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     } else if (reterr == kPglRetDecompressFail) {
       logerrprintfww(kErrprintfDecompress, bcfname, bgzf_errmsg);
     }
+    break;
+  BcfToPgen_ret_REWIND_FAIL_N:
+    putc_unlocked('\n', stdout);
+  BcfToPgen_ret_REWIND_FAIL:
+    logerrprintfww(kErrprintfRewind, "--bcf file");
+    reterr = kPglRetRewindFail;
     break;
   BcfToPgen_ret_THREAD_PARSE:
     {
@@ -6609,13 +6995,13 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     logerrprintf("Error: Variant record #%" PRIuPTR " of --bcf file is malformed.\n", vrec_idx);
     reterr = kPglRetMalformedInput;
     break;
-  BcfToPgen_ret_MALFORMED_INPUT_2N:
-    logputs("\n");
   BcfToPgen_ret_MALFORMED_INPUT_2:
     logerrputsb();
   BcfToPgen_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
+  BcfToPgen_ret_MALFORMED_INPUT_WWN:
+    putc_unlocked('\n', stdout);
   BcfToPgen_ret_MALFORMED_INPUT_WW:
     WordWrapB(0);
     logerrputsb();
