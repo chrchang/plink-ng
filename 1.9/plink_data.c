@@ -9036,6 +9036,65 @@ int32_t read_bcf_typed_string(gzFile gz_infile, char* readbuf, uint32_t maxlen, 
   return retval;
 }
 
+int32_t bcf_header_line_idx_check(char* line_iter, char* line_end, uint32_t* gt_idx_ptr) {
+  // adapted from plink 2.0 BcfHeaderLineIdxCheck()
+  while (1) {
+    char* tag_start = &(line_iter[1]);
+    if (!memcmp(tag_start, "IDX=", 4)) {
+      char* val_start = &(tag_start[4]);
+      if (memchr(val_start, ',', line_end - val_start)) {
+        // force this to have the same limitation as plink 2.0; if it's ever
+        // worth lifting this restriction, we do so in both programs, not in
+        // 1.9 only
+        logerrprint("Error: FORMAT:GT line in BCF text header block has IDX= in the center instead\nof the end of the line; this is not currently supported by " PROG_NAME_STR ".  Contact us\nif you need this to work.\n");
+        return 1;
+      }
+      if (scan_posint_defcap(val_start, gt_idx_ptr)) {
+        logerrprint("Error: Invalid FORMAT:GT IDX= value in BCF text header block.\n");
+        return 1;
+      }
+      return 0;
+    }
+    line_iter = strchr(tag_start, '=');
+    ++line_iter;
+    if (*line_iter != '"') {
+      line_iter = (char*)memchr(line_iter, ',', line_end - line_iter);
+      if (line_iter) {
+        continue;
+      }
+      return 0;
+    }
+    // Need to worry about backslash-escaped characters.
+    ++line_iter;
+    while (1) {
+      char cc = *line_iter;
+      if (cc == '"') {
+        break;
+      }
+      if ((cc != '\\') && (cc != '\n')) {
+        ++line_iter;
+        continue;
+      }
+      if ((cc == '\n') || (line_iter[1] == '\n')) {
+        goto bcf_header_line_idx_check_FAIL;
+      }
+      line_iter = &(line_iter[2]);
+    }
+    ++line_iter;
+    char cc = *line_iter;
+    if (cc == ',') {
+      continue;
+    }
+    if (cc == '\n') {
+      return 0;
+    }
+    break;
+  }
+ bcf_header_line_idx_check_FAIL:
+  logerrprint("Error: FORMAT:GT line in BCF text header block is malformed.\n");
+  return 1;
+}
+
 int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t missing_pheno, uint64_t misc_flags, char* const_fid, char id_delim, char vcf_idspace_to, double vcf_min_qual, char* vcf_filter_exceptions_flattened, Chrom_info* chrom_info_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -9223,6 +9282,15 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	      goto bcf_to_bed_ret_INVALID_FORMAT;
 	    }
 	    gt_idx = stringdict_ct;
+            // bugfix (17 Feb 2020): BCFv2.2 headers may explicitly specify the
+            // index.  Usually it'll be equal to stringdict_ct anyway, but it
+            // can naturally diverge when e.g. a FILTER and INFO key are
+            // identical.  Search the header line for an "IDX=<#>" entry.
+            // &(linebuf[36]) points to the comma before the beginning of the
+            // "Description" tag.
+            if (bcf_header_line_idx_check(&(linebuf[36]), linebuf_end, &gt_idx)) {
+              goto bcf_to_bed_ret_INVALID_FORMAT;
+            }
 	  }
 	  stringdict_ct++;
 	} else if (!memcmp(&(linebuf[3]), "ILTER=<ID=", 10)) {
