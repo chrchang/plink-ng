@@ -86,10 +86,10 @@ typedef struct GparseReadVcfMetadataStruct {
 
 typedef struct GparseReadBcfMetadataStruct {
   // [0] = GQ, [1] = DP
-  STD_ARRAY_DECL(uint32_t, 2, qual_offsets);
-  uint32_t gt_offset;
-  uint32_t dosage_offset;
-  uint32_t hds_offset;
+  STD_ARRAY_DECL(uint32_t, 2, qual_vec_offsets);
+  uint32_t gt_vec_offset;
+  uint32_t dosage_vec_offset;
+  uint32_t hds_vec_offset;
   uintptr_t rec_idx;  // for error reporting
 } GparseReadBcfMetadata;
 
@@ -3670,7 +3670,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
             // VCF specification permits whitespace in INFO field, while PVAR
             // does not.  Check for whitespace and error out if necessary.
             if (unlikely(memchr(filter_end, ' ', info_end - filter_end))) {
-              snprintf(g_logbuf, kLogbufSize, "Error: INFO field on line %" PRIuPTR " of --vcf file contains a space; this cannot be imported by " PROG_NAME_STR ".  Remove or reformat the field before reattempting import.\n", line_idx);
+              snprintf(g_logbuf, kLogbufSize, "Error: INFO field on line %" PRIuPTR " of --vcf file contains a space; this cannot be imported by " PROG_NAME_STR ". Remove or reformat the field before reattempting import.\n", line_idx);
               goto VcfToPgen_ret_MALFORMED_INPUT_WWN;
             }
             write_iter = memcpya(write_iter, linebuf_iter, info_end - linebuf_iter);
@@ -3893,6 +3893,7 @@ PglErr BcfHeaderLineIdxCheck(const char* line_iter, uint32_t header_line_idx) {
       return kPglRetSuccess;
     }
     // Need to worry about backslash-escaped characters.
+    ++line_iter;
     while (1) {
       line_iter = strchrnul2_n(line_iter, '\\', '"');
       const char cc = *line_iter;
@@ -3954,6 +3955,27 @@ static inline BoolErr ScanBcfType(const unsigned char** vrec_iterp, uint32_t* va
   return ScanBcfTypedInt(vrec_iterp, value_ct_ptr);
 }
 
+static inline BoolErr ScanBcfTypeAligned(const unsigned char** vrec_iterp, uint32_t* value_type_ptr, uint32_t* value_ct_ptr) {
+  const uint32_t type_descriptor_byte = **vrec_iterp;
+  *value_type_ptr = type_descriptor_byte & 0xf;
+  *value_ct_ptr = type_descriptor_byte >> 4;
+  if (*value_ct_ptr != 15) {
+    *vrec_iterp += kBytesPerVec;
+    return 0;
+  }
+#ifdef __LP64__
+  const unsigned char* vrec_iter_tmp = *vrec_iterp;
+  ++vrec_iter_tmp;
+  *vrec_iterp += kBytesPerVec;
+  return ScanBcfTypedInt(vrec_iterp, value_ct_ptr);
+#else
+  *vrec_iterp += 1;
+  BoolErr ret_boolerr = ScanBcfTypedInt(vrec_iterp, value_ct_ptr);
+  VecAlignUp(vrec_iterp);
+  return ret_boolerr;
+#endif
+}
+
 // Check overread within this function, since it can be long enough for integer
 // overflow, etc.
 BoolErr ScanBcfTypedString(const unsigned char* vrec_end, const unsigned char** vrec_iterp, const char** string_startp, uint32_t* slen_ptr) {
@@ -3987,6 +4009,11 @@ typedef struct BcfImportBaseContextStruct {
   // [0] = GQ, [1] = DP
   STD_ARRAY_DECL(int32_t, 2, qual_mins);
   STD_ARRAY_DECL(int32_t, 2, qual_maxs);
+#ifdef USE_AVX2
+  unsigned char biallelic_gt_lookup[32];
+#else
+  unsigned char biallelic_gt_lookup[16];
+#endif
 } BcfImportBaseContext;
 
 typedef struct BcfImportContextStruct {
@@ -4001,26 +4028,24 @@ ENUM_U31_DEF_START()
   kBcfParseMalformedGeneric,
   kBcfParseHalfCallError,
   kBcfParseInvalidDosage,
+  kBcfParseWideGt,
   kBcfParseFloatDp,
-  kBcfParseNonfloatDosage
+  kBcfParseNonfloatDosage,
 ENUM_U31_DEF_END(BcfParseErr);
 
-BcfParseErr BcfParseGqDp(const unsigned char* qual_start, uint32_t sample_ct, uint32_t qual_min, uint32_t qual_max, uintptr_t* found_bitbuf) {
-  const unsigned char* qual_main = qual_start;
-  uint32_t qual_value_type;
-  uint32_t qual_value_ct;
-  if (unlikely(ScanBcfType(&qual_main, &qual_value_type, &qual_value_ct) || (qual_value_ct > 1))) {
-    return kBcfParseMalformedGeneric;
-  }
-  if (!qual_value_ct) {
-    return kBcfParseOk;
-  }
-  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+// Sets genovec bits to 0b11 whenever GQ/DP doesn't pass.  (Caller should pass
+// in a separate array if they need to distinguish between ordinary genovec
+// missingness vs. missingness due to this filter.)
+BcfParseErr BcfParseGqDpMain(const unsigned char* qual_main, uint32_t sample_ct, uint32_t qual_min, uint32_t qual_max, uint32_t qual_value_type, uintptr_t* genovec) {
   // need to support int8, int16, int32, and float.
+#ifndef __LP64__
+  const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
+  uint32_t loop_len = kBitsPerWordD2;
+#endif
   if (qual_value_type == 1) {
     // int8
     if (qual_min > 0x7f) {
-      ZeroWArr(sample_ctl, found_bitbuf);
+      SetAllBits(sample_ct * 2, genovec);
       return kBcfParseOk;
     }
 #ifdef __LP64__
@@ -4028,164 +4053,210 @@ BcfParseErr BcfParseGqDp(const unsigned char* qual_start, uint32_t sample_ct, ui
     // Only signed-comparison intrinsics exist.
     const VecI8* qual_alias = R_CAST(const VecI8*, qual_main);
     const VecI8 min_vec = veci8_set1(qual_min);
-    Vec8thUint* found_bitbuf_alias = R_CAST(Vec8thUint*, found_bitbuf);
+    Vec4thUint* genovec_alias = R_CAST(Vec4thUint*, genovec);
+#else
+    const int8_t* qual_iter = R_CAST(const int8_t*, qual_main);
+    const int8_t qual_min_i8 = S_CAST(int8_t, qual_min);
 #endif
     if (qual_max >= 0x7f) {
       // Usual case: safe to skip qual_max comparisons.
 #ifdef __LP64__
       for (uint32_t vidx = 0; vidx != fullvec_ct; ++vidx) {
         const VecI8 vv = veci8_loadu(&(qual_alias[vidx]));
-        const VecI8 fail_vec = (min_vec > vv);
-        const Vec8thUint fail_bits = veci8_movemask(fail_vec);
-        // todo: verify compiler recognizes andnot
-        found_bitbuf_alias[vidx] = found_bitbuf_alias[vidx] & (~fail_bits);
+        VecI8 fail_vec = (min_vec > vv);
+        fail_vec = veci8_permute0xd8_if_avx2(fail_vec);
+        const VecI8 fail_vec_lo = veci8_unpacklo8(fail_vec, fail_vec);
+        const VecI8 fail_vec_hi = veci8_unpackhi8(fail_vec, fail_vec);
+        const Vec4thUint fail_bits_lo = veci8_movemask(fail_vec_lo);
+        const Vec4thUint fail_bits_hi = veci8_movemask(fail_vec_hi);
+        genovec_alias[vidx] |= fail_bits_lo | (fail_bits_hi << kBytesPerVec);
       }
       const uint32_t remainder = sample_ct % kBytesPerVec;
       if (remainder) {
         const int8_t* trailing_start = R_CAST(const int8_t*, &(qual_main[fullvec_ct * kBytesPerVec]));
         const int8_t qual_min_i8 = S_CAST(int8_t, qual_min);
-        Vec8thUint fail_bits = 0;
+        Vec4thUint fail_bits = 0;
         for (uint32_t uii = 0; uii != remainder; ++uii) {
           if (qual_min_i8 > trailing_start[uii]) {
-            fail_bits |= 1U << uii;
+            fail_bits |= (3 * k1LU) << (2 * uii);
           }
         }
-        found_bitbuf_alias[fullvec_ct] = found_bitbuf_alias[fullvec_ct] & (~fail_bits);
+        genovec_alias[fullvec_ct] |= fail_bits;
       }
 #else
-      const int8_t* qual_alias = R_CAST(const int8_t*, qual_main);
-      const int8_t qual_min_i8 = S_CAST(int8_t, qual_min);
-      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-        if (qual_min_i8 > qual_alias[sample_idx]) {
-          ClearBit(sample_idx, found_bitbuf);
+      for (uint32_t widx = 0; ; ++widx) {
+        if (widx >= word_ct_m1) {
+          if (widx > word_ct_m1) {
+            break;
+          }
+          loop_len = ModNz(sample_ct, kBitsPerWordD2);
         }
+        uintptr_t geno_word = genovec[widx];
+        for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
+          if (qual_min_i8 > qual_iter[sample_idx_lowbits]) {
+            geno_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+          }
+        }
+        qual_iter = &(qual_iter[kBitsPerWordD2]);
+        genovec[widx] = geno_word;
       }
 #endif
     } else {
-      // Two comparisons required.
+      // Two comparisons required, and we need to special-case the missing
+      // value.
       // (There is currently no case where we enforce a maximum but not a
       // minimum.  Even when --vcf-max-dp is specified without --vcf-min-dp, a
       // minimum depth of zero is always enforced, and we're scanning a vector
       // of signed values.)
 #ifdef __LP64__
       const VecI8 max_vec = veci8_set1(qual_max);
+      const VecI8 missing_vec = veci8_set1(0x80);
       for (uint32_t vidx = 0; vidx != fullvec_ct; ++vidx) {
         const VecI8 vv = veci8_loadu(&(qual_alias[vidx]));
-        const VecI8 fail_vec = (min_vec > vv) | (max_vec < vv);
-        const Vec8thUint fail_bits = veci8_movemask(fail_vec);
-        found_bitbuf_alias[vidx] = found_bitbuf_alias[vidx] & (~fail_bits);
+        const VecI8 fail_or_missing_vec = (min_vec > vv) | (max_vec < vv);
+        const VecI8 cur_missing_vec = (vv == missing_vec);
+        VecI8 fail_vec = veci8_and_notfirst(cur_missing_vec, fail_or_missing_vec);
+        fail_vec = veci8_permute0xd8_if_avx2(fail_vec);
+        const VecI8 fail_vec_lo = veci8_unpacklo8(fail_vec, fail_vec);
+        const VecI8 fail_vec_hi = veci8_unpackhi8(fail_vec, fail_vec);
+        const Vec4thUint fail_bits_lo = veci8_movemask(fail_vec_lo);
+        const Vec4thUint fail_bits_hi = veci8_movemask(fail_vec_hi);
+        genovec_alias[vidx] |= fail_bits_lo | (fail_bits_hi << kBytesPerVec);
       }
       const uint32_t remainder = sample_ct % kBytesPerVec;
       if (remainder) {
         const int8_t* trailing_start = R_CAST(const int8_t*, &(qual_main[fullvec_ct * kBytesPerVec]));
         const int8_t qual_min_i8 = S_CAST(int8_t, qual_min);
         const int8_t qual_max_i8 = S_CAST(int8_t, qual_max);
-        Vec8thUint fail_bits = 0;
+        Vec4thUint fail_bits = 0;
         for (uint32_t uii = 0; uii != remainder; ++uii) {
           const int8_t cur_qual = trailing_start[uii];
-          if ((qual_min_i8 > cur_qual) || (qual_max_i8 < cur_qual)) {
-            fail_bits |= 1U << uii;
+          if (((qual_min_i8 > cur_qual) || (qual_max_i8 < cur_qual)) && (cur_qual != -128)) {
+            fail_bits |= (3 * k1LU) << (2 * uii);
           }
         }
-        found_bitbuf_alias[fullvec_ct] = found_bitbuf_alias[fullvec_ct] & (~fail_bits);
+        genovec_alias[fullvec_ct] |= fail_bits;
       }
 #else
-      const int8_t* qual_alias = R_CAST(const int8_t*, qual_main);
-      const int8_t qual_min_i8 = S_CAST(int8_t, qual_min);
       const int8_t qual_max_i8 = S_CAST(int8_t, qual_max);
-      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-        const int8_t cur_qual = qual_alias[sample_idx];
-        if ((qual_min_i8 > cur_qual) || (qual_max_i8 < cur_qual)) {
-          ClearBit(sample_idx, found_bitbuf);
+      for (uint32_t widx = 0; ; ++widx) {
+        if (widx >= word_ct_m1) {
+          if (widx > word_ct_m1) {
+            break;
+          }
+          loop_len = ModNz(sample_ct, kBitsPerWordD2);
         }
+        uintptr_t geno_word = genovec[widx];
+        for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
+          const int8_t cur_qual = qual_iter[sample_idx_lowbits];
+          if (((qual_min_i8 > cur_qual) || (qual_max_i8 < cur_qual)) && (cur_qual != -128)) {
+            geno_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+          }
+        }
+        qual_iter = &(qual_iter[kBitsPerWordD2]);
+        genovec[widx] = geno_word;
       }
 #endif
     }
   } else if (qual_value_type == 2) {
     // int16
     if (qual_min > 0x7fff) {
-      ZeroWArr(sample_ctl, found_bitbuf);
+      SetAllBits(sample_ct * 2, genovec);
       return kBcfParseOk;
     }
 #ifdef __LP64__
     const uint32_t fullvec_ct = sample_ct / kInt16PerVec;
     const VecI16* qual_alias = R_CAST(const VecI16*, qual_main);
     const VecI16 min_vec = veci16_set1(qual_min);
-    Vec16thUint* found_bitbuf_alias = R_CAST(Vec16thUint*, found_bitbuf);
+    Vec8thUint* genovec_alias = R_CAST(Vec8thUint*, genovec);
+#else
+    const int16_t* qual_iter = R_CAST(const int16_t*, qual_main);
+    const int16_t qual_min_i16 = S_CAST(int16_t, qual_min);
 #endif
     if (qual_max >= 0x7fff) {
 #ifdef __LP64__
       for (uint32_t vidx = 0; vidx != fullvec_ct; ++vidx) {
         const VecI16 vv = veci16_loadu(&(qual_alias[vidx]));
         const VecI16 fail_vec = (min_vec > vv);
-#  ifdef USE_AVX2
-        const Vec16thUint fail_bits = _pext_u32(veci16_movemask(fail_vec), 0x55555555U);
-#  else
-        const __m128i vec_packed = _mm_packus_epi16(R_CAST(__m128i, fail_vec), R_CAST(__m128i, fail_vec));
-        // unwanted high bits get truncated here.
-        const Vec16thUint fail_bits = _mm_movemask_epi8(vec_packed);
-#  endif
-        found_bitbuf_alias[vidx] = found_bitbuf_alias[vidx] & (~fail_bits);
+        const Vec8thUint fail_bits = veci16_movemask(fail_vec);
+        genovec_alias[vidx] |= fail_bits;
       }
       const uint32_t remainder = sample_ct % kBytesPerVec;
       if (remainder) {
         const int16_t* trailing_start = R_CAST(const int16_t*, &(qual_main[fullvec_ct * kInt16PerVec]));
         const int16_t qual_min_i16 = S_CAST(int16_t, qual_min);
-        Vec16thUint fail_bits = 0;
+        Vec8thUint fail_bits = 0;
         for (uint32_t uii = 0; uii != remainder; ++uii) {
           if (qual_min_i16 > trailing_start[uii]) {
-            fail_bits |= 1U << uii;
+            fail_bits |= 3U << (2 * uii);
           }
         }
-        found_bitbuf_alias[fullvec_ct] = found_bitbuf_alias[fullvec_ct] & (~fail_bits);
+        genovec_alias[fullvec_ct] |= fail_bits;
       }
 #else
-      const int16_t* qual_alias = R_CAST(const int16_t*, qual_main);
-      const int16_t qual_min_i16 = S_CAST(int16_t, qual_min);
-      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-        if (qual_min_i16 > qual_alias[sample_idx]) {
-          ClearBit(sample_idx, found_bitbuf);
+      for (uint32_t widx = 0; ; ++widx) {
+        if (widx >= word_ct_m1) {
+          if (widx > word_ct_m1) {
+            break;
+          }
+          loop_len = ModNz(sample_ct, kBitsPerWordD2);
         }
+        uintptr_t geno_word = genovec[widx];
+        for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
+          if (qual_min_i16 > qual_iter[sample_idx_lowbits]) {
+            geno_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+          }
+        }
+        qual_iter = &(qual_iter[kBitsPerWordD2]);
+        genovec[widx] = geno_word;
       }
 #endif
     } else {
-      // Two comparisons required.
+      // Two comparisons required, and we need to special-case the missing
+      // value.
 #ifdef __LP64__
       const VecI16 max_vec = veci16_set1(qual_max);
+      const VecI16 missing_vec = veci16_set1(0x8000);
       for (uint32_t vidx = 0; vidx != fullvec_ct; ++vidx) {
         const VecI16 vv = veci16_loadu(&(qual_alias[vidx]));
-        const VecI16 fail_vec = (min_vec > vv) | (max_vec < vv);
-#  ifdef USE_AVX2
-        const Vec16thUint fail_bits = _pext_u32(veci16_movemask(fail_vec), 0x55555555U);
-#  else
-        const __m128i vec_packed = _mm_packus_epi16(R_CAST(__m128i, fail_vec), R_CAST(__m128i, fail_vec));
-        const Vec16thUint fail_bits = _mm_movemask_epi8(vec_packed);
-#  endif
-        found_bitbuf_alias[vidx] = found_bitbuf_alias[vidx] & (~fail_bits);
+        const VecI16 fail_or_missing_vec = (min_vec > vv) | (max_vec < vv);
+        const VecI16 cur_missing_vec = (vv == missing_vec);
+        const VecI16 fail_vec = veci16_and_notfirst(cur_missing_vec, fail_or_missing_vec);
+        const Vec8thUint fail_bits = veci16_movemask(fail_vec);
+        genovec_alias[vidx] |= fail_bits;
       }
-      const uint32_t remainder = sample_ct % kInt16PerVec;
+      const uint32_t remainder = sample_ct % kBytesPerVec;
       if (remainder) {
         const int16_t* trailing_start = R_CAST(const int16_t*, &(qual_main[fullvec_ct * kInt16PerVec]));
         const int16_t qual_min_i16 = S_CAST(int16_t, qual_min);
         const int16_t qual_max_i16 = S_CAST(int16_t, qual_max);
-        Vec16thUint fail_bits = 0;
+        Vec8thUint fail_bits = 0;
         for (uint32_t uii = 0; uii != remainder; ++uii) {
           const int16_t cur_qual = trailing_start[uii];
-          if ((qual_min_i16 > cur_qual) || (qual_max_i16 < cur_qual)) {
-            fail_bits |= 1U << uii;
+          if (((qual_min_i16 > cur_qual) || (qual_max_i16 < cur_qual)) && (cur_qual != -32768)) {
+            fail_bits |= 3U << (2 * uii);
           }
         }
-        found_bitbuf_alias[fullvec_ct] = found_bitbuf_alias[fullvec_ct] & (~fail_bits);
+        genovec_alias[fullvec_ct] |= fail_bits;
       }
 #else
-      const int16_t* qual_alias = R_CAST(const int16_t*, qual_main);
-      const int16_t qual_min_i16 = S_CAST(int16_t, qual_min);
       const int16_t qual_max_i16 = S_CAST(int16_t, qual_max);
-      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-        const int16_t cur_qual = qual_alias[sample_idx];
-        if ((qual_min_i16 > cur_qual) || (qual_max_i16 < cur_qual)) {
-          ClearBit(sample_idx, found_bitbuf);
+      for (uint32_t widx = 0; ; ++widx) {
+        if (widx >= word_ct_m1) {
+          if (widx > word_ct_m1) {
+            break;
+          }
+          loop_len = ModNz(sample_ct, kBitsPerWordD2);
         }
+        uintptr_t geno_word = genovec[widx];
+        for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
+          const int16_t cur_qual = qual_iter[sample_idx_lowbits];
+          if (((qual_min_i16 > cur_qual) || (qual_max_i16 < cur_qual)) && (cur_qual != -32768)) {
+            geno_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+          }
+        }
+        qual_iter = &(qual_iter[kBitsPerWordD2]);
+        genovec[widx] = geno_word;
       }
 #endif
     }
@@ -4194,12 +4265,12 @@ BcfParseErr BcfParseGqDp(const unsigned char* qual_start, uint32_t sample_ct, ui
     // floating-point DP is unlikely.
     return kBcfParseFloatDp;
   } else if ((qual_value_type == 3) || ((qual_value_type == 5) && qual_min)) {
-    // int32, or typical GP float
+    // int32, or typical GQ float
     if (qual_value_type == 5) {
       // More efficient to perform the comparison in integer-space, since we
       // treat all NaN values (0x7f800000...0x7fffffff) as passing.
       // We do single out the qual_min == 0 special case, since in that case
-      // signed-zero (0x80000000U) must pass.
+      // signed-zero (0x80000000) must pass.
 
       // Convert to the appropriate floating-point bit pattern, rounding up.
       const uint32_t orig_qual_min = qual_min;
@@ -4212,110 +4283,173 @@ BcfParseErr BcfParseGqDp(const unsigned char* qual_start, uint32_t sample_ct, ui
         qual_min += (high_bit_idx > (low_bit_idx + 23));
       }
     }
-#ifdef USE_AVX2
+#ifdef __LP64__
     const uint32_t fullvec_ct = sample_ct / kInt32PerVec;
     const VecI32* qual_alias = R_CAST(const VecI32*, qual_main);
     const VecI32 min_vec = veci32_set1(qual_min);
-    unsigned char* found_bitbuf_alias = R_CAST(unsigned char*, found_bitbuf);
+    Vec16thUint* genovec_alias = R_CAST(Vec16thUint*, genovec);
+#else
+    const int32_t* qual_iter = R_CAST(const int32_t*, qual_main);
+    const int32_t qual_min_i32 = S_CAST(int32_t, qual_min);
 #endif
     if (qual_max == 0x7fffffff) {
-#ifdef USE_AVX2
+#ifdef __LP64__
       for (uint32_t vidx = 0; vidx != fullvec_ct; ++vidx) {
         const VecI32 vv = veci32_loadu(&(qual_alias[vidx]));
         const VecI32 fail_vec = (min_vec > vv);
-        const unsigned char fail_bits = _pext_u32(veci32_movemask(fail_vec), 0x11111111U);
-        found_bitbuf_alias[vidx] = found_bitbuf_alias[vidx] & (~fail_bits);
+#  ifdef USE_AVX2
+        const Vec16thUint fail_bits = _pext_u32(veci32_movemask(fail_vec), 0x33333333);
+#  else
+        const __m128i vec_packed = _mm_packs_epi16(R_CAST(__m128i, fail_vec), R_CAST(__m128i, fail_vec));
+        // unwanted high bits get truncated here.
+        const Vec16thUint fail_bits = _mm_movemask_epi8(vec_packed);
+#  endif
+        genovec_alias[vidx] |= fail_bits;
       }
       const uint32_t remainder = sample_ct % kInt32PerVec;
       if (remainder) {
         const int32_t* trailing_start = R_CAST(const int32_t*, &(qual_main[fullvec_ct * kInt32PerVec]));
         const int32_t qual_min_i32 = S_CAST(int32_t, qual_min);
-        unsigned char fail_bits = 0;
+        Vec16thUint fail_bits = 0;
         for (uint32_t uii = 0; uii != remainder; ++uii) {
           if (qual_min_i32 > trailing_start[uii]) {
-            fail_bits |= 1U << uii;
+            fail_bits |= 3U << (2 * uii);
           }
         }
-        found_bitbuf_alias[fullvec_ct] = found_bitbuf_alias[fullvec_ct] & (~fail_bits);
+        genovec_alias[fullvec_ct] |= fail_bits;
       }
 #else
-      const int32_t* qual_alias = R_CAST(const int32_t*, qual_main);
-      const int32_t qual_min_i32 = S_CAST(int32_t, qual_min);
-      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-        if (qual_min_i32 > qual_alias[sample_idx]) {
-          ClearBit(sample_idx, found_bitbuf);
+      for (uint32_t widx = 0; ; ++widx) {
+        if (widx >= word_ct_m1) {
+          if (widx > word_ct_m1) {
+            break;
+          }
+          loop_len = ModNz(sample_ct, kBitsPerWordD2);
         }
+        uintptr_t geno_word = genovec[widx];
+        for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
+          if (qual_min_i32 > qual_iter[sample_idx_lowbits]) {
+            geno_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+          }
+        }
+        qual_iter = &(qual_iter[kBitsPerWordD2]);
+        genovec[widx] = geno_word;
       }
 #endif
     } else {
-      // Two comparisons required.
-#ifdef USE_AVX2
+      // Two comparisons required, and we need to special-case the missing
+      // value.
+#ifdef __LP64__
       const VecI32 max_vec = veci32_set1(qual_max);
+      const VecI32 missing_vec = veci32_set1(0x80000000);
       for (uint32_t vidx = 0; vidx != fullvec_ct; ++vidx) {
         const VecI32 vv = veci32_loadu(&(qual_alias[vidx]));
-        const VecI32 fail_vec = (min_vec > vv) | (max_vec < vv);
-        const unsigned char fail_bits = _pext_u32(veci32_movemask(fail_vec), 0x11111111U);
-        found_bitbuf_alias[vidx] = found_bitbuf_alias[vidx] & (~fail_bits);
+        const VecI32 fail_or_missing_vec = (min_vec > vv) | (max_vec < vv);
+        const VecI32 cur_missing_vec = (vv == missing_vec);
+        const VecI32 fail_vec = veci32_and_notfirst(cur_missing_vec, fail_or_missing_vec);
+#  ifdef USE_AVX2
+        const Vec16thUint fail_bits = _pext_u32(veci32_movemask(fail_vec), 0x33333333);
+#  else
+        const __m128i vec_packed = _mm_packs_epi16(R_CAST(__m128i, fail_vec), R_CAST(__m128i, fail_vec));
+        const Vec16thUint fail_bits = _mm_movemask_epi8(vec_packed);
+#  endif
+        genovec_alias[vidx] |= fail_bits;
       }
       const uint32_t remainder = sample_ct % kInt32PerVec;
       if (remainder) {
         const int32_t* trailing_start = R_CAST(const int32_t*, &(qual_main[fullvec_ct * kInt32PerVec]));
         const int32_t qual_min_i32 = S_CAST(int32_t, qual_min);
         const int32_t qual_max_i32 = S_CAST(int32_t, qual_max);
-        unsigned char fail_bits = 0;
+        Vec16thUint fail_bits = 0;
         for (uint32_t uii = 0; uii != remainder; ++uii) {
           const int32_t cur_qual = trailing_start[uii];
-          if ((qual_min_i32 > cur_qual) || (qual_max_i32 < cur_qual)) {
-            fail_bits |= 1U << uii;
+          if (((qual_min_i32 > cur_qual) || (qual_max_i32 < cur_qual)) && (cur_qual != -2147483648)) {
+            fail_bits |= 3U << (2 * uii);
           }
         }
-        found_bitbuf_alias[fullvec_ct] = found_bitbuf_alias[fullvec_ct] & (~fail_bits);
+        genovec_alias[fullvec_ct] |= fail_bits;
       }
 #else
-      const int32_t* qual_alias = R_CAST(const int32_t*, qual_main);
-      const int32_t qual_min_i32 = S_CAST(int32_t, qual_min);
       const int32_t qual_max_i32 = S_CAST(int32_t, qual_max);
-      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-        const int32_t cur_qual = qual_alias[sample_idx];
-        if ((qual_min_i32 > cur_qual) || (qual_max_i32 < cur_qual)) {
-          ClearBit(sample_idx, found_bitbuf);
+      for (uint32_t widx = 0; ; ++widx) {
+        if (widx >= word_ct_m1) {
+          if (widx > word_ct_m1) {
+            break;
+          }
+          loop_len = ModNz(sample_ct, kBitsPerWordD2);
         }
+        uintptr_t geno_word = genovec[widx];
+        for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
+          const int32_t cur_qual = qual_iter[sample_idx_lowbits];
+          if (((qual_min_i32 > cur_qual) || (qual_max_i32 < cur_qual)) && (cur_qual != -2147483648)) {
+            geno_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+          }
+        }
+        qual_iter = &(qual_iter[kBitsPerWordD2]);
+        genovec[widx] = geno_word;
       }
 #endif
     }
   } else if (likely(qual_value_type == 5)) {
     // float, qual_min == 0.
     // Fail when bit pattern > 0x80000000U.
-#ifdef USE_AVX2
-    // Subtract 1 with wraparound, and then check for < -1.
+#ifdef __LP64__
     const uint32_t fullvec_ct = sample_ct / kInt32PerVec;
+    Vec16thUint* genovec_alias = R_CAST(Vec16thUint*, genovec);
+#  ifdef USE_AVX2
+    // Subtract 1 with wraparound, and then check for < -1.
+
+    // We don't use VecI32 since wraparound is undefined in non-vectorized
+    // arithmetic, and we don't use VecU32 since cmpgt is signed.
     const __m256i* qual_alias = R_CAST(const __m256i*, qual_main);
     const __m256i all1 = _mm256_set1_epi8(0xff);
-    unsigned char* found_bitbuf_alias = R_CAST(unsigned char*, found_bitbuf);
     for (uint32_t vidx = 0; vidx != fullvec_ct; ++vidx) {
       const __m256i vv = _mm256_loadu_si256(&(qual_alias[vidx]));
       const __m256i vv_minus_1 = _mm256_add_epi32(vv, all1);
       const __m256i fail_vec = _mm256_cmpgt_epi32(vv_minus_1, all1);
-      const unsigned char fail_bits = _pext_u32(_mm256_movemask_epi8(fail_vec), 0x11111111U);
-      found_bitbuf_alias[vidx] = found_bitbuf_alias[vidx] & (~fail_bits);
+      const Vec16thUint fail_bits = _pext_u32(_mm256_movemask_epi8(fail_vec), 0x33333333);
+      genovec_alias[vidx] |= fail_bits;
     }
+#  else
+    const __m128i* qual_alias = R_CAST(const __m128i*, qual_main);
+    const __m128i all1 = _mm_set1_epi8(0xff);
+    for (uint32_t vidx = 0; vidx != fullvec_ct; ++vidx) {
+      const __m128i vv = _mm_loadu_si128(&(qual_alias[vidx]));
+      const __m128i vv_minus_1 = _mm_add_epi32(vv, all1);
+      const __m128i fail_vec = _mm_cmpgt_epi32(vv_minus_1, all1);
+      const __m128i vec_packed = _mm_packs_epi16(R_CAST(__m128i, fail_vec), R_CAST(__m128i, fail_vec));
+      const Vec16thUint fail_bits = _mm_movemask_epi8(vec_packed);
+      genovec_alias[vidx] |= fail_bits;
+    }
+#  endif
     const uint32_t remainder = sample_ct % kInt32PerVec;
     if (remainder) {
       const uint32_t* trailing_start = R_CAST(const uint32_t*, &(qual_main[fullvec_ct * kInt32PerVec]));
-      unsigned char fail_bits = 0;
+      Vec16thUint fail_bits = 0;
       for (uint32_t uii = 0; uii != remainder; ++uii) {
         if (trailing_start[uii] > 0x80000000U) {
-          fail_bits |= 1U << uii;
+          fail_bits |= 3U << (2 * uii);
         }
       }
-      found_bitbuf_alias[fullvec_ct] = found_bitbuf_alias[fullvec_ct] & (~fail_bits);
+      genovec_alias[fullvec_ct] |= fail_bits;
     }
 #else
-    const uint32_t* qual_alias = R_CAST(const uint32_t*, qual_main);
-    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-      if (qual_alias[sample_idx] > 0x80000000U) {
-        ClearBit(sample_idx, found_bitbuf);
+    const uint32_t* qual_iter = R_CAST(const uint32_t*, qual_main);
+    for (uint32_t widx = 0; ; ++widx) {
+      if (widx >= word_ct_m1) {
+        if (widx > word_ct_m1) {
+          break;
+        }
+        loop_len = ModNz(sample_ct, kBitsPerWordD2);
       }
+      uintptr_t geno_word = genovec[widx];
+      for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
+        if (qual_iter[sample_idx_lowbits] > 0x80000000U) {
+          geno_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+        }
+      }
+      qual_iter = &(qual_iter[kBitsPerWordD2]);
+      genovec[widx] = geno_word;
     }
 #endif
   } else {
@@ -4324,8 +4458,34 @@ BcfParseErr BcfParseGqDp(const unsigned char* qual_start, uint32_t sample_ct, ui
   return kBcfParseOk;
 }
 
+BcfParseErr BcfParseGqDpUnaligned(const unsigned char* qual_type_start, uint32_t sample_ct, uint32_t qual_min, uint32_t qual_max, uintptr_t* genovec) {
+  const unsigned char* qual_iter = qual_type_start;
+  uint32_t qual_value_type;
+  uint32_t qual_value_ct;
+  if (unlikely(ScanBcfType(&qual_iter, &qual_value_type, &qual_value_ct) || (qual_value_ct > 1))) {
+    return kBcfParseMalformedGeneric;
+  }
+  if (!qual_value_ct) {
+    return kBcfParseOk;
+  }
+  return BcfParseGqDpMain(qual_iter, sample_ct, qual_min, qual_max, qual_value_type, genovec);
+}
+
+BcfParseErr BcfParseGqDpAligned(const unsigned char* qual_type_start, uint32_t sample_ct, uint32_t qual_min, uint32_t qual_max, uintptr_t* genovec) {
+  const unsigned char* qual_iter = qual_type_start;
+  uint32_t qual_value_type;
+  uint32_t qual_value_ct;
+  if (unlikely(ScanBcfTypeAligned(&qual_iter, &qual_value_type, &qual_value_ct) || (qual_value_ct > 1))) {
+    return kBcfParseMalformedGeneric;
+  }
+  if (!qual_value_ct) {
+    return kBcfParseOk;
+  }
+  return BcfParseGqDpMain(qual_iter, sample_ct, qual_min, qual_max, qual_value_type, genovec);
+}
+
 static_assert(kPglMaxAltAlleleCt == 254, "BcfScanGt() needs to be updated.");
-BcfParseErr BcfScanGt(const BcfImportContext* bicp, const unsigned char* gt_start, const unsigned char** qual_starts, uint32_t* phase_or_dosage_found_ptr, uintptr_t* found_bitbuf) {
+BcfParseErr BcfScanGt(const BcfImportContext* bicp, const unsigned char* gt_start, const unsigned char** qual_starts, uint32_t* phase_or_dosage_found_ptr, uintptr_t* invfound_nypbuf) {
   // Just check for a phased het.
   const unsigned char* gt_main = gt_start;
   // Note that generic validation was already performed on these vectors.  We
@@ -4334,8 +4494,7 @@ BcfParseErr BcfScanGt(const BcfImportContext* bicp, const unsigned char* gt_star
   uint32_t gt_value_type;
   uint32_t gt_value_ct;
   if (unlikely(ScanBcfType(&gt_main, &gt_value_type, &gt_value_ct) || (gt_value_type > 2))) {
-    // could specify field?
-    return kBcfParseMalformedGeneric;
+    return (gt_value_type == 3)? kBcfParseWideGt : kBcfParseMalformedGeneric;
   }
   if (gt_value_ct < 2) {
     // ploidy 0 or 1, phased genotypes are impossible
@@ -4352,7 +4511,7 @@ BcfParseErr BcfScanGt(const BcfImportContext* bicp, const unsigned char* gt_star
   // can't be any phased (or haploid/0-ploid) genotypes, and we can move on to
   // the next variant.
   // (Initially tried to make this an exhaustive scan, but then realized
-  // halfcalls and SIMD don't get along.)
+  // halfcalls and SIMD don't get along that well.)
   if (gt_value_ct == 2) {
     if (gt_value_type == 1) {
       // int8
@@ -4408,6 +4567,7 @@ BcfParseErr BcfScanGt(const BcfImportContext* bicp, const unsigned char* gt_star
             const uint32_t second_allele_idx_p1 = second_byte >> 1;
             if (first_allele_idx_p1 != second_allele_idx_p1) {
               // phased het or halfcall
+              // (or malformed, false positive ok there)
               if (first_allele_idx_p1 && second_allele_idx_p1) {
                 *phase_or_dosage_found_ptr = 1;
                 return kBcfParseOk;
@@ -4514,8 +4674,10 @@ BcfParseErr BcfScanGt(const BcfImportContext* bicp, const unsigned char* gt_star
     }
     return kBcfParseOk;
   }
-  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
-  ZeroWArr(sample_ctl, found_bitbuf);
+  // We clear a bit when we find a phase/dosage we're keeping; then
+  // BcfParseGqDpUnaligned() sets it iff the GQ or DP filter fails for that
+  // sample; if any clear bits remain at the end, we're done with our scan.
+  SetAllBits(sample_ct * 2, invfound_nypbuf);
   if (gt_value_type == 1) {
     if (gt_value_ct == 2) {
       const unsigned char* second_byte_start = &(gt_main[1]);
@@ -4528,10 +4690,10 @@ BcfParseErr BcfScanGt(const BcfImportContext* bicp, const unsigned char* gt_star
           if (first_allele_idx_p1 != second_allele_idx_p1) {
             // phased het or halfcall
             if (first_allele_idx_p1 && second_allele_idx_p1) {
-              SetBit(sample_idx, found_bitbuf);
+              ClearBit(sample_idx * 2, invfound_nypbuf);
             } else if (halfcall_mode == kVcfHalfCallReference) {
               if (first_allele_idx_p1 + second_allele_idx_p1 != 1) {
-                SetBit(sample_idx, found_bitbuf);
+                ClearBit(sample_idx * 2, invfound_nypbuf);
               }
             } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
               return kBcfParseHalfCallError;
@@ -4552,10 +4714,10 @@ BcfParseErr BcfScanGt(const BcfImportContext* bicp, const unsigned char* gt_star
           if (first_allele_idx_p1 != second_allele_idx_p1) {
             // phased het or halfcall
             if (first_allele_idx_p1 && second_allele_idx_p1) {
-              SetBit(sample_idx, found_bitbuf);
+              ClearBit(sample_idx * 2, invfound_nypbuf);
             } else if (halfcall_mode == kVcfHalfCallReference) {
               if (first_allele_idx_p1 + second_allele_idx_p1 != 1) {
-                SetBit(sample_idx, found_bitbuf);
+                ClearBit(sample_idx * 2, invfound_nypbuf);
               }
             } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
               return kBcfParseHalfCallError;
@@ -4577,10 +4739,10 @@ BcfParseErr BcfScanGt(const BcfImportContext* bicp, const unsigned char* gt_star
           if (first_allele_idx_p1 != second_allele_idx_p1) {
             // phased het or halfcall
             if (first_allele_idx_p1 && second_allele_idx_p1) {
-              SetBit(sample_idx, found_bitbuf);
+              ClearBit(sample_idx * 2, invfound_nypbuf);
             } else if (halfcall_mode == kVcfHalfCallReference) {
               if (first_allele_idx_p1 + second_allele_idx_p1 != 1) {
-                SetBit(sample_idx, found_bitbuf);
+                ClearBit(sample_idx * 2, invfound_nypbuf);
               }
             } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
               return kBcfParseHalfCallError;
@@ -4601,10 +4763,10 @@ BcfParseErr BcfScanGt(const BcfImportContext* bicp, const unsigned char* gt_star
           if (first_allele_idx_p1 != second_allele_idx_p1) {
             // phased het or halfcall
             if (first_allele_idx_p1 && second_allele_idx_p1) {
-              SetBit(sample_idx, found_bitbuf);
+              ClearBit(sample_idx * 2, invfound_nypbuf);
             } else if (halfcall_mode == kVcfHalfCallReference) {
               if (first_allele_idx_p1 + second_allele_idx_p1 != 1) {
-                SetBit(sample_idx, found_bitbuf);
+                ClearBit(sample_idx * 2, invfound_nypbuf);
               }
             } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
               return kBcfParseHalfCallError;
@@ -4614,18 +4776,18 @@ BcfParseErr BcfScanGt(const BcfImportContext* bicp, const unsigned char* gt_star
       }
     }
   }
-  if (AllWordsAreZero(found_bitbuf, sample_ctl)) {
+  if (AllBitsAreOne(invfound_nypbuf, sample_ct * 2)) {
     return kBcfParseOk;
   }
   for (uint32_t qual_idx = 0; qual_idx != 2; ++qual_idx) {
     if (!qual_starts[qual_idx]) {
       continue;
     }
-    BcfParseErr bcf_parse_err = BcfParseGqDp(qual_starts[qual_idx], sample_ct, bicp->bibc.qual_mins[qual_idx], bicp->bibc.qual_maxs[qual_idx], found_bitbuf);
+    BcfParseErr bcf_parse_err = BcfParseGqDpUnaligned(qual_starts[qual_idx], sample_ct, bicp->bibc.qual_mins[qual_idx], bicp->bibc.qual_maxs[qual_idx], invfound_nypbuf);
     if (bcf_parse_err != kBcfParseOk) {
       return bcf_parse_err;
     }
-    if (AllWordsAreZero(found_bitbuf, sample_ctl)) {
+    if (AllBitsAreOne(invfound_nypbuf, sample_ct * 2)) {
       return kBcfParseOk;
     }
   }
@@ -4809,14 +4971,14 @@ uint32_t BcfGtIsPhasedHet(uint16_t gt_first, uint16_t gt_second, uint16_t gt_hig
     return 0;
   }
   const uint16_t first_allele_idx_p1 = (gt_first & (~gt_high_bit)) >> 1;
-  const uint16_t second_allele_idx_p1 = (gt_first & (~gt_high_bit)) >> 1;
+  const uint16_t second_allele_idx_p1 = (gt_second & (~gt_high_bit)) >> 1;
   if (first_allele_idx_p1 == second_allele_idx_p1) {
     return 0;
   }
   return (first_allele_idx_p1 && second_allele_idx_p1) || ((halfcall_mode == kVcfHalfCallReference) && (first_allele_idx_p1 + second_allele_idx_p1 != 1));
 }
 
-BcfParseErr BcfScanBiallelicHds(const BcfImportContext* bicp, const unsigned char* gt_start, const unsigned char** qual_starts, const unsigned char* dosage_start, const unsigned char* hds_start, uint32_t* phase_or_dosage_found_ptr, uintptr_t* __restrict found_bitbuf) {
+BcfParseErr BcfScanBiallelicHds(const BcfImportContext* bicp, const unsigned char* gt_start, const unsigned char** qual_starts, const unsigned char* dosage_start, const unsigned char* hds_start, uint32_t* phase_or_dosage_found_ptr, uintptr_t* __restrict invfound_nypbuf) {
   // See VcfScanBiallelicHdsLine().
   // DS+HDS
   // Only need to find phase *or* dosage.  We can expect this to happen
@@ -4858,22 +5020,19 @@ BcfParseErr BcfScanBiallelicHds(const BcfImportContext* bicp, const unsigned cha
       // everything missing
       return kBcfParseOk;
     }
-    return BcfScanGt(bicp, gt_start, qual_starts, phase_or_dosage_found_ptr, found_bitbuf);
+    return BcfScanGt(bicp, gt_start, qual_starts, phase_or_dosage_found_ptr, invfound_nypbuf);
   }
-  const uint32_t dosage_erase_halfdist = bicp->dosage_erase_halfdist;
-  const double import_dosage_certainty = bicp->import_dosage_certainty;
   const uint32_t sample_ct = bicp->bibc.sample_ct;
-  SetAllBits(sample_ct, found_bitbuf);
-  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  ZeroWArr(NypCtToWordCt(sample_ct), invfound_nypbuf);
   for (uint32_t qual_idx = 0; qual_idx != 2; ++qual_idx) {
     if (!qual_starts[qual_idx]) {
       continue;
     }
-    BcfParseErr bcf_parse_err = BcfParseGqDp(qual_starts[qual_idx], sample_ct, bicp->bibc.qual_mins[qual_idx], bicp->bibc.qual_maxs[qual_idx], found_bitbuf);
+    BcfParseErr bcf_parse_err = BcfParseGqDpUnaligned(qual_starts[qual_idx], sample_ct, bicp->bibc.qual_mins[qual_idx], bicp->bibc.qual_maxs[qual_idx], invfound_nypbuf);
     if (bcf_parse_err != kBcfParseOk) {
       return bcf_parse_err;
     }
-    if (AllWordsAreZero(found_bitbuf, sample_ctl)) {
+    if (AllBitsAreOne(invfound_nypbuf, sample_ct * 2)) {
       return kBcfParseOk;
     }
   }
@@ -4881,32 +5040,30 @@ BcfParseErr BcfScanBiallelicHds(const BcfImportContext* bicp, const unsigned cha
   uint32_t gt_value_type = 0;
   uint32_t gt_value_ct = 0;
   if (gt_main) {
-    if (unlikely(ScanBcfType(&gt_main, &gt_value_type, &gt_value_ct) || (gt_value_type > 2))) {
+    if (unlikely(ScanBcfType(&gt_main, &gt_value_type, &gt_value_ct) || (gt_value_type > 3))) {
       return kBcfParseMalformedGeneric;
+    }
+    if (unlikely(gt_value_type > 1)) {
+      return kBcfParseWideGt;
     }
   }
   const uint32_t dosage_is_gp = bicp->dosage_is_gp;
-  const uint16_t gt_high_bit = (gt_value_ct == 2)? 0x8000 : 0x80;
+  const uint32_t dosage_erase_halfdist = bicp->dosage_erase_halfdist;
+  const double import_dosage_certainty = bicp->import_dosage_certainty;
   const VcfHalfCall halfcall_mode = bicp->bibc.halfcall_mode;
   uint16_t gt_first = 0;
   uint16_t gt_second = 0;
   uint32_t is_haploid_or_0ploid = (gt_value_ct == 1);
   for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-    if (!IsSet(found_bitbuf, sample_idx)) {
+    if (IsSet(invfound_nypbuf, sample_idx * 2)) {
       continue;
     }
     if (gt_value_ct > 1) {
       // no need to look at gt_first in haploid case.
-      // only int8 and int16 supported
-      if (gt_value_type == 1) {
-        gt_first = gt_main[sample_idx * gt_value_ct];
-        gt_second = gt_main[sample_idx * gt_value_ct + 1];
-      } else {
-        memcpy(&gt_first, &(gt_main[2 * sample_idx * gt_value_ct]), 2);
-        memcpy(&gt_second, &(gt_main[2 * (sample_idx * gt_value_ct + 1)]), 2);
-      }
-      // not restricted to {0,1}
-      is_haploid_or_0ploid = gt_second & gt_high_bit;
+      // only int8 supported, since variant is biallelic
+      gt_first = gt_main[sample_idx * gt_value_ct];
+      gt_second = gt_main[sample_idx * gt_value_ct + 1];
+      is_haploid_or_0ploid = gt_second >> 7;
     }
     DosageParseResult dpr = kDosageParseOk;
     int32_t cur_dphase_delta = 0;
@@ -4917,7 +5074,7 @@ BcfParseErr BcfScanBiallelicHds(const BcfImportContext* bicp, const unsigned cha
         return kBcfParseInvalidDosage;
       }
       // if dpr != kDosageParseForceMissing, DS and HDS are missing.
-      if ((dpr != kDosageParseForceMissing) && BcfGtIsPhasedHet(gt_first, gt_second, gt_high_bit, halfcall_mode)) {
+      if ((dpr != kDosageParseForceMissing) && BcfGtIsPhasedHet(gt_first, gt_second, 0x80, halfcall_mode)) {
         *phase_or_dosage_found_ptr = 1;
         return kBcfParseOk;
       }
@@ -4936,7 +5093,7 @@ BcfParseErr BcfScanBiallelicHds(const BcfImportContext* bicp, const unsigned cha
     } else {
       const uint32_t cur_halfdist = BiallelicDosageHalfdist(dosage_int);
       if ((cur_halfdist < dosage_erase_halfdist) ||
-          ((!hds_valid) && BcfGtIsPhasedHet(gt_first, gt_second, gt_high_bit, halfcall_mode))) {
+          ((!hds_valid) && BcfGtIsPhasedHet(gt_first, gt_second, 0x80, halfcall_mode))) {
         *phase_or_dosage_found_ptr = 1;
         return kBcfParseOk;
       }
@@ -4945,44 +5102,1707 @@ BcfParseErr BcfScanBiallelicHds(const BcfImportContext* bicp, const unsigned cha
   return kBcfParseOk;
 }
 
-/*
+void BcfConvertBiallelicHaploidGt(const unsigned char* gt_main, uint32_t sample_ct, uintptr_t* __restrict genovec) {
+  // Haploid, single byte per genotype.
+  //   0    -> 3
+  //   2    -> 0
+  //   4    -> 2
+  //   0x81 -> 3
+  // Other values invalid, but we don't promise exhaustive error-checking, we
+  // just need to (i) not blow up and (ii) try to have consistent behavior
+  // between build types.
+  // single-byte values, subtract 2 with wraparound, MIN(result, 3) works.
+#ifdef __LP64__
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+  genovec[sample_ctl2 - 1] = 0;
+  // overread ok since we perform no error detection
+  const uint32_t vec_ct = DivUp(sample_ct, kBytesPerVec);
+  const VecUc* gt_alias = R_CAST(const VecUc*, gt_main);
+  Vec4thUint* genovec_alias = R_CAST(Vec4thUint*, genovec);
+  const VecUc neg2 = vecuc_set1(0xfe);
+  const VecUc three = vecuc_set1(3);
+  const VecW zero = vecw_setzero();
+  for (uint32_t vidx = 0; vidx != vec_ct; ++vidx) {
+    const VecUc bcf_bytes = vecuc_loadu(&(gt_alias[vidx]));
+    const VecUc bcf_bytes_m2 = bcf_bytes + neg2;
+    VecUc converted_bytes = vecuc_min(bcf_bytes_m2, three);
+    // Now gather bits 0,1,8,9,... via movemask.
+    converted_bytes = vecuc_permute0xd8_if_avx2(converted_bytes);
+    VecW vec_lo = vecw_unpacklo8(R_CAST(VecW, converted_bytes), zero);
+    VecW vec_hi = vecw_unpackhi8(R_CAST(VecW, converted_bytes), zero);
+    vec_lo = vecw_slli(vec_lo, 7) | vecw_slli(vec_lo, 14);
+    vec_hi = vecw_slli(vec_hi, 7) | vecw_slli(vec_hi, 14);
+    const Vec4thUint lo_bits = vecw_movemask(vec_lo);
+    const Vec4thUint hi_bits = vecw_movemask(vec_hi);
+    genovec_alias[vidx] = lo_bits | (hi_bits << kBytesPerVec);
+  }
+  // Zero out the garbage at the end.
+  const uint32_t inv_remainder = (-sample_ct) & (kBytesPerVec - 1);
+  genovec_alias[vec_ct - 1] &= (~S_CAST(Vec4thUint, 0)) >> (2 * inv_remainder);
+#else
+  const unsigned char* gt_iter = gt_main;
+  const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
+  uint32_t loop_len = kBitsPerWordD2;
+  for (uint32_t widx = 0; ; ++widx) {
+    if (widx >= word_ct_m1) {
+      if (widx > word_ct_m1) {
+        break;
+      }
+      loop_len = ModNz(sample_ct, kBitsPerWordD2);
+    }
+    uintptr_t geno_word = 0;
+    // possible todo: benchmark this vs. the forward loop, with and without
+    // sparse-optimization
+    for (uint32_t sample_idx_lowbits = loop_len; sample_idx_lowbits; ) {
+      --sample_idx_lowbits;
+      unsigned char raw_val_m2 = gt_iter[sample_idx_lowbits] - 2;
+      if (raw_val_m2 > 3) {
+        raw_val_m2 = 3;
+      }
+      geno_word |= raw_val_m2;
+      geno_word = geno_word << 2;
+    }
+    genovec[widx] = geno_word;
+    gt_iter = &(gt_iter[kBitsPerWordD2]);
+  }
+#endif
+}
+
+BcfParseErr BcfApplyGqDpFilters(const BcfImportBaseContext* bibcp, const GparseReadBcfMetadata* metap, const unsigned char* record_start, uintptr_t* __restrict genovec) {
+  if ((metap->qual_vec_offsets[0] != UINT32_MAX) || (metap->qual_vec_offsets[1] != UINT32_MAX)) {
+    const uint32_t sample_ct = bibcp->sample_ct;
+    for (uint32_t qual_idx = 0; qual_idx != 2; ++qual_idx) {
+      const uint32_t vec_offset = metap->qual_vec_offsets[qual_idx];
+      if (vec_offset == UINT32_MAX) {
+        continue;
+      }
+      const unsigned char* qual_start = &(record_start[vec_offset * S_CAST(uintptr_t, kBytesPerVec)]);
+      BcfParseErr bcf_parse_err = BcfParseGqDpAligned(qual_start, sample_ct, bibcp->qual_mins[qual_idx], bibcp->qual_maxs[qual_idx], genovec);
+      if (bcf_parse_err != kBcfParseOk) {
+        return bcf_parse_err;
+      }
+    }
+  }
+  return kBcfParseOk;
+}
+
+// GT present, dosage/HDS not present, phase known to be irrelevant.
+BcfParseErr BcfConvertUnphasedBiallelic(const BcfImportBaseContext* bibcp, const GparseReadBcfMetadata* metap, unsigned char* record_start, uintptr_t* __restrict genovec) {
+  unsigned char* gt_type_start = &(record_start[metap->gt_vec_offset * S_CAST(uintptr_t, kBytesPerVec)]);
+  const unsigned char* gt_main = gt_type_start;
+  // this was partially validated in first pass
+  uint32_t value_type;
+  uint32_t value_ct;
+  ScanBcfTypeAligned(&gt_main, &value_type, &value_ct);
+  if (unlikely(value_type != 1)) {
+    return (value_type <= 3)? kBcfParseWideGt : kBcfParseMalformedGeneric;
+  }
+  const uint32_t sample_ct = bibcp->sample_ct;
+  // value_ct guaranteed to be positive
+  if (value_ct == 1) {
+    BcfConvertBiallelicHaploidGt(gt_main, sample_ct, genovec);
+  } else {
+    const unsigned char* biallelic_gt_lookup = bibcp->biallelic_gt_lookup;
+#ifdef USE_SSE42
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+    genovec[sample_ctl2 - 1] = 0;
+#else
+    const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
+    uint32_t loop_len = kBitsPerWordD2;
+#endif
+    if (value_ct == 2) {
+      // Regular diploid.
+      // Possibly phased, we ignore that since the prescan told us no phased
+      // calls are hets.
+      // After right-shifting, the four cases for each byte are 0, 1, 2, and
+      // 0x40.  This adds up to 16 cases for the byte pair, which works nicely
+      // with _mm{256}_shuffle_epi8() parallel-lookup.  Conveniently, all
+      // missing, haploid, and non-error half-call handling logic can be
+      // encoded in the table.
+      // As for erroring out on half-calls, that's handled by setting the
+      // relevant table entries to 4 instead of 0..3.
+#ifdef USE_SSE42
+      const uint32_t vec_ct = DivUp(sample_ct, kInt16PerVec);
+      const uint32_t inv_remainder = (-sample_ct) & (kInt16PerVec - 1);
+      if (inv_remainder) {
+        // Set all past-the-end bytes to 2.  This causes trailing genovec bits
+        // to be zero, and doesn't create a half_call_error_bit2_vec false
+        // positive.
+        // (yes, it's a bit silly to use gt_type_start instead of gt_main
+        // here...)
+        memset(&(gt_type_start[kBytesPerVec + sample_ct * 2]), 2, 2 * inv_remainder);
+      }
+      const VecU16* gt_alias = R_CAST(const VecU16*, gt_main);
+      Vec8thUint* genovec_alias = R_CAST(Vec8thUint*, genovec);
+
+      const VecU16 hibit_mask = vecu16_set1(0x7f7f);
+      const VecU16 three = vecu16_set1(0x303);
+      const VecU16 mask_000f = vecu16_set1(0xf);
+      const VecU16 lookup_vec = vecu16_loadu(biallelic_gt_lookup);
+      VecU16 half_call_error_bit2_vec = vecu16_setzero();
+      for (uint32_t vidx = 0; vidx != vec_ct; ++vidx) {
+        const VecU16 bcf_bytes = vecu16_loadu(&(gt_alias[vidx]));
+        const VecU16 shifted_bytes = vecu16_srli(bcf_bytes, 1) & hibit_mask;
+        const VecU16 capped_bytes = vecu16_min8(shifted_bytes, three);
+        const VecU16 ready_for_lookup = (capped_bytes | vecu16_srli(capped_bytes, 6)) & mask_000f;
+        const VecU16 lookup_result = vecu16_shuffle8(lookup_vec, ready_for_lookup) & mask_000f;
+        half_call_error_bit2_vec |= lookup_result;
+        const VecU16 ready_for_movemask = vecu16_slli(lookup_result, 7) | vecu16_slli(lookup_result, 14);
+        const Vec8thUint geno_bits = vecu16_movemask(ready_for_movemask);
+        genovec_alias[vidx] = geno_bits;
+      }
+      half_call_error_bit2_vec = vecu16_slli(half_call_error_bit2_vec, 5);
+      if (unlikely(vecu16_movemask(half_call_error_bit2_vec))) {
+        return kBcfParseHalfCallError;
+      }
+#else
+      // todo: benchmark explicit vectorization of SSE2; I suspect that, with
+      // no parallel-lookup operation, it would usually be worse than this
+      // simple sparse-optimization.
+      const uint16_t* gt_iter = R_CAST(const uint16_t*, gt_main);
+      uintptr_t half_call_error_bit2 = 0;
+      for (uint32_t widx = 0; ; ++widx) {
+        if (widx >= word_ct_m1) {
+          if (widx > word_ct_m1) {
+            break;
+          }
+          loop_len = ModNz(sample_ct, kBitsPerWordD2);
+        }
+        uintptr_t geno_word = 0;
+        for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
+          const uint16_t phaseless_val = gt_iter[sample_idx_lowbits] & 0xfefe;
+          if (phaseless_val == 0x202) {
+            continue;
+          }
+          unsigned char first_allele_idx_p1 = phaseless_val >> 1;
+          unsigned char second_allele_idx_p1 = phaseless_val >> 9;
+          if (first_allele_idx_p1 > 3) {
+            first_allele_idx_p1 = 3;
+          }
+          if (second_allele_idx_p1 > 3) {
+            second_allele_idx_p1 = 3;
+          }
+          const uintptr_t result = biallelic_gt_lookup[first_allele_idx_p1 + second_allele_idx_p1 * 4];
+          half_call_error_bit2 |= result;
+          geno_word |= result << (2 * sample_idx_lowbits);
+        }
+        genovec[widx] = geno_word;
+        gt_iter = &(gt_iter[kBitsPerWordD2]);
+      }
+      if (unlikely(half_call_error_bit2 & 4)) {
+        return kBcfParseHalfCallError;
+      }
+#endif
+    } else {
+      // triploid, etc.
+#ifdef USE_SSE42
+      const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
+      uint32_t loop_len = kBitsPerWordD2;
+#endif
+      const unsigned char* gt_iter = gt_main;
+      uintptr_t half_call_error_bit2 = 0;
+      for (uint32_t widx = 0; ; ++widx) {
+        if (widx >= word_ct_m1) {
+          if (widx > word_ct_m1) {
+            break;
+          }
+          loop_len = ModNz(sample_ct, kBitsPerWordD2);
+        }
+        uintptr_t geno_word = 0;
+        for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
+          // may overread 1 byte
+          uint32_t phaseless_val;
+          memcpy(&phaseless_val, gt_iter, 4);
+          gt_iter = &(gt_iter[value_ct]);
+          phaseless_val &= 0xfffefe;
+          if (phaseless_val == 0x810202) {
+            continue;
+          }
+          uintptr_t result;
+          if ((phaseless_val & 0x810000) != 0x810000) {
+            // triploid+ (or malformed)
+            result = 3;
+          } else {
+            unsigned char first_allele_idx_p1 = phaseless_val >> 1;
+            unsigned char second_allele_idx_p1 = (phaseless_val >> 9) & 0x7f;
+            if (first_allele_idx_p1 > 3) {
+              first_allele_idx_p1 = 3;
+            }
+            if (second_allele_idx_p1 > 3) {
+              second_allele_idx_p1 = 3;
+            }
+            result = biallelic_gt_lookup[first_allele_idx_p1 + second_allele_idx_p1 * 4];
+            half_call_error_bit2 |= result;
+          }
+          geno_word |= result << (2 * sample_idx_lowbits);
+        }
+        genovec[widx] = geno_word;
+      }
+      if (unlikely(half_call_error_bit2 & 4)) {
+        return kBcfParseHalfCallError;
+      }
+    }
+  }
+  return BcfApplyGqDpFilters(bibcp, metap, record_start, genovec);
+}
+
+static_assert(sizeof(AlleleCode) == 1, "BcfConvertMultiallelicHaploidInt8Gt() needs to be updated.");
+// genovec assumed to be initialized by BcfApplyGqDpFilters()
+void BcfConvertMultiallelicHaploidInt8Gt(const unsigned char* gt_main, uint32_t sample_ct, uint32_t allele_ct, uintptr_t* __restrict genovec, Halfword* __restrict patch_10_set_alias, AlleleCode** patch_10_iterp) {
+  const unsigned char* gt_iter = gt_main;
+  const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
+  DoubleAlleleCode* patch_10_vals_alias = R_CAST(DoubleAlleleCode*, *patch_10_iterp);
+  DoubleAlleleCode* patch_10_iter = patch_10_vals_alias;
+  uint32_t loop_len = kBitsPerWordD2;
+  for (uint32_t widx = 0; ; ++widx) {
+    if (widx >= word_ct_m1) {
+      if (widx > word_ct_m1) {
+        break;
+      }
+      loop_len = ModNz(sample_ct, kBitsPerWordD2);
+    }
+    const uintptr_t gq_dp_fail_word = genovec[widx];
+    uintptr_t geno_word = 0;
+    uint32_t patch_10_set_hw = 0;
+    for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
+      const unsigned char raw_val_m2 = gt_iter[sample_idx_lowbits] - 2;
+      if ((!raw_val_m2) || ((gq_dp_fail_word >> (2 * sample_idx_lowbits)) & 1)) {
+        continue;
+      }
+      const uint32_t allele_idx = raw_val_m2 >> 1;
+      uintptr_t result;
+      if (allele_idx >= allele_ct) {
+        // missing and END_OF_VECTOR wind up here
+        result = 3;
+      } else {
+        result = 2;
+        // note that allele_idx == 0 is possible with malformed raw_val == 3,
+        // we don't handle it "correctly" but we do need to avoid blowing up
+        if (allele_idx >= 2) {
+          patch_10_set_hw |= 1U << sample_idx_lowbits;
+          *patch_10_iter++ = allele_idx * 0x101;
+        }
+      }
+      geno_word |= result << (2 * sample_idx_lowbits);
+    }
+    genovec[widx] = geno_word | gq_dp_fail_word;
+    patch_10_set_alias[widx] = patch_10_set_hw;
+    gt_iter = &(gt_iter[kBitsPerWordD2]);
+  }
+  *patch_10_iterp = R_CAST(AlleleCode*, patch_10_iter);
+}
+
+static_assert(sizeof(AlleleCode) == 1, "BcfConvertMultiallelicHaploidInt8Gt() needs to be updated.");
+// genovec assumed to be initialized by BcfApplyGqDpFilters()
+void BcfConvertMultiallelicHaploidInt16Gt(const unsigned char* gt_main, uint32_t sample_ct, uint32_t allele_ct, uintptr_t* __restrict genovec, Halfword* __restrict patch_10_set_alias, AlleleCode** patch_10_iterp) {
+  const uint16_t* gt_iter = R_CAST(const uint16_t*, gt_main);
+  const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
+  DoubleAlleleCode* patch_10_vals_alias = R_CAST(DoubleAlleleCode*, *patch_10_iterp);
+  DoubleAlleleCode* patch_10_iter = patch_10_vals_alias;
+  uint32_t loop_len = kBitsPerWordD2;
+  for (uint32_t widx = 0; ; ++widx) {
+    if (widx >= word_ct_m1) {
+      if (widx > word_ct_m1) {
+        break;
+      }
+      loop_len = ModNz(sample_ct, kBitsPerWordD2);
+    }
+    const uintptr_t gq_dp_fail_word = genovec[widx];
+    uintptr_t geno_word = 0;
+    uint32_t patch_10_set_hw = 0;
+    for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
+      const uint16_t raw_val_m2 = gt_iter[sample_idx_lowbits] - 2;
+      if ((!raw_val_m2) || ((gq_dp_fail_word >> (2 * sample_idx_lowbits)) & 1)) {
+        continue;
+      }
+      const uint32_t allele_idx = raw_val_m2 >> 1;
+      uintptr_t result;
+      if (allele_idx >= allele_ct) {
+        result = 3;
+      } else {
+        result = 2;
+        if (allele_idx >= 2) {
+          patch_10_set_hw |= 1U << sample_idx_lowbits;
+          *patch_10_iter++ = allele_idx * 0x101;
+        }
+      }
+      geno_word |= result << (2 * sample_idx_lowbits);
+    }
+    genovec[widx] = geno_word | gq_dp_fail_word;
+    patch_10_set_alias[widx] = patch_10_set_hw;
+    gt_iter = &(gt_iter[kBitsPerWordD2]);
+  }
+  *patch_10_iterp = R_CAST(AlleleCode*, patch_10_iter);
+}
+
+BcfParseErr BcfConvertUnphasedMultiallelic(const BcfImportBaseContext* bibcp, const GparseReadBcfMetadata* metap, const unsigned char* record_start, uint32_t allele_ct, uint32_t* __restrict patch_01_ctp, uint32_t* __restrict patch_10_ctp, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals) {
+  const uint32_t sample_ct = bibcp->sample_ct;
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+  ZeroWArr(sample_ctl2, genovec);
+  BcfParseErr bcf_parse_err = BcfApplyGqDpFilters(bibcp, metap, record_start, genovec);
+  if (unlikely(bcf_parse_err != kBcfParseOk)) {
+    return bcf_parse_err;
+  }
+  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
+  patch_01_set[sample_ctl - 1] = 0;
+  patch_10_set[sample_ctl - 1] = 0;
+  Halfword* patch_01_set_alias = R_CAST(Halfword*, patch_01_set);
+  Halfword* patch_10_set_alias = R_CAST(Halfword*, patch_10_set);
+  const VcfHalfCall halfcall_mode = bibcp->halfcall_mode;
+  AlleleCode* patch_01_iter = patch_01_vals;
+  AlleleCode* patch_10_iter = patch_10_vals;
+  uint32_t loop_len = kBitsPerWordD2;
+  const unsigned char* gt_main = &(record_start[metap->gt_vec_offset * S_CAST(uintptr_t, kBytesPerVec)]);
+  uint32_t value_type;
+  uint32_t value_ct;
+  ScanBcfTypeAligned(&gt_main, &value_type, &value_ct);
+  if (value_type == 1) {
+    // int8
+    if (allele_ct >= 64) {
+      // don't misinterpret END_OF_VECTOR
+      allele_ct = 63;
+    }
+    if (value_ct == 1) {
+      ZeroWArr(sample_ctl, patch_01_set);
+      BcfConvertMultiallelicHaploidInt8Gt(gt_main, sample_ct, allele_ct, genovec, patch_10_set_alias, &patch_10_iter);
+    } else if (value_ct == 2) {
+      const uint16_t* gt_iter = R_CAST(const uint16_t*, gt_main);
+      for (uint32_t widx = 0; ; ++widx) {
+        if (widx >= word_ct_m1) {
+          if (widx > word_ct_m1) {
+            break;
+          }
+          loop_len = ModNz(sample_ct, kBitsPerWordD2);
+        }
+        const uintptr_t gq_dp_fail_word = genovec[widx];
+        uintptr_t geno_word = 0;
+        uint32_t patch_01_set_hw = 0;
+        uint32_t patch_10_set_hw = 0;
+        for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
+          const uint16_t phaseless_val = gt_iter[sample_idx_lowbits] & 0xfefe;
+          if ((phaseless_val == 0x202) || ((gq_dp_fail_word >> (2 * sample_idx_lowbits)) & 1)) {
+            continue;
+          }
+          const uint16_t shifted_phaseless_val = phaseless_val >> 1;
+          unsigned char first_allele_idx_p1 = shifted_phaseless_val;
+          uintptr_t result;
+          if (first_allele_idx_p1 > allele_ct) {
+            // assume end-of-vector
+            result = 3;
+          } else {
+            unsigned char second_allele_idx_p1 = shifted_phaseless_val >> 8;
+            const uint32_t cur_bit = 1U << sample_idx_lowbits;
+            if (second_allele_idx_p1 > allele_ct) {
+              // haploid
+              if (!first_allele_idx_p1) {
+                result = 3;
+              } else {
+                const unsigned char first_allele_idx = first_allele_idx_p1 - 1;
+                if (first_allele_idx < 2) {
+                  result = first_allele_idx * 2;
+                } else {
+                  result = 2;
+                  patch_10_set_hw |= cur_bit;
+                  *patch_10_iter++ = first_allele_idx;
+                  *patch_10_iter++ = first_allele_idx;
+                }
+              }
+            } else {
+              // diploid
+              if (second_allele_idx_p1 < first_allele_idx_p1) {
+                const unsigned char ucc = first_allele_idx_p1;
+                first_allele_idx_p1 = second_allele_idx_p1;
+                second_allele_idx_p1 = ucc;
+              }
+              if (!first_allele_idx_p1) {
+                // missing or half-call
+                if ((!second_allele_idx_p1) || (halfcall_mode == kVcfHalfCallMissing)) {
+                  result = 3;
+                } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
+                  return kBcfParseHalfCallError;
+                } else {
+                  const unsigned char second_allele_idx = second_allele_idx_p1 - 1;
+                  if (second_allele_idx < 2) {
+                    // kVcfHalfCallHaploid, kVcfHalfCallReference
+                    result = second_allele_idx << halfcall_mode;
+                  } else if (halfcall_mode == kVcfHalfCallReference) {
+                    result = 1;
+                    patch_01_set_hw |= cur_bit;
+                    *patch_01_iter++ = second_allele_idx;
+                  } else {
+                    result = 2;
+                    patch_10_set_hw |= cur_bit;
+                    *patch_10_iter++ = second_allele_idx;
+                    *patch_10_iter++ = second_allele_idx;
+                  }
+                }
+              } else if (first_allele_idx_p1 == 1) {
+                // note that we've handled the second_allele_idx_p1 == 0 and ==
+                // 1 cases earlier
+                result = 1;
+                if (second_allele_idx_p1 > 2) {
+                  patch_01_set_hw |= cur_bit;
+                  *patch_01_iter++ = second_allele_idx_p1 - 1;
+                }
+              } else {
+                result = 2;
+                if (second_allele_idx_p1 > 2) {
+                  patch_10_set_hw |= cur_bit;
+                  *patch_10_iter++ = first_allele_idx_p1 - 1;
+                  *patch_10_iter++ = second_allele_idx_p1 - 1;
+                }
+              }
+            }
+          }
+          geno_word |= result << (2 * sample_idx_lowbits);
+        }
+        genovec[widx] = geno_word | gq_dp_fail_word;
+        patch_01_set_alias[widx] = patch_01_set_hw;
+        patch_10_set_alias[widx] = patch_10_set_hw;
+        gt_iter = &(gt_iter[kBitsPerWordD2]);
+      }
+    } else {
+      const unsigned char* gt_iter = gt_main;
+      for (uint32_t widx = 0; ; ++widx) {
+        if (widx >= word_ct_m1) {
+          if (widx > word_ct_m1) {
+            break;
+          }
+          loop_len = ModNz(sample_ct, kBitsPerWordD2);
+        }
+        const uintptr_t gq_dp_fail_word = genovec[widx];
+        uintptr_t geno_word = 0;
+        uint32_t patch_01_set_hw = 0;
+        uint32_t patch_10_set_hw = 0;
+        for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
+          // may overread 1 byte
+          uint32_t phaseless_val;
+          memcpy(&phaseless_val, gt_iter, 4);
+          gt_iter = &(gt_iter[value_ct]);
+          phaseless_val &= 0xfffefe;
+          if ((phaseless_val == 0x810202) || ((gq_dp_fail_word >> (2 * sample_idx_lowbits)) & 1)) {
+            continue;
+          }
+          uintptr_t result;
+          if ((phaseless_val & 0x810000) != 0x810000) {
+            // triploid+ (or malformed)
+            result = 3;
+          } else {
+            const uint16_t shifted_phaseless_val = (phaseless_val & 0xffff) >> 1;
+            // rest of this is identical to diploid case
+            // todo: try making this a static inline function (didn't start
+            // with that since the function would have 10+ parameters, many of
+            // which may not be touched on a given function call)
+            unsigned char first_allele_idx_p1 = shifted_phaseless_val;
+            if (first_allele_idx_p1 > allele_ct) {
+              // assume end-of-vector
+              result = 3;
+            } else {
+              unsigned char second_allele_idx_p1 = shifted_phaseless_val >> 8;
+              const uint32_t cur_bit = 1U << sample_idx_lowbits;
+              if (second_allele_idx_p1 > allele_ct) {
+                // haploid
+                if (!first_allele_idx_p1) {
+                  result = 3;
+                } else {
+                  const unsigned char first_allele_idx = first_allele_idx_p1 - 1;
+                  if (first_allele_idx < 2) {
+                    result = first_allele_idx * 2;
+                  } else {
+                    result = 2;
+                    patch_10_set_hw |= cur_bit;
+                    *patch_10_iter++ = first_allele_idx;
+                    *patch_10_iter++ = first_allele_idx;
+                  }
+                }
+              } else {
+                // diploid
+                if (second_allele_idx_p1 < first_allele_idx_p1) {
+                  const unsigned char ucc = first_allele_idx_p1;
+                  first_allele_idx_p1 = second_allele_idx_p1;
+                  second_allele_idx_p1 = ucc;
+                }
+                if (!first_allele_idx_p1) {
+                  // missing or half-call
+                  if ((!second_allele_idx_p1) || (halfcall_mode == kVcfHalfCallMissing)) {
+                    result = 3;
+                  } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
+                    return kBcfParseHalfCallError;
+                  } else {
+                    const unsigned char second_allele_idx = second_allele_idx_p1 - 1;
+                    if (second_allele_idx < 2) {
+                      // kVcfHalfCallHaploid, kVcfHalfCallReference
+                      result = second_allele_idx << halfcall_mode;
+                    } else if (halfcall_mode == kVcfHalfCallReference) {
+                      result = 1;
+                      patch_01_set_hw |= cur_bit;
+                      *patch_01_iter++ = second_allele_idx;
+                    } else {
+                      result = 2;
+                      patch_10_set_hw |= cur_bit;
+                      *patch_10_iter++ = second_allele_idx;
+                      *patch_10_iter++ = second_allele_idx;
+                    }
+                  }
+                } else if (first_allele_idx_p1 == 1) {
+                  result = 1;
+                  if (second_allele_idx_p1 > 2) {
+                    patch_01_set_hw |= cur_bit;
+                    *patch_01_iter++ = second_allele_idx_p1 - 1;
+                  }
+                } else {
+                  result = 2;
+                  if (second_allele_idx_p1 > 2) {
+                    patch_10_set_hw |= cur_bit;
+                    *patch_10_iter++ = first_allele_idx_p1 - 1;
+                    *patch_10_iter++ = second_allele_idx_p1 - 1;
+                  }
+                }
+              }
+            }
+          }
+          geno_word |= result << (2 * sample_idx_lowbits);
+        }
+        genovec[widx] = geno_word | gq_dp_fail_word;
+        patch_01_set_alias[widx] = patch_01_set_hw;
+        patch_10_set_alias[widx] = patch_10_set_hw;
+      }
+    }
+  } else if (likely(value_type == 2)) {
+    // int16
+    if (value_ct == 1) {
+      BcfConvertMultiallelicHaploidInt16Gt(gt_main, sample_ct, allele_ct, genovec, patch_10_set_alias, &patch_10_iter);
+    } else if (value_ct == 2) {
+      const uint32_t* gt_iter = R_CAST(const uint32_t*, gt_main);
+      for (uint32_t widx = 0; ; ++widx) {
+        if (widx >= word_ct_m1) {
+          if (widx > word_ct_m1) {
+            break;
+          }
+          loop_len = ModNz(sample_ct, kBitsPerWordD2);
+        }
+        const uintptr_t gq_dp_fail_word = genovec[widx];
+        uintptr_t geno_word = 0;
+        uint32_t patch_01_set_hw = 0;
+        uint32_t patch_10_set_hw = 0;
+        for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
+          const uint32_t phaseless_val = gt_iter[sample_idx_lowbits] & 0xfffefffeU;
+          if ((phaseless_val == 0x20002) || ((gq_dp_fail_word >> (2 * sample_idx_lowbits)) & 1)) {
+            continue;
+          }
+          const uint32_t shifted_phaseless_val = phaseless_val >> 1;
+          uint16_t first_allele_idx_p1 = shifted_phaseless_val;
+          uintptr_t result;
+          if (first_allele_idx_p1 > allele_ct) {
+            // assume end-of-vector
+            result = 3;
+          } else {
+            uint16_t second_allele_idx_p1 = shifted_phaseless_val >> 16;
+            const uint32_t cur_bit = 1U << sample_idx_lowbits;
+            if (second_allele_idx_p1 > allele_ct) {
+              // haploid
+              if (!first_allele_idx_p1) {
+                result = 3;
+              } else {
+                const uint16_t first_allele_idx = first_allele_idx_p1 - 1;
+                if (first_allele_idx < 2) {
+                  result = first_allele_idx * 2;
+                } else {
+                  result = 2;
+                  patch_10_set_hw |= cur_bit;
+                  *patch_10_iter++ = first_allele_idx;
+                  *patch_10_iter++ = first_allele_idx;
+                }
+              }
+            } else {
+              // diploid
+              if (second_allele_idx_p1 < first_allele_idx_p1) {
+                const uint16_t usii = first_allele_idx_p1;
+                first_allele_idx_p1 = second_allele_idx_p1;
+                second_allele_idx_p1 = usii;
+              }
+              if (!first_allele_idx_p1) {
+                // missing or half-call
+                if ((!second_allele_idx_p1) || (halfcall_mode == kVcfHalfCallMissing)) {
+                  result = 3;
+                } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
+                  return kBcfParseHalfCallError;
+                } else {
+                  const uint16_t second_allele_idx = second_allele_idx_p1 - 1;
+                  if (second_allele_idx < 2) {
+                    // kVcfHalfCallHaploid, kVcfHalfCallReference
+                    result = second_allele_idx << halfcall_mode;
+                  } else if (halfcall_mode == kVcfHalfCallReference) {
+                    result = 1;
+                    patch_01_set_hw |= cur_bit;
+                    *patch_01_iter++ = second_allele_idx;
+                  } else {
+                    result = 2;
+                    patch_10_set_hw |= cur_bit;
+                    *patch_10_iter++ = second_allele_idx;
+                    *patch_10_iter++ = second_allele_idx;
+                  }
+                }
+              } else if (first_allele_idx_p1 == 1) {
+                // note that we've handled the second_allele_idx_p1 == 0 and ==
+                // 1 cases earlier
+                result = 1;
+                if (second_allele_idx_p1 > 2) {
+                  patch_01_set_hw |= cur_bit;
+                  *patch_01_iter++ = second_allele_idx_p1 - 1;
+                }
+              } else {
+                result = 2;
+                if (second_allele_idx_p1 > 2) {
+                  patch_10_set_hw |= cur_bit;
+                  *patch_10_iter++ = first_allele_idx_p1 - 1;
+                  *patch_10_iter++ = second_allele_idx_p1 - 1;
+                }
+              }
+            }
+          }
+          geno_word |= result << (2 * sample_idx_lowbits);
+        }
+        genovec[widx] = geno_word | gq_dp_fail_word;
+        patch_01_set_alias[widx] = patch_01_set_hw;
+        patch_10_set_alias[widx] = patch_10_set_hw;
+        gt_iter = &(gt_iter[kBitsPerWordD2]);
+      }
+    } else {
+      const uint16_t* gt_iter = R_CAST(const uint16_t*, gt_main);
+      for (uint32_t widx = 0; ; ++widx) {
+        if (widx >= word_ct_m1) {
+          if (widx > word_ct_m1) {
+            break;
+          }
+          loop_len = ModNz(sample_ct, kBitsPerWordD2);
+        }
+        const uintptr_t gq_dp_fail_word = genovec[widx];
+        uintptr_t geno_word = 0;
+        uint32_t patch_01_set_hw = 0;
+        uint32_t patch_10_set_hw = 0;
+        for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
+          // may overread 2 bytes
+          uint64_t phaseless_val;
+          memcpy(&phaseless_val, gt_iter, 8);
+          gt_iter = &(gt_iter[value_ct]);
+          phaseless_val &= 0xfffffffefffeLLU;
+          if ((phaseless_val == 0x800100020002LLU) || ((gq_dp_fail_word >> (2 * sample_idx_lowbits)) & 1)) {
+            continue;
+          }
+          uintptr_t result;
+          if ((phaseless_val & 0x800100000000LLU) != 0x800100000000LLU) {
+            // triploid+ (or malformed)
+            result = 3;
+          } else {
+            const uint32_t shifted_phaseless_val = S_CAST(uint32_t, phaseless_val) >> 1;
+            // rest of this is identical to diploid case
+            uint16_t first_allele_idx_p1 = shifted_phaseless_val;
+            if (first_allele_idx_p1 > allele_ct) {
+              // assume end-of-vector
+              result = 3;
+            } else {
+              uint16_t second_allele_idx_p1 = shifted_phaseless_val >> 16;
+              const uint32_t cur_bit = 1U << sample_idx_lowbits;
+              if (second_allele_idx_p1 > allele_ct) {
+                // haploid
+                if (!first_allele_idx_p1) {
+                  result = 3;
+                } else {
+                  const uint16_t first_allele_idx = first_allele_idx_p1 - 1;
+                  if (first_allele_idx < 2) {
+                    result = first_allele_idx * 2;
+                  } else {
+                    result = 2;
+                    patch_10_set_hw |= cur_bit;
+                    *patch_10_iter++ = first_allele_idx;
+                    *patch_10_iter++ = first_allele_idx;
+                  }
+                }
+              } else {
+                // diploid
+                if (second_allele_idx_p1 < first_allele_idx_p1) {
+                  const uint16_t usii = first_allele_idx_p1;
+                  first_allele_idx_p1 = second_allele_idx_p1;
+                  second_allele_idx_p1 = usii;
+                }
+                if (!first_allele_idx_p1) {
+                  // missing or half-call
+                  if ((!second_allele_idx_p1) || (halfcall_mode == kVcfHalfCallMissing)) {
+                    result = 3;
+                  } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
+                    return kBcfParseHalfCallError;
+                  } else {
+                    const uint16_t second_allele_idx = second_allele_idx_p1 - 1;
+                    if (second_allele_idx < 2) {
+                      // kVcfHalfCallHaploid, kVcfHalfCallReference
+                      result = second_allele_idx << halfcall_mode;
+                    } else if (halfcall_mode == kVcfHalfCallReference) {
+                      result = 1;
+                      patch_01_set_hw |= cur_bit;
+                      *patch_01_iter++ = second_allele_idx;
+                    } else {
+                      result = 2;
+                      patch_10_set_hw |= cur_bit;
+                      *patch_10_iter++ = second_allele_idx;
+                      *patch_10_iter++ = second_allele_idx;
+                    }
+                  }
+                } else if (first_allele_idx_p1 == 1) {
+                  result = 1;
+                  if (second_allele_idx_p1 > 2) {
+                    patch_01_set_hw |= cur_bit;
+                    *patch_01_iter++ = second_allele_idx_p1 - 1;
+                  }
+                } else {
+                  result = 2;
+                  if (second_allele_idx_p1 > 2) {
+                    patch_10_set_hw |= cur_bit;
+                    *patch_10_iter++ = first_allele_idx_p1 - 1;
+                    *patch_10_iter++ = second_allele_idx_p1 - 1;
+                  }
+                }
+              }
+            }
+          }
+          geno_word |= result << (2 * sample_idx_lowbits);
+        }
+        genovec[widx] = geno_word | gq_dp_fail_word;
+        patch_01_set_alias[widx] = patch_01_set_hw;
+        patch_10_set_alias[widx] = patch_10_set_hw;
+      }
+    }
+  } else {
+    return (value_type == 3)? kBcfParseWideGt : kBcfParseMalformedGeneric;
+  }
+  *patch_01_ctp = patch_01_iter - patch_01_vals;
+  *patch_10_ctp = S_CAST(uintptr_t, patch_10_iter - patch_10_vals) / 2;
+  return kBcfParseOk;
+}
+
+// GT present, phase matters, dosage/HDS not present.
+BcfParseErr BcfConvertPhasedBiallelic(const BcfImportBaseContext* bibcp, const GparseReadBcfMetadata* metap, unsigned char* record_start, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo) {
+  unsigned char* gt_type_start = &(record_start[metap->gt_vec_offset * S_CAST(uintptr_t, kBytesPerVec)]);
+  const unsigned char* gt_main = gt_type_start;
+  // this was partially validated in first pass
+  uint32_t value_type;
+  uint32_t value_ct;
+  ScanBcfTypeAligned(&gt_main, &value_type, &value_ct);
+  if (unlikely(value_type != 1)) {
+    return (value_type <= 3)? kBcfParseWideGt : kBcfParseMalformedGeneric;
+  }
+  const uint32_t sample_ct = bibcp->sample_ct;
+  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  if (value_ct == 1) {
+    ZeroWArr(sample_ctl, phasepresent);
+    BcfConvertBiallelicHaploidGt(gt_main, sample_ct, genovec);
+  } else {
+    phasepresent[sample_ctl - 1] = 0;
+    phaseinfo[sample_ctl - 1] = 0;
+    const unsigned char* biallelic_gt_lookup = bibcp->biallelic_gt_lookup;
+#ifdef USE_SSE42
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+    genovec[sample_ctl2 - 1] = 0;
+#else
+    const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
+    uint32_t loop_len = kBitsPerWordD2;
+#endif
+    if (value_ct == 2) {
+      // Regular diploid.
+      // Additional requirements beyond unphased case:
+      // - Extract original bit 8 (low bit of second genotype value).  No need
+      //   to do anything else (verify non-END_OF_VECTOR or het status) with
+      //   it, here, that's taken care of after the GQ/DP filter.
+      // - Extract original bit 9 (since the variant is biallelic, this bit
+      //   should only be set when the second genotype value is 0, i.e. if the
+      //   genotype is a phased het, it's 1|0).
+#ifdef USE_SSE42
+      const uint32_t vec_ct = DivUp(sample_ct, kInt16PerVec);
+      const uint32_t inv_remainder = (-sample_ct) & (kInt16PerVec - 1);
+      if (inv_remainder) {
+        // Set all past-the-end bytes to 2.  This causes trailing genovec and
+        // phasepresent bits to be zero, and doesn't create a
+        // half_call_error_bit2_vec false positive.
+        memset(&(gt_type_start[kBytesPerVec + sample_ct * 2]), 2, 2 * inv_remainder);
+      }
+      const VecU16* gt_alias = R_CAST(const VecU16*, gt_main);
+      Vec8thUint* genovec_alias = R_CAST(Vec8thUint*, genovec);
+      Vec16thUint* phasepresent_alias = R_CAST(Vec16thUint*, phasepresent);
+      Vec16thUint* phaseinfo_alias = R_CAST(Vec16thUint*, phaseinfo);
+
+      const VecU16 hibit_mask = vecu16_set1(0x7f7f);
+      const VecU16 three = vecu16_set1(0x303);
+      const VecU16 mask_000f = vecu16_set1(0xf);
+#  ifndef USE_AVX2
+      const VecU16 gather_even = vecu16_setr8(0, 2, 4, 6, 8, 10, 12, 14,
+                                              -1, -1, -1, -1, -1, -1, -1, -1);
+#  endif
+      const VecU16 lookup_vec = vecu16_loadu(biallelic_gt_lookup);
+      VecU16 half_call_error_bit2_vec = vecu16_setzero();
+      for (uint32_t vidx = 0; vidx != vec_ct; ++vidx) {
+        const VecU16 bcf_bytes = vecu16_loadu(&(gt_alias[vidx]));
+        const VecU16 shifted_unmasked_bytes = vecu16_srli(bcf_bytes, 1);
+        const VecU16 bit9s_at_bit7 = vecu16_srli(bcf_bytes, 2);
+#  ifdef USE_AVX2
+        const Vec16thUint cur_phasepresent = _pext_u32(vecu16_movemask(shifted_unmasked_bytes), 0x55555555);
+        const Vec16thUint cur_phaseinfo = _pext_u32(vecu16_movemask(bit9s_at_bit7), 0x55555555);
+#  else
+        const VecU16 phasepresent_vec = vecu16_shuffle8(shifted_unmasked_bytes, gather_even);
+        const VecU16 phaseinfo_vec = vecu16_shuffle8(bit9s_at_bit7, gather_even);
+        const Vec16thUint cur_phasepresent = vecu16_movemask(phasepresent_vec);
+        const Vec16thUint cur_phaseinfo = vecu16_movemask(phaseinfo_vec);
+#  endif
+        phasepresent_alias[vidx] = cur_phasepresent;
+        phaseinfo_alias[vidx] = cur_phaseinfo;
+
+        const VecU16 shifted_bytes = shifted_unmasked_bytes & hibit_mask;
+        const VecU16 capped_bytes = vecu16_min8(shifted_bytes, three);
+        const VecU16 ready_for_lookup = (capped_bytes | vecu16_srli(capped_bytes, 6)) & mask_000f;
+        const VecU16 lookup_result = vecu16_shuffle8(lookup_vec, ready_for_lookup) & mask_000f;
+        half_call_error_bit2_vec |= lookup_result;
+        const VecU16 ready_for_movemask = vecu16_slli(lookup_result, 7) | vecu16_slli(lookup_result, 14);
+        const Vec8thUint geno_bits = vecu16_movemask(ready_for_movemask);
+        genovec_alias[vidx] = geno_bits;
+      }
+      half_call_error_bit2_vec = vecu16_slli(half_call_error_bit2_vec, 5);
+      if (unlikely(vecu16_movemask(half_call_error_bit2_vec))) {
+        return kBcfParseHalfCallError;
+      }
+#else
+      // todo: benchmark explicit vectorization of SSE2
+      const uint16_t* gt_iter = R_CAST(const uint16_t*, gt_main);
+      Halfword* phasepresent_alias = R_CAST(Halfword*, phasepresent);
+      Halfword* phaseinfo_alias = R_CAST(Halfword*, phaseinfo);
+      uintptr_t half_call_error_bit2 = 0;
+      for (uint32_t widx = 0; ; ++widx) {
+        if (widx >= word_ct_m1) {
+          if (widx > word_ct_m1) {
+            break;
+          }
+          loop_len = ModNz(sample_ct, kBitsPerWordD2);
+        }
+        uintptr_t geno_word = 0;
+        uintptr_t phasepresent_hw_shifted = 0;
+        Halfword phaseinfo_hw = 0;
+        for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
+          const uintptr_t raw_val = gt_iter[sample_idx_lowbits];
+          if ((raw_val & 0xfefe) == 0x202) {
+            continue;
+          }
+          const uintptr_t bit_8 = raw_val & 0x100;
+          phasepresent_hw_shifted |= bit_8 << sample_idx_lowbits;
+          unsigned char second_allele_idx_p1 = raw_val >> 9;
+          phaseinfo_hw |= (second_allele_idx_p1 & 1) << sample_idx_lowbits;
+          unsigned char first_allele_idx_p1 = (raw_val ^ bit_8) >> 1;
+          if (first_allele_idx_p1 > 3) {
+            first_allele_idx_p1 = 3;
+          }
+          if (second_allele_idx_p1 > 3) {
+            second_allele_idx_p1 = 3;
+          }
+          const uintptr_t result = biallelic_gt_lookup[first_allele_idx_p1 + second_allele_idx_p1 * 4];
+          half_call_error_bit2 |= result;
+          geno_word |= result << (2 * sample_idx_lowbits);
+        }
+        genovec[widx] = geno_word;
+        phasepresent_alias[widx] = phasepresent_hw_shifted >> 8;
+        phaseinfo_alias[widx] = phaseinfo_hw;
+        gt_iter = &(gt_iter[kBitsPerWordD2]);
+      }
+      if (unlikely(half_call_error_bit2 & 4)) {
+        return kBcfParseHalfCallError;
+      }
+#endif
+    } else {
+      // triploid, etc.
+      Halfword* phasepresent_alias = R_CAST(Halfword*, phasepresent);
+      Halfword* phaseinfo_alias = R_CAST(Halfword*, phaseinfo);
+#ifdef USE_SSE42
+      const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
+      uint32_t loop_len = kBitsPerWordD2;
+#endif
+      const unsigned char* gt_iter = gt_main;
+      uintptr_t half_call_error_bit2 = 0;
+      for (uint32_t widx = 0; ; ++widx) {
+        if (widx >= word_ct_m1) {
+          if (widx > word_ct_m1) {
+            break;
+          }
+          loop_len = ModNz(sample_ct, kBitsPerWordD2);
+        }
+        uintptr_t geno_word = 0;
+        uintptr_t phasepresent_hw_shifted = 0;
+        Halfword phaseinfo_hw = 0;
+        for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
+          // may overread 1 byte
+          uint32_t raw_val;
+          memcpy(&raw_val, gt_iter, 4);
+          raw_val &= 0xffffff;
+          gt_iter = &(gt_iter[value_ct]);
+          if ((raw_val & 0xfffefe) == 0x810202) {
+            continue;
+          }
+          uintptr_t result;
+          if ((raw_val & 0x810000) != 0x810000) {
+            // triploid (or malformed)
+            result = 3;
+          } else {
+            const uintptr_t bit_8 = raw_val & 0x100;
+            phasepresent_hw_shifted |= bit_8 << sample_idx_lowbits;
+            unsigned char second_allele_idx_p1 = (raw_val >> 9) & 0x7f;
+            phaseinfo_hw |= (second_allele_idx_p1 & 1) << sample_idx_lowbits;
+            unsigned char first_allele_idx_p1 = (raw_val ^ bit_8) >> 1;
+            if (first_allele_idx_p1 > 3) {
+              first_allele_idx_p1 = 3;
+            }
+            if (second_allele_idx_p1 > 3) {
+              second_allele_idx_p1 = 3;
+            }
+            result = biallelic_gt_lookup[first_allele_idx_p1 + second_allele_idx_p1 * 4];
+            half_call_error_bit2 |= result;
+          }
+          geno_word |= result << (2 * sample_idx_lowbits);
+        }
+        genovec[widx] = geno_word;
+        phasepresent_alias[widx] = phasepresent_hw_shifted >> 8;
+        phaseinfo_alias[widx] = phaseinfo_hw;
+      }
+      if (unlikely(half_call_error_bit2 & 4)) {
+        return kBcfParseHalfCallError;
+      }
+    }
+  }
+  BcfParseErr bcf_parse_err = BcfApplyGqDpFilters(bibcp, metap, record_start, genovec);
+  if (unlikely(bcf_parse_err != kBcfParseOk)) {
+    return bcf_parse_err;
+  }
+  if (value_ct != 1) {
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+    Halfword* phasepresent_alias = R_CAST(Halfword*, phasepresent);
+    // mask out all phasepresent bits which don't correspond to hets.
+    for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
+      phasepresent_alias[widx] &= Pack01ToHalfword(genovec[widx]);
+    }
+  }
+  return kBcfParseOk;
+}
+
+BcfParseErr BcfConvertPhasedMultiallelic(const BcfImportBaseContext* bibcp, const GparseReadBcfMetadata* metap, unsigned char* record_start, uint32_t allele_ct, uint32_t* __restrict patch_01_ctp, uint32_t* __restrict patch_10_ctp, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo) {
+  // yes, there's lots of duplication with BcfConvertUnphasedMultiallelic...
+  const uint32_t sample_ct = bibcp->sample_ct;
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+  ZeroWArr(sample_ctl2, genovec);
+  BcfParseErr bcf_parse_err = BcfApplyGqDpFilters(bibcp, metap, record_start, genovec);
+  if (unlikely(bcf_parse_err != kBcfParseOk)) {
+    return bcf_parse_err;
+  }
+  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
+  patch_01_set[sample_ctl - 1] = 0;
+  patch_10_set[sample_ctl - 1] = 0;
+  Halfword* patch_01_set_alias = R_CAST(Halfword*, patch_01_set);
+  Halfword* patch_10_set_alias = R_CAST(Halfword*, patch_10_set);
+  phasepresent[sample_ctl - 1] = 0;
+  Halfword* phasepresent_alias = R_CAST(Halfword*, phasepresent);
+  Halfword* phaseinfo_alias = R_CAST(Halfword*, phaseinfo);
+  const VcfHalfCall halfcall_mode = bibcp->halfcall_mode;
+  AlleleCode* patch_01_iter = patch_01_vals;
+  AlleleCode* patch_10_iter = patch_10_vals;
+  uint32_t loop_len = kBitsPerWordD2;
+  const unsigned char* gt_main = &(record_start[metap->gt_vec_offset * S_CAST(uintptr_t, kBytesPerVec)]);
+  uint32_t value_type;
+  uint32_t value_ct;
+  ScanBcfTypeAligned(&gt_main, &value_type, &value_ct);
+  if (value_type == 1) {
+    // int8
+    if (allele_ct >= 64) {
+      // don't misinterpret END_OF_VECTOR
+      allele_ct = 63;
+    }
+    if (value_ct == 1) {
+      ZeroWArr(sample_ctl, patch_01_set);
+      ZeroWArr(sample_ctl, phasepresent);
+      // phaseinfo doesn't matter
+      BcfConvertMultiallelicHaploidInt8Gt(gt_main, sample_ct, allele_ct, genovec, patch_10_set_alias, &patch_10_iter);
+    } else if (value_ct == 2) {
+      const uint16_t* gt_iter = R_CAST(const uint16_t*, gt_main);
+      for (uint32_t widx = 0; ; ++widx) {
+        if (widx >= word_ct_m1) {
+          if (widx > word_ct_m1) {
+            break;
+          }
+          loop_len = ModNz(sample_ct, kBitsPerWordD2);
+        }
+        const uintptr_t gq_dp_fail_word = genovec[widx];
+        uintptr_t geno_word = 0;
+        uint32_t patch_01_set_hw = 0;
+        uint32_t patch_10_set_hw = 0;
+        uint32_t phasepresent_hw = 0;
+        uint32_t phaseinfo_hw = 0;
+        for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
+          const uint16_t raw_val = gt_iter[sample_idx_lowbits];
+          const uint16_t phaseless_val = raw_val & 0xfefe;
+          if ((phaseless_val == 0x202) || ((gq_dp_fail_word >> (2 * sample_idx_lowbits)) & 1)) {
+            continue;
+          }
+          const uint16_t shifted_phaseless_val = phaseless_val >> 1;
+          unsigned char first_allele_idx_p1 = shifted_phaseless_val;
+          uintptr_t result;
+          if (first_allele_idx_p1 > allele_ct) {
+            // assume end-of-vector
+            result = 3;
+          } else {
+            unsigned char second_allele_idx_p1 = shifted_phaseless_val >> 8;
+            const uint32_t cur_bit = 1U << sample_idx_lowbits;
+            if (second_allele_idx_p1 > allele_ct) {
+              // haploid
+              if (!first_allele_idx_p1) {
+                result = 3;
+              } else {
+                const unsigned char first_allele_idx = first_allele_idx_p1 - 1;
+                if (first_allele_idx < 2) {
+                  result = first_allele_idx * 2;
+                } else {
+                  result = 2;
+                  patch_10_set_hw |= cur_bit;
+                  *patch_10_iter++ = first_allele_idx;
+                  *patch_10_iter++ = first_allele_idx;
+                }
+              }
+            } else {
+              // diploid
+              if (second_allele_idx_p1 < first_allele_idx_p1) {
+                const unsigned char ucc = first_allele_idx_p1;
+                first_allele_idx_p1 = second_allele_idx_p1;
+                second_allele_idx_p1 = ucc;
+                phaseinfo_hw |= cur_bit;
+              }
+              if (!first_allele_idx_p1) {
+                // missing or half-call
+                if ((!second_allele_idx_p1) || (halfcall_mode == kVcfHalfCallMissing)) {
+                  result = 3;
+                } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
+                  return kBcfParseHalfCallError;
+                } else {
+                  const unsigned char second_allele_idx = second_allele_idx_p1 - 1;
+                  if (second_allele_idx < 2) {
+                    // kVcfHalfCallHaploid, kVcfHalfCallReference
+                    result = second_allele_idx << halfcall_mode;
+                  } else if (halfcall_mode == kVcfHalfCallReference) {
+                    result = 1;
+                    patch_01_set_hw |= cur_bit;
+                    *patch_01_iter++ = second_allele_idx;
+                  } else {
+                    result = 2;
+                    patch_10_set_hw |= cur_bit;
+                    *patch_10_iter++ = second_allele_idx;
+                    *patch_10_iter++ = second_allele_idx;
+                  }
+                  if ((raw_val & 0x100) && (result == 1)) {
+                    phasepresent_hw |= cur_bit;
+                  }
+                }
+              } else {
+                if ((raw_val & 0x100) && (first_allele_idx_p1 != second_allele_idx_p1)) {
+                  phasepresent_hw |= cur_bit;
+                }
+                if (first_allele_idx_p1 == 1) {
+                  // note that we've handled the second_allele_idx_p1 == 0 and
+                  // == 1 cases earlier
+                  result = 1;
+                  if (second_allele_idx_p1 > 2) {
+                    patch_01_set_hw |= cur_bit;
+                    *patch_01_iter++ = second_allele_idx_p1 - 1;
+                  }
+                } else {
+                  result = 2;
+                  if (second_allele_idx_p1 > 2) {
+                    patch_10_set_hw |= cur_bit;
+                    *patch_10_iter++ = first_allele_idx_p1 - 1;
+                    *patch_10_iter++ = second_allele_idx_p1 - 1;
+                  }
+                }
+              }
+            }
+          }
+          geno_word |= result << (2 * sample_idx_lowbits);
+        }
+        genovec[widx] = geno_word | gq_dp_fail_word;
+        patch_01_set_alias[widx] = patch_01_set_hw;
+        patch_10_set_alias[widx] = patch_10_set_hw;
+        phasepresent_alias[widx] = phasepresent_hw;
+        phaseinfo_alias[widx] = phaseinfo_hw;
+        gt_iter = &(gt_iter[kBitsPerWordD2]);
+      }
+    } else {
+      const unsigned char* gt_iter = gt_main;
+      for (uint32_t widx = 0; ; ++widx) {
+        if (widx >= word_ct_m1) {
+          if (widx > word_ct_m1) {
+            break;
+          }
+          loop_len = ModNz(sample_ct, kBitsPerWordD2);
+        }
+        const uintptr_t gq_dp_fail_word = genovec[widx];
+        uintptr_t geno_word = 0;
+        uint32_t patch_01_set_hw = 0;
+        uint32_t patch_10_set_hw = 0;
+        uint32_t phasepresent_hw = 0;
+        uint32_t phaseinfo_hw = 0;
+        for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
+          // may overread 1 byte
+          uint32_t raw_val;
+          memcpy(&raw_val, gt_iter, 4);
+          gt_iter = &(gt_iter[value_ct]);
+          const uint32_t phaseless_val = raw_val & 0xfffefe;
+          if ((phaseless_val == 0x810202) || ((gq_dp_fail_word >> (2 * sample_idx_lowbits)) & 1)) {
+            continue;
+          }
+          uintptr_t result;
+          if ((phaseless_val & 0x810000) != 0x810000) {
+            // triploid+ (or malformed)
+            result = 3;
+          } else {
+            const uint16_t shifted_phaseless_val = (phaseless_val & 0xffff) >> 1;
+            // rest of this is identical to diploid case
+            unsigned char first_allele_idx_p1 = shifted_phaseless_val;
+            if (first_allele_idx_p1 > allele_ct) {
+              // assume end-of-vector
+              result = 3;
+            } else {
+              unsigned char second_allele_idx_p1 = shifted_phaseless_val >> 8;
+              const uint32_t cur_bit = 1U << sample_idx_lowbits;
+              if (second_allele_idx_p1 > allele_ct) {
+                // haploid
+                if (!first_allele_idx_p1) {
+                  result = 3;
+                } else {
+                  const unsigned char first_allele_idx = first_allele_idx_p1 - 1;
+                  if (first_allele_idx < 2) {
+                    result = first_allele_idx * 2;
+                  } else {
+                    result = 2;
+                    patch_10_set_hw |= cur_bit;
+                    *patch_10_iter++ = first_allele_idx;
+                    *patch_10_iter++ = first_allele_idx;
+                  }
+                }
+              } else {
+                // diploid
+                if (second_allele_idx_p1 < first_allele_idx_p1) {
+                  const unsigned char ucc = first_allele_idx_p1;
+                  first_allele_idx_p1 = second_allele_idx_p1;
+                  second_allele_idx_p1 = ucc;
+                  phaseinfo_hw |= cur_bit;
+                }
+                if (!first_allele_idx_p1) {
+                  // missing or half-call
+                  if ((!second_allele_idx_p1) || (halfcall_mode == kVcfHalfCallMissing)) {
+                    result = 3;
+                  } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
+                    return kBcfParseHalfCallError;
+                  } else {
+                    const unsigned char second_allele_idx = second_allele_idx_p1 - 1;
+                    if (second_allele_idx < 2) {
+                      // kVcfHalfCallHaploid, kVcfHalfCallReference
+                      result = second_allele_idx << halfcall_mode;
+                    } else if (halfcall_mode == kVcfHalfCallReference) {
+                      result = 1;
+                      patch_01_set_hw |= cur_bit;
+                      *patch_01_iter++ = second_allele_idx;
+                    } else {
+                      result = 2;
+                      patch_10_set_hw |= cur_bit;
+                      *patch_10_iter++ = second_allele_idx;
+                      *patch_10_iter++ = second_allele_idx;
+                    }
+                    if ((raw_val & 0x100) && (result == 1)) {
+                      phasepresent_hw |= cur_bit;
+                    }
+                  }
+                } else {
+                  if ((raw_val & 0x100) && (first_allele_idx_p1 != second_allele_idx_p1)) {
+                    phasepresent_hw |= cur_bit;
+                  }
+                  if (first_allele_idx_p1 == 1) {
+                    result = 1;
+                    if (second_allele_idx_p1 > 2) {
+                      patch_01_set_hw |= cur_bit;
+                      *patch_01_iter++ = second_allele_idx_p1 - 1;
+                    }
+                  } else {
+                    result = 2;
+                    if (second_allele_idx_p1 > 2) {
+                      patch_10_set_hw |= cur_bit;
+                      *patch_10_iter++ = first_allele_idx_p1 - 1;
+                      *patch_10_iter++ = second_allele_idx_p1 - 1;
+                    }
+                  }
+                }
+              }
+            }
+          }
+          geno_word |= result << (2 * sample_idx_lowbits);
+        }
+        genovec[widx] = geno_word | gq_dp_fail_word;
+        patch_01_set_alias[widx] = patch_01_set_hw;
+        patch_10_set_alias[widx] = patch_10_set_hw;
+        phasepresent_alias[widx] = phasepresent_hw;
+        phaseinfo_alias[widx] = phaseinfo_hw;
+      }
+    }
+  } else if (likely(value_type == 2)) {
+    // int16
+    if (value_ct == 1) {
+      ZeroWArr(sample_ctl, patch_01_set);
+      ZeroWArr(sample_ctl, phasepresent);
+      // phaseinfo doesn't matter
+      BcfConvertMultiallelicHaploidInt16Gt(gt_main, sample_ct, allele_ct, genovec, patch_10_set_alias, &patch_10_iter);
+    } else if (value_ct == 2) {
+      const uint32_t* gt_iter = R_CAST(const uint32_t*, gt_main);
+      for (uint32_t widx = 0; ; ++widx) {
+        if (widx >= word_ct_m1) {
+          if (widx > word_ct_m1) {
+            break;
+          }
+          loop_len = ModNz(sample_ct, kBitsPerWordD2);
+        }
+        const uintptr_t gq_dp_fail_word = genovec[widx];
+        uintptr_t geno_word = 0;
+        uint32_t patch_01_set_hw = 0;
+        uint32_t patch_10_set_hw = 0;
+        uint32_t phasepresent_hw = 0;
+        uint32_t phaseinfo_hw = 0;
+        for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
+          const uint32_t raw_val = gt_iter[sample_idx_lowbits];
+          const uint32_t phaseless_val = raw_val & 0xfffefffeU;
+          if ((phaseless_val == 0x20002) || ((gq_dp_fail_word >> (2 * sample_idx_lowbits)) & 1)) {
+            continue;
+          }
+          const uint32_t shifted_phaseless_val = phaseless_val >> 1;
+          uint16_t first_allele_idx_p1 = shifted_phaseless_val;
+          uintptr_t result;
+          if (first_allele_idx_p1 > allele_ct) {
+            // assume end-of-vector
+            result = 3;
+          } else {
+            uint16_t second_allele_idx_p1 = shifted_phaseless_val >> 16;
+            const uint32_t cur_bit = 1U << sample_idx_lowbits;
+            if (second_allele_idx_p1 > allele_ct) {
+              // haploid
+              if (!first_allele_idx_p1) {
+                result = 3;
+              } else {
+                const uint16_t first_allele_idx = first_allele_idx_p1 - 1;
+                if (first_allele_idx < 2) {
+                  result = first_allele_idx * 2;
+                } else {
+                  result = 2;
+                  patch_10_set_hw |= cur_bit;
+                  *patch_10_iter++ = first_allele_idx;
+                  *patch_10_iter++ = first_allele_idx;
+                }
+              }
+            } else {
+              // diploid
+              if (second_allele_idx_p1 < first_allele_idx_p1) {
+                const uint16_t usii = first_allele_idx_p1;
+                first_allele_idx_p1 = second_allele_idx_p1;
+                second_allele_idx_p1 = usii;
+                phaseinfo_hw |= cur_bit;
+              }
+              if (!first_allele_idx_p1) {
+                // missing or half-call
+                if ((!second_allele_idx_p1) || (halfcall_mode == kVcfHalfCallMissing)) {
+                  result = 3;
+                } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
+                  return kBcfParseHalfCallError;
+                } else {
+                  const uint16_t second_allele_idx = second_allele_idx_p1 - 1;
+                  if (second_allele_idx < 2) {
+                    // kVcfHalfCallHaploid, kVcfHalfCallReference
+                    result = second_allele_idx << halfcall_mode;
+                  } else if (halfcall_mode == kVcfHalfCallReference) {
+                    result = 1;
+                    patch_01_set_hw |= cur_bit;
+                    *patch_01_iter++ = second_allele_idx;
+                  } else {
+                    result = 2;
+                    patch_10_set_hw |= cur_bit;
+                    *patch_10_iter++ = second_allele_idx;
+                    *patch_10_iter++ = second_allele_idx;
+                  }
+                  if ((raw_val & 0x10000) && (result == 1)) {
+                    phasepresent_hw |= cur_bit;
+                  }
+                }
+              } else {
+                if ((raw_val & 0x10000) && (first_allele_idx_p1 != second_allele_idx_p1)) {
+                  phasepresent_hw |= cur_bit;
+                }
+                if (first_allele_idx_p1 == 1) {
+                  // note that we've handled the second_allele_idx_p1 == 0 and
+                  // == 1 cases earlier
+                  result = 1;
+                  if (second_allele_idx_p1 > 2) {
+                    patch_01_set_hw |= cur_bit;
+                    *patch_01_iter++ = second_allele_idx_p1 - 1;
+                  }
+                } else {
+                  result = 2;
+                  if (second_allele_idx_p1 > 2) {
+                    patch_10_set_hw |= cur_bit;
+                    *patch_10_iter++ = first_allele_idx_p1 - 1;
+                    *patch_10_iter++ = second_allele_idx_p1 - 1;
+                  }
+                }
+              }
+            }
+          }
+          geno_word |= result << (2 * sample_idx_lowbits);
+        }
+        genovec[widx] = geno_word | gq_dp_fail_word;
+        patch_01_set_alias[widx] = patch_01_set_hw;
+        patch_10_set_alias[widx] = patch_10_set_hw;
+        phasepresent_alias[widx] = phasepresent_hw;
+        phaseinfo_alias[widx] = phaseinfo_hw;
+        gt_iter = &(gt_iter[kBitsPerWordD2]);
+      }
+    } else {
+      const uint16_t* gt_iter = R_CAST(const uint16_t*, gt_main);
+      for (uint32_t widx = 0; ; ++widx) {
+        if (widx >= word_ct_m1) {
+          if (widx > word_ct_m1) {
+            break;
+          }
+          loop_len = ModNz(sample_ct, kBitsPerWordD2);
+        }
+        const uintptr_t gq_dp_fail_word = genovec[widx];
+        uintptr_t geno_word = 0;
+        uint32_t patch_01_set_hw = 0;
+        uint32_t patch_10_set_hw = 0;
+        uint32_t phasepresent_hw = 0;
+        uint32_t phaseinfo_hw = 0;
+        for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
+          // may overread 2 bytes
+          uint64_t raw_val;
+          memcpy(&raw_val, gt_iter, 8);
+          gt_iter = &(gt_iter[value_ct]);
+          const uint64_t phaseless_val = raw_val & 0xfffffffefffeLLU;
+          if ((phaseless_val == 0x800100020002LLU) || ((gq_dp_fail_word >> (2 * sample_idx_lowbits)) & 1)) {
+            continue;
+          }
+          uintptr_t result;
+          if ((phaseless_val & 0x800100000000LLU) != 0x800100000000LLU) {
+            // triploid+ (or malformed)
+            result = 3;
+          } else {
+            const uint32_t shifted_phaseless_val = S_CAST(uint32_t, phaseless_val) >> 1;
+            // rest of this is identical to diploid case
+            uint16_t first_allele_idx_p1 = shifted_phaseless_val;
+            if (first_allele_idx_p1 > allele_ct) {
+              // assume end-of-vector
+              result = 3;
+            } else {
+              uint16_t second_allele_idx_p1 = shifted_phaseless_val >> 16;
+              const uint32_t cur_bit = 1U << sample_idx_lowbits;
+              if (second_allele_idx_p1 > allele_ct) {
+                // haploid
+                if (!first_allele_idx_p1) {
+                  result = 3;
+                } else {
+                  const uint16_t first_allele_idx = first_allele_idx_p1 - 1;
+                  if (first_allele_idx < 2) {
+                    result = first_allele_idx * 2;
+                  } else {
+                    result = 2;
+                    patch_10_set_hw |= cur_bit;
+                    *patch_10_iter++ = first_allele_idx;
+                    *patch_10_iter++ = first_allele_idx;
+                  }
+                }
+              } else {
+                // diploid
+                if (second_allele_idx_p1 < first_allele_idx_p1) {
+                  const uint16_t usii = first_allele_idx_p1;
+                  first_allele_idx_p1 = second_allele_idx_p1;
+                  second_allele_idx_p1 = usii;
+                  phaseinfo_hw |= cur_bit;
+                }
+                if (!first_allele_idx_p1) {
+                  // missing or half-call
+                  if ((!second_allele_idx_p1) || (halfcall_mode == kVcfHalfCallMissing)) {
+                    result = 3;
+                  } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
+                    return kBcfParseHalfCallError;
+                  } else {
+                    const uint16_t second_allele_idx = second_allele_idx_p1 - 1;
+                    if (second_allele_idx < 2) {
+                      // kVcfHalfCallHaploid, kVcfHalfCallReference
+                      result = second_allele_idx << halfcall_mode;
+                    } else if (halfcall_mode == kVcfHalfCallReference) {
+                      result = 1;
+                      patch_01_set_hw |= cur_bit;
+                      *patch_01_iter++ = second_allele_idx;
+                    } else {
+                      result = 2;
+                      patch_10_set_hw |= cur_bit;
+                      *patch_10_iter++ = second_allele_idx;
+                      *patch_10_iter++ = second_allele_idx;
+                    }
+                    if ((raw_val & 0x10000) && (result == 1)) {
+                      phasepresent_hw |= cur_bit;
+                    }
+                  }
+                } else {
+                  if ((raw_val & 0x10000) && (first_allele_idx_p1 != second_allele_idx_p1)) {
+                    phasepresent_hw |= cur_bit;
+                  }
+                  if (first_allele_idx_p1 == 1) {
+                    result = 1;
+                    if (second_allele_idx_p1 > 2) {
+                      patch_01_set_hw |= cur_bit;
+                      *patch_01_iter++ = second_allele_idx_p1 - 1;
+                    }
+                  } else {
+                    result = 2;
+                    if (second_allele_idx_p1 > 2) {
+                      patch_10_set_hw |= cur_bit;
+                      *patch_10_iter++ = first_allele_idx_p1 - 1;
+                      *patch_10_iter++ = second_allele_idx_p1 - 1;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        genovec[widx] = geno_word | gq_dp_fail_word;
+        patch_01_set_alias[widx] = patch_01_set_hw;
+        patch_10_set_alias[widx] = patch_10_set_hw;
+        phasepresent_alias[widx] = phasepresent_hw;
+        phaseinfo_alias[widx] = phaseinfo_hw;
+      }
+    }
+  } else {
+    return (value_type == 3)? kBcfParseWideGt : kBcfParseMalformedGeneric;
+  }
+  *patch_01_ctp = patch_01_iter - patch_01_vals;
+  *patch_10_ctp = S_CAST(uintptr_t, patch_10_iter - patch_10_vals) / 2;
+  return kBcfParseOk;
+}
+
+BcfParseErr BcfConvertPhasedBiallelicDosage(const BcfImportContext* bicp, const GparseReadBcfMetadata* metap, unsigned char* record_start, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uintptr_t* __restrict dosage_present, uintptr_t* __restrict dphase_present, Dosage** dosage_main_iter_ptr, SDosage** dphase_delta_iter_ptr) {
+  // See VcfConvertPhasedBiallelicDosageLine().
+  const BcfImportBaseContext* bibcp = &(bicp->bibc);
+  const uint32_t sample_ct = bibcp->sample_ct;
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
+  ZeroWArr(sample_ctl2, genovec);
+  BcfParseErr bcf_parse_err = BcfApplyGqDpFilters(bibcp, metap, record_start, genovec);
+  if (unlikely(bcf_parse_err != kBcfParseOk)) {
+    return bcf_parse_err;
+  }
+  const float* hds_main = nullptr;
+  uint32_t hds_value_ct = 0;
+  if (metap->hds_vec_offset != UINT32_MAX) {
+    const unsigned char* hds_main_raw = &(record_start[metap->hds_vec_offset * S_CAST(uintptr_t, kBytesPerVec)]);
+    uint32_t hds_value_type;
+    ScanBcfTypeAligned(&hds_main_raw, &hds_value_type, &hds_value_ct);
+    if (unlikely(hds_value_type != 5)) {
+      return kBcfParseNonfloatDosage;
+    }
+    hds_main = R_CAST(const float*, hds_main_raw);
+  }
+  const float* dosage_main = nullptr;
+  uint32_t dosage_value_ct = 0;
+  if (metap->dosage_vec_offset != UINT32_MAX) {
+    const unsigned char* dosage_main_raw = &(record_start[metap->dosage_vec_offset * S_CAST(uintptr_t, kBytesPerVec)]);
+    uint32_t dosage_value_type;
+    ScanBcfTypeAligned(&dosage_main_raw, &dosage_value_type, &dosage_value_ct);
+    if (unlikely(dosage_value_type != 5)) {
+      return kBcfParseNonfloatDosage;
+    }
+    dosage_main = R_CAST(const float*, dosage_main_raw);
+  }
+  const unsigned char* gt_main = nullptr;
+  uint32_t gt_value_type = 0;
+  uint32_t gt_value_ct = 0;
+  if (metap->gt_vec_offset != UINT32_MAX) {
+    gt_main = &(record_start[metap->gt_vec_offset * S_CAST(uintptr_t, kBytesPerVec)]);
+    ScanBcfTypeAligned(&gt_main, &gt_value_type, &gt_value_ct);
+    if (unlikely(gt_value_type > 1)) {
+      return kBcfParseWideGt;
+    }
+  }
+
+  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+  phasepresent[sample_ctl - 1] = 0;
+  dosage_present[sample_ctl - 1] = 0;
+  dphase_present[sample_ctl - 1] = 0;
+  Halfword* phasepresent_alias = R_CAST(Halfword*, phasepresent);
+  Halfword* phaseinfo_alias = R_CAST(Halfword*, phaseinfo);
+  Halfword* dosage_present_alias = R_CAST(Halfword*, dosage_present);
+  Halfword* dphase_present_alias = R_CAST(Halfword*, dphase_present);
+  Dosage* dosage_main_iter = *dosage_main_iter_ptr;
+  SDosage* dphase_delta_iter = *dphase_delta_iter_ptr;
+  const unsigned char* biallelic_gt_lookup = bibcp->biallelic_gt_lookup;
+  const uint32_t sample_ctl2_m1 = sample_ctl2 - 1;
+  const uint32_t dosage_is_gp = bicp->dosage_is_gp;
+  const uint32_t dosage_erase_halfdist = bicp->dosage_erase_halfdist;
+  const uint32_t dphase_erase_halfdist = dosage_erase_halfdist + kDosage4th;
+  const double import_dosage_certainty = bicp->import_dosage_certainty;
+  uint32_t loop_len = kBitsPerWordD2;
+  uint16_t gt_raw = 0;
+  uint32_t is_haploid_or_0ploid = (gt_value_ct == 1);
+  uintptr_t half_call_error_bit2 = 0;
+  uint32_t sample_idx = 0;
+  for (uint32_t widx = 0; ; ++widx) {
+    if (widx >= sample_ctl2_m1) {
+      if (widx > sample_ctl2_m1) {
+        break;
+      }
+      loop_len = ModNz(sample_ct, kBitsPerWordD2);
+    }
+    const uint32_t sample_idx_stop = sample_idx + loop_len;
+    uintptr_t gq_dp_fail_word = genovec[widx];
+    uintptr_t genovec_word = 0;
+    uint32_t phasepresent_hw = 0;
+    uint32_t phaseinfo_hw = 0;
+    uint32_t dosage_present_hw = 0;
+    uint32_t dphase_present_hw = 0;
+    for (; sample_idx != sample_idx_stop; ++sample_idx, gq_dp_fail_word >>= 2) {
+      if (gq_dp_fail_word & 1) {
+        continue;
+      }
+      if (gt_value_ct) {
+        memcpy(&gt_raw, &(gt_main[sample_idx * gt_value_ct]), 2);
+        if (gt_value_ct > 1) {
+          is_haploid_or_0ploid = gt_raw >> 15;
+        }
+      }
+      const uint32_t sample_idx_lowbits = sample_idx % kBitsPerWordD2;
+      const uint32_t shifted_bit = 1U << sample_idx_lowbits;
+      DosageParseResult dpr = kDosageParseOk;
+      uintptr_t cur_geno = 3;
+      int32_t cur_dphase_delta = 0;
+      uint32_t hds_valid = 0;
+      uint32_t dosage_int;
+      if (!ParseBcfBiallelicHds(dosage_main, hds_main, dosage_value_ct, hds_value_ct, sample_idx, is_haploid_or_0ploid, dosage_is_gp, import_dosage_certainty, &dpr, &dosage_int, &cur_dphase_delta, &hds_valid)) {
+        if (hds_valid) {
+          const uint32_t dphase_halfdist1 = DphaseHalfdist(dosage_int + cur_dphase_delta);
+          const uint32_t dphase_halfdist2 = DphaseHalfdist(dosage_int - cur_dphase_delta);
+          if ((dphase_halfdist1 < dphase_erase_halfdist) || (dphase_halfdist2 < dphase_erase_halfdist)) {
+            // No need to fill cur_geno here, since it'll get corrected by
+            // --hard-call-threshold.
+            dosage_present_hw |= shifted_bit;
+            *dosage_main_iter++ = dosage_int;
+            if (cur_dphase_delta) {
+              dphase_present_hw |= shifted_bit;
+              *dphase_delta_iter++ = cur_dphase_delta;
+            }
+          } else {
+            // Not saving dosage, since it's too close to an integer
+            // (--dosage-erase-threshold).  Just directly synthesize the
+            // hardcall we need.
+            cur_geno = (dosage_int + kDosage4th) / kDosageMid;
+            if (cur_geno == 1) {
+              // Since dphase_erase_halfdist >= 8193, dphase_halfdist1 and
+              // dphase_halfdist2 are both in [0, 8191] or [24577, 32768], so
+              // it's always appropraite to save hardcall-phase.
+              phasepresent_hw |= shifted_bit;
+              if (cur_dphase_delta > 0) {
+                phaseinfo_hw |= shifted_bit;
+              }
+            }
+          }
+          goto BcfConvertPhasedBiallelicDosage_geno_done;
+        }
+        // defer handling of unphased dosage
+      } else if (unlikely(!dpr)) {
+        return kBcfParseInvalidDosage;
+      } else if (dpr == kDosageParseForceMissing) {
+        goto BcfConvertPhasedBiallelicDosage_geno_done;
+      }
+      if (gt_main) {
+        if (is_haploid_or_0ploid) {
+          // gt_first == 0 -> missing (cur_geno == 3)
+          // gt_first == 2 -> hom-ref (cur_geno == 0)
+          // gt_first == 4 -> hom-alt (cur_geno == 2)
+          cur_geno = (gt_raw & 0xff) - 2;
+          // deliberate underflow
+          if (cur_geno > 3) {
+            cur_geno = 3;
+          }
+        } else if ((gt_value_ct == 2) || (gt_main[sample_idx * gt_value_ct + 2] == 0x81)) {
+          // diploid
+          const uint16_t bit_8 = gt_raw & 0x100;
+          unsigned char first_allele_idx_p1 = (gt_raw ^ bit_8) >> 1;
+          if (first_allele_idx_p1 > 3) {
+            first_allele_idx_p1 = 3;
+          }
+          unsigned char second_allele_idx_p1 = gt_raw >> 9;
+          if (second_allele_idx_p1 > 3) {
+            second_allele_idx_p1 = 3;
+          }
+          cur_geno = biallelic_gt_lookup[first_allele_idx_p1 + second_allele_idx_p1 * 4];
+          half_call_error_bit2 |= cur_geno;
+          if ((cur_geno == 1) && bit_8) {
+            phasepresent_hw |= shifted_bit;
+            phaseinfo_hw |= (second_allele_idx_p1 & 1) << sample_idx_lowbits;
+          }
+        }
+      }
+      if (!dpr) {
+        // now actually handle the unphased dosage
+        const uint32_t cur_halfdist = BiallelicDosageHalfdist(dosage_int);
+        if (cur_halfdist < dosage_erase_halfdist) {
+          // ok for cur_geno to be 'wrong' for now, since it'll get corrected
+          // by --hard-call-threshold
+          dosage_present_hw |= shifted_bit;
+          *dosage_main_iter++ = dosage_int;
+        } else {
+          // Not saving dosage, since it's too close to an integer, except
+          // possibly in the implicit-phased-dosage edge case.
+          // If that integer actually conflicts with the hardcall, we must
+          // override the hardcall.
+          cur_geno = (dosage_int + kDosage4th) / kDosageMid;
+          if (phasepresent_hw & shifted_bit) {
+            if (cur_geno != 1) {
+              // Hardcall-phase no longer applies.
+              phasepresent_hw ^= shifted_bit;
+            } else if (cur_halfdist * 2 < dphase_erase_halfdist) {
+              // Implicit phased-dosage, e.g. 0|0.99.  More stringent
+              // dosage_erase_halfdist applies.
+              dosage_present_hw |= shifted_bit;
+              *dosage_main_iter++ = dosage_int;
+            }
+          }
+        }
+      }
+    BcfConvertPhasedBiallelicDosage_geno_done:
+      genovec_word |= cur_geno << (2 * sample_idx_lowbits);
+    }
+    genovec[widx] = genovec_word | gq_dp_fail_word;
+    phasepresent_alias[widx] = phasepresent_hw;
+    phaseinfo_alias[widx] = phaseinfo_hw;
+    dosage_present_alias[widx] = dosage_present_hw;
+    dphase_present_alias[widx] = dphase_present_hw;
+  }
+  if (unlikely(half_call_error_bit2 & 4)) {
+    return kBcfParseHalfCallError;
+  }
+  *dosage_main_iter_ptr = dosage_main_iter;
+  *dphase_delta_iter_ptr = dphase_delta_iter;
+  return kBcfParseOk;
+}
+
 // 1: int8
 // 2: int16
 // 3: int32
 // 5: float
 // 7: char
 static const unsigned char kBcfBytesPerElem[16] = {0, 1, 2, 4, 0, 4, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0};
-
-// stubs
-BcfParseErr BcfConvertUnphasedBiallelic(const BcfImportBaseContext* bibcp, const GparseReadBcfMetadata* metap, const unsigned char* record_start, uintptr_t* __restrict genovec) {
-  fputs("under development\n", stderr);
-  exit(S_CAST(int32_t, kPglRetNotYetSupported));
-  return kBcfParseOk;
-}
-
-BcfParseErr BcfConvertUnphasedMultiallelic(const BcfImportBaseContext* bibcp, const GparseReadBcfMetadata* metap, const unsigned char* record_start, uint32_t allele_ct, uint32_t* __restrict patch_01_ctp, uint32_t* __restrict patch_10_ctp, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals) {
-  fputs("under development\n", stderr);
-  exit(S_CAST(int32_t, kPglRetNotYetSupported));
-  return kBcfParseOk;
-}
-
-BcfParseErr BcfConvertPhasedBiallelic(const BcfImportBaseContext* bibcp, const GparseReadBcfMetadata* metap, const unsigned char* record_start, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo) {
-  fputs("under development\n", stderr);
-  exit(S_CAST(int32_t, kPglRetNotYetSupported));
-  return kBcfParseOk;
-}
-
-BcfParseErr BcfConvertPhasedMultiallelic(const BcfImportBaseContext* bibcp, const GparseReadBcfMetadata* metap, const unsigned char* record_start, uint32_t allele_ct, uint32_t* __restrict patch_01_ctp, uint32_t* __restrict patch_10_ctp, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo) {
-  fputs("under development\n", stderr);
-  exit(S_CAST(int32_t, kPglRetNotYetSupported));
-  return kBcfParseOk;
-}
-
-BcfParseErr BcfConvertPhasedBiallelicDosage(const BcfImportContext* bicp, const GparseReadBcfMetadata* metap, const unsigned char* record_start, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uintptr_t* __restrict dosage_present, uintptr_t* __restrict dphase_present, Dosage** dosage_main_iter_ptr, SDosage** dphase_delta_iter_ptr) {
-  fputs("under development\n", stderr);
-  exit(S_CAST(int32_t, kPglRetNotYetSupported));
-  return kBcfParseOk;
-}
 
 typedef struct BcfGenoToPgenCtxStruct {
   BcfImportContext bic;
@@ -5061,7 +6881,7 @@ THREAD_FUNC_DECL BcfGenoToPgenThread(void* raw_arg) {
         uintptr_t* genovec = GparseGetPointers(thread_wkspace, sample_ct, cur_allele_ct, gparse_flags, &patch_01_set, &patch_01_vals, &patch_10_set, &patch_10_vals, &phasepresent, &phaseinfo, &dosage_present, &dosage_main, &dphase_present, &dphase_delta);
         uintptr_t* write_genovec = GparseGetPointers(record_start, sample_ct, cur_allele_ct, gparse_flags, &write_patch_01_set, &write_patch_01_vals, &write_patch_10_set, &write_patch_10_vals, &write_phasepresent, &write_phaseinfo, &write_dosage_present, &write_dosage_main, &write_dphase_present, &write_dphase_delta);
         const GparseReadBcfMetadata* metap = &(grp->metadata.read_bcf);
-        if ((metap->hds_offset == UINT32_MAX) && (metap->dosage_offset == UINT32_MAX)) {
+        if ((metap->hds_vec_offset == UINT32_MAX) && (metap->dosage_vec_offset == UINT32_MAX)) {
           if (!(gparse_flags & kfGparseHphase)) {
             if (cur_allele_ct == 2) {
               bcf_parse_err = BcfConvertUnphasedBiallelic(bibcp, metap, record_start, genovec);
@@ -5272,7 +7092,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     }
 
     ctx.bic.bibc.qual_mins[0] = vcf_min_gq;
-    ctx.bic.bibc.qual_mins[1] = vcf_min_dp;
+    ctx.bic.bibc.qual_mins[1] = (vcf_min_dp == -1)? 0 : vcf_min_dp;
     ctx.bic.bibc.qual_maxs[0] = 0x7fffffff;
     ctx.bic.bibc.qual_maxs[1] = vcf_max_dp;
     // sample_ct set later
@@ -5280,6 +7100,48 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       halfcall_mode = kVcfHalfCallError;
     }
     ctx.bic.bibc.halfcall_mode = halfcall_mode;
+    // Construct main biallelic GT-parsing lookup table.
+    // Low 2 bits of index = first_allele_idx_p1 (or 3 for END_OF_VECTOR),
+    //   high 2 bits = second_allele_idx_p1.
+    // Table value is 2-bit genotype value, or 4 for half-call error.
+    {
+      unsigned char* biallelic_gt_lookup = ctx.bic.bibc.biallelic_gt_lookup;
+      biallelic_gt_lookup[0] = 3;
+      biallelic_gt_lookup[1] = 4;  // half-call
+      biallelic_gt_lookup[2] = 4;
+      biallelic_gt_lookup[3] = 3;
+
+      biallelic_gt_lookup[5] = 0;
+      biallelic_gt_lookup[6] = 1;
+      // ignore second value if first value is end-of-vector
+      biallelic_gt_lookup[7] = 3;
+
+      biallelic_gt_lookup[10] = 2;
+      biallelic_gt_lookup[11] = 3;
+
+      biallelic_gt_lookup[12] = 3;
+      biallelic_gt_lookup[13] = 0;
+      biallelic_gt_lookup[14] = 2;
+      biallelic_gt_lookup[15] = 3;
+
+      if (halfcall_mode == kVcfHalfCallReference) {
+        biallelic_gt_lookup[1] = 0;
+        biallelic_gt_lookup[2] = 1;
+      } else if (halfcall_mode == kVcfHalfCallHaploid) {
+        biallelic_gt_lookup[1] = 0;
+        biallelic_gt_lookup[2] = 2;
+      } else if (halfcall_mode == kVcfHalfCallMissing) {
+        biallelic_gt_lookup[1] = 3;
+        biallelic_gt_lookup[2] = 3;
+      }
+
+      biallelic_gt_lookup[4] = biallelic_gt_lookup[1];
+      biallelic_gt_lookup[8] = biallelic_gt_lookup[2];
+      biallelic_gt_lookup[9] = biallelic_gt_lookup[6];
+#ifdef USE_AVX2
+      memcpy(&(biallelic_gt_lookup[16]), biallelic_gt_lookup, 16);
+#endif
+    }
 
     // always positive
     ctx.bic.dosage_erase_halfdist = kDosage4th - dosage_erase_thresh;
@@ -5478,7 +7340,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       goto BcfToPgen_ret_MALFORMED_INPUT_WW;
     }
     ctx.bic.bibc.sample_ct = sample_ct;
-    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
+    const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
 
     // Rescan header to save FILTER/INFO/FORMAT and contig ID dictionaries.
     // (We could also print a warning when an INFO key type declaration is
@@ -5491,7 +7353,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     uint32_t* fif_slens;
     uintptr_t* info_flags;
     uintptr_t* bcf_contig_seen;
-    uintptr_t* sample_bitbuf;
+    uintptr_t* sample_nypbuf;
     if (unlikely(
             bigstack_calloc_w(BitCtToWordCt(contig_string_idx_end), &bcf_contig_keep) ||
             bigstack_calloc_kcp(contig_string_idx_end, &contig_names) ||
@@ -5500,7 +7362,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
             bigstack_calloc_u32(fif_string_idx_end, &fif_slens) ||
             bigstack_calloc_w(BitCtToWordCt(fif_string_idx_end), &info_flags) ||
             bigstack_calloc_w(BitCtToWordCt(contig_string_idx_end), &bcf_contig_seen) ||
-            bigstack_alloc_w(sample_ctl, &sample_bitbuf))) {
+            bigstack_alloc_w(sample_ctl2, &sample_nypbuf))) {
       goto BcfToPgen_ret_NOMEM;
     }
     const uint32_t header_line_ct = header_line_idx;
@@ -5669,12 +7531,9 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     }
     if ((!gq_sidx) && (vcf_min_gq != -1)) {
       logerrputs("Warning: No FORMAT:GQ field in BCF text header block.  --vcf-min-gq ignored.\n");
-      vcf_min_gq = -1;
     }
     if ((!dp_sidx) && ((vcf_max_dp != 0x7fffffff) || (vcf_min_dp != -1))) {
       logerrputs("Warning: No FORMAT:DP field in BCF text header block.  --vcf-{max,min}-dp\nignored.\n");
-      vcf_max_dp = 0x7fffffff;
-      vcf_min_dp = -1;
     }
     if (format_hds_search) {
       if (!hds_sidx) {
@@ -5723,7 +7582,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     uintptr_t loadbuf_size_needed = 32;
 
     // Sum of GT, DS/GP, HDS, GQ, and DP vector lengths.
-    uint32_t max_observed_rec_blen = 0;
+    uint32_t max_observed_rec_vecs = 0;
 
     const uint32_t max_variant_ctaw = BitCtToAlignedWordCt(max_variant_ct);
     // don't need dosage_flags or dphase_flags; dosage overrides GT so slow
@@ -5828,7 +7687,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       qual_starts[1] = nullptr;
       const unsigned char* dosage_start = nullptr;
       const unsigned char* hds_start = nullptr;
-      uint32_t cur_observed_rec_blen = 0;
+      uint32_t cur_observed_rec_vecs = 0;
       for (uint32_t fmt_idx = 0; fmt_idx != n_fmt; ++fmt_idx) {
         // 1. typed int indicating which FORMAT field
         // 2. shared type descriptor for each entry (usually a single byte)
@@ -5844,10 +7703,11 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         if (unlikely((!key_slen) || ScanBcfType(&parse_iter, &value_type, &value_ct) || (parse_iter > indiv_end))) {
           goto BcfToPgen_ret_VREC_GENERIC;
         }
+        const unsigned char* vec_start = parse_iter;
         if (value_ct) {
           const uint32_t bytes_per_elem = kBcfBytesPerElem[value_type];
-          const uintptr_t vec_byte_ct = bytes_per_elem * sample_ct;
-          if (unlikely((!bytes_per_elem) || (S_CAST(uintptr_t, indiv_end - parse_iter) < vec_byte_ct))) {
+          const uint64_t vec_byte_ct = bytes_per_elem * S_CAST(uint64_t, value_ct) * sample_ct;
+          if (unlikely((!bytes_per_elem) || (S_CAST(uint64_t, indiv_end - parse_iter) < vec_byte_ct))) {
             goto BcfToPgen_ret_VREC_GENERIC;
           }
           parse_iter = &(parse_iter[vec_byte_ct]);
@@ -5869,7 +7729,13 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         } else {
           continue;
         }
-        cur_observed_rec_blen += parse_iter - type_start;
+#ifdef __LP64__
+        // bcf-type guaranteed to fit in <= 16 bytes
+        ++cur_observed_rec_vecs;
+#else
+        cur_observed_rec_vecs += DivUp(S_CAST(uintptr_t, vec_start - type_start), kBytesPerVec);
+#endif
+        cur_observed_rec_vecs += DivUp(S_CAST(uintptr_t, parse_iter - vec_start), kBytesPerVec);
       }
       if (require_gt) {
         if (!gt_start) {
@@ -6056,8 +7922,8 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         }
         max_allele_ct = n_allele;
       }
-      if (max_observed_rec_blen < cur_observed_rec_blen) {
-        max_observed_rec_blen = cur_observed_rec_blen;
+      if (max_observed_rec_vecs < cur_observed_rec_vecs) {
+        max_observed_rec_vecs = cur_observed_rec_vecs;
       }
       allele_idx_offsets[variant_ct] = allele_idx_end;
       allele_idx_end += n_allele;
@@ -6075,7 +7941,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         // Don't bother multithreading this since it's trivial.
         if (dosage_start || hds_start) {
           if (n_allele == 2) {
-            bcf_parse_err = BcfScanBiallelicHds(&(ctx.bic), gt_start, qual_starts, dosage_start, hds_start, &phase_or_dosage_found, sample_bitbuf);
+            bcf_parse_err = BcfScanBiallelicHds(&(ctx.bic), gt_start, qual_starts, dosage_start, hds_start, &phase_or_dosage_found, sample_nypbuf);
           } else {
             putc_unlocked('\n', stdout);
             logerrputs("Error: --bcf multiallelic dosage import is under development.\n");
@@ -6084,7 +7950,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
           }
         } else if (gt_start) {
           // scan for phase
-          bcf_parse_err = BcfScanGt(&(ctx.bic), gt_start, qual_starts, &phase_or_dosage_found, sample_bitbuf);
+          bcf_parse_err = BcfScanGt(&(ctx.bic), gt_start, qual_starts, &phase_or_dosage_found, sample_nypbuf);
         }
         if (unlikely(bcf_parse_err)) {
           goto BcfToPgen_ret_PARSE;
@@ -6374,7 +8240,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
 
       // be pessimistic re: rounding
       cachelines_avail = (bigstack_left() / kCacheline) - 4;
-      const uint64_t max_bytes_req_per_variant = sizeof(GparseRecord) + MAXV(max_observed_rec_blen, max_write_byte_ct) + calc_thread_ct;
+      const uint64_t max_bytes_req_per_variant = sizeof(GparseRecord) + MAXV(max_observed_rec_vecs * S_CAST(uintptr_t, kBytesPerVec), max_write_byte_ct) + calc_thread_ct;
       if (unlikely(cachelines_avail * kCacheline < 2 * max_bytes_req_per_variant)) {
         goto BcfToPgen_ret_NOMEM;
       }
@@ -6444,13 +8310,19 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     qual_starts[1] = nullptr;
     const unsigned char* dosage_start = nullptr;
     const unsigned char* hds_start = nullptr;
-    uint32_t gt_blen = 0;
-    uint32_t qual_blens[2];
-    qual_blens[0] = 0;
-    qual_blens[1] = 0;
-    uint32_t dosage_blen = 0;
-    uint32_t hds_blen = 0;
-    uint32_t record_input_byte_ct = 0;
+    uint32_t gt_type_blen = 0;
+    uint32_t gt_main_blen = 0;
+    uint32_t qual_type_blens[2];
+    uint32_t qual_main_blens[2];
+    qual_type_blens[0] = 0;
+    qual_type_blens[1] = 0;
+    qual_main_blens[0] = 0;
+    qual_main_blens[1] = 0;
+    uint32_t dosage_type_blen = 0;
+    uint32_t dosage_main_blen = 0;
+    uint32_t hds_type_blen = 0;
+    uint32_t hds_main_blen = 0;
+    uint32_t record_input_vec_ct = 0;
 
     uint32_t parity = 0;
     for (uint32_t vidx_start = 0; ; ) {
@@ -6470,8 +8342,9 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
           thread_bidxs[0] = 0;
         }
         uint32_t block_vidx = 0;
+        uint32_t sidx = 0;
         GparseRecord* grp;
-        if (record_input_byte_ct) {
+        if (record_input_vec_ct) {
           // If the last block iteration ended due to insufficient space in
           // geno_bufs[parity], we haven't actually written the current .pvar
           // line or copied genotype/quality data over.
@@ -6532,13 +8405,13 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
             qual_starts[1] = nullptr;
             dosage_start = nullptr;
             hds_start = nullptr;
-            record_input_byte_ct = 0;
+            record_input_vec_ct = 0;
+            uint32_t gt_exists = 0;
             for (uint32_t fmt_idx = 0; fmt_idx != n_fmt; ++fmt_idx) {
               // 1. typed int indicating which FORMAT field
               // 2. shared type descriptor for each entry (usually a single
               //    byte)
               // 3. sample_ct entries
-              uint32_t sidx;
               // previously validated
               ScanBcfTypedInt(&parse_iter, &sidx);
               const unsigned char* type_start = parse_iter;
@@ -6546,33 +8419,46 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
               uint32_t value_ct;
               ScanBcfType(&parse_iter, &value_type, &value_ct);
               const uint32_t bytes_per_elem = kBcfBytesPerElem[value_type];
-              const uintptr_t vec_byte_ct = bytes_per_elem * sample_ct;
+              const uint32_t vec_byte_ct = bytes_per_elem * value_ct * sample_ct;
+              const uint32_t type_blen = parse_iter - type_start;
               parse_iter = &(parse_iter[vec_byte_ct]);
-              const uint32_t cur_blen = parse_iter - type_start;
-              if (!sidx) {
+              if ((!sidx) || (!value_ct)) {
+                if (sidx == gt_sidx) {
+                  gt_exists = 1;
+                }
                 continue;
               }
               if (sidx == gt_sidx) {
                 gt_start = type_start;
-                gt_blen = cur_blen;
+                gt_type_blen = type_blen;
+                gt_main_blen = vec_byte_ct;
               } else if (sidx == gq_sidx) {
                 qual_starts[0] = type_start;
-                qual_blens[0] = cur_blen;
+                qual_type_blens[0] = type_blen;
+                qual_main_blens[0] = vec_byte_ct;
               } else if (sidx == dp_sidx) {
                 qual_starts[1] = type_start;
-                qual_blens[1] = cur_blen;
+                qual_type_blens[1] = type_blen;
+                qual_main_blens[1] = vec_byte_ct;
               } else if (sidx == dosage_sidx) {
                 dosage_start = type_start;
-                dosage_blen = cur_blen;
+                dosage_type_blen = type_blen;
+                dosage_main_blen = vec_byte_ct;
               } else if (sidx == hds_sidx) {
                 hds_start = type_start;
-                hds_blen = cur_blen;
+                hds_type_blen = type_blen;
+                hds_main_blen = vec_byte_ct;
               } else {
                 continue;
               }
-              record_input_byte_ct += cur_blen;
+#ifdef __LP64__
+              ++record_input_vec_ct;
+#else
+              record_input_vec_ct += DivUp(type_blen, kBytesPerVec);
+#endif
+              record_input_vec_ct += DivUp(vec_byte_ct, kBytesPerVec);
             }
-            if (require_gt && (!gt_start)) {
+            if (require_gt && (!gt_exists)) {
               continue;
             }
             // We already have enough information to determine
@@ -6587,8 +8473,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
               }
             }
             const uintptr_t write_byte_ct_limit = GparseWriteByteCt(sample_ct, n_allele, gparse_flags);
-            // probable todo: vector-align the beginning of each payload.
-            record_byte_ct = MAXV(RoundUpPow2(record_input_byte_ct, kBytesPerVec), write_byte_ct_limit);
+            record_byte_ct = MAXV(record_input_vec_ct * S_CAST(uintptr_t, kBytesPerVec), write_byte_ct_limit);
             if ((block_vidx == cur_thread_block_vidx_limit) || (S_CAST(uintptr_t, cur_thread_byte_stop - geno_buf_iter) < record_byte_ct)) {
               thread_bidxs[++cur_thread_fill_idx] = block_vidx;
               if (cur_thread_fill_idx == calc_thread_ct) {
@@ -6711,7 +8596,6 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
               *write_iter++ = '.';
             } else {
               for (uint32_t info_idx = 0; info_idx != n_info; ++info_idx) {
-                uint32_t sidx;
                 ScanBcfTypedInt(&parse_iter, &sidx);
                 write_iter = strcpya(write_iter, fif_strings[sidx]);
 
@@ -6728,10 +8612,11 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
                   if (value_type == 7) {
                     // string
                     // Unlike most other VCF/BCF fields, spaces are actually
-                    // allowed here, so we need to detect them.  We error out
-                    // for now (possible todo: encode as "%20" instead).
+                    // allowed by the VCF spec here, so we need to detect them.
+                    // We error out on them for now (possible todo:
+                    // autoconversion to "%20").
                     if (unlikely(memchr(cur_vec_start, ' ', value_ct))) {
-                      snprintf(g_logbuf, kLogbufSize, "Error: INFO field in variant record #" PRIuPTR " of --bcf file\n");
+                      snprintf(g_logbuf, kLogbufSize, "Error: INFO field in variant record #%" PRIuPTR " of --bcf file contains a space; this cannot be imported by " PROG_NAME_STR ". Remove or reformat the field before reattempting import.\n", vrec_idx);
                       goto BcfToPgen_ret_MALFORMED_INPUT_WWN;
                     }
                     write_iter = memcpya(write_iter, cur_vec_start, value_ct);
@@ -6808,35 +8693,68 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
           grp = &(cur_gparse[block_vidx]);
           grp->record_start = geno_buf_iter;
           grp->flags = gparse_flags;
-          grp->metadata.read_bcf.qual_offsets[0] = UINT32_MAX;
-          grp->metadata.read_bcf.qual_offsets[1] = UINT32_MAX;
-          grp->metadata.read_bcf.gt_offset = UINT32_MAX;
-          grp->metadata.read_bcf.dosage_offset = UINT32_MAX;
-          grp->metadata.read_bcf.hds_offset = UINT32_MAX;
-          grp->metadata.read_bcf.hds_offset = UINT32_MAX;
-          uint32_t copy_offset = 0;
+          grp->metadata.read_bcf.qual_vec_offsets[0] = UINT32_MAX;
+          grp->metadata.read_bcf.qual_vec_offsets[1] = UINT32_MAX;
+          grp->metadata.read_bcf.gt_vec_offset = UINT32_MAX;
+          grp->metadata.read_bcf.dosage_vec_offset = UINT32_MAX;
+          grp->metadata.read_bcf.hds_vec_offset = UINT32_MAX;
+          grp->metadata.read_bcf.rec_idx = vrec_idx;
+          uintptr_t copy_vec_offset = 0;
           for (uint32_t qual_idx = 0; qual_idx != 2; ++qual_idx) {
             if (qual_starts[qual_idx]) {
-              grp->metadata.read_bcf.qual_offsets[qual_idx] = copy_offset;
-              const uint32_t cur_blen = qual_blens[qual_idx];
-              memcpy(&(geno_buf_iter[copy_offset]), qual_starts[qual_idx], cur_blen);
-              copy_offset += cur_blen;
+              grp->metadata.read_bcf.qual_vec_offsets[qual_idx] = copy_vec_offset;
+              const uint32_t type_blen = qual_type_blens[qual_idx];
+              const unsigned char* src_iter = qual_starts[qual_idx];
+              memcpy(&(geno_buf_iter[copy_vec_offset * kBytesPerVec]), src_iter, type_blen);
+              src_iter = &(src_iter[type_blen]);
+#ifdef __LP64__
+              ++copy_vec_offset;
+#else
+              copy_vec_offset += DivUp(type_blen, kBytesPerVec);
+#endif
+              const uint32_t vec_blen = qual_main_blens[qual_idx];
+              memcpy(&(geno_buf_iter[copy_vec_offset * kBytesPerVec]), src_iter, vec_blen);
+              copy_vec_offset += DivUp(vec_blen, kBytesPerVec);
             }
           }
           if (gt_start) {
-            grp->metadata.read_bcf.gt_offset = copy_offset;
-            memcpy(&(geno_buf_iter[copy_offset]), gt_start, gt_blen);
-            copy_offset += gt_blen;
+            grp->metadata.read_bcf.gt_vec_offset = copy_vec_offset;
+            const unsigned char* src_iter = gt_start;
+            memcpy(&(geno_buf_iter[copy_vec_offset * kBytesPerVec]), src_iter, gt_type_blen);
+            src_iter = &(src_iter[gt_type_blen]);
+#ifdef __LP64__
+            ++copy_vec_offset;
+#else
+            copy_vec_offset += DivUp(gt_type_blen, kBytesPerVec);
+#endif
+            memcpy(&(geno_buf_iter[copy_vec_offset * kBytesPerVec]), src_iter, gt_main_blen);
+            copy_vec_offset += DivUp(gt_main_blen, kBytesPerVec);
           }
           if (dosage_start) {
-            grp->metadata.read_bcf.dosage_offset = copy_offset;
-            memcpy(&(geno_buf_iter[copy_offset]), dosage_start, dosage_blen);
-            copy_offset += dosage_blen;
+            grp->metadata.read_bcf.dosage_vec_offset = copy_vec_offset;
+            const unsigned char* src_iter = dosage_start;
+            memcpy(&(geno_buf_iter[copy_vec_offset * kBytesPerVec]), src_iter, dosage_type_blen);
+            src_iter = &(src_iter[dosage_type_blen]);
+#ifdef __LP64__
+            ++copy_vec_offset;
+#else
+            copy_vec_offset += DivUp(dosage_type_blen, kBytesPerVec);
+#endif
+            memcpy(&(geno_buf_iter[copy_vec_offset * kBytesPerVec]), src_iter, dosage_main_blen);
+            copy_vec_offset += DivUp(dosage_main_blen, kBytesPerVec);
           }
           if (hds_start) {
-            grp->metadata.read_bcf.hds_offset = copy_offset;
-            memcpy(&(geno_buf_iter[copy_offset]), hds_start, hds_blen);
-            // copy_offset += hds_blen;
+            grp->metadata.read_bcf.hds_vec_offset = copy_vec_offset;
+            const unsigned char* src_iter = hds_start;
+            memcpy(&(geno_buf_iter[copy_vec_offset * kBytesPerVec]), src_iter, hds_type_blen);
+            src_iter = &(src_iter[hds_type_blen]);
+#ifdef __LP64__
+            ++copy_vec_offset;
+#else
+            copy_vec_offset += DivUp(hds_type_blen, kBytesPerVec);
+#endif
+            memcpy(&(geno_buf_iter[copy_vec_offset * kBytesPerVec]), src_iter, hds_main_blen);
+            // copy_vec_offset += DivUp(hds_main_blen, kBytesPerVec);
           }
           geno_buf_iter = &(geno_buf_iter[record_byte_ct]);
           ++block_vidx;
@@ -6978,6 +8896,11 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       logerrprintfww("Error: Variant record #%" PRIuPTR " of --bcf file has an invalid %s field.\n", vrec_idx, dosage_import_field);
       reterr = kPglRetInconsistentInput;
       break;
+    } else if (bcf_parse_err == kBcfParseWideGt) {
+      putc_unlocked('\n', stdout);
+      logerrprintfww("Error: Variant record #%" PRIuPTR " of --bcf file uses unexpectedly-wide integers for the GT field; only int8s are currently supported for n_allele < 64, and int16s for n_allele in [64, 16383].\n", vrec_idx);
+      reterr = kPglRetNotYetSupported;
+      break;
     } else if (bcf_parse_err == kBcfParseFloatDp) {
       putc_unlocked('\n', stdout);
       logerrprintfww("Error: Variant record #%" PRIuPTR " of --bcf file has a floating-point DP field; only integers are supported for now.\n", vrec_idx);
@@ -7031,7 +8954,6 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }
-*/
 
 
 PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, ImportFlags import_flags, char* outname, char* outname_end, uint32_t* sample_ct_ptr) {

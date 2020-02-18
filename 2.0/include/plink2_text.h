@@ -115,8 +115,6 @@
 namespace plink2 {
 #endif
 
-extern uint32_t g_debug_print;
-
 PglErr GetFileType(const char* fname, FileCompressionType* ftype_ptr);
 
 typedef struct TextFileBaseStruct {
