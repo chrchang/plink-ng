@@ -3910,7 +3910,8 @@ PglErr BcfHeaderLineIdxCheck(const char* line_iter, uint32_t header_line_idx) {
     if (cc == ',') {
       continue;
     }
-    if (likely(cc == '\n')) {
+    // bugfix (19 Feb 2020)
+    if (likely(cc == '>')) {
       return kPglRetSuccess;
     }
     break;
@@ -4044,26 +4045,25 @@ BcfParseErr BcfParseGqDpMain(const unsigned char* qual_main, uint32_t sample_ct,
 #endif
   if (qual_value_type == 1) {
     // int8
-    if (qual_min > 0x7f) {
-      SetAllBits(sample_ct * 2, genovec);
-      return kBcfParseOk;
-    }
 #ifdef __LP64__
     const uint32_t fullvec_ct = sample_ct / kBytesPerVec;
-    // Only signed-comparison intrinsics exist.
-    const VecI8* qual_alias = R_CAST(const VecI8*, qual_main);
-    const VecI8 min_vec = veci8_set1(qual_min);
     Vec4thUint* genovec_alias = R_CAST(Vec4thUint*, genovec);
-#else
-    const int8_t* qual_iter = R_CAST(const int8_t*, qual_main);
-    const int8_t qual_min_i8 = S_CAST(int8_t, qual_min);
 #endif
     if (qual_max >= 0x7f) {
       // Usual case: safe to skip qual_max comparisons.
+      // Subtract 1 with wraparound, and then check for < -1, since we need
+      // 0x80 (missing) to always pass.
+      const int8_t effective_qual_min_m1 = (qual_min >= 0x80)? 0x7f : (S_CAST(int8_t, qual_min) - 1);
 #ifdef __LP64__
+      const VecUc* qual_alias = R_CAST(const VecUc*, qual_main);
+      const VecUc all1 = vecuc_set1(0xff);
+      const VecI8 min_m1_vec = veci8_set1(effective_qual_min_m1);
       for (uint32_t vidx = 0; vidx != fullvec_ct; ++vidx) {
-        const VecI8 vv = veci8_loadu(&(qual_alias[vidx]));
-        VecI8 fail_vec = (min_vec > vv);
+        // don't start with VecI8, since we start with a wraparound
+        // subtraction.
+        const VecUc vv = vecuc_loadu(&(qual_alias[vidx]));
+        const VecI8 vv_m1 = R_CAST(VecI8, vv + all1);
+        VecI8 fail_vec = (min_m1_vec > vv_m1);
         fail_vec = veci8_permute0xd8_if_avx2(fail_vec);
         const VecI8 fail_vec_lo = veci8_unpacklo8(fail_vec, fail_vec);
         const VecI8 fail_vec_hi = veci8_unpackhi8(fail_vec, fail_vec);
@@ -4073,17 +4073,18 @@ BcfParseErr BcfParseGqDpMain(const unsigned char* qual_main, uint32_t sample_ct,
       }
       const uint32_t remainder = sample_ct % kBytesPerVec;
       if (remainder) {
-        const int8_t* trailing_start = R_CAST(const int8_t*, &(qual_main[fullvec_ct * kBytesPerVec]));
-        const int8_t qual_min_i8 = S_CAST(int8_t, qual_min);
+        const unsigned char* trailing_start = &(qual_main[fullvec_ct * kBytesPerVec]);
         Vec4thUint fail_bits = 0;
         for (uint32_t uii = 0; uii != remainder; ++uii) {
-          if (qual_min_i8 > trailing_start[uii]) {
+          const int8_t cur_qual_m1 = S_CAST(int8_t, trailing_start[uii] - 1);
+          if (effective_qual_min_m1 > cur_qual_m1) {
             fail_bits |= (3 * k1LU) << (2 * uii);
           }
         }
         genovec_alias[fullvec_ct] |= fail_bits;
       }
 #else
+      const unsigned char* qual_iter = qual_main;
       for (uint32_t widx = 0; ; ++widx) {
         if (widx >= word_ct_m1) {
           if (widx > word_ct_m1) {
@@ -4093,7 +4094,8 @@ BcfParseErr BcfParseGqDpMain(const unsigned char* qual_main, uint32_t sample_ct,
         }
         uintptr_t geno_word = genovec[widx];
         for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
-          if (qual_min_i8 > qual_iter[sample_idx_lowbits]) {
+          const int8_t cur_qual_m1 = S_CAST(int8_t, qual_iter[sample_idx_lowbits] - 1);
+          if (effective_qual_min_m1 > cur_qual_m1) {
             geno_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
           }
         }
@@ -4109,6 +4111,8 @@ BcfParseErr BcfParseGqDpMain(const unsigned char* qual_main, uint32_t sample_ct,
       // minimum depth of zero is always enforced, and we're scanning a vector
       // of signed values.)
 #ifdef __LP64__
+      const VecI8* qual_alias = R_CAST(const VecI8*, qual_main);
+      const VecI8 min_vec = veci8_set1(qual_min);
       const VecI8 max_vec = veci8_set1(qual_max);
       const VecI8 missing_vec = veci8_set1(0x80);
       for (uint32_t vidx = 0; vidx != fullvec_ct; ++vidx) {
@@ -4138,6 +4142,8 @@ BcfParseErr BcfParseGqDpMain(const unsigned char* qual_main, uint32_t sample_ct,
         genovec_alias[fullvec_ct] |= fail_bits;
       }
 #else
+      const int8_t* qual_iter = R_CAST(const int8_t*, qual_main);
+      const int8_t qual_min_i8 = S_CAST(int8_t, qual_min);
       const int8_t qual_max_i8 = S_CAST(int8_t, qual_max);
       for (uint32_t widx = 0; ; ++widx) {
         if (widx >= word_ct_m1) {
@@ -4160,40 +4166,37 @@ BcfParseErr BcfParseGqDpMain(const unsigned char* qual_main, uint32_t sample_ct,
     }
   } else if (qual_value_type == 2) {
     // int16
-    if (qual_min > 0x7fff) {
-      SetAllBits(sample_ct * 2, genovec);
-      return kBcfParseOk;
-    }
 #ifdef __LP64__
     const uint32_t fullvec_ct = sample_ct / kInt16PerVec;
-    const VecI16* qual_alias = R_CAST(const VecI16*, qual_main);
-    const VecI16 min_vec = veci16_set1(qual_min);
     Vec8thUint* genovec_alias = R_CAST(Vec8thUint*, genovec);
-#else
-    const int16_t* qual_iter = R_CAST(const int16_t*, qual_main);
-    const int16_t qual_min_i16 = S_CAST(int16_t, qual_min);
 #endif
     if (qual_max >= 0x7fff) {
+      const int16_t effective_qual_min_m1 = (qual_min >= 0x8000)? 0x7fff : (S_CAST(int16_t, qual_min) - 1);
 #ifdef __LP64__
+      const VecU16* qual_alias = R_CAST(const VecU16*, qual_main);
+      const VecU16 all1 = vecu16_set1(0xffff);
+      const VecI16 min_m1_vec = veci16_set1(effective_qual_min_m1);
       for (uint32_t vidx = 0; vidx != fullvec_ct; ++vidx) {
-        const VecI16 vv = veci16_loadu(&(qual_alias[vidx]));
-        const VecI16 fail_vec = (min_vec > vv);
+        const VecU16 vv = vecu16_loadu(&(qual_alias[vidx]));
+        const VecI16 vv_m1 = R_CAST(VecI16, vv + all1);
+        const VecI16 fail_vec = (min_m1_vec > vv_m1);
         const Vec8thUint fail_bits = veci16_movemask(fail_vec);
         genovec_alias[vidx] |= fail_bits;
       }
-      const uint32_t remainder = sample_ct % kBytesPerVec;
+      const uint32_t remainder = sample_ct % kInt16PerVec;
       if (remainder) {
-        const int16_t* trailing_start = R_CAST(const int16_t*, &(qual_main[fullvec_ct * kInt16PerVec]));
-        const int16_t qual_min_i16 = S_CAST(int16_t, qual_min);
+        const uint16_t* trailing_start = R_CAST(const uint16_t*, &(qual_main[fullvec_ct * kInt16PerVec]));
         Vec8thUint fail_bits = 0;
         for (uint32_t uii = 0; uii != remainder; ++uii) {
-          if (qual_min_i16 > trailing_start[uii]) {
+          const int16_t cur_qual_m1 = S_CAST(int16_t, trailing_start[uii]);
+          if (effective_qual_min_m1 > cur_qual_m1) {
             fail_bits |= 3U << (2 * uii);
           }
         }
         genovec_alias[fullvec_ct] |= fail_bits;
       }
 #else
+      const uint16_t* qual_iter = R_CAST(const uint16_t*, qual_main);
       for (uint32_t widx = 0; ; ++widx) {
         if (widx >= word_ct_m1) {
           if (widx > word_ct_m1) {
@@ -4203,7 +4206,8 @@ BcfParseErr BcfParseGqDpMain(const unsigned char* qual_main, uint32_t sample_ct,
         }
         uintptr_t geno_word = genovec[widx];
         for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
-          if (qual_min_i16 > qual_iter[sample_idx_lowbits]) {
+          const int16_t cur_qual_m1 = S_CAST(int16_t, qual_iter[sample_idx_lowbits] - 1);
+          if (effective_qual_min_m1 > cur_qual_m1) {
             geno_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
           }
         }
@@ -4215,6 +4219,8 @@ BcfParseErr BcfParseGqDpMain(const unsigned char* qual_main, uint32_t sample_ct,
       // Two comparisons required, and we need to special-case the missing
       // value.
 #ifdef __LP64__
+      const VecI16* qual_alias = R_CAST(const VecI16*, qual_main);
+      const VecI16 min_vec = veci16_set1(qual_min);
       const VecI16 max_vec = veci16_set1(qual_max);
       const VecI16 missing_vec = veci16_set1(0x8000);
       for (uint32_t vidx = 0; vidx != fullvec_ct; ++vidx) {
@@ -4225,7 +4231,7 @@ BcfParseErr BcfParseGqDpMain(const unsigned char* qual_main, uint32_t sample_ct,
         const Vec8thUint fail_bits = veci16_movemask(fail_vec);
         genovec_alias[vidx] |= fail_bits;
       }
-      const uint32_t remainder = sample_ct % kBytesPerVec;
+      const uint32_t remainder = sample_ct % kInt16PerVec;
       if (remainder) {
         const int16_t* trailing_start = R_CAST(const int16_t*, &(qual_main[fullvec_ct * kInt16PerVec]));
         const int16_t qual_min_i16 = S_CAST(int16_t, qual_min);
@@ -4240,6 +4246,8 @@ BcfParseErr BcfParseGqDpMain(const unsigned char* qual_main, uint32_t sample_ct,
         genovec_alias[fullvec_ct] |= fail_bits;
       }
 #else
+      const int16_t* qual_iter = R_CAST(const int16_t*, qual_main);
+      const int16_t qual_min_i16 = S_CAST(int16_t, qual_min);
       const int16_t qual_max_i16 = S_CAST(int16_t, qual_max);
       for (uint32_t widx = 0; ; ++widx) {
         if (widx >= word_ct_m1) {
@@ -4264,39 +4272,22 @@ BcfParseErr BcfParseGqDpMain(const unsigned char* qual_main, uint32_t sample_ct,
     // Leave out the two-comparison float subcase for now, it's messier and
     // floating-point DP is unlikely.
     return kBcfParseFloatDp;
-  } else if ((qual_value_type == 3) || ((qual_value_type == 5) && qual_min)) {
-    // int32, or typical GQ float
-    if (qual_value_type == 5) {
-      // More efficient to perform the comparison in integer-space, since we
-      // treat all NaN values (0x7f800000...0x7fffffff) as passing.
-      // We do single out the qual_min == 0 special case, since in that case
-      // signed-zero (0x80000000) must pass.
-
-      // Convert to the appropriate floating-point bit pattern, rounding up.
-      const uint32_t orig_qual_min = qual_min;
-      const float fxx = S_CAST(float, qual_min);
-      memcpy(&qual_min, &fxx, 4);
-      if (orig_qual_min > 0x1000000) {
-        // We need to add 1 to qual_min iff high_bit_idx > low_bit_idx + 23.
-        const uint32_t high_bit_idx = bsru32(orig_qual_min);
-        const uint32_t low_bit_idx = ctzu32(orig_qual_min);
-        qual_min += (high_bit_idx > (low_bit_idx + 23));
-      }
-    }
+  } else if ((qual_value_type == 3) || ((qual_value_type == 5) && (!qual_min))) {
+    // int32, or float qual_min == 0.
 #ifdef __LP64__
     const uint32_t fullvec_ct = sample_ct / kInt32PerVec;
-    const VecI32* qual_alias = R_CAST(const VecI32*, qual_main);
-    const VecI32 min_vec = veci32_set1(qual_min);
     Vec16thUint* genovec_alias = R_CAST(Vec16thUint*, genovec);
-#else
-    const int32_t* qual_iter = R_CAST(const int32_t*, qual_main);
-    const int32_t qual_min_i32 = S_CAST(int32_t, qual_min);
 #endif
     if (qual_max == 0x7fffffff) {
+      const int32_t qual_min_m1 = S_CAST(int32_t, qual_min) - 1;
 #ifdef __LP64__
+      const VecU32* qual_alias = R_CAST(const VecU32*, qual_main);
+      const VecU32 all1 = vecu32_set1(UINT32_MAX);
+      const VecI32 min_m1_vec = veci32_set1(qual_min_m1);
       for (uint32_t vidx = 0; vidx != fullvec_ct; ++vidx) {
-        const VecI32 vv = veci32_loadu(&(qual_alias[vidx]));
-        const VecI32 fail_vec = (min_vec > vv);
+        const VecU32 vv = vecu32_loadu(&(qual_alias[vidx]));
+        const VecI32 vv_m1 = R_CAST(VecI32, vv + all1);
+        const VecI32 fail_vec = (min_m1_vec > vv_m1);
 #  ifdef USE_AVX2
         const Vec16thUint fail_bits = _pext_u32(veci32_movemask(fail_vec), 0x33333333);
 #  else
@@ -4308,17 +4299,18 @@ BcfParseErr BcfParseGqDpMain(const unsigned char* qual_main, uint32_t sample_ct,
       }
       const uint32_t remainder = sample_ct % kInt32PerVec;
       if (remainder) {
-        const int32_t* trailing_start = R_CAST(const int32_t*, &(qual_main[fullvec_ct * kInt32PerVec]));
-        const int32_t qual_min_i32 = S_CAST(int32_t, qual_min);
+        const uint32_t* trailing_start = R_CAST(const uint32_t*, &(qual_main[fullvec_ct * kInt32PerVec]));
         Vec16thUint fail_bits = 0;
         for (uint32_t uii = 0; uii != remainder; ++uii) {
-          if (qual_min_i32 > trailing_start[uii]) {
+          const int32_t cur_qual_m1 = S_CAST(int32_t, trailing_start[uii] - 1);
+          if (qual_min_m1 > cur_qual_m1) {
             fail_bits |= 3U << (2 * uii);
           }
         }
         genovec_alias[fullvec_ct] |= fail_bits;
       }
 #else
+      const uint32_t* qual_iter = R_CAST(const uint32_t*, qual_main);
       for (uint32_t widx = 0; ; ++widx) {
         if (widx >= word_ct_m1) {
           if (widx > word_ct_m1) {
@@ -4328,7 +4320,8 @@ BcfParseErr BcfParseGqDpMain(const unsigned char* qual_main, uint32_t sample_ct,
         }
         uintptr_t geno_word = genovec[widx];
         for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
-          if (qual_min_i32 > qual_iter[sample_idx_lowbits]) {
+          const int32_t cur_qual_m1 = S_CAST(int32_t, qual_iter[sample_idx_lowbits] - 1);
+          if (qual_min_m1 > cur_qual_m1) {
             geno_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
           }
         }
@@ -4340,6 +4333,8 @@ BcfParseErr BcfParseGqDpMain(const unsigned char* qual_main, uint32_t sample_ct,
       // Two comparisons required, and we need to special-case the missing
       // value.
 #ifdef __LP64__
+      const VecI32* qual_alias = R_CAST(const VecI32*, qual_main);
+      const VecI32 min_vec = veci32_set1(qual_min);
       const VecI32 max_vec = veci32_set1(qual_max);
       const VecI32 missing_vec = veci32_set1(0x80000000);
       for (uint32_t vidx = 0; vidx != fullvec_ct; ++vidx) {
@@ -4370,6 +4365,8 @@ BcfParseErr BcfParseGqDpMain(const unsigned char* qual_main, uint32_t sample_ct,
         genovec_alias[fullvec_ct] |= fail_bits;
       }
 #else
+      const int32_t* qual_iter = R_CAST(const int32_t*, qual_main);
+      const int32_t qual_min_i32 = S_CAST(int32_t, qual_min);
       const int32_t qual_max_i32 = S_CAST(int32_t, qual_max);
       for (uint32_t widx = 0; ; ++widx) {
         if (widx >= word_ct_m1) {
@@ -4391,50 +4388,55 @@ BcfParseErr BcfParseGqDpMain(const unsigned char* qual_main, uint32_t sample_ct,
 #endif
     }
   } else if (likely(qual_value_type == 5)) {
-    // float, qual_min == 0.
-    // Fail when bit pattern > 0x80000000U.
+    // float, qual_min > 0.
+    // 0x80000000 does not pass in this case.
+    if (qual_value_type == 5) {
+      // Still more efficient to perform the comparison in integer-space, since
+      // we treat all NaN values (0x7f800000...0x7fffffff) as passing.
+
+      // Convert to the appropriate floating-point bit pattern, rounding up.
+      const uint32_t orig_qual_min = qual_min;
+      const float fxx = S_CAST(float, qual_min);
+      memcpy(&qual_min, &fxx, 4);
+      if (orig_qual_min > 0x1000000) {
+        // We need to add 1 to qual_min iff high_bit_idx > low_bit_idx + 23.
+        const uint32_t high_bit_idx = bsru32(orig_qual_min);
+        const uint32_t low_bit_idx = ctzu32(orig_qual_min);
+        qual_min += (high_bit_idx > (low_bit_idx + 23));
+      }
+    }
 #ifdef __LP64__
     const uint32_t fullvec_ct = sample_ct / kInt32PerVec;
     Vec16thUint* genovec_alias = R_CAST(Vec16thUint*, genovec);
+    const VecI32* qual_alias = R_CAST(const VecI32*, qual_main);
+    const VecI32 min_vec = veci32_set1(qual_min);
+    for (uint32_t vidx = 0; vidx != fullvec_ct; ++vidx) {
+      const VecI32 vv = veci32_loadu(&(qual_alias[vidx]));
+      const VecI32 fail_vec = (min_vec > vv);
 #  ifdef USE_AVX2
-    // Subtract 1 with wraparound, and then check for < -1.
-
-    // We don't use VecI32 since wraparound is undefined in non-vectorized
-    // arithmetic, and we don't use VecU32 since cmpgt is signed.
-    const __m256i* qual_alias = R_CAST(const __m256i*, qual_main);
-    const __m256i all1 = _mm256_set1_epi8(0xff);
-    for (uint32_t vidx = 0; vidx != fullvec_ct; ++vidx) {
-      const __m256i vv = _mm256_loadu_si256(&(qual_alias[vidx]));
-      const __m256i vv_minus_1 = _mm256_add_epi32(vv, all1);
-      const __m256i fail_vec = _mm256_cmpgt_epi32(vv_minus_1, all1);
-      const Vec16thUint fail_bits = _pext_u32(_mm256_movemask_epi8(fail_vec), 0x33333333);
-      genovec_alias[vidx] |= fail_bits;
-    }
+      const Vec16thUint fail_bits = _pext_u32(veci32_movemask(fail_vec), 0x33333333);
 #  else
-    const __m128i* qual_alias = R_CAST(const __m128i*, qual_main);
-    const __m128i all1 = _mm_set1_epi8(0xff);
-    for (uint32_t vidx = 0; vidx != fullvec_ct; ++vidx) {
-      const __m128i vv = _mm_loadu_si128(&(qual_alias[vidx]));
-      const __m128i vv_minus_1 = _mm_add_epi32(vv, all1);
-      const __m128i fail_vec = _mm_cmpgt_epi32(vv_minus_1, all1);
       const __m128i vec_packed = _mm_packs_epi16(R_CAST(__m128i, fail_vec), R_CAST(__m128i, fail_vec));
+      // unwanted high bits get truncated here.
       const Vec16thUint fail_bits = _mm_movemask_epi8(vec_packed);
+#  endif
       genovec_alias[vidx] |= fail_bits;
     }
-#  endif
     const uint32_t remainder = sample_ct % kInt32PerVec;
     if (remainder) {
-      const uint32_t* trailing_start = R_CAST(const uint32_t*, &(qual_main[fullvec_ct * kInt32PerVec]));
+      const int32_t* trailing_start = R_CAST(const int32_t*, &(qual_main[fullvec_ct * kInt32PerVec]));
+      const int32_t qual_min_i32 = S_CAST(int32_t, qual_min);
       Vec16thUint fail_bits = 0;
       for (uint32_t uii = 0; uii != remainder; ++uii) {
-        if (trailing_start[uii] > 0x80000000U) {
+        if (qual_min_i32 > trailing_start[uii]) {
           fail_bits |= 3U << (2 * uii);
         }
       }
       genovec_alias[fullvec_ct] |= fail_bits;
     }
 #else
-    const uint32_t* qual_iter = R_CAST(const uint32_t*, qual_main);
+    const int32_t* qual_iter = R_CAST(const int32_t*, qual_main);
+    const int32_t qual_min_i32 = S_CAST(int32_t, qual_min);
     for (uint32_t widx = 0; ; ++widx) {
       if (widx >= word_ct_m1) {
         if (widx > word_ct_m1) {
@@ -4444,7 +4446,7 @@ BcfParseErr BcfParseGqDpMain(const unsigned char* qual_main, uint32_t sample_ct,
       }
       uintptr_t geno_word = genovec[widx];
       for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
-        if (qual_iter[sample_idx_lowbits] > 0x80000000U) {
+        if (qual_min_i32 > qual_iter[sample_idx_lowbits]) {
           geno_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
         }
       }
@@ -7151,7 +7153,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     // Scan the text header block.
     // We perform the same validation as --vcf.  In addition, we need to
     // construct the contig and generic-string dictionaries; the latter may
-    // require awareness of IDX keys (TODO: fix this in plink 1.9).
+    // require awareness of IDX keys.
     // (There is also a comment in the specification about explicitly
     // specifying a dictionary with a ##dictionary line, but AFAICT that is
     // left over from early brainstorming, is not consistent with the rest of
@@ -7227,7 +7229,8 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         continue;
       }
       char* line_last_iter = &(line_end[-2]);
-      if (*line_last_iter == '\r') {
+      // tolerate trailing spaces, not just \r
+      while (ctou32(*line_last_iter) <= 32) {
         --line_last_iter;
       }
       if (unlikely(*line_last_iter != '>')) {
@@ -7306,8 +7309,10 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         snprintf(g_logbuf, kLogbufSize, "Error: Line %u in BCF text header block is malformed.\n", header_line_idx);
         goto BcfToPgen_ret_MALFORMED_INPUT_2;
       }
-      const char* id_end = strchrnul_n(id_start, ',');
-      if (*id_end == '\n') {
+      // bugfix (19 Feb 2020): contig header lines are permitted to have
+      // nothing but ID.
+      const char* id_end = strchrnul2_n(id_start, ',', '>');
+      if (unlikely(*id_end == '\n')) {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %u in BCF text header block is malformed.\n", header_line_idx);
         goto BcfToPgen_ret_MALFORMED_INPUT_2;
       }
@@ -7412,7 +7417,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         }
         if (explicit_idx_keys) {
           char* line_last_iter = &(line_end[-2]);
-          if (*line_last_iter == '\r') {
+          while (ctou32(*line_last_iter) <= 32) {
             --line_last_iter;
           }
           --line_last_iter;
@@ -7437,8 +7442,11 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
           target = &(fif_strings[cur_header_idx]);
           slen_dst = &(fif_slens[cur_header_idx]);
         }
-        const char* id_end = strchrnul_n(id_start, ',');
+        const char* id_end = S_CAST(const char*, rawmemchr2(id_start, ',', '>'));
         const uint32_t id_slen = id_end - id_start;
+        // May enforce id_slen <= kMaxIdSlen here later.  (Technically only
+        // necessary if we use the key in e.g. error messages, which happens on
+        // BCF export but not import.)
         if (*target) {
           // Duplicate IDX values are actually permitted, but only when the ID
           // string is identical.

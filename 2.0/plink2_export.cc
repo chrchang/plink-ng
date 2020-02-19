@@ -3127,13 +3127,6 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
         bgen_geno_buf_iter = &(bgen_geno_buf_iter[DivUp(cur_write_bit_idx, CHAR_BIT)]);
       }
       const uint32_t uncompressed_bytect = bgen_geno_buf_iter - uncompressed_bgen_geno_buf;
-      /*
-      for (uint32_t uii = 0; uii != uncompressed_bytect; ++uii) {
-        printf("%u ", uncompressed_bgen_geno_buf[uii]);
-      }
-      printf("\n");
-      exit(1);
-      */
       uintptr_t compressed_bytect;
       if (compressor) {
         compressed_bytect = libdeflate_zlib_compress(compressor, uncompressed_bgen_geno_buf, uncompressed_bytect, writebuf_iter, bgen_compressed_buf_max);
@@ -3835,6 +3828,112 @@ PglErr ExportOxSample(const char* outname, const uintptr_t* sample_include, cons
   return reterr;
 }
 
+const unsigned char kValidVcf43ContigChars[256] = {
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+
+uint32_t ValidVcfContigName(const char* name_start, const char* name_end, uint32_t v43) {
+  // Name already guaranteed to not start with '#'.
+  // With either VCF version, we don't allow the contig name to contain a ',',
+  // even though the current specification doesn't prohibit it: it messes up
+  // parsing of the ##contig header line too often in practice.
+  // With v4.3 only, we also prohibit '<', '>', '[', ']', and '*', all
+  // characters with ASCII code >126, and first character '='.
+  // Colons are *not* prohibited any more, as of 1 Feb 2020.
+  const uint32_t slen = name_end - name_start;
+  if (unlikely(memchr(name_start, ',', slen))) {
+    logerrputs("Error: " PROG_NAME_STR " does not permit contig names in exported VCF files to contain\ncommas, since they are too likely to create parsing problems.\n");
+    return 0;
+  }
+  if (!v43) {
+    return 1;
+  }
+  if (unlikely(name_start[0] == '=')) {
+    logerrputs("Error: VCFv4.3 contig names cannot start with the '=' character.\n");
+    return 0;
+  }
+  for (uint32_t uii = 0; uii != slen; ++uii) {
+    unsigned char ucc = name_start[uii];
+    if (unlikely(!kValidVcf43ContigChars[ucc])) {
+      char* write_iter = strcpya_k(g_logbuf, "Error: Contig name '");
+      write_iter = memcpya(write_iter, name_start, slen);
+      strcpy_k(write_iter, "' is prohibited by the VCFv4.3 specification ('*', '<', '>', '[', ']', and ASCII codes outside 33..126 not allowed).\n");
+      WordWrapB(0);
+      logerrputsb();
+      return 0;
+    }
+  }
+  return 1;
+}
+
+// TODO: LoadPvar() should conditionally detect and load INFO:END, then we take
+// it into account here, in the BCF rlen field, ...
+uint32_t ChrLenLbound(const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t chr_fo_idx, uint32_t max_allele_slen, UnsortedVar vpos_sortstatus) {
+  const uint32_t vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
+  const uint32_t vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+  assert(vidx_start != vidx_end);
+  if (!(vpos_sortstatus & kfUnsortedVarBp)) {
+    if (max_allele_slen == 1) {
+      return variant_bps[vidx_end - 1];
+    }
+    uint32_t bp_end = 0;
+    for (uint32_t vidx = vidx_end; vidx != vidx_start; ) {
+      --vidx;
+      const uint32_t cur_bp = variant_bps[vidx];
+      if (cur_bp + max_allele_slen <= bp_end) {
+        break;
+      }
+      uintptr_t allele_idx_offset_base = vidx * 2;
+      if (allele_idx_offsets) {
+        allele_idx_offset_base = allele_idx_offsets[vidx];
+      }
+      // We only care about reference-allele length.
+      const uint32_t cur_bp_end = cur_bp + strlen(allele_storage[allele_idx_offset_base]) - 1;
+      if (cur_bp_end > bp_end) {
+        bp_end = cur_bp_end;
+      }
+    }
+    return bp_end;
+  }
+  uint32_t bp_end = U32ArrMax(&(variant_bps[vidx_start]), vidx_end - vidx_start);
+  if (max_allele_slen == 1) {
+    return bp_end;
+  }
+  uint32_t min_check_bp = 0;
+  if (bp_end >= max_allele_slen) {
+    min_check_bp = bp_end + 1 - max_allele_slen;
+  }
+  for (uint32_t vidx = vidx_start; vidx != vidx_end; ++vidx) {
+    const uint32_t cur_bp = variant_bps[vidx];
+    if (cur_bp < min_check_bp) {
+      continue;
+    }
+    uintptr_t allele_idx_offset_base = vidx * 2;
+    if (allele_idx_offsets) {
+      allele_idx_offset_base = allele_idx_offsets[vidx];
+    }
+    const uint32_t cur_bp_end = cur_bp + strlen(allele_storage[allele_idx_offset_base]) - 1;
+    if (cur_bp_end > bp_end) {
+      bp_end = cur_bp_end;
+    }
+  }
+  return bp_end;
+}
+
 uint32_t ValidVcfAlleleCode(const char* allele_code_iter) {
   // returns 1 if probably valid (angle-bracket case is not exhaustively
   // checked), 0 if definitely not
@@ -3846,6 +3945,7 @@ uint32_t ValidVcfAlleleCode(const char* allele_code_iter) {
     uii -= 64;
     // A = 1, C = 3, G = 7, N = 14, T = 20, so (0x10408a >> ucc) & 1 works as a
     // set membership test
+    // (maybe should replace this with another 256-element lookup table...)
 #ifdef __LP64__
     if ((uii > 63) || (!((0x10408a0010408aLLU >> uii) & 1))) {
       // if '[', ']', or '.', assume breakend
@@ -4109,7 +4209,7 @@ char* AppendVcfMultiallelicDsForcePhased(uint32_t allele_ct_m2, uint32_t hds_for
 #ifdef __arm__
 #  error "Unaligned accesses in ExportVcf()."
 #endif
-PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const uintptr_t* sex_male_collapsed, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t max_thread_ct, ExportfFlags exportf_flags, VcfExportMode vcf_mode, IdpasteFlags exportf_id_paste, char exportf_id_delim, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const uintptr_t* sex_male_collapsed, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, UnsortedVar vpos_sortstatus, uint32_t max_thread_ct, ExportfFlags exportf_flags, VcfExportMode vcf_mode, IdpasteFlags exportf_id_paste, char exportf_id_delim, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
   TextStream pvar_reload_txs;
@@ -4238,6 +4338,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
     const uint32_t par1_code = cip->xymt_codes[kChrOffsetPAR1];
     const uint32_t par2_code = cip->xymt_codes[kChrOffsetPAR2];
+    const uint32_t v43 = (exportf_flags / kfExportfVcf43) & 1;
     uint32_t x_contig_line_written = 0;
     if (xheader) {
       memcpyao_k(writebuf, "##contig=<ID=", 13);
@@ -4275,7 +4376,11 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
           SetBit(chr_fo_idx, written_contig_header_lines);
           // if --output-chr was used at some point, we need to sync the
           // ##contig chromosome code with the code in the VCF body.
-          write_iter = chrtoa(cip, chr_idx, &(writebuf[13]));
+          char* contig_write_start = &(writebuf[13]);
+          write_iter = chrtoa(cip, chr_idx, contig_write_start);
+          if (unlikely(!ValidVcfContigName(contig_write_start, write_iter, v43))) {
+            goto ExportVcf_ret_MALFORMED_INPUT;
+          }
           if (unlikely(BgzfWrite(writebuf, write_iter - writebuf, &bgzf))) {
             goto ExportVcf_ret_WRITE_FAIL;
           }
@@ -4302,8 +4407,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         continue;
       }
       if ((chr_idx == x_code) || (chr_idx == par1_code) || (chr_idx == par2_code)) {
-        // if variant included, should add max allele length instead of 1
-        const uint32_t pos_end = variant_bps[cip->chr_fo_vidx_start[chr_fo_idx + 1] - 1] + 1;
+        const uint32_t pos_end = ChrLenLbound(cip, variant_bps, allele_idx_offsets, allele_storage, chr_fo_idx, max_allele_slen, vpos_sortstatus);
         if (pos_end > chrx_end) {
           chrx_end = pos_end;
         }
@@ -4319,18 +4423,12 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         contig_zero_written = 1;
         write_iter = strcpya_k(chr_name_write_end, ",length=2147483645");
       } else {
-        if (unlikely(memchr(chr_name_write_start, ':', chr_name_write_end - chr_name_write_start))) {
-          logerrputs("Error: VCF chromosome codes may not include the ':' character.\n");
+        if (unlikely(!ValidVcfContigName(chr_name_write_start, chr_name_write_end, v43))) {
           goto ExportVcf_ret_MALFORMED_INPUT;
         }
         write_iter = strcpya_k(chr_name_write_end, ",length=");
-        if (1) {
-          // er, if variant included, should look at lengths of last few allele
-          // codes, and compute max(pos + <max allele len in variant>)...
-          write_iter = u32toa(variant_bps[cip->chr_fo_vidx_start[chr_fo_idx + 1] - 1] + 1, write_iter);
-        } else {
-          // todo: scan for maximum pos in unsorted map case
-        }
+        const uint32_t pos_end = ChrLenLbound(cip, variant_bps, allele_idx_offsets, allele_storage, chr_fo_idx, max_allele_slen, vpos_sortstatus);
+        write_iter = u32toa(pos_end, write_iter);
       }
       *write_iter++ = '>';
       AppendBinaryEoln(&write_iter);
@@ -4342,12 +4440,8 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       char* chr_name_write_start = strcpya_k(write_iter, "##contig=<ID=");
       char* chr_name_write_end = chrtoa(cip, x_code, chr_name_write_start);
       write_iter = strcpya_k(chr_name_write_end, ",length=");
-      if (1) {
-        write_iter = u32toa(chrx_end, write_iter);
-      } else {
-      }
-      *write_iter++ = '>';
-      AppendBinaryEoln(&write_iter);
+      write_iter = u32toa(chrx_end, write_iter);
+      write_iter = strcpya_k(write_iter, ">" EOLN_STR);
       if (unlikely(bgzfwrite_ck(writebuf_flush, &bgzf, &write_iter))) {
         goto ExportVcf_ret_WRITE_FAIL;
       }
@@ -6001,7 +6095,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     reterr = kPglRetMalformedInput;
     break;
   ExportVcf_ret_INCONSISTENT_INPUT:
-    reterr = kPglRetMalformedInput;
+    reterr = kPglRetInconsistentInput;
     break;
   ExportVcf_ret_PGR_FAIL:
     PgenErrPrintN(reterr);
@@ -6014,8 +6108,51 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
   return reterr;
 }
 
+PglErr AddToFifHtable(unsigned char* arena_bottom, const char* key, uint32_t htable_size, uint32_t key_slen, unsigned char prechar, unsigned char** arena_top_ptr, char** keys, uint32_t* htable, uint32_t* key_ct_ptr, uint32_t* cur_idx_ptr) {
+  for (uint32_t hashval = Hashceil(key, key_slen, htable_size); ; ) {
+    uint32_t cur_idx = htable[hashval];
+    if (cur_idx == UINT32_MAX) {
+      const uint32_t key_ct = *key_ct_ptr;
+      if (StoreStringAndPrecharAtEnd(arena_bottom, key, prechar, key_slen, arena_top_ptr, &(keys[key_ct]))) {
+        return kPglRetNomem;
+      }
+      *cur_idx_ptr = key_ct;
+      htable[hashval] = key_ct;
+      *key_ct_ptr = key_ct + 1;
+      return kPglRetSuccess;
+    }
+    char* existing_key = keys[cur_idx];
+    if (memequal(key, existing_key, key_slen) && (!existing_key[key_slen])) {
+      // Only permit this if previous instance was FILTER and this is INFO, or
+      // vice versa, or this is a FORMAT key.
+      // INFO entries always have prechar bit 0 set and 3 unset, while FILTER
+      // entries are the reverse.  FORMAT keys have prechar == 0.
+      const unsigned char new_prechar = S_CAST(unsigned char, existing_key[-1]) ^ prechar;
+      if (unlikely(prechar && ((new_prechar & 9) != 9))) {
+        char* write_iter = strcpya_k(g_logbuf, "Error: Multiple ");
+        if (prechar & 8) {
+          write_iter = strcpya_k(write_iter, "FILTER");
+        } else {
+          write_iter = strcpya_k(write_iter, "INFO");
+        }
+        *write_iter++ = ':';
+        write_iter = memcpya(write_iter, key, key_slen);
+        strcpy_k(write_iter, " header lines.\n");
+        WordWrapB(0);
+        logerrputsb();
+        return kPglRetMalformedInput;
+      }
+      existing_key[-1] = new_prechar;
+      return kPglRetSuccess;
+    }
+    if (++hashval == htable_size) {
+      hashval = 0;
+    }
+  }
+}
+
 /*
-PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const uintptr_t* sex_male_collapsed, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t max_thread_ct, ExportfFlags exportf_flags, VcfExportMode vcf_mode, IdpasteFlags exportf_id_paste, char exportf_id_delim, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const uintptr_t* sex_male_collapsed, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, UnsortedVar vpos_sortstatus, uint32_t max_thread_ct, ExportfFlags exportf_flags, VcfExportMode vcf_mode, IdpasteFlags exportf_id_paste, char exportf_id_delim, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
   TextStream pvar_reload_txs;
@@ -6061,6 +6198,383 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
       write_ds = 0;
       write_hds = 0;
     }
+    const uintptr_t* nonref_flags = pgfip->nonref_flags;
+    const uint32_t all_nonref = (pgfip->gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
+    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
+    uint32_t write_pr = all_nonref;
+    if (nonref_flags) {
+      write_pr = !IntersectionIsEmpty(variant_include, nonref_flags, raw_variant_ctl);
+    }
+    const uint32_t info_pr_flag_present = (info_flags / kfInfoPrFlagPresent) & 1;
+    // Count FILTER/INFO/FORMAT keys for hash table sizing purposes.  Slight
+    // overestimate ok, so we don't bother to avoid double-counting
+    // FILTER:PASS, or counting FORMAT:HDS when it won't actually be used, etc.
+    uint32_t fif_key_ct_ubound = 5;
+    if (xheader) {
+      const char* xheader_iter = xheader;
+      const char* xheader_end = &(xheader_iter[xheader_blen]);
+      while (xheader_iter != xheader_end) {
+        fif_key_ct_ubound += StrStartsWithUnsafe(xheader_iter, "##FILTER=<ID=") || StrStartsWithUnsafe(xheader_iter, "##INFO=<ID=");
+        xheader_iter = AdvPastDelim(xheader_iter, '\n');
+      }
+    }
+    const uint32_t fif_keys_htable_size = GetHtableFastSize(fif_key_ct_ubound);
+    // The byte size of the header must be stored in bytes [5,9).  So we
+    // generate the entire header, fill in its size, and only then do we flush.
+    // (In principle, we could compute its exact size and then generate the
+    // contents incrementally to save memory in extreme cases, but it's limited
+    // to 4 GiB anyway so I won't bother.)
+    // Ways for the actual header to exceed xheader_blen bytes:
+    // * New FILTER:PASS, INFO:PR, and FORMAT header lines, and beginning of
+    //   #CHROM line.  These add up to less than 1 KB.
+    // * ",IDX=<#>" appended to existing FILTER/INFO header lines.  The number
+    //   of added bytes is less than (5 + UintSlen(fif_key_ct_ubound - 1)) *
+    //   fif_key_ct_ubound.
+    // * ",IDX=<#>" appended to existing contig lines, or entirely new contig
+    //   lines.  This is less than chr_ct * 64 + sum of extra-chr string
+    //   string lengths.
+    // * Sample IDs.
+    uintptr_t header_ubound = xheader_blen + 1024 + (5 + UintSlen(fif_key_ct_ubound - 1)) * S_CAST(uintptr_t, fif_key_ct_ubound);
+    const uint32_t chr_ct = cip->chr_ct;
+    {
+      const uint32_t max_code = cip->max_code;
+      for (uint32_t chr_fo_idx = 0; chr_fo_idx != chr_ct; ++chr_fo_idx) {
+        const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+        if (!IsSet(cip->chr_mask, chr_idx)) {
+          continue;
+        }
+        // ##contig=<ID=chr99,length=1000000000,IDX=12345>
+        // 37 + kMaxChrCodeDigits + strlen(EOLN_STR) + length of contig ID
+        header_ubound += 37 + kMaxChrCodeDigits + strlen(EOLN_STR);
+        if (chr_idx <= max_code) {
+          // regular code
+          header_ubound += kMaxChrTextnumSlen + 3;
+        } else {
+          header_ubound += strlen(cip->nonstd_names[chr_idx]);
+        }
+      }
+      const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+      uintptr_t max_sid_blen = siip->max_sid_blen;
+      const char* sids = siip->sids;
+      const uint32_t write_sid = DataSidColIsRequired(sample_include, sids, sample_ct, max_sid_blen, exportf_id_paste / kfIdpasteMaybesid);
+      if (write_sid && (!sids)) {
+        max_sid_blen = 2;
+      }
+      const uintptr_t max_exported_sample_id_blen = max_sample_id_blen + write_sid * max_sid_blen;
+      header_ubound += max_exported_sample_id_blen * sample_ct;
+    }
+    // We need these three data structures in the main BCF-writing loop.
+    char** fif_keys;
+    uint32_t* fif_keys_htable;
+    uint16_t* chr_fo_to_bcf_idx;
+    // We'll also need writebuf, but it'll be resized.
+    // All bigstack-base allocations after writebuf in this section are
+    // temporary.
+    char* writebuf;
+    if (unlikely(
+            bigstack_alloc_u32(fif_keys_htable_size, &fif_keys_htable) ||
+            bigstack_calloc_cp(fif_key_ct_ubound, &fif_keys) ||
+            bigstack_alloc_u16(chr_ct, &chr_fo_to_bcf_idx) ||
+            bigstack_alloc_c(header_ubound + 9, &writebuf))) {
+      goto ExportBcf_ret_NOMEM;
+    }
+    SetAllU32Arr(fif_keys_htable_size, fif_keys_htable);
+    char* write_iter = memcpya_k(writebuf, "BCF\2\2\0\0\0", 9);
+    const uint32_t v43 = (exportf_flags / kfExportfBcf43) & 1;
+    {
+      // Now generate the header body and build the string dictionaries.
+      // We store additional information about each FILTER/INFO/FORMAT key in
+      // fif_keys[index][-1]:
+      //   bits 0-2: INFO type (1 = Flag, 3 = Integer, 5 = Float, 7 = String)
+      //   bit 3: FILTER?
+      //   bits 4-7 unused for now
+      char* header_start = write_iter;
+      write_iter = strcpya_k(write_iter, "##fileformat=VCFv4.");
+      *write_iter++ = '2' + v43;
+      write_iter = strcpya_k(write_iter, EOLN_STR "##fileDate=");
+      time_t rawtime;
+      time(&rawtime);
+      struct tm* loctime;
+      loctime = localtime(&rawtime);
+      write_iter += strftime(write_iter, kMaxMediumLine, "%Y%m%d", loctime);
+      write_iter = strcpya_k(write_iter, EOLN_STR "##source=PLINKv2.00" EOLN_STR);
+      if (cip->chrset_source) {
+        AppendChrsetLine(cip, &write_iter);
+      }
+      const uint32_t chr_ctl = BitCtToWordCt(chr_ct);
+      uintptr_t* written_contig_header_lines;
+      if (unlikely(bigstack_calloc_w(chr_ctl, &written_contig_header_lines))) {
+        goto ExportBcf_ret_NOMEM;
+      }
+      unsigned char* tmp_alloc_end = g_bigstack_end;
+      // Match htslib/bcftools behavior of always putting an explicit
+      // FILTER:PASS header line first.
+      write_iter = strcpya_k(write_iter, "##FILTER=<ID=PASS,Description=\"All filters passed\",IDX=0>" EOLN_STR);
+      uint32_t fif_key_ct = 0;
+      {
+        uint32_t cur_idx;
+        reterr = AddToFifHtable(g_bigstack_base, "PASS", fif_keys_htable_size, strlen("PASS"), 8, &tmp_alloc_end, fif_keys, fif_keys_htable, &fif_key_ct, &cur_idx);
+        if (unlikely(reterr)) {
+          goto ExportBcf_ret_1;
+        }
+      }
+
+      const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
+      const uint32_t par1_code = cip->xymt_codes[kChrOffsetPAR1];
+      const uint32_t par2_code = cip->xymt_codes[kChrOffsetPAR2];
+      uint32_t x_contig_line_written = 0;
+      uint32_t contig_string_idx_end = 0;
+      if (xheader) {
+        char* line_end = xheader;
+        char* xheader_end = &(xheader[xheader_blen]);
+        for (; line_end != xheader_end; ) {
+          char* line_start = line_end;
+          char* line_main = &(line_start[2]);
+          line_end = AdvPastDelim(line_main, '\n');
+          const uint32_t is_filter_line = StrStartsWithUnsafe(line_main, "FILTER=<ID=");
+          const uint32_t is_info_line = StrStartsWithUnsafe(line_main, "INFO=<ID=");
+          if ((!is_filter_line) && (!is_info_line)) {
+            if (!StrStartsWithUnsafe(line_main, "contig=<ID=")) {
+              write_iter = memcpya(write_iter, line_start, line_end - line_start);
+              continue;
+            }
+            char* contig_name_start = &(line_main[11]);
+            char* contig_name_end = strchrnul2_n(contig_name_start, ',', '>');
+            if (*contig_name_end != ',') {
+              if (unlikely(*contig_name_end == '\n')) {
+                logerrputs("Error: ##contig header line in .pvar file doesn't end with '>'.\n");
+                goto ExportBcf_ret_MALFORMED_INPUT;
+              }
+              // Regenerate this line instead of copying it.
+              continue;
+            }
+            // if GetChrCodeCounted() is modified to not mutate
+            // contig_name_start, xheader can be changed to const char*
+            const uint32_t chr_idx = GetChrCodeCounted(cip, contig_name_end - contig_name_start, contig_name_start);
+            if (IsI32Neg(chr_idx) || (!IsSet(cip->chr_mask, chr_idx)) || (chr_idx == par1_code) || (chr_idx == par2_code)) {
+              continue;
+            }
+            if (chr_idx == x_code) {
+              x_contig_line_written = 1;
+            }
+            const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[chr_idx];
+            if (unlikely(IsSet(written_contig_header_lines, chr_fo_idx))) {
+              logerrputs("Error: Duplicate ##contig line in .pvar file.\n");
+              goto ExportBcf_ret_MALFORMED_INPUT;
+            }
+            SetBit(chr_fo_idx, written_contig_header_lines);
+            char* contig_write_start = strcpya_k(write_iter, "##contig=<ID=");
+            write_iter = chrtoa(cip, chr_idx, contig_write_start);
+            if (unlikely(!ValidVcfContigName(contig_write_start, write_iter, v43))) {
+              goto ExportBcf_ret_MALFORMED_INPUT;
+            }
+            char* copy_stop = &(line_end[-2]);
+            while (ctou32(*copy_stop) <= 32) {
+              --copy_stop;
+            }
+            if (unlikely(*copy_stop != '>')) {
+              logerrputs("Error: ##contig header line in .pvar file doesn't end with '>'.\n");
+              goto ExportBcf_ret_MALFORMED_INPUT;
+            }
+            write_iter = memcpya(write_iter, contig_name_end, copy_stop - contig_name_end);
+            write_iter = strcpya_k(write_iter, ",IDX=");
+            write_iter = u32toa(contig_string_idx_end, write_iter);
+            write_iter = strcpya_k(write_iter, ">" EOLN_STR);
+            chr_fo_to_bcf_idx[chr_fo_idx] = contig_string_idx_end++;
+            continue;
+          }
+          char* id_start = &(line_main[11 - 2 * is_info_line]);
+          char* id_end = strchrnul_n(id_start, ',');
+          const uint32_t id_slen = id_end - id_start;
+          if (unlikely(id_slen > kMaxIdSlen)) {
+            logerrputs("Error: " PROG_NAME_STR " does not support FILTER/INFO keys longer than " MAX_ID_SLEN_STR " characters.\n");
+            goto ExportBcf_ret_MALFORMED_INPUT;
+          }
+          if (unlikely(*id_end == '\n')) {
+            logerrprintf("Error: Malformed %s header line in .pvar file.\n", is_info_line? "INFO" : "FILTER");
+            goto ExportBcf_ret_MALFORMED_INPUT;
+          }
+          unsigned char prechar = 8;
+          if (is_info_line) {
+            char* type_prestart = strchrnul_n(&(id_end[1]), ',');
+            if (StrStartsWithUnsafe(type_prestart, ",Type=Flag,")) {
+              prechar = 1;
+            } else if (StrStartsWithUnsafe(type_prestart, ",Type=Integer,")) {
+              prechar = 3;
+            } else if (StrStartsWithUnsafe(type_prestart, ",Type=Float,")) {
+              prechar = 5;
+            } else if (likely(StrStartsWithUnsafe(type_prestart, ",Type=String,"))) {
+              prechar = 7;
+            } else {
+              *id_end = '\0';
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid INFO:%s header line in .pvar file.\n", id_start);
+              goto ExportBcf_ret_MALFORMED_INPUT_WW;
+            }
+          } else if (strequal_k(id_start, "PASS", id_slen)) {
+            // Don't duplicate this.
+            continue;
+          }
+          char* copy_stop = &(line_end[-2]);
+          while (ctou32(*copy_stop) <= 32) {
+            --copy_stop;
+          }
+          if (unlikely(*copy_stop != '>')) {
+            *id_end = '\0';
+            snprintf(g_logbuf, kLogbufSize, "Error: %s:%s header line in .pvar file doesn't end with '>'.\n", is_info_line? "INFO" : "FILTER", id_start);
+            goto ExportBcf_ret_MALFORMED_INPUT;
+          }
+          uint32_t cur_idx;
+          reterr = AddToFifHtable(g_bigstack_base, id_start, fif_keys_htable_size, id_slen, prechar, &tmp_alloc_end, fif_keys, fif_keys_htable, &fif_key_ct, &cur_idx);
+          if (unlikely(reterr)) {
+            goto ExportBcf_ret_1;
+          }
+          write_iter = memcpya(write_iter, line_start, copy_stop - line_start);
+          write_iter = strcpya_k(write_iter, ",IDX=");
+          write_iter = u32toa(cur_idx, write_iter);
+          write_iter = strcpya_k(write_iter, ">" EOLN_STR);
+        }
+      }
+      // fill in the missing ##contig lines
+      uint32_t contig_zero_written = 0;
+      uint32_t chrx_end = 0;
+      for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
+        if (IsSet(written_contig_header_lines, chr_fo_idx)) {
+          continue;
+        }
+        const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+        if ((!IsSet(cip->chr_mask, chr_idx)) || AllBitsAreZero(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1])) {
+          continue;
+        }
+        if ((chr_idx == x_code) || (chr_idx == par1_code) || (chr_idx == par2_code)) {
+          const uint32_t pos_end = ChrLenLbound(cip, variant_bps, allele_idx_offsets, allele_storage, chr_fo_idx, max_allele_slen, vpos_sortstatus);
+          if (pos_end > chrx_end) {
+            chrx_end = pos_end;
+          }
+          continue;
+        }
+        char* chr_name_write_start = strcpya_k(write_iter, "##contig=<ID=");
+        char* chr_name_write_end = chrtoa(cip, chr_idx, chr_name_write_start);
+        if ((*chr_name_write_start == '0') && (chr_name_write_end == &(chr_name_write_start[1]))) {
+          // --allow-extra-chr 0 special case
+          if (contig_zero_written) {
+            continue;
+          }
+          contig_zero_written = 1;
+          write_iter = strcpya_k(chr_name_write_end, ",length=2147483645");
+        } else {
+          write_iter = strcpya_k(chr_name_write_end, ",length=");
+          const uint32_t pos_end = ChrLenLbound(cip, variant_bps, allele_idx_offsets, allele_storage, chr_fo_idx, max_allele_slen, vpos_sortstatus);
+          write_iter = u32toa(pos_end, write_iter);
+        }
+        write_iter = u32toa(contig_string_idx_end, write_iter);
+        write_iter = strcpya_k(write_iter, ">" EOLN_STR);
+        chr_fo_to_bcf_idx[chr_fo_idx] = contig_string_idx_end++;
+      }
+      if (chrx_end && (!x_contig_line_written)) {
+        char* chr_name_write_start = strcpya_k(write_iter, "##contig=<ID=");
+        char* chr_name_write_end = chrtoa(cip, x_code, chr_name_write_start);
+        write_iter = strcpya_k(chr_name_write_end, ",length=");
+        write_iter = u32toa(chrx_end, write_iter);
+        write_iter = u32toa(contig_string_idx_end, write_iter);
+        write_iter = strcpya_k(write_iter, ">" EOLN_STR);
+        if ((!IsI32Neg(x_code)) && IsSet(cip->chr_mask, x_code)) {
+          const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[x_code];
+          chr_fo_to_bcf_idx[chr_fo_idx] = contig_string_idx_end;
+        }
+        if ((!IsI32Neg(par1_code)) && IsSet(cip->chr_mask, par1_code)) {
+          const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[par1_code];
+          chr_fo_to_bcf_idx[chr_fo_idx] = contig_string_idx_end;
+        }
+        if ((!IsI32Neg(par2_code)) && IsSet(cip->chr_mask, par2_code)) {
+          const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[par2_code];
+          chr_fo_to_bcf_idx[chr_fo_idx] = contig_string_idx_end;
+        }
+        ++contig_string_idx_end;
+      }
+      BigstackReset(written_contig_header_lines);
+      if (write_pr) {
+        if (unlikely(info_flags & kfInfoPrNonflagPresent)) {
+          logerrputs("Error: Conflicting INFO:PR definitions.  Either fix all REF alleles so that the\n'provisional reference' flag is no longer needed, or remove/rename the other\nuse of the INFO:PR key.\n");
+          goto ExportBcf_ret_INCONSISTENT_INPUT;
+        }
+        if (!info_pr_flag_present) {
+          write_iter = strcpya_k(write_iter, "##INFO=<ID=PR,Number=0,Type=Flag,Description=\"Provisional reference allele, may not be based on real reference genome\",IDX=");
+          uint32_t cur_idx;
+          reterr = AddToFifHtable(g_bigstack_base, "PR", fif_keys_htable_size, strlen("PR"), 1, &tmp_alloc_end, fif_keys, fif_keys_htable, &fif_key_ct, &cur_idx);
+          if (unlikely(reterr)) {
+            goto ExportBcf_ret_1;
+          }
+          write_iter = u32toa(cur_idx, write_iter);
+          write_iter = strcpya_k(write_iter, ">" EOLN_STR);
+        }
+      }
+      if (write_ds) {
+        write_iter = strcpya_k(write_iter, "##FORMAT=<ID=DS,Number=A,Type=Float,Description=\"Estimated Alternate Allele Dosage : [P(0/1)+2*P(1/1)]\",IDX=");
+        uint32_t cur_idx;
+        reterr = AddToFifHtable(g_bigstack_base, "DS", fif_keys_htable_size, strlen("DS"), 0, &tmp_alloc_end, fif_keys, fif_keys_htable, &fif_key_ct, &cur_idx);
+        if (unlikely(reterr)) {
+          goto ExportBcf_ret_1;
+        }
+        write_iter = u32toa(cur_idx, write_iter);
+        write_iter = strcpya_k(write_iter, ">" EOLN_STR);
+        if (write_hds) {
+          // Note that HDS ploidy intentionally does NOT match GT ploidy in the
+          // unphased het haploid case.
+          write_iter = strcpya_k(write_iter, "##FORMAT=<ID=HDS,Number=.,Type=Float,Description=\"Estimated Haploid Alternate Allele Dosage \",IDX=");
+          reterr = AddToFifHtable(g_bigstack_base, "HDS", fif_keys_htable_size, strlen("HDS"), 0, &tmp_alloc_end, fif_keys, fif_keys_htable, &fif_key_ct, &cur_idx);
+          if (unlikely(reterr)) {
+            goto ExportBcf_ret_1;
+          }
+          write_iter = u32toa(cur_idx, write_iter);
+          write_iter = strcpya_k(write_iter, ">" EOLN_STR);
+        }
+      } else if (write_some_dosage) {
+        write_iter = strcpya_k(write_iter, "##FORMAT=<ID=GP,Number=G,Type=Float,Description=\"Estimated Posterior Probabilities for Genotypes 0/0, 0/1 and 1/1 \",IDX=");
+        uint32_t cur_idx;
+        reterr = AddToFifHtable(g_bigstack_base, "GP", fif_keys_htable_size, strlen("GP"), 0, &tmp_alloc_end, fif_keys, fif_keys_htable, &fif_key_ct, &cur_idx);
+        if (unlikely(reterr)) {
+          goto ExportBcf_ret_1;
+        }
+        write_iter = u32toa(cur_idx, write_iter);
+        write_iter = strcpya_k(write_iter, ">" EOLN_STR);
+      }
+      // possible todo: optionally export .psam information as
+      // PEDIGREE/META/SAMPLE lines in header, and make --vcf/--bcf be able to
+      // read it
+      write_iter = strcpya_k(write_iter, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\",IDX=");
+      uint32_t cur_idx;
+      reterr = AddToFifHtable(g_bigstack_base, "GT", fif_keys_htable_size, strlen("GT"), 0, &tmp_alloc_end, fif_keys, fif_keys_htable, &fif_key_ct, &cur_idx);
+      write_iter = u32toa(cur_idx, write_iter);
+      if (unlikely(reterr)) {
+        goto ExportBcf_ret_1;
+      }
+      write_iter = strcpya(write_iter, ">" EOLN_STR "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT");
+      BigstackEndSet(tmp_alloc_end);
+
+      char* exported_sample_ids;
+      uint32_t* exported_id_htable;
+      uintptr_t max_exported_sample_id_blen;
+      if (unlikely(ExportIdpaste(sample_include, siip, "bcf", sample_ct, exportf_id_paste, exportf_id_delim, &max_exported_sample_id_blen, &exported_sample_ids, &exported_id_htable))) {
+        goto ExportBcf_ret_NOMEM;
+      }
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        *write_iter++ = '\t';
+        write_iter = strcpya(write_iter, &(exported_sample_ids[sample_idx * max_exported_sample_id_blen]));
+      }
+      AppendBinaryEoln(&write_iter);
+      *write_iter++ = '\0';
+      assert(S_CAST(uintptr_t, write_iter - header_start) <= header_ubound);
+#ifdef __LP64__
+      if (unlikely(S_CAST(uintptr_t, write_iter - header_start) > 0xffffffffU)) {
+        logerrputs("Error: Cannot export BCF, since header would be too large.\n");
+        goto ExportBcf_ret_INCONSISTENT_INPUT;
+      }
+#endif
+    }
+    char* writebuf_flush = &(writebuf[kMaxMediumLine]);
+    if (unlikely(bgzfwrite_ck(writebuf_flush, &bgzf, &write_iter))) {
+      goto ExportBcf_ret_WRITE_FAIL;
+    }
     // max_allele_ct == 2:
     //   GT: 2 bytes
     //   GP: 3 floats = 12 bytes
@@ -6103,8 +6617,8 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
     {
       // FILTER entries past the first always require 2+ .pvar bytes, and never
       // require more than 4 output bytes.
-      // INFO worst cases are also limited to a 2:4 ratio.
-      const uintptr_t writebuf_blen_lbound2 = (max_filter_slen + info_reload_slen) * 2;
+      // INFO worst case is also a 2:4 ratio.
+      const uintptr_t writebuf_blen_lbound1 = (max_filter_slen + info_reload_slen) * 2;
       if (writebuf_blen < writebuf_blen_lbound1) {
         writebuf_blen = writebuf_blen_lbound1;
       }
@@ -6114,210 +6628,6 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
       }
     }
     writebuf_blen += kMaxMediumLine + 32;
-    // The byte size of the header must be stored in bytes [5,9).  So we
-    // generate the entire header, fill in its size, and only then do we flush.
-    // Along the way, we need to ensure we don't write past the end of
-    // workspace memory.
-    uintptr_t header_ubound = xheader_blen + 512;
-    // TODO: reserve space for contig/FILTER/INFO/FORMAT IDX= tags
-    // might need additional bytes for ##contig lines
-    {
-      const uint32_t max_code = cip->max_code;
-      for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
-        const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
-        if (!IsSet(cip->chr_mask, chr_idx)) {
-          continue;
-        }
-        // ##contig=<ID=chr99,length=1000000000>
-        // 32 + strlen(EOLN_STR) + length of contig ID
-        header_ubound += 32 + strlen(EOLN_STR);
-        if (chr_idx <= max_code) {
-          // regular code
-          header_ubound += kMaxChrTextnumSlen + 3;
-        } else {
-          header_ubound += strlen(cip->nonstd_names[chr_idx]);
-        }
-      }
-    }
-    char* writebuf;
-    if (unlikely(bigstack_alloc_c(header_ubound, &writebuf))) {
-      goto ExportBcf_ret_NOMEM;
-    }
-    char* write_iter = memcpya_k(writebuf, "BCF\2\2\0\0\0", 9);
-    char* header_start = write_iter;
-    write_iter = strcpya_k(writebuf, "##fileformat=VCFv4.");
-    *write_iter++ = (exportf_flags & kfExportfBcf43)? '3' : '2';
-    write_iter = strcpya_k(write_iter, EOLN_STR "##fileDate=");
-    time_t rawtime;
-    time(&rawtime);
-    struct tm* loctime;
-    loctime = localtime(&rawtime);
-    write_iter += strftime(write_iter, kMaxMediumLine, "%Y%m%d", loctime);
-    write_iter = strcpya_k(write_iter, EOLN_STR "##source=PLINKv2.00" EOLN_STR);
-    if (cip->chrset_source) {
-      AppendChrsetLine(cip, &write_iter);
-    }
-    const uint32_t chr_ctl = BitCtToWordCt(cip->chr_ct);
-    uintptr_t* written_contig_header_lines;
-    if (unlikely(bigstack_calloc_w(chr_ctl, &written_contig_header_lines))) {
-      goto ExportVcf_ret_NOMEM;
-    }
-    const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
-    const uint32_t par1_code = cip->xymt_codes[kChrOffsetPAR1];
-    const uint32_t par2_code = cip->xymt_codes[kChrOffsetPAR2];
-    uint32_t x_contig_line_written = 0;
-    if (xheader) {
-      write_iter = strcpya_k(write_iter, "##contig=<ID=");
-      char* xheader_iter = xheader;
-      char* xheader_end = &(xheader[xheader_blen]);
-      char* line_end = xheader;
-      while (line_end != xheader_end) {
-        xheader_iter = line_end;
-        line_end = AdvPastDelim(xheader_iter, '\n');
-        const uint32_t slen = line_end - xheader_iter;
-        if ((slen > 14) && StrStartsWithUnsafe(xheader_iter, "##contig=<ID=")) {
-          char* contig_name_start = &(xheader_iter[13]);
-          char* contig_name_end = S_CAST(char*, memchr(contig_name_start, ',', slen - 14));
-          if (!contig_name_end) {
-            // if this line is technically well-formed (ends in '>'), it's
-            // useless anyway, throw it out
-            continue;
-          }
-          // if GetChrCodeCounted() is modified to not mutate
-          // contig_name_start[], xheader can be changed to const char*
-          const uint32_t chr_idx = GetChrCodeCounted(cip, contig_name_end - contig_name_start, contig_name_start);
-          if (IsI32Neg(chr_idx) || (!IsSet(cip->chr_mask, chr_idx)) || (chr_idx == par1_code) || (chr_idx == par2_code)) {
-            continue;
-          }
-          if (chr_idx == x_code) {
-            x_contig_line_written = 1;
-          }
-          const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[chr_idx];
-          if (unlikely(IsSet(written_contig_header_lines, chr_fo_idx))) {
-            logerrputs("Error: Duplicate ##contig line in .pvar file.\n");
-            goto ExportBcf_ret_MALFORMED_INPUT;
-          }
-          SetBit(chr_fo_idx, written_contig_header_lines);
-          // if --output-chr was used at some point, we need to sync the
-          // ##contig chromosome code with the code in the BCF body.
-          write_iter = chrtoa(cip, chr_idx, write_iter);
-          write_iter = memcpya(write_iter, contig_name_end, line_end - contig_name_end);
-        } else {
-          write_iter = memcpya(write_iter, xheader_iter, slen);
-        }
-      }
-    }
-    // fill in the missing ##contig lines
-    uint32_t contig_zero_written = 0;
-    uint32_t chrx_end = 0;
-    for (uint32_t chr_fo_idx = 0; chr_fo_idx != cip->chr_ct; ++chr_fo_idx) {
-      if (IsSet(written_contig_header_lines, chr_fo_idx)) {
-        continue;
-      }
-      const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
-      if ((!IsSet(cip->chr_mask, chr_idx)) || AllBitsAreZero(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1])) {
-        continue;
-      }
-      if ((chr_idx == x_code) || (chr_idx == par1_code) || (chr_idx == par2_code)) {
-        // if variant included, should add max allele length instead of 1
-        const uint32_t pos_end = variant_bps[cip->chr_fo_vidx_start[chr_fo_idx + 1] - 1] + 1;
-        if (pos_end > chrx_end) {
-          chrx_end = pos_end;
-        }
-        continue;
-      }
-      char* chr_name_write_start = strcpya_k(write_iter, "##contig=<ID=");
-      char* chr_name_write_end = chrtoa(cip, chr_idx, chr_name_write_start);
-      if ((*chr_name_write_start == '0') && (chr_name_write_end == &(chr_name_write_start[1]))) {
-        // --allow-extra-chr 0 special case
-        if (contig_zero_written) {
-          continue;
-        }
-        contig_zero_written = 1;
-        write_iter = strcpya_k(chr_name_write_end, ",length=2147483645");
-      } else {
-        if (unlikely(memchr(chr_name_write_start, ':', chr_name_write_end - chr_name_write_start))) {
-          logerrputs("Error: BCF chromosome codes may not include the ':' character.\n");
-          goto ExportBcf_ret_MALFORMED_INPUT;
-        }
-        write_iter = strcpya_k(chr_name_write_end, ",length=");
-        if (1) {
-          // er, if variant included, should look at lengths of last few allele
-          // codes, and compute max(pos + <max allele len in variant>)...
-          write_iter = u32toa(variant_bps[cip->chr_fo_vidx_start[chr_fo_idx + 1] - 1] + 1, write_iter);
-        } else {
-          // todo: scan for maximum pos in unsorted map case
-        }
-      }
-      *write_iter++ = '>';
-      AppendBinaryEoln(&write_iter);
-    }
-    if (chrx_end && (!x_contig_line_written)) {
-      char* chr_name_write_start = strcpya_k(write_iter, "##contig=<ID=");
-      char* chr_name_write_end = chrtoa(cip, x_code, chr_name_write_start);
-      write_iter = strcpya_k(chr_name_write_end, ",length=");
-      if (1) {
-        write_iter = u32toa(chrx_end, write_iter);
-      } else {
-      }
-      *write_iter++ = '>';
-      AppendBinaryEoln(&write_iter);
-    }
-    BigstackReset(written_contig_header_lines);
-    const uintptr_t* nonref_flags = pgfip->nonref_flags;
-    const uint32_t all_nonref = (pgfip->gflags & kfPgenGlobalAllNonref) && (!nonref_flags);
-    const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
-    uint32_t write_pr = all_nonref;
-    if (nonref_flags) {
-      write_pr = !IntersectionIsEmpty(variant_include, nonref_flags, raw_variant_ctl);
-    }
-    const uint32_t info_pr_flag_present = (info_flags / kfInfoPrFlagPresent) & 1;
-    if (write_pr) {
-      if (unlikely(info_flags & kfInfoPrNonflagPresent)) {
-        logerrputs("Error: Conflicting INFO:PR definitions.  Either fix all REF alleles so that the\n'provisional reference' flag is no longer needed, or remove/rename the other\nuse of the INFO:PR key.\n");
-        goto ExportBcf_ret_INCONSISTENT_INPUT;
-      }
-      if (!info_pr_flag_present) {
-        write_iter = strcpya_k(write_iter, "##INFO=<ID=PR,Number=0,Type=Flag,Description=\"Provisional reference allele, may not be based on real reference genome\">" EOLN_STR);
-      }
-    }
-    if (write_ds) {
-      write_iter = strcpya_k(write_iter, "##FORMAT=<ID=DS,Number=A,Type=Float,Description=\"Estimated Alternate Allele Dosage : [P(0/1)+2*P(1/1)]\">" EOLN_STR);
-      if (write_hds) {
-        // Note that HDS ploidy intentionally does NOT match GT ploidy in the
-        // unphased het haploid case.
-        write_iter = strcpya_k(write_iter, "##FORMAT=<ID=HDS,Number=.,Type=Float,Description=\"Estimated Haploid Alternate Allele Dosage \">" EOLN_STR);
-      }
-    } else if (write_some_dosage) {
-      write_iter = strcpya_k(write_iter, "##FORMAT=<ID=GP,Number=G,Type=Float,Description=\"Estimated Posterior Probabilities for Genotypes 0/0, 0/1 and 1/1 \">" EOLN_STR);
-    }
-    // possible todo: optionally export .psam information as
-    // PEDIGREE/META/SAMPLE lines in header, and make --vcf/--bcf be able to
-    // read it
-    write_iter = strcpya_k(write_iter, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">" EOLN_STR "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT");
-    char* exported_sample_ids;
-    uint32_t* exported_id_htable;
-    uintptr_t max_exported_sample_id_blen;
-    if (unlikely(ExportIdpaste(sample_include, siip, "vcf", sample_ct, exportf_id_paste, exportf_id_delim, &max_exported_sample_id_blen, &exported_sample_ids, &exported_id_htable))) {
-      goto ExportBcf_ret_NOMEM;
-    }
-    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-      *write_iter++ = '\t';
-      write_iter = strcpya(write_iter, &(exported_sample_ids[sample_idx * max_exported_sample_id_blen]));
-    }
-    AppendBinaryEoln(&write_iter);
-    *write_iter++ = '\0';
-    assert(write_iter <= written_contig_header_lines);
-#ifdef __LP64__
-    if (unlikely(S_CAST(uintptr_t, write_iter - header_start) > 0xffffffffU)) {
-      logerrputs("Error: Cannot export BCF, since header would be too large.\n");
-      goto ExportBcf_ret_INCONSISTENT_INPUT;
-    }
-#endif
-    char* writebuf_flush = &(writebuf[kMaxMediumLine]);
-    if (unlikely(bgzfwrite_ck(writebuf_flush, &bgzf, &write_iter))) {
-      goto ExportBcf_ret_WRITE_FAIL;
-    }
     BigstackReset(writebuf);
     if (unlikely(bigstack_alloc_c(writebuf_blen, &writebuf))) {
       goto ExportBcf_ret_NOMEM;
@@ -6326,7 +6636,6 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
     logprintfww5("--export bcf to %s ... ", outname);
     fputs("0%", stdout);
     fflush(stdout);
-
     const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     PgenVariant pgv;
@@ -6367,7 +6676,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
               bigstack_alloc_w(sample_ctl, &prev_phased) ||
               bigstack_alloc_w(sample_ctl, &(pgv.phasepresent)) ||
               bigstack_alloc_w(sample_ctl, &(pgv.phaseinfo)))) {
-        goto ExportVcf_ret_NOMEM;
+        goto ExportBcf_ret_NOMEM;
       }
       SetAllBits(sample_ct, prev_phased);
     }
@@ -6380,13 +6689,13 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
       if (unlikely(
               bigstack_alloc_w(sample_ctl, &(pgv.dosage_present)) ||
               bigstack_alloc_dosage(sample_ct, &(pgv.dosage_main)))) {
-        goto ExportVcf_ret_NOMEM;
+        goto ExportBcf_ret_NOMEM;
       }
       if (load_dphase) {
         if (unlikely(
                 bigstack_alloc_w(sample_ctl, &(pgv.dphase_present)) ||
                 bigstack_alloc_dphase(sample_ct, &(pgv.dphase_delta)))) {
-          goto ExportVcf_ret_NOMEM;
+          goto ExportBcf_ret_NOMEM;
         }
       }
     }
@@ -6396,7 +6705,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
     if (pvar_info_reload) {
       reterr = PvarInfoOpenAndReloadHeader(pvar_info_reload, 1 + (max_thread_ct > 1), &pvar_reload_txs, &pvar_reload_line_iter, &info_col_idx);
       if (unlikely(reterr)) {
-        goto ExportVcf_ret_TSTREAM_FAIL;
+        goto ExportBcf_ret_TSTREAM_FAIL;
       }
     }
 
@@ -6404,28 +6713,19 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
     // maybe want to pass references to these arrays later, but leave as
     // C-style for now
     // \t0/0  \t0/1  \t1/1  \t./.
-    const uint32_t basic_genotext[4] = {0x302f3009, 0x312f3009, 0x312f3109, 0x2e2f2e09};
+    const uint16_t basic_genobytes[4] = {0x0202, 0x0204, 0x0404, 0};
 
     // 4-genotype-at-a-time lookup in basic case
-    uint32_t basic_genotext4[1024] ALIGNV16;
-    basic_genotext4[0] = basic_genotext[0];
-    basic_genotext4[4] = basic_genotext[1];
-    basic_genotext4[8] = basic_genotext[2];
-    basic_genotext4[12] = basic_genotext[3];
-    InitLookup256x4bx4(basic_genotext4);
+    uint16_t basic_genobytes4[1024] ALIGNV16;
+    basic_genobytes4[0] = basic_genobytes[0];
+    basic_genobytes4[4] = basic_genobytes[1];
+    basic_genobytes4[8] = basic_genobytes[2];
+    basic_genobytes4[12] = basic_genobytes[3];
+    InitLookup256x2bx4(basic_genobytes4);
 
-    uint32_t haploid_genotext_blen[8];
-    // lengths [0], [2], and [3] reset at beginning of chromosome
-    // chrX: nonmales are diploid and use indices 0..3, males are 4..7
-    // other: all haploid, indices 0..3
-    haploid_genotext_blen[1] = 4;
-    haploid_genotext_blen[4] = 2;
-    haploid_genotext_blen[5] = 4;
-    haploid_genotext_blen[6] = 2;
-    haploid_genotext_blen[7] = 2;
+    ;;;;
     // don't bother exporting GP for hardcalls
     // usually don't bother for DS, but DS-force is an exception
-
     // 4..7 = haploid, 5 should never be looked up
     // :0 :1 :2 :. :0 !! :1 :.
     const uint16_t ds_inttext[8] = {0x303a, 0x313a, 0x323a, 0x2e3a, 0x303a, 0x2121, 0x313a, 0x2e3a};
@@ -7904,6 +8204,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
     if (invalid_allele_code_seen) {
       logerrputs("Warning: At least one VCF allele code violates the official specification;\nother tools may not accept the file.  (Valid codes must either start with a\n'<', only contain characters in {A,C,G,T,N,a,c,g,t,n}, be an isolated '*', or\nrepresent a breakend.)\n");
     }
+    ;;;;
   }
   while (0) {
   ExportBcf_ret_NOMEM:
@@ -7915,11 +8216,14 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
   ExportBcf_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
+  ExportBcf_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
   ExportBcf_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
   ExportBcf_ret_INCONSISTENT_INPUT:
-    reterr = kPglRetMalformedInput;
+    reterr = kPglRetInconsistentInput;
     break;
   ExportBcf_ret_PGR_FAIL:
     PgenErrPrintN(reterr);
@@ -8521,7 +8825,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
   return reterr;
 }
 
-PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const ExportfInfo* eip, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t max_thread_ct, MakePlink2Flags make_plink2_flags, uintptr_t pgr_alloc_cacheline_ct, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const ExportfInfo* eip, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, UnsortedVar vpos_sortstatus, uint32_t max_thread_ct, MakePlink2Flags make_plink2_flags, uintptr_t pgr_alloc_cacheline_ct, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   PglErr reterr = kPglRetSuccess;
@@ -8556,6 +8860,13 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
       reterr = kPglRetNotYetSupported;
       goto Exportf_ret_1;
     }
+    /*
+    if (flags & (kfExportfTypemask - kfExportfIndMajorBed - kfExportfVcf - kfExportfBcf - kfExportfOxGen - kfExportfBgen11 - kfExportfBgen12 - kfExportfBgen13 - kfExportfHaps - kfExportfHapsLegend - kfExportfATranspose - kfExportfA - kfExportfAD)) {
+      logerrputs("Error: Only VCF, BCF, oxford, bgen-1.x, haps, hapslegend, A, AD, A-transpose,\nand ind-major-bed output have been implemented so far.\n");
+      reterr = kPglRetNotYetSupported;
+      goto Exportf_ret_1;
+    }
+    */
     const char exportf_delim = (flags & kfExportfSpaces)? ' ' : '\t';
     // Move this first, so we error out more quickly when any variants are
     // still multiallelic.
@@ -8655,14 +8966,14 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
     }
     if (flags & kfExportfVcf) {
       // multiallelic ok
-      reterr = ExportVcf(sample_include, sample_include_cumulative_popcounts, &(piip->sii), sex_male_collapsed, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, pvar_info_reload, xheader_blen, info_flags, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, max_thread_ct, flags, eip->vcf_mode, idpaste_flags, id_delim, xheader, pgfip, simple_pgrp, outname, outname_end);
+      reterr = ExportVcf(sample_include, sample_include_cumulative_popcounts, &(piip->sii), sex_male_collapsed, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, pvar_info_reload, xheader_blen, info_flags, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, vpos_sortstatus, max_thread_ct, flags, eip->vcf_mode, idpaste_flags, id_delim, xheader, pgfip, simple_pgrp, outname, outname_end);
       if (unlikely(reterr)) {
         goto Exportf_ret_1;
       }
     }
     /*
     if (flags & kfExportfBcf) {
-      reterr = ExportBcf(sample_include, sample_include_cumulative_popcounts, &(piip->sii), sex_male_collapsed, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, pvar_info_reload, xheader_blen, info_flags, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, max_thread_ct, flags, eip->vcf_mode, idpaste_flags, id_delim, xheader, pgfip, simple_pgrp, outname, outname_end);
+      reterr = ExportBcf(sample_include, sample_include_cumulative_popcounts, &(piip->sii), sex_male_collapsed, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, pvar_info_reload, xheader_blen, info_flags, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, vpos_sortstatus, max_thread_ct, flags, eip->vcf_mode, idpaste_flags, id_delim, xheader, pgfip, simple_pgrp, outname, outname_end);
       if (unlikely(reterr)) {
         goto Exportf_ret_1;
       }

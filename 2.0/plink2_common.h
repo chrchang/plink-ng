@@ -691,6 +691,7 @@ PglErr FinalizeChrInfo(ChrInfo* cip);
 void CleanupChrInfo(ChrInfo* cip);
 
 // assumes chr_idx is valid
+// note that chr_idx == 0 is always rendered as '0', never 'chr0'
 char* chrtoa(const ChrInfo* cip, uint32_t chr_idx, char* buf);
 
 uint32_t GetMaxChrSlen(const ChrInfo* cip);
@@ -1065,6 +1066,17 @@ HEADER_INLINE BoolErr StoreStringAtEndK(unsigned char* arena_bottom, const char*
   }
   memcpyx(*arena_top_ptr, src, slen, '\0');
   *dst = R_CAST(char*, *arena_top_ptr);
+  return 0;
+}
+
+HEADER_INLINE BoolErr StoreStringAndPrecharAtEnd(unsigned char* arena_bottom, const char* src, unsigned char prechar, uintptr_t slen, unsigned char** arena_top_ptr, char** dst) {
+  if (PtrWSubCk(arena_bottom, slen + 2, arena_top_ptr)) {
+    return 1;
+  }
+  **arena_top_ptr = prechar;
+  char* dst_write = 1 + R_CAST(char*, *arena_top_ptr);
+  memcpyx(dst_write, src, slen, '\0');
+  *dst = dst_write;
   return 0;
 }
 

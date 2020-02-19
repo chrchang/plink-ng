@@ -442,7 +442,12 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
       }
     } else {
       if (unlikely(fsize != (fsize_double_expected / 2))) {
-        logerrprintfww("Error: Invalid --king-cutoff .bin file size (expected %" PRIu64 " or %" PRIu64 " bytes).\n", fsize_double_expected / 2, fsize_double_expected);
+        const uint64_t fsize_double_square = king_id_ct * S_CAST(uint64_t, king_id_ct) * sizeof(double);
+        if ((fsize == fsize_double_square) || (fsize == fsize_double_square / 2)) {
+          logerrputs("Error: --king-cutoff currently requires a *triangular* .bin file; the provided\nfile appears to be square.\n");
+        } else {
+          logerrprintfww("Error: Invalid --king-cutoff .bin file size (expected %" PRIu64 " or %" PRIu64 " bytes).\n", fsize_double_expected / 2, fsize_double_expected);
+        }
         goto KingCutoffBatch_ret_MALFORMED_INPUT;
       }
       assert(king_id_ct <= ((0x7ffff000 / sizeof(float)) + 1));

@@ -1401,9 +1401,8 @@ char* ChrNameStd(const ChrInfo* cip, uint32_t chr_idx, char* buf) {
 char* chrtoa(const ChrInfo* cip, uint32_t chr_idx, char* buf) {
   // assumes chr_idx is valid
   if (!chr_idx) {
-    // TODO: probably add 'chr' in front here when output encoding calls for
-    // it, but wait till beta since this would technically be
-    // compatibility-breaking
+    // Note that this never has a 'chr' prefix.  Which is probably fine, it
+    // isn't a real chromosome.
     *buf++ = '0';
     return buf;
   }

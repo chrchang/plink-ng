@@ -79,7 +79,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1501
+#define PGENLIB_INTERNAL_VERNUM 1502
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -514,6 +514,8 @@ void GenoarrLookup256x4bx4(const uintptr_t* genoarr, const void* table256x4bx4, 
 void InitLookup16x4bx2(void* table16x4bx2);
 
 void InitLookup16x8bx2(void* table16x8bx2);
+
+void InitLookup256x2bx4(void* table256x2bx4);
 
 void InitLookup256x4bx4(void* table256x4bx4);
 

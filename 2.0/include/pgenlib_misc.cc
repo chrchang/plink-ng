@@ -1666,6 +1666,30 @@ void InitLookup16x8bx2(void* table16x8bx2) {
   }
 }
 
+void InitLookup256x2bx4(void* table256x2bx4) {
+  uint16_t* table_iter = S_CAST(uint16_t*, table256x2bx4);
+  uint16_t vals[4];
+  vals[0] = table_iter[0];
+  vals[1] = table_iter[4];
+  vals[2] = table_iter[8];
+  vals[3] = table_iter[12];
+  for (uint32_t high_idx = 0; high_idx != 4; ++high_idx) {
+    const uint16_t cur_high = vals[high_idx];
+    for (uint32_t second_idx = 0; second_idx != 4; ++second_idx) {
+      const uint16_t cur_second = vals[second_idx];
+      for (uint32_t third_idx = 0; third_idx != 4; ++third_idx) {
+        const uint16_t cur_third = vals[third_idx];
+        for (uint32_t low_idx = 0; low_idx != 4; ++low_idx) {
+          *table_iter++ = vals[low_idx];
+          *table_iter++ = cur_third;
+          *table_iter++ = cur_second;
+          *table_iter++ = cur_high;
+        }
+      }
+    }
+  }
+}
+
 void InitLookup256x4bx4(void* table256x4bx4) {
   uint32_t* table_iter = S_CAST(uint32_t*, table256x4bx4);
   uint32_t vals[4];

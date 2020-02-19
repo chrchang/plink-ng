@@ -906,7 +906,6 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           line_iter = line_end;
         }
       }
-      *info_flags_ptr = S_CAST(InfoFlags, (info_pr_present * kfInfoPrFlagPresent) | (info_pr_nonflag_present * kfInfoPrNonflagPresent) | (info_nonpr_present * kfInfoNonprPresent));
       line_iter = AdvPastDelim(line_iter, '\n');
     }
     if (xheader_end) {
@@ -927,6 +926,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     uint32_t info_col_present = 0;
     uint32_t cm_col_present = 0;
     if (line_start[0] == '#') {
+      *info_flags_ptr = S_CAST(InfoFlags, (info_pr_present * kfInfoPrFlagPresent) | (info_pr_nonflag_present * kfInfoPrNonflagPresent) | (info_nonpr_present * kfInfoNonprPresent));
       // parse header
       // [-1] = #CHROM (must be first column)
       // [0] = POS
