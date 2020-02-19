@@ -9085,7 +9085,8 @@ int32_t bcf_header_line_idx_check(char* line_iter, char* line_end, uint32_t* gt_
     if (cc == ',') {
       continue;
     }
-    if (cc == '\n') {
+    // bugfix (19 Feb 2020)
+    if (cc == '>') {
       return 0;
     }
     break;
