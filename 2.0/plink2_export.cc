@@ -3880,8 +3880,14 @@ uint32_t ValidVcfContigName(const char* name_start, const char* name_end, uint32
   return 1;
 }
 
-// TODO: LoadPvar() should conditionally detect and load INFO:END, then we take
-// it into account here, in the BCF rlen field, ...
+// Note that the order-of-operations page lists this as happening right after
+// the filtering performed by LoadPvar().  Which is effectively true, since we
+// ignore variant_include (this is safe since LoadPvar() always initializes
+// all variant_bps[] and allele_storage[] entries appropriately).
+// possible todo: ChrInfo can have a length field, which is initialized by the
+// ##contig header line when possible, but when that doesn't exist LoadPvar()
+// can conditionally detect INFO:END and take that into account.  (Or a reason
+// to keep the entire info_end array in memory may emerge.)
 uint32_t ChrLenLbound(const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t chr_fo_idx, uint32_t max_allele_slen, UnsortedVar vpos_sortstatus) {
   const uint32_t vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
   const uint32_t vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
@@ -6824,7 +6830,6 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
     const uint64_t basic_hds[6] = {0, 0x3f0000003f000000LLU, 0x3f8000003f800000LLU, 0x7f8000017f800001LLU, 0x3f80000000000000LLU, 0x3f800000};
 
     const char* const* fif_keys = TO_CONSTCPCONSTP(fif_keys_mutable);
-    ;;;;
     const char* dot_ptr = &(g_one_char_strs[92]);
     const uint32_t sample_ctl2_m1 = sample_ctl2 - 1;
     PgrSampleSubsetIndex pssi;
@@ -6843,6 +6848,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
     uint32_t alt1_allele_idx = 1;
     uint32_t allele_ct = 2;
     uint32_t invalid_allele_code_seen = 0;
+    ;;;;
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
       const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
       if (variant_uidx >= chr_end) {
@@ -6881,9 +6887,8 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
       if (strequal_k_unsafe(variant_id, ".")) {
         *write_iter++ = '\7';
       } else {
-        write_iter = AppendBcfString(variant_ids[variant_uidx], write_iter);
+        write_iter = AppendBcfString(variant_id, write_iter);
       }
-      write_iter = strcpyax(write_iter, variant_ids[variant_uidx], '\t');
 
       // REF, ALT
       uintptr_t allele_idx_offset_base = variant_uidx * 2;
@@ -6896,21 +6901,31 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
         ref_allele_idx = refalt1_select[variant_uidx][0];
         alt1_allele_idx = refalt1_select[variant_uidx][1];
       }
-      if (cur_alleles[ref_allele_idx] != dot_ptr) {
-        write_iter = strcpya(write_iter, cur_alleles[ref_allele_idx]);
+      const char* ref_allele = cur_alleles[ref_allele_idx];
+      if (ref_allele != dot_ptr) {
+        write_iter = AppendBcfString(ref_allele, write_iter);
         if (!invalid_allele_code_seen) {
-          invalid_allele_code_seen = !ValidVcfAlleleCode(cur_alleles[ref_allele_idx]);
+          invalid_allele_code_seen = !ValidVcfAlleleCode(ref_allele);
         }
       } else {
-        *write_iter++ = 'N';
+        write_iter = AppendBcfString("N", write_iter);
       }
-      *write_iter++ = '\t';
+      const char* alt1_allele = cur_alleles[alt1_allele_idx];
+      uint16_t n_allele = allele_ct;
+      if (alt1_allele != dot_ptr) {
+        write_iter = AppendBcfString(alt1_allele, write_iter);
+        if (!invalid_allele_code_seen) {
+          invalid_allele_code_seen = !ValidVcfAlleleCode(alt1_allele);
+        }
+      } else {
+        if (unlikely(allele_ct > 2)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: --export bcf: Multiallelic variant '%s' has a missing ALT allele. (This is only permitted for biallelic variants.)\n", variant_id);
+          goto ExportBcf_ret_MALFORMED_INPUT_WW;
+        }
+      }
+      write_iter = AppendBcfString();
       write_iter = strcpya(write_iter, cur_alleles[alt1_allele_idx]);
       if (!invalid_allele_code_seen) {
-        invalid_allele_code_seen = !ValidVcfAlleleCode(cur_alleles[alt1_allele_idx]);
-      }
-      if (unlikely(bgzfwrite_ck(writebuf_flush, &bgzf, &write_iter))) {
-        goto ExportVcf_ret_WRITE_FAIL;
       }
       if (allele_ct > 2) {
         for (uint32_t cur_allele_uidx = 0; cur_allele_uidx != allele_ct; ++cur_allele_uidx) {
@@ -8259,8 +8274,9 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
         next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
       }
     }
+    ;;;;
     if (unlikely(bgzfclose_flush(writebuf_flush, write_iter, &bgzf, &reterr))) {
-      goto ExportVcf_ret_1;
+      goto ExportBcf_ret_1;
     }
     if (pct > 10) {
       putc_unlocked('\b', stdout);
@@ -8270,7 +8286,6 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
     if (invalid_allele_code_seen) {
       logerrputs("Warning: At least one VCF allele code violates the official specification;\nother tools may not accept the file.  (Valid codes must either start with a\n'<', only contain characters in {A,C,G,T,N,a,c,g,t,n}, be an isolated '*', or\nrepresent a breakend.)\n");
     }
-    ;;;;
   }
   while (0) {
   ExportBcf_ret_NOMEM:

@@ -2882,15 +2882,15 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     }
     const uint32_t require_gt = (import_flags / kfImportVcfRequireGt) & 1;
     if (unlikely((!format_gt_present) && require_gt)) {
-      logerrputs("Error: No FORMAT:GT field in --vcf file header, when --vcf-require-gt was\nspecified.\n");
+      logerrputs("Error: No FORMAT:GT key found in --vcf file header, when --vcf-require-gt was\nspecified.\n(If this header line is actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
       goto VcfToPgen_ret_INCONSISTENT_INPUT;
     }
     if ((!format_gq_relevant) && (vcf_min_gq != -1)) {
-      logerrputs("Warning: No FORMAT:GQ field in --vcf file header.  --vcf-min-gq ignored.\n");
+      logerrputs("Warning: No FORMAT:GQ key found in --vcf file header.  --vcf-min-gq ignored.\n(If this header line is actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
       vcf_min_gq = -1;
     }
     if ((!format_dp_relevant) && ((vcf_max_dp != 0x7fffffff) || (vcf_min_dp != -1))) {
-      logerrputs("Warning: No FORMAT:DP field in --vcf file header.  --vcf-{max,min}-dp ignored.\n");
+      logerrputs("Warning: No FORMAT:DP key found in --vcf file header.  --vcf-{max,min}-dp\nignored.\n(If this header line is actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
       vcf_max_dp = 0x7fffffff;
       vcf_min_dp = -1;
     }
@@ -2899,13 +2899,15 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       --format_hds_search;
       if (!format_hds_search) {
         if (!format_dosage_relevant) {
-          logerrputs("Warning: No FORMAT:DS or :HDS field in --vcf file header.  Dosages will not be\nimported.\n");
+          logerrputs("Warning: No FORMAT:DS or :HDS key found in --vcf file header.  Dosages will not\nbe imported.\n(If these header line(s) are actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
         } else {
-          logerrputs("Warning: No FORMAT:HDS field in --vcf file header.  Dosages will be imported\n(from FORMAT:DS), but phase information will be limited or absent.\n");
+          // since we did find FORMAT:DS, trailing parenthetical is very
+          // unlikely to be relevant
+          logerrputs("Warning: No FORMAT:HDS key found in --vcf file header.  Dosages will be imported\n(from FORMAT:DS), but phase information will be limited or absent.\n");
         }
       }
     } else if ((!format_dosage_relevant) && dosage_import_field) {
-      logerrprintfww("Warning: No FORMAT:%s field in --vcf file header. Dosages will not be imported.\n", dosage_import_field);
+      logerrprintfww("Warning: No FORMAT:%s key found in --vcf file header. Dosages will not be imported. (If this header line is actually present, but with extra spaces or unusual field ordering, standardize the header with e.g. bcftools.)\n", dosage_import_field);
     }
     FinalizeChrset(misc_flags, cip);
     // don't call FinalizeChrInfo here, since this may be followed by --pmerge,
@@ -4358,7 +4360,8 @@ BcfParseErr BcfParseGqDpMain(const unsigned char* qual_main, uint32_t sample_ct,
         Vec16thUint fail_bits = 0;
         for (uint32_t uii = 0; uii != remainder; ++uii) {
           const int32_t cur_qual = trailing_start[uii];
-          if (((qual_min_i32 > cur_qual) || (qual_max_i32 < cur_qual)) && (cur_qual != -2147483648)) {
+          // see https://stackoverflow.com/questions/9941261/warning-this-decimal-constant-is-unsigned-only-in-iso-c90
+          if (((qual_min_i32 > cur_qual) || (qual_max_i32 < cur_qual)) && (cur_qual != (-2147483647 - 1))) {
             fail_bits |= 3U << (2 * uii);
           }
         }
@@ -4378,7 +4381,7 @@ BcfParseErr BcfParseGqDpMain(const unsigned char* qual_main, uint32_t sample_ct,
         uintptr_t geno_word = genovec[widx];
         for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
           const int32_t cur_qual = qual_iter[sample_idx_lowbits];
-          if (((qual_min_i32 > cur_qual) || (qual_max_i32 < cur_qual)) && (cur_qual != -2147483648)) {
+          if (((qual_min_i32 > cur_qual) || (qual_max_i32 < cur_qual)) && (cur_qual != (-2147483647 - 1))) {
             geno_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
           }
         }
@@ -4968,12 +4971,12 @@ BoolErr ParseBcfBiallelicHds(const float* dosage_main, const float* hds_main, ui
   return ParseBcfBiallelicDosage(cur_dosage_start, is_haploid_or_0ploid, dosage_is_gp, import_dosage_certainty, dpr_ptr, dosage_int_ptr);
 }
 
-uint32_t BcfGtIsPhasedHet(uint16_t gt_first, uint16_t gt_second, uint16_t gt_high_bit, VcfHalfCall halfcall_mode) {
+uint32_t BcfGtIsPhasedHet(uint32_t gt_first, uint32_t gt_second, uint32_t gt_high_bit, VcfHalfCall halfcall_mode) {
   if (!(gt_second & 1)) {
     return 0;
   }
-  const uint16_t first_allele_idx_p1 = (gt_first & (~gt_high_bit)) >> 1;
-  const uint16_t second_allele_idx_p1 = (gt_second & (~gt_high_bit)) >> 1;
+  const uint32_t first_allele_idx_p1 = (gt_first & (~gt_high_bit)) >> 1;
+  const uint32_t second_allele_idx_p1 = (gt_second & (~gt_high_bit)) >> 1;
   if (first_allele_idx_p1 == second_allele_idx_p1) {
     return 0;
   }
@@ -5053,8 +5056,8 @@ BcfParseErr BcfScanBiallelicHds(const BcfImportContext* bicp, const unsigned cha
   const uint32_t dosage_erase_halfdist = bicp->dosage_erase_halfdist;
   const double import_dosage_certainty = bicp->import_dosage_certainty;
   const VcfHalfCall halfcall_mode = bicp->bibc.halfcall_mode;
-  uint16_t gt_first = 0;
-  uint16_t gt_second = 0;
+  uint32_t gt_first = 0;
+  uint32_t gt_second = 0;
   uint32_t is_haploid_or_0ploid = (gt_value_ct == 1);
   for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
     if (IsSet(invfound_nypbuf, sample_idx * 2)) {
@@ -5272,12 +5275,12 @@ BcfParseErr BcfConvertUnphasedBiallelic(const BcfImportBaseContext* bibcp, const
         }
         uintptr_t geno_word = 0;
         for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
-          const uint16_t phaseless_val = gt_iter[sample_idx_lowbits] & 0xfefe;
+          const uint32_t phaseless_val = gt_iter[sample_idx_lowbits] & 0xfefe;
           if (phaseless_val == 0x202) {
             continue;
           }
-          unsigned char first_allele_idx_p1 = phaseless_val >> 1;
-          unsigned char second_allele_idx_p1 = phaseless_val >> 9;
+          uint32_t first_allele_idx_p1 = (phaseless_val & 0xff) >> 1;
+          uint32_t second_allele_idx_p1 = phaseless_val >> 9;
           if (first_allele_idx_p1 > 3) {
             first_allele_idx_p1 = 3;
           }
@@ -5413,7 +5416,8 @@ void BcfConvertMultiallelicHaploidInt16Gt(const unsigned char* gt_main, uint32_t
     uintptr_t geno_word = 0;
     uint32_t patch_10_set_hw = 0;
     for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
-      const uint16_t raw_val_m2 = gt_iter[sample_idx_lowbits] - 2;
+      // intentional underflow
+      const uint32_t raw_val_m2 = S_CAST(uint32_t, gt_iter[sample_idx_lowbits]) - 2;
       if ((!raw_val_m2) || ((gq_dp_fail_word >> (2 * sample_idx_lowbits)) & 1)) {
         continue;
       }
@@ -5482,25 +5486,25 @@ BcfParseErr BcfConvertUnphasedMultiallelic(const BcfImportBaseContext* bibcp, co
         uint32_t patch_01_set_hw = 0;
         uint32_t patch_10_set_hw = 0;
         for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
-          const uint16_t phaseless_val = gt_iter[sample_idx_lowbits] & 0xfefe;
+          const uint32_t phaseless_val = gt_iter[sample_idx_lowbits] & 0xfefe;
           if ((phaseless_val == 0x202) || ((gq_dp_fail_word >> (2 * sample_idx_lowbits)) & 1)) {
             continue;
           }
-          const uint16_t shifted_phaseless_val = phaseless_val >> 1;
-          unsigned char first_allele_idx_p1 = shifted_phaseless_val;
+          const uint32_t shifted_phaseless_val = (phaseless_val & 0xff) >> 1;
+          uint32_t first_allele_idx_p1 = shifted_phaseless_val;
           uintptr_t result;
           if (first_allele_idx_p1 > allele_ct) {
             // assume end-of-vector
             result = 3;
           } else {
-            unsigned char second_allele_idx_p1 = shifted_phaseless_val >> 8;
+            uint32_t second_allele_idx_p1 = shifted_phaseless_val >> 8;
             const uint32_t cur_bit = 1U << sample_idx_lowbits;
             if (second_allele_idx_p1 > allele_ct) {
               // haploid
               if (!first_allele_idx_p1) {
                 result = 3;
               } else {
-                const unsigned char first_allele_idx = first_allele_idx_p1 - 1;
+                const uint32_t first_allele_idx = first_allele_idx_p1 - 1;
                 if (first_allele_idx < 2) {
                   result = first_allele_idx * 2;
                 } else {
@@ -5513,9 +5517,9 @@ BcfParseErr BcfConvertUnphasedMultiallelic(const BcfImportBaseContext* bibcp, co
             } else {
               // diploid
               if (second_allele_idx_p1 < first_allele_idx_p1) {
-                const unsigned char ucc = first_allele_idx_p1;
+                const uint32_t uii = first_allele_idx_p1;
                 first_allele_idx_p1 = second_allele_idx_p1;
-                second_allele_idx_p1 = ucc;
+                second_allele_idx_p1 = uii;
               }
               if (!first_allele_idx_p1) {
                 // missing or half-call
@@ -5524,7 +5528,7 @@ BcfParseErr BcfConvertUnphasedMultiallelic(const BcfImportBaseContext* bibcp, co
                 } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
                   return kBcfParseHalfCallError;
                 } else {
-                  const unsigned char second_allele_idx = second_allele_idx_p1 - 1;
+                  const uint32_t second_allele_idx = second_allele_idx_p1 - 1;
                   if (second_allele_idx < 2) {
                     // kVcfHalfCallHaploid, kVcfHalfCallReference
                     result = second_allele_idx << halfcall_mode;
@@ -5591,24 +5595,25 @@ BcfParseErr BcfConvertUnphasedMultiallelic(const BcfImportBaseContext* bibcp, co
             // triploid+ (or malformed)
             result = 3;
           } else {
-            const uint16_t shifted_phaseless_val = (phaseless_val & 0xffff) >> 1;
+            phaseless_val &= 0xffff;
+            const uint32_t shifted_phaseless_val = phaseless_val >> 1;
             // rest of this is identical to diploid case
             // todo: try making this a static inline function (didn't start
             // with that since the function would have 10+ parameters, many of
             // which may not be touched on a given function call)
-            unsigned char first_allele_idx_p1 = shifted_phaseless_val;
+            uint32_t first_allele_idx_p1 = shifted_phaseless_val;
             if (first_allele_idx_p1 > allele_ct) {
               // assume end-of-vector
               result = 3;
             } else {
-              unsigned char second_allele_idx_p1 = shifted_phaseless_val >> 8;
+              uint32_t second_allele_idx_p1 = shifted_phaseless_val >> 8;
               const uint32_t cur_bit = 1U << sample_idx_lowbits;
               if (second_allele_idx_p1 > allele_ct) {
                 // haploid
                 if (!first_allele_idx_p1) {
                   result = 3;
                 } else {
-                  const unsigned char first_allele_idx = first_allele_idx_p1 - 1;
+                  const uint32_t first_allele_idx = first_allele_idx_p1 - 1;
                   if (first_allele_idx < 2) {
                     result = first_allele_idx * 2;
                   } else {
@@ -5621,9 +5626,9 @@ BcfParseErr BcfConvertUnphasedMultiallelic(const BcfImportBaseContext* bibcp, co
               } else {
                 // diploid
                 if (second_allele_idx_p1 < first_allele_idx_p1) {
-                  const unsigned char ucc = first_allele_idx_p1;
+                  const uint32_t uii = first_allele_idx_p1;
                   first_allele_idx_p1 = second_allele_idx_p1;
-                  second_allele_idx_p1 = ucc;
+                  second_allele_idx_p1 = uii;
                 }
                 if (!first_allele_idx_p1) {
                   // missing or half-call
@@ -5632,7 +5637,7 @@ BcfParseErr BcfConvertUnphasedMultiallelic(const BcfImportBaseContext* bibcp, co
                   } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
                     return kBcfParseHalfCallError;
                   } else {
-                    const unsigned char second_allele_idx = second_allele_idx_p1 - 1;
+                    const uint32_t second_allele_idx = second_allele_idx_p1 - 1;
                     if (second_allele_idx < 2) {
                       // kVcfHalfCallHaploid, kVcfHalfCallReference
                       result = second_allele_idx << halfcall_mode;
@@ -5694,20 +5699,20 @@ BcfParseErr BcfConvertUnphasedMultiallelic(const BcfImportBaseContext* bibcp, co
             continue;
           }
           const uint32_t shifted_phaseless_val = phaseless_val >> 1;
-          uint16_t first_allele_idx_p1 = shifted_phaseless_val;
+          uint32_t first_allele_idx_p1 = shifted_phaseless_val & 0xffff;
           uintptr_t result;
           if (first_allele_idx_p1 > allele_ct) {
             // assume end-of-vector
             result = 3;
           } else {
-            uint16_t second_allele_idx_p1 = shifted_phaseless_val >> 16;
+            uint32_t second_allele_idx_p1 = shifted_phaseless_val >> 16;
             const uint32_t cur_bit = 1U << sample_idx_lowbits;
             if (second_allele_idx_p1 > allele_ct) {
               // haploid
               if (!first_allele_idx_p1) {
                 result = 3;
               } else {
-                const uint16_t first_allele_idx = first_allele_idx_p1 - 1;
+                const uint32_t first_allele_idx = first_allele_idx_p1 - 1;
                 if (first_allele_idx < 2) {
                   result = first_allele_idx * 2;
                 } else {
@@ -5720,9 +5725,9 @@ BcfParseErr BcfConvertUnphasedMultiallelic(const BcfImportBaseContext* bibcp, co
             } else {
               // diploid
               if (second_allele_idx_p1 < first_allele_idx_p1) {
-                const uint16_t usii = first_allele_idx_p1;
+                const uint32_t uii = first_allele_idx_p1;
                 first_allele_idx_p1 = second_allele_idx_p1;
-                second_allele_idx_p1 = usii;
+                second_allele_idx_p1 = uii;
               }
               if (!first_allele_idx_p1) {
                 // missing or half-call
@@ -5731,7 +5736,7 @@ BcfParseErr BcfConvertUnphasedMultiallelic(const BcfImportBaseContext* bibcp, co
                 } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
                   return kBcfParseHalfCallError;
                 } else {
-                  const uint16_t second_allele_idx = second_allele_idx_p1 - 1;
+                  const uint32_t second_allele_idx = second_allele_idx_p1 - 1;
                   if (second_allele_idx < 2) {
                     // kVcfHalfCallHaploid, kVcfHalfCallReference
                     result = second_allele_idx << halfcall_mode;
@@ -5800,19 +5805,19 @@ BcfParseErr BcfConvertUnphasedMultiallelic(const BcfImportBaseContext* bibcp, co
           } else {
             const uint32_t shifted_phaseless_val = S_CAST(uint32_t, phaseless_val) >> 1;
             // rest of this is identical to diploid case
-            uint16_t first_allele_idx_p1 = shifted_phaseless_val;
+            uint32_t first_allele_idx_p1 = shifted_phaseless_val & 0xffff;
             if (first_allele_idx_p1 > allele_ct) {
               // assume end-of-vector
               result = 3;
             } else {
-              uint16_t second_allele_idx_p1 = shifted_phaseless_val >> 16;
+              uint32_t second_allele_idx_p1 = shifted_phaseless_val >> 16;
               const uint32_t cur_bit = 1U << sample_idx_lowbits;
               if (second_allele_idx_p1 > allele_ct) {
                 // haploid
                 if (!first_allele_idx_p1) {
                   result = 3;
                 } else {
-                  const uint16_t first_allele_idx = first_allele_idx_p1 - 1;
+                  const uint32_t first_allele_idx = first_allele_idx_p1 - 1;
                   if (first_allele_idx < 2) {
                     result = first_allele_idx * 2;
                   } else {
@@ -5825,9 +5830,9 @@ BcfParseErr BcfConvertUnphasedMultiallelic(const BcfImportBaseContext* bibcp, co
               } else {
                 // diploid
                 if (second_allele_idx_p1 < first_allele_idx_p1) {
-                  const uint16_t usii = first_allele_idx_p1;
+                  const uint32_t uii = first_allele_idx_p1;
                   first_allele_idx_p1 = second_allele_idx_p1;
-                  second_allele_idx_p1 = usii;
+                  second_allele_idx_p1 = uii;
                 }
                 if (!first_allele_idx_p1) {
                   // missing or half-call
@@ -5836,7 +5841,7 @@ BcfParseErr BcfConvertUnphasedMultiallelic(const BcfImportBaseContext* bibcp, co
                   } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
                     return kBcfParseHalfCallError;
                   } else {
-                    const uint16_t second_allele_idx = second_allele_idx_p1 - 1;
+                    const uint32_t second_allele_idx = second_allele_idx_p1 - 1;
                     if (second_allele_idx < 2) {
                       // kVcfHalfCallHaploid, kVcfHalfCallReference
                       result = second_allele_idx << halfcall_mode;
@@ -5994,9 +5999,9 @@ BcfParseErr BcfConvertPhasedBiallelic(const BcfImportBaseContext* bibcp, const G
           }
           const uintptr_t bit_8 = raw_val & 0x100;
           phasepresent_hw_shifted |= bit_8 << sample_idx_lowbits;
-          unsigned char second_allele_idx_p1 = raw_val >> 9;
+          uint32_t second_allele_idx_p1 = raw_val >> 9;
           phaseinfo_hw |= (second_allele_idx_p1 & 1) << sample_idx_lowbits;
-          unsigned char first_allele_idx_p1 = (raw_val ^ bit_8) >> 1;
+          uint32_t first_allele_idx_p1 = (raw_val & 0xff) >> 1;
           if (first_allele_idx_p1 > 3) {
             first_allele_idx_p1 = 3;
           }
@@ -6040,7 +6045,6 @@ BcfParseErr BcfConvertPhasedBiallelic(const BcfImportBaseContext* bibcp, const G
           // may overread 1 byte
           uint32_t raw_val;
           memcpy(&raw_val, gt_iter, 4);
-          raw_val &= 0xffffff;
           gt_iter = &(gt_iter[value_ct]);
           if ((raw_val & 0xfffefe) == 0x810202) {
             continue;
@@ -6052,9 +6056,9 @@ BcfParseErr BcfConvertPhasedBiallelic(const BcfImportBaseContext* bibcp, const G
           } else {
             const uintptr_t bit_8 = raw_val & 0x100;
             phasepresent_hw_shifted |= bit_8 << sample_idx_lowbits;
-            unsigned char second_allele_idx_p1 = (raw_val >> 9) & 0x7f;
+            uint32_t second_allele_idx_p1 = (raw_val >> 9) & 0x7f;
             phaseinfo_hw |= (second_allele_idx_p1 & 1) << sample_idx_lowbits;
-            unsigned char first_allele_idx_p1 = (raw_val ^ bit_8) >> 1;
+            uint32_t first_allele_idx_p1 = (raw_val & 0xff) >> 1;
             if (first_allele_idx_p1 > 3) {
               first_allele_idx_p1 = 3;
             }
@@ -6143,26 +6147,26 @@ BcfParseErr BcfConvertPhasedMultiallelic(const BcfImportBaseContext* bibcp, cons
         uint32_t phasepresent_hw = 0;
         uint32_t phaseinfo_hw = 0;
         for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits != loop_len; ++sample_idx_lowbits) {
-          const uint16_t raw_val = gt_iter[sample_idx_lowbits];
-          const uint16_t phaseless_val = raw_val & 0xfefe;
+          const uint32_t raw_val = gt_iter[sample_idx_lowbits];
+          const uint32_t phaseless_val = raw_val & 0xfefe;
           if ((phaseless_val == 0x202) || ((gq_dp_fail_word >> (2 * sample_idx_lowbits)) & 1)) {
             continue;
           }
-          const uint16_t shifted_phaseless_val = phaseless_val >> 1;
-          unsigned char first_allele_idx_p1 = shifted_phaseless_val;
+          const uint32_t shifted_phaseless_val = phaseless_val >> 1;
+          uint32_t first_allele_idx_p1 = shifted_phaseless_val & 0xff;
           uintptr_t result;
           if (first_allele_idx_p1 > allele_ct) {
             // assume end-of-vector
             result = 3;
           } else {
-            unsigned char second_allele_idx_p1 = shifted_phaseless_val >> 8;
+            uint32_t second_allele_idx_p1 = shifted_phaseless_val >> 8;
             const uint32_t cur_bit = 1U << sample_idx_lowbits;
             if (second_allele_idx_p1 > allele_ct) {
               // haploid
               if (!first_allele_idx_p1) {
                 result = 3;
               } else {
-                const unsigned char first_allele_idx = first_allele_idx_p1 - 1;
+                const uint32_t first_allele_idx = first_allele_idx_p1 - 1;
                 if (first_allele_idx < 2) {
                   result = first_allele_idx * 2;
                 } else {
@@ -6175,9 +6179,9 @@ BcfParseErr BcfConvertPhasedMultiallelic(const BcfImportBaseContext* bibcp, cons
             } else {
               // diploid
               if (second_allele_idx_p1 < first_allele_idx_p1) {
-                const unsigned char ucc = first_allele_idx_p1;
+                const uint32_t uii = first_allele_idx_p1;
                 first_allele_idx_p1 = second_allele_idx_p1;
-                second_allele_idx_p1 = ucc;
+                second_allele_idx_p1 = uii;
                 phaseinfo_hw |= cur_bit;
               }
               if (!first_allele_idx_p1) {
@@ -6187,7 +6191,7 @@ BcfParseErr BcfConvertPhasedMultiallelic(const BcfImportBaseContext* bibcp, cons
                 } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
                   return kBcfParseHalfCallError;
                 } else {
-                  const unsigned char second_allele_idx = second_allele_idx_p1 - 1;
+                  const uint32_t second_allele_idx = second_allele_idx_p1 - 1;
                   if (second_allele_idx < 2) {
                     // kVcfHalfCallHaploid, kVcfHalfCallReference
                     result = second_allele_idx << halfcall_mode;
@@ -6266,21 +6270,21 @@ BcfParseErr BcfConvertPhasedMultiallelic(const BcfImportBaseContext* bibcp, cons
             // triploid+ (or malformed)
             result = 3;
           } else {
-            const uint16_t shifted_phaseless_val = (phaseless_val & 0xffff) >> 1;
+            const uint32_t shifted_phaseless_val = (phaseless_val & 0xffff) >> 1;
             // rest of this is identical to diploid case
-            unsigned char first_allele_idx_p1 = shifted_phaseless_val;
+            uint32_t first_allele_idx_p1 = shifted_phaseless_val & 0xff;
             if (first_allele_idx_p1 > allele_ct) {
               // assume end-of-vector
               result = 3;
             } else {
-              unsigned char second_allele_idx_p1 = shifted_phaseless_val >> 8;
+              uint32_t second_allele_idx_p1 = shifted_phaseless_val >> 8;
               const uint32_t cur_bit = 1U << sample_idx_lowbits;
               if (second_allele_idx_p1 > allele_ct) {
                 // haploid
                 if (!first_allele_idx_p1) {
                   result = 3;
                 } else {
-                  const unsigned char first_allele_idx = first_allele_idx_p1 - 1;
+                  const uint32_t first_allele_idx = first_allele_idx_p1 - 1;
                   if (first_allele_idx < 2) {
                     result = first_allele_idx * 2;
                   } else {
@@ -6293,9 +6297,9 @@ BcfParseErr BcfConvertPhasedMultiallelic(const BcfImportBaseContext* bibcp, cons
               } else {
                 // diploid
                 if (second_allele_idx_p1 < first_allele_idx_p1) {
-                  const unsigned char ucc = first_allele_idx_p1;
+                  const uint32_t uii = first_allele_idx_p1;
                   first_allele_idx_p1 = second_allele_idx_p1;
-                  second_allele_idx_p1 = ucc;
+                  second_allele_idx_p1 = uii;
                   phaseinfo_hw |= cur_bit;
                 }
                 if (!first_allele_idx_p1) {
@@ -6305,7 +6309,7 @@ BcfParseErr BcfConvertPhasedMultiallelic(const BcfImportBaseContext* bibcp, cons
                   } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
                     return kBcfParseHalfCallError;
                   } else {
-                    const unsigned char second_allele_idx = second_allele_idx_p1 - 1;
+                    const uint32_t second_allele_idx = second_allele_idx_p1 - 1;
                     if (second_allele_idx < 2) {
                       // kVcfHalfCallHaploid, kVcfHalfCallReference
                       result = second_allele_idx << halfcall_mode;
@@ -6383,20 +6387,20 @@ BcfParseErr BcfConvertPhasedMultiallelic(const BcfImportBaseContext* bibcp, cons
             continue;
           }
           const uint32_t shifted_phaseless_val = phaseless_val >> 1;
-          uint16_t first_allele_idx_p1 = shifted_phaseless_val;
+          uint32_t first_allele_idx_p1 = shifted_phaseless_val & 0xffff;
           uintptr_t result;
           if (first_allele_idx_p1 > allele_ct) {
             // assume end-of-vector
             result = 3;
           } else {
-            uint16_t second_allele_idx_p1 = shifted_phaseless_val >> 16;
+            uint32_t second_allele_idx_p1 = shifted_phaseless_val >> 16;
             const uint32_t cur_bit = 1U << sample_idx_lowbits;
             if (second_allele_idx_p1 > allele_ct) {
               // haploid
               if (!first_allele_idx_p1) {
                 result = 3;
               } else {
-                const uint16_t first_allele_idx = first_allele_idx_p1 - 1;
+                const uint32_t first_allele_idx = first_allele_idx_p1 - 1;
                 if (first_allele_idx < 2) {
                   result = first_allele_idx * 2;
                 } else {
@@ -6409,9 +6413,9 @@ BcfParseErr BcfConvertPhasedMultiallelic(const BcfImportBaseContext* bibcp, cons
             } else {
               // diploid
               if (second_allele_idx_p1 < first_allele_idx_p1) {
-                const uint16_t usii = first_allele_idx_p1;
+                const uint32_t uii = first_allele_idx_p1;
                 first_allele_idx_p1 = second_allele_idx_p1;
-                second_allele_idx_p1 = usii;
+                second_allele_idx_p1 = uii;
                 phaseinfo_hw |= cur_bit;
               }
               if (!first_allele_idx_p1) {
@@ -6502,19 +6506,19 @@ BcfParseErr BcfConvertPhasedMultiallelic(const BcfImportBaseContext* bibcp, cons
           } else {
             const uint32_t shifted_phaseless_val = S_CAST(uint32_t, phaseless_val) >> 1;
             // rest of this is identical to diploid case
-            uint16_t first_allele_idx_p1 = shifted_phaseless_val;
+            uint32_t first_allele_idx_p1 = shifted_phaseless_val & 0xffff;
             if (first_allele_idx_p1 > allele_ct) {
               // assume end-of-vector
               result = 3;
             } else {
-              uint16_t second_allele_idx_p1 = shifted_phaseless_val >> 16;
+              uint32_t second_allele_idx_p1 = shifted_phaseless_val >> 16;
               const uint32_t cur_bit = 1U << sample_idx_lowbits;
               if (second_allele_idx_p1 > allele_ct) {
                 // haploid
                 if (!first_allele_idx_p1) {
                   result = 3;
                 } else {
-                  const uint16_t first_allele_idx = first_allele_idx_p1 - 1;
+                  const uint32_t first_allele_idx = first_allele_idx_p1 - 1;
                   if (first_allele_idx < 2) {
                     result = first_allele_idx * 2;
                   } else {
@@ -6527,9 +6531,9 @@ BcfParseErr BcfConvertPhasedMultiallelic(const BcfImportBaseContext* bibcp, cons
               } else {
                 // diploid
                 if (second_allele_idx_p1 < first_allele_idx_p1) {
-                  const uint16_t usii = first_allele_idx_p1;
+                  const uint32_t uii = first_allele_idx_p1;
                   first_allele_idx_p1 = second_allele_idx_p1;
-                  second_allele_idx_p1 = usii;
+                  second_allele_idx_p1 = uii;
                   phaseinfo_hw |= cur_bit;
                 }
                 if (!first_allele_idx_p1) {
@@ -6539,7 +6543,7 @@ BcfParseErr BcfConvertPhasedMultiallelic(const BcfImportBaseContext* bibcp, cons
                   } else if (unlikely(halfcall_mode == kVcfHalfCallError)) {
                     return kBcfParseHalfCallError;
                   } else {
-                    const uint16_t second_allele_idx = second_allele_idx_p1 - 1;
+                    const uint32_t second_allele_idx = second_allele_idx_p1 - 1;
                     if (second_allele_idx < 2) {
                       // kVcfHalfCallHaploid, kVcfHalfCallReference
                       result = second_allele_idx << halfcall_mode;
@@ -6738,12 +6742,12 @@ BcfParseErr BcfConvertPhasedBiallelicDosage(const BcfImportContext* bicp, const 
           }
         } else if ((gt_value_ct == 2) || (gt_main[sample_idx * gt_value_ct + 2] == 0x81)) {
           // diploid
-          const uint16_t bit_8 = gt_raw & 0x100;
-          unsigned char first_allele_idx_p1 = (gt_raw ^ bit_8) >> 1;
+          const uint32_t bit_8 = gt_raw & 0x100;
+          uint32_t first_allele_idx_p1 = (gt_raw & 0xff) >> 1;
           if (first_allele_idx_p1 > 3) {
             first_allele_idx_p1 = 3;
           }
-          unsigned char second_allele_idx_p1 = gt_raw >> 9;
+          uint32_t second_allele_idx_p1 = gt_raw >> 9;
           if (second_allele_idx_p1 > 3) {
             second_allele_idx_p1 = 3;
           }
@@ -7534,25 +7538,25 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     }
     const uint32_t require_gt = (import_flags / kfImportVcfRequireGt) & 1;
     if (unlikely((!gt_sidx) && require_gt)) {
-      logerrputs("Error: No FORMAT:GT field in BCF text header block, when --vcf-require-gt was\nspecified.\n");
+      logerrputs("Error: No FORMAT:GT key found in BCF text header block, when --vcf-require-gt\nwas specified.\n(If this header line is actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
       goto BcfToPgen_ret_INCONSISTENT_INPUT;
     }
     if ((!gq_sidx) && (vcf_min_gq != -1)) {
-      logerrputs("Warning: No FORMAT:GQ field in BCF text header block.  --vcf-min-gq ignored.\n");
+      logerrputs("Warning: No FORMAT:GQ key found in BCF text header block.  --vcf-min-gq\nignored.\n(If this header line is actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
     }
     if ((!dp_sidx) && ((vcf_max_dp != 0x7fffffff) || (vcf_min_dp != -1))) {
-      logerrputs("Warning: No FORMAT:DP field in BCF text header block.  --vcf-{max,min}-dp\nignored.\n");
+      logerrputs("Warning: No FORMAT:DP key found in BCF text header block.  --vcf-{max,min}-dp\nignored.\n(If this header line is actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
     }
     if (format_hds_search) {
       if (!hds_sidx) {
         if (!dosage_sidx) {
-          logerrputs("Warning: No FORMAT:DS or :HDS field in BCF text header block.  Dosages will not\nbe imported.\n");
+          logerrputs("Warning: No FORMAT:DS or :HDS key found in BCF text header block.  Dosages will\nnot be imported.\n(If these header line(s) are actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
         } else {
-          logerrputs("Warning: No FORMAT:HDS field in BCF text header block.  Dosages will be\nimported (from FORMAT:DS), but phase information will be limited or absent.\n");
+          logerrputs("Warning: No FORMAT:HDS key found in BCF text header block.  Dosages will be\nimported (from FORMAT:DS), but phase information will be limited or absent.\n");
         }
       }
     } else if ((!dosage_sidx) && dosage_import_field) {
-      logerrprintfww("Warning: No FORMAT:%s field in BCF text header block. Dosages will not be imported.\n", dosage_import_field);
+      logerrprintfww("Warning: No FORMAT:%s key found in BCF text header block. Dosages will not be imported. (If this header line is actually present, but with extra spaces or unusual field ordering, standardize the header with e.g. bcftools.)\n", dosage_import_field);
     }
 
     unsigned char* bigstack_end_mark2 = g_bigstack_end;
@@ -7638,7 +7642,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       // Can ignore pos and qual on this pass.  (QUAL/FILTER enforcement is now
       // handled by the .pvar loader.)  Always ignore rlen for now, though we
       // may want to add a consistency check later.
-      const uint32_t n_allele = vrec_header[6] >> 16;
+      uint32_t n_allele = vrec_header[6] >> 16;
       const uint32_t n_info = vrec_header[6] & 0xffff;
       const uint32_t n_sample = vrec_header[7] & 0xffffff;
       const uint32_t n_fmt = vrec_header[7] >> 24;
@@ -7784,6 +7788,11 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         if (slen > other_slen_ubound) {
           other_slen_ubound = slen;
         }
+      }
+      // bugfix (22 Feb 2020): need to treat n_allele as 2 after this point
+      // when it's 1
+      if (n_allele == 1) {
+        n_allele = 2;
       }
       // FILTER
       uint32_t value_type;
@@ -8657,7 +8666,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
                       const int32_t* cur_vec_alias = R_CAST(const int32_t*, cur_vec_start);
                       for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
                         const int32_t cur_val = cur_vec_alias[value_idx];
-                        if (cur_val != -2147483648) {
+                        if (cur_val != (-2147483647 - 1)) {
                           write_iter = i32toa(cur_val, write_iter);
                         } else {
                           *write_iter++ = '.';
