@@ -3943,6 +3943,10 @@ uint32_t ChrLenLbound(const ChrInfo* cip, const uint32_t* variant_bps, const uin
 uint32_t ValidVcfAlleleCode(const char* allele_code_iter) {
   // returns 1 if probably valid (angle-bracket case is not exhaustively
   // checked), 0 if definitely not
+  // TODO: try vectorized loop for long strings (see
+  // https://github.com/grailbio/bio/blob/master/biosimd/biosimd_amd64.s ),
+  // combined with lookup table for short strings (always use lookup table for
+  // first char, then continue using it up to vector boundary).
   uint32_t uii = ctou32(*allele_code_iter);
   if ((uii == '<') || ((uii == '*') && (!allele_code_iter[1]))) {
     return 1;
@@ -6325,12 +6329,14 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
     uint32_t dosage_key_idx = UINT32_MAX;
     uint32_t hds_key_idx = UINT32_MAX;
     uint32_t info_end_exists = 0;
+    uint32_t fif_key_ct = 0;
     uint32_t gt_key_idx;
     {
       // Now generate the header body and build the string dictionaries.
       // We store additional information about each FILTER/INFO/FORMAT key in
       // fif_keys[index][-1]:
-      //   bits 0-2: INFO type (1 = Flag, 3 = Integer, 5 = Float, 7 = String)
+      //   bits 0-2: INFO type (1 = Flag, 3 = Integer, 5 = Float,
+      //             7 = String/Character)
       //   bit 3: FILTER?
       //   bits 4-7 unused for now
       char* header_start = write_iter;
@@ -6355,7 +6361,6 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
       // Match htslib/bcftools behavior of always putting an explicit
       // FILTER:PASS header line first.
       write_iter = strcpya_k(write_iter, "##FILTER=<ID=PASS,Description=\"All filters passed\",IDX=0>" EOLN_STR);
-      uint32_t fif_key_ct = 0;
       {
         uint32_t cur_idx;
         reterr = AddToFifHtable(g_bigstack_base, "PASS", fif_keys_htable_size, strlen("PASS"), 8, &tmp_alloc_end, fif_keys_mutable, fif_keys_htable, &fif_key_ct, &cur_idx);
@@ -6452,7 +6457,8 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
               }
             } else if (StrStartsWithUnsafe(type_prestart, ",Type=Float,")) {
               prechar = 5;
-            } else if (likely(StrStartsWithUnsafe(type_prestart, ",Type=String,"))) {
+            } else if (likely(StrStartsWithUnsafe(type_prestart, ",Type=String,") ||
+                              StrStartsWithUnsafe(type_prestart, ",Type=Character,"))) {
               prechar = 7;
             } else {
               *id_end = '\0';
@@ -6786,6 +6792,11 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
         }
       }
     }
+    const uint32_t fif_key_ctl = BitCtToWordCt(fif_key_ct);
+    uintptr_t* fif_seen;
+    if (unlikely(bigstack_alloc_w(fif_key_ctl, &fif_seen))) {
+      goto ExportBcf_ret_NOMEM;
+    }
 
     char* pvar_reload_line_iter = nullptr;
     uint32_t info_col_idx = 0;
@@ -6801,7 +6812,6 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
     // C-style for now
     // 0/0  0/1  1/1  ./.
     const uint16_t basic_genobytes[4] = {0x0202, 0x0204, 0x0404, 0};
-
     // 4-genotype-at-a-time lookup in basic case
     uint16_t basic_genobytes4[1024] ALIGNV16;
     basic_genobytes4[0] = basic_genobytes[0];
@@ -6848,7 +6858,6 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
     uint32_t alt1_allele_idx = 1;
     uint32_t allele_ct = 2;
     uint32_t invalid_allele_code_seen = 0;
-    ;;;;
     for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
       const uint32_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
       if (variant_uidx >= chr_end) {
@@ -6902,8 +6911,9 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
         alt1_allele_idx = refalt1_select[variant_uidx][1];
       }
       const char* ref_allele = cur_alleles[ref_allele_idx];
+      uint32_t rlen = strlen(ref_allele);
       if (ref_allele != dot_ptr) {
-        write_iter = AppendBcfString(ref_allele, write_iter);
+        write_iter = AppendBcfCountedString(ref_allele, rlen, write_iter);
         if (!invalid_allele_code_seen) {
           invalid_allele_code_seen = !ValidVcfAlleleCode(ref_allele);
         }
@@ -6917,72 +6927,135 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
         if (!invalid_allele_code_seen) {
           invalid_allele_code_seen = !ValidVcfAlleleCode(alt1_allele);
         }
+        if (allele_ct > 2) {
+          for (uint32_t cur_allele_uidx = 0; cur_allele_uidx != allele_ct; ++cur_allele_uidx) {
+            if ((cur_allele_uidx == ref_allele_idx) || (cur_allele_uidx == alt1_allele_idx)) {
+              // if this is noticeably suboptimal, have two loops, with inner
+              // loop going up to cur_allele_stop.
+              // (also wrap this in a function, this comes up a bunch of times)
+              continue;
+            }
+            const char* cur_allele = cur_alleles[cur_allele_uidx];
+            write_iter = AppendBcfString(cur_allele, write_iter);
+            if (!invalid_allele_code_seen) {
+              invalid_allele_code_seen = !ValidVcfAlleleCode(cur_allele);
+            }
+          }
+        }
       } else {
         if (unlikely(allele_ct > 2)) {
-          snprintf(g_logbuf, kLogbufSize, "Error: --export bcf: Multiallelic variant '%s' has a missing ALT allele. (This is only permitted for biallelic variants.)\n", variant_id);
+          snprintf(g_logbuf, kLogbufSize, "Error: --export bcf: Multiallelic variant '%s' has a missing ALT allele.\n", variant_id);
           goto ExportBcf_ret_MALFORMED_INPUT_WW;
         }
-      }
-      write_iter = AppendBcfString();
-      write_iter = strcpya(write_iter, cur_alleles[alt1_allele_idx]);
-      if (!invalid_allele_code_seen) {
-      }
-      if (allele_ct > 2) {
-        for (uint32_t cur_allele_uidx = 0; cur_allele_uidx != allele_ct; ++cur_allele_uidx) {
-          if ((cur_allele_uidx == ref_allele_idx) || (cur_allele_uidx == alt1_allele_idx)) {
-            // if this is noticeably suboptimal, have two loops, with inner
-            // loop going up to cur_allele_stop.
-            // (also wrap this in a function, this comes up a bunch of times)
-            continue;
-          }
-          *write_iter++ = ',';
-          write_iter = strcpya(write_iter, cur_alleles[cur_allele_uidx]);
-          if (!invalid_allele_code_seen) {
-            invalid_allele_code_seen = !ValidVcfAlleleCode(cur_alleles[cur_allele_uidx]);
-          }
-          if (unlikely(bgzfwrite_ck(writebuf_flush, &bgzf, &write_iter))) {
-            goto ExportVcf_ret_WRITE_FAIL;
-          }
-        }
+        n_allele = 1;
       }
 
-      // QUAL
-      *write_iter++ = '\t';
-      if ((!pvar_qual_present) || (!IsSet(pvar_qual_present, variant_uidx))) {
-        *write_iter++ = '.';
-      } else {
-        write_iter = ftoa_g(pvar_quals[variant_uidx], write_iter);
-      }
+      // QUAL already filled
 
       // FILTER
-      *write_iter++ = '\t';
       if ((!pvar_filter_present) || (!IsSet(pvar_filter_present, variant_uidx))) {
-        *write_iter++ = '.';
+        *write_iter++ = '\0';
       } else if (!IsSet(pvar_filter_npass, variant_uidx)) {
-        write_iter = strcpya_k(write_iter, "PASS");
+        *write_iter++ = 0x11;
+        *write_iter++ = '\0';
       } else {
-        write_iter = strcpya(write_iter, pvar_filter_storage[variant_uidx]);
+        const char* cur_filter_iter = pvar_filter_storage[variant_uidx];
+        // two passes; determine type descriptor during first pass (and may as
+        // well deduplicate and sort while we're at it)
+        ZeroWArr(fif_key_ctl, fif_seen);
+        while (1) {
+          const char* tok_end = strchrnul(cur_filter_iter, ',');
+          const uint32_t fif_idx = IdHtableFindNnt(cur_filter_iter, fif_keys, fif_keys_htable, tok_end - cur_filter_iter, fif_keys_htable_size);
+          // Second predicate verifies this is actually a FILTER key.
+          if (unlikely(fif_idx == UINT32_MAX) || (!(fif_keys[fif_idx][-1] & 8))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: --export bcf: Variant '%s' has a FILTER value with no corresponding header line.\n", variant_id);
+            goto ExportBcf_ret_MALFORMED_INPUT_WW;
+          }
+          SetBit(fif_idx, fif_seen);
+          if ((*tok_end) == '\0') {
+            break;
+          }
+          cur_filter_iter = &(tok_end[1]);
+        }
+        const uint32_t nfilter = PopcountWords(fif_seen, fif_key_ctl);
+        const uint32_t max_idx = FindLast1BitBefore(fif_seen, fif_key_ct);
+        uintptr_t fif_idx_base = 0;
+        uintptr_t fif_seen_bits = fif_seen[0];
+        if (max_idx <= 127) {
+          if (nfilter < 15) {
+            *write_iter++ = (nfilter << 4) | 1;
+          } else {
+            *write_iter++ = 0xf1;
+            write_iter = AppendBcfTypedInt(nfilter, write_iter);
+          }
+          for (uint32_t uii = 0; uii != nfilter; ++uii) {
+            *write_iter++ = BitIter1(fif_seen, &fif_idx_base, &fif_seen_bits);
+          }
+        } else if (max_idx <= 32767) {
+          if (nfilter < 15) {
+            *write_iter++ = (nfilter << 4) | 2;
+          } else {
+            *write_iter++ = 0xf2;
+            write_iter = AppendBcfTypedInt(nfilter, write_iter);
+          }
+          for (uint32_t uii = 0; uii != nfilter; ++uii) {
+            const uint16_t fif_idx = BitIter1(fif_seen, &fif_idx_base, &fif_seen_bits);
+            memcpy(write_iter, &fif_idx, sizeof(int16_t));
+            write_iter += sizeof(int16_t);
+          }
+        } else {
+          if (nfilter < 15) {
+            *write_iter++ = (nfilter << 4) | 3;
+          } else {
+            *write_iter++ = 0xf3;
+            write_iter = AppendBcfTypedInt(nfilter, write_iter);
+          }
+          for (uint32_t uii = 0; uii != nfilter; ++uii) {
+            const uint32_t fif_idx = BitIter1(fif_seen, &fif_idx_base, &fif_seen_bits);
+            memcpy(write_iter, &fif_idx, sizeof(int32_t));
+            write_iter += sizeof(int32_t);
+          }
+        }
       }
 
       // INFO
-      *write_iter++ = '\t';
       const uint32_t is_pr = all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx));
+      uint16_t n_info = 0;
       if (pvar_reload_line_iter) {
-        reterr = PvarInfoReloadAndWrite(info_pr_flag_present, info_col_idx, variant_uidx, is_pr, &pvar_reload_txs, &pvar_reload_line_iter, &write_iter, &rls_variant_uidx);
+        reterr = PvarInfoReload(info_col_idx, variant_uidx, &pvar_reload_txs, &pvar_reload_line_iter, &rls_variant_uidx);
         if (unlikely(reterr)) {
-          goto ExportVcf_ret_TSTREAM_FAIL;
+          goto ExportBcf_ret_TSTREAM_FAIL;
         }
-      } else {
-        if (is_pr) {
-          write_iter = strcpya_k(write_iter, "PR");
-        } else {
-          *write_iter++ = '.';
-        }
+        // TODO: parse the line
+        logerrputs("not implemented yet\n");
+        exit(1);
+      } else if (is_pr) {
+        n_info = 1;
+        write_iter = AppendBcfTypedInt(pr_key_idx, write_iter);
+        // Anything goes here.  As of this writing, the spec suggests 0x11 0x01
+        // (single int8 equal to 1), but bcftools emits the more compact 0x00
+        // (typeless missing value); we imitate bcftools.
+        *write_iter++ = '\0';
       }
 
-      // FORMAT
-      write_iter = strcpya_k(write_iter, "\tGT");
+#ifdef __LP64__
+      if (unlikely(S_CAST(uintptr_t, write_iter - &(rec_start[8])) > 0xffffffffU)) {
+        logerrprintfww("Error: CHROM..INFO component of variant '%s' is too large to represent as BCF.\n", variant_id);
+        goto ExportBcf_ret_INCONSISTENT_INPUT;
+      }
+#endif
+      uint32_t l_shared = write_iter - &(rec_start[8]);
+      memcpy(rec_start, &l_shared, sizeof(int32_t));
+      // TODO: [4,8) = l_indiv
+      memcpy(&(rec_start[16]), &rlen, sizeof(int32_t));
+      memcpy(&(rec_start[24]), &n_info, sizeof(int16_t));
+      memcpy(&(rec_start[26]), &n_allele, sizeof(int16_t));
+      // TODO: [31] = n_fmt
+      if (unlikely(bgzfwrite_ck(writebuf_flush, &bgzf, &write_iter))) {
+        goto ExportBcf_ret_WRITE_FAIL;
+      }
 
+      // FORMAT and genotype values are mixed together.
       // could defensively zero out more counts
       pgv.dosage_ct = 0;
       pgv.dphase_ct = 0;
@@ -6998,7 +7071,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
             reterr = PgrGetD(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &(pgv.dosage_ct));
           }
           if (unlikely(reterr)) {
-            goto ExportVcf_ret_PGR_FAIL;
+            goto ExportBcf_ret_PGR_FAIL;
           }
           if (!alt1_allele_idx) {
             // assumes biallelic
@@ -7008,33 +7081,28 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
             }
           }
           if ((!pgv.dosage_ct) && (!ds_force)) {
-            if (!is_haploid) {
-              // always 4 bytes wide, exploit that
-              GenoarrLookup256x4bx4(pgv.genovec, basic_genotext4, sample_ct, write_iter);
-              write_iter = &(write_iter[sample_ct * 4]);
+            write_iter = AppendBcfTypedInt(gt_key_idx, write_iter);
+            if () {
+              // chrX also goes to this branch, *unless all males*.
+              *write_iter++ = 0x21;
+              GenoarrLookup256x2bx4(pgv.genovec, basic_genobytes2, sample_ct, write_iter);
+              if () {
+                // chrX: replace second byte of male homozygous/missing calls
+                // with END_OF_VECTOR (0x81).
+
+              }
             } else {
-              // chrX: male homozygous/missing calls use only one character +
-              //       tab
-              // other haploid/MT: this is true for nonmales too
-              for (uint32_t widx = 0; ; ++widx) {
-                if (widx >= sample_ctl2_m1) {
-                  if (widx > sample_ctl2_m1) {
-                    break;
-                  }
-                  inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
-                }
-                uintptr_t genovec_word = pgv.genovec[widx];
-                uint32_t sex_male_hw = is_x * (R_CAST(const Halfword*, sex_male_collapsed)[widx]);
-                for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
-                  const uint32_t cur_geno = genovec_word & 3;
-                  const uint32_t cur_is_male = sex_male_hw & 1;
-                  memcpy(write_iter, &(basic_genotext[cur_geno]), 4);
-                  write_iter = &(write_iter[haploid_genotext_blen[cur_geno + cur_is_male * 4]]);
-                  genovec_word >>= 2;
-                  sex_male_hw >>= 1;
-                }
+              // other haploid/MT
+              ZeroTrailingNyps(sample_ct, pgv.genovec);
+              if (AtLeastOneHetUnsafe(pgv.genovec, sample_ct)) {
+                *write_iter++ = 0x21;
+                ;;;
+              } else if (is_y) {
+                // encode nonmale missing values as ploidy-0
+              } else {
               }
             }
+            write_iter = &(write_iter[sample_ct * 2]);
           } else {
             // some dosages present, or {H}DS-force; unphased
             if (write_ds) {
@@ -7522,15 +7590,16 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
           // todo: rotation function that can also be used by --make-pgen
           // maybe add a PgrGetM2() function too
           logputs("\n");
-          logerrputs("Error: VCF-export multiallelic rotation is under development.\n");
+          logerrputs("Error: BCF-export multiallelic rotation is under development.\n");
           reterr = kPglRetNotYetSupported;
-          goto ExportVcf_ret_1;
+          goto ExportBcf_ret_1;
         }
         if (!some_phased) {
           reterr = PgrGetM(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
           if (unlikely(reterr)) {
-            goto ExportVcf_ret_PGR_FAIL;
+            goto ExportBcf_ret_PGR_FAIL;
           }
+          ;;;;
           if (!ds_force) {
             if (!is_haploid) {
               if (allele_ct <= 10) {
@@ -7781,11 +7850,12 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
               }
             }
           }
+          ;;;;
         } else {
           // multiallelic, phased
           reterr = PgrGetMP(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
           if (unlikely(reterr)) {
-            goto ExportVcf_ret_PGR_FAIL;
+            goto ExportBcf_ret_PGR_FAIL;
           }
           if (!pgv.patch_01_ct) {
             ZeroWArr(sample_ctl, pgv.patch_01_set);
@@ -7796,6 +7866,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
           const AlleleCode* patch_01_vals_iter = pgv.patch_01_vals;
           const AlleleCode* patch_10_vals_iter = pgv.patch_10_vals;
           uint32_t phasepresent_hw = 0;
+          ;;;;
           if (!ds_force) {
             if (!is_haploid) {
               if (allele_ct <= 10) {
@@ -8258,11 +8329,11 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
               }
             }
           }
+          ;;;;
         }
       }
-      AppendBinaryEoln(&write_iter);
       if (unlikely(bgzfwrite_ck(writebuf_flush, &bgzf, &write_iter))) {
-        goto ExportVcf_ret_WRITE_FAIL;
+        goto ExportBcf_ret_WRITE_FAIL;
       }
       if (variant_idx >= next_print_variant_idx) {
         if (pct > 10) {
@@ -8274,7 +8345,6 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
         next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
       }
     }
-    ;;;;
     if (unlikely(bgzfclose_flush(writebuf_flush, write_iter, &bgzf, &reterr))) {
       goto ExportBcf_ret_1;
     }
@@ -8316,7 +8386,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
   BigstackReset(bigstack_mark);
   return reterr;
 }
-    */
+*/
 
 static const Dosage kGenoToDosage[4] = {0, 16384, 32768, 65535};
 

@@ -382,6 +382,18 @@ void PopulateDenseDosage(const uintptr_t* genoarr, const uintptr_t* dosage_prese
 
 void PopulateRescaledDosage(const uintptr_t* genoarr, const uintptr_t* dosage_present, const Dosage* dosage_main, double slope, double intercept, double missing_val, uint32_t sample_ct, uint32_t dosage_ct, double* expanded_dosages);
 
+// assumes trailing bits of genoarr are zeroed out
+HEADER_INLINE uint32_t AtLeastOneHetUnsafe(const uintptr_t* genoarr, uint32_t sample_ct) {
+  const uint32_t sample_ctl2 = DivUp(sample_ct, kBitsPerWordD2);
+  for (uint32_t uii = 0; uii != sample_ctl2; ++uii) {
+    const uintptr_t geno_word = genoarr[uii];
+    if (geno_word & (~(geno_word >> 1))) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
 void SetHetMissing(uintptr_t word_ct, uintptr_t* genovec);
 
 void SetHetMissingCleardosage(uintptr_t word_ct, uintptr_t* genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* dosagepresent, Dosage* dosage_main);

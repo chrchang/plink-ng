@@ -1,5 +1,5 @@
 SOURCES = $(wildcard libdeflate/lib/*.c) $(wildcard libdeflate/lib/x86/*.c)
-OBJECTS = include/plink2_base.o include/pgenlib_misc.o include/pgenlib_read.o pvar_ffi_support.o pgenlib_ffi_support.o include/plink2_bgzf.o include/plink2_string.o include/plink2_text.o include/plink2_thread.o include/plink2_zstfile.o pvar.o pgenlibr.o RcppExports.o $(SOURCES:.c=.o)
+OBJECTS = include/plink2_base.o include/plink2_bits.o include/pgenlib_misc.o include/pgenlib_read.o pvar_ffi_support.o pgenlib_ffi_support.o include/plink2_bgzf.o include/plink2_string.o include/plink2_text.o include/plink2_thread.o include/plink2_zstfile.o pvar.o pgenlibr.o RcppExports.o $(SOURCES:.c=.o)
 PKG_CFLAGS = -Ilibdeflate -Ilibdeflate/common
 PKG_CPPFLAGS =
 PKG_LIBS = -lpthread -lzstd

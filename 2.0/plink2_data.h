@@ -64,6 +64,8 @@ PglErr WriteMapOrBim(const char* outname, const uintptr_t* variant_include, cons
 
 PglErr PvarInfoOpenAndReloadHeader(const char* pvar_info_reload, uint32_t max_thread_ct, TextStream* pvar_reload_txsp, char** line_iterp, uint32_t* info_col_idx_ptr);
 
+PglErr PvarInfoReload(uint32_t info_col_idx, uint32_t variant_uidx, TextStream* pvar_reload_txsp, char** line_iterp, uint32_t* trs_variant_uidx_ptr);
+
 PglErr PvarInfoReloadAndWrite(uint32_t info_pr_flag_present, uint32_t info_col_idx, uint32_t variant_uidx, uint32_t is_pr, TextStream* pvar_reload_txsp, char** line_iterp, char** write_iter_ptr, uint32_t* rls_variant_uidx_ptr);
 
 void AppendChrsetLine(const ChrInfo* cip, char** write_iter_ptr);
