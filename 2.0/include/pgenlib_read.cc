@@ -6636,39 +6636,39 @@ PglErr ParseAux2Subset(const unsigned char* fread_end, const uintptr_t* __restri
       }
       ExpandThenSubsetBytearr(aux2_start, all_hets, sample_include, het_ct, sample_ct, 1, phaseinfo);
     }
-    *phasepresent_ct_ptr = PopcountWords(phasepresent, sample_ctl);
-    return kPglRetSuccess;
-  }
-  const uint32_t het_ctdl = het_ct / kBitsPerWord;
+    // bugfix (25 Feb 2020): forgot to mask out subsetted_10het here
+  } else {
+    const uint32_t het_ctdl = het_ct / kBitsPerWord;
 
-  // explicit phasepresent
-  const uintptr_t* aux2_first_part = R_CAST(const uintptr_t*, aux2_start);
-  uintptr_t* aux2_first_part_copy = workspace_subset;
-  aux2_first_part_copy[het_ctdl] = 0;
-  memcpy(aux2_first_part_copy, aux2_first_part, 1 + (het_ct / CHAR_BIT));
-  const uint32_t raw_phasepresent_ct = PopcountWords(aux2_first_part_copy, het_ctdl + 1) - 1;
-  if (unlikely(!raw_phasepresent_ct)) {
-    // there shouldn't be a hphase track at all in this case
-    return kPglRetMalformedInput;
-  }
-  const unsigned char* aux2_second_part = &(aux2_start[1 + (het_ct / CHAR_BIT)]);
-  *fread_pp = aux2_second_part;
-  if (PtrAddCk(fread_end, DivUp(raw_phasepresent_ct, CHAR_BIT), fread_pp)) {
-    return kPglRetMalformedInput;
-  }
-  if (!phaseinfo) {
-    return kPglRetSuccess;
-  }
-  if (!sample_include) {
-    ExpandBytearrNested(aux2_second_part, aux2_first_part_copy, all_hets, sample_ctl, raw_phasepresent_ct, 1, phasepresent, phaseinfo);
-    if (!subsetted_10het) {
-      *phasepresent_ct_ptr = raw_phasepresent_ct;
+    // explicit phasepresent
+    const uintptr_t* aux2_first_part = R_CAST(const uintptr_t*, aux2_start);
+    uintptr_t* aux2_first_part_copy = workspace_subset;
+    aux2_first_part_copy[het_ctdl] = 0;
+    memcpy(aux2_first_part_copy, aux2_first_part, 1 + (het_ct / CHAR_BIT));
+    const uint32_t raw_phasepresent_ct = PopcountWords(aux2_first_part_copy, het_ctdl + 1) - 1;
+    if (unlikely(!raw_phasepresent_ct)) {
+      // there shouldn't be a hphase track at all in this case
+      return kPglRetMalformedInput;
+    }
+    const unsigned char* aux2_second_part = &(aux2_start[1 + (het_ct / CHAR_BIT)]);
+    *fread_pp = aux2_second_part;
+    if (PtrAddCk(fread_end, DivUp(raw_phasepresent_ct, CHAR_BIT), fread_pp)) {
+      return kPglRetMalformedInput;
+    }
+    if (!phaseinfo) {
       return kPglRetSuccess;
     }
-  } else {
-    // could skip if intersection of phasepresent with sample_include is empty,
-    // but this function call should be fast enough there anyway?
-    ExpandThenSubsetBytearrNested(aux2_second_part, aux2_first_part_copy, all_hets, sample_include, sample_ct, raw_phasepresent_ct, 1, phasepresent, phaseinfo);
+    if (!sample_include) {
+      ExpandBytearrNested(aux2_second_part, aux2_first_part_copy, all_hets, sample_ctl, raw_phasepresent_ct, 1, phasepresent, phaseinfo);
+      if (!subsetted_10het) {
+        *phasepresent_ct_ptr = raw_phasepresent_ct;
+        return kPglRetSuccess;
+      }
+    } else {
+      // could skip if intersection of phasepresent with sample_include is
+      // empty, but this function call should be fast enough there anyway?
+      ExpandThenSubsetBytearrNested(aux2_second_part, aux2_first_part_copy, all_hets, sample_include, sample_ct, raw_phasepresent_ct, 1, phasepresent, phaseinfo);
+    }
   }
   if (subsetted_10het) {
     BitvecInvmask(subsetted_10het, sample_ctl, phasepresent);
