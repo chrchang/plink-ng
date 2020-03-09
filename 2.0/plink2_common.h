@@ -387,12 +387,14 @@ HEADER_INLINE uint32_t AtLeastOneHetUnsafe(const uintptr_t* genoarr, uint32_t sa
   const uint32_t sample_ctl2 = DivUp(sample_ct, kBitsPerWordD2);
   for (uint32_t uii = 0; uii != sample_ctl2; ++uii) {
     const uintptr_t geno_word = genoarr[uii];
-    if (geno_word & (~(geno_word >> 1))) {
+    if (Word01(geno_word)) {
       return 1;
     }
   }
   return 0;
 }
+
+uint32_t AtLeastOneMultiallelicHet(const PgenVariant* pgvp, uint32_t sample_ct);
 
 void SetHetMissing(uintptr_t word_ct, uintptr_t* genovec);
 

@@ -1682,12 +1682,12 @@ void TransposeBitblock64(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
 #    else
         VecW tmp_lo = vecw_unpacklo8(loader0, loader1);
         VecW tmp_hi = vecw_unpackhi8(loader0, loader1);
-        loader0 = (tmp_lo & m8) | vecw_and_notfirst(m8, vecw_slli(tmp_hi, 8));
-        loader1 = (vecw_srli(tmp_lo, 8) & m8) | vecw_and_notfirst(m8, tmp_hi);
+        loader0 = vecw_blendv(vecw_slli(tmp_hi, 8), tmp_lo, m8);
+        loader1 = vecw_blendv(tmp_hi, vecw_srli(tmp_lo, 8), m8);
         tmp_lo = vecw_unpacklo8(loader2, loader3);
         tmp_hi = vecw_unpackhi8(loader2, loader3);
-        loader2 = (tmp_lo & m8) | vecw_and_notfirst(m8, vecw_slli(tmp_hi, 8));
-        loader3 = (vecw_srli(tmp_lo, 8) & m8) | vecw_and_notfirst(m8, tmp_hi);
+        loader2 = vecw_blendv(vecw_slli(tmp_hi, 8), tmp_lo, m8);
+        loader3 = vecw_blendv(tmp_hi, vecw_srli(tmp_lo, 8), m8);
 #    endif
         // -> (0,0) (1,0) (2,0) (3,0) (0,1) (1,1) (2,1) (3,1) (0,2) ...
         const VecW lo_0123 = vecw_unpacklo16(loader0, loader1);
@@ -2086,20 +2086,20 @@ void TransposeNybbleblock(const uintptr_t* read_iter, uint32_t read_ul_stride, u
 #    else
       VecW tmp_lo = vecw_unpacklo8(even_nybbles0, odd_nybbles0);
       VecW tmp_hi = vecw_unpackhi8(even_nybbles0, odd_nybbles0);
-      even_nybbles0 = (tmp_lo & m8) | vecw_and_notfirst(m8, vecw_slli(tmp_hi, 8));
-      odd_nybbles0 = (vecw_srli(tmp_lo, 8) & m8) | vecw_and_notfirst(m8, tmp_hi);
+      even_nybbles0 = vecw_blendv(vecw_slli(tmp_hi, 8), tmp_lo, m8);
+      odd_nybbles0 = vecw_blendv(tmp_hi, vecw_srli(tmp_lo, 8), m8);
       tmp_lo = vecw_unpacklo8(even_nybbles1, odd_nybbles1);
       tmp_hi = vecw_unpackhi8(even_nybbles1, odd_nybbles1);
-      even_nybbles1 = (tmp_lo & m8) | vecw_and_notfirst(m8, vecw_slli(tmp_hi, 8));
-      odd_nybbles1 = (vecw_srli(tmp_lo, 8) & m8) | vecw_and_notfirst(m8, tmp_hi);
+      even_nybbles1 = vecw_blendv(vecw_slli(tmp_hi, 8), tmp_lo, m8);
+      odd_nybbles1 = vecw_blendv(tmp_hi, vecw_srli(tmp_lo, 8), m8);
       tmp_lo = vecw_unpacklo8(even_nybbles2, odd_nybbles2);
       tmp_hi = vecw_unpackhi8(even_nybbles2, odd_nybbles2);
-      even_nybbles2 = (tmp_lo & m8) | vecw_and_notfirst(m8, vecw_slli(tmp_hi, 8));
-      odd_nybbles2 = (vecw_srli(tmp_lo, 8) & m8) | vecw_and_notfirst(m8, tmp_hi);
+      even_nybbles2 = vecw_blendv(vecw_slli(tmp_hi, 8), tmp_lo, m8);
+      odd_nybbles2 = vecw_blendv(tmp_hi, vecw_srli(tmp_lo, 8), m8);
       tmp_lo = vecw_unpacklo8(even_nybbles3, odd_nybbles3);
       tmp_hi = vecw_unpackhi8(even_nybbles3, odd_nybbles3);
-      even_nybbles3 = (tmp_lo & m8) | vecw_and_notfirst(m8, vecw_slli(tmp_hi, 8));
-      odd_nybbles3 = (vecw_srli(tmp_lo, 8) & m8) | vecw_and_notfirst(m8, tmp_hi);
+      even_nybbles3 = vecw_blendv(vecw_slli(tmp_hi, 8), tmp_lo, m8);
+      odd_nybbles3 = vecw_blendv(tmp_hi, vecw_srli(tmp_lo, 8), m8);
 #    endif
 
       const VecW even_lo = vecw_unpacklo16(even_nybbles0, even_nybbles1);

@@ -921,10 +921,15 @@ BoolErr ScanPosintptr(const char* str_iter, uintptr_t* valp);
 BoolErr ScanmovPosintCapped(uint64_t cap, const char** str_iterp, uint32_t* valp);
 
 BoolErr ScanmovUintCapped(uint64_t cap, const char** str_iterp, uint32_t* valp);
+
+// 2^{-31} < -abs_floor <= 0 <= cap < 2^31
+BoolErr ScanmovIntBounded(uint64_t abs_floor, uint64_t cap, const char** str_iterp, int32_t* valp);
 #else
 BoolErr ScanmovPosintCapped32(uint32_t cap_div_10, uint32_t cap_mod_10, const char** str_iterp, uint32_t* valp);
 
 BoolErr ScanmovUintCapped32(uint32_t cap_div_10, uint32_t cap_mod_10, const char** str_iterp, uint32_t* valp);
+
+BoolErr ScanmovIntBounded32(uint32_t abs_floor_div_10, uint32_t abs_floor_mod_10, uint32_t cap_div_10, uint32_t cap_mod_10, const char** str_iterp, int32_t* valp);
 
 HEADER_INLINE BoolErr ScanmovPosintCapped(uint32_t cap, const char** str_iterp, uint32_t* valp) {
  return ScanmovPosintCapped32(cap / 10, cap % 10, str_iterp, valp);
@@ -932,6 +937,10 @@ HEADER_INLINE BoolErr ScanmovPosintCapped(uint32_t cap, const char** str_iterp, 
 
 HEADER_INLINE BoolErr ScanmovUintCapped(uint32_t cap, const char** str_iterp, uint32_t* valp) {
  return ScanmovUintCapped32(cap / 10, cap % 10, str_iterp, valp);
+}
+
+HEADER_INLINE BoolErr ScanmovIntBounded(uint32_t abs_floor, uint32_t cap, const char** str_iterp, int32_t* valp) {
+  return ScanmovIntBounded32(abs_floor / 10, abs_floor % 10, cap / 10, cap % 10, str_iterp, valp);
 }
 #endif
 
@@ -1523,6 +1532,11 @@ HEADER_INLINE uint32_t IsNanStr(const char* ss, uint32_t slen) {
   }
   return (slen == 2) || ((ctou32(ss[2]) & 0xdf) == 78);
 }
+
+// Matches "inf"/"infinity", any capitalization, can have sign in front.
+// Assumes is_neg zero-initialized.
+// Assumes one-char overread is ok.
+uint32_t IsInfStr(const char* ss, uint32_t slen, uint32_t* is_neg_ptr);
 
 
 HEADER_INLINE CXXCONST_CP AdvToDelimOrEnd(const char* str_iter, const char* str_end, char delim) {

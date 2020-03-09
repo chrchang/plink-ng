@@ -88,6 +88,7 @@ HEADER_INLINE unsigned char* TextStreamMemStart(TextStream* txs_ptr) {
   return R_CAST(unsigned char*, GET_PRIVATE(*txs_ptr, m).base.dst);
 }
 
+// TODO: logputs("\n") first when necessary
 void TextErrPrint(const char* file_descrip, const char* errmsg, PglErr reterr);
 
 HEADER_INLINE void TextFileErrPrint(const char* file_descrip, const textFILE* txfp) {

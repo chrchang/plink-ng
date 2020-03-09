@@ -79,7 +79,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1503
+#define PGENLIB_INTERNAL_VERNUM 1504
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -472,6 +472,8 @@ void SplitHomRef2het(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* __
 // so they aren't always the right choice.
 // When lookup table rows are 16 bytes, they are assumed to be 16-byte aligned
 // in 64-bit builds.  result[] is not assumed to be aligned.
+void GenoarrLookup256x1bx4(const uintptr_t* genoarr, const void* table256x1bx4, uint32_t sample_ct, void* __restrict result);
+
 void GenoarrLookup16x4bx2(const uintptr_t* genoarr, const void* table16x4bx2, uint32_t sample_ct, void* result);
 
 void GenoarrLookup256x2bx4(const uintptr_t* genoarr, const void* table256x2bx4, uint32_t sample_ct, void* result);
@@ -515,6 +517,8 @@ void InitLookup16x4bx2(void* table16x4bx2);
 
 void InitLookup16x8bx2(void* table16x8bx2);
 
+void InitLookup256x1bx4(void* table256x1bx4);
+
 void InitLookup256x2bx4(void* table256x2bx4);
 
 void InitLookup256x4bx4(void* table256x4bx4);
@@ -523,6 +527,10 @@ void PhaseLookup4b(const uintptr_t* genoarr, const uintptr_t* phasepresent, cons
 
 // [0][0]..[3][0], [17][0], and [19][0] should contain the relevant values
 void InitPhaseLookup4b(void* table56x4bx2);
+
+void PhaseLookup8b(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const void* table56x8bx2, uint32_t sample_ct, void* result);
+
+void InitPhaseLookup8b(void* table56x8bx2);
 
 // het-haploid prohibited.  64-entry table suffices: we use the same bits for
 // phasepresent and sex_male since they can't be true simultaneously.
@@ -534,6 +542,25 @@ void InitPhaseXNohhLookup4b(void* table64x4bx2);
 
 // uses same table as PhaseXNohhLookup
 void GenoarrSexLookup4b(const uintptr_t* genoarr, const uintptr_t* sex_male, const void* table64x4bx2, uint32_t sample_ct, void* result);
+
+void InitPhaseXNohhLookup8b(void* table64x8bx2);
+
+void GenoarrSexLookup8b(const uintptr_t* genoarr, const uintptr_t* sex_male, const void* table64x8bx2, uint32_t sample_ct, void* result);
+
+// Unlike PhaseLookup4b(), this allows the cur_phased bit to be set when the
+// genoarr entry is not 01 (het).
+void VcfPhaseLookup4b(const uintptr_t* genoarr, const uintptr_t* cur_phased, const uintptr_t* phaseinfo, const void* table246x4bx2, uint32_t sample_ct, void* __restrict result);
+
+// Precondition:
+//   [0], [2], [4], [6] initialized with unphased entries
+//   [32], [34], [36], [38] initialized with phased-unflipped entries
+//   [162] initialized with phased-flipped case
+void InitVcfPhaseLookup4b(void* table246x4bx2);
+
+void VcfPhaseLookup2b(const uintptr_t* genoarr, const uintptr_t* cur_phased, const uintptr_t* phaseinfo, const void* table246x2bx2, uint32_t sample_ct, void* __restrict result);
+
+void InitVcfPhaseLookup2b(void* table246x2bx2);
+
 
 // Analogue of BitIter1x.
 HEADER_INLINE uint32_t GenoIter1x(const uintptr_t* __restrict genoarr, uintptr_t match_word, uintptr_t* __restrict widxp, uintptr_t* __restrict cur_bitsp) {

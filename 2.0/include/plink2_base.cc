@@ -173,11 +173,11 @@ BoolErr ScanIntAbsBounded(const char* str_iter, uint64_t bound, int32_t* valp) {
   if (ctou32(*valp) >= 10) {
     if (*valp == -3) {
       sign = -1;
-    } else if (*valp != -5) {
+    } else if (unlikely(*valp != -5)) {
       return 1;
     }
     *valp = ctou32(*str_iter++) - 48;
-    if (unlikely(ctou32(*valp) >= 10)) {
+    if (unlikely(*valp >= 10)) {
       return 1;
     }
   }
@@ -260,7 +260,7 @@ BoolErr ScanIntAbsBounded32(const char* str_iter, uint32_t bound_div_10, uint32_
   if (val >= 10) {
     if (val == 0xfffffffdU) {
       sign = -1;
-    } else if (val != 0xfffffffbU) {
+    } else if (unlikely(val != 0xfffffffbU)) {
       return 1;
     }
     val = ctou32(*str_iter++) - 48;

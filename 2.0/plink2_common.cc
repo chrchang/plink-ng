@@ -260,6 +260,56 @@ void PopulateRescaledDosage(const uintptr_t* genoarr, const uintptr_t* dosage_pr
   }
 }
 
+static_assert(sizeof(AlleleCode) == 1, "AtLeastOneMultiallelicHet() needs to be updated.");
+uint32_t AtLeastOneMultiallelicHet(const PgenVariant* pgvp, uint32_t sample_ct) {
+  if (pgvp->patch_01_ct) {
+    return 1;
+  }
+  {
+    const uintptr_t* genoarr = pgvp->genovec;
+    const uint32_t fullvec_ct = sample_ct / kBitsPerWordD2;
+    for (uint32_t uii = 0; uii != fullvec_ct; ++uii) {
+      const uintptr_t geno_word = genoarr[uii];
+      if (Word01(geno_word)) {
+        return 1;
+      }
+    }
+    const uint32_t remainder = sample_ct % kBitsPerWordD2;
+    if (remainder) {
+      if (Word01(bzhi(genoarr[fullvec_ct], 2 * remainder))) {
+        return 1;
+      }
+    }
+  }
+  const uint32_t patch_10_ct = pgvp->patch_10_ct;
+  if (patch_10_ct) {
+    const AlleleCode* patch_10_vals = pgvp->patch_10_vals;
+#ifdef __LP64__
+    const uint32_t fullvec_ct = patch_10_ct / (kBytesPerVec / 2);
+    const VecU16* patch_10_valias = R_CAST(const VecU16*, patch_10_vals);
+    const VecU16 m8 = vecu16_set1(0xff);
+    for (uint32_t vidx = 0; vidx != fullvec_ct; ++vidx) {
+      const VecU16 vv_orig = vecu16_loadu(&(patch_10_valias[vidx]));
+      const VecU16 vv_hi = vecu16_srli(vv_orig, 8);
+      const VecU16 vv_lo = vv_orig & m8;
+      const VecU16 vv_eq = (vv_hi == vv_lo);
+      if (vecu16_movemask(vv_eq) != kVec8thUintMax) {
+        return 1;
+      }
+    }
+    uint32_t uii = fullvec_ct * (kBytesPerVec / 2);
+#else
+    uint32_t uii = 0;
+#endif
+    for (; uii != patch_10_ct; ++uii) {
+      if (patch_10_vals[2 * uii] != patch_10_vals[2 * uii + 1]) {
+        return 1;
+      }
+    }
+  }
+  return 0;
+}
+
 void SetHetMissing(uintptr_t word_ct, uintptr_t* genovec) {
   // 01 -> 11, nothing else changes
 #ifdef __LP64__

@@ -1181,12 +1181,12 @@ void TransposeNypblock64(const uintptr_t* read_iter, uint32_t read_ul_stride, ui
 #    else
         VecW tmp_lo = vecw_unpacklo16(loader0, loader1);
         VecW tmp_hi = vecw_unpackhi16(loader0, loader1);
-        loader0 = (tmp_lo & m16) | vecw_and_notfirst(m16, vecw_slli(tmp_hi, 16));
-        loader1 = (vecw_srli(tmp_lo, 16) & m16) | (vecw_and_notfirst(m16, tmp_hi));
+        loader0 = vecw_blendv(vecw_slli(tmp_hi, 16), tmp_lo, m16);
+        loader1 = vecw_blendv(tmp_hi, vecw_srli(tmp_lo, 16), m16);
         tmp_lo = vecw_unpacklo16(loader2, loader3);
         tmp_hi = vecw_unpackhi16(loader2, loader3);
-        loader2 = (tmp_lo & m16) | vecw_and_notfirst(m16, vecw_slli(tmp_hi, 16));
-        loader3 = (vecw_srli(tmp_lo, 16) & m16) | (vecw_and_notfirst(m16, tmp_hi));
+        loader2 = vecw_blendv(vecw_slli(tmp_hi, 16), tmp_lo, m16);
+        loader3 = vecw_blendv(tmp_hi, vecw_srli(tmp_lo, 16), m16);
 #    endif
         //    (0,0) (0,1) (1,0) ... (7,1) (0,2) ... (7,3) (8,0) ... (31,3)
         //  + (0,4) ... (31,7)
@@ -1232,7 +1232,7 @@ void TransposeNypblock64(const uintptr_t* read_iter, uint32_t read_ul_stride, ui
       // and target_4567 to
       //   _ (4, 0) _ (5, 0) _ (6, 0) _ (7, 0) _ (4, 1) _ (5, 1) _ (6, 1) ...
       // This is perfectly arranged for movemask.
-      VecW target_4567 = (m8 & vecw_srli(loader, 7)) | vecw_and_notfirst(m8, loader);
+      VecW target_4567 = vecw_blendv(loader, vecw_srli(loader, 7), m8);
       target_iter7[vidx] = vecw_movemask(target_4567);
       target_4567 = vecw_slli(target_4567, 2);
       target_iter6[vidx] = vecw_movemask(target_4567);
@@ -1240,7 +1240,7 @@ void TransposeNypblock64(const uintptr_t* read_iter, uint32_t read_ul_stride, ui
       target_iter5[vidx] = vecw_movemask(target_4567);
       target_4567 = vecw_slli(target_4567, 2);
       target_iter4[vidx] = vecw_movemask(target_4567);
-      VecW target_0123 = (vecw_slli(loader, 1) & m8) | vecw_and_notfirst(m8, vecw_slli(loader, 8));
+      VecW target_0123 = vecw_blendv(vecw_slli(loader, 8), vecw_slli(loader, 1), m8);
       target_iter3[vidx] = vecw_movemask(target_0123);
       target_0123 = vecw_slli(target_0123, 2);
       target_iter2[vidx] = vecw_movemask(target_0123);
@@ -1260,7 +1260,7 @@ void TransposeNypblock64(const uintptr_t* read_iter, uint32_t read_ul_stride, ui
   Vec8thUint* target_iter3 = &(target_iter2[write_v8ui_stride]);
   for (uint32_t vidx = 0; vidx != vec_ct; ++vidx) {
     const VecW loader = source_iter[vidx];
-    VecW target_0123 = (vecw_slli(loader, 1) & m8) | vecw_and_notfirst(m8, vecw_slli(loader, 8));
+    VecW target_0123 = vecw_blendv(vecw_slli(loader, 8), vecw_slli(loader, 1), m8);
     target_iter3[vidx] = vecw_movemask(target_0123);
     target_0123 = vecw_slli(target_0123, 2);
     target_iter2[vidx] = vecw_movemask(target_0123);
@@ -1420,8 +1420,9 @@ void SplitHomRef2het(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* __
   }
 }
 
-
-/*
+// Note that once the result elements are only 4 bits wide, shuffle8 should
+// beat a 256x4 lookup table when SSE4 is available.  (possible todo: see if
+// shuffle8-based loop also wins here.)
 void GenoarrLookup256x1bx4(const uintptr_t* genoarr, const void* table256x1bx4, uint32_t sample_ct, void* __restrict result) {
   const uint32_t* table_alias = S_CAST(const uint32_t*, table256x1bx4);
   const unsigned char* genoarr_alias = R_CAST(const unsigned char*, genoarr);
@@ -1440,7 +1441,6 @@ void GenoarrLookup256x1bx4(const uintptr_t* genoarr, const void* table256x1bx4, 
     }
   }
 }
-*/
 
 void GenoarrLookup16x4bx2(const uintptr_t* genoarr, const void* table16x4bx2, uint32_t sample_ct, void* __restrict result) {
   const uint64_t* table_alias = S_CAST(const uint64_t*, table16x4bx2);
@@ -1666,6 +1666,30 @@ void InitLookup16x8bx2(void* table16x8bx2) {
   }
 }
 
+void InitLookup256x1bx4(void* table256x1bx4) {
+  unsigned char* table_iter = S_CAST(unsigned char*, table256x1bx4);
+  unsigned char vals[4];
+  vals[0] = table_iter[0];
+  vals[1] = table_iter[4];
+  vals[2] = table_iter[8];
+  vals[3] = table_iter[12];
+  for (uint32_t high_idx = 0; high_idx != 4; ++high_idx) {
+    const uint32_t cur_high = vals[high_idx];
+    for (uint32_t second_idx = 0; second_idx != 4; ++second_idx) {
+      const uint32_t cur_second = vals[second_idx];
+      for (uint32_t third_idx = 0; third_idx != 4; ++third_idx) {
+        const uint32_t cur_third = vals[third_idx];
+        for (uint32_t low_idx = 0; low_idx != 4; ++low_idx) {
+          *table_iter++ = vals[low_idx];
+          *table_iter++ = cur_third;
+          *table_iter++ = cur_second;
+          *table_iter++ = cur_high;
+        }
+      }
+    }
+  }
+}
+
 void InitLookup256x2bx4(void* table256x2bx4) {
   uint16_t* table_iter = S_CAST(uint16_t*, table256x2bx4);
   uint16_t vals[4];
@@ -1674,11 +1698,11 @@ void InitLookup256x2bx4(void* table256x2bx4) {
   vals[2] = table_iter[8];
   vals[3] = table_iter[12];
   for (uint32_t high_idx = 0; high_idx != 4; ++high_idx) {
-    const uint16_t cur_high = vals[high_idx];
+    const uint32_t cur_high = vals[high_idx];
     for (uint32_t second_idx = 0; second_idx != 4; ++second_idx) {
-      const uint16_t cur_second = vals[second_idx];
+      const uint32_t cur_second = vals[second_idx];
       for (uint32_t third_idx = 0; third_idx != 4; ++third_idx) {
-        const uint16_t cur_third = vals[third_idx];
+        const uint32_t cur_third = vals[third_idx];
         for (uint32_t low_idx = 0; low_idx != 4; ++low_idx) {
           *table_iter++ = vals[low_idx];
           *table_iter++ = cur_third;
@@ -1822,6 +1846,158 @@ void InitPhaseLookup4b(void* table56x4bx2) {
   }
 }
 
+#ifdef __LP64__
+void PhaseLookup8b(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const void* table56x8bx2, uint32_t sample_ct, void* __restrict result) {
+  const __m128i* table_alias = S_CAST(const __m128i*, table56x8bx2);
+  const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
+  const Halfword* phasepresent_alias = R_CAST(const Halfword*, phasepresent);
+  const Halfword* phaseinfo_alias = R_CAST(const Halfword*, phaseinfo);
+  __m128i* result_iter = S_CAST(__m128i*, result);
+  uint32_t loop_len = kBitsPerWordD4;
+  uintptr_t geno_word = 0;
+  uintptr_t phasepresent_hw_shifted = 0;
+  uintptr_t phaseinfo_hw_shifted = 0;
+  for (uint32_t widx = 0; ; ++widx) {
+    if (widx >= sample_ctl2_m1) {
+      if (widx > sample_ctl2_m1) {
+        if (sample_ct % 2) {
+          uintptr_t cur_idx = (geno_word & 3);
+          if (phasepresent_hw_shifted & 16) {
+            cur_idx ^= 16 | (phaseinfo_hw_shifted & 2);
+          }
+          memcpy(result_iter, &(table_alias[cur_idx]), 8);
+        }
+        return;
+      }
+      loop_len = ModNz(sample_ct, kBitsPerWordD2) / 2;
+    }
+    geno_word = genoarr[widx];
+    phasepresent_hw_shifted = phasepresent_alias[widx];
+    if (!phasepresent_hw_shifted) {
+      for (uint32_t uii = 0; uii != loop_len; ++uii) {
+        _mm_storeu_si128(result_iter, table_alias[geno_word & 15]);
+        ++result_iter;
+        geno_word >>= 4;
+      }
+    } else {
+      phasepresent_hw_shifted = phasepresent_hw_shifted << 4;
+      phaseinfo_hw_shifted = phaseinfo_alias[widx];
+      phaseinfo_hw_shifted = phaseinfo_hw_shifted << 1;
+      for (uint32_t uii = 0; uii != loop_len; ++uii) {
+        const uintptr_t cur_idx = ((geno_word & 15) | (phasepresent_hw_shifted & 48)) ^ (phaseinfo_hw_shifted & 6);
+        _mm_storeu_si128(result_iter, table_alias[cur_idx]);
+        ++result_iter;
+        geno_word >>= 4;
+        phasepresent_hw_shifted >>= 2;
+        phaseinfo_hw_shifted >>= 2;
+      }
+    }
+  }
+}
+#else
+void PhaseLookup8b(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const void* table56x8bx2, uint32_t sample_ct, void* __restrict result) {
+  const uint64_t* table_alias = S_CAST(const uint64_t*, table56x8bx2);
+  const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
+  const Halfword* phasepresent_alias = R_CAST(const Halfword*, phasepresent);
+  const Halfword* phaseinfo_alias = R_CAST(const Halfword*, phaseinfo);
+  uint64_t* result_iter = S_CAST(uint64_t*, result);
+  uint32_t loop_len = kBitsPerWordD4;
+  uintptr_t geno_word = 0;
+  uintptr_t phasepresent_hw_shifted = 0;
+  uintptr_t phaseinfo_hw_shifted = 0;
+  for (uint32_t widx = 0; ; ++widx) {
+    if (widx >= sample_ctl2_m1) {
+      if (widx > sample_ctl2_m1) {
+        if (sample_ct % 2) {
+          uintptr_t cur_idx = (geno_word & 3);
+          if (phasepresent_hw_shifted & 16) {
+            cur_idx ^= 16 | (phaseinfo_hw_shifted & 2);
+          }
+          memcpy(result_iter, &(table_alias[cur_idx * 2]), 8);
+        }
+        return;
+      }
+      loop_len = ModNz(sample_ct, kBitsPerWordD2) / 2;
+    }
+    geno_word = genoarr[widx];
+    phasepresent_hw_shifted = phasepresent_alias[widx];
+    if (!phasepresent_hw_shifted) {
+      for (uint32_t uii = 0; uii != loop_len; ++uii) {
+        memcpy(result_iter, &(table_alias[(geno_word & 15) * 2]), 16);
+        result_iter = &(result_iter[2]);
+        geno_word >>= 4;
+      }
+    } else {
+      phasepresent_hw_shifted = phasepresent_hw_shifted << 4;
+      phaseinfo_hw_shifted = phaseinfo_alias[widx];
+      phaseinfo_hw_shifted = phaseinfo_hw_shifted << 1;
+      for (uint32_t uii = 0; uii != loop_len; ++uii) {
+        const uintptr_t cur_idx = ((geno_word & 15) | (phasepresent_hw_shifted & 48)) ^ (phaseinfo_hw_shifted & 6);
+        memcpy(result_iter, &(table_alias[cur_idx * 2]), 16);
+        geno_word >>= 4;
+        phasepresent_hw_shifted >>= 2;
+        phaseinfo_hw_shifted >>= 2;
+      }
+    }
+  }
+}
+#endif
+
+void InitPhaseLookup8b(void* table56x8bx2) {
+  uint64_t* table_iter = S_CAST(uint64_t*, table56x8bx2);
+  uint64_t vals[4];
+  vals[0] = table_iter[0];
+  table_iter[1] = vals[0];
+  vals[1] = table_iter[2];
+  table_iter[3] = vals[0];
+  vals[2] = table_iter[4];
+  table_iter[5] = vals[0];
+  vals[3] = table_iter[6];
+  table_iter[7] = vals[0];
+  table_iter = &(table_iter[8]);
+  for (uint32_t high_idx = 1; high_idx != 4; ++high_idx) {
+    const uint64_t cur_high = vals[high_idx];
+    for (uint32_t low_idx = 0; low_idx != 4; ++low_idx) {
+      *table_iter++ = vals[low_idx];
+      *table_iter++ = cur_high;
+    }
+  }
+  // [16][0]..[31][1]: bit 4 is set
+  // low bits must be 01 or 11
+  const uint64_t val_phaseinfo0 = table_iter[2];
+  table_iter[3] = vals[0];
+  const uint64_t val_phaseinfo1 = table_iter[6];
+  table_iter[7] = vals[0];
+  table_iter = &(table_iter[8]);
+  for (uint32_t high_idx = 1; high_idx != 4; ++high_idx) {
+    const uint64_t cur_high = vals[high_idx];
+    table_iter[2] = val_phaseinfo0;
+    table_iter[3] = cur_high;
+    table_iter[6] = val_phaseinfo1;
+    table_iter[7] = cur_high;
+    table_iter = &(table_iter[8]);
+  }
+  // [32][0]..[39][1]: bit 5 set, bit 4 unset
+  // high bits must be 00 or 01
+  for (uint32_t high_idx = 0; high_idx != 2; ++high_idx) {
+    const uint64_t cur_high = high_idx? val_phaseinfo0 : val_phaseinfo1;
+    for (uint32_t low_idx = 0; low_idx != 4; ++low_idx) {
+      *table_iter++ = vals[low_idx];
+      *table_iter++ = cur_high;
+    }
+  }
+  table_iter = &(table_iter[16]);
+  // [48][0]..[55][1]: bits 4 and 5 set
+  for (uint32_t high_idx = 0; high_idx != 2; ++high_idx) {
+    const uint64_t cur_high = high_idx? val_phaseinfo0 : val_phaseinfo1;
+    table_iter[2] = val_phaseinfo0;
+    table_iter[3] = cur_high;
+    table_iter[6] = val_phaseinfo1;
+    table_iter[7] = cur_high;
+    table_iter = &(table_iter[8]);
+  }
+}
+
 // bits 0..3: two genotypes
 // bits 4..5: two (phasepresent | sex_male) bits
 // bits 1,3: unpacked phaseinfo xor
@@ -1948,6 +2124,393 @@ void GenoarrSexLookup4b(const uintptr_t* genoarr, const uintptr_t* sex_male, con
     }
   }
 }
+
+void InitPhaseXNohhLookup8b(void* table64x8bx2) {
+  uint64_t* table_iter = S_CAST(uint64_t*, table64x8bx2);
+  uint64_t vals[4];
+  vals[0] = table_iter[0];
+  table_iter[1] = vals[0];
+  vals[1] = table_iter[2];
+  table_iter[3] = vals[0];
+  vals[2] = table_iter[4];
+  table_iter[5] = vals[0];
+  vals[3] = table_iter[6];
+  table_iter[7] = vals[0];
+  table_iter = &(table_iter[8]);
+  for (uint32_t high_idx = 1; high_idx != 4; ++high_idx) {
+    const uint64_t cur_high = vals[high_idx];
+    for (uint32_t low_idx = 0; low_idx != 4; ++low_idx) {
+      *table_iter++ = vals[low_idx];
+      *table_iter++ = cur_high;
+    }
+  }
+  // [16][0]..[31][1]: bit 4 is set
+  uint64_t male_or_phasepresent_vals[4];
+  for (uint32_t low_idx = 0; low_idx != 4; ++low_idx) {
+    male_or_phasepresent_vals[low_idx] = *table_iter++;
+    *table_iter++ = vals[0];
+  }
+  for (uint32_t high_idx = 1; high_idx != 4; ++high_idx) {
+    const uint64_t cur_high = vals[high_idx];
+    for (uint32_t low_idx = 0; low_idx != 4; ++low_idx) {
+      *table_iter++ = male_or_phasepresent_vals[low_idx];
+      *table_iter++ = cur_high;
+    }
+  }
+  // [32][0]..[47][1]: bit 5 set, bit 4 unset
+  for (uint32_t high_idx = 0; high_idx != 4; ++high_idx) {
+    const uint64_t cur_high = male_or_phasepresent_vals[high_idx];
+    for (uint32_t low_idx = 0; low_idx != 4; ++low_idx) {
+      *table_iter++ = vals[low_idx];
+      *table_iter++ = cur_high;
+    }
+  }
+  // [48][0]..[63][1]: bits 4 and 5 set
+  for (uint32_t high_idx = 0; high_idx != 4; ++high_idx) {
+    const uint64_t cur_high = male_or_phasepresent_vals[high_idx];
+    for (uint32_t low_idx = 0; low_idx != 4; ++low_idx) {
+      *table_iter++ = male_or_phasepresent_vals[low_idx];
+      *table_iter++ = cur_high;
+    }
+  }
+}
+
+#ifdef __LP64__
+void GenoarrSexLookup8b(const uintptr_t* genoarr, const uintptr_t* sex_male, const void* table64x8bx2, uint32_t sample_ct, void* result) {
+  const __m128i* table_alias = S_CAST(const __m128i*, table64x8bx2);
+  const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
+  const Halfword* sex_male_alias = R_CAST(const Halfword*, sex_male);
+  __m128i* result_iter = S_CAST(__m128i*, result);
+  uint32_t loop_len = kBitsPerWordD4;
+  uintptr_t geno_word = 0;
+  uintptr_t male_hw_shifted = 0;
+  for (uint32_t widx = 0; ; ++widx) {
+    if (widx >= sample_ctl2_m1) {
+      if (widx > sample_ctl2_m1) {
+        if (sample_ct % 2) {
+          uintptr_t cur_idx = (geno_word & 3) | (male_hw_shifted & 16);
+          memcpy(result_iter, &(table_alias[cur_idx]), 8);
+        }
+        return;
+      }
+      loop_len = ModNz(sample_ct, kBitsPerWordD2) / 2;
+    }
+    geno_word = genoarr[widx];
+    male_hw_shifted = sex_male_alias[widx];
+    male_hw_shifted <<= 4;
+    for (uint32_t uii = 0; uii != loop_len; ++uii) {
+      _mm_storeu_si128(result_iter, table_alias[(geno_word & 15) | (male_hw_shifted & 48)]);
+      ++result_iter;
+      geno_word >>= 4;
+      male_hw_shifted >>= 2;
+    }
+  }
+}
+#else
+void GenoarrSexLookup8b(const uintptr_t* genoarr, const uintptr_t* sex_male, const void* table64x8bx2, uint32_t sample_ct, void* result) {
+  const uint64_t* table_alias = S_CAST(const uint64_t*, table64x8bx2);
+  const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
+  const Halfword* sex_male_alias = R_CAST(const Halfword*, sex_male);
+  uint64_t* result_iter = S_CAST(uint64_t*, result);
+  uint32_t loop_len = kBitsPerWordD4;
+  uintptr_t geno_word = 0;
+  uintptr_t male_hw_shifted = 0;
+  for (uint32_t widx = 0; ; ++widx) {
+    if (widx >= sample_ctl2_m1) {
+      if (widx > sample_ctl2_m1) {
+        if (sample_ct % 2) {
+          uintptr_t cur_idx = (geno_word & 3) | (male_hw_shifted & 16);
+          memcpy(result_iter, &(table_alias[cur_idx * 2]), 8);
+        }
+        return;
+      }
+      loop_len = ModNz(sample_ct, kBitsPerWordD2) / 2;
+    }
+    geno_word = genoarr[widx];
+    male_hw_shifted = sex_male_alias[widx];
+    male_hw_shifted <<= 4;
+    for (uint32_t uii = 0; uii != loop_len; ++uii) {
+      memcpy(result_iter, &(table_alias[((geno_word & 15) | (male_hw_shifted & 48)) * 2]), 16);
+      result_iter = &(result_iter[2]);
+      geno_word >>= 4;
+      male_hw_shifted >>= 2;
+    }
+  }
+}
+#endif
+
+void VcfPhaseLookup4b(const uintptr_t* genoarr, const uintptr_t* cur_phased, const uintptr_t* phaseinfo, const void* table246x4bx2, uint32_t sample_ct, void* __restrict result) {
+  const uint64_t* table_alias = S_CAST(const uint64_t*, table246x4bx2);
+  const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
+  const Halfword* cur_phased_alias = R_CAST(const Halfword*, cur_phased);
+  const Halfword* phaseinfo_alias = R_CAST(const Halfword*, phaseinfo);
+  uint64_t* result_iter = S_CAST(uint64_t*, result);
+  uint32_t loop_len = kBitsPerWordD4;
+  uintptr_t geno_word = 0;
+  uintptr_t cur_phased_hw_shifted = 0;
+  uintptr_t phaseinfo_hw_shifted = 0;
+  for (uint32_t widx = 0; ; ++widx) {
+    if (widx >= sample_ctl2_m1) {
+      if (widx > sample_ctl2_m1) {
+        if (sample_ct % 2) {
+          uintptr_t cur_idx = (geno_word & 3) | (cur_phased_hw_shifted & 16) | (phaseinfo_hw_shifted & 64);
+          memcpy(result_iter, &(table_alias[cur_idx]), 4);
+        }
+        return;
+      }
+      loop_len = ModNz(sample_ct, kBitsPerWordD2) / 2;
+    }
+    geno_word = genoarr[widx];
+    cur_phased_hw_shifted = cur_phased_alias[widx];
+    if (!cur_phased_hw_shifted) {
+      for (uint32_t uii = 0; uii != loop_len; ++uii) {
+        *result_iter++ = table_alias[geno_word & 15];
+        geno_word >>= 4;
+      }
+    } else {
+      cur_phased_hw_shifted = cur_phased_hw_shifted << 4;
+      phaseinfo_hw_shifted = phaseinfo_alias[widx];
+
+      // note that this must be on a separate line (or we have to static_cast)
+      phaseinfo_hw_shifted = phaseinfo_hw_shifted << 6;
+
+      for (uint32_t uii = 0; uii != loop_len; ++uii) {
+        const uintptr_t cur_idx = (geno_word & 15) | (cur_phased_hw_shifted & 48) | (phaseinfo_hw_shifted & 192);
+        *result_iter++ = table_alias[cur_idx];
+        geno_word >>= 4;
+        cur_phased_hw_shifted >>= 2;
+        phaseinfo_hw_shifted >>= 2;
+      }
+    }
+  }
+}
+
+void InitVcfPhaseLookup4b(void* table246x4bx2) {
+  uint32_t* table_iter = S_CAST(uint32_t*, table246x4bx2);
+  uint32_t unphased_vals[4];
+  unphased_vals[0] = table_iter[0];
+  table_iter[1] = unphased_vals[0];
+  unphased_vals[1] = table_iter[2];
+  table_iter[3] = unphased_vals[0];
+  unphased_vals[2] = table_iter[4];
+  table_iter[5] = unphased_vals[0];
+  unphased_vals[3] = table_iter[6];
+  table_iter[7] = unphased_vals[0];
+  table_iter = &(table_iter[8]);
+  for (uint32_t high_idx = 1; high_idx != 4; ++high_idx) {
+    const uint32_t cur_high = unphased_vals[high_idx];
+    for (uint32_t low_idx = 0; low_idx != 4; ++low_idx) {
+      *table_iter++ = unphased_vals[low_idx];
+      *table_iter++ = cur_high;
+    }
+  }
+  // [16][0]..[31][1]: first entry is phased and unflipped, second is unphased
+  uint32_t phased_unflipped_vals[4];
+  phased_unflipped_vals[0] = table_iter[0];
+  table_iter[1] = unphased_vals[0];
+  phased_unflipped_vals[1] = table_iter[2];
+  table_iter[3] = unphased_vals[0];
+  phased_unflipped_vals[2] = table_iter[4];
+  table_iter[5] = unphased_vals[0];
+  phased_unflipped_vals[3] = table_iter[6];
+  table_iter[7] = unphased_vals[0];
+  table_iter = &(table_iter[8]);
+  for (uint32_t high_idx = 1; high_idx != 4; ++high_idx) {
+    const uint32_t cur_high = unphased_vals[high_idx];
+    for (uint32_t low_idx = 0; low_idx != 4; ++low_idx) {
+      *table_iter++ = phased_unflipped_vals[low_idx];
+      *table_iter++ = cur_high;
+    }
+  }
+  // [32][0]..[63][1]: second entry is phased and unflipped
+  for (uint32_t high_idx = 0; high_idx != 4; ++high_idx) {
+    const uint32_t cur_high = phased_unflipped_vals[high_idx];
+    for (uint32_t low_idx = 0; low_idx != 4; ++low_idx) {
+      *table_iter++ = unphased_vals[low_idx];
+      *table_iter++ = cur_high;
+    }
+  }
+  for (uint32_t high_idx = 0; high_idx != 4; ++high_idx) {
+    const uint32_t cur_high = phased_unflipped_vals[high_idx];
+    for (uint32_t low_idx = 0; low_idx != 4; ++low_idx) {
+      *table_iter++ = phased_unflipped_vals[low_idx];
+      *table_iter++ = cur_high;
+    }
+  }
+  // [64][0]..[79][1] should be impossible
+  table_iter = &(table_iter[32]);
+  // [80][0]..[95][1]: first entry is phased and flipped, second is unphased
+  // genotype must be 01
+  const uint32_t phased_flipped_01 = table_iter[2];
+  for (uint32_t high_idx = 0; high_idx != 4; ++high_idx) {
+    table_iter[2] = phased_flipped_01;
+    table_iter[3] = unphased_vals[high_idx];
+    table_iter = &(table_iter[8]);
+  }
+  // [96][0]..[111][1] should be impossible
+  table_iter = &(table_iter[32]);
+  // [112][0]..[127][1]: first entry phased-flipped, second phased-unflipped
+  for (uint32_t high_idx = 0; high_idx != 4; ++high_idx) {
+    table_iter[2] = phased_flipped_01;
+    table_iter[3] = phased_unflipped_vals[high_idx];
+    table_iter = &(table_iter[8]);
+  }
+  // [128][0]..[163][1] should be impossible
+  table_iter = &(table_iter[72]);
+  // [164][0]..[167][1]: second entry phased-flipped, first entry unphased
+  for (uint32_t low_idx = 0; low_idx != 4; ++low_idx) {
+    *table_iter++ = unphased_vals[low_idx];
+    *table_iter++ = phased_flipped_01;
+  }
+  // [168][0]..[179][1] should be impossible
+  table_iter = &(table_iter[24]);
+  // [180][0]..[183][1]: second entry phased-flipped, first phased-unflipped
+  for (uint32_t low_idx = 0; low_idx != 4; ++low_idx) {
+    *table_iter++ = phased_unflipped_vals[low_idx];
+    *table_iter++ = phased_flipped_01;
+  }
+  // [184][0]..[244][1] should be impossible
+  // [245][0]..[245][1]: both phased-flipped
+  table_iter[122] = phased_flipped_01;
+  table_iter[123] = phased_flipped_01;
+}
+
+void VcfPhaseLookup2b(const uintptr_t* genoarr, const uintptr_t* cur_phased, const uintptr_t* phaseinfo, const void* table246x2bx2, uint32_t sample_ct, void* __restrict result) {
+  const uint32_t* table_alias = S_CAST(const uint32_t*, table246x2bx2);
+  const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
+  const Halfword* cur_phased_alias = R_CAST(const Halfword*, cur_phased);
+  const Halfword* phaseinfo_alias = R_CAST(const Halfword*, phaseinfo);
+  uint32_t* result_iter = S_CAST(uint32_t*, result);
+  uint32_t loop_len = kBitsPerWordD4;
+  uintptr_t geno_word = 0;
+  uintptr_t cur_phased_hw_shifted = 0;
+  uintptr_t phaseinfo_hw_shifted = 0;
+  for (uint32_t widx = 0; ; ++widx) {
+    if (widx >= sample_ctl2_m1) {
+      if (widx > sample_ctl2_m1) {
+        if (sample_ct % 2) {
+          uintptr_t cur_idx = (geno_word & 3) | (cur_phased_hw_shifted & 16) | (phaseinfo_hw_shifted & 64);
+          memcpy(result_iter, &(table_alias[cur_idx]), 2);
+        }
+        return;
+      }
+      loop_len = ModNz(sample_ct, kBitsPerWordD2) / 2;
+    }
+    geno_word = genoarr[widx];
+    cur_phased_hw_shifted = cur_phased_alias[widx];
+    if (!cur_phased_hw_shifted) {
+      for (uint32_t uii = 0; uii != loop_len; ++uii) {
+        *result_iter++ = table_alias[geno_word & 15];
+        geno_word >>= 4;
+      }
+    } else {
+      cur_phased_hw_shifted = cur_phased_hw_shifted << 4;
+      phaseinfo_hw_shifted = phaseinfo_alias[widx];
+
+      // note that this must be on a separate line (or we have to static_cast)
+      phaseinfo_hw_shifted = phaseinfo_hw_shifted << 6;
+
+      for (uint32_t uii = 0; uii != loop_len; ++uii) {
+        const uintptr_t cur_idx = (geno_word & 15) | (cur_phased_hw_shifted & 48) | (phaseinfo_hw_shifted & 192);
+        *result_iter++ = table_alias[cur_idx];
+        geno_word >>= 4;
+        cur_phased_hw_shifted >>= 2;
+        phaseinfo_hw_shifted >>= 2;
+      }
+    }
+  }
+}
+
+void InitVcfPhaseLookup2b(void* table246x2bx2) {
+  uint16_t* table_iter = S_CAST(uint16_t*, table246x2bx2);
+  uint16_t unphased_vals[4];
+  unphased_vals[0] = table_iter[0];
+  table_iter[1] = unphased_vals[0];
+  unphased_vals[1] = table_iter[2];
+  table_iter[3] = unphased_vals[0];
+  unphased_vals[2] = table_iter[4];
+  table_iter[5] = unphased_vals[0];
+  unphased_vals[3] = table_iter[6];
+  table_iter[7] = unphased_vals[0];
+  table_iter = &(table_iter[8]);
+  for (uint32_t high_idx = 1; high_idx != 4; ++high_idx) {
+    const uint32_t cur_high = unphased_vals[high_idx];
+    for (uint32_t low_idx = 0; low_idx != 4; ++low_idx) {
+      *table_iter++ = unphased_vals[low_idx];
+      *table_iter++ = cur_high;
+    }
+  }
+  // [16][0]..[31][1]: first entry is phased and unflipped, second is unphased
+  uint16_t phased_unflipped_vals[4];
+  phased_unflipped_vals[0] = table_iter[0];
+  table_iter[1] = unphased_vals[0];
+  phased_unflipped_vals[1] = table_iter[2];
+  table_iter[3] = unphased_vals[0];
+  phased_unflipped_vals[2] = table_iter[4];
+  table_iter[5] = unphased_vals[0];
+  phased_unflipped_vals[3] = table_iter[6];
+  table_iter[7] = unphased_vals[0];
+  table_iter = &(table_iter[8]);
+  for (uint32_t high_idx = 1; high_idx != 4; ++high_idx) {
+    const uint32_t cur_high = unphased_vals[high_idx];
+    for (uint32_t low_idx = 0; low_idx != 4; ++low_idx) {
+      *table_iter++ = phased_unflipped_vals[low_idx];
+      *table_iter++ = cur_high;
+    }
+  }
+  // [32][0]..[63][1]: second entry is phased and unflipped
+  for (uint32_t high_idx = 0; high_idx != 4; ++high_idx) {
+    const uint32_t cur_high = phased_unflipped_vals[high_idx];
+    for (uint32_t low_idx = 0; low_idx != 4; ++low_idx) {
+      *table_iter++ = unphased_vals[low_idx];
+      *table_iter++ = cur_high;
+    }
+  }
+  for (uint32_t high_idx = 0; high_idx != 4; ++high_idx) {
+    const uint32_t cur_high = phased_unflipped_vals[high_idx];
+    for (uint32_t low_idx = 0; low_idx != 4; ++low_idx) {
+      *table_iter++ = phased_unflipped_vals[low_idx];
+      *table_iter++ = cur_high;
+    }
+  }
+  // [64][0]..[79][1] should be impossible
+  table_iter = &(table_iter[32]);
+  // [80][0]..[95][1]: first entry is phased and flipped, second is unphased
+  // genotype must be 01
+  const uint32_t phased_flipped_01 = table_iter[2];
+  for (uint32_t high_idx = 0; high_idx != 4; ++high_idx) {
+    table_iter[2] = phased_flipped_01;
+    table_iter[3] = unphased_vals[high_idx];
+    table_iter = &(table_iter[8]);
+  }
+  // [96][0]..[111][1] should be impossible
+  table_iter = &(table_iter[32]);
+  // [112][0]..[127][1]: first entry phased-flipped, second phased-unflipped
+  for (uint32_t high_idx = 0; high_idx != 4; ++high_idx) {
+    table_iter[2] = phased_flipped_01;
+    table_iter[3] = phased_unflipped_vals[high_idx];
+    table_iter = &(table_iter[8]);
+  }
+  // [128][0]..[163][1] should be impossible
+  table_iter = &(table_iter[72]);
+  // [164][0]..[167][1]: second entry phased-flipped, first entry unphased
+  for (uint32_t low_idx = 0; low_idx != 4; ++low_idx) {
+    *table_iter++ = unphased_vals[low_idx];
+    *table_iter++ = phased_flipped_01;
+  }
+  // [168][0]..[179][1] should be impossible
+  table_iter = &(table_iter[24]);
+  // [180][0]..[183][1]: second entry phased-flipped, first phased-unflipped
+  for (uint32_t low_idx = 0; low_idx != 4; ++low_idx) {
+    *table_iter++ = phased_unflipped_vals[low_idx];
+    *table_iter++ = phased_flipped_01;
+  }
+  // [184][0]..[244][1] should be impossible
+  // [245][0]..[245][1]: both phased-flipped
+  table_iter[122] = phased_flipped_01;
+  table_iter[123] = phased_flipped_01;
+}
+
 
 void ClearGenoarrMissing1bit8Unsafe(const uintptr_t* __restrict genoarr, uint32_t* subset_sizep, uintptr_t* __restrict subset, void* __restrict sparse_vals) {
   const uint32_t orig_subset_size = *subset_sizep;

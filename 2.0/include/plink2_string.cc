@@ -1047,6 +1047,31 @@ BoolErr ScanmovUintCapped(uint64_t cap, const char** str_iterp, uint32_t* valp) 
   *str_iterp = str_iter;
   return ScanmovUintCappedFinish(cap, str_iterp, valp);
 }
+
+// 2^{-31} < floor <= 0 <= cap < 2^31
+BoolErr ScanmovIntBounded(uint64_t abs_floor, uint64_t cap, const char** str_iterp, int32_t* valp) {
+  const char* str_iter = *str_iterp;
+  *valp = ctou32(*str_iter++) - 48;
+  int32_t sign = 1;
+  if (ctou32(*valp) >= 10) {
+    if (*valp == -3) {
+      sign = -1;
+      cap = abs_floor;
+    } else if (unlikely(*valp != -5)) {  // accept leading '+'
+      return 1;
+    }
+    *valp = ctou32(*str_iter++) - 48;
+    if (unlikely(*valp >= 10)) {
+      return 1;
+    }
+  }
+  *str_iterp = str_iter;
+  if (ScanmovUintCappedFinish(cap, str_iterp, R_CAST(uint32_t*, valp))) {
+    return 1;
+  }
+  *valp *= sign;
+  return 0;
+}
 #else
 BoolErr ScanmovPosintCapped32(uint32_t cap_div_10, uint32_t cap_mod_10, const char** str_iterp, uint32_t* valp) {
   const char* str_iter = *str_iterp;
@@ -1102,6 +1127,37 @@ BoolErr ScanmovUintCapped32(uint32_t cap_div_10, uint32_t cap_mod_10, const char
     const uint32_t cur_digit = ctou32(*str_iter) - 48;
     if (cur_digit >= 10) {
       *valp = val;
+      *str_iterp = str_iter;
+      return 0;
+    }
+    if (unlikely((val >= cap_div_10) && ((val > cap_div_10) || (cur_digit > cap_mod_10)))) {
+      return 1;
+    }
+    val = val * 10 + cur_digit;
+  }
+}
+
+BoolErr ScanmovIntBounded32(uint32_t abs_floor_div_10, uint32_t abs_floor_mod_10, uint32_t cap_div_10, uint32_t cap_mod_10, const char** str_iterp, int32_t* valp) {
+  const char* str_iter = *str_iterp;
+  uint32_t val = ctou32(*str_iter++) - 48;
+  int32_t sign = 1;
+  if (val >= 10) {
+    if (val == 0xfffffffdU) {
+      sign = -1;
+      cap_div_10 = abs_floor_div_10;
+      cap_mod_10 = abs_floor_mod_10;
+    } else if (unlikely(val != 0xfffffffbU)) {
+      return 1;
+    }
+    val = ctou32(*str_iter++) - 48;
+    if (unlikely(val >= 10)) {
+      return 1;
+    }
+  }
+  for (; ; ++str_iter) {
+    const uint32_t cur_digit = ctou32(*str_iter) - 48;
+    if (cur_digit >= 10) {
+      *valp = sign * S_CAST(int32_t, val);
       *str_iterp = str_iter;
       return 0;
     }
@@ -3089,6 +3145,30 @@ uintptr_t ExpsearchNsortStrLb(const char* idbuf, const char* nsorted_strbox, uin
     }
   }
   return start_idx;
+}
+
+uint32_t IsInfStr(const char* ss, uint32_t slen, uint32_t* is_neg_ptr) {
+  const char first_char = *ss;
+  if (first_char == '-') {
+    *is_neg_ptr = 1;
+    ++ss;
+    --slen;
+  } else if (first_char == '+') {
+    ++ss;
+    --slen;
+  }
+  if (slen == 3) {
+    uint32_t four_chars;
+    memcpy(&four_chars, ss, 4);  // OVERREAD
+    // assumes little-endian
+    return ((four_chars & 0xdfdfdf) == 0x464e49);
+  }
+  if (slen != 8) {
+    return 0;
+  }
+  uint64_t eight_chars;
+  memcpy(&eight_chars, ss, 8);
+  return ((eight_chars & 0xdfdfdfdfdfdfdfdfLLU) == 0x5954494e49464e49LLU);
 }
 
 

@@ -3837,6 +3837,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       reterr = kPglRetMalformedInput;
       break;
     } else if (vcf_parse_err == kVcfParseInvalidDosage) {
+      // probable todo: distinguish HDS errors (right now, it just prints
+      // "invalid DS field" on all HDS errors).
       putc_unlocked('\n', stdout);
       logerrprintfww("Error: Line %" PRIuPTR " of --vcf file has an invalid %s field.\n", line_idx, dosage_import_field);
       reterr = kPglRetInconsistentInput;
@@ -8603,97 +8605,100 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
               parse_iter = &(parse_iter[value_ct << value_type_m1]);
               --write_iter;
             }
-            *write_iter++ = '\t';
             if (unlikely(fwrite_ck(writebuf_flush, pvarfile, &write_iter))) {
               goto BcfToPgen_ret_WRITE_FAIL;
             }
 
             // INFO
-            if (!n_info) {
-              *write_iter++ = '.';
-            } else {
-              for (uint32_t info_idx = 0; info_idx != n_info; ++info_idx) {
-                ScanBcfTypedInt(&parse_iter, &sidx);
-                write_iter = strcpya(write_iter, fif_strings[sidx]);
+            if (info_nonpr_present) {
+              *write_iter++ = '\t';
+              if (!n_info) {
+                *write_iter++ = '.';
+              } else {
+                for (uint32_t info_idx = 0; info_idx != n_info; ++info_idx) {
+                  ScanBcfTypedInt(&parse_iter, &sidx);
+                  write_iter = strcpya(write_iter, fif_strings[sidx]);
 
-                ScanBcfType(&parse_iter, &value_type, &value_ct);
-                const uint32_t bytes_per_elem = kBcfBytesPerElem[value_type];
-                const uint32_t vec_byte_ct = bytes_per_elem * value_ct;
-                const unsigned char* cur_vec_start = parse_iter;
-                parse_iter = &(parse_iter[vec_byte_ct]);
-                if (!IsSet(info_flags, sidx)) {
-                  // value_ct guaranteed to be positive
-                  *write_iter++ = '=';
-                  // ugh.  not a separate function for now since no other code
-                  // needs to do this
-                  if (value_type == 7) {
-                    // string
-                    // Unlike most other VCF/BCF fields, spaces are actually
-                    // allowed by the VCF spec here, so we need to detect them.
-                    // We error out on them for now (possible todo:
-                    // autoconversion to "%20").
-                    if (unlikely(memchr(cur_vec_start, ' ', value_ct))) {
-                      snprintf(g_logbuf, kLogbufSize, "Error: INFO field in variant record #%" PRIuPTR " of --bcf file contains a space; this cannot be imported by " PROG_NAME_STR ". Remove or reformat the field before reattempting import.\n", vrec_idx);
-                      goto BcfToPgen_ret_MALFORMED_INPUT_WWN;
-                    }
-                    write_iter = memcpya(write_iter, cur_vec_start, value_ct);
-                  } else {
-                    if (value_type == 1) {
-                      // int8
-                      for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
-                        const int8_t cur_val = S_CAST(int8_t, cur_vec_start[value_idx]);
-                        if (cur_val != -128) {
-                          write_iter = i32toa(cur_val, write_iter);
-                        } else {
-                          *write_iter++ = '.';
-                        }
-                        *write_iter++ = ',';
+                  ScanBcfType(&parse_iter, &value_type, &value_ct);
+                  const uint32_t bytes_per_elem = kBcfBytesPerElem[value_type];
+                  const uint32_t vec_byte_ct = bytes_per_elem * value_ct;
+                  const unsigned char* cur_vec_start = parse_iter;
+                  parse_iter = &(parse_iter[vec_byte_ct]);
+                  if (!IsSet(info_flags, sidx)) {
+                    // value_ct guaranteed to be positive
+                    *write_iter++ = '=';
+                    // ugh.  not a separate function for now since no other
+                    // code needs to do this
+                    if (value_type == 7) {
+                      // string
+                      // Unlike most other VCF/BCF fields, spaces are actually
+                      // allowed by the VCF spec here, so we need to detect
+                      // them.
+                      // We error out on them for now (possible todo:
+                      // autoconversion to "%20").
+                      if (unlikely(memchr(cur_vec_start, ' ', value_ct))) {
+                        snprintf(g_logbuf, kLogbufSize, "Error: INFO field in variant record #%" PRIuPTR " of --bcf file contains a space; this cannot be imported by " PROG_NAME_STR ". Remove or reformat the field before reattempting import.\n", vrec_idx);
+                        goto BcfToPgen_ret_MALFORMED_INPUT_WWN;
                       }
-                    } else if (value_type == 2) {
-                      // int16
-                      const int16_t* cur_vec_alias = R_CAST(const int16_t*, cur_vec_start);
-                      for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
-                        const int16_t cur_val = cur_vec_alias[value_idx];
-                        if (cur_val != -32768) {
-                          write_iter = i32toa(cur_val, write_iter);
-                        } else {
-                          *write_iter++ = '.';
-                        }
-                        *write_iter++ = ',';
-                      }
-                    } else if (value_type == 3) {
-                      // int32
-                      const int32_t* cur_vec_alias = R_CAST(const int32_t*, cur_vec_start);
-                      for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
-                        const int32_t cur_val = cur_vec_alias[value_idx];
-                        if (cur_val != (-2147483647 - 1)) {
-                          write_iter = i32toa(cur_val, write_iter);
-                        } else {
-                          *write_iter++ = '.';
-                        }
-                        *write_iter++ = ',';
-                      }
+                      write_iter = memcpya(write_iter, cur_vec_start, value_ct);
                     } else {
-                      // float
-                      const uint32_t* cur_vec_alias = R_CAST(const uint32_t*, cur_vec_start);
-                      for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
-                        uint32_t cur_bits = cur_vec_alias[value_idx];
-                        if (cur_bits != 0x7f800001) {
-                          float cur_float;
-                          memcpy(&cur_float, &cur_bits, 4);
-                          write_iter = ftoa_g(cur_float, write_iter);
-                        } else {
-                          *write_iter++ = '.';
+                      if (value_type == 1) {
+                        // int8
+                        for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
+                          const int8_t cur_val = S_CAST(int8_t, cur_vec_start[value_idx]);
+                          if (cur_val != -128) {
+                            write_iter = i32toa(cur_val, write_iter);
+                          } else {
+                            *write_iter++ = '.';
+                          }
+                          *write_iter++ = ',';
                         }
-                        *write_iter++ = ',';
+                      } else if (value_type == 2) {
+                        // int16
+                        const int16_t* cur_vec_alias = R_CAST(const int16_t*, cur_vec_start);
+                        for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
+                          const int16_t cur_val = cur_vec_alias[value_idx];
+                          if (cur_val != -32768) {
+                            write_iter = i32toa(cur_val, write_iter);
+                          } else {
+                            *write_iter++ = '.';
+                          }
+                          *write_iter++ = ',';
+                        }
+                      } else if (value_type == 3) {
+                        // int32
+                        const int32_t* cur_vec_alias = R_CAST(const int32_t*, cur_vec_start);
+                        for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
+                          const int32_t cur_val = cur_vec_alias[value_idx];
+                          if (cur_val != (-2147483647 - 1)) {
+                            write_iter = i32toa(cur_val, write_iter);
+                          } else {
+                            *write_iter++ = '.';
+                          }
+                          *write_iter++ = ',';
+                        }
+                      } else {
+                        // float
+                        const uint32_t* cur_vec_alias = R_CAST(const uint32_t*, cur_vec_start);
+                        for (uint32_t value_idx = 0; value_idx != value_ct; ++value_idx) {
+                          uint32_t cur_bits = cur_vec_alias[value_idx];
+                          if (cur_bits != 0x7f800001) {
+                            float cur_float;
+                            memcpy(&cur_float, &cur_bits, 4);
+                            write_iter = ftoa_g(cur_float, write_iter);
+                          } else {
+                            *write_iter++ = '.';
+                          }
+                          *write_iter++ = ',';
+                        }
                       }
+                      --write_iter;
                     }
-                    --write_iter;
                   }
+                  *write_iter++ = ';';
                 }
-                *write_iter++ = ';';
+                --write_iter;
               }
-              --write_iter;
             }
             AppendBinaryEoln(&write_iter);
             if (unlikely(fwrite_ck(writebuf_flush, pvarfile, &write_iter))) {
@@ -8909,6 +8914,8 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       reterr = kPglRetMalformedInput;
       break;
     } else if (bcf_parse_err == kBcfParseInvalidDosage) {
+      // probable todo: distinguish HDS errors (right now, it just prints
+      // "invalid DS field" on all HDS errors).
       putc_unlocked('\n', stdout);
       logerrprintfww("Error: Variant record #%" PRIuPTR " of --bcf file has an invalid %s field.\n", vrec_idx, dosage_import_field);
       reterr = kPglRetInconsistentInput;

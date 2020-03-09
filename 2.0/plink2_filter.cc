@@ -4215,8 +4215,12 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
           char* write_iter = strcpya_k(g_logbuf, "Warning: ");
           // strlen("--ref-allele") == 12, strlen("--alt1-allele") == 13
           write_iter = memcpya(write_iter, flagstr, 12 + is_alt1);
-          write_iter = strcpya_k(write_iter, " mismatch for multiallelic variant '");
-          write_iter = strcpya(write_iter, variant_ids[variant_uidx]);
+          write_iter = strcpya_k(write_iter, " mismatch for multiallelic variant");
+          // If we put this all on one line, its length would be
+          // 60 + is_alt1 + variant_id_slen.  Split into two if this is >79.
+          *write_iter++ = (variant_id_slen + is_alt1 < 20)? ' ' : '\n';
+          *write_iter++ = '\'';
+          write_iter = memcpya(write_iter, variant_ids[variant_uidx], variant_id_slen);
           strcpy_k(write_iter, "'.\n");
           if (allele_mismatch_warning_ct < 3) {
             logerrputsb();

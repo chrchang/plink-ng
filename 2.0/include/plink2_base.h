@@ -1019,6 +1019,10 @@ HEADER_INLINE void vecw_storeu(void* mem_addr, VecW vv) {
   _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), R_CAST(__m256i, vv));
 }
 
+HEADER_INLINE void vecu32_storeu(void* mem_addr, VecU32 vv) {
+  _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), R_CAST(__m256i, vv));
+}
+
 HEADER_INLINE void veci32_storeu(void* mem_addr, VecI32 vv) {
   _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), R_CAST(__m256i, vv));
 }
@@ -1057,6 +1061,18 @@ HEADER_INLINE VecU16 vecu16_min8(VecU16 v1, VecU16 v2) {
 
 HEADER_INLINE VecUc vecuc_min(VecUc v1, VecUc v2) {
   return R_CAST(VecUc, _mm256_min_epu8(R_CAST(__m256i, v1), R_CAST(__m256i, v2)));
+}
+
+HEADER_INLINE VecW vecw_blendv(VecW aa, VecW bb, VecW mask) {
+  return R_CAST(VecW, _mm256_blendv_epi8(R_CAST(__m256i, aa), R_CAST(__m256i, bb), R_CAST(__m256i, mask)));
+}
+
+HEADER_INLINE VecU32 vecu32_blendv(VecU32 aa, VecU32 bb, VecU32 mask) {
+  return R_CAST(VecU32, _mm256_blendv_epi8(R_CAST(__m256i, aa), R_CAST(__m256i, bb), R_CAST(__m256i, mask)));
+}
+
+HEADER_INLINE VecU16 vecu16_blendv(VecU16 aa, VecU16 bb, VecU16 mask) {
+  return R_CAST(VecU16, _mm256_blendv_epi8(R_CAST(__m256i, aa), R_CAST(__m256i, bb), R_CAST(__m256i, mask)));
 }
 
 #  else  // !USE_AVX2
@@ -1238,6 +1254,10 @@ HEADER_INLINE void vecw_storeu(void* mem_addr, VecW vv) {
   _mm_storeu_si128(S_CAST(__m128i*, mem_addr), R_CAST(__m128i, vv));
 }
 
+HEADER_INLINE void vecu32_storeu(void* mem_addr, VecU32 vv) {
+  _mm_storeu_si128(S_CAST(__m128i*, mem_addr), R_CAST(__m128i, vv));
+}
+
 HEADER_INLINE void veci32_storeu(void* mem_addr, VecI32 vv) {
   _mm_storeu_si128(S_CAST(__m128i*, mem_addr), R_CAST(__m128i, vv));
 }
@@ -1368,6 +1388,18 @@ HEADER_INLINE uintptr_t vecw_extract64_0(VecW vv) {
 HEADER_INLINE uintptr_t vecw_extract64_1(VecW vv) {
   return _mm_extract_epi64(R_CAST(__m128i, vv), 1);
 }
+
+HEADER_INLINE VecW vecw_blendv(VecW aa, VecW bb, VecW mask) {
+  return R_CAST(VecW, _mm_blendv_epi8(R_CAST(__m128i, aa), R_CAST(__m128i, bb), R_CAST(__m128i, mask)));
+}
+
+HEADER_INLINE VecU32 vecu32_blendv(VecU32 aa, VecU32 bb, VecU32 mask) {
+  return R_CAST(VecU32, _mm_blendv_epi8(R_CAST(__m128i, aa), R_CAST(__m128i, bb), R_CAST(__m128i, mask)));
+}
+
+HEADER_INLINE VecU16 vecu16_blendv(VecU16 aa, VecU16 bb, VecU16 mask) {
+  return R_CAST(VecU16, _mm_blendv_epi8(R_CAST(__m128i, aa), R_CAST(__m128i, bb), R_CAST(__m128i, mask)));
+}
 #    else
 HEADER_INLINE uintptr_t vecw_extract64_0(VecW vv) {
   return R_CAST(uintptr_t, _mm_movepi64_pi64(R_CAST(__m128i, vv)));
@@ -1376,6 +1408,20 @@ HEADER_INLINE uintptr_t vecw_extract64_0(VecW vv) {
 HEADER_INLINE uintptr_t vecw_extract64_1(VecW vv) {
   const __m128i v0 = _mm_srli_si128(R_CAST(__m128i, vv), 8);
   return R_CAST(uintptr_t, _mm_movepi64_pi64(v0));
+}
+
+// N.B. we do *not* enforce the low bits of each mask byte matching the high
+// bit.
+HEADER_INLINE VecW vecw_blendv(VecW aa, VecW bb, VecW mask) {
+  return vecw_and_notfirst(mask, aa) | (mask & bb);
+}
+
+HEADER_INLINE VecU32 vecu32_blendv(VecU32 aa, VecU32 bb, VecU32 mask) {
+  return vecu32_and_notfirst(mask, aa) | (mask & bb);
+}
+
+HEADER_INLINE VecU16 vecu16_blendv(VecU16 aa, VecU16 bb, VecU16 mask) {
+  return vecu16_and_notfirst(mask, aa) | (mask & bb);
 }
 #    endif
 
@@ -1398,7 +1444,6 @@ HEADER_INLINE VecU16 vecu16_min8(VecU16 v1, VecU16 v2) {
 HEADER_INLINE VecUc vecuc_min(VecUc v1, VecUc v2) {
   return R_CAST(VecUc, _mm_min_epu8(R_CAST(__m128i, v1), R_CAST(__m128i, v2)));
 }
-
 #  endif  // !USE_AVX2
 
 HEADER_INLINE VecW vecw_bytesum(VecW src, VecW m0) {

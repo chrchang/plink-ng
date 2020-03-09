@@ -504,6 +504,8 @@ uintptr_t CountByte(const void* bytearr, unsigned char ucc, uintptr_t byte_ct);
 
 uintptr_t CountU16(const void* u16arr, uint16_t usii, uintptr_t u16_ct);
 
+
+// Applies sample_include to {src_subset, src_vals}.
 uint32_t Copy1bit8Subset(const uintptr_t* __restrict src_subset, const void* __restrict src_vals, const uintptr_t* __restrict sample_include, uint32_t src_subset_size, uint32_t sample_ct, uintptr_t* __restrict dst_subset, void* __restrict dst_vals);
 
 uint32_t Copy1bit16Subset(const uintptr_t* __restrict src_subset, const void* __restrict src_vals, const uintptr_t* __restrict sample_include, uint32_t src_subset_size, uint32_t sample_ct, uintptr_t* __restrict dst_subset, void* __restrict dst_vals);
