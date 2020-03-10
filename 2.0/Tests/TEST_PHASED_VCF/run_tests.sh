@@ -10,6 +10,11 @@ set -exo pipefail
 # todo: support multiallelic variants
 plink --vcf 1kg_phase3_chr21_start.vcf.gz --out plink1_data
 $1/plink2 $2 $3 --vcf 1kg_phase3_chr21_start.vcf.gz --double-id --out plink2_data
+# Verify BCF round-trip.
+$1/plink2 $2 $3 --pfile plink2_data --export bcf --out plink2_roundtrip
+$1/plink2 $2 $3 --bcf plink2_roundtrip.bcf --out plink2_roundtrip
+diff -q plink2_data.pgen plink2_roundtrip.pgen
+
 $1/plink2 $2 $3 --pfile plink2_data --export vcf --out plink2_data
 
 rm -f 1kg_phase3_chr21_start.vcf
@@ -86,7 +91,7 @@ diff -q plink2_pca.eigenvec plink2_pca_rfreq.eigenvec
 
 # note that this run depends on the random seed.
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pca 3 approx biallelic-var-wts --out plink2_pca_approx
-python3 pca_compare.py -1 plink1_pca -2 plink2_pca_approx -t 0.005
+python3 pca_compare.py -1 plink1_pca -2 plink2_pca_approx -t 0.0064
 
 # Test --glm.
 # Generate random binary and quantitative phenotypes for 1kg_phase3_chr21

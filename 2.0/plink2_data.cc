@@ -5605,20 +5605,24 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       // bugfix (25 Jul 2018): left expression needs ||, not &&
       mcp->hard_call_halfdist = ((hard_call_thresh == UINT32_MAX) || (!read_dosage_present))? 0 : (kDosage4th - hard_call_thresh);
       ctx.dosage_erase_halfdist = kDosage4th - dosage_erase_thresh;
-      const uint32_t read_hphase_present = (read_gflags / kfPgenGlobalHardcallPhasePresent) & 1;
+      // bugfix/simplification (10 Mar 2020): it is possible for dosage-phase
+      // to be present in the input without hardcall-phase.  Don't try to treat
+      // that differently than the usual scenario where hardcall-phase is
+      // present.
+      const uint32_t read_phase_present = !!(read_gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePhasePresent));
       const uint32_t read_dphase_present = (read_gflags / kfPgenGlobalDosagePhasePresent) & 1;
       PgenGlobalFlags write_gflags = read_gflags;
       // When --hard-call-threshold is specified, if either hphase or dphase
       // values exist, the other can be generated.
-      uint32_t read_or_write_hphase_present = read_hphase_present;
+      uint32_t read_or_write_phase_present = read_phase_present;
       uint32_t read_or_write_dphase_present = read_dphase_present;
-      if (mcp->hard_call_halfdist && (read_hphase_present || read_or_write_dphase_present)) {
-        read_or_write_hphase_present = 1;
+      if (mcp->hard_call_halfdist && (read_phase_present || read_or_write_dphase_present)) {
+        read_or_write_phase_present = 1;
         read_or_write_dphase_present = 1;
         write_gflags |= kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePhasePresent;
       } else if (dosage_erase_thresh && read_dosage_present) {
         // need write_phasepresent, pretty harmless to allocate write_phaseinfo
-        read_or_write_hphase_present = 1;
+        read_or_write_phase_present = 1;
       }
       uint32_t read_or_write_dosage_present = read_dosage_present;
       if (mcp->plink2_write_flags & kfPlink2WriteLateDosageErase) {
@@ -5708,7 +5712,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
         if (unlikely(bigstack_alloc_wp(1, &ctx.thread_write_genovecs))) {
           goto MakePgenRobust_ret_NOMEM;
         }
-        if (read_hphase_present && new_sample_idx_to_old) {
+        if (read_phase_present && new_sample_idx_to_old) {
           if (unlikely(bigstack_alloc_u32(raw_sample_ct, &ctx.old_sample_idx_to_new))) {
             goto MakePgenRobust_ret_NOMEM;
           }
@@ -5734,7 +5738,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       }
       ctx.thread_write_phasepresents = nullptr;
       ctx.thread_all_hets = nullptr;
-      if (read_or_write_hphase_present) {
+      if (read_or_write_phase_present) {
         if (unlikely(
                 bigstack_alloc_wp(1, &ctx.thread_write_phasepresents) ||
                 bigstack_alloc_wp(1, &ctx.thread_write_phaseinfos) ||
@@ -5742,7 +5746,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
                 bigstack_alloc_w(sample_ctl, &(ctx.thread_write_phaseinfos[0])))) {
           goto MakePgenRobust_ret_NOMEM;
         }
-        if (read_hphase_present) {
+        if (read_phase_present) {
           if (unlikely(
                   bigstack_alloc_wp(1, &ctx.thread_all_hets) ||
                   bigstack_alloc_w(raw_sample_ctl, &(ctx.thread_all_hets[0])))) {
@@ -5834,7 +5838,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
                 bigstack_alloc_u32p(max_read_allele_ct + 1, &alt_two_sample_idx_starts))) {
           goto MakePgenRobust_ret_NOMEM;
         }
-        if (read_hphase_present) {
+        if (read_phase_present) {
           if (unlikely(
                   bigstack_alloc_w(raw_sample_ctl, &pgv.phasepresent) ||
                   bigstack_alloc_w(raw_sample_ctl, &pgv.phaseinfo) ||
@@ -5853,9 +5857,9 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       const uint32_t raw_sample_ctv2 = NypCtToVecCt(raw_sample_ct);
       uintptr_t load_variant_vec_ct = raw_sample_ctv2;
       uint32_t loaded_vrtypes_needed = (read_gflags & kfPgenGlobalMultiallelicHardcallFound)? 1 : 0;
-      if (read_hphase_present || read_dosage_present) {
+      if (read_phase_present || read_dosage_present) {
         loaded_vrtypes_needed = 1;
-        if (read_hphase_present) {
+        if (read_phase_present) {
           // phaseraw has three parts:
           // 1. het_ct as uint32_t, and explicit_phasepresent_ct as uint32_t.
           // 2. vec-aligned bitarray of up to (raw_sample_ct + 1) bits.  first
@@ -5985,7 +5989,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
             } else if (cur_write_allele_ct == 2) {
               if (write_aidx == 1) {
                 // 1. read into normal, not raw representation
-                if (read_hphase_present) {
+                if (read_phase_present) {
                   reterr = PgrGetMDp(nullptr, null_pssi, raw_sample_ct, read_variant_uidx, simple_pgrp, &pgv);
                 } else {
                   reterr = PgrGetMD(nullptr, null_pssi, raw_sample_ct, read_variant_uidx, simple_pgrp, &pgv);
@@ -6620,17 +6624,17 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
       const uint32_t read_dosage_present = (read_gflags / kfPgenGlobalDosagePresent) & 1;
       mc.hard_call_halfdist = ((hard_call_thresh == UINT32_MAX) || (!read_dosage_present))? 0 : (kDosage4th - hard_call_thresh);
       ctx.dosage_erase_halfdist = kDosage4th - dosage_erase_thresh;
-      const uint32_t read_hphase_present = (read_gflags / kfPgenGlobalHardcallPhasePresent) & 1;
+      const uint32_t read_phase_present = !!(read_gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePhasePresent));
       const uint32_t read_dphase_present = (read_gflags / kfPgenGlobalDosagePhasePresent) & 1;
       PgenGlobalFlags write_gflags = read_gflags;
-      uint32_t read_or_write_hphase_present = read_hphase_present;
+      uint32_t read_or_write_phase_present = read_phase_present;
       uint32_t read_or_write_dphase_present = read_dphase_present;
-      if (mc.hard_call_halfdist && (read_hphase_present || read_or_write_dphase_present)) {
-        read_or_write_hphase_present = 1;
+      if (mc.hard_call_halfdist && (read_phase_present || read_or_write_dphase_present)) {
+        read_or_write_phase_present = 1;
         read_or_write_dphase_present = 1;
         write_gflags |= kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePhasePresent;
       } else if (dosage_erase_thresh && read_dosage_present) {
-        read_or_write_hphase_present = 1;
+        read_or_write_phase_present = 1;
       }
       uint32_t read_or_write_dosage_present = read_dosage_present;
       if (mc.plink2_write_flags & kfPlink2WriteLateDosageErase) {
@@ -6672,7 +6676,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
         const uintptr_t mhcraw_word_ct = RoundUpPow2(2, kWordsPerVec) + GetMhcWordCt(raw_sample_ct);
         load_vblock_cacheline_ct += WordCtToCachelineCtU64(S_CAST(uint64_t, mhcraw_word_ct) * max_vblock_size);
       }
-      if (read_hphase_present) {
+      if (read_phase_present) {
         // could make this bound tighter when lots of unphased variants are
         // mixed in among the phased variants, but this isn't nearly as
         // important as the analogous multiallelic optimization
@@ -6801,7 +6805,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
         if (bigstack_alloc_wp(calc_thread_ct, &ctx.thread_write_genovecs)) {
           goto MakePlink2NoVsort_fallback;
         }
-        if (read_hphase_present && new_sample_idx_to_old) {
+        if (read_phase_present && new_sample_idx_to_old) {
           if (bigstack_alloc_u32(raw_sample_ct, &ctx.old_sample_idx_to_new)) {
             goto MakePlink2NoVsort_fallback;
           }
@@ -6834,13 +6838,13 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
       ctx.thread_all_hets = nullptr;
       ctx.thread_write_dosagepresents = nullptr;
       ctx.thread_write_dphasepresents = nullptr;
-      if (read_or_write_hphase_present || read_or_write_dosage_present) {
-        if (read_or_write_hphase_present) {
+      if (read_or_write_phase_present || read_or_write_dosage_present) {
+        if (read_or_write_phase_present) {
           if (bigstack_alloc_wp(calc_thread_ct, &ctx.thread_write_phasepresents) ||
               bigstack_alloc_wp(calc_thread_ct, &ctx.thread_write_phaseinfos)) {
             goto MakePlink2NoVsort_fallback;
           }
-          if (read_hphase_present) {
+          if (read_phase_present) {
             if (bigstack_alloc_wp(calc_thread_ct, &ctx.thread_all_hets)) {
               goto MakePlink2NoVsort_fallback;
             }
@@ -6869,7 +6873,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
           // todo: multiallelic dosage
         }
       }
-      if (read_or_write_hphase_present || read_dosage_present || (read_gflags & kfPgenGlobalMultiallelicHardcallFound)) {
+      if (read_or_write_phase_present || read_dosage_present || (read_gflags & kfPgenGlobalMultiallelicHardcallFound)) {
         // ctx.loaded_vrtypes
         other_per_thread_cacheline_ct += 2 * (kPglVblockSize / kCacheline);
       }
@@ -6885,19 +6889,19 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
       main_loadbufs[1] = S_CAST(uintptr_t*, bigstack_alloc_raw(load_vblock_cacheline_ct * calc_thread_ct * kCacheline));
       ctx.loaded_vrtypes[0] = nullptr;
       ctx.loaded_vrtypes[1] = nullptr;
-      if (read_or_write_hphase_present || read_dosage_present || (read_gflags & kfPgenGlobalMultiallelicHardcallFound)) {
+      if (read_or_write_phase_present || read_dosage_present || (read_gflags & kfPgenGlobalMultiallelicHardcallFound)) {
         ctx.loaded_vrtypes[0] = S_CAST(unsigned char*, bigstack_alloc_raw(kPglVblockSize * calc_thread_ct));
         ctx.loaded_vrtypes[1] = S_CAST(unsigned char*, bigstack_alloc_raw(kPglVblockSize * calc_thread_ct));
       }
-      if (read_or_write_hphase_present || read_or_write_dosage_present) {
+      if (read_or_write_phase_present || read_or_write_dosage_present) {
         const uint32_t bitvec_writebuf_byte_ct = BitCtToCachelineCt(sample_ct) * kCacheline;
         const uintptr_t dosagevals_writebuf_byte_ct = DivUp(sample_ct, (kCacheline / 2)) * kCacheline;
         for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
-          if (read_or_write_hphase_present) {
+          if (read_or_write_phase_present) {
             ctx.thread_write_phasepresents[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(bitvec_writebuf_byte_ct));
             ctx.thread_write_phaseinfos[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(bitvec_writebuf_byte_ct));
 
-            if (read_hphase_present) {
+            if (read_phase_present) {
               ctx.thread_all_hets[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(BitCtToCachelineCt(raw_sample_ct) * kCacheline));
             }
           }

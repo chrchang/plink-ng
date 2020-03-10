@@ -8574,6 +8574,9 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
                     rlen = info_end_rlen;
                   } else if (rlen != info_end_rlen) {
                     MakeRlenWarningStr(variant_id);
+                    if (!rlen_warning_ct) {
+                      logputs_silent("\n");
+                    }
                     logputs_silent(g_logbuf);
                     if (rlen_warning_ct < 3) {
                       // Don't print to console now, since that has an annoying
@@ -9242,12 +9245,9 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
       putc_unlocked('\b', stdout);
     }
     fputs("\b\b", stdout);
-    logputs("done.\n");
-    if (invalid_allele_code_seen) {
-      logerrputs("Warning: At least one BCF allele code violates the official specification;\nother tools may not accept the file.  (Valid codes must either start with a\n'<', only contain characters in {A,C,G,T,N,a,c,g,t,n}, be an isolated '*', or\nrepresent a breakend.)\n");
-    }
     if (rlen_warning_ct) {
-      uint32_t rlen_warning_print_ct = MINV(3, rlen_warning_ct);
+      fputs("done.\n", stdout);
+      const uint32_t rlen_warning_print_ct = MINV(3, rlen_warning_ct);
       for (uint32_t uii = 0; uii != rlen_warning_print_ct; ++uii) {
         const char* variant_id = variant_ids[first_rlen_warning_idxs[uii]];
         MakeRlenWarningStr(variant_id);
@@ -9256,6 +9256,12 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
       if (rlen_warning_ct > 3) {
         fprintf(stderr, "%u more INFO:END warning%s; see log file.\n", rlen_warning_ct - 3, (rlen_warning_ct == 4)? "" : "s");
       }
+      logputs_silent("BCF export done.\n");
+    } else {
+      logputs("done.\n");
+    }
+    if (invalid_allele_code_seen) {
+      logerrputs("Warning: At least one BCF allele code violates the official specification;\nother tools may not accept the file.  (Valid codes must either start with a\n'<', only contain characters in {A,C,G,T,N,a,c,g,t,n}, be an isolated '*', or\nrepresent a breakend.)\n");
     }
   }
   while (0) {
