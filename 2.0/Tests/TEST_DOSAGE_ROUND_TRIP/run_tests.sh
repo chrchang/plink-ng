@@ -24,3 +24,7 @@ diff -q tmp_data.pgen tmp_data5.pgen
 $1/plink2 $2 $3 --pfile tmp_data --export oxford --out tmp_data6
 $1/plink2 $2 $3 --data tmp_data6 ref-last --out tmp_data6
 diff -q tmp_data.pgen tmp_data6.pgen
+
+$1/plink2 $2 $3 --pfile tmp_data --export A-transpose --out tmp_data7
+$1/plink2 $2 $3 --import-dosage tmp_data7.traw id-delim=_ skip0=1 skip1=2 chr-col-num=1 pos-col-num=4 ref-first --psam tmp_data.psam --out tmp_data7
+diff -q tmp_data.pgen tmp_data7.pgen

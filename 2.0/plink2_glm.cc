@@ -828,7 +828,15 @@ BoolErr GlmDetermineCovars(const uintptr_t* pheno_cc, const uintptr_t* initial_c
   unsigned char* bigstack_mark = g_bigstack_base;
   BoolErr reterr = 0;
   {
+    // bugfix (11 Mar 2020): if no covariates provided, covar_include ==
+    // nullptr is possible, and covar_include[0] dereference below is optimized
+    // out by some but not all compilers.
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    if (!covar_include) {
+      *sample_ct_ptr = PopcountWords(cur_sample_include, raw_sample_ctl);
+      goto GlmDetermineCovars_ret_NOCOVAR;
+    }
+
     uintptr_t* sample_include_backup;
     if (unlikely(bigstack_alloc_w(raw_sample_ctl, &sample_include_backup))) {
       goto GlmDetermineCovars_ret_NOMEM;
