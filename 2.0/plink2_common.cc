@@ -1630,9 +1630,12 @@ uint32_t GetChrCode(const char* chr_name, const ChrInfo* cip, uint32_t name_slen
 }
 
 uint32_t GetChrCodeCounted(const ChrInfo* cip, uint32_t name_slen, char* chr_name) {
-  // when the chromosome name isn't null-terminated
-  // (yeah, probably want to revise the called functions so that chr_name
-  // doesn't need to be mutable here)
+  // When the chromosome name isn't null-terminated.
+  // Yeah, probably want to revise this so that chr_name doesn't need to be
+  // mutable here.  However, that currently requires new substitutes for both
+  // GetChrCodeRaw AND IdHtableFind (IdHtableFindNnt doesn't work due to
+  // overread); when either of those are needed for some other reason, that's a
+  // good time to revise this function.
   char* s_end = &(chr_name[name_slen]);
   const char tmpc = *s_end;
   *s_end = '\0';

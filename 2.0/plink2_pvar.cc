@@ -834,7 +834,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     unsigned char* tmp_alloc_base = g_bigstack_base;
     g_bigstack_base = bigstack_mark;
 
-    char* xheader_end = ((pvar_psam_flags & kfPvarColXheader) || xheader_needed)? R_CAST(char*, bigstack_mark) : nullptr;
+    char* xheader_end = ((pvar_psam_flags & (kfPvarColXheader | kfPvarColVcfheader)) || xheader_needed)? R_CAST(char*, bigstack_mark) : nullptr;
     uint32_t chrset_present = 0;
     uint32_t info_pr_present = 0;
     uint32_t info_pr_nonflag_present = 0;
@@ -1389,10 +1389,14 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
             cip->chr_file_order[++chrs_encountered_m1] = cur_chr_code;
             cip->chr_fo_vidx_start[chrs_encountered_m1] = raw_variant_ct;
             cip->chr_idx_to_foidx[cur_chr_code] = chrs_encountered_m1;
-            last_bp = 0;
             last_cm = -DBL_MAX;
           }
         }
+        // always need to set this, if we want to avoid chromosome-length
+        // overestimation in --sort-vars + early-variant-filter +
+        // pvar-cols=+vcfheader case.
+        last_bp = 0;
+
         SetBit(cur_chr_code, loaded_chr_mask);
         if (chr_output_name_buf) {
           char* chr_name_end = chrtoa(cip, cur_chr_code, chr_output_name_buf);
