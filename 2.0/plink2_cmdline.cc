@@ -3856,6 +3856,10 @@ PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const 
       uint32_t arg_idx = flag_map[cur_flag_idx] + 1;
       while ((arg_idx < S_CAST(uint32_t, argc)) && (!IsCmdlineFlag(argvk[arg_idx]))) {
         logputs(" ");
+        // Thought about special-casing argvk[arg_idx] == " ", so that
+        // "--id-delim ' '" actually works with --rerun, but that adds too much
+        // complexity to the rereader to be worth it.  Instead we just document
+        // the incompatibility.
         logputs(argvk[arg_idx++]);
       }
       logputs("\n");

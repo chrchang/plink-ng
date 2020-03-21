@@ -447,10 +447,19 @@ HEADER_INLINE void PrintSymmFmatrix(const float* matrix, uint32_t dim) {
   }
 }
 
-HEADER_INLINE void PrintMatrix(const double* matrix, uint32_t dim) {
-  for (uint32_t uii = 0; uii != dim; ++uii) {
-    for (uint32_t ujj = 0; ujj != dim; ++ujj) {
-      printf("%g ", matrix[uii * dim + ujj]);
+HEADER_INLINE void PrintMatrix(const double* matrix, uintptr_t row_ct, uintptr_t col_ct) {
+  for (uintptr_t ulii = 0; ulii != row_ct; ++ulii) {
+    for (uintptr_t uljj = 0; uljj != col_ct; ++uljj) {
+      printf("%g ", matrix[ulii * col_ct + uljj]);
+    }
+    printf("\n");
+  }
+}
+
+HEADER_INLINE void PrintFmatrix(const float* matrix, uintptr_t row_ct, uintptr_t col_ct, uintptr_t stride) {
+  for (uintptr_t ulii = 0; ulii != row_ct; ++ulii) {
+    for (uintptr_t uljj = 0; uljj != col_ct; ++uljj) {
+      printf("%g ", S_CAST(double, matrix[ulii * stride + uljj]));
     }
     printf("\n");
   }

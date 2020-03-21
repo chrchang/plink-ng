@@ -2816,7 +2816,7 @@ uintptr_t InitWriteAlleleIdxOffsets(const uintptr_t* variant_include, const uint
 //     is printed if INFO:END isn't defined, and an error occurs if either REF
 //     is multi-character, or there's an INFO:END mismatch.
 //   - Error out if REF alleles aren't all consistent, or any ALT allele is
-//     duplicated (necessary to use --pmerge to merge the latter).
+//     duplicated (note that --pmerge must support the latter).
 //   - For joined not-entirely-SNP non-symbolic variants, the final REF is the
 //     longest of the original REFs; ALT alleles have bases added to the end if
 //     necessary.  (Yes, this causes SNPs to stop being visible to a strlen ==

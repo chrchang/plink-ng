@@ -1150,7 +1150,8 @@ uint32_t CollapseParamOrTestSubset(const uintptr_t* covar_include, const uintptr
 ENUM_U31_DEF_START()
   kGlmErrcodeNone,
   kGlmErrcodeSampleCtLtePredictorCt,
-  kGlmErrcodeConstAllele, // 1 allele arg
+  kGlmErrcodeConstOmittedAllele,
+  kGlmErrcodeConstAllele,
   kGlmErrcodeCorrTooHigh, // 2 predictor args
   kGlmErrcodeVifInfinite,
   kGlmErrcodeVifTooHigh, // 1 predictor arg
@@ -1220,13 +1221,13 @@ static inline uint32_t GetGlmErrArg2(GlmErr glm_err) {
   return S_CAST(uint64_t, glm_err) >> 32;
 }
 
-static const char kGlmErrcodeStrs[][24] = {"", "SAMPLE_CT<=PREDICTOR_CT", "CONST_ALLELE", "CORR_TOO_HIGH", "VIF_INFINITE", "VIF_TOO_HIGH", "SEPARATION", "RANK_DEFICIENT", "LOGISTIC_CONVERGE_FAIL", "FIRTH_CONVERGE_FAIL", "INVALID_RESULT"};
+static const char kGlmErrcodeStrs[][24] = {"", "SAMPLE_CT<=PREDICTOR_CT", "CONST_OMITTED_ALLELE", "CONST_ALLELE", "CORR_TOO_HIGH", "VIF_INFINITE", "VIF_TOO_HIGH", "SEPARATION", "RANK_DEFICIENT", "LOGISTIC_CONVERGE_FAIL", "FIRTH_CONVERGE_FAIL", "INVALID_RESULT"};
 
 char* AppendGlmErrstr(GlmErr glm_err, char* write_iter) {
   // todo: support predictor args
   GlmErrcode errcode = GetGlmErrCode(glm_err);
   write_iter = strcpya(write_iter, kGlmErrcodeStrs[errcode]);
-  if ((errcode == kGlmErrcodeConstAllele) || (errcode == kGlmErrcodeSeparation)) {
+  if (errcode == kGlmErrcodeSeparation) {
     *write_iter++ = ',';
     const uint32_t allele_idx = GetGlmErrArg1(glm_err);
     if (!allele_idx) {
@@ -1521,7 +1522,7 @@ PglErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* co
   uint32_t* cat_obs_buf = nullptr;
   if (extra_cat_ct) {
     if (unlikely(
-                 bigstack_alloc_u32(covar_max_nonnull_cat_ct + 1, &cat_obs_buf))) {
+            bigstack_alloc_u32(covar_max_nonnull_cat_ct + 1, &cat_obs_buf))) {
       return kPglRetNomem;
     }
   }
@@ -1891,6 +1892,29 @@ BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const 
     FillInterleavedMaskVec(pheno_cc_collapsed, sample_ctv, *gcount_case_interleaved_vec_ptr);
   }
   return 0;
+}
+
+uint32_t DosageIsConstant(uint64_t dosage_sum, uint64_t dosage_ssq, uint32_t nm_sample_ct) {
+  // Dosages are all identical iff dosage_sum * dosage_sum ==
+  // dosage_ssq * nm_sample_ct.
+  // Unfortunately, uint64 isn't enough for this comparison.
+  const uint64_t dosage_sum_hi = dosage_sum >> 32;
+  const uint64_t dosage_sum_lo = S_CAST(uint32_t, dosage_sum);
+  const uint64_t dosage_ssq_hi = dosage_ssq >> 32;
+  const uint64_t dosage_ssq_lo = S_CAST(uint32_t, dosage_ssq);
+
+  // (a * 2^32 + b)^2 = a^2 * 2^64 + 2ab * 2^32 + b^2
+  const uint64_t lhs_ab = dosage_sum_hi * dosage_sum_lo;
+  const uint64_t lhs_b2 = dosage_sum_lo * dosage_sum_lo;
+  const uint64_t lhs_lo = lhs_b2 + (lhs_ab << 33);
+  const uint64_t lhs_hi = (lhs_lo < lhs_b2) + (lhs_ab >> 31) + dosage_sum_hi * dosage_sum_hi;
+
+  // (a * 2^32 + b) * c = ac * 2^32 + bc
+  const uint64_t rhs_ac = dosage_ssq_hi * nm_sample_ct;
+  const uint64_t rhs_bc = dosage_ssq_lo * nm_sample_ct;
+  const uint64_t rhs_lo = rhs_bc + (rhs_ac << 32);
+  const uint64_t rhs_hi = (rhs_lo < rhs_bc) + (rhs_ac >> 32);
+  return (lhs_hi == rhs_hi) && (lhs_lo == rhs_lo);
 }
 
 static const float kSmallFloatPairs[32] = PAIR_TABLE16(0.0, 1.0, 2.0, 3.0);
@@ -3351,7 +3375,6 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
       uint32_t cur_covar_ct;
       uint32_t cur_constraint_ct;
       uint32_t cur_is_always_firth;
-      uint32_t primary_pred_idx = include_intercept;
       if (is_y && common->sample_include_y) {
         cur_sample_include = common->sample_include_y;
         cur_sample_include_cumulative_popcounts = common->sample_include_y_cumulative_popcounts;
@@ -3416,10 +3439,6 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
         }
       } else {
         reported_pred_uidx_biallelic_end = cur_biallelic_predictor_ct;
-      }
-      if (cur_constraint_ct) {
-        // need to be careful with interaction with multiallelic variants here
-        primary_pred_idx = reported_pred_uidx_biallelic_end - reported_pred_uidx_start;
       }
       // nm_predictors_pmaj_buf may require up to two extra columns omitted
       // from the main regression.
@@ -3533,9 +3552,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
           }
         }
         const uint32_t allele_ct_m2 = allele_ct - 2;
-        const uint32_t cur_predictor_ct = cur_biallelic_predictor_ct + allele_ct_m2;
-        const uint32_t cur_predictor_ctav = RoundUpPow2(cur_predictor_ct, kFloatPerFVec);
-        const uint32_t cur_predictor_ctavp1 = cur_predictor_ctav + 1;
+        const uint32_t expected_predictor_ct = cur_biallelic_predictor_ct + allele_ct_m2;
         PglErr reterr;
         if (!allele_ct_m2) {
           reterr = PgrGetD(cur_sample_include, pssi, cur_sample_ct, variant_uidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &(pgv.dosage_ct));
@@ -3562,6 +3579,11 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
         if (omitted_alleles) {
           omitted_allele_idx = omitted_alleles[variant_uidx];
         }
+        // Once sizeof(AlleleCode) > 1, we probably want to allocate this from
+        // g_bigstack instead of the thread stack.
+        uintptr_t const_alleles[DivUp(kPglMaxAltAlleleCt + 1, kBitsPerWord)];
+        const uint32_t allele_ctl = DivUp(allele_ct, kBitsPerWord);
+        ZeroWArr(allele_ctl, const_alleles);
         const uint32_t nm_sample_ct = cur_sample_ct - missing_ct;
         const uint32_t nm_sample_ctl = BitCtToWordCt(nm_sample_ct);
         const uint32_t nm_sample_ctav = RoundUpPow2(nm_sample_ct, kFloatPerFVec);
@@ -3574,14 +3596,12 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
           ZeroFArr(nm_sample_ct_rem, &(nm_predictors_pmaj_buf[nm_sample_ct]));
         }
         // second predictor column: genotype
-        // todo: additional predictor columns at the end in multiallelic case
         float* genotype_vals = &(nm_predictors_pmaj_buf[nm_sample_ctav]);
         if (main_mutated || main_omitted) {
-          genotype_vals = &(nm_predictors_pmaj_buf[cur_predictor_ct * nm_sample_ctav]);
+          genotype_vals = &(nm_predictors_pmaj_buf[expected_predictor_ct * nm_sample_ctav]);
         }
         CopyBitarrSubset(cur_pheno_cc, sample_nm, nm_sample_ct, pheno_cc_nm);
         const uint32_t nm_case_ct = PopcountWords(pheno_cc_nm, nm_sample_ctl);
-        GlmErr glm_err = 0;
         float* multi_start = nullptr;
         if (!allele_ct_m2) {
           if (omitted_allele_idx) {
@@ -3596,9 +3616,6 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
           }
           uint64_t dosage_sum = (genocounts[1] + 2 * genocounts[2]) * 0x4000LLU;
           uint64_t dosage_ssq = (genocounts[1] + 4LLU * genocounts[2]) * 0x10000000LLU;
-          if ((!pgv.dosage_ct) && ((genocounts[0] == nm_sample_ct) || (genocounts[1] == nm_sample_ct) || (genocounts[2] == nm_sample_ct))) {
-            glm_err = SetGlmErr1(kGlmErrcodeConstAllele, 0);
-          }
           if (!missing_ct) {
             GenoarrLookup16x4bx2(pgv.genovec, kSmallFloatPairs, nm_sample_ct, genotype_vals);
             if (pgv.dosage_ct) {
@@ -3648,6 +3665,19 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
               }
             }
           }
+          // Check for constant genotype column.
+          // (Technically, we should recheck later in the chrX no-sex-covariate
+          // --xchr-model 1 corner case.)
+          if (!pgv.dosage_ct) {
+            if ((genocounts[0] == nm_sample_ct) || (genocounts[1] == nm_sample_ct) || (genocounts[2] == nm_sample_ct)) {
+              // equivalent to SetBit(1 - omitted_allele_idx, const_alleles);
+              const_alleles[0] = 2 >> omitted_allele_idx;
+            }
+          } else if (pgv.dosage_ct == nm_sample_ct) {
+            if (DosageIsConstant(dosage_sum, dosage_ssq, nm_sample_ct)) {
+              const_alleles[0] = 2 >> omitted_allele_idx;
+            }
+          }
           machr2_dosage_sums[1 - omitted_allele_idx] = dosage_sum;
           machr2_dosage_ssqs[1 - omitted_allele_idx] = dosage_ssq;
           machr2_dosage_sums[omitted_allele_idx] = kDosageMax * S_CAST(uint64_t, nm_sample_ct) - dosage_sum;
@@ -3662,12 +3692,16 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
           }
         } else {
           // multiallelic.
-          // We detect, but do not filter out all-zero columns; this way, the
-          // sequence of output lines is predictable.  It's the caller's
-          // responsibility to use trim-alts first when appropriate.
+          // Update (18 Mar 2020): If some but not all alleles have constant
+          // dosages, we remove just those alleles from the regressions;
+          // trim-alts is not necessary to see what's going on with the other
+          // alleles.  To reduce parsing complexity, the number of output lines
+          // is not affected by this; the ones corresponding to the constant
+          // alleles have NA values.
+
           // dosage_ct == 0 temporarily guaranteed if we reach here.
           assert(!pgv.dosage_ct);
-          multi_start = &(nm_predictors_pmaj_buf[(cur_predictor_ct - allele_ct_m2) * nm_sample_ctav]);
+          multi_start = &(nm_predictors_pmaj_buf[(expected_predictor_ct - allele_ct_m2) * nm_sample_ctav]);
           ZeroU64Arr(allele_ct, machr2_dosage_sums);
           ZeroU64Arr(allele_ct, machr2_dosage_ssqs);
           // postpone multiply for now, since no multiallelic dosages
@@ -3897,8 +3931,8 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
             const uintptr_t two_ct = machr2_dosage_ssqs[allele_idx];
             machr2_dosage_sums[allele_idx] = (one_ct + 2 * two_ct) * 0x4000LLU;
             machr2_dosage_ssqs[allele_idx] = (one_ct + 4LLU * two_ct) * 0x10000000LLU;
-            if ((!glm_err) && ((one_ct == nm_sample_ct) || (two_ct == nm_sample_ct) || ((!one_ct) && (!two_ct)))) {
-              glm_err = SetGlmErr1(kGlmErrcodeConstAllele, allele_idx);
+            if ((one_ct == nm_sample_ct) || (two_ct == nm_sample_ct) || ((!one_ct) && (!two_ct))) {
+              SetBit(allele_idx, const_alleles);
             }
           }
         }
@@ -3958,7 +3992,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
 
           float* geno_col = genotype_vals;
           if (allele_idx > (!omitted_allele_idx)) {
-            geno_col = &(nm_predictors_pmaj_buf[(cur_predictor_ct - (allele_ct - allele_idx) + (allele_idx < omitted_allele_idx)) * nm_sample_ctav]);
+            geno_col = &(nm_predictors_pmaj_buf[(expected_predictor_ct - (allele_ct - allele_idx) + (allele_idx < omitted_allele_idx)) * nm_sample_ctav]);
           }
           double a1_dosage = u63tod(machr2_dosage_sums[allele_idx]) * kRecipDosageMid;
           if (is_xchr_model_1) {
@@ -4013,11 +4047,16 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
           block_aux_iter[nonomitted_allele_idx].mach_r2 = mach_r2;
           ++nonomitted_allele_idx;
         }
-        // now free to skip the actual regression if there are too few samples,
-        // or there's a zero-variance genotype column
-        if (nm_sample_ct <= cur_predictor_ct) {
+        // Now free to skip the actual regression if there are too few samples,
+        // or omitted allele corresponds to a zero-variance genotype column.
+        // If another allele has zero variance but the omitted allele does not,
+        // we now salvage as many alleles as we can.
+        GlmErr glm_err = 0;
+        if (nm_sample_ct <= expected_predictor_ct) {
           // reasonable for this to override CONST_ALLELE
           glm_err = SetGlmErr0(kGlmErrcodeSampleCtLtePredictorCt);
+        } else if (IsSet(const_alleles, omitted_allele_idx)) {
+          glm_err = SetGlmErr0(kGlmErrcodeConstOmittedAllele);
         }
         if (glm_err) {
           if (missing_ct) {
@@ -4026,14 +4065,17 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
             // reason to optimize the zero-covariate case)
             prev_nm = 0;
           }
+          const uint32_t biallelic_reported_ct = reported_pred_uidx_biallelic_end + (cur_constraint_ct != 0) - reported_pred_uidx_start;
           for (uint32_t extra_regression_idx = 0; extra_regression_idx <= extra_regression_ct; ++extra_regression_idx) {
-            memcpy(&(beta_se_iter[primary_pred_idx * 2]), &glm_err, 8);
-            beta_se_iter[primary_pred_idx * 2 + 1] = -9;
+            for (uint32_t uii = 0; uii != biallelic_reported_ct; ++uii) {
+              memcpy(&(beta_se_iter[uii * 2]), &glm_err, 8);
+              beta_se_iter[uii * 2 + 1] = -9.0;
+            }
             if (allele_ct_m2) {
-              const uint32_t offset = 2 * (reported_pred_uidx_biallelic_end + (cur_constraint_ct != 0) - reported_pred_uidx_start);
+              const uint32_t offset = 2 * biallelic_reported_ct;
               for (uint32_t extra_allele_idx = 0; extra_allele_idx != allele_ct_m2; ++extra_allele_idx) {
                 memcpy(&(beta_se_iter[extra_allele_idx * 2 + offset]), &glm_err, 8);
-                beta_se_iter[extra_allele_idx * 2 + offset + 1] = -9;
+                beta_se_iter[extra_allele_idx * 2 + offset + 1] = -9.0;
               }
             }
             beta_se_iter = &(beta_se_iter[2 * max_reported_test_ct]);
@@ -4099,9 +4141,55 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
             parameter_uidx += cur_covar_ct;
             nm_predictors_pmaj_istart = &(nm_predictors_pmaj_iter[literal_covar_ct * nm_sample_ctav]);
           }
-          for (uint32_t extra_regression_idx = 0; ; ++extra_regression_idx) {
+          const uint32_t const_allele_ct = PopcountWords(const_alleles, allele_ctl);
+          if (const_allele_ct) {
+            // Must delete constant-allele columns from nm_predictors_pmaj, and
+            // shift later columns back.
+            float* read_iter = genotype_vals;
+            float* write_iter = genotype_vals;
+            for (uint32_t read_allele_idx = 0; read_allele_idx != allele_ct; ++read_allele_idx) {
+              if (read_allele_idx == omitted_allele_idx) {
+                continue;
+              }
+              if (!IsSet(const_alleles, read_allele_idx)) {
+                if (write_iter != read_iter) {
+                  memcpy(write_iter, read_iter, nm_sample_ctav * sizeof(float));
+                }
+                if (write_iter == genotype_vals) {
+                  write_iter = multi_start;
+                } else {
+                  write_iter = &(write_iter[nm_sample_ctav]);
+                }
+              }
+              if (read_iter == genotype_vals) {
+                read_iter = multi_start;
+              } else {
+                read_iter = &(read_iter[nm_sample_ctav]);
+              }
+            }
+          }
+          const uint32_t cur_predictor_ct = expected_predictor_ct - const_allele_ct;
+          const uint32_t cur_predictor_ctav = RoundUpPow2(cur_predictor_ct, kFloatPerFVec);
+          const uint32_t cur_predictor_ctavp1 = cur_predictor_ctav + 1;
+          uint32_t nonconst_extra_regression_idx = UINT32_MAX;  // deliberate overflow
+          for (uint32_t extra_regression_idx = 0; extra_regression_idx <= extra_regression_ct; ++extra_regression_idx) {
             float* main_vals = &(nm_predictors_pmaj_buf[nm_sample_ctav]);
             float* domdev_vals = nullptr;
+            if (extra_regression_ct) {
+              if (IsSet(const_alleles, extra_regression_idx + (extra_regression_idx >= omitted_allele_idx))) {
+                glm_err = SetGlmErr0(kGlmErrcodeConstAllele);
+                goto GlmLogisticThread_skip_regression;
+              }
+              ++nonconst_extra_regression_idx;
+              if (nonconst_extra_regression_idx) {
+                float* swap_target = &(multi_start[(nonconst_extra_regression_idx - 1) * nm_sample_ctav]);
+                for (uint32_t uii = 0; uii != nm_sample_ct; ++uii) {
+                  float fxx = genotype_vals[uii];
+                  genotype_vals[uii] = swap_target[uii];
+                  swap_target[uii] = fxx;
+                }
+              }
+            }
             if (main_omitted) {
               // if main_mutated, this will be filled below
               // if not, this aliases genotype_vals
@@ -4196,12 +4284,12 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
               }
               glm_err = CheckMaxCorrAndVifNm(semicomputed_biallelic_xtx, corr_inv, cur_predictor_ct, domdev_present_p1, cur_sample_ct_recip, cur_sample_ct_m1_recip, max_corr, vif_thresh, semicomputed_biallelic_corr_matrix, semicomputed_biallelic_inv_corr_sqrts, dbl_2d_buf, &(dbl_2d_buf[2 * cur_predictor_ct]), &(dbl_2d_buf[3 * cur_predictor_ct]));
               if (glm_err) {
-                goto GlmLogisticThread_skip_allele;
+                goto GlmLogisticThread_skip_regression;
               }
             } else {
               glm_err = CheckMaxCorrAndVifF(&(nm_predictors_pmaj_buf[nm_sample_ctav]), cur_predictor_ct - 1, nm_sample_ct, nm_sample_ctav, max_corr, vif_thresh, predictor_dotprod_buf, dbl_2d_buf, inverse_corr_buf, inv_1d_buf);
               if (glm_err) {
-                goto GlmLogisticThread_skip_allele;
+                goto GlmLogisticThread_skip_regression;
               }
             }
             ZeroFArr(cur_predictor_ctav, coef_return);
@@ -4210,6 +4298,9 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
               // dosage?  If yes, faster to skip logistic regression than
               // wait for convergence failure.
               for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
+                if (IsSet(const_alleles, allele_idx)) {
+                  continue;
+                }
                 const double tot_dosage = a1_dosages[allele_idx];
                 const double case_dosage = a1_case_dosages[allele_idx];
                 if ((case_dosage == 0.0) || (case_dosage == tot_dosage)) {
@@ -4217,7 +4308,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
                     goto GlmLogisticThread_firth_fallback;
                   }
                   glm_err = SetGlmErr1(kGlmErrcodeSeparation, allele_idx);
-                  goto GlmLogisticThread_skip_allele;
+                  goto GlmLogisticThread_skip_regression;
                 }
               }
               if (LogisticRegression(nm_pheno_buf, nm_predictors_pmaj_buf, nm_sample_ct, cur_predictor_ct, coef_return, cholesky_decomp_return, pp_buf, sample_variance_buf, hh_return, gradient_buf, dcoef_buf)) {
@@ -4226,7 +4317,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
                   goto GlmLogisticThread_firth_fallback;
                 }
                 glm_err = SetGlmErr0(kGlmErrcodeLogisticConvergeFail);
-                goto GlmLogisticThread_skip_allele;
+                goto GlmLogisticThread_skip_regression;
               }
               // unlike FirthRegression(), hh_return isn't inverted yet, do
               // that here
@@ -4271,7 +4362,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
               }
               if (FirthRegression(nm_pheno_buf, nm_predictors_pmaj_buf, nm_sample_ct, cur_predictor_ct, coef_return, hh_return, inverse_corr_buf, inv_1d_buf, dbl_2d_buf, pp_buf, sample_variance_buf, gradient_buf, dcoef_buf, score_buf, tmpnxk_buf)) {
                 glm_err = SetGlmErr0(kGlmErrcodeFirthConvergeFail);
-                goto GlmLogisticThread_skip_allele;
+                goto GlmLogisticThread_skip_regression;
               }
             }
             // validParameters() check
@@ -4279,7 +4370,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
               const float hh_inv_diag_element = hh_return[pred_uidx * cur_predictor_ctavp1];
               if ((hh_inv_diag_element < S_CAST(float, 1e-20)) || (!isfinite_f(hh_inv_diag_element))) {
                 glm_err = SetGlmErr0(kGlmErrcodeInvalidResult);
-                goto GlmLogisticThread_skip_allele;
+                goto GlmLogisticThread_skip_regression;
               }
               // use sample_variance_buf[] to store diagonal square roots
               sample_variance_buf[pred_uidx] = sqrtf(hh_inv_diag_element);
@@ -4292,13 +4383,18 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
               for (uint32_t pred_uidx2 = 0; pred_uidx2 != pred_uidx; ++pred_uidx2) {
                 if ((*hh_inv_row_iter++) > cur_hh_inv_diag_sqrt * (*hh_inv_diag_sqrts_iter++)) {
                   glm_err = SetGlmErr0(kGlmErrcodeInvalidResult);
-                  goto GlmLogisticThread_skip_allele;
+                  goto GlmLogisticThread_skip_regression;
                 }
               }
             }
             {
               double* beta_se_iter2 = beta_se_iter;
               for (uint32_t pred_uidx = reported_pred_uidx_start; pred_uidx != reported_pred_uidx_biallelic_end; ++pred_uidx) {
+                // In the multiallelic-fused case, if the first allele is
+                // constant, this writes the beta/se values for the first
+                // nonconstant, non-omitted allele where the results for the
+                // first allele belong.  We correct that at the end of this
+                // block.
                 *beta_se_iter2++ = S_CAST(double, coef_return[pred_uidx]);
                 *beta_se_iter2++ = S_CAST(double, sample_variance_buf[pred_uidx]);
               }
@@ -4316,7 +4412,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
                 } else {
                   const GlmErr glm_err2 = SetGlmErr0(kGlmErrcodeRankDeficient);
                   memcpy(&(beta_se_iter2[-1]), &glm_err2, 8);
-                  *beta_se_iter2++ = -9;
+                  *beta_se_iter2++ = -9.0;
                 }
                 // next test may have different alt allele count
                 joint_test_idx = AdvTo1Bit(cur_joint_test_params, 0);
@@ -4325,36 +4421,91 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
                   cur_constraints_con_major[uii * cur_predictor_ct + joint_test_idx] = 0.0;
                 }
               }
-              for (uint32_t extra_allele_idx = 0; extra_allele_idx != allele_ct_m2; ++extra_allele_idx) {
-                // possible todo: in hide-covar + domdev/tests/interactions
-                // case, don't need to save these
-                *beta_se_iter2++ = S_CAST(double, coef_return[cur_biallelic_predictor_ct + extra_allele_idx]);
-                *beta_se_iter2++ = S_CAST(double, sample_variance_buf[cur_biallelic_predictor_ct + extra_allele_idx]);
+              if (!const_allele_ct) {
+                for (uint32_t extra_allele_idx = 0; extra_allele_idx != allele_ct_m2; ++extra_allele_idx) {
+                  // possible todo: in hide-covar + domdev/tests/interactions
+                  // case, don't need to save these
+                  *beta_se_iter2++ = S_CAST(double, coef_return[cur_biallelic_predictor_ct + extra_allele_idx]);
+                  *beta_se_iter2++ = S_CAST(double, sample_variance_buf[cur_biallelic_predictor_ct + extra_allele_idx]);
+                }
+              } else if (!beta_se_multiallelic_fused) {
+                // Need to insert some {CONST_ALLELE, -9} entries.
+                const GlmErr glm_err2 = SetGlmErr0(kGlmErrcodeConstAllele);
+                const uint32_t cur_raw_allele_idx = extra_regression_idx + (extra_regression_idx >= omitted_allele_idx);
+                uint32_t extra_read_allele_idx = 0;
+                for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
+                  if ((allele_idx == omitted_allele_idx) || (allele_idx == cur_raw_allele_idx)) {
+                    continue;
+                  }
+                  if (IsSet(const_alleles, allele_idx)) {
+                    memcpy(beta_se_iter2, &glm_err2, 8);
+                    beta_se_iter2[1] = -9.0;
+                    beta_se_iter2 = &(beta_se_iter2[2]);
+                  } else {
+                    *beta_se_iter2++ = S_CAST(double, coef_return[cur_biallelic_predictor_ct + extra_read_allele_idx]);
+                    *beta_se_iter2++ = S_CAST(double, sample_variance_buf[cur_biallelic_predictor_ct + extra_read_allele_idx]);
+                    ++extra_read_allele_idx;
+                  }
+                }
+              } else {
+                const GlmErr glm_err2 = SetGlmErr0(kGlmErrcodeConstAllele);
+                // Special-case first nonconst allele since it's positioned
+                // discontinuously, and its BETA/SE may already be correctly
+                // filled.
+                uint32_t allele_idx = omitted_allele_idx? 0 : 1;
+                if (IsSet(const_alleles, allele_idx)) {
+                  memcpy(&(beta_se_iter[2 * include_intercept]), &glm_err2, 8);
+                  beta_se_iter[2 * include_intercept + 1] = -9.0;
+                  allele_idx = AdvTo0Bit(const_alleles, 1);
+                  if (allele_idx == omitted_allele_idx) {
+                    allele_idx = AdvTo0Bit(const_alleles, omitted_allele_idx + 1);
+                  }
+                  const uint32_t skip_ct = allele_idx - 1 - (allele_idx > omitted_allele_idx);
+                  for (uint32_t uii = 0; uii != skip_ct; ++uii) {
+                    memcpy(beta_se_iter2, &glm_err2, 8);
+                    beta_se_iter2[1] = -9.0;
+                    beta_se_iter2 = &(beta_se_iter2[2]);
+                  }
+                  *beta_se_iter2++ = S_CAST(double, coef_return[1]);
+                  *beta_se_iter2++ = S_CAST(double, sample_variance_buf[1]);
+                }
+                ++allele_idx;
+                uint32_t nonconst_allele_idx_m1 = 0;
+                for (; allele_idx != allele_ct; ++allele_idx) {
+                  if (allele_idx == omitted_allele_idx) {
+                    continue;
+                  }
+                  if (!IsSet(const_alleles, allele_idx)) {
+                    *beta_se_iter2++ = S_CAST(double, coef_return[cur_biallelic_predictor_ct + nonconst_allele_idx_m1]);
+                    *beta_se_iter2++ = S_CAST(double, sample_variance_buf[cur_biallelic_predictor_ct + nonconst_allele_idx_m1]);
+                    ++nonconst_allele_idx_m1;
+                  } else {
+                    memcpy(beta_se_iter2, &glm_err2, 8);
+                    beta_se_iter2[1] = -9.0;
+                    beta_se_iter2 = &(beta_se_iter2[2]);
+                  }
+                }
               }
             }
             while (0) {
-            GlmLogisticThread_skip_allele:
-              memcpy(&(beta_se_iter[primary_pred_idx * 2]), &glm_err, 8);
-              beta_se_iter[primary_pred_idx * 2 + 1] = -9;
-              if (allele_ct_m2) {
-                const uint32_t offset = 2 * (reported_pred_uidx_biallelic_end + (cur_constraint_ct != 0) - reported_pred_uidx_start);
-                assert((offset / 2) + allele_ct_m2 <= max_reported_test_ct);
-                for (uint32_t extra_allele_idx = 0; extra_allele_idx != allele_ct_m2; ++extra_allele_idx) {
-                  memcpy(&(beta_se_iter[extra_allele_idx * 2 + offset]), &glm_err, 8);
-                  beta_se_iter[extra_allele_idx * 2 + offset + 1] = -9;
+            GlmLogisticThread_skip_regression:
+              {
+                const uint32_t biallelic_reported_ct = reported_pred_uidx_biallelic_end + (cur_constraint_ct != 0) - reported_pred_uidx_start;
+                for (uint32_t uii = 0; uii != biallelic_reported_ct; ++uii) {
+                  memcpy(&(beta_se_iter[uii * 2]), &glm_err, 8);
+                  beta_se_iter[uii * 2 + 1] = -9.0;
+                }
+                if (allele_ct_m2) {
+                  const uint32_t offset = 2 * biallelic_reported_ct;
+                  assert((offset / 2) + allele_ct_m2 <= max_reported_test_ct);
+                  for (uint32_t extra_allele_idx = 0; extra_allele_idx != allele_ct_m2; ++extra_allele_idx) {
+                    memcpy(&(beta_se_iter[extra_allele_idx * 2 + offset]), &glm_err, 8);
+                    beta_se_iter[extra_allele_idx * 2 + offset + 1] = -9.0;
+                  }
                 }
               }
             }
             beta_se_iter = &(beta_se_iter[2 * max_reported_test_ct]);
-            if (extra_regression_idx == extra_regression_ct) {
-              break;
-            }
-            float* swap_target = &(multi_start[extra_regression_idx * nm_sample_ctav]);
-            for (uint32_t uii = 0; uii != nm_sample_ct; ++uii) {
-              float fxx = genotype_vals[uii];
-              genotype_vals[uii] = swap_target[uii];
-              swap_target[uii] = fxx;
-            }
           }
         }
         block_aux_iter = &(block_aux_iter[allele_ct - 1]);
@@ -5713,7 +5864,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
             }
             const double primary_beta = beta_se_iter[primary_reported_test_idx * 2];
             const double primary_se = beta_se_iter[primary_reported_test_idx * 2 + 1];
-            const uint32_t allele_is_valid = (primary_se != -9);
+            const uint32_t allele_is_valid = (primary_se != -9.0);
             variant_is_valid |= allele_is_valid;
             {
               const LogisticAuxResult* auxp = &(cur_block_aux[allele_bidx]);
@@ -5940,16 +6091,18 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                 }
                 double ln_pval = kLnPvalError;
                 double permstat = 0.0;
+                uint32_t test_is_valid;
                 if ((!cur_constraint_ct) || (test_idx != primary_reported_test_idx)) {
                   double beta = beta_se_iter[2 * test_idx];
                   double se = beta_se_iter[2 * test_idx + 1];
-                  if (allele_is_valid) {
+                  test_is_valid = (se != -9.0);
+                  if (test_is_valid) {
                     permstat = beta / se;
                     ln_pval = ZscoreToLnP(permstat);
                   }
                   if (orbeta_col) {
                     *cswritep++ = '\t';
-                    if (allele_is_valid) {
+                    if (test_is_valid) {
                       if (report_beta_instead_of_odds_ratio) {
                         cswritep = dtoa_g(beta, cswritep);
                       } else {
@@ -5961,7 +6114,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                   }
                   if (se_col) {
                     *cswritep++ = '\t';
-                    if (allele_is_valid) {
+                    if (test_is_valid) {
                       cswritep = dtoa_g(se, cswritep);
                     } else {
                       cswritep = strcpya_k(cswritep, "NA");
@@ -5969,7 +6122,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                   }
                   if (ci_col) {
                     *cswritep++ = '\t';
-                    if (allele_is_valid) {
+                    if (test_is_valid) {
                       const double ci_halfwidth = ci_zt * se;
                       if (report_beta_instead_of_odds_ratio) {
                         cswritep = dtoa_g(beta - ci_halfwidth, cswritep);
@@ -5986,7 +6139,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                   }
                   if (z_col) {
                     *cswritep++ = '\t';
-                    if (allele_is_valid) {
+                    if (test_is_valid) {
                       cswritep = dtoa_g(permstat, cswritep);
                     } else {
                       cswritep = strcpya_k(cswritep, "NA");
@@ -5994,6 +6147,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                   }
                 } else {
                   // joint test: use F-test instead of Wald test
+                  test_is_valid = allele_is_valid;
                   if (orbeta_col) {
                     cswritep = strcpya_k(cswritep, "\tNA");
                   }
@@ -6005,21 +6159,21 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                   }
                   if (z_col) {
                     *cswritep++ = '\t';
-                    if (allele_is_valid) {
+                    if (test_is_valid) {
                       cswritep = dtoa_g(primary_se / u31tod(cur_constraint_ct), cswritep);
                     } else {
                       cswritep = strcpya_k(cswritep, "NA");
                     }
                   }
                   // could avoid recomputing
-                  if (allele_is_valid) {
+                  if (test_is_valid) {
                     ln_pval = FstatToLnP(primary_se / u31tod(cur_constraint_ct), cur_constraint_ct, auxp->sample_obs_ct);
                     permstat = -ln_pval;
                   }
                 }
                 if (p_col) {
                   *cswritep++ = '\t';
-                  if (allele_is_valid) {
+                  if (test_is_valid) {
                     if (report_neglog10p) {
                       double reported_val = (-kRecipLn10) * ln_pval;
                       cswritep = dtoa_g(reported_val, cswritep);
@@ -6033,13 +6187,11 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                 }
                 if (err_col) {
                   *cswritep++ = '\t';
-                  if (allele_is_valid) {
+                  if (test_is_valid) {
                     *cswritep++ = '.';
                   } else {
                     uint64_t glm_errcode;
-                    // bugfix (15 Nov 2019): errcode is only set for primary
-                    // test
-                    memcpy(&glm_errcode, &(beta_se_iter[2 * primary_reported_test_idx]), 8);
+                    memcpy(&glm_errcode, &(beta_se_iter[2 * test_idx]), 8);
                     cswritep = AppendGlmErrstr(glm_errcode, cswritep);
                   }
                 }
@@ -6348,7 +6500,6 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
       uint32_t cur_sample_ct;
       uint32_t cur_covar_ct;
       uint32_t cur_constraint_ct;
-      uint32_t primary_pred_idx = include_intercept;
       if (is_y && common->sample_include_y) {
         cur_sample_include = common->sample_include_y;
         cur_sample_include_cumulative_popcounts = common->sample_include_y_cumulative_popcounts;
@@ -6402,9 +6553,6 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
         }
       } else {
         reported_pred_uidx_biallelic_end = cur_biallelic_predictor_ct;
-      }
-      if (cur_constraint_ct) {
-        primary_pred_idx = reported_pred_uidx_biallelic_end - reported_pred_uidx_start;
       }
       // nm_predictors_pmaj_buf may require up to two extra columns omitted
       // from the main regression.
@@ -6508,7 +6656,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
           }
         }
         const uint32_t allele_ct_m2 = allele_ct - 2;
-        const uint32_t cur_predictor_ct = cur_biallelic_predictor_ct + allele_ct_m2;
+        const uint32_t expected_predictor_ct = cur_biallelic_predictor_ct + allele_ct_m2;
         PglErr reterr;
         if (!allele_ct_m2) {
           reterr = PgrGetD(cur_sample_include, pssi, cur_sample_ct, variant_uidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &(pgv.dosage_ct));
@@ -6535,6 +6683,9 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
         if (omitted_alleles) {
           omitted_allele_idx = omitted_alleles[variant_uidx];
         }
+        uintptr_t const_alleles[DivUp(kPglMaxAltAlleleCt + 1, kBitsPerWord)];
+        const uint32_t allele_ctl = DivUp(allele_ct, kBitsPerWord);
+        ZeroWArr(allele_ctl, const_alleles);
         const uint32_t nm_sample_ct = cur_sample_ct - missing_ct;
         const uint32_t nm_sample_ctl = BitCtToWordCt(nm_sample_ct);
         // first predictor column: intercept
@@ -6546,7 +6697,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
         // second predictor column: main genotype
         double* genotype_vals = &(nm_predictors_pmaj_buf[nm_sample_ct]);
         if (main_mutated || main_omitted) {
-          genotype_vals = &(nm_predictors_pmaj_buf[cur_predictor_ct * nm_sample_ct]);
+          genotype_vals = &(nm_predictors_pmaj_buf[expected_predictor_ct * nm_sample_ct]);
         }
         double cur_pheno_ssq = pheno_ssq_base;
         uintptr_t sample_midx_base = 0;
@@ -6556,7 +6707,6 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
           cur_pheno_ssq -= cur_pheno[sample_midx] * cur_pheno[sample_midx];
         }
         uint32_t sparse_optimization = 0;
-        GlmErr glm_err = 0;
         double* multi_start = nullptr;
         if (!allele_ct_m2) {
           // When prev_nm is set and missing_ct is zero, we don't need to call
@@ -6582,9 +6732,6 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
           }
           uint64_t dosage_sum = (genocounts[1] + 2 * genocounts[2]) * 0x4000LLU;
           uint64_t dosage_ssq = (genocounts[1] + 4LLU * genocounts[2]) * 0x10000000LLU;
-          if ((!pgv.dosage_ct) && ((genocounts[0] == nm_sample_ct) || (genocounts[1] == nm_sample_ct) || (genocounts[2] == nm_sample_ct))) {
-            glm_err = SetGlmErr1(kGlmErrcodeConstAllele, 0);
-          }
           if (!missing_ct) {
             // originally had genocounts[0] > 0.875 * nm_sample_ct threshold,
             // but then tried this on high-MAF data and it was still
@@ -6639,27 +6786,41 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
               }
             }
           }
+          // Check for constant genotype column.
+          // (Technically, we should recheck later in the chrX no-sex-covariate
+          // --xchr-model 1 corner case.)
+          if (!pgv.dosage_ct) {
+            if ((genocounts[0] == nm_sample_ct) || (genocounts[1] == nm_sample_ct) || (genocounts[2] == nm_sample_ct)) {
+              const_alleles[0] = 2 >> omitted_allele_idx;
+            }
+          } else if (pgv.dosage_ct == nm_sample_ct) {
+            if (DosageIsConstant(dosage_sum, dosage_ssq, nm_sample_ct)) {
+              const_alleles[0] = 2 >> omitted_allele_idx;
+            }
+          }
           machr2_dosage_sums[1 - omitted_allele_idx] = dosage_sum;
           machr2_dosage_ssqs[1 - omitted_allele_idx] = dosage_ssq;
           machr2_dosage_sums[omitted_allele_idx] = kDosageMax * S_CAST(uint64_t, nm_sample_ct) - dosage_sum;
           machr2_dosage_ssqs[omitted_allele_idx] = kDosageMax * (kDosageMax * S_CAST(uint64_t, nm_sample_ct) - 2 * dosage_sum) + dosage_ssq;
         } else {
           // multiallelic.
-          // We detect, but do not filter out all-zero columns; this way, the
-          // sequence of output lines is predictable.  It's the caller's
-          // responsibility to use trim-alts first when appropriate.
+          // If some but not all alleles have constant dosages, we remove just
+          // those alleles from the regressions; trim-alts is not necessary to
+          // see what's going on with the other alleles.  To reduce parsing
+          // complexity, the number of output lines is not affected by this;
+          // the ones corresponding to the constant alleles have NA values.
           // Punt on sparse_optimization for now; may be worth revisiting after
           // multiallelic dosage implemented.
           // dosage_ct == 0 temporarily guaranteed if we reach here.
           assert(!pgv.dosage_ct);
-          multi_start = &(nm_predictors_pmaj_buf[(cur_predictor_ct - allele_ct_m2) * nm_sample_ct]);
+          multi_start = &(nm_predictors_pmaj_buf[(expected_predictor_ct - allele_ct_m2) * nm_sample_ct]);
           ZeroU64Arr(allele_ct, machr2_dosage_sums);
           ZeroU64Arr(allele_ct, machr2_dosage_ssqs);
           // postpone multiply for now, since no multiallelic dosages
           machr2_dosage_sums[0] = genocounts[1] + 2 * genocounts[0];
           machr2_dosage_ssqs[0] = genocounts[1] + 4LLU * genocounts[0];
           if ((genocounts[0] == nm_sample_ct) || (genocounts[1] == nm_sample_ct) || (genocounts[2] == nm_sample_ct)) {
-            glm_err = SetGlmErr1(kGlmErrcodeConstAllele, 0);
+            SetBit(0, const_alleles);
           }
           if (omitted_allele_idx) {
             // Main genotype column starts as REF.
@@ -6814,16 +6975,15 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
             const uintptr_t two_ct = machr2_dosage_ssqs[allele_idx];
             machr2_dosage_sums[allele_idx] = one_ct + 2 * two_ct;
             machr2_dosage_ssqs[allele_idx] = one_ct + 4LLU * two_ct;
-            if ((!glm_err) && ((one_ct == nm_sample_ct) || (two_ct == nm_sample_ct) || ((!one_ct) && (!two_ct)))) {
-              glm_err = SetGlmErr1(kGlmErrcodeConstAllele, allele_idx);
+            if ((one_ct == nm_sample_ct) || (two_ct == nm_sample_ct) || ((!one_ct) && (!two_ct))) {
+              SetBit(allele_idx, const_alleles);
             }
           }
           const uintptr_t alt1_hom_ct = genocounts[2] - pgv.patch_10_ct;
           machr2_dosage_sums[1] = alt1_het_ct + 2 * alt1_hom_ct;
           machr2_dosage_ssqs[1] = alt1_het_ct + 4LLU * alt1_hom_ct;
-          if ((!glm_err) && ((alt1_het_ct == nm_sample_ct) || (alt1_hom_ct == nm_sample_ct) || ((!alt1_het_ct) && (!alt1_hom_ct)))) {
-            // could make this take precedence over allele_idx > 1
-            glm_err = SetGlmErr1(kGlmErrcodeConstAllele, 1);
+          if ((alt1_het_ct == nm_sample_ct) || (alt1_hom_ct == nm_sample_ct) || ((!alt1_het_ct) && (!alt1_hom_ct))) {
+            SetBit(1, const_alleles);
           }
           for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
             machr2_dosage_sums[allele_idx] *= 0x4000LLU;
@@ -6886,7 +7046,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
             // ugh.
             double* geno_col = genotype_vals;
             if (allele_idx > (!omitted_allele_idx)) {
-              geno_col = &(nm_predictors_pmaj_buf[(cur_predictor_ct - (allele_ct - allele_idx) + (allele_idx < omitted_allele_idx)) * nm_sample_ct]);
+              geno_col = &(nm_predictors_pmaj_buf[(expected_predictor_ct - (allele_ct - allele_idx) + (allele_idx < omitted_allele_idx)) * nm_sample_ct]);
             }
             a1_dosage = 0.0;
             for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
@@ -6918,8 +7078,11 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
         }
         // now free to skip the actual regression if there are too few samples,
         // or there's a zero-variance genotype column
-        if (nm_sample_ct <= cur_predictor_ct) {
+        GlmErr glm_err = 0;
+        if (nm_sample_ct <= expected_predictor_ct) {
           glm_err = SetGlmErr0(kGlmErrcodeSampleCtLtePredictorCt);
+        } else if (IsSet(const_alleles, omitted_allele_idx)) {
+          glm_err = SetGlmErr0(kGlmErrcodeConstOmittedAllele);
         }
         if (glm_err) {
           if (missing_ct) {
@@ -6928,14 +7091,17 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
             // reason to optimize the zero-covariate case).
             prev_nm = 0;
           }
+          const uint32_t biallelic_reported_ct = reported_pred_uidx_biallelic_end + (cur_constraint_ct != 0) - reported_pred_uidx_start;
           for (uint32_t extra_regression_idx = 0; extra_regression_idx <= extra_regression_ct; ++extra_regression_idx) {
-            memcpy(&(beta_se_iter[primary_pred_idx * 2]), &glm_err, 8);
-            beta_se_iter[primary_pred_idx * 2 + 1] = -9;
+            for (uint32_t uii = 0; uii != biallelic_reported_ct; ++uii) {
+              memcpy(&(beta_se_iter[uii * 2]), &glm_err, 8);
+              beta_se_iter[uii * 2 + 1] = -9.0;
+            }
             if (allele_ct_m2) {
-              const uint32_t offset = 2 * (reported_pred_uidx_biallelic_end + (cur_constraint_ct != 0) - reported_pred_uidx_start);
+              const uint32_t offset = 2 * biallelic_reported_ct;
               for (uint32_t extra_allele_idx = 0; extra_allele_idx != allele_ct_m2; ++extra_allele_idx) {
                 memcpy(&(beta_se_iter[extra_allele_idx * 2 + offset]), &glm_err, 8);
-                beta_se_iter[extra_allele_idx * 2 + offset + 1] = -9;
+                beta_se_iter[extra_allele_idx * 2 + offset + 1] = -9.0;
               }
             }
             beta_se_iter = &(beta_se_iter[2 * max_reported_test_ct]);
@@ -6985,7 +7151,51 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
               nm_predictors_pmaj_istart = &(nm_predictors_pmaj_iter[literal_covar_ct * nm_sample_ct]);
             }
           }
-          for (uint32_t extra_regression_idx = 0; ; ++extra_regression_idx) {
+          const uint32_t const_allele_ct = PopcountWords(const_alleles, allele_ctl);
+          if (const_allele_ct) {
+            // Must delete constant-allele columns from nm_predictors_pmaj, and
+            // shift later columns back.
+            double* read_iter = genotype_vals;
+            double* write_iter = genotype_vals;
+            for (uint32_t read_allele_idx = 0; read_allele_idx != allele_ct; ++read_allele_idx) {
+              if (read_allele_idx == omitted_allele_idx) {
+                continue;
+              }
+              if (!IsSet(const_alleles, read_allele_idx)) {
+                if (write_iter != read_iter) {
+                  memcpy(write_iter, read_iter, nm_sample_ct * sizeof(double));
+                }
+                if (write_iter == genotype_vals) {
+                  write_iter = multi_start;
+                } else {
+                  write_iter = &(write_iter[nm_sample_ct]);
+                }
+              }
+              if (read_iter == genotype_vals) {
+                read_iter = multi_start;
+              } else {
+                read_iter = &(read_iter[nm_sample_ct]);
+              }
+            }
+          }
+          const uint32_t cur_predictor_ct = expected_predictor_ct - const_allele_ct;
+          uint32_t nonconst_extra_regression_idx = UINT32_MAX;  // deliberate overflow
+          for (uint32_t extra_regression_idx = 0; extra_regression_idx <= extra_regression_ct; ++extra_regression_idx) {
+            if (extra_regression_ct) {
+              if (IsSet(const_alleles, extra_regression_idx + (extra_regression_idx >= omitted_allele_idx))) {
+                glm_err = SetGlmErr0(kGlmErrcodeConstAllele);
+                goto GlmLinearThread_skip_regression;
+              }
+              ++nonconst_extra_regression_idx;
+              if (nonconst_extra_regression_idx) {
+                double* swap_target = &(multi_start[(nonconst_extra_regression_idx - 1) * nm_sample_ct]);
+                for (uint32_t uii = 0; uii != nm_sample_ct; ++uii) {
+                  double dxx = genotype_vals[uii];
+                  genotype_vals[uii] = swap_target[uii];
+                  swap_target[uii] = dxx;
+                }
+              }
+            }
             if (!sparse_optimization) {
               double* main_vals = &(nm_predictors_pmaj_buf[nm_sample_ct]);
               double* domdev_vals = nullptr;
@@ -7137,14 +7347,14 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
               }
               glm_err = CheckMaxCorrAndVifNm(xtx_inv, corr_inv, cur_predictor_ct, domdev_present_p1, cur_sample_ct_recip, cur_sample_ct_m1_recip, max_corr, vif_thresh, semicomputed_biallelic_corr_matrix, semicomputed_biallelic_inv_corr_sqrts, dbl_2d_buf, &(dbl_2d_buf[2 * cur_predictor_ct]), &(dbl_2d_buf[3 * cur_predictor_ct]));
               if (glm_err) {
-                goto GlmLinearThread_skip_allele;
+                goto GlmLinearThread_skip_regression;
               }
               const double geno_ssq = xtx_inv[1 + cur_predictor_ct];
               if (!domdev_present) {
                 xtx_inv[1 + cur_predictor_ct] = xtx_inv[cur_predictor_ct];
                 if (InvertRank1Symm(covarx_dotprod_inv, &(xtx_inv[1 + cur_predictor_ct]), cur_predictor_ct - 1, 1, geno_ssq, dbl_2d_buf, inverse_corr_buf)) {
                   glm_err = SetGlmErr0(kGlmErrcodeRankDeficient);
-                  goto GlmLinearThread_skip_allele;
+                  goto GlmLinearThread_skip_regression;
                 }
               } else {
                 const double domdev_geno_prod = xtx_inv[2 + cur_predictor_ct];
@@ -7153,7 +7363,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
                 xtx_inv[2 + 2 * cur_predictor_ct] = xtx_inv[2 * cur_predictor_ct];
                 if (InvertRank2Symm(covarx_dotprod_inv, &(xtx_inv[2 + cur_predictor_ct]), cur_predictor_ct - 2, cur_predictor_ct, 1, geno_ssq, domdev_geno_prod, domdev_ssq, dbl_2d_buf, inverse_corr_buf, &(inverse_corr_buf[2 * (cur_predictor_ct - 2)]))) {
                   glm_err = SetGlmErr0(kGlmErrcodeRankDeficient);
-                  goto GlmLinearThread_skip_allele;
+                  goto GlmLinearThread_skip_regression;
                 }
               }
               // need to make sure xtx_inv remains reflected in NOLAPACK case
@@ -7171,11 +7381,11 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
               }
               glm_err = CheckMaxCorrAndVif(xtx_inv, 1, cur_predictor_ct, nm_sample_ct, max_corr, vif_thresh, dbl_2d_buf, nullptr, inverse_corr_buf, inv_1d_buf);
               if (glm_err) {
-                goto GlmLinearThread_skip_allele;
+                goto GlmLinearThread_skip_regression;
               }
               if (LinearRegressionInv(nm_pheno_buf, nm_predictors_pmaj_buf, cur_predictor_ct, nm_sample_ct, 1, xtx_inv, fitted_coefs, xt_y, inv_1d_buf, dbl_2d_buf)) {
                 glm_err = SetGlmErr0(kGlmErrcodeRankDeficient);
-                goto GlmLinearThread_skip_allele;
+                goto GlmLinearThread_skip_regression;
               }
             }
             {
@@ -7202,7 +7412,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
                 const double xtx_inv_diag_element = xtx_inv[pred_uidx * (cur_predictor_ct + 1)];
                 if (xtx_inv_diag_element < 1e-20) {
                   glm_err = SetGlmErr0(kGlmErrcodeInvalidResult);
-                  goto GlmLinearThread_skip_allele;
+                  goto GlmLinearThread_skip_regression;
                 }
                 // use dbl_2d_buf[] to store diagonal square roots
                 dbl_2d_buf[pred_uidx] = sqrt(xtx_inv_diag_element);
@@ -7214,12 +7424,16 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
                 for (uint32_t pred_uidx2 = 0; pred_uidx2 != pred_uidx; ++pred_uidx2) {
                   if (xtx_inv_row[pred_uidx2] > cur_xtx_inv_diag_sqrt * dbl_2d_buf[pred_uidx2]) {
                     glm_err = SetGlmErr0(kGlmErrcodeInvalidResult);
-                    goto GlmLinearThread_skip_allele;
+                    goto GlmLinearThread_skip_regression;
                   }
                 }
               }
               double* beta_se_iter2 = beta_se_iter;
               for (uint32_t pred_uidx = reported_pred_uidx_start; pred_uidx != reported_pred_uidx_biallelic_end; ++pred_uidx) {
+                // In the multiallelic-fused case, if the first allele is
+                // constant, this writes the beta/se values for the first
+                // nonconstant, non-omitted allele where the results for the
+                // first allele belong.  We correct that below.
                 *beta_se_iter2++ = fitted_coefs[pred_uidx];
                 *beta_se_iter2++ = dbl_2d_buf[pred_uidx];
               }
@@ -7230,11 +7444,72 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
                 ++beta_se_iter2;
                 *beta_se_iter2++ = -9.0;
               }
-              for (uint32_t extra_allele_idx = 0; extra_allele_idx != allele_ct_m2; ++extra_allele_idx) {
-                // possible todo: in hide-covar + domdev/tests/interactions
-                // case, don't need to save these
-                beta_se_iter2[2 * extra_allele_idx] = S_CAST(double, fitted_coefs[cur_biallelic_predictor_ct + extra_allele_idx]);
-                beta_se_iter2[2 * extra_allele_idx + 1] = S_CAST(double, dbl_2d_buf[cur_biallelic_predictor_ct + extra_allele_idx]);
+              if (!const_allele_ct) {
+                for (uint32_t extra_allele_idx = 0; extra_allele_idx != allele_ct_m2; ++extra_allele_idx) {
+                  // possible todo: in hide-covar + domdev/tests/interactions
+                  // case, don't need to save these
+                  beta_se_iter2[2 * extra_allele_idx] = fitted_coefs[cur_biallelic_predictor_ct + extra_allele_idx];
+                  beta_se_iter2[2 * extra_allele_idx + 1] = dbl_2d_buf[cur_biallelic_predictor_ct + extra_allele_idx];
+                }
+              } else if (!beta_se_multiallelic_fused) {
+                // Need to insert some {CONST_ALLELE, -9} entries.
+                const GlmErr glm_err2 = SetGlmErr0(kGlmErrcodeConstAllele);
+                const uint32_t cur_raw_allele_idx = extra_regression_idx + (extra_regression_idx >= omitted_allele_idx);
+                uint32_t extra_read_allele_idx = 0;
+                uint32_t extra_write_allele_idx = 0;
+                for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
+                  if ((allele_idx == omitted_allele_idx) || (allele_idx == cur_raw_allele_idx)) {
+                    continue;
+                  }
+                  if (IsSet(const_alleles, allele_idx)) {
+                    memcpy(&(beta_se_iter2[2 * extra_write_allele_idx]), &glm_err2, 8);
+                    beta_se_iter2[2 * extra_write_allele_idx + 1] = -9.0;
+                  } else {
+                    beta_se_iter2[2 * extra_write_allele_idx] = fitted_coefs[cur_biallelic_predictor_ct + extra_read_allele_idx];
+                    beta_se_iter2[2 * extra_write_allele_idx + 1] = dbl_2d_buf[cur_biallelic_predictor_ct + extra_read_allele_idx];
+                    ++extra_read_allele_idx;
+                  }
+                  ++extra_write_allele_idx;
+                }
+              } else {
+                const GlmErr glm_err2 = SetGlmErr0(kGlmErrcodeConstAllele);
+                // Special-case first nonconst allele since it's positioned
+                // discontinuously, and its BETA/SE may already be correctly
+                // filled.
+                uint32_t allele_idx = omitted_allele_idx? 0 : 1;
+                uint32_t extra_write_allele_idx = 0;
+                if (IsSet(const_alleles, allele_idx)) {
+                  memcpy(&(beta_se_iter[2 * include_intercept]), &glm_err2, 8);
+                  beta_se_iter[2 * include_intercept + 1] = -9.0;
+                  allele_idx = AdvTo0Bit(const_alleles, 1);
+                  if (allele_idx == omitted_allele_idx) {
+                    allele_idx = AdvTo0Bit(const_alleles, omitted_allele_idx + 1);
+                  }
+                  extra_write_allele_idx = allele_idx - 1 - (allele_idx > omitted_allele_idx);
+                  for (uint32_t uii = 0; uii != extra_write_allele_idx; ++uii) {
+                    memcpy(&(beta_se_iter2[2 * uii]), &glm_err2, 8);
+                    beta_se_iter2[2 * uii + 1] = -9.0;
+                  }
+                  beta_se_iter2[2 * extra_write_allele_idx] = fitted_coefs[1];
+                  beta_se_iter2[2 * extra_write_allele_idx + 1] = dbl_2d_buf[1];
+                  ++extra_write_allele_idx;
+                }
+                ++allele_idx;
+                uint32_t nonconst_allele_idx_m1 = 0;
+                for (; allele_idx != allele_ct; ++allele_idx) {
+                  if (allele_idx == omitted_allele_idx) {
+                    continue;
+                  }
+                  if (!IsSet(const_alleles, allele_idx)) {
+                    beta_se_iter2[2 * extra_write_allele_idx] = fitted_coefs[cur_biallelic_predictor_ct + nonconst_allele_idx_m1];
+                    beta_se_iter2[2 * extra_write_allele_idx + 1] = dbl_2d_buf[cur_biallelic_predictor_ct + nonconst_allele_idx_m1];
+                    ++nonconst_allele_idx_m1;
+                  } else {
+                    memcpy(&(beta_se_iter2[2 * extra_write_allele_idx]), &glm_err2, 8);
+                    beta_se_iter2[2 * extra_write_allele_idx + 1] = -9.0;
+                  }
+                  ++extra_write_allele_idx;
+                }
               }
               if (cur_constraint_ct) {
                 uint32_t joint_test_idx = AdvTo1Bit(cur_joint_test_params, 0);
@@ -7259,28 +7534,24 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
               }
             }
             while (0) {
-            GlmLinearThread_skip_allele:
-              memcpy(&(beta_se_iter[primary_pred_idx * 2]), &glm_err, 8);
-              beta_se_iter[primary_pred_idx * 2 + 1] = -9;
-              if (allele_ct_m2) {
-                const uint32_t offset = 2 * (reported_pred_uidx_biallelic_end + (cur_constraint_ct != 0) - reported_pred_uidx_start);
-                assert((offset / 2) + allele_ct_m2 <= max_reported_test_ct);
-                for (uint32_t extra_allele_idx = 0; extra_allele_idx != allele_ct_m2; ++extra_allele_idx) {
-                  memcpy(&(beta_se_iter[extra_allele_idx * 2 + offset]), &glm_err, 8);
-                  beta_se_iter[extra_allele_idx * 2 + offset + 1] = -9;
+            GlmLinearThread_skip_regression:
+              {
+                const uint32_t biallelic_reported_ct = reported_pred_uidx_biallelic_end + (cur_constraint_ct != 0) - reported_pred_uidx_start;
+                for (uint32_t uii = 0; uii != biallelic_reported_ct; ++uii) {
+                  memcpy(&(beta_se_iter[uii * 2]), &glm_err, 8);
+                  beta_se_iter[uii * 2 + 1] = -9.0;
+                }
+                if (allele_ct_m2) {
+                  const uint32_t offset = 2 * biallelic_reported_ct;
+                  assert((offset / 2) + allele_ct_m2 <= max_reported_test_ct);
+                  for (uint32_t extra_allele_idx = 0; extra_allele_idx != allele_ct_m2; ++extra_allele_idx) {
+                    memcpy(&(beta_se_iter[extra_allele_idx * 2 + offset]), &glm_err, 8);
+                    beta_se_iter[extra_allele_idx * 2 + offset + 1] = -9.0;
+                  }
                 }
               }
             }
             beta_se_iter = &(beta_se_iter[2 * max_reported_test_ct]);
-            if (extra_regression_idx == extra_regression_ct) {
-              break;
-            }
-            double* swap_target = &(multi_start[extra_regression_idx * nm_sample_ct]);
-            for (uint32_t uii = 0; uii != nm_sample_ct; ++uii) {
-              double dxx = genotype_vals[uii];
-              genotype_vals[uii] = swap_target[uii];
-              swap_target[uii] = dxx;
-            }
           }
         }
         // bugfix (1 Apr 2019): this needs to execute when regression is
@@ -7770,7 +8041,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
             }
             const double primary_beta = beta_se_iter[primary_reported_test_idx * 2];
             const double primary_se = beta_se_iter[primary_reported_test_idx * 2 + 1];
-            const uint32_t allele_is_valid = (primary_se != -9);
+            const uint32_t allele_is_valid = (primary_se != -9.0);
             variant_is_valid |= allele_is_valid;
             {
               const LinearAuxResult* auxp = &(cur_block_aux[allele_bidx]);
@@ -7946,16 +8217,18 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                 }
                 double ln_pval = kLnPvalError;
                 double tstat = 0.0;
+                uint32_t test_is_valid;
                 if ((!cur_constraint_ct) || (test_idx != primary_reported_test_idx)) {
                   double beta = beta_se_iter[2 * test_idx];
                   double se = beta_se_iter[2 * test_idx + 1];
-                  if (allele_is_valid) {
+                  test_is_valid = (se != -9.0);
+                  if (test_is_valid) {
                     tstat = beta / se;
                     ln_pval = TstatToLnP(tstat, auxp->sample_obs_ct - cur_biallelic_predictor_ct - extra_allele_ct);
                   }
                   if (beta_col) {
                     *cswritep++ = '\t';
-                    if (allele_is_valid) {
+                    if (test_is_valid) {
                       cswritep = dtoa_g(beta, cswritep);
                     } else {
                       cswritep = strcpya_k(cswritep, "NA");
@@ -7963,7 +8236,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                   }
                   if (se_col) {
                     *cswritep++ = '\t';
-                    if (allele_is_valid) {
+                    if (test_is_valid) {
                       cswritep = dtoa_g(se, cswritep);
                     } else {
                       cswritep = strcpya_k(cswritep, "NA");
@@ -7971,7 +8244,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                   }
                   if (ci_col) {
                     *cswritep++ = '\t';
-                    if (allele_is_valid) {
+                    if (test_is_valid) {
                       const double ci_halfwidth = ci_zt * se;
                       cswritep = dtoa_g(beta - ci_halfwidth, cswritep);
                       *cswritep++ = '\t';
@@ -7982,7 +8255,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                   }
                   if (t_col) {
                     *cswritep++ = '\t';
-                    if (allele_is_valid) {
+                    if (test_is_valid) {
                       cswritep = dtoa_g(tstat, cswritep);
                     } else {
                       cswritep = strcpya_k(cswritep, "NA");
@@ -7990,6 +8263,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                   }
                 } else {
                   // joint test
+                  test_is_valid = allele_is_valid;
                   if (beta_col) {
                     cswritep = strcpya_k(cswritep, "\tNA");
                   }
@@ -8001,20 +8275,20 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                   }
                   if (t_col) {
                     *cswritep++ = '\t';
-                    if (allele_is_valid) {
+                    if (test_is_valid) {
                       cswritep = dtoa_g(primary_se / u31tod(cur_constraint_ct), cswritep);
                     } else {
                       cswritep = strcpya_k(cswritep, "NA");
                     }
                   }
                   // could avoid recomputing
-                  if (allele_is_valid) {
+                  if (test_is_valid) {
                     ln_pval = FstatToLnP(primary_se / u31tod(cur_constraint_ct), cur_constraint_ct, auxp->sample_obs_ct);
                   }
                 }
                 if (p_col) {
                   *cswritep++ = '\t';
-                  if (allele_is_valid) {
+                  if (test_is_valid) {
                     if (report_neglog10p) {
                       const double reported_val = (-kRecipLn10) * ln_pval;
                       cswritep = dtoa_g(reported_val, cswritep);
@@ -8028,11 +8302,11 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
                 }
                 if (err_col) {
                   *cswritep++ = '\t';
-                  if (allele_is_valid) {
+                  if (test_is_valid) {
                     *cswritep++ = '.';
                   } else {
                     uint64_t glm_errcode;
-                    memcpy(&glm_errcode, &(beta_se_iter[2 * primary_reported_test_idx]), 8);
+                    memcpy(&glm_errcode, &(beta_se_iter[2 * test_idx]), 8);
                     cswritep = AppendGlmErrstr(glm_errcode, cswritep);
                   }
                 }
@@ -8295,7 +8569,6 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
       uint32_t cur_sample_ct;
       uint32_t cur_covar_ct;
       uint32_t cur_constraint_ct;
-      uint32_t primary_pred_idx = include_intercept;
       if (is_y && common->sample_include_y) {
         cur_sample_include = common->sample_include_y;
         cur_sample_include_cumulative_popcounts = common->sample_include_y_cumulative_popcounts;
@@ -8349,9 +8622,6 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
         }
       } else {
         reported_pred_uidx_biallelic_end = cur_biallelic_predictor_ct;
-      }
-      if (cur_constraint_ct) {
-        primary_pred_idx = reported_pred_uidx_biallelic_end - reported_pred_uidx_start;
       }
       // nm_predictors_pmaj_buf may require up to two extra columns omitted
       // from the main regression.
@@ -8462,7 +8732,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
           }
         }
         const uint32_t allele_ct_m2 = allele_ct - 2;
-        const uint32_t cur_predictor_ct = cur_biallelic_predictor_ct + allele_ct_m2;
+        const uint32_t expected_predictor_ct = cur_biallelic_predictor_ct + allele_ct_m2;
         PglErr reterr;
         if (!allele_ct_m2) {
           reterr = PgrGetD(cur_sample_include, pssi, cur_sample_ct, variant_uidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &(pgv.dosage_ct));
@@ -8489,6 +8759,9 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
         if (omitted_alleles) {
           omitted_allele_idx = omitted_alleles[variant_uidx];
         }
+        uintptr_t const_alleles[DivUp(kPglMaxAltAlleleCt + 1, kBitsPerWord)];
+        const uint32_t allele_ctl = DivUp(allele_ct, kBitsPerWord);
+        ZeroWArr(allele_ctl, const_alleles);
         const uint32_t nm_sample_ct = cur_sample_ct - missing_ct;
         const uint32_t nm_sample_ctl = BitCtToWordCt(nm_sample_ct);
         // first predictor column: intercept
@@ -8500,10 +8773,9 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
         // second predictor column: main genotype
         double* genotype_vals = &(nm_predictors_pmaj_buf[nm_sample_ct]);
         if (main_mutated || main_omitted) {
-          genotype_vals = &(nm_predictors_pmaj_buf[cur_predictor_ct * nm_sample_ct]);
+          genotype_vals = &(nm_predictors_pmaj_buf[expected_predictor_ct * nm_sample_ct]);
         }
         uint32_t sparse_optimization = 0;
-        GlmErr glm_err = 0;
         double* multi_start = nullptr;
         if (!allele_ct_m2) {
           // When prev_nm is set and missing_ct is zero, we don't need to call
@@ -8529,9 +8801,6 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
           }
           uint64_t dosage_sum = (genocounts[1] + 2 * genocounts[2]) * 0x4000LLU;
           uint64_t dosage_ssq = (genocounts[1] + 4LLU * genocounts[2]) * 0x10000000LLU;
-          if ((!pgv.dosage_ct) && ((genocounts[0] == nm_sample_ct) || (genocounts[1] == nm_sample_ct) || (genocounts[2] == nm_sample_ct))) {
-            glm_err = SetGlmErr1(kGlmErrcodeConstAllele, 0);
-          }
           if (!missing_ct) {
             // originally had genocounts[0] > 0.875 * nm_sample_ct threshold,
             // but then tried this on high-MAF data and it was still
@@ -8586,27 +8855,41 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
               }
             }
           }
+          // Check for constant genotype column.
+          // (Technically, we should recheck later in the chrX no-sex-covariate
+          // --xchr-model 1 corner case.)
+          if (!pgv.dosage_ct) {
+            if ((genocounts[0] == nm_sample_ct) || (genocounts[1] == nm_sample_ct) || (genocounts[2] == nm_sample_ct)) {
+              const_alleles[0] = 2 >> omitted_allele_idx;
+            }
+          } else if (pgv.dosage_ct == nm_sample_ct) {
+            if (DosageIsConstant(dosage_sum, dosage_ssq, nm_sample_ct)) {
+              const_alleles[0] = 2 >> omitted_allele_idx;
+            }
+          }
           machr2_dosage_sums[1 - omitted_allele_idx] = dosage_sum;
           machr2_dosage_ssqs[1 - omitted_allele_idx] = dosage_ssq;
           machr2_dosage_sums[omitted_allele_idx] = kDosageMax * S_CAST(uint64_t, nm_sample_ct) - dosage_sum;
           machr2_dosage_ssqs[omitted_allele_idx] = kDosageMax * (kDosageMax * S_CAST(uint64_t, nm_sample_ct) - 2 * dosage_sum) + dosage_ssq;
         } else {
           // multiallelic.
-          // We detect, but do not filter out all-zero columns; this way, the
-          // sequence of output lines is predictable.  It's the caller's
-          // responsibility to use trim-alts first when appropriate.
+          // If some but not all alleles have constant dosages, we remove just
+          // those alleles from the regressions; trim-alts is not necessary to
+          // see what's going on with the other alleles.  To reduce parsing
+          // complexity, the number of output lines is not affected by this;
+          // the ones corresponding to the constant alleles have NA values.
           // Punt on sparse_optimization for now; may be worth revisiting after
           // multiallelic dosage implemented.
           // dosage_ct == 0 temporarily guaranteed if we reach here.
           assert(!pgv.dosage_ct);
-          multi_start = &(nm_predictors_pmaj_buf[(cur_predictor_ct - allele_ct_m2) * nm_sample_ct]);
+          multi_start = &(nm_predictors_pmaj_buf[(expected_predictor_ct - allele_ct_m2) * nm_sample_ct]);
           ZeroU64Arr(allele_ct, machr2_dosage_sums);
           ZeroU64Arr(allele_ct, machr2_dosage_ssqs);
           // postpone multiply for now, since no multiallelic dosages
           machr2_dosage_sums[0] = genocounts[1] + 2 * genocounts[0];
           machr2_dosage_ssqs[0] = genocounts[1] + 4LLU * genocounts[0];
           if ((genocounts[0] == nm_sample_ct) || (genocounts[1] == nm_sample_ct) || (genocounts[2] == nm_sample_ct)) {
-            glm_err = SetGlmErr1(kGlmErrcodeConstAllele, 0);
+            SetBit(0, const_alleles);
           }
           if (omitted_allele_idx) {
             // Main genotype column starts as REF.
@@ -8761,15 +9044,15 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
             const uintptr_t two_ct = machr2_dosage_ssqs[allele_idx];
             machr2_dosage_sums[allele_idx] = one_ct + 2 * two_ct;
             machr2_dosage_ssqs[allele_idx] = one_ct + 4LLU * two_ct;
-            if ((!glm_err) && ((one_ct == nm_sample_ct) || (two_ct == nm_sample_ct) || ((!one_ct) && (!two_ct)))) {
-              glm_err = SetGlmErr1(kGlmErrcodeConstAllele, allele_idx);
+            if ((one_ct == nm_sample_ct) || (two_ct == nm_sample_ct) || ((!one_ct) && (!two_ct))) {
+              SetBit(allele_idx, const_alleles);
             }
           }
           const uintptr_t alt1_hom_ct = genocounts[2] - pgv.patch_10_ct;
           machr2_dosage_sums[1] = alt1_het_ct + 2 * alt1_hom_ct;
           machr2_dosage_ssqs[1] = alt1_het_ct + 4LLU * alt1_hom_ct;
-          if ((!glm_err) && ((alt1_het_ct == nm_sample_ct) || (alt1_hom_ct == nm_sample_ct) || ((!alt1_het_ct) && (!alt1_hom_ct)))) {
-            glm_err = SetGlmErr1(kGlmErrcodeConstAllele, 1);
+          if ((alt1_het_ct == nm_sample_ct) || (alt1_hom_ct == nm_sample_ct) || ((!alt1_het_ct) && (!alt1_hom_ct))) {
+            SetBit(1, const_alleles);
           }
           for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
             machr2_dosage_sums[allele_idx] *= 0x4000LLU;
@@ -8832,7 +9115,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
             // ugh.
             double* geno_col = genotype_vals;
             if (allele_idx > (!omitted_allele_idx)) {
-              geno_col = &(nm_predictors_pmaj_buf[(cur_predictor_ct - (allele_ct - allele_idx) + (allele_idx < omitted_allele_idx)) * nm_sample_ct]);
+              geno_col = &(nm_predictors_pmaj_buf[(expected_predictor_ct - (allele_ct - allele_idx) + (allele_idx < omitted_allele_idx)) * nm_sample_ct]);
             }
             a1_dosage = 0.0;
             for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
@@ -8864,8 +9147,11 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
         }
         // now free to skip the actual regression if there are too few samples,
         // or there's a zero-variance genotype column
-        if (nm_sample_ct <= cur_predictor_ct) {
+        GlmErr glm_err = 0;
+        if (nm_sample_ct <= expected_predictor_ct) {
           glm_err = SetGlmErr0(kGlmErrcodeSampleCtLtePredictorCt);
+        } else if (IsSet(const_alleles, omitted_allele_idx)) {
+          glm_err = SetGlmErr0(kGlmErrcodeConstOmittedAllele);
         }
         if (glm_err) {
           if (missing_ct) {
@@ -8874,19 +9160,14 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
             // reason to optimize the zero-covariate case).
             prev_nm = 0;
           }
-          for (uint32_t pheno_idx = 0; pheno_idx != subbatch_size; ++pheno_idx) {
-            for (uint32_t extra_regression_idx = 0; extra_regression_idx <= extra_regression_ct; ++extra_regression_idx) {
-              memcpy(&(beta_se_iter[primary_pred_idx * 2]), &glm_err, 8);
-              beta_se_iter[primary_pred_idx * 2 + 1] = -9;
-              if (allele_ct_m2) {
-                const uint32_t offset = 2 * (reported_pred_uidx_biallelic_end + (cur_constraint_ct != 0) - reported_pred_uidx_start);
-                for (uint32_t extra_allele_idx = 0; extra_allele_idx != allele_ct_m2; ++extra_allele_idx) {
-                  memcpy(&(beta_se_iter[extra_allele_idx * 2 + offset]), &glm_err, 8);
-                  beta_se_iter[extra_allele_idx * 2 + offset + 1] = -9;
-                }
-              }
-              beta_se_iter = &(beta_se_iter[2 * max_reported_test_ct]);
+          const uint32_t reported_ct = reported_pred_uidx_biallelic_end + (cur_constraint_ct != 0) - reported_pred_uidx_start + allele_ct_m2;
+          const uintptr_t result_row_ct = (extra_regression_ct + 1) * subbatch_size;
+          for (uintptr_t ulii = 0; ulii != result_row_ct; ++ulii) {
+            for (uint32_t uii = 0; uii != reported_ct; ++uii) {
+              memcpy(&(beta_se_iter[uii * 2]), &glm_err, 8);
+              beta_se_iter[uii * 2 + 1] = -9.0;
             }
+            beta_se_iter = &(beta_se_iter[2 * max_reported_test_ct]);
           }
         } else {
           uint32_t parameter_uidx = 2 + domdev_present;
@@ -8937,7 +9218,51 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
               nm_predictors_pmaj_istart = &(nm_predictors_pmaj_iter[literal_covar_ct * nm_sample_ct]);
             }
           }
-          for (uint32_t extra_regression_idx = 0; ; ++extra_regression_idx) {
+          const uint32_t const_allele_ct = PopcountWords(const_alleles, allele_ctl);
+          if (const_allele_ct) {
+            // Must delete constant-allele columns from nm_predictors_pmaj, and
+            // shift later columns back.
+            double* read_iter = genotype_vals;
+            double* write_iter = genotype_vals;
+            for (uint32_t read_allele_idx = 0; read_allele_idx != allele_ct; ++read_allele_idx) {
+              if (read_allele_idx == omitted_allele_idx) {
+                continue;
+              }
+              if (!IsSet(const_alleles, read_allele_idx)) {
+                if (write_iter != read_iter) {
+                  memcpy(write_iter, read_iter, nm_sample_ct * sizeof(double));
+                }
+                if (write_iter == genotype_vals) {
+                  write_iter = multi_start;
+                } else {
+                  write_iter = &(write_iter[nm_sample_ct]);
+                }
+              }
+              if (read_iter == genotype_vals) {
+                read_iter = multi_start;
+              } else {
+                read_iter = &(read_iter[nm_sample_ct]);
+              }
+            }
+          }
+          const uint32_t cur_predictor_ct = expected_predictor_ct - const_allele_ct;
+          uint32_t nonconst_extra_regression_idx = UINT32_MAX;  // deliberate overflow
+          for (uint32_t extra_regression_idx = 0; extra_regression_idx <= extra_regression_ct; ++extra_regression_idx) {
+            if (extra_regression_ct) {
+              if (IsSet(const_alleles, extra_regression_idx + (extra_regression_idx >= omitted_allele_idx))) {
+                glm_err = SetGlmErr0(kGlmErrcodeConstAllele);
+                goto GlmLinearSubbatchThread_skip_regression;
+              }
+              ++nonconst_extra_regression_idx;
+              if (nonconst_extra_regression_idx) {
+                double* swap_target = &(multi_start[(nonconst_extra_regression_idx - 1) * nm_sample_ct]);
+                for (uint32_t uii = 0; uii != nm_sample_ct; ++uii) {
+                  double dxx = genotype_vals[uii];
+                  genotype_vals[uii] = swap_target[uii];
+                  swap_target[uii] = dxx;
+                }
+              }
+            }
             if (!sparse_optimization) {
               double* main_vals = &(nm_predictors_pmaj_buf[nm_sample_ct]);
               double* domdev_vals = nullptr;
@@ -9102,14 +9427,14 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
               }
               glm_err = CheckMaxCorrAndVifNm(xtx_inv, corr_inv, cur_predictor_ct, domdev_present_p1, cur_sample_ct_recip, cur_sample_ct_m1_recip, max_corr, vif_thresh, semicomputed_biallelic_corr_matrix, semicomputed_biallelic_inv_corr_sqrts, dbl_2d_buf, &(dbl_2d_buf[2 * cur_predictor_ct]), &(dbl_2d_buf[3 * cur_predictor_ct]));
               if (glm_err) {
-                goto GlmLinearSubbatchThread_skip_allele;
+                goto GlmLinearSubbatchThread_skip_regression;
               }
               const double geno_ssq = xtx_inv[1 + cur_predictor_ct];
               if (!domdev_present) {
                 xtx_inv[1 + cur_predictor_ct] = xtx_inv[cur_predictor_ct];
                 if (InvertRank1Symm(covarx_dotprod_inv, &(xtx_inv[1 + cur_predictor_ct]), cur_predictor_ct - 1, 1, geno_ssq, dbl_2d_buf, inverse_corr_buf)) {
                   glm_err = SetGlmErr0(kGlmErrcodeRankDeficient);
-                  goto GlmLinearSubbatchThread_skip_allele;
+                  goto GlmLinearSubbatchThread_skip_regression;
                 }
               } else {
                 const double domdev_geno_prod = xtx_inv[2 + cur_predictor_ct];
@@ -9118,7 +9443,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
                 xtx_inv[2 + 2 * cur_predictor_ct] = xtx_inv[2 * cur_predictor_ct];
                 if (InvertRank2Symm(covarx_dotprod_inv, &(xtx_inv[2 + cur_predictor_ct]), cur_predictor_ct - 2, cur_predictor_ct, 1, geno_ssq, domdev_geno_prod, domdev_ssq, dbl_2d_buf, inverse_corr_buf, &(inverse_corr_buf[2 * (cur_predictor_ct - 2)]))) {
                   glm_err = SetGlmErr0(kGlmErrcodeRankDeficient);
-                  goto GlmLinearSubbatchThread_skip_allele;
+                  goto GlmLinearSubbatchThread_skip_regression;
                 }
               }
               // need to make sure xtx_inv remains reflected in NOLAPACK case
@@ -9136,11 +9461,11 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
               }
               glm_err = CheckMaxCorrAndVif(xtx_inv, 1, cur_predictor_ct, nm_sample_ct, max_corr, vif_thresh, dbl_2d_buf, nullptr, inverse_corr_buf, inv_1d_buf);
               if (glm_err) {
-                goto GlmLinearSubbatchThread_skip_allele;
+                goto GlmLinearSubbatchThread_skip_regression;
               }
               if (LinearRegressionInv(nm_pheno_buf, nm_predictors_pmaj_buf, cur_predictor_ct, nm_sample_ct, subbatch_size, xtx_inv, fitted_coefs, xt_y, inv_1d_buf, dbl_2d_buf)) {
                 glm_err = SetGlmErr0(kGlmErrcodeRankDeficient);
-                goto GlmLinearSubbatchThread_skip_allele;
+                goto GlmLinearSubbatchThread_skip_regression;
               }
             }
             // RSS = y^T y - y^T X (X^T X)^{-1} X^T y
@@ -9181,7 +9506,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
                   const double xtx_inv2_diag_element = xtx_inv2[pred_uidx * (cur_predictor_ct + 1)];
                   if (xtx_inv2_diag_element < 1e-20) {
                     glm_err = SetGlmErr0(kGlmErrcodeInvalidResult);
-                    goto GlmLinearSubbatchThread_skip_allele_for_one_pheno;
+                    goto GlmLinearSubbatchThread_skip_regression_for_one_pheno;
                   }
                   // use dbl_2d_buf[] to store diagonal square roots
                   dbl_2d_buf[pred_uidx] = sqrt(xtx_inv2_diag_element);
@@ -9193,12 +9518,16 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
                   for (uint32_t pred_uidx2 = 0; pred_uidx2 != pred_uidx; ++pred_uidx2) {
                     if (xtx_inv2_row[pred_uidx2] > cur_xtx_inv2_diag_sqrt * dbl_2d_buf[pred_uidx2]) {
                       glm_err = SetGlmErr0(kGlmErrcodeInvalidResult);
-                      goto GlmLinearSubbatchThread_skip_allele_for_one_pheno;
+                      goto GlmLinearSubbatchThread_skip_regression_for_one_pheno;
                     }
                   }
                 }
                 double* beta_se_iter2 = beta_se_iter;
                 for (uint32_t pred_uidx = reported_pred_uidx_start; pred_uidx != reported_pred_uidx_biallelic_end; ++pred_uidx) {
+                  // In the multiallelic-fused case, if the first allele is
+                  // constant, this writes the beta/se values for the first
+                  // nonconstant, non-omitted allele where the results for the
+                  // first allele belong.  We correct that below.
                   *beta_se_iter2++ = tmp_fitted_coefs[pred_uidx];
                   *beta_se_iter2++ = dbl_2d_buf[pred_uidx];
                 }
@@ -9209,11 +9538,72 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
                   ++beta_se_iter2;
                   *beta_se_iter2++ = -9.0;
                 }
-                for (uint32_t extra_allele_idx = 0; extra_allele_idx != allele_ct_m2; ++extra_allele_idx) {
-                  // possible todo: in hide-covar + domdev/tests/interactions
-                  // case, don't need to save these
-                  beta_se_iter2[2 * extra_allele_idx] = S_CAST(double, tmp_fitted_coefs[cur_biallelic_predictor_ct + extra_allele_idx]);
-                  beta_se_iter2[2 * extra_allele_idx + 1] = S_CAST(double, dbl_2d_buf[cur_biallelic_predictor_ct + extra_allele_idx]);
+                if (!const_allele_ct) {
+                  for (uint32_t extra_allele_idx = 0; extra_allele_idx != allele_ct_m2; ++extra_allele_idx) {
+                    // possible todo: in hide-covar + domdev/tests/interactions
+                    // case, don't need to save these
+                    beta_se_iter2[2 * extra_allele_idx] = tmp_fitted_coefs[cur_biallelic_predictor_ct + extra_allele_idx];
+                    beta_se_iter2[2 * extra_allele_idx + 1] = dbl_2d_buf[cur_biallelic_predictor_ct + extra_allele_idx];
+                  }
+                } else if (!beta_se_multiallelic_fused) {
+                  // Need to insert some {CONST_ALLELE, -9} entries.
+                  const GlmErr glm_err2 = SetGlmErr0(kGlmErrcodeConstAllele);
+                  const uint32_t cur_raw_allele_idx = extra_regression_idx + (extra_regression_idx >= omitted_allele_idx);
+                  uint32_t extra_read_allele_idx = 0;
+                  uint32_t extra_write_allele_idx = 0;
+                  for (uint32_t allele_idx = 0; allele_idx != allele_ct; ++allele_idx) {
+                    if ((allele_idx == omitted_allele_idx) || (allele_idx == cur_raw_allele_idx)) {
+                      continue;
+                    }
+                    if (IsSet(const_alleles, allele_idx)) {
+                      memcpy(&(beta_se_iter2[2 * extra_write_allele_idx]), &glm_err2, 8);
+                      beta_se_iter2[2 * extra_write_allele_idx + 1] = -9.0;
+                    } else {
+                      beta_se_iter2[2 * extra_write_allele_idx] = tmp_fitted_coefs[cur_biallelic_predictor_ct + extra_read_allele_idx];
+                      beta_se_iter2[2 * extra_write_allele_idx + 1] = dbl_2d_buf[cur_biallelic_predictor_ct + extra_read_allele_idx];
+                      ++extra_read_allele_idx;
+                    }
+                    ++extra_write_allele_idx;
+                  }
+                } else {
+                  const GlmErr glm_err2 = SetGlmErr0(kGlmErrcodeConstAllele);
+                  // Special-case first nonconst allele since it's positioned
+                  // discontinuously, and its BETA/SE may already be correctly
+                  // filled.
+                  uint32_t allele_idx = omitted_allele_idx? 0 : 1;
+                  uint32_t extra_write_allele_idx = 0;
+                  if (IsSet(const_alleles, allele_idx)) {
+                    memcpy(&(beta_se_iter[2 * include_intercept]), &glm_err2, 8);
+                    beta_se_iter[2 * include_intercept + 1] = -9.0;
+                    allele_idx = AdvTo0Bit(const_alleles, 1);
+                    if (allele_idx == omitted_allele_idx) {
+                      allele_idx = AdvTo0Bit(const_alleles, omitted_allele_idx + 1);
+                    }
+                    extra_write_allele_idx = allele_idx - 1 - (allele_idx > omitted_allele_idx);
+                    for (uint32_t uii = 0; uii != extra_write_allele_idx; ++uii) {
+                      memcpy(&(beta_se_iter2[2 * uii]), &glm_err2, 8);
+                      beta_se_iter2[2 * uii + 1] = -9.0;
+                    }
+                    beta_se_iter2[2 * extra_write_allele_idx] = tmp_fitted_coefs[1];
+                    beta_se_iter2[2 * extra_write_allele_idx + 1] = dbl_2d_buf[1];
+                    ++extra_write_allele_idx;
+                  }
+                  ++allele_idx;
+                  uint32_t nonconst_allele_idx_m1 = 0;
+                  for (; allele_idx != allele_ct; ++allele_idx) {
+                    if (allele_idx == omitted_allele_idx) {
+                      continue;
+                    }
+                    if (!IsSet(const_alleles, allele_idx)) {
+                      beta_se_iter2[2 * extra_write_allele_idx] = tmp_fitted_coefs[cur_biallelic_predictor_ct + nonconst_allele_idx_m1];
+                      beta_se_iter2[2 * extra_write_allele_idx + 1] = dbl_2d_buf[cur_biallelic_predictor_ct + nonconst_allele_idx_m1];
+                      ++nonconst_allele_idx_m1;
+                    } else {
+                      memcpy(&(beta_se_iter2[2 * extra_write_allele_idx]), &glm_err2, 8);
+                      beta_se_iter2[2 * extra_write_allele_idx + 1] = -9.0;
+                    }
+                    ++extra_write_allele_idx;
+                  }
                 }
                 if (cur_constraint_ct) {
                   // probable todo: cur_constraints_con_major manipulation can
@@ -9240,44 +9630,37 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
                 }
               }
               while (0) {
-              GlmLinearSubbatchThread_skip_allele_for_one_pheno:
-                memcpy(&(beta_se_iter[primary_pred_idx * 2]), &glm_err, 8);
-                beta_se_iter[primary_pred_idx * 2 + 1] = -9;
-                if (allele_ct_m2) {
-                  const uint32_t offset = 2 * (reported_pred_uidx_biallelic_end + (cur_constraint_ct != 0) - reported_pred_uidx_start);
-                  assert((offset / 2) + allele_ct_m2 <= max_reported_test_ct);
-                  for (uint32_t extra_allele_idx = 0; extra_allele_idx != allele_ct_m2; ++extra_allele_idx) {
-                    memcpy(&(beta_se_iter[extra_allele_idx * 2 + offset]), &glm_err, 8);
-                    beta_se_iter[extra_allele_idx * 2 + offset + 1] = -9;
+              GlmLinearSubbatchThread_skip_regression_for_one_pheno:
+                {
+                  const uint32_t biallelic_reported_ct = reported_pred_uidx_biallelic_end + (cur_constraint_ct != 0) - reported_pred_uidx_start;
+                  for (uint32_t uii = 0; uii != biallelic_reported_ct; ++uii) {
+                    memcpy(&(beta_se_iter[uii * 2]), &glm_err, 8);
+                    beta_se_iter[uii * 2 + 1] = -9.0;
+                  }
+                  if (allele_ct_m2) {
+                    const uint32_t offset = 2 * biallelic_reported_ct;
+                    assert((offset / 2) + allele_ct_m2 <= max_reported_test_ct);
+                    for (uint32_t extra_allele_idx = 0; extra_allele_idx != allele_ct_m2; ++extra_allele_idx) {
+                      memcpy(&(beta_se_iter[extra_allele_idx * 2 + offset]), &glm_err, 8);
+                      beta_se_iter[extra_allele_idx * 2 + offset + 1] = -9.0;
+                    }
                   }
                 }
               }
               beta_se_iter = &(beta_se_iter[2 * max_reported_test_ct]);
             }
             while (0) {
-            GlmLinearSubbatchThread_skip_allele:
-              for (uint32_t pheno_idx = 0; pheno_idx != subbatch_size; ++pheno_idx) {
-                memcpy(&(beta_se_iter[primary_pred_idx * 2]), &glm_err, 8);
-                beta_se_iter[primary_pred_idx * 2 + 1] = -9;
-                if (allele_ct_m2) {
-                  const uint32_t offset = 2 * (reported_pred_uidx_biallelic_end + (cur_constraint_ct != 0) - reported_pred_uidx_start);
-                  assert((offset / 2) + allele_ct_m2 <= max_reported_test_ct);
-                  for (uint32_t extra_allele_idx = 0; extra_allele_idx != allele_ct_m2; ++extra_allele_idx) {
-                    memcpy(&(beta_se_iter[extra_allele_idx * 2 + offset]), &glm_err, 8);
-                    beta_se_iter[extra_allele_idx * 2 + offset + 1] = -9;
+            GlmLinearSubbatchThread_skip_regression:
+              {
+                const uint32_t reported_ct = reported_pred_uidx_biallelic_end + (cur_constraint_ct != 0) - reported_pred_uidx_start + allele_ct_m2;
+                for (uint32_t pheno_idx = 0; pheno_idx != subbatch_size; ++pheno_idx) {
+                  for (uint32_t uii = 0; uii != reported_ct; ++uii) {
+                    memcpy(&(beta_se_iter[uii * 2]), &glm_err, 8);
+                    beta_se_iter[uii * 2 + 1] = -9.0;
                   }
+                  beta_se_iter = &(beta_se_iter[2 * max_reported_test_ct]);
                 }
-                beta_se_iter = &(beta_se_iter[2 * max_reported_test_ct]);
               }
-            }
-            if (extra_regression_idx == extra_regression_ct) {
-              break;
-            }
-            double* swap_target = &(multi_start[extra_regression_idx * nm_sample_ct]);
-            for (uint32_t uii = 0; uii != nm_sample_ct; ++uii) {
-              double dxx = genotype_vals[uii];
-              genotype_vals[uii] = swap_target[uii];
-              swap_target[uii] = dxx;
             }
           }
         }
@@ -9851,6 +10234,9 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
               char* cswritep = cswritep_arr[fidx];
               uint32_t a1_allele_idx = 0;
               uintptr_t allele_bidx_tmp = allele_bidx;
+              // bugfix (20 Mar 2020): In multiallelic unfused case, fidx is
+              // the *inner* index, allele index is on the outside.
+              const double* beta_se_iter2 = beta_se_iter;
               for (uint32_t nonomitted_allele_idx = 0; nonomitted_allele_idx != allele_ct_m1; ++nonomitted_allele_idx, ++a1_allele_idx) {
                 if (beta_se_multiallelic_fused) {
                   if (!nonomitted_allele_idx) {
@@ -9862,9 +10248,9 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
                 if (nonomitted_allele_idx == omitted_allele_idx) {
                   ++a1_allele_idx;
                 }
-                const double primary_beta = beta_se_iter[primary_reported_test_idx * 2];
-                const double primary_se = beta_se_iter[primary_reported_test_idx * 2 + 1];
-                const uint32_t allele_is_valid = (primary_se != -9);
+                const double primary_beta = beta_se_iter2[primary_reported_test_idx * 2];
+                const double primary_se = beta_se_iter2[primary_reported_test_idx * 2 + 1];
+                const uint32_t allele_is_valid = (primary_se != -9.0);
                 {
                   const LinearAuxResult* auxp = &(cur_block_aux[allele_bidx_tmp]);
                   if (ln_pfilter <= 0.0) {
@@ -10040,16 +10426,18 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
                     }
                     double ln_pval = kLnPvalError;
                     double tstat = 0.0;
+                    uint32_t test_is_valid;
                     if ((!cur_constraint_ct) || (test_idx != primary_reported_test_idx)) {
-                      double beta = beta_se_iter[2 * test_idx];
-                      double se = beta_se_iter[2 * test_idx + 1];
-                      if (allele_is_valid) {
+                      double beta = beta_se_iter2[2 * test_idx];
+                      double se = beta_se_iter2[2 * test_idx + 1];
+                      test_is_valid = (se != -9.0);
+                      if (test_is_valid) {
                         tstat = beta / se;
                         ln_pval = TstatToLnP(tstat, auxp->sample_obs_ct - cur_biallelic_predictor_ct - extra_allele_ct);
                       }
                       if (beta_col) {
                         *cswritep++ = '\t';
-                        if (allele_is_valid) {
+                        if (test_is_valid) {
                           cswritep = dtoa_g(beta, cswritep);
                         } else {
                           cswritep = strcpya_k(cswritep, "NA");
@@ -10057,7 +10445,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
                       }
                       if (se_col) {
                         *cswritep++ = '\t';
-                        if (allele_is_valid) {
+                        if (test_is_valid) {
                           cswritep = dtoa_g(se, cswritep);
                         } else {
                           cswritep = strcpya_k(cswritep, "NA");
@@ -10065,7 +10453,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
                       }
                       if (ci_col) {
                         *cswritep++ = '\t';
-                        if (allele_is_valid) {
+                        if (test_is_valid) {
                           const double ci_halfwidth = ci_zt * se;
                           cswritep = dtoa_g(beta - ci_halfwidth, cswritep);
                           *cswritep++ = '\t';
@@ -10076,7 +10464,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
                       }
                       if (t_col) {
                         *cswritep++ = '\t';
-                        if (allele_is_valid) {
+                        if (test_is_valid) {
                           cswritep = dtoa_g(tstat, cswritep);
                         } else {
                           cswritep = strcpya_k(cswritep, "NA");
@@ -10084,6 +10472,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
                       }
                     } else {
                       // joint test
+                      test_is_valid = allele_is_valid;
                       if (beta_col) {
                         cswritep = strcpya_k(cswritep, "\tNA");
                       }
@@ -10095,20 +10484,20 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
                       }
                       if (t_col) {
                         *cswritep++ = '\t';
-                        if (allele_is_valid) {
+                        if (test_is_valid) {
                           cswritep = dtoa_g(primary_se / u31tod(cur_constraint_ct), cswritep);
                         } else {
                           cswritep = strcpya_k(cswritep, "NA");
                         }
                       }
                       // could avoid recomputing
-                      if (allele_is_valid) {
+                      if (test_is_valid) {
                         ln_pval = FstatToLnP(primary_se / u31tod(cur_constraint_ct), cur_constraint_ct, auxp->sample_obs_ct);
                       }
                     }
                     if (p_col) {
                       *cswritep++ = '\t';
-                      if (allele_is_valid) {
+                      if (test_is_valid) {
                         if (report_neglog10p) {
                           const double reported_val = (-kRecipLn10) * ln_pval;
                           cswritep = dtoa_g(reported_val, cswritep);
@@ -10122,11 +10511,11 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
                     }
                     if (err_col) {
                       *cswritep++ = '\t';
-                      if (allele_is_valid) {
+                      if (test_is_valid) {
                         *cswritep++ = '.';
                       } else {
                         uint64_t glm_errcode;
-                        memcpy(&glm_errcode, &(beta_se_iter[2 * primary_reported_test_idx]), 8);
+                        memcpy(&glm_errcode, &(beta_se_iter2[2 * test_idx]), 8);
                         cswritep = AppendGlmErrstr(glm_errcode, cswritep);
                       }
                     }
@@ -10140,14 +10529,13 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
               GlmLinearBatch_allele_iterate:
                 ++allele_bidx_tmp;
                 if (!beta_se_multiallelic_fused) {
-                  beta_se_iter = &(beta_se_iter[2 * max_reported_test_ct]);
+                  beta_se_iter2 = &(beta_se_iter2[subbatch_size * (2 * k1LU) * max_reported_test_ct]);
                 }
               }
-              if (beta_se_multiallelic_fused) {
-                beta_se_iter = &(beta_se_iter[2 * max_reported_test_ct]);
-              }
+              beta_se_iter = &(beta_se_iter[2 * max_reported_test_ct]);
               cswritep_arr[fidx] = cswritep;
             }
+            beta_se_iter = &(beta_se_iter[extra_allele_ct * subbatch_size * (2 * k1LU) * max_reported_test_ct]);
             allele_bidx += allele_ct_m1;
           }
         }
