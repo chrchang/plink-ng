@@ -2905,9 +2905,10 @@ typedef struct JoinCountsStruct {
 JoinVtype JoinCount(const char* const* cur_alleles, uintptr_t allele_ct, JoinCounts* jcp) {
   jcp->snp_ct = 0;
   jcp->symbolic_ct = 0;
+  jcp->missalt_snp_ct = 0;
+  jcp->missalt_nonsnp_ct = 0;
   if (cur_alleles[0][1] == '\0') {
     jcp->nonsnp_ct = 0;
-    jcp->missalt_nonsnp_ct = 0;
     for (uintptr_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
       const char* cur_allele = cur_alleles[allele_idx];
       if (cur_allele[0] == '<') {
@@ -2933,12 +2934,12 @@ JoinVtype JoinCount(const char* const* cur_alleles, uintptr_t allele_ct, JoinCou
     }
     return kJoinVtypeSnp;
   }
-  jcp->missalt_snp_ct = 0;
   for (uint32_t allele_idx = 1; allele_idx != allele_ct; ++allele_idx) {
     const char* cur_allele = cur_alleles[allele_idx];
     if (cur_allele[0] == '<') {
       return kJoinVtypeError;
-    } else if (memequal_k(cur_allele, ".", 2)) {
+    }
+    if (memequal_k(cur_allele, ".", 2)) {
       if (allele_ct == 2) {
         jcp->nonsnp_ct = 0;
         jcp->missalt_nonsnp_ct = 1;
@@ -4350,8 +4351,9 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
 
     char** info_bufs = nullptr;
     const char** info_starts = nullptr;
-    const char** info_ends = nullptr;
+    const char** info_ends = nullptr;  // ugh, this is not related to INFO:END
     const char** info_curs = nullptr;
+    uint32_t info_end_key_idx = UINT32_MAX;
     if (pvar_info_reload) {
       if (unlikely(
               bigstack_alloc_cp(info_cache_size, &info_bufs) ||
@@ -4363,6 +4365,16 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
       reterr = PvarInfoOpenAndReloadHeader(pvar_info_reload, 1 + (thread_ct > 1), &pvar_reload_txs, &pvar_info_line_iter, &info_col_idx);
       if (unlikely(reterr)) {
         goto WritePvarJoin_ret_TSTREAM_FAIL;
+      }
+      info_end_key_idx = IdHtableFind("END", info_keys, info_keys_htable, strlen("END"), info_keys_htable_size);
+      if (info_end_key_idx != UINT32_MAX) {
+        const int32_t knum = const_container_of[info_keys[info_end_key_idx], InfoVtype, key)->num;
+        if ((knum != 1) && (knum != kInfoVtypeUnknown)) {
+          // TODO: verify type instead.
+          // but if number is not . or 1, this is not the INFO:END we're
+          // looking for.
+          info_end_key_idx = UINT32_MAX;
+        }
       }
     }
     if (write_info) {
@@ -4415,13 +4427,12 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
     uint32_t pct = 0;
     uint32_t next_print_variant_idx = variant_ct / 100;
     JoinCounts jc;
-    JoinCounts next_jc;
     jc.snp_ct = 0;
     jc.nonsnp_ct = 0;
     jc.symbolic_ct = 0;
     jc.missalt_snp_ct = 0;
     jc.missalt_nonsnp_ct = 0;
-    ;;;
+    JoinCounts next_jc = jc;
     fputs("0%", stdout);
     fflush(stdout);
     while (1) {
@@ -4455,6 +4466,12 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
           allele_ct = allele_idx_offsets[next_variant_uidx + 1] - allele_idx_offset_base;
         }
         const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
+        JoinVtype jvt = JoinCount(cur_alleles, allele_ct, &next_jc);
+        // previously validated
+        if ((join_mode == kfMakePlink2MJoinSnps) && ) {
+        }
+
+        // TODO
         jc.snp_ct += next_jc.snp_ct;
         jc.nonsnp_ct += next_jc.nonsnp_ct;
         jc.symbolic_ct += next_jc.symbolic_ct;
@@ -4554,12 +4571,18 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
         }
         AppendBinaryEoln(&cswritep);
       } else {
+        // TODO
+        next_jc.snp_ct = 0;
+        next_jc.nonsnp_ct = 0;
+        next_jc.symbolic_ct = 0;
+        next_jc.missalt_snp_ct = 0;
+        next_jc.missalt_nonsnp_ct = 0;
       }
       if (next_variant_idx == variant_ct) {
         break;
       }
       this_pos_write_variant_ct = 0;
-      jt = next_jt;
+      jc = next_jc;
       prev_bp = cur_bp;
       bp_start_variant_idx = next_variant_idx;
       bp_start_variant_uidx = next_variant_uidx;
@@ -4600,6 +4623,7 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
             }
           }
         }
+      }
     }
     if (unlikely(CswriteCloseNull(&css, cswritep))) {
       goto WritePvarJoin_ret_WRITE_FAIL;
