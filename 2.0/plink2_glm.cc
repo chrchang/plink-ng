@@ -3309,7 +3309,8 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
   const uintptr_t max_reported_test_ct = common->max_reported_test_ct;
   const uintptr_t local_covar_ct = common->local_covar_ct;
   const uint32_t max_extra_allele_ct = common->max_extra_allele_ct;
-  const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!common->tests_flag) && (!add_interactions);
+  // bugfix (20 Mar 2020): Also need to exclude dominant/recessive.
+  const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!model_dominant) && (!model_recessive) && (!common->tests_flag) && (!add_interactions);
   uintptr_t max_sample_ct = MAXV(common->sample_ct, common->sample_ct_x);
   if (max_sample_ct < common->sample_ct_y) {
     max_sample_ct = common->sample_ct_y;
@@ -5548,7 +5549,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
 
     // if 'fused', one row per variant
     // otherwise, one row per tested allele
-    const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!common->tests_flag) && (!add_interactions);
+    const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!main_mutated) && (!common->tests_flag) && (!add_interactions);
 
     uintptr_t per_variant_xalloc_byte_ct = max_sample_ct * local_covar_ct * sizeof(float);
     uintptr_t per_alt_allele_xalloc_byte_ct = sizeof(LogisticAuxResult);
@@ -6425,7 +6426,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
   const uintptr_t max_reported_test_ct = common->max_reported_test_ct;
   const uintptr_t local_covar_ct = common->local_covar_ct;
   const uint32_t max_extra_allele_ct = common->max_extra_allele_ct;
-  const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!common->tests_flag) && (!add_interactions);
+  const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!model_dominant) && (!model_recessive) && (!common->tests_flag) && (!add_interactions);
   uintptr_t max_sample_ct = MAXV(common->sample_ct, common->sample_ct_x);
   if (max_sample_ct < common->sample_ct_y) {
     max_sample_ct = common->sample_ct_y;
@@ -7748,7 +7749,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     uintptr_t thread_xalloc_cacheline_ct = (workspace_alloc / kCacheline) + 1;
 
     // bugfix (4 Mar 2019): forgot to update this for --tests
-    const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!common->tests_flag) && (!add_interactions);
+    const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!main_mutated) && (!common->tests_flag) && (!add_interactions);
 
     uintptr_t per_variant_xalloc_byte_ct = max_sample_ct * local_covar_ct * sizeof(double);
     uintptr_t per_alt_allele_xalloc_byte_ct = sizeof(LinearAuxResult);
@@ -8493,7 +8494,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
   const uintptr_t max_reported_test_ct = common->max_reported_test_ct;
   const uintptr_t local_covar_ct = common->local_covar_ct;
   const uint32_t max_extra_allele_ct = common->max_extra_allele_ct;
-  const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!common->tests_flag) && (!add_interactions);
+  const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!model_dominant) && (!model_recessive) && (!common->tests_flag) && (!add_interactions);
   const uint32_t subbatch_size = ctx->subbatch_size;
   uintptr_t max_sample_ct = MAXV(common->sample_ct, common->sample_ct_x);
   if (max_sample_ct < common->sample_ct_y) {
@@ -9852,7 +9853,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
     const uint32_t main_omitted = (parameter_subset && (!IsSet(parameter_subset, 1)));
     const uint32_t xmain_ct = main_mutated + main_omitted;
     const uint32_t dosage_is_present = pgfip->gflags & kfPgenGlobalDosagePresent;
-    const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!common->tests_flag) && (!add_interactions);
+    const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!main_mutated) && (!common->tests_flag) && (!add_interactions);
     common->thread_mhc = nullptr;
     common->dosage_presents = nullptr;
     common->dosage_mains = nullptr;
