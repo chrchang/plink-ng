@@ -45,8 +45,8 @@ FLAGSET_DEF_START()
   kfMakePlink2TrimAlts = (1 << 10),
   kfMakePlink2MMask = kfMakePlink2TrimAlts - kfMakePlink2MSplitBase,
   kfMakePlink2EraseAlt2Plus = (1 << 11),
-  kfMakePlink2VidSemicolon = (1 << 12),
-  kfMakePlink2VidDup = (1 << 13),
+  kfMakePlink2VaridSemicolon = (1 << 12),
+  kfMakePlink2VaridDup = (1 << 13),
 
   kfMakePlink2SetHhMissing = (1 << 14),
   kfMakePlink2SetHhMissingKeepDosage = (1 << 15),

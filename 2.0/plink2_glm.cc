@@ -3671,12 +3671,13 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
           // --xchr-model 1 corner case.)
           if (!pgv.dosage_ct) {
             if ((genocounts[0] == nm_sample_ct) || (genocounts[1] == nm_sample_ct) || (genocounts[2] == nm_sample_ct)) {
-              // equivalent to SetBit(1 - omitted_allele_idx, const_alleles);
-              const_alleles[0] = 2 >> omitted_allele_idx;
+              // bugfix (28 Mar 2020): didn't set the bit that actually
+              // mattered last week...
+              const_alleles[0] = 3;
             }
           } else if (pgv.dosage_ct == nm_sample_ct) {
             if (DosageIsConstant(dosage_sum, dosage_ssq, nm_sample_ct)) {
-              const_alleles[0] = 2 >> omitted_allele_idx;
+              const_alleles[0] = 3;
             }
           }
           machr2_dosage_sums[1 - omitted_allele_idx] = dosage_sum;
@@ -6786,11 +6787,11 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
           // --xchr-model 1 corner case.)
           if (!pgv.dosage_ct) {
             if ((genocounts[0] == nm_sample_ct) || (genocounts[1] == nm_sample_ct) || (genocounts[2] == nm_sample_ct)) {
-              const_alleles[0] = 2 >> omitted_allele_idx;
+              const_alleles[0] = 3;
             }
           } else if (pgv.dosage_ct == nm_sample_ct) {
             if (DosageIsConstant(dosage_sum, dosage_ssq, nm_sample_ct)) {
-              const_alleles[0] = 2 >> omitted_allele_idx;
+              const_alleles[0] = 3;
             }
           }
           machr2_dosage_sums[1 - omitted_allele_idx] = dosage_sum;
@@ -8849,11 +8850,11 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
           // --xchr-model 1 corner case.)
           if (!pgv.dosage_ct) {
             if ((genocounts[0] == nm_sample_ct) || (genocounts[1] == nm_sample_ct) || (genocounts[2] == nm_sample_ct)) {
-              const_alleles[0] = 2 >> omitted_allele_idx;
+              const_alleles[0] = 3;
             }
           } else if (pgv.dosage_ct == nm_sample_ct) {
             if (DosageIsConstant(dosage_sum, dosage_ssq, nm_sample_ct)) {
-              const_alleles[0] = 2 >> omitted_allele_idx;
+              const_alleles[0] = 3;
             }
           }
           machr2_dosage_sums[1 - omitted_allele_idx] = dosage_sum;
@@ -10645,6 +10646,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     }
     assert(orig_variant_ct);
     // common linear/logistic initialization
+    const GlmFlags glm_flags = glm_info_ptr->flags;
     const uintptr_t* early_variant_include = orig_variant_include;
     uint32_t* local_sample_uidx_order = nullptr;
     uintptr_t* local_variant_include = nullptr;
@@ -10659,7 +10661,6 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       }
     }
 
-    const GlmFlags glm_flags = glm_info_ptr->flags;
     common.glm_flags = glm_flags;
     common.dosage_presents = nullptr;
     common.dosage_mains = nullptr;

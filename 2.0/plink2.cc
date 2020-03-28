@@ -66,7 +66,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (21 Mar 2020)";
+  " (28 Mar 2020)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -5171,6 +5171,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t explicit_firth_fallback = 0;
+          uint32_t glm_allow_no_covars = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
@@ -5313,7 +5314,7 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.glm_info.flags |= kfGlmLocalCats1based;
-            } else if (likely(StrStartsWith(cur_modif, "local-cats0=", cur_modif_slen))) {
+            } else if (StrStartsWith(cur_modif, "local-cats0=", cur_modif_slen)) {
               if (unlikely(pc.glm_info.local_cat_ct)) {
                 logerrputs("Error: Multiple --glm local-cats[0]= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
@@ -5322,6 +5323,8 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Invalid --glm local-cats0= category count (must be in [2, 4095]).\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
+            } else if (likely(strequal_k(cur_modif, "allow-no-covars", cur_modif_slen))) {
+              glm_allow_no_covars = 1;
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --glm argument '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
@@ -5369,6 +5372,10 @@ int main(int argc, char** argv) {
             }
             if (unlikely(pc.glm_info.local_cat_ct)) {
               logerrputs("Error: --glm 'local-cats[0]=' must be used with 'local-covar='.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            if (unlikely((!pc.covar_fname) && (!pc.covar_range_list.name_ct) && (!glm_allow_no_covars))) {
+              logerrputs("Error: --glm invoked without --covar/--covar-name/--covar-col-nums; this is\nusually an analytical mistake.  Add the 'allow-no-covars' modifier if you are\nsure you want this.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
           } else {
@@ -6305,7 +6312,7 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 7))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          uint32_t vid_semicolon = 0;
+          uint32_t varid_semicolon = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
@@ -6355,14 +6362,14 @@ int main(int argc, char** argv) {
               make_plink2_flags |= kfMakePlink2TrimAlts;
             } else if (strequal_k(cur_modif, "erase-alt2+", cur_modif_slen)) {
               make_plink2_flags |= kfMakePlink2EraseAlt2Plus;
-            } else if (strequal_k(cur_modif, "vid-split", cur_modif_slen)) {
-              vid_semicolon |= 1;
-            } else if (strequal_k(cur_modif, "vid-split-dup", cur_modif_slen)) {
-              vid_semicolon |= 2;
-            } else if (strequal_k(cur_modif, "vid-join", cur_modif_slen)) {
-              vid_semicolon |= 4;
-            } else if (strequal_k(cur_modif, "vid-dup", cur_modif_slen)) {
-              make_plink2_flags |= kfMakePlink2VidDup;
+            } else if (strequal_k(cur_modif, "varid-split", cur_modif_slen)) {
+              varid_semicolon |= 1;
+            } else if (strequal_k(cur_modif, "varid-split-dup", cur_modif_slen)) {
+              varid_semicolon |= 2;
+            } else if (strequal_k(cur_modif, "varid-join", cur_modif_slen)) {
+              varid_semicolon |= 4;
+            } else if (strequal_k(cur_modif, "varid-dup", cur_modif_slen)) {
+              make_plink2_flags |= kfMakePlink2VaridDup;
             } else if (strequal_k(cur_modif, "erase-phase", cur_modif_slen)) {
               make_plink2_flags |= kfMakePgenErasePhase;
             } else if (likely(strequal_k(cur_modif, "erase-dosage", cur_modif_slen))) {
@@ -6376,29 +6383,29 @@ int main(int argc, char** argv) {
             logerrputs("Error: --make-bpgen 'trim-alts' and 'erase-alt2+' modifiers cannot be used\ntogether.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (vid_semicolon) {
-            if (unlikely((make_plink2_flags & kfMakePlink2VidDup) || (vid_semicolon & (vid_semicolon - 1)))) {
-              logerrputs("Error: --make-bpgen 'vid-split', 'vid-split-dup', 'vid-dup', and 'vid-join'\nmodifiers are mutually exclusive.\n");
+          if (varid_semicolon) {
+            if (unlikely((make_plink2_flags & kfMakePlink2VaridDup) || (varid_semicolon & (varid_semicolon - 1)))) {
+              logerrputs("Error: --make-bpgen 'varid-split', 'varid-split-dup', 'varid-dup', and\n'varid-join' modifiers are mutually exclusive.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
-            if (vid_semicolon & 3) {
+            if (varid_semicolon & 3) {
               if (unlikely((make_plink2_flags & kfMakePlink2MJoin) || (!(make_plink2_flags & kfMakePlink2MMask)))) {
-                logerrputs("Error: --make-bpgen 'vid-split' must be used with a multiallelics= split mode.\n");
+                logerrputs("Error: --make-bpgen 'varid-split' must be used with a multiallelics= split\nmode.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
             } else {
               if (unlikely(!(make_plink2_flags & kfMakePlink2MJoin))) {
-                logerrputs("Error: --make-bpgen 'vid-join' must be used with a multiallelics= join mode.\n");
+                logerrputs("Error: --make-bpgen 'varid-join' must be used with a multiallelics= join mode.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
             }
-            make_plink2_flags |= kfMakePlink2VidSemicolon;
-            if (vid_semicolon == 2) {
-              make_plink2_flags |= kfMakePlink2VidDup;
+            make_plink2_flags |= kfMakePlink2VaridSemicolon;
+            if (varid_semicolon == 2) {
+              make_plink2_flags |= kfMakePlink2VaridDup;
             }
-          } else if (make_plink2_flags & kfMakePlink2VidDup) {
+          } else if (make_plink2_flags & kfMakePlink2VaridDup) {
             if (unlikely((make_plink2_flags & kfMakePlink2MJoin) || (!(make_plink2_flags & kfMakePlink2MMask)))) {
-              logerrputs("Error: --make-bpgen 'vid-dup' must be used with a multiallelics= split mode.\n");
+              logerrputs("Error: --make-bpgen 'varid-dup' must be used with a multiallelics= split mode.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
           }
@@ -6423,7 +6430,7 @@ int main(int argc, char** argv) {
           }
           uint32_t explicit_pvar_cols = 0;
           uint32_t explicit_psam_cols = 0;
-          uint32_t vid_semicolon = 0;
+          uint32_t varid_semicolon = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
@@ -6486,14 +6493,14 @@ int main(int argc, char** argv) {
               make_plink2_flags |= kfMakePlink2TrimAlts;
             } else if (strequal_k(cur_modif, "erase-alt2+", cur_modif_slen)) {
               make_plink2_flags |= kfMakePlink2EraseAlt2Plus;
-            } else if (strequal_k(cur_modif, "vid-split", cur_modif_slen)) {
-              vid_semicolon |= 1;
-            } else if (strequal_k(cur_modif, "vid-split-dup", cur_modif_slen)) {
-              vid_semicolon |= 2;
-            } else if (strequal_k(cur_modif, "vid-join", cur_modif_slen)) {
-              vid_semicolon |= 4;
-            } else if (strequal_k(cur_modif, "vid-dup", cur_modif_slen)) {
-              make_plink2_flags |= kfMakePlink2VidDup;
+            } else if (strequal_k(cur_modif, "varid-split", cur_modif_slen)) {
+              varid_semicolon |= 1;
+            } else if (strequal_k(cur_modif, "varid-split-dup", cur_modif_slen)) {
+              varid_semicolon |= 2;
+            } else if (strequal_k(cur_modif, "varid-join", cur_modif_slen)) {
+              varid_semicolon |= 4;
+            } else if (strequal_k(cur_modif, "varid-dup", cur_modif_slen)) {
+              make_plink2_flags |= kfMakePlink2VaridDup;
             } else if (strequal_k(cur_modif, "erase-phase", cur_modif_slen)) {
               make_plink2_flags |= kfMakePgenErasePhase;
             } else if (strequal_k(cur_modif, "erase-dosage", cur_modif_slen)) {
@@ -6517,25 +6524,25 @@ int main(int argc, char** argv) {
             logerrputs("Error: --make-pgen 'trim-alts' and 'erase-alt2+' modifiers cannot be used\ntogether.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (vid_semicolon) {
-            if (unlikely((make_plink2_flags & kfMakePlink2VidDup) || (vid_semicolon & (vid_semicolon - 1)))) {
-              logerrputs("Error: --make-pgen 'vid-split', 'vid-split-dup', 'vid-dup', and 'vid-join'\nmodifiers are mutually exclusive.\n");
+          if (varid_semicolon) {
+            if (unlikely((make_plink2_flags & kfMakePlink2VaridDup) || (varid_semicolon & (varid_semicolon - 1)))) {
+              logerrputs("Error: --make-pgen 'varid-split', 'varid-split-dup', 'varid-dup', and\n'varid-join' modifiers are mutually exclusive.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
-            if (vid_semicolon & 3) {
+            if (varid_semicolon & 3) {
               if (unlikely((make_plink2_flags & kfMakePlink2MJoin) || (!(make_plink2_flags & kfMakePlink2MMask)))) {
-                logerrputs("Error: --make-pgen 'vid-split' must be used with a multiallelics= split mode.\n");
+                logerrputs("Error: --make-pgen 'varid-split' must be used with a multiallelics= split mode.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
             } else {
               if (unlikely(!(make_plink2_flags & kfMakePlink2MJoin))) {
-                logerrputs("Error: --make-pgen 'vid-join' must be used with a multiallelics= join mode.\n");
+                logerrputs("Error: --make-pgen 'varid-join' must be used with a multiallelics= join mode.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
             }
-            make_plink2_flags |= kfMakePlink2VidSemicolon;
-            if (vid_semicolon == 2) {
-              make_plink2_flags |= kfMakePlink2VidDup;
+            make_plink2_flags |= kfMakePlink2VaridSemicolon;
+            if (varid_semicolon == 2) {
+              make_plink2_flags |= kfMakePlink2VaridDup;
             }
           }
           if (!explicit_pvar_cols) {
