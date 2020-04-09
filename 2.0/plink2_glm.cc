@@ -1160,6 +1160,8 @@ ENUM_U31_DEF_START()
   kGlmErrcodeLogisticConvergeFail,
   kGlmErrcodeFirthConvergeFail,
   kGlmErrcodeInvalidResult,
+  // no codes for logistic-unfinished and firth-unfinished for now since we
+  // still report results there
 
   // only during initial scan
   kGlmErrcodeUnstableScale
@@ -2721,7 +2723,7 @@ void SolveLinearSystem(const float* ll, const float* yy, uint32_t predictor_ct, 
   }
 }
 
-BoolErr LogisticRegression(const float* yy, const float* xx, uint32_t sample_ct, uint32_t predictor_ct, float* coef, float* ll, float* pp, float* vv, float* hh, float* grad, float* dcoef) {
+BoolErr LogisticRegression(const float* yy, const float* xx, uint32_t sample_ct, uint32_t predictor_ct, float* coef, uint32_t* is_unfinished_ptr, float* ll, float* pp, float* vv, float* hh, float* grad, float* dcoef) {
   // Similar to first part of logistic.cpp fitLM(), but incorporates changes
   // from Pascal Pons et al.'s TopCoder code.
   //
@@ -2813,6 +2815,7 @@ BoolErr LogisticRegression(const float* yy, const float* xx, uint32_t sample_ct,
             return 1;
           }
         }
+        *is_unfinished_ptr = 1;
         return 0;
       }
     }
@@ -2874,7 +2877,7 @@ void FirthComputeWeights(const float* yy, const float* xx, const float* pp, cons
 }
 #endif
 
-BoolErr FirthRegression(const float* yy, const float* xx, uint32_t sample_ct, uint32_t predictor_ct, float* coef, float* hh, double* half_inverted_buf, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, float* pp, float* vv, float* grad, float* dcoef, float* ww, float* tmpnxk_buf) {
+BoolErr FirthRegression(const float* yy, const float* xx, uint32_t sample_ct, uint32_t predictor_ct, float* coef, uint32_t* is_unfinished_ptr, float* hh, double* half_inverted_buf, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, float* pp, float* vv, float* grad, float* dcoef, float* ww, float* tmpnxk_buf) {
   // This is a port of Georg Heinze's logistf R function, adapted to use many
   // of plink 1.9's optimizations; see
   //   http://cemsiis.meduniwien.ac.at/en/kb/science-research/software/statistical-software/fllogistf/
@@ -2902,6 +2905,8 @@ BoolErr FirthRegression(const float* yy, const float* xx, uint32_t sample_ct, ui
   //         too)
   //
   // Returns 0 on success, 1 on convergence failure.
+  // is_unfinished assumed to be initialized to 0, and is set to 1 if we hit
+  // the iteration limit without satisfying other convergence criteria.
   const uintptr_t predictor_ctav = RoundUpPow2(predictor_ct, kFloatPerFVec);
   const uintptr_t sample_ctav = RoundUpPow2(sample_ct, kFloatPerFVec);
   uint32_t is_last_iter = 0;
@@ -2934,15 +2939,18 @@ BoolErr FirthRegression(const float* yy, const float* xx, uint32_t sample_ct, ui
   // bugfix (4 Nov 2017): grad[] trailing elements must be zeroed out
   ZeroFArr(predictor_ctav - predictor_ct, &(grad[predictor_ct]));
 
-  // start with 80% of logistf convergence defaults (some reduction is
-  // appropriate to be consistent with single-precision arithmetic); may tune
-  // later.
+  // start with 80% of most logistf convergence defaults (some reduction is
+  // appropriate to be consistent with single-precision arithmetic).  (Update,
+  // 9 Apr 2020: max_iter now matches logistf default since we've been shown a
+  // concrete example where it matters in a way that isn't masked by the
+  // single- vs. double-precision difference.)
+  //
   // see also the hs_bail condition: if we ever try all five halfsteps, when
   // dcoef_max and grad_max aren't that far from the normal convergence
   // conditions, it's probably pointless to continue with single-precision
   // arithmetic.  (possible todo: use a fully-double-precision routine to
   // finish the job when that happens.)
-  const uint32_t max_iter_m1 = 19;
+  const uint32_t max_iter_m1 = 24;
   const float gconv = S_CAST(float, 0.0001);
   const float xconv = S_CAST(float, 0.0001);
   const double lconv = 0.0001;
@@ -3049,7 +3057,12 @@ BoolErr FirthRegression(const float* yy, const float* xx, uint32_t sample_ct, ui
     }
     // printf("%.9g %.9g %g %g\n", loglik, loglik_old, dcoef_max, grad_max);
     const double loglik_change = loglik - loglik_old;
-    is_last_iter = (iter_idx == max_iter_m1) || ((fabs(loglik_change) <= lconv) && (delta_and_grad_converged || hs_bail));
+    if ((fabs(loglik_change) <= lconv) && (delta_and_grad_converged || hs_bail)) {
+      is_last_iter = 1;
+    } else if (iter_idx == max_iter_m1) {
+      is_last_iter = 1;
+      *is_unfinished_ptr = 1;
+    }
   }
 }
 
@@ -3159,7 +3172,8 @@ typedef struct {
   uint32_t allele_obs_ct;
   double a1_dosage;
 
-  uint32_t firth_fallback;
+  uint16_t firth_fallback;
+  uint16_t is_unfinished;
   uint32_t case_allele_obs_ct;
   double a1_case_dosage;
 
@@ -4046,6 +4060,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
 
           block_aux_iter[nonomitted_allele_idx].a1_case_dosage = a1_case_dosage;
           block_aux_iter[nonomitted_allele_idx].firth_fallback = 0;
+          block_aux_iter[nonomitted_allele_idx].is_unfinished = 0;
           block_aux_iter[nonomitted_allele_idx].mach_r2 = mach_r2;
           ++nonomitted_allele_idx;
         }
@@ -4173,6 +4188,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
           for (uint32_t extra_regression_idx = 0; extra_regression_idx <= extra_regression_ct; ++extra_regression_idx) {
             float* main_vals = &(nm_predictors_pmaj_buf[nm_sample_ctav]);
             float* domdev_vals = nullptr;
+            uint32_t is_unfinished = 0;
             if (extra_regression_ct) {
               if (IsSet(const_alleles, extra_regression_idx + (extra_regression_idx >= omitted_allele_idx))) {
                 glm_err = SetGlmErr0(kGlmErrcodeConstAllele);
@@ -4309,7 +4325,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
                   goto GlmLogisticThread_skip_regression;
                 }
               }
-              if (LogisticRegression(nm_pheno_buf, nm_predictors_pmaj_buf, nm_sample_ct, cur_predictor_ct, coef_return, cholesky_decomp_return, pp_buf, sample_variance_buf, hh_return, gradient_buf, dcoef_buf)) {
+              if (LogisticRegression(nm_pheno_buf, nm_predictors_pmaj_buf, nm_sample_ct, cur_predictor_ct, coef_return, &is_unfinished, cholesky_decomp_return, pp_buf, sample_variance_buf, hh_return, gradient_buf, dcoef_buf)) {
                 if (is_sometimes_firth) {
                   ZeroFArr(cur_predictor_ctav, coef_return);
                   goto GlmLogisticThread_firth_fallback;
@@ -4358,7 +4374,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
                   }
                 }
               }
-              if (FirthRegression(nm_pheno_buf, nm_predictors_pmaj_buf, nm_sample_ct, cur_predictor_ct, coef_return, hh_return, inverse_corr_buf, inv_1d_buf, dbl_2d_buf, pp_buf, sample_variance_buf, gradient_buf, dcoef_buf, score_buf, tmpnxk_buf)) {
+              if (FirthRegression(nm_pheno_buf, nm_predictors_pmaj_buf, nm_sample_ct, cur_predictor_ct, coef_return, &is_unfinished, hh_return, inverse_corr_buf, inv_1d_buf, dbl_2d_buf, pp_buf, sample_variance_buf, gradient_buf, dcoef_buf, score_buf, tmpnxk_buf)) {
                 glm_err = SetGlmErr0(kGlmErrcodeFirthConvergeFail);
                 goto GlmLogisticThread_skip_regression;
               }
@@ -4382,6 +4398,14 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
                 if ((*hh_inv_row_iter++) > cur_hh_inv_diag_sqrt * (*hh_inv_diag_sqrts_iter++)) {
                   glm_err = SetGlmErr0(kGlmErrcodeInvalidResult);
                   goto GlmLogisticThread_skip_regression;
+                }
+              }
+            }
+            if (is_unfinished) {
+              block_aux_iter[extra_regression_idx].is_unfinished = 1;
+              if (allele_ct_m2 && beta_se_multiallelic_fused) {
+                for (uint32_t uii = 1; uii != allele_ct - 1; ++uii) {
+                  block_aux_iter[uii].is_unfinished = 1;
                 }
               }
             }
@@ -6184,7 +6208,11 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                 if (err_col) {
                   *cswritep++ = '\t';
                   if (test_is_valid) {
-                    *cswritep++ = '.';
+                    if (!auxp->is_unfinished) {
+                      *cswritep++ = '.';
+                    } else {
+                      cswritep = strcpya_k(cswritep, "UNFINISHED");
+                    }
                   } else {
                     uint64_t glm_errcode;
                     memcpy(&glm_errcode, &(beta_se_iter[2 * test_idx]), 8);
