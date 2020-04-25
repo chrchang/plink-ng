@@ -10801,9 +10801,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (*argptr2 == '2') {
           ld_info.modifier |= LD_R2;
-	} else if (ld_info.window_r2 != 0.2) {
-	  logerrprint("Error: --ld-window-r2 flag cannot be used with --r.\n");
-          goto main_ret_INVALID_CMDLINE_A;
 	}
 	if (matrix_flag_state) {
 	  matrix_flag_state = 2;

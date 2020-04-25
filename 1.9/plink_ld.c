@@ -2711,7 +2711,7 @@ uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
     while (block_idx2 < block_end2) {
       next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx2);
       dxx = *dptr++;
-      if ((!is_r2) || (fabs(dxx) >= window_r2)) {
+      if (fabs(dxx) >= window_r2) {
 	sptr_cur = memcpya(sptr_cur, g_textbuf, prefix_len);
 	if (is_inter_chr) {
 	  if (marker_uidx2 >= chrom_end2) {
@@ -5863,6 +5863,8 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
   g_ld_is_first_block = (!parallel_idx);
   if (g_ld_is_r2) {
     g_ld_window_r2 = ldip->window_r2;
+  } else {
+    g_ld_window_r2 = sqrt(ldip->window_r2);
   }
   if (ld_modifier & LD_DX) {
     // this is more like --fast-epistasis under the hood, since it requires the
