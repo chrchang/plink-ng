@@ -2937,9 +2937,17 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
       goto init_delim_and_species_ret_INVALID_CMDLINE_WWA;
     }
     chrom_info_ptr->xymt_codes[X_OFFSET] = ii + 1;
-    chrom_info_ptr->xymt_codes[Y_OFFSET] = -1;
-    chrom_info_ptr->xymt_codes[XY_OFFSET] = -1;
-    chrom_info_ptr->xymt_codes[MT_OFFSET] = -1;
+    // bugfix (28 Apr 2020): We were segfaulting instead of printing an
+    // appropriate error message when e.g. --autosome-num was specified yet
+    // chrY was encountered.
+    // plink 2.0 fixed this issue by using -2 instead of -1 to indicate a null
+    // xymt_code (-1 signals that there's nothing to worry about when
+    // --allow-extra-chr is specified).  It touches more code than I'd like,
+    // but I haven't gotten any related plink 2.0 bug reports for a long time,
+    // so we backport that fix.
+    chrom_info_ptr->xymt_codes[Y_OFFSET] = -2;
+    chrom_info_ptr->xymt_codes[XY_OFFSET] = -2;
+    chrom_info_ptr->xymt_codes[MT_OFFSET] = -2;
     chrom_info_ptr->max_code = ii + 1;
     chrom_info_ptr->autosome_ct = ii;
     set_bit(ii + 1, chrom_info_ptr->haploid_mask);
@@ -2964,10 +2972,10 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
       }
       ii = -ii;
       chrom_info_ptr->autosome_ct = ii;
-      chrom_info_ptr->xymt_codes[X_OFFSET] = -1;
-      chrom_info_ptr->xymt_codes[Y_OFFSET] = -1;
-      chrom_info_ptr->xymt_codes[XY_OFFSET] = -1;
-      chrom_info_ptr->xymt_codes[MT_OFFSET] = -1;
+      chrom_info_ptr->xymt_codes[X_OFFSET] = -2;
+      chrom_info_ptr->xymt_codes[Y_OFFSET] = -2;
+      chrom_info_ptr->xymt_codes[XY_OFFSET] = -2;
+      chrom_info_ptr->xymt_codes[MT_OFFSET] = -2;
       chrom_info_ptr->max_code = ii;
       fill_all_bits(((uint32_t)ii) + 1, chrom_info_ptr->haploid_mask);
     } else {
@@ -2980,27 +2988,27 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
       set_bit(ii + 2, chrom_info_ptr->haploid_mask);
       for (param_idx = 2; param_idx <= param_ct; param_idx++) {
 	if (!strcmp(argv[cur_arg + param_idx], "no-x")) {
-	  chrom_info_ptr->xymt_codes[X_OFFSET] = -1;
+	  chrom_info_ptr->xymt_codes[X_OFFSET] = -2;
 	  clear_bit(ii + 1, chrom_info_ptr->haploid_mask);
 	} else if (!strcmp(argv[cur_arg + param_idx], "no-y")) {
-	  chrom_info_ptr->xymt_codes[Y_OFFSET] = -1;
+	  chrom_info_ptr->xymt_codes[Y_OFFSET] = -2;
 	  clear_bit(ii + 2, chrom_info_ptr->haploid_mask);
 	} else if (!strcmp(argv[cur_arg + param_idx], "no-xy")) {
-	  chrom_info_ptr->xymt_codes[XY_OFFSET] = -1;
+	  chrom_info_ptr->xymt_codes[XY_OFFSET] = -2;
 	} else if (!strcmp(argv[cur_arg + param_idx], "no-mt")) {
-	  chrom_info_ptr->xymt_codes[MT_OFFSET] = -1;
+	  chrom_info_ptr->xymt_codes[MT_OFFSET] = -2;
 	} else {
 	  sprintf(g_logbuf, "Error: Invalid --chr-set parameter '%s'.\n", argv[cur_arg + param_idx]);
 	  goto init_delim_and_species_ret_INVALID_CMDLINE_WWA;
 	}
       }
-      if (chrom_info_ptr->xymt_codes[MT_OFFSET] != -1) {
+      if (chrom_info_ptr->xymt_codes[MT_OFFSET] != -2) {
 	chrom_info_ptr->max_code = ii + 4;
-      } else if (chrom_info_ptr->xymt_codes[XY_OFFSET] != -1) {
+      } else if (chrom_info_ptr->xymt_codes[XY_OFFSET] != -2) {
 	chrom_info_ptr->max_code = ii + 3;
-      } else if (chrom_info_ptr->xymt_codes[Y_OFFSET] != -1) {
+      } else if (chrom_info_ptr->xymt_codes[Y_OFFSET] != -2) {
 	chrom_info_ptr->max_code = ii + 2;
-      } else if (chrom_info_ptr->xymt_codes[X_OFFSET] != -1) {
+      } else if (chrom_info_ptr->xymt_codes[X_OFFSET] != -2) {
 	chrom_info_ptr->max_code = ii + 1;
       } else {
 	chrom_info_ptr->max_code = ii;
@@ -4238,7 +4246,7 @@ int32_t main(int32_t argc, char** argv) {
           logerrprint("Error: --autosome-xy cannot be used with --autosome.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	if (chrom_info.xymt_codes[XY_OFFSET] == -1) {
+	if (chrom_info.xymt_codes[XY_OFFSET] == -2) {
 	  logerrprint("Error: --autosome-xy used with a species lacking an XY region.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
@@ -9269,7 +9277,7 @@ int32_t main(int32_t argc, char** argv) {
         set_info.modifier |= SET_COMPLEMENTS | SET_C_PREFIX | SET_MAKE_COLLAPSE_GROUP;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "erge-x", 7)) {
-	if ((chrom_info.xymt_codes[X_OFFSET] == -1) || (chrom_info.xymt_codes[XY_OFFSET] == -1)) {
+	if ((chrom_info.xymt_codes[X_OFFSET] == -2) || (chrom_info.xymt_codes[XY_OFFSET] == -2)) {
 	  logerrprint("Error: --merge-x must be used with a chromosome set containing X and XY codes.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
@@ -11399,7 +11407,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (misc_flags & MISC_MERGEX) {
           logerrprint("Error: --split-x cannot be used with --merge-x.\n");
           goto main_ret_INVALID_CMDLINE_A;
-	} else if ((chrom_info.xymt_codes[X_OFFSET] == -1) || (chrom_info.xymt_codes[XY_OFFSET] == -1)) {
+	} else if ((chrom_info.xymt_codes[X_OFFSET] == -2) || (chrom_info.xymt_codes[XY_OFFSET] == -2)) {
 	  logerrprint("Error: --split-x must be used with a chromosome set containing X and XY codes.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}

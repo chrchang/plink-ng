@@ -6318,7 +6318,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     g_het_cts = het_cts;
     g_homcom_cts = homcom_cts;
   }
-  gender_req = ((x_code != -1) && is_set(chrom_info_ptr->chrom_mask, x_code)) || (model_assoc && (((y_code != -1) && is_set(chrom_info_ptr->chrom_mask, y_code))));
+  gender_req = ((x_code != -2) && is_set(chrom_info_ptr->chrom_mask, x_code)) || (model_assoc && (((y_code != -2) && is_set(chrom_info_ptr->chrom_mask, y_code))));
   if (gender_req) {
     if (bigstack_alloc_ul(pheno_nm_ctv2, &g_sample_nonmale_include2) ||
 	bigstack_alloc_ul(pheno_nm_ctv2, &sample_male_include2)) {
@@ -8109,7 +8109,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   uint32_t pct = 0;
   uint32_t max_thread_ct = g_thread_ct;
   uint32_t perm_pass_idx = 0;
-  uint32_t mt_exists = (chrom_info_ptr->xymt_codes[MT_OFFSET] != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[MT_OFFSET]);
+  uint32_t mt_exists = (chrom_info_ptr->xymt_codes[MT_OFFSET] != -2) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[MT_OFFSET]);
   uint32_t hh_or_mt_exists = hh_exists | (mt_exists * NXMHH_EXISTS);
   int32_t retval = 0;
   double x11 = 0;
@@ -9150,8 +9150,8 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
   uintptr_t cur_sample_ctv2 = 0;
   uintptr_t cur_group1_size = 0;
   uintptr_t cur_group2_size = 0;
-  uint32_t y_exists = (chrom_info_ptr->xymt_codes[Y_OFFSET] != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[Y_OFFSET]);
-  uint32_t mt_exists = (chrom_info_ptr->xymt_codes[MT_OFFSET] != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[MT_OFFSET]);
+  uint32_t y_exists = (chrom_info_ptr->xymt_codes[Y_OFFSET] != -2) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[Y_OFFSET]);
+  uint32_t mt_exists = (chrom_info_ptr->xymt_codes[MT_OFFSET] != -2) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[MT_OFFSET]);
   uint32_t skip_y = 0;
   double pheno_sum_g1 = 0;
   double pheno_ssq_g1 = 0;
@@ -10054,7 +10054,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
   cur_ctrl_ct_recip = 1.0 / ((double)((int32_t)ctrl_ct));
   // Y chromosome requires special handling--only male genotypes should be
   // considered.
-  if ((y_code == -1) || (!is_set(chrom_info_ptr->chrom_mask, y_code))) {
+  if ((y_code == -2) || (!is_set(chrom_info_ptr->chrom_mask, y_code))) {
     skip_y = 1;
   } else if ((!case_ct_y) || (!ctrl_ct_y)) {
     logerrprint("Warning: --test-missing is skipping Y chromosome since at least one male case\nand one male control are necessary.\n");
@@ -11121,7 +11121,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   if (putc_checked('\n', outfile)) {
     goto cmh_assoc_ret_WRITE_FAIL;
   }
-  if ((chrom_info_ptr->xymt_codes[MT_OFFSET] != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[MT_OFFSET])) {
+  if ((chrom_info_ptr->xymt_codes[MT_OFFSET] != -2) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[MT_OFFSET])) {
     hh_or_mt_exists |= NXMHH_EXISTS;
   }
   if (alloc_raw_haploid_filters(unfiltered_sample_ct, hh_or_mt_exists, 1, pheno_nm, sex_male, &sample_hh_include2, &sample_hh_male_include2)) {
@@ -11464,7 +11464,7 @@ int32_t cmh2_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
   if (!mi_buf) {
     goto cmh2_assoc_ret_NOMEM;
   }
-  if ((chrom_info_ptr->xymt_codes[MT_OFFSET] != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[MT_OFFSET])) {
+  if ((chrom_info_ptr->xymt_codes[MT_OFFSET] != -2) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[MT_OFFSET])) {
     hh_or_mt_exists |= NXMHH_EXISTS;
   }
   if (alloc_raw_haploid_filters(unfiltered_sample_ct, hh_or_mt_exists, 1, pheno_nm, sex_male, &sample_hh_include2, &sample_hh_male_include2)) {
@@ -11726,7 +11726,7 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   // misaligned for backward compatibility
   sprintf(g_textbuf, " CHR %%%us   A1   A2      F_A      F_U      N_A      N_U     TEST      CHISQ   DF          P         OR\n", plink_maxsnp);
   fprintf(outfile, g_textbuf, "SNP");
-  if (chrom_info_ptr->xymt_codes[MT_OFFSET] != -1) {
+  if (chrom_info_ptr->xymt_codes[MT_OFFSET] != -2) {
     hh_or_mt_exists |= NXMHH_EXISTS;
   }
   if (alloc_raw_haploid_filters(unfiltered_sample_ct, hh_or_mt_exists, 1, pheno_nm, sex_male, &sample_hh_include2, &sample_hh_male_include2)) {

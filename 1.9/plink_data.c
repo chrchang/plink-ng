@@ -13193,7 +13193,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     // for backward compatibility, also exclude XY.  don't exclude custom name
     // chromosomes, though, since chromosome 0 was actually processed
     autosomal_marker_ct = marker_ct - count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
-    if (chrom_info_ptr->xymt_codes[XY_OFFSET] != -1) {
+    if (chrom_info_ptr->xymt_codes[XY_OFFSET] != -2) {
       autosomal_marker_ct -= count_chrom_markers(chrom_info_ptr, marker_exclude, chrom_info_ptr->xymt_codes[XY_OFFSET]);
     }
     if (!autosomal_marker_ct) {

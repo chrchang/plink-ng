@@ -4397,12 +4397,12 @@ void init_species(uint32_t species_code, Chrom_info* chrom_info_ptr) {
   // sheep: 26, X, Y
   const int32_t species_xymt_codes[] = {
     23, 24, 25, 26,
-    30, 31, -1, 33,
+    30, 31, -2, 33,
     39, 40, 41, 42,
-    32, 33, -1, -1,
-    20, 21, -1, -1,
-    -1, -1, -1, -1,
-    27, 28, -1, -1};
+    32, 33, -2, -2,
+    20, 21, -2, -2,
+    -2, -2, -2, -2,
+    27, 28, -2, -2};
   const uint32_t species_autosome_ct[] = {22, 29, 38, 31, 19, 12, 26};
   const uint32_t species_max_code[] = {26, 33, 42, 33, 21, 12, 28};
   fill_ulong_zero(CHROM_MASK_WORDS, chrom_info_ptr->chrom_mask);
@@ -4463,7 +4463,7 @@ void init_default_chrom_mask(Chrom_info* chrom_info_ptr) {
     // --chr-set support
     for (uint32_t xymt_idx = 0; xymt_idx < XYMT_OFFSET_CT; ++xymt_idx) {
       int32_t cur_code = chrom_info_ptr->xymt_codes[xymt_idx];
-      if (cur_code != -1) {
+      if (cur_code != -2) {
 	set_bit(chrom_info_ptr->xymt_codes[xymt_idx], chrom_info_ptr->chrom_mask);
       }
     }
@@ -8263,13 +8263,13 @@ uint32_t count_non_autosomal_markers(const Chrom_info* chrom_info_ptr, const uin
   const int32_t y_code = chrom_info_ptr->xymt_codes[Y_OFFSET];
   const int32_t mt_code = chrom_info_ptr->xymt_codes[MT_OFFSET];
   uint32_t ct = 0;
-  if (count_x && (x_code != -1)) {
+  if (count_x && (x_code != -2)) {
     ct += count_chrom_markers(chrom_info_ptr, marker_exclude, x_code);
   }
-  if (y_code != -1) {
+  if (y_code != -2) {
     ct += count_chrom_markers(chrom_info_ptr, marker_exclude, y_code);
   }
-  if (count_mt && (mt_code != -1)) {
+  if (count_mt && (mt_code != -2)) {
     ct += count_chrom_markers(chrom_info_ptr, marker_exclude, mt_code);
   }
   return ct;
@@ -8286,13 +8286,13 @@ int32_t conditional_allocate_non_autosomal_markers(const Chrom_info* chrom_info_
   if (is_set(chrom_info_ptr->haploid_mask, 0)) {
     *newly_excluded_ct_ptr = marker_ct;
   } else {
-    if (count_x && (xymt_codes[X_OFFSET] != -1)) {
+    if (count_x && (xymt_codes[X_OFFSET] != -2)) {
       xymt_cts[X_OFFSET] = count_chrom_markers(chrom_info_ptr, marker_exclude_orig, xymt_codes[X_OFFSET]);
     }
-    if (xymt_codes[Y_OFFSET] != -1) {
+    if (xymt_codes[Y_OFFSET] != -2) {
       xymt_cts[Y_OFFSET] = count_chrom_markers(chrom_info_ptr, marker_exclude_orig, xymt_codes[Y_OFFSET]);
     }
-    if (count_mt && (xymt_codes[MT_OFFSET] != -1)) {
+    if (count_mt && (xymt_codes[MT_OFFSET] != -2)) {
       xymt_cts[MT_OFFSET] = count_chrom_markers(chrom_info_ptr, marker_exclude_orig, xymt_codes[MT_OFFSET]);
     }
     *newly_excluded_ct_ptr = xymt_cts[X_OFFSET] + xymt_cts[Y_OFFSET] + xymt_cts[MT_OFFSET];
