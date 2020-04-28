@@ -2543,7 +2543,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
       bigstack_end_alloc_ui(window_size, &uidx_buf)) {
     goto calc_homozyg_ret_NOMEM;
   }
-  if ((x_code != -1) && is_set(chrom_info_ptr->chrom_mask, x_code)) {
+  if ((x_code != -2) && is_set(chrom_info_ptr->chrom_mask, x_code)) {
     if (bigstack_end_alloc_ul(sample_ctl, &sample_male)) {
       goto calc_homozyg_ret_NOMEM;
     }
@@ -2567,7 +2567,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
     uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
     roh_list_chrom_starts[chrom_fo_idx] = roh_ct;
     chrom_end = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx + 1];
-    if ((x_code == -1) || (uii != ((uint32_t)x_code))) {
+    if ((x_code == -2) || (uii != ((uint32_t)x_code))) {
       if (IS_SET(haploid_mask, uii) || (uii == (uint32_t)mt_code)) {
 	marker_uidx = chrom_end;
 	if (fseeko(bedfile, bed_offset + (uint64_t)marker_uidx * unfiltered_sample_ct4, SEEK_SET)) {

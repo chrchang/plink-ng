@@ -2444,7 +2444,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
     }
   }
   chrom_idx = chrom_info_ptr->xymt_codes[X_OFFSET];
-  if ((chrom_idx != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_idx)) {
+  if ((chrom_idx != -2) && is_set(chrom_info_ptr->chrom_mask, chrom_idx)) {
     if (bigstack_alloc_ui(cluster_ct + 1, &cluster_starts_nonmale) ||
         bigstack_alloc_ui(sample_f_ct - sample_f_male_ct, &cluster_map_nonmale)) {
       goto write_stratified_freqs_ret_NOMEM;
@@ -2464,7 +2464,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
     }
   }
   chrom_idx = chrom_info_ptr->xymt_codes[Y_OFFSET];
-  if (cluster_map_nonmale || ((chrom_idx != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_idx))) {
+  if (cluster_map_nonmale || ((chrom_idx != -2) && is_set(chrom_info_ptr->chrom_mask, chrom_idx))) {
     if (bigstack_alloc_ui(cluster_ct + 1, &cluster_starts_male) ||
         bigstack_alloc_ui(sample_f_male_ct, &cluster_map_male)) {
       goto write_stratified_freqs_ret_NOMEM;
@@ -3067,7 +3067,7 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
     }
   }
   if (!yonly) {
-    if ((x_code == -1) || (!is_set(chrom_info_ptr->chrom_mask, (uint32_t)x_code))) {
+    if ((x_code == -2) || (!is_set(chrom_info_ptr->chrom_mask, (uint32_t)x_code))) {
       goto sexcheck_ret_NO_X_VAR;
     }
     marker_uidx_end = get_chrom_end_vidx(chrom_info_ptr, (uint32_t)x_code);
@@ -3134,7 +3134,7 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
     }
   }
   if (check_y) {
-    if ((y_code != -1) && is_set(chrom_info_ptr->chrom_mask, (uint32_t)y_code)) {
+    if ((y_code != -2) && is_set(chrom_info_ptr->chrom_mask, (uint32_t)y_code)) {
       marker_uidx_end = get_chrom_end_vidx(chrom_info_ptr, (uint32_t)y_code);
       marker_uidx = next_unset_ul(marker_exclude, get_chrom_start_vidx(chrom_info_ptr, (uint32_t)y_code), marker_uidx_end);
       ytotal = marker_uidx_end - marker_uidx - popcount_bit_idx(marker_exclude, marker_uidx, marker_uidx_end);

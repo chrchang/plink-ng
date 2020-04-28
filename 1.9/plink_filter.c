@@ -1178,7 +1178,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
   uintptr_t y_end = 0;
   uintptr_t line_idx = 0;
   int32_t y_code = chrom_info_ptr->xymt_codes[Y_OFFSET];
-  uint32_t y_present = ((y_code != -1) && is_set(chrom_info_ptr->chrom_mask, y_code));
+  uint32_t y_present = ((y_code != -2) && is_set(chrom_info_ptr->chrom_mask, y_code));
   int32_t retval = 0;
   Ll_str* ll_ptr;
   uintptr_t* loadbuf;
@@ -1606,7 +1606,7 @@ int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   uint32_t sample_idx = 0;
   uint32_t removed_ct = 0;
   int32_t y_code = chrom_info_ptr->xymt_codes[Y_OFFSET];
-  uint32_t y_present = (y_code != -1) && is_set(chrom_info_ptr->chrom_mask, y_code);
+  uint32_t y_present = (y_code != -2) && is_set(chrom_info_ptr->chrom_mask, y_code);
   uint32_t nony_marker_ct = marker_ct;
   int32_t retval = 0;
   uint32_t mind_int_thresh[2];
@@ -2091,9 +2091,9 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   loadbuf[unfiltered_sample_ctv2 - 1] = 0;
   init_quaterarr_from_inverted_bitarr(sample_exclude, unfiltered_sample_ct, sample_include2);
   ii = chrom_info_ptr->xymt_codes[X_OFFSET];
-  nonmales_needed = (!is_split_chrom) && (ii != -1) && is_set(chrom_info_ptr->chrom_mask, ii);
+  nonmales_needed = (!is_split_chrom) && (ii != -2) && is_set(chrom_info_ptr->chrom_mask, ii);
   ii = chrom_info_ptr->xymt_codes[Y_OFFSET];
-  males_needed = nonmales_needed || ((!is_split_chrom) && (ii != -1) && is_set(chrom_info_ptr->chrom_mask, ii));
+  males_needed = nonmales_needed || ((!is_split_chrom) && (ii != -2) && is_set(chrom_info_ptr->chrom_mask, ii));
   if (bigstack_alloc_ul(unfiltered_sample_ctv2, &sample_male_include2)) {
     goto calc_freqs_and_hwe_ret_NOMEM;
   }
@@ -2507,7 +2507,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   uint32_t* om_cluster_ref_cts = nullptr;
   uint64_t cur_om_entry = 0;
   int32_t y_code = chrom_info_ptr->xymt_codes[Y_OFFSET];
-  uint32_t y_present = (y_code != -1) && is_set(chrom_info_ptr->chrom_mask, y_code);
+  uint32_t y_present = (y_code != -2) && is_set(chrom_info_ptr->chrom_mask, y_code);
   uint32_t sample_uidx = 0;
   uint32_t sample_idx = 0;
   uint32_t oblig_ct = 0;

@@ -3576,7 +3576,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
   uint32_t slen_add = 0;
   uint32_t sex_covar_everywhere = glm_modifier & GLM_SEX;
   uint32_t x_sex_interaction = (glm_xchr_model == 3);
-  uint32_t x_present = (chrom_info_ptr->xymt_codes[X_OFFSET] != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[X_OFFSET]);
+  uint32_t x_present = (chrom_info_ptr->xymt_codes[X_OFFSET] != -2) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[X_OFFSET]);
   uint32_t hide_covar = glm_modifier & GLM_HIDE_COVAR;
   uint32_t variation_in_sex = 0; // zero if no-x-sex specified
   int32_t retval = 0;
@@ -4501,7 +4501,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   uint32_t ujj;
   uint32_t ukk;
   numbuf[0] = ' ';
-  if ((chrom_info_ptr->xymt_codes[MT_OFFSET] != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[MT_OFFSET])) {
+  if ((chrom_info_ptr->xymt_codes[MT_OFFSET] != -2) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[MT_OFFSET])) {
     hh_or_mt_exists |= NXMHH_EXISTS;
   }
   if (is_set_test) {
@@ -6028,7 +6028,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     logerrprint("Warning: Skipping --logistic since less than two phenotypes are present.\n");
     goto glm_logistic_assoc_ret_1;
   }
-  if ((chrom_info_ptr->xymt_codes[MT_OFFSET] != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[MT_OFFSET])) {
+  if ((chrom_info_ptr->xymt_codes[MT_OFFSET] != -2) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[MT_OFFSET])) {
     hh_or_mt_exists |= NXMHH_EXISTS;
   }
   if (is_set_test) {
@@ -7153,7 +7153,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     goto glm_linear_nosnp_ret_NOMEM;
   }
   sample_valid_ct = popcount_longs(load_mask, unfiltered_sample_ctl);
-  if ((chrom_info_ptr->xymt_codes[MT_OFFSET] != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[MT_OFFSET])) {
+  if ((chrom_info_ptr->xymt_codes[MT_OFFSET] != -2) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[MT_OFFSET])) {
     hh_or_mt_exists |= NXMHH_EXISTS;
   }
   if (condition_mname || condition_fname) {
@@ -8014,7 +8014,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     goto glm_logistic_nosnp_ret_NOMEM;
   }
   sample_valid_ct = popcount_longs(load_mask, unfiltered_sample_ctl);
-  if ((chrom_info_ptr->xymt_codes[MT_OFFSET] != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[MT_OFFSET])) {
+  if ((chrom_info_ptr->xymt_codes[MT_OFFSET] != -2) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[MT_OFFSET])) {
     hh_or_mt_exists |= NXMHH_EXISTS;
   }
   if (condition_mname || condition_fname) {

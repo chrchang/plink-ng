@@ -5312,7 +5312,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   loadbuf[founder_ctl * 2 - 1] = 0;
   fill_all_bits(founder_ct, dummy_nm);
   g_ld_thread_wkspace = nullptr;
-  if ((x_code != -1) && is_set(chrom_info_ptr->chrom_mask, x_code)) {
+  if ((x_code != -2) && is_set(chrom_info_ptr->chrom_mask, x_code)) {
     uii = get_chrom_start_vidx(chrom_info_ptr, (uint32_t)x_code);
     chrom_end = get_chrom_end_vidx(chrom_info_ptr, (uint32_t)x_code);
     chrom_end = chrom_end - uii - popcount_bit_idx(marker_exclude, uii, chrom_end);
@@ -10537,7 +10537,7 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
     geno[ulii * founder_ctsplit + 2 * founder_ctv3 - 1] = 0;
     geno[ulii * founder_ctsplit + founder_ctsplit - 1] = 0;
   }
-  if ((chrom_info_ptr->xymt_codes[X_OFFSET] != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[X_OFFSET])) {
+  if ((chrom_info_ptr->xymt_codes[X_OFFSET] != -2) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[X_OFFSET])) {
     if (bigstack_alloc_ul(founder_ctl, &sex_male_collapsed) ||
         bigstack_alloc_ul(founder_ctsplit, &cur_geno1_male)) {
       goto indep_pairphase_ret_NOMEM;
