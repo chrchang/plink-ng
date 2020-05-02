@@ -16452,6 +16452,24 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     if (retval) {
       goto merge_datasets_ret_1;
     }
+    if ((!mlpos) && (ullxx != cur_marker_ct)) {
+      // Update (2 May 2020): PLINK 1.07 errored out if the first input fileset
+      // had two variants with the same ID.  However, it did *not* do so if
+      // this was true of later filesets, so in cases like
+      //   https://github.com/chrchang/plink-ng/issues/140
+      // where one but not all filesets had a duplicate ID, it would behave in
+      // an asymmetric manner.
+      // There are valid reasons for permitting duplicate IDs in the first
+      // fileset (e.g. there are redundant loci for quality control purposes),
+      // so we don't want to copy PLINK 1.07's error-out behavior.  However,
+      // there are also common dangers (e.g. there are a whole bunch of
+      // variants with ID=. which should be assigned distinct IDs before
+      // merge), so printing a warning where there previously was an error is
+      // justified.
+      // (Obvious todo for PLINK 2.0: also print this warning if the first
+      // fileset doesn't have a duplicate ID, but a later fileset does.)
+      logerrprint("Warning: First fileset to be merged contains duplicate variant ID(s).  Variants\nwith matching IDs are all merged together; if this is not what you want (e.g.\nyou have a bunch of novel variants, all with ID \".\"), assign distinct IDs to\nthem (with e.g. --set-missing-var-ids) before rerunning this merge.\n");
+    }
     if (!merge_list) {
       if (!mlpos) {
 	uii = ullxx;
@@ -16460,8 +16478,6 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
 	LOGPRINTFWW("%u marker%s to be merged from %s.\n", cur_marker_ct, (cur_marker_ct == 1)? "" : "s", mergelist_bim[1]);
 	// bugfix: don't underflow when a single file has duplicate IDs (e.g.
 	// '.').
-	// Merging should fail anyway in that case, but we should not embarrass
-	// ourselves by printing inaccurate numbers here.
 	uii = ullxx - uii;
 	LOGPRINTF("Of these, %u %s new, while %u %s present in the base dataset.\n", uii, (uii == 1)? "is" : "are", cur_marker_ct - uii, (cur_marker_ct - uii == 1)? "is" : "are");
       }
