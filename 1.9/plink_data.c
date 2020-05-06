@@ -15067,7 +15067,7 @@ int32_t report_non_biallelics(char* outname, char* outname_end, Ll_str* non_bial
   if (fclose_null(&outfile)) {
     goto report_non_biallelics_ret_WRITE_FAIL;
   }
-  LOGERRPRINTF("Error: %" PRIuPTR " variant%s with 3+ alleles present.\n* If you believe this is due to strand inconsistency, try --flip with\n  %s.\n  (Warning: if this seems to work, strand errors involving SNPs with A/T or C/G\n  alleles probably remain in your data.  If LD between nearby SNPs is high,\n  --flip-scan should detect them.)\n* If you are dealing with genuine multiallelic variants, we recommend exporting\n  that subset of the data to VCF (via e.g. '--recode vcf'), merging with\n  another tool/script, and then importing the result; PLINK is not yet suited\n  to handling them.\n", nbmarker_ct, (nbmarker_ct == 1)? "" : "s", outname);
+  LOGERRPRINTF("Error: %" PRIuPTR " variant%s with 3+ alleles present.\n* If you believe this is due to strand inconsistency, try --flip with\n  %s.\n  (Warning: if this seems to work, strand errors involving SNPs with A/T or C/G\n  alleles probably remain in your data.  If LD between nearby SNPs is high,\n  --flip-scan should detect them.)\n* If you are dealing with genuine multiallelic variants, we recommend exporting\n  that subset of the data to VCF (via e.g. '--recode vcf'), merging with\n  another tool/script, and then importing the result; PLINK is not yet suited\n  to handling them.\nSee https://www.cog-genomics.org/plink/1.9/data#merge3 for more discussion.\n", nbmarker_ct, (nbmarker_ct == 1)? "" : "s", outname);
   while (0) {
   report_non_biallelics_ret_NOMEM:
     retval = RET_NOMEM;
