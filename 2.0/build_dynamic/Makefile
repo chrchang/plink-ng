@@ -113,7 +113,9 @@ ifeq ($(UNAME), Darwin)
     $(error MKL is not currently supported on OS X)
   endif
   BLASFLAGS=-framework Accelerate
-  CXXFLAGS += -stdlib=libc++
+  CFLAGS += -I/usr/local/include
+  CXXFLAGS += -I/usr/local/include -stdlib=libc++
+  LINKFLAGS += -L/usr/local/lib
 else
   ifdef DYNAMIC_MKL
     ifdef NO_LAPACK

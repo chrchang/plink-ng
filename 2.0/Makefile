@@ -36,9 +36,12 @@ DESTDIR		?= .
 
 UNAME := $(shell uname)
 ifeq ($(UNAME), Darwin)
+  # argh
+  CFLAGS += -I/usr/local/include
+  CXXFLAGS += -I/usr/local/include
   BLASFLAGS=-framework Accelerate
   BLASFLAGS64=-framework Accelerate
-  LDFLAGS=-ldl -lpthread -lz -lzstd
+  LDFLAGS=-ldl -lpthread -lz -lzstd -L/usr/local/lib
 endif
 
 %.o: %.c
