@@ -95,9 +95,9 @@ extern "C" {
 #        endif
 static_assert(sizeof(MKL_INT) == 8, "Unexpected MKL_INT size.");
 #      else
-  // If you want 64-bit index support, but not MKL (e.g. you're targeting an
-  // AMD processor), modify the Makefile to link to a LAPACK library recompiled
-  // with -fdefault-integer-8.
+// If you want 64-bit index support, but not MKL (e.g. you're targeting an
+// AMD processor), modify the Makefile to link to a LAPACK library recompiled
+// with -fdefault-integer-8.
 
 #        ifdef USE_CBLAS_XGEMM
 #          include <cblas.h>
@@ -133,6 +133,9 @@ static_assert(sizeof(MKL_INT) == 8, "Unexpected MKL_INT size.");
                           float* sy, __CLPK_integer* incy);
 #        endif
 #      endif  // !USE_MKL
+#      ifdef USE_CUDA
+#        include "cuda/plink2_matrix_cuda.h"
+#      endif
 #    endif
 
   void xerbla_(void);

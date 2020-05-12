@@ -869,6 +869,8 @@ void ColMajorFvectorMatrixMultiplyStrided(const float* in_fvec1, const float* in
 }
 
 // Briefly experimented with trying to speed this up, didn't make any progress.
+// Tried vDSP_mtransD() on macOS and mkl_domatcopy() on Linux, neither of those
+// helped, so it's likely there's no progress to be made.
 void MatrixTransposeCopy(const double* old_matrix, uint32_t old_maj, uint32_t new_maj, double* new_matrix_iter) {
   for (uint32_t new_maj_idx = 0; new_maj_idx != new_maj; ++new_maj_idx) {
     const double* old_matrix_col_iter = &(old_matrix[new_maj_idx]);

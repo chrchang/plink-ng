@@ -1521,12 +1521,13 @@ PglErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* co
           bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &dbl_2d_buf))) {
     return kPglRetNomem;
   }
-  uint32_t* cat_obs_buf = nullptr;
-  if (extra_cat_ct) {
-    if (unlikely(
-            bigstack_alloc_u32(covar_max_nonnull_cat_ct + 1, &cat_obs_buf))) {
-      return kPglRetNomem;
-    }
+  uint32_t* cat_obs_buf;
+  // bugfix (11 May 2020): we were previously only initializing cat_obs_buf
+  // when extra_cat_ct > 0; this resulted in segfaults when every categorical
+  // covariate had only two categories.
+  if (unlikely(
+          bigstack_alloc_u32(covar_max_nonnull_cat_ct + 1, &cat_obs_buf))) {
+    return kPglRetNomem;
   }
   unsigned char* alloc_base = g_bigstack_base;
   unsigned char* new_covar_name_alloc = g_bigstack_end;
