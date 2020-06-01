@@ -7335,7 +7335,7 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
       cur_bidxs[row_idx] = variant_bidx;
       if (single_prec) {
         float* cur_row = &(dosage_f_vmaj[row_idx * sample_ct]);
-        PopulateRescaledDosageF(genovec, dosage_present, dosage_main, S_CAST(float, slope), S_CAST(float, 0.0), missing_val, sample_ct, dosage_ct, cur_row);
+        PopulateRescaledDosageF(genovec, dosage_present, dosage_main, S_CAST(float, slope), S_CAST(float, 0.0), S_CAST(float, missing_val), sample_ct, dosage_ct, cur_row);
         if (is_x_or_y) {
           // Instead of doing this for every variant, we could precompute
           // chrX/chrY weight matrices with male weights halved/nonmale weights

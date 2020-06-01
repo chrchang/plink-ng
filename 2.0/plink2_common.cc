@@ -260,7 +260,7 @@ void PopulateRescaledDosage(const uintptr_t* genoarr, const uintptr_t* dosage_pr
   }
 }
 
-void PopulateRescaledDosageF(const uintptr_t* genoarr, const uintptr_t* dosage_present, const Dosage* dosage_main, float slope, float intercept, double missing_val, uint32_t sample_ct, uint32_t dosage_ct, float* expanded_dosages) {
+void PopulateRescaledDosageF(const uintptr_t* genoarr, const uintptr_t* dosage_present, const Dosage* dosage_main, float slope, float intercept, float missing_val, uint32_t sample_ct, uint32_t dosage_ct, float* expanded_dosages) {
   float lookup_vals[32] ALIGNV16;
   lookup_vals[0] = intercept;
   lookup_vals[2] = intercept + slope;
