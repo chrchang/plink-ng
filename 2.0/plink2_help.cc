@@ -1173,7 +1173,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    (https://www.prsice.info/ ) software packages.\n\n"
                );
     HelpPrint("variant-score\0vscore\0", &help_ctrl, 1,
-"  --variant-score <filename> ['zs'] ['bin' | 'cols='<col set descriptor>]\n"
+"  --variant-score <filename> ['bin' | 'bin4' | 'cols='<col set descriptor>]\n"
+"                  ['zs'] ['single-prec']\n"
 "    (alias: --vscore)\n"
 "    Apply linear scoring system(s) to each variant.  Each reported variant\n"
 "    score is the dot product of a sample-weight vector with the\n"
@@ -1195,9 +1196,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      (Variant scores are always present, and positioned here.)\n"
 "    Default is chrom,pos,ref,alt.\n"
 "    If binary output is requested instead, the main .vscore.bin matrix contains\n"
-"    double-precision floating-point values, column (score) ID(s) are saved to\n"
+"    floating-point values, column (score) ID(s) are saved to\n"
 "    <output prefix>.vscore.cols, and variant IDs are saved to\n"
-"    <output prefix>.vscore.vars[.zst].\n\n"
+"    <output prefix>.vscore.vars[.zst].\n"
+"    'single-prec' causes the computation to use single- instead of\n"
+"    double-precision floating-point values internally.\n\n"
               );
     HelpPrint("adjust-file\0adjust\0", &help_ctrl, 1,
 "  --adjust-file <filename> ['zs'] ['gc'] ['cols='<column set descriptor>]\n"

@@ -353,6 +353,10 @@ void ColMajorVectorMatrixMultiplyStrided(const double* in_dvec1, const double* i
 
 void ColMajorFmatrixMultiplyStrided(const float* inmatrix1, const float* inmatrix2, __CLPK_integer row1_ct, __CLPK_integer stride1, __CLPK_integer col2_ct, __CLPK_integer stride2, __CLPK_integer common_ct, __CLPK_integer stride3, float* outmatrix);
 
+HEADER_INLINE void RowMajorFmatrixMultiply(const float* inmatrix1, const float* inmatrix2, __CLPK_integer row1_ct, __CLPK_integer col2_ct, __CLPK_integer common_ct, float* outmatrix) {
+  ColMajorFmatrixMultiplyStrided(inmatrix2, inmatrix1, col2_ct, col2_ct, row1_ct, common_ct, common_ct, col2_ct, outmatrix);
+}
+
 // out := M * V
 void ColMajorFmatrixVectorMultiplyStrided(const float* inmatrix1, const float* in_fvec2, __CLPK_integer row1_ct, __CLPK_integer stride1, __CLPK_integer common_ct, float* out_fvec);
 

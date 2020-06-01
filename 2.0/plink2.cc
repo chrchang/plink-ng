@@ -51,7 +51,11 @@ static const char ver_str[] = "PLINK v2.00a3"
     "LM"
 #  endif
 #  ifdef USE_AVX2
+#    ifdef USE_CUDA
+    " CUDA"
+#    else
     " AVX2"
+#    endif
 #  else
 #    ifdef USE_SSE42
       " SSE4.2"
@@ -66,7 +70,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (11 May 2020)";
+  " (31 May 2020)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -9412,7 +9416,7 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
         } else if (strequal_k_unsafe(flagname_p2, "ariant-score")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 4))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.vscore_fname);
@@ -9425,11 +9429,15 @@ int main(int argc, char** argv) {
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.vscore_flags |= kfVscoreZs;
+            } else if (strequal_k(cur_modif, "single-prec", cur_modif_slen)) {
+              pc.vscore_flags |= kfVscoreSinglePrec;
             } else if (strequal_k(cur_modif, "bin", cur_modif_slen)) {
               // 'zs' and 'bin' *are* allowed together, since the variant-ID
               // (.vscore.vars) file accompanying the .vscore.bin can be large
               // enough to deserve compression.
               pc.vscore_flags |= kfVscoreBin;
+            } else if (strequal_k(cur_modif, "bin4", cur_modif_slen)) {
+              pc.vscore_flags |= kfVscoreBin4;
             } else if (likely(StrStartsWith0(cur_modif, "cols=", cur_modif_slen))) {
               if (unlikely(explicit_cols)) {
                 logerrputs("Error: Multiple --variant-score cols= modifiers.\n");
@@ -9445,10 +9453,14 @@ int main(int argc, char** argv) {
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
+          if ((pc.vscore_flags & kfVscoreBin) && (pc.vscore_flags & (kfVscoreSinglePrec | kfVscoreBin4))) {
+            logerrputs("Error: --variant-score 'bin' modifier cannot be used with 'bin4' or\n'single-prec'.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
           if (!explicit_cols) {
             pc.vscore_flags |= kfVscoreColDefault;
-          } else if (pc.vscore_flags & kfVscoreBin) {
-            logerrputs("Error: --variant-score 'bin' and 'cols=' modifiers cannot be used together.\n");
+          } else if (pc.vscore_flags & (kfVscoreBin | kfVscoreBin4)) {
+            logerrputs("Error: --variant-score 'bin'/'bin4' and 'cols=' modifiers cannot be used\ntogether.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           pc.command_flags1 |= kfCommand1Vscore;

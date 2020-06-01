@@ -540,7 +540,7 @@ double CIndexWeighted(NumericVector yhat, NumericVector y, SEXP status, const do
       const double cur_wt = weightsd[old_idx];
       if (cur_wt >= wt_min) {
         recs[new_idx].key = yhatd[old_idx];
-        recs[new_idx].wt = static_cast<uint32_t>(wt_multiplier * cur_wt + 0.5);
+        recs[new_idx].wt = static_cast<int32_t>(wt_multiplier * cur_wt + 0.5);
         recs[new_idx].status = old_idx;
         ++new_idx;
       }

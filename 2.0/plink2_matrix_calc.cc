@@ -20,6 +20,10 @@
 #include "plink2_matrix_calc.h"
 #include "plink2_random.h"
 
+#ifdef USE_CUDA
+#  include "cuda/plink2_matrix_cuda.h"
+#endif
+
 #ifdef __cplusplus
 namespace plink2 {
 #endif
@@ -6906,7 +6910,8 @@ typedef struct VscoreCtxStruct {
   const uint32_t* sample_include_cumulative_popcounts;
   const uintptr_t* sex_male_collapsed;
   const uintptr_t* sex_male_interleaved_vec;
-  const double* wts_smaj;
+  const float* wts_f_smaj;
+  const double* wts_d_smaj;
   uint32_t vscore_ct;
   uint32_t sample_ct;
   uint32_t male_ct;
@@ -6922,16 +6927,23 @@ typedef struct VscoreCtxStruct {
 
   uint32_t cur_block_size;
 
-  double** dosage_vmaj_bufs;
-  double** tmp_result_bufs;
+  float** dosage_f_vmaj_bufs;
+  float** tmp_f_result_bufs;
+  double** dosage_d_vmaj_bufs;
+  double** tmp_d_result_bufs;
+#ifdef USE_CUDA
+  CublasFmultiplier* cfms;
+#endif
 
   // variant-major
-  double* results[2];
+  float* results_f[2];
+  double* results_d[2];
 
   uint32_t* missing_cts[2];
 
-  // only kPglRetMalformedInput possible, no atomic ops needed
-  PglErr reterr;
+  // high 32 bits = unused for now
+  // low 32 bits = uint32_t(PglErr)
+  uint64_t err_info;
 } VscoreCtx;
 
 // This setting seems optimal on my Mac (smaller doesn't take full advantage of
@@ -6950,7 +6962,8 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
   const uintptr_t* sample_include = ctx->sample_include;
   const uintptr_t* sex_male = ctx->sex_male_collapsed;
   const uintptr_t* sex_male_interleaved_vec = ctx->sex_male_interleaved_vec;
-  const double* wts_smaj = ctx->wts_smaj;
+  const float* wts_f_smaj = ctx->wts_f_smaj;
+  const double* wts_d_smaj = ctx->wts_d_smaj;
 
   PgenReader* pgrp = ctx->pgr_ptrs[tidx];
   PgrSampleSubsetIndex pssi;
@@ -6974,12 +6987,27 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
   const uint32_t is_xchr_model_1 = ctx->is_xchr_model_1;
   const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
 
-  const uint32_t max_sparse = sample_ct / 9;
+  const uint32_t single_prec = (wts_f_smaj != nullptr);
+#ifdef USE_CUDA
+  CublasFmultiplier* cfmp = ctx->cfms? &(ctx->cfms[tidx]) : nullptr;
+  const uint32_t max_sparse = sample_ct / (single_prec? (cfmp? 64 : 32) : 16);
+#else
+  const uint32_t max_sparse = sample_ct / (single_prec? 32 : 16);
+#endif
 
-  double* tmp_result_buf = ctx->tmp_result_bufs[tidx];
+  float* tmp_f_result_buf = nullptr;
+  double* tmp_d_result_buf = nullptr;
   uint16_t cur_bidxs[kVscoreBlockSize];
 
-  double* dosage_vmaj = ctx->dosage_vmaj_bufs[tidx];
+  float* dosage_f_vmaj = nullptr;
+  double* dosage_d_vmaj = nullptr;
+  if (single_prec) {
+    tmp_f_result_buf = ctx->tmp_f_result_bufs[tidx];
+    dosage_f_vmaj = ctx->dosage_f_vmaj_bufs[tidx];
+  } else {
+    tmp_d_result_buf = ctx->tmp_d_result_bufs[tidx];
+    dosage_d_vmaj = ctx->dosage_d_vmaj_bufs[tidx];
+  }
 
   uint32_t is_y = 0;
   uint32_t is_x_or_y = 0;
@@ -6990,10 +7018,12 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
   uint32_t dosage_ct = 0;
 
   uint32_t parity = 0;
+  uint64_t new_err_info = 0;
   do {
     const uintptr_t cur_block_size = ctx->cur_block_size;
     const uint32_t bidx_end = ((tidx + 1) * cur_block_size) / calc_thread_ct;
-    double* cur_results = ctx->results[parity];
+    float* cur_results_f = ctx->results_f[parity];
+    double* cur_results_d = ctx->results_d[parity];
     uint32_t* missing_cts = ctx->missing_cts[parity];
     uintptr_t row_idx = 0;
     uintptr_t variant_uidx_base;
@@ -7030,18 +7060,33 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
         uint32_t difflist_len;
         PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_sparse, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
         if (unlikely(reterr)) {
-          ctx->reterr = reterr;
+          new_err_info = S_CAST(uint32_t, reterr);
           goto VscoreThread_err;
         }
         if (difflist_common_geno != UINT32_MAX) {
           if ((!is_x_or_y) && (!difflist_common_geno)) {
-            double* target = &(cur_results[variant_bidx * vscore_ct]);
+
+            float* target_f = nullptr;
+            double* target_d = nullptr;
+            if (single_prec) {
+              target_f = &(cur_results_f[variant_bidx * vscore_ct]);
+            } else {
+              target_d = &(cur_results_d[variant_bidx * vscore_ct]);
+            }
             uint32_t missing_ct = 0;
             if (!difflist_len) {
-              ZeroDArr(vscore_ct, target);
+              if (single_prec) {
+                ZeroFArr(vscore_ct, target_f);
+              } else {
+                ZeroDArr(vscore_ct, target_d);
+              }
             } else {
               ZeroTrailingNyps(difflist_len, raregeno);
-              ZeroDArr(vscore_ct * 3, tmp_result_buf);
+              if (single_prec) {
+                ZeroFArr(vscore_ct * 3, tmp_f_result_buf);
+              } else {
+                ZeroDArr(vscore_ct * 3, tmp_d_result_buf);
+              }
               const uint32_t word_ct_m1 = (difflist_len - 1) / kBitsPerWordD2;
               uint32_t loop_len = kBitsPerWordD2;
               for (uint32_t widx = 0; ; ++widx) {
@@ -7056,29 +7101,60 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
                 uintptr_t raregeno_invword = ~raregeno_word;
                 missing_ct += Popcount01Word(raregeno_word & (raregeno_word >> 1) & kMask5555);
                 const uint32_t* cur_difflist_sample_ids = &(difflist_sample_ids[widx * kBitsPerWordD2]);
-                for (uint32_t uii = 0; uii != loop_len; ++uii) {
-                  const uintptr_t sample_idx = cur_difflist_sample_ids[uii];
-                  const uint32_t cur_invgeno = raregeno_invword & 3;
-                  const double* incr_src = &(wts_smaj[sample_idx * vscore_ct]);
-                  double* incr_dst = &(tmp_result_buf[cur_invgeno * vscore_ct]);
-                  for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
-                    incr_dst[ulii] += incr_src[ulii];
+                if (single_prec) {
+                  for (uint32_t uii = 0; uii != loop_len; ++uii) {
+                    const uintptr_t sample_idx = cur_difflist_sample_ids[uii];
+                    const uint32_t cur_invgeno = raregeno_invword & 3;
+                    const float* incr_src = &(wts_f_smaj[sample_idx * vscore_ct]);
+                    float* incr_dst = &(tmp_f_result_buf[cur_invgeno * vscore_ct]);
+                    for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                      incr_dst[ulii] += incr_src[ulii];
+                    }
+                    raregeno_invword = raregeno_invword >> 2;
                   }
-                  raregeno_invword = raregeno_invword >> 2;
+                } else {
+                  for (uint32_t uii = 0; uii != loop_len; ++uii) {
+                    const uintptr_t sample_idx = cur_difflist_sample_ids[uii];
+                    const uint32_t cur_invgeno = raregeno_invword & 3;
+                    const double* incr_src = &(wts_d_smaj[sample_idx * vscore_ct]);
+                    double* incr_dst = &(tmp_d_result_buf[cur_invgeno * vscore_ct]);
+                    for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                      incr_dst[ulii] += incr_src[ulii];
+                    }
+                    raregeno_invword = raregeno_invword >> 2;
+                  }
                 }
               }
-              if (!is_nonxy_haploid) {
-                for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
-                  target[ulii] = 2 * tmp_result_buf[ulii + vscore_ct] + tmp_result_buf[ulii + 2 * vscore_ct];
+              if (single_prec) {
+                if (!is_nonxy_haploid) {
+                  for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                    target_f[ulii] = 2 * tmp_f_result_buf[ulii + vscore_ct] + tmp_f_result_buf[ulii + 2 * vscore_ct];
+                  }
+                } else {
+                  for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                    target_f[ulii] = tmp_f_result_buf[ulii + vscore_ct] + S_CAST(float, 0.5) * tmp_f_result_buf[ulii + 2 * vscore_ct];
+                  }
+                }
+                if (missing_ct) {
+                  const float missing_val_f = S_CAST(float, missing_val);
+                  for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                    target_f[ulii] += missing_val_f * tmp_f_result_buf[ulii];
+                  }
                 }
               } else {
-                for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
-                  target[ulii] = tmp_result_buf[ulii + vscore_ct] + 0.5 * tmp_result_buf[ulii + 2 * vscore_ct];
+                if (!is_nonxy_haploid) {
+                  for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                    target_d[ulii] = 2 * tmp_d_result_buf[ulii + vscore_ct] + tmp_d_result_buf[ulii + 2 * vscore_ct];
+                  }
+                } else {
+                  for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                    target_d[ulii] = tmp_d_result_buf[ulii + vscore_ct] + 0.5 * tmp_d_result_buf[ulii + 2 * vscore_ct];
+                  }
                 }
-              }
-              if (missing_ct) {
-                for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
-                  target[ulii] += missing_val * tmp_result_buf[ulii];
+                if (missing_ct) {
+                  for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                    target_d[ulii] += missing_val * tmp_d_result_buf[ulii];
+                  }
                 }
               }
             }
@@ -7092,7 +7168,7 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
       } else {
         PglErr reterr = PgrGetD(sample_include, pssi, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
         if (unlikely(reterr)) {
-          ctx->reterr = reterr;
+          new_err_info = S_CAST(uint32_t, reterr);
           goto VscoreThread_err;
         }
         if ((!is_x_or_y) && (dosage_ct <= max_sparse)) {
@@ -7105,11 +7181,25 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
           }
           GenoarrCountInvsubsetFreqs2(genovec, dosage_present, sample_ct, sample_ct - dosage_ct, genocounts);
           if (genocounts[0] >= sample_ct - max_sparse) {
-            double* target = &(cur_results[variant_bidx * vscore_ct]);
-            if (genocounts[0] == sample_ct) {
-              ZeroDArr(vscore_ct, target);
+            float* target_f = nullptr;
+            double* target_d = nullptr;
+            if (single_prec) {
+              target_f = &(cur_results_f[variant_bidx * vscore_ct]);
             } else {
-              ZeroDArr(vscore_ct * 3, tmp_result_buf);
+              target_d = &(cur_results_d[variant_bidx * vscore_ct]);
+            }
+            if (genocounts[0] == sample_ct) {
+              if (single_prec) {
+                ZeroFArr(vscore_ct, target_f);
+              } else {
+                ZeroDArr(vscore_ct, target_d);
+              }
+            } else {
+              if (single_prec) {
+                ZeroFArr(vscore_ct * 3, tmp_f_result_buf);
+              } else {
+                ZeroDArr(vscore_ct * 3, tmp_d_result_buf);
+              }
               const Halfword* dosage_present_alias = R_CAST(Halfword*, dosage_present);
               const uint32_t sample_ctl2 = DivUp(sample_ct, kBitsPerWordD2);
               for (uint32_t widx = 0; widx != sample_ctl2; ++widx) {
@@ -7122,40 +7212,84 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
                 if (!geno_word) {
                   continue;
                 }
-                const double* cur_wts_smaj = &(wts_smaj[widx * kBitsPerWordD2 * vscore_ct]);
-                do {
-                  const uint32_t shift_ct = ctzw(geno_word) & (~1);
-                  const uintptr_t cur_invgeno = 3 & (~(geno_word >> shift_ct));
-                  const double* incr_src = &(cur_wts_smaj[(shift_ct / 2) * vscore_ct]);
-                  double* incr_dst = &(tmp_result_buf[cur_invgeno * vscore_ct]);
-                  for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
-                    incr_dst[ulii] += incr_src[ulii];
-                  }
-                  geno_word &= ~((3 * k1LU) << shift_ct);
-                } while (geno_word);
+                if (single_prec) {
+                  const float* cur_wts_smaj = &(wts_f_smaj[widx * kBitsPerWordD2 * vscore_ct]);
+                  do {
+                    const uint32_t shift_ct = ctzw(geno_word) & (~1);
+                    const uintptr_t cur_invgeno = 3 & (~(geno_word >> shift_ct));
+                    const float* incr_src = &(cur_wts_smaj[(shift_ct / 2) * vscore_ct]);
+                    float* incr_dst = &(tmp_f_result_buf[cur_invgeno * vscore_ct]);
+                    for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                      incr_dst[ulii] += incr_src[ulii];
+                    }
+                    geno_word &= ~((3 * k1LU) << shift_ct);
+                  } while (geno_word);
+                } else {
+                  const double* cur_wts_smaj = &(wts_d_smaj[widx * kBitsPerWordD2 * vscore_ct]);
+                  do {
+                    const uint32_t shift_ct = ctzw(geno_word) & (~1);
+                    const uintptr_t cur_invgeno = 3 & (~(geno_word >> shift_ct));
+                    const double* incr_src = &(cur_wts_smaj[(shift_ct / 2) * vscore_ct]);
+                    double* incr_dst = &(tmp_d_result_buf[cur_invgeno * vscore_ct]);
+                    for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                      incr_dst[ulii] += incr_src[ulii];
+                    }
+                    geno_word &= ~((3 * k1LU) << shift_ct);
+                  } while (geno_word);
+                }
               }
-              if (!is_nonxy_haploid) {
-                for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
-                  target[ulii] = 2 * tmp_result_buf[ulii + vscore_ct] + tmp_result_buf[ulii + 2 * vscore_ct];
+              if (single_prec) {
+                if (!is_nonxy_haploid) {
+                  for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                    target_f[ulii] = 2 * tmp_f_result_buf[ulii + vscore_ct] + tmp_f_result_buf[ulii + 2 * vscore_ct];
+                  }
+                } else {
+                  for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                    target_f[ulii] = tmp_f_result_buf[ulii + vscore_ct] + S_CAST(float, 0.5) * tmp_f_result_buf[ulii + 2 * vscore_ct];
+                  }
+                }
+                if (genocounts[3]) {
+                  const float missing_val_f = S_CAST(float, missing_val);
+                  for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                    target_f[ulii] += missing_val_f * tmp_f_result_buf[ulii];
+                  }
                 }
               } else {
-                for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
-                  target[ulii] = tmp_result_buf[ulii + vscore_ct] + 0.5 * tmp_result_buf[ulii + 2 * vscore_ct];
+                if (!is_nonxy_haploid) {
+                  for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                    target_d[ulii] = 2 * tmp_d_result_buf[ulii + vscore_ct] + tmp_d_result_buf[ulii + 2 * vscore_ct];
+                  }
+                } else {
+                  for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                    target_d[ulii] = tmp_d_result_buf[ulii + vscore_ct] + 0.5 * tmp_d_result_buf[ulii + 2 * vscore_ct];
+                  }
                 }
-              }
-              if (genocounts[3]) {
-                for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
-                  target[ulii] += missing_val * tmp_result_buf[ulii];
+                if (genocounts[3]) {
+                  for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                    target_d[ulii] += missing_val * tmp_d_result_buf[ulii];
+                  }
                 }
               }
               uintptr_t sample_idx_base = 0;
               uintptr_t dosage_present_bits = dosage_present[0];
-              for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
-                const uintptr_t sample_idx = BitIter1(dosage_present, &sample_idx_base, &dosage_present_bits);
-                const double* incr_src = &(wts_smaj[sample_idx * vscore_ct]);
-                const double cur_dosage = slope * kRecipDosageMid * u31tod(dosage_main[dosage_idx]);
-                for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
-                  target[ulii] += cur_dosage * incr_src[ulii];
+              if (single_prec) {
+                const float slope_f = S_CAST(float, slope);
+                for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+                  const uintptr_t sample_idx = BitIter1(dosage_present, &sample_idx_base, &dosage_present_bits);
+                  const float* incr_src = &(wts_f_smaj[sample_idx * vscore_ct]);
+                  const float cur_dosage = slope_f * S_CAST(float, kRecipDosageMid) * u31tof(dosage_main[dosage_idx]);
+                  for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                    target_f[ulii] += cur_dosage * incr_src[ulii];
+                  }
+                }
+              } else {
+                for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+                  const uintptr_t sample_idx = BitIter1(dosage_present, &sample_idx_base, &dosage_present_bits);
+                  const double* incr_src = &(wts_d_smaj[sample_idx * vscore_ct]);
+                  const double cur_dosage = slope * kRecipDosageMid * u31tod(dosage_main[dosage_idx]);
+                  for (uintptr_t ulii = 0; ulii != vscore_ct; ++ulii) {
+                    target_d[ulii] += cur_dosage * incr_src[ulii];
+                  }
                 }
               }
             }
@@ -7168,42 +7302,91 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
       }
 
       if (row_idx == kVscoreBlockSize) {
-        RowMajorMatrixMultiply(dosage_vmaj, wts_smaj, kVscoreBlockSize, vscore_ct, sample_ct, tmp_result_buf);
-        const double* tmp_result_iter = tmp_result_buf;
-        for (uintptr_t ulii = 0; ulii != kVscoreBlockSize; ++ulii) {
-          const uintptr_t cur_bidx = cur_bidxs[ulii];
-          memcpy(&(cur_results[cur_bidx * vscore_ct]), tmp_result_iter, vscore_ct * sizeof(double));
-          tmp_result_iter = &(tmp_result_iter[vscore_ct]);
+        if (single_prec) {
+#ifdef USE_CUDA
+          if (cfmp) {
+            if (unlikely(CublasFmultiplyRowMajor1(dosage_f_vmaj, cfmp, tmp_f_result_buf))) {
+              new_err_info = S_CAST(uint32_t, kPglRetGpuFail);
+              goto VscoreThread_err;
+            }
+          } else {
+            RowMajorFmatrixMultiply(dosage_f_vmaj, wts_f_smaj, kVscoreBlockSize, vscore_ct, sample_ct, tmp_f_result_buf);
+          }
+#else
+          RowMajorFmatrixMultiply(dosage_f_vmaj, wts_f_smaj, kVscoreBlockSize, vscore_ct, sample_ct, tmp_f_result_buf);
+#endif
+          const float* tmp_f_result_iter = tmp_f_result_buf;
+          for (uintptr_t ulii = 0; ulii != kVscoreBlockSize; ++ulii) {
+            const uintptr_t cur_bidx = cur_bidxs[ulii];
+            memcpy(&(cur_results_f[cur_bidx * vscore_ct]), tmp_f_result_iter, vscore_ct * sizeof(float));
+            tmp_f_result_iter = &(tmp_f_result_iter[vscore_ct]);
+          }
+        } else {
+          RowMajorMatrixMultiply(dosage_d_vmaj, wts_d_smaj, kVscoreBlockSize, vscore_ct, sample_ct, tmp_d_result_buf);
+          const double* tmp_d_result_iter = tmp_d_result_buf;
+          for (uintptr_t ulii = 0; ulii != kVscoreBlockSize; ++ulii) {
+            const uintptr_t cur_bidx = cur_bidxs[ulii];
+            memcpy(&(cur_results_d[cur_bidx * vscore_ct]), tmp_d_result_iter, vscore_ct * sizeof(double));
+            tmp_d_result_iter = &(tmp_d_result_iter[vscore_ct]);
+          }
         }
         row_idx = 0;
       }
       cur_bidxs[row_idx] = variant_bidx;
-      double* cur_row = &(dosage_vmaj[row_idx * sample_ct]);
-      ++row_idx;
-      PopulateRescaledDosage(genovec, dosage_present, dosage_main, slope, 0.0, missing_val, sample_ct, dosage_ct, cur_row);
-      if (is_x_or_y) {
-        // Instead of doing this for every variant, we could precompute
-        // chrX/chrY weight matrices with male weights halved/nonmale weights
-        // zeroed out.  But the number of chrY variants is typically small
-        // enough (and how often will --xchr-model 1 be used, anyway?) that I
-        // don't think it's worth it.
-        uintptr_t sample_uidx_base = 0;
-        if (is_y) {
-          // zero out nonmale values
-          uintptr_t sex_male_invbits = ~sex_male[0];
-          for (uint32_t nonmale_idx = 0; nonmale_idx != nonmale_ct; ++nonmale_idx) {
-            const uintptr_t sample_uidx = BitIter0(sex_male, &sample_uidx_base, &sex_male_invbits);
-            cur_row[sample_uidx] = 0.0;
+      if (single_prec) {
+        float* cur_row = &(dosage_f_vmaj[row_idx * sample_ct]);
+        PopulateRescaledDosageF(genovec, dosage_present, dosage_main, S_CAST(float, slope), S_CAST(float, 0.0), missing_val, sample_ct, dosage_ct, cur_row);
+        if (is_x_or_y) {
+          // Instead of doing this for every variant, we could precompute
+          // chrX/chrY weight matrices with male weights halved/nonmale weights
+          // zeroed out.  But the number of chrY variants is typically small
+          // enough (and how often will --xchr-model 1 be used, anyway?) that I
+          // don't think it's worth it.
+          uintptr_t sample_uidx_base = 0;
+          if (is_y) {
+            // zero out nonmale values
+            uintptr_t sex_male_invbits = ~sex_male[0];
+            for (uint32_t nonmale_idx = 0; nonmale_idx != nonmale_ct; ++nonmale_idx) {
+              const uintptr_t sample_uidx = BitIter0(sex_male, &sample_uidx_base, &sex_male_invbits);
+              cur_row[sample_uidx] = S_CAST(float, 0.0);
+            }
+          } else {
+            // xchr_model 1: halve male values
+            uintptr_t sex_male_bits = sex_male[0];
+            for (uint32_t male_idx = 0; male_idx != male_ct; ++male_idx) {
+              const uintptr_t sample_uidx = BitIter1(sex_male, &sample_uidx_base, &sex_male_bits);
+              cur_row[sample_uidx] *= S_CAST(float, 0.5);
+            }
           }
-        } else {
-          // xchr_model 1: halve male values
-          uintptr_t sex_male_bits = sex_male[0];
-          for (uint32_t male_idx = 0; male_idx != male_ct; ++male_idx) {
-            const uintptr_t sample_uidx = BitIter1(sex_male, &sample_uidx_base, &sex_male_bits);
-            cur_row[sample_uidx] *= 0.5;
+        }
+      } else {
+        double* cur_row = &(dosage_d_vmaj[row_idx * sample_ct]);
+        PopulateRescaledDosage(genovec, dosage_present, dosage_main, slope, 0.0, missing_val, sample_ct, dosage_ct, cur_row);
+        if (is_x_or_y) {
+          // Instead of doing this for every variant, we could precompute
+          // chrX/chrY weight matrices with male weights halved/nonmale weights
+          // zeroed out.  But the number of chrY variants is typically small
+          // enough (and how often will --xchr-model 1 be used, anyway?) that I
+          // don't think it's worth it.
+          uintptr_t sample_uidx_base = 0;
+          if (is_y) {
+            // zero out nonmale values
+            uintptr_t sex_male_invbits = ~sex_male[0];
+            for (uint32_t nonmale_idx = 0; nonmale_idx != nonmale_ct; ++nonmale_idx) {
+              const uintptr_t sample_uidx = BitIter0(sex_male, &sample_uidx_base, &sex_male_invbits);
+              cur_row[sample_uidx] = 0.0;
+            }
+          } else {
+            // xchr_model 1: halve male values
+            uintptr_t sex_male_bits = sex_male[0];
+            for (uint32_t male_idx = 0; male_idx != male_ct; ++male_idx) {
+              const uintptr_t sample_uidx = BitIter1(sex_male, &sample_uidx_base, &sex_male_bits);
+              cur_row[sample_uidx] *= 0.5;
+            }
           }
         }
       }
+      ++row_idx;
       if (missing_cts) {
         ZeroTrailingNyps(sample_ct, genovec);
         uint32_t missing_ct;
@@ -7242,15 +7425,29 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
       }
     }
     if (row_idx) {
-      RowMajorMatrixMultiply(dosage_vmaj, wts_smaj, row_idx, vscore_ct, sample_ct, tmp_result_buf);
-      const double* tmp_result_iter = tmp_result_buf;
-      for (uintptr_t ulii = 0; ulii != row_idx; ++ulii) {
-        uintptr_t cur_bidx = cur_bidxs[ulii];
-        memcpy(&(cur_results[cur_bidx * vscore_ct]), tmp_result_iter, vscore_ct * sizeof(double));
-        tmp_result_iter = &(tmp_result_iter[vscore_ct]);
+      if (single_prec) {
+        RowMajorFmatrixMultiply(dosage_f_vmaj, wts_f_smaj, row_idx, vscore_ct, sample_ct, tmp_f_result_buf);
+        const float* tmp_f_result_iter = tmp_f_result_buf;
+        for (uintptr_t ulii = 0; ulii != row_idx; ++ulii) {
+          uintptr_t cur_bidx = cur_bidxs[ulii];
+          memcpy(&(cur_results_f[cur_bidx * vscore_ct]), tmp_f_result_iter, vscore_ct * sizeof(float));
+          tmp_f_result_iter = &(tmp_f_result_iter[vscore_ct]);
+        }
+      } else {
+        RowMajorMatrixMultiply(dosage_d_vmaj, wts_d_smaj, row_idx, vscore_ct, sample_ct, tmp_d_result_buf);
+        const double* tmp_d_result_iter = tmp_d_result_buf;
+        for (uintptr_t ulii = 0; ulii != row_idx; ++ulii) {
+          uintptr_t cur_bidx = cur_bidxs[ulii];
+          memcpy(&(cur_results_d[cur_bidx * vscore_ct]), tmp_d_result_iter, vscore_ct * sizeof(double));
+          tmp_d_result_iter = &(tmp_d_result_iter[vscore_ct]);
+        }
       }
     }
-  VscoreThread_err:
+    while (0) {
+    VscoreThread_err:
+      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+      break;
+    }
     parity = 1 - parity;
   } while (!THREAD_BLOCK_FINISH(arg));
   THREAD_RETURN;
@@ -7260,15 +7457,20 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t line_idx = 0;
+  uint32_t calc_thread_ct = max_thread_ct;
   char* cswritep = nullptr;
   FILE* binfile = nullptr;
   PglErr reterr = kPglRetSuccess;
   TextStream txs;
   ThreadGroup tg;
   CompressStreamState css;
+  VscoreCtx ctx;
   PreinitTextStream(&txs);
   PreinitThreads(&tg);
   PreinitCstream(&css);
+#ifdef USE_CUDA
+  ctx.cfms = nullptr;
+#endif
   {
     // unsurprisingly, lots of overlap with --score
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
@@ -7405,26 +7607,45 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
       goto Vscore_ret_1;
     }
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
-#ifndef __LP64__
-    if (sample_ct * S_CAST(uint64_t, vscore_ct) >= 0x80000000U / sizeof(double)) {
-      goto Vscore_ret_NOMEM;
-    }
-#endif
     char* idbuf;
-    uintptr_t* already_seen;
-    double* raw_wts;
     uint32_t* sample_uidx_order;
     if (unlikely(
             bigstack_alloc_c(siip->max_sample_id_blen, &idbuf) ||
-            bigstack_alloc_u32(sample_ct, &sample_uidx_order) ||
-            bigstack_alloc_d(sample_ct * vscore_ct, &raw_wts) ||
-            bigstack_end_calloc_w(raw_sample_ctl, &already_seen))) {
+            bigstack_alloc_u32(sample_ct, &sample_uidx_order))) {
+      goto Vscore_ret_NOMEM;
+    }
+    const uint32_t single_prec = (flags / kfVscoreSinglePrec) & 1;
+    double* raw_wts_d = nullptr;
+    float* raw_wts_f = nullptr;
+    if (flags & kfVscoreSinglePrec) {
+#ifndef __LP64__
+      if (unlikely(sample_ct * S_CAST(uint64_t, vscore_ct) >= 0x80000000U / sizeof(float))) {
+        goto Vscore_ret_NOMEM;
+      }
+#endif
+      if (unlikely(bigstack_alloc_f(sample_ct * vscore_ct, &raw_wts_f))) {
+        goto Vscore_ret_NOMEM;
+      }
+    } else {
+#ifndef __LP64__
+      if (unlikely(sample_ct * S_CAST(uint64_t, vscore_ct) >= 0x80000000U / sizeof(double))) {
+        goto Vscore_ret_NOMEM;
+      }
+#endif
+      if (unlikely(bigstack_alloc_d(sample_ct * vscore_ct, &raw_wts_d))) {
+        goto Vscore_ret_NOMEM;
+      }
+    }
+    uintptr_t* already_seen;
+    if (unlikely(bigstack_end_calloc_w(raw_sample_ctl, &already_seen))) {
       goto Vscore_ret_NOMEM;
     }
     uintptr_t miss_ct = 0;
     uint32_t hit_ct = 0;
 
-    for (double* raw_wts_iter = raw_wts; line_start; ++line_idx, line_start = TextGet(&txs)) {
+    double* raw_wts_d_iter = raw_wts_d;
+    float* raw_wts_f_iter = raw_wts_f;
+    for (; line_start; ++line_idx, line_start = TextGet(&txs)) {
       if (unlikely(line_start[0] == '#')) {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --variant-score file starts with a '#'. (This is only permitted before the first nonheader line, and if a #FID/IID header line is present it must denote the end of the header block.)\n", line_idx);
         goto Vscore_ret_MALFORMED_INPUT_WW;
@@ -7449,17 +7670,23 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
       }
       SetBit(sample_uidx, already_seen);
       sample_uidx_order[hit_ct] = sample_uidx;
-      for (uintptr_t vscore_idx = 0; vscore_idx != vscore_ct; ++vscore_idx, ++raw_wts_iter) {
+      for (uintptr_t vscore_idx = 0; vscore_idx != vscore_ct; ++vscore_idx) {
         linebuf_iter = NextTokenMult(linebuf_iter, col_idx_deltas[vscore_idx]);
         if (unlikely(!linebuf_iter)) {
           goto Vscore_ret_MISSING_TOKENS;
         }
-        const char* token_end = ScantokDouble(linebuf_iter, raw_wts_iter);
-        if (unlikely(!token_end)) {
+        double dxx;
+        const char* token_end = ScantokDouble(linebuf_iter, &dxx);
+        if (unlikely((!token_end) || (single_prec && (fabs(dxx) > 3.4028235677973362e38)))) {
           token_end = CurTokenEnd(linebuf_iter);
           *K_CAST(char*, token_end) = '\0';
           snprintf(g_logbuf, kLogbufSize, "Error: Invalid coefficient '%s' on line %" PRIuPTR " of --variant-score file.\n", linebuf_iter, line_idx);
           goto Vscore_ret_MALFORMED_INPUT_WW;
+        }
+        if (single_prec) {
+          *raw_wts_f_iter++ = S_CAST(float, dxx);
+        } else {
+          *raw_wts_d_iter++ = dxx;
         }
         linebuf_iter = token_end;
       }
@@ -7483,7 +7710,6 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
       goto Vscore_ret_INCONSISTENT_INPUT;
     }
 #endif
-    VscoreCtx ctx;
     ctx.variant_include = variant_include;
     ctx.cip = cip;
     ctx.allele_idx_offsets = allele_idx_offsets;
@@ -7491,11 +7717,10 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
     ctx.sample_include = sample_include;
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     const uint32_t dosage_is_present = pgfip->gflags & kfPgenGlobalDosagePresent;
-    uint32_t calc_thread_ct = max_thread_ct;
     uint32_t compress_thread_ct = 1;
     const uint32_t output_zst = (flags / kfVscoreZs) & 1;
     snprintf(outname_end, kMaxOutfnameExtBlen, ".vscore");
-    if (flags & kfVscoreBin) {
+    if (flags & (kfVscoreBin | kfVscoreBin4)) {
       snprintf(&(outname_end[7]), kMaxOutfnameExtBlen - 7, ".cols");
       if (unlikely(fopen_checked(outname, FOPEN_WB, &binfile))) {
         goto Vscore_ret_OPEN_FAIL;
@@ -7541,11 +7766,19 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
     }
     {
       uint32_t* sample_include_cumulative_popcounts;
-      double* wts_smaj;
-      if (unlikely(
-              bigstack_end_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
-              bigstack_end_alloc_d(sample_ct * vscore_ct, &wts_smaj))) {
+      if (unlikely(bigstack_end_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts))) {
         goto Vscore_ret_NOMEM;
+      }
+      float* wts_f_smaj = nullptr;
+      double* wts_d_smaj = nullptr;
+      if (single_prec) {
+        if (unlikely(bigstack_end_alloc_f(sample_ct * vscore_ct, &wts_f_smaj))) {
+          goto Vscore_ret_NOMEM;
+        }
+      } else {
+        if (unlikely(bigstack_end_alloc_d(sample_ct * vscore_ct, &wts_d_smaj))) {
+          goto Vscore_ret_NOMEM;
+        }
       }
       FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
       ctx.sample_include_cumulative_popcounts = sample_include_cumulative_popcounts;
@@ -7553,15 +7786,54 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
       if (miss_ct) {
         logerrprintf("Warning: %" PRIuPTR " line%s skipped in --variant-score file.\n", miss_ct, (miss_ct == 1)? "" : "s");
       }
-      const double* wts_read_iter = raw_wts;
-      for (uint32_t uii = 0; uii != sample_ct; ++uii) {
-        const uint32_t sample_uidx = sample_uidx_order[uii];
-        const uint32_t sample_idx = RawToSubsettedPos(sample_include, sample_include_cumulative_popcounts, sample_uidx);
-        memcpy(&(wts_smaj[sample_idx * vscore_ct]), wts_read_iter, vscore_ct * sizeof(double));
-        wts_read_iter = &(wts_read_iter[vscore_ct]);
+      if (single_prec) {
+        const float* wts_read_iter = raw_wts_f;
+        for (uint32_t uii = 0; uii != sample_ct; ++uii) {
+          const uint32_t sample_uidx = sample_uidx_order[uii];
+          const uint32_t sample_idx = RawToSubsettedPos(sample_include, sample_include_cumulative_popcounts, sample_uidx);
+          memcpy(&(wts_f_smaj[sample_idx * vscore_ct]), wts_read_iter, vscore_ct * sizeof(float));
+          wts_read_iter = &(wts_read_iter[vscore_ct]);
+        }
+        ctx.wts_f_smaj = wts_f_smaj;
+        ctx.wts_d_smaj = nullptr;
+      } else {
+        const double* wts_read_iter = raw_wts_d;
+        for (uint32_t uii = 0; uii != sample_ct; ++uii) {
+          const uint32_t sample_uidx = sample_uidx_order[uii];
+          const uint32_t sample_idx = RawToSubsettedPos(sample_include, sample_include_cumulative_popcounts, sample_uidx);
+          memcpy(&(wts_d_smaj[sample_idx * vscore_ct]), wts_read_iter, vscore_ct * sizeof(double));
+          wts_read_iter = &(wts_read_iter[vscore_ct]);
+        }
+        ctx.wts_f_smaj = nullptr;
+        ctx.wts_d_smaj = wts_d_smaj;
       }
-      ctx.wts_smaj = wts_smaj;
       BigstackReset(bigstack_mark);
+#ifdef USE_CUDA
+      if (single_prec && (vscore_ct >= 80)) {
+        // obvious todo: detect and use multiple devices.
+        if (unlikely(BIGSTACK_ALLOC_X(CublasFmultiplier, calc_thread_ct, &ctx.cfms))) {
+          goto Vscore_ret_NOMEM;
+        }
+        CublasFmultiplierPreinit(&ctx.cfms[0]);
+        // not "unlikely", this can easily happen with a large score matrix
+        if (CublasFmultiplierRowMajorInit(kVscoreBlockSize, vscore_ct, sample_ct, &ctx.cfms[0])) {
+          // Don't use GPUs at all.
+          logputs("Note: Not using GPU for --variant-score computation, due to insufficient\ndevice memory.  If this is a problem, try providing fewer scores at a time.\n");
+        } else {
+          CublasFmultiplierPreloadRowMajor2(ctx.wts_f_smaj, &ctx.cfms[0]);
+          for (uint32_t tidx = 1; tidx != calc_thread_ct; ++tidx) {
+            CublasFmultiplierPreinit(&ctx.cfms[tidx]);
+            CublasFmultiplierBorrowRowMajor2(&ctx.cfms[0], &ctx.cfms[tidx]);
+            if (CublasFmultiplierRowMajorInit(kVscoreBlockSize, vscore_ct, sample_ct, &ctx.cfms[tidx])) {
+              // Just use fewer worker threads in this case.
+              calc_thread_ct = tidx;
+              break;
+            }
+          }
+          logprintf("--variant-score: Using %u GPU handle%s.\n", calc_thread_ct, (calc_thread_ct == 1)? "" : "s");
+        }
+      }
+#endif
       const uint32_t sample_ctv = BitCtToVecCt(sample_ct);
       uintptr_t* sex_male_collapsed;
       uintptr_t* sex_male_interleaved_vec;
@@ -7569,10 +7841,25 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
               bigstack_alloc_w(sample_ctl, &sex_male_collapsed) ||
               bigstack_alloc_w(sample_ctv * kWordsPerVec, &sex_male_interleaved_vec) ||
               bigstack_alloc_wp(calc_thread_ct, &ctx.raregenos) ||
-              bigstack_alloc_u32p(calc_thread_ct, &ctx.difflist_sample_id_bufs) ||
-              bigstack_alloc_dp(calc_thread_ct, &ctx.dosage_vmaj_bufs) ||
-              bigstack_alloc_dp(calc_thread_ct, &ctx.tmp_result_bufs))) {
+              bigstack_alloc_u32p(calc_thread_ct, &ctx.difflist_sample_id_bufs))) {
         goto Vscore_ret_NOMEM;
+      }
+      if (single_prec) {
+        if (unlikely(
+                bigstack_alloc_fp(calc_thread_ct, &ctx.dosage_f_vmaj_bufs) ||
+                bigstack_alloc_fp(calc_thread_ct, &ctx.tmp_f_result_bufs))) {
+          goto Vscore_ret_NOMEM;
+        }
+        ctx.dosage_d_vmaj_bufs = nullptr;
+        ctx.tmp_d_result_bufs = nullptr;
+      } else {
+        if (unlikely(
+                bigstack_alloc_dp(calc_thread_ct, &ctx.dosage_d_vmaj_bufs) ||
+                bigstack_alloc_dp(calc_thread_ct, &ctx.tmp_d_result_bufs))) {
+          goto Vscore_ret_NOMEM;
+        }
+        ctx.dosage_f_vmaj_bufs = nullptr;
+        ctx.tmp_f_result_bufs = nullptr;
       }
       CopyBitarrSubset(sex_male, sample_include, sample_ct, sex_male_collapsed);
       FillInterleavedMaskVec(sex_male_collapsed, sample_ctv, sex_male_interleaved_vec);
@@ -7671,8 +7958,8 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
     //   vscore_ct elements.
     const uintptr_t thread_xalloc_cacheline_ct = DivUp(max_returned_difflist_len, kNypsPerCacheline) + DivUp(max_returned_difflist_len, kInt32PerCacheline) + DivUp(kVscoreBlockSize * S_CAST(uintptr_t, sample_ct) * sizeof(double), kCacheline) + DivUp(kVscoreBlockSize * vscore_ct * sizeof(double), kCacheline);
 
-    // ctx.results must have space for 2 * vscore_ct * read_block_size doubles.
-    const uintptr_t per_variant_xalloc_byte_ct = 2 * vscore_ct * sizeof(double);
+    // ctx.results must have space for 2 * vscore_ct * read_block_size values.
+    const uintptr_t per_variant_xalloc_byte_ct = 2 * vscore_ct * ((8 * k1LU) >> single_prec);
     STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
     // defensive
     ctx.dosage_presents = nullptr;
@@ -7689,20 +7976,34 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
       // thread boundaries, but the savings are microscopic
       const uintptr_t raregeno_alloc = kCacheline * DivUp(max_returned_difflist_len, kNypsPerCacheline);
       const uintptr_t difflist_sample_ids_alloc = RoundUpPow2(max_returned_difflist_len * sizeof(int32_t), kCacheline);
-      const uintptr_t dosage_vmaj_alloc = RoundUpPow2(kVscoreBlockSize * S_CAST(uintptr_t, sample_ct) * sizeof(double), kCacheline);
-      const uintptr_t tmp_result_alloc = RoundUpPow2(kVscoreBlockSize * vscore_ct * sizeof(double), kCacheline);
+      const uintptr_t dosage_vmaj_alloc = RoundUpPow2(kVscoreBlockSize * S_CAST(uintptr_t, sample_ct) * ((8 * k1LU) >> single_prec), kCacheline);
+      const uintptr_t tmp_result_alloc = RoundUpPow2(kVscoreBlockSize * vscore_ct * ((8 * k1LU) >> single_prec), kCacheline);
       for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
         ctx.raregenos[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(raregeno_alloc));
         ctx.difflist_sample_id_bufs[tidx] = S_CAST(uint32_t*, bigstack_alloc_raw(difflist_sample_ids_alloc));
-        ctx.dosage_vmaj_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(dosage_vmaj_alloc));
-        ctx.tmp_result_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(tmp_result_alloc));
+        if (single_prec) {
+          ctx.dosage_f_vmaj_bufs[tidx] = S_CAST(float*, bigstack_alloc_raw(dosage_vmaj_alloc));
+          ctx.tmp_f_result_bufs[tidx] = S_CAST(float*, bigstack_alloc_raw(tmp_result_alloc));
+        } else {
+          ctx.dosage_d_vmaj_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(dosage_vmaj_alloc));
+          ctx.tmp_d_result_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(tmp_result_alloc));
+        }
       }
     }
     const uintptr_t results_byte_ct = RoundUpPow2(per_variant_xalloc_byte_ct * read_block_size, kCacheline);
-    ctx.results[0] = S_CAST(double*, bigstack_alloc_raw(results_byte_ct));
-    ctx.results[1] = S_CAST(double*, bigstack_alloc_raw(results_byte_ct));
+    if (single_prec) {
+      ctx.results_f[0] = S_CAST(float*, bigstack_alloc_raw(results_byte_ct));
+      ctx.results_f[1] = S_CAST(float*, bigstack_alloc_raw(results_byte_ct));
+      ctx.results_d[0] = nullptr;
+      ctx.results_d[1] = nullptr;
+    } else {
+      ctx.results_f[0] = nullptr;
+      ctx.results_f[1] = nullptr;
+      ctx.results_d[0] = S_CAST(double*, bigstack_alloc_raw(results_byte_ct));
+      ctx.results_d[1] = S_CAST(double*, bigstack_alloc_raw(results_byte_ct));
+    }
     assert(g_bigstack_base <= g_bigstack_end);
-    ctx.reterr = kPglRetSuccess;
+    ctx.err_info = (~0LLU) << 32;
     SetThreadFuncAndData(VscoreThread, &ctx, &tg);
 
     fputs("--variant-score: 0%", stdout);
@@ -7738,8 +8039,14 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
       }
       if (variant_idx) {
         JoinThreads(&tg);
-        reterr = ctx.reterr;
+        reterr = S_CAST(PglErr, ctx.err_info);
         if (unlikely(reterr)) {
+#ifdef USE_CUDA
+          if (reterr == kPglRetGpuFail) {
+            logerrputs("Error: GPU operation failure.\n");
+            goto Vscore_ret_1;
+          }
+#endif
           goto Vscore_ret_PGR_FAIL;
         }
       }
@@ -7759,7 +8066,8 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
       parity = 1 - parity;
       if (variant_idx) {
         // write *previous* block results
-        const double* cur_results_iter = ctx.results[parity];
+        const float* cur_results_f_iter = ctx.results_f[parity];
+        const double* cur_results_d_iter = ctx.results_d[parity];
         const uint32_t* cur_missing_cts = ctx.missing_cts[parity];
         for (uint32_t variant_bidx = 0; variant_bidx != prev_block_size; ++variant_bidx) {
           const uint32_t write_variant_uidx = BitIter1(variant_include, &write_variant_uidx_base, &cur_bits);
@@ -7828,9 +8136,16 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
             *cswritep++ = '\t';
             cswritep = u32toa(cur_sample_ct - cur_missing_cts[variant_bidx], cswritep);
           }
-          for (uintptr_t vscore_idx = 0; vscore_idx != vscore_ct; ++vscore_idx) {
-            *cswritep++ = '\t';
-            cswritep = dtoa_g(*cur_results_iter++, cswritep);
+          if (single_prec) {
+            for (uintptr_t vscore_idx = 0; vscore_idx != vscore_ct; ++vscore_idx) {
+              *cswritep++ = '\t';
+              cswritep = ftoa_g(*cur_results_f_iter++, cswritep);
+            }
+          } else {
+            for (uintptr_t vscore_idx = 0; vscore_idx != vscore_ct; ++vscore_idx) {
+              *cswritep++ = '\t';
+              cswritep = dtoa_g(*cur_results_d_iter++, cswritep);
+            }
           }
           AppendBinaryEoln(&cswritep);
           if (unlikely(Cswrite(&css, &cswritep))) {
@@ -7838,8 +8153,36 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
           }
         }
         if (binfile) {
-          if (unlikely(fwrite_checked(cur_results_iter, vscore_ct * prev_block_size * sizeof(double), binfile))) {
-            goto Vscore_ret_WRITE_FAIL;
+          const uintptr_t entry_ct = vscore_ct * prev_block_size;
+          if (single_prec) {
+            // must be bin4
+            if (unlikely(fwrite_checked(cur_results_f_iter, entry_ct * sizeof(float), binfile))) {
+              goto Vscore_ret_WRITE_FAIL;
+            }
+          } else if (flags & kfVscoreBin) {
+            if (unlikely(fwrite_checked(cur_results_d_iter, entry_ct * sizeof(double), binfile))) {
+              goto Vscore_ret_WRITE_FAIL;
+            }
+          } else {
+            const uintptr_t fullgroup_ct = entry_ct / 32768;
+            float buf[32768];
+            for (uintptr_t group_idx = 0; group_idx != fullgroup_ct; ++group_idx) {
+              for (uint32_t uii = 0; uii != 32768; ++uii) {
+                buf[uii] = S_CAST(float, *cur_results_d_iter++);
+              }
+              if (unlikely(fwrite_checked(buf, 32768 * sizeof(float), binfile))) {
+                goto Vscore_ret_WRITE_FAIL;
+              }
+            }
+            const uint32_t remainder = entry_ct % 32768;
+            if (remainder) {
+              for (uint32_t uii = 0; uii != remainder; ++uii) {
+                buf[uii] = S_CAST(float, *cur_results_d_iter++);
+              }
+              if (unlikely(fwrite_checked(buf, remainder * sizeof(float), binfile))) {
+                goto Vscore_ret_WRITE_FAIL;
+              }
+            }
           }
         }
         if (variant_idx == variant_ct) {
@@ -7905,6 +8248,17 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
     break;
   }
  Vscore_ret_1:
+#ifdef USE_CUDA
+  if (ctx.cfms) {
+    for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
+      if (unlikely(CublasFmultiplierCleanup(&ctx.cfms[tidx]))) {
+        if (!reterr) {
+          reterr = kPglRetGpuFail;
+        }
+      }
+    }
+  }
+#endif
   fclose_cond(binfile);
   CswriteCloseCond(&css, cswritep);
   CleanupThreads(&tg);

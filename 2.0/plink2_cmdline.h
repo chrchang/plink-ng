@@ -584,6 +584,11 @@ HEADER_INLINE BoolErr bigstack_alloc_u64p(uintptr_t ct, uint64_t*** u64p_arr_ptr
   return !(*u64p_arr_ptr);
 }
 
+HEADER_INLINE BoolErr bigstack_alloc_fp(uintptr_t ct, float*** fp_arr_ptr) {
+  *fp_arr_ptr = S_CAST(float**, bigstack_alloc(ct * sizeof(intptr_t)));
+  return !(*fp_arr_ptr);
+}
+
 HEADER_INLINE BoolErr bigstack_alloc_dp(uintptr_t ct, double*** dp_arr_ptr) {
   *dp_arr_ptr = S_CAST(double**, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*dp_arr_ptr);

@@ -260,6 +260,26 @@ void PopulateRescaledDosage(const uintptr_t* genoarr, const uintptr_t* dosage_pr
   }
 }
 
+void PopulateRescaledDosageF(const uintptr_t* genoarr, const uintptr_t* dosage_present, const Dosage* dosage_main, float slope, float intercept, double missing_val, uint32_t sample_ct, uint32_t dosage_ct, float* expanded_dosages) {
+  float lookup_vals[32] ALIGNV16;
+  lookup_vals[0] = intercept;
+  lookup_vals[2] = intercept + slope;
+  lookup_vals[4] = intercept + 2 * slope;
+  lookup_vals[6] = missing_val;
+  InitLookup16x4bx2(lookup_vals);
+  GenoarrLookup16x4bx2(genoarr, lookup_vals, sample_ct, expanded_dosages);
+  if (!dosage_ct) {
+    return;
+  }
+  slope *= S_CAST(float, kRecipDosageMid);
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = dosage_present[0];
+  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+    const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &cur_bits);
+    expanded_dosages[sample_uidx] = dosage_main[dosage_idx] * slope + intercept;
+  }
+}
+
 static_assert(sizeof(AlleleCode) == 1, "AtLeastOneMultiallelicHet() needs to be updated.");
 uint32_t AtLeastOneMultiallelicHet(const PgenVariant* pgvp, uint32_t sample_ct) {
   if (pgvp->patch_01_ct) {
