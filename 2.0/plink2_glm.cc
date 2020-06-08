@@ -570,13 +570,13 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
     *local_covar_ct_ptr = local_covar_ct;
 
     // 4. Initialize final local-covar reader.
-    uint64_t enforced_max_line_blen = local_sample_or_hap_ct;
-    if (glm_info_ptr->local_cat_ct) {
-      enforced_max_line_blen *= 1 + UintSlen(glm_info_ptr->local_cat_ct);
-    } else {
-      // permit 24 characters per floating point number instead of 16, since
-      // some tools dump 15-17 significant digits
-      enforced_max_line_blen *= 24 * (local_covar_ct + ((glm_info_ptr->flags / kfGlmLocalOmitLast) & 1));
+    // Quasi-bugfix (6 Jun 2020): even in local-cats case, a header line may
+    // have a floating point number per (sample, covariate) tuple.
+    // Permit 24 characters per floating point number instead of 16, since some
+    // tools dump 15-17 significant digits.
+    uint64_t enforced_max_line_blen = local_sample_or_hap_ct * 24LLU;
+    if (!glm_info_ptr->local_cat_ct) {
+      enforced_max_line_blen *= local_covar_ct + ((glm_info_ptr->flags / kfGlmLocalOmitLast) & 1);
     }
     // \r\n
     enforced_max_line_blen += 2;

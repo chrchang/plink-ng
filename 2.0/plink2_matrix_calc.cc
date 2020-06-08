@@ -7004,6 +7004,12 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
   if (single_prec) {
     tmp_f_result_buf = ctx->tmp_f_result_bufs[tidx];
     dosage_f_vmaj = ctx->dosage_f_vmaj_bufs[tidx];
+#ifdef USE_CUDA
+    if (CudaSetDevice(cfmp->device_idx)) {
+      fputs("unexpected CudaSetDevice() failure in VscoreThread()\n", stderr);
+      exit(S_CAST(int, kPglRetGpuFail));
+    }
+#endif
   } else {
     tmp_d_result_buf = ctx->tmp_d_result_bufs[tidx];
     dosage_d_vmaj = ctx->dosage_d_vmaj_bufs[tidx];
@@ -7810,27 +7816,46 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
       BigstackReset(bigstack_mark);
 #ifdef USE_CUDA
       if (single_prec && (vscore_ct >= 80)) {
-        // obvious todo: detect and use multiple devices.
-        if (unlikely(BIGSTACK_ALLOC_X(CublasFmultiplier, calc_thread_ct, &ctx.cfms))) {
-          goto Vscore_ret_NOMEM;
-        }
-        CublasFmultiplierPreinit(&ctx.cfms[0]);
-        // not "unlikely", this can easily happen with a large score matrix
-        if (CublasFmultiplierRowMajorInit(kVscoreBlockSize, vscore_ct, sample_ct, &ctx.cfms[0])) {
-          // Don't use GPUs at all.
-          logputs("Note: Not using GPU for --variant-score computation, due to insufficient\ndevice memory.  If this is a problem, try providing fewer scores at a time.\n");
-        } else {
-          CublasFmultiplierPreloadRowMajor2(ctx.wts_f_smaj, &ctx.cfms[0]);
-          for (uint32_t tidx = 1; tidx != calc_thread_ct; ++tidx) {
-            CublasFmultiplierPreinit(&ctx.cfms[tidx]);
-            CublasFmultiplierBorrowRowMajor2(&ctx.cfms[0], &ctx.cfms[tidx]);
+        const uint32_t device_count = CudaGetDeviceCount();
+        if (device_count) {
+          if (unlikely(BIGSTACK_ALLOC_X(CublasFmultiplier, calc_thread_ct, &ctx.cfms))) {
+            goto Vscore_ret_NOMEM;
+          }
+          uint32_t tidx = 0;
+          CublasFmultiplierPreinit(&ctx.cfms[0]);
+          for (uint32_t device_idx = 0; device_idx != device_count; ++device_idx) {
+            if (unlikely(CudaSetDevice(device_idx))) {
+              reterr = kPglRetGpuFail;
+              logerrputs("Error: GPU operation failure.\n");
+              goto Vscore_ret_1;
+            }
             if (CublasFmultiplierRowMajorInit(kVscoreBlockSize, vscore_ct, sample_ct, &ctx.cfms[tidx])) {
-              // Just use fewer worker threads in this case.
-              calc_thread_ct = tidx;
+              // Insufficient memory on this device.  Try the next one.
+              continue;
+            }
+            CublasFmultiplierPreloadRowMajor2(ctx.wts_f_smaj, &ctx.cfms[tidx]);
+            ++tidx;
+            if (tidx == calc_thread_ct) {
               break;
             }
+            CublasFmultiplierPreinit(&ctx.cfms[tidx]);
+            CublasFmultiplierBorrowRowMajor2(&ctx.cfms[tidx - 1], &ctx.cfms[tidx]);
+            if (CublasFmultiplierRowMajorInit(kVscoreBlockSize, vscore_ct, sample_ct, &ctx.cfms[tidx])) {
+              continue;
+            }
+            ++tidx;
+            if (tidx == calc_thread_ct) {
+              break;
+            }
+            CublasFmultiplierPreinit(&ctx.cfms[tidx]);
           }
-          logprintf("--variant-score: Using %u GPU handle%s.\n", calc_thread_ct, (calc_thread_ct == 1)? "" : "s");
+          if (!tidx) {
+            logputs("Note: Not using GPU for --variant-score computation, due to insufficient\ndevice memory.  If this is a problem, try providing fewer scores at a time.\n");
+            ctx.cfms = nullptr;
+          } else {
+            calc_thread_ct = tidx;
+            logprintf("--variant-score: Using %u GPU handle%s.\n", calc_thread_ct, (calc_thread_ct == 1)? "" : "s");
+          }
         }
       }
 #endif
