@@ -3725,6 +3725,7 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
   double nei_sum = 0.0;
   uint32_t chrom_fo_idx = 0xffffffffU; // deliberate overflow
   uint32_t chrom_end = 0;
+  int32_t mt_code = chrom_info_ptr->xymt_codes[MT_OFFSET];
   int32_t retval = 0;
   Pigz_state ps;
   uintptr_t* loadbuf_raw;
@@ -3799,9 +3800,17 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
     }
     if (marker_uidx >= chrom_end) {
       do {
+        uint32_t chrom_idx;
 	do {
 	  chrom_fo_idx++;
-	} while (is_set(chrom_info_ptr->haploid_mask, chrom_info_ptr->chrom_file_order[chrom_fo_idx]));
+          // bugfix (16 Jun 2020): forgot to separately exclude chrM here.
+          // Fortunately, this frequently didn't matter, since chrM is usually
+          // sorted last: in that case, if no alternate contigs are present,
+          // the marker_ct loop termination condition prevents chrM from being
+          // included.  But chrM is positioned first in some files, in which
+          // case this fix matters.
+          chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+	} while (is_set(chrom_info_ptr->haploid_mask, chrom_idx) || (chrom_idx == (uint32_t)mt_code));
 	chrom_end = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx + 1];
 	marker_uidx = next_unset(marker_exclude, chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx], chrom_end);
       } while (marker_uidx >= chrom_end);
