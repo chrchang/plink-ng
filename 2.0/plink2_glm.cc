@@ -577,6 +577,9 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
     uint64_t enforced_max_line_blen = local_sample_or_hap_ct * 24LLU;
     if (!glm_info_ptr->local_cat_ct) {
       enforced_max_line_blen *= local_covar_ct + ((glm_info_ptr->flags / kfGlmLocalOmitLast) & 1);
+    } else {
+      // Separate ID per (sample, category) possible on header line here.
+      enforced_max_line_blen *= glm_info_ptr->local_cat_ct;
     }
     // \r\n
     enforced_max_line_blen += 2;

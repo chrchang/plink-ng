@@ -28,16 +28,17 @@ STATIC_ZLIB =
 STATIC_ZSTD = 1
 # export LD_LIBRARY_PATH=/opt/intel/mkl/lib/intel64 needed in .profile
 DYNAMIC_MKL = 1
-MKLROOT = /opt/intel/mkl
-MKL_IOMP5_DIR = /opt/intel/lib/intel64
+MKLPREROOT = /opt/intel
 CUDAROOT = /usr/local/cuda
 FORCE_32BIT =
-DEBUG = -g
+DEBUG =
 
 BASEFLAGS=-DZSTD_MULTITHREAD
 # ***** end configuration *****
 
 BASEFLAGS += ${DEBUG}
+MKLROOT = ${MKLPREROOT}/mkl
+MKL_IOMP5_DIR = ${MKLPREROOT}/lib/intel64
 
 include ../Makefile.src
 
