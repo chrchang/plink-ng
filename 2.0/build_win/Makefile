@@ -13,6 +13,9 @@ CPU_CHECK = 1
 NO_OPENBLAS =
 ZSTD_O2 = 1
 DEBUG =
+CC ?= gcc
+CXX ?= g++
+FC ?= gfortran
 
 OPENBLAS_ROOT = ../../openblas
 ZLIB_STATIC = ../../zlib-1.2.11/libz.a
@@ -74,14 +77,14 @@ CXXFLAGS += ${BASEFLAGS} ${CXXWARN2}
 all: plink2 pgen_compress
 
 plink2: $(CSRC2) $(ZCSRC2) $(CCSRC2) ../plink2_cpu.cc
-	gcc $(CFLAGS) $(CSRC2) -c
-	gcc $(ZCFLAGS) $(ZCSRC2) -c
-	g++ $(CXXFLAGS) $(CCSRC2) -c
-	g++ $(CPUCHECK_FLAGS) ../plink2_cpu.cc -c
-	gfortran $(OBJ2) plink2_cpu.o -o plink2 $(BLASFLAGS) $(LINKFLAGS)
+	$(CC) $(CFLAGS) $(CSRC2) -c
+	$(CC) $(ZCFLAGS) $(ZCSRC2) -c
+	$(CXX) $(CXXFLAGS) $(CCSRC2) -c
+	$(CXX) $(CPUCHECK_FLAGS) ../plink2_cpu.cc -c
+	$(FC) $(OBJ2) plink2_cpu.o -o plink2 $(BLASFLAGS) $(LINKFLAGS)
 
 pgen_compress: $(PGCSRC2)
-	g++ $(CXXFLAGS) $(PGCSRC2) -o pgen_compress
+	$(CXX) $(CXXFLAGS) $(PGCSRC2) -o pgen_compress
 
 .PHONY: clean
 clean:
