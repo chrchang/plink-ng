@@ -70,7 +70,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (15 Jun 2020)";
+  " (20 Jun 2020)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -173,7 +173,8 @@ FLAGSET64_DEF_START()
   kfCommand1RmDupList = (1 << 20),
   kfCommand1Sdiff = (1 << 21),
   kfCommand1SampleCounts = (1 << 22),
-  kfCommand1Vscore = (1 << 23)
+  kfCommand1Vscore = (1 << 23),
+  kfCommand1Het = (1 << 24)
 FLAGSET64_DEF_END(Command1Flags);
 
 // this is a hybrid, only kfSortFileSid is actually a flag
@@ -315,6 +316,7 @@ typedef struct Plink2CmdlineStruct {
   MissingRptFlags missing_rpt_flags;
   GenoCountsFlags geno_counts_flags;
   HardyFlags hardy_flags;
+  HetFlags het_flags;
   SampleCountsFlags sample_counts_flags;
   RecoverVarIdsFlags recover_var_ids_flags;
   VscoreFlags vscore_flags;
@@ -442,8 +444,8 @@ uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Fl
 }
 
 
-uint32_t DecentAlleleFreqsAreNeeded(Command1Flags command_flags1, ScoreFlags score_flags) {
-  return (command_flags1 & (kfCommand1Pca | kfCommand1MakeRel)) || ((command_flags1 & kfCommand1Score) && ((!(score_flags & kfScoreNoMeanimpute)) || (score_flags & (kfScoreCenter | kfScoreVarianceStandardize))));
+uint32_t DecentAlleleFreqsAreNeeded(Command1Flags command_flags1, HetFlags het_flags, ScoreFlags score_flags) {
+  return (command_flags1 & (kfCommand1Pca | kfCommand1MakeRel)) || ((command_flags1 & kfCommand1Score) && ((!(score_flags & kfScoreNoMeanimpute)) || (score_flags & (kfScoreCenter | kfScoreVarianceStandardize)))) || ((command_flags1 & kfCommand1Het) && (!(het_flags & kfHetSmallSample)));
 }
 
 // not actually needed for e.g. --hardy, --hwe, etc. if no multiallelic
@@ -1757,7 +1759,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
           goto Plink2Core_ret_DEGENERATE_DATA;
         }
-        const uint32_t decent_afreqs_needed = DecentAlleleFreqsAreNeeded(pcp->command_flags1, pcp->score_info.flags);
+        const uint32_t decent_afreqs_needed = DecentAlleleFreqsAreNeeded(pcp->command_flags1, pcp->het_flags, pcp->score_info.flags);
         const uint32_t maj_alleles_needed = MajAllelesAreNeeded(pcp->command_flags1, pcp->pca_flags, pcp->glm_info.flags);
         if (decent_afreqs_needed || maj_alleles_needed || IndecentAlleleFreqsAreNeeded(pcp->command_flags1, pcp->min_maf, pcp->max_maf)) {
           if (unlikely((!pcp->read_freq_fname) && ((sample_ct < 50) || ((!nonfounders) && (founder_ct < 50))) && decent_afreqs_needed && (!(pcp->misc_flags & kfMiscAllowBadFreqs)))) {
@@ -2578,6 +2580,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
       if (pcp->command_flags1 & kfCommand1Ld) {
         reterr = LdConsole(variant_include, cip, variant_ids, allele_idx_offsets, maj_alleles, allele_storage, founder_info, sex_nm, sex_male, &(pcp->ld_info), variant_ct, raw_sample_ct, founder_ct, &simple_pgr);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
+      if (pcp->command_flags1 & kfCommand1Het) {
+        reterr = HetReport(sample_include, &pii.sii, variant_include, cip, allele_idx_offsets, allele_freqs, founder_info, raw_sample_ct, sample_ct, founder_ct, raw_variant_ct, variant_ct, max_allele_ct, pcp->het_flags, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -3492,6 +3501,7 @@ int main(int argc, char** argv) {
     pc.missing_rpt_flags = kfMissingRpt0;
     pc.geno_counts_flags = kfGenoCounts0;
     pc.hardy_flags = kfHardy0;
+    pc.het_flags = kfHet0;
     pc.sample_counts_flags = kfSampleCounts0;
     pc.recover_var_ids_flags = kfRecoverVarIds0;
     pc.vscore_flags = kfVscore0;
@@ -5226,7 +5236,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --glm cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0ax\0a1count\0totallele\0a1countcc\0totallelecc\0gcountcc\0a1freq\0a1freqcc\0machr2\0firth\0test\0nobs\0beta\0orbeta\0se\0ci\0tz\0p\0err\0", flagname_p, kfGlmColChrom, kfGlmColDefault, 1, &pc.glm_info.cols);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0ax\0a1count\0totallele\0a1countcc\0totallelecc\0gcountcc\0a1freq\0a1freqcc\0machr2\0firth\0test\0nobs\0beta\0orbeta\0se\0ci\0tz\0p\0err\0", "glm", kfGlmColChrom, kfGlmColDefault, 1, &pc.glm_info.cols);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
@@ -5465,7 +5475,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --hardy cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0ax\0gcounts\0gcount1col\0hetfreq\0sexaf\0femalep\0p\0", "freq", kfHardyColChrom, kfHardyColDefault, 1, &pc.hardy_flags);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0ax\0gcounts\0gcount1col\0hetfreq\0sexaf\0femalep\0p\0", "hardy", kfHardyColChrom, kfHardyColDefault, 1, &pc.hardy_flags);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
@@ -5547,6 +5557,36 @@ int main(int argc, char** argv) {
           }
           chr_info.chrset_source = kChrsetSourceCmdline;
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "et")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.het_flags |= kfHetZs;
+            } else if (strequal_k(cur_modif, "small-sample", cur_modif_slen)) {
+              pc.het_flags |= kfHetSmallSample;
+            } else if (likely(StrStartsWith(cur_modif, "cols=", cur_modif_slen))) {
+              if (unlikely(pc.het_flags & kfHetColAll)) {
+                logerrputs("Error: Multiple --het cols= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0maybesid\0sid\0hom\0het\0nobs\0f\0", "het", kfHardyColChrom, kfHardyColDefault, 1, &pc.hardy_flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --het argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          if (!(pc.het_flags & kfHetColAll)) {
+            pc.het_flags |= kfHetColDefault;
+          }
+          pc.command_flags1 |= kfCommand1Het;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (likely(strequal_k_unsafe(flagname_p2, "aps"))) {
           if (unlikely(load_params || xload)) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;

@@ -514,4 +514,4 @@ uint32_t Copy1bit16Subset(const uintptr_t* __restrict src_subset, const void* __
 }  // namespace plink2
 #endif
 
-#endif  // __PLINK2_BASE_H__
+#endif  // __PLINK2_BITS_H__

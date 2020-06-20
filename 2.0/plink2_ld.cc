@@ -1574,8 +1574,8 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
   {
     const uint32_t is_pairphase = (ldip->prune_flags / kfLdPrunePairphase) & 1;
     if (founder_ct < 2) {
-      logerrprintf("Warning: Skipping --indep-pair%s since there are less than two founders.\n(--make-founders may come in handy here.)\n", is_pairphase? "phase" : "wise");
-      goto LdPrune_ret_1;
+      logerrprintfww("Error: --indep-pair%s requires at least two founders. (PLINK 1.9 --make-founders may come in handy here.)\n", is_pairphase? "phase" : "wise");
+      goto LdPrune_ret_INCONSISTENT_INPUT;
     }
     uint32_t skipped_variant_ct = 0;
     if (IsSet(cip->chr_mask, 0)) {
@@ -2799,8 +2799,8 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
   PglErr reterr = kPglRetSuccess;
   {
     if (!founder_ct) {
-      logerrputs("Warning: Skipping --ld since there are no founders.  (--make-founders may come\nin handy here.)\n");
-      goto LdConsole_ret_1;
+      logerrputs("Error: --ld requires founders.  (PLINK 1.9 --make-founders\nmay come in handy\nhere.)\n");
+      goto LdConsole_ret_INCONSISTENT_INPUT;
     }
     STD_ARRAY_KREF(char*, 2) ld_console_varids = ldip->ld_console_varids;
     // ok to ignore chr_mask here
@@ -3560,6 +3560,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
   LdConsole_ret_INCONSISTENT_INPUT_WW:
     WordWrapB(0);
     logerrputsb();
+  LdConsole_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
   LdConsole_ret_NO_VALID_OBSERVATIONS:
