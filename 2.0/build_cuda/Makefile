@@ -32,7 +32,8 @@ MKLPREROOT = /opt/intel
 CUDAROOT = /usr/local/cuda
 FORCE_32BIT =
 DEBUG =
-
+CC ?= gcc
+CXX ?= g++
 BASEFLAGS=-DZSTD_MULTITHREAD
 # ***** end configuration *****
 
@@ -153,15 +154,15 @@ endif
 all: plink2 pgen_compress
 
 plink2: $(CSRC2) $(ZCSRC2) $(CCSRC2) ../plink2_cpu.cc ../cuda/plink2_matrix_cuda.cu
-	gcc $(CFLAGS) $(CSRC2) -c
+	$(CC) $(CFLAGS) $(CSRC2) -c
 	$(SKIP_STATIC_ZSTD) gcc $(ZCFLAGS) $(ZCSRC2) -c
 	nvcc -cudart shared ../cuda/plink2_matrix_cuda.cu -c
-	g++ $(CXXFLAGS) $(CCSRC2) -c
-	g++ $(CPUCHECK_FLAGS) ../plink2_cpu.cc -c
-	g++ $(OBJ2) plink2_cpu.o plink2_matrix_cuda.o $(ARCH32) -o plink2 $(BLASFLAGS) $(LINKFLAGS)
+	$(CXX) $(CXXFLAGS) $(CCSRC2) -c
+	$(CXX) $(CPUCHECK_FLAGS) ../plink2_cpu.cc -c
+	$(CXX) $(OBJ2) plink2_cpu.o plink2_matrix_cuda.o $(ARCH32) -o plink2 $(BLASFLAGS) $(LINKFLAGS)
 
 pgen_compress: $(PGCSRC2)
-	g++ $(CXXFLAGS) $(PGCSRC2) -o pgen_compress
+	$(CXX) $(CXXFLAGS) $(PGCSRC2) -o pgen_compress
 
 .PHONY: clean
 clean:

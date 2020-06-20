@@ -29,6 +29,8 @@ MKLROOT = /home/ubuntu/intel/mkl
 MKL_IOMP5_DIR = /home/ubuntu/intel/compilers_and_libraries_2017.2.174/linux/compiler/lib/intel64
 FORCE_32BIT =
 DEBUG =
+CC ?= gcc
+CXX ?= g++
 
 BASEFLAGS=-DZSTD_MULTITHREAD
 # ***** end configuration *****
@@ -148,14 +150,14 @@ SFX ?= ""
 all: plink2$(SFX) pgen_compress
 
 plink2$(SFX): $(CSRC2) $(ZCSRC2) $(CCSRC2) ../plink2_cpu.cc
-	gcc $(CFLAGS) $(CSRC2) -c
-	$(SKIP_STATIC_ZSTD) gcc $(ZCFLAGS) $(ZCSRC2) -c
-	g++ $(CXXFLAGS) $(CCSRC2) -c
-	g++ $(CPUCHECK_FLAGS) ../plink2_cpu.cc -c
-	g++ $(OBJ2) plink2_cpu.o $(ARCH32) -o $@ $(BLASFLAGS) $(LINKFLAGS)
+	$(CC) $(CFLAGS) $(CSRC2) -c
+	$(SKIP_STATIC_ZSTD) $(CC) $(ZCFLAGS) $(ZCSRC2) -c
+	$(CXX) $(CXXFLAGS) $(CCSRC2) -c
+	$(CXX) $(CPUCHECK_FLAGS) ../plink2_cpu.cc -c
+	$(CXX) $(OBJ2) plink2_cpu.o $(ARCH32) -o $@ $(BLASFLAGS) $(LINKFLAGS)
 
 pgen_compress$(SFX): $(PGCSRC2)
-	g++ $(CXXFLAGS) $(PGCSRC2) -o $@
+	$(CXX) $(CXXFLAGS) $(PGCSRC2) -o $@
 
 .PHONY: clean
 clean:
