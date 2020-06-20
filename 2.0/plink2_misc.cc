@@ -9265,6 +9265,7 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
   const uintptr_t* founder_info_interleaved_vec = ctx->founder_info_interleaved_vec;
   const uint32_t sample_ct = ctx->sample_ct;
   const uint32_t founder_ct = ctx->founder_ct;
+  const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
   const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
   uintptr_t* genovec = ctx->genovecs[tidx];
   PgenVariant pgv;
@@ -9343,8 +9344,8 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
               const uint32_t word_ct_m1 = word_ct - 1;
               uint32_t loop_len = kBitsPerWordD2;
               for (uint32_t widx = 0; ; ++widx) {
-                if (widx <= word_ct_m1) {
-                  if (widx < word_ct_m1) {
+                if (widx >= word_ct_m1) {
+                  if (widx > word_ct_m1) {
                     break;
                   }
                   loop_len = ModNz(difflist_len, kBitsPerWordD2);
@@ -9354,9 +9355,7 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
                 uintptr_t raregeno_word = raregeno[widx];
                 for (uint32_t uii = 0; uii != loop_len; ++uii) {
                   const uint32_t sample_idx = cur_difflist_sample_ids[uii];
-                  if (IsSet(founder_info_collapsed, sample_idx)) {
-                    genocounts[raregeno_word & 3] += 1;
-                  }
+                  genocounts[raregeno_word & 3] += IsSet(founder_info_collapsed, sample_idx);
                   raregeno_word >>= 2;
                 }
               }
@@ -9400,8 +9399,8 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
             const uint32_t word_ct_m1 = word_ct - 1;
             uint32_t loop_len = kBitsPerWordD2;
             for (uint32_t widx = 0; ; ++widx) {
-              if (widx <= word_ct_m1) {
-                if (widx < word_ct_m1) {
+              if (widx >= word_ct_m1) {
+                if (widx > word_ct_m1) {
                   break;
                 }
                 loop_len = ModNz(difflist_len, kBitsPerWordD2);
@@ -9466,15 +9465,31 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
             continue;
           }
           ZeroU32Arr(cur_allele_ct - 2, &(allele_nobs[2]));
-          const AlleleCode* patch_01_vals = pgv.patch_01_vals;
-          for (uint32_t uii = 0; uii != pgv.patch_01_ct; ++uii) {
-            allele_nobs[patch_01_vals[uii]] += 1;
+          const uint32_t patch_01_ct = pgv.patch_01_ct;
+          if (patch_01_ct) {
+            const uintptr_t* patch_01_set = pgv.patch_01_set;
+            const AlleleCode* patch_01_vals = pgv.patch_01_vals;
+            uintptr_t sample_idx_base = 0;
+            uintptr_t sample_idx_bits = patch_01_set[0];
+            for (uint32_t uii = 0; uii != patch_01_ct; ++uii) {
+              const uintptr_t sample_idx = BitIter1(patch_01_set, &sample_idx_base, &sample_idx_bits);
+              allele_nobs[patch_01_vals[uii]] += IsSet(founder_info_collapsed, sample_idx);
+            }
+            allele_nobs[1] -= PopcountWordsIntersect(founder_info_collapsed, patch_01_set, sample_ctl);
           }
-          const uint32_t patch_10_ct_x2 = patch_10_ct * 2;
-          for (uint32_t uii = 0; uii != patch_10_ct_x2; ++uii) {
-            allele_nobs[patch_10_vals[uii]] += 1;
+          if (patch_10_ct) {
+            const uintptr_t* patch_10_set = pgv.patch_10_set;
+            uintptr_t sample_idx_base = 0;
+            uintptr_t sample_idx_bits = patch_10_set[0];
+            for (uint32_t uii = 0; uii != patch_10_ct; ++uii) {
+              const uintptr_t sample_idx = BitIter1(patch_10_set, &sample_idx_base, &sample_idx_bits);
+              if (IsSet(founder_info_collapsed, sample_idx)) {
+                allele_nobs[patch_10_vals[2 * uii]] += 1;
+                allele_nobs[patch_10_vals[2 * uii + 1]] += 1;
+              }
+            }
+            allele_nobs[1] -= 2 * PopcountWordsIntersect(founder_info_collapsed, patch_10_set, sample_ctl);
           }
-          allele_nobs[1] -= pgv.patch_01_ct + patch_10_ct_x2;
 
           uint64_t allele_nobs_ssq = 0;
           for (uint32_t uii = 0; uii != cur_allele_ct; ++uii) {
