@@ -1,0 +1,3 @@
+[submodule "2.0/include/simde"]
+	path = 2.0/include/simde
+	url = https://github.com/nemequ/simde-no-tests
