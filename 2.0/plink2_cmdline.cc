@@ -3582,6 +3582,11 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
         if (unlikely(!fread_unlocked(script_buf, fsize_ui, 1, scriptfile))) {
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
+          if (feof_unlocked(scriptfile)) {
+            // shouldn't actually be possible, but let's handle this in as
+            // uniform a manner as we can
+            errno = 0;
+          }
           fprintf(stderr, kErrprintfFread, argvk[arg_idx + 1], rstrerror(errno));
           goto CmdlineParsePhase1_ret_READ_FAIL;
         }

@@ -352,6 +352,7 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
     reterr = kPglRetNomem;
     break;
   LoadMinimalPvar_ret_READ_FAIL:
+    errno = 0;
     reterr = kPglRetReadFail;
     break;
   LoadMinimalPvar_ret_FILE_FAIL:

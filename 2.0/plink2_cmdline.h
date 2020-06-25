@@ -1705,10 +1705,10 @@ extern const char kErrstrThreadCreate[];
 extern const char kErrstrReadCorrupted[];
 
 HEADER_INLINE const char* rstrerror(int errnum) {
-  if (errnum == 2) {
-    return kErrstrReadCorrupted;
+  if (errnum) {
+    return strerror(errnum);
   }
-  return strerror(errnum);
+  return kErrstrReadCorrupted;
 }
 
 // assumes logfile is open

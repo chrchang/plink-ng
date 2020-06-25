@@ -505,6 +505,9 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
     reterr = kPglRetOpenFail;
     break;
   KingCutoffBatch_ret_READ_FAIL:
+    if (feof_unlocked(binfile)) {
+      errno = 0;
+    }
     logerrprintfww(kErrprintfFread, king_cutoff_fprefix, rstrerror(errno));
     reterr = kPglRetReadFail;
     break;

@@ -1132,7 +1132,7 @@ extern const char g_vft_names[3][18];
 
 HEADER_INLINE BoolErr CleanupPgfi2(const char* file_descrip, PgenFileInfo* pgfip, PglErr* reterrp) {
   if (CleanupPgfi(pgfip, reterrp)) {
-    logerrprintfww(kErrprintfFread, file_descrip, rstrerror(errno));
+    logerrprintfww(kErrprintfFread, file_descrip, strerror(errno));
     return 1;
   }
   return 0;
@@ -1140,7 +1140,7 @@ HEADER_INLINE BoolErr CleanupPgfi2(const char* file_descrip, PgenFileInfo* pgfip
 
 HEADER_INLINE BoolErr CleanupPgr2(const char* file_descrip, PgenReader* pgrp, PglErr* reterrp) {
   if (CleanupPgr(pgrp, reterrp)) {
-    logerrprintfww(kErrprintfFread, file_descrip, rstrerror(errno));
+    logerrprintfww(kErrprintfFread, file_descrip, strerror(errno));
     return 1;
   }
   return 0;

@@ -31,7 +31,7 @@ extern const char kErrprintfDecompress[];
 
 HEADER_INLINE BoolErr CleanupTextFile2(const char* file_descrip, textFILE* txfp, PglErr* reterrp) {
   if (unlikely(CleanupTextFile(txfp, reterrp))) {
-    logerrprintfww(kErrprintfFread, file_descrip, rstrerror(errno));
+    logerrprintfww(kErrprintfFread, file_descrip, strerror(errno));
     return 1;
   }
   return 0;
@@ -114,7 +114,7 @@ HEADER_INLINE void TextStreamErrPrintRewind(const char* file_descrip, const Text
 
 HEADER_INLINE BoolErr CleanupTextStream2(const char* file_descrip, TextStream* txsp, PglErr* reterrp) {
   if (unlikely(CleanupTextStream(txsp, reterrp))) {
-    logerrprintfww(kErrprintfFread, file_descrip, rstrerror(errno));
+    logerrprintfww(kErrprintfFread, file_descrip, strerror(errno));
     return 1;
   }
   return 0;
@@ -141,7 +141,7 @@ HEADER_INLINE void TokenStreamErrPrint(const char* file_descrip, const TokenStre
 
 HEADER_INLINE BoolErr CleanupTokenStream2(const char* file_descrip, TokenStream* tksp, PglErr* reterrp) {
   if (unlikely(CleanupTokenStream(tksp, reterrp))) {
-    logerrprintfww(kErrprintfFread, file_descrip, rstrerror(errno));
+    logerrprintfww(kErrprintfFread, file_descrip, strerror(errno));
     return 1;
   }
   return 0;

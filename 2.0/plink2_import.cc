@@ -8035,6 +8035,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         goto BcfToPgen_ret_BGZF_FAIL;
       }
       if (unlikely(bcf_iter != bcf_header_end)) {
+        errno = 0;
         reterr = kPglRetReadFail;
         goto BcfToPgen_ret_BGZF_FAIL;
       }
@@ -13446,6 +13447,9 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     reterr = kPglRetOpenFail;
     break;
   OxBgenToPgen_ret_READ_FAIL:
+    if (feof_unlocked(bgenfile)) {
+      errno = 0;
+    }
     logputs("\n");
     logerrprintfww(kErrprintfFread, bgenname, rstrerror(errno));
     reterr = kPglRetReadFail;
@@ -16254,6 +16258,10 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, uintptr_t variant_ct, uintp
     reterr = kPglRetNomem;
     break;
   Plink1SampleMajorToPgen_ret_READ_FAIL:
+    if (feof_unlocked(infile)) {
+      errno = 0;
+    }
+    logputs("\n");
     logerrprintfww(kErrprintfFread, ".bed file", rstrerror(errno));
     reterr = kPglRetReadFail;
     break;

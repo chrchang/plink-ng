@@ -758,6 +758,21 @@ PglErr PgfiInitPhase1(const char* fname, uint32_t raw_variant_ct, uint32_t raw_s
   return kPglRetSuccess;
 }
 
+void FillPgenReadErrstrFromErrno(char* errstr_buf) {
+  if (errno) {
+    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen read failure: %s.\n", strerror(errno));
+  } else {
+    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen read failure: File appears to be corrupted.\n");
+  }
+}
+
+void FillPgenReadErrstr(FILE* ff, char* errstr_buf) {
+  if (feof_unlocked(ff)) {
+    errno = 0;
+  }
+  FillPgenReadErrstrFromErrno(errstr_buf);
+}
+
 static_assert(kPglMaxAltAlleleCt == 254, "Need to update PgfiInitPhase2().");
 PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_loaded, uint32_t nonref_flags_already_loaded, uint32_t use_blockload, uint32_t vblock_idx_start, uint32_t vidx_end, uint32_t* max_vrec_width_ptr, PgenFileInfo* pgfip, unsigned char* pgfi_alloc, uintptr_t* pgr_alloc_cacheline_ct_ptr, char* errstr_buf) {
   // *max_vrec_width_ptr technically only needs to be set in single-variant
@@ -877,7 +892,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
       }
       unsigned char* loadptr = nonref_flags_already_loaded? loadbuf : nonref_flags_iter;
       if (unlikely(!fread_unlocked(loadptr, cur_byte_ct, 1, shared_ff))) {
-        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen read failure: %s.\n", strerror(errno));
+        FillPgenReadErrstr(shared_ff, errstr_buf);
         return kPglRetReadFail;
       }
       if (nonref_flags_already_loaded) {
@@ -917,7 +932,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
       }
     }
     if (unlikely(!fread_unlocked(&cur_fpos, sizeof(int64_t), 1, shared_ff))) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen read failure: %s.\n", strerror(errno));
+      FillPgenReadErrstr(shared_ff, errstr_buf);
       return kPglRetReadFail;
     }
     // May also need to load the rest of these values in the future, if we want
@@ -1196,7 +1211,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
       } else {
 #endif
         if (unlikely(!fread_unlocked(loadbuf, cur_byte_ct, 1, shared_ff))) {
-          snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen read failure: %s.\n", strerror(errno));
+          FillPgenReadErrstr(shared_ff, errstr_buf);
           return kPglRetReadFail;
         }
         loadbuf_iter = R_CAST(const uintptr_t*, loadbuf);
@@ -1231,7 +1246,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
         if (shared_ff) {
 #endif
           if (unlikely(!fread_unlocked(loadbuf, cur_byte_ct, 1, shared_ff))) {
-            snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen read failure: %s.\n", strerror(errno));
+            FillPgenReadErrstr(shared_ff, errstr_buf);
             return kPglRetReadFail;
           }
           fread_ptr = loadbuf;
@@ -1274,7 +1289,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
         if (shared_ff) {
 #endif
           if (unlikely(!fread_unlocked(vrtypes_iter, cur_vblock_variant_ct, 1, shared_ff))) {
-            snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen read failure: %s.\n", strerror(errno));
+            FillPgenReadErrstr(shared_ff, errstr_buf);
             return kPglRetReadFail;
           }
 #ifndef NO_MMAP
@@ -1302,7 +1317,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
       if (shared_ff) {
 #endif
         if (unlikely(!fread_unlocked(loadbuf, cur_byte_ct, 1, shared_ff))) {
-          snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen read failure: %s.\n", strerror(errno));
+          FillPgenReadErrstr(shared_ff, errstr_buf);
           return kPglRetReadFail;
         }
         fread_ptr = loadbuf;
@@ -1376,7 +1391,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
       if (shared_ff) {
 #endif
         if (unlikely(!fread_unlocked(loadbuf, cur_vblock_variant_ct * alt_allele_ct_byte_ct, 1, shared_ff))) {
-          snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen read failure: %s.\n", strerror(errno));
+          FillPgenReadErrstr(shared_ff, errstr_buf);
           return kPglRetReadFail;
         }
         fread_ptr = loadbuf;
@@ -1435,7 +1450,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
 #endif
         unsigned char* loadptr = nonref_flags_already_loaded? loadbuf : nonref_flags_iter;
         if (unlikely(!fread_unlocked(loadptr, cur_byte_ct, 1, shared_ff))) {
-          snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen read failure: %s.\n", strerror(errno));
+          FillPgenReadErrstr(shared_ff, errstr_buf);
           return kPglRetReadFail;
         }
         if (nonref_flags_already_loaded) {
@@ -1622,6 +1637,9 @@ PglErr PgfiMultiread(const uintptr_t* variant_include, uint32_t variant_uidx_sta
     }
     uintptr_t len = cur_read_end_fpos - cur_read_start_fpos;
     if (unlikely(fread_checked(K_CAST(unsigned char*, &(pgfip->block_base[cur_read_start_fpos - block_offset])), len, pgfip->shared_ff))) {
+      if (feof_unlocked(pgfip->shared_ff)) {
+        errno = 0;
+      }
       return kPglRetReadFail;
     }
   } while (load_variant_ct);
@@ -2374,11 +2392,17 @@ BoolErr InitReadPtrs(uint32_t vidx, PgenReaderMain* pgrp, const unsigned char** 
   const uintptr_t cur_vrec_width = GetPgfiVrecWidth(&(pgrp->fi), vidx);
 #ifdef __LP64__
   if (unlikely(fread_checked(pgrp->fread_buf, cur_vrec_width, pgrp->ff))) {
+    if (feof_unlocked(pgrp->ff)) {
+      errno = 0;
+    }
     return 1;
   }
 #else
   // cur_vrec_width < 2^31 since otherwise we error out on initialization
   if (unlikely(!fread_unlocked(pgrp->fread_buf, cur_vrec_width, 1, pgrp->ff))) {
+    if (feof_unlocked(pgrp->ff)) {
+      errno = 0;
+    }
     return 1;
   }
 #endif
@@ -2718,6 +2742,9 @@ PglErr LdLoadMinimalSubsetIfNecessary(const uintptr_t* __restrict sample_include
       // don't actually need to fread the whole record in this case
       const uint32_t raw_sample_ct4 = NypCtToByteCt(raw_sample_ct);
       if (unlikely(!fread_unlocked(raw_genovec, raw_sample_ct4, 1, pgrp->ff))) {
+        if (feof_unlocked(pgrp->ff)) {
+          errno = 0;
+        }
         return kPglRetReadFail;
       }
       if (raw_sample_ct4 != cur_vrec_width) {
@@ -2727,6 +2754,9 @@ PglErr LdLoadMinimalSubsetIfNecessary(const uintptr_t* __restrict sample_include
       goto LdLoadMinimalSubsetIfNecessary_genovec_finish;
     }
     if (unlikely(!fread_unlocked(pgrp->fread_buf, cur_vrec_width, 1, pgrp->ff))) {
+      if (feof_unlocked(pgrp->ff)) {
+        errno = 0;
+      }
       return kPglRetReadFail;
     }
     fread_ptr = pgrp->fread_buf;
@@ -10152,7 +10182,7 @@ PglErr PgrValidate(PgenReader* pgr_ptr, uintptr_t* genovec_buf, char* errstr_buf
         const unsigned char* fread_ptr;
         const unsigned char* fread_end = nullptr;
         if (unlikely(InitReadPtrs(vidx, pgrp, &fread_ptr, &fread_end))) {
-          snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen read failure: %s.\n", strerror(errno));
+          FillPgenReadErrstrFromErrno(errstr_buf);
           return kPglRetReadFail;
         }
         const uint32_t last_byte_in_record = fread_end[-1];
@@ -10222,13 +10252,13 @@ PglErr PgrValidate(PgenReader* pgr_ptr, uintptr_t* genovec_buf, char* errstr_buf
     }
     header_ctrl = getc_unlocked(ff);
     if (unlikely(header_ctrl > 255)) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen read failure: %s.\n", strerror(errno));
+      FillPgenReadErrstr(ff, errstr_buf);
       return kPglRetReadFail;
     }
     for (uint32_t vblock_idx = 0; vblock_idx != vblock_ct; ++vblock_idx) {
       uint64_t vblock_start_fpos;
       if (unlikely(!fread_unlocked(&vblock_start_fpos, sizeof(int64_t), 1, ff))) {
-        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen read failure: %s.\n", strerror(errno));
+        FillPgenReadErrstr(ff, errstr_buf);
         return kPglRetReadFail;
       }
       if (unlikely(vblock_start_fpos != pgrp->fi.var_fpos[vblock_idx * kPglVblockSize])) {
@@ -10288,7 +10318,7 @@ PglErr PgrValidate(PgenReader* pgr_ptr, uintptr_t* genovec_buf, char* errstr_buf
       }
       last_vrtype_byte = getc_unlocked(ff);
       if (unlikely(last_vrtype_byte > 255)) {
-        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen read failure: %s.\n", strerror(errno));
+        FillPgenReadErrstr(ff, errstr_buf);
         return kPglRetReadFail;
       }
 #ifndef NO_MMAP
@@ -10317,7 +10347,7 @@ PglErr PgrValidate(PgenReader* pgr_ptr, uintptr_t* genovec_buf, char* errstr_buf
     const unsigned char* fread_ptr;
     const unsigned char* fread_end;
     if (unlikely(InitReadPtrs(vidx, pgrp, &fread_ptr, &fread_end))) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen read failure: %s.\n", strerror(errno));
+      FillPgenReadErrstrFromErrno(errstr_buf);
       return kPglRetReadFail;
     }
     const unsigned char* fread_ptr_start = fread_ptr;
