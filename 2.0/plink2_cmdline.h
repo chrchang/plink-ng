@@ -1702,6 +1702,14 @@ void HelpPrint(const char* cur_params, HelpCtrl* help_ctrl_ptr, uint32_t postpri
 extern const char kErrstrNomem[];
 extern const char kErrstrWrite[];
 extern const char kErrstrThreadCreate[];
+extern const char kErrstrReadCorrupted[];
+
+HEADER_INLINE const char* rstrerror(int errnum) {
+  if (errnum == 2) {
+    return kErrstrReadCorrupted;
+  }
+  return strerror(errnum);
+}
 
 // assumes logfile is open
 void DispExitMsg(PglErr reterr);

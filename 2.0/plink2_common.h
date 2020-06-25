@@ -1132,7 +1132,7 @@ extern const char g_vft_names[3][18];
 
 HEADER_INLINE BoolErr CleanupPgfi2(const char* file_descrip, PgenFileInfo* pgfip, PglErr* reterrp) {
   if (CleanupPgfi(pgfip, reterrp)) {
-    logerrprintfww(kErrprintfFread, file_descrip, strerror(errno));
+    logerrprintfww(kErrprintfFread, file_descrip, rstrerror(errno));
     return 1;
   }
   return 0;
@@ -1140,7 +1140,7 @@ HEADER_INLINE BoolErr CleanupPgfi2(const char* file_descrip, PgenFileInfo* pgfip
 
 HEADER_INLINE BoolErr CleanupPgr2(const char* file_descrip, PgenReader* pgrp, PglErr* reterrp) {
   if (CleanupPgr(pgrp, reterrp)) {
-    logerrprintfww(kErrprintfFread, file_descrip, strerror(errno));
+    logerrprintfww(kErrprintfFread, file_descrip, rstrerror(errno));
     return 1;
   }
   return 0;
@@ -1149,7 +1149,7 @@ HEADER_INLINE BoolErr CleanupPgr2(const char* file_descrip, PgenReader* pgrp, Pg
 HEADER_INLINE void PgenErrPrintNEx(const char* file_descrip, PglErr reterr) {
   if (reterr == kPglRetReadFail) {
     logputs("\n");
-    logerrprintfww(kErrprintfFread, file_descrip, strerror(errno));
+    logerrprintfww(kErrprintfFread, file_descrip, rstrerror(errno));
   } else if (reterr == kPglRetMalformedInput) {
     logputs("\n");
     logerrprintfww("Error: Malformed %s.\n", file_descrip);
@@ -1162,7 +1162,7 @@ HEADER_INLINE void PgenErrPrintN(PglErr reterr) {
 
 HEADER_INLINE void PgenErrPrintEx(const char* file_descrip, PglErr reterr) {
   if (reterr == kPglRetReadFail) {
-    logerrprintfww(kErrprintfFread, file_descrip, strerror(errno));
+    logerrprintfww(kErrprintfFread, file_descrip, rstrerror(errno));
   } else if (reterr == kPglRetMalformedInput) {
     logerrprintfww("Error: Malformed %s.\n", file_descrip);
   }

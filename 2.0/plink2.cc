@@ -70,7 +70,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (20 Jun 2020)";
+  " (24 Jun 2020)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -1042,7 +1042,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             logerrprintfww(kErrprintfFopen, pgenname, strerror(errno));
           } else {
             assert(reterr == kPglRetReadFail);
-            logerrprintfww(kErrprintfFread, pgenname, strerror(errno));
+            logerrprintfww(kErrprintfFread, pgenname, rstrerror(errno));
           }
           goto Plink2Core_ret_1;
         }
@@ -2730,7 +2730,7 @@ PglErr ZstDecompress(const char* in_fname, const char* out_fname) {
     fclose_cond(outfile);
   }
   if (unlikely(CleanupZstRfile(&zrf, &reterr))) {
-    fprintf(stderr, kErrprintfFread, in_fname, strerror(errno));
+    fprintf(stderr, kErrprintfFread, in_fname, rstrerror(errno));
   }
   return reterr;
 }

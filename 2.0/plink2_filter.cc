@@ -4401,7 +4401,7 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
   }
  SetRefalt1FromFile_ret_1:
   if (CleanupTextStream(&txs, &reterr)) {
-    logerrprintfww("Error: %s file read failure: %s.\n", flagstr, strerror(errno));
+    logerrprintfww("Error: %s file read failure: %s.\n", flagstr, rstrerror(errno));
   }
   BigstackReset(bigstack_mark);
   BigstackEndSet(bigstack_end);

@@ -3206,6 +3206,7 @@ const char kErrstrNomem[] = "Error: Out of memory.  The --memory flag may be hel
 const char kErrstrWrite[] = "Error: File write failure: %s.\n";
 const char kErrstrThreadCreate[] = "Error: Failed to create thread.\n";
 const char kErrstrVarRecordTooLarge[] = "Error: Variant record size exceeds ~4 GiB limit.\n";
+const char kErrstrReadCorrupted[] = "File appears to be corrupted";
 
 // assumes logfile is open
 void DispExitMsg(PglErr reterr) {
@@ -3553,14 +3554,14 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
         if (unlikely(fseeko(scriptfile, 0, SEEK_END))) {
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
-          fprintf(stderr, kErrprintfFread, argvk[arg_idx + 1], strerror(errno));
+          fprintf(stderr, kErrprintfFread, argvk[arg_idx + 1], rstrerror(errno));
           goto CmdlineParsePhase1_ret_READ_FAIL;
         }
         int64_t fsize = ftello(scriptfile);
         if (unlikely(fsize < 0)) {
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
-          fprintf(stderr, kErrprintfFread, argvk[arg_idx + 1], strerror(errno));
+          fprintf(stderr, kErrprintfFread, argvk[arg_idx + 1], rstrerror(errno));
           goto CmdlineParsePhase1_ret_READ_FAIL;
         }
         if (unlikely(fsize > 0x7ffffffe)) {
@@ -3581,7 +3582,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
         if (unlikely(!fread_unlocked(script_buf, fsize_ui, 1, scriptfile))) {
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
-          fprintf(stderr, kErrprintfFread, argvk[arg_idx + 1], strerror(errno));
+          fprintf(stderr, kErrprintfFread, argvk[arg_idx + 1], rstrerror(errno));
           goto CmdlineParsePhase1_ret_READ_FAIL;
         }
         script_buf[fsize_ui] = '\0';

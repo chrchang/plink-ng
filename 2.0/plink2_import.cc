@@ -8877,7 +8877,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
   BcfToPgen_ret_BGZF_FAIL:
     // ReadFail, DecompressFail, and ThreadCreateFail possible.
     if (reterr == kPglRetReadFail) {
-      logerrprintfww(kErrprintfFread, bcfname, strerror(errno));
+      logerrprintfww(kErrprintfFread, bcfname, rstrerror(errno));
     } else if (reterr == kPglRetDecompressFail) {
       logerrprintfww(kErrprintfDecompress, bcfname, bgzf_errmsg);
     }
@@ -9863,7 +9863,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
       // Close and reopen, so that we can reduce decompress_thread_ct to 1.
       char* dst = R_CAST(char*, TextStreamMemStart(&gen_txs));
       if (unlikely(CleanupTextStream(&gen_txs, &reterr))) {
-        logerrprintfww(kErrprintfFread, ".gen file", strerror(errno));
+        logerrprintfww(kErrprintfFread, ".gen file", rstrerror(errno));
         goto OxGenToPgen_ret_1;
       }
       reterr = TextStreamOpenEx(genname, kMaxLongLine, max_line_blen, 1, nullptr, dst, &gen_txs);
@@ -11578,15 +11578,17 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       logerrputs("Error: Invalid .bgen header.\n");
       goto OxBgenToPgen_ret_MALFORMED_INPUT;
     }
-    const uint32_t raw_variant_ct = initial_uints[2];
-    if (unlikely(!raw_variant_ct)) {
-      logerrputs("Error: Empty .bgen file.\n");
-      goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
-    }
     const uint32_t sample_ct = initial_uints[3];
     if (unlikely(initial_uints[4] && (initial_uints[4] != 0x6e656762))) {
       logerrputs("Error: Invalid .bgen magic number.\n");
       goto OxBgenToPgen_ret_MALFORMED_INPUT;
+    }
+    // Don't want to print "Empty .bgen file" error message when magic number
+    // is wrong.
+    const uint32_t raw_variant_ct = initial_uints[2];
+    if (unlikely(!raw_variant_ct)) {
+      logerrputs("Error: Empty .bgen file.\n");
+      goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
     }
 
     if (unlikely(fseeko(bgenfile, initial_uints[1], SEEK_SET))) {
@@ -13444,7 +13446,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     reterr = kPglRetOpenFail;
     break;
   OxBgenToPgen_ret_READ_FAIL:
-    logerrprintfww(kErrprintfFread, bgenname, strerror(errno));
+    logputs("\n");
+    logerrprintfww(kErrprintfFread, bgenname, rstrerror(errno));
     reterr = kPglRetReadFail;
     break;
   OxBgenToPgen_ret_WRITE_FAIL:
@@ -16251,7 +16254,7 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, uintptr_t variant_ct, uintp
     reterr = kPglRetNomem;
     break;
   Plink1SampleMajorToPgen_ret_READ_FAIL:
-    logerrprintfww(kErrprintfFread, ".bed file", strerror(errno));
+    logerrprintfww(kErrprintfFread, ".bed file", rstrerror(errno));
     reterr = kPglRetReadFail;
     break;
   Plink1SampleMajorToPgen_ret_WRITE_FAIL:

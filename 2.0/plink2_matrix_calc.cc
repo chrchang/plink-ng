@@ -505,7 +505,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
     reterr = kPglRetOpenFail;
     break;
   KingCutoffBatch_ret_READ_FAIL:
-    logerrprintfww(kErrprintfFread, king_cutoff_fprefix, strerror(errno));
+    logerrprintfww(kErrprintfFread, king_cutoff_fprefix, rstrerror(errno));
     reterr = kPglRetReadFail;
     break;
   KingCutoffBatch_ret_MISSING_TOKENS:
@@ -530,7 +530,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
   fclose_cond(binfile);
   if (CleanupTextStream(&txs, &reterr)) {
     snprintf(fprefix_end, 9, ".king.id");
-    logerrprintfww(kErrprintfFread, king_cutoff_fprefix, strerror(errno));
+    logerrprintfww(kErrprintfFread, king_cutoff_fprefix, rstrerror(errno));
   }
   BigstackReset(bigstack_mark);
   return reterr;
