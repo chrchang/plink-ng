@@ -5234,7 +5234,6 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
       uint32_t allele_ct = 2;
       uint32_t male_a1_ct = 0;
       uint32_t male_ax_ct = 0;
-      double cur_hwe_x_pval = 0.0;
       for (uint32_t variant_idx = 0; variant_idx != hwe_x_ct; ++variant_idx) {
         const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &variant_include_bits);
         uintptr_t allele_idx_offset_base = variant_uidx * 2;
@@ -5316,11 +5315,6 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
               female_het_a1_ct -= cur_nosex_geno_cts[1];
               female_two_ax_ct -= cur_nosex_geno_cts[2 - 2 * a1_idx];
             }
-            if (p_col) {
-              // bugfix (27 Jun 2020): forgot to correct this for multiallelic
-              // variants
-              cur_hwe_x_pval = hwe_x_pvals[variant_idx + xgeno_idx];
-            }
           } else {
             STD_ARRAY_KREF(uint32_t, 2) cur_knownsex_xgeno_cts = x_knownsex_xgeno_cts[xgeno_idx];
             female_hom_a1_ct = cur_knownsex_xgeno_cts[0];
@@ -5334,9 +5328,8 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
               male_ax_ct = male_obs_ct - male_a1_ct - male_hethap_ct;
             }
             female_two_ax_ct = female_obs_ct - female_hom_a1_ct - female_het_a1_ct;
-            if (p_col) {
-              cur_hwe_x_pval = hwe_x_pvals[variant_idx + xgeno_idx];
-            }
+            // Correct to increment this before looking up hwe_x_pvals[] (and
+            // to not increment on a1_idx == 0).
             ++xgeno_idx;
           }
           if (gcounts) {
@@ -5378,7 +5371,9 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
           }
           if (p_col) {
             *cswritep++ = '\t';
-            cswritep = dtoa_g(MAXV(cur_hwe_x_pval, output_min_p), cswritep);
+            // bugfix (27 Jun 2020): forgot to correct this for multiallelic
+            // variants
+            cswritep = dtoa_g(MAXV(hwe_x_pvals[variant_idx + xgeno_idx], output_min_p), cswritep);
           }
           AppendBinaryEoln(&cswritep);
           if (unlikely(Cswrite(&css, &cswritep))) {
