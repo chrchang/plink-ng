@@ -3798,7 +3798,9 @@ void EnforceHweThresh(const ChrInfo* cip, const uintptr_t* allele_idx_offsets, c
             test_failed = !HweThresh(het_a1_ct, hom_a1_ct, two_ax_ct, joint_pval);
           }
         }
-        if (xallele_idx == xallele_ct) {
+        // bugfix (27 Jun 2020): don't clobber previous allele-test failure if
+        // variant is multiallelic
+        if (test_failed || (xallele_idx == xallele_ct)) {
           break;
         }
         STD_ARRAY_KREF(uint32_t, 2) cur_xgeno_cts = x_knownsex_xgeno_cts[x_xgeno_idx + xallele_idx];
