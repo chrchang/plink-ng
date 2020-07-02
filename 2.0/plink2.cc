@@ -70,10 +70,10 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (27 Jun 2020)";
+  " (1 Jul 2020)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -6418,6 +6418,8 @@ int main(int argc, char** argv) {
               make_plink2_flags |= kfMakePgenErasePhase;
             } else if (likely(strequal_k(cur_modif, "erase-dosage", cur_modif_slen))) {
               make_plink2_flags |= kfMakePgenEraseDosage;
+            } else if (strequal_k(cur_modif, "fill-missing-from-dosage", cur_modif_slen)) {
+              make_plink2_flags |= kfMakePgenFillMissingFromDosage;
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-bpgen argument '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
@@ -6549,6 +6551,8 @@ int main(int argc, char** argv) {
               make_plink2_flags |= kfMakePgenErasePhase;
             } else if (strequal_k(cur_modif, "erase-dosage", cur_modif_slen)) {
               make_plink2_flags |= kfMakePgenEraseDosage;
+            } else if (strequal_k(cur_modif, "fill-missing-from-dosage", cur_modif_slen)) {
+              make_plink2_flags |= kfMakePgenFillMissingFromDosage;
             } else if (likely(StrStartsWith0(cur_modif, "psam-cols=", cur_modif_slen))) {
               if (unlikely(explicit_psam_cols)) {
                 logerrputs("Error: Multiple --make-pgen psam-cols= modifiers.\n");

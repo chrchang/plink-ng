@@ -282,19 +282,20 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
               );
     HelpPrint("make-pgen\0make-bpgen\0make-bed\0make-just-pvar\0make-just-psam\0", &help_ctrl, 1,
 "  --make-pgen ['vzs'] ['format='<code>] ['trim-alts'] ['erase-phase']\n"
-"              ['erase-dosage'] ['pvar-cols='<col set descriptor>]\n"
-"              ['psam-cols='<col set descriptor>]\n"
+"              ['erase-dosage'] ['fill-missing-from-dosage']\n"
+"              ['pvar-cols='<col set desc>] ['psam-cols='<col set desc>]\n"
 "  --make-bpgen ['vzs'] ['format='<code>] ['trim-alts'] ['erase-phase']\n"
-"               ['erase-dosage']\n"
+"               ['erase-dosage'] ['fill-missing-from-dosage']\n"
 "  --make-bed ['vzs'] ['trim-alts']\n"
                /*
 "  --make-pgen ['vzs'] ['format='<code>] [{trim-alts | erase-alt2+}]\n"
-"              ['erase-phase'] ['erase-dosage'] ['multiallelics='<mode>]\n"
+"              ['erase-phase'] ['erase-dosage'] ['fill-missing-from-dosage']\n"
+"              ['multiallelics='<mode>]\n"
 "              [{varid-split | varid-split-dup | varid-dup | varid-join}]\n"
-"              ['pvar-cols='<col set descriptor>]\n"
-"              ['psam-cols='<col set descriptor>]\n"
+"              ['pvar-cols='<col set desc>] ['psam-cols='<col set desc>]\n"
 "  --make-bpgen ['vzs'] ['format='<code>] [{trim-alts | erase-alt2+}]\n"
-"               ['erase-phase'] ['erase-dosage'] ['multiallelics='<mode>]\n"
+"               ['erase-phase'] ['erase-dosage'] ['fill-missing-from-dosage']\n"
+"               ['multiallelics='<mode>]\n"
 "               [{varid-split | varid-split-dup | varid-dup | varid-join}]\n"
 "  --make-bed ['vzs'] [{trim-alts | erase-alt2+}]\n"
 "             ['multiallelics='<split mode>]\n"
@@ -322,6 +323,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     // implemented yet.  (This also applies to other commented-out help text.)
 "    * The 'erase-phase' and 'erase-dosage' modifiers prevent phase and dosage\n"
 "      information from being written to the new .pgen.\n"
+"    * When a hardcall is missing but the corresponding dosage is present,\n"
+"      'fill-missing-from-dosage' causes the (Euclidean-)nearest hardcall to be\n"
+"      filled in, with ties broken in favor of the lower-index allele.\n"
                /*
 "    * The 'multiallelics=' modifier (alias: 'm=') specifies a join or split\n"
 "      mode.  The following modes are currently supported:\n"

@@ -54,7 +54,8 @@ FLAGSET_DEF_START()
   kfMakePlink2SetMixedMtMissingKeepDosage = (1 << 17),
   kfMakePgenFormatBase = (1 << 18), // two bits
   kfMakePgenErasePhase = (1 << 20),
-  kfMakePgenEraseDosage = (1 << 21)
+  kfMakePgenEraseDosage = (1 << 21),
+  kfMakePgenFillMissingFromDosage = (1 << 22)
 FLAGSET_DEF_END(MakePlink2Flags);
 
 CONSTI32(kMaxInfoKeySlen, kMaxIdSlen);

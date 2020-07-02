@@ -2669,6 +2669,28 @@ void ApplyHardCallThresh(const uintptr_t* dosage_present, const Dosage* dosage_m
   }
 }
 
+void FillMissingFromBiallelicDosage(const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t dosage_ct, uintptr_t* genovec) {
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = dosage_present[0];
+  for (uint32_t dosage_idx = 0; dosage_idx != dosage_ct; ++dosage_idx) {
+    const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &cur_bits);
+    const uintptr_t widx = sample_uidx / kBitsPerWordD2;
+    const uint32_t shift = 2 * (sample_uidx % kBitsPerWordD2);
+    uintptr_t geno_word = genovec[widx];
+    if (((geno_word >> shift) & 3) != 3) {
+      // not missing, don't recalculate
+      continue;
+    }
+    const uint32_t dosage_int = dosage_main[dosage_idx];
+    // Ties are rounded in favor of the lower-index allele, which reduces to
+    // rounding down in the biallelic case.
+    // uintptr_t new_geno = (dosage_int + kDosage4th - 1) / kDosageMid;
+    const uintptr_t three_minus_new_geno = (7 * kDosage4th - dosage_int) / kDosageMid;
+    geno_word ^= three_minus_new_geno << shift;
+    genovec[widx] = geno_word;
+  }
+}
+
 uint32_t ApplyHardCallThreshPhased(const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t dosage_ct, uint32_t hard_call_halfdist, uintptr_t* genovec, uintptr_t* phasepresent, uintptr_t* phaseinfo, uintptr_t* dphase_present, SDosage* dphase_delta, SDosage* tmp_dphase_delta) {
   // Generate new hphase values when we're converting a hardcall from
   // missing/hom to het, and abs(dphase_delta) > 0.5.  Erase explicit dphase in
@@ -2744,6 +2766,64 @@ uint32_t ApplyHardCallThreshPhased(const uintptr_t* dosage_present, const Dosage
   const uint32_t dphase_ct = dphase_write_iter - tmp_dphase_delta;
   memcpy(dphase_delta, tmp_dphase_delta, dphase_ct * sizeof(Dosage));
   return dphase_ct;
+}
+
+uint32_t FillMissingFromBiallelicDosagePhased(const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t dosage_ct, uintptr_t* genovec, uintptr_t* phasepresent, uintptr_t* phaseinfo, uintptr_t* dphase_present, SDosage* dphase_delta) {
+  // Generate new hphase values when we're creating a new het hardcall, and
+  // abs(dphase_delta) > 0.5.  Erase explicit dphase in that case if
+  // dphase_delta is maximal.
+  //
+  // Only deletions to dphase_delta[] are possible, so we edit in place.
+  //
+  // Returns final dphase_ct.
+  uint32_t dphase_read_idx = 0;
+  uint32_t dphase_write_idx = 0;
+  uintptr_t sample_uidx_base = 0;
+  uintptr_t cur_bits = dosage_present[0];
+  uint32_t dosage_idx = 0;
+  for (; dosage_idx != dosage_ct; ++dosage_idx) {
+    const uintptr_t sample_uidx = BitIter1(dosage_present, &sample_uidx_base, &cur_bits);
+    const uintptr_t widx = sample_uidx / kBitsPerWordD2;
+    const uint32_t shift = 2 * (sample_uidx % kBitsPerWordD2);
+    uintptr_t geno_word = genovec[widx];
+    if (((geno_word >> shift) & 3) != 3) {
+      if (IsSet(dphase_present, sample_uidx)) {
+        if (dphase_read_idx != dphase_write_idx) {
+          dphase_delta[dphase_write_idx] = dphase_delta[dphase_read_idx];
+        }
+        ++dphase_read_idx;
+        ++dphase_write_idx;
+      }
+      continue;
+    }
+    const uint32_t dosage_int = dosage_main[dosage_idx];
+    const uintptr_t three_minus_new_geno = (7 * kDosage4th - dosage_int) / kDosageMid;
+    geno_word ^= three_minus_new_geno << shift;
+    genovec[widx] = geno_word;
+    if (!IsSet(dphase_present, sample_uidx)) {
+      continue;
+    }
+    const int32_t dphase_delta_val = dphase_delta[dphase_read_idx];
+    if (dphase_write_idx != dphase_read_idx) {
+      dphase_delta[dphase_write_idx] = dphase_delta_val;
+    }
+    ++dphase_read_idx;
+    ++dphase_write_idx;
+    if (three_minus_new_geno != 2) {
+      continue;
+    }
+    const uint32_t neg_sign_bit = -(S_CAST(uint32_t, dphase_delta_val) >> 31);
+    const uint32_t abs_dphase_delta_val = (S_CAST(uint32_t, dphase_delta_val) ^ neg_sign_bit) - neg_sign_bit;
+    if (abs_dphase_delta_val > kDosage4th) {
+      SetBit(sample_uidx, phasepresent);
+      AssignBit(sample_uidx, neg_sign_bit + 1, phaseinfo);
+      // is dphase_delta maximal?
+      if ((abs_dphase_delta_val == dosage_int) || (abs_dphase_delta_val + dosage_int == kDosageMax)) {
+        --dphase_write_idx;
+      }
+    }
+  }
+  return dphase_write_idx;
 }
 
 uintptr_t InitWriteAlleleIdxOffsets(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uint32_t* new_variant_idx_to_old, uint32_t variant_ct, uintptr_t* new_allele_idx_offsets) {
@@ -4649,8 +4729,9 @@ FLAGSET_DEF_START()
   kfPlink2WriteZeroCluster = (1 << 5),
   kfPlink2WriteFillRef = (1 << 6),
   kfPlink2WriteLateDosageErase = (1 << 7),
+  kfPlink2WriteFillMissingFromDosage = (1 << 8),
   // no need for sample_sort, determined by collapsed_sort_map != nullptr?
-  kfPlink2WritePlink1 = (1 << 8)
+  kfPlink2WritePlink1 = (1 << 9)
 FLAGSET_DEF_END(Plink2WriteFlags);
 // todo: add .pgen-specific stuff
 
@@ -5098,7 +5179,7 @@ typedef struct MakePgenCtxStruct {
 // Beyond that... the VCF/.pgen division of labor looks nice, but far too much
 // of the work is usually being done in the initial PgrGetRaw() call, so just
 // fall back on single-threaded invocation of the same function; only
-// difference is that the thread owns the writer object.
+// difference is that the worker thread owns the writer object.
 THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
   ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
   const uintptr_t tidx = arg->tidx;
@@ -5136,6 +5217,7 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
   const uint32_t set_mixed_mt_missing = plink2_write_flags & kfPlink2WriteSetMixedMtMissing;
   const uint32_t set_mixed_mt_missing_keep_dosage = plink2_write_flags & kfPlink2WriteSetMixedMtMissingKeepDosage;
   const uint32_t late_dosage_erase = plink2_write_flags & kfPlink2WriteLateDosageErase;
+  const uint32_t fill_missing_from_dosage = plink2_write_flags & kfPlink2WriteFillMissingFromDosage;
 
   const uint32_t hard_call_halfdist = mcp->hard_call_halfdist;
   const uint32_t dosage_erase_halfdist = ctx->dosage_erase_halfdist;
@@ -5398,7 +5480,7 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
       }
       if (write_dosage_ct) {
         assert((!write_rare01_ct) && (!write_rare10_ct));
-        if (hard_call_halfdist || (dosage_erase_halfdist < kDosage4th)) {
+        if (hard_call_halfdist || fill_missing_from_dosage || (dosage_erase_halfdist < kDosage4th)) {
           if (is_hphase && (!cur_write_phasepresent)) {
             // explicit phasepresent required for these
             cur_write_phasepresent = write_phasepresent;
@@ -5419,6 +5501,17 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
                 ZeroWArr(sample_ctl, write_phasepresent);
               }
               write_dphase_ct = ApplyHardCallThreshPhased(write_dosagepresent, write_dosagevals, write_dosage_ct, hard_call_halfdist, write_genovec, write_phasepresent, write_phaseinfo, write_dphasepresent, write_dphasedeltas, tmp_dphasedeltas);
+              is_hphase = !AllWordsAreZero(write_phasepresent, sample_ctl);
+            }
+          }
+          if (fill_missing_from_dosage) {
+            if ((!is_hphase) && (!write_dphase_ct)) {
+              FillMissingFromBiallelicDosage(write_dosagepresent, write_dosagevals, write_dosage_ct, write_genovec);
+            } else {
+              if (!is_hphase) {
+                ZeroWArr(sample_ctl, write_phasepresent);
+              }
+              write_dphase_ct = FillMissingFromBiallelicDosagePhased(write_dosagepresent, write_dosagevals, write_dosage_ct, write_genovec, write_phasepresent, write_phaseinfo, write_dphasepresent, write_dphasedeltas);
               is_hphase = !AllWordsAreZero(write_phasepresent, sample_ctl);
             }
           }
@@ -5817,8 +5910,12 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       if (make_plink2_flags & kfMakePgenErasePhase) {
         read_gflags &= ~(kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePhasePresent);
       }
+      const uint32_t fill_missing_from_dosage = (make_plink2_flags & kfMakePgenFillMissingFromDosage) && (read_gflags & kfPgenGlobalDosagePresent);
+      if (fill_missing_from_dosage) {
+        mcp->plink2_write_flags |= kfPlink2WriteFillMissingFromDosage;
+      }
       if (make_plink2_flags & kfMakePgenEraseDosage) {
-        if (hard_call_thresh == UINT32_MAX) {
+        if ((hard_call_thresh == UINT32_MAX) && (!fill_missing_from_dosage)) {
           read_gflags &= ~(kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent);
         } else {
           // bugfix (11 Apr 2018): this was in the wrong branch
@@ -5847,7 +5944,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       // values exist, the other can be generated.
       uint32_t read_or_write_phase_present = read_phase_present;
       uint32_t read_or_write_dphase_present = read_dphase_present;
-      if (mcp->hard_call_halfdist && (read_phase_present || read_or_write_dphase_present)) {
+      if ((mcp->hard_call_halfdist || fill_missing_from_dosage) && (read_phase_present || read_or_write_dphase_present)) {
         read_or_write_phase_present = 1;
         read_or_write_dphase_present = 1;
         write_gflags |= kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePhasePresent;
@@ -6833,8 +6930,12 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       if (make_plink2_flags & kfMakePgenErasePhase) {
         read_gflags &= ~(kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePhasePresent);
       }
+      const uint32_t fill_missing_from_dosage = (make_plink2_flags & kfMakePgenFillMissingFromDosage) && (read_gflags & kfPgenGlobalDosagePresent);
+      if (fill_missing_from_dosage) {
+        mc.plink2_write_flags |= kfPlink2WriteFillMissingFromDosage;
+      }
       if (make_plink2_flags & kfMakePgenEraseDosage) {
-        if (hard_call_thresh == UINT32_MAX) {
+        if ((hard_call_thresh == UINT32_MAX) && (!fill_missing_from_dosage)) {
           read_gflags &= ~(kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent);
         } else {
           // erase-dosage + --hard-call-threshold currently requires dosages to
@@ -6861,7 +6962,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       PgenGlobalFlags write_gflags = read_gflags;
       uint32_t read_or_write_phase_present = read_phase_present;
       uint32_t read_or_write_dphase_present = read_dphase_present;
-      if (mc.hard_call_halfdist && (read_phase_present || read_or_write_dphase_present)) {
+      if ((mc.hard_call_halfdist || fill_missing_from_dosage) && (read_phase_present || read_or_write_dphase_present)) {
         read_or_write_phase_present = 1;
         read_or_write_dphase_present = 1;
         write_gflags |= kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePhasePresent;
