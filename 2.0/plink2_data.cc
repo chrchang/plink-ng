@@ -2819,6 +2819,7 @@ uint32_t FillMissingFromBiallelicDosagePhased(const uintptr_t* dosage_present, c
       AssignBit(sample_uidx, neg_sign_bit + 1, phaseinfo);
       // is dphase_delta maximal?
       if ((abs_dphase_delta_val == dosage_int) || (abs_dphase_delta_val + dosage_int == kDosageMax)) {
+        ClearBit(sample_uidx, dphase_present);
         --dphase_write_idx;
       }
     }
