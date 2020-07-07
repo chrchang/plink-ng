@@ -2065,9 +2065,12 @@ PglErr KeepRemoveCats(const char* cats_fname, const char* cat_names_flattened, c
   return reterr;
 }
 
-void ComputeAlleleFreqs(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const uint64_t* founder_allele_ddosages, uint32_t variant_ct, uint32_t maf_succ, double* allele_freqs) {
+void ComputeAlleleFreqs(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const uint64_t* founder_allele_ddosages, uint32_t variant_ct, double af_pseudocount, double* allele_freqs) {
   // ok for maj_alleles or allele_freqs to be nullptr
   // note that founder_allele_ddosages is in 32768ths
+  // could multithread this, but not a high priority since it would only tend
+  // to reduce wall-clock time by a fraction of a second
+  const double af_pseudocount_ddosage = af_pseudocount * u31tod(kDosageMax);
   uint32_t cur_allele_ct = 2;
   uintptr_t variant_uidx_base = 0;
   uintptr_t cur_bits = variant_include[0];
@@ -2085,16 +2088,19 @@ void ComputeAlleleFreqs(const uintptr_t* variant_include, const uintptr_t* allel
     for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct; ++allele_idx) {
       tot_ddosage += cur_founder_allele_ddosages[allele_idx];
     }
-    // todo: try changing this expression
-    const uint64_t cur_maf_succ_ddosage = (maf_succ | (!tot_ddosage)) * kDosageMax;
-
-    tot_ddosage += cur_maf_succ_ddosage * cur_allele_ct;
     double* cur_allele_freqs_base = &(allele_freqs[allele_idx_offset_base - variant_uidx]);
-    const double tot_ddosage_recip = 1.0 / u63tod(tot_ddosage);
     const uint32_t cur_allele_ct_m1 = cur_allele_ct - 1;
-    for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct_m1; ++allele_idx) {
-      const double cur_ddosage = u63tod(cur_founder_allele_ddosages[allele_idx] + cur_maf_succ_ddosage);
-      cur_allele_freqs_base[allele_idx] = cur_ddosage * tot_ddosage_recip;
+    if (!tot_ddosage) {
+      const double cur_allele_ct_m1_recip = 1.0 / u31tod(cur_allele_ct);
+      for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct_m1; ++allele_idx) {
+        cur_allele_freqs_base[allele_idx] = cur_allele_ct_m1_recip;
+      }
+    } else {
+      const double adj_tot_ddosage_recip = 1.0 / (u63tod(tot_ddosage) + af_pseudocount_ddosage * u31tod(cur_allele_ct));
+      for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct_m1; ++allele_idx) {
+        const double cur_ddosage = u63tod(cur_founder_allele_ddosages[allele_idx]) + af_pseudocount_ddosage;
+        cur_allele_freqs_base[allele_idx] = cur_ddosage * adj_tot_ddosage_recip;
+      }
     }
   }
 }
@@ -2188,7 +2194,7 @@ static inline double ForceCountToDosage(double raw_count) {
   return u63tod(S_CAST(int64_t, raw_count * kDosageMax + 0.5)) * kRecipDosageMax;
 }
 
-PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* read_freq_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t maf_succ, uint32_t max_thread_ct, double* allele_freqs, uintptr_t** variant_afreqcalcp) {
+PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* read_freq_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, double af_pseudocount, uint32_t max_thread_ct, double* allele_freqs, uintptr_t** variant_afreqcalcp) {
   // support PLINK 1.9 --freq/--freqx, and 2.0 --freq/--geno-counts.
   // GCTA-format no longer supported since it inhibits the allele consistency
   // check.
@@ -2639,7 +2645,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
 
     double freq_max = 4294967295.0;
     if (is_frac) {
-      maf_succ = 0;
+      af_pseudocount = 0.0;
       freq_max = 1.0;
     }
     uintptr_t skipped_variant_ct = 0;
@@ -3075,27 +3081,23 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           }
         }
         if (infer_one_freq && IsSet(matched_loaded_alleles, infer_freq_loaded_idx)) {
-          double obs_ct_recip = 1.0;
+          double adj_obs_ct_recip = 1.0;
           if (header_cols & kfReadFreqColsetObsCt) {
             uint32_t obs_ct_raw;
             if (unlikely(ScanUintCapped(token_ptrs[kfReadFreqColObsCt], UINT32_MAX, &obs_ct_raw))) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid allele count on line %" PRIuPTR " of --read-freq file.\n", line_idx);
               goto ReadAlleleFreqs_ret_MALFORMED_INPUT_2;
             }
-            uint64_t obs_ct = obs_ct_raw + S_CAST(uint64_t, maf_succ) * cur_allele_ct;
-            if (!obs_ct) {
+            if ((!obs_ct_raw) && (af_pseudocount == 0.0)) {
               goto ReadAlleleFreqs_skip_variant;
             }
-            obs_ct_recip = 1.0 / u63tod(obs_ct);
+            adj_obs_ct_recip = 1.0 / (u63tod(obs_ct_raw) + af_pseudocount * cur_allele_ct);
           }
           const uint32_t infer_freq_internal_idx = loaded_to_internal_allele_idx[infer_freq_loaded_idx];
           if (cur_allele_ct == 2) {
             // optimize common case
-            double known_freq_d = cur_allele_freqs[1 - infer_freq_internal_idx];
-            if (maf_succ) {
-              known_freq_d += 1;
-            }
-            double known_scaled_freq = known_freq_d * obs_ct_recip;
+            double known_freq_d = cur_allele_freqs[1 - infer_freq_internal_idx] + af_pseudocount;
+            double known_scaled_freq = known_freq_d * adj_obs_ct_recip;
             if (known_scaled_freq <= 1.0) {
               if (infer_freq_internal_idx) {
                 allele_freqs_write[0] = known_scaled_freq;
@@ -3113,9 +3115,9 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
               goto ReadAlleleFreqs_ret_MALFORMED_INPUT_2;
             }
           } else {
-            if (maf_succ) {
+            if (af_pseudocount != 0.0) {
               for (uint32_t internal_allele_idx = 0; internal_allele_idx != cur_allele_ct; ++internal_allele_idx) {
-                cur_allele_freqs[internal_allele_idx] += 1;
+                cur_allele_freqs[internal_allele_idx] += af_pseudocount;
               }
             }
             cur_allele_freqs[infer_freq_internal_idx] = 0.0;
@@ -3123,11 +3125,11 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
             for (uint32_t internal_allele_idx = 0; internal_allele_idx != cur_allele_ct; ++internal_allele_idx) {
               known_freq_sum_d += cur_allele_freqs[internal_allele_idx];
             }
-            double known_scaled_freq_sum = known_freq_sum_d * obs_ct_recip;
+            double known_scaled_freq_sum = known_freq_sum_d * adj_obs_ct_recip;
             if (likely(known_scaled_freq_sum < ((1.0 + kSmallEpsilon) / 0.99))) {
               if (known_scaled_freq_sum > 1.0) {
                 // possible rounding error, rescale
-                obs_ct_recip = 1.0 / known_scaled_freq_sum;
+                adj_obs_ct_recip = 1.0 / known_scaled_freq_sum;
                 known_scaled_freq_sum = 1.0;
               }
               const uint32_t cur_allele_ct_m1 = cur_allele_ct - 1;
@@ -3136,7 +3138,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                 if (internal_allele_idx == infer_freq_internal_idx) {
                   dxx = 1.0 - known_scaled_freq_sum;
                 } else {
-                  dxx = obs_ct_recip * cur_allele_freqs[internal_allele_idx];
+                  dxx = adj_obs_ct_recip * cur_allele_freqs[internal_allele_idx];
                 }
                 allele_freqs_write[internal_allele_idx] = dxx;
               }
@@ -3147,9 +3149,9 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           }
         } else {
           // complete frequency or count data
-          if (maf_succ) {
+          if (af_pseudocount != 0.0) {
             for (uint32_t internal_allele_idx = 0; internal_allele_idx != cur_allele_ct; ++internal_allele_idx) {
-              cur_allele_freqs[internal_allele_idx] += 1;
+              cur_allele_freqs[internal_allele_idx] += af_pseudocount;
             }
           }
           double tot_freq = 0.0;

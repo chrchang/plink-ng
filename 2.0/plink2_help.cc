@@ -511,7 +511,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     // user can loop through subgroups and then use Unix cut/paste
 
     // todo: add optional column for computed MAF (nothing here quite
-    // corresponds to nonmajor_freqs when e.g. --maf-succ was specified).
+    // corresponds to nonmajor_freqs when e.g. --maf-pseudocount is specified).
     HelpPrint("freq\0mach-r2-filter\0", &help_ctrl, 1,
 "  --freq ['zs'] ['counts'] ['cols='<column set descriptor>] ['bins-only']\n"
 "         ['refbins='<comma-separated bin boundaries> | 'refbins-file='<file>]\n"
@@ -735,7 +735,55 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      het: Observed and expected numbers of heterozygous genotypes.\n"
 "      nobs: Number of (nonmissing) genotype observations.\n"
 "      f: Method-of-moments F coefficient estimate.\n"
-"    The default is maybefid,maybesid,hom,nobs,f.\n"
+"    The default is maybefid,maybesid,hom,nobs,f.\n\n"
+              );
+    // probable todo: process chrX separately when it's present (.x.fst.summary
+    // and .x.<pop1>.<pop2>.fst output files)
+    // possible todo: Patterson's adjacent-block jackknife tweak
+    // (https://reich.hms.harvard.edu/sites/reich.hms.harvard.edu/files/inline-files/jackcorr2.pdf )
+    HelpPrint("fst\0Fst\0", &help_ctrl, 1,
+"  --fst <categorical or binary phenotype name> ['method='<method name>]\n"
+"        ['blocksize='<jackknife block size>] ['cols='<column set descriptor>]\n"
+"        ['report-variants'] ['zs'] ['vcols='<column set descriptor>]\n"
+"        ['base='<pop. ID> | 'ids='<pop. ID> | 'file='<pop.-ID-pair file>]\n"
+"        [other population ID(s) for base=/ids=...]\n"
+"    Estimate Wright's Fst between pairs of populations.\n"
+"    * Two methods are supported:\n"
+"      * 'hudson': Bhatia G, Patterson N, Sankararaman S, Price AL (2013)\n"
+"                  Estimating and interpreting F_{ST}: The impact of rare\n"
+"                  variants.  This is now the default.\n"
+"      * 'wc': Weir BS, Cockerham CC (1984) Estimating F-statistics for the\n"
+"              analysis of population structure.\n"
+"    * To get block-jackknife-based standard error estimates, provide a\n"
+"      blocksize= value.\n"
+"    * Supported column sets in the main summary are:\n"
+"        (POP1 and POP2 are always present, and positioned here.)\n"
+"        nobs: Number of variants with valid Fst estimates.\n"
+"        (HUDSON_FST or WC_FST is always present, and positioned here.)\n"
+"        se: Standard error of Fst estimate, if blocksize= specified.\n"
+"      The default is se.\n"
+"    * You can request per-variant Fst estimates with the 'report-variants'\n"
+"      modifier; this generates a separate output file for each population pair.\n"
+"      Supported per-variant report column sets are:\n"
+"        chrom: Chromosome ID.\n"
+"        pos: Base-pair coordinate.\n"
+"        (ID is always present, and positioned here.)\n"
+"        ref: Reference allele.\n"
+"        alt1: Alternate allele 1.\n"
+"        alt: All alternate alleles, comma-separated.\n"
+"        nobs: Number of (nonmissing) genotype observations across all pops.\n"
+"        fstfrac: Numerator and denominator of Fst estimate.\n"
+"        fst: Fst estimate.\n"
+"      The default is chrom,pos,nobs,fst.\n"
+"    * By default, all pairs of populations are compared.  If you only want to\n"
+"      compare some pairs, there are three ways to do this.\n"
+"      * base= specifies one base population to be compared with all others; or\n"
+"        if you specify more population ID(s) afterward, just the other\n"
+"        populations you've listed.\n"
+"      * ids= specifies an all-vs.-all comparison within the given set of\n"
+"        populations.\n"
+"      * file= specifies a file containing one population pair per line.\n"
+"      Note that 'base='/'ids='/'file=' must be positioned after all modifiers.\n\n"
               );
     HelpPrint("indep\0indep-pairwise\0", &help_ctrl, 1,
 "  --indep-pairwise <window size>['kb'] [step size (variant ct)]\n"
@@ -778,7 +826,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                ['include-missing'] [{pairwise | counts-only}]\n"
 "                ['fname-id-delim='<c>] ['zs'] ['cols='<column set descriptor>]\n"
 "                ['counts-cols='<column set descriptor>]\n"
-"                {base= | ids=}<sample ID> [other sample ID(s)...]\n"
+"                {base= | ids=}<sample ID> <other sample ID(s)...>\n"
 "  --sample-diff ['id-delim='<char>] ['dosage' | 'dosage='<tolerance>]\n"
 "                ['include-missing'] [{pairwise | counts-only}]\n"
 "                ['fname-id-delim='<c>] ['zs'] ['cols='<column set descriptor>]\n"
@@ -1725,14 +1773,15 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --max-mac <ct> [mode]   : Exclude variants with allele dosage greater than\n"
 "    (alias: --max-ac)       the given threshold.\n"
                );
-    HelpPrint("maf-succ\0", &help_ctrl, 0,
-"  --maf-succ         : Rule of succession allele frequency estimation (used in\n"
-"                       EIGENSOFT).  Given j observations of one allele and k\n"
-"                       observations of the other for a biallelic variant, infer\n"
-"                       allele frequencies of (j+1) / (j+k+2) and\n"
-"                       (k+1) / (j+k+2), rather than the default j / (j+k) and\n"
-"                       k / (j+k).\n"
-"                       Note that this does not affect --freq's output.\n"
+    HelpPrint("af-pseudocount\0maf-succ\0", &help_ctrl, 0,
+"  --af-pseudocount <x>    : Given j observations of one allele and k\n"
+"                            observations of the other for a biallelic variant,\n"
+"                            infer allele frequencies of (j+x) / (j+k+2x) and\n"
+"                            (k+x) / (j+k+2x), rather than the default j / (j+k)\n"
+"                            and k / (j+k).\n"
+"                            * For multiallelic variants, note that this makes\n"
+"                              unobserved ALT alleles matter.\n"
+"                            * This does not affect --freq's output.\n"
                );
     HelpPrint("max-alleles\0min-alleles\0biallelic-only\0", &help_ctrl, 0,
 "  --min-alleles <ct> : Exclude variants with fewer than the given # of alleles.\n"

@@ -70,7 +70,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (1 Jul 2020)";
+  " (6 Jul 2020)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -174,7 +174,8 @@ FLAGSET64_DEF_START()
   kfCommand1Sdiff = (1 << 21),
   kfCommand1SampleCounts = (1 << 22),
   kfCommand1Vscore = (1 << 23),
-  kfCommand1Het = (1 << 24)
+  kfCommand1Het = (1 << 24),
+  kfCommand1Fst = (1 << 25)
 FLAGSET64_DEF_END(Command1Flags);
 
 // this is a hybrid, only kfSortFileSid is actually a flag
@@ -325,6 +326,7 @@ typedef struct Plink2CmdlineStruct {
   GlmInfo glm_info;
   AdjustInfo adjust_info;
   ScoreInfo score_info;
+  FstInfo fst_info;
   APerm aperm;
   CmpExpr keep_if_expr;
   CmpExpr remove_if_expr;
@@ -355,6 +357,7 @@ typedef struct Plink2CmdlineStruct {
   double mach_r2_max;
   double minimac3_r2_min;
   double minimac3_r2_max;
+  double af_pseudocount;
   double min_maf;
   double max_maf;
   double thin_keep_prob;
@@ -1924,7 +1927,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         uint32_t afreqcalc_variant_ct = 0;
         if (allele_freqs) {
           if (pcp->read_freq_fname) {
-            reterr = ReadAlleleFreqs(variant_include, variant_ids, allele_idx_offsets, allele_storage, pcp->read_freq_fname, raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, (pcp->misc_flags / kfMiscMafSucc) & 1, pcp->max_thread_ct, allele_freqs, &variant_afreqcalc);
+            reterr = ReadAlleleFreqs(variant_include, variant_ids, allele_idx_offsets, allele_storage, pcp->read_freq_fname, raw_variant_ct, variant_ct, max_allele_ct, max_variant_id_slen, max_allele_slen, pcp->af_pseudocount, pcp->max_thread_ct, allele_freqs, &variant_afreqcalc);
             if (unlikely(reterr)) {
               goto Plink2Core_ret_1;
             }
@@ -1968,8 +1971,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
         if (allele_freqs) {
           if (afreqcalc_variant_ct) {
-            const uint32_t maf_succ = (pcp->misc_flags / kfMiscMafSucc) & 1;
-            ComputeAlleleFreqs(variant_afreqcalc, allele_idx_offsets, nonfounders? allele_ddosages : founder_allele_ddosages, afreqcalc_variant_ct, maf_succ, allele_freqs);
+            ComputeAlleleFreqs(variant_afreqcalc, allele_idx_offsets, nonfounders? allele_ddosages : founder_allele_ddosages, afreqcalc_variant_ct, pcp->af_pseudocount, allele_freqs);
           }
           if (maj_alleles) {
             ComputeMajAlleles(variant_include, allele_idx_offsets, allele_freqs, variant_ct, maj_alleles);
@@ -2592,6 +2594,17 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
 
+      if (pcp->command_flags1 & kfCommand1Fst) {
+        logerrputs("Error: --fst is under development.\n");
+        return kPglRetNotYetSupported;
+        /*
+        reterr = FstReport(sample_include, &pii.sii, pheno_cols, pheno_names, variant_include, cip, variant_ids, allele_idx_offsets, allele_storage, &(pcp->fst_info), raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_ct, max_allele_slen, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+        */
+      }
+
       if (pcp->command_flags1 & kfCommand1Score) {
         reterr = ScoreReport(sample_include, &pii.sii, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_ids, allele_idx_offsets, allele_storage, allele_freqs, &(pcp->score_info), raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, pcp->xchr_model, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
@@ -3195,6 +3208,7 @@ int main(int argc, char** argv) {
   InitSdiff(&pc.sdiff_info);
   InitGlm(&pc.glm_info);
   InitScore(&pc.score_info);
+  InitFst(&pc.fst_info);
   InitCmpExpr(&pc.keep_if_expr);
   InitCmpExpr(&pc.remove_if_expr);
   InitCmpExpr(&pc.extract_if_info_expr);
@@ -3242,6 +3256,13 @@ int main(int argc, char** argv) {
       if (flagname_p) {
         const uint32_t flag_slen = strlen(flagname_p);
         switch (*flagname_p) {
+        case 'F':
+          if (strequal_k(flagname_p, "Fst", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "fst");
+          } else {
+            goto main_flag_copy;
+          }
+          break;
         case 'a':
           if (strequal_k(flagname_p, "aec", flag_slen)) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "allow-extra-chr");
@@ -3536,6 +3557,7 @@ int main(int argc, char** argv) {
     pc.mach_r2_max = 0.0;
     pc.minimac3_r2_min = 0.0;
     pc.minimac3_r2_max = 0.0;
+    pc.af_pseudocount = 0.0;
     pc.min_maf = 0.0;
     pc.max_maf = 1.0;
     pc.thin_keep_prob = 1.0;
@@ -3888,6 +3910,16 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.dependency_flags |= kfFilterPvarReq;
+        } else if (strequal_k_unsafe(flagname_p2, "f-pseudocount")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          double dxx;
+          if (unlikely((!ScantokDouble(argvk[arg_idx + 1], &dxx)) || (dxx < 0.0))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --af-pseudocount argument '%s'.\n", argvk[arg_idx + 1]);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.af_pseudocount = dxx;
         } else if (unlikely(strequal_k_unsafe(flagname_p2, "ssoc"))) {
           logerrputs("Error: --assoc is retired.  Use --glm instead.\n");
           goto main_ret_INVALID_CMDLINE_A;
@@ -5088,6 +5120,136 @@ int main(int argc, char** argv) {
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
+        } else if (strequal_k_unsafe(flagname_p2, "st")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = CmdlineAllocString(argvk[arg_idx + 1], argvk[arg_idx], kMaxIdSlen, &pc.fst_info.pheno_name);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          // Similar to --sample-diff.
+          uint32_t explicit_method = 0;
+          uint32_t explicit_cols = 0;
+          uint32_t explicit_vcols = 0;
+          uint32_t param_idx = 2;
+          for (; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (StrStartsWith(cur_modif, "method=", cur_modif_slen)) {
+              if (unlikely(explicit_method)) {
+                logerrputs("Error: Multiple --fst method= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              const char* method_name = &(cur_modif[7]);
+              const uint32_t method_name_slen = cur_modif_slen - 7;
+              if (strequal_k(method_name, "wc", method_name_slen)) {
+                explicit_method = 2;
+              } else if (likely(strequal_k(method_name, "hudson", method_name_slen))) {
+                explicit_method = 1;
+              } else {
+                snprintf(g_logbuf, kLogbufSize, "Error: Unsupported --fst method '%s'.\n", method_name);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+            } else if (StrStartsWith(cur_modif, "blocksize=", cur_modif_slen)) {
+              if (unlikely(pc.fst_info.blocksize)) {
+                logerrputs("Error: Multiple --fst blocksize= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              if (unlikely(ScanPosintDefcapx(cur_modif, &pc.fst_info.blocksize))) {
+                logerrputs("Error: Invalid --fst blocksize.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+            } else if (StrStartsWith0(cur_modif, "cols=", cur_modif_slen)) {
+              if (unlikely(explicit_cols)) {
+                logerrputs("Error: Multiple --fst cols= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              explicit_cols = 1;
+              reterr = ParseColDescriptor(&(cur_modif[strlen("cols=")]), "nobs\0se\0", "--fst cols", kfFstColNobs, kfFstColDefault, 0, &pc.fst_info.flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else if (strequal_k(cur_modif, "report-variants", cur_modif_slen)) {
+              pc.fst_info.flags |= kfFstReportVariants;
+            } else if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.fst_info.flags |= kfFstZs;
+            } else if (StrStartsWith0(cur_modif, "vcols=", cur_modif_slen)) {
+              if (unlikely(explicit_vcols)) {
+                logerrputs("Error: Multiple --fst vcols= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              explicit_vcols = 1;
+              reterr = ParseColDescriptor(&(cur_modif[strlen("vcols=")]), "chrom\0pos\0ref\0alt1\0alt\0nobs\0fstfrac\0fst\0", "--fst vcols", kfFstVcolChrom, kfFstVcolDefault, 0, &pc.fst_info.flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else if (StrStartsWith(cur_modif, "base=", cur_modif_slen)) {
+              // a.<basepop>.2.fst.var
+              reterr = CmdlineAllocString(&(cur_modif[5]), argvk[arg_idx], kPglFnamesize - 13, &(pc.fst_info.first_id_or_fname));
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+              pc.fst_info.flags |= kfFstOneBasePop;
+              break;
+            } else if (StrStartsWith(cur_modif, "ids=", cur_modif_slen)) {
+              if (unlikely(param_idx == param_ct)) {
+                logerrputs("Error: --fst 'ids=' requires at least two (space-delimited) populations.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              reterr = CmdlineAllocString(&(cur_modif[4]), argvk[arg_idx], kPglFnamesize - 13, &(pc.fst_info.first_id_or_fname));
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+              pc.fst_info.flags |= kfFstExplicitPopIds;
+              break;
+            } else if (likely(StrStartsWith(cur_modif, "file=", cur_modif_slen))) {
+              if (param_idx != param_ct) {
+                logerrputs("Error: --fst 'file=' must appear after all other modifiers.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              reterr = AllocFname(&(cur_modif[5]), argvk[arg_idx], 0, &pc.fst_info.first_id_or_fname);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+              pc.fst_info.flags |= kfFstPopPairFile;
+              break;
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --fst argument '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          if (explicit_method == 2) {
+            pc.fst_info.flags |= kfFstMethodWc;
+          }
+          if (!explicit_cols) {
+            pc.fst_info.flags |= kfFstColDefault;
+          }
+          if (!(pc.fst_info.flags & kfFstReportVariants)) {
+            if (unlikely(pc.fst_info.flags & kfFstZs)) {
+              logerrputs("Error: --fst 'zs' modifier only makes sense with 'report-variants'.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            if (unlikely(explicit_vcols)) {
+              logerrputs("Error: --fst 'vcols=' modifier only makes sense with 'report-variants'.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+          } else {
+            if (!explicit_vcols) {
+              pc.fst_info.flags |= kfFstVcolDefault;
+            }
+          }
+          if (param_idx < param_ct) {
+            // base= or id=
+            const uint32_t other_id_ct = param_ct - param_idx;
+            reterr = AllocAndFlatten(&(argvk[arg_idx + param_idx + 1]), other_id_ct, kPglFnamesize - 13, &pc.fst_info.other_ids_flattened);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+            pc.fst_info.other_id_ct = other_id_ct;
+          }
+          pc.command_flags1 |= kfCommand1Fst;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (likely(strequal_k_unsafe(flagname_p2, "amily-missing-catname"))) {
           if (unlikely(!(pc.misc_flags & kfMiscCatPhenoFamily))) {
             logerrputs("Error: --family-missing-catname must be used with --family.\n");
@@ -7144,7 +7306,12 @@ int main(int argc, char** argv) {
           pc.dependency_flags |= kfFilterPvarReq;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "af-succ")) {
-          pc.misc_flags |= kfMiscMafSucc;
+          if (pc.af_pseudocount != 0.0) {
+            logerrputs("Error: --maf-succ cannot be used with --af-pseudocount.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          logputs("Note: --maf-succ flag deprecated.  Use \"--af-pseudocount 1\" instead.\n");
+          pc.af_pseudocount = 1.0;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "ax-corr")) {
           if (unlikely(!(pc.command_flags1 & kfCommand1Glm))) {
@@ -10193,6 +10360,7 @@ int main(int argc, char** argv) {
   CleanupCmpExpr(&pc.extract_if_info_expr);
   CleanupCmpExpr(&pc.remove_if_expr);
   CleanupCmpExpr(&pc.keep_if_expr);
+  CleanupFst(&pc.fst_info);
   CleanupScore(&pc.score_info);
   CleanupGlm(&pc.glm_info);
   CleanupSdiff(&pc.sdiff_info);

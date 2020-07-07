@@ -48,6 +48,21 @@ void CleanupSdiff(SdiffInfo* sdiff_info_ptr) {
   free_cond(sdiff_info_ptr->other_ids_flattened);
 }
 
+void InitFst(FstInfo* fst_info_ptr) {
+  fst_info_ptr->flags = kfFst0;
+  fst_info_ptr->blocksize = 0;
+  fst_info_ptr->other_id_ct = 0;
+  fst_info_ptr->pheno_name = nullptr;
+  fst_info_ptr->first_id_or_fname = nullptr;
+  fst_info_ptr->other_ids_flattened = nullptr;
+}
+
+void CleanupFst(FstInfo* fst_info_ptr) {
+  free_cond(fst_info_ptr->pheno_name);
+  free_cond(fst_info_ptr->first_id_or_fname);
+  free_cond(fst_info_ptr->other_ids_flattened);
+}
+
 PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const TwoColParams* params, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t htable_size, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* __restrict variant_bps, uint32_t* __restrict variant_ct_ptr, UnsortedVar* vpos_sortstatusp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
@@ -9902,6 +9917,47 @@ PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
   BigstackReset(bigstack_mark);
   return reterr;
 }
+
+typedef struct FstCtxStruct {
+  const uintptr_t* autosomal_variant_include;
+  const uintptr_t* allele_idx_offsets;
+  const uintptr_t* sample_include;
+  const uint32_t* sample_include_cumulative_popcounts;
+  const uint32_t* sample_idx_to_pop_idx;
+  uint32_t sample_ct;
+  uint32_t pop_ct;
+
+  PgenReader** pgr_ptrs;
+  uintptr_t** genovecs;
+  uintptr_t** thread_read_mhc;
+  uintptr_t** raregenos;
+  uint32_t** difflist_sample_id_bufs;
+  uint32_t** pop_allele_nobs_bufs;  // major dimension = pop, minor = allele
+  uint32_t** pop_het_ct_bufs;  // nullptr if method=hudson
+  uint32_t* read_variant_uidx_starts;
+  uint32_t cur_block_size;  // not for jackknife
+
+  // only kPglRetMalformedInput possible, no atomic ops needed
+  PglErr reterr;
+
+  // worker threads compute intermediate stats; parent thread computes final
+  // Fst estimates and executes block-jackknife.
+  uint32_t* variant_obs_cts[2];
+  double* variant_[2];
+
+  double* thread_ehet_base;
+  uint32_t* thread_nobs_base;
+  uint32_t** thread_ohets;
+  double** thread_ehet_incrs;
+  int32_t** thread_nobs_incrs;
+} FstCtx;
+
+/*
+PglErr FstReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const FstInfo* fst_infop, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end) {
+  // TODO
+  return kPglRetSuccess;
+}
+*/
 
 #ifdef __cplusplus
 }  // namespace plink2

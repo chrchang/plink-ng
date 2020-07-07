@@ -305,6 +305,42 @@ typedef struct SdiffStruct {
   char* other_ids_flattened;
 } SdiffInfo;
 
+FLAGSET_DEF_START()
+  kfFst0,
+  kfFstMethodWc = (1 << 0),
+  kfFstReportVariants = (1 << 1),
+  kfFstZs = (1 << 2),
+  kfFstOneBasePop = (1 << 3),
+  kfFstExplicitPopIds = (1 << 4),
+  kfFstPopPairFile = (1 << 5),
+
+  kfFstColNobs = (1 << 6),
+  kfFstColSe = (1 << 7),
+  kfFstColDefault = kfFstColSe,
+  kfFstColAll = ((kfFstColSe * 2) - kfFstColNobs),
+
+  kfFstVcolChrom = (1 << 8),
+  kfFstVcolPos = (1 << 9),
+  kfFstVcolRef = (1 << 10),
+  kfFstVcolAlt1 = (1 << 11),
+  kfFstVcolAlt = (1 << 12),
+  kfFstVcolNobs = (1 << 13),
+  kfFstVcolFstfrac = (1 << 14),
+  kfFstVcolFst = (1 << 15),
+  kfFstVcolDefault = (kfFstVcolChrom | kfFstVcolPos | kfFstVcolNobs | kfFstVcolFst),
+  kfFstVcolAll = ((kfFstVcolFst * 2) - kfFstVcolChrom),
+FLAGSET_DEF_END(FstFlags);
+
+typedef struct FstInfoStruct {
+  NONCOPYABLE(FstInfoStruct);
+  FstFlags flags;
+  uint32_t blocksize;
+  uint32_t other_id_ct;
+  char* pheno_name;
+  char* first_id_or_fname;
+  char* other_ids_flattened;
+} FstInfo;
+
 void InitUpdateSex(UpdateSexInfo* update_sex_info_ptr);
 
 void CleanupUpdateSex(UpdateSexInfo* update_sex_info_ptr);
@@ -312,6 +348,10 @@ void CleanupUpdateSex(UpdateSexInfo* update_sex_info_ptr);
 void InitSdiff(SdiffInfo* sdiff_info_ptr);
 
 void CleanupSdiff(SdiffInfo* sdiff_info_ptr);
+
+void InitFst(FstInfo* fst_info_ptr);
+
+void CleanupFst(FstInfo* fst_info_ptr);
 
 PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const TwoColParams* params, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t htable_size, uint32_t max_thread_ct, uintptr_t* variant_include, uint32_t* __restrict variant_bps, uint32_t* __restrict variant_ct_ptr, UnsortedVar* vpos_sortstatusp);
 
@@ -362,6 +402,8 @@ PglErr WriteSnplist(const uintptr_t* variant_include, const char* const* variant
 PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uint32_t* new_sample_idx_to_old, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, WriteCovarFlags write_covar_flags, char* outname, char* outname_end);
 
 PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const uintptr_t* founder_info, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_allele_ct, HetFlags flags, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end);
+
+PglErr FstReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const FstInfo* fst_infop, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end);
 
 #ifdef __cplusplus
 }  // namespace plink2
