@@ -112,7 +112,7 @@ void RPgenReader::Load(String filename, Nullable<List> pvar,
     if (strcmp_r_c(pvarl[0], "pvar")) {
       stop("pvar is not a pvar object");
     }
-    XPtr<class RPvar> rp = as<XPtr<class RPvar>>(pvarl[1]);
+    XPtr<class RPvar> rp = as<XPtr<class RPvar> >(pvarl[1]);
     if (rp->GetVariantCt() != raw_variant_ct) {
       stop("pvar and pgen have different variant counts");
     }
@@ -723,7 +723,7 @@ int GetRawSampleCt(List pgen) {
   if (strcmp_r_c(pgen[0], "pgen")) {
     stop("pgen is not a pgen object");
   }
-  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pgen[1]);
+  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader> >(pgen[1]);
   return rp->GetRawSampleCt();
 }
 
@@ -731,10 +731,10 @@ int GetRawSampleCt(List pgen) {
 int GetVariantCt(List pvar_or_pgen) {
   const char* c_str = as<String>(pvar_or_pgen[0]).get_cstring();
   if (!strcmp(c_str, "pvar")) {
-    XPtr<class RPvar> rp = as<XPtr<class RPvar>>(pvar_or_pgen[1]);
+    XPtr<class RPvar> rp = as<XPtr<class RPvar> >(pvar_or_pgen[1]);
     return rp->GetVariantCt();
   } else if (!strcmp(c_str, "pgen")) {
-    XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pvar_or_pgen[1]);
+    XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader> >(pvar_or_pgen[1]);
     return rp->GetVariantCt();
   }
   stop("pvar_or_pgen is not a pvar or pgen object");
@@ -745,10 +745,10 @@ int GetAlleleCt(List pvar_or_pgen, int variant_num) {
   const char* c_str = as<String>(pvar_or_pgen[0]).get_cstring();
   const uint32_t variant_idx = variant_num - 1;
   if (!strcmp(c_str, "pvar")) {
-    XPtr<class RPvar> rp = as<XPtr<class RPvar>>(pvar_or_pgen[1]);
+    XPtr<class RPvar> rp = as<XPtr<class RPvar> >(pvar_or_pgen[1]);
     return rp->GetAlleleCt(variant_idx);
   } else if (!strcmp(c_str, "pgen")) {
-    XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pvar_or_pgen[1]);
+    XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader> >(pvar_or_pgen[1]);
     return rp->GetAlleleCt(variant_idx);
   }
   stop("pvar_or_pgen is not a pvar or pgen object");
@@ -758,10 +758,10 @@ int GetAlleleCt(List pvar_or_pgen, int variant_num) {
 int GetMaxAlleleCt(List pvar_or_pgen) {
   const char* c_str = as<String>(pvar_or_pgen[0]).get_cstring();
   if (!strcmp(c_str, "pvar")) {
-    XPtr<class RPvar> rp = as<XPtr<class RPvar>>(pvar_or_pgen[1]);
+    XPtr<class RPvar> rp = as<XPtr<class RPvar> >(pvar_or_pgen[1]);
     return rp->GetMaxAlleleCt();
   } else if (!strcmp(c_str, "pgen")) {
-    XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pvar_or_pgen[1]);
+    XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader> >(pvar_or_pgen[1]);
     return rp->GetMaxAlleleCt();
   }
   stop("pvar_or_pgen is not a pvar or pgen object");
@@ -772,7 +772,7 @@ bool HardcallPhasePresent(List pgen) {
   if (strcmp_r_c(pgen[0], "pgen")) {
     stop("pgen is not a pgen object");
   }
-  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pgen[1]);
+  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader> >(pgen[1]);
   return rp->HardcallPhasePresent();
 }
 
@@ -781,7 +781,7 @@ NumericVector Buf(List pgen) {
   if (strcmp_r_c(pgen[0], "pgen")) {
     stop("pgen is not a pgen object");
   }
-  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pgen[1]);
+  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader> >(pgen[1]);
   return NumericVector(rp->GetSubsetSize());
 }
 
@@ -790,7 +790,7 @@ NumericVector AlleleCodeBuf(List pgen) {
   if (strcmp_r_c(pgen[0], "pgen")) {
     stop("pgen is not a pgen object");
   }
-  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pgen[1]);
+  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader> >(pgen[1]);
   return NumericMatrix(2, rp->GetSubsetSize());
 }
 
@@ -799,7 +799,7 @@ IntegerVector IntBuf(List pgen) {
   if (strcmp_r_c(pgen[0], "pgen")) {
     stop("pgen is not a pgen object");
   }
-  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pgen[1]);
+  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader> >(pgen[1]);
   return IntegerVector(rp->GetSubsetSize());
 }
 
@@ -808,7 +808,7 @@ IntegerVector IntAlleleCodeBuf(List pgen) {
   if (strcmp_r_c(pgen[0], "pgen")) {
     stop("pgen is not a pgen object");
   }
-  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pgen[1]);
+  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader> >(pgen[1]);
   return IntegerMatrix(2, rp->GetSubsetSize());
 }
 
@@ -817,7 +817,7 @@ LogicalVector BoolBuf(List pgen) {
   if (strcmp_r_c(pgen[0], "pgen")) {
     stop("pgen is not a pgen object");
   }
-  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pgen[1]);
+  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader> >(pgen[1]);
   return LogicalVector(rp->GetSubsetSize());
 }
 
@@ -832,7 +832,7 @@ void ReadHardcalls(List pgen, SEXP buf, int variant_num, int allele_num = 2) {
     // otherwise the original buffer is not modified by Read[Int]Hardcalls
     stop("buf must be a non-matrix vector");
   }
-  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pgen[1]);
+  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader> >(pgen[1]);
   const int variant_idx = variant_num - 1;
   const int allele_idx = allele_num - 1;
   if (TYPEOF(buf) == REALSXP) {
@@ -852,7 +852,7 @@ void Read(List pgen, NumericVector buf, int variant_num, int allele_num = 2) {
   if (Rf_isMatrix(buf)) {
     stop("buf must be a non-matrix vector");
   }
-  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pgen[1]);
+  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader> >(pgen[1]);
   rp->Read(buf, variant_num - 1, allele_num - 1);
 }
 
@@ -861,7 +861,7 @@ void ReadAlleles(List pgen, SEXP acbuf, int variant_num, Nullable<LogicalVector>
   if (strcmp_r_c(pgen[0], "pgen")) {
     stop("pgen is not a pgen object");
   }
-  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pgen[1]);
+  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader> >(pgen[1]);
   const int variant_idx = variant_num - 1;
   // in this case, integer may be a more appropriate default than numeric?
   if (TYPEOF(acbuf) == INTSXP) {
@@ -879,7 +879,7 @@ IntegerMatrix ReadIntList(List pgen, IntegerVector variant_subset) {
   if (strcmp_r_c(pgen[0], "pgen")) {
     stop("pgen is not a pgen object");
   }
-  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pgen[1]);
+  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader> >(pgen[1]);
   IntegerMatrix result(rp->GetSubsetSize(), variant_subset.size());
   rp->ReadIntList(result, variant_subset);
   return result;
@@ -890,7 +890,7 @@ NumericMatrix ReadList(List pgen, IntegerVector variant_subset, bool meanimpute 
   if (strcmp_r_c(pgen[0], "pgen")) {
     stop("pgen is not a pgen object");
   }
-  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pgen[1]);
+  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader> >(pgen[1]);
   NumericMatrix result(rp->GetSubsetSize(), variant_subset.size());
   rp->ReadList(result, variant_subset, meanimpute);
   return result;
@@ -902,7 +902,7 @@ NumericVector VariantScores(List pgen, NumericVector weights,
   if (strcmp_r_c(pgen[0], "pgen")) {
     stop("pgen is not a pgen object");
   }
-  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pgen[1]);
+  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader> >(pgen[1]);
   int variant_ct;
   if (variant_subset.isNotNull()) {
     variant_ct = as<IntegerVector>(variant_subset).size();
@@ -919,6 +919,6 @@ void ClosePgen(List pgen) {
   if (strcmp_r_c(pgen[0], "pgen")) {
     stop("pgen is not a pgen object");
   }
-  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader>>(pgen[1]);
+  XPtr<class RPgenReader> rp = as<XPtr<class RPgenReader> >(pgen[1]);
   rp->Close();
 }

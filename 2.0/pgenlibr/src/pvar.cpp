@@ -104,7 +104,7 @@ String GetVariantId(List pvar, int variant_num) {
   if (strcmp_r_c(pvar[0], "pvar")) {
     stop("pvar is not a pvar object");
   }
-  XPtr<class RPvar> rp = as<XPtr<class RPvar>>(pvar[1]);
+  XPtr<class RPvar> rp = as<XPtr<class RPvar> >(pvar[1]);
   String ss(rp->GetVariantId(variant_num - 1));
   return ss;
 }
@@ -114,7 +114,7 @@ String GetAlleleCode(List pvar, int variant_num, int allele_num) {
   if (strcmp_r_c(pvar[0], "pvar")) {
     stop("pvar is not a pvar object");
   }
-  XPtr<class RPvar> rp = as<XPtr<class RPvar>>(pvar[1]);
+  XPtr<class RPvar> rp = as<XPtr<class RPvar> >(pvar[1]);
   String ss(rp->GetAlleleCode(variant_num - 1, allele_num - 1));
   return ss;
 }
@@ -124,6 +124,6 @@ void ClosePvar(List pvar) {
   if (strcmp_r_c(pvar[0], "pvar")) {
     stop("pvar is not a pvar object");
   }
-  XPtr<class RPvar> rp = as<XPtr<class RPvar>>(pvar[1]);
+  XPtr<class RPvar> rp = as<XPtr<class RPvar> >(pvar[1]);
   rp->Close();
 }
