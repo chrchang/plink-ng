@@ -31,6 +31,7 @@ CC ?=		gcc
 CXX ?=		g++
 CFLAGS ?=	-Wall -O2
 CXXFLAGS ?=	-Wall -O2
+MACFLAGS ?=	-mmacosx-version-min=10.9
 
 PREFIX ?=	/usr/local
 DESTDIR ?=	.
@@ -42,6 +43,8 @@ ifeq ($(SYS), MAC)
   ifeq "$(GCC_GTEQ_43)" "1"
     CFLAGS ?= -Wall -O2 -flax-vector-conversions
   endif
+  CFLAGS += $(MACFLAGS)
+  CXXFLAGS += $(MACFLAGS)
   BLASFLAGS ?= -framework Accelerate
   LDFLAGS ?= -ldl
   ZLIB ?= ../zlib-1.2.11/libz.1.2.11.dylib
