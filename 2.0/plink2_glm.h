@@ -45,7 +45,7 @@ FLAGSET_DEF_START()
   kfGlmInteraction = (1 << 9),
   kfGlmHideCovar = (1 << 10),
   kfGlmIntercept = (1 << 11),
-  kfGlmSkip = (1 << 12),
+  kfGlmSkipInvalidPheno = (1 << 12),
   kfGlmNoFirth = (1 << 13),
   kfGlmFirth = (1 << 14),
   kfGlmPerm = (1 << 15),
@@ -57,7 +57,8 @@ FLAGSET_DEF_START()
   kfGlmTestsAll = (1 << 21),
   kfGlmPhenoIds = (1 << 22),
   kfGlmLocalHaps = (1 << 23),
-  kfGlmLocalCats1based = (1 << 24)
+  kfGlmLocalCats1based = (1 << 24),
+  kfGlmFirthResidualize = (1 << 25)
 FLAGSET_DEF_END(GlmFlags);
 
 FLAGSET_DEF_START()

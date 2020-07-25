@@ -70,10 +70,10 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (6 Jul 2020)";
+  " (25 Jul 2020)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -5378,14 +5378,19 @@ int main(int argc, char** argv) {
               pc.glm_info.flags |= kfGlmHideCovar;
             } else if (strequal_k(cur_modif, "intercept", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmIntercept;
+            } else if (strequal_k(cur_modif, "skip-invalid-pheno", cur_modif_slen)) {
+              pc.glm_info.flags |= kfGlmSkipInvalidPheno;
             } else if (strequal_k(cur_modif, "skip", cur_modif_slen)) {
-              pc.glm_info.flags |= kfGlmSkip;
+              logputs("Note: --glm 'skip' modifier has been renamed to 'skip-invalid-pheno'.\n");
+              pc.glm_info.flags |= kfGlmSkipInvalidPheno;
             } else if (strequal_k(cur_modif, "no-firth", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmNoFirth;
             } else if (strequal_k(cur_modif, "firth-fallback", cur_modif_slen)) {
               explicit_firth_fallback = 1;
             } else if (strequal_k(cur_modif, "firth", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmFirth;
+            } else if (strequal_k(cur_modif, "firth-residualize", cur_modif_slen)) {
+              pc.glm_info.flags |= kfGlmFirthResidualize;
             } else if (unlikely(strequal_k(cur_modif, "standard-beta", cur_modif_slen))) {
               logerrputs("Error: --glm 'standard-beta' modifier has been retired.  Use\n--{covar-}variance-standardize instead.\n");
               goto main_ret_INVALID_CMDLINE_A;
@@ -5520,6 +5525,28 @@ int main(int argc, char** argv) {
           if (unlikely((pc.glm_info.flags & kfGlmPerm) && pc.glm_info.mperm_ct)) {
             logerrputs("Error: --glm 'perm' and 'mperm=' cannot be used together.\n");
             goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (pc.glm_info.flags & kfGlmFirthResidualize) {
+            if (unlikely(!(pc.glm_info.flags & kfGlmHideCovar))) {
+              logerrputs("Error: --glm 'firth-residualize' requires 'hide-covar' to be specified as well.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            if (unlikely(pc.glm_info.flags & kfGlmNoFirth)) {
+              logerrputs("Error: --glm 'firth-residualize' doesn't make sense with 'no-firth'.\n");
+              goto main_ret_INVALID_CMDLINE;
+            }
+            if (unlikely(pc.glm_info.flags & kfGlmInteraction)) {
+              logerrputs("Error: --glm 'firth-residualize' cannot be used with 'interaction'.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            if (unlikely(pc.glm_info.flags & kfGlmIntercept)) {
+              logerrputs("Error: --glm 'firth-residualize' cannot be used with 'intercept'.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            if (unlikely(pc.glm_local_covar_fname)) {
+              logerrputs("Error: --glm 'firth-residualize' cannot be used with local covariates.  (If you\nwant to include a per-chromosome polygenic effect, you need to include that as\na regular covariate and perform per-chromosome --glm runs; sorry about the\ninconvenience.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
           }
           uint32_t alternate_genotype_col_flags = S_CAST(uint32_t, pc.glm_info.flags & (kfGlmGenotypic | kfGlmHethom | kfGlmDominant | kfGlmRecessive));
           if (alternate_genotype_col_flags) {
@@ -8061,6 +8088,10 @@ int main(int argc, char** argv) {
             logerrputs("Error: --parameters must be used with --glm.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
+          if (unlikely(pc.glm_info.flags & kfGlmFirthResidualize)) {
+            logerrputs("Error: --parameters cannot be used with --glm firth-residualize.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           reterr = ParseNameRanges(&(argvk[arg_idx]), errstr_append, param_ct, 1, '-', &pc.glm_info.parameters_range_list);
           if (unlikely(reterr)) {
             goto main_ret_1;
@@ -9298,6 +9329,10 @@ int main(int argc, char** argv) {
         } else if (likely(strequal_k_unsafe(flagname_p2, "ests"))) {
           if (unlikely(!(pc.command_flags1 & kfCommand1Glm))) {
             logerrputs("Error: --tests must be used with --glm.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(pc.glm_info.flags & kfGlmFirthResidualize)) {
+            logerrputs("Error: --tests cannot be used with --glm firth-residualize.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if ((param_ct == 1) && (!strcmp(argvk[arg_idx + 1], "all"))) {

@@ -1317,13 +1317,15 @@ GlmErr CheckMaxCorrAndVif(const double* predictor_dotprods, uint32_t first_predi
   return 0;
 }
 
-void PrintPrescanErrmsg(const char* domain_str, const char* pheno_name, const char** covar_names, GlmErr glm_err, uint32_t local_covar_ct, uint32_t skip_modifier, uint32_t is_batch) {
+void PrintPrescanErrmsg(const char* domain_str, const char* pheno_name, const char** covar_names, GlmErr glm_err, uint32_t local_covar_ct, uint32_t skip_invalid_pheno, uint32_t is_batch) {
   const GlmErrcode errcode = GetGlmErrCode(glm_err);
-  const char* msg_start = skip_modifier? "Note: Skipping " : "Error: Cannot proceed with ";
+  const char* msg_start = skip_invalid_pheno? "Note: Skipping " : "Error: Cannot proceed with ";
   if (errcode == kGlmErrcodeUnstableScale) {
     snprintf(g_logbuf, kLogbufSize, "%s%s--glm regression on phenotype '%s'%s, since genotype/covariate scales vary too widely for numerical stability of the current implementation. Try rescaling your covariates with e.g. --covar-variance-standardize.\n", msg_start, domain_str, pheno_name, is_batch? ", and other(s) with identical missingness patterns" : "");
   } else if (errcode == kGlmErrcodeVifInfinite) {
     snprintf(g_logbuf, kLogbufSize, "%s%s--glm regression on phenotype '%s'%s, since covariate correlation matrix could not be inverted (VIF_INFINITE).%s\n", msg_start, domain_str, pheno_name, is_batch? ", and other(s) with identical missingness patterns" : "", domain_str[0]? "" : " You may want to remove redundant covariates and try again.");
+  } else if (errcode == kGlmErrcodeFirthConvergeFail) {
+    snprintf(g_logbuf, kLogbufSize, "%s%s--glm regression on phenotype '%s', since covariate-only Firth regression failed to converge.\n", msg_start, domain_str, pheno_name);
   } else {
     const char* covar_name1 = covar_names[GetGlmErrArg1(glm_err) + local_covar_ct];
     if (errcode == kGlmErrcodeVifTooHigh) {
@@ -1334,7 +1336,7 @@ void PrintPrescanErrmsg(const char* domain_str, const char* pheno_name, const ch
     }
   }
   WordWrapB(0);
-  if (skip_modifier) {
+  if (skip_invalid_pheno) {
     logputsb();
   } else {
     logerrputsb();
@@ -1810,93 +1812,6 @@ BoolErr GlmAllocFillAndTestPhenoCovarsQt(const uintptr_t* sample_include, const 
     (*nm_precomp_ptr)->xt_y_image = xt_y_image;
   }
   FillPhenoAndXtY(sample_include, pheno_qt, *covars_cmaj_d_ptr, sample_ct, xtx_state, new_covar_ct, xt_y_image, *pheno_d_ptr);
-  return 0;
-}
-
-static const float kSmallFloats[4] = {0.0, 1.0, 2.0, 3.0};
-
-BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const uintptr_t* pheno_cc, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uintptr_t xtx_state, uintptr_t** pheno_cc_collapsed_ptr, uintptr_t** gcount_case_interleaved_vec_ptr, float** pheno_f_ptr, RegressionNmPrecomp** nm_precomp_ptr, float** covars_cmaj_f_ptr, const char*** cur_covar_names_ptr, GlmErr* glm_err_ptr) {
-  const uintptr_t sample_ctav = RoundUpPow2(sample_ct, kFloatPerFVec);
-  const uintptr_t new_covar_ct = covar_ct + extra_cat_ct;
-  const uintptr_t new_nonlocal_covar_ct = new_covar_ct - local_covar_ct;
-  const uint32_t sample_ctv = BitCtToVecCt(sample_ct);
-  if (unlikely(
-          bigstack_alloc_w(sample_ctv * kWordsPerVec, pheno_cc_collapsed_ptr) ||
-          bigstack_alloc_f(sample_ctav, pheno_f_ptr) ||
-          bigstack_alloc_f(new_nonlocal_covar_ct * sample_ctav, covars_cmaj_f_ptr) ||
-          bigstack_alloc_kcp(new_covar_ct, cur_covar_names_ptr))) {
-    return 1;
-  }
-  double* corr_buf = nullptr;
-  unsigned char* bigstack_mark = g_bigstack_base;
-  *nm_precomp_ptr = nullptr;
-  if (xtx_state) {
-    assert(!local_covar_ct);
-    if (unlikely(BIGSTACK_ALLOC_X(RegressionNmPrecomp, 1, nm_precomp_ptr))) {
-      return 1;
-    }
-    // x^2 + (2*xtx_state + 2)x + (5*xtx_state - 1)
-    // 2x^2 + (2*xtx_state + 2)x + (5*xtx_state - 1)
-    // 3x^2 + (4*xtx_state + 2)x + (8*xtx_state - 3)
-    // 3x^2 + (4*xtx_state + 3)x + (8*xtx_state - 3)
-    if (unlikely(
-            bigstack_alloc_d(8 * xtx_state - 3 +
-                             new_covar_ct * (3 + 4 * xtx_state + 3 * new_covar_ct),
-                             &((*nm_precomp_ptr)->xtx_image)) ||
-            bigstack_alloc_d(new_covar_ct * (new_covar_ct + 1), &corr_buf))) {
-      return 1;
-    }
-    (*nm_precomp_ptr)->covarx_dotprod_inv = nullptr;
-    (*nm_precomp_ptr)->corr_inv = &((*nm_precomp_ptr)->xtx_image[(new_covar_ct + xtx_state + 1) * (new_covar_ct + xtx_state + 1)]);
-    (*nm_precomp_ptr)->corr_image = &((*nm_precomp_ptr)->corr_inv[new_covar_ct * new_covar_ct]);
-    (*nm_precomp_ptr)->corr_inv_sqrts = &((*nm_precomp_ptr)->corr_image[(new_covar_ct + xtx_state) * (new_covar_ct + xtx_state)]);
-    (*nm_precomp_ptr)->xt_y_image = nullptr;
-    bigstack_mark = R_CAST(unsigned char*, corr_buf);
-  }
-  double* covars_cmaj_d;
-  double* covar_dotprod;
-  double* inverse_corr_buf;
-  if (unlikely(
-          bigstack_alloc_d(new_nonlocal_covar_ct * sample_ct, &covars_cmaj_d) ||
-          bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &covar_dotprod) ||
-          bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &inverse_corr_buf))) {
-    return 1;
-  }
-  uintptr_t* pheno_cc_collapsed = *pheno_cc_collapsed_ptr;
-  CopyBitarrSubset(pheno_cc, sample_include, sample_ct, pheno_cc_collapsed);
-  float* pheno_f_iter = *pheno_f_ptr;
-  for (uintptr_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-    // can use the bitvector equivalent of GenoarrLookup...(), but this isn't
-    // in a critical loop so I'll postpone writing those functions for now
-    *pheno_f_iter++ = kSmallFloats[IsSet(pheno_cc_collapsed, sample_idx)];
-  }
-  const uint32_t sample_remv = sample_ctav - sample_ct;
-  ZeroFArr(sample_remv, pheno_f_iter);
-  PglErr reterr = GlmFillAndTestCovars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, covar_dotprod, corr_buf, inverse_corr_buf, covars_cmaj_d, *cur_covar_names_ptr, glm_err_ptr);
-  if (unlikely(reterr)) {
-    return (reterr == kPglRetNomem);
-  }
-  double* covar_read_iter = covars_cmaj_d;
-  float* covar_write_iter = *covars_cmaj_f_ptr;
-  for (uintptr_t covar_idx = 0; covar_idx != new_nonlocal_covar_ct; ++covar_idx) {
-    for (uintptr_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-      *covar_write_iter++ = S_CAST(float, *covar_read_iter++);
-    }
-    ZeroFArr(sample_remv, covar_write_iter);
-    covar_write_iter = &(covar_write_iter[sample_remv]);
-  }
-  if (xtx_state) {
-    // error-out should be impossible
-    InitNmPrecomp(covars_cmaj_d, covar_dotprod, corr_buf, inverse_corr_buf, sample_ct, 0, new_covar_ct, xtx_state, *nm_precomp_ptr);
-  }
-  BigstackReset(bigstack_mark);
-  if (gcount_case_interleaved_vec_ptr) {
-    if (unlikely(bigstack_alloc_w(sample_ctv * kWordsPerVec, gcount_case_interleaved_vec_ptr))) {
-      return 1;
-    }
-    ZeroTrailingWords(BitCtToWordCt(sample_ct), pheno_cc_collapsed);
-    FillInterleavedMaskVec(pheno_cc_collapsed, sample_ctv, *gcount_case_interleaved_vec_ptr);
-  }
   return 0;
 }
 
@@ -2881,7 +2796,7 @@ void FirthComputeWeights(const float* yy, const float* xx, const float* pp, cons
 }
 #endif
 
-BoolErr FirthRegression(const float* yy, const float* xx, uint32_t sample_ct, uint32_t predictor_ct, float* coef, uint32_t* is_unfinished_ptr, float* hh, double* half_inverted_buf, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, float* pp, float* vv, float* grad, float* dcoef, float* ww, float* tmpnxk_buf) {
+BoolErr FirthRegression(const float* yy, const float* xx, const float* sample_offsets, uint32_t sample_ct, uint32_t predictor_ct, float* coef, uint32_t* is_unfinished_ptr, float* hh, double* half_inverted_buf, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, float* pp, float* vv, float* grad, float* dcoef, float* ww, float* tmpnxk_buf) {
   // This is a port of Georg Heinze's logistf R function, adapted to use many
   // of plink 1.9's optimizations; see
   //   http://cemsiis.meduniwien.ac.at/en/kb/science-research/software/statistical-software/fllogistf/
@@ -2898,6 +2813,8 @@ BoolErr FirthRegression(const float* yy, const float* xx, uint32_t sample_ct, ui
   // xx    = covariate (and usually genotype) matrix, covariate-major, rows are
   //         vector-aligned, trailing row elements must be zeroed out
   // yy    = case/control phenotype
+  // sample_offsets = in residualized mode, product of pre-fitted covariate
+  //                  beta vector with covariate matrix.  otherwise, nullptr.
   //
   // Input/output:
   // coef  = starting point, overwritten with logistic regression betas.  Must
@@ -2920,6 +2837,11 @@ BoolErr FirthRegression(const float* yy, const float* xx, uint32_t sample_ct, ui
   // P[i] = \sum_j coef[j] * X[i][j];
   // categorical optimization possible here
   ColMajorFmatrixVectorMultiplyStrided(xx, coef, sample_ct, sample_ctav, predictor_ct, pp);
+  if (sample_offsets) {
+    for (uint32_t uii = 0; uii != sample_ct; ++uii) {
+      pp[uii] += sample_offsets[uii];
+    }
+  }
   // P[i] = 1 / (1 + exp(-P[i]));
   LogisticSse(sample_ct, pp);
   // V[i] = P[i] * (1 - P[i]);
@@ -3023,6 +2945,11 @@ BoolErr FirthRegression(const float* yy, const float* xx, uint32_t sample_ct, ui
     while (1) {
       // categorical optimization possible here
       ColMajorFmatrixVectorMultiplyStrided(xx, coef, sample_ct, sample_ctav, predictor_ct, pp);
+      if (sample_offsets) {
+        for (uint32_t uii = 0; uii != sample_ct; ++uii) {
+          pp[uii] += sample_offsets[uii];
+        }
+      }
 
       LogisticSse(sample_ct, pp);
       loglik = ComputeLoglik(yy, pp, sample_ct);
@@ -3070,7 +2997,216 @@ BoolErr FirthRegression(const float* yy, const float* xx, uint32_t sample_ct, ui
   }
 }
 
-uintptr_t GetLogisticWorkspaceSize(uint32_t sample_ct, uint32_t biallelic_predictor_ct, uint32_t max_extra_allele_ct, uint32_t constraint_ct, uint32_t xmain_ct, uint32_t gcount_cc, uint32_t is_sometimes_firth) {
+void CopyAndMeanCenterF(const float* src, uint32_t ct, float* dst) {
+  float sum = 0.0;
+  // todo: check whether explicit vectorization matters here.  I'd hope not...
+  for (uint32_t uii = 0; uii != ct; ++uii) {
+    sum += src[uii];
+  }
+  const float mean = sum / u31tof(ct);
+  for (uint32_t uii = 0; uii != ct; ++uii) {
+    dst[uii] = src[uii] - mean;
+  }
+  const uint32_t remainder = (-ct) & (kFloatPerFVec - 1);
+  ZeroFArr(remainder, &(dst[ct]));
+}
+
+typedef struct CcResidualizeCtxStruct {
+  float* firth_nm_sample_offsets;
+  uint32_t prefitted_pred_ct;
+  uint32_t domdev_present_p1;
+  uint32_t sample_ct;
+} CcResidualizeCtx;
+
+BoolErr FirthRegressionResidualized(const float* yy, const float* xx, const uintptr_t* sample_nm, const CcResidualizeCtx* cc_residualize, uint32_t nm_sample_ct, uint32_t orig_predictor_ct, float* coef, uint32_t* is_unfinished_ptr, float* hh, double* half_inverted_buf, MatrixInvertBuf1* inv_1d_buf, double* dbl_2d_buf, float* pp, float* vv, float* grad, float* dcoef, float* ww, float* tmpnxk_buf, float* mean_centered_pmaj_buf, float* sample_offsets_buf) {
+  const uintptr_t nm_sample_ctav = RoundUpPow2(nm_sample_ct, kFloatPerFVec);
+  const uint32_t domdev_present_p1 = cc_residualize->domdev_present_p1;
+  for (uint32_t geno_idx = 0; geno_idx != domdev_present_p1; ++geno_idx) {
+    CopyAndMeanCenterF(&(xx[(geno_idx + 1) * nm_sample_ctav]), nm_sample_ct, &(mean_centered_pmaj_buf[geno_idx * nm_sample_ctav]));
+  }
+  const uint32_t prefitted_pred_ct = cc_residualize->prefitted_pred_ct;
+  const uint32_t orig_biallelic_predictor_ct = domdev_present_p1 + prefitted_pred_ct;
+  const uint32_t extra_allele_ct = orig_predictor_ct - orig_biallelic_predictor_ct;
+  for (uint32_t extra_allele_idx = 0; extra_allele_idx != extra_allele_ct; ++extra_allele_idx) {
+    CopyAndMeanCenterF(&(xx[(extra_allele_idx + orig_biallelic_predictor_ct) * nm_sample_ctav]), nm_sample_ct, &(mean_centered_pmaj_buf[(extra_allele_idx + domdev_present_p1) * nm_sample_ctav]));
+  }
+  const float* sample_offsets = cc_residualize->firth_nm_sample_offsets;
+  if (nm_sample_ct != cc_residualize->sample_ct) {
+    uintptr_t sample_idx_base = 0;
+    uintptr_t sample_nm_bits = sample_nm[0];
+    for (uint32_t uii = 0; uii != nm_sample_ct; ++uii) {
+      const uintptr_t sample_idx = BitIter1(sample_nm, &sample_idx_base, &sample_nm_bits);
+      sample_offsets_buf[uii] = sample_offsets[sample_idx];
+    }
+    // todo: check if this is actually needed
+    const uint32_t remainder = (-nm_sample_ct) & (kFloatPerFVec - 1);
+    ZeroFArr(remainder, &(sample_offsets_buf[nm_sample_ct]));
+    sample_offsets = sample_offsets_buf;
+  }
+  const uint32_t regressed_predictor_ct = domdev_present_p1 + extra_allele_ct;
+  const uint32_t regressed_predictor_ctav = RoundUpPow2(regressed_predictor_ct, kFloatPerFVec);
+  if (FirthRegression(yy, mean_centered_pmaj_buf, sample_offsets, nm_sample_ct, regressed_predictor_ct, &(coef[1]), is_unfinished_ptr, hh, half_inverted_buf, inv_1d_buf, dbl_2d_buf, pp, vv, grad, dcoef, ww, tmpnxk_buf)) {
+    return 1;
+  }
+  // hh is shifted up and to the left from what the caller expects, due to the
+  // missing intercept.  Correct that here.  (Only bottom-left matters.)
+  for (uint32_t write_row_idx = regressed_predictor_ct; write_row_idx; --write_row_idx) {
+    memcpy(&(hh[write_row_idx * regressed_predictor_ctav + 1]), &(hh[(write_row_idx - 1) * regressed_predictor_ctav]), write_row_idx * sizeof(float));
+  }
+  return 0;
+}
+
+static const float kSmallFloats[4] = {0.0, 1.0, 2.0, 3.0};
+
+BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const uintptr_t* pheno_cc, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uint32_t domdev_present_p1, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uintptr_t xtx_state, uintptr_t** pheno_cc_collapsed_ptr, uintptr_t** gcount_case_interleaved_vec_ptr, float** pheno_f_ptr, RegressionNmPrecomp** nm_precomp_ptr, float** covars_cmaj_f_ptr, CcResidualizeCtx** cc_residualize_ptr, const char*** cur_covar_names_ptr, GlmErr* glm_err_ptr) {
+  const uintptr_t sample_ctav = RoundUpPow2(sample_ct, kFloatPerFVec);
+  const uintptr_t new_covar_ct = covar_ct + extra_cat_ct;
+  const uintptr_t new_nonlocal_covar_ct = new_covar_ct - local_covar_ct;
+  const uint32_t sample_ctv = BitCtToVecCt(sample_ct);
+  const uint32_t is_cc_residualize = (cc_residualize_ptr != nullptr);
+  if (unlikely(
+          bigstack_alloc_w(sample_ctv * kWordsPerVec, pheno_cc_collapsed_ptr) ||
+          bigstack_alloc_f(sample_ctav, pheno_f_ptr) ||
+          bigstack_alloc_f(new_nonlocal_covar_ct * sample_ctav, covars_cmaj_f_ptr) ||
+          bigstack_alloc_kcp(new_covar_ct, cur_covar_names_ptr))) {
+      return 1;
+  }
+  double* corr_buf = nullptr;
+  unsigned char* bigstack_mark = g_bigstack_base;
+  *nm_precomp_ptr = nullptr;
+  if (xtx_state) {
+    assert(!local_covar_ct);
+    if (is_cc_residualize) {
+      // Interactions and local covariates prohibited with firth-residualize,
+      // so xtx_state guaranteed to be nonzero.
+      if (unlikely(BIGSTACK_ALLOC_X(CcResidualizeCtx, 1, cc_residualize_ptr))) {
+        return 1;
+      }
+      if (unlikely(
+              bigstack_alloc_f(sample_ctav, &((*cc_residualize_ptr)->firth_nm_sample_offsets)))) {
+        return 1;
+      }
+      (*cc_residualize_ptr)->prefitted_pred_ct = 1 + new_covar_ct;
+      (*cc_residualize_ptr)->domdev_present_p1 = domdev_present_p1;
+      (*cc_residualize_ptr)->sample_ct = sample_ct;
+    }
+    if (unlikely(BIGSTACK_ALLOC_X(RegressionNmPrecomp, 1, nm_precomp_ptr))) {
+      return 1;
+    }
+    // x^2 + (2*xtx_state + 2)x + (5*xtx_state - 1)
+    // 2x^2 + (2*xtx_state + 2)x + (5*xtx_state - 1)
+    // 3x^2 + (4*xtx_state + 2)x + (8*xtx_state - 3)
+    // 3x^2 + (4*xtx_state + 3)x + (8*xtx_state - 3)
+    if (unlikely(
+            bigstack_alloc_d(8 * xtx_state - 3 +
+                             new_covar_ct * (3 + 4 * xtx_state + 3 * new_covar_ct),
+                             &((*nm_precomp_ptr)->xtx_image)) ||
+            bigstack_alloc_d(new_covar_ct * (new_covar_ct + 1), &corr_buf))) {
+      return 1;
+    }
+    (*nm_precomp_ptr)->covarx_dotprod_inv = nullptr;
+    (*nm_precomp_ptr)->corr_inv = &((*nm_precomp_ptr)->xtx_image[(new_covar_ct + xtx_state + 1) * (new_covar_ct + xtx_state + 1)]);
+    (*nm_precomp_ptr)->corr_image = &((*nm_precomp_ptr)->corr_inv[new_covar_ct * new_covar_ct]);
+    (*nm_precomp_ptr)->corr_inv_sqrts = &((*nm_precomp_ptr)->corr_image[(new_covar_ct + xtx_state) * (new_covar_ct + xtx_state)]);
+    (*nm_precomp_ptr)->xt_y_image = nullptr;
+    bigstack_mark = R_CAST(unsigned char*, corr_buf);
+  }
+  double* covars_cmaj_d;
+  double* covar_dotprod;
+  double* inverse_corr_buf;
+  if (unlikely(
+          bigstack_alloc_d(new_nonlocal_covar_ct * sample_ct, &covars_cmaj_d) ||
+          bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &covar_dotprod) ||
+          bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &inverse_corr_buf))) {
+    return 1;
+  }
+  uintptr_t* pheno_cc_collapsed = *pheno_cc_collapsed_ptr;
+  CopyBitarrSubset(pheno_cc, sample_include, sample_ct, pheno_cc_collapsed);
+  float* pheno_f_iter = *pheno_f_ptr;
+  for (uintptr_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    // can use the bitvector equivalent of GenoarrLookup...(), but this isn't
+    // in a critical loop so I'll postpone writing those functions for now
+    *pheno_f_iter++ = kSmallFloats[IsSet(pheno_cc_collapsed, sample_idx)];
+  }
+  const uint32_t sample_remv = sample_ctav - sample_ct;
+  ZeroFArr(sample_remv, pheno_f_iter);
+  PglErr reterr = GlmFillAndTestCovars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, covar_dotprod, corr_buf, inverse_corr_buf, covars_cmaj_d, *cur_covar_names_ptr, glm_err_ptr);
+  if (unlikely(reterr)) {
+    return (reterr == kPglRetNomem);
+  }
+  double* covar_read_iter = covars_cmaj_d;
+  float* covar_write_iter = *covars_cmaj_f_ptr;
+  for (uintptr_t covar_idx = 0; covar_idx != new_nonlocal_covar_ct; ++covar_idx) {
+    for (uintptr_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      *covar_write_iter++ = S_CAST(float, *covar_read_iter++);
+    }
+    ZeroFArr(sample_remv, covar_write_iter);
+    covar_write_iter = &(covar_write_iter[sample_remv]);
+  }
+  if (xtx_state) {
+    // error-out should be impossible
+    InitNmPrecomp(covars_cmaj_d, covar_dotprod, corr_buf, inverse_corr_buf, sample_ct, 0, new_covar_ct, xtx_state, *nm_precomp_ptr);
+    if (is_cc_residualize) {
+      BigstackReset(bigstack_mark);
+      const uintptr_t pred_ct = new_covar_ct + 1;
+      const uintptr_t pred_ctav = RoundUpPow2(pred_ct, kFloatPerFVec);
+      float* xx;
+      float* firth_coefs;
+      float* hh;
+      double* half_inverted_buf;
+      double* dbl_2d_buf;
+      float* pp;
+      float* vv;
+      float* grad;
+      float* dcoef;
+      float* ww;
+      float* tmpnxk_buf;
+      MatrixInvertBuf1* inv_1d_buf = S_CAST(MatrixInvertBuf1*, bigstack_alloc(pred_ct * kMatrixInvertBuf1CheckedAlloc));
+      // see GetLogisticWorkspaceSize() and corresponding code at top of
+      // GlmLogisticThread()
+      if (unlikely(
+              (!inv_1d_buf) ||
+              bigstack_alloc_f(sample_ctav * pred_ct, &xx) ||
+              bigstack_calloc_f(pred_ctav, &firth_coefs) ||
+              bigstack_alloc_f(pred_ct * pred_ctav, &hh) ||
+              bigstack_alloc_d(pred_ct * MAXV(pred_ct, 3), &half_inverted_buf) ||
+              bigstack_alloc_d(pred_ct * MAXV(pred_ct, 7), &dbl_2d_buf) ||
+              bigstack_alloc_f(sample_ctav, &pp) ||
+              bigstack_alloc_f(sample_ctav, &vv) ||
+              bigstack_alloc_f(pred_ctav, &grad) ||
+              bigstack_alloc_f(pred_ctav, &dcoef) ||
+              bigstack_alloc_f(sample_ctav, &ww) ||
+              bigstack_alloc_f(sample_ctav * pred_ct, &tmpnxk_buf))) {
+        return 1;
+      }
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        xx[sample_idx] = S_CAST(float, 1.0);
+      }
+      ZeroFArr(sample_ctav - sample_ct, &(xx[sample_ct]));
+      memcpy(&(xx[sample_ctav]), *covars_cmaj_f_ptr, sample_ctav * (pred_ct - 1) * sizeof(float));
+      uint32_t is_unfinished = 0;
+      if (unlikely(FirthRegression(*pheno_f_ptr, xx, nullptr, sample_ct, pred_ct, firth_coefs, &is_unfinished, hh, half_inverted_buf, inv_1d_buf, dbl_2d_buf, pp, vv, grad, dcoef, ww, tmpnxk_buf) || is_unfinished)) {
+        *glm_err_ptr = SetGlmErr0(kGlmErrcodeFirthConvergeFail);
+        return 0;
+      }
+      float* sample_offsets = (*cc_residualize_ptr)->firth_nm_sample_offsets;
+      ColMajorFmatrixVectorMultiplyStrided(xx, firth_coefs, sample_ct, sample_ctav, pred_ct, sample_offsets);
+      ZeroFArr(sample_ctav - sample_ct, &(sample_offsets[sample_ct]));
+      // probable todo: print fitted coefficients and standard errors to log
+    }
+  }
+  BigstackReset(bigstack_mark);
+  if (gcount_case_interleaved_vec_ptr) {
+    if (unlikely(bigstack_alloc_w(sample_ctv * kWordsPerVec, gcount_case_interleaved_vec_ptr))) {
+      return 1;
+    }
+    ZeroTrailingWords(BitCtToWordCt(sample_ct), pheno_cc_collapsed);
+    FillInterleavedMaskVec(pheno_cc_collapsed, sample_ctv, *gcount_case_interleaved_vec_ptr);
+  }
+  return 0;
+}
+
+uintptr_t GetLogisticWorkspaceSize(uint32_t sample_ct, uint32_t biallelic_predictor_ct, uint32_t domdev_present_p1, uint32_t max_extra_allele_ct, uint32_t constraint_ct, uint32_t xmain_ct, uint32_t gcount_cc, uint32_t is_sometimes_firth, uint32_t is_cc_residualize) {
   // sample_ctav * max_predictor_ct < 2^31, and sample_ct >=
   // biallelic_predictor_ct, so no overflows?
   // could round everything up to multiples of 16 instead of 64
@@ -3139,6 +3275,14 @@ uintptr_t GetLogisticWorkspaceSize(uint32_t sample_ct, uint32_t biallelic_predic
 
     // tmpnxk_buf = max_predictor_ct * sample_ctav floats
     workspace_size += RoundUpPow2(max_predictor_ct * sample_ctav * sizeof(float), kCacheline);
+  }
+  if (is_cc_residualize) {
+    // mean_centered_pmaj_buf = (domdev_present_p1 + max_extra_allele_ct) *
+    //   sample_ctav floats
+    workspace_size += RoundUpPow2((domdev_present_p1 + max_extra_allele_ct) * sample_ctav * sizeof(float), kCacheline);
+
+    // sample_offsets_buf
+    workspace_size += RoundUpPow2(sample_ctav * sizeof(float), kCacheline);
   }
   if (constraint_ct) {
     // tmphxs_buf, h_transpose_buf = constraint_ct * max_predictor_ctav floats
@@ -3276,6 +3420,9 @@ typedef struct GlmLogisticCtxStruct {
   const float* covars_cmaj_f;
   float* covars_cmaj_x_f;
   float* covars_cmaj_y_f;
+  CcResidualizeCtx* cc_residualize;
+  CcResidualizeCtx* cc_residualize_x;
+  CcResidualizeCtx* cc_residualize_y;
   uint16_t separation_found;
   uint16_t separation_found_x;
   uint16_t separation_found_y;
@@ -3390,6 +3537,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
       const float* cur_covars_cmaj;
       const uintptr_t* cur_parameter_subset;
       const uintptr_t* cur_joint_test_params;
+      const CcResidualizeCtx* cur_cc_residualize;
       uint32_t cur_sample_ct;
       uint32_t cur_covar_ct;
       uint32_t cur_constraint_ct;
@@ -3404,6 +3552,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
         cur_covars_cmaj = ctx->covars_cmaj_y_f;
         cur_parameter_subset = common->parameter_subset_y;
         cur_joint_test_params = common->joint_test_params_y;
+        cur_cc_residualize = ctx->cc_residualize_y;
         cur_sample_ct = common->sample_ct_y;
         cur_covar_ct = common->covar_ct_y;
         cur_constraint_ct = common->constraint_ct_y;
@@ -3418,6 +3567,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
         cur_covars_cmaj = ctx->covars_cmaj_x_f;
         cur_parameter_subset = common->parameter_subset_x;
         cur_joint_test_params = common->joint_test_params_x;
+        cur_cc_residualize = ctx->cc_residualize_x;
         cur_sample_ct = common->sample_ct_x;
         cur_covar_ct = common->covar_ct_x;
         cur_constraint_ct = common->constraint_ct_x;
@@ -3432,6 +3582,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
         cur_covars_cmaj = ctx->covars_cmaj_f;
         cur_parameter_subset = common->parameter_subset;
         cur_joint_test_params = common->joint_test_params;
+        cur_cc_residualize = ctx->cc_residualize;
         cur_sample_ct = common->sample_ct;
         cur_covar_ct = common->covar_ct;
         cur_constraint_ct = common->constraint_ct;
@@ -3520,6 +3671,12 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
         score_buf = S_CAST(float*, arena_alloc_raw_rd(sample_ctav * sizeof(float), &workspace_iter));
         tmpnxk_buf = S_CAST(float*, arena_alloc_raw_rd(max_predictor_ct * sample_ctav * sizeof(float), &workspace_iter));
       }
+      float* mean_centered_pmaj_buf = nullptr;
+      float* sample_offsets_buf = nullptr;
+      if (cur_cc_residualize) {
+        mean_centered_pmaj_buf = S_CAST(float*, arena_alloc_raw_rd(sample_ctav * sizeof(float) * (domdev_present_p1 + max_extra_allele_ct), &workspace_iter));
+        sample_offsets_buf = S_CAST(float*, arena_alloc_raw_rd(sample_ctav * sizeof(float), &workspace_iter));
+      }
 
       // joint test only
       float* tmphxs_buf = nullptr;
@@ -3540,7 +3697,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
         // Rest of this matrix must be updated later, since cur_predictor_ct
         // changes at multiallelic variants.
       }
-      assert(S_CAST(uintptr_t, workspace_iter - workspace_buf) == GetLogisticWorkspaceSize(cur_sample_ct, cur_biallelic_predictor_ct, max_extra_allele_ct, cur_constraint_ct, main_mutated + main_omitted, cur_gcount_case_interleaved_vec != nullptr, is_sometimes_firth));
+      assert(S_CAST(uintptr_t, workspace_iter - workspace_buf) == GetLogisticWorkspaceSize(cur_sample_ct, cur_biallelic_predictor_ct, domdev_present_p1, max_extra_allele_ct, cur_constraint_ct, main_mutated + main_omitted, cur_gcount_case_interleaved_vec != nullptr, is_sometimes_firth, cur_cc_residualize != nullptr));
       const double cur_sample_ct_recip = 1.0 / u31tod(cur_sample_ct);
       const double cur_sample_ct_m1_recip = 1.0 / u31tod(cur_sample_ct - 1);
       const double* corr_inv = nullptr;
@@ -4193,6 +4350,14 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
             float* main_vals = &(nm_predictors_pmaj_buf[nm_sample_ctav]);
             float* domdev_vals = nullptr;
             uint32_t is_unfinished = 0;
+            uint32_t is_residualized = 0;
+            // _stop instead of _ct since, in the residualized case, the
+            // intercept (predictor index 0) is not included; we iterate over
+            // the predictor indices in [1, _stop).
+            uint32_t cur_regressed_predictor_stop = cur_predictor_ct;
+            uint32_t cur_regressed_predictor_ctav = cur_predictor_ctav;
+            uint32_t cur_regressed_predictor_ctavp1 = cur_predictor_ctavp1;
+            uint32_t cur_biallelic_regressed_predictor_stop = cur_biallelic_predictor_ct;
             if (extra_regression_ct) {
               if (IsSet(const_alleles, extra_regression_idx + (extra_regression_idx >= omitted_allele_idx))) {
                 glm_err = SetGlmErr0(kGlmErrcodeConstAllele);
@@ -4378,14 +4543,26 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
                   }
                 }
               }
-              if (FirthRegression(nm_pheno_buf, nm_predictors_pmaj_buf, nm_sample_ct, cur_predictor_ct, coef_return, &is_unfinished, hh_return, inverse_corr_buf, inv_1d_buf, dbl_2d_buf, pp_buf, sample_variance_buf, gradient_buf, dcoef_buf, score_buf, tmpnxk_buf)) {
-                glm_err = SetGlmErr0(kGlmErrcodeFirthConvergeFail);
-                goto GlmLogisticThread_skip_regression;
+              if (!cur_cc_residualize) {
+                if (FirthRegression(nm_pheno_buf, nm_predictors_pmaj_buf, nullptr, nm_sample_ct, cur_predictor_ct, coef_return, &is_unfinished, hh_return, inverse_corr_buf, inv_1d_buf, dbl_2d_buf, pp_buf, sample_variance_buf, gradient_buf, dcoef_buf, score_buf, tmpnxk_buf)) {
+                  glm_err = SetGlmErr0(kGlmErrcodeFirthConvergeFail);
+                  goto GlmLogisticThread_skip_regression;
+                }
+              } else {
+                if (FirthRegressionResidualized(nm_pheno_buf, nm_predictors_pmaj_buf, sample_nm, cur_cc_residualize, nm_sample_ct, cur_predictor_ct, coef_return, &is_unfinished, hh_return, inverse_corr_buf, inv_1d_buf, dbl_2d_buf, pp_buf, sample_variance_buf, gradient_buf, dcoef_buf, score_buf, tmpnxk_buf, mean_centered_pmaj_buf, sample_offsets_buf)) {
+                  glm_err = SetGlmErr0(kGlmErrcodeFirthConvergeFail);
+                  goto GlmLogisticThread_skip_regression;
+                }
+                is_residualized = 1;
+                cur_regressed_predictor_stop = domdev_present + allele_ct;
+                cur_regressed_predictor_ctav = RoundUpPow2(cur_regressed_predictor_stop, kFloatPerFVec);
+                cur_regressed_predictor_ctavp1 = cur_regressed_predictor_ctav + 1;
+                cur_biallelic_regressed_predictor_stop = domdev_present + 2;
               }
             }
             // validParameters() check
-            for (uint32_t pred_uidx = 1; pred_uidx != cur_predictor_ct; ++pred_uidx) {
-              const float hh_inv_diag_element = hh_return[pred_uidx * cur_predictor_ctavp1];
+            for (uint32_t pred_uidx = 1; pred_uidx != cur_regressed_predictor_stop; ++pred_uidx) {
+              const float hh_inv_diag_element = hh_return[pred_uidx * cur_regressed_predictor_ctavp1];
               if ((hh_inv_diag_element < S_CAST(float, 1e-20)) || (!isfinite_f(hh_inv_diag_element))) {
                 glm_err = SetGlmErr0(kGlmErrcodeInvalidResult);
                 goto GlmLogisticThread_skip_regression;
@@ -4393,12 +4570,14 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
               // use sample_variance_buf[] to store diagonal square roots
               sample_variance_buf[pred_uidx] = sqrtf(hh_inv_diag_element);
             }
-            sample_variance_buf[0] = sqrtf(hh_return[0]);
-            for (uint32_t pred_uidx = 1; pred_uidx != cur_predictor_ct; ++pred_uidx) {
+            if (!is_residualized) {
+              sample_variance_buf[0] = sqrtf(hh_return[0]);
+            }
+            for (uint32_t pred_uidx = 1 + is_residualized; pred_uidx != cur_regressed_predictor_stop; ++pred_uidx) {
               const float cur_hh_inv_diag_sqrt = S_CAST(float, 0.99999) * sample_variance_buf[pred_uidx];
-              const float* hh_inv_row_iter = &(hh_return[pred_uidx * cur_predictor_ctav]);
-              const float* hh_inv_diag_sqrts_iter = sample_variance_buf;
-              for (uint32_t pred_uidx2 = 0; pred_uidx2 != pred_uidx; ++pred_uidx2) {
+              const float* hh_inv_row_iter = &(hh_return[pred_uidx * cur_regressed_predictor_ctav + is_residualized]);
+              const float* hh_inv_diag_sqrts_iter = &(sample_variance_buf[is_residualized]);
+              for (uint32_t pred_uidx2 = is_residualized; pred_uidx2 != pred_uidx; ++pred_uidx2) {
                 if ((*hh_inv_row_iter++) > cur_hh_inv_diag_sqrt * (*hh_inv_diag_sqrts_iter++)) {
                   glm_err = SetGlmErr0(kGlmErrcodeInvalidResult);
                   goto GlmLogisticThread_skip_regression;
@@ -4450,8 +4629,8 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
               if (!const_allele_ct) {
                 if (beta_se_multiallelic_fused || (!hide_covar)) {
                   for (uint32_t extra_allele_idx = 0; extra_allele_idx != allele_ct_m2; ++extra_allele_idx) {
-                    *beta_se_iter2++ = S_CAST(double, coef_return[cur_biallelic_predictor_ct + extra_allele_idx]);
-                    *beta_se_iter2++ = S_CAST(double, sample_variance_buf[cur_biallelic_predictor_ct + extra_allele_idx]);
+                    *beta_se_iter2++ = S_CAST(double, coef_return[cur_biallelic_regressed_predictor_stop + extra_allele_idx]);
+                    *beta_se_iter2++ = S_CAST(double, sample_variance_buf[cur_biallelic_regressed_predictor_stop + extra_allele_idx]);
                   }
                 }
               } else if (!beta_se_multiallelic_fused) {
@@ -4469,8 +4648,8 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
                       beta_se_iter2[1] = -9.0;
                       beta_se_iter2 = &(beta_se_iter2[2]);
                     } else {
-                      *beta_se_iter2++ = S_CAST(double, coef_return[cur_biallelic_predictor_ct + extra_read_allele_idx]);
-                      *beta_se_iter2++ = S_CAST(double, sample_variance_buf[cur_biallelic_predictor_ct + extra_read_allele_idx]);
+                      *beta_se_iter2++ = S_CAST(double, coef_return[cur_biallelic_regressed_predictor_stop + extra_read_allele_idx]);
+                      *beta_se_iter2++ = S_CAST(double, sample_variance_buf[cur_biallelic_regressed_predictor_stop + extra_read_allele_idx]);
                       ++extra_read_allele_idx;
                     }
                   }
@@ -5524,6 +5703,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
 
     const uint32_t is_sometimes_firth = !(glm_flags & kfGlmNoFirth);
     const uint32_t is_always_firth = (glm_flags / kfGlmFirth) & 1;
+    const uint32_t is_cc_residualize = (glm_flags / kfGlmFirthResidualize) & 1;
 
     uint32_t x_code = UINT32_MAXM1;
     uint32_t x_start = 0;
@@ -5557,15 +5737,15 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     const uint32_t xmain_ct = main_mutated + main_omitted;
     const uint32_t gcount_cc_col = glm_cols & kfGlmColGcountcc;
     // workflow is similar to --make-bed
-    uintptr_t workspace_alloc = GetLogisticWorkspaceSize(sample_ct, biallelic_predictor_ct, max_extra_allele_ct, constraint_ct, xmain_ct, gcount_cc_col, is_sometimes_firth);
+    uintptr_t workspace_alloc = GetLogisticWorkspaceSize(sample_ct, biallelic_predictor_ct, domdev_present_p1, max_extra_allele_ct, constraint_ct, xmain_ct, gcount_cc_col, is_sometimes_firth, is_cc_residualize);
     if (sample_ct_x) {
-      const uintptr_t workspace_alloc_x = GetLogisticWorkspaceSize(sample_ct_x, biallelic_predictor_ct_x, max_extra_allele_ct, constraint_ct_x, xmain_ct, gcount_cc_col, is_sometimes_firth);
+      const uintptr_t workspace_alloc_x = GetLogisticWorkspaceSize(sample_ct_x, biallelic_predictor_ct_x, domdev_present_p1, max_extra_allele_ct, constraint_ct_x, xmain_ct, gcount_cc_col, is_sometimes_firth, is_cc_residualize);
       if (workspace_alloc_x > workspace_alloc) {
         workspace_alloc = workspace_alloc_x;
       }
     }
     if (sample_ct_y) {
-      const uintptr_t workspace_alloc_y = GetLogisticWorkspaceSize(sample_ct_y, biallelic_predictor_ct_y, max_extra_allele_ct, constraint_ct_y, xmain_ct, gcount_cc_col, is_sometimes_firth);
+      const uintptr_t workspace_alloc_y = GetLogisticWorkspaceSize(sample_ct_y, biallelic_predictor_ct_y, domdev_present_p1, max_extra_allele_ct, constraint_ct_y, xmain_ct, gcount_cc_col, is_sometimes_firth, is_cc_residualize);
       if (workspace_alloc_y > workspace_alloc) {
         workspace_alloc = workspace_alloc_y;
       }
@@ -11377,7 +11557,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     const uint32_t report_adjust = (adjust_info_ptr->flags & kfAdjustColAll);
     const uint32_t is_sometimes_firth = !(glm_flags & kfGlmNoFirth);
     const uint32_t is_always_firth = glm_flags & kfGlmFirth;
-    const uint32_t skip_modifier = (glm_flags / kfGlmSkip) & 1;
+    const uint32_t skip_invalid_pheno = (glm_flags / kfGlmSkipInvalidPheno) & 1;
     const uint32_t glm_pos_col = glm_info_ptr->cols & kfGlmColPos;
     const uint32_t gcount_cc_col = glm_info_ptr->cols & kfGlmColGcountcc;
     const uint32_t xtx_state = (add_interactions || local_covar_ct)? 0 : domdev_present_p1;
@@ -11428,7 +11608,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         const uint32_t sample_ct = PopcountWords(cur_sample_include, raw_sample_ctl);
         if (IsConstCovar(cur_pheno_col, cur_sample_include, sample_ct)) {
           const char* cur_pheno_name = &(pheno_names[pheno_uidx * max_pheno_name_blen]);
-          if (unlikely(!skip_modifier)) {
+          if (unlikely(!skip_invalid_pheno)) {
             logerrprintfww("Error: --glm quantitative phenotype '%s' is constant.\n", cur_pheno_name);
             goto GlmMain_ret_INCONSISTENT_INPUT;
           }
@@ -11495,7 +11675,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         }
         const char* first_pheno_name = &(pheno_names[pheno_uidx * max_pheno_name_blen]);
         if (sample_ct <= biallelic_predictor_ct) {
-          if (unlikely(!skip_modifier)) {
+          if (unlikely(!skip_invalid_pheno)) {
             logerrprintfww("Error: # samples <= # predictor columns for --glm phenotype '%s'.\n", first_pheno_name);
             goto GlmMain_ret_INCONSISTENT_INPUT;
           }
@@ -11506,7 +11686,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
 #ifdef __LP64__
         if (RoundUpPow2(sample_ct, 4) * S_CAST(uint64_t, biallelic_predictor_ct + max_extra_allele_ct) > 0x7fffffff) {
           // todo: remove this constraint in LAPACK_ILP64 case?
-          if (unlikely(!skip_modifier)) {
+          if (unlikely(!skip_invalid_pheno)) {
             logerrprintfww("Error: Too many samples or predictors for --glm regression on phenotype '%s' (internal matrices currently limited to ~2^31 entries).\n", first_pheno_name);
             goto GlmMain_ret_INCONSISTENT_INPUT;
           }
@@ -11516,7 +11696,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         }
 #endif
         if (common.tests_flag && (!common.constraint_ct)) {
-          if (unlikely(!skip_modifier)) {
+          if (unlikely(!skip_invalid_pheno)) {
             logerrprintfww("Error: --tests predictor(s) are constant for all remaining samples for --glm phenotype '%s'.\n", first_pheno_name);
             goto GlmMain_ret_INCONSISTENT_INPUT;
           }
@@ -11561,7 +11741,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             cur_sample_include_x = nullptr;
           } else {
             if (!sample_ct_x) {
-              if (unlikely(!skip_modifier)) {
+              if (unlikely(!skip_invalid_pheno)) {
                 logerrprintfww("Error: --glm regression on phenotype '%s' is degenerate on chrX.\n", first_pheno_name);
                 goto GlmMain_ret_INCONSISTENT_INPUT;
               }
@@ -11580,7 +11760,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
                 }
               }
               if (sample_ct_x <= biallelic_predictor_ct_x) {
-                if (unlikely(!skip_modifier)) {
+                if (unlikely(!skip_invalid_pheno)) {
                   logerrprintfww("Error: # samples <= # predictor columns for --glm phenotype '%s' on chrX.\n", first_pheno_name);
                   goto GlmMain_ret_INCONSISTENT_INPUT;
                 }
@@ -11588,7 +11768,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
                 sample_ct_x = 0;
 #ifdef __LP64__
               } else if (RoundUpPow2(sample_ct_x, 4) * S_CAST(uint64_t, biallelic_predictor_ct_x + max_extra_allele_ct) > 0x7fffffff) {
-                if (unlikely(!skip_modifier)) {
+                if (unlikely(!skip_invalid_pheno)) {
                   logerrprintfww("Error: Too many samples or predictors for --glm regression on phenotype '%s' on chrX (internal matrices currently limited to ~2^31 entries).\n", first_pheno_name);
                   goto GlmMain_ret_INCONSISTENT_INPUT;
                 }
@@ -11609,7 +11789,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
                 // possible todo: reset first_pheno_name here
               }
               if (sample_ct_x && common.tests_flag && (!common.constraint_ct_x)) {
-                if (unlikely(!skip_modifier)) {
+                if (unlikely(!skip_invalid_pheno)) {
                   logerrprintfww("Error: --tests predictor(s) are constant for all remaining samples on chrX for --glm phenotype '%s'.\n", first_pheno_name);
                   goto GlmMain_ret_INCONSISTENT_INPUT;
                 }
@@ -11650,7 +11830,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             cur_sample_include_y = nullptr;
           } else {
             if (!sample_ct_y) {
-              if (unlikely(!skip_modifier)) {
+              if (unlikely(!skip_invalid_pheno)) {
                 logerrprintfww("Error: --glm regression on phenotype '%s' is degenerate on chrY.\n", first_pheno_name);
                 goto GlmMain_ret_INCONSISTENT_INPUT;
               }
@@ -11670,7 +11850,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
                 }
               }
               if (sample_ct_y <= biallelic_predictor_ct_y) {
-                if (unlikely(!skip_modifier)) {
+                if (unlikely(!skip_invalid_pheno)) {
                   logerrprintfww("Error: # samples <= # predictor columns for --glm phenotype '%s' on chrY.\n", first_pheno_name);
                   goto GlmMain_ret_INCONSISTENT_INPUT;
                 }
@@ -11678,7 +11858,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
                 sample_ct_y = 0;
 #ifdef __LP64__
               } else if (RoundUpPow2(sample_ct_y, 4) * S_CAST(uint64_t, biallelic_predictor_ct_y + max_extra_allele_ct) > 0x7fffffff) {
-                if (unlikely(!skip_modifier)) {
+                if (unlikely(!skip_invalid_pheno)) {
                   logerrprintfww("Error: Too many samples or predictors for --glm regression on phenotype '%s' on chrY (internal matrices currently limited to ~2^31 entries).\n", first_pheno_name);
                   goto GlmMain_ret_INCONSISTENT_INPUT;
                 }
@@ -11698,7 +11878,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
                 }
               }
               if (sample_ct_y && common.tests_flag && (!common.constraint_ct_y)) {
-                if (unlikely(!skip_modifier)) {
+                if (unlikely(!skip_invalid_pheno)) {
                   logerrprintfww("Error: --tests predictor(s) are constant for all remaining samples on chrY for --glm phenotype '%s'.\n", first_pheno_name);
                   goto GlmMain_ret_INCONSISTENT_INPUT;
                 }
@@ -11733,8 +11913,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           goto GlmMain_ret_NOMEM;
         }
         if (glm_err) {
-          PrintPrescanErrmsg("", first_pheno_name, cur_covar_names, glm_err, local_covar_ct, skip_modifier, 1);
-          if (unlikely(!skip_modifier)) {
+          PrintPrescanErrmsg("", first_pheno_name, cur_covar_names, glm_err, local_covar_ct, skip_invalid_pheno, 1);
+          if (unlikely(!skip_invalid_pheno)) {
             goto GlmMain_ret_INCONSISTENT_INPUT;
           }
           BitvecInvmask(pheno_batch, pheno_ctl, pheno_include);
@@ -11748,8 +11928,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             goto GlmMain_ret_NOMEM;
           }
           if (glm_err) {
-            PrintPrescanErrmsg("chrX in ", first_pheno_name, cur_covar_names_x, glm_err, local_covar_ct, skip_modifier, 1);
-            if (unlikely(!skip_modifier)) {
+            PrintPrescanErrmsg("chrX in ", first_pheno_name, cur_covar_names_x, glm_err, local_covar_ct, skip_invalid_pheno, 1);
+            if (unlikely(!skip_invalid_pheno)) {
               goto GlmMain_ret_INCONSISTENT_INPUT;
             }
             sample_ct_x = 0;
@@ -11763,8 +11943,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             goto GlmMain_ret_NOMEM;
           }
           if (glm_err) {
-            PrintPrescanErrmsg("chrY in ", first_pheno_name, cur_covar_names_y, glm_err, local_covar_ct, skip_modifier, 1);
-            if (unlikely(!skip_modifier)) {
+            PrintPrescanErrmsg("chrY in ", first_pheno_name, cur_covar_names_y, glm_err, local_covar_ct, skip_invalid_pheno, 1);
+            if (unlikely(!skip_invalid_pheno)) {
               goto GlmMain_ret_INCONSISTENT_INPUT;
             }
             sample_ct_y = 0;
@@ -11925,6 +12105,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       }
     }
 
+    const uint32_t is_cc_residualize = (glm_flags / kfGlmFirthResidualize) & 1;
     for (uint32_t pheno_uidx = 0; pheno_uidx != pheno_ct; ++pheno_uidx) {
       if (!IsSet(pheno_include, pheno_uidx)) {
         continue;
@@ -11948,7 +12129,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       if (is_logistic) {
         const uint32_t initial_case_ct = PopcountWordsIntersect(cur_sample_include, cur_pheno_col->data.cc, raw_sample_ctl);
         if ((!initial_case_ct) || (initial_case_ct == sample_ct)) {
-          if (unlikely(!skip_modifier)) {
+          if (unlikely(!skip_invalid_pheno)) {
             logerrprintfww("Error: All samples for --glm phenotype '%s' are %s.\n", cur_pheno_name, initial_case_ct? "cases" : "controls");
             goto GlmMain_ret_INCONSISTENT_INPUT;
           }
@@ -11957,7 +12138,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         }
       } else {
         if (IsConstCovar(cur_pheno_col, cur_sample_include, sample_ct)) {
-          if (unlikely(!skip_modifier)) {
+          if (unlikely(!skip_invalid_pheno)) {
             logerrprintfww("Error: --glm quantitative phenotype '%s' is constant.\n", cur_pheno_name);
             goto GlmMain_ret_INCONSISTENT_INPUT;
           }
@@ -11989,7 +12170,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         }
       }
       if (sample_ct <= biallelic_predictor_ct) {
-        if (unlikely(!skip_modifier)) {
+        if (unlikely(!skip_invalid_pheno)) {
           if ((!is_sometimes_firth) && logistic_ctx.separation_found) {
             logerrprintfww("Error: (Quasi-)separated covariate(s) were present for --glm phenotype '%s'. Try removing inappropriate covariates, and/or using Firth logistic regression.\n", cur_pheno_name);
           } else {
@@ -12007,7 +12188,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
 #ifdef __LP64__
       if (RoundUpPow2(sample_ct, 4) * S_CAST(uint64_t, biallelic_predictor_ct + max_extra_allele_ct) > 0x7fffffff) {
         // todo: remove this constraint in LAPACK_ILP64 case?
-        if (unlikely(!skip_modifier)) {
+        if (unlikely(!skip_invalid_pheno)) {
           logerrprintfww("Error: Too many samples or predictors for --glm regression on phenotype '%s' (internal matrices currently limited to ~2^31 entries).\n", cur_pheno_name);
           goto GlmMain_ret_INCONSISTENT_INPUT;
         }
@@ -12019,7 +12200,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       if (is_logistic) {
         case_ct = PopcountWordsIntersect(cur_sample_include, cur_pheno_col->data.cc, raw_sample_ctl);
         if ((!case_ct) || (case_ct == sample_ct)) {
-          if (unlikely(!skip_modifier)) {
+          if (unlikely(!skip_invalid_pheno)) {
             logerrprintfww("Error: All remaining samples for --glm phenotype '%s' are %s.\n", cur_pheno_name, case_ct? "cases" : "controls");
             goto GlmMain_ret_INCONSISTENT_INPUT;
           }
@@ -12041,7 +12222,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       } else {
         // verify phenotype is still nonconstant
         if (IsConstCovar(cur_pheno_col, cur_sample_include, sample_ct)) {
-          if (unlikely(!skip_modifier)) {
+          if (unlikely(!skip_invalid_pheno)) {
             logerrprintfww("Error: --glm quantitative phenotype '%s' is constant for all remaining samples.\n", cur_pheno_name);
             goto GlmMain_ret_INCONSISTENT_INPUT;
           }
@@ -12050,7 +12231,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         }
       }
       if (common.tests_flag && (!common.constraint_ct)) {
-        if (unlikely(!skip_modifier)) {
+        if (unlikely(!skip_invalid_pheno)) {
           logerrprintfww("Error: --tests predictor(s) are constant for all remaining samples for --glm phenotype '%s'.\n", cur_pheno_name);
           goto GlmMain_ret_INCONSISTENT_INPUT;
         }
@@ -12094,7 +12275,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           cur_sample_include_x = nullptr;
         } else {
           if (!sample_ct_x) {
-            if (unlikely(!skip_modifier)) {
+            if (unlikely(!skip_invalid_pheno)) {
               logerrprintfww("Error: --glm regression on phenotype '%s' is degenerate on chrX.\n", cur_pheno_name);
               goto GlmMain_ret_INCONSISTENT_INPUT;
             }
@@ -12113,7 +12294,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               }
             }
             if (sample_ct_x <= biallelic_predictor_ct_x) {
-              if (unlikely(!skip_modifier)) {
+              if (unlikely(!skip_invalid_pheno)) {
                 if ((!is_sometimes_firth) && logistic_ctx.separation_found_x) {
                   logerrprintfww("Error: (Quasi-)separated covariate(s) were present for --glm phenotype '%s' on chrX. Try removing inappropriate covariates, and/or using Firth logistic regression.\n", cur_pheno_name);
                 } else {
@@ -12129,7 +12310,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               sample_ct_x = 0;
 #ifdef __LP64__
             } else if (RoundUpPow2(sample_ct_x, 4) * S_CAST(uint64_t, biallelic_predictor_ct_x + max_extra_allele_ct) > 0x7fffffff) {
-              if (unlikely(!skip_modifier)) {
+              if (unlikely(!skip_invalid_pheno)) {
                 logerrprintfww("Error: Too many samples or predictors for --glm regression on phenotype '%s' on chrX (internal matrices currently limited to ~2^31 entries).\n", cur_pheno_name);
                 goto GlmMain_ret_INCONSISTENT_INPUT;
               }
@@ -12139,7 +12320,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             } else if (is_logistic) {
               const uint32_t case_ct_x = PopcountWordsIntersect(cur_sample_include_x, cur_pheno_col->data.cc, raw_sample_ctl);
               if ((!case_ct_x) || (case_ct_x == sample_ct_x)) {
-                if (unlikely(!skip_modifier)) {
+                if (unlikely(!skip_invalid_pheno)) {
                   logerrprintfww("Error: All remaining samples on chrX for --glm phenotype '%s' are %s.\n", cur_pheno_name, case_ct? "cases" : "controls");
                   goto GlmMain_ret_INCONSISTENT_INPUT;
                 }
@@ -12148,7 +12329,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               }
             } else {
               if (IsConstCovar(cur_pheno_col, cur_sample_include_x, sample_ct_x)) {
-                if (unlikely(!skip_modifier)) {
+                if (unlikely(!skip_invalid_pheno)) {
                   logerrprintfww("Error: --glm quantitative phenotype '%s' is constant for all remaining samples on chrX.\n", cur_pheno_name);
                   goto GlmMain_ret_INCONSISTENT_INPUT;
                 }
@@ -12157,7 +12338,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               }
             }
             if (sample_ct_x && common.tests_flag && (!common.constraint_ct_x)) {
-              if (unlikely(!skip_modifier)) {
+              if (unlikely(!skip_invalid_pheno)) {
                 logerrprintfww("Error: --tests predictor(s) are constant for all remaining samples on chrX for --glm phenotype '%s'.\n", cur_pheno_name);
                 goto GlmMain_ret_INCONSISTENT_INPUT;
               }
@@ -12198,7 +12379,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           cur_sample_include_y = nullptr;
         } else {
           if (!sample_ct_y) {
-            if (unlikely(!skip_modifier)) {
+            if (unlikely(!skip_invalid_pheno)) {
               logerrprintfww("Error: --glm regression on phenotype '%s' is degenerate on chrY.\n", cur_pheno_name);
               goto GlmMain_ret_INCONSISTENT_INPUT;
             }
@@ -12218,7 +12399,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               }
             }
             if (sample_ct_y <= biallelic_predictor_ct_y) {
-              if (unlikely(!skip_modifier)) {
+              if (unlikely(!skip_invalid_pheno)) {
                 if ((!is_sometimes_firth) && logistic_ctx.separation_found_x) {
                   logerrprintfww("Error: (Quasi-)separated covariate(s) were present for --glm phenotype '%s' on chrY. Try removing inappropriate covariates, and/or using Firth logistic regression.\n", cur_pheno_name);
                 } else {
@@ -12234,7 +12415,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               sample_ct_y = 0;
 #ifdef __LP64__
             } else if (RoundUpPow2(sample_ct_y, 4) * S_CAST(uint64_t, biallelic_predictor_ct_y + max_extra_allele_ct) > 0x7fffffff) {
-              if (unlikely(!skip_modifier)) {
+              if (unlikely(!skip_invalid_pheno)) {
                 logerrprintfww("Error: Too many samples or predictors for --glm regression on phenotype '%s' on chrY (internal matrices currently limited to ~2^31 entries).\n", cur_pheno_name);
                 goto GlmMain_ret_INCONSISTENT_INPUT;
               }
@@ -12244,7 +12425,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             } else if (is_logistic) {
               const uint32_t case_ct_y = PopcountWordsIntersect(cur_sample_include_y, cur_pheno_col->data.cc, raw_sample_ctl);
               if ((!case_ct_y) || (case_ct_y == sample_ct_y)) {
-                if (unlikely(!skip_modifier)) {
+                if (unlikely(!skip_invalid_pheno)) {
                   logerrprintfww("Error: All remaining samples on chrY for --glm phenotype '%s' are %s.\n", cur_pheno_name, case_ct? "cases" : "controls");
                   goto GlmMain_ret_INCONSISTENT_INPUT;
                 }
@@ -12253,7 +12434,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               }
             } else {
               if (IsConstCovar(cur_pheno_col, cur_sample_include_y, sample_ct_y)) {
-                if (unlikely(!skip_modifier)) {
+                if (unlikely(!skip_invalid_pheno)) {
                   logerrprintfww("Error: --glm quantitative phenotype '%s' is constant for all remaining samples on chrY.\n", cur_pheno_name);
                   goto GlmMain_ret_INCONSISTENT_INPUT;
                 }
@@ -12262,7 +12443,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               }
             }
             if (sample_ct_y && common.tests_flag && (!common.constraint_ct_y)) {
-              if (unlikely(!skip_modifier)) {
+              if (unlikely(!skip_invalid_pheno)) {
                 logerrprintfww("Error: --tests predictor(s) are constant for all remaining samples on chrY for --glm phenotype '%s'.\n", cur_pheno_name);
                 goto GlmMain_ret_INCONSISTENT_INPUT;
               }
@@ -12294,10 +12475,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       logistic_ctx.gcount_case_interleaved_vec = nullptr;
       logistic_ctx.pheno_f = nullptr;
       logistic_ctx.covars_cmaj_f = nullptr;
+      logistic_ctx.cc_residualize = nullptr;
       linear_ctx.pheno_d = nullptr;
       linear_ctx.covars_cmaj_d = nullptr;
       if (is_logistic) {
-        if (unlikely(GlmAllocFillAndTestPhenoCovarsCc(cur_sample_include, cur_pheno_col->data.cc, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, &logistic_ctx.pheno_cc, gcount_cc_col? (&logistic_ctx.gcount_case_interleaved_vec) : nullptr, &pheno_f, &common.nm_precomp, &covars_cmaj_f, &cur_covar_names, &glm_err))) {
+        if (unlikely(GlmAllocFillAndTestPhenoCovarsCc(cur_sample_include, cur_pheno_col->data.cc, covar_include, covar_cols, covar_names, sample_ct, domdev_present_p1, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, &logistic_ctx.pheno_cc, gcount_cc_col? (&logistic_ctx.gcount_case_interleaved_vec) : nullptr, &pheno_f, &common.nm_precomp, &covars_cmaj_f, is_cc_residualize? (&logistic_ctx.cc_residualize) : nullptr, &cur_covar_names, &glm_err))) {
           goto GlmMain_ret_NOMEM;
         }
       } else {
@@ -12306,8 +12488,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         }
       }
       if (glm_err) {
-        PrintPrescanErrmsg("", cur_pheno_name, cur_covar_names, glm_err, local_covar_ct, skip_modifier, 0);
-        if (unlikely(!skip_modifier)) {
+        PrintPrescanErrmsg("", cur_pheno_name, cur_covar_names, glm_err, local_covar_ct, skip_invalid_pheno, 0);
+        if (unlikely(!skip_invalid_pheno)) {
           goto GlmMain_ret_INCONSISTENT_INPUT;
         }
         continue;
@@ -12318,12 +12500,12 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       logistic_ctx.gcount_case_interleaved_vec_x = nullptr;
       logistic_ctx.pheno_x_f = nullptr;
       logistic_ctx.covars_cmaj_x_f = nullptr;
+      logistic_ctx.cc_residualize_x = nullptr;
       linear_ctx.pheno_x_d = nullptr;
       linear_ctx.covars_cmaj_x_d = nullptr;
       if (sample_ct_x) {
         if (is_logistic) {
-          // bugfix (28 Apr 2018): common.nm_precomp -> common.nm_precomp_x
-          if (unlikely(GlmAllocFillAndTestPhenoCovarsCc(cur_sample_include_x, cur_pheno_col->data.cc, covar_include_x, covar_cols, covar_names, sample_ct_x, covar_ct_x, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, &logistic_ctx.pheno_x_cc, gcount_cc_col? (&logistic_ctx.gcount_case_interleaved_vec_x) : nullptr, &logistic_ctx.pheno_x_f, &common.nm_precomp_x, &logistic_ctx.covars_cmaj_x_f, &cur_covar_names_x, &glm_err))) {
+          if (unlikely(GlmAllocFillAndTestPhenoCovarsCc(cur_sample_include_x, cur_pheno_col->data.cc, covar_include_x, covar_cols, covar_names, sample_ct_x, domdev_present_p1, covar_ct_x, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, &logistic_ctx.pheno_x_cc, gcount_cc_col? (&logistic_ctx.gcount_case_interleaved_vec_x) : nullptr, &logistic_ctx.pheno_x_f, &common.nm_precomp_x, &logistic_ctx.covars_cmaj_x_f, is_cc_residualize? (&logistic_ctx.cc_residualize_x) : nullptr, &cur_covar_names_x, &glm_err))) {
             goto GlmMain_ret_NOMEM;
           }
         } else {
@@ -12332,8 +12514,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           }
         }
         if (glm_err) {
-          PrintPrescanErrmsg("chrX in ", cur_pheno_name, cur_covar_names_x, glm_err, local_covar_ct, skip_modifier, 0);
-          if (unlikely(!skip_modifier)) {
+          PrintPrescanErrmsg("chrX in ", cur_pheno_name, cur_covar_names_x, glm_err, local_covar_ct, skip_invalid_pheno, 0);
+          if (unlikely(!skip_invalid_pheno)) {
             goto GlmMain_ret_INCONSISTENT_INPUT;
           }
           sample_ct_x = 0;
@@ -12345,11 +12527,12 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       logistic_ctx.gcount_case_interleaved_vec_y = nullptr;
       logistic_ctx.pheno_y_f = nullptr;
       logistic_ctx.covars_cmaj_y_f = nullptr;
+      logistic_ctx.cc_residualize_y = nullptr;
       linear_ctx.pheno_y_d = nullptr;
       linear_ctx.covars_cmaj_y_d = nullptr;
       if (sample_ct_y) {
         if (is_logistic) {
-          if (unlikely(GlmAllocFillAndTestPhenoCovarsCc(cur_sample_include_y, cur_pheno_col->data.cc, covar_include_y, covar_cols, covar_names, sample_ct_y, covar_ct_y, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, &logistic_ctx.pheno_y_cc, gcount_cc_col? (&logistic_ctx.gcount_case_interleaved_vec_y) : nullptr, &logistic_ctx.pheno_y_f, &common.nm_precomp_y, &logistic_ctx.covars_cmaj_y_f, &cur_covar_names_y, &glm_err))) {
+          if (unlikely(GlmAllocFillAndTestPhenoCovarsCc(cur_sample_include_y, cur_pheno_col->data.cc, covar_include_y, covar_cols, covar_names, sample_ct_y, domdev_present_p1, covar_ct_y, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, common.max_corr, vif_thresh, xtx_state, &logistic_ctx.pheno_y_cc, gcount_cc_col? (&logistic_ctx.gcount_case_interleaved_vec_y) : nullptr, &logistic_ctx.pheno_y_f, &common.nm_precomp_y, &logistic_ctx.covars_cmaj_y_f, is_cc_residualize? (&logistic_ctx.cc_residualize_y) : nullptr, &cur_covar_names_y, &glm_err))) {
             goto GlmMain_ret_NOMEM;
           }
         } else {
@@ -12358,8 +12541,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           }
         }
         if (glm_err) {
-          PrintPrescanErrmsg("chrY in ", cur_pheno_name, cur_covar_names_y, glm_err, local_covar_ct, skip_modifier, 0);
-          if (unlikely(!skip_modifier)) {
+          PrintPrescanErrmsg("chrY in ", cur_pheno_name, cur_covar_names_y, glm_err, local_covar_ct, skip_invalid_pheno, 0);
+          if (unlikely(!skip_invalid_pheno)) {
             goto GlmMain_ret_INCONSISTENT_INPUT;
           }
           sample_ct_y = 0;
