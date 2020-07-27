@@ -70,7 +70,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (25 Jul 2020)";
+  " (27 Jul 2020)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -5391,6 +5391,8 @@ int main(int argc, char** argv) {
               pc.glm_info.flags |= kfGlmFirth;
             } else if (strequal_k(cur_modif, "firth-residualize", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmFirthResidualize;
+            } else if (strequal_k(cur_modif, "cc-residualize", cur_modif_slen)) {
+              pc.glm_info.flags |= kfGlmCcResidualize;
             } else if (unlikely(strequal_k(cur_modif, "standard-beta", cur_modif_slen))) {
               logerrputs("Error: --glm 'standard-beta' modifier has been retired.  Use\n--{covar-}variance-standardize instead.\n");
               goto main_ret_INVALID_CMDLINE_A;
@@ -5526,26 +5528,30 @@ int main(int argc, char** argv) {
             logerrputs("Error: --glm 'perm' and 'mperm=' cannot be used together.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (pc.glm_info.flags & kfGlmFirthResidualize) {
+          if (pc.glm_info.flags & (kfGlmFirthResidualize | kfGlmCcResidualize)) {
+            if ((pc.glm_info.flags & (kfGlmFirthResidualize | kfGlmCcResidualize)) == (kfGlmFirthResidualize | kfGlmCcResidualize)) {
+              logputs("Note: 'firth-residualize' is redundant when 'cc-residualize' is already\nspecified.\n");
+              pc.glm_info.flags ^= kfGlmFirthResidualize;
+            }
             if (unlikely(!(pc.glm_info.flags & kfGlmHideCovar))) {
-              logerrputs("Error: --glm 'firth-residualize' requires 'hide-covar' to be specified as well.\n");
+              logerrputs("Error: --glm 'cc-residualize'/'firth-residualize' requires 'hide-covar' to be\nspecified as well.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
-            if (unlikely(pc.glm_info.flags & kfGlmNoFirth)) {
-              logerrputs("Error: --glm 'firth-residualize' doesn't make sense with 'no-firth'.\n");
-              goto main_ret_INVALID_CMDLINE;
-            }
             if (unlikely(pc.glm_info.flags & kfGlmInteraction)) {
-              logerrputs("Error: --glm 'firth-residualize' cannot be used with 'interaction'.\n");
+              logerrputs("Error: --glm 'cc-residualize'/'firth-residualize' cannot be used with\n'interaction'.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
             if (unlikely(pc.glm_info.flags & kfGlmIntercept)) {
-              logerrputs("Error: --glm 'firth-residualize' cannot be used with 'intercept'.\n");
+              logerrputs("Error: --glm 'cc-residualize'/'firth-residualize' cannot be used with\n'intercept'.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
             if (unlikely(pc.glm_local_covar_fname)) {
-              logerrputs("Error: --glm 'firth-residualize' cannot be used with local covariates.  (If you\nwant to include a per-chromosome polygenic effect, you need to include that as\na regular covariate and perform per-chromosome --glm runs; sorry about the\ninconvenience.\n");
+              logerrputs("Error: --glm 'cc-residualize'/'firth-residualize' cannot be used with local\ncovariates.  (If you want to include a per-chromosome polygenic effect, you\nneed to include that as a regular covariate and perform per-chromosome --glm\nruns; sorry about the inconvenience.\n");
               goto main_ret_INVALID_CMDLINE_A;
+            }
+            if (unlikely((pc.glm_info.flags & (kfGlmFirthResidualize | kfGlmNoFirth)) == (kfGlmFirthResidualize | kfGlmNoFirth))) {
+              logerrputs("Error: --glm 'firth-residualize' doesn't make sense with 'no-firth'.\n");
+              goto main_ret_INVALID_CMDLINE;
             }
           }
           uint32_t alternate_genotype_col_flags = S_CAST(uint32_t, pc.glm_info.flags & (kfGlmGenotypic | kfGlmHethom | kfGlmDominant | kfGlmRecessive));

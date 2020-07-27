@@ -167,6 +167,50 @@ void ReflectFmatrix(uint32_t dim, uint32_t stride, float* matrix);
 // If dim < stride, this zeroes out the trailing elements of each row.
 void ReflectFmatrix0(uint32_t dim, uint32_t stride, float* matrix);
 
+// AddFVec executes main += arg, under the assumption that both vectors have
+// been zero-padded.
+// "ctav" is the float-length of both vectors, rounded up to a vector boundary.
+// (With the current implementation, it's harmless to just pass in ct instead,
+// but ctav is better practice since it indicates awareness of what this
+// function is actually doing.)
+HEADER_INLINE void AddFVec(const float* arg, uintptr_t ctav, float* main) {
+  const VecF* arg_iter = R_CAST(const VecF*, arg);
+  VecF* main_iter = R_CAST(VecF*, main);
+  VecF* main_stop = R_CAST(VecF*, &(main[ctav]));
+  for (; main_iter < main_stop; ++main_iter, ++arg_iter) {
+    *main_iter += *arg_iter;
+  }
+}
+
+#ifdef __LP64__
+// FillFVec sets all elements of dst to fxx, and zero-fills any trailing
+// elements (w.r.t. vector boundaries).
+HEADER_INLINE void FillFVec(uintptr_t ct, float fxx, float* dst) {
+  const uintptr_t fullvec_ct = ct / kFloatPerFVec;
+  const VecF vfill = VCONST_F(fxx);
+  VecF* dst_alias = R_CAST(VecF*, dst);
+  for (uintptr_t ulii = 0; ulii != fullvec_ct; ++ulii) {
+    dst_alias[ulii] = vfill;
+  }
+  const uintptr_t trailing_start_idx = fullvec_ct * kFloatPerFVec;
+  if (trailing_start_idx != ct) {
+    for (uintptr_t ulii = trailing_start_idx; ulii != ct; ++ulii) {
+      dst[ulii] = fxx;
+    }
+    const uintptr_t trailing_stop_idx = trailing_start_idx + kFloatPerFVec;
+    for (uintptr_t ulii = ct; ulii != trailing_stop_idx; ++ulii) {
+      dst[ulii] = S_CAST(float, 0.0);
+    }
+  }
+}
+#else
+HEADER_INLINE void FillFVec(uintptr_t ct, float fxx, float* dst) {
+  for (uintptr_t ulii = 0; ulii != ct; ++ulii) {
+    dst[ulii] = fxx;
+  }
+}
+#endif
+
 HEADER_INLINE double DotprodDShort(const double* vec1, const double* vec2, uint32_t ct) {
   double dotprod = 0.0;
   for (uint32_t uii = 0; uii != ct; ++uii) {
