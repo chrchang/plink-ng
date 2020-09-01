@@ -71,8 +71,7 @@ PglErr UpdateVarBps(const ChrInfo* cip, const char* const* variant_ids, const ui
   PreinitTextStream(&txs);
   {
     uintptr_t* already_seen;
-    if (unlikely(
-            bigstack_calloc_w(BitCtToWordCt(raw_variant_ct), &already_seen))) {
+    if (unlikely(bigstack_calloc_w(BitCtToWordCt(raw_variant_ct), &already_seen))) {
       goto UpdateVarBps_ret_NOMEM;
     }
     // This could be pointed at a file containing allele codes, so don't limit
@@ -240,9 +239,8 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
     uint32_t max_variant_id_slen = orig_max_variant_id_slen;
     char** variant_ids_copy;
     uintptr_t* already_seen;
-    if (unlikely(
-            bigstack_alloc_cp(raw_variant_ct, &variant_ids_copy) ||
-            bigstack_calloc_w(BitCtToWordCt(raw_variant_ct), &already_seen))) {
+    if (unlikely(bigstack_alloc_cp(raw_variant_ct, &variant_ids_copy) ||
+                 bigstack_calloc_w(BitCtToWordCt(raw_variant_ct), &already_seen))) {
       goto UpdateVarNames_ret_NOMEM;
     }
     memcpy(variant_ids_copy, variant_ids, raw_variant_ct * sizeof(intptr_t));
@@ -654,12 +652,11 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
     uintptr_t* already_seen;
     uintptr_t* conflict_bitarr;
     char** orig_alt_starts;
-    if (unlikely(
-            bigstack_alloc_cp(raw_variant_ct, &variant_ids_copy) ||
-            bigstack_calloc_w(BitCtToWordCt(chr_code_end), &chr_already_seen) ||
-            bigstack_calloc_w(raw_variant_ctl, &already_seen) ||
-            bigstack_calloc_w(raw_variant_ctl, &conflict_bitarr) ||
-            bigstack_alloc_cp(kPglMaxAltAlleleCt, &orig_alt_starts))) {
+    if (unlikely(bigstack_alloc_cp(raw_variant_ct, &variant_ids_copy) ||
+                 bigstack_calloc_w(BitCtToWordCt(chr_code_end), &chr_already_seen) ||
+                 bigstack_calloc_w(raw_variant_ctl, &already_seen) ||
+                 bigstack_calloc_w(raw_variant_ctl, &conflict_bitarr) ||
+                 bigstack_alloc_cp(kPglMaxAltAlleleCt, &orig_alt_starts))) {
       goto RecoverVarIds_ret_NOMEM;
     }
     // need this to be able to write original variant IDs in conflict case
@@ -1190,9 +1187,8 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
     uintptr_t* cat_nm = nullptr;
     uint32_t* cat_idxs = nullptr;
     if (!within_fname) {
-      if (unlikely(
-              bigstack_alloc_w(raw_sample_ctaw, &cat_nm) ||
-              bigstack_calloc_u32(raw_sample_ct, &cat_idxs))) {
+      if (unlikely(bigstack_alloc_w(raw_sample_ctaw, &cat_nm) ||
+                   bigstack_calloc_u32(raw_sample_ct, &cat_idxs))) {
         goto Plink1ClusterImport_ret_NOMEM;
       }
       memcpy(cat_nm, sample_include, raw_sample_ctaw * sizeof(intptr_t));
@@ -1212,11 +1208,10 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
       uint32_t* sorted_cat_idxs;
       char* idbuf;
       const char** cur_cat_names;
-      if (unlikely(
-              bigstack_calloc_w(BitCtToWordCt(sample_ct), &already_seen) ||
-              bigstack_calloc_u32(sample_ct, &sorted_cat_idxs) ||
-              bigstack_alloc_c(max_sample_id_blen, &idbuf) ||
-              bigstack_alloc_kcp(sample_ct + 2, &cur_cat_names))) {
+      if (unlikely(bigstack_calloc_w(BitCtToWordCt(sample_ct), &already_seen) ||
+                   bigstack_calloc_u32(sample_ct, &sorted_cat_idxs) ||
+                   bigstack_alloc_c(max_sample_id_blen, &idbuf) ||
+                   bigstack_alloc_kcp(sample_ct + 2, &cur_cat_names))) {
         goto Plink1ClusterImport_ret_NOMEM;
       }
       cat_htable[missing_catname_hval] = 0;
@@ -1933,9 +1928,8 @@ PglErr UpdateSampleIds(const char* fname, const uintptr_t* sample_include, uint3
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     uintptr_t* already_seen;
     char* idbuf;
-    if (unlikely(
-            bigstack_calloc_w(raw_sample_ctl, &already_seen) ||
-            bigstack_alloc_c(max_xid_blen, &idbuf))) {
+    if (unlikely(bigstack_calloc_w(raw_sample_ctl, &already_seen) ||
+                 bigstack_alloc_c(max_xid_blen, &idbuf))) {
       goto UpdateSampleIds_ret_NOMEM;
     }
     uint32_t hit_ct = 0;
@@ -2111,9 +2105,8 @@ PglErr UpdateSampleParents(const char* fname, const SampleIdInfo* siip, const ui
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     uintptr_t* already_seen;
     char* idbuf;
-    if (unlikely(
-            bigstack_calloc_w(raw_sample_ctl, &already_seen) ||
-            bigstack_alloc_c(max_xid_blen, &idbuf))) {
+    if (unlikely(bigstack_calloc_w(raw_sample_ctl, &already_seen) ||
+                 bigstack_alloc_c(max_xid_blen, &idbuf))) {
       goto UpdateSampleParents_ret_NOMEM;
     }
     const uintptr_t max_paternal_id_blen = parental_id_infop->max_paternal_id_blen;
@@ -2268,9 +2261,8 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
     }
     uintptr_t* already_seen;
     char* idbuf;
-    if (unlikely(
-            bigstack_calloc_w(raw_sample_ctl, &already_seen) ||
-            bigstack_alloc_c(max_xid_blen, &idbuf))) {
+    if (unlikely(bigstack_calloc_w(raw_sample_ctl, &already_seen) ||
+                 bigstack_alloc_c(max_xid_blen, &idbuf))) {
       goto UpdateSampleSexes_ret_NOMEM;
     }
 
@@ -2488,10 +2480,9 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
 
       uintptr_t** observed_cats;
       uintptr_t* sample_include_intersect;
-      if (unlikely(
-              bigstack_alloc_u32(split_pheno_ct, &observed_cat_cts) ||
-              bigstack_alloc_wp(split_pheno_ct, &observed_cats) ||
-              bigstack_alloc_w(raw_sample_ctl, &sample_include_intersect))) {
+      if (unlikely(bigstack_alloc_u32(split_pheno_ct, &observed_cat_cts) ||
+                   bigstack_alloc_wp(split_pheno_ct, &observed_cats) ||
+                   bigstack_alloc_w(raw_sample_ctl, &sample_include_intersect))) {
         goto SplitCatPheno_ret_NOMEM;
       }
       uint32_t* omitted_cat_uidxs = nullptr;
@@ -3594,17 +3585,16 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
     uint32_t* hap_cts = nullptr;
     const uint32_t more_counts_needed = (max_allele_ct > 2) && (geno_counts_flags & (kfGenoCountsColRefalt1 | kfGenoCountsColRefalt | kfGenoCountsColHomalt1 | kfGenoCountsColAltxy | kfGenoCountsColXy | kfGenoCountsColHapalt1 | kfGenoCountsColHapalt | kfGenoCountsColHap | kfGenoCountsColNumeq));
     if (more_counts_needed) {
-      if (unlikely(
-              bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
-              bigstack_alloc_w(sample_ctl, &sex_male_collapsed) ||
-              bigstack_alloc_u32(raw_sample_ctl, &sex_male_cumulative_popcounts) ||
-              bigstack_alloc_w(NypCtToWordCt(raw_sample_ct), &pgv.genovec) ||
-              bigstack_alloc_w(sample_ctl, &pgv.patch_01_set) ||
-              bigstack_alloc_ac(sample_ct, &pgv.patch_01_vals) ||
-              bigstack_alloc_w(sample_ctl, &pgv.patch_10_set) ||
-              bigstack_alloc_ac(2 * sample_ct, &pgv.patch_10_vals) ||
-              bigstack_alloc_u32(max_allele_ct * max_allele_ct, &diploid_pair_cts) ||
-              bigstack_alloc_u32(max_allele_ct, &hap_cts))) {
+      if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+                   bigstack_alloc_w(sample_ctl, &sex_male_collapsed) ||
+                   bigstack_alloc_u32(raw_sample_ctl, &sex_male_cumulative_popcounts) ||
+                   bigstack_alloc_w(NypCtToWordCt(raw_sample_ct), &pgv.genovec) ||
+                   bigstack_alloc_w(sample_ctl, &pgv.patch_01_set) ||
+                   bigstack_alloc_ac(sample_ct, &pgv.patch_01_vals) ||
+                   bigstack_alloc_w(sample_ctl, &pgv.patch_10_set) ||
+                   bigstack_alloc_ac(2 * sample_ct, &pgv.patch_10_vals) ||
+                   bigstack_alloc_u32(max_allele_ct * max_allele_ct, &diploid_pair_cts) ||
+                   bigstack_alloc_u32(max_allele_ct, &hap_cts))) {
         goto WriteGenoCounts_ret_NOMEM;
       }
       FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
@@ -4525,14 +4515,13 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
     PgenVariant pgv;
     uint32_t* one_cts;
     uint32_t* two_cts;
-    if (unlikely(
-            bigstack_alloc_w(founder_ctl2, &(pgv.genovec)) ||
-            bigstack_alloc_w(founder_ctl, &(pgv.patch_01_set)) ||
-            bigstack_alloc_ac(founder_ct, &(pgv.patch_01_vals)) ||
-            bigstack_alloc_w(founder_ctl, &(pgv.patch_10_set)) ||
-            bigstack_alloc_ac(2 * founder_ct, &(pgv.patch_10_vals)) ||
-            bigstack_alloc_u32(max_allele_ct, &one_cts) ||
-            bigstack_alloc_u32(max_allele_ct, &two_cts))) {
+    if (unlikely(bigstack_alloc_w(founder_ctl2, &(pgv.genovec)) ||
+                 bigstack_alloc_w(founder_ctl, &(pgv.patch_01_set)) ||
+                 bigstack_alloc_ac(founder_ct, &(pgv.patch_01_vals)) ||
+                 bigstack_alloc_w(founder_ctl, &(pgv.patch_10_set)) ||
+                 bigstack_alloc_ac(2 * founder_ct, &(pgv.patch_10_vals)) ||
+                 bigstack_alloc_u32(max_allele_ct, &one_cts) ||
+                 bigstack_alloc_u32(max_allele_ct, &two_cts))) {
       goto GetMultiallelicMarginalCounts_ret_NOMEM;
     }
     if (autosomal_xallele_ct) {
@@ -4608,9 +4597,8 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
       PgrSetSampleSubsetIndex(cumulative_popcounts, simple_pgrp, &pssi);
       uintptr_t* founder_male_collapsed;
       uintptr_t* founder_male_interleaved_vec;
-      if (unlikely(
-              bigstack_alloc_w(founder_x_ctaw, &founder_male_collapsed) ||
-              bigstack_alloc_w(founder_x_ctaw, &founder_male_interleaved_vec))) {
+      if (unlikely(bigstack_alloc_w(founder_x_ctaw, &founder_male_collapsed) ||
+                   bigstack_alloc_w(founder_x_ctaw, &founder_male_interleaved_vec))) {
         goto GetMultiallelicMarginalCounts_ret_NOMEM;
       }
       CopyBitarrSubset(sex_male, founder_knownsex, founder_x_ct, founder_male_collapsed);
@@ -4855,10 +4843,9 @@ PglErr ComputeHweXPvals(const uintptr_t* variant_include, const uintptr_t* allel
     if (calc_thread_ct > hwe_x_ct) {
       calc_thread_ct = hwe_x_ct;
     }
-    if (unlikely(
-            SetThreadCt0(calc_thread_ct - 1, &tg) ||
-            bigstack_alloc_u32(calc_thread_ct, &ctx.variant_uidx_starts) ||
-            bigstack_alloc_w(calc_thread_ct, &ctx.extra_aidx_starts))) {
+    if (unlikely(SetThreadCt0(calc_thread_ct - 1, &tg) ||
+                 bigstack_alloc_u32(calc_thread_ct, &ctx.variant_uidx_starts) ||
+                 bigstack_alloc_w(calc_thread_ct, &ctx.extra_aidx_starts))) {
       goto ComputeHweXPvals_ret_NOMEM;
     }
     // possible todo: extra-allele-based load balancer
@@ -4929,9 +4916,8 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
     }
     char* overflow_buf;
     uintptr_t* chr_skips;
-    if (unlikely(
-            bigstack_alloc_c(overflow_buf_alloc, &overflow_buf) ||
-            bigstack_alloc_w(chr_code_endl, &chr_skips))) {
+    if (unlikely(bigstack_alloc_c(overflow_buf_alloc, &overflow_buf) ||
+                 bigstack_alloc_w(chr_code_endl, &chr_skips))) {
       goto HardyReport_ret_NOMEM;
     }
     // skip chrX, chrY, chrM here
@@ -6434,8 +6420,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
   SampleCountsCtx ctx;
   {
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
-    if (unlikely(
-            bigstack_alloc_u32(raw_sample_ctl, &ctx.sample_include_cumulative_popcounts))) {
+    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &ctx.sample_include_cumulative_popcounts))) {
       goto SampleCounts_ret_NOMEM;
     }
     FillCumulativePopcounts(sample_include, raw_sample_ctl, ctx.sample_include_cumulative_popcounts);
@@ -6494,8 +6479,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     // this.
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     if (chr_types & 6) {
-      if (unlikely(
-              bigstack_alloc_w(sample_ctl, &ctx.sex_male_collapsed))) {
+      if (unlikely(bigstack_alloc_w(sample_ctl, &ctx.sex_male_collapsed))) {
         goto SampleCounts_ret_NOMEM;
       }
       CopyBitarrSubset(sex_male, sample_include, sample_ct, ctx.sex_male_collapsed);
@@ -6505,12 +6489,11 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
 
     // don't subtract 1 after load-balancing is improved?
     uint32_t calc_thread_ct = (max_thread_ct > 4)? (max_thread_ct - 1) : max_thread_ct;
-    if (unlikely(
-             bigstack_alloc_wp(calc_thread_ct, &ctx.raregenos) ||
-             bigstack_alloc_u32p(calc_thread_ct, &ctx.difflist_sample_id_bufs) ||
-             bigstack_alloc_vpp(calc_thread_ct, &ctx.thread_dense_counts) ||
-             bigstack_alloc_u32pp(calc_thread_ct, &ctx.thread_sparse_counts) ||
-             bigstack_alloc_u32p(calc_thread_ct, &ctx.thread_sparse_common0_cts))) {
+    if (unlikely(bigstack_alloc_wp(calc_thread_ct, &ctx.raregenos) ||
+                 bigstack_alloc_u32p(calc_thread_ct, &ctx.difflist_sample_id_bufs) ||
+                 bigstack_alloc_vpp(calc_thread_ct, &ctx.thread_dense_counts) ||
+                 bigstack_alloc_u32pp(calc_thread_ct, &ctx.thread_sparse_counts) ||
+                 bigstack_alloc_u32p(calc_thread_ct, &ctx.thread_sparse_common0_cts))) {
       goto SampleCounts_ret_NOMEM;
     }
     const uint32_t max_returned_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
@@ -6538,16 +6521,14 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
 
     ctx.thread_diploid_singleton_cts = nullptr;
     if (flags & kfSampleCountsColDiploidSingle) {
-      if (unlikely(
-              bigstack_alloc_u32p(calc_thread_ct, &ctx.thread_diploid_singleton_cts))) {
+      if (unlikely(bigstack_alloc_u32p(calc_thread_ct, &ctx.thread_diploid_singleton_cts))) {
         goto SampleCounts_ret_NOMEM;
       }
       thread_xalloc_vec_ct += sample_ct_i32v;
     }
     ctx.thread_singleton_cts = nullptr;
     if (flags & kfSampleCountsColSingle) {
-      if (unlikely(
-              bigstack_alloc_u32p(calc_thread_ct, &ctx.thread_singleton_cts))) {
+      if (unlikely(bigstack_alloc_u32p(calc_thread_ct, &ctx.thread_singleton_cts))) {
         goto SampleCounts_ret_NOMEM;
       }
       thread_xalloc_vec_ct += sample_ct_i32v;
@@ -6566,11 +6547,10 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     uintptr_t hom_rarealt_vec_ct = 0;
     uintptr_t hap_rarealt_vec_ct = 0;
     if (mhc_needed) {
-      if (unlikely(
-              bigstack_alloc_u16p(calc_thread_ct, &ctx.thread_alt_subst_codes) ||
-              bigstack_alloc_u32p(calc_thread_ct, &ctx.thread_het2alt_cts) ||
-              bigstack_alloc_i32p(calc_thread_ct, &ctx.thread_het_rarealt_cts) ||
-              bigstack_alloc_i32p(calc_thread_ct, &ctx.thread_hom_rarealt_cts))) {
+      if (unlikely(bigstack_alloc_u16p(calc_thread_ct, &ctx.thread_alt_subst_codes) ||
+                   bigstack_alloc_u32p(calc_thread_ct, &ctx.thread_het2alt_cts) ||
+                   bigstack_alloc_i32p(calc_thread_ct, &ctx.thread_het_rarealt_cts) ||
+                   bigstack_alloc_i32p(calc_thread_ct, &ctx.thread_hom_rarealt_cts))) {
         goto SampleCounts_ret_NOMEM;
       }
       alt_subst_codes_vec_ct = DivUp(kPglMaxAltAlleleCt + 1, kInt16PerVec);
@@ -6579,8 +6559,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
       hom_rarealt_vec_ct = sample_ct_i32v * kSubstCodeCt;
       thread_xalloc_vec_ct += alt_subst_codes_vec_ct + het2alt_vec_ct + het_rarealt_vec_ct + hom_rarealt_vec_ct;
       if (chr_types & 14) {
-        if (unlikely(
-                bigstack_alloc_i32p(calc_thread_ct, &ctx.thread_hap_rarealt_cts))) {
+        if (unlikely(bigstack_alloc_i32p(calc_thread_ct, &ctx.thread_hap_rarealt_cts))) {
           goto SampleCounts_ret_NOMEM;
         }
         hap_rarealt_vec_ct = sample_ct_i32v * kSubstCodeCt;
@@ -6809,8 +6788,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     // Now we're ready to derive our final values from the raw count-matrices.
     // 1. Unscramble the final dense raw counts.
     uint32_t* unscramble_buf;
-    if (unlikely(
-            bigstack_alloc_u32(acc32_vec_ct * kInt32PerVec, &unscramble_buf))) {
+    if (unlikely(bigstack_alloc_u32(acc32_vec_ct * kInt32PerVec, &unscramble_buf))) {
       goto SampleCounts_ret_NOMEM;
     }
     uint32_t* male_u32_mask = nullptr;
@@ -6916,8 +6894,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
           // possible todo: not important here, but should be interesting to
           // benchmark vector-based ways of doing this (including a simple
           // 16- or 256-element lookup table)
-          if (unlikely(
-                  bigstack_end_calloc_u32(sample_ct_i32av, &male_u32_mask))) {
+          if (unlikely(bigstack_end_calloc_u32(sample_ct_i32av, &male_u32_mask))) {
             goto SampleCounts_ret_NOMEM;
           }
           const uintptr_t* sex_male_collapsed = ctx.sex_male_collapsed;
@@ -6941,8 +6918,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
             if (chr_types & 8) {
               dst = unscrambled_dense_counts[3 * kSubstCodeCt + subst_code][alt_ct * 2];
             } else {
-              if (unlikely(
-                      bigstack_end_calloc_u32(sample_ct_i32av, &dst))) {
+              if (unlikely(bigstack_end_calloc_u32(sample_ct_i32av, &dst))) {
                 goto SampleCounts_ret_NOMEM;
               }
             }
@@ -6973,8 +6949,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
           if (chr_types & 1) {
             dst = unscrambled_dense_counts[subst_code][alt_ct];
           } else {
-            if (unlikely(
-                    bigstack_end_calloc_u32(sample_ct_i32av, &dst))) {
+            if (unlikely(bigstack_end_calloc_u32(sample_ct_i32av, &dst))) {
               goto SampleCounts_ret_NOMEM;
             }
           }
@@ -7027,8 +7002,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     //                 homalt + homref -> hom
     uint32_t* het2alt_reported_vals = nullptr;
     if (mhc_needed) {
-      if (unlikely(
-              bigstack_alloc_u32(sample_ct_i32av, &het2alt_reported_vals))) {
+      if (unlikely(bigstack_alloc_u32(sample_ct_i32av, &het2alt_reported_vals))) {
         goto SampleCounts_ret_NOMEM;
       }
       const uint32_t* src0 = ctx.thread_het2alt_cts[0];
@@ -7042,11 +7016,10 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     uint32_t* homalt_vals;
     uint32_t* homref_vals;
     uint32_t* hom_vals;
-    if (unlikely(
-            bigstack_alloc_u32(sample_ct_i32av, &refalt_vals) ||
-            bigstack_alloc_u32(sample_ct_i32av, &homalt_vals) ||
-            bigstack_alloc_u32(sample_ct_i32av, &homref_vals) ||
-            bigstack_alloc_u32(sample_ct_i32av, &hom_vals))) {
+    if (unlikely(bigstack_alloc_u32(sample_ct_i32av, &refalt_vals) ||
+                 bigstack_alloc_u32(sample_ct_i32av, &homalt_vals) ||
+                 bigstack_alloc_u32(sample_ct_i32av, &homref_vals) ||
+                 bigstack_alloc_u32(sample_ct_i32av, &hom_vals))) {
       goto SampleCounts_ret_NOMEM;
     }
     {
@@ -7061,8 +7034,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     if (!mhc_needed) {
       het_vals = refalt_vals;
     } else {
-      if (unlikely(
-              bigstack_alloc_u32(sample_ct_i32av, &het_vals))) {
+      if (unlikely(bigstack_alloc_u32(sample_ct_i32av, &het_vals))) {
         goto SampleCounts_ret_NOMEM;
       }
       U32CastVecAssignAdd2(het2alt_reported_vals, refalt_vals, sample_ct_i32v, het_vals);
@@ -7088,9 +7060,8 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     }
     uint32_t* hapref_vals;
     uint32_t* hapalt_vals;
-    if (unlikely(
-            bigstack_alloc_u32(sample_ct_i32av, &hapref_vals) ||
-            bigstack_alloc_u32(sample_ct_i32av, &hapalt_vals))) {
+    if (unlikely(bigstack_alloc_u32(sample_ct_i32av, &hapref_vals) ||
+                 bigstack_alloc_u32(sample_ct_i32av, &hapalt_vals))) {
       goto SampleCounts_ret_NOMEM;
     }
     {
@@ -7126,8 +7097,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     }
     if (flags & kfSampleCountsColHomaltSnp) {
       uint32_t* dst;
-      if (unlikely(
-              bigstack_alloc_u32(sample_ct_i32av, &dst))) {
+      if (unlikely(bigstack_alloc_u32(sample_ct_i32av, &dst))) {
         goto SampleCounts_ret_NOMEM;
       }
       final_counts[kSampleCountHomaltSnp] = dst;
@@ -7153,8 +7123,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
       if (het2alt_reported_vals) {
         final_counts[kSampleCountHet2alt] = het2alt_reported_vals;
       } else {
-        if (unlikely(
-                bigstack_calloc_u32(sample_ct_i32av, &(final_counts[kSampleCountHet2alt])))) {
+        if (unlikely(bigstack_calloc_u32(sample_ct_i32av, &(final_counts[kSampleCountHet2alt])))) {
           goto SampleCounts_ret_NOMEM;
         }
       }
@@ -7162,8 +7131,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
 
     if (flags & kfSampleCountsColHetSnp) {
       uint32_t* dst;
-      if (unlikely(
-              bigstack_alloc_u32(sample_ct_i32av, &dst))) {
+      if (unlikely(bigstack_alloc_u32(sample_ct_i32av, &dst))) {
         goto SampleCounts_ret_NOMEM;
       }
       final_counts[kSampleCountHetSnp] = dst;
@@ -7237,8 +7205,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     }
     if (flags & kfSampleCountsColHaprefWithFemaleY) {
       uint32_t* dst;
-      if (unlikely(
-              bigstack_alloc_u32(sample_ct_i32av, &dst))) {
+      if (unlikely(bigstack_alloc_u32(sample_ct_i32av, &dst))) {
         goto SampleCounts_ret_NOMEM;
       }
       final_counts[kSampleCountHaprefWithFemaleY] = dst;
@@ -7253,8 +7220,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     }
     if (flags & kfSampleCountsColHapaltWithFemaleY) {
       uint32_t* dst;
-      if (unlikely(
-              bigstack_alloc_u32(sample_ct_i32av, &dst))) {
+      if (unlikely(bigstack_alloc_u32(sample_ct_i32av, &dst))) {
         goto SampleCounts_ret_NOMEM;
       }
       final_counts[kSampleCountHapaltWithFemaleY] = dst;
@@ -7269,8 +7235,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     }
     if (flags & kfSampleCountsColMissingWithFemaleY) {
       uint32_t* dst;
-      if (unlikely(
-              bigstack_alloc_u32(sample_ct_i32av, &dst))) {
+      if (unlikely(bigstack_alloc_u32(sample_ct_i32av, &dst))) {
         goto SampleCounts_ret_NOMEM;
       }
       final_counts[kSampleCountMissingWithFemaleY] = dst;
@@ -7288,8 +7253,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     }
     if (flags & kfSampleCountsColMissing) {
       uint32_t* dst;
-      if (unlikely(
-              bigstack_alloc_u32(sample_ct_i32av, &dst))) {
+      if (unlikely(bigstack_alloc_u32(sample_ct_i32av, &dst))) {
         goto SampleCounts_ret_NOMEM;
       }
       final_counts[kSampleCountMissing] = dst;
@@ -7318,8 +7282,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
       overflow_buf_alloc += CstreamWkspaceReq(overflow_buf_size);
     }
     char* overflow_buf;
-    if (unlikely(
-            bigstack_alloc_c(overflow_buf_alloc, &overflow_buf))) {
+    if (unlikely(bigstack_alloc_c(overflow_buf_alloc, &overflow_buf))) {
       goto SampleCounts_ret_NOMEM;
     }
     OutnameZstSet(".scount", output_zst, outname_end);
@@ -7952,9 +7915,8 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
       swc.variant_bps = variant_bps;
     }
     swc.variant_ids = variant_ids;
-    if (unlikely(
-            bigstack_calloc_cp(file_ct, &cswritep_arr) ||
-            BIGSTACK_ALLOC_X(CompressStreamState, file_ct, &css_arr))) {
+    if (unlikely(bigstack_calloc_cp(file_ct, &cswritep_arr) ||
+                 BIGSTACK_ALLOC_X(CompressStreamState, file_ct, &css_arr))) {
       goto SdiffMainBatch_ret_NOMEM;
     }
     swc.flags = flags;
@@ -8555,10 +8517,9 @@ PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, con
       } else {
         id_pair_ct = (S_CAST(uintptr_t, other_id_ct) * sample_ct) / 2;
       }
-      if (unlikely(
-              bigstack_calloc_w(raw_sample_ctl, &sample_include) ||
-              bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
-              bigstack_alloc_u32(id_pair_ct * 2, &id_pairs))) {
+      if (unlikely(bigstack_calloc_w(raw_sample_ctl, &sample_include) ||
+                   bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+                   bigstack_alloc_u32(id_pair_ct * 2, &id_pairs))) {
         goto Sdiff_ret_NOMEM;
       }
       for (uint32_t id_idx = 0; id_idx != sample_ct; ++id_idx) {
@@ -8638,10 +8599,9 @@ PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, con
       }
       BigstackEndSet(sample_pair_uidxs_iter);
       BigstackReset(bigstack_mark2);
-      if (unlikely(
-              bigstack_calloc_w(raw_sample_ctl, &sample_include) ||
-              bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
-              bigstack_alloc_u32(id_ct, &id_pairs))) {
+      if (unlikely(bigstack_calloc_w(raw_sample_ctl, &sample_include) ||
+                   bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+                   bigstack_alloc_u32(id_ct, &id_pairs))) {
         goto Sdiff_ret_NOMEM;
       }
       sample_pair_uidxs_iter = sample_pair_uidxs_end;
@@ -8686,10 +8646,9 @@ PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, con
       const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
       uintptr_t* sex_nm_collapsed;
       uintptr_t* sex_male_collapsed;
-      if (unlikely(
-              bigstack_alloc_w(id_pair_ctl, &pair_sex_male) ||
-              bigstack_alloc_w(sample_ctl, &sex_nm_collapsed) ||
-              bigstack_alloc_w(sample_ctl, &sex_male_collapsed))) {
+      if (unlikely(bigstack_alloc_w(id_pair_ctl, &pair_sex_male) ||
+                   bigstack_alloc_w(sample_ctl, &sex_nm_collapsed) ||
+                   bigstack_alloc_w(sample_ctl, &sex_male_collapsed))) {
         goto Sdiff_ret_NOMEM;
       }
       CopyBitarrSubset(sex_nm, sample_include, sample_ct, sex_nm_collapsed);
@@ -9674,8 +9633,7 @@ PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
     ctx.sample_include = sample_include;
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     uint32_t* sample_include_cumulative_popcounts;
-    if (unlikely(
-            bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts))) {
+    if (unlikely(bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts))) {
       goto HetReport_ret_NOMEM;
     }
     FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
@@ -9687,9 +9645,8 @@ PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
       const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
       uintptr_t* founder_info_collapsed;
       uintptr_t* founder_info_interleaved_vec;
-      if (unlikely(
-              bigstack_alloc_w(sample_ctaw, &founder_info_collapsed) ||
-              bigstack_alloc_w(sample_ctaw, &founder_info_interleaved_vec))) {
+      if (unlikely(bigstack_alloc_w(sample_ctaw, &founder_info_collapsed) ||
+                   bigstack_alloc_w(sample_ctaw, &founder_info_interleaved_vec))) {
         goto HetReport_ret_NOMEM;
       }
       CopyBitarrSubset(founder_info, sample_include, sample_ct, founder_info_collapsed);
@@ -9704,15 +9661,14 @@ PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
     ctx.founder_ct = founder_ct;
 
     uint32_t calc_thread_ct = max_thread_ct;
-    if (unlikely(
-            bigstack_alloc_wp(calc_thread_ct, &ctx.raregenos) ||
-            bigstack_alloc_u32p(calc_thread_ct, &ctx.difflist_sample_id_bufs) ||
-            bigstack_alloc_vp(calc_thread_ct, &ctx.scrambled_ohet_bufs) ||
-            bigstack_alloc_d(calc_thread_ct, &ctx.thread_ehet_base) ||
-            bigstack_alloc_u32(calc_thread_ct, &ctx.thread_nobs_base) ||
-            bigstack_alloc_u32p(calc_thread_ct, &ctx.thread_ohets) ||
-            bigstack_alloc_dp(calc_thread_ct, &ctx.thread_ehet_incrs) ||
-            bigstack_alloc_i32p(calc_thread_ct, &ctx.thread_nobs_incrs))) {
+    if (unlikely(bigstack_alloc_wp(calc_thread_ct, &ctx.raregenos) ||
+                 bigstack_alloc_u32p(calc_thread_ct, &ctx.difflist_sample_id_bufs) ||
+                 bigstack_alloc_vp(calc_thread_ct, &ctx.scrambled_ohet_bufs) ||
+                 bigstack_alloc_d(calc_thread_ct, &ctx.thread_ehet_base) ||
+                 bigstack_alloc_u32(calc_thread_ct, &ctx.thread_nobs_base) ||
+                 bigstack_alloc_u32p(calc_thread_ct, &ctx.thread_ohets) ||
+                 bigstack_alloc_dp(calc_thread_ct, &ctx.thread_ehet_incrs) ||
+                 bigstack_alloc_i32p(calc_thread_ct, &ctx.thread_nobs_incrs))) {
       goto HetReport_ret_NOMEM;
     }
     const uint32_t max_returned_difflist_len = 2 * (raw_sample_ct / kPglMaxDifflistLenDivisor);
@@ -9722,8 +9678,7 @@ PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
     uintptr_t allele_nobs_vec_ct = 0;
     ctx.allele_nobs_bufs = nullptr;
     if (mhc_needed) {
-      if (unlikely(
-              bigstack_alloc_u32p(calc_thread_ct, &ctx.allele_nobs_bufs))) {
+      if (unlikely(bigstack_alloc_u32p(calc_thread_ct, &ctx.allele_nobs_bufs))) {
         goto HetReport_ret_NOMEM;
       }
       allele_nobs_vec_ct = DivUp(max_allele_ct, kInt32PerVec);
@@ -9953,9 +9908,133 @@ typedef struct FstCtxStruct {
 } FstCtx;
 
 /*
-PglErr FstReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const FstInfo* fst_infop, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end) {
-  // TODO
-  return kPglRetSuccess;
+const char g_cc_cat_names[2][8] = {"CONTROL", "CASE"};
+
+PglErr FstReport(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const FstInfo* fst_infop, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  char* cswritep = nullptr;
+  CompressStreamState css;
+  PglErr reterr = kPglRetSuccess;
+  PreinitCstream(&css);
+  ThreadGroup tg;
+  PreinitThreads(&tg);
+  FstCtx ctx;
+  {
+    if (IsSet(cip->haploid_mask, 0)) {
+      logerrputs("Error: --fst cannot be used on haploid genomes.\n");
+      goto FstReport_ret_INCONSISTENT_INPUT;
+    }
+    const char* pheno_name = fst_infop->pheno_name;
+    const PhenoCol* pheno_col;
+    {
+      const uint32_t pheno_blen = strlen(pheno_name) + 1;
+      if (pheno_blen > max_pheno_name_blen) {
+        goto FstReport_ret_PHENO_NOT_FOUND;
+      }
+      for (uintptr_t pheno_idx = 0; ; ++pheno_idx) {
+        if (pheno_idx == pheno_ct) {
+          goto FstReport_ret_PHENO_NOT_FOUND;
+        }
+        if (!memequal(pheno_name, &(pheno_names[pheno_idx * max_pheno_name_blen]), pheno_blen)) {
+          pheno_col = &(pheno_cols[pheno_idx]);
+          break;
+        }
+      }
+    }
+    if (pheno_col->type_code == kPhenoDtypeQt) {
+      logerrprintfww("Error: --fst phenotype '%s' is quantitative (binary or categorical required).\n", pheno_name);
+      goto FstReport_ret_INCONSISTENT_INPUT;
+    }
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    if (pheno_col->type_code != kPhenoDtypeCat) {
+      assert(pheno_col->type_code == kPhenoDtypeCc);
+      // this may belong in plink2_cmdline
+      PhenoCol* synthetic_pheno_col;
+      uint32_t* cat_tmp;
+      const char** category_names;
+      if (unlikely(BIGSTACK_ALLOC_X(PhenoCol, 1, &synthetic_pheno_col) ||
+                   bigstack_end_calloc_u32(raw_sample_ct, &cat_tmp) ||
+                   bigstack_end_alloc_kcp(3, &category_names))) {
+        goto FstReport_ret_NOMEM;
+      }
+      const uintptr_t* raw_pheno_nm = pheno_col->nonmiss;
+      const uintptr_t* pheno_cc = pheno_col->data.cc;
+      for (uint32_t sample_uidx = 0; sample_uidx != raw_sample_ct; ++sample_uidx) {
+        if (!IsSet(raw_pheno_nm, sample_uidx)) {
+          continue;
+        }
+        cat_tmp[sample_uidx] = 1 + IsSet(pheno_cc, sample_uidx);
+      }
+      category_names[0] = nullptr;
+      category_names[1] = g_cc_cat_names[0];
+      category_names[2] = g_cc_cat_names[1];
+      synthetic_pheno_col->category_names = category_names;
+      synthetic_pheno_col->nonmiss = pheno_col->nonmiss;
+      synthetic_pheno_col->data.cat = cat_tmp;
+      synthetic_pheno_col->type_code = kPhenoDtypeCat;
+      synthetic_pheno_col->nonnull_category_ct = 2;
+      pheno_col = synthetic_pheno_col;
+    }
+    uintptr_t* sample_include;
+    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &sample_include))) {
+      goto FstReport_ret_NOMEM;
+    }
+    BitvecAndCopy(orig_sample_include, pheno_col->nonmiss, raw_sample_ctl, sample_include);
+    const uint32_t sample_ct = PopcountWords(sample_include, raw_sample_ctl);
+    uint32_t* cats_collapsed;
+    uint32_t cat_ct;
+    {
+      uintptr_t* cats_seen;
+      if (unlikely(bigstack_end_alloc_w(1 + (pheno_col->nonnull_category_ct / kBitsPerWord), &cats_seen))) {
+        goto FstReport_ret_NOMEM;
+      }
+      cat_ct = IdentifyRemainingCats(sample_include, pheno_col, sample_ct, cats_seen);
+      assert(!(cats_seen[0] & 1));
+      if (cat_ct < 2) {
+        logerrputs("Error: --fst requires two or more populations.\n");
+        goto FstReport_ret_INCONSISTENT_INPUT;
+      }
+      uint32_t* old_cat_idx_to_new;
+      if (unlikely(bigstack_alloc_u32(sample_ct, &cats_collapsed) ||
+                   bigstack_end_alloc_u32(1 + pheno_col->nonnull_category_ct, &old_cat_idx_to_new))) {
+        goto FstReport_ret_NOMEM;
+      }
+      uintptr_t cat_uidx_base = 0;
+      uintptr_t cats_seen_bits = cats_seen[0];
+      for (uint32_t cat_idx = 0; cat_idx != cat_ct; ++cat_idx) {
+        const uintptr_t cat_uidx = BitIter1(cats_seen, &cat_uidx_base, &cats_seen_bits);
+        old_cat_idx_to_new[cat_uidx] = cat_idx;
+      }
+      const uint32_t* old_cats = pheno_col->data.cat;
+      uintptr_t sample_uidx_base = 0;
+      uintptr_t sample_include_bits = sample_include[0];
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        const uintptr_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &sample_include_bits);
+        cats_collapsed[sample_idx] = old_cat_idx_to_new[old_cats[sample_uidx]];
+      }
+      BigstackEndReset(bigstack_end_mark);
+    }
+    unsigned char* bigstack_mark2 = g_bigstack_base;
+    for (uint32_t is_x = 0; is_x != 2; ++is_x) {
+      BigstackReset(bigstack_mark2);
+    }
+  }
+  while (0) {
+  FstReport_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  FstReport_ret_PHENO_NOT_FOUND:
+    logerrprintfww("Error: --fst phenotype '%s' not loaded.\n", fst_infop->pheno_name);
+  FstReport_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ FstReport_ret_1:
+  CleanupThreads(&tg);
+  CswriteCloseCond(&css, cswritep);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
+  return reterr;
 }
 */
 

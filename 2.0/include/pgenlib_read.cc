@@ -617,10 +617,9 @@ PglErr PgfiInitPhase1(const char* fname, uint32_t raw_variant_ct, uint32_t raw_s
     memcpy(header_ctrl_ptr, &(fread_ptr[11]), 1);
   } else {
 #endif
-    if (unlikely(
-            (!fread_unlocked(&(pgfip->raw_variant_ct), sizeof(int32_t), 1, shared_ff)) ||
-            (!fread_unlocked(&(pgfip->raw_sample_ct), sizeof(int32_t), 1, shared_ff)) ||
-            (!fread_unlocked(header_ctrl_ptr, 1, 1, shared_ff)))) {
+    if (unlikely((!fread_unlocked(&(pgfip->raw_variant_ct), sizeof(int32_t), 1, shared_ff)) ||
+                 (!fread_unlocked(&(pgfip->raw_sample_ct), sizeof(int32_t), 1, shared_ff)) ||
+                 (!fread_unlocked(header_ctrl_ptr, 1, 1, shared_ff)))) {
       snprintf(errstr_buf, kPglErrstrBufBlen, "Error: %s read failure: %s.\n", fname, strerror(errno));
       return kPglRetReadFail;
     }
@@ -9682,15 +9681,14 @@ BoolErr ValidateMultiallelicHc(const unsigned char* fread_end, const uintptr_t* 
   const uint32_t sample_ct = pgrp->fi.raw_sample_ct;
   const uint32_t aux1_first_byte = **fread_pp;
   *fread_pp += 1;
-  if (unlikely(
-          aux1_first_byte &&
-          (aux1_first_byte != 1) &&
-          (aux1_first_byte != 15) &&
-          (aux1_first_byte != 16) &&
-          (aux1_first_byte != 17) &&
-          (aux1_first_byte != 31) &&
-          (aux1_first_byte != 240) &&
-          (aux1_first_byte != 241))) {
+  if (unlikely(aux1_first_byte &&
+               (aux1_first_byte != 1) &&
+               (aux1_first_byte != 15) &&
+               (aux1_first_byte != 16) &&
+               (aux1_first_byte != 17) &&
+               (aux1_first_byte != 31) &&
+               (aux1_first_byte != 240) &&
+               (aux1_first_byte != 241))) {
     snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid multiallelic hardcall track mode byte (%u; must be in {0, 1, 15, 16, 17, 31, 240, 241}) in (0-based) variant #%u.\n", aux1_first_byte, vidx);
     return 1;
   }

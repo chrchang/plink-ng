@@ -182,7 +182,8 @@ FLAGSET64_DEF_START()
   kfExportfTypemask = (2LLU * kfExportfVcf43) - kfExportf23,
   kfExportfIncludeAlt = (1LLU << 35),
   kfExportfBgz = (1LLU << 36),
-  kfExportfOmitNonmaleY = (1LLU << 37)
+  kfExportfOmitNonmaleY = (1LLU << 37),
+  kfExportfSampleV2 = (1LLU << 38)
 FLAGSET64_DEF_END(ExportfFlags);
 
 FLAGSET_DEF_START()
@@ -972,8 +973,8 @@ typedef struct PhenoColStruct {
   //   [2], etc. point to category names.  These are part of the same
   //   allocation as nonmiss, so no separate free is needed.
   //   Otherwise, this is nullptr.
-  // * When .sample categorical variables are imported, 'P' is added in front
-  //   of the integers.
+  // * When .sample non-V2 categorical variables are imported, 'C' is added in
+  //   front of the integers.
   const char** category_names;
 
   uintptr_t* nonmiss;  // bitvector

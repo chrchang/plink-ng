@@ -142,9 +142,8 @@ PglErr LoadIntervalBed(const ChrInfo* cip, const uint32_t* variant_bps, const ch
         goto LoadIntervalBed_ret_MALFORMED_INPUT;
       }
       const char** strptr_arr;
-      if (unlikely(
-              bigstack_alloc_c(set_ct * max_set_id_blen, set_names_ptr) ||
-              bigstack_alloc_kcp(set_ct, &strptr_arr))) {
+      if (unlikely(bigstack_alloc_c(set_ct * max_set_id_blen, set_names_ptr) ||
+                   bigstack_alloc_kcp(set_ct, &strptr_arr))) {
         goto LoadIntervalBed_ret_NOMEM;
       }
       set_names = *set_names_ptr;

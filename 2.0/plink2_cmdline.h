@@ -720,6 +720,19 @@ HEADER_INLINE void BigstackBaseSet(const void* unaligned_base) {
   g_bigstack_base = R_CAST(unsigned char*, RoundUpPow2(R_CAST(uintptr_t, unaligned_base), kCacheline));
 }
 
+// When using BigstackBaseSet() after a loop where tmp_alloc_end is fixed, the
+// latter should be initialized with BigstackEndRoundedDown().
+// If tmp_alloc_end is not fixed, BigstackBaseSetChecked() should be called
+// instead.
+HEADER_INLINE BoolErr BigstackBaseSetChecked(const void* unaligned_base) {
+  g_bigstack_base = R_CAST(unsigned char*, RoundUpPow2(R_CAST(uintptr_t, unaligned_base), kCacheline));
+  return (g_bigstack_base > g_bigstack_end);
+}
+
+HEADER_INLINE unsigned char* BigstackEndRoundedDown() {
+  return R_CAST(unsigned char*, RoundDownPow2(R_CAST(uintptr_t, g_bigstack_end), kCacheline));
+}
+
 HEADER_INLINE void BigstackShrinkTop(const void* rebase, uintptr_t new_size) {
   // could assert that this doesn't go in the wrong direction?
   g_bigstack_base = R_CAST(unsigned char*, RoundUpPow2(R_CAST(uintptr_t, rebase) + new_size, kCacheline));

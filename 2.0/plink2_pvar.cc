@@ -1297,17 +1297,16 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
 #endif
       const uint32_t variant_idx_lowbits = raw_variant_ct % kLoadPvarBlockSize;
       if (!variant_idx_lowbits) {
-        if (unlikely(
-                (S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) <=
-                  kLoadPvarBlockSize *
-                    (sizeof(int32_t) +
-                     2 * sizeof(intptr_t) +
-                     at_least_one_nzero_cm * sizeof(double)) +
-                  is_split_chr * sizeof(ChrIdx) +
-                  (1 + info_pr_present) * (kLoadPvarBlockSize / CHAR_BIT) +
-                  (load_qual_col? ((kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(float)) : 0) +
-                  (load_filter_col? (2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)) : 0)) ||
-                (allele_storage_iter >= allele_storage_limit))) {
+        if (unlikely((S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) <=
+                     kLoadPvarBlockSize *
+                      (sizeof(int32_t) +
+                       2 * sizeof(intptr_t) +
+                       at_least_one_nzero_cm * sizeof(double)) +
+                      is_split_chr * sizeof(ChrIdx) +
+                      (1 + info_pr_present) * (kLoadPvarBlockSize / CHAR_BIT) +
+                      (load_qual_col? ((kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(float)) : 0) +
+                      (load_filter_col? (2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)) : 0)) ||
+                     (allele_storage_iter >= allele_storage_limit))) {
           goto LoadPvar_ret_NOMEM;
         }
         cur_bps = R_CAST(uint32_t*, tmp_alloc_base);
@@ -1836,18 +1835,16 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     // todo: determine whether we want variant_include to be guaranteed to be
     // terminated by a zero bit
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
-    if (unlikely(
-            bigstack_alloc_w(raw_variant_ctl, variant_include_ptr) ||
-            bigstack_alloc_u32(raw_variant_ct, variant_bps_ptr) ||
-            bigstack_alloc_cp(raw_variant_ct, variant_ids_ptr))) {
+    if (unlikely(bigstack_alloc_w(raw_variant_ctl, variant_include_ptr) ||
+                 bigstack_alloc_u32(raw_variant_ct, variant_bps_ptr) ||
+                 bigstack_alloc_cp(raw_variant_ct, variant_ids_ptr))) {
       goto LoadPvar_ret_NOMEM;
     }
     uintptr_t* qual_present = nullptr;
     float* quals = nullptr;
     if (load_qual_col > 1) {
-      if (unlikely(
-              bigstack_alloc_w(raw_variant_ctl, qual_present_ptr) ||
-              bigstack_alloc_f(raw_variant_ct, quals_ptr))) {
+      if (unlikely(bigstack_alloc_w(raw_variant_ctl, qual_present_ptr) ||
+                   bigstack_alloc_f(raw_variant_ct, quals_ptr))) {
         goto LoadPvar_ret_NOMEM;
       }
       qual_present = *qual_present_ptr;
@@ -1857,9 +1854,8 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     uintptr_t* filter_npass = nullptr;
     char** filter_storage = nullptr;
     if (load_filter_col > 1) {
-      if (unlikely(
-              bigstack_alloc_w(raw_variant_ctl, filter_present_ptr) ||
-              bigstack_alloc_w(raw_variant_ctl, filter_npass_ptr))) {
+      if (unlikely(bigstack_alloc_w(raw_variant_ctl, filter_present_ptr) ||
+                   bigstack_alloc_w(raw_variant_ctl, filter_npass_ptr))) {
         goto LoadPvar_ret_NOMEM;
       }
       filter_present = *filter_present_ptr;

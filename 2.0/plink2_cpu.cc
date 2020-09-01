@@ -105,9 +105,8 @@ int main(int argc, char** argv) {
 
 #  ifdef CPU_CHECK_AVX2
   // os_saves_ymm_regs must be true for AVX2
-  if (unlikely(
-          (!(features_2 & 0x8000000)) ||
-          ((read_xcr(0) & 0x6) != 0x6))) {
+  if (unlikely((!(features_2 & 0x8000000)) ||
+               ((read_xcr(0) & 0x6) != 0x6))) {
     goto CpuCheck_ret_AVX2_FAIL;
   }
   if (unlikely(max_function < 7)) {

@@ -2351,11 +2351,10 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     ctx.imp_r2_vals = imp_r2_vals;
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     const uint32_t raw_sample_ctv = BitCtToVecCt(raw_sample_ct);
-    if (unlikely(
-            bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.sample_include_interleaved_vec) ||
-            bigstack_alloc_u32(raw_sample_ctl, &ctx.sample_include_cumulative_popcounts) ||
-            bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.sex_male_interleaved_vec) ||
-            bigstack_alloc_u32(raw_sample_ctl, &ctx.sex_male_cumulative_popcounts))) {
+    if (unlikely(bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.sample_include_interleaved_vec) ||
+                 bigstack_alloc_u32(raw_sample_ctl, &ctx.sample_include_cumulative_popcounts) ||
+                 bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.sex_male_interleaved_vec) ||
+                 bigstack_alloc_u32(raw_sample_ctl, &ctx.sex_male_cumulative_popcounts))) {
       goto LoadAlleleAndGenoCounts_ret_NOMEM;
     }
     FillInterleavedMaskVec(ctx.sample_include, raw_sample_ctv, ctx.sample_include_interleaved_vec);
@@ -2381,9 +2380,8 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     ctx.nosex_interleaved_vec = nullptr;
     uintptr_t* nosex_buf = nullptr;
     if (nosex_ct) {
-      if (unlikely(
-              bigstack_end_alloc_w(raw_sample_ctl, &nosex_buf) ||
-              bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.nosex_interleaved_vec))) {
+      if (unlikely(bigstack_end_alloc_w(raw_sample_ctl, &nosex_buf) ||
+                   bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.nosex_interleaved_vec))) {
         goto LoadAlleleAndGenoCounts_ret_NOMEM;
       }
       BitvecInvmaskCopy(ctx.sample_include, sex_nm, raw_sample_ctl, nosex_buf);
@@ -2414,12 +2412,11 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     if (two_subsets_required) {
       if (founder_ct) {
         ctx.founder_info = founder_info;
-        if (unlikely(
-                bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.founder_info_interleaved_vec) ||
-                bigstack_alloc_u32(raw_sample_ctl, &ctx.founder_info_cumulative_popcounts) ||
-                bigstack_alloc_w(raw_sample_ctl, &ctx.founder_male) ||
-                bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.founder_male_interleaved_vec) ||
-                bigstack_alloc_u32(raw_sample_ctl, &ctx.founder_male_cumulative_popcounts))) {
+        if (unlikely(bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.founder_info_interleaved_vec) ||
+                     bigstack_alloc_u32(raw_sample_ctl, &ctx.founder_info_cumulative_popcounts) ||
+                     bigstack_alloc_w(raw_sample_ctl, &ctx.founder_male) ||
+                     bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.founder_male_interleaved_vec) ||
+                     bigstack_alloc_u32(raw_sample_ctl, &ctx.founder_male_cumulative_popcounts))) {
           goto LoadAlleleAndGenoCounts_ret_NOMEM;
         }
         FillInterleavedMaskVec(founder_info, raw_sample_ctv, ctx.founder_info_interleaved_vec);
@@ -2513,15 +2510,13 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     uint32_t mhc_needed = 0;
     ctx.thread_read_mhc = nullptr;
     if ((max_allele_ct > 2) && (variant_hethap_cts || allele_presents || allele_ddosages || founder_allele_ddosages || imp_r2_vals)) {
-      if (unlikely(
-              bigstack_alloc_u64p(calc_thread_ct, &ctx.all_dosages))) {
+      if (unlikely(bigstack_alloc_u64p(calc_thread_ct, &ctx.all_dosages))) {
         goto LoadAlleleAndGenoCounts_ret_NOMEM;
       }
       mhc_needed = (xy_complications_present || ((variant_hethap_cts || imp_r2_vals) && XymtExists(cip, kChrOffsetX, &unused_chr_code)));
       for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
         // double allocation size, to leave room for chrY ssqs
-        if (unlikely(
-                bigstack_alloc_u64(max_allele_ct * 2, &(ctx.all_dosages[tidx])))) {
+        if (unlikely(bigstack_alloc_u64(max_allele_ct * 2, &(ctx.all_dosages[tidx])))) {
           goto LoadAlleleAndGenoCounts_ret_NOMEM;
         }
       }
@@ -3093,7 +3088,7 @@ PglErr PlanMultiallelicJoin(const uintptr_t* variant_include, const ChrInfo* cip
   {
     const uint32_t variant_ct = *write_variant_ctp;
     uintptr_t* write_allele_idx_offsets = R_CAST(uintptr_t*, g_bigstack_base);
-    uintptr_t* write_allele_idx_offsets_stop = R_CAST(uintptr_t*, RoundDownPow2(R_CAST(uintptr_t, g_bigstack_end), kCacheline));
+    uintptr_t* write_allele_idx_offsets_stop = R_CAST(uintptr_t*, BigstackEndRoundedDown());
     if (write_allele_idx_offsets == write_allele_idx_offsets_stop) {
       goto PlanMultiallelicJoin_ret_NOMEM;
     }
@@ -3224,7 +3219,7 @@ PglErr PlanMultiallelicSplit(const uintptr_t* variant_include, const uintptr_t* 
     uintptr_t* write_allele_idx_offsets_iter = nullptr;
     if (only_split_snps) {
       write_allele_idx_offsets = R_CAST(uintptr_t*, g_bigstack_base);
-      write_allele_idx_offsets_stop = R_CAST(uintptr_t*, RoundDownPow2(R_CAST(uintptr_t, g_bigstack_end), kCacheline));
+      write_allele_idx_offsets_stop = R_CAST(uintptr_t*, g_bigstack_end);
       if (S_CAST(uintptr_t, write_allele_idx_offsets_stop - write_allele_idx_offsets) <= max_allele_ct) {
         goto PlanMultiallelicSplit_ret_NOMEM;
       }
@@ -3282,7 +3277,9 @@ PglErr PlanMultiallelicSplit(const uintptr_t* variant_include, const uintptr_t* 
     *write_variant_ctp = write_variant_ct;
     if (only_split_snps && (cur_offset != 2 * write_variant_ct)) {
       assert(cur_offset > 2 * write_variant_ct);
-      BigstackBaseSet(write_allele_idx_offsets_iter);
+      if (unlikely(BigstackBaseSetChecked(write_allele_idx_offsets_iter))) {
+        goto PlanMultiallelicSplit_ret_NOMEM;
+      }
       *write_allele_idx_offsetsp = write_allele_idx_offsets;
     }
   }
@@ -3539,7 +3536,7 @@ PglErr ParseInfoHeader(const char* xheader, uintptr_t xheader_blen, const char* 
     const char* xheader_iter = xheader;
     const char* xheader_end = &(xheader[xheader_blen]);
     const char* line_end = xheader;
-    unsigned char* tmp_alloc_end = bigstack_end_mark;
+    unsigned char* tmp_alloc_end = g_bigstack_end;
     const char** info_keys = R_CAST(const char**, bigstack_mark);
     const char** info_keys_iter = info_keys;
     while (line_end != xheader_end) {
@@ -3615,14 +3612,12 @@ PglErr ParseInfoHeader(const char* xheader, uintptr_t xheader_blen, const char* 
 #endif
     assert(info_key_ct);
     *info_key_ctp = info_key_ct;
-    BigstackBaseSet(info_keys_iter);
     BigstackEndSet(tmp_alloc_end);
     bigstack_end_mark = g_bigstack_end;
     const uintptr_t info_key_ctl = BitCtToWordCt(info_key_ct);
     uintptr_t* dummy_include;
-    if (unlikely(
-            (g_bigstack_base > g_bigstack_end) ||
-            bigstack_end_alloc_w(info_key_ctl, &dummy_include))) {
+    if (unlikely(BigstackBaseSetChecked(info_keys_iter) ||
+                 bigstack_end_alloc_w(info_key_ctl, &dummy_include))) {
       goto ParseInfoHeader_ret_NOMEM;
     }
     SetAllBits(info_key_ct, dummy_include);
@@ -3740,12 +3735,11 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
     const char** info_curs = nullptr;
     uint32_t* info_ref_blens = nullptr;
     if (pvar_info_reload) {
-      if (unlikely(
-              bigstack_alloc_u32(info_key_ct, &info_key_order) ||
-              bigstack_alloc_kcp(info_key_ct, &info_starts) ||
-              bigstack_alloc_kcp(info_key_ct, &info_ends) ||
-              bigstack_alloc_kcp(info_key_ct, &info_curs) ||
-              bigstack_alloc_u32(info_key_ct, &info_ref_blens))) {
+      if (unlikely(bigstack_alloc_u32(info_key_ct, &info_key_order) ||
+                   bigstack_alloc_kcp(info_key_ct, &info_starts) ||
+                   bigstack_alloc_kcp(info_key_ct, &info_ends) ||
+                   bigstack_alloc_kcp(info_key_ct, &info_curs) ||
+                   bigstack_alloc_u32(info_key_ct, &info_ref_blens))) {
         goto WritePvarSplit_ret_NOMEM;
       }
       reterr = PvarInfoOpenAndReloadHeader(pvar_info_reload, 1 + (thread_ct > 1), &pvar_reload_txs, &pvar_info_line_iter, &info_col_idx);
@@ -4164,8 +4158,7 @@ PglErr MakeFilterHtable(const uintptr_t* variant_include, const uintptr_t* filte
     uint32_t hash_shift = 25; // 32 - log2(table_size)
     uint32_t filter_key_ct = 0;
     char** filter_tokens;
-    if (unlikely(
-            bigstack_end_calloc_cp(table_size, &filter_tokens))) {
+    if (unlikely(bigstack_end_calloc_cp(table_size, &filter_tokens))) {
       goto MakeFilterHtable_ret_NOMEM;
     }
 
@@ -4249,11 +4242,10 @@ PglErr MakeFilterHtable(const uintptr_t* variant_include, const uintptr_t* filte
       goto MakeFilterHtable_ret_1;
     }
     char* token_iter = R_CAST(char*, g_bigstack_base);
-    BigstackBaseSet(tmp_alloc_base);
     const uint32_t filter_keys_htable_size = GetHtableFastSize(filter_key_ct);
-    if (unlikely(
-            bigstack_alloc_kcp(filter_key_ct, filter_keys_ptr) ||
-            bigstack_alloc_u32(filter_keys_htable_size, filter_keys_htable_ptr))) {
+    if (unlikely(BigstackBaseSetChecked(tmp_alloc_base) ||
+                 bigstack_alloc_kcp(filter_key_ct, filter_keys_ptr) ||
+                 bigstack_alloc_u32(filter_keys_htable_size, filter_keys_htable_ptr))) {
       goto MakeFilterHtable_ret_NOMEM;
     }
     const char** filter_keys = *filter_keys_ptr;
@@ -4436,11 +4428,10 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
     const char** info_curs = nullptr;
     uint32_t info_end_key_idx = UINT32_MAX;
     if (pvar_info_reload) {
-      if (unlikely(
-              bigstack_alloc_cp(info_cache_size, &info_bufs) ||
-              bigstack_alloc_kcp(info_key_ct * info_cache_size, &info_starts) ||
-              bigstack_alloc_kcp(info_key_ct * info_cache_size, &info_ends) ||
-              bigstack_alloc_kcp(info_key_ct * info_cache_size, &info_curs))) {
+      if (unlikely(bigstack_alloc_cp(info_cache_size, &info_bufs) ||
+                   bigstack_alloc_kcp(info_key_ct * info_cache_size, &info_starts) ||
+                   bigstack_alloc_kcp(info_key_ct * info_cache_size, &info_ends) ||
+                   bigstack_alloc_kcp(info_key_ct * info_cache_size, &info_curs))) {
         goto WritePvarJoin_ret_NOMEM;
       }
       reterr = PvarInfoOpenAndReloadHeader(pvar_info_reload, 1 + (thread_ct > 1), &pvar_reload_txs, &pvar_info_line_iter, &info_col_idx);
@@ -5020,9 +5011,8 @@ PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_samp
     if (unlikely(PgenMtLoadInit(variant_include, sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, 0, 2 * (sample_ct4 + 1), 0, pgfip, &calc_thread_ct, &ctx.genovecs, nullptr, nullptr, nullptr, mcp->hard_call_halfdist? (&ctx.dosage_presents) : nullptr, mcp->hard_call_halfdist? (&ctx.dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, nullptr, main_loadbufs, &ctx.pgr_ptrs, &ctx.read_variant_uidx_starts))) {
       goto MakeBedlikeMain_ret_NOMEM;
     }
-    if (unlikely(
-            bigstack_alloc_uc(sample_ct4 * read_block_size, &(ctx.writebufs[0])) ||
-            bigstack_alloc_uc(sample_ct4 * read_block_size, &(ctx.writebufs[1])))) {
+    if (unlikely(bigstack_alloc_uc(sample_ct4 * read_block_size, &(ctx.writebufs[0])) ||
+                 bigstack_alloc_uc(sample_ct4 * read_block_size, &(ctx.writebufs[1])))) {
       // shouldn't be possible for this to fail
       goto MakeBedlikeMain_ret_NOMEM;
     }
@@ -6025,10 +6015,9 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
         goto MakePgenRobust_ret_1;
       }
       unsigned char* spgw_alloc;
-      if (unlikely(
-              bigstack_alloc_wp(1, &(ctx.loadbuf_thread_starts[0])) ||
-              bigstack_alloc_wp(1, &(ctx.loadbuf_thread_starts[1])) ||
-              bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc))) {
+      if (unlikely(bigstack_alloc_wp(1, &(ctx.loadbuf_thread_starts[0])) ||
+                   bigstack_alloc_wp(1, &(ctx.loadbuf_thread_starts[1])) ||
+                   bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc))) {
         goto MakePgenRobust_ret_NOMEM;
       }
       SpgwInitPhase2(max_vrec_len, ctx.spgwp, spgw_alloc);
@@ -6068,17 +6057,15 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       ctx.thread_write_phasepresents = nullptr;
       ctx.thread_all_hets = nullptr;
       if (read_or_write_phase_present) {
-        if (unlikely(
-                bigstack_alloc_wp(1, &ctx.thread_write_phasepresents) ||
-                bigstack_alloc_wp(1, &ctx.thread_write_phaseinfos) ||
-                bigstack_alloc_w(sample_ctl, &(ctx.thread_write_phasepresents[0])) ||
-                bigstack_alloc_w(sample_ctl, &(ctx.thread_write_phaseinfos[0])))) {
+        if (unlikely(bigstack_alloc_wp(1, &ctx.thread_write_phasepresents) ||
+                     bigstack_alloc_wp(1, &ctx.thread_write_phaseinfos) ||
+                     bigstack_alloc_w(sample_ctl, &(ctx.thread_write_phasepresents[0])) ||
+                     bigstack_alloc_w(sample_ctl, &(ctx.thread_write_phaseinfos[0])))) {
           goto MakePgenRobust_ret_NOMEM;
         }
         if (read_phase_present) {
-          if (unlikely(
-                  bigstack_alloc_wp(1, &ctx.thread_all_hets) ||
-                  bigstack_alloc_w(raw_sample_ctl, &(ctx.thread_all_hets[0])))) {
+          if (unlikely(bigstack_alloc_wp(1, &ctx.thread_all_hets) ||
+                       bigstack_alloc_w(raw_sample_ctl, &(ctx.thread_all_hets[0])))) {
             goto MakePgenRobust_ret_NOMEM;
           }
         }
@@ -6086,27 +6073,24 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       ctx.thread_write_dosagepresents = nullptr;
       ctx.thread_write_dphasepresents = nullptr;
       if (read_or_write_dosage_present) {
-        if (unlikely(
-                bigstack_alloc_wp(1, &ctx.thread_write_dosagepresents) ||
-                bigstack_alloc_dosagep(1, &ctx.thread_write_dosagevals) ||
-                bigstack_alloc_w(sample_ctl, &(ctx.thread_write_dosagepresents[0])) ||
-                bigstack_alloc_dosage(sample_ct, &(ctx.thread_write_dosagevals[0])))) {
+        if (unlikely(bigstack_alloc_wp(1, &ctx.thread_write_dosagepresents) ||
+                     bigstack_alloc_dosagep(1, &ctx.thread_write_dosagevals) ||
+                     bigstack_alloc_w(sample_ctl, &(ctx.thread_write_dosagepresents[0])) ||
+                     bigstack_alloc_dosage(sample_ct, &(ctx.thread_write_dosagevals[0])))) {
           goto MakePgenRobust_ret_NOMEM;
         }
         if (read_or_write_dphase_present) {
-          if (unlikely(
-                  bigstack_alloc_wp(1, &ctx.thread_write_dphasepresents) ||
-                  bigstack_alloc_dphasep(1, &ctx.thread_write_dphasedeltas) ||
-                  bigstack_alloc_w(sample_ctl, &(ctx.thread_write_dphasepresents[0])) ||
-                  bigstack_alloc_dphase(sample_ct + RoundUpPow2(sample_ct, kCacheline / 2), &(ctx.thread_write_dphasedeltas[0])))) {
+          if (unlikely(bigstack_alloc_wp(1, &ctx.thread_write_dphasepresents) ||
+                       bigstack_alloc_dphasep(1, &ctx.thread_write_dphasedeltas) ||
+                       bigstack_alloc_w(sample_ctl, &(ctx.thread_write_dphasepresents[0])) ||
+                       bigstack_alloc_dphase(sample_ct + RoundUpPow2(sample_ct, kCacheline / 2), &(ctx.thread_write_dphasedeltas[0])))) {
             goto MakePgenRobust_ret_NOMEM;
           }
         }
       }
       if ((write_mhc_needed || read_dosage_present) && new_sample_idx_to_old) {
-        if (unlikely(
-                bigstack_alloc_u32p(1, &ctx.thread_cumulative_popcount_bufs) ||
-                bigstack_alloc_u32(raw_sample_ctl, &(ctx.thread_cumulative_popcount_bufs[0])))) {
+        if (unlikely(bigstack_alloc_u32p(1, &ctx.thread_cumulative_popcount_bufs) ||
+                     bigstack_alloc_u32(raw_sample_ctl, &(ctx.thread_cumulative_popcount_bufs[0])))) {
           goto MakePgenRobust_ret_NOMEM;
         }
       }
@@ -6154,25 +6138,23 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       if (make_plink2_flags & (kfMakePlink2MSplitBase * 7)) {
         // split or join
         // this is currently for split with no dosages
-        if (unlikely(
-                bigstack_alloc_w(raw_sample_ctl2, &pgv.genovec) ||
-                bigstack_alloc_w(raw_sample_ctl, &pgv.patch_01_set) ||
-                bigstack_alloc_ac(raw_sample_ct, &pgv.patch_01_vals) ||
-                bigstack_alloc_w(raw_sample_ctl, &pgv.patch_10_set) ||
-                bigstack_alloc_ac(2 * raw_sample_ct, &pgv.patch_10_vals) ||
-                bigstack_alloc_u32(max_read_allele_ct, &alt_regular_one_cts) ||
-                bigstack_alloc_u32(max_read_allele_ct, &alt_two_cts) ||
-                bigstack_alloc_u32(2 * raw_sample_ct + 1, &alt_sample_idx_buf) ||
-                bigstack_alloc_u32p(max_read_allele_ct + 1, &alt_regular_one_sample_idx_starts) ||
-                bigstack_alloc_u32p(max_read_allele_ct + 1, &alt_two_sample_idx_starts))) {
+        if (unlikely(bigstack_alloc_w(raw_sample_ctl2, &pgv.genovec) ||
+                     bigstack_alloc_w(raw_sample_ctl, &pgv.patch_01_set) ||
+                     bigstack_alloc_ac(raw_sample_ct, &pgv.patch_01_vals) ||
+                     bigstack_alloc_w(raw_sample_ctl, &pgv.patch_10_set) ||
+                     bigstack_alloc_ac(2 * raw_sample_ct, &pgv.patch_10_vals) ||
+                     bigstack_alloc_u32(max_read_allele_ct, &alt_regular_one_cts) ||
+                     bigstack_alloc_u32(max_read_allele_ct, &alt_two_cts) ||
+                     bigstack_alloc_u32(2 * raw_sample_ct + 1, &alt_sample_idx_buf) ||
+                     bigstack_alloc_u32p(max_read_allele_ct + 1, &alt_regular_one_sample_idx_starts) ||
+                     bigstack_alloc_u32p(max_read_allele_ct + 1, &alt_two_sample_idx_starts))) {
           goto MakePgenRobust_ret_NOMEM;
         }
         if (read_phase_present) {
-          if (unlikely(
-                  bigstack_alloc_w(raw_sample_ctl, &pgv.phasepresent) ||
-                  bigstack_alloc_w(raw_sample_ctl, &pgv.phaseinfo) ||
-                  bigstack_alloc_u32(max_read_allele_ct, &alt_invphase_one_cts) ||
-                  bigstack_alloc_u32p(max_read_allele_ct + 1, &alt_invphase_one_sample_idx_starts))) {
+          if (unlikely(bigstack_alloc_w(raw_sample_ctl, &pgv.phasepresent) ||
+                       bigstack_alloc_w(raw_sample_ctl, &pgv.phaseinfo) ||
+                       bigstack_alloc_u32(max_read_allele_ct, &alt_invphase_one_cts) ||
+                       bigstack_alloc_u32p(max_read_allele_ct + 1, &alt_invphase_one_sample_idx_starts))) {
             goto MakePgenRobust_ret_NOMEM;
           }
         }
@@ -6869,11 +6851,10 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
     if (make_plink2_flags & kfMakePlink2SetHhMissing) {
       const uint32_t sample_ctv = BitCtToVecCt(sample_ct);
       uintptr_t* new_sex_male;
-      if (unlikely(
-              bigstack_alloc_w(sample_ctv * kWordsPerVec, &new_sex_male) ||
-              bigstack_alloc_w(sample_ctv * kWordsPerVec, &mc.sex_male_collapsed_interleaved) ||
-              bigstack_alloc_w(sample_ctv * kWordsPerVec, &ctx.sex_female_collapsed) ||
-              bigstack_alloc_w(sample_ctv * kWordsPerVec, &mc.sex_female_collapsed_interleaved))) {
+      if (unlikely(bigstack_alloc_w(sample_ctv * kWordsPerVec, &new_sex_male) ||
+                   bigstack_alloc_w(sample_ctv * kWordsPerVec, &mc.sex_male_collapsed_interleaved) ||
+                   bigstack_alloc_w(sample_ctv * kWordsPerVec, &ctx.sex_female_collapsed) ||
+                   bigstack_alloc_w(sample_ctv * kWordsPerVec, &mc.sex_female_collapsed_interleaved))) {
         goto MakePlink2NoVsort_ret_NOMEM;
       }
       CopyBitarrSubset(sex_male, sample_include, sample_ct, new_sex_male);
@@ -7789,8 +7770,7 @@ PglErr WritePvarResorted(const char* outname, const uintptr_t* variant_include, 
     // includes trailing tab
     char* chr_buf;
 
-    if (unlikely(
-                 bigstack_alloc_c(max_chr_blen, &chr_buf))) {
+    if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf))) {
       goto WritePvarResorted_ret_NOMEM;
     }
     uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
@@ -8010,10 +7990,9 @@ PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* pi
 
     const uint32_t chr_code_end = cip->max_code + 1 + cip->name_ct;
     uint32_t* chr_idx_to_size;
-    if (unlikely(
-            bigstack_calloc_w(kChrMaskWords, &write_chr_info.chr_mask) ||
-            bigstack_alloc_u32(chr_code_end, &write_chr_info.chr_idx_to_foidx) ||
-            bigstack_end_calloc_u32(chr_code_end, &chr_idx_to_size))) {
+    if (unlikely(bigstack_calloc_w(kChrMaskWords, &write_chr_info.chr_mask) ||
+                 bigstack_alloc_u32(chr_code_end, &write_chr_info.chr_idx_to_foidx) ||
+                 bigstack_end_calloc_u32(chr_code_end, &chr_idx_to_size))) {
       goto MakePlink2Vsort_ret_NOMEM;
     }
     SetAllU32Arr(chr_code_end, write_chr_info.chr_idx_to_foidx);
@@ -8052,9 +8031,8 @@ PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* pi
 
     // pos_vidx_sort_buf has variant_bp in high bits, variant_uidx in low
     uint64_t* pos_vidx_sort_buf;
-    if (unlikely(
-            bigstack_alloc_u32(variant_ct, &new_variant_idx_to_old) ||
-            bigstack_alloc_u64(variant_ct + 1, &pos_vidx_sort_buf))) {
+    if (unlikely(bigstack_alloc_u32(variant_ct, &new_variant_idx_to_old) ||
+                 bigstack_alloc_u64(variant_ct + 1, &pos_vidx_sort_buf))) {
       goto MakePlink2Vsort_ret_NOMEM;
     }
     pos_vidx_sort_buf[variant_ct] = ~0LLU;
@@ -8222,11 +8200,10 @@ PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* pi
         const uint32_t sample_ctv = BitCtToVecCt(sample_ct);
         const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
         uintptr_t* new_sex_male;
-        if (unlikely(
-                bigstack_alloc_w(sample_ctv * kWordsPerVec, &new_sex_male) ||
-                bigstack_alloc_w(sample_ctv * kWordsPerVec, &mc.sex_male_collapsed_interleaved) ||
-                bigstack_alloc_w(sample_ctv * kWordsPerVec, &sex_female_collapsed) ||
-                bigstack_alloc_w(sample_ctv * kWordsPerVec, &mc.sex_female_collapsed_interleaved))) {
+        if (unlikely(bigstack_alloc_w(sample_ctv * kWordsPerVec, &new_sex_male) ||
+                     bigstack_alloc_w(sample_ctv * kWordsPerVec, &mc.sex_male_collapsed_interleaved) ||
+                     bigstack_alloc_w(sample_ctv * kWordsPerVec, &sex_female_collapsed) ||
+                     bigstack_alloc_w(sample_ctv * kWordsPerVec, &mc.sex_female_collapsed_interleaved))) {
           goto MakePlink2Vsort_ret_NOMEM;
         }
         CopyBitarrSubset(sex_male, sample_include, sample_ct, new_sex_male);
@@ -8294,10 +8271,9 @@ PglErr SampleSortFileMap(const uintptr_t* sample_include, const SampleIdInfo* si
   {
     char* idbuf;
     uintptr_t* already_seen;
-    if (unlikely(
-            bigstack_alloc_u32(raw_sample_ct, new_sample_idx_to_old_ptr) ||
-            bigstack_alloc_c(siip->max_sample_id_blen, &idbuf) ||
-            bigstack_calloc_w(BitCtToWordCt(raw_sample_ct), &already_seen))) {
+    if (unlikely(bigstack_alloc_u32(raw_sample_ct, new_sample_idx_to_old_ptr) ||
+                 bigstack_alloc_c(siip->max_sample_id_blen, &idbuf) ||
+                 bigstack_calloc_w(BitCtToWordCt(raw_sample_ct), &already_seen))) {
       goto SampleSortFileMap_ret_NOMEM;
     }
 

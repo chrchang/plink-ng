@@ -44,9 +44,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
   help_ctrl.all_match_arr = nullptr;
   help_ctrl.argv = nullptr;
   if (param_ct) {
-    if (unlikely(
-            pgl_malloc(param_ct * sizeof(int32_t), &help_ctrl.param_slens) ||
-            pgl_malloc(param_ctl * 3 * sizeof(intptr_t), &help_ctrl.all_match_arr))) {
+    if (unlikely(pgl_malloc(param_ct * sizeof(int32_t), &help_ctrl.param_slens) ||
+                 pgl_malloc(param_ctl * 3 * sizeof(intptr_t), &help_ctrl.all_match_arr))) {
       goto DispHelp_ret_NOMEM;
     }
     leading_dashes = 0;
@@ -418,7 +417,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --export <output format(s)...> [{01 | 12}] ['bgz'] ['id-delim='<char>]\n"
 "           ['id-paste='<column set descriptor>] ['include-alt']\n"
 "           ['omit-nonmale-y'] ['spaces'] ['vcf-dosage='<field>] ['ref-first']\n"
-"           ['bits='<#>]\n"
+"           ['bits='<#>] ['sample-v2']\n"
 "    Create a new fileset with all filters applied.  The following output\n"
 "    formats are supported:\n"
 "    (actually, only A, AD, A-transpose, bcf, bgen-1.x, haps, hapslegend,\n"
@@ -504,7 +503,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      allele should appear first or second, --export defaults to second for\n"
 "      compatibility with PLINK 1.9.  Use 'ref-first' to change this.\n"
 "      (Note that this doesn't apply to the 'A', 'AD', and 'A-transpose'\n"
-"      formats; use --export-allele to control which alleles are counted there.)\n\n"
+"      formats; use --export-allele to control which alleles are counted there.)\n"
+"    * 'sample-v2' exports .sample files according to the QCTOOLv2 rather than\n"
+"      the original specification.  Only one ID column is exported ('id-paste'\n"
+"      and 'id-delim' settings apply), parental IDs are exported if present, and\n"
+"      category names are preserved rather than converted to positive integers.\n\n"
               );
 
     // don't bother with case/control or cluster-stratification any more, since

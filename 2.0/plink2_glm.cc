@@ -179,11 +179,10 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
     uint32_t* sample_id_map;
     uintptr_t* new_sample_include;
     char* idbuf;
-    if (unlikely(
-            bigstack_end_alloc_c(orig_sample_ct * max_sample_id_blen, &sorted_sample_idbox) ||
-            bigstack_end_alloc_u32(orig_sample_ct, &sample_id_map) ||
-            bigstack_end_calloc_w(raw_sample_ctl, &new_sample_include) ||
-            bigstack_end_alloc_c(max_sample_id_blen, &idbuf))) {
+    if (unlikely(bigstack_end_alloc_c(orig_sample_ct * max_sample_id_blen, &sorted_sample_idbox) ||
+                 bigstack_end_alloc_u32(orig_sample_ct, &sample_id_map) ||
+                 bigstack_end_calloc_w(raw_sample_ctl, &new_sample_include) ||
+                 bigstack_end_alloc_c(max_sample_id_blen, &idbuf))) {
       goto GlmLocalOpen_ret_NOMEM;
     }
     // (don't permit duplicate FID+IID for now, but maybe we'll want to use
@@ -249,10 +248,9 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       uintptr_t* sample_include_copy;
       uintptr_t* sex_nm_copy;
       uintptr_t* sex_male_copy;
-      if (unlikely(
-              bigstack_alloc_w(raw_sample_ctl, &sample_include_copy) ||
-              bigstack_alloc_w(raw_sample_ctl, &sex_nm_copy) ||
-              bigstack_alloc_w(raw_sample_ctl, &sex_male_copy))) {
+      if (unlikely(bigstack_alloc_w(raw_sample_ctl, &sample_include_copy) ||
+                   bigstack_alloc_w(raw_sample_ctl, &sex_nm_copy) ||
+                   bigstack_alloc_w(raw_sample_ctl, &sex_male_copy))) {
         goto GlmLocalOpen_ret_NOMEM;
       }
       memcpy(sample_include_copy, new_sample_include, raw_sample_ctl * sizeof(intptr_t));
@@ -929,10 +927,9 @@ BoolErr GlmDetermineCovars(const uintptr_t* pheno_cc, const uintptr_t* initial_c
       uint32_t* cat_first_sample_uidxs = nullptr;
       if (covar_max_nonnull_cat_ct) {
         const uint32_t max_cat_ctl = 1 + (covar_max_nonnull_cat_ct / kBitsPerWord);
-        if (unlikely(
-                bigstack_alloc_w(max_cat_ctl, &cat_one_obs) ||
-                bigstack_alloc_w(max_cat_ctl, &cat_two_or_more_obs) ||
-                bigstack_alloc_u32(covar_max_nonnull_cat_ct + 1, &cat_first_sample_uidxs))) {
+        if (unlikely(bigstack_alloc_w(max_cat_ctl, &cat_one_obs) ||
+                     bigstack_alloc_w(max_cat_ctl, &cat_two_or_more_obs) ||
+                     bigstack_alloc_u32(covar_max_nonnull_cat_ct + 1, &cat_first_sample_uidxs))) {
           goto GlmDetermineCovars_ret_NOMEM;
         }
       }
@@ -1522,18 +1519,16 @@ PglErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* co
   MatrixInvertBuf1* matrix_invert_buf1;
   uintptr_t* cat_covar_wkspace;
   double* dbl_2d_buf;
-  if (unlikely(
-          BIGSTACK_ALLOC_X(MatrixInvertBuf1, kMatrixInvertBuf1CheckedAlloc * new_nonlocal_covar_ct, &matrix_invert_buf1) ||
-          bigstack_alloc_w(covar_max_cat_ctl, &cat_covar_wkspace) ||
-          bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &dbl_2d_buf))) {
+  if (unlikely(BIGSTACK_ALLOC_X(MatrixInvertBuf1, kMatrixInvertBuf1CheckedAlloc * new_nonlocal_covar_ct, &matrix_invert_buf1) ||
+               bigstack_alloc_w(covar_max_cat_ctl, &cat_covar_wkspace) ||
+               bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &dbl_2d_buf))) {
     return kPglRetNomem;
   }
   uint32_t* cat_obs_buf;
   // bugfix (11 May 2020): we were previously only initializing cat_obs_buf
   // when extra_cat_ct > 0; this resulted in segfaults when every categorical
   // covariate had only two categories.
-  if (unlikely(
-          bigstack_alloc_u32(covar_max_nonnull_cat_ct + 1, &cat_obs_buf))) {
+  if (unlikely(bigstack_alloc_u32(covar_max_nonnull_cat_ct + 1, &cat_obs_buf))) {
     return kPglRetNomem;
   }
   unsigned char* alloc_base = g_bigstack_base;
@@ -1717,9 +1712,8 @@ BoolErr InitNmPrecomp(const double* covars_cmaj, const double* covar_dotprod, co
 BoolErr GlmAllocFillAndTestCovarsQt(const uintptr_t* sample_include, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uintptr_t xtx_state, RegressionNmPrecomp** nm_precomp_ptr, double** covars_cmaj_d_ptr, const char*** cur_covar_names_ptr, GlmErr* glm_err_ptr) {
   const uintptr_t new_covar_ct = covar_ct + extra_cat_ct;
   const uintptr_t new_nonlocal_covar_ct = new_covar_ct - local_covar_ct;
-  if (unlikely(
-          bigstack_alloc_kcp(new_covar_ct, cur_covar_names_ptr) ||
-          bigstack_alloc_d(new_nonlocal_covar_ct * sample_ct, covars_cmaj_d_ptr))) {
+  if (unlikely(bigstack_alloc_kcp(new_covar_ct, cur_covar_names_ptr) ||
+               bigstack_alloc_d(new_nonlocal_covar_ct * sample_ct, covars_cmaj_d_ptr))) {
     return 1;
   }
   double* corr_buf = nullptr;
@@ -1738,11 +1732,10 @@ BoolErr GlmAllocFillAndTestCovarsQt(const uintptr_t* sample_include, const uintp
     //
     // xt_y_image: (1 + xtx_state + x) elements per phenotype in subbatch;
     //   now allocated later
-    if (unlikely(
-            bigstack_alloc_d(8 * xtx_state - 2 +
-                             new_covar_ct * (5 + 4 * xtx_state + 4 * new_covar_ct),
-                             &((*nm_precomp_ptr)->xtx_image)) ||
-            bigstack_alloc_d(new_covar_ct * (new_covar_ct + 1), &corr_buf))) {
+    if (unlikely(bigstack_alloc_d(8 * xtx_state - 2 +
+                                  new_covar_ct * (5 + 4 * xtx_state + 4 * new_covar_ct),
+                                  &((*nm_precomp_ptr)->xtx_image)) ||
+                 bigstack_alloc_d(new_covar_ct * (new_covar_ct + 1), &corr_buf))) {
       return 1;
     }
     (*nm_precomp_ptr)->covarx_dotprod_inv = &((*nm_precomp_ptr)->xtx_image[(new_covar_ct + xtx_state + 1) * (new_covar_ct + xtx_state + 1)]);
@@ -1754,9 +1747,8 @@ BoolErr GlmAllocFillAndTestCovarsQt(const uintptr_t* sample_include, const uintp
   }
   double* covar_dotprod;
   double* inverse_corr_buf;
-  if (unlikely(
-          bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &covar_dotprod) ||
-          bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &inverse_corr_buf))) {
+  if (unlikely(bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &covar_dotprod) ||
+               bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &inverse_corr_buf))) {
     return 1;
   }
   PglErr reterr = GlmFillAndTestCovars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, covar_dotprod, corr_buf, inverse_corr_buf, *covars_cmaj_d_ptr, *cur_covar_names_ptr, glm_err_ptr);
@@ -1800,15 +1792,13 @@ BoolErr GlmAllocFillAndTestPhenoCovarsQt(const uintptr_t* sample_include, const 
     // this is a bit messy
     return 0;
   }
-  if (unlikely(
-          bigstack_alloc_d(sample_ct, pheno_d_ptr))) {
+  if (unlikely(bigstack_alloc_d(sample_ct, pheno_d_ptr))) {
     return 1;
   }
   const uintptr_t new_covar_ct = covar_ct + extra_cat_ct;
   double* xt_y_image = nullptr;
   if (xtx_state) {
-    if (unlikely(
-            bigstack_alloc_d(1 + xtx_state + new_covar_ct, &xt_y_image))) {
+    if (unlikely(bigstack_alloc_d(1 + xtx_state + new_covar_ct, &xt_y_image))) {
       return 1;
     }
     (*nm_precomp_ptr)->xt_y_image = xt_y_image;
@@ -3139,11 +3129,10 @@ BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const 
   const uintptr_t new_nonlocal_covar_ct = new_covar_ct - local_covar_ct;
   const uint32_t sample_ctv = BitCtToVecCt(sample_ct);
   const uint32_t is_cc_residualize = !!(glm_flags & (kfGlmFirthResidualize | kfGlmCcResidualize));
-  if (unlikely(
-          bigstack_alloc_w(sample_ctv * kWordsPerVec, pheno_cc_collapsed_ptr) ||
-          bigstack_alloc_f(sample_ctav, pheno_f_ptr) ||
-          bigstack_alloc_f(new_nonlocal_covar_ct * sample_ctav, covars_cmaj_f_ptr) ||
-          bigstack_alloc_kcp(new_covar_ct, cur_covar_names_ptr))) {
+  if (unlikely(bigstack_alloc_w(sample_ctv * kWordsPerVec, pheno_cc_collapsed_ptr) ||
+               bigstack_alloc_f(sample_ctav, pheno_f_ptr) ||
+               bigstack_alloc_f(new_nonlocal_covar_ct * sample_ctav, covars_cmaj_f_ptr) ||
+               bigstack_alloc_kcp(new_covar_ct, cur_covar_names_ptr))) {
       return 1;
   }
   double* corr_buf = nullptr;
@@ -3159,15 +3148,13 @@ BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const 
       }
       (*cc_residualize_ptr)->logistic_nm_sample_offsets = nullptr;
       if ((glm_flags & (kfGlmFirth | kfGlmCcResidualize)) == kfGlmCcResidualize) {
-        if (unlikely(
-                bigstack_alloc_f(sample_ctav, &((*cc_residualize_ptr)->logistic_nm_sample_offsets)))) {
+        if (unlikely(bigstack_alloc_f(sample_ctav, &((*cc_residualize_ptr)->logistic_nm_sample_offsets)))) {
           return 1;
         }
       }
       (*cc_residualize_ptr)->firth_nm_sample_offsets = nullptr;
       if (!(glm_flags & kfGlmNoFirth)) {
-        if (unlikely(
-                bigstack_alloc_f(sample_ctav, &((*cc_residualize_ptr)->firth_nm_sample_offsets)))) {
+        if (unlikely(bigstack_alloc_f(sample_ctav, &((*cc_residualize_ptr)->firth_nm_sample_offsets)))) {
           return 1;
         }
       }
@@ -3182,11 +3169,10 @@ BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const 
     // 2x^2 + (2*xtx_state + 2)x + (5*xtx_state - 1)
     // 3x^2 + (4*xtx_state + 2)x + (8*xtx_state - 3)
     // 3x^2 + (4*xtx_state + 3)x + (8*xtx_state - 3)
-    if (unlikely(
-            bigstack_alloc_d(8 * xtx_state - 3 +
-                             new_covar_ct * (3 + 4 * xtx_state + 3 * new_covar_ct),
-                             &((*nm_precomp_ptr)->xtx_image)) ||
-            bigstack_alloc_d(new_covar_ct * (new_covar_ct + 1), &corr_buf))) {
+    if (unlikely(bigstack_alloc_d(8 * xtx_state - 3 +
+                                  new_covar_ct * (3 + 4 * xtx_state + 3 * new_covar_ct),
+                                  &((*nm_precomp_ptr)->xtx_image)) ||
+                 bigstack_alloc_d(new_covar_ct * (new_covar_ct + 1), &corr_buf))) {
       return 1;
     }
     (*nm_precomp_ptr)->covarx_dotprod_inv = nullptr;
@@ -3199,10 +3185,9 @@ BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const 
   double* covars_cmaj_d;
   double* covar_dotprod;
   double* inverse_corr_buf;
-  if (unlikely(
-          bigstack_alloc_d(new_nonlocal_covar_ct * sample_ct, &covars_cmaj_d) ||
-          bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &covar_dotprod) ||
-          bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &inverse_corr_buf))) {
+  if (unlikely(bigstack_alloc_d(new_nonlocal_covar_ct * sample_ct, &covars_cmaj_d) ||
+               bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &covar_dotprod) ||
+               bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &inverse_corr_buf))) {
     return 1;
   }
   uintptr_t* pheno_cc_collapsed = *pheno_cc_collapsed_ptr;
@@ -3250,20 +3235,19 @@ BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const 
       MatrixInvertBuf1* inv_1d_buf = S_CAST(MatrixInvertBuf1*, bigstack_alloc(pred_ct * kMatrixInvertBuf1CheckedAlloc));
       // see GetLogisticWorkspaceSize() and corresponding code at top of
       // GlmLogisticThread()
-      if (unlikely(
-              (!inv_1d_buf) ||
-              bigstack_alloc_f(sample_ctav * pred_ct, &xx) ||
-              bigstack_calloc_f(pred_ctav, &coefs) ||
-              bigstack_alloc_f(pred_ct * pred_ctav, &hh) ||
-              bigstack_alloc_d(pred_ct * MAXV(pred_ct, 3), &half_inverted_buf) ||
-              bigstack_alloc_d(pred_ct * MAXV(pred_ct, 7), &dbl_2d_buf) ||
-              bigstack_alloc_f(pred_ct * pred_ctav, &ll) ||
-              bigstack_alloc_f(sample_ctav, &pp) ||
-              bigstack_alloc_f(sample_ctav, &vv) ||
-              bigstack_alloc_f(pred_ctav, &grad) ||
-              bigstack_alloc_f(pred_ctav, &dcoef) ||
-              bigstack_alloc_f(sample_ctav, &ww) ||
-              bigstack_alloc_f(sample_ctav * pred_ct, &tmpnxk_buf))) {
+      if (unlikely((!inv_1d_buf) ||
+                   bigstack_alloc_f(sample_ctav * pred_ct, &xx) ||
+                   bigstack_calloc_f(pred_ctav, &coefs) ||
+                   bigstack_alloc_f(pred_ct * pred_ctav, &hh) ||
+                   bigstack_alloc_d(pred_ct * MAXV(pred_ct, 3), &half_inverted_buf) ||
+                   bigstack_alloc_d(pred_ct * MAXV(pred_ct, 7), &dbl_2d_buf) ||
+                   bigstack_alloc_f(pred_ct * pred_ctav, &ll) ||
+                   bigstack_alloc_f(sample_ctav, &pp) ||
+                   bigstack_alloc_f(sample_ctav, &vv) ||
+                   bigstack_alloc_f(pred_ctav, &grad) ||
+                   bigstack_alloc_f(pred_ctav, &dcoef) ||
+                   bigstack_alloc_f(sample_ctav, &ww) ||
+                   bigstack_alloc_f(sample_ctav * pred_ct, &tmpnxk_buf))) {
         return 1;
       }
       FillFVec(sample_ct, 1.0, xx);
@@ -4892,9 +4876,8 @@ BoolErr AllocAndInitReportedTestNames(const uintptr_t* parameter_subset, const c
   if (glm_flags & kfGlmHideCovar) {
     const uint32_t biallelic_reported_test_ct = include_intercept + include_main_effect + domdev_present + joint_test;
     char* test_name_buf_iter;
-    if (unlikely(
-            bigstack_alloc_kcp(biallelic_reported_test_ct, cur_test_names_ptr) ||
-            bigstack_alloc_c(64, &test_name_buf_iter))) {
+    if (unlikely(bigstack_alloc_kcp(biallelic_reported_test_ct, cur_test_names_ptr) ||
+                 bigstack_alloc_c(64, &test_name_buf_iter))) {
       return 1;
     }
     const char** cur_test_names = *cur_test_names_ptr;
@@ -4953,9 +4936,8 @@ BoolErr AllocAndInitReportedTestNames(const uintptr_t* parameter_subset, const c
     }
   }
   char* test_name_buf_iter;
-  if (unlikely(
-          bigstack_alloc_kcp(biallelic_reported_test_ct, cur_test_names_ptr) ||
-          bigstack_alloc_c(test_name_buf_alloc, &test_name_buf_iter))) {
+  if (unlikely(bigstack_alloc_kcp(biallelic_reported_test_ct, cur_test_names_ptr) ||
+               bigstack_alloc_c(test_name_buf_alloc, &test_name_buf_iter))) {
     return 1;
   }
   const char** cur_test_names = *cur_test_names_ptr;
@@ -10153,9 +10135,8 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
     if (sample_ct * S_CAST(uint64_t, subbatch_size) > 0x7fffffff) {
       subbatch_size = 0x7fffffff / sample_ct;
     }
-    if (unlikely(
-            bigstack_calloc_cp(subbatch_size, &cswritep_arr) ||
-            BIGSTACK_ALLOC_X(CompressStreamState, subbatch_size, &css_arr))) {
+    if (unlikely(bigstack_calloc_cp(subbatch_size, &cswritep_arr) ||
+                 BIGSTACK_ALLOC_X(CompressStreamState, subbatch_size, &css_arr))) {
       goto GlmLinearBatch_ret_NOMEM;
     }
     for (uint32_t fidx = 0; fidx != subbatch_size; ++fidx) {
@@ -11007,9 +10988,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     const uintptr_t overflow_buf_size = kCompressStreamBlock + 2 * kMaxIdSlen + max_chr_blen + kMaxIdSlen + 1024 + 2 * max_allele_slen;
 
     uintptr_t* cur_sample_include;
-    if (unlikely(
-            bigstack_alloc_w(raw_sample_ctl, &cur_sample_include) ||
-            bigstack_alloc_u32(raw_sample_ctl, &common.sample_include_cumulative_popcounts))) {
+    if (unlikely(bigstack_alloc_w(raw_sample_ctl, &cur_sample_include) ||
+                 bigstack_alloc_u32(raw_sample_ctl, &common.sample_include_cumulative_popcounts))) {
       goto GlmMain_ret_NOMEM;
     }
     common.sample_include = cur_sample_include;
@@ -11251,9 +11231,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           BigstackReset(already_seen);
         }
         raw_covar_ct += condition_ct;
-        if (unlikely(
-                BIGSTACK_ALLOC_X(PhenoCol, raw_covar_ct + add_sex_covar, &new_covar_cols) ||
-                bigstack_alloc_c((raw_covar_ct + add_sex_covar) * new_max_covar_name_blen, &new_covar_names))) {
+        if (unlikely(BIGSTACK_ALLOC_X(PhenoCol, raw_covar_ct + add_sex_covar, &new_covar_cols) ||
+                     bigstack_alloc_c((raw_covar_ct + add_sex_covar) * new_max_covar_name_blen, &new_covar_names))) {
           goto GlmMain_ret_NOMEM;
         }
         if (condition_ct) {
@@ -11261,10 +11240,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           uintptr_t* genovec;
           uintptr_t* dosage_present;
           Dosage* dosage_main;
-          if (unlikely(
-                  bigstack_end_alloc_w(NypCtToWordCt(raw_sample_ct), &genovec) ||
-                  bigstack_end_alloc_w(raw_sample_ctl, &dosage_present) ||
-                  bigstack_end_alloc_dosage(raw_sample_ct, &dosage_main))) {
+          if (unlikely(bigstack_end_alloc_w(NypCtToWordCt(raw_sample_ct), &genovec) ||
+                       bigstack_end_alloc_w(raw_sample_ctl, &dosage_present) ||
+                       bigstack_end_alloc_dosage(raw_sample_ct, &dosage_main))) {
             goto GlmMain_ret_NOMEM;
           }
           PgrSampleSubsetIndex null_pssi;
@@ -11294,9 +11272,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             PhenoCol* cur_covar_col = &(new_covar_cols[local_covar_ct + condition_idx]);
             uintptr_t* cur_nonmiss;
             double* cur_covar_vals;
-            if (unlikely(
-                    bigstack_alloc_w(raw_sample_ctl, &cur_nonmiss) ||
-                    bigstack_alloc_d(raw_sample_ct, &cur_covar_vals))) {
+            if (unlikely(bigstack_alloc_w(raw_sample_ctl, &cur_nonmiss) ||
+                         bigstack_alloc_d(raw_sample_ct, &cur_covar_vals))) {
               goto GlmMain_ret_NOMEM;
             }
             cur_covar_col->category_names = nullptr;
@@ -11364,9 +11341,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           BigstackEndReset(bigstack_end_mark);
         }
       } else {
-        if (unlikely(
-                BIGSTACK_ALLOC_X(PhenoCol, raw_covar_ct + add_sex_covar, &new_covar_cols) ||
-                bigstack_alloc_c((raw_covar_ct + add_sex_covar) * new_max_covar_name_blen, &new_covar_names))) {
+        if (unlikely(BIGSTACK_ALLOC_X(PhenoCol, raw_covar_ct + add_sex_covar, &new_covar_cols) ||
+                     bigstack_alloc_c((raw_covar_ct + add_sex_covar) * new_max_covar_name_blen, &new_covar_names))) {
           goto GlmMain_ret_NOMEM;
         }
       }
@@ -11422,9 +11398,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     uintptr_t* covar_include_x = nullptr;
     uint32_t covar_max_nonnull_cat_ct = 0;
     if (raw_covar_ctl) {
-      if (unlikely(
-              bigstack_alloc_w(raw_covar_ctl, &initial_covar_include) ||
-              bigstack_alloc_w(raw_covar_ctl, &covar_include))) {
+      if (unlikely(bigstack_alloc_w(raw_covar_ctl, &initial_covar_include) ||
+                   bigstack_alloc_w(raw_covar_ctl, &covar_include))) {
         goto GlmMain_ret_NOMEM;
       }
       ZeroWArr(raw_covar_ctl, initial_covar_include);
@@ -11491,11 +11466,10 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     common.tests_flag = glm_info_ptr->tests_range_list.name_ct || (glm_flags & kfGlmTestsAll);
     const uint32_t joint_test = domdev_present || common.tests_flag;
     if (glm_info_ptr->parameters_range_list.name_ct) {
-      if (unlikely(
-              bigstack_calloc_w(biallelic_raw_predictor_ctl, &raw_parameter_subset) ||
-              bigstack_alloc_w(biallelic_raw_predictor_ctl, &common.parameter_subset) ||
-              bigstack_alloc_w(biallelic_raw_predictor_ctl, &common.parameter_subset_x) ||
-              bigstack_alloc_w(biallelic_raw_predictor_ctl, &common.parameter_subset_y))) {
+      if (unlikely(bigstack_calloc_w(biallelic_raw_predictor_ctl, &raw_parameter_subset) ||
+                   bigstack_alloc_w(biallelic_raw_predictor_ctl, &common.parameter_subset) ||
+                   bigstack_alloc_w(biallelic_raw_predictor_ctl, &common.parameter_subset_x) ||
+                   bigstack_alloc_w(biallelic_raw_predictor_ctl, &common.parameter_subset_y))) {
         goto GlmMain_ret_NOMEM;
       }
       raw_parameter_subset[0] = 1;  // intercept (index 0) always included
@@ -11519,10 +11493,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     common.constraint_ct_x = 0;
     common.constraint_ct_y = 0;
     if (joint_test) {
-      if (unlikely(
-              bigstack_calloc_w(biallelic_raw_predictor_ctl, &raw_joint_test_params) ||
-              bigstack_alloc_w(biallelic_raw_predictor_ctl, &common.joint_test_params) ||
-              bigstack_alloc_w(biallelic_raw_predictor_ctl, &common.joint_test_params_x))) {
+      if (unlikely(bigstack_calloc_w(biallelic_raw_predictor_ctl, &raw_joint_test_params) ||
+                   bigstack_alloc_w(biallelic_raw_predictor_ctl, &common.joint_test_params) ||
+                   bigstack_alloc_w(biallelic_raw_predictor_ctl, &common.joint_test_params_x))) {
         goto GlmMain_ret_NOMEM;
       }
 
@@ -11540,9 +11513,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         raw_joint_test_params[0] = 6;
       } else {
         uintptr_t* tests_buf;
-        if (unlikely(
-                bigstack_alloc_w(biallelic_raw_predictor_ctl, &common.joint_test_params_y) ||
-                bigstack_calloc_w(biallelic_raw_predictor_ctl, &tests_buf))) {
+        if (unlikely(bigstack_alloc_w(biallelic_raw_predictor_ctl, &common.joint_test_params_y) ||
+                     bigstack_calloc_w(biallelic_raw_predictor_ctl, &tests_buf))) {
           goto GlmMain_ret_NOMEM;
         }
         if (glm_info_ptr->tests_range_list.name_ct) {
@@ -11623,10 +11595,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       }
       // if your regression doesn't involve genotype data, you should be using
       // e.g. R, not plink...
-      if (unlikely(
-              (!(raw_parameter_subset[0] & 2)) &&
-              ((!domdev_present) || (!(raw_parameter_subset[0] & 4))) &&
-              ((!add_interactions) || (!PopcountBitRange(raw_parameter_subset, first_interaction_pred_uidx, biallelic_raw_predictor_ct))))) {
+      if (unlikely((!(raw_parameter_subset[0] & 2)) &&
+                   ((!domdev_present) || (!(raw_parameter_subset[0] & 4))) &&
+                   ((!add_interactions) || (!PopcountBitRange(raw_parameter_subset, first_interaction_pred_uidx, biallelic_raw_predictor_ct))))) {
         logerrputs("Error: --parameters must retain at least one dosage-dependent variable.\n");
         goto GlmMain_ret_INCONSISTENT_INPUT;
       }
@@ -11650,9 +11621,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         // (if only chrX and chrY present, don't allocate
         // cur_sample_include_x_buf, just make chrX the baseline instead)
         if (IsSet(initial_covar_include, raw_covar_ct - 1) && (variant_ct != variant_ct_x + variant_ct_y)) {
-          if (unlikely(
-                  bigstack_alloc_w(raw_sample_ctl, &cur_sample_include_x_buf) ||
-                  bigstack_alloc_w(raw_covar_ctl, &covar_include_x))) {
+          if (unlikely(bigstack_alloc_w(raw_sample_ctl, &cur_sample_include_x_buf) ||
+                       bigstack_alloc_w(raw_covar_ctl, &covar_include_x))) {
             goto GlmMain_ret_NOMEM;
           }
           --initial_nonx_covar_ct;
@@ -11689,9 +11659,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     uintptr_t* valid_alleles = nullptr;
     unsigned char* bigstack_mark2 = g_bigstack_base;
     if (report_adjust || perms_total) {
-      if (unlikely(
-              bigstack_alloc_w(raw_variant_ctl, &valid_variants) ||
-              bigstack_alloc_w(raw_allele_ctl, &valid_alleles))) {
+      if (unlikely(bigstack_alloc_w(raw_variant_ctl, &valid_variants) ||
+                   bigstack_alloc_w(raw_allele_ctl, &valid_alleles))) {
         goto GlmMain_ret_NOMEM;
       }
       bigstack_mark2 = g_bigstack_base;
@@ -11701,10 +11670,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       uintptr_t* pheno_batch;
       uint32_t* pheno_nm_hashes;
       uintptr_t* pheno_nonmiss_tmp; // might be able to move this later
-      if (unlikely(
-              bigstack_alloc_w(pheno_ctl, &pheno_batch) ||
-              bigstack_alloc_u32(pheno_ct, &pheno_nm_hashes) ||
-              bigstack_alloc_w(raw_sample_ctl, &pheno_nonmiss_tmp))) {
+      if (unlikely(bigstack_alloc_w(pheno_ctl, &pheno_batch) ||
+                   bigstack_alloc_u32(pheno_ct, &pheno_nm_hashes) ||
+                   bigstack_alloc_w(raw_sample_ctl, &pheno_nonmiss_tmp))) {
         goto GlmMain_ret_NOMEM;
       }
       uint32_t completed_pheno_ct = 0;

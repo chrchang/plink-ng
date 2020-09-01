@@ -469,9 +469,8 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
     const uint32_t chr_ct = cip->chr_ct;
     char* chr_name_buf;
     uintptr_t* chr_already_seen;
-    if (unlikely(
-            bigstack_calloc_w(BitCtToWordCt(chr_ct), &chr_already_seen) ||
-            bigstack_alloc_c(kMaxIdBlen, &chr_name_buf))) {
+    if (unlikely(bigstack_calloc_w(BitCtToWordCt(chr_ct), &chr_already_seen) ||
+                 bigstack_alloc_c(kMaxIdBlen, &chr_name_buf))) {
       goto ProcessFa_ret_NOMEM;
     }
     uint32_t* alen_buf = nullptr;

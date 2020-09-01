@@ -309,10 +309,9 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     double* ln_pv_bh;
     double* ln_pv_gc;
     double* unadj_sorted_ln_pvals;
-    if (unlikely(
-            bigstack_alloc_d(valid_allele_ct, &ln_pv_bh) ||
-            bigstack_alloc_d(valid_allele_ct, &ln_pv_gc) ||
-            bigstack_alloc_d(valid_allele_ct, &unadj_sorted_ln_pvals))) {
+    if (unlikely(bigstack_alloc_d(valid_allele_ct, &ln_pv_bh) ||
+                 bigstack_alloc_d(valid_allele_ct, &ln_pv_gc) ||
+                 bigstack_alloc_d(valid_allele_ct, &unadj_sorted_ln_pvals))) {
       goto Multcomp_ret_NOMEM;
     }
 
@@ -728,9 +727,8 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     const uintptr_t entry_ctl2 = NypCtToWordCt(entry_ct);
     uintptr_t* variant_include_dummy;
     uintptr_t* allele_include_dummy;
-    if (unlikely(
-            bigstack_alloc_w(entry_ctl, &variant_include_dummy) ||
-            bigstack_alloc_w(entry_ctl2, &allele_include_dummy))) {
+    if (unlikely(bigstack_alloc_w(entry_ctl, &variant_include_dummy) ||
+                 bigstack_alloc_w(entry_ctl2, &allele_include_dummy))) {
       goto AdjustFile_ret_NOMEM;
     }
     SetAllBits(entry_ct, variant_include_dummy);
@@ -759,9 +757,8 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     }
     char** variant_ids;
     double* ln_pvals;
-    if (unlikely(
-            bigstack_alloc_cp(entry_ct, &variant_ids) ||
-            bigstack_alloc_d(entry_ct, &ln_pvals))) {
+    if (unlikely(bigstack_alloc_cp(entry_ct, &variant_ids) ||
+                 bigstack_alloc_d(entry_ct, &ln_pvals))) {
       goto AdjustFile_ret_NOMEM;
     }
     char** allele_storage;
@@ -781,7 +778,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       a1_storage = nullptr;
     }
     unsigned char* tmp_alloc_base = g_bigstack_base;
-    unsigned char* tmp_alloc_end = g_bigstack_end;
+    unsigned char* tmp_alloc_end = BigstackEndRoundedDown();
     uint32_t max_allele_slen = 1;
     uintptr_t variant_idx = 0;
     while (line_idx < line_ct) {
@@ -851,9 +848,8 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
           cur_slen = token_slens[7];
           if (IsNanStr(pval_str, cur_slen)) {
             ln_pval = kLnPvalError;
-          } else if (likely(
-                       strequal_k(pval_str, "INF", cur_slen) ||
-                       (input_log10 && strequal_k(pval_str, "inf", cur_slen)))) {
+          } else if (likely(strequal_k(pval_str, "INF", cur_slen) ||
+                            (input_log10 && strequal_k(pval_str, "inf", cur_slen)))) {
             // From plink 1.x, could be anything smaller than log(5e-324).
             // Just fill with log(2.23e-308) for now.
             ln_pval = kLnNormalMin;
