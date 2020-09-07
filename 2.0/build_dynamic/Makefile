@@ -145,17 +145,19 @@ ifdef FORCE_32BIT
   CXXFLAGS += -Wno-sign-compare
 endif
 
-all: plink2 pgen_compress
+SFX ?= ""
 
-plink2: $(CSRC2) $(ZCSRC2) $(CCSRC2) ../plink2_cpu.cc
+all: plink2$(SFX) pgen_compress
+
+plink2$(SFX): $(CSRC2) $(ZCSRC2) $(CCSRC2) ../plink2_cpu.cc
 	$(CC) $(CFLAGS) $(CSRC2) -c
-	$(SKIP_STATIC_ZSTD) gcc $(ZCFLAGS) $(ZCSRC2) -c
+	$(SKIP_STATIC_ZSTD) $(CC) $(ZCFLAGS) $(ZCSRC2) -c
 	$(CXX) $(CXXFLAGS) $(CCSRC2) -c
 	$(CXX) $(CPUCHECK_FLAGS) ../plink2_cpu.cc -c
-	$(CXX) $(OBJ2) plink2_cpu.o $(ARCH32) -o plink2 $(BLASFLAGS) $(LINKFLAGS)
+	$(CXX) $(OBJ2) plink2_cpu.o $(ARCH32) -o $@ $(BLASFLAGS) $(LINKFLAGS)
 
-pgen_compress: $(PGCSRC2)
-	$(CXX) $(CXXFLAGS) $(PGCSRC2) -o pgen_compress
+pgen_compress$(SFX): $(PGCSRC2)
+	$(CXX) $(CXXFLAGS) $(PGCSRC2) -o $@
 
 .PHONY: clean
 clean:

@@ -134,14 +134,8 @@
 #endif
 
 #ifdef __LP64__
-#  ifndef __SSE2__
-// possible todo: remove this requirement, the 32-bit VecW-using code does most
-// of what we need.  But little point in doing this before we have e.g. an
-// ARM-based machine to test with that scientists would plausibly want to run
-// plink2 on.
-#    error "64-bit builds currently require SSE2.  Try producing a 32-bit build instead."
-#  endif
-#  include <emmintrin.h>
+#  define SIMDE_ENABLE_NATIVE_ALIASES
+#  include <simde/x86/sse2.h>
 #  ifdef __SSE4_2__
 #    define USE_SSE42
 #    include <smmintrin.h>
