@@ -26,7 +26,7 @@ ARCH32		?=
 
 # Mandatory flags added to defaults or env settings
 CFLAGS		+= -std=gnu99 $(BASEFLAGS) $(CWARN) $(CINCLUDE)
-CXXFLAGS	+= -std=c++14 $(BASEFLAGS) $(CXXWARN)
+CXXFLAGS	+= -std=c++14 $(BASEFLAGS) $(CXXWARN) $(CXXINCLUDE)
 LDFLAGS		+= -lm -lpthread $(ZLIB) -lzstd
 
 # Installation defaults
