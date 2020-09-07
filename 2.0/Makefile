@@ -6,10 +6,9 @@
 
 # Does not currently support -DCPU_CHECK_...
 
-BASEFLAGS=-g -DZSTD_MULTITHREAD
+BASEFLAGS=-g -DZSTD_MULTITHREAD -DSTATIC_ZSTD
 # BASEFLAGS=-g -mavx2 -mbmi -mbmi2 -mlzcnt -DZSTD_MULTITHREAD
 # BASEFLAGS=-g -msse4.2 -DZSTD_MULTITHREAD
-# BASEFLAGS=-g -DZSTD_MULTITHREAD
 
 include Makefile.src
 
@@ -21,13 +20,18 @@ CFLAGS		?= -O3
 CXXFLAGS	?= -O2
 ZLIB		?= -lz
 # ZLIB		?= -L. ../zlib-1.2.11/libz-64.a
+
+# dynamic zstd: remove -DSTATIC_ZSTD above, change this to -lzstd, replace
+# OBJ with OBJ_NO_ZSTD below
+ZSTD		?=
+
 BLASFLAGS64	?= -llapack -lf77blas -latlas
 ARCH32		?=
 
 # Mandatory flags added to defaults or env settings
 CFLAGS		+= -std=gnu99 $(BASEFLAGS) $(CWARN) $(CINCLUDE)
 CXXFLAGS	+= -std=c++14 $(BASEFLAGS) $(CXXWARN) $(CXXINCLUDE)
-LDFLAGS		+= -lm -lpthread $(ZLIB) -lzstd
+LDFLAGS		+= -lm -lpthread $(ZLIB) $(ZSTD)
 
 # Installation defaults
 MKDIR		?= mkdir
@@ -57,9 +61,9 @@ all: plink2 pgen_compress
 # for clean build, "make clean" first
 # Run mkdir for both plink2 and pgen_compress as we don't know which
 # target will run first
-plink2: $(OBJ_NO_ZSTD)
+plink2: $(OBJ)
 	$(MKDIR) -p bin
-	$(CXX) $(ARCH32) $(OBJ_NO_ZSTD) -o bin/plink2 $(BLASFLAGS64) $(LDFLAGS)
+	$(CXX) $(ARCH32) $(OBJ) -o bin/plink2 $(BLASFLAGS64) $(LDFLAGS)
 
 # basic pgenlib usage example; also needed for tests
 pgen_compress: $(PGCOBJ)
