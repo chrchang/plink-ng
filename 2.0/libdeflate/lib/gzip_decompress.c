@@ -32,7 +32,7 @@
 
 #include "libdeflate.h"
 
-LIBDEFLATEAPI enum libdeflate_result
+LIBDEFLATEEXPORT enum libdeflate_result LIBDEFLATEAPI
 libdeflate_gzip_decompress_ex(struct libdeflate_decompressor *d,
 			      const void *in, size_t in_nbytes,
 			      void *out, size_t out_nbytes_avail,
@@ -74,7 +74,7 @@ libdeflate_gzip_decompress_ex(struct libdeflate_decompressor *d,
 		u16 xlen = get_unaligned_le16(in_next);
 		in_next += 2;
 
-		if ((size_t)(in_end - in_next) < (u32)xlen + GZIP_FOOTER_SIZE)
+		if (in_end - in_next < (u32)xlen + GZIP_FOOTER_SIZE)
 			return LIBDEFLATE_BAD_DATA;
 
 		in_next += xlen;
@@ -136,7 +136,7 @@ libdeflate_gzip_decompress_ex(struct libdeflate_decompressor *d,
 	return LIBDEFLATE_SUCCESS;
 }
 
-LIBDEFLATEAPI enum libdeflate_result
+LIBDEFLATEEXPORT enum libdeflate_result LIBDEFLATEAPI
 libdeflate_gzip_decompress(struct libdeflate_decompressor *d,
 			   const void *in, size_t in_nbytes,
 			   void *out, size_t out_nbytes_avail,

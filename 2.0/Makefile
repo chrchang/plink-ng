@@ -7,6 +7,7 @@
 # Does not currently support -DCPU_CHECK_...
 
 BASEFLAGS=-g -DZSTD_MULTITHREAD
+# BASEFLAGS=-g -mavx2 -mbmi -mbmi2 -mlzcnt -DZSTD_MULTITHREAD
 # BASEFLAGS=-g -msse4.2 -DZSTD_MULTITHREAD
 # BASEFLAGS=-g -DZSTD_MULTITHREAD
 
@@ -18,14 +19,15 @@ CC		?= gcc
 CXX		?= g++
 CFLAGS		?= -O3
 CXXFLAGS	?= -O2
-ZLIB		?= ../zlib-1.2.11/libz-64.a
+ZLIB		?= -lz
+# ZLIB		?= -L. ../zlib-1.2.11/libz-64.a
 BLASFLAGS64	?= -llapack -lf77blas -latlas
 ARCH32		?=
 
 # Mandatory flags added to defaults or env settings
 CFLAGS		+= -std=gnu99 $(BASEFLAGS) $(CWARN) $(CINCLUDE)
 CXXFLAGS	+= -std=c++14 $(BASEFLAGS) $(CXXWARN)
-LDFLAGS		+= -lm -lpthread -L. $(ZLIB) -lzstd
+LDFLAGS		+= -lm -lpthread $(ZLIB) -lzstd
 
 # Installation defaults
 MKDIR		?= mkdir

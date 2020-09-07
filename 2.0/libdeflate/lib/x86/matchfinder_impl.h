@@ -135,7 +135,7 @@ matchfinder_rebase_sse2(mf_pos_t *data, size_t size)
 
 #undef arch_matchfinder_init
 static forceinline bool
-arch_matchfinder_init(__attribute__((unused)) mf_pos_t *data, __attribute__((unused)) size_t size)
+arch_matchfinder_init(mf_pos_t *data, size_t size)
 {
 #ifdef __AVX2__
 	if (matchfinder_init_avx2(data, size))
@@ -150,7 +150,7 @@ arch_matchfinder_init(__attribute__((unused)) mf_pos_t *data, __attribute__((unu
 
 #undef arch_matchfinder_rebase
 static forceinline bool
-arch_matchfinder_rebase(__attribute__((unused)) mf_pos_t *data, __attribute__((unused)) size_t size)
+arch_matchfinder_rebase(mf_pos_t *data, size_t size)
 {
 #ifdef __AVX2__
 	if (matchfinder_rebase_avx2(data, size))

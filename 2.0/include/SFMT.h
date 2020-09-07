@@ -130,7 +130,7 @@ extern "C" {
   ------------------------------------------*/
 #ifdef __LP64__
   #define SIMDE_ENABLE_NATIVE_ALIASES
-  #include <simde/x86/sse2.h>
+  #include "x86/sse2.h"
 
 /** 128-bit data structure */
 union W128_T {

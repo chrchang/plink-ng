@@ -27,10 +27,6 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include <stdlib.h>
-#include <string.h>
-
-#include "aligned_malloc.h"
 #include "deflate_compress.h"
 #include "deflate_constants.h"
 #include "unaligned.h"
@@ -533,7 +529,7 @@ deflate_flush_bits(struct deflate_output_bitstream *os)
 		/* Flush a whole word (branchlessly).  */
 		put_unaligned_leword(os->bitbuf, os->next);
 		os->bitbuf >>= os->bitcount & ~7;
-		os->next += MIN((size_t)(os->end - os->next), os->bitcount >> 3);
+		os->next += MIN(os->end - os->next, os->bitcount >> 3);
 		os->bitcount &= 7;
 	} else {
 		/* Flush a byte at a time.  */
@@ -559,7 +555,7 @@ deflate_align_bitstream(struct deflate_output_bitstream *os)
  * Flush any remaining bits to the output buffer if needed.  Return the total
  * number of bytes written to the output buffer, or 0 if an overflow occurred.
  */
-static u32
+static size_t
 deflate_flush_output(struct deflate_output_bitstream *os)
 {
 	if (os->next == os->end) /* overflow?  */
@@ -854,6 +850,7 @@ static void
 compute_length_counts(u32 A[restrict], unsigned root_idx,
 		      unsigned len_counts[restrict], unsigned max_codeword_len)
 {
+	unsigned len;
 	int node;
 
 	/* The key observations are:
@@ -878,7 +875,7 @@ compute_length_counts(u32 A[restrict], unsigned root_idx,
 	 * exceeds max_codeword_len.
 	 */
 
-	for (unsigned len = 0; len <= max_codeword_len; len++)
+	for (len = 0; len <= max_codeword_len; len++)
 		len_counts[len] = 0;
 	len_counts[1] = 2;
 
@@ -1664,7 +1661,7 @@ deflate_write_uncompressed_block(struct deflate_output_bitstream *os,
 				   DEFLATE_BLOCKTYPE_UNCOMPRESSED);
 	deflate_align_bitstream(os);
 
-	if (4 + (u32)len >= (size_t)(os->end - os->next)) {
+	if (4 + (u32)len >= os->end - os->next) {
 		os->next = os->end;
 		return;
 	}
@@ -1856,7 +1853,7 @@ deflate_finish_sequence(struct deflate_sequence *seq, u32 litrunlen)
  * but rather we combine many symbols into a single "observation type".  For
  * literals we only look at the high bits and low bits, and for matches we only
  * look at whether the match is long or not.  The assumption is that for typical
- * "real" data, places that are good block boundaries will tend to be noticable
+ * "real" data, places that are good block boundaries will tend to be noticeable
  * based only on changes in these aggregate frequencies, without looking for
  * subtle differences in individual symbols.  For example, a change from ASCII
  * bytes to non-ASCII bytes, or from few matches (generally less compressible)
@@ -1996,7 +1993,7 @@ deflate_compress_greedy(struct libdeflate_compressor * restrict c,
 
 			/* Decrease the maximum and nice match lengths if we're
 			 * approaching the end of the input buffer.  */
-			if (unlikely(max_len > (size_t)(in_end - in_next))) {
+			if (unlikely(max_len > in_end - in_next)) {
 				max_len = in_end - in_next;
 				nice_len = MIN(nice_len, max_len);
 			}
@@ -2248,7 +2245,7 @@ deflate_set_costs_from_codes(struct libdeflate_compressor *c,
 }
 
 static forceinline u32
-deflate_default_literal_cost(__attribute__((unused)) unsigned literal)
+deflate_default_literal_cost(unsigned literal)
 {
 	STATIC_ASSERT(COST_SHIFT == 3);
 	/* 66 is 8.25 bits/symbol  */
@@ -2486,7 +2483,7 @@ deflate_compress_near_optimal(struct libdeflate_compressor * restrict c,
 	const u8 *in_end = in_next + in_nbytes;
 	struct deflate_output_bitstream os;
 	const u8 *in_cur_base = in_next;
-	const u8 *in_next_slide = in_next + MIN((size_t)(in_end - in_next), MATCHFINDER_WINDOW_SIZE);
+	const u8 *in_next_slide = in_next + MIN(in_end - in_next, MATCHFINDER_WINDOW_SIZE);
 	unsigned max_len = DEFLATE_MAX_MATCH_LEN;
 	unsigned nice_len = MIN(c->nice_match_length, max_len);
 	u32 next_hashes[2] = {0, 0};
@@ -2521,13 +2518,13 @@ deflate_compress_near_optimal(struct libdeflate_compressor * restrict c,
 			if (in_next == in_next_slide) {
 				bt_matchfinder_slide_window(&c->p.n.bt_mf);
 				in_cur_base = in_next;
-				in_next_slide = in_next + MIN((size_t)(in_end - in_next),
+				in_next_slide = in_next + MIN(in_end - in_next,
 							      MATCHFINDER_WINDOW_SIZE);
 			}
 
 			/* Decrease the maximum and nice match lengths if we're
 			 * approaching the end of the input buffer.  */
-			if (unlikely(max_len > (size_t)(in_end - in_next))) {
+			if (unlikely(max_len > in_end - in_next)) {
 				max_len = in_end - in_next;
 				nice_len = MIN(nice_len, max_len);
 			}
@@ -2596,10 +2593,10 @@ deflate_compress_near_optimal(struct libdeflate_compressor * restrict c,
 					if (in_next == in_next_slide) {
 						bt_matchfinder_slide_window(&c->p.n.bt_mf);
 						in_cur_base = in_next;
-						in_next_slide = in_next + MIN((size_t)(in_end - in_next),
+						in_next_slide = in_next + MIN(in_end - in_next,
 									      MATCHFINDER_WINDOW_SIZE);
 					}
-					if (unlikely(max_len > (size_t)(in_end - in_next))) {
+					if (unlikely(max_len > in_end - in_next)) {
 						max_len = in_end - in_next;
 						nice_len = MIN(nice_len, max_len);
 					}
@@ -2668,7 +2665,7 @@ deflate_init_offset_slot_fast(struct libdeflate_compressor *c)
 	}
 }
 
-LIBDEFLATEAPI struct libdeflate_compressor *
+LIBDEFLATEEXPORT struct libdeflate_compressor * LIBDEFLATEAPI
 libdeflate_alloc_compressor(int compression_level)
 {
 	struct libdeflate_compressor *c;
@@ -2681,7 +2678,7 @@ libdeflate_alloc_compressor(int compression_level)
 #endif
 		size = offsetof(struct libdeflate_compressor, p) + sizeof(c->p.g);
 
-	c = aligned_malloc(MATCHFINDER_ALIGNMENT, size);
+	c = libdeflate_aligned_malloc(MATCHFINDER_ALIGNMENT, size);
 	if (!c)
 		return NULL;
 
@@ -2765,7 +2762,7 @@ libdeflate_alloc_compressor(int compression_level)
 		break;
 #endif
 	default:
-		aligned_free(c);
+		libdeflate_aligned_free(c);
 		return NULL;
 	}
 
@@ -2777,7 +2774,7 @@ libdeflate_alloc_compressor(int compression_level)
 	return c;
 }
 
-LIBDEFLATEAPI size_t
+LIBDEFLATEEXPORT size_t LIBDEFLATEAPI
 libdeflate_deflate_compress(struct libdeflate_compressor *c,
 			    const void *in, size_t in_nbytes,
 			    void *out, size_t out_nbytes_avail)
@@ -2798,10 +2795,10 @@ libdeflate_deflate_compress(struct libdeflate_compressor *c,
 	return (*c->impl)(c, in, in_nbytes, out, out_nbytes_avail);
 }
 
-LIBDEFLATEAPI void
+LIBDEFLATEEXPORT void LIBDEFLATEAPI
 libdeflate_free_compressor(struct libdeflate_compressor *c)
 {
-	aligned_free(c);
+	libdeflate_aligned_free(c);
 }
 
 unsigned int
@@ -2810,8 +2807,8 @@ deflate_get_compression_level(struct libdeflate_compressor *c)
 	return c->compression_level;
 }
 
-LIBDEFLATEAPI size_t
-libdeflate_deflate_compress_bound(__attribute__((unused)) struct libdeflate_compressor *c,
+LIBDEFLATEEXPORT size_t LIBDEFLATEAPI
+libdeflate_deflate_compress_bound(struct libdeflate_compressor *c,
 				  size_t in_nbytes)
 {
 	/*

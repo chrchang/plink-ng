@@ -45,8 +45,6 @@
  */
 
 #include <limits.h>
-#include <stdlib.h>
-#include <string.h>
 
 #include "deflate_constants.h"
 #include "unaligned.h"
@@ -277,7 +275,7 @@ do {								\
 if (!HAVE_BITS(n)) {						\
 	if (CPU_IS_LITTLE_ENDIAN() &&				\
 	    UNALIGNED_ACCESS_IS_FAST &&				\
-	    likely((size_t)(in_end - in_next) >= sizeof(bitbuf_t)))	\
+	    likely(in_end - in_next >= sizeof(bitbuf_t)))	\
 		FILL_BITS_WORDWISE();				\
 	else							\
 		FILL_BITS_BYTEWISE();				\
@@ -336,7 +334,7 @@ do {									\
  * pointer", meaning that the entry references a subtable that must be indexed
  * using more bits of the compressed data to decode the symbol.
  *
- * Each decode table (a main table along with with its subtables, if any) is
+ * Each decode table (a main table along with its subtables, if any) is
  * associated with a Huffman code.  Logically, the result of a decode table
  * lookup is a symbol from the alphabet from which the corresponding Huffman
  * code was constructed.  A symbol with codeword length n <= TABLEBITS is
@@ -835,7 +833,7 @@ build_precode_decode_table(struct libdeflate_decompressor *d)
 /* Build the decode table for the literal/length code.  */
 static bool
 build_litlen_decode_table(struct libdeflate_decompressor *d,
-			  unsigned num_litlen_syms, __attribute__((unused)) unsigned num_offset_syms)
+			  unsigned num_litlen_syms, unsigned num_offset_syms)
 {
 	/* When you change TABLEBITS, you must change ENOUGH, and vice versa! */
 	STATIC_ASSERT(LITLEN_TABLEBITS == 10 && LITLEN_ENOUGH == 1334);
@@ -947,7 +945,7 @@ dispatch(struct libdeflate_decompressor * restrict d,
  * handles calling the appropriate implementation depending on the CPU features
  * at runtime.
  */
-LIBDEFLATEAPI enum libdeflate_result
+LIBDEFLATEEXPORT enum libdeflate_result LIBDEFLATEAPI
 libdeflate_deflate_decompress_ex(struct libdeflate_decompressor * restrict d,
 				 const void * restrict in, size_t in_nbytes,
 				 void * restrict out, size_t out_nbytes_avail,
@@ -958,7 +956,7 @@ libdeflate_deflate_decompress_ex(struct libdeflate_decompressor * restrict d,
 			       actual_in_nbytes_ret, actual_out_nbytes_ret);
 }
 
-LIBDEFLATEAPI enum libdeflate_result
+LIBDEFLATEEXPORT enum libdeflate_result LIBDEFLATEAPI
 libdeflate_deflate_decompress(struct libdeflate_decompressor * restrict d,
 			      const void * restrict in, size_t in_nbytes,
 			      void * restrict out, size_t out_nbytes_avail,
@@ -969,7 +967,7 @@ libdeflate_deflate_decompress(struct libdeflate_decompressor * restrict d,
 						NULL, actual_out_nbytes_ret);
 }
 
-LIBDEFLATEAPI struct libdeflate_decompressor *
+LIBDEFLATEEXPORT struct libdeflate_decompressor * LIBDEFLATEAPI
 libdeflate_alloc_decompressor(void)
 {
 	/*
@@ -987,11 +985,16 @@ libdeflate_alloc_decompressor(void)
 	 *
 	 * But for simplicity, we currently just zero the whole decompressor.
 	 */
-	return calloc(1, sizeof(struct libdeflate_decompressor));
+	struct libdeflate_decompressor *d = libdeflate_malloc(sizeof(*d));
+
+	if (d == NULL)
+		return NULL;
+	memset(d, 0, sizeof(*d));
+	return d;
 }
 
-LIBDEFLATEAPI void
+LIBDEFLATEEXPORT void LIBDEFLATEAPI
 libdeflate_free_decompressor(struct libdeflate_decompressor *d)
 {
-	free(d);
+	libdeflate_free(d);
 }

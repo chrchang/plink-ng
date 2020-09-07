@@ -21,13 +21,13 @@ OBJ2 = $(notdir $(OBJ))
 
 OBJ3 = $(CSRC2:.c=.o) $(ZCSRC2:.c=.o) $(CCSRC2:.cc=.o)
 
-CINCLUDE = -Ilibdeflate -Ilibdeflate/common
-CINCLUDE2 = -I../libdeflate -I../libdeflate/common
+CINCLUDE = -Ilibdeflate -Ilibdeflate/common -I../simde
+CINCLUDE2 = -I../libdeflate -I../libdeflate/common -I../../simde
 ZSTD_INCLUDE = -Izstd/lib -Izstd/lib/common
 ZSTD_INCLUDE2 = -I../zstd/lib -I../zstd/lib/common
 
 PGCSRC = include/plink2_base.cc include/plink2_bits.cc include/pgenlib_misc.cc include/pgenlib_read.cc include/pgenlib_write.cc pgen_compress.cc
-PGCOBJ = $(PGCSRC:.c=.o)
+PGCOBJ = $(PGCSRC:.cc=.o)
 PGCSRC2 = $(foreach fname,$(PGCSRC),../$(fname))
 
 CLEAN = *.o include/*.o libdeflate/lib/*.o libdeflate/lib/x86/*.o zstd/lib/common/*.o zstd/lib/compress/*.o zstd/lib/decompress/*.o bin/plink2 bin/pgen_compress
