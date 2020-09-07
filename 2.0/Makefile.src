@@ -21,10 +21,10 @@ OBJ2 = $(notdir $(OBJ))
 
 OBJ3 = $(CSRC2:.c=.o) $(ZCSRC2:.c=.o) $(CCSRC2:.cc=.o)
 
-CINCLUDE = -Ilibdeflate -Ilibdeflate/common -I../simde
-CINCLUDE2 = -I../libdeflate -I../libdeflate/common -I../../simde
-CXXINCLUDE = -I../simde
-CXXINCLUDE2 = -I../../simde
+CINCLUDE = -Ilibdeflate -Ilibdeflate/common -Isimde
+CINCLUDE2 = -I../libdeflate -I../libdeflate/common -I../simde
+CXXINCLUDE = -Isimde
+CXXINCLUDE2 = -I../simde
 ZSTD_INCLUDE = -Izstd/lib -Izstd/lib/common
 ZSTD_INCLUDE2 = -I../zstd/lib -I../zstd/lib/common
 
