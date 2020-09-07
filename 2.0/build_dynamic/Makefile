@@ -139,7 +139,7 @@ endif
 
 CFLAGS += ${BASEFLAGS} ${CWARN2} ${CINCLUDE2}
 ZCFLAGS += ${BASEFLAGS} ${CWARN2} ${ZSTD_INCLUDE2}
-CXXFLAGS += ${BASEFLAGS} ${CXXWARN2}
+CXXFLAGS += ${BASEFLAGS} ${CXXWARN2} ${CXXINCLUDE2}
 
 ifdef FORCE_32BIT
   CXXFLAGS += -Wno-sign-compare
@@ -147,7 +147,7 @@ endif
 
 SFX ?= ""
 
-all: plink2$(SFX) pgen_compress
+all: plink2$(SFX) pgen_compress$(SFX)
 
 plink2$(SFX): $(CSRC2) $(ZCSRC2) $(CCSRC2) ../plink2_cpu.cc
 	$(CC) $(CFLAGS) $(CSRC2) -c
