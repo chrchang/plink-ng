@@ -135,7 +135,7 @@
 
 #ifdef __LP64__
 #  define SIMDE_ENABLE_NATIVE_ALIASES
-#  include "simde/x86/sse2.h"
+#  include "x86/sse2.h"
 #  ifdef __SSE4_2__
 #    define USE_SSE42
 #    include <smmintrin.h>
