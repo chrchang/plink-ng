@@ -64,8 +64,7 @@ endif
 # These must appear after the MAC/WIN-specific ?= statements.
 BLASFLAGS ?=	-L/usr/lib64/atlas -llapack -lblas -lcblas -latlas
 LDFLAGS ?=	-lm -lpthread -ldl
-ZLIB ?=		-DDYNAMIC_ZLIB -lz
-# ZLIB ?=		-L. ../zlib-1.2.11/libz.so.1.2.11
+ZLIB ?=		-L. ../zlib-1.2.11/libz.so.1.2.11
 
 ifdef NO_LAPACK
   BLASFLAGS=
@@ -102,7 +101,7 @@ clean:
 # includes a C++ header and exposed functions will need to be declared with
 # extern "C".
 %.o: %.c
-	$(CXX) -c $(CPPFLAGS) $(CFLAGS) $< -o $@
+	$(CXX) -c $(CFLAGS) $< -o $@
 
 %.o: %.cc
-	$(CXX) -x c++ -c $(CPPFLAGS) $(CXXFLAGS) $< -o $@
+	$(CXX) -x c++ -c $(CXXFLAGS) $< -o $@

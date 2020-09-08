@@ -25,4 +25,4 @@ make
 
 # Compile
 cd ../1.9
-make -f Makefile.std plink
+make
