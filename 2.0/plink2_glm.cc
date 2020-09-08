@@ -19,8 +19,10 @@
 #include "plink2_glm.h"
 #include "plink2_matrix.h"
 
-#define SIMDE_ENABLE_NATIVE_ALIASES
-#include "x86/sse2.h"
+#ifdef __LP64__
+#  define SIMDE_ENABLE_NATIVE_ALIASES
+#  include "x86/sse2.h"
+#endif
 
 #ifdef __cplusplus
 namespace plink2 {
