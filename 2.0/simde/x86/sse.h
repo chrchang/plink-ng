@@ -381,7 +381,7 @@ simde_mm_setcsr (uint32_t a) {
   #define _mm_setcsr(a) simde_mm_setcsr(a)
 #endif
 
-#ifndef SIMDE_X86_SSE4_1_ENABLE_NATIVE_ALIASES
+#if !defined(__x86_64__) || !defined(SIMDE_X86_SSE4_1_ENABLE_NATIVE_ALIASES)
 SIMDE_FUNCTION_ATTRIBUTES
 simde__m128
 simde_mm_round_ps (simde__m128 a, int rounding)
