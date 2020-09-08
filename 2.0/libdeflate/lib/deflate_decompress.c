@@ -275,7 +275,7 @@ do {								\
 if (!HAVE_BITS(n)) {						\
 	if (CPU_IS_LITTLE_ENDIAN() &&				\
 	    UNALIGNED_ACCESS_IS_FAST &&				\
-	    likely(in_end - in_next >= sizeof(bitbuf_t)))	\
+	    likely((size_t)(in_end - in_next) >= sizeof(bitbuf_t)))	\
 		FILL_BITS_WORDWISE();				\
 	else							\
 		FILL_BITS_BYTEWISE();				\
@@ -833,7 +833,7 @@ build_precode_decode_table(struct libdeflate_decompressor *d)
 /* Build the decode table for the literal/length code.  */
 static bool
 build_litlen_decode_table(struct libdeflate_decompressor *d,
-			  unsigned num_litlen_syms, unsigned num_offset_syms)
+			  unsigned num_litlen_syms, __attribute__((unused)) unsigned num_offset_syms)
 {
 	/* When you change TABLEBITS, you must change ENOUGH, and vice versa! */
 	STATIC_ASSERT(LITLEN_TABLEBITS == 10 && LITLEN_ENOUGH == 1334);
