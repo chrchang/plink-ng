@@ -29,8 +29,8 @@ endif
 BIN ?=		plink
 CC ?=		gcc
 CXX ?=		g++
-CFLAGS ?=	-Wall -O2
-CXXFLAGS ?=	-Wall -O2
+CFLAGS ?=	-Wall -O2 -I../2.0/simde -DDYNAMIC_ZLIB
+CXXFLAGS ?=	-Wall -O2 -I../2.0/simde -DDYNAMIC_ZLIB
 MACFLAGS ?=	-mmacosx-version-min=10.9
 
 PREFIX ?=	/usr/local
@@ -58,13 +58,14 @@ ifeq ($(SYS), WIN)
 # NO_LAPACK.
   BLASFLAGS ?= -L. lapack/liblapack.a -L. lapack/librefblas.a
   LDFLAGS ?= -lm -static-libgcc
-  ZLIB ?= ../zlib-1.2.11/libz.a
+  ZLIB ?= -L. ../zlib-1.2.11/libz.a
 endif
 
 # These must appear after the MAC/WIN-specific ?= statements.
 BLASFLAGS ?=	-L/usr/lib64/atlas -llapack -lblas -lcblas -latlas
 LDFLAGS ?=	-lm -lpthread -ldl
-ZLIB ?=		../zlib-1.2.11/libz.so.1.2.11
+ZLIB ?=		-lz
+# ZLIB ?=		-L. ../zlib-1.2.11/libz.so.1.2.11
 
 ifdef NO_LAPACK
   BLASFLAGS=
@@ -78,10 +79,10 @@ OBJS = plink.o plink_assoc.o plink_calc.o plink_cluster.o plink_cnv.o plink_comm
 all:	$(BIN)
 
 plink: $(OBJS)
-	$(CXX) $(OBJS) $(LDFLAGS_EXTRA) $(BLASFLAGS) $(LDFLAGS) -L. $(ZLIB) -o $@
+	$(CXX) $(OBJS) $(LDFLAGS_EXTRA) $(BLASFLAGS) $(LDFLAGS) $(ZLIB) -o $@
 
 plinkw: $(OBJS)
-	gfortran -O2 $(OBJS) $(LDFLAGS_EXTRA) -Wl,-Bstatic $(BLASFLAGS) $(LDFLAGS) -L. $(ZLIB) -o $@
+	gfortran -O2 $(OBJS) $(LDFLAGS_EXTRA) -Wl,-Bstatic $(BLASFLAGS) $(LDFLAGS) $(ZLIB) -o $@
 
 install:
 	$(INSTALL) -d $(DESTDIR)$(PREFIX)/bin
