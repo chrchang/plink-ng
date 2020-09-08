@@ -10,7 +10,7 @@ BLASFLAGS=-Wl,-Bstatic -L. ${OPENBLAS_ROOT}/lib/libopenblas.a
 
 BASEFLAGS += -I${OPENBLAS_ROOT}/include
 
-CXXFLAGS=-O2 -std=gnu++11
+CXXFLAGS=-O2 -std=gnu++11 -I../../2.0/simde
 
 include ../Makefile.src
 CXXFLAGS += ${BASEFLAGS} ${CXXWARN}

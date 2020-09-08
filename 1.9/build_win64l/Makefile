@@ -12,7 +12,7 @@ BASEFLAGS += -I${OPENBLAS_ROOT}/include
 CXXFLAGS=-O2 -std=gnu++11
 
 include ../Makefile.src
-CXXFLAGS += ${BASEFLAGS} ${CXXWARN}
+CXXFLAGS += ${BASEFLAGS} ${CXXWARN} -I../../2.0/simde
 
 plink: $(CSRC2) $(CCSRC2)
 	x86_64-w64-mingw32-g++ -x c++ $(CXXFLAGS) $(CSRC2) -c

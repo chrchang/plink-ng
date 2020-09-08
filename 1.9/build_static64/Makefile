@@ -6,7 +6,7 @@ LINKFLAGS=-lm -lpthread
 
 
 include ../Makefile.src
-CXXFLAGS += ${BASEFLAGS} ${CXXWARN}
+CXXFLAGS += ${BASEFLAGS} ${CXXWARN} -I../../2.0/simde
 
 plink: $(CSRC2) $(CCSRC2)
 	g++ -x c++ $(CXXFLAGS) $(CSRC2) -c
