@@ -29,8 +29,8 @@ endif
 BIN ?=		plink
 CC ?=		gcc
 CXX ?=		g++
-CFLAGS ?=	-Wall -O2 -I../2.0/simde -DDYNAMIC_ZLIB
-CXXFLAGS ?=	-Wall -O2 -I../2.0/simde -DDYNAMIC_ZLIB
+CFLAGS ?=	-Wall -O2 -I../2.0/simde
+CXXFLAGS ?=	-Wall -O2 -I../2.0/simde
 MACFLAGS ?=	-mmacosx-version-min=10.9
 
 PREFIX ?=	/usr/local
@@ -47,7 +47,7 @@ ifeq ($(SYS), MAC)
   CXXFLAGS += $(MACFLAGS)
   BLASFLAGS ?= -framework Accelerate
   LDFLAGS ?= -ldl
-  ZLIB ?= ../zlib-1.2.11/libz.1.2.11.dylib
+  ZLIB ?= -L. ../zlib-1.2.11/libz-64.a
 endif
 
 ifeq ($(SYS), WIN)
@@ -64,7 +64,7 @@ endif
 # These must appear after the MAC/WIN-specific ?= statements.
 BLASFLAGS ?=	-L/usr/lib64/atlas -llapack -lblas -lcblas -latlas
 LDFLAGS ?=	-lm -lpthread -ldl
-ZLIB ?=		-lz
+ZLIB ?=		-DDYNAMIC_ZLIB -lz
 # ZLIB ?=		-L. ../zlib-1.2.11/libz.so.1.2.11
 
 ifdef NO_LAPACK
