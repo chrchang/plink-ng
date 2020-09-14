@@ -1815,8 +1815,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             goto Plink2Core_ret_NOMEM;
           }
         }
-        // bugfix (14 Sep 2020)
-        bigstack_mark_allele_ddosages = g_bigstack_base;
         uint32_t x_start = 0;
         uint32_t x_len = 0;
         uint32_t hwe_x_probs_needed = 0;
