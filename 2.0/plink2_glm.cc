@@ -12373,7 +12373,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               if (raw_parameter_subset) {
                 memcpy(joint_test_params_buf, common.joint_test_params_x, biallelic_raw_predictor_ctl * sizeof(intptr_t));
                 ZeroWArr(biallelic_raw_predictor_ctl, common.joint_test_params_x);
-                CopyBitarrSubset(joint_test_params_buf, common.parameter_subset, biallelic_predictor_ct_x, common.joint_test_params_x);
+                // bugfix (14 Sep 2020): forgot to use parameter_subset_x
+                // instead of parameter_subset here
+                CopyBitarrSubset(joint_test_params_buf, common.parameter_subset_x, biallelic_predictor_ct_x, common.joint_test_params_x);
               }
             }
             if (sample_ct_x <= biallelic_predictor_ct_x) {
@@ -12478,7 +12480,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               if (raw_parameter_subset) {
                 memcpy(joint_test_params_buf, common.joint_test_params_y, biallelic_raw_predictor_ctl * sizeof(intptr_t));
                 ZeroWArr(biallelic_raw_predictor_ctl, common.joint_test_params_y);
-                CopyBitarrSubset(joint_test_params_buf, common.parameter_subset, biallelic_predictor_ct_y, common.joint_test_params_y);
+                CopyBitarrSubset(joint_test_params_buf, common.parameter_subset_y, biallelic_predictor_ct_y, common.joint_test_params_y);
               }
             }
             if (sample_ct_y <= biallelic_predictor_ct_y) {
