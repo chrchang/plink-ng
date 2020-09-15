@@ -3343,6 +3343,7 @@ THREAD_RET_TYPE glm_logistic_maxt_thread(void* arg) {
 	  dxx = (double)coef[pidx * cur_param_cta4 + 1];
 	  dxx *= dxx;
           dxx /= (double)regression_results[pidx * param_ctx_m1];
+          printf("coef: %g  denom: %g  stat: %g\n", coef[pidx * cur_param_cta4 + 1], regression_results[pidx * param_ctx_m1], dxx);
 	  if (dxx > stat_high) {
 	    success_2incr += 2;
 	  } else if (dxx > stat_low) {

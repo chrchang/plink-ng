@@ -3,8 +3,9 @@ the immediate directory contains the PLINK 2.0 application built on top of
 them.  These are carefully written to be valid C99 (from gcc and clang's
 perspective, anyway) to simplify FFI development, while still taking advantage
 of quite a few C++-specific affordances to improve safety and occasionally
-performance.  They are currently x86-specific, but there are annotations to
-facilitate a possible future port to ARM.
+performance.  The code is primarily targeted at x86, but it should compile and
+run on ARM and other platforms supported by the simde module (cloned from
+https://github.com/simd-everywhere/simde ).
 
 The first library is plink2_text, which provides a pair of classes designed to
 replace std::getline(), fgets(), and similar ways of iterating over text lines.
