@@ -5728,7 +5728,8 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       }
       for (block_idx = 0, marker_idx = marker_idx_base; block_idx < block_size; marker_uidx++, marker_idx++) {
 	if (IS_SET(marker_exclude, marker_uidx)) {
-	  marker_uidx = next_set_ul_unsafe(marker_exclude, marker_uidx);
+          // bugfix (16 Sep 2020): set -> unset
+	  marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
 	  seek_flag = 1;
 	}
 	if (marker_uidx >= chrom_end) {
