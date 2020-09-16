@@ -129,8 +129,12 @@ extern "C" {
   128-bit SIMD like data type for standard C
   ------------------------------------------*/
 #ifdef __LP64__
-  #define SIMDE_ENABLE_NATIVE_ALIASES
-  #include "x86/sse2.h"
+  #ifdef __x86_64__
+    #include <emmintrin.h>
+  #else
+    #define SIMDE_ENABLE_NATIVE_ALIASES
+    #include "x86/sse2.h"
+  #endif
 
 /** 128-bit data structure */
 union W128_T {
