@@ -5973,7 +5973,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   uintptr_t param_idx_end;
   uintptr_t sample_valid_ct;
   uintptr_t sample_valid_cta4;
-  uintptr_t sample_valid_ctv;
+  uintptr_t sample_valid_ctaw;
   uintptr_t sample_valid_ctv2;
   uintptr_t sample_idx;
   uintptr_t param_ctx_max;
@@ -6063,7 +6063,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     goto glm_logistic_assoc_ret_1;
   }
   sample_valid_cta4 = round_up_pow2(sample_valid_ct, 4);
-  sample_valid_ctv = BITCT_TO_ALIGNED_WORDCT(sample_valid_ct);
+  sample_valid_ctaw = BITCT_TO_ALIGNED_WORDCT(sample_valid_ct);
   sample_valid_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_valid_ct);
   final_mask = get_final_mask(sample_valid_ct);
   param_ct_maxa4 = round_up_pow2(param_ct_max, 4);
@@ -6404,16 +6404,18 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     }
   }
 
-  if (bigstack_alloc_ul(sample_valid_ctv, &pheno_c_collapsed)) {
+  if (bigstack_alloc_ul(sample_valid_ctaw, &pheno_c_collapsed)) {
     goto glm_logistic_assoc_ret_NOMEM;
   }
+  // bugfix (21 Sep 2020): trailing word not guaranteed to be zero
+  pheno_c_collapsed[sample_valid_ctaw - 1] = 0;
   copy_bitarr_subset(pheno_c, load_mask, unfiltered_sample_ct, sample_valid_ct, pheno_c_collapsed);
-  g_perm_case_ct = popcount_longs(pheno_c_collapsed, sample_valid_ctv);
+  g_perm_case_ct = popcount_longs(pheno_c_collapsed, sample_valid_ctaw);
   if ((!g_perm_case_ct) || (g_perm_case_ct == sample_valid_ct)) {
     goto glm_logistic_assoc_ret_PHENO_CONSTANT;
   }
   if (do_perms) {
-    if (bigstack_alloc_ul(orig_perm_batch_size * sample_valid_ctv, &g_perm_vecs)) {
+    if (bigstack_alloc_ul(orig_perm_batch_size * sample_valid_ctaw, &g_perm_vecs)) {
       goto glm_logistic_assoc_ret_NOMEM;
     }
     g_perm_is_1bit = 1;
