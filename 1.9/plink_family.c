@@ -3894,7 +3894,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uint32_t dfam_sample_ct;
   uint32_t dfam_sample_ctl;
   uint32_t dfam_sample_ctl2;
-  uint32_t dfam_sample_ctv;
+  uint32_t dfam_sample_ctaw;
   uint32_t chrom_fo_idx;
   uint32_t chrom_end;
   uint32_t chrom_idx;
@@ -4165,7 +4165,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   dfam_sample_ct = unfiltered_sample_ct - popcount_longs(dfam_sample_exclude, unfiltered_sample_ctl);
   dfam_sample_ctl = BITCT_TO_WORDCT(dfam_sample_ct);
   dfam_sample_ctl2 = QUATERCT_TO_WORDCT(dfam_sample_ct);
-  dfam_sample_ctv = BITCT_TO_ALIGNED_WORDCT(dfam_sample_ct);
+  dfam_sample_ctaw = BITCT_TO_ALIGNED_WORDCT(dfam_sample_ct);
   if (bigstack_alloc_ui(unfiltered_sample_ct, &sample_uidx_to_idx)) {
     goto dfam_ret_NOMEM;
   }
@@ -4384,7 +4384,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     perm_vec_ctcl8m = round_up_pow2(g_perm_vec_ct, CACHELINE_DBL);
 
     if (bigstack_alloc_ul(dfam_sample_ct * perm_vec_wcta, &g_dfam_perm_vecst) ||
-        bigstack_alloc_ul(g_perm_vec_ct * dfam_sample_ctv, &g_perm_vecs)) {
+        bigstack_alloc_ul(g_perm_vec_ct * dfam_sample_ctaw, &g_perm_vecs)) {
       goto dfam_ret_NOMEM;
     }
     // initialize phenotype permutations.

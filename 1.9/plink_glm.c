@@ -1702,7 +1702,7 @@ uint32_t glm_logistic(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t sa
   uintptr_t joint_test_requested = (constraints_con_major? 1 : 0);
   uintptr_t param_ctx = param_ct + joint_test_requested;
   uintptr_t param_ctx_msi = param_ctx - skip_intercept;
-  uintptr_t sample_validx_ctv = BITCT_TO_ALIGNED_WORDCT(sample_valid_ct + missing_ct);
+  uintptr_t sample_validx_ctaw = BITCT_TO_ALIGNED_WORDCT(sample_valid_ct + missing_ct);
   uintptr_t perm_fail_ct = 0;
   uintptr_t cur_word = 0;
   uintptr_t perm_idx;
@@ -1811,7 +1811,7 @@ uint32_t glm_logistic(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t sa
       }
     }
     coef = &(coef[param_cta4]);
-    perm_vecs = &(perm_vecs[sample_validx_ctv]);
+    perm_vecs = &(perm_vecs[sample_validx_ctaw]);
   }
   return perm_fail_ct;
 }
@@ -7983,7 +7983,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   double* dptr;
   uintptr_t sample_valid_ct;
   uintptr_t sample_valid_cta4;
-  uintptr_t sample_valid_ctv;
+  uintptr_t sample_valid_ctaw;
   uintptr_t sample_valid_ctv2;
   uintptr_t sample_uidx_stop;
   uintptr_t sample_idx;
@@ -8077,7 +8077,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     }
   }
   sample_valid_cta4 = round_up_pow2(sample_valid_ct, 4);
-  sample_valid_ctv = BITCT_TO_ALIGNED_WORDCT(sample_valid_ct);
+  sample_valid_ctaw = BITCT_TO_ALIGNED_WORDCT(sample_valid_ct);
   sample_valid_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_valid_ct);
 
   if (condition_mname || condition_fname) {
@@ -8321,11 +8321,12 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       bigstack_alloc_f(param_ct * param_cta4, &param_2d_buf2) ||
       bigstack_alloc_f(perm_batch_size * (param_ctx - uii), &regression_results) ||
       bigstack_alloc_ul(BITCT_TO_WORDCT(perm_batch_size), &perm_fails) ||
-      bigstack_alloc_ul(perm_batch_size * sample_valid_ctv, &g_perm_vecs)) {
+      bigstack_alloc_ul(perm_batch_size * sample_valid_ctaw, &g_perm_vecs)) {
     goto glm_logistic_nosnp_ret_NOMEM;
   }
+  g_perm_vecs[sample_valid_ctaw - 1] = 0;
   copy_bitarr_subset(pheno_c, load_mask, unfiltered_sample_ct, sample_valid_ct, g_perm_vecs);
-  g_perm_case_ct = popcount_longs(g_perm_vecs, sample_valid_ctv);
+  g_perm_case_ct = popcount_longs(g_perm_vecs, sample_valid_ctaw);
   if ((!g_perm_case_ct) || (g_perm_case_ct == sample_valid_ct)) {
     goto glm_logistic_nosnp_ret_PHENO_CONSTANT;
   }
@@ -8816,7 +8817,7 @@ uint32_t glm_logistic_dosage(uintptr_t sample_ct, uintptr_t* cur_samples, uintpt
     return 0;
   }
   uintptr_t sample_valid_cta4 = round_up_pow2(sample_valid_ct, 4);
-  uintptr_t sample_valid_ctv = BITCT_TO_ALIGNED_WORDCT(sample_valid_ct);
+  uintptr_t sample_valid_ctaw = BITCT_TO_ALIGNED_WORDCT(sample_valid_ct);
   uintptr_t param_cta4 = round_up_pow2(param_ct, 4);
   float* fptr = covars_cov_major;
   uintptr_t case_ct;
@@ -8825,8 +8826,9 @@ uint32_t glm_logistic_dosage(uintptr_t sample_ct, uintptr_t* cur_samples, uintpt
   uintptr_t covar_idx;
   double dxx;
   double dyy;
+  perm_vec[sample_valid_ctaw - 1] = 0;
   copy_bitarr_subset(pheno_c, cur_samples, sample_ct, sample_valid_ct, perm_vec);
-  case_ct = popcount_longs(perm_vec, sample_valid_ctv);
+  case_ct = popcount_longs(perm_vec, sample_valid_ctaw);
   if ((!case_ct) || (case_ct == sample_valid_ct)) {
     return 0;
   }
