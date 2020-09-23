@@ -7822,7 +7822,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
             }
           }
         } else if (value_type_m1 == 1) {
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in BcfToPgen()."
 #endif
           const uint16_t* filter_vec_alias = R_CAST(const uint16_t*, parse_iter);
@@ -10537,7 +10537,7 @@ THREAD_FUNC_DECL Bgen11GenoToPgenThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in Bgen13GetOneVal()."
 #endif
 HEADER_INLINE uintptr_t Bgen13GetOneVal(const unsigned char* prob_start, uint64_t prob_offset, uint32_t bit_precision, uintptr_t numer_mask) {
@@ -10548,7 +10548,7 @@ HEADER_INLINE uintptr_t Bgen13GetOneVal(const unsigned char* prob_start, uint64_
   return (relevant_bits >> (bit_offset % CHAR_BIT)) & numer_mask;
 }
 
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in Bgen13GetTwoVals()."
 #endif
 HEADER_INLINE void Bgen13GetTwoVals(const unsigned char* prob_start, uint64_t prob_offset, uint32_t bit_precision, uintptr_t numer_mask, uintptr_t* first_val_ptr, uintptr_t* second_val_ptr) {
@@ -13797,7 +13797,7 @@ PglErr ScanHapsForHet(const char* loadbuf_iter, const char* hapsname, uint32_t s
   return reterr;
 }
 
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in OxHapslegendToPgen()."
 #endif
 PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {

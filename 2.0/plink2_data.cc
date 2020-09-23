@@ -1171,7 +1171,7 @@ PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const Ped
 }
 
 /*
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in BitvecResort()."
 #endif
 void BitvecResort(const uintptr_t* bitvec, const uint32_t* new_sample_idx_to_old, uint32_t sample_ct, unsigned char* writebuf) {
@@ -1198,7 +1198,7 @@ void BitvecResort(const uintptr_t* bitvec, const uint32_t* new_sample_idx_to_old
 }
 */
 
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in GenovecResort()."
 #endif
 void GenovecResort(const uintptr_t* genovec, const uint32_t* new_sample_idx_to_old, uint32_t sample_ct, void* writebuf) {

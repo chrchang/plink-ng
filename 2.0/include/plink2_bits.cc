@@ -550,7 +550,7 @@ void ExpandBytearr(const void* __restrict compact_bitarr, const uintptr_t* __res
           compact_word = 0;
         }
       } else {
-#  ifdef __arm__
+#  ifdef NO_UNALIGNED
 #    error "Unaligned accesses in ExpandBytearr()."
 #  endif
         uintptr_t next_compact_word = *compact_bitarr_iter++;
@@ -607,7 +607,7 @@ void ExpandThenSubsetBytearr(const void* __restrict compact_bitarr, const uintpt
       if (compact_idx_lowbits >= kBitsPerWord) {
         compact_widx += compact_idx_lowbits / kBitsPerWord;
         compact_idx_lowbits = compact_idx_lowbits % kBitsPerWord;
-#  ifdef __arm__
+#  ifdef NO_UNALIGNED
 #    error "Unaligned accesses in ExpandThenSubsetBytearr()."
 #  endif
         compact_word = compact_bitarr_alias[compact_widx] >> compact_idx_lowbits;
@@ -701,7 +701,7 @@ void ExpandBytearrNested(const void* __restrict compact_bitarr, const uintptr_t*
             compact_read_word = 0;
           }
         } else {
-#  ifdef __arm__
+#  ifdef NO_UNALIGNED
 #    error "Unaligned accesses in ExpandBytearrNested()."
 #  endif
           uintptr_t next_compact_word = *compact_bitarr_iter++;
@@ -791,7 +791,7 @@ void ExpandThenSubsetBytearrNested(const void* __restrict compact_bitarr, const 
       if (compact_idx_lowbits >= kBitsPerWord) {
         compact_widx += compact_idx_lowbits / kBitsPerWord;
         compact_idx_lowbits = compact_idx_lowbits % kBitsPerWord;
-#  ifdef __arm__
+#  ifdef NO_UNALIGNED
 #    error "Unaligned accesses in ExpandThenSubsetBytearrNested()."
 #  endif
         compact_read_word = compact_bitarr_alias[compact_widx] >> compact_idx_lowbits;
@@ -1016,7 +1016,7 @@ void ExpandBytearr(const void* __restrict compact_bitarr, const uintptr_t* __res
       // avoid possible segfault
       compact_word = SubwordLoad(&(compact_bitarr_alias[compact_widx]), DivUp(loop_len, CHAR_BIT));
     } else {
-#  ifdef __arm__
+#  ifdef NO_UNALIGNED
 #    error "Unaligned accesses in ExpandBytearr()."
 #  endif
       compact_word = compact_bitarr_alias[compact_widx];
@@ -1061,7 +1061,7 @@ void ExpandThenSubsetBytearr(const void* __restrict compact_bitarr, const uintpt
         tmp_compact_read_word = compact_read_word >> read_idx_lowbits;
       }
       if (read_idx_lowbits_end > kBitsPerWord) {
-#  ifdef __arm__
+#  ifdef NO_UNALIGNED
 #    error "Unaligned accesses in ExpandThenSubsetBytearr()."
 #  endif
         compact_read_word = *compact_bitarr_iter++;
@@ -1128,7 +1128,7 @@ void ExpandBytearrNested(const void* __restrict compact_bitarr, const uintptr_t*
       // avoid possible segfault
       compact_word = SubwordLoad(&(compact_bitarr_alias[compact_widx]), DivUp(loop_len, CHAR_BIT));
     } else {
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in ExpandBytearrNested()."
 #endif
       compact_word = compact_bitarr_alias[compact_widx];
@@ -1194,7 +1194,7 @@ void ExpandThenSubsetBytearrNested(const void* __restrict compact_bitarr, const 
           if (compact_idx_lowbits_end <= kBitsPerWord) {
             compact_idx_lowbits = compact_idx_lowbits_end;
           } else {
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in ExpandThenSubsetBytearrNested()."
 #endif
             compact_read_word = *compact_bitarr_iter++;
@@ -2251,7 +2251,7 @@ uintptr_t BytesumArr(const void* bytearr, uintptr_t byte_ct) {
 #else  // !__LP64__
 uintptr_t BytesumArr(const void* bytearr, uintptr_t byte_ct) {
   // Assumes sum < 2^32.
-#  ifdef __arm__
+#  ifdef NO_UNALIGNED
 #    error "Unaligned accesses in BytesumArr()."
 #  endif
   const uint32_t word_ct = byte_ct / kBytesPerWord;

@@ -602,7 +602,7 @@ uint32_t SaveLdDifflist(const uintptr_t* __restrict genovec, const uintptr_t* __
   const uint32_t group_ct = DivUp(difflist_len, kPglDifflistGroupSize);
   unsigned char* group_first_sample_ids_iter = fwrite_bufp;
   unsigned char* extra_byte_cts_iter = &(fwrite_bufp[group_ct * sample_id_byte_ct]);
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in SaveLdDifflist()."
 #endif
   uintptr_t* raregeno_iter = R_CAST(uintptr_t*, &(extra_byte_cts_iter[group_ct - 1]));
@@ -742,7 +742,7 @@ uint32_t SaveOnebit(const uintptr_t* __restrict genovec, uint32_t common2_code, 
   OnebitPreprocessBuf(genovec, sample_ct, common2_code, genovec_buf);
   ZeroTrailingNyps(sample_ct, genovec_buf);
   const uint32_t word_read_ct = NypCtToWordCt(sample_ct);
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in SaveOnebit()."
 #endif
   Halfword* fwrite_bufp_alias_halfword = R_CAST(Halfword*, &(fwrite_bufp_start[1]));
@@ -971,7 +971,7 @@ uint32_t SaveLdTwoListDelta(const uintptr_t* __restrict difflist_raregeno, const
   const uint32_t* __restrict ldbase_sample_ids = pwcp->ldbase_difflist_sample_ids;
   unsigned char* group_first_sample_ids_iter = fwrite_bufp;
   unsigned char* extra_byte_cts_iter = &(fwrite_bufp[group_ct * sample_id_byte_ct]);
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in SaveLdTwoListDelta()."
 #endif
   uintptr_t* raregeno_write_iter = R_CAST(uintptr_t*, &(extra_byte_cts_iter[group_ct - 1]));
@@ -1311,7 +1311,7 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
       format_byte = 1;
     } else {
       const uint32_t genovec_het_ctb = DivUp(genovec_het_ct, CHAR_BIT);
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in PwcAppendMultiallelicMain()."
 #endif
       CopyGenomatchSubset(patch_01_set, genovec, kMask5555, 0, genovec_het_ct, R_CAST(uintptr_t*, pwcp->fwrite_bufp));
@@ -1948,7 +1948,7 @@ BoolErr AppendHphase(const uintptr_t* __restrict genoarr_hets, const uintptr_t* 
   const uint32_t sample_ct = pwcp->sample_ct;
   *vrtype_ptr += 16;
   const uint32_t het_ctp1_8 = 1 + (het_ct / CHAR_BIT);
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in AppendHphase()."
 #endif
   uintptr_t* fwrite_bufp_alias = R_CAST(uintptr_t*, pwcp->fwrite_bufp);

@@ -39,7 +39,7 @@ static inline const uint32_t* GetSicp(PgrSampleSubsetIndex pssi) {
   return GET_PRIVATE(pssi, cumulative_popcounts);
 }
 
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in SmallGenoarrCount3FreqIncr()."
 #endif
 void SmallGenoarrCount3FreqIncr(const uintptr_t* genoarr_iter, uint32_t byte_ct, uint32_t* even_ctp, uint32_t* odd_ctp, uint32_t* bothset_ctp) {
@@ -74,10 +74,8 @@ void GenoarrbCountFreqs(const unsigned char* genoarrb, uint32_t sample_ct, STD_A
     const uint32_t remaining_sample_ct = sample_ct - 4 * lead_byte_ct;
     // strictly speaking, this relies on undefined behavior: see e.g.
     // http://pzemtsov.github.io/2016/11/06/bug-story-alignment-on-x86.html
-    // Probably want to search out all instances of __arm__ and make the code
-    // standard-compliant, if that can be done without a speed penalty.  Though
-    // it makes sense to wait until more is known about Apple's MacBook
-    // processor plans...
+    // May want to search out all instances of NO_UNALIGNED and make the code
+    // standard-compliant, if that can be done without a speed penalty.
     SmallGenoarrCount3FreqIncr(R_CAST(const uintptr_t*, genoarrb), lead_byte_ct, &even_ct, &odd_ct, &bothset_ct);
     genoarrb_iter = R_CAST(const uintptr_t*, &(genoarrb[lead_byte_ct]));
     const uint32_t remaining_full_vec_ct = remaining_sample_ct / kNypsPerVec;
@@ -103,7 +101,7 @@ void GenoarrbCountFreqs(const unsigned char* genoarrb, uint32_t sample_ct, STD_A
   genocounts[3] = bothset_ct;
 }
 
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in GenoarrbCountSubsetFreqs()."
 #endif
 void GenoarrbCountSubsetFreqs(const unsigned char* genoarrb, const uintptr_t* __restrict sample_include_interleaved_vec, uint32_t raw_sample_ct, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts) {
@@ -1200,7 +1198,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
       const uint32_t entry_mask = (1 << entry_bit_width) - 1;
       const uint32_t cur_byte_ct = 1 + ((cur_vblock_variant_ct - 1) >> (3 - log2_entry_bit_width));
       const uintptr_t* loadbuf_iter;
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in PgfiInitPhase2()."
 #endif
 #ifndef NO_MMAP
@@ -2288,7 +2286,7 @@ PglErr ParseOnebitUnsafe(const unsigned char* fread_end, const unsigned char** f
 #endif
   const uint32_t genoarr_widx_trail = (raw_sample_ct + 7) / kBitsPerWordD2;
   const uint32_t genoarr_widx_end = NypCtToWordCt(raw_sample_ct);
-#  ifdef __arm__
+#  ifdef NO_UNALIGNED
 #    error "Unaligned accesses in ParseOnebitUnsafe()."
 #  endif
   const Halfword* onebit_main_alias = R_CAST(const Halfword*, onebit_main_iter);
@@ -3019,7 +3017,7 @@ PglErr SkipDeltalistIds(const unsigned char* fread_end, const unsigned char* gro
   //   all but last ID block
   // total = (group_ct - 1) * kPglDifflistGroupSize + extra_byte_tot +
   //         (difflist_len + 3) / 4
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in SkipDeltalistIds()."
 #endif
   const unsigned char* iddiff_start = &(extra_byte_cts[(group_ct - 1) * kPglDifflistGroupSize + extra_byte_tot]);
@@ -3143,7 +3141,7 @@ PglErr CountparseOnebitSubset(const unsigned char* fread_end, const uintptr_t* _
   const uint32_t common2_code = *onebit_main_iter++;
   const uint32_t geno_code_low = common2_code / 4;
   const uint32_t geno_code_high = (common2_code & 3) + geno_code_low;
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in CountparseOnebitSubset()."
 #endif
   uint32_t high_geno_ct;
@@ -3840,7 +3838,7 @@ PglErr CountAux1a(const unsigned char* fread_end, const uintptr_t* __restrict sa
     // 01-collapsed bitarray
     const uint32_t fset_byte_ct = DivUp(raw_01_ct, CHAR_BIT);
     const uint32_t rare01_ct = PopcountBytes(*fread_pp, fset_byte_ct);
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in CountAux1a()."
 #endif
     const uintptr_t* patch_01_fsetw = R_CAST(const uintptr_t*, *fread_pp);
@@ -4102,7 +4100,7 @@ PglErr CountAux1b(const unsigned char* fread_end, const uintptr_t* __restrict sa
     // 10-collapsed bitarray
     const uint32_t fset_byte_ct = DivUp(raw_10_ct, CHAR_BIT);
     const uint32_t rare10_ct = PopcountBytes(*fread_pp, fset_byte_ct);
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in CountAux1b()."
 #endif
     const uintptr_t* patch_10_fsetw = R_CAST(const uintptr_t*, *fread_pp);
@@ -4428,7 +4426,7 @@ PglErr GenoarrAux1aUpdate(const unsigned char* fread_end, const uintptr_t* __res
   const uint32_t allele_code_width = GetAux1aConsts(allele_ct, &detect_mask_hi, &detect_mask_lo, &allele_code_logwidth);
   const uintptr_t xor_word = (allele_idx - 2) * detect_mask_lo;
   if (!aux1a_mode) {
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in GenoarrAux1aUpdate()."
 #endif
     const uintptr_t* patch_01_fsetw = R_CAST(const uintptr_t*, *fread_pp);
@@ -4654,7 +4652,7 @@ PglErr GenoarrAux1bStandardUpdate(const unsigned char* fread_end, const uintptr_
   const uint32_t code10_width = 1U << code10_logwidth;
   uint32_t rare10_lowbits = kBitsPerWord;
   if (!aux1b_mode) {
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in GenoarrAux1bStandardUpdate()."
 #endif
     const uintptr_t* patch_10_fsetw = R_CAST(const uintptr_t*, *fread_pp);
@@ -4977,7 +4975,7 @@ PglErr GetAux1bHets(const unsigned char* fread_end, const uintptr_t* __restrict 
   uint32_t rare10_lowbits = kBitsPerWord;
   uint32_t aux1b_het_present = 0;
   if (!aux1b_mode) {
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in GetAux1bHets()."
 #endif
     const uintptr_t* patch_10_fsetw = R_CAST(const uintptr_t*, *fread_pp);
@@ -5315,7 +5313,7 @@ PglErr GenoarrAux1bUpdate2(const unsigned char* fread_end, const uintptr_t* __re
   xor_word2 = xor_word2 * detect_hom_mask_lo;
   uint32_t rare10_lowbits = kBitsPerWord;
   if (!aux1b_mode) {
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in GenoarrAux1bUpdate2()."
 #endif
     const uintptr_t* patch_10_fsetw = R_CAST(const uintptr_t*, *fread_pp);
@@ -5827,7 +5825,7 @@ PglErr ParseAndSaveDeltalistAsBitarr(const unsigned char* fread_end, uint32_t ra
 void Expand2bitTo8(const void* __restrict bytearr, uint32_t input_nyp_ct, uint32_t incr, uintptr_t* __restrict dst) {
   const unsigned char* src_iter = S_CAST(const unsigned char*, bytearr);
   const uint32_t input_byte_ct = DivUp(input_nyp_ct, 4);
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in Expand2bitTo8()."
 #endif
 #ifdef __LP64__
@@ -6084,7 +6082,7 @@ PglErr ExportAux1aProperSubset(const unsigned char* fread_end, const uintptr_t* 
   memset(dst_01_set, 0, BitCtToWordCt(sample_ct) * sizeof(intptr_t));
   AlleleCode* dst_01_vals_iter = dst_01_vals;
   if (!aux1a_mode) {
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in ExportAux1aProperSubset()."
 #endif
     // similar to GenoarrAux1aUpdate()
@@ -6294,7 +6292,7 @@ PglErr ExportAux1bProperSubset(const unsigned char* fread_end, const uintptr_t* 
   memset(dst_10_set, 0, BitCtToWordCt(sample_ct) * sizeof(intptr_t));
   AlleleCode* dst_10_vals_iter = dst_10_vals;
   if (!aux1b_mode) {
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in ExportAux1bProperSubset()."
 #endif
     const uintptr_t* patch_10_fsetw = R_CAST(const uintptr_t*, *fread_pp);
@@ -7111,7 +7109,7 @@ PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_
     }
     return kPglRetSuccess;
   }
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in ParseDosage16()."
 #endif
   const uint16_t* dosage_main_read_iter = R_CAST(const uint16_t*, fread_ptr);
@@ -7424,7 +7422,7 @@ PglErr GetAux1bHetIncr(const unsigned char* fread_end, uint32_t aux1b_mode, uint
   uintptr_t detect_hom_mask_lo;
   const uint32_t allele_code_logwidth = GetAux1bConsts(allele_ct, &detect_hom_mask_lo);
   const uint32_t code10_logwidth = allele_code_logwidth + (allele_code_logwidth != 0);
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in GetAux1bHetIncr()."
 #endif
   const uintptr_t* patch_10_fvalsw = R_CAST(const uintptr_t*, *fread_pp);
@@ -7737,7 +7735,7 @@ PglErr GetBasicGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_inc
       // presence of missing values.
       // note that this code will also need to be adjusted when multiallelic
       // support is added.
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in GetBasicGenotypeCountsAndDosage16s()."
 #endif
       STD_ARRAY_FILL0(replaced_genocounts);
@@ -8250,7 +8248,7 @@ PglErr CountAllAux1a(const unsigned char* fread_end, const uintptr_t* __restrict
   if (!aux1a_mode) {
     const uint32_t fset_byte_ct = DivUp(raw_01_ct, CHAR_BIT);
     const uint32_t rare01_ct = PopcountBytes(*fread_pp, fset_byte_ct);
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in CountAllAux1a()."
 #endif
     const uintptr_t* patch_01_fsetw = R_CAST(const uintptr_t*, *fread_pp);
@@ -8473,7 +8471,7 @@ PglErr CountAllAux1b(const unsigned char* fread_end, const uintptr_t* __restrict
   if (!aux1b_mode) {
     const uint32_t fset_byte_ct = DivUp(raw_10_ct, CHAR_BIT);
     const uint32_t rare10_ct = PopcountBytes(*fread_pp, fset_byte_ct);
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in CountAllAux1b()."
 #endif
     const uintptr_t* patch_10_fsetw = R_CAST(const uintptr_t*, *fread_pp);
@@ -9279,7 +9277,7 @@ PglErr PgrGetMissingnessD(const uintptr_t* __restrict sample_include, PgrSampleS
   if ((vrtype & 0x60) == 0x40) {
     // unconditional dosage.  spot-check the appropriate entries for equality
     // to 65535.
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in PgrGetMissingnessPD()."
 #endif
     const uint16_t* dosage_main = R_CAST(const uint16_t*, fread_ptr);
@@ -9527,7 +9525,7 @@ BoolErr ValidateOnebit(const unsigned char* fread_end, const unsigned char** fre
   word_base *= kMask5555;
   const uint32_t genoarr_widx_trail = (sample_ct + 7) / kBitsPerWordD2;
   const uint32_t genoarr_widx_end = NypCtToWordCt(sample_ct);
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in ValidateOnebit()."
 #endif
   const Halfword* onebit_main = R_CAST(const Halfword*, onebit_main_iter);
@@ -10027,7 +10025,7 @@ PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, PgenReade
   if ((vrtype & 0x60) == 0x40) {
     // unconditional dosage.  handle separately from other two cases since
     // 65535 is valid.
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in ValidateDosage16()."
 #endif
     const uint16_t* dosage_main = R_CAST(const uint16_t*, *fread_pp);
@@ -10230,7 +10228,7 @@ PglErr PgrValidate(PgenReader* pgr_ptr, uintptr_t* genovec_buf, char* errstr_buf
   uint32_t header_ctrl = 0;
 #ifndef NO_MMAP
   if (ff == nullptr) {
-#  ifdef __arm__
+#  ifdef NO_UNALIGNED
 #    error "Unaligned accesses in PgrValidate()."
 #  endif
     memcpy(&header_ctrl, &(pgrp->fi.block_base[11]), 1);

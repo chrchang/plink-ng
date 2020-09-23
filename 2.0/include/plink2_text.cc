@@ -531,7 +531,7 @@ PglErr TextFileAdvance(textFILE* txf_ptr) {
               if (unlikely(!IsBgzfHeader(in_iter))) {
                 goto TextFileAdvance_ret_INVALID_BGZF;
               }
-#  ifdef __arm__
+#  ifdef NO_UNALIGNED
 #    error "Unaligned accesses in TextFileAdvance()."
 #  endif
               const uint32_t bsize_minus1 = *R_CAST(uint16_t*, &(in_iter[16]));

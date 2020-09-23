@@ -1814,7 +1814,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
                   const uint32_t wct = DivUp(zcount, kBytesPerWord / 2);
                   // assumes little-endian
                   const uintptr_t tabzero_word = 0x3009 * kMask0001;
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in CalcKing()."
 #endif
                   uintptr_t* writep_alias = R_CAST(uintptr_t*, cswritep);
@@ -4293,7 +4293,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               const uint32_t wct = DivUp(zcount, kBytesPerWord / 2);
               // assumes little-endian
               const uintptr_t zerotab_word = 0x930 * kMask0001;
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in CalcGrm()."
 #endif
               uintptr_t* writep_alias = R_CAST(uintptr_t*, cswritep);

@@ -144,7 +144,7 @@ PglErr BgzfReadJoinAndRespawn(unsigned char* dst_end, BgzfRawMtDecompressStream*
           if (unlikely(!IsBgzfHeader(in_iter))) {
             goto BgzfReadJoinAndRespawn_ret_INVALID_BGZF;
           }
-#  ifdef __arm__
+#  ifdef NO_UNALIGNED
 #    error "Unaligned accesses in BgzfReadJoinAndRespawn()."
 #  endif
           const uint32_t bsize_minus1 = *R_CAST(uint16_t*, &(in_iter[16]));

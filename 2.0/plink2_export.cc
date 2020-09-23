@@ -200,7 +200,7 @@ PglErr ExportAlleleLoad(const char* fname, const uintptr_t* variant_include, con
   return reterr;
 }
 
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in Export012Vmaj()."
 #endif
 PglErr Export012Vmaj(const char* outname, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const char* sample_ids, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(AlleleCode, 2, export_allele), const char* const* export_allele_missing, const double* variant_cms, uint32_t sample_ct, uintptr_t max_sample_id_blen, uint32_t variant_ct, uint32_t max_allele_slen, char exportf_delim, PgenReader* simple_pgrp) {
@@ -1201,7 +1201,7 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
   return reterr;
 }
 
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in ExportOxHapslegend()."
 #endif
 PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* sex_male_collapsed, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, __maybe_unused uint32_t max_thread_ct, ExportfFlags exportf_flags, PgenReader* simple_pgrp, char* outname, char* outname_end) {
@@ -4311,7 +4311,7 @@ char* AppendVcfMultiallelicDsForcePhased(uint32_t allele_ct_m2, uint32_t hds_for
   return write_iter;
 }
 
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in ExportVcf()."
 #endif
 PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const uintptr_t* sex_male_collapsed, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, UnsortedVar vpos_sortstatus, uint32_t max_thread_ct, ExportfFlags exportf_flags, VcfExportMode vcf_mode, IdpasteFlags exportf_id_paste, char exportf_id_delim, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
@@ -6278,7 +6278,7 @@ void FixBcfMaleXGtPloidy(const uintptr_t* genovec, const uintptr_t* sex_male, ui
 void FixBcfFemaleYGtPloidy2(const uintptr_t* genovec, const uintptr_t* sex_female, uint32_t sample_ct, char* __restrict gt_start_orig) {
   const Halfword* sex_female_alias = R_CAST(const Halfword*, sex_female);
   const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in FixBcfFemaleYGtPloidy2()."
 #endif
   uint16_t* gt_start_alias = R_CAST(uint16_t*, gt_start_orig);
@@ -6317,7 +6317,7 @@ void FixBcfFemaleYGtPloidy1(const uintptr_t* genovec, const uintptr_t* sex_femal
 
 void FillBcfDsPloidy1(const PgenVariant* pgvp, const uintptr_t* __restrict sex_female, const uint32_t* __restrict ds_y_genobytes2, const uint32_t* __restrict ds_haploid_genobytes4, uint32_t sample_ct, uint32_t forced, uint32_t is_y, void* __restrict ds_start_orig) {
   const uintptr_t* genovec = pgvp->genovec;
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in FillBcfDsPloidy1()."
 #endif
   // ds_start not required to be 4-byte aligned
@@ -6359,7 +6359,7 @@ void FillBcfDsPloidy1(const PgenVariant* pgvp, const uintptr_t* __restrict sex_f
 // Biallelic.
 void FillBcfDs(const PgenVariant* pgvp, const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_female, const uint32_t* __restrict ds_genobytes4, const uint32_t* __restrict ds_x_genobytes2, const uint32_t* __restrict ds_y_genobytes2, const uint32_t* __restrict ds_haploid_genobytes4, uint32_t sample_ct, uint32_t ds_force, uint32_t is_x, uint32_t is_y, uint32_t is_haploid, void* __restrict ds_start_orig) {
   if (!ds_force) {
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in FillBcfDs()."
 #endif
     // ds_start not required to be 4-byte aligned
@@ -6448,7 +6448,7 @@ void FixBcfMaleXHdsPloidy(const uintptr_t* __restrict phasepresent, const uintpt
   // Otherwise replace the second value with 0x7f800002.
   // This does some unnecessary work when the missingness rate is high, but we
   // can live with that.
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in FixBcfMaleXHdsPloidy()."
 #endif
   uint32_t* hds_offset1 = &(S_CAST(uint32_t*, hds_start)[1]);
@@ -6487,7 +6487,7 @@ void FixBcfMaleXHdsPloidy(const uintptr_t* __restrict phasepresent, const uintpt
 // Replace first HDS entry for each female missing call with 0x7f800002
 // END_OF_VECTOR.
 void FixBcfFemaleYHdsPloidy2(const uintptr_t* __restrict genovec, const uintptr_t* __restrict dosage_present, const uintptr_t* __restrict sex_female, uint32_t sample_ct, void* __restrict hds_start) {
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in FixBcfFemaleYHdsPloidy2()."
 #endif
   uint32_t* hds_u32 = S_CAST(uint32_t*, hds_start);
@@ -6529,7 +6529,7 @@ void FixBcfFemaleYHdsPloidy2(const uintptr_t* __restrict genovec, const uintptr_
 void FixBcfFemaleY64allelicGtPloidy2(const uintptr_t* genovec, const uintptr_t* sex_female, uint32_t sample_ct, char* __restrict gt_start_orig) {
   const Halfword* sex_female_alias = R_CAST(const Halfword*, sex_female);
   const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in FixBcfFemaleY64allelicGtPloidy2()."
 #endif
   uint32_t* gt_start_alias = R_CAST(uint32_t*, gt_start_orig);
@@ -6551,7 +6551,7 @@ void FixBcfFemaleY64allelicGtPloidy2(const uintptr_t* genovec, const uintptr_t* 
 void FixBcfFemaleY64allelicGtPloidy1(const uintptr_t* genovec, const uintptr_t* sex_female, uint32_t sample_ct, char* __restrict gt_start_orig) {
   const Halfword* sex_female_alias = R_CAST(const Halfword*, sex_female);
   const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in FixBcfFemaleY64allelicGtPloidy1()."
 #endif
   uint16_t* gt_start_alias = R_CAST(uint16_t*, gt_start_orig);
@@ -6573,7 +6573,7 @@ void FixBcfFemaleY64allelicGtPloidy1(const uintptr_t* genovec, const uintptr_t* 
 // Just like DS, except with no het-hap special case.
 void FillBcfHdsPloidy1(const PgenVariant* pgvp, const uintptr_t* __restrict sex_female, const uint32_t* __restrict hds_y_genobytes2, const uint32_t* __restrict hds_haploid_genobytes4, uint32_t sample_ct, uint32_t forced, uint32_t is_y, void* __restrict hds_start_orig) {
   const uintptr_t* genovec = pgvp->genovec;
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in FillBcfHdsPloidy1()."
 #endif
   // hds_start not required to be 4-byte aligned
@@ -6611,7 +6611,7 @@ void FillBcfHdsPloidy1(const PgenVariant* pgvp, const uintptr_t* __restrict sex_
 
 void FillBcfGpPloidy2(const PgenVariant* pgvp, const uintptr_t* __restrict sex_male, uint32_t sample_ct, uint32_t is_x, void* __restrict gp_start_orig) {
   {
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in FillBcfGpPloidy2()."
 #endif
     uint32_t* gp_u32 = S_CAST(uint32_t*, gp_start_orig);
@@ -6690,7 +6690,7 @@ void FillBcfGpPloidy2(const PgenVariant* pgvp, const uintptr_t* __restrict sex_m
 
 void FillBcfGpPloidy1(const PgenVariant* pgvp, uint32_t sample_ct, void* __restrict gp_start_orig) {
   {
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in FillBcfGpPloidy1()."
 #endif
     uint64_t* gp_pair_u64 = R_CAST(uint64_t*, gp_start_orig);
@@ -6749,7 +6749,7 @@ void FixBcfMaleX3allelicGtPloidy(const uintptr_t* __restrict sex_male, uint32_t 
 
 void FixBcfMaleX64allelicGtPloidy(const uintptr_t* __restrict sex_male, uint32_t sample_ct, char* __restrict gt_start) {
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in FixBcfMaleX64allelicGtPloidy()."
 #endif
   uint16_t* gt_alias = R_CAST(uint16_t*, gt_start);
@@ -6788,7 +6788,7 @@ void FillBcf3allelicGtPloidy2(const PgenVariant* pgvp, const uint16_t* __restric
   if (patch_10_ct) {
     const uintptr_t* patch_10_set = pgvp->patch_10_set;
     const DoubleAlleleCode* patch_10_vals_alias = R_CAST(const DoubleAlleleCode*, pgvp->patch_10_vals);
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in FillBcf3allelicGtPloidy2()."
 #endif
     uint16_t* gt_pair_alias = R_CAST(uint16_t*, gt_start);
@@ -6847,7 +6847,7 @@ void FillBcf3allelicGtPloidy1(const PgenVariant* pgvp, const unsigned char* __re
 }
 
 void FillBcf64allelicGtPloidy2(const PgenVariant* pgvp, const uint32_t* __restrict wide_genobytes4, uint32_t sample_ct, char* __restrict gt_start) {
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in FillBcf64allelicGtPloidy2()."
 #endif
   uint16_t* gt_alias = R_CAST(uint16_t*, gt_start);
@@ -6881,7 +6881,7 @@ void FillBcf64allelicGtPloidy2(const PgenVariant* pgvp, const uint32_t* __restri
 }
 
 void FillBcf64allelicGtPloidy1(const PgenVariant* pgvp, const uint16_t* __restrict wide_haploid_genobytes4, uint32_t sample_ct, char* __restrict gt_start) {
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in FillBcf64allelicGtPloidy1()."
 #endif
   uint16_t* gt_alias = R_CAST(uint16_t*, gt_start);
@@ -6902,7 +6902,7 @@ void FillBcf64allelicGtPloidy1(const PgenVariant* pgvp, const uint16_t* __restri
 
 // Convert homozygous and missing GT to ploidy 1.
 void FixBcf64allelicGtHh(uint32_t sample_ct, char* __restrict gt_start) {
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in FixBcf64allelicGtHh()."
 #endif
   uint16_t* gt_alias = R_CAST(uint16_t*, gt_start);
@@ -7096,7 +7096,7 @@ void FillBcf3allelicPhasedGt(const PgenVariant* pgvp, uint32_t sample_ct, uint32
     gt_base[3] = 0x8100;
   }
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in FillBcf3allelicPhasedGt()."
 #endif
   uint16_t* gt_alias = R_CAST(uint16_t*, gt_start);
@@ -7179,7 +7179,7 @@ void FillBcf64allelicPhasedGt(const PgenVariant* pgvp, uint32_t sample_ct, uint3
     gt_base[3] = 0x80010000U;
   }
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in FillBcf64allelicPhasedGt()."
 #endif
   uint32_t* gt_alias = R_CAST(uint32_t*, gt_start);
@@ -8605,7 +8605,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
                   write_iter = memcpya(write_iter, info_int_buf, value_ct * sizeof(int32_t));
                 } else if (encode_as_small_ints == 1) {
                   // int16
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in ExportBcf()."
 #endif
                   int16_t* write_alias = R_CAST(int16_t*, write_iter);

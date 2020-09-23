@@ -70,7 +70,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (14 Sep 2020)";
+  " (23 Sep 2020)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -825,16 +825,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
       }
-      // todo: move this check after --update-ids once that's implemented.
-      if ((pii.sii.flags & kfSampleIdFidPresent) && ((pii.sii.flags & kfSampleIdNoIdHeaderIidOnly) || (pcp->grm_flags & kfGrmNoIdHeaderIidOnly))) {
-        for (uint32_t sample_idx = 0; sample_idx != raw_sample_ct; ++sample_idx) {
-          const char* cur_sample_id = &(pii.sii.sample_ids[sample_idx * pii.sii.max_sample_id_blen]);
-          if (unlikely(!memequal_k(cur_sample_id, "0\t", 2))) {
-            logerrputs("Error: 'iid-only' modifier can only be used when FIDs are missing or all-0.\n");
-            goto Plink2Core_ret_INCONSISTENT_INPUT;
-          }
-        }
-      }
 
       // todo: add option to discard loaded SIDs
       raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
@@ -1387,6 +1377,15 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           reterr = UpdateSampleSexes(sample_include, &pii.sii, &(pcp->update_sex_info), raw_sample_ct, sample_ct, pcp->max_thread_ct, sex_nm, sex_male);
           if (unlikely(reterr)) {
             goto Plink2Core_ret_1;
+          }
+        }
+      }
+      if ((pii.sii.flags & kfSampleIdFidPresent) && ((pii.sii.flags & kfSampleIdNoIdHeaderIidOnly) || (pcp->grm_flags & kfGrmNoIdHeaderIidOnly))) {
+        for (uint32_t sample_idx = 0; sample_idx != raw_sample_ct; ++sample_idx) {
+          const char* cur_sample_id = &(pii.sii.sample_ids[sample_idx * pii.sii.max_sample_id_blen]);
+          if (unlikely(!memequal_k(cur_sample_id, "0\t", 2))) {
+            logerrputs("Error: 'iid-only' modifier can only be used when FIDs are missing or all-0.\n");
+            goto Plink2Core_ret_INCONSISTENT_INPUT;
           }
         }
       }

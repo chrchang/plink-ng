@@ -1513,7 +1513,7 @@ HEADER_INLINE BoolErr SortedIdboxFind(const char* idbuf, const char* sorted_idbo
   return 0;
 }
 
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in IsNanStr()."
 #endif
 // This returns 1 on any capitalization of 'na' or 'nan', 0 otherwise.

@@ -1667,6 +1667,9 @@ PglErr PrescanSampleIds(const char* fname, SampleIdInfo* siip) {
         }
         line_iter = CurTokenEnd(iid_start);
         cur_sample_id_blen += 1 + S_CAST(uintptr_t, line_iter - iid_start);
+      } else {
+        // bugfix (23 Sep 2020): forgot to add 2 for implicit FID=0
+        cur_sample_id_blen += 2;
       }
       if (cur_sample_id_blen > max_sample_id_blen) {
         max_sample_id_blen = cur_sample_id_blen;

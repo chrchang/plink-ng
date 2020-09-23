@@ -158,7 +158,7 @@ void ExpandBytearrFromGenoarr(const void* __restrict compact_bitarr, const uintp
           compact_word = 0;
         }
       } else {
-#  ifdef __arm__
+#  ifdef NO_UNALIGNED
 #    error "Unaligned accesses in ExpandBytearrFromGenoarr()."
 #  endif
         uintptr_t next_compact_word = *compact_bitarr_iter++;
@@ -335,7 +335,7 @@ void ExpandBytearrFromGenoarr(const void* __restrict compact_bitarr, const uintp
       // avoid possible segfault
       compact_word = SubwordLoad(&(compact_bitarr_alias[compact_widx]), DivUp(loop_len, CHAR_BIT));
     } else {
-#ifdef __arm__
+#ifdef NO_UNALIGNED
 #  error "Unaligned accesses in ExpandBytearrFromGenoarr()."
 #endif
       compact_word = compact_bitarr_alias[compact_widx];
