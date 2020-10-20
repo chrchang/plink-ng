@@ -10061,14 +10061,18 @@ int main(int argc, char** argv) {
 
 #ifdef USE_MKL
     if (!mkl_native) {
-#  ifdef USE_AVX2
-      mkl_cbwr_set(MKL_CBWR_AVX2);
-#  else
-#    ifdef USE_SSE42
-      mkl_cbwr_set(MKL_CBWR_SSE4_2);
+#  ifdef USE_SSE42
+#    ifdef USE_AVX2
+      int status = mkl_cbwr_set(MKL_CBWR_AVX2);
 #    else
-      mkl_cbwr_set(MKL_CBWR_COMPATIBLE);
+      int status = mkl_cbwr_set(MKL_CBWR_SSE4_2);
 #    endif
+      if (status != MKL_CBWR_SUCCESS) {
+        // could happen for AMD processors.  This is the least-bad option?
+        mkl_cbwr_set(MKL_CBWR_COMPATIBLE);
+      }
+#  else
+      mkl_cbwr_set(MKL_CBWR_COMPATIBLE);
 #  endif
     }
 #endif
