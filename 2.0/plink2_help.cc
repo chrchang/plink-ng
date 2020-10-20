@@ -773,7 +773,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "        (ID is always present, and positioned here.)\n"
 "        ref: Reference allele.\n"
 "        alt: All alternate alleles, comma-separated.\n"
-"        nobs: Number of (nonmissing) genotype observations across all pops.\n"
+"        nobs: Number of (nonmissing) genotype observations across pop pair.\n"
 "        nallele: Number of nonmissing alleles.\n"
 "        fstfrac: Numerator and denominator of Fst estimate.\n"
 "        fst: Fst estimate.\n"
@@ -786,8 +786,6 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      * ids= specifies an all-vs.-all comparison within the given set of\n"
 "        populations.\n"
 "      * file= specifies a file containing one population pair per line.\n"
-"      If a population is not part of any pair, it is not considered in the\n"
-"      Weir-Cockerham calculation.\n"
 "      Note that 'base='/'ids='/'file=' must be positioned after all modifiers.\n\n"
               );
     HelpPrint("indep\0indep-pairwise\0", &help_ctrl, 1,
