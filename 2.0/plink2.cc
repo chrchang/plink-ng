@@ -3621,7 +3621,9 @@ int main(int argc, char** argv) {
     uint32_t notchr_present = 0;
     uint32_t permit_multiple_inclusion_filters = 0;
     uint32_t memory_require = 0;
+#ifdef USE_MKL
     uint32_t mkl_native = 0;
+#endif
     uint32_t randmem = 0;
     GenDummyInfo gendummy_info;
     InitGenDummy(&gendummy_info);
@@ -7862,7 +7864,9 @@ int main(int argc, char** argv) {
           pc.missing_pheno = 0;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "ative")) {
+#ifdef USE_MKL
           mkl_native = 1;
+#endif
           goto main_param_zero;
         } else if (likely(strequal_k_unsafe(flagname_p2, "o-id-header"))) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
