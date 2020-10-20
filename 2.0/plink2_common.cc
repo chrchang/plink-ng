@@ -2281,16 +2281,18 @@ void ExcludeNonAutosomalVariants(const ChrInfo* cip, uintptr_t* variant_include)
   }
 }
 
-PglErr ConditionalAllocateNonAutosomalVariants(const ChrInfo* cip, const char* calc_descrip, uint32_t raw_variant_ct, uint32_t allow_no_remaining_variants, const uintptr_t** variant_include_ptr, uint32_t* variant_ct_ptr) {
+PglErr ConditionalAllocateNonAutosomalVariants(const ChrInfo* cip, const char* calc_descrip, uint32_t raw_variant_ct, const uintptr_t** variant_include_ptr, uint32_t* variant_ct_ptr) {
   const uint32_t non_autosomal_variant_ct = CountNonAutosomalVariants(*variant_include_ptr, cip, 1, 1);
   if (!non_autosomal_variant_ct) {
     return kPglRetSuccess;
   }
-  logprintf("Excluding %u variant%s on non-autosomes from %s.\n", non_autosomal_variant_ct, (non_autosomal_variant_ct == 1)? "" : "s", calc_descrip);
   *variant_ct_ptr -= non_autosomal_variant_ct;
-  if (unlikely(!(allow_no_remaining_variants || (*variant_ct_ptr)))) {
-    logerrprintf("Error: No variants remaining for %s.\n", calc_descrip);
-    return kPglRetDegenerateData;
+  if (calc_descrip) {
+    logprintf("Excluding %u variant%s on non-autosomes from %s.\n", non_autosomal_variant_ct, (non_autosomal_variant_ct == 1)? "" : "s", calc_descrip);
+    if (unlikely(!(*variant_ct_ptr))) {
+      logerrprintf("Error: No variants remaining for %s.\n", calc_descrip);
+      return kPglRetDegenerateData;
+    }
   }
   const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
   uintptr_t* working_variant_include;

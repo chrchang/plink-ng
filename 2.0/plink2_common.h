@@ -896,7 +896,10 @@ uint32_t CountNonAutosomalVariants(const uintptr_t* variant_include, const ChrIn
 
 void ExcludeNonAutosomalVariants(const ChrInfo* cip, uintptr_t* variant_include);
 
-PglErr ConditionalAllocateNonAutosomalVariants(const ChrInfo* cip, const char* calc_descrip, uint32_t raw_variant_ct, uint32_t allow_no_remaining_variants, const uintptr_t** variant_include_ptr, uint32_t* variant_ct_ptr);
+// If calc_descrip == nullptr, no logging occurs when some variants are
+// removed, and no error occurs if all variants are removed.  (Might decouple
+// these two later.)
+PglErr ConditionalAllocateNonAutosomalVariants(const ChrInfo* cip, const char* calc_descrip, uint32_t raw_variant_ct, const uintptr_t** variant_include_ptr, uint32_t* variant_ct_ptr);
 
 void FillSubsetChrFoVidxStart(const uintptr_t* variant_include, const ChrInfo* cip, uint32_t* subset_chr_fo_vidx_start);
 

@@ -9603,7 +9603,7 @@ PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
 
     ctx.autosomal_variant_include = orig_variant_include;
     uint32_t autosomal_variant_ct = orig_variant_ct;
-    reterr = ConditionalAllocateNonAutosomalVariants(cip, "--het", raw_variant_ct, 0, &ctx.autosomal_variant_include, &autosomal_variant_ct);
+    reterr = ConditionalAllocateNonAutosomalVariants(cip, "--het", raw_variant_ct, &ctx.autosomal_variant_include, &autosomal_variant_ct);
     if (!autosomal_variant_ct) {
       goto HetReport_ret_NO_VARIATION;
     }
@@ -9917,7 +9917,7 @@ typedef struct FstCtxStruct {
   // worker threads compute intermediate stats; parent thread computes final
   // Fst estimates (to avoid O(pop_ct^2) space problem) and executes
   // block-jackknife.
-  uint32_t* geno_obs_cts[2];
+  uint32_t* pop_nm_sample_cts[2];
   uint32_t* pop_allele_obs_cts[2];  // major dimension = pop, minor = allele
 
   // Hudson only
@@ -9969,7 +9969,7 @@ THREAD_FUNC_DECL FstThread(void* raw_arg) {
     uint32_t cur_idx_ct;
     uintptr_t variant_uidx_base;
     uintptr_t variant_include_bits;
-    uint32_t* geno_obs_cts_iter;
+    uint32_t* pop_nm_sample_cts_iter;
     uint32_t* pop_allele_obs_cts_iter;
     double* half_within_iter;
     uint32_t* pop_allele_het_cts_iter;
@@ -9981,9 +9981,9 @@ THREAD_FUNC_DECL FstThread(void* raw_arg) {
       BitIter1Start(variant_include, variant_uidx_start, &variant_uidx_base, &variant_include_bits);
       const uintptr_t allele_bidx = first_variant_bidx * 2 + CountExtraAlleles(variant_include, allele_idx_offsets, ctx->read_variant_uidx_starts[0], variant_uidx_start, 0);
       // non-null iff Weir-Cockerham method, or OBS_CT .fst.var col requested
-      geno_obs_cts_iter = ctx->geno_obs_cts[parity];
-      if (geno_obs_cts_iter) {
-        geno_obs_cts_iter = &(geno_obs_cts_iter[pop_ct * first_variant_bidx]);
+      pop_nm_sample_cts_iter = ctx->pop_nm_sample_cts[parity];
+      if (pop_nm_sample_cts_iter) {
+        pop_nm_sample_cts_iter = &(pop_nm_sample_cts_iter[pop_ct * first_variant_bidx]);
       }
       pop_allele_obs_cts_iter = ctx->pop_allele_obs_cts[parity];
       pop_allele_obs_cts_iter = &(pop_allele_obs_cts_iter[pop_ct * allele_bidx]);
@@ -10103,15 +10103,15 @@ THREAD_FUNC_DECL FstThread(void* raw_arg) {
           }
         }
       }
-      if (geno_obs_cts_iter) {
+      if (pop_nm_sample_cts_iter) {
         const uint32_t* pop_geno_buf_iter = pop_geno_buf;
         for (uintptr_t pop_idx = 0; pop_idx != pop_ct; ++pop_idx) {
-          geno_obs_cts_iter[pop_idx] = pop_geno_buf_iter[0] + pop_geno_buf_iter[1] + pop_geno_buf_iter[2];
+          pop_nm_sample_cts_iter[pop_idx] = pop_geno_buf_iter[0] + pop_geno_buf_iter[1] + pop_geno_buf_iter[2];
           pop_geno_buf_iter = &(pop_geno_buf_iter[4]);
         }
         if (haploid_present) {
           for (uintptr_t pop_idx = 0; pop_idx != pop_ct; ++pop_idx) {
-            geno_obs_cts_iter[pop_idx] += pop_geno_buf_iter[0] + pop_geno_buf_iter[2];
+            pop_nm_sample_cts_iter[pop_idx] += pop_geno_buf_iter[0] + pop_geno_buf_iter[2];
             pop_geno_buf_iter = &(pop_geno_buf_iter[4]);
           }
         }
@@ -10176,8 +10176,8 @@ THREAD_FUNC_DECL FstThread(void* raw_arg) {
                 pop_allele_obs_cts_iter[pop_idx + ac0 * pop_ct] += 2 - is_male;
               } else {
                 if (is_male) {
-                  if (geno_obs_cts_iter) {
-                    geno_obs_cts_iter[pop_idx] -= 1;
+                  if (pop_nm_sample_cts_iter) {
+                    pop_nm_sample_cts_iter[pop_idx] -= 1;
                   }
                   continue;
                 }
@@ -10230,12 +10230,10 @@ THREAD_FUNC_DECL FstThread(void* raw_arg) {
         }
       } else {
         // Weir-Cockerham
-        printf("not implemented yet\n");
-        exit(1);
-        pop_allele_het_cts_iter = &(pop_allele_obs_cts_iter[pop_ct * allele_ct]);
+        pop_allele_het_cts_iter = &(pop_allele_het_cts_iter[pop_ct * allele_ct]);
       }
-      if (geno_obs_cts_iter) {
-        geno_obs_cts_iter = &(geno_obs_cts_iter[pop_ct]);
+      if (pop_nm_sample_cts_iter) {
+        pop_nm_sample_cts_iter = &(pop_nm_sample_cts_iter[pop_ct]);
       }
       pop_allele_obs_cts_iter = &(pop_allele_obs_cts_iter[pop_ct * allele_ct]);
     }
@@ -10327,10 +10325,6 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
     uint32_t sample_ct = PopcountWords(sample_include, raw_sample_ctl);
     const FstFlags flags = fst_infop->flags;
     const uint32_t is_wc = (flags / kfFstMethodWc) & 1;
-    if (is_wc) {
-      logerrputs("Error: --fst Weir-Cockerham method is under development.\n");
-      goto FstReport_ret_1;
-    }
     uintptr_t pop_pair_ct = 0;
     uint32_t* pop_pairs = nullptr;
     const char** pop_names;
@@ -10677,7 +10671,7 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
       uint32_t cur_variant_ct;
       if (!is_x) {
         cur_variant_ct = orig_variant_ct;
-        reterr = ConditionalAllocateNonAutosomalVariants(cip, "autosomal --fst", raw_variant_ct, 1, &cur_variant_include, &cur_variant_ct);
+        reterr = ConditionalAllocateNonAutosomalVariants(cip, nullptr, raw_variant_ct, &cur_variant_include, &cur_variant_ct);
         if (unlikely(reterr)) {
           goto FstReport_ret_1;
         }
@@ -10750,8 +10744,8 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
       if (nobs_vcol || is_wc) {
         per_variant_xalloc_byte_ct += pop_ct * sizeof(int32_t) * 2;
       } else {
-        ctx.geno_obs_cts[0] = nullptr;
-        ctx.geno_obs_cts[1] = nullptr;
+        ctx.pop_nm_sample_cts[0] = nullptr;
+        ctx.pop_nm_sample_cts[1] = nullptr;
       }
       if (!is_wc) {
         // half_within
@@ -10760,6 +10754,7 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
         ctx.pop_allele_het_cts[0] = nullptr;
         ctx.pop_allele_het_cts[1] = nullptr;
       } else {
+        // pop_allele_het_cts already included in (1 + is_wc) term above
         ctx.half_within[0] = nullptr;
         ctx.half_within[1] = nullptr;
       }
@@ -10800,13 +10795,12 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
                    bigstack_alloc_u32(pop_pair_batch_size, &fst_nobs))) {
         goto FstReport_ret_NOMEM;
       }
-      uint32_t jackknife_block_ct = 0;
+      uint32_t jackknife_block_max = 0;
       if (jackknife_blocksize) {
         if (cur_variant_ct <= jackknife_blocksize) {
-          logerrprintf("Error: Too few %s variants for --fst blocksize=%u.\n", is_x? "chrX" : "autosomal", jackknife_blocksize);
-          goto FstReport_ret_INCONSISTENT_INPUT;
+          logerrprintf("Warning: Too few %s variants for --fst blocksize=%u to be useful.\n", is_x? "chrX" : "autosomal", jackknife_blocksize);
         }
-        jackknife_block_ct = DivUp(cur_variant_ct, jackknife_blocksize);
+        jackknife_block_max = DivUp(cur_variant_ct, jackknife_blocksize);
       }
       // <output prefix, including .x>.<popID1>.<popID2>.fst.var[.zst]
       const uint32_t pop_name_capacity = kPglFnamesize - 11 - (4 * v_output_zst) - S_CAST(uintptr_t, outname_end2 - outname);
@@ -10881,24 +10875,22 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
         ZeroU32Arr(pop_pair_batch_size, fst_nobs);
         double* jackknife_fst_numers = nullptr;
         double* jackknife_fst_denoms = nullptr;
-        uint32_t* jackknife_block_sizes = nullptr;  // excludes nan
-        // In the jackknife case, fst_{numer_sums,denom_sums,nobs} are only for
-        // the current block while the calculation is in progress; we track the
-        // grand fst_numer_sums and fst_denom_sums values in
-        // fst_{numer,denom}_acc_sums, and copy those back at the end.
-        double* fst_numer_acc_sums = nullptr;
-        double* fst_denom_acc_sums = nullptr;
+        uint32_t* jackknife_next_block_starts = nullptr;
+        // In the jackknife case, fst_{numer,denom}_sums are only for the
+        // current block while the calculation is in progress; we save them off
+        // to jackknife_fst_{numers,denoms} when each block is complete.
         if (jackknife_blocksize) {
           // leading dimension = pop-pair index
           // strictly speaking, pop_pair_batch_size should be reduced if this
           // would be too large, but that should never come up with any sane
           // blocksize= choice
-          if (unlikely(bigstack_alloc_d(jackknife_block_ct * pop_pair_batch_size, &jackknife_fst_numers) ||
-                       bigstack_alloc_d(jackknife_block_ct * pop_pair_batch_size, &jackknife_fst_denoms) ||
-                       bigstack_alloc_u32(jackknife_block_ct * pop_pair_batch_size, &jackknife_block_sizes) ||
-                       bigstack_calloc_d(pop_pair_batch_size, &fst_numer_acc_sums) ||
-                       bigstack_calloc_d(pop_pair_batch_size, &fst_denom_acc_sums))) {
+          if (unlikely(bigstack_alloc_d(jackknife_block_max * pop_pair_batch_size, &jackknife_fst_numers) ||
+                       bigstack_alloc_d(jackknife_block_max * pop_pair_batch_size, &jackknife_fst_denoms) ||
+                       bigstack_alloc_u32(pop_pair_batch_size, &jackknife_next_block_starts))) {
             goto FstReport_ret_NOMEM;
+          }
+          for (uintptr_t ulii = 0; ulii != pop_pair_batch_size; ++ulii) {
+            jackknife_next_block_starts[ulii] = jackknife_blocksize;
           }
         }
 
@@ -10931,8 +10923,8 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
         }
         if (nobs_vcol || is_wc) {
           const uintptr_t geno_obs_alloc = RoundUpPow2(pop_ct * sizeof(int32_t) * read_block_size, kCacheline);
-          ctx.geno_obs_cts[0] = S_CAST(uint32_t*, bigstack_alloc_raw(geno_obs_alloc));
-          ctx.geno_obs_cts[1] = S_CAST(uint32_t*, bigstack_alloc_raw(geno_obs_alloc));
+          ctx.pop_nm_sample_cts[0] = S_CAST(uint32_t*, bigstack_alloc_raw(geno_obs_alloc));
+          ctx.pop_nm_sample_cts[1] = S_CAST(uint32_t*, bigstack_alloc_raw(geno_obs_alloc));
         }
         const uintptr_t max_allele_block_size = read_block_size + max_alt_allele_block_size;
         const uintptr_t allele_pop_alloc = RoundUpPow2(pop_ct * max_allele_block_size * sizeof(int32_t), kCacheline);
@@ -10965,10 +10957,7 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
         uint32_t chr_end = 0;
         uint32_t chr_buf_blen = 0;
         uint32_t prev_block_variant_ct = 0;
-        uint32_t prev_variant_idx_start = 0;
         uint32_t next_print_variant_idx = cur_variant_ct / 100;
-        uint32_t jackknife_block_idx = 0;
-        uint32_t jackknife_block_last = jackknife_blocksize? (jackknife_blocksize - 1) : cur_variant_ct;
         for (uint32_t variant_idx = 0; ; ) {
           const uint32_t cur_block_variant_ct = MultireadNonempty(cur_variant_include, &tg, raw_variant_ct, read_block_size, pgfip, &read_block_idx, &reterr);
           if (unlikely(reterr)) {
@@ -10996,10 +10985,10 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
           parity = 1 - parity;
           if (variant_idx) {
             // process *previous* block results
-            const uint32_t* geno_obs_cts_iter = ctx.geno_obs_cts[parity];
+            const uint32_t* pop_nm_sample_cts_iter = ctx.pop_nm_sample_cts[parity];
             const uint32_t* pop_allele_obs_cts_iter = ctx.pop_allele_obs_cts[parity];
             const double* half_within_iter = ctx.half_within[parity];
-            // const uint32_t* pop_allele_het_cts_iter = ctx.pop_allele_het_cts[parity];
+            const uint32_t* pop_allele_het_cts_iter = ctx.pop_allele_het_cts[parity];
             for (uint32_t variant_bidx = 0; variant_bidx != prev_block_variant_ct; ++variant_bidx) {
               const uint32_t write_variant_uidx = BitIter1(cur_variant_include, &write_variant_uidx_base, &write_variant_bits);
               if (chr_buf && (write_variant_uidx >= chr_end)) {
@@ -11046,13 +11035,68 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
                   }
                 } else {
                   // Weir-Cockerham
-                  printf("not implemented yet\n");
-                  exit(1);
+                  const uintptr_t pop1_size = pop_nm_sample_cts_iter[pop_idx1];
+                  const uintptr_t pop2_size = pop_nm_sample_cts_iter[pop_idx2];
+                  pop1_n_hap = pop1_size * 2;
+                  pop2_n_hap = pop2_size * 2;
+                  const uintptr_t n_total = pop1_size + pop2_size;
+                  const double n_total_d = u31tod(n_total);
+                  const double n_total_recip = 1.0 / n_total_d;
+                  const double n_bar = n_total_d * 0.5;
+                  const double n_bar_m1_recip = 1.0 / (n_bar - 1);
+                  const double n_bar_div_n_c = n_bar / (n_total_d - u63tod(pop1_size * pop1_size + pop2_size * pop2_size) * n_total_recip);
+                  const double pop1_size_d = u31tod(pop1_size);
+                  const double pop2_size_d = u31tod(pop2_size);
+                  const double pop1_size_recip = 1.0 / pop1_size_d;
+                  const double pop2_size_recip = 1.0 / pop2_size_d;
+                  double a_sum = 0.0;
+                  double b_sum = 0.0;
+                  double c_sum = 0.0;
+                  const uintptr_t wc_allele_ct = (allele_ct == 2)? 1 : allele_ct;
+                  for (uintptr_t allele_idx = 0; allele_idx != wc_allele_ct; ++allele_idx) {
+                    const uint32_t pop1_cur_allele_ct = pop_allele_obs_cts_iter[allele_idx * pop_ct + pop_idx1];
+                    const uint32_t pop2_cur_allele_ct = pop_allele_obs_cts_iter[allele_idx * pop_ct + pop_idx2];
+                    const uint32_t total_allele_ct = pop1_cur_allele_ct + pop2_cur_allele_ct;
+                    if (!total_allele_ct) {
+                      continue;
+                    }
+                    if (total_allele_ct == 2 * n_total) {
+                      // guaranteed to have no variation; don't want to deal
+                      // with rounding errors, etc.
+                      break;
+                    }
+                    const double pop1_cur_allele_ct_d = u31tod(pop1_cur_allele_ct);
+                    const double pop2_cur_allele_ct_d = u31tod(pop2_cur_allele_ct);
+                    const double pop1_afreq = pop1_cur_allele_ct_d * pop1_size_recip * 0.5;
+                    const double pop2_afreq = pop2_cur_allele_ct_d * pop2_size_recip * 0.5;
+                    const double p_bar = (pop1_cur_allele_ct_d + pop2_cur_allele_ct_d) * 0.5 * n_total_recip;
+                    const double s_squared_pop1_term = pop1_afreq - p_bar;
+                    const double s_squared_pop2_term = pop2_afreq - p_bar;
+                    const double s_squared = (pop1_size_d * s_squared_pop1_term * s_squared_pop1_term + pop2_size_d * s_squared_pop2_term * s_squared_pop2_term) * n_total_recip * 2;
+                    const double h_bar = u31tod(pop_allele_het_cts_iter[allele_idx * pop_ct + pop_idx1] + pop_allele_het_cts_iter[allele_idx * pop_ct + pop_idx2]) * n_total_recip;
+                    const double p_bar_times_1_minus_p_bar = p_bar * (1 - p_bar);
+                    a_sum += n_bar_div_n_c * (s_squared - (p_bar_times_1_minus_p_bar - 0.5 * s_squared - 0.25 * h_bar) * n_bar_m1_recip);
+                    b_sum += n_bar * n_bar_m1_recip * (p_bar_times_1_minus_p_bar - 0.5 * s_squared - (0.5 - 0.5 * n_total_recip) * h_bar);
+                    c_sum += h_bar * 0.5;
+                  }
+                  fst_numer = a_sum;
+                  fst_denom = a_sum + b_sum + c_sum;
                 }
                 if ((fst_denom != 0.0) && (fst_numer == fst_numer)) {
                   fst_numer_sums[pop_pair_bidx] += fst_numer;
                   fst_denom_sums[pop_pair_bidx] += fst_denom;
-                  fst_nobs[pop_pair_bidx] += 1;
+                  const uint32_t new_nobs = fst_nobs[pop_pair_bidx] + 1;
+                  fst_nobs[pop_pair_bidx] = new_nobs;
+                  if (jackknife_next_block_starts && (new_nobs == jackknife_next_block_starts[pop_pair_bidx])) {
+                    const uintptr_t idx_2d = pop_pair_bidx * jackknife_block_max + (new_nobs / jackknife_blocksize) - 1;
+                    const double cur_block_fst_numer_sum = fst_numer_sums[pop_pair_bidx];
+                    const double cur_block_fst_denom_sum = fst_denom_sums[pop_pair_bidx];
+                    jackknife_fst_numers[idx_2d] = cur_block_fst_numer_sum;
+                    jackknife_fst_denoms[idx_2d] = cur_block_fst_denom_sum;
+                    fst_numer_sums[pop_pair_bidx] = 0.0;
+                    fst_denom_sums[pop_pair_bidx] = 0.0;
+                    jackknife_next_block_starts[pop_pair_bidx] = new_nobs + jackknife_blocksize;
+                  }
                 }
                 if (!report_variants) {
                   continue;
@@ -11096,7 +11140,7 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
                 }
                 if (nobs_vcol) {
                   *cswritep++ = '\t';
-                  cswritep = u32toa(geno_obs_cts_iter[pop_idx1] + geno_obs_cts_iter[pop_idx2], cswritep);
+                  cswritep = u32toa(pop_nm_sample_cts_iter[pop_idx1] + pop_nm_sample_cts_iter[pop_idx2], cswritep);
                 }
                 if (nallele_vcol) {
                   *cswritep++ = '\t';
@@ -11119,33 +11163,14 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
                 }
                 v_cswritep_arr[pop_pair_bidx] = cswritep;
               }
-              if (geno_obs_cts_iter) {
-                geno_obs_cts_iter = &(geno_obs_cts_iter[pop_ct]);
+              if (pop_nm_sample_cts_iter) {
+                pop_nm_sample_cts_iter = &(pop_nm_sample_cts_iter[pop_ct]);
               }
               pop_allele_obs_cts_iter = &(pop_allele_obs_cts_iter[pop_ct * allele_ct]);
               if (half_within_iter) {
                 half_within_iter = &(half_within_iter[pop_ct]);
-              }
-              if (variant_bidx + prev_variant_idx_start == jackknife_block_last) {
-                uintptr_t idx_2d = jackknife_block_idx;
-                for (uintptr_t pop_pair_bidx = 0; pop_pair_bidx != pop_pair_batch_size; ++pop_pair_bidx, idx_2d += jackknife_block_ct) {
-                  const double cur_block_fst_numer_sum = fst_numer_sums[pop_pair_bidx];
-                  const double cur_block_fst_denom_sum = fst_denom_sums[pop_pair_bidx];
-                  const uint32_t cur_block_nobs = fst_nobs[pop_pair_bidx];
-                  jackknife_fst_numers[idx_2d] = cur_block_fst_numer_sum;
-                  jackknife_fst_denoms[idx_2d] = cur_block_fst_denom_sum;
-                  jackknife_block_sizes[idx_2d] = cur_block_nobs;
-                  fst_numer_acc_sums[pop_pair_bidx] += cur_block_fst_numer_sum;
-                  fst_denom_acc_sums[pop_pair_bidx] += cur_block_fst_denom_sum;
-                  fst_numer_sums[pop_pair_bidx] = 0.0;
-                  fst_denom_sums[pop_pair_bidx] = 0.0;
-                  fst_nobs[pop_pair_bidx] = 0;
-                }
-                ++jackknife_block_idx;
-                jackknife_block_last += jackknife_blocksize;
-                if (jackknife_block_last >= cur_variant_ct) {
-                  jackknife_block_last = cur_variant_ct - 1;
-                }
+              } else {
+                pop_allele_het_cts_iter = &(pop_allele_het_cts_iter[pop_ct * allele_ct]);
               }
             }
           }
@@ -11163,63 +11188,77 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
           }
           ++read_block_idx;
           prev_block_variant_ct = cur_block_variant_ct;
-          prev_variant_idx_start = variant_idx;
           variant_idx += cur_block_variant_ct;
           pgfip->block_base = main_loadbufs[parity];
         }
         for (uintptr_t pop_pair_bidx = 0; pop_pair_bidx != pop_pair_batch_size; ++pop_pair_bidx) {
           const uint32_t pop_idx1 = cur_pop_pairs[2 * pop_pair_bidx];
           const uint32_t pop_idx2 = cur_pop_pairs[2 * pop_pair_bidx + 1];
-          double fst_numer_sum;
-          double fst_denom_sum;
-          uint32_t nobs;
+          const uint32_t nobs = fst_nobs[pop_pair_bidx];
+          double fst_numer_sum = fst_numer_sums[pop_pair_bidx];
+          double fst_denom_sum = fst_denom_sums[pop_pair_bidx];
           double fst_se = 0.0;
-          if (!jackknife_fst_numers) {
-            fst_numer_sum = fst_numer_sums[pop_pair_bidx];
-            fst_denom_sum = fst_denom_sums[pop_pair_bidx];
-            nobs = fst_nobs[pop_pair_bidx];
-          } else {
-            fst_numer_sum = fst_numer_acc_sums[pop_pair_bidx];
-            fst_denom_sum = fst_denom_acc_sums[pop_pair_bidx];
-            const double* block_fst_numers = &(jackknife_fst_numers[pop_pair_bidx * jackknife_block_ct]);
-            const double* block_fst_denoms = &(jackknife_fst_denoms[pop_pair_bidx * jackknife_block_ct]);
-            const uint32_t* cur_block_sizes = &(jackknife_block_sizes[pop_pair_bidx * jackknife_block_ct]);
-            nobs = 0;
-            for (uint32_t uii = 0; uii != jackknife_block_ct; ++uii) {
-              nobs += cur_block_sizes[uii];
-            }
-            const double nobs_d = u31tod(nobs);
-            const double nobs_recip = 1.0 / nobs_d;
-            // https://reich.hms.harvard.edu/sites/reich.hms.harvard.edu/files/inline-files/wjack.pdf
-            const double theta_hat = fst_numer_sum / fst_denom_sum;
-            // first pass: compute theta_jack
-            double theta_jack = 0.0;
-            uint32_t nonempty_block_ct = 0;
-            for (uint32_t uii = 0; uii != jackknife_block_ct; ++uii) {
-              const uint32_t cur_block_size = cur_block_sizes[uii];
-              if (cur_block_size) {
+          if (jackknife_fst_numers) {
+            double* block_fst_numers = &(jackknife_fst_numers[pop_pair_bidx * jackknife_block_max]);
+            double* block_fst_denoms = &(jackknife_fst_denoms[pop_pair_bidx * jackknife_block_max]);
+            if (nobs > jackknife_blocksize) {
+              const uint32_t n_block = DivUp(nobs, jackknife_blocksize);
+              uint32_t prev_block_ct = n_block;
+              uint32_t last_block_size = jackknife_blocksize;
+              if (nobs != n_block * jackknife_blocksize) {
+                --prev_block_ct;
+                block_fst_numers[prev_block_ct] = fst_numer_sum;
+                block_fst_denoms[prev_block_ct] = fst_denom_sum;
+                last_block_size = nobs - (prev_block_ct * jackknife_blocksize);
+              }
+              for (uint32_t block_idx = 0; block_idx != prev_block_ct; ++block_idx) {
+                fst_numer_sum += block_fst_numers[block_idx];
+                fst_denom_sum += block_fst_denoms[block_idx];
+              }
+              const double nobs_d = u31tod(nobs);
+              const double nobs_recip = 1.0 / nobs_d;
+              // https://reich.hms.harvard.edu/sites/reich.hms.harvard.edu/files/inline-files/wjack.pdf
+              const double theta_hat = fst_numer_sum / fst_denom_sum;
+              // first pass: compute theta_jack
+              double theta_jack = 0.0;
+              double cur_block_size_d = u31tod(jackknife_blocksize);
+              for (uint32_t block_idx = 0; ; ++block_idx) {
+                if (block_idx >= prev_block_ct) {
+                  if (block_idx > prev_block_ct) {
+                    break;
+                  }
+                  cur_block_size_d = u31tod(last_block_size);
+                }
                 // we can avoid computing some of these values twice, but this
                 // isn't a bottleneck
-                const double theta_with_j_removed = (fst_numer_sum - block_fst_numers[uii]) / (fst_denom_sum - block_fst_denoms[uii]);
-                theta_jack += (theta_hat - theta_with_j_removed) + u31tod(cur_block_size) * theta_with_j_removed * nobs_recip;
+                const double theta_with_j_removed = (fst_numer_sum - block_fst_numers[block_idx]) / (fst_denom_sum - block_fst_denoms[block_idx]);
+                theta_jack += (theta_hat - theta_with_j_removed) + cur_block_size_d * theta_with_j_removed * nobs_recip;
               }
-            }
-            // second pass: compute variance estimate
-            double main_sum = 0.0;
-            for (uint32_t uii = 0; uii != jackknife_block_ct; ++uii) {
-              const uint32_t cur_block_size = cur_block_sizes[uii];
-              if (cur_block_size) {
-                const double hh = nobs_d / u31tod(cur_block_size);
+              // second pass: compute variance estimate
+              double main_sum = 0.0;
+              double hh = nobs_d / u31tod(jackknife_blocksize);
+              for (uint32_t block_idx = 0; ; ++block_idx) {
+                if (block_idx >= prev_block_ct) {
+                  if (block_idx > prev_block_ct) {
+                    break;
+                  }
+                  hh = nobs_d / u31tod(last_block_size);
+                }
                 const double h_minus_1 = hh - 1.0;
-                const double theta_with_j_removed = (fst_numer_sum - block_fst_numers[uii]) / (fst_denom_sum - block_fst_denoms[uii]);
+                const double theta_with_j_removed = (fst_numer_sum - block_fst_numers[block_idx]) / (fst_denom_sum - block_fst_denoms[block_idx]);
                 const double tau_j = hh * theta_hat - h_minus_1 * theta_with_j_removed;
                 const double tau_j_minus_theta_jack = tau_j - theta_jack;
                 main_sum += tau_j_minus_theta_jack * tau_j_minus_theta_jack / h_minus_1;
-                ++nonempty_block_ct;
               }
+              const double variance_estimate = main_sum / u31tod(n_block);
+              fst_se = sqrt(variance_estimate);
+            } else {
+              if (nobs == jackknife_blocksize) {
+                fst_numer_sum += block_fst_numers[0];
+                fst_denom_sum += block_fst_denoms[0];
+              }
+              fst_se = 0.0 / 0.0;
             }
-            const double variance_estimate = main_sum / u31tod(nonempty_block_ct);
-            fst_se = sqrt(variance_estimate);
           }
           s_write_iter = strcpyax(s_write_iter, pop_names[pop_idx1], '\t');
           s_write_iter = strcpyax(s_write_iter, pop_names[pop_idx2], '\t');
