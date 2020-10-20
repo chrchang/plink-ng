@@ -10061,7 +10061,15 @@ int main(int argc, char** argv) {
 
 #ifdef USE_MKL
     if (!mkl_native) {
+#  ifdef USE_AVX2
+      mkl_cbwr_set(MKL_CBWR_AVX);
+#  else
+#    ifdef USE_SSE42
+      mkl_cbwr_set(MKL_CBWR_SSE4_1);
+#    else
       mkl_cbwr_set(MKL_CBWR_COMPATIBLE);
+#    endif
+#  endif
     }
 #endif
     sfmt_t main_sfmt;
