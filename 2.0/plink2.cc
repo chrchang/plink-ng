@@ -10062,10 +10062,10 @@ int main(int argc, char** argv) {
 #ifdef USE_MKL
     if (!mkl_native) {
 #  ifdef USE_AVX2
-      mkl_cbwr_set(MKL_CBWR_AVX);
+      mkl_cbwr_set(MKL_CBWR_AVX2);
 #  else
 #    ifdef USE_SSE42
-      mkl_cbwr_set(MKL_CBWR_SSE4_1);
+      mkl_cbwr_set(MKL_CBWR_SSE4_2);
 #    else
       mkl_cbwr_set(MKL_CBWR_COMPATIBLE);
 #    endif
