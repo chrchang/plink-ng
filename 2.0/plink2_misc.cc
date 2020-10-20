@@ -10183,10 +10183,8 @@ THREAD_FUNC_DECL FstThread(void* raw_arg) {
                 }
                 pop_allele_obs_cts_iter[pop_idx + ac0 * pop_ct] += 1;
                 pop_allele_obs_cts_iter[pop_idx + ac1 * pop_ct] += 1;
-                if (pop_allele_het_cts_iter) {
-                  pop_allele_het_cts_iter[pop_idx + ac0 * pop_ct] += 1;
-                  pop_allele_het_cts_iter[pop_idx + ac1 * pop_ct] += 1;
-                }
+                // guaranteed to be performing Hudson computation if we're
+                // here, so no need to check pop_allele_het_cts_iter
               }
             }
           }
