@@ -93,7 +93,7 @@
 
 static const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b6.20"
+  "PLINK v1.90b6.21"
 #else
   "PLINK v1.90p"
 #endif
@@ -105,7 +105,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (21 Sep 2020)";
+  " (19 Oct 2020)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -3327,6 +3327,9 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t lasso_lambda_iters = 0;
   uint32_t testmiss_modifier = 0;
   uint32_t testmiss_mperm_val = 0;
+#ifdef USE_MKL
+  uint32_t mkl_native = 0;
+#endif
 
   // this default limit plays well with e.g. fbstring small-string optimization
   uint32_t new_id_max_allele_len = 23;
@@ -9716,6 +9719,11 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "oweb", 5)) {
         logprint("Note: --noweb has no effect since no web check is implemented yet.\n");
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "ative", 6)) {
+#ifdef USE_MKL
+        mkl_native = 1;
+#endif
+        goto main_param_zero;
       } else {
         goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
       }
@@ -13303,6 +13311,12 @@ int32_t main(int32_t argc, char** argv) {
     logerrprint("Error: No input dataset.\n");
     goto main_ret_INVALID_CMDLINE_A;
   }
+
+#ifdef USE_MKL
+  if (!mkl_native) {
+    mkl_cbwr_set(MKL_CBWR_COMPATIBLE);
+  }
+#endif
 
   free_cond(subst_argv);
   free_cond(script_buf);

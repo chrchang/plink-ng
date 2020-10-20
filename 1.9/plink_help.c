@@ -2153,6 +2153,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --perm-batch-size <val> : Set number of permutations per batch for some\n"
 "                            permutation tests.\n"
 	       );
+    help_print("native", &help_ctrl, 0,
+"  --native           : Allow Intel MKL to use processor-dependent code paths.\n"
+               );
     help_print("output-min-p", &help_ctrl, 0,
 "  --output-min-p <p> : Specify minimum p-value to write to reports.\n"
 	       );
