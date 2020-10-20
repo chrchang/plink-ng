@@ -2648,7 +2648,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       logerrputs("Error: --make-king-table cannot be used on haploid genomes.\n");
       goto CalcKingTableSubset_ret_INCONSISTENT_INPUT;
     }
-    reterr = ConditionalAllocateNonAutosomalVariants(cip, "--make-king-table", raw_variant_ct, &variant_include, &variant_ct);
+    reterr = ConditionalAllocateNonAutosomalVariants(cip, "--make-king-table", raw_variant_ct, 0, &variant_include, &variant_ct);
     if (unlikely(reterr)) {
       goto CalcKingTableSubset_ret_1;
     }
@@ -4021,7 +4021,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       goto CalcGrm_ret_NOMEM;
     }
     FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
-    reterr = ConditionalAllocateNonAutosomalVariants(cip, "GRM construction", raw_variant_ct, &variant_include, &variant_ct);
+    reterr = ConditionalAllocateNonAutosomalVariants(cip, "GRM construction", raw_variant_ct, 0, &variant_include, &variant_ct);
     if (unlikely(reterr)) {
       goto CalcGrm_ret_1;
     }
@@ -4951,7 +4951,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     const uintptr_t max_sid_blen = siip->max_sid_blen;
     const uint32_t write_sid = SidColIsRequired(sids, pca_flags / kfPcaScolMaybesid);
     const uint32_t is_approx = (pca_flags / kfPcaApprox) & 1;
-    reterr = ConditionalAllocateNonAutosomalVariants(cip, is_approx? "PCA approximation" : "PCA", raw_variant_ct, &variant_include, &variant_ct);
+    reterr = ConditionalAllocateNonAutosomalVariants(cip, is_approx? "PCA approximation" : "PCA", raw_variant_ct, 0, &variant_include, &variant_ct);
     if (unlikely(reterr)) {
       goto CalcPca_ret_1;
     }

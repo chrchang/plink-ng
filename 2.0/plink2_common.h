@@ -896,7 +896,7 @@ uint32_t CountNonAutosomalVariants(const uintptr_t* variant_include, const ChrIn
 
 void ExcludeNonAutosomalVariants(const ChrInfo* cip, uintptr_t* variant_include);
 
-PglErr ConditionalAllocateNonAutosomalVariants(const ChrInfo* cip, const char* calc_descrip, uint32_t raw_variant_ct, const uintptr_t** variant_include_ptr, uint32_t* variant_ct_ptr);
+PglErr ConditionalAllocateNonAutosomalVariants(const ChrInfo* cip, const char* calc_descrip, uint32_t raw_variant_ct, uint32_t allow_no_remaining_variants, const uintptr_t** variant_include_ptr, uint32_t* variant_ct_ptr);
 
 void FillSubsetChrFoVidxStart(const uintptr_t* variant_include, const ChrInfo* cip, uint32_t* subset_chr_fo_vidx_start);
 
@@ -975,6 +975,7 @@ typedef struct PhenoColStruct {
   //   Otherwise, this is nullptr.
   // * When .sample non-V2 categorical variables are imported, 'C' is added in
   //   front of the integers.
+  // * category_names[1..(n-1)] is guaranteed to be in natural-sorted order.
   const char** category_names;
 
   uintptr_t* nonmiss;  // bitvector
@@ -1006,6 +1007,8 @@ uint32_t IdentifyRemainingCats(const uintptr_t* sample_include, const PhenoCol* 
 uint32_t IdentifyRemainingCatsAndMostCommon(const uintptr_t* sample_include, const PhenoCol* covar_col, uint32_t sample_ct, uintptr_t* observed_cat_bitarr, uint32_t* cat_obs_buf);
 
 uint32_t GetCatSamples(const uintptr_t* sample_include_base, const PhenoCol* cat_pheno_col, uint32_t raw_sample_ctl, uint32_t sample_ct, uint32_t cat_uidx, uintptr_t* cur_cat_samples);
+
+uint32_t RemoveExcludedCats(const uint32_t* data_cat, const uintptr_t* cat_keep_bitarr, uint32_t raw_sample_ct, uint32_t in_sample_ct, uintptr_t* sample_include);
 
 // pheno_names is also allocated on the heap, but it can be handled with a
 // simple free_cond().

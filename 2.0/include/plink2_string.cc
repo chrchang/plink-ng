@@ -3046,7 +3046,7 @@ uint32_t CollapseDuplicateIds(uintptr_t id_ct, uintptr_t max_id_blen, char* sort
 }
 
 
-int32_t bsearch_str(const char* idbuf, const char* sorted_strbox, uintptr_t cur_id_slen, uintptr_t max_id_blen, uintptr_t end_idx) {
+int32_t bsearch_strbox(const char* idbuf, const char* sorted_strbox, uintptr_t cur_id_slen, uintptr_t max_id_blen, uintptr_t end_idx) {
   // does not assume null-terminated idbuf, or nonempty array.
   if (cur_id_slen >= max_id_blen) {
     return -1;
@@ -3066,9 +3066,9 @@ int32_t bsearch_str(const char* idbuf, const char* sorted_strbox, uintptr_t cur_
   return -1;
 }
 
-int32_t bsearch_str_natural(const char* idbuf, const char* sorted_strbox, uintptr_t max_id_blen, uintptr_t end_idx) {
-  // unlike bsearch_str(), caller is responsible for slen >= max_id_blen check
-  // if appropriate here
+int32_t bsearch_strbox_natural(const char* idbuf, const char* sorted_strbox, uintptr_t max_id_blen, uintptr_t end_idx) {
+  // unlike bsearch_strbox(), caller is responsible for slen >= max_id_blen
+  // check if appropriate here
   uintptr_t start_idx = 0;
   while (start_idx < end_idx) {
     const uintptr_t mid_idx = (start_idx + end_idx) / 2;
@@ -3084,7 +3084,23 @@ int32_t bsearch_str_natural(const char* idbuf, const char* sorted_strbox, uintpt
   return -1;
 }
 
-uintptr_t bsearch_str_lb(const char* idbuf, const char* sorted_strbox, uintptr_t cur_id_slen, uintptr_t max_id_blen, uintptr_t end_idx) {
+int32_t bsearch_strptr_natural(const char* idbuf, const char* const* sorted_strptrs, uintptr_t end_idx) {
+  uintptr_t start_idx = 0;
+  while (start_idx < end_idx) {
+    const uintptr_t mid_idx = (start_idx + end_idx) / 2;
+    const int32_t ii = strcmp_natural(idbuf, sorted_strptrs[mid_idx]);
+    if (ii > 0) {
+      start_idx = mid_idx + 1;
+    } else if (ii < 0) {
+      end_idx = mid_idx;
+    } else {
+      return S_CAST(uint32_t, mid_idx);
+    }
+  }
+  return -1;
+}
+
+uintptr_t bsearch_strbox_lb(const char* idbuf, const char* sorted_strbox, uintptr_t cur_id_slen, uintptr_t max_id_blen, uintptr_t end_idx) {
   // returns number of elements in sorted_strbox[] less than idbuf.
   if (cur_id_slen > max_id_blen) {
     cur_id_slen = max_id_blen;

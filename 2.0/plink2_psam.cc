@@ -601,12 +601,18 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
       logerrprintfww("Error: No samples in %s.\n", psamname);
       goto LoadPsam_ret_MALFORMED_INPUT;
     }
-    const uintptr_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     BigstackBaseSet(tmp_bigstack_base);
+    const uintptr_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uint32_t** old_cat_idxs_to_new = nullptr;
 
     if (pheno_ct) {
       if (unlikely(pgl_malloc(pheno_ct * sizeof(PhenoCol), &pheno_cols))) {
         goto LoadPsam_ret_NOMEM;
+      }
+      if (categorical_pheno_ct) {
+        if (unlikely(bigstack_calloc_u32p(pheno_ct, &old_cat_idxs_to_new))) {
+          goto LoadPsam_ret_NOMEM;
+        }
       }
       for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
         // ensure cleanup works if initialization fails in the middle
@@ -633,6 +639,9 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
           }
         } else {
           nonnull_catname_ct = pheno_catname_last[cat_pheno_idx]->cat_idx;
+          if (unlikely(bigstack_alloc_u32(nonnull_catname_ct + 1, &(old_cat_idxs_to_new[pheno_idx])))) {
+            goto LoadPsam_ret_NOMEM;
+          }
           data_vec_ct = Int32CtToVecCt(raw_sample_ct);
           catname_vec_ct = WordCtToVecCt(nonnull_catname_ct + 1);
           catname_storage_vec_ct = DivUp(total_catname_blens[cat_pheno_idx], kBytesPerVec);
@@ -667,6 +676,9 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
             char* cur_name_start = name_storage_iter;
             name_storage_iter = strcpyax(name_storage_iter, catname_entry_ptr->str, '\0');
             *cur_name_ptrs++ = cur_name_start;
+          }
+          if (unlikely(SortStrptrArrIndexed(nonnull_catname_ct + 1, 1, 0, 1, pheno_cols_iter->category_names, nullptr, old_cat_idxs_to_new[pheno_idx]))) {
+            goto LoadPsam_ret_NOMEM;
           }
           ++cat_pheno_idx;
         } else if (!is_qt) {
@@ -731,7 +743,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
         if (IsSet(categorical_phenos, pheno_idx)) {
           uint32_t cur_cat;
           memcpy(&cur_cat, &(cur_vardata[pheno_idx * 8]), sizeof(int32_t));
-          pheno_cols[pheno_idx].data.cat[sample_uidx] = cur_cat;
+          pheno_cols[pheno_idx].data.cat[sample_uidx] = old_cat_idxs_to_new[pheno_idx][cur_cat];
           if (cur_cat) {
             SetBit(sample_uidx, pheno_cols[pheno_idx].nonmiss);
           }
@@ -853,6 +865,7 @@ typedef struct PhenoInfoLlStruct {
 // and make unnamed variables start with "COVAR" instead of "PHENO"
 PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, int32_t missing_pheno, uint32_t affection_01, uint32_t iid_only, uint32_t numeric_ranges, uint32_t max_thread_ct, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
   char* pheno_names = nullptr;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
@@ -1219,7 +1232,6 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         goto LoadPhenos_ret_NOMEM;
       }
       tmp_bigstack_end -= pheno_info_alloc_byte_ct;
-
       PhenoInfoLl* new_pheno_info = R_CAST(PhenoInfoLl*, tmp_bigstack_end);
       new_pheno_info->next = pheno_info_reverse_ll;
       new_pheno_info->sample_uidx = sample_uidx;
@@ -1305,6 +1317,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
       }
       pheno_info_reverse_ll = new_pheno_info;
     }
+    BigstackEndSet(tmp_bigstack_end);
     if (unlikely(TextStreamErrcode2(&pheno_txs, &reterr))) {
       goto LoadPhenos_ret_TSTREAM_FAIL;
     }
@@ -1319,6 +1332,12 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
       goto LoadPhenos_ret_INCONSISTENT_INPUT;
     }
     if (new_pheno_ct) {
+      uint32_t** old_cat_idxs_to_new = nullptr;
+      if (categorical_pheno_ct) {
+        if (bigstack_calloc_u32p(new_pheno_ct, &old_cat_idxs_to_new)) {
+          goto LoadPhenos_ret_NOMEM;
+        }
+      }
       const uintptr_t nonmiss_vec_ct = BitCtToVecCt(raw_sample_ct);
       uint32_t cat_pheno_idx = 0;
       PhenoCol* pheno_cols_iter = &(new_pheno_cols[old_pheno_ct]);
@@ -1340,6 +1359,9 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
           }
         } else {
           nonnull_catname_ct = pheno_catname_last[cat_pheno_idx]->cat_idx;
+          if (unlikely(bigstack_alloc_u32(nonnull_catname_ct + 1, &(old_cat_idxs_to_new[new_pheno_idx])))) {
+            goto LoadPhenos_ret_NOMEM;
+          }
           data_vec_ct = Int32CtToVecCt(raw_sample_ct);
           catname_vec_ct = WordCtToVecCt(nonnull_catname_ct + 1);
           catname_storage_vec_ct = DivUp(total_catname_blens[cat_pheno_idx], kBytesPerVec);
@@ -1377,6 +1399,9 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
             name_storage_iter = strcpyax(name_storage_iter, catname_entry_ptr->str, '\0');
             *cur_name_ptrs++ = cur_name_start;
           }
+          if (unlikely(SortStrptrArrIndexed(nonnull_catname_ct + 1, 1, 0, 1, pheno_cols_iter->category_names, nullptr, old_cat_idxs_to_new[new_pheno_idx]))) {
+            goto LoadPhenos_ret_NOMEM;
+          }
           ++cat_pheno_idx;
         } else if (!is_qt) {
           pheno_cols_iter->data.cc = new_pheno_data_iter;
@@ -1394,7 +1419,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
           if (IsSet(categorical_phenos, new_pheno_idx)) {
             uint32_t cur_cat;
             memcpy(&cur_cat, &(pheno_data[new_pheno_idx]), sizeof(int32_t));
-            pheno_cols_iter->data.cat[sample_uidx] = cur_cat;
+            pheno_cols_iter->data.cat[sample_uidx] = old_cat_idxs_to_new[new_pheno_idx][cur_cat];
             if (cur_cat) {
               SetBit(sample_uidx, pheno_cols_iter->nonmiss);
             }
@@ -1456,7 +1481,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
   }
  LoadPhenos_ret_1:
   CleanupTextStream2(pheno_fname, &pheno_txs, &reterr);
-  BigstackReset(bigstack_mark);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   if (reterr) {
     free_cond(pheno_names);
     if (*pheno_names_ptr) {

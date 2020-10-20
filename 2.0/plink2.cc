@@ -70,7 +70,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (23 Sep 2020)";
+  " (19 Oct 2020)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -2616,9 +2616,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pcp->command_flags1 & kfCommand1Fst) {
-        /*
-        reterr = FstReport(sample_include, &pii.sii, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_ids, allele_idx_offsets, allele_storage, &(pcp->fst_info), raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_ct, max_allele_slen, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, outname, outname_end);
-        */
+        reterr = FstReport(sample_include, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, &(pcp->fst_info), raw_sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -3623,6 +3621,7 @@ int main(int argc, char** argv) {
     uint32_t notchr_present = 0;
     uint32_t permit_multiple_inclusion_filters = 0;
     uint32_t memory_require = 0;
+    uint32_t mkl_native = 0;
     uint32_t randmem = 0;
     GenDummyInfo gendummy_info;
     InitGenDummy(&gendummy_info);
@@ -5175,7 +5174,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --fst blocksize= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              if (unlikely(ScanPosintDefcapx(cur_modif, &pc.fst_info.blocksize))) {
+              if (unlikely(ScanPosintDefcapx(&(cur_modif[10]), &pc.fst_info.blocksize))) {
                 logerrputs("Error: Invalid --fst blocksize.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
@@ -5185,7 +5184,7 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE;
               }
               explicit_cols = 1;
-              reterr = ParseColDescriptor(&(cur_modif[strlen("cols=")]), "nobs\0se\0", "--fst cols", kfFstColNobs, kfFstColDefault, 0, &pc.fst_info.flags);
+              reterr = ParseColDescriptor(&(cur_modif[strlen("cols=")]), "nobs\0", "fst cols", kfFstColNobs, kfFstColDefault, 0, &pc.fst_info.flags);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
@@ -5199,7 +5198,7 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE;
               }
               explicit_vcols = 1;
-              reterr = ParseColDescriptor(&(cur_modif[strlen("vcols=")]), "chrom\0pos\0ref\0alt1\0alt\0nobs\0fstfrac\0fst\0", "--fst vcols", kfFstVcolChrom, kfFstVcolDefault, 0, &pc.fst_info.flags);
+              reterr = ParseColDescriptor(&(cur_modif[strlen("vcols=")]), "chrom\0pos\0ref\0alt\0nobs\0nallele\0fstfrac\0fst\0", "fst vcols", kfFstVcolChrom, kfFstVcolDefault, 0, &pc.fst_info.flags);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
@@ -5265,7 +5264,6 @@ int main(int argc, char** argv) {
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
-            pc.fst_info.other_id_ct = other_id_ct;
           }
           pc.command_flags1 |= kfCommand1Fst;
           pc.dependency_flags |= kfFilterAllReq;
@@ -6698,7 +6696,7 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE;
               }
               explicit_pvar_cols = 1;
-              reterr = ParseColDescriptor(&(cur_modif[strlen("pvar-cols=")]), "xheader\0vcfheader\0maybequal\0qual\0maybefilter\0filter\0maybeinfo\0info\0maybecm\0cm\0", "--make-pgen pvar-cols", kfPvarColXheader, kfPvarColDefault, 0, &pc.pvar_psam_flags);
+              reterr = ParseColDescriptor(&(cur_modif[strlen("pvar-cols=")]), "xheader\0vcfheader\0maybequal\0qual\0maybefilter\0filter\0maybeinfo\0info\0maybecm\0cm\0", "make-pgen pvar-cols", kfPvarColXheader, kfPvarColDefault, 0, &pc.pvar_psam_flags);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
@@ -7069,7 +7067,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --missing vcols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[strlen("vcols=")]), "chrom\0pos\0ref\0alt1\0alt\0nmissdosage\0nmiss\0nmisshh\0hethap\0nobs\0fmissdosage\0fmiss\0fmisshh\0fhethap\0", "missing vcols", kfMissingRptVcolChrom, kfMissingRptVcolDefault, 1, &pc.missing_rpt_flags);
+              reterr = ParseColDescriptor(&(cur_modif[strlen("vcols=")]), "chrom\0pos\0ref\0alt\0nmissdosage\0nmiss\0nmisshh\0hethap\0nobs\0fmissdosage\0fmiss\0fmisshh\0fhethap\0", "missing vcols", kfMissingRptVcolChrom, kfMissingRptVcolDefault, 1, &pc.missing_rpt_flags);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
@@ -7862,6 +7860,9 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
           }
           pc.missing_pheno = 0;
+          goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "ative")) {
+          mkl_native = 1;
           goto main_param_zero;
         } else if (likely(strequal_k_unsafe(flagname_p2, "o-id-header"))) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
@@ -10054,6 +10055,11 @@ int main(int argc, char** argv) {
       }
     }
 
+#ifdef USE_MKL
+    if (!mkl_native) {
+      mkl_cbwr_set(MKL_CBWR_COMPATIBLE);
+    }
+#endif
     sfmt_t main_sfmt;
     if (!rseeds) {
       uint32_t seed = S_CAST(uint32_t, time(nullptr));

@@ -127,17 +127,16 @@ FLAGSET_DEF_START()
   kfMissingRptVcolChrom = (1 << 17),
   kfMissingRptVcolPos = (1 << 18),
   kfMissingRptVcolRef = (1 << 19),
-  kfMissingRptVcolAlt1 = (1 << 20),
-  kfMissingRptVcolAlt = (1 << 21),
-  kfMissingRptVcolNmissDosage = (1 << 22),
-  kfMissingRptVcolNmiss = (1 << 23),
-  kfMissingRptVcolNmissHh = (1 << 24),
-  kfMissingRptVcolHethap = (1 << 25),
-  kfMissingRptVcolNobs = (1 << 26),
-  kfMissingRptVcolFmissDosage = (1 << 27),
-  kfMissingRptVcolFmiss = (1 << 28),
-  kfMissingRptVcolFmissHh = (1 << 29),
-  kfMissingRptVcolFhethap = (1 << 30),
+  kfMissingRptVcolAlt = (1 << 20),
+  kfMissingRptVcolNmissDosage = (1 << 21),
+  kfMissingRptVcolNmiss = (1 << 22),
+  kfMissingRptVcolNmissHh = (1 << 23),
+  kfMissingRptVcolHethap = (1 << 24),
+  kfMissingRptVcolNobs = (1 << 25),
+  kfMissingRptVcolFmissDosage = (1 << 26),
+  kfMissingRptVcolFmiss = (1 << 27),
+  kfMissingRptVcolFmissHh = (1 << 28),
+  kfMissingRptVcolFhethap = (1 << 29),
   kfMissingRptVcolDefault = (kfMissingRptVcolChrom | kfMissingRptVcolNmiss | kfMissingRptVcolNobs | kfMissingRptVcolFmiss),
   kfMissingRptVcolAll = ((kfMissingRptVcolFhethap * 2U) - kfMissingRptVcolChrom)
 FLAGSET_DEF_END(MissingRptFlags);
@@ -315,18 +314,17 @@ FLAGSET_DEF_START()
   kfFstPopPairFile = (1 << 5),
 
   kfFstColNobs = (1 << 6),
-  kfFstColSe = (1 << 7),
-  kfFstColDefault = kfFstColSe,
-  kfFstColAll = ((kfFstColSe * 2) - kfFstColNobs),
+  kfFstColDefault = 0,
+  kfFstColAll = ((kfFstColNobs * 2) - kfFstColNobs),
 
-  kfFstVcolChrom = (1 << 8),
-  kfFstVcolPos = (1 << 9),
-  kfFstVcolRef = (1 << 10),
-  kfFstVcolAlt1 = (1 << 11),
-  kfFstVcolAlt = (1 << 12),
-  kfFstVcolNobs = (1 << 13),
-  kfFstVcolFstfrac = (1 << 14),
-  kfFstVcolFst = (1 << 15),
+  kfFstVcolChrom = (1 << 7),
+  kfFstVcolPos = (1 << 8),
+  kfFstVcolRef = (1 << 9),
+  kfFstVcolAlt = (1 << 10),
+  kfFstVcolNobs = (1 << 11),
+  kfFstVcolNallele = (1 << 12),
+  kfFstVcolFstfrac = (1 << 13),
+  kfFstVcolFst = (1 << 14),
   kfFstVcolDefault = (kfFstVcolChrom | kfFstVcolPos | kfFstVcolNobs | kfFstVcolFst),
   kfFstVcolAll = ((kfFstVcolFst * 2) - kfFstVcolChrom),
 FLAGSET_DEF_END(FstFlags);
@@ -335,7 +333,6 @@ typedef struct FstInfoStruct {
   NONCOPYABLE(FstInfoStruct);
   FstFlags flags;
   uint32_t blocksize;
-  uint32_t other_id_ct;
   char* pheno_name;
   char* first_id_or_fname;
   char* other_ids_flattened;
@@ -403,7 +400,7 @@ PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
 
 PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, const uintptr_t* founder_info, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_allele_ct, HetFlags flags, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end);
 
-PglErr FstReport(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const FstInfo* fst_infop, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end);
+PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const FstInfo* fst_infop, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_allele_ct, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, char* outname, char* outname_end);
 
 #ifdef __cplusplus
 }  // namespace plink2

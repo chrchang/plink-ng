@@ -10986,7 +10986,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       pheno_name_blen_capacity -= 6 - perm_adapt;
     }
     if (unlikely(max_pheno_name_blen > pheno_name_blen_capacity)) {
-      logerrputs("Error: Phenotype name and/or --out parameter too long.\n");
+      logerrputs("Error: Phenotype name and/or --out argument too long.\n");
       goto GlmMain_ret_INCONSISTENT_INPUT;
     }
     *outname_end = '.';

@@ -554,7 +554,7 @@ PglErr ExtractColCond(const char* const* variant_ids, const uint32_t* variant_id
       if (mismatch_str_ct) {
         char* token_end = CurTokenEnd(colval_ptr);
         if (!match_substr) {
-          const int32_t ii = bsearch_str(colval_ptr, mismatch_strbox, token_end - colval_ptr, max_mismatch_blen, mismatch_str_ct);
+          const int32_t ii = bsearch_strbox(colval_ptr, mismatch_strbox, token_end - colval_ptr, max_mismatch_blen, mismatch_str_ct);
           if (ii != -1) {
             continue;
           }
@@ -585,7 +585,7 @@ PglErr ExtractColCond(const char* const* variant_ids, const uint32_t* variant_id
         // --extract-col-cond-match
         char* token_end = CurTokenEnd(colval_ptr);
         if (!match_substr) {
-          const int32_t ii = bsearch_str(colval_ptr, match_strbox, token_end - colval_ptr, max_match_blen, match_str_ct);
+          const int32_t ii = bsearch_strbox(colval_ptr, match_strbox, token_end - colval_ptr, max_match_blen, match_str_ct);
           if (ii == -1) {
             continue;
           }
@@ -1231,7 +1231,7 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
         const char* fidt_ptr = &(sample_ids[sample_uidx * max_sample_id_blen]);
         const char* fidt_end = AdvPastDelim(fidt_ptr, '\t');
         const uint32_t cur_fidt_slen = fidt_end - fidt_ptr;
-        // include trailing tab, to simplify bsearch_str_lb() usage
+        // include trailing tab, to simplify bsearch_strbox_lb() usage
         memcpyx(&(sorted_xidbox[sample_idx * max_xid_blen]), fidt_ptr, cur_fidt_slen, '\0');
         xid_map[sample_idx] = sample_uidx;
       }
@@ -1315,9 +1315,9 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
           // const char orig_token_end_char = *token_end;
           *token_end = '\t';
           const uint32_t slen = 1 + S_CAST(uintptr_t, token_end - line_start);
-          uint32_t lb_idx = bsearch_str_lb(line_start, sorted_xidbox, slen, max_xid_blen, orig_sample_ct);
+          uint32_t lb_idx = bsearch_strbox_lb(line_start, sorted_xidbox, slen, max_xid_blen, orig_sample_ct);
           *token_end = ' ';
-          const uint32_t ub_idx = bsearch_str_lb(line_start, sorted_xidbox, slen, max_xid_blen, orig_sample_ct);
+          const uint32_t ub_idx = bsearch_strbox_lb(line_start, sorted_xidbox, slen, max_xid_blen, orig_sample_ct);
           if (ub_idx != lb_idx) {
             uint32_t sample_uidx = xid_map[lb_idx];
             if (IsSet(seen_uidxs, sample_uidx)) {
@@ -1506,7 +1506,7 @@ PglErr KeepColMatch(const char* fname, const SampleIdInfo* siip, const char* str
         goto KeepColMatch_ret_MISSING_TOKENS;
       }
       const char* token_end = CurTokenEnd(linebuf_iter);
-      const int32_t ii = bsearch_str(linebuf_iter, sorted_strbox, token_end - linebuf_iter, max_str_blen, str_ct);
+      const int32_t ii = bsearch_strbox(linebuf_iter, sorted_strbox, token_end - linebuf_iter, max_str_blen, str_ct);
       if (ii != -1) {
         for (; xid_idx_start != xid_idx_end; ++xid_idx_start) {
           const uint32_t sample_uidx = xid_map[xid_idx_start];
@@ -1582,7 +1582,7 @@ PglErr RequirePheno(const PhenoCol* pheno_cols, const char* pheno_names, const c
     for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
       if (sorted_required_pheno_names) {
         const char* cur_pheno_name = &(pheno_names[pheno_idx * max_pheno_name_blen]);
-        const int32_t ii = bsearch_str(cur_pheno_name, sorted_required_pheno_names, strlen(cur_pheno_name), max_required_pheno_blen, required_pheno_ct);
+        const int32_t ii = bsearch_strbox(cur_pheno_name, sorted_required_pheno_names, strlen(cur_pheno_name), max_required_pheno_blen, required_pheno_ct);
         if (ii == -1) {
           continue;
         }
@@ -1763,13 +1763,8 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
       } else {
         assert(cur_pheno_col->type_code == kPhenoDtypeCat);
         const uint32_t nonnull_cat_ct = cur_pheno_col->nonnull_category_ct;
-        uint32_t cat_idx = 1;
-        for (; cat_idx <= nonnull_cat_ct; ++cat_idx) {
-          if (!strcmp(cur_val_str, cur_pheno_col->category_names[cat_idx])) {
-            break;
-          }
-        }
-        if (cat_idx == nonnull_cat_ct + 1) {
+        const uint32_t cat_idx = 1 + bsearch_strptr_natural(cur_val_str, &(cur_pheno_col->category_names[1]), nonnull_cat_ct);
+        if (!cat_idx) {
           double dxx;
           if (unlikely(ScanadvDouble(cur_val_str, &dxx))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s-if value (category name expected).\n", is_remove? "remove" : "keep");

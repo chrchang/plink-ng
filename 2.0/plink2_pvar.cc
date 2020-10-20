@@ -1574,7 +1574,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
                   // shouldn't coexist with other filters
                   // possible todo: maintain a dictionary of FILTER
                   // strings, analogous to what BCF2 does on disk
-                  if (bsearch_str(filter_token_iter, sorted_fexcepts, cur_slen, max_fexcept_blen, fexcept_ct) == -1) {
+                  if (bsearch_strbox(filter_token_iter, sorted_fexcepts, cur_slen, max_fexcept_blen, fexcept_ct) == -1) {
                     goto LoadPvar_skip_variant;
                   }
                   if (cur_filter_name_end == filter_token_end) {

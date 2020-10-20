@@ -759,12 +759,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "              analysis of population structure.\n"
 "    * To get block-jackknife-based standard error estimates, provide a\n"
 "      blocksize= value.\n"
-"    * Supported column sets in the main summary are:\n"
+"    * There is only one optional column set in the main summary:\n"
 "        (POP1 and POP2 are always present, and positioned here.)\n"
 "        nobs: Number of variants with valid Fst estimates.\n"
 "        (HUDSON_FST or WC_FST is always present, and positioned here.)\n"
-"        se: Standard error of Fst estimate, if blocksize= specified.\n"
-"      The default is se.\n"
+"        (SE is present if blocksize= specified, and positioned here.)\n"
+"      nobs is not included by default.\n"
 "    * You can request per-variant Fst estimates with the 'report-variants'\n"
 "      modifier; this generates a separate output file for each population pair.\n"
 "      Supported per-variant report column sets are:\n"
@@ -772,9 +772,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "        pos: Base-pair coordinate.\n"
 "        (ID is always present, and positioned here.)\n"
 "        ref: Reference allele.\n"
-"        alt1: Alternate allele 1.\n"
 "        alt: All alternate alleles, comma-separated.\n"
 "        nobs: Number of (nonmissing) genotype observations across all pops.\n"
+"        nallele: Number of nonmissing alleles.\n"
 "        fstfrac: Numerator and denominator of Fst estimate.\n"
 "        fst: Fst estimate.\n"
 "      The default is chrom,pos,nobs,fst.\n"
@@ -786,6 +786,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      * ids= specifies an all-vs.-all comparison within the given set of\n"
 "        populations.\n"
 "      * file= specifies a file containing one population pair per line.\n"
+"      If a population is not part of any pair, it is not considered in the\n"
+"      Weir-Cockerham calculation.\n"
 "      Note that 'base='/'ids='/'file=' must be positioned after all modifiers.\n\n"
               );
     HelpPrint("indep\0indep-pairwise\0", &help_ctrl, 1,
@@ -2214,6 +2216,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       Note that --threads and \"--memory require\" may also be\n"
 "                       needed to reproduce some randomized runs.\n"
                );
+    HelpPrint("native\0", &help_ctrl, 0,
+"  --native           : Allow Intel MKL to use processor-dependent code paths.\n"
+              );
     HelpPrint("output-min-p\0", &help_ctrl, 0,
 "  --output-min-p <p> : Specify minimum p-value to write to reports.  (2.23e-308\n"
 "                       is useful for preventing underflow in some programs.)\n"

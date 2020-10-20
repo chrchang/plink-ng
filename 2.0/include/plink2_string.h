@@ -1483,16 +1483,18 @@ uint32_t CollapseDuplicateIds(uintptr_t id_ct, uintptr_t max_id_blen, char* sort
 
 
 // returns position of string, or -1 if not found.
-int32_t bsearch_str(const char* idbuf, const char* sorted_strbox, uintptr_t cur_id_slen, uintptr_t max_id_blen, uintptr_t end_idx);
+int32_t bsearch_strbox(const char* idbuf, const char* sorted_strbox, uintptr_t cur_id_slen, uintptr_t max_id_blen, uintptr_t end_idx);
 
 // requires null-terminated string
-int32_t bsearch_str_natural(const char* idbuf, const char* sorted_strbox, uintptr_t max_id_blen, uintptr_t end_idx);
+int32_t bsearch_strbox_natural(const char* idbuf, const char* sorted_strbox, uintptr_t max_id_blen, uintptr_t end_idx);
+
+int32_t bsearch_strptr_natural(const char* idbuf, const char* const* sorted_strptrs, uintptr_t end_idx);
 
 
 // returns number of elements in sorted_strbox[] less than idbuf.
-uintptr_t bsearch_str_lb(const char* idbuf, const char* sorted_strbox, uintptr_t cur_id_slen, uintptr_t max_id_blen, uintptr_t end_idx);
+uintptr_t bsearch_strbox_lb(const char* idbuf, const char* sorted_strbox, uintptr_t cur_id_slen, uintptr_t max_id_blen, uintptr_t end_idx);
 
-// same result as bsearch_str_lb(), but checks against [cur_idx],
+// same result as bsearch_strbox_lb(), but checks against [cur_idx],
 // [cur_idx + 1], [cur_idx + 3], [cur_idx + 7], etc. before finishing with a
 // binary search, and assumes cur_id_slen <= max_id_blen and end_idx > 0.
 uintptr_t ExpsearchStrLb(const char* idbuf, const char* sorted_strbox, uintptr_t cur_id_slen, uintptr_t max_id_blen, uintptr_t end_idx, uintptr_t cur_idx);
@@ -1500,12 +1502,12 @@ uintptr_t ExpsearchStrLb(const char* idbuf, const char* sorted_strbox, uintptr_t
 // Null-terminated string required.
 uintptr_t ExpsearchNsortStrLb(const char* idbuf, const char* nsorted_strbox, uintptr_t max_id_blen, uintptr_t end_idx, uintptr_t cur_idx);
 
-// this is frequently preferable to bsearch_str(), since it's way too easy to
-// forget to convert the sorted-stringbox index to the final index
+// this is frequently preferable to bsearch_strbox(), since it's way too easy
+// to forget to convert the sorted-stringbox index to the final index
 // sample_id_map == nullptr is permitted; in this case id will be an index into
 // the sorted array
 HEADER_INLINE BoolErr SortedIdboxFind(const char* idbuf, const char* sorted_idbox, const uint32_t* id_map, uintptr_t cur_id_slen, uintptr_t max_id_blen, uintptr_t end_idx, uint32_t* id_ptr) {
-  const int32_t ii = bsearch_str(idbuf, sorted_idbox, cur_id_slen, max_id_blen, end_idx);
+  const int32_t ii = bsearch_strbox(idbuf, sorted_idbox, cur_id_slen, max_id_blen, end_idx);
   if (ii == -1) {
     return 1;
   }

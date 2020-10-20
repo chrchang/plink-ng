@@ -536,7 +536,8 @@ uint32_t GenoarrCountMissingUnsafe(const uintptr_t* genoarr, uint32_t sample_ct)
   uint32_t missing_ct = CountMissingVec6(R_CAST(const VecW*, genoarr), word_idx / kWordsPerVec);
   for (; word_idx != sample_ctl2; ++word_idx) {
     uintptr_t ww = genoarr[word_idx];
-    ww = ww & (ww >> 1);
+    // bugfix (19 Oct 2020): forgot to mask out high bits
+    ww = ww & (ww >> 1) & kMask5555;
     missing_ct += Popcount01Word(ww);
   }
   return missing_ct;
@@ -1010,7 +1011,7 @@ BoolErr SortedXidboxReadMultifind(const char* __restrict sorted_xidbox, uintptr_
   if (!slen_final) {
     return 1;
   }
-  const uint32_t lb_idx = bsearch_str_lb(idbuf, sorted_xidbox, slen_final, max_xid_blen, xid_ct);
+  const uint32_t lb_idx = bsearch_strbox_lb(idbuf, sorted_xidbox, slen_final, max_xid_blen, xid_ct);
   idbuf[slen_final] = ' ';
   const uint32_t ub_idx = ExpsearchStrLb(idbuf, sorted_xidbox, slen_final + 1, max_xid_blen, xid_ct, lb_idx);
   if (lb_idx == ub_idx) {
@@ -2280,16 +2281,14 @@ void ExcludeNonAutosomalVariants(const ChrInfo* cip, uintptr_t* variant_include)
   }
 }
 
-PglErr ConditionalAllocateNonAutosomalVariants(const ChrInfo* cip, const char* calc_descrip, uint32_t raw_variant_ct, const uintptr_t** variant_include_ptr, uint32_t* variant_ct_ptr) {
+PglErr ConditionalAllocateNonAutosomalVariants(const ChrInfo* cip, const char* calc_descrip, uint32_t raw_variant_ct, uint32_t allow_no_remaining_variants, const uintptr_t** variant_include_ptr, uint32_t* variant_ct_ptr) {
   const uint32_t non_autosomal_variant_ct = CountNonAutosomalVariants(*variant_include_ptr, cip, 1, 1);
   if (!non_autosomal_variant_ct) {
     return kPglRetSuccess;
   }
   logprintf("Excluding %u variant%s on non-autosomes from %s.\n", non_autosomal_variant_ct, (non_autosomal_variant_ct == 1)? "" : "s", calc_descrip);
   *variant_ct_ptr -= non_autosomal_variant_ct;
-  if (unlikely(!(*variant_ct_ptr))) {
-    // this may not always be an error condition, probably add a flag later to
-    // control printing of this error message, etc.
+  if (unlikely(!(allow_no_remaining_variants || (*variant_ct_ptr)))) {
     logerrprintf("Error: No variants remaining for %s.\n", calc_descrip);
     return kPglRetDegenerateData;
   }
@@ -2554,6 +2553,19 @@ uint32_t GetCatSamples(const uintptr_t* sample_include_base, const PhenoCol* cat
     }
   }
   return PopcountWords(cur_cat_samples, raw_sample_ctl);
+}
+
+uint32_t RemoveExcludedCats(const uint32_t* data_cat, const uintptr_t* cat_keep_bitarr, uint32_t raw_sample_ct, uint32_t in_sample_ct, uintptr_t* sample_include) {
+  uintptr_t sample_include_base = 0;
+  uintptr_t sample_include_bits = sample_include[0];
+  for (uint32_t sample_idx = 0; sample_idx != in_sample_ct; ++sample_idx) {
+    const uintptr_t sample_uidx = BitIter1(sample_include, &sample_include_base, &sample_include_bits);
+    if (!IsSet(cat_keep_bitarr, data_cat[sample_uidx])) {
+      ClearBit(sample_uidx, sample_include);
+    }
+  }
+  const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+  return PopcountWords(sample_include, raw_sample_ctl);
 }
 
 void CleanupPhenoCols(uint32_t pheno_ct, PhenoCol* pheno_cols) {

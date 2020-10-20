@@ -3238,7 +3238,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         // this seems to saturate around 3 threads.
         calc_thread_ct = 1 + (sample_ct > 40) + (sample_ct > 320);
       }
-      if (CleanupTextStream2(vcfname, &vcf_txs, &reterr)) {
+      if (unlikely(CleanupTextStream2(vcfname, &vcf_txs, &reterr))) {
         goto VcfToPgen_ret_1;
       }
       BigstackEndReset(bigstack_end_mark);
@@ -9254,7 +9254,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
       ClearBit(sex_col, col_first_pass_remaining);
     }
     if (at_least_one_binary_pheno) {
-      if (unlikely((bsearch_str("0", sorted_mc, 1, max_mc_blen, mc_ct) != -1) || (bsearch_str("1", sorted_mc, 1, max_mc_blen, mc_ct) != -1))) {
+      if (unlikely((bsearch_strbox("0", sorted_mc, 1, max_mc_blen, mc_ct) != -1) || (bsearch_strbox("1", sorted_mc, 1, max_mc_blen, mc_ct) != -1))) {
         logerrputs("Error: '0' and '1' are unacceptable missing case/control phenotype codes.\n");
         goto OxSampleToPsam_ret_INCONSISTENT_INPUT;
       }
@@ -9317,7 +9317,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
         token_end = CurTokenEnd(linebuf_iter);
         token_slen = token_end - linebuf_iter;
         const OxSampleCol cur_col_type = S_CAST(OxSampleCol, col_types[col_uidx]);
-        if (bsearch_str(linebuf_iter, sorted_mc, token_slen, max_mc_blen, mc_ct) != -1) {
+        if (bsearch_strbox(linebuf_iter, sorted_mc, token_slen, max_mc_blen, mc_ct) != -1) {
           // Missing value.
           if (cur_col_type == kOxSampleColParent) {
             if (col_uidx == father_col) {
@@ -9556,7 +9556,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
           continue;
         }
         token_slen = token_end - linebuf_iter;
-        const uint32_t is_missing = (bsearch_str(linebuf_iter, sorted_mc, token_slen, max_mc_blen, mc_ct) != -1);
+        const uint32_t is_missing = (bsearch_strbox(linebuf_iter, sorted_mc, token_slen, max_mc_blen, mc_ct) != -1);
         if (cur_col_type >= kOxSampleColCatNumeric) {
           *write_iter++ = '\t';
           if (!is_missing) {
@@ -13974,7 +13974,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         }
       }
       BigstackReset(TextStreamMemStart(&legend_txs));
-      if (CleanupTextStream2(legendname, &legend_txs, &reterr)) {
+      if (unlikely(CleanupTextStream2(legendname, &legend_txs, &reterr))) {
         goto OxHapslegendToPgen_ret_1;
       }
     } else {
@@ -14569,7 +14569,7 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
     // true requirement is weaker, but whatever
     g_bigstack_end = g_bigstack_base;
     g_bigstack_base = TextStreamMemStart(&map_txs);
-    if (CleanupTextStream2(mapname, &map_txs, &reterr)) {
+    if (unlikely(CleanupTextStream2(mapname, &map_txs, &reterr))) {
       goto LoadMap_ret_1;
     }
 
@@ -14799,7 +14799,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
       // Not worth the trouble of move-constructing dosage_txs from dosage_txf,
       // since we may need to load the .map in between, and we'll need to
       // rewind again anyway.
-      if (CleanupTextFile2(dosagename, &dosage_txf, &reterr)) {
+      if (unlikely(CleanupTextFile2(dosagename, &dosage_txf, &reterr))) {
         goto Plink1DosageToPgen_ret_1;
       }
       line_idx = 0;

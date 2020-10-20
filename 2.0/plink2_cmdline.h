@@ -359,11 +359,11 @@ double DestructiveMedianD(uintptr_t len, double* unsorted_arr);
 // Results may technically vary between runs when duplicate elements are
 // present; it's assumed that this doesn't matter because all duplicates will
 // be handled in the same manner.
+// id_map is new_to_old_idx.
 BoolErr SortStrboxIndexed(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, char* strbox, uint32_t* id_map);
 
-
 // This makes a temporary g_bigstack allocation.
-// BoolErr strptr_arr_indexed_sort(const char* const* unsorted_strptrs, uint32_t str_ct, uint32_t use_nsort, uint32_t* id_map);
+BoolErr SortStrptrArrIndexed(uint32_t str_ct, uint32_t leave_first_alone, uint32_t overread_ok, uint32_t use_nsort, const char** strptrs, uint32_t* new_to_old_idx, uint32_t* old_to_new_idx);
 
 // Offset of std::lower_bound.
 // Requires 0 < arr_length < 2^31.
@@ -646,6 +646,10 @@ HEADER_INLINE BoolErr bigstack_calloc_i32(uintptr_t ct, int32_t** i32_arr_ptr) {
 
 HEADER_INLINE BoolErr bigstack_calloc_i64(uintptr_t ct, int64_t** i64_arr_ptr) {
   return bigstack_calloc_u64(ct, R_CAST(uint64_t**, i64_arr_ptr));
+}
+
+HEADER_INLINE BoolErr bigstack_calloc_u32p(uintptr_t ct, uint32_t*** u32p_arr_ptr) {
+  return bigstack_calloc_w(ct, R_CAST(uintptr_t**, u32p_arr_ptr));
 }
 
 #if __cplusplus >= 201103L
@@ -1098,7 +1102,7 @@ HEADER_INLINE void ZeromovFArr(uintptr_t entry_ct, float** farr_ptr) {
 
 
 // SetAllBits, IsSet, SetBit, ClearBit, AdvTo1Bit, AdvTo0Bit, AdvBoundedTo1Bit,
-// FindLast1BitBefore, AllWordsAreZero defined in plink2_base.h
+// FindLast1BitBefore, AllWordsAreZero defined in plink2_bits.h
 
 // Useful when we don't want to think about the signedness of a 32-bit int.
 HEADER_INLINE void SetBitI(int32_t loc, uintptr_t* bitarr) {
@@ -1124,7 +1128,7 @@ HEADER_INLINE uint32_t wordsequal(const uintptr_t* word_arr1, const uintptr_t* w
 }
 
 
-// BitvecAnd(), BitvecInvmask(), BitvecOr(), BitvecInvert() in plink2_base.h
+// BitvecAnd(), BitvecInvmask(), BitvecOr(), BitvecInvert() in plink2_bits.h
 
 void BitvecAndCopy(const uintptr_t* __restrict source1_bitvec, const uintptr_t* __restrict source2_bitvec, uintptr_t word_ct, uintptr_t* target_bitvec);
 
@@ -1483,7 +1487,7 @@ HEADER_INLINE uint32_t UnionIsFull(const uintptr_t* bitarr1, const uintptr_t* bi
   return 1;
 }
 
-// PopcountWordsIntersect moved to plink2_base
+// PopcountWordsIntersect moved to plink2_bits
 
 void PopcountWordsIntersect3val(const uintptr_t* __restrict bitvec1, const uintptr_t* __restrict bitvec2, uint32_t word_ct, uint32_t* __restrict popcount1_ptr, uint32_t* __restrict popcount2_ptr, uint32_t* __restrict popcount_intersect_ptr);
 

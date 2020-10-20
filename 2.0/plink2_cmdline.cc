@@ -299,30 +299,53 @@ BoolErr SortStrboxIndexed(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use
   return 0;
 }
 
-/*
-BoolErr StrptrArrIndexedSort(const char* const* unsorted_strptrs, uint32_t str_ct, uint32_t overread_ok, uint32_t use_nsort, uint32_t* id_map) {
-  if (str_ct < 2) {
-    if (str_ct) {
-      id_map[0] = 0;
+BoolErr SortStrptrArrIndexed(uint32_t str_ct, uint32_t leave_first_alone, uint32_t overread_ok, uint32_t use_nsort, const char** strptrs, uint32_t* new_to_old_idx, uint32_t* old_to_new_idx) {
+  const uint32_t str_sort_ct = str_ct - leave_first_alone;
+  if (str_sort_ct < 2) {
+    if (new_to_old_idx) {
+      for (uint32_t str_idx = 0; str_idx != str_ct; ++str_idx) {
+        new_to_old_idx[str_idx] = str_idx;
+      }
+    }
+    if (old_to_new_idx) {
+      for (uint32_t str_idx = 0; str_idx != str_ct; ++str_idx) {
+        old_to_new_idx[str_idx] = str_idx;
+      }
     }
     return 0;
   }
-  if (bigstack_left() < str_ct * sizeof(StrSortIndexedDeref)) {
+  if (bigstack_left() < str_sort_ct * sizeof(StrSortIndexedDeref)) {
     return 1;
   }
-  StrSortIndexedDeref* wkspace_alias = (StrSortIndexedDeref*)g_bigstack_base;
-  for (uint32_t str_idx = 0; str_idx != str_ct; ++str_idx) {
-    wkspace_alias[str_idx].strptr = unsorted_strptrs[str_idx];
-    wkspace_alias[str_idx].orig_idx = str_idx;
+  StrSortIndexedDeref* wkspace_alias = R_CAST(StrSortIndexedDeref*, g_bigstack_base);
+  const char** strptrs_to_sort = &(strptrs[leave_first_alone]);
+  for (uint32_t str_idx = 0; str_idx != str_sort_ct; ++str_idx) {
+    wkspace_alias[str_idx].strptr = strptrs_to_sort[str_idx];
+    wkspace_alias[str_idx].orig_idx = str_idx + leave_first_alone;
   }
-  StrptrArrSortMain(str_ct, overread_ok, use_nsort, wkspace_alias);
-  for (uint32_t str_idx = 0; str_idx != str_ct; ++str_idx) {
-    id_map[str_idx] = wkspace_alias[str_idx].orig_idx;
+  StrptrArrSortMain(str_sort_ct, overread_ok, use_nsort, wkspace_alias);
+  if (leave_first_alone) {
+    if (new_to_old_idx) {
+      new_to_old_idx[0] = 0;
+      new_to_old_idx = &(new_to_old_idx[1]);
+    }
+    if (old_to_new_idx) {
+      old_to_new_idx[0] = 0;
+    }
+  }
+  for (uint32_t str_idx = 0; str_idx != str_sort_ct; ++str_idx) {
+    strptrs_to_sort[str_idx] = wkspace_alias[str_idx].strptr;
+    const uint32_t orig_idx = wkspace_alias[str_idx].orig_idx;
+    if (new_to_old_idx) {
+      new_to_old_idx[str_idx] = orig_idx;
+    }
+    if (old_to_new_idx) {
+      old_to_new_idx[orig_idx] = str_idx + leave_first_alone;
+    }
   }
   BigstackReset(wkspace_alias);
   return 0;
 }
-*/
 
 
 uint32_t CountSortedSmallerU32(const uint32_t* sorted_u32_arr, uint32_t arr_length, uint32_t needle) {
@@ -1689,7 +1712,7 @@ PglErr StringRangeListToBitarr(const char* header_line, const RangeList* range_l
     const uintptr_t max_id_blen = range_list_ptr->name_max_blen;
     for (uint32_t item_idx = 0; ; ) {
       const char* token_end = CommaOrTspaceTokenEnd(header_line_iter, comma_delim);
-      const int32_t sorted_pos = bsearch_str(header_line_iter, sorted_ids, token_end - header_line_iter, max_id_blen, name_ct);
+      const int32_t sorted_pos = bsearch_strbox(header_line_iter, sorted_ids, token_end - header_line_iter, max_id_blen, name_ct);
       if (sorted_pos != -1) {
         uint32_t cmdline_pos = sorted_pos;
         if (id_map) {
@@ -4246,7 +4269,7 @@ PglErr SearchHeaderLine(const char* header_line_iter, const char* const* search_
     for (uintptr_t col_idx = 0; ; ++col_idx) {
       const char* token_end = CurTokenEnd(header_line_iter);
       const uint32_t token_slen = token_end - header_line_iter;
-      int32_t ii = bsearch_str(header_line_iter, merged_strbox, token_slen, max_blen, search_term_ct);
+      int32_t ii = bsearch_strbox(header_line_iter, merged_strbox, token_slen, max_blen, search_term_ct);
       if (ii != -1) {
         const uint32_t cur_map_idx = id_map[S_CAST(uint32_t, ii)];
         const uint32_t search_col_idx = cur_map_idx & 31;
@@ -4353,7 +4376,7 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
         const char* id_start = &(col_descriptor_iter[1]);
         const char* tok_end = strchrnul(id_start, ',');
         const uint32_t slen = tok_end - id_start;
-        int32_t alpha_idx = bsearch_str(id_start, sorted_ids, slen, max_id_blen, id_ct);
+        int32_t alpha_idx = bsearch_strbox(id_start, sorted_ids, slen, max_id_blen, id_ct);
         if (unlikely(alpha_idx == -1)) {
           char* write_iter = strcpya_k(g_logbuf, "Error: Unrecognized ID '");
           write_iter = memcpya(write_iter, id_start, slen);
@@ -4372,7 +4395,7 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
             // special case: if default column set includes e.g. "maybesid",
             // and user types "-sid", that should work
             memcpy(&(maybebuf[5]), id_start, slen);
-            alpha_idx = bsearch_str(maybebuf, sorted_ids, slen + 5, max_id_blen, id_ct);
+            alpha_idx = bsearch_strbox(maybebuf, sorted_ids, slen + 5, max_id_blen, id_ct);
             if (alpha_idx != -1) {
               shift = id_map[S_CAST(uint32_t, alpha_idx)];
               result &= ~(first_col_shifted << shift);
@@ -4393,7 +4416,7 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
       while (1) {
         const char* tok_end = strchrnul(col_descriptor_iter, ',');
         const uint32_t slen = tok_end - col_descriptor_iter;
-        const int32_t alpha_idx = bsearch_str(col_descriptor_iter, sorted_ids, slen, max_id_blen, id_ct);
+        const int32_t alpha_idx = bsearch_strbox(col_descriptor_iter, sorted_ids, slen, max_id_blen, id_ct);
         if (unlikely(alpha_idx == -1)) {
           char* write_iter = strcpya_k(g_logbuf, "Error: Unrecognized ID '");
           write_iter = memcpya(write_iter, col_descriptor_iter, slen);
