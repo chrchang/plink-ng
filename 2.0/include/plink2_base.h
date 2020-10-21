@@ -144,17 +144,15 @@
 #    define USE_SSE42
 #    include <smmintrin.h>
 #    ifdef __AVX2__
-#      include <immintrin.h>
-#      ifndef __BMI__
-#        error "AVX2 builds require -mbmi as well."
+#      if defined(__BMI__) && defined(__BMI2__) && defined(__LZCNT__)
+#        include <immintrin.h>
+#        define USE_AVX2
+#      else
+// Graceful downgrade, in case -march=native misfires on a VM.  See
+// https://github.com/chrchang/plink-ng/issues/155 .
+#        warning "AVX2 builds require -mbmi, -mbmi2, and -mlzcnt as well.  Downgrading to SSE4.2 build."
+#        undef USE_AVX2
 #      endif
-#      ifndef __BMI2__
-#        error "AVX2 builds require -mbmi2 as well."
-#      endif
-#      ifndef __LZCNT__
-#        error "AVX2 builds require -mlzcnt as well."
-#      endif
-#      define USE_AVX2
 #    endif
 #  endif
 #  define ALIGNV16 __attribute__ ((aligned (16)))
