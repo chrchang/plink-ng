@@ -97,7 +97,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 702
+#define PLINK2_BASE_VERNUM 703
 
 
 #define _FILE_OFFSET_BITS 64

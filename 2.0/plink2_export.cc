@@ -9712,19 +9712,21 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
     //   calc_thread_ct * kDosagePerCacheline * read_sample_ct *
     //     sizeof(Dosage) for per-thread dosage_main buffers
     //   (dosage_ct buffers just go on the thread stacks)
-    //   read_sample_ct * variant_ct * sizeof(Dosage) for ctx.smaj_dosagebuf
-    // This is about
+    //   read_sample_ct * stride * sizeof(Dosage) for ctx.smaj_dosagebuf
+    // This is roughly
     //   read_sample_ct *
     //     (calc_thread_ct * kDosagePerCacheline * 2.375 + variant_ct * 2)
     uintptr_t bytes_avail = bigstack_left();
     // account for rounding
-    if (unlikely(bytes_avail < kCacheline + calc_thread_ct * kDosagePerCacheline * (2 * kCacheline))) {
+    const uintptr_t round_ceil = kCacheline + calc_thread_ct * (3 * kCacheline + kDosagePerCacheline * (2 * sizeof(intptr_t) + sizeof(Dosage)));
+    if (unlikely(bytes_avail < round_ceil)) {
       goto Export012Smaj_ret_NOMEM;
     }
-    bytes_avail -= kCacheline + calc_thread_ct * kDosagePerCacheline * (2 * kCacheline);
+    bytes_avail -= round_ceil;
+    const uintptr_t stride = RoundUpPow2(variant_ct, kDosagePerCacheline);
     uint32_t read_sample_ct = sample_ct;
     uint32_t pass_ct = 1;
-    const uintptr_t bytes_per_sample = calc_thread_ct * (kDosagePerCacheline / 8) * (3LLU + 8 * sizeof(Dosage)) + variant_ct * sizeof(Dosage);
+    const uintptr_t bytes_per_sample = calc_thread_ct * (kDosagePerCacheline / 8) * (3LLU + 8 * sizeof(Dosage)) + stride * sizeof(Dosage);
     if ((sample_ct * S_CAST(uint64_t, bytes_per_sample)) > bytes_avail) {
       read_sample_ct = bytes_avail / bytes_per_sample;
       if (unlikely(!read_sample_ct)) {
@@ -9749,8 +9751,9 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
       goto Export012Smaj_ret_NOMEM;
     }
     ctx.sample_ct = read_sample_ct;
-    ctx.stride = RoundUpPow2(variant_ct, kDosagePerCacheline);
+    ctx.stride = stride;
     ctx.smaj_dosagebuf = S_CAST(Dosage*, bigstack_alloc_raw_rd(read_sample_ct * S_CAST(uintptr_t, ctx.stride) * sizeof(Dosage)));
+    assert(g_bigstack_base <= g_bigstack_end);
     ctx.err_info = (~0LLU) << 32;
     SetThreadFuncAndData(DosageTransposeThread, &ctx, &tg);
 
