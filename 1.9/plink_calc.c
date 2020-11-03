@@ -7989,8 +7989,8 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 	    giptr3++;
 	  }
 	}
-	fill_subset_weights(subset_weights, &(main_weights[ukk]));
-        g_subset_weights_i = &(wtbuf[ukk]);  // bugfix (3 Nov 2020)
+	fill_subset_weights(subset_weights, &(main_weights[marker_idx - ujj + ukk]));
+        g_subset_weights_i = &(wtbuf[ukk]);
 	uii = is_last_block && (ukk + (MULTIPLEX_DIST_EXP / 3) >= ujj);
 	if (spawn_threads2(threads, &calc_wdist_thread, dist_thread_ct, uii)) {
 	  goto calc_distance_ret_THREAD_CREATE_FAIL;
