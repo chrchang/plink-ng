@@ -2689,6 +2689,8 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
 #endif
 
 int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t perm_ct, uintptr_t pheno_nm_ct, uintptr_t pheno_ctrl_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
+  // g_dists and g_half_marker_ct_recip assumed to be populated by
+  // calc_distance().
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t pheno_nm_ctl = BITCT_TO_WORDCT(pheno_nm_ct);
@@ -3751,6 +3753,7 @@ uint32_t distance_d_write_1mibs_sq_emitn(uint32_t overflow_ct, unsigned char* re
 
 int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, int32_t dist_calc_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, uint32_t sample_ct, int32_t first_sample_idx, int32_t end_sample_idx, int32_t parallel_idx, int32_t parallel_tot, unsigned char* membuf) {
   // membuf assumed to be of at least size sample_ct * 8.
+  printf("distance_d_write\n");
   uint32_t bin4 = dist_calc_type & DISTANCE_BIN4;
   int32_t shape = dist_calc_type & DISTANCE_SHAPEMASK;
   int32_t write_alcts = dist_calc_type & DISTANCE_ALCT;
@@ -7987,6 +7990,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 	  }
 	}
 	fill_subset_weights(subset_weights, &(main_weights[ukk]));
+        g_subset_weights_i = &(wtbuf[ukk]);  // bugfix (3 Nov 2020)
 	uii = is_last_block && (ukk + (MULTIPLEX_DIST_EXP / 3) >= ujj);
 	if (spawn_threads2(threads, &calc_wdist_thread, dist_thread_ct, uii)) {
 	  goto calc_distance_ret_THREAD_CREATE_FAIL;
@@ -8001,6 +8005,20 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   } while (!is_last_block);
   putc_unlocked('\r', stdout);
   logprint("Distance matrix calculation complete.\n");
+  if (calculation_type & (CALC_DISTANCE | CALC_IBS_TEST)) {
+    // Calculate g_half_marker_ct_recip here since main_weights may be
+    // overwritten below.
+    if (main_weights) {
+      dyy = 0.0;
+      marker_uidx = 0;
+      for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+        dyy += main_weights[marker_idx];
+      }
+      g_half_marker_ct_recip = 0.5 / dyy;
+    } else {
+      g_half_marker_ct_recip = 0.5 / (double)marker_ct;
+    }
+  }
   bigstack_reset(masks);
   if (calculation_type & (CALC_PLINK1_DISTANCE_MATRIX | CALC_PLINK1_IBS_MATRIX)) {
     if (bigstack_alloc_c(16 * sample_ct, &writebuf)) {
@@ -8159,35 +8177,17 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     }
   }
 
-  if (calculation_type & (CALC_DISTANCE | CALC_IBS_TEST)) {
-    if ((distance_exp == 0.0) || (!(dist_calc_type & (DISTANCE_IBS | DISTANCE_1_MINUS_IBS)))) {
-      g_half_marker_ct_recip = 0.5 / (double)marker_ct;
-    } else {
-      dyy = 0.0;
-      marker_uidx = 0;
-      for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-	next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
-	dxx = set_allele_freqs[marker_uidx];
-	if ((dxx > 0.0) && (dxx < 1.0)) {
-	  dyy += pow(2 * dxx * (1.0 - dxx), -distance_exp);
-	} else {
-	  dyy += 1.0;
-	}
-      }
-      g_half_marker_ct_recip = 0.5 / dyy;
-    }
-    if (calculation_type & CALC_DISTANCE) {
-      if (!parallel_idx) {
-	retval = distance_d_write_ids(outname, outname_end, dist_calc_type, unfiltered_sample_ct, sample_exclude, sample_ids, max_sample_id_len);
-	if (retval) {
-	  goto calc_distance_ret_1;
-	}
-        LOGPRINTFWW("IDs written to %s .\n", outname);
-      }
-      retval = distance_d_write(&outfile, &outfile2, &outfile3, dist_calc_type, outname, outname_end, g_dists, g_half_marker_ct_recip, sample_ct, g_thread_start[0], g_thread_start[dist_thread_ct], parallel_idx, parallel_tot, (unsigned char*)geno);
+  if (calculation_type & CALC_DISTANCE) {
+    if (!parallel_idx) {
+      retval = distance_d_write_ids(outname, outname_end, dist_calc_type, unfiltered_sample_ct, sample_exclude, sample_ids, max_sample_id_len);
       if (retval) {
-	goto calc_distance_ret_1;
+        goto calc_distance_ret_1;
       }
+      LOGPRINTFWW("IDs written to %s .\n", outname);
+    }
+    retval = distance_d_write(&outfile, &outfile2, &outfile3, dist_calc_type, outname, outname_end, g_dists, g_half_marker_ct_recip, sample_ct, g_thread_start[0], g_thread_start[dist_thread_ct], parallel_idx, parallel_tot, (unsigned char*)geno);
+    if (retval) {
+      goto calc_distance_ret_1;
     }
   }
   bigstack_reset(bigstack_mark);

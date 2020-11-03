@@ -29,8 +29,8 @@ endif
 BIN ?=		plink
 CC ?=		gcc
 CXX ?=		g++
-CFLAGS ?=	-Wall -O2 -I../2.0/simde
-CXXFLAGS ?=	-Wall -O2 -I../2.0/simde
+CFLAGS ?=	-Wall -O2 -g -I../2.0/simde
+CXXFLAGS ?=	-Wall -O2 -g -I../2.0/simde
 MACFLAGS ?=	-mmacosx-version-min=10.9
 
 PREFIX ?=	/usr/local
