@@ -6161,14 +6161,12 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
       } else if (!memcmp(argptr2, "istance-matrix", 15)) {
-	if (distance_exp != 0.0) {
-	  logerrprint("Error: --distance-matrix cannot be used with --distance-exp.\n");
+        if (calculation_type & CALC_DISTANCE) {
+          // not worth the maintenance burden of making a few of these subcases
+          // work
+          logerrprint("Error: --distance-matrix cannot be used with --distance.\n");
 	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (dist_calc_type & DISTANCE_1_MINUS_IBS) {
-	  logerrprint("Error: --distance-matrix flag cannot be used with \"--distance 1-ibs\".\n");
-	  goto main_ret_INVALID_CMDLINE_A;
-	}
+        }
 	calculation_type |= CALC_PLINK1_DISTANCE_MATRIX;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ummy", 5)) {
@@ -7684,6 +7682,10 @@ int32_t main(int32_t argc, char** argv) {
 	glm_modifier |= GLM_INTERACTION;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "bs-matrix", 10)) {
+        if (calculation_type & CALC_DISTANCE) {
+          logerrprint("Error: --ibs-matrix cannot be used with --distance.\n");
+	  goto main_ret_INVALID_CMDLINE;
+        }
         calculation_type |= CALC_PLINK1_IBS_MATRIX;
         goto main_param_zero;
       } else if (!memcmp(argptr2, "d-delim", 8)) {

@@ -7576,7 +7576,8 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   FILE* outfile3 = nullptr;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uint64_t dists_alloc = 0;
-  uint32_t missing_wt_needed = ((calculation_type & CALC_DISTANCE) || ((!read_dists_fname) && (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE)))) && (!(dist_calc_type & DISTANCE_FLAT_MISSING));
+  uint32_t unweighted_and_flat = ((calculation_type & (CALC_PLINK1_DISTANCE_MATRIX | CALC_PLINK1_IBS_MATRIX)) || (dist_calc_type & DISTANCE_FLAT_MISSING)) && (!distance_wts_fname) && (distance_exp == 0.0);
+  uint32_t missing_wt_needed = ((calculation_type & CALC_DISTANCE) || ((!read_dists_fname) && (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE)))) && (!unweighted_and_flat);
   uint32_t unwt_needed = 0;
   uint32_t marker_weight_sum = 0;
   int32_t retval = 0;
