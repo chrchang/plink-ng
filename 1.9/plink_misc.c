@@ -779,6 +779,7 @@ int32_t update_marker_pos(Two_col_params* update_map, uint32_t* marker_id_htable
   uintptr_t hit_ct = 0;
   uintptr_t miss_ct = 0;
   uint32_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
+  uint32_t removed_marker_ct = 0;
   uint32_t map_is_unsorted = ((*map_is_unsorted_ptr) & UNSORTED_CHROM);
   uint32_t chrom_fo_idx_p1 = 0;
   uint32_t chrom_end = 0;
@@ -867,7 +868,7 @@ int32_t update_marker_pos(Two_col_params* update_map, uint32_t* marker_id_htable
     }
     if (bp_coord < 0) {
       set_bit(marker_uidx, marker_exclude);
-      marker_ct--;
+      ++removed_marker_ct;
     } else {
       marker_pos[marker_uidx] = bp_coord;
     }
@@ -882,6 +883,10 @@ int32_t update_marker_pos(Two_col_params* update_map, uint32_t* marker_id_htable
     sprintf(g_logbuf, "--update-map: %" PRIuPTR " value%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
   }
   logprintb();
+  if (removed_marker_ct) {
+    LOGPRINTF("Note: %u variant%s removed by --update-map due to negative coordinate%s.\n", removed_marker_ct, (removed_marker_ct == 1)? "" : "s", (removed_marker_ct == 1)? "" : "s");
+    marker_ct -= removed_marker_ct;
+  }
   *marker_exclude_ct_ptr = unfiltered_marker_ct - marker_ct;
   if (!marker_ct) {
     logerrprint("Error: All variants excluded by --update-map (due to negative marker\npositions).\n");
