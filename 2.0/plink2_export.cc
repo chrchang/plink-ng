@@ -9718,7 +9718,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
     //     (calc_thread_ct * kDosagePerCacheline * 2.375 + variant_ct * 2)
     uintptr_t bytes_avail = bigstack_left();
     // account for rounding
-    const uintptr_t round_ceil = kCacheline + calc_thread_ct * (3 * kCacheline + kDosagePerCacheline * (2 * sizeof(intptr_t) + sizeof(Dosage)));
+    const uintptr_t round_ceil = kCacheline + calc_thread_ct * (3 * kCacheline + kDosagePerCacheline * (2 * sizeof(intptr_t)));
     if (unlikely(bytes_avail < round_ceil)) {
       goto Export012Smaj_ret_NOMEM;
     }

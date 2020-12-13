@@ -628,6 +628,8 @@ BoolErr bigstack_calloc_w(uintptr_t ct, uintptr_t** w_arr_ptr);
 
 BoolErr bigstack_calloc_u64(uintptr_t ct, uint64_t** u64_arr_ptr);
 
+BoolErr bigstack_calloc_v(uintptr_t ct, VecW** v_arr_ptr);
+
 BoolErr bigstack_calloc_cp(uintptr_t ct, char*** cp_arr_ptr);
 
 BoolErr bigstack_calloc_kcp(uintptr_t ct, const char*** kcp_arr_ptr);
@@ -1651,6 +1653,8 @@ HEADER_INLINE void Vcount0Incr8To32(uint32_t acc8_vec_ct, VecW* acc8_iter, VecW*
     ++acc32_iter;
   }
 }
+
+void VerticalCounterUpdate(const uintptr_t* acc1, uint32_t acc1_vec_ct, uint32_t* rem15_and_255d15, VecW* acc4_8_32);
 
 
 // forward_ct must be positive.  Stays put if forward_ct == 1 and current bit

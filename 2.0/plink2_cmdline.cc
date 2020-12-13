@@ -710,6 +710,15 @@ BoolErr bigstack_calloc_u64(uintptr_t ct, uint64_t** u64_arr_ptr) {
   return 0;
 }
 
+BoolErr bigstack_calloc_v(uintptr_t ct, VecW** v_arr_ptr) {
+  *v_arr_ptr = S_CAST(VecW*, bigstack_alloc(ct * kBytesPerVec));
+  if (unlikely(!(*v_arr_ptr))) {
+    return 1;
+  }
+  ZeroVecArr(ct, *v_arr_ptr);
+  return 0;
+}
+
 BoolErr bigstack_calloc_cp(uintptr_t ct, char*** cp_arr_ptr) {
   *cp_arr_ptr = S_CAST(char**, bigstack_alloc(ct * sizeof(intptr_t)));
   if (unlikely(!(*cp_arr_ptr))) {
@@ -2002,6 +2011,24 @@ void CopyBitarrRange(const uintptr_t* __restrict src_bitarr, uintptr_t src_start
       cur_src_word |= src_bitarr_iter[1] << (kBitsPerWord - src_rshift);
     }
     *target_bitarr_iter |= (cur_src_word & ((~k0LU) >> (kBitsPerWord - S_CAST(uint32_t, len)))) << target_initial_lshift;
+  }
+}
+
+void VerticalCounterUpdate(const uintptr_t* acc1, uint32_t acc1_vec_ct, uint32_t* rem15_and_255d15, VecW* acc4_8_32) {
+  VcountIncr1To4(acc1, acc1_vec_ct, acc4_8_32);
+  rem15_and_255d15[0] -= 1;
+  if (!rem15_and_255d15[0]) {
+    const uint32_t acc4_vec_ct = acc1_vec_ct * 4;
+    VecW* acc8 = &(acc4_8_32[acc4_vec_ct]);
+    Vcount0Incr4To8(acc4_vec_ct, acc4_8_32, acc8);
+    rem15_and_255d15[0] = 15;
+    rem15_and_255d15[1] -= 1;
+    if (!rem15_and_255d15[1]) {
+      const uint32_t acc8_vec_ct = acc4_vec_ct * 2;
+      VecW* acc32 = &(acc8[acc8_vec_ct]);
+      Vcount0Incr8To32(acc8_vec_ct, acc8, acc32);
+      rem15_and_255d15[1] = 17;
+    }
   }
 }
 

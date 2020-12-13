@@ -1370,9 +1370,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                        not suppressed.)\n"
                );
     HelpPrint("vcf\0bcf\0bgen\0double-id\0const-fid\0id-delim\0", &help_ctrl, 0,
-"  --double-id         : Set both FIDs and IIDs to the VCF/.bgen sample ID.\n"
-"  --const-fid [ID]    : Set all FIDs to the given constant.  If '0' (the\n"
-"                        default), no FID column is created.\n"
+"  --double-id         : When importing single-part sample IDs, set both FID and\n"
+"                        IID to the original ID.\n"
+"  --const-fid [ID]    : When importing single-part sample IDs, set FID to the\n"
+"                        given constant and IID to the original ID.\n"
 "  --id-delim [d]      : Normally parses single-delimiter sample IDs as\n"
 "                        <FID><d><IID>, and double-delimiter IDs as\n"
 "                        <FID><d><IID><d><SID>; default delimiter is '_'.\n"
