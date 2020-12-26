@@ -2171,20 +2171,20 @@ const uint32_t kFloatExpLookupInt[]
 #  ifdef FVEC_32
 static inline VecF fmath_exp_ps(VecF xxv) {
   __m256 xx = R_CAST(__m256, xxv);
-  const __m256i mask7ff = {0x7fffffff7fffffffLLU, 0x7fffffff7fffffffLLU, 0x7fffffff7fffffffLLU, 0x7fffffff7fffffffLLU};
+  const __m256i mask7ff = _mm256_set1_epi32(UINT32_C(0x7fffffff));
   // 88
-  const __m256i max_x = {0x42b0000042b00000LLU, 0x42b0000042b00000LLU, 0x42b0000042b00000LLU, 0x42b0000042b00000LLU};
+  const __m256i max_x = _mm256_set1_epi32(UINT32_C(0x42b00000));
   // -88
   // more sensible 0xc2b00000... not used here due to "narrowing conversion"
   // warning
-  const __m256i min_x = {-0x3d4fffff3d500000LL, -0x3d4fffff3d500000LL, -0x3d4fffff3d500000LL, -0x3d4fffff3d500000LL};
+  const __m256i min_x = _mm256_set1_epi64x(INT64_C(-0x3d4fffff3d500000));
   // 2^10 / log(2)
-  const __m256i const_aa = {0x44b8aa3b44b8aa3bLLU, 0x44b8aa3b44b8aa3bLLU, 0x44b8aa3b44b8aa3bLLU, 0x44b8aa3b44b8aa3bLLU};
+  const __m256i const_aa = _mm256_set1_epi32(UINT32_C(0x44b8aa3b));
   // log(2) / 2^10
-  const __m256i const_bb = {0x3a3172183a317218LLU, 0x3a3172183a317218LLU, 0x3a3172183a317218LLU, 0x3a3172183a317218LLU};
-  const __m256i f1 = {0x3f8000003f800000LLU, 0x3f8000003f800000LLU, 0x3f8000003f800000LLU, 0x3f8000003f800000LLU};
-  const __m256i mask_s = {0x3ff000003ffLLU, 0x3ff000003ffLLU, 0x3ff000003ffLLU, 0x3ff000003ffLLU};
-  const __m256i i127s = {0x1fc000001fc00LLU, 0x1fc000001fc00LLU, 0x1fc000001fc00LLU, 0x1fc000001fc00LLU};
+  const __m256i const_bb = _mm256_set1_epi32(UINT64_C(0x3a317218));
+  const __m256i f1 = _mm256_set1_epi32(UINT32_C(0x3f800000));
+  const __m256i mask_s = _mm256_set1_epi32(UINT64_C(0x000003ff));
+  const __m256i i127s = _mm256_set1_epi32(UINT32_C(0x0001fc00));
   const __m256i limit = _mm256_castps_si256(_mm256_and_ps(xx, R_CAST(__m256, mask7ff)));
   const int32_t over = _mm256_movemask_epi8(_mm256_cmpgt_epi32(limit, max_x));
   if (over) {
