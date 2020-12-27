@@ -2157,11 +2157,11 @@ static_assert(sizeof(Dosage) == 2, "plink2_ld dosage-handling routines must be u
 void FillDosageUhet(const Dosage* dosage_vec, uint32_t dosagev_ct, Dosage* dosage_uhet) {
   const __m256i* dosage_vvec_iter = R_CAST(const __m256i*, dosage_vec);
 #    if defined(__APPLE__) && ((!defined(__cplusplus)) || (__cplusplus < 201103L))
-  const __m256i all_n32768 = _mm256_set1_epi16(UINT16_C(0x8000));
-  const __m256i all_n16384 = _mm256_set1_epi16(UINT16_C(0xc000));
+  const __m256i all_n32768 = _mm256_set1_epi16(0x8000);
+  const __m256i all_n16384 = _mm256_set1_epi16(0xc000);
 #    else
-  const __m256i all_n32768 = _mm256_set1_epi64x(INT64_C(-0x7fff7fff7fff8000));
-  const __m256i all_n16384 = _mm256_set1_epi64x(INT64_C(-0x3fff3fff3fff4000));
+  const __m256i all_n32768 = _mm256_set1_epi64x(-0x7fff7fff7fff8000LL);
+  const __m256i all_n16384 = _mm256_set1_epi64x(-0x3fff3fff3fff4000LL);
 #    endif
   const __m256i all0 = _mm256_setzero_si256();
   const __m256i all1 = _mm256_cmpeq_epi16(all0, all0);
@@ -2351,7 +2351,7 @@ int64_t DosageSignedDotprod(const SDosage* dphase_delta0, const SDosage* dphase_
   const __m256i* dphase_delta0_iter = R_CAST(const __m256i*, dphase_delta0);
   const __m256i* dphase_delta1_iter = R_CAST(const __m256i*, dphase_delta1);
   const __m256i m16 = _mm256_set1_epi64x(kMask0000FFFF);
-  const __m256i all_4096 = _mm256_set1_epi16(UINT16_C(0x1000));
+  const __m256i all_4096 = _mm256_set1_epi16(0x1000);
   uint64_t dotprod = 0;
   for (uint32_t vecs_left = vec_ct; ; ) {
     __m256i dotprod_lo = _mm256_setzero_si256();
@@ -2400,11 +2400,11 @@ int64_t DosageSignedDotprod(const SDosage* dphase_delta0, const SDosage* dphase_
 void FillDosageUhet(const Dosage* dosage_vec, uint32_t dosagev_ct, Dosage* dosage_uhet) {
   const __m128i* dosage_vvec_iter = R_CAST(const __m128i*, dosage_vec);
 #    if defined(__APPLE__) && ((!defined(__cplusplus)) || (__cplusplus < 201103L))
-  const __m128i all_n32768 = _mm_set1_epi16(UINT16_C(0x8000));
-  const __m128i all_n16384 = _mm_set1_epi16(UINT16_C(0xc000));
+  const __m128i all_n32768 = _mm_set1_epi16(0x8000);
+  const __m128i all_n16384 = _mm_set1_epi16(0xc000);
 #    else
-  const __m128i all_n32768 = _mm_set1_epi64x(INT64_C(-0x7fff7fff7fff8000));
-  const __m128i all_n16384 = _mm_set1_epi64x(INT64_C(-0x3fff3fff3fff4000));
+  const __m128i all_n32768 = _mm_set1_epi64x(-0x7fff7fff7fff8000LL);
+  const __m128i all_n16384 = _mm_set1_epi64x(-0x3fff3fff3fff4000LL);
 #    endif
   const __m128i all0 = _mm_setzero_si128();
   const __m128i all1 = _mm_cmpeq_epi16(all0, all0);
@@ -2589,7 +2589,7 @@ int64_t DosageSignedDotprod(const SDosage* dphase_delta0, const SDosage* dphase_
   const __m128i* dphase_delta0_iter = R_CAST(const __m128i*, dphase_delta0);
   const __m128i* dphase_delta1_iter = R_CAST(const __m128i*, dphase_delta1);
   const __m128i m16 = _mm_set1_epi64x(kMask0000FFFF);
-  const __m128i all_4096 = _mm_set1_epi16(UINT16_C(0x1000));
+  const __m128i all_4096 = _mm_set1_epi16(0x1000);
   uint64_t dotprod = 0;
   for (uint32_t vecs_left = vec_ct; ; ) {
     __m128i dotprod_lo = _mm_setzero_si128();

@@ -152,7 +152,8 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
   PreinitTextStream(&txs);
   {
     // 1. read .psam/.fam file, update sample_ct, initialize
-    //    local_sample_uidx_order (use OpenAndLoadXidHeader()?)
+    //    local_sample_uidx_order (use LoadXidHeader() once we can allocate at
+    //    end)
     uint32_t max_line_blen;
     if (unlikely(StandardizeMaxLineBlen(bigstack_left() / 4, &max_line_blen))) {
       goto GlmLocalOpen_ret_NOMEM;
@@ -2171,20 +2172,20 @@ const uint32_t kFloatExpLookupInt[]
 #  ifdef FVEC_32
 static inline VecF fmath_exp_ps(VecF xxv) {
   __m256 xx = R_CAST(__m256, xxv);
-  const __m256i mask7ff = _mm256_set1_epi32(UINT32_C(0x7fffffff));
+  const __m256i mask7ff = _mm256_set1_epi32(0x7fffffff);
   // 88
-  const __m256i max_x = _mm256_set1_epi32(UINT32_C(0x42b00000));
+  const __m256i max_x = _mm256_set1_epi32(0x42b00000);
   // -88
   // more sensible 0xc2b00000... not used here due to "narrowing conversion"
   // warning
-  const __m256i min_x = _mm256_set1_epi64x(INT64_C(-0x3d4fffff3d500000));
+  const __m256i min_x = _mm256_set1_epi64x(-0x3d4fffff3d500000LL);
   // 2^10 / log(2)
-  const __m256i const_aa = _mm256_set1_epi32(UINT32_C(0x44b8aa3b));
+  const __m256i const_aa = _mm256_set1_epi32(0x44b8aa3b);
   // log(2) / 2^10
-  const __m256i const_bb = _mm256_set1_epi32(UINT64_C(0x3a317218));
-  const __m256i f1 = _mm256_set1_epi32(UINT32_C(0x3f800000));
-  const __m256i mask_s = _mm256_set1_epi32(UINT64_C(0x000003ff));
-  const __m256i i127s = _mm256_set1_epi32(UINT32_C(0x0001fc00));
+  const __m256i const_bb = _mm256_set1_epi32(0x3a317218);
+  const __m256i f1 = _mm256_set1_epi32(0x3f800000);
+  const __m256i mask_s = _mm256_set1_epi32(0x000003ff);
+  const __m256i i127s = _mm256_set1_epi32(0x0001fc00);
   const __m256i limit = _mm256_castps_si256(_mm256_and_ps(xx, R_CAST(__m256, mask7ff)));
   const int32_t over = _mm256_movemask_epi8(_mm256_cmpgt_epi32(limit, max_x));
   if (over) {
@@ -2291,22 +2292,22 @@ const float* const kFloatExpLookup = R_CAST(const float*, kFloatExpLookupInt);
 
 static inline VecF fmath_exp_ps(VecF xxv) {
   __m128 xx = xxv;
-  const __m128i mask7ff = _mm_set1_epi32(UINT32_C(0x7fffffff));
+  const __m128i mask7ff = _mm_set1_epi32(0x7fffffff);
 
   // 88
-  const __m128i max_x = _mm_set1_epi32(UINT32_C(0x42b00000));
+  const __m128i max_x = _mm_set1_epi32(0x42b00000);
   // -88
   // more sensible 0xc2b00000... not used here due to "narrowing conversion"
   // warning
-  const __m128i min_x = _mm_set1_epi64x(INT64_C(-0x3d4fffff3d500000));
+  const __m128i min_x = _mm_set1_epi64x(-0x3d4fffff3d500000LL);
   // 2^10 / log(2)
-  const __m128i const_aa = _mm_set1_epi32(UINT32_C(0x44b8aa3b));
+  const __m128i const_aa = _mm_set1_epi32(0x44b8aa3b);
   // log(2) / 2^10
-  const __m128i const_bb = _mm_set1_epi32(UINT32_C(0x3a317218));
+  const __m128i const_bb = _mm_set1_epi32(0x3a317218);
 
-  const __m128i f1 = _mm_set1_epi32(UINT32_C(0x3f800000));
-  const __m128i mask_s = _mm_set1_epi64x(UINT64_C(0x3ff000003ff));
-  const __m128i i127s = _mm_set1_epi32(UINT32_C(0x0001fc00));
+  const __m128i f1 = _mm_set1_epi32(0x3f800000);
+  const __m128i mask_s = _mm_set1_epi64x(0x3ff000003ffLLU);
+  const __m128i i127s = _mm_set1_epi32(0x0001fc00);
   const __m128i limit = _mm_castps_si128(_mm_and_ps(xx, R_CAST(__m128, mask7ff)));
   const int32_t over = _mm_movemask_epi8(_mm_cmpgt_epi32(limit, max_x));
   if (over) {
