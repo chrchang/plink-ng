@@ -135,7 +135,7 @@ void InitPgenDiff(PgenDiffInfo* pgen_diff_info_ptr);
 
 void CleanupPgenDiff(PgenDiffInfo* pgen_diff_info_ptr);
 
-PglErr Pmerge(const PmergeInfo* pmerge_info_ptr, const char* sample_sort_fname, SortFlags sample_sort_flags, uint32_t max_thread_ct, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, ChrInfo* cip);
+PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags misc_flags, SortFlags sample_sort_flags, FamCol fam_cols, uint32_t max_thread_ct, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, ChrInfo* cip);
 
 PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const PgenDiffInfo* pdip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t max_allele_ct1, uint32_t max_allele_slen, uint32_t max_thread_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end);
 

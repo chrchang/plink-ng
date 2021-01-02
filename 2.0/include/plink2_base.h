@@ -97,7 +97,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 704
+#define PLINK2_BASE_VERNUM 705
 
 
 #define _FILE_OFFSET_BITS 64
@@ -3029,6 +3029,12 @@ HEADER_INLINE uintptr_t FirstUnequal(const void* arr1, const void* arr2, uintptr
     }
   }
   return nbytes;
+}
+
+HEADER_INLINE uintptr_t FirstUnequalFrom(const void* arr1, const void* arr2, uintptr_t start, uintptr_t nbytes) {
+  const char* s1 = S_CAST(const char*, arr1);
+  const char* s2 = S_CAST(const char*, arr2);
+  return start + FirstUnequal(&(s1[start]), &(s2[start]), nbytes - start);
 }
 
 // Flagset conventions:

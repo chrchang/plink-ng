@@ -63,7 +63,13 @@ void CleanupPgenDiff(PgenDiffInfo* pgen_diff_info_ptr) {
   free_cond(pgen_diff_info_ptr->psam_fname);
 }
 
-PglErr Pmerge(__attribute__((unused)) const PmergeInfo* pmerge_info_ptr, __attribute__((unused)) const char* sample_sort_fname, __attribute__((unused)) SortFlags sample_sort_flags, __attribute__((unused)) uint32_t max_thread_ct, __attribute__((unused)) char* pgenname, __attribute__((unused)) char* psamname, __attribute__((unused)) char* pvarname, __attribute__((unused)) char* outname, __attribute__((unused)) char* outname_end, __attribute__((unused)) ChrInfo* cip) {
+typedef struct PmergeInputFilesetStruct {
+  char* pgen_fname;
+  char* pvar_fname;
+  char* psam_fname;
+} PmergeInputFileset;
+
+PglErr Pmerge(__attribute__((unused)) const PmergeInfo* pmip, __attribute__((unused)) const char* sample_sort_fname, __attribute__((unused)) MiscFlags misc_flags, __attribute__((unused)) SortFlags sample_sort_flags, __attribute__((unused)) FamCol fam_cols, __attribute__((unused)) uint32_t max_thread_ct, __attribute__((unused)) char* pgenname, __attribute__((unused)) char* psamname, __attribute__((unused)) char* pvarname, __attribute__((unused)) char* outname, __attribute__((unused)) char* outname_end, __attribute__((unused)) ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
   {
@@ -75,6 +81,8 @@ PglErr Pmerge(__attribute__((unused)) const PmergeInfo* pmerge_info_ptr, __attri
     // 4. If filesets cover disjoint positions, handle this as a concatenation
     //    job (or error out on --variant-inner-join).
     // 5. Otherwise, perform general-purpose incremental merge.
+    // const PmergeFlags flags = pmip->flags;
+
     logerrputs("Error: --pmerge[-list] is under development.\n");
     reterr = kPglRetNotYetSupported;
     goto Pmerge_ret_1;
@@ -1109,8 +1117,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
               // don't need to special-case chrY here since we just skip
               // nonmales in the reporting step
               while (1) {
-                const uintptr_t byte_start = sample_idx * sizeof(Dosage);
-                const uintptr_t diff_byte_offset = byte_start + FirstUnequal(&(biallelic_dosage1[sample_idx]), &(biallelic_dosage2[sample_idx]), dosage_blen - byte_start);
+                const uintptr_t diff_byte_offset = FirstUnequalFrom(biallelic_dosage1, biallelic_dosage2, sample_idx * sizeof(Dosage), dosage_blen);
                 if (diff_byte_offset == dosage_blen) {
                   break;
                 }
@@ -1134,8 +1141,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
             } else {
               // is_x
               while (1) {
-                const uintptr_t byte_start = sample_idx * sizeof(Dosage);
-                const uintptr_t diff_byte_offset = byte_start + FirstUnequal(&(biallelic_dosage1[sample_idx]), &(biallelic_dosage2[sample_idx]), dosage_blen - byte_start);
+                const uintptr_t diff_byte_offset = FirstUnequalFrom(biallelic_dosage1, biallelic_dosage2, sample_idx * sizeof(Dosage), dosage_blen);
                 if (diff_byte_offset == dosage_blen) {
                   break;
                 }
@@ -1197,8 +1203,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
             const uintptr_t wide_codes_blen = sample_ct * 2 * sizeof(AlleleCode);
             uintptr_t sample_idx = 0;
             while (1) {
-              const uintptr_t byte_start = sample_idx * 2 * sizeof(AlleleCode);
-              const uintptr_t diff_byte_offset = byte_start + FirstUnequal(&(wc1_alias[sample_idx]), &(wc2_alias[sample_idx]), wide_codes_blen - byte_start);
+              const uintptr_t diff_byte_offset = FirstUnequalFrom(wc1_alias, wc2_alias, sample_idx * sizeof(DoubleAlleleCode), wide_codes_blen);
               if (diff_byte_offset == wide_codes_blen) {
                 break;
               }

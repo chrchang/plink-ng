@@ -3704,7 +3704,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --adjust cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0a1\tunadj\0gc\0qq\0bonf\0holm\0sidakss\0sidaksd\0fdrbh\0fdrby\0", "adjust", kfAdjustColChrom, kfAdjustColDefault, 1, &pc.adjust_info.flags);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0a1\0unadj\0gc\0qq\0bonf\0holm\0sidakss\0sidaksd\0fdrbh\0fdrby\0", "adjust", kfAdjustColChrom, kfAdjustColDefault, 1, &pc.adjust_info.flags);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }
@@ -10636,7 +10636,11 @@ int main(int argc, char** argv) {
       }
 
       if (pc.command_flags1 & kfCommand1Pmerge) {
-        reterr = Pmerge(&pmerge_info, pc.sample_sort_fname, pc.sample_sort_flags, pc.max_thread_ct, pgenname, psamname, pvarname, outname, outname_end, &chr_info);
+        char* merge_outname_end = outname_end;
+        if (make_plink2_flags & (kfMakePgen | kfMakePvar | kfMakePsam)) {
+          merge_outname_end = strcpya_k(merge_outname_end, "-merge");
+        }
+        reterr = Pmerge(&pmerge_info, pc.sample_sort_fname, pc.misc_flags, pc.sample_sort_flags, pc.fam_cols, pc.max_thread_ct, pgenname, psamname, pvarname, outname, merge_outname_end, &chr_info);
         if (unlikely(reterr)) {
           goto main_ret_1;
         }
