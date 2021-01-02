@@ -91,7 +91,7 @@ diff -q plink2_pca.eigenvec plink2_pca_rfreq.eigenvec
 
 # note that this run depends on the random seed.
 $1/plink2 $2 $3 --bfile plink1_data --maf 0.02 --pca 3 approx biallelic-var-wts --out plink2_pca_approx
-python3 pca_compare.py -1 plink1_pca -2 plink2_pca_approx -t 0.0064
+python3 pca_compare.py -1 plink1_pca -2 plink2_pca_approx -t 0.008
 
 # Test --glm.
 # Generate random binary and quantitative phenotypes for 1kg_phase3_chr21
