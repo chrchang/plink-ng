@@ -386,6 +386,11 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
     const uint32_t max_allele_htable_size = GetHtableFastSize(max_merged_allele_ct);
     PgenVariant pgv1;
     PgenVariant pgv2;
+    if (unlikely(BigstackAllocPgv(sample_ct, allele_idx_offsets != nullptr, dosage_needed? kfPgenGlobalDosagePresent : kfPgenGlobal0, &pgv1) ||
+                 BigstackAllocPgv(sample_ct, allele_idx_offsets2 != nullptr, dosage_needed? kfPgenGlobalDosagePresent : kfPgenGlobal0, &pgv2))) {
+      goto PgenDiff_ret_NOMEM;
+    }
+    // separated to avoid spurious maybe-uninitialized warnings
     const char** cur_allele2s;
     const char** merged_alleles;
     uint32_t* merged_alleles_htable;
@@ -395,9 +400,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
     AlleleCode* wide_codes1;
     AlleleCode* wide_codes2;
     uintptr_t* remap_seen;
-    if (unlikely(BigstackAllocPgv(sample_ct, allele_idx_offsets != nullptr, dosage_needed? kfPgenGlobalDosagePresent : kfPgenGlobal0, &pgv1) ||
-                 BigstackAllocPgv(sample_ct, allele_idx_offsets2 != nullptr, dosage_needed? kfPgenGlobalDosagePresent : kfPgenGlobal0, &pgv2) ||
-                 bigstack_alloc_kcp(max_allele_ct2, &cur_allele2s) ||
+    if (unlikely(bigstack_alloc_kcp(max_allele_ct2, &cur_allele2s) ||
                  bigstack_alloc_kcp(max_merged_allele_ct, &merged_alleles) ||
                  bigstack_alloc_u32(max_allele_htable_size, &merged_alleles_htable) ||
                  bigstack_alloc_u32(sample_ct, &diff_sample_idxs) ||
