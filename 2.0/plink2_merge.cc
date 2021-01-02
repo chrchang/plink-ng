@@ -107,6 +107,7 @@ typedef struct PgenDiffGtEntryStruct {
   DoubleAlleleCode dac2;
 } PgenDiffGtEntry;
 
+static_assert(sizeof(Dosage) == 2, "PgenDiff must be updated.");
 PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const PgenDiffInfo* pdip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t max_allele_ct1, uint32_t max_allele_slen, uint32_t max_thread_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -130,6 +131,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
     if (unlikely(bigstack_calloc_w(raw_sample_ctl, &sample_include))) {
       goto PgenDiff_ret_NOMEM;
     }
+    const uint32_t sex_needed = XymtIsNonempty(variant_include, cip, kChrOffsetX) || XymtIsNonempty(variant_include, cip, kChrOffsetY);
     uint32_t raw_sample_ct2 = 0;
     uint32_t* sample1_idx_to_2 = nullptr;
     uint32_t* sample_include_cumulative_popcounts;
@@ -199,7 +201,6 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
         // default: FID IID PAT MAT SEX PHENO1
         postid_sex_col_idx = 3;
       }
-      const uint32_t sex_needed = XymtIsNonempty(variant_include, cip, kChrOffsetX) || XymtIsNonempty(variant_include, cip, kChrOffsetY);
       if (!sex_needed) {
         postid_sex_col_idx = 0;
       }
@@ -373,13 +374,14 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
     PgrSetSampleSubsetIndex(sample_include2_cumulative_popcounts, &simple_pgr2, &pssi2);
     const PgenDiffFlags flags = pdip->flags;
     const uint32_t dosage_hap_tol = pdip->dosage_hap_tol;
+
+    // these values are unimportant if dosage_hap_tol == kDosageMissing
+    uint32_t dosage_sex_tols[2];
+    dosage_sex_tols[0] = dosage_hap_tol / 2;
+    dosage_sex_tols[1] = dosage_hap_tol;
+
     const uint32_t dosage_reported = (dosage_hap_tol != kDosageMissing);
-    if (dosage_reported) {
-      logerrputs("Error: --pgen-diff dosage handling is under development.\n");
-      reterr = kPglRetNotYetSupported;
-      goto PgenDiff_ret_1;
-    }
-    const uint32_t dosage_needed = (PgrGetGflags(simple_pgrp) & kfPgenGlobalDosagePresent) && dosage_reported;
+    const uint32_t dosage_needed = ((PgrGetGflags(simple_pgrp) | PgrGetGflags(&simple_pgr2)) & kfPgenGlobalDosagePresent) && dosage_reported;
     const uint32_t max_merged_allele_ct = MINV(max_allele_ct1 + max_allele_ct2, kPglMaxAlleleCt);
     const uint32_t max_allele_htable_size = GetHtableFastSize(max_merged_allele_ct);
     PgenVariant pgv1;
@@ -406,6 +408,24 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
                  bigstack_alloc_w(BitCtToWordCt(max_merged_allele_ct), &remap_seen))) {
       goto PgenDiff_ret_NOMEM;
     }
+    uintptr_t* sex_male_collapsed = nullptr;
+    Dosage* biallelic_dosage1 = nullptr;
+    Dosage* biallelic_dosage2 = nullptr;
+    if (dosage_needed) {
+      // allocations are automatically rounded up to vector boundary, so
+      // PopulateDenseDosage() is safe
+      if (unlikely(bigstack_alloc_dosage(sample_ct, &biallelic_dosage1) ||
+                   bigstack_alloc_dosage(sample_ct, &biallelic_dosage2))) {
+        goto PgenDiff_ret_NOMEM;
+      }
+      if (sex_needed) {
+        const uintptr_t sample_ctl = BitCtToWordCt(sample_ct);
+        if (unlikely(bigstack_alloc_w(sample_ctl, &sex_male_collapsed))) {
+          goto PgenDiff_ret_NOMEM;
+        }
+        CopyBitarrSubset(sex_male, sample_include, sample_ct, sex_male_collapsed);
+      }
+    }
     pgv1.patch_01_ct = 0;
     pgv1.patch_10_ct = 0;
     pgv1.dosage_ct = 0;
@@ -421,7 +441,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
     } else {
       // don't define a struct for this, since entry length depends on number
       // of alleles
-      if (unlikely(bigstack_alloc_dosage(sample_ct * (2 * k1LU) * max_merged_allele_ct, &ds_entries))) {
+      if (unlikely(bigstack_alloc_dosage(sample_ct * (2 * k1LU) * (max_merged_allele_ct - 1), &ds_entries))) {
         goto PgenDiff_ret_NOMEM;
       }
     }
@@ -429,7 +449,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
     const uint32_t output_zst = (flags / kfPgenDiffZs) & 1;
     OutnameZstSet(".pdiff", output_zst, outname_end);
     const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
-    const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + 4 * kMaxIdSlen + 128 + max_allele_slen;
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + 4 * kMaxIdSlen + 128 + max_allele_slen + max_merged_allele_ct * 16;
     const uint32_t compress_thread_ct = MINV((max_thread_ct + 1) / 2, 6);
     reterr = InitCstreamAlloc(outname, 0, output_zst, compress_thread_ct, overflow_buf_size, &css, &cswritep);
     if (unlikely(reterr)) {
@@ -598,6 +618,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
     uint32_t is_autosomal_diploid = 0;
     uint32_t is_x = 0;
     uint32_t is_y = 0;
+    uint32_t dosage_cur_tol = 0;
     uint32_t pct = 0;
     uint32_t next_print_variant_uidx2 = raw_variant_ct2 / 100;
     uint64_t grand_diff_ct = 0;
@@ -641,9 +662,11 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
             chrom_end_variant_uidx = 0;
             continue;
           }
-          is_autosomal_diploid = !IsSet(cip->haploid_mask, chr_idx);
+          const uint32_t is_haploid = IsSet(cip->haploid_mask, chr_idx);
+          is_autosomal_diploid = 1 - is_haploid;
           is_x = (chr_idx == x_code);
           is_y = (chr_idx == y_code);
+          dosage_cur_tol = dosage_sex_tols[is_haploid];
           cur_bp = 0;
           const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[chr_idx];
           const uint32_t chrom_start_variant_uidx = cip->chr_fo_vidx_start[chr_fo_idx];
@@ -1017,8 +1040,6 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
                 const uintptr_t geno1 = (geno_word1 >> rshift) & 3;
                 const uintptr_t geno2 = (geno_word2 >> rshift) & 3;
                 diff_sample_idxs[diff_ct] = sample_idx_base + (rshift / 2);
-                // can avoid array lookups in !include_missing case, but I
-                // don't bother since writing is more of a bottleneck anyway.
                 PgenDiffGtEntry* gt_entryp = &(gt_entries[diff_ct]);
                 gt_entryp->dac1 = biallelic_dac[geno1];
                 gt_entryp->dac2 = biallelic_dac[geno2];
@@ -1076,8 +1097,92 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
           }
         } else {
           // biallelic, dosage_needed
-          // Dosage* ds_entries_iter = ds_entries;
-          // TODO
+          PopulateDenseDosage(genovec1, pgv1.dosage_present, pgv1.dosage_main, sample_ct, pgv1.dosage_ct, biallelic_dosage1);
+          PopulateDenseDosage(genovec2, pgv2.dosage_present, pgv2.dosage_main, sample_ct, pgv2.dosage_ct, biallelic_dosage2);
+          if (!sample1_idx_to_2) {
+            const uintptr_t dosage_blen = sample_ct * sizeof(Dosage);
+            uintptr_t sample_idx = 0;
+            if (!is_x) {
+              // don't need to special-case chrY here since we just skip
+              // nonmales in the reporting step
+              while (1) {
+                const uintptr_t byte_start = sample_idx * sizeof(Dosage);
+                const uintptr_t diff_byte_offset = byte_start + FirstUnequal(&(biallelic_dosage1[sample_idx]), &(biallelic_dosage2[sample_idx]), dosage_blen - byte_start);
+                if (diff_byte_offset == dosage_blen) {
+                  break;
+                }
+                sample_idx = diff_byte_offset / sizeof(Dosage);
+                const uint32_t d1 = biallelic_dosage1[sample_idx];
+                const uint32_t d2 = biallelic_dosage2[sample_idx];
+                if (((d1 != kDosageMissing) && (d2 != kDosageMissing)) || include_missing) {
+                  // Since this doesn't separate out the kDosageMissing cases,
+                  // it needs to be updated if Dosage is widened (since
+                  // kDosageMissing would then be adjacent to 0 in uint32_t
+                  // space).
+                  if (abs_i32(d1 - d2) > dosage_cur_tol) {
+                    diff_sample_idxs[diff_ct] = sample_idx;
+                    ds_entries[diff_ct * 2] = d1;
+                    ds_entries[diff_ct * 2 + 1] = d2;
+                    ++diff_ct;
+                  }
+                }
+                ++sample_idx;
+              }
+            } else {
+              // is_x
+              while (1) {
+                const uintptr_t byte_start = sample_idx * sizeof(Dosage);
+                const uintptr_t diff_byte_offset = byte_start + FirstUnequal(&(biallelic_dosage1[sample_idx]), &(biallelic_dosage2[sample_idx]), dosage_blen - byte_start);
+                if (diff_byte_offset == dosage_blen) {
+                  break;
+                }
+                sample_idx = diff_byte_offset / sizeof(Dosage);
+                const uint32_t d1 = biallelic_dosage1[sample_idx];
+                const uint32_t d2 = biallelic_dosage2[sample_idx];
+                if (((d1 != kDosageMissing) && (d2 != kDosageMissing)) || include_missing) {
+                  const uint32_t is_male = IsSet(sex_male_collapsed, sample_idx);
+                  if (abs_i32(d1 - d2) > dosage_sex_tols[is_male]) {
+                    diff_sample_idxs[diff_ct] = sample_idx;
+                    ds_entries[diff_ct * 2] = d1;
+                    ds_entries[diff_ct * 2 + 1] = d2;
+                    ++diff_ct;
+                  }
+                }
+                ++sample_idx;
+              }
+            }
+          } else {
+            if (!is_x) {
+              for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+                const uint32_t d1 = biallelic_dosage1[sample_idx];
+                const uint32_t sample_idx2 = sample1_idx_to_2[sample_idx];
+                const uint32_t d2 = biallelic_dosage2[sample_idx2];
+                if (((d1 != kDosageMissing) && (d2 != kDosageMissing)) || include_missing) {
+                  if (abs_i32(d1 - d2) > dosage_cur_tol) {
+                    diff_sample_idxs[diff_ct] = sample_idx;
+                    ds_entries[diff_ct * 2] = d1;
+                    ds_entries[diff_ct * 2 + 1] = d2;
+                    ++diff_ct;
+                  }
+                }
+              }
+            } else {
+              for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+                const uint32_t d1 = biallelic_dosage1[sample_idx];
+                const uint32_t sample_idx2 = sample1_idx_to_2[sample_idx];
+                const uint32_t d2 = biallelic_dosage2[sample_idx2];
+                if (((d1 != kDosageMissing) && (d2 != kDosageMissing)) || include_missing) {
+                  const uint32_t is_male = IsSet(sex_male_collapsed, sample_idx);
+                  if (abs_i32(d1 - d2) > dosage_sex_tols[is_male]) {
+                    diff_sample_idxs[diff_ct] = sample_idx;
+                    ds_entries[diff_ct * 2] = d1;
+                    ds_entries[diff_ct * 2 + 1] = d2;
+                    ++diff_ct;
+                  }
+                }
+              }
+            }
+          }
         }
       } else {
         if (!dosage_needed) {
@@ -1090,7 +1195,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
             uintptr_t sample_idx = 0;
             while (1) {
               const uintptr_t byte_start = sample_idx * 2 * sizeof(AlleleCode);
-              const uintptr_t diff_byte_offset = byte_start + FirstUnequal(wide_codes1, wide_codes2, wide_codes_blen - byte_start);
+              const uintptr_t diff_byte_offset = byte_start + FirstUnequal(&(wc1_alias[sample_idx]), &(wc2_alias[sample_idx]), wide_codes_blen - byte_start);
               if (diff_byte_offset == wide_codes_blen) {
                 break;
               }
@@ -1132,6 +1237,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
         continue;
       }
       grand_diff_ct += diff_ct;
+      const uint32_t merged_allele_ct_m1 = merged_allele_ct - 1;
       uint32_t cur_autosomal_diploid = is_autosomal_diploid;
       for (uint32_t diff_idx = 0; diff_idx != diff_ct; ++diff_idx) {
         const uint32_t sample_uidx = sample_idx_to_uidx[diff_sample_idxs[diff_idx]];
@@ -1238,6 +1344,28 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
             }
           } else {
             // dosage_needed
+            const Dosage* cur_ds_entry = &(ds_entries[diff_idx * (2 * k1LU) * merged_allele_ct_m1]);
+            *cswritep++ = '\t';
+            for (uint32_t uii = 0; uii != 2; ++uii) {
+              if (cur_ds_entry[0] == kDosageMissing) {
+                cswritep = strcpya_k(cswritep, ".\t");
+              } else {
+                if (cur_autosomal_diploid) {
+                  for (uint32_t alt_idx = 0; alt_idx != merged_allele_ct_m1; ++alt_idx) {
+                    cswritep = PrintSmallDosage(cur_ds_entry[alt_idx], cswritep);
+                    *cswritep++ = ',';
+                  }
+                } else {
+                  for (uint32_t alt_idx = 0; alt_idx != merged_allele_ct_m1; ++alt_idx) {
+                    cswritep = PrintHaploidDosage(cur_ds_entry[alt_idx], cswritep);
+                    *cswritep++ = ',';
+                  }
+                }
+                cswritep[-1] = '\t';
+              }
+              cur_ds_entry = &(cur_ds_entry[merged_allele_ct_m1]);
+            }
+            --cswritep;
           }
         }
         AppendBinaryEoln(&cswritep);

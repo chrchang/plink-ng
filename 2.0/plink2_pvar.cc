@@ -2333,7 +2333,9 @@ PglErr LoadAlleleIdxOffsetsFromPvar(const char* pvarname, const char* file_descr
   LoadAlleleIdxOffsetsFromPvar_ret_MALFORMED_INPUT_WW:
     WordWrapB(0);
     logerrputsb();
+#ifdef __LP64__
   LoadAlleleIdxOffsetsFromPvar_ret_MALFORMED_INPUT:
+#endif
     reterr = kPglRetMalformedInput;
     break;
   }

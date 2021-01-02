@@ -198,7 +198,7 @@ next_block:
 		nlen = READ_U16();
 
                 u16 inv_nlen = ~nlen;  // gcc spurious warning workaround
-		SAFETY_CHECK(len == inv_nlen);
+		SAFETY_CHECK(len == (u16)inv_nlen);
 		if (unlikely(len > out_end - out_next))
 			return LIBDEFLATE_INSUFFICIENT_SPACE;
 		SAFETY_CHECK(len <= in_end - in_next);

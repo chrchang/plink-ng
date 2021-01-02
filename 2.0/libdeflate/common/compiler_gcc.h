@@ -91,27 +91,72 @@
 #      define COMPILER_SUPPORTS_AVX512BW_TARGET_INTRINSICS	\
 		COMPILER_SUPPORTS_AVX512BW_TARGET
 #    endif
-#  elif (defined(__arm__) && defined(__ARM_FP)) || defined(__aarch64__)
-	/* arm: including arm_neon.h requires hardware fp support */
 
-	/*
-	 * Prior to gcc 6.1 (r230411 for arm, r226563 for aarch64), NEON
-	 * and crypto intrinsics not available in the main target could not be
-	 * used in 'target' attribute functions.
-	 *
-	 * clang as of 5.0.1 still doesn't allow it.  But, it does seem to allow
-	 * the pmull intrinsics if only __ARM_NEON is enabled.
-	 */
-#    define COMPILER_SUPPORTS_NEON_TARGET_INTRINSICS	GCC_PREREQ(6, 1)
-#    ifdef __ARM_NEON
-#      define COMPILER_SUPPORTS_PMULL_TARGET_INTRINSICS	\
-		(GCC_PREREQ(6, 1) || __has_builtin(__builtin_neon_vmull_p64))
-#    else
-#      define COMPILER_SUPPORTS_PMULL_TARGET_INTRINSICS	\
-		(GCC_PREREQ(6, 1))
+#  elif defined(__arm__) || defined(__aarch64__)
+
+    /*
+     * Determine whether NEON and crypto intrinsics are supported.
+     *
+     * With gcc prior to 6.1, (r230411 for arm32, r226563 for arm64), neither
+     * was available unless enabled in the main target.
+     *
+     * But even after that, to include <arm_neon.h> (which contains both the
+     * basic NEON intrinsics and the crypto intrinsics) the main target still
+     * needs to have:
+     *   - gcc: hardware floating point support
+     *   - clang: NEON support (but not necessarily crypto support)
+     */
+#    if (GCC_PREREQ(6, 1) && defined(__ARM_FP)) || \
+        (defined(__clang__) && defined(__ARM_NEON))
+#      define COMPILER_SUPPORTS_NEON_TARGET_INTRINSICS 1
+       /*
+        * The crypto intrinsics are broken on arm32 with clang, even when using
+        * -mfpu=crypto-neon-fp-armv8, because clang's <arm_neon.h> puts them
+        * behind __aarch64__.  Undefine __ARM_FEATURE_CRYPTO in that case...
+        */
+#      if defined(__clang__) && defined(__arm__)
+#        undef __ARM_FEATURE_CRYPTO
+#      elif __has_builtin(__builtin_neon_vmull_p64) || !defined(__clang__)
+#        define COMPILER_SUPPORTS_PMULL_TARGET_INTRINSICS 1
+#      endif
 #    endif
-#  endif
+
+     /*
+      * Determine whether CRC32 intrinsics are supported.
+      *
+      * With gcc r274827 or later (gcc 10.1+, 9.3+, or 8.4+), or with clang,
+      * they work as expected.  (Well, not quite.  There's still a bug, but we
+      * have to work around it later when including arm_acle.h.)
+      */
+#    if GCC_PREREQ(10, 1) || \
+        (GCC_PREREQ(9, 3) && !GCC_PREREQ(10, 0)) || \
+        (GCC_PREREQ(8, 4) && !GCC_PREREQ(9, 0)) || \
+        (defined(__clang__) && __has_builtin(__builtin_arm_crc32b))
+#      define COMPILER_SUPPORTS_CRC32_TARGET_INTRINSICS 1
+#    endif
+
+#  endif /* __arm__ || __aarch64__ */
+
 #endif /* COMPILER_SUPPORTS_TARGET_FUNCTION_ATTRIBUTE */
+
+/*
+ * Prior to gcc 5.1 and clang 3.9, emmintrin.h only defined vectors of signed
+ * integers (e.g. __v4si), not vectors of unsigned integers (e.g.  __v4su).  But
+ * we need the unsigned ones in order to avoid signed integer overflow, which is
+ * undefined behavior.  Add the missing definitions for the unsigned ones if
+ * needed.
+ */
+#if (GCC_PREREQ(4, 0) && !GCC_PREREQ(5, 1)) || \
+    (defined(__clang__) && !CLANG_PREREQ(3, 9, 8020000))
+typedef unsigned long long  __v2du __attribute__((__vector_size__(16)));
+typedef unsigned int        __v4su __attribute__((__vector_size__(16)));
+typedef unsigned short      __v8hu __attribute__((__vector_size__(16)));
+typedef unsigned char      __v16qu __attribute__((__vector_size__(16)));
+typedef unsigned long long  __v4du __attribute__((__vector_size__(32)));
+typedef unsigned int        __v8su __attribute__((__vector_size__(32)));
+typedef unsigned short     __v16hu __attribute__((__vector_size__(32)));
+typedef unsigned char      __v32qu __attribute__((__vector_size__(32)));
+#endif
 
 /* Newer gcc supports __BYTE_ORDER__.  Older gcc doesn't. */
 #ifdef __BYTE_ORDER__

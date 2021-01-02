@@ -379,6 +379,7 @@ HEADER_INLINE void SetAllDosageArr(uintptr_t entry_ct, Dosage* dosage_arr) {
   memset(dosage_arr, 255, entry_ct * sizeof(Dosage));
 }
 
+// Assumes dense_dosage is allocated up to vector boundary.
 void PopulateDenseDosage(const uintptr_t* genoarr, const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, Dosage* dense_dosage);
 
 void PopulateRescaledDosage(const uintptr_t* genoarr, const uintptr_t* dosage_present, const Dosage* dosage_main, double slope, double intercept, double missing_val, uint32_t sample_ct, uint32_t dosage_ct, double* expanded_dosages);
@@ -1117,7 +1118,26 @@ HEADER_INLINE PglErr WriteSampleIds(const uintptr_t* sample_include, const Sampl
 // read_realpath must be a buffer of size >= kPglFnamesize bytes
 uint32_t RealpathIdentical(const char* outname, const char* read_realpath, char* write_realpath_buf);
 
-char* PrintHaploidNonintDosage(uint32_t rawval, char* start);
+// assumes rawval is in [1, 32767]
+static_assert(kDosageMax == 32768, "PrintHaploidNonintDosage() needs to be updated.");
+HEADER_INLINE char* PrintHaploidNonintDosage(uint32_t rawval, char* start) {
+  // Instead of constant 5-digit precision, we print fewer digits whenever that
+  // doesn't interfere with proper round-tripping.  I.e. we search for the
+  // shortest string in
+  //   ((n - 0.5)/32768, (n + 0.5)/32768).
+  assert(rawval - 1 < 32767);
+  *start++ = '0';
+  return PrintDdosageDecimal(rawval, start);
+}
+
+HEADER_INLINE char* PrintHaploidDosage(uint32_t rawval, char* start) {
+  *start++ = '0' + (rawval / kDosageMax);
+  const uint32_t remainder = rawval % kDosageMax;
+  if (!remainder) {
+    return start;
+  }
+  return PrintDdosageDecimal(remainder, start);
+}
 
 char* PrintMultiallelicHcAsDs(uint32_t hc1, uint32_t hc2, uint32_t allele_ct, char* start);
 

@@ -7383,7 +7383,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
   return reterr;
 }
 
-static const Dosage kGenoToDosage[4] = {0, 16384, 32768, 65535};
+static const Dosage kGenoToDosage[4] = {0, kDosageMid, kDosageMax, kDosageMissing};
 
 typedef struct SdiffCountsStruct {
   uint32_t missing_ct; // never includes halfmiss
@@ -8244,20 +8244,16 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
                 *cswritep++ = '.';
               } else if (is_diploid_pair) {
                 cswritep = PrintSmallDosage(dosage1, cswritep);
-              } else if (!(dosage1 % kDosageMax)) {
-                *cswritep++ = '0' + (dosage1 / 32768);
               } else {
-                cswritep = PrintHaploidNonintDosage(dosage1, cswritep);
+                cswritep = PrintHaploidDosage(dosage1, cswritep);
               }
               *cswritep++ = '\t';
               if (dosage2 == kDosageMissing) {
                 *cswritep++ = '.';
               } else if (is_diploid_pair) {
                 cswritep = PrintSmallDosage(dosage2, cswritep);
-              } else if (!(dosage2 % kDosageMax)) {
-                *cswritep++ = '0' + (dosage2 / 32768);
               } else {
-                cswritep = PrintHaploidNonintDosage(dosage2, cswritep);
+                cswritep = PrintHaploidDosage(dosage2, cswritep);
               }
             }
             AppendBinaryEoln(&cswritep);

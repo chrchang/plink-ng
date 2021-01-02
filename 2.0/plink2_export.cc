@@ -4148,7 +4148,7 @@ char* PrintHdsPair(uint32_t dosage_int, int32_t dphase_delta, char* start) {
     }
     return start;
   }
-  // see PrintHaploidNonintDosage() banker's rounding
+  // see PrintDdosageDecimal() banker's rounding
   uint32_t val_x32768 = dosage_int + dphase_delta;
   // bugfix (11 Dec 2018): Forgot to print leading digit and dot here.
   if (!(val_x32768 & 32767)) {

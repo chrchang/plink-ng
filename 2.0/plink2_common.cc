@@ -185,7 +185,7 @@ char* PrintDdosageDecimal(uint32_t remainder, char* start) {
   // (remainder * 2) is in 65536ths
   // 65536 * 625 = 40960k, smallest common denominator with 10^4
 
-  const uint32_t range_top_40960k = (remainder * 2 + 1) * 625;
+  const uint32_t range_top_40960k = remainder * 1250 + 625;
   // this is technically checking a half-open rather than a fully-open
   // interval, but that's fine since we never hit the boundary points
   if ((range_top_40960k % 4096) < 1250) {
@@ -3108,42 +3108,6 @@ uint32_t RealpathIdentical(const char* outname, const char* read_realpath, char*
 #else
   return (realpath(outname, write_realpath_buf) && strequal_overread(read_realpath, write_realpath_buf));
 #endif
-}
-
-// assumes rawval is in [1, 32767]
-static_assert(kDosageMax == 32768, "PrintHaploidNonintDosage() needs to be updated.");
-char* PrintHaploidNonintDosage(uint32_t rawval, char* start) {
-  // Instead of constant 5-digit precision, we print fewer digits whenever that
-  // doesn't interfere with proper round-tripping.  I.e. we search for the
-  // shortest string in
-  //   ((n - 0.5)/32768, (n + 0.5)/32768).
-  assert(rawval - 1 < 32767);
-  start = strcpya_k(start, "0.");
-
-  // (rawval * 2) is in 65536ths
-  // 65536 * 625 = 40960k
-  const uint32_t range_top_40960k = rawval * 1250 + 625;
-  // ok to check half-open interval since we never hit boundary
-  if ((range_top_40960k % 4096) < 1250) {
-    // when this is true, the four-decimal-place approximation is in the range
-    // which round-trips back to our original number.
-    const uint32_t four_decimal_places = range_top_40960k / 4096;
-    return u32toa_trunc4(four_decimal_places, start);
-  }
-
-  // we wish to print (100000 * remainder + 16384) / 32768, left-0-padded.  and
-  // may as well banker's round too.
-  //
-  // banker's rounding yields a different result than regular rounding for n/64
-  // when n is congruent to 1 mod 4.  32768/64 = 512.
-  const uint32_t five_decimal_places = ((3125 * rawval + 512) / 1024) - ((rawval % 2048) == 512);
-  const uint32_t first_decimal_place = five_decimal_places / 10000;
-  *start++ = '0' + first_decimal_place;
-  const uint32_t last_four_digits = five_decimal_places - first_decimal_place * 10000;
-  if (last_four_digits) {
-    return u32toa_trunc4(last_four_digits, start);
-  }
-  return start;
 }
 
 char* PrintMultiallelicHcAsDs(uint32_t hc1, uint32_t hc2, uint32_t allele_ct, char* start) {
