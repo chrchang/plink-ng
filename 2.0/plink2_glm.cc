@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2020 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -140,7 +140,7 @@ BoolErr LinearHypothesisChisq(const double* coef, const double* constraints_con_
 }
 
 
-PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, const char* sample_ids, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const GlmInfo* glm_info_ptr, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uint32_t raw_variant_ct, const uintptr_t** sample_include_ptr, const uintptr_t** sex_nm_ptr, const uintptr_t** sex_male_ptr, const uintptr_t** variant_include_ptr, uint32_t* sample_ct_ptr, uint32_t* variant_ct_ptr, TextStream* local_covar_txsp, uint32_t** local_sample_uidx_order_ptr, uintptr_t** local_variant_include_ptr, uint32_t* local_sample_ct_ptr, uint32_t* local_variant_ctl_ptr, uint32_t* local_covar_ct_ptr) {
+PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, const SampleIdInfo* siip, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const GlmInfo* glm_info_ptr, uint32_t raw_sample_ct, uint32_t raw_variant_ct, const uintptr_t** sample_include_ptr, const uintptr_t** sex_nm_ptr, const uintptr_t** sex_male_ptr, const uintptr_t** variant_include_ptr, uint32_t* sample_ct_ptr, uint32_t* variant_ct_ptr, TextStream* local_covar_txsp, uint32_t** local_sample_uidx_order_ptr, uintptr_t** local_variant_include_ptr, uint32_t* local_sample_ct_ptr, uint32_t* local_variant_ctl_ptr, uint32_t* local_covar_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t line_idx = 0;
@@ -152,8 +152,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
   PreinitTextStream(&txs);
   {
     // 1. read .psam/.fam file, update sample_ct, initialize
-    //    local_sample_uidx_order (use LoadXidHeader() once we can allocate at
-    //    end)
+    //    local_sample_uidx_order
     uint32_t max_line_blen;
     if (unlikely(StandardizeMaxLineBlen(bigstack_left() / 4, &max_line_blen))) {
       goto GlmLocalOpen_ret_NOMEM;
@@ -163,43 +162,27 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
     if (unlikely(reterr)) {
       goto GlmLocalOpen_ret_TSTREAM_FAIL;
     }
-    uint32_t is_header_line;
+    XidMode xid_mode;
     char* line_start;
-    do {
-      ++line_idx;
-      line_start = TextGet(&txs);
-      if (unlikely(!line_start)) {
-        if (!TextStreamErrcode2(&txs, &reterr)) {
-          snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", local_psam_fname);
-          goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
-        }
-        goto GlmLocalOpen_ret_TSTREAM_FAIL;
-      }
-      is_header_line = (line_start[0] == '#');
-    } while (is_header_line && (!tokequal_k(&(line_start[1]), "FID")) && (!tokequal_k(&(line_start[1]), "IID")));
-    XidMode xid_mode = kfXidModeFidIid;
-    if (is_header_line) {
-      if (line_start[1] == 'I') {
-        xid_mode = kfXidModeIid;
-      }
+    reterr = LoadXidHeader("glm local-psam=", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeader0 : kfXidHeaderIgnoreSid, &line_idx, &txs, &xid_mode, &line_start);
+    if (unlikely(reterr)) {
+      goto GlmLocalOpen_ret_TSTREAM_XID_FAIL;
     }
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     const uint32_t orig_sample_ct = *sample_ct_ptr;
-    char* sorted_sample_idbox;
-    uint32_t* sample_id_map;
-    uintptr_t* new_sample_include;
-    char* idbuf;
-    if (unlikely(bigstack_end_alloc_c(orig_sample_ct * max_sample_id_blen, &sorted_sample_idbox) ||
-                 bigstack_end_alloc_u32(orig_sample_ct, &sample_id_map) ||
-                 bigstack_end_calloc_w(raw_sample_ctl, &new_sample_include) ||
-                 bigstack_end_alloc_c(max_sample_id_blen, &idbuf))) {
-      goto GlmLocalOpen_ret_NOMEM;
-    }
-    // (don't permit duplicate FID+IID for now, but maybe we'll want to use
-    // xid interface later?)
-    reterr = CopySortStrboxSubsetNoalloc(*sample_include_ptr, sample_ids, orig_sample_ct, max_sample_id_blen, 0, 0, 0, sorted_sample_idbox, sample_id_map);
+    char* sorted_xidbox;
+    uint32_t* xid_map;
+    uintptr_t max_xid_blen;
+    // IID -> multiple IID+SID not supported for now, may want to add this
+    reterr = SortedXidboxInitAllocEnd(*sample_include_ptr, siip, orig_sample_ct, 0, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
     if (unlikely(reterr)) {
       goto GlmLocalOpen_ret_1;
+    }
+    uintptr_t* new_sample_include;
+    char* idbuf;
+    if (unlikely(bigstack_end_calloc_w(raw_sample_ctl, &new_sample_include) ||
+                 bigstack_end_alloc_c(max_xid_blen, &idbuf))) {
+      goto GlmLocalOpen_ret_NOMEM;
     }
     uint32_t* local_sample_uidx_order = R_CAST(uint32_t*, g_bigstack_base);
     uintptr_t max_local_sample_ct = RoundDownPow2(bigstack_left(), kCacheline) / sizeof(int32_t);
@@ -209,7 +192,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
     }
 #endif
     uintptr_t local_sample_ct = 0;
-    if (is_header_line) {
+    if (line_start[0] == '#') {
       ++line_idx;
       line_start = TextGet(&txs);
     }
@@ -229,10 +212,9 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       }
       const char* read_ptr = line_start;
       uint32_t sample_uidx;
-      if (!SortedXidboxReadFind(sorted_sample_idbox, sample_id_map, max_sample_id_blen, orig_sample_ct, 0, xid_mode, &read_ptr, &sample_uidx, idbuf)) {
+      if (!SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &read_ptr, &sample_uidx, idbuf)) {
         if (unlikely(IsSet(new_sample_include, sample_uidx))) {
-          char* first_tab = AdvToDelim(idbuf, '\t');
-          *first_tab = ' ';
+          TabsToSpaces(idbuf);
           snprintf(g_logbuf, kLogbufSize, "Error: Duplicate ID '%s' in %s.\n", idbuf, local_psam_fname);
           goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
         }
@@ -282,6 +264,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       }
       txs_fname = local_pvar_fname;
       line_idx = 0;
+      uint32_t is_header_line;
       do {
         ++line_idx;
         line_start = TextGet(&txs);
@@ -618,6 +601,10 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
   GlmLocalOpen_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
+  GlmLocalOpen_ret_TSTREAM_XID_FAIL:
+    if (!TextStreamErrcode(&txs)) {
+      break;
+    }
   GlmLocalOpen_ret_TSTREAM_FAIL:
     TextStreamErrPrint(txs_fname, &txs);
     break;
@@ -3849,7 +3836,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
         }
         // Once sizeof(AlleleCode) > 1, we probably want to allocate this from
         // g_bigstack instead of the thread stack.
-        uintptr_t const_alleles[DivUp(kPglMaxAltAlleleCt + 1, kBitsPerWord)];
+        uintptr_t const_alleles[DivUp(kPglMaxAlleleCt, kBitsPerWord)];
         const uint32_t allele_ctl = DivUp(allele_ct, kBitsPerWord);
         ZeroWArr(allele_ctl, const_alleles);
         const uint32_t nm_sample_ct = cur_sample_ct - missing_ct;
@@ -6994,7 +6981,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
         if (omitted_alleles) {
           omitted_allele_idx = omitted_alleles[variant_uidx];
         }
-        uintptr_t const_alleles[DivUp(kPglMaxAltAlleleCt + 1, kBitsPerWord)];
+        uintptr_t const_alleles[DivUp(kPglMaxAlleleCt, kBitsPerWord)];
         const uint32_t allele_ctl = DivUp(allele_ct, kBitsPerWord);
         ZeroWArr(allele_ctl, const_alleles);
         const uint32_t nm_sample_ct = cur_sample_ct - missing_ct;
@@ -9064,7 +9051,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
         if (omitted_alleles) {
           omitted_allele_idx = omitted_alleles[variant_uidx];
         }
-        uintptr_t const_alleles[DivUp(kPglMaxAltAlleleCt + 1, kBitsPerWord)];
+        uintptr_t const_alleles[DivUp(kPglMaxAlleleCt, kBitsPerWord)];
         const uint32_t allele_ctl = DivUp(allele_ct, kBitsPerWord);
         ZeroWArr(allele_ctl, const_alleles);
         const uint32_t nm_sample_ct = cur_sample_ct - missing_ct;
@@ -10969,7 +10956,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     uint32_t local_variant_ctl = 0;
     uint32_t local_covar_ct = 0;
     if (local_covar_fname) {
-      reterr = GlmLocalOpen(local_covar_fname, local_pvar_fname, local_psam_fname, siip->sample_ids, cip, variant_bps, variant_ids, glm_info_ptr, raw_sample_ct, siip->max_sample_id_blen, raw_variant_ct, &orig_sample_include, &sex_nm, &sex_male, &early_variant_include, &orig_sample_ct, &variant_ct, &local_covar_txs, &local_sample_uidx_order, &local_variant_include, &local_sample_ct, &local_variant_ctl, &local_covar_ct);
+      reterr = GlmLocalOpen(local_covar_fname, local_pvar_fname, local_psam_fname, siip, cip, variant_bps, variant_ids, glm_info_ptr, raw_sample_ct, raw_variant_ct, &orig_sample_include, &sex_nm, &sex_male, &early_variant_include, &orig_sample_ct, &variant_ct, &local_covar_txs, &local_sample_uidx_order, &local_variant_include, &local_sample_ct, &local_variant_ctl, &local_covar_ct);
       if (unlikely(reterr)) {
         goto GlmMain_ret_1;
       }

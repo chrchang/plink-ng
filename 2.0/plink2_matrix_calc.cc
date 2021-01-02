@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2020 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -313,7 +313,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
     // todo: try to simplify this interface, it's bordering on incomprehensible
     char* line_start;
     XidMode xid_mode;
-    reterr = LoadXidHeader("king-cutoff", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeader0 : kfXidHeaderIgnoreSid, &line_idx, &txs, &xid_mode, &line_start, nullptr);
+    reterr = LoadXidHeader("king-cutoff", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeader0 : kfXidHeaderIgnoreSid, &line_idx, &txs, &xid_mode, &line_start);
     if (unlikely(reterr)) {
       if (reterr == kPglRetEof) {
         logerrputs("Error: Empty --king-cutoff ID file.\n");
@@ -2425,7 +2425,7 @@ THREAD_FUNC_DECL CalcKingTableSubsetThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, double king_table_subset_thresh, XidMode xid_mode, uint32_t skip_sid, uint32_t rel_check, uint32_t kinship_skip, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, uintptr_t line_idx, TextStream* txsp, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
+PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, double king_table_subset_thresh, XidMode xid_mode, uint32_t rel_check, uint32_t kinship_skip, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, uintptr_t line_idx, TextStream* txsp, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
   PglErr reterr = kPglRetSuccess;
   {
     uint64_t pair_idx = *pair_idx_ptr;
@@ -2444,12 +2444,6 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, u
         continue;
       }
       linebuf_iter = FirstNonTspace(linebuf_iter);
-      if (skip_sid) {
-        if (unlikely(IsEolnKns(*linebuf_iter))) {
-          goto KingTableSubsetLoad_ret_MISSING_TOKENS;
-        }
-        linebuf_iter = FirstNonTspace(CurTokenEnd(linebuf_iter));
-      }
       if (rel_check) {
         // linebuf_iter must point to the start of the second FID, while
         // line_iter points to the start of the first.
@@ -2753,7 +2747,8 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
 
     uintptr_t line_idx = 0;
     uint32_t kinship_skip = 0;
-    uint32_t skip_sid = 0;
+    // we overwrite this in subset_fname case, so no need to check for
+    // --strict-sid0
     XidMode xid_mode = siip->sids? kfXidModeFidIidSid : kfXidModeIidSid;
     if (subset_fname) {
       reterr = InitTextStream(subset_fname, kTextStreamBlenFast, 1, &txs);
@@ -2800,7 +2795,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
         if (siip->sids) {
           xid_mode = fid_present? kfXidModeFidIidSid : kfXidModeIidSid;
         } else {
-          skip_sid = 1;
+          xid_mode |= kfXidModeFlagSkipSid;
         }
         linebuf_iter = FirstNonTspace(token_end);
         token_end = CurTokenEnd(linebuf_iter);
@@ -2817,8 +2812,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       if (unlikely((!strequal_k(linebuf_iter, "ID2", token_slen)) && (!strequal_k(linebuf_iter, "IID2", token_slen)))) {
         goto CalcKingTableSubset_ret_INVALID_HEADER;
       }
-      if (xid_mode == kfXidModeFidIidSid) {
-        // technically don't need to check this in skip_sid case
+      if (xid_mode & (kfXidModeFlagSid | kfXidModeFlagSkipSid)) {
         linebuf_iter = FirstNonTspace(token_end);
         token_end = CurTokenEnd(linebuf_iter);
         token_slen = token_end - linebuf_iter;
@@ -2883,7 +2877,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     } else {
       fputs("Scanning --king-table-subset file...", stdout);
       fflush(stdout);
-      reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, rel_check, kinship_skip, (parallel_tot != 1), 0, pair_buf_capacity, line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+      reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_check, kinship_skip, (parallel_tot != 1), 0, pair_buf_capacity, line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
       if (unlikely(reterr)) {
         goto CalcKingTableSubset_ret_1;
       }
@@ -2924,7 +2918,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
             if (unlikely(reterr)) {
               goto CalcKingTableSubset_ret_TSTREAM_REWIND_FAIL;
             }
-            reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, rel_check, kinship_skip, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+            reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_check, kinship_skip, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
             if (unlikely(reterr)) {
               goto CalcKingTableSubset_ret_1;
             }
@@ -3159,7 +3153,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       } else {
         fputs("Scanning --king-table-subset file...", stdout);
         fflush(stdout);
-        reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, rel_check, kinship_skip, 0, pair_idx_cur_start, MINV(pair_idx_global_stop, pair_idx_cur_start + pair_buf_capacity), line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
+        reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, rel_check, kinship_skip, 0, pair_idx_cur_start, MINV(pair_idx_global_stop, pair_idx_cur_start + pair_buf_capacity), line_idx, &txs, &pair_idx, ctx.loaded_sample_idx_pairs, idbuf);
         if (unlikely(reterr)) {
           goto CalcKingTableSubset_ret_1;
         }
@@ -7531,10 +7525,10 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
     }
     // now xchr_model is set iff it's 1
 
-    // see KeepFcol() and SampleSortFileMap()
+    // see KeepColMatch() and SampleSortFileMap()
     char* line_start;
     XidMode xid_mode;
-    reterr = OpenAndLoadXidHeader(in_fname, "variant-score", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, kTextStreamBlenFast, &txs, &xid_mode, &line_idx, &line_start, nullptr);
+    reterr = OpenAndLoadXidHeader(in_fname, "variant-score", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, kTextStreamBlenFast, &txs, &xid_mode, &line_idx, &line_start);
     if (unlikely(reterr)) {
       if (reterr == kPglRetEof) {
         logerrputs("Error: Empty --variant-score file.\n");
@@ -7690,11 +7684,7 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
         continue;
       }
       if (unlikely(IsSet(already_seen, sample_uidx))) {
-        char* tab_iter = AdvToDelim(idbuf, '\t');
-        *tab_iter = ' ';
-        if (xid_mode & kfXidModeFlagSid) {
-          *AdvToDelim(&(tab_iter[1]), '\t') = ' ';
-        }
+        TabsToSpaces(idbuf);
         snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID '%s' in --variant-score file.\n", idbuf);
         goto Vscore_ret_MALFORMED_INPUT_WW;
       }

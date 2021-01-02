@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2020 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -672,7 +672,7 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
       if (unlikely(!line_start)) {
         if (!TextStreamErrcode2(&txs, &reterr)) {
           logerrputs("Error: Empty --recover-var-ids file.\n");
-          goto RecoverVarIds_ret_1;
+          goto RecoverVarIds_ret_MALFORMED_INPUT;
         }
         goto RecoverVarIds_ret_TSTREAM_FAIL;
       }
@@ -1102,6 +1102,7 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
   RecoverVarIds_ret_MALFORMED_INPUT_WW:
     WordWrapB(0);
     logerrputsb();
+  RecoverVarIds_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
   RecoverVarIds_ret_INCONSISTENT_INPUT_WW:
@@ -1111,7 +1112,6 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
     reterr = kPglRetInconsistentInput;
     break;
   }
- RecoverVarIds_ret_1:
   CleanupTextStream2("--recover-var-ids file", &txs, &reterr);
   fclose_cond(errfile);
 
@@ -1755,6 +1755,7 @@ PglErr PrescanParentalIds(const char* fname, uint32_t max_thread_ct, ParentalIdI
       }
       goto PrescanParentalIds_ret_1;
     }
+    // don't use LoadXidHeader since we can ignore sample ID on this pass
     // permit very long lines since this can be pointed at .ped files
     // possible minor todo: could save longest line length for later reference
     reterr = SizeAndInitTextStream(fname, bigstack_left() - (bigstack_left() / 4), MAXV(max_thread_ct - 1, 1), &txs);
@@ -1779,8 +1780,6 @@ PglErr PrescanParentalIds(const char* fname, uint32_t max_thread_ct, ParentalIdI
       }
       is_header_line = (*line_iter == '#');
     } while (is_header_line && (!tokequal_k(&(line_iter[1]), "FID")) && (!tokequal_k(&(line_iter[1]), "IID")));
-    uintptr_t max_paternal_id_blen = 0;
-    uintptr_t max_maternal_id_blen = 0;
     uint32_t pat_col_idx;
     if (is_header_line) {
       // Search for 'PAT' column.  Require all-caps.
@@ -1800,11 +1799,7 @@ PglErr PrescanParentalIds(const char* fname, uint32_t max_thread_ct, ParentalIdI
       }
       // Require immediately-following column to be 'MAT'.
       const char* token_start = FirstNonTspace(line_iter);
-      if (unlikely(IsEolnKns(*token_start))) {
-        logerrputs("Error: Invalid --update-parents file (no MAT column immediately following PAT\ncolumn).\n");
-        goto PrescanParentalIds_ret_MALFORMED_INPUT;
-      }
-      line_iter = CurTokenEnd(token_start);
+      line_iter = FirstSpaceOrEoln(token_start);
       if (unlikely(!strequal_k(token_start, "MAT", line_iter - token_start))) {
         logerrputs("Error: Invalid --update-parents file (no MAT column immediately following PAT\ncolumn).\n");
         goto PrescanParentalIds_ret_MALFORMED_INPUT;
@@ -1819,6 +1814,8 @@ PglErr PrescanParentalIds(const char* fname, uint32_t max_thread_ct, ParentalIdI
       }
       pat_col_idx = (token_ct == 3)? 1 : 2;
     }
+    uintptr_t max_paternal_id_blen = 0;
+    uintptr_t max_maternal_id_blen = 0;
     for (; TextGetUnsafe2K(&txs, &line_iter); line_iter = AdvPastDelim(line_iter, '\n'), ++line_idx) {
       line_iter = NextTokenMult(line_iter, pat_col_idx);
       if (unlikely(!line_iter)) {
@@ -2060,56 +2057,42 @@ PglErr UpdateSampleParents(const char* fname, const SampleIdInfo* siip, const ui
     if (!sample_ct) {
       goto UpdateSampleParents_ret_1;
     }
-    // This repeats code in PrescanParentalIds(); probably want to pull this
-    // into its own function.
+    // permit very long lines since this can be pointed at .ped files
     reterr = SizeAndInitTextStream(fname, bigstack_left() - (bigstack_left() / 4), MAXV(max_thread_ct - 1, 1), &txs);
     if (unlikely(reterr)) {
       goto UpdateSampleParents_ret_TSTREAM_FAIL;
     }
+
     const char* line_iter;
-    uint32_t is_header_line;
-    do {
-      ++line_idx;
-      line_iter = TextGet(&txs);
-      if (unlikely(!line_iter)) {
-        reterr = TextStreamRawErrcode(&txs);
-        goto UpdateSampleParents_ret_TSTREAM_FAIL;
-      }
-      is_header_line = (*line_iter == '#');
-    } while (is_header_line && (!tokequal_k(&(line_iter[1]), "FID")) && (!tokequal_k(&(line_iter[1]), "IID")));
-    uint32_t postid_pat_col_idx = 1;
     XidMode xid_mode;
-    if (is_header_line) {
-      if (line_iter[1] == 'I') {
-        xid_mode = kfXidModeFlagNeverFid;
-        line_iter = &(line_iter[4]);
-      } else {
-        xid_mode = kfXidModeFidIid;
-        line_iter = FirstNonTspace(&(line_iter[4]));
-        if (unlikely(!tokequal_k(line_iter, "IID"))) {
-          logerrprintf("Error: No IID column on line %" PRIuPTR " of --update-parents file.\n", line_idx);
-          goto UpdateSampleParents_ret_MALFORMED_INPUT;
-        }
-        line_iter = &(line_iter[3]);
-      }
-      line_iter = FirstNonTspace(line_iter);
-      if (tokequal_k(line_iter, "SID")) {
-        xid_mode |= kfXidModeFlagSid;
-        line_iter = &(line_iter[3]);
-      }
-      // Search for 'PAT' column.  Require all-caps.
-      while (1) {
-        const char* token_start = FirstNonTspace(line_iter);
-        if (unlikely(IsEolnKns(*token_start))) {
-          // previously validated
+    {
+      char* line_start;
+      reterr = LoadXidHeader("update-parents", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeader0 : kfXidHeaderIgnoreSid, &line_idx, &txs, &xid_mode, &line_start);
+      if (unlikely(reterr)) {
+        if (reterr == kPglRetEof) {
           goto UpdateSampleParents_ret_REWIND_FAIL;
         }
-        line_iter = CurTokenEnd(token_start);
-        if (strequal_k(token_start, "PAT", line_iter - token_start)) {
+        goto UpdateSampleParents_ret_TSTREAM_XID_FAIL;
+      }
+      line_iter = line_start;
+    }
+    uint32_t postid_pat_col_idx = 1;
+    if (*line_iter == '#') {
+      const uint32_t id_col_ct = GetXidColCt(xid_mode);
+      const char* token_end = CurTokenEnd(NextTokenMult0(line_iter, id_col_ct - 1));
+      while (1) {
+        const char* token_start = FirstNonTspace(token_end);
+        if (unlikely(IsEolnKns(*token_start))) {
+          goto UpdateSampleParents_ret_REWIND_FAIL;
+        }
+        token_end = CurTokenEnd(token_start);
+        if (strequal_k(token_start, "PAT", token_end - token_start)) {
           break;
         }
         ++postid_pat_col_idx;
       }
+      line_iter = AdvPastDelim(line_iter, '\n');
+      ++line_idx;
     } else {
       const uint32_t token_ct = CountTokens(line_iter);
       if (unlikely(token_ct < 3)) {
@@ -2139,10 +2122,6 @@ PglErr UpdateSampleParents(const char* fname, const SampleIdInfo* siip, const ui
     char* maternal_ids = parental_id_infop->maternal_ids;
     uint32_t hit_ct = 0;
     uintptr_t miss_ct = 0;
-    if (is_header_line) {
-      line_iter = AdvPastDelim(line_iter, '\n');
-      ++line_idx;
-    }
     for (; TextGetUnsafe2K(&txs, &line_iter); line_iter = AdvPastDelim(line_iter, '\n'), ++line_idx) {
       const char* linebuf_iter = line_iter;
       uint32_t xid_idx;
@@ -2195,6 +2174,10 @@ PglErr UpdateSampleParents(const char* fname, const SampleIdInfo* siip, const ui
   UpdateSampleParents_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
+  UpdateSampleParents_ret_TSTREAM_XID_FAIL:
+    if (!TextStreamErrcode(&txs)) {
+      break;
+    }
   UpdateSampleParents_ret_TSTREAM_FAIL:
     TextStreamErrPrint("--update-parents file", &txs);
     break;
@@ -2228,16 +2211,16 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
       goto UpdateSampleSexes_ret_1;
     }
 
-    // (Much of this boilerplate is shared with e.g. KeepFcol(); it probably
-    // belongs in its own function.)
+    // (Much of this boilerplate is shared with e.g. KeepColMatch(); it
+    // probably belongs in its own function.)
     char* line_start;
-    char* header_sample_id_end;
     XidMode xid_mode;
-    reterr = LoadXidHeader("update-sex", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, &line_idx, &txs, &xid_mode, &line_start, &header_sample_id_end);
-    if (unlikely(reterr)) {
-      if (reterr == kPglRetEof) {
-        logerrputs("Error: Empty --update-sex file.\n");
-        goto UpdateSampleSexes_ret_MALFORMED_INPUT;
+    reterr = LoadXidHeader("update-sex", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, &line_idx, &txs, &xid_mode, &line_start);
+    if (reterr) {
+      if (likely(reterr == kPglRetEof)) {
+        reterr = kPglRetSuccess;
+        logputs("--update-sex: 0 samples updated.\n");
+        goto UpdateSampleSexes_ret_1;
       }
       goto UpdateSampleSexes_ret_TSTREAM_XID_FAIL;
     }
@@ -2246,7 +2229,7 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
     uint32_t postid_col_idx = 0;
     if ((*line_start == '#') && (!col_num)) {
       // search for 'SEX' column (any capitalization)
-      const char* token_end = header_sample_id_end;
+      const char* token_end = CurTokenEnd(NextTokenMult0(line_start, id_col_ct - 1));
       while (1) {
         ++postid_col_idx;
         const char* linebuf_iter = FirstNonTspace(token_end);
@@ -6569,7 +6552,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
                    bigstack_alloc_i32p(calc_thread_ct, &ctx.thread_hom_rarealt_cts))) {
         goto SampleCounts_ret_NOMEM;
       }
-      alt_subst_codes_vec_ct = DivUp(kPglMaxAltAlleleCt + 1, kInt16PerVec);
+      alt_subst_codes_vec_ct = DivUp(kPglMaxAlleleCt, kInt16PerVec);
       het2alt_vec_ct = sample_ct_i32v * 2 * kSubstCodeCt;
       het_rarealt_vec_ct = sample_ct_i32v * kSubstCodeCt;
       hom_rarealt_vec_ct = sample_ct_i32v * kSubstCodeCt;
@@ -7809,7 +7792,7 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
   return reterr;
 }
 
-void AppendSdiffHeaderLine(SdiffFlags flags, uint32_t col_fid, uint32_t col_sid, uint32_t dosage_needed, char** cswritepp) {
+void AppendSdiffHeaderLine(SdiffFlags flags, uint32_t col_fid, uint32_t col_sid, uint32_t dosage_reported, char** cswritepp) {
   char* cswritep = *cswritepp;
   *cswritep++ = '#';
   if (flags & kfSdiffColChrom) {
@@ -7842,7 +7825,7 @@ void AppendSdiffHeaderLine(SdiffFlags flags, uint32_t col_fid, uint32_t col_sid,
     }
   }
   if (flags & kfSdiffColGeno) {
-    if (!dosage_needed) {
+    if (!dosage_reported) {
       cswritep = strcpya_k(cswritep, "\tGT1\tGT2");
     } else {
       cswritep = strcpya_k(cswritep, "\tDS1\tDS2");
@@ -8120,10 +8103,6 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
           reterr = PgrGetM(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
         } else {
           reterr = PgrGetMD(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
-        }
-        if ((!pgv.patch_01_ct) && (!pgv.patch_10_ct)) {
-          // todo: also check for multidosage
-          allele_ct = 2;
         }
       }
       if (unlikely(reterr)) {
@@ -8464,10 +8443,11 @@ PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, con
           } else {
             xid_mode = kfXidModeFidIid;
           }
-        } else if (unlikely(strchr(&(second_delim_ptr[1]), '\t'))) {
-          logerrputs("Error: Too many instances of id-delim= character in --sample-diff sample ID.\n");
-          goto Sdiff_ret_INVALID_CMDLINE;
         } else {
+          if (unlikely(strchr(&(second_delim_ptr[1]), '\t'))) {
+            logerrputs("Error: Too many instances of id-delim= character in --sample-diff sample ID.\n");
+            goto Sdiff_ret_INVALID_CMDLINE;
+          }
           xid_mode = kfXidModeFidIidSid;
         }
       }
@@ -8487,7 +8467,9 @@ PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, con
     }
     unsigned char* bigstack_mark2 = g_bigstack_base;
     // May as well have --strict-sid0 or lack of it apply to base=/ids= too.
-    const uint32_t skip_sid1 = (xid_mode & kfXidModeFlagSid) && (!siip->sids) && (!(siip->flags & kfSampleIdStrictSid0));
+    if ((xid_mode & kfXidModeFlagSid) && (!siip->sids) && (!(siip->flags & kfSampleIdStrictSid0))) {
+      xid_mode ^= kfXidModeFlagSid | kfXidModeFlagSkipSid;
+    }
     char* sorted_xidbox;
     uint32_t* xid_map;
     uintptr_t max_xid_blen;
@@ -8584,9 +8566,6 @@ PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, con
           goto Sdiff_ret_INCONSISTENT_INPUT;
         }
         linebuf_iter = FirstNonTspace(linebuf_iter);
-        if (skip_sid1) {
-          linebuf_iter = FirstNonTspace(FirstSpaceOrEoln(linebuf_iter));
-        }
         uint32_t sample_uidx2;
         if (unlikely(SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx2, idbuf))) {
           TabsToSpaces(idbuf);

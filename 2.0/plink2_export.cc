@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2020 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -4561,7 +4561,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     const uint32_t info_pr_flag_present = (info_flags / kfInfoPrFlagPresent) & 1;
     if (write_pr) {
       if (unlikely(info_flags & kfInfoPrNonflagPresent)) {
-        logerrputs("Error: Conflicting INFO:PR definitions.  Either fix all REF alleles so that the\n'provisional reference' flag is no longer needed, or remove/rename the other\nuse of the INFO:PR key.\n");
+        logerrputs("Error: Conflicting INFO/PR definitions.  Either fix all REF alleles so that the\n'provisional reference' flag is no longer needed, or remove/rename the other\nuse of the INFO/PR key.\n");
         goto ExportVcf_ret_INCONSISTENT_INPUT;
       }
       if (!info_pr_flag_present) {
@@ -7518,7 +7518,7 @@ void FillBcfMultiallelicHdsForce(const PgenVariant* pgvp, const uintptr_t* __res
 }
 
 void MakeRlenWarningStr(const char* variant_id) {
-  char* err_write_iter = strcpya_k(g_logbuf, "Warning: Unexpected INFO:END value for variant");
+  char* err_write_iter = strcpya_k(g_logbuf, "Warning: Unexpected INFO/END value for variant");
   // 50 chars + strlen(variant_id), split into two lines if >79
   const uint32_t variant_id_slen = strlen(variant_id);
   *err_write_iter++ = (variant_id_slen < 30)? ' ' : '\n';
@@ -7583,7 +7583,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
     const uint32_t info_pr_flag_present = (info_flags / kfInfoPrFlagPresent) & 1;
     // Count FILTER/INFO/FORMAT keys for hash table sizing purposes.  Slight
     // overestimate ok, so we don't bother to avoid double-counting
-    // FILTER:PASS, or counting FORMAT:HDS when it won't actually be used, etc.
+    // FILTER/PASS, or counting FORMAT/HDS when it won't actually be used, etc.
     uint32_t fif_key_ct_ubound = 5;
     if (xheader) {
       const char* xheader_end = &(xheader[xheader_blen]);
@@ -7598,7 +7598,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
     // contents incrementally to save memory in extreme cases, but it's limited
     // to 4 GiB anyway so I won't bother.)
     // Ways for the actual header to exceed xheader_blen bytes:
-    // * New FILTER:PASS, INFO:PR, and FORMAT header lines, and beginning of
+    // * New FILTER/PASS, INFO/PR, and FORMAT header lines, and beginning of
     //   #CHROM line.  These add up to less than 1 KB.
     // * ",IDX=<#>" appended to existing FILTER/INFO header lines.  The number
     //   of added bytes is less than (5 + UintSlen(fif_key_ct_ubound - 1)) *
@@ -7680,7 +7680,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
       }
       unsigned char* tmp_alloc_end = g_bigstack_end;
       // Match htslib/bcftools behavior of always putting an explicit
-      // FILTER:PASS header line first.
+      // FILTER/PASS header line first.
       write_iter = strcpya_k(write_iter, "##FILTER=<ID=PASS,Description=\"All filters passed\",IDX=0>" EOLN_STR);
       {
         uint32_t cur_idx;
@@ -7790,7 +7790,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
               prechar = 7;
             } else {
               *id_end = '\0';
-              snprintf(g_logbuf, kLogbufSize, "Error: Invalid INFO:%s header line in .pvar file.\n", id_start);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid INFO/%s header line in .pvar file.\n", id_start);
               goto ExportBcf_ret_MALFORMED_INPUT_WW;
             }
           } else if (strequal_k(id_start, "PASS", id_slen)) {
@@ -7888,7 +7888,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
       BigstackReset(written_contig_header_lines);
       if (write_pr) {
         if (unlikely(info_flags & kfInfoPrNonflagPresent)) {
-          logerrputs("Error: Conflicting INFO:PR definitions.  Either fix all REF alleles so that the\n'provisional reference' flag is no longer needed, or remove/rename the other\nuse of the INFO:PR key.\n");
+          logerrputs("Error: Conflicting INFO/PR definitions.  Either fix all REF alleles so that the\n'provisional reference' flag is no longer needed, or remove/rename the other\nuse of the INFO/PR key.\n");
           goto ExportBcf_ret_INCONSISTENT_INPUT;
         }
         if (!info_pr_flag_present) {
@@ -8380,7 +8380,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
       memcpy(&(rec_start[8]), &chr_bcf_idx, sizeof(int32_t));  // CHROM
       const int32_t bp0 = S_CAST(int32_t, variant_bps[variant_uidx] - 1);
       memcpy(&(rec_start[12]), &bp0, sizeof(int32_t));  // POS
-      // [16,20) is rlen, which may depend on INFO:END
+      // [16,20) is rlen, which may depend on INFO/END
 
       if ((!pvar_quals) || (!IsSet(pvar_qual_present, variant_uidx))) {
         const uint32_t missing_val = 0x7f800001;
@@ -8537,7 +8537,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
               goto ExportBcf_ret_MALFORMED_INPUT_WW;
             }
             if (unlikely(IsSet(fif_seen, fif_idx))) {
-              snprintf(g_logbuf, kLogbufSize, "Error: --export bcf: Variant '%s' has multiple INFO:%s entries.\n", variant_id, fif_keys[fif_idx]);
+              snprintf(g_logbuf, kLogbufSize, "Error: --export bcf: Variant '%s' has multiple INFO/%s entries.\n", variant_id, fif_keys[fif_idx]);
               goto ExportBcf_ret_MALFORMED_INPUT_WW;
             }
             SetBit(fif_idx, fif_seen);
@@ -8545,7 +8545,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
             write_iter = AppendBcfTypedInt(fif_idx, write_iter);
             if (*key_end == ';') {
               if (unlikely(info_type_code != 1)) {
-                snprintf(g_logbuf, kLogbufSize, "Error: --export bcf: INFO:%s for variant '%s' has no value, and isn't of type Flag.\n", fif_keys[fif_idx], variant_id);
+                snprintf(g_logbuf, kLogbufSize, "Error: --export bcf: INFO/%s for variant '%s' has no value, and isn't of type Flag.\n", fif_keys[fif_idx], variant_id);
                 goto ExportBcf_ret_MALFORMED_INPUT_WW;
               }
               // Anything goes here.  As of this writing, the spec suggests
@@ -8581,7 +8581,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
                     ++value_iter;
                   } else {
                     if (unlikely(ScanmovIntBounded(0x7ffffff8, 0x7fffffff, &value_iter, &cur_val))) {
-                      snprintf(g_logbuf, kLogbufSize, "Error: --export bcf: Variant '%s' has an invalid INFO:%s value.\n", variant_id, fif_keys[fif_idx]);
+                      snprintf(g_logbuf, kLogbufSize, "Error: --export bcf: Variant '%s' has an invalid INFO/%s value.\n", variant_id, fif_keys[fif_idx]);
                       goto ExportBcf_ret_MALFORMED_INPUT_WW;
                     }
                     if (encode_as_small_ints) {
@@ -8593,7 +8593,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
                     }
                   }
                   if (unlikely(*value_iter != ',')) {
-                    snprintf(g_logbuf, kLogbufSize, "Error: --export bcf: Variant '%s' has an invalid INFO:%s value.\n", variant_id, fif_keys[fif_idx]);
+                    snprintf(g_logbuf, kLogbufSize, "Error: --export bcf: Variant '%s' has an invalid INFO/%s value.\n", variant_id, fif_keys[fif_idx]);
                     goto ExportBcf_ret_MALFORMED_INPUT_WW;
                   }
                   info_int_buf[value_idx] = cur_val;
@@ -8629,7 +8629,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
                   write_iter = &(write_iter[value_ct]);
                 }
                 if ((fif_idx == end_key_idx) && (value_ct == 1) && (info_int_buf[0] != (-2147483647 - 1))) {
-                  // Only save INFO:END-derived rlen when REF is a single base,
+                  // Only save INFO/END-derived rlen when REF is a single base,
                   // and info_end_rlen is positive.
                   // Otherwise, print a warning if the two rlens aren't equal.
                   const uint32_t info_end_rlen = 1 + info_int_buf[0] - variant_bps[variant_uidx];
@@ -8666,7 +8666,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
                     const char* floatstr_end = ScanadvDouble(value_iter, &dxx);
                     if (floatstr_end) {
                       if (unlikely(fabs(dxx) > 3.4028235677973362e38)) {
-                        snprintf(g_logbuf, kLogbufSize, "Error: --export bcf: Variant '%s' has an out-of-range INFO:%s value.\n", variant_id, fif_keys[fif_idx]);
+                        snprintf(g_logbuf, kLogbufSize, "Error: --export bcf: Variant '%s' has an out-of-range INFO/%s value.\n", variant_id, fif_keys[fif_idx]);
                         goto ExportBcf_ret_MALFORMED_INPUT_WW;
                       }
                       write_alias[value_idx] = S_CAST(float, dxx);
@@ -8679,7 +8679,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
                       } else {
                         uint32_t is_neg = 0;
                         if (unlikely(!IsInfStr(value_iter, slen, &is_neg))) {
-                          snprintf(g_logbuf, kLogbufSize, "Error: --export bcf: Variant '%s' has an invalid INFO:%s value.\n", variant_id, fif_keys[fif_idx]);
+                          snprintf(g_logbuf, kLogbufSize, "Error: --export bcf: Variant '%s' has an invalid INFO/%s value.\n", variant_id, fif_keys[fif_idx]);
                           goto ExportBcf_ret_MALFORMED_INPUT_WW;
                         }
                         memcpy(&(write_alias[value_idx]), &(inf_bits[is_neg]), 4);
@@ -8689,14 +8689,14 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
                     }
                   }
                   if (unlikely(*value_iter != ',')) {
-                    snprintf(g_logbuf, kLogbufSize, "Error: --export bcf: Variant '%s' has an invalid INFO:%s value.\n", variant_id, fif_keys[fif_idx]);
+                    snprintf(g_logbuf, kLogbufSize, "Error: --export bcf: Variant '%s' has an invalid INFO/%s value.\n", variant_id, fif_keys[fif_idx]);
                     goto ExportBcf_ret_MALFORMED_INPUT_WW;
                   }
                   ++value_iter;
                 }
                 write_iter = &(write_iter[value_ct * sizeof(float)]);
               } else {
-                snprintf(g_logbuf, kLogbufSize, "Error: --export bcf: INFO:%s for variant '%s' has a value, but is of type Flag.\n", fif_keys[fif_idx], variant_id);
+                snprintf(g_logbuf, kLogbufSize, "Error: --export bcf: INFO/%s for variant '%s' has a value, but is of type Flag.\n", fif_keys[fif_idx], variant_id);
                 goto ExportBcf_ret_MALFORMED_INPUT_WW;
               }
               // *value_end = ';';  // don't actually need this
@@ -9317,7 +9317,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
         logerrputsb();
       }
       if (rlen_warning_ct > 3) {
-        fprintf(stderr, "%u more INFO:END warning%s; see log file.\n", rlen_warning_ct - 3, (rlen_warning_ct == 4)? "" : "s");
+        fprintf(stderr, "%u more INFO/END warning%s; see log file.\n", rlen_warning_ct - 3, (rlen_warning_ct == 4)? "" : "s");
       }
       logputs_silent("BCF export done.\n");
     } else {

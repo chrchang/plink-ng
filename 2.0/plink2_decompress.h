@@ -1,7 +1,7 @@
 #ifndef __PLINK2_DECOMPRESS_H__
 #define __PLINK2_DECOMPRESS_H__
 
-// This library is part of PLINK 2.00, copyright (C) 2005-2020 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -37,6 +37,7 @@ HEADER_INLINE BoolErr CleanupTextFile2(const char* file_descrip, textFILE* txfp,
   return 0;
 }
 
+// max_line_blen must be >= kDecompressMinBlen.
 PglErr InitTextStreamEx(const char* fname, uint32_t alloc_at_end, uint32_t enforced_max_line_blen, uint32_t max_line_blen, uint32_t decompress_thread_ct, TextStream* txsp);
 
 HEADER_INLINE PglErr InitTextStream(const char* fname, uint32_t max_line_blen, uint32_t decompress_thread_ct, TextStream* txsp) {
@@ -44,30 +45,30 @@ HEADER_INLINE PglErr InitTextStream(const char* fname, uint32_t max_line_blen, u
 }
 
 // required_byte_ct can't be greater than kMaxLongLine.
-// Now ok for unstandardized_byte_ct to be bigstack_left(), since other
-// allocations are made on the heap instead of the arena (to be more usable in
-// non-plink2 software).
+// Now ok for byte_avail_ct to be bigstack_left(), since other allocations are
+// made on the heap instead of the arena (to be more usable in non-plink2
+// software).
 // Note that the actual buffer size is max_line_blen + kDecompressChunkSize,
 // not max_line_blen.
-HEADER_INLINE BoolErr StandardizeMaxLineBlenEx(uintptr_t unstandardized_byte_ct, uint32_t required_byte_ct, uint32_t* max_line_blenp) {
+HEADER_INLINE BoolErr StandardizeMaxLineBlenEx(uintptr_t byte_avail_ct, uint32_t required_byte_ct, uint32_t* max_line_blenp) {
 #ifdef __LP64__
-  if (unstandardized_byte_ct >= S_CAST(uintptr_t, kMaxLongLine) + S_CAST(uintptr_t, kDecompressChunkSize)) {
+  if (byte_avail_ct >= S_CAST(uintptr_t, kMaxLongLine) + S_CAST(uintptr_t, kDecompressChunkSize)) {
     *max_line_blenp = kMaxLongLine;
     return 0;
   }
 #endif
-  if (unlikely(unstandardized_byte_ct < kDecompressChunkSize + RoundUpPow2(MAXV(kDecompressChunkSize, required_byte_ct), kCacheline))) {
+  if (unlikely(byte_avail_ct < kDecompressChunkSize + RoundUpPow2(MAXV(kDecompressMinBlen, required_byte_ct), kCacheline))) {
     return 1;
   }
-  *max_line_blenp = RoundDownPow2(unstandardized_byte_ct, kCacheline) - kDecompressChunkSize;
+  *max_line_blenp = RoundDownPow2(byte_avail_ct, kCacheline) - kDecompressChunkSize;
   return 0;
 }
 
-HEADER_INLINE BoolErr StandardizeMaxLineBlen(uintptr_t unstandardized_byte_ct, uint32_t* max_line_blenp) {
-  return StandardizeMaxLineBlenEx(unstandardized_byte_ct, kMaxMediumLine + 1, max_line_blenp);
+HEADER_INLINE BoolErr StandardizeMaxLineBlen(uintptr_t byte_avail_ct, uint32_t* max_line_blenp) {
+  return StandardizeMaxLineBlenEx(byte_avail_ct, kMaxMediumLine + 1, max_line_blenp);
 }
 
-HEADER_INLINE PglErr SizeAndInitTextStream(const char* fname, uintptr_t unstandardized_byte_ct, uint32_t decompress_thread_ct, TextStream* txsp) {
+HEADER_INLINE PglErr SizeAndInitTextStream(const char* fname, uintptr_t byte_avail_ct, uint32_t decompress_thread_ct, TextStream* txsp) {
   // plink 1.9 immediately failed with an out-of-memory error if a "long line"
   // buffer would be smaller than kMaxMediumLine + 1 bytes, so may as well make
   // that the default lower bound.  (The precise value is currently irrelevant
@@ -76,7 +77,7 @@ HEADER_INLINE PglErr SizeAndInitTextStream(const char* fname, uintptr_t unstanda
   // potentially-long-line buffer size" from "load/decompression block size
   // which generally has good performance".)
   uint32_t max_line_blen;
-  if (unlikely(StandardizeMaxLineBlen(unstandardized_byte_ct, &max_line_blen))) {
+  if (unlikely(StandardizeMaxLineBlen(byte_avail_ct, &max_line_blen))) {
     return kPglRetNomem;
   }
   return InitTextStream(fname, max_line_blen, decompress_thread_ct, txsp);

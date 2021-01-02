@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2020 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -25,6 +25,7 @@
 #include "plink2_import.h"
 #include "plink2_ld.h"
 #include "plink2_matrix_calc.h"
+#include "plink2_merge.h"
 #include "plink2_misc.h"
 #include "plink2_psam.h"
 #include "plink2_pvar.h"
@@ -70,10 +71,10 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (12 Dec 2020)";
+  " (1 Jan 2021)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -87,13 +88,14 @@ static const char ver_str2[] =
   "  "
 #endif
   "   www.cog-genomics.org/plink/2.0/\n"
-  "(C) 2005-2020 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
+  "(C) 2005-2021 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
 static const char errstr_append[] = "For more info, try \"" PROG_NAME_STR " --help <flag name>\" or \"" PROG_NAME_STR " --help | more\".\n";
 
 #ifndef NOLAPACK
-static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --indep-pairwise, --ld, --sample-diff,\n--make-king, --king-cutoff, --write-samples, --write-snplist, --make-grm-list,\n--pca, --glm, --adjust-file, --score, --variant-score, --genotyping-rate,\n--pgen-info, --validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --het, --fst, --indep-pairwise, --ld,\n--sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--write-samples, --write-snplist, --make-grm-list, --pca, --glm, --adjust-file,\n--score, --variant-score, --genotyping-rate, --pgen-info, --validate, and\n--zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
 #else
-static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --indep-pairwise, --ld, --sample-diff,\n--make-king, --king-cutoff, --write-samples, --write-snplist, --make-grm-list,\n--glm, --adjust-file, --score, --variant-score, --genotyping-rate, --pgen-info,\n--validate, and --zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
+// no --pca
+static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --het, --fst, --indep-pairwise, --ld,\n--sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--write-samples, --write-snplist, --make-grm-list, --glm, --adjust-file,\n--score, --variant-score, --genotyping-rate, --pgen-info, --validate, and\n--zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
 #endif
 
 // covar-variance-standardize + terminating null
@@ -175,18 +177,10 @@ FLAGSET64_DEF_START()
   kfCommand1SampleCounts = (1 << 22),
   kfCommand1Vscore = (1 << 23),
   kfCommand1Het = (1 << 24),
-  kfCommand1Fst = (1 << 25)
+  kfCommand1Fst = (1 << 25),
+  kfCommand1Pmerge = (1 << 26),
+  kfCommand1PgenDiff = (1 << 27)
 FLAGSET64_DEF_END(Command1Flags);
-
-// this is a hybrid, only kfSortFileSid is actually a flag
-FLAGSET_DEF_START()
-  kfSort0,
-  kfSortNone = (1 << 0),
-  kfSortNatural = (1 << 1),
-  kfSortAscii = (1 << 2),
-  kfSortFile = (1 << 3),
-  kfSortFileSid = (1 << 4)
-FLAGSET_DEF_END(SortFlags);
 
 void PgenInfoPrint(const char* pgenname, const PgenFileInfo* pgfip, PgenHeaderCtrl header_ctrl, uint32_t max_allele_ct) {
   logerrprintfww("--pgen-info on %s:\n", pgenname);
@@ -326,6 +320,7 @@ typedef struct Plink2CmdlineStruct {
   AdjustInfo adjust_info;
   ScoreInfo score_info;
   FstInfo fst_info;
+  PgenDiffInfo pgen_diff_info;
   APerm aperm;
   CmpExpr keep_if_expr;
   CmpExpr remove_if_expr;
@@ -442,7 +437,7 @@ typedef struct Plink2CmdlineStruct {
 
 // er, probably time to just always initialize this...
 uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags, RmDupMode rmdup_mode, double hwe_thresh) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff)) ||
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld | kfCommand1Hardy | kfCommand1Sdiff | kfCommand1PgenDiff)) ||
     ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) ||
     ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix)) ||
     (rmdup_mode != kRmDup0) ||
@@ -703,7 +698,7 @@ void UpdateSampleSubsets(const uintptr_t* sample_include, uint32_t raw_sample_ct
 }
 
 // command_flags2 will probably be needed before we're done
-static_assert(kPglMaxAltAlleleCt == 254, "Plink2Core() --maj-ref needs to be updated.");
+static_assert(kPglMaxAlleleCt == 255, "Plink2Core() --maj-ref needs to be updated.");
 PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, char* king_cutoff_fprefix, ChrInfo* cip, sfmt_t* sfmtp) {
   PhenoCol* pheno_cols = nullptr;
   PhenoCol* covar_cols = nullptr;
@@ -718,7 +713,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
   PreinitPgfi(&pgfi);
   PreinitPgr(&simple_pgr);
   {
-    // this predicate will need to exclude --merge-list special case later
     uint32_t pvar_renamed = 0;
     if ((make_plink2_flags & (kfMakeBed | kfMakePgen)) ||
         (pcp->exportf_info.flags & kfExportfIndMajorBed)) {
@@ -943,7 +937,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
       if ((pcp->dependency_flags & (kfFilterAllReq | kfFilterNonrefFlagsNeeded)) == kfFilterNonrefFlagsNeeded) {
-        // We need INFO:PR, but we don't really care about anything else
+        // We need INFO/PR, but we don't really care about anything else
         // potentially in the .pgen.
         // So if INFO was present in the variant file, we don't need to look at
         // the .pgen at all (even if there was no PR key; we infer that all
@@ -1064,7 +1058,6 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_1;
         }
         pgfi.shared_ff = shared_ff_copy;
-        // todo: make this execute after --pmerge
         if (pcp->command_flags1 & kfCommand1Validate) {
           uintptr_t* genovec_buf;
           if (unlikely(bigstack_alloc_w(NypCtToWordCt(raw_sample_ct), &genovec_buf))) {
@@ -1104,7 +1097,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       pgfi.nonref_flags = nonref_flags;
     }
     if (pcp->pheno_fname) {
-      reterr = LoadPhenos(pcp->pheno_fname, &(pcp->pheno_range_list), sample_include, pii.sii.sample_ids, raw_sample_ct, sample_ct, pii.sii.max_sample_id_blen, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, (pcp->misc_flags / kfMiscPhenoIidOnly) & 1, (pcp->misc_flags / kfMiscPhenoColNums) & 1, pcp->max_thread_ct, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
+      reterr = LoadPhenos(pcp->pheno_fname, &(pcp->pheno_range_list), sample_include, &pii.sii, raw_sample_ct, sample_ct, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, (pcp->misc_flags / kfMiscPhenoIidOnly) & 1, (pcp->misc_flags / kfMiscPhenoColNums) & 1, pcp->max_thread_ct, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
       }
@@ -1507,7 +1500,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
       if (pcp->covar_fname || pcp->covar_range_list.name_ct) {
         const char* cur_covar_fname = pcp->covar_fname? pcp->covar_fname : (pcp->pheno_fname? pcp->pheno_fname : psamname);
-        reterr = LoadPhenos(cur_covar_fname, &(pcp->covar_range_list), sample_include, pii.sii.sample_ids, raw_sample_ct, sample_ct, pii.sii.max_sample_id_blen, pcp->missing_pheno, 2, (pcp->misc_flags / kfMiscCovarIidOnly) & 1, (pcp->misc_flags / kfMiscCovarColNums) & 1, pcp->max_thread_ct, &covar_cols, &covar_names, &covar_ct, &max_covar_name_blen);
+        reterr = LoadPhenos(cur_covar_fname, &(pcp->covar_range_list), sample_include, &pii.sii, raw_sample_ct, sample_ct, pcp->missing_pheno, 2, (pcp->misc_flags / kfMiscCovarIidOnly) & 1, (pcp->misc_flags / kfMiscCovarColNums) & 1, pcp->max_thread_ct, &covar_cols, &covar_names, &covar_ct, &max_covar_name_blen);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -2590,6 +2583,17 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
       BigstackReset(bigstack_mark_allele_ddosages);
 
+      if (pcp->command_flags1 & kfCommand1PgenDiff) {
+        if (unlikely(vpos_sortstatus & kfUnsortedVarBp)) {
+          logerrputs("Error: --pgen-diff requires sorted .pvar/.bim files.  Retry this command after\nusing --make-pgen/--make-bed + --sort-vars to sort your data.\n");
+          goto Plink2Core_ret_INCONSISTENT_INPUT;
+        }
+        reterr = PgenDiff(sample_include, &pii.sii, sex_nm, sex_male, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, &(pcp->pgen_diff_info), raw_sample_ct, sample_ct, raw_variant_ct, max_allele_ct, max_allele_slen, pcp->max_thread_ct, &pgfi, &simple_pgr, outname, outname_end);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
       if (pcp->command_flags1 & kfCommand1LdPrune) {
         if (unlikely((pcp->ld_info.prune_flags & kfLdPruneWindowBp) && (vpos_sortstatus & kfUnsortedVarBp))) {
           logerrputs("Error: When the window size is in kb units, LD-based pruning requires a sorted\n.pvar/.bim.  Retry this command after using --make-pgen/--make-bed +\n--sort-vars to sort your data.\n");
@@ -3143,6 +3147,7 @@ int main(int argc, char** argv) {
   unsigned char* bigstack_ua = nullptr;
   Plink2CmdlineMeta pcm;
   PreinitPlink2CmdlineMeta(&pcm);
+  PmergeInfo pmerge_info;
   const char* flagname_p = nullptr;
   char* king_cutoff_fprefix = nullptr;
   char* const_fid = nullptr;
@@ -3226,6 +3231,8 @@ int main(int argc, char** argv) {
   InitGlm(&pc.glm_info);
   InitScore(&pc.score_info);
   InitFst(&pc.fst_info);
+  InitPmerge(&pmerge_info);
+  InitPgenDiff(&pc.pgen_diff_info);
   InitCmpExpr(&pc.keep_if_expr);
   InitCmpExpr(&pc.remove_if_expr);
   InitCmpExpr(&pc.extract_if_info_expr);
@@ -4138,6 +4145,9 @@ int main(int argc, char** argv) {
         } else if (likely(strequal_k_unsafe(flagname_p2, "ad-freqs"))) {
           pc.misc_flags |= kfMiscAllowBadFreqs;
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "merge")) {
+          logerrputs("Error: --bmerge is retired.  Use --pmerge instead.\n");
+          goto main_ret_INVALID_CMDLINE_A;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
@@ -4146,7 +4156,7 @@ int main(int argc, char** argv) {
       case 'c':
         if (strequal_k_unsafe(flagname_p2, "hr")) {
           if (unlikely(pc.misc_flags & (kfMiscAutosomePar | kfMiscAutosomeOnly))) {
-            logerrputs("Error: --chr cannot be used with --autosome{-par}.\n");
+            logerrputs("Error: --chr cannot be used with --autosome[-par].\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
@@ -4377,9 +4387,6 @@ int main(int argc, char** argv) {
           }
           pc.pheno_transform_flags |= kfPhenoTransformQuantnormCovar;
           pc.dependency_flags |= kfFilterPsamReq;
-        } else if (strequal_k_unsafe(flagname_p2, "ovar-number")) {
-          logerrputs("Error: --covar-number is retired.  Use --covar-col-nums instead (and add 2 to\nconvert from PLINK 1.x covariate-indexes to covariate-column-numbers).\n");
-          goto main_ret_INVALID_CMDLINE_A;
         } else if (likely(strequal_k_unsafe(flagname_p2, "ovar-variance-standardize"))) {
           if (param_ct) {
             reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.vstd_flattened);
@@ -4389,6 +4396,9 @@ int main(int argc, char** argv) {
           }
           pc.pheno_transform_flags |= kfPhenoTransformVstdCovar;
           pc.dependency_flags |= kfFilterPsamReq;
+        } else if (strequal_k_unsafe(flagname_p2, "ovar-number")) {
+          logerrputs("Error: --covar-number is retired.  Use --covar-col-nums instead (and add 2 to\nconvert from PLINK 1.x covariate-indexes to covariate-column-numbers).\n");
+          goto main_ret_INVALID_CMDLINE_A;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
@@ -5023,7 +5033,7 @@ int main(int argc, char** argv) {
               const uint32_t is_alt1 = (cur_modif[0] == 'a');
               char** binstr_ptr = is_alt1? (&pc.freq_alt1_binstr) : (&pc.freq_ref_binstr);
               if (unlikely(*binstr_ptr)) {
-                logerrprintf("Error: Multiple --freq %sbins{-file}= modifiers.\n", is_alt1? "alt1" : "ref");
+                logerrprintf("Error: Multiple --freq %sbins[-file]= modifiers.\n", is_alt1? "alt1" : "ref");
                 goto main_ret_INVALID_CMDLINE;
               }
               if (cur_modif[7 + is_alt1] == '=') {
@@ -5044,7 +5054,7 @@ int main(int argc, char** argv) {
           }
           if (bins_only) {
             if (unlikely((!pc.freq_ref_binstr) && (!pc.freq_alt1_binstr))) {
-              logerrputs("Error: --freq 'bins-only' must be used with 'refbins{-file}=' and/or\n'alt1bins{-file}='.\n");
+              logerrputs("Error: --freq 'bins-only' must be used with 'refbins[-file]=' and/or\n'alt1bins[-file]='.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
             if (unlikely(pc.freq_rpt_flags & (kfAlleleFreqZs | kfAlleleFreqColAll))) {
@@ -5060,7 +5070,7 @@ int main(int argc, char** argv) {
           pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "rom")) {
           if (unlikely(chr_info.is_include_stack)) {
-            logerrputs("Error: --from/--to cannot be used with --autosome{-par} or --{not-}chr.\n");
+            logerrputs("Error: --from/--to cannot be used with --autosome[-par] or --[not-]chr.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -5965,7 +5975,7 @@ int main(int argc, char** argv) {
           }
           cur_modif = argvk[arg_idx + param_ct];
           if (unlikely((!ScantokDouble(cur_modif, &pc.ld_info.prune_last_param)) || (pc.ld_info.prune_last_param < 0.0) || (pc.ld_info.prune_last_param >= 1.0))) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s r^2 threshold '%s'.\n", flagname_p2, cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s r^2 threshold '%s'.\n", flagname_p, cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.command_flags1 |= kfCommand1LdPrune;
@@ -7737,6 +7747,132 @@ int main(int argc, char** argv) {
             pc.filter_min_allele_ct = 0;
           }
           pc.filter_flags |= kfFilterPvarReq;
+        } else if (strequal_k_unsafe(flagname_p2, "erge-mode")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          const uint32_t cur_modif_slen = strlen(cur_modif);
+          if (strequal_k(cur_modif, "nm-first", cur_modif_slen) || strequal_k(cur_modif, "2", cur_modif_slen)) {
+            pmerge_info.merge_mode = kMergeModeNmFirst;
+          } else if (strequal_k(cur_modif, "first", cur_modif_slen) || strequal_k(cur_modif, "4", cur_modif_slen)) {
+            pmerge_info.merge_mode = kMergeModeFirst;
+          } else if (unlikely(strequal_k(cur_modif, "3", cur_modif_slen))) {
+            logerrputs("Error: --merge-mode 3 discontinued.  (You can get the same results with\n--merge-mode 2 if you reverse your fileset order.)\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          } else if (unlikely(strequal_k(cur_modif, "5", cur_modif_slen))) {
+            logerrputs("Error: --merge-mode 5 discontinued.  (You can get the same results with\n--merge-mode 4 if you reverse your fileset order.)\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          } else if (unlikely(strequal_k(cur_modif, "6", cur_modif_slen) || strequal_k(cur_modif, "7", cur_modif_slen))) {
+            logerrputs("Error: --merge-mode 6/7 has been discontinued.  Use --pgen-diff instead.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          } else if (unlikely(!(strequal_k(cur_modif, "nm-match", cur_modif_slen) || strequal_k(cur_modif, "1", cur_modif_slen)))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --merge-mode argument '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "erge-pheno-mode")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          const uint32_t cur_modif_slen = strlen(cur_modif);
+          if (strequal_k(cur_modif, "nm-first", cur_modif_slen) || strequal_k(cur_modif, "2", cur_modif_slen)) {
+            pmerge_info.merge_pheno_mode = kMergePhenoModeNmFirst;
+          } else if (strequal_k(cur_modif, "first", cur_modif_slen) || strequal_k(cur_modif, "4", cur_modif_slen)) {
+            pmerge_info.merge_pheno_mode = kMergePhenoModeFirst;
+          } else if (unlikely(!(strequal_k(cur_modif, "nm-match", cur_modif_slen) || strequal_k(cur_modif, "1", cur_modif_slen)))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --merge-pheno-mode argument '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "erge-xheader-mode")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          const uint32_t cur_modif_slen = strlen(cur_modif);
+          if (strequal_k(cur_modif, "erase", cur_modif_slen)) {
+            pmerge_info.merge_xheader_mode = kMergeXheaderModeErase;
+          } else if (strequal_k(cur_modif, "match", cur_modif_slen)) {
+            pmerge_info.merge_xheader_mode = kMergeXheaderModeMatch;
+          } else if (unlikely(!strequal_k(cur_modif, "first", cur_modif_slen))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --merge-xheader-mode argument '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+        } else if (unlikely(strequal_k_unsafe(flagname_p2, "erge-equal-pos"))) {
+          logerrputs("Error: --merge-equal-pos has been retired.  Use e.g. --set-all-var-ids before\nmerging instead.\n");
+          goto main_ret_INVALID_CMDLINE_A;
+        } else if (strequal_k_unsafe(flagname_p2, "erge-qual-mode") ||
+                   strequal_k_unsafe(flagname_p2, "erge-info-mode")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          const uint32_t cur_modif_slen = strlen(cur_modif);
+          MergeQualInfoMode mode;
+          if (strequal_k(cur_modif, "erase", cur_modif_slen)) {
+            mode = kMergeQualInfoModeErase;
+          } else if (strequal_k(cur_modif, "nm-match", cur_modif_slen)) {
+            mode = kMergeQualInfoModeNmMatch;
+          } else if (strequal_k(cur_modif, "nm-first", cur_modif_slen)) {
+            mode = kMergeQualInfoModeNmFirst;
+          } else if (likely(strequal_k(cur_modif, "first", cur_modif_slen))) {
+            mode = kMergeQualInfoModeFirst;
+          } else {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s argument '%s'.\n", flagname_p, cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          if (flagname_p2[5] == 'q') {
+            pmerge_info.merge_qual_mode = mode;
+          } else {
+            pmerge_info.merge_info_mode = mode;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "erge-filter-mode")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          const uint32_t cur_modif_slen = strlen(cur_modif);
+          if (strequal_k(cur_modif, "erase", cur_modif_slen)) {
+            pmerge_info.merge_filter_mode = kMergeFilterModeErase;
+          } else if (strequal_k(cur_modif, "nm-match", cur_modif_slen)) {
+            pmerge_info.merge_filter_mode = kMergeFilterModeNmMatch;
+          } else if (strequal_k(cur_modif, "nm-first", cur_modif_slen)) {
+            pmerge_info.merge_filter_mode = kMergeFilterModeNmFirst;
+          } else if (strequal_k(cur_modif, "first", cur_modif_slen)) {
+            pmerge_info.merge_filter_mode = kMergeFilterModeFirst;
+          } else if (unlikely(!strequal_k(cur_modif, "np-union", cur_modif_slen))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --merge-filter-mode argument '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "erge-info-sort")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* mode_str = argvk[arg_idx + 1];
+          const char first_char_upcase_match = mode_str[0] & 0xdf;
+          const uint32_t mode_slen = strlen(mode_str);
+          if (strequal_k(mode_str, "0", mode_slen) ||
+              strequal_k(mode_str, "none", mode_slen)) {
+            pmerge_info.merge_info_sort = kfSortNone;
+          } else if (((mode_slen == 1) && (first_char_upcase_match == 'A')) ||
+                     strequal_k(mode_str, "ascii", mode_slen)) {
+            pmerge_info.merge_info_sort = kfSortAscii;
+          } else if (unlikely(!(((mode_slen == 1) && (first_char_upcase_match == 'N')) ||
+                                strequal_k(mode_str, "natural", mode_slen)))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --merge-info-sort argument '%s'.\n", mode_str);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "erge-max-allele-ct")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          uint32_t merge_max_allele_ct;
+          if (unlikely(ScanPosintCappedx(cur_modif, kPglMaxAlleleCt, &merge_max_allele_ct) || (merge_max_allele_ct == 1))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --merge-max-allele-ct argument '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pmerge_info.max_allele_ct = merge_max_allele_ct;
         } else if (likely(strequal_k_unsafe(flagname_p2, "pheno"))) {
           logerrputs("Warning: --mpheno flag deprecated.  Use --pheno-col-nums instead.  (Note that\n--pheno-col-nums does not add 2 to the column number(s).)\n");
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -7762,6 +7898,12 @@ int main(int argc, char** argv) {
           pc.pheno_range_list.starts_range = R_CAST(unsigned char*, write_iter);
           *write_iter = '\0';
           pc.misc_flags |= kfMiscPhenoColNums;
+        } else if (strequal_k_unsafe(flagname_p2, "erge")) {
+          logerrputs("Error: --merge is retired.  Use --pmerge instead.\n");
+          goto main_ret_INVALID_CMDLINE_A;
+        } else if (strequal_k_unsafe(flagname_p2, "erge-list")) {
+          logerrputs("Error: --merge-list is retired.  Use --pmerge-list instead.\n");
+          goto main_ret_INVALID_CMDLINE_A;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
@@ -7786,7 +7928,7 @@ int main(int argc, char** argv) {
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "ot-chr")) {
           if (unlikely(pc.varid_from)) {
-            logerrputs("Error: --from/--to cannot be used with --autosome{-par} or --{not-}chr.\n");
+            logerrputs("Error: --from/--to cannot be used with --autosome[-par] or --[not-]chr.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(pc.from_bp != -1)) {
@@ -7804,7 +7946,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
 
-          // --allow-extra-chr present, --chr/--autosome{-xy} not present
+          // --allow-extra-chr present, --chr/--autosome[-par] not present
           const uint32_t aec_and_no_chr_include = ((pc.misc_flags / kfMiscAllowExtraChrs) & 1) && (!chr_info.is_include_stack);
           reterr = ParseChrRanges(&(argvk[arg_idx]), flagname_p, errstr_append, param_ct, aec_and_no_chr_include, kChrRawEnd - (kChrExcludeWords * kBitsPerWord), '-', &chr_info, chr_info.chr_exclude);
           if (unlikely(reterr)) {
@@ -8271,9 +8413,200 @@ int main(int argc, char** argv) {
           pc.command_flags1 |= kfCommand1PgenInfo;
           pc.dependency_flags |= kfFilterAllReq;
           goto main_param_zero;
-        } else if (strequal_k_unsafe(flagname_p2, "hased-r2-filter")) {
-          logerrputs("Error: --phased-r2-filter is under development.\n");
-          goto main_ret_INVALID_CMDLINE;
+        } else if (strequal_k_unsafe(flagname_p2, "merge")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (param_ct < 3) {
+            uint32_t fname_idx = 1;
+            if (param_ct == 2) {
+              if (unlikely(CheckExtraParam(&(argvk[arg_idx]), "vzs", &fname_idx))) {
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+            }
+            const uint32_t vzs = (param_ct == 2);
+            const char* prefix = argvk[arg_idx + fname_idx];
+            const uint32_t prefix_slen = strlen(prefix);
+            const uint32_t fname_alloc = prefix_slen + 6;
+            if (unlikely(fname_alloc + vzs * 4 > kPglFnamesize)) {
+              logerrputs("Error: --pmerge argument too long.\n");
+              goto main_ret_INVALID_CMDLINE;
+            }
+            if (unlikely(pgl_malloc(fname_alloc, &pmerge_info.pgen_fname) ||
+                         pgl_malloc(fname_alloc + vzs * 4, &pmerge_info.pvar_fname) ||
+                         pgl_malloc(fname_alloc, &pmerge_info.psam_fname))) {
+              goto main_ret_NOMEM;
+            }
+            memcpy(pmerge_info.pgen_fname, prefix, prefix_slen);
+            memcpy(&(pmerge_info.pgen_fname[prefix_slen]), ".pgen", 6);
+            memcpy(pmerge_info.pvar_fname, prefix, prefix_slen);
+            memcpy(&(pmerge_info.pvar_fname[prefix_slen]), ".pvar", 6);
+            if (vzs) {
+              memcpy(&(pmerge_info.pvar_fname[prefix_slen + 5]), ".zst", 5);
+            }
+            memcpy(pmerge_info.psam_fname, prefix, prefix_slen);
+            memcpy(&(pmerge_info.psam_fname[prefix_slen]), ".psam", 6);
+          } else {
+            reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pmerge_info.pgen_fname);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+            reterr = AllocFname(argvk[arg_idx + 2], flagname_p, 0, &pmerge_info.pvar_fname);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+            reterr = AllocFname(argvk[arg_idx + 3], flagname_p, 0, &pmerge_info.psam_fname);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+          }
+          pc.command_flags1 |= kfCommand1Pmerge;
+          pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "merge-list")) {
+          if (pc.command_flags1 & kfCommand1Pmerge) {
+            logerrputs("Error: --pmerge-list cannot be used with --pmerge.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t fname_idx = 0;
+          uint32_t explicit_mode = 0;
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "bfile", cur_modif_slen)) {
+              ++explicit_mode;
+              pmerge_info.list_mode = kPmergeListModeBfile;
+            } else if (strequal_k(cur_modif, "bpfile", cur_modif_slen)) {
+              ++explicit_mode;
+              pmerge_info.list_mode = kPmergeListModeBpfile;
+            } else if (strequal_k(cur_modif, "pfile", cur_modif_slen)) {
+              ++explicit_mode;
+              pmerge_info.list_mode = kPmergeListModePfile;
+            } else if (strequal_k(cur_modif, "pfile-vzs", cur_modif_slen)) {
+              ++explicit_mode;
+              pmerge_info.list_mode = kPmergeListModePfileVzs;
+            } else {
+              if (unlikely(fname_idx)) {
+                logerrputs("Error: Invalid --pmerge-list argument sequence.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              fname_idx = param_idx;
+            }
+          }
+          if (unlikely(explicit_mode > 1)) {
+            logerrputs("Error: Multiple --pmerge-list modes specified.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(!fname_idx)) {
+            logerrputs("Error: No filename provided for --pmerge-list.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          reterr = AllocFname(argvk[arg_idx + fname_idx], flagname_p, 0, &pmerge_info.list_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+          pc.command_flags1 |= kfCommand1Pmerge;
+          pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "gen-diff")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 7))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          uint32_t first_optional_param_idx = (param_ct > 6)? 4 : 2;
+          uint32_t explicit_cols = 0;
+          uint32_t vzs = 0;
+          for (uint32_t param_idx = first_optional_param_idx; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "vzs", cur_modif_slen)) {
+              vzs = 1;
+            } else if (strequal_k(cur_modif, "include-missing", cur_modif_slen)) {
+              pc.pgen_diff_info.flags |= kfPgenDiffIncludeMissing;
+            } else if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.pgen_diff_info.flags |= kfPgenDiffZs;
+            } else if (StrStartsWith0(cur_modif, "dosage", cur_modif_slen)) {
+              if (unlikely(pc.pgen_diff_info.dosage_hap_tol != kDosageMissing)) {
+                logerrputs("Error: Multiple --pgen-diff dosage modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              if (cur_modif[6] == '\0') {
+                pc.pgen_diff_info.dosage_hap_tol = 0;
+              } else {
+                if (unlikely(cur_modif[6] != '=')) {
+                  snprintf(g_logbuf, kLogbufSize, "Error: Invalid --pgen-diff argument '%s'.\n", cur_modif);
+                  goto main_ret_INVALID_CMDLINE_WWA;
+                }
+                double dxx;
+                if (unlikely((!ScantokDouble(&(cur_modif[7]), &dxx)) || (dxx < 0.0) || (dxx > (0.5 - kSmallEpsilon)))) {
+                  snprintf(g_logbuf, kLogbufSize, "Error: Invalid --pgen-diff argument '%s'.\n", cur_modif);
+                  goto main_ret_INVALID_CMDLINE_WWA;
+                }
+                pc.pgen_diff_info.dosage_hap_tol = S_CAST(int32_t, dxx * ((1 + kSmallEpsilon) * kDosageMax));
+              }
+            } else if (StrStartsWith(cur_modif, "cols=", cur_modif_slen)) {
+              if (unlikely(explicit_cols)) {
+                logerrputs("Error: Multiple --pgen-diff cols= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              explicit_cols = 1;
+              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0id\0ref\0alt\0maybefid\0fid\0maybesid\0sid\0geno\0", "pgen-diff", kfPgenDiffColChrom, kfPgenDiffColDefault, 0, &pc.pgen_diff_info.flags);
+              if (unlikely(reterr)) {
+                goto main_ret_1;
+              }
+            } else if (likely(param_idx == 2)) {
+              first_optional_param_idx = 4;
+              param_idx = 3;
+            } else {
+              logerrputs("Error: Invalid --pgen-diff argument sequence.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+          }
+          if (first_optional_param_idx == 2) {
+            const char* prefix = argvk[arg_idx + 1];
+            const uint32_t prefix_slen = strlen(prefix);
+            const uint32_t fname_alloc = prefix_slen + 6;
+            if (unlikely(fname_alloc + vzs * 4 > kPglFnamesize)) {
+              logerrputs("Error: --pgen-diff argument too long.\n");
+              goto main_ret_INVALID_CMDLINE;
+            }
+            if (unlikely(pgl_malloc(fname_alloc, &pc.pgen_diff_info.pgen_fname) ||
+                         pgl_malloc(fname_alloc + vzs * 4, &pc.pgen_diff_info.pvar_fname) ||
+                         pgl_malloc(fname_alloc, &pc.pgen_diff_info.psam_fname))) {
+              goto main_ret_NOMEM;
+            }
+            memcpy(pc.pgen_diff_info.pgen_fname, prefix, prefix_slen);
+            memcpy(&(pc.pgen_diff_info.pgen_fname[prefix_slen]), ".pgen", 6);
+            memcpy(pc.pgen_diff_info.pvar_fname, prefix, prefix_slen);
+            memcpy(&(pc.pgen_diff_info.pvar_fname[prefix_slen]), ".pvar", 6);
+            if (vzs) {
+              memcpy(&(pc.pgen_diff_info.pvar_fname[prefix_slen + 5]), ".zst", 5);
+            }
+            memcpy(pc.pgen_diff_info.psam_fname, prefix, prefix_slen);
+            memcpy(&(pc.pgen_diff_info.psam_fname[prefix_slen]), ".psam", 6);
+          } else {
+            if (unlikely(vzs)) {
+              logerrputs("Error: --pgen-diff 'vzs' modifier can only be used when a single fileset prefix\nis specified.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.pgen_diff_info.pgen_fname);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+            reterr = AllocFname(argvk[arg_idx + 2], flagname_p, 0, &pc.pgen_diff_info.pvar_fname);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+            reterr = AllocFname(argvk[arg_idx + 3], flagname_p, 0, &pc.pgen_diff_info.psam_fname);
+            if (unlikely(reterr)) {
+              goto main_ret_1;
+            }
+          }
+          if (!explicit_cols) {
+            pc.pgen_diff_info.flags |= kfPgenDiffColDefault;
+          }
+          pc.command_flags1 |= kfCommand1PgenDiff;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (likely(strequal_k_unsafe(flagname_p2, "heno-quantile-normalize"))) {
           if (param_ct) {
             reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.quantnorm_flattened);
@@ -9024,17 +9357,18 @@ int main(int argc, char** argv) {
                 logerrputs("Error: --sample-diff id-delim= value cannot be tab/space/newline, '.', or a\nnonprinting character.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-            } else if (StrStartsWith(cur_modif, "dosage", cur_modif_slen)) {
+            } else if (StrStartsWith0(cur_modif, "dosage", cur_modif_slen)) {
               if (unlikely(pc.sdiff_info.dosage_hap_tol != kDosageMissing)) {
                 logerrputs("Error: Multiple --sample-diff dosage modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
               if (cur_modif[6] == '\0') {
                 pc.sdiff_info.dosage_hap_tol = 0;
-              } else if (cur_modif[6] != '=') {
-                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --sample-diff argument '%s'.\n", cur_modif);
-                goto main_ret_INVALID_CMDLINE_WWA;
               } else {
+                if (unlikely(cur_modif[6] != '=')) {
+                  snprintf(g_logbuf, kLogbufSize, "Error: Invalid --sample-diff argument '%s'.\n", cur_modif);
+                  goto main_ret_INVALID_CMDLINE_WWA;
+                }
                 double dxx;
                 if (unlikely((!ScantokDouble(&(cur_modif[7]), &dxx)) || (dxx < 0.0) || (dxx > (0.5 - kSmallEpsilon)))) {
                   snprintf(g_logbuf, kLogbufSize, "Error: Invalid --sample-diff argument '%s'.\n", cur_modif);
@@ -9149,14 +9483,14 @@ int main(int argc, char** argv) {
             }
             if (sdiff_id_delim) {
               char* id_iter = pc.sdiff_info.first_id_or_fname;
-              if (unlikely(ReplaceCharAdvChecked(sdiff_id_delim, ' ', &id_iter))) {
-                logerrputs("Error: --sample-diff sample IDs cannot include spaces.\n");
+              if (unlikely(ReplaceCharAdvChecked(sdiff_id_delim, '\t', &id_iter))) {
+                logerrputs("Error: --sample-diff sample IDs cannot include tabs.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
               id_iter = pc.sdiff_info.other_ids_flattened;
               for (uint32_t uii = 0; uii != other_id_ct; ++uii) {
-                if (unlikely(ReplaceCharAdvChecked(sdiff_id_delim, ' ', &id_iter))) {
-                  logerrputs("Error: --sample-diff sample IDs cannot include spaces.\n");
+                if (unlikely(ReplaceCharAdvChecked(sdiff_id_delim, '\t', &id_iter))) {
+                  logerrputs("Error: --sample-diff sample IDs cannot include tabs.\n");
                   goto main_ret_INVALID_CMDLINE;
                 }
                 ++id_iter;
@@ -9206,6 +9540,13 @@ int main(int argc, char** argv) {
         } else if (strequal_k_unsafe(flagname_p2, "trict-sid0")) {
           pc.misc_flags |= kfMiscStrictSid0;
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "ample-inner-join")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Pmerge))) {
+            logerrputs("Error: --sample-inner-join must be used with --pmerge[-list].\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          pmerge_info.flags |= kfPmergeSampleInnerJoin;
+          goto main_param_zero;
         } else if (unlikely(!strequal_k_unsafe(flagname_p2, "ilent"))) {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
@@ -9229,7 +9570,7 @@ int main(int argc, char** argv) {
           }
         } else if (strequal_k_unsafe(flagname_p2, "o")) {
           if (unlikely(chr_info.is_include_stack || notchr_present)) {
-            logerrputs("Error: --from/--to cannot be used with --autosome{-par} or --{not-}chr.\n");
+            logerrputs("Error: --from/--to cannot be used with --autosome[-par] or --[not-]chr.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -9672,7 +10013,7 @@ int main(int argc, char** argv) {
         } else if (strequal_k_unsafe(flagname_p2, "ar-id-multi") ||
                    strequal_k_unsafe(flagname_p2, "ar-id-multi-nonsnp")) {
           if (unlikely(!pc.varid_template_str)) {
-            logerrputs("Error: --var-id-multi{-nonsnp} must be used with --set-missing-var-ids or\n--set-all-var-ids.\n");
+            logerrputs("Error: --var-id-multi[-nonsnp] must be used with --set-missing-var-ids or\n--set-all-var-ids.\n");
             goto main_ret_INVALID_CMDLINE;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -9744,6 +10085,13 @@ int main(int argc, char** argv) {
           if (unlikely(reterr)) {
             goto main_ret_1;
           }
+        } else if (strequal_k_unsafe(flagname_p2, "ariant-inner-join")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Pmerge))) {
+            logerrputs("Error: --variant-inner-join must be used with --pmerge[-list].\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          pmerge_info.flags |= kfPmergeVariantInnerJoin;
+          goto main_param_zero;
         } else if (likely(strequal_k_unsafe(flagname_p2, "alidate"))) {
           pc.command_flags1 |= kfCommand1Validate;
           pc.dependency_flags |= kfFilterAllReq;
@@ -9930,7 +10278,7 @@ int main(int argc, char** argv) {
       // add command_flags2 when needed
       goto main_ret_NULL_CALC;
     }
-    if (unlikely(!(load_params || xload || batch_job))) {
+    if (unlikely(!(load_params || xload || batch_job || pmerge_info.list_fname))) {
       logerrputs("Error: No input dataset.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
@@ -9945,8 +10293,7 @@ int main(int argc, char** argv) {
       logerrputs("Error: --data/--sample cannot be used with --1.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
-    if (unlikely((pc.sample_sort_flags != kfSort0) && (!(pc.command_flags1 & (kfCommand1MakePlink2 | kfCommand1WriteCovar))))) {
-      // todo: permit merge
+    if (unlikely((pc.sample_sort_flags != kfSort0) && (!(pc.command_flags1 & (kfCommand1MakePlink2 | kfCommand1WriteCovar | kfCommand1Pmerge))))) {
       logerrputs("Error: --indiv-sort must be used with --make-[b]pgen/--make-bed/--write-covar\nor dataset merging.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
@@ -10002,7 +10349,7 @@ int main(int argc, char** argv) {
     {
       const uint32_t mode_flag = oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefLast | kfOxfordImportRefUnknown);
       if (unlikely(mode_flag & (mode_flag - 1))) {
-        logerrputs("Error: --data/--{b}gen 'ref-first', 'ref-last', and 'ref-unknown' modifiers\ncannot be used together.\n");
+        logerrputs("Error: --data/--[b]gen 'ref-first', 'ref-last', and 'ref-unknown' modifiers\ncannot be used together.\n");
         goto main_ret_INVALID_CMDLINE;
       }
     }
@@ -10044,7 +10391,7 @@ int main(int argc, char** argv) {
       // it's not immediately obvious whether the union or intersection should
       // be taken with multiple inclusion filters.
       // However, multiple exclusion filters are fine.  (Also,
-      // --autosome{-par}/--chr is exempted since it's more obvious how they
+      // --autosome[-par]/--chr is exempted since it's more obvious how they
       // interact with other filters.)
       const uint32_t inclusion_filter_extract = (pc.extract_fnames != nullptr);
       const uint32_t inclusion_filter_extract_col_cond = (pc.extract_col_cond_info.params != nullptr);
@@ -10183,7 +10530,7 @@ int main(int argc, char** argv) {
           const uint32_t no_samples_ok = !(pc.dependency_flags & (kfFilterAllReq | kfFilterPsamReq));
           const uint32_t is_vcf = (xload / kfXloadVcf) & 1;
           pvar_is_compressed = ((import_flags & (kfImportKeepAutoconv | kfImportKeepAutoconvVzs)) != kfImportKeepAutoconv);
-          if (no_samples_ok && is_vcf && (!(import_flags & kfImportKeepAutoconv)) && pc.command_flags1) {
+          if (no_samples_ok && is_vcf && (!(import_flags & kfImportKeepAutoconv)) && pc.command_flags1 && (!(pc.command_flags1 & kfCommand1Pmerge))) {
             // special case: just treat the VCF as a .pvar file
             strcpy(pvarname, pgenname);
             pgenname[0] = '\0';
@@ -10287,6 +10634,18 @@ int main(int argc, char** argv) {
           psamname[0] = '\0';
         }
       }
+
+      if (pc.command_flags1 & kfCommand1Pmerge) {
+        reterr = Pmerge(&pmerge_info, pc.sample_sort_fname, pc.sample_sort_flags, pc.max_thread_ct, pgenname, psamname, pvarname, outname, outname_end, &chr_info);
+        if (unlikely(reterr)) {
+          goto main_ret_1;
+        }
+        pc.command_flags1 ^= kfCommand1Pmerge;
+        if (!pc.command_flags1) {
+          goto main_ret_1;
+        }
+      }
+
       if ((pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Validate | kfCommand1WriteSnplist | kfCommand1WriteCovar | kfCommand1WriteSamples))) || ((pc.command_flags1 & kfCommand1MakePlink2) && (pc.sort_vars_flags == kfSort0))) {
         // split-chromosome prohibited for all commands unless explicitly
         // permitted here
@@ -10436,6 +10795,8 @@ int main(int argc, char** argv) {
   CleanupCmpExpr(&pc.extract_if_info_expr);
   CleanupCmpExpr(&pc.remove_if_expr);
   CleanupCmpExpr(&pc.keep_if_expr);
+  CleanupPgenDiff(&pc.pgen_diff_info);
+  CleanupPmerge(&pmerge_info);
   CleanupFst(&pc.fst_info);
   CleanupScore(&pc.score_info);
   CleanupGlm(&pc.glm_info);

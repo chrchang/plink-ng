@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2020 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -631,7 +631,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     uint32_t col_types[8];
     uint32_t relevant_col_ct;
     uint32_t found_type_bitset;
-    reterr = SearchHeaderLine(header_start, col_search_order, "adjust-file", 8, &relevant_col_ct, &found_type_bitset, col_skips, col_types);
+    reterr = SearchHeaderLine(header_start, col_search_order, "--adjust-file", 8, &relevant_col_ct, &found_type_bitset, col_skips, col_types);
     if (unlikely(reterr)) {
       goto AdjustFile_ret_1;
     }

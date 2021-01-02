@@ -1,7 +1,7 @@
 #ifndef __PLINK2_STRING_H__
 #define __PLINK2_STRING_H__
 
-// This library is part of PLINK 2.00, copyright (C) 2005-2020 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -386,6 +386,13 @@ HEADER_INLINE char* strcpya_k(char* __restrict dst, const void* __restrict src) 
 }
 #endif
 
+// Must be safe to read first slen bytes of unknown_len_str.
+// Note that it's better to call memequal(unknown_len_str, known_len_tok, slen
+// + 1) when known_len_tok is null-terminated.
+HEADER_INLINE int32_t strequal_unsafe(const char* unknown_len_str, const char* known_len_tok, uint32_t slen) {
+  return memequal(unknown_len_str, known_len_tok, slen) && (!unknown_len_str[slen]);
+}
+
 #if defined(__cplusplus)
 #  if __cplusplus >= 201103L
 HEADER_INLINE bool isfinite_f(float fxx) {
@@ -441,24 +448,6 @@ HEADER_INLINE int32_t StrStartsWithUnsafe(const char* s_read, const char* s_pref
 HEADER_INLINE int32_t StrEndsWith(const char* s_read, const char* s_suffix_const, uint32_t s_read_slen) {
   const uint32_t s_const_slen = strlen(s_suffix_const);
   return (s_read_slen > s_const_slen) && memequal(&(s_read[s_read_slen - s_const_slen]), s_suffix_const, s_const_slen);
-}
-
-// These are likely to be revised to take const void* parameters, and moved to
-// plink2_base.
-// This requires len >= 4.
-uintptr_t FirstUnequal4(const char* s1, const char* s2, uintptr_t slen);
-
-HEADER_INLINE uintptr_t FirstUnequal(const char* s1, const char* s2, uintptr_t slen) {
-  // Returns position of first mismatch, or slen if none was found.
-  if (slen >= 4) {
-    return FirstUnequal4(s1, s2, slen);
-  }
-  for (uintptr_t pos = 0; pos != slen; ++pos) {
-    if (s1[pos] != s2[pos]) {
-      return pos;
-    }
-  }
-  return slen;
 }
 
 // May read (kBytesPerWord - 1) bytes past the end of each string.

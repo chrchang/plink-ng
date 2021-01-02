@@ -1,4 +1,4 @@
-// This library is part of PLINK 2.00, copyright (C) 2005-2020 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -3321,12 +3321,12 @@ char ExtractCharParam(const char* ss) {
 
 PglErr CmdlineAllocString(const char* source, const char* flag_name, uint32_t max_slen, char** sbuf_ptr) {
   const uint32_t slen = strlen(source);
-  if (slen > max_slen) {
+  if (unlikely(slen > max_slen)) {
     logerrprintf("Error: %s argument too long.\n", flag_name);
     return kPglRetInvalidCmdline;
   }
   const uint32_t blen = slen + 1;
-  if (pgl_malloc(blen, sbuf_ptr)) {
+  if (unlikely(pgl_malloc(blen, sbuf_ptr))) {
     return kPglRetNomem;
   }
   memcpy(*sbuf_ptr, source, blen);
@@ -3335,11 +3335,11 @@ PglErr CmdlineAllocString(const char* source, const char* flag_name, uint32_t ma
 
 PglErr AllocFname(const char* source, const char* flagname_p, uint32_t extra_size, char** fnbuf_ptr) {
   const uint32_t blen = strlen(source) + 1;
-  if (blen > (kPglFnamesize - extra_size)) {
+  if (unlikely(blen > (kPglFnamesize - extra_size))) {
     logerrprintf("Error: --%s filename too long.\n", flagname_p);
     return kPglRetOpenFail;
   }
-  if (pgl_malloc(blen + extra_size, fnbuf_ptr)) {
+  if (unlikely(pgl_malloc(blen + extra_size, fnbuf_ptr))) {
     return kPglRetNomem;
   }
   memcpy(*fnbuf_ptr, source, blen);

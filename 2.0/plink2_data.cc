@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2020 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -289,7 +289,7 @@ void AppendVcfHeaderStart(uint32_t v43, char** cswritepp) {
 // all variant_bps[] and allele_storage[] entries appropriately).
 // possible todo: ChrInfo can have a length field, which is initialized by the
 // ##contig header line when possible, but when that doesn't exist LoadPvar()
-// can conditionally detect INFO:END and take that into account.  (Or a reason
+// can conditionally detect INFO/END and take that into account.  (Or a reason
 // to keep the entire info_end array in memory may emerge.)
 uint32_t ChrLenLbound(const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uint32_t* new_variant_idx_to_old, uint32_t chr_fo_idx, uint32_t max_allele_slen, UnsortedVar vpos_sortstatus) {
   const uint32_t vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
@@ -560,7 +560,7 @@ PglErr WritePvar(const char* outname, const uintptr_t* variant_include, const Ch
     write_info_pr = write_info_pr && write_info;
     if (unlikely(write_info_pr && (info_flags & kfInfoPrNonflagPresent))) {
       logputs("\n");
-      logerrputs("Error: Conflicting INFO:PR definitions.  Either fix all REF alleles so that the\n'provisional reference' flag is no longer needed, or remove/rename the other\nuse of the INFO:PR key.\n");
+      logerrputs("Error: Conflicting INFO/PR definitions.  Either fix all REF alleles so that the\n'provisional reference' flag is no longer needed, or remove/rename the other\nuse of the INFO/PR key.\n");
       goto WritePvar_ret_INCONSISTENT_INPUT;
     }
 
@@ -2882,15 +2882,15 @@ uintptr_t InitWriteAlleleIdxOffsets(const uintptr_t* variant_include, const uint
 //   multiallelic variants in +both/+snps mode, error out if the variant is
 //   mixed SNP/non-SNP.  In +both case, also error out if the variant is mixed
 //   symbolic/non-symbolic, or it's symbolic and does not satisfy the REF or
-//   INFO:END constraints.
+//   INFO/END constraints.
 // - When multiple variants have the same chr:pos:
 //   - In +snps mode, also don't need to do anything different for non-SNPs.
 //   - Otherwise, create up to three linked lists of input variant records
 //     (need to distinguish SNPs from non-SNPs in +both mode, and within the
 //     non-SNP category, symbolic alleles are separate from non-symbolic).
 //     The variant with symbolic alleles has additional constraints: a warning
-//     is printed if INFO:END isn't defined, and an error occurs if either REF
-//     is multi-character, or there's an INFO:END mismatch.
+//     is printed if INFO/END isn't defined, and an error occurs if either REF
+//     is multi-character, or there's an INFO/END mismatch.
 //   - Error out if REF alleles aren't all consistent, or any ALT allele is
 //     duplicated (note that --pmerge must support the latter).
 //   - For joined not-entirely-SNP non-symbolic variants, the final REF is the
@@ -3181,7 +3181,7 @@ PglErr PlanMultiallelicJoin(const uintptr_t* variant_include, const ChrInfo* cip
     }
     // Flush last position.
     PlanJoinFlushPos(&jc, join_mode, &write_allele_idx_offsets_iter, &cur_offset, &max_write_allele_ct, max_missalt_ctp);
-    if (max_write_allele_ct > kPglMaxAltAlleleCt + 1) {
+    if (max_write_allele_ct > kPglMaxAlleleCt) {
       goto PlanMultiallelicJoin_ret_TOO_MANY_ALTS;
     }
     *write_variant_ctp = S_CAST(uintptr_t, write_allele_idx_offsets_iter - write_allele_idx_offsets) - 1;
@@ -3709,7 +3709,7 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
     write_info_pr = write_info_pr && write_info;
     if (unlikely(write_info_pr && (info_flags & kfInfoPrNonflagPresent))) {
       logputs("\n");
-      logerrputs("Error: Conflicting INFO:PR definitions.  Either fix all REF alleles so that the\n'provisional reference' flag is no longer needed, or remove/rename the other\nuse of the INFO:PR key.\n");
+      logerrputs("Error: Conflicting INFO/PR definitions.  Either fix all REF alleles so that the\n'provisional reference' flag is no longer needed, or remove/rename the other\nuse of the INFO/PR key.\n");
       goto WritePvarSplit_ret_INCONSISTENT_INPUT;
     }
 
@@ -4352,7 +4352,7 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
     write_info_pr = write_info_pr && write_info;
     if (unlikely(write_info_pr && (info_flags & kfInfoPrNonflagPresent))) {
       logputs("\n");
-      logerrputs("Error: Conflicting INFO:PR definitions.  Either fix all REF alleles so that the\n'provisional reference' flag is no longer needed, or remove/rename the other\nuse of the INFO:PR key.\n");
+      logerrputs("Error: Conflicting INFO/PR definitions.  Either fix all REF alleles so that the\n'provisional reference' flag is no longer needed, or remove/rename the other\nuse of the INFO/PR key.\n");
       goto WritePvarJoin_ret_INCONSISTENT_INPUT;
     }
 
@@ -4405,8 +4405,8 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
     if (write_filter) {
       // The VCF spec doesn't require ##FILTER= header lines, and unlike the
       // case with INFO Number=A/R/G, we can join correctly without header
-      // information.  It's slightly computationally more expensive, but INFO
-      // and genotype joining costs are more significant.
+      // information.  It's slightly more expensive, but INFO and genotype
+      // joining costs are more significant.
       if (filter_npass) {
         reterr = MakeFilterHtable(variant_include, filter_npass, filter_storage, variant_ct, &filter_keys, &filter_keys_htable, &filter_key_ct, &filter_keys_htable_size);
         if (unlikely(reterr)) {
@@ -4424,7 +4424,7 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
 
     char** info_bufs = nullptr;
     const char** info_starts = nullptr;
-    const char** info_ends = nullptr;  // ugh, this is not related to INFO:END
+    const char** info_ends = nullptr;  // ugh, this is not related to INFO/END
     const char** info_curs = nullptr;
     uint32_t info_end_key_idx = UINT32_MAX;
     if (pvar_info_reload) {
@@ -4443,7 +4443,7 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
         const int32_t knum = const_container_of(info_keys[info_end_key_idx], InfoVtype, key)->num;
         if ((knum != 1) && (knum != kInfoVtypeUnknown)) {
           // TODO: verify type instead.
-          // but if number is not . or 1, this is not the INFO:END we're
+          // but if number is not . or 1, this is not the INFO/END we're
           // looking for.
           info_end_key_idx = UINT32_MAX;
         }
@@ -7792,7 +7792,7 @@ PglErr WritePvarResorted(const char* outname, const uintptr_t* variant_include, 
     write_info_pr = write_info_pr && write_info;
     if (unlikely(write_info_pr && (info_flags & kfInfoPrNonflagPresent))) {
       logputs("\n");
-      logerrputs("Error: Conflicting INFO:PR definitions.  Either fix all REF alleles so that the\n'provisional reference' flag is no longer needed, or remove/rename the other\nuse of the INFO:PR key.\n");
+      logerrputs("Error: Conflicting INFO/PR definitions.  Either fix all REF alleles so that the\n'provisional reference' flag is no longer needed, or remove/rename the other\nuse of the INFO/PR key.\n");
       goto WritePvarResorted_ret_INCONSISTENT_INPUT;
     }
 
@@ -8283,7 +8283,7 @@ PglErr SampleSortFileMap(const uintptr_t* sample_include, const SampleIdInfo* si
     }
     char* line_start;
     XidMode xid_mode;
-    reterr = OpenAndLoadXidHeader(sample_sort_fname, "indiv-sort", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeader0 : kfXidHeaderIgnoreSid, max_line_blen, &txs, &xid_mode, &line_idx, &line_start, nullptr);
+    reterr = OpenAndLoadXidHeader(sample_sort_fname, "indiv-sort", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeader0 : kfXidHeaderIgnoreSid, max_line_blen, &txs, &xid_mode, &line_idx, &line_start);
     if (unlikely(reterr)) {
       if (reterr == kPglRetEof) {
         logerrputs("Error: --indiv-sort file is empty.\n");
@@ -8312,11 +8312,7 @@ PglErr SampleSortFileMap(const uintptr_t* sample_include, const SampleIdInfo* si
       uint32_t sample_uidx;
       if (!SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx, idbuf)) {
         if (unlikely(IsSet(already_seen, sample_uidx))) {
-          char* tab_iter = AdvToDelim(idbuf, '\t');
-          *tab_iter = ' ';
-          if (xid_mode & kfXidModeFlagSid) {
-            *AdvToDelim(&(tab_iter[1]), '\t') = ' ';
-          }
+          TabsToSpaces(idbuf);
           snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID '%s' in --indiv-sort file.\n", idbuf);
           goto SampleSortFileMap_ret_MALFORMED_INPUT_WW;
         }

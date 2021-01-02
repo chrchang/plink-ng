@@ -1,7 +1,7 @@
 #ifndef __PLINK2_BASE_H__
 #define __PLINK2_BASE_H__
 
-// This library is part of PLINK 2.00, copyright (C) 2005-2020 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -97,7 +97,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 703
+#define PLINK2_BASE_VERNUM 704
 
 
 #define _FILE_OFFSET_BITS 64
@@ -3011,6 +3011,24 @@ HEADER_INLINE uintptr_t DetectAllZeroBytes(uintptr_t ww) {
 
 HEADER_INLINE uintptr_t DetectAllZeroNybbles(uintptr_t ww) {
   return (kMask1111 * 8) & (~(ww | ((ww | (kMask1111 * 8)) - kMask1111)));
+}
+
+// This requires len >= 4.
+uintptr_t FirstUnequal4(const void* arr1, const void* arr2, uintptr_t nbytes);
+
+HEADER_INLINE uintptr_t FirstUnequal(const void* arr1, const void* arr2, uintptr_t nbytes) {
+  // Returns position of first byte mismatch, or nbytes if none was found.
+  if (nbytes >= 4) {
+    return FirstUnequal4(arr1, arr2, nbytes);
+  }
+  const char* s1 = S_CAST(const char*, arr1);
+  const char* s2 = S_CAST(const char*, arr2);
+  for (uintptr_t pos = 0; pos != nbytes; ++pos) {
+    if (s1[pos] != s2[pos]) {
+      return pos;
+    }
+  }
+  return nbytes;
 }
 
 // Flagset conventions:

@@ -1,4 +1,4 @@
-// This library is part of PLINK 2.00, copyright (C) 2005-2020 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -810,7 +810,7 @@ uint32_t GetMajIdxMulti(const double* cur_allele_freqs, uint32_t cur_allele_ct) 
 
 // forced SID '0' if sids == nullptr
 // ok for sample_augid_map_ptr == nullptr
-PglErr AugidInitAlloc(const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t sample_ct, uint32_t** sample_augid_map_ptr, char** sample_augids_ptr, uintptr_t* max_sample_augid_blen_ptr) {
+PglErr AugidInitAlloc(const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t sample_ct, uint32_t alloc_at_end, uint32_t** sample_augid_map_ptr, char** sample_augids_ptr, uintptr_t* max_sample_augid_blen_ptr) {
   const char* sample_ids = siip->sample_ids;
   const char* sids = siip->sids;
   const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
@@ -822,13 +822,25 @@ PglErr AugidInitAlloc(const uintptr_t* sample_include, const SampleIdInfo* siip,
   *max_sample_augid_blen_ptr = max_sample_augid_blen;
   uint32_t* sample_augid_map = nullptr;
   if (sample_augid_map_ptr) {
-    if (unlikely(bigstack_alloc_u32(sample_ct, sample_augid_map_ptr))) {
-      return kPglRetNomem;
+    if (!alloc_at_end) {
+      if (unlikely(bigstack_alloc_u32(sample_ct, sample_augid_map_ptr))) {
+        return kPglRetNomem;
+      }
+    } else {
+      if (unlikely(bigstack_end_alloc_u32(sample_ct, sample_augid_map_ptr))) {
+        return kPglRetNomem;
+      }
     }
     sample_augid_map = *sample_augid_map_ptr;
   }
-  if (unlikely(bigstack_alloc_c(max_sample_augid_blen * sample_ct, sample_augids_ptr))) {
-    return kPglRetNomem;
+  if (!alloc_at_end) {
+    if (unlikely(bigstack_alloc_c(max_sample_augid_blen * sample_ct, sample_augids_ptr))) {
+      return kPglRetNomem;
+    }
+  } else {
+    if (unlikely(bigstack_end_alloc_c(max_sample_augid_blen * sample_ct, sample_augids_ptr))) {
+      return kPglRetNomem;
+    }
   }
   char* sample_augids_iter = *sample_augids_ptr;
   uintptr_t sample_uidx_base = 0;
@@ -856,7 +868,7 @@ PglErr SortedXidboxInitAlloc(const uintptr_t* sample_include, const SampleIdInfo
     return CopySortStrboxSubset(sample_include, siip->sample_ids, sample_ct, siip->max_sample_id_blen, allow_dups, 0, use_nsort, sorted_xidbox_ptr, xid_map_ptr);
   }
   // three fields
-  if (unlikely(AugidInitAlloc(sample_include, siip, sample_ct, xid_map_ptr, sorted_xidbox_ptr, max_xid_blen_ptr))) {
+  if (unlikely(AugidInitAlloc(sample_include, siip, sample_ct, 0, xid_map_ptr, sorted_xidbox_ptr, max_xid_blen_ptr))) {
     return kPglRetNomem;
   }
   if (unlikely(SortStrboxIndexed(sample_ct, *max_xid_blen_ptr, use_nsort, *sorted_xidbox_ptr, *xid_map_ptr))) {
@@ -865,10 +877,36 @@ PglErr SortedXidboxInitAlloc(const uintptr_t* sample_include, const SampleIdInfo
   if (!allow_dups) {
     char* dup_id = ScanForDuplicateIds(*sorted_xidbox_ptr, sample_ct, *max_xid_blen_ptr);
     if (unlikely(dup_id)) {
-      char* tab_iter = AdvToDelim(dup_id, '\t');
-      *tab_iter = ' ';
-      tab_iter = AdvToDelim(&(tab_iter[1]), '\t');
-      *tab_iter = ' ';
+      TabsToSpaces(dup_id);
+      logerrprintfww("Error: Duplicate ID '%s'.\n", dup_id);
+      return kPglRetMalformedInput;
+    }
+  }
+  return kPglRetSuccess;
+}
+
+PglErr SortedXidboxInitAllocEnd(const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t sample_ct, uint32_t allow_dups, XidMode xid_mode, uint32_t use_nsort, char** sorted_xidbox_ptr, uint32_t** xid_map_ptr, uintptr_t* max_xid_blen_ptr) {
+  if (!(xid_mode & kfXidModeFlagSid)) {
+    // two fields
+    const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+    *max_xid_blen_ptr = max_sample_id_blen;
+    if (unlikely(bigstack_end_alloc_u32(sample_ct, xid_map_ptr) ||
+                 bigstack_end_alloc_c(sample_ct * max_sample_id_blen, sorted_xidbox_ptr))) {
+      return kPglRetNomem;
+    }
+    return CopySortStrboxSubsetNoalloc(sample_include, siip->sample_ids, sample_ct, max_sample_id_blen, allow_dups, 0, use_nsort, *sorted_xidbox_ptr, *xid_map_ptr);
+  }
+  // three fields
+  if (unlikely(AugidInitAlloc(sample_include, siip, sample_ct, 1, xid_map_ptr, sorted_xidbox_ptr, max_xid_blen_ptr))) {
+    return kPglRetNomem;
+  }
+  if (unlikely(SortStrboxIndexed(sample_ct, *max_xid_blen_ptr, use_nsort, *sorted_xidbox_ptr, *xid_map_ptr))) {
+    return kPglRetNomem;
+  }
+  if (!allow_dups) {
+    char* dup_id = ScanForDuplicateIds(*sorted_xidbox_ptr, sample_ct, *max_xid_blen_ptr);
+    if (unlikely(dup_id)) {
+      TabsToSpaces(dup_id);
       logerrprintfww("Error: Duplicate ID '%s'.\n", dup_id);
       return kPglRetMalformedInput;
     }
@@ -905,16 +943,16 @@ uint32_t XidRead(uintptr_t max_xid_blen, uint32_t comma_delim, XidMode xid_mode,
     unsigned char ucc = *token_iter;
     while (ucc != ',') {
       if (ucc < 32) {
-        if (unlikely(!(xid_mode & kfXidModeFlagOneTokenOk))) {
+        if (unlikely(!(xid_mode & kfXidModeFlagOneCoreTokenOk))) {
           *read_pp = nullptr;
           return 0;
         }
-        goto XidRead_comma_single_token;
+        goto XidRead_comma_single_core_token;
       }
       ucc = *(++token_iter);
     }
     if (xid_mode & kfXidModeFlagNeverFid) {
-    XidRead_comma_single_token:
+    XidRead_comma_single_core_token:
       iid_ptr = first_token_start;
       slen_iid = token_iter - first_token_start;
     } else {
@@ -929,8 +967,9 @@ uint32_t XidRead(uintptr_t max_xid_blen, uint32_t comma_delim, XidMode xid_mode,
       slen_iid = token_iter - iid_ptr;
     }
     // token_iter now points to comma/eoln at end of IID
-    if (xid_mode & kfXidModeFlagSid) {
+    if (xid_mode & (kfXidModeFlagSid | kfXidModeFlagSkipSid)) {
       if (*token_iter != ',') {
+        *read_pp = nullptr;
         return 0;
       }
       do {
@@ -940,25 +979,27 @@ uint32_t XidRead(uintptr_t max_xid_blen, uint32_t comma_delim, XidMode xid_mode,
       while ((ucc >= 32) && (ucc != ',')) {
         ucc = *(++token_iter);
       }
-      blen_sid = 1 + S_CAST(uintptr_t, token_iter - sid_ptr);
-      if (token_iter == sid_ptr) {
-        // special case: treat missing SID as '0'
-        blen_sid = 2;
-        sid_ptr = &(g_one_char_strs[96]);
+      if (xid_mode & kfXidModeFlagSid) {
+        blen_sid = 1 + S_CAST(uintptr_t, token_iter - sid_ptr);
+        if (token_iter == sid_ptr) {
+          // special case: treat missing SID as '0'
+          blen_sid = 2;
+          sid_ptr = &(g_one_char_strs[96]);
+        }
       }
     }
   } else {
     assert(!IsEolnKns(*first_token_start));
     token_iter = CurTokenEnd(first_token_start);
     if (xid_mode & kfXidModeFlagNeverFid) {
-    XidRead_space_single_token:
+    XidRead_space_single_core_token:
       iid_ptr = first_token_start;
       slen_iid = token_iter - first_token_start;
     } else {
       slen_fid = token_iter - first_token_start;
       token_iter = FirstNonTspace(token_iter);
       if (IsEolnKns(*token_iter)) {
-        if (unlikely(!(xid_mode & kfXidModeFlagOneTokenOk))) {
+        if (unlikely(!(xid_mode & kfXidModeFlagOneCoreTokenOk))) {
           *read_pp = nullptr;
           return 0;
         }
@@ -966,14 +1007,14 @@ uint32_t XidRead(uintptr_t max_xid_blen, uint32_t comma_delim, XidMode xid_mode,
         token_iter = &(first_token_start[slen_fid]);
         // bugfix (26 Feb 2018): forgot to zero this
         slen_fid = 0;
-        goto XidRead_space_single_token;
+        goto XidRead_space_single_core_token;
       }
       iid_ptr = token_iter;
       token_iter = CurTokenEnd(token_iter);
       slen_iid = token_iter - iid_ptr;
     }
     // token_iter now points to space/eoln at end of IID
-    if (xid_mode & kfXidModeFlagSid) {
+    if (xid_mode & (kfXidModeFlagSid | kfXidModeFlagSkipSid)) {
       token_iter = FirstNonTspace(token_iter);
       if (unlikely(IsEolnKns(*token_iter))) {
         *read_pp = nullptr;
@@ -981,7 +1022,9 @@ uint32_t XidRead(uintptr_t max_xid_blen, uint32_t comma_delim, XidMode xid_mode,
       }
       sid_ptr = token_iter;
       token_iter = CurTokenEnd(token_iter);
-      blen_sid = 1 + S_CAST(uintptr_t, token_iter - sid_ptr);
+      if (xid_mode & kfXidModeFlagSid) {
+        blen_sid = 1 + S_CAST(uintptr_t, token_iter - sid_ptr);
+      }
     }
   }
   *read_pp = token_iter;
@@ -1022,7 +1065,7 @@ BoolErr SortedXidboxReadMultifind(const char* __restrict sorted_xidbox, uintptr_
   return 0;
 }
 
-PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, uintptr_t* line_idx_ptr, TextStream* txsp, XidMode* xid_mode_ptr, char** line_startp, char** line_iterp) {
+PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, uintptr_t* line_idx_ptr, TextStream* txsp, XidMode* xid_mode_ptr, char** line_startp) {
   // possible todo: support comma delimiter
   uintptr_t line_idx = *line_idx_ptr;
   char* line_iter;
@@ -1061,31 +1104,31 @@ PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, uin
     if (tokequal_k(linebuf_iter, "SID")) {
       if (!(xid_header_flags & kfXidHeaderIgnoreSid)) {
         xid_mode |= kfXidModeFlagSid;
+      } else {
+        xid_mode |= kfXidModeFlagSkipSid;
       }
       linebuf_iter = FirstNonTspace(&(linebuf_iter[3]));
-    } else if (xid_mode == kfXidModeFlagNeverFid) {
-      xid_mode = kfXidModeIid;
+    }
+    if ((xid_mode & kfXidModeCoreMask) == kfXidModeFlagNeverFid) {
+      xid_mode |= kfXidModeFlagOneCoreTokenOk;
     }
     line_iter = linebuf_iter;
   } else {
     xid_mode = (xid_header_flags & kfXidHeaderFixedWidth)? kfXidModeFidIid : kfXidModeFidIidOrIid;
-  }
-  if (line_iterp) {
-    *line_iterp = line_iter;
   }
   *line_idx_ptr = line_idx;
   *xid_mode_ptr = xid_mode;
   return kPglRetSuccess;
 }
 
-PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, XidHeaderFlags xid_header_flags, uint32_t max_line_blen, TextStream* txsp, XidMode* xid_mode_ptr, uintptr_t* line_idx_ptr, char** line_startp, char** line_iterp) {
+PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, XidHeaderFlags xid_header_flags, uint32_t max_line_blen, TextStream* txsp, XidMode* xid_mode_ptr, uintptr_t* line_idx_ptr, char** line_startp) {
   PglErr reterr = InitTextStream(fname, max_line_blen, 1, txsp);
   // remove unlikely() if any caller treats eof as ok
   if (unlikely(reterr)) {
     return reterr;
   }
   *line_idx_ptr = 0;
-  return LoadXidHeader(flag_name, xid_header_flags, line_idx_ptr, txsp, xid_mode_ptr, line_startp, line_iterp);
+  return LoadXidHeader(flag_name, xid_header_flags, line_idx_ptr, txsp, xid_mode_ptr, line_startp);
 }
 
 PglErr LoadXidHeaderPair(const char* flag_name, uint32_t sid_over_fid, uintptr_t* line_idx_ptr, TextStream* txsp, XidMode* xid_mode_ptr, char** line_startp, char** line_iterp) {

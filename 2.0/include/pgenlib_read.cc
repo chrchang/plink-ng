@@ -459,7 +459,7 @@ uint32_t CountPgrAllocCachelinesRequired(uint32_t raw_sample_ct, PgenGlobalFlags
   return cachelines_required;
 }
 
-static_assert(kPglMaxAltAlleleCt == 254, "Need to update PgfiInitPhase1().");
+static_assert(kPglMaxAlleleCt == 255, "Need to update PgfiInitPhase1().");
 PglErr PgfiInitPhase1(const char* fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, uint32_t use_mmap, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf) {
   pgfip->var_fpos = nullptr;
   pgfip->vrtypes = nullptr;
@@ -770,7 +770,7 @@ void FillPgenReadErrstr(FILE* ff, char* errstr_buf) {
   FillPgenReadErrstrFromErrno(errstr_buf);
 }
 
-static_assert(kPglMaxAltAlleleCt == 254, "Need to update PgfiInitPhase2().");
+static_assert(kPglMaxAlleleCt == 255, "Need to update PgfiInitPhase2().");
 PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_loaded, uint32_t nonref_flags_already_loaded, uint32_t use_blockload, uint32_t vblock_idx_start, uint32_t vidx_end, uint32_t* max_vrec_width_ptr, PgenFileInfo* pgfip, unsigned char* pgfi_alloc, uintptr_t* pgr_alloc_cacheline_ct_ptr, char* errstr_buf) {
   // *max_vrec_width_ptr technically only needs to be set in single-variant
   // fread() mode, but its computation is not currently optimized out in the

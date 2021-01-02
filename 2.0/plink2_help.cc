@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2020 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -153,8 +153,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      dosage.\n"
 "      Note that, in the dosage=GP case, PLINK 2 collapses the probabilities\n"
 "      down to dosages; you cannot use PLINK 2 to losslessly convert VCF\n"
-"      FORMAT:GP data to e.g. BGEN format.  To make this more obvious, PLINK 2\n"
-"      now errors out when dosage=GP is used on a file with a FORMAT:DS header\n"
+"      FORMAT/GP data to e.g. BGEN format.  To make this more obvious, PLINK 2\n"
+"      now errors out when dosage=GP is used on a file with a FORMAT/DS header\n"
 "      line and --import-dosage-certainty wasn't specified, since dosage=DS\n"
 "      extracts the same information more quickly in this situation.  You can\n"
 "      suppress this error with 'dosage=GP-force'.\n"
@@ -383,7 +383,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "        maybefilter: FILTER.  Omitted if all remaining values are missing.\n"
 "        filter: Force FILTER column to be written even when empty.\n"
 "        maybeinfo: INFO.  Omitted if all remaining values are missing, or if\n"
-"                   INFO:PR is the only subfield.\n"
+"                   INFO/PR is the only subfield.\n"
 "        info: Force INFO column to be written.\n"
 "        maybecm: Centimorgan coordinate.  Omitted if all remaining values = 0.\n"
 "        cm: Force CM column to be written even when empty.\n"
@@ -1060,6 +1060,58 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      (Covariates are always present, and positioned here.)\n"
 "    The default is maybefid,maybesid.\n\n"
                );
+    HelpPrint("pmerge\0pmerge-list\0merge\0merge-list\0bmerge\0", &help_ctrl, 1,
+"  --pmerge <.pgen/.bed filename> <.pvar/.bim> <.psam/.fam>\n"
+"  --pmerge <.pgen + .pvar + .psam fileset prefix> ['vzs']\n"
+"    Merge the given fileset with the initially loaded fileset, writing the\n"
+"    result to <output prefix>.pgen + .pvar + .psam.\n"
+"  --pmerge-list <filename> [mode]\n"
+"    Merge all filesets named in the text file.  Also merge with the initially\n"
+"    loaded fileset if one was specified.\n"
+"    When a line in the text file contains three entries, they are interpreted\n"
+"    as full filenames for a binary fileset (.pgen/.bed, then .pvar/.bim, then\n"
+"    .psam/.fam).  If it contains exactly one entry, its interpretation depends\n"
+"    on the mode:\n"
+"    * 'bfile': Prefix for .bed + .bim + .fam fileset.\n"
+"    * 'bpfile': Prefix for .pgen + .bim + .fam fileset.\n"
+"    * 'pfile' (default): Prefix for .pgen + .pvar + .psam fileset.\n"
+"    * 'pfile-vzs': Prefix for .pgen + .pvar.zst + .psam fileset.\n"
+"    For both --pmerge and --pmerge-list:\n"
+"    * All input filesets must be sorted by position, and have the same\n"
+"      chromosome order.  (When this isn't true, use --make-pgen + --sort-vars\n"
+"      on each fileset first.)\n"
+"    * Variants are only merged if their IDs AND positions match.  (This is a\n"
+"      change from PLINK 1.x.)\n\n"
+              );
+    HelpPrint("pgen-diff\0merge-mode\0", &help_ctrl, 1,
+"  --pgen-diff <.pgen/.bed filename> <.pvar/.bim> <.psam/.fam>\n"
+"              ['include-missing'] ['zs'] ['dosage' | 'dosage='<tolerance>]\n"
+"              ['cols='<column set descriptor>]\n"
+"  --pgen-diff <.pgen + .pvar + .psam prefix> ['vzs'] ['include-missing'] ['zs']\n"
+"              ['dosage' | 'dosage='<tolerance>] ['cols='<col set descriptor>]\n"
+"    Report unphased genotype/dosage differences in the intersection of two\n"
+"    filesets.  (Sample and variant filters are also applied.)\n"
+"    * If chrX or chrY is present, sex must be defined and consistent.\n"
+"    * Variants are only compared if their IDs AND positions match.  An error\n"
+"      is reported if any such match is not unique.\n"
+"    * By default, comparisons are based on hardcalls.  Use 'dosage' to compare\n"
+"      dosages instead; you can combine this with a tolerance in [0, 0.5).\n"
+"    * By default, if one genotype is missing and the other isn't, that doesn't\n"
+"      count as a difference; this can be changed with 'include-missing'.\n"
+"    Supported column sets are:\n"
+"      chrom: Chromosome ID.\n"
+"      pos: Base-pair coordinate.\n"
+"      id: Variant ID.\n"
+"      ref: Reference allele.\n"
+"      alt: All alternate alleles across both filesets, comma-separated.\n"
+"      maybefid: FID, if that column was present in the input.\n"
+"      fid: Force FID column to be written even when absent in the input.\n"
+"      (IID is always present, and positioned here.)\n"
+"      maybesid: SID, if that column was present in the input.\n"
+"      sid: Force SID column to be written even when absent in the input.\n"
+"      geno: Unphased GT or DS.\n"
+"    The default is id,maybefid,maybesid,geno.\n\n"
+              );
     HelpPrint("write-samples\0write-snplist\0", &help_ctrl, 1,
 "  --write-samples\n"
 "    Report IDs of all samples which pass your filters/inclusion thresholds.\n\n"
@@ -2046,7 +2098,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                            'list' modifier causes a list of affected variant\n"
 "                            IDs to be written to <output prefix>.normalized.\n"
               );
-    HelpPrint("indiv-sort\0", &help_ctrl, 0,
+    HelpPrint("indiv-sort\0pmerge\0pmerge-list\0", &help_ctrl, 0,
 "  --indiv-sort <mode> [f] : Specify sample ID sort order for merge and\n"
 "                            --make-[b]pgen/--make-bed.  The following four\n"
 "                            modes are supported:\n"
@@ -2059,6 +2111,46 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                            * 'file'/'f' uses the order in the given file\n"
 "                              (named in the last argument).\n"
                );
+    HelpPrint("pmerge\0pmerge-list\0sample-inner-join\0variant-inner-join\0pheno-inner-join\0merge-mode\0merge-pheno-mode\0merge-xheader-mode\0merge-qual-mode\0merge-filter-mode\0merge-info-mode\0", &help_ctrl, 0,
+"  --sample-inner-join      : By default, --pmerge[-list] performs an 'outer\n"
+"  --variant-inner-join       join': the merged fileset contains the union of\n"
+"  --pheno-inner-join         the samples in the input filesets, and ditto for\n"
+"                             variants and phenotypes.\n"
+"                             --{sample,variant,pheno}-inner-join specifies an\n"
+"                             intersection instead.\n"
+"  --merge-mode <mode>      : Set --pmerge[-list] conflict resolution mode for\n"
+"  --merge-pheno-mode <m>     genotypes and phenotypes.\n"
+"                             * 'nm-match'/'1' = nonmissing values must match\n"
+"                                                (default)\n"
+"                             * 'nm-first'/'2' = keep first nonmissing value\n"
+"                             * 'first'/'4' = keep first value, even if missing\n"
+"  --merge-xheader-mode <m> : Set conflict resolution mode for .pvar '##' header\n"
+"                             entries.\n"
+"                             * 'erase' = remove all\n"
+"                             * 'match' = discard when there's ANY difference in\n"
+"                                         the values (even capitalization)\n"
+"                             * 'first' = keep first value (default)\n"
+"  --merge-qual-mode <mode> : Set conflict resolution mode for QUAL/FILTER/INFO\n"
+"  --merge-filter-mode <m>    entries.\n"
+"  --merge-info-mode <mode>   * 'erase' = remove column\n"
+"                             * 'nm-match' = nonmissing values must match\n"
+"                             * 'nm-first' = keep first nonmissing (qual/info\n"
+"                                            default)\n"
+"                             * 'first' = keep first value, even if missing\n"
+"                             * 'np-union' = keep all non-PASS values\n"
+"                                            (--merge-filter-mode default, not\n"
+"                                            applicable to others)\n"
+              );
+    HelpPrint("pmerge\0pmerge-list\0merge-info-sort\0", &help_ctrl, 0,
+"  --merge-info-sort <mode> : Set sort order for INFO entries when merging.\n"
+"                             * 'none'/'0' = keep in loaded order (default)\n"
+"                             * 'ascii'/'a' = ASCII order\n"
+"                             * 'natural'/'n' = natural sort\n"
+              );
+    HelpPrint("pmerge\0pmerge-list\0merge-max-allele-ct\0", &help_ctrl, 0,
+"  --merge-max-allele-ct <> : Exclude merged variants with more than the\n"
+"                             specified number of alleles.\n"
+              );
     // todo: add citation for 2018 KING update paper, which should discuss the
     // two-stage screen + refine workflow supported by --king-table-subset,
     // when it comes out

@@ -1,7 +1,7 @@
 #ifndef __PLINK2_COMMON_H__
 #define __PLINK2_COMMON_H__
 
-// This library is part of PLINK 2.00, copyright (C) 2005-2020 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -492,27 +492,35 @@ HEADER_INLINE double GetAlleleFreq(const double* cur_allele_freqs, uint32_t alle
 // FidIidSidOrIidSid.
 // With a header line, all four {FID present/absent, SID present/absent}
 // combinations are allowed.
+// bugfix (26 Dec 2020): XidRead() now skips the SID column when appropriate,
+// and GetXidColCt() counts it.
 FLAGSET_DEF_START()
   kfXidMode0,
 
-  kfXidModeFlagOneTokenOk = (1 << 0),
+  kfXidModeFlagOneCoreTokenOk = (1 << 0),
   kfXidModeFlagNeverFid = (1 << 1),
   kfXidModeFlagSid = (1 << 2),
 
+  kfXidModeFlagSkipSid = (1 << 3),
+
   kfXidModeFidIid = 0,
-  kfXidModeFidIidOrIid = kfXidModeFlagOneTokenOk,
-  kfXidModeIid = (kfXidModeFlagOneTokenOk | kfXidModeFlagNeverFid),
+  kfXidModeFidIidOrIid = kfXidModeFlagOneCoreTokenOk,
+  kfXidModeIid = (kfXidModeFlagOneCoreTokenOk | kfXidModeFlagNeverFid),
   kfXidModeFidIidSid = kfXidModeFlagSid,
-  kfXidModeIidSid = (kfXidModeFlagNeverFid | kfXidModeFlagSid)
+  kfXidModeIidSid = (kfXidModeFlagNeverFid | kfXidModeFlagSid),
+  kfXidModeCoreMask = kfXidModeFlagSkipSid - 1
 FLAGSET_DEF_END(XidMode);
 
-// Assumes fixed-width.
+// Assumes fixed-width.  Includes skipped SID column if there is one.
 HEADER_INLINE uint32_t GetXidColCt(XidMode xid_mode) {
-  return 2 + (xid_mode == kfXidModeFidIidSid) - (xid_mode == kfXidModeIid);
+  const XidMode xid_mode_core = xid_mode & kfXidModeCoreMask;
+  return 2 + ((xid_mode >> 3) & 1) + (xid_mode_core == kfXidModeFidIidSid) - (xid_mode_core == kfXidModeIid);
 }
 
 // sample_xid_map allocated on bottom, to play well with --indiv-sort
 PglErr SortedXidboxInitAlloc(const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t sample_ct, uint32_t allow_dups, XidMode xid_mode, uint32_t use_nsort, char** sorted_xidbox_ptr, uint32_t** xid_map_ptr, uintptr_t* max_xid_blen_ptr);
+
+PglErr SortedXidboxInitAllocEnd(const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t sample_ct, uint32_t allow_dups, XidMode xid_mode, uint32_t use_nsort, char** sorted_xidbox_ptr, uint32_t** xid_map_ptr, uintptr_t* max_xid_blen_ptr);
 
 // returns slen for ID, or 0 on guaranteed mismatch (longer than max_xid_blen)
 // or parse failure (*readpp set to nullptr in latter case).
@@ -550,17 +558,14 @@ FLAGSET_DEF_END(XidHeaderFlags);
 // - May return kPglRetEof, or other TextStream errors.
 // - line_startp can be nullptr.  If it isn't, it's set to the (lstripped)
 //   beginning of the current line.
-// - line_iterp can be nullptr.  If it isn't, it's set to the beginning of the
-//   first unparsed (i.e. not FID/IID/SID) token in the header line, or
-//   line_start if there's no header line.
 // - line_idx must be zero unless initial lines were skipped.
 // - If no header line is present, xid_mode will be set to kfXidModeFidIid if
 //   kfXidHeaderFixedWidth is set, and kfXidModeFidIidOrIid (which tolerates a
 //   mix of single-token and multitoken lines) otherwise.
 // - TSTREAM_FAIL errors are not printed, but other errors are.
-PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, uintptr_t* line_idx_ptr, TextStream* txsp, XidMode* xid_mode_ptr, char** line_startp, char** line_iterp);
+PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, uintptr_t* line_idx_ptr, TextStream* txsp, XidMode* xid_mode_ptr, char** line_startp);
 
-PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, XidHeaderFlags xid_header_flags, uint32_t max_line_blen, TextStream* txsp, XidMode* xid_mode_ptr, uintptr_t* line_idx_ptr, char** line_startp, char** line_iterp);
+PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, XidHeaderFlags xid_header_flags, uint32_t max_line_blen, TextStream* txsp, XidMode* xid_mode_ptr, uintptr_t* line_idx_ptr, char** line_startp);
 
 // header line expected to start with FID1, ID1, or IID1
 PglErr LoadXidHeaderPair(const char* flag_name, uint32_t sid_over_fid, uintptr_t* line_idx_ptr, TextStream* txsp, XidMode* xid_mode_ptr, char** line_startp, char** line_iterp);

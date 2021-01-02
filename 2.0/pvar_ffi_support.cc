@@ -1,4 +1,4 @@
-// This library is part of PLINK 2.00, copyright (C) 2005-2020 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -245,7 +245,7 @@ PglErr LoadMinimalPvar(const char* fname, MinimalPvar* mpp, char* errstr_buf) {
     uintptr_t* allele_idx_offsets = nullptr;
     if (max_extra_alt_ct) {
       if (max_extra_alt_ct >= kPglMaxAltAlleleCt) {
-        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Variant in %s has too many ALT alleles (%u; max 254).\n", fname, max_extra_alt_ct + 1);
+        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Variant in %s has too many ALT alleles (%u; max " PGL_MAX_ALT_ALLELE_CT_STR ").\n", fname, max_extra_alt_ct + 1);
         reterr = kPglRetNotYetSupported;
         goto LoadMinimalPvar_ret_1;
       }

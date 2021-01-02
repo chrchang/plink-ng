@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2020 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -1264,7 +1264,7 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
       if (families_only) {
         skip_header = 1;
       } else {
-        reterr = LoadXidHeader(flag_name, (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeader0 : kfXidHeaderIgnoreSid, &line_idx, &txs, &xid_mode, &line_start, nullptr);
+        reterr = LoadXidHeader(flag_name, (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeader0 : kfXidHeaderIgnoreSid, &line_idx, &txs, &xid_mode, &line_start);
         if (reterr) {
           if (likely(reterr == kPglRetEof)) {
             reterr = kPglRetSuccess;
@@ -1384,7 +1384,7 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
 
 // Minor extension of PLINK 1.x --filter.  (Renamed since --filter is not
 // sufficiently self-describing; PLINK has lots of other filters on both
-// samples and variants.  --filter is automatically be converted to
+// samples and variants.  --filter is automatically converted to
 // --keep-col-match for backward compatibility, though.)
 PglErr KeepColMatch(const char* fname, const SampleIdInfo* siip, const char* strs_flattened, const char* col_name, uint32_t raw_sample_ct, uint32_t col_num, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
@@ -1418,7 +1418,7 @@ PglErr KeepColMatch(const char* fname, const SampleIdInfo* siip, const char* str
     }
     char* line_start;
     XidMode xid_mode;
-    reterr = LoadXidHeader("keep-col-match", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, &line_idx, &txs, &xid_mode, &line_start, nullptr);
+    reterr = LoadXidHeader("keep-col-match", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, &line_idx, &txs, &xid_mode, &line_start);
     if (unlikely(reterr)) {
       if (reterr == kPglRetEof) {
         logerrputs("Error: Empty --keep-col-match file.\n");
@@ -2689,6 +2689,8 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           uint32_t cur_loaded_allele_code_slen = token_slens[kfReadFreqColRefAllele];
           uint32_t unmatched_allele_ct = cur_allele_ct;
           char* cur_loaded_allele_code = token_ptrs[kfReadFreqColRefAllele];
+          // No special handling of missing allele code needed (if the fileset
+          // is valid).
           cur_loaded_allele_code[cur_loaded_allele_code_slen] = '\0';
           char* loaded_allele_code_iter;
           char* loaded_allele_code_end;

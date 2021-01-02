@@ -1,7 +1,7 @@
 #ifndef __PGENLIB_MISC_H__
 #define __PGENLIB_MISC_H__
 
-// This library is part of PLINK 2.00, copyright (C) 2005-2020 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -91,10 +91,16 @@ typedef uint16_t DoubleAlleleCode;
 static_assert(sizeof(DoubleAlleleCode) == 2 * sizeof(AlleleCode), "Inconsistent AlleleCode and DoubleAlleleCode definitions.");
 // Set this to 65534 if AlleleCode is uint16_t, 2^24 - 1 if uint32_t.
 CONSTI32(kPglMaxAltAlleleCt, 254);
+
+CONSTI32(kPglMaxAlleleCt, kPglMaxAltAlleleCt + 1);
+#define PGL_MAX_ALT_ALLELE_CT_STR "254"
+#define PGL_MAX_ALLELE_CT_STR "255"
 #ifdef __cplusplus
 #  define kMissingAlleleCode S_CAST(plink2::AlleleCode, -1)
+#  define kMissingDoubleAlleleCode S_CAST(plink2::DoubleAlleleCode, -1)
 #else
 #  define kMissingAlleleCode S_CAST(AlleleCode, -1)
+#  define kMissingDoubleAlleleCode S_CAST(DoubleAlleleCode, -1)
 #endif
 CONSTI32(kAlleleCodesPerVec, kBytesPerVec / sizeof(AlleleCode));
 

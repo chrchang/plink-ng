@@ -1,4 +1,4 @@
-// This library is part of PLINK 2.00, copyright (C) 2005-2020 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -863,7 +863,7 @@ typedef struct PhenoInfoLlStruct {
 
 // also for loading covariates.  set affection_01 to 2 to prohibit case/control
 // and make unnamed variables start with "COVAR" instead of "PHENO"
-PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, int32_t missing_pheno, uint32_t affection_01, uint32_t iid_only, uint32_t numeric_ranges, uint32_t max_thread_ct, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
+PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr, const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t raw_sample_ct, uint32_t sample_ct, int32_t missing_pheno, uint32_t affection_01, uint32_t iid_only, uint32_t numeric_ranges, uint32_t max_thread_ct, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   char* pheno_names = nullptr;
@@ -879,8 +879,10 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
     if (unlikely(reterr)) {
       goto LoadPhenos_ret_TSTREAM_FAIL;
     }
+    // We don't use LoadXidHeader() for now due to lack of comma-delimiter
+    // support.
     const char* line_iter;
-    do {
+    while (1) {
       ++line_idx;
       line_iter = TextGet(&pheno_txs);
       if (!line_iter) {
@@ -889,44 +891,71 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         }
         goto LoadPhenos_ret_TSTREAM_FAIL;
       }
-    } while ((line_iter[0] == '#') && (((line_iter[1] != 'F') && (line_iter[1] != 'I')) || (!memequal_k(&(line_iter[2]), "ID", 2)) || ((ctou32(line_iter[4]) > ' ') && (line_iter[4] != ','))));
-    if (line_iter[0] == '#') {
+      // Exit on first line with either:
+      // - No leading '#'.
+      // - #FID or #IID first token.
+      if (line_iter[0] != '#') {
+        break;
+      }
+      // For backward compatibility with PLINK 1.x --pheno/--covar, we don't
+      // require the leading '#'.
       ++line_iter;
+      if ((memequal_k(line_iter, "FID", 3) || memequal_k(line_iter, "IID", 3)) && ((ctou32(line_iter[3]) <= 32) || (line_iter[3] == ','))) {
+        break;
+      }
     }
     const uint32_t old_pheno_ct = *pheno_ct_ptr;
     const uintptr_t old_max_pheno_name_blen = *max_pheno_name_blen_ptr;
     uintptr_t max_pheno_name_blen = old_max_pheno_name_blen;
     uint32_t comma_delim = 0;
-    XidMode xid_mode = (line_iter[0] == 'I')? kfXidModeIid : kfXidModeFidIid;
     uint32_t* col_types = nullptr;
     uint32_t* col_skips = nullptr;
+    XidMode xid_mode;
     uint32_t new_pheno_ct;
     uint32_t final_pheno_ct;
     uintptr_t final_pheno_names_byte_ct;
-    if (((line_iter[0] == 'F') || (xid_mode != kfXidModeFidIid)) && memequal_k(&(line_iter[1]), "ID", 2) && ((ctou32(line_iter[3]) <= 32) || (line_iter[3] == ','))) {
+    if ((memequal_k(line_iter, "FID", 3) || memequal_k(line_iter, "IID", 3)) && ((ctou32(line_iter[3]) <= 32) || (line_iter[3] == ','))) {
       // treat this as a header line
       // autodetect CSV vs. space/tab-delimited
       // (note that we don't permit CSVs without header lines)
+      xid_mode = (line_iter[0] == 'I')? kfXidModeFlagNeverFid : kfXidModeFidIid;
       comma_delim = (line_iter[3] == ',');
       const char* linebuf_iter = FirstNonTspace(&(line_iter[3 + comma_delim]));
       if (unlikely(IsEolnKns(*linebuf_iter))) {
         goto LoadPhenos_ret_MISSING_TOKENS;
       }
-      const char* iid_end;
+      const char* pheno_prestart;
       if (xid_mode == kfXidModeFidIid) {
-        if (iid_only) {
+        if (unlikely(iid_only)) {
           snprintf(g_logbuf, kLogbufSize, "Error: \"--%s iid-only\" file has a FID column.\n", (affection_01 == 2)? "covar" : "pheno");
           goto LoadPhenos_ret_INCONSISTENT_INPUT_2;
         }
-        iid_end = CommaOrTspaceTokenEnd(linebuf_iter, comma_delim);
-        const uintptr_t token_slen = iid_end - linebuf_iter;
+        pheno_prestart = CommaOrTspaceTokenEnd(linebuf_iter, comma_delim);
+        const uintptr_t token_slen = pheno_prestart - linebuf_iter;
         if (unlikely(!strequal_k(linebuf_iter, "IID", token_slen))) {
           snprintf(g_logbuf, kLogbufSize, "Error: Second column header in %s must be 'IID'.\n", pheno_fname);
           goto LoadPhenos_ret_MALFORMED_INPUT_WW;
         }
-        linebuf_iter = CommaOrTspaceFirstToken(iid_end, comma_delim);
+        linebuf_iter = CommaOrTspaceFirstToken(pheno_prestart, comma_delim);
       } else {
-        iid_end = &(line_iter[3]);
+        pheno_prestart = &(line_iter[3]);
+      }
+      linebuf_iter = CommaOrTspaceFirstToken(pheno_prestart, comma_delim);
+      {
+        const char* token_end = CommaOrTspaceTokenEnd(linebuf_iter, comma_delim);
+        const uintptr_t token_slen = token_end - linebuf_iter;
+        if (strequal_k(linebuf_iter, "SID", token_slen)) {
+          if (siip->sids || (siip->flags & kfSampleIdStrictSid0)) {
+            xid_mode |= kfXidModeFlagSid;
+          } else {
+            xid_mode |= kfXidModeFlagSkipSid;
+          }
+          pheno_prestart = token_end;
+          linebuf_iter = CommaOrTspaceFirstToken(token_end, comma_delim);
+        }
+      }
+      if ((xid_mode & kfXidModeCoreMask) == kfXidModeFlagNeverFid) {
+        xid_mode |= kfXidModeFlagOneCoreTokenOk;
       }
       uint32_t pheno_col_ct = 0;
       const char* pheno_start = linebuf_iter;
@@ -993,7 +1022,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
       if (unlikely(pgl_malloc(final_pheno_names_byte_ct, &pheno_names))) {
         goto LoadPhenos_ret_NOMEM;
       }
-      linebuf_iter = iid_end;
+      linebuf_iter = pheno_prestart;
       char* pheno_names_iter = &(pheno_names[old_pheno_ct * max_pheno_name_blen]);
       for (uint32_t new_pheno_idx = 0; new_pheno_idx != new_pheno_ct; ++new_pheno_idx) {
         linebuf_iter = CommaOrTspaceNextTokenMult(linebuf_iter, col_skips[new_pheno_idx], comma_delim);
@@ -1117,24 +1146,24 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
     *pheno_ct_ptr = final_pheno_ct;
     *pheno_cols_ptr = new_pheno_cols;
 
-    // switch to hash table?
-    char* sorted_sample_ids;
-    uint32_t* sample_id_map;
-    // todo: permit duplicates if SIDs are defined
-    reterr = CopySortStrboxSubset(sample_include, sample_ids, sample_ct, max_sample_id_blen, 0, 0, 0, &sorted_sample_ids, &sample_id_map);
+    const uint32_t allow_dups = siip->sids && (!(xid_mode & kfXidModeFlagSid));
+    char* sorted_xidbox;
+    uint32_t* xid_map;
+    uintptr_t max_xid_blen;
+    reterr = SortedXidboxInitAlloc(sample_include, siip, sample_ct, allow_dups, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
     if (unlikely(reterr)) {
       goto LoadPhenos_ret_1;
     }
     const uintptr_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     char* id_buf;
     uintptr_t* already_seen;
-    if (unlikely(bigstack_alloc_c(max_sample_id_blen, &id_buf) ||
+    if (unlikely(bigstack_alloc_c(max_xid_blen, &id_buf) ||
                  bigstack_calloc_w(raw_sample_ctl, &already_seen))) {
       goto LoadPhenos_ret_NOMEM;
     }
 
     PhenoInfoLl* pheno_info_reverse_ll = nullptr;
-    const uint32_t pheno_info_alloc_byte_ct = sizeof(PhenoInfoLl) + new_pheno_ct * sizeof(double);
+    const uintptr_t pheno_info_alloc_byte_ct = sizeof(PhenoInfoLl) + new_pheno_ct * sizeof(double);
     const uint32_t new_pheno_ctl = BitCtToWordCt(new_pheno_ct);
     const double missing_phenod = missing_pheno? S_CAST(double, missing_pheno) : HUGE_VAL;
 
@@ -1165,18 +1194,14 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and if a #FID/IID header line is present it must denote the end of the header block.)\n", line_idx, pheno_fname);
         goto LoadPhenos_ret_MALFORMED_INPUT_WW;
       }
-      uint32_t sample_uidx;
-      if (SortedXidboxReadFind(sorted_sample_ids, sample_id_map, max_sample_id_blen, sample_ct, comma_delim, xid_mode, &line_iter, &sample_uidx, id_buf)) {
+      uint32_t xid_idx_start;
+      uint32_t xid_idx_end;
+      if (SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, sample_ct, comma_delim, xid_mode, &line_iter, &xid_idx_start, &xid_idx_end, id_buf)) {
         if (unlikely(!line_iter)) {
           goto LoadPhenos_ret_MISSING_TOKENS;
         }
         continue;
       }
-      if (unlikely(IsSet(already_seen, sample_uidx))) {
-        snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID in %s.\n", pheno_fname);
-        goto LoadPhenos_ret_MALFORMED_INPUT_WW;
-      }
-      SetBit(sample_uidx, already_seen);
       if (!comma_delim) {
         line_iter = TokenLexK(line_iter, col_types, col_skips, new_pheno_ct, token_ptrs, token_slens);
       } else {
@@ -1228,14 +1253,20 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
           }
         }
       }
-      if (unlikely(S_CAST(uintptr_t, tmp_bigstack_end - bigstack_base_copy) < pheno_info_alloc_byte_ct)) {
+      const uint32_t first_sample_uidx = xid_map[xid_idx_start];
+      if (unlikely(IsSet(already_seen, first_sample_uidx))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID in %s.\n", pheno_fname);
+        goto LoadPhenos_ret_MALFORMED_INPUT_WW;
+      }
+      SetBit(first_sample_uidx, already_seen);
+      if (unlikely(S_CAST(uintptr_t, tmp_bigstack_end - bigstack_base_copy) < pheno_info_alloc_byte_ct) * (xid_idx_end - xid_idx_start)) {
         goto LoadPhenos_ret_NOMEM;
       }
       tmp_bigstack_end -= pheno_info_alloc_byte_ct;
-      PhenoInfoLl* new_pheno_info = R_CAST(PhenoInfoLl*, tmp_bigstack_end);
-      new_pheno_info->next = pheno_info_reverse_ll;
-      new_pheno_info->sample_uidx = sample_uidx;
-      double* pheno_data = new_pheno_info->phenodata;
+      PhenoInfoLl* first_pheno_info = R_CAST(PhenoInfoLl*, tmp_bigstack_end);
+      first_pheno_info->next = pheno_info_reverse_ll;
+      first_pheno_info->sample_uidx = first_sample_uidx;
+      double* first_pheno_data = first_pheno_info->phenodata;
       uint32_t cat_pheno_idx = 0;
       for (uint32_t new_pheno_idx = 0; new_pheno_idx != new_pheno_ct; ++new_pheno_idx) {
         const char* cur_phenostr = token_ptrs[new_pheno_idx];
@@ -1290,7 +1321,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
               cur_entry_ptr = &(cur_entry->htable_next);
             }
             // don't bother writing top 4 bytes in 32-bit build
-            memcpy(&(pheno_data[new_pheno_idx]), &htable_idx, sizeof(intptr_t));
+            memcpy(&(first_pheno_data[new_pheno_idx]), &htable_idx, sizeof(intptr_t));
             ++cat_pheno_idx;
             continue;
           }
@@ -1313,9 +1344,22 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
             SetBit(new_pheno_idx, quantitative_phenos);
           }
         }
-        pheno_data[new_pheno_idx] = dxx;
+        first_pheno_data[new_pheno_idx] = dxx;
       }
-      pheno_info_reverse_ll = new_pheno_info;
+      pheno_info_reverse_ll = first_pheno_info;
+      for (uint32_t xid_idx = xid_idx_start + 1; xid_idx != xid_idx_end; ++xid_idx) {
+        const uint32_t sample_uidx = xid_map[xid_idx];
+        // if this is a duplicate, first ID in this group should also have been
+        // caught as a duplicate
+        assert(!IsSet(already_seen, sample_uidx));
+        SetBit(sample_uidx, already_seen);
+        tmp_bigstack_end -= pheno_info_alloc_byte_ct;
+        PhenoInfoLl* cur_pheno_info = R_CAST(PhenoInfoLl*, tmp_bigstack_end);
+        cur_pheno_info->next = pheno_info_reverse_ll;
+        cur_pheno_info->sample_uidx = sample_uidx;
+        memcpy(cur_pheno_info->phenodata, first_pheno_data, new_pheno_ct * sizeof(double));
+        pheno_info_reverse_ll = cur_pheno_info;
+      }
     }
     BigstackEndSet(tmp_bigstack_end);
     if (unlikely(TextStreamErrcode2(&pheno_txs, &reterr))) {

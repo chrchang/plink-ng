@@ -1,7 +1,7 @@
 #ifndef __PLINK2_PVAR_H__
 #define __PLINK2_PVAR_H__
 
-// This library is part of PLINK 2.00, copyright (C) 2005-2020 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -45,7 +45,8 @@ namespace plink2 {
 // some bizarre reason.  If no #CHROM line is present, it is assumed to be
 // "#CHROM ID CM POS ALT REF" for .bim compatibility, or
 // "#CHROM ID POS ALT REF" in the case where the first nonheader line has
-// exactly 5 columns.
+// exactly 5 columns.  Multiple ALT alleles are prohibited in this .bim
+// compatibility mode.
 
 
 // allele_idx_offsets[] is a length-(variant_ct + 1) array of reference allele
@@ -89,6 +90,8 @@ char* PrInInfoToken(uint32_t info_slen, char* info_token);
 // cip, max_variant_id_slen, and info_reload are in/out parameters.
 // Chromosome filtering is performed if cip requests it.
 PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattened, const char* varid_template_str, const char* varid_multi_template_str, const char* varid_multi_nonsnp_template_str, const char* missing_varid_match, const char* require_info_flattened, const char* require_no_info_flattened, const CmpExpr* extract_if_info_exprp, const CmpExpr* exclude_if_info_exprp, MiscFlags misc_flags, PvarPsamFlags pvar_psam_flags, uint32_t xheader_needed, uint32_t qualfilter_needed, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, uint32_t filter_min_allele_ct, uint32_t filter_max_allele_ct, uint32_t max_thread_ct, ChrInfo* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, UnsortedVar* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** allele_idx_offsets_ptr, const char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, ChrIdx** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, InfoFlags* info_flags_ptr, uint32_t* max_filter_slen_ptr);
+
+PglErr LoadAlleleIdxOffsetsFromPvar(const char* pvarname, const char* file_descrip, uint32_t max_thread_ct, uint32_t* raw_variant_ctp, uint32_t* max_allele_slenp, uint32_t* max_observed_line_blenp, uintptr_t** allele_idx_offsets_ptr, uint32_t* max_allele_ctp);
 
 #ifdef __cplusplus
 }  // namespace plink2

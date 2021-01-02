@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2020 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -2792,14 +2792,14 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       // ##fileDate: discard (regenerate)
       // ##source: discard (regenerate)
       // ##contig: conditionally keep
-      // ##INFO: note presence of INFO:PR, note presence of at least one non-PR
-      //         field, keep data (though, if INFO:PR is the *only* field,
+      // ##INFO/ note presence of INFO/PR, note presence of at least one non-PR
+      //         field, keep data (though, if INFO/PR is the *only* field,
       //         omit it from the .pvar for consistency with --make-pgen
       //         default)
-      //         update (8 Sep 2017): nonflag INFO:PR is noted, and not treated
-      //         specially unless provisional-reference INFO:PR output would
+      //         update (8 Sep 2017): nonflag INFO/PR is noted, and not treated
+      //         specially unless provisional-reference INFO/PR output would
       //         conflict with it
-      // ##FORMAT: note presence of FORMAT:GT and FORMAT:GP, discard
+      // ##FORMAT: note presence of FORMAT/GT and FORMAT/GP, discard
       //           (regenerate)
       // ##chrSet: if recognized, perform consistency check and/or update
       //           chr_info
@@ -2824,23 +2824,23 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         }
       } else if (StrStartsWithUnsafe(&(line_iter[2]), "FORMAT=<ID=GT,Number=")) {
         if (unlikely(format_gt_present)) {
-          logerrputs("Error: Duplicate FORMAT:GT header line in --vcf file.\n");
+          logerrputs("Error: Duplicate FORMAT/GT header line in --vcf file.\n");
           goto VcfToPgen_ret_MALFORMED_INPUT;
         }
         if (unlikely(!StrStartsWithUnsafe(&(line_iter[2 + strlen("FORMAT=<ID=GT,Number=")]), "1,Type=String,Description="))) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of --vcf file does not have expected FORMAT:GT format.\n", line_idx);
+          snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of --vcf file does not have expected FORMAT/GT format.\n", line_idx);
           goto VcfToPgen_ret_MALFORMED_INPUT_WW;
         }
         format_gt_present = 1;
       } else if ((vcf_min_gq != -1) && StrStartsWithUnsafe(&(line_iter[2]), "FORMAT=<ID=GQ,Number=1,Type=")) {
         if (unlikely(format_gq_relevant)) {
-          logerrputs("Error: Duplicate FORMAT:GQ header line in --vcf file.\n");
+          logerrputs("Error: Duplicate FORMAT/GQ header line in --vcf file.\n");
           goto VcfToPgen_ret_MALFORMED_INPUT;
         }
         format_gq_relevant = 1;
       } else if (((vcf_min_dp != -1) || (vcf_max_dp != 0x7fffffff)) && StrStartsWithUnsafe(&(line_iter[2]), "FORMAT=<ID=DP,Number=1,Type=")) {
         if (unlikely(format_dp_relevant)) {
-          logerrputs("Error: Duplicate FORMAT:DP header line in --vcf file.\n");
+          logerrputs("Error: Duplicate FORMAT/DP header line in --vcf file.\n");
           goto VcfToPgen_ret_MALFORMED_INPUT;
         }
         format_dp_relevant = 1;
@@ -2848,30 +2848,30 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         // strlen("##FORMAT=<ID=") == 13
         if (memequal(&(line_iter[13]), dosage_import_field, dosage_import_field_slen) && (line_iter[13 + dosage_import_field_slen] == ',')) {
           if (unlikely(format_dosage_relevant)) {
-            logerrprintfww("Error: Duplicate FORMAT:%s header line in --vcf file.\n", dosage_import_field);
+            logerrprintfww("Error: Duplicate FORMAT/%s header line in --vcf file.\n", dosage_import_field);
             goto VcfToPgen_ret_MALFORMED_INPUT_WW;
           }
           format_dosage_relevant = 1;
         } else if (format_hds_search && memequal_k(&(line_iter[13]), "HDS,", 4)) {
           if (unlikely(format_hds_search == 2)) {
-            logerrputs("Error: Duplicate FORMAT:HDS header line in --vcf file.\n");
+            logerrputs("Error: Duplicate FORMAT/HDS header line in --vcf file.\n");
             goto VcfToPgen_ret_MALFORMED_INPUT;
           }
           format_hds_search = 2;
         } else if (unforced_gp && memequal_k(&(line_iter[13]), "DS,", 3)) {
-          logerrputs("Error: --vcf dosage=GP specified, but --import-dosage-certainty was not and\nFORMAT:DS header line is present.\nSince " PROG_NAME_STR " collapses genotype probabilities down to dosages (even when\nperforming simple operations like \"" PROG_NAME_STR " --vcf ... --export bgen-1.2 ...\"),\n'dosage=GP' almost never makes sense in this situation.  Either change it to\n'dosage=DS' (if dosages are good enough for your analysis), or use another\nprogram to work with the genotype probabilities.\nThere is one notable exception to the preceding recommendation: you are writing\na script to process VCF files that are guaranteed to have FORMAT:GP, but may or\nmay not have FORMAT:DS.  You can use 'dosage=GP-force' to suppress this error\nin that situation.\n");
+          logerrputs("Error: --vcf dosage=GP specified, but --import-dosage-certainty was not and\nFORMAT/DS header line is present.\nSince " PROG_NAME_STR " collapses genotype probabilities down to dosages (even when\nperforming simple operations like \"" PROG_NAME_STR " --vcf ... --export bgen-1.2 ...\"),\n'dosage=GP' almost never makes sense in this situation.  Either change it to\n'dosage=DS' (if dosages are good enough for your analysis), or use another\nprogram to work with the genotype probabilities.\nThere is one notable exception to the preceding recommendation: you are writing\na script to process VCF files that are guaranteed to have FORMAT/GP, but may or\nmay not have FORMAT/DS.  You can use 'dosage=GP-force' to suppress this error\nin that situation.\n");
           goto VcfToPgen_ret_INCONSISTENT_INPUT;
         }
       } else if (StrStartsWithUnsafe(&(line_iter[2]), "INFO=<ID=")) {
         if (StrStartsWithUnsafe(&(line_iter[2 + strlen("INFO=<ID=")]), "PR,Number=")) {
           if (unlikely(info_pr_present || info_pr_nonflag_present)) {
-            logerrputs("Error: Duplicate INFO:PR header line in --vcf file.\n");
+            logerrputs("Error: Duplicate INFO/PR header line in --vcf file.\n");
             goto VcfToPgen_ret_MALFORMED_INPUT;
           }
           info_pr_nonflag_present = !StrStartsWithUnsafe(&(line_iter[2 + strlen("INFO=<ID=PR,Number=")]), "0,Type=Flag,Description=");
           info_pr_present = 1 - info_pr_nonflag_present;
           if (info_pr_nonflag_present) {
-            logerrprintfww("Warning: Header line %" PRIuPTR " of --vcf file has an unexpected definition of INFO:PR. This interferes with a few merge and liftover operations.\n", line_idx);
+            logerrprintfww("Warning: Header line %" PRIuPTR " of --vcf file has an unexpected definition of INFO/PR. This interferes with a few merge and liftover operations.\n", line_idx);
           }
         } else {
           info_nonpr_present = 1;
@@ -2885,15 +2885,15 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     }
     const uint32_t require_gt = (import_flags / kfImportVcfRequireGt) & 1;
     if (unlikely((!format_gt_present) && require_gt)) {
-      logerrputs("Error: No FORMAT:GT key found in --vcf file header, when --vcf-require-gt was\nspecified.\n(If this header line is actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
+      logerrputs("Error: No FORMAT/GT key found in --vcf file header, when --vcf-require-gt was\nspecified.\n(If this header line is actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
       goto VcfToPgen_ret_INCONSISTENT_INPUT;
     }
     if ((!format_gq_relevant) && (vcf_min_gq != -1)) {
-      logerrputs("Warning: No FORMAT:GQ key found in --vcf file header.  --vcf-min-gq ignored.\n(If this header line is actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
+      logerrputs("Warning: No FORMAT/GQ key found in --vcf file header.  --vcf-min-gq ignored.\n(If this header line is actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
       vcf_min_gq = -1;
     }
     if ((!format_dp_relevant) && ((vcf_max_dp != 0x7fffffff) || (vcf_min_dp != -1))) {
-      logerrputs("Warning: No FORMAT:DP key found in --vcf file header.  --vcf-{max,min}-dp\nignored.\n(If this header line is actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
+      logerrputs("Warning: No FORMAT/DP key found in --vcf file header.  --vcf-{max,min}-dp\nignored.\n(If this header line is actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
       vcf_max_dp = 0x7fffffff;
       vcf_min_dp = -1;
     }
@@ -2902,15 +2902,15 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       --format_hds_search;
       if (!format_hds_search) {
         if (!format_dosage_relevant) {
-          logerrputs("Warning: No FORMAT:DS or :HDS key found in --vcf file header.  Dosages will not\nbe imported.\n(If these header line(s) are actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
+          logerrputs("Warning: No FORMAT/DS or :HDS key found in --vcf file header.  Dosages will not\nbe imported.\n(If these header line(s) are actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
         } else {
-          // since we did find FORMAT:DS, trailing parenthetical is very
+          // since we did find FORMAT/DS, trailing parenthetical is very
           // unlikely to be relevant
-          logerrputs("Warning: No FORMAT:HDS key found in --vcf file header.  Dosages will be imported\n(from FORMAT:DS), but phase information will be limited or absent.\n");
+          logerrputs("Warning: No FORMAT/HDS key found in --vcf file header.  Dosages will be imported\n(from FORMAT/DS), but phase information will be limited or absent.\n");
         }
       }
     } else if ((!format_dosage_relevant) && dosage_import_field) {
-      logerrprintfww("Warning: No FORMAT:%s key found in --vcf file header. Dosages will not be imported. (If this header line is actually present, but with extra spaces or unusual field ordering, standardize the header with e.g. bcftools.)\n", dosage_import_field);
+      logerrprintfww("Warning: No FORMAT/%s key found in --vcf file header. Dosages will not be imported. (If this header line is actually present, but with extra spaces or unusual field ordering, standardize the header with e.g. bcftools.)\n", dosage_import_field);
     }
     FinalizeChrset(misc_flags, cip);
     // don't call FinalizeChrInfo here, since this may be followed by --pmerge,
@@ -3390,7 +3390,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       goto VcfToPgen_ret_WRITE_FAIL;
     }
     if (max_alt_ct > kPglMaxAltAlleleCt) {
-      logerrprintfww("Error: VCF file has a variant with %u ALT alleles; this build of " PROG_NAME_STR " is limited to %u.\n", max_alt_ct, kPglMaxAltAlleleCt);
+      logerrprintfww("Error: VCF file has a variant with %u ALT alleles; this build of " PROG_NAME_STR " is limited to " PGL_MAX_ALT_ALLELE_CT_STR ".\n", max_alt_ct);
       reterr = kPglRetNotYetSupported;
       goto VcfToPgen_ret_1;
     }
@@ -4489,7 +4489,7 @@ BcfParseErr BcfParseGqDpAligned(const unsigned char* qual_type_start, uint32_t s
   return BcfParseGqDpMain(qual_iter, sample_ct, qual_min, qual_max, qual_value_type, genovec);
 }
 
-static_assert(kPglMaxAltAlleleCt == 254, "BcfScanGt() needs to be updated.");
+static_assert(kPglMaxAlleleCt == 255, "BcfScanGt() needs to be updated.");
 BcfParseErr BcfScanGt(const BcfImportContext* bicp, const unsigned char* gt_start, const unsigned char** qual_starts, uint32_t* phase_or_dosage_found_ptr, uintptr_t* invfound_nypbuf) {
   // Just check for a phased het.
   const unsigned char* gt_main = gt_start;
@@ -7169,7 +7169,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     // if it's positioned elsewhere for now.
     uint32_t chrset_present = 0;
     uint32_t contig_string_idx_end = 0;
-    uint32_t fif_string_idx_end = 1;  // fif = filter, info, format; initialized with FILTER:PASS
+    uint32_t fif_string_idx_end = 1;  // fif = filter, info, format; initialized with FILTER/PASS
     uint32_t explicit_idx_keys = 2;  // 2 = unknown status
     uint32_t header_line_idx = 1;  // uint32 ok since uncompressed size < 2^32
     char* line_iter = vcf_header;
@@ -7194,14 +7194,14 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       // ##source: discard (regenerate)
       // ##contig: ID added to contig dictionary, conditionally keep
       // ##FILTER: ID added to dictionary, otherwise passed through unchanged
-      // ##INFO: note presence of INFO:PR, note presence of at least one non-PR
-      //         field, keep data (though, if INFO:PR is the *only* field,
+      // ##INFO: note presence of INFO/PR, note presence of at least one non-PR
+      //         field, keep data (though, if INFO/PR is the *only* field,
       //         omit it from the .pvar for consistency with --make-pgen
       //         default); ID added to dictionary
-      //         update (8 Sep 2017): nonflag INFO:PR is noted, and not treated
-      //         specially unless provisional-reference INFO:PR output would
+      //         update (8 Sep 2017): nonflag INFO/PR is noted, and not treated
+      //         specially unless provisional-reference INFO/PR output would
       //         conflict with it
-      // ##FORMAT: note presence of FORMAT:GT and FORMAT:GP, discard
+      // ##FORMAT: note presence of FORMAT/GT and FORMAT/GP, discard
       //           (regenerate); ID added to dictionary
       // ##chrSet: if recognized, perform consistency check and/or update
       //           chr_info
@@ -7279,7 +7279,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
           goto BcfToPgen_ret_MALFORMED_INPUT;
         }
       }
-      // Special case: FILTER:PASS IDX=0 line is implicit, we must be
+      // Special case: FILTER/PASS IDX=0 line is implicit, we must be
       // indifferent to whether it's actually present.  (Though when it is
       // present, it's subject to the same IDX= always/never-present rule as
       // the other header lines, which is why we don't perform this check
@@ -7383,7 +7383,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     uint32_t hds_sidx = 0;  // replaces later uses of format_hds_search
 
     // replaces info_pr_present... except that UINT32_MAX is the not-present
-    // value, just in case there's an INFO:PASS field for some reason.
+    // value, just in case there's an INFO/PASS field for some reason.
     uint32_t pr_sidx = UINT32_MAX;
 
     uint32_t info_pr_nonflag_present = 0;
@@ -7478,14 +7478,14 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
           info_flags[cur_header_idx / kBitsPerWord] |= is_flag << (cur_header_idx % kBitsPerWord);
           if (strequal_k(id_start, "PR", id_slen)) {
             if (unlikely((pr_sidx != UINT32_MAX) || info_pr_nonflag_present)) {
-              logerrputs("Error: Duplicate INFO:PR line in BCF text header block.\n");
+              logerrputs("Error: Duplicate INFO/PR line in BCF text header block.\n");
               goto BcfToPgen_ret_MALFORMED_INPUT;
             }
             if (is_flag) {
               pr_sidx = cur_header_idx;
             } else {
               info_pr_nonflag_present = 1;
-              logerrprintfww("Warning: Line %u of BCF text header block has an unexpected definition of INFO:PR. This interferes with a few merge and liftover operations.\n", header_line_idx);
+              logerrprintfww("Warning: Line %u of BCF text header block has an unexpected definition of INFO/PR. This interferes with a few merge and liftover operations.\n", header_line_idx);
             }
           } else {
             info_nonpr_present = 1;
@@ -7495,41 +7495,41 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         // FORMAT
         if (StrStartsWithUnsafe(id_start, "GT,Number=")) {
           if (unlikely(gt_sidx)) {
-            logerrputs("Error: Duplicate FORMAT:GT line in BCF text header block.\n");
+            logerrputs("Error: Duplicate FORMAT/GT line in BCF text header block.\n");
             goto BcfToPgen_ret_MALFORMED_INPUT;
           }
           if (unlikely(!StrStartsWithUnsafe(&(id_start[strlen("GT,Number=")]), "1,Type=String,Description="))) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Line %u of BCF text header block does not have expected FORMAT:GT format.\n", header_line_idx);
+            snprintf(g_logbuf, kLogbufSize, "Error: Line %u of BCF text header block does not have expected FORMAT/GT format.\n", header_line_idx);
             goto BcfToPgen_ret_MALFORMED_INPUT_WW;
           }
           gt_sidx = cur_header_idx;
         } else if ((vcf_min_gq != -1) && StrStartsWithUnsafe(id_start, "GQ,Number=1,Type=")) {
           if (unlikely(gq_sidx)) {
-            logerrputs("Error: Duplicate FORMAT:GQ header line in BCF text header block.\n");
+            logerrputs("Error: Duplicate FORMAT/GQ header line in BCF text header block.\n");
             goto BcfToPgen_ret_MALFORMED_INPUT;
           }
           gq_sidx = cur_header_idx;
         } else if (((vcf_min_dp != -1) || (vcf_max_dp != 0x7fffffff)) && StrStartsWithUnsafe(id_start, "DP,Number=1,Type=")) {
           if (unlikely(dp_sidx)) {
-            logerrputs("Error: Duplicate FORMAT:DP header line in BCF text header block.\n");
+            logerrputs("Error: Duplicate FORMAT/DP header line in BCF text header block.\n");
             goto BcfToPgen_ret_MALFORMED_INPUT;
           }
           dp_sidx = cur_header_idx;
         } else if (dosage_import_field) {
           if ((id_slen == dosage_import_field_slen) && memequal(id_start, dosage_import_field, dosage_import_field_slen)) {
             if (unlikely(dosage_sidx)) {
-              snprintf(g_logbuf, kLogbufSize, "Error: Duplicate FORMAT:%s header line in BCF text header block.\n", dosage_import_field);
+              snprintf(g_logbuf, kLogbufSize, "Error: Duplicate FORMAT/%s header line in BCF text header block.\n", dosage_import_field);
               goto BcfToPgen_ret_MALFORMED_INPUT_WW;
             }
             dosage_sidx = cur_header_idx;
           } else if (format_hds_search && StrStartsWithUnsafe(id_start, "HDS,")) {
             if (unlikely(hds_sidx)) {
-              logerrputs("Error: Duplicate FORMAT:HDS header line in BCF text header block.\n");
+              logerrputs("Error: Duplicate FORMAT/HDS header line in BCF text header block.\n");
               goto BcfToPgen_ret_MALFORMED_INPUT;
             }
             hds_sidx = cur_header_idx;
           } else if (unforced_gp && StrStartsWithUnsafe(id_start, "DS,")) {
-            logerrputs("Error: --bcf dosage=GP specified, but --import-dosage-certainty was not and\nFORMAT:DS header line is present.\nSince " PROG_NAME_STR " collapses genotype probabilities down to dosages (even when\nperforming simple operations like \"" PROG_NAME_STR " --bcf ... --export bgen-1.2 ...\"),\n'dosage=GP' almost never makes sense in this situation.  Either change it to\n'dosage=DS' (if dosages are good enough for your analysis), or use another\nprogram to work with the genotype probabilities.\nThere is one notable exception to the preceding recommendation: you are writing\na script to process BCF files that are guaranteed to have FORMAT:GP, but may or\nmay not have FORMAT:DS.  You can use 'dosage=GP-force' to suppress this error\nin that situation.\n");
+            logerrputs("Error: --bcf dosage=GP specified, but --import-dosage-certainty was not and\nFORMAT/DS header line is present.\nSince " PROG_NAME_STR " collapses genotype probabilities down to dosages (even when\nperforming simple operations like \"" PROG_NAME_STR " --bcf ... --export bgen-1.2 ...\"),\n'dosage=GP' almost never makes sense in this situation.  Either change it to\n'dosage=DS' (if dosages are good enough for your analysis), or use another\nprogram to work with the genotype probabilities.\nThere is one notable exception to the preceding recommendation: you are writing\na script to process BCF files that are guaranteed to have FORMAT/GP, but may or\nmay not have FORMAT/DS.  You can use 'dosage=GP-force' to suppress this error\nin that situation.\n");
             goto BcfToPgen_ret_INCONSISTENT_INPUT;
           }
         }
@@ -7538,25 +7538,25 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     }
     const uint32_t require_gt = (import_flags / kfImportVcfRequireGt) & 1;
     if (unlikely((!gt_sidx) && require_gt)) {
-      logerrputs("Error: No FORMAT:GT key found in BCF text header block, when --vcf-require-gt\nwas specified.\n(If this header line is actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
+      logerrputs("Error: No FORMAT/GT key found in BCF text header block, when --vcf-require-gt\nwas specified.\n(If this header line is actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
       goto BcfToPgen_ret_INCONSISTENT_INPUT;
     }
     if ((!gq_sidx) && (vcf_min_gq != -1)) {
-      logerrputs("Warning: No FORMAT:GQ key found in BCF text header block.  --vcf-min-gq\nignored.\n(If this header line is actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
+      logerrputs("Warning: No FORMAT/GQ key found in BCF text header block.  --vcf-min-gq\nignored.\n(If this header line is actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
     }
     if ((!dp_sidx) && ((vcf_max_dp != 0x7fffffff) || (vcf_min_dp != -1))) {
-      logerrputs("Warning: No FORMAT:DP key found in BCF text header block.  --vcf-{max,min}-dp\nignored.\n(If this header line is actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
+      logerrputs("Warning: No FORMAT/DP key found in BCF text header block.  --vcf-{max,min}-dp\nignored.\n(If this header line is actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
     }
     if (format_hds_search) {
       if (!hds_sidx) {
         if (!dosage_sidx) {
-          logerrputs("Warning: No FORMAT:DS or :HDS key found in BCF text header block.  Dosages will\nnot be imported.\n(If these header line(s) are actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
+          logerrputs("Warning: No FORMAT/DS or :HDS key found in BCF text header block.  Dosages will\nnot be imported.\n(If these header line(s) are actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
         } else {
-          logerrputs("Warning: No FORMAT:HDS key found in BCF text header block.  Dosages will be\nimported (from FORMAT:DS), but phase information will be limited or absent.\n");
+          logerrputs("Warning: No FORMAT/HDS key found in BCF text header block.  Dosages will be\nimported (from FORMAT/DS), but phase information will be limited or absent.\n");
         }
       }
     } else if ((!dosage_sidx) && dosage_import_field) {
-      logerrprintfww("Warning: No FORMAT:%s key found in BCF text header block. Dosages will not be imported. (If this header line is actually present, but with extra spaces or unusual field ordering, standardize the header with e.g. bcftools.)\n", dosage_import_field);
+      logerrprintfww("Warning: No FORMAT/%s key found in BCF text header block. Dosages will not be imported. (If this header line is actually present, but with extra spaces or unusual field ordering, standardize the header with e.g. bcftools.)\n", dosage_import_field);
     }
 
     unsigned char* bigstack_end_mark2 = g_bigstack_end;
@@ -7724,7 +7724,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
           }
           parse_iter = &(parse_iter[vec_byte_ct]);
         }
-        // defend against FORMAT:PASS edge case
+        // defend against FORMAT/PASS edge case
         if (!sidx) {
           continue;
         }
@@ -7775,7 +7775,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       //   INFO (n_info (typed integer, typed vector) pairs)
       // We scan these fields to compute an upper bound on the necessary .pvar
       // write-buffer size.  In the unlikely pr_sidx != UINT32_MAX case, we
-      // also need to scan for presence of INFO:PR.
+      // also need to scan for presence of INFO/PR.
       parse_iter = loadbuf;
       // ID, REF, ALT
       const uint32_t str_ignore_ct = n_allele + 1;
@@ -7917,7 +7917,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
         if (sidx == pr_sidx) {
           if (unlikely(info_pr_here)) {
             putc_unlocked('\n', stdout);
-            snprintf(g_logbuf, kLogbufSize, "Error: Variant record #%" PRIuPTR " in --bcf file has multiple INFO:PR entries.\n", vrec_idx);
+            snprintf(g_logbuf, kLogbufSize, "Error: Variant record #%" PRIuPTR " in --bcf file has multiple INFO/PR entries.\n", vrec_idx);
             goto BcfToPgen_ret_MALFORMED_INPUT_WW;
           }
           info_pr_here = 1;
@@ -7931,9 +7931,9 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       }
 
       if (max_allele_ct < n_allele) {
-        if (n_allele > (kPglMaxAltAlleleCt + 1)) {
+        if (n_allele > kPglMaxAlleleCt) {
           putc_unlocked('\n', stdout);
-          logerrprintfww("Error: Variant record #%" PRIuPTR " in --bcf file has %u alleles; this build of " PROG_NAME_STR " is limited to %u.\n", vrec_idx, n_allele, kPglMaxAltAlleleCt + 1);
+          logerrprintfww("Error: Variant record #%" PRIuPTR " in --bcf file has %u alleles; this build of " PROG_NAME_STR " is limited to " PGL_MAX_ALLELE_CT_STR ".\n", vrec_idx, n_allele);
           reterr = kPglRetNotYetSupported;
           goto BcfToPgen_ret_1;
         }

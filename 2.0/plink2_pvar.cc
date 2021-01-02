@@ -1,4 +1,4 @@
-// This library is part of PLINK 2.00, copyright (C) 2005-2020 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -784,11 +784,11 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
   // should handle raw_variant_ct == 0 properly
 
   // possible todo: optionally skip allele code loading
-  // probable todo: load INFO:END.  (does this allow the CNV module to be
+  // probable todo: load INFO/END.  (does this allow the CNV module to be
   //   unified with the rest of the program?)  but this will probably wait
   //   until I need to analyze some sort of CNV data, and that day keeps
   //   getting postponed... for now, the BCF exporter performs its own parsing
-  //   of INFO:END so that it can fill each variant's rlen field correctly.
+  //   of INFO/END so that it can fill each variant's rlen field correctly.
   // possible todo: require FILTER to only contain values declared in header,
   //   and modify its storage accordingly?  (pointless for now, but worthwhile
   //   to keep an eye on what typical VCF files look like.)
@@ -857,13 +857,13 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       }
       if (StrStartsWithUnsafe(line_start, "##INFO=<ID=PR,Number=")) {
         if (unlikely(info_pr_present || info_pr_nonflag_present)) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Duplicate INFO:PR header line in %s.\n", pvarname);
+          snprintf(g_logbuf, kLogbufSize, "Error: Duplicate INFO/PR header line in %s.\n", pvarname);
           goto LoadPvar_ret_MALFORMED_INPUT_WW;
         }
         info_pr_nonflag_present = !StrStartsWithUnsafe(&(line_start[strlen("##INFO=<ID=PR,Number=")]), "0,Type=Flag,Description=");
         info_pr_present = 1 - info_pr_nonflag_present;
         if (info_pr_nonflag_present) {
-          logerrprintfww("Warning: Header line %" PRIuPTR " of %s has an unexpected definition of INFO:PR. This interferes with a few merge and liftover operations.\n", line_idx, pvarname);
+          logerrprintfww("Warning: Header line %" PRIuPTR " of %s has an unexpected definition of INFO/PR. This interferes with a few merge and liftover operations.\n", line_idx, pvarname);
         }
       } else if ((!info_nonpr_present) && StrStartsWithUnsafe(line_start, "##INFO=<ID=")) {
         info_nonpr_present = 1;
@@ -921,6 +921,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     uint32_t col_skips[8];
     uint32_t col_types[8];
     uint32_t relevant_postchr_col_ct = 5;
+    uint32_t no_multiallelic_allowed = 0;
     uint32_t alt_col_idx = 4;
     uint32_t load_qual_col = 0;
     uint32_t load_filter_col = 0;
@@ -1033,6 +1034,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       line_iter = K_CAST(char*, AdvToDelim(linebuf_iter, '\n'));
       line_start = line_iter;
     } else if (line_start[0] != '\n') {
+      no_multiallelic_allowed = 1;
       if (var_min_qual != -1) {
         logerrputs("Error: --var-min-qual used on a variant file with no QUAL column.\n");
         goto LoadPvar_ret_INCONSISTENT_INPUT;
@@ -1434,6 +1436,11 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
 
         extra_alt_ct = CountByte(token_ptrs[3], ',', token_slens[3]);
         if (extra_alt_ct > max_extra_alt_ct) {
+          if (extra_alt_ct > kPglMaxAltAlleleCt) {
+            logerrprintfww("Error: Too many ALT alleles on line %" PRIuPTR " of %s. (This " PROG_NAME_STR " build is limited to " PGL_MAX_ALT_ALLELE_CT_STR ".)\n", line_idx, pvarname);
+            reterr = kPglRetNotYetSupported;
+            goto LoadPvar_ret_1;
+          }
           max_extra_alt_ct = extra_alt_ct;
         }
 
@@ -1960,6 +1967,10 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     }
     const uintptr_t read_iter_stride_base = kLoadPvarBlockSize * (sizeof(int32_t) + 2 * sizeof(intptr_t)) + (kLoadPvarBlockSize / CHAR_BIT) + (load_qual_col > 1) * ((kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(float)) + (load_filter_col > 1) * (2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)) + info_pr_present * (kLoadPvarBlockSize / CHAR_BIT);
     if (allele_idx_end > 2 * S_CAST(uintptr_t, raw_variant_ct)) {
+      if (no_multiallelic_allowed) {
+        snprintf(g_logbuf, kLogbufSize, "Error: %s contains multiallelic variant(s), despite having no #CHROM header line. Add that header line to make it obvious that this isn't a valid .bim.\n", pvarname);
+        goto LoadPvar_ret_MALFORMED_INPUT_WW;
+      }
       if (unlikely(bigstack_alloc_w(raw_variant_ct + 1, allele_idx_offsets_ptr))) {
         goto LoadPvar_ret_NOMEM;
       }
@@ -2045,7 +2056,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     *variant_ct_ptr = raw_variant_ct - exclude_ct;
     *vpos_sortstatus_ptr = vpos_sortstatus;
     *allele_storage_ptr = allele_storage;
-    // if only INFO:PR flag present, no need to reload
+    // if only INFO/PR flag present, no need to reload
     if (!(info_nonpr_present || info_pr_nonflag_present)) {
       info_reload_slen = 0;
     }
@@ -2087,6 +2098,250 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
   CleanupTextStream2(pvarname, &pvar_txs, &reterr);
   if (reterr) {
     BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
+  }
+  return reterr;
+}
+
+// Useful when we need to read from multiple .pgens (possibly with multiallelic
+// variants) at once, and the usual LoadPvar() memory footprint is larger than
+// we want.
+// allele_idx_offsets is allocated at the bottom of bigstack.  It's assumed to
+// be initialized to nullptr.
+// max_allele_ct is assumed to be initialized to 2.
+// raw_variant_ctp, max_allele_slenp, and/or max_observed_line_blenp can be
+// nullptr if the caller is uninterested in them.  If they're all null, this
+// can exit immediately on .bim files.
+PglErr LoadAlleleIdxOffsetsFromPvar(const char* pvarname, const char* file_descrip, uint32_t max_thread_ct, uint32_t* raw_variant_ctp, uint32_t* max_allele_slenp, uint32_t* max_observed_line_blenp, uintptr_t** allele_idx_offsets_ptr, uint32_t* max_allele_ctp) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    uint32_t max_line_blen;
+    if (unlikely(StandardizeMaxLineBlen(bigstack_left() / 4, &max_line_blen))) {
+      goto LoadAlleleIdxOffsetsFromPvar_ret_NOMEM;
+    }
+    reterr = InitTextStreamEx(pvarname, 1, kMaxLongLine, max_line_blen, ClipU32(max_thread_ct - 1, 1, 4), &txs);
+    if (unlikely(reterr)) {
+      goto LoadAlleleIdxOffsetsFromPvar_ret_TSTREAM_FAIL;
+    }
+    uint32_t max_observed_line_blen = 0;
+    const char* line_start;
+    // Skip header.
+    do {
+      line_start = TextGet(&txs);
+      if (unlikely(!line_start)) {
+        if (!TextStreamErrcode2(&txs, &reterr)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", file_descrip);
+          goto LoadAlleleIdxOffsetsFromPvar_ret_MALFORMED_INPUT_WW;
+        }
+        goto LoadAlleleIdxOffsetsFromPvar_ret_TSTREAM_FAIL;
+      }
+      ++line_idx;
+      const char* line_end = TextLineEnd(&txs);
+      const uint32_t cur_line_blen = line_end - line_start;
+      if (cur_line_blen > max_observed_line_blen) {
+        max_observed_line_blen = cur_line_blen;
+      }
+    } while ((*line_start == '#') && (!tokequal_k(line_start, "#CHROM")));
+    // multiallelics prohibited in .bim files (and .bim lookalikes to reduce
+    // confusion)
+    const uint32_t no_multiallelic_allowed = (*line_start != '#');
+    uint32_t col_skips[2];
+    uint32_t col_types[2];
+    if (!no_multiallelic_allowed) {
+      // [0] = REF
+      // [1] = ALT
+      const char* token_end = &(line_start[6]);
+      uint32_t found_header_bitset = 0;
+      uint32_t relevant_col_uidx = 0;
+      for (uint32_t col_idx = 1; ; ++col_idx) {
+        const char* token_start = FirstNonTspace(token_end);
+        if (IsEolnKns(*token_start)) {
+          break;
+        }
+        token_end = CurTokenEnd(token_start);
+        const uint32_t token_slen = token_end - token_start;
+        uint32_t cur_col_type;
+        if (strequal_k(token_start, "REF", token_slen)) {
+          cur_col_type = 0;
+        } else if (strequal_k(token_start, "ALT", token_slen)) {
+          cur_col_type = 1;
+        } else {
+          continue;
+        }
+        const uint32_t cur_col_type_shifted = 1 << cur_col_type;
+        if (unlikely(found_header_bitset & cur_col_type_shifted)) {
+          char* write_iter = strcpya_k(g_logbuf, "Error: Duplicate column header '");
+          write_iter = memcpya(write_iter, token_start, token_slen);
+          write_iter = strcpya_k(write_iter, "' on line ");
+          write_iter = wtoa(line_idx, write_iter);
+          write_iter = strcpya_k(write_iter, " of ");
+          write_iter = strcpya(write_iter, file_descrip);
+          memcpy_k(write_iter, ".\n\0", 4);
+          goto LoadAlleleIdxOffsetsFromPvar_ret_MALFORMED_INPUT_WW;
+        }
+        found_header_bitset |= cur_col_type_shifted;
+        col_skips[relevant_col_uidx] = col_idx;
+        col_types[relevant_col_uidx++] = cur_col_type;
+      }
+      if (unlikely(found_header_bitset != 3)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Missing column header(s) on line %" PRIuPTR " of %s. (POS, ID, REF, and ALT are required.)\n", line_idx, file_descrip);
+        goto LoadAlleleIdxOffsetsFromPvar_ret_MALFORMED_INPUT_WW;
+      }
+      col_skips[1] -= col_skips[0];
+      line_start = TextGet(&txs);
+      if (unlikely(!line_start)) {
+        if (!TextStreamErrcode2(&txs, &reterr)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", file_descrip);
+          goto LoadAlleleIdxOffsetsFromPvar_ret_MALFORMED_INPUT_WW;
+        }
+        goto LoadAlleleIdxOffsetsFromPvar_ret_TSTREAM_FAIL;
+      }
+      ++line_idx;
+      const char* line_end = TextLineEnd(&txs);
+      const uint32_t cur_line_blen = line_end - line_start;
+      if (cur_line_blen > max_observed_line_blen) {
+        max_observed_line_blen = cur_line_blen;
+      }
+    } else {
+      const char* fifth_column_start = NextTokenMult(line_start, 4);
+      if (unlikely(!fifth_column_start)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Fewer columns than expected in %s.\n", file_descrip);
+        goto LoadAlleleIdxOffsetsFromPvar_ret_MALFORMED_INPUT_WW;
+      }
+      if ((!raw_variant_ctp) && (!max_allele_slenp) && (!max_observed_line_blenp)) {
+        goto LoadAlleleIdxOffsetsFromPvar_ret_1;
+      }
+      col_skips[1] = 1;
+      col_types[0] = 1;
+      col_types[1] = 0;
+      const char* sixth_column_start = NextToken(fifth_column_start);
+      if (sixth_column_start) {
+        // #CHROM ID CM POS ALT REF
+        col_skips[0] = 4;
+      } else {
+        // #CHROM ID POS ALT REF
+        col_skips[0] = 3;
+      }
+    }
+    uintptr_t* allele_idx_offsets = R_CAST(uintptr_t*, g_bigstack_base);
+    uintptr_t* allele_idx_offsets_limit = R_CAST(uintptr_t*, g_bigstack_end);
+    if (allele_idx_offsets_limit == allele_idx_offsets) {
+      goto LoadAlleleIdxOffsetsFromPvar_ret_NOMEM;
+    }
+#ifdef __LP64__
+    if (allele_idx_offsets_limit > &(allele_idx_offsets[0x7ffffffe])) {
+      allele_idx_offsets_limit = &(allele_idx_offsets[0x7ffffffe]);
+    }
+#endif
+    uintptr_t* allele_idx_offsets_iter = allele_idx_offsets;
+    uintptr_t allele_idx = 0;
+    *allele_idx_offsets_iter++ = allele_idx;
+    uint32_t max_allele_ct = 2;
+    uint32_t max_allele_slen = 1;
+    while (1) {
+      if (allele_idx_offsets_iter == allele_idx_offsets_limit) {
+#ifdef __LP64__
+        if (allele_idx_offsets_limit == &(allele_idx_offsets[0x7ffffffe])) {
+          logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
+          goto LoadAlleleIdxOffsetsFromPvar_ret_MALFORMED_INPUT;
+        }
+#endif
+        goto LoadAlleleIdxOffsetsFromPvar_ret_NOMEM;
+      }
+      const char* token_ptrs[2];
+      uint32_t token_slens[2];
+      const char* last_token_end = TokenLexK(line_start, col_types, col_skips, 2, token_ptrs, token_slens);
+      if (unlikely(!last_token_end)) {
+        goto LoadAlleleIdxOffsetsFromPvar_ret_MISSING_TOKENS;
+      }
+      if (token_slens[0] > max_allele_slen) {
+        max_allele_slen = token_slens[0];
+      }
+      const uint32_t alt_col_slen = token_slens[1];
+      const char* alt_iter = token_ptrs[1];
+      const char* alt_end = &(alt_iter[alt_col_slen]);
+      uint32_t extra_alt_ct = 0;
+      if (alt_col_slen > 1) {
+        extra_alt_ct = CountByte(alt_iter, ',', alt_col_slen);
+        for (uint32_t alt_idx = 0; alt_idx != extra_alt_ct; ++alt_idx) {
+          const char* cur_alt_end = AdvToDelim(alt_iter, ',');
+          const uint32_t cur_allele_slen = cur_alt_end - alt_iter;
+          if (cur_allele_slen > max_allele_slen) {
+            max_allele_slen = cur_allele_slen;
+          }
+          alt_iter = &(cur_alt_end[1]);
+        }
+        const uint32_t cur_allele_slen = alt_end - alt_iter;
+        if (cur_allele_slen > max_allele_slen) {
+          max_allele_slen = cur_allele_slen;
+        }
+      }
+      const uint32_t cur_allele_ct = 2 + extra_alt_ct;
+      if (cur_allele_ct > max_allele_ct) {
+        max_allele_ct = cur_allele_ct;
+      }
+      allele_idx += cur_allele_ct;
+      *allele_idx_offsets_iter++ = allele_idx;
+      const char* line_end = AdvPastDelim(alt_end, '\n');
+      const uint32_t cur_line_blen = line_end - line_start;
+      if (cur_line_blen > max_observed_line_blen) {
+        max_observed_line_blen = cur_line_blen;
+      }
+      line_start = line_end;
+      if (!TextGetUnsafe2K(&txs, &line_start)) {
+        break;
+      }
+      ++line_idx;
+      if (unlikely(*line_start == '#')) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and if a #CHROM header line is present it must denote the end of the header block.)\n", line_idx, file_descrip);
+        goto LoadAlleleIdxOffsetsFromPvar_ret_MALFORMED_INPUT_WW;
+      }
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto LoadAlleleIdxOffsetsFromPvar_ret_TSTREAM_FAIL;
+    }
+    const uintptr_t raw_variant_ct_p1 = allele_idx_offsets_iter - allele_idx_offsets;
+    const uintptr_t raw_variant_ct = raw_variant_ct_p1 - 1;
+    if (allele_idx > 2 * raw_variant_ct) {
+      BigstackFinalizeW(allele_idx_offsets, raw_variant_ct_p1);
+      *allele_idx_offsets_ptr = allele_idx_offsets;
+    }
+    *max_allele_ctp = max_allele_ct;
+    if (max_allele_slenp) {
+      *max_allele_slenp = max_allele_slen;
+    }
+    if (raw_variant_ctp) {
+      *raw_variant_ctp = raw_variant_ct;
+    }
+    if (max_observed_line_blenp) {
+      *max_observed_line_blenp = max_observed_line_blen;
+    }
+  }
+  while (0) {
+  LoadAlleleIdxOffsetsFromPvar_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  LoadAlleleIdxOffsetsFromPvar_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(file_descrip, &txs);
+    break;
+  LoadAlleleIdxOffsetsFromPvar_ret_MISSING_TOKENS:
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, file_descrip);
+  LoadAlleleIdxOffsetsFromPvar_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+  LoadAlleleIdxOffsetsFromPvar_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+ LoadAlleleIdxOffsetsFromPvar_ret_1:
+  CleanupTextStream2(file_descrip, &txs, &reterr);
+  BigstackEndReset(bigstack_end_mark);
+  if (reterr) {
+    BigstackReset(bigstack_mark);
   }
   return reterr;
 }

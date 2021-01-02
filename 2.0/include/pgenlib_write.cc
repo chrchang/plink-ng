@@ -159,7 +159,7 @@ uint32_t CountSpgwAllocCachelinesRequired(uint32_t variant_ct, uint32_t sample_c
   return cachelines_required;
 }
 
-static_assert(kPglMaxAltAlleleCt == 254, "Need to update SpgwInitPhase1().");
+static_assert(kPglMaxAlleleCt == 255, "Need to update SpgwInitPhase1().");
 PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* __restrict explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, STPgenWriter* spgwp, uintptr_t* alloc_cacheline_ct_ptr, uint32_t* max_vrec_len_ptr) {
   assert(variant_ct);
   assert(sample_ct);
@@ -220,7 +220,7 @@ PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_t* __restrict 
   return reterr;
 }
 
-static_assert(kPglMaxAltAlleleCt == 254, "Need to update MpgwInitPhase1().");
+static_assert(kPglMaxAlleleCt == 255, "Need to update MpgwInitPhase1().");
 void MpgwInitPhase1(const uintptr_t* __restrict allele_idx_offsets, uint32_t variant_ct, uint32_t sample_ct, PgenGlobalFlags phase_dosage_gflags, uintptr_t* alloc_base_cacheline_ct_ptr, uint64_t* alloc_per_thread_cacheline_ct_ptr, uint32_t* vrec_len_byte_ct_ptr, uint64_t* vblock_cacheline_ct_ptr) {
   assert(variant_ct);
   assert(sample_ct);
@@ -287,7 +287,7 @@ void MpgwInitPhase1(const uintptr_t* __restrict allele_idx_offsets, uint32_t var
     const uint32_t extra_bytes_base = 2 + sizeof(AlleleCode) + (sample_ct + 6) / 8;
     const uint64_t extra_bytes_max = kPglMaxBytesPerVariant - max_vrec_len;
     uint64_t extra_byte_cts[4];
-    uint32_t extra_alt_ceil = kPglMaxAltAlleleCt + 1;
+    uint32_t extra_alt_ceil = kPglMaxAlleleCt;
 
     // alt_ct == 2
     uint64_t cur_extra_byte_ct = extra_bytes_base + (sample_ct + 6) / 8;
@@ -1863,7 +1863,6 @@ void PglMultiallelicSparseToDense(const uintptr_t* __restrict genoarr, const uin
     uintptr_t cur_bits = patch_01_set[0];
     const AlleleCode remap0 = remap[0];
     const AlleleCode remap1 = remap[1];
-    // TODO: need special flipped handling for remap1 < remap0
     if ((!remap0) || ((!flipped) && (remap0 == 1) && (!remap1))) {
       // no flips possible
       AlleleCode* wide_codes1 = &(wide_codes[1]);
