@@ -5490,8 +5490,8 @@ BcfParseErr BcfConvertUnphasedMultiallelic(const BcfImportBaseContext* bibcp, co
           if ((phaseless_val == 0x202) || ((gq_dp_fail_word >> (2 * sample_idx_lowbits)) & 1)) {
             continue;
           }
-          const uint32_t shifted_phaseless_val = (phaseless_val & 0xff) >> 1;
-          uint32_t first_allele_idx_p1 = shifted_phaseless_val;
+          const uint32_t shifted_phaseless_val = phaseless_val >> 1;
+          uint32_t first_allele_idx_p1 = shifted_phaseless_val & 0xff;
           uintptr_t result;
           if (first_allele_idx_p1 > allele_ct) {
             // assume end-of-vector
