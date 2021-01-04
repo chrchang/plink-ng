@@ -674,10 +674,23 @@ PglErr WritePvar(const char* outname, const uintptr_t* variant_include, const Ch
         ref_allele_idx = refalt1_select[variant_uidx][0];
         alt1_allele_idx = refalt1_select[variant_uidx][1];
       }
-      cswritep = strcpyax(cswritep, cur_alleles[ref_allele_idx], '\t');
+      // bugfix (2 Jan 2021): forgot to apply --output-missing-genotype setting
+      // here (and in importers).
+      // This check is only need for REF and ALT1; later ALTs are not permitted
+      // to be missing.
+      if (!memequal_k(cur_alleles[ref_allele_idx], ".", 2)) {
+        cswritep = strcpya(cswritep, cur_alleles[ref_allele_idx]);
+      } else {
+        *cswritep++ = output_missing_geno_char;
+      }
+      *cswritep++ = '\t';
       uint32_t alt_allele_written = 0;
       if ((!allele_presents) || IsSet(allele_presents, allele_idx_offset_base + alt1_allele_idx)) {
-        cswritep = strcpya(cswritep, cur_alleles[alt1_allele_idx]);
+        if (!memequal_k(cur_alleles[alt1_allele_idx], ".", 2)) {
+          cswritep = strcpya(cswritep, cur_alleles[alt1_allele_idx]);
+        } else {
+          *cswritep++ = output_missing_geno_char;
+        }
         alt_allele_written = 1;
       }
       if (unlikely(Cswrite(&css, &cswritep))) {
@@ -3792,6 +3805,7 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
     }
     AppendBinaryEoln(&cswritep);
 
+    const char output_missing_geno_char = *g_output_missing_geno_ptr;
     const VaridTemplate* cur_varid_templatep = nullptr;
     const char* varid_token_start = nullptr; // for vid-split
     const uint32_t varid_split = (make_plink2_flags / kfMakePlink2VaridSemicolon) & 1;
@@ -3948,8 +3962,17 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
         const uint32_t cur_alt_allele_slen = strlen(cur_alt_allele);
         if ((split_ct_p1 == 2) || keep_orig_id) {
           cswritep = strcpyax(cswritep, orig_variant_id, '\t');
-          cswritep = memcpyax(cswritep, ref_allele, ref_allele_slen, '\t');
-          cswritep = memcpya(cswritep, cur_alt_allele, cur_alt_allele_slen);
+          if (!memequal_k(ref_allele, ".", 2)) {
+            cswritep = memcpya(cswritep, ref_allele, ref_allele_slen);
+          } else {
+            *cswritep++ = output_missing_geno_char;
+          }
+          *cswritep++ = '\t';
+          if (!memequal_k(cur_alt_allele, ".", 2)) {
+            cswritep = memcpya(cswritep, cur_alt_allele, cur_alt_allele_slen);
+          } else {
+            *cswritep++ = output_missing_geno_char;
+          }
           if (unlikely(Cswrite(&css, &cswritep))) {
             goto WritePvarSplit_ret_WRITE_FAIL;
           }
@@ -3984,8 +4007,17 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
           } else {
             cswritep = memcpyax(cswritep, missing_varid_match, missing_varid_slen, '\t');
           }
-          cswritep = memcpyax(cswritep, ref_allele, ref_allele_slen, '\t');
-          cswritep = memcpya(cswritep, cur_alt_allele, cur_alt_allele_slen);
+          if (!memequal_k(ref_allele, ".", 2)) {
+            cswritep = memcpya(cswritep, ref_allele, ref_allele_slen);
+          } else {
+            *cswritep++ = output_missing_geno_char;
+          }
+          *cswritep++ = '\t';
+          if (!memequal_k(cur_alt_allele, ".", 2)) {
+            cswritep = memcpya(cswritep, cur_alt_allele, cur_alt_allele_slen);
+          } else {
+            *cswritep++ = output_missing_geno_char;
+          }
           if (unlikely(Cswrite(&css, &cswritep))) {
             goto WritePvarSplit_ret_WRITE_FAIL;
           }
@@ -7664,10 +7696,19 @@ PglErr WritePvarResortedInterval(const ChrInfo* write_cip, const uint32_t* varia
         ref_allele_idx = refalt1_select[variant_uidx][0];
         alt1_allele_idx = refalt1_select[variant_uidx][1];
       }
-      cswritep = strcpyax(cswritep, cur_alleles[ref_allele_idx], '\t');
+      if (!memequal_k(cur_alleles[ref_allele_idx], ".", 2)) {
+        cswritep = strcpya(cswritep, cur_alleles[ref_allele_idx]);
+      } else {
+        *cswritep++ = output_missing_geno_char;
+      }
+      *cswritep++ = '\t';
       uint32_t alt_allele_written = 0;
       if ((!allele_presents) || IsSet(allele_presents, allele_idx_offset_base + alt1_allele_idx)) {
-        cswritep = strcpya(cswritep, cur_alleles[alt1_allele_idx]);
+        if (!memequal_k(cur_alleles[alt1_allele_idx], ".", 2)) {
+          cswritep = strcpya(cswritep, cur_alleles[alt1_allele_idx]);
+        } else {
+          *cswritep++ = output_missing_geno_char;
+        }
         alt_allele_written = 1;
       }
       if (unlikely(Cswrite(cssp, &cswritep))) {

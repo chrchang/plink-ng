@@ -551,7 +551,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
               }
               // safe since we guarantee kMaxIdSlen spare bytes at the end
               // of bigstack
-              if (memequal(cur_entry->str, cur_phenostr, slen) && (!cur_entry->str[slen])) {
+              if (strequal_unsafe(cur_entry->str, cur_phenostr, slen)) {
                 htable_idx = cur_entry->cat_idx;
                 break;
               }
@@ -1314,7 +1314,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
                 break;
               }
               // safe since hash table entries are in the middle of bigstack
-              if (memequal(cur_entry->str, cur_phenostr, slen) && (!cur_entry->str[slen])) {
+              if (strequal_unsafe(cur_entry->str, cur_phenostr, slen)) {
                 htable_idx = cur_entry->cat_idx;
                 break;
               }

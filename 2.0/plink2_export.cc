@@ -116,7 +116,7 @@ PglErr ExportAlleleLoad(const char* fname, const uintptr_t* variant_include, con
       int32_t cur_allele_idx = -1;
       if (allele_slen <= max_allele_slen) {
         for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct; ++allele_idx) {
-          if (memequal(allele_start, cur_alleles[allele_idx], allele_slen) && (!cur_alleles[allele_idx][allele_slen])) {
+          if (strequal_unsafe(cur_alleles[allele_idx], allele_start, allele_slen)) {
             cur_allele_idx = allele_idx;
             break;
           }
@@ -126,7 +126,7 @@ PglErr ExportAlleleLoad(const char* fname, const uintptr_t* variant_include, con
         // Only ok if allele is the same as before.
         ++duplicate_ct;
         if (cur_allele_idx == -1) {
-          if (likely(allele_missing && allele_missing[variant_uidx] && memequal(allele_start, allele_missing[variant_uidx], allele_slen) && (!allele_missing[variant_uidx][allele_slen]))) {
+          if (likely(allele_missing && allele_missing[variant_uidx] && strequal_unsafe(allele_missing[variant_uidx], allele_start, allele_slen))) {
             continue;
           }
         } else {
@@ -6182,7 +6182,7 @@ PglErr AddToFifHtable(unsigned char* arena_bottom, const char* key, uint32_t hta
       return kPglRetSuccess;
     }
     char* existing_key = keys[cur_idx];
-    if (memequal(key, existing_key, key_slen) && (!existing_key[key_slen])) {
+    if (strequal_unsafe(existing_key, key, key_slen)) {
       // Only permit this if previous instance was FILTER and this is INFO, or
       // vice versa, or this is a FORMAT key.
       // INFO entries always have prechar bit 0 set and 3 unset, while FILTER
@@ -6203,6 +6203,8 @@ PglErr AddToFifHtable(unsigned char* arena_bottom, const char* key, uint32_t hta
         return kPglRetMalformedInput;
       }
       existing_key[-1] = new_prechar;
+      // bugfix (3 Jan 2021): forgot to return this
+      *cur_idx_ptr = cur_idx;
       return kPglRetSuccess;
     }
     if (++hashval == htable_size) {
@@ -8468,7 +8470,8 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
         // well deduplicate and sort while we're at it)
         ZeroWArr(fif_key_ctl, fif_seen);
         while (1) {
-          const char* tok_end = strchrnul(cur_filter_iter, ',');
+          // bugfix (3 Jan 2021): this is semicolon, not comma, delimited
+          const char* tok_end = strchrnul(cur_filter_iter, ';');
           const uint32_t fif_idx = IdHtableFindNnt(cur_filter_iter, fif_keys, fif_keys_htable, tok_end - cur_filter_iter, fif_keys_htable_size);
           // Second predicate verifies this is actually a FILTER key.
           if (unlikely((fif_idx == UINT32_MAX) || (!(fif_keys[fif_idx][-1] & 8)))) {

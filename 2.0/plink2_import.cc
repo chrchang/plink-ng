@@ -8995,17 +8995,6 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
   TextStream sample_txs;
   PreinitTextStream(&sample_txs);
   {
-    uint32_t omp_slen = 2;
-    char output_missing_pheno[kMaxMissingPhenostrBlen];
-    if (import_flags & kfImportKeepAutoconv) {
-      // must use --output-missing-phenotype parameter, which we've validated
-      // to be consistent with --input-missing-phenotype
-      omp_slen = strlen(g_output_missing_pheno);
-      memcpy(output_missing_pheno, g_output_missing_pheno, omp_slen);
-    } else {
-      // use "NA" since that's always safe
-      memcpy_k(output_missing_pheno, "NA", 2);
-    }
     const char* missing_catname = g_missing_catname;
     uint32_t missing_catname_slen = strlen(missing_catname);
 
@@ -14835,14 +14824,6 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
       }
     }
     AppendBinaryEoln(&write_iter);
-    uint32_t omp_slen = 2;
-    char output_missing_pheno[kMaxMissingPhenostrBlen];
-    if (import_flags & kfImportKeepAutoconv) {
-      omp_slen = strlen(g_output_missing_pheno);
-      memcpy(output_missing_pheno, g_output_missing_pheno, omp_slen);
-    } else {
-      memcpy_k(output_missing_pheno, "NA", 2);
-    }
     for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
       const uint32_t sample_uidx = dosage_sample_idx_to_fam_uidx[sample_idx];
       const char* cur_sample_id = &(pii.sii.sample_ids[sample_uidx * pii.sii.max_sample_id_blen]);
@@ -14870,7 +14851,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
           goto Plink1DosageToPgen_ret_WRITE_FAIL;
         }
         *write_iter++ = '\t';
-        write_iter = AppendPhenoStr(&(pheno_cols[pheno_idx]), output_missing_pheno, omp_slen, sample_uidx, write_iter);
+        write_iter = AppendPhenoStr(&(pheno_cols[pheno_idx]), "NA", 2, sample_uidx, write_iter);
       }
       AppendBinaryEoln(&write_iter);
       if (unlikely(fwrite_ck(writebuf_flush, psamfile, &write_iter))) {
@@ -15824,17 +15805,6 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
       goto GenerateDummy_ret_NOMEM;
     }
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
-    uint32_t omp_slen = 2;
-    char output_missing_pheno[kMaxMissingPhenostrBlen];
-    if (import_flags & kfImportKeepAutoconv) {
-      // must use --output-missing-phenotype parameter, which we've validated
-      // to be consistent with --input-missing-phenotype
-      omp_slen = strlen(g_output_missing_pheno);
-      memcpy(output_missing_pheno, g_output_missing_pheno, omp_slen);
-    } else {
-      // use "NA" since that's always safe
-      memcpy_k(output_missing_pheno, "NA", 2);
-    }
     // Alpha 2 change: no more FID column
     char* write_iter = strcpya_k(writebuf, "#IID\tSEX");
     for (uint32_t pheno_idx_p1 = 1; pheno_idx_p1 <= pheno_ct; ++pheno_idx_p1) {
@@ -15858,7 +15828,7 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
         for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
           *write_iter++ = '\t';
           if (pheno_m_check && (sfmt_genrand_uint32(sfmtp) <= pheno_m32)) {
-            write_iter = memcpya(write_iter, output_missing_pheno, omp_slen);
+            write_iter = strcpya_k(write_iter, "NA");
           } else {
             double dxx;
             if (saved_rnormal) {
@@ -15886,7 +15856,7 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
         for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
           *write_iter++ = '\t';
           if (pheno_m_check && (sfmt_genrand_uint32(sfmtp) <= pheno_m32)) {
-            write_iter = memcpya(write_iter, output_missing_pheno, omp_slen);
+            write_iter = strcpya_k(write_iter, "NA");
           } else {
             if (!urand_bits_left) {
               urand = sfmt_genrand_uint32(sfmtp);

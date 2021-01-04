@@ -71,7 +71,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (2 Jan 2021)";
+  " (3 Jan 2021)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -8105,6 +8105,8 @@ int main(int argc, char** argv) {
             logerrputs("Error: --output-missing-phenotype string too long (max 31 chars).\n");
             goto main_ret_INVALID_CMDLINE;
           }
+          // quasi-bugfix (2 Jan 2021): make this apply to .fam files
+          memcpy(g_legacy_output_missing_pheno, cur_modif, cur_modif_slen + 1);
           memcpy(g_output_missing_pheno, cur_modif, cur_modif_slen + 1);
         } else if (unlikely(!strequal_k_unsafe(flagname_p2, "ut"))) {
           // --out is a special case due to logging
@@ -8414,6 +8416,10 @@ int main(int argc, char** argv) {
           pc.dependency_flags |= kfFilterAllReq;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "merge")) {
+          if (unlikely(import_flags & kfImportKeepAutoconv)) {
+            logerrputs("Error: --pmerge cannot be used with --keep-autoconv.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -8465,6 +8471,10 @@ int main(int argc, char** argv) {
         } else if (strequal_k_unsafe(flagname_p2, "merge-list")) {
           if (pc.command_flags1 & kfCommand1Pmerge) {
             logerrputs("Error: --pmerge-list cannot be used with --pmerge.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(import_flags & kfImportKeepAutoconv)) {
+            logerrputs("Error: --pmerge-list cannot be used with --keep-autoconv.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
@@ -10297,7 +10307,8 @@ int main(int argc, char** argv) {
       logerrputs("Error: --indiv-sort must be used with --make-[b]pgen/--make-bed/--write-covar\nor dataset merging.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
-    if (unlikely((make_plink2_flags & (kfMakePlink2MMask | kfMakePlink2TrimAlts | kfMakePlink2EraseAlt2Plus | kfMakePgenErasePhase | kfMakePgenEraseDosage)) && (pc.command_flags1 & (~kfCommand1MakePlink2)))) {
+    // may as well permit merge here
+    if (unlikely((make_plink2_flags & (kfMakePlink2MMask | kfMakePlink2TrimAlts | kfMakePlink2EraseAlt2Plus | kfMakePgenErasePhase | kfMakePgenEraseDosage)) && (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Pmerge))))) {
       logerrputs("Error: When the 'multiallelics=', 'trim-alts', and/or 'erase-...' modifier is\npresent, --make-bed/--make-[b]pgen cannot be combined with other commands.\n(Other filters are fine.)\n");
       goto main_ret_INVALID_CMDLINE;
     }
@@ -10311,7 +10322,7 @@ int main(int argc, char** argv) {
         goto main_ret_INVALID_CMDLINE;
       }
     }
-    if (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Exportf))) {
+    if (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Exportf | kfCommand1Pmerge))) {
       if (unlikely((pc.misc_flags & kfMiscMajRef) || pc.ref_allele_flag || pc.alt1_allele_flag || (pc.fa_flags & kfFaRefFrom))) {
         logerrputs("Error: Flags which alter REF/ALT1 allele settings (--maj-ref, --ref-allele,\n--alt1-allele, --ref-from-fa) must be used with\n--make-bed/--make-[b]pgen/--export and no other commands.\n");
         goto main_ret_INVALID_CMDLINE;
@@ -10320,6 +10331,9 @@ int main(int argc, char** argv) {
         logerrputs("Error: --normalize must be used with --make-bed/--make-[b]pgen/--export and no\nother commands.\n");
         goto main_ret_INVALID_CMDLINE;
       }
+    }
+    if ((pc.command_flags1 & kfCommand1Pmerge) && (pc.command_flags1 & (~kfCommand1Pmerge))) {
+      ;;;
     }
     if (pc.keep_cat_phenoname && (!pc.keep_cat_names_flattened) && (!pc.keep_cats_fname)) {
       logerrputs("Error: --keep-cat-pheno must be used with --keep-cats and/or --keep-cat-names.\n");
@@ -10449,11 +10463,11 @@ int main(int argc, char** argv) {
     if (pc.max_thread_ct > 8) {
       logprintf("Using up to %u threads (change this with --threads).\n", pc.max_thread_ct);
     } else {
-      // "1 compute thread" instead of "1 thread" since, when
-      // max_thread_ct == 2, some code will use one I/O thread and one
-      // compute thread.  Not worth the trouble of writing special-case code
-      // to avoid that.  (also, with 2 cores, the I/O thread isn't
-      // sufficiently busy to justify only 1 compute thread.)
+      // "x compute threads" instead of "x threads" since e.g. when
+      // max_thread_ct == 2, some code will use one I/O thread and two
+      // compute threads.  Not worth the trouble of writing special-case code
+      // to avoid that: with 2 cores, the I/O thread usually isn't busy enough
+      // to justify only 1 compute thread.
       logprintf("Using %s%u compute thread%s.\n", (pc.max_thread_ct > 1)? "up to " : "", pc.max_thread_ct, (pc.max_thread_ct == 1)? "" : "s");
     }
     if (randmem) {
@@ -10486,34 +10500,22 @@ int main(int argc, char** argv) {
       }
       reterr = PgenInfoStandalone(pgenname);
     } else {
-      if (unlikely(pc.dependency_flags && (!pc.command_flags1))) {
+      if (unlikely(pc.dependency_flags && (!(pc.command_flags1 & (~kfCommand1Pmerge))))) {
         logerrputs("Error: Basic file conversions do not support regular filter or transform\noperations.  Rerun your command with --make-bed/--make-[b]pgen.\n");
         goto main_ret_INVALID_CMDLINE;
+      }
+      if ((xload && pc.command_flags1 && (import_flags & kfImportKeepAutoconv)) || ((pc.command_flags1 & kfCommand1Pmerge) & (pc.command_flags1 & (~kfCommand1Pmerge)))) {
+        // pfile-affecting input/output settings must be consistent since we
+        // need to reload what we write.
+        if (unlikely(pc.misc_flags & kfMiscAffection01)) {
+          logerrputs("Error: --1 cannot be used with --keep-autoconv or non-standalone\n--pmerge[-list].\n");
+          goto main_ret_INVALID_CMDLINE_A;
+        }
       }
       if (xload) {
         char* convname_end = outname_end;
         if (pc.command_flags1) {
-          if (import_flags & kfImportKeepAutoconv) {
-            if (unlikely(pc.misc_flags & kfMiscAffection01)) {
-              logerrputs("Error: --1 cannot be used with --keep-autoconv.\n");
-              goto main_ret_INVALID_CMDLINE_A;
-            }
-            if (unlikely((output_missing_geno_char != '.') && (output_missing_geno_char != input_missing_geno_char))) {
-              logerrputs("Error: --output-missing-genotype and --input-missing-genotype arguments cannot\nbe inconsistent when --keep-autoconv is specified.\n");
-              goto main_ret_INVALID_CMDLINE_A;
-            }
-            double dxx;
-            const char* num_end = ScantokDouble(g_output_missing_pheno, &dxx);
-            if (num_end) {
-              if (unlikely(dxx != S_CAST(double, pc.missing_pheno))) {
-                logerrputs("Error: --output-missing-phenotype and --input-missing-phenotype arguments\ncannot be inconsistent when --keep-autoconv is specified.\n");
-                goto main_ret_INVALID_CMDLINE_A;
-              }
-            } else if (unlikely(!IsNanStr(g_output_missing_pheno, strlen(g_output_missing_pheno)))) {
-              logerrputs("Error: --output-missing-phenotype argument must be numeric or 'NA' when\n--keep-autoconv is specified.\n");
-              goto main_ret_INVALID_CMDLINE_A;
-            }
-          } else {
+          if (!(import_flags & kfImportKeepAutoconv)) {
             convname_end = Stpcpy(convname_end, "-temporary");
           }
         } else {

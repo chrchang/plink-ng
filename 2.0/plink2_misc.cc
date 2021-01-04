@@ -489,14 +489,14 @@ PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, con
       uint32_t old_allele2_match = UINT32_MAX;
       for (uint32_t allele_idx = 0; allele_idx != cur_allele_ct; ++allele_idx) {
         const char* old_allele = cur_alleles[allele_idx];
-        if (memequal(old_allele1_start, old_allele, old_slen1) && (!old_allele[old_slen1])) {
-          if (old_allele1_match != UINT32_MAX) {
+        if (strequal_unsafe(old_allele, old_allele1_start, old_slen1)) {
+          if (unlikely(old_allele1_match != UINT32_MAX)) {
             snprintf(g_logbuf, kLogbufSize, "Error: Duplicate allele code in variant '%s'.\n", varid);
             goto UpdateVarAlleles_ret_MALFORMED_INPUT_WW;
           }
           old_allele1_match = allele_idx;
-        } else if (memequal(old_allele2_start, old_allele, old_slen2) && (!old_allele[old_slen2])) {
-          if (old_allele2_match != UINT32_MAX) {
+        } else if (strequal_unsafe(old_allele, old_allele2_start, old_slen2)) {
+          if (unlikely(old_allele2_match != UINT32_MAX)) {
             snprintf(g_logbuf, kLogbufSize, "Error: Duplicate allele code in variant '%s'.\n", varid);
             goto UpdateVarAlleles_ret_MALFORMED_INPUT_WW;
           }
@@ -574,8 +574,8 @@ PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, con
             continue;
           }
           const char* cur_allele = cur_alleles[allele_idx];
-          if ((memequal(new_allele1_start, cur_allele, new_slen1) && (!cur_allele[new_slen1])) ||
-              (memequal(new_allele2_start, cur_allele, new_slen2) && (!cur_allele[new_slen2]))) {
+          if (unlikely(strequal_unsafe(cur_allele, new_allele1_start, new_slen1) ||
+                       strequal_unsafe(cur_allele, new_allele2_start, new_slen2))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Duplicate allele code in variant '%s'.\n", varid);
             goto UpdateVarAlleles_ret_MALFORMED_INPUT_WW;
           }

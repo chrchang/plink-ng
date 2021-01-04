@@ -1467,7 +1467,7 @@ uint32_t IdHtableFindNnt(const char* cur_id, const char* const* item_ids, const 
   // returns UINT32_MAX on failure
   for (uint32_t hashval = Hashceil(cur_id, cur_id_slen, id_htable_size); ; ) {
     const uint32_t cur_htable_idval = id_htable[hashval];
-    if ((cur_htable_idval == UINT32_MAX) || (memequal(cur_id, item_ids[cur_htable_idval], cur_id_slen) && (!item_ids[cur_htable_idval][cur_id_slen]))) {
+    if ((cur_htable_idval == UINT32_MAX) || strequal_unsafe(item_ids[cur_htable_idval], cur_id, cur_id_slen)) {
       return cur_htable_idval;
     }
     if (++hashval == id_htable_size) {
@@ -1504,7 +1504,7 @@ uint32_t VariantIdDupflagHtableFind(const char* idbuf, const char* const* varian
   }
   for (uint32_t hashval = Hashceil(idbuf, cur_id_slen, id_htable_size); ; ) {
     const uint32_t cur_htable_idval = id_htable[hashval];
-    if ((cur_htable_idval == UINT32_MAX) || (memequal(idbuf, variant_ids[cur_htable_idval & 0x7fffffff], cur_id_slen) && (!variant_ids[cur_htable_idval & 0x7fffffff][cur_id_slen]))) {
+    if ((cur_htable_idval == UINT32_MAX) || strequal_unsafe(variant_ids[cur_htable_idval & 0x7fffffff], idbuf, cur_id_slen)) {
       return cur_htable_idval;
     }
     if (++hashval == id_htable_size) {
@@ -1544,7 +1544,7 @@ uint32_t VariantIdDupHtableFind(const char* idbuf, const char* const* variant_id
       variant_uidx = cur_htable_idval;
     }
     const char* sptr = variant_ids[variant_uidx];
-    if (memequal(idbuf, sptr, cur_id_slen) && (!sptr[cur_id_slen])) {
+    if (strequal_unsafe(sptr, idbuf, cur_id_slen)) {
       *llidx_ptr = cur_llidx;
       return variant_uidx;
     }

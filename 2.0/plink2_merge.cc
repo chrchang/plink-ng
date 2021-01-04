@@ -82,7 +82,7 @@ PglErr Pmerge(__attribute__((unused)) const PmergeInfo* pmip, __attribute__((unu
     //    job (or error out on --variant-inner-join).
     // 5. Otherwise, perform general-purpose incremental merge.
     // const PmergeFlags flags = pmip->flags;
-
+    ;;;
     logerrputs("Error: --pmerge[-list] is under development.\n");
     reterr = kPglRetNotYetSupported;
     goto Pmerge_ret_1;
@@ -115,7 +115,7 @@ typedef struct PgenDiffGtEntryStruct {
   DoubleAlleleCode dac2;
 } PgenDiffGtEntry;
 
-static_assert(sizeof(Dosage) == 2, "PgenDiff must be updated.");
+static_assert(sizeof(Dosage) == 2, "PgenDiff() must be updated.");
 PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const PgenDiffInfo* pdip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t max_allele_ct1, uint32_t max_allele_slen, uint32_t max_thread_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -848,7 +848,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
         uint32_t missing1_idx = UINT32_MAX;
         for (uint32_t allele1_idx = 0; allele1_idx != cur_allele_ct1; ++allele1_idx) {
           const char* cur_allele1 = cur_allele1s[allele1_idx];
-          if (memequal(cur_allele1, ".", 2)) {
+          if (memequal_k(cur_allele1, ".", 2)) {
             if (unlikely(missing1_idx != UINT32_MAX)) {
               snprintf(g_logbuf, kLogbufSize, "Error: Multiple missing alleles for variant '%s' at position %s:%u.\n", variant_ids[variant_uidx], chr_buf, cur_included_bp);
               goto PgenDiff_ret_MALFORMED_INPUT_WW_N;
