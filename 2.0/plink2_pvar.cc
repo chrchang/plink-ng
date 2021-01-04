@@ -1648,11 +1648,13 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
 
         // REF
         const char* ref_allele = token_ptrs[2];
+        uint32_t missing_allele_ct = 0;
         if (ref_slen == 1) {
           char geno_char = ref_allele[0];
           if (geno_char == input_missing_geno_char) {
             geno_char = '.';
           }
+          missing_allele_ct += (geno_char == '.');
           *allele_storage_iter = &(g_one_char_strs[2 * ctou32(geno_char)]);
         } else {
           if (StoreStringAtEndK(tmp_alloc_base, ref_allele, ref_slen, &tmp_alloc_end, allele_storage_iter)) {
@@ -1675,8 +1677,8 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
             const uint32_t cur_allele_slen = cur_alt_end - linebuf_iter;
             if (cur_allele_slen == 1) {
               char geno_char = linebuf_iter[0];
-              if (geno_char == input_missing_geno_char) {
-                geno_char = '.';
+              if (unlikely((geno_char == '.') || (geno_char == input_missing_geno_char))) {
+                goto LoadPvar_ret_MULTIALLELIC_MISSING_ALLELE_CODE;
               }
               *allele_storage_iter = &(g_one_char_strs[2 * ctou32(geno_char)]);
             } else {
@@ -1703,6 +1705,9 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           if (geno_char == input_missing_geno_char) {
             geno_char = '.';
           }
+          if (geno_char == '.') {
+            ++missing_allele_ct;
+          }
           *allele_storage_iter = &(g_one_char_strs[2 * ctou32(geno_char)]);
         } else {
           if (StoreStringAtEndK(tmp_alloc_base, linebuf_iter, remaining_alt_char_ct, &tmp_alloc_end, allele_storage_iter)) {
@@ -1710,6 +1715,15 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           }
           if (remaining_alt_char_ct > max_allele_slen) {
             max_allele_slen = remaining_alt_char_ct;
+          }
+        }
+        if (missing_allele_ct) {
+          if (unlikely(extra_alt_ct)) {
+            goto LoadPvar_ret_MULTIALLELIC_MISSING_ALLELE_CODE;
+          }
+          if (unlikely(missing_allele_ct == 2)) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Both alleles missing on line %" PRIuPTR " of %s.\n", line_idx, pvarname);
+            goto LoadPvar_ret_INCONSISTENT_INPUT_WW;
           }
         }
         ++allele_storage_iter;
@@ -2086,6 +2100,11 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
   LoadPvar_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
+  LoadPvar_ret_MULTIALLELIC_MISSING_ALLELE_CODE:
+    snprintf(g_logbuf, kLogbufSize, "Error: Missing allele code in multiallelic variant on line %" PRIuPTR " of %s.\n", line_idx, pvarname);
+  LoadPvar_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
   LoadPvar_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;

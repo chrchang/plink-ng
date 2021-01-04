@@ -154,7 +154,7 @@ PglErr RefFromFaContig(const uintptr_t* variant_include, const uint32_t* variant
   }
 }
 
-PglErr VNormalizeContig(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* seqbuf, uint32_t chr_fo_idx, uint32_t variant_uidx_last, uint32_t bp_end, unsigned char** alloc_endp, UnsortedVar* vpos_sortstatusp, uint32_t* __restrict variant_bps, const char** allele_storage, uint32_t* __restrict nchanged_ct_ptr, char* nlist_flush, FILE* nlist_file, char** nlist_write_iterp, uint32_t* __restrict alen_buf) {
+PglErr VNormalizeContig(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* seqbuf, uint32_t chr_fo_idx, uint32_t variant_uidx_last, uint32_t bp_end, unsigned char** alloc_endp, UnsortedVar* vpos_sortstatusp, uint32_t* __restrict variant_bps, const char** allele_storage, uint32_t* __restrict nchanged_ct_ptr, char* nlist_flush, FILE* nlist_file, char** nlist_write_iterp, uint32_t* __restrict alen_buf, uintptr_t* __restrict allele_skip_buf) {
   uintptr_t variant_uidx_base;
   uintptr_t cur_bits;
   BitIter1Start(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], &variant_uidx_base, &cur_bits);
@@ -168,8 +168,9 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const char* const* var
     logerrputsb();
     return kPglRetInconsistentInput;
   }
+  const char* skip_allele_str = &(g_one_char_strs[84]);
   const char* missing_allele_str = &(g_one_char_strs[92]);
-  const uint32_t input_missing_geno_code = ctou32(*g_input_missing_geno_ptr);
+  const uint32_t output_missing_geno_code = ctou32(*g_output_missing_geno_ptr);
   unsigned char* alloc_base = g_bigstack_base;
   unsigned char* alloc_end = *alloc_endp;
   char* nlist_write_iter = *nlist_write_iterp;
@@ -211,39 +212,28 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const char* const* var
         continue;
       }
     }
-    // Ignore missing allele if present, get lengths of each allele, check if
-    // all right nucleotides match or all left nucleotides match
-    uint32_t left_match = 0;
-    uint32_t right_match = 0;
+    // Ignore missing and '*' alleles, get length of each allele, check if all
+    // right nucleotides match or all left nucleotides match
+    const uint32_t allele_ct_p1l = 1 + (allele_ct / kBitsPerWord);
+    ZeroWArr(allele_ct_p1l, allele_skip_buf);
+    uint32_t left_match = UINT32_MAX;
+    uint32_t right_match = UINT32_MAX;
     uint32_t min_alen = 0;
-    uint32_t missing_aidx = UINT32_MAX;
     for (uint32_t aidx = 0; aidx != allele_ct; ++aidx) {
-      if (cur_alleles[aidx] == missing_allele_str) {
-        if (missing_aidx != UINT32_MAX) {
-          const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
-          char* write_iter = strcpya_k(g_logbuf, "Error: Variant at ");
-          write_iter = chrtoa(cip, chr_idx, write_iter);
-          *write_iter++ = ':';
-          write_iter = u32toa(cur_bp, write_iter);
-          snprintf(write_iter, kLogbufSize - kMaxIdSlen - 128, " has multiple missing alleles.\n");
-          WordWrapB(0);
-          logerrputsb();
-          return kPglRetInconsistentInput;
-        }
-        missing_aidx = aidx;
-        alen_buf[aidx] = 1;
-        continue;
-      }
       const char* cur_allele = cur_alleles[aidx];
       const uint32_t alen = strlen(cur_allele);
       alen_buf[aidx] = alen;
       const uint32_t first_code = ctou32(cur_allele[0]);
-      // Special case: if first character of any allele is '<', don't attempt
-      // to normalize.
+      // Special case: if first character of any allele is '<', skip the entire
+      // variant.
       if (first_code == '<') {
         left_match = UINT32_MAX;
         right_match = UINT32_MAX;
         break;
+      }
+      if ((cur_alleles[aidx] == missing_allele_str) || (cur_alleles[aidx] == skip_allele_str)) {
+        SetBit(aidx, allele_skip_buf);
+        continue;
       }
       const uint32_t last_code = ctou32(cur_allele[alen - 1]);
       if (!min_alen) {
@@ -267,26 +257,28 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const char* const* var
       continue;
     }
     // Sanity check: verify alleles aren't all identical.
-    const uint32_t first_aidx = (missing_aidx == 0)? 1 : 0;
+    const uint32_t first_aidx = AdvTo0Bit(allele_skip_buf, 0);
     const uint32_t first_alen = alen_buf[first_aidx];
-    for (uint32_t aidx = first_aidx + 1; ; ) {
-      if (aidx == missing_aidx) {
-        continue;
-      }
-      if ((alen_buf[aidx] != first_alen) || (!memequal(cur_alleles[first_aidx], cur_alleles[aidx], min_alen))) {
-        break;
-      }
-      if (++aidx == allele_ct) {
-        // probable todo: report ID instead?
-        const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
-        char* write_iter = strcpya_k(g_logbuf, "Error: Variant at ");
-        write_iter = chrtoa(cip, chr_idx, write_iter);
-        *write_iter++ = ':';
-        write_iter = u32toa(cur_bp, write_iter);
-        snprintf(write_iter, kLogbufSize - kMaxIdSlen - 128, " has duplicate allele codes.\n");
-        WordWrapB(0);
-        logerrputsb();
-        return kPglRetInconsistentInput;
+    // allele_skip_buf contains an extra bit to ensure this is safe
+    const uint32_t second_aidx = AdvTo0Bit(allele_skip_buf, first_aidx + 1);
+    if (second_aidx != allele_ct) {
+      for (uint32_t aidx = second_aidx; ; ) {
+        if ((alen_buf[aidx] != first_alen) || (!memequal(cur_alleles[first_aidx], cur_alleles[aidx], min_alen))) {
+          break;
+        }
+        aidx = AdvTo0Bit(allele_skip_buf, aidx + 1);
+        if (aidx == allele_ct) {
+          // probable todo: report ID instead?
+          const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+          char* write_iter = strcpya_k(g_logbuf, "Error: Variant at ");
+          write_iter = chrtoa(cip, chr_idx, write_iter);
+          *write_iter++ = ':';
+          write_iter = u32toa(cur_bp, write_iter);
+          snprintf(write_iter, kLogbufSize - kMaxIdSlen - 128, " has duplicate allele codes.\n");
+          WordWrapB(0);
+          logerrputsb();
+          return kPglRetMalformedInput;
+        }
       }
     }
     ++nchanged_ct;
@@ -318,7 +310,7 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const char* const* var
       for (; ltrim != min_alen_m1; ++ltrim) {
         const char cc = cur_alleles[first_aidx][ltrim];
         for (uint32_t aidx = first_aidx + 1; aidx != allele_ct; ++aidx) {
-          if (aidx == missing_aidx) {
+          if (IsSet(allele_skip_buf, aidx)) {
             continue;
           }
           if (cur_alleles[aidx][ltrim] != cc) {
@@ -329,12 +321,12 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const char* const* var
     VNormalizeContig_ltrim1_done:
       ltrim_p1 = ltrim + 1;
       for (uint32_t aidx = first_aidx; aidx != allele_ct; ++aidx) {
-        if (aidx == missing_aidx) {
+        if (IsSet(allele_skip_buf, aidx)) {
           continue;
         }
         if (alen_buf[aidx] == ltrim_p1) {
           const uint32_t cur_code = ctou32(cur_alleles[aidx][ltrim]);
-          if ((cur_code == 46) || (cur_code == input_missing_geno_code)) {
+          if ((cur_code == 46) || (cur_code == output_missing_geno_code)) {
             const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
             char* write_iter = strcpya_k(g_logbuf, "Error: Variant at ");
             write_iter = chrtoa(cip, chr_idx, write_iter);
@@ -369,7 +361,7 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const char* const* var
         right_match = ctou32(cur_alleles[first_aidx][cur_alen - 1 - rtrim]);
       }
       for (uint32_t aidx = first_aidx + 1; aidx != allele_ct; ++aidx) {
-        if (aidx == missing_aidx) {
+        if (IsSet(allele_skip_buf, aidx)) {
           continue;
         }
         cur_alen = alen_buf[aidx];
@@ -399,7 +391,7 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const char* const* var
         for (; ltrim != min_alen_m1; ++ltrim) {
           left_match = ctou32(cur_alleles[first_aidx][ltrim]);
           for (uint32_t aidx = first_aidx + 1; aidx != allele_ct; ++aidx) {
-            if (aidx == missing_aidx) {
+            if (IsSet(allele_skip_buf, aidx)) {
               continue;
             }
             const uint32_t cur_code = ctou32(cur_alleles[aidx][ltrim]);
@@ -414,7 +406,7 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const char* const* var
       variant_bps[variant_uidx] = cur_bp;
     }
     for (uint32_t aidx = first_aidx; aidx != allele_ct; ++aidx) {
-      if (aidx == missing_aidx) {
+      if (IsSet(allele_skip_buf, aidx)) {
         continue;
       }
       const uint32_t orig_alen = alen_buf[aidx];
@@ -474,10 +466,12 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
       goto ProcessFa_ret_NOMEM;
     }
     uint32_t* alen_buf = nullptr;
+    uintptr_t* allele_skip_buf = nullptr;
     char* nlist_write_iter = nullptr;
     char* nlist_flush = nullptr;
     if (flags & kfFaNormalize) {
-      if (unlikely(bigstack_alloc_u32(max_allele_ct, &alen_buf))) {
+      if (unlikely(bigstack_alloc_u32(max_allele_ct, &alen_buf) ||
+                   bigstack_alloc_w(1 + (max_allele_ct / kBitsPerWord), &allele_skip_buf))) {
         goto ProcessFa_ret_NOMEM;
       }
       if (flags & kfFaNormalizeList) {
@@ -566,7 +560,7 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
             }
           }
           if (flags & kfFaNormalize) {
-            reterr = VNormalizeContig(variant_include, variant_ids, allele_idx_offsets, cip, seqbuf, chr_fo_idx, cur_vidx_last, bp_end, &tmp_alloc_end, vpos_sortstatusp, variant_bps, allele_storage, &nchanged_ct, nlist_flush, nlist_file, &nlist_write_iter, alen_buf);
+            reterr = VNormalizeContig(variant_include, variant_ids, allele_idx_offsets, cip, seqbuf, chr_fo_idx, cur_vidx_last, bp_end, &tmp_alloc_end, vpos_sortstatusp, variant_bps, allele_storage, &nchanged_ct, nlist_flush, nlist_file, &nlist_write_iter, alen_buf, allele_skip_buf);
             if (unlikely(reterr)) {
               goto ProcessFa_ret_1;
             }
@@ -654,7 +648,7 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
         // slightly redundant
         *seq_iter = '\0';
         const uint32_t bp_end = seq_iter - seqbuf;
-        reterr = VNormalizeContig(variant_include, variant_ids, allele_idx_offsets, cip, seqbuf, chr_fo_idx, cur_vidx_last, bp_end, &tmp_alloc_end, vpos_sortstatusp, variant_bps, allele_storage, &nchanged_ct, nlist_flush, nlist_file, &nlist_write_iter, alen_buf);
+        reterr = VNormalizeContig(variant_include, variant_ids, allele_idx_offsets, cip, seqbuf, chr_fo_idx, cur_vidx_last, bp_end, &tmp_alloc_end, vpos_sortstatusp, variant_bps, allele_storage, &nchanged_ct, nlist_flush, nlist_file, &nlist_write_iter, alen_buf, allele_skip_buf);
         if (unlikely(reterr)) {
           goto ProcessFa_ret_1;
         }

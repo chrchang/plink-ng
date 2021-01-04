@@ -843,26 +843,23 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
         }
         cur_allele2s[last_allele2_idx] = alt_iter;
 
-        // Missing allele codes are only permitted in biallelic variants, and
-        // they must not appear in the actual genotype calls.
+        // We verify during .pvar load that, if a missing allele code is
+        // present, it's in a biallelic variant, and the other allele code is
+        // nonmissing.
+        // We verify below that the missing allele code does not appear in the
+        // actual genotype calls.
         uint32_t missing1_idx = UINT32_MAX;
         for (uint32_t allele1_idx = 0; allele1_idx != cur_allele_ct1; ++allele1_idx) {
           const char* cur_allele1 = cur_allele1s[allele1_idx];
           if (memequal_k(cur_allele1, ".", 2)) {
-            if (unlikely(missing1_idx != UINT32_MAX)) {
-              snprintf(g_logbuf, kLogbufSize, "Error: Multiple missing alleles for variant '%s' at position %s:%u.\n", variant_ids[variant_uidx], chr_buf, cur_included_bp);
-              goto PgenDiff_ret_MALFORMED_INPUT_WW_N;
-            }
+            assert(missing1_idx == UINT32_MAX);
             missing1_idx = allele1_idx;
           }
         }
         ZeroTrailingNyps(sample_ct, genovec1);
         ZeroTrailingNyps(sample_ct, genovec2);
         if (missing1_idx != UINT32_MAX) {
-          if (unlikely(cur_allele_ct1 > 2)) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Missing allele in multiallelic variant '%s' at position %s:%u.\n", variant_ids[variant_uidx], chr_buf, cur_included_bp);
-            goto PgenDiff_ret_MALFORMED_INPUT_WW_N;
-          }
+          assert(cur_allele_ct1 == 2);
           STD_ARRAY_DECL(uint32_t, 4, genocounts);
           GenoarrCountFreqsUnsafe(genovec1, sample_ct, genocounts);
           if (unlikely(genocounts[1] || genocounts[2 * missing1_idx] || pgv1.patch_01_ct || pgv1.patch_10_ct || pgv1.dosage_ct)) {
