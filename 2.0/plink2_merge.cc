@@ -17,6 +17,7 @@
 
 #include "include/pgenlib_write.h"
 #include "plink2_compress_stream.h"
+#include "plink2_data.h"
 #include "plink2_merge.h"
 #include "plink2_psam.h"
 #include "plink2_pvar.h"
@@ -34,7 +35,8 @@ void InitPmerge(PmergeInfo* pmerge_info_ptr) {
   pmerge_info_ptr->merge_qual_mode = kMergeQualInfoModeNmFirst;
   pmerge_info_ptr->merge_filter_mode = kMergeFilterModeNmFirst;
   pmerge_info_ptr->merge_info_mode = kMergeQualInfoModeNmFirst;
-  pmerge_info_ptr->merge_info_sort = kfSortNone;
+  pmerge_info_ptr->merge_pheno_sort = kSortNone;
+  pmerge_info_ptr->merge_info_sort = kSortNone;
   pmerge_info_ptr->max_allele_ct = 0;
   pmerge_info_ptr->pgen_fname = nullptr;
   pmerge_info_ptr->pvar_fname = nullptr;
@@ -63,14 +65,823 @@ void CleanupPgenDiff(PgenDiffInfo* pgen_diff_info_ptr) {
   free_cond(pgen_diff_info_ptr->psam_fname);
 }
 
-typedef struct PmergeInputFilesetStruct {
+typedef struct PmergeInputFilesetLlStruct {
+  struct PmergeInputFilesetLlStruct* next;
   char* pgen_fname;
   char* pvar_fname;
   char* psam_fname;
-} PmergeInputFileset;
+  uint32_t variant_ct;
+  uintptr_t grand_allele_ct;
+} PmergeInputFilesetLl;
 
-PglErr Pmerge(__attribute__((unused)) const PmergeInfo* pmip, __attribute__((unused)) const char* sample_sort_fname, __attribute__((unused)) MiscFlags misc_flags, __attribute__((unused)) SortFlags sample_sort_flags, __attribute__((unused)) FamCol fam_cols, __attribute__((unused)) uint32_t max_thread_ct, __attribute__((unused)) char* pgenname, __attribute__((unused)) char* psamname, __attribute__((unused)) char* pvarname, __attribute__((unused)) char* outname, __attribute__((unused)) char* outname_end, __attribute__((unused)) ChrInfo* cip) {
+// Allocates at end of bigstack.
+PmergeInputFilesetLl* AllocFilesetLlEntry(PmergeInputFilesetLl*** filesets_endpp) {
+  const uintptr_t alloc_size = RoundUpPow2(sizeof(PmergeInputFilesetLl), kEndAllocAlign);
+  if (unlikely(S_CAST(uintptr_t, g_bigstack_end - g_bigstack_base) < alloc_size)) {
+    return nullptr;
+  }
+  g_bigstack_end -= alloc_size;
+  PmergeInputFilesetLl* new_entry = R_CAST(PmergeInputFilesetLl*, g_bigstack_end);
+  new_entry->next = nullptr;
+  **filesets_endpp = new_entry;
+  *filesets_endpp = &(new_entry->next);
+  return new_entry;
+}
+
+PglErr LoadPmergeList(const char* list_fname, PmergeListMode mode, uint32_t main_fileset_present, PmergeInputFilesetLl*** filesets_endpp) {
   unsigned char* bigstack_mark = g_bigstack_base;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    reterr = InitTextStream(list_fname, kTextStreamBlenFast, 1, &txs);
+    if (unlikely(reterr)) {
+      goto LoadPmergeList_ret_TSTREAM_FAIL;
+    }
+    const char* pgen_suffix;
+    const char* pvar_suffix;
+    const char* psam_suffix;
+    switch (mode) {
+    case kPmergeListModeBfile:
+      pgen_suffix = ".bed";
+      pvar_suffix = ".bim";
+      psam_suffix = ".fam";
+      break;
+    case kPmergeListModeBpfile:
+      pgen_suffix = ".pgen";
+      pvar_suffix = ".bim";
+      psam_suffix = ".fam";
+      break;
+    case kPmergeListModePfile:
+      pgen_suffix = ".pgen";
+      pvar_suffix = ".pvar";
+      psam_suffix = ".psam";
+      break;
+    default:
+      assert(mode == kPmergeListModePfileVzs);
+      pgen_suffix = ".pgen";
+      pvar_suffix = ".pvar.zst";
+      psam_suffix = ".psam";
+      break;
+    }
+    const uint32_t pgen_blen = strlen(pgen_suffix) + 1;
+    const uint32_t pvar_blen = strlen(pvar_suffix) + 1;
+    const uint32_t psam_blen = strlen(psam_suffix) + 1;
+    const uint32_t max_single_token_slen = kPglFnamesize - 1 - MAXV(pgen_blen, pvar_blen);
+    while (1) {
+      const char* first_token_start = TextGet(&txs);
+      if (!first_token_start) {
+        break;
+      }
+      ++line_idx;
+      PmergeInputFilesetLl* cur_entry = AllocFilesetLlEntry(filesets_endpp);
+      if (unlikely(!cur_entry)) {
+        goto LoadPmergeList_ret_NOMEM;
+      }
+      const char* first_token_end = CurTokenEnd(first_token_start);
+      const uint32_t first_token_slen = first_token_end - first_token_start;
+      const char* second_token_start = FirstNonTspace(first_token_end);
+      if (IsEolnKns(*second_token_start)) {
+        // Expand single token, using the --pmerge-list mode.
+        if (unlikely(first_token_slen > max_single_token_slen)) {
+          logerrprintf("Error: Entry on line %" PRIuPTR " of --pmerge-list file is too long.\n", line_idx);
+          goto LoadPmergeList_ret_MALFORMED_INPUT;
+        }
+        char* fname_iter;
+        if (unlikely(bigstack_end_alloc_c(first_token_slen * 3 + pgen_blen + pvar_blen + psam_blen, &fname_iter))) {
+          goto LoadPmergeList_ret_NOMEM;
+        }
+        cur_entry->pgen_fname = fname_iter;
+        fname_iter = memcpya(fname_iter, first_token_start, first_token_slen);
+        fname_iter = memcpya(fname_iter, pgen_suffix, pgen_blen);
+        cur_entry->pvar_fname = fname_iter;
+        fname_iter = memcpya(fname_iter, first_token_start, first_token_slen);
+        fname_iter = memcpya(fname_iter, pvar_suffix, pvar_blen);
+        cur_entry->psam_fname = fname_iter;
+        fname_iter = memcpya(fname_iter, first_token_start, first_token_slen);
+        memcpy(fname_iter, psam_suffix, psam_blen);
+      } else {
+        const char* second_token_end = CurTokenEnd(second_token_start);
+        const char* third_token_start = FirstNonTspace(second_token_end);
+        if (unlikely(IsEolnKns(*third_token_start))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --pmerge-list has exactly two tokens; 1 or 3 expected.\n", line_idx);
+          goto LoadPmergeList_ret_MALFORMED_INPUT_WW;
+        }
+        const char* third_token_end = CurTokenEnd(third_token_start);
+        const char* fourth_token_start = FirstNonTspace(third_token_end);
+        if (unlikely(!IsEolnKns(*fourth_token_start))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --pmerge-list has more than 3 tokens.\n", line_idx);
+          goto LoadPmergeList_ret_MALFORMED_INPUT_WW;
+        }
+        const uint32_t second_token_slen = second_token_end - second_token_start;
+        const uint32_t third_token_slen = third_token_end - third_token_start;
+        if (unlikely((first_token_slen >= kPglFnamesize) ||
+                     (second_token_slen >= kPglFnamesize) ||
+                     (third_token_slen >= kPglFnamesize))) {
+          logerrprintf("Error: Filename on line %" PRIuPTR " of --pmerge-list file is too long.\n", line_idx);
+          goto LoadPmergeList_ret_MALFORMED_INPUT;
+        }
+        char* fname_iter;
+        if (unlikely(bigstack_end_alloc_c(first_token_slen + second_token_slen + third_token_slen + 3, &fname_iter))) {
+          goto LoadPmergeList_ret_NOMEM;
+        }
+        cur_entry->pgen_fname = fname_iter;
+        fname_iter = memcpyax(fname_iter, first_token_start, first_token_slen, '\0');
+        cur_entry->pvar_fname = fname_iter;
+        fname_iter = memcpyax(fname_iter, second_token_start, third_token_slen, '\0');
+        cur_entry->psam_fname = fname_iter;
+        memcpyx(fname_iter, third_token_start, third_token_slen, '\0');
+      }
+    }
+    if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+      goto LoadPmergeList_ret_TSTREAM_FAIL;
+    }
+    if (main_fileset_present + line_idx < 2) {
+      logerrputs("Error: --pmerge-list requires at least two filesets to be specified.\n");
+      goto LoadPmergeList_ret_INCONSISTENT_INPUT;
+    }
+    logprintf("--pmerge-list: %" PRIuPTR " filesets specified%s.\n", main_fileset_present + line_idx, main_fileset_present? " (including main fileset)" : "");
+  }
+  while (0) {
+  LoadPmergeList_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  LoadPmergeList_ret_TSTREAM_FAIL:
+    TextStreamErrPrint("--pmerge-list file", &txs);
+    break;
+  LoadPmergeList_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+  LoadPmergeList_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  LoadPmergeList_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+// Permanent allocations are at end of bigstack.
+PglErr MergePsams(const PmergeInfo* pmip, __attribute__((unused)) const char* sample_sort_fname, __attribute__((unused)) uint32_t affection_01, __attribute__((unused)) SortMode sample_sort_mode, __attribute__((unused)) FamCol fam_cols, uint32_t max_thread_ct, __attribute__((unused)) char* outname, __attribute__((unused)) char* outname_end, PmergeInputFilesetLl* filesets, SampleIdInfo* siip, uint32_t* sample_ctp) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  uintptr_t line_idx = 0;
+  const char* cur_fname = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    // First pass: determine sample IDs and phenotype set.
+    // Intermission: sort sample and phenotype IDs.
+    // Second pass: populate data structure, then call WritePsam().
+
+    // Allocate a single linebuf that's used in all first-pass loads, so that
+    // we can have the pheno strset grow from bigstack_end down in an
+    // unfragmented manner.
+    uintptr_t linebuf_capacity = MINV(kMaxLongLine, bigstack_left() / 4) + kDecompressChunkSize;
+    char* linebuf;
+    if (unlikely(bigstack_end_alloc_c(linebuf_capacity, &linebuf))) {
+      goto MergePsams_ret_NOMEM;
+    }
+    // If --sample-inner-join is specified, we append raw null-terminated
+    // sample-ID strings to the bottom of bigstack while scanning the first
+    // file, construct the usual non-resizable string-hash-table data structure
+    // when we're done.  Each ID then has a 0-based index, and we use
+    // sample_include/cur_sample_include to track which sample IDs are present
+    // in all files from that point on.
+    // Otherwise, we add sample IDs to the resizable sample_id_strset data
+    // structure and wait till we've processed all files before ordering the
+    // elements.
+    // Analogous thing happens for phenotype names if --pheno-inner-join is
+    // specified.  Phenotype-name data structure grows down from the top of
+    // bigstack.
+    const PmergeFlags flags = pmip->flags;
+    char* first_sample_ids_start = nullptr;
+    const char** first_sample_ids = nullptr;
+    uint32_t* first_sample_ids_htable = nullptr;
+    uintptr_t* sample_include = nullptr;
+    uintptr_t* cur_sample_include = nullptr;
+    char** sample_id_strset = nullptr;
+    uint32_t first_sample_id_ct = 0;
+    uint32_t sample_id_table_size = 512;
+    if (flags & kfPmergeSampleInnerJoin) {
+      first_sample_ids_start = R_CAST(char*, g_bigstack_base);
+      // - arena_bottom tracks the current append point
+      // - first_sample_ids, first_sample_ids_htable, sample_include,
+      //   cur_sample_include allocated after we're done scanning first file
+      // - sample_id_table_size set to first_sample_ids_htable size at that
+      //   point
+    } else {
+      if (unlikely(bigstack_calloc_cp(sample_id_table_size, &sample_id_strset))) {
+        goto MergePsams_ret_NOMEM;
+      }
+    }
+    const char** first_pheno_names = nullptr;
+    uint32_t* first_pheno_names_htable = nullptr;
+    uintptr_t* pheno_include = nullptr;
+    uintptr_t* cur_pheno_include = nullptr;
+    char** pheno_strset = nullptr;
+    uint32_t first_pheno_ct = 0;
+    uint32_t pheno_names_table_size = 512;
+    if (!(flags & kfPmergePhenoInnerJoin)) {
+      if (unlikely(bigstack_end_calloc_cp(pheno_names_table_size, &pheno_strset))) {
+        goto MergePsams_ret_NOMEM;
+      }
+    }
+    unsigned char* arena_bottom = g_bigstack_base;
+    unsigned char* arena_top = g_bigstack_end;
+
+    const uint32_t decompress_thread_ct = MAXV(max_thread_ct - 1, 1);
+    PmergeInputFilesetLl* filesets_iter = filesets;
+    char* idbuf = g_textbuf;
+    uint32_t max_line_blen = 0;
+    uint32_t max_sample_id_blen_m2 = 2;
+    uintptr_t max_sid_blen = 0;
+    uintptr_t max_paternal_id_blen = 2;
+    uintptr_t max_maternal_id_blen = 2;
+    uintptr_t max_pheno_name_blen = 0;
+    uint32_t sample_ct = 0;
+    uint32_t pheno_ct = 0;
+    do {
+      cur_fname = filesets_iter->psam_fname;
+      reterr = TextStreamOpenEx(cur_fname, kMaxLongLine, linebuf_capacity, decompress_thread_ct, nullptr, linebuf, &txs);
+      if (unlikely(reterr)) {
+        goto MergePsams_ret_TSTREAM_FAIL;
+      }
+      line_idx = 0;
+      // Worth optimizing this more than most text-reading loops, since we may
+      // be processing a LOT of files.
+      const char* line_start = TextLineEnd(&txs);
+      while (1) {
+        ++line_idx;
+        if (unlikely(!TextGetUnsafe2K(&txs, &line_start))) {
+          if (TextStreamErrcode2(&txs, &reterr)) {
+            goto MergePsams_ret_TSTREAM_FAIL;
+          }
+          logerrprintfww("Error: No samples in %s.\n", cur_fname);
+          goto MergePsams_ret_MALFORMED_INPUT;
+        }
+        if ((line_start[0] != '#') || tokequal_k(&(line_start[1]), "FID") || tokequal_k(&(line_start[1]), "IID")) {
+          break;
+        }
+        const char* line_end = AdvPastDelim(line_start, '\n');
+        const uint32_t line_blen = line_end - line_start;
+        if (max_line_blen < line_blen) {
+          max_line_blen = line_blen;
+        }
+        line_start = line_end;
+      }
+      uint32_t fid_present = 1;
+      uint32_t sid_present = 0;
+      uint32_t postid_pat_col_idx = 0;
+      uint32_t postid_mat_col_idx = 0;
+      if (line_start[0] == '#') {
+        const char* iid_end = &(line_start[4]);
+        if (line_start[1] == 'F') {
+          const char* iid_start = FirstNonTspace(iid_end);
+          iid_end = FirstPrechar(iid_start, 33);
+          if (unlikely(!strequal_k(iid_start, "IID", iid_end - iid_start))) {
+            goto MergePsams_ret_MALFORMED_INPUT;
+          }
+        } else {
+          fid_present = 0;
+        }
+        const char* token_start = FirstNonTspace(iid_end);
+        if (tokequal_k(token_start, "SID")) {
+          sid_present = 1;
+          token_start = FirstNonTspace(&(token_start[3]));
+        }
+        const char* token_end;
+        for (uint32_t postid_col_idx = 1; !IsEolnKns(*token_start); token_start = FirstNonTspace(token_end), ++postid_col_idx) {
+          token_end = CurTokenEnd(token_start);
+          const uint32_t token_slen = token_end - token_start;
+          if (token_slen == 3) {
+            if (unlikely(memequal_k(token_start, "FID", 3))) {
+              if (fid_present) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Duplicate FID column in %s.\n", cur_fname);
+              } else {
+                snprintf(g_logbuf, kLogbufSize, "Error: Improperly positioned FID column in %s (must be first).\n", cur_fname);
+              }
+              goto MergePsams_ret_MALFORMED_INPUT_WW;
+            }
+            if (unlikely(memequal_k(token_start, "IID", 3))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Duplicate IID column in %s.\n", cur_fname);
+              goto MergePsams_ret_MALFORMED_INPUT_WW;
+            }
+            if (unlikely(memequal_k(token_start, "SID", 3))) {
+              if (sid_present) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Duplicate SID column in %s.\n", cur_fname);
+              } else {
+                snprintf(g_logbuf, kLogbufSize, "Error: Improperly positioned SID column in %s (must immediately follow IID).\n", cur_fname);
+              }
+              goto MergePsams_ret_MALFORMED_INPUT_WW;
+            }
+            if (memequal_k(token_start, "PAT", 3)) {
+              if (unlikely(postid_pat_col_idx)) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Duplicate PAT column in %s.\n", cur_fname);
+                goto MergePsams_ret_MALFORMED_INPUT_WW;
+              }
+              postid_pat_col_idx = postid_col_idx;
+              continue;
+            }
+            if (memequal_k(token_start, "MAT", 3)) {
+              if (unlikely(postid_mat_col_idx)) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Duplicate MAT column in %s.\n", cur_fname);
+                goto MergePsams_ret_MALFORMED_INPUT_WW;
+              }
+              postid_mat_col_idx = postid_col_idx;
+              continue;
+            }
+            if (memequal_k(token_start, "SEX", 3)) {
+              continue;
+            }
+          } else if (token_slen > kMaxIdBlen) {
+            logerrputs("Error: Phenotype names are limited to " MAX_ID_SLEN_STR " characters.\n");
+            goto MergePsams_ret_MALFORMED_INPUT;
+          }
+          if (pheno_strset) {
+            if (token_slen >= max_pheno_name_blen) {
+              max_pheno_name_blen = token_slen + 1;
+            }
+            if (unlikely(StrsetAddEndResize(arena_bottom, token_start, token_slen, kMaxPhenoCt * 2, &pheno_strset, &pheno_names_table_size, &pheno_ct, &arena_top))) {
+              if (pheno_ct == kMaxPhenoCt) {
+                logerrputs("Error: " PROG_NAME_STR " does not support more than " MAX_PHENO_CT_STR " phenotypes.\n");
+                goto MergePsams_ret_INCONSISTENT_INPUT;
+              }
+              goto MergePsams_ret_NOMEM;
+            }
+          } else {
+            // max_pheno_name_blen calculation deferred since any name may not
+            // appear in a later file
+            if (!first_pheno_names_htable) {
+              // StoreStringAtEnd(), without dst assignment
+              if (unlikely(PtrWSubCk(arena_bottom, token_slen + 1, &arena_top))) {
+                goto MergePsams_ret_NOMEM;
+              }
+              memcpyx(arena_top, token_start, token_slen, '\0');
+              ++first_pheno_ct;
+            } else if (pheno_ct) {
+              const uint32_t pheno_idx = IdHtableFindNnt(token_start, first_pheno_names, first_pheno_names_htable, token_slen, pheno_names_table_size);
+              if (pheno_idx != UINT32_MAX) {
+                if (unlikely(IsSet(cur_pheno_include, pheno_idx))) {
+                  snprintf(g_logbuf, kLogbufSize, "Error: Duplicate phenotype name '%s' in %s.\n", first_pheno_names[pheno_idx], cur_fname);
+                  goto MergePsams_ret_MALFORMED_INPUT_WW;
+                }
+                SetBit(pheno_idx, cur_pheno_include);
+              }
+            }
+          }
+        }
+        if ((!postid_pat_col_idx) != (!postid_mat_col_idx)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: %s has a '%cAT' column without a '%cAT' column; either both or neither must be present.\n", cur_fname, postid_pat_col_idx? 'P' : 'M', postid_pat_col_idx? 'M' : 'P');
+          goto MergePsams_ret_MALFORMED_INPUT_WW;
+        }
+        const char* line_end = AdvPastDelim(token_start, '\n');
+        const uint32_t line_blen = line_end - line_start;
+        if (max_line_blen < line_blen) {
+          max_line_blen = line_blen;
+        }
+        line_start = line_end;
+        ++line_idx;
+        if (unlikely(!TextGetUnsafe2K(&txs, &line_start))) {
+          if (TextStreamErrcode2(&txs, &reterr)) {
+            goto MergePsams_ret_TSTREAM_FAIL;
+          }
+          logerrprintfww("Error: No samples in %s.\n", cur_fname);
+          goto MergePsams_ret_MALFORMED_INPUT;
+        }
+      } else {
+        if (pheno_strset) {
+          if (unlikely(StrsetAddEndResize(arena_bottom, "PHENO1", strlen("PHENO1"), kMaxPhenoCt * 2, &pheno_strset, &pheno_names_table_size, &pheno_ct, &arena_top))) {
+            if (pheno_ct == kMaxPhenoCt) {
+              logerrputs("Error: " PROG_NAME_STR " does not support more than " MAX_PHENO_CT_STR " phenotypes.\n");
+              goto MergePsams_ret_INCONSISTENT_INPUT;
+            }
+            goto MergePsams_ret_NOMEM;
+          }
+        } else {
+          if (!first_pheno_names_htable) {
+            if (unlikely(PtrWSubCk(arena_bottom, strlen("PHENO1") + 1, &arena_top))) {
+              goto MergePsams_ret_NOMEM;
+            }
+            strcpy_k(R_CAST(char*, arena_top), "PHENO1");
+            first_pheno_ct = 1;
+          } else if (pheno_ct) {
+            const uint32_t pheno_idx = IdHtableFind("PHENO1", TO_CONSTCPCONSTP(first_pheno_names), first_pheno_names_htable, strlen("PHENO1"), pheno_names_table_size);
+            if (pheno_idx != UINT32_MAX) {
+              SetBit(pheno_idx, cur_pheno_include);
+            }
+          }
+        }
+        postid_pat_col_idx = 1;
+        postid_mat_col_idx = 2;
+      }
+      uint32_t first_parent_postid_col_idx = postid_pat_col_idx;
+      uint32_t parent_col_skip = postid_mat_col_idx - postid_pat_col_idx;
+      uintptr_t first_parent_max_blen = max_paternal_id_blen;
+      uintptr_t second_parent_max_blen = max_maternal_id_blen;
+      if (postid_mat_col_idx < postid_pat_col_idx) {
+        first_parent_postid_col_idx = postid_mat_col_idx;
+        parent_col_skip = -parent_col_skip;
+        first_parent_max_blen = max_maternal_id_blen;
+        second_parent_max_blen = max_paternal_id_blen;
+      }
+      const char* fid_start = &(g_one_char_strs[96]);
+      uint32_t fid_slen = 1;
+      const char* sid_start = &(g_one_char_strs[96]);
+      uint32_t sid_slen = 1;
+      while (1) {
+        const char* token_start = line_start;
+        if (fid_present) {
+          fid_start = line_start;
+          const char* fid_end = CurTokenEnd(fid_start);
+          fid_slen = fid_end - fid_start;
+          token_start = FirstNonTspace(fid_end);
+          if (unlikely(IsEolnKns(*token_start))) {
+            goto MergePsams_ret_MISSING_TOKENS;
+          }
+        }
+        const char* iid_start = token_start;
+        const char* iid_end = CurTokenEnd(iid_start);
+        const char* token_end = iid_end;
+        const uint32_t iid_slen = iid_end - iid_start;
+        if (sid_present) {
+          sid_start = FirstNonTspace(iid_end);
+          token_end = CurTokenEnd(token_start);
+          sid_slen = token_end - sid_start;
+          if ((sid_slen > 1) || (sid_start[0] != '0')) {
+            if (sid_slen >= max_sid_blen) {
+              if (unlikely(sid_slen > kMaxIdBlen)) {
+                logerrputs("Error: SIDs are limited to " MAX_ID_SLEN_STR " characters.\n");
+                goto MergePsams_ret_MALFORMED_INPUT;
+              }
+              max_sid_blen = sid_slen + 1;
+            }
+          }
+        }
+        if (fid_slen + iid_slen > max_sample_id_blen_m2) {
+          max_sample_id_blen_m2 = fid_slen + iid_slen;
+          if (unlikely(max_sample_id_blen_m2 > 2 * kMaxIdSlen)) {
+            logerrputs("Error: FIDs and IIDs are limited to " MAX_ID_SLEN_STR " characters.\n");
+            goto MergePsams_ret_MALFORMED_INPUT;
+          }
+        }
+        char* id_iter = memcpyax(idbuf, fid_start, fid_slen, '\t');
+        id_iter = memcpyax(id_iter, iid_start, iid_slen, '\t');
+        id_iter = memcpya(id_iter, sid_start, sid_slen);
+        *id_iter = '\0';
+        const uint32_t id_slen = id_iter - idbuf;
+        if (sample_id_strset) {
+          if (unlikely(StrsetAddResize(arena_top, idbuf, id_slen, 2U * 0x7ffffffe, sample_id_strset, &sample_id_table_size, &sample_ct, &arena_bottom))) {
+            if (sample_ct == 0x7ffffffe) {
+              logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 2 samples.\n");
+              goto MergePsams_ret_INCONSISTENT_INPUT;
+            }
+            goto MergePsams_ret_NOMEM;
+          }
+        } else {
+          if (!first_sample_ids_htable) {
+            if (unlikely(id_slen >= S_CAST(uintptr_t, arena_top - arena_bottom))) {
+              goto MergePsams_ret_NOMEM;
+            }
+            arena_bottom = memcpyua(arena_bottom, idbuf, id_slen + 1);
+            if (unlikely(first_sample_id_ct == 0x7ffffffe)) {
+              logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 2 samples.\n");
+              goto MergePsams_ret_INCONSISTENT_INPUT;
+            }
+            ++first_sample_id_ct;
+          } else {
+            const uint32_t sample_idx = IdHtableFind(idbuf, first_sample_ids, first_sample_ids_htable, id_slen, sample_id_table_size);
+            if (sample_idx != UINT32_MAX) {
+              if (unlikely(IsSet(cur_sample_include, sample_idx))) {
+                TabsToSpaces(idbuf);
+                snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID \"%s\" in %s.\n", idbuf, cur_fname);
+                goto MergePsams_ret_MALFORMED_INPUT_WW;
+              }
+              SetBit(sample_idx, cur_sample_include);
+            }
+          }
+        }
+        if (first_parent_postid_col_idx) {
+          const char* first_parent_start = NextTokenMult(token_end, first_parent_postid_col_idx);
+          if (unlikely(!first_parent_start)) {
+            goto MergePsams_ret_MISSING_TOKENS;
+          }
+          const char* first_parent_end = CurTokenEnd(first_parent_start);
+          const uintptr_t first_parent_slen = first_parent_end - first_parent_start;
+          if (first_parent_slen >= first_parent_max_blen) {
+            if (unlikely(first_parent_slen > kMaxIdSlen)) {
+              logerrputs("Error: FIDs and IIDs are limited to " MAX_ID_SLEN_STR " characters.\n");
+              goto MergePsams_ret_MALFORMED_INPUT;
+            }
+            first_parent_max_blen = first_parent_slen + 1;
+          }
+          const char* second_parent_start = NextTokenMult(first_parent_end, parent_col_skip);
+          if (unlikely(!second_parent_start)) {
+            goto MergePsams_ret_MISSING_TOKENS;
+          }
+          token_end = CurTokenEnd(second_parent_start);
+          const uintptr_t second_parent_slen = token_end - second_parent_start;
+          if (second_parent_slen >= second_parent_max_blen) {
+            if (unlikely(second_parent_slen > kMaxIdSlen)) {
+              logerrputs("Error: FIDs and IIDs are limited to " MAX_ID_SLEN_STR " characters.\n");
+              goto MergePsams_ret_MALFORMED_INPUT;
+            }
+            second_parent_max_blen = second_parent_slen + 1;
+          }
+        }
+        const char* line_end = AdvPastDelim(token_end, '\n');
+        const uint32_t line_blen = line_end - line_start;
+        if (max_line_blen < line_blen) {
+          max_line_blen = line_blen;
+        }
+        line_start = line_end;
+        ++line_idx;
+        if (!TextGetUnsafe2K(&txs, &line_start)) {
+          break;
+        }
+        if (line_start[0] == '#') {
+          snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and if a #FID/IID header line is present it must denote the end of the header block.)\n", line_idx, cur_fname);
+          goto MergePsams_ret_MALFORMED_INPUT_WW;
+        }
+      }
+      if (TextStreamErrcode2(&txs, &reterr)) {
+        goto MergePsams_ret_TSTREAM_FAIL;
+      }
+      if (unlikely(CleanupTextStream2(cur_fname, &txs, &reterr))) {
+        goto MergePsams_ret_1;
+      }
+      if (postid_pat_col_idx) {
+        if (postid_mat_col_idx > postid_pat_col_idx) {
+          max_paternal_id_blen = first_parent_max_blen;
+          max_maternal_id_blen = second_parent_max_blen;
+        } else {
+          max_paternal_id_blen = second_parent_max_blen;
+          max_maternal_id_blen = first_parent_max_blen;
+        }
+      }
+      if (first_sample_ids_start) {
+        const uint32_t first_sample_ctl = BitCtToWordCt(first_sample_id_ct);
+        if (filesets_iter == filesets) {
+          ArenaBaseSet(arena_bottom, &arena_bottom);
+          sample_id_table_size = GetHtableFastSize(first_sample_id_ct);
+          if (unlikely((arena_bottom > arena_top) ||
+                       arena_alloc_kcp(arena_top, first_sample_id_ct, &arena_bottom, &first_sample_ids) ||
+                       arena_alloc_u32(arena_top, sample_id_table_size, &arena_bottom, &first_sample_ids_htable) ||
+                       arena_alloc_w(arena_top, first_sample_ctl, &arena_bottom, &sample_include) ||
+                       arena_alloc_w(arena_top, first_sample_ctl, &arena_bottom, &cur_sample_include))) {
+            goto MergePsams_ret_NOMEM;
+          }
+          SetAllU32Arr(sample_id_table_size, first_sample_ids_htable);
+          SetAllBits(first_sample_id_ct, sample_include);
+          const char* first_sample_ids_iter = first_sample_ids_start;
+          for (uint32_t sample_idx = 0; sample_idx != first_sample_id_ct; ++sample_idx) {
+            first_sample_ids[sample_idx] = first_sample_ids_iter;
+            const uint32_t slen = strlen(first_sample_ids_iter);
+            for (uint32_t hashval = Hashceil(first_sample_ids_iter, slen, sample_id_table_size); ; ) {
+              const uint32_t cur_htable_entry = first_sample_ids_htable[hashval];
+              if (cur_htable_entry == UINT32_MAX) {
+                first_sample_ids_htable[hashval] = sample_idx;
+                break;
+              }
+              if (unlikely(memequal(first_sample_ids_iter, first_sample_ids[cur_htable_entry], slen + 1))) {
+                char* mutable_id = K_CAST(char*, first_sample_ids_iter);
+                TabsToSpaces(mutable_id);
+                snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID \"%s\" in %s.\n", mutable_id, cur_fname);
+                goto MergePsams_ret_MALFORMED_INPUT_WW;
+              }
+              if (++hashval == sample_id_table_size) {
+                hashval = 0;
+              }
+            }
+            first_sample_ids_iter = &(first_sample_ids_iter[slen + 1]);
+          }
+        } else {
+          BitvecAnd(cur_sample_include, first_sample_ctl, sample_include);
+          if (unlikely(AllWordsAreZero(sample_include, first_sample_ctl))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: No common samples in --pmerge%s --sample-inner-join job.\n", pmip->list_fname? "-list" : "");
+            goto MergePsams_ret_MALFORMED_INPUT_2;
+          }
+        }
+        ZeroWArr(first_sample_ctl, cur_sample_include);
+      }
+      if (!pheno_strset) {
+        const uint32_t first_pheno_ctl = BitCtToWordCt(first_pheno_ct);
+        if (filesets_iter == filesets) {
+          // must handle pheno_ct == 0
+          // (only really need to set first_pheno_names_htable to non-null in
+          // that case, since that's how we currently recognize we aren't
+          // processing the first .psam file)
+          const char* pheno_names_iter = R_CAST(char*, arena_top);
+          ArenaEndSet(arena_top, &arena_top);
+          pheno_names_table_size = GetHtableFastSize(first_pheno_ct);
+          if (unlikely(arena_end_alloc_kcp(arena_bottom, first_pheno_ct, &arena_top, &first_pheno_names) ||
+                       arena_end_alloc_u32(arena_bottom, pheno_names_table_size, &arena_top, &first_pheno_names_htable) ||
+                       arena_end_alloc_w(arena_bottom, first_pheno_ctl, &arena_top, &pheno_include) ||
+                       arena_end_alloc_w(arena_bottom, first_pheno_ctl, &arena_top, &cur_pheno_include))) {
+            goto MergePsams_ret_NOMEM;
+          }
+          SetAllU32Arr(pheno_names_table_size, first_pheno_names_htable);
+          SetAllBits(first_pheno_ct, pheno_include);
+          ZeroWArr(first_pheno_ctl, cur_pheno_include);
+          pheno_ct = first_pheno_ct;
+          for (uint32_t pheno_idx = 0; pheno_idx != first_pheno_ct; ++pheno_idx) {
+            first_pheno_names[pheno_idx] = pheno_names_iter;
+            const uint32_t slen = strlen(pheno_names_iter);
+            for (uint32_t hashval = Hashceil(pheno_names_iter, slen, pheno_names_table_size); ; ) {
+              const uint32_t cur_htable_entry = first_pheno_names_htable[hashval];
+              if (cur_htable_entry == UINT32_MAX) {
+                first_pheno_names_htable[hashval] = pheno_idx;
+                break;
+              }
+              if (unlikely(memequal(pheno_names_iter, first_pheno_names[cur_htable_entry], slen + 1))) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Duplicate phenotype name '%s' in %s.\n", pheno_names_iter, cur_fname);
+                goto MergePsams_ret_MALFORMED_INPUT_WW;
+              }
+              if (++hashval == pheno_names_table_size) {
+                hashval = 0;
+              }
+            }
+            pheno_names_iter = &(pheno_names_iter[slen + 1]);
+          }
+        } else if (pheno_ct) {
+          BitvecAnd(cur_pheno_include, first_pheno_ctl, pheno_include);
+          pheno_ct = PopcountWords(pheno_include, first_pheno_ctl);
+          ZeroWArr(first_pheno_ctl, cur_pheno_include);
+        }
+      }
+      filesets_iter = filesets_iter->next;
+    } while (filesets_iter);
+    // Intermission:
+    // 1. Move final set of phenotype ID strings to bottom, compute
+    //    max_pheno_name_blen if --pheno-inner-join.
+    // 2. Compute max_sample_id_blen and max_sid_blen if --sample-inner-join.
+    // 3. Free all end-of-bigstack allocations.
+    // 4. Construct SampleIdInfo at end of bigstack, to be returned.
+    // 5. Construct pheno_names, hash tables.
+    uintptr_t max_sample_id_blen;
+    {
+      char* pheno_names_tmp_start = R_CAST(char*, arena_bottom);
+      char* pheno_names_tmp_end;
+      if (pheno_strset) {
+        const uintptr_t byte_ct = R_CAST(unsigned char*, pheno_strset) - arena_top;
+        memmove(pheno_names_tmp_start, arena_top, byte_ct);
+        pheno_names_tmp_end = &(pheno_names_tmp_start[byte_ct]);
+      } else {
+        max_pheno_name_blen = 0;
+        char* pheno_names_write_iter = pheno_names_tmp_start;
+        if (pheno_ct) {
+          if (S_CAST(uintptr_t, first_pheno_names[0] - pheno_names_write_iter) < kMaxIdBlen) {
+            // ensure memcpy is safe
+            goto MergePsams_ret_NOMEM;
+          }
+          uintptr_t pheno_uidx_base = 0;
+          uintptr_t cur_bits = pheno_include[0];
+          for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+            const uint32_t pheno_uidx = BitIter1(pheno_include, &pheno_uidx_base, &cur_bits);
+            const char* cur_pheno_name = first_pheno_names[pheno_uidx];
+            const uint32_t blen = 1 + strlen(cur_pheno_name);
+            if (blen > max_pheno_name_blen) {
+              max_pheno_name_blen = blen;
+            }
+            pheno_names_write_iter = memcpya(pheno_names_write_iter, cur_pheno_name, blen);
+          }
+        }
+        pheno_names_tmp_end = pheno_names_write_iter;
+      }
+
+      if (sample_id_strset) {
+        max_sample_id_blen = max_sample_id_blen_m2 + 2;
+      } else {
+        const uint32_t first_sample_ctl = BitCtToWordCt(first_sample_id_ct);
+        sample_ct = PopcountWords(sample_include, first_sample_ctl);
+        max_sample_id_blen = 4;
+        max_sid_blen = 0;
+        uintptr_t sample_uidx_base = 0;
+        uintptr_t cur_bits = sample_include[0];
+        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+          const uint32_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+          const char* cur_sample_id = first_sample_ids[sample_uidx];
+          const char* iid_end = AdvToDelim(AdvPastDelim(cur_sample_id, '\t'), '\t');
+          const uint32_t sample_id_blen_m1 = iid_end - cur_sample_id;
+          if (max_sample_id_blen <= sample_id_blen_m1) {
+            max_sample_id_blen = sample_id_blen_m1 + 1;
+          }
+          const char* sid_start = &(iid_end[1]);
+          const uint32_t sid_slen = strlen(sid_start);
+          if ((sid_slen > 1) || (sid_start[0] != '0')) {
+            if (max_sid_blen <= sid_slen) {
+              max_sid_blen = sid_slen + 1;
+            }
+          }
+        }
+      }
+
+      arena_top = g_bigstack_end;
+      // defensive
+      linebuf = nullptr;
+      first_pheno_names = nullptr;
+      first_pheno_names_htable = nullptr;
+      pheno_include = nullptr;
+      cur_pheno_include = nullptr;
+      pheno_strset = nullptr;
+
+      siip->max_sample_id_blen = max_sample_id_blen;
+      siip->max_sid_blen = max_sid_blen;
+      siip->sids = nullptr;
+      if (max_sid_blen) {
+        if (unlikely(arena_end_alloc_c(arena_bottom, max_sid_blen * sample_ct, &arena_top, &(siip->sids)))) {
+          goto MergePsams_ret_NOMEM;
+        }
+      }
+      // place this below optional siip->sids, so that
+      // BigstackEndSet(siip->sample_ids) is always correct on success
+      if (unlikely(arena_end_alloc_c(arena_bottom, max_sample_id_blen * sample_ct, &arena_top, &(siip->sample_ids)))) {
+        goto MergePsams_ret_NOMEM;
+      }
+
+      char* sample_ids_write_iter = siip->sample_ids;
+      if (sample_id_strset) {
+        const char* sample_ids_read_iter = R_CAST(char*, &(sample_id_strset[sample_id_table_size]));
+        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+          const char* iid_end = AdvToDelim(AdvPastDelim(sample_ids_read_iter, '\t'), '\t');
+          memcpyx(sample_ids_write_iter, sample_ids_read_iter, iid_end - sample_ids_read_iter, '\0');
+          sample_ids_write_iter = &(sample_ids_write_iter[max_sample_id_blen]);
+          const char* sid_end = strnul(iid_end);
+          if (max_sid_blen) {
+            const uint32_t sid_blen = sid_end - iid_end;
+            const char* sid_start = &(iid_end[1]);
+            memcpy(&(siip->sids[sample_idx * max_sid_blen]), sid_start, sid_blen);
+          }
+          sample_ids_read_iter = &(sid_end[1]);
+        }
+      } else {
+        uintptr_t sample_uidx_base = 0;
+        uintptr_t cur_bits = sample_include[0];
+        for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+          const uint32_t sample_uidx = BitIter1(sample_include, &sample_uidx_base, &cur_bits);
+          const char* cur_sample_id = first_sample_ids[sample_uidx];
+          const char* iid_end = AdvToDelim(AdvPastDelim(cur_sample_id, '\t'), '\t');
+          memcpyx(sample_ids_write_iter, cur_sample_id, iid_end - cur_sample_id, '\0');
+          sample_ids_write_iter = &(sample_ids_write_iter[max_sample_id_blen]);
+          if (max_sid_blen) {
+            const char* sid_start = &(iid_end[1]);
+            strcpy(&(siip->sids[sample_idx * max_sid_blen]), sid_start);
+          }
+        }
+      }
+
+      // suppress warning
+      if (!pheno_names_tmp_end) {
+        exit(1);
+      }
+      // TODO
+    }
+    // max_{p,m}aternal_id_blen may be overestimated in --sample-inner-join
+    // case, but that's harmless since we free that strbox soon enough
+    ParentalIdInfo parental_id_info;
+    parental_id_info.max_paternal_id_blen = max_paternal_id_blen;
+    parental_id_info.max_maternal_id_blen = max_maternal_id_blen;
+    *sample_ctp = sample_ct;
+    if (pheno_ct) {
+      logprintf("--pmerge%s: %u sample%s and %u phenotype%s present.\n", pmip->list_fname? "-list" : "", sample_ct, (sample_ct == 1)? "" : "s", pheno_ct, (pheno_ct == 1)? "" : "s");
+    } else {
+      logprintf("--pmerge%s: %u sample%s present.\n", pmip->list_fname? "-list" : "", sample_ct, (sample_ct == 1)? "" : "s");
+    }
+    BigstackEndSet(siip->sample_ids);
+  }
+  while (0) {
+  MergePsams_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  MergePsams_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(cur_fname, &txs);
+    break;
+  MergePsams_ret_MISSING_TOKENS:
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, cur_fname);
+  MergePsams_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+  MergePsams_ret_MALFORMED_INPUT_2:
+    logerrputsb();
+  MergePsams_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  MergePsams_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ MergePsams_ret_1:
+  CleanupTextStream2(cur_fname, &txs, &reterr);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
+  return reterr;
+}
+
+PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags misc_flags, SortMode sample_sort_mode, FamCol fam_cols, uint32_t max_thread_ct, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, __attribute__((unused)) ChrInfo* cip) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
   PglErr reterr = kPglRetSuccess;
   {
     // 1. Construct/load fileset list.
@@ -81,17 +892,63 @@ PglErr Pmerge(__attribute__((unused)) const PmergeInfo* pmip, __attribute__((unu
     // 4. If filesets cover disjoint positions, handle this as a concatenation
     //    job (or error out on --variant-inner-join).
     // 5. Otherwise, perform general-purpose incremental merge.
-    // const PmergeFlags flags = pmip->flags;
-    ;;;
+    PmergeInputFilesetLl* filesets = nullptr;
+    PmergeInputFilesetLl** filesets_endp = &filesets;
+    if (pgenname[0]) {
+      PmergeInputFilesetLl* cur_entry = AllocFilesetLlEntry(&filesets_endp);
+      if (unlikely(!cur_entry)) {
+        goto Pmerge_ret_NOMEM;
+      }
+      const uint32_t pgen_fname_blen = strlen(pgenname) + 1;
+      const uint32_t pvar_fname_blen = strlen(pvarname) + 1;
+      const uint32_t psam_fname_blen = strlen(psamname) + 1;
+      char* fname_iter;
+      if (unlikely(bigstack_end_alloc_c(pgen_fname_blen + pvar_fname_blen + psam_fname_blen, &fname_iter))) {
+        goto Pmerge_ret_NOMEM;
+      }
+      cur_entry->pgen_fname = fname_iter;
+      fname_iter = memcpya(fname_iter, pgenname, pgen_fname_blen);
+      cur_entry->pvar_fname = fname_iter;
+      fname_iter = memcpya(fname_iter, pvarname, pvar_fname_blen);
+      cur_entry->psam_fname = fname_iter;
+      memcpy(fname_iter, psamname, psam_fname_blen);
+    }
+    if (!pmip->list_fname) {
+      PmergeInputFilesetLl* cur_entry = AllocFilesetLlEntry(&filesets_endp);
+      if (unlikely(!cur_entry)) {
+        goto Pmerge_ret_NOMEM;
+      }
+      cur_entry->pgen_fname = pmip->pgen_fname;
+      cur_entry->pvar_fname = pmip->pvar_fname;
+      cur_entry->psam_fname = pmip->psam_fname;
+    } else {
+      reterr = LoadPmergeList(pmip->list_fname, pmip->list_mode, pgenname[0] != '\0', &filesets_endp);
+      if (unlikely(reterr)) {
+        goto Pmerge_ret_1;
+      }
+    }
+
+    SampleIdInfo sii;
+    uint32_t sample_ct;
+    reterr = MergePsams(pmip, sample_sort_fname, (misc_flags / kfMiscAffection01) & 1, sample_sort_mode, fam_cols, max_thread_ct, outname, outname_end, filesets, &sii, &sample_ct);
+    if (unlikely(reterr)) {
+      goto Pmerge_ret_1;
+    }
+
+    if (unlikely(reterr)) {
+      goto Pmerge_ret_1;
+    }
     logerrputs("Error: --pmerge[-list] is under development.\n");
     reterr = kPglRetNotYetSupported;
     goto Pmerge_ret_1;
   }
   while (0) {
-
+  Pmerge_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
   }
  Pmerge_ret_1:
-  BigstackReset(bigstack_mark);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }
 

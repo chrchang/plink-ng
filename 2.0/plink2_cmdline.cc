@@ -3071,7 +3071,6 @@ PglErr AllocAndPopulateIdHtableMt(const uintptr_t* subset_mask, const char* cons
   return PopulateIdHtableMt(g_bigstack_end, subset_mask, item_ids, item_ct, store_all_dups, id_htable_size, max_thread_ct, &g_bigstack_base, *id_htable_ptr, dup_ct_ptr);
 }
 
-
 uint32_t Edit1Match(const char* s1, const char* s2, uint32_t len1, uint32_t len2) {
   // Permit one difference of the following forms (Damerau-Levenshtein distance
   // 1):

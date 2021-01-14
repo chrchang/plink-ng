@@ -1109,8 +1109,25 @@ HEADER_INLINE BoolErr StoreStringAndPrecharAtEnd(unsigned char* arena_bottom, co
   return 0;
 }
 
+// Memory layout:
+//   [       strset       ][packed strings]
+//                                         ^
+//                                         |
+//                                   arena_bottom
+// strset pointers do not remain valid after resize.
+
+// returns 1 if resize needed, 2 if OOM
+// uint32_t StrsetAdd(unsigned char* arena_top, const char* src, uint32_t slen, uint32_t strset_table_size, char** strset, uint32_t* str_ctp, unsigned char** arena_bottom_ptr);
+
+// uint32_t StrsetAddEnd(unsigned char* arena_bottom, const char* src, uint32_t slen, uint32_t strset_table_size, char** strset, uint32_t* str_ctp, unsigned char** arena_top_ptr);
+
+BoolErr StrsetAddResize(unsigned char* arena_top, const char* src, uint32_t slen, uint32_t strset_table_size_max, char** strset, uint32_t* strset_table_sizep, uint32_t* str_ctp, unsigned char** arena_bottom_ptr);
+
+BoolErr StrsetAddEndResize(unsigned char* arena_bottom, const char* src, uint32_t slen, uint32_t strset_table_size_max, char*** strsetp, uint32_t* strset_table_sizep, uint32_t* str_ctp, unsigned char** arena_top_ptr);
+
 // These use g_textbuf.
 PglErr WriteSampleIdsOverride(const uintptr_t* sample_include, const SampleIdInfo* siip, const char* outname, uint32_t sample_ct, SampleIdFlags override_flags);
+
 HEADER_INLINE PglErr WriteSampleIds(const uintptr_t* sample_include, const SampleIdInfo* siip, const char* outname, uint32_t sample_ct) {
   return WriteSampleIdsOverride(sample_include, siip, outname, sample_ct, siip->flags);
 }

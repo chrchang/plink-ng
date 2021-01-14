@@ -94,7 +94,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
       // parse header
       // [-1] = #FID (if present, must be first column)
       // [0] = IID (could also be first column)
-      // [1] = SID
+      // [1] = SID (if present, must immediately follow IID)
       // [2] = PAT
       // [3] = MAT
       // [4] = SEX
@@ -229,7 +229,15 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
       }
       BigstackBaseSet(ll_alloc_base);
       if (unlikely(!(psam_cols_mask & 1))) {
-        snprintf(g_logbuf, kLogbufSize, "Error: No IID column on line %" PRIuPTR " of %s.\n", line_idx, psamname);
+        snprintf(g_logbuf, kLogbufSize, "Error: No IID column in %s.\n", psamname);
+        goto LoadPsam_ret_MALFORMED_INPUT_WW;
+      }
+      if (unlikely(col_types[0] != 0)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: IID column is not first or second in %s.\n", psamname);
+        goto LoadPsam_ret_MALFORMED_INPUT_WW;
+      }
+      if (unlikely((psam_cols_mask & 2) && ((col_types[1] != 1) || (col_skips[1] != 1)))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: SID column does not immediately follow IID column in %s.\n", psamname);
         goto LoadPsam_ret_MALFORMED_INPUT_WW;
       }
       if (unlikely(in_interval)) {

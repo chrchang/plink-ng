@@ -928,17 +928,17 @@ uint32_t DataSidColIsRequired(const uintptr_t* sample_include, const char* sids,
   return 0;
 }
 
-uint32_t DataParentalColsAreRequired(const uintptr_t* sample_include, const PedigreeIdInfo* piip, uint32_t sample_ct, uint32_t maybe_modifier) {
+uint32_t DataParentalColsAreRequired(const uintptr_t* sample_include, const SampleIdInfo* siip, const ParentalIdInfo* parental_id_infop, uint32_t sample_ct, uint32_t maybe_modifier) {
   if (maybe_modifier & 2) {
     return 1;
   }
-  if ((!(maybe_modifier & 1)) || (!(piip->sii.flags & kfSampleIdParentsPresent))) {
+  if ((!(maybe_modifier & 1)) || (!(siip->flags & kfSampleIdParentsPresent))) {
     return 0;
   }
-  const char* paternal_ids = piip->parental_id_info.paternal_ids;
-  const char* maternal_ids = piip->parental_id_info.maternal_ids;
-  const uintptr_t max_paternal_id_blen = piip->parental_id_info.max_paternal_id_blen;
-  const uintptr_t max_maternal_id_blen = piip->parental_id_info.max_maternal_id_blen;
+  const char* paternal_ids = parental_id_infop->paternal_ids;
+  const char* maternal_ids = parental_id_infop->maternal_ids;
+  const uintptr_t max_paternal_id_blen = parental_id_infop->max_paternal_id_blen;
+  const uintptr_t max_maternal_id_blen = parental_id_infop->max_maternal_id_blen;
   uintptr_t sample_uidx_base = 0;
   uintptr_t cur_bits = sample_include[0];
   for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
@@ -966,7 +966,7 @@ char* AppendPhenoStr(const PhenoCol* pheno_col, const char* output_missing_pheno
   return write_iter;
 }
 
-PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, PvarPsamFlags pvar_psam_flags) {
+PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const SampleIdInfo* siip, const ParentalIdInfo* parental_id_infop, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, PvarPsamFlags pvar_psam_flags) {
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
   {
@@ -978,17 +978,17 @@ PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const Ped
 
     char* textbuf_flush = &(g_textbuf[kMaxMediumLine]);
 
-    const char* sample_ids = piip->sii.sample_ids;
-    const char* sids = piip->sii.sids;
-    const char* paternal_ids = piip->parental_id_info.paternal_ids;
-    const char* maternal_ids = piip->parental_id_info.maternal_ids;
-    const uintptr_t max_sample_id_blen = piip->sii.max_sample_id_blen;
-    const uintptr_t max_sid_blen = piip->sii.max_sid_blen;
-    const uintptr_t max_paternal_id_blen = piip->parental_id_info.max_paternal_id_blen;
-    const uintptr_t max_maternal_id_blen = piip->parental_id_info.max_maternal_id_blen;
-    const uint32_t write_fid = DataFidColIsRequired(sample_include, &(piip->sii), sample_ct, pvar_psam_flags / kfPsamColMaybefid);
+    const char* sample_ids = siip->sample_ids;
+    const char* sids = siip->sids;
+    const char* paternal_ids = parental_id_infop->paternal_ids;
+    const char* maternal_ids = parental_id_infop->maternal_ids;
+    const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+    const uintptr_t max_sid_blen = siip->max_sid_blen;
+    const uintptr_t max_paternal_id_blen = parental_id_infop->max_paternal_id_blen;
+    const uintptr_t max_maternal_id_blen = parental_id_infop->max_maternal_id_blen;
+    const uint32_t write_fid = DataFidColIsRequired(sample_include, siip, sample_ct, pvar_psam_flags / kfPsamColMaybefid);
     const uint32_t write_sid = DataSidColIsRequired(sample_include, sids, sample_ct, max_sid_blen, pvar_psam_flags / kfPsamColMaybesid);
-    const uint32_t write_parents = DataParentalColsAreRequired(sample_include, piip, sample_ct, pvar_psam_flags / kfPsamColMaybeparents);
+    const uint32_t write_parents = DataParentalColsAreRequired(sample_include, siip, parental_id_infop, sample_ct, pvar_psam_flags / kfPsamColMaybeparents);
     const uint32_t write_sex = (pvar_psam_flags / kfPsamColSex) & 1;
     const uint32_t write_empty_pheno = (pvar_psam_flags & kfPsamColPheno1) && (!pheno_ct);
     const uint32_t write_phenos = (pvar_psam_flags & (kfPsamColPheno1 | kfPsamColPhenos)) && pheno_ct;
@@ -6765,7 +6765,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
       logprintfww5("Writing %s ... ", outname);
       fflush(stdout);
-      reterr = WritePsam(outname, sample_include, piip, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, sample_ct, pheno_ct, max_pheno_name_blen, pvar_psam_flags);
+      reterr = WritePsam(outname, sample_include, &(piip->sii), &(piip->parental_id_info), sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, sample_ct, pheno_ct, max_pheno_name_blen, pvar_psam_flags);
       if (unlikely(reterr)) {
         goto MakePlink2NoVsort_ret_1;
       }
@@ -8218,7 +8218,7 @@ PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* pi
       snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
       logprintfww5("Writing %s ... ", outname);
       fflush(stdout);
-      reterr = WritePsam(outname, sample_include, piip, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, sample_ct, pheno_ct, max_pheno_name_blen, pvar_psam_flags);
+      reterr = WritePsam(outname, sample_include, &(piip->sii), &(piip->parental_id_info), sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, sample_ct, pheno_ct, max_pheno_name_blen, pvar_psam_flags);
       if (unlikely(reterr)) {
         goto MakePlink2Vsort_ret_1;
       }

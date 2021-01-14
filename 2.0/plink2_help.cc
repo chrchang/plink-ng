@@ -2145,8 +2145,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                            (--merge-filter-mode default, not\n"
 "                                            applicable to others)\n"
               );
-    HelpPrint("pmerge\0pmerge-list\0merge-info-sort\0", &help_ctrl, 0,
-"  --merge-info-sort <mode> : Set sort order for INFO entries when merging.\n"
+    HelpPrint("pmerge\0pmerge-list\0merge-pheno-sort\0merge-info-sort\0", &help_ctrl, 0,
+"  --merge-pheno-sort <m>   : Set sort order for phenotype columns and INFO\n"
+"  --merge-info-sort <mode>   entries when merging.\n"
 "                             * 'none'/'0' = keep in loaded order (default)\n"
 "                             * 'ascii'/'a' = ASCII order\n"
 "                             * 'natural'/'n' = natural sort\n"

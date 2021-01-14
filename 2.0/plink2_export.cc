@@ -3845,7 +3845,7 @@ PglErr ExportOxSampleV2(const char* outname, const uintptr_t* sample_include, co
       }
     }
     // possible todo: support column sets here
-    const uint32_t write_parents = DataParentalColsAreRequired(sample_include, piip, sample_ct, 1);
+    const uint32_t write_parents = DataParentalColsAreRequired(sample_include, &(piip->sii), &(piip->parental_id_info), sample_ct, 1);
     if (write_parents) {
       writebuf_size += max_paternal_id_blen + max_maternal_id_blen;
     }

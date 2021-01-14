@@ -3037,6 +3037,115 @@ void ExpandMhc(uint32_t sample_ct, uintptr_t* mhc, uintptr_t** patch_01_set_ptr,
   *patch_10_vals_ptr = R_CAST(AlleleCode*, &(patch_10_set[sample_ctl]));
 }
 
+// Returns 2 if resize needed (str_ct == strset_table_size / 2), 1 if OOM
+uint32_t StrsetAdd(unsigned char* arena_top, const char* src, uint32_t slen, uint32_t strset_table_size, char** strset, uint32_t* str_ctp, unsigned char** arena_bottom_ptr) {
+  for (uint32_t hashval = Hashceil(src, slen, strset_table_size); ; ) {
+    char* strset_entry = strset[hashval];
+    if (!strset_entry) {
+      const uint32_t str_ct = 1 + (*str_ctp);
+      if (unlikely(str_ct * 2 > strset_table_size)) {
+        return 2;
+      }
+      *str_ctp = str_ct;
+      return S_CAST(uint32_t, StoreStringAtBase(arena_top, src, slen, arena_bottom_ptr, &(strset[hashval])));
+    }
+    if (strequal_unsafe(strset_entry, src, slen)) {
+      return 0;
+    }
+    if (++hashval == strset_table_size) {
+      hashval = 0;
+    }
+  }
+}
+
+uint32_t StrsetAddEnd(unsigned char* arena_bottom, const char* src, uint32_t slen, uint32_t strset_table_size, char** strset, uint32_t* str_ctp, unsigned char** arena_top_ptr) {
+  for (uint32_t hashval = Hashceil(src, slen, strset_table_size); ; ) {
+    char* strset_entry = strset[hashval];
+    if (!strset_entry) {
+      const uint32_t str_ct = 1 + (*str_ctp);
+      if (unlikely(str_ct * 2 > strset_table_size)) {
+        return 2;
+      }
+      *str_ctp = str_ct;
+      return S_CAST(uint32_t, StoreStringAtEnd(arena_bottom, src, slen, arena_top_ptr, &(strset[hashval])));
+    }
+    if (strequal_unsafe(strset_entry, src, slen)) {
+      return 0;
+    }
+    if (++hashval == strset_table_size) {
+      hashval = 0;
+    }
+  }
+}
+
+void RepopulateStrset(char* str_iter, uint32_t str_ct, uint32_t strset_size, char** strset) {
+  ZeroPtrArr(strset_size, strset);
+  for (uint32_t str_idx = 0; str_idx != str_ct; ++str_idx) {
+    char* str_end = strnul(str_iter);
+    const uint32_t slen = str_end - str_iter;
+    for (uint32_t hashval = Hashceil(str_iter, slen, strset_size); ; ) {
+      char* strset_entry = strset[hashval];
+      if (!strset_entry) {
+        strset[hashval] = str_iter;
+        break;
+      }
+      if (++hashval == strset_size) {
+        hashval = 0;
+      }
+    }
+    str_iter = &(str_end[1]);
+  }
+}
+
+BoolErr StrsetAddResize(unsigned char* arena_top, const char* src, uint32_t slen, uint32_t strset_table_size_max, char** strset, uint32_t* strset_table_sizep, uint32_t* str_ctp, unsigned char** arena_bottom_ptr) {
+  uint32_t strset_table_size = *strset_table_sizep;
+  uint32_t retval = StrsetAdd(arena_top, src, slen, strset_table_size, strset, str_ctp, arena_bottom_ptr);
+  if (!retval) {
+    return 0;
+  }
+  if (unlikely((retval == 1) || (strset_table_size == strset_table_size_max))) {
+    return 1;
+  }
+  const uint32_t new_table_size = MINV(strset_table_size * 2LLU, strset_table_size_max);
+  const uint64_t bytes_needed = sizeof(intptr_t) * (new_table_size - strset_table_size);
+  if (S_CAST(uintptr_t, arena_top - (*arena_bottom_ptr)) < bytes_needed) {
+    return 1;
+  }
+  unsigned char* old_str_base = R_CAST(unsigned char*, &(strset[strset_table_size]));
+  unsigned char* new_str_base = R_CAST(unsigned char*, &(strset[new_table_size]));
+  memmove(new_str_base, old_str_base, (*arena_bottom_ptr) - old_str_base);
+  *arena_bottom_ptr += bytes_needed;
+  RepopulateStrset(R_CAST(char*, new_str_base), *str_ctp, new_table_size, strset);
+  *strset_table_sizep = new_table_size;
+  return (StrsetAdd(arena_top, src, slen, new_table_size, strset, str_ctp, arena_bottom_ptr) != 0);
+}
+
+BoolErr StrsetAddEndResize(unsigned char* arena_bottom, const char* src, uint32_t slen, uint32_t strset_table_size_max, char*** strsetp, uint32_t* strset_table_sizep, uint32_t* str_ctp, unsigned char** arena_top_ptr) {
+  char** strset = *strsetp;
+  uint32_t strset_table_size = *strset_table_sizep;
+  uint32_t retval = StrsetAddEnd(arena_bottom, src, slen, strset_table_size, strset, str_ctp, arena_top_ptr);
+  if (!retval) {
+    return 0;
+  }
+  if (unlikely((retval == 1) || (strset_table_size == strset_table_size_max))) {
+    return 1;
+  }
+  const uint32_t new_table_size = MINV(strset_table_size * 2LLU, strset_table_size_max);
+  const uint64_t bytes_needed = sizeof(intptr_t) * (new_table_size - strset_table_size);
+  unsigned char* old_str_base = *arena_top_ptr;
+  if (unlikely(S_CAST(uintptr_t, old_str_base - arena_bottom) < bytes_needed)) {
+    return 1;
+  }
+  unsigned char* new_str_base = old_str_base - bytes_needed;
+  memmove(new_str_base, old_str_base, R_CAST(unsigned char*, strset) - old_str_base);
+  *arena_top_ptr = new_str_base;
+  strset -= new_table_size - strset_table_size;
+  *strsetp = strset;
+  RepopulateStrset(R_CAST(char*, new_str_base), *str_ctp, new_table_size, strset);
+  *strset_table_sizep = new_table_size;
+  return (StrsetAddEnd(arena_bottom, src, slen, new_table_size, strset, str_ctp, arena_top_ptr) != 0);
+}
+
 PglErr WriteSampleIdsOverride(const uintptr_t* sample_include, const SampleIdInfo* siip, const char* outname, uint32_t sample_ct, SampleIdFlags override_flags) {
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;

@@ -512,7 +512,7 @@ PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, con
         if ((old_allele2_match == UINT32_MAX) || (cur_allele_ct != 2) || (old_slen1 != 1) || (old_allele1_start[0] != '.')) {
         UpdateVarAlleles_errfile:
           if (!err_ct) {
-            strcpy(outname_end, ".allele.no.snp");
+            strcpy_k(outname_end, ".allele.no.snp");
             if (fopen_checked(outname, FOPEN_WB, &errfile)) {
               goto UpdateVarAlleles_ret_OPEN_FAIL;
             }
@@ -1023,7 +1023,7 @@ PglErr RecoverVarIds(const char* fname, const uintptr_t* variant_include, const 
     logprintf("--recover-var-ids: %" PRIuPTR " line%s scanned.\n", line_idx, (line_idx == 1)? "" : "s");
     const uint32_t conflict_ct = PopcountWords(conflict_bitarr, raw_variant_ctl);
     if (conflict_ct) {
-      strcpy(outname_end, ".recoverid.dup");
+      strcpy_k(outname_end, ".recoverid.dup");
       if (fopen_checked(outname, FOPEN_WB, &errfile)) {
         goto RecoverVarIds_ret_OPEN_FAIL;
       }
@@ -1935,6 +1935,10 @@ PglErr UpdateSampleIds(const char* fname, const uintptr_t* sample_include, uint3
       xid_mode = old_sid_present? kfXidModeFidIidSid : kfXidModeFidIid;
     } else {
       xid_mode = old_sid_present? kfXidModeIidSid : kfXidModeIid;
+    }
+    if (new_fid_present) {
+      // bugfix (14 Jan 2021)
+      siip->flags |= kfSampleIdFidPresent;
     }
     const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
     const uintptr_t max_sid_blen = siip->max_sid_blen;

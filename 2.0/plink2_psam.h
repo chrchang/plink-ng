@@ -35,8 +35,8 @@ namespace plink2 {
 // by a leading '#'.  All lines which don't start with '#FID' or '#IID' are
 // currently ignored.  The #FID/IID line specifies the columns in the .psam
 // file; the following column headers are recognized:
-//   IID (required)
-//   SID
+//   IID (required, must be first or second)
+//   SID (must immediately follow IID if present)
 //   PAT
 //   MAT
 //   SEX

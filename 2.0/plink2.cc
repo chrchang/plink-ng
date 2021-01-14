@@ -71,10 +71,10 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (4 Jan 2021)";
+  " (14 Jan 2021)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -286,8 +286,8 @@ typedef struct Plink2CmdlineStruct {
 
   Command1Flags command_flags1;
   PvarPsamFlags pvar_psam_flags;
-  SortFlags sample_sort_flags;
-  SortFlags sort_vars_flags;
+  SortMode sample_sort_mode;
+  SortMode sort_vars_mode;
   GrmFlags grm_flags;
   PcaFlags pca_flags;
   WriteCovarFlags write_covar_flags;
@@ -2502,11 +2502,11 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         BigstackReset(bigstack_mark_allele_ddosages);
 
         uint32_t* new_sample_idx_to_old = nullptr;
-        if (pcp->sample_sort_flags & (kfSortNatural | kfSortAscii | kfSortFile)) {
+        if (pcp->sample_sort_mode > kSortNone) {
           if (sample_ct < 2) {
             logerrputs("Warning: Skipping --sample-sort since <2 samples are present.\n");
           } else {
-            if (pcp->sample_sort_flags & kfSortFile) {
+            if (pcp->sample_sort_mode == kSortFile) {
               reterr = SampleSortFileMap(sample_include, &pii.sii, pcp->sample_sort_fname, raw_sample_ct, sample_ct, &new_sample_idx_to_old);
               if (unlikely(reterr)) {
                 goto Plink2Core_ret_1;
@@ -2517,7 +2517,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               // to spare here, so keep the code simpler for now
               char* sorted_xidbox_tmp;
               uintptr_t max_xid_blen;
-              reterr = SortedXidboxInitAlloc(sample_include, &pii.sii, sample_ct, 0, pii.sii.sids? kfXidModeFidIidSid : kfXidModeFidIid, (pcp->sample_sort_flags == kfSortNatural), &sorted_xidbox_tmp, &new_sample_idx_to_old, &max_xid_blen);
+              reterr = SortedXidboxInitAlloc(sample_include, &pii.sii, sample_ct, 0, pii.sii.sids? kfXidModeFidIidSid : kfXidModeFidIid, (pcp->sample_sort_mode == kSortNatural), &sorted_xidbox_tmp, &new_sample_idx_to_old, &max_xid_blen);
               if (unlikely(reterr)) {
                 goto Plink2Core_ret_1;
               }
@@ -2544,8 +2544,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
         if (pcp->command_flags1 & kfCommand1MakePlink2) {
           // todo: unsorted case (--update-chr, etc.)
-          if (pcp->sort_vars_flags != kfSort0) {
-            reterr = MakePlink2Vsort(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, chr_idxs, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, make_plink2_flags, (pcp->sort_vars_flags == kfSortNatural), pcp->pvar_psam_flags, xheader, &simple_pgr, outname, outname_end);
+          if (pcp->sort_vars_mode > kSortNone) {
+            reterr = MakePlink2Vsort(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, allele_presents, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, chr_idxs, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, make_plink2_flags, (pcp->sort_vars_mode == kSortNatural), pcp->pvar_psam_flags, xheader, &simple_pgr, outname, outname_end);
           } else {
             if (vpos_sortstatus & kfUnsortedVarBp) {
               logerrputs("Warning: Variants are not sorted by position.  Consider rerunning with the\n--sort-vars flag added to remedy this.\n");
@@ -3530,8 +3530,8 @@ int main(int argc, char** argv) {
     // uint64_t command_flags2 = 0;
     pc.misc_flags = kfMisc0;
     pc.pvar_psam_flags = kfPvarPsam0;
-    pc.sample_sort_flags = kfSort0;
-    pc.sort_vars_flags = kfSort0;
+    pc.sample_sort_mode = kSort0;
+    pc.sort_vars_mode = kSort0;
     pc.grm_flags = kfGrm0;
     pc.pca_flags = kfPca0;
     pc.write_covar_flags = kfWriteCovar0;
@@ -5845,7 +5845,7 @@ int main(int argc, char** argv) {
 
       case 'i':
         if (strequal_k_unsafe(flagname_p2, "ndiv-sort")) {
-          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 3))) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* mode_str = argvk[arg_idx + 1];
@@ -5853,28 +5853,21 @@ int main(int argc, char** argv) {
           const uint32_t mode_slen = strlen(mode_str);
           if (strequal_k(mode_str, "0", mode_slen) ||
               strequal_k(mode_str, "none", mode_slen)) {
-            pc.sample_sort_flags = kfSortNone;
+            pc.sample_sort_mode = kSortNone;
           } else if (((mode_slen == 1) && (first_char_upcase_match == 'N')) ||
                      strequal_k(mode_str, "natural", mode_slen)) {
-            pc.sample_sort_flags = kfSortNatural;
+            pc.sample_sort_mode = kSortNatural;
           } else if (((mode_slen == 1) && (first_char_upcase_match == 'A')) ||
                      strequal_k(mode_str, "ascii", mode_slen)) {
-            pc.sample_sort_flags = kfSortAscii;
+            pc.sample_sort_mode = kSortAscii;
           } else if (likely(((mode_slen == 1) && (first_char_upcase_match == 'F')) ||
                             strequal_k(mode_str, "file", mode_slen))) {
             if (unlikely(param_ct == 1)) {
               snprintf(g_logbuf, kLogbufSize, "Error: Missing '--indiv-sort %s' filename.\n", mode_str);
               goto main_ret_INVALID_CMDLINE_2A;
             }
-            pc.sample_sort_flags = kfSortFile;
-            uint32_t fname_modif_idx = 2;
-            if (param_ct == 3) {
-              if (unlikely(CheckExtraParam(&(argvk[arg_idx]), "sid", &fname_modif_idx))) {
-                goto main_ret_INVALID_CMDLINE_A;
-              }
-              pc.sample_sort_flags |= kfSortFileSid;
-            }
-            reterr = AllocFname(argvk[arg_idx + fname_modif_idx], flagname_p, 0, &pc.sample_sort_fname);
+            pc.sample_sort_mode = kSortFile;
+            reterr = AllocFname(argvk[arg_idx + 2], flagname_p, 0, &pc.sample_sort_fname);
             if (unlikely(reterr)) {
               goto main_ret_1;
             }
@@ -5882,7 +5875,7 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: '%s' is not a valid mode for --indiv-sort.\n", mode_str);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-          if (unlikely((param_ct > 1) && (!(pc.sample_sort_flags & kfSortFile)))) {
+          if (unlikely((param_ct > 1) && (pc.sample_sort_mode != kSortFile))) {
             snprintf(g_logbuf, kLogbufSize, "Error: '--indiv-sort %s' does not accept additional arguments.\n", mode_str);
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -7844,23 +7837,30 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --merge-filter-mode argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-        } else if (strequal_k_unsafe(flagname_p2, "erge-info-sort")) {
+        } else if (strequal_k_unsafe(flagname_p2, "erge-info-sort") ||
+                   strequal_k_unsafe(flagname_p2, "erge-pheno-sort")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* mode_str = argvk[arg_idx + 1];
           const char first_char_upcase_match = mode_str[0] & 0xdf;
           const uint32_t mode_slen = strlen(mode_str);
-          if (strequal_k(mode_str, "0", mode_slen) ||
-              strequal_k(mode_str, "none", mode_slen)) {
-            pmerge_info.merge_info_sort = kfSortNone;
+          SortMode sort_mode = kSortNone;
+          if (((mode_slen == 1) && (first_char_upcase_match == 'N')) ||
+              strequal_k(mode_str, "natural", mode_slen)) {
+            sort_mode = kSortNatural;
           } else if (((mode_slen == 1) && (first_char_upcase_match == 'A')) ||
                      strequal_k(mode_str, "ascii", mode_slen)) {
-            pmerge_info.merge_info_sort = kfSortAscii;
-          } else if (unlikely(!(((mode_slen == 1) && (first_char_upcase_match == 'N')) ||
-                                strequal_k(mode_str, "natural", mode_slen)))) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --merge-info-sort argument '%s'.\n", mode_str);
+            sort_mode = kSortAscii;
+          } else if (unlikely(!(strequal_k(mode_str, "0", mode_slen) ||
+                                strequal_k(mode_str, "none", mode_slen)))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s argument '%s'.\n", flagname_p, mode_str);
             goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          if (flagname_p2[5] == 'i') {
+            pmerge_info.merge_info_sort = sort_mode;
+          } else {
+            pmerge_info.merge_pheno_sort = sort_mode;
           }
         } else if (strequal_k_unsafe(flagname_p2, "erge-max-allele-ct")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -8467,7 +8467,6 @@ int main(int argc, char** argv) {
             }
           }
           pc.command_flags1 |= kfCommand1Pmerge;
-          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "merge-list")) {
           if (pc.command_flags1 & kfCommand1Pmerge) {
             logerrputs("Error: --pmerge-list cannot be used with --pmerge.\n");
@@ -8518,7 +8517,6 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.command_flags1 |= kfCommand1Pmerge;
-          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "gen-diff")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 7))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -9328,16 +9326,16 @@ int main(int argc, char** argv) {
             const uint32_t mode_slen = strlen(mode_str);
             if (((mode_slen == 1) && (first_char_upcase_match == 'N')) ||
                 strequal_k(mode_str, "natural", mode_slen)) {
-              pc.sort_vars_flags = kfSortNatural;
+              pc.sort_vars_mode = kSortNatural;
             } else if (likely(((mode_slen == 1) && (first_char_upcase_match == 'A')) ||
                               strequal_k(mode_str, "ascii", mode_slen))) {
-              pc.sort_vars_flags = kfSortAscii;
+              pc.sort_vars_mode = kSortAscii;
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: '%s' is not a valid mode for --sort-vars.\n", mode_str);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           } else {
-            pc.sort_vars_flags = kfSortNatural;
+            pc.sort_vars_mode = kSortNatural;
           }
         } else if (strequal_k_unsafe(flagname_p2, "ample-diff")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
@@ -10303,7 +10301,7 @@ int main(int argc, char** argv) {
       logerrputs("Error: --data/--sample cannot be used with --1.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
-    if (unlikely((pc.sample_sort_flags != kfSort0) && (!(pc.command_flags1 & (kfCommand1MakePlink2 | kfCommand1WriteCovar | kfCommand1Pmerge))))) {
+    if (unlikely((pc.sample_sort_mode != kSort0) && (!(pc.command_flags1 & (kfCommand1MakePlink2 | kfCommand1WriteCovar | kfCommand1Pmerge))))) {
       logerrputs("Error: --indiv-sort must be used with --make-[b]pgen/--make-bed/--write-covar\nor dataset merging.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
@@ -10331,9 +10329,6 @@ int main(int argc, char** argv) {
         logerrputs("Error: --normalize must be used with --make-bed/--make-[b]pgen/--export and no\nother commands.\n");
         goto main_ret_INVALID_CMDLINE;
       }
-    }
-    if ((pc.command_flags1 & kfCommand1Pmerge) && (pc.command_flags1 & (~kfCommand1Pmerge))) {
-      ;;;
     }
     if (pc.keep_cat_phenoname && (!pc.keep_cat_names_flattened) && (!pc.keep_cats_fname)) {
       logerrputs("Error: --keep-cat-pheno must be used with --keep-cats and/or --keep-cat-names.\n");
@@ -10529,10 +10524,10 @@ int main(int argc, char** argv) {
         // section; otherwise only do it in "--keep-autoconv vzs" case.
         uint32_t pvar_is_compressed;
         if (xload & (kfXloadVcf | kfXloadBcf)) {
-          const uint32_t no_samples_ok = !(pc.dependency_flags & (kfFilterAllReq | kfFilterPsamReq));
+          const uint32_t no_samples_ok = !((pc.dependency_flags & (kfFilterAllReq | kfFilterPsamReq)) || (pc.command_flags1 & kfCommand1Pmerge));
           const uint32_t is_vcf = (xload / kfXloadVcf) & 1;
           pvar_is_compressed = ((import_flags & (kfImportKeepAutoconv | kfImportKeepAutoconvVzs)) != kfImportKeepAutoconv);
-          if (no_samples_ok && is_vcf && (!(import_flags & kfImportKeepAutoconv)) && pc.command_flags1 && (!(pc.command_flags1 & kfCommand1Pmerge))) {
+          if (no_samples_ok && is_vcf && (!(import_flags & kfImportKeepAutoconv)) && pc.command_flags1) {
             // special case: just treat the VCF as a .pvar file
             strcpy(pvarname, pgenname);
             pgenname[0] = '\0';
@@ -10608,7 +10603,12 @@ int main(int argc, char** argv) {
       if ((pc.dependency_flags & kfFilterOpportunisticPgen) && (pgenname[0] != '\0')) {
         pc.dependency_flags |= kfFilterAllReq;
       }
-      if (pc.dependency_flags & kfFilterAllReq) {
+      if (pmerge_info.list_fname) {
+        if (unlikely((!xload) && (load_params != kfLoadParamsPfileAll) && (load_params!= kfLoadParams0))) {
+          logerrputs("Error: --pmerge-list cannot be used with a proper subset of {--pgen, --pvar,\n--psam}.  You must specify either none or all of those filenames.\n");
+          goto main_ret_INVALID_CMDLINE_A;
+        }
+      } else if ((pc.dependency_flags & kfFilterAllReq) || (pc.command_flags1 & kfCommand1Pmerge)) {
         if (unlikely((!xload) && (load_params != kfLoadParamsPfileAll))) {
           logerrputs("Error: A full fileset (.pgen/.bed + .pvar/.bim + .psam/.fam) is required for\nthis.\n");
           goto main_ret_INVALID_CMDLINE_A;
@@ -10642,7 +10642,7 @@ int main(int argc, char** argv) {
         if (make_plink2_flags & (kfMakePgen | kfMakePvar | kfMakePsam)) {
           merge_outname_end = strcpya_k(merge_outname_end, "-merge");
         }
-        reterr = Pmerge(&pmerge_info, pc.sample_sort_fname, pc.misc_flags, pc.sample_sort_flags, pc.fam_cols, pc.max_thread_ct, pgenname, psamname, pvarname, outname, merge_outname_end, &chr_info);
+        reterr = Pmerge(&pmerge_info, pc.sample_sort_fname, pc.misc_flags, pc.sample_sort_mode, pc.fam_cols, pc.max_thread_ct, pgenname, psamname, pvarname, outname, merge_outname_end, &chr_info);
         if (unlikely(reterr)) {
           goto main_ret_1;
         }
@@ -10652,7 +10652,7 @@ int main(int argc, char** argv) {
         }
       }
 
-      if ((pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Validate | kfCommand1WriteSnplist | kfCommand1WriteCovar | kfCommand1WriteSamples))) || ((pc.command_flags1 & kfCommand1MakePlink2) && (pc.sort_vars_flags == kfSort0))) {
+      if ((pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Validate | kfCommand1WriteSnplist | kfCommand1WriteCovar | kfCommand1WriteSamples))) || ((pc.command_flags1 & kfCommand1MakePlink2) && (pc.sort_vars_mode > kSortNone))) {
         // split-chromosome prohibited for all commands unless explicitly
         // permitted here
         pc.dependency_flags |= kfFilterNoSplitChr;

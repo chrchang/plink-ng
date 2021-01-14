@@ -957,8 +957,17 @@ HEADER_INLINE BoolErr arena_alloc_cp(unsigned char* arena_top, uintptr_t ct, uns
   return !(*cp_arr_ptr);
 }
 
+HEADER_INLINE BoolErr arena_alloc_kcp(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, const char*** kcp_arr_ptr) {
+  *kcp_arr_ptr = S_CAST(const char**, arena_alloc(arena_top, ct * sizeof(intptr_t), arena_bottom_ptr));
+  return !(*kcp_arr_ptr);
+}
+
 HEADER_INLINE void ArenaBaseSet(const void* unaligned_base, unsigned char** arena_bottom_ptr) {
   *arena_bottom_ptr = R_CAST(unsigned char*, RoundUpPow2(R_CAST(uintptr_t, unaligned_base), kCacheline));
+}
+
+HEADER_INLINE void ArenaEndSet(const void* unaligned_end, unsigned char** arena_top_ptr) {
+  *arena_top_ptr = R_CAST(unsigned char*, RoundDownPow2(R_CAST(uintptr_t, unaligned_end), kEndAllocAlign));
 }
 
 HEADER_INLINE void* arena_end_alloc_raw(uintptr_t size, unsigned char** arena_top_ptr) {
@@ -1026,6 +1035,11 @@ HEADER_INLINE BoolErr arena_end_alloc_u64(unsigned char* arena_bottom, uintptr_t
 HEADER_INLINE BoolErr arena_end_alloc_cp(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, char*** cp_arr_ptr) {
   *cp_arr_ptr = S_CAST(char**, arena_end_alloc(arena_bottom, ct * sizeof(intptr_t), arena_top_ptr));
   return !(*cp_arr_ptr);
+}
+
+HEADER_INLINE BoolErr arena_end_alloc_kcp(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, const char*** kcp_arr_ptr) {
+  *kcp_arr_ptr = S_CAST(const char**, arena_end_alloc(arena_bottom, ct * sizeof(intptr_t), arena_top_ptr));
+  return !(*kcp_arr_ptr);
 }
 
 
@@ -1702,7 +1716,6 @@ PglErr CheckIdUniqueness(unsigned char* arena_bottom, unsigned char* arena_top, 
 // order (briefly made that nondeterministic on 11 Oct 2019 and broke --rm-dup,
 // not doing that again).
 PglErr AllocAndPopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uintptr_t fast_size_min_extra_bytes, uint32_t max_thread_ct, uint32_t** id_htable_ptr, uint32_t** htable_dup_base_ptr, uint32_t* id_htable_size_ptr, uint32_t* dup_ct_ptr);
-
 
 typedef struct HelpCtrlStruct {
   NONCOPYABLE(HelpCtrlStruct);
