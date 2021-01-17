@@ -966,14 +966,13 @@ char* AppendPhenoStr(const PhenoCol* pheno_col, const char* output_missing_pheno
   return write_iter;
 }
 
-PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const SampleIdInfo* siip, const ParentalIdInfo* parental_id_infop, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, PvarPsamFlags pvar_psam_flags) {
+PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const SampleIdInfo* siip, const ParentalIdInfo* parental_id_infop, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const char* output_missing_pheno, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, PvarPsamFlags pvar_psam_flags) {
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
   {
     if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
       goto WritePsam_ret_OPEN_FAIL;
     }
-    const char* output_missing_pheno = g_output_missing_pheno;
     const uint32_t omp_slen = strlen(output_missing_pheno);
 
     char* textbuf_flush = &(g_textbuf[kMaxMediumLine]);
@@ -4184,6 +4183,7 @@ PglErr MakeFilterHtable(const uintptr_t* variant_include, const uintptr_t* filte
     // while still being small relative to L1 cache.  Double table size
     // whenever load factor reaches 0.25; there shouldn't be *that* many
     // distinct filters.
+    // TODO: check if this should use strset instead
     // possible todo: multithread this scan, merge results at the end; can also
     // separate this stage from the rest of the function.
     uint32_t table_size = 128;
@@ -4254,7 +4254,7 @@ PglErr MakeFilterHtable(const uintptr_t* variant_include, const uintptr_t* filte
               }
               break;
             }
-            if ((!memcmp(filter_iter, cur_token_ptr, cur_id_slen)) && (!cur_token_ptr[cur_id_slen])) {
+            if (strequal_unsafe(filter_iter, cur_token_ptr, cur_id_slen)) {
               break;
             }
             if (++hashval == table_size) {
@@ -4292,14 +4292,7 @@ PglErr MakeFilterHtable(const uintptr_t* variant_include, const uintptr_t* filte
     uint32_t* filter_keys_htable = *filter_keys_htable_ptr;
     SetAllU32Arr(filter_keys_htable_size, filter_keys_htable);
     for (uint32_t uii = 0; uii != filter_key_ct; ++uii) {
-      for (uint32_t hashval = Hashceil(filter_keys[uii], strlen(filter_keys[uii]), filter_keys_htable_size); ; ) {
-        if (filter_keys_htable[hashval] == UINT32_MAX) {
-          filter_keys_htable[hashval] = uii;
-        }
-        if (++hashval == filter_keys_htable_size) {
-          hashval = 0;
-        }
-      }
+      HtableAddNondup(filter_keys[uii], strlen(filter_keys[uii]), filter_keys_htable_size, uii, filter_keys_htable);
     }
   }
   while (0) {
@@ -6765,7 +6758,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
       logprintfww5("Writing %s ... ", outname);
       fflush(stdout);
-      reterr = WritePsam(outname, sample_include, &(piip->sii), &(piip->parental_id_info), sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, sample_ct, pheno_ct, max_pheno_name_blen, pvar_psam_flags);
+      reterr = WritePsam(outname, sample_include, &(piip->sii), &(piip->parental_id_info), sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, g_output_missing_pheno, sample_ct, pheno_ct, max_pheno_name_blen, pvar_psam_flags);
       if (unlikely(reterr)) {
         goto MakePlink2NoVsort_ret_1;
       }
@@ -8218,7 +8211,7 @@ PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* pi
       snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
       logprintfww5("Writing %s ... ", outname);
       fflush(stdout);
-      reterr = WritePsam(outname, sample_include, &(piip->sii), &(piip->parental_id_info), sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, sample_ct, pheno_ct, max_pheno_name_blen, pvar_psam_flags);
+      reterr = WritePsam(outname, sample_include, &(piip->sii), &(piip->parental_id_info), sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, g_output_missing_pheno, sample_ct, pheno_ct, max_pheno_name_blen, pvar_psam_flags);
       if (unlikely(reterr)) {
         goto MakePlink2Vsort_ret_1;
       }

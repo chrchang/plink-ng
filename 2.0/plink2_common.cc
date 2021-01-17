@@ -1794,15 +1794,8 @@ PglErr TryToAddChrName(const char* chr_name, const char* file_descrip, uintptr_t
   *chr_idx_ptr = chr_code_end;
   cip->name_ct = name_ct + 1;
   uint32_t* id_htable = cip->nonstd_id_htable;
-  for (uint32_t hashval = Hashceil(chr_name, name_slen, kChrHtableSize); ; ) {
-    if (id_htable[hashval] == UINT32_MAX) {
-      id_htable[hashval] = chr_code_end;
-      return kPglRetSuccess;
-    }
-    if (++hashval == kChrHtableSize) {
-      hashval = 0;
-    }
-  }
+  HtableAddNondup(chr_name, name_slen, kChrHtableSize, chr_code_end, id_htable);
+  return kPglRetSuccess;
 }
 
 

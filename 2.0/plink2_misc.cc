@@ -1290,33 +1290,20 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
           logerrputs("Error: Category names are limited to " MAX_ID_SLEN_STR " characters.\n");
           goto Plink1ClusterImport_ret_INCONSISTENT_INPUT;
         }
-        uint32_t hashval = Hashceil(main_token_start, main_token_slen, cat_htable_size);
-        const uint32_t main_token_blen = main_token_slen + 1;
-        uint32_t cur_htable_entry;
-        while (1) {
-          cur_htable_entry = cat_htable[hashval];
-          if (cur_htable_entry == UINT32_MAX) {
-            if (unlikely(main_token_blen > S_CAST(uintptr_t, cat_name_write_max - cat_name_iter))) {
-              goto Plink1ClusterImport_ret_NOMEM;
-            }
-            char* cat_name_start = cat_name_iter;
-            cat_name_iter = memcpya(cat_name_iter, main_token_start, main_token_blen);
-            cur_cat_names[++nonnull_cat_ct] = cat_name_start;
-            cur_htable_entry = nonnull_cat_ct;
-            cat_htable[hashval] = cur_htable_entry;
-            break;
+        uint32_t cur_cat_idx = IdHtableAdd(main_token_start, cur_cat_names, main_token_slen, cat_htable_size, nonnull_cat_ct + 1, cat_htable);
+        if (cur_cat_idx == UINT32_MAX) {
+          if (unlikely(main_token_slen >= S_CAST(uintptr_t, cat_name_write_max - cat_name_iter))) {
+            goto Plink1ClusterImport_ret_NOMEM;
           }
-          if (memequal(main_token_start, cur_cat_names[cur_htable_entry], main_token_blen)) {
-            break;
-          }
-          if (++hashval == cat_htable_size) {
-            hashval = 0;
-          }
+          char* cat_name_start = cat_name_iter;
+          cat_name_iter = memcpya(cat_name_iter, main_token_start, main_token_slen + 1);
+          cur_cat_idx = nonnull_cat_ct + 1;
+          cur_cat_names[cur_cat_idx] = cat_name_start;
         }
         // permit duplicates if category is identical
         if (IsSet(already_seen, lb_idx)) {
           const uint32_t existing_cat_idx = sorted_cat_idxs[lb_idx];
-          if (unlikely(existing_cat_idx != cur_htable_entry)) {
+          if (unlikely(existing_cat_idx != cur_cat_idx)) {
             idbuf[fid_slen] = ' ';
             logpreprintfww("Error: Duplicate sample ID '%s' with conflicting category assignments in --within file.\n", idbuf);
             goto Plink1ClusterImport_ret_MALFORMED_INPUT_2;
@@ -1325,7 +1312,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
         } else {
           SetBit(lb_idx, already_seen);
           for (; lb_idx != ub_idx; ++lb_idx) {
-            sorted_cat_idxs[lb_idx] = cur_htable_entry;
+            sorted_cat_idxs[lb_idx] = cur_cat_idx;
           }
         }
         goto Plink1ClusterImport_LINE_ITER_ALREADY_ADVANCED;
@@ -9011,19 +8998,9 @@ PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
       uint32_t max_xcovar_name_blen = max_covar_name_blen;
       if (write_sex) {
         // add "SEX"
-        for (uint32_t hashval = Hashceil("SEX", 3, covar_name_htable_size); ; ) {
-          const uint32_t cur_htable_entry = covar_name_htable[hashval];
-          if (cur_htable_entry == UINT32_MAX) {
-            covar_name_htable[hashval] = covar_ct;
-            break;
-          }
-          if (unlikely(strequal_k_unsafe(&(covar_names[cur_htable_entry * max_covar_name_blen]), "SEX"))) {
-            logerrputs("Error: .cov file cannot have both a regular SEX column and a covariate named\n'SEX'.  Exclude or rename one of these columns.\n");
-            goto WriteCovar_ret_INCONSISTENT_INPUT;
-          }
-          if (++hashval == covar_name_htable_size) {
-            hashval = 0;
-          }
+        if (unlikely(StrboxHtableAdd("SEX", covar_names, max_covar_name_blen, strlen("SEX"), covar_name_htable_size, covar_ct, covar_name_htable) != UINT32_MAX)) {
+          logerrputs("Error: .cov file cannot have both a regular SEX column and a covariate named\n'SEX'.  Exclude or rename one of these columns.\n");
+          goto WriteCovar_ret_INCONSISTENT_INPUT;
         }
         if (max_xcovar_name_blen < 4) {
           max_xcovar_name_blen = 4;
@@ -9035,6 +9012,8 @@ PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
           *write_iter++ = '\t';
           const uint32_t cur_pheno_name_slen = strlen(pheno_name_iter);
           if (cur_pheno_name_slen < max_xcovar_name_blen) {
+            // can't just use StrboxHtableFind() since "SEX" may not be stored
+            // in covar_names[]
             const uint32_t cur_pheno_name_blen = cur_pheno_name_slen + 1;
             for (uint32_t hashval = Hashceil(pheno_name_iter, cur_pheno_name_slen, covar_name_htable_size); ; ) {
               const uint32_t cur_htable_idval = covar_name_htable[hashval];

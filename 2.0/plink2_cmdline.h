@@ -1351,6 +1351,29 @@ HEADER_INLINE uint32_t Hashceil(const char* idstr, uint32_t idlen, uint32_t htab
   return (S_CAST(uint64_t, Hash32(idstr, idlen)) * htable_size) >> 32;
 }
 
+// In most cases, plink2 represents an array of strings in one of the following
+// two ways:
+//   (const char* strbox, uint32_t str_ct, uintptr_t max_str_blen):
+//     null-terminated string #x starts at &(strbox[x * max_str_blen)), where
+//     x is a 0-based index.
+//   (const char* const* item_ids, uint32_t str_ct):
+//     null-terminated string #x starts at item_ids[x].
+// When we need to perform string -> string-index lookups into the array, we
+// construct a hashmap as follows:
+// - Allocate a uint32_t array of htable_size >= 2 * str_ct, and initialize all
+//   entries to UINT32_MAX to mark them empty.
+// - Iterate through the array, computing hashval := Hashceil(str, strlen(str),
+//   htable_size) for each string, and then setting htable[hashval] :=
+//   string-index whenever that htable entry is empty.  When there is a
+//   conflict, use linear probing (increment hashval until an empty table cell
+//   is found, wrapping around from (htable_size - 1) to 0).
+//   - PLINK 1.9 used quadratic probing, but that's been scrapped since
+//     benchmark results suggest that it has no meaningful advantage.  We
+//     aren't dealing with adversarial input...
+// The "StrboxHtable" functions below work with the const char* strbox
+// string-array representation, while "IdHtable" functions work with the const
+// char* const* item_ids representation.
+
 // uintptr_t geqprime(uintptr_t floor);
 
 // assumes ceil is odd and greater than 4.  Returns the first prime <= ceil.
@@ -1372,10 +1395,6 @@ HEADER_INLINE uint32_t GetHtableFastSize(uint32_t item_ct) {
 
 BoolErr HtableGoodSizeAlloc(uint32_t item_ct, uintptr_t bytes_avail, uint32_t** htable_ptr, uint32_t* htable_size_ptr);
 
-// useful for duplicate detection: returns 0 on no duplicates, a positive index
-// of a duplicate pair if they're present
-uint32_t PopulateStrboxHtable(const char* strbox, uintptr_t str_ct, uintptr_t max_str_blen, uint32_t str_htable_size, uint32_t* str_htable);
-
 // returned index in duplicate-pair case is unfiltered
 // uint32_t populate_strbox_subset_htable(const uintptr_t* __restrict subset_mask, const char* strbox, uintptr_t raw_str_ct, uintptr_t str_ct, uintptr_t max_str_blen, uint32_t str_htable_size, uint32_t* str_htable);
 
@@ -1386,9 +1405,40 @@ uint32_t IdHtableFind(const char* cur_id, const char* const* item_ids, const uin
 // null-terminated any more.
 uint32_t IdHtableFindNnt(const char* cur_id, const char* const* item_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size);
 
+HEADER_INLINE void HtableAddNondup(const char* cur_id, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t value, uint32_t* id_htable) {
+  for (uint32_t hashval = Hashceil(cur_id, cur_id_slen, id_htable_size); ; ) {
+    const uint32_t cur_htable_entry = id_htable[hashval];
+    if (cur_htable_entry == UINT32_MAX) {
+      id_htable[hashval] = value;
+      return;
+    }
+    if (++hashval == id_htable_size) {
+      hashval = 0;
+    }
+  }
+}
+
+// Assumes cur_id is null-terminated.
+// item_ids overread must be ok.
+// Returns string-index if cur_id is already in the table, UINT32_MAX if it was
+// added.
+uint32_t IdHtableAdd(const char* cur_id, const char* const* item_ids, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t value, uint32_t* id_htable);
+
+// Does not require cur_id to be null-terminated.
+uint32_t IdHtableAddNnt(const char* cur_id, const char* const* item_ids, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t value, uint32_t* id_htable);
+
 // assumes cur_id_slen < max_str_blen.
 // requires cur_id to be null-terminated.
 uint32_t StrboxHtableFind(const char* cur_id, const char* strbox, const uint32_t* id_htable, uintptr_t max_str_blen, uint32_t cur_id_slen, uint32_t id_htable_size);
+
+// Assumes cur_id is null-terminated.
+// Returns string-index if cur_id is already in the table, UINT32_MAX if it was
+// added.
+uint32_t StrboxHtableAdd(const char* cur_id, const char* strbox, uintptr_t max_str_blen, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t value, uint32_t* id_htable);
+
+// useful for duplicate detection: returns 0 on no duplicates, a positive index
+// of a duplicate pair if they're present
+uint32_t PopulateStrboxHtable(const char* strbox, uint32_t str_ct, uintptr_t max_str_blen, uint32_t str_htable_size, uint32_t* str_htable);
 
 // last variant_ids entry must be at least kMaxIdBlen bytes before end of
 // bigstack

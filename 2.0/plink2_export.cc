@@ -6169,48 +6169,40 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
 }
 
 PglErr AddToFifHtable(unsigned char* arena_bottom, const char* key, uint32_t htable_size, uint32_t key_slen, unsigned char prechar, unsigned char** arena_top_ptr, char** keys, uint32_t* htable, uint32_t* key_ct_ptr, uint32_t* cur_idx_ptr) {
-  for (uint32_t hashval = Hashceil(key, key_slen, htable_size); ; ) {
-    uint32_t cur_idx = htable[hashval];
-    if (cur_idx == UINT32_MAX) {
-      const uint32_t key_ct = *key_ct_ptr;
-      if (StoreStringAndPrecharAtEnd(arena_bottom, key, prechar, key_slen, arena_top_ptr, &(keys[key_ct]))) {
-        return kPglRetNomem;
-      }
-      *cur_idx_ptr = key_ct;
-      htable[hashval] = key_ct;
-      *key_ct_ptr = key_ct + 1;
-      return kPglRetSuccess;
+  const uint32_t key_ct = *key_ct_ptr;
+  const uint32_t cur_idx = IdHtableAddNnt(key, TO_CONSTCPCONSTP(keys), key_slen, htable_size, key_ct, htable);
+  if (cur_idx == UINT32_MAX) {
+    if (StoreStringAndPrecharAtEnd(arena_bottom, key, prechar, key_slen, arena_top_ptr, &(keys[key_ct]))) {
+      return kPglRetNomem;
     }
-    char* existing_key = keys[cur_idx];
-    if (strequal_unsafe(existing_key, key, key_slen)) {
-      // Only permit this if previous instance was FILTER and this is INFO, or
-      // vice versa, or this is a FORMAT key.
-      // INFO entries always have prechar bit 0 set and 3 unset, while FILTER
-      // entries are the reverse.  FORMAT keys have prechar == 0.
-      const unsigned char new_prechar = S_CAST(unsigned char, existing_key[-1]) ^ prechar;
-      if (unlikely(prechar && ((new_prechar & 9) != 9))) {
-        char* write_iter = strcpya_k(g_logbuf, "Error: Multiple ");
-        if (prechar & 8) {
-          write_iter = strcpya_k(write_iter, "FILTER");
-        } else {
-          write_iter = strcpya_k(write_iter, "INFO");
-        }
-        *write_iter++ = ':';
-        write_iter = memcpya(write_iter, key, key_slen);
-        strcpy_k(write_iter, " header lines.\n");
-        WordWrapB(0);
-        logerrputsb();
-        return kPglRetMalformedInput;
-      }
-      existing_key[-1] = new_prechar;
-      // bugfix (3 Jan 2021): forgot to return this
-      *cur_idx_ptr = cur_idx;
-      return kPglRetSuccess;
-    }
-    if (++hashval == htable_size) {
-      hashval = 0;
-    }
+    *cur_idx_ptr = key_ct;
+    *key_ct_ptr = key_ct + 1;
+    return kPglRetSuccess;
   }
+  // Key already present.  Only permit this if previous instance was FILTER and
+  // this is INFO, or vice versa, or this is a FORMAT key.
+  // INFO entries always have prechar bit 0 set and 3 unset, while FILTER
+  // entries are the reverse.  FORMAT keys have prechar == 0.
+  char* existing_key = keys[cur_idx];
+  const unsigned char new_prechar = S_CAST(unsigned char, existing_key[-1]) ^ prechar;
+  if (unlikely(prechar && ((new_prechar & 9) != 9))) {
+    char* write_iter = strcpya_k(g_logbuf, "Error: Multiple ");
+    if (prechar & 8) {
+      write_iter = strcpya_k(write_iter, "FILTER");
+    } else {
+      write_iter = strcpya_k(write_iter, "INFO");
+    }
+    *write_iter++ = ':';
+    write_iter = memcpya(write_iter, key, key_slen);
+    strcpy_k(write_iter, " header lines.\n");
+    WordWrapB(0);
+    logerrputsb();
+    return kPglRetMalformedInput;
+  }
+  existing_key[-1] = new_prechar;
+  // bugfix (3 Jan 2021): forgot to return this
+  *cur_idx_ptr = cur_idx;
+  return kPglRetSuccess;
 }
 
 // Assumes ii is not in 0x80000000..0x80000007.

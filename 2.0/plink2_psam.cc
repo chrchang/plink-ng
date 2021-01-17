@@ -265,7 +265,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
       col_skips = S_CAST(uint32_t*, bigstack_alloc_raw_rd(relevant_postfid_col_ct * sizeof(int32_t)));
       col_types = S_CAST(uint32_t*, bigstack_alloc_raw_rd(relevant_postfid_col_ct * sizeof(int32_t)));
       bigstack_mark2 = g_bigstack_base;
-      col_skips[0] = fam_cols & 1;  // assumes kfFamCol1 == 1
+      col_skips[0] = fid_present;
       col_types[0] = 0;
       // psam_cols_mask = 1;  // may need this later
       uint32_t rpf_col_idx = 1;

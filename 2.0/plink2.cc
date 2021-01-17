@@ -71,7 +71,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (14 Jan 2021)";
+  " (16 Jan 2021)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -1363,6 +1363,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             if (unlikely(reterr)) {
               goto Plink2Core_ret_1;
             }
+            // bugfix (16 Jan 2021)
+            pii.sii.flags |= kfSampleIdParentsPresent;
           }
         }
         // --update-parents goes here

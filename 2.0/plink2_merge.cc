@@ -225,7 +225,7 @@ PglErr LoadPmergeList(const char* list_fname, PmergeListMode mode, uint32_t main
 }
 
 // Permanent allocations are at end of bigstack.
-PglErr MergePsams(const PmergeInfo* pmip, __attribute__((unused)) const char* sample_sort_fname, __attribute__((unused)) uint32_t affection_01, __attribute__((unused)) SortMode sample_sort_mode, __attribute__((unused)) FamCol fam_cols, uint32_t max_thread_ct, __attribute__((unused)) char* outname, __attribute__((unused)) char* outname_end, PmergeInputFilesetLl* filesets, SampleIdInfo* siip, uint32_t* sample_ctp) {
+PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags misc_flags, SortMode sample_sort_mode, FamCol fam_cols, uint32_t max_thread_ct, char* outname, char* outname_end, PmergeInputFilesetLl* filesets, SampleIdInfo* siip, uint32_t* sample_ctp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t line_idx = 0;
@@ -311,12 +311,10 @@ PglErr MergePsams(const PmergeInfo* pmip, __attribute__((unused)) const char* sa
       if (unlikely(reterr)) {
         goto MergePsams_ret_TSTREAM_FAIL;
       }
-      line_idx = 0;
       // Worth optimizing this more than most text-reading loops, since we may
       // be processing a LOT of files.
       const char* line_start = TextLineEnd(&txs);
-      while (1) {
-        ++line_idx;
+      for (line_idx = 1; ; ++line_idx) {
         if (unlikely(!TextGetUnsafe2K(&txs, &line_start))) {
           if (TextStreamErrcode2(&txs, &reterr)) {
             goto MergePsams_ret_TSTREAM_FAIL;
@@ -334,20 +332,19 @@ PglErr MergePsams(const PmergeInfo* pmip, __attribute__((unused)) const char* sa
         }
         line_start = line_end;
       }
-      uint32_t fid_present = 1;
       uint32_t sid_present = 0;
       uint32_t postid_pat_col_idx = 0;
       uint32_t postid_mat_col_idx = 0;
+      uint32_t fid_present;
       if (line_start[0] == '#') {
         const char* iid_end = &(line_start[4]);
-        if (line_start[1] == 'F') {
+        fid_present = (line_start[1] == 'F');
+        if (fid_present) {
           const char* iid_start = FirstNonTspace(iid_end);
           iid_end = FirstPrechar(iid_start, 33);
           if (unlikely(!strequal_k(iid_start, "IID", iid_end - iid_start))) {
             goto MergePsams_ret_MALFORMED_INPUT;
           }
-        } else {
-          fid_present = 0;
         }
         const char* token_start = FirstNonTspace(iid_end);
         if (tokequal_k(token_start, "SID")) {
@@ -454,30 +451,39 @@ PglErr MergePsams(const PmergeInfo* pmip, __attribute__((unused)) const char* sa
           goto MergePsams_ret_MALFORMED_INPUT;
         }
       } else {
-        if (pheno_strset) {
-          if (unlikely(StrsetAddEndResize(arena_bottom, "PHENO1", strlen("PHENO1"), kMaxPhenoCt * 2, &pheno_strset, &pheno_names_table_size, &pheno_ct, &arena_top))) {
-            if (pheno_ct == kMaxPhenoCt) {
-              logerrputs("Error: " PROG_NAME_STR " does not support more than " MAX_PHENO_CT_STR " phenotypes.\n");
-              goto MergePsams_ret_INCONSISTENT_INPUT;
-            }
-            goto MergePsams_ret_NOMEM;
-          }
-        } else {
-          if (!first_pheno_names_htable) {
-            if (unlikely(PtrWSubCk(arena_bottom, strlen("PHENO1") + 1, &arena_top))) {
+        // .fam
+        fid_present = (fam_cols / kfFamCol1) & 1;
+        if (fam_cols & kfFamCol34) {
+          postid_pat_col_idx = 1;
+          postid_mat_col_idx = 2;
+        }
+        if (fam_cols & kfFamCol6) {
+          if (pheno_strset) {
+            if (unlikely(StrsetAddEndResize(arena_bottom, "PHENO1", strlen("PHENO1"), kMaxPhenoCt * 2, &pheno_strset, &pheno_names_table_size, &pheno_ct, &arena_top))) {
+              if (pheno_ct == kMaxPhenoCt) {
+                logerrputs("Error: " PROG_NAME_STR " does not support more than " MAX_PHENO_CT_STR " phenotypes.\n");
+                goto MergePsams_ret_INCONSISTENT_INPUT;
+              }
               goto MergePsams_ret_NOMEM;
             }
-            strcpy_k(R_CAST(char*, arena_top), "PHENO1");
-            first_pheno_ct = 1;
-          } else if (pheno_ct) {
-            const uint32_t pheno_idx = IdHtableFind("PHENO1", TO_CONSTCPCONSTP(first_pheno_names), first_pheno_names_htable, strlen("PHENO1"), pheno_names_table_size);
-            if (pheno_idx != UINT32_MAX) {
-              SetBit(pheno_idx, cur_pheno_include);
+            if (strlen("PHENO1") >= max_pheno_name_blen) {
+              max_pheno_name_blen = strlen("PHENO1") + 1;
+            }
+          } else {
+            if (!first_pheno_names_htable) {
+              if (unlikely(PtrWSubCk(arena_bottom, strlen("PHENO1") + 1, &arena_top))) {
+                goto MergePsams_ret_NOMEM;
+              }
+              strcpy_k(R_CAST(char*, arena_top), "PHENO1");
+              first_pheno_ct = 1;
+            } else if (pheno_ct) {
+              const uint32_t pheno_idx = IdHtableFind("PHENO1", TO_CONSTCPCONSTP(first_pheno_names), first_pheno_names_htable, strlen("PHENO1"), pheno_names_table_size);
+              if (pheno_idx != UINT32_MAX) {
+                SetBit(pheno_idx, cur_pheno_include);
+              }
             }
           }
         }
-        postid_pat_col_idx = 1;
-        postid_mat_col_idx = 2;
       }
       uint32_t first_parent_postid_col_idx = postid_pat_col_idx;
       uint32_t parent_col_skip = postid_mat_col_idx - postid_pat_col_idx;
@@ -603,12 +609,12 @@ PglErr MergePsams(const PmergeInfo* pmip, __attribute__((unused)) const char* sa
         if (!TextGetUnsafe2K(&txs, &line_start)) {
           break;
         }
-        if (line_start[0] == '#') {
+        if (unlikely(line_start[0] == '#')) {
           snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and if a #FID/IID header line is present it must denote the end of the header block.)\n", line_idx, cur_fname);
           goto MergePsams_ret_MALFORMED_INPUT_WW;
         }
       }
-      if (TextStreamErrcode2(&txs, &reterr)) {
+      if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
         goto MergePsams_ret_TSTREAM_FAIL;
       }
       if (unlikely(CleanupTextStream2(cur_fname, &txs, &reterr))) {
@@ -641,21 +647,11 @@ PglErr MergePsams(const PmergeInfo* pmip, __attribute__((unused)) const char* sa
           for (uint32_t sample_idx = 0; sample_idx != first_sample_id_ct; ++sample_idx) {
             first_sample_ids[sample_idx] = first_sample_ids_iter;
             const uint32_t slen = strlen(first_sample_ids_iter);
-            for (uint32_t hashval = Hashceil(first_sample_ids_iter, slen, sample_id_table_size); ; ) {
-              const uint32_t cur_htable_entry = first_sample_ids_htable[hashval];
-              if (cur_htable_entry == UINT32_MAX) {
-                first_sample_ids_htable[hashval] = sample_idx;
-                break;
-              }
-              if (unlikely(memequal(first_sample_ids_iter, first_sample_ids[cur_htable_entry], slen + 1))) {
-                char* mutable_id = K_CAST(char*, first_sample_ids_iter);
-                TabsToSpaces(mutable_id);
-                snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID \"%s\" in %s.\n", mutable_id, cur_fname);
-                goto MergePsams_ret_MALFORMED_INPUT_WW;
-              }
-              if (++hashval == sample_id_table_size) {
-                hashval = 0;
-              }
+            if (unlikely(IdHtableAdd(first_sample_ids_iter, first_sample_ids, slen, sample_id_table_size, sample_idx, first_sample_ids_htable) != UINT32_MAX)) {
+              char* mutable_id = K_CAST(char*, first_sample_ids_iter);
+              TabsToSpaces(mutable_id);
+              snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID \"%s\" in %s.\n", mutable_id, cur_fname);
+              goto MergePsams_ret_MALFORMED_INPUT_WW;
             }
             first_sample_ids_iter = &(first_sample_ids_iter[slen + 1]);
           }
@@ -691,19 +687,9 @@ PglErr MergePsams(const PmergeInfo* pmip, __attribute__((unused)) const char* sa
           for (uint32_t pheno_idx = 0; pheno_idx != first_pheno_ct; ++pheno_idx) {
             first_pheno_names[pheno_idx] = pheno_names_iter;
             const uint32_t slen = strlen(pheno_names_iter);
-            for (uint32_t hashval = Hashceil(pheno_names_iter, slen, pheno_names_table_size); ; ) {
-              const uint32_t cur_htable_entry = first_pheno_names_htable[hashval];
-              if (cur_htable_entry == UINT32_MAX) {
-                first_pheno_names_htable[hashval] = pheno_idx;
-                break;
-              }
-              if (unlikely(memequal(pheno_names_iter, first_pheno_names[cur_htable_entry], slen + 1))) {
-                snprintf(g_logbuf, kLogbufSize, "Error: Duplicate phenotype name '%s' in %s.\n", pheno_names_iter, cur_fname);
-                goto MergePsams_ret_MALFORMED_INPUT_WW;
-              }
-              if (++hashval == pheno_names_table_size) {
-                hashval = 0;
-              }
+            if (unlikely(IdHtableAdd(pheno_names_iter, first_pheno_names, slen, pheno_names_table_size, pheno_idx, first_pheno_names_htable) != UINT32_MAX)) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Duplicate phenotype name '%s' in %s.\n", pheno_names_iter, cur_fname);
+              goto MergePsams_ret_MALFORMED_INPUT_WW;
             }
             pheno_names_iter = &(pheno_names_iter[slen + 1]);
           }
@@ -722,7 +708,11 @@ PglErr MergePsams(const PmergeInfo* pmip, __attribute__((unused)) const char* sa
     // 3. Free all end-of-bigstack allocations.
     // 4. Construct SampleIdInfo at end of bigstack, to be returned.
     // 5. Construct pheno_names, hash tables.
+    char* pheno_names = nullptr;
+    uint32_t* pheno_names_htable = nullptr;
+    uint32_t* sample_id_htable;
     uintptr_t max_sample_id_blen;
+    uint32_t sample_ctl;
     {
       char* pheno_names_tmp_start = R_CAST(char*, arena_bottom);
       char* pheno_names_tmp_end;
@@ -752,6 +742,7 @@ PglErr MergePsams(const PmergeInfo* pmip, __attribute__((unused)) const char* sa
         }
         pheno_names_tmp_end = pheno_names_write_iter;
       }
+      BigstackBaseSet(pheno_names_tmp_end);
 
       if (sample_id_strset) {
         max_sample_id_blen = max_sample_id_blen_m2 + 2;
@@ -779,8 +770,6 @@ PglErr MergePsams(const PmergeInfo* pmip, __attribute__((unused)) const char* sa
           }
         }
       }
-
-      arena_top = g_bigstack_end;
       // defensive
       linebuf = nullptr;
       first_pheno_names = nullptr;
@@ -789,18 +778,31 @@ PglErr MergePsams(const PmergeInfo* pmip, __attribute__((unused)) const char* sa
       cur_pheno_include = nullptr;
       pheno_strset = nullptr;
 
+      sample_ctl = BitCtToWordCt(sample_ct);
+      siip->flags = kfSampleIdFidPresent | kfSampleIdParentsPresent;
+      if (misc_flags & kfMiscStrictSid0) {
+        // affects --indiv-sort
+        siip->flags |= kfSampleIdStrictSid0;
+      }
       siip->max_sample_id_blen = max_sample_id_blen;
       siip->max_sid_blen = max_sid_blen;
       siip->sids = nullptr;
       if (max_sid_blen) {
-        if (unlikely(arena_end_alloc_c(arena_bottom, max_sid_blen * sample_ct, &arena_top, &(siip->sids)))) {
+        if (unlikely(bigstack_end_alloc_c(max_sid_blen * sample_ct, &(siip->sids)))) {
           goto MergePsams_ret_NOMEM;
         }
       }
       // place this below optional siip->sids, so that
       // BigstackEndSet(siip->sample_ids) is always correct on success
-      if (unlikely(arena_end_alloc_c(arena_bottom, max_sample_id_blen * sample_ct, &arena_top, &(siip->sample_ids)))) {
+      if (unlikely(bigstack_end_alloc_c(max_sample_id_blen * sample_ct, &(siip->sample_ids)))) {
         goto MergePsams_ret_NOMEM;
+      }
+      if (pheno_ct) {
+        pheno_names_table_size = GetHtableFastSize(pheno_ct);
+        if (unlikely(bigstack_end_alloc_c(max_pheno_name_blen * pheno_ct, &pheno_names) ||
+                     bigstack_end_alloc_u32(pheno_names_table_size, &pheno_names_htable))) {
+          goto MergePsams_ret_NOMEM;
+        }
       }
 
       char* sample_ids_write_iter = siip->sample_ids;
@@ -834,28 +836,360 @@ PglErr MergePsams(const PmergeInfo* pmip, __attribute__((unused)) const char* sa
         }
       }
 
-      // suppress warning
-      if (!pheno_names_tmp_end) {
-        exit(1);
+      // defensive
+      first_sample_ids_start = nullptr;
+      first_sample_ids = nullptr;
+      first_sample_ids_htable = nullptr;
+      sample_include = nullptr;
+      cur_sample_include = nullptr;
+      sample_id_strset = nullptr;
+      g_bigstack_base = bigstack_mark;
+
+      if (pheno_ct) {
+        const char* pheno_names_read_iter = pheno_names_tmp_start;
+        // phenotypes are stored in reverse
+        char* pheno_names_write_iter = &(pheno_names[pheno_ct * max_pheno_name_blen]);
+        for (uint32_t pheno_idx = pheno_ct; pheno_idx; ) {
+          --pheno_idx;
+          pheno_names_write_iter -= max_pheno_name_blen;
+          const uint32_t slen = strlen(pheno_names_read_iter);
+          memcpy(pheno_names_write_iter, pheno_names_read_iter, slen + 1);
+          pheno_names_read_iter = &(pheno_names_read_iter[slen + 1]);
+        }
+        const SortMode pheno_sort_mode = pmip->merge_pheno_sort;
+        if (pheno_sort_mode == kSortAscii) {
+          qsort(pheno_names, pheno_ct, max_pheno_name_blen, strcmp_overread_casted);
+        } else if (pheno_sort_mode == kSortNatural) {
+          qsort(pheno_names, pheno_ct, max_pheno_name_blen, strcmp_natural);
+        }
+
+        SetAllU32Arr(pheno_names_table_size, pheno_names_htable);
+        pheno_names_read_iter = pheno_names;
+        for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+          const uint32_t slen = strlen(pheno_names_read_iter);
+          HtableAddNondup(pheno_names_read_iter, slen, pheno_names_table_size, pheno_idx, pheno_names_htable);
+          pheno_names_read_iter = &(pheno_names_read_iter[max_pheno_name_blen]);
+        }
       }
-      // TODO
+
+      if (unlikely(bigstack_alloc_w(sample_ctl, &sample_include))) {
+        goto MergePsams_ret_NOMEM;
+      }
+      SetAllBits(sample_ct, sample_include);
+      char* sample_ids = siip->sample_ids;
+      char* sids = siip->sids;
+      if (sample_sort_mode != kSortNone) {
+        if (sample_sort_mode == kSortFile) {
+          // yes, this is a bit circuitous
+          unsigned char* bigstack_end_mark2 = g_bigstack_end;
+          uint32_t* new_sample_idx_to_old;
+          char* sample_ids_tmp;
+          if (unlikely(bigstack_end_alloc_u32(sample_ct, &new_sample_idx_to_old) ||
+                       bigstack_end_alloc_c(sample_ct * max_sample_id_blen, &sample_ids_tmp))) {
+            goto MergePsams_ret_NOMEM;
+          }
+          char* sids_tmp = nullptr;
+          if (max_sid_blen) {
+            if (unlikely(bigstack_end_alloc_c(sample_ct * max_sid_blen, &sids_tmp))) {
+              goto MergePsams_ret_NOMEM;
+            }
+          }
+          reterr = SampleSortFileMap(sample_include, siip, sample_sort_fname, sample_ct, sample_ct, &new_sample_idx_to_old);
+          if (unlikely(reterr)) {
+            goto MergePsams_ret_1;
+          }
+          char* new_sample_ids_iter = sample_ids_tmp;
+          char* new_sids_iter = sids_tmp;
+          for (uint32_t new_idx = 0; new_idx != sample_ct; ++new_idx) {
+            const uint32_t old_idx = new_sample_idx_to_old[new_idx];
+            strcpy(new_sample_ids_iter, &(sample_ids[old_idx * max_sample_id_blen]));
+            new_sample_ids_iter = &(new_sample_ids_iter[max_sample_id_blen]);
+            if (sids) {
+              strcpy(new_sids_iter, &(sids[old_idx * max_sid_blen]));
+              new_sids_iter = &(new_sids_iter[max_sid_blen]);
+            }
+          }
+          memcpy(sample_ids, sample_ids_tmp, sample_ct * max_sample_id_blen);
+          if (sids) {
+            memcpy(sids, sids_tmp, sample_ct * max_sid_blen);
+          }
+          BigstackEndReset(bigstack_end_mark2);
+        } else if (sample_sort_mode == kSortAscii) {
+          qsort(siip->sample_ids, sample_ct, max_sample_id_blen, strcmp_overread_casted);
+        } else {
+          // natural-sort, even if sample_sort_mode == kSort0
+          qsort(siip->sample_ids, sample_ct, max_sample_id_blen, strcmp_natural);
+        }
+      }
+
+      sample_id_table_size = GetHtableFastSize(sample_ct);
+      if (unlikely(bigstack_alloc_u32(sample_id_table_size, &sample_id_htable))) {
+        goto MergePsams_ret_NOMEM;
+      }
+      SetAllU32Arr(sample_id_table_size, sample_id_htable);
+
+      const char* sample_ids_iter = siip->sample_ids;
+      const char* sids_iter = siip->sids;
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        uint32_t slen = strlen(sample_ids_iter);
+        const char* cur_sample_id;
+        if (!sids_iter) {
+          cur_sample_id = sample_ids_iter;
+        } else {
+          char* id_iter = memcpyax(idbuf, sample_ids_iter, slen, '\t');
+          const uint32_t sid_blen = 1 + strlen(sids_iter);
+          memcpy(id_iter, sids_iter, sid_blen);
+          slen += sid_blen;
+          sids_iter = &(sids_iter[max_sid_blen]);
+          cur_sample_id = idbuf;
+        }
+        HtableAddNondup(cur_sample_id, slen, sample_id_table_size, sample_idx, sample_id_htable);
+      }
     }
+    linebuf_capacity = MAXV(max_line_blen, kDecompressMinBlen) + kDecompressChunkSize;
     // max_{p,m}aternal_id_blen may be overestimated in --sample-inner-join
-    // case, but that's harmless since we free that strbox soon enough
+    // case, but that's harmless since we free this strbox soon enough
     ParentalIdInfo parental_id_info;
+    uintptr_t* sex_nm;
+    uintptr_t* sex_male;
+    if (unlikely(bigstack_alloc_c(sample_ct * max_paternal_id_blen, &parental_id_info.paternal_ids) ||
+                 bigstack_alloc_c(sample_ct * max_maternal_id_blen, &parental_id_info.maternal_ids) ||
+                 bigstack_calloc_w(sample_ctl, &sex_nm) ||
+                 bigstack_calloc_w(sample_ctl, &sex_male))) {
+      goto MergePsams_ret_NOMEM;
+    }
+    {
+      char* paternal_ids_iter = parental_id_info.paternal_ids;
+      char* maternal_ids_iter = parental_id_info.maternal_ids;
+      for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+        strcpy_k(paternal_ids_iter, "0");
+        paternal_ids_iter = &(paternal_ids_iter[max_paternal_id_blen]);
+        strcpy_k(maternal_ids_iter, "0");
+        maternal_ids_iter = &(maternal_ids_iter[max_maternal_id_blen]);
+      }
+    }
     parental_id_info.max_paternal_id_blen = max_paternal_id_blen;
     parental_id_info.max_maternal_id_blen = max_maternal_id_blen;
-    *sample_ctp = sample_ct;
+
+    // unlike core pheno_cols, this just lives on bigstack
+    PhenoCol* pheno_cols = nullptr;
+
+    if (pheno_ct) {
+      if (unlikely(BIGSTACK_ALLOC_X(PhenoCol, pheno_ct, &pheno_cols))) {
+        goto MergePsams_ret_NOMEM;
+      }
+      for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+        // we don't really distinguish between case/control and quantitative
+        // phenotypes here (just use data.qt in both cases), and it should be
+        // ok to overallocate a bit in the categorical-phenotype case
+        if (unlikely(bigstack_calloc_w(sample_ctl, &(pheno_cols[pheno_idx].nonmiss)) ||
+                     bigstack_alloc_d(sample_ct, &(pheno_cols[pheno_idx].data.qt)))) {
+          goto MergePsams_ret_NOMEM;
+        }
+        // We use kPhenoDtypeCc instead of kPhenoTypeOther to indicate "type
+        // not yet known", since that lets us leave it unchanged if all values
+        // are missing.
+        pheno_cols[pheno_idx].type_code = kPhenoDtypeCc;
+        // defensive
+        pheno_cols[pheno_idx].category_names = nullptr;
+        pheno_cols[pheno_idx].nonnull_category_ct = 0;
+      }
+    }
+    unsigned char* bigstack_mark2 = g_bigstack_base;
+    const uint32_t kNonphenoColCt = 5;
+    const uint32_t max_col_ct = pheno_ct + kNonphenoColCt;
+    // note that ZeroWArr(pheno_ctl, pheno_include) is safe when pheno_ct == 0
+    const uint32_t pheno_ctl = BitCtToWordCt(pheno_ct);
+    uint32_t* col_skips;
+    uint32_t* col_types;
+    const char** token_ptrs;
+    uint32_t* token_slens;
+    if (unlikely(bigstack_alloc_u32(max_col_ct, &col_skips) ||
+                 bigstack_alloc_u32(max_col_ct, &col_types) ||
+                 bigstack_alloc_kcp(max_col_ct, &token_ptrs) ||
+                 bigstack_alloc_u32(max_col_ct, &token_slens) ||
+                 bigstack_alloc_w(pheno_ctl, &pheno_include) ||
+                 bigstack_alloc_c(linebuf_capacity, &linebuf))) {
+      goto MergePsams_ret_NOMEM;
+    }
+    // phenotype-major
+    uintptr_t* pheno_locked = nullptr;
+    if (pheno_ct && (pmip->merge_pheno_mode != kMergePhenoModeNmFirst)) {
+      // no need to check for overflow in 32-bit case since we would have
+      // already run out of memory on data.qt allocations
+      const uintptr_t bit_ct = S_CAST(uintptr_t, pheno_ct) * sample_ct;
+      if (unlikely(bigstack_calloc_w(BitCtToWordCt(bit_ct), &pheno_locked))) {
+        goto MergePsams_ret_NOMEM;
+      }
+    }
+
     if (pheno_ct) {
       logprintf("--pmerge%s: %u sample%s and %u phenotype%s present.\n", pmip->list_fname? "-list" : "", sample_ct, (sample_ct == 1)? "" : "s", pheno_ct, (pheno_ct == 1)? "" : "s");
     } else {
-      logprintf("--pmerge%s: %u sample%s present.\n", pmip->list_fname? "-list" : "", sample_ct, (sample_ct == 1)? "" : "s");
+      logprintf(g_logbuf, kLogbufSize, "--pmerge%s: %u sample%s present.\n", pmip->list_fname? "-list" : "", sample_ct, (sample_ct == 1)? "" : "s");
     }
-    BigstackEndSet(siip->sample_ids);
+    //  [category_names] [category_names_htable]            [strings]
+    // ^                                        ^          ^         ^
+    // |                                        |          |         |
+    // g_bigstack_base                    arena_bottom arena_top g_bigstack_end
+    //
+    // category-name strings are allocated at the end of bigstack, and need to
+    // remain allocated until WritePsam() returns.
+    // category_names_htable is repositioned, resized, and rebuilt whenever
+    // category_names would otherwise overflow.
+    // No other allocations allowed past this point, until WritePsam() call.
+    arena_bottom = g_bigstack_base;
+    arena_top = g_bigstack_end;
+    const char** category_names = nullptr;
+    // uint32_t* category_names_htable = nullptr;
+    uint32_t category_names_ct = 0;
+    // category_names_capacity == category_names_htable_size / 2
+    // uint32_t category_names_htable_size = 0;
+    filesets_iter = filesets;
+    // possible todo: track seen realpaths, skip duplicates
+    do {
+      cur_fname = filesets_iter->psam_fname;
+      reterr = TextStreamOpenEx(cur_fname, kMaxLongLine, linebuf_capacity, decompress_thread_ct, nullptr, linebuf, &txs);
+      if (unlikely(reterr)) {
+        goto MergePsams_ret_TSTREAM_REWIND_FAIL;
+      }
+      const char* line_start = TextLineEnd(&txs);
+      for (line_idx = 1; ; ++line_idx) {
+        if (unlikely(!TextGetUnsafe2K(&txs, &line_start))) {
+          reterr = TextStreamRawErrcode(&txs);
+          goto MergePsams_ret_TSTREAM_REWIND_FAIL;
+        }
+        if ((line_start[0] != '#') || tokequal_k(&(line_start[1]), "FID") || tokequal_k(&(line_start[1]), "IID")) {
+          break;
+        }
+        line_start = AdvPastDelim(line_start, '\n');
+      }
+      ZeroWArr(pheno_ctl, pheno_include);
+      // uint32_t sid_present = 0;
+      // uint32_t parents_present = 0;
+      // uint32_t sex_present = 0;
+      uint32_t fid_present;
+      uint32_t relevant_postfid_col_ct;
+      col_types[0] = 0;
+      if (line_start[0] == '#') {
+        fid_present = (line_start[1] == 'F');
+        relevant_postfid_col_ct = 1 - fid_present;
+        if (!fid_present) {
+          col_skips[0] = 0;
+        }
+        const char* token_end = &(line_start[4]);
+        for (uint32_t col_idx = 1; ; ++col_idx) {
+          const char* token_start = FirstNonTspace(token_end);
+          if (IsEolnKns(*token_start)) {
+            break;
+          }
+          token_end = CurTokenEnd(token_start);
+          const uint32_t token_slen = token_end - token_start;
+          uint32_t cur_col_type = UINT32_MAX;
+          if (token_slen == 3) {
+            if (memequal_k(token_start, "IID", 3)) {
+              cur_col_type = 0;
+            } else if (memequal_k(token_start, "SID", 3)) {
+              // sid_present = 1;
+              cur_col_type = 1;
+            } else if (memequal_k(token_start, "PAT", 3)) {
+              cur_col_type = 2;
+              // parents_present = 1;
+            } else if (memequal_k(token_start, "MAT", 3)) {
+              cur_col_type = 3;
+            } else if (memequal_k(token_start, "SEX", 3)) {
+              cur_col_type = 4;
+              // sex_present = 1;
+            }
+          }
+          if (cur_col_type == UINT32_MAX) {
+            if (token_slen < max_pheno_name_blen) {
+              cur_col_type = StrboxHtableFind(token_start, pheno_names, pheno_names_htable, max_pheno_name_blen, token_slen, pheno_names_table_size);
+            }
+            if (cur_col_type == UINT32_MAX) {
+              continue;
+            }
+            SetBit(cur_col_type, pheno_include);
+            cur_col_type += kNonphenoColCt;
+          }
+          col_skips[relevant_postfid_col_ct] = col_idx;
+          col_types[relevant_postfid_col_ct++] = cur_col_type;
+        }
+        for (uint32_t rpf_col_idx = relevant_postfid_col_ct - 1; rpf_col_idx; --rpf_col_idx) {
+          col_skips[rpf_col_idx] -= col_skips[rpf_col_idx - 1];
+        }
+        line_start = AdvPastDelim(token_end, '\n');
+        ++line_idx;
+      } else {
+        // .fam
+        fid_present = (fam_cols / kfFamCol1) & 1;
+        col_skips[0] = fid_present;
+        relevant_postfid_col_ct = 1;
+        if (fam_cols & kfFamCol34) {
+          col_skips[relevant_postfid_col_ct] = 1;
+          col_types[relevant_postfid_col_ct++] = 2;
+          col_skips[relevant_postfid_col_ct] = 1;
+          col_types[relevant_postfid_col_ct++] = 3;
+          // parents_present = 1;
+        }
+        if (fam_cols & kfFamCol5) {
+          col_skips[relevant_postfid_col_ct] = 1;
+          col_types[relevant_postfid_col_ct++] = 4;
+          // sex_present = 1;
+        }
+        if (fam_cols & kfFamCol6) {
+          col_skips[relevant_postfid_col_ct] = 1;
+          const uint32_t pheno_idx = StrboxHtableFind("PHENO1", pheno_names, pheno_names_htable, max_pheno_name_blen, strlen("PHENO1"), pheno_names_table_size);
+          col_types[relevant_postfid_col_ct++] = kNonphenoColCt + pheno_idx;
+          SetBit(pheno_idx, pheno_include);
+        }
+      }
+      // TODO
+      if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
+        goto MergePsams_ret_TSTREAM_FAIL;
+      }
+      if (unlikely(CleanupTextStream2(cur_fname, &txs, &reterr))) {
+        goto MergePsams_ret_1;
+      }
+      filesets_iter = filesets_iter->next;
+    } while (filesets_iter);
+    BigstackReset(bigstack_mark2);
+    BigstackEndSet(arena_top);
+    if (pheno_ct) {
+      if (category_names_ct) {
+        const char** category_names_final = R_CAST(const char**, g_bigstack_base);
+        BigstackBaseSet(&(category_names_final[category_names_ct]));
+        memmove(category_names_final, category_names, category_names_ct * sizeof(intptr_t));
+        category_names = category_names_final;
+      }
+      for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+        PhenoCol* pheno_col = &(pheno_cols[pheno_idx]);
+        if (pheno_col->type_code == kPhenoDtypeQt) {
+          if (misc_flags & kfMiscAffection01) {
+            // TODO
+            // If all values are in {0, 1, missing}, convert to {1, 2, missing}
+          }
+        } else if (pheno_col->type_code == kPhenoDtypeCat) {
+          pheno_col->category_names = category_names;
+        }
+      }
+      ;;;
+    }
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
+    reterr = WritePsam(outname, sample_include, siip, &parental_id_info, sex_nm, sex_male, pheno_cols, pheno_names, nullptr, "NA", sample_ct, pheno_ct, max_pheno_name_blen, kfPsamColDefault);
+    if (unlikely(reterr)) {
+      goto MergePsams_ret_1;
+    }
+    logprintfww("--pmerge%s: Merged .psam written to %s .\n", pmip->list_fname? "-list" : "", outname);
+    *sample_ctp = sample_ct;
+    ArenaEndSet(siip->sample_ids, &bigstack_end_mark);
   }
   while (0) {
   MergePsams_ret_NOMEM:
     reterr = kPglRetNomem;
+    break;
+  MergePsams_ret_TSTREAM_REWIND_FAIL:
+    TextStreamErrPrintRewind(cur_fname, &txs, &reterr);
     break;
   MergePsams_ret_TSTREAM_FAIL:
     TextStreamErrPrint(cur_fname, &txs);
@@ -930,7 +1264,7 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags m
 
     SampleIdInfo sii;
     uint32_t sample_ct;
-    reterr = MergePsams(pmip, sample_sort_fname, (misc_flags / kfMiscAffection01) & 1, sample_sort_mode, fam_cols, max_thread_ct, outname, outname_end, filesets, &sii, &sample_ct);
+    reterr = MergePsams(pmip, sample_sort_fname, misc_flags, sample_sort_mode, fam_cols, max_thread_ct, outname, outname_end, filesets, &sii, &sample_ct);
     if (unlikely(reterr)) {
       goto Pmerge_ret_1;
     }
@@ -1782,7 +2116,7 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
         const uint32_t cur_max_merged_alleles = 1 + cur_allele_ct1 + cur_allele_ct2 - allele1_alt_start - allele2_alt_start;
         const uint32_t cur_htable_size = (cur_max_merged_alleles * 9) / 2;
         SetAllU32Arr(cur_htable_size, merged_alleles_htable);
-        // See e.g PopulateStrboxHtable().
+        // See e.g. PopulateStrboxHtable().
         uint32_t hashval = Hashceil(merged_alleles[0], strlen(merged_alleles[0]), cur_htable_size);
         merged_alleles_htable[hashval] = 0;
         ++merged_allele_ct;
@@ -1793,27 +2127,18 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
           }
           const char* cur_allele1 = cur_allele1s[allele1_idx];
           const uint32_t cur_allele1_slen = strlen(cur_allele1);
-          for (hashval = Hashceil(cur_allele1, cur_allele1_slen, cur_htable_size); ; ) {
-            const uint32_t cur_htable_entry = merged_alleles_htable[hashval];
-            if (cur_htable_entry == UINT32_MAX) {
-              if (unlikely(merged_allele_ct == kPglMaxAlleleCt)) {
-                logerrprintfww("Error: Too many alleles across --pgen-diff and main filesets for variant '%s' at position %s:%u. (This " PROG_NAME_STR " build is limited to " PGL_MAX_ALLELE_CT_STR ".)\n", variant_ids[variant_uidx], chr_buf, cur_included_bp);
-                reterr = kPglRetNotYetSupported;
-                goto PgenDiff_ret_1;
-              }
-              remap1[allele1_idx] = merged_allele_ct;
-              merged_alleles_htable[hashval] = merged_allele_ct;
-              merged_alleles[merged_allele_ct] = cur_allele1;
-              ++merged_allele_ct;
-              break;
+          const uint32_t cur_idx = IdHtableAdd(cur_allele1, merged_alleles, cur_allele1_slen, cur_htable_size, merged_allele_ct, merged_alleles_htable);
+          if (cur_idx == UINT32_MAX) {
+            if (unlikely(merged_allele_ct == kPglMaxAlleleCt)) {
+              logerrprintfww("Error: Too many alleles across --pgen-diff and main filesets for variant '%s' at position %s:%u. (This " PROG_NAME_STR " build is limited to " PGL_MAX_ALLELE_CT_STR ".)\n", variant_ids[variant_uidx], chr_buf, cur_included_bp);
+              reterr = kPglRetNotYetSupported;
+              goto PgenDiff_ret_1;
             }
-            if (memequal(cur_allele1, merged_alleles[cur_htable_entry], cur_allele1_slen + 1)) {
-              remap1[allele1_idx] = cur_htable_entry;
-              break;
-            }
-            if (++hashval == cur_htable_size) {
-              hashval = 0;
-            }
+            remap1[allele1_idx] = merged_allele_ct;
+            merged_alleles[merged_allele_ct] = cur_allele1;
+            ++merged_allele_ct;
+          } else {
+            remap1[allele1_idx] = cur_idx;
           }
         }
         for (uint32_t allele2_idx = allele2_alt_start; allele2_idx != cur_allele_ct2; ++allele2_idx) {
@@ -1822,27 +2147,18 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
           }
           const char* cur_allele2 = cur_allele2s[allele2_idx];
           const uint32_t cur_allele2_slen = strlen(cur_allele2);
-          for (hashval = Hashceil(cur_allele2, cur_allele2_slen, cur_htable_size); ; ) {
-            const uint32_t cur_htable_entry = merged_alleles_htable[hashval];
-            if (cur_htable_entry == UINT32_MAX) {
-              if (unlikely(merged_allele_ct == kPglMaxAlleleCt)) {
-                logerrprintfww("Error: Too many alleles across --pgen-diff and main filesets for variant '%s' at position %s:%u. (This " PROG_NAME_STR " build is limited to " PGL_MAX_ALLELE_CT_STR ".)\n", variant_ids[variant_uidx], chr_buf, cur_included_bp);
-                reterr = kPglRetNotYetSupported;
-                goto PgenDiff_ret_1;
-              }
-              remap2[allele2_idx] = merged_allele_ct;
-              merged_alleles_htable[hashval] = merged_allele_ct;
-              merged_alleles[merged_allele_ct] = cur_allele2;
-              ++merged_allele_ct;
-              break;
+          const uint32_t cur_idx = IdHtableAdd(cur_allele2, merged_alleles, cur_allele2_slen, cur_htable_size, merged_allele_ct, merged_alleles_htable);
+          if (cur_idx == UINT32_MAX) {
+            if (unlikely(merged_allele_ct == kPglMaxAlleleCt)) {
+              logerrprintfww("Error: Too many alleles across --pgen-diff and main filesets for variant '%s' at position %s:%u. (This " PROG_NAME_STR " build is limited to " PGL_MAX_ALLELE_CT_STR ".)\n", variant_ids[variant_uidx], chr_buf, cur_included_bp);
+              reterr = kPglRetNotYetSupported;
+              goto PgenDiff_ret_1;
             }
-            if (memequal(cur_allele2, merged_alleles[cur_htable_entry], cur_allele2_slen + 1)) {
-              remap2[allele2_idx] = cur_htable_entry;
-              break;
-            }
-            if (++hashval == cur_htable_size) {
-              hashval = 0;
-            }
+            remap2[allele2_idx] = merged_allele_ct;
+            merged_alleles[merged_allele_ct] = cur_allele2;
+            ++merged_allele_ct;
+          } else {
+            remap2[allele2_idx] = cur_idx;
           }
         }
         const uint32_t merged_allele_ctl = BitCtToWordCt(merged_allele_ct);

@@ -226,6 +226,7 @@ FLAGSET_DEF_START()
   kfPsamColAll = ((kfPsamColPhenos * 2) - kfPsamColMaybefid)
 FLAGSET_DEF_END(PvarPsamFlags);
 
+// may want to rename FidPresent to FidMayBePresent
 FLAGSET_DEF_START()
   kfSampleId0,
   kfSampleIdFidPresent = (1 << 0),
@@ -985,6 +986,8 @@ typedef struct PhenoColStruct {
   // * When .sample non-V2 categorical variables are imported, 'C' is added in
   //   front of the integers.
   // * category_names[1..(n-1)] is guaranteed to be in natural-sorted order.
+  // (MergePsams() has slightly different behavior since its pheno_cols
+  // instance is only used for a one-time internal write.)
   const char** category_names;
 
   uintptr_t* nonmiss;  // bitvector

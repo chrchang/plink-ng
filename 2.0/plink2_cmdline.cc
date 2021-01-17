@@ -1393,33 +1393,6 @@ BoolErr HtableGoodSizeAlloc(uint32_t item_ct, uintptr_t bytes_avail, uint32_t** 
   return 0;
 }
 
-uint32_t PopulateStrboxHtable(const char* strbox, uintptr_t str_ct, uintptr_t max_str_blen, uint32_t str_htable_size, uint32_t* str_htable) {
-  // may want subset_mask parameter later
-  SetAllU32Arr(str_htable_size, str_htable);
-  const char* strbox_iter = strbox;
-  for (uintptr_t str_idx = 0; str_idx != str_ct; ++str_idx) {
-    const uint32_t slen = strlen(strbox_iter);
-    // previously used quadratic probing, but turns out that that isn't
-    // meaningfully better than linear probing.
-    for (uint32_t hashval = Hashceil(strbox_iter, slen, str_htable_size); ; ) {
-      const uint32_t cur_htable_entry = str_htable[hashval];
-      if (cur_htable_entry == UINT32_MAX) {
-        str_htable[hashval] = str_idx;
-        break;
-      }
-      if (memequal(strbox_iter, &(strbox[cur_htable_entry * max_str_blen]), slen + 1)) {
-        // guaranteed to be positive
-        return str_idx;
-      }
-      if (++hashval == str_htable_size) {
-        hashval = 0;
-      }
-    }
-    strbox_iter = &(strbox_iter[max_str_blen]);
-  }
-  return 0;
-}
-
 // could merge this with non-subset case, but this isn't much code
 /*
 uint32_t populate_strbox_subset_htable(const uintptr_t* __restrict subset_mask, const char* strbox, uintptr_t raw_str_ct, uintptr_t str_ct, uintptr_t max_str_blen, uint32_t str_htable_size, uint32_t* str_htable) {
@@ -1476,6 +1449,38 @@ uint32_t IdHtableFindNnt(const char* cur_id, const char* const* item_ids, const 
   }
 }
 
+uint32_t IdHtableAdd(const char* cur_id, const char* const* item_ids, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t value, uint32_t* id_htable) {
+  for (uint32_t hashval = Hashceil(cur_id, cur_id_slen, id_htable_size); ; ) {
+    const uint32_t cur_htable_entry = id_htable[hashval];
+    if (cur_htable_entry == UINT32_MAX) {
+      id_htable[hashval] = value;
+      return UINT32_MAX;
+    }
+    if (memequal(cur_id, item_ids[cur_htable_entry], cur_id_slen + 1)) {
+      return cur_htable_entry;
+    }
+    if (++hashval == id_htable_size) {
+      hashval = 0;
+    }
+  }
+}
+
+uint32_t IdHtableAddNnt(const char* cur_id, const char* const* item_ids, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t value, uint32_t* id_htable) {
+  for (uint32_t hashval = Hashceil(cur_id, cur_id_slen, id_htable_size); ; ) {
+    const uint32_t cur_htable_entry = id_htable[hashval];
+    if (cur_htable_entry == UINT32_MAX) {
+      id_htable[hashval] = value;
+      return UINT32_MAX;
+    }
+    if (strequal_unsafe(item_ids[cur_htable_entry], cur_id, cur_id_slen)) {
+      return cur_htable_entry;
+    }
+    if (++hashval == id_htable_size) {
+      hashval = 0;
+    }
+  }
+}
+
 // assumes cur_id_slen < max_str_blen.
 // requires cur_id to be null-terminated.
 uint32_t StrboxHtableFind(const char* cur_id, const char* strbox, const uint32_t* id_htable, uintptr_t max_str_blen, uint32_t cur_id_slen, uint32_t id_htable_size) {
@@ -1489,6 +1494,37 @@ uint32_t StrboxHtableFind(const char* cur_id, const char* strbox, const uint32_t
       hashval = 0;
     }
   }
+}
+
+uint32_t StrboxHtableAdd(const char* cur_id, const char* strbox, uintptr_t max_str_blen, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t value, uint32_t* id_htable) {
+  for (uint32_t hashval = Hashceil(cur_id, cur_id_slen, id_htable_size); ; ) {
+    const uint32_t cur_htable_entry = id_htable[hashval];
+    if (cur_htable_entry == UINT32_MAX) {
+      id_htable[hashval] = value;
+      return UINT32_MAX;
+    }
+    if (memequal(cur_id, &(strbox[cur_htable_entry * max_str_blen]), cur_id_slen + 1)) {
+      return cur_htable_entry;
+    }
+    if (++hashval == id_htable_size) {
+      hashval = 0;
+    }
+  }
+}
+
+uint32_t PopulateStrboxHtable(const char* strbox, uint32_t str_ct, uintptr_t max_str_blen, uint32_t str_htable_size, uint32_t* str_htable) {
+  // may want subset_mask parameter later
+  SetAllU32Arr(str_htable_size, str_htable);
+  const char* strbox_iter = strbox;
+  for (uintptr_t str_idx = 0; str_idx != str_ct; ++str_idx) {
+    const uint32_t slen = strlen(strbox_iter);
+    if (StrboxHtableAdd(strbox_iter, strbox, max_str_blen, slen, str_htable_size, str_idx, str_htable) != UINT32_MAX) {
+      // guaranteed to be positive
+      return str_idx;
+    }
+    strbox_iter = &(strbox_iter[max_str_blen]);
+  }
+  return 0;
 }
 
 uint32_t VariantIdDupflagHtableFind(const char* idbuf, const char* const* variant_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_slen) {
