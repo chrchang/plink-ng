@@ -87,7 +87,7 @@ CONSTI32(kMaxPhenoCt, 524287);
 
 // maximum number of usable cluster computers, this is arbitrary though it
 // shouldn't be larger than 2^32 - 1
-// (actually, there's an overflow danger: [work units] * parallel_idx may not
+// (actually, there's an overflow danger: <work units> * parallel_idx may not
 // fit in a uint64 if parallel_tot is too high.)
 CONSTI32(kParallelMax, 32768);
 
@@ -571,6 +571,12 @@ PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, XidHeaderF
 
 // header line expected to start with FID1, ID1, or IID1
 PglErr LoadXidHeaderPair(const char* flag_name, uint32_t sid_over_fid, uintptr_t* line_idx_ptr, TextStream* txsp, XidMode* xid_mode_ptr, char** line_startp, char** line_iterp);
+
+extern const unsigned char g_char_to_sex[256];
+
+HEADER_INLINE uint32_t CharToSex(char cc) {
+  return g_char_to_sex[S_CAST(unsigned char, cc)];
+}
 
 
 // note that this is no longer divisible by 64

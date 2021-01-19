@@ -30,6 +30,8 @@ void InitPmerge(PmergeInfo* pmerge_info_ptr) {
   pmerge_info_ptr->flags = kfPmerge0;
   pmerge_info_ptr->list_mode = kPmergeListModePfile;
   pmerge_info_ptr->merge_mode = kMergeModeNmMatch;
+  pmerge_info_ptr->merge_parents_mode = kMergePhenoModeNmMatch;
+  pmerge_info_ptr->merge_sex_mode = kMergePhenoModeNmMatch;
   pmerge_info_ptr->merge_pheno_mode = kMergePhenoModeNmMatch;
   pmerge_info_ptr->merge_xheader_mode = kMergeXheaderModeFirst;
   pmerge_info_ptr->merge_qual_mode = kMergeQualInfoModeNmFirst;
@@ -70,8 +72,17 @@ typedef struct PmergeInputFilesetLlStruct {
   char* pgen_fname;
   char* pvar_fname;
   char* psam_fname;
+  char* pgen_locked_fname;
+  uint32_t sample_ct;
   uint32_t variant_ct;
+  uint32_t max_line_blen;
+  uint32_t max_single_pos_ct;
+  uintptr_t max_single_pos_blen;
   uintptr_t grand_allele_ct;
+  ChrIdx first_chr_idx;
+  ChrIdx last_chr_idx;
+  uint32_t first_pos;
+  uint32_t last_pos;
 } PmergeInputFilesetLl;
 
 // Allocates at end of bigstack.
@@ -161,6 +172,7 @@ PglErr LoadPmergeList(const char* list_fname, PmergeListMode mode, uint32_t main
         cur_entry->psam_fname = fname_iter;
         fname_iter = memcpya(fname_iter, first_token_start, first_token_slen);
         memcpy(fname_iter, psam_suffix, psam_blen);
+        cur_entry->pgen_locked_fname = nullptr;
       } else {
         const char* second_token_end = CurTokenEnd(second_token_start);
         const char* third_token_start = FirstNonTspace(second_token_end);
@@ -192,6 +204,7 @@ PglErr LoadPmergeList(const char* list_fname, PmergeListMode mode, uint32_t main
         fname_iter = memcpyax(fname_iter, second_token_start, third_token_slen, '\0');
         cur_entry->psam_fname = fname_iter;
         memcpyx(fname_iter, third_token_start, third_token_slen, '\0');
+        cur_entry->pgen_locked_fname = nullptr;
       }
     }
     if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
@@ -225,7 +238,7 @@ PglErr LoadPmergeList(const char* list_fname, PmergeListMode mode, uint32_t main
 }
 
 // Permanent allocations are at end of bigstack.
-PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags misc_flags, SortMode sample_sort_mode, FamCol fam_cols, uint32_t max_thread_ct, char* outname, char* outname_end, PmergeInputFilesetLl* filesets, SampleIdInfo* siip, uint32_t* sample_ctp) {
+PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags misc_flags, SortMode sample_sort_mode, FamCol fam_cols, int32_t missing_pheno, uint32_t max_thread_ct, char* outname, char* outname_end, PmergeInputFilesetLl* filesets, SampleIdInfo* siip, uint32_t* sample_ctp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t line_idx = 0;
@@ -295,6 +308,7 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFla
     unsigned char* arena_top = g_bigstack_end;
 
     const uint32_t decompress_thread_ct = MAXV(max_thread_ct - 1, 1);
+    // possible todo: track seen realpaths, skip duplicates
     PmergeInputFilesetLl* filesets_iter = filesets;
     char* idbuf = g_textbuf;
     uint32_t max_line_blen = 0;
@@ -944,6 +958,7 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFla
           cur_sample_id = idbuf;
         }
         HtableAddNondup(cur_sample_id, slen, sample_id_table_size, sample_idx, sample_id_htable);
+        sample_ids_iter = &(sample_ids_iter[max_sample_id_blen]);
       }
     }
     linebuf_capacity = MAXV(max_line_blen, kDecompressMinBlen) + kDecompressChunkSize;
@@ -990,7 +1005,8 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFla
         // not yet known", since that lets us leave it unchanged if all values
         // are missing.
         pheno_cols[pheno_idx].type_code = kPhenoDtypeCc;
-        // defensive
+        // defensive, nonnull_category_ct is ignored by WritePsam() except in
+        // the 'SEX' phenotype case which can't happen here
         pheno_cols[pheno_idx].category_names = nullptr;
         pheno_cols[pheno_idx].nonnull_category_ct = 0;
       }
@@ -1000,6 +1016,7 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFla
     const uint32_t max_col_ct = pheno_ct + kNonphenoColCt;
     // note that ZeroWArr(pheno_ctl, pheno_include) is safe when pheno_ct == 0
     const uint32_t pheno_ctl = BitCtToWordCt(pheno_ct);
+    const double missing_phenod = missing_pheno? S_CAST(double, missing_pheno) : HUGE_VAL;
     uint32_t* col_skips;
     uint32_t* col_types;
     const char** token_ptrs;
@@ -1012,13 +1029,49 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFla
                  bigstack_alloc_c(linebuf_capacity, &linebuf))) {
       goto MergePsams_ret_NOMEM;
     }
+    // sample-major, PAT before MAT
+    const MergePhenoMode merge_parents_mode = pmip->merge_parents_mode;
+    uintptr_t* parents_locked = nullptr;
+    if (merge_parents_mode != kMergePhenoModeNmFirst) {
+      if (unlikely(bigstack_calloc_w(BitCtToWordCt(2 * sample_ct), &parents_locked))) {
+        goto MergePsams_ret_NOMEM;
+      }
+    }
+    const MergePhenoMode merge_sex_mode = pmip->merge_sex_mode;
+    uintptr_t* sex_locked = nullptr;
+    if (merge_sex_mode != kMergePhenoModeNmFirst) {
+      if (unlikely(bigstack_calloc_w(sample_ctl, &sex_locked))) {
+        goto MergePsams_ret_NOMEM;
+      }
+    }
     // phenotype-major
+    const MergePhenoMode merge_pheno_mode = pmip->merge_pheno_mode;
     uintptr_t* pheno_locked = nullptr;
-    if (pheno_ct && (pmip->merge_pheno_mode != kMergePhenoModeNmFirst)) {
+    if (pheno_ct && (merge_pheno_mode != kMergePhenoModeNmFirst)) {
       // no need to check for overflow in 32-bit case since we would have
       // already run out of memory on data.qt allocations
       const uintptr_t bit_ct = S_CAST(uintptr_t, pheno_ct) * sample_ct;
       if (unlikely(bigstack_calloc_w(BitCtToWordCt(bit_ct), &pheno_locked))) {
+        goto MergePsams_ret_NOMEM;
+      }
+    }
+    // When --1 isn't specified, we need to be careful when interpreting
+    // zeroes: if the phenotype winds up being quantitative, zero is a regular
+    // value, but if it's binary, it's a missing value.
+    // Except in the trivial "--merge-pheno-mode first" case, we treat it as a
+    // missing value during the main pass, but set the relevant pheno_zero_seen
+    // bit if that phenotype cell isn't locked yet.
+    // We then correct the final phenotype values at the end, when we know
+    // whether each column will appear to be binary or quantitative in the
+    // merged .psam.
+    // Note that it is possible for a quantitative column to degrade to a
+    // binary column due to e.g. conflicts knocking out all values not in {-9,
+    // 0, 1, 2}.  There isn't much we can do about that here, though.
+    const uint32_t affection_01 = (misc_flags / kfMiscAffection01) & 1;
+    uintptr_t* pheno_zero_seen = nullptr;
+    if (pheno_ct && (!affection_01) && (merge_pheno_mode != kMergePhenoModeFirst)) {
+      const uintptr_t bit_ct = S_CAST(uintptr_t, pheno_ct) * sample_ct;
+      if (unlikely(bigstack_calloc_w(BitCtToWordCt(bit_ct), &pheno_zero_seen))) {
         goto MergePsams_ret_NOMEM;
       }
     }
@@ -1038,15 +1091,30 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFla
     // category_names_htable is repositioned, resized, and rebuilt whenever
     // category_names would otherwise overflow.
     // No other allocations allowed past this point, until WritePsam() call.
-    arena_bottom = g_bigstack_base;
-    arena_top = g_bigstack_end;
     const char** category_names = nullptr;
-    // uint32_t* category_names_htable = nullptr;
+    uint32_t* category_names_htable = nullptr;
     uint32_t category_names_ct = 0;
     // category_names_capacity == category_names_htable_size / 2
-    // uint32_t category_names_htable_size = 0;
+    uint32_t category_names_htable_size = 0;
+    arena_top = g_bigstack_end;
+    if (pheno_ct) {
+      category_names_htable_size = 512;
+      if (unlikely(bigstack_alloc_kcp(category_names_htable_size / 2, &category_names) ||
+                   bigstack_alloc_u32(category_names_htable_size, &category_names_htable))) {
+        goto MergePsams_ret_NOMEM;
+      }
+      SetAllU32Arr(category_names_htable_size, category_names_htable);
+      // copy into arena so overread is safe
+      const uint32_t missing_catname_slen = strlen(g_missing_catname);
+      if (unlikely(StoreStringAtEndK(g_bigstack_base, g_missing_catname, missing_catname_slen, &arena_top, &(category_names[0])))) {
+        goto MergePsams_ret_NOMEM;
+      }
+      const uint32_t hashval = Hashceil(g_missing_catname, missing_catname_slen, category_names_htable_size);
+      category_names_htable[0] = hashval;
+      category_names_ct = 1;
+    }
+    arena_bottom = g_bigstack_base;
     filesets_iter = filesets;
-    // possible todo: track seen realpaths, skip duplicates
     do {
       cur_fname = filesets_iter->psam_fname;
       reterr = TextStreamOpenEx(cur_fname, kMaxLongLine, linebuf_capacity, decompress_thread_ct, nullptr, linebuf, &txs);
@@ -1065,15 +1133,14 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFla
         line_start = AdvPastDelim(line_start, '\n');
       }
       ZeroWArr(pheno_ctl, pheno_include);
-      // uint32_t sid_present = 0;
-      // uint32_t parents_present = 0;
-      // uint32_t sex_present = 0;
+      uint32_t sid_present = 0;
+      uint32_t parents_present = 0;
+      uint32_t sex_present = 0;
+      uint32_t relevant_postfid_col_ct = 1;
       uint32_t fid_present;
-      uint32_t relevant_postfid_col_ct;
       col_types[0] = 0;
       if (line_start[0] == '#') {
         fid_present = (line_start[1] == 'F');
-        relevant_postfid_col_ct = 1 - fid_present;
         if (!fid_present) {
           col_skips[0] = 0;
         }
@@ -1090,21 +1157,21 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFla
             if (memequal_k(token_start, "IID", 3)) {
               cur_col_type = 0;
             } else if (memequal_k(token_start, "SID", 3)) {
-              // sid_present = 1;
+              sid_present = 1;
               cur_col_type = 1;
             } else if (memequal_k(token_start, "PAT", 3)) {
               cur_col_type = 2;
-              // parents_present = 1;
+              parents_present = 1;
             } else if (memequal_k(token_start, "MAT", 3)) {
               cur_col_type = 3;
             } else if (memequal_k(token_start, "SEX", 3)) {
               cur_col_type = 4;
-              // sex_present = 1;
+              sex_present = 1;
             }
           }
           if (cur_col_type == UINT32_MAX) {
             if (token_slen < max_pheno_name_blen) {
-              cur_col_type = StrboxHtableFind(token_start, pheno_names, pheno_names_htable, max_pheno_name_blen, token_slen, pheno_names_table_size);
+              cur_col_type = StrboxHtableFindNnt(token_start, pheno_names, pheno_names_htable, max_pheno_name_blen, token_slen, pheno_names_table_size);
             }
             if (cur_col_type == UINT32_MAX) {
               continue;
@@ -1124,18 +1191,17 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFla
         // .fam
         fid_present = (fam_cols / kfFamCol1) & 1;
         col_skips[0] = fid_present;
-        relevant_postfid_col_ct = 1;
         if (fam_cols & kfFamCol34) {
           col_skips[relevant_postfid_col_ct] = 1;
           col_types[relevant_postfid_col_ct++] = 2;
           col_skips[relevant_postfid_col_ct] = 1;
           col_types[relevant_postfid_col_ct++] = 3;
-          // parents_present = 1;
+          parents_present = 1;
         }
         if (fam_cols & kfFamCol5) {
           col_skips[relevant_postfid_col_ct] = 1;
           col_types[relevant_postfid_col_ct++] = 4;
-          // sex_present = 1;
+          sex_present = 1;
         }
         if (fam_cols & kfFamCol6) {
           col_skips[relevant_postfid_col_ct] = 1;
@@ -1144,36 +1210,397 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFla
           SetBit(pheno_idx, pheno_include);
         }
       }
-      // TODO
+
+      const uint32_t cur_pheno_ct = PopcountWords(pheno_include, pheno_ctl);
+      const char* sample_ids = siip->sample_ids;
+      const char* sids = siip->sids;
+      uint32_t cur_sample_ct = 0;
+      uint32_t sid_slen = 1;
+      const char* line_iter;
+      for (; TextGetUnsafe2K(&txs, &line_start); line_start = AdvPastDelim(line_iter, '\n'), ++line_idx) {
+        line_iter = TokenLexK0(line_start, col_types, col_skips, relevant_postfid_col_ct, token_ptrs, token_slens);
+        if (unlikely(!line_iter)) {
+          goto MergePsams_ret_MISSING_TOKENS;
+        }
+        char* id_iter = idbuf;
+        if (fid_present) {
+          const char* fid_end = CurTokenEnd(line_start);
+          id_iter = memcpya(id_iter, line_start, fid_end - line_start);
+        } else {
+          *id_iter++ = '0';
+        }
+        *id_iter++ = '\t';
+        id_iter = memcpya(id_iter, token_ptrs[0], token_slens[0]);
+        uint32_t sample_idx;
+        if (!sids) {
+          *id_iter = '\0';
+          const uint32_t id_slen = id_iter - idbuf;
+          sample_idx = StrboxHtableFind(idbuf, sample_ids, sample_id_htable, max_sample_id_blen, id_slen, sample_id_table_size);
+        } else {
+          *id_iter++ = '\t';
+          char* sid_start = id_iter;
+          if (sid_present) {
+            sid_slen = token_slens[1];
+            id_iter = memcpya(id_iter, token_ptrs[1], sid_slen);
+          } else {
+            *id_iter++ = '0';
+          }
+          *id_iter = '\0';
+          // probably want to move this to a plink2_common function
+          uint32_t hashval = Hashceil(idbuf, id_iter - idbuf, sample_id_table_size);
+          const uint32_t fid_iid_blen = sid_start - idbuf;
+          sid_start[-1] = '\0';
+          while (1) {
+            sample_idx = sample_id_htable[hashval];
+            if (sample_idx == UINT32_MAX) {
+              break;
+            }
+            if (memequal(idbuf, &(sample_ids[sample_idx * max_sample_id_blen]), fid_iid_blen) && memequal(sid_start, &(sids[sample_idx * max_sid_blen]), sid_slen + 1)) {
+              break;
+            }
+            if (++hashval == sample_id_table_size) {
+              hashval = 0;
+            }
+          }
+        }
+        if (sample_idx == UINT32_MAX) {
+          continue;
+        }
+        ++cur_sample_ct;
+        if (parents_present) {
+          char* dad_id_dst = &(parental_id_info.paternal_ids[sample_idx * max_paternal_id_blen]);
+          char* mom_id_dst = &(parental_id_info.maternal_ids[sample_idx * max_maternal_id_blen]);
+          if (parents_locked) {
+            if (!IsSet(parents_locked, sample_idx * 2)) {
+              const char* dad_id = token_ptrs[2];
+              const uint32_t dad_slen = token_slens[2];
+              if (merge_parents_mode == kMergePhenoModeNmMatch) {
+                if (((dad_slen != 1) || (dad_id[0] != '0')) && (!strequal_unsafe(dad_id_dst, dad_id, dad_slen))) {
+                  if (memequal_k(dad_id_dst, "0", 2)) {
+                    memcpyx(dad_id_dst, dad_id, dad_slen, '\0');
+                  } else {
+                    strcpy_k(dad_id_dst, "0");
+                    SetBit(sample_idx * 2, parents_locked);
+                  }
+                }
+              } else {
+                memcpyx(dad_id_dst, dad_id, dad_slen, '\0');
+                SetBit(sample_idx * 2, parents_locked);
+              }
+            }
+            if (!IsSet(parents_locked, sample_idx * 2 + 1)) {
+              const char* mom_id = token_ptrs[3];
+              const uint32_t mom_slen = token_slens[3];
+              if (merge_parents_mode == kMergePhenoModeNmMatch) {
+                if (((mom_slen != 1) || (mom_id[0] != '0')) && (!strequal_unsafe(mom_id_dst, mom_id, mom_slen))) {
+                  if (memequal_k(mom_id_dst, "0", 2)) {
+                    memcpyx(mom_id_dst, mom_id, mom_slen, '\0');
+                  } else {
+                    strcpy_k(mom_id_dst, "0");
+                    SetBit(sample_idx * 2, parents_locked);
+                  }
+                }
+              } else {
+                memcpyx(mom_id_dst, mom_id, mom_slen, '\0');
+                SetBit(sample_idx * 2 + 1, parents_locked);
+              }
+            }
+          } else {
+            // nm-first, skip if not missing
+            if (memequal_k(dad_id_dst, "0", 2)) {
+              memcpyx(dad_id_dst, token_ptrs[2], token_slens[2], '\0');
+            }
+            if (memequal_k(mom_id_dst, "0", 2)) {
+              memcpyx(mom_id_dst, token_ptrs[3], token_slens[3], '\0');
+            }
+          }
+        }
+        if (sex_present) {
+          if (!sex_locked) {
+            if (!IsSet(sex_nm, sample_idx)) {
+              // nm-first and previously missing
+              const uint32_t cur_sex_code = (token_slens[4] == 1)? CharToSex(token_ptrs[4][0]) : 0;
+              if (cur_sex_code) {
+                SetBit(sample_idx, sex_nm);
+                AssignBit(sample_idx, cur_sex_code & 1, sex_male);
+              }
+            }
+          } else {
+            if (!IsSet(sex_locked, sample_idx)) {
+              const uint32_t cur_sex_code = (token_slens[4] == 1)? CharToSex(token_ptrs[4][0]) : 0;
+              if (merge_sex_mode == kMergePhenoModeNmMatch) {
+                if (cur_sex_code) {
+                  if (!IsSet(sex_nm, sample_idx)) {
+                    SetBit(sample_idx, sex_nm);
+                    AssignBit(sample_idx, cur_sex_code & 1, sex_male);
+                  } else {
+                    if (IsSet(sex_male, sample_idx) != (cur_sex_code & 1)) {
+                      ClearBit(sample_idx, sex_nm);
+                      ClearBit(sample_idx, sex_male);
+                      SetBit(sample_idx, sex_locked);
+                    }
+                  }
+                }
+              } else {
+                // first
+                AssignBit(sample_idx, (cur_sex_code + 1) / 2, sex_nm);
+                AssignBit(sample_idx, cur_sex_code & 1, sex_male);
+                SetBit(sample_idx, sex_locked);
+              }
+            }
+          }
+        }
+        if (cur_pheno_ct) {
+          uintptr_t pheno_uidx_base = 0;
+          uintptr_t cur_bits = pheno_include[0];
+          for (uint32_t cur_pheno_idx = 0; cur_pheno_idx != cur_pheno_ct; ++cur_pheno_idx) {
+            const uintptr_t pheno_uidx = BitIter1(pheno_include, &pheno_uidx_base, &cur_bits);
+            PhenoCol* cur_pheno_col = &(pheno_cols[pheno_uidx]);
+            if (((!pheno_locked) && IsSet(cur_pheno_col->nonmiss, sample_idx)) || (pheno_locked && IsSet(pheno_locked, sample_idx + pheno_uidx * sample_ct))) {
+              continue;
+            }
+            const uint32_t col_type_idx = pheno_uidx + kNonphenoColCt;
+            const char* cur_phenostr = token_ptrs[col_type_idx];
+            double dxx;
+            const char* cur_phenostr_end = ScanadvDouble(cur_phenostr, &dxx);
+            if (!cur_phenostr_end) {
+              const uint32_t slen = token_slens[col_type_idx];
+              if (IsNanStr(cur_phenostr, slen)) {
+                dxx = missing_phenod;
+              } else {
+                // categorical case
+                if (cur_pheno_col->type_code != kPhenoDtypeCat) {
+                  if (unlikely(cur_pheno_col->type_code == kPhenoDtypeQt)) {
+                    snprintf(g_logbuf, kLogbufSize, "Error: '%s' entry on line %" PRIuPTR " of %s is categorical, while an earlier entry is numeric/'NA'.\n", &(pheno_names[pheno_uidx * max_pheno_name_blen]), line_idx, cur_fname);
+                    goto MergePsams_ret_INCONSISTENT_INPUT_WW;
+                  }
+                  cur_pheno_col->type_code = kPhenoDtypeCat;
+                  ZeroU32Arr(sample_ct, cur_pheno_col->data.cat);
+                }
+                uint32_t catname_idx = IdHtableFindNnt(cur_phenostr, category_names, category_names_htable, slen, category_names_htable_size);
+                if (catname_idx == UINT32_MAX) {
+                  if (category_names_ct * 2 == category_names_htable_size) {
+                    // resize
+                    if (unlikely(S_CAST(uintptr_t, arena_top - arena_bottom) < category_names_ct * (2 * sizeof(int32_t) + sizeof(intptr_t)))) {
+                      goto MergePsams_ret_NOMEM;
+                    }
+                    uint32_t next_capacity = category_names_ct * 2;
+                    if (next_capacity >= 0x80000000U) {
+                      if (unlikely(next_capacity != 0x80000000U)) {
+                        logerrputs("Error: This implementation of --pmerge[-list] is limited to ~2^31 distinct\ncategory names.\n");
+                        reterr = kPglRetNotYetSupported;
+                        goto MergePsams_ret_1;
+                      }
+                      next_capacity = 0x7fffffff;
+                    }
+                    category_names_htable = R_CAST(uint32_t*, &(category_names[next_capacity]));
+                    category_names_htable_size = 2 * next_capacity;
+                    SetAllU32Arr(category_names_htable_size, category_names_htable);
+                    arena_bottom = R_CAST(unsigned char*, &(category_names_htable[category_names_htable_size]));
+                    for (uint32_t category_idx = 0; category_idx != category_names_ct; ++category_idx) {
+                      const char* cur_cat_name = category_names[category_idx];
+                      HtableAddNondup(cur_cat_name, strlen(cur_cat_name), category_names_htable_size, category_idx, category_names_htable);
+                    }
+                  }
+                  catname_idx = category_names_ct;
+                  if (unlikely(StoreStringAtEndK(arena_bottom, cur_phenostr, slen, &arena_top, &(category_names[catname_idx])))) {
+                    goto MergePsams_ret_NOMEM;
+                  }
+                  ++category_names_ct;
+                  HtableAddNondup(cur_phenostr, slen, category_names_htable_size, catname_idx, category_names_htable);
+                }
+                if (!pheno_locked) {
+                  // nm-first and previously missing
+                  if (catname_idx) {
+                    SetBit(sample_idx, cur_pheno_col->nonmiss);
+                    cur_pheno_col->data.cat[sample_idx] = catname_idx;
+                  }
+                } else {
+                  if (merge_pheno_mode == kMergePhenoModeNmMatch) {
+                    if (catname_idx) {
+                      const uint32_t prev_catname_idx = cur_pheno_col->data.cat[sample_idx];
+                      if (prev_catname_idx != catname_idx) {
+                        if (!prev_catname_idx) {
+                          SetBit(sample_idx, cur_pheno_col->nonmiss);
+                          cur_pheno_col->data.cat[sample_idx] = catname_idx;
+                        } else {
+                          ClearBit(sample_idx, cur_pheno_col->nonmiss);
+                          cur_pheno_col->data.cat[sample_idx] = 0;
+                          SetBit(sample_idx + pheno_uidx * sample_ct, pheno_locked);
+                        }
+                      }
+                    }
+                  } else {
+                    // first
+                    if (catname_idx) {
+                      SetBit(sample_idx, cur_pheno_col->nonmiss);
+                      cur_pheno_col->data.cat[sample_idx] = catname_idx;
+                    }
+                    SetBit(sample_idx + pheno_uidx * sample_ct, pheno_locked);
+                  }
+                }
+                continue;
+              }
+            } else {
+              if (unlikely(!IsSpaceOrEoln(*cur_phenostr_end))) {
+                cur_phenostr_end = CurTokenEnd(cur_phenostr_end);
+                *K_CAST(char*, cur_phenostr_end) = '\0';
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid numeric token '%s' on line %" PRIuPTR " of %s.\n", cur_phenostr, line_idx, cur_fname);
+                goto MergePsams_ret_MALFORMED_INPUT_WW;
+              }
+            }
+            if (unlikely(cur_pheno_col->type_code == kPhenoDtypeCat)) {
+              snprintf(g_logbuf, kLogbufSize, "Error: '%s' entry on line %" PRIuPTR " of %s is numeric/'NA', while an earlier entry is categorical.\n", &(pheno_names[pheno_uidx * max_pheno_name_blen]), line_idx, cur_fname);
+              goto MergePsams_ret_INCONSISTENT_INPUT_WW;
+            }
+            cur_pheno_col->type_code = kPhenoDtypeQt;
+            if (!pheno_locked) {
+              // nm-first
+              if (dxx != missing_phenod) {
+                if ((dxx == 0.0) && pheno_zero_seen) {
+                  SetBit(sample_idx + pheno_uidx * sample_ct, pheno_zero_seen);
+                } else {
+                  cur_pheno_col->data.qt[sample_idx] = dxx;
+                  SetBit(sample_idx, cur_pheno_col->nonmiss);
+                }
+              }
+            } else {
+              if (merge_pheno_mode == kMergePhenoModeNmMatch) {
+                if (dxx != missing_phenod) {
+                  if ((dxx == 0.0) && pheno_zero_seen) {
+                    SetBit(sample_idx + pheno_uidx * sample_ct, pheno_zero_seen);
+                  } else if (!IsSet(cur_pheno_col->nonmiss, sample_idx)) {
+                    SetBit(sample_idx, cur_pheno_col->nonmiss);
+                    cur_pheno_col->data.qt[sample_idx] = dxx;
+                  } else {
+                    if (dxx != cur_pheno_col->data.qt[sample_idx]) {
+                      ClearBit(sample_idx, cur_pheno_col->nonmiss);
+                      SetBit(sample_idx + pheno_uidx * sample_ct, pheno_locked);
+                    }
+                  }
+                }
+              } else {
+                if (dxx != missing_phenod) {
+                  SetBit(sample_idx, cur_pheno_col->nonmiss);
+                  cur_pheno_col->data.qt[sample_idx] = dxx;
+                }
+                SetBit(sample_idx + pheno_uidx * sample_ct, pheno_locked);
+              }
+            }
+          }
+        }
+      }
       if (unlikely(TextStreamErrcode2(&txs, &reterr))) {
         goto MergePsams_ret_TSTREAM_FAIL;
       }
       if (unlikely(CleanupTextStream2(cur_fname, &txs, &reterr))) {
         goto MergePsams_ret_1;
       }
+      filesets_iter->sample_ct = cur_sample_ct;
       filesets_iter = filesets_iter->next;
     } while (filesets_iter);
     BigstackReset(bigstack_mark2);
     BigstackEndSet(arena_top);
     if (pheno_ct) {
-      if (category_names_ct) {
+      if (category_names) {
         const char** category_names_final = R_CAST(const char**, g_bigstack_base);
         BigstackBaseSet(&(category_names_final[category_names_ct]));
         memmove(category_names_final, category_names, category_names_ct * sizeof(intptr_t));
         category_names = category_names_final;
       }
-      for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
+      for (uintptr_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
         PhenoCol* pheno_col = &(pheno_cols[pheno_idx]);
         if (pheno_col->type_code == kPhenoDtypeQt) {
-          if (misc_flags & kfMiscAffection01) {
-            // TODO
-            // If all values are in {0, 1, missing}, convert to {1, 2, missing}
+          uintptr_t* nonmiss = pheno_col->nonmiss;
+          double* qt = pheno_col->data.qt;
+          const uint32_t sample_nm_ct = PopcountWords(nonmiss, sample_ctl);
+          uintptr_t sample_uidx_base = 0;
+          uintptr_t cur_bits = nonmiss[0];
+          uint32_t sample_idx = 0;
+          if (!affection_01) {
+            if (merge_pheno_mode == kMergePhenoModeFirst) {
+              // 1. Check for values outside {0, 1, 2, missing}.
+              // 2. If none exist, convert zeroes to missing.
+              for (; sample_idx != sample_nm_ct; ++sample_idx) {
+                const uint32_t sample_uidx = BitIter1(nonmiss, &sample_uidx_base, &cur_bits);
+                const double dxx = qt[sample_uidx];
+                if ((dxx != 0.0) && (dxx != 1.0) && (dxx != 2.0)) {
+                  break;
+                }
+              }
+              if (!(sample_idx != sample_nm_ct)) {
+                // Could use explicit word-based iteration instead.
+                sample_uidx_base = 0;
+                cur_bits = nonmiss[0];
+                for (sample_idx = 0; sample_idx != sample_nm_ct; ++sample_idx) {
+                  const uint32_t sample_uidx = BitIter1(nonmiss, &sample_uidx_base, &cur_bits);
+                  if (qt[sample_uidx] == 0.0) {
+                    ClearBit(sample_uidx, nonmiss);
+                  }
+                }
+              }
+            } else {
+              // 1. Check for values outside {1, 2, missing}.
+              // 2. If at least one exists, patch in zeroes.  (In nm-match
+              //    case, when a nonmissing value is in the cell but a zero was
+              //    also observed, convert to missing.)
+              for (; sample_idx != sample_nm_ct; ++sample_idx) {
+                const uint32_t sample_uidx = BitIter1(nonmiss, &sample_uidx_base, &cur_bits);
+                const double dxx = qt[sample_uidx];
+                if ((dxx != 1.0) && (dxx != 2.0)) {
+                  break;
+                }
+              }
+              if (sample_idx != sample_nm_ct) {
+                const uintptr_t bit_offset = pheno_idx * sample_ct;
+                const uint32_t zero_ct = PopcountBitRange(pheno_zero_seen, bit_offset, bit_offset + sample_ct);
+                if (zero_ct) {
+                  uintptr_t zero_seen_uidx_base;
+                  BitIter1Start(pheno_zero_seen, bit_offset, &zero_seen_uidx_base, &cur_bits);
+                  if (merge_pheno_mode == kMergePhenoModeNmMatch) {
+                    for (uint32_t zero_idx = 0; zero_idx != zero_ct; ++zero_idx) {
+                      const uintptr_t sample_uidx = BitIter1(pheno_zero_seen, &zero_seen_uidx_base, &cur_bits) - bit_offset;
+                      if (IsSet(nonmiss, sample_uidx)) {
+                        ClearBit(sample_uidx, nonmiss);
+                      } else {
+                        SetBit(sample_uidx, nonmiss);
+                        qt[sample_uidx] = 0.0;
+                      }
+                    }
+                  } else {
+                    // nm-first
+                    for (uint32_t zero_idx = 0; zero_idx != zero_ct; ++zero_idx) {
+                      const uintptr_t sample_uidx = BitIter1(pheno_zero_seen, &zero_seen_uidx_base, &cur_bits) - bit_offset;
+                      SetBit(sample_uidx, nonmiss);
+                      qt[sample_uidx] = 0.0;
+                    }
+                  }
+                }
+              }
+            }
+          } else {
+            // 1. Check for values outside {0, 1, missing}.
+            // 2. If none exist, convert to {1, 2, missing}.
+            for (; sample_idx != sample_nm_ct; ++sample_idx) {
+              const uint32_t sample_uidx = BitIter1(nonmiss, &sample_uidx_base, &cur_bits);
+              const double dxx = qt[sample_uidx];
+              if ((dxx != 0.0) && (dxx != 1.0)) {
+                break;
+              }
+            }
+            if (!(sample_idx != sample_nm_ct)) {
+              sample_uidx_base = 0;
+              cur_bits = nonmiss[0];
+              for (sample_idx = 0; sample_idx != sample_nm_ct; ++sample_idx) {
+                const uint32_t sample_uidx = BitIter1(nonmiss, &sample_uidx_base, &cur_bits);
+                qt[sample_uidx] += 1.0;
+              }
+            }
           }
         } else if (pheno_col->type_code == kPhenoDtypeCat) {
           pheno_col->category_names = category_names;
         }
       }
-      ;;;
     }
     snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
     reterr = WritePsam(outname, sample_include, siip, &parental_id_info, sex_nm, sex_male, pheno_cols, pheno_names, nullptr, "NA", sample_ct, pheno_ct, max_pheno_name_blen, kfPsamColDefault);
@@ -1203,6 +1630,9 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFla
   MergePsams_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
+  MergePsams_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
   MergePsams_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
@@ -1213,14 +1643,76 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFla
   return reterr;
 }
 
-PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags misc_flags, SortMode sample_sort_mode, FamCol fam_cols, uint32_t max_thread_ct, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, __attribute__((unused)) ChrInfo* cip) {
+// supports topological sort of chromosome order
+typedef struct ChrGraphEdgeLlStruct {
+  struct ChrGraphEdgeLlStruct* next;
+  ChrIdx dst_idx;
+} ChrGraphEdgeLl;
+
+/*
+// cip->chr_file_order is filled with the final chromosome sort order.
+// info_keys, pointed-to InfoVtype entries, and info_keys_htable are allocated
+// at the end of bigstack.
+PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, ImportFlags import_flags, uint32_t max_thread_ct, char* outname, char* outname_end, PmergeInputFilesetLl* filesets, ChrInfo* cip, const char* const** info_keys_ptr, uint32_t* info_key_ctp, uint32_t** info_keys_htablep, uint32_t* info_keys_htable_sizep) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  const char* cur_fname = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  char* cswritep = nullptr;
+  uintptr_t line_idx = 0;
+  CompressStreamState css;
+  PreinitCstream(&css);
+  TextStream txs;
+  PreinitTextStream(&txs);
+  {
+    const uintptr_t linebuf_capacity = MINV(kMaxLongLine, bigstack_left() / 4) + kDecompressChunkSize;
+    char* linebuf;
+    if (unlikely(bigstack_alloc_c(linebuf_capacity, &linebuf))) {
+      goto ScanPvarsAndMergeHeader_ret_NOMEM;
+    }
+
+    const MergeXheaderMode merge_xheader_mode = pmip->merge_xheader_mode;
+    // Each entry is an xheader key, followed by a null terminator, followed by
+    // the null-terminated remainder of the header line.  The latter includes
+    // the original punctuation character ('=', ',', or '>') ending the key,
+    // but not the final newline.
+    // Header line classes defined in the VCF v4.3 specification, and the
+    // chrSet class defined in the .pvar specification, are recognized.  I.e.
+    // when the header line starts with "##INFO=", "##FILTER=", "##FORMAT=",
+    // "##ALT=", "##contig=", "##META=", "##SAMPLE=", or "##PEDIGREE=", the key
+    // includes everything up to (and not including) the ',' ending the ID,
+    // skipping the initial "##".  Otherwise, the key includes everything up to
+    // and not including the '=' (also skipping the initial "##").
+    const char** xheader_entries = nullptr;
+    uint32_t* xheader_entries_htable = nullptr;
+    uint32_t xheader_entry_ct = 0;
+    // xheader_entry_capacity == xheader_entry_htable_size / 2
+    uint32_t xheader_entry_htable_size = 0;
+    if (merge_xheader_mode != kMergeXheaderModeErase) {
+      xheader_entry_htable_size = 2048;
+      if (unlikely(bigstack_alloc_kcp())) {
+      }
+    }
+  }
+  while (0) {
+  ScanPvarsAndMergeHeader_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  }
+  CleanupTextStream2(cur_fname, &txs, &reterr);
+  CswriteCloseCond(&css, cswritep);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
+  return reterr;
+}
+*/
+
+PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags misc_flags, __attribute__((unused)) ImportFlags import_flags, SortMode sample_sort_mode, FamCol fam_cols, int32_t missing_pheno, uint32_t max_thread_ct, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, __attribute__((unused)) ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   PglErr reterr = kPglRetSuccess;
   {
     // 1. Construct/load fileset list.
-    // 2. Merge .psam files.  Simplify merge-mode to 'first' if each sample
-    //    appears in only one input fileset.
+    // 2. Merge .psam files.
     // 3. Global .pvar scan, to determine merged header, chromosome sort order,
     //    and track first/last position in each fileset.
     // 4. If filesets cover disjoint positions, handle this as a concatenation
@@ -1246,6 +1738,7 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags m
       fname_iter = memcpya(fname_iter, pvarname, pvar_fname_blen);
       cur_entry->psam_fname = fname_iter;
       memcpy(fname_iter, psamname, psam_fname_blen);
+      cur_entry->pgen_locked_fname = nullptr;
     }
     if (!pmip->list_fname) {
       PmergeInputFilesetLl* cur_entry = AllocFilesetLlEntry(&filesets_endp);
@@ -1255,6 +1748,7 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags m
       cur_entry->pgen_fname = pmip->pgen_fname;
       cur_entry->pvar_fname = pmip->pvar_fname;
       cur_entry->psam_fname = pmip->psam_fname;
+      cur_entry->pgen_locked_fname = nullptr;
     } else {
       reterr = LoadPmergeList(pmip->list_fname, pmip->list_mode, pgenname[0] != '\0', &filesets_endp);
       if (unlikely(reterr)) {
@@ -1264,14 +1758,20 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags m
 
     SampleIdInfo sii;
     uint32_t sample_ct;
-    reterr = MergePsams(pmip, sample_sort_fname, misc_flags, sample_sort_mode, fam_cols, max_thread_ct, outname, outname_end, filesets, &sii, &sample_ct);
+    reterr = MergePsams(pmip, sample_sort_fname, misc_flags, sample_sort_mode, fam_cols, missing_pheno, max_thread_ct, outname, outname_end, filesets, &sii, &sample_ct);
     if (unlikely(reterr)) {
       goto Pmerge_ret_1;
     }
-
+    /*
+    const char* const* info_keys = nullptr;
+    uint32_t* info_keys_htable = nullptr;
+    uint32_t info_key_ct = 0;
+    uint32_t info_keys_htable_size = 0;
+    reterr = ScanPvarsAndMergeHeader(pmip, import_flags, max_thread_ct, outname, outname_end, filesets, cip, &info_keys, &info_key_ct, &info_keys_htable, &info_keys_htable_size);
     if (unlikely(reterr)) {
       goto Pmerge_ret_1;
     }
+    */
     logerrputs("Error: --pmerge[-list] is under development.\n");
     reterr = kPglRetNotYetSupported;
     goto Pmerge_ret_1;
@@ -1428,17 +1928,8 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
             goto PgenDiff_ret_PSAM_MISSING_TOKENS;
           }
           const uint32_t token_slen = strlen_se(token_iter);
-          uint32_t cur_sex_code = 0;
-          if (token_slen == 1) {
-            const unsigned char sex_ucc = token_iter[0];
-            const unsigned char sex_ucc_upcase = sex_ucc & 0xdfU;
-            if ((sex_ucc == '1') || (sex_ucc_upcase == 'M')) {
-              cur_sex_code = 1;
-            } else if ((sex_ucc == '2') || (sex_ucc_upcase == 'F')) {
-              cur_sex_code = 2;
-            }
-          }
-          if (!cur_sex_code) {
+          const uint32_t cur_sex_code = CharToSex(token_iter[0]);
+          if ((token_slen != 1) || (!cur_sex_code)) {
             snprintf(g_logbuf, kLogbufSize, "Error: Missing sex code on line %" PRIuPTR " of --pgen-diff .psam file; this is prohibited when chrX or chrY is in the comparison.\n", psam_line_idx);
             goto PgenDiff_ret_INCONSISTENT_INPUT_WW;
           }

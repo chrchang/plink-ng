@@ -58,6 +58,14 @@ FLAGSET_DEF_START()
   kfMakePgenFillMissingFromDosage = (1 << 22)
 FLAGSET_DEF_END(MakePlink2Flags);
 
+FLAGSET_DEF_START()
+  kfImport0,
+  kfImportKeepAutoconv = (1 << 0),
+  kfImportKeepAutoconvVzs = (1 << 1),
+  kfImportDoubleId = (1 << 2),
+  kfImportVcfRequireGt = (1 << 3)
+FLAGSET_DEF_END(ImportFlags);
+
 CONSTI32(kMaxInfoKeySlen, kMaxIdSlen);
 #define MAX_INFO_KEY_SLEN_STR MAX_ID_SLEN_STR
 

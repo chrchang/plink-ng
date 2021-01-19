@@ -59,6 +59,16 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
     for (uint32_t uii = 0; uii != kChrOffsetCt; ++uii) {
       cip->xymt_codes[uii] = UINT32_MAXM1;
     }
+    if (StrStartsWithUnsafe(chrset_iter, "ID=")) {
+      // Need this field to conform to VCFv4.3 specification.
+      // Just ignore the ID value.
+      chrset_iter = strchrnul_n(&(chrset_iter[strlen("ID=")]), ',');
+      if (*chrset_iter != ',') {
+        snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s does not have expected ##chrSet format.\n", line_idx, file_descrip);
+        goto ReadChrsetHeaderLine_ret_MALFORMED_INPUT_WW;
+      }
+      ++chrset_iter;
+    }
     if (StrStartsWithUnsafe(chrset_iter, "haploidAutosomeCt=")) {
       uint32_t explicit_haploid_ct;
       if (unlikely(ScanPosintCapped(&(chrset_iter[strlen("haploidAutosomeCt=")]), kMaxChrTextnum, &explicit_haploid_ct))) {

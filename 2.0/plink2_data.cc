@@ -237,7 +237,7 @@ PglErr PvarInfoReloadAndWrite(uint32_t info_pr_flag_present, uint32_t info_col_i
 }
 
 void AppendChrsetLine(const ChrInfo* cip, char** write_iter_ptr) {
-  char* write_iter = strcpya_k(*write_iter_ptr, "##chrSet=<");
+  char* write_iter = strcpya_k(*write_iter_ptr, "##chrSet=<ID=1,");
   if (!(cip->haploid_mask[0] & 1)) {
     write_iter = strcpya_k(write_iter, "autosomePairCt=");
     write_iter = u32toa(cip->autosome_ct, write_iter);

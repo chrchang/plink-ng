@@ -1431,6 +1431,8 @@ uint32_t IdHtableAddNnt(const char* cur_id, const char* const* item_ids, uint32_
 // requires cur_id to be null-terminated.
 uint32_t StrboxHtableFind(const char* cur_id, const char* strbox, const uint32_t* id_htable, uintptr_t max_str_blen, uint32_t cur_id_slen, uint32_t id_htable_size);
 
+uint32_t StrboxHtableFindNnt(const char* cur_id, const char* strbox, const uint32_t* id_htable, uintptr_t max_str_blen, uint32_t cur_id_slen, uint32_t id_htable_size);
+
 // Assumes cur_id is null-terminated.
 // Returns string-index if cur_id is already in the table, UINT32_MAX if it was
 // added.

@@ -25,14 +25,6 @@
 namespace plink2 {
 #endif
 
-FLAGSET_DEF_START()
-  kfImport0,
-  kfImportKeepAutoconv = (1 << 0),
-  kfImportKeepAutoconvVzs = (1 << 1),
-  kfImportDoubleId = (1 << 2),
-  kfImportVcfRequireGt = (1 << 3)
-FLAGSET_DEF_END(ImportFlags);
-
 ENUM_U31_DEF_START()
   kVcfHalfCallReference,
   kVcfHalfCallHaploid,

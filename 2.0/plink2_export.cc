@@ -4020,6 +4020,23 @@ uint32_t ValidVcfContigName(const char* name_start, const char* name_end, uint32
   return 1;
 }
 
+uint32_t ValidVcfHeaderLine(const char* line_start, uint32_t line_slen, uint32_t v43) {
+  const char* first_eq = S_CAST(const char*, memchr(line_start, '=', line_slen));
+  if (!first_eq) {
+    logerrprintf("Error: Header line in .pvar file does not conform to the VCFv4.%c specification\n(no '=').\n", '2' + v43);
+    return 0;
+  }
+  if (v43) {
+    // If header line starts with "##key=<", that must be followed by
+    // "ID=" to conform to the VCFv4.3 (but not 4.2) specification.
+    if ((first_eq[1] == '<') && (!memequal_k(&(first_eq[2]), "ID=", 3))) {
+      logerrprintf("Error: Header line in .pvar file does not conform to the VCFv4.%c specification\n(value starts with '<', but that is not followed by an ID).  This is permitted\nin VCFv4.2, so you may want to export that format instead.\n");
+      return 0;
+    }
+  }
+  return 1;
+}
+
 uint32_t ValidVcfAlleleCode(const char* allele_code_iter) {
   // returns 1 if probably valid (angle-bracket case is not exhaustively
   // checked), 0 if definitely not
@@ -4490,6 +4507,9 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
             goto ExportVcf_ret_WRITE_FAIL;
           }
         } else {
+          if (unlikely(!ValidVcfHeaderLine(xheader_iter, slen, v43))) {
+            goto ExportVcf_ret_INCONSISTENT_INPUT;
+          }
           if (unlikely(BgzfWrite(xheader_iter, slen, &bgzf))) {
             goto ExportVcf_ret_WRITE_FAIL;
           }
@@ -7700,7 +7720,11 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
           const uint32_t is_info_line = StrStartsWithUnsafe(line_main, "INFO=<ID=");
           if ((!is_filter_line) && (!is_info_line)) {
             if (!StrStartsWithUnsafe(line_main, "contig=<ID=")) {
-              write_iter = memcpya(write_iter, line_start, line_end - line_start);
+              const uint32_t slen = line_end - line_start;
+              if (unlikely(!ValidVcfHeaderLine(line_start, slen, v43))) {
+                goto ExportBcf_ret_INCONSISTENT_INPUT;
+              }
+              write_iter = memcpya(write_iter, line_start, slen);
               continue;
             }
             char* contig_name_start = &(line_main[11]);

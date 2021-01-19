@@ -85,11 +85,11 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     uint32_t psam_cols_mask = 0;
     LlStr* pheno_names_reverse_ll = nullptr;
     uintptr_t max_pheno_name_blen = 0;
-    uint32_t relevant_postfid_col_ct = 0;
     g_bigstack_end -= kMaxIdSlen;
     unsigned char* tmp_bigstack_end = BigstackEndRoundedDown();
     unsigned char* bigstack_mark2;
     uint32_t fid_present = 1;
+    uint32_t relevant_postfid_col_ct;
     if (line_iter[0] == '#') {
       // parse header
       // [-1] = #FID (if present, must be first column)
@@ -259,7 +259,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
 
       pheno_ct = (fam_cols & kfFamCol6) && pheno_ct_max;
       fid_present = (fam_cols / kfFamCol1) & 1;
-      relevant_postfid_col_ct = fid_present + ((fam_cols / (kfFamCol34 / 2)) & 2) + ((fam_cols / kfFamCol5) & 1) + pheno_ct;
+      relevant_postfid_col_ct = 1 + ((fam_cols / (kfFamCol34 / 2)) & 2) + ((fam_cols / kfFamCol5) & 1) + pheno_ct;
       // these small allocations can't fail, since kMaxMediumLine <
       // linebuf_size <= 1/3 of remaining space
       col_skips = S_CAST(uint32_t*, bigstack_alloc_raw_rd(relevant_postfid_col_ct * sizeof(int32_t)));
@@ -364,6 +364,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     CatnameLl2** catname_htable = nullptr;
     CatnameLl2** pheno_catname_last = nullptr;
     uintptr_t* total_catname_blens = nullptr;
+    uint32_t fid_slen = 1;
     for (; TextGetUnsafe2K(&psam_txs, &line_iter); line_iter = AdvPastDelim(line_iter, '\n'), ++line_idx) {
       if (unlikely(line_iter[0] == '#')) {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and if a #FID/IID header line is present it must denote the end of the header block.)\n", line_idx, psamname);
@@ -374,21 +375,12 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
         goto LoadPsam_ret_MALFORMED_INPUT;
       }
       const char* line_start = line_iter;
-      const char* iid_ptr;
-      uint32_t iid_slen;
-      if (relevant_postfid_col_ct) {
-        // bugfix (3 Jul 2018): didn't handle no-other-columns case correctly
-        line_iter = TokenLexK0(line_start, col_types, col_skips, relevant_postfid_col_ct, token_ptrs, token_slens);
-        if (unlikely(!line_iter)) {
-          goto LoadPsam_ret_MISSING_TOKENS;
-        }
-        iid_ptr = token_ptrs[0];
-        iid_slen = token_slens[0];
-      } else {
-        iid_ptr = line_start;
-        iid_slen = CurTokenEnd(line_start) - line_start;
+      line_iter = TokenLexK0(line_start, col_types, col_skips, relevant_postfid_col_ct, token_ptrs, token_slens);
+      if (unlikely(!line_iter)) {
+        goto LoadPsam_ret_MISSING_TOKENS;
       }
-      uint32_t fid_slen = 2;
+      const char* iid_ptr = token_ptrs[0];
+      const uint32_t iid_slen = token_slens[0];
       if (fid_present) {
         fid_slen = CurTokenEnd(line_start) - line_start;
       }
@@ -494,17 +486,9 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
       }
       new_psam_info->maternal_id_slen = maternal_id_slen;
       uint32_t cur_sex_code = 0;
-      // accept 'M'/'F'/'m'/'f' since that's more readable without being any
-      // less efficient
       // don't accept "male"/"female", that's overkill
       if (sex_present && (token_slens[4] == 1)) {
-        const unsigned char sex_ucc = token_ptrs[4][0];
-        const unsigned char sex_ucc_upcase = sex_ucc & 0xdfU;
-        if ((sex_ucc == '1') || (sex_ucc_upcase == 'M')) {
-          cur_sex_code = 1;
-        } else if ((sex_ucc == '2') || (sex_ucc_upcase == 'F')) {
-          cur_sex_code = 2;
-        }
+        cur_sex_code = CharToSex(token_ptrs[4][0]);
       }
       new_psam_info->sex_code = cur_sex_code;
       // phenotypes

@@ -71,7 +71,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (16 Jan 2021)";
+  " (18 Jan 2021)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -7765,19 +7765,33 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --merge-mode argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-        } else if (strequal_k_unsafe(flagname_p2, "erge-pheno-mode")) {
+        } else if (strequal_k_unsafe(flagname_p2, "erge-parents-mode") ||
+                   strequal_k_unsafe(flagname_p2, "erge-sex-mode") ||
+                   strequal_k_unsafe(flagname_p2, "erge-pheno-mode")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
           const uint32_t cur_modif_slen = strlen(cur_modif);
-          if (strequal_k(cur_modif, "nm-first", cur_modif_slen) || strequal_k(cur_modif, "2", cur_modif_slen)) {
-            pmerge_info.merge_pheno_mode = kMergePhenoModeNmFirst;
-          } else if (strequal_k(cur_modif, "first", cur_modif_slen) || strequal_k(cur_modif, "4", cur_modif_slen)) {
-            pmerge_info.merge_pheno_mode = kMergePhenoModeFirst;
-          } else if (unlikely(!(strequal_k(cur_modif, "nm-match", cur_modif_slen) || strequal_k(cur_modif, "1", cur_modif_slen)))) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --merge-pheno-mode argument '%s'.\n", cur_modif);
+          MergePhenoMode mode;
+          if (strequal_k(cur_modif, "nm-match", cur_modif_slen) || strequal_k(cur_modif, "1", cur_modif_slen)) {
+            mode = kMergePhenoModeNmMatch;
+          } else if (strequal_k(cur_modif, "nm-first", cur_modif_slen) || strequal_k(cur_modif, "2", cur_modif_slen)) {
+            mode = kMergePhenoModeNmFirst;
+          } else if (likely(strequal_k(cur_modif, "first", cur_modif_slen) || strequal_k(cur_modif, "4", cur_modif_slen))) {
+            mode = kMergePhenoModeFirst;
+          } else {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s argument '%s'.\n", flagname_p, cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          if (flagname_p2[5] == 'p') {
+            if (flagname_p2[6] == 'a') {
+              pmerge_info.merge_parents_mode = mode;
+            } else {
+              pmerge_info.merge_pheno_mode = mode;
+            }
+          } else {
+            pmerge_info.merge_sex_mode = mode;
           }
         } else if (strequal_k_unsafe(flagname_p2, "erge-xheader-mode")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -7786,6 +7800,10 @@ int main(int argc, char** argv) {
           const char* cur_modif = argvk[arg_idx + 1];
           const uint32_t cur_modif_slen = strlen(cur_modif);
           if (strequal_k(cur_modif, "erase", cur_modif_slen)) {
+            if (unlikely(pmerge_info.merge_info_mode != kMergeQualInfoModeErase)) {
+              logerrputs("Error: \"--merge-xheader-mode erase\" requires \"--merge-info-mode erase\".\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
             pmerge_info.merge_xheader_mode = kMergeXheaderModeErase;
           } else if (strequal_k(cur_modif, "match", cur_modif_slen)) {
             pmerge_info.merge_xheader_mode = kMergeXheaderModeMatch;
@@ -8617,6 +8635,9 @@ int main(int argc, char** argv) {
           }
           pc.command_flags1 |= kfCommand1PgenDiff;
           pc.dependency_flags |= kfFilterAllReq;
+        } else if (strequal_k_unsafe(flagname_p2, "heno-inner-join")) {
+          pmerge_info.flags |= kfPmergePhenoInnerJoin;
+          goto main_param_zero;
         } else if (likely(strequal_k_unsafe(flagname_p2, "heno-quantile-normalize"))) {
           if (param_ct) {
             reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.quantnorm_flattened);
@@ -10644,7 +10665,11 @@ int main(int argc, char** argv) {
         if (make_plink2_flags & (kfMakePgen | kfMakePvar | kfMakePsam)) {
           merge_outname_end = strcpya_k(merge_outname_end, "-merge");
         }
-        reterr = Pmerge(&pmerge_info, pc.sample_sort_fname, pc.misc_flags, pc.sample_sort_mode, pc.fam_cols, pc.max_thread_ct, pgenname, psamname, pvarname, outname, merge_outname_end, &chr_info);
+        const uint32_t zst_level = g_zst_level;
+        if (!(import_flags & kfImportKeepAutoconv)) {
+          g_zst_level = 1;
+        }
+        reterr = Pmerge(&pmerge_info, pc.sample_sort_fname, pc.misc_flags, import_flags, pc.sample_sort_mode, pc.fam_cols, pc.missing_pheno, pc.max_thread_ct, pgenname, psamname, pvarname, outname, merge_outname_end, &chr_info);
         if (unlikely(reterr)) {
           goto main_ret_1;
         }
@@ -10652,6 +10677,7 @@ int main(int argc, char** argv) {
         if (!pc.command_flags1) {
           goto main_ret_1;
         }
+        g_zst_level = zst_level;
       }
 
       if ((pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Validate | kfCommand1WriteSnplist | kfCommand1WriteCovar | kfCommand1WriteSamples))) || ((pc.command_flags1 & kfCommand1MakePlink2) && (pc.sort_vars_mode > kSortNone))) {

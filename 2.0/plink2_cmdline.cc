@@ -1496,6 +1496,18 @@ uint32_t StrboxHtableFind(const char* cur_id, const char* strbox, const uint32_t
   }
 }
 
+uint32_t StrboxHtableFindNnt(const char* cur_id, const char* strbox, const uint32_t* id_htable, uintptr_t max_str_blen, uint32_t cur_id_slen, uint32_t id_htable_size) {
+  for (uint32_t hashval = Hashceil(cur_id, cur_id_slen, id_htable_size); ; ) {
+    const uint32_t cur_htable_idval = id_htable[hashval];
+    if ((cur_htable_idval == UINT32_MAX) || strequal_unsafe(&(strbox[cur_htable_idval * max_str_blen]), cur_id, cur_id_slen)) {
+      return cur_htable_idval;
+    }
+    if (++hashval == id_htable_size) {
+      hashval = 0;
+    }
+  }
+}
+
 uint32_t StrboxHtableAdd(const char* cur_id, const char* strbox, uintptr_t max_str_blen, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t value, uint32_t* id_htable) {
   for (uint32_t hashval = Hashceil(cur_id, cur_id_slen, id_htable_size); ; ) {
     const uint32_t cur_htable_entry = id_htable[hashval];
