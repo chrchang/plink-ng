@@ -1964,7 +1964,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                            ID.  The following string orders are supported:\n"
 "                            * 'natural'/'n': Natural sort (default).\n"
 "                            * 'ascii'/'a': ASCII.\n"
-"                            This must be used with --make-[b]pgen/--make-bed.\n"
+"                            This must be used with --pmerge[-list] or\n"
+"                            --make-[b]pgen/--make-bed.\n"
                );
     HelpPrint("set-hh-missing\0set-mixed-mt-missing\0", &help_ctrl, 0,
 "  --set-hh-missing ['keep-dosage'] : Make --make-[b]pgen/--make-bed set non-MT\n"
@@ -2115,7 +2116,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                            * 'file'/'f' uses the order in the given file\n"
 "                              (named in the last argument).\n"
                );
-    HelpPrint("pmerge\0pmerge-list\0sample-inner-join\0variant-inner-join\0pheno-inner-join\0merge-mode\0merge-pheno-mode\0merge-xheader-mode\0merge-qual-mode\0merge-filter-mode\0merge-info-mode\0", &help_ctrl, 0,
+    HelpPrint("pmerge\0pmerge-list\0sample-inner-join\0variant-inner-join\0pheno-inner-join\0merge-mode\0merge-parents-mode\0merge-sex-mode\0merge-pheno-mode\0merge-xheader-mode\0merge-qual-mode\0merge-filter-mode\0merge-info-mode\0", &help_ctrl, 0,
 "  --sample-inner-join      : By default, --pmerge[-list] performs an 'outer\n"
 "  --variant-inner-join       join': the merged fileset contains the union of\n"
 "  --pheno-inner-join         the samples in the input filesets, and ditto for\n"

@@ -1643,17 +1643,11 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFla
   return reterr;
 }
 
-// supports topological sort of chromosome order
-typedef struct ChrGraphEdgeLlStruct {
-  struct ChrGraphEdgeLlStruct* next;
-  ChrIdx dst_idx;
-} ChrGraphEdgeLl;
-
 /*
 // cip->chr_file_order is filled with the final chromosome sort order.
 // info_keys, pointed-to InfoVtype entries, and info_keys_htable are allocated
 // at the end of bigstack.
-PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, ImportFlags import_flags, uint32_t max_thread_ct, char* outname, char* outname_end, PmergeInputFilesetLl* filesets, ChrInfo* cip, const char* const** info_keys_ptr, uint32_t* info_key_ctp, uint32_t** info_keys_htablep, uint32_t* info_keys_htable_sizep) {
+PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, ImportFlags import_flags, uint32_t max_thread_ct, SortMode sort_vars_mode, char* outname, char* outname_end, PmergeInputFilesetLl* filesets, ChrInfo* cip, const char* const** info_keys_ptr, uint32_t* info_key_ctp, uint32_t** info_keys_htablep, uint32_t* info_keys_htable_sizep) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   const char* cur_fname = nullptr;
@@ -1673,25 +1667,27 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, ImportFlags import_flags,
 
     const MergeXheaderMode merge_xheader_mode = pmip->merge_xheader_mode;
     // Each entry is an xheader key, followed by a null terminator, followed by
-    // the null-terminated remainder of the header line.  The latter includes
-    // the original punctuation character ('=', ',', or '>') ending the key,
-    // but not the final newline.
-    // Header line classes defined in the VCF v4.3 specification, and the
-    // chrSet class defined in the .pvar specification, are recognized.  I.e.
-    // when the header line starts with "##INFO=", "##FILTER=", "##FORMAT=",
-    // "##ALT=", "##contig=", "##META=", "##SAMPLE=", or "##PEDIGREE=", the key
-    // includes everything up to (and not including) the ',' ending the ID,
-    // skipping the initial "##".  Otherwise, the key includes everything up to
-    // and not including the '=' (also skipping the initial "##").
+    // either the null-terminated remainder of the header line or a single
+    // ASCII code 1 to indicate a mismatch.  The latter includes the original
+    // punctuation character ('=', ',', or '>') ending the key, but not the
+    // final newline.
+    // For header lines where the first '=' character is followed by a '<', the
+    // key is everything up to the first comma in the '<' (or '>' if there is
+    // none) in the '<' expression; otherwise, the key is everything up to the
+    // '='; otherwise, the key is the entire line (excluding the newline) and
+    // the value is empty.
     const char** xheader_entries = nullptr;
     uint32_t* xheader_entries_htable = nullptr;
     uint32_t xheader_entry_ct = 0;
     // xheader_entry_capacity == xheader_entry_htable_size / 2
     uint32_t xheader_entry_htable_size = 0;
     if (merge_xheader_mode != kMergeXheaderModeErase) {
-      xheader_entry_htable_size = 2048;
-      if (unlikely(bigstack_alloc_kcp())) {
+      xheader_entry_htable_size = 512;
+      if (unlikely(bigstack_alloc_kcp(xheader_entry_htable_size / 2, &xheader_entries) ||
+                   bigstack_alloc_u32(xheader_entry_htable_size, &xheader_entries_htable))) {
+        goto ScanPvarsAndMergeHeader_ret_NOMEM;
       }
+      SetAllU32Arr(xheader_entry_htable_size, xheader_entries_htable);
     }
   }
   while (0) {
@@ -1706,7 +1702,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, ImportFlags import_flags,
 }
 */
 
-PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags misc_flags, __attribute__((unused)) ImportFlags import_flags, SortMode sample_sort_mode, FamCol fam_cols, int32_t missing_pheno, uint32_t max_thread_ct, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, __attribute__((unused)) ChrInfo* cip) {
+PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags misc_flags, __attribute__((unused)) ImportFlags import_flags, SortMode sample_sort_mode, FamCol fam_cols, int32_t missing_pheno, uint32_t max_thread_ct, __attribute__((unused)) SortMode sort_vars_mode, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, __attribute__((unused)) ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   PglErr reterr = kPglRetSuccess;
@@ -1767,7 +1763,7 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags m
     uint32_t* info_keys_htable = nullptr;
     uint32_t info_key_ct = 0;
     uint32_t info_keys_htable_size = 0;
-    reterr = ScanPvarsAndMergeHeader(pmip, import_flags, max_thread_ct, outname, outname_end, filesets, cip, &info_keys, &info_key_ct, &info_keys_htable, &info_keys_htable_size);
+    reterr = ScanPvarsAndMergeHeader(pmip, import_flags, max_thread_ct, sort_vars_mode, outname, outname_end, filesets, cip, &info_keys, &info_key_ct, &info_keys_htable, &info_keys_htable_size);
     if (unlikely(reterr)) {
       goto Pmerge_ret_1;
     }

@@ -54,8 +54,9 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
         cmdline_haploid = cip->haploid_mask[0] & 1;
         STD_ARRAY_COPY(cip->xymt_codes, kChrOffsetCt, cmdline_xymt_codes);
       }
-      ZeroWArr(kChrMaskWords, cip->haploid_mask);
     }
+    // bugfix (23 Jan 2021): forgot to zero this out in file-only case
+    ZeroWArr(kChrMaskWords, cip->haploid_mask);
     for (uint32_t uii = 0; uii != kChrOffsetCt; ++uii) {
       cip->xymt_codes[uii] = UINT32_MAXM1;
     }
@@ -118,10 +119,12 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
             if (first_char_ui == 77) {
               // M
               cip->xymt_codes[kChrOffsetMT] = explicit_autosome_ct + 1 + kChrOffsetMT;
+              SetBit(explicit_autosome_ct + 1 + kChrOffsetMT, cip->haploid_mask);
             } else {
               first_char_ui -= 88;  // X = 0, Y = 1, everything else larger
               if (first_char_ui < 2) {
                 cip->xymt_codes[first_char_ui] = explicit_autosome_ct + 1 + first_char_ui;
+                SetBit(explicit_autosome_ct + 1 + first_char_ui, cip->haploid_mask);
               }
             }
           } else {
@@ -134,6 +137,7 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
               } else if ((first_char_ui == 77) && (second_char_ui == 84)) {
                 // MT
                 cip->xymt_codes[kChrOffsetMT] = explicit_autosome_ct + 1 + kChrOffsetMT;
+                SetBit(explicit_autosome_ct + 1 + kChrOffsetMT, cip->haploid_mask);
               }
             } else if ((first_char_ui == 80) && (second_char_ui == 65) && ((third_char_ui & 0xdf) == 82)) {
               // PAR1, PAR2

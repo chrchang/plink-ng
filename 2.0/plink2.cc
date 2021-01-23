@@ -71,7 +71,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (18 Jan 2021)";
+  " (23 Jan 2021)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -4345,6 +4345,7 @@ int main(int argc, char** argv) {
             }
             SetBit(autosome_ct + 1, chr_info.haploid_mask);
             SetBit(autosome_ct + 2, chr_info.haploid_mask);
+            SetBit(autosome_ct + 4, chr_info.haploid_mask);
             for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
               cur_modif = argvk[arg_idx + param_idx];
               const uint32_t cur_modif_slen = strlen(cur_modif);
@@ -7887,8 +7888,10 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
+          // Limit to .pgen maximum - 1, to make it straightforward to
+          // represent over-the-limit variants in temporary files.
           uint32_t merge_max_allele_ct;
-          if (unlikely(ScanPosintCappedx(cur_modif, kPglMaxAlleleCt, &merge_max_allele_ct) || (merge_max_allele_ct == 1))) {
+          if (unlikely(ScanPosintCappedx(cur_modif, kPglMaxAlleleCt - 1, &merge_max_allele_ct) || (merge_max_allele_ct == 1))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --merge-max-allele-ct argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -9335,8 +9338,7 @@ int main(int argc, char** argv) {
           pc.pheno_transform_flags |= kfPhenoTransformSplitCat;
           pc.dependency_flags |= kfFilterPsamReq;
         } else if (strequal_k_unsafe(flagname_p2, "ort-vars")) {
-          if (unlikely(!(pc.command_flags1 & kfCommand1MakePlink2))) {
-            // todo: permit merge
+          if (unlikely(!(pc.command_flags1 & (kfCommand1MakePlink2 | kfCommand1Pmerge)))) {
             logerrputs("Error: --sort-vars must be used with --make-[b]pgen/--make-bed or dataset\nmerging.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
@@ -10669,7 +10671,7 @@ int main(int argc, char** argv) {
         if (!(import_flags & kfImportKeepAutoconv)) {
           g_zst_level = 1;
         }
-        reterr = Pmerge(&pmerge_info, pc.sample_sort_fname, pc.misc_flags, import_flags, pc.sample_sort_mode, pc.fam_cols, pc.missing_pheno, pc.max_thread_ct, pgenname, psamname, pvarname, outname, merge_outname_end, &chr_info);
+        reterr = Pmerge(&pmerge_info, pc.sample_sort_fname, pc.misc_flags, import_flags, pc.sample_sort_mode, pc.fam_cols, pc.missing_pheno, pc.max_thread_ct, pc.sort_vars_mode, pgenname, psamname, pvarname, outname, merge_outname_end, &chr_info);
         if (unlikely(reterr)) {
           goto main_ret_1;
         }
