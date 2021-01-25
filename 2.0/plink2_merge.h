@@ -57,11 +57,11 @@ ENUM_U31_DEF_START()
 ENUM_U31_DEF_END(MergeXheaderMode);
 
 ENUM_U31_DEF_START()
-  kMergeQualInfoModeErase,
-  kMergeQualInfoModeNmMatch,
-  kMergeQualInfoModeNmFirst,
-  kMergeQualInfoModeFirst
-ENUM_U31_DEF_END(MergeQualInfoMode);
+  kMergeQicModeErase,
+  kMergeQicModeNmMatch,
+  kMergeQicModeNmFirst,
+  kMergeQicModeFirst
+ENUM_U31_DEF_END(MergeQicMode);
 
 ENUM_U31_DEF_START()
   kMergeFilterModeErase,
@@ -107,9 +107,10 @@ typedef struct PmergeStruct {
   MergePhenoMode merge_sex_mode;
   MergePhenoMode merge_pheno_mode;
   MergeXheaderMode merge_xheader_mode;
-  MergeQualInfoMode merge_qual_mode;
+  MergeQicMode merge_qual_mode;
   MergeFilterMode merge_filter_mode;
-  MergeQualInfoMode merge_info_mode;
+  MergeQicMode merge_info_mode;
+  MergeQicMode merge_cm_mode;
   SortMode merge_pheno_sort;
   SortMode merge_info_sort;
   uint32_t max_allele_ct;

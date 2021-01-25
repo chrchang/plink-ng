@@ -35,6 +35,16 @@ const char* RPvar::GetVariantId(uint32_t variant_idx) const {
   return _mp.variant_ids[variant_idx];
 }
 
+std::pair<std::multimap<const char*, int, classcomp>::iterator, std::multimap<const char*, int, classcomp>::iterator> RPvar::GetVariantsById(const char* id) {
+  if (_nameToIdxs.empty()) {
+    const uint32_t len = _mp.variant_ct;
+    for (uint32_t variant_idx = 0; variant_idx != len; ++variant_idx) {
+      _nameToIdxs.insert(std::pair<const char*, int>(_mp.variant_ids[variant_idx], variant_idx));
+    }
+  }
+  return _nameToIdxs.equal_range(id);
+}
+
 uint32_t RPvar::GetAlleleCt(uint32_t variant_idx) const {
   if (variant_idx >= _mp.variant_ct) {
     char errstr_buf[256];
@@ -85,10 +95,12 @@ uint32_t RPvar::GetMaxAlleleCt() const {
 }
 
 void RPvar::Close() {
+  _nameToIdxs.clear();
   plink2::CleanupMinimalPvar(&_mp);
 }
 
 RPvar::~RPvar() {
+  _nameToIdxs.clear();
   plink2::CleanupMinimalPvar(&_mp);
 }
 
@@ -107,6 +119,24 @@ String GetVariantId(List pvar, int variant_num) {
   XPtr<class RPvar> rp = as<XPtr<class RPvar> >(pvar[1]);
   String ss(rp->GetVariantId(variant_num - 1));
   return ss;
+}
+
+// [[Rcpp::export]]
+IntegerVector GetVariantsById(List pvar, String id) {
+  if (strcmp_r_c(pvar[0], "pvar")) {
+    stop("pvar is not a pvar object");
+  }
+  XPtr<class RPvar> rp = as<XPtr<class RPvar> >(pvar[1]);
+  std::pair<std::multimap<const char*, int, classcomp>::iterator, std::multimap<const char*, int, classcomp>::iterator> equal_range = rp->GetVariantsById(id.get_cstring());
+  std::multimap<const char*, int, classcomp>::iterator i1 = equal_range.first;
+  std::multimap<const char*, int, classcomp>::iterator i2 = equal_range.second;
+  const uint32_t len = std::distance(i1, i2);
+  IntegerVector iv = IntegerVector(len);
+  for (uint32_t uii = 0; uii != len; ++uii) {
+    iv[uii] = i1->second;
+    ++i1;
+  }
+  return iv;
 }
 
 // [[Rcpp::export]]

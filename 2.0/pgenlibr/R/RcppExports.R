@@ -81,6 +81,10 @@ GetVariantId <- function(pvar, variant_num) {
     .Call(`_pgenlibr_GetVariantId`, pvar, variant_num)
 }
 
+GetVariantsById <- function(pvar, id) {
+    .Call(`_pgenlibr_GetVariantsById`, pvar, id)
+}
+
 GetAlleleCode <- function(pvar, variant_num, allele_num) {
     .Call(`_pgenlibr_GetAlleleCode`, pvar, variant_num, allele_num)
 }

@@ -36,9 +36,6 @@ void CondReleaseRefcountedWptr(RefcountedWptr** rwpp);
 
 // Minimal .pvar loader, using malloc/free instead of bigstack.  Necessary for
 // clean multiallelic-variant support.
-// Doesn't use plink2_decompress for now, since that has too many dependencies.
-// (todo: remove zlibWrapper and plink2_cmdline dependencies from
-// plink2_decompress.)
 struct MinimalPvarStruct {
   const char** variant_ids;
   const char** allele_storage;

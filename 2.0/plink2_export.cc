@@ -4020,7 +4020,7 @@ uint32_t ValidVcfContigName(const char* name_start, const char* name_end, uint32
   return 1;
 }
 
-uint32_t ValidVcfHeaderLine(const char* line_start, uint32_t line_slen, uint32_t v43) {
+uint32_t ValidVcfMetaLine(const char* line_start, uint32_t line_slen, uint32_t v43) {
   const char* first_eq = S_CAST(const char*, memchr(line_start, '=', line_slen));
   if (!first_eq) {
     logerrprintf("Error: Header line in .pvar file does not conform to the VCFv4.%c specification\n(no '=').\n", '2' + v43);
@@ -4506,8 +4506,10 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
           if (unlikely(BgzfWrite(contig_name_end, line_end - contig_name_end, &bgzf))) {
             goto ExportVcf_ret_WRITE_FAIL;
           }
-        } else {
-          if (unlikely(!ValidVcfHeaderLine(xheader_iter, slen, v43))) {
+        } else if (xheader_iter[1] == '#') {
+          // quasi-bugfix (23 Jan 2021): don't export pre-#CHROM header lines
+          // starting with a single '#'
+          if (unlikely(!ValidVcfMetaLine(xheader_iter, slen, v43))) {
             goto ExportVcf_ret_INCONSISTENT_INPUT;
           }
           if (unlikely(BgzfWrite(xheader_iter, slen, &bgzf))) {
@@ -7714,14 +7716,17 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
         char* xheader_end = &(xheader[xheader_blen]);
         for (char* line_end = xheader; line_end != xheader_end; ) {
           char* line_start = line_end;
+          line_end = AdvPastDelim(&(line_start[1]), '\n');
+          if (line_start[1] != '#') {
+            continue;
+          }
           char* line_main = &(line_start[2]);
-          line_end = AdvPastDelim(line_main, '\n');
           const uint32_t is_filter_line = StrStartsWithUnsafe(line_main, "FILTER=<ID=");
           const uint32_t is_info_line = StrStartsWithUnsafe(line_main, "INFO=<ID=");
           if ((!is_filter_line) && (!is_info_line)) {
             if (!StrStartsWithUnsafe(line_main, "contig=<ID=")) {
               const uint32_t slen = line_end - line_start;
-              if (unlikely(!ValidVcfHeaderLine(line_start, slen, v43))) {
+              if (unlikely(!ValidVcfMetaLine(line_start, slen, v43))) {
                 goto ExportBcf_ret_INCONSISTENT_INPUT;
               }
               write_iter = memcpya(write_iter, line_start, slen);

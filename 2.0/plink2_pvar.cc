@@ -41,19 +41,17 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
   // "##chrSet=<".
   PglErr reterr = kPglRetSuccess;
   {
-    uint32_t cmdline_autosome_ct = 0;
-    uint32_t cmdline_haploid = 0;
-    STD_ARRAY_DECL(uint32_t, kChrOffsetCt, cmdline_xymt_codes);
-    if (cip->chrset_source == kChrsetSourceCmdline) {
-      if (misc_flags & kfMiscChrOverrideCmdline) {
-        goto ReadChrsetHeaderLine_ret_1;
-      }
-      if (!(misc_flags & kfMiscChrOverrideFile)) {
-        // save off info we need for consistency check
-        cmdline_autosome_ct = cip->autosome_ct;
-        cmdline_haploid = cip->haploid_mask[0] & 1;
-        STD_ARRAY_COPY(cip->xymt_codes, kChrOffsetCt, cmdline_xymt_codes);
-      }
+    uint32_t prev_autosome_ct = 0;
+    uint32_t prev_haploid = 0;
+    STD_ARRAY_DECL(uint32_t, kChrOffsetCt, prev_xymt_codes);
+    if ((cip->chrset_source == kChrsetSourceCmdline) && (misc_flags & kfMiscChrOverrideCmdline)) {
+      goto ReadChrsetHeaderLine_ret_1;
+    }
+    if (((cip->chrset_source == kChrsetSourceCmdline) && (!(misc_flags & kfMiscChrOverrideFile))) || (cip->chrset_source == kChrsetSourceAnotherFile)) {
+      // save off info we need for consistency check
+      prev_autosome_ct = cip->autosome_ct;
+      prev_haploid = cip->haploid_mask[0] & 1;
+      STD_ARRAY_COPY(cip->xymt_codes, kChrOffsetCt, prev_xymt_codes);
     }
     // bugfix (23 Jan 2021): forgot to zero this out in file-only case
     ZeroWArr(kChrMaskWords, cip->haploid_mask);
@@ -77,13 +75,13 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
         goto ReadChrsetHeaderLine_ret_MALFORMED_INPUT_WW;
       }
       // could verify that X, Y, etc. are not present?
-      if (cmdline_autosome_ct) {
-        if (unlikely(!cmdline_haploid)) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s specifies a haploid genome, while a diploid genome was specified on the command line.\n", line_idx, file_descrip);
+      if (prev_autosome_ct) {
+        if (unlikely(!prev_haploid)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s specifies a haploid genome, while a diploid genome was specified %s.\n", line_idx, file_descrip, (cip->chrset_source == kChrsetSourceCmdline)? "on the command line" : "in another .pvar");
           goto ReadChrsetHeaderLine_ret_INCONSISTENT_INPUT_WW;
         }
-        if (unlikely(explicit_haploid_ct != cmdline_autosome_ct)) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s specifies %u autosome%s, while the command line specified %u.\n", line_idx, file_descrip, explicit_haploid_ct, (explicit_haploid_ct == 1)? "" : "s", cmdline_autosome_ct);
+        if (unlikely(explicit_haploid_ct != prev_autosome_ct)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s specifies %u autosome%s, while %s specified %u.\n", line_idx, file_descrip, explicit_haploid_ct, (explicit_haploid_ct == 1)? "" : "s", (cip->chrset_source == kChrsetSourceCmdline)? "the command line" : "another .pvar", prev_autosome_ct);
           goto ReadChrsetHeaderLine_ret_INCONSISTENT_INPUT_WW;
         }
       }
@@ -149,21 +147,21 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
           }
         } while (!strchrnul_n_mov(',', &chrset_iter));
       }
-      if (cmdline_autosome_ct) {
-        if (unlikely(cmdline_haploid)) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s specifies a diploid genome, while a haploid genome was specified on the command line.\n", line_idx, file_descrip);
+      if (prev_autosome_ct) {
+        if (unlikely(prev_haploid)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s specifies a diploid genome, while a haploid genome was specified %s.\n", line_idx, file_descrip, (cip->chrset_source == kChrsetSourceCmdline)? "on the command line" : "in another .pvar");
           goto ReadChrsetHeaderLine_ret_INCONSISTENT_INPUT_WW;
         }
-        if (unlikely(explicit_autosome_ct != cmdline_autosome_ct)) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s specifies %u autosome%s, while the command line specified %u.\n", line_idx, file_descrip, explicit_autosome_ct, (explicit_autosome_ct == 1)? "" : "s", cmdline_autosome_ct);
+        if (unlikely(explicit_autosome_ct != prev_autosome_ct)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s specifies %u autosome%s, while %s specified %u.\n", line_idx, file_descrip, explicit_autosome_ct, (explicit_autosome_ct == 1)? "" : "s", (cip->chrset_source == kChrsetSourceCmdline)? "the command line" : "another .pvar", prev_autosome_ct);
           goto ReadChrsetHeaderLine_ret_INCONSISTENT_INPUT_WW;
         }
         for (uint32_t xymt_idx = 0; xymt_idx != kChrOffsetPAR1; ++xymt_idx) {
           // it's okay if the command line doesn't explicitly exclude e.g. chrX
           // while for whatever reason it is excluded from ##chrSet; but the
           // reverse can create problems
-          if (unlikely(IsI32Neg(cmdline_xymt_codes[xymt_idx]) && (!IsI32Neg(cip->xymt_codes[xymt_idx])))) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s specifies a chromosome set including %s, while the command line excludes it.\n", line_idx, file_descrip, g_xymt_log_names[xymt_idx]);
+          if (unlikely(IsI32Neg(prev_xymt_codes[xymt_idx]) && (!IsI32Neg(cip->xymt_codes[xymt_idx])))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s specifies a chromosome set including %s, while %s excludes it.\n", line_idx, file_descrip, g_xymt_log_names[xymt_idx], (cip->chrset_source == kChrsetSourceCmdline)? "the command line" : "another .pvar");
             goto ReadChrsetHeaderLine_ret_INCONSISTENT_INPUT_WW;
           }
         }

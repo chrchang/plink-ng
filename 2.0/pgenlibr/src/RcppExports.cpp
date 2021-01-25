@@ -240,6 +240,18 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// GetVariantsById
+IntegerVector GetVariantsById(List pvar, String id);
+RcppExport SEXP _pgenlibr_GetVariantsById(SEXP pvarSEXP, SEXP idSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type pvar(pvarSEXP);
+    Rcpp::traits::input_parameter< String >::type id(idSEXP);
+    rcpp_result_gen = Rcpp::wrap(GetVariantsById(pvar, id));
+    return rcpp_result_gen;
+END_RCPP
+}
 // GetAlleleCode
 String GetAlleleCode(List pvar, int variant_num, int allele_num);
 RcppExport SEXP _pgenlibr_GetAlleleCode(SEXP pvarSEXP, SEXP variant_numSEXP, SEXP allele_numSEXP) {
@@ -285,6 +297,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pgenlibr_ClosePgen", (DL_FUNC) &_pgenlibr_ClosePgen, 1},
     {"_pgenlibr_NewPvar", (DL_FUNC) &_pgenlibr_NewPvar, 1},
     {"_pgenlibr_GetVariantId", (DL_FUNC) &_pgenlibr_GetVariantId, 2},
+    {"_pgenlibr_GetVariantsById", (DL_FUNC) &_pgenlibr_GetVariantsById, 2},
     {"_pgenlibr_GetAlleleCode", (DL_FUNC) &_pgenlibr_GetAlleleCode, 3},
     {"_pgenlibr_ClosePvar", (DL_FUNC) &_pgenlibr_ClosePvar, 1},
     {NULL, NULL, 0}

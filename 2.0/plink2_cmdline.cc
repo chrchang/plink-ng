@@ -719,6 +719,15 @@ BoolErr bigstack_calloc_v(uintptr_t ct, VecW** v_arr_ptr) {
   return 0;
 }
 
+BoolErr bigstack_calloc_wp(uintptr_t ct, uintptr_t*** wp_arr_ptr) {
+  *wp_arr_ptr = S_CAST(uintptr_t**, bigstack_alloc(ct * sizeof(intptr_t)));
+  if (unlikely(!(*wp_arr_ptr))) {
+    return 1;
+  }
+  ZeroPtrArr(ct, *wp_arr_ptr);
+  return 0;
+}
+
 BoolErr bigstack_calloc_cp(uintptr_t ct, char*** cp_arr_ptr) {
   *cp_arr_ptr = S_CAST(char**, bigstack_alloc(ct * sizeof(intptr_t)));
   if (unlikely(!(*cp_arr_ptr))) {

@@ -71,7 +71,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (23 Jan 2021)";
+  " (24 Jan 2021)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -7801,7 +7801,7 @@ int main(int argc, char** argv) {
           const char* cur_modif = argvk[arg_idx + 1];
           const uint32_t cur_modif_slen = strlen(cur_modif);
           if (strequal_k(cur_modif, "erase", cur_modif_slen)) {
-            if (unlikely(pmerge_info.merge_info_mode != kMergeQualInfoModeErase)) {
+            if (unlikely(pmerge_info.merge_info_mode != kMergeQicModeErase)) {
               logerrputs("Error: \"--merge-xheader-mode erase\" requires \"--merge-info-mode erase\".\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
@@ -7816,29 +7816,32 @@ int main(int argc, char** argv) {
           logerrputs("Error: --merge-equal-pos has been retired.  Use e.g. --set-all-var-ids before\nmerging instead.\n");
           goto main_ret_INVALID_CMDLINE_A;
         } else if (strequal_k_unsafe(flagname_p2, "erge-qual-mode") ||
-                   strequal_k_unsafe(flagname_p2, "erge-info-mode")) {
+                   strequal_k_unsafe(flagname_p2, "erge-info-mode") ||
+                   strequal_k_unsafe(flagname_p2, "erge-cm-mode")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
           const uint32_t cur_modif_slen = strlen(cur_modif);
-          MergeQualInfoMode mode;
+          MergeQicMode mode;
           if (strequal_k(cur_modif, "erase", cur_modif_slen)) {
-            mode = kMergeQualInfoModeErase;
+            mode = kMergeQicModeErase;
           } else if (strequal_k(cur_modif, "nm-match", cur_modif_slen)) {
-            mode = kMergeQualInfoModeNmMatch;
+            mode = kMergeQicModeNmMatch;
           } else if (strequal_k(cur_modif, "nm-first", cur_modif_slen)) {
-            mode = kMergeQualInfoModeNmFirst;
+            mode = kMergeQicModeNmFirst;
           } else if (likely(strequal_k(cur_modif, "first", cur_modif_slen))) {
-            mode = kMergeQualInfoModeFirst;
+            mode = kMergeQicModeFirst;
           } else {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s argument '%s'.\n", flagname_p, cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           if (flagname_p2[5] == 'q') {
             pmerge_info.merge_qual_mode = mode;
-          } else {
+          } else if (flagname_p2[5] == 'i') {
             pmerge_info.merge_info_mode = mode;
+          } else {
+            pmerge_info.merge_cm_mode = mode;
           }
         } else if (strequal_k_unsafe(flagname_p2, "erge-filter-mode")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {

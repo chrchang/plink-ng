@@ -590,7 +590,7 @@ typedef uint16_t ChrIdx;
 // compiler support is available)
 // (not get_htable_fast_size since, an overwhelming majority of the time, we'll
 // have far fewer than 2^16 codes)
-CONSTI32(kChrHtableSize, 130579);
+CONSTI32(kChrHtableSize, 130560);
 
 // (note that n+1, n+2, n+3, and n+4 are reserved for X/Y/XY/MT)
 CONSTI32(kMaxChrTextnum, 95);
@@ -632,10 +632,13 @@ CONSTI32(kChrExcludeWords, 4);
 #endif
 static_assert(kChrExcludeWords * kBitsPerWord >= kMaxChrTextnum + 2 * kChrOffsetCt + 1, "kChrExcludeWords must be updated.");
 
+// AnotherFile is for .pvar merge (chrSets must be consistent across all .pvar
+// files in that case)
 ENUM_U31_DEF_START()
   kChrsetSourceDefault,
   kChrsetSourceCmdline,
-  kChrsetSourceFile
+  kChrsetSourceFile,
+  kChrsetSourceAnotherFile
 ENUM_U31_DEF_END(ChrsetSource);
 
 FLAGSET_DEF_START()

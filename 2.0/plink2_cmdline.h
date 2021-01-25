@@ -630,6 +630,8 @@ BoolErr bigstack_calloc_u64(uintptr_t ct, uint64_t** u64_arr_ptr);
 
 BoolErr bigstack_calloc_v(uintptr_t ct, VecW** v_arr_ptr);
 
+BoolErr bigstack_calloc_wp(uintptr_t ct, uintptr_t*** wp_arr_ptr);
+
 BoolErr bigstack_calloc_cp(uintptr_t ct, char*** cp_arr_ptr);
 
 BoolErr bigstack_calloc_kcp(uintptr_t ct, const char*** kcp_arr_ptr);
