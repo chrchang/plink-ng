@@ -133,7 +133,7 @@ IntegerVector GetVariantsById(List pvar, String id) {
   const uint32_t len = std::distance(i1, i2);
   IntegerVector iv = IntegerVector(len);
   for (uint32_t uii = 0; uii != len; ++uii) {
-    iv[uii] = i1->second;
+    iv[uii] = i1->second + 1;
     ++i1;
   }
   return iv;
