@@ -1448,7 +1448,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
 
         extra_alt_ct = CountByte(token_ptrs[3], ',', token_slens[3]);
         if (extra_alt_ct > max_extra_alt_ct) {
-          if (extra_alt_ct > kPglMaxAltAlleleCt) {
+          if (extra_alt_ct >= kPglMaxAltAlleleCt) {
             logerrprintfww("Error: Too many ALT alleles on line %" PRIuPTR " of %s. (This " PROG_NAME_STR " build is limited to " PGL_MAX_ALT_ALLELE_CT_STR ".)\n", line_idx, pvarname);
             reterr = kPglRetNotYetSupported;
             goto LoadPvar_ret_1;
@@ -1565,7 +1565,8 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           uint32_t allele_ct = extra_alt_ct + 2;
           if (!extra_alt_ct) {
             // allele_ct == 1 or 2 for filtering purposes, depending on
-            // whether ALT allele matches a missing code.
+            // whether ALT allele matches a missing code.  (Don't see a reason
+            // to subtract 1 for missing REF.)
             if ((remaining_alt_char_ct == 1) && ((linebuf_iter[0] == '.') || (linebuf_iter[0] == input_missing_geno_char))) {
               allele_ct = 1;
             }
@@ -1729,14 +1730,8 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
             max_allele_slen = remaining_alt_char_ct;
           }
         }
-        if (missing_allele_ct) {
-          if (unlikely(extra_alt_ct)) {
-            goto LoadPvar_ret_MULTIALLELIC_MISSING_ALLELE_CODE;
-          }
-          if (unlikely(missing_allele_ct == 2)) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Both alleles missing on line %" PRIuPTR " of %s.\n", line_idx, pvarname);
-            goto LoadPvar_ret_INCONSISTENT_INPUT_WW;
-          }
+        if (unlikely(missing_allele_ct && extra_alt_ct)) {
+          goto LoadPvar_ret_MULTIALLELIC_MISSING_ALLELE_CODE;
         }
         ++allele_storage_iter;
 
@@ -1983,8 +1978,10 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       read_iter = &(read_iter[kLoadPvarBlockSize / CHAR_BIT]);
       if (filter_storage) {
         memcpy(&(filter_storage[full_block_ct * kLoadPvarBlockSize]), read_iter, raw_variant_ct_lowbits * sizeof(intptr_t));
-        read_iter = &(read_iter[kLoadPvarBlockSize * sizeof(intptr_t)]);
       }
+      // bugfix (3 Feb 2021): temporary filter_storage space was allocated
+      // regardless of whether any non-PASS values were ultimately found
+      read_iter = &(read_iter[kLoadPvarBlockSize * sizeof(intptr_t)]);
     }
     if (info_pr_present) {
       memcpy(&(nonref_flags[full_block_ct * (kLoadPvarBlockSize / kBitsPerWord)]), read_iter, last_bitblock_size);
@@ -2113,8 +2110,9 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     reterr = kPglRetMalformedInput;
     break;
   LoadPvar_ret_MULTIALLELIC_MISSING_ALLELE_CODE:
+    // Note that we must permit one or even both alleles to be missing in the
+    // biallelic case, for .ped data to be usable.
     snprintf(g_logbuf, kLogbufSize, "Error: Missing allele code in multiallelic variant on line %" PRIuPTR " of %s.\n", line_idx, pvarname);
-  LoadPvar_ret_INCONSISTENT_INPUT_WW:
     WordWrapB(0);
     logerrputsb();
   LoadPvar_ret_INCONSISTENT_INPUT:

@@ -21,6 +21,6 @@ ext_modules = [
     ]
 
 setup(name = 'Pgenlib',
-      version = '0.73',
+      version = '0.74',
       description = "Wrapper for pgenlib's basic reader and writer.",
       ext_modules = cythonize(ext_modules))

@@ -3497,44 +3497,39 @@ PglErr WriteBimSplit(const char* outname, const uintptr_t* variant_include, cons
   return reterr;
 }
 
-// We only need to distinguish between the following INFO-value-type cases:
-// Number=0 (flag), Number=<positive integer>, Number=., Number=A, Number=R,
-// and Number=G.  We use negative numbers to represent the last 4 cases in
-// InfoVtype.
-CONSTI32(kInfoVtypeUnknown, -1);
-CONSTI32(kInfoVtypeA, -2);
-CONSTI32(kInfoVtypeR, -3);
-CONSTI32(kInfoVtypeG, -4);
-
-// Main fixed data structure when splitting/joining INFO is a hashmap of keys.
-// Behavior when splitting:
-// - Field order in the original variant is retained.
-// - Number >= 0 and Number=. don't require any special handling, just copy the
-//   entire key=value pair (or lone key, in the Flag case).
-// - Number=A and Number=R require splitting the value on ',' and verifying the
-//   comma count is correct, but is otherwise straightforward since alleles
-//   can't be permuted.
-// - Number=G requires a bit more work but isn't fundamentally different from
-//   A/R.
-// When joining:
-// - Field order is determined by header line order.
-// - Number=. and Number>0 just require a buffer of size ~info_reload_slen, and
-//   a boolean indicating whether no mismatch has been found.
-// - Number=0 (Flag) requires a single boolean, we perform an or operation.
-// - Number=A/R/G are the messy ones: we need to have enough space for
-//   max_write_allele_ct (or that minus 1) comma-separated values in the =A and
-//   =R cases, and max_write_allele_ct * (max_write_allele_ct + 1) / 2 in the
-//   diploid =G case.
-//   Since we permit already-multiallelic variants to be part of a join, the =G
-//   case may require a lot of working memory to handle.  We reserve up to 1/16
-//   of remaining workspace memory for this when we cannot prove that we can
-//   get by with less.
-
-typedef struct InfoVtypeStruct {
-  NONCOPYABLE(InfoVtypeStruct);
-  int32_t num;
-  char key[];
-} InfoVtype;
+BoolErr FillInfoVtypeNum(const char* num_str_start, int32_t* info_vtype_num_ptr) {
+  const unsigned char first_num_char = num_str_start[0];
+  if (first_num_char < '1') {
+    if (first_num_char == '0') {
+      // don't see a reason to tolerate Number=01, etc.
+      if (unlikely(!StrStartsWithUnsafe(num_str_start, "0,Type=Flag,"))) {
+        return 1;
+      }
+      *info_vtype_num_ptr = 0;
+    } else if (likely(first_num_char == '.')) {
+      *info_vtype_num_ptr = kInfoVtypeUnknown;
+    } else {
+      return 1;
+    }
+  } else if (first_num_char > '9') {
+    if (first_num_char == 'A') {
+      *info_vtype_num_ptr = kInfoVtypeA;
+    } else if (first_num_char == 'R') {
+      *info_vtype_num_ptr = kInfoVtypeR;
+    } else if (likely(first_num_char == 'G')) {
+      *info_vtype_num_ptr = kInfoVtypeG;
+    } else {
+      return 1;
+    }
+  } else {
+    uint32_t val;
+    if (unlikely(ScanmovPosintCapped(UINT32_MAX, &num_str_start, &val) || (num_str_start[0] != ','))) {
+      return 1;
+    }
+    *info_vtype_num_ptr = val;
+  }
+  return 0;
+}
 
 // info_keys[] entries point to the (variable-size) key[] member of InfoVtype
 // structs.  We use [const_]container_of(x)->num to look up the associated
@@ -3582,36 +3577,8 @@ PglErr ParseInfoHeader(const char* xheader, uintptr_t xheader_blen, const char* 
       memcpyx(new_entry->key, key_start, key_slen, '\0');
       *info_keys_iter++ = new_entry->key;
 
-      const char* num_iter = &(key_end[8]);
-      const unsigned char first_num_char = num_iter[0];
-      if (first_num_char < '1') {
-        if (first_num_char == '0') {
-          // don't see a reason to tolerate Number=01, etc.
-          if (unlikely(!StrStartsWithUnsafe(num_iter, "0,Type=Flag,"))) {
-            goto ParseInfoHeader_ret_MALFORMED_INFO_HEADER_LINE;
-          }
-          new_entry->num = 0;
-        } else if (likely(first_num_char == '.')) {
-          new_entry->num = kInfoVtypeUnknown;
-        } else {
-          goto ParseInfoHeader_ret_MALFORMED_INFO_HEADER_LINE;
-        }
-      } else if (first_num_char > '9') {
-        if (first_num_char == 'A') {
-          new_entry->num = kInfoVtypeA;
-        } else if (first_num_char == 'R') {
-          new_entry->num = kInfoVtypeR;
-        } else if (likely(first_num_char == 'G')) {
-          new_entry->num = kInfoVtypeG;
-        } else {
-          goto ParseInfoHeader_ret_MALFORMED_INFO_HEADER_LINE;
-        }
-      } else {
-        uint32_t val;
-        if (unlikely(ScanmovPosintCapped(UINT32_MAX, &num_iter, &val) || (num_iter[0] != ','))) {
-          goto ParseInfoHeader_ret_MALFORMED_INFO_HEADER_LINE;
-        }
-        new_entry->num = val;
+      if (unlikely(FillInfoVtypeNum(&(key_end[strlen(",Number=")]), &(new_entry->num)))) {
+        goto ParseInfoHeader_ret_MALFORMED_INFO_HEADER_LINE;
       }
     }
     const uintptr_t info_key_ct = info_keys_iter - info_keys;
@@ -6032,7 +5999,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
       uintptr_t spgw_alloc_cacheline_ct;
       uint32_t max_vrec_len;
-      reterr = SpgwInitPhase1(outname, write_allele_idx_offsets, nonref_flags_write, write_variant_ct, sample_ct, write_gflags, nonref_flags_storage, ctx.spgwp, &spgw_alloc_cacheline_ct, &max_vrec_len);
+      reterr = SpgwInitPhase1(outname, write_allele_idx_offsets, nonref_flags_write, write_variant_ct, sample_ct, 0, write_gflags, nonref_flags_storage, ctx.spgwp, &spgw_alloc_cacheline_ct, &max_vrec_len);
       if (unlikely(reterr)) {
         if (reterr == kPglRetOpenFail) {
           logerrprintfww(kErrprintfFopen, outname, strerror(errno));
@@ -7482,7 +7449,7 @@ BoolErr SortChr(const ChrInfo* cip, const uint32_t* chr_idx_to_size, uint32_t us
 
   const uint32_t new_nonstd_ct = new_chr_ct - std_sortbuf_len;
   if (new_nonstd_ct) {
-    StrSortIndexedDeref* nonstd_sort_buf = S_CAST(StrSortIndexedDeref*, bigstack_alloc_raw_rd(new_nonstd_ct * sizeof(StrSortIndexedDeref)));
+    StrSortIndexedDeref* nonstd_sort_buf = S_CAST(StrSortIndexedDeref*, bigstack_alloc(new_nonstd_ct * sizeof(StrSortIndexedDeref)));
     if (!nonstd_sort_buf) {
       return 1;
     }

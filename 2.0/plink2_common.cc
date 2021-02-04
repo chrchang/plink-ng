@@ -1220,6 +1220,106 @@ PglErr LoadXidHeaderPair(const char* flag_name, uint32_t sid_over_fid, uintptr_t
   return kPglRetSuccess;
 }
 
+void InitXidHtable(const SampleIdInfo* siip, uint32_t sample_ct, uint32_t xid_htable_size, uint32_t* xid_htable, char* idbuf) {
+  SetAllU32Arr(xid_htable_size, xid_htable);
+  const char* sample_ids_iter = siip->sample_ids;
+  const char* sids_iter = siip->sids;
+  const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+  const uintptr_t max_sid_blen = siip->max_sid_blen;
+  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+    uint32_t slen = strlen(sample_ids_iter);
+    const char* cur_sample_id;
+    if (!sids_iter) {
+      cur_sample_id = sample_ids_iter;
+    } else {
+      char* id_iter = memcpyax(idbuf, sample_ids_iter, slen, '\t');
+      const uint32_t sid_blen = 1 + strlen(sids_iter);
+      memcpy(id_iter, sids_iter, sid_blen);
+      slen += sid_blen;
+      sids_iter = &(sids_iter[max_sid_blen]);
+      cur_sample_id = idbuf;
+    }
+    HtableAddNondup(cur_sample_id, slen, xid_htable_size, sample_idx, xid_htable);
+    sample_ids_iter = &(sample_ids_iter[max_sample_id_blen]);
+  }
+}
+
+BoolErr LookupXidHtable(const char* line_start, const SampleIdInfo* siip, const uint32_t* xid_htable, uint32_t xid_htable_size, uint32_t fid_present, uint32_t sid_present, uint32_t* sample_idxp, char* idbuf) {
+  const char* read_iid_start = line_start;
+  const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+  char* write_id_iter = idbuf;
+  if (fid_present) {
+    const char* fid_end = CurTokenEnd(line_start);
+    const uint32_t fid_slen = fid_end - line_start;
+    // check this before copying, to prevent idbuf overflow
+    if (fid_slen + 2 >= max_sample_id_blen) {
+      *sample_idxp = UINT32_MAX;
+      return 0;
+    }
+    write_id_iter = memcpya(write_id_iter, line_start, fid_slen);
+    read_iid_start = FirstNonTspace(fid_end);
+    if (unlikely(IsEolnKns(*read_iid_start))) {
+      return 1;
+    }
+  } else {
+    *write_id_iter++ = '0';
+  }
+  *write_id_iter++ = '\t';
+  const char* read_iid_end = CurTokenEnd(read_iid_start);
+  const uint32_t iid_slen = read_iid_end - read_iid_start;
+  const uint32_t fid_iid_slen = iid_slen + S_CAST(uintptr_t, write_id_iter - idbuf);
+  if (fid_iid_slen >= max_sample_id_blen) {
+    *sample_idxp = UINT32_MAX;
+    return 0;
+  }
+  write_id_iter = memcpya(write_id_iter, read_iid_start, iid_slen);
+
+  const char* sample_ids = siip->sample_ids;
+  const char* sids = siip->sids;
+  if (!sids) {
+    *write_id_iter = '\0';
+    *sample_idxp = StrboxHtableFind(idbuf, sample_ids, xid_htable, max_sample_id_blen, fid_iid_slen, xid_htable_size);
+    return 0;
+  }
+
+  *write_id_iter++ = '\t';
+  char* write_sid_start = write_id_iter;
+  uint32_t sid_slen = 1;
+  const uintptr_t max_sid_blen = siip->max_sid_blen;
+  if (sid_present) {
+    const char* read_sid_start = FirstNonTspace(read_iid_end);
+    if (unlikely(IsEolnKns(*read_sid_start))) {
+      return 1;
+    }
+    const char* read_sid_end = CurTokenEnd(read_sid_start);
+    sid_slen = read_sid_end - read_sid_start;
+    if (sid_slen >= max_sid_blen) {
+      *sample_idxp = UINT32_MAX;
+      return 0;
+    }
+    write_id_iter = memcpya(write_id_iter, read_sid_start, sid_slen);
+  } else {
+    *write_id_iter++ = '0';
+  }
+  *write_id_iter = '\0';
+  const uint32_t fid_iid_blen = fid_iid_slen + 1;
+  const uint32_t sid_blen = sid_slen + 1;
+  uint32_t hashval = Hashceil(idbuf, fid_iid_slen + sid_blen, xid_htable_size);
+  write_sid_start[-1] = '\0';
+  while (1) {
+    const uint32_t sample_idx = xid_htable[hashval];
+    if ((sample_idx == UINT32_MAX) ||
+        (memequal(idbuf, &(sample_ids[sample_idx * max_sample_id_blen]), fid_iid_blen) &&
+         memequal(write_sid_start, &(sids[sample_idx * max_sid_blen]), sid_blen))) {
+      *sample_idxp = sample_idx;
+      return 0;
+    }
+    if (++hashval == xid_htable_size) {
+      hashval = 0;
+    }
+  }
+}
+
 // accept 'M'/'F'/'m'/'f' since that's more readable without being any less
 // efficient
 const unsigned char g_char_to_sex[256] =

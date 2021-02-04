@@ -1441,7 +1441,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --iid-sid           : Make --id-delim and --sample-diff interpret two-token\n"
 "                        sample IDs as IID-SID instead of FID-IID.\n"
               );
-    HelpPrint("vcf\0bcf\0vcf-half-call\0vcf-min-gq\0vcf-min-dp\0vcf-max-dp\0vcf-require-gt\0", &help_ctrl, 0,
+    HelpPrint("vcf\0bcf\0vcf-half-call\0vcf-min-gq\0vcf-min-dp\0vcf-max-dp\0vcf-require-gt\0vcf-ref-n-missing\0", &help_ctrl, 0,
 "  --vcf-require-gt    : Skip variants with no GT field.\n"
 "  --vcf-min-gq <val>  : No-call genotypes when GQ is present and below the\n"
 "                        threshold.\n"
@@ -1453,6 +1453,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                        * 'haploid'/'h' treats them as haploid calls.\n"
 "                        * 'missing'/'m' treats them as missing.\n"
 "                        * 'reference'/'r' treats the missing value as 0.\n"
+"  --vcf-ref-n-missing : Import VCF 'N' REF alleles as missing alleles.  This\n"
+"                        can be appropriate for .ped-derived VCFs.\n"
                );
     HelpPrint("oxford-single-chr\0data\0gen\0bgen\0", &help_ctrl, 0,
 "  --oxford-single-chr <chr name>  : Specify single-chromosome .gen/.bgen file\n"
@@ -2157,6 +2159,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("pmerge\0pmerge-list\0merge-max-allele-ct\0", &help_ctrl, 0,
 "  --merge-max-allele-ct <> : Exclude merged variants with more than the\n"
 "                             specified number of alleles.\n"
+              );
+    HelpPrint("pmerge\0pmerge-list\0multiallelics-already-joined\0", &help_ctrl, 0,
+"  --multiallelics-already-joined : Prevent --pmerge[-list] from erroring out\n"
+"                                   when a .pvar file appears to have a 'split'\n"
+"                                   multiallelic variant.\n"
               );
     // todo: add citation for 2018 KING update paper, which should discuss the
     // two-stage screen + refine workflow supported by --king-table-subset,

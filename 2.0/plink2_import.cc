@@ -2883,6 +2883,11 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         max_line_blen = prev_line_blen;
       }
     }
+    const uint32_t ref_n_missing = (import_flags / kfImportVcfRefNMissing) & 1;
+    if (unlikely(ref_n_missing && (!info_pr_present))) {
+      logerrputs("Error: --vcf-ref-n-missing was specified, but the VCF does not have the\nINFO/PR header line that should be present in any .ped-derived VCF.\n");
+      goto VcfToPgen_ret_INCONSISTENT_INPUT;
+    }
     const uint32_t require_gt = (import_flags / kfImportVcfRequireGt) & 1;
     if (unlikely((!format_gt_present) && require_gt)) {
       logerrputs("Error: No FORMAT/GT key found in --vcf file header, when --vcf-require-gt was\nspecified.\n(If this header line is actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
@@ -3412,7 +3417,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
       uintptr_t spgw_alloc_cacheline_ct;
       uint32_t max_vrec_len;
-      reterr = SpgwInitPhase1(outname, allele_idx_offsets, nonref_flags, variant_ct, sample_ct, phase_dosage_gflags, nonref_flags_storage, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+      reterr = SpgwInitPhase1(outname, allele_idx_offsets, nonref_flags, variant_ct, sample_ct, max_allele_ct, phase_dosage_gflags, nonref_flags_storage, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
       if (unlikely(reterr)) {
         if (reterr == kPglRetOpenFail) {
           logerrprintfww(kErrprintfFopen, outname, strerror(errno));
@@ -3612,8 +3617,12 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           // non-contigs, and UINT32_MAX if it's a contig name
           char* pos_str = &(chr_code_end[1]);
           char* pos_str_end = AdvToDelim(pos_str, '\t');
-          // copy ID, REF verbatim
+          // copy ID, REF verbatim...
           linebuf_iter = AdvToNthDelim(&(pos_str_end[1]), 2, '\t');
+          if (ref_n_missing && memequal_k(&(linebuf_iter[-2]), "\tN", 2)) {
+            // ...unless --vcf-ref-n-missing applies.
+            linebuf_iter[-1] = '.';
+          }
 
           // ALT, QUAL, FILTER, INFO
           char* filter_end = AdvToNthDelim(&(linebuf_iter[1]), 3, '\t');
@@ -7558,6 +7567,12 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     } else if ((!dosage_sidx) && dosage_import_field) {
       logerrprintfww("Warning: No FORMAT/%s key found in BCF text header block. Dosages will not be imported. (If this header line is actually present, but with extra spaces or unusual field ordering, standardize the header with e.g. bcftools.)\n", dosage_import_field);
     }
+    const uint32_t ref_n_missing = (import_flags / kfImportVcfRefNMissing) & 1;
+    if (unlikely(ref_n_missing && (pr_sidx == UINT32_MAX))) {
+      logerrputs("Error: --vcf-ref-n-missing was specified, but the BCF does not have the\nINFO/PR header line that should be present in any .ped-derived BCF.\n");
+      goto BcfToPgen_ret_INCONSISTENT_INPUT;
+    }
+
 
     unsigned char* bigstack_end_mark2 = g_bigstack_end;
     uintptr_t loadbuf_size = RoundDownPow2(bigstack_left() / 2, kEndAllocAlign);
@@ -8198,7 +8213,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
       uintptr_t spgw_alloc_cacheline_ct;
       uint32_t max_vrec_len;
-      reterr = SpgwInitPhase1(outname, allele_idx_offsets, nonref_flags, variant_ct, sample_ct, phase_dosage_gflags, nonref_flags_storage, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+      reterr = SpgwInitPhase1(outname, allele_idx_offsets, nonref_flags, variant_ct, sample_ct, max_allele_ct, phase_dosage_gflags, nonref_flags_storage, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
       if (unlikely(reterr)) {
         if (reterr == kPglRetOpenFail) {
           logerrprintfww(kErrprintfFopen, outname, strerror(errno));
@@ -8521,6 +8536,9 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
             const char* ref_start;
             ScanBcfTypedString(shared_end, &parse_iter, &ref_start, &slen);
             pvar_cswritep = memcpyax(pvar_cswritep, ref_start, slen, '\t');
+            if (ref_n_missing && (ref_start[0] == 'N') && (slen == 1)) {
+              pvar_cswritep[-2] = '.';
+            }
 
             // ALT
             if (n_allele == 1) {
@@ -10069,7 +10087,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
     uintptr_t spgw_alloc_cacheline_ct;
     uint32_t max_vrec_len;
-    reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, dosage_is_present? kfPgenGlobalDosagePresent : kfPgenGlobal0, (oxford_import_flags & kfOxfordImportRefUnknown)? 2 : 1, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, 0, dosage_is_present? kfPgenGlobalDosagePresent : kfPgenGlobal0, (oxford_import_flags & kfOxfordImportRefUnknown)? 2 : 1, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
     if (unlikely(reterr)) {
       if (reterr == kPglRetOpenFail) {
         logerrprintfww(kErrprintfFopen, outname, strerror(errno));
@@ -12388,7 +12406,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
       uintptr_t spgw_alloc_cacheline_ct;
       uint32_t max_vrec_len;
-      reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, dosage_is_present? kfPgenGlobalDosagePresent : kfPgenGlobal0, (oxford_import_flags & kfOxfordImportRefUnknown)? 2 : 1, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+      reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, 0, dosage_is_present? kfPgenGlobalDosagePresent : kfPgenGlobal0, (oxford_import_flags & kfOxfordImportRefUnknown)? 2 : 1, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
       if (unlikely(reterr)) {
         if (reterr == kPglRetOpenFail) {
           logputs("\n");
@@ -13266,7 +13284,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
       uintptr_t spgw_alloc_cacheline_ct;
       uint32_t max_vrec_len;
-      reterr = SpgwInitPhase1(outname, allele_idx_offsets, nullptr, variant_ct, sample_ct, dosage_is_present? (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent) : kfPgenGlobal0, (oxford_import_flags & kfOxfordImportRefUnknown)? 2 : 1, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+      reterr = SpgwInitPhase1(outname, allele_idx_offsets, nullptr, variant_ct, sample_ct, max_allele_ct, dosage_is_present? (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent) : kfPgenGlobal0, (oxford_import_flags & kfOxfordImportRefUnknown)? 2 : 1, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
       if (unlikely(reterr)) {
         if (reterr == kPglRetOpenFail) {
           logerrprintfww(kErrprintfFopen, outname, strerror(errno));
@@ -14059,7 +14077,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
     uintptr_t spgw_alloc_cacheline_ct;
     uint32_t max_vrec_len;
-    reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, at_least_one_het? kfPgenGlobalHardcallPhasePresent : kfPgenGlobal0, (oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefLast))? 1 : 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, 0, at_least_one_het? kfPgenGlobalHardcallPhasePresent : kfPgenGlobal0, (oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefLast))? 1 : 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
     if (unlikely(reterr)) {
       if (reterr == kPglRetOpenFail) {
         logerrprintfww(kErrprintfFopen, outname, strerror(errno));
@@ -15274,7 +15292,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
     uintptr_t spgw_alloc_cacheline_ct;
     uint32_t max_vrec_len;
-    reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, dosage_is_present? kfPgenGlobalDosagePresent: kfPgenGlobal0, (flags & (kfPlink1DosageRefFirst | kfPlink1DosageRefLast))? 1 : 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, 0, dosage_is_present? kfPgenGlobalDosagePresent: kfPgenGlobal0, (flags & (kfPlink1DosageRefFirst | kfPlink1DosageRefLast))? 1 : 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
     if (unlikely(reterr)) {
       if (reterr == kPglRetOpenFail) {
         logerrprintfww(kErrprintfFopen, outname, strerror(errno));
@@ -15917,7 +15935,7 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
     }
     uintptr_t spgw_alloc_cacheline_ct;
     uint32_t max_vrec_len;
-    reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, (dosage_nfreq >= 1.0)? kfPgenGlobal0 : kfPgenGlobalDosagePresent, 1, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, 0, (dosage_nfreq >= 1.0)? kfPgenGlobal0 : kfPgenGlobalDosagePresent, 1, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
     if (unlikely(reterr)) {
       if (reterr == kPglRetOpenFail) {
         logerrprintfww(kErrprintfFopen, outname, strerror(errno));

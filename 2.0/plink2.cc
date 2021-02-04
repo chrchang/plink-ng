@@ -71,10 +71,10 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (24 Jan 2021)";
+  " (3 Feb 2021)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -98,8 +98,8 @@ static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make
 static const char notestr_null_calc2[] = "Commands include --rm-dup list, --make-bpgen, --export, --freq, --geno-counts,\n--sample-counts, --missing, --hardy, --het, --fst, --indep-pairwise, --ld,\n--sample-diff, --make-king, --king-cutoff, --pmerge, --pgen-diff,\n--write-samples, --write-snplist, --make-grm-list, --glm, --adjust-file,\n--score, --variant-score, --genotyping-rate, --pgen-info, --validate, and\n--zst-decompress.\n\n\"" PROG_NAME_STR " --help | more\" describes all functions.\n";
 #endif
 
-// covar-variance-standardize + terminating null
-CONSTI32(kMaxFlagBlen, 27);
+// multiallelics-already-joined + terminating null
+CONSTI32(kMaxFlagBlen, 29);
 
 FLAGSET_DEF_START()
   kfLoadParams0,
@@ -7899,6 +7899,9 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pmerge_info.max_allele_ct = merge_max_allele_ct;
+        } else if (strequal_k_unsafe(flagname_p2, "ultiallelics-already-joined")) {
+          pmerge_info.flags |= kfPmergeMultiallelicsAlreadyJoined;
+          goto main_param_zero;
         } else if (likely(strequal_k_unsafe(flagname_p2, "pheno"))) {
           logerrputs("Warning: --mpheno flag deprecated.  Use --pheno-col-nums instead.  (Note that\n--pheno-col-nums does not add 2 to the column number(s).)\n");
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -10016,6 +10019,13 @@ int main(int argc, char** argv) {
           }
           import_flags |= kfImportVcfRequireGt;
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "cf-ref-n-missing")) {
+          if (unlikely(!(xload & (kfXloadVcf | kfXloadBcf)))) {
+            logerrputs("Error: --vcf-ref-n-missing must be used with --vcf/--bcf.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          import_flags |= kfImportVcfRefNMissing;
+          goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "if")) {
           if (unlikely(!(pc.command_flags1 & kfCommand1Glm))) {
             logerrputs("Error: --vif must be used with --glm/--epistasis.\n");
@@ -10666,13 +10676,17 @@ int main(int argc, char** argv) {
       }
 
       if (pc.command_flags1 & kfCommand1Pmerge) {
-        char* merge_outname_end = outname_end;
-        if (make_plink2_flags & (kfMakePgen | kfMakePvar | kfMakePsam)) {
-          merge_outname_end = strcpya_k(merge_outname_end, "-merge");
-        }
         const uint32_t zst_level = g_zst_level;
-        if (!(import_flags & kfImportKeepAutoconv)) {
-          g_zst_level = 1;
+        char* merge_outname_end = outname_end;
+        if (pc.command_flags1 == kfCommand1Pmerge) {
+          import_flags |= kfImportKeepAutoconv;
+        } else {
+          if (make_plink2_flags & (kfMakePgen | kfMakePvar | kfMakePsam)) {
+            merge_outname_end = strcpya_k(merge_outname_end, "-merge");
+          }
+          if (!(import_flags & kfImportKeepAutoconv)) {
+            g_zst_level = 1;
+          }
         }
         reterr = Pmerge(&pmerge_info, pc.sample_sort_fname, pc.misc_flags, import_flags, pc.sample_sort_mode, pc.fam_cols, pc.missing_pheno, pc.max_thread_ct, pc.sort_vars_mode, pgenname, psamname, pvarname, outname, merge_outname_end, &chr_info);
         if (unlikely(reterr)) {
@@ -10682,6 +10696,12 @@ int main(int argc, char** argv) {
         if (!pc.command_flags1) {
           goto main_ret_1;
         }
+        // --real-ref-alleles communicates to --pmerge[-list] that all input
+        // .bed filesets have real REF alleles.
+        // However, we then need to clear this flag since Plink2Core() would
+        // otherwise error out (since --real-ref-alleles does not make sense on
+        // the merged .pgen).
+        pc.misc_flags &= ~kfMiscRealRefAlleles;
         g_zst_level = zst_level;
       }
 

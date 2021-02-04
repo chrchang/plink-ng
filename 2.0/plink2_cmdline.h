@@ -867,6 +867,8 @@ BoolErr bigstack_end_calloc_w(uintptr_t ct, uintptr_t** w_arr_ptr);
 
 BoolErr bigstack_end_calloc_u64(uintptr_t ct, uint64_t** u64_arr_ptr);
 
+BoolErr bigstack_end_calloc_wp(uintptr_t ct, uintptr_t*** wp_arr_ptr);
+
 BoolErr bigstack_end_calloc_cp(uintptr_t ct, char*** cp_arr_ptr);
 
 HEADER_INLINE BoolErr bigstack_end_calloc_c(uintptr_t ct, char** c_arr_ptr) {

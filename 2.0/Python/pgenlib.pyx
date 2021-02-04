@@ -167,7 +167,7 @@ cdef extern from "../include/pgenlib_write.h" namespace "plink2":
 
     uint32_t SpgwGetVidx(STPgenWriter* spgwp)
 
-    PglErr SpgwInitPhase1(const char* fname, uintptr_t* allele_idx_offsets, uintptr_t* explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, STPgenWriter* spgwp, uintptr_t* alloc_cacheline_ct_ptr, uint32_t* max_vrec_len_ptr)
+    PglErr SpgwInitPhase1(const char* fname, uintptr_t* allele_idx_offsets, uintptr_t* explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, uint32_t optional_max_allele_ct, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, STPgenWriter* spgwp, uintptr_t* alloc_cacheline_ct_ptr, uint32_t* max_vrec_len_ptr)
 
     void SpgwInitPhase2(uint32_t max_vrec_len, STPgenWriter* spgwp, unsigned char* spgw_alloc)
 
@@ -1217,7 +1217,7 @@ cdef class PgenWriter:
         assert not dosage_phase_present
         cdef uintptr_t alloc_cacheline_ct
         cdef uint32_t max_vrec_len
-        cdef PglErr reterr = SpgwInitPhase1(fname, NULL, self._nonref_flags, variant_ct, sample_ct, phase_dosage_gflags, nonref_flags_storage, self._state_ptr, &alloc_cacheline_ct, &max_vrec_len)
+        cdef PglErr reterr = SpgwInitPhase1(fname, NULL, self._nonref_flags, variant_ct, sample_ct, 0, phase_dosage_gflags, nonref_flags_storage, self._state_ptr, &alloc_cacheline_ct, &max_vrec_len)
         if reterr != kPglRetSuccess:
             raise RuntimeError("SpgwInitPhase1() error " + str(reterr))
         cdef uint32_t genovec_cacheline_ct = DivUp(sample_ct, kNypsPerCacheline)

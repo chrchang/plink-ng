@@ -2522,7 +2522,7 @@ HEADER_INLINE unsigned char* memcpyua(void* __restrict target, const void* __res
   return &(S_CAST(unsigned char*, target)[ct]);
 }
 
-HEADER_INLINE void AppendU16(uint32_t usii, unsigned char** targetp) {
+HEADER_INLINE void AppendU16(uint16_t usii, unsigned char** targetp) {
   memcpy(*targetp, &usii, sizeof(int16_t));
   *targetp += sizeof(int16_t);
 }

@@ -491,6 +491,11 @@ PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, con
         const char* old_allele = cur_alleles[allele_idx];
         if (strequal_unsafe(old_allele, old_allele1_start, old_slen1)) {
           if (unlikely(old_allele1_match != UINT32_MAX)) {
+            // Note that one way this can happen is a slightly-misimplemented
+            // attempt to patch .ped-derived data containing all-missing
+            // variants.  Could customize this error message (advising use of
+            // --ref-allele and --alt1-allele) if multiple people are making
+            // that mistake in practice.
             snprintf(g_logbuf, kLogbufSize, "Error: Duplicate allele code in variant '%s'.\n", varid);
             goto UpdateVarAlleles_ret_MALFORMED_INPUT_WW;
           }
@@ -576,6 +581,9 @@ PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, con
           const char* cur_allele = cur_alleles[allele_idx];
           if (unlikely(strequal_unsafe(cur_allele, new_allele1_start, new_slen1) ||
                        strequal_unsafe(cur_allele, new_allele2_start, new_slen2))) {
+            // Don't see a reason to permit turning a variant that didn't have
+            // both alleles missing into one that does with this flag, even
+            // though we have to treat the latter as valid.
             snprintf(g_logbuf, kLogbufSize, "Error: Duplicate allele code in variant '%s'.\n", varid);
             goto UpdateVarAlleles_ret_MALFORMED_INPUT_WW;
           }

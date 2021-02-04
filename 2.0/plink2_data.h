@@ -63,11 +63,50 @@ FLAGSET_DEF_START()
   kfImportKeepAutoconv = (1 << 0),
   kfImportKeepAutoconvVzs = (1 << 1),
   kfImportDoubleId = (1 << 2),
-  kfImportVcfRequireGt = (1 << 3)
+  kfImportVcfRequireGt = (1 << 3),
+  kfImportVcfRefNMissing = (1 << 4)
 FLAGSET_DEF_END(ImportFlags);
 
 CONSTI32(kMaxInfoKeySlen, kMaxIdSlen);
 #define MAX_INFO_KEY_SLEN_STR MAX_ID_SLEN_STR
+
+// We only need to distinguish between the following INFO-value-type cases:
+// Number=0 (flag), Number=<positive integer>, Number=., Number=A, Number=R,
+// and Number=G.  We use negative numbers to represent the last 4 cases in
+// InfoVtype.
+CONSTI32(kInfoVtypeUnknown, -1);
+CONSTI32(kInfoVtypeA, -2);
+CONSTI32(kInfoVtypeR, -3);
+CONSTI32(kInfoVtypeG, -4);
+
+// Main fixed data structure when splitting/joining INFO is a hashmap of keys.
+// Behavior when splitting:
+// - Field order in the original variant is retained.
+// - Number >= 0 and Number=. don't require any special handling, just copy the
+//   entire key=value pair (or lone key, in the Flag case).
+// - Number=A and Number=R require splitting the value on ',' and verifying the
+//   comma count is correct, but is otherwise straightforward since alleles
+//   can't be permuted.
+// - Number=G requires a bit more work but isn't fundamentally different from
+//   A/R.
+// When joining:
+// - Field order is determined by header line order.
+// - Number=. and Number>0 just require a buffer of size ~info_reload_slen, and
+//   a boolean indicating whether no mismatch has been found.
+// - Number=0 (Flag) requires a single boolean, we perform an or operation.
+// - Number=A/R/G are the messy ones: we need to have enough space for
+//   max_write_allele_ct (or that minus 1) comma-separated values in the =A and
+//   =R cases, and max_write_allele_ct * (max_write_allele_ct + 1) / 2 in the
+//   diploid =G case.
+//   Since we permit already-multiallelic variants to be part of a join, the =G
+//   case may require a lot of working memory to handle.  We reserve up to 1/16
+//   of remaining workspace memory for this when we cannot prove that we can
+//   get by with less.
+typedef struct InfoVtypeStruct {
+  NONCOPYABLE(InfoVtypeStruct);
+  int32_t num;
+  char key[];
+} InfoVtype;
 
 PglErr WriteMapOrBim(const char* outname, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const double* variant_cms, uint32_t variant_ct, uint32_t max_allele_slen, char delim, uint32_t output_zst, uint32_t thread_ct);
 
@@ -102,6 +141,8 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
 void ApplyHardCallThresh(const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t dosage_ct, uint32_t hard_call_halfdist, uintptr_t* genovec);
 
 uint32_t ApplyHardCallThreshPhased(const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t dosage_ct, uint32_t hard_call_halfdist, uintptr_t* genovec, uintptr_t* phasepresent, uintptr_t* phaseinfo, uintptr_t* dphase_present, SDosage* dphase_delta, SDosage* tmp_dphase_delta);
+
+BoolErr FillInfoVtypeNum(const char* num_str_start, int32_t* info_vtype_num_ptr);
 
 PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* allele_presents, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const char* varid_template_str, __maybe_unused const char* varid_multi_template_str, __maybe_unused const char* varid_multi_nonsnp_template_str, const char* missing_varid_match, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, UnsortedVar vpos_sortstatus, uint32_t max_thread_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t new_variant_id_max_allele_slen, MiscFlags misc_flags, MakePlink2Flags make_plink2_flags, PvarPsamFlags pvar_psam_flags, uintptr_t pgr_alloc_cacheline_ct, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end);
 

@@ -160,7 +160,7 @@ uint32_t CountSpgwAllocCachelinesRequired(uint32_t variant_ct, uint32_t sample_c
 }
 
 static_assert(kPglMaxAlleleCt == 255, "Need to update SpgwInitPhase1().");
-PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* __restrict explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, STPgenWriter* spgwp, uintptr_t* alloc_cacheline_ct_ptr, uint32_t* max_vrec_len_ptr) {
+PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* __restrict explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, uint32_t optional_max_allele_ct, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, STPgenWriter* spgwp, uintptr_t* alloc_cacheline_ct_ptr, uint32_t* max_vrec_len_ptr) {
   assert(variant_ct);
   assert(sample_ct);
 
@@ -169,23 +169,29 @@ PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_t* __restrict 
   // than max_vrec_len * kPglVblockSize...
   uint64_t max_vrec_len = NypCtToByteCt(sample_ct);
   uintptr_t max_alt_ct_p1 = 2;
-  if (allele_idx_offsets && (allele_idx_offsets[variant_ct] != 2 * variant_ct)) {
-    assert(allele_idx_offsets[0] == 0);
-    assert(allele_idx_offsets[variant_ct] > 2 * variant_ct);
-    // could add this as a parameter, since caller should know...
-    max_alt_ct_p1 = 3;
-    uintptr_t prev_offset = 0;
-    for (uint32_t vidx = 1; vidx <= variant_ct; ++vidx) {
-      const uintptr_t cur_offset = allele_idx_offsets[vidx];
-      if (cur_offset - prev_offset > max_alt_ct_p1) {
-        max_alt_ct_p1 = cur_offset - prev_offset;
+  if (allele_idx_offsets) {
+    if (optional_max_allele_ct) {
+      max_alt_ct_p1 = optional_max_allele_ct;
+    } else if (allele_idx_offsets[variant_ct] != 2 * variant_ct) {
+      assert(allele_idx_offsets[0] == 0);
+      assert(allele_idx_offsets[variant_ct] > 2 * variant_ct);
+      // could add this as a parameter, since caller should know...
+      max_alt_ct_p1 = 3;
+      uintptr_t prev_offset = 0;
+      for (uint32_t vidx = 1; vidx <= variant_ct; ++vidx) {
+        const uintptr_t cur_offset = allele_idx_offsets[vidx];
+        if (cur_offset - prev_offset > max_alt_ct_p1) {
+          max_alt_ct_p1 = cur_offset - prev_offset;
+        }
+        prev_offset = cur_offset;
       }
-      prev_offset = cur_offset;
     }
-    // see comments in middle of MpgwInitPhase1()
-    max_vrec_len += 2 + sizeof(AlleleCode) + GetAux1bAlleleEntryByteCt(max_alt_ct_p1, sample_ct - 1);
-    // try to permit uncompressed records to be larger than this, only error
-    // out when trying to write a larger compressed record.
+    if (max_alt_ct_p1 > 2) {
+      // see comments in middle of MpgwInitPhase1()
+      max_vrec_len += 2 + sizeof(AlleleCode) + GetAux1bAlleleEntryByteCt(max_alt_ct_p1, sample_ct - 1);
+      // try to permit uncompressed records to be larger than this, only error
+      // out when trying to write a larger compressed record.
+    }
   }
   if (phase_dosage_gflags & kfPgenGlobalHardcallPhasePresent) {
     // phasepresent, phaseinfo

@@ -572,6 +572,10 @@ PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, XidHeaderF
 // header line expected to start with FID1, ID1, or IID1
 PglErr LoadXidHeaderPair(const char* flag_name, uint32_t sid_over_fid, uintptr_t* line_idx_ptr, TextStream* txsp, XidMode* xid_mode_ptr, char** line_startp, char** line_iterp);
 
+void InitXidHtable(const SampleIdInfo* siip, uint32_t sample_ct, uint32_t xid_htable_size, uint32_t* xid_htable, char* idbuf);
+
+BoolErr LookupXidHtable(const char* line_start, const SampleIdInfo* siip, const uint32_t* xid_htable, uint32_t xid_htable_size, uint32_t fid_present, uint32_t sid_present, uint32_t* sample_idxp, char* idbuf);
+
 extern const unsigned char g_char_to_sex[256];
 
 HEADER_INLINE uint32_t CharToSex(char cc) {
