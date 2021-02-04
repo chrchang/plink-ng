@@ -2623,7 +2623,11 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, Imp
         BigstackBaseSet(arena_bottom);
         arena_bottom = nullptr;
         arena_top = nullptr;
-        // TODO: sort info_keys if --merge-info-sort ascii/natural specified
+        if (pmip->merge_info_sort == kSortAscii) {
+          StrptrArrSortOverread(info_key_ct, info_keys);
+        } else if (pmip->merge_info_sort == kSortNatural) {
+          StrptrArrNsort(info_key_ct, info_keys);
+        }
 
         const uint32_t info_key_ctl = BitCtToWordCt(info_key_ct);
         uintptr_t* dummy_include;
@@ -2631,7 +2635,8 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, Imp
           goto ScanPvarsAndMergeHeader_ret_NOMEM;
         }
         SetAllBits(info_key_ct, dummy_include);
-        reterr = AllocAndPopulateIdHtableMt(dummy_include, info_keys, info_key_ct, (63LLU * bigstack_left()) / 64, 1, info_keys_htablep, nullptr, info_keys_htable_sizep, nullptr);
+        const uintptr_t bytes_left = bigstack_left();
+        reterr = AllocAndPopulateIdHtableMt(dummy_include, info_keys, info_key_ct, bytes_left - (bytes_left / 64), 1, info_keys_htablep, nullptr, info_keys_htable_sizep, nullptr);
         if (unlikely(reterr)) {
           goto ScanPvarsAndMergeHeader_ret_1;
         }
@@ -4722,7 +4727,6 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
         if (!fid_col) {
           cur_sample_id = AdvPastDelim(cur_sample_id, '\t');
         }
-        *cswritep++ = '\t';
         cswritep = strcpya(cswritep, cur_sample_id);
         if (sid_col) {
           *cswritep++ = '\t';
