@@ -11187,6 +11187,10 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
       cmh_stat = 0.0;
     }
     odds_ratio = rtot / stot;
+    // Similar imprecision issue with this odds ratio.
+    if (fabs(1 - odds_ratio) < 1e-14) {
+      odds_ratio = 1.0;
+    }
     se = sqrt(v1 / (2 * rtot * rtot) + v2 / (2 * stot * stot) + v3 / (2 * rtot * stot));
     log_or = log(odds_ratio);
     pval = chiprob_p(cmh_stat, 1);
