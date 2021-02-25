@@ -2,7 +2,7 @@
 
 set -exo pipefail
 
-$1/plink2 $2 $3 --dummy 33 65537 0.1 dosage-freq=0.1 --out tmp_data
+$1/plink2 $2 $3 --dummy 33 65537 0.1 acgt dosage-freq=0.1 --out tmp_data
 
 $1/plink2 $2 $3 --pfile tmp_data --export vcf vcf-dosage=DS --out tmp_data2
 $1/plink2 $2 $3 --vcf tmp_data2.vcf dosage=DS --out tmp_data2

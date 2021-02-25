@@ -1,4 +1,4 @@
-// This file is part of PLINK 1.90, copyright (C) 2005-2020 Shaun Purcell,
+// This file is part of PLINK 1.90, copyright (C) 2005-2021 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify
@@ -11181,6 +11181,11 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
       }
     }
     cmh_stat *= cmh_stat / cmh_denom;
+    // Possible for cmh_stat to be a tiny positive value instead of zero due to
+    // floating point imprecision; this makes the --bd test unreliable.
+    if (cmh_stat < 1e-28) {
+      cmh_stat = 0.0;
+    }
     odds_ratio = rtot / stot;
     se = sqrt(v1 / (2 * rtot * rtot) + v2 / (2 * stot * stot) + v3 / (2 * rtot * stot));
     log_or = log(odds_ratio);
