@@ -122,7 +122,7 @@ void CopyGenomatchSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t
 }
 
 // Variant of ExpandBytearr() which is based off a target 2-bit value instead
-// of single expand_mask bits.  expand_size must be the number of instance of
+// of single expand_mask bits.  expand_size must be the number of instances of
 // the target value in genovec.
 void ExpandBytearrFromGenoarr(const void* __restrict compact_bitarr, const uintptr_t* __restrict genoarr, uintptr_t match_word, uint32_t genoword_ct, uint32_t expand_size, uint32_t read_start_bit, uintptr_t* __restrict target) {
   const uint32_t expand_sizex_m1 = expand_size + read_start_bit - 1;
@@ -724,6 +724,23 @@ void GenoarrCountFreqsUnsafe(const uintptr_t* genoarr, uint32_t sample_ct, STD_A
   genocounts[1] = even_ct - bothset_ct;
   genocounts[2] = odd_ct - bothset_ct;
   genocounts[3] = bothset_ct;
+}
+
+uintptr_t MostCommonGenoUnsafe(const uintptr_t* genoarr, uint32_t sample_ct) {
+  STD_ARRAY_DECL(uint32_t, 4, genocounts);
+  GenoarrCountFreqsUnsafe(genoarr, sample_ct, genocounts);
+  uint32_t most_common_geno_ct = genocounts[0];
+  if (most_common_geno_ct * 2 >= sample_ct) {
+    return 0;
+  }
+  uintptr_t most_common_geno = 0;
+  for (uintptr_t cur_geno = 1; cur_geno != 4; ++cur_geno) {
+    if (most_common_geno_ct < genocounts[cur_geno]) {
+      most_common_geno = cur_geno;
+      most_common_geno_ct = genocounts[cur_geno];
+    }
+  }
+  return most_common_geno;
 }
 
 // geno_vvec now allowed to be unaligned.

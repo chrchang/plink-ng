@@ -11140,6 +11140,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             if (new_max_covar_name_blen < condition_blen) {
               new_max_covar_name_blen = condition_blen;
             }
+            // TODO: this count will be different with a multiallelic variant
+            logprintf("--glm: One --condition covariate added.\n");
           } else {
             if (unlikely(ii == -2)) {
               logerrprintfww("Error: Duplicate --condition variant ID '%s'.\n", glm_info_ptr->condition_varname);

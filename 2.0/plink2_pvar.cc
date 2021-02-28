@@ -450,7 +450,19 @@ void BackfillChrIdxs(const ChrInfo* cip, uint32_t chrs_encountered_m1, uint32_t 
   }
 }
 
-char* PrInInfoToken(uint32_t info_slen, char* info_token) {
+uint32_t PrInInfo(uint32_t info_slen, char* info_token) {
+  if (memequal_k(info_token, "PR", 2) && ((info_slen == 2) || (info_token[2] == ';'))) {
+    return 1;
+  }
+  if (memequal_k(&(info_token[S_CAST(int32_t, info_slen) - 3]), ";PR", 3)) {
+    return 1;
+  }
+  info_token[info_slen] = '\0';
+  char* first_info_end = strchr(info_token, ';');
+  return first_info_end && (strstr(info_token, ";PR;") != nullptr);
+}
+
+char* InfoPrStart(uint32_t info_slen, char* info_token) {
   if (memequal_k(info_token, "PR", 2) && ((info_slen == 2) || (info_token[2] == ';'))) {
     return info_token;
   }

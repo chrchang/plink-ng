@@ -71,13 +71,14 @@ CONSTI32(kMaxInfoKeySlen, kMaxIdSlen);
 #define MAX_INFO_KEY_SLEN_STR MAX_ID_SLEN_STR
 
 // We only need to distinguish between the following INFO-value-type cases:
-// Number=0 (flag), Number=<positive integer>, Number=., Number=A, Number=R,
-// and Number=G.  We use negative numbers to represent the last 4 cases in
+// Number=0 (flag), Number=<positive integer>, Number=., Number=A, and
+// Number=R.  (Number=G is being treated as Number=., since otherwise chrX is a
+// nightmare; see https://github.com/samtools/hts-specs/issues/272 for some
+// discussion.)  We use negative numbers to represent the last 3 cases in
 // InfoVtype.
 CONSTI32(kInfoVtypeUnknown, -1);
 CONSTI32(kInfoVtypeA, -2);
 CONSTI32(kInfoVtypeR, -3);
-CONSTI32(kInfoVtypeG, -4);
 
 // Main fixed data structure when splitting/joining INFO is a hashmap of keys.
 // Behavior when splitting:
@@ -87,17 +88,15 @@ CONSTI32(kInfoVtypeG, -4);
 // - Number=A and Number=R require splitting the value on ',' and verifying the
 //   comma count is correct, but is otherwise straightforward since alleles
 //   can't be permuted.
-// - Number=G requires a bit more work but isn't fundamentally different from
-//   A/R.
+// - Number=G is being treated as Number=.
 // When joining:
 // - Field order is determined by header line order.
-// - Number=. and Number>0 just require a buffer of size ~info_reload_slen, and
-//   a boolean indicating whether no mismatch has been found.
+// - Number=./G and Number>0 just require a buffer of size ~info_reload_slen,
+//   and a boolean indicating whether no mismatch has been found.
 // - Number=0 (Flag) requires a single boolean, we perform an or operation.
-// - Number=A/R/G are the messy ones: we need to have enough space for
+// - Number=A/R are the messy ones: we need to have enough space for
 //   max_write_allele_ct (or that minus 1) comma-separated values in the =A and
-//   =R cases, and max_write_allele_ct * (max_write_allele_ct + 1) / 2 in the
-//   diploid =G case.
+//   =R cases.
 //   Since we permit already-multiallelic variants to be part of a join, the =G
 //   case may require a lot of working memory to handle.  We reserve up to 1/16
 //   of remaining workspace memory for this when we cannot prove that we can
@@ -135,6 +134,14 @@ uint32_t DataSidColIsRequired(const uintptr_t* sample_include, const char* sids,
 uint32_t DataParentalColsAreRequired(const uintptr_t* sample_include, const SampleIdInfo* siip, const ParentalIdInfo* parental_id_infop, uint32_t sample_ct, uint32_t maybe_modifier);
 
 char* AppendPhenoStr(const PhenoCol* pheno_col, const char* output_missing_pheno, uint32_t omp_slen, uint32_t sample_uidx, char* write_iter);
+
+uint32_t CopyAndPermute8bit(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict src_subset, const void* __restrict src_vals, const uint32_t* __restrict old_sample_idx_to_new, uint32_t sample_ct, uint32_t val_ct, uintptr_t* __restrict dst_subset, void* __restrict dst_vals);
+
+uint32_t CopyAndPermute16bit(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict src_subset, const void* __restrict src_vals, const uint32_t* __restrict old_sample_idx_to_new, uint32_t sample_ct, uint32_t val_ct, uintptr_t* __restrict dst_subset, void* __restrict dst_vals);
+
+uint32_t Dense8bitToSparse(const uintptr_t* __restrict set, uint32_t sample_ctl, void* __restrict vals);
+
+uint32_t Dense16bitToSparse(const uintptr_t* __restrict set, uint32_t sample_ctl, void* __restrict vals);
 
 PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t male_ct, uint32_t nosex_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t first_hap_uidx, uint32_t is_minimac3_r2, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uintptr_t* allele_presents, uint64_t* allele_ddosages, uint64_t* founder_allele_ddosages, uint32_t* variant_missing_hc_cts, uint32_t* variant_missing_dosage_cts, uint32_t* variant_hethap_cts, STD_ARRAY_PTR_DECL(uint32_t, 3, raw_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, x_male_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, x_nosex_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), double* imp_r2_vals);
 

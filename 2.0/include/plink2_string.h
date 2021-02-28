@@ -596,6 +596,11 @@ HEADER_INLINE void StrptrArrNsort(uintptr_t ct, const char** strptr_arr) {
   std::sort(R_CAST(StrNsortDeref*, strptr_arr), &(R_CAST(StrNsortDeref*, strptr_arr)[ct]));
 }
 
+// Considered adding stable-sort variants of StrptrArrSort, but looks like it's
+// usually better to define a more sophisticated comparator that removes the
+// need for the explicit stable-sort.  (Note that std::stable_sort can throw
+// std::bad_alloc, etc.)
+
 // need to expose these for plink2_cmdline bigstack-allocating
 // SortStrboxIndexed()'s use
 void SortStrbox32bFinish(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, Strbuf28Ui* filled_wkspace, char* sorted_strbox, uint32_t* id_map);

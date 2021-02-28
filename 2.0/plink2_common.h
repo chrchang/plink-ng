@@ -389,7 +389,7 @@ void PopulateRescaledDosageF(const uintptr_t* genoarr, const uintptr_t* dosage_p
 
 // assumes trailing bits of genoarr are zeroed out
 HEADER_INLINE uint32_t AtLeastOneHetUnsafe(const uintptr_t* genoarr, uint32_t sample_ct) {
-  const uint32_t sample_ctl2 = DivUp(sample_ct, kBitsPerWordD2);
+  const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
   for (uint32_t uii = 0; uii != sample_ctl2; ++uii) {
     const uintptr_t geno_word = genoarr[uii];
     if (Word01(geno_word)) {

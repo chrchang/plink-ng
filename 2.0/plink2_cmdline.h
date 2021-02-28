@@ -604,6 +604,11 @@ HEADER_INLINE BoolErr bigstack_alloc_wpp(uintptr_t ct, uintptr_t**** wpp_arr_ptr
   return !(*wpp_arr_ptr);
 }
 
+HEADER_INLINE BoolErr bigstack_alloc_cpp(uintptr_t ct, char**** cpp_arr_ptr) {
+  *cpp_arr_ptr = S_CAST(char***, bigstack_alloc(ct * sizeof(intptr_t)));
+  return !(*cpp_arr_ptr);
+}
+
 HEADER_INLINE BoolErr bigstack_alloc_u32pp(uintptr_t ct, uint32_t**** u32pp_arr_ptr) {
   *u32pp_arr_ptr = S_CAST(uint32_t***, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*u32pp_arr_ptr);
@@ -635,6 +640,8 @@ BoolErr bigstack_calloc_wp(uintptr_t ct, uintptr_t*** wp_arr_ptr);
 BoolErr bigstack_calloc_cp(uintptr_t ct, char*** cp_arr_ptr);
 
 BoolErr bigstack_calloc_kcp(uintptr_t ct, const char*** kcp_arr_ptr);
+
+BoolErr bigstack_calloc_cpp(uintptr_t ct, char**** cpp_arr_ptr);
 
 HEADER_INLINE BoolErr bigstack_calloc_c(uintptr_t ct, char** c_arr_ptr) {
   return bigstack_calloc_uc(ct, R_CAST(unsigned char**, c_arr_ptr));
@@ -1177,7 +1184,7 @@ HEADER_INLINE void AlignedBitarrInvertCopy(const uintptr_t* __restrict source_bi
   }
 }
 
-// void BitvecXor(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec);
+void BitvecXor(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec);
 
 void BitvecInvertAndMask(const uintptr_t* __restrict include_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec);
 

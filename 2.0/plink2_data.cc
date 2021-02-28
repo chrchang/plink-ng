@@ -174,7 +174,7 @@ void PvarInfoWrite(uint32_t info_pr_flag_present, uint32_t is_pr, char* info_tok
   uint32_t info_token_slen = info_token_end - info_token;
   char* info_token_pr = nullptr;
   if (info_pr_flag_present) {
-    info_token_pr = PrInInfoToken(info_token_slen, info_token);
+    info_token_pr = InfoPrStart(info_token_slen, info_token);
   }
   char* write_iter = *write_iter_ptr;
   if (is_pr || (!info_token_pr))  {
@@ -553,14 +553,20 @@ PglErr WritePvar(const char* outname, const uintptr_t* variant_include, const Ch
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     const uint32_t all_nonref = (nonref_flags_storage == 2);
     uint32_t write_info_pr = all_nonref;
-    uint32_t write_info = (pvar_psam_flags & kfPvarColInfo) || pvar_info_reload;
+    if (pvar_info_reload && (!(pvar_psam_flags & kfPvarColXinfo))) {
+      // bugfix (6 Feb 2021): don't write INFO column when INFO column
+      // explicitly excluded here, but pvar_info_reload is needed for some
+      // other reason
+      pvar_info_reload = nullptr;
+    }
+    const uint32_t write_info = (pvar_psam_flags & kfPvarColInfo) || pvar_info_reload;
     if (write_info && nonref_flags) {
       write_info_pr = !IntersectionIsEmpty(variant_include, nonref_flags, raw_variant_ctl);
     }
     write_info_pr = write_info_pr && write_info;
     if (unlikely(write_info_pr && (info_flags & kfInfoPrNonflagPresent))) {
       logputs("\n");
-      logerrputs("Error: Conflicting INFO/PR definitions.  Either fix all REF alleles so that the\n'provisional reference' flag is no longer needed, or remove/rename the other\nuse of the INFO/PR key.\n");
+      logerrputs("Error: Conflicting INFO/PR definitions.  Either fix all REF alleles so that the\n\"provisional reference\" flag is no longer needed, or remove/rename the other\nuse of the INFO/PR key.\n");
       goto WritePvar_ret_INCONSISTENT_INPUT;
     }
 
@@ -1184,9 +1190,9 @@ PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const Sam
 
 /*
 #ifdef NO_UNALIGNED
-#  error "Unaligned accesses in BitvecResort()."
+#  error "Unaligned accesses in BitvecPermute()."
 #endif
-void BitvecResort(const uintptr_t* bitvec, const uint32_t* new_sample_idx_to_old, uint32_t sample_ct, unsigned char* writebuf) {
+void BitvecPermute(const uintptr_t* bitvec, const uint32_t* new_sample_idx_to_old, uint32_t sample_ct, unsigned char* writebuf) {
   const uint32_t sample_ctl_m1 = BitCtToWordCt(sample_ct) - 1;
   uint32_t widx = 0;
   uint32_t cur_word_entry_ct = kBitsPerWord;
@@ -1210,37 +1216,111 @@ void BitvecResort(const uintptr_t* bitvec, const uint32_t* new_sample_idx_to_old
 }
 */
 
+// Now assumes trailing bits of genovec have been zeroed out.
+// writebuf need not be word-aligned.
 #ifdef NO_UNALIGNED
-#  error "Unaligned accesses in GenovecResort()."
+#  error "Unaligned accesses in GenovecPermute()."
 #endif
-void GenovecResort(const uintptr_t* genovec, const uint32_t* new_sample_idx_to_old, uint32_t sample_ct, void* writebuf) {
-  // writebuf need not be word-aligned
+void GenovecPermute(const uintptr_t* genovec, const uint32_t* old_sample_idx_to_new, uint32_t sample_ct, void* writebuf) {
+  const uintptr_t most_common_geno_word = MostCommonGenoUnsafe(genovec, sample_ct) * kMask5555;
   const uint32_t sample_ctl2_m1 = NypCtToWordCt(sample_ct) - 1;
-  const uint32_t* new_sample_idx_to_old_iter = new_sample_idx_to_old;
   uintptr_t* writebuf_walias = S_CAST(uintptr_t*, writebuf);
   for (uint32_t widx = 0; widx != sample_ctl2_m1; ++widx) {
-    uintptr_t cur_word = 0;
-    // this is noticeably better than the ascending loop
-    for (uint32_t uii = kBitsPerWordD2 - 1; ; --uii) {
-      cur_word |= GetNyparrEntry(genovec, new_sample_idx_to_old_iter[uii]);
-      if (!uii) {
-        break;
+    writebuf_walias[widx] = most_common_geno_word;
+  }
+  const uint32_t trailing_bit_ct = 2 * ModNz(sample_ct, kBitsPerWordD2);
+  SubwordStore(bzhi_max(most_common_geno_word, trailing_bit_ct), DivUp(trailing_bit_ct, CHAR_BIT), &(writebuf_walias[sample_ctl2_m1]));
+
+  unsigned char* writebuf_b = S_CAST(unsigned char*, writebuf);
+  for (uint32_t widx = 0; ; ++widx) {
+    uintptr_t geno_word_xor;
+    if (widx >= sample_ctl2_m1) {
+      if (widx > sample_ctl2_m1) {
+        return;
       }
-      cur_word = cur_word << 2;
+      geno_word_xor = bzhi_max(most_common_geno_word ^ genovec[widx], trailing_bit_ct);
+    } else {
+      geno_word_xor = most_common_geno_word ^ genovec[widx];
     }
-    writebuf_walias[widx] = cur_word;
-    new_sample_idx_to_old_iter = &(new_sample_idx_to_old_iter[kBitsPerWordD2]);
-  }
-  const uint32_t cur_word_entry_ct = ModNz(sample_ct, kBitsPerWordD2);
-  uintptr_t cur_word = 0;
-  for (uint32_t uii = cur_word_entry_ct - 1; ; --uii) {
-    cur_word |= GetNyparrEntry(genovec, new_sample_idx_to_old_iter[uii]);
-    if (!uii) {
-      break;
+    if (!geno_word_xor) {
+      continue;
     }
-    cur_word = cur_word << 2;
+    const uint32_t* cur_old_sample_idx_to_new = &(old_sample_idx_to_new[widx * kBitsPerWordD2]);
+    do {
+      const uint32_t bit_read_shift_ct = ctzw(geno_word_xor) & (kBitsPerWord - 2);
+      const uintptr_t cur_geno_xor = (geno_word_xor >> bit_read_shift_ct) & 3;
+      const uint32_t new_sample_idx = cur_old_sample_idx_to_new[bit_read_shift_ct / 2];
+      const uint32_t new_byte_idx = new_sample_idx / 4;
+      const uint32_t bit_write_shift_ct = 2 * (new_sample_idx % 4);
+      // Value has been preset to most_common_geno, so if we xor it with
+      // (most_common_geno ^ actual_geno), the result is actual_geno.
+      writebuf_b[new_byte_idx] ^= cur_geno_xor << bit_write_shift_ct;
+      geno_word_xor &= (~(3 * k1LU)) << bit_read_shift_ct;
+    } while (geno_word_xor);
   }
-  SubwordStore(cur_word, NypCtToByteCt(cur_word_entry_ct), &(writebuf_walias[sample_ctl2_m1]));
+}
+
+void GenovecPermuteSubset(const uintptr_t* genovec, const uintptr_t* sample_include, const uintptr_t* sample_include_interleaved_vec, const uint32_t* old_sample_idx_to_new, uint32_t raw_sample_ct, uint32_t sample_ct, void* writebuf) {
+  if (sample_ct == raw_sample_ct) {
+    GenovecPermute(genovec, old_sample_idx_to_new, sample_ct, writebuf);
+    return;
+  }
+  STD_ARRAY_DECL(uint32_t, 4, genocounts);
+  GenoarrCountSubsetFreqs(genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
+  uintptr_t most_common_geno = 0;
+  uint32_t most_common_geno_ct = genocounts[0];
+  if (most_common_geno_ct * 2 < sample_ct) {
+    for (uintptr_t cur_geno = 1; cur_geno != 4; ++cur_geno) {
+      if (most_common_geno_ct < genocounts[cur_geno]) {
+        most_common_geno = cur_geno;
+        most_common_geno_ct = genocounts[cur_geno];
+      }
+    }
+  }
+  const uintptr_t most_common_geno_word = most_common_geno * kMask5555;
+  const uint32_t sample_ctl2_m1 = NypCtToWordCt(sample_ct) - 1;
+  uintptr_t* writebuf_walias = S_CAST(uintptr_t*, writebuf);
+  for (uint32_t widx = 0; widx != sample_ctl2_m1; ++widx) {
+    writebuf_walias[widx] = most_common_geno_word;
+  }
+  const uint32_t write_trailing_bit_ct = 2 * ModNz(sample_ct, kBitsPerWordD2);
+  SubwordStore(bzhi_max(most_common_geno_word, write_trailing_bit_ct), DivUp(write_trailing_bit_ct, CHAR_BIT), &(writebuf_walias[sample_ctl2_m1]));
+  if (most_common_geno_ct == sample_ct) {
+    return;
+  }
+
+  const uint32_t raw_sample_ctl2_m1 = NypCtToWordCt(raw_sample_ct) - 1;
+  const Halfword* sample_include_alias = R_CAST(const Halfword*, sample_include);
+  unsigned char* writebuf_b = S_CAST(unsigned char*, writebuf);
+  for (uint32_t widx = 0; ; ++widx) {
+    uintptr_t geno_word_xor;
+    if (widx >= raw_sample_ctl2_m1) {
+      if (widx > raw_sample_ctl2_m1) {
+        return;
+      }
+      geno_word_xor = bzhi_max(most_common_geno_word ^ genovec[widx], 2 * ModNz(raw_sample_ct, kBitsPerWordD2));
+    } else {
+      geno_word_xor = most_common_geno_word ^ genovec[widx];
+    }
+    if (!geno_word_xor) {
+      continue;
+    }
+    geno_word_xor &= UnpackHalfwordToWord(sample_include_alias[widx]) * 3;
+    if (!geno_word_xor) {
+      continue;
+    }
+    const uint32_t* cur_old_sample_idx_to_new = &(old_sample_idx_to_new[widx * kBitsPerWordD2]);
+    do {
+      const uint32_t bit_read_shift_ct = ctzw(geno_word_xor) & (kBitsPerWord - 2);
+      const uintptr_t cur_geno_xor = (geno_word_xor >> bit_read_shift_ct) & 3;
+      const uint32_t new_sample_idx = cur_old_sample_idx_to_new[bit_read_shift_ct / 2];
+      // assert(new_sample_idx != UINT32_MAX);
+      const uint32_t new_byte_idx = new_sample_idx / 4;
+      const uint32_t bit_write_shift_ct = 2 * (new_sample_idx % 4);
+      writebuf_b[new_byte_idx] ^= cur_geno_xor << bit_write_shift_ct;
+      geno_word_xor &= (~(3 * k1LU)) << bit_read_shift_ct;
+    } while (geno_word_xor);
+  }
 }
 
 // Revised phaseraw:
@@ -1292,7 +1372,7 @@ void UnpackHphaseSubset(const uintptr_t* __restrict all_hets, const uintptr_t* _
   }
 }
 
-void UnpackAndResortHphase(const uintptr_t* __restrict all_hets, const uintptr_t* __restrict phaseraw, const uintptr_t* sample_include, const uint32_t* old_sample_idx_to_new, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t** phasepresent_ptr, uintptr_t* __restrict phaseinfo) {
+void UnpackAndPermuteHphase(const uintptr_t* __restrict all_hets, const uintptr_t* __restrict phaseraw, const uintptr_t* sample_include, const uint32_t* old_sample_idx_to_new, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t** phasepresent_ptr, uintptr_t* __restrict phaseinfo) {
   const uintptr_t* aux2a_iter = &(phaseraw[8 / kBytesPerWord]);
   const uint32_t* old_sample_idx_to_new_iter = old_sample_idx_to_new;
   const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
@@ -1509,44 +1589,122 @@ void CopyDosage(const uintptr_t* __restrict read_dosagepresent, const Dosage* re
   memcpy(write_dosagevals, read_dosagevals, dosage_ct * sizeof(Dosage));
 }
 
-uint32_t CopyAndResort8bit(const uintptr_t* __restrict src_subset, const void* __restrict src_vals, const uint32_t* __restrict new_sample_idx_to_old, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t* __restrict dst_subset, void* __restrict dst_vals, uint32_t* __restrict cumulative_popcount_buf) {
-  const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
-  FillCumulativePopcounts(src_subset, raw_sample_ctl, cumulative_popcount_buf);
+uint32_t CopyAndPermute8bit(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict src_subset, const void* __restrict src_vals, const uint32_t* __restrict old_sample_idx_to_new, uint32_t sample_ct, uint32_t val_ct, uintptr_t* __restrict dst_subset, void* __restrict dst_vals) {
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
   ZeroWArr(sample_ctl, dst_subset);
   const unsigned char* src_vals_uc = S_CAST(const unsigned char*, src_vals);
   unsigned char* dst_vals_uc = S_CAST(unsigned char*, dst_vals);
-  unsigned char* dst_vals_iter = dst_vals_uc;
-  // Tried word-based loop, was significantly worse
-  for (uint32_t new_sample_idx = 0; new_sample_idx != sample_ct; ++new_sample_idx) {
-    const uint32_t old_sample_idx = new_sample_idx_to_old[new_sample_idx];
-    if (IsSet(src_subset, old_sample_idx)) {
+
+  uintptr_t cur_bits = src_subset[0];
+  uint32_t new_val_ct;
+  if (!sample_include) {
+    uintptr_t old_sample_idx_base = 0;
+    for (uint32_t old_val_idx = 0; old_val_idx != val_ct; ++old_val_idx) {
+      const uint32_t old_sample_idx = BitIter1(src_subset, &old_sample_idx_base, &cur_bits);
+      const uint32_t new_sample_idx = old_sample_idx_to_new[old_sample_idx];
       SetBit(new_sample_idx, dst_subset);
-      const uint32_t old_dosagevals_idx = RawToSubsettedPos(src_subset, cumulative_popcount_buf, old_sample_idx);
-      *dst_vals_iter++ = src_vals_uc[old_dosagevals_idx];
+      dst_vals_uc[new_sample_idx] = src_vals_uc[old_val_idx];
+    }
+    new_val_ct = val_ct;
+  } else {
+    uintptr_t widx = 0;
+    new_val_ct = 0;
+    for (uint32_t old_val_idx = 0; old_val_idx != val_ct; ++old_val_idx) {
+      const uintptr_t old_sample_idx_lowbit = BitIter1y(src_subset, &widx, &cur_bits);
+      if (!(sample_include[widx] & old_sample_idx_lowbit)) {
+        continue;
+      }
+      const uint32_t old_sample_idx = widx * kBitsPerWord + ctzw(old_sample_idx_lowbit);
+      const uint32_t new_sample_idx = old_sample_idx_to_new[old_sample_idx];
+      SetBit(new_sample_idx, dst_subset);
+      dst_vals_uc[new_sample_idx] = src_vals_uc[old_val_idx];
+      ++new_val_ct;
     }
   }
-  return dst_vals_iter - dst_vals_uc;
+  uintptr_t new_sample_idx_base = 0;
+  cur_bits = dst_subset[0];
+  for (uint32_t new_val_idx = 0; new_val_idx != new_val_ct; ++new_val_idx) {
+    const uint32_t new_sample_idx = BitIter1(dst_subset, &new_sample_idx_base, &cur_bits);
+    dst_vals_uc[new_val_idx] = dst_vals_uc[new_sample_idx];
+  }
+  return new_val_ct;
 }
 
-uint32_t CopyAndResort16bit(const uintptr_t* __restrict src_subset, const void* __restrict src_vals, const uint32_t* __restrict new_sample_idx_to_old, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t* __restrict dst_subset, void* __restrict dst_vals, uint32_t* __restrict cumulative_popcount_buf) {
-  const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
-  FillCumulativePopcounts(src_subset, raw_sample_ctl, cumulative_popcount_buf);
+uint32_t CopyAndPermute16bit(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict src_subset, const void* __restrict src_vals, const uint32_t* __restrict old_sample_idx_to_new, uint32_t sample_ct, uint32_t val_ct, uintptr_t* __restrict dst_subset, void* __restrict dst_vals) {
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
   ZeroWArr(sample_ctl, dst_subset);
   const uint16_t* src_vals_u16 = S_CAST(const uint16_t*, src_vals);
   uint16_t* dst_vals_u16 = S_CAST(uint16_t*, dst_vals);
-  uint16_t* dst_vals_iter = dst_vals_u16;
-  // Tried word-based loop, was significantly worse
-  for (uint32_t new_sample_idx = 0; new_sample_idx != sample_ct; ++new_sample_idx) {
-    const uint32_t old_sample_idx = new_sample_idx_to_old[new_sample_idx];
-    if (IsSet(src_subset, old_sample_idx)) {
+
+  uintptr_t cur_bits = src_subset[0];
+  uint32_t new_val_ct;
+  if (!sample_include) {
+    uintptr_t old_sample_idx_base = 0;
+    for (uint32_t old_val_idx = 0; old_val_idx != val_ct; ++old_val_idx) {
+      const uint32_t old_sample_idx = BitIter1(src_subset, &old_sample_idx_base, &cur_bits);
+      const uint32_t new_sample_idx = old_sample_idx_to_new[old_sample_idx];
       SetBit(new_sample_idx, dst_subset);
-      const uint32_t old_dosagevals_idx = RawToSubsettedPos(src_subset, cumulative_popcount_buf, old_sample_idx);
-      *dst_vals_iter++ = src_vals_u16[old_dosagevals_idx];
+      dst_vals_u16[new_sample_idx] = src_vals_u16[old_val_idx];
+    }
+    new_val_ct = val_ct;
+  } else {
+    uintptr_t widx = 0;
+    new_val_ct = 0;
+    for (uint32_t old_val_idx = 0; old_val_idx != val_ct; ++old_val_idx) {
+      const uintptr_t old_sample_idx_lowbit = BitIter1y(src_subset, &widx, &cur_bits);
+      if (!(sample_include[widx] & old_sample_idx_lowbit)) {
+        continue;
+      }
+      const uint32_t old_sample_idx = widx * kBitsPerWord + ctzw(old_sample_idx_lowbit);
+      const uint32_t new_sample_idx = old_sample_idx_to_new[old_sample_idx];
+      SetBit(new_sample_idx, dst_subset);
+      dst_vals_u16[new_sample_idx] = src_vals_u16[old_val_idx];
+      ++new_val_ct;
     }
   }
-  return dst_vals_iter - dst_vals_u16;
+  uintptr_t new_sample_idx_base = 0;
+  cur_bits = dst_subset[0];
+  for (uint32_t new_val_idx = 0; new_val_idx != new_val_ct; ++new_val_idx) {
+    const uint32_t new_sample_idx = BitIter1(dst_subset, &new_sample_idx_base, &cur_bits);
+    dst_vals_u16[new_val_idx] = dst_vals_u16[new_sample_idx];
+  }
+  return new_val_ct;
+}
+
+uint32_t Dense8bitToSparse(const uintptr_t* __restrict set, uint32_t sample_ctl, void* __restrict vals) {
+  unsigned char* vals_uc = S_CAST(unsigned char*, vals);
+  uint32_t write_idx = 0;
+  for (uint32_t widx = 0; widx != sample_ctl; ++widx) {
+    uintptr_t set_word = set[widx];
+    if (!set_word) {
+      continue;
+    }
+    unsigned char* cur_vals_read = &(vals_uc[widx * kBitsPerWord]);
+    do {
+      const uint32_t sample_idx_lowbits = ctzw(set_word);
+      vals_uc[write_idx++] = cur_vals_read[sample_idx_lowbits];
+      set_word &= set_word - 1;
+    } while (set_word);
+  }
+  return write_idx;
+}
+
+uint32_t Dense16bitToSparse(const uintptr_t* __restrict set, uint32_t sample_ctl, void* __restrict vals) {
+  uint16_t* vals_u16 = S_CAST(uint16_t*, vals);
+  uint32_t write_idx = 0;
+  for (uint32_t widx = 0; widx != sample_ctl; ++widx) {
+    uintptr_t set_word = set[widx];
+    if (!set_word) {
+      continue;
+    }
+    uint16_t* cur_vals_read = &(vals_u16[widx * kBitsPerWord]);
+    do {
+      const uint32_t sample_idx_lowbits = ctzw(set_word);
+      vals_u16[write_idx++] = cur_vals_read[sample_idx_lowbits];
+      set_word &= set_word - 1;
+    } while (set_word);
+  }
+  return write_idx;
 }
 
 // Requires trailing bits of genovec to be zeroed out.
@@ -3517,13 +3675,13 @@ BoolErr FillInfoVtypeNum(const char* num_str_start, int32_t* info_vtype_num_ptr)
     } else if (first_num_char == 'R') {
       *info_vtype_num_ptr = kInfoVtypeR;
     } else if (likely(first_num_char == 'G')) {
-      *info_vtype_num_ptr = kInfoVtypeG;
+      *info_vtype_num_ptr = kInfoVtypeUnknown;
     } else {
       return 1;
     }
   } else {
     uint32_t val;
-    if (unlikely(ScanmovPosintCapped(UINT32_MAX, &num_str_start, &val) || (num_str_start[0] != ','))) {
+    if (unlikely(ScanmovPosintCapped(0x3fffffff, &num_str_start, &val) || (num_str_start[0] != ','))) {
       return 1;
     }
     *info_vtype_num_ptr = val;
@@ -3681,14 +3839,17 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     const uint32_t all_nonref = (nonref_flags_storage == 2);
     uint32_t write_info_pr = all_nonref;
-    uint32_t write_info = (pvar_psam_flags & kfPvarColInfo) || pvar_info_reload;
+    if (pvar_info_reload && (!(pvar_psam_flags & kfPvarColXinfo))) {
+      pvar_info_reload = nullptr;
+    }
+    const uint32_t write_info = (pvar_psam_flags & kfPvarColInfo) || pvar_info_reload;
     if (write_info && nonref_flags) {
       write_info_pr = !IntersectionIsEmpty(variant_include, nonref_flags, raw_variant_ctl);
     }
     write_info_pr = write_info_pr && write_info;
     if (unlikely(write_info_pr && (info_flags & kfInfoPrNonflagPresent))) {
       logputs("\n");
-      logerrputs("Error: Conflicting INFO/PR definitions.  Either fix all REF alleles so that the\n'provisional reference' flag is no longer needed, or remove/rename the other\nuse of the INFO/PR key.\n");
+      logerrputs("Error: Conflicting INFO/PR definitions.  Either fix all REF alleles so that the\n\"provisional reference\" flag is no longer needed, or remove/rename the other\nuse of the INFO/PR key.\n");
       goto WritePvarSplit_ret_INCONSISTENT_INPUT;
     }
 
@@ -4041,24 +4202,6 @@ PglErr WritePvarSplit(const char* outname, const uintptr_t* variant_include, con
                       const char* cur_info_cur = info_curs[kpos];
 
                       const char* subtoken_end = AdvToDelimOrEnd(cur_info_cur, cur_info_end, ',');
-                      if (knum == kInfoVtypeG) {
-                        if (unlikely(subtoken_end == cur_info_end)) {
-                          snprintf(g_logbuf, kLogbufSize, "Error: Too few values for INFO key '%s', variant ID '%s'.\n", cur_key_str, orig_variant_id);
-                          goto WritePvarSplit_ret_MALFORMED_INPUT_WW;
-                        }
-                        cswritep = memcpya(cswritep, cur_info_cur, 1 + S_CAST(uintptr_t, subtoken_end - cur_info_cur));
-                        cur_info_cur = subtoken_end;
-                        const uint32_t skip_ct = alt_allele_idx - 1;
-                        if (skip_ct) {
-                          cur_info_cur = AdvToNthDelimChecked(&(cur_info_cur[1]), cur_info_end, skip_ct, ',');
-                          if (unlikely(!subtoken_end)) {
-                            snprintf(g_logbuf, kLogbufSize, "Error: Too few values for INFO key '%s', variant ID '%s'.\n", cur_key_str, orig_variant_id);
-                            goto WritePvarSplit_ret_MALFORMED_INPUT_WW;
-                          }
-                        }
-                        ++cur_info_cur;
-                        subtoken_end = AdvToDelimOrEnd(cur_info_cur, cur_info_end, ',');
-                      }
                       if (unlikely((subtoken_end == cur_info_end) != is_last_allele)) {
                         snprintf(g_logbuf, kLogbufSize, "Error: Wrong number of values for INFO key '%s', variant ID '%s'.\n", cur_key_str, orig_variant_id);
                         goto WritePvarSplit_ret_MALFORMED_INPUT_WW;
@@ -4337,14 +4480,17 @@ PglErr WritePvarJoin(const char* outname, const uintptr_t* variant_include, cons
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     const uint32_t all_nonref = (nonref_flags_storage == 2);
     uint32_t write_info_pr = all_nonref;
-    uint32_t write_info = (pvar_psam_flags & kfPvarColInfo) || pvar_info_reload;
+    if (pvar_info_reload && (!(pvar_psam_flags & kfPvarColXinfo))) {
+      pvar_info_reload = nullptr;
+    }
+    const uint32_t write_info = (pvar_psam_flags & kfPvarColInfo) || pvar_info_reload;
     if (write_info && nonref_flags) {
       write_info_pr = !IntersectionIsEmpty(variant_include, nonref_flags, raw_variant_ctl);
     }
     write_info_pr = write_info_pr && write_info;
     if (unlikely(write_info_pr && (info_flags & kfInfoPrNonflagPresent))) {
       logputs("\n");
-      logerrputs("Error: Conflicting INFO/PR definitions.  Either fix all REF alleles so that the\n'provisional reference' flag is no longer needed, or remove/rename the other\nuse of the INFO/PR key.\n");
+      logerrputs("Error: Conflicting INFO/PR definitions.  Either fix all REF alleles so that the\n\"provisional reference\" flag is no longer needed, or remove/rename the other\nuse of the INFO/PR key.\n");
       goto WritePvarJoin_ret_INCONSISTENT_INPUT;
     }
 
@@ -4736,7 +4882,8 @@ typedef struct MakeBedlikeCtxStruct {
 
   const uintptr_t* variant_include;
   uint32_t* sample_include_cumulative_popcounts;
-  const uint32_t* collapsed_sort_map;
+  // unlike MakePgenCtx, old_sample_idx is subsetted here
+  const uint32_t* old_sample_idx_to_new;
 
   PgenReader** pgr_ptrs;
 
@@ -4775,7 +4922,7 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* raw_arg) {
   PgrSetSampleSubsetIndex(ctx->sample_include_cumulative_popcounts, pgrp, &pssi);
   const uintptr_t* sex_male_collapsed_interleaved = mcp->sex_male_collapsed_interleaved;
   const uintptr_t* sex_female_collapsed_interleaved = mcp->sex_female_collapsed_interleaved;
-  const uint32_t* collapsed_sort_map = ctx->collapsed_sort_map;
+  const uint32_t* old_sample_idx_to_new = ctx->old_sample_idx_to_new;
   const Plink2WriteFlags plink2_write_flags = mcp->plink2_write_flags;
   const uint32_t set_hh_missing = plink2_write_flags & kfPlink2WriteSetHhMissing;
   const uint32_t set_mixed_mt_missing = plink2_write_flags & kfPlink2WriteSetMixedMtMissing;
@@ -4878,12 +5025,11 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* raw_arg) {
       if (write_plink1) {
         PgrPlink2ToPlink1InplaceUnsafe(sample_ct, genovec);
       }
-      // trailing bytes don't matter, but trailing bits of last byte may
       ZeroTrailingNyps(sample_ct, genovec);
-      if (!collapsed_sort_map) {
+      if (!old_sample_idx_to_new) {
         writebuf_iter = memcpyua(writebuf_iter, genovec, sample_ct4);
       } else {
-        GenovecResort(genovec, collapsed_sort_map, sample_ct, writebuf_iter);
+        GenovecPermute(genovec, old_sample_idx_to_new, sample_ct, writebuf_iter);
         writebuf_iter = &(writebuf_iter[sample_ct4]);
       }
     }
@@ -4957,7 +5103,7 @@ PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_samp
     // tried more threads, pointless since this is too I/O-bound
     // (exception: reordering samples)
     uint32_t calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
-    ctx.collapsed_sort_map = new_sample_idx_to_old;
+    ctx.old_sample_idx_to_new = nullptr;
     if (!new_sample_idx_to_old) {
       // Without BMI2 instructions, subsetting is most expensive with
       // sample_ct near 2/3 of raw_sample_ct; up to ~7 compute threads are
@@ -4977,15 +5123,22 @@ PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_samp
       if (calc_thread_max < calc_thread_ct) {
         calc_thread_ct = calc_thread_max;
       }
-    } else if (sample_ct < raw_sample_ct) {
-      uint32_t* new_collapsed_sort_map;
-      if (unlikely(bigstack_alloc_u32(sample_ct, &new_collapsed_sort_map))) {
+    } else {
+      uint32_t* old_sample_idx_to_new;
+      if (unlikely(bigstack_alloc_u32(raw_sample_ct, &old_sample_idx_to_new))) {
         goto MakeBedlikeMain_ret_NOMEM;
       }
-      // bugfix (26 Mar 2018): forgot to initialize this
-      memcpy(new_collapsed_sort_map, new_sample_idx_to_old, sample_ct * sizeof(int32_t));
-      UidxsToIdxs(sample_include, ctx.sample_include_cumulative_popcounts, sample_ct, new_collapsed_sort_map);
-      ctx.collapsed_sort_map = new_collapsed_sort_map;
+      if (sample_ct == raw_sample_ct) {
+        for (uint32_t new_sample_idx = 0; new_sample_idx != sample_ct; ++new_sample_idx) {
+          old_sample_idx_to_new[new_sample_idx_to_old[new_sample_idx]] = new_sample_idx;
+        }
+      } else {
+        for (uint32_t new_sample_idx = 0; new_sample_idx != sample_ct; ++new_sample_idx) {
+          const uint32_t old_sample_uidx = new_sample_idx_to_old[new_sample_idx];
+          old_sample_idx_to_new[RawToSubsettedPos(sample_include, ctx.sample_include_cumulative_popcounts, old_sample_uidx)] = new_sample_idx;
+        }
+      }
+      ctx.old_sample_idx_to_new = old_sample_idx_to_new;
     }
 
     if (make_plink2_flags & kfMakeBed) {
@@ -5122,8 +5275,8 @@ PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_samp
 typedef struct MakePgenCtxStruct {
   MakeCommon* mcp;
 
-  const uint32_t* new_sample_idx_to_old;
   uint32_t* old_sample_idx_to_new;
+  uintptr_t* sample_include_interleaved_vec;
   // combine existing chr_mask/xymt_codes/haploid_mask/chr_idx_to_foidx with
   // new collapsed chromosome boundary table
   uint32_t* write_chr_fo_vidx_start;
@@ -5150,7 +5303,6 @@ typedef struct MakePgenCtxStruct {
   Dosage** thread_write_dosagevals;
   uintptr_t** thread_write_dphasepresents;
   SDosage** thread_write_dphasedeltas;
-  uint32_t** thread_cumulative_popcount_bufs;
   PglErr write_reterr;
   int32_t write_errno;
 } MakePgenCtx;
@@ -5168,7 +5320,6 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
   const uintptr_t tidx = arg->tidx;
   MakePgenCtx* ctx = S_CAST(MakePgenCtx*, arg->sharedp->context);
 
-  const uint32_t* new_sample_idx_to_old = ctx->new_sample_idx_to_old;
   const uint32_t* old_sample_idx_to_new = ctx->old_sample_idx_to_new;
   const MakeCommon* mcp = ctx->mcp;
   const ChrInfo* cip = mcp->cip;
@@ -5176,6 +5327,7 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
   const uintptr_t* write_allele_idx_offsets = ctx->write_allele_idx_offsets;
   const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select_iter) = mcp->refalt1_select;
   const uintptr_t* sample_include = mcp->sample_include;
+  const uintptr_t* sample_include_interleaved_vec = ctx->sample_include_interleaved_vec;
 
   const uintptr_t* sex_male_collapsed = ctx->sex_male_collapsed;
 
@@ -5216,7 +5368,7 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
   }
   uintptr_t* write_genovec = nullptr;
   // assumes sample_include == nullptr if sample_ct == raw_sample_ct
-  if (new_sample_idx_to_old || sample_include) {
+  if (old_sample_idx_to_new || sample_include) {
     write_genovec = ctx->thread_write_genovecs[tidx];
     write_genovec[sample_ctl2 - 1] = 0;
   }
@@ -5242,7 +5394,6 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
   uintptr_t* write_dphasepresent = nullptr;
   SDosage* write_dphasedeltas = nullptr;
   SDosage* tmp_dphasedeltas = nullptr;
-  uint32_t* cumulative_popcount_buf = nullptr;
   if (ctx->thread_write_dosagepresents) {
     write_dosagepresent = ctx->thread_write_dosagepresents[tidx];
     write_dosagevals = ctx->thread_write_dosagevals[tidx];
@@ -5251,9 +5402,6 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
       write_dphasedeltas = ctx->thread_write_dphasedeltas[tidx];
       tmp_dphasedeltas = &(write_dphasedeltas[RoundUpPow2(sample_ct, kCacheline / 2)]);
     }
-  }
-  if ((ctx->thread_write_mhc || ctx->thread_write_dosagepresents) && new_sample_idx_to_old) {
-    cumulative_popcount_buf = ctx->thread_cumulative_popcount_bufs[tidx];
   }
   uint32_t variant_idx_offset = 0;
   uint32_t allele_ct = 2;
@@ -5369,21 +5517,22 @@ THREAD_FUNC_DECL MakePgenThread(void* raw_arg) {
       uint32_t write_rare10_ct = 0;
       uint32_t write_dosage_ct = 0;
       uint32_t write_dphase_ct = 0;
-      if (new_sample_idx_to_old) {
-        GenovecResort(loadbuf_iter, new_sample_idx_to_old, sample_ct, write_genovec);
+      if (old_sample_idx_to_new) {
+        ZeroTrailingNyps(raw_sample_ct, loadbuf_iter);
+        GenovecPermuteSubset(loadbuf_iter, sample_include, sample_include_interleaved_vec, old_sample_idx_to_new, raw_sample_ct, sample_ct, write_genovec);
         if (read_rare01_ct) {
-          write_rare01_ct = CopyAndResort8bit(read_patch_01_set, read_patch_01_vals, new_sample_idx_to_old, raw_sample_ct, sample_ct, write_patch_01_set, write_patch_01_vals, cumulative_popcount_buf);
+          write_rare01_ct = CopyAndPermute8bit(sample_include, read_patch_01_set, read_patch_01_vals, old_sample_idx_to_new, raw_sample_ct, read_rare01_ct, write_patch_01_set, write_patch_01_vals);
         }
         if (read_rare10_ct) {
-          write_rare10_ct = CopyAndResort16bit(read_patch_10_set, read_patch_10_vals, new_sample_idx_to_old, raw_sample_ct, sample_ct, write_patch_10_set, write_patch_10_vals, cumulative_popcount_buf);
+          write_rare10_ct = CopyAndPermute16bit(sample_include, read_patch_10_set, read_patch_10_vals, old_sample_idx_to_new, raw_sample_ct, read_rare10_ct, write_patch_10_set, write_patch_10_vals);
         }
         if (is_hphase) {
-          UnpackAndResortHphase(all_hets, cur_phaseraw, sample_include, old_sample_idx_to_new, raw_sample_ct, sample_ct, &cur_write_phasepresent, write_phaseinfo);
+          UnpackAndPermuteHphase(all_hets, cur_phaseraw, sample_include, old_sample_idx_to_new, raw_sample_ct, sample_ct, &cur_write_phasepresent, write_phaseinfo);
         }
         if (is_dosage) {
-          write_dosage_ct = CopyAndResort16bit(cur_dosagepresent, cur_dosagevals, new_sample_idx_to_old, raw_sample_ct, sample_ct, write_dosagepresent, write_dosagevals, cumulative_popcount_buf);
+          write_dosage_ct = CopyAndPermute16bit(sample_include, cur_dosagepresent, cur_dosagevals, old_sample_idx_to_new, raw_sample_ct, read_dosage_ct, write_dosagepresent, write_dosagevals);
           if (is_dphase) {
-            write_dphase_ct = CopyAndResort16bit(cur_dphasepresent, cur_dphasedelta, new_sample_idx_to_old, raw_sample_ct, sample_ct, write_dphasepresent, write_dphasedeltas, cumulative_popcount_buf);
+            write_dphase_ct = CopyAndPermute16bit(sample_include, cur_dphasepresent, cur_dphasedelta, old_sample_idx_to_new, raw_sample_ct, read_dphase_ct, write_dphasepresent, write_dphasedeltas);
           }
         }
       } else if (sample_include) {
@@ -5865,7 +6014,6 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
     const uint32_t subsetting_required = (sample_ct != raw_sample_ct);
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     mcp->sample_include = subsetting_required? sample_include : nullptr;
-    ctx.new_sample_idx_to_old = new_sample_idx_to_old;
     ctx.sex_male_collapsed = sex_male_collapsed;
     ctx.sex_female_collapsed = sex_female_collapsed;
     ctx.write_reterr = kPglRetSuccess;
@@ -6017,14 +6165,24 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       const uint32_t sample_ctl2 = NypCtToWordCt(sample_ct);
       const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
       ctx.thread_write_genovecs = nullptr;
+      ctx.old_sample_idx_to_new = nullptr;
+      ctx.sample_include_interleaved_vec = nullptr;
       uint32_t write_mhc_needed = 0;
       if (new_sample_idx_to_old || subsetting_required) {
         if (unlikely(bigstack_alloc_wp(1, &ctx.thread_write_genovecs))) {
           goto MakePgenRobust_ret_NOMEM;
         }
-        if (read_phase_present && new_sample_idx_to_old) {
+        if (new_sample_idx_to_old) {
           if (unlikely(bigstack_alloc_u32(raw_sample_ct, &ctx.old_sample_idx_to_new))) {
             goto MakePgenRobust_ret_NOMEM;
+          }
+          if (subsetting_required) {
+            // SetAllU32Arr(raw_sample_ct, ctx.old_sample_idx_to_new);
+            const uint32_t raw_sample_ctv = BitCtToVecCt(raw_sample_ct);
+            if (unlikely(bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.sample_include_interleaved_vec))) {
+              goto MakePgenRobust_ret_NOMEM;
+            }
+            FillInterleavedMaskVec(sample_include, raw_sample_ctv, ctx.sample_include_interleaved_vec);
           }
           for (uint32_t new_sample_idx = 0; new_sample_idx != sample_ct; ++new_sample_idx) {
             ctx.old_sample_idx_to_new[new_sample_idx_to_old[new_sample_idx]] = new_sample_idx;
@@ -6078,12 +6236,6 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
                        bigstack_alloc_dphase(sample_ct + RoundUpPow2(sample_ct, kCacheline / 2), &(ctx.thread_write_dphasedeltas[0])))) {
             goto MakePgenRobust_ret_NOMEM;
           }
-        }
-      }
-      if ((write_mhc_needed || read_dosage_present) && new_sample_idx_to_old) {
-        if (unlikely(bigstack_alloc_u32p(1, &ctx.thread_cumulative_popcount_bufs) ||
-                     bigstack_alloc_u32(raw_sample_ctl, &(ctx.thread_cumulative_popcount_bufs[0])))) {
-          goto MakePgenRobust_ret_NOMEM;
         }
       }
       mcp->refalt1_select = refalt1_select;
@@ -6837,7 +6989,6 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
     }
     MakeCommon mc;
     mc.plink2_write_flags = kfPlink2Write0;
-    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     ctx.sex_male_collapsed = nullptr;  // defensive
     if (make_plink2_flags & kfMakePlink2SetHhMissing) {
@@ -7024,9 +7175,9 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       if (!new_sample_idx_to_old) {
         // hphase doesn't seem to affect read:write ratio much
 #ifdef USE_AVX2
-        const uint32_t max_calc_thread_ct = 2;
+        const uint32_t max_calc_thread_ct = 3;
 #else
-        const uint32_t max_calc_thread_ct = 2 + subsetting_required;
+        const uint32_t max_calc_thread_ct = 3 + subsetting_required;
 #endif
         if (calc_thread_ct > max_calc_thread_ct) {
           calc_thread_ct = max_calc_thread_ct;
@@ -7099,7 +7250,6 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
         }
       }
       ctx.pwcs = &(mpgwp->pwcs[0]);
-      ctx.new_sample_idx_to_old = new_sample_idx_to_old;
       ctx.thread_write_genovecs = nullptr;
       ctx.thread_write_mhc = nullptr;
 
@@ -7107,14 +7257,25 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       // the I/O thread loads the next (64k * thread_ct).
       uintptr_t other_per_thread_cacheline_ct = 2 * load_vblock_cacheline_ct;
 
+      ctx.old_sample_idx_to_new = nullptr;
+      ctx.sample_include_interleaved_vec = nullptr;
+
       uint32_t write_mhc_needed = 0;
       if (new_sample_idx_to_old || subsetting_required) {
         if (bigstack_alloc_wp(calc_thread_ct, &ctx.thread_write_genovecs)) {
           goto MakePlink2NoVsort_fallback;
         }
-        if (read_phase_present && new_sample_idx_to_old) {
-          if (bigstack_alloc_u32(raw_sample_ct, &ctx.old_sample_idx_to_new)) {
+        if (new_sample_idx_to_old) {
+          if (unlikely(bigstack_alloc_u32(raw_sample_ct, &ctx.old_sample_idx_to_new))) {
             goto MakePlink2NoVsort_fallback;
+          }
+          if (subsetting_required) {
+            // SetAllU32Arr(raw_sample_ct, ctx.old_sample_idx_to_new);
+            const uint32_t raw_sample_ctv = BitCtToVecCt(raw_sample_ct);
+            if (unlikely(bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &ctx.sample_include_interleaved_vec))) {
+              goto MakePlink2NoVsort_fallback;
+            }
+            FillInterleavedMaskVec(sample_include, raw_sample_ctv, ctx.sample_include_interleaved_vec);
           }
           for (uint32_t new_sample_idx = 0; new_sample_idx != sample_ct; ++new_sample_idx) {
             ctx.old_sample_idx_to_new[new_sample_idx_to_old[new_sample_idx]] = new_sample_idx;
@@ -7133,13 +7294,6 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
         const uintptr_t mhcwrite_word_ct = GetMhcWordCt(sample_ct);
         write_mhcraw_cacheline_ct = DivUp(mhcwrite_word_ct, kWordsPerCacheline);
         other_per_thread_cacheline_ct += write_mhcraw_cacheline_ct;
-      }
-      if ((write_mhc_needed || read_dosage_present) && new_sample_idx_to_old) {
-        // ctx.thread_cumulative_popcount_bufs
-        other_per_thread_cacheline_ct += Int32CtToCachelineCt(raw_sample_ctl);
-        if (bigstack_alloc_u32p(calc_thread_ct, &ctx.thread_cumulative_popcount_bufs)) {
-          goto MakePlink2NoVsort_fallback;
-        }
       }
       ctx.thread_write_phasepresents = nullptr;
       ctx.thread_all_hets = nullptr;
@@ -7229,9 +7383,6 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
           ctx.thread_write_genovecs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(writebuf_byte_ct));
           if (write_mhc_needed) {
             ctx.thread_write_mhc[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(write_mhcraw_cacheline_ct * kCacheline));
-          }
-          if ((write_mhc_needed || read_dosage_present) && new_sample_idx_to_old) {
-            ctx.thread_cumulative_popcount_bufs[tidx] = S_CAST(uint32_t*, bigstack_alloc_raw(Int32CtToCachelineCt(raw_sample_ctl) * kCacheline));
           }
         }
       }
@@ -7786,14 +7937,17 @@ PglErr WritePvarResorted(const char* outname, const uintptr_t* variant_include, 
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     const uint32_t all_nonref = (nonref_flags_storage == 2);
     uint32_t write_info_pr = all_nonref;
-    uint32_t write_info = (pvar_psam_flags & kfPvarColInfo) || pvar_info_reload;
+    if (pvar_info_reload && (!(pvar_psam_flags & kfPvarColXinfo))) {
+      pvar_info_reload = nullptr;
+    }
+    const uint32_t write_info = (pvar_psam_flags & kfPvarColInfo) || pvar_info_reload;
     if (write_info && nonref_flags) {
       write_info_pr = !IntersectionIsEmpty(variant_include, nonref_flags, raw_variant_ctl);
     }
     write_info_pr = write_info_pr && write_info;
     if (unlikely(write_info_pr && (info_flags & kfInfoPrNonflagPresent))) {
       logputs("\n");
-      logerrputs("Error: Conflicting INFO/PR definitions.  Either fix all REF alleles so that the\n'provisional reference' flag is no longer needed, or remove/rename the other\nuse of the INFO/PR key.\n");
+      logerrputs("Error: Conflicting INFO/PR definitions.  Either fix all REF alleles so that the\n\"provisional reference\" flag is no longer needed, or remove/rename the other\nuse of the INFO/PR key.\n");
       goto WritePvarResorted_ret_INCONSISTENT_INPUT;
     }
 

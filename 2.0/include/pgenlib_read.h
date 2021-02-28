@@ -277,6 +277,14 @@ HEADER_INLINE unsigned char* PgrGetVrtypes(PgenReader* pgr_ptr) {
   return pgrp->fi.vrtypes;
 }
 
+HEADER_INLINE uint32_t PgrGetVrtype(const PgenReader* pgr_ptr, uint32_t vidx) {
+  const PgenReaderMain* pgrp = &GET_PRIVATE(*pgr_ptr, m);
+  if (pgrp->fi.vrtypes) {
+    return pgrp->fi.vrtypes[vidx];
+  }
+  return pgrp->fi.const_vrtype;
+}
+
 HEADER_INLINE uintptr_t* PgrGetNonrefFlags(PgenReader* pgr_ptr) {
   PgenReaderMain* pgrp = &GET_PRIVATE(*pgr_ptr, m);
   return pgrp->fi.nonref_flags;

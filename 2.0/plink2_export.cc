@@ -3158,12 +3158,13 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
 // export an ID hash table as well (since such a hash table is always
 // constructed for the sake of detecting and warning about duplicate
 // post-id-paste IDs).
-BoolErr ExportIdpaste(const uintptr_t* sample_include, const SampleIdInfo* siip, const char* ftypename, uint32_t sample_ct, IdpasteFlags exportf_id_paste, char exportf_id_delim, uintptr_t* max_exported_sample_id_blen_ptr, char** exported_sample_ids_ptr) {
+BoolErr ExportIdpaste(const uintptr_t* sample_include, const SampleIdInfo* siip, const char* ftypename, const char* reimport_flagname, uint32_t sample_ct, IdpasteFlags exportf_id_paste, char exportf_id_delim, uintptr_t* max_exported_sample_id_blen_ptr, char** exported_sample_ids_ptr) {
   const uint32_t write_fid = DataFidColIsRequired(sample_include, siip, sample_ct, exportf_id_paste / kfIdpasteMaybefid);
   const char* sample_ids = siip->sample_ids;
   const char* sids = siip->sids;
   const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
   uintptr_t max_sid_blen = siip->max_sid_blen;
+  const uint32_t write_iid = (exportf_id_paste / kfIdpasteIid) & 1;
   const uint32_t write_sid = DataSidColIsRequired(sample_include, sids, sample_ct, max_sid_blen, exportf_id_paste / kfIdpasteMaybesid);
   if (write_sid && (!sids)) {
     max_sid_blen = 2;
@@ -3194,7 +3195,7 @@ BoolErr ExportIdpaste(const uintptr_t* sample_include, const SampleIdInfo* siip,
       }
       exported_sample_ids_iter = memcpyax(exported_sample_ids_iter, orig_sample_id, fid_slen, id_delim);
     }
-    if (exportf_id_paste & kfIdpasteIid) {
+    if (write_iid) {
       const char* orig_iid = &(orig_fid_end[1]);
       const uint32_t iid_slen = strlen(orig_iid);
       if ((!id_delim_warning) && memchr(orig_iid, id_delim, iid_slen)) {
@@ -3217,12 +3218,11 @@ BoolErr ExportIdpaste(const uintptr_t* sample_include, const SampleIdInfo* siip,
     }
     exported_sample_ids_iter[-1] = '\0';
   }
-  // todo: revise this warning condition?
-  if (id_delim_warning) {
+  if (id_delim_warning && (write_fid + write_iid + write_sid >= 2)) {
     if (exportf_id_delim) {
-      logerrprintfww("Warning: '%c' present in original sample IDs; --export %s will not be able to reconstruct them. Consider rerunning with a different --export id-delim= value.\n", exportf_id_delim, ftypename);
+      logerrprintfww("Warning: '%c' present in original sample IDs; --%s will not be able to reconstruct them. Consider rerunning with a different --export id-delim= value.\n", exportf_id_delim, reimport_flagname);
     } else {
-      logerrprintfww("Warning: '_' present in original sample IDs; --export %s will not be able to reconstruct them. Consider rerunning with a suitable --export id-delim= value.\n", ftypename);
+      logerrprintfww("Warning: '_' present in original sample IDs; --%s will not be able to reconstruct them. Consider rerunning with a suitable --export id-delim= value.\n", reimport_flagname);
     }
   }
   if (PopulateStrboxHtable(exported_sample_ids, sample_ct, max_exported_sample_id_blen, exported_id_htable_size, new_id_htable)) {
@@ -3333,7 +3333,7 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
     // always save sample IDs...
     char* exported_sample_ids;
     uintptr_t max_exported_sample_id_blen;
-    if (unlikely(ExportIdpaste(sample_include, siip, use_zstd_compression? "bgen-1.3" : "bgen-1.2", sample_ct, exportf_id_paste, exportf_id_delim, &max_exported_sample_id_blen, &exported_sample_ids))) {
+    if (unlikely(ExportIdpaste(sample_include, siip, use_zstd_compression? "bgen-1.3" : "bgen-1.2", "bgen", sample_ct, exportf_id_paste, exportf_id_delim, &max_exported_sample_id_blen, &exported_sample_ids))) {
       goto ExportBgen13_ret_NOMEM;
     }
     // Compute total length of sample ID block now; this is necessary to fill
@@ -3898,7 +3898,7 @@ PglErr ExportOxSampleV2(const char* outname, const uintptr_t* sample_include, co
 
     char* exported_sample_ids;
     uintptr_t max_exported_sample_id_blen;
-    if (unlikely(ExportIdpaste(sample_include, &piip->sii, "sample-v2", sample_ct, exportf_id_paste, exportf_id_delim, &max_exported_sample_id_blen, &exported_sample_ids))) {
+    if (unlikely(ExportIdpaste(sample_include, &piip->sii, "sample-v2", "sample", sample_ct, exportf_id_paste, exportf_id_delim, &max_exported_sample_id_blen, &exported_sample_ids))) {
       goto ExportOxSampleV2_ret_NOMEM;
     }
 
@@ -4607,7 +4607,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     write_iter = strcpya_k(write_iter, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">" EOLN_STR "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT");
     char* exported_sample_ids;
     uintptr_t max_exported_sample_id_blen;
-    if (unlikely(ExportIdpaste(sample_include, siip, "vcf", sample_ct, exportf_id_paste, exportf_id_delim, &max_exported_sample_id_blen, &exported_sample_ids))) {
+    if (unlikely(ExportIdpaste(sample_include, siip, "vcf", "vcf", sample_ct, exportf_id_paste, exportf_id_delim, &max_exported_sample_id_blen, &exported_sample_ids))) {
       goto ExportVcf_ret_NOMEM;
     }
     for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
@@ -7976,7 +7976,7 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
 
       char* exported_sample_ids;
       uintptr_t max_exported_sample_id_blen;
-      if (unlikely(ExportIdpaste(sample_include, siip, "bcf", sample_ct, exportf_id_paste, exportf_id_delim, &max_exported_sample_id_blen, &exported_sample_ids))) {
+      if (unlikely(ExportIdpaste(sample_include, siip, "bcf", "bcf", sample_ct, exportf_id_paste, exportf_id_delim, &max_exported_sample_id_blen, &exported_sample_ids))) {
         goto ExportBcf_ret_NOMEM;
       }
       for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {

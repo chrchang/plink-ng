@@ -71,10 +71,10 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (3 Feb 2021)";
+  " (28 Feb 2021)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -999,9 +999,17 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         goto Plink2Core_ret_NOMEM;
       }
       const uint32_t nonref_flags_already_loaded = (nonref_flags != nullptr);
-      if ((!nonref_flags) && ((header_ctrl & 192) == 192)) {
-        if (unlikely(bigstack_alloc_w(raw_variant_ctl, &nonref_flags))) {
-          goto Plink2Core_ret_NOMEM;
+      if (!nonref_flags_already_loaded) {
+        const uint32_t nonref_flags_status_shifted = header_ctrl & 192;
+        if (nonref_flags_status_shifted == 192) {
+          if (unlikely(bigstack_alloc_w(raw_variant_ctl, &nonref_flags))) {
+            goto Plink2Core_ret_NOMEM;
+          }
+        } else if ((pgfi.const_vrtype != kPglVrtypePlink1) && (!nonref_flags_status_shifted)) {
+          // This should never happen with a chain of plink2-generated .pgen
+          // files, but it's permitted by the specification and makes future
+          // merge unsafe.
+          logerrputs("Warning: .pgen file indicates that provisional-REF information is stored in the\ncompanion .pvar, but that .pvar lacks either an INFO/PR header or an INFO\ncolumn.  Assuming all REF alleles are correct.\n");
         }
       }
       pgfi.nonref_flags = nonref_flags;
@@ -7801,7 +7809,7 @@ int main(int argc, char** argv) {
           const char* cur_modif = argvk[arg_idx + 1];
           const uint32_t cur_modif_slen = strlen(cur_modif);
           if (strequal_k(cur_modif, "erase", cur_modif_slen)) {
-            if (unlikely(pmerge_info.merge_info_mode != kMergeQicModeErase)) {
+            if (unlikely(pmerge_info.merge_info_mode != kMergeInfoCmModeErase)) {
               logerrputs("Error: \"--merge-xheader-mode erase\" requires \"--merge-info-mode erase\".\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
@@ -7815,33 +7823,23 @@ int main(int argc, char** argv) {
         } else if (unlikely(strequal_k_unsafe(flagname_p2, "erge-equal-pos"))) {
           logerrputs("Error: --merge-equal-pos has been retired.  Use e.g. --set-all-var-ids before\nmerging instead.\n");
           goto main_ret_INVALID_CMDLINE_A;
-        } else if (strequal_k_unsafe(flagname_p2, "erge-qual-mode") ||
-                   strequal_k_unsafe(flagname_p2, "erge-info-mode") ||
-                   strequal_k_unsafe(flagname_p2, "erge-cm-mode")) {
+        } else if (strequal_k_unsafe(flagname_p2, "erge-qual-mode")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
           const uint32_t cur_modif_slen = strlen(cur_modif);
-          MergeQicMode mode;
           if (strequal_k(cur_modif, "erase", cur_modif_slen)) {
-            mode = kMergeQicModeErase;
+            pmerge_info.merge_qual_mode = kMergeQualModeErase;
           } else if (strequal_k(cur_modif, "nm-match", cur_modif_slen)) {
-            mode = kMergeQicModeNmMatch;
+            pmerge_info.merge_qual_mode = kMergeQualModeNmMatch;
           } else if (strequal_k(cur_modif, "nm-first", cur_modif_slen)) {
-            mode = kMergeQicModeNmFirst;
-          } else if (likely(strequal_k(cur_modif, "first", cur_modif_slen))) {
-            mode = kMergeQicModeFirst;
-          } else {
-            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s argument '%s'.\n", flagname_p, cur_modif);
+            pmerge_info.merge_qual_mode = kMergeQualModeNmFirst;
+          } else if (strequal_k(cur_modif, "first", cur_modif_slen)) {
+            pmerge_info.merge_qual_mode = kMergeQualModeFirst;
+          } else if (unlikely(!strequal_k(cur_modif, "min", cur_modif_slen))) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --merge-qual-mode argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
-          }
-          if (flagname_p2[5] == 'q') {
-            pmerge_info.merge_qual_mode = mode;
-          } else if (flagname_p2[5] == 'i') {
-            pmerge_info.merge_info_mode = mode;
-          } else {
-            pmerge_info.merge_cm_mode = mode;
           }
         } else if (strequal_k_unsafe(flagname_p2, "erge-filter-mode")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -7860,6 +7858,31 @@ int main(int argc, char** argv) {
           } else if (unlikely(!strequal_k(cur_modif, "np-union", cur_modif_slen))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --merge-filter-mode argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "erge-info-mode") ||
+                   strequal_k_unsafe(flagname_p2, "erge-cm-mode")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvk[arg_idx + 1];
+          const uint32_t cur_modif_slen = strlen(cur_modif);
+          MergeInfoCmMode mode;
+          if (strequal_k(cur_modif, "erase", cur_modif_slen)) {
+            mode = kMergeInfoCmModeErase;
+          } else if (strequal_k(cur_modif, "nm-match", cur_modif_slen)) {
+            mode = kMergeInfoCmModeNmMatch;
+          } else if (strequal_k(cur_modif, "nm-first", cur_modif_slen)) {
+            mode = kMergeInfoCmModeNmFirst;
+          } else if (likely(strequal_k(cur_modif, "first", cur_modif_slen))) {
+            mode = kMergeInfoCmModeFirst;
+          } else {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s argument '%s'.\n", flagname_p, cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          if (flagname_p2[5] == 'i') {
+            pmerge_info.merge_info_mode = mode;
+          } else {
+            pmerge_info.merge_cm_mode = mode;
           }
         } else if (strequal_k_unsafe(flagname_p2, "erge-info-sort") ||
                    strequal_k_unsafe(flagname_p2, "erge-pheno-sort")) {
@@ -10565,7 +10588,7 @@ int main(int argc, char** argv) {
           const uint32_t no_samples_ok = !((pc.dependency_flags & (kfFilterAllReq | kfFilterPsamReq)) || (pc.command_flags1 & kfCommand1Pmerge));
           const uint32_t is_vcf = (xload / kfXloadVcf) & 1;
           pvar_is_compressed = ((import_flags & (kfImportKeepAutoconv | kfImportKeepAutoconvVzs)) != kfImportKeepAutoconv);
-          if (no_samples_ok && is_vcf && (!(import_flags & kfImportKeepAutoconv)) && pc.command_flags1) {
+          if (no_samples_ok && is_vcf && (!(import_flags & (kfImportKeepAutoconv | kfImportVcfRefNMissing))) && pc.command_flags1) {
             // special case: just treat the VCF as a .pvar file
             strcpy(pvarname, pgenname);
             pgenname[0] = '\0';

@@ -3119,7 +3119,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       allele_idx_end += alt_ct + 1;
       const uint32_t variant_idx_lowbits = variant_ct % kBitsPerWord;
       if (info_pr_present) {
-        if (PrInInfoToken(info_end - info_start, info_start)) {
+        if (PrInInfo(info_end - info_start, info_start)) {
           nonref_word |= k1LU << variant_idx_lowbits;
         }
         if (variant_idx_lowbits == (kBitsPerWord - 1)) {

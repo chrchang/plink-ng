@@ -391,12 +391,12 @@ PglErr ZstRawStreamRead(char* dst_end, FILE* ff, ZstRawDecompressStream* zstp, c
       return kPglRetReadFail;
     }
     zstp->ib.pos = 0;
-    zstp->ib.size = nbytes + n_inbytes;
-    if (!nbytes) {
-      if (unlikely(n_inbytes)) {
-        *errmsgp = kShortErrZstdPrefixUnknown;
-        return kPglRetDecompressFail;
-      }
+    const uint32_t new_size = nbytes + n_inbytes;
+    zstp->ib.size = new_size;
+    // bugfix (28 Feb 2021): Possible for nbytes to be zero at the same time
+    // n_inbytes is positive when e.g. the input .zst file is the concatenation
+    // of multiple ordinary .zst files, which is permitted by the spec.
+    if (!new_size) {
       break;
     }
   }

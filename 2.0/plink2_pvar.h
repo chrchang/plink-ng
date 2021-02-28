@@ -82,10 +82,12 @@ void VaridTemplateInit(const char* varid_template_str, const char* missing_id_ma
 
 char* VaridTemplateWrite(const VaridTemplate* vtp, const char* ref_start, const char* alt1_start, uint32_t cur_bp, uint32_t ref_token_slen, uint32_t extra_alt_ct, uint32_t alt_token_slen, char* dst);
 
-// assumes info_token[-1] is safe to read
-// may set info_token[info_slen] to \0, since it needs to use strstr()
+// These functions assume info_token[-1] is safe to read
+// They may set info_token[info_slen] to \0, since they need to use strstr()
 // (todo: try memmem()... except it isn't available on 32-bit mingw?)
-char* PrInInfoToken(uint32_t info_slen, char* info_token);
+uint32_t PrInInfo(uint32_t info_slen, char* info_token);
+
+char* InfoPrStart(uint32_t info_slen, char* info_token);
 
 // cip, max_variant_id_slen, and info_reload are in/out parameters.
 // Chromosome filtering is performed if cip requests it.

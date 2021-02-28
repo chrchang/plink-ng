@@ -232,6 +232,10 @@ void Count3FreqVec6(const VecW* geno_vvec, uint32_t vec_ct, uint32_t* __restrict
 // vector-alignment preferred.
 void GenoarrCountFreqsUnsafe(const uintptr_t* genoarr, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts);
 
+// GenoarrCountsFreqsUnsafe() wrapper that returns most common genotype,
+// breaking ties in favor of the lower value.
+uintptr_t MostCommonGenoUnsafe(const uintptr_t* genoarr, uint32_t sample_ct);
+
 // geno_vvec now allowed to be unaligned.
 void CountSubset3FreqVec6(const VecW* __restrict geno_vvec, const VecW* __restrict interleaved_mask_vvec, uint32_t vec_ct, uint32_t* __restrict even_ctp, uint32_t* __restrict odd_ctp, uint32_t* __restrict bothset_ctp);
 

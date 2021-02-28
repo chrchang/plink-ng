@@ -746,6 +746,15 @@ BoolErr bigstack_calloc_kcp(uintptr_t ct, const char*** kcp_arr_ptr) {
   return 0;
 }
 
+BoolErr bigstack_calloc_cpp(uintptr_t ct, char**** cpp_arr_ptr) {
+  *cpp_arr_ptr = S_CAST(char***, bigstack_alloc(ct * sizeof(intptr_t)));
+  if (unlikely(!(*cpp_arr_ptr))) {
+    return 1;
+  }
+  ZeroPtrArr(ct, *cpp_arr_ptr);
+  return 0;
+}
+
 BoolErr bigstack_end_calloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr) {
   *uc_arr_ptr = S_CAST(unsigned char*, bigstack_end_alloc(ct));
   if (unlikely(!(*uc_arr_ptr))) {
@@ -1098,7 +1107,6 @@ void BitvecInvertCopy(const uintptr_t* __restrict source_bitvec, uintptr_t word_
 #endif
 }
 
-/*
 void BitvecXor(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec) {
   // main_bitvec := main_bitvec XOR arg_bitvec
 #ifdef __LP64__
@@ -1134,7 +1142,6 @@ void BitvecXor(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintpt
   }
 #endif
 }
-*/
 
 void BitvecInvertAndMask(const uintptr_t* __restrict include_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec) {
   // main_bitvec := (~main_bitvec) AND include_bitvec

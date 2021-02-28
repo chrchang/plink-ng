@@ -30,9 +30,9 @@ int32_t main(int32_t argc, char** argv) {
     if ((argc < 3) || (argc > 5)) {
       fputs(
 "Usage:\n"
-"pgen_compress [input .bed or .pgen] [output filename] {sample_ct}\n"
+"pgen_compress <input .bed or .pgen> <output filename> [sample_ct]\n"
 "  (sample_ct is required when loading a .bed file)\n"
-"pgen_compress -u [input .pgen] [output .bed]\n"
+"pgen_compress -u <input .pgen> <output .bed>\n"
             , stdout);
       goto main_ret_INVALID_CMDLINE;
     }

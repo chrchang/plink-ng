@@ -2696,8 +2696,7 @@ void CopyAndSubsetDifflist(const uintptr_t* __restrict sample_include, const uin
 // Populates pgrp->ldbase_genovec or
 // pgrp->ldbase_{raregeno,difflist_sample_ids,difflist_len}, depending on
 // storage type.
-// Currently just called by ReadDifflistOrGenovecSubsetUnsafe(), which isn't
-// exploited by plink2 yet.
+// Currently just called by ReadDifflistOrGenovecSubsetUnsafe().
 PglErr LdLoadMinimalSubsetIfNecessary(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderMain* pgrp) {
   if (!LdLoadNecessary(vidx, pgrp)) {
     return kPglRetSuccess;
