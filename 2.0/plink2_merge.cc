@@ -6224,10 +6224,6 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
         continue;
       }
       BigstackReset(bigstack_mark);
-      uintptr_t* debug_sentinel;
-      if (unlikely(bigstack_calloc_w(8, &debug_sentinel))) {
-        goto PmergeConcat_ret_NOMEM;
-      }
       const uint32_t read_sample_ct = filesets_iter->read_sample_ct;
       const uint32_t read_sample_ctl = BitCtToWordCt(read_sample_ct);
       uint32_t* read_cumulative_popcounts;
@@ -6479,19 +6475,9 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
           continue;
         }
         if (cur_bp > prev_bp) {
-          for (uint32_t uii = 0; uii != 8; ++uii) {
-            if (debug_sentinel[uii]) {
-              printf("corruption at file %lu variant %u, pre-concat\n", fileset_idx, read_variant_idx);
-            }
-          }
           reterr = ConcatPvariantPos(prev_bp, cur_single_pos_ct, &ppmc, same_pos_records, &mr, &mw);
           if (unlikely(reterr)) {
             goto PmergeConcat_ret_N;
-          }
-          for (uint32_t uii = 0; uii != 8; ++uii) {
-            if (debug_sentinel[uii]) {
-              printf("corruption at file %lu variant %u, post-concat\n", fileset_idx, read_variant_idx);
-            }
           }
           cur_pos_readbuf_iter = cur_pos_readbuf;
           cur_single_pos_ct = 0;
