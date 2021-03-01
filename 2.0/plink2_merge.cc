@@ -1899,7 +1899,7 @@ PglErr RescanOnePos(unsigned char* arena_top, uint32_t batch_size, uint32_t prev
 // info_keys, pointed-to InfoVtype entries, and info_keys_htable are allocated
 // at the end of bigstack.
 static_assert(kCompressStreamBlock <= kDecompressChunkSize, "ScanPvarsAndMergeHeader() needs to be updated.");
-PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, ImportFlags import_flags, uint32_t max_thread_ct, SortMode sort_vars_mode, char* outname, char* outname_end, PmergeInputFilesetLl** filesets_ptr, ChrInfo* cip, uintptr_t* fileset_ctp, const char* const** info_keys_ptr, uint32_t* info_key_ctp, uint32_t** info_keys_htablep, uint32_t* info_keys_htable_sizep, uint32_t* info_conflict_presentp) {
+PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, uint32_t max_thread_ct, SortMode sort_vars_mode, char* outname, char* outname_end, PmergeInputFilesetLl** filesets_ptr, ChrInfo* cip, uintptr_t* fileset_ctp, const char* const** info_keys_ptr, uint32_t* info_key_ctp, uint32_t** info_keys_htablep, uint32_t* info_keys_htable_sizep, uint32_t* info_conflict_presentp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   const char* cur_fname = nullptr;
@@ -2659,7 +2659,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, Imp
       const uintptr_t overflow_buf_size = max_xheader_line_blen + kCompressStreamBlock;
       snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
       // kfImportKeepAutoconvVzs cannot be set here.
-      const uint32_t output_zst = !(import_flags & kfImportKeepAutoconv);
+      const uint32_t output_zst = (pmip->flags / kfPmergeOutputVzs) & 1;
       if (output_zst) {
         snprintf(&(outname_end[5]), kMaxOutfnameExtBlen - 5, ".zst");
       }
@@ -6002,7 +6002,7 @@ void CleanupPvariantPosMergeContext(PvariantPosMergeContext* ppmcp) {
 // are reordered by ID, and same-position same-ID variants are merged.  The
 // distinction from the general case is that we never need to have more than
 // one .pvar + .pgen open for reading at a time.
-PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrInfo* cip, const PmergeInputFilesetLl* filesets, const char* const* info_keys, const uint32_t* info_keys_htable, uint32_t sample_ct, ImportFlags import_flags, FamCol fam_cols, uintptr_t fileset_ct, uint32_t psam_linebuf_capacity, uint32_t info_key_ct, uint32_t info_keys_htable_size, uint32_t info_conflict_present, uint32_t max_thread_ct, SortMode sort_vars_mode, char* outname, char* outname_end) {
+PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrInfo* cip, const PmergeInputFilesetLl* filesets, const char* const* info_keys, const uint32_t* info_keys_htable, uint32_t sample_ct, FamCol fam_cols, uintptr_t fileset_ct, uint32_t psam_linebuf_capacity, uint32_t info_key_ct, uint32_t info_keys_htable_size, uint32_t info_conflict_present, uint32_t max_thread_ct, SortMode sort_vars_mode, char* outname, char* outname_end) {
   // Don't need to reset bigstack at function end, since Pmerge() will do it.
   const char* read_pgen_fname = nullptr;
   const char* read_pvar_fname = nullptr;
@@ -6114,7 +6114,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
     }
     overflow_buf_size += kCompressStreamBlock;
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
-    const uint32_t pvar_zst = !(import_flags & kfImportKeepAutoconv);
+    const uint32_t pvar_zst = (pmip->flags / kfPmergeOutputVzs) & 1;
     if (pvar_zst) {
       snprintf(&(outname_end[5]), kMaxOutfnameExtBlen - 5, ".zst");
     }
@@ -6602,7 +6602,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
   return reterr;
 }
 
-PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags misc_flags, ImportFlags import_flags, SortMode sample_sort_mode, FamCol fam_cols, int32_t missing_pheno, uint32_t max_thread_ct, SortMode sort_vars_mode, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags misc_flags, SortMode sample_sort_mode, FamCol fam_cols, int32_t missing_pheno, uint32_t max_thread_ct, SortMode sort_vars_mode, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   PmergeInputFilesetLl* filesets = nullptr;
@@ -6681,7 +6681,7 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags m
     uint32_t info_key_ct = 0;
     uint32_t info_keys_htable_size = 0;
     uint32_t info_conflict_present;
-    reterr = ScanPvarsAndMergeHeader(pmip, misc_flags, import_flags, max_thread_ct, sort_vars_mode, outname, outname_end, &filesets, cip, &fileset_ct, &info_keys, &info_key_ct, &info_keys_htable, &info_keys_htable_size, &info_conflict_present);
+    reterr = ScanPvarsAndMergeHeader(pmip, misc_flags, max_thread_ct, sort_vars_mode, outname, outname_end, &filesets, cip, &fileset_ct, &info_keys, &info_key_ct, &info_keys_htable, &info_keys_htable_size, &info_conflict_present);
     if (unlikely(reterr)) {
       goto Pmerge_ret_1;
     }
@@ -6693,7 +6693,7 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags m
       }
     }
     if (is_concat_job) {
-      reterr = PmergeConcat(pmip, &sii, cip, filesets, info_keys, info_keys_htable, sample_ct, import_flags, fam_cols, fileset_ct, psam_linebuf_capacity, info_key_ct, info_keys_htable_size, info_conflict_present, max_thread_ct, sort_vars_mode, outname, outname_end);
+      reterr = PmergeConcat(pmip, &sii, cip, filesets, info_keys, info_keys_htable, sample_ct, fam_cols, fileset_ct, psam_linebuf_capacity, info_key_ct, info_keys_htable_size, info_conflict_present, max_thread_ct, sort_vars_mode, outname, outname_end);
     } else {
       logerrputs("Error: --pmerge[-list] is under development.\n");
       reterr = kPglRetNotYetSupported;
@@ -6702,7 +6702,7 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags m
     memcpy(pgenname, outname, outname_slen);
     strcpy_k(&(pgenname[outname_slen]), ".pgen");
     memcpy(pvarname, outname, outname_slen);
-    const uint32_t output_zst = !(import_flags & kfImportKeepAutoconv);
+    const uint32_t output_zst = (pmip->flags / kfPmergeOutputVzs) & 1;
     if (output_zst) {
       strcpy_k(&(pvarname[outname_slen]), ".pvar.zst");
     } else {

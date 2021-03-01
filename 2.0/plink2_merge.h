@@ -36,7 +36,8 @@ FLAGSET_DEF_START()
   kfPmergeSampleInnerJoin = (1 << 0),
   kfPmergeVariantInnerJoin = (1 << 1),
   kfPmergePhenoInnerJoin = (1 << 2),
-  kfPmergeMultiallelicsAlreadyJoined = (1 << 3)
+  kfPmergeMultiallelicsAlreadyJoined = (1 << 3),
+  kfPmergeOutputVzs = (1 << 4)
 FLAGSET_DEF_END(PmergeFlags);
 
 ENUM_U31_DEF_START()
@@ -146,7 +147,7 @@ void InitPgenDiff(PgenDiffInfo* pgen_diff_info_ptr);
 
 void CleanupPgenDiff(PgenDiffInfo* pgen_diff_info_ptr);
 
-PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags misc_flags, ImportFlags import_flags, SortMode sample_sort_mode, FamCol fam_cols, int32_t missing_pheno, uint32_t max_thread_ct, SortMode sort_vars_mode, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, ChrInfo* cip);
+PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags misc_flags, SortMode sample_sort_mode, FamCol fam_cols, int32_t missing_pheno, uint32_t max_thread_ct, SortMode sort_vars_mode, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, ChrInfo* cip);
 
 PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const PgenDiffInfo* pdip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t max_allele_ct1, uint32_t max_allele_slen, uint32_t max_thread_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end);
 

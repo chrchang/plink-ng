@@ -8569,6 +8569,13 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.command_flags1 |= kfCommand1Pmerge;
+        } else if (strequal_k_unsafe(flagname_p2, "merge-output-vzs")) {
+          if (unlikely(!(pc.command_flags1 & kfCommand1Pmerge))) {
+            logerrputs("Error: --pmerge-output-vzs must be used with --pmerge or --pmerge-list.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          pmerge_info.flags |= kfPmergeOutputVzs;
+          goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "gen-diff")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 7))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -10632,7 +10639,6 @@ int main(int argc, char** argv) {
           goto main_ret_1;
         }
 
-        // todo: we have to skip this when merging is involved
         pc.hard_call_thresh = UINT32_MAX;
         pc.dosage_erase_thresh = 0;
 
@@ -10699,19 +10705,11 @@ int main(int argc, char** argv) {
       }
 
       if (pc.command_flags1 & kfCommand1Pmerge) {
-        const uint32_t zst_level = g_zst_level;
         char* merge_outname_end = outname_end;
-        if (pc.command_flags1 == kfCommand1Pmerge) {
-          import_flags |= kfImportKeepAutoconv;
-        } else {
-          if (make_plink2_flags & (kfMakePgen | kfMakePvar | kfMakePsam)) {
-            merge_outname_end = strcpya_k(merge_outname_end, "-merge");
-          }
-          if (!(import_flags & kfImportKeepAutoconv)) {
-            g_zst_level = 1;
-          }
+        if (make_plink2_flags & (kfMakePgen | kfMakePvar | kfMakePsam)) {
+          merge_outname_end = strcpya_k(merge_outname_end, "-merge");
         }
-        reterr = Pmerge(&pmerge_info, pc.sample_sort_fname, pc.misc_flags, import_flags, pc.sample_sort_mode, pc.fam_cols, pc.missing_pheno, pc.max_thread_ct, pc.sort_vars_mode, pgenname, psamname, pvarname, outname, merge_outname_end, &chr_info);
+        reterr = Pmerge(&pmerge_info, pc.sample_sort_fname, pc.misc_flags, pc.sample_sort_mode, pc.fam_cols, pc.missing_pheno, pc.max_thread_ct, pc.sort_vars_mode, pgenname, psamname, pvarname, outname, merge_outname_end, &chr_info);
         if (unlikely(reterr)) {
           goto main_ret_1;
         }
@@ -10725,7 +10723,6 @@ int main(int argc, char** argv) {
         // otherwise error out (since --real-ref-alleles does not make sense on
         // the merged .pgen).
         pc.misc_flags &= ~kfMiscRealRefAlleles;
-        g_zst_level = zst_level;
       }
 
       if ((pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Validate | kfCommand1WriteSnplist | kfCommand1WriteCovar | kfCommand1WriteSamples))) || ((pc.command_flags1 & kfCommand1MakePlink2) && (pc.sort_vars_mode > kSortNone))) {
