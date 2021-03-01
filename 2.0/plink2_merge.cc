@@ -45,6 +45,7 @@ void InitPmerge(PmergeInfo* pmerge_info_ptr) {
   pmerge_info_ptr->pvar_fname = nullptr;
   pmerge_info_ptr->psam_fname = nullptr;
   pmerge_info_ptr->list_fname = nullptr;
+  pmerge_info_ptr->list_base_dir = nullptr;
 }
 
 void CleanupPmerge(PmergeInfo* pmerge_info_ptr) {
@@ -52,6 +53,7 @@ void CleanupPmerge(PmergeInfo* pmerge_info_ptr) {
   free_cond(pmerge_info_ptr->pvar_fname);
   free_cond(pmerge_info_ptr->psam_fname);
   free_cond(pmerge_info_ptr->list_fname);
+  free_cond(pmerge_info_ptr->list_base_dir);
 }
 
 void InitPgenDiff(PgenDiffInfo* pgen_diff_info_ptr) {
@@ -124,7 +126,7 @@ PmergeInputFilesetLl* AllocFilesetLlEntry(PmergeInputFilesetLl*** filesets_endpp
   return new_entry;
 }
 
-PglErr LoadPmergeList(const char* list_fname, PmergeListMode mode, uint32_t main_fileset_present, PmergeInputFilesetLl*** filesets_endpp, uintptr_t* fileset_ctp) {
+PglErr LoadPmergeList(const char* list_fname, const char* list_base_dir, PmergeListMode mode, uint32_t main_fileset_present, PmergeInputFilesetLl*** filesets_endpp, uintptr_t* fileset_ctp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
@@ -164,7 +166,11 @@ PglErr LoadPmergeList(const char* list_fname, PmergeListMode mode, uint32_t main
     const uint32_t pgen_blen = strlen(pgen_suffix) + 1;
     const uint32_t pvar_blen = strlen(pvar_suffix) + 1;
     const uint32_t psam_blen = strlen(psam_suffix) + 1;
-    const uint32_t max_single_token_slen = kPglFnamesize - 1 - MAXV(pgen_blen, pvar_blen);
+    uint32_t base_dir_slen = 0;
+    if (list_base_dir) {
+      base_dir_slen = strlen(list_base_dir);
+    }
+    const uint32_t max_single_token_slen = kPglFnamesize - 1 - MAXV(pgen_blen, pvar_blen) - base_dir_slen;
     while (1) {
       const char* first_token_start = TextGet(&txs);
       if (!first_token_start) {
@@ -185,19 +191,28 @@ PglErr LoadPmergeList(const char* list_fname, PmergeListMode mode, uint32_t main
         // Expand single token, using the --pmerge-list mode.
         if (unlikely(first_token_slen > max_single_token_slen)) {
           logerrprintf("Error: Entry on line %" PRIuPTR " of --pmerge-list file is too long.\n", line_idx);
-          goto LoadPmergeList_ret_MALFORMED_INPUT;
+          goto LoadPmergeList_ret_INCONSISTENT_INPUT;
         }
         char* fname_iter;
-        if (unlikely(bigstack_end_alloc_c(first_token_slen * 3 + pgen_blen + pvar_blen + psam_blen, &fname_iter))) {
+        if (unlikely(bigstack_end_alloc_c((first_token_slen + base_dir_slen) * 3 + pgen_blen + pvar_blen + psam_blen, &fname_iter))) {
           goto LoadPmergeList_ret_NOMEM;
         }
         cur_entry->pgen_fname = fname_iter;
+        if (base_dir_slen) {
+          fname_iter = memcpya(fname_iter, list_base_dir, base_dir_slen);
+        }
         fname_iter = memcpya(fname_iter, first_token_start, first_token_slen);
         fname_iter = memcpya(fname_iter, pgen_suffix, pgen_blen);
         cur_entry->pvar_fname = fname_iter;
+        if (base_dir_slen) {
+          fname_iter = memcpya(fname_iter, list_base_dir, base_dir_slen);
+        }
         fname_iter = memcpya(fname_iter, first_token_start, first_token_slen);
         fname_iter = memcpya(fname_iter, pvar_suffix, pvar_blen);
         cur_entry->psam_fname = fname_iter;
+        if (base_dir_slen) {
+          fname_iter = memcpya(fname_iter, list_base_dir, base_dir_slen);
+        }
         fname_iter = memcpya(fname_iter, first_token_start, first_token_slen);
         memcpy(fname_iter, psam_suffix, psam_blen);
       } else {
@@ -219,17 +234,26 @@ PglErr LoadPmergeList(const char* list_fname, PmergeListMode mode, uint32_t main
                      (second_token_slen >= kPglFnamesize) ||
                      (third_token_slen >= kPglFnamesize))) {
           logerrprintf("Error: Filename on line %" PRIuPTR " of --pmerge-list file is too long.\n", line_idx);
-          goto LoadPmergeList_ret_MALFORMED_INPUT;
+          goto LoadPmergeList_ret_INCONSISTENT_INPUT;
         }
         char* fname_iter;
-        if (unlikely(bigstack_end_alloc_c(first_token_slen + second_token_slen + third_token_slen + 3, &fname_iter))) {
+        if (unlikely(bigstack_end_alloc_c(base_dir_slen * 3 + first_token_slen + second_token_slen + third_token_slen + 3, &fname_iter))) {
           goto LoadPmergeList_ret_NOMEM;
         }
         cur_entry->pgen_fname = fname_iter;
+        if (base_dir_slen) {
+          fname_iter = memcpya(fname_iter, list_base_dir, base_dir_slen);
+        }
         fname_iter = memcpyax(fname_iter, first_token_start, first_token_slen, '\0');
         cur_entry->pvar_fname = fname_iter;
+        if (base_dir_slen) {
+          fname_iter = memcpya(fname_iter, list_base_dir, base_dir_slen);
+        }
         fname_iter = memcpyax(fname_iter, second_token_start, third_token_slen, '\0');
         cur_entry->psam_fname = fname_iter;
+        if (base_dir_slen) {
+          fname_iter = memcpya(fname_iter, list_base_dir, base_dir_slen);
+        }
         memcpyx(fname_iter, third_token_start, third_token_slen, '\0');
       }
     }
@@ -254,7 +278,6 @@ PglErr LoadPmergeList(const char* list_fname, PmergeListMode mode, uint32_t main
   LoadPmergeList_ret_MALFORMED_INPUT_WW:
     WordWrapB(0);
     logerrputsb();
-  LoadPmergeList_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
   LoadPmergeList_ret_INCONSISTENT_INPUT:
@@ -6657,7 +6680,7 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags m
         cur_entry->first_varid = nullptr;
         cur_entry->last_varid = nullptr;
       } else {
-        reterr = LoadPmergeList(pmip->list_fname, pmip->list_mode, pgenname[0] != '\0', &filesets_endp, &fileset_ct);
+        reterr = LoadPmergeList(pmip->list_fname, pmip->list_base_dir, pmip->list_mode, pgenname[0] != '\0', &filesets_endp, &fileset_ct);
         if (unlikely(reterr)) {
           goto Pmerge_ret_1;
         }

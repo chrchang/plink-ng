@@ -71,10 +71,10 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (28 Feb 2021)";
+  " (1 Mar 2021)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -8569,6 +8569,41 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.command_flags1 |= kfCommand1Pmerge;
+        } else if (strequal_k_unsafe(flagname_p2, "merge-list-dir")) {
+          if (unlikely((!(pc.command_flags1 & kfCommand1Pmerge)) || (!pmerge_info.list_fname))) {
+            logerrputs("Error: --pmerge-list-dir must be used with --pmerge-list.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* dir_str = argvk[arg_idx + 1];
+          const uint32_t dir_slen = strlen(dir_str);
+          uint32_t append_path_sep = 0;
+#ifdef _WIN32
+          const char path_sep = '\\';
+          if ((dir_str[dir_slen - 1] != '/') && (dir_str[dir_slen - 1] != '\\')) {
+            append_path_sep = 1;
+          }
+#else
+          const char path_sep = '/';
+          if (dir_str[dir_slen - 1] != '/') {
+            append_path_sep = 1;
+          }
+#endif
+          const uint32_t alloc_blen = dir_slen + 1 + append_path_sep;
+          if (unlikely(alloc_blen > (kPglFnamesize - 9))) {
+            logerrputs("Error: --pmerge-list-dir argument too long.\n");
+            goto main_ret_OPEN_FAIL;
+          }
+          if (unlikely(pgl_malloc(alloc_blen, &pmerge_info.list_base_dir))) {
+            goto main_ret_NOMEM;
+          }
+          char* write_iter = memcpya(pmerge_info.list_base_dir, dir_str, dir_slen);
+          if (append_path_sep) {
+            *write_iter++ = path_sep;
+          }
+          *write_iter = '\0';
         } else if (strequal_k_unsafe(flagname_p2, "merge-output-vzs")) {
           if (unlikely(!(pc.command_flags1 & kfCommand1Pmerge))) {
             logerrputs("Error: --pmerge-output-vzs must be used with --pmerge or --pmerge-list.\n");

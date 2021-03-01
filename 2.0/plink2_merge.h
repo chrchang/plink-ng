@@ -128,6 +128,7 @@ typedef struct PmergeStruct {
   char* pvar_fname;
   char* psam_fname;
   char* list_fname;
+  char* list_base_dir;
 } PmergeInfo;
 
 typedef struct PgenDiffStruct {
