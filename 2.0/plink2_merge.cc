@@ -2678,14 +2678,14 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, uin
     // Note that, under "--merge-info-mode erase", we may need to scrape
     // INFO/PR from .pvar files to be saved later to the .pgen.
     const uint32_t write_info_pr_to_pvar = info_pr_present && (pmip->merge_info_mode != kMergeInfoCmModeErase);
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
+    // kfImportKeepAutoconvVzs cannot be set here.
+    const uint32_t output_zst = (pmip->flags / kfPmergeOutputVzs) & 1;
+    if (output_zst) {
+      snprintf(&(outname_end[5]), kMaxOutfnameExtBlen - 5, ".zst");
+    }
     if (xheader_entry_ct || write_info_pr_to_pvar) {
       const uintptr_t overflow_buf_size = max_xheader_line_blen + kCompressStreamBlock;
-      snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
-      // kfImportKeepAutoconvVzs cannot be set here.
-      const uint32_t output_zst = (pmip->flags / kfPmergeOutputVzs) & 1;
-      if (output_zst) {
-        snprintf(&(outname_end[5]), kMaxOutfnameExtBlen - 5, ".zst");
-      }
       unsigned char* compress_wkspace = nullptr;
       uint32_t compress_thread_ct = 1;
       if (output_zst) {
@@ -2820,6 +2820,17 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, uin
 
         bigstack_mark = g_bigstack_base;
       }
+    } else {
+      // bugfix (2 Mar 2021): if there's an existing file with the
+      // eventual-output-.pvar name, truncate it down to zero, since we append
+      // later.
+      FILE* pvar_stub_file = fopen(outname, FOPEN_WB);
+      if (unlikely(!pvar_stub_file)) {
+        goto ScanPvarsAndMergeHeader_ret_OPEN_FAIL;
+      }
+      if (unlikely(fclose(pvar_stub_file))) {
+        goto ScanPvarsAndMergeHeader_ret_WRITE_FAIL;
+      }
     }
     const uint32_t name_ct = cip->name_ct;
     const uint32_t autosome_code_end = cip->autosome_ct + 1;
@@ -2947,6 +2958,9 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, uin
   while (0) {
   ScanPvarsAndMergeHeader_ret_NOMEM:
     reterr = kPglRetNomem;
+    break;
+  ScanPvarsAndMergeHeader_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
     break;
   ScanPvarsAndMergeHeader_ret_TSTREAM_FAIL:
     TextStreamErrPrint(cur_fname, &txs);
@@ -3351,6 +3365,9 @@ PglErr InitPvariantPosMergeContext(const PmergeInfo* pmip, const char* out_fname
   AppendBinaryEoln(&cswritep);
   pmcp->cswritep = cswritep;
 
+  if (unlikely(bigstack_alloc_ac(max_single_pos_ct * read_max_allele_ct, &pmcp->allele_remap))) {
+    return kPglRetNomem;
+  }
   pmcp->cur_fields_buf = nullptr;
   pmcp->cur_slens_buf = nullptr;
   pmcp->allele_cts_buf = nullptr;
@@ -3358,7 +3375,6 @@ PglErr InitPvariantPosMergeContext(const PmergeInfo* pmip, const char* out_fname
   pmcp->tmp_strs = nullptr;
   pmcp->tmp_htable = nullptr;
   pmcp->filter_set = nullptr;
-  pmcp->allele_remap = nullptr;
   pmcp->read_max_allele_ct = read_max_allele_ct;
   if (max_single_pos_ct > 1) {
     // Need space for 1 more than the allele-count-limit, since we need to be
@@ -3373,8 +3389,7 @@ PglErr InitPvariantPosMergeContext(const PmergeInfo* pmip, const char* out_fname
                  bigstack_alloc_ac(max_single_pos_ct, &pmcp->allele_cts_buf) ||
                  bigstack_alloc_w(BitCtToWordCt(max_single_pos_ct), &pmcp->is_pr_buf) ||
                  bigstack_alloc_kcp(str_ct_max, &pmcp->tmp_strs) ||
-                 bigstack_alloc_u32(htable_size, &pmcp->tmp_htable) ||
-                 bigstack_alloc_ac(max_single_pos_ct * read_max_allele_ct, &pmcp->allele_remap))) {
+                 bigstack_alloc_u32(htable_size, &pmcp->tmp_htable))) {
       return kPglRetNomem;
     }
     if (merge_filter_mode == kMergeFilterModeNmMatch) {
@@ -3664,6 +3679,7 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
   cswritep = strcpyax(cswritep, cur_variant_id, '\t');
   const uint32_t max_allele_ct = pmcp->max_allele_ct;
   const uint32_t tmp_status = pmcp->tmp_status;
+  AlleleCode* allele_remap = pmcp->allele_remap;
   if (merge_rec_ct == 1) {
     SamePosPvarRecord* cur_record = same_id_records[0];
     const uint32_t read_allele_ct = cur_record->allele_ct;
@@ -3702,8 +3718,16 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
     const uint32_t ref_offset = other_field_offsets[0];
     const uint32_t alt_offset = other_field_offsets[1];
     const uint32_t qual_offset = other_field_offsets[2];
-    cswritep = memcpya(cswritep, &(cur_variant_id[ref_offset]), qual_offset - 1 - ref_offset);
-    cswritep[S_CAST(int32_t, alt_offset - qual_offset)] = '\t';
+    {
+      const char* ref_and_alt_str = &(cur_variant_id[ref_offset]);
+      const uint32_t ref_and_alt_slen = qual_offset - 1 - ref_offset;
+      cswritep = memcpya(cswritep, ref_and_alt_str, ref_and_alt_slen);
+      cswritep[S_CAST(int32_t, alt_offset - qual_offset)] = '\t';
+      // possible todo: detect missing allele codes here so we can validate
+      for (uint32_t aidx = 0; aidx != read_allele_ct; ++aidx) {
+        allele_remap[aidx] = aidx;
+      }
+    }
     if (pmcp->write_qual) {
       const uint32_t read_qual_blen = other_field_offsets[3] - qual_offset;
       if (!read_qual_blen) {
@@ -3849,7 +3873,6 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
     // 5. Merge CM.
     const uintptr_t read_max_allele_ct = pmcp->read_max_allele_ct;
     AlleleCode* allele_cts = pmcp->allele_cts_buf;
-    AlleleCode* allele_remap = pmcp->allele_remap;
     uint32_t is_pr = 0;
     uint32_t merged_info_allele_ct;
     {
