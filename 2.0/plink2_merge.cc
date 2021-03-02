@@ -2426,6 +2426,19 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, uin
           goto ScanPvarsAndMergeHeader_ret_1;
         }
         if (cur_chr_code != prev_chr_code) {
+          if (max_single_pos_ct < cur_single_pos_ct) {
+            max_single_pos_ct = cur_single_pos_ct;
+          }
+          if (max_single_pos_blen < cur_single_pos_blen) {
+            max_single_pos_blen = cur_single_pos_blen;
+          }
+          reterr = RescanOnePos(arena_top, cur_single_pos_ct, prev_chr_code, prev_bp, arena_bottom, &ctx, &nonwrite_variant_ct);
+          if (unlikely(reterr)) {
+            goto ScanPvarsAndMergeHeader_ret_1;
+          }
+          arena_bottom = arena_bottom_mark;
+          cur_single_pos_ct = 0;
+          cur_single_pos_blen = 0;
           SetBit(cur_chr_code, chr_present);
           if (prev_chr_code != UINT32_MAX) {
             // Add prev_chr_code -> cur_chr_code graph edge.
@@ -2636,6 +2649,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, uin
         cur_fileset->read_max_allele_ct = read_max_allele_ct;
         cur_fileset->write_nondoomed_max_allele_ct = ctx.write_nondoomed_max_allele_ct;
         cur_fileset->read_max_nonpass_filter_ct = read_max_nonpass_filter_ct;
+        arena_bottom = arena_bottom_mark;
         filesets_iterp = &((*filesets_iterp)->next);
       } else {
         PmergeInputFilesetLl** next_filesets_iterp = &((*filesets_iterp)->next);
