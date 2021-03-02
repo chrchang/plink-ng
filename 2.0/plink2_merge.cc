@@ -2456,22 +2456,20 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, uin
               if (max_single_pos_blen < cur_single_pos_blen) {
                 max_single_pos_blen = cur_single_pos_blen;
               }
-              // This could be the last included variant in the entire file,
-              // in which case we need to save off last_varid now.
-              const uint32_t last_varid_possibly_needed = !IsSet(cip->chr_mask, cur_chr_code);
-              if (last_varid_possibly_needed) {
-                ctx.sort_vars_ascii = (sort_vars_mode == kSortAscii);
-              }
+              // This could be the last included variant in the entire file
+              // (e.g. all remaining POS values could be -1), in which case we
+              // need to save off last_varid now.
+              ctx.sort_vars_ascii = (sort_vars_mode == kSortAscii);
               reterr = RescanOnePos(arena_top, cur_single_pos_ct, prev_chr_code, prev_bp, arena_bottom, &ctx, &nonwrite_variant_ct);
               if (unlikely(reterr)) {
                 goto ScanPvarsAndMergeHeader_ret_1;
               }
-              if (last_varid_possibly_needed) {
-                ctx.sort_vars_ascii = 1;
-                if (unlikely(ScrapeLastVarid(&ctx, arena_bottom, cur_single_pos_ct, &cur_fileset->last_varid))) {
-                  goto ScanPvarsAndMergeHeader_ret_NOMEM;
-                }
+              ctx.sort_vars_ascii = 1;
+              if (unlikely(ScrapeLastVarid(&ctx, arena_bottom, cur_single_pos_ct, &cur_fileset->last_varid))) {
+                goto ScanPvarsAndMergeHeader_ret_NOMEM;
               }
+              cur_fileset->last_chr_idx = prev_chr_code;
+              cur_fileset->last_pos = prev_bp;
             }
             arena_bottom = arena_bottom_mark;
             cur_single_pos_ct = 0;
@@ -2654,11 +2652,11 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, uin
           if (unlikely(ScrapeLastVarid(&ctx, arena_bottom, cur_single_pos_ct, &cur_fileset->last_varid))) {
             goto ScanPvarsAndMergeHeader_ret_NOMEM;
           }
+          cur_fileset->last_chr_idx = prev_chr_code;
+          cur_fileset->last_pos = prev_bp;
         }
         cur_fileset->first_chr_idx = ctx.first_chr_idx;
         cur_fileset->first_pos = ctx.first_bp;
-        cur_fileset->last_chr_idx = prev_chr_code;
-        cur_fileset->last_pos = prev_bp;
         if (max_single_pos_blen < cur_single_pos_blen) {
           max_single_pos_blen = cur_single_pos_blen;
         }
