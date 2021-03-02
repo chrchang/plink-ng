@@ -1913,9 +1913,29 @@ PglErr RescanOnePos(unsigned char* arena_top, uint32_t batch_size, uint32_t prev
   }
   memcpy(*(ctxp->first_varid_ptr), first_varid, first_id_blen);
   // Only need to natural-sort first and last positions.  We manually reset
-  // this before the last call.
+  // this before any possibly-last call.
   ctxp->sort_vars_ascii = 1;
   return kPglRetSuccess;
+}
+
+BoolErr ScrapeLastVarid(const RescanOnePosContext* ctxp, unsigned char* arena_bottom, uint32_t batch_size, char** last_varid_ptr) {
+  char* last_varid;
+  if (batch_size == 1) {
+    last_varid = ctxp->first_record->variant_id;
+  } else {
+    // See middle of RescanOnePos().  We look up the last element of the
+    // sorted_variant_ids array it created.
+    const uintptr_t bytes_to_round_up = (-R_CAST(uintptr_t, arena_bottom)) % sizeof(intptr_t);
+    char** sorted_variant_ids = R_CAST(char**, &(arena_bottom[bytes_to_round_up]));
+    last_varid = sorted_variant_ids[batch_size - 1];
+  }
+  const uint32_t last_id_blen = strlen(last_varid) + 1;
+  free_cond(*last_varid_ptr);
+  if (unlikely(pgl_malloc(last_id_blen, last_varid_ptr))) {
+    return 1;
+  }
+  memcpy(*last_varid_ptr, last_varid, last_id_blen);
+  return 0;
 }
 
 // cip->chr_file_order is filled with the final chromosome sort order.
@@ -2426,25 +2446,39 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, uin
           goto ScanPvarsAndMergeHeader_ret_1;
         }
         if (cur_chr_code != prev_chr_code) {
-          if (max_single_pos_ct < cur_single_pos_ct) {
-            max_single_pos_ct = cur_single_pos_ct;
-          }
-          if (max_single_pos_blen < cur_single_pos_blen) {
-            max_single_pos_blen = cur_single_pos_blen;
-          }
-          reterr = RescanOnePos(arena_top, cur_single_pos_ct, prev_chr_code, prev_bp, arena_bottom, &ctx, &nonwrite_variant_ct);
-          if (unlikely(reterr)) {
-            goto ScanPvarsAndMergeHeader_ret_1;
-          }
-          arena_bottom = arena_bottom_mark;
-          cur_single_pos_ct = 0;
-          cur_single_pos_blen = 0;
           SetBit(cur_chr_code, chr_present);
           if (prev_chr_code != UINT32_MAX) {
+            if (cur_single_pos_ct) {
+              // Rescan now, before clobbering prev_chr_code/prev_bp.
+              if (max_single_pos_ct < cur_single_pos_ct) {
+                max_single_pos_ct = cur_single_pos_ct;
+              }
+              if (max_single_pos_blen < cur_single_pos_blen) {
+                max_single_pos_blen = cur_single_pos_blen;
+              }
+              // This could be the last included variant in the entire file,
+              // in which case we need to save off last_varid now.
+              const uint32_t last_varid_possibly_needed = !IsSet(cip->chr_mask, cur_chr_code);
+              if (last_varid_possibly_needed) {
+                ctx.sort_vars_ascii = (sort_vars_mode == kSortAscii);
+              }
+              reterr = RescanOnePos(arena_top, cur_single_pos_ct, prev_chr_code, prev_bp, arena_bottom, &ctx, &nonwrite_variant_ct);
+              if (unlikely(reterr)) {
+                goto ScanPvarsAndMergeHeader_ret_1;
+              }
+              if (last_varid_possibly_needed) {
+                ctx.sort_vars_ascii = 1;
+                if (unlikely(ScrapeLastVarid(&ctx, arena_bottom, cur_single_pos_ct, &cur_fileset->last_varid))) {
+                  goto ScanPvarsAndMergeHeader_ret_NOMEM;
+                }
+              }
+            }
+            arena_bottom = arena_bottom_mark;
+            cur_single_pos_ct = 0;
+            cur_single_pos_blen = 0;
             // Add prev_chr_code -> cur_chr_code graph edge.
             if (!chr_outedges[prev_chr_code]) {
               ArenaEndSet(arena_top, &arena_top);
-              assert(!(R_CAST(uintptr_t, arena_bottom) % kEndAllocAlign));
               if (unlikely(arena_end_alloc_w(arena_bottom, BitCtToWordCt(kMaxContigs), &arena_top, &(chr_outedges[prev_chr_code])))) {
                 goto ScanPvarsAndMergeHeader_ret_NOMEM;
               }
@@ -2604,37 +2638,27 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, uin
         logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
         goto ScanPvarsAndMergeHeader_ret_MALFORMED_INPUT;
       }
-      if (cur_single_pos_ct) {
+      if (cur_single_pos_ct || (read_variant_ct != nonwrite_variant_ct)) {
         cur_fileset->read_variant_ct = read_variant_ct;
         cur_fileset->max_pvar_line_blen = max_line_blen;
         if (max_single_pos_ct < cur_single_pos_ct) {
           max_single_pos_ct = cur_single_pos_ct;
         }
         cur_fileset->max_single_pos_ct = max_single_pos_ct;
-        ctx.sort_vars_ascii = (sort_vars_mode == kSortAscii);
-        reterr = RescanOnePos(arena_top, cur_single_pos_ct, prev_chr_code, prev_bp, arena_bottom, &ctx, &nonwrite_variant_ct);
-        if (unlikely(reterr)) {
-          goto ScanPvarsAndMergeHeader_ret_1;
+        if (cur_single_pos_ct) {
+          ctx.sort_vars_ascii = (sort_vars_mode == kSortAscii);
+          reterr = RescanOnePos(arena_top, cur_single_pos_ct, prev_chr_code, prev_bp, arena_bottom, &ctx, &nonwrite_variant_ct);
+          if (unlikely(reterr)) {
+            goto ScanPvarsAndMergeHeader_ret_1;
+          }
+          if (unlikely(ScrapeLastVarid(&ctx, arena_bottom, cur_single_pos_ct, &cur_fileset->last_varid))) {
+            goto ScanPvarsAndMergeHeader_ret_NOMEM;
+          }
         }
         cur_fileset->first_chr_idx = ctx.first_chr_idx;
         cur_fileset->first_pos = ctx.first_bp;
         cur_fileset->last_chr_idx = prev_chr_code;
         cur_fileset->last_pos = prev_bp;
-        char* last_varid;
-        if (cur_single_pos_ct == 1) {
-          last_varid = ctx.first_record->variant_id;
-        } else {
-          // See middle of RescanOnePos().  We look up the last element of the
-          // sorted_variant_ids array it created.
-          const uintptr_t bytes_to_round_up = (-R_CAST(uintptr_t, arena_bottom)) % sizeof(intptr_t);
-          char** sorted_variant_ids = R_CAST(char**, &(arena_bottom[bytes_to_round_up]));
-          last_varid = sorted_variant_ids[cur_single_pos_ct - 1];
-        }
-        const uint32_t last_id_blen = strlen(last_varid) + 1;
-        if (unlikely(pgl_malloc(last_id_blen, &cur_fileset->last_varid))) {
-          goto ScanPvarsAndMergeHeader_ret_NOMEM;
-        }
-        memcpy(cur_fileset->last_varid, last_varid, last_id_blen);
         if (max_single_pos_blen < cur_single_pos_blen) {
           max_single_pos_blen = cur_single_pos_blen;
         }
@@ -3671,15 +3695,6 @@ typedef struct SamePosPvarRecordStruct {
   // low bit = .pgen PR flag; next bit = does .pvar have a INFO/PR field?
   unsigned char pgen_pr_status;
   char variant_id[];
-#ifdef __cplusplus
-  bool operator<(const struct SamePosPvarRecordStruct& rhs) const {
-    const int32_t strcmp_result = strcmp_overread(variant_id, rhs.variant_id);
-    if (strcmp_result) {
-      return strcmp_result < 0;
-    }
-    return secondary_key < rhs.secondary_key;
-  }
-#endif
 } SamePosPvarRecord;
 
 // returns allele_ct == 0 if allele is filtered out, otherwise at least 2
@@ -3737,10 +3752,10 @@ PglErr MergePvariant(uintptr_t merge_rec_ct, PvariantMergeContext* pmcp, SamePos
       const uint32_t ref_and_alt_slen = qual_offset - 1 - ref_offset;
       cswritep = memcpya(cswritep, ref_and_alt_str, ref_and_alt_slen);
       cswritep[S_CAST(int32_t, alt_offset - qual_offset)] = '\t';
+      // only need to initialize first two entries
       // possible todo: detect missing allele codes here so we can validate
-      for (uint32_t aidx = 0; aidx != read_allele_ct; ++aidx) {
-        allele_remap[aidx] = aidx;
-      }
+      allele_remap[0] = 0;
+      allele_remap[1] = 1;
     }
     if (pmcp->write_qual) {
       const uint32_t read_qual_blen = other_field_offsets[3] - qual_offset;
@@ -5108,16 +5123,18 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
           goto MergePgenVariantNoTmpLocked_ret_1;
         }
         // Copy to write buffers.
+        // bugfix (2 Mar 2021): did not copy enough bytes here
+        const uint32_t write_sample_ctl2 = NypCtToWordCt(write_sample_ct);
+        memcpy(mwp->genovec, read_genovec, write_sample_ctl2 * sizeof(intptr_t));
         const uint32_t write_sample_ctb = write_sample_ctl * sizeof(intptr_t);
-        memcpy(mwp->genovec, read_genovec, write_sample_ctb);
         if (write_allele_ct > 2) {
-          if ((read_allele_ct > 2) && pgvp->patch_01_ct) {
+          if (pgvp->patch_01_ct) {
             memcpy(mwp->patch_01_set, pgvp->patch_01_set, write_sample_ctb);
             Update8bitDenseFromSparse(pgvp->patch_01_set, pgvp->patch_01_vals, pgvp->patch_01_ct, mwp->patch_01_vals);
           } else {
             ZeroWArr(write_sample_ctl, mwp->patch_01_set);
           }
-          if ((read_allele_ct > 2) && pgvp->patch_10_ct) {
+          if (pgvp->patch_10_ct) {
             memcpy(mwp->patch_10_set, pgvp->patch_10_set, write_sample_ctb);
             Update16bitDenseFromSparse(pgvp->patch_10_set, pgvp->patch_10_vals, pgvp->patch_10_ct, mwp->patch_10_vals);
           } else {
@@ -5432,6 +5449,7 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
         dphase_dense = mwp->dphase_delta;
       }
     }
+    const uint32_t write_sample_ctl2 = NypCtToWordCt(write_sample_ct);
     for (uintptr_t rec_idx = simple_first_allele_remap; rec_idx != merge_rec_ct; ++rec_idx) {
       const uint32_t file_idx = same_id_records[rec_idx]->secondary_key >> 32;
       MergeReader* cur_mrp = mrp_arr[file_idx];
@@ -5571,7 +5589,7 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
         memcpy(compare_mask, mwp->unlocked_nonmissing_sample_span, write_sample_ctl * sizeof(intptr_t));
         uintptr_t* orig_genovec = pgvp->genovec;
         uintptr_t* r_genovec = compare_pgvp->genovec;
-        ZeroWArr(write_sample_ctl, r_genovec);
+        ZeroWArr(write_sample_ctl2, r_genovec);
         const uint32_t* old_sample_idx_to_new = cur_mrp->old_sample_idx_to_new;
         const uint32_t read_sample_ctl2 = NypCtToWordCt(read_sample_ct);
         for (uint32_t widx = 0; widx != read_sample_ctl2; ++widx) {
@@ -5591,7 +5609,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
           } while (geno_word);
         }
         Halfword* compare_mask_hwalias = R_CAST(Halfword*, compare_mask);
-        const uint32_t write_sample_ctl2 = NypCtToWordCt(write_sample_ct);
         for (uint32_t widx = 0; widx != write_sample_ctl2; ++widx) {
           Halfword compare_mask_hw = compare_mask_hwalias[widx];
           if (!compare_mask_hw) {
@@ -5857,7 +5874,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
     }
     if (merge_mode == kMergeModeNmMatch) {
       const Halfword* unlocked_set_hwalias = R_CAST(Halfword*, unlocked_set);
-      const uint32_t write_sample_ctl2 = NypCtToWordCt(write_sample_ct);
       for (uint32_t widx = 0; widx != write_sample_ctl2; ++widx) {
         const Halfword locked_hw = ~unlocked_set_hwalias[widx];
         if (!locked_hw) {
@@ -5944,19 +5960,28 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
 
 // TODO: --merge-mode 'first'/'nm-match' + intermediate-file support
 
-typedef struct SamePosPvarRecordNsorterStruct {
-  uint32_t other_field_offsets[6];
-  uint64_t secondary_key;
-  AlleleCode allele_ct;
-  unsigned char pgen_pr_status;
-  char variant_id[];
+typedef struct SamePosPvarRecordAsorterStruct {
+  SamePosPvarRecord* pp;
 #ifdef __cplusplus
-  bool operator<(const struct SamePosPvarRecordNsorterStruct& rhs) const {
-    const int32_t strcmp_result = strcmp_natural_uncasted(variant_id, rhs.variant_id);
+  bool operator<(const struct SamePosPvarRecordAsorterStruct& rhs) const {
+    const int32_t strcmp_result = strcmp_overread(pp->variant_id, rhs.pp->variant_id);
     if (strcmp_result) {
       return strcmp_result < 0;
     }
-    return secondary_key < rhs.secondary_key;
+    return pp->secondary_key < rhs.pp->secondary_key;
+  }
+#endif
+} SamePosPvarRecordAsorter;
+
+typedef struct SamePosPvarRecordNsorterStruct {
+  SamePosPvarRecord* pp;
+#ifdef __cplusplus
+  bool operator<(const struct SamePosPvarRecordNsorterStruct& rhs) const {
+    const int32_t strcmp_result = strcmp_natural_uncasted(pp->variant_id, rhs.pp->variant_id);
+    if (strcmp_result) {
+      return strcmp_result < 0;
+    }
+    return pp->secondary_key < rhs.pp->secondary_key;
   }
 #endif
 } SamePosPvarRecordNsorter;
@@ -5994,9 +6019,10 @@ PglErr ConcatPvariantPos(int32_t cur_bp, uintptr_t variant_ct, PvariantPosMergeC
     return kPglRetSuccess;
   }
   if (ppmcp->sort_vars_mode == kSortAscii) {
-    STD_SORT(variant_ct, SamePosPvarRecordCmp, same_pos_records);
+    SamePosPvarRecordAsorter* asorter = R_CAST(SamePosPvarRecordAsorter*, same_pos_records);
+    STD_SORT(variant_ct, SamePosPvarRecordCmp, asorter);
   } else {
-    SamePosPvarRecordNsorter** nsorter = R_CAST(SamePosPvarRecordNsorter**, same_pos_records);
+    SamePosPvarRecordNsorter* nsorter = R_CAST(SamePosPvarRecordNsorter*, same_pos_records);
     STD_SORT(variant_ct, SamePosPvarRecordNcmp, nsorter);
   }
   ppmcp->pmc.cur_bp = cur_bp;
