@@ -1,3 +1,6 @@
+The Python/ subdirectory includes a basic Python .pgen read/write library, and
+the pgenlibr/ subdirectory includes a basic R .pgen reader.
+
 The include/ subdirectory contains two (LGPL3-licensed) major libraries, while
 the immediate directory contains the PLINK 2.0 application built on top of
 them.  These are carefully written to be valid C99 (from gcc and clang's
