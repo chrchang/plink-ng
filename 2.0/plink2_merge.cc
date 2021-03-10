@@ -6334,6 +6334,14 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
       uintptr_t cur_alloc_cacheline_ct;
       reterr = PgfiInitPhase1(read_pgen_fname, read_variant_ct, read_sample_ct, 0, &header_ctrl, &pgfi, &cur_alloc_cacheline_ct, g_logbuf);
       if (unlikely(reterr)) {
+        if (reterr == kPglRetInconsistentInput) {
+          // .pgen was not checked for consistency with .pvar on the first
+          // pass.
+          logputs("\n");
+          WordWrapB(0);
+          logerrputsb();
+          goto PmergeConcat_ret_1;
+        }
         goto PmergeConcat_ret_PGEN_REWIND_FAIL_N;
       }
       unsigned char* pgfi_alloc;
