@@ -105,7 +105,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (25 Feb 2021)";
+  " (24 Mar 2021)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -3786,6 +3786,12 @@ int32_t main(int32_t argc, char** argv) {
 	  break;
 	}
 	goto main_flag_copy;
+      case 'p':
+        if (!strcmp(argptr, "pedmap")) {
+          memcpy(flagptr, "file", 5);
+          break;
+        }
+        goto main_flag_copy;
       case 'r':
 	if ((ukk >= 8) && (!memcmp(argptr, "recode", 6))) {
 	  ujj = 0; // alias match?
