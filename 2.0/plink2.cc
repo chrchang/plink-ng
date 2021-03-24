@@ -71,10 +71,10 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (9 Mar 2021)";
+  " (23 Mar 2021)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -10760,7 +10760,7 @@ int main(int argc, char** argv) {
         pc.misc_flags &= ~kfMiscRealRefAlleles;
       }
 
-      if ((pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Validate | kfCommand1WriteSnplist | kfCommand1WriteCovar | kfCommand1WriteSamples))) || ((pc.command_flags1 & kfCommand1MakePlink2) && (pc.sort_vars_mode > kSortNone))) {
+      if ((pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Validate | kfCommand1WriteSnplist | kfCommand1WriteCovar | kfCommand1WriteSamples))) || ((pc.command_flags1 & kfCommand1MakePlink2) && (pc.sort_vars_mode <= kSortNone))) {
         // split-chromosome prohibited for all commands unless explicitly
         // permitted here
         pc.dependency_flags |= kfFilterNoSplitChr;

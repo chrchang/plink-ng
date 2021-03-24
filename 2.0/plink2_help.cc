@@ -1311,8 +1311,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      scoresums: Score sums.\n"
 "    The default is maybefid,maybesid,phenos,nallele,dosagesum,scoreavgs.\n"
 "    For more sophisticated polygenic risk scoring, we recommend looking at the\n"
-"    LDpred (https://github.com/bvilhjal/ldpred ) and PRSice-2\n"
-"    (https://www.prsice.info/ ) software packages.\n\n"
+"    LDpred2 (https://privefl.github.io/bigsnpr/articles/LDpred2.html ) and\n"
+"    PRSice-2 (https://www.prsice.info/ ) software packages.\n\n"
                );
     HelpPrint("variant-score\0vscore\0", &help_ctrl, 1,
 "  --variant-score <filename> ['bin' | 'bin4' | 'cols='<col set descriptor>]\n"
@@ -1715,9 +1715,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    Linearly transform named covariates (and quantitative phenotypes, if\n"
 "    --variance-standardize) to mean-zero, variance 1.  If no arguments are\n"
 "    provided, all possible phenotypes/covariates are affected.\n"
-"    This is frequently necessary to prevent multicollinearity when dealing with\n"
-"    covariates where abs(mean) is much larger than abs(standard deviation),\n"
-"    such as year of birth.\n"
+"    This is frequently necessary to prevent the multicollinearity check from\n"
+"    failing when dealing with covariates where abs(mean) is much larger than\n"
+"    the standard deviation, such as year of birth.\n"
 "  --quantile-normalize [...]       : Force named covariates and quantitative\n"
 "  --pheno-quantile-normalize [...]   phenotypes to a N(0,1) distribution,\n"
 "  --covar-quantile-normalize [...]   preserving only the original rank orders.\n"

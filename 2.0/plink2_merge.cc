@@ -5985,9 +5985,9 @@ typedef struct SamePosPvarRecordNsorterStruct {
 } SamePosPvarRecordNsorter;
 
 #ifndef __cplusplus
-int32_t SamePosPvarRecordCmp(const void* r1, const void* r2) {
-  const SamePosPvarRecord* rec1 = *S_CAST(const SamePosPvarRecord**, r1);
-  const SamePosPvarRecord* rec2 = *S_CAST(const SamePosPvarRecord**, r2);
+int32_t SamePosPvarRecordAcmp(const void* r1, const void* r2) {
+  const SamePosPvarRecord* rec1 = S_CAST(const SamePosPvarRecordAsorter*, r1)->pp;
+  const SamePosPvarRecord* rec2 = S_CAST(const SamePosPvarRecordAsorter*, r2)->pp;
   const int32_t strcmp_result = strcmp_overread(rec1->variant_id, rec2->variant_id);
   if (strcmp_result) {
     return strcmp_result;
@@ -5999,8 +5999,8 @@ int32_t SamePosPvarRecordCmp(const void* r1, const void* r2) {
 }
 
 int32_t SamePosPvarRecordNcmp(const void* r1, const void* r2) {
-  const SamePosPvarRecordNsorter* rec1 = *S_CAST(const SamePosPvarRecordNsorter**, r1);
-  const SamePosPvarRecordNsorter* rec2 = *S_CAST(const SamePosPvarRecordNsorter**, r2);
+  const SamePosPvarRecord* rec1 = S_CAST(const SamePosPvarRecordNsorter*, r1)->pp;
+  const SamePosPvarRecord* rec2 = S_CAST(const SamePosPvarRecordNsorter*, r2)->pp;
   const int32_t strcmp_result = strcmp_natural_uncasted(rec1->variant_id, rec2->variant_id);
   if (strcmp_result) {
     return strcmp_result;
@@ -6018,7 +6018,7 @@ PglErr ConcatPvariantPos(int32_t cur_bp, uintptr_t variant_ct, PvariantPosMergeC
   }
   if (ppmcp->sort_vars_mode == kSortAscii) {
     SamePosPvarRecordAsorter* asorter = R_CAST(SamePosPvarRecordAsorter*, same_pos_records);
-    STD_SORT(variant_ct, SamePosPvarRecordCmp, asorter);
+    STD_SORT(variant_ct, SamePosPvarRecordAcmp, asorter);
   } else {
     SamePosPvarRecordNsorter* nsorter = R_CAST(SamePosPvarRecordNsorter*, same_pos_records);
     STD_SORT(variant_ct, SamePosPvarRecordNcmp, nsorter);
