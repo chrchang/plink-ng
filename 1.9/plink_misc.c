@@ -2235,6 +2235,7 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
   uint32_t colid_first = (axalleles->colid < axalleles->colx);
   uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uintptr_t max_marker_allele_len = *max_marker_allele_len_ptr;
+  uint32_t mismatch_ct = 0;
   uintptr_t* already_seen;
   char* loadbuf;
   char* colid_ptr;
@@ -2350,13 +2351,18 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
     } else {
       colid_ptr[idlen] = '\0';
       LOGERRPRINTF("Warning: Impossible A%c allele assignment for variant %s.\n", is_a2? '2' : '1', colid_ptr);
+      ++mismatch_ct;
     }
   }
   if (!feof(infile)) {
     goto load_ax_alleles_ret_READ_FAIL;
   }
   marker_uidx = popcount_longs(already_seen, unfiltered_marker_ctl);
-  LOGPRINTF("--a%c-allele: %u assignment%s made.\n", is_a2? '2' : '1', marker_uidx, (marker_uidx == 1)? "" : "s");
+  if (!mismatch_ct) {
+    LOGPRINTF("--a%c-allele: %u assignment%s made.\n", is_a2? '2' : '1', marker_uidx, (marker_uidx == 1)? "" : "s");
+  } else {
+    LOGPRINTF("--a%c-allele: %u assignment%s attempted, %u made.\n", is_a2? '2' : '1', marker_uidx, (marker_uidx == 1)? "" : "s", marker_uidx - mismatch_ct);
+  }
   *max_marker_allele_len_ptr = max_marker_allele_len;
   while (0) {
   load_ax_alleles_ret_NOMEM:
