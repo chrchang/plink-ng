@@ -6489,7 +6489,8 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
           col_types[3] = 2;
           const char* sixth_col_start = NextTokenMult(line_start, 5);
           if (sixth_col_start) {
-            col_types[1] = 2;
+            // bugfix (25 Mar 2021)
+            col_skips[1] = 2;
           }
         } else {
           relevant_postchr_col_ct = 5;
