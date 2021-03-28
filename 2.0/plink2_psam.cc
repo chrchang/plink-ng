@@ -787,9 +787,10 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     if (fid_present) {
       piip->sii.flags |= kfSampleIdFidPresent;
     }
-    // special case: if there's exactly one phenotype and it's all-missing,
-    // discard it
-    if ((pheno_ct == 1) && (!PopcountWords(pheno_cols[0].nonmiss, raw_sample_ctl))) {
+    // special case: if there's exactly one phenotype, it has the default name,
+    // and it's all-missing, discard it.  This removes forced .fam-derived and
+    // similar phenotype columns, and is unlikely to break anything else.
+    if ((pheno_ct == 1) && (!strcmp(*pheno_names_ptr, "PHENO1")) && (!PopcountWords(pheno_cols[0].nonmiss, raw_sample_ctl))) {
       free(*pheno_names_ptr);
       *pheno_names_ptr = nullptr;
       CleanupPhenoCols(1, pheno_cols);

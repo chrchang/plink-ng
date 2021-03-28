@@ -6451,10 +6451,16 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
         y_variant_ct = CountChrVariantsUnsafe(variant_include, cip, y_code);
       }
       uintptr_t haploid_mask_lowbit = cip->haploid_mask[0] & 1;
-      if (male_ct) {
-        uint32_t x_code;
-        if ((!haploid_mask_lowbit) && XymtExists(cip, kChrOffsetX, &x_code)) {
+      // bugfix (28 Mar 2021): if chrX is present, no autosomal diploid
+      // chromosomes are present, and there are no males, we need to set the
+      // low bit of chr_types and increment diploid_chr_type_ct.
+      uint32_t x_code;
+      if ((!haploid_mask_lowbit) && XymtExists(cip, kChrOffsetX, &x_code)) {
+        if (male_ct) {
           chr_types |= 2;
+          ++diploid_chr_type_ct;
+        } else if (!chr_types) {
+          chr_types = 1;
           ++diploid_chr_type_ct;
         }
       }
