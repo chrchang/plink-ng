@@ -3233,7 +3233,14 @@ void fepi_counts_to_joint_effects_stats(uint32_t group_ct, uint32_t* counts, dou
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
-  tot_inv_v[0] = 0.0;  // gcc7 maybe-uninitialized warning
+  /* As of 2021-04-04, group_ct only takes 1 or 2., but the compiler is failing to notice, generating 'maybe-uninitialized' warnings.
+   * This assertion makes the compiler aware, thereby removing those maybe-uninitialized' warnings.*/
+  if (group_ct != 1 && group_ct != 2) {
+    /* Shouldn't be here. */
+    logerrprint("Error: Unexpected value of 'group_co'.\n");
+    exit(1);
+  }
+
   dptr = dcounts;
   if (counts[0] && counts[1] && counts[2] && counts[3] && counts[4] && counts[5] && counts[6] && counts[7] && counts[8] && ((group_ct == 1) || (counts[9] && counts[10] && counts[11] && counts[12] && counts[13] && counts[14] && counts[15] && counts[16] && counts[17]))) {
     for (uii = 0; uii < group_ct; uii++) {
