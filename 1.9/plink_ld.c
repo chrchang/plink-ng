@@ -3237,7 +3237,7 @@ void fepi_counts_to_joint_effects_stats(uint32_t group_ct, uint32_t* counts, dou
    * This assertion makes the compiler aware, thereby removing those maybe-uninitialized' warnings.*/
   if (group_ct != 1 && group_ct != 2) {
     /* Shouldn't be here. */
-    logerrprint("Error: Unexpected value of 'group_co'.\n");
+    logerrprint("Error: Unexpected value of 'group_ct'.\n");
     exit(1);
   }
 
