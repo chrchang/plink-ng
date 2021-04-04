@@ -6857,7 +6857,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(g_logbuf, "Error: Invalid --flip-scan-window size '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
-      } else if (!memcmp(argptr2, "lip-scan-window-kb", 22)) {
+      } else if (!memcmp(argptr2, "lip-scan-window-kb", 19)) {
         if (!(calculation_type & CALC_FLIPSCAN)) {
 	  logerrprint("Error: --flip-scan-window-kb must be used with --flip-scan.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -10763,7 +10763,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-      } else if (!memcmp(argptr2, "ead-genome-list", 19)) {
+      } else if (!memcmp(argptr2, "ead-genome-list", 16)) {
 	logerrprint("Error: --read-genome-list flag retired.  Use --parallel + Unix cat instead.\n");
 	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "ead-genome-minimal", 19)) {
