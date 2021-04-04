@@ -7845,7 +7845,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       }
       for (param_idx = 1; param_idx < param_ct; param_idx++) {
 	wptr = strcpya(&(outname_end[1]), &(param_names[param_idx * max_param_name_len]));
-	memcpy(wptr, ".mperm.dump.all", 17);
+	memcpy(wptr, ".mperm.dump.all", 16);
 	if (fopen_checked(outname, "w", &outfile)) {
 	  goto glm_linear_nosnp_ret_OPEN_FAIL;
 	}
@@ -8630,7 +8630,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       }
       for (param_idx = 1; param_idx < param_ct; param_idx++) {
 	wptr = strcpya(&(outname_end[1]), &(param_names[param_idx * max_param_name_len]));
-	memcpy(wptr, ".mperm.dump.all", 17);
+	memcpy(wptr, ".mperm.dump.all", 16);
 	if (fopen_checked(outname, "w", &outfile)) {
 	  goto glm_logistic_nosnp_ret_OPEN_FAIL;
 	}
