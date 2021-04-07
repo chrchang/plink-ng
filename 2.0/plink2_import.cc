@@ -9199,7 +9199,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
       } else if (col_type_char == 'B') {
         at_least_one_binary_pheno = 1;
         cur_col_type = kOxSampleColBinary;
-      } else if (col_type_char == 'P') {
+      } else if ((col_type_char == 'C') || (col_type_char == 'P')) {
         cur_col_type = kOxSampleColQuantitative;
       } else if (likely(col_type_char == '0')) {
         ++initial_skip_col_ct;
