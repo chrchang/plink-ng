@@ -4383,7 +4383,9 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
               ZeromovFArr(nm_sample_ct_rem, &nm_predictors_pmaj_iter);
             }
             nm_predictors_pmaj_istart = nm_predictors_pmaj_iter;
-            prev_nm = !missing_ct;
+            // bugfix (13 Apr 2021): if local covariates are present, we can't
+            // optimize as aggressively
+            prev_nm = !(missing_ct || local_covar_ct);
           } else {
             // bugfix (15 Aug 2018): this was not handling --parameters
             // correctly when a covariate was only needed as part of an
@@ -7436,7 +7438,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
                 }
               }
               nm_predictors_pmaj_istart = nm_predictors_pmaj_iter;
-              prev_nm = !missing_ct;
+              prev_nm = !(missing_ct || local_covar_ct);
             } else {
               // bugfix (15 Aug 2018): this was not handling --parameters
               // correctly when a covariate was only needed as part of an
@@ -9504,7 +9506,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
                 }
               }
               nm_predictors_pmaj_istart = nm_predictors_pmaj_iter;
-              prev_nm = !missing_ct;
+              prev_nm = !(missing_ct || local_covar_ct);
             } else {
               // bugfix (15 Aug 2018): this was not handling --parameters
               // correctly when a covariate was only needed as part of an

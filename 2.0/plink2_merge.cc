@@ -6210,7 +6210,8 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
 
     ppmc.write_variant_ct = write_variant_ct;
     if (write_max_allele_ct > 2) {
-      if (bigstack_alloc_w(write_variant_ct, &ppmc.write_allele_idx_offsets)) {
+      // bugfix (13 Apr 2021): forgot +1
+      if (bigstack_alloc_w(write_variant_ct + 1, &ppmc.write_allele_idx_offsets)) {
         goto PmergeConcat_ret_NOMEM;
       }
       ppmc.write_allele_idx_offsets[0] = 0;
