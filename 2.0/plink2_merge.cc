@@ -6645,7 +6645,10 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
       if (unlikely(reterr)) {
         goto PmergeConcat_ret_N;
       }
-      if (unlikely(CleanupTextStream2(read_pvar_fname, &pvar_txs, &reterr))) {
+      // bugfix (14 Apr 2021): forgot to close .pgen
+      if (unlikely(CleanupTextStream2(read_pvar_fname, &pvar_txs, &reterr) ||
+                   CleanupPgr2(read_pgen_fname, &mr.pgr, &reterr) ||
+                   CleanupPgfi2(read_pgen_fname, &pgfi, &reterr))) {
         goto PmergeConcat_ret_N;
       }
     }
