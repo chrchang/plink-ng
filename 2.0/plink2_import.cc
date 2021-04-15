@@ -13843,6 +13843,14 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     }
     reterr = InitTextStream(hapsname, max_line_blen, ClipU32(max_thread_ct - 1, 1, 4), &haps_txs);
     if (unlikely(reterr)) {
+      if (reterr == kPglRetOpenFail) {
+        const uint32_t slen = strlen(hapsname);
+        if ((!StrEndsWith(hapsname, ".haps", slen)) &&
+            (!StrEndsWith(hapsname, ".haps.gz", slen))) {
+          logerrprintfww("Error: Failed to open %s : %s. (--haps expects a complete filename; did you forget '.haps' at the end?)\n", hapsname, strerror(errno));
+          goto OxHapslegendToPgen_ret_1;
+        }
+      }
       goto OxHapslegendToPgen_ret_TSTREAM_FAIL_HAPS;
     }
     unsigned char* bigstack_mark2 = g_bigstack_base;
@@ -13926,6 +13934,13 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       }
       reterr = InitTextStream(legendname, max_line_blen, 1, &legend_txs);
       if (unlikely(reterr)) {
+        if (reterr == kPglRetOpenFail) {
+          const uint32_t slen = strlen(legendname);
+          if (!StrEndsWith(legendname, ".legend", slen)) {
+            logerrprintfww("Error: Failed to open %s : %s. (--legend expects a complete filename; did you forget '.legend' at the end?)\n", legendname, strerror(errno));
+            goto OxHapslegendToPgen_ret_1;
+          }
+        }
         goto OxHapslegendToPgen_ret_TSTREAM_FAIL_LEGEND;
       }
       ++line_idx_legend;
