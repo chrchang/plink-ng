@@ -13926,7 +13926,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       }
       reterr = InitTextStream(legendname, max_line_blen, 1, &legend_txs);
       if (unlikely(reterr)) {
-        goto OxHapslegendToPgen_ret_1;
+        goto OxHapslegendToPgen_ret_TSTREAM_FAIL_LEGEND;
       }
       ++line_idx_legend;
       char* legend_line_start = TextGet(&legend_txs);
