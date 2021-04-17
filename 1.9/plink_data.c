@@ -3974,6 +3974,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   uint32_t is_randomized = (hard_call_threshold == -1);
   uint32_t bgen_hardthresh = 0;
   uint32_t marker_ct = 0;
+  uint32_t is_v2 = 0;
   int32_t retval = 0;
   uint32_t uint_arr[5];
   char missing_pheno_str[12];
@@ -4007,6 +4008,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   uint32_t bgen_compressed;
   uint32_t bgen_multichar_alleles;
   uint32_t identical_alleles;
+  uint32_t first_gen_line;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
@@ -4341,6 +4343,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
       }
       loadbuf[loadbuf_size - 1] = ' ';
       line_idx = 0;
+      first_gen_line = 1;
       while (1) {
 	line_idx++;
 	if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
@@ -4360,6 +4363,17 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	if (is_eoln_kns(*loadbuf_first_token)) {
 	  continue;
 	}
+        if (first_gen_line) {
+          const uint32_t token_ct = count_tokens(loadbuf_first_token);
+          const uint32_t expected_v2_token_ct = 3 * sample_ct + 6;
+          if (token_ct == expected_v2_token_ct) {
+            is_v2 = 1;
+          } else if (token_ct != expected_v2_token_ct - 1) {
+            LOGERRPRINTFWW("Error: Unexpected number of columns in .gen file (%u or %u expected).\n", expected_v2_token_ct - 1, expected_v2_token_ct);
+            goto oxford_to_bed_ret_INVALID_FORMAT;
+          }
+          first_gen_line = 0;
+        }
         char* first_token_end = token_endnn(loadbuf_first_token);
 	if (!single_chr) {
           const uint32_t chrom_name_slen = (uintptr_t)(first_token_end - loadbuf_first_token);
@@ -4378,18 +4392,23 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
           *first_token_end = ' ';
 	}
 	fill_ulong_zero(sample_ctl2, writebuf);
+        bufptr = skip_initial_spaces(first_token_end);
+        // write chromosome code
 	if (single_chr) {
 	  fputs(single_chr, outfile_bim);
 	  putc_unlocked(' ', outfile_bim);
-	  bufptr = next_token(first_token_end);
-	  bufptr2 = next_token(bufptr);
 	} else {
-	  bufptr = loadbuf_first_token;
-	  bufptr2 = next_token(skip_initial_spaces(first_token_end));
+          fwrite(loadbuf_first_token, 1, bufptr - loadbuf_first_token, outfile_bim);
 	}
+        if (is_v2) {
+          // skip SNP ID
+          bufptr = next_token(bufptr);
+        }
+        bufptr2 = next_token(bufptr);
 	if (!bufptr2) {
 	  goto oxford_to_bed_ret_MISSING_TOKENS_GEN;
 	}
+        // rsID
 	fwrite(bufptr, 1, bufptr2 - bufptr, outfile_bim);
 	putc_unlocked('0', outfile_bim);
 	if (putc_checked(' ', outfile_bim)) {
