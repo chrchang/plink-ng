@@ -71,7 +71,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (15 Apr 2021)";
+  " (16 Apr 2021)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -2892,8 +2892,6 @@ uint32_t CmdlineSingleChr(const ChrInfo* cip, MiscFlags misc_flags) {
 }
 
 void GetExportfTargets(const char* const* argvk, uint32_t param_ct, ExportfFlags* exportf_flags_ptr, IdpasteFlags* exportf_id_paste_ptr, uint64_t* format_param_idxs_ptr) {
-  // does not error out if no format present, since this is needed for --recode
-  // translation
   // supports multiple formats
   uint64_t format_param_idxs = 0;
   for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
@@ -2992,7 +2990,9 @@ void GetExportfTargets(const char* const* argvk, uint32_t param_ct, ExportfFlags
       }
     case 'o':
       if (!strcmp(cur_modif2, "xford")) {
-        cur_format = kfExportfOxGen;
+        cur_format = kfExportfOxGenV1;
+      } else if (!strcmp(cur_modif2, "xford-v2")) {
+        cur_format = kfExportfOxGenV2;
       }
       break;
     case 'p':
@@ -3022,7 +3022,7 @@ void GetExportfTargets(const char* const* argvk, uint32_t param_ct, ExportfFlags
         } else if (!strcmp(&(cur_modif2[2]), "-4.2")) {
           cur_format = kfExportfVcf42;
         } else if ((!strcmp(&(cur_modif2[2]), "-fid")) || (!strcmp(&(cur_modif2[2]), "-iid"))) {
-          snprintf(g_logbuf, kLogbufSize, "Note: --export 'v%s' modifier is deprecated.  Use 'vcf' + 'id-paste=%s'.\n", cur_modif2, &(cur_modif2[3]));
+          logprintf("Note: --export 'v%s' modifier is deprecated.  Use 'vcf' + 'id-paste=%s'.\n", cur_modif2, &(cur_modif2[3]));
           cur_format = kfExportfVcf43;
           *exportf_id_paste_ptr = (cur_modif2[3] == 'f')? kfIdpasteFid : kfIdpasteIid;
         }
@@ -3451,21 +3451,9 @@ int main(int argc, char** argv) {
           break;
         case 'r':
           if (strequal_k(flagname_p, "recode", flag_slen)) {
-            // special case: translate to "export ped" if no format specified
-            const uint32_t param_ct = GetParamCt(argvk, argc, arg_idx);
-            if (unlikely(param_ct > 4)) {
-              fputs("Error: --recode accepts at most 4 arguments.\n", stderr);
-              goto main_ret_INVALID_CMDLINE;
-            }
-            ExportfFlags dummy;
-            IdpasteFlags dummy2;
-            uint64_t format_param_idxs;
-            GetExportfTargets(&(argvk[arg_idx]), param_ct, &dummy, &dummy2, &format_param_idxs);
-            if (!format_param_idxs) {
-              snprintf(flagname_write_iter, kMaxFlagBlen, "export ped");
-            } else {
-              snprintf(flagname_write_iter, kMaxFlagBlen, "export");
-            }
+            // don't bother translating no-modifier --recode to "--export ped",
+            // just let it fail
+            snprintf(flagname_write_iter, kMaxFlagBlen, "export");
           } else if (strequal_k(flagname_p, "remove-founders", flag_slen)) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "keep-founders");
           } else if (strequal_k(flagname_p, "remove-nonfounders", flag_slen)) {
@@ -4666,21 +4654,16 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPvarReq;
-        } else if (strequal_k_unsafe(flagname_p2, "xport") || strequal_k_unsafe(flagname_p2, "xport ped")) {
+        } else if (strequal_k_unsafe(flagname_p2, "xport")) {
           // todo: determine actual limit
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 50))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint64_t format_param_idxs = 0;
-          if (!flagname_p2[5]) {
-            GetExportfTargets(&(argvk[arg_idx]), param_ct, &pc.exportf_info.flags, &pc.exportf_info.idpaste_flags, &format_param_idxs);
-            if (unlikely(!format_param_idxs)) {
-              logerrputs("Error: --export requires at least one output format.  (Did you forget 'ped' or\n'vcf'?)\n");
-              goto main_ret_INVALID_CMDLINE_A;
-            }
-            logputsb();
-          } else {
-            pc.exportf_info.flags = kfExportfPed;
+          GetExportfTargets(&(argvk[arg_idx]), param_ct, &pc.exportf_info.flags, &pc.exportf_info.idpaste_flags, &format_param_idxs);
+          if (unlikely(!format_param_idxs)) {
+            logerrputs("Error: --export requires at least one output format.  (Did you forget 'ped' or\n'vcf'?)\n");
+            goto main_ret_INVALID_CMDLINE_A;
           }
           // can't have e.g. bgen-1.1 and bgen-1.2 simultaneously, since they
           // have the same extension and different content.
@@ -4695,6 +4678,10 @@ int main(int argc, char** argv) {
           }
           if (unlikely((pc.exportf_info.flags & (kfExportfA | kfExportfAD)) == (kfExportfA | kfExportfAD))) {
             logerrputs("Error: 'A' and 'AD' formats cannot be exported simultaneously.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely((pc.exportf_info.flags & (kfExportfOxGenV1 | kfExportfOxGenV2)) == (kfExportfOxGenV1 | kfExportfOxGenV2))) {
+            logerrputs("Error: 'oxford' and 'oxford-v2' formats cannot be exported simultaneously.\n");
             goto main_ret_INVALID_CMDLINE;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {

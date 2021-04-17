@@ -964,6 +964,7 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
       }
     }
     const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
+    const uint32_t is_v2 = (exportf_flags / kfExportfOxGenV2) & 1;
     // if no dosages, all genotypes are 6 bytes (missing = " 0 0 0")
     // with dosages, we print up to 5 digits past the decimal point, so 7 bytes
     //   + space for each number, 24 bytes max
@@ -971,7 +972,7 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
     char* chr_buf;  // includes trailing space
     char* writebuf;
     if (unlikely(bigstack_alloc_c(max_chr_blen, &chr_buf) ||
-                 bigstack_alloc_c(kMaxMediumLine + max_chr_blen + kMaxIdSlen + 16 + 2 * max_allele_slen + max_geno_slen * sample_ct, &writebuf))) {
+                 bigstack_alloc_c(kMaxMediumLine + max_chr_blen + (kMaxIdSlen << is_v2) + 16 + 2 * max_allele_slen + max_geno_slen * sample_ct, &writebuf))) {
       goto ExportOxGen_ret_NOMEM;
     }
     {
@@ -1035,7 +1036,12 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
         is_y = (chr_idx == y_code);
       }
       write_iter = memcpya(write_iter, chr_buf, chr_blen);
-      write_iter = strcpyax(write_iter, variant_ids[variant_uidx], ' ');
+      const char* variant_id = variant_ids[variant_uidx];
+      const uint32_t variant_id_slen = strlen(variant_id);
+      write_iter = memcpyax(write_iter, variant_id, variant_id_slen, ' ');
+      if (is_v2) {
+        write_iter = memcpyax(write_iter, variant_id, variant_id_slen, ' ');
+      }
       write_iter = u32toa_x(variant_bps[variant_uidx], ' ', write_iter);
       uintptr_t allele_idx_offset_base = variant_uidx * 2;
       if (allele_idx_offsets) {

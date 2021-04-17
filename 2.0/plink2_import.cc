@@ -9888,12 +9888,38 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
     uintptr_t variant_skip_ct = 0;
     char* line_iter = TextLineEnd(&gen_txs);
     ++line_idx;
+    if (unlikely(!TextGetUnsafe2(&gen_txs, &line_iter))) {
+      if (TextStreamErrcode2(&gen_txs, &reterr)) {
+        goto OxGenToPgen_ret_TSTREAM_FAIL;
+      }
+      logerrputs("Error: Empty .gen file.\n");
+      goto OxGenToPgen_ret_INCONSISTENT_INPUT;
+    }
+    uint32_t is_v2 = 0;
+    {
+      const uint32_t token_ct = CountTokens(line_iter);
+      const uint32_t expected_v2_token_ct = 3 * sample_ct + 6;
+      if (token_ct == expected_v2_token_ct) {
+        is_v2 = 1;
+      } else if (unlikely(token_ct != expected_v2_token_ct - 1)) {
+        logerrprintf("Error: Unexpected number of columns in .gen file (%u or %u expected).\n", expected_v2_token_ct - 1, expected_v2_token_ct);
+        goto OxGenToPgen_ret_INCONSISTENT_INPUT;
+      }
+    }
+    goto OxGenToPgen_loop_start;
     for (; TextGetUnsafe2(&gen_txs, &line_iter); ++line_idx) {
+    OxGenToPgen_loop_start:
       char* chr_code_str = line_iter;
       char* chr_code_end = CurTokenEnd(chr_code_str);
       const char* variant_id_str = FirstNonTspace(chr_code_end);
       if (unlikely(IsEolnKns(*variant_id_str))) {
         goto OxGenToPgen_ret_MISSING_TOKENS;
+      }
+      if (is_v2) {
+        variant_id_str = FirstNonTspace(CurTokenEnd(variant_id_str));
+        if (unlikely(IsEolnKns(*variant_id_str))) {
+          goto OxGenToPgen_ret_MISSING_TOKENS;
+        }
       }
 
       if (!single_chr_str) {
@@ -10055,10 +10081,6 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
       goto OxGenToPgen_ret_WRITE_FAIL;
     }
     if (unlikely(!variant_ct)) {
-      if (!variant_skip_ct) {
-        logerrputs("Error: Empty .gen file.\n");
-        goto OxGenToPgen_ret_INCONSISTENT_INPUT;
-      }
       logerrprintfww("Error: All %" PRIuPTR " variant%s in .gen file skipped due to chromosome filter.\n", variant_skip_ct, (variant_skip_ct == 1)? "" : "s");
       goto OxGenToPgen_ret_INCONSISTENT_INPUT;
     }
@@ -10138,7 +10160,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
           continue;
         }
       }
-      const char* linebuf_iter = NextTokenMult(FirstNonTspace(&(chr_code_end[1])), 4);
+      const char* linebuf_iter = NextTokenMult(FirstNonTspace(&(chr_code_end[1])), 4 + is_v2);
       uint32_t inner_loop_last = kBitsPerWordD2 - 1;
       Dosage* dosage_main_iter = dosage_main;
       for (uint32_t widx = 0; ; ++widx) {
