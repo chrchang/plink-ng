@@ -71,7 +71,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (16 Apr 2021)";
+  " (20 Apr 2021)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -5794,7 +5794,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --het cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0maybesid\0sid\0hom\0het\0nobs\0f\0", "het", kfHardyColChrom, kfHardyColDefault, 1, &pc.hardy_flags);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0maybesid\0sid\0hom\0het\0nobs\0f\0", "het", kfHetColMaybefid, kfHetColDefault, 1, &pc.het_flags);
               if (unlikely(reterr)) {
                 goto main_ret_1;
               }

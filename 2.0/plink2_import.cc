@@ -9902,7 +9902,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
       if (token_ct == expected_v2_token_ct) {
         is_v2 = 1;
       } else if (unlikely(token_ct != expected_v2_token_ct - 1)) {
-        logerrprintf("Error: Unexpected number of columns in .gen file (%u or %u expected).\n", expected_v2_token_ct - 1, expected_v2_token_ct);
+        logerrprintfww("Error: Unexpected number of columns in .gen file (%u or %u expected).\n", expected_v2_token_ct - 1, expected_v2_token_ct);
         goto OxGenToPgen_ret_INCONSISTENT_INPUT;
       }
     }
