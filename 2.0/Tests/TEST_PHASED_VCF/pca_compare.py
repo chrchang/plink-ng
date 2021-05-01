@@ -40,10 +40,10 @@ def main():
         absdiff_sum = 0.0
         avgabs_x2_sum = 0.0
         for line1 in eigval1_file:
-            line1.rstrip('\n')
+            line1 = line1.rstrip('\n')
             eigval1 = float(line1)
             line2 = eigval2_file.readline()
-            line2.rstrip('\n')
+            line2 = line2.rstrip('\n')
             eigval2 = float(line2)
             absdiff_sum += abs(eigval2 - eigval1)
             avgabs_x2_sum += abs(eigval2) + abs(eigval1)
