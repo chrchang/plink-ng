@@ -1305,7 +1305,9 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
           }
           char* cat_name_start = cat_name_iter;
           cat_name_iter = memcpya(cat_name_iter, main_token_start, main_token_slen + 1);
-          cur_cat_idx = nonnull_cat_ct + 1;
+          // bugfix (5 May 2021): dropped this increment in mid-Jan refactor
+          ++nonnull_cat_ct;
+          cur_cat_idx = nonnull_cat_ct;
           cur_cat_names[cur_cat_idx] = cat_name_start;
         }
         // permit duplicates if category is identical
