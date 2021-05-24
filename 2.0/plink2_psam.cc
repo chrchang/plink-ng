@@ -236,10 +236,6 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
         snprintf(g_logbuf, kLogbufSize, "Error: IID column is not first or second in %s.\n", psamname);
         goto LoadPsam_ret_MALFORMED_INPUT_WW;
       }
-      if (unlikely((psam_cols_mask & 2) && ((col_types[1] != 1) || (col_skips[1] != 1)))) {
-        snprintf(g_logbuf, kLogbufSize, "Error: SID column does not immediately follow IID column in %s.\n", psamname);
-        goto LoadPsam_ret_MALFORMED_INPUT_WW;
-      }
       if (unlikely(in_interval)) {
         snprintf(g_logbuf, kLogbufSize, "Error: --pheno-name range is inconsistent with %s.\n", psamname);
         goto LoadPsam_ret_INCONSISTENT_INPUT_WW;
@@ -247,6 +243,10 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
       relevant_postfid_col_ct = rpf_col_idx;
       for (rpf_col_idx = relevant_postfid_col_ct - 1; rpf_col_idx; --rpf_col_idx) {
         col_skips[rpf_col_idx] -= col_skips[rpf_col_idx - 1];
+      }
+      if (unlikely((psam_cols_mask & 2) && ((col_types[1] != 1) || (col_skips[1] != 1)))) {
+        snprintf(g_logbuf, kLogbufSize, "Error: SID column does not immediately follow IID column in %s.\n", psamname);
+        goto LoadPsam_ret_MALFORMED_INPUT_WW;
       }
 
       line_iter = AdvPastDelim(linebuf_iter, '\n');
