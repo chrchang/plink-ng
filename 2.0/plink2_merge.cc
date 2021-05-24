@@ -582,7 +582,7 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFla
         const uint32_t iid_slen = iid_end - iid_start;
         if (sid_present) {
           sid_start = FirstNonTspace(iid_end);
-          token_end = CurTokenEnd(token_start);
+          token_end = CurTokenEnd(sid_start);
           sid_slen = token_end - sid_start;
           if ((sid_slen > 1) || (sid_start[0] != '0')) {
             if (sid_slen >= max_sid_blen) {
