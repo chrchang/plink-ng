@@ -542,7 +542,8 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
       if (ucc < 'A') {
         // > = ascii 62
         // ; = ascii 59
-        if (ucc == ';') {
+        // bugfix (25 May 2021): newline is also valid
+        if ((ucc == ';') || ((ucc < 32) && (ucc != '\t'))) {
           continue;
         }
         is_first_noncomment_line = 0;

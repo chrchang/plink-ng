@@ -98,6 +98,7 @@ BoolErr GzRawInit(const void* buf, uint32_t nbytes, GzRawDecompressStream* gzp) 
     return 1;
   }
   gzp->ds_initialized = 1;
+  gzp->eof = 0;
   return 0;
 }
 
@@ -316,45 +317,68 @@ BoolErr IsPathologicallyLongLineOrToken(const char* line_start, const char* load
 const char kShortErrRfileTruncatedGz[] = "GzRawStreamRead: gzipped file appears to be truncated";
 
 PglErr GzRawStreamRead(char* dst_end, FILE* ff, GzRawDecompressStream* gzp, char** dst_iterp, const char** errmsgp) {
-  z_stream* dsp = &gzp->ds;
-  if ((!dsp->avail_in) && feof_unlocked(ff)) {
+  if (gzp->eof) {
+    // (!dsp->avail_in) && feof_unlocked(ff)) {
     return kPglRetSuccess;
   }
+  z_stream* dsp = &gzp->ds;
   char* dst_iter = *dst_iterp;
   do {
-    int zerr = Z_OK;
     if (dsp->avail_in) {  // can be zero after TextRewind()
-      dsp->next_out = R_CAST(unsigned char*, dst_iter);
-      dsp->avail_out = dst_end - dst_iter;
-      zerr = inflate(dsp, Z_SYNC_FLUSH);
-      if (unlikely((zerr < 0) || (zerr == Z_NEED_DICT))) {
-        if (dsp->msg) {
-          *errmsgp = dsp->msg;
-        } else {
-          *errmsgp = zError(zerr);
+      while (1) {
+        dsp->next_out = R_CAST(unsigned char*, dst_iter);
+        dsp->avail_out = dst_end - dst_iter;
+        int zerr = inflate(dsp, Z_SYNC_FLUSH);
+        if (unlikely((zerr < 0) || (zerr == Z_NEED_DICT))) {
+          if (dsp->msg) {
+            *errmsgp = dsp->msg;
+          } else {
+            *errmsgp = zError(zerr);
+          }
+          return kPglRetDecompressFail;
         }
-        return kPglRetDecompressFail;
+        dst_iter = R_CAST(char*, dsp->next_out);
+        if (zerr != Z_STREAM_END) {
+          break;
+        }
+        // bugfix (25 May 2021): may need to open a new stream, or skip
+        // trailing garbage
+        const uint32_t trailing_byte_ct = dsp->avail_in;
+        if (trailing_byte_ct < 2) {
+          if (trailing_byte_ct) {
+            gzp->in[0] = dsp->next_in[0];
+          }
+          const uint32_t nbytes = fread_unlocked(&(gzp->in[trailing_byte_ct]), 1, kDecompressChunkSize - trailing_byte_ct, ff);
+          dsp->next_in = gzp->in;
+          dsp->avail_in = trailing_byte_ct + nbytes;
+        }
+        if ((dsp->avail_in < 2) || (dsp->next_in[0] != 31) || (dsp->next_in[1] != 139)) {
+          // EOF or trailing garbage
+          gzp->eof = 1;
+          *dst_iterp = dst_iter;
+          return kPglRetSuccess;
+        }
+#ifdef NDEBUG
+        inflateReset(dsp);
+#else
+        const int errcode = inflateReset(dsp);
+        assert(errcode == Z_OK);
+#endif
       }
-      dst_iter = R_CAST(char*, dsp->next_out);
       if (dsp->avail_in) {
-        assert(dst_iter == dst_end);
         break;
       }
     }
     const uint32_t nbytes = fread_unlocked(gzp->in, 1, kDecompressChunkSize, ff);
     dsp->next_in = gzp->in;
     dsp->avail_in = nbytes;
-    if (!nbytes) {
+    if (unlikely(!nbytes)) {
       if (unlikely(!feof_unlocked(ff))) {
         *errmsgp = strerror(errno);
         return kPglRetReadFail;
       }
-      if (unlikely(zerr == Z_OK)) {
-        *errmsgp = kShortErrRfileTruncatedGz;
-        return kPglRetDecompressFail;
-      }
-      // Normal EOF.
-      break;
+      *errmsgp = kShortErrRfileTruncatedGz;
+      return kPglRetDecompressFail;
     }
   } while (dst_iter != dst_end);
   *dst_iterp = dst_iter;
@@ -678,6 +702,7 @@ void TextFileRewind(textFILE* txf_ptr) {
   if (basep->file_type != kFileUncompressed) {
     if (basep->file_type == kFileGzip) {
       txfp->rds.gz.ds.avail_in = 0;
+      txfp->rds.gz.eof = 0;
 #ifdef NDEBUG
       inflateReset(&txfp->rds.gz.ds);
 #else
@@ -1171,6 +1196,7 @@ THREAD_FUNC_DECL TextStreamThread(void* raw_arg) {
         if (file_type != kFileUncompressed) {
           if (file_type == kFileGzip) {
             rdsp->gz.ds.avail_in = 0;
+            rdsp->gz.eof = 0;
 #ifdef NDEBUG
             inflateReset(&rdsp->gz.ds);
 #else
@@ -1257,6 +1283,7 @@ THREAD_FUNC_DECL TextStreamThread(void* raw_arg) {
         case kFileGzip:
           {
             GzRawDecompressStream* gzp = &rdsp->gz;
+            gzp->eof = 0;
             z_stream* dsp = &gzp->ds;
 #ifdef NDEBUG
             inflateReset(dsp);

@@ -150,6 +150,7 @@ typedef struct GzRawDecompressStreamStruct {
   unsigned char* in;
   z_stream ds;
   uint32_t ds_initialized;
+  uint32_t eof;
 } GzRawDecompressStream;
 
 // BgzfRawDecompressStream declared in plink2_bgzf.h.
