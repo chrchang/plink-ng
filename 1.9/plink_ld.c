@@ -12268,7 +12268,7 @@ void set_test_score(uintptr_t marker_ct, double chisq_threshold, uint32_t set_ma
     *set_score_ptr = 0.0;
     return;
   }
-  qsort_ext2((char*)sorted_chisq_buf, raw_sig_ct, sizeof(double), double_cmp_deref, (char*)sorted_marker_idx_buf, sizeof(int32_t), (char*)proxy_arr, sizeof(double) + sizeof(int32_t));
+  qsort_ext2((char*)sorted_chisq_buf, raw_sig_ct, sizeof(double), double_cmp_deref_tiebreak, (char*)sorted_marker_idx_buf, sizeof(int32_t), (char*)proxy_arr, sizeof(double) + sizeof(int32_t));
   raw_idx = raw_sig_ct;
   do {
     raw_idx--;
@@ -13229,7 +13229,9 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     sorted_pvals[uii] = pval;
     pval_map[uii] = marker_idx;
   }
-  if (qsort_ext((char*)sorted_pvals, index_ct, sizeof(double), double_cmp_deref, (char*)pval_map, sizeof(int32_t))) {
+  // determinism fix (6 Jun 2021): if p-values match, use marker_idx to sort
+  // instead of letting result vary by OS
+  if (qsort_ext((char*)sorted_pvals, index_ct, sizeof(double), double_cmp_deref_tiebreak, (char*)pval_map, sizeof(int32_t))) {
     goto clump_reports_ret_NOMEM;
   }
   if (bigstack_alloc_ui(marker_ct, &marker_idx_to_uidx) ||

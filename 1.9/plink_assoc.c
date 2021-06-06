@@ -328,11 +328,11 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
     logprint("Zero valid tests; --adjust skipped.\n");
     goto multcomp_ret_1;
   }
-  if (qsort_ext((char*)sp, chi_ct, sizeof(double), double_cmp_deref, (char*)new_order, sizeof(int32_t))) {
+  if (qsort_ext((char*)sp, chi_ct, sizeof(double), double_cmp_deref_tiebreak, (char*)new_order, sizeof(int32_t))) {
     goto multcomp_ret_NOMEM;
   }
   if (tcnt) {
-    if (qsort_ext((char*)schi, chi_ct, sizeof(double), double_cmp_deref, (char*)new_tcnt, sizeof(int32_t))) {
+    if (qsort_ext((char*)schi, chi_ct, sizeof(double), double_cmp_deref_tiebreak, (char*)new_tcnt, sizeof(int32_t))) {
       goto multcomp_ret_NOMEM;
     }
   } else {

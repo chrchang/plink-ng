@@ -43,7 +43,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #define SPECIES_HUMAN 0
 #define SPECIES_COW 1
@@ -2392,6 +2392,10 @@ int32_t double_cmp_decr(const void* aa, const void* bb);
 int32_t double_cmp_deref(const void* aa, const void* bb);
 
 int32_t char_cmp_deref(const void* aa, const void* bb);
+
+// For use with qsort_ext(), when we need to use original-index as a secondary
+// sort key
+int32_t double_cmp_deref_tiebreak(const void* aa, const void* bb);
 
 int32_t intcmp(const void* aa, const void* bb);
 
