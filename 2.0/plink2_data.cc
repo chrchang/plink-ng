@@ -6311,7 +6311,27 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
 
       const uint32_t raw_sample_ctv2 = NypCtToVecCt(raw_sample_ct);
       uintptr_t load_variant_vec_ct = raw_sample_ctv2;
-      uint32_t loaded_vrtypes_needed = (read_gflags & kfPgenGlobalMultiallelicHardcallFound)? 1 : 0;
+      // bugfix (8 Jun 2021): forgot to include multiallelic track in
+      // load_variant_vec_ct computation
+      uint32_t loaded_vrtypes_needed = 0;
+      if (read_gflags & kfPgenGlobalMultiallelicHardcallFound) {
+        loaded_vrtypes_needed = 1;
+        // raw format:
+        //   rare01_ct, padded out to a word
+        //   rare10_ct, padded out to a word
+        //   [round up to vector boundary, for patch_01_set]
+        //   aux1a, if not mode 15:
+        //     patch_01_set as bitarray, raw_sample_ctl words
+        //     patch_01_vals (raw_sample_ct * sizeof(AlleleCode)), round up to
+        //       word boundary
+        //     [round up to vector boundary, for patch_10_set]
+        //   aux1b, if not mode 15:
+        //     patch_10_set as bitarray, raw_sample_ctl words
+        //     patch_10_vals (raw_sample_ct * 2 * sizeof(AlleleCode)), round up
+        //       to word boundary
+        const uintptr_t multiallelic_raw_vec_ct = WordCtToVecCt(2) + WordCtToVecCt(raw_sample_ctl + DivUp(raw_sample_ct * sizeof(AlleleCode), kBytesPerWord)) + WordCtToVecCt(raw_sample_ctl + DivUp(raw_sample_ct * 2 * sizeof(AlleleCode), kBytesPerWord));
+        load_variant_vec_ct += WordCtToVecCt(multiallelic_raw_vec_ct);
+      }
       if (read_phase_present || read_dosage_present) {
         loaded_vrtypes_needed = 1;
         if (read_phase_present) {
