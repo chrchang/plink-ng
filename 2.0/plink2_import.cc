@@ -7881,65 +7881,68 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       }
       // INFO
       uintptr_t info_pr_here = 0;
-      uint64_t cur_info_slen_ubound = n_info - 1;
-      for (uint32_t uii = 0; uii != n_info; ++uii) {
-        uint32_t sidx;
-        if (unlikely(ScanBcfTypedInt(&parse_iter, &sidx) || (parse_iter > shared_end) || (sidx >= fif_string_idx_end))) {
-          goto BcfToPgen_ret_VREC_GENERIC;
-        }
-        const uint32_t key_slen = fif_slens[sidx];
-        if (unlikely((!key_slen) || ScanBcfType(&parse_iter, &value_type, &value_ct) || (parse_iter > shared_end))) {
-          goto BcfToPgen_ret_VREC_GENERIC;
-        }
-        cur_info_slen_ubound += key_slen;
-        if (value_ct) {
-          const uint32_t bytes_per_elem = kBcfBytesPerElem[value_type];
-          const uint64_t vec_byte_ct = bytes_per_elem * S_CAST(uint64_t, value_ct);
-          if (unlikely((!bytes_per_elem) || (S_CAST(uint64_t, shared_end - parse_iter) < vec_byte_ct))) {
+      if (n_info) {
+        // bugfix (1 Jul 2021): avoid underflow when n_info == 0
+        uint64_t cur_info_slen_ubound = n_info - 1;
+        for (uint32_t uii = 0; uii != n_info; ++uii) {
+          uint32_t sidx;
+          if (unlikely(ScanBcfTypedInt(&parse_iter, &sidx) || (parse_iter > shared_end) || (sidx >= fif_string_idx_end))) {
             goto BcfToPgen_ret_VREC_GENERIC;
           }
-          if (value_type == 1) {
-            // int8, max len 4 ("-127"), add 1 for comma
-            cur_info_slen_ubound += 5 * S_CAST(uint64_t, value_ct);
-          } else if (value_type == 2) {
-            // int16, max len 6
-            cur_info_slen_ubound += 7 * S_CAST(uint64_t, value_ct);
-          } else if (value_type == 3) {
-            // int32, max len 11
-            cur_info_slen_ubound += 12 * S_CAST(uint64_t, value_ct);
-          } else if (value_type == 5) {
-            cur_info_slen_ubound += (kMaxFloatGSlen + 1) * S_CAST(uint64_t, value_ct);
-          } else {
-            // string
-            cur_info_slen_ubound += value_ct + 1;
+          const uint32_t key_slen = fif_slens[sidx];
+          if (unlikely((!key_slen) || ScanBcfType(&parse_iter, &value_type, &value_ct) || (parse_iter > shared_end))) {
+            goto BcfToPgen_ret_VREC_GENERIC;
           }
-          parse_iter = &(parse_iter[vec_byte_ct]);
-        } else {
-          // tolerate value_type == value_ct == 0 "untyped-missing" special
-          // case, but only if field is of type Flag.  Note that this means the
-          // flag IS present (and yes, bcftools emits this since it's compact).
-          //
-          // value_ct == 0, value_type == 7 is also valid (string, missing).
-          //
-          // Otherwise, value_ct == 0 should not happen.
-          if (!IsSet(info_flags, sidx)) {
-            if (unlikely(value_ct != 7)) {
+          cur_info_slen_ubound += key_slen;
+          if (value_ct) {
+            const uint32_t bytes_per_elem = kBcfBytesPerElem[value_type];
+            const uint64_t vec_byte_ct = bytes_per_elem * S_CAST(uint64_t, value_ct);
+            if (unlikely((!bytes_per_elem) || (S_CAST(uint64_t, shared_end - parse_iter) < vec_byte_ct))) {
               goto BcfToPgen_ret_VREC_GENERIC;
             }
-            cur_info_slen_ubound += 2;
+            if (value_type == 1) {
+              // int8, max len 4 ("-127"), add 1 for comma
+              cur_info_slen_ubound += 5 * S_CAST(uint64_t, value_ct);
+            } else if (value_type == 2) {
+              // int16, max len 6
+              cur_info_slen_ubound += 7 * S_CAST(uint64_t, value_ct);
+            } else if (value_type == 3) {
+              // int32, max len 11
+              cur_info_slen_ubound += 12 * S_CAST(uint64_t, value_ct);
+            } else if (value_type == 5) {
+              cur_info_slen_ubound += (kMaxFloatGSlen + 1) * S_CAST(uint64_t, value_ct);
+            } else {
+              // string
+              cur_info_slen_ubound += value_ct + 1;
+            }
+            parse_iter = &(parse_iter[vec_byte_ct]);
+          } else {
+            // tolerate value_type == value_ct == 0 "untyped-missing" special
+            // case, but only if field is of type Flag.  Note that this means the
+            // flag IS present (and yes, bcftools emits this since it's compact).
+            //
+            // value_ct == 0, value_type == 7 is also valid (string, missing).
+            //
+            // Otherwise, value_ct == 0 should not happen.
+            if (!IsSet(info_flags, sidx)) {
+              if (unlikely(value_ct != 7)) {
+                goto BcfToPgen_ret_VREC_GENERIC;
+              }
+              cur_info_slen_ubound += 2;
+            }
+          }
+          if (sidx == pr_sidx) {
+            if (unlikely(info_pr_here)) {
+              putc_unlocked('\n', stdout);
+              snprintf(g_logbuf, kLogbufSize, "Error: Variant record #%" PRIuPTR " in --bcf file has multiple INFO/PR entries.\n", vrec_idx);
+              goto BcfToPgen_ret_MALFORMED_INPUT_WW;
+            }
+            info_pr_here = 1;
           }
         }
-        if (sidx == pr_sidx) {
-          if (unlikely(info_pr_here)) {
-            putc_unlocked('\n', stdout);
-            snprintf(g_logbuf, kLogbufSize, "Error: Variant record #%" PRIuPTR " in --bcf file has multiple INFO/PR entries.\n", vrec_idx);
-            goto BcfToPgen_ret_MALFORMED_INPUT_WW;
-          }
-          info_pr_here = 1;
+        if (cur_info_slen_ubound > filter_info_slen_ubound) {
+          filter_info_slen_ubound = cur_info_slen_ubound;
         }
-      }
-      if (cur_info_slen_ubound > filter_info_slen_ubound) {
-        filter_info_slen_ubound = cur_info_slen_ubound;
       }
       if (unlikely(parse_iter != shared_end)) {
         goto BcfToPgen_ret_VREC_GENERIC;
@@ -9909,6 +9912,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
     goto OxGenToPgen_loop_start;
     for (; TextGetUnsafe2(&gen_txs, &line_iter); ++line_idx) {
     OxGenToPgen_loop_start:
+      ;  // make this work with plain C, as opposed to just C++, compilers
       char* chr_code_str = line_iter;
       char* chr_code_end = CurTokenEnd(chr_code_str);
       const char* variant_id_str = FirstNonTspace(chr_code_end);

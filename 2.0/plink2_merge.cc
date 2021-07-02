@@ -72,7 +72,7 @@ void CleanupPgenDiff(PgenDiffInfo* pgen_diff_info_ptr) {
 
 typedef struct PmergeInputFilesetLlStruct {
   struct PmergeInputFilesetLlStruct* next;
-  // Heap-allocated if temporary
+  // Heap-allocated iff temporary
   char* pgen_fname;
   char* pvar_fname;
   char* psam_fname;
@@ -110,6 +110,10 @@ typedef struct PmergeInputFilesetLlStruct {
   // initialized by ScanPgenHeaders()
   unsigned char nonref_flags_storage;
   unsigned char vrtype_8bit_needed;
+
+  // Note that this struct is allocated on bigstack, rather than the heap, iff
+  // the fileset is not temporary.
+  unsigned char is_temporary;
 } PmergeInputFilesetLl;
 
 // Allocates at end of bigstack.
@@ -181,6 +185,7 @@ PglErr LoadPmergeList(const char* list_fname, const char* list_base_dir, PmergeL
       if (unlikely(!cur_entry)) {
         goto LoadPmergeList_ret_NOMEM;
       }
+      cur_entry->is_temporary = 0;
       cur_entry->pgen_locked_fname = nullptr;
       cur_entry->first_varid = nullptr;
       cur_entry->last_varid = nullptr;
@@ -3149,37 +3154,42 @@ PglErr DetectConcatJob(const uint32_t* chr_idx_to_foidx, uintptr_t fileset_ct, S
   return reterr;
 }
 
-void CleanupHeapFilesetLl(PglErr reterr, PmergeInputFilesetLl* filesets_iter) {
+void CleanupFilesetLl(PglErr reterr, PmergeInputFilesetLl* filesets_iter) {
   while (filesets_iter != nullptr) {
-    if (filesets_iter->pgen_fname) {
-      if (reterr == kPglRetSuccess) {
-        unlink(filesets_iter->pgen_fname);
-      }
-      free(filesets_iter->pgen_fname);
-    }
-    if (filesets_iter->pvar_fname) {
-      if (reterr == kPglRetSuccess) {
-        unlink(filesets_iter->pvar_fname);
-      }
-      free(filesets_iter->pvar_fname);
-    }
-    if (filesets_iter->psam_fname) {
-      if (reterr == kPglRetSuccess) {
-        unlink(filesets_iter->psam_fname);
-      }
-      free(filesets_iter->psam_fname);
-    }
-    if (filesets_iter->pgen_locked_fname) {
-      if (reterr == kPglRetSuccess) {
-        unlink(filesets_iter->pgen_locked_fname);
-      }
-      free(filesets_iter->pgen_locked_fname);
-    }
     free_cond(filesets_iter->first_varid);
     free_cond(filesets_iter->last_varid);
+    const uint32_t is_temporary = filesets_iter->is_temporary;
+    if (is_temporary) {
+      if (filesets_iter->pgen_fname) {
+        if (reterr == kPglRetSuccess) {
+          unlink(filesets_iter->pgen_fname);
+        }
+        free(filesets_iter->pgen_fname);
+      }
+      if (filesets_iter->pvar_fname) {
+        if (reterr == kPglRetSuccess) {
+          unlink(filesets_iter->pvar_fname);
+        }
+        free(filesets_iter->pvar_fname);
+      }
+      if (filesets_iter->psam_fname) {
+        if (reterr == kPglRetSuccess) {
+          unlink(filesets_iter->psam_fname);
+        }
+        free(filesets_iter->psam_fname);
+      }
+      if (filesets_iter->pgen_locked_fname) {
+        if (reterr == kPglRetSuccess) {
+          unlink(filesets_iter->pgen_locked_fname);
+        }
+        free(filesets_iter->pgen_locked_fname);
+      }
+    }
     PmergeInputFilesetLl* cur_node = filesets_iter;
     filesets_iter = filesets_iter->next;
-    free(cur_node);
+    if (is_temporary) {
+      free(cur_node);
+    }
   }
 }
 
@@ -6684,7 +6694,7 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
     reterr = kPglRetWriteFail;
     break;
   PmergeConcat_ret_INCONSISTENT_INPUT:
-    reterr = kPglRetNomem;
+    reterr = kPglRetInconsistentInput;
     break;
   PmergeConcat_ret_N:
     logputs("\n");
@@ -6699,14 +6709,54 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
   return reterr;
 }
 
+// TODO: write library for handling pgen_locked bitmap.
+
+// Performs one pass of a possibly-multipass merge.
+// *input_filesets_ptr is advanced as files are processed, and temporary files
+// are deleted while this happens.
+// next_filesets is left as nullptr on the last pass.
+PglErr PmergePass(__attribute__((unused)) const PmergeInfo* pmip, __attribute__((unused)) const SampleIdInfo* siip, __attribute__((unused)) const ChrInfo* cip, __attribute__((unused)) const char* const* info_keys, __attribute__((unused)) const uint32_t* info_keys_htable, __attribute__((unused)) uint32_t pass_idx, __attribute__((unused)) uint32_t sample_ct, __attribute__((unused)) FamCol fam_cols, uintptr_t fileset_ct, __attribute__((unused)) uint32_t psam_linebuf_capacity, __attribute__((unused)) uint32_t info_key_ct, __attribute__((unused)) uint32_t info_keys_htable_size, __attribute__((unused)) uint32_t info_conflict_present, __attribute__((unused)) uint32_t max_thread_ct, __attribute__((unused)) SortMode sort_vars_mode, __attribute__((unused)) char* outname, __attribute__((unused)) char* outname_end, __attribute__((unused)) PmergeInputFilesetLl** input_filesets_ptr, __attribute__((unused)) PmergeInputFilesetLl** next_filesets_ptr, __attribute__((unused)) uint32_t* next_fileset_ctp) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  PglErr reterr = kPglRetSuccess;
+  {
+    // 1. Determine how many input filesets from the front of the list can be
+    //    processed in the current loop iteration.  It's bounded by
+    //    kMaxOpenFiles and workspace memory.  The workspace memory computation
+    //    is annoying.
+    //    - If there's only one input fileset left, just move that entry to the
+    //      tail of next_filesets, and exit.
+    //    - If all input filesets can be merged at once, write to the final
+    //      output filenames, and leave next_filesets as nullptr.
+    //    - If we don't obviously have enough memory to even merge the next two
+    //      filesets... could either error out, or speculatively continue with
+    //      two depending on how much we might overestimate memory usage.
+    // 2. Incremental-merge them.
+    // 3. Return to step 1 if input fileset(s) remain.
+    uintptr_t input_filesets_remaining = fileset_ct;
+    PmergeInputFilesetLl** next_filesets_end_ptr = next_filesets_ptr;
+    do {
+      logerrputs("Error: Non-concatenating --pmerge-list is under development.\n");
+      goto PmergePass_ret_1;
+    } while (input_filesets_remaining > 1);
+    if (input_filesets_remaining == 1) {
+      *next_filesets_end_ptr = *input_filesets_ptr;
+      *input_filesets_ptr = nullptr;
+    }
+  }
+  while (0) {
+  }
+ PmergePass_ret_1:
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags misc_flags, SortMode sample_sort_mode, FamCol fam_cols, int32_t missing_pheno, uint32_t max_thread_ct, SortMode sort_vars_mode, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
-  PmergeInputFilesetLl* filesets = nullptr;
 
   // nodes and filenames are heap-allocated, not just first_varid/last_varid
-  PmergeInputFilesetLl* filesets_tmp_cur = nullptr;
-  PmergeInputFilesetLl* filesets_tmp_next = nullptr;
+  PmergeInputFilesetLl* input_filesets = nullptr;
+  PmergeInputFilesetLl* next_filesets = nullptr;
 
   PglErr reterr = kPglRetSuccess;
   {
@@ -6719,12 +6769,13 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags m
     // 5. Otherwise, perform general-purpose incremental merge.
     uintptr_t fileset_ct = 2;
     {
-      PmergeInputFilesetLl** filesets_endp = &filesets;
+      PmergeInputFilesetLl** filesets_endp = &input_filesets;
       if (pgenname[0]) {
         PmergeInputFilesetLl* cur_entry = AllocFilesetLlEntry(&filesets_endp);
         if (unlikely(!cur_entry)) {
           goto Pmerge_ret_NOMEM;
         }
+        cur_entry->is_temporary = 0;
         const uint32_t pgen_fname_blen = strlen(pgenname) + 1;
         const uint32_t pvar_fname_blen = strlen(pvarname) + 1;
         const uint32_t psam_fname_blen = strlen(psamname) + 1;
@@ -6747,6 +6798,7 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags m
         if (unlikely(!cur_entry)) {
           goto Pmerge_ret_NOMEM;
         }
+        cur_entry->is_temporary = 0;
         cur_entry->pgen_fname = pmip->pgen_fname;
         cur_entry->pvar_fname = pmip->pvar_fname;
         cur_entry->psam_fname = pmip->psam_fname;
@@ -6764,11 +6816,11 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags m
     SampleIdInfo sii;
     uint32_t sample_ct = 0;
     uint32_t psam_linebuf_capacity = 0;
-    reterr = MergePsams(pmip, sample_sort_fname, misc_flags, sample_sort_mode, fam_cols, missing_pheno, max_thread_ct, outname, outname_end, filesets, &sii, &sample_ct, &psam_linebuf_capacity);
+    reterr = MergePsams(pmip, sample_sort_fname, misc_flags, sample_sort_mode, fam_cols, missing_pheno, max_thread_ct, outname, outname_end, input_filesets, &sii, &sample_ct, &psam_linebuf_capacity);
     if (unlikely(reterr)) {
       goto Pmerge_ret_1;
     }
-    reterr = ScanPgenHeaders(!!(pmip->list_fname), misc_flags, filesets);
+    reterr = ScanPgenHeaders(!!(pmip->list_fname), misc_flags, input_filesets);
     if (unlikely(reterr)) {
       goto Pmerge_ret_1;
     }
@@ -6778,22 +6830,34 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags m
     uint32_t info_key_ct = 0;
     uint32_t info_keys_htable_size = 0;
     uint32_t info_conflict_present;
-    reterr = ScanPvarsAndMergeHeader(pmip, misc_flags, max_thread_ct, sort_vars_mode, outname, outname_end, &filesets, cip, &fileset_ct, &info_keys, &info_key_ct, &info_keys_htable, &info_keys_htable_size, &info_conflict_present);
+    reterr = ScanPvarsAndMergeHeader(pmip, misc_flags, max_thread_ct, sort_vars_mode, outname, outname_end, &input_filesets, cip, &fileset_ct, &info_keys, &info_key_ct, &info_keys_htable, &info_keys_htable_size, &info_conflict_present);
     if (unlikely(reterr)) {
       goto Pmerge_ret_1;
     }
     uint32_t is_concat_job = 0;
     if (!(pmip->flags & kfPmergeVariantInnerJoin)) {
-      reterr = DetectConcatJob(cip->chr_idx_to_foidx, fileset_ct, sort_vars_mode, &filesets, &is_concat_job);
+      reterr = DetectConcatJob(cip->chr_idx_to_foidx, fileset_ct, sort_vars_mode, &input_filesets, &is_concat_job);
       if (unlikely(reterr)) {
         goto Pmerge_ret_1;
       }
     }
     if (is_concat_job) {
-      reterr = PmergeConcat(pmip, &sii, cip, filesets, info_keys, info_keys_htable, sample_ct, fam_cols, fileset_ct, psam_linebuf_capacity, info_key_ct, info_keys_htable_size, info_conflict_present, max_thread_ct, sort_vars_mode, outname, outname_end);
+      reterr = PmergeConcat(pmip, &sii, cip, input_filesets, info_keys, info_keys_htable, sample_ct, fam_cols, fileset_ct, psam_linebuf_capacity, info_key_ct, info_keys_htable_size, info_conflict_present, max_thread_ct, sort_vars_mode, outname, outname_end);
     } else {
-      logerrputs("Error: --pmerge[-list] is under development.\n");
-      reterr = kPglRetNotYetSupported;
+      for (uint32_t pass_idx = 1; ; ++pass_idx) {
+        uint32_t next_fileset_ct;
+        reterr = PmergePass(pmip, &sii, cip, info_keys, info_keys_htable, pass_idx, sample_ct, fam_cols, fileset_ct, psam_linebuf_capacity, info_key_ct, info_keys_htable_size, info_conflict_present, max_thread_ct, sort_vars_mode, outname, outname_end, &input_filesets, &next_filesets, &next_fileset_ct);
+        if (unlikely(reterr)) {
+          goto Pmerge_ret_1;
+        }
+        if (!next_filesets) {
+          break;
+        }
+        assert(input_filesets == nullptr);
+        fileset_ct = next_fileset_ct;
+        input_filesets = next_filesets;
+        next_filesets = nullptr;
+      }
     }
     const uint32_t outname_slen = outname_end - outname;
     memcpy(pgenname, outname, outname_slen);
@@ -6814,12 +6878,8 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags m
     break;
   }
  Pmerge_ret_1:
-  for (PmergeInputFilesetLl* filesets_iter = filesets; filesets_iter != nullptr; filesets_iter = filesets_iter->next) {
-    free_cond(filesets_iter->first_varid);
-    free_cond(filesets_iter->last_varid);
-  }
-  CleanupHeapFilesetLl(reterr, filesets_tmp_cur);
-  CleanupHeapFilesetLl(reterr, filesets_tmp_next);
+  CleanupFilesetLl(reterr, input_filesets);
+  CleanupFilesetLl(reterr, next_filesets);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }

@@ -219,52 +219,41 @@ void WordWrap(uint32_t suffix_len, char* strbuf) {
 }
 
 
-static const uint32_t kPow10[] = {1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000};
+// This implementation is from Kendall Willets.  See
+//   https://lemire.me/blog/2021/06/03/computing-the-number-of-digits-of-an-integer-even-faster/
 
 #ifdef USE_AVX2
-static const unsigned char kLzUintSlenBase[] =
-{9, 9, 9, 8,
- 8, 8, 7, 7,
- 7, 6, 6, 6,
- 6, 5, 5, 5,
- 4, 4, 4, 3,
- 3, 3, 3, 2,
- 2, 2, 1, 1,
- 1, 0, 0, 0,
- 1};  // UintSlen(0) needs to be 1, not zero
+static const uint64_t kLzcntUintSlenTable[] =
+  {42949672960LL, 42949672960LL, 41949672960LL, 41949672960LL, 41949672960LL,
+   38554705664LL, 38554705664LL, 38554705664LL, 34349738368LL, 34349738368LL,
+   34349738368LL, 34349738368LL, 30063771072LL, 30063771072LL, 30063771072LL,
+   25769703776LL, 25769703776LL, 25769703776LL, 21474826480LL, 21474826480LL,
+   21474826480LL, 21474826480LL, 17179868184LL, 17179868184LL, 17179868184LL,
+   12884901788LL, 12884901788LL, 12884901788LL,  8589934582LL,  8589934582LL,
+    8589934582LL,  4294967296LL};
 
 uint32_t UintSlen(uint32_t num) {
   const uint32_t lz_ct = _lzcnt_u32(num);
-  const uint32_t slen_base = kLzUintSlenBase[lz_ct];
-  return slen_base + (num >= kPow10[slen_base]);
+  return (num + kLzcntUintSlenTable[lz_ct]) >> 32;
 }
 #else
-// could also use something like ((32 - lz_ct) * 77) >> 8, since 77/256 is a
-// sufficiently good approximation of ln(2)/ln(10), but that's a bit slower and
-// this table doesn't take much space
-//
-// bugfix (29 Mar 2018): this table was totally wrong, ugh
-static const unsigned char kBsrUintSlenBase[] =
-{1, 1, 1, 1,
- 2, 2, 2, 3,
- 3, 3, 4, 4,
- 4, 4, 5, 5,
- 5, 6, 6, 6,
- 7, 7, 7, 7,
- 8, 8, 8, 9,
- 9, 9, 9, 9};
+static const uint64_t kBsrUintSlenTable[] =
+  {4294967296LL,  8589934582LL,  8589934582LL,  8589934582LL,  12884901788LL,
+   12884901788LL, 12884901788LL, 17179868184LL, 17179868184LL, 17179868184LL,
+   21474826480LL, 21474826480LL, 21474826480LL, 21474826480LL, 25769703776LL,
+   25769703776LL, 25769703776LL, 30063771072LL, 30063771072LL, 30063771072LL,
+   34349738368LL, 34349738368LL, 34349738368LL, 34349738368LL, 38554705664LL,
+   38554705664LL, 38554705664LL, 41949672960LL, 41949672960LL, 41949672960LL,
+   42949672960LL, 42949672960LL};
 
 uint32_t UintSlen(uint32_t num) {
   // tried divide-by-10 and divide-by-100 loops, they were slower
   // also tried a hardcoded binary tree, it was better but still slower
 
   // bsru32(0) is undefined
-  if (num < 10) {
-    return 1;
-  }
+  num |= 1;
   const uint32_t top_bit_pos = bsru32(num);
-  const uint32_t slen_base = kBsrUintSlenBase[top_bit_pos];
-  return slen_base + (num >= kPow10[slen_base]);
+  return (num + kBsrUintSlenTable[top_bit_pos]) >> 32;
 }
 #endif
 
