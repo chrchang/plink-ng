@@ -2935,7 +2935,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     }
     if (unlikely((!sample_ct) && (!no_samples_ok))) {
       logerrputs("Error: No samples in --vcf file.  (This is only permitted when you haven't\nspecified another operation which requires genotype or sample information.)\n");
-      goto VcfToPgen_ret_INCONSISTENT_INPUT;
+      goto VcfToPgen_ret_DEGENERATE_DATA;
     }
     vic.vibc.sample_ct = sample_ct;
     // bugfix (5 Jun 2018): must initialize qual_field_ct to zero
@@ -3208,7 +3208,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       }
     } else if (unlikely(!variant_ct)) {
       logerrputs("Error: No variants in --vcf file.\n");
-      goto VcfToPgen_ret_INCONSISTENT_INPUT;
+      goto VcfToPgen_ret_DEGENERATE_DATA;
     }
 
     putc_unlocked('\r', stdout);
@@ -3874,6 +3874,9 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     break;
   VcfToPgen_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
+    break;
+  VcfToPgen_ret_DEGENERATE_DATA:
+    reterr = kPglRetDegenerateData;
     break;
   }
  VcfToPgen_ret_1:
@@ -7352,7 +7355,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
     }
     if (unlikely((!sample_ct) && (!no_samples_ok))) {
       logerrputs("Error: No samples in BCF text header block.  (This is only permitted when you\nhaven't specified another operation which requires genotype or sample\ninformation.)\n");
-      goto BcfToPgen_ret_INCONSISTENT_INPUT;
+      goto BcfToPgen_ret_DEGENERATE_DATA;
     }
     if (unlikely(sample_ct >= (1 << 24))) {
       snprintf(g_logbuf, kLogbufSize, "Error: BCF text header block has %u sample IDs, which is larger than the BCF limit of 2^24 - 1.\n", sample_ct);
@@ -8012,7 +8015,7 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
       }
     } else if (unlikely(!variant_ct)) {
       logerrputs("Error: No variants in --bcf file.\n");
-      goto BcfToPgen_ret_INCONSISTENT_INPUT;
+      goto BcfToPgen_ret_DEGENERATE_DATA;
     }
 
     const uintptr_t variant_skip_ct = vrec_idx - 1 - variant_ct;
@@ -8983,6 +8986,9 @@ PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const ch
   BcfToPgen_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
     break;
+  BcfToPgen_ret_DEGENERATE_DATA:
+    reterr = kPglRetDegenerateData;
+    break;
   }
  BcfToPgen_ret_1:
   CleanupSpgw(&spgw, &reterr);
@@ -9387,7 +9393,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
     const uint32_t sample_ct = line_idx - 3;
     if (unlikely(!sample_ct)) {
       logerrputs("Error: No samples in .sample file.\n");
-      goto OxSampleToPsam_ret_INCONSISTENT_INPUT;
+      goto OxSampleToPsam_ret_DEGENERATE_DATA;
     }
     const char* all_ids_iter = all_ids_start;
     uint32_t nz_fid_present = 0;
@@ -9695,6 +9701,9 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
   OxSampleToPsam_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
+  OxSampleToPsam_ret_DEGENERATE_DATA:
+    reterr = kPglRetDegenerateData;
+    break;
   }
  OxSampleToPsam_ret_1:
   CleanupTextStream2(".sample file", &sample_txs, &reterr);
@@ -9896,7 +9905,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
         goto OxGenToPgen_ret_TSTREAM_FAIL;
       }
       logerrputs("Error: Empty .gen file.\n");
-      goto OxGenToPgen_ret_INCONSISTENT_INPUT;
+      goto OxGenToPgen_ret_DEGENERATE_DATA;
     }
     uint32_t is_v2 = 0;
     {
@@ -10326,6 +10335,9 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
     break;
   OxGenToPgen_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
+    break;
+  OxGenToPgen_ret_DEGENERATE_DATA:
+    reterr = kPglRetDegenerateData;
     break;
   }
  OxGenToPgen_ret_1:
@@ -11820,7 +11832,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     const uint32_t raw_variant_ct = initial_uints[2];
     if (unlikely(!raw_variant_ct)) {
       logerrputs("Error: Empty .bgen file.\n");
-      goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
+      goto OxBgenToPgen_ret_DEGENERATE_DATA;
     }
 
     if (unlikely(fseeko(bgenfile, initial_uints[1], SEEK_SET))) {
@@ -13688,6 +13700,9 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
   OxBgenToPgen_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
     break;
+  OxBgenToPgen_ret_DEGENERATE_DATA:
+    reterr = kPglRetDegenerateData;
+    break;
   OxBgenToPgen_ret_bgen13_thread_fail:
     if (reterr == kPglRetMalformedInput) {
     OxBgenToPgen_ret_bgen11_thread_fail:
@@ -14474,7 +14489,7 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
       if (unlikely(!line_start)) {
         if (!TextStreamErrcode2(&map_txs, &reterr)) {
           logerrputs("Error: Empty .map file.\n");
-          goto LoadMap_ret_INCONSISTENT_INPUT;
+          goto LoadMap_ret_DEGENERATE_DATA;
         }
         goto LoadMap_ret_TSTREAM_FAIL;
       }
@@ -14686,6 +14701,9 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
     break;
   LoadMap_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
+    break;
+  LoadMap_ret_DEGENERATE_DATA:
+    reterr = kPglRetDegenerateData;
     break;
   }
  LoadMap_ret_1:
@@ -15305,7 +15323,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     if (unlikely(!variant_ct)) {
       if (!variant_skip_ct) {
         logerrputs("Error: Empty --import-dosage file.\n");
-        goto Plink1DosageToPgen_ret_INCONSISTENT_INPUT;
+        goto Plink1DosageToPgen_ret_DEGENERATE_DATA;
       }
       logerrprintfww("Error: All %" PRIuPTR " variant%s in --import-dosage file skipped.\n", variant_skip_ct, (variant_skip_ct == 1)? "" : "s");
       goto Plink1DosageToPgen_ret_INCONSISTENT_INPUT;
@@ -15603,6 +15621,9 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     logerrputsb();
   Plink1DosageToPgen_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
+    break;
+  Plink1DosageToPgen_ret_DEGENERATE_DATA:
+    reterr = kPglRetDegenerateData;
     break;
   }
  Plink1DosageToPgen_ret_1:
