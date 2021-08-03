@@ -2307,10 +2307,12 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
         } else if (ujj == 70) {
           // 'F'/'f'
           sexval = 2;
-        } else if (unlikely((!male0) && (sexval != 30))) {
+        } else if (unlikely((!male0) && (sexval != 30) && (sexval != 37))) {
           // allow 'N' = missing to make 1/2/NA work
-          // don't permit 'n' for now
-          snprintf(g_logbuf, kLogbufSize, "Error: Invalid sex value on line %" PRIuPTR " of --update-sex file. (Acceptable values: 1/M/m = male, 2/F/f = female, 0/N = missing.)\n", line_idx);
+          // allow 'U' since this is actually being used by Illumina GenCall
+          // and Affymetrix APT
+          // don't permit 'n'/'u' for now
+          snprintf(g_logbuf, kLogbufSize, "Error: Invalid sex value on line %" PRIuPTR " of --update-sex file. (Acceptable values: 1/M/m = male, 2/F/f = female, 0/N/U = missing.)\n", line_idx);
           goto UpdateSampleSexes_ret_MALFORMED_INPUT_WW;
         } else {
           // with 'male0', everything else is treated as missing
