@@ -2059,7 +2059,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      otherwise, column 3 is assumed.  Use 'col-num=' to force a column number.\n"
 "    * Only the first character in the sex column is processed.  By default,\n"
 "      '1'/'M'/'m' is interpreted as male, '2'/'F'/'f' is interpreted as female,\n"
-"      and '0'/'N'/'U' is interpreted as unknown-sex.  To change this to\n"
+"      and '0'/'N'/'U'/'u' is interpreted as unknown-sex.  To change this to\n"
 "      '0'/'M'/'m' = male, '1'/'F'/'f' = female, anything else other than '2' =\n"
 "      unknown-sex, add 'male0'.\n"
               );
