@@ -4957,6 +4957,7 @@ BoolErr AllocAndInitReportedTestNames(const uintptr_t* parameter_subset, const c
     test_name_buf_iter = iter_next;
   }
   uint32_t pred_uidx = 2 + domdev_present;
+  // bugfix (16 Aug 2021): sex + interaction?
   for (uint32_t covar_idx = 0; covar_idx != covar_ct; ++covar_idx, ++pred_uidx) {
     if (parameter_subset && (!IsSet(parameter_subset, pred_uidx))) {
       continue;
@@ -10910,9 +10911,10 @@ static const double kSexMaleToCovarD[2] = {2.0, 1.0};
 void SexInteractionReshuffle(uint32_t first_interaction_pred_uidx, uint32_t raw_covar_ct, uint32_t domdev_present, uint32_t biallelic_raw_predictor_ctl, uintptr_t* __restrict parameters_or_tests, uintptr_t* __restrict parameter_subset_reshuffle_buf) {
   ZeroWArr(biallelic_raw_predictor_ctl, parameter_subset_reshuffle_buf);
   CopyBitarrRange(parameters_or_tests, 0, 0, first_interaction_pred_uidx - 1, parameter_subset_reshuffle_buf);
-  const uint32_t raw_interaction_ct = raw_covar_ct * (domdev_present + 1);
-  CopyBitarrRange(parameters_or_tests, first_interaction_pred_uidx - 1, first_interaction_pred_uidx, raw_interaction_ct, parameter_subset_reshuffle_buf);
-  const uint32_t first_sex_parameter_idx = first_interaction_pred_uidx - 1 + raw_interaction_ct;
+  // bugfix (16 Aug 2021): raw_covar_ct includes sex
+  const uint32_t raw_nonsex_interaction_ct = (raw_covar_ct - 1) * (domdev_present + 1);
+  CopyBitarrRange(parameters_or_tests, first_interaction_pred_uidx - 1, first_interaction_pred_uidx, raw_nonsex_interaction_ct, parameter_subset_reshuffle_buf);
+  const uint32_t first_sex_parameter_idx = first_interaction_pred_uidx - 1 + raw_nonsex_interaction_ct;
   if (IsSet(parameters_or_tests, first_sex_parameter_idx)) {
     SetBit(first_interaction_pred_uidx - 1, parameter_subset_reshuffle_buf);
   }
