@@ -15826,6 +15826,8 @@ THREAD_FUNC_DECL GenerateDummyThread(void* raw_arg) {
         R_CAST(Halfword*, write_dphase_present_iter)[widx] = dphase_present_hw;
       }
       ZeroTrailingNyps(sample_ct, write_genovec_iter);
+      ZeroTrailingBits(sample_ct, write_phasepresent_iter);
+      ZeroTrailingBits(sample_ct, write_phaseinfo_iter);
       const uint32_t dosage_ct = cur_dosage_main_iter - write_dosage_main_iter;
       *write_dosage_ct_iter++ = dosage_ct;
       const uint32_t dphase_ct = cur_dphase_delta_iter - write_dphase_delta_iter;
