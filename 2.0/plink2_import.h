@@ -77,6 +77,7 @@ typedef struct GenDummyInfoStruct {
   uint32_t pheno_ct;
   double geno_mfreq;
   double pheno_mfreq;
+  double phase_freq;
   double dosage_freq;
 } GenDummyInfo;
 

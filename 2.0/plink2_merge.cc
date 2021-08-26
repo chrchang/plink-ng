@@ -3130,7 +3130,7 @@ PglErr DetectConcatJob(const uint32_t* chr_idx_to_foidx, uintptr_t fileset_ct, S
             break;
           }
         }
-        break;
+        continue;
       }
       prev_last_coord = sorted_filesets[fileset_idx].last_coord;
     }

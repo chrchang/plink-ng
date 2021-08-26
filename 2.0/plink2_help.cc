@@ -229,7 +229,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("dummy\0", &help_ctrl, 1,
 "  --dummy <sample ct> <SNP ct> [missing dosage freq] [missing pheno freq]\n"
 "          [{acgt | 1234 | 12}] ['pheno-ct='<count>] ['scalar-pheno']\n"
-"          ['dosage-freq='<rate>]\n"
+"          ['phase-freq='<rate>] ['dosage-freq='<rate>]\n"
 "    This generates a fake input dataset with the specified number of samples\n"
 "    and SNPs.\n"
 "    * By default, the missing dosage and phenotype frequencies are zero.\n"
@@ -239,9 +239,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * By default, one binary phenotype is generated.  'pheno-ct=' can be used\n"
 "      to change the number of phenotypes, and 'scalar-pheno' causes these\n"
 "      phenotypes to be normally distributed scalars.\n"
-"    * By default, all (nonmissing) dosages are in {0,1,2}.  To make some of\n"
-"      them take on decimal values, use 'dosage-freq='.  (These dosages are\n"
-"      affected by --hard-call-threshold and --dosage-erase-threshold.)\n\n"
+"    * By default, all genotypes/dosages are unphased.  To phase some of them,\n"
+"      use 'phase-freq='.\n"
+"    * By default, all dosages are in {0,1,2}.  To make some of them take on\n"
+"      decimal values, use 'dosage-freq='.  (These dosages are affected by\n"
+"      --hard-call-threshold and --dosage-erase-threshold.)\n\n"
                );
     HelpPrint("fa\0normalize\0ref-from-fa\0", &help_ctrl, 1,
 "  --fa <filename>    : Specify full name of reference FASTA file.\n\n"

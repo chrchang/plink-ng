@@ -71,7 +71,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (16 Aug 2021)";
+  " (26 Aug 2021)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -4512,6 +4512,14 @@ int main(int argc, char** argv) {
               }
             } else if (strequal_k(cur_modif, "scalar-pheno", cur_modif_slen)) {
               gendummy_info.flags |= kfGenDummyScalarPheno;
+            } else if (StrStartsWith(cur_modif, "phase-freq=", cur_modif_slen)) {
+              const char* phase_freq_start = &(cur_modif[strlen("phase-freq=")]);
+              double dxx;
+              if (unlikely((!ScantokDouble(phase_freq_start, &dxx)) || (dxx < 0.0) || (dxx > 1.0))) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --dummy phase-freq= argument '%s'.\n", phase_freq_start);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+              gendummy_info.phase_freq = dxx;
             } else if (StrStartsWith(cur_modif, "dosage-freq=", cur_modif_slen)) {
               const char* dosage_freq_start = &(cur_modif[strlen("dosage-freq=")]);
               double dxx;

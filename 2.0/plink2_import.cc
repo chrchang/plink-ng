@@ -39,6 +39,7 @@ void InitGenDummy(GenDummyInfo* gendummy_info_ptr) {
   gendummy_info_ptr->pheno_ct = 1;
   gendummy_info_ptr->geno_mfreq = 0.0;
   gendummy_info_ptr->pheno_mfreq = 0.0;
+  gendummy_info_ptr->phase_freq = 0.0;
   gendummy_info_ptr->dosage_freq = 0.0;
 }
 
@@ -15645,8 +15646,10 @@ typedef struct GenerateDummyCtxStruct {
   // binary search over cdf is faster than (int)(log(drand)/log(q)) for
   // truncated geometric distribution
   STD_ARRAY_DECL(uint64_t, kBitsPerWordD2, geno_missing_geomdist);
+  STD_ARRAY_DECL(uint64_t, kBitsPerWordD2, phase_geomdist);
   STD_ARRAY_DECL(uint64_t, kBitsPerWordD2, dosage_geomdist);
   uint32_t geno_missing_invert;
+  uint32_t phase_invert;
   uint32_t dosage_geomdist_max;
   uint32_t hard_call_halfdist;
   uint32_t dosage_erase_halfdist;
@@ -15656,9 +15659,14 @@ typedef struct GenerateDummyCtxStruct {
   uint32_t cur_block_write_ct;
 
   uintptr_t* write_genovecs[2];
+  uintptr_t* write_phasepresents[2];
+  uintptr_t* write_phaseinfos[2];
   uint32_t* write_dosage_cts[2];
   uintptr_t* write_dosage_presents[2];
   Dosage* write_dosage_mains[2];
+  uint32_t* write_dphase_cts[2];
+  uintptr_t* write_dphase_presents[2];
+  SDosage* write_dphase_deltas[2];
 } GenerateDummyCtx;
 
 static_assert(sizeof(Dosage) == 2, "GenerateDummyThread() needs to be updated.");
@@ -15670,9 +15678,13 @@ THREAD_FUNC_DECL GenerateDummyThread(void* raw_arg) {
   const uint32_t sample_ct = ctx->sample_ct;
   const uint32_t calc_thread_ct = GetThreadCt(arg->sharedp);
   STD_ARRAY_KREF(uint64_t, kBitsPerWordD2) geno_missing_geomdist = ctx->geno_missing_geomdist;
+  STD_ARRAY_KREF(uint64_t, kBitsPerWordD2) phase_geomdist = ctx->phase_geomdist;
   STD_ARRAY_KREF(uint64_t, kBitsPerWordD2) dosage_geomdist = ctx->dosage_geomdist;
   const uint32_t geno_missing_invert = ctx->geno_missing_invert;
   const uint32_t geno_missing_check = geno_missing_invert || (geno_missing_geomdist[kBitsPerWordD2 - 1] != 0);
+  const uint32_t phase_invert = ctx->phase_invert;
+  const uint32_t phase_is_variable = (phase_geomdist[kBitsPerWordD2 - 1] != 0);
+  const uint32_t phase_is_present = phase_invert || phase_is_variable;
   const uint32_t dosage_geomdist_max = ctx->dosage_geomdist_max;
   const uint32_t dosage_is_present = (dosage_geomdist_max != kBitsPerWord);
   const uint32_t hard_call_halfdist = ctx->hard_call_halfdist;
@@ -15689,13 +15701,17 @@ THREAD_FUNC_DECL GenerateDummyThread(void* raw_arg) {
     uint32_t vidx = (tidx * cur_block_write_ct) / calc_thread_ct;
     const uint32_t vidx_end = ((tidx + 1) * cur_block_write_ct) / calc_thread_ct;
     uintptr_t* write_genovec_iter = &(ctx->write_genovecs[parity][vidx * sample_ctaw2]);
+    uintptr_t* write_phasepresent_iter = &(ctx->write_phasepresents[parity][vidx * sample_ctaw]);
+    uintptr_t* write_phaseinfo_iter = &(ctx->write_phaseinfos[parity][vidx * sample_ctaw]);
     uint32_t* write_dosage_ct_iter = &(ctx->write_dosage_cts[parity][vidx]);
     uintptr_t* write_dosage_present_iter = &(ctx->write_dosage_presents[parity][vidx * sample_ctaw]);
-
-    // bugfix (23 Jul 2017): multiply by sample_ct, not sample_ctaw
     Dosage* write_dosage_main_iter = &(ctx->write_dosage_mains[parity][vidx * sample_ct]);
+    uint32_t* write_dphase_ct_iter = &(ctx->write_dphase_cts[parity][vidx]);
+    uintptr_t* write_dphase_present_iter = &(ctx->write_dphase_presents[parity][vidx * sample_ctaw]);
+    SDosage* write_dphase_delta_iter = &(ctx->write_dphase_deltas[parity][vidx * sample_ct]);
     for (; vidx != vidx_end; ++vidx) {
       Dosage* cur_dosage_main_iter = write_dosage_main_iter;
+      SDosage* cur_dphase_delta_iter = write_dphase_delta_iter;
       uint32_t loop_len = kBitsPerWordD2;
       for (uint32_t widx = 0; ; ++widx) {
         if (widx >= sample_ctl2_m1) {
@@ -15724,7 +15740,36 @@ THREAD_FUNC_DECL GenerateDummyThread(void* raw_arg) {
           }
           genovec_word |= missing_mask;
         }
+        // set bits may correspond to missing or homozygous calls; that's
+        // resolved later.
+        uint32_t phasepresent_possible_hw = 0;
+        uint32_t phaseinfo_hw = 0;
+        if (phase_is_present) {
+          if (phase_is_variable) {
+            uint32_t sample_idx_lowbits = 0;
+            while (1) {
+              sample_idx_lowbits += CountSortedLeqU64(&phase_geomdist[0], kBitsPerWordD2, sfmt_genrand_uint64(sfmtp));
+              if (sample_idx_lowbits >= loop_len) {
+                break;
+              }
+              phasepresent_possible_hw |= 1U << sample_idx_lowbits;
+              ++sample_idx_lowbits;
+            }
+          }
+          if (phase_invert) {
+            phasepresent_possible_hw = S_CAST(Halfword, ~phasepresent_possible_hw);
+          }
+          const uint32_t kInt16PerHalfword = (kBitsPerWord / 2) / 16;
+          if (rand16_left < kInt16PerHalfword) {
+            u64rand = sfmt_genrand_uint64(sfmtp);
+            rand16_left = 4;
+          }
+          phaseinfo_hw = S_CAST(Halfword, u64rand);
+          u64rand >>= kBitsPerWord / 2;
+          rand16_left -= kInt16PerHalfword;
+        }
         uint32_t dosage_present_hw = 0;
+        uint32_t dphase_present_hw = 0;
         if (dosage_is_present) {
           // deliberate overflow
           uint32_t sample_idx_lowbits = UINT32_MAX;
@@ -15749,7 +15794,20 @@ THREAD_FUNC_DECL GenerateDummyThread(void* raw_arg) {
             const uint32_t halfdist = BiallelicDosageHalfdist(dosage_int);
             if (halfdist < dosage_erase_halfdist) {
               *cur_dosage_main_iter++ = dosage_int;
-              dosage_present_hw |= 1U << sample_idx_lowbits;
+              const uint32_t shifted_bit = 1U << sample_idx_lowbits;
+              dosage_present_hw |= shifted_bit;
+              if (phasepresent_possible_hw & shifted_bit) {
+                dphase_present_hw |= shifted_bit;
+                int32_t cur_dphase_delta = DosageHomdist(dosage_int);
+                // To test both the maximum-difference and the
+                // nonmaximal-difference cases, we subtract 1 from this number
+                // if it's even.
+                cur_dphase_delta -= 1 - (cur_dphase_delta & 1);
+                if (!(phaseinfo_hw & shifted_bit)) {
+                  cur_dphase_delta = -cur_dphase_delta;
+                }
+                *cur_dphase_delta_iter++ = cur_dphase_delta;
+              }
               if (halfdist < hard_call_halfdist) {
                 genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
                 continue;
@@ -15760,14 +15818,25 @@ THREAD_FUNC_DECL GenerateDummyThread(void* raw_arg) {
           }
         }
         write_genovec_iter[widx] = genovec_word;
+        const uint32_t cur_hets = Pack01ToHalfword(genovec_word);
+        const uint32_t phasepresent_hw = phasepresent_possible_hw & cur_hets;
+        R_CAST(Halfword*, write_phasepresent_iter)[widx] = phasepresent_hw;
+        R_CAST(Halfword*, write_phaseinfo_iter)[widx] = phaseinfo_hw & phasepresent_hw;
         R_CAST(Halfword*, write_dosage_present_iter)[widx] = dosage_present_hw;
+        R_CAST(Halfword*, write_dphase_present_iter)[widx] = dphase_present_hw;
       }
       ZeroTrailingNyps(sample_ct, write_genovec_iter);
       const uint32_t dosage_ct = cur_dosage_main_iter - write_dosage_main_iter;
       *write_dosage_ct_iter++ = dosage_ct;
+      const uint32_t dphase_ct = cur_dphase_delta_iter - write_dphase_delta_iter;
+      *write_dphase_ct_iter++ = dphase_ct;
       write_genovec_iter = &(write_genovec_iter[sample_ctaw2]);
+      write_phasepresent_iter = &(write_phasepresent_iter[sample_ctaw]);
+      write_phaseinfo_iter = &(write_phaseinfo_iter[sample_ctaw]);
       write_dosage_present_iter = &(write_dosage_present_iter[sample_ctaw]);
       write_dosage_main_iter = &(write_dosage_main_iter[sample_ct]);
+      write_dphase_present_iter = &(write_dphase_present_iter[sample_ctaw]);
+      write_dphase_delta_iter = &(write_dphase_delta_iter[sample_ct]);
     }
     parity = 1 - parity;
   } while (!THREAD_BLOCK_FINISH(arg));
@@ -15978,6 +16047,27 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
         }
       }
     }
+    const double phase_freq = gendummy_info_ptr->phase_freq;
+    ctx.phase_invert = 0;
+    const uint32_t is_phased = (phase_freq >= kRecip2m53);
+    if (!is_phased) {
+      ctx.phase_geomdist[kBitsPerWordD2 - 1] = 0;
+    } else {
+      double remaining_prob = 1.0;
+      ctx.phase_invert = (phase_freq > 0.5);
+      if (ctx.geno_missing_invert) {
+        for (uint32_t uii = 0; uii != kBitsPerWordD2; ++uii) {
+          remaining_prob *= phase_freq;
+          ctx.phase_geomdist[uii] = -S_CAST(uint64_t, remaining_prob * k2m64);
+        }
+      } else {
+        const double phase_nfreq = 1.0 - phase_freq;
+        for (uint32_t uii = 0; uii != kBitsPerWordD2; ++uii) {
+          remaining_prob *= phase_nfreq;
+          ctx.phase_geomdist[uii] = -S_CAST(uint64_t, remaining_prob * k2m64);
+        }
+      }
+    }
     const double dosage_nfreq = 1.0 - gendummy_info_ptr->dosage_freq;
     if (dosage_nfreq >= 1.0) {
       ctx.dosage_geomdist_max = kBitsPerWord;  // used as a flag
@@ -15995,9 +16085,16 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
       }
       ctx.dosage_geomdist_max = dosage_geomdist_max;
     }
+    PgenGlobalFlags gflags = kfPgenGlobal0;
+    if (is_phased) {
+      gflags |= kfPgenGlobalHardcallPhasePresent;
+    }
+    if (dosage_nfreq < 1.0) {
+      gflags |= kfPgenGlobalDosagePresent;
+    }
     uintptr_t spgw_alloc_cacheline_ct;
     uint32_t max_vrec_len;
-    reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, 0, (dosage_nfreq >= 1.0)? kfPgenGlobal0 : kfPgenGlobalDosagePresent, 1, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, 0, gflags, 1, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
     if (unlikely(reterr)) {
       if (reterr == kPglRetOpenFail) {
         logerrprintfww(kErrprintfFopen, outname, strerror(errno));
@@ -16030,14 +16127,14 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
     }
     const uint32_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
     const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
-    uintptr_t cachelines_avail_m8 = bigstack_left() / kCacheline;
-    if (unlikely(cachelines_avail_m8 < 8)) {
+    // we're making 18 allocations; be pessimistic re: rounding
+    uintptr_t cachelines_avail_m18 = bigstack_left() / kCacheline;
+    if (unlikely(cachelines_avail_m18 < 18)) {
       goto GenerateDummy_ret_NOMEM;
     }
-    // we're making 8 allocations; be pessimistic re: rounding
-    cachelines_avail_m8 -= 8;
-    const uintptr_t bytes_req_per_in_block_variant = 2 * (sample_ctaw2 * sizeof(intptr_t) + sizeof(int32_t) + sample_ctaw * sizeof(intptr_t) + sample_ct * sizeof(Dosage));
-    uintptr_t main_block_size = (cachelines_avail_m8 * kCacheline) / bytes_req_per_in_block_variant;
+    cachelines_avail_m18 -= 18;
+    const uintptr_t bytes_req_per_in_block_variant = 2 * (sample_ctaw2 * sizeof(intptr_t) + 2 * sizeof(int32_t) + sample_ctaw * 4 * sizeof(intptr_t) + sample_ct * 2 * sizeof(Dosage));
+    uintptr_t main_block_size = (cachelines_avail_m18 * kCacheline) / bytes_req_per_in_block_variant;
     if (main_block_size > 65536) {
       main_block_size = 65536;
     } else if (unlikely(main_block_size < 8)) {
@@ -16053,12 +16150,22 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
     ctx.sample_ct = sample_ct;
     if (unlikely(bigstack_alloc_w(sample_ctaw2 * main_block_size, &(ctx.write_genovecs[0])) ||
                  bigstack_alloc_w(sample_ctaw2 * main_block_size, &(ctx.write_genovecs[1])) ||
+                 bigstack_alloc_w(sample_ctaw * main_block_size, &(ctx.write_phasepresents[0])) ||
+                 bigstack_alloc_w(sample_ctaw * main_block_size, &(ctx.write_phasepresents[1])) ||
+                 bigstack_alloc_w(sample_ctaw * main_block_size, &(ctx.write_phaseinfos[0])) ||
+                 bigstack_alloc_w(sample_ctaw * main_block_size, &(ctx.write_phaseinfos[1])) ||
                  bigstack_alloc_u32(main_block_size, &(ctx.write_dosage_cts[0])) ||
                  bigstack_alloc_u32(main_block_size, &(ctx.write_dosage_cts[1])) ||
                  bigstack_alloc_w(sample_ctaw * main_block_size, &(ctx.write_dosage_presents[0])) ||
                  bigstack_alloc_w(sample_ctaw * main_block_size, &(ctx.write_dosage_presents[1])) ||
                  bigstack_alloc_dosage(sample_ct * main_block_size, &(ctx.write_dosage_mains[0])) ||
-                 bigstack_alloc_dosage(sample_ct * main_block_size, &(ctx.write_dosage_mains[1])))) {
+                 bigstack_alloc_dosage(sample_ct * main_block_size, &(ctx.write_dosage_mains[1])) ||
+                 bigstack_alloc_u32(main_block_size, &(ctx.write_dphase_cts[0])) ||
+                 bigstack_alloc_u32(main_block_size, &(ctx.write_dphase_cts[1])) ||
+                 bigstack_alloc_w(sample_ctaw * main_block_size, &(ctx.write_dphase_presents[0])) ||
+                 bigstack_alloc_w(sample_ctaw * main_block_size, &(ctx.write_dphase_presents[1])) ||
+                 bigstack_alloc_dphase(sample_ct * main_block_size, &(ctx.write_dphase_deltas[0])) ||
+                 bigstack_alloc_dphase(sample_ct * main_block_size, &(ctx.write_dphase_deltas[1])))) {
       // this should be impossible
       assert(0);
       goto GenerateDummy_ret_NOMEM;
@@ -16105,24 +16212,47 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
       if (vidx_start) {
         // write *previous* block results
         uintptr_t* write_genovec_iter = ctx.write_genovecs[parity];
+        uintptr_t* write_phasepresent_iter = ctx.write_phasepresents[parity];
+        uintptr_t* write_phaseinfo_iter = ctx.write_phaseinfos[parity];
         uint32_t* write_dosage_ct_iter = ctx.write_dosage_cts[parity];
         uintptr_t* write_dosage_present_iter = ctx.write_dosage_presents[parity];
         Dosage* write_dosage_main_iter = ctx.write_dosage_mains[parity];
+        uint32_t* write_dphase_ct_iter = ctx.write_dphase_cts[parity];
+        uintptr_t* write_dphase_present_iter = ctx.write_dphase_presents[parity];
+        SDosage* write_dphase_delta_iter = ctx.write_dphase_deltas[parity];
         for (uint32_t vidx = vidx_start - prev_block_write_ct; vidx != vidx_start; ++vidx) {
           const uint32_t cur_dosage_ct = *write_dosage_ct_iter++;
+          const uint32_t cur_dphase_ct = *write_dphase_ct_iter++;
           if (!cur_dosage_ct) {
-            if (unlikely(SpgwAppendBiallelicGenovec(write_genovec_iter, &spgw))) {
-              goto GenerateDummy_ret_WRITE_FAIL;
+            if (!is_phased) {
+              if (unlikely(SpgwAppendBiallelicGenovec(write_genovec_iter, &spgw))) {
+                goto GenerateDummy_ret_WRITE_FAIL;
+              }
+            } else {
+              if (unlikely(SpgwAppendBiallelicGenovecHphase(write_genovec_iter, write_phasepresent_iter, write_phaseinfo_iter, &spgw))) {
+                goto GenerateDummy_ret_WRITE_FAIL;
+              }
             }
           } else {
-            reterr = SpgwAppendBiallelicGenovecDosage16(write_genovec_iter, write_dosage_present_iter, write_dosage_main_iter, cur_dosage_ct, &spgw);
-            if (unlikely(reterr)) {
-              goto GenerateDummy_ret_1;
+            if (!is_phased) {
+              reterr = SpgwAppendBiallelicGenovecDosage16(write_genovec_iter, write_dosage_present_iter, write_dosage_main_iter, cur_dosage_ct, &spgw);
+              if (unlikely(reterr)) {
+                goto GenerateDummy_ret_1;
+              }
+            } else {
+              reterr = SpgwAppendBiallelicGenovecDphase16(write_genovec_iter, write_phasepresent_iter, write_phaseinfo_iter, write_dosage_present_iter, write_dphase_present_iter, write_dosage_main_iter, write_dphase_delta_iter, cur_dosage_ct, cur_dphase_ct, &spgw);
+              if (unlikely(reterr)) {
+                goto GenerateDummy_ret_1;
+              }
             }
           }
           write_genovec_iter = &(write_genovec_iter[sample_ctaw2]);
+          write_phasepresent_iter = &(write_phasepresent_iter[sample_ctaw]);
+          write_phaseinfo_iter = &(write_phaseinfo_iter[sample_ctaw]);
           write_dosage_present_iter = &(write_dosage_present_iter[sample_ctaw]);
           write_dosage_main_iter = &(write_dosage_main_iter[sample_ct]);
+          write_dphase_present_iter = &(write_dphase_present_iter[sample_ctaw]);
+          write_dphase_delta_iter = &(write_dphase_delta_iter[sample_ct]);
         }
       }
       if (vidx_start == variant_ct) {
