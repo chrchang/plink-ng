@@ -6457,7 +6457,8 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
             if (cur_read_allele_ct == cur_write_allele_ct) {
               reterr = PgrGetRaw(read_variant_uidx, read_gflags, simple_pgrp, &loadbuf_iter, cur_loaded_vrtypes? (&(cur_loaded_vrtypes[block_widx])) : nullptr);
               if (unlikely(reterr)) {
-                goto MakePgenRobust_ret_PGR_FAIL;
+                PgenErrPrintNV(reterr, read_variant_uidx);
+                goto MakePgenRobust_ret_1;
               }
               ++block_widx;
               continue;
@@ -6470,7 +6471,8 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
                   reterr = PgrGetMD(nullptr, null_pssi, raw_sample_ct, read_variant_uidx, simple_pgrp, &pgv);
                 }
                 if (unlikely(reterr)) {
-                  goto MakePgenRobust_ret_PGR_FAIL;
+                  PgenErrPrintNV(reterr, read_variant_uidx);
+                  goto MakePgenRobust_ret_1;
                 }
 
                 // 2a. count # of each alt
@@ -6858,9 +6860,6 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
   while (0) {
   MakePgenRobust_ret_NOMEM:
     reterr = kPglRetNomem;
-    break;
-  MakePgenRobust_ret_PGR_FAIL:
-    PgenErrPrintN(reterr);
     break;
   MakePgenRobust_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
@@ -7476,7 +7475,8 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
             const uintptr_t read_variant_uidx = BitIter1(variant_include, &read_variant_uidx_base, &cur_bits);
             reterr = PgrGetRaw(read_variant_uidx, read_gflags, simple_pgrp, &loadbuf_iter, cur_loaded_vrtypes? (&(cur_loaded_vrtypes[uii])) : nullptr);
             if (unlikely(reterr)) {
-              goto MakePlink2NoVsort_ret_PGR_FAIL;
+              PgenErrPrintNV(reterr, read_variant_uidx);
+              goto MakePlink2NoVsort_ret_1;
             }
           }
         }
@@ -7532,9 +7532,6 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
   while (0) {
   MakePlink2NoVsort_ret_NOMEM:
     reterr = kPglRetNomem;
-    break;
-  MakePlink2NoVsort_ret_PGR_FAIL:
-    PgenErrPrintN(reterr);
     break;
   MakePlink2NoVsort_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;

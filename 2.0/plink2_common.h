@@ -1212,18 +1212,14 @@ HEADER_INLINE BoolErr CleanupPgr2(const char* file_descrip, PgenReader* pgrp, Pg
   return 0;
 }
 
-HEADER_INLINE void PgenErrPrintNEx(const char* file_descrip, PglErr reterr) {
-  if (reterr == kPglRetReadFail) {
-    logputs("\n");
-    logerrprintfww(kErrprintfFread, file_descrip, rstrerror(errno));
-  } else if (reterr == kPglRetMalformedInput) {
-    logputs("\n");
-    logerrprintfww("Error: Malformed %s.\n", file_descrip);
-  }
-}
+void PgenErrPrintNEx(const char* file_descrip, PglErr reterr, uint32_t variant_uidx);
 
 HEADER_INLINE void PgenErrPrintN(PglErr reterr) {
-  PgenErrPrintNEx(".pgen file", reterr);
+  PgenErrPrintNEx(".pgen file", reterr, UINT32_MAX);
+}
+
+HEADER_INLINE void PgenErrPrintNV(PglErr reterr, uint32_t variant_uidx) {
+  PgenErrPrintNEx(".pgen file", reterr, variant_uidx);
 }
 
 HEADER_INLINE void PgenErrPrintEx(const char* file_descrip, PglErr reterr) {

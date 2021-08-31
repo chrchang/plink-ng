@@ -3393,6 +3393,21 @@ char* PrintMultiallelicHcAsHaploidDs(uint32_t hc1, uint32_t hc2, uint32_t allele
 
 const char g_vft_names[3][18] = {"extract", "extract-intersect", "exclude"};
 
+void PgenErrPrintNEx(const char* file_descrip, PglErr reterr, uint32_t variant_uidx) {
+  if (reterr == kPglRetReadFail) {
+    logputs("\n");
+    logerrprintfww(kErrprintfFread, file_descrip, rstrerror(errno));
+  } else if (reterr == kPglRetMalformedInput) {
+    logputs("\n");
+    if (variant_uidx == UINT32_MAX) {
+      logerrprintfww("Error: Failed to unpack variant in %s.\n", file_descrip);
+    } else {
+      logerrprintfww("Error: Failed to unpack (0-based) variant #u in %s.\n", variant_uidx, file_descrip);
+    }
+    logerrputs("You can use --validate to check whether it is malformed.\n* If it is malformed, you probably need to either re-download the file, or\n  address an error in the command that generated the input .pgen.\n* If it appears to be valid, you have probably encountered a plink2 bug.  If\n  you report the error on GitHub or the plink2-users Google group (make sure to\n  include the full .log file in your report), we'll try to address it.\n");
+  }
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif
