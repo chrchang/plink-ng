@@ -910,14 +910,16 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
         }
       }
     }
-    while (0) {
-    CalcKingSparseThread_err:
-      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
-      break;
-    }
     parity = 1 - parity;
   }
-  ctx->thread_skip_cts[tidx] = skip_ct;
+  {
+    ctx->thread_skip_cts[tidx] = skip_ct;
+  }
+  while (0) {
+  CalcKingSparseThread_err:
+    UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    break;
+  }
   THREAD_RETURN;
 }
 
@@ -7468,13 +7470,13 @@ THREAD_FUNC_DECL VscoreThread(void* raw_arg) {
         }
       }
     }
-    while (0) {
-    VscoreThread_err:
-      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
-      break;
-    }
     parity = 1 - parity;
   } while (!THREAD_BLOCK_FINISH(arg));
+  while (0) {
+  VscoreThread_err:
+    UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    break;
+  }
   THREAD_RETURN;
 }
 

@@ -3374,20 +3374,22 @@ THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* raw_arg) {
         }
       }
     }
-    while (0) {
-    LoadSampleMissingCtsThread_err:
-      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
-      break;
-    }
   } while (!THREAD_BLOCK_FINISH(arg));
-  VcountIncr4To8(missing_hc_acc4, acc4_vec_ct, missing_hc_acc8);
-  VcountIncr8To32(missing_hc_acc8, acc8_vec_ct, missing_hc_acc32);
-  if (missing_dosage_acc1) {
-    VcountIncr4To8(missing_dosage_acc4, acc4_vec_ct, missing_dosage_acc8);
-    VcountIncr8To32(missing_dosage_acc8, acc8_vec_ct, missing_dosage_acc32);
+  {
+    VcountIncr4To8(missing_hc_acc4, acc4_vec_ct, missing_hc_acc8);
+    VcountIncr8To32(missing_hc_acc8, acc8_vec_ct, missing_hc_acc32);
+    if (missing_dosage_acc1) {
+      VcountIncr4To8(missing_dosage_acc4, acc4_vec_ct, missing_dosage_acc8);
+      VcountIncr8To32(missing_dosage_acc8, acc8_vec_ct, missing_dosage_acc32);
+    }
+    VcountIncr4To8(hethap_acc4, acc4_vec_ct, hethap_acc8);
+    VcountIncr8To32(hethap_acc8, acc8_vec_ct, hethap_acc32);
   }
-  VcountIncr4To8(hethap_acc4, acc4_vec_ct, hethap_acc8);
-  VcountIncr8To32(hethap_acc8, acc8_vec_ct, hethap_acc32);
+  while (0) {
+  LoadSampleMissingCtsThread_err:
+    UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    break;
+  }
   THREAD_RETURN;
 }
 

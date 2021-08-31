@@ -6277,39 +6277,41 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
         }
       }
     }
-    while (0) {
-    SampleCountsThread_err:
-      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
-      break;
-    }
   } while (!THREAD_BLOCK_FINISH(arg));
-  const uintptr_t acc4_vec_ct = acc2_vec_ct * 2;
-  const uintptr_t acc8_vec_ct = acc2_vec_ct * 4;
-  for (uint32_t dense_vtype = 0; dense_vtype != 4 * kSubstCodeCt; ++dense_vtype) {
-    VecW* acc2_0 = dense_counts[dense_vtype];
-    if (acc2_0) {
-      VecW* acc4_0 = &(acc2_0[acc2_vec_ct]);
-      VcountIncr2To4(acc2_0, acc2_vec_ct, acc4_0);
-      VecW* acc8_0 = &(acc4_0[acc4_vec_ct]);
-      VcountIncr4To8(acc4_0, acc4_vec_ct, acc8_0);
-      VcountIncr8To32(acc8_0, acc8_vec_ct, &(acc8_0[acc8_vec_ct]));
+  {
+    const uintptr_t acc4_vec_ct = acc2_vec_ct * 2;
+    const uintptr_t acc8_vec_ct = acc2_vec_ct * 4;
+    for (uint32_t dense_vtype = 0; dense_vtype != 4 * kSubstCodeCt; ++dense_vtype) {
+      VecW* acc2_0 = dense_counts[dense_vtype];
+      if (acc2_0) {
+        VecW* acc4_0 = &(acc2_0[acc2_vec_ct]);
+        VcountIncr2To4(acc2_0, acc2_vec_ct, acc4_0);
+        VecW* acc8_0 = &(acc4_0[acc4_vec_ct]);
+        VcountIncr4To8(acc4_0, acc4_vec_ct, acc8_0);
+        VcountIncr8To32(acc8_0, acc8_vec_ct, &(acc8_0[acc8_vec_ct]));
 
-      VecW* acc2_2 = &(acc2_0[dense_counts_vstride]);
-      VecW* acc4_2 = &(acc2_2[acc2_vec_ct]);
-      VcountIncr2To4(acc2_2, acc2_vec_ct, acc4_2);
-      VecW* acc8_2 = &(acc4_2[acc4_vec_ct]);
-      VcountIncr4To8(acc4_2, acc4_vec_ct, acc8_2);
-      VcountIncr8To32(acc8_2, acc8_vec_ct, &(acc8_2[acc8_vec_ct]));
+        VecW* acc2_2 = &(acc2_0[dense_counts_vstride]);
+        VecW* acc4_2 = &(acc2_2[acc2_vec_ct]);
+        VcountIncr2To4(acc2_2, acc2_vec_ct, acc4_2);
+        VecW* acc8_2 = &(acc4_2[acc4_vec_ct]);
+        VcountIncr4To8(acc4_2, acc4_vec_ct, acc8_2);
+        VcountIncr8To32(acc8_2, acc8_vec_ct, &(acc8_2[acc8_vec_ct]));
 
-      if (dense_vtype < 2 * kSubstCodeCt) {
-        VecW* acc2_1 = &(acc2_2[dense_counts_vstride]);
-        VecW* acc4_1 = &(acc2_1[acc2_vec_ct]);
-        VcountIncr2To4(acc2_1, acc2_vec_ct, acc4_1);
-        VecW* acc8_1 = &(acc4_1[acc4_vec_ct]);
-        VcountIncr4To8(acc4_1, acc4_vec_ct, acc8_1);
-        VcountIncr8To32(acc8_1, acc8_vec_ct, &(acc8_1[acc8_vec_ct]));
+        if (dense_vtype < 2 * kSubstCodeCt) {
+          VecW* acc2_1 = &(acc2_2[dense_counts_vstride]);
+          VecW* acc4_1 = &(acc2_1[acc2_vec_ct]);
+          VcountIncr2To4(acc2_1, acc2_vec_ct, acc4_1);
+          VecW* acc8_1 = &(acc4_1[acc4_vec_ct]);
+          VcountIncr4To8(acc4_1, acc4_vec_ct, acc8_1);
+          VcountIncr8To32(acc8_1, acc8_vec_ct, &(acc8_1[acc8_vec_ct]));
+        }
       }
     }
+  }
+  while (0) {
+  SampleCountsThread_err:
+    UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    break;
   }
   THREAD_RETURN;
 }
@@ -7491,7 +7493,8 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
         }
       }
       if (unlikely(reterr)) {
-        goto SdiffCountsOnly_ret_PGR_FAIL;
+        PgenErrPrintNV(reterr, variant_uidx);
+        goto SdiffCountsOnly_ret_1;
       }
       if (variant_idx >= next_print_variant_idx) {
         if (pct > 10) {
@@ -7797,10 +7800,10 @@ PglErr SdiffCountsOnly(const uintptr_t* __restrict sample_include, const uint32_
   SdiffCountsOnly_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  SdiffCountsOnly_ret_PGR_FAIL:
     PgenErrPrintN(reterr);
     break;
   }
+ SdiffCountsOnly_ret_1:
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -8119,7 +8122,8 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
         }
       }
       if (unlikely(reterr)) {
-        goto SdiffMainBatch_ret_PGR_FAIL;
+        PgenErrPrintNV(reterr, variant_uidx);
+        goto SdiffMainBatch_ret_1;
       }
       if (variant_idx >= next_print_variant_idx) {
         if (pct > 10) {
@@ -8397,9 +8401,6 @@ PglErr SdiffMainBatch(const uintptr_t* __restrict sample_include, const uint32_t
   while (0) {
   SdiffMainBatch_ret_NOMEM:
     reterr = kPglRetNomem;
-    break;
-  SdiffMainBatch_ret_PGR_FAIL:
-    PgenErrPrintN(reterr);
     break;
   SdiffMainBatch_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -9213,8 +9214,7 @@ typedef struct HetCtxStruct {
   uint32_t* read_variant_uidx_starts;
   uint32_t cur_block_size;
 
-  // only kPglRetMalformedInput possible, no atomic ops needed
-  PglErr reterr;
+  uint64_t err_info;
 
   double* thread_ehet_base;
   uint32_t* thread_nobs_base;
@@ -9275,6 +9275,7 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
 
   double ehet = 0.0;
   uint32_t cur_allele_ct = 2;
+  uint64_t new_err_info = 0;
   do {
     const uint32_t cur_block_size = ctx->cur_block_size;
     const uint32_t cur_idx_ct = (((tidx + 1) * cur_block_size) / calc_thread_ct) - ((tidx * cur_block_size) / calc_thread_ct);
@@ -9300,10 +9301,10 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
         }
         uint32_t difflist_common_geno;
         uint32_t difflist_len;
-        PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_simple_difflist_len, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+        const PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_simple_difflist_len, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
         if (unlikely(reterr)) {
-          ctx->reterr = reterr;
-          break;
+          new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+          goto HetThread_err;
         }
         if (difflist_common_geno != UINT32_MAX) {
           ZeroTrailingNyps(difflist_len, raregeno);
@@ -9422,10 +9423,10 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
             continue;
           }
         }
-        PglErr reterr = PgrGetM(sample_include, pssi, sample_ct, variant_uidx, pgrp, &pgv);
+        const PglErr reterr = PgrGetM(sample_include, pssi, sample_ct, variant_uidx, pgrp, &pgv);
         if (unlikely(reterr)) {
-          ctx->reterr = reterr;
-          break;
+          new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+          goto HetThread_err;
         }
         const uint32_t patch_10_ct = pgv.patch_10_ct;
         const AlleleCode* patch_10_vals = pgv.patch_10_vals;
@@ -9542,21 +9543,28 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
       }
     }
   } while (!THREAD_BLOCK_FINISH(arg));
-  ctx->thread_ehet_base[tidx] = ehet_base;
-  ctx->thread_nobs_base[tidx] = nobs_base;
+  {
+    ctx->thread_ehet_base[tidx] = ehet_base;
+    ctx->thread_nobs_base[tidx] = nobs_base;
 
-  VecW* acc4 = &(scrambled_ohets[acc2_vec_ct]);
-  VcountIncr2To4(scrambled_ohets, acc2_vec_ct, acc4);
-  const uint32_t acc4_vec_ct = acc2_vec_ct * 2;
-  VecW* acc8 = &(acc4[acc4_vec_ct]);
-  VcountIncr4To8(acc4, acc4_vec_ct, acc8);
-  const uint32_t acc8_vec_ct = acc4_vec_ct * 2;
-  VecW* acc32 = &(acc8[acc8_vec_ct]);
-  VcountIncr8To32(acc8, acc8_vec_ct, acc32);
-  uint32_t* acc32_alias = R_CAST(uint32_t*, acc32);
-  for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
-    const uint32_t scrambled_idx = VcountScramble2(sample_idx);
-    ohets[sample_idx] += acc32_alias[scrambled_idx];
+    VecW* acc4 = &(scrambled_ohets[acc2_vec_ct]);
+    VcountIncr2To4(scrambled_ohets, acc2_vec_ct, acc4);
+    const uint32_t acc4_vec_ct = acc2_vec_ct * 2;
+    VecW* acc8 = &(acc4[acc4_vec_ct]);
+    VcountIncr4To8(acc4, acc4_vec_ct, acc8);
+    const uint32_t acc8_vec_ct = acc4_vec_ct * 2;
+    VecW* acc32 = &(acc8[acc8_vec_ct]);
+    VcountIncr8To32(acc8, acc8_vec_ct, acc32);
+    uint32_t* acc32_alias = R_CAST(uint32_t*, acc32);
+    for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
+      const uint32_t scrambled_idx = VcountScramble2(sample_idx);
+      ohets[sample_idx] += acc32_alias[scrambled_idx];
+    }
+  }
+  while (0) {
+  HetThread_err:
+    UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    break;
   }
   THREAD_RETURN;
 }
@@ -9696,7 +9704,7 @@ PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
     if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
       goto HetReport_ret_NOMEM;
     }
-    ctx.reterr = kPglRetSuccess;
+    ctx.err_info = (~0LLU) << 32;
     // assert(bigstack_left() >= thread_xalloc_cacheline_ct * kCacheline * calc_thread_ct);
     for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
       unsigned char* cur_alloc = S_CAST(unsigned char*, bigstack_alloc_raw(thread_xalloc_cacheline_ct * kCacheline));
@@ -9734,9 +9742,10 @@ PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
       }
       if (variant_idx) {
         JoinThreads(&tg);
-        reterr = ctx.reterr;
+        reterr = S_CAST(PglErr, ctx.err_info);
         if (unlikely(reterr)) {
-          goto HetReport_ret_PGR_FAIL;
+          PgenErrPrintNV(reterr, ctx.err_info >> 32);
+          goto HetReport_ret_1;
         }
       }
       if (!IsLastBlock(&tg)) {
@@ -9891,8 +9900,7 @@ typedef struct FstCtxStruct {
   uint32_t* read_variant_uidx_starts;
   uint32_t cur_block_variant_ct;  // .pgen iteration, not jackknife
 
-  // only kPglRetMalformedInput possible, no atomic ops needed
-  PglErr reterr;
+  uint64_t err_info;
 
   // worker threads compute intermediate stats; parent thread computes final
   // Fst estimates (to avoid O(pop_ct^2) space problem) and executes
@@ -9945,6 +9953,7 @@ THREAD_FUNC_DECL FstThread(void* raw_arg) {
 
   uint32_t allele_ct = 2;
   uint32_t parity = 0;
+  uint64_t new_err_info = 0;
   do {
     uint32_t cur_idx_ct;
     uintptr_t variant_uidx_base;
@@ -9988,10 +9997,10 @@ THREAD_FUNC_DECL FstThread(void* raw_arg) {
       uint32_t difflist_common_geno = UINT32_MAX;
       if (allele_ct == 2) {
         uint32_t difflist_len;
-        PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_simple_difflist_len, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+        const PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_simple_difflist_len, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
         if (unlikely(reterr)) {
-          ctx->reterr = reterr;
-          break;
+          new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+          goto FstThread_err;
         }
         if (difflist_common_geno != UINT32_MAX) {
           const uint32_t word_ct = NypCtToWordCt(difflist_len);
@@ -10046,10 +10055,10 @@ THREAD_FUNC_DECL FstThread(void* raw_arg) {
           }
         }
       } else {
-        PglErr reterr = PgrGetM(sample_include, pssi, sample_ct, variant_uidx, pgrp, &pgv);
+        const PglErr reterr = PgrGetM(sample_include, pssi, sample_ct, variant_uidx, pgrp, &pgv);
         if (unlikely(reterr)) {
-          ctx->reterr = reterr;
-          break;
+          new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+          goto FstThread_err;
         }
       }
       if (difflist_common_geno == UINT32_MAX) {
@@ -10217,6 +10226,11 @@ THREAD_FUNC_DECL FstThread(void* raw_arg) {
     }
     parity = 1 - parity;
   } while (!THREAD_BLOCK_FINISH(arg));
+  while (0) {
+  FstThread_err:
+    UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    break;
+  }
   THREAD_RETURN;
 }
 
@@ -10889,7 +10903,7 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
         if (unlikely(SetThreadCt(calc_thread_ct, &tg))) {
           goto FstReport_ret_NOMEM;
         }
-        ctx.reterr = kPglRetSuccess;
+        ctx.err_info = (~0LLU) << 32;
         for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
           unsigned char* cur_alloc = S_CAST(unsigned char*, bigstack_alloc_raw(thread_xalloc_cacheline_ct * kCacheline));
           ctx.raregenos[tidx] = R_CAST(uintptr_t*, cur_alloc);
@@ -10943,9 +10957,10 @@ PglErr FstReport(const uintptr_t* orig_sample_include, const uintptr_t* sex_male
           }
           if (variant_idx) {
             JoinThreads(&tg);
-            reterr = ctx.reterr;
+            reterr = S_CAST(PglErr, ctx.err_info);
             if (unlikely(reterr)) {
-              goto FstReport_ret_PGR_FAIL;
+              PgenErrPrintNV(reterr, ctx.err_info >> 32);
+              goto FstReport_ret_1;
             }
           }
           if (!IsLastBlock(&tg)) {

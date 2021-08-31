@@ -520,12 +520,12 @@ THREAD_FUNC_DECL TransposeToSmajReadThread(void* raw_arg) {
       vmaj_readbuf_iter = &(vmaj_readbuf_iter[read_sample_ctaw2]);
     }
     prev_copy_ct += cur_block_copy_ct;
-    while (0) {
-    TransposeToSmajReadThread_err:
-      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
-      break;
-    }
   } while (!THREAD_BLOCK_FINISH(arg));
+  while (0) {
+  TransposeToSmajReadThread_err:
+    UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    break;
+  }
   THREAD_RETURN;
 }
 
@@ -1704,15 +1704,17 @@ THREAD_FUNC_DECL ExportBgen11Thread(void* raw_arg) {
         }
       }
     }
-    while (0) {
-    ExportBgen11Thread_err:
-      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
-      break;
-    }
     parity = 1 - parity;
   } while (!THREAD_BLOCK_FINISH(arg));
-  VcountIncr4To8(missing_acc4, acc4_vec_ct, missing_acc8);
-  VcountIncr8To32(missing_acc8, acc8_vec_ct, missing_acc32);
+  {
+    VcountIncr4To8(missing_acc4, acc4_vec_ct, missing_acc8);
+    VcountIncr8To32(missing_acc8, acc8_vec_ct, missing_acc32);
+  }
+  while (0) {
+  ExportBgen11Thread_err:
+    UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    break;
+  }
   THREAD_RETURN;
 }
 
@@ -3153,15 +3155,17 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* raw_arg) {
         }
       }
     }
-    while (0) {
-    ExportBgen13Thread_err:
-      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
-      break;
-    }
     parity = 1 - parity;
   } while (!THREAD_BLOCK_FINISH(arg));
-  VcountIncr4To8(missing_acc4, acc4_vec_ct, missing_acc8);
-  VcountIncr8To32(missing_acc8, acc8_vec_ct, missing_acc32);
+  {
+    VcountIncr4To8(missing_acc4, acc4_vec_ct, missing_acc8);
+    VcountIncr8To32(missing_acc8, acc8_vec_ct, missing_acc32);
+  }
+  while (0) {
+  ExportBgen13Thread_err:
+    UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    break;
+  }
   THREAD_RETURN;
 }
 
@@ -9554,12 +9558,12 @@ THREAD_FUNC_DECL DosageTransposeThread(void* raw_arg) {
         smaj_dosagebuf_iter = &(smaj_dosagebuf_iter[vidx_block_size]);
       } while (vidx_start != vidx_end);
     }
-    while (0) {
-    DosageTransposeThread_err:
-      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
-      break;
-    }
   } while (!THREAD_BLOCK_FINISH(arg));
+  while (0) {
+  DosageTransposeThread_err:
+    UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+    break;
+  }
   THREAD_RETURN;
 }
 
