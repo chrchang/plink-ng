@@ -6079,7 +6079,8 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
         JoinThreads(&tg);
         reterr = S_CAST(PglErr, common->err_info);
         if (unlikely(reterr)) {
-          goto GlmLogistic_ret_PGR_FAIL;
+          PgenErrPrintNV(reterr, common->err_info >> 32);
+          goto GlmLogistic_ret_1;
         }
       }
       if (!IsLastBlock(&tg)) {
@@ -8253,7 +8254,8 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
         JoinThreads(&tg);
         reterr = S_CAST(PglErr, common->err_info);
         if (unlikely(reterr)) {
-          goto GlmLinear_ret_PGR_FAIL;
+          PgenErrPrintNV(reterr, common->err_info >> 32);
+          goto GlmLinear_ret_1;
         }
       }
       if (!IsLastBlock(&tg)) {
@@ -10461,7 +10463,8 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
           JoinThreads(&tg);
           reterr = S_CAST(PglErr, common->err_info);
           if (unlikely(reterr)) {
-            goto GlmLinearBatch_ret_PGR_FAIL;
+            PgenErrPrintNV(reterr, common->err_info >> 32);
+            goto GlmLinearBatch_ret_1;
           }
         }
         if (!IsLastBlock(&tg)) {
@@ -11263,7 +11266,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             uint32_t dosage_ct;
             reterr = PgrGetD(nullptr, null_pssi, raw_sample_ct, cur_variant_uidx, simple_pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
             if (unlikely(reterr)) {
-              goto GlmMain_ret_PGR_FAIL;
+              PgenErrPrintV(reterr, cur_variant_uidx);
+              goto GlmMain_ret_1;
             }
             // alpha 2 update: default to major allele, respect omit-ref
             if (common.omitted_alleles && common.omitted_alleles[cur_variant_uidx]) {
@@ -12841,9 +12845,6 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     break;
   GlmMain_ret_TKSTREAM_FAIL:
     TokenStreamErrPrint("--condition-list file", &tks);
-    break;
-  GlmMain_ret_PGR_FAIL:
-    PgenErrPrint(reterr);
     break;
   GlmMain_ret_INVALID_CMDLINE:
     reterr = kPglRetInvalidCmdline;

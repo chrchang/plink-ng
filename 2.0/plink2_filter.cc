@@ -990,7 +990,8 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
         // Avoid loading genotypes when possible.
         reterr = PgrGetMDp(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &first_pgv);
         if (unlikely(reterr)) {
-          goto RmDup_ret_PGR_FAIL;
+          PgenErrPrintNV(reterr, variant_uidx);
+          goto RmDup_ret_1;
         }
         ZeroTrailingNyps(sample_ct, first_pgv.genovec);
         if (first_pgv.phasepresent_ct) {
@@ -1002,7 +1003,8 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
           if ((variant_uidx != ll_variant_uidx) && IsSet(orig_dups, ll_variant_uidx)) {
             reterr = PgrGetMDp(sample_include, pssi, sample_ct, ll_variant_uidx, simple_pgrp, &cur_pgv);
             if (unlikely(reterr)) {
-              goto RmDup_ret_PGR_FAIL;
+              PgenErrPrintNV(reterr, ll_variant_uidx);
+              goto RmDup_ret_1;
             }
             // todo: multidosage, multidphase
             if ((first_pgv.patch_01_ct != cur_pgv.patch_01_ct) ||
@@ -1113,9 +1115,6 @@ PglErr RmDup(const uintptr_t* sample_include, const ChrInfo* cip, const uint32_t
     break;
   RmDup_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
-    break;
-  RmDup_ret_PGR_FAIL:
-    PgenErrPrintN(reterr);
     break;
   RmDup_ret_TSTREAM_FAIL:
     TextStreamErrPrint(pvar_info_reload, &pvar_txs);
@@ -3465,7 +3464,8 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
         JoinThreads(&tg);
         reterr = S_CAST(PglErr, ctx.err_info);
         if (unlikely(reterr)) {
-          goto LoadSampleMissingCts_ret_PGR_FAIL;
+          PgenErrPrintNV(reterr, ctx.err_info >> 32);
+          goto LoadSampleMissingCts_ret_1;
         }
       }
       if (!IsLastBlock(&tg)) {

@@ -311,7 +311,8 @@ PglErr Export012Vmaj(const char* outname, const uintptr_t* sample_include, const
       if (export_allele_missing && export_allele_missing[variant_uidx]) {
         reterr = PgrGetMissingnessD(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, nullptr, missingness_dosage, nullptr, genovec);
         if (unlikely(reterr)) {
-          goto Export012Vmaj_ret_PGR_FAIL;
+          PgenErrPrintNV(reterr, variant_uidx);
+          goto Export012Vmaj_ret_1;
         }
         write_iter = strcpyax(write_iter, export_allele_missing[variant_uidx], exportf_delim);
         if (unlikely(fwrite_ck(writebuf_flush, outfile, &write_iter))) {
@@ -355,7 +356,8 @@ PglErr Export012Vmaj(const char* outname, const uintptr_t* sample_include, const
         uint32_t dosage_ct;
         reterr = PgrGet1D(sample_include, pssi, sample_ct, variant_uidx, exported_allele_idx, simple_pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
         if (unlikely(reterr)) {
-          goto Export012Vmaj_ret_PGR_FAIL;
+          PgenErrPrintNV(reterr, variant_uidx);
+          goto Export012Vmaj_ret_1;
         }
         write_iter = strcpyax(write_iter, cur_alleles[exported_allele_idx], exportf_delim);
         const uint32_t first_alt_idx = (exported_allele_idx == 0);
@@ -452,13 +454,11 @@ PglErr Export012Vmaj(const char* outname, const uintptr_t* sample_include, const
   Export012Vmaj_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  Export012Vmaj_ret_PGR_FAIL:
-    PgenErrPrintN(reterr);
-    break;
   Export012Vmaj_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
   }
+ Export012Vmaj_ret_1:
   fclose_cond(outfile);
   BigstackReset(bigstack_mark);
   return reterr;
@@ -478,7 +478,7 @@ typedef struct TransposeToSmajReadCtxStruct {
 
   uintptr_t* vmaj_readbuf;
 
-  PglErr reterr;
+  uint64_t err_info;
 } TransposeToSmajReadCtx;
 
 THREAD_FUNC_DECL TransposeToSmajReadThread(void* raw_arg) {
@@ -496,6 +496,7 @@ THREAD_FUNC_DECL TransposeToSmajReadThread(void* raw_arg) {
   PgrSampleSubsetIndex pssi;
   PgrSetSampleSubsetIndex(ctx->sample_include_cumulative_popcounts, pgrp, &pssi);
   uintptr_t prev_copy_ct = 0;
+  uint64_t new_err_info = 0;
   do {
     const uintptr_t cur_block_copy_ct = ctx->cur_block_write_ct;
     const uint32_t cur_idx_end = ((tidx + 1) * cur_block_copy_ct) / calc_thread_ct;
@@ -509,10 +510,8 @@ THREAD_FUNC_DECL TransposeToSmajReadThread(void* raw_arg) {
       // todo: multiallelic case
       const PglErr reterr = PgrGet(sample_include, pssi, read_sample_ct, variant_uidx, pgrp, vmaj_readbuf_iter);
       if (unlikely(reterr)) {
-        // no synchronization needed for now since only kPglRetMalformedInput
-        // possible?
-        ctx->reterr = reterr;
-        break;
+        new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+        goto TransposeToSmajReadThread_err;
       }
       if (refalt1_select && (refalt1_select[variant_uidx][0] == 1)) {
         GenovecInvertUnsafe(read_sample_ct, vmaj_readbuf_iter);
@@ -521,6 +520,11 @@ THREAD_FUNC_DECL TransposeToSmajReadThread(void* raw_arg) {
       vmaj_readbuf_iter = &(vmaj_readbuf_iter[read_sample_ctaw2]);
     }
     prev_copy_ct += cur_block_copy_ct;
+    while (0) {
+    TransposeToSmajReadThread_err:
+      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+      break;
+    }
   } while (!THREAD_BLOCK_FINISH(arg));
   THREAD_RETURN;
 }
@@ -638,7 +642,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
       read_ctx.variant_include = variant_include;
       // read_ctx.allele_idx_offsets = allele_idx_offsets;
       read_ctx.refalt1_select = refalt1_select;
-      read_ctx.reterr = kPglRetSuccess;
+      read_ctx.err_info = (~0LLU) << 32;
       SetThreadFuncAndData(TransposeToSmajReadThread, &read_ctx, &read_tg);
 
       const uintptr_t variant_cacheline_ct = NypCtToCachelineCt(variant_ct);
@@ -731,9 +735,10 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
           }
           if (variant_idx) {
             JoinThreads(&read_tg);
-            reterr = read_ctx.reterr;
+            reterr = S_CAST(PglErr, read_ctx.err_info);
             if (unlikely(reterr)) {
-              goto ExportIndMajorBed_ret_PGR_FAIL;
+              PgenErrPrintNV(reterr, read_ctx.err_info >> 32);
+              goto ExportIndMajorBed_ret_1;
             }
           }
           if (!IsLastBlock(&read_tg)) {
@@ -848,6 +853,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
     reterr = kPglRetThreadCreateFail;
     break;
   }
+ ExportIndMajorBed_ret_1:
   CleanupThreads(&write_tg);
   CleanupThreads(&read_tg);
   fclose_cond(outfile);
@@ -1060,7 +1066,8 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
       uint32_t dosage_ct;
       reterr = PgrGetD(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
       if (unlikely(reterr)) {
-        goto ExportOxGen_ret_PGR_FAIL;
+        PgenErrPrintNV(reterr, variant_uidx);
+        goto ExportOxGen_ret_1;
       }
       if (ref_allele_idx != ref_allele_last) {
         GenovecInvertUnsafe(sample_ct, genovec);
@@ -1190,9 +1197,6 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
   while (0) {
   ExportOxGen_ret_NOMEM:
     reterr = kPglRetNomem;
-    break;
-  ExportOxGen_ret_PGR_FAIL:
-    PgenErrPrintN(reterr);
     break;
   ExportOxGen_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -1403,7 +1407,8 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
       uint32_t phasepresent_ct;
       reterr = PgrGet2P(sample_include, pssi, sample_ct, variant_uidx, allele_idx0, allele_idx1, simple_pgrp, genovec, phasepresent, phaseinfo, &phasepresent_ct);
       if (unlikely(reterr)) {
-        goto ExportOxHapslegend_ret_PGR_FAIL;
+        PgenErrPrintNV(reterr, variant_uidx);
+        goto ExportOxHapslegend_ret_1;
       }
       ZeroTrailingNyps(sample_ct, genovec);
       STD_ARRAY_DECL(uint32_t, 4, genocounts);
@@ -1487,9 +1492,6 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
     break;
   ExportOxHapslegend_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
-    break;
-  ExportOxHapslegend_ret_PGR_FAIL:
-    PgenErrPrintN(reterr);
     break;
   }
  ExportOxHapslegend_ret_1:
@@ -1882,8 +1884,10 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
           if (reterr == kPglRetInconsistentInput) {
             logputs("\n");
             logerrprintfww("Error: %s cannot contain multiallelic variants.\n", outname);
+          } else {
+            PgenErrPrintNV(reterr, ctx.err_info >> 32);
           }
-          goto ExportBgen11_ret_PGR_FAIL;
+          goto ExportBgen11_ret_1;
         }
       }
       if (!IsLastBlock(&tg)) {
@@ -2017,6 +2021,7 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
     reterr = kPglRetThreadCreateFail;
     break;
   }
+ ExportBgen11_ret_1:
   CleanupThreads(&tg);
   if (ctx.libdeflate_compressors) {
     for (uint32_t tidx = 0; tidx != max_thread_ct; ++tidx) {
@@ -3504,8 +3509,10 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
             // temporary
             logputs("\n");
             logerrputs("Error: --export bgen-1.2/1.3 multiallelic variant support is under development.\n");
+          } else {
+            PgenErrPrintNV(reterr, ctx.err_info >> 32);
           }
-          goto ExportBgen13_ret_PGR_FAIL;
+          goto ExportBgen13_ret_1;
         }
       }
       if (!IsLastBlock(&tg)) {
@@ -3665,6 +3672,7 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
     reterr = kPglRetThreadCreateFail;
     break;
   }
+ ExportBgen13_ret_1:
   CleanupThreads(&tg);
   if (ctx.libdeflate_compressors) {
     for (uint32_t tidx = 0; tidx != max_thread_ct; ++tidx) {
@@ -4932,7 +4940,8 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
             reterr = PgrGetD(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &(pgv.dosage_ct));
           }
           if (unlikely(reterr)) {
-            goto ExportVcf_ret_PGR_FAIL;
+            PgenErrPrintNV(reterr, variant_uidx);
+            goto ExportVcf_ret_1;
           }
           if (!alt1_allele_idx) {
             // assumes biallelic
@@ -5097,7 +5106,8 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
             reterr = PgrGetDp(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
           }
           if (unlikely(reterr)) {
-            goto ExportVcf_ret_PGR_FAIL;
+            PgenErrPrintNV(reterr, variant_uidx);
+            goto ExportVcf_ret_1;
           }
           if (!alt1_allele_idx) {
             // assumes biallelic
@@ -5423,7 +5433,8 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         if (!some_phased) {
           reterr = PgrGetM(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
           if (unlikely(reterr)) {
-            goto ExportVcf_ret_PGR_FAIL;
+            PgenErrPrintNV(reterr, variant_uidx);
+            goto ExportVcf_ret_1;
           }
           if (!ds_force) {
             if (!is_haploid) {
@@ -5679,7 +5690,8 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
           // multiallelic, phased
           reterr = PgrGetMP(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
           if (unlikely(reterr)) {
-            goto ExportVcf_ret_PGR_FAIL;
+            PgenErrPrintNV(reterr, variant_uidx);
+            goto ExportVcf_ret_1;
           }
           if (!pgv.patch_01_ct) {
             ZeroWArr(sample_ctl, pgv.patch_01_set);
@@ -6184,9 +6196,6 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     break;
   ExportVcf_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
-    break;
-  ExportVcf_ret_PGR_FAIL:
-    PgenErrPrintN(reterr);
     break;
   }
  ExportVcf_ret_1:
@@ -8784,7 +8793,8 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
             reterr = PgrGetD(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &(pgv.dosage_ct));
           }
           if (unlikely(reterr)) {
-            goto ExportBcf_ret_PGR_FAIL;
+            PgenErrPrintNV(reterr, variant_uidx);
+            goto ExportBcf_ret_1;
           }
           if (!alt1_allele_idx) {
             GenovecInvertUnsafe(sample_ct, pgv.genovec);
@@ -8899,7 +8909,8 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
             reterr = PgrGetDp(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
           }
           if (unlikely(reterr)) {
-            goto ExportBcf_ret_PGR_FAIL;
+            PgenErrPrintNV(reterr, variant_uidx);
+            goto ExportBcf_ret_1;
           }
           if (!alt1_allele_idx) {
             GenovecInvertUnsafe(sample_ct, pgv.genovec);
@@ -9131,7 +9142,8 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
         if (!some_phased) {
           reterr = PgrGetM(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
           if (unlikely(reterr)) {
-            goto ExportBcf_ret_PGR_FAIL;
+            PgenErrPrintNV(reterr, variant_uidx);
+            goto ExportBcf_ret_1;
           }
           if (allele_ct <= 63) {
             // Still 1 byte per entry.  Almost identical to the biallelic case,
@@ -9221,7 +9233,8 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
           // multiallelic phased
           reterr = PgrGetMP(sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
           if (unlikely(reterr)) {
-            goto ExportBcf_ret_PGR_FAIL;
+            PgenErrPrintNV(reterr, variant_uidx);
+            goto ExportBcf_ret_1;
           }
           if (!pgv.patch_01_ct) {
             ZeroWArr(sample_ctl, pgv.patch_01_set);
@@ -9376,9 +9389,6 @@ PglErr ExportBcf(const uintptr_t* sample_include, const uint32_t* sample_include
     break;
   ExportBcf_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
-    break;
-  ExportBcf_ret_PGR_FAIL:
-    PgenErrPrintN(reterr);
     break;
   }
  ExportBcf_ret_1:
@@ -9843,7 +9853,8 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
           JoinThreads(&tg);
           reterr = S_CAST(PglErr, ctx.err_info);
           if (unlikely(reterr)) {
-            goto Export012Smaj_ret_PGR_FAIL;
+            PgenErrPrintNV(reterr, ctx.err_info >> 32);
+            goto Export012Smaj_ret_1;
           }
         }
         if (!IsLastBlock(&tg)) {
@@ -9971,6 +9982,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
     reterr = kPglRetThreadCreateFail;
     break;
   }
+ Export012Smaj_ret_1:
   CleanupThreads(&tg);
   fclose_cond(outfile);
   pgfip->block_base = nullptr;

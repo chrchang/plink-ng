@@ -3892,7 +3892,8 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
       } else {
         reterr = PgrGetM(cur_sample_include, pssi, sample_ct, variant_uidx, simple_pgrp, &pgv);
         if (unlikely(reterr)) {
-          goto WriteGenoCounts_ret_PGR_FAIL;
+          PgenErrPrintNV(reterr, variant_uidx);
+          goto WriteGenoCounts_ret_1;
         }
         // Usually don't care about contents of genovec, patch_01_set, and
         // patch_10_set, but chrX is an exception.
@@ -4101,9 +4102,6 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
   while (0) {
   WriteGenoCounts_ret_NOMEM:
     reterr = kPglRetNomem;
-    break;
-  WriteGenoCounts_ret_PGR_FAIL:
-    PgenErrPrintN(reterr);
     break;
   WriteGenoCounts_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -4550,7 +4548,8 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
         if (allele_ct > 2) {
           reterr = PgrGetM(founder_info, pssi, founder_ct, variant_uidx, simple_pgrp, &pgv);
           if (unlikely(reterr)) {
-            goto GetMultiallelicMarginalCounts_ret_PGR_FAIL;
+            PgenErrPrintNV(reterr, variant_uidx);
+            goto GetMultiallelicMarginalCounts_ret_1;
           }
           ZeroTrailingNyps(founder_ct, pgv.genovec);
           ZeroU32Arr(allele_ct, one_cts);
@@ -4621,7 +4620,8 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
         if (allele_ct > 2) {
           reterr = PgrGetM(founder_knownsex, pssi, founder_x_ct, variant_uidx, simple_pgrp, &pgv);
           if (unlikely(reterr)) {
-            goto GetMultiallelicMarginalCounts_ret_PGR_FAIL;
+            PgenErrPrintNV(reterr, variant_uidx);
+            goto GetMultiallelicMarginalCounts_ret_1;
           }
           ZeroTrailingNyps(founder_x_ct, pgv.genovec);
           ZeroU32Arr(allele_ct, one_cts);
@@ -4707,10 +4707,8 @@ PglErr GetMultiallelicMarginalCounts(const uintptr_t* founder_info, const uintpt
   GetMultiallelicMarginalCounts_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  GetMultiallelicMarginalCounts_ret_PGR_FAIL:
-    PgenErrPrintN(reterr);
-    break;
   }
+ GetMultiallelicMarginalCounts_ret_1:
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -5779,8 +5777,7 @@ typedef struct SampleCountsCtxStruct {
   uint32_t* read_variant_uidx_starts;
   uint32_t cur_block_size;
 
-  // only kPglRetMalformedInput possible, no atomic ops needed
-  PglErr reterr;
+  uint64_t err_info;
 
   // top-level: length calc_thread_ct array
   // second level: length-16 arrays, corresponding to the 16 chr_type x
@@ -5911,6 +5908,7 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
   }
 
   uint32_t cur_allele_ct = 2;
+  uint64_t new_err_info = 0;
   do {
     const uint32_t cur_block_size = ctx->cur_block_size;
     const uint32_t cur_idx_ct = (((tidx + 1) * cur_block_size) / calc_thread_ct) - ((tidx * cur_block_size) / calc_thread_ct);
@@ -5966,10 +5964,10 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
         // Finally, a scenario where exposing this capability really pays off.
         uint32_t difflist_common_geno;
         uint32_t difflist_len;
-        PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_simple_difflist_len, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+        const PglErr reterr = PgrGetDifflistOrGenovec(sample_include, pssi, sample_ct, max_simple_difflist_len, variant_uidx, pgrp, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
         if (unlikely(reterr)) {
-          ctx->reterr = reterr;
-          break;
+          new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+          goto SampleCountsThread_err;
         }
         if (difflist_common_geno == 2) {
           // Don't bother with sparse optimization here, should be rare and it
@@ -6094,10 +6092,10 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
         continue;
       }
       // Multiallelic case.
-      PglErr reterr = PgrGetM(sample_include, pssi, sample_ct, variant_uidx, pgrp, &pgv);
+      const PglErr reterr = PgrGetM(sample_include, pssi, sample_ct, variant_uidx, pgrp, &pgv);
       if (unlikely(reterr)) {
-        ctx->reterr = reterr;
-        break;
+        new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+        goto SampleCountsThread_err;
       }
       const uint32_t subst_code1 = GetSubstCode(cur_alleles[0], cur_alleles[1]);
       alt_subst_codes[1] = subst_code1;
@@ -6278,6 +6276,11 @@ THREAD_FUNC_DECL SampleCountsThread(void* raw_arg) {
           }
         }
       }
+    }
+    while (0) {
+    SampleCountsThread_err:
+      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+      break;
     }
   } while (!THREAD_BLOCK_FINISH(arg));
   const uintptr_t acc4_vec_ct = acc2_vec_ct * 2;
@@ -6601,7 +6604,7 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
     ctx.sample_ct = sample_ct;
     ctx.male_ct = male_ct;
     ctx.y_nonmale_needed = y_nonmale_needed;
-    ctx.reterr = kPglRetSuccess;
+    ctx.err_info = (~0LLU) << 32;
     unsigned char* bigstack_end_mark2 = nullptr;
     assert(bigstack_left() >= thread_xalloc_cacheline_ct * kCacheline * calc_thread_ct);
     for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
@@ -6687,9 +6690,10 @@ PglErr SampleCounts(const uintptr_t* sample_include, const SampleIdInfo* siip, c
       }
       if (variant_idx) {
         JoinThreads(&tg);
-        reterr = ctx.reterr;
+        reterr = S_CAST(PglErr, ctx.err_info);
         if (unlikely(reterr)) {
-          goto SampleCounts_ret_PGR_FAIL;
+          PgenErrPrintNV(reterr, ctx.err_info >> 32);
+          goto SampleCounts_ret_1;
         }
       }
       if (!IsLastBlock(&tg)) {

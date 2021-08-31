@@ -1876,7 +1876,7 @@ typedef struct LoadAlleleAndGenoCountsCtxStruct {
 
   // shouldn't need array, or errno storage, since kPglRetMalformedInput is the
   // only possible error for now
-  PglErr reterr;
+  uint64_t err_info;
 
   uint32_t cur_block_size;
 
@@ -1933,6 +1933,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
     x_start = cip->chr_fo_vidx_start[x_chr_fo_idx];
   }
   uint32_t allele_ct = 2;
+  uint64_t new_err_info;
   do {
     const uintptr_t cur_block_size = ctx->cur_block_size;
     // no overflow danger since cur_block_size <= 2^16, tidx < (2^16 - 1)
@@ -1968,8 +1969,6 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
       BitIter1Start(variant_include, ctx->read_variant_uidx_starts[tidx], &variant_uidx_base, &variant_include_bits);
       uint32_t chr_end = 0;
       uint32_t is_x_or_y = 0;
-      PglErr reterr = kPglRetSuccess;
-
       STD_ARRAY_DECL(uint32_t, 4, genocounts);
       STD_ARRAY_DECL(uint32_t, 4, sex_specific_genocounts);
       for (; cur_idx != cur_idx_end; ++cur_idx) {
@@ -2012,10 +2011,10 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
         if ((allele_ct == 2) || no_multiallelic_branch) {
           uint64_t cur_dosages[2];
           if (!is_x_or_y) {
-            reterr = PgrGetDCounts(sample_include, sample_include_interleaved_vec, pssi, sample_ct, variant_uidx, is_minimac3_r2, pgrp, imp_r2_vals? (&(imp_r2_vals[variant_uidx])) : nullptr, genocounts, cur_dosages);
+            const PglErr reterr = PgrGetDCounts(sample_include, sample_include_interleaved_vec, pssi, sample_ct, variant_uidx, is_minimac3_r2, pgrp, imp_r2_vals? (&(imp_r2_vals[variant_uidx])) : nullptr, genocounts, cur_dosages);
             if (unlikely(reterr)) {
-              ctx->reterr = reterr;
-              break;
+              new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+              goto LoadAlleleAndGenoCountsThread_err;
             }
             if (allele_presents_bytearr) {
               if (cur_dosages[0]) {
@@ -2048,10 +2047,10 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
             }
           } else if (is_y) {
             if ((!allele_presents_bytearr) || (sample_ct == male_ct)) {
-              reterr = PgrGetDCounts(sex_male, sex_male_interleaved_vec, pssi, male_ct, variant_uidx, 0, pgrp, imp_r2_vals? (&(imp_r2_vals[variant_uidx])) : nullptr, genocounts, cur_dosages);
+              const PglErr reterr = PgrGetDCounts(sex_male, sex_male_interleaved_vec, pssi, male_ct, variant_uidx, 0, pgrp, imp_r2_vals? (&(imp_r2_vals[variant_uidx])) : nullptr, genocounts, cur_dosages);
               if (unlikely(reterr)) {
-                ctx->reterr = reterr;
-                break;
+                new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+                goto LoadAlleleAndGenoCountsThread_err;
               }
               hethap_ct = genocounts[1];
               if (imp_r2_vals && (!is_minimac3_r2)) {
@@ -2073,10 +2072,10 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
             } else {
               // ugh, need to count female/unknown-sex for allele_presents and
               // ignore elsewhere
-              reterr = PgrGetD(nullptr, pssi, raw_sample_ct, variant_uidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &pgv.dosage_ct);
+              const PglErr reterr = PgrGetD(nullptr, pssi, raw_sample_ct, variant_uidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &pgv.dosage_ct);
               if (unlikely(reterr)) {
-                ctx->reterr = reterr;
-                break;
+                new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+                goto LoadAlleleAndGenoCountsThread_err;
               }
               const uint32_t dosage_is_relevant = pgv.dosage_ct && ((sample_ct == raw_sample_ct) || (!IntersectionIsEmpty(sample_include, pgv.dosage_present, raw_sample_ctl)));
               if (dosage_is_relevant) {
@@ -2149,10 +2148,10 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
             }
           } else {
             // chrX
-            reterr = PgrGetD(nullptr, pssi, raw_sample_ct, variant_uidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &pgv.dosage_ct);
+            const PglErr reterr = PgrGetD(nullptr, pssi, raw_sample_ct, variant_uidx, pgrp, pgv.genovec, pgv.dosage_present, pgv.dosage_main, &pgv.dosage_ct);
             if (unlikely(reterr)) {
-              ctx->reterr = reterr;
-              break;
+              new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+              goto LoadAlleleAndGenoCountsThread_err;
             }
             if (sample_ct == raw_sample_ct) {
               ZeroTrailingNyps(raw_sample_ct, pgv.genovec);
@@ -2269,10 +2268,10 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
         } else {
           // multiallelic cases
           if (!is_x_or_y) {
-            reterr = PgrGetMDCounts(sample_include, sample_include_interleaved_vec, pssi, sample_ct, variant_uidx, is_minimac3_r2, pgrp, imp_r2_vals? (&(imp_r2_vals[variant_uidx])) : nullptr, &hethap_ct, genocounts, all_dosages);
+            const PglErr reterr = PgrGetMDCounts(sample_include, sample_include_interleaved_vec, pssi, sample_ct, variant_uidx, is_minimac3_r2, pgrp, imp_r2_vals? (&(imp_r2_vals[variant_uidx])) : nullptr, &hethap_ct, genocounts, all_dosages);
             if (unlikely(reterr)) {
-              ctx->reterr = reterr;
-              break;
+              new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+              goto LoadAlleleAndGenoCountsThread_err;
             }
             if (allele_presents_bytearr) {
               for (uintptr_t aidx = 0; aidx != allele_ct; ++aidx) {
@@ -2298,10 +2297,10 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
             }
           } else if (is_y) {
             if ((!allele_presents_bytearr) || (sample_ct == male_ct)) {
-              reterr = PgrGetMDCounts(sex_male, sex_male_interleaved_vec, pssi, male_ct, variant_uidx, 0, pgrp, imp_r2_vals? (&(imp_r2_vals[variant_uidx])) : nullptr, &hethap_ct, genocounts, all_dosages);
+              const PglErr reterr = PgrGetMDCounts(sex_male, sex_male_interleaved_vec, pssi, male_ct, variant_uidx, 0, pgrp, imp_r2_vals? (&(imp_r2_vals[variant_uidx])) : nullptr, &hethap_ct, genocounts, all_dosages);
               if (unlikely(reterr)) {
-                ctx->reterr = reterr;
-                break;
+                new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+                goto LoadAlleleAndGenoCountsThread_err;
               }
               if (imp_r2_vals && (!is_minimac3_r2)) {
                 imp_r2_vals[variant_uidx] *= 0.5;
@@ -2319,10 +2318,10 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
             } else {
               // need to count female/unknown-sex for allele_presents and
               // ignore elsewhere
-              reterr = PgrGetM(nullptr, pssi, raw_sample_ct, variant_uidx, pgrp, &pgv);
+              const PglErr reterr = PgrGetM(nullptr, pssi, raw_sample_ct, variant_uidx, pgrp, &pgv);
               if (unlikely(reterr)) {
-                ctx->reterr = reterr;
-                break;
+                new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+                goto LoadAlleleAndGenoCountsThread_err;
               }
               // possible todo: use a specialized function which just checks
               // which alleles exist
@@ -2361,10 +2360,10 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
           } else {
             // chrX
             // multiallelic dosages not supported yet
-            reterr = PgrGetM(nullptr, pssi, raw_sample_ct, variant_uidx, pgrp, &pgv);
+            const PglErr reterr = PgrGetM(nullptr, pssi, raw_sample_ct, variant_uidx, pgrp, &pgv);
             if (unlikely(reterr)) {
-              ctx->reterr = reterr;
-              break;
+              new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+              goto LoadAlleleAndGenoCountsThread_err;
             }
             ZeroTrailingNyps(raw_sample_ct, pgv.genovec);
             // We don't attempt to compute imp_r2 on chrX, so flat counts are
@@ -2458,7 +2457,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
           }
         }
       }
-      if ((++subset_idx == subset_ct) || reterr) {
+      if (++subset_idx == subset_ct) {
         break;
       }
       sample_include = ctx->founder_info;
@@ -2481,6 +2480,11 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* raw_arg) {
       x_male_geno_cts = ctx->founder_x_male_geno_cts;
       x_nosex_geno_cts = ctx->founder_x_nosex_geno_cts;
       imp_r2_vals = nullptr;
+    }
+    while (0) {
+    LoadAlleleAndGenoCountsThread_err:
+      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+      break;
     }
   } while (!THREAD_BLOCK_FINISH(arg));
   THREAD_RETURN;
@@ -2707,7 +2711,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     }
     ctx.variant_include = variant_include;
     ctx.allele_idx_offsets = allele_idx_offsets;
-    ctx.reterr = kPglRetSuccess;
+    ctx.err_info = (~0LLU) << 32;
     SetThreadFuncAndData(LoadAlleleAndGenoCountsThread, &ctx, &tg);
 
     logputs("Calculating allele frequencies... ");
@@ -2725,9 +2729,10 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
       }
       if (variant_idx) {
         JoinThreads(&tg);
-        reterr = ctx.reterr;
+        reterr = S_CAST(PglErr, ctx.err_info);
         if (unlikely(reterr)) {
-          goto LoadAlleleAndGenoCounts_ret_PGR_FAIL;
+          PgenErrPrintNV(reterr, ctx.err_info >> 32);
+          goto LoadAlleleAndGenoCounts_ret_1;
         }
       }
       if (!IsLastBlock(&tg)) {
@@ -4895,7 +4900,7 @@ typedef struct MakeBedlikeCtxStruct {
   Dosage** dosage_mains;
 
   unsigned char* writebufs[2];
-  PglErr reterr;  // can only be kPglRetMalformedInput for now
+  uint64_t err_info;
 } MakeBedlikeCtx;
 
 
@@ -4937,6 +4942,7 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* raw_arg) {
   const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
   const uint32_t mt_code = cip->xymt_codes[kChrOffsetMT];
   uint32_t parity = 0;
+  uint64_t new_err_info = 0;
   do {
     const uintptr_t cur_block_write_ct = ctx->cur_block_write_ct;
     uint32_t write_idx = (tidx * cur_block_write_ct) / calc_thread_ct;
@@ -4979,10 +4985,10 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* raw_arg) {
         //   if split: call PgrGet1()
         //   otherwise, if erase-alt2+: call PgrGet2()
         //   otherwise, error out
-        PglErr reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, pgrp, genovec);
+        const PglErr reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, pgrp, genovec);
         if (unlikely(reterr)) {
-          ctx->reterr = reterr;
-          break;
+          new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+          goto MakeBedlikeThread_err;
         }
       } else {
         // this isn't fully implemented yet.
@@ -4995,10 +5001,10 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* raw_arg) {
         //    otherwise, if refalt1_select + erase-alt2+: call PgrGetMD(),
         //      rescale
         //    otherwise, error out
-        PglErr reterr = PgrGetD(sample_include, pssi, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
+        const PglErr reterr = PgrGetD(sample_include, pssi, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
         if (unlikely(reterr)) {
-          ctx->reterr = reterr;
-          break;
+          new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
+          goto MakeBedlikeThread_err;
         }
         ApplyHardCallThresh(dosage_present, dosage_main, dosage_ct, hard_call_halfdist, genovec);
       }
@@ -5034,6 +5040,11 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* raw_arg) {
       }
     }
     parity = 1 - parity;
+    while (0) {
+    MakeBedlikeThread_err:
+      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+      break;
+    }
   } while (!THREAD_BLOCK_FINISH(arg));
   THREAD_RETURN;
 }
@@ -5170,7 +5181,7 @@ PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_samp
     mcp->sample_include = sample_include;
     mcp->sample_ct = sample_ct;
     ctx.mcp = mcp;
-    ctx.reterr = kPglRetSuccess;
+    ctx.err_info = (~0LLU) << 32;
     SetThreadFuncAndData(MakeBedlikeThread, &ctx, &tg);
 
     // Main workflow:
@@ -5195,11 +5206,12 @@ PglErr MakeBedlikeMain(const uintptr_t* sample_include, const uint32_t* new_samp
       }
       if (variant_idx) {
         JoinThreads(&tg);
-        reterr = ctx.reterr;
+        reterr = S_CAST(PglErr, ctx.err_info);
         if (unlikely(reterr)) {
           // this should only be possible in MakePgenRobust()
           assert(reterr != kPglRetWriteFail);
-          goto MakeBedlikeMain_ret_PGR_FAIL;
+          PgenErrPrintNV(reterr, ctx.err_info >> 32);
+          goto MakeBedlikeMain_ret_1;
         }
       }
       if (!IsLastBlock(&tg)) {

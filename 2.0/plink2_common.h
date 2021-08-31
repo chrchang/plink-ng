@@ -1065,6 +1065,8 @@ PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint
 
 // Returns number of variants in current block.  Increases read_block_idx as
 // necessary (to get to a nonempty block).
+// reterr can be ReadFail but not MalformedInput, since this function just
+// reads the raw bytes, it does not perform any unpacking.
 uint32_t MultireadNonempty(const uintptr_t* variant_include, const ThreadGroup* tgp, uint32_t raw_variant_ct, uint32_t read_block_size, PgenFileInfo* pgfip, uint32_t* read_block_idxp, PglErr* reterrp);
 
 // Assumes mhc != nullptr, and is vector-aligned.
@@ -1212,26 +1214,22 @@ HEADER_INLINE BoolErr CleanupPgr2(const char* file_descrip, PgenReader* pgrp, Pg
   return 0;
 }
 
-void PgenErrPrintNEx(const char* file_descrip, PglErr reterr, uint32_t variant_uidx);
+void PgenErrPrintEx(const char* file_descrip, uint32_t prepend_lf, PglErr reterr, uint32_t variant_uidx);
 
 HEADER_INLINE void PgenErrPrintN(PglErr reterr) {
-  PgenErrPrintNEx(".pgen file", reterr, UINT32_MAX);
+  PgenErrPrintEx(".pgen file", 1, reterr, UINT32_MAX);
 }
 
 HEADER_INLINE void PgenErrPrintNV(PglErr reterr, uint32_t variant_uidx) {
-  PgenErrPrintNEx(".pgen file", reterr, variant_uidx);
-}
-
-HEADER_INLINE void PgenErrPrintEx(const char* file_descrip, PglErr reterr) {
-  if (reterr == kPglRetReadFail) {
-    logerrprintfww(kErrprintfFread, file_descrip, rstrerror(errno));
-  } else if (reterr == kPglRetMalformedInput) {
-    logerrprintfww("Error: Malformed %s.\n", file_descrip);
-  }
+  PgenErrPrintEx(".pgen file", 1, reterr, variant_uidx);
 }
 
 HEADER_INLINE void PgenErrPrint(PglErr reterr) {
-  PgenErrPrintEx(".pgen file", reterr);
+  PgenErrPrintEx(".pgen file", 0, reterr, UINT32_MAX);
+}
+
+HEADER_INLINE void PgenErrPrintV(PglErr reterr, uint32_t variant_uidx) {
+  PgenErrPrintEx(".pgen file", 0, reterr, variant_uidx);
 }
 
 #ifdef __cplusplus

@@ -573,7 +573,7 @@ typedef struct CalcKingSparseCtxStruct {
 
   uintptr_t** thread_sparse_excludes[2];
 
-  PglErr reterr;
+  uint64_t err_info;
 } CalcKingSparseCtx;
 
 THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
@@ -619,6 +619,7 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
   uint32_t skip_ct = 0;
 
   uint32_t* king_counts = ctx->king_counts;
+  uint64_t new_err_info = 0;
   {
     // This matrix can be huge, so we multithread zero-initialization.
     const uint64_t entry_ct = homhom_needed_p4 * (((sample_ct - 1) * S_CAST(uint64_t, sample_ct)) / 2 - tri_start);
@@ -645,9 +646,9 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
       const uint32_t variant_uidx = BitIter1(variant_include_orig, &variant_uidx_base, &variant_include_bits);
       // tried DifflistOrGenovec, difference was negligible.  Not really worth
       // considering it when calculation is inherently >O(mn).
-      PglErr reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, pgrp, genovec);
+      const PglErr reterr = PgrGet(sample_include, pssi, sample_ct, variant_uidx, pgrp, genovec);
       if (unlikely(reterr)) {
-        ctx->reterr = reterr;
+        new_err_info = (S_CAST(uint64_t, variant_uidx) << 32) | S_CAST(uint32_t, reterr);
         goto CalcKingSparseThread_err;
       }
       STD_ARRAY_DECL(uint32_t, 4, genocounts);
@@ -909,7 +910,11 @@ THREAD_FUNC_DECL CalcKingSparseThread(void* raw_arg) {
         }
       }
     }
-  CalcKingSparseThread_err:
+    while (0) {
+    CalcKingSparseThread_err:
+      UpdateU64IfSmaller(new_err_info, &ctx->err_info);
+      break;
+    }
     parity = 1 - parity;
   }
   ctx->thread_skip_cts[tidx] = skip_ct;
@@ -1419,7 +1424,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
         goto CalcKing_ret_NOMEM;
       }
       sparse_ctx.read_block_size = sparse_read_block_size;
-      sparse_ctx.reterr = kPglRetSuccess;
+      sparse_ctx.err_info = (~0LLU) << 32;
       if (unlikely(bigstack_alloc_u32p(calc_thread_ct, &sparse_ctx.thread_idx_bufs) ||
                    bigstack_alloc_u32p(calc_thread_ct, &sparse_ctx.thread_singleton_het_cts) ||
                    bigstack_alloc_u32p(calc_thread_ct, &sparse_ctx.thread_singleton_hom_cts) ||
@@ -1574,9 +1579,10 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
             goto CalcKing_ret_PGR_FAIL;
           }
           JoinThreads(&tg);
-          reterr = sparse_ctx.reterr;
+          reterr = S_CAST(PglErr, sparse_ctx.err_info);
           if (unlikely(reterr)) {
-            goto CalcKing_ret_PGR_FAIL;
+            PgenErrPrintNV(reterr, sparse_ctx.err_info >> 32);
+            goto CalcKing_ret_1;
           }
           if (!IsLastBlock(&tg)) {
             sparse_ctx.cur_block_size = cur_block_size;
@@ -1717,7 +1723,8 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include_orig,
               // REF/ALT allele counts instead.
               reterr = PgrGet(cur_sample_include, pssi, row_end_idx, variant_uidx, simple_pgrp, loadbuf);
               if (unlikely(reterr)) {
-                goto CalcKing_ret_PGR_FAIL;
+                PgenErrPrintNV(reterr, variant_uidx);
+                goto CalcKing_ret_1;
               }
               SetTrailingNyps(row_end_idx, loadbuf);
               SplitHomRef2hetUnsafeW(loadbuf, row_end_idxaw2, hom_iter, ref2het_iter);
@@ -3004,7 +3011,8 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
             const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
             reterr = PgrGet(cur_sample_include, pssi, cur_sample_ct, variant_uidx, simple_pgrp, loadbuf);
             if (unlikely(reterr)) {
-              goto CalcKingTableSubset_ret_PGR_FAIL;
+              PgenErrPrintNV(reterr, variant_uidx);
+              goto CalcKingTableSubset_ret_1;
             }
             // may want to support some sort of low-MAF optimization here
             SetTrailingNyps(cur_sample_ct, loadbuf);
@@ -3181,9 +3189,6 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     break;
   CalcKingTableSubset_ret_TSTREAM_FAIL:
     TextStreamErrPrint("--king-table-subset file", &txs);
-    break;
-  CalcKingTableSubset_ret_PGR_FAIL:
-    PgenErrPrintN(reterr);
     break;
   CalcKingTableSubset_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -3566,6 +3571,7 @@ PglErr LoadMultiallelicCenteredVarmaj(const uintptr_t* sample_include, PgrSample
   return kPglRetSuccess;
 }
 
+// This function handles error-message-logging.
 PglErr LoadCenteredVarmajBlock(const uintptr_t* sample_include, PgrSampleSubsetIndex pssi, const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t variance_standardize, uint32_t is_haploid, uint32_t sample_ct, uint32_t variant_ct, PgenReader* simple_pgrp, double* normed_vmaj_iter, uintptr_t* variant_include_has_missing, uint32_t* cur_batch_sizep, uint32_t* variant_idxp, uintptr_t* variant_uidxp, uintptr_t* allele_idx_basep, uint32_t* cur_allele_ctp, uint32_t* incomplete_allele_idxp, PgenVariant* pgvp, double* allele_1copy_buf) {
   const uint32_t std_batch_size = *cur_batch_sizep;
   uint32_t variant_idx = *variant_idxp;
@@ -3607,6 +3613,8 @@ PglErr LoadCenteredVarmajBlock(const uintptr_t* sample_include, PgrSampleSubsetI
       if (reterr == kPglRetDegenerateData) {
         logputs("\n");
         logerrputs("Error: Zero-MAF variant is not actually monomorphic.  (This is possible when\ne.g. MAF is estimated from founders, but the minor allele was only observed in\nnonfounders.  In any case, you should be using e.g. --maf to filter out all\nvery-low-MAF variants, since the relationship matrix distance formula does not\nhandle them well.)\n");
+      } else {
+        PgenErrPrintNV(reterr, variant_uidx);
       }
       return reterr;
     }
@@ -3831,7 +3839,8 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
           const uintptr_t variant_uidx = BitIter1(variant_include, &variant_uidx_base, &cur_bits);
           reterr = PgrGetMissingnessD(sample_include, pssi, row_end_idx, variant_uidx, simple_pgrp, nullptr, missing_vmaj_iter, nullptr, genovec_buf);
           if (unlikely(reterr)) {
-            goto CalcMissingMatrix_ret_PGR_FAIL;
+            PgenErrPrintNV(reterr, variant_uidx);
+            goto CalcMissingMatrix_ret_1;
           }
           missing_vmaj_iter = &(missing_vmaj_iter[row_end_idxaw]);
         }
@@ -3904,13 +3913,11 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
   CalcMissingMatrix_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  CalcMissingMatrix_ret_PGR_FAIL:
-    PgenErrPrintN(reterr);
-    break;
   CalcMissingMatrix_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
     break;
   }
+ CalcMissingMatrix_ret_1:
   CleanupThreads(&tg);
   BigstackReset(bigstack_mark);
   return reterr;
@@ -4077,7 +4084,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         double* normed_vmaj = ctx.normed_dosage_vmaj_bufs[parity];
         reterr = LoadCenteredVarmajBlock(sample_include, pssi, variant_include, allele_idx_offsets, allele_freqs, variance_standardize, is_haploid, row_end_idx, variant_ct, simple_pgrp, normed_vmaj, variant_include_has_missing, &cur_batch_size, &variant_idx, &variant_uidx, &allele_idx_base, &cur_allele_ct, &incomplete_allele_idx, &pgv, allele_1copy_buf);
         if (unlikely(reterr)) {
-          goto CalcGrm_ret_PGR_FAIL;
+          goto CalcGrm_ret_1;
         }
         if (thread_start) {
           MatrixTransposeCopy(normed_vmaj, cur_batch_size, row_end_idx, ctx.normed_dosage_smaj_bufs[parity]);
@@ -4507,9 +4514,6 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     break;
   CalcGrm_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
-    break;
-  CalcGrm_ret_PGR_FAIL:
-    PgenErrPrintN(reterr);
     break;
   CalcGrm_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -5151,7 +5155,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           if (!IsLastBlock(&tg)) {
             reterr = LoadCenteredVarmajBlock(pca_sample_include, pssi, variant_include, allele_idx_offsets, allele_freqs, 1, is_haploid, pca_sample_ct, variant_ct, simple_pgrp, ctx.yy_bufs[parity], nullptr, &cur_batch_size, &variant_idx, &variant_uidx, &allele_idx_base, &cur_allele_ct, &incomplete_allele_idx, &pgv, allele_1copy_buf);
             if (unlikely(reterr)) {
-              goto CalcPca_ret_PGR_FAIL;
+              goto CalcPca_ret_1;
             }
           }
           if (is_not_first_block) {
@@ -5221,8 +5225,9 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         if (!IsLastBlock(&tg)) {
           reterr = LoadCenteredVarmajBlock(pca_sample_include, pssi, variant_include, allele_idx_offsets, allele_freqs, 1, is_haploid, pca_sample_ct, variant_ct, simple_pgrp, ctx.yy_bufs[parity], nullptr, &cur_batch_size, &variant_idx, &variant_uidx, &allele_idx_base, &cur_allele_ct, &incomplete_allele_idx, &pgv, allele_1copy_buf);
           if (unlikely(reterr)) {
-            // this error *didn't* happen on an earlier pass, so assign blame
-            // to I/O instead
+            // This error *didn't* happen on an earlier pass, so assign blame
+            // to I/O.  (This may be additive with an error message printed by
+            // LoadCenteredVarmajBlock().)
             goto CalcPca_ret_REWIND_FAIL;
           }
         }
@@ -5475,7 +5480,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         if (!IsLastBlock(&tg)) {
           reterr = LoadCenteredVarmajBlock(pca_sample_include, pssi, variant_include, allele_idx_offsets, allele_freqs, 1, is_haploid, pca_sample_ct, variant_ct, simple_pgrp, vwctx.yy_bufs[parity], nullptr, &cur_batch_size, &variant_idx_load, &variant_uidx_load, &allele_idx_base_load, &cur_allele_ct_load, &incomplete_allele_idx_load, &pgv, allele_1copy_buf);
           if (unlikely(reterr)) {
-            goto CalcPca_ret_PGR_FAIL;
+            goto CalcPca_ret_1;
           }
         }
         if (is_not_first_block) {
@@ -5590,9 +5595,6 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     break;
   CalcPca_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
-    break;
-  CalcPca_ret_PGR_FAIL:
-    PgenErrPrintN(reterr);
     break;
   CalcPca_ret_REWIND_FAIL:
     logerrprintfww(kErrprintfRewind, ".pgen file");
@@ -6298,7 +6300,8 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       uint32_t dosage_ct;
       reterr = PgrGet1D(sample_include, pssi, sample_ct, variant_uidx, cur_allele_idx, simple_pgrp, genovec_buf, dosage_present_buf, dosage_main_buf, &dosage_ct);
       if (unlikely(reterr)) {
-        goto ScoreReport_ret_PGR_FAIL;
+        PgenErrPrintNV(reterr, variant_uidx);
+        goto ScoreReport_ret_1;
       }
       const uint32_t chr_idx = GetVariantChr(cip, variant_uidx);
       uint32_t is_nonx_haploid = IsSet(cip->haploid_mask, chr_idx);
@@ -6866,9 +6869,6 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     break;
   ScoreReport_ret_NOMEM:
     reterr = kPglRetNomem;
-    break;
-  ScoreReport_ret_PGR_FAIL:
-    PgenErrPrintN(reterr);
     break;
   ScoreReport_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -8078,11 +8078,13 @@ PglErr Vscore(const uintptr_t* variant_include, const ChrInfo* cip, const uint32
         if (unlikely(reterr)) {
 #ifdef USE_CUDA
           if (reterr == kPglRetGpuFail) {
+            logputs("\n");
             logerrputs("Error: GPU operation failure.\n");
             goto Vscore_ret_1;
           }
 #endif
-          goto Vscore_ret_PGR_FAIL;
+          PgenErrPrintNV(reterr, ctx.err_info >> 32);
+          goto Vscore_ret_1;
         }
       }
       if (!IsLastBlock(&tg)) {

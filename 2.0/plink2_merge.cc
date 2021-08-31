@@ -5065,7 +5065,8 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
         reterr = PgrGetMDp(sample_include, cur_mrp->pssi, read_sample_ct, read_variant_uidx, pgrp, pgvp);
       }
       if (unlikely(reterr)) {
-        goto MergePgenVariantNoTmpLocked_ret_PGR_FAIL;
+        PgenErrPrintNV(reterr, read_variant_uidx);
+        goto MergePgenVariantNoTmpLocked_ret_1;
       }
       if ((master_allele_remap[0] == kMissingAlleleCode) || (master_allele_remap[1] == kMissingAlleleCode)) {
         reterr = ValidateBiallelicVariantWithMissingCode(master_allele_remap, read_sample_ct, 1, pgvp);
@@ -5497,7 +5498,8 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
         reterr = PgrGetMDp(sample_include, cur_mrp->pssi, read_sample_ct, read_variant_uidx, pgrp, pgvp);
       }
       if (unlikely(reterr)) {
-        goto MergePgenVariantNoTmpLocked_ret_PGR_FAIL;
+        PgenErrPrintNV(reterr, read_variant_uidx);
+        goto MergePgenVariantNoTmpLocked_ret_1;
       }
 
       // Identify which samples we can blindly clobber the previous entry for,
@@ -5956,11 +5958,6 @@ PglErr MergePgenVariantNoTmpLocked(SamePosPvarRecord** same_id_records, const Al
     if (unlikely(reterr)) {
       goto MergePgenVariantNoTmpLocked_ret_1;
     }
-  }
-  while (0) {
-  MergePgenVariantNoTmpLocked_ret_PGR_FAIL:
-    PgenErrPrintN(reterr);
-    break;
   }
  MergePgenVariantNoTmpLocked_ret_1:
   return reterr;
@@ -7577,7 +7574,8 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
           reterr = PgrGetM(sample_include, pssi1, sample_ct, variant_uidx, simple_pgrp, &pgv1);
         }
         if (unlikely(reterr)) {
-          goto PgenDiff_ret_PGR_FAIL;
+          PgenErrPrintNV(reterr, variant_uidx);
+          goto PgenDiff_ret_1;
         }
         if (cur_allele_ct2 == 2) {
           reterr = PgrGet(sample_include2, pssi2, sample_ct, variant_uidx2, &simple_pgr2, pgv2.genovec);
@@ -7591,7 +7589,8 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
           reterr = PgrGetMD(sample_include, pssi1, sample_ct, variant_uidx, simple_pgrp, &pgv1);
         }
         if (unlikely(reterr)) {
-          goto PgenDiff_ret_PGR_FAIL;
+          PgenErrPrintNV(reterr, variant_uidx);
+          goto PgenDiff_ret_1;
         }
         if (cur_allele_ct2 == 2) {
           reterr = PgrGetD(sample_include2, pssi2, sample_ct, variant_uidx2, &simple_pgr2, pgv2.genovec, pgv2.dosage_present, pgv2.dosage_main, &pgv2.dosage_ct);
@@ -7600,7 +7599,8 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
         }
       }
       if (unlikely(reterr)) {
-        goto PgenDiff_ret_PGR_FAIL;
+        PgenErrPrintNV(reterr, variant_uidx2);
+        goto PgenDiff_ret_1;
       }
 
       uintptr_t* genovec1 = pgv1.genovec;
@@ -8225,9 +8225,6 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
     logerrputsb();
   PgenDiff_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
-    break;
-  PgenDiff_ret_PGR_FAIL:
-    PgenErrPrintN(reterr);
     break;
   PgenDiff_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;

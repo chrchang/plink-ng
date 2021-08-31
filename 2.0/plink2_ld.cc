@@ -1132,7 +1132,8 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
               }
             }
             if (unlikely(reterr)) {
-              goto IndepPairwise_ret_PGR_FAIL;
+              PgenErrPrintNV(reterr, variant_uidx);
+              goto IndepPairwise_ret_1;
             }
           }
           thread_last_tvidx[cur_thread_idx] = tvidx_end;
@@ -1180,9 +1181,6 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
   IndepPairwise_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  IndepPairwise_ret_PGR_FAIL:
-    PgenErrPrintN(reterr);
-    break;
   IndepPairwise_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
     break;
@@ -1190,6 +1188,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     reterr = kPglRetNotYetSupported;
     break;
   }
+ IndepPairwise_ret_1:
   CleanupThreads(&tg);
   // caller will free memory
   return reterr;
@@ -2900,7 +2899,8 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       PgenVariant* pgvp = &(pgvs[var_idx]);
       reterr = PgrGetInv1Dp(founder_info, pssi, founder_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, pgvp);
       if (unlikely(reterr)) {
-        goto LdConsole_ret_PGR_FAIL;
+        PgenErrPrintNV(reterr, variant_uidx);
+        goto LdConsole_ret_1;
       }
       ZeroTrailingNyps(founder_ct, pgvp->genovec);
       if (is_nonx_haploids[var_idx]) {
@@ -3546,9 +3546,6 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
   while (0) {
   LdConsole_ret_NOMEM:
     reterr = kPglRetNomem;
-    break;
-  LdConsole_ret_PGR_FAIL:
-    PgenErrPrintN(reterr);
     break;
   LdConsole_ret_INCONSISTENT_INPUT_WW:
     WordWrapB(0);
