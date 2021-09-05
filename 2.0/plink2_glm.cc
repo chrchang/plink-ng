@@ -2824,18 +2824,24 @@ BoolErr LogisticRegressionResidualized(const float* yy, const float* xx, const u
     ZeroFArr(remainder, &(sample_offsets_buf[nm_sample_ct]));
     sample_offsets = sample_offsets_buf;
   }
+  // genotype, domdev?, other alleles
   const uint32_t regressed_predictor_ct = domdev_present_p1 + extra_allele_ct;
   const uint32_t regressed_predictor_ctav = RoundUpPow2(regressed_predictor_ct, kFloatPerFVec);
   if (LogisticRegression(yy, mean_centered_pmaj_buf, sample_offsets, nm_sample_ct, regressed_predictor_ct, &(coef[1]), is_unfinished_ptr, ll, pp, vv, hh, grad, dcoef)) {
     return 1;
   }
   // hh and ll are shifted up and to the left from what the caller expects, due
-  // to the missing intercept.  Correct that here.  (Only bottom-left matters.)
+  // to the missing intercept.  Correct that here.
+  // bugfix (4 Sep 2021): Initially thought only bottom-left triangle mattered,
+  // but that's not true for genotypic/hethom case.  Also, wider stride
+  // expected when regressed_predictor_ct is an exact multiple of
+  // kFloatPerFVec.
+  const uint32_t expected_predictor_ctav = RoundUpPow2(regressed_predictor_ct + 1, kFloatPerFVec);
   for (uint32_t write_row_idx = regressed_predictor_ct; write_row_idx; --write_row_idx) {
-    memcpy(&(hh[write_row_idx * regressed_predictor_ctav + 1]), &(hh[(write_row_idx - 1) * regressed_predictor_ctav]), write_row_idx * sizeof(float));
+    memcpy(&(hh[write_row_idx * expected_predictor_ctav + 1]), &(hh[(write_row_idx - 1) * regressed_predictor_ctav]), regressed_predictor_ct * sizeof(float));
   }
   for (uint32_t write_row_idx = regressed_predictor_ct; write_row_idx; --write_row_idx) {
-    memcpy(&(ll[write_row_idx * regressed_predictor_ctav + 1]), &(ll[(write_row_idx - 1) * regressed_predictor_ctav]), write_row_idx * sizeof(float));
+    memcpy(&(ll[write_row_idx * expected_predictor_ctav + 1]), &(ll[(write_row_idx - 1) * regressed_predictor_ctav]), regressed_predictor_ct * sizeof(float));
   }
   return 0;
 }
@@ -3111,9 +3117,14 @@ BoolErr FirthRegressionResidualized(const float* yy, const float* xx, const uint
     return 1;
   }
   // hh is shifted up and to the left from what the caller expects, due to the
-  // missing intercept.  Correct that here.  (Only bottom-left matters.)
+  // missing intercept.  Correct that here.
+  // bugfix (4 Sep 2021): Initially thought only bottom-left triangle mattered,
+  // but that's not true for genotypic/hethom case.  Also, wider stride
+  // expected when regressed_predictor_ct is an exact multiple of
+  // kFloatPerFVec.
+  const uint32_t expected_predictor_ctav = RoundUpPow2(regressed_predictor_ct + 1, kFloatPerFVec);
   for (uint32_t write_row_idx = regressed_predictor_ct; write_row_idx; --write_row_idx) {
-    memcpy(&(hh[write_row_idx * regressed_predictor_ctav + 1]), &(hh[(write_row_idx - 1) * regressed_predictor_ctav]), write_row_idx * sizeof(float));
+    memcpy(&(hh[write_row_idx * expected_predictor_ctav + 1]), &(hh[(write_row_idx - 1) * regressed_predictor_ctav]), regressed_predictor_ct * sizeof(float));
   }
   return 0;
 }
@@ -4698,15 +4709,17 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
                 *beta_se_iter2++ = S_CAST(double, sample_variance_buf[pred_uidx]);
               }
               if (cur_constraint_ct) {
+                // bugfix (4 Sep 2021): forgot to update this for residualize
+                // case
                 *beta_se_iter2++ = 0.0;
 
                 uint32_t joint_test_idx = AdvTo1Bit(cur_joint_test_params, 0);
                 for (uint32_t uii = 1; uii != cur_constraint_ct; ++uii) {
                   joint_test_idx = AdvTo1Bit(cur_joint_test_params, joint_test_idx + 1);
-                  cur_constraints_con_major[uii * cur_predictor_ct + joint_test_idx] = 1.0;
+                  cur_constraints_con_major[uii * cur_regressed_predictor_stop + joint_test_idx] = 1.0;
                 }
                 double chisq;
-                if (!LinearHypothesisChisqF(coef_return, cur_constraints_con_major, hh_return, cur_constraint_ct, cur_predictor_ct, cur_predictor_ctav, &chisq, tmphxs_buf, h_transpose_buf, inner_buf, inverse_corr_buf, inv_1d_buf, dbl_2d_buf, outer_buf)) {
+                if (!LinearHypothesisChisqF(coef_return, cur_constraints_con_major, hh_return, cur_constraint_ct, cur_regressed_predictor_stop, cur_regressed_predictor_ctav, &chisq, tmphxs_buf, h_transpose_buf, inner_buf, inverse_corr_buf, inv_1d_buf, dbl_2d_buf, outer_buf)) {
                   *beta_se_iter2++ = chisq;
                 } else {
                   const GlmErr glm_err2 = SetGlmErr0(kGlmErrcodeRankDeficient);
@@ -4717,7 +4730,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
                 joint_test_idx = AdvTo1Bit(cur_joint_test_params, 0);
                 for (uint32_t uii = 1; uii != cur_constraint_ct; ++uii) {
                   joint_test_idx = AdvTo1Bit(cur_joint_test_params, joint_test_idx + 1);
-                  cur_constraints_con_major[uii * cur_predictor_ct + joint_test_idx] = 0.0;
+                  cur_constraints_con_major[uii * cur_regressed_predictor_stop + joint_test_idx] = 0.0;
                 }
               }
               if (!const_allele_ct) {
