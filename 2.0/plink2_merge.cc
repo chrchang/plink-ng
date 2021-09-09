@@ -1846,7 +1846,9 @@ PglErr RescanOnePos(unsigned char* arena_top, uint32_t batch_size, uint32_t prev
             }
           }
         }
-        if (!ctxp->multiallelics_already_joined) {
+        // bugfix (8 Sep 2021): incorrect to perform this check if variant is
+        // being filtered out by --merge-max-allele-ct setting
+        if ((!ctxp->multiallelics_already_joined) && (merged_allele_ct <= ctxp->write_allele_ct_max)) {
           const uint32_t merged_variant_ct = variant_idx_end - variant_idx_start;
           if ((allele_ct_limit == merged_variant_ct * 2) && (merged_allele_ct == merged_variant_ct + 1) && (!missing_allele_ct)) {
             // If all REF alleles are equal, sound the alarm.
@@ -6054,28 +6056,31 @@ PglErr ConcatPvariantPos(int32_t cur_bp, uintptr_t variant_ct, PvariantPosMergeC
     if (unlikely(reterr)) {
       return reterr;
     }
-    if (unlikely(cur_line_blen > kMaxLongLine)) {
-      logerrprintfww("Error: Merged .pvar entry for variant '%s' at %s:%d is too long for this " PROG_NAME_STR " build.\n", cur_variant_id, ppmcp->pmc.chr_buf, cur_bp);
-      return kPglRetNotYetSupported;
-    }
-    if (write_allele_idx_offsets) {
-      write_allele_idx_offsets[write_variant_idx + 1] = write_allele_idx_offsets[write_variant_idx] + allele_ct;
-    }
-    if (write_nonref_flags) {
-      AssignBit(write_variant_idx, is_pr, write_nonref_flags);
-    }
+    // bugfix (8 Sep 2021): forgot that allele_ct == 0 indicates variant skip
+    if (allele_ct) {
+      if (unlikely(cur_line_blen > kMaxLongLine)) {
+        logerrprintfww("Error: Merged .pvar entry for variant '%s' at %s:%d is too long for this " PROG_NAME_STR " build.\n", cur_variant_id, ppmcp->pmc.chr_buf, cur_bp);
+        return kPglRetNotYetSupported;
+      }
+      if (write_allele_idx_offsets) {
+        write_allele_idx_offsets[write_variant_idx + 1] = write_allele_idx_offsets[write_variant_idx] + allele_ct;
+      }
+      if (write_nonref_flags) {
+        AssignBit(write_variant_idx, is_pr, write_nonref_flags);
+      }
 
-    reterr = MergePgenVariantNoTmpLocked(same_id_records, ppmcp->pmc.allele_remap, merge_rec_ct, allele_ct, ppmcp->pmc.read_max_allele_ct, &mrp, mwp);
-    if (unlikely(reterr)) {
-      return reterr;
-    }
+      reterr = MergePgenVariantNoTmpLocked(same_id_records, ppmcp->pmc.allele_remap, merge_rec_ct, allele_ct, ppmcp->pmc.read_max_allele_ct, &mrp, mwp);
+      if (unlikely(reterr)) {
+        return reterr;
+      }
 
-    ++write_variant_idx;
-    if (write_variant_idx == next_print_variant_idx) {
-      printf("\rConcatenating... %u/%u variants complete.", write_variant_idx, ppmcp->write_variant_ct);
-      fflush(stdout);
-      next_print_variant_idx += 10000;
-      ppmcp->next_print_variant_idx = next_print_variant_idx;
+      ++write_variant_idx;
+      if (write_variant_idx == next_print_variant_idx) {
+        printf("\rConcatenating... %u/%u variants complete.", write_variant_idx, ppmcp->write_variant_ct);
+        fflush(stdout);
+        next_print_variant_idx += 10000;
+        ppmcp->next_print_variant_idx = next_print_variant_idx;
+      }
     }
     if (rec_idx_end == variant_ct) {
       ppmcp->write_variant_idx = write_variant_idx;
