@@ -71,10 +71,10 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (8 Sep 2021)";
+  " (18 Sep 2021)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -5407,6 +5407,8 @@ int main(int argc, char** argv) {
               pc.glm_info.flags |= kfGlmDominant;
             } else if (strequal_k(cur_modif, "recessive", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmRecessive;
+            } else if (strequal_k(cur_modif, "hetonly", cur_modif_slen)) {
+              pc.glm_info.flags |= kfGlmHetonly;
             } else if (strequal_k(cur_modif, "interaction", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmInteraction;
             } else if (strequal_k(cur_modif, "hide-covar", cur_modif_slen)) {
@@ -5589,9 +5591,8 @@ int main(int argc, char** argv) {
               goto main_ret_INVALID_CMDLINE;
             }
           }
-          uint32_t alternate_genotype_col_flags = S_CAST(uint32_t, pc.glm_info.flags & (kfGlmGenotypic | kfGlmHethom | kfGlmDominant | kfGlmRecessive));
+          uint32_t alternate_genotype_col_flags = S_CAST(uint32_t, pc.glm_info.flags & (kfGlmGenotypic | kfGlmHethom | kfGlmDominant | kfGlmRecessive | kfGlmHetonly));
           if (alternate_genotype_col_flags) {
-            pc.xchr_model = 0;
             if (unlikely(alternate_genotype_col_flags & (alternate_genotype_col_flags - 1))) {
               logerrputs("Error: Conflicting --glm arguments.\n");
               goto main_ret_INVALID_CMDLINE_A;
@@ -10326,10 +10327,9 @@ int main(int argc, char** argv) {
             logerrputs("Error: --xchr-model must be used with --glm, --score, or --variant-score.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (unlikely(pc.glm_info.flags & (kfGlmGenotypic | kfGlmHethom | kfGlmDominant | kfGlmRecessive))) {
-            snprintf(g_logbuf, kLogbufSize, "Error: --xchr-model cannot be used with --glm %s.\n", (pc.glm_info.flags & kfGlmGenotypic)? "genotypic" : ((pc.glm_info.flags & kfGlmHethom)? "hethom" : ((pc.glm_info.flags & kfGlmDominant)? "dominant" : "recessive")));
-            goto main_ret_INVALID_CMDLINE_2A;
-          }
+          // quasi-bugfix (18 Sep 2021): nothing wrong with combining
+          // --xchr-model with e.g. --glm genotypic, it gets ignored by --glm
+          // but can still apply to other commands.
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }

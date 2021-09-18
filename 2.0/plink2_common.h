@@ -663,9 +663,11 @@ typedef struct ChrInfoStruct {
 
   uintptr_t* chr_mask;  // which chromosomes aren't known to be absent?
 
-  // This includes chrX.  As of alpha 2, it also includes MT again (like plink
-  // 1.07, and unlike 1.9 and 2.0a1), now that enough dosage functionality is
-  // in place.
+  // This normally includes chrX.  However, library function implementations
+  // cannot assume that: e.g. --glm now temporarily clears the chrX bit when
+  // all samples are female.
+  // As of alpha 2, it also includes MT again (like plink 1.07, and unlike 1.9
+  // and 2.0a1), now that enough dosage functionality is in place.
   uintptr_t* haploid_mask;
 
   // order of chromosomes in input files

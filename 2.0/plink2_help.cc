@@ -1130,7 +1130,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     HelpPrint("glm\0linear\0logistic\0assoc\0", &help_ctrl, 1,
 "  --glm ['zs'] ['omit-ref'] [{sex | no-x-sex}] ['log10'] ['pheno-ids']\n"
-"        [{genotypic | hethom | dominant | recessive}] ['interaction']\n"
+"        [{genotypic | hethom | dominant | recessive | hetonly}] ['interaction']\n"
 "        ['hide-covar'] ['skip-invalid-pheno'] ['allow-no-covars']\n"
 "        [{intercept | cc-residualize | firth-residualize}]\n"
 "        [{no-firth | firth-fallback | firth}] ['cols='<col set desc>]\n"
@@ -1166,6 +1166,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * 'dominant' and 'recessive' specify a model assuming full dominance or\n"
 "      recessiveness, respectively, for the ref allele.  I.e. the genotype\n"
 "      column is recoded as 0..1..1 or 0..0..1, respectively.\n"
+"    * 'hetonly' replaces the genotype column with a dominance-deviation column.\n"
 "    * 'interaction' adds genotype x covariate interactions to the model.  Note\n"
 "      that this tends to produce 'NA' results (due to the multicollinearity\n"
 "      check) when the reference allele is 'wrong'; --maj-ref can be used to\n"

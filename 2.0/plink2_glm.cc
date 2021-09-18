@@ -3551,6 +3551,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
   const uint32_t is_always_firth = (glm_flags / kfGlmFirth) & 1;
   const uint32_t model_dominant = (glm_flags / kfGlmDominant) & 1;
   const uint32_t model_recessive = (glm_flags / kfGlmRecessive) & 1;
+  const uint32_t model_hetonly = (glm_flags / kfGlmHetonly) & 1;
   const uint32_t joint_genotypic = (glm_flags / kfGlmGenotypic) & 1;
   const uint32_t joint_hethom = (glm_flags / kfGlmHethom) & 1;
   const double max_corr = common->max_corr;
@@ -3565,7 +3566,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
   const uintptr_t local_covar_ct = common->local_covar_ct;
   const uint32_t max_extra_allele_ct = common->max_extra_allele_ct;
   // bugfix (20 Mar 2020): Also need to exclude dominant/recessive.
-  const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!model_dominant) && (!model_recessive) && (!common->tests_flag) && (!add_interactions);
+  const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!model_dominant) && (!model_recessive) && (!model_hetonly) && (!common->tests_flag) && (!add_interactions);
   uintptr_t max_sample_ct = MAXV(common->sample_ct, common->sample_ct_x);
   if (max_sample_ct < common->sample_ct_y) {
     max_sample_ct = common->sample_ct_y;
@@ -3615,9 +3616,11 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
       if (cur_variant_bidx_end > variant_bidx_end) {
         cur_variant_bidx_end = variant_bidx_end;
       }
-      const uint32_t is_x = (chr_idx == x_code);
+      // "regular" = not all-female special case.
+      const uint32_t is_haploid = IsSet(cip->haploid_mask, chr_idx);
+      const uint32_t is_regular_x = is_haploid && (chr_idx == x_code);
       const uint32_t is_y = (chr_idx == y_code);
-      const uint32_t is_nonx_haploid = (!is_x) && IsSet(cip->haploid_mask, chr_idx);
+      const uint32_t is_nonx_haploid = is_haploid && (!is_regular_x);
       const uintptr_t* cur_sample_include;
       const uint32_t* cur_sample_include_cumulative_popcounts;
       const uintptr_t* cur_pheno_cc;
@@ -3647,7 +3650,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
         cur_covar_ct = common->covar_ct_y;
         cur_constraint_ct = common->constraint_ct_y;
         cur_is_always_firth = is_always_firth || ctx->separation_found_y;
-      } else if (is_x && common->sample_include_x) {
+      } else if (is_regular_x && common->sample_include_x) {
         cur_sample_include = common->sample_include_x;
         cur_sample_include_cumulative_popcounts = common->sample_include_x_cumulative_popcounts;
         cur_pheno_cc = ctx->pheno_x_cc;
@@ -3702,20 +3705,20 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
       }
       // nm_predictors_pmaj_buf may require up to two extra columns omitted
       // from the main regression.
-      // 1. In the multiallelic dominant/recessive/hethom cases, the original
-      //    genotype column does not appear in the regression, and we'd rather
-      //    not reconstruct it from genovec, etc. when we need to swap it out
-      //    for another allele, so we keep the original genotype in an extra
-      //    column.
+      // 1. In the multiallelic dominant/recessive/hetonly/hethom cases, the
+      //    original genotype column does not appear in the regression, and
+      //    we'd rather not reconstruct it from genovec, etc. when we need to
+      //    swap it out for another allele, so we keep the original genotype in
+      //    an extra column.
       //    To reduce code bloat, we now handle the biallelic cases in the same
       //    way; this is one of the more peripheral code paths so adding more
       //    complexity to speed it up is less justifiable.
-      // 2. If --parameters excludes the main (possibly dominant/recessive)
-      //    genotype column but does care about an interaction, we want a copy
-      //    of what the main genotype column's contents would have been to
-      //    refer to.
+      // 2. If --parameters excludes the main (possibly
+      //    dominant/recessive/hetonly) genotype column but does care about an
+      //    interaction, we want a copy of what the main genotype column's
+      //    contents would have been to refer to.
       const uint32_t main_omitted = cur_parameter_subset && (!IsSet(cur_parameter_subset, 1));
-      const uint32_t main_mutated = model_dominant || model_recessive || joint_hethom;
+      const uint32_t main_mutated = model_dominant || model_recessive || model_hetonly || joint_hethom;
       unsigned char* workspace_iter = workspace_buf;
       uintptr_t* sample_nm = S_CAST(uintptr_t*, arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter));
       uintptr_t* pheno_cc_nm = S_CAST(uintptr_t*, arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter));
@@ -4207,7 +4210,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
         // compute them all for now, could conditionally skip later
         uint32_t allele_obs_ct = nm_sample_ct * 2;
         uint32_t case_allele_obs_ct = nm_case_ct * 2;
-        if (!is_x) {
+        if (!is_regular_x) {
           if (is_nonx_haploid) {
             allele_obs_ct = nm_sample_ct;
             case_allele_obs_ct = nm_case_ct;
@@ -4498,6 +4501,15 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
                 }
                 main_vals[sample_idx] = cur_genotype_val;
               }
+            } else if (model_hetonly) {
+              for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
+                float cur_genotype_val = genotype_vals[sample_idx];
+                // 0..1..0
+                if (cur_genotype_val > S_CAST(float, 1.0)) {
+                  cur_genotype_val = S_CAST(float, 2.0) - cur_genotype_val;
+                }
+                main_vals[sample_idx] = cur_genotype_val;
+              }
             }
 
             // fill interaction terms
@@ -4536,7 +4548,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* raw_arg) {
             }
             if (corr_inv && prev_nm && (!allele_ct_m2)) {
               uintptr_t start_pred_idx = 0;
-              if (!(model_dominant || model_recessive || joint_hethom)) {
+              if (!(model_dominant || model_recessive || model_hetonly || joint_hethom)) {
                 start_pred_idx = domdev_present + 2;
                 semicomputed_biallelic_xtx[cur_predictor_ct] = main_dosage_sum;
                 semicomputed_biallelic_xtx[cur_predictor_ct + 1] = main_dosage_ssq;
@@ -4860,6 +4872,7 @@ uint32_t GetBiallelicReportedTestCt(const uintptr_t* parameter_subset, GlmFlags 
 BoolErr AllocAndInitReportedTestNames(const uintptr_t* parameter_subset, const char* const* covar_names, GlmFlags glm_flags, uint32_t covar_ct, uint32_t user_constraint_ct, const char*** cur_test_names_ptr) {
   const uint32_t model_dominant = (glm_flags / kfGlmDominant) & 1;
   const uint32_t model_recessive = (glm_flags / kfGlmRecessive) & 1;
+  const uint32_t model_hetonly = (glm_flags / kfGlmHetonly) & 1;
   const uint32_t is_hethom = (glm_flags / kfGlmHethom) & 1;
   const uint32_t domdev_present = (glm_flags & kfGlmGenotypic) || is_hethom;
   char main_effect[4];
@@ -4867,6 +4880,8 @@ BoolErr AllocAndInitReportedTestNames(const uintptr_t* parameter_subset, const c
     memcpy(main_effect, "DOMx", 4);
   } else if (model_recessive) {
     memcpy(main_effect, "RECx", 4);
+  } else if (model_hetonly) {
+    memcpy(main_effect, "HETx", 4);
   } else if (is_hethom) {
     memcpy(main_effect, "HOMx", 4);
   } else {
@@ -5798,7 +5813,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
       logerrputs("Error: --glm's 'test' column cannot be omitted when results for multiple\npredictors are reported.  (Did you forget 'hide-covar'?)\n");
       goto GlmLogistic_ret_INCONSISTENT_INPUT;
     }
-    const uint32_t main_mutated = ((glm_flags & (kfGlmDominant | kfGlmRecessive | kfGlmHethom)) != kfGlm0);
+    const uint32_t main_mutated = ((glm_flags & (kfGlmDominant | kfGlmRecessive | kfGlmHetonly | kfGlmHethom)) != kfGlm0);
     // if 'fused', one row per variant
     // otherwise, one row per tested allele
     const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!main_mutated) && (!common->tests_flag) && (!add_interactions);
@@ -5906,8 +5921,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     }
 
     if (max_sample_ct > 2000000) {
-      // may eventually want a large-matrix double-precision fallback, but that
-      // can probably wait till 2020 or later
+      // may want a large-matrix double-precision fallback
       logerrputs("Warning: --glm logistic regression is unreliable on more than ~2 million\nsamples, since it uses single-precision arithmetic.\n");
     }
     common->workspace_bufs = S_CAST(unsigned char**, bigstack_alloc_raw_rd(calc_thread_ct * sizeof(intptr_t)));
@@ -6727,6 +6741,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
   const uint32_t include_intercept = (glm_flags / kfGlmIntercept) & 1;
   const uint32_t model_dominant = (glm_flags / kfGlmDominant) & 1;
   const uint32_t model_recessive = (glm_flags / kfGlmRecessive) & 1;
+  const uint32_t model_hetonly = (glm_flags / kfGlmHetonly) & 1;
   const uint32_t joint_genotypic = (glm_flags / kfGlmGenotypic) & 1;
   const uint32_t joint_hethom = (glm_flags / kfGlmHethom) & 1;
   const uint32_t domdev_present = joint_genotypic || joint_hethom;
@@ -6740,7 +6755,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
   const uintptr_t max_reported_test_ct = common->max_reported_test_ct;
   const uintptr_t local_covar_ct = common->local_covar_ct;
   const uint32_t max_extra_allele_ct = common->max_extra_allele_ct;
-  const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!model_dominant) && (!model_recessive) && (!common->tests_flag) && (!add_interactions);
+  const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!model_dominant) && (!model_recessive) && (!model_hetonly) && (!common->tests_flag) && (!add_interactions);
   uintptr_t max_sample_ct = MAXV(common->sample_ct, common->sample_ct_x);
   if (max_sample_ct < common->sample_ct_y) {
     max_sample_ct = common->sample_ct_y;
@@ -6802,9 +6817,10 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
       if (cur_variant_bidx_end > variant_bidx_end) {
         cur_variant_bidx_end = variant_bidx_end;
       }
-      const uint32_t is_x = (chr_idx == x_code);
+      const uint32_t is_haploid = IsSet(cip->haploid_mask, chr_idx);
+      const uint32_t is_regular_x = is_haploid && (chr_idx == x_code);
       const uint32_t is_y = (chr_idx == y_code);
-      const uint32_t is_nonx_haploid = (!is_x) && IsSet(cip->haploid_mask, chr_idx);
+      const uint32_t is_nonx_haploid = is_haploid && (!is_regular_x);
       const uintptr_t* cur_sample_include;
       const uint32_t* cur_sample_include_cumulative_popcounts;
       const double* cur_pheno;
@@ -6826,7 +6842,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
         cur_sample_ct = common->sample_ct_y;
         cur_covar_ct = common->covar_ct_y;
         cur_constraint_ct = common->constraint_ct_y;
-      } else if (is_x && common->sample_include_x) {
+      } else if (is_regular_x && common->sample_include_x) {
         cur_sample_include = common->sample_include_x;
         cur_sample_include_cumulative_popcounts = common->sample_include_x_cumulative_popcounts;
         cur_pheno = ctx->pheno_x_d;
@@ -6871,20 +6887,20 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
       }
       // nm_predictors_pmaj_buf may require up to two extra columns omitted
       // from the main regression.
-      // 1. In the multiallelic dominant/recessive/hethom cases, the original
-      //    genotype column does not appear in the regression, and we'd rather
-      //    not reconstruct it from genovec, etc. when we need to swap it out
-      //    for another allele, so we keep the original genotype in an extra
-      //    column.
+      // 1. In the multiallelic dominant/recessive/hetonly/hethom cases, the
+      //    original genotype column does not appear in the regression, and
+      //    we'd rather not reconstruct it from genovec, etc. when we need to
+      //    swap it out for another allele, so we keep the original genotype in
+      //    an extra column.
       //    To reduce code bloat, we now handle the biallelic cases in the same
       //    way; this is one of the more peripheral code paths so adding more
       //    complexity to speed it up is less justifiable.
-      // 2. If --parameters excludes the main (possibly dominant/recessive)
-      //    genotype column but does care about an interaction, we want a copy
-      //    of what the main genotype column's contents would have been to
-      //    refer to.
+      // 2. If --parameters excludes the main (possibly
+      //    dominant/recessive/hetonly) genotype column but does care about an
+      //    interaction, we want a copy of what the main genotype column's
+      //    contents would have been to refer to.
       const uint32_t main_omitted = cur_parameter_subset && (!IsSet(cur_parameter_subset, 1));
-      const uint32_t main_mutated = model_dominant || model_recessive || joint_hethom;
+      const uint32_t main_mutated = model_dominant || model_recessive || model_hetonly || joint_hethom;
       unsigned char* workspace_iter = workspace_buf;
       uintptr_t* sample_nm = S_CAST(uintptr_t*, arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter));
       uintptr_t* tmp_nm = S_CAST(uintptr_t*, arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter));
@@ -6924,18 +6940,23 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
       const double pheno_ssq_base = DotprodD(cur_pheno, cur_pheno, cur_sample_ct);
       const double cur_sample_ct_recip = 1.0 / u31tod(cur_sample_ct);
       const double cur_sample_ct_m1_recip = 1.0 / u31tod(cur_sample_ct - 1);
-      const uint32_t sparse_optimization_eligible = (!is_x) && nm_precomp;
+      const uint32_t sparse_optimization_eligible = (!is_regular_x) && nm_precomp;
       double geno_d_lookup[2];
       if (sparse_optimization_eligible) {
-        geno_d_lookup[1] = 1.0;
-        if (is_nonx_haploid) {
-          geno_d_lookup[0] = 0.5;
-        } else if (model_recessive || joint_hethom) {
-          geno_d_lookup[0] = 0.0;
-        } else {
+        if (model_hetonly) {
           geno_d_lookup[0] = 1.0;
-          if (!model_dominant) {
-            geno_d_lookup[1] = 2.0;
+          geno_d_lookup[1] = 0.0;
+        } else {
+          geno_d_lookup[1] = 1.0;
+          if (is_nonx_haploid) {
+            geno_d_lookup[0] = 0.5;
+          } else if (model_recessive || joint_hethom) {
+            geno_d_lookup[0] = 0.0;
+          } else {
+            geno_d_lookup[0] = 1.0;
+            if (!model_dominant) {
+              geno_d_lookup[1] = 2.0;
+            }
           }
         }
       }
@@ -7309,7 +7330,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
         // a1_dosage, mach_r2 even for skipped variants
         // compute them all for now, could conditionally skip later
         uint32_t allele_obs_ct = nm_sample_ct * 2;
-        if (!is_x) {
+        if (!is_regular_x) {
           if (is_nonx_haploid) {
             allele_obs_ct = nm_sample_ct;
             // everything is on 0..1 scale, not 0..2
@@ -7544,6 +7565,15 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
                   }
                   main_vals[sample_idx] = cur_genotype_val;
                 }
+              } else if (model_hetonly) {
+                for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
+                  double cur_genotype_val = genotype_vals[sample_idx];
+                  // 0..1..0
+                  if (cur_genotype_val > 1.0) {
+                    cur_genotype_val = 2.0 - cur_genotype_val;
+                  }
+                  main_vals[sample_idx] = cur_genotype_val;
+                }
               }
 
               // fill interaction terms
@@ -7640,7 +7670,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* raw_arg) {
                 // !sparse_optimization
                 xt_y[1] = DotprodD(&(nm_predictors_pmaj_buf[nm_sample_ct]), nm_pheno_buf, nm_sample_ct);
                 uintptr_t start_pred_idx = 0;
-                if (!(model_dominant || model_recessive || joint_hethom)) {
+                if (!(model_dominant || model_recessive || model_hetonly || joint_hethom)) {
                   start_pred_idx = domdev_present + 2;
                   xtx_inv[cur_predictor_ct] = main_dosage_sum;
                   xtx_inv[cur_predictor_ct + 1] = main_dosage_ssq;
@@ -8004,7 +8034,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
       logerrputs("Error: --glm's 'test' column cannot be omitted when results for multiple\npredictors are reported.  (Did you forget 'hide-covar'?)\n");
       goto GlmLinear_ret_INCONSISTENT_INPUT;
     }
-    const uint32_t main_mutated = ((glm_flags & (kfGlmDominant | kfGlmRecessive | kfGlmHethom)) != kfGlm0);
+    const uint32_t main_mutated = ((glm_flags & (kfGlmDominant | kfGlmRecessive | kfGlmHetonly | kfGlmHethom)) != kfGlm0);
     // bugfix (4 Mar 2019): forgot to update this for --tests
     const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!main_mutated) && (!common->tests_flag) && (!add_interactions);
     if (beta_se_multiallelic_fused || (!hide_covar)) {
@@ -8790,6 +8820,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
   const uint32_t include_intercept = (glm_flags / kfGlmIntercept) & 1;
   const uint32_t model_dominant = (glm_flags / kfGlmDominant) & 1;
   const uint32_t model_recessive = (glm_flags / kfGlmRecessive) & 1;
+  const uint32_t model_hetonly = (glm_flags / kfGlmHetonly) & 1;
   const uint32_t joint_genotypic = (glm_flags / kfGlmGenotypic) & 1;
   const uint32_t joint_hethom = (glm_flags / kfGlmHethom) & 1;
   const uint32_t domdev_present = joint_genotypic || joint_hethom;
@@ -8803,7 +8834,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
   const uintptr_t max_reported_test_ct = common->max_reported_test_ct;
   const uintptr_t local_covar_ct = common->local_covar_ct;
   const uint32_t max_extra_allele_ct = common->max_extra_allele_ct;
-  const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!model_dominant) && (!model_recessive) && (!common->tests_flag) && (!add_interactions);
+  const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!model_dominant) && (!model_recessive) && (!model_hetonly) && (!common->tests_flag) && (!add_interactions);
   const uint32_t subbatch_size = ctx->subbatch_size;
   uintptr_t max_sample_ct = MAXV(common->sample_ct, common->sample_ct_x);
   if (max_sample_ct < common->sample_ct_y) {
@@ -8866,9 +8897,10 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
       if (cur_variant_bidx_end > variant_bidx_end) {
         cur_variant_bidx_end = variant_bidx_end;
       }
-      const uint32_t is_x = (chr_idx == x_code);
+      const uint32_t is_haploid = IsSet(cip->haploid_mask, chr_idx);
+      const uint32_t is_regular_x = is_haploid && (chr_idx == x_code);
       const uint32_t is_y = (chr_idx == y_code);
-      const uint32_t is_nonx_haploid = (!is_x) && IsSet(cip->haploid_mask, chr_idx);
+      const uint32_t is_nonx_haploid = is_haploid && (!is_regular_x);
       const uintptr_t* cur_sample_include;
       const uint32_t* cur_sample_include_cumulative_popcounts;
       const double* cur_pheno_pmaj;
@@ -8890,7 +8922,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
         cur_sample_ct = common->sample_ct_y;
         cur_covar_ct = common->covar_ct_y;
         cur_constraint_ct = common->constraint_ct_y;
-      } else if (is_x && common->sample_include_x) {
+      } else if (is_regular_x && common->sample_include_x) {
         cur_sample_include = common->sample_include_x;
         cur_sample_include_cumulative_popcounts = common->sample_include_x_cumulative_popcounts;
         cur_pheno_pmaj = ctx->pheno_x_d;
@@ -8935,20 +8967,20 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
       }
       // nm_predictors_pmaj_buf may require up to two extra columns omitted
       // from the main regression.
-      // 1. In the multiallelic dominant/recessive/hethom cases, the original
-      //    genotype column does not appear in the regression, and we'd rather
-      //    not reconstruct it from genovec, etc. when we need to swap it out
-      //    for another allele, so we keep the original genotype in an extra
-      //    column.
+      // 1. In the multiallelic dominant/recessive/hetonly/hethom cases, the
+      //    original genotype column does not appear in the regression, and
+      //    we'd rather not reconstruct it from genovec, etc. when we need to
+      //    swap it out for another allele, so we keep the original genotype in
+      //    an extra column.
       //    To reduce code bloat, we now handle the biallelic cases in the same
       //    way; this is one of the more peripheral code paths so adding more
       //    complexity to speed it up is less justifiable.
-      // 2. If --parameters excludes the main (possibly dominant/recessive)
-      //    genotype column but does care about an interaction, we want a copy
-      //    of what the main genotype column's contents would have been to
-      //    refer to.
+      // 2. If --parameters excludes the main (possibly
+      //    dominant/recessive/hetonly) genotype column but does care about an
+      //    interaction, we want a copy of what the main genotype column's
+      //    contents would have been to refer to.
       const uint32_t main_omitted = cur_parameter_subset && (!IsSet(cur_parameter_subset, 1));
-      const uint32_t main_mutated = model_dominant || model_recessive || joint_hethom;
+      const uint32_t main_mutated = model_dominant || model_recessive || model_hetonly || joint_hethom;
       unsigned char* workspace_iter = workspace_buf;
       uintptr_t* sample_nm = S_CAST(uintptr_t*, arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter));
       uintptr_t* tmp_nm = S_CAST(uintptr_t*, arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter));
@@ -8995,18 +9027,23 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
       }
       const double cur_sample_ct_recip = 1.0 / u31tod(cur_sample_ct);
       const double cur_sample_ct_m1_recip = 1.0 / u31tod(cur_sample_ct - 1);
-      const uint32_t sparse_optimization_eligible = (!is_x) && nm_precomp;
+      const uint32_t sparse_optimization_eligible = (!is_regular_x) && nm_precomp;
       double geno_d_lookup[2];
       if (sparse_optimization_eligible) {
-        geno_d_lookup[1] = 1.0;
-        if (is_nonx_haploid) {
-          geno_d_lookup[0] = 0.5;
-        } else if (model_recessive || joint_hethom) {
-          geno_d_lookup[0] = 0.0;
-        } else {
+        if (model_hetonly) {
           geno_d_lookup[0] = 1.0;
-          if (!model_dominant) {
-            geno_d_lookup[1] = 2.0;
+          geno_d_lookup[1] = 0.0;
+        } else {
+          geno_d_lookup[1] = 1.0;
+          if (is_nonx_haploid) {
+            geno_d_lookup[0] = 0.5;
+          } else if (model_recessive || joint_hethom) {
+            geno_d_lookup[0] = 0.0;
+          } else {
+            geno_d_lookup[0] = 1.0;
+            if (!model_dominant) {
+              geno_d_lookup[1] = 2.0;
+            }
           }
         }
       }
@@ -9373,7 +9410,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
         // a1_dosage, mach_r2 even for skipped variants
         // compute them all for now, could conditionally skip later
         uint32_t allele_obs_ct = nm_sample_ct * 2;
-        if (!is_x) {
+        if (!is_regular_x) {
           if (is_nonx_haploid) {
             allele_obs_ct = nm_sample_ct;
             // everything is on 0..1 scale, not 0..2
@@ -9613,6 +9650,15 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
                   }
                   main_vals[sample_idx] = cur_genotype_val;
                 }
+              } else if (model_hetonly) {
+                for (uint32_t sample_idx = 0; sample_idx != nm_sample_ct; ++sample_idx) {
+                  double cur_genotype_val = genotype_vals[sample_idx];
+                  // 0..1..0
+                  if (cur_genotype_val > 1.0) {
+                    cur_genotype_val = 2.0 - cur_genotype_val;
+                  }
+                  main_vals[sample_idx] = cur_genotype_val;
+                }
               }
 
               // fill interaction terms
@@ -9721,7 +9767,7 @@ THREAD_FUNC_DECL GlmLinearSubbatchThread(void* raw_arg) {
               } else {
                 // !sparse_optimization
                 uintptr_t start_pred_idx = 0;
-                if (!(model_dominant || model_recessive || joint_hethom)) {
+                if (!(model_dominant || model_recessive || model_hetonly || joint_hethom)) {
                   start_pred_idx = domdev_present + 2;
                   xtx_inv[cur_predictor_ct] = main_dosage_sum;
                   xtx_inv[cur_predictor_ct + 1] = main_dosage_ssq;
@@ -10112,7 +10158,7 @@ PglErr GlmLinearBatch(const uintptr_t* pheno_batch, const PhenoCol* pheno_cols, 
       logerrputs("Error: --glm's 'test' column cannot be omitted when results for multiple\npredictors are reported.  (Did you forget 'hide-covar'?)\n");
       goto GlmLinearBatch_ret_INCONSISTENT_INPUT;
     }
-    const uint32_t main_mutated = ((glm_flags & (kfGlmDominant | kfGlmRecessive | kfGlmHethom)) != kfGlm0);
+    const uint32_t main_mutated = ((glm_flags & (kfGlmDominant | kfGlmRecessive | kfGlmHetonly | kfGlmHethom)) != kfGlm0);
     const uint32_t beta_se_multiallelic_fused = (!domdev_present) && (!main_mutated) && (!common->tests_flag) && (!add_interactions);
     if (beta_se_multiallelic_fused || (!hide_covar)) {
       max_reported_test_ct += max_extra_allele_ct;
@@ -10946,6 +10992,13 @@ void SexInteractionReshuffle(uint32_t first_interaction_pred_uidx, uint32_t raw_
 PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const AdjustInfo* adjust_info_ptr, const APerm* aperm_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t xchr_model, double ci_size, double vif_thresh, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
+
+  // We may temporarily clear the cip->haploid_mask bit for chrX if all samples
+  // are female.  (This is only checked on function entry, it is not rechecked
+  // on a per-phenotype basis.)  Track this here so we can reverse it on
+  // function exit.
+  uint32_t x_fully_diploid = 0;
+
   PglErr reterr = kPglRetSuccess;
   TextStream local_covar_txs;
   TokenStream tks;
@@ -11024,8 +11077,6 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     GetXymtStartAndEnd(cip, kChrOffsetY, &y_start, &y_end);
 
     uintptr_t* sex_male_collapsed_buf = nullptr;
-    uint32_t x_code;
-    uint32_t variant_ct_x = 0;
     uint32_t variant_ct_y = 0;
     const uint32_t domdev_present = (glm_flags & (kfGlmGenotypic | kfGlmHethom))? 1 : 0;
     const uint32_t sex_nm_ct = PopcountWords(sex_nm, raw_sample_ctl);
@@ -11034,12 +11085,29 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     if (add_sex_covar && ((!male_ct) || (male_ct == sex_nm_ct))) {
       add_sex_covar = 0;
     }
+    uint32_t variant_ct_x = 0;
+    {
+      uint32_t x_code;
+      if (XymtExists(cip, kChrOffsetX, &x_code)) {
+        variant_ct_x = CountChrVariantsUnsafe(early_variant_include, cip, x_code);
+        x_fully_diploid = (!male_ct) && (sex_nm_ct == orig_sample_ct) && variant_ct_x && xchr_model;
+        if (x_fully_diploid) {
+          ClearBit(x_code, cip->haploid_mask);
+        }
+      }
+    }
     uintptr_t* cur_sample_include_y_buf = nullptr;
-    if (domdev_present || (glm_flags & (kfGlmDominant | kfGlmRecessive))) {
-      // dominant/recessive/genotypic/hethom suppress all chromosomes which
-      // aren't fully diploid.  (could throw in a hack to permit chrX if
-      // all samples are female?  i.e. synthesize a ChrInfo where
-      // xymt_codes[0] is UINT32_MAXM1 and haploid_mask X bit is cleared)
+    if (domdev_present || (glm_flags & (kfGlmDominant | kfGlmRecessive | kfGlmHetonly))) {
+      // dominant/recessive/hetonly/genotypic/hethom suppress all chromosomes
+      // which aren't fully diploid.
+
+      xchr_model = 0;
+      // update (18 Sep 2021): chrX is no longer suppressed if all samples are
+      // female.
+      if (x_fully_diploid) {
+        xchr_model = 2;
+        logputs("--glm: Including chrX, despite presence of a diploid-only modifier\n('dominant', 'recessive', 'hetonly', 'genotypic', 'hethom'), since all samples\nare female.\n");
+      }
       uintptr_t* variant_include_nohap = nullptr;
       const uint32_t chr_ct = cip->chr_ct;
       uint32_t removed_variant_ct = 0;
@@ -11074,14 +11142,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         max_variant_ct = variant_ct;
       }
     } else {
-      if (XymtExists(cip, kChrOffsetX, &x_code)) {
-        variant_ct_x = CountChrVariantsUnsafe(early_variant_include, cip, x_code);
+      if (variant_ct_x) {
         // --xchr-model 0 now only suppresses chrX.
         if (xchr_model) {
-          if (variant_ct_x) {
-            if (unlikely(bigstack_alloc_w(BitCtToWordCt(orig_sample_ct), &sex_male_collapsed_buf))) {
-              goto GlmMain_ret_NOMEM;
-            }
+          if (unlikely(bigstack_alloc_w(BitCtToWordCt(orig_sample_ct), &sex_male_collapsed_buf))) {
+            goto GlmMain_ret_NOMEM;
           }
         } else {
           max_variant_ct -= variant_ct_x;
@@ -11161,7 +11226,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               new_max_covar_name_blen = condition_blen;
             }
             // TODO: this count will be different with a multiallelic variant
-            logprintf("--glm: One --condition covariate added.\n");
+            logputs("--glm: One --condition covariate added.\n");
           } else {
             if (unlikely(ii == -2)) {
               logerrprintfww("Error: Duplicate --condition variant ID '%s'.\n", glm_info_ptr->condition_varname);
@@ -11336,6 +11401,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               if (chr_idx == cip->xymt_codes[kChrOffsetX]) {
                 if (xchr_model == 1) {
                   if (unlikely(glm_flags & (kfGlmConditionDominant | kfGlmConditionRecessive))) {
+                    // this is technically allowed when all samples are female,
+                    // but unimportant to mention that in the error message.
                     logerrputs("Error: --condition[-list] 'dominant'/'recessive' cannot be used with a chrX\nvariant when \"--xchr-model 1\" is in effect.\n");
                     goto GlmMain_ret_INCONSISTENT_INPUT;
                   }
@@ -12875,6 +12942,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
  GlmMain_ret_1:
   CleanupTokenStream2("--condition-list file", &tks, &reterr);
   CleanupTextStream2(local_covar_fname, &local_covar_txs, &reterr);
+  if (x_fully_diploid) {
+    SetBit(cip->xymt_codes[kChrOffsetX], cip->haploid_mask);
+  }
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }
