@@ -11107,6 +11107,9 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       if (x_fully_diploid) {
         xchr_model = 2;
         logputs("--glm: Including chrX, despite presence of a diploid-only modifier\n('dominant', 'recessive', 'hetonly', 'genotypic', 'hethom'), since all samples\nare female.\n");
+      } else {
+        // bugfix (20 Sep 2021): need this to avoid double-subtraction.
+        variant_ct_x = 0;
       }
       uintptr_t* variant_include_nohap = nullptr;
       const uint32_t chr_ct = cip->chr_ct;
@@ -11134,7 +11137,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       }
       if (removed_variant_ct) {
         if (unlikely(variant_ct == removed_variant_ct)) {
-          logerrputs("Error: No variants remaining for --glm ('dominant', 'recessive', 'genotypic',\nand 'hethom' only operate on diploid data).\n");
+          logerrputs("Error: No variants remaining for --glm ('dominant', 'recessive', 'hetonly',\n'genotypic', and 'hethom' only operate on diploid data).\n");
           goto GlmMain_ret_DEGENERATE_DATA;
         }
         variant_ct -= removed_variant_ct;
