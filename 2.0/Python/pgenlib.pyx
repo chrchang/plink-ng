@@ -1255,8 +1255,8 @@ cdef class PgenWriter:
             AlleleCodesToGenoarrUnsafe(allele_codes, NULL, SpgwGetSampleCt(self._state_ptr), genovec, NULL, NULL)
             reterr = SpgwAppendBiallelicGenovec(genovec, self._state_ptr)
         else:
-            AlleleCodesToGenoarrUnsafe(allele_codes, NULL, SpgwGetSampleCt(self._state_ptr), genovec, self._phasepresent, self._phaseinfo)
-            reterr = SpgwAppendBiallelicGenovecHphase(genovec, self._phasepresent, self._phaseinfo, self._state_ptr)
+            AlleleCodesToGenoarrUnsafe(allele_codes, NULL, SpgwGetSampleCt(self._state_ptr), genovec, NULL, self._phaseinfo)
+            reterr = SpgwAppendBiallelicGenovecHphase(genovec, NULL, self._phaseinfo, self._state_ptr)
         if reterr != kPglRetSuccess:
             raise RuntimeError("append_alleles() error " + str(reterr))
         return
@@ -1337,8 +1337,8 @@ cdef class PgenWriter:
         else:
             for uii in range(batch_size):
                 allele_codes = <int32_t*>(&(allele_int32_batch[uii, 0]))
-                AlleleCodesToGenoarrUnsafe(allele_codes, NULL, SpgwGetSampleCt(self._state_ptr), genovec, self._phasepresent, self._phaseinfo)
-                reterr = SpgwAppendBiallelicGenovecHphase(genovec, self._phasepresent, self._phaseinfo, self._state_ptr)
+                AlleleCodesToGenoarrUnsafe(allele_codes, NULL, SpgwGetSampleCt(self._state_ptr), genovec, NULL, self._phaseinfo)
+                reterr = SpgwAppendBiallelicGenovecHphase(genovec, NULL, self._phaseinfo, self._state_ptr)
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("append_alleles_batch() error " + str(reterr))
         return

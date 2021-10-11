@@ -572,7 +572,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     // (some overlap with LoadPvar(), though that's one-pass.)
     reterr = SizeAndInitTextStream(in_fname, bigstack_left() / 4, max_thread_ct, &adjust_txs);
     if (unlikely(reterr)) {
-      goto AdjustFile_ret_1;
+      goto AdjustFile_ret_TSTREAM_FAIL;
     }
 
     const char* header_start;
