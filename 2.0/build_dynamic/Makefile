@@ -106,6 +106,8 @@ else
   LINKFLAGS += -lzstd
 endif
 
+LIBTOOL=ar
+STATIC=rcs
 UNAME := $(shell uname)
 ifeq ($(UNAME), Darwin)
   ifdef FORCE_32BIT
@@ -118,6 +120,8 @@ ifeq ($(UNAME), Darwin)
   CFLAGS += -I/usr/local/include
   CXXFLAGS += -I/usr/local/include -stdlib=libc++
   LINKFLAGS += -L/usr/local/lib
+  LIBTOOL=libtool
+  STATIC=-static
 else
   ifdef DYNAMIC_MKL
     ifdef NO_LAPACK
@@ -159,8 +163,28 @@ plink2$(SFX): $(CSRC2) $(ZCSRC2) $(CCSRC2) ../plink2_cpu.cc
 pgen_compress$(SFX): $(PGCSRC2)
 	$(CXX) $(CXXFLAGS) $(PGCSRC2) -o $@
 
+pgenlib.a: $(PGENLIB_CCSRC2)
+	$(CXX) $(CXXFLAGS) $(PGENLIB_CCSRC2) -c
+	$(LIBTOOL) $(STATIC) -o $@ $(PGENLIB_OBJ2)
+
+plink2lib.a: $(CSRC2) $(ZCSRC2) $(PLINK2LIB_CCSRC2)
+	$(CC) $(CFLAGS) $(CSRC2) -c
+	$(CC) $(ZCFLAGS) $(ZCSRC2) -c
+	$(CXX) $(CXXFLAGS) $(PLINK2LIB_CCSRC2) -c
+	$(LIBTOOL) $(STATIC) -o $@ $(PLINK2LIB_OBJ2)
+
+static_pgenlib_test: pgenlib.a ../pgen_compress.cc
+	$(CXX) $(CXXFLAGS) -o $@ ../pgen_compress.cc -L. pgenlib.a
+
+static_plink2lib_test: plink2lib.a ../pgen_compress.cc
+	$(CXX) $(CXXFLAGS) -o $@ ../pgen_compress.cc -L. plink2lib.a
+
 .PHONY: clean
 clean:
 	rm -f *.o
 	rm -f plink2
 	rm -f pgen_compress
+	rm -f pgenlib.a
+	rm -f plink2lib.a
+	rm -f static_pgenlib_test
+	rm -f static_plink2lib_test
