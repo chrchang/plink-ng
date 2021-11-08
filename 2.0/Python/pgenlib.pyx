@@ -1154,11 +1154,11 @@ cdef class PgenReader:
             CleanupPgfi(self._info_ptr, &reterr)
             if self._info_ptr[0].vrtypes:
                 aligned_free(self._info_ptr[0].vrtypes)
-                if self._state_ptr:
-                    CleanupPgr(self._state_ptr, &reterr)
-                    if PgrGetFreadBuf(self._state_ptr):
-                        aligned_free(PgrGetFreadBuf(self._state_ptr))
-                    PyMem_Free(self._state_ptr)
+            if self._state_ptr:
+                CleanupPgr(self._state_ptr, &reterr)
+                if PgrGetFreadBuf(self._state_ptr):
+                    aligned_free(PgrGetFreadBuf(self._state_ptr))
+                PyMem_Free(self._state_ptr)
             PyMem_Free(self._info_ptr)
         return
 
