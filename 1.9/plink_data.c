@@ -16201,7 +16201,8 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
 	break;
       }
     }
-    if ((mlpos < merge_ct) && (!feof(mergelistfile))) {
+    // feof() is true if mergelistfile was a named pipe.
+    if ((mlpos < merge_ct) || ferror(mergelistfile)) {
       goto merge_datasets_ret_READ_FAIL;
     }
     fclose_null(&mergelistfile);
