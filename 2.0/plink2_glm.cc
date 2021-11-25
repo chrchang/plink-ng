@@ -728,7 +728,7 @@ uint32_t CheckForSeparatedCatCovar(const uintptr_t* pheno_cc, const uintptr_t* c
   if (!case_and_ctrl_cat_ct) {
     return 2;
   }
-  if (case_and_ctrl_cat_ct == pheno_by_cat_ct * 2) {
+  if (case_and_ctrl_cat_ct * 2 == pheno_by_cat_ct) {
     // all categories contain both cases and controls.
     return 0;
   }
