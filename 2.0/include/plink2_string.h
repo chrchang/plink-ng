@@ -28,7 +28,7 @@
 
 #ifdef __cplusplus
 #  include <algorithm>
-#  if __cplusplus >= 201902L
+#  if __cplusplus >= 201902L && defined(__GNUC__) && !defined(__clang__)
 #    include <execution>
 #  endif
 #  ifdef _WIN32
@@ -96,7 +96,7 @@ static const double kExactTestBias = 0.00000000000000000000000010339757656912845
 
 #ifdef __cplusplus
 #  define STD_SORT(ct, fallback_cmp, arr) std::sort(&((arr)[0]), (&((arr)[ct])))
-#  if __cplusplus >= 201902L
+#  if __cplusplus >= 201902L && defined(__GNUC__) && !defined(__clang__)
 // this should only be used for arrays of length >= variant_ct or sample_ct
 // (sample_ct is cutting it close).
 // macro should still be used in e.g. non-__cplusplus blocks, so that we have
