@@ -8426,6 +8426,7 @@ static_assert(kSdiffBatchMax > 0, "kSdiffBatchMax must be positive.");
 PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const SdiffInfo* sdip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t variant_ct, uint32_t iid_sid, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
+  uintptr_t line_idx = 0;
   TextStream txs; // file=
   PreinitTextStream(&txs);
   FILE* outfile = nullptr;
@@ -8434,7 +8435,6 @@ PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, con
     // Determine xid_mode.
     const SdiffFlags flags = sdip->flags;
     const uint32_t other_id_ct = sdip->other_id_ct;
-    uintptr_t line_idx = 0;
     char* line_start = nullptr;
     char* line_iter = nullptr;
     XidMode xid_mode;
@@ -8571,15 +8571,26 @@ PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, con
         const char* linebuf_iter = line_iter;
         uint32_t sample_uidx1;
         if (unlikely(SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx1, idbuf))) {
-          TabsToSpaces(idbuf);
-          logerrprintfww("Error: --sample-diff sample ID '%s' (on line %" PRIuPTR " of file) not found.\n", idbuf, line_idx);
+          if (!idbuf[0]) {
+            logerrprintfww("Error: --sample-diff sample ID (on line %" PRIuPTR " of file) not found.\n", line_idx);
+          } else {
+            TabsToSpaces(idbuf);
+            logerrprintfww("Error: --sample-diff sample ID '%s' (on line %" PRIuPTR " of file) not found.\n", idbuf, line_idx);
+          }
           goto Sdiff_ret_INCONSISTENT_INPUT;
         }
         linebuf_iter = FirstNonTspace(linebuf_iter);
+        if (unlikely(IsEolnKns(*linebuf_iter))) {
+          goto Sdiff_ret_MISSING_TOKENS;
+        }
         uint32_t sample_uidx2;
         if (unlikely(SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx2, idbuf))) {
-          TabsToSpaces(idbuf);
-          logerrprintfww("Error: --sample-diff sample ID '%s' (on line %" PRIuPTR " of file) not found.\n", idbuf, line_idx);
+          if (!idbuf[0]) {
+            logerrprintfww("Error: --sample-diff sample ID (on line %" PRIuPTR " of file) not found.\n", line_idx);
+          } else {
+            TabsToSpaces(idbuf);
+            logerrprintfww("Error: --sample-diff sample ID '%s' (on line %" PRIuPTR " of file) not found.\n", idbuf, line_idx);
+          }
           goto Sdiff_ret_INCONSISTENT_INPUT;
         }
         if (unlikely(sample_uidx1 == sample_uidx2)) {
@@ -8889,6 +8900,8 @@ PglErr Sdiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, con
   Sdiff_ret_INVALID_CMDLINE:
     reterr = kPglRetInvalidCmdline;
     break;
+  Sdiff_ret_MISSING_TOKENS:
+    logerrprintf("Error: Line %" PRIuPTR " of --sample-diff file has fewer tokens than expected.\n", line_idx);
   Sdiff_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;

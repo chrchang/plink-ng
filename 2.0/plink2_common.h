@@ -538,10 +538,10 @@ uint32_t XidRead(uintptr_t max_xid_blen, uint32_t comma_delim, XidMode xid_mode,
 // of the next token; this is a change from plink 1.9.
 HEADER_INLINE BoolErr SortedXidboxReadFind(const char* __restrict sorted_xidbox, const uint32_t* __restrict xid_map, uintptr_t max_xid_blen, uintptr_t xid_ct, uint32_t comma_delim, XidMode xid_mode, const char** read_pp, uint32_t* sample_uidx_ptr, char* __restrict idbuf) {
   const uint32_t slen_final = XidRead(max_xid_blen, comma_delim, xid_mode, read_pp, idbuf);
+  idbuf[slen_final] = '\0'; // needed for some error messages
   if (!slen_final) {
     return 1;
   }
-  idbuf[slen_final] = '\0'; // needed for some error messages
   return SortedIdboxFind(idbuf, sorted_xidbox, xid_map, slen_final, max_xid_blen, xid_ct, sample_uidx_ptr);
 }
 
