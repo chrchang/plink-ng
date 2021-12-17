@@ -541,6 +541,7 @@ HEADER_INLINE BoolErr SortedXidboxReadFind(const char* __restrict sorted_xidbox,
   if (!slen_final) {
     return 1;
   }
+  idbuf[slen_final] = '\0'; // needed for some error messages
   return SortedIdboxFind(idbuf, sorted_xidbox, xid_map, slen_final, max_xid_blen, xid_ct, sample_uidx_ptr);
 }
 

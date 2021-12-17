@@ -5426,6 +5426,9 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       } else {
         // multiallelic cases
         // multiallelic dosage not supported yet
+        // don't bother supporting multiallelic GP export when dosages present:
+        // no clean way to handle e.g. dosage(A) = dosage(C) = dosage(G) =
+        // dosage(T)=0.5
         if (ref_allele_idx || (alt1_allele_idx != 1)) {
           // todo: rotation function that can also be used by --make-pgen
           // maybe add a PgrGetM2() function too
