@@ -923,7 +923,7 @@ BoolErr BgzfWrite(const char* buf, uintptr_t len, BgzfCompressStream* cstream_pt
   return 0;
 }
 
-BoolErr BgzfFlushTry(BgzfCompressStream* cstream_ptr, uint32_t capacity_needed_to_defer_flush) {
+BoolErr BgzfFlushTry(uint32_t capacity_needed_to_defer_flush, BgzfCompressStream* cstream_ptr) {
   BgzfCompressStreamMain* bgzfp = GetBgzfp(cstream_ptr);
   const uint32_t slot_ct = bgzfp->slot_ct;
   if (!slot_ct) {
