@@ -923,6 +923,54 @@ BoolErr BgzfWrite(const char* buf, uintptr_t len, BgzfCompressStream* cstream_pt
   return 0;
 }
 
+BoolErr BgzfFlushTry(BgzfCompressStream* cstream_ptr, uint32_t capacity_needed_to_defer_flush) {
+  BgzfCompressStreamMain* bgzfp = GetBgzfp(cstream_ptr);
+  const uint32_t slot_ct = bgzfp->slot_ct;
+  if (!slot_ct) {
+    // No compression.
+    return 0;
+  }
+  if (bgzfp->write_errno) {
+    errno = bgzfp->write_errno;
+    return 1;
+  }
+  uint32_t slot_idx = bgzfp->partial_slot_idx;
+  BgzfCompressCommWithP* cwp = bgzfp->cwps[slot_idx];
+  uint32_t dst_offset = bgzfp->partial_nbytes;
+  if (dst_offset + capacity_needed_to_defer_flush <= kBgzfInputBlockSize) {
+    return 0;
+  }
+#ifdef _WIN32
+  cwp->nbytes = dst_offset;
+  SetEvent(cwp->ucbuf_filled_event);
+#else
+  pthread_mutex_lock(&(cwp->ucbuf_mutex));
+  cwp->nbytes = dst_offset;
+  pthread_cond_signal(&(cwp->ucbuf_condvar));
+  pthread_mutex_unlock(&(cwp->ucbuf_mutex));
+#endif
+  if (++slot_idx == slot_ct) {
+    slot_idx = 0;
+  }
+  cwp = bgzfp->cwps[slot_idx];
+#ifdef _WIN32
+  WaitForSingleObject(cwp->ucbuf_open_event, INFINITE);
+#else
+  pthread_mutex_lock(&(cwp->ucbuf_mutex));
+  while (cwp->nbytes != UINT32_MAX) {
+    pthread_cond_wait(&(cwp->ucbuf_condvar), &(cwp->ucbuf_mutex));
+  }
+  pthread_mutex_unlock(&(cwp->ucbuf_mutex));
+#endif
+  bgzfp->partial_slot_idx = slot_idx;
+  bgzfp->partial_nbytes = 0;
+  if (bgzfp->write_errno) {
+    errno = bgzfp->write_errno;
+    return 1;
+  }
+  return 0;
+}
+
 BoolErr CleanupBgzfCompressStream(BgzfCompressStream* cstream_ptr, PglErr* reterrp) {
   BgzfCompressStreamMain* bgzfp = GetBgzfp(cstream_ptr);
   pthread_t* threads = bgzfp->threads;
