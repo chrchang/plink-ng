@@ -285,10 +285,10 @@ HEADER_INLINE PglErr InitBgzfCompressStream(const char* out_fname, uint32_t thre
 // errno is set on write-fail.
 BoolErr BgzfWrite(const char* buf, uintptr_t len, BgzfCompressStream* cstream_ptr);
 
-BoolErr BgzfFlushTry(BgzfCompressStream* cstream_ptr, uint32_t capacity_needed_to_defer_flush);
+BoolErr BgzfFlushTry(uint32_t capacity_needed_to_defer_flush, BgzfCompressStream* cstream_ptr);
 
 HEADER_INLINE BoolErr BgzfFlush(BgzfCompressStream* cstream_ptr) {
-  return BgzfFlushTry(cstream_ptr, kBgzfInputBlockSize);
+  return BgzfFlushTry(kBgzfInputBlockSize, cstream_ptr);
 }
 
 BoolErr CleanupBgzfCompressStream(BgzfCompressStream* cstream_ptr, PglErr* reterrp);
