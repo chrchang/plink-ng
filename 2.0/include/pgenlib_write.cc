@@ -48,7 +48,7 @@ void PreinitSpgw(STPgenWriter* spgwp) {
   *GetPgenOutfilep(spgwp) = nullptr;
 }
 
-PglErr PwcInitPhase1(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, uint32_t vrec_len_byte_ct, PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr) {
+PglErr PwcInitPhase1(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, PgenGlobalFlags phase_dosage_gflags, uint32_t nonref_flags_storage, uintptr_t vrec_len_byte_ct, PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr) {
   pwcp->allele_idx_offsets = allele_idx_offsets;
   pwcp->explicit_nonref_flags = nullptr;
   if (nonref_flags_storage == 3) {
@@ -85,7 +85,9 @@ PglErr PwcInitPhase1(const char* __restrict fname, const uintptr_t* __restrict a
 
   const unsigned char control_byte = (vrec_len_byte_ct - 1) + (4 * (phase_dosage_gflags != 0)) + (nonref_flags_storage << 6);
   pwcp->vrec_len_byte_ct = vrec_len_byte_ct;
-  fwrite_unlocked(&control_byte, 1, 1, pgen_outfile);
+  if (unlikely(putc_checked(control_byte, pgen_outfile))) {
+    return kPglRetWriteFail;
+  }
   const uint32_t vblock_ct = DivUp(variant_ct, kPglVblockSize);
   uintptr_t header_bytes_left = vblock_ct * sizeof(int64_t) + variant_ct * vrec_len_byte_ct;
   if (phase_dosage_gflags) {
@@ -119,16 +121,14 @@ PglErr PwcInitPhase1(const char* __restrict fname, const uintptr_t* __restrict a
   return kPglRetSuccess;
 }
 
-uint32_t CountSpgwAllocCachelinesRequired(uint32_t variant_ct, uint32_t sample_ct, PgenGlobalFlags phase_dosage_gflags, uint32_t max_vrec_len) {
+uintptr_t CountSpgwAllocCachelinesRequired(uint32_t variant_ct, uint32_t sample_ct, PgenGlobalFlags phase_dosage_gflags, uint32_t max_vrec_len) {
   // vblock_fpos
   const uint32_t vblock_ct = DivUp(variant_ct, kPglVblockSize);
-  uint32_t cachelines_required = Int64CtToCachelineCt(vblock_ct);
+  uintptr_t cachelines_required = Int64CtToCachelineCt(vblock_ct);
 
   // vrec_len_buf
-  // overlapping uint32_t writes used, so (variant_ct * vrec_len_byte_ct) might
-  // not be enough
   const uintptr_t vrec_len_byte_ct = BytesToRepresentNzU32(max_vrec_len);
-  cachelines_required += DivUp((variant_ct - 1) * vrec_len_byte_ct + sizeof(int32_t), kCacheline);
+  cachelines_required += DivUp(variant_ct * vrec_len_byte_ct, kCacheline);
 
   // vrtype_buf
   if (phase_dosage_gflags) {
@@ -220,7 +220,7 @@ PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_t* __restrict 
   PgenWriterCommon* pwcp = GetPwcp(spgwp);
   FILE** pgen_outfilep = GetPgenOutfilep(spgwp);
   PglErr reterr = PwcInitPhase1(fname, allele_idx_offsets, explicit_nonref_flags, variant_ct, sample_ct, phase_dosage_gflags, nonref_flags_storage, vrec_len_byte_ct, pwcp, pgen_outfilep);
-  if (!reterr) {
+  if (likely(!reterr)) {
     *alloc_cacheline_ct_ptr = CountSpgwAllocCachelinesRequired(variant_ct, sample_ct, phase_dosage_gflags, max_vrec_len);
   }
   return reterr;
@@ -400,22 +400,19 @@ void PwcInitPhase2(uintptr_t fwrite_cacheline_ct, uint32_t thread_ct, PgenWriter
   unsigned char* alloc_iter = pwc_alloc;
   const uint32_t vblock_ct = DivUp(variant_ct, kPglVblockSize);
   const PgenGlobalFlags phase_dosage_gflags = pwcs[0]->phase_dosage_gflags;
-  uint32_t vrtype_buf_bytes;
+  uint32_t vrtype_buf_byte_ct;
   if (phase_dosage_gflags) {
-    vrtype_buf_bytes = RoundUpPow2(variant_ct, kCacheline);
+    vrtype_buf_byte_ct = RoundUpPow2(variant_ct, kCacheline);
   } else {
-    vrtype_buf_bytes = DivUp(variant_ct, kCacheline * 2) * kCacheline;
+    vrtype_buf_byte_ct = DivUp(variant_ct, kCacheline * 2) * kCacheline;
   }
-  pwcs[0]->vblock_fpos = R_CAST(uint64_t*, alloc_iter);
-  alloc_iter = &(alloc_iter[Int64CtToCachelineCt(vblock_ct) * kCacheline]);
+  pwcs[0]->vblock_fpos = S_CAST(uint64_t*, arena_alloc_raw_rd(vblock_ct * sizeof(int64_t), &alloc_iter));
 
-  pwcs[0]->vrec_len_buf = alloc_iter;
-  alloc_iter = &(alloc_iter[RoundUpPow2(variant_ct * pwcs[0]->vrec_len_byte_ct, kCacheline)]);
+  pwcs[0]->vrec_len_buf = S_CAST(unsigned char*, arena_alloc_raw_rd(variant_ct * pwcs[0]->vrec_len_byte_ct, &alloc_iter));
 
-  pwcs[0]->vrtype_buf = R_CAST(uintptr_t*, alloc_iter);
-  // spgw_append() assumes these bytes are zeroed out
-  memset(pwcs[0]->vrtype_buf, 0, vrtype_buf_bytes);
-  alloc_iter = &(alloc_iter[vrtype_buf_bytes]);
+  pwcs[0]->vrtype_buf = S_CAST(uintptr_t*, arena_alloc_raw(vrtype_buf_byte_ct, &alloc_iter));
+  // the PwcAppend... functions assume these bytes are zeroed out
+  memset(pwcs[0]->vrtype_buf, 0, vrtype_buf_byte_ct);
 
   const uint32_t sample_ct = pwcs[0]->sample_ct;
   const uint32_t genovec_byte_alloc = NypCtToCachelineCt(sample_ct) * kCacheline;
@@ -426,17 +423,12 @@ void PwcInitPhase2(uintptr_t fwrite_cacheline_ct, uint32_t thread_ct, PgenWriter
       pwcs[tidx]->vrec_len_buf = pwcs[0]->vrec_len_buf;
       pwcs[tidx]->vrtype_buf = pwcs[0]->vrtype_buf;
     }
-    pwcs[tidx]->genovec_hets_buf = R_CAST(uintptr_t*, alloc_iter);
-    alloc_iter = &(alloc_iter[genovec_byte_alloc]);
-    pwcs[tidx]->genovec_invert_buf = R_CAST(uintptr_t*, alloc_iter);
-    alloc_iter = &(alloc_iter[genovec_byte_alloc]);
-    pwcs[tidx]->ldbase_genovec = R_CAST(uintptr_t*, alloc_iter);
-    alloc_iter = &(alloc_iter[genovec_byte_alloc]);
+    pwcs[tidx]->genovec_hets_buf = S_CAST(uintptr_t*, arena_alloc_raw(genovec_byte_alloc, &alloc_iter));
+    pwcs[tidx]->genovec_invert_buf = S_CAST(uintptr_t*, arena_alloc_raw(genovec_byte_alloc, &alloc_iter));
+    pwcs[tidx]->ldbase_genovec = S_CAST(uintptr_t*, arena_alloc_raw(genovec_byte_alloc, &alloc_iter));
 
-    pwcs[tidx]->ldbase_raregeno = R_CAST(uintptr_t*, alloc_iter);
-    alloc_iter = &(alloc_iter[NypCtToCachelineCt(max_difflist_len) * kCacheline]);
-    pwcs[tidx]->ldbase_difflist_sample_ids = R_CAST(uint32_t*, alloc_iter);
-    alloc_iter = &(alloc_iter[(1 + (max_difflist_len / kInt32PerCacheline)) * kCacheline]);
+    pwcs[tidx]->ldbase_raregeno = S_CAST(uintptr_t*, arena_alloc_raw(NypCtToCachelineCt(max_difflist_len) * kCacheline, &alloc_iter));
+    pwcs[tidx]->ldbase_difflist_sample_ids = S_CAST(uint32_t*, arena_alloc_raw_rd((max_difflist_len + 1) * sizeof(int32_t), &alloc_iter));
 
     pwcs[tidx]->fwrite_buf = alloc_iter;
     pwcs[tidx]->fwrite_bufp = alloc_iter;

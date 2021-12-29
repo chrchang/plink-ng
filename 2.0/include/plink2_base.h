@@ -97,7 +97,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 705
+#define PLINK2_BASE_VERNUM 706
 
 
 #define _FILE_OFFSET_BITS 64
@@ -1627,6 +1627,14 @@ CONSTI32(kPglFnamesize, 4096);
 static_assert(kPglFnamesize >= PATH_MAX, "plink2_base assumes PATH_MAX <= 4096.  (Safe to increase kPglFnamesize to address this, up to 131072.)");
 #endif
 
+// safe errstr_buf size for PgenInitPhase{1,2}(), PgrValidate(),
+// BitmapReaderInitPhase{1,2}()
+CONSTI32(kPglErrstrBufBlen, kPglFnamesize + 256);
+
+// shared between .pgen and plink-bitmap formats
+// currently must be power of 2, and multiple of (kBitsPerWord / 2)
+CONSTI32(kPglDifflistGroupSize, 64);
+
 
 #if __cplusplus >= 201103L
 // Main application of std::array in this codebase is enforcing length when
@@ -2038,6 +2046,11 @@ HEADER_INLINE BoolErr pgl_malloc(uintptr_t size, void* pp) {
 // OS X raw fwrite() doesn't work in that case.
 static_assert(sizeof(size_t) == sizeof(intptr_t), "plink2_base assumes size_t and intptr_t are synonymous.");
 BoolErr fwrite_checked(const void* buf, uintptr_t len, FILE* outfile);
+
+HEADER_INLINE IntErr putc_checked(int32_t ii, FILE* outfile) {
+  putc_unlocked(ii, outfile);
+  return ferror_unlocked(outfile);
+}
 
 // Only use this if loading < len bytes is not an error.
 // IntErr fread_checked2(void* buf, uintptr_t len, FILE* infile, uintptr_t* bytes_read_ptr);
@@ -3035,6 +3048,20 @@ HEADER_INLINE uintptr_t FirstUnequalFrom(const void* arr1, const void* arr2, uin
   const char* s1 = S_CAST(const char*, arr1);
   const char* s2 = S_CAST(const char*, arr2);
   return start + FirstUnequal(&(s1[start]), &(s2[start]), nbytes - start);
+}
+
+
+HEADER_INLINE void* arena_alloc_raw(uintptr_t size, unsigned char** arena_bottom_ptr) {
+  assert(!(size % kCacheline));
+  unsigned char* alloc_ptr = *arena_bottom_ptr;
+  *arena_bottom_ptr = &(alloc_ptr[size]);
+  return alloc_ptr;
+}
+
+HEADER_INLINE void* arena_alloc_raw_rd(uintptr_t size, unsigned char** arena_bottom_ptr) {
+  unsigned char* alloc_ptr = *arena_bottom_ptr;
+  *arena_bottom_ptr = &(alloc_ptr[RoundUpPow2(size, kCacheline)]);
+  return alloc_ptr;
 }
 
 // Flagset conventions:

@@ -368,6 +368,207 @@ double BiallelicDiploidMinimac3R2(uint64_t alt1_dosage, uint64_t hap_alt1_ssq_x2
   return observed_variance_times_2n / expected_variance_times_2n;
 }
 
+// These two functions do not overread, but may write extra bytes up to the
+// word boundary.
+// They are likely to be moved to plink2_bits.
+void Expand2bitTo8(const void* __restrict bytearr, uint32_t input_nyp_ct, uint32_t incr, uintptr_t* __restrict dst) {
+  // Tried adding incr == 0 fast path, negligible performance difference in
+  // benchmark.
+  // GenoarrLookup256x1bx4 takes ~3-4x as long.
+  const unsigned char* src_iter = S_CAST(const unsigned char*, bytearr);
+  const uint32_t input_byte_ct = DivUp(input_nyp_ct, 4);
+#ifdef NO_UNALIGNED
+#  error "Unaligned accesses in Expand2bitTo8()."
+#endif
+#ifdef __LP64__
+  const uint32_t input_vec_ct = input_byte_ct / kBytesPerVec;
+  unsigned char* dst_iter = R_CAST(unsigned char*, dst);
+  if (input_vec_ct) {
+    const VecW mincr = R_CAST(VecW, vecuc_set1(incr));
+    const VecW m03 = VCONST_W(kMask0303);
+    for (uint32_t vec_idx = 0; vec_idx != input_vec_ct; ++vec_idx) {
+      VecW cur_vec = vecw_loadu(src_iter);
+      src_iter = &(src_iter[kBytesPerVec]);
+#  ifdef USE_AVX2
+      // (todo: benchmark against just reading 8 bytes at a time and
+      // broadcasting.)
+      // midswapped_vec contains {0-1-2-3, 4-5-6-7, ..., 12-13-14-15,
+      //                          32-33-34-35, ..., 44-45-46-47,
+      //                          16-17-18-19, ..., 28-29-30-31,
+      //                          48-49-50-51, ..., 60-61-62-63,
+      //                          64-65-66-67, ..., 76-77-78-79,
+      //                          96-97-98-99, ..., 108-109-110-111,
+      //                          80-81-82-83, ..., 92-93-94-95,
+      //                          112-113-114-115, ..., 124-125-126-127}
+      // 0xd8: {0, 2, 1, 3}
+      const __m256i midswapped_vec = _mm256_shuffle_epi32(R_CAST(__m256i, cur_vec), 0xd8);
+      // This operation is also used in FillInterleavedMaskVec().
+      // cur_vec now contains {0-1-2-3, 4-5-6-7, 8-9-10-11, 12-13-14-15,
+      //                       32-33-34-35, ..., 44-45-46-47,
+      //                       64-65-66-67, ..., 76-77-78-79,
+      //                       96-97-98-99, ..., 108-109-110-111,
+      //                       16-17-18-19, ..., 28-29-30-31,
+      //                       48-49-50-51, ..., 60-61-62-63,
+      //                       80-81-82-83, ..., 92-93-94-95,
+      //                       112-113-114-115, ..., 124-125-126-127}
+      cur_vec = vecw_permute0xd8_if_avx2(R_CAST(VecW, midswapped_vec));
+#  endif
+      // AVX2:
+      //   vec_even contains {0-1, 4-5, 8-9, 12-13, 32-33, ..., 44-45,
+      //                      64-65, ..., 76-77, 96-97, ..., 108-109,
+      //                      16-17, ..., 28-29, 48-49, ..., 60-61,
+      //                      80-81, ..., 92-93, 112-113, ..., 124-125}
+      //   vec_odd contains {2-3, 6-7, 10-11, 14-15, 34-35, ..., 46-47,
+      //                     66-67, ..., 78-79, 98-99, ..., 110-111,
+      //                     18-19, ..., 30-31, 50-51, ..., 62-63,
+      //                     82-83, ..., 94-95, 114-115, ..., 126-127}
+      // SSE2:
+      //   vec_even contains {0-1, 4-5, 8-9, ..., 60-61}
+      //   vec_odd contains {2-3, 6-7, 10-11, ..., 62-63}
+      const VecW vec_even = cur_vec;
+      const VecW vec_odd = vecw_srli(cur_vec, 4);
+
+      // AVX2:
+      //   vec01 contains {0-1, 2-3, 4-5, ..., 14-15, 32-33, ..., 46-47,
+      //                   16-17, ..., 30-31, 48-49, ..., 62-63}
+      //   vec23 contains {64-65, 66-67, ..., 78-79, 96-97, ..., 110-111,
+      //                   80-81, ..., 94-95, 112-113, ..., 126-127}
+      // SSE2:
+      //   vec01 contains {0-1, 2-3, 4-5, 6-7, ..., 30-31}
+      //   vec23 contains {32-33, 34-35, 36-37, 38-39, ..., 62-63}
+      const VecW vec01 = vecw_unpacklo8(vec_even, vec_odd);
+      const VecW vec23 = vecw_unpackhi8(vec_even, vec_odd);
+
+      // AVX2:
+      //   vec01_even contains {0, 2, 4, ..., 14, 32, 34, ..., 46,
+      //                        16, 18, ..., 30, 48, 50, ..., 62}
+      //   vec01_odd contains {1, 3, 5, ..., 15, 33, 35, ..., 47,
+      //                       17, 19, ..., 31, 49, 51, ..., 63}
+      // SSE2:
+      //   vec01_even contains {0, 2, 4, 6, ..., 30}
+      //   vec01_odd contains {1, 3, 5, 7, ..., 31}
+      const VecW vec01_even = vec01 & m03;
+      const VecW vec01_odd = vecw_srli(vec01, 2) & m03;
+
+      // AVX2:
+      //   vecw_unpacklo8() contains {0, 1, ..., 15, 16, ..., 31}
+      //   vecw_unpachhi8() contains {32, 33, ..., 47, 48, ..., 63}
+      // SSE2:
+      //   vecw_unpacklo8() contains {0, 1, ..., 15}
+      //   vecw_unpachhi8() contains {16, 17, ..., 31}
+      vecw_storeu(dst_iter, mincr + vecw_unpacklo8(vec01_even, vec01_odd));
+      dst_iter = &(dst_iter[kBytesPerVec]);
+      vecw_storeu(dst_iter, mincr + vecw_unpackhi8(vec01_even, vec01_odd));
+      dst_iter = &(dst_iter[kBytesPerVec]);
+      const VecW vec23_odd = vecw_srli(vec23, 2) & m03;
+      const VecW vec23_even = vec23 & m03;
+      vecw_storeu(dst_iter, mincr + vecw_unpacklo8(vec23_even, vec23_odd));
+      dst_iter = &(dst_iter[kBytesPerVec]);
+      vecw_storeu(dst_iter, mincr + vecw_unpackhi8(vec23_even, vec23_odd));
+      dst_iter = &(dst_iter[kBytesPerVec]);
+    }
+  }
+  const uint32_t remainder = input_byte_ct % kBytesPerVec;
+  if (remainder) {
+    const uint32_t full_qw_ct = remainder / sizeof(Quarterword);
+    const Quarterword* src_alias = R_CAST(const Quarterword*, src_iter);
+    const uintptr_t incr_word = kMask0101 * incr;
+    uintptr_t* dstw = R_CAST(uintptr_t*, dst_iter);
+    for (uint32_t uii = 0; uii != full_qw_ct; ++uii) {
+      const uintptr_t cur_2byte = src_alias[uii];
+      dstw[uii] = incr_word + Unpack0303(cur_2byte);
+    }
+    if (input_byte_ct % 2) {
+      uintptr_t cur_byte = src_iter[remainder - 1];
+#  ifdef USE_AVX2
+      cur_byte = _pdep_u64(cur_byte, kMask0303);
+#  else
+      cur_byte = cur_byte | (cur_byte << 12);
+      cur_byte = (cur_byte | (cur_byte << 6)) & kMask0303;
+#  endif
+      dstw[full_qw_ct] = incr_word + cur_byte;
+    }
+  }
+#else  // !__LP64__
+  const Quarterword* src_alias = R_CAST(const Quarterword*, src_iter);
+  const uintptr_t incr_word = kMask0101 * incr;
+  uintptr_t* dstw = R_CAST(uintptr_t*, dst);
+  for (uint32_t uii = 0; uii != input_byte_ct; ++uii) {
+    const uintptr_t cur_2byte = src_alias[uii];
+    dstw[uii] = incr_word + Unpack0303(cur_2byte);
+  }
+#endif
+}
+
+void Expand4bitTo8(const void* __restrict bytearr, uint32_t input_nybble_ct, uint32_t incr, uintptr_t* __restrict dst) {
+  // Tried adding incr == 0 fast path, negligible performance difference in
+  // benchmark.
+  const unsigned char* src_iter = R_CAST(const unsigned char*, bytearr);
+  const uint32_t input_byte_ct = DivUp(input_nybble_ct, 2);
+#ifdef __LP64__
+  const uint32_t input_vec_ct = input_byte_ct / kBytesPerVec;
+  unsigned char* dst_iter = R_CAST(unsigned char*, dst);
+  if (input_vec_ct) {
+    const VecW mincr = R_CAST(VecW, vecuc_set1(incr));
+    const VecW m4 = VCONST_W(kMask0F0F);
+    for (uint32_t vec_idx = 0; vec_idx != input_vec_ct; ++vec_idx) {
+      VecW cur_vec = vecw_loadu(src_iter);
+      src_iter = &(src_iter[kBytesPerVec]);
+      cur_vec = vecw_permute0xd8_if_avx2(cur_vec);
+      // AVX2:
+      //   vec_even contains {0, 2, 4, ..., 14, 32, 34, ..., 46,
+      //                      16, 18, ..., 30, 48, ... 62}
+      //   vec_odd contains {1, 3, 5, ..., 15, 33, 35, ..., 47,
+      //                     17, 19, ..., 31, 49, ..., 63}
+      // SSE2:
+      //   vec_even contains {0, 2, 4, ..., 30}
+      //   vec_odd contains {1, 3, 5, ..., 31}
+      const VecW vec_even = cur_vec & m4;
+      const VecW vec_odd = vecw_srli(cur_vec, 4) & m4;
+
+      // AVX2:
+      //   vec_lo contains {0, 1, ..., 31}
+      //   vec_hi contains {32, 33, ..., 63}
+      // SSE2:
+      //   vec_lo contains {0, 1, 2, ..., 15}
+      //   vec_hi contains {16, 17, 18, ..., 31}
+      const VecW vec_lo = vecw_unpacklo8(vec_even, vec_odd);
+      const VecW vec_hi = vecw_unpackhi8(vec_even, vec_odd);
+      vecw_storeu(dst_iter, mincr + vec_lo);
+      dst_iter = &(dst_iter[kBytesPerVec]);
+      vecw_storeu(dst_iter, mincr + vec_hi);
+      dst_iter = &(dst_iter[kBytesPerVec]);
+    }
+  }
+  const uint32_t remainder = input_byte_ct % kBytesPerVec;
+  if (remainder) {
+    const Halfword* src_alias = R_CAST(const Halfword*, src_iter);
+    uintptr_t incr_word = kMask0101 * incr;
+    const uint32_t hw_ct_m1 = (remainder - 1) / sizeof(Halfword);
+    uintptr_t* dstw = R_CAST(uintptr_t*, dst_iter);
+    for (uint32_t hwidx = 0; ; ++hwidx) {
+      uint32_t cur_4byte;
+      if (hwidx >= hw_ct_m1) {
+        if (hwidx > hw_ct_m1) {
+          break;
+        }
+        cur_4byte = SubU32Load(&(src_alias[hwidx]), ModNz(remainder, 4));
+      } else {
+        cur_4byte = src_alias[hwidx];
+      }
+      dstw[hwidx] = incr_word + Unpack0F0F(cur_4byte);
+    }
+  }
+#else
+  unsigned char* dst_iter = R_CAST(unsigned char*, dst);
+  for (uint32_t uii = 0; uii < input_byte_ct; ++uii) {
+    uint32_t cur_byte = src_iter[uii];
+    *dst_iter++ = (cur_byte & 15) + incr;
+    *dst_iter++ = (cur_byte >> 4) + incr;
+  }
+#endif
+}
+
 void PreinitPgfi(PgenFileInfo* pgfip) {
   pgfip->shared_ff = nullptr;
   pgfip->block_base = nullptr;
@@ -375,24 +576,24 @@ void PreinitPgfi(PgenFileInfo* pgfip) {
   pgfip->nonref_flags = nullptr;
 }
 
-uint32_t CountPgfiAllocCachelinesRequired(uint32_t raw_variant_ct) {
+uintptr_t CountPgfiAllocCachelinesRequired(uint32_t raw_variant_ct) {
   // assumes variable-width variant records, otherwise pgfi.vrtypes and
   // pgfi.vr_fpos can just be nullptr.
 
   // vrtypes: 1 byte per entry, (raw_variant_ct + 1) entries
-  uint32_t cachelines_required = 1 + (raw_variant_ct / kCacheline);
+  uintptr_t cachelines_required = 1 + (raw_variant_ct / kCacheline);
 
   // var_fpos: 8 bytes per entry, (raw_variant_ct + 1) entries
   cachelines_required += 1 + (raw_variant_ct / kInt64PerCacheline);
   return cachelines_required;
 }
 
-uint32_t CountPgrAllocCachelinesRequired(uint32_t raw_sample_ct, PgenGlobalFlags gflags, uint32_t max_allele_ct, uint32_t fread_buf_byte_ct) {
+uintptr_t CountPgrAllocCachelinesRequired(uint32_t raw_sample_ct, PgenGlobalFlags gflags, uint32_t max_allele_ct, uint32_t fread_buf_byte_ct) {
   // ldbase_raw_genovec: always needed, 2 bits per entry, up to raw_sample_ct
   // entries
   const uint32_t genovec_cacheline_req = NypCtToCachelineCt(raw_sample_ct);
   const uint32_t bitvec_cacheline_req = BitCtToCachelineCt(raw_sample_ct);
-  uint32_t cachelines_required = genovec_cacheline_req;
+  uintptr_t cachelines_required = genovec_cacheline_req;
   // fread_buf.  fread_buf_byte_ct should be zero if mmap() is being used.
   // DivUp() won't overflow since fread_buf_byte_ct requirement can't exceed
   // kPglMaxBytesPerVariant, which is sufficiently far from 2^32.
@@ -755,9 +956,13 @@ PglErr PgfiInitPhase1(const char* fname, uint32_t raw_variant_ct, uint32_t raw_s
   return kPglRetSuccess;
 }
 
+void FillPgenReadErrstrFromNzErrno(char* errstr_buf) {
+  snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen read failure: %s.\n", strerror(errno));
+}
+
 void FillPgenReadErrstrFromErrno(char* errstr_buf) {
   if (errno) {
-    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen read failure: %s.\n", strerror(errno));
+    FillPgenReadErrstrFromNzErrno(errstr_buf);
   } else {
     snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen read failure: File appears to be corrupted.\n");
   }
@@ -883,7 +1088,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
     for (; ; nonref_flags_iter = &(nonref_flags_iter[cur_byte_ct])) {
       if (nonref_flags_iter >= nonref_flags_last) {
         if (nonref_flags_iter > nonref_flags_last) {
-          return kPglRetSuccess;
+          break;
         }
         cur_byte_ct = 1 + ((raw_variant_ct - 1) % (kPglVblockSize * 32)) / CHAR_BIT;
       }
@@ -899,6 +1104,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
         }
       }
     }
+    return kPglRetSuccess;
   }
 
   const uint32_t raw_sample_ct = pgfip->raw_sample_ct;
@@ -924,7 +1130,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
 #endif
     if (vblock_idx_start) {
       if (unlikely(fseeko(shared_ff, vblock_idx_start * sizeof(int64_t), SEEK_CUR))) {
-        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen read failure: %s.\n", strerror(errno));
+        FillPgenReadErrstrFromNzErrno(errstr_buf);
         return kPglRetReadFail;
       }
     }
@@ -936,7 +1142,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
     // to support dynamic insertion into a memory-mapped file.  But skip them
     // for now.
     if (unlikely(fseeko(shared_ff, (vblock_ct_m1 - vblock_idx_start) * sizeof(int64_t), SEEK_CUR))) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen read failure: %s.\n", strerror(errno));
+      FillPgenReadErrstrFromNzErrno(errstr_buf);
       return kPglRetReadFail;
     }
 #ifndef NO_MMAP
@@ -974,7 +1180,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
     } else {
 #endif
       if (unlikely(fseeko(shared_ff, header_vblock_byte_ct * S_CAST(uint64_t, vblock_idx), SEEK_CUR))) {
-        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen read failure: %s.\n", strerror(errno));
+        FillPgenReadErrstrFromNzErrno(errstr_buf);
         return kPglRetReadFail;
       }
 #ifndef NO_MMAP
@@ -986,144 +1192,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
   for (; ; ++vblock_idx) {
     if (vblock_idx >= vblock_ct_m1) {
       if (vblock_idx > vblock_ct_m1) {
-        // finish up
-#ifndef NO_MMAP
-        // now > instead of != to allow additional information to be stored
-        // between header and first variant record
-        if (!shared_ff) {
-          if (unlikely(S_CAST(uintptr_t, fread_ptr - pgfip->block_base) > pgfip->var_fpos[0])) {
-            snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid .pgen header.\n");
-            return kPglRetMalformedInput;
-          }
-        } else {
-#endif
-          if (unlikely(S_CAST(uint64_t, ftello(shared_ff)) > pgfip->var_fpos[0])) {
-            snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid .pgen header.\n");
-            return kPglRetMalformedInput;
-          }
-#ifndef NO_MMAP
-        }
-#endif
-        pgfip->var_fpos[vidx_end] = cur_fpos;
-        pgfip->max_allele_ct = max_allele_ct;
-        // if difflist/LD might be present, scan for them in a way that's
-        // likely to terminate quickly
-        PgenGlobalFlags new_gflags = kfPgenGlobal0;
-        if (vrtype_and_fpos_storage != 8) {
-          const uint32_t trailing_byte_ct = vidx_end & (kBytesPerVec - 1);
-          if (trailing_byte_ct) {
-            memset(&(pgfip->vrtypes[vidx_end]), 0, kBytesPerVec - trailing_byte_ct);
-          }
-          const VecW* vrtypes_alias_start = R_CAST(VecW*, pgfip->vrtypes);
-          const VecW* vrtypes_alias_end = &(vrtypes_alias_start[DivUp(vidx_end, kBytesPerVec)]);
-          if (vblock_idx_start) {
-            vrtypes_alias_start = &(vrtypes_alias_start[vblock_idx_start * (kPglVblockSize / kBytesPerVec)]);
-          }
-          const VecW* vrtypes_alias_iter = vrtypes_alias_start;
-          if (vrtype_and_fpos_storage < 8) {
-            for (; vrtypes_alias_iter != vrtypes_alias_end; ++vrtypes_alias_iter) {
-              const VecW cur_vvec = *vrtypes_alias_iter;
-#ifdef __LP64__
-              const VecW cur_vvec_bit2 = vecw_slli(cur_vvec, 5);
-              const VecW cur_vvec_bit1 = vecw_slli(cur_vvec, 6);
-              // check if any vrtype has bit 1 set and bit 2 clear
-              if (vecw_movemask(vecw_and_notfirst(cur_vvec_bit2, cur_vvec_bit1))) {
-                new_gflags |= kfPgenGlobalLdCompressionPresent | kfPgenGlobalDifflistOrLdPresent;
-                break;
-              }
-              const VecW cur_vvec_bit0 = vecw_slli(cur_vvec, 7);
-              if (vecw_movemask(cur_vvec_bit0 | cur_vvec_bit2)) {
-                // this catches onebit
-                new_gflags |= kfPgenGlobalDifflistOrLdPresent;
-              }
-#else
-              const uintptr_t cur_vvec_shifted = cur_vvec >> 1;
-              // check if any vrtype has bit 1 set and bit 2 clear
-              if (vecw_and_notfirst(cur_vvec_shifted, cur_vvec) & (2 * kMask0101)) {
-                new_gflags |= kfPgenGlobalLdCompressionPresent | kfPgenGlobalDifflistOrLdPresent;
-                break;
-              }
-              if (cur_vvec & (5 * kMask0101)) {
-                // this catches onebit
-                new_gflags |= kfPgenGlobalDifflistOrLdPresent;
-              }
-#endif
-            }
-          }
-          if (vrtype_and_fpos_storage >= 4) {
-            // Likely for one of {hphase, dosage} to be present without the
-            // other; make this scan faster in that case, at the cost of
-            // failing to early-exit when both are present.
-            // This is also suboptimal for the vrtype_and_fpos_storage > 8
-            // special encodings.
-            VecW or_vvec = vecw_setzero();
-            for (vrtypes_alias_iter = vrtypes_alias_start; vrtypes_alias_iter != vrtypes_alias_end; ++vrtypes_alias_iter) {
-              or_vvec |= *vrtypes_alias_iter;
-            }
-#ifdef __LP64__
-            const VecW or_vvec_bit3 = vecw_slli(or_vvec, 4);
-            if (vecw_movemask(or_vvec_bit3)) {
-              // note that, if no phase or dosage data is present, we don't
-              // look for multiallelic hardcalls.
-              new_gflags |= kfPgenGlobalMultiallelicHardcallFound;
-            }
-            const VecW or_vvec_bit4 = vecw_slli(or_vvec, 3);
-            if (vecw_movemask(or_vvec_bit4)) {
-              new_gflags |= kfPgenGlobalHardcallPhasePresent;
-            }
-            const VecW or_vvec_bit5 = vecw_slli(or_vvec, 2);
-            const VecW or_vvec_bit6 = vecw_slli(or_vvec, 1);
-            if (vecw_movemask(or_vvec_bit5 | or_vvec_bit6)) {
-              new_gflags |= kfPgenGlobalDosagePresent;
-              if (vecw_movemask(or_vvec)) {
-                new_gflags |= kfPgenGlobalDosagePhasePresent;
-              }
-            }
-#else
-            if (or_vvec & (8 * kMask0101)) {
-              new_gflags |= kfPgenGlobalMultiallelicHardcallFound;
-            }
-            if (or_vvec & (0x10 * kMask0101)) {
-              new_gflags |= kfPgenGlobalHardcallPhasePresent;
-            }
-            if (or_vvec & (0x60 * kMask0101)) {
-              new_gflags |= kfPgenGlobalDosagePresent;
-              if (or_vvec & (0x80 * kMask0101)) {
-                new_gflags |= kfPgenGlobalDosagePhasePresent;
-              }
-            }
-#endif
-          }
-          if (vrtype_and_fpos_storage > 8) {
-            if (vrtype_and_fpos_storage == 12) {
-              max_vrec_width = 3;
-            } else if (vrtype_and_fpos_storage == 14) {
-              max_vrec_width = 6;
-            } else {
-              max_vrec_width = NypCtToByteCt(raw_sample_ct);
-              if (vrtype_and_fpos_storage == 9) {
-                max_vrec_width += 3;
-              } else if (vrtype_and_fpos_storage == 10) {
-                max_vrec_width += 2;
-              } else {
-                // 11
-                max_vrec_width += 8;
-              }
-              // 13 and 15 not specified yet
-            }
-          } else if (!(vrtype_and_fpos_storage & 3)) {
-            // 1 byte per vrec_len entry, don't bother to determine true
-            // maximum
-            max_vrec_width = 255;
-          }
-          pgfip->gflags |= new_gflags;
-        } else {
-          // vrtype_and_fpos_storage == 8.
-          max_vrec_width = NypCtToByteCt(raw_sample_ct);
-        }
-        *pgr_alloc_cacheline_ct_ptr = CountPgrAllocCachelinesRequired(raw_sample_ct, new_gflags, max_allele_ct, (shared_ff && (!use_blockload))? max_vrec_width : 0);
-        *max_vrec_width_ptr = max_vrec_width;
-        return kPglRetSuccess;
+        break;
       }
       cur_vblock_variant_ct = ModNz(vidx_end, kPglVblockSize);
     }
@@ -1250,31 +1319,8 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
 #ifndef NO_MMAP
         }
 #endif
-        const uint32_t word_write_ct = DivUp(cur_vblock_variant_ct, kBytesPerWord);
-        uintptr_t* vrtypes_alias_fullword = R_CAST(uintptr_t*, vrtypes_iter);
-        const Halfword* loadbuf_alias_halfword = R_CAST(const Halfword*, fread_ptr);
-        for (uint32_t widx = 0; widx != word_write_ct; ++widx) {
-          uintptr_t ww = loadbuf_alias_halfword[widx];
-#ifdef USE_AVX2
-          // speed advantage is small on my Mac since compiler auto-vectorizes
-          // the code below?
-          vrtypes_alias_fullword[widx] = _pdep_u64(ww, kMask0F0F);
-#else
-#  ifdef __LP64__
-          ww = (ww | (ww << 16)) & kMask0000FFFF;
-#  endif
-          ww = (ww | (ww << 8)) & kMask00FF;
-          vrtypes_alias_fullword[widx] = (ww | (ww << 4)) & kMask0F0F;
-#endif  // !USE_AVX2
-        }
-        const uint32_t last_word_byte_ct = cur_vblock_variant_ct % kBytesPerWord;
+        Expand4bitTo8(fread_ptr, cur_vblock_variant_ct, 0, R_CAST(uintptr_t*, vrtypes_iter));
         vrtypes_iter = &(vrtypes_iter[cur_vblock_variant_ct]);
-        if (last_word_byte_ct) {
-          ProperSubwordStore(0, kBytesPerWord - last_word_byte_ct, vrtypes_iter);
-        } else {
-          // must guarantee a trailing zero for is_ldbase check to work
-          vrtypes_iter[0] = 0;
-        }
 #ifndef NO_MMAP
         if (!shared_ff) {
           fread_ptr = &(fread_ptr[cur_byte_ct]);
@@ -1294,14 +1340,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
           memcpy(vrtypes_iter, fread_ptr, cur_vblock_variant_ct);
         }
 #endif
-        const uint32_t last_word_byte_ct = cur_vblock_variant_ct % kBytesPerWord;
         vrtypes_iter = &(vrtypes_iter[cur_vblock_variant_ct]);
-        if (last_word_byte_ct) {
-          ProperSubwordStore(0, kBytesPerWord - last_word_byte_ct, vrtypes_iter);
-        } else {
-          // must guarantee a trailing zero for is_ldbase check to work
-          vrtypes_iter[0] = 0;
-        }
 #ifndef NO_MMAP
         if (!shared_ff) {
           fread_ptr = &(fread_ptr[cur_vblock_variant_ct]);
@@ -1462,6 +1501,159 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
       nonref_flags_iter = &(nonref_flags_iter[cur_byte_ct]);
     }
   }
+
+  const uint32_t last_word_byte_ct = cur_vblock_variant_ct % kBytesPerWord;
+  if (last_word_byte_ct) {
+    ProperSubwordStore(0, kBytesPerWord - last_word_byte_ct, vrtypes_iter);
+  } else {
+    // must guarantee a trailing zero for is_ldbase check to work
+    vrtypes_iter[0] = 0;
+  }
+
+#ifndef NO_MMAP
+  // now > instead of != to allow additional information to be stored between
+  // header and first variant record
+  if (!shared_ff) {
+    if (unlikely(S_CAST(uintptr_t, fread_ptr - pgfip->block_base) > pgfip->var_fpos[0])) {
+      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid .pgen header.\n");
+      return kPglRetMalformedInput;
+    }
+  } else {
+#endif
+    const uint64_t actual_fpos = ftello(shared_ff);
+    if (actual_fpos != pgfip->var_fpos[0]) {
+      if (unlikely(actual_fpos > pgfip->var_fpos[0])) {
+        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid .pgen header.\n");
+        return kPglRetMalformedInput;
+      }
+      if (unlikely(fseeko(shared_ff, pgfip->var_fpos[0], SEEK_SET))) {
+        FillPgenReadErrstrFromNzErrno(errstr_buf);
+        return kPglRetReadFail;
+      }
+    }
+#ifndef NO_MMAP
+  }
+#endif
+  pgfip->var_fpos[vidx_end] = cur_fpos;
+  pgfip->max_allele_ct = max_allele_ct;
+  // if difflist/LD might be present, scan for them in a way that's likely to
+  // terminate quickly
+  PgenGlobalFlags new_gflags = kfPgenGlobal0;
+  if (vrtype_and_fpos_storage != 8) {
+    const uint32_t trailing_byte_ct = vidx_end & (kBytesPerVec - 1);
+    if (trailing_byte_ct) {
+      memset(&(pgfip->vrtypes[vidx_end]), 0, kBytesPerVec - trailing_byte_ct);
+    }
+    const VecW* vrtypes_alias_start = R_CAST(VecW*, pgfip->vrtypes);
+    const VecW* vrtypes_alias_end = &(vrtypes_alias_start[DivUp(vidx_end, kBytesPerVec)]);
+    if (vblock_idx_start) {
+      vrtypes_alias_start = &(vrtypes_alias_start[vblock_idx_start * (kPglVblockSize / kBytesPerVec)]);
+    }
+    const VecW* vrtypes_alias_iter = vrtypes_alias_start;
+    if (vrtype_and_fpos_storage < 8) {
+      for (; vrtypes_alias_iter != vrtypes_alias_end; ++vrtypes_alias_iter) {
+        const VecW cur_vvec = *vrtypes_alias_iter;
+#ifdef __LP64__
+        const VecW cur_vvec_bit2 = vecw_slli(cur_vvec, 5);
+        const VecW cur_vvec_bit1 = vecw_slli(cur_vvec, 6);
+        // check if any vrtype has bit 1 set and bit 2 clear
+        if (vecw_movemask(vecw_and_notfirst(cur_vvec_bit2, cur_vvec_bit1))) {
+          new_gflags |= kfPgenGlobalLdCompressionPresent | kfPgenGlobalDifflistOrLdPresent;
+          break;
+        }
+        const VecW cur_vvec_bit0 = vecw_slli(cur_vvec, 7);
+        if (vecw_movemask(cur_vvec_bit0 | cur_vvec_bit2)) {
+          // this catches onebit
+          new_gflags |= kfPgenGlobalDifflistOrLdPresent;
+        }
+#else
+        const uintptr_t cur_vvec_shifted = cur_vvec >> 1;
+        // check if any vrtype has bit 1 set and bit 2 clear
+        if (vecw_and_notfirst(cur_vvec_shifted, cur_vvec) & (2 * kMask0101)) {
+          new_gflags |= kfPgenGlobalLdCompressionPresent | kfPgenGlobalDifflistOrLdPresent;
+          break;
+        }
+        if (cur_vvec & (5 * kMask0101)) {
+          // this catches onebit
+          new_gflags |= kfPgenGlobalDifflistOrLdPresent;
+        }
+#endif
+      }
+    }
+    if (vrtype_and_fpos_storage >= 4) {
+      // Likely for one of {hphase, dosage} to be present without the
+      // other; make this scan faster in that case, at the cost of
+      // failing to early-exit when both are present.
+      // This is also suboptimal for the vrtype_and_fpos_storage > 8
+      // special encodings.
+      VecW or_vvec = vecw_setzero();
+      for (vrtypes_alias_iter = vrtypes_alias_start; vrtypes_alias_iter != vrtypes_alias_end; ++vrtypes_alias_iter) {
+        or_vvec |= *vrtypes_alias_iter;
+      }
+#ifdef __LP64__
+      const VecW or_vvec_bit3 = vecw_slli(or_vvec, 4);
+      if (vecw_movemask(or_vvec_bit3)) {
+        // note that, if no phase or dosage data is present, we don't
+        // look for multiallelic hardcalls.
+        new_gflags |= kfPgenGlobalMultiallelicHardcallFound;
+      }
+      const VecW or_vvec_bit4 = vecw_slli(or_vvec, 3);
+      if (vecw_movemask(or_vvec_bit4)) {
+        new_gflags |= kfPgenGlobalHardcallPhasePresent;
+      }
+      const VecW or_vvec_bit5 = vecw_slli(or_vvec, 2);
+      const VecW or_vvec_bit6 = vecw_slli(or_vvec, 1);
+      if (vecw_movemask(or_vvec_bit5 | or_vvec_bit6)) {
+        new_gflags |= kfPgenGlobalDosagePresent;
+        if (vecw_movemask(or_vvec)) {
+          new_gflags |= kfPgenGlobalDosagePhasePresent;
+        }
+      }
+#else
+      if (or_vvec & (8 * kMask0101)) {
+        new_gflags |= kfPgenGlobalMultiallelicHardcallFound;
+      }
+      if (or_vvec & (0x10 * kMask0101)) {
+        new_gflags |= kfPgenGlobalHardcallPhasePresent;
+      }
+      if (or_vvec & (0x60 * kMask0101)) {
+        new_gflags |= kfPgenGlobalDosagePresent;
+        if (or_vvec & (0x80 * kMask0101)) {
+          new_gflags |= kfPgenGlobalDosagePhasePresent;
+        }
+      }
+#endif
+    }
+    if (vrtype_and_fpos_storage > 8) {
+      if (vrtype_and_fpos_storage == 12) {
+        max_vrec_width = 3;
+      } else if (vrtype_and_fpos_storage == 14) {
+        max_vrec_width = 6;
+      } else {
+        max_vrec_width = NypCtToByteCt(raw_sample_ct);
+        if (vrtype_and_fpos_storage == 9) {
+          max_vrec_width += 3;
+        } else if (vrtype_and_fpos_storage == 10) {
+          max_vrec_width += 2;
+        } else {
+          // 11
+          max_vrec_width += 8;
+        }
+        // 13 and 15 not specified yet
+      }
+    } else if (!(vrtype_and_fpos_storage & 3)) {
+      // 1 byte per vrec_len entry, don't bother to determine true
+      // maximum
+      max_vrec_width = 255;
+    }
+    pgfip->gflags |= new_gflags;
+  } else {
+    // vrtype_and_fpos_storage == 8.
+    max_vrec_width = NypCtToByteCt(raw_sample_ct);
+  }
+  *pgr_alloc_cacheline_ct_ptr = CountPgrAllocCachelinesRequired(raw_sample_ct, new_gflags, max_allele_ct, (shared_ff && (!use_blockload))? max_vrec_width : 0);
+  *max_vrec_width_ptr = max_vrec_width;
+  return kPglRetSuccess;
 }
 
 uint32_t GetLdbaseVidx(const unsigned char* vrtypes, uint32_t cur_vidx) {
@@ -1709,35 +1901,28 @@ PglErr PgrInit(const char* fname, uint32_t max_vrec_width, PgenFileInfo* pgfip, 
   const PgenGlobalFlags gflags = pgrp->fi.gflags;
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
   const uint32_t genovec_bytes_req = NypCtToCachelineCt(raw_sample_ct) * kCacheline;
-  pgrp->ldbase_raw_genovec = R_CAST(uintptr_t*, pgr_alloc_iter);
-  pgr_alloc_iter = &(pgr_alloc_iter[genovec_bytes_req]);
+  pgrp->ldbase_raw_genovec = S_CAST(uintptr_t*, arena_alloc_raw(genovec_bytes_req, &pgr_alloc_iter));
   const uint32_t bitvec_bytes_req = BitCtToCachelineCt(raw_sample_ct) * kCacheline;
   const uint32_t ld_compression_present = (gflags / kfPgenGlobalLdCompressionPresent) & 1;
   const uint32_t max_difflist_entry_ct_base = (raw_sample_ct / kPglMaxDifflistLenDivisor);
   const uint32_t max_allele_ct = pgrp->fi.max_allele_ct;
   pgrp->workspace_difflist_sample_ids = nullptr;
   if ((gflags & kfPgenGlobalDifflistOrLdPresent) || (max_allele_ct > 2)) {
-    pgrp->workspace_difflist_sample_ids = R_CAST(uint32_t*, pgr_alloc_iter);
-    pgr_alloc_iter = &(pgr_alloc_iter[(1 + (max_difflist_entry_ct_base / kInt32PerCacheline)) * (kCacheline * k1LU)]);
+    pgrp->workspace_difflist_sample_ids = S_CAST(uint32_t*, arena_alloc_raw_rd((max_difflist_entry_ct_base + 1) * sizeof(int32_t), &pgr_alloc_iter));
   }
   if (gflags & kfPgenGlobalDifflistOrLdPresent) {
     // const uint32_t max_difflist_entry_ct = max_difflist_entry_ct_base * (1 + ld_compression_present);
 
-    pgrp->workspace_raregeno_vec = R_CAST(uintptr_t*, pgr_alloc_iter);
-    pgr_alloc_iter = &(pgr_alloc_iter[NypCtToCachelineCt(max_difflist_entry_ct_base) * kCacheline]);
-
-    pgrp->workspace_raregeno_tmp_loadbuf = R_CAST(uintptr_t*, pgr_alloc_iter);
-    pgr_alloc_iter = &(pgr_alloc_iter[NypCtToCachelineCt(max_difflist_entry_ct_base) * kCacheline]);
+    const uintptr_t raregeno_bytes_req = NypCtToCachelineCt(max_difflist_entry_ct_base) * kCacheline;
+    pgrp->workspace_raregeno_vec = S_CAST(uintptr_t*, arena_alloc_raw(raregeno_bytes_req, &pgr_alloc_iter));
+    pgrp->workspace_raregeno_tmp_loadbuf = S_CAST(uintptr_t*, arena_alloc_raw(raregeno_bytes_req, &pgr_alloc_iter));
 
     if (ld_compression_present) {
-      pgrp->ldbase_genovec = R_CAST(uintptr_t*, pgr_alloc_iter);
-      pgr_alloc_iter = &(pgr_alloc_iter[genovec_bytes_req]);
+      pgrp->ldbase_genovec = S_CAST(uintptr_t*, arena_alloc_raw(genovec_bytes_req, &pgr_alloc_iter));
 
-      pgrp->ldbase_raregeno = R_CAST(uintptr_t*, pgr_alloc_iter);
-      pgr_alloc_iter = &(pgr_alloc_iter[NypCtToCachelineCt(max_difflist_entry_ct_base) * kCacheline]);
+      pgrp->ldbase_raregeno = S_CAST(uintptr_t*, arena_alloc_raw(raregeno_bytes_req, &pgr_alloc_iter));
 
-      pgrp->ldbase_difflist_sample_ids = R_CAST(uint32_t*, pgr_alloc_iter);
-      pgr_alloc_iter = &(pgr_alloc_iter[(1 + (max_difflist_entry_ct_base / kInt32PerCacheline)) * (kCacheline * k1LU)]);
+      pgrp->ldbase_difflist_sample_ids = S_CAST(uint32_t*, arena_alloc_raw_rd((max_difflist_entry_ct_base + 1) * sizeof(int32_t), &pgr_alloc_iter));
     }
   } else {
     pgrp->workspace_raregeno_vec = nullptr;
@@ -1750,29 +1935,22 @@ PglErr PgrInit(const char* fname, uint32_t max_vrec_width, PgenFileInfo* pgfip, 
   pgrp->workspace_subset = nullptr;
   const PgenGlobalFlags gflags_hphase_dosage = gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent);
   if ((max_allele_ct > 2) || gflags_hphase_dosage) {
-    pgrp->workspace_vec = R_CAST(uintptr_t*, pgr_alloc_iter);
-    pgr_alloc_iter = &(pgr_alloc_iter[genovec_bytes_req]);
+    pgrp->workspace_vec = S_CAST(uintptr_t*, arena_alloc_raw(genovec_bytes_req, &pgr_alloc_iter));
     if (max_allele_ct > 2) {
-      pgrp->workspace_aux1x_present = R_CAST(uintptr_t*, pgr_alloc_iter);
-      pgr_alloc_iter = &(pgr_alloc_iter[bitvec_bytes_req]);
-      pgrp->workspace_imp_r2 = R_CAST(uint64_t*, pgr_alloc_iter);
-      pgr_alloc_iter = &(pgr_alloc_iter[Int64CtToCachelineCt(2 * max_allele_ct) * (kCacheline * k1LU)]);
+      pgrp->workspace_aux1x_present = S_CAST(uintptr_t*, arena_alloc_raw(bitvec_bytes_req, &pgr_alloc_iter));
+      pgrp->workspace_imp_r2 = S_CAST(uint64_t*, arena_alloc_raw_rd(2 * max_allele_ct * sizeof(int64_t), &pgr_alloc_iter));
     }
     if (gflags & kfPgenGlobalHardcallPhasePresent) {
-      pgrp->workspace_all_hets = R_CAST(uintptr_t*, pgr_alloc_iter);
-      pgr_alloc_iter = &(pgr_alloc_iter[bitvec_bytes_req]);
-      pgrp->workspace_subset = R_CAST(uintptr_t*, pgr_alloc_iter);
-      pgr_alloc_iter = &(pgr_alloc_iter[bitvec_bytes_req]);
+      pgrp->workspace_all_hets = S_CAST(uintptr_t*, arena_alloc_raw(bitvec_bytes_req, &pgr_alloc_iter));
+      pgrp->workspace_subset = S_CAST(uintptr_t*, arena_alloc_raw(bitvec_bytes_req, &pgr_alloc_iter));
     }
     pgrp->workspace_dosage_present = nullptr;
     pgrp->workspace_dphase_present = nullptr;
     if (gflags & kfPgenGlobalDosagePresent) {
-      pgrp->workspace_dosage_present = R_CAST(uintptr_t*, pgr_alloc_iter);
-      pgr_alloc_iter = &(pgr_alloc_iter[bitvec_bytes_req]);
+      pgrp->workspace_dosage_present = S_CAST(uintptr_t*, arena_alloc_raw(bitvec_bytes_req, &pgr_alloc_iter));
       if (gflags & kfPgenGlobalDosagePhasePresent) {
-        pgrp->workspace_dphase_present = R_CAST(uintptr_t*, pgr_alloc_iter);
+        pgrp->workspace_dphase_present = S_CAST(uintptr_t*, arena_alloc_raw(bitvec_bytes_req, &pgr_alloc_iter));
       }
-      // pgr_alloc_iter = &(pgr_alloc_iter[bitvec_bytes_req]);
     }
   }
   return kPglRetSuccess;
@@ -5817,201 +5995,6 @@ PglErr ParseAndSaveDeltalistAsBitarr(const unsigned char* fread_end, uint32_t ra
       raw_sample_idx += GetVint31(fread_end, fread_pp);
     }
   }
-}
-
-// These functions do not overread, but may write extra bytes up to the word
-// boundary.
-void Expand2bitTo8(const void* __restrict bytearr, uint32_t input_nyp_ct, uint32_t incr, uintptr_t* __restrict dst) {
-  const unsigned char* src_iter = S_CAST(const unsigned char*, bytearr);
-  const uint32_t input_byte_ct = DivUp(input_nyp_ct, 4);
-#ifdef NO_UNALIGNED
-#  error "Unaligned accesses in Expand2bitTo8()."
-#endif
-#ifdef __LP64__
-  const uint32_t input_vec_ct = input_byte_ct / kBytesPerVec;
-  unsigned char* dst_iter = R_CAST(unsigned char*, dst);
-  if (input_vec_ct) {
-    const VecW mincr = R_CAST(VecW, vecuc_set1(incr));
-    const VecW m03 = VCONST_W(kMask0303);
-    for (uint32_t vec_idx = 0; vec_idx != input_vec_ct; ++vec_idx) {
-      VecW cur_vec = vecw_loadu(src_iter);
-      src_iter = &(src_iter[kBytesPerVec]);
-#  ifdef USE_AVX2
-      // (todo: benchmark against just reading 8 bytes at a time and
-      // broadcasting.)
-      // midswapped_vec contains {0-1-2-3, 4-5-6-7, ..., 12-13-14-15,
-      //                          32-33-34-35, ..., 44-45-46-47,
-      //                          16-17-18-19, ..., 28-29-30-31,
-      //                          48-49-50-51, ..., 60-61-62-63,
-      //                          64-65-66-67, ..., 76-77-78-79,
-      //                          96-97-98-99, ..., 108-109-110-111,
-      //                          80-81-82-83, ..., 92-93-94-95,
-      //                          112-113-114-115, ..., 124-125-126-127}
-      // 0xd8: {0, 2, 1, 3}
-      const __m256i midswapped_vec = _mm256_shuffle_epi32(R_CAST(__m256i, cur_vec), 0xd8);
-      // This operation is also used in FillInterleavedMaskVec().
-      // cur_vec now contains {0-1-2-3, 4-5-6-7, 8-9-10-11, 12-13-14-15,
-      //                       32-33-34-35, ..., 44-45-46-47,
-      //                       64-65-66-67, ..., 76-77-78-79,
-      //                       96-97-98-99, ..., 108-109-110-111,
-      //                       16-17-18-19, ..., 28-29-30-31,
-      //                       48-49-50-51, ..., 60-61-62-63,
-      //                       80-81-82-83, ..., 92-93-94-95,
-      //                       112-113-114-115, ..., 124-125-126-127}
-      cur_vec = vecw_permute0xd8_if_avx2(R_CAST(VecW, midswapped_vec));
-#  endif
-      // AVX2:
-      //   vec_even contains {0-1, 4-5, 8-9, 12-13, 32-33, ..., 44-45,
-      //                      64-65, ..., 76-77, 96-97, ..., 108-109,
-      //                      16-17, ..., 28-29, 48-49, ..., 60-61,
-      //                      80-81, ..., 92-93, 112-113, ..., 124-125}
-      //   vec_odd contains {2-3, 6-7, 10-11, 14-15, 34-35, ..., 46-47,
-      //                     66-67, ..., 78-79, 98-99, ..., 110-111,
-      //                     18-19, ..., 30-31, 50-51, ..., 62-63,
-      //                     82-83, ..., 94-95, 114-115, ..., 126-127}
-      // SSE2:
-      //   vec_even contains {0-1, 4-5, 8-9, ..., 60-61}
-      //   vec_odd contains {2-3, 6-7, 10-11, ..., 62-63}
-      const VecW vec_even = cur_vec;
-      const VecW vec_odd = vecw_srli(cur_vec, 4);
-
-      // AVX2:
-      //   vec01 contains {0-1, 2-3, 4-5, ..., 14-15, 32-33, ..., 46-47,
-      //                   16-17, ..., 30-31, 48-49, ..., 62-63}
-      //   vec23 contains {64-65, 66-67, ..., 78-79, 96-97, ..., 110-111,
-      //                   80-81, ..., 94-95, 112-113, ..., 126-127}
-      // SSE2:
-      //   vec01 contains {0-1, 2-3, 4-5, 6-7, ..., 30-31}
-      //   vec23 contains {32-33, 34-35, 36-37, 38-39, ..., 62-63}
-      const VecW vec01 = vecw_unpacklo8(vec_even, vec_odd);
-      const VecW vec23 = vecw_unpackhi8(vec_even, vec_odd);
-
-      // AVX2:
-      //   vec01_even contains {0, 2, 4, ..., 14, 32, 34, ..., 46,
-      //                        16, 18, ..., 30, 48, 50, ..., 62}
-      //   vec01_odd contains {1, 3, 5, ..., 15, 33, 35, ..., 47,
-      //                       17, 19, ..., 31, 49, 51, ..., 63}
-      // SSE2:
-      //   vec01_even contains {0, 2, 4, 6, ..., 30}
-      //   vec01_odd contains {1, 3, 5, 7, ..., 31}
-      const VecW vec01_even = vec01 & m03;
-      const VecW vec01_odd = vecw_srli(vec01, 2) & m03;
-
-      // AVX2:
-      //   vecw_unpacklo8() contains {0, 1, ..., 15, 16, ..., 31}
-      //   vecw_unpachhi8() contains {32, 33, ..., 47, 48, ..., 63}
-      // SSE2:
-      //   vecw_unpacklo8() contains {0, 1, ..., 15}
-      //   vecw_unpachhi8() contains {16, 17, ..., 31}
-      vecw_storeu(dst_iter, mincr + vecw_unpacklo8(vec01_even, vec01_odd));
-      dst_iter = &(dst_iter[kBytesPerVec]);
-      vecw_storeu(dst_iter, mincr + vecw_unpackhi8(vec01_even, vec01_odd));
-      dst_iter = &(dst_iter[kBytesPerVec]);
-      const VecW vec23_odd = vecw_srli(vec23, 2) & m03;
-      const VecW vec23_even = vec23 & m03;
-      vecw_storeu(dst_iter, mincr + vecw_unpacklo8(vec23_even, vec23_odd));
-      dst_iter = &(dst_iter[kBytesPerVec]);
-      vecw_storeu(dst_iter, mincr + vecw_unpackhi8(vec23_even, vec23_odd));
-      dst_iter = &(dst_iter[kBytesPerVec]);
-    }
-  }
-  const uint32_t remainder = input_byte_ct % kBytesPerVec;
-  if (remainder) {
-    const uint32_t full_qw_ct = remainder / sizeof(Quarterword);
-    const Quarterword* src_alias = R_CAST(const Quarterword*, src_iter);
-    const uintptr_t incr_word = kMask0101 * incr;
-    uintptr_t* dstw = R_CAST(uintptr_t*, dst_iter);
-    for (uint32_t uii = 0; uii != full_qw_ct; ++uii) {
-      const uintptr_t cur_2byte = src_alias[uii];
-      dstw[uii] = incr_word + Unpack0303(cur_2byte);
-    }
-    if (input_byte_ct % 2) {
-      uintptr_t cur_byte = src_iter[remainder - 1];
-#  ifdef USE_AVX2
-      cur_byte = _pdep_u64(cur_byte, kMask0303);
-#  else
-      cur_byte = cur_byte | (cur_byte << 12);
-      cur_byte = (cur_byte | (cur_byte << 6)) & kMask0303;
-#  endif
-      dstw[full_qw_ct] = incr_word + cur_byte;
-    }
-  }
-#else  // !__LP64__
-  const Quarterword* src_alias = R_CAST(const Quarterword*, src_iter);
-  const uintptr_t incr_word = kMask0101 * incr;
-  uintptr_t* dstw = R_CAST(uintptr_t*, dst);
-  for (uint32_t uii = 0; uii != input_byte_ct; ++uii) {
-    const uintptr_t cur_2byte = src_alias[uii];
-    dstw[uii] = incr_word + Unpack0303(cur_2byte);
-  }
-#endif
-}
-
-void Expand4bitTo8(const void* __restrict bytearr, uint32_t input_nybble_ct, uint32_t incr, uintptr_t* __restrict dst) {
-  const unsigned char* src_iter = R_CAST(const unsigned char*, bytearr);
-  const uint32_t input_byte_ct = DivUp(input_nybble_ct, 2);
-#ifdef __LP64__
-  const uint32_t input_vec_ct = input_byte_ct / kBytesPerVec;
-  unsigned char* dst_iter = R_CAST(unsigned char*, dst);
-  if (input_vec_ct) {
-    const VecW mincr = R_CAST(VecW, vecuc_set1(incr));
-    const VecW m4 = VCONST_W(kMask0F0F);
-    for (uint32_t vec_idx = 0; vec_idx != input_vec_ct; ++vec_idx) {
-      VecW cur_vec = vecw_loadu(src_iter);
-      src_iter = &(src_iter[kBytesPerVec]);
-      cur_vec = vecw_permute0xd8_if_avx2(cur_vec);
-      // AVX2:
-      //   vec_even contains {0, 2, 4, ..., 14, 32, 34, ..., 46,
-      //                      16, 18, ..., 30, 48, ... 62}
-      //   vec_odd contains {1, 3, 5, ..., 15, 33, 35, ..., 47,
-      //                     17, 19, ..., 31, 49, ..., 63}
-      // SSE2:
-      //   vec_even contains {0, 2, 4, ..., 30}
-      //   vec_odd contains {1, 3, 5, ..., 31}
-      const VecW vec_even = cur_vec & m4;
-      const VecW vec_odd = vecw_srli(cur_vec, 4) & m4;
-
-      // AVX2:
-      //   vec_lo contains {0, 1, ..., 31}
-      //   vec_hi contains {32, 33, ..., 63}
-      // SSE2:
-      //   vec_lo contains {0, 1, 2, ..., 15}
-      //   vec_hi contains {16, 17, 18, ..., 31}
-      const VecW vec_lo = vecw_unpacklo8(vec_even, vec_odd);
-      const VecW vec_hi = vecw_unpackhi8(vec_even, vec_odd);
-      vecw_storeu(dst_iter, mincr + vec_lo);
-      dst_iter = &(dst_iter[kBytesPerVec]);
-      vecw_storeu(dst_iter, mincr + vec_hi);
-      dst_iter = &(dst_iter[kBytesPerVec]);
-    }
-  }
-  const uint32_t remainder = input_byte_ct % kBytesPerVec;
-  if (remainder) {
-    const Halfword* src_alias = R_CAST(const Halfword*, src_iter);
-    uintptr_t incr_word = kMask0101 * incr;
-    const uint32_t hw_ct_m1 = (remainder - 1) / sizeof(Halfword);
-    uintptr_t* dstw = R_CAST(uintptr_t*, dst_iter);
-    for (uint32_t hwidx = 0; ; ++hwidx) {
-      uint32_t cur_4byte;
-      if (hwidx >= hw_ct_m1) {
-        if (hwidx > hw_ct_m1) {
-          break;
-        }
-        cur_4byte = SubU32Load(&(src_alias[hwidx]), ModNz(remainder, 4));
-      } else {
-        cur_4byte = src_alias[hwidx];
-      }
-      dstw[hwidx] = incr_word + Unpack0F0F(cur_4byte);
-    }
-  }
-#else
-  unsigned char* dst_iter = R_CAST(unsigned char*, dst);
-  for (uint32_t uii = 0; uii < input_byte_ct; ++uii) {
-    uint32_t cur_byte = src_iter[uii];
-    *dst_iter++ = (cur_byte & 15) + incr;
-    *dst_iter++ = (cur_byte >> 4) + incr;
-  }
-#endif
 }
 
 static_assert(sizeof(AlleleCode) == 1, "GetAux1aCodes() must be updated.");
@@ -10198,7 +10181,7 @@ PglErr PgrValidate(PgenReader* pgr_ptr, uintptr_t* genovec_buf, char* errstr_buf
   } else {
 #endif
     if (unlikely(fseeko(ff, 0, SEEK_END))) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen read failure: %s.\n", strerror(errno));
+      FillPgenReadErrstrFromNzErrno(errstr_buf);
       return kPglRetReadFail;
     }
     fsize = ftello(ff);
@@ -10231,7 +10214,7 @@ PglErr PgrValidate(PgenReader* pgr_ptr, uintptr_t* genovec_buf, char* errstr_buf
   } else {
 #endif
     if (unlikely(fseeko(ff, 11, SEEK_SET))) {
-      snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen read failure: %s.\n", strerror(errno));
+      FillPgenReadErrstrFromNzErrno(errstr_buf);
       return kPglRetReadFail;
     }
     header_ctrl = getc_unlocked(ff);
@@ -10297,7 +10280,7 @@ PglErr PgrValidate(PgenReader* pgr_ptr, uintptr_t* genovec_buf, char* errstr_buf
     } else {
 #endif
       if (unlikely(fseeko(ff, last_vrtype_byte_offset, SEEK_SET))) {
-        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: .pgen read failure: %s.\n", strerror(errno));
+        FillPgenReadErrstrFromNzErrno(errstr_buf);
         return kPglRetReadFail;
       }
       last_vrtype_byte = getc_unlocked(ff);

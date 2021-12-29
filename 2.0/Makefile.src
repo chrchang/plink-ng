@@ -9,19 +9,22 @@ CSRC = include/SFMT.c libdeflate/lib/adler32.c libdeflate/lib/crc32.c libdeflate
 
 ZCSRC = zstd/lib/common/debug.c zstd/lib/common/entropy_common.c zstd/lib/common/error_private.c zstd/lib/common/fse_decompress.c zstd/lib/common/pool.c zstd/lib/common/threading.c zstd/lib/common/xxhash.c zstd/lib/common/zstd_common.c zstd/lib/compress/fse_compress.c zstd/lib/compress/hist.c zstd/lib/compress/huf_compress.c zstd/lib/compress/zstd_compress.c zstd/lib/compress/zstd_compress_literals.c zstd/lib/compress/zstd_compress_sequences.c zstd/lib/compress/zstd_compress_superblock.c zstd/lib/compress/zstd_double_fast.c zstd/lib/compress/zstd_fast.c zstd/lib/compress/zstd_lazy.c zstd/lib/compress/zstd_ldm.c zstd/lib/compress/zstd_opt.c zstd/lib/compress/zstdmt_compress.c zstd/lib/decompress/huf_decompress.c zstd/lib/decompress/zstd_ddict.c zstd/lib/decompress/zstd_decompress.c zstd/lib/decompress/zstd_decompress_block.c
 
+ZSSRC = zstd/lib/decompress/huf_decompress_amd64.S
+
 PGENLIB_CCSRC = include/plink2_base.cc include/plink2_bits.cc include/pgenlib_misc.cc include/pgenlib_read.cc include/pgenlib_write.cc
 
-PLINK2LIB_CCSRC = $(PGENLIB_CCSRC) include/plink2_bgzf.cc include/plink2_stats.cc include/plink2_string.cc include/plink2_text.cc include/plink2_thread.cc include/plink2_zstfile.cc
+PLINK2LIB_CCSRC = $(PGENLIB_CCSRC) include/plink2_bgzf.cc include/plink2_bitmap.cc include/plink2_stats.cc include/plink2_string.cc include/plink2_text.cc include/plink2_thread.cc include/plink2_zstfile.cc
 
 CCSRC = $(PLINK2LIB_CCSRC) plink2.cc plink2_adjust.cc plink2_cmdline.cc plink2_common.cc plink2_compress_stream.cc plink2_data.cc plink2_decompress.cc plink2_export.cc plink2_fasta.cc plink2_filter.cc plink2_glm.cc plink2_help.cc plink2_import.cc plink2_ld.cc plink2_matrix.cc plink2_matrix_calc.cc plink2_merge.cc plink2_misc.cc plink2_psam.cc plink2_pvar.cc plink2_random.cc plink2_set.cc
 
 OBJ_NO_ZSTD = $(CSRC:.c=.o) $(CCSRC:.cc=.o)
-OBJ = $(CSRC:.c=.o) $(ZCSRC:.c=.o) $(CCSRC:.cc=.o)
+OBJ = $(CSRC:.c=.o) $(ZCSRC:.c=.o) $(ZSSRC:.S=.o) $(CCSRC:.cc=.o)
 PGENLIB_OBJ = $(PGENLIB_CCSRC:.cc=.o)
-PLINK2LIB_OBJ = $(CSRC:.c=.o) $(ZCSRC:.c=.o) $(PLINK2LIB_CCSRC:.cc=.o)
+PLINK2LIB_OBJ = $(CSRC:.c=.o) $(ZCSRC:.c=.o) $(ZSSRC:.S=.o) $(PLINK2LIB_CCSRC:.cc=.o)
 
 CSRC2 = $(foreach fname,$(CSRC),../$(fname))
 ZCSRC2 = $(foreach fname,$(ZCSRC),../$(fname))
+ZSSRC2 = $(foreach fname,$(ZSSRC),../$(fname))
 CCSRC2 = $(foreach fname,$(CCSRC),../$(fname))
 PGENLIB_CCSRC2 = $(foreach fname,$(PGENLIB_CCSRC),../$(fname))
 PLINK2LIB_CCSRC2 = $(foreach fname,$(PLINK2LIB_CCSRC),../$(fname))
@@ -29,7 +32,7 @@ OBJ2 = $(notdir $(OBJ))
 PGENLIB_OBJ2 = $(notdir $(PGENLIB_OBJ))
 PLINK2LIB_OBJ2 = $(notdir $(PLINK2LIB_OBJ))
 
-OBJ3 = $(CSRC2:.c=.o) $(ZCSRC2:.c=.o) $(CCSRC2:.cc=.o)
+OBJ3 = $(CSRC2:.c=.o) $(ZCSRC2:.c=.o) $(ZSSRC2:.S=.o) $(CCSRC2:.cc=.o)
 
 CINCLUDE = -Ilibdeflate -Ilibdeflate/common -Isimde
 CINCLUDE2 = -I../libdeflate -I../libdeflate/common -I../simde

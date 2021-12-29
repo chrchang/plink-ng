@@ -100,6 +100,7 @@ ifdef STATIC_ZSTD
   BASEFLAGS += -DSTATIC_ZSTD
 else
   ZCSRC2 =
+  ZSSRC2 =
   SKIP_STATIC_ZSTD = echo
   OBJ = $(CSRC:.c=.o) $(CCSRC:.cc=.o)
   OBJ2 = $(notdir $(OBJ))
@@ -153,9 +154,9 @@ SFX ?= ""
 
 all: plink2$(SFX) pgen_compress$(SFX)
 
-plink2$(SFX): $(CSRC2) $(ZCSRC2) $(CCSRC2) ../plink2_cpu.cc
+plink2$(SFX): $(CSRC2) $(ZCSRC2) $(ZSSRC2) $(CCSRC2) ../plink2_cpu.cc
 	$(CC) $(CFLAGS) $(CSRC2) -c
-	$(SKIP_STATIC_ZSTD) $(CC) $(ZCFLAGS) $(ZCSRC2) -c
+	$(SKIP_STATIC_ZSTD) $(CC) $(ZCFLAGS) $(ZCSRC2) $(ZSSRC2) -c
 	$(CXX) $(CXXFLAGS) $(CCSRC2) -c
 	$(CXX) $(CPUCHECK_FLAGS) ../plink2_cpu.cc -c
 	$(CXX) $(OBJ2) plink2_cpu.o $(ARCH32) -o $@ $(BLASFLAGS) $(LINKFLAGS)
@@ -167,9 +168,9 @@ pgenlib.a: $(PGENLIB_CCSRC2)
 	$(CXX) $(CXXFLAGS) $(PGENLIB_CCSRC2) -c
 	$(LIBTOOL) $(STATIC) -o $@ $(PGENLIB_OBJ2)
 
-plink2lib.a: $(CSRC2) $(ZCSRC2) $(PLINK2LIB_CCSRC2)
+plink2lib.a: $(CSRC2) $(ZCSRC2) $(ZSSRC2) $(PLINK2LIB_CCSRC2)
 	$(CC) $(CFLAGS) $(CSRC2) -c
-	$(CC) $(ZCFLAGS) $(ZCSRC2) -c
+	$(CC) $(ZCFLAGS) $(ZCSRC2) $(ZSSRC2) -c
 	$(CXX) $(CXXFLAGS) $(PLINK2LIB_CCSRC2) -c
 	$(LIBTOOL) $(STATIC) -o $@ $(PLINK2LIB_OBJ2)
 

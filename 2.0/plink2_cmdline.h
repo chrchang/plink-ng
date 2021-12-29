@@ -241,11 +241,6 @@ PglErr ForceNonFifo(const char* fname);
 
 BoolErr fopen_checked(const char* fname, const char* mode, FILE** target_ptr);
 
-HEADER_INLINE IntErr putc_checked(int32_t ii, FILE* outfile) {
-  putc_unlocked(ii, outfile);
-  return ferror_unlocked(outfile);
-}
-
 HEADER_INLINE IntErr fputs_checked(const char* str, FILE* outfile) {
   fputs(str, outfile);
   return ferror_unlocked(outfile);
@@ -896,19 +891,7 @@ HEADER_INLINE BoolErr bigstack_end_calloc_kcp(uintptr_t ct, const char*** kcp_ar
 
 // and here's the interface for a non-global arena (necessary for some
 // multithreaded code).
-HEADER_INLINE void* arena_alloc_raw(uintptr_t size, unsigned char** arena_bottom_ptr) {
-  assert(!(size % kCacheline));
-  unsigned char* alloc_ptr = *arena_bottom_ptr;
-  *arena_bottom_ptr = &(alloc_ptr[size]);
-  return alloc_ptr;
-}
-
-HEADER_INLINE void* arena_alloc_raw_rd(uintptr_t size, unsigned char** arena_bottom_ptr) {
-  unsigned char* alloc_ptr = *arena_bottom_ptr;
-  *arena_bottom_ptr = &(alloc_ptr[RoundUpPow2(size, kCacheline)]);
-  return alloc_ptr;
-}
-
+// arena_alloc_raw and arena_alloc_raw_rd are now in plink2_base
 HEADER_INLINE void* arena_alloc(unsigned char* arena_top, uintptr_t size, unsigned char** arena_bottom_ptr) {
   size = RoundUpPow2(size, kCacheline);
   if (S_CAST(uintptr_t, arena_top - (*arena_bottom_ptr)) < size) {

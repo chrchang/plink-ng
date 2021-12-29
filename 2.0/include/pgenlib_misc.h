@@ -79,7 +79,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1600
+#define PGENLIB_INTERNAL_VERNUM 1601
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -104,51 +104,12 @@ CONSTI32(kPglMaxAlleleCt, kPglMaxAltAlleleCt + 1);
 #endif
 CONSTI32(kAlleleCodesPerVec, kBytesPerVec / sizeof(AlleleCode));
 
-// more verbose than (val + 3) / 4, but may as well make semantic meaning
-// obvious; any explicit DivUp(val, 4) expressions should have a different
-// meaning
-// (not needed for bitct -> bytect, DivUp(val, CHAR_BIT) is clear enough)
-HEADER_INLINE uintptr_t NypCtToByteCt(uintptr_t val) {
-  return DivUp(val, 4);
-}
-
-HEADER_INLINE uintptr_t NypCtToVecCt(uintptr_t val) {
-  return DivUp(val, kNypsPerVec);
-}
-
-HEADER_INLINE uintptr_t NypCtToWordCt(uintptr_t val) {
-  return DivUp(val, kBitsPerWordD2);
-}
-
-HEADER_INLINE uintptr_t NypCtToAlignedWordCt(uintptr_t val) {
-  return kWordsPerVec * NypCtToVecCt(val);
-}
-
-HEADER_INLINE uintptr_t NypCtToCachelineCt(uintptr_t val) {
-  return DivUp(val, kNypsPerCacheline);
-}
-
 HEADER_INLINE uintptr_t AlleleCodeCtToVecCt(uintptr_t val) {
   return DivUp(val, kAlleleCodesPerVec);
 }
 
 HEADER_INLINE uintptr_t AlleleCodeCtToAlignedWordCt(uintptr_t val) {
   return kWordsPerVec * AlleleCodeCtToVecCt(val);
-}
-
-HEADER_INLINE uintptr_t GetNyparrEntry(const uintptr_t* nyparr, uint32_t idx) {
-  return (nyparr[idx / kBitsPerWordD2] >> (2 * (idx % kBitsPerWordD2))) & 3;
-}
-
-// todo: check if this optimizes newval=0 out
-HEADER_INLINE void AssignNyparrEntry(uint32_t idx, uintptr_t newval, uintptr_t* nyparr) {
-  const uint32_t bit_shift_ct = 2 * (idx % kBitsPerWordD2);
-  uintptr_t* wordp = &(nyparr[idx / kBitsPerWordD2]);
-  *wordp = ((*wordp) & (~((3 * k1LU) << bit_shift_ct))) | (newval << bit_shift_ct);
-}
-
-HEADER_INLINE void ClearNyparrEntry(uint32_t idx, uintptr_t* nyparr) {
-  nyparr[idx / kBitsPerWordD2] &= ~((3 * k1LU) << (idx % kBitsPerWordD2));
 }
 
 // returns a word with low bit in each pair set at each 00.
@@ -200,9 +161,6 @@ HEADER_INLINE uint32_t Popcount0001Word(uintptr_t val) {
 #  endif
 }
 #endif
-
-// safe errstr_buf size for pgen_init_phase{1,2}()
-CONSTI32(kPglErrstrBufBlen, kPglFnamesize + 256);
 
 // assumes subset_mask has trailing zeroes up to the next vector boundary
 void FillInterleavedMaskVec(const uintptr_t* __restrict subset_mask, uint32_t base_vec_ct, uintptr_t* interleaved_mask_vec);
@@ -602,15 +560,14 @@ HEADER_INLINE double MultiallelicDiploidMachR2(const uint64_t* __restrict sums, 
 
 CONSTI32(kPglVblockSize, 65536);
 
+// kPglDifflistGroupSize defined in plink2_base
+
 // Currently chosen so that it plus kPglFwriteBlockSize + kCacheline - 2 is
 // < 2^32, so DivUp(kPglMaxBytesPerVariant + kPglFwriteBlockSize - 1,
 // kCacheline) doesn't overflow.
 static const uint32_t kPglMaxBytesPerVariant = 0xfffdffc0U;
 // CONSTI32(kPglMaxBytesPerDataTrack, 0x7ffff000);
 // static_assert(kMaxBytesPerIO >= (int32_t)kPglMaxBytesPerDataTrack, "pgenlib assumes a single variant data track always fits in one fread/fwrite operation.");
-
-// currently must be power of 2, and multiple of (kBitsPerWord / 2)
-CONSTI32(kPglDifflistGroupSize, 64);
 
 FLAGSET_DEF_START()
   kfPgenGlobal0,

@@ -145,8 +145,8 @@ typedef struct PgenReaderMainStruct {
   uintptr_t* ldbase_genovec;
   uintptr_t* ldbase_raregeno;
 
-  // when ldbase_difflist_ids[] is initialized, element [ldbase_difflist_len]
-  // must be set to sample_ct.
+  // when ldbase_difflist_sample_ids[] is initialized, element
+  // [ldbase_difflist_len] must be set to sample_ct.
   uint32_t* ldbase_difflist_sample_ids;
 
   // common genotype can be looked up from vrtypes[]
@@ -382,7 +382,7 @@ HEADER_INLINE void PgrSetBaseAndOffset0(unsigned char* block_base, uint32_t thre
 // Phase 1: Open the .pgen; verify that the initial bytes are consistent with
 //   the file format; load/verify sample and variant counts, initialize
 //   pgfi.const_vrtype, pgfi.const_vrec_width, and pgfi.const_fpos_offset;
-//   determine initial memory allocation requirement.  first_alloc_cacheline_ct
+//   determine initial memory allocation requirement.  pgfi_alloc_cacheline_ct
 //   does not include allele counts and nonref flags, since it may be more
 //   appropriate to allocate those arrays earlier (during loading of a
 //   .bim-like file).

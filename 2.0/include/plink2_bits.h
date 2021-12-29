@@ -510,6 +510,45 @@ uint32_t Copy1bit8Subset(const uintptr_t* __restrict src_subset, const void* __r
 
 uint32_t Copy1bit16Subset(const uintptr_t* __restrict src_subset, const void* __restrict src_vals, const uintptr_t* __restrict sample_include, uint32_t src_subset_size, uint32_t sample_ct, uintptr_t* __restrict dst_subset, void* __restrict dst_vals);
 
+// more verbose than (val + 3) / 4, but may as well make semantic meaning
+// obvious; any explicit DivUp(val, 4) expressions should have a different
+// meaning
+// (not needed for bitct -> bytect, DivUp(val, CHAR_BIT) is clear enough)
+HEADER_INLINE uintptr_t NypCtToByteCt(uintptr_t val) {
+  return DivUp(val, 4);
+}
+
+HEADER_INLINE uintptr_t NypCtToVecCt(uintptr_t val) {
+  return DivUp(val, kNypsPerVec);
+}
+
+HEADER_INLINE uintptr_t NypCtToWordCt(uintptr_t val) {
+  return DivUp(val, kBitsPerWordD2);
+}
+
+HEADER_INLINE uintptr_t NypCtToAlignedWordCt(uintptr_t val) {
+  return kWordsPerVec * NypCtToVecCt(val);
+}
+
+HEADER_INLINE uintptr_t NypCtToCachelineCt(uintptr_t val) {
+  return DivUp(val, kNypsPerCacheline);
+}
+
+HEADER_INLINE uintptr_t GetNyparrEntry(const uintptr_t* nyparr, uint32_t idx) {
+  return (nyparr[idx / kBitsPerWordD2] >> (2 * (idx % kBitsPerWordD2))) & 3;
+}
+
+// todo: check if this optimizes newval=0 out
+HEADER_INLINE void AssignNyparrEntry(uint32_t idx, uintptr_t newval, uintptr_t* nyparr) {
+  const uint32_t bit_shift_ct = 2 * (idx % kBitsPerWordD2);
+  uintptr_t* wordp = &(nyparr[idx / kBitsPerWordD2]);
+  *wordp = ((*wordp) & (~((3 * k1LU) << bit_shift_ct))) | (newval << bit_shift_ct);
+}
+
+HEADER_INLINE void ClearNyparrEntry(uint32_t idx, uintptr_t* nyparr) {
+  nyparr[idx / kBitsPerWordD2] &= ~((3 * k1LU) << (idx % kBitsPerWordD2));
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif
