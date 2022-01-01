@@ -1,4 +1,4 @@
-// This library is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2022 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -2546,6 +2546,26 @@ PglErr ParseNonLdGenovecSubsetUnsafe(const unsigned char* fread_end, const uintp
   return kPglRetSuccess;
 }
 
+uint32_t LdLoadNecessary(uint32_t cur_vidx, PgenReaderMain* pgrp) {
+  // Determines whether LD base variant needs to be loaded (in addition to the
+  // current variant), assuming we need (possibly subsetted) hardcalls.
+  // Important: this updates pgrp->ldbase_vidx when necessary, as a side
+  // effect.
+  // bugfix (22 May 2018): this only checked whether ldbase_stypes was nonzero;
+  // there was an AllHets + cache-clear edge case where that's not good enough.
+  // now that AllHets has been removed, though, it should be safe again.
+  if (pgrp->ldbase_stypes && (cur_vidx == pgrp->fp_vidx)) {
+    // ldbase variant guaranteed to be up-to-date if we didn't skip the last
+    // variant, and cache wasn't cleared
+    return 0;
+  }
+  // Find the last vrtypes[] value before vrtypes[cur_vidx] with bit 1 unset or
+  // bit 2 set.
+  const uint32_t old_ldbase_vidx = pgrp->ldbase_vidx;
+  pgrp->ldbase_vidx = GetLdbaseVidx(pgrp->fi.vrtypes, cur_vidx);
+  return (pgrp->ldbase_vidx != old_ldbase_vidx);
+}
+
 BoolErr InitReadPtrs(uint32_t vidx, PgenReaderMain* pgrp, const unsigned char** fread_pp, const unsigned char** fread_endp) {
   const unsigned char* block_base = pgrp->fi.block_base;
   if (block_base != nullptr) {
@@ -2585,31 +2605,6 @@ BoolErr InitReadPtrs(uint32_t vidx, PgenReaderMain* pgrp, const unsigned char** 
   *fread_endp = &(pgrp->fread_buf[cur_vrec_width]);
   pgrp->fp_vidx = vidx + 1;
   return 0;
-}
-
-uint32_t LdLoadNecessary(uint32_t cur_vidx, PgenReaderMain* pgrp) {
-  // Determines whether LD base variant needs to be loaded (in addition to the
-  // current variant), assuming we need (possibly subsetted) hardcalls.
-  // Important: this updates pgrp->ldbase_vidx when necessary, as a side
-  // effect.
-  // bugfix (22 May 2018): this only checked whether ldbase_stypes was nonzero;
-  // there was an AllHets + cache-clear edge case where that's not good enough.
-  // now that AllHets has been removed, though, it should be safe again.
-  if (pgrp->ldbase_stypes && (cur_vidx == pgrp->fp_vidx)) {
-    assert(pgrp->ldbase_stypes & (kfPgrLdcacheNyp | kfPgrLdcacheDifflist | kfPgrLdcacheRawNyp));
-    // ldbase variant guaranteed to be up-to-date if we didn't skip the last
-    // variant, and cache wasn't cleared
-    return 0;
-  }
-  // Find the last vrtypes[] value before vrtypes[cur_vidx] with bit 1 unset or
-  // bit 2 set.
-  const uint32_t old_ldbase_vidx = pgrp->ldbase_vidx;
-  const uint32_t new_ldbase_vidx = GetLdbaseVidx(pgrp->fi.vrtypes, cur_vidx);
-  if (old_ldbase_vidx == new_ldbase_vidx) {
-    return 0;
-  }
-  pgrp->ldbase_vidx = new_ldbase_vidx;
-  return 1;
 }
 
 // Fills dest with subsetted ldbase contents, and ensures ldcache is filled so
@@ -3447,6 +3442,7 @@ PglErr GetBasicGenotypeCounts(const uintptr_t* __restrict sample_include, const 
     if (!(pgrp->ldbase_stypes & kfPgrLdcacheBasicGenocounts)) {
       ZeroTrailingNyps(sample_ct, pgrp->ldbase_genovec);
       GenoarrCountFreqsUnsafe(pgrp->ldbase_genovec, sample_ct, pgrp->ldbase_basic_genocounts);
+      assert(pgrp->ldbase_stypes);
       pgrp->ldbase_stypes |= kfPgrLdcacheBasicGenocounts;
     }
     STD_ARRAY_COPY(pgrp->ldbase_basic_genocounts, 4, genocounts);

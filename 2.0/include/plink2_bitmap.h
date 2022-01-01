@@ -1,7 +1,7 @@
 #ifndef __PLINK2_BITMAP_H__
 #define __PLINK2_BITMAP_H__
 
-// This library is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2022 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -47,13 +47,12 @@ CONSTI32(kPglMaxBitmapBytesPerRow, 0x20000000);
 FLAGSET_DEF_START()
   kfPgrPrevdiffCache0,
   kfPgrPrevdiffCacheBit = (1 << 0),
-  kfPgrPrevdiffCacheDifflist = (1 << 1),
-  kfPgrPrevdiffCacheRawBit = (1 << 2),
-  kfPgrPrevdiffCachePopcount = (1 << 3)
+  kfPgrPrevdiffCacheRawBit = (1 << 1),
+  kfPgrPrevdiffCachePopcount = (1 << 2)
 FLAGSET_DEF_END(PgrPrevdiffCacheFlags);
 
-typedef struct BitmapReaderStruct {
-  NONCOPYABLE(BitmapReaderStruct);
+typedef struct BitmapReaderMainStruct {
+  NONCOPYABLE(BitmapReaderMainStruct);
   // ----- Header information, constant after initialization -----
   uint32_t row_ct;
   uint32_t col_ct;
@@ -73,35 +72,47 @@ typedef struct BitmapReaderStruct {
   uint32_t fp_ridx;
 
   FILE* ff;
+  // allocated to word boundary, any trailing bytes always zeroed
   unsigned char* fread_buf;
 
   uint32_t prevdiff_ridx;
   PgrPrevdiffCacheFlags prevdiff_stypes;
 
-  uint32_t prevdiff_list_len;
-
-  uintptr_t* prevdiff_base_raw_bitvec;
+  uintptr_t* prevdiff_base_raw_bitvec; // trailing bytes always zeroed
   uintptr_t* prevdiff_base_bitvec; // after col_include applied
-  uint32_t* prevdiff_base_col_ids; // after col_include applied
+  // should add prevdiff_base_col_ids (and uint32_t list length) if we add a
+  // DifflistOrBitvec getter
 
   // might want workspace and/or prevdiff_base_raw_bitvec popcount
+} BitmapReaderMain;
+
+typedef struct BitmapReaderStruct {
+#ifdef __cplusplus
+  BitmapReaderMain& GET_PRIVATE_m() { return m; }
+  BitmapReaderMain const& GET_PRIVATE_m() const { return m; }
+ private:
+#endif
+  BitmapReaderMain m;
 } BitmapReader;
 
-void PreinitBitmapReader(BitmapReader* brp);
-
-PglErr BitmapReaderInitPhase1(const char* fname, BitmapReader* brp, uintptr_t* br_alloc_cacheline_ct_ptr, char* errstr_buf);
-
-PglErr BitmapReaderInitPhase2(BitmapReader* brp, unsigned char* br_alloc, char* errstr_buf);
-
-HEADER_INLINE uintptr_t GetRrtype(const BitmapReader* brp, uint32_t ridx) {
+HEADER_INLINE uintptr_t GetRrtype(const BitmapReaderMain* brp, uint32_t ridx) {
   return GetNyparrEntry(brp->rrtype_nyparr, ridx);
+}
+
+HEADER_INLINE uint64_t GetBrpFpos(const BitmapReaderMain* brp, uint32_t ridx) {
+  return brp->row_fpos[ridx];
+}
+
+HEADER_INLINE uint64_t GetBrpRrecWidth(const BitmapReaderMain* brp, uint32_t ridx) {
+  return brp->row_fpos[ridx + 1] - brp->row_fpos[ridx];
 }
 
 HEADER_INLINE uint32_t RrtypeIsPrevdiff(uint32_t rrtype) {
   return (rrtype == 1);
 }
 
-HEADER_INLINE void PgrClearPrevdiffCache(BitmapReader* brp) {
+HEADER_INLINE void PgrClearPrevdiffCache(BitmapReader* br_ptr) {
+  BitmapReaderMain* brp = &GET_PRIVATE(*br_ptr, m);
   brp->prevdiff_stypes &= kfPgrPrevdiffCacheRawBit;
   brp->prevdiff_ridx = 0x80000000U;
 }
@@ -115,21 +126,28 @@ typedef struct PgrColSubsetIndexStruct {
   const uint32_t* cumulative_popcounts;
 } PgrColSubsetIndex;
 
-HEADER_INLINE void PgrSetColSubsetIndex(const uint32_t* col_include_cumulative_popcounts, BitmapReader* brp, PgrColSubsetIndex* pcsi_ptr) {
+HEADER_INLINE void PgrSetColSubsetIndex(const uint32_t* col_include_cumulative_popcounts, BitmapReader* br_ptr, PgrColSubsetIndex* pcsi_ptr) {
   GET_PRIVATE(*pcsi_ptr, cumulative_popcounts) = col_include_cumulative_popcounts;
-  PgrClearPrevdiffCache(brp);
+  PgrClearPrevdiffCache(br_ptr);
 }
 
-HEADER_INLINE void PgrClearColSubsetIndex(BitmapReader* brp, PgrColSubsetIndex* pcsi_ptr) {
+HEADER_INLINE void PgrClearColSubsetIndex(BitmapReader* br_ptr, PgrColSubsetIndex* pcsi_ptr) {
   GET_PRIVATE(*pcsi_ptr, cumulative_popcounts) = nullptr;
-  if (brp) {
-    PgrClearPrevdiffCache(brp);
+  if (br_ptr) {
+    PgrClearPrevdiffCache(br_ptr);
   }
 }
 
-// PglErr BitmapGet(const uintptr_t* __restrict col_include, PgrColSubsetIndex pcsi, uint32_t col_ct, uint32_t ridx, BitmapReader* brp, uintptr_t* __restrict bitvec);
+void PreinitBitmapReader(BitmapReader* br_ptr);
 
-typedef struct BitmapWriterStruct {
+PglErr BitmapReaderInitPhase1(const char* fname, BitmapReader* br_ptr, uintptr_t* br_alloc_cacheline_ct_ptr, char* errstr_buf);
+
+PglErr BitmapReaderInitPhase2(BitmapReader* br_ptr, unsigned char* br_alloc, char* errstr_buf);
+
+PglErr BitmapGet(const uintptr_t* __restrict col_include, PgrColSubsetIndex pcsi, uint32_t col_ct, uint32_t ridx, BitmapReader* br_ptr, uintptr_t* __restrict dst);
+
+typedef struct BitmapWriterMainStruct {
+  NONCOPYABLE(BitmapWriterMainStruct);
   uint32_t row_ct;
   uint32_t col_ct;
 
@@ -142,11 +160,9 @@ typedef struct BitmapWriterStruct {
   // should match ftello() return value
   uint64_t rblock_fpos_offset;
 
-  // this must hold col_ct entries
+  // these must hold col_ct entries
+  uintptr_t* difflist_bitvec_buf;
   uintptr_t* prevdiff_base_bitvec;
-
-  // this must hold 2 * (col_ct / kPglMaxDifflistLenDivisor) entries
-  uint32_t* prevdiff_base_col_ids;  // 1 extra entry, == col_ct
 
   unsigned char* fwrite_buf;
   unsigned char* fwrite_bufp;
@@ -158,17 +174,31 @@ typedef struct BitmapWriterStruct {
   uint32_t ridx;
 
   FILE* ff;
+} BitmapWriterMain;
+
+typedef struct BitmapWriterStruct {
+#ifdef __cplusplus
+  BitmapWriterMain& GET_PRIVATE_m() { return m; }
+  BitmapWriterMain const& GET_PRIVATE_m() const { return m; }
+ private:
+#endif
+  BitmapWriterMain m;
 } BitmapWriter;
 
-void PreinitBitmapWriter(BitmapWriter* bwp);
+void PreinitBitmapWriter(BitmapWriter* bw_ptr);
 
-PglErr BitmapWriterInitPhase1(const char* fname, uint32_t row_ct, uint32_t col_ct, BitmapWriter* bwp, uintptr_t* bw_alloc_cacheline_ct_ptr);
+PglErr BitmapWriterInitPhase1(const char* fname, uint32_t row_ct, uint32_t col_ct, BitmapWriter* bw_ptr, uintptr_t* bw_alloc_cacheline_ct_ptr);
 
-PglErr BitmapWriterInitPhase2(BitmapWriter* bwp, unsigned char* bw_alloc);
+PglErr BitmapWriterInitPhase2(BitmapWriter* bw_ptr, unsigned char* bw_alloc);
 
-BoolErr CleanupBitmapReader(BitmapReader* brp, PglErr* reterrp);
+// trailing bits of bitvec must be zeroed out
+PglErr BitmapAppend(const uintptr_t* bitvec, BitmapWriter* bw_ptr);
 
-BoolErr CleanupBitmapWriter(BitmapWriter* bwp, PglErr* reterrp);
+PglErr BitmapWriterFinish(BitmapWriter* bw_ptr);
+
+BoolErr CleanupBitmapReader(BitmapReader* br_ptr, PglErr* reterrp);
+
+BoolErr CleanupBitmapWriter(BitmapWriter* bw_ptr, PglErr* reterrp);
 
 #ifdef __cplusplus
 }  // namespace plink2

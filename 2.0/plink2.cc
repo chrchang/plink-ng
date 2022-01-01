@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2022 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -71,10 +71,10 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (28 Dec 2021)";
+  " (1 Jan 2022)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -88,7 +88,7 @@ static const char ver_str2[] =
   "  "
 #endif
   "   www.cog-genomics.org/plink/2.0/\n"
-  "(C) 2005-2021 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
+  "(C) 2005-2022 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
 static const char errstr_append[] = "For more info, try \"" PROG_NAME_STR " --help <flag name>\" or \"" PROG_NAME_STR " --help | more\".\n";
 
 #ifndef NOLAPACK

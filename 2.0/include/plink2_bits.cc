@@ -1,4 +1,4 @@
-// This library is part of PLINK 2, copyright (C) 2005-2021 Shaun Purcell,
+// This library is part of PLINK 2, copyright (C) 2005-2022 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -223,6 +223,71 @@ void BitvecInvert(uintptr_t word_ct, uintptr_t* main_bitvec) {
 #else
   for (uintptr_t widx = 0; widx != word_ct; ++widx) {
     main_bitvec[widx] ^= ~k0LU;
+  }
+#endif
+}
+
+void BitvecXorCopy(const uintptr_t* __restrict source1_bitvec, const uintptr_t* __restrict source2_bitvec, uintptr_t word_ct, uintptr_t* target_bitvec) {
+#ifdef __LP64__
+  VecW* target_bitvvec = R_CAST(VecW*, target_bitvec);
+  const VecW* source1_bitvvec = R_CAST(const VecW*, source1_bitvec);
+  const VecW* source2_bitvvec = R_CAST(const VecW*, source2_bitvec);
+  const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
+  for (uintptr_t ulii = 0; ulii != full_vec_ct; ++ulii) {
+    target_bitvvec[ulii] = source1_bitvvec[ulii] ^ source2_bitvvec[ulii];
+  }
+#  ifdef USE_AVX2
+  if (word_ct & 2) {
+    const uintptr_t base_idx = full_vec_ct * kWordsPerVec;
+    target_bitvec[base_idx] = source1_bitvec[base_idx] ^ source2_bitvec[base_idx];
+    target_bitvec[base_idx + 1] = source1_bitvec[base_idx + 1] ^ source2_bitvec[base_idx + 1];
+  }
+#  endif
+  if (word_ct & 1) {
+    target_bitvec[word_ct - 1] = source1_bitvec[word_ct - 1] ^ source2_bitvec[word_ct - 1];
+  }
+#else
+  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
+    target_bitvec[widx] = source1_bitvec[widx] ^ source2_bitvec[widx];
+  }
+#endif
+}
+
+void BitvecInvertCopy(const uintptr_t* __restrict source_bitvec, uintptr_t word_ct, uintptr_t* __restrict target_bitvec) {
+#ifdef __LP64__
+  const VecW* source_bitvvec_iter = R_CAST(const VecW*, source_bitvec);
+  VecW* target_bitvvec_iter = R_CAST(VecW*, target_bitvec);
+  const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
+  const VecW all1 = VCONST_W(~k0LU);
+  // As of Apple clang 11, this manual unroll is no longer relevant.  todo:
+  // check Linux performance, and remove all of these unrolls if perf is good
+  // enough without them.
+  if (full_vec_ct & 1) {
+    *target_bitvvec_iter++ = (*source_bitvvec_iter++) ^ all1;
+  }
+  if (full_vec_ct & 2) {
+    *target_bitvvec_iter++ = (*source_bitvvec_iter++) ^ all1;
+    *target_bitvvec_iter++ = (*source_bitvvec_iter++) ^ all1;
+  }
+  for (uintptr_t ulii = 3; ulii < full_vec_ct; ulii += 4) {
+    *target_bitvvec_iter++ = (*source_bitvvec_iter++) ^ all1;
+    *target_bitvvec_iter++ = (*source_bitvvec_iter++) ^ all1;
+    *target_bitvvec_iter++ = (*source_bitvvec_iter++) ^ all1;
+    *target_bitvvec_iter++ = (*source_bitvvec_iter++) ^ all1;
+  }
+#  ifdef USE_AVX2
+  if (word_ct & 2) {
+    const uintptr_t base_idx = full_vec_ct * kWordsPerVec;
+    target_bitvec[base_idx] = ~source_bitvec[base_idx];
+    target_bitvec[base_idx + 1] = ~source_bitvec[base_idx + 1];
+  }
+#  endif
+  if (word_ct & 1) {
+    target_bitvec[word_ct - 1] = ~source_bitvec[word_ct - 1];
+  }
+#else
+  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
+    target_bitvec[widx] = ~source_bitvec[widx];
   }
 #endif
 }
@@ -525,6 +590,57 @@ uintptr_t PopcountWordsIntersect(const uintptr_t* __restrict bitvec1_iter, const
   }
   while (bitvec1_iter < bitvec1_end) {
     tot += PopcountWord((*bitvec1_iter++) & (*bitvec2_iter++));
+  }
+  return tot;
+}
+
+uintptr_t PopcountVecsAvx2Xor(const VecW* __restrict vvec1_iter, const VecW* __restrict vvec2_iter, uintptr_t vec_ct) {
+  // vec_ct must be a multiple of 16.
+  VecW cnt = vecw_setzero();
+  VecW ones = vecw_setzero();
+  VecW twos = vecw_setzero();
+  VecW fours = vecw_setzero();
+  VecW eights = vecw_setzero();
+  for (uintptr_t vec_idx = 0; vec_idx < vec_ct; vec_idx += 16) {
+    VecW twos_a = Csa256(vvec1_iter[vec_idx + 0] ^ vvec2_iter[vec_idx + 0], vvec1_iter[vec_idx + 1] ^ vvec2_iter[vec_idx + 1], &ones);
+    VecW twos_b = Csa256(vvec1_iter[vec_idx + 2] ^ vvec2_iter[vec_idx + 2], vvec1_iter[vec_idx + 3] ^ vvec2_iter[vec_idx + 3], &ones);
+    VecW fours_a = Csa256(twos_a, twos_b, &twos);
+
+    twos_a = Csa256(vvec1_iter[vec_idx + 4] ^ vvec2_iter[vec_idx + 4], vvec1_iter[vec_idx + 5] ^ vvec2_iter[vec_idx + 5], &ones);
+    twos_b = Csa256(vvec1_iter[vec_idx + 6] ^ vvec2_iter[vec_idx + 6], vvec1_iter[vec_idx + 7] ^ vvec2_iter[vec_idx + 7], &ones);
+    VecW fours_b = Csa256(twos_a, twos_b, &twos);
+    const VecW eights_a = Csa256(fours_a, fours_b, &fours);
+
+    twos_a = Csa256(vvec1_iter[vec_idx + 8] ^ vvec2_iter[vec_idx + 8], vvec1_iter[vec_idx + 9] ^ vvec2_iter[vec_idx + 9], &ones);
+    twos_b = Csa256(vvec1_iter[vec_idx + 10] ^ vvec2_iter[vec_idx + 10], vvec1_iter[vec_idx + 11] ^ vvec2_iter[vec_idx + 11], &ones);
+    fours_a = Csa256(twos_a, twos_b, &twos);
+
+    twos_a = Csa256(vvec1_iter[vec_idx + 12] ^ vvec2_iter[vec_idx + 12], vvec1_iter[vec_idx + 13] ^ vvec2_iter[vec_idx + 13], &ones);
+    twos_b = Csa256(vvec1_iter[vec_idx + 14] ^ vvec2_iter[vec_idx + 14], vvec1_iter[vec_idx + 15] ^ vvec2_iter[vec_idx + 15], &ones);
+    fours_b = Csa256(twos_a, twos_b, &twos);
+    const VecW eights_b = Csa256(fours_a, fours_b, &fours);
+    const VecW sixteens = Csa256(eights_a, eights_b, &eights);
+    cnt = cnt + PopcountVecAvx2(sixteens);
+  }
+  cnt = vecw_slli(cnt, 4);
+  cnt = cnt + vecw_slli(PopcountVecAvx2(eights), 3);
+  cnt = cnt + vecw_slli(PopcountVecAvx2(fours), 2);
+  cnt = cnt + vecw_slli(PopcountVecAvx2(twos), 1);
+  cnt = cnt + PopcountVecAvx2(ones);
+  return HsumW(cnt);
+}
+
+uintptr_t PopcountWordsXor(const uintptr_t* __restrict bitvec1_iter, const uintptr_t* __restrict bitvec2_iter, uintptr_t word_ct) {
+  const uintptr_t* bitvec1_end = &(bitvec1_iter[word_ct]);
+  const uintptr_t block_ct = word_ct / (16 * kWordsPerVec);
+  uintptr_t tot = 0;
+  if (block_ct) {
+    tot = PopcountVecsAvx2Xor(R_CAST(const VecW*, bitvec1_iter), R_CAST(const VecW*, bitvec2_iter), block_ct * 16);
+    bitvec1_iter = &(bitvec1_iter[block_ct * (16 * kWordsPerVec)]);
+    bitvec2_iter = &(bitvec2_iter[block_ct * (16 * kWordsPerVec)]);
+  }
+  while (bitvec1_iter < bitvec1_end) {
+    tot += PopcountWord((*bitvec1_iter++) ^ (*bitvec2_iter++));
   }
   return tot;
 }
@@ -993,6 +1109,58 @@ uintptr_t PopcountWordsIntersect(const uintptr_t* __restrict bitvec1_iter, const
   bitvec2_iter = &(bitvec2_iter[trivec_ct * (3 * kWordsPerVec)]);
   while (bitvec1_iter < bitvec1_end) {
     tot += PopcountWord((*bitvec1_iter++) & (*bitvec2_iter++));
+  }
+  return tot;
+}
+
+static inline uintptr_t PopcountVecsNoAvx2Xor(const VecW* __restrict vvec1_iter, const VecW* __restrict vvec2_iter, uintptr_t vec_ct) {
+  // popcounts vvec1 XOR vvec2[0..(ct-1)].  ct is a multiple of 3.
+  assert(!(vec_ct % 3));
+  const VecW m0 = vecw_setzero();
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW m4 = VCONST_W(kMask0F0F);
+  VecW prev_sad_result = vecw_setzero();
+  VecW acc = vecw_setzero();
+  uintptr_t cur_incr = 30;
+  for (; ; vec_ct -= cur_incr) {
+    if (vec_ct < 30) {
+      if (!vec_ct) {
+        acc = acc + prev_sad_result;
+        return HsumW(acc);
+      }
+      cur_incr = vec_ct;
+    }
+    VecW inner_acc = vecw_setzero();
+    const VecW* vvec1_stop = &(vvec1_iter[cur_incr]);
+    do {
+      VecW count1 = (*vvec1_iter++) ^ (*vvec2_iter++);
+      VecW count2 = (*vvec1_iter++) ^ (*vvec2_iter++);
+      VecW half1 = (*vvec1_iter++) ^ (*vvec2_iter++);
+      const VecW half2 = vecw_srli(half1, 1) & m1;
+      half1 = half1 & m1;
+      count1 = count1 - (vecw_srli(count1, 1) & m1);
+      count2 = count2 - (vecw_srli(count2, 1) & m1);
+      count1 = count1 + half1;
+      count2 = count2 + half2;
+      count1 = (count1 & m2) + (vecw_srli(count1, 2) & m2);
+      count1 = count1 + (count2 & m2) + (vecw_srli(count2, 2) & m2);
+      inner_acc = inner_acc + (count1 & m4) + (vecw_srli(count1, 4) & m4);
+    } while (vvec1_iter < vvec1_stop);
+    acc = acc + prev_sad_result;
+    prev_sad_result = vecw_bytesum(inner_acc, m0);
+  }
+}
+
+uintptr_t PopcountWordsXor(const uintptr_t* __restrict bitvec1_iter, const uintptr_t* __restrict bitvec2_iter, uintptr_t word_ct) {
+  uintptr_t tot = 0;
+  const uintptr_t* bitvec1_end = &(bitvec1_iter[word_ct]);
+  const uintptr_t trivec_ct = word_ct / (3 * kWordsPerVec);
+  tot += PopcountVecsNoAvx2Xor(R_CAST(const VecW*, bitvec1_iter), R_CAST(const VecW*, bitvec2_iter), trivec_ct * 3);
+  bitvec1_iter = &(bitvec1_iter[trivec_ct * (3 * kWordsPerVec)]);
+  bitvec2_iter = &(bitvec2_iter[trivec_ct * (3 * kWordsPerVec)]);
+  while (bitvec1_iter < bitvec1_end) {
+    tot += PopcountWord((*bitvec1_iter++) ^ (*bitvec2_iter++));
   }
   return tot;
 }

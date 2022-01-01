@@ -1,7 +1,7 @@
 #ifndef __PLINK2_BASE_H__
 #define __PLINK2_BASE_H__
 
-// This library is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2022 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -3062,6 +3062,48 @@ HEADER_INLINE void* arena_alloc_raw_rd(uintptr_t size, unsigned char** arena_bot
   unsigned char* alloc_ptr = *arena_bottom_ptr;
   *arena_bottom_ptr = &(alloc_ptr[RoundUpPow2(size, kCacheline)]);
   return alloc_ptr;
+}
+
+// A VINT is a sequence of bytes where each byte stores just 7 bits of an
+// an integer, and the high bit is set when the integer has more nonzero bits.
+// See e.g.
+//   https://developers.google.com/protocol-buffers/docs/encoding#varints
+// (Note that protocol buffers used "group varints" at one point, but then
+// abandoned them.  I suspect they'd be simultaneously slower and less
+// compact here.)
+
+HEADER_INLINE unsigned char* Vint32Append(uint32_t uii, unsigned char* buf) {
+  while (uii > 127) {
+    *buf++ = (uii & 127) + 128;
+    uii >>= 7;
+  }
+  *buf++ = uii;
+  return buf;
+}
+
+// Returns 0x80000000U on read-past-end instead of UINT32_MAX so overflow check
+// works properly in 32-bit build.  Named "GetVint31" to make it more obvious
+// that a 2^31 return value can't be legitimate.
+HEADER_INLINE uint32_t GetVint31(const unsigned char* buf_end, const unsigned char** buf_iterp) {
+  if (likely(buf_end > (*buf_iterp))) {
+    uint32_t vint32 = *((*buf_iterp)++);
+    if (vint32 <= 127) {
+      return vint32;
+    }
+    vint32 &= 127;
+    uint32_t shift = 7;
+    while (likely(buf_end > (*buf_iterp))) {
+      uint32_t uii = *((*buf_iterp)++);
+      vint32 |= (uii & 127) << shift;
+      if (uii <= 127) {
+        return vint32;
+      }
+      shift += 7;
+      // currently don't check for shift >= 32 (that's what ValidateVint31()
+      // is for).
+    }
+  }
+  return 0x80000000U;
 }
 
 // Flagset conventions:

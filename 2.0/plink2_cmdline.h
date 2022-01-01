@@ -1,7 +1,7 @@
 #ifndef __PLINK2_CMDLINE_H__
 #define __PLINK2_CMDLINE_H__
 
-// This library is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2022 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -1138,34 +1138,13 @@ HEADER_INLINE uint32_t wordsequal(const uintptr_t* word_arr1, const uintptr_t* w
 }
 
 
-// BitvecAnd(), BitvecInvmask(), BitvecOr(), BitvecInvert() in plink2_bits.h
+// BitvecAnd(), BitvecInvmask(), BitvecOr(), BitvecInvert(), BitvecXorCopy(),
+// BitvecInvertCopy(), AlignedBitarrInvert(), and AlignedBitarrInvertCopy() in
+// plink2_bits.h
 
 void BitvecAndCopy(const uintptr_t* __restrict source1_bitvec, const uintptr_t* __restrict source2_bitvec, uintptr_t word_ct, uintptr_t* target_bitvec);
 
 void BitvecInvmaskCopy(const uintptr_t* __restrict source_bitvec, const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct, uintptr_t* target_bitvec);
-
-void BitvecInvertCopy(const uintptr_t* __restrict source_bitvec, uintptr_t word_ct, uintptr_t* __restrict target_bitvec);
-
-// These ensure the trailing bits are zeroed out.
-// 'AlignedBitarr' instead of Bitvec since this takes bit_ct instead of word_ct
-// as the size argument, and zeroes trailing bits.
-HEADER_INLINE void AlignedBitarrInvert(uintptr_t bit_ct, uintptr_t* main_bitvec) {
-  const uintptr_t fullword_ct = bit_ct / kBitsPerWord;
-  BitvecInvert(fullword_ct, main_bitvec);
-  const uint32_t trail_ct = bit_ct % kBitsPerWord;
-  if (trail_ct) {
-    main_bitvec[fullword_ct] = bzhi(~main_bitvec[fullword_ct], trail_ct);
-  }
-}
-
-HEADER_INLINE void AlignedBitarrInvertCopy(const uintptr_t* __restrict source_bitvec, uintptr_t bit_ct, uintptr_t* __restrict target_bitvec) {
-  const uintptr_t fullword_ct = bit_ct / kBitsPerWord;
-  BitvecInvertCopy(source_bitvec, fullword_ct, target_bitvec);
-  const uint32_t trail_ct = bit_ct % kBitsPerWord;
-  if (trail_ct) {
-    target_bitvec[fullword_ct] = bzhi(~source_bitvec[fullword_ct], trail_ct);
-  }
-}
 
 void BitvecXor(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec);
 

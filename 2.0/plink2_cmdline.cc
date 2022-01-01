@@ -1,4 +1,4 @@
-// This library is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2022 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -1064,45 +1064,6 @@ void BitvecInvmaskCopy(const uintptr_t* __restrict source_bitvec, const uintptr_
 #else
   for (uintptr_t widx = 0; widx != word_ct; ++widx) {
     target_bitvec[widx] = source_bitvec[widx] & (~exclude_bitvec[widx]);
-  }
-#endif
-}
-
-void BitvecInvertCopy(const uintptr_t* __restrict source_bitvec, uintptr_t word_ct, uintptr_t* __restrict target_bitvec) {
-#ifdef __LP64__
-  const VecW* source_bitvvec_iter = R_CAST(const VecW*, source_bitvec);
-  VecW* target_bitvvec_iter = R_CAST(VecW*, target_bitvec);
-  const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
-  const VecW all1 = VCONST_W(~k0LU);
-  // As of Apple clang 11, this manual unroll is no longer relevant.  todo:
-  // check Linux performance, and remove all of these unrolls if perf is good
-  // enough without them.
-  if (full_vec_ct & 1) {
-    *target_bitvvec_iter++ = (*source_bitvvec_iter++) ^ all1;
-  }
-  if (full_vec_ct & 2) {
-    *target_bitvvec_iter++ = (*source_bitvvec_iter++) ^ all1;
-    *target_bitvvec_iter++ = (*source_bitvvec_iter++) ^ all1;
-  }
-  for (uintptr_t ulii = 3; ulii < full_vec_ct; ulii += 4) {
-    *target_bitvvec_iter++ = (*source_bitvvec_iter++) ^ all1;
-    *target_bitvvec_iter++ = (*source_bitvvec_iter++) ^ all1;
-    *target_bitvvec_iter++ = (*source_bitvvec_iter++) ^ all1;
-    *target_bitvvec_iter++ = (*source_bitvvec_iter++) ^ all1;
-  }
-#  ifdef USE_AVX2
-  if (word_ct & 2) {
-    const uintptr_t base_idx = full_vec_ct * kWordsPerVec;
-    target_bitvec[base_idx] = ~source_bitvec[base_idx];
-    target_bitvec[base_idx + 1] = ~source_bitvec[base_idx + 1];
-  }
-#  endif
-  if (word_ct & 1) {
-    target_bitvec[word_ct - 1] = ~source_bitvec[word_ct - 1];
-  }
-#else
-  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
-    target_bitvec[widx] = ~source_bitvec[widx];
   }
 #endif
 }

@@ -1,7 +1,7 @@
 #ifndef __PLINK2_BITS_H__
 #define __PLINK2_BITS_H__
 
-// This library is part of PLINK 2.00, copyright (C) 2005-2021 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2022 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -59,6 +59,31 @@ void BitvecInvmask(const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct
 void BitvecOr(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec);
 
 void BitvecInvert(uintptr_t word_ct, uintptr_t* main_bitvec);
+
+void BitvecXorCopy(const uintptr_t* __restrict source1_bitvec, const uintptr_t* __restrict source2_bitvec, uintptr_t word_ct, uintptr_t* target_bitvec);
+
+void BitvecInvertCopy(const uintptr_t* __restrict source_bitvec, uintptr_t word_ct, uintptr_t* __restrict target_bitvec);
+
+// These ensure the trailing bits are zeroed out.
+// 'AlignedBitarr' instead of Bitvec since this takes bit_ct instead of word_ct
+// as the size argument, and zeroes trailing bits.
+HEADER_INLINE void AlignedBitarrInvert(uintptr_t bit_ct, uintptr_t* main_bitvec) {
+  const uintptr_t fullword_ct = bit_ct / kBitsPerWord;
+  BitvecInvert(fullword_ct, main_bitvec);
+  const uint32_t trail_ct = bit_ct % kBitsPerWord;
+  if (trail_ct) {
+    main_bitvec[fullword_ct] = bzhi(~main_bitvec[fullword_ct], trail_ct);
+  }
+}
+
+HEADER_INLINE void AlignedBitarrInvertCopy(const uintptr_t* __restrict source_bitvec, uintptr_t bit_ct, uintptr_t* __restrict target_bitvec) {
+  const uintptr_t fullword_ct = bit_ct / kBitsPerWord;
+  BitvecInvertCopy(source_bitvec, fullword_ct, target_bitvec);
+  const uint32_t trail_ct = bit_ct % kBitsPerWord;
+  if (trail_ct) {
+    target_bitvec[fullword_ct] = bzhi(~source_bitvec[fullword_ct], trail_ct);
+  }
+}
 
 // Functions with "adv" in the name generally take an index or char-pointer as
 // an argument and return its new value, while "mov" functions take a
@@ -246,6 +271,8 @@ HEADER_INLINE uintptr_t PopcountWords(const uintptr_t* bitvec, uintptr_t word_ct
 
 uintptr_t PopcountWordsIntersect(const uintptr_t* __restrict bitvec1_iter, const uintptr_t* __restrict bitvec2_iter, uintptr_t word_ct);
 
+uintptr_t PopcountWordsXor(const uintptr_t* __restrict bitvec1_iter, const uintptr_t* __restrict bitvec2_iter, uintptr_t word_ct);
+
 // requires positive word_ct
 // stay agnostic a bit longer re: word_ct := DIV_UP(entry_ct, kBitsPerWord)
 // vs. word_ct := 1 + (entry_ct / kBitsPerWord)
@@ -425,6 +452,10 @@ HEADER_INLINE void ZeroTrailingWords(uint32_t word_ct, uintptr_t* bitvec) {
 HEADER_INLINE void ZeroTrailingWords(__maybe_unused uint32_t word_ct, __maybe_unused uintptr_t* bitvec) {
 }
 #endif
+
+HEADER_INLINE void CopyBitarr(const uintptr_t* __restrict src, uintptr_t bit_ct, uintptr_t* __restrict dst) {
+  memcpy(dst, src, BitCtToWordCt(bit_ct) * kBytesPerWord);
+}
 
 // output_bit_idx_end is practically always subset_size
 void CopyBitarrSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t output_bit_idx_end, uintptr_t* __restrict output_bitarr);
