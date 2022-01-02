@@ -116,7 +116,9 @@ PglErr BitmapReaderInitPhase2(BitmapReader* br_ptr, unsigned char* br_alloc, cha
   const uint32_t raw_byte_ct = DivUp(col_ct, CHAR_BIT);
   memset(&(brp->fread_buf[raw_byte_ct]), 0, (-raw_byte_ct) & (kBytesPerWord - 1));
   brp->prevdiff_base_raw_bitvec = S_CAST(uintptr_t*, arena_alloc_raw(bitvec_byte_ct, &br_alloc_iter));
-  memset(&(brp->prevdiff_base_raw_bitvec[raw_byte_ct]), 0, (-raw_byte_ct) & (kBytesPerWord - 1));
+  if (col_ct % kBitsPerWord) {
+    brp->prevdiff_base_raw_bitvec[(col_ct - 1) / kBitsPerWord] = 0;
+  }
   brp->prevdiff_base_bitvec = S_CAST(uintptr_t*, arena_alloc_raw(bitvec_byte_ct, &br_alloc_iter));
 
   brp->fp_ridx = 0;
@@ -171,11 +173,11 @@ PglErr BitmapReaderInitPhase2(BitmapReader* br_ptr, unsigned char* br_alloc, cha
     }
     // Load row record types (2 bits each, 4 entries packed per byte)
     uint32_t cur_byte_ct = DivUp(cur_rblock_row_ct, 4);
-    if (unlikely(fread_unlocked(rrtype_nyparr_iter, cur_byte_ct, 1, ff))) {
+    if (unlikely(!fread_unlocked(rrtype_nyparr_iter, cur_byte_ct, 1, ff))) {
       FillBrReadErrstr(ff, errstr_buf);
       return kPglRetReadFail;
     }
-    rrtype_nyparr_iter = &(rrtype_nyparr_iter[cur_rblock_row_ct / kBytesPerWord]);
+    rrtype_nyparr_iter = &(rrtype_nyparr_iter[cur_rblock_row_ct / kBitsPerWordD2]);
 
     // Load row record lengths.
     cur_byte_ct = cur_rblock_row_ct * row_record_byte_length;
@@ -427,9 +429,11 @@ PglErr ParseNonPrevdiffBitvecSubset(const uintptr_t* __restrict col_include, con
     }
     return kPglRetSuccess;
   }
-  const uintptr_t common_bit = rrtype & 1;
-  const uint32_t vec_ct = BitCtToVecCt(col_ct);
-  vecset(dst, -common_bit, vec_ct);
+  if (rrtype == 2) {
+    ZeroWArr(BitCtToWordCt(col_ct), dst);
+  } else {
+    SetAllBits(col_ct, dst);
+  }
   return ParseAndApplyBitmapDifflistSubset(col_include, col_include_cumulative_popcounts, rrec_width, col_ct, brp, dst);
 }
 
@@ -463,7 +467,7 @@ PglErr PrevdiffLoadAndCopyBitvecSubset(const uintptr_t* __restrict col_include, 
 }
 
 PglErr BitmapGet(const uintptr_t* __restrict col_include, PgrColSubsetIndex pcsi, uint32_t col_ct, uint32_t ridx, BitmapReader* br_ptr, uintptr_t* __restrict dst) {
-  if (!ridx) {
+  if (!col_ct) {
     return kPglRetSuccess;
   }
   BitmapReaderMain* brp = GetBrp(br_ptr);
@@ -585,7 +589,7 @@ PglErr BitmapWriterInitPhase2(BitmapWriter* bw_ptr, unsigned char* bw_alloc) {
   const uint32_t row_ct = bwp->row_ct;
   unsigned char* alloc_iter = bw_alloc;
   const uint32_t rblock_ct = DivUp(row_ct, kPglRblockSize);
-  const uint32_t rrtype_buf_byte_ct = BitCtToCachelineCt(row_ct) * kCacheline;
+  const uint32_t rrtype_buf_byte_ct = NypCtToCachelineCt(row_ct) * kCacheline;
   bwp->rblock_fpos = S_CAST(uint64_t*, arena_alloc_raw_rd(rblock_ct * sizeof(int64_t), &alloc_iter));
   bwp->rrec_len_buf = S_CAST(unsigned char*, arena_alloc_raw_rd(row_ct * bwp->rrec_len_byte_ct, &alloc_iter));
   bwp->rrtype_buf = S_CAST(uintptr_t*, arena_alloc_raw(rrtype_buf_byte_ct, &alloc_iter));
@@ -692,7 +696,6 @@ PglErr BitmapAppend(const uintptr_t* bitvec, BitmapWriter* bw_ptr) {
       // do not use prevdiff compression if there are at least this many
       // differences.  could tune this threshold in the future.
       const uint32_t prevdiff_threshold = difflist_viable? (difflist_len - col_ctd64) : max_difflist_len;
-
       if (abs_i32(prevdiff_base_set_bit_ct - set_bit_ct) < prevdiff_threshold) {
         // possible todo: benchmark against a single BitvecXorCopyAndCount
         // function on typical workloads, if we don't switch to
@@ -719,12 +722,14 @@ PglErr BitmapAppend(const uintptr_t* bitvec, BitmapWriter* bw_ptr) {
       rrtype = 2 + common_bit;
     } else {
       rrec_len = DivUp(col_ct, CHAR_BIT);
+      bwp->fwrite_bufp = memcpyua(bwp->fwrite_bufp, bitvec, rrec_len);
       rrtype = 0;
     }
   }
  BitmapAppend_finish:
   const uintptr_t rrec_len_byte_ct = bwp->rrec_len_byte_ct;
   SubU32Store(rrec_len, rrec_len_byte_ct, &(bwp->rrec_len_buf[ridx * rrec_len_byte_ct]));
+  bwp->prevdiff_base_set_bit_ct = set_bit_ct;
   bwp->rrtype_buf[ridx / kBitsPerWordD2] |= rrtype << (2 * (ridx % kBitsPerWordD2));
   bwp->ridx = ridx + 1;
   return kPglRetSuccess;
