@@ -1112,7 +1112,8 @@ HEADER_INLINE void ZeromovFArr(uintptr_t entry_ct, float** farr_ptr) {
 
 
 // SetAllBits, IsSet, SetBit, ClearBit, AdvTo1Bit, AdvTo0Bit, AdvBoundedTo1Bit,
-// FindLast1BitBefore, AllWordsAreZero defined in plink2_bits.h
+// FindLast1BitBefore, AllWordsAreZero, FillBitsNz, ClearBitsNz defined in
+// plink2_bits.h
 
 // Useful when we don't want to think about the signedness of a 32-bit int.
 HEADER_INLINE void SetBitI(int32_t loc, uintptr_t* bitarr) {
@@ -1122,10 +1123,6 @@ HEADER_INLINE void SetBitI(int32_t loc, uintptr_t* bitarr) {
 HEADER_INLINE void FlipBit(uintptr_t loc, uintptr_t* bitarr) {
   bitarr[loc / kBitsPerWord] ^= k1LU << (loc % kBitsPerWord);
 }
-
-// "Nz" added to names to make it obvious these require positive len
-void FillBitsNz(uintptr_t start_idx, uintptr_t end_idx, uintptr_t* bitarr);
-void ClearBitsNz(uintptr_t start_idx, uintptr_t end_idx, uintptr_t* bitarr);
 
 // floor permitted to be -1, though not smaller than that.
 int32_t FindLast1BitBeforeBounded(const uintptr_t* bitarr, uint32_t loc, int32_t floor);

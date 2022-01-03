@@ -144,6 +144,16 @@ PglErr BitmapReaderInitPhase1(const char* fname, BitmapReader* br_ptr, uintptr_t
 
 PglErr BitmapReaderInitPhase2(BitmapReader* br_ptr, unsigned char* br_alloc, char* errstr_buf);
 
+HEADER_INLINE uint32_t BitmapReaderRowCt(const BitmapReader* br_ptr) {
+  const BitmapReaderMain* brp = &GET_PRIVATE(*br_ptr, m);
+  return brp->row_ct;
+}
+
+HEADER_INLINE uint32_t BitmapReaderColCt(const BitmapReader* br_ptr) {
+  const BitmapReaderMain* brp = &GET_PRIVATE(*br_ptr, m);
+  return brp->col_ct;
+}
+
 PglErr BitmapGet(const uintptr_t* __restrict col_include, PgrColSubsetIndex pcsi, uint32_t col_ct, uint32_t ridx, BitmapReader* br_ptr, uintptr_t* __restrict dst);
 
 typedef struct BitmapWriterMainStruct {

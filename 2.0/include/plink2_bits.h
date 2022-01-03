@@ -52,6 +52,10 @@ HEADER_INLINE void PackWordsToHalfwordsMask(const uintptr_t* words, uintptr_t wo
 // ok for ct == 0
 void SetAllBits(uintptr_t ct, uintptr_t* bitarr);
 
+// "Nz" added to names to make it obvious these require positive len
+void FillBitsNz(uintptr_t start_idx, uintptr_t end_idx, uintptr_t* bitarr);
+void ClearBitsNz(uintptr_t start_idx, uintptr_t end_idx, uintptr_t* bitarr);
+
 void BitvecAnd(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec);
 
 void BitvecInvmask(const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec);

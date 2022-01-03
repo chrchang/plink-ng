@@ -74,6 +74,40 @@ void SetAllBits(uintptr_t ct, uintptr_t* bitarr) {
   }
 }
 
+void FillBitsNz(uintptr_t start_idx, uintptr_t end_idx, uintptr_t* bitarr) {
+  assert(end_idx > start_idx);
+  uintptr_t maj_start = start_idx / kBitsPerWord;
+  uintptr_t maj_end = end_idx / kBitsPerWord;
+  uintptr_t minor;
+  if (maj_start == maj_end) {
+    bitarr[maj_start] |= (k1LU << (end_idx % kBitsPerWord)) - (k1LU << (start_idx % kBitsPerWord));
+  } else {
+    bitarr[maj_start] |= ~((k1LU << (start_idx % kBitsPerWord)) - k1LU);
+    SetAllWArr(maj_end - maj_start - 1, &(bitarr[maj_start + 1]));
+    minor = end_idx % kBitsPerWord;
+    if (minor) {
+      bitarr[maj_end] |= (k1LU << minor) - k1LU;
+    }
+  }
+}
+
+void ClearBitsNz(uintptr_t start_idx, uintptr_t end_idx, uintptr_t* bitarr) {
+  assert(end_idx > start_idx);
+  uintptr_t maj_start = start_idx / kBitsPerWord;
+  uintptr_t maj_end = end_idx / kBitsPerWord;
+  uintptr_t minor;
+  if (maj_start == maj_end) {
+    bitarr[maj_start] &= ~((k1LU << (end_idx % kBitsPerWord)) - (k1LU << (start_idx % kBitsPerWord)));
+  } else {
+    bitarr[maj_start] = bzhi(bitarr[maj_start], start_idx % kBitsPerWord);
+    ZeroWArr(maj_end - maj_start - 1, &(bitarr[maj_start + 1]));
+    minor = end_idx % kBitsPerWord;
+    if (minor) {
+      bitarr[maj_end] &= ~((k1LU << minor) - k1LU);
+    }
+  }
+}
+
 void BitvecAnd(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec) {
   // main_bitvec := main_bitvec AND arg_bitvec
 #ifdef __LP64__
