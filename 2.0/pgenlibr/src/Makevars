@@ -1,5 +1,5 @@
 SOURCES = $(wildcard zstd/lib/compress/*.c) $(wildcard zstd/lib/decompress/*.c) $(wildcard zstd/lib/common/*.c) $(wildcard libdeflate/lib/*.c) $(wildcard libdeflate/lib/x86/*.c)
 OBJECTS = include/plink2_base.o include/plink2_bits.o include/pgenlib_misc.o include/pgenlib_read.o pvar_ffi_support.o pgenlib_ffi_support.o include/plink2_bgzf.o include/plink2_string.o include/plink2_text.o include/plink2_thread.o include/plink2_zstfile.o pvar.o pgenlibr.o RcppExports.o $(SOURCES:.c=.o)
 PKG_CFLAGS = -Izstd/lib -Izstd/lib/common -Ilibdeflate -Ilibdeflate/common
-PKG_CPPFLAGS = -DSTATIC_ZSTD -Izstd/lib -Izstd/lib/common
+PKG_CPPFLAGS = -DSTATIC_ZSTD -DZSTD_DISABLE_ASM -Izstd/lib -Izstd/lib/common
 PKG_LIBS = -lpthread
