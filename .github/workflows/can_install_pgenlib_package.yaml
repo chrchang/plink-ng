@@ -1,0 +1,34 @@
+# Checks if the pgenlib R package can be installed by a user,
+# when installing pgenlibr using:
+#
+# ```
+# remotes::install_github("chrchang/plink-ng/2.0/pgenlibr")
+# ```
+#
+
+on:
+  push:
+  pull_request:
+
+name: can_install_pgenlib_package
+
+jobs:
+  can_install_pgenlib_package:
+
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+
+      # Install R
+      - uses: r-lib/actions/setup-r@v1
+
+      # Prequisite for using the 'remotes' R package
+      - name: Install libcurl4-openssl-dev
+        run: sudo apt install -qq libcurl4-openssl-dev
+
+      - name: Install pgenlibr
+        run: |
+          install.packages("remotes")
+          remotes::install_github("chrchang/plink-ng/2.0/pgenlibr")
+        shell: Rscript {0}
