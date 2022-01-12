@@ -1,4 +1,9 @@
 # Checks if the pgenlib R package can be installed
+
+on:
+  push:
+  pull_request:
+
 name: can_install_pgenlib_package
 
 jobs:
