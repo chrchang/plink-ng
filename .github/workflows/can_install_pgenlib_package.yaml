@@ -1,4 +1,10 @@
-# Checks if the pgenlib R package can be installed
+# Checks if the pgenlib R package can be installed by a user,
+# when installing pgenlibr using:
+#
+# ```
+# remotes::install_github("chrchang/plink-ng/2.0/pgenlibr")
+# ```
+#
 
 on:
   push:
