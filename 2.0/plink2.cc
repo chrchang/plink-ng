@@ -3121,8 +3121,8 @@ int main(int argc, char** argv) {
   using namespace plink2;
 #endif
 
-#ifdef __APPLE__
-  fesetenv(FE_DFL_DISABLE_SSE_DENORMS_ENV);
+#ifdef __APPLE__ && defined CPU_CHECK_AVX2
+  // fesetenv(FE_DFL_DISABLE_SSE_DENORMS_ENV);
 #else
 #  if defined __LP64__ && defined __x86_64__
   _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);

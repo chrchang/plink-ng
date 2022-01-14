@@ -6953,6 +6953,7 @@ void FixBcf64allelicGtHh(uint32_t sample_ct, char* __restrict gt_start) {
   for (uint32_t vidx = 0; vidx != fullvec_ct; ++vidx) {
     const VecU32 vv_orig = vecu32_loadu(&(gt_valias[vidx]));
     const VecU32 vv_lshift16 = vecu32_slli(vv_orig, 16);
+    // const VecU32 vv_lshift16 = R_CAST(VecU32, _mm_slli_epi32(R_CAST(__m128i, vv_orig), 16));
     const VecU32 vv_high_nophase = vv_orig & high_nophase_mask;
     const VecU32 vv_replace_mask = (vv_lshift16 == vv_high_nophase) & inv_m16;
     const VecU32 vv_final = vecu32_blendv(vv_orig, eov, vv_replace_mask);

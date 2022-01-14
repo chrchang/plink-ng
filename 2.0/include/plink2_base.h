@@ -767,17 +767,19 @@ HEADER_INLINE VecW vecw_srli(VecW vv, uint32_t ct) {
   return R_CAST(VecW, _mm256_srli_epi64(R_CAST(__m256i, vv), ct));
 }
 
-HEADER_INLINE VecW vecw_slli(VecW vv, uint32_t ct) {
-  return R_CAST(VecW, _mm256_slli_epi64(R_CAST(__m256i, vv), ct));
-}
+#define vecw_slli(vv, ct) R_CAST(VecW, _mm256_slli_epi64(R_CAST(__m256i, vv), ct))
 
-HEADER_INLINE VecU32 vecu32_srli(VecU32 vv, uint32_t ct) {
-  return R_CAST(VecU32, _mm256_srli_epi32(R_CAST(__m256i, vv), ct));
-}
+// HEADER_INLINE VecW vecw_slli(VecW vv, uint32_t ct) {
+//   return R_CAST(VecW, _mm256_slli_epi64(R_CAST(__m256i, vv), ct));
+// }
 
-HEADER_INLINE VecU32 vecu32_slli(VecU32 vv, uint32_t ct) {
-  return R_CAST(VecU32, _mm256_slli_epi32(R_CAST(__m256i, vv), ct));
-}
+// HEADER_INLINE VecU32 vecu32_srli(VecU32 vv, uint32_t ct) {
+//   return R_CAST(VecU32, _mm256_srli_epi32(R_CAST(__m256i, vv), ct));
+// }
+
+// HEADER_INLINE VecU32 vecu32_slli(VecU32 vv, uint32_t ct) {
+//   return R_CAST(VecU32, _mm256_slli_epi32(R_CAST(__m256i, vv), ct));
+// }
 
 HEADER_INLINE VecU16 vecu16_srli(VecU16 vv, uint32_t ct) {
   return R_CAST(VecU16, _mm256_srli_epi16(R_CAST(__m256i, vv), ct));
@@ -1104,29 +1106,41 @@ HEADER_INLINE VecI8 veci8_setzero() {
   return R_CAST(VecI8, _mm_setzero_si128());
 }
 
-HEADER_INLINE VecW vecw_srli(VecW vv, uint32_t ct) {
-  return R_CAST(VecW, _mm_srli_epi64(R_CAST(__m128i, vv), ct));
-}
+#define vecw_srli(vv, ct) R_CAST(VecW, _mm_srli_epi64(R_CAST(__m128i, vv), ct))
 
-HEADER_INLINE VecW vecw_slli(VecW vv, uint32_t ct) {
-  return R_CAST(VecW, _mm_slli_epi64(R_CAST(__m128i, vv), ct));
-}
+// HEADER_INLINE VecW vecw_srli(VecW vv, const uint8_t& ct) {
+//   return R_CAST(VecW, _mm_srli_epi64(R_CAST(__m128i, vv), ct));
+// }
 
-HEADER_INLINE VecU32 vecu32_srli(VecU32 vv, uint32_t ct) {
-  return R_CAST(VecU32, _mm_srli_epi32(R_CAST(__m128i, vv), ct));
-}
+#define vecw_slli(vv, ct) R_CAST(VecW, _mm_slli_epi64(R_CAST(__m128i, vv), ct))
 
-HEADER_INLINE VecU32 vecu32_slli(VecU32 vv, uint32_t ct) {
-  return R_CAST(VecU32, _mm_slli_epi32(R_CAST(__m128i, vv), ct));
-}
+// HEADER_INLINE VecW vecw_slli(VecW vv, const uint8_t& ct) {
+//   return R_CAST(VecW, _mm_slli_epi64(R_CAST(__m128i, vv), ct));
+// }
 
-HEADER_INLINE VecU16 vecu16_srli(VecU16 vv, uint32_t ct) {
-  return R_CAST(VecU16, _mm_srli_epi16(R_CAST(__m128i, vv), ct));
-}
+#define vecu32_srli(vv, ct) R_CAST(VecU32, _mm_srli_epi32(R_CAST(__m128i, vv), ct))
 
-HEADER_INLINE VecU16 vecu16_slli(VecU16 vv, uint32_t ct) {
-  return R_CAST(VecU16, _mm_slli_epi16(R_CAST(__m128i, vv), ct));
-}
+// HEADER_INLINE VecU32 vecu32_srli(VecU32 vv, const uint8_t& ct) {
+//   return R_CAST(VecU32, _mm_srli_epi32(R_CAST(__m128i, vv), ct));
+// }
+
+#define vecu32_slli(vv, ct) R_CAST(VecU32, _mm_slli_epi32(R_CAST(__m128i, vv), ct))
+
+// HEADER_INLINE VecU32 vecu32_slli(VecU32 vv, const uint8_t& ct) {
+//   return R_CAST(VecU32, _mm_slli_epi32(R_CAST(__m128i, vv), ct));
+// }
+
+#define vecu16_srli(vv, ct) R_CAST(VecU16, _mm_srli_epi16(R_CAST(__m128i, vv), ct))
+
+// HEADER_INLINE VecU16 vecu16_srli(VecU16 vv, const uint8_t& ct) {
+//   return R_CAST(VecU16, _mm_srli_epi16(R_CAST(__m128i, vv), ct));
+// }
+
+#define vecu16_slli(vv, ct) R_CAST(VecU16, _mm_slli_epi16(R_CAST(__m128i, vv), ct))
+
+// HEADER_INLINE VecU16 vecu16_slli(VecU16 vv, const uint8_t& ct) {
+//   return R_CAST(VecU16, _mm_slli_epi16(R_CAST(__m128i, vv), ct));
+// }
 
 HEADER_INLINE VecW vecw_and_notfirst(VecW excl, VecW main) {
   return R_CAST(VecW, _mm_andnot_si128(R_CAST(__m128i, excl), R_CAST(__m128i, main)));

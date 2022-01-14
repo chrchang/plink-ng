@@ -63,6 +63,22 @@ void Pack32bTo16bMask(const void* words, uintptr_t ct_32b, void* dest) {
 }
 #endif
 
+// Using a lookup table because NEON bit shift functions can only be called with compile-time constants
+// https://eigen.tuxfamily.org/bz/show_bug.cgi?id=1631
+// https://github.com/VectorCamp/vectorscan/issues/21
+VecW vecw_slli_lookup(VecW vv, uint8_t ct) {
+  switch(ct) {
+    default: return vv;
+    case 1: return vecw_slli(vv, 1);
+    case 2: return vecw_slli(vv, 2);
+    case 3: return vecw_slli(vv, 3);
+    case 4: return vecw_slli(vv, 4);
+    case 5: return vecw_slli(vv, 5);
+    case 6: return vecw_slli(vv, 6);
+    case 7: return vecw_slli(vv, 7);
+  }
+}
+
 void SetAllBits(uintptr_t ct, uintptr_t* bitarr) {
   // leaves bits beyond the end unset
   // ok for ct == 0
@@ -1958,7 +1974,7 @@ void TransposeBitblock64(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
   Vec8thUint* write_iter_last = &(write_iter0[write_v8ui_stride * (row_ct_rem - 1)]);
   for (uint32_t vidx = 0; vidx != buf1_row_vecwidth; ++vidx) {
     VecW loader = buf1_read_iter[vidx];
-    loader = vecw_slli(loader, lshift);
+    loader = vecw_slli_lookup(loader, lshift);
     Vec8thUint* inner_write_iter = &(write_iter_last[vidx]);
     for (uint32_t uii = 0; uii != row_ct_rem; ++uii) {
       *inner_write_iter = vecw_movemask(loader);
