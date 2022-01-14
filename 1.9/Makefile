@@ -24,8 +24,6 @@ else
   endif
 endif
 
-ARCH := $(shell uname -p)
-
 # Allow these to be overridden by make arguments or env variables, so people
 # don't have to edit the Makefile to build in a different environment.
 BIN ?=		plink
