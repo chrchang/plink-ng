@@ -47,7 +47,7 @@ ifeq ($(SYS), MAC)
   CXXFLAGS += $(MACFLAGS)
   BLASFLAGS ?= -framework Accelerate
   LDFLAGS ?= -ldl
-  ZLIB ?= -L. ../zlib-1.2.11/libz-64.a
+  ZLIB ?= -L. ../zlib-1.2.11/libz.a
 endif
 
 ifeq ($(SYS), WIN)
