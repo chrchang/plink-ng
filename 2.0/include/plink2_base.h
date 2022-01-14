@@ -767,7 +767,17 @@ HEADER_INLINE VecW vecw_srli(VecW vv, uint32_t ct) {
   return R_CAST(VecW, _mm256_srli_epi64(R_CAST(__m256i, vv), ct));
 }
 
-#define vecw_slli(vv, ct) R_CAST(VecW, _mm256_slli_epi64(R_CAST(__m256i, vv), ct))
+HEADER_INLINE VecW vecw_slli(VecW vv, uint32_t ct) {
+  return R_CAST(VecW, _mm256_slli_epi64(R_CAST(__m256i, vv), ct));
+}
+
+HEADER_INLINE VecU32 vecu32_srli(VecU32 vv, uint32_t ct) {
+  return R_CAST(VecU32, _mm256_srli_epi32(R_CAST(__m256i, vv), ct));
+}
+
+HEADER_INLINE VecU32 vecu32_slli(VecU32 vv, uint32_t ct) {
+  return R_CAST(VecU32, _mm256_slli_epi32(R_CAST(__m256i, vv), ct));
+}
 
 HEADER_INLINE VecU16 vecu16_srli(VecU16 vv, uint32_t ct) {
   return R_CAST(VecU16, _mm256_srli_epi16(R_CAST(__m256i, vv), ct));
