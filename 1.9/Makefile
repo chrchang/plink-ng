@@ -24,6 +24,8 @@ else
   endif
 endif
 
+ARCH := $(shell uname -p)
+
 # Allow these to be overridden by make arguments or env variables, so people
 # don't have to edit the Makefile to build in a different environment.
 BIN ?=		plink
@@ -47,7 +49,11 @@ ifeq ($(SYS), MAC)
   CXXFLAGS += $(MACFLAGS)
   BLASFLAGS ?= -framework Accelerate
   LDFLAGS ?= -ldl
-  ZLIB ?= -L. ../zlib-1.2.11/libz-64.a
+  ifeq ($(ARCH), arm)
+    ZLIB ?= -L. ../zlib-1.2.11/libz.a
+  else
+    ZLIB ?= -L. ../zlib-1.2.11/libz-64.a
+  endif
 endif
 
 ifeq ($(SYS), WIN)
