@@ -147,7 +147,8 @@
  * needed.
  */
 #if (GCC_PREREQ(4, 0) && !GCC_PREREQ(5, 1)) || \
-    (defined(__clang__) && !CLANG_PREREQ(3, 9, 8020000))
+    (defined(__clang__) && !CLANG_PREREQ(3, 9, 8020000)) || \
+    defined(__INTEL_COMPILER)
 typedef unsigned long long  __v2du __attribute__((__vector_size__(16)));
 typedef unsigned int        __v4su __attribute__((__vector_size__(16)));
 typedef unsigned short      __v8hu __attribute__((__vector_size__(16)));
@@ -156,6 +157,12 @@ typedef unsigned long long  __v4du __attribute__((__vector_size__(32)));
 typedef unsigned int        __v8su __attribute__((__vector_size__(32)));
 typedef unsigned short     __v16hu __attribute__((__vector_size__(32)));
 typedef unsigned char      __v32qu __attribute__((__vector_size__(32)));
+#endif
+
+#ifdef __INTEL_COMPILER
+typedef int   __v16si __attribute__((__vector_size__(64)));
+typedef short __v32hi __attribute__((__vector_size__(64)));
+typedef char  __v64qi __attribute__((__vector_size__(64)));
 #endif
 
 /* Newer gcc supports __BYTE_ORDER__.  Older gcc doesn't. */
@@ -175,7 +182,16 @@ typedef unsigned char      __v32qu __attribute__((__vector_size__(32)));
 #  define bswap64	__builtin_bswap64
 #endif
 
-#if defined(__x86_64__) || defined(__i386__) || defined(__ARM_FEATURE_UNALIGNED) || defined(__powerpc64__)
+#if defined(__x86_64__) || defined(__i386__) || \
+    defined(__ARM_FEATURE_UNALIGNED) || defined(__powerpc64__) || \
+    /*
+     * For all compilation purposes, WebAssembly behaves like any other CPU
+     * instruction set. Even though WebAssembly engine might be running on top
+     * of different actual CPU architectures, the WebAssembly spec itself
+     * permits unaligned access and it will be fast on most of those platforms,
+     * and simulated at the engine level on others, so it's worth treating it
+     * as a CPU architecture with fast unaligned access.
+    */ defined(__wasm__)
 #  define UNALIGNED_ACCESS_IS_FAST 1
 #endif
 
