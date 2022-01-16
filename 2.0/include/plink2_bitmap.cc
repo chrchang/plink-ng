@@ -727,6 +727,7 @@ PglErr BitmapAppend(const uintptr_t* bitvec, BitmapWriter* bw_ptr) {
     }
   }
  BitmapAppend_finish:
+  ;  // needed for pure-C compiler
   const uintptr_t rrec_len_byte_ct = bwp->rrec_len_byte_ct;
   SubU32Store(rrec_len, rrec_len_byte_ct, &(bwp->rrec_len_buf[ridx * rrec_len_byte_ct]));
   bwp->prevdiff_base_set_bit_ct = set_bit_ct;
