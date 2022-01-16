@@ -1,7 +1,7 @@
 #ifndef __PLINK_DOSAGE_H__
 #define __PLINK_DOSAGE_H__
 
-// This file is part of PLINK 1.90, copyright (C) 2005-2021 Shaun Purcell,
+// This file is part of PLINK 1.90, copyright (C) 2005-2022 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify
