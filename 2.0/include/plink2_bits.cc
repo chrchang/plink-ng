@@ -1974,7 +1974,11 @@ void TransposeBitblock64(const uintptr_t* read_iter, uintptr_t read_ul_stride, u
   Vec8thUint* write_iter_last = &(write_iter0[write_v8ui_stride * (row_ct_rem - 1)]);
   for (uint32_t vidx = 0; vidx != buf1_row_vecwidth; ++vidx) {
     VecW loader = buf1_read_iter[vidx];
-    loader = vecw_slli_lookup(loader, lshift);
+#   ifdef __x86_64__
+        loader = vecw_slli(loader, lshift);
+#   else
+        loader = vecw_slli_lookup(loader, lshift);
+#   endif // __x86_64__
     Vec8thUint* inner_write_iter = &(write_iter_last[vidx]);
     for (uint32_t uii = 0; uii != row_ct_rem; ++uii) {
       *inner_write_iter = vecw_movemask(loader);
