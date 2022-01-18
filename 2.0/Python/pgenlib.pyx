@@ -1215,6 +1215,7 @@ cdef class PgenWriter:
             phase_dosage_gflags |= kfPgenGlobalHardcallPhasePresent
         if dosage_present:
             phase_dosage_gflags |= kfPgenGlobalDosagePresent
+        self._phase_dosage_gflags = phase_dosage_gflags
         assert not dosage_phase_present
         cdef uintptr_t alloc_cacheline_ct
         cdef uint32_t max_vrec_len
