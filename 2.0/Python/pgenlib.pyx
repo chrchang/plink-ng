@@ -1170,6 +1170,7 @@ cdef bytes_to_bits_internal(np.ndarray[np.uint8_t,mode="c",cast=True] boolbytes,
 cdef class PgenWriter:
     cdef STPgenWriter* _state_ptr
     cdef uintptr_t* _nonref_flags
+    cdef PgenGlobalFlags _phase_dosage_gflags
     # preallocate buffers we'll use repeatedly
     cdef uintptr_t* _genovec
     cdef uintptr_t* _phasepresent
@@ -1255,6 +1256,8 @@ cdef class PgenWriter:
             AlleleCodesToGenoarrUnsafe(allele_codes, NULL, SpgwGetSampleCt(self._state_ptr), genovec, NULL, NULL)
             reterr = SpgwAppendBiallelicGenovec(genovec, self._state_ptr)
         else:
+            if (self._phase_dosage_gflags & kfPgenGlobalHardcallPhasePresent) == 0:
+                raise RuntimeError("append_alleles called with all_phased True, but PgenWriter was constructed with hardcall_phase_present False")
             AlleleCodesToGenoarrUnsafe(allele_codes, NULL, SpgwGetSampleCt(self._state_ptr), genovec, NULL, self._phaseinfo)
             reterr = SpgwAppendBiallelicGenovecHphase(genovec, NULL, self._phaseinfo, self._state_ptr)
         if reterr != kPglRetSuccess:
@@ -1263,6 +1266,8 @@ cdef class PgenWriter:
 
 
     cpdef append_partially_phased(self, np.ndarray[np.int32_t,mode="c"] allele_int32, np.ndarray[np.uint8_t,cast=True] phasepresent):
+        if (self._phase_dosage_gflags & kfPgenGlobalHardcallPhasePresent) == 0:
+            raise RuntimeError("append_partially_phased cannot be called when PgenWriter was constructed with hardcall_phase_present False")
         cdef int32_t* allele_codes = <int32_t*>(&(allele_int32[0]))
         cdef unsigned char* phasepresent_bytes = <unsigned char*>(&(phasepresent[0]))
         cdef uintptr_t* genovec = self._genovec
@@ -1298,6 +1303,8 @@ cdef class PgenWriter:
         return
 
     cpdef append_dosages(self, np.ndarray floatarr):
+        if (self._phase_dosage_gflags & kfPgenGlobalDosagePresent) == 0:
+            raise RuntimeError("append_dosages cannot be called when PgenWriter was constructed with dosage_present False")
         if floatarr.dtype == np.float32:
             self.append_dosages_internal32(floatarr)
         elif floatarr.dtype == np.float64:
@@ -1335,6 +1342,8 @@ cdef class PgenWriter:
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("append_alleles_batch() error " + str(reterr))
         else:
+            if (self._phase_dosage_gflags & kfPgenGlobalHardcallPhasePresent) == 0:
+                raise RuntimeError("append_alleles_batch called with all_phased True, but PgenWriter was constructed with hardcall_phase_present False")
             for uii in range(batch_size):
                 allele_codes = <int32_t*>(&(allele_int32_batch[uii, 0]))
                 AlleleCodesToGenoarrUnsafe(allele_codes, NULL, SpgwGetSampleCt(self._state_ptr), genovec, NULL, self._phaseinfo)
@@ -1345,6 +1354,8 @@ cdef class PgenWriter:
 
 
     cpdef append_partially_phased_batch(self, np.ndarray[np.int32_t,mode="c",ndim=2] allele_int32_batch, np.ndarray[np.uint8_t,mode="c",cast=True,ndim=2] phasepresent_batch):
+        if (self._phase_dosage_gflags & kfPgenGlobalHardcallPhasePresent) == 0:
+            raise RuntimeError("append_partially_phased_batch cannot be called when PgenWriter was constructed with hardcall_phase_present False")
         cdef uint32_t batch_size = <uint32_t>allele_int32_batch.shape[0]
         cdef uintptr_t* genovec = self._genovec
         cdef uintptr_t* phasepresent_buf = self._phasepresent
@@ -1394,6 +1405,8 @@ cdef class PgenWriter:
         return
 
     cpdef append_dosages_batch(self, np.ndarray floatarr_batch):
+        if (self._phase_dosage_gflags & kfPgenGlobalDosagePresent) == 0:
+            raise RuntimeError("append_dosages_batch cannot be called when PgenWriter was constructed with dosage_present False")
         if floatarr_batch.dtype == np.float32:
             self.append_dosages_batch_internal32(floatarr_batch)
         elif floatarr_batch.dtype == np.float64:
