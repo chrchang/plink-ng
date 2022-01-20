@@ -9231,6 +9231,7 @@ typedef struct HetCtxStruct {
 
   double* thread_ehet_base;
   uint32_t* thread_nobs_base;
+  uint32_t* thread_monomorphic_ct;
   uint32_t** thread_ohets;
   double** thread_ehet_incrs;
   int32_t** thread_nobs_incrs;
@@ -9270,6 +9271,7 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
 
   double ehet_base = 0.0;
   uint32_t nobs_base = 0;
+  uint32_t monomorphic_ct = 0;
   uint32_t* ohets = ctx->thread_ohets[tidx];
   double* ehet_incrs = ctx->thread_ehet_incrs[tidx];
   int32_t* nobs_incrs = ctx->thread_nobs_incrs[tidx];
@@ -9309,6 +9311,7 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
           const double ref_freq = allele_freqs[allele_idx_offset_base - variant_uidx];
           ehet = 2 * ref_freq * (1 - ref_freq);
           if (ehet < kSmallishEpsilon) {
+            ++monomorphic_ct;
             continue;
           }
         }
@@ -9352,6 +9355,7 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
             const uint32_t numer1 = 2 * genocounts[0] + genocounts[1];
             const uint32_t numer2 = genocounts[1] + 2 * genocounts[2];
             if ((!numer1) || (!numer2)) {
+              ++monomorphic_ct;
               continue;
             }
             const uint32_t denom = numer1 + numer2;
@@ -9382,6 +9386,7 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
             }
           } else {
             if (!word_ct) {
+              ++monomorphic_ct;
               continue;
             }
             const uint32_t word_ct_m1 = word_ct - 1;
@@ -9413,6 +9418,7 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
           const uint32_t numer1 = 2 * genocounts[0] + genocounts[1];
           const uint32_t numer2 = genocounts[1] + 2 * genocounts[2];
           if ((!numer1) || (!numer2)) {
+            ++monomorphic_ct;
             continue;
           }
           const uint32_t denom = numer1 + numer2;
@@ -9433,6 +9439,7 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
           const double last_allele_freq = 1.0 - freq_sum;
           ehet = 1.0 - freq_ssq - last_allele_freq * last_allele_freq;
           if (ehet < kSmallishEpsilon) {
+            ++monomorphic_ct;
             continue;
           }
         }
@@ -9450,6 +9457,7 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
           allele_nobs[1] = genocounts[1] + 2 * genocounts[2];
           const uint32_t denom = allele_nobs[0] + allele_nobs[1];
           if (!denom) {
+            ++monomorphic_ct;
             continue;
           }
           ZeroU32Arr(cur_allele_ct - 2, &(allele_nobs[2]));
@@ -9559,6 +9567,7 @@ THREAD_FUNC_DECL HetThread(void* raw_arg) {
   {
     ctx->thread_ehet_base[tidx] = ehet_base;
     ctx->thread_nobs_base[tidx] = nobs_base;
+    ctx->thread_monomorphic_ct[tidx] = monomorphic_ct;
 
     VecW* acc4 = &(scrambled_ohets[acc2_vec_ct]);
     VcountIncr2To4(scrambled_ohets, acc2_vec_ct, acc4);
@@ -9683,6 +9692,7 @@ PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
                  bigstack_alloc_vp(calc_thread_ct, &ctx.scrambled_ohet_bufs) ||
                  bigstack_alloc_d(calc_thread_ct, &ctx.thread_ehet_base) ||
                  bigstack_alloc_u32(calc_thread_ct, &ctx.thread_nobs_base) ||
+                 bigstack_alloc_u32(calc_thread_ct, &ctx.thread_monomorphic_ct) ||
                  bigstack_alloc_u32p(calc_thread_ct, &ctx.thread_ohets) ||
                  bigstack_alloc_dp(calc_thread_ct, &ctx.thread_ehet_incrs) ||
                  bigstack_alloc_i32p(calc_thread_ct, &ctx.thread_nobs_incrs))) {
@@ -9793,12 +9803,14 @@ PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
     }
     double ehet_base = ctx.thread_ehet_base[0];
     uint32_t nobs_base = ctx.thread_nobs_base[0];
+    uint32_t monomorphic_ct = ctx.thread_monomorphic_ct[0];
     uint32_t* ohets = ctx.thread_ohets[0];
     double* ehet_incrs = ctx.thread_ehet_incrs[0];
     int32_t* nobs_incrs = ctx.thread_nobs_incrs[0];
     for (uint32_t tidx = 1; tidx != calc_thread_ct; ++tidx) {
       ehet_base += ctx.thread_ehet_base[tidx];
       nobs_base += ctx.thread_nobs_base[tidx];
+      monomorphic_ct += ctx.thread_monomorphic_ct[tidx];
       U32CastVecAdd(ctx.thread_ohets[tidx], sample_ct_i32v, ohets);
       const double* src = ctx.thread_ehet_incrs[tidx];
       for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
@@ -9812,6 +9824,9 @@ PglErr HetReport(const uintptr_t* sample_include, const SampleIdInfo* siip, cons
     }
     fputs("\b\b", stdout);
     logputs("done.\n");
+    if (monomorphic_ct) {
+      logerrprintfww("Warning: %u autosomal variant%s skipped because %s monomorphic.%s\n", monomorphic_ct, (monomorphic_ct == 1)? "" : "s", (monomorphic_ct == 1)? "it was" : "they were", small_sample? "" : " You may want to use --read-freq to provide more accurate allele frequency estimates.");
+    }
     const char* sample_ids = siip->sample_ids;
     const char* sids = siip->sids;
     const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
