@@ -809,9 +809,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * Note that you need to rerun PLINK using --extract or --exclude on the\n"
 "      .prune.in/.prune.out file to apply the list to another computation... and\n"
 "      as with other applications of --extract/--exclude, duplicate variant IDs\n"
-"      are a problem.  --indep-pairwise still runs to completion for now when\n"
-"      duplicate variant IDs are present, but that will become an error in alpha\n"
-"      3.\n\n"
+"      are a problem.  --indep-pairwise now errors out when duplicate variant\n"
+"      IDs are present.\n\n"
               );
     // todo: implement --indep-pairphase with new --ld approach.  (eventually
     // add an option to take dosages into account?  but not a priority.)
@@ -2176,6 +2175,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --multiallelics-already-joined : Prevent --pmerge[-list] from erroring out\n"
 "                                   when a .pvar file appears to have a 'split'\n"
 "                                   multiallelic variant.\n"
+              );
+    HelpPrint("indep-preferred\0indep-pairwise\0", &help_ctrl, 0,
+"  --indep-preferred <filename>   : Make variant-pruning commands try to keep\n"
+"                                   the variants listed in a file.\n"
               );
     // todo: add citation for 2018 KING update paper, which should discuss the
     // two-stage screen + refine workflow supported by --king-table-subset,

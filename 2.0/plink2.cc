@@ -71,7 +71,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (20 Jan 2022)";
+  " (21 Jan 2022)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -429,6 +429,7 @@ typedef struct Plink2CmdlineStruct {
   char* update_parental_ids_fname;
   char* recover_var_ids_fname;
   char* vscore_fname;
+  char* indep_preferred_fname;
   TwoColParams* ref_allele_flag;
   TwoColParams* alt1_allele_flag;
   TwoColParams* update_map_flag;
@@ -2609,7 +2610,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           logerrputs("Error: When the window size is in kb units, LD-based pruning requires a sorted\n.pvar/.bim.  Retry this command after using --make-pgen/--make-bed +\n--sort-vars to sort your data.\n");
           goto Plink2Core_ret_INCONSISTENT_INPUT;
         }
-        reterr = LdPrune(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, sex_male, &(pcp->ld_info), raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = LdPrune(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, sex_male, &(pcp->ld_info), pcp->indep_preferred_fname, raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -3232,6 +3233,7 @@ int main(int argc, char** argv) {
   pc.update_parental_ids_fname = nullptr;
   pc.recover_var_ids_fname = nullptr;
   pc.vscore_fname = nullptr;
+  pc.indep_preferred_fname = nullptr;
   InitRangeList(&pc.snps_range_list);
   InitRangeList(&pc.exclude_snps_range_list);
   InitRangeList(&pc.pheno_range_list);
@@ -5986,6 +5988,18 @@ int main(int argc, char** argv) {
             pc.ld_info.prune_flags |= kfLdPrunePairphase;
           } else {
             pc.ld_info.prune_flags |= kfLdPrunePairwise;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "ndep-preferred")) {
+          if (!(pc.ld_info.prune_flags & (kfLdPrunePairwise | kfLdPrunePairphase))) {
+            logerrputs("Error: --indep-preferred must be used with --indep-pairwise or\n--indep-pairphase.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.indep_preferred_fname);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
           }
         } else if (strequal_k_unsafe(flagname_p2, "nput-missing-genotype")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -10834,6 +10848,7 @@ int main(int argc, char** argv) {
   CleanupPlink2CmdlineMeta(&pcm);
   CleanupAdjust(&adjust_file_info);
   free_cond(king_cutoff_fprefix);
+  free_cond(pc.indep_preferred_fname);
   free_cond(pc.vscore_fname);
   free_cond(pc.recover_var_ids_fname);
   free_cond(pc.update_parental_ids_fname);

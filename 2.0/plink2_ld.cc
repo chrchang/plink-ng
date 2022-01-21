@@ -16,6 +16,7 @@
 
 
 #include "include/plink2_stats.h"
+#include "plink2_filter.h"
 #include "plink2_ld.h"
 
 #ifdef __cplusplus
@@ -617,6 +618,7 @@ typedef struct IndepPairwiseCtxStruct {
   const AlleleCode* maj_alleles;
   const double* all_allele_freqs;
   const uint32_t* variant_bps;
+  const uintptr_t* preferred_variants;
   uint32_t* tvidx_end;
   uint32_t x_start;
   uint32_t x_len;
@@ -651,6 +653,7 @@ THREAD_FUNC_DECL IndepPairwiseThread(void* raw_arg) {
   const uint32_t* subcontig_info = ctx->subcontig_info;
   const uint32_t* subcontig_thread_assignments = ctx->subcontig_thread_assignments;
   const uintptr_t* variant_include = ctx->variant_include;
+  const uintptr_t* preferred_variants = ctx->preferred_variants;
   const uint32_t x_start = ctx->x_start;
   const uint32_t x_len = ctx->x_len;
   const uint32_t y_start = ctx->y_start;
@@ -753,6 +756,9 @@ THREAD_FUNC_DECL IndepPairwiseThread(void* raw_arg) {
           allele_idx_base -= variant_uidx;
         }
         cur_maj_freqs[write_slot_idx] = GetAlleleFreq(&(all_allele_freqs[allele_idx_base]), maj_alleles[variant_uidx], cur_allele_ct);
+        if (preferred_variants && IsSet(preferred_variants, variant_uidx)) {
+          cur_maj_freqs[write_slot_idx] -= 1.0;
+        }
         first_unchecked_tvidx[write_slot_idx] = cur_tvidx + 1;
       }
       SetBit(write_slot_idx, occupied_window_slots);
@@ -882,7 +888,7 @@ THREAD_FUNC_DECL IndepPairwiseThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
-PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uint32_t* founder_info_cumulative_popcounts, const uintptr_t* founder_nonmale, const uintptr_t* founder_male, const LdInfo* ldip, const uint32_t* subcontig_info, const uint32_t* subcontig_thread_assignments, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t founder_male_ct, uint32_t subcontig_ct, uintptr_t window_max, uint32_t calc_thread_ct, uint32_t max_load, PgenReader* simple_pgrp, uintptr_t* removed_variants_collapsed) {
+PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uint32_t* founder_info_cumulative_popcounts, const uintptr_t* founder_nonmale, const uintptr_t* founder_male, const LdInfo* ldip, const uintptr_t* preferred_variants, const uint32_t* subcontig_info, const uint32_t* subcontig_thread_assignments, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t founder_male_ct, uint32_t subcontig_ct, uintptr_t window_max, uint32_t calc_thread_ct, uint32_t max_load, PgenReader* simple_pgrp, uintptr_t* removed_variants_collapsed) {
   ThreadGroup tg;
   PreinitThreads(&tg);
   PglErr reterr = kPglRetSuccess;
@@ -897,8 +903,8 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     const uint32_t founder_male_ctaw = BitCtToAlignedWordCt(founder_male_ct);
     // Per-thread allocations:
     // - tvidx_batch_size * raw_tgenovec_single_variant_word_ct *
-    //     sizeof(intptr_t) for raw genotype data (g_raw_tgenovecs)
-    // - tvidx_batch_size * sizeof(double) for g_maj_freqs
+    //     sizeof(intptr_t) for raw genotype data (raw_tgenovecs)
+    // - tvidx_batch_size * sizeof(double) for cur_maj_freqs
     // - if pos-based window, tvidx_batch_size * sizeof(int32_t)
     // - All of the above again, to allow loader thread to operate
     //     independently
@@ -1005,6 +1011,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     ctx.maj_alleles = maj_alleles;
     ctx.all_allele_freqs = allele_freqs;
     ctx.variant_bps = variant_bps;
+    ctx.preferred_variants = preferred_variants;
     ctx.founder_ct = founder_ct;
     ctx.founder_male_ct = founder_male_ct;
     ctx.prune_window_size = ldip->prune_window_size;
@@ -1564,7 +1571,7 @@ PglErr LdPruneWrite(const uintptr_t* variant_include, const uintptr_t* removed_v
   return reterr;
 }
 
-PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_male, const LdInfo* ldip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_male, const LdInfo* ldip, const char* indep_preferred_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   // common initialization between --indep-pairwise and --indep-pairphase
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -1629,16 +1636,27 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
       goto LdPrune_ret_1;
     }
 
-    {
-      uint32_t dup_found;
+    uintptr_t* preferred_variants = nullptr;
+    uint32_t dup_found;
+    if (!indep_preferred_fname) {
       reterr = CheckIdUniqueness(g_bigstack_base, g_bigstack_end, variant_include, variant_ids, variant_ct, max_thread_ct, &dup_found);
-      if (unlikely(reterr)) {
-        goto LdPrune_ret_1;
+    } else {
+      if (unlikely(bigstack_alloc_w(raw_variant_ctl, &preferred_variants))) {
+        goto LdPrune_ret_NOMEM;
       }
-      if (unlikely(dup_found)) {
-        logerrprintfww("Error: --indep-pair%s requires unique variant IDs. (--set-all-var-ids and/or --rm-dup may help.)\n", is_pairphase? "phase" : "wise");
-        goto LdPrune_ret_INCONSISTENT_INPUT;
-      }
+      memcpy(preferred_variants, variant_include, raw_variant_ctl * sizeof(intptr_t));
+      reterr = NondupIdLoad(variant_ids, indep_preferred_fname, raw_variant_ct, variant_ct, max_thread_ct, preferred_variants, &dup_found);
+    }
+    if (unlikely(reterr)) {
+      goto LdPrune_ret_1;
+    }
+    if (unlikely(dup_found)) {
+      logerrprintfww("Error: --indep-pair%s requires unique variant IDs. (--set-all-var-ids and/or --rm-dup may help.)\n", is_pairphase? "phase" : "wise");
+      goto LdPrune_ret_INCONSISTENT_INPUT;
+    }
+    if (preferred_variants) {
+      const uint32_t preferred_variant_ct = PopcountWords(preferred_variants, raw_variant_ctl);
+      logprintf("--indep-preferred: %u variant%s loaded.\n", preferred_variant_ct, (preferred_variant_ct == 1)? "" : "s");
     }
 
     if (max_thread_ct > 2) {
@@ -1715,7 +1733,7 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     if (is_pairphase) {
       reterr = IndepPairphase();
     } else {
-      reterr = IndepPairwise(variant_include, cip, variant_bps, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, founder_info_cumulative_popcounts, founder_nonmale_collapsed, founder_male_collapsed, ldip, subcontig_info, subcontig_thread_assignments, raw_sample_ct, founder_ct, founder_male_ct, subcontig_ct, window_max, max_thread_ct, max_load, simple_pgrp, removed_variants_collapsed);
+      reterr = IndepPairwise(variant_include, cip, variant_bps, allele_idx_offsets, maj_alleles, allele_freqs, founder_info, founder_info_cumulative_popcounts, founder_nonmale_collapsed, founder_male_collapsed, ldip, preferred_variants, subcontig_info, subcontig_thread_assignments, raw_sample_ct, founder_ct, founder_male_ct, subcontig_ct, window_max, max_thread_ct, max_load, simple_pgrp, removed_variants_collapsed);
     }
     if (unlikely(reterr)) {
       goto LdPrune_ret_1;

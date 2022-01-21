@@ -2878,9 +2878,43 @@ PglErr PopulateIdHtableMt(unsigned char* arena_top, const uintptr_t* subset_mask
   return reterr;
 }
 
+PglErr AllocAndPopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uintptr_t fast_size_min_extra_bytes, uint32_t max_thread_ct, uint32_t** id_htable_ptr, uint32_t** htable_dup_base_ptr, uint32_t* id_htable_size_ptr, uint32_t* dup_ct_ptr) {
+  uint32_t id_htable_size = GetHtableFastSize(item_ct);
+  // if store_all_dups, up to 8 bytes per variant in extra_alloc for duplicate
+  //   tracking, as well as a small amount of per-thread temporary workspace
+  const uint32_t store_all_dups = (htable_dup_base_ptr != nullptr);
+  uintptr_t nonhtable_alloc = 0;
+  if (store_all_dups) {
+    const uint32_t actual_thread_ct = PopulateIdHtableMtDupstoreThreadCt(max_thread_ct, item_ct);
+    // "2 *" in front of second term is temporary
+    nonhtable_alloc = actual_thread_ct * kDupstoreThreadWkspace + 2 * RoundUpPow2(item_ct * 2 * sizeof(int32_t), kCacheline);
+  }
+  uintptr_t max_bytes = RoundDownPow2(bigstack_left(), kCacheline);
+  // force max_bytes >= 5 so leqprime() doesn't fail
+  // (not actually relevant any more, but whatever)
+  if (nonhtable_alloc + (item_ct + 6) * sizeof(int32_t) > max_bytes) {
+    return kPglRetNomem;
+  }
+  max_bytes -= nonhtable_alloc;
+  if (id_htable_size * sizeof(int32_t) + fast_size_min_extra_bytes > max_bytes) {
+    id_htable_size = max_bytes / sizeof(int32_t);
+    // id_htable_size = leqprime((max_bytes / sizeof(int32_t)) - 1);
+    const uint32_t min_htable_size = GetHtableMinSize(item_ct);
+    if (id_htable_size < min_htable_size) {
+      id_htable_size = min_htable_size;
+    }
+  }
+  *id_htable_ptr = S_CAST(uint32_t*, bigstack_alloc_raw_rd(id_htable_size * sizeof(int32_t)));
+  if (store_all_dups) {
+    *htable_dup_base_ptr = &((*id_htable_ptr)[RoundUpPow2(id_htable_size, kInt32PerCacheline)]);
+  }
+  *id_htable_size_ptr = id_htable_size;
+  return PopulateIdHtableMt(g_bigstack_end, subset_mask, item_ids, item_ct, store_all_dups, id_htable_size, max_thread_ct, &g_bigstack_base, *id_htable_ptr, dup_ct_ptr);
+}
+
 // Similar to DupflagHtableMaker, but we don't need to flag duplicates, we just
 // "error out" when we find one.
-typedef struct IdUniquenessCheckerStruct {
+typedef struct NondupHtableMakerStruct {
   const uintptr_t* subset_mask;
   const char* const* item_ids;
   uint32_t item_ct;
@@ -2890,9 +2924,9 @@ typedef struct IdUniquenessCheckerStruct {
   uint32_t* id_htable;
 
   uint32_t dup_found;
-} IdUniquenessChecker;
+} NondupHtableMaker;
 
-void IdUniquenessCheckerMain(uint32_t tidx, uint32_t thread_ct, IdUniquenessChecker* ctx) {
+void NondupHtableMakerMain(uint32_t tidx, uint32_t thread_ct, NondupHtableMaker* ctx) {
   const uint32_t id_htable_size = ctx->id_htable_size;
   const uintptr_t* subset_mask = ctx->subset_mask;
   const char* const* item_ids = ctx->item_ids;
@@ -2935,10 +2969,10 @@ void IdUniquenessCheckerMain(uint32_t tidx, uint32_t thread_ct, IdUniquenessChec
   }
 }
 
-THREAD_FUNC_DECL IdUniquenessCheckerThread(void* raw_arg) {
+THREAD_FUNC_DECL NondupHtableMakerThread(void* raw_arg) {
   ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
   const uint32_t tidx = arg->tidx;
-  IdUniquenessChecker* ctx = S_CAST(IdUniquenessChecker*, arg->sharedp->context);
+  NondupHtableMaker* ctx = S_CAST(NondupHtableMaker*, arg->sharedp->context);
 
   // 1. Initialize id_htable with 1-bits in parallel.
   const uint32_t id_htable_size = ctx->id_htable_size;
@@ -2954,15 +2988,15 @@ THREAD_FUNC_DECL IdUniquenessCheckerThread(void* raw_arg) {
   }
 
   // 3. Fill hash table in parallel, and then return.
-  IdUniquenessCheckerMain(tidx, thread_ct, ctx);
+  NondupHtableMakerMain(tidx, thread_ct, ctx);
   THREAD_RETURN;
 }
 
-PglErr CheckIdUniqueness(unsigned char* arena_bottom, unsigned char* arena_top, const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t max_thread_ct, uint32_t* dup_found_ptr) {
+PglErr MakeNondupHtable(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t id_htable_size, uint32_t max_thread_ct, uint32_t* id_htable, uint32_t* dup_found_ptr) {
   PglErr reterr = kPglRetSuccess;
   ThreadGroup tg;
   PreinitThreads(&tg);
-  IdUniquenessChecker ctx;
+  NondupHtableMaker ctx;
   {
     uint32_t thread_ct = item_ct / 65536;
     if (!thread_ct) {
@@ -2976,25 +3010,13 @@ PglErr CheckIdUniqueness(unsigned char* arena_bottom, unsigned char* arena_top, 
       }
     }
     if (unlikely(SetThreadCt0(thread_ct - 1, &tg))) {
-      goto CheckIdUniqueness_ret_NOMEM;
+      goto MakeNondupHtable_ret_NOMEM;
     }
 
     ctx.subset_mask = subset_mask;
     ctx.item_ids = item_ids;
     ctx.item_ct = item_ct;
-    uint32_t id_htable_size = GetHtableFastSize(item_ct);
-    {
-      uintptr_t wkspace_left = S_CAST(uintptr_t, arena_top - arena_bottom);
-      if (wkspace_left < id_htable_size * sizeof(int32_t)) {
-        id_htable_size = wkspace_left / sizeof(int32_t);
-        const uint32_t min_htable_size = GetHtableMinSize(item_ct);
-        if (id_htable_size < min_htable_size) {
-          goto CheckIdUniqueness_ret_NOMEM;
-        }
-      }
-    }
     ctx.id_htable_size = id_htable_size;
-    uint32_t* id_htable = R_CAST(uint32_t*, arena_bottom);
     ctx.id_htable = id_htable;
     ctx.dup_found = 0;
 
@@ -3009,9 +3031,9 @@ PglErr CheckIdUniqueness(unsigned char* arena_bottom, unsigned char* arena_top, 
     }
 
     if (thread_ct > 1) {
-      SetThreadFuncAndData(IdUniquenessCheckerThread, &ctx, &tg);
+      SetThreadFuncAndData(NondupHtableMakerThread, &ctx, &tg);
       if (unlikely(SpawnThreads(&tg))) {
-        goto CheckIdUniqueness_ret_THREAD_CREATE_FAIL;
+        goto MakeNondupHtable_ret_THREAD_CREATE_FAIL;
       }
     }
     const uint32_t fill_start = RoundDownPow2((id_htable_size * S_CAST(uint64_t, thread_ct - 1)) / thread_ct, kInt32PerCacheline);
@@ -3021,15 +3043,15 @@ PglErr CheckIdUniqueness(unsigned char* arena_bottom, unsigned char* arena_top, 
       DeclareLastThreadBlock(&tg);
       SpawnThreads(&tg);
     }
-    IdUniquenessCheckerMain(thread_ct - 1, thread_ct, &ctx);
+    NondupHtableMakerMain(thread_ct - 1, thread_ct, &ctx);
     JoinThreads0(&tg);
     *dup_found_ptr = ctx.dup_found;
   }
   while (0) {
-  CheckIdUniqueness_ret_NOMEM:
+  MakeNondupHtable_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  CheckIdUniqueness_ret_THREAD_CREATE_FAIL:
+  MakeNondupHtable_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
     break;
   }
@@ -3037,38 +3059,19 @@ PglErr CheckIdUniqueness(unsigned char* arena_bottom, unsigned char* arena_top, 
   return reterr;
 }
 
-PglErr AllocAndPopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uintptr_t fast_size_min_extra_bytes, uint32_t max_thread_ct, uint32_t** id_htable_ptr, uint32_t** htable_dup_base_ptr, uint32_t* id_htable_size_ptr, uint32_t* dup_ct_ptr) {
+PglErr AllocAndPopulateNondupHtableMt(unsigned char* arena_top, const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t max_thread_ct, unsigned char** arena_bottom_ptr, uint32_t** id_htable_ptr, uint32_t* id_htable_size_ptr, uint32_t* dup_found_ptr) {
   uint32_t id_htable_size = GetHtableFastSize(item_ct);
-  // if store_all_dups, up to 8 bytes per variant in extra_alloc for duplicate
-  //   tracking, as well as a small amount of per-thread temporary workspace
-  const uint32_t store_all_dups = (htable_dup_base_ptr != nullptr);
-  uintptr_t nonhtable_alloc = 0;
-  if (store_all_dups) {
-    const uint32_t actual_thread_ct = PopulateIdHtableMtDupstoreThreadCt(max_thread_ct, item_ct);
-    // "2 *" in front of second term is temporary
-    nonhtable_alloc = actual_thread_ct * kDupstoreThreadWkspace + 2 * RoundUpPow2(item_ct * 2 * sizeof(int32_t), kCacheline);
-  }
-  uintptr_t max_bytes = RoundDownPow2(bigstack_left(), kCacheline);
-  // force max_bytes >= 5 so leqprime() doesn't fail
-  // (not actually relevant any more, but whatever)
-  if (nonhtable_alloc + (item_ct + 6) * sizeof(int32_t) > max_bytes) {
-    return kPglRetNomem;
-  }
-  max_bytes -= nonhtable_alloc;
-  if (id_htable_size * sizeof(int32_t) + fast_size_min_extra_bytes > max_bytes) {
-    id_htable_size = max_bytes / sizeof(int32_t);
-    // id_htable_size = leqprime((max_bytes / sizeof(int32_t)) - 1);
+  const uintptr_t wkspace_left_rd = RoundDownPow2(S_CAST(uintptr_t, arena_top - (*arena_bottom_ptr)), kCacheline);
+  if (wkspace_left_rd < id_htable_size * sizeof(int32_t)) {
+    id_htable_size = wkspace_left_rd / sizeof(int32_t);
     const uint32_t min_htable_size = GetHtableMinSize(item_ct);
     if (id_htable_size < min_htable_size) {
-      id_htable_size = min_htable_size;
+      return kPglRetNomem;
     }
   }
-  *id_htable_ptr = S_CAST(uint32_t*, bigstack_alloc_raw_rd(id_htable_size * sizeof(int32_t)));
-  if (store_all_dups) {
-    *htable_dup_base_ptr = &((*id_htable_ptr)[RoundUpPow2(id_htable_size, kInt32PerCacheline)]);
-  }
+  *id_htable_ptr = S_CAST(uint32_t*, arena_alloc_raw_rd(id_htable_size * sizeof(int32_t), arena_bottom_ptr));
   *id_htable_size_ptr = id_htable_size;
-  return PopulateIdHtableMt(g_bigstack_end, subset_mask, item_ids, item_ct, store_all_dups, id_htable_size, max_thread_ct, &g_bigstack_base, *id_htable_ptr, dup_ct_ptr);
+  return MakeNondupHtable(subset_mask, item_ids, item_ct, id_htable_size, max_thread_ct, *id_htable_ptr, dup_found_ptr);
 }
 
 uint32_t Edit1Match(const char* s1, const char* s2, uint32_t len1, uint32_t len2) {
