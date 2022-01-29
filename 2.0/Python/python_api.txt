@@ -1,8 +1,8 @@
-Pgenlib Python API specification, v0.7
+Pgenlib Python API specification, v0.8
 ("import numpy as np" assumed)
 
 class PgenReader:
-* PgenReader(filename, raw_sample_ct = None, variant_ct = None,
+* PgenReader(bytes filename, raw_sample_ct = None, variant_ct = None,
              sample_subset = None)
   Constructor, opens the .pgen or .bed file.  Requires a filename (exception is
   thrown if file doesn't exist or it's invalid).
@@ -85,6 +85,8 @@ class PgenReader:
   - If int32_t is problematically large, you probably want to work with a 2-bit
     representation rather than int8_t.  That's outside the scope of this API;
     you may instead want to adapt the appropriate pgenlib.pyx function.
+  - Multiallelic variants aren't fully supported yet.  Instead, all ALT alleles
+    are effectively collapsed into one.
 
 * read_range(uint32_t variant_idx_start, uint32_t variant_idx_end,
              np.ndarray[np.int{8,32,64}_t,mode="c",ndim=2] geno_int_out,
@@ -107,16 +109,26 @@ class PgenReader:
                                      np.ndarray[np.int32_t,mode="c",ndim=2] allele_int32_out,
 			             np.ndarray[np.uint8_t,mode="c",cast=True,ndim=2] phasepresent_out,
 			             bint hap_maj = 0)
+  read_dosages_range(uint32_t variant_idx_start, uint32_t variant_idx_end,
+                     np.ndarray[np.float{32,64}_t,mode="c",ndim=2] floatarr_out,
+	             uint32_t allele_idx = 1, bint sample_maj = 0)
+  read_dosages_list(np.ndarray[np.uint32_t] variant_idxs,
+                    np.ndarray[np.float{32,64}_t,mode="c",ndim=2] floatarr_out,
+	            uint32_t allele_idx = 1, bint sample_maj = 0)
   Read functions which handle multiple variants at once, saving data to 2D
   arrays.  By default, the return arrays are variant-major (# of columns is
   based on sample_ct, # of rows is equal to the block size); set
   sample_maj(/hap_maj) = True to make them sample(/haplotype)-major instead.
+
   For the _range() functions, the interval is half-open (i.e. variant_idx_start
   is included, variant_idx_end - 1 is included, variant_idx_end is not).  For
   the _list() functions, it's currently okay for the variant indexes to be
   unsorted, or for duplicates to be present, but that may not remain true.
-  (read_alleles_and_phasepresent_{range,list} not implemented yet.)
-  (Todo: read_dosages_range() and read_dosages_list().)
+
+  The sample/haplotype-major modes of read_dosages_{range,list} and
+  read_alleles_and_phasepresent_{range,list} are not implemented yet.
+  The read_alleles_... functions do not fully support multiallelic variants
+  yet (all ALT alleles are effectively collapsed into one).
 
 * count(uint32_t variant_idx, np.ndarray[np.uint32_t] genocount_uint32_out,
         uint32_t allele_idx = 1)
@@ -155,9 +167,10 @@ class PgenReader:
 
 
 class PgenWriter:
-* PgenWriter(filename, sample_ct, variant_ct, nonref_flags,
-             allele_idx_offsets = None, hardcall_phase_present = False,
-	     dosage_present = False, dosage_phase_present = False)
+* PgenWriter(bytes filename, uint32_t sample_ct, uint32_t variant_ct,
+             nonref_flags, allele_idx_offsets = None,
+             hardcall_phase_present = False, dosage_present = False,
+             dosage_phase_present = False)
   Constructor, creates a new .pgen file and writes a mostly-empty header (which
   gets filled at the end).
   - sample_ct and variant_ct must be positive (and less than about 2^31).

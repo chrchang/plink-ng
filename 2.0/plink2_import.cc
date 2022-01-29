@@ -1072,9 +1072,32 @@ ENUM_U31_DEF_END(VcfParseErr);
 VcfParseErr VcfScanBiallelicHdsLine(const VcfImportContext* vicp, const char* format_end, uint32_t* phase_or_dosage_found_ptr, char** line_iter_ptr) {
   // DS+HDS
   // only need to find phase *or* dosage
-  const uint32_t sample_ct = vicp->vibc.sample_ct;
-  const VcfHalfCall halfcall_mode = vicp->vibc.halfcall_mode;
   const uint32_t gt_present = vicp->vibc.gt_present;
+  const uint32_t sample_ct = vicp->vibc.sample_ct;
+  const uint32_t hds_field_idx = vicp->hds_field_idx;
+  // special case: if there is no GT or HDS field, there can't be any phase
+  // information; we're only here to check for a non-integer dosage.  So if
+  // there either (i) aren't any '.' characters, or (ii) every second character
+  // is a '\t', we can early-exit.
+  if ((!gt_present) && (hds_field_idx == UINT32_MAX)) {
+    const char* dot_or_lf_ptr = S_CAST(const char*, rawmemchr2(format_end, '.', '\n'));
+    if (*dot_or_lf_ptr == '\n') {
+      *line_iter_ptr = K_CAST(char*, dot_or_lf_ptr);
+      return kVcfParseOk;
+    }
+    const char* lf_ptr = AdvToDelim(dot_or_lf_ptr, '\n');
+    if (lf_ptr[-1] == '\r') {
+      --lf_ptr;
+    }
+    const uintptr_t body_len = lf_ptr - format_end;
+    if (body_len <= 2 * sample_ct) {
+      if (unlikely(body_len < 2 * sample_ct)) {
+        return kVcfParseMissingTokens;
+      }
+      // TODO: check for alternate tabs
+    }
+  }
+  const VcfHalfCall halfcall_mode = vicp->vibc.halfcall_mode;
   STD_ARRAY_KREF(uint32_t, 2) qual_field_skips = vicp->vibc.qual_field_skips;
   STD_ARRAY_KREF(int32_t, 2) qual_line_mins = vicp->vibc.qual_line_mins;
   STD_ARRAY_KREF(int32_t, 2) qual_line_maxs = vicp->vibc.qual_line_maxs;
@@ -1083,7 +1106,6 @@ VcfParseErr VcfScanBiallelicHdsLine(const VcfImportContext* vicp, const char* fo
   const uint32_t dosage_erase_halfdist = vicp->dosage_erase_halfdist;
   const double import_dosage_certainty = vicp->import_dosage_certainty;
   const uint32_t dosage_field_idx = vicp->dosage_field_idx;
-  const uint32_t hds_field_idx = vicp->hds_field_idx;
 
   const char* dosagescan_iter = format_end;
   uint32_t cur_gt_phased = 0;
@@ -1096,7 +1118,6 @@ VcfParseErr VcfScanBiallelicHdsLine(const VcfImportContext* vicp, const char* fo
     }
     dosagescan_iter = cur_gtext_end;
     if (qual_field_ct && VcfCheckQuals(qual_field_skips, qual_line_mins, qual_line_maxs, cur_gtext_start, cur_gtext_end, qual_field_ct)) {
-      // minor bugfix: this needs to be continue, not break
       continue;
     }
     if (gt_present) {
@@ -2908,7 +2929,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       --format_hds_search;
       if (!format_hds_search) {
         if (!format_dosage_relevant) {
-          logerrputs("Warning: No FORMAT/DS or :HDS key found in --vcf file header.  Dosages will not\nbe imported.\n(If these header line(s) are actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
+          logerrputs("Warning: No FORMAT/DS or /HDS key found in --vcf file header.  Dosages will not\nbe imported.\n(If these header line(s) are actually present, but with extra spaces or unusual\nfield ordering, standardize the header with e.g. bcftools.)\n");
         } else {
           // since we did find FORMAT/DS, trailing parenthetical is very
           // unlikely to be relevant
@@ -3265,6 +3286,9 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     // they'll be irrelevant, since they're needed during conversion.
     if (phase_or_dosage_found || format_hds_search || format_dosage_relevant) {
       if ((!format_hds_search) && (!format_dosage_relevant)) {
+        // TODO: if phase_or_dosage_found is false, why do we still have to set
+        // phase_dosage_gflags here?  with this behavior, what was the point of
+        // scanning the lines in the first pass?
         phase_dosage_gflags = kfPgenGlobalHardcallPhasePresent;
         gparse_flags = kfGparseHphase;
       } else {

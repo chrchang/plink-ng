@@ -496,6 +496,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                   'GP': genotype posterior probabilities (v4.3 only).\n"
 "                   'DS': Minimac3-style dosages, omitted for hardcalls.\n"
 "                   'DS-force': Minimac3-style dosages, never omit.\n"
+"                   'DS-only': Same as DS-force, except GT field is omitted.\n"
 "                   'HDS': Minimac3-style phased dosages, omitted for hardcalls\n"
 "                          and unphased calls.  Also includes 'DS' output.\n"
 "                   'HDS-force': Always report DS and HDS.\n"
@@ -2177,8 +2178,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                   multiallelic variant.\n"
               );
     HelpPrint("indep-preferred\0indep-pairwise\0", &help_ctrl, 0,
-"  --indep-preferred <filename>   : Make variant-pruning commands try to keep\n"
-"                                   the variants listed in a file.\n"
+"  --indep-preferred <filename>   : Make LD-pruning commands try to keep the\n"
+"                                   variants listed in a file.\n"
               );
     // todo: add citation for 2018 KING update paper, which should discuss the
     // two-stage screen + refine workflow supported by --king-table-subset,

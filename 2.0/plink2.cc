@@ -71,7 +71,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (21 Jan 2022)";
+  " (29 Jan 2022)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -4747,6 +4747,8 @@ int main(int argc, char** argv) {
                 pc.exportf_info.vcf_mode = kVcfExportDs;
               } else if (strequal_k(vcf_dosage_start, "DS-force", vcf_dosage_start_slen)) {
                 pc.exportf_info.vcf_mode = kVcfExportDsForce;
+              } else if (strequal_k(vcf_dosage_start, "DS-only", vcf_dosage_start_slen)) {
+                pc.exportf_info.vcf_mode = kVcfExportDsOnly;
               } else if (strequal_k(vcf_dosage_start, "HDS", vcf_dosage_start_slen)) {
                 pc.exportf_info.vcf_mode = kVcfExportHds;
               } else if (likely(strequal_k(vcf_dosage_start, "HDS-force", vcf_dosage_start_slen))) {

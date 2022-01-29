@@ -29,6 +29,7 @@ ENUM_U31_DEF_START()
   kVcfExportGp,
   kVcfExportDs,
   kVcfExportDsForce,
+  kVcfExportDsOnly,
   kVcfExportHds,
   kVcfExportHdsForce
 ENUM_U31_DEF_END(VcfExportMode);
