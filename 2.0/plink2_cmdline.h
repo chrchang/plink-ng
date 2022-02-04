@@ -86,6 +86,8 @@ extern "C" {
 namespace plink2 {
 #endif
 
+#define PROG_NAME_STR "plink2"
+
 CONSTI32(kLogbufSize, 2 * kMaxMediumLine);
 
 // must be at least 2 * kMaxMediumLine + 2 to support generic token loader.
