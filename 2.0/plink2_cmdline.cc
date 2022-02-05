@@ -3574,7 +3574,7 @@ PglErr CmdlineParsePhase1(const char* ver_str, const char* ver_str2, const char*
     if (argc < 1) {
       fputs(ver_str, stdout);
       fputs(ver_str2, stdout);
-      fputs("Error: " PROG_NAME_STR " must be invoked with positive argc.\n", stderr);
+      fputs("Error: This application must be invoked with positive argc.\n", stderr);
       goto CmdlineParsePhase1_ret_INVALID_CMDLINE;
     }
     const char* const* argvk = TO_CONSTCPCONSTP(*argv_ptr);

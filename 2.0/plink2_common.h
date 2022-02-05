@@ -30,6 +30,8 @@
 namespace plink2 {
 #endif
 
+#define PROG_NAME_STR "plink2"
+
 // leave the door semi-open to 32-bit dosages (or 31?  24?)
 // note that u31tod()/u31tof() can't be used on 32-bit dosages
 typedef uint16_t Dosage;
