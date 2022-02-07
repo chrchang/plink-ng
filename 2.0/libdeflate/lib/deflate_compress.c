@@ -52,10 +52,10 @@
 
 /*
  * This is the minimum block length that the compressor will use, in
- * uncompressed bytes.  It is also the amount by which the final block is
- * allowed to grow past the soft maximum length in order to avoid using a very
- * short block at the end.  This should be a value below which using shorter
- * blocks is unlikely to be worthwhile, due to the per-block overhead.
+ * uncompressed bytes.  It is also approximately the amount by which the final
+ * block is allowed to grow past the soft maximum length in order to avoid using
+ * a very short block at the end.  This should be a value below which using
+ * shorter blocks is unlikely to be worthwhile, due to the per-block overhead.
  *
  * Defining a fixed minimum block length is needed in order to guarantee a
  * reasonable upper bound on the compressed size.  It's also needed because our
@@ -94,8 +94,8 @@
  * For deflate_compress_fastest(): This is the soft maximum block length.
  * deflate_compress_fastest() doesn't use the regular block splitting algorithm;
  * it only ends blocks when they reach FAST_SOFT_MAX_BLOCK_LENGTH bytes or
- * FAST_SEQ_STORE_LENGTH - 1 matches.  Therefore, this value should be lower
- * than the regular SOFT_MAX_BLOCK_LENGTH.
+ * FAST_SEQ_STORE_LENGTH matches.  Therefore, this value should be lower than
+ * the regular SOFT_MAX_BLOCK_LENGTH.
  */
 #define FAST_SOFT_MAX_BLOCK_LENGTH	65535
 
@@ -490,7 +490,7 @@ struct libdeflate_compressor {
 	/* Frequency counters for the current block */
 	struct deflate_freqs freqs;
 
-	/* Block split statistics for the currently pending block */
+	/* Block split statistics for the current block */
 	struct block_split_stats split_stats;
 
 	/* Dynamic Huffman codes for the current block */
@@ -648,7 +648,7 @@ struct deflate_output_bitstream {
 	 */
 	u8 *next;
 
-	/* Pointer just past the end of the output buffer */
+	/* Pointer to just past the end of the output buffer */
 	u8 *end;
 };
 
@@ -664,8 +664,7 @@ struct deflate_output_bitstream {
 #define OUTPUT_END_PADDING	8
 
 /*
- * Initialize the output bitstream.  'size' is assumed to be at least
- * OUTPUT_END_PADDING.
+ * Initialize the output bitstream.  'size' must be at least OUTPUT_END_PADDING.
  */
 static void
 deflate_init_output(struct deflate_output_bitstream *os,
@@ -680,11 +679,12 @@ deflate_init_output(struct deflate_output_bitstream *os,
 
 /*
  * Add some bits to the bitbuffer variable of the output bitstream.  The caller
- * must make sure there is enough room.
+ * must ensure that os->bitcount + num_bits <= BITBUF_NBITS, by calling
+ * deflate_flush_bits() frequently enough.
  */
 static forceinline void
 deflate_add_bits(struct deflate_output_bitstream *os,
-		 const bitbuf_t bits, const unsigned num_bits)
+		 bitbuf_t bits, unsigned num_bits)
 {
 	os->bitbuf |= bits << os->bitcount;
 	os->bitcount += num_bits;
@@ -712,6 +712,18 @@ deflate_flush_bits(struct deflate_output_bitstream *os)
 	}
 }
 
+/*
+ * Add bits, then flush right away.  Only use this where it is difficult to
+ * batch up calls to deflate_add_bits().
+ */
+static forceinline void
+deflate_write_bits(struct deflate_output_bitstream *os,
+		   bitbuf_t bits, unsigned num_bits)
+{
+	deflate_add_bits(os, bits, num_bits);
+	deflate_flush_bits(os);
+}
+
 /* Align the bitstream on a byte boundary. */
 static forceinline void
 deflate_align_bitstream(struct deflate_output_bitstream *os)
@@ -722,7 +734,8 @@ deflate_align_bitstream(struct deflate_output_bitstream *os)
 
 /*
  * Flush any remaining bits to the output buffer if needed.  Return the total
- * number of bytes written to the output buffer, or 0 if an overflow occurred.
+ * number of bytes that have been written to the output buffer since
+ * deflate_init_output(), or 0 if an overflow occurred.
  */
 static size_t
 deflate_flush_output(struct deflate_output_bitstream *os)
@@ -743,7 +756,7 @@ deflate_flush_output(struct deflate_output_bitstream *os)
  * Given the binary tree node A[subtree_idx] whose children already satisfy the
  * maxheap property, swap the node with its greater child until it is greater
  * than or equal to both of its children, so that the maxheap property is
- * satisfied in the subtree rooted at A[subtree_idx].
+ * satisfied in the subtree rooted at A[subtree_idx].  'A' uses 1-based indices.
  */
 static void
 heapify_subtree(u32 A[], unsigned length, unsigned subtree_idx)
@@ -805,7 +818,7 @@ heap_sort(u32 A[], unsigned length)
 #define NUM_SYMBOL_BITS 10
 #define SYMBOL_MASK ((1 << NUM_SYMBOL_BITS) - 1)
 
-#define GET_NUM_COUNTERS(num_syms)	((((num_syms) + 3 / 4) + 3) & ~3)
+#define GET_NUM_COUNTERS(num_syms)	(num_syms)
 
 /*
  * Sort the symbols primarily by frequency and secondarily by symbol value.
@@ -843,26 +856,13 @@ sort_symbols(unsigned num_syms, const u32 freqs[restrict],
 	unsigned counters[GET_NUM_COUNTERS(DEFLATE_MAX_NUM_SYMS)];
 
 	/*
-	 * We rely on heapsort, but with an added optimization.  Since it's
-	 * common for most symbol frequencies to be low, we first do a count
-	 * sort using a limited number of counters.  High frequencies will be
-	 * counted in the last counter, and only they will be sorted with
-	 * heapsort.
+	 * We use heapsort, but with an added optimization.  Since often most
+	 * symbol frequencies are low, we first do a count sort using a limited
+	 * number of counters.  High frequencies are counted in the last
+	 * counter, and only they will be sorted with heapsort.
 	 *
 	 * Note: with more symbols, it is generally beneficial to have more
-	 * counters.  About 1 counter per 4 symbols seems fast.
-	 *
-	 * Note: I also tested radix sort, but even for large symbol counts (>
-	 * 255) and frequencies bounded at 16 bits (enabling radix sort by just
-	 * two base-256 digits), it didn't seem any faster than the method
-	 * implemented here.
-	 *
-	 * Note: I tested the optimized quicksort implementation from glibc
-	 * (with indirection overhead removed), but it was only marginally
-	 * faster than the simple heapsort implemented here.
-	 *
-	 * Tests were done with building the codes for LZX.  Results may vary
-	 * for different compression algorithms...!
+	 * counters.  About 1 counter per symbol seems fastest.
 	 */
 
 	num_counters = GET_NUM_COUNTERS(num_syms);
@@ -909,7 +909,7 @@ sort_symbols(unsigned num_syms, const u32 freqs[restrict],
 }
 
 /*
- * Build the Huffman tree.
+ * Build a Huffman tree.
  *
  * This is an optimized implementation that
  *	(a) takes advantage of the frequencies being already sorted;
@@ -1103,6 +1103,33 @@ compute_length_counts(u32 A[restrict], unsigned root_idx,
 	}
 }
 
+/* Reverse the Huffman codeword 'codeword', which is 'len' bits in length. */
+static u32
+reverse_codeword(u32 codeword, u8 len)
+{
+	/*
+	 * The following branchless algorithm is faster than going bit by bit.
+	 * Note: since no codewords are longer than 16 bits, we only need to
+	 * reverse the low 16 bits of the 'u32'.
+	 */
+	STATIC_ASSERT(DEFLATE_MAX_CODEWORD_LEN <= 16);
+
+	/* Flip adjacent 1-bit fields. */
+	codeword = ((codeword & 0x5555) << 1) | ((codeword & 0xAAAA) >> 1);
+
+	/* Flip adjacent 2-bit fields. */
+	codeword = ((codeword & 0x3333) << 2) | ((codeword & 0xCCCC) >> 2);
+
+	/* Flip adjacent 4-bit fields. */
+	codeword = ((codeword & 0x0F0F) << 4) | ((codeword & 0xF0F0) >> 4);
+
+	/* Flip adjacent 8-bit fields. */
+	codeword = ((codeword & 0x00FF) << 8) | ((codeword & 0xFF00) >> 8);
+
+	/* Return the high 'len' bits of the bit-reversed 16 bit value. */
+	return codeword >> (16 - len);
+}
+
 /*
  * Generate the codewords for a canonical Huffman code.
  *
@@ -1161,13 +1188,18 @@ gen_codewords(u32 A[restrict], u8 lens[restrict],
 		next_codewords[len] =
 			(next_codewords[len - 1] + len_counts[len - 1]) << 1;
 
-	for (sym = 0; sym < num_syms; sym++)
-		A[sym] = next_codewords[lens[sym]]++;
+	for (sym = 0; sym < num_syms; sym++) {
+		u8 len2 = lens[sym];
+		u32 codeword = next_codewords[len2]++;
+
+		/* DEFLATE requires bit-reversed codewords. */
+		A[sym] = reverse_codeword(codeword, len2);
+	}
 }
 
 /*
  * ---------------------------------------------------------------------
- *			make_canonical_huffman_code()
+ *			deflate_make_huffman_code()
  * ---------------------------------------------------------------------
  *
  * Given an alphabet and the frequency of each symbol in it, construct a
@@ -1266,9 +1298,9 @@ gen_codewords(u32 A[restrict], u8 lens[restrict],
  * file: C/HuffEnc.c), which was placed in the public domain by Igor Pavlov.
  */
 static void
-make_canonical_huffman_code(unsigned num_syms, unsigned max_codeword_len,
-			    const u32 freqs[restrict],
-			    u8 lens[restrict], u32 codewords[restrict])
+deflate_make_huffman_code(unsigned num_syms, unsigned max_codeword_len,
+			  const u32 freqs[restrict],
+			  u8 lens[restrict], u32 codewords[restrict])
 {
 	u32 *A = codewords;
 	unsigned num_used_syms;
@@ -1352,53 +1384,11 @@ deflate_reset_symbol_frequencies(struct libdeflate_compressor *c)
 	memset(&c->freqs, 0, sizeof(c->freqs));
 }
 
-/* Reverse the Huffman codeword 'codeword', which is 'len' bits in length. */
-static u32
-deflate_reverse_codeword(u32 codeword, u8 len)
-{
-	/*
-	 * The following branchless algorithm is faster than going bit by bit.
-	 * Note: since no codewords are longer than 16 bits, we only need to
-	 * reverse the low 16 bits of the 'u32'.
-	 */
-	STATIC_ASSERT(DEFLATE_MAX_CODEWORD_LEN <= 16);
-
-	/* Flip adjacent 1-bit fields. */
-	codeword = ((codeword & 0x5555) << 1) | ((codeword & 0xAAAA) >> 1);
-
-	/* Flip adjacent 2-bit fields. */
-	codeword = ((codeword & 0x3333) << 2) | ((codeword & 0xCCCC) >> 2);
-
-	/* Flip adjacent 4-bit fields. */
-	codeword = ((codeword & 0x0F0F) << 4) | ((codeword & 0xF0F0) >> 4);
-
-	/* Flip adjacent 8-bit fields. */
-	codeword = ((codeword & 0x00FF) << 8) | ((codeword & 0xFF00) >> 8);
-
-	/* Return the high 'len' bits of the bit-reversed 16 bit value. */
-	return codeword >> (16 - len);
-}
-
-/* Make a canonical Huffman code with bit-reversed codewords. */
-static void
-deflate_make_huffman_code(unsigned num_syms, unsigned max_codeword_len,
-			  const u32 freqs[], u8 lens[], u32 codewords[])
-{
-	unsigned sym;
-
-	make_canonical_huffman_code(num_syms, max_codeword_len,
-				    freqs, lens, codewords);
-
-	for (sym = 0; sym < num_syms; sym++)
-		codewords[sym] = deflate_reverse_codeword(codewords[sym],
-							  lens[sym]);
-}
-
 /*
  * Build the literal/length and offset Huffman codes for a DEFLATE block.
  *
- * This takes as input the frequency tables for each code and produces as output
- * a set of tables that map symbols to codewords and codeword lengths.
+ * This takes as input the frequency tables for each alphabet and produces as
+ * output a set of tables that map symbols to codewords and codeword lengths.
  */
 static void
 deflate_make_huffman_codes(const struct deflate_freqs *freqs,
@@ -1633,9 +1623,8 @@ deflate_write_huffman_header(struct libdeflate_compressor *c,
 
 	/* Output the lengths of the codewords in the precode. */
 	for (i = 0; i < c->num_explicit_lens; i++) {
-		deflate_add_bits(os, c->precode_lens[
+		deflate_write_bits(os, c->precode_lens[
 				       deflate_precode_lens_permutation[i]], 3);
-		deflate_flush_bits(os);
 	}
 
 	/* Output the encoded lengths of the codewords in the larger code. */
@@ -1719,11 +1708,49 @@ deflate_write_literal_run(struct deflate_output_bitstream *os,
 	do {
 		unsigned lit = *in_next++;
 
-		deflate_add_bits(os, codes->codewords.litlen[lit],
-				 codes->lens.litlen[lit]);
-		deflate_flush_bits(os);
+		deflate_write_bits(os, codes->codewords.litlen[lit],
+				   codes->lens.litlen[lit]);
 	} while (--litrunlen);
 #endif
+}
+
+static forceinline void
+deflate_write_match(struct deflate_output_bitstream * restrict os,
+		    unsigned length, unsigned length_slot,
+		    unsigned offset, unsigned offset_symbol,
+		    const struct deflate_codes * restrict codes)
+{
+	unsigned litlen_symbol = DEFLATE_FIRST_LEN_SYM + length_slot;
+
+	/* Litlen symbol */
+	deflate_add_bits(os, codes->codewords.litlen[litlen_symbol],
+			 codes->lens.litlen[litlen_symbol]);
+
+	/* Extra length bits */
+	STATIC_ASSERT(CAN_BUFFER(MAX_LITLEN_CODEWORD_LEN +
+				 DEFLATE_MAX_EXTRA_LENGTH_BITS));
+	deflate_add_bits(os, length - deflate_length_slot_base[length_slot],
+			 deflate_extra_length_bits[length_slot]);
+
+	if (!CAN_BUFFER(MAX_LITLEN_CODEWORD_LEN +
+			DEFLATE_MAX_EXTRA_LENGTH_BITS +
+			MAX_OFFSET_CODEWORD_LEN +
+			DEFLATE_MAX_EXTRA_OFFSET_BITS))
+		deflate_flush_bits(os);
+
+	/* Offset symbol */
+	deflate_add_bits(os, codes->codewords.offset[offset_symbol],
+			 codes->lens.offset[offset_symbol]);
+
+	if (!CAN_BUFFER(MAX_OFFSET_CODEWORD_LEN +
+			DEFLATE_MAX_EXTRA_OFFSET_BITS))
+		deflate_flush_bits(os);
+
+	/* Extra offset bits */
+	deflate_add_bits(os, offset - deflate_offset_slot_base[offset_symbol],
+			 deflate_extra_offset_bits[offset_symbol]);
+
+	deflate_flush_bits(os);
 }
 
 static void
@@ -1737,9 +1764,6 @@ deflate_write_sequences(struct deflate_output_bitstream * restrict os,
 	for (;;) {
 		u32 litrunlen = seq->litrunlen_and_length & SEQ_LITRUNLEN_MASK;
 		unsigned length = seq->litrunlen_and_length >> SEQ_LENGTH_SHIFT;
-		unsigned length_slot;
-		unsigned litlen_symbol;
-		unsigned offset_symbol;
 
 		if (litrunlen) {
 			deflate_write_literal_run(os, in_next, litrunlen,
@@ -1750,44 +1774,10 @@ deflate_write_sequences(struct deflate_output_bitstream * restrict os,
 		if (length == 0)
 			return;
 
+		deflate_write_match(os, length, seq->length_slot,
+				    seq->offset, seq->offset_symbol, codes);
+
 		in_next += length;
-
-		length_slot = seq->length_slot;
-		litlen_symbol = DEFLATE_FIRST_LEN_SYM + length_slot;
-
-		/* Litlen symbol */
-		deflate_add_bits(os, codes->codewords.litlen[litlen_symbol],
-				 codes->lens.litlen[litlen_symbol]);
-
-		/* Extra length bits */
-		STATIC_ASSERT(CAN_BUFFER(MAX_LITLEN_CODEWORD_LEN +
-					 DEFLATE_MAX_EXTRA_LENGTH_BITS));
-		deflate_add_bits(os,
-				 length - deflate_length_slot_base[length_slot],
-				 deflate_extra_length_bits[length_slot]);
-
-		if (!CAN_BUFFER(MAX_LITLEN_CODEWORD_LEN +
-				DEFLATE_MAX_EXTRA_LENGTH_BITS +
-				MAX_OFFSET_CODEWORD_LEN +
-				DEFLATE_MAX_EXTRA_OFFSET_BITS))
-			deflate_flush_bits(os);
-
-		/* Offset symbol */
-		offset_symbol = seq->offset_symbol;
-		deflate_add_bits(os, codes->codewords.offset[offset_symbol],
-				 codes->lens.offset[offset_symbol]);
-
-		if (!CAN_BUFFER(MAX_OFFSET_CODEWORD_LEN +
-				DEFLATE_MAX_EXTRA_OFFSET_BITS))
-			deflate_flush_bits(os);
-
-		/* Extra offset bits */
-		deflate_add_bits(os, seq->offset -
-				 deflate_offset_slot_base[offset_symbol],
-				 deflate_extra_offset_bits[offset_symbol]);
-
-		deflate_flush_bits(os);
-
 		seq++;
 	}
 }
@@ -1797,10 +1787,6 @@ deflate_write_sequences(struct deflate_output_bitstream * restrict os,
  * Follow the minimum-cost path in the graph of possible match/literal choices
  * for the current block and write out the matches/literals using the specified
  * Huffman codes.
- *
- * Note: this is slightly duplicated with deflate_write_sequences(), the reason
- * being that we don't want to waste time translating between intermediate
- * match/literal representations.
  */
 static void
 deflate_write_item_list(struct deflate_output_bitstream *os,
@@ -1814,51 +1800,18 @@ deflate_write_item_list(struct deflate_output_bitstream *os,
 	do {
 		unsigned length = cur_node->item & OPTIMUM_LEN_MASK;
 		unsigned offset = cur_node->item >> OPTIMUM_OFFSET_SHIFT;
-		unsigned litlen_symbol;
-		unsigned length_slot;
-		unsigned offset_slot;
 
 		if (length == 1) {
 			/* Literal */
-			litlen_symbol = offset;
-			deflate_add_bits(os,
-					 codes->codewords.litlen[litlen_symbol],
-					 codes->lens.litlen[litlen_symbol]);
-			deflate_flush_bits(os);
+			deflate_write_bits(os, codes->codewords.litlen[offset],
+					   codes->lens.litlen[offset]);
 		} else {
-			/* Match length */
-			length_slot = deflate_length_slot[length];
-			litlen_symbol = DEFLATE_FIRST_LEN_SYM + length_slot;
-			deflate_add_bits(os,
-				codes->codewords.litlen[litlen_symbol],
-				codes->lens.litlen[litlen_symbol]);
-
-			deflate_add_bits(os,
-				length - deflate_length_slot_base[length_slot],
-				deflate_extra_length_bits[length_slot]);
-
-			if (!CAN_BUFFER(MAX_LITLEN_CODEWORD_LEN +
-					DEFLATE_MAX_EXTRA_LENGTH_BITS +
-					MAX_OFFSET_CODEWORD_LEN +
-					DEFLATE_MAX_EXTRA_OFFSET_BITS))
-				deflate_flush_bits(os);
-
-
-			/* Match offset */
-			offset_slot = c->p.n.offset_slot_full[offset];
-			deflate_add_bits(os,
-				codes->codewords.offset[offset_slot],
-				codes->lens.offset[offset_slot]);
-
-			if (!CAN_BUFFER(MAX_OFFSET_CODEWORD_LEN +
-					DEFLATE_MAX_EXTRA_OFFSET_BITS))
-				deflate_flush_bits(os);
-
-			deflate_add_bits(os,
-				offset - deflate_offset_slot_base[offset_slot],
-				deflate_extra_offset_bits[offset_slot]);
-
-			deflate_flush_bits(os);
+			/* Match */
+			deflate_write_match(os, length,
+					    deflate_length_slot[length],
+					    offset,
+					    c->p.n.offset_slot_full[offset],
+					    codes);
 		}
 		cur_node += length;
 	} while (cur_node != end_node);
@@ -1870,9 +1823,8 @@ static void
 deflate_write_end_of_block(struct deflate_output_bitstream *os,
 			   const struct deflate_codes *codes)
 {
-	deflate_add_bits(os, codes->codewords.litlen[DEFLATE_END_OF_BLOCK],
-			 codes->lens.litlen[DEFLATE_END_OF_BLOCK]);
-	deflate_flush_bits(os);
+	deflate_write_bits(os, codes->codewords.litlen[DEFLATE_END_OF_BLOCK],
+			   codes->lens.litlen[DEFLATE_END_OF_BLOCK]);
 }
 
 static void
@@ -2054,19 +2006,19 @@ deflate_flush_block(struct libdeflate_compressor * restrict c,
  * literals we only look at the high bits and low bits, and for matches we only
  * look at whether the match is long or not.  The assumption is that for typical
  * "real" data, places that are good block boundaries will tend to be noticeable
- * based only on changes in these aggregate frequencies, without looking for
+ * based only on changes in these aggregate probabilities, without looking for
  * subtle differences in individual symbols.  For example, a change from ASCII
  * bytes to non-ASCII bytes, or from few matches (generally less compressible)
  * to many matches (generally more compressible), would be easily noticed based
  * on the aggregates.
  *
- * For determining whether the frequency distributions are "different enough" to
- * start a new block, the simply heuristic of splitting when the sum of absolute
- * differences exceeds a constant seems to be good enough.  We also add a number
- * proportional to the block length so that the algorithm is more likely to end
- * long blocks than short blocks.  This reflects the general expectation that it
- * will become increasingly beneficial to start a new block as the current
- * block grows longer.
+ * For determining whether the probability distributions are "different enough"
+ * to start a new block, the simple heuristic of splitting when the sum of
+ * absolute differences exceeds a constant seems to be good enough.  We also add
+ * a number proportional to the block length so that the algorithm is more
+ * likely to end long blocks than short blocks.  This reflects the general
+ * expectation that it will become increasingly beneficial to start a new block
+ * as the current block grows longer.
  *
  * Finally, for an approximation, it is not strictly necessary that the exact
  * symbols being used are considered.  With "near-optimal parsing", for example,
@@ -2130,9 +2082,14 @@ do_end_block_check(struct block_split_stats *stats, u32 block_length)
 {
 	if (stats->num_observations > 0) {
 		/*
-		 * Note: to avoid slow divisions, we do not divide by
-		 * 'num_observations', but rather do all math with the numbers
-		 * multiplied by 'num_observations'.
+		 * Compute the sum of absolute differences of probabilities.  To
+		 * avoid needing to use floating point arithmetic or do slow
+		 * divisions, we do all arithmetic with the probabilities
+		 * multiplied by num_observations * num_new_observations.  E.g.,
+		 * for the "old" observations the probabilities would be
+		 * (double)observations[i] / num_observations, but since we
+		 * multiply by both num_observations and num_new_observations we
+		 * really do observations[i] * num_new_observations.
 		 */
 		u32 total_delta = 0;
 		u32 num_items;
@@ -2152,6 +2109,12 @@ do_end_block_check(struct block_split_stats *stats, u32 block_length)
 
 		num_items = stats->num_observations +
 			    stats->num_new_observations;
+		/*
+		 * Heuristic: the cutoff is when the sum of absolute differences
+		 * of probabilities becomes at least 200/512.  As above, the
+		 * probability is multiplied by both num_new_observations and
+		 * num_observations.  Be careful to avoid integer overflow.
+		 */
 		cutoff = stats->num_new_observations * 200 / 512 *
 			 stats->num_observations;
 		/*

@@ -99,11 +99,6 @@
 #define OFFSET_ENOUGH		402	/* enough 32 8 15	*/
 
 /*
- * Type for codeword lengths.
- */
-typedef u8 len_t;
-
-/*
  * The main DEFLATE decompressor structure.  Since this implementation only
  * supports full buffer decompression, this structure does not store the entire
  * decompression state, but rather only some arrays that are too large to
@@ -121,12 +116,12 @@ struct libdeflate_decompressor {
 	 */
 
 	union {
-		len_t precode_lens[DEFLATE_NUM_PRECODE_SYMS];
+		u8 precode_lens[DEFLATE_NUM_PRECODE_SYMS];
 
 		struct {
-			len_t lens[DEFLATE_NUM_LITLEN_SYMS +
-				   DEFLATE_NUM_OFFSET_SYMS +
-				   DEFLATE_MAX_LENS_OVERRUN];
+			u8 lens[DEFLATE_NUM_LITLEN_SYMS +
+				DEFLATE_NUM_OFFSET_SYMS +
+				DEFLATE_MAX_LENS_OVERRUN];
 
 			u32 precode_decode_table[PRECODE_ENOUGH];
 		} l;
@@ -204,25 +199,27 @@ typedef machine_word_t bitbuf_t;
  *
  * If we would overread the input buffer, we just don't read anything, leaving
  * the bits zeroed but marking them filled.  This simplifies the decompressor
- * because it removes the need to distinguish between real overreads and
- * overreads that occur only because of the decompressor's own lookahead.
+ * because it removes the need to always be able to distinguish between real
+ * overreads and overreads caused only by the decompressor's own lookahead.
  *
- * The disadvantage is that real overreads are not detected immediately.
- * However, this is safe because the decompressor is still guaranteed to make
- * forward progress when presented never-ending 0 bits.  In an existing block
- * output will be getting generated, whereas new blocks can only be uncompressed
- * (since the type code for uncompressed blocks is 0), for which we check for
- * previous overread.  But even if we didn't check, uncompressed blocks would
- * fail to validate because LEN would not equal ~NLEN.  So the decompressor will
- * eventually either detect that the output buffer is full, or detect invalid
- * input, or finish the final block.
+ * We do still keep track of the number of bytes that have been overread, for
+ * two reasons.  First, it allows us to determine the exact number of bytes that
+ * were consumed once the stream ends or an uncompressed block is reached.
+ * Second, it allows us to stop early if the overread amount gets so large (more
+ * than sizeof bitbuf) that it can only be caused by a real overread.  (The
+ * second part is arguably unneeded, since libdeflate is buffer-based; given
+ * infinite zeroes, it will eventually either completely fill the output buffer
+ * or return an error.  However, we do it to be slightly more friendly to the
+ * not-recommended use case of decompressing with an unknown output size.)
  */
 #define FILL_BITS_BYTEWISE()					\
 do {								\
-	if (likely(in_next != in_end))				\
+	if (likely(in_next != in_end)) {			\
 		bitbuf |= (bitbuf_t)*in_next++ << bitsleft;	\
-	else							\
-		overrun_count++;				\
+	} else {						\
+		overread_count++;				\
+		SAFETY_CHECK(overread_count <= sizeof(bitbuf));	\
+	}							\
 	bitsleft += 8;						\
 } while (bitsleft <= BITBUF_NBITS - 8)
 
@@ -307,16 +304,16 @@ if (!HAVE_BITS(n)) {						\
  */
 #define ALIGN_INPUT()							\
 do {									\
-	SAFETY_CHECK(overrun_count <= (bitsleft >> 3));			\
-	in_next -= (bitsleft >> 3) - overrun_count;			\
-	overrun_count = 0;						\
+	SAFETY_CHECK(overread_count <= (bitsleft >> 3));		\
+	in_next -= (bitsleft >> 3) - overread_count;			\
+	overread_count = 0;						\
 	bitbuf = 0;							\
 	bitsleft = 0;							\
 } while(0)
 
 /*
  * Read a 16-bit value from the input.  This must have been preceded by a call
- * to ALIGN_INPUT(), and the caller must have already checked for overrun.
+ * to ALIGN_INPUT(), and the caller must have already checked for overread.
  */
 #define READ_U16() (tmp16 = get_unaligned_le16(in_next), in_next += 2, tmp16)
 
@@ -554,7 +551,7 @@ static const u32 offset_decode_results[DEFLATE_NUM_OFFSET_SYMS] = {
  */
 static bool
 build_decode_table(u32 decode_table[],
-		   const len_t lens[],
+		   const u8 lens[],
 		   const unsigned num_syms,
 		   const u32 decode_results[],
 		   const unsigned table_bits,
