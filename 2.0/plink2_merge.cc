@@ -2886,7 +2886,8 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, uin
     //    depending on --sort-vars setting.
     // See also SortChr() in plink2_data.cc.  This is a bit simpler since we
     // don't need the sort_idxs to be dense.
-    const uint32_t chr_code_end = cip->max_code + 1 + name_ct;
+    const uint32_t max_code_p1 = cip->max_code + 1;
+    const uint32_t chr_code_end = max_code_p1 + name_ct;
     uint32_t* chr_idx_to_sort_idx;
     if (unlikely(bigstack_end_alloc_u32(chr_code_end, &chr_idx_to_sort_idx))) {
       goto ScanPvarsAndMergeHeader_ret_NOMEM;
@@ -2907,12 +2908,13 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, uin
       }
       const char** nonstd_names = cip->nonstd_names;
       for (uint32_t name_idx = 0; name_idx != name_ct; ++name_idx) {
-        nonstd_sort_buf[name_idx].strptr = nonstd_names[name_idx];
+        // bugfix (17 Feb 2022): first non-null nonstd_names[] entry is at
+        // [max_code_p1], not [0]
+        nonstd_sort_buf[name_idx].strptr = nonstd_names[name_idx + max_code_p1];
         nonstd_sort_buf[name_idx].orig_idx = name_idx;
       }
       // nonstd_names are not allocated in main workspace, so can't overread.
       StrptrArrSortMain(name_ct, 0, (sort_vars_mode != kSortAscii), nonstd_sort_buf);
-      const uint32_t max_code_p1 = cip->max_code + 1;
       for (uint32_t name_idx = 0; name_idx != name_ct; ++name_idx) {
         chr_idx_to_sort_idx[max_code_p1 + nonstd_sort_buf[name_idx].orig_idx] = name_code_start + name_idx;
       }

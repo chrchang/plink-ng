@@ -234,7 +234,7 @@ static inline double MultiplyBySgn(double aa, double bb) {
 uint32_t SvdcmpC(int32_t m, double* a, double* w, double* v) {
   // C port of PLINK stats.cpp svdcmp().
   // Now thread-safe.
-  double* rv1 = &(w[(uint32_t)m]);
+  double* rv1 = &(w[S_CAST(uint32_t, m)]);
   int32_t n = m;
   int32_t flag;
   int32_t l = 0;  // suppress compile warning
@@ -474,12 +474,12 @@ BoolErr InvertMatrix(int32_t dim, double* matrix, MatrixInvertBuf1* dbl_1d_buf, 
 BoolErr InvertFmatrixFirstHalf(int32_t dim, uint32_t stride, const float* matrix, double* half_inverted, MatrixInvertBuf1* dbl_1d_buf, double* dbl_2d_buf) {
   const float* read_row = matrix;
   double* write_row = half_inverted;
-  for (uint32_t row_idx = 0; row_idx != (uint32_t)dim; ++row_idx) {
-    for (uint32_t col_idx = 0; col_idx != (uint32_t)dim; ++col_idx) {
-      write_row[col_idx] = (double)read_row[col_idx];
+  for (uint32_t row_idx = 0; row_idx != S_CAST(uint32_t, dim); ++row_idx) {
+    for (uint32_t col_idx = 0; col_idx != S_CAST(uint32_t, dim); ++col_idx) {
+      write_row[col_idx] = S_CAST(double, read_row[col_idx]);
     }
     read_row = &(read_row[stride]);
-    write_row = &(write_row[(uint32_t)dim]);
+    write_row = &(write_row[S_CAST(uint32_t, dim)]);
   }
 
   return (!SvdcmpC(dim, half_inverted, dbl_1d_buf, dbl_2d_buf));
