@@ -2010,12 +2010,16 @@ extern uintptr_t g_failed_alloc_attempt_size;
 // number is printed as well; see e.g.
 //   https://stackoverflow.com/questions/15884793/how-to-get-the-name-or-file-and-line-of-caller-method
 
-#if (__GNUC__ == 4) && (__GNUC_MINOR__ < 7) && !defined(__APPLE__)
+#if (((__GNUC__ == 4) && (__GNUC_MINOR__ < 7)) || (__GNUC__ >= 11)) && !defined(__APPLE__)
 // putting this in the header file caused a bunch of gcc 4.4 strict-aliasing
 // warnings, while not doing so seems to inhibit some malloc-related compiler
 // optimizations, bleah
 // compromise: header-inline iff gcc version >= 4.7 (might not be the right
 // cutoff?)
+// update (18 Feb 2022): looks like inlined pgl_malloc is not compiled as
+// intended by gcc 11, due to new ipa-modref pass?  Open to suggestions on how
+// to fix this; maybe it's now necessary to define type-specific malloc
+// wrappers, ugh...
 BoolErr pgl_malloc(uintptr_t size, void* pp);
 #else
 // Unfortunately, defining the second parameter to be of type void** doesn't do
