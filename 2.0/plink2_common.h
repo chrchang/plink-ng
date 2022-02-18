@@ -1015,10 +1015,6 @@ typedef struct PhenoColStruct {
   PhenoDtype type_code;
 
   uint32_t nonnull_category_ct;
-#ifdef __LP64__
-  // This may be needed to avoid segfaults on some machines?
-  uint32_t padding;
-#endif
 } PhenoCol;
 
 void InitPheno();
