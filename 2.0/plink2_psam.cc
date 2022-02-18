@@ -606,7 +606,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
           goto LoadPsam_ret_NOMEM;
         }
       }
-      DPrintf("sizeof(PhenoCol): %" PRIuPTR "  pheno_cols: %lx\n", sizeof(PhenoCol), R_CAST(uintptr_t, pheno_cols));
+      DPrintf("sizeof(PhenoCol): %" PRIuPTR "  pheno_cols: %" PRIxPTR "\n", sizeof(PhenoCol), R_CAST(uintptr_t, pheno_cols));
       for (uint32_t pheno_idx = 0; pheno_idx != pheno_ct; ++pheno_idx) {
         // ensure cleanup works if initialization fails in the middle
         pheno_cols[pheno_idx].nonmiss = nullptr;
