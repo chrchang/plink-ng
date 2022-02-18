@@ -526,9 +526,15 @@ BoolErr CleanupLogfile(uint32_t print_end_time) {
   }
   BoolErr ret_boolerr = 0;
   if (g_logfile) {
+    if (g_debug_on) {
+      printf("--debug: g_log_failed = %u.\n", g_log_failed);
+    }
     if (!g_log_failed) {
       logputs_silent("\n");
       logputs_silent(g_logbuf);
+      if (g_debug_on) {
+        fputs("--debug: Trying to close log.\n", stdout);
+      }
       if (unlikely(fclose(g_logfile))) {
         fflush(stdout);
         fprintf(stderr, "Error: Failed to finish writing to log: %s.\n", strerror(errno));
