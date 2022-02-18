@@ -1252,7 +1252,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         goto LoadPhenos_ret_MALFORMED_INPUT_WW;
       }
       SetBit(first_sample_uidx, already_seen);
-      if (unlikely(S_CAST(uintptr_t, tmp_bigstack_end - bigstack_base_copy) < pheno_info_alloc_byte_ct) * (xid_idx_end - xid_idx_start)) {
+      if (unlikely(S_CAST(uintptr_t, tmp_bigstack_end - bigstack_base_copy) < (pheno_info_alloc_byte_ct * (xid_idx_end - xid_idx_start)))) {
         goto LoadPhenos_ret_NOMEM;
       }
       tmp_bigstack_end -= pheno_info_alloc_byte_ct;
