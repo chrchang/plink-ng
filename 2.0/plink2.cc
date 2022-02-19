@@ -10944,13 +10944,7 @@ int main(int argc, char** argv) {
     reterr = kPglRetWriteFail;
   }
   if (bigstack_ua) {
-    if (g_debug_on) {
-      fputs("--debug: Trying to free bigstack_ua.\n", stdout);
-    }
     free(bigstack_ua);
-  }
-  if (g_debug_on) {
-    fputs("--debug: Exiting.\n", stdout);
   }
   return S_CAST(int32_t, reterr);
 }
