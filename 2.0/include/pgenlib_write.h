@@ -87,7 +87,7 @@ typedef struct PgenWriterCommonStruct {
 // spare for the additional complexity).
 
 typedef struct STPgenWriterStruct {
-  NONCOPYABLE(STPgenWriterStruct);
+  MOVABLE_BUT_NONCOPYABLE(STPgenWriterStruct);
 #ifdef __cplusplus
   PgenWriterCommon& GET_PRIVATE_pwc() { return pwc; }
   PgenWriterCommon const& GET_PRIVATE_pwc() const { return pwc; }
@@ -100,7 +100,7 @@ typedef struct STPgenWriterStruct {
 } STPgenWriter;
 
 typedef struct MTPgenWriterStruct {
-  NONCOPYABLE(MTPgenWriterStruct);
+  MOVABLE_BUT_NONCOPYABLE(MTPgenWriterStruct);
   FILE* pgen_outfile;
   uint32_t thread_ct;
   PgenWriterCommon* pwcs[];

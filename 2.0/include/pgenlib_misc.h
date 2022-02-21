@@ -563,7 +563,7 @@ void PgrDifflistToGenovecUnsafe(const uintptr_t* __restrict raregeno, const uint
 // phased hardcalls and unphased dosages are simple enough for this to be
 // overkill, though.)
 typedef struct PgenVariantStruct {
-  NONCOPYABLE(PgenVariantStruct);
+  MOVABLE_BUT_NONCOPYABLE(PgenVariantStruct);
   uintptr_t* genovec;
   uintptr_t* patch_01_set;
   AlleleCode* patch_01_vals;

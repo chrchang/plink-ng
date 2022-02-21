@@ -116,7 +116,7 @@ typedef struct PgenFileInfoStruct {
 } PgenFileInfo;
 
 typedef struct PgenReaderMainStruct {
-  NONCOPYABLE(PgenReaderMainStruct);
+  MOVABLE_BUT_NONCOPYABLE(PgenReaderMainStruct);
   // would like to make this const, but that makes initialization really
   // annoying in C99
   struct PgenFileInfoStruct fi;

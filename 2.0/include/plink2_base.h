@@ -97,7 +97,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTI32, since we want the preprocessor to have access
 // to this value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 706
+#define PLINK2_BASE_VERNUM 800
 
 
 #define _FILE_OFFSET_BITS 64
@@ -1661,6 +1661,13 @@ template <class T, std::size_t N> void STD_ARRAY_FILL0(std::array<T, N>& arr) {
   struct_name(const struct_name&) = delete; \
   struct_name& operator=(const struct_name&) = delete
 
+#  define MOVABLE_BUT_NONCOPYABLE(struct_name) \
+  struct_name() = default; \
+  struct_name(const struct_name&) = delete; \
+  struct_name& operator=(const struct_name&) = delete; \
+  struct_name(struct_name&&) = default; \
+  struct_name& operator=(struct_name&&) = default
+
 #else
 #  define STD_ARRAY_DECL(tt, nn, vv) tt vv[nn]
 #  define STD_ARRAY_REF(tt, nn) tt* const
@@ -1674,6 +1681,7 @@ template <class T, std::size_t N> void STD_ARRAY_FILL0(std::array<T, N>& arr) {
 #  define STD_ARRAY_REF_FILL0(ct, aref) memset(aref, 0, ct * sizeof(*aref))
 
 #  define NONCOPYABLE(struct_name)
+#  define MOVABLE_BUT_NONCOPYABLE(struct_name)
 #endif
 
 typedef union {
