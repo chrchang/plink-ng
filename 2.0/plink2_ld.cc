@@ -2888,6 +2888,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
 
     const uint32_t x_present = (is_xs[0] || is_xs[1]);
     const uint32_t founder_ctv = BitCtToVecCt(founder_ct);
+    const uint32_t founder_ctv2 = NypCtToVecCt(founder_ct);
     const uint32_t founder_ctaw = founder_ctv * kWordsPerVec;
     uintptr_t* sex_male_collapsed = nullptr;
     uintptr_t* sex_male_collapsed_interleaved = nullptr;
@@ -2929,7 +2930,9 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         pgvp->dphase_ct = 0;
       } else if (x_male_ct && is_xs[var_idx]) {
         if (!use_dosage) {
-          SetMaleHetMissing(sex_male_collapsed_interleaved, founder_ctv, pgvp->genovec);
+          // bugfix (23 Feb 2022): need genovec vec count, not
+          // sex_male_collapsed_interleaved vec count.
+          SetMaleHetMissing(sex_male_collapsed_interleaved, founder_ctv2, pgvp->genovec);
         }
         if (pgvp->phasepresent_ct) {
           BitvecInvmask(sex_male_collapsed, founder_ctl, pgvp->phasepresent);

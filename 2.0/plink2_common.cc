@@ -2010,8 +2010,8 @@ uint32_t AllGenoEqual(const uintptr_t* genoarr, uint32_t sample_ct) {
   return !bzhi_max(genoarr[word_ct_m1] ^ match_word, 2 * remainder);
 }
 
-void InterleavedMaskZero(const uintptr_t* __restrict interleaved_mask, uintptr_t vec_ct, uintptr_t* __restrict genovec) {
-  const uintptr_t twovec_ct = vec_ct / 2;
+void InterleavedMaskZero(const uintptr_t* __restrict interleaved_mask, uintptr_t geno_vec_ct, uintptr_t* __restrict genovec) {
+  const uintptr_t twovec_ct = geno_vec_ct / 2;
 #ifdef __LP64__
   const VecW m1 = VCONST_W(kMask5555);
   const VecW* interleaved_mask_iter = R_CAST(const VecW*, interleaved_mask);
@@ -2027,7 +2027,7 @@ void InterleavedMaskZero(const uintptr_t* __restrict interleaved_mask, uintptr_t
     *genovvec_iter = (*genovvec_iter) & mask_second;
     ++genovvec_iter;
   }
-  if (vec_ct & 1) {
+  if (geno_vec_ct & 1) {
     VecW mask_first = *interleaved_mask_iter;
     mask_first = mask_first | vecw_slli(mask_first, 1);
     *genovvec_iter = (*genovvec_iter) & mask_first;
@@ -2042,15 +2042,15 @@ void InterleavedMaskZero(const uintptr_t* __restrict interleaved_mask, uintptr_t
     *genovec_iter &= ((mask_word >> 1) & kMask5555) * 3;
     ++genovec_iter;
   }
-  if (vec_ct & 1) {
+  if (geno_vec_ct & 1) {
     const uintptr_t mask_word = *interleaved_mask_iter;
     *genovec_iter &= mask_word * 3;
   }
 #endif
 }
 
-void InterleavedMaskMissing(const uintptr_t* __restrict interleaved_mask, uintptr_t vec_ct, uintptr_t* __restrict genovec) {
-  const uintptr_t twovec_ct = vec_ct / 2;
+void InterleavedMaskMissing(const uintptr_t* __restrict interleaved_mask, uintptr_t geno_vec_ct, uintptr_t* __restrict genovec) {
+  const uintptr_t twovec_ct = geno_vec_ct / 2;
 #ifdef __LP64__
   const VecW m1 = VCONST_W(kMask5555);
   const VecW inv_m1 = VCONST_W(kMaskAAAA);
@@ -2067,7 +2067,7 @@ void InterleavedMaskMissing(const uintptr_t* __restrict interleaved_mask, uintpt
     *genovvec_iter = (*genovvec_iter) | set_second;
     ++genovvec_iter;
   }
-  if (vec_ct & 1) {
+  if (geno_vec_ct & 1) {
     VecW set_first = vecw_and_notfirst(*interleaved_mask_iter, m1);
     set_first = set_first | vecw_slli(set_first, 1);
     *genovvec_iter = (*genovvec_iter) | set_first;
@@ -2082,15 +2082,15 @@ void InterleavedMaskMissing(const uintptr_t* __restrict interleaved_mask, uintpt
     *genovec_iter |= (((~set_invword) >> 1) & kMask5555) * 3;
     ++genovec_iter;
   }
-  if (vec_ct & 1) {
+  if (geno_vec_ct & 1) {
     const uintptr_t set_invword = *interleaved_mask_iter;
     *genovec_iter |= ((~set_invword) & kMask5555) * 3;
   }
 #endif
 }
 
-void InterleavedSetMissing(const uintptr_t* __restrict interleaved_set, uintptr_t vec_ct, uintptr_t* __restrict genovec) {
-  const uintptr_t twovec_ct = vec_ct / 2;
+void InterleavedSetMissing(const uintptr_t* __restrict interleaved_set, uintptr_t geno_vec_ct, uintptr_t* __restrict genovec) {
+  const uintptr_t twovec_ct = geno_vec_ct / 2;
 #ifdef __LP64__
   const VecW m1 = VCONST_W(kMask5555);
   const VecW* interleaved_set_iter = R_CAST(const VecW*, interleaved_set);
@@ -2106,7 +2106,7 @@ void InterleavedSetMissing(const uintptr_t* __restrict interleaved_set, uintptr_
     *genovvec_iter = (*genovvec_iter) | set_second;
     ++genovvec_iter;
   }
-  if (vec_ct & 1) {
+  if (geno_vec_ct & 1) {
     VecW set_first = *interleaved_set_iter;
     set_first = set_first | vecw_slli(set_first, 1);
     *genovvec_iter = (*genovvec_iter) | set_first;
@@ -2121,14 +2121,14 @@ void InterleavedSetMissing(const uintptr_t* __restrict interleaved_set, uintptr_
     *genovec_iter |= ((set_word >> 1) & kMask5555) * 3;
     ++genovec_iter;
   }
-  if (vec_ct & 1) {
+  if (geno_vec_ct & 1) {
     const uintptr_t set_word = *interleaved_set_iter;
     *genovec_iter |= set_word * 3;
   }
 #endif
 }
 
-void InterleavedSetMissingCleardosage(const uintptr_t* __restrict orig_set, const uintptr_t* __restrict interleaved_set, uintptr_t vec_ct, uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main) {
+void InterleavedSetMissingCleardosage(const uintptr_t* __restrict orig_set, const uintptr_t* __restrict interleaved_set, uintptr_t geno_vec_ct, uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main) {
   const uint32_t orig_write_dosage_ct = *write_dosage_ct_ptr;
   if (orig_write_dosage_ct) {
     uintptr_t sample_widx = 0;
@@ -2151,11 +2151,11 @@ void InterleavedSetMissingCleardosage(const uintptr_t* __restrict orig_set, cons
       }
     }
   }
-  InterleavedSetMissing(interleaved_set, vec_ct, genovec);
+  InterleavedSetMissing(interleaved_set, geno_vec_ct, genovec);
 }
 
-void SetMaleHetMissing(const uintptr_t* __restrict sex_male_interleaved, uint32_t vec_ct, uintptr_t* __restrict genovec) {
-  const uint32_t twovec_ct = vec_ct / 2;
+void SetMaleHetMissing(const uintptr_t* __restrict sex_male_interleaved, uint32_t geno_vec_ct, uintptr_t* __restrict genovec) {
+  const uint32_t twovec_ct = geno_vec_ct / 2;
 #ifdef __LP64__
   const VecW m1 = VCONST_W(kMask5555);
   const VecW* sex_male_interleaved_iter = R_CAST(const VecW*, sex_male_interleaved);
@@ -2173,7 +2173,7 @@ void SetMaleHetMissing(const uintptr_t* __restrict sex_male_interleaved, uint32_
     cur_geno_vword = *genovvec_iter;
     *genovvec_iter++ = cur_geno_vword | (sex_male_second_shifted & vecw_slli(cur_geno_vword, 1));
   }
-  if (vec_ct & 1) {
+  if (geno_vec_ct & 1) {
     const VecW sex_male_first = (*sex_male_interleaved_iter) & m1;
     const VecW cur_geno_vword = *genovvec_iter;
     const VecW missing_male_vword = sex_male_first & cur_geno_vword;
@@ -2189,7 +2189,7 @@ void SetMaleHetMissing(const uintptr_t* __restrict sex_male_interleaved, uint32_
     cur_geno_word = *genovec_iter;
     *genovec_iter++ = cur_geno_word | (sex_male_word & kMaskAAAA & (cur_geno_word << 1));
   }
-  if (vec_ct & 1) {
+  if (geno_vec_ct & 1) {
     const uintptr_t sex_male_word = *sex_male_interleaved_iter;
     uintptr_t cur_geno_word = *genovec_iter;
     *genovec_iter = cur_geno_word | ((sex_male_word & kMask5555 & cur_geno_word) << 1);
@@ -2249,37 +2249,37 @@ void EraseMaleDphases(const uintptr_t* __restrict sex_male, uint32_t* __restrict
   }
 }
 
-void SetMaleHetMissingCleardosage(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_male_interleaved, uint32_t vec_ct, uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main) {
+void SetMaleHetMissingCleardosage(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_male_interleaved, uint32_t geno_vec_ct, uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main) {
   if (*write_dosage_ct_ptr) {
     EraseMaleHetDosages(sex_male, genovec, write_dosage_ct_ptr, dosagepresent, dosage_main);
   }
-  SetMaleHetMissing(sex_male_interleaved, vec_ct, genovec);
+  SetMaleHetMissing(sex_male_interleaved, geno_vec_ct, genovec);
 }
 
-void SetMaleHetMissingKeepdosage(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_male_interleaved, uint32_t word_ct, uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main) {
+void SetMaleHetMissingKeepdosage(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_male_interleaved, uint32_t geno_word_ct, uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main) {
   // count # of 1.00000 dosages we need to insert, and then rewrite dosage_main
   // from back to front so we don't need temporary buffers.
   const uint32_t orig_dosage_ct = *write_dosage_ct_ptr;
   if (!orig_dosage_ct) {
     // can't assume dosagepresent is initialized in this case
-    ZeroWArr(DivUp(word_ct, 2), dosagepresent);
+    ZeroWArr(DivUp(geno_word_ct, 2), dosagepresent);
   }
   const Halfword* sex_male_alias = R_CAST(const Halfword*, sex_male);
   Halfword* dosagepresent_alias = R_CAST(Halfword*, dosagepresent);
   uint32_t new_dosage_ct = 0;
   // todo: try vectorizing this loop
-  for (uintptr_t widx = 0; widx != word_ct; ++widx) {
+  for (uintptr_t widx = 0; widx != geno_word_ct; ++widx) {
     const uintptr_t geno_hets = Word01(genovec[widx]);
     const uintptr_t male_nodosage_word = UnpackHalfwordToWord(sex_male_alias[widx] & (~dosagepresent_alias[widx]));
     new_dosage_ct += Popcount01Word(geno_hets & male_nodosage_word);
   }
   if (!new_dosage_ct) {
-    SetMaleHetMissing(sex_male_interleaved, WordCtToVecCt(word_ct), genovec);
+    SetMaleHetMissing(sex_male_interleaved, WordCtToVecCt(geno_word_ct), genovec);
     return;
   }
   uint32_t dosage_write_idx = orig_dosage_ct + new_dosage_ct;
   uint32_t dosage_read_idx = orig_dosage_ct;
-  uint32_t widx = word_ct;
+  uint32_t widx = geno_word_ct;
   *write_dosage_ct_ptr = dosage_write_idx;
   do {
     --widx;
