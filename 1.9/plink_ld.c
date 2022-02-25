@@ -11244,7 +11244,7 @@ int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
     retval = RET_INVALID_FORMAT;
     break;
   epi_summary_merge_ret_INVALID_HEADER:
-    LOGPREPRINTFWW(g_logbuf, "Error: Invalid --epistasis-summary-merge header in %s.\n", inprefix);
+    LOGPREPRINTFWW("Error: Invalid --epistasis-summary-merge header in %s.\n", inprefix);
   epi_summary_merge_ret_INVALID_FORMAT_2:
     logerrprintb();
     retval = RET_INVALID_FORMAT;

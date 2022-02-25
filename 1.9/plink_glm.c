@@ -7606,7 +7606,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       goto glm_linear_nosnp_ret_NOMEM;
     }
     *outname_end = '\0';
-    LOGPREPRINTFWW(g_logbuf, "Dumping all permutation absolute t-stats to %s.[testID].mperm.dump.all.\n", outname);
+    LOGPREPRINTFWW("Dumping all permutation absolute t-stats to %s.[testID].mperm.dump.all.\n", outname);
     fputs(g_logbuf, stdout);
     if (constraint_ct) {
       logprint("(exception: chi-square values will be dumped for joint test)\n");
