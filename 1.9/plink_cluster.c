@@ -746,7 +746,7 @@ int32_t extract_clusters(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
     while (fgets(g_textbuf, MAXLINELEN, infile)) {
       line_idx++;
       if (!g_textbuf[MAXLINELEN - 1]) {
-	LOGPREPRINTFWW(g_logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, clusters_fname);
+	LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, clusters_fname);
         goto extract_clusters_ret_INVALID_FORMAT_2;
       }
       bufptr = skip_initial_spaces(g_textbuf);
