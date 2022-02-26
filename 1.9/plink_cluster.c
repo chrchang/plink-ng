@@ -213,9 +213,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
 	if (uii < cluster_kr_ct) {
           for (read_idx = uii + 1; read_idx < cluster_kr_ct; read_idx++) {
             if (!IS_SET(already_seen, read_idx)) {
-              // Some versions of gcc produce a spurious __builtin_strcpy
-              // warning here.
-              strcpy(&(sorted_keep_ids[uii * max_cluster_kr_len]), &(sorted_keep_ids[read_idx * max_cluster_kr_len]));
+              memcpy(&(sorted_keep_ids[uii * max_cluster_kr_len]), &(sorted_keep_ids[read_idx * max_cluster_kr_len]), max_cluster_kr_len);
               uii++;
 	    }
 	  }
