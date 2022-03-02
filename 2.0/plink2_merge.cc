@@ -6713,8 +6713,6 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
   return reterr;
 }
 
-// TODO: write library for handling pgen_locked bitmap.
-
 // Performs one pass of a possibly-multipass merge.
 // *input_filesets_ptr is advanced as files are processed, and temporary files
 // are deleted while this happens.

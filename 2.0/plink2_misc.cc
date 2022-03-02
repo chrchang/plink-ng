@@ -1328,7 +1328,13 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
         goto Plink1ClusterImport_LINE_ITER_ALREADY_ADVANCED;
       }
       if (unlikely(!nonnull_cat_ct)) {
-        logerrputs("Error: All --within categories are null.\n");
+        if (line_idx == miss_ct + 1) {
+          // could be fancy and only print the last part of this message if
+          // all FIDs are 0
+          logerrputs("Error: No sample IDs in --within file are in the main dataset.  Compare it with\nyour .fam/.psam file; note that if the latter has no FID column at all, that\ncorresponds to FIDs of '0', not FIDs equal to the IIDs.\n");
+        } else {
+          logerrputs("Error: All --within categories are null.\n");
+        }
         goto Plink1ClusterImport_ret_INCONSISTENT_INPUT;
       }
       double dxx;
@@ -1406,10 +1412,10 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
         logprintfww("Note: %" PRIuPTR " duplicate sample ID%s) in --within file.\n", duplicate_ct, (duplicate_ct == 1)? " (with a consistent category assignment" : "s (with consistent category assignments");
       }
       if (miss_ct) {
-        snprintf(g_logbuf, kLogbufSize, "--within: %u non-null categories present, %" PRIuPTR " sample ID%s skipped.\n", nonnull_cat_ct, miss_ct, (miss_ct == 1)? "" : "s");
+        snprintf(g_logbuf, kLogbufSize, "--within: %u non-null categor%s present, %" PRIuPTR " sample ID%s skipped.\n", nonnull_cat_ct, (nonnull_cat_ct == 1)? "y" : "ies", miss_ct, (miss_ct == 1)? "" : "s");
         WordWrapB(0);
       } else {
-        snprintf(g_logbuf, kLogbufSize, "--within: %u non-null categories present.\n", nonnull_cat_ct);
+        snprintf(g_logbuf, kLogbufSize, "--within: %u non-null categor%s present.\n", nonnull_cat_ct, (nonnull_cat_ct == 1)? "y" : "ies");
       }
       logputsb();
     } else {
