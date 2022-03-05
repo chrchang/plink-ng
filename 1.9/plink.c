@@ -93,7 +93,7 @@
 
 static const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b6.24"
+  "PLINK v1.90b6.25"
 #else
   "PLINK v1.90p"
 #endif
@@ -105,10 +105,10 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (26 Feb 2022)";
+  " (5 Mar 2022)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has two trailing digits)
 #else
@@ -10548,7 +10548,7 @@ int32_t main(int32_t argc, char** argv) {
 	    if (recode_type_set(&recode_modifier, RECODE_A)) {
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
-          } else if ((tolower(argv[cur_arg + uii][0]) == 'a') && (!strcmp(&(argv[cur_arg + uii][1]), "-transpose"))) {
+          } else if ((tolower(argv[cur_arg + uii][0]) == 'a') && ((!strcmp(&(argv[cur_arg + uii][1]), "-transpose")) || (!strcmp(&(argv[cur_arg + uii][1]), "v")))) {
 	    if (recode_type_set(&recode_modifier, RECODE_A_TRANSPOSE)) {
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
@@ -10644,7 +10644,7 @@ int32_t main(int32_t argc, char** argv) {
 	    if (recode_type_set(&recode_modifier, RECODE_STRUCTURE)) {
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
-	  } else if (!strcmp(argv[cur_arg + uii], "transpose")) {
+	  } else if ((!strcmp(argv[cur_arg + uii], "transpose")) || (!strcmp(argv[cur_arg + uii], "tped"))) {
 	    if (recode_type_set(&recode_modifier, RECODE_TRANSPOSE)) {
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
