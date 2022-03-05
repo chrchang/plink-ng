@@ -262,7 +262,7 @@ PglErr Export012Vmaj(const char* outname, const uintptr_t* sample_include, const
     AppendBinaryEoln(&write_iter);
     PgrSampleSubsetIndex pssi;
     PgrSetSampleSubsetIndex(sample_include_cumulative_popcounts, simple_pgrp, &pssi);
-    logprintfww5("--export A-transpose to %s ... ", outname);
+    logprintfww5("--export Av to %s ... ", outname);
     fputs("0%", stdout);
     fflush(stdout);
     uint32_t chr_fo_idx = UINT32_MAX;
@@ -9690,7 +9690,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
     // already handles the no-dosage case.
     // (possible todo: have a separate no-dosage fast path)
     if (unlikely(variant_ct * (1 + include_dom) > (kMaxLongLine - 4 * kMaxIdSlen - 64) / 8)) {
-      snprintf(g_logbuf, kLogbufSize, "Error: Too many variants for --export A%s.  (Try to work with A-transpose\ninstead.)\n", include_dom? "D" : "");
+      snprintf(g_logbuf, kLogbufSize, "Error: Too many variants for --export A%s.  (Try to work with Av instead.)\n", include_dom? "D" : "");
       goto Export012Smaj_ret_INCONSISTENT_INPUT_2;
     }
     if (unlikely(fopen_checked(outname, FOPEN_WB, &outfile))) {
@@ -10138,8 +10138,8 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
     if (flags & (kfExportf01 | kfExportf12)) {
       // todo
     }
-    if (flags & (kfExportfTypemask - kfExportfIndMajorBed - kfExportfVcf - kfExportfBcf - kfExportfOxGen - kfExportfBgen11 - kfExportfBgen12 - kfExportfBgen13 - kfExportfHaps - kfExportfHapsLegend - kfExportfATranspose - kfExportfA - kfExportfAD)) {
-      logerrputs("Error: Only VCF, BCF, oxford, bgen-1.x, haps, hapslegend, A, AD, A-transpose,\nand ind-major-bed output have been implemented so far.\n");
+    if (flags & (kfExportfTypemask - kfExportfIndMajorBed - kfExportfVcf - kfExportfBcf - kfExportfOxGen - kfExportfBgen11 - kfExportfBgen12 - kfExportfBgen13 - kfExportfHaps - kfExportfHapsLegend - kfExportfAv - kfExportfA - kfExportfAD)) {
+      logerrputs("Error: Only VCF, BCF, oxford, bgen-1.x, haps, hapslegend, A, AD, Av, and\nind-major-bed output have been implemented so far.\n");
       reterr = kPglRetNotYetSupported;
       goto Exportf_ret_1;
     }
@@ -10176,7 +10176,7 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
       }
       export_allele = new_export_allele;
     }
-    if (flags & kfExportfATranspose) {
+    if (flags & kfExportfAv) {
       // multiallelic ok
       snprintf(outname_end, kMaxOutfnameExtBlen, ".traw");
       reterr = Export012Vmaj(outname, sample_include, sample_include_cumulative_popcounts, piip->sii.sample_ids, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, export_allele, export_allele_missing, variant_cms, sample_ct, piip->sii.max_sample_id_blen, variant_ct, max_export_allele_slen, exportf_delim, simple_pgrp);

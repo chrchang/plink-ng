@@ -75,6 +75,7 @@ CCSRC = $(PLINK2LIB_CCSRC) \
         plink2_glm.cc \
         plink2_help.cc \
         plink2_import.cc \
+        plink2_import_legacy.cc \
         plink2_ld.cc \
         plink2_matrix.cc \
         plink2_matrix_calc.cc \

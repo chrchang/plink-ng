@@ -23,6 +23,7 @@
 #include "plink2_glm.h"
 #include "plink2_help.h"
 #include "plink2_import.h"
+#include "plink2_import_legacy.h"
 #include "plink2_ld.h"
 #include "plink2_matrix_calc.h"
 #include "plink2_merge.h"
@@ -71,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (2 Mar 2022)";
+  " (5 Mar 2022)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -120,7 +121,9 @@ FLAGSET_DEF_START()
   kfXloadOxLegend = (1 << 6),
   kfXloadPlink1Dosage = (1 << 7),
   kfXloadMap = (1 << 8),
-  kfXloadGenDummy = (1 << 9)
+  kfXloadGenDummy = (1 << 9),
+  kfXloadPed = (1 << 10),
+  kfXloadTped = (1 << 11)
 FLAGSET_DEF_END(Xload);
 
 
@@ -2911,8 +2914,8 @@ void GetExportfTargets(const char* const* argvk, uint32_t param_ct, ExportfFlags
         cur_format = kfExportfA;
       } else if (((cur_modif2[0] & 0xdf) == 'D') && (!cur_modif2[1])) {
         cur_format = kfExportfAD;
-      } else if (!strcmp(cur_modif2, "-transpose")) {
-        cur_format = kfExportfATranspose;
+      } else if ((!strcmp(cur_modif2, "v")) || (!strcmp(cur_modif2, "-transpose"))) {
+        cur_format = kfExportfAv;
       }
       break;
     case 'b':
@@ -3012,8 +3015,8 @@ void GetExportfTargets(const char* const* argvk, uint32_t param_ct, ExportfFlags
       }
       break;
     case 't':
-      if (!strcmp(cur_modif2, "ranspose")) {
-        cur_format = kfExportfTranspose;
+      if ((!strcmp(cur_modif2, "ped")) || (!strcmp(cur_modif2, "ranspose"))) {
+        cur_format = kfExportfTped;
       }
       break;
     case 'v':
@@ -3487,6 +3490,8 @@ int main(int argc, char** argv) {
         case 't':
           if (strequal_k(flagname_p, "thread-num", flag_slen)) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "threads");
+          } else if (strequal_k(flagname_p, "tfam", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "psam");
           } else {
             goto main_flag_copy;
           }
@@ -4866,8 +4871,8 @@ int main(int argc, char** argv) {
           pc.command_flags1 |= kfCommand1Exportf;
           pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "xport-allele")) {
-          if (unlikely((!(pc.command_flags1 & kfCommand1Exportf)) || (!(pc.exportf_info.flags & (kfExportfA | kfExportfATranspose | kfExportfAD))))) {
-            logerrputs("Error: --export-allele must be used with --export A/A-transpose/AD.\n");
+          if (unlikely((!(pc.command_flags1 & kfCommand1Exportf)) || (!(pc.exportf_info.flags & (kfExportfA | kfExportfAv | kfExportfAD))))) {
+            logerrputs("Error: --export-allele must be used with --export A/AD/Av.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -5308,6 +5313,9 @@ int main(int argc, char** argv) {
           goto main_ret_INVALID_CMDLINE_A;
         } else if (strequal_k_unsafe(flagname_p2, "rqx") || strequal_k_unsafe(flagname_p2, "reqx")) {
           logerrputs("Error: --freqx has been retired.  Use --geno-counts instead.\n");
+          goto main_ret_INVALID_CMDLINE_A;
+        } else if (strequal_k_unsafe(flagname_p2, "ile")) {
+          logerrputs("Error: --file has been retired.\nContinued use of the .ped + .map fileset format is strongly discouraged.  Use\n--pedmap to convert to a more appropriate format.\n");
           goto main_ret_INVALID_CMDLINE_A;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
@@ -7697,13 +7705,13 @@ int main(int argc, char** argv) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* cur_modif = argvk[arg_idx + 1];
-          const uint32_t slen = strlen(cur_modif);
+          const char* fname = argvk[arg_idx + 1];
+          const uint32_t slen = strlen(fname);
           if (unlikely(slen > kPglFnamesize - 1)) {
             logerrputs("Error: --map filename too long.\n");
             goto main_ret_OPEN_FAIL;
           }
-          memcpy(pvarname, cur_modif, slen + 1);
+          memcpy(pvarname, fname, slen + 1);
           xload |= kfXloadMap;
         } else if (strequal_k_unsafe(flagname_p2, "within")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
@@ -8726,6 +8734,46 @@ int main(int argc, char** argv) {
         } else if (strequal_k_unsafe(flagname_p2, "heno-inner-join")) {
           pmerge_info.flags |= kfPmergePhenoInnerJoin;
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "ed")) {
+          if (unlikely(load_params || (xload & (~kfXloadMap)))) {
+            goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* fname = argvk[arg_idx + 1];
+          const uint32_t slen = strlen(fname);
+          if (unlikely(slen > kPglFnamesize - 1)) {
+            logerrputs("Error: --ped argument too long.\n");
+            goto main_ret_OPEN_FAIL;
+          }
+          memcpy(pgenname, fname, slen + 1);
+          xload |= kfXloadPed;
+        } else if (strequal_k_unsafe(flagname_p2, "edmap")) {
+          if (unlikely(load_params || (xload & (~(kfXloadPed | kfXloadMap))))) {
+            goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* fname_prefix = argvk[arg_idx + 1];
+          const uint32_t slen = strlen(fname_prefix);
+          if (unlikely(slen > kPglFnamesize - 5)) {
+            logerrputs("Error: --pedmap argument too long.\n");
+            goto main_ret_OPEN_FAIL;
+          }
+          if (!(xload & kfXloadMap)) {
+            // allow --map to override this
+            char* prefix_end = memcpya(pvarname, fname_prefix, slen);
+            snprintf(prefix_end, 5, ".map");
+            xload |= kfXloadMap;
+          }
+          if (!(xload & kfXloadPed)) {
+            // allow --ped to override this
+            char* prefix_end = memcpya(pgenname, fname_prefix, slen);
+            snprintf(prefix_end, 5, ".ped");
+            xload |= kfXloadPed;
+          }
         } else if (likely(strequal_k_unsafe(flagname_p2, "heno-quantile-normalize"))) {
           if (param_ct) {
             reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, 0x7fffffff, &pc.quantnorm_flattened);
@@ -9810,6 +9858,43 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.filter_flags |= kfFilterPsamReq;
+        } else if (strequal_k_unsafe(flagname_p2, "file")) {
+          if (unlikely((load_params & (~kfLoadParamsPsam)) || xload)) {
+            goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* fname_prefix = argvk[arg_idx + 1];
+          const uint32_t slen = strlen(fname_prefix);
+          if (unlikely(slen > kPglFnamesize - 6)) {
+            logerrputs("Error: --tfile argument too long.\n");
+            goto main_ret_OPEN_FAIL;
+          }
+          if (!load_params) {
+            // allow --tfam (aliased to --psam) to override this
+            char* prefix_end = memcpya(psamname, fname_prefix, slen);
+            snprintf(prefix_end, 6, ".tfam");
+            load_params = kfLoadParamsPsam;
+          }
+          char* prefix_end = memcpya(pgenname, fname_prefix, slen);
+          snprintf(prefix_end, 6, ".tped");
+          xload = kfXloadTped;
+        } else if (strequal_k_unsafe(flagname_p2, "ped")) {
+          if (unlikely((load_params & (~kfLoadParamsPsam)) || (xload & (~kfXloadTped)))) {
+            goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
+          }
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* fname = argvk[arg_idx + 1];
+          const uint32_t slen = strlen(fname);
+          if (unlikely(slen > kPglFnamesize - 1)) {
+            logerrputs("Error: --tped argument too long.\n");
+            goto main_ret_OPEN_FAIL;
+          }
+          memcpy(pgenname, fname, slen + 1);
+          xload = kfXloadTped;
         } else if (likely(strequal_k_unsafe(flagname_p2, "ests"))) {
           if (unlikely(!(pc.command_flags1 & kfCommand1Glm))) {
             logerrputs("Error: --tests must be used with --glm.\n");
@@ -10396,7 +10481,7 @@ int main(int argc, char** argv) {
     }
 
     pc.dependency_flags |= pc.filter_flags;
-    const uint32_t skip_main = (!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample | kfXloadPlink1Dosage | kfXloadGenDummy)));
+    const uint32_t skip_main = (!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample | kfXloadPlink1Dosage | kfXloadGenDummy | kfXloadPed | kfXloadTped)));
     const uint32_t batch_job = (adjust_file_info.fname != nullptr);
     if (skip_main && (!batch_job)) {
       // add command_flags2 when needed
@@ -10671,7 +10756,11 @@ int main(int argc, char** argv) {
           g_zst_level = zst_level;
         } else {
           pvar_is_compressed = (import_flags / kfImportKeepAutoconvVzs) & 1;
-          if (xload & kfXloadOxGen) {
+          if (xload & kfXloadPed) {
+            reterr = PedmapToPgen(pgenname, pvarname, pc.misc_flags, pc.fam_cols, pc.missing_pheno, pc.max_thread_ct, outname, convname_end, &chr_info);
+          } else if (xload & kfXloadTped) {
+            reterr = TpedToPgen(pgenname, psamname, pc.misc_flags, pc.fam_cols, pc.missing_pheno, pc.max_thread_ct, outname, convname_end, &chr_info);
+          } else if (xload & kfXloadOxGen) {
             reterr = OxGenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.misc_flags, import_flags, oxford_import_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadOxBgen) {
             reterr = OxBgenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.misc_flags, import_flags, oxford_import_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, pc.max_thread_ct, outname, convname_end, &chr_info);

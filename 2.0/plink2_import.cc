@@ -2671,7 +2671,7 @@ static_assert(!kVcfHalfCallReference, "VcfToPgen() assumes kVcfHalfCallReference
 static_assert(kVcfHalfCallHaploid == 1, "VcfToPgen() assumes kVcfHalfCallHaploid == 1.");
 PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, uint32_t no_samples_ok, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
   // Now performs a 2-pass load.  Yes, this can be slower than plink 1.9, but
-  // it's necessary to use the Pgen_writer classes for now (since we need to
+  // it's necessary to use the PgenWriter classes for now (since we need to
   // know upfront how many variants there are, and whether phase/dosage is
   // present).
   // preexisting_psamname should be nullptr if no such file was specified.

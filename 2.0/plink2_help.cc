@@ -191,9 +191,18 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      PLINK 2 currently cannot handle omitted male columns.)\n"
 "    * If not used with --sample, new sample IDs are of the form 'per#/per#'.\n\n"
                );
-    HelpPrint("map\0import-dosage\0dosage\0", &help_ctrl, 1,
-"  --map <filename>   : Specify full name of .map file.\n"
+    HelpPrint("pedmap\0ped\0map\0file\0", &help_ctrl, 0,
+"  --pedmap <prefix>  : Specify .ped + .map filename prefix.\n"
+"  --ped <filename>   : Specify full name of .ped file.\n"
+              );
+    HelpPrint("pedmap\0map\0import-dosage\0dosage\0file\0", &help_ctrl, 1,
+"  --map <filename>   : Specify full name of .map file.\n\n"
                );
+    HelpPrint("tfile\0tped\0tfam\0", &help_ctrl, 1,
+"  --tfile <prefix>   : Specify .tped + .tfam filename prefix.\n"
+"  --tped <filename>  : Specify full name of .tped file.\n"
+"  --tfam <filename>  : Specify full name of .tfam file.\n\n"
+              );
     HelpPrint("import-dosage\0dosage\0", &help_ctrl, 1,
 "  --import-dosage <allele dosage file> ['noheader'] ['id-delim='<char>]\n"
 "                  ['skip0='<i>] ['skip1='<j>] ['skip2='<k>] ['dose1']\n"
@@ -422,8 +431,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "           ['bits='<#>] ['sample-v2']\n"
 "    Create a new fileset with all filters applied.  The following output\n"
 "    formats are supported:\n"
-"    (actually, only A, AD, A-transpose, bcf, bgen-1.x, haps, hapslegend,\n"
-"    ind-major-bed, oxford, and vcf are implemented for now)\n"
+"    (actually, only A, AD, Av, bcf, bgen-1.x, haps, hapslegend, ind-major-bed,\n"
+"    oxford, ped, tped, and vcf are implemented for now)\n"
 "    * '23': 23andMe 4-column format.  This can only be used on a single\n"
 "            sample's data (--keep may be handy), and does not support\n"
 "            multicharacter allele codes.\n"
@@ -432,7 +441,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "           the 'include-alt' modifier.\n"
 "    * 'AD': Sample-major additive (0/1/2) + dominant (het=1/hom=0) coding.\n"
 "            Also supports 'include-alt'.\n"
-"    * 'A-transpose': Variant-major 0/1/2.\n"
+"    * 'Av': Variant-major 0/1/2.\n"
 "    * 'beagle': Unphased per-autosome .dat and .map files, readable by early\n"
 "                BEAGLE versions.\n"
 "    * 'beagle-nomap': Single .beagle.dat file.\n"
@@ -471,12 +480,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                             .gen file format with 5 leading columns\n"
 "                             (understood by older PLINK builds); 'oxford-v2'\n"
 "                             requests the current 6-leading-column flavor.\n"
-"    * 'ped': PLINK 1 sample-major (.ped + .map), loadable with --file.\n"
-"    * 'compound-genotypes': Same as 'ped', except that the space between each\n"
-"                            pair of same-variant allele codes is removed.\n"
+"    * 'ped', 'compound-genotypes': PLINK 1 sample-major (.ped + .map),\n"
+"                                   loadable with --pedmap.\n"
 "    * 'structure': Structure-format.\n"
-"    * 'transpose': PLINK 1 variant-major (.tped + .tfam), loadable with\n"
-"                   --tfile.\n"
+"    * 'tped': PLINK 1 variant-major (.tped + .tfam), loadable with --tfile.\n"
 "    * 'vcf',     : VCF (default version 4.3).  If PAR1 and PAR2 are present,\n"
 "      'vcf-4.2',   they are automatically merged with chrX, with proper\n"
 "      'bcf',       handling of chromosome codes and male ploidy.\n"
@@ -509,8 +516,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * For biallelic formats where it's unspecified whether the reference/major\n"
 "      allele should appear first or second, --export defaults to second for\n"
 "      compatibility with PLINK 1.9.  Use 'ref-first' to change this.\n"
-"      (Note that this doesn't apply to the 'A', 'AD', and 'A-transpose'\n"
-"      formats; use --export-allele to control which alleles are counted there.)\n"
+"      (Note that this doesn't apply to the 'A', 'AD', and 'Av' formats; use\n"
+"      --export-allele to control which alleles are counted there.)\n"
 "    * 'sample-v2' exports .sample files according to the QCTOOLv2 rather than\n"
 "      the original specification.  Only one ID column is exported ('id-paste'\n"
 "      and 'id-delim' settings apply), parental IDs are exported if present, and\n"
@@ -1949,8 +1956,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       proceed.\n"
               );
     HelpPrint("export-allele\0recode-allele\0export\0recode", &help_ctrl, 0,
-"  --export-allele <file> : With --export A/A-transpose/AD, count alleles named\n"
-"                           in the file, instead of REF alleles.\n"
+"  --export-allele <file> : With --export A/AD/Av, count alleles named in the\n"
+"                           file, instead of REF alleles.\n"
               );
     HelpPrint("output-chr\0", &help_ctrl, 0,
 "  --output-chr <MT code> : Set chromosome coding scheme in output files by\n"
