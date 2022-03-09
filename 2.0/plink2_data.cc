@@ -681,7 +681,7 @@ PglErr WritePvar(const char* outname, const uintptr_t* variant_include, const Ch
         alt1_allele_idx = refalt1_select[variant_uidx][1];
       }
       // bugfix (2 Jan 2021): forgot to apply --output-missing-genotype setting
-      // here (and in importers).
+      // here.
       // This check is only need for REF and ALT1; later ALTs are not permitted
       // to be missing.
       if (!memequal_k(cur_alleles[ref_allele_idx], ".", 2)) {
@@ -963,6 +963,22 @@ char* AppendPhenoStr(const PhenoCol* pheno_col, const char* output_missing_pheno
       write_iter = memcpya(write_iter, output_missing_pheno, omp_slen);
     } else if (type_code == kPhenoDtypeCc) {
       *write_iter++ = '1' + IsSet(pheno_col->data.cc, sample_uidx);
+    } else {
+      write_iter = dtoa_g(pheno_col->data.qt[sample_uidx], write_iter);
+    }
+  } else {
+    write_iter = strcpya(write_iter, pheno_col->category_names[pheno_col->data.cat[sample_uidx]]);
+  }
+  return write_iter;
+}
+
+char* AppendPhenoStrEx(const PhenoCol* pheno_col, const char* output_missing_pheno, uint32_t omp_slen, uint32_t sample_uidx, char ctrl_char, char* write_iter) {
+  const PhenoDtype type_code = pheno_col->type_code;
+  if (type_code <= kPhenoDtypeQt) {
+    if (!IsSet(pheno_col->nonmiss, sample_uidx)) {
+      write_iter = memcpya(write_iter, output_missing_pheno, omp_slen);
+    } else if (type_code == kPhenoDtypeCc) {
+      *write_iter++ = ctrl_char + IsSet(pheno_col->data.cc, sample_uidx);
     } else {
       write_iter = dtoa_g(pheno_col->data.qt[sample_uidx], write_iter);
     }

@@ -61,7 +61,7 @@ HEADER_INLINE uintptr_t CstreamWkspaceReq(uintptr_t overflow_buf_size) {
 }
 
 // overflow_buf must have space for at least kCompressStreamBlock + [max bytes
-// added between cswrite() calls] bytes.
+// added between Cswrite() calls] bytes.
 // compress_wkspace can be nullptr in no-compression case; otherwise it must
 // have space for cswrite_wkspace_req(overflow_buf size) bytes.
 PglErr InitCstream(const char* out_fname, uint32_t do_append, uint32_t output_zst, uint32_t thread_ct, uintptr_t overflow_buf_size, char* overflow_buf, unsigned char* compress_wkspace, CompressStreamState* css_ptr);

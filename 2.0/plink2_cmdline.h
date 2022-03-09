@@ -139,6 +139,8 @@ extern const char* g_input_missing_geno_ptr;
 
 extern const char* g_output_missing_geno_ptr;  // now defaults to '.'
 
+extern const char* g_legacy_output_missing_geno_ptr;  // defaults to '0'
+
 extern FILE* g_logfile;
 
 // Mostly-safe log buffer (length kLogbufSize, currently 256k).  Good practice

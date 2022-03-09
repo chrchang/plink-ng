@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (5 Mar 2022)";
+  " (8 Mar 2022)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -3630,6 +3630,7 @@ int main(int argc, char** argv) {
     char idspace_to = '\0';
     char input_missing_geno_char = '0';
     char output_missing_geno_char = '.';
+    char legacy_output_missing_geno_char = '0';
     ImportFlags import_flags = kfImport0;
     uint32_t aperm_present = 0;
     uint32_t notchr_present = 0;
@@ -8169,6 +8170,7 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --output-missing-genotype argument '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
+          legacy_output_missing_geno_char = output_missing_geno_char;
         } else if (strequal_k_unsafe(flagname_p2, "utput-missing-phenotype")) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -10497,11 +10499,6 @@ int main(int argc, char** argv) {
       logerrputs("Error: --gen must be used with --sample or --data.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
-    if (unlikely((xload & kfXloadOxSample) && (pc.misc_flags & kfMiscAffection01))) {
-      // necessary for --data and --data --make-pgen to yield the same output
-      logerrputs("Error: --data/--sample cannot be used with --1.\n");
-      goto main_ret_INVALID_CMDLINE_A;
-    }
     if (unlikely((pc.sample_sort_mode != kSort0) && (!(pc.command_flags1 & (kfCommand1MakePlink2 | kfCommand1WriteCovar | kfCommand1Pmerge))))) {
       logerrputs("Error: --indiv-sort must be used with --make-[b]pgen/--make-bed/--write-covar\nor dataset merging.\n");
       goto main_ret_INVALID_CMDLINE_A;
@@ -10654,7 +10651,7 @@ int main(int argc, char** argv) {
     }
     g_input_missing_geno_ptr = &(g_one_char_strs[2 * ctou32(input_missing_geno_char)]);
     g_output_missing_geno_ptr = &(g_one_char_strs[2 * ctou32(output_missing_geno_char)]);
-    // pigz_init(pc.max_thread_ct);
+    g_legacy_output_missing_geno_ptr = &(g_one_char_strs[2 * ctou32(legacy_output_missing_geno_char)]);
 
     if (pc.max_thread_ct > 8) {
       logprintf("Using up to %u threads (change this with --threads).\n", pc.max_thread_ct);
@@ -10756,20 +10753,30 @@ int main(int argc, char** argv) {
           g_zst_level = zst_level;
         } else {
           pvar_is_compressed = (import_flags / kfImportKeepAutoconvVzs) & 1;
+          // We have previously verified that --1 and either --keep-autoconv
+          // or non-standalone --pmerge[-list] haven't been specified
+          // simultaneously.  Therefore:
+          // - If --1 is specified, and we're executing either --pmerge[-list]
+          //   or at least one regular plink2 command, the temporary .psam file
+          //   should use 0/1 coding for binary phenotypes.
+          // - However, if --1 is specified and we aren't executing any regular
+          //   plink2 commands, the output .psam is not temporary and should
+          //   use 1/2 coding.
+          const uint32_t psam_01 = (pc.misc_flags & kfMiscAffection01) && pc.command_flags1;
           if (xload & kfXloadPed) {
-            reterr = PedmapToPgen(pgenname, pvarname, pc.misc_flags, pc.fam_cols, pc.missing_pheno, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = PedmapToPgen(pgenname, pvarname, pc.misc_flags, import_flags, psam_01, pc.fam_cols, pc.missing_pheno, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadTped) {
-            reterr = TpedToPgen(pgenname, psamname, pc.misc_flags, pc.fam_cols, pc.missing_pheno, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = TpedToPgen(pgenname, psamname, pc.misc_flags, import_flags, pc.fam_cols, pc.missing_pheno, pc.max_thread_ct, outname, convname_end, &chr_info, &psam_generated);
           } else if (xload & kfXloadOxGen) {
-            reterr = OxGenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.misc_flags, import_flags, oxford_import_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = OxGenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.misc_flags, import_flags, oxford_import_flags, psam_01, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadOxBgen) {
-            reterr = OxBgenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.misc_flags, import_flags, oxford_import_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = OxBgenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.misc_flags, import_flags, oxford_import_flags, psam_01, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadOxHaps) {
-            reterr = OxHapslegendToPgen(pgenname, pvarname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.misc_flags, import_flags, oxford_import_flags, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = OxHapslegendToPgen(pgenname, pvarname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.misc_flags, import_flags, oxford_import_flags, psam_01, id_delim, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadPlink1Dosage) {
-            reterr = Plink1DosageToPgen(pgenname, psamname, (xload & kfXloadMap)? pvarname : nullptr, import_single_chr_str, &plink1_dosage_info, pc.misc_flags, import_flags, pc.fam_cols, pc.missing_pheno, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = Plink1DosageToPgen(pgenname, psamname, (xload & kfXloadMap)? pvarname : nullptr, import_single_chr_str, &plink1_dosage_info, pc.misc_flags, import_flags, psam_01, pc.fam_cols, pc.missing_pheno, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadGenDummy) {
-            reterr = GenerateDummy(&gendummy_info, pc.misc_flags, import_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, pc.max_thread_ct, &main_sfmt, outname, convname_end, &chr_info);
+            reterr = GenerateDummy(&gendummy_info, pc.misc_flags, import_flags, psam_01, pc.hard_call_thresh, pc.dosage_erase_thresh, pc.max_thread_ct, &main_sfmt, outname, convname_end, &chr_info);
           }
         }
         if (reterr || (!pc.command_flags1)) {

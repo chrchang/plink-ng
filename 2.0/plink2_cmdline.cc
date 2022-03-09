@@ -49,6 +49,7 @@ const char* g_one_char_strs = nullptr;
 
 const char* g_input_missing_geno_ptr = nullptr;  // in addition to '.'
 const char* g_output_missing_geno_ptr = nullptr;  // now '.'
+const char* g_legacy_output_missing_geno_ptr = nullptr;  // still '0'
 
 FILE* g_logfile = nullptr;
 
@@ -640,6 +641,7 @@ PglErr InitBigstack(uintptr_t malloc_size_mib, uintptr_t* malloc_mib_final_ptr, 
   // plink2_common benefit from this
   g_input_missing_geno_ptr = &(g_one_char_strs[96]);
   g_output_missing_geno_ptr = &(g_one_char_strs[92]);
+  g_legacy_output_missing_geno_ptr = &(g_one_char_strs[96]);
 
   *malloc_mib_final_ptr = malloc_size_mib;
   *bigstack_ua_ptr = bigstack_ua;

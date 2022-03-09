@@ -2667,6 +2667,7 @@ THREAD_FUNC_DECL VcfGenoToPgenThread(void* raw_arg) {
 
 static const char kGpText[] = "GP";
 
+// pgen_generated and psam_generated assumed to be initialized to 1.
 static_assert(!kVcfHalfCallReference, "VcfToPgen() assumes kVcfHalfCallReference == 0.");
 static_assert(kVcfHalfCallHaploid == 1, "VcfToPgen() assumes kVcfHalfCallHaploid == 1.");
 PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, uint32_t no_samples_ok, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
@@ -7003,6 +7004,7 @@ THREAD_FUNC_DECL BcfGenoToPgenThread(void* raw_arg) {
   THREAD_RETURN;
 }
 
+// pgen_generated and psam_generated assumed to be initialized to 1.
 PglErr BcfToPgen(const char* bcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, uint32_t no_samples_ok, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, int32_t vcf_max_dp, VcfHalfCall halfcall_mode, FamCol fam_cols, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
   // Yes, lots of this is copied-and-pasted from VcfToPgen(), but there are
   // enough differences that I don't think trying to handle them with the same
@@ -9038,7 +9040,7 @@ ENUM_U31_DEF_START()
 ENUM_U31_DEF_END(OxSampleCol);
 
 static_assert(5 * kMaxIdBlen <= kDecompressChunkSize, "OxSampleToPsam needs FID+IID+SID+PAT+MAT to fit in writebuf.");
-PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char* ox_missing_code, MiscFlags misc_flags, ImportFlags import_flags, char id_delim, char* outname, char* outname_end, uint32_t* sample_ct_ptr) {
+PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char* ox_missing_code, MiscFlags misc_flags, ImportFlags import_flags, uint32_t psam_01, char id_delim, char* outname, char* outname_end, uint32_t* sample_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* psamfile = nullptr;
@@ -9557,6 +9559,8 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
       goto OxSampleToPsam_ret_TSTREAM_REWIND_FAIL;
     }
     all_ids_iter = all_ids_start;
+    const char ctrl_outchar = '1' - psam_01;
+    const char case_outchar = ctrl_outchar + 1;
     line_start = TextGet(&sample_txs);
     for (; line_start; line_start = TextGet(&sample_txs)) {
       ++line_idx;
@@ -9631,9 +9635,9 @@ PglErr OxSampleToPsam(const char* samplename, const char* const_fid, const char*
             if (cur_col_type == kOxSampleColBinary) {
               // tolerate "control"/"case" as well as 0/1
               if (strequal_k(linebuf_iter, "0", token_slen) || strequal_k(linebuf_iter, "control", token_slen)) {
-                *write_iter++ = '1';
+                *write_iter++ = ctrl_outchar;
               } else if (likely(strequal_k(linebuf_iter, "1", token_slen) || strequal_k(linebuf_iter, "case", token_slen))) {
-                *write_iter++ = '2';
+                *write_iter++ = case_outchar;
               } else {
                 *token_end = '\0';
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid binary phenotype value '%s' on line %" PRIuPTR ", column %u of .sample file ('0', '1', or --missing-code value expected).\n", linebuf_iter, line_idx, col_idx + 1);
@@ -9831,7 +9835,7 @@ BoolErr InitOxfordSingleChr(const char* ox_single_chr_str, const char** single_c
 }
 
 static_assert(sizeof(Dosage) == 2, "OxGenToPgen() needs to be updated.");
-PglErr OxGenToPgen(const char* genname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr OxGenToPgen(const char* genname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* pvar_cswritep = nullptr;
   PglErr reterr = kPglRetSuccess;
@@ -9844,7 +9848,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* cons
   PreinitSpgw(&spgw);
   {
     uint32_t sample_ct;
-    reterr = OxSampleToPsam(samplename, const_fid, ox_missing_code, misc_flags, import_flags, id_delim, outname, outname_end, &sample_ct);
+    reterr = OxSampleToPsam(samplename, const_fid, ox_missing_code, misc_flags, import_flags, psam_01, id_delim, outname, outname_end, &sample_ct);
     if (unlikely(reterr)) {
       goto OxGenToPgen_ret_1;
     }
@@ -11806,7 +11810,7 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* raw_arg) {
 }
 
 static_assert(sizeof(Dosage) == 2, "OxBgenToPgen() needs to be updated.");
-PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* bgenfile = nullptr;
@@ -11884,7 +11888,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     logprintf("--bgen: %u variant%s detected, format v1.%c.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s", (layout == 1)? '1' : ((compression_mode == 2)? '3' : '2'));
     if (samplename[0]) {
       uint32_t sfile_sample_ct;
-      reterr = OxSampleToPsam(samplename, const_fid, ox_missing_code, misc_flags, import_flags, id_delim, outname, outname_end, &sfile_sample_ct);
+      reterr = OxSampleToPsam(samplename, const_fid, ox_missing_code, misc_flags, import_flags, psam_01, id_delim, outname, outname_end, &sfile_sample_ct);
       if (unlikely(reterr)) {
         goto OxBgenToPgen_ret_1;
       }
@@ -13873,7 +13877,7 @@ PglErr ScanHapsForHet(const char* loadbuf_iter, const char* hapsname, uint32_t s
 #ifdef NO_UNALIGNED
 #  error "Unaligned accesses in OxHapslegendToPgen()."
 #endif
-PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const char* samplename, const char* const_fid, const char* ox_single_chr_str, const char* ox_missing_code, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t psam_01, char id_delim, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* psamfile = nullptr;
   uintptr_t line_idx_haps = 0;
@@ -13891,7 +13895,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
   {
     uint32_t sfile_sample_ct = 0;
     if (samplename[0]) {
-      reterr = OxSampleToPsam(samplename, const_fid, ox_missing_code, misc_flags, import_flags, id_delim, outname, outname_end, &sfile_sample_ct);
+      reterr = OxSampleToPsam(samplename, const_fid, ox_missing_code, misc_flags, import_flags, psam_01, id_delim, outname, outname_end, &sfile_sample_ct);
       if (unlikely(reterr)) {
         goto OxHapslegendToPgen_ret_1;
       }
@@ -14439,7 +14443,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     reterr = kPglRetOpenFail;
     break;
   OxHapslegendToPgen_ret_WRITE_FAIL:
-    reterr = kPglRetOpenFail;
+    reterr = kPglRetWriteFail;
     break;
   OxHapslegendToPgen_ret_INVALID_CMDLINE:
     reterr = kPglRetInvalidCmdline;
@@ -14741,7 +14745,7 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
 // probable todo: use the VCF/BGEN-import parallelization strategy to speed
 // this up.
 static_assert(sizeof(Dosage) == 2, "Plink1DosageToPgen() needs to be updated.");
-PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const char* mapname, const char* import_single_chr_str, const Plink1DosageInfo* pdip, MiscFlags misc_flags, ImportFlags import_flags, FamCol fam_cols, int32_t missing_pheno, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const char* mapname, const char* import_single_chr_str, const Plink1DosageInfo* pdip, MiscFlags misc_flags, ImportFlags import_flags, uint32_t psam_01, FamCol fam_cols, int32_t missing_pheno, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
 
@@ -14926,6 +14930,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
       }
     }
     AppendBinaryEoln(&write_iter);
+    const char ctrl_char = '1' - psam_01;
     for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
       const uint32_t sample_uidx = dosage_sample_idx_to_fam_uidx[sample_idx];
       const char* cur_sample_id = &(pii.sii.sample_ids[sample_uidx * pii.sii.max_sample_id_blen]);
@@ -14953,7 +14958,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
           goto Plink1DosageToPgen_ret_WRITE_FAIL;
         }
         *write_iter++ = '\t';
-        write_iter = AppendPhenoStr(&(pheno_cols[pheno_idx]), "NA", 2, sample_uidx, write_iter);
+        write_iter = AppendPhenoStrEx(&(pheno_cols[pheno_idx]), "NA", 2, sample_uidx, ctrl_char, write_iter);
       }
       AppendBinaryEoln(&write_iter);
       if (unlikely(fwrite_ck(writebuf_flush, psamfile, &write_iter))) {
@@ -15231,7 +15236,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
       pvar_cswritep = memcpya(pvar_cswritep, token_ptrs[4], token_slens[4]);
       if (variant_cms) {
         *pvar_cswritep++ = '\t';
-        pvar_cswritep = dtoa_g(variant_cms[variant_uidx], pvar_cswritep);
+        pvar_cswritep = dtoa_g_p8(variant_cms[variant_uidx], pvar_cswritep);
       }
       AppendBinaryEoln(&pvar_cswritep);
       if (unlikely(Cswrite(&pvar_css, &pvar_cswritep))) {
@@ -15870,7 +15875,7 @@ THREAD_FUNC_DECL GenerateDummyThread(void* raw_arg) {
 }
 
 static_assert(sizeof(Dosage) == 2, "GenerateDummy() needs to be updated.");
-PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags, ImportFlags import_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t max_thread_ct, sfmt_t* sfmtp, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags, ImportFlags import_flags, uint32_t psam_01, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t max_thread_ct, sfmt_t* sfmtp, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* psamfile = nullptr;
   char* pvar_cswritep = nullptr;
@@ -16020,6 +16025,7 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
     } else {
       uint32_t urand = sfmt_genrand_uint32(sfmtp);
       uint32_t urand_bits_left = 32;
+      const char ctrl_char = '1' - psam_01;
       for (uint32_t sample_idx = 0; sample_idx != sample_ct; ++sample_idx) {
         if (unlikely(fwrite_ck(writebuf_flush, psamfile, &write_iter))) {
           goto GenerateDummy_ret_WRITE_FAIL;
@@ -16037,7 +16043,7 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
               urand = sfmt_genrand_uint32(sfmtp);
               urand_bits_left = 32;
             }
-            *write_iter++ = (urand & 1) + '1';
+            *write_iter++ = (urand & 1) + ctrl_char;
             urand >>= 1;
             --urand_bits_left;
           }

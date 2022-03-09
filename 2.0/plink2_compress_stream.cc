@@ -91,7 +91,7 @@ PglErr InitCstreamAlloc(const char* out_fname, uint32_t do_append, uint32_t outp
 BoolErr ForceUncompressedCswrite(CompressStreamState* css_ptr, char** writep_ptr) {
   char* writep = *writep_ptr;
   if (css_ptr->overflow_buf != writep) {
-    if (unlikely(!fwrite_unlocked(css_ptr->overflow_buf, writep - css_ptr->overflow_buf, 1, css_ptr->outfile))) {
+    if (unlikely(fwrite_checked(css_ptr->overflow_buf, writep - css_ptr->overflow_buf, css_ptr->outfile))) {
       return 1;
     }
     *writep_ptr = css_ptr->overflow_buf;
@@ -110,7 +110,7 @@ BoolErr ForceCompressedCswrite(CompressStreamState* css_ptr, char** writep_ptr) 
       __maybe_unused size_t retval = ZSTD_compressStream2(css_ptr->cctx, &css_ptr->output, &input, ZSTD_e_continue);
       assert(!ZSTD_isError(retval));
       if (css_ptr->output.pos >= kCompressStreamBlock) {
-        if (unlikely(!fwrite_unlocked(css_ptr->output.dst, css_ptr->output.pos, 1, css_ptr->outfile))) {
+        if (unlikely(fwrite_checked(css_ptr->output.dst, css_ptr->output.pos, css_ptr->outfile))) {
           return 1;
         }
         css_ptr->output.pos = 0;
@@ -189,7 +189,7 @@ BoolErr CompressedCswriteCloseNull(CompressStreamState* css_ptr, char* writep) {
     __maybe_unused size_t retval = ZSTD_compressStream2(css_ptr->cctx, &css_ptr->output, &input, ZSTD_e_end);
     assert(!ZSTD_isError(retval));
     if (css_ptr->output.pos) {
-      if (unlikely(!fwrite_unlocked(css_ptr->output.dst, css_ptr->output.pos, 1, css_ptr->outfile))) {
+      if (unlikely(fwrite_checked(css_ptr->output.dst, css_ptr->output.pos, css_ptr->outfile))) {
         reterr = 1;
       }
       css_ptr->output.pos = 0;
