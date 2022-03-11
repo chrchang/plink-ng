@@ -378,7 +378,7 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
   return reterr;
 }
 
-PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const uintptr_t* allele_idx_offsets, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t htable_size, uint32_t max_thread_ct, char** allele_storage_mutable, uint32_t* max_allele_slen_ptr, char* outname, char* outname_end) {
+PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, const char* const* variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const uintptr_t* allele_idx_offsets, uint32_t raw_variant_ct, uint32_t max_variant_id_slen, uint32_t htable_size, char input_missing_geno_char, uint32_t max_thread_ct, char** allele_storage_mutable, uint32_t* max_allele_slen_ptr, char* outname, char* outname_end) {
   // probable todos:
   // - add '3col' modifier to support three-column input file where second
   //   column has comma-delimited old alleles and third column has
@@ -404,7 +404,6 @@ PglErr UpdateVarAlleles(const char* fname, const uintptr_t* variant_include, con
       goto UpdateVarAlleles_ret_TSTREAM_FAIL;
     }
     const char* std_input_missing_geno = &(g_one_char_strs[92]);
-    const char input_missing_geno_char = *g_input_missing_geno_ptr;
     unsigned char* tmp_alloc_base = g_bigstack_base;
     unsigned char* tmp_alloc_end = g_bigstack_end;
     uintptr_t miss_ct = 0;

@@ -4185,7 +4185,7 @@ void EnforceMinBpSpace(const ChrInfo* cip, const uint32_t* variant_bps, uint32_t
 // (Workaround for that case when merge is implemented: generate a
 // single-sample file with all the right reference alleles, and merge with
 // that.)
-PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const TwoColParams* allele_flag_info, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t is_alt1, uint32_t force, uint32_t max_thread_ct, const char** allele_storage, uint32_t* max_allele_slen_ptr, STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uintptr_t* nonref_flags, uintptr_t* previously_seen) {
+PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const TwoColParams* allele_flag_info, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t is_alt1, uint32_t force, char input_missing_geno_char, uint32_t max_thread_ct, const char** allele_storage, uint32_t* max_allele_slen_ptr, STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uintptr_t* nonref_flags, uintptr_t* previously_seen) {
   // temporary allocations on bottom, "permanent" allocations on top (so we
   // don't reset g_bigstack_end).
   // previously_seen[] should be preallocated iff both --ref-allele and
@@ -4240,7 +4240,6 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
       coldiff = allele_flag_info->colid - allele_flag_info->colx;
     }
     line_idx = allele_flag_info->skip_ct;
-    const char input_missing_geno_char = *g_input_missing_geno_ptr;
     uintptr_t skipped_variant_ct = 0;
     uintptr_t missing_allele_ct = 0;
     uint32_t allele_mismatch_warning_ct = 0;

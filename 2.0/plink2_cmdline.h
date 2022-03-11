@@ -132,15 +132,6 @@ extern char g_textbuf[];
 
 extern const char* g_one_char_strs;
 
-// '.' missing genotype value is now taken for granted; this is in *addition*
-// to it (default '0').
-// (Yes, this might not belong in plink2_cmdline.)
-extern const char* g_input_missing_geno_ptr;
-
-extern const char* g_output_missing_geno_ptr;  // now defaults to '.'
-
-extern const char* g_legacy_output_missing_geno_ptr;  // defaults to '0'
-
 extern FILE* g_logfile;
 
 // Mostly-safe log buffer (length kLogbufSize, currently 256k).  Good practice

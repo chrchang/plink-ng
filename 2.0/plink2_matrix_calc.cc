@@ -6369,7 +6369,6 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             const uintptr_t bit_idx_base = RawToSubsettedPos(variant_include, variant_include_cumulative_popcounts, variant_uidx) * qsr_ct;
             for (uintptr_t qsr_idx = 0; qsr_idx != qsr_ct; ++qsr_idx) {
               if (IsSet(qsr_include, qsr_idx + bit_idx_base)) {
-                allele_ct_bases[qsr_idx] += 2;
                 VerticalCounterUpdate(missing_bitvec, acc1_vec_ct, &(variant_ct_rems[2 * qsr_idx]), &(missing_male_accx[acc4_vec_ct * 11 * qsr_idx]));
               }
             }

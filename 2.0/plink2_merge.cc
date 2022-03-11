@@ -1949,7 +1949,7 @@ BoolErr ScrapeLastVarid(const RescanOnePosContext* ctxp, unsigned char* arena_bo
 // info_keys, pointed-to InfoVtype entries, and info_keys_htable are allocated
 // at the end of bigstack.
 static_assert(kCompressStreamBlock <= kDecompressChunkSize, "ScanPvarsAndMergeHeader() needs to be updated.");
-PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, uint32_t max_thread_ct, SortMode sort_vars_mode, char* outname, char* outname_end, PmergeInputFilesetLl** filesets_ptr, ChrInfo* cip, uintptr_t* fileset_ctp, const char* const** info_keys_ptr, uint32_t* info_key_ctp, uint32_t** info_keys_htablep, uint32_t* info_keys_htable_sizep, uint32_t* info_conflict_presentp) {
+PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, char input_missing_geno_char, uint32_t max_thread_ct, SortMode sort_vars_mode, char* outname, char* outname_end, PmergeInputFilesetLl** filesets_ptr, ChrInfo* cip, uintptr_t* fileset_ctp, const char* const** info_keys_ptr, uint32_t* info_key_ctp, uint32_t** info_keys_htablep, uint32_t* info_keys_htable_sizep, uint32_t* info_conflict_presentp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   const char* cur_fname = nullptr;
@@ -2018,7 +2018,7 @@ PglErr ScanPvarsAndMergeHeader(const PmergeInfo* pmip, MiscFlags misc_flags, uin
     ctx.write_allele_ct_max = pmip->max_allele_ct? pmip->max_allele_ct : kPglMaxAlleleCt;
     ctx.sort_vars_ascii = (sort_vars_mode == kSortAscii);
     ctx.multiallelics_already_joined = (pmip->flags / kfPmergeMultiallelicsAlreadyJoined) & 1;
-    ctx.input_missing_geno_char = *g_input_missing_geno_ptr;
+    ctx.input_missing_geno_char = input_missing_geno_char;
     ctx.cip = cip;
     // For each .pvar, need to determine:
     // - variant_ct
@@ -6100,7 +6100,7 @@ void CleanupPvariantPosMergeContext(PvariantPosMergeContext* ppmcp) {
 // are reordered by ID, and same-position same-ID variants are merged.  The
 // distinction from the general case is that we never need to have more than
 // one .pvar + .pgen open for reading at a time.
-PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrInfo* cip, const PmergeInputFilesetLl* filesets, const char* const* info_keys, const uint32_t* info_keys_htable, uint32_t sample_ct, FamCol fam_cols, uintptr_t fileset_ct, uint32_t psam_linebuf_capacity, uint32_t info_key_ct, uint32_t info_keys_htable_size, uint32_t info_conflict_present, uint32_t max_thread_ct, SortMode sort_vars_mode, char* outname, char* outname_end) {
+PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrInfo* cip, const PmergeInputFilesetLl* filesets, const char* const* info_keys, const uint32_t* info_keys_htable, uint32_t sample_ct, FamCol fam_cols, uintptr_t fileset_ct, uint32_t psam_linebuf_capacity, uint32_t info_key_ct, uint32_t info_keys_htable_size, uint32_t info_conflict_present, char input_missing_geno_char, uint32_t max_thread_ct, SortMode sort_vars_mode, char* outname, char* outname_end) {
   // Don't need to reset bigstack at function end, since Pmerge() will do it.
   const char* read_pgen_fname = nullptr;
   const char* read_pvar_fname = nullptr;
@@ -6314,7 +6314,6 @@ PglErr PmergeConcat(const PmergeInfo* pmip, const SampleIdInfo* siip, const ChrI
 
     unsigned char* bigstack_mark = g_bigstack_base;
     filesets_iter = filesets;
-    const char input_missing_geno_char = *g_input_missing_geno_ptr;
     logputs("Concatenating... ");
     printf("0/%" PRIuPTR " variant%s complete.", write_variant_ct, (write_variant_ct == 1)? "" : "s");
     fflush(stdout);
@@ -6752,7 +6751,7 @@ PglErr PmergePass(__attribute__((unused)) const PmergeInfo* pmip, __attribute__(
   return reterr;
 }
 
-PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags misc_flags, SortMode sample_sort_mode, FamCol fam_cols, int32_t missing_pheno, uint32_t max_thread_ct, SortMode sort_vars_mode, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags misc_flags, SortMode sample_sort_mode, FamCol fam_cols, int32_t missing_pheno, char input_missing_geno_char, uint32_t max_thread_ct, SortMode sort_vars_mode, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
 
@@ -6832,7 +6831,7 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags m
     uint32_t info_key_ct = 0;
     uint32_t info_keys_htable_size = 0;
     uint32_t info_conflict_present;
-    reterr = ScanPvarsAndMergeHeader(pmip, misc_flags, max_thread_ct, sort_vars_mode, outname, outname_end, &input_filesets, cip, &fileset_ct, &info_keys, &info_key_ct, &info_keys_htable, &info_keys_htable_size, &info_conflict_present);
+    reterr = ScanPvarsAndMergeHeader(pmip, misc_flags, input_missing_geno_char, max_thread_ct, sort_vars_mode, outname, outname_end, &input_filesets, cip, &fileset_ct, &info_keys, &info_key_ct, &info_keys_htable, &info_keys_htable_size, &info_conflict_present);
     if (unlikely(reterr)) {
       goto Pmerge_ret_1;
     }
@@ -6844,7 +6843,7 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags m
       }
     }
     if (is_concat_job) {
-      reterr = PmergeConcat(pmip, &sii, cip, input_filesets, info_keys, info_keys_htable, sample_ct, fam_cols, fileset_ct, psam_linebuf_capacity, info_key_ct, info_keys_htable_size, info_conflict_present, max_thread_ct, sort_vars_mode, outname, outname_end);
+      reterr = PmergeConcat(pmip, &sii, cip, input_filesets, info_keys, info_keys_htable, sample_ct, fam_cols, fileset_ct, psam_linebuf_capacity, info_key_ct, info_keys_htable_size, info_conflict_present, input_missing_geno_char, max_thread_ct, sort_vars_mode, outname, outname_end);
     } else {
       for (uint32_t pass_idx = 1; ; ++pass_idx) {
         uint32_t next_fileset_ct;
@@ -6907,7 +6906,7 @@ typedef struct PgenDiffGtEntryStruct {
 } PgenDiffGtEntry;
 
 static_assert(sizeof(Dosage) == 2, "PgenDiff() must be updated.");
-PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const PgenDiffInfo* pdip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t max_allele_ct1, uint32_t max_allele_slen, uint32_t max_thread_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const PgenDiffInfo* pdip, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t max_allele_ct1, uint32_t max_allele_slen, char input_missing_geno_char, uint32_t max_thread_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   char* cswritep = nullptr;
@@ -7397,7 +7396,6 @@ PglErr PgenDiff(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, 
     const uint32_t include_missing = (flags / kfPgenDiffIncludeMissing) & 1;
     const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
     const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
-    const char input_missing_geno_char = *g_input_missing_geno_ptr;
     const uintptr_t* nonref_flags1 = pgfip->nonref_flags;
     const uint32_t all_nonref1 = (pgfip->gflags & kfPgenGlobalAllNonref) && (!nonref_flags1);
     uint32_t chr_idx = UINT32_MAX;

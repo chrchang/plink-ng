@@ -34,7 +34,7 @@ void CleanupExportf(ExportfInfo* exportf_info_ptr) {
   free_cond(exportf_info_ptr->export_allele_fname);
 }
 
-PglErr ExportAlleleLoad(const char* fname, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_thread_ct, uint32_t* max_export_allele_slen_ptr, STD_ARRAY_PTR_DECL(AlleleCode, 2, export_allele), const char*** allele_missing_ptr) {
+PglErr ExportAlleleLoad(const char* fname, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, char input_missing_geno_char, uint32_t max_thread_ct, uint32_t* max_export_allele_slen_ptr, STD_ARRAY_PTR_DECL(AlleleCode, 2, export_allele), const char*** allele_missing_ptr) {
   // "Permanent" allocations occur on high end of bigstack.
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
@@ -71,7 +71,6 @@ PglErr ExportAlleleLoad(const char* fname, const uintptr_t* variant_include, con
       goto ExportAlleleLoad_ret_1;
     }
 
-    const char input_missing_geno_char = *g_input_missing_geno_ptr;
     unsigned char* tmp_alloc_base = g_bigstack_base;
     unsigned char* tmp_alloc_end = g_bigstack_end;
     const char** allele_missing = nullptr;
@@ -10101,7 +10100,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
   return reterr;
 }
 
-PglErr ExportTped(const char* outname, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* variant_cms, uint32_t sample_ct, uint32_t variant_ct, uint32_t max_allele_slen, char exportf_delim, PgenReader* simple_pgrp) {
+PglErr ExportTped(const char* outname, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* variant_cms, uint32_t sample_ct, uint32_t variant_ct, uint32_t max_allele_slen, char exportf_delim, char lomg_char, PgenReader* simple_pgrp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
@@ -10130,18 +10129,17 @@ PglErr ExportTped(const char* outname, const uintptr_t* sample_include, const ui
     logprintfww5("--export tped to %s ... ", outname);
     fputs("0%", stdout);
     fflush(stdout);
-    const char output_missing_geno_char = *g_legacy_output_missing_geno_ptr;
     uint32_t geno_to_text32[4];
     // delim, missing code, delim, missing code
-    geno_to_text32[3] = (ctou32(exportf_delim) + 0x100 * ctou32(output_missing_geno_char)) * 0x10001;
+    geno_to_text32[3] = (ctou32(exportf_delim) + 0x100 * ctou32(lomg_char)) * 0x10001;
 
     char* geno_to_str[4];
     uint32_t geno_slen[4];
     geno_to_str[3] = &(genotext_buf[(6 * k1LU) * max_allele_slen + 6]);
     geno_to_str[3][0] = exportf_delim;
-    geno_to_str[3][1] = output_missing_geno_char;
+    geno_to_str[3][1] = lomg_char;
     geno_to_str[3][2] = exportf_delim;
-    geno_to_str[3][3] = output_missing_geno_char;
+    geno_to_str[3][3] = lomg_char;
     geno_slen[3] = 4;
 
     const uint32_t sample_ctl2_m1 = sample_ctl2 - 1;
@@ -10320,7 +10318,12 @@ PglErr ExportTped(const char* outname, const uintptr_t* sample_include, const ui
   return reterr;
 }
 
-PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const ExportfInfo* eip, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, UnsortedVar vpos_sortstatus, uint32_t max_thread_ct, MakePlink2Flags make_plink2_flags, uintptr_t pgr_alloc_cacheline_ct, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr ExportPed() {
+  logerrputs("Error: .ped export is under development.\n");
+  return kPglRetNotYetSupported;
+}
+
+PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const ExportfInfo* eip, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, UnsortedVar vpos_sortstatus, char input_missing_geno_char, char output_missing_geno_char, char legacy_output_missing_geno_char, uint32_t max_thread_ct, MakePlink2Flags make_plink2_flags, uintptr_t pgr_alloc_cacheline_ct, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   PglErr reterr = kPglRetSuccess;
@@ -10356,7 +10359,6 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
     }
     if (flags & (kfExportf01 | kfExportf12)) {
       const uint32_t is_12 = (flags / kfExportf12) & 1;
-      const char legacy_output_missing_geno_char = *g_legacy_output_missing_geno_ptr;
       if (unlikely((flags & (kfExportfTped | kfExportfPed)) && ((legacy_output_missing_geno_char == '1') || (ctou32(legacy_output_missing_geno_char) == '0' + (2 * is_12))))) {
         // Could move enforcement of this to initial command-line parsing if it
         // turns out to be a common mistake.
@@ -10402,8 +10404,8 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
       }
       allele_storage = subst_allele_storage;
     }
-    if (flags & (kfExportfTypemask - kfExportfIndMajorBed - kfExportfVcf - kfExportfBcf - kfExportfOxGen - kfExportfBgen11 - kfExportfBgen12 - kfExportfBgen13 - kfExportfHaps - kfExportfHapsLegend - kfExportfAv - kfExportfA - kfExportfAD - kfExportfTped)) {
-      logerrputs("Error: Only VCF, BCF, oxford, bgen-1.x, haps, hapslegend, A, AD, Av, tped, and\nind-major-bed output have been implemented so far.\n");
+    if (flags & (kfExportfTypemask - kfExportfIndMajorBed - kfExportfVcf - kfExportfBcf - kfExportfOxGen - kfExportfBgen11 - kfExportfBgen12 - kfExportfBgen13 - kfExportfHaps - kfExportfHapsLegend - kfExportfAv - kfExportfA - kfExportfAD - kfExportfTped - kfExportfPed)) {
+      logerrputs("Error: Only VCF, BCF, oxford, bgen-1.x, haps, hapslegend, A, AD, Av, ped, tped,\nand ind-major-bed output have been implemented so far.\n");
       reterr = kPglRetNotYetSupported;
       goto Exportf_ret_1;
     }
@@ -10414,7 +10416,7 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
       snprintf(outname_end, kMaxOutfnameExtBlen, ".bim");
       logprintfww5("Writing %s ... ", outname);
       fflush(stdout);
-      reterr = WriteMapOrBim(outname, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nullptr, refalt1_select, variant_cms, variant_ct, max_allele_slen, exportf_delim, 0, max_thread_ct);
+      reterr = WriteMapOrBim(outname, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, nullptr, refalt1_select, variant_cms, variant_ct, max_allele_slen, exportf_delim, output_missing_geno_char, 0, max_thread_ct);
       if (unlikely(reterr)) {
         goto Exportf_ret_1;
       }
@@ -10434,7 +10436,7 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
       } else {
         memset(new_export_allele, 0, raw_variant_ct * 2 * sizeof(AlleleCode));
       }
-      reterr = ExportAlleleLoad(eip->export_allele_fname, variant_include, variant_ids, allele_idx_offsets, allele_storage, raw_variant_ct, variant_ct, max_variant_id_slen, max_thread_ct, &max_export_allele_slen, new_export_allele, &export_allele_missing);
+      reterr = ExportAlleleLoad(eip->export_allele_fname, variant_include, variant_ids, allele_idx_offsets, allele_storage, raw_variant_ct, variant_ct, max_variant_id_slen, input_missing_geno_char, max_thread_ct, &max_export_allele_slen, new_export_allele, &export_allele_missing);
       if (unlikely(reterr)) {
         goto Exportf_ret_1;
       }
@@ -10521,9 +10523,7 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
         goto Exportf_ret_1;
       }
     }
-    // todo: everything else
-    // sample-major output should share a (probably multithreaded) transpose
-    // routine
+
     if (flags & (kfExportfA | kfExportfAD)) {
       // multiallelic ok
       snprintf(outname_end, kMaxOutfnameExtBlen, ".raw");
@@ -10531,6 +10531,26 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
       if (unlikely(reterr)) {
         goto Exportf_ret_1;
       }
+    }
+
+    if (flags & kfExportfPed) {
+      snprintf(outname_end, kMaxOutfnameExtBlen, ".map");
+      logprintfww5("Writing %s ... ", outname);
+      fflush(stdout);
+      reterr = WriteMapOrBim(outname, variant_include, cip, variant_bps, variant_ids, nullptr, nullptr, nullptr, nullptr, variant_cms, variant_ct, 0, exportf_delim, '\0', 0, max_thread_ct);
+      if (unlikely(reterr)) {
+        goto Exportf_ret_1;
+      }
+      logputs("done.\n");
+
+      snprintf(outname_end, kMaxOutfnameExtBlen, ".ped");
+      logprintfww5("Writing %s ... ", outname);
+      fflush(stdout);
+      reterr = ExportPed();
+      if (unlikely(reterr)) {
+        goto Exportf_ret_1;
+      }
+      logputs("done.\n");
     }
 
     if (flags & kfExportfTped) {
@@ -10544,7 +10564,7 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
       logputs("done.\n");
 
       snprintf(outname_end, kMaxOutfnameExtBlen, ".tped");
-      reterr = ExportTped(outname, sample_include, sample_include_cumulative_popcounts, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, variant_cms, sample_ct, variant_ct, max_allele_slen, exportf_delim, simple_pgrp);
+      reterr = ExportTped(outname, sample_include, sample_include_cumulative_popcounts, variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, variant_cms, sample_ct, variant_ct, max_allele_slen, exportf_delim, legacy_output_missing_geno_char, simple_pgrp);
       if (unlikely(reterr)) {
         goto Exportf_ret_1;
       }

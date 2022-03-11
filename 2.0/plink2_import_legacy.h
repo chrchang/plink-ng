@@ -26,7 +26,7 @@ namespace plink2 {
 
 PglErr PedmapToPgen(const char* pedname, const char* mapname, MiscFlags misc_flags, ImportFlags import_flags, uint32_t psam_01, FamCol fam_cols, int32_t missing_pheno, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip);
 
-PglErr TpedToPgen(const char* tpedname, const char* tfamname, MiscFlags misc_flags, ImportFlags import_flags, FamCol fam_cols, int32_t missing_pheno, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* psam_generated_ptr);
+PglErr TpedToPgen(const char* tpedname, const char* tfamname, MiscFlags misc_flags, ImportFlags import_flags, FamCol fam_cols, int32_t missing_pheno, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* psam_generated_ptr);
 
 #ifdef __cplusplus
 }  // namespace plink2

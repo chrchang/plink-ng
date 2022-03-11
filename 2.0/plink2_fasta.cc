@@ -154,7 +154,7 @@ PglErr RefFromFaContig(const uintptr_t* variant_include, const uint32_t* variant
   }
 }
 
-PglErr VNormalizeContig(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* seqbuf, uint32_t chr_fo_idx, uint32_t variant_uidx_last, uint32_t bp_end, unsigned char** alloc_endp, UnsortedVar* vpos_sortstatusp, uint32_t* __restrict variant_bps, const char** allele_storage, uint32_t* __restrict nchanged_ct_ptr, char* nlist_flush, FILE* nlist_file, char** nlist_write_iterp, uint32_t* __restrict alen_buf, uintptr_t* __restrict allele_skip_buf) {
+PglErr VNormalizeContig(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* seqbuf, uint32_t chr_fo_idx, uint32_t variant_uidx_last, uint32_t bp_end, uint32_t output_missing_geno_code, unsigned char** alloc_endp, UnsortedVar* vpos_sortstatusp, uint32_t* __restrict variant_bps, const char** allele_storage, uint32_t* __restrict nchanged_ct_ptr, char* nlist_flush, FILE* nlist_file, char** nlist_write_iterp, uint32_t* __restrict alen_buf, uintptr_t* __restrict allele_skip_buf) {
   uintptr_t variant_uidx_base;
   uintptr_t cur_bits;
   BitIter1Start(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], &variant_uidx_base, &cur_bits);
@@ -170,7 +170,6 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const char* const* var
   }
   const char* skip_allele_str = &(g_one_char_strs[84]);
   const char* missing_allele_str = &(g_one_char_strs[92]);
-  const uint32_t output_missing_geno_code = ctou32(*g_output_missing_geno_ptr);
   unsigned char* alloc_base = g_bigstack_base;
   unsigned char* alloc_end = *alloc_endp;
   char* nlist_write_iter = *nlist_write_iterp;
@@ -450,7 +449,7 @@ PglErr VNormalizeContig(const uintptr_t* variant_include, const char* const* var
   return kPglRetSuccess;
 }
 
-PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* fname, uint32_t max_allele_ct, uint32_t max_allele_slen, FaFlags flags, uint32_t max_thread_ct, UnsortedVar* vpos_sortstatusp, uint32_t* variant_bps, const char** allele_storage, STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uintptr_t* nonref_flags, char* outname, char* outname_end) {
+PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const ChrInfo* cip, const char* fname, uint32_t max_allele_ct, uint32_t max_allele_slen, FaFlags flags, uint32_t output_missing_geno_code, uint32_t max_thread_ct, UnsortedVar* vpos_sortstatusp, uint32_t* variant_bps, const char** allele_storage, STD_ARRAY_PTR_DECL(AlleleCode, 2, refalt1_select), uintptr_t* nonref_flags, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   FILE* nlist_file = nullptr;
@@ -561,7 +560,7 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
             }
           }
           if (flags & kfFaNormalize) {
-            reterr = VNormalizeContig(variant_include, variant_ids, allele_idx_offsets, cip, seqbuf, chr_fo_idx, cur_vidx_last, bp_end, &tmp_alloc_end, vpos_sortstatusp, variant_bps, allele_storage, &nchanged_ct, nlist_flush, nlist_file, &nlist_write_iter, alen_buf, allele_skip_buf);
+            reterr = VNormalizeContig(variant_include, variant_ids, allele_idx_offsets, cip, seqbuf, chr_fo_idx, cur_vidx_last, bp_end, output_missing_geno_code, &tmp_alloc_end, vpos_sortstatusp, variant_bps, allele_storage, &nchanged_ct, nlist_flush, nlist_file, &nlist_write_iter, alen_buf, allele_skip_buf);
             if (unlikely(reterr)) {
               goto ProcessFa_ret_1;
             }
@@ -649,7 +648,7 @@ PglErr ProcessFa(const uintptr_t* variant_include, const char* const* variant_id
         // slightly redundant
         *seq_iter = '\0';
         const uint32_t bp_end = seq_iter - seqbuf;
-        reterr = VNormalizeContig(variant_include, variant_ids, allele_idx_offsets, cip, seqbuf, chr_fo_idx, cur_vidx_last, bp_end, &tmp_alloc_end, vpos_sortstatusp, variant_bps, allele_storage, &nchanged_ct, nlist_flush, nlist_file, &nlist_write_iter, alen_buf, allele_skip_buf);
+        reterr = VNormalizeContig(variant_include, variant_ids, allele_idx_offsets, cip, seqbuf, chr_fo_idx, cur_vidx_last, bp_end, output_missing_geno_code, &tmp_alloc_end, vpos_sortstatusp, variant_bps, allele_storage, &nchanged_ct, nlist_flush, nlist_file, &nlist_write_iter, alen_buf, allele_skip_buf);
         if (unlikely(reterr)) {
           goto ProcessFa_ret_1;
         }

@@ -63,7 +63,10 @@ PglErr RewritePsam(const char* in_psamname, MiscFlags misc_flags, FamCol fam_col
 
 // psam_generated assumed to be initialized to 1.
 // Unlike plink 1.9, this does not support lines longer than 2 GiB.
-PglErr TpedToPgen(const char* tpedname, const char* tfamname, MiscFlags misc_flags, ImportFlags import_flags, FamCol fam_cols, int32_t missing_pheno, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* psam_generated_ptr) {
+// It's possible to parallelize this more, but it isn't realistically worth the
+// effort, since there's so little reason to use this format over VCF for
+// larger datasets.
+PglErr TpedToPgen(const char* tpedname, const char* tfamname, MiscFlags misc_flags, ImportFlags import_flags, FamCol fam_cols, int32_t missing_pheno, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* psam_generated_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   TextStream tped_txs;
   PreinitTextStream(&tped_txs);
@@ -273,7 +276,6 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, MiscFlags misc_fla
       tped_line_iter = FirstNonTspace(CurTokenEnd(bp_start));
 
       ZeroWArr(sample_ctl2, genovec);
-      const char input_missing_geno_char = g_input_missing_geno_ptr[0];
       const char* allele1 = nullptr;
       const char* allele2 = nullptr;
       uint32_t allele1_slen = 0;
