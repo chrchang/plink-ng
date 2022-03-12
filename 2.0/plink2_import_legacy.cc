@@ -1849,6 +1849,21 @@ PglErr PedmapToPgen(const char* pedname, const char* mapname, MiscFlags misc_fla
     indmaj_bed_file = nullptr;
     snprintf(outname_end, kMaxOutfnameExtBlen, ".bed.smaj");
     unlink(outname);
+
+    char* write_iter = strcpya_k(g_logbuf, "--pedmap: ");
+    const uint32_t outname_base_slen = outname_end - outname;
+    write_iter = memcpya(write_iter, outname, outname_base_slen);
+    write_iter = strcpya_k(write_iter, ".pgen + ");
+    write_iter = memcpya(write_iter, outname, outname_base_slen);
+    write_iter = strcpya_k(write_iter, ".pvar");
+    if (import_flags & kfImportKeepAutoconvVzs) {
+      write_iter = strcpya_k(write_iter, ".zst");
+    }
+    write_iter = strcpya_k(write_iter, " + ");
+    write_iter = memcpya(write_iter, outname, outname_base_slen);
+    strcpy_k(write_iter, ".psam written. .bed.smaj and .fam.tmp temporary files deleted.\n");
+    WordWrapB(0);
+    logputsb();
   }
   while (0) {
   PedmapToPgen_ret_NOMEM:
