@@ -210,6 +210,8 @@ PglErr ScanMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
 }
 
 // Assumes ScanMap() was previously called on the .map.
+// Assumes null ref_allele/alt_allele values are initialized to a null string,
+// rather than nullptr.
 PglErr MapToPvar(const char* mapname, const ChrInfo* cip, const char* const* allele_storage, uint32_t variant_ct, uint32_t max_allele_slen, ImportFlags import_flags, uint32_t at_least_one_nzero_cm, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
@@ -305,14 +307,14 @@ PglErr MapToPvar(const char* mapname, const ChrInfo* cip, const char* const* all
         }
         cswritep = memcpyax(cswritep, variant_id_start, variant_id_slen, '\t');
         const char* ref_allele = allele_storage[variant_idx * 2];
-        if (ref_allele) {
+        if (ref_allele[0]) {
           cswritep = strcpya(cswritep, ref_allele);
         } else {
           *cswritep++ = '.';
         }
         *cswritep++ = '\t';
         const char* alt_allele = allele_storage[variant_idx * 2 + 1];
-        if (alt_allele) {
+        if (alt_allele[0]) {
           cswritep = strcpya(cswritep, alt_allele);
         } else {
           *cswritep++ = '.';
@@ -1528,10 +1530,14 @@ PglErr PedmapToPgen(const char* pedname, const char* mapname, MiscFlags misc_fla
     uint32_t* second_allele_plus_missing_cts;
     uintptr_t* genovec;
     if (unlikely(bigstack_calloc_w(variant_ctl, &allele_flips) ||
-                 bigstack_end_calloc_kcp(2 * variant_ct, &allele_codes) ||
+                 bigstack_end_alloc_kcp(2 * variant_ct, &allele_codes) ||
                  bigstack_end_calloc_u32(variant_ct, &second_allele_plus_missing_cts) ||
                  bigstack_end_alloc_w(variant_ctl2, &genovec))) {
       goto PedmapToPgen_ret_NOMEM;
+    }
+    const char* null_str = &(g_one_char_strs[0]);
+    for (uint32_t uii = 0; uii != 2 * variant_ct; ++uii) {
+      allele_codes[uii] = null_str;
     }
     snprintf(outname_end, kMaxOutfnameExtBlen, ".bed.smaj");
     if (unlikely(fopen_checked(outname, FOPEN_WB, &indmaj_bed_file))) {
@@ -1613,80 +1619,78 @@ PglErr PedmapToPgen(const char* pedname, const char* mapname, MiscFlags misc_fla
           }
           const uint32_t first_allele_slen = first_allele_end - first_allele_start;
           const uint32_t second_allele_slen = ped_iter - second_allele_start;
-          const uint32_t second_allele_is_missing = (second_allele_slen == 1) && ((second_allele_start[0] == '.') || (second_allele_start[0] == input_missing_geno_char));
+          const uint32_t is_het = (first_allele_slen != second_allele_slen) || (!memequal(first_allele_start, second_allele_start, first_allele_slen));
+          const uint32_t variant_idx_x2 = variant_idx * 2;
+          const uint32_t variant_idx_x2_p1 = variant_idx_x2 + 1;
+          const char* prov_ref_allele = allele_codes[variant_idx_x2];
+          const char* prov_alt_allele = allele_codes[variant_idx_x2_p1];
+          // Note that this uses PLINK 1 encoding.
           uintptr_t cur_geno;
-          if ((first_allele_slen == 1) && ((first_allele_start[0] == '.') || (first_allele_start[0] == input_missing_geno_char))) {
-            if (unlikely(!second_allele_is_missing)) {
-              goto PedmapToPgen_ret_HALF_MISSING;
-            }
-            // PLINK 1 encoding
-            cur_geno = 1;
-          } else {
-            if (unlikely(second_allele_is_missing)) {
-              goto PedmapToPgen_ret_HALF_MISSING;
-            }
-            const uint32_t is_het = (first_allele_slen != second_allele_slen) || (!memequal(first_allele_start, second_allele_start, first_allele_slen));
-            const uint32_t variant_idx_x2 = variant_idx * 2;
-            const uint32_t variant_idx_x2_p1 = variant_idx_x2 + 1;
-            const char* prov_ref_allele = allele_codes[variant_idx_x2];
-            const char* prov_alt_allele = allele_codes[variant_idx_x2_p1];
+          if (strequal_unsafe(prov_ref_allele, first_allele_start, first_allele_slen)) {
+          PedmapToPgen_ref_x:
             cur_geno = 3 - is_het;
-            if ((!prov_ref_allele) || strequal_unsafe(prov_ref_allele, first_allele_start, first_allele_slen)) {
-              // First allele matches prov_ref_allele (possibly after
-              // initialization of the latter).
-              if (!prov_ref_allele) {
-                if (first_allele_slen == 1) {
-                  allele_codes[variant_idx_x2] = &(g_one_char_strs[ctou32(first_allele_start[0]) * 2]);
-                } else {
-                  if (unlikely(StoreStringAtEndK(tmp_alloc_base, first_allele_start, first_allele_slen, &tmp_alloc_end, &(allele_codes[variant_idx_x2])))) {
-                    goto PedmapToPgen_ret_NOMEM;
+            if (is_het) {
+              if (!strequal_unsafe(prov_alt_allele, second_allele_start, second_allele_slen)) {
+                if (unlikely(prov_alt_allele != null_str)) {
+                  if ((second_allele_slen == 1) && ((second_allele_start[0] == '.') || (second_allele_start[0] == input_missing_geno_char))) {
+                    goto PedmapToPgen_ret_HALF_MISSING;
                   }
-                  if (first_allele_slen > max_allele_slen) {
-                    max_allele_slen = first_allele_slen;
-                  }
-                }
-              }
-              if (is_het) {
-                if (!prov_alt_allele) {
-                  if (second_allele_slen == 1) {
-                    allele_codes[variant_idx_x2_p1] = &(g_one_char_strs[ctou32(second_allele_start[0]) * 2]);
-                  } else {
-                    if (unlikely(StoreStringAtEndK(tmp_alloc_base, second_allele_start, second_allele_slen, &tmp_alloc_end, &(allele_codes[variant_idx_x2_p1])))) {
-                      goto PedmapToPgen_ret_NOMEM;
-                    }
-                    if (second_allele_slen > max_allele_slen) {
-                      max_allele_slen = second_allele_slen;
-                    }
-                  }
-                } else if (unlikely(!strequal_unsafe(prov_alt_allele, second_allele_start, second_allele_slen))) {
                   goto PedmapToPgen_ret_MULTIALLELIC;
                 }
-              }
-            } else if (likely((!prov_alt_allele) || strequal_unsafe(prov_alt_allele, first_allele_start, first_allele_slen))) {
-              // First allele matches prov_alt_allele (possibly after
-              // initialization of the latter).
-              if (!prov_alt_allele) {
-                if (first_allele_slen == 1) {
-                  allele_codes[variant_idx_x2_p1] = &(g_one_char_strs[ctou32(first_allele_start[0]) * 2]);
+                if (second_allele_slen == 1) {
+                  allele_codes[variant_idx_x2_p1] = &(g_one_char_strs[ctou32(second_allele_start[0]) * 2]);
                 } else {
-                  if (unlikely(StoreStringAtEndK(tmp_alloc_base, first_allele_start, first_allele_slen, &tmp_alloc_end, &(allele_codes[variant_idx_x2_p1])))) {
+                  if (unlikely(StoreStringAtEndK(tmp_alloc_base, second_allele_start, second_allele_slen, &tmp_alloc_end, &(allele_codes[variant_idx_x2_p1])))) {
                     goto PedmapToPgen_ret_NOMEM;
                   }
-                  if (first_allele_slen > max_allele_slen) {
-                    max_allele_slen = first_allele_slen;
+                  if (second_allele_slen > max_allele_slen) {
+                    max_allele_slen = second_allele_slen;
                   }
                 }
               }
-              if (is_het) {
-                if (unlikely(!strequal_unsafe(prov_ref_allele, second_allele_start, second_allele_slen))) {
-                  goto PedmapToPgen_ret_MULTIALLELIC;
-                }
-              } else {
-                cur_geno = 0;
-              }
-            } else {
-              goto PedmapToPgen_ret_MULTIALLELIC;
             }
+          } else if (strequal_unsafe(prov_alt_allele, first_allele_start, first_allele_slen)) {
+          PedmapToPgen_alt_x:
+            cur_geno = is_het * 2;
+            if (is_het) {
+              if (unlikely(!strequal_unsafe(prov_ref_allele, second_allele_start, second_allele_slen))) {
+                if ((second_allele_slen == 1) && ((second_allele_start[0] == '.') || (second_allele_start[0] == input_missing_geno_char))) {
+                  goto PedmapToPgen_ret_HALF_MISSING;
+                }
+                goto PedmapToPgen_ret_MULTIALLELIC;
+              }
+            }
+          } else if ((first_allele_slen == 1) && ((first_allele_start[0] == '.') || (first_allele_start[0] == input_missing_geno_char))) {
+            if (unlikely(is_het)) {
+              goto PedmapToPgen_ret_HALF_MISSING;
+            }
+            cur_geno = 1;
+          } else if (prov_ref_allele == null_str) {
+            if (first_allele_slen == 1) {
+              allele_codes[variant_idx_x2] = &(g_one_char_strs[ctou32(first_allele_start[0]) * 2]);
+            } else {
+              if (unlikely(StoreStringAtEndK(tmp_alloc_base, first_allele_start, first_allele_slen, &tmp_alloc_end, &(allele_codes[variant_idx_x2])))) {
+                goto PedmapToPgen_ret_NOMEM;
+              }
+              if (first_allele_slen > max_allele_slen) {
+                max_allele_slen = first_allele_slen;
+              }
+            }
+            goto PedmapToPgen_ref_x;
+          } else if (likely(prov_alt_allele == null_str)) {
+            if (first_allele_slen == 1) {
+              allele_codes[variant_idx_x2_p1] = &(g_one_char_strs[ctou32(first_allele_start[0]) * 2]);
+            } else {
+              if (unlikely(StoreStringAtEndK(tmp_alloc_base, first_allele_start, first_allele_slen, &tmp_alloc_end, &(allele_codes[variant_idx_x2_p1])))) {
+                goto PedmapToPgen_ret_NOMEM;
+              }
+              if (first_allele_slen > max_allele_slen) {
+                max_allele_slen = first_allele_slen;
+              }
+            }
+            goto PedmapToPgen_alt_x;
+          } else {
+            goto PedmapToPgen_ret_MULTIALLELIC;
           }
           second_allele_plus_missing_cts[variant_idx] += (4 - cur_geno) >> 1;
           geno_word |= cur_geno << variant_idx_lowbits_x2;
@@ -1717,53 +1721,51 @@ PglErr PedmapToPgen(const char* pedname, const char* mapname, MiscFlags misc_fla
           }
           const char first_allele_char = alleles_start[0];
           const char second_allele_char = alleles_start[1];
-          const uint32_t second_allele_is_missing = (second_allele_char == '.') || (second_allele_char == input_missing_geno_char);
+          const uint32_t is_het = (first_allele_char != second_allele_char);
+          const uint32_t variant_idx_x2 = variant_idx * 2;
+          const uint32_t variant_idx_x2_p1 = variant_idx_x2 + 1;
+          const char prov_ref_char = allele_codes[variant_idx_x2][0];
+          const char prov_alt_char = allele_codes[variant_idx_x2_p1][0];
+          // Note that this uses PLINK 1 encoding.
           uintptr_t cur_geno;
-          if ((first_allele_char == '.') || (second_allele_char == input_missing_geno_char)) {
-            if (unlikely(!second_allele_is_missing)) {
-              goto PedmapToPgen_ret_HALF_MISSING;
-            }
-            // PLINK 1 encoding
-            cur_geno = 1;
-          } else {
-            if (unlikely(second_allele_is_missing)) {
-              goto PedmapToPgen_ret_HALF_MISSING;
-            }
-            const uint32_t is_het = (first_allele_char != second_allele_char);
-            const uint32_t variant_idx_x2 = variant_idx * 2;
-            const uint32_t variant_idx_x2_p1 = variant_idx_x2 + 1;
-            const char* prov_ref_allele = allele_codes[variant_idx_x2];
-            const char* prov_alt_allele = allele_codes[variant_idx_x2_p1];
+          if (prov_ref_char == first_allele_char) {
+          PedmapToPgen_refchar_x:
             cur_geno = 3 - is_het;
-            if ((!prov_ref_allele) || (first_allele_char == prov_ref_allele[0])) {
-              // First allele matches prov_ref_allele (possibly after
-              // initialization of the latter).
-              if (!prov_ref_allele) {
-                allele_codes[variant_idx_x2] = &(g_one_char_strs[ctou32(first_allele_char) * 2]);
-              }
-              if (is_het) {
-                if (!prov_alt_allele) {
-                  allele_codes[variant_idx_x2_p1] = &(g_one_char_strs[ctou32(second_allele_char) * 2]);
-                } else if (unlikely(second_allele_char != prov_alt_allele[0])) {
+            if (is_het) {
+              if (prov_alt_char != second_allele_char) {
+                if (unlikely(prov_alt_char)) {
+                  if ((second_allele_char == '.') || (second_allele_char == input_missing_geno_char)) {
+                    goto PedmapToPgen_ret_HALF_MISSING;
+                  }
                   goto PedmapToPgen_ret_MULTIALLELIC;
                 }
+                allele_codes[variant_idx_x2_p1] = &(g_one_char_strs[ctou32(second_allele_char) * 2]);
               }
-            } else if (likely((!prov_alt_allele) || (first_allele_char == prov_alt_allele[0]))) {
-              // First allele matches prov_alt_allele (possibly after
-              // initialization of the latter).
-              if (!prov_alt_allele) {
-                allele_codes[variant_idx_x2_p1] = &(g_one_char_strs[ctou32(first_allele_char) * 2]);
-              }
-              if (is_het) {
-                if (unlikely(second_allele_char != prov_ref_allele[0])) {
-                  goto PedmapToPgen_ret_MULTIALLELIC;
-                }
-              } else {
-                cur_geno = 0;
-              }
-            } else {
-              goto PedmapToPgen_ret_MULTIALLELIC;
             }
+          } else if (prov_alt_char == first_allele_char) {
+          PedmapToPgen_altchar_x:
+            cur_geno = is_het * 2;
+            if (is_het) {
+              if (unlikely(prov_ref_char != second_allele_char)) {
+                if ((second_allele_char == '.') || (second_allele_char == input_missing_geno_char)) {
+                  goto PedmapToPgen_ret_HALF_MISSING;
+                }
+                goto PedmapToPgen_ret_MULTIALLELIC;
+              }
+            }
+          } else if ((first_allele_char == '.') || (first_allele_char == input_missing_geno_char)) {
+            if (unlikely(is_het)) {
+              goto PedmapToPgen_ret_HALF_MISSING;
+            }
+            cur_geno = 1;
+          } else if (!prov_ref_char) {
+            allele_codes[variant_idx_x2] = &(g_one_char_strs[ctou32(first_allele_char) * 2]);
+            goto PedmapToPgen_refchar_x;
+          } else if (likely(!prov_alt_char)) {
+            allele_codes[variant_idx_x2_p1] = &(g_one_char_strs[ctou32(first_allele_char) * 2]);
+            goto PedmapToPgen_altchar_x;
+          } else {
+            goto PedmapToPgen_ret_MULTIALLELIC;
           }
           second_allele_plus_missing_cts[variant_idx] += (4 - cur_geno) >> 1;
           geno_word |= cur_geno << variant_idx_lowbits_x2;
