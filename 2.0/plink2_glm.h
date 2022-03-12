@@ -60,7 +60,8 @@ FLAGSET_DEF_START()
   kfGlmLocalHaps = (1 << 24),
   kfGlmLocalCats1based = (1 << 25),
   kfGlmFirthResidualize = (1 << 26),
-  kfGlmCcResidualize = (1 << 27)
+  kfGlmCcResidualize = (1 << 27),
+  kfGlmAllowNoCovars = (1 << 28)
 FLAGSET_DEF_END(GlmFlags);
 
 FLAGSET_DEF_START()

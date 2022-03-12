@@ -1585,7 +1585,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      * Otherwise, the value is interpreted as a number, and the variant is\n"
 "        kept if the number is in [<min>, <max>] (default min=0, max=DBL_MAX).\n"
               );
-    HelpPrint("pheno\0pheno-name\0pheno-col-nums\0mpheno\0", &help_ctrl, 0,
+    HelpPrint("pheno\0pheno-name\0pheno-col-nums\0not-pheno\0mpheno\0phenoExclude\0", &help_ctrl, 0,
 "  --pheno ['iid-only'] <f> : Specify additional phenotype/covariate file.\n"
 "                             Comma-delimited files with a header line are now\n"
 "                             permitted.\n"
@@ -1596,6 +1596,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                             ranges.\n"
 "  --pheno-col-nums <#...>  : Only load the phenotype(s) in the designated\n"
 "                             column number(s) from the --pheno file.\n"
+"  --not-pheno <name...>    : Ignore the named phenotype(s).\n"
                );
     HelpPrint("bfile\0fam\0psam\0no-psam-pheno\0no-fam-pheno\0no-pheno\0pheno\0pheno-name\0", &help_ctrl, 0,
 "  --no-psam-pheno          : Ignore phenotype(s) in .psam/.fam file.\n"
@@ -1625,7 +1626,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --missing-catname <str>       : Set missing-categorical-phenotype string\n"
 "                                  (case-sensitive, default 'NONE').\n"
                );
-    HelpPrint("covar\0covar-name\0covar-col-nums\0covar-number\0", &help_ctrl, 0,
+    HelpPrint("covar\0covar-name\0covar-col-nums\0not-covar\0covar-number\0covarExclude\0", &help_ctrl, 0,
 "  --covar ['iid-only'] <f> : Specify additional covariate file.\n"
 "                             Comma-delimited files with a header line are now\n"
 "                             permitted.\n"
@@ -1636,6 +1637,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --covar-col-nums <#...>  : Only load the covariate(s) in the designated\n"
 "                             column number(s) from the --covar (if one was\n"
 "                             specified) or --pheno (if no --covar) file.\n"
+"  --not-covar <name...>    : Ignore the named covariate(s).\n"
                );
     HelpPrint("within\0mwithin\0family\0family-missing-catname\0", &help_ctrl, 0,
 "  --within <f> [new pheno name] : Import a PLINK 1.x categorical phenotype.\n"

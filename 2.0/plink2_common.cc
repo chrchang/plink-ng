@@ -1857,6 +1857,8 @@ PglErr TryToAddChrName(const char* chr_name, const char* file_descrip, uintptr_t
     ChrError(chr_name, file_descrip, cip, line_idx, *chr_idx_ptr);
     return kPglRetMalformedInput;
   }
+  // When --allow-extra-chr was specified, we save all nonstandard but valid
+  // chromosome names, even if they're all filtered out by the chromosome mask.
 
   // quasi-bugfix: remove redundant hash table check
 

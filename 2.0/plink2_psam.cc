@@ -1532,6 +1532,88 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
   return reterr;
 }
 
+PglErr IgnorePhenosOrCovars(const char* not_pheno_flattened, uint32_t is_covar, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  PglErr reterr = kPglRetSuccess;
+  {
+    const uint32_t orig_pheno_ct = *pheno_ct_ptr;
+    if (!orig_pheno_ct) {
+      goto IgnorePhenosOrCovars_ret_NULL;
+    }
+    // probably time to write a function to directly construct a hash table
+    // from the flattened list...
+    char* not_pheno_strbox;
+    uint32_t not_pheno_ct;
+    uintptr_t not_pheno_max_blen;
+    if (unlikely(MultistrToStrboxDedupAlloc(not_pheno_flattened, &not_pheno_strbox, &not_pheno_ct, &not_pheno_max_blen))) {
+      goto IgnorePhenosOrCovars_ret_NOMEM;
+    }
+    uint32_t* id_htable;
+    uint32_t id_htable_size;
+    if (unlikely(HtableGoodSizeAlloc(not_pheno_ct, bigstack_left(), &id_htable, &id_htable_size))) {
+      goto IgnorePhenosOrCovars_ret_NOMEM;
+    }
+    PopulateStrboxHtable(not_pheno_strbox, not_pheno_ct, not_pheno_max_blen, id_htable_size, id_htable);
+
+    const uint32_t orig_pheno_ctl = BitCtToWordCt(orig_pheno_ct);
+    uintptr_t* pheno_delete;
+    if (unlikely(bigstack_calloc_w(orig_pheno_ctl, &pheno_delete))) {
+      goto IgnorePhenosOrCovars_ret_NOMEM;
+    }
+
+    const uintptr_t max_pheno_name_blen = *max_pheno_name_blen_ptr;
+    char* pheno_names = *pheno_names_ptr;
+    char* pheno_name_iter = pheno_names;
+    for (uint32_t pheno_idx = 0; pheno_idx != orig_pheno_ct; ++pheno_idx) {
+      const uint32_t pheno_name_slen = strlen(pheno_name_iter);
+      if (StrboxHtableFind(pheno_name_iter, not_pheno_strbox, id_htable, not_pheno_max_blen, pheno_name_slen, id_htable_size) != UINT32_MAX) {
+        SetBit(pheno_idx, pheno_delete);
+      }
+      pheno_name_iter = &(pheno_name_iter[max_pheno_name_blen]);
+    }
+    const uint32_t delete_ct = PopcountWords(pheno_delete, orig_pheno_ctl);
+    if (!delete_ct) {
+      goto IgnorePhenosOrCovars_ret_NULL;
+    }
+    const uint32_t new_pheno_ct = orig_pheno_ct - delete_ct;
+    if (new_pheno_ct) {
+      PhenoCol* pheno_cols = *pheno_cols_ptr;
+      uint32_t write_pheno_idx = AdvTo1Bit(pheno_delete, 0);
+      for (uint32_t read_pheno_idx = write_pheno_idx; read_pheno_idx != orig_pheno_ct; ++read_pheno_idx) {
+        if (IsSet(pheno_delete, read_pheno_idx)) {
+          vecaligned_free_cond(pheno_cols[read_pheno_idx].nonmiss);
+        } else {
+          pheno_cols[write_pheno_idx] = pheno_cols[read_pheno_idx];
+          memcpy(&(pheno_names[write_pheno_idx * max_pheno_name_blen]), &(pheno_names[read_pheno_idx * max_pheno_name_blen]), max_pheno_name_blen);
+          ++write_pheno_idx;
+        }
+      }
+      // possible todo: also try to shrink max_pheno_name_blen
+    } else {
+      free(*pheno_names_ptr);
+      *pheno_names_ptr = nullptr;
+      CleanupPhenoCols(orig_pheno_ct, *pheno_cols_ptr);
+      *pheno_cols_ptr = nullptr;
+    }
+    *pheno_ct_ptr = new_pheno_ct;
+    if (is_covar) {
+      logprintf("--not-covar: %u covariate%s ignored, %u remaining.\n", delete_ct, (delete_ct == 1)? "" : "s", new_pheno_ct);
+    } else {
+      logprintf("--not-pheno: %u phenotype%s ignored, %u remaining.\n", delete_ct, (delete_ct == 1)? "" : "s", new_pheno_ct);
+    }
+  }
+  while (0) {
+  IgnorePhenosOrCovars_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  IgnorePhenosOrCovars_ret_NULL:
+    logprintf("--not-%s: named %s not found.  Doing nothing.\n", is_covar? "covar" : "pheno", is_covar? "covariate(s)" : "phenotype(s)");
+    break;
+  }
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
 #ifdef __cplusplus
 }  // namespace plink2
 #endif

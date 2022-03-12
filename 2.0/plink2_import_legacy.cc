@@ -20,16 +20,608 @@
 #include "plink2_import.h"
 #include "plink2_psam.h"
 
+#include <unistd.h>  // unlink()
+
+// This covers formats that are fully supported by PLINK 1.x (no multiallelic
+// variants, dosages, or phase information).
+
 #ifdef __cplusplus
 namespace plink2 {
 #endif
 
-PglErr PedmapToPgen(__attribute__((unused)) const char* pedname, __attribute__((unused)) const char* mapname, __attribute__((unused)) MiscFlags misc_flags, __attribute__((unused)) ImportFlags import_flags, __attribute__((unused)) uint32_t psam_01, __attribute__((unused)) FamCol fam_cols, __attribute__((unused)) int32_t missing_pheno, __attribute__((unused)) uint32_t max_thread_ct, __attribute__((unused)) char* outname, __attribute__((unused)) char* outname_end, __attribute__((unused)) ChrInfo* cip) {
-  logerrputs("Error: .ped import is under development.\n");
-  return kPglRetNotYetSupported;
+// Counts number of variants (both raw and with chromosome filter applied),
+// checks whether a nonzero CM column exists, and allocates+returns the
+// chromosome-and-negative-bp-filter bitvector.
+// Assumes FinalizeChrset() has already been called.
+// Errors out on .bim file.
+// variant_include assumed to be initialized to nullptr.
+PglErr ScanMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* at_least_one_nzero_cm_ptr, uintptr_t** variant_include_ptr) {
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  TextStream map_txs;
+  PreinitTextStream(&map_txs);
+  {
+    // Even though no .map line should exceed kMaxMediumLine bytes (128 KiB) in
+    // practice, TextStream actually doesn't permit a max_line_blen value
+    // smaller than kDecompressMinBlen (1 MiB), and there is little reason to
+    // use a value below kTextStreamBlenFast (11 MiB) in practice unless memory
+    // is very tight.
+    reterr = InitTextStreamEx(mapname, 1, kTextStreamBlenFast, kTextStreamBlenFast, 1, &map_txs);
+    if (unlikely(reterr)) {
+      goto ScanMap_ret_TSTREAM_FAIL;
+    }
+    uintptr_t raw_variant_ct_limit = CHAR_BIT * S_CAST(uintptr_t, g_bigstack_end - g_bigstack_base);
+    if (raw_variant_ct_limit > 0x7ffffffd) {
+      raw_variant_ct_limit = 0x7ffffffd;
+    }
+    uintptr_t* variant_include = R_CAST(uintptr_t*, g_bigstack_base);
+
+    char* line_start;
+    do {
+      ++line_idx;
+      line_start = TextGet(&map_txs);
+      if (unlikely(!line_start)) {
+        if (!TextStreamErrcode2(&map_txs, &reterr)) {
+          logerrputs("Error: Empty .map file.\n");
+          goto ScanMap_ret_DEGENERATE_DATA;
+        }
+        goto ScanMap_ret_TSTREAM_FAIL;
+      }
+    } while (*line_start == '#');
+    uint32_t map_cols = 3;
+    {
+      const char* linebuf_iter = NextTokenMult(line_start, 2);
+      if (unlikely(!linebuf_iter)) {
+        goto ScanMap_ret_MISSING_TOKENS;
+      }
+      linebuf_iter = NextToken(linebuf_iter);
+      if (linebuf_iter) {
+        linebuf_iter = NextToken(linebuf_iter);
+        if (likely(!linebuf_iter)) {
+          map_cols = 4;
+        } else {
+          // do NOT permit >4 columns here.
+          snprintf(g_logbuf, kLogbufSize, "Error: %s is not a .map file (too many columns).\n", mapname);
+          goto ScanMap_ret_MALFORMED_INPUT_WW;
+        }
+      }
+    }
+
+    const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
+    uint32_t at_least_one_nzero_cm = 0;
+    uint32_t raw_variant_ct = 0;
+    uint32_t variant_ct = 0;
+    uintptr_t variant_include_word = 0;
+    uint32_t variant_uidx_lowbits = 0;
+    char* line_iter = line_start;
+    while (1) {
+      if (unlikely(raw_variant_ct == raw_variant_ct_limit)) {
+        if (raw_variant_ct_limit == 0x7ffffffd) {
+          logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
+          goto ScanMap_ret_MALFORMED_INPUT;
+        }
+        goto ScanMap_ret_NOMEM;
+      }
+      {
+        // chrom, id, (cm?), pos
+        char* chr_code_end = CurTokenEnd(line_iter);
+        char* variant_id_start = FirstNonTspace(chr_code_end);
+        uint32_t cur_chr_code;
+        reterr = GetOrAddChrCodeDestructive(".map file", line_idx, allow_extra_chrs, line_iter, chr_code_end, cip, &cur_chr_code);
+        if (unlikely(reterr)) {
+          goto ScanMap_ret_1;
+        }
+        if (!IsSet(cip->chr_mask, cur_chr_code)) {
+          line_iter = variant_id_start;
+          goto ScanMap_skip_variant;
+        }
+        char* third_token_start = FirstNonTspace(FirstSpaceOrEoln(variant_id_start));
+        char* bp_start = third_token_start;
+        if (map_cols == 4) {
+          bp_start = FirstNonTspace(FirstSpaceOrEoln(third_token_start));
+        }
+        if (IsEolnKns(*bp_start)) {
+          goto ScanMap_ret_MISSING_TOKENS;
+        }
+        int32_t cur_bp;
+        if (unlikely(ScanIntAbsDefcap(bp_start, &cur_bp))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, mapname);
+          goto ScanMap_ret_MALFORMED_INPUT_WW;
+        }
+        line_iter = bp_start;
+        if (cur_bp < 0) {
+          goto ScanMap_skip_variant;
+        }
+        if ((map_cols == 4) && (!at_least_one_nzero_cm)) {
+          double cur_cm;
+          char* cm_end = ScantokDouble(third_token_start, &cur_cm);
+          if (unlikely(!cm_end)) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid centimorgan position on line %" PRIuPTR " of %s.\n", line_idx, mapname);
+            goto ScanMap_ret_MALFORMED_INPUT_WW;
+          }
+          at_least_one_nzero_cm = (cur_cm != 0.0);
+        }
+        variant_include_word |= k1LU << variant_uidx_lowbits;
+        ++variant_ct;
+      }
+    ScanMap_skip_variant:
+      if (++variant_uidx_lowbits == kBitsPerWord) {
+        variant_include[raw_variant_ct / kBitsPerWord] = variant_include_word;
+        variant_uidx_lowbits = 0;
+        variant_include_word = 0;
+      }
+      ++raw_variant_ct;
+      ++line_idx;
+      line_iter = AdvPastDelim(line_iter, '\n');
+      if (!TextGetUnsafe2(&map_txs, &line_iter)) {
+        if (!TextStreamErrcode2(&map_txs, &reterr)) {
+          break;
+        }
+        goto ScanMap_ret_TSTREAM_FAIL;
+      }
+      if (unlikely(line_iter[0] == '#')) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line.)\n", line_idx, mapname);
+        goto ScanMap_ret_MALFORMED_INPUT_WW;
+      }
+    }
+
+    if (unlikely(!variant_ct)) {
+      logerrputs("Error: All variants in .map file skipped due to chromosome filter or negative\nbp coordinates.\n");
+      goto ScanMap_ret_INCONSISTENT_INPUT;
+    }
+    *raw_variant_ct_ptr = raw_variant_ct;
+    *variant_ct_ptr = variant_ct;
+    *at_least_one_nzero_cm_ptr = at_least_one_nzero_cm;
+    if (raw_variant_ct != variant_ct) {
+      if (variant_uidx_lowbits) {
+        variant_include[raw_variant_ct / kBitsPerWord] = variant_include_word;
+      }
+      BigstackFinalizeW(variant_include, DivUp(raw_variant_ct, kBitsPerWord));
+      *variant_include_ptr = variant_include;
+    }
+  }
+  while (0) {
+  ScanMap_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(mapname, &map_txs);
+    break;
+  ScanMap_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  ScanMap_ret_MISSING_TOKENS:
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, mapname);
+  ScanMap_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+  ScanMap_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  ScanMap_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  ScanMap_ret_DEGENERATE_DATA:
+    reterr = kPglRetDegenerateData;
+    break;
+  }
+ ScanMap_ret_1:
+  CleanupTextStream2(mapname, &map_txs, &reterr);
+  BigstackEndReset(bigstack_end_mark);
+  return reterr;
 }
 
-PglErr RewritePsam(const char* in_psamname, MiscFlags misc_flags, FamCol fam_cols, int32_t missing_pheno, uint32_t max_thread_ct, char* outname, char* outname_end, uint32_t* raw_sample_ctp) {
+// Assumes ScanMap() was previously called on the .map.
+PglErr MapToPvar(const char* mapname, const ChrInfo* cip, const char* const* allele_storage, uint32_t variant_ct, uint32_t max_allele_slen, ImportFlags import_flags, uint32_t at_least_one_nzero_cm, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  TextStream map_txs;
+  PreinitTextStream(&map_txs);
+
+  char* cswritep = nullptr;
+  CompressStreamState css;
+  PreinitCstream(&css);
+  {
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
+    const uint32_t output_zst = (import_flags / kfImportKeepAutoconvVzs) & 1;
+    if (output_zst) {
+      snprintf(&(outname_end[5]), kMaxOutfnameExtBlen - 5, ".zst");
+    }
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + 2 * kMaxIdSlen + 32 + 2 * max_allele_slen;
+    reterr = InitCstreamAlloc(outname, 0, output_zst, 1, overflow_buf_size, &css, &cswritep);
+    if (unlikely(reterr)) {
+      goto MapToPvar_ret_1;
+    }
+
+    reterr = InitTextStreamEx(mapname, 0, kTextStreamBlenFast, kTextStreamBlenFast, 1, &map_txs);
+    if (unlikely(reterr)) {
+      goto MapToPvar_ret_TSTREAM_REWIND_FAIL;
+    }
+
+    char* line_start;
+    do {
+      ++line_idx;
+      line_start = TextGet(&map_txs);
+      if (unlikely(!line_start)) {
+        goto MapToPvar_ret_TSTREAM_REWIND_FAIL;
+      }
+    } while (*line_start == '#');
+    uint32_t map_cols = 3;
+    {
+      const char* linebuf_iter = NextTokenMult(line_start, 2);
+      if (unlikely(!linebuf_iter)) {
+        goto MapToPvar_ret_REWIND_FAIL;
+      }
+      linebuf_iter = NextToken(linebuf_iter);
+      if (linebuf_iter) {
+        linebuf_iter = NextToken(linebuf_iter);
+        if (likely(!linebuf_iter)) {
+          map_cols = 4;
+        } else {
+          goto MapToPvar_ret_REWIND_FAIL;
+        }
+      }
+    }
+    cswritep = strcpya_k(cswritep, "#CHROM\tPOS\tID\tREF\tALT");
+    if (at_least_one_nzero_cm) {
+      cswritep = strcpya_k(cswritep, "\tCM");
+    }
+    AppendBinaryEoln(&cswritep);
+
+    char* line_iter = line_start;
+    for (uint32_t variant_idx = 0; ; ) {
+      {
+        // chrom, id, (cm?), pos
+        char* chr_code_end = CurTokenEnd(line_iter);
+        const uint32_t cur_chr_code = GetChrCodeCounted(cip, chr_code_end - line_iter, line_iter);
+        if (!IsSet(cip->chr_mask, cur_chr_code)) {
+          line_iter = chr_code_end;
+          goto MapToPvar_skip_variant;
+        }
+        char* variant_id_start = FirstNonTspace(chr_code_end);
+        char* variant_id_end = CurTokenEnd(variant_id_start);
+        char* third_token_start = FirstNonTspace(variant_id_end);
+        char* bp_start = third_token_start;
+        if (map_cols == 4) {
+          bp_start = FirstNonTspace(FirstSpaceOrEoln(third_token_start));
+        }
+        if (IsEolnKns(*bp_start)) {
+          goto MapToPvar_ret_REWIND_FAIL;
+        }
+        int32_t cur_bp;
+        if (unlikely(ScanIntAbsDefcap(bp_start, &cur_bp))) {
+          goto MapToPvar_ret_REWIND_FAIL;
+        }
+        line_iter = bp_start;
+        if (cur_bp < 0) {
+          goto MapToPvar_skip_variant;
+        }
+        cswritep = chrtoa(cip, cur_chr_code, cswritep);
+        *cswritep++ = '\t';
+        cswritep = u32toa_x(cur_bp, '\t', cswritep);
+        const uint32_t variant_id_slen = variant_id_end - variant_id_start;
+        if (variant_id_slen > kMaxIdSlen) {
+          logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
+          goto MapToPvar_ret_MALFORMED_INPUT;
+        }
+        cswritep = memcpyax(cswritep, variant_id_start, variant_id_slen, '\t');
+        const char* ref_allele = allele_storage[variant_idx * 2];
+        if (ref_allele) {
+          cswritep = strcpya(cswritep, ref_allele);
+        } else {
+          *cswritep++ = '.';
+        }
+        *cswritep++ = '\t';
+        const char* alt_allele = allele_storage[variant_idx * 2 + 1];
+        if (alt_allele) {
+          cswritep = strcpya(cswritep, alt_allele);
+        } else {
+          *cswritep++ = '.';
+        }
+        if (at_least_one_nzero_cm) {
+          double cur_cm;
+          char* cm_end = ScantokDouble(third_token_start, &cur_cm);
+          if (unlikely(!cm_end)) {
+            logerrprintfww("Error: Invalid centimorgan position on line %" PRIuPTR " of %s.\n", line_idx, mapname);
+            goto MapToPvar_ret_MALFORMED_INPUT;
+          }
+          *cswritep++ = '\t';
+          cswritep = dtoa_g_p8(cur_cm, cswritep);
+        }
+        AppendBinaryEoln(&cswritep);
+        if (unlikely(Cswrite(&css, &cswritep))) {
+          goto MapToPvar_ret_WRITE_FAIL;
+        }
+        ++variant_idx;
+        if (variant_idx == variant_ct) {
+          break;
+        }
+      }
+    MapToPvar_skip_variant:
+      ++line_idx;
+      line_iter = AdvPastDelim(line_iter, '\n');
+      if (unlikely(!TextGetUnsafe2(&map_txs, &line_iter))) {
+        TextStreamErrcode2(&map_txs, &reterr);
+        goto MapToPvar_ret_TSTREAM_REWIND_FAIL;
+      }
+    }
+  }
+  while (0) {
+  MapToPvar_ret_TSTREAM_REWIND_FAIL:
+    TextStreamErrPrintRewind(".map file", &map_txs, &reterr);
+    break;
+  MapToPvar_ret_REWIND_FAIL:
+    logerrprintfww(kErrprintfRewind, ".map file");
+    reterr = kPglRetRewindFail;
+    break;
+  MapToPvar_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  MapToPvar_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+ MapToPvar_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  CleanupTextStream2(mapname, &map_txs, &reterr);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+// could add an option to LoadPvar() to not require allele columns, but .map
+// is easy enough to write a separate loader for...
+CONSTI32(kLoadMapBlockSize, 65536);
+
+// assumes FinalizeChrset() has already been called.
+// .bim ok
+static_assert(kMaxContigs <= 65536, "LoadMap() needs to be updated.");
+PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t* max_variant_id_slen_ptr, uint16_t** variant_chr_codes_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, double** variant_cms_ptr, uint32_t* variant_ct_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  uintptr_t line_idx = 0;
+  PglErr reterr = kPglRetSuccess;
+  TextStream map_txs;
+  PreinitTextStream(&map_txs);
+  {
+    // Workspace used as follows:
+    // |--linebuf--|--temp-->----|----<- variant IDs --|
+    //            1/4                                 end
+    // linebuf is overwritten with the main return arrays at the end.
+    reterr = SizeAndInitTextStream(mapname, bigstack_left() / 4, 1, &map_txs);
+    if (unlikely(reterr)) {
+      goto LoadMap_ret_TSTREAM_FAIL;
+    }
+    char* line_start;
+    do {
+      ++line_idx;
+      line_start = TextGet(&map_txs);
+      if (unlikely(!line_start)) {
+        if (!TextStreamErrcode2(&map_txs, &reterr)) {
+          logerrputs("Error: Empty .map file.\n");
+          goto LoadMap_ret_DEGENERATE_DATA;
+        }
+        goto LoadMap_ret_TSTREAM_FAIL;
+      }
+    } while (*line_start == '#');
+    uint32_t map_cols = 3;
+    {
+      const char* linebuf_iter = NextTokenMult(line_start, 2);
+      if (unlikely(!linebuf_iter)) {
+        goto LoadMap_ret_MISSING_TOKENS;
+      }
+      linebuf_iter = NextToken(linebuf_iter);
+      if (linebuf_iter) {
+        linebuf_iter = NextToken(linebuf_iter);
+        if (!linebuf_iter) {
+          map_cols = 4;
+        } else {
+          linebuf_iter = NextToken(linebuf_iter);
+          if (linebuf_iter) {
+            if (unlikely(NextToken(linebuf_iter))) {
+              // do NOT permit >6 columns, .bim is ok but .pvar is not
+              // (pointless to support .pvar for legacy formats)
+              snprintf(g_logbuf, kLogbufSize, "Error: %s is not a .map/.bim file (too many columns).\n", mapname);
+              goto LoadMap_ret_MALFORMED_INPUT_WW;
+            }
+            map_cols = 4;
+          }
+        }
+      }
+    }
+
+    const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
+    uint32_t max_variant_id_slen = *max_variant_id_slen_ptr;
+    unsigned char* tmp_alloc_base = g_bigstack_base;
+    unsigned char* tmp_alloc_end = bigstack_end_mark;
+    uint16_t* cur_chr_codes = nullptr;
+    uint32_t* cur_bps = nullptr;
+    char** cur_ids = nullptr;
+    double* cur_cms = nullptr;
+    double cur_cm = 0.0;
+    uint32_t at_least_one_nzero_cm = 0;
+    uint32_t variant_ct = 0;
+    char* line_iter = line_start;
+    while (1) {
+      {
+        // chrom, id, (cm?), pos
+        char* chr_code_end = CurTokenEnd(line_iter);
+        char* linebuf_iter = FirstNonTspace(chr_code_end);
+        if (unlikely(IsEolnKns(*linebuf_iter))) {
+          goto LoadMap_ret_MISSING_TOKENS;
+        }
+        uint32_t cur_chr_code;
+        reterr = GetOrAddChrCodeDestructive(".map file", line_idx, allow_extra_chrs, line_iter, chr_code_end, cip, &cur_chr_code);
+        if (unlikely(reterr)) {
+          goto LoadMap_ret_1;
+        }
+        if (!IsSet(cip->chr_mask, cur_chr_code)) {
+          line_iter = linebuf_iter;
+          goto LoadMap_skip_variant;
+        }
+        char* token_end = CurTokenEnd(linebuf_iter);
+        uint32_t id_slen = token_end - linebuf_iter;
+        if (id_slen > max_variant_id_slen) {
+          max_variant_id_slen = id_slen;
+        }
+        tmp_alloc_end -= id_slen + 1;
+        if (unlikely(tmp_alloc_end < tmp_alloc_base)) {
+          goto LoadMap_ret_NOMEM;
+        }
+        memcpyx(tmp_alloc_end, linebuf_iter, id_slen, '\0');
+        linebuf_iter = FirstNonTspace(token_end);
+        if (unlikely(IsEolnKns(*linebuf_iter))) {
+          goto LoadMap_ret_MISSING_TOKENS;
+        }
+
+        if (map_cols == 4) {
+          char* cm_end = ScantokDouble(linebuf_iter, &cur_cm);
+          if (unlikely(!cm_end)) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid centimorgan position on line %" PRIuPTR " of %s.\n", line_idx, mapname);
+            goto LoadMap_ret_MALFORMED_INPUT_WW;
+          }
+          at_least_one_nzero_cm = (cur_cm != 0.0);
+          linebuf_iter = NextToken(cm_end);
+          if (unlikely(!linebuf_iter)) {
+            goto LoadMap_ret_MISSING_TOKENS;
+          }
+        }
+        int32_t cur_bp;
+        if (unlikely(ScanIntAbsDefcap(linebuf_iter, &cur_bp))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, mapname);
+          goto LoadMap_ret_MALFORMED_INPUT_WW;
+        }
+        line_iter = linebuf_iter;
+        if (cur_bp < 0) {
+          goto LoadMap_skip_variant;
+        }
+
+        const uint32_t variant_idx_lowbits = variant_ct % kLoadMapBlockSize;
+        if (!variant_idx_lowbits) {
+          if (unlikely(S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) <= kLoadMapBlockSize * (sizeof(int16_t) + sizeof(int32_t) + sizeof(intptr_t) + sizeof(double)))) {
+            goto LoadMap_ret_NOMEM;
+          }
+          cur_chr_codes = R_CAST(uint16_t*, tmp_alloc_base);
+          tmp_alloc_base = R_CAST(unsigned char*, &(cur_chr_codes[kLoadMapBlockSize]));
+          cur_bps = R_CAST(uint32_t*, tmp_alloc_base);
+          tmp_alloc_base = R_CAST(unsigned char*, &(cur_bps[kLoadMapBlockSize]));
+          cur_ids = R_CAST(char**, tmp_alloc_base);
+          tmp_alloc_base = R_CAST(unsigned char*, &(cur_ids[kLoadMapBlockSize]));
+          cur_cms = R_CAST(double*, tmp_alloc_base);
+          tmp_alloc_base = R_CAST(unsigned char*, &(cur_cms[kLoadMapBlockSize]));
+        }
+        cur_chr_codes[variant_idx_lowbits] = cur_chr_code;
+        cur_ids[variant_idx_lowbits] = R_CAST(char*, tmp_alloc_end);
+        cur_cms[variant_idx_lowbits] = cur_cm;
+        cur_bps[variant_idx_lowbits] = cur_bp;
+        ++variant_ct;
+      }
+    LoadMap_skip_variant:
+      ++line_idx;
+      line_iter = AdvPastDelim(line_iter, '\n');
+      if (!TextGetUnsafe2(&map_txs, &line_iter)) {
+        if (!TextStreamErrcode2(&map_txs, &reterr)) {
+          break;
+        }
+        goto LoadMap_ret_TSTREAM_FAIL;
+      }
+      if (unlikely(line_iter[0] == '#')) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line.)\n", line_idx, mapname);
+        goto LoadMap_ret_MALFORMED_INPUT_WW;
+      }
+    }
+    if (unlikely(max_variant_id_slen > kMaxIdSlen)) {
+      logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
+      goto LoadMap_ret_MALFORMED_INPUT;
+    }
+
+    if (unlikely(!variant_ct)) {
+      logerrputs("Error: All variants in .map/.bim file skipped due to chromosome filter or\nnegative bp coordinates.\n");
+      goto LoadMap_ret_INCONSISTENT_INPUT;
+    }
+    // true requirement is weaker, but whatever
+    g_bigstack_end = g_bigstack_base;
+    g_bigstack_base = TextStreamMemStart(&map_txs);
+    if (unlikely(CleanupTextStream2(mapname, &map_txs, &reterr))) {
+      goto LoadMap_ret_1;
+    }
+
+    if (unlikely(bigstack_alloc_u16(variant_ct, variant_chr_codes_ptr) ||
+                 bigstack_alloc_u32(variant_ct, variant_bps_ptr) ||
+                 bigstack_alloc_cp(variant_ct, variant_ids_ptr))) {
+      goto LoadMap_ret_NOMEM;
+    }
+    uint16_t* variant_chr_codes = *variant_chr_codes_ptr;
+    uint32_t* variant_bps = *variant_bps_ptr;
+    char** variant_ids = *variant_ids_ptr;
+    double* variant_cms = nullptr;
+    if (at_least_one_nzero_cm) {
+      if (unlikely(bigstack_alloc_d(variant_ct, variant_cms_ptr))) {
+        goto LoadMap_ret_NOMEM;
+      }
+      variant_cms = *variant_cms_ptr;
+    } else {
+      *variant_cms_ptr = nullptr;
+    }
+    *max_variant_id_slen_ptr = max_variant_id_slen;
+    *variant_ct_ptr = variant_ct;
+    const uint32_t full_block_ct = variant_ct / kLoadMapBlockSize;
+    bigstack_mark = g_bigstack_base;
+    unsigned char* read_iter = g_bigstack_end;  // bugfix (30 May 2018)
+    BigstackEndSet(tmp_alloc_end);
+    bigstack_end_mark = g_bigstack_end;
+
+    for (uint32_t block_idx = 0; block_idx != full_block_ct; ++block_idx) {
+      memcpy(&(variant_chr_codes[block_idx * kLoadMapBlockSize]), read_iter, kLoadMapBlockSize * sizeof(int16_t));
+      read_iter = &(read_iter[kLoadMapBlockSize * sizeof(int16_t)]);
+      memcpy(&(variant_bps[block_idx * kLoadMapBlockSize]), read_iter, kLoadMapBlockSize * sizeof(int32_t));
+      read_iter = &(read_iter[kLoadMapBlockSize * sizeof(int32_t)]);
+      memcpy(&(variant_ids[block_idx * kLoadMapBlockSize]), read_iter, kLoadMapBlockSize * sizeof(intptr_t));
+      read_iter = &(read_iter[kLoadMapBlockSize * sizeof(intptr_t)]);
+      if (at_least_one_nzero_cm) {
+        memcpy(&(variant_cms[block_idx * kLoadMapBlockSize]), read_iter, kLoadMapBlockSize * sizeof(double));
+      }
+      read_iter = &(read_iter[kLoadMapBlockSize * sizeof(double)]);
+    }
+    const uint32_t variant_ct_lowbits = variant_ct % kLoadMapBlockSize;
+    memcpy(&(variant_chr_codes[full_block_ct * kLoadMapBlockSize]), read_iter, variant_ct_lowbits * sizeof(int16_t));
+    read_iter = &(read_iter[kLoadMapBlockSize * sizeof(int16_t)]);
+    memcpy(&(variant_bps[full_block_ct * kLoadMapBlockSize]), read_iter, variant_ct_lowbits * sizeof(int32_t));
+    read_iter = &(read_iter[kLoadMapBlockSize * sizeof(int32_t)]);
+    memcpy(&(variant_ids[full_block_ct * kLoadMapBlockSize]), read_iter, variant_ct_lowbits * sizeof(intptr_t));
+    if (at_least_one_nzero_cm) {
+      read_iter = &(read_iter[kLoadMapBlockSize * sizeof(intptr_t)]);
+      memcpy(&(variant_cms[full_block_ct * kLoadMapBlockSize]), read_iter, variant_ct_lowbits * sizeof(double));
+    }
+  }
+  while (0) {
+  LoadMap_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(mapname, &map_txs);
+    break;
+  LoadMap_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  LoadMap_ret_MISSING_TOKENS:
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, mapname);
+  LoadMap_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+  LoadMap_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  LoadMap_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  LoadMap_ret_DEGENERATE_DATA:
+    reterr = kPglRetDegenerateData;
+    break;
+  }
+ LoadMap_ret_1:
+  CleanupTextStream2(mapname, &map_txs, &reterr);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
+  return reterr;
+}
+
+// Ok for in_psamname to alias outname.
+PglErr RewritePsam(const char* in_psamname, MiscFlags misc_flags, FamCol fam_cols, int32_t missing_pheno, uint32_t psam_01, uint32_t max_thread_ct, char* outname, char* outname_end, uint32_t* raw_sample_ctp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PhenoCol* pheno_cols = nullptr;
   char* pheno_names = nullptr;
@@ -48,11 +640,13 @@ PglErr RewritePsam(const char* in_psamname, MiscFlags misc_flags, FamCol fam_col
     if (unlikely(reterr)) {
       goto RewritePsam_ret_1;
     }
-    *raw_sample_ctp = raw_sample_ct;
+    if (raw_sample_ctp) {
+      *raw_sample_ctp = raw_sample_ct;
+    }
 
     snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
     // Note that --output-missing-phenotype doesn't apply to autoconversion.
-    reterr = WritePsam(outname, sample_include, &(pii.sii), (&pii.parental_id_info), sex_nm, sex_male, pheno_cols, pheno_names, nullptr, "NA", raw_sample_ct, pheno_ct, max_pheno_name_blen, kfPsamColDefault);
+    reterr = WritePsam(outname, sample_include, &(pii.sii), (&pii.parental_id_info), sex_nm, sex_male, pheno_cols, pheno_names, nullptr, "NA", raw_sample_ct, pheno_ct, max_pheno_name_blen, kfPsamColDefault, psam_01);
   }
  RewritePsam_ret_1:
   CleanupPhenoCols(pheno_ct, pheno_cols);
@@ -84,7 +678,7 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, MiscFlags misc_fla
       // Only need to generate a .psam if this is a conversion-only run, or
       // --keep-autoconv was specified.  Otherwise Plink2Core() can simply
       // interpret the .tfam as a psam file.
-      reterr = RewritePsam(tfamname, misc_flags, fam_cols, missing_pheno, max_thread_ct, outname, outname_end, &tfam_sample_ct);
+      reterr = RewritePsam(tfamname, misc_flags, fam_cols, missing_pheno, 0, max_thread_ct, outname, outname_end, &tfam_sample_ct);
       if (unlikely(reterr)) {
         goto TpedToPgen_ret_1;
       }
@@ -143,7 +737,8 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, MiscFlags misc_fla
 
       // must do this before chromosome-code null-termination
       char* cm_start = FirstNonTspace(FirstSpaceOrEoln(FirstNonTspace(chr_code_end)));
-      if (unlikely(IsEolnKns(*cm_start))) {
+      char* bp_start = FirstNonTspace(FirstSpaceOrEoln(cm_start));
+      if (unlikely(IsEolnKns(*bp_start))) {
         goto TpedToPgen_ret_MISSING_TOKENS;
       }
 
@@ -153,19 +748,26 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, MiscFlags misc_fla
         goto TpedToPgen_ret_1;
       }
       if (IsSet(cip->chr_mask, cur_chr_code)) {
-        if (variant_ct == 0x7ffffffd) {
-          logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
-          goto TpedToPgen_ret_MALFORMED_INPUT;
+        int32_t cur_bp;
+        if (unlikely(ScanIntAbsDefcap(bp_start, &cur_bp))) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, tpedname);
+          goto TpedToPgen_ret_MALFORMED_INPUT_WW;
         }
-        ++variant_ct;
-
-        if (!at_least_one_nzero_cm) {
-          double cur_cm;
-          if (unlikely(!ScantokDouble(cm_start, &cur_cm))) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Invalid centimorgan position on line %" PRIuPTR " of %s.\n", line_idx, tpedname);
-            goto TpedToPgen_ret_MALFORMED_INPUT_WW;
+        if (cur_bp >= 0) {
+          if (variant_ct == 0x7ffffffd) {
+            logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend using\nother software for very deep studies of small numbers of genomes.\n");
+            goto TpedToPgen_ret_MALFORMED_INPUT;
           }
-          at_least_one_nzero_cm = (cur_cm != 0.0);
+          ++variant_ct;
+
+          if (!at_least_one_nzero_cm) {
+            double cur_cm;
+            if (unlikely(!ScantokDouble(cm_start, &cur_cm))) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid centimorgan position on line %" PRIuPTR " of %s.\n", line_idx, tpedname);
+              goto TpedToPgen_ret_MALFORMED_INPUT_WW;
+            }
+            at_least_one_nzero_cm = (cur_cm != 0.0);
+          }
         }
       }
 
@@ -183,8 +785,8 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, MiscFlags misc_fla
       goto TpedToPgen_ret_TSTREAM_FAIL;
     }
     if (unlikely(!variant_ct)) {
-      logerrputs("Error: All .tped variants excluded by chromosome filter.\n");
-      goto TpedToPgen_ret_INVALID_CMDLINE;
+      logerrputs("Error: All .tped variants excluded by chromosome filter or negative bp\ncoordinates.\n");
+      goto TpedToPgen_ret_INCONSISTENT_INPUT;
     }
     if (unlikely(CleanupTextStream2(tpedname, &tped_txs, &reterr))) {
       goto TpedToPgen_ret_1;
@@ -192,7 +794,7 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, MiscFlags misc_fla
     BigstackReset(bigstack_mark);
     const uint32_t variant_skip_ct = line_idx - 1 - variant_ct;
     if (variant_skip_ct) {
-      logprintfww("--tped: %" PRIuPTR " variants scanned; %u excluded by chromosome filter, %u remaining.\n", line_idx - 1, variant_skip_ct, variant_ct);
+      logprintfww("--tped: %" PRIuPTR " variants scanned; %u excluded by chromosome filter or negative bp coordinates, %u remaining.\n", line_idx - 1, variant_skip_ct, variant_ct);
     } else {
       logprintf("--tped: %u variant%s scanned.\n", variant_ct, (variant_ct == 1)? "" : "s");
     }
@@ -255,21 +857,22 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, MiscFlags misc_fla
         tped_line_iter = AdvPastDelim(chr_code_end, '\n');
         continue;
       }
-      pvar_cswritep = chrtoa(cip, cur_chr_code, pvar_cswritep);
-
       char* variant_id_start = FirstNonTspace(chr_code_end);
-      char* variant_id_end = FirstSpaceOrEoln(variant_id_start);
+      char* variant_id_end = CurTokenEnd(variant_id_start);
       char* cm_start = FirstNonTspace(variant_id_end);
-      char* cm_end = FirstSpaceOrEoln(cm_start);
+      char* cm_end = CurTokenEnd(cm_start);
       char* bp_start = FirstNonTspace(cm_end);
-      if (unlikely(IsEolnKns(*bp_start))) {
-        goto TpedToPgen_ret_MISSING_TOKENS;
-      }
-      uint32_t cur_bp;
-      if (unlikely(ScanUintDefcap(bp_start, &cur_bp))) {
+      // previously verified that bp token exists
+      int32_t cur_bp;
+      if (unlikely(ScanIntAbsDefcap(bp_start, &cur_bp))) {
         snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, tpedname);
         goto TpedToPgen_ret_MALFORMED_INPUT_WW;
       }
+      if (cur_bp < 0) {
+        tped_line_iter = AdvPastDelim(bp_start, '\n');
+        continue;
+      }
+      pvar_cswritep = chrtoa(cip, cur_chr_code, pvar_cswritep);
       *pvar_cswritep++ = '\t';
       pvar_cswritep = u32toa_x(cur_bp, '\t', pvar_cswritep);
       pvar_cswritep = memcpyax(pvar_cswritep, variant_id_start, variant_id_end - variant_id_start, '\t');
@@ -405,7 +1008,7 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, MiscFlags misc_fla
         double cur_cm;
         ScanadvDouble(cm_start, &cur_cm);
         *pvar_cswritep++ = '\t';
-        dtoa_g_p8(cur_cm, pvar_cswritep);
+        pvar_cswritep = dtoa_g_p8(cur_cm, pvar_cswritep);
       }
       AppendBinaryEoln(&pvar_cswritep);
       if (unlikely(Cswrite(&pvar_css, &pvar_cswritep))) {
@@ -450,7 +1053,6 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, MiscFlags misc_fla
     strcpy_k(write_iter, " written.\n");
     WordWrapB(0);
     logputsb();
-    ForgetExtraChrNames(1, cip);
   }
   while (0) {
   TpedToPgen_ret_NOMEM:
@@ -467,9 +1069,6 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, MiscFlags misc_fla
     break;
   TpedToPgen_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
-    break;
-  TpedToPgen_ret_INVALID_CMDLINE:
-    reterr = kPglRetInvalidCmdline;
     break;
   TpedToPgen_ret_HALF_MISSING:
     logerrprintfww("Error: Half-missing genotype on line %" PRIuPTR " of %s.\n", line_idx, tpedname);
@@ -499,6 +1098,804 @@ PglErr TpedToPgen(const char* tpedname, const char* tfamname, MiscFlags misc_fla
   CswriteCloseCond(&pvar_css, pvar_cswritep);
   CleanupTextStream2(tpedname, &tped_txs, &reterr);
   BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+typedef struct Plink1SmajTransposeCtxStruct {
+  uint32_t sample_ct;
+  uint32_t loadbuf_ul_stride;
+
+  uintptr_t* plink1_smaj_loadbuf_iter;
+
+  const uintptr_t* allele_flips_iter;
+
+  VecW** thread_vecaligned_bufs;
+  uintptr_t** thread_write_genovecs;
+  PgenWriterCommon** pwcs;
+
+  uint32_t cur_block_write_ct;
+} Plink1SmajTransposeCtx;
+
+void Plink1SmajTransposeMain(uint32_t tidx, Plink1SmajTransposeCtx* ctx) {
+  const uint32_t sample_ct = ctx->sample_ct;
+  const uint32_t sample_ctaw2 = NypCtToAlignedWordCt(sample_ct);
+  const uint32_t write_batch_ct_m1 = (sample_ct - 1) / kPglNypTransposeBatch;
+  PgenWriterCommon* pwcp = ctx->pwcs[tidx];
+  VecW* vecaligned_buf = ctx->thread_vecaligned_bufs[tidx];
+  uintptr_t* write_genovec = ctx->thread_write_genovecs[tidx];
+  const uintptr_t cur_block_write_ct = ctx->cur_block_write_ct;
+  const uint32_t loadbuf_ul_stride = ctx->loadbuf_ul_stride;
+  uint32_t write_idx = tidx * kPglVblockSize;
+  uintptr_t* read_iter = &(ctx->plink1_smaj_loadbuf_iter[write_idx / kBitsPerWordD2]);
+  const uintptr_t* allele_flips_iter = ctx->allele_flips_iter;
+  if (allele_flips_iter) {
+    allele_flips_iter = &(allele_flips_iter[write_idx / kBitsPerWord]);
+  }
+  const uint32_t write_idx_end = MINV(write_idx + kPglVblockSize, cur_block_write_ct);
+  while (write_idx < write_idx_end) {
+    const uintptr_t* read_iter2 = read_iter;
+    // uintptr_t* write_iter = write_genovec;
+    const uint32_t vblock_size = MINV(kPglNypTransposeBatch, write_idx_end - write_idx);
+    uint32_t read_batch_size = kPglNypTransposeBatch;
+    for (uint32_t write_batch_idx = 0; ; ++write_batch_idx) {
+      if (write_batch_idx >= write_batch_ct_m1) {
+        if (write_batch_idx > write_batch_ct_m1) {
+          break;
+        }
+        read_batch_size = ModNz(sample_ct, kPglNypTransposeBatch);
+      }
+      TransposeNypblock(read_iter2, loadbuf_ul_stride, sample_ctaw2, read_batch_size, vblock_size, &(write_genovec[write_batch_idx * kPglNypTransposeWords]), vecaligned_buf);
+      read_iter2 = &(read_iter2[kPglNypTransposeBatch * loadbuf_ul_stride]);
+    }
+    if (!allele_flips_iter) {
+      for (uint32_t uii = 0; uii != vblock_size; ++uii) {
+        uintptr_t* cur_write_genovec = &(write_genovec[uii * sample_ctaw2]);
+        PgrPlink1ToPlink2InplaceUnsafe(sample_ct, cur_write_genovec);
+        ZeroTrailingNyps(sample_ct, cur_write_genovec);
+        PwcAppendBiallelicGenovec(cur_write_genovec, pwcp);
+      }
+    } else {
+      for (uint32_t uii = 0; uii != vblock_size; ++uii) {
+        uintptr_t* cur_write_genovec = &(write_genovec[uii * sample_ctaw2]);
+        PgrPlink1ToPlink2InplaceUnsafe(sample_ct, cur_write_genovec);
+        if (IsSet(allele_flips_iter, uii)) {
+          // could have a dedicated flip-and-invert function
+          GenovecInvertUnsafe(sample_ct, cur_write_genovec);
+        }
+        ZeroTrailingNyps(sample_ct, cur_write_genovec);
+        PwcAppendBiallelicGenovec(cur_write_genovec, pwcp);
+      }
+    }
+    write_idx += vblock_size;
+    read_iter = &(read_iter[kPglNypTransposeWords]);
+    if (allele_flips_iter) {
+      allele_flips_iter = &(allele_flips_iter[kPglNypTransposeWords / 2]);
+    }
+  }
+}
+
+THREAD_FUNC_DECL Plink1SmajTransposeThread(void* raw_arg) {
+  ThreadGroupFuncArg* arg = S_CAST(ThreadGroupFuncArg*, raw_arg);
+  const uint32_t tidx = arg->tidx;
+  Plink1SmajTransposeCtx* ctx = S_CAST(Plink1SmajTransposeCtx*, arg->sharedp->context);
+  do {
+    Plink1SmajTransposeMain(tidx, ctx);
+  } while (!THREAD_BLOCK_FINISH(arg));
+  THREAD_RETURN;
+}
+
+PglErr Plink1SampleMajorToPgen(const char* pgenname, const uintptr_t* allele_flips, uintptr_t variant_ct, uintptr_t sample_ct, uint32_t real_ref_alleles, uint32_t max_thread_ct, FILE* infile) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  MTPgenWriter* mpgwp = nullptr;
+  ThreadGroup tg;
+  PreinitThreads(&tg);
+  Plink1SmajTransposeCtx ctx;
+  PglErr reterr = kPglRetSuccess;
+  {
+    // If allele_flips is nullptr, we are being called by Plink2Core().
+    // Otherwise, we are being called by PedmapToPgen().
+    if (!allele_flips) {
+      // file size already validated by PgfiInitPhase1()
+      logprintfww("Sample-major .bed file detected.  Transposing to %s .\n", pgenname);
+    } else {
+      logprintfww("Transposing sample-major .bed to %s , and setting major alleles to provisional-REF.\n", pgenname);
+    }
+    fputs("0%", stdout);
+    fflush(stdout);
+    if (unlikely((!variant_ct) || (!sample_ct))) {
+      logputs("\n");
+      logerrputs("Error: Zero-variant/zero-sample .pgen writing is not supported.\n");
+      goto Plink1SampleMajorToPgen_ret_INCONSISTENT_INPUT;
+    }
+    const uint32_t variant_ct4 = NypCtToByteCt(variant_ct);
+    unsigned char* raw_loadbuf = nullptr;
+    uint32_t raw_load_batch_size = 1;
+    if (variant_ct4 < 5120) {
+      // assuming 4K block size, fseek won't let us avoid reading many
+      // unnecessary disk blocks
+      raw_load_batch_size += 131071 / variant_ct4;
+      if (unlikely(bigstack_alloc_uc(raw_load_batch_size * variant_ct4, &raw_loadbuf))) {
+        goto Plink1SampleMajorToPgen_ret_NOMEM;
+      }
+    }
+    const uint32_t raw_load_batch_ct_m1 = (sample_ct - 1) / raw_load_batch_size;
+    if (!raw_load_batch_ct_m1) {
+      raw_load_batch_size = sample_ct;
+    }
+    const uint32_t raw_load_batch_ct = raw_load_batch_ct_m1 + 1;
+    uintptr_t alloc_base_cacheline_ct;
+    uint64_t mpgw_per_thread_cacheline_ct;
+    uint32_t vrec_len_byte_ct;
+    uint64_t vblock_cacheline_ct;
+    MpgwInitPhase1(nullptr, variant_ct, sample_ct, kfPgenGlobal0, &alloc_base_cacheline_ct, &mpgw_per_thread_cacheline_ct, &vrec_len_byte_ct, &vblock_cacheline_ct);
+#ifndef __LP64__
+    if (unlikely((mpgw_per_thread_cacheline_ct > (0x7fffffff / kCacheline)) || (vblock_cacheline_ct > (0x7fffffff / kCacheline)))) {
+      goto Plink1SampleMajorToPgen_ret_NOMEM;
+    }
+#endif
+
+    uint32_t calc_thread_ct = DivUp(variant_ct, kPglVblockSize);
+    if (calc_thread_ct >= max_thread_ct) {
+      calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
+    }
+    // note that BIGSTACK_ALLOC_X() doesn't work here due to variable-size
+    // array at end
+    mpgwp = S_CAST(MTPgenWriter*, bigstack_alloc((calc_thread_ct + DivUp(sizeof(MTPgenWriter), kBytesPerWord)) * sizeof(intptr_t)));
+    if (unlikely(!mpgwp)) {
+      goto Plink1SampleMajorToPgen_ret_NOMEM;
+    }
+    mpgwp->pgen_outfile = nullptr;
+    if (unlikely(bigstack_alloc_vp(calc_thread_ct, &ctx.thread_vecaligned_bufs) ||
+                 bigstack_alloc_wp(calc_thread_ct, &ctx.thread_write_genovecs))) {
+      goto Plink1SampleMajorToPgen_ret_NOMEM;
+    }
+    ctx.pwcs = &(mpgwp->pwcs[0]);
+    uintptr_t cachelines_avail = bigstack_left() / kCacheline;
+    // inner loop transposes kPglNypTransposeBatch variants at a time
+    const uintptr_t transpose_thread_cacheline_ct = kPglNypTransposeBufbytes / kCacheline + NypCtToVecCt(sample_ct) * (kPglNypTransposeBatch / kVecsPerCacheline);
+    if (unlikely(cachelines_avail < calc_thread_ct * S_CAST(uint64_t, transpose_thread_cacheline_ct))) {
+      goto Plink1SampleMajorToPgen_ret_NOMEM;
+    }
+    for (uint32_t tidx = 0; tidx != calc_thread_ct; ++tidx) {
+      ctx.thread_vecaligned_bufs[tidx] = S_CAST(VecW*, bigstack_alloc_raw(kPglNypTransposeBufbytes));
+      ctx.thread_write_genovecs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(NypCtToVecCt(sample_ct) * kBytesPerVec * kPglNypTransposeBatch));
+    }
+    cachelines_avail = bigstack_left() / kCacheline;
+    // Main workflow:
+    // 1. Load next calc_thread_ct * load_multiplier * kPglVblockSize
+    //    variants.
+    //    calc_thread_ct is reduced as necessary to ensure the compression
+    //    write buffers use <= 1/8 of total workspace.
+    //    with calc_thread_ct determined, load_multiplier is then chosen to use
+    //    as much of the remaining workspace as possible.
+    // 2. Repeat load_multiplier times:
+    //    a. Spawn threads processing calc_thread_ct vblocks
+    //    b. Join threads
+    //    c. Flush results
+    // 3. Goto step 1 unless eof.  (load_multiplier may be smaller on last
+    //    iteration.)
+    // No double-buffering here since main bottleneck is how many variants we
+    // can load at once.
+    if ((cachelines_avail / 8) < alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct * calc_thread_ct) {
+      if ((cachelines_avail / 8) >= alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct) {
+        calc_thread_ct = ((cachelines_avail / 8) - alloc_base_cacheline_ct) / mpgw_per_thread_cacheline_ct;
+      } else if (likely((cachelines_avail / 3) >= alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct)) {
+        calc_thread_ct = 1;
+      } else {
+        // possible todo: simple single-threaded fallback
+        // report this value since it can plausibly come up
+        g_failed_alloc_attempt_size = (alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct) * kCacheline * 3;
+        goto Plink1SampleMajorToPgen_ret_NOMEM;
+      }
+    }
+    // todo: determine appropriate calc_thread_ct limit.  (should not be less
+    // than 7-8.)
+    unsigned char* mpgw_alloc = S_CAST(unsigned char*, bigstack_alloc_raw((alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct * calc_thread_ct) * kCacheline));
+    reterr = MpgwInitPhase2(pgenname, nullptr, nullptr, variant_ct, sample_ct, kfPgenGlobal0, 2 - real_ref_alleles, vrec_len_byte_ct, vblock_cacheline_ct, calc_thread_ct, mpgw_alloc, mpgwp);
+    if (unlikely(reterr)) {
+      if (reterr == kPglRetOpenFail) {
+        logputs("\n");
+        logerrprintfww(kErrprintfFopen, pgenname, strerror(errno));
+      }
+      goto Plink1SampleMajorToPgen_ret_1;
+    }
+
+    cachelines_avail = bigstack_left() / kCacheline;
+    const uint64_t full_load_vecs_req = sample_ct * S_CAST(uint64_t, NypCtToAlignedWordCt(variant_ct));
+    uintptr_t* plink1_smaj_loadbuf;
+    uint32_t load_multiplier;
+    uint32_t cur_vidx_ct;
+    if (full_load_vecs_req > cachelines_avail * kVecsPerCacheline) {
+      // each iteration requires ((kPglVblockSize / 4) * calc_thread_ct *
+      //   sample_ct) bytes to be loaded
+      load_multiplier = cachelines_avail / ((kPglVblockSize / (4 * kCacheline)) * calc_thread_ct * S_CAST(uintptr_t, sample_ct));
+      assert(load_multiplier);
+      cur_vidx_ct = load_multiplier * calc_thread_ct * kPglVblockSize;
+      plink1_smaj_loadbuf = S_CAST(uintptr_t*, bigstack_alloc_raw_rd((cur_vidx_ct / 4) * S_CAST(uintptr_t, sample_ct)));
+      // bugfix (18 Nov 2017): this may be larger than variant_ct
+      if (cur_vidx_ct > variant_ct) {
+        cur_vidx_ct = variant_ct;
+        load_multiplier = 1 + (cur_vidx_ct - 1) / (kPglVblockSize * calc_thread_ct);
+      }
+    } else {
+      load_multiplier = 1 + ((variant_ct - 1) / (calc_thread_ct * kPglVblockSize));
+      cur_vidx_ct = variant_ct;
+      plink1_smaj_loadbuf = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(full_load_vecs_req * kBytesPerVec));
+    }
+    uint32_t cur_vidx_ct4 = NypCtToByteCt(cur_vidx_ct);
+    uint32_t cur_vidx_ctaw2 = NypCtToAlignedWordCt(cur_vidx_ct);
+    const uint32_t pass_ct = 1 + (variant_ct - 1) / cur_vidx_ct;
+    ctx.sample_ct = sample_ct;
+    ctx.loadbuf_ul_stride = NypCtToVecCt(cur_vidx_ct) * kWordsPerVec;
+    ctx.allele_flips_iter = nullptr;
+    if (unlikely(SetThreadCt0(calc_thread_ct - 1, &tg))) {
+      goto Plink1SampleMajorToPgen_ret_NOMEM;
+    }
+    SetThreadFuncAndData(Plink1SmajTransposeThread, &ctx, &tg);
+    uint32_t pass_idx1 = 0;
+    for (uint32_t cur_vidx_base = 0; ; ) {
+      uint32_t cur_raw_load_batch_size = raw_load_batch_size;
+      uintptr_t* smaj_loadbuf_iter = plink1_smaj_loadbuf;
+      putc_unlocked('\r', stdout);
+      ++pass_idx1;
+      printf("Pass %u/%u: loading... 0%%", pass_idx1, pass_ct);
+      fflush(stdout);
+      uint32_t pct = 0;
+      uint32_t next_print_idx = raw_load_batch_ct / 100;
+      const uint64_t seek_addl_offset = 3 + cur_vidx_base / 4;
+      for (uint32_t raw_load_batch_idx = 0; ; ) {
+        if (raw_load_batch_size == 1) {
+          if (unlikely(fseeko(infile, seek_addl_offset + raw_load_batch_idx * S_CAST(uint64_t, variant_ct4), SEEK_SET))) {
+            goto Plink1SampleMajorToPgen_ret_READ_FAIL;
+          }
+          if (unlikely(!fread_unlocked(smaj_loadbuf_iter, cur_vidx_ct4, 1, infile))) {
+            goto Plink1SampleMajorToPgen_ret_READ_FAIL;
+          }
+          smaj_loadbuf_iter = &(smaj_loadbuf_iter[cur_vidx_ctaw2]);
+        } else {
+          if (unlikely(!fread_unlocked(raw_loadbuf, cur_raw_load_batch_size * variant_ct4, 1, infile))) {
+            goto Plink1SampleMajorToPgen_ret_READ_FAIL;
+          }
+          unsigned char* raw_loadbuf_iter = &(raw_loadbuf[cur_vidx_base / 4]);
+          for (uint32_t uii = 0; uii != cur_raw_load_batch_size; ++uii) {
+            memcpy(smaj_loadbuf_iter, raw_loadbuf_iter, cur_vidx_ct4);
+            raw_loadbuf_iter = &(raw_loadbuf_iter[variant_ct4]);
+            smaj_loadbuf_iter = &(smaj_loadbuf_iter[cur_vidx_ctaw2]);
+          }
+        }
+        ++raw_load_batch_idx;
+        if (raw_load_batch_idx >= raw_load_batch_ct_m1) {
+          if (raw_load_batch_idx > raw_load_batch_ct_m1) {
+            break;
+          }
+          cur_raw_load_batch_size = sample_ct - raw_load_batch_idx * raw_load_batch_size;
+        }
+        if (raw_load_batch_idx >= next_print_idx) {
+          if (pct > 10) {
+            putc_unlocked('\b', stdout);
+          }
+          pct = (raw_load_batch_idx * 100LLU) / raw_load_batch_ct;
+          printf("\b\b%u%%", pct++);
+          fflush(stdout);
+          next_print_idx = (pct * S_CAST(uint64_t, raw_load_batch_ct)) / 100;
+        }
+      }
+      const uintptr_t last_tidx = calc_thread_ct - 1;
+      uint32_t load_idx = 0;
+      ctx.cur_block_write_ct = calc_thread_ct * kPglVblockSize;
+      putc_unlocked('\r', stdout);
+      printf("Pass %u/%u: transposing and compressing... 0%%", pass_idx1, pass_ct);
+      ReinitThreads(&tg);
+      pct = 0;
+      next_print_idx = load_idx / 100;
+      do {
+        if (load_idx >= next_print_idx) {
+          if (pct > 10) {
+            putc_unlocked('\b', stdout);
+          }
+          pct = (load_idx * 100LLU) / load_multiplier;
+          printf("\b\b%u%%", pct++);
+          fflush(stdout);
+          next_print_idx = (pct * S_CAST(uint64_t, load_multiplier)) / 100;
+        }
+        ctx.plink1_smaj_loadbuf_iter = &(plink1_smaj_loadbuf[load_idx * calc_thread_ct * (kPglVblockSize / kBitsPerWordD2)]);
+        if (allele_flips) {
+          ctx.allele_flips_iter = &(allele_flips[load_idx * calc_thread_ct * (kPglVblockSize / kBitsPerWord)]);
+        }
+        if (++load_idx == load_multiplier) {
+          DeclareLastThreadBlock(&tg);
+          ctx.cur_block_write_ct = cur_vidx_ct - (load_idx - 1) * calc_thread_ct * kPglVblockSize;
+        }
+        if (last_tidx) {
+          if (unlikely(SpawnThreads(&tg))) {
+            goto Plink1SampleMajorToPgen_ret_THREAD_CREATE_FAIL;
+          }
+        }
+        Plink1SmajTransposeMain(last_tidx, &ctx);
+        if (last_tidx) {
+          JoinThreads(&tg);
+          // Plink1SmajTransposeThread() never errors out
+        }
+        reterr = MpgwFlush(mpgwp);
+        if (unlikely(reterr)) {
+          goto Plink1SampleMajorToPgen_ret_WRITE_FAIL;
+        }
+      } while (!IsLastBlock(&tg));
+      cur_vidx_base += cur_vidx_ct;
+      if (cur_vidx_base == variant_ct) {
+        if (pct > 10) {
+          putc_unlocked('\b', stdout);
+        }
+        break;
+      }
+      fputs("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b                     ", stdout);
+      // assumes PgfiInitPhase1() leaves file pointer at byte 3; otherwise,
+      // necessary to put this at top of main loop
+      if (unlikely(fseeko(infile, 3, SEEK_SET))) {
+        goto Plink1SampleMajorToPgen_ret_READ_FAIL;
+      }
+      if (variant_ct - cur_vidx_base <= cur_vidx_ct) {
+        cur_vidx_ct = variant_ct - cur_vidx_base;
+        cur_vidx_ct4 = NypCtToByteCt(cur_vidx_ct);
+        cur_vidx_ctaw2 = NypCtToAlignedWordCt(cur_vidx_ct);
+        ctx.loadbuf_ul_stride = NypCtToVecCt(cur_vidx_ct) * kWordsPerVec;
+        load_multiplier = 1 + (cur_vidx_ct - 1) / (kPglVblockSize * calc_thread_ct);
+      }
+    }
+    mpgwp = nullptr;
+    fputs("\b\bdone.\n", stdout);
+    logprintf("Transpose complete.\n");
+  }
+  while (0) {
+  Plink1SampleMajorToPgen_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  Plink1SampleMajorToPgen_ret_READ_FAIL:
+    if (feof_unlocked(infile)) {
+      errno = 0;
+    }
+    logputs("\n");
+    logerrprintfww(kErrprintfFread, ".bed file", rstrerror(errno));
+    reterr = kPglRetReadFail;
+    break;
+  Plink1SampleMajorToPgen_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  Plink1SampleMajorToPgen_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  Plink1SampleMajorToPgen_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
+    break;
+  }
+ Plink1SampleMajorToPgen_ret_1:
+  CleanupThreads(&tg);
+  CleanupMpgw(mpgwp, &reterr);
+  BigstackReset(bigstack_mark);
+  return reterr;
+}
+
+PglErr PedmapToPgen(const char* pedname, const char* mapname, MiscFlags misc_flags, ImportFlags import_flags, uint32_t psam_01, FamCol fam_cols, int32_t missing_pheno, char input_missing_geno_char, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  FILE* indmaj_bed_file = nullptr;
+  FILE* tmp_fam_file = nullptr;
+  TextStream ped_txs;
+  PreinitTextStream(&ped_txs);
+  uintptr_t line_idx = 0;
+
+  char* pvar_cswritep = nullptr;
+  CompressStreamState pvar_css;
+  PreinitCstream(&pvar_css);
+  PglErr reterr = kPglRetSuccess;
+  {
+    // 1. Scan .map file, count number of variants and check whether nonzero CM
+    //    values exist.
+    // 2. Convert .ped to temporary sample-major .bed file, using the variant
+    //    count to disambiguate the compound-genotypes case from the regular
+    //    case.  Write temporary .fam file as well, to be reread with same
+    //    fam_cols setting.
+    // 3. RewritePsam() call.
+    // 4. Now that we know the alleles and their counts, populate allele_flips.
+    // 5. Rescan .map file, write .pvar; then free allele storage space.
+    // 6. Transpose sample-major .bed to .pgen, while flipping the necessary
+    //    variants.
+    // 7. Delete temporary files.
+    FinalizeChrset(misc_flags, cip);
+    uintptr_t* variant_include = nullptr;
+    uint32_t raw_variant_ct;
+    uint32_t variant_ct;
+    uint32_t at_least_one_nzero_cm;
+    reterr = ScanMap(mapname, misc_flags, cip, &raw_variant_ct, &variant_ct, &at_least_one_nzero_cm, &variant_include);
+    if (unlikely(reterr)) {
+      goto PedmapToPgen_ret_1;
+    }
+    if (unlikely(raw_variant_ct > (kMaxLongLine / 4))) {
+      logerrputs("Error: Too many variants for .ped file converter.\n");
+      goto PedmapToPgen_ret_MALFORMED_INPUT;
+    }
+    if (raw_variant_ct != variant_ct) {
+      logprintfww("--pedmap: %u variant%s in .map file; %u excluded by chromosome filter or negative bp coordinates, %u remaining.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s", raw_variant_ct - variant_ct, variant_ct);
+    } else {
+      logprintf("--pedmap: %u variant%s in .map file.\n", variant_ct, (variant_ct == 1)? "" : "s");
+    }
+
+    const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
+    const uint32_t variant_ctl2 = NypCtToWordCt(variant_ct);
+    const uint32_t variant_ct4 = NypCtToByteCt(variant_ct);
+    uintptr_t* allele_flips;
+    const char** allele_codes;
+    uint32_t* second_allele_plus_missing_cts;
+    uintptr_t* genovec;
+    if (unlikely(bigstack_calloc_w(variant_ctl, &allele_flips) ||
+                 bigstack_end_calloc_kcp(2 * variant_ct, &allele_codes) ||
+                 bigstack_end_calloc_u32(variant_ct, &second_allele_plus_missing_cts) ||
+                 bigstack_end_alloc_w(variant_ctl2, &genovec))) {
+      goto PedmapToPgen_ret_NOMEM;
+    }
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".bed.smaj");
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &indmaj_bed_file))) {
+      goto PedmapToPgen_ret_OPEN_FAIL;
+    }
+    if (unlikely(!fwrite_unlocked("l\x1b", 3, 1, indmaj_bed_file))) {
+      goto PedmapToPgen_ret_WRITE_FAIL;
+    }
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".fam.tmp");
+    if (unlikely(fopen_checked(outname, FOPEN_WB, &tmp_fam_file))) {
+      goto PedmapToPgen_ret_OPEN_FAIL;
+    }
+    char* fam_writebuf = g_textbuf;
+    char* fam_writebuf_flush = &(fam_writebuf[kMaxMediumLine]);
+    char* fam_write_iter = fam_writebuf;
+    const uint32_t decompress_thread_ct = MAXV(1, max_thread_ct - 1);
+    reterr = SizeAndInitTextStream(pedname, bigstack_left() / 4, decompress_thread_ct, &ped_txs);
+    if (unlikely(reterr)) {
+      goto PedmapToPgen_ret_TSTREAM_FAIL;
+    }
+    unsigned char* tmp_alloc_base = g_bigstack_base;
+    unsigned char* tmp_alloc_end = g_bigstack_end;
+    const uint32_t fam_col_ct_m1 = ((fam_cols / kfFamCol1) & 1) + ((fam_cols / (kfFamCol34 / 2)) & 2) + ((fam_cols / kfFamCol5) & 1) + ((fam_cols / kfFamCol6) & 1);
+    line_idx = 1;
+    char* ped_line_start = TextGet(&ped_txs);
+    if (unlikely(!ped_line_start)) {
+      if (TextStreamErrcode2(&ped_txs, &reterr)) {
+        goto PedmapToPgen_ret_TSTREAM_FAIL;
+      }
+      snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", pedname);
+      goto PedmapToPgen_ret_DEGENERATE_DATA;
+    }
+    uint32_t compound_genotypes = 0;
+    {
+      const uint32_t token_ct = CountTokens(ped_line_start);
+      const uint32_t compound_genotypes_token_ct = fam_col_ct_m1 + 1 + raw_variant_ct;
+      if (token_ct == compound_genotypes_token_ct) {
+        compound_genotypes = 1;
+      } else {
+        const uint32_t regular_token_ct = compound_genotypes_token_ct + raw_variant_ct;
+        if (unlikely(token_ct != regular_token_ct)) {
+          logerrprintfww("Error: Unexpected number of columns in .ped file (%u or %u expected).\n", compound_genotypes_token_ct, regular_token_ct);
+          goto PedmapToPgen_ret_INCONSISTENT_INPUT;
+        }
+      }
+    }
+    uint32_t max_allele_slen = 1;
+    while (1) {
+      char* fam_last = NextTokenMult0(ped_line_start, fam_col_ct_m1);
+      if (unlikely(!fam_last)) {
+        goto PedmapToPgen_ret_MISSING_TOKENS;
+      }
+      char* fam_end = CurTokenEnd(fam_last);
+      const uintptr_t fam_copy_byte_ct = fam_end - ped_line_start;
+      if (unlikely(fam_copy_byte_ct > kMaxLongLine - strlen(EOLN_STR))) {
+        logerrprintfww("Error: A leading column of line %" PRIuPTR " of %s is too long.\n", line_idx, pedname);
+        goto PedmapToPgen_ret_MALFORMED_INPUT;
+      }
+      fam_write_iter = memcpya(fam_write_iter, ped_line_start, fam_copy_byte_ct);
+      AppendBinaryEoln(&fam_write_iter);
+      if (unlikely(fwrite_ck(fam_writebuf_flush, tmp_fam_file, &fam_write_iter))) {
+        goto PedmapToPgen_ret_WRITE_FAIL;
+      }
+      char* ped_iter = fam_end;
+      uint32_t variant_idx = 0;
+      uint32_t variant_idx_lowbits_x2 = 0;
+      uintptr_t geno_word = 0;
+      if (!compound_genotypes) {
+        for (uint32_t raw_variant_idx = 0; ; ++raw_variant_idx) {
+          char* first_allele_start = FirstNonTspace(ped_iter);
+          char* first_allele_end = FirstSpaceOrEoln(first_allele_start);
+          char* second_allele_start = FirstNonTspace(first_allele_end);
+          if (unlikely(IsSpaceOrEoln(*second_allele_start))) {
+            goto PedmapToPgen_ret_MISSING_TOKENS;
+          }
+          ped_iter = CurTokenEnd(second_allele_start);
+          if (variant_include && (!IsSet(variant_include, raw_variant_idx))) {
+            continue;
+          }
+          const uint32_t first_allele_slen = first_allele_end - first_allele_start;
+          const uint32_t second_allele_slen = ped_iter - second_allele_start;
+          const uint32_t second_allele_is_missing = (second_allele_slen == 1) && ((second_allele_start[0] == '.') || (second_allele_start[0] == input_missing_geno_char));
+          uintptr_t cur_geno;
+          if ((first_allele_slen == 1) && ((first_allele_start[0] == '.') || (first_allele_start[0] == input_missing_geno_char))) {
+            if (unlikely(!second_allele_is_missing)) {
+              goto PedmapToPgen_ret_HALF_MISSING;
+            }
+            // PLINK 1 encoding
+            cur_geno = 1;
+          } else {
+            if (unlikely(second_allele_is_missing)) {
+              goto PedmapToPgen_ret_HALF_MISSING;
+            }
+            const uint32_t is_het = (first_allele_slen != second_allele_slen) || (!memequal(first_allele_start, second_allele_start, first_allele_slen));
+            const uint32_t variant_idx_x2 = variant_idx * 2;
+            const uint32_t variant_idx_x2_p1 = variant_idx_x2 + 1;
+            const char* prov_ref_allele = allele_codes[variant_idx_x2];
+            const char* prov_alt_allele = allele_codes[variant_idx_x2_p1];
+            cur_geno = 3 - is_het;
+            if ((!prov_ref_allele) || strequal_unsafe(prov_ref_allele, first_allele_start, first_allele_slen)) {
+              // First allele matches prov_ref_allele (possibly after
+              // initialization of the latter).
+              if (!prov_ref_allele) {
+                if (first_allele_slen == 1) {
+                  allele_codes[variant_idx_x2] = &(g_one_char_strs[ctou32(first_allele_start[0]) * 2]);
+                } else {
+                  if (unlikely(StoreStringAtEndK(tmp_alloc_base, first_allele_start, first_allele_slen, &tmp_alloc_end, &(allele_codes[variant_idx_x2])))) {
+                    goto PedmapToPgen_ret_NOMEM;
+                  }
+                  if (first_allele_slen > max_allele_slen) {
+                    max_allele_slen = first_allele_slen;
+                  }
+                }
+              }
+              if (is_het) {
+                if (!prov_alt_allele) {
+                  if (second_allele_slen == 1) {
+                    allele_codes[variant_idx_x2_p1] = &(g_one_char_strs[ctou32(second_allele_start[0]) * 2]);
+                  } else {
+                    if (unlikely(StoreStringAtEndK(tmp_alloc_base, second_allele_start, second_allele_slen, &tmp_alloc_end, &(allele_codes[variant_idx_x2_p1])))) {
+                      goto PedmapToPgen_ret_NOMEM;
+                    }
+                    if (second_allele_slen > max_allele_slen) {
+                      max_allele_slen = second_allele_slen;
+                    }
+                  }
+                } else if (unlikely(!strequal_unsafe(prov_alt_allele, second_allele_start, second_allele_slen))) {
+                  goto PedmapToPgen_ret_MULTIALLELIC;
+                }
+              }
+            } else if (likely((!prov_alt_allele) || strequal_unsafe(prov_alt_allele, first_allele_start, first_allele_slen))) {
+              // First allele matches prov_alt_allele (possibly after
+              // initialization of the latter).
+              if (!prov_alt_allele) {
+                if (first_allele_slen == 1) {
+                  allele_codes[variant_idx_x2_p1] = &(g_one_char_strs[ctou32(first_allele_start[0]) * 2]);
+                } else {
+                  if (unlikely(StoreStringAtEndK(tmp_alloc_base, first_allele_start, first_allele_slen, &tmp_alloc_end, &(allele_codes[variant_idx_x2_p1])))) {
+                    goto PedmapToPgen_ret_NOMEM;
+                  }
+                  if (first_allele_slen > max_allele_slen) {
+                    max_allele_slen = first_allele_slen;
+                  }
+                }
+              }
+              if (is_het) {
+                if (unlikely(!strequal_unsafe(prov_ref_allele, second_allele_start, second_allele_slen))) {
+                  goto PedmapToPgen_ret_MULTIALLELIC;
+                }
+              } else {
+                cur_geno = 0;
+              }
+            } else {
+              goto PedmapToPgen_ret_MULTIALLELIC;
+            }
+          }
+          second_allele_plus_missing_cts[variant_idx] += (4 - cur_geno) >> 1;
+          geno_word |= cur_geno << variant_idx_lowbits_x2;
+          variant_idx_lowbits_x2 += 2;
+          if (variant_idx_lowbits_x2 == kBitsPerWord) {
+            genovec[variant_idx / kBitsPerWordD2] = geno_word;
+            geno_word = 0;
+            variant_idx_lowbits_x2 = 0;
+          }
+          if (++variant_idx == variant_ct) {
+            break;
+          }
+        }
+      } else {
+        for (uint32_t raw_variant_idx = 0; ; ++raw_variant_idx) {
+          char* alleles_start = FirstNonTspace(ped_iter);
+          if (unlikely(IsSpaceOrEoln(*alleles_start))) {
+            goto PedmapToPgen_ret_MISSING_TOKENS;
+          }
+          ped_iter = CurTokenEnd(alleles_start);
+          if (unlikely(ped_iter != &(alleles_start[2]))) {
+            putc_unlocked('\n', stdout);
+            logerrprintfww("Error: --pedmap: .map file and number of tokens in first line of .ped file imply that the latter is in the compound-genotypes format, but line %" PRIuPTR " has a genotype that isn't length-2.\n", line_idx);
+            goto PedmapToPgen_ret_INCONSISTENT_INPUT;
+          }
+          if (variant_include && (!IsSet(variant_include, raw_variant_idx))) {
+            continue;
+          }
+          const char first_allele_char = alleles_start[0];
+          const char second_allele_char = alleles_start[1];
+          const uint32_t second_allele_is_missing = (second_allele_char == '.') || (second_allele_char == input_missing_geno_char);
+          uintptr_t cur_geno;
+          if ((first_allele_char == '.') || (second_allele_char == input_missing_geno_char)) {
+            if (unlikely(!second_allele_is_missing)) {
+              goto PedmapToPgen_ret_HALF_MISSING;
+            }
+            // PLINK 1 encoding
+            cur_geno = 1;
+          } else {
+            if (unlikely(second_allele_is_missing)) {
+              goto PedmapToPgen_ret_HALF_MISSING;
+            }
+            const uint32_t is_het = (first_allele_char != second_allele_char);
+            const uint32_t variant_idx_x2 = variant_idx * 2;
+            const uint32_t variant_idx_x2_p1 = variant_idx_x2 + 1;
+            const char* prov_ref_allele = allele_codes[variant_idx_x2];
+            const char* prov_alt_allele = allele_codes[variant_idx_x2_p1];
+            cur_geno = 3 - is_het;
+            if ((!prov_ref_allele) || (first_allele_char == prov_ref_allele[0])) {
+              // First allele matches prov_ref_allele (possibly after
+              // initialization of the latter).
+              if (!prov_ref_allele) {
+                allele_codes[variant_idx_x2] = &(g_one_char_strs[ctou32(first_allele_char) * 2]);
+              }
+              if (is_het) {
+                if (!prov_alt_allele) {
+                  allele_codes[variant_idx_x2_p1] = &(g_one_char_strs[ctou32(second_allele_char) * 2]);
+                } else if (unlikely(second_allele_char != prov_alt_allele[0])) {
+                  goto PedmapToPgen_ret_MULTIALLELIC;
+                }
+              }
+            } else if (likely((!prov_alt_allele) || (first_allele_char == prov_alt_allele[0]))) {
+              // First allele matches prov_alt_allele (possibly after
+              // initialization of the latter).
+              if (!prov_alt_allele) {
+                allele_codes[variant_idx_x2_p1] = &(g_one_char_strs[ctou32(first_allele_char) * 2]);
+              }
+              if (is_het) {
+                if (unlikely(second_allele_char != prov_ref_allele[0])) {
+                  goto PedmapToPgen_ret_MULTIALLELIC;
+                }
+              } else {
+                cur_geno = 0;
+              }
+            } else {
+              goto PedmapToPgen_ret_MULTIALLELIC;
+            }
+          }
+          second_allele_plus_missing_cts[variant_idx] += (4 - cur_geno) >> 1;
+          geno_word |= cur_geno << variant_idx_lowbits_x2;
+          variant_idx_lowbits_x2 += 2;
+          if (variant_idx_lowbits_x2 == kBitsPerWord) {
+            genovec[variant_idx / kBitsPerWordD2] = geno_word;
+            geno_word = 0;
+            variant_idx_lowbits_x2 = 0;
+          }
+          if (++variant_idx == variant_ct) {
+            break;
+          }
+        }
+      }
+      if (variant_idx_lowbits_x2) {
+        genovec[variant_ct / kBitsPerWordD2] = geno_word;
+      }
+      if (unlikely(!fwrite_unlocked(genovec, variant_ct4, 1, indmaj_bed_file))) {
+        goto PedmapToPgen_ret_WRITE_FAIL;
+      }
+      if ((line_idx % 100) == 0) {
+        printf("\r--pedmap: %" PRIuPTR " samples scanned.", line_idx);
+        fflush(stdout);
+      }
+      ++line_idx;
+      ped_line_start = TextGet(&ped_txs);
+      if (!ped_line_start) {
+        break;
+      }
+      if (unlikely(line_idx == 0x7fffffff)) {
+        logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 2 samples.\n");
+        goto PedmapToPgen_ret_MALFORMED_INPUT;
+      }
+    }
+    if (unlikely(TextStreamErrcode2(&ped_txs, &reterr))) {
+      goto PedmapToPgen_ret_TSTREAM_FAIL;
+    }
+    if (unlikely(fclose_flush_null(fam_writebuf_flush, fam_write_iter, &tmp_fam_file) ||
+                 fclose_null(&indmaj_bed_file))) {
+      goto PedmapToPgen_ret_WRITE_FAIL;
+    }
+    const uint32_t sample_ct = line_idx - 1;
+    *outname_end = '\0';
+    putc_unlocked('\r', stdout);
+    logprintfww("--pedmap: %u sample%s present, genotypes extracted to %s.bed.smaj .\n", sample_ct, (sample_ct == 1)? "" : "s", outname);
+    *outname_end = '.';
+    BigstackEndSet(tmp_alloc_end);
+
+    reterr = RewritePsam(outname, misc_flags, fam_cols, missing_pheno, psam_01, max_thread_ct, outname, outname_end, nullptr);
+    if (unlikely(reterr)) {
+      goto PedmapToPgen_ret_1;
+    }
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".fam.tmp");
+    unlink(outname);
+
+    for (uint32_t variant_idx = 0; variant_idx != variant_ct; ++variant_idx) {
+      if (second_allele_plus_missing_cts[variant_idx] > sample_ct) {
+        SetBit(variant_idx, allele_flips);
+        const char* tmp_allele_code = allele_codes[variant_idx * 2];
+        allele_codes[variant_idx * 2] = allele_codes[variant_idx * 2 + 1];
+        allele_codes[variant_idx * 2 + 1] = tmp_allele_code;
+      }
+    }
+
+    reterr = MapToPvar(mapname, cip, allele_codes, variant_ct, max_allele_slen, import_flags, at_least_one_nzero_cm, outname, outname_end);
+    if (unlikely(reterr)) {
+      goto PedmapToPgen_ret_1;
+    }
+    BigstackEndReset(bigstack_end_mark);
+
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".bed.smaj");
+    if (unlikely(fopen_checked(outname, FOPEN_RB, &indmaj_bed_file))) {
+      goto PedmapToPgen_ret_OPEN_FAIL;
+    }
+
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
+    reterr = Plink1SampleMajorToPgen(outname, allele_flips, variant_ct, sample_ct, 0, max_thread_ct, indmaj_bed_file);
+    if (unlikely(reterr)) {
+      goto PedmapToPgen_ret_1;
+    }
+    // can't do anything meaningful with an fclose error here
+    fclose(indmaj_bed_file);
+    indmaj_bed_file = nullptr;
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".bed.smaj");
+    unlink(outname);
+  }
+  while (0) {
+  PedmapToPgen_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  PedmapToPgen_ret_TSTREAM_FAIL:
+    TextStreamErrPrint(pedname, &ped_txs);
+    break;
+  PedmapToPgen_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  PedmapToPgen_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  PedmapToPgen_ret_MISSING_TOKENS:
+    putc_unlocked('\n', stdout);
+    logerrprintf("Error: Line %" PRIuPTR " of .ped file has fewer tokens than expected.\n", line_idx);
+    reterr = kPglRetMalformedInput;
+    break;
+  PedmapToPgen_ret_HALF_MISSING:
+    putc_unlocked('\n', stdout);
+    logerrprintfww("Error: Half-missing genotype on line %" PRIuPTR " of %s.\n", line_idx, pedname);
+    reterr = kPglRetMalformedInput;
+    break;
+  PedmapToPgen_ret_MULTIALLELIC:
+    putc_unlocked('\n', stdout);
+    logerrprintfww("Error: Multiallelic variant in %s. This violates the .ped specification; please reformat the file as e.g. VCF.\n", pedname);
+    reterr = kPglRetMalformedInput;
+    break;
+  PedmapToPgen_ret_MALFORMED_INPUT:
+    putc_unlocked('\n', stdout);
+    reterr = kPglRetMalformedInput;
+    break;
+  PedmapToPgen_ret_INCONSISTENT_INPUT:
+    putc_unlocked('\n', stdout);
+    reterr = kPglRetInconsistentInput;
+    break;
+  PedmapToPgen_ret_DEGENERATE_DATA:
+    reterr = kPglRetDegenerateData;
+    break;
+  }
+ PedmapToPgen_ret_1:
+  CswriteCloseCond(&pvar_css, pvar_cswritep);
+  CleanupTextStream2(pedname, &ped_txs, &reterr);
+  fclose_cond(tmp_fam_file);
+  fclose_cond(indmaj_bed_file);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }
 

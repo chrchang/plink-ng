@@ -72,7 +72,7 @@ static const char ver_str[] = "PLINK v2.00a3"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (10 Mar 2022)";
+  " (12 Mar 2022)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -436,6 +436,8 @@ typedef struct Plink2CmdlineStruct {
   char* recover_var_ids_fname;
   char* vscore_fname;
   char* indep_preferred_fname;
+  char* not_pheno_flattened;
+  char* not_covar_flattened;
   TwoColParams* ref_allele_flag;
   TwoColParams* alt1_allele_flag;
   TwoColParams* update_map_flag;
@@ -992,7 +994,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         } else {
           snprintf(pgenname_end, kMaxOutfnameExtBlen - 5, ".vmaj");
         }
-        reterr = Plink1SampleMajorToPgen(pgenname, raw_variant_ct, raw_sample_ct, (pcp->misc_flags / kfMiscRealRefAlleles) & 1, pcp->max_thread_ct, pgfi.shared_ff);
+        reterr = Plink1SampleMajorToPgen(pgenname, nullptr, raw_variant_ct, raw_sample_ct, (pcp->misc_flags / kfMiscRealRefAlleles) & 1, pcp->max_thread_ct, pgfi.shared_ff);
         if (unlikely(reterr)) {
           goto Plink2Core_ret_1;
         }
@@ -1113,6 +1115,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     }
     if (pcp->pheno_fname) {
       reterr = LoadPhenos(pcp->pheno_fname, &(pcp->pheno_range_list), sample_include, &pii.sii, raw_sample_ct, sample_ct, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, (pcp->misc_flags / kfMiscPhenoIidOnly) & 1, (pcp->misc_flags / kfMiscPhenoColNums) & 1, pcp->max_thread_ct, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
+      if (unlikely(reterr)) {
+        goto Plink2Core_ret_1;
+      }
+    }
+    if (pcp->not_pheno_flattened) {
+      reterr = IgnorePhenosOrCovars(pcp->not_pheno_flattened, 0, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
       if (unlikely(reterr)) {
         goto Plink2Core_ret_1;
       }
@@ -1528,6 +1536,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         // preserving that behavior, let the regression functions do it to
         // their local phenotype copies on their own.)
       }
+      if (pcp->not_covar_flattened) {
+        reterr = IgnorePhenosOrCovars(pcp->not_covar_flattened, 1, &covar_cols, &covar_names, &covar_ct, &max_covar_name_blen);
+        if (unlikely(reterr)) {
+          goto Plink2Core_ret_1;
+        }
+      }
+
 
       if (pcp->misc_flags & kfMiscRequireCovar) {
         reterr = RequirePheno(covar_cols, covar_names, pcp->require_covar_flattened, raw_sample_ct, covar_ct, max_covar_name_blen, 1, sample_include, &sample_ct);
@@ -3240,6 +3255,8 @@ int main(int argc, char** argv) {
   pc.recover_var_ids_fname = nullptr;
   pc.vscore_fname = nullptr;
   pc.indep_preferred_fname = nullptr;
+  pc.not_pheno_flattened = nullptr;
+  pc.not_covar_flattened = nullptr;
   InitRangeList(&pc.snps_range_list);
   InitRangeList(&pc.exclude_snps_range_list);
   InitRangeList(&pc.pheno_range_list);
@@ -3328,6 +3345,13 @@ int main(int argc, char** argv) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "pgen");
           } else if (strequal_k(flagname_p, "bim", flag_slen)) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "pvar");
+          } else {
+            goto main_flag_copy;
+          }
+          break;
+        case 'c':
+          if (strequal_k(flagname_p, "covarExclude", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "not-covar");
           } else {
             goto main_flag_copy;
           }
@@ -3444,6 +3468,8 @@ int main(int argc, char** argv) {
         case 'p':
           if (strequal_k(flagname_p, "prune", flag_slen)) {
             snprintf(flagname_write_iter, kMaxFlagBlen, "require-pheno");
+          } else if (strequal_k(flagname_p, "phenoExclude", flag_slen)) {
+            snprintf(flagname_write_iter, kMaxFlagBlen, "not-pheno");
           } else {
             goto main_flag_copy;
           }
@@ -4705,6 +4731,10 @@ int main(int argc, char** argv) {
             logerrputs("Error: 'oxford' and 'oxford-v2' formats cannot be exported simultaneously.\n");
             goto main_ret_INVALID_CMDLINE;
           }
+          if (unlikely((pc.exportf_info.flags & (kfExportfPed | kfExportfCompound)) == (kfExportfPed | kfExportfCompound))) {
+            logerrputs("Error: 'ped' and 'compound-genotypes' formats cannot be exported\nsimultaneously.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             // could use AdvBoundedTo0Bit()...
             if ((format_param_idxs >> param_idx) & 1) {
@@ -5400,7 +5430,6 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t explicit_firth_fallback = 0;
-          uint32_t glm_allow_no_covars = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
@@ -5562,7 +5591,7 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE_A;
               }
             } else if (likely(strequal_k(cur_modif, "allow-no-covars", cur_modif_slen))) {
-              glm_allow_no_covars = 1;
+              pc.glm_info.flags |= kfGlmAllowNoCovars;
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --glm argument '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
@@ -5637,7 +5666,7 @@ int main(int argc, char** argv) {
               logerrputs("Error: --glm 'local-cats[0]=' must be used with 'local-covar='.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
-            if (unlikely((!pc.covar_fname) && (!pc.covar_range_list.name_ct) && (!glm_allow_no_covars))) {
+            if (unlikely((!pc.covar_fname) && (!pc.covar_range_list.name_ct) && (!(pc.glm_info.flags & kfGlmAllowNoCovars)))) {
               logerrputs("Error: --glm invoked without --covar/--covar-name/--covar-col-nums; this is\nusually an analytical mistake.  Add the 'allow-no-covars' modifier if you are\nsure you want this.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
@@ -8088,6 +8117,22 @@ int main(int argc, char** argv) {
           mkl_native = 1;
 #endif
           goto main_param_zero;
+        } else if (strequal_k_unsafe(flagname_p2, "ot-pheno")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocAndFlattenCommaDelim(&(argvk[arg_idx + 1]), param_ct, &pc.not_pheno_flattened);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
+        } else if (strequal_k_unsafe(flagname_p2, "ot-covar")) {
+          if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff))) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = AllocAndFlattenCommaDelim(&(argvk[arg_idx + 1]), param_ct, &pc.not_covar_flattened);
+          if (unlikely(reterr)) {
+            goto main_ret_1;
+          }
         } else if (likely(strequal_k_unsafe(flagname_p2, "o-id-header"))) {
           if (unlikely(EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1))) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -10764,7 +10809,7 @@ int main(int argc, char** argv) {
           //   use 1/2 coding.
           const uint32_t psam_01 = (pc.misc_flags & kfMiscAffection01) && pc.command_flags1;
           if (xload & kfXloadPed) {
-            reterr = PedmapToPgen(pgenname, pvarname, pc.misc_flags, import_flags, psam_01, pc.fam_cols, pc.missing_pheno, pc.max_thread_ct, outname, convname_end, &chr_info);
+            reterr = PedmapToPgen(pgenname, pvarname, pc.misc_flags, import_flags, psam_01, pc.fam_cols, pc.missing_pheno, pc.input_missing_geno_char, pc.max_thread_ct, outname, convname_end, &chr_info);
           } else if (xload & kfXloadTped) {
             reterr = TpedToPgen(pgenname, psamname, pc.misc_flags, import_flags, pc.fam_cols, pc.missing_pheno, pc.input_missing_geno_char, pc.max_thread_ct, outname, convname_end, &chr_info, &psam_generated);
           } else if (xload & kfXloadOxGen) {
@@ -10946,6 +10991,8 @@ int main(int argc, char** argv) {
   CleanupPlink2CmdlineMeta(&pcm);
   CleanupAdjust(&adjust_file_info);
   free_cond(king_cutoff_fprefix);
+  free_cond(pc.not_covar_flattened);
+  free_cond(pc.not_pheno_flattened);
   free_cond(pc.indep_preferred_fname);
   free_cond(pc.vscore_fname);
   free_cond(pc.recover_var_ids_fname);

@@ -986,7 +986,7 @@ char* AppendPhenoStrEx(const PhenoCol* pheno_col, const char* output_missing_phe
   return write_iter;
 }
 
-PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const SampleIdInfo* siip, const ParentalIdInfo* parental_id_infop, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const char* output_missing_pheno, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, PvarPsamFlags pvar_psam_flags) {
+PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const SampleIdInfo* siip, const ParentalIdInfo* parental_id_infop, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const char* output_missing_pheno, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, PvarPsamFlags pvar_psam_flags, uint32_t psam_01) {
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
   {
@@ -1120,6 +1120,7 @@ PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const Sam
     }
     AppendBinaryEoln(&write_iter);
 
+    const char case_char = '2' - psam_01;
     uintptr_t sample_uidx_base = 0;
     uintptr_t cur_bits = sample_include[0];
     uint32_t sample_uidx2 = 0;
@@ -1155,7 +1156,7 @@ PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const Sam
       if (write_sex) {
         *write_iter++ = '\t';
         if (IsSet(sex_nm, sample_uidx)) {
-          *write_iter++ = '2' - IsSet(sex_male, sample_uidx);
+          *write_iter++ = case_char - IsSet(sex_male, sample_uidx);
         } else {
           // this is better than '0' since it allows the raw column to be used
           // as --covar input
@@ -6921,7 +6922,7 @@ PglErr MakePlink2NoVsort(const uintptr_t* sample_include, const PedigreeIdInfo* 
       snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
       logprintfww5("Writing %s ... ", outname);
       fflush(stdout);
-      reterr = WritePsam(outname, sample_include, &(piip->sii), &(piip->parental_id_info), sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, g_output_missing_pheno, sample_ct, pheno_ct, max_pheno_name_blen, pvar_psam_flags);
+      reterr = WritePsam(outname, sample_include, &(piip->sii), &(piip->parental_id_info), sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, g_output_missing_pheno, sample_ct, pheno_ct, max_pheno_name_blen, pvar_psam_flags, 0);
       if (unlikely(reterr)) {
         goto MakePlink2NoVsort_ret_1;
       }
@@ -8372,7 +8373,7 @@ PglErr MakePlink2Vsort(const uintptr_t* sample_include, const PedigreeIdInfo* pi
       snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
       logprintfww5("Writing %s ... ", outname);
       fflush(stdout);
-      reterr = WritePsam(outname, sample_include, &(piip->sii), &(piip->parental_id_info), sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, g_output_missing_pheno, sample_ct, pheno_ct, max_pheno_name_blen, pvar_psam_flags);
+      reterr = WritePsam(outname, sample_include, &(piip->sii), &(piip->parental_id_info), sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, g_output_missing_pheno, sample_ct, pheno_ct, max_pheno_name_blen, pvar_psam_flags, 0);
       if (unlikely(reterr)) {
         goto MakePlink2Vsort_ret_1;
       }

@@ -11192,6 +11192,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     common.sex_male_collapsed = sex_male_collapsed_buf;
     common.omitted_alleles = (glm_flags & kfGlmOmitRef)? nullptr : maj_alleles;
     uint32_t raw_covar_ct = orig_covar_ct + local_covar_ct;
+    if (unlikely((!raw_covar_ct) && (!(glm_flags & kfGlmAllowNoCovars)))) {
+      // now possible due to --not-covar
+      logerrputs("Error: --glm invoked with no covariates, and 'allow-no-covars' was not\nspecified.\n");
+      goto GlmMain_ret_INCONSISTENT_INPUT;
+    }
     if (glm_info_ptr->condition_varname || glm_info_ptr->condition_list_fname || local_covar_ct || add_sex_covar) {
       uint32_t condition_ct = 0;
       PhenoCol* new_covar_cols;

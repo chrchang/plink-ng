@@ -1617,7 +1617,7 @@ PglErr MergePsams(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFla
       }
     }
     snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
-    reterr = WritePsam(outname, sample_include, siip, &parental_id_info, sex_nm, sex_male, pheno_cols, pheno_names, nullptr, "NA", sample_ct, pheno_ct, max_pheno_name_blen, kfPsamColDefault);
+    reterr = WritePsam(outname, sample_include, siip, &parental_id_info, sex_nm, sex_male, pheno_cols, pheno_names, nullptr, "NA", sample_ct, pheno_ct, max_pheno_name_blen, kfPsamColDefault, 0);
     if (unlikely(reterr)) {
       goto MergePsams_ret_1;
     }
@@ -6872,6 +6872,11 @@ PglErr Pmerge(const PmergeInfo* pmip, const char* sample_sort_fname, MiscFlags m
     }
     memcpy(psamname, outname, outname_slen);
     strcpy_k(&(psamname[outname_slen]), ".psam");
+    if ((pmip->flags & kfPmergeVariantInnerJoin) || pmip->max_allele_ct) {
+      // Some input variants that pass the chromosome filter might still be
+      // excluded from the merged dataset.
+      ForgetExtraChrNames(1, cip);
+    }
   }
   while (0) {
   Pmerge_ret_NOMEM:
